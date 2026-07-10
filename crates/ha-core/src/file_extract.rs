@@ -117,9 +117,14 @@ fn truncate_text(text: String) -> String {
 // PDF extraction
 // ---------------------------------------------------------------------------
 
-fn extract_pdf(path: &Path) -> Result<(Option<String>, Vec<ExtractedImage>)> {
-    // 1. Extract text
-    let text = match pdf_extract::extract_text(path) {
+/// Text-only PDF extraction, no pdfium load. Shared by the generic
+/// file-attachment extractor (which still separately rasterizes for chat
+/// image context via `extract_pdf`) and the knowledge-base import path
+/// (which only rasterizes+OCRs when this returns `None` — rasterizing a PDF
+/// whose text already extracted cleanly would load pdfium for images
+/// nothing downstream reads).
+pub(crate) fn extract_pdf_text(path: &Path) -> Option<String> {
+    match pdf_extract::extract_text(path) {
         Ok(t) => {
             let trimmed = t.trim().to_string();
             if trimmed.is_empty() {
@@ -138,9 +143,13 @@ fn extract_pdf(path: &Path) -> Result<(Option<String>, Vec<ExtractedImage>)> {
             );
             None
         }
-    };
+    }
+}
 
-    // 2. Render pages as images via pdfium
+fn extract_pdf(path: &Path) -> Result<(Option<String>, Vec<ExtractedImage>)> {
+    let text = extract_pdf_text(path);
+
+    // Render pages as images via pdfium
     let images = render_pdf_pages(path).unwrap_or_else(|e| {
         app_warn!(
             "tool",
@@ -265,6 +274,62 @@ pub(crate) fn render_pdf_bytes(
 
         let b64 = render_page_to_b64(&page, render_width)?;
         results.push((i + 1, b64)); // 1-indexed page number
+    }
+
+    Ok((total, results))
+}
+
+/// Outcome of rendering a single PDF page, isolated from its siblings — a
+/// corrupt/unrenderable page fails on its own and does not abort the batch
+/// (unlike `render_pdf_pages`/`render_pdf_bytes`, where one `?` inside the
+/// loop short-circuits the whole call). Used by the knowledge-base scanned-
+/// PDF OCR fallback, which needs per-page failure isolation to support
+/// retrying just the pages that failed.
+pub(crate) struct PageRenderResult {
+    /// 1-indexed page number.
+    pub page_number: usize,
+    pub result: std::result::Result<String, String>,
+}
+
+/// Render specific PDF pages from raw bytes to base64 PNG images, isolating
+/// per-page render failures instead of aborting the whole call. Failure to
+/// load the document itself (corrupt file, wrong format) still bails —
+/// that's a whole-file problem, not a single-page one.
+pub(crate) fn render_pdf_bytes_isolated(
+    data: &[u8],
+    page_indices: Option<&[usize]>,
+    max_pages: usize,
+    render_width: u32,
+) -> Result<(usize, Vec<PageRenderResult>)> {
+    let pdfium = bind_pdfium()?;
+    let document = pdfium
+        .load_pdf_from_byte_slice(data, None)
+        .map_err(|e| anyhow::anyhow!("Failed to load PDF: {:?}", e))?;
+
+    let pages = document.pages();
+    let total = pages.len() as usize;
+
+    let indices_to_render: Vec<usize> = if let Some(indices) = page_indices {
+        indices
+            .iter()
+            .copied()
+            .filter(|&i| i < total)
+            .take(max_pages)
+            .collect()
+    } else {
+        (0..total.min(max_pages)).collect()
+    };
+
+    let mut results = Vec::with_capacity(indices_to_render.len());
+    for i in indices_to_render {
+        let outcome = pages
+            .get(i as i32)
+            .map_err(|e| format!("failed to get page: {:?}", e))
+            .and_then(|page| render_page_to_b64(&page, render_width).map_err(|e| e.to_string()));
+        results.push(PageRenderResult {
+            page_number: i + 1,
+            result: outcome,
+        });
     }
 
     Ok((total, results))

@@ -761,7 +761,7 @@ mod tests {
 // ── Active Model ──────────────────────────────────────────────────
 
 /// Represents the currently active model selection
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct ActiveModel {
     pub provider_id: String,
@@ -771,6 +771,30 @@ pub struct ActiveModel {
 impl std::fmt::Display for ActiveModel {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}::{}", self.provider_id, self.model_id)
+    }
+}
+
+// ── Model Chain ─────────────────────────────────────────────────────
+
+/// A resolved model chain: try `primary` first, fall through `fallbacks` in
+/// order on failure. The unified shape for "which model(s) should this
+/// non-chat task use" across background/automation consumers — see
+/// `crate::automation`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelChain {
+    pub primary: ActiveModel,
+    #[serde(default)]
+    pub fallbacks: Vec<ActiveModel>,
+}
+
+impl ModelChain {
+    /// Flatten into `[primary, ...fallbacks]` for iteration.
+    pub fn into_vec(self) -> Vec<ActiveModel> {
+        let mut v = Vec::with_capacity(1 + self.fallbacks.len());
+        v.push(self.primary);
+        v.extend(self.fallbacks);
+        v
     }
 }
 

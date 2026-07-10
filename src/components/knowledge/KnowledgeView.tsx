@@ -70,7 +70,7 @@ import { IconTip } from "@/components/ui/tooltip"
 import ServerDirectoryBrowser from "@/components/chat/input/ServerDirectoryBrowser"
 import { useDirectoryPicker } from "@/components/chat/input/useDirectoryPicker"
 import { logger } from "@/lib/logger"
-import { isTauriMode } from "@/lib/transport"
+import { isTauriMode, parsePayload } from "@/lib/transport"
 import { getTransport } from "@/lib/transport-provider"
 import { cn } from "@/lib/utils"
 import type {
@@ -85,15 +85,16 @@ import type {
 } from "@/types/knowledge"
 import type { PendingFileQuote } from "@/types/chat"
 
-import { useReembedJob } from "@/hooks/useReembedJob"
+import { useKnowledgeReembedJobs } from "@/hooks/useKnowledgeReembedJobs"
 import { useDragWidth } from "@/hooks/useDragWidth"
 import { useViewportMediaQuery } from "@/hooks/useViewportMediaQuery"
 import { isLocalModelJobActive } from "@/types/local-model-jobs"
 
 import HeadingOutline from "./HeadingOutline"
+import KnowledgeActivityButton from "./KnowledgeActivityButton"
 import KnowledgeEmbeddingBadge from "./KnowledgeEmbeddingBadge"
+import KnowledgeEmptyState from "./KnowledgeEmptyState"
 import KnowledgeGraphView from "./KnowledgeGraphView"
-import KnowledgeJobsButton from "./KnowledgeJobsButton"
 import KnowledgeMaintenanceButton from "./KnowledgeMaintenanceButton"
 import KnowledgeSourcesPanel from "./KnowledgeSourcesPanel"
 import NoteSourceReferences from "./NoteSourceReferences"
@@ -171,6 +172,12 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
   const isLocal = tx.supportsLocalFileOps()
 
   const [kbs, setKbs] = useState<KnowledgeBaseMeta[]>([])
+  // KB ids that just received a `knowledge:changed` pulse from the silent
+  // watcher / startup-reconcile path (no job, no toast — see reembed job
+  // tracking above for the explicit-action path). Each id self-expires after
+  // 1.5s, rendering as a brief sidebar dot so a curious user can confirm "did
+  // Hope pick up my edit" without ever being interrupted by one.
+  const [recentlyChangedKbIds, setRecentlyChangedKbIds] = useState<Set<string>>(new Set())
   const [activeKbId, setActiveKbId] = useState<string | null>(null)
   const [notes, setNotes] = useState<Note[]>([])
   // Real directories under the KB root (incl. empty ones) — the index only tracks
@@ -738,7 +745,19 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
   // edits, where clobbering would lose their work (the stale-write guard still
   // protects the file).
   useEffect(() => {
-    return tx.listen("knowledge:changed", () => {
+    return tx.listen("knowledge:changed", (raw) => {
+      const kbId = parsePayload<{ kbId?: string }>(raw)?.kbId
+      if (kbId) {
+        setRecentlyChangedKbIds((prev) => new Set(prev).add(kbId))
+        setTimeout(() => {
+          setRecentlyChangedKbIds((prev) => {
+            if (!prev.has(kbId)) return prev
+            const next = new Set(prev)
+            next.delete(kbId)
+            return next
+          })
+        }, 1500)
+      }
       void loadKbs()
       setEmbedCacheKey((n) => n + 1) // invalidate transclusion embed cache
       if (activeKbId) {
@@ -1027,24 +1046,33 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
     }
   }, [tx, activeKbId])
 
-  // Toast on reindex/reembed completion so a fast single-KB rebuild (where the
-  // 🔄 spin is too brief to notice) still gives visible feedback. Stable identity
-  // so useReembedJob doesn't re-subscribe every render.
-  const onReindexDone = useCallback(() => {
-    toast.success(t("knowledge.reindexDone", "Index rebuilt"))
-  }, [t])
-
-  // Track the global knowledge reindex/reembed job so the toolbar 🔄 shows
-  // progress (spins + shows N/M while a rebuild — single-KB or full — runs).
-  const { job: reindexJob } = useReembedJob({
-    kind: "knowledge_reembed",
-    onCompleted: onReindexDone,
-  })
+  // Track the knowledge reindex/reembed job scoped to the active space so the
+  // toolbar 🔄 shows progress for *this* KB specifically (spins + shows N/M
+  // while a rebuild runs). Jobs can now run concurrently across KBs (binding
+  // two external vaults back to back no longer cancels one another — see
+  // `cancel_active_knowledge_reembed_jobs`'s scope-aware cancellation), so a
+  // single "most recent job of this kind" tracker (the old `useReembedJob`,
+  // still used for `memory_reembed` which has no per-KB concept) would show
+  // the wrong KB's progress here.
+  const { jobForKb, isKbBusy } = useKnowledgeReembedJobs()
+  const reindexJob = jobForKb(activeKbId)
   const reindexActive = !!reindexJob && isLocalModelJobActive(reindexJob)
   const reindexProgress =
     reindexActive && reindexJob
       ? ` (${Number(reindexJob.bytesCompleted ?? 0)}/${Number(reindexJob.bytesTotal ?? 0)})`
       : ""
+
+  // Toast once when this KB's job transitions into "completed" so a fast
+  // single-KB rebuild (where the 🔄 spin is too brief to notice) still gives
+  // visible feedback.
+  const prevReindexStatusRef = useRef<string | null>(null)
+  useEffect(() => {
+    const status = reindexJob?.status ?? null
+    if (prevReindexStatusRef.current !== "completed" && status === "completed") {
+      toast.success(t("knowledge.reindexDone", "Index rebuilt"))
+    }
+    prevReindexStatusRef.current = status
+  }, [reindexJob?.status, t])
 
   // Per-note / per-folder / per-space "rebuild index" (context menus). Index is
   // an app-side cache (not the vault files), so these work even on read-only
@@ -1903,7 +1931,7 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
               guardNavigation(() => void openNote(activeKbId, path, line ? { line } : undefined))
           }}
         />
-        <KnowledgeJobsButton />
+        <KnowledgeActivityButton kbs={kbs} />
         {!graphMode && (
           <IconTip
             label={
@@ -2016,6 +2044,21 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
                       ) : (
                         <Lock className="h-3 w-3 shrink-0 text-muted-foreground" />
                       ))}
+                    {isKbBusy(kb.id) ? (
+                      // A reembed/scan job (bind, per-space Reindex, or the
+                      // rare "rebuild everything") is actively running for
+                      // this space.
+                      <Loader2 className="h-3 w-3 shrink-0 animate-spin text-primary" />
+                    ) : (
+                      recentlyChangedKbIds.has(kb.id) && (
+                        // A silent watcher / startup sync just touched this
+                        // space — no job, self-clears in ~1.5s.
+                        <span className="relative flex h-1.5 w-1.5 shrink-0">
+                          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary/70" />
+                          <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-primary" />
+                        </span>
+                      )
+                    )}
                     <span className="shrink-0 text-[10px] text-muted-foreground">
                       {kb.noteCount}
                     </span>
@@ -2150,6 +2193,7 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
                 className={cn(
                   "flex-1 overflow-auto py-0.5",
                   dragOver === "" && dragItem && "bg-primary/5",
+                  noteTree.length === 0 && "flex flex-col",
                 )}
                 onDragOver={(e) => {
                   if (!dragItemRef.current || readOnly) return
@@ -2161,7 +2205,16 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
                   handleDropOn("")
                 }}
               >
-                {renderNodes(noteTree, 0)}
+                {noteTree.length === 0 ? (
+                  <KnowledgeEmptyState
+                    kb={activeKb}
+                    readOnly={readOnly}
+                    onNewNote={() => guardNavigation(() => startDraft())}
+                    onImport={() => setLeftMode("sources")}
+                  />
+                ) : (
+                  renderNodes(noteTree, 0)
+                )}
               </div>
             </>
           ) : (
@@ -2434,12 +2487,12 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
               </div>
             </>
           ) : (
-            <div className="flex flex-1 flex-col items-center justify-center gap-2 text-muted-foreground">
-              <Library className="h-10 w-10 opacity-40" />
-              <span className="text-sm">
-                {t("knowledge.emptyEditor", "Select a note to view or edit.")}
-              </span>
-            </div>
+            <KnowledgeEmptyState
+              kb={activeKb}
+              readOnly={readOnly}
+              onNewNote={() => guardNavigation(() => startDraft())}
+              onImport={() => setLeftMode("sources")}
+            />
           )}
         </div>
 

@@ -960,14 +960,28 @@ async fn run_idle_extraction(agent_id: &str, session_id: &str, expected_updated_
         return;
     }
 
-    // Resolve provider/model
+    // Resolve provider/model: per-agent override (unchanged) → global
+    // `modelOverride` (new) → deprecated global pair → the current session's
+    // own model.
     let extract_provider_id = agent_mem
         .and_then(|m| m.extract_provider_id.clone())
+        .or_else(|| {
+            global_extract
+                .model_override
+                .as_ref()
+                .map(|m| m.provider_id.clone())
+        })
         .or_else(|| global_extract.extract_provider_id.clone())
         .or(session_meta.provider_id.clone())
         .unwrap_or_default();
     let extract_model_id = agent_mem
         .and_then(|m| m.extract_model_id.clone())
+        .or_else(|| {
+            global_extract
+                .model_override
+                .as_ref()
+                .map(|m| m.model_id.clone())
+        })
         .or_else(|| global_extract.extract_model_id.clone())
         .or(session_meta.model_id.clone())
         .unwrap_or_default();

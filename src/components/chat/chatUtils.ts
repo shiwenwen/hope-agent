@@ -271,7 +271,7 @@ export function formatDuration(ms: number): string {
 }
 
 export type MessageFileAttachment =
-  | { kind: "path"; path: string }
+  | { kind: "path"; path: string; language?: string | null }
   | { kind: "media"; item: MediaItem }
 
 function inferAttachmentKind(mimeType: string): MessageAttachment["kind"] {
@@ -353,10 +353,15 @@ export function extractMessageFileAttachments(blocks: ContentBlock[]): MessageFi
   const mediaItems = new Map<string, MessageFileAttachment>()
   const mediaLocalPaths = new Set<string>()
 
-  const addPath = (path: string | null | undefined) => {
+  const addPath = (path: string | null | undefined, language?: string | null) => {
     const trimmed = path?.trim()
     if (!trimmed || mediaLocalPaths.has(trimmed)) return
-    if (!pathItems.has(trimmed)) pathItems.set(trimmed, { kind: "path", path: trimmed })
+    const existing = pathItems.get(trimmed)
+    if (!existing) {
+      pathItems.set(trimmed, { kind: "path", path: trimmed, language: language ?? null })
+    } else if (existing.kind === "path" && !existing.language && language) {
+      existing.language = language
+    }
   }
 
   const addMedia = (item: MediaItem) => {
@@ -374,13 +379,13 @@ export function extractMessageFileAttachments(blocks: ContentBlock[]): MessageFi
     const { name, arguments: args, result } = block.tool
     const metadata = block.tool.metadata
     block.tool.mediaItems?.forEach(addMedia)
-    block.tool.mediaUrls?.forEach(addPath)
+    block.tool.mediaUrls?.forEach((url) => addPath(url))
 
     if (metadata?.kind === "file_change") {
-      if (metadata.action !== "delete") addPath(metadata.path)
+      if (metadata.action !== "delete") addPath(metadata.path, metadata.language)
     } else if (metadata?.kind === "file_changes") {
       for (const change of metadata.changes) {
-        if (change.action !== "delete") addPath(change.path)
+        if (change.action !== "delete") addPath(change.path, change.language)
       }
     }
 

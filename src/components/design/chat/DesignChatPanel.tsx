@@ -586,6 +586,11 @@ export const DesignChatPanel = forwardRef<DesignChatPanelHandle, Props>(function
           onRemoveFile={(i) =>
             stream.setAttachedFiles((prev) => prev.filter((_, idx) => idx !== i))
           }
+          onUpdateFile={(index, file) =>
+            stream.setAttachedFiles((prev) =>
+              prev.map((existing, idx) => (idx === index ? file : existing)),
+            )
+          }
           pendingQuotes={stream.pendingQuotes}
           onRemoveQuote={(i) =>
             stream.setPendingQuotes((prev) => prev.filter((_, idx) => idx !== i))

@@ -297,6 +297,10 @@ Tauri ↔ COMMAND_MAP 差集为 13 条合法非 REST 命令（5 条 Desktop-only
 | `kb_passive_recall_config_set_cmd` | `POST /api/knowledge/passive-recall/config` | ✅ (写被动相关笔记配置，clamp 后返回) |
 | `knowledge_media_retention_config_get_cmd` | `GET /api/knowledge/media-retention/config` | ✅ (读取原始媒体可选留存配置；默认关闭，HIGH/privacy，也可经 `get_settings(knowledge_media_retention)` 读) |
 | `knowledge_media_retention_config_set_cmd` | `POST /api/knowledge/media-retention/config` | ✅ (写原始媒体可选留存配置，clamp 后返回；只影响未来 source 导入) |
+| `knowledge_vision_config_get_cmd` | `GET /api/knowledge/vision/config` | ✅ (读取图片 OCR 模型链配置，GUI 面板；也可经 `get_settings(knowledge_vision)` 读) |
+| `knowledge_vision_config_set_cmd` | `POST /api/knowledge/vision/config` | ✅ (写图片 OCR 模型链配置) |
+| `note_tools_config_get_cmd` | `GET /api/knowledge/note-tools/config` | ✅ (读取笔记三件套共享模型链配置，GUI 面板；也可经 `get_settings(note_tools)` 读) |
+| `note_tools_config_set_cmd` | `POST /api/knowledge/note-tools/config` | ✅ (写笔记三件套共享模型链配置) |
 | `kb_sprite_observe_cmd` | `POST /api/knowledge/sprite/observe` | ✅ (精灵编辑空闲触发，fire-and-forget；节流 + side_query 后建议经 `sprite:suggestion` 事件返回) |
 | `sprite_config_get_cmd` | `GET /api/knowledge/sprite/config` | ✅ (读精灵配置，GUI 面板；也可经 `get_settings(sprite)` 读) |
 | `sprite_config_set_cmd` | `POST /api/knowledge/sprite/config` | ✅ (写精灵配置，clamp 后返回) |
@@ -306,6 +310,8 @@ Tauri ↔ COMMAND_MAP 差集为 13 条合法非 REST 命令（5 条 Desktop-only
 | `kb_source_import_runs_list_cmd` | `GET /api/knowledge/{kbId}/sources/import-runs?limit=` | ✅ (导入历史，limit 默认 20、钳 1..=200) |
 | `kb_source_import_run_detail_cmd` | `GET /api/knowledge/{kbId}/sources/import-runs/{runId}` | ✅ (导入 run 明细 + item 状态，不回显原始 `input_json`) |
 | `kb_source_import_retry_failed_cmd` | `POST /api/knowledge/{kbId}/sources/import-runs/{runId}/retry-failed` | ✅ (重试 failed item，校验 run 属于目标 KB，复用原 input_json) |
+| `kb_source_ocr_pages_cmd` | `GET /api/knowledge/{kbId}/sources/{sourceId}/ocr-pages` | ✅ (扫描版 PDF 逐页 OCR 状态账本，见 knowledge-base.md 扫描版 PDF OCR 兜底一节) |
+| `kb_source_ocr_retry_cmd` | `POST /api/knowledge/{kbId}/sources/{sourceId}/ocr-retry` | ✅ (重试当前失败页，后台执行、立即返回 source) |
 | `kb_source_similarity_groups_cmd` | `GET /api/knowledge/{kbId}/sources/similar` | ✅ (资料去重治理：同 KB shingle/Jaccard 相似分组 + 跨 KB exact duplicate 提示，过滤已忽略 fingerprint) |
 | `kb_source_similarity_dismiss_cmd` | `POST /api/knowledge/{kbId}/sources/similar/dismiss` | ✅ (按 fingerprint 持久忽略相似/重复 source 建议) |
 | `kb_source_similarity_resolve_cmd` | `POST /api/knowledge/{kbId}/sources/similar/resolve` | ✅ (保留一个 source、删除当前 KB 内选定重复 source，并把该 fingerprint 记为已解决；不跨 KB 删除) |
@@ -522,6 +528,8 @@ KB 文件预览端点是**纯 owner 平面，无 session 参数、无 owner fall
 | `set_fallback_models` | `POST /api/models/fallback` | ✅ |
 | `get_vision_model` | `GET /api/models/vision` | ✅ |
 | `set_vision_model` | `PUT /api/models/vision` | ✅ |
+| `get_automation_model_chain` | `GET /api/models/automation` | ✅ |
+| `set_automation_model_chain` | `PUT /api/models/automation` | ✅ |
 | `set_reasoning_effort` | `POST /api/models/reasoning-effort` | ✅ |
 | `get_current_settings` | `GET /api/models/settings` | ✅ |
 | `get_global_temperature` | `GET /api/models/temperature` | ✅ |
@@ -750,6 +758,8 @@ KB 文件预览端点是**纯 owner 平面，无 session 参数、无 owner fall
 |---|---|---|
 | `get_recap_config` | `GET /api/config/recap` | ✅ |
 | `save_recap_config` | `PUT /api/config/recap` | ✅ |
+| `get_recall_summary_config` | `GET /api/config/recall-summary` | ✅ (读取召回摘要配置，含 `enabled` 主开关，GUI 面板；也可经 `get_settings(recall_summary)` 读) |
+| `save_recall_summary_config` | `PUT /api/config/recall-summary` | ✅ (写召回摘要配置) |
 | `get_dreaming_config` | `GET /api/config/dreaming` | ✅ |
 | `save_dreaming_config` | `PUT /api/config/dreaming` | ✅ |
 | `validate_cron_expression` | `POST /api/cron/validate` | ✅ |

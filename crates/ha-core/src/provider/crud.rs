@@ -235,6 +235,9 @@ fn codex_provider_needs_backfill(provider: &ProviderConfig) -> bool {
 
 fn default_codex_model_ids() -> &'static [&'static str] {
     &[
+        "gpt-5.6-sol",
+        "gpt-5.6-terra",
+        "gpt-5.6-luna",
         "gpt-5.5",
         "gpt-5.4",
         "gpt-5.3-codex",

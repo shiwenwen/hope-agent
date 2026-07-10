@@ -24,8 +24,9 @@ use serde_json::json;
 use super::store;
 use super::triggers::{try_claim, DreamTrigger};
 use super::types::{DreamPhase, DreamRunStatus};
-use crate::agent::AssistantAgent;
+use crate::automation::{self, ModelTaskSpec};
 use crate::memory::claims::{self, ResolveClaim};
+use crate::provider::ActiveModel;
 
 use crate::util::now_rfc3339;
 
@@ -263,9 +264,17 @@ fn map_verdict_to_decisions(group: &[&ResolveClaim], v: &GroupVerdict) -> Vec<Re
 
 /// Ask the LLM to classify one group, mapping the verdict to decisions.
 /// Best-effort: on LLM / parse failure the group is left untouched (no-op).
-async fn analyze_group(agent: &AssistantAgent, group: &[&ResolveClaim]) -> Vec<ResolverDecision> {
+async fn analyze_group(chain: &[ActiveModel], group: &[&ResolveClaim]) -> Vec<ResolverDecision> {
     let prompt = RESOLVER_GROUP_PROMPT.replace("{CLAIMS}", &render_group(group));
-    let resp = match agent.side_query(&prompt, 512).await {
+    let resp = match automation::run(ModelTaskSpec {
+        purpose: "dreaming.resolver",
+        chain: chain.to_vec(),
+        session_key: "automation:dreaming",
+        instruction: &prompt,
+        max_tokens: 512,
+    })
+    .await
+    {
         Ok(r) => r.text,
         Err(e) => {
             app_warn!(
@@ -421,19 +430,16 @@ pub async fn run_resolver_cycle(trigger: DreamTrigger) -> ResolverReport {
     // 3. LLM per group (only build the agent if there's a group to judge).
     let mut group_decisions: Vec<ResolverDecision> = Vec::new();
     if !groups.is_empty() {
-        match super::pipeline::build_dreaming_agent(&cfg).await {
-            Ok(agent) => {
-                for g in &groups {
-                    group_decisions.extend(analyze_group(&agent, g).await);
-                }
-            }
-            Err(e) => {
-                app_warn!(
-                    "memory",
-                    "dreaming::resolver",
-                    "could not build resolver agent: {}",
-                    e
-                );
+        let chain = super::pipeline::resolve_dreaming_chain(&cfg);
+        if chain.is_empty() {
+            app_warn!(
+                "memory",
+                "dreaming::resolver",
+                "no automation model configured for conflict resolution"
+            );
+        } else {
+            for g in &groups {
+                group_decisions.extend(analyze_group(&chain, g).await);
             }
         }
     }

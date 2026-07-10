@@ -1235,7 +1235,11 @@
       "ttft": "TTFT",
       "ttftTrend": "Time to First Token (TTFT)",
       "inputTokens": "Input tokens",
-      "outputTokens": "Output tokens"
+      "outputTokens": "Output tokens",
+      "byDomain": "Distribution by Domain",
+      "byOperation": "By Operation",
+      "operation": "Operation",
+      "domain": "Domain"
     },
     "tool": {
       "avgDuration": "Avg Duration",
@@ -1911,7 +1915,11 @@
     "backgroundJobFailed": "Background task failed",
     "backgroundJobFallback": "A background task has finished",
     "backgroundJobToggle": "Notify when background tasks finish",
-    "backgroundJobDesc": "Show a desktop notification when a background task finishes while the window is in the background"
+    "backgroundJobDesc": "Show a desktop notification when a background task finishes while the window is in the background",
+    "knowledgeScanComplete": "Knowledge scan complete",
+    "knowledgeScanFailed": "Knowledge scan failed",
+    "knowledgeImportComplete": "Knowledge import complete",
+    "knowledgeImportFailed": "Knowledge import partially failed"
   },
   "onboarding": {
     "channels": {
@@ -2775,9 +2783,8 @@
       },
       "intro": "Global YOLO toggle, protected-path / edit-command / dangerous-command pattern lists, and Smart approval mode configuration.",
       "judgeExtraPromptPlaceholder": "Optional: extra instructions for the judge (path whitelists, trusted commands…)",
-      "judgeModelPlaceholder": "Model (e.g. claude-haiku-4-5)",
+      "judgeModelPlaceholder": "Select judge model",
       "judgeModelTitle": "Judge Model Configuration",
-      "judgeProviderPlaceholder": "Provider ID (e.g. anthropic-1)",
       "protectedPathsDesc": "Tool calls hitting these paths force approval and cannot be AllowAlways'd. Supports ~/ expansion, directory prefix (trailing /), and *.pattern globs.",
       "protectedPathsPlaceholder": "e.g. ~/.ssh/, .env, *.pem",
       "protectedPathsTitle": "Protected Paths",
@@ -2859,8 +2866,6 @@
       "digestMaxChars": "Digest output budget (chars)",
       "dynamicEnabled": "Refresh suffix every turn",
       "enabledForSession": "Enabled for this session",
-      "extractionAgent": "Extraction agent ID (optional)",
-      "extractionAgentPlaceholder": "Leave empty to inherit recap.analysisAgent",
       "includeChannel": "Include IM channel sessions",
       "includeCron": "Include cron sessions",
       "includeSubagents": "Include sub-agent sessions",
@@ -2884,7 +2889,9 @@
       "resetOverride": "Reset to global",
       "sameAgentOnly": "Same agent only",
       "sessionOverride": "Session Override",
-      "title": "Behavior Awareness"
+      "title": "Behavior Awareness",
+      "extractionModel": "Extraction model (optional)",
+      "extractionModelInherit": "Reuse the current chat agent (cache-friendly)"
     },
     "browser": {
       "activeBadge": "active",
@@ -3262,7 +3269,7 @@
       "narrativeMaxTokensDesc": "Output budget for the narrative side query.",
       "narrativeModel": "Narrative model",
       "narrativeModelClear": "Clear",
-      "narrativeModelDefault": "Follow active chat agent",
+      "narrativeModelDefault": "Follow automation default",
       "narrativeModelDesc": "Override the model used for narrative scoring. Empty falls back to the active chat / recap model chain.",
       "narrativeTimeoutSecs": "Timeout (seconds)",
       "narrativeTimeoutSecsDesc": "Side query is aborted after this many seconds.",
@@ -3381,7 +3388,8 @@
       "matcherPlaceholder": "tool name / source (regex ok), empty = all",
       "addHandler": "Add handler",
       "advanced": "Advanced",
-      "slowHandlerWarning": "This handler runs an LLM / sub-agent inline and will delay every time this blocking event fires. Prefer command / http here, or move it to an observation event (e.g. PostToolUse)."
+      "slowHandlerWarning": "This handler runs an LLM / sub-agent inline and will delay every time this blocking event fires. Prefer command / http here, or move it to an observation event (e.g. PostToolUse).",
+      "modelInheritDefault": "Follow automation default"
     },
     "hours": "hr",
     "imageGenApiKey": "API Key",
@@ -3436,9 +3444,9 @@
       "tab": "Knowledge"
     },
     "knowledgeCompile": {
-      "agent": "Source-to-note agent",
-      "agentDefault": "Use global default agent",
-      "agentDesc": "Agent used to turn sources into reviewable note suggestions. Inherits the global default agent when unset."
+      "agent": "Compile model",
+      "agentDefault": "Follow automation default",
+      "agentDesc": "Model chain used to turn sources into reviewable note suggestions. Empty follows the automation default."
     },
     "knowledgeChunk": {
       "title": "Advanced · chunking",
@@ -3496,7 +3504,10 @@
         "sourceConflict": "Source conflicts",
         "openQuestionsMoc": "Open Questions MOC",
         "forAgentSummary": "For Agent summaries"
-      }
+      },
+      "model": "Model",
+      "modelDesc": "Shared by all 4 LLM-backed generators (auto-tag, MOC upkeep, memory-to-note, source conflict).",
+      "modelDefault": "Follow automation default"
     },
     "knowledgeMediaRetention": {
       "saved": "Saved",
@@ -4295,9 +4306,9 @@
     "proxyUrl": "Proxy URL",
     "proxyUrlPlaceholder": "http://127.0.0.1:7890",
     "recap": "Recap",
-    "recapAnalysisAgent": "Analysis agent",
-    "recapAnalysisAgentDefault": "Use global default agent",
-    "recapAnalysisAgentDesc": "Agent used to extract facets and write report sections. Inherits the global default agent when unset.",
+    "recapAnalysisAgent": "Analysis model",
+    "recapAnalysisAgentDefault": "Follow automation default",
+    "recapAnalysisAgentDesc": "Model chain used to extract facets and write report sections. Empty follows the automation default.",
     "recapCacheRetentionDays": "Facet cache retention (days)",
     "recapCacheRetentionDaysDesc": "How long cached session facets are kept before a daily sweep deletes them. Set to 0 to keep forever. Default 180.",
     "recapDefaultRangeDays": "Default range (days)",
@@ -4573,7 +4584,8 @@
         },
         "reviewModel": {
           "label": "Dedicated review model",
-          "help": "Format: provider:model. Empty reuses the main chat's cached prefix."
+          "help": "Model chain used to review candidate skills. Empty reuses the triggering chat's cache (falls back to automation default).",
+          "inheritDefault": "Reuse triggering chat (cache-friendly)"
         },
         "extraRejectCategories": {
           "label": "Extra reject categories",
@@ -4674,7 +4686,10 @@
         "conversation": "Conversation",
         "memory": "Memory recall",
         "awareness": "Cross-session awareness"
-      }
+      },
+      "model": "Model",
+      "modelDesc": "Sprite's suggestion call is fire-and-forget — a full fallback chain is fine, not just a single model.",
+      "modelDefault": "Follow automation default"
     },
     "ssrfBrowserPolicyDesc": "Applied to page.goto / new_page target URL. Note: JS fetch() inside browser.evaluate is out of scope.",
     "ssrfDefaultPolicy": "Default policy",
@@ -5050,7 +5065,35 @@
     "visionBridgeModel": "Vision Bridge Model",
     "visionBridgeModelDesc": "Only used when the primary model can't view images. A separate model turns images into text descriptions so the conversation can continue.",
     "visionBridgeModelClear": "Turn off vision bridge",
-    "selectVisionBridgeModel": "Select vision model"
+    "selectVisionBridgeModel": "Select vision model",
+    "modelChainRestoreInherit": "Reset to inherited default",
+    "automationModelChain": "Automation default model",
+    "automationModelChainDesc": "Default model chain (with fallback) for background one-shot AI tasks like Recap, Dreaming, and Knowledge Compile — independent of the chat default model above. Leave unset to fall back to the chat default model.",
+    "automationModelChainInherit": "Follow chat default model",
+    "knowledgeVision": {
+      "model": "Vision model",
+      "modelDesc": "Model chain used to OCR images when importing them into a knowledge space. Empty follows the automation default.",
+      "modelDefault": "Follow automation default",
+      "ocrConcurrency": "Scanned-PDF OCR concurrency",
+      "maxOcrPages": "Scanned-PDF OCR page limit"
+    },
+    "noteTools": {
+      "title": "Note tools model",
+      "desc": "Model used by note distillation, MOC generation, and session-to-note tools.",
+      "modelDefault": "Follow automation default"
+    },
+    "recallSummary": {
+      "title": "Recall summarization",
+      "desc": "When recall_memory / session_search return many hits, compress them into one concise paragraph via an extra LLM call instead of returning raw snippets. Off by default — costs one call per qualifying search.",
+      "enabled": "Enable summarization",
+      "minHits": "Minimum hits to trigger",
+      "contextCharBudget": "Context budget (chars)",
+      "timeoutSecs": "Timeout (s)",
+      "maxTokens": "Max output tokens",
+      "includeHistory": "Also summarize conversation history hits",
+      "model": "Model",
+      "modelDefault": "Follow automation default"
+    }
   },
   "shortcuts": {
     "actionOpenSettings": "Open Settings",
@@ -5760,15 +5803,29 @@
     "reindexing": "Reindexing…",
     "reindexDone": "Index rebuilt",
     "jobs": {
-      "tooltip": "Rebuild tasks",
-      "title": "Rebuild tasks",
-      "empty": "No rebuild tasks yet.",
+      "tooltip": "Knowledge activity",
+      "title": "Knowledge activity",
+      "empty": "No activity yet.",
       "kindReindex": "Rebuild index",
       "kindReembed": "Re-embed vectors",
       "fts": "Full-text index",
-      "result": "Rebuilt {{notes}} notes · {{kbs}} spaces",
-      "emptyHint": "Reindex a space, or switch the embedding model, and progress shows up here.",
-      "model": "Model: {{name}}"
+      "emptyHint": "Bind or reindex a space, or import files, and progress shows up here.",
+      "model": "Model: {{name}}",
+      "kindImport": "Import sources",
+      "space": "Space: {{name}}",
+      "progressFiles": "{{done}} / {{total}} files",
+      "progressItems": "{{done}} / {{total}} sources",
+      "resultOk": "Reindexed {{notes}} notes",
+      "resultPartial": "Reindexed {{notes}} notes · {{failed}} skipped",
+      "importResultOk": "Imported {{imported}} sources",
+      "importResultPartial": "Imported {{imported}} · {{failed}} failed",
+      "importStatus": {
+        "running": "Running",
+        "completed": "Completed",
+        "failed": "Failed",
+        "cancelled": "Cancelled",
+        "timed_out": "Timed out"
+      }
     },
     "maintenance": {
       "tooltip": "Maintenance",
@@ -5996,7 +6053,13 @@
       "similarScope": {
         "crossKb": "Cross-space",
         "sameKb": "This space"
-      }
+      },
+      "ocrRunning": "OCR running…",
+      "ocrPartial": "OCR: some pages failed",
+      "ocrFailed": "OCR failed",
+      "ocrRetry": "Retry failed OCR pages",
+      "ocrRetryStarted": "Retrying failed pages…",
+      "ocrRetryFailed": "Couldn't retry OCR pages"
     },
     "queryFile": {
       "action": "File",
@@ -6023,6 +6086,13 @@
       "openQuestionsPlaceholder": "Note with Open Questions",
       "mocPlaceholder": "MOCs/Conversation Filings.md",
       "createNotePlaceholder": "Filed Conversations/example.md"
+    },
+    "emptyState": {
+      "scanning": "Scanning this space…",
+      "scanFailed": "Scan failed",
+      "emptyExternal": "No markdown notes found in this folder yet.",
+      "emptyInternal": "This space is empty.",
+      "importFiles": "Import files"
     }
   },
   "backgroundJobs": {

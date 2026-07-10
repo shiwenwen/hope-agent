@@ -502,6 +502,7 @@
         "desc": "編輯類工具與高危命令需要審批，其餘直接放行",
         "label": "預設權限"
       },
+      "menuLabel": "權限模式",
       "smart": {
         "desc": "由模型自評或獨立判官模型決定是否需要審批",
         "label": "智慧審批"
@@ -509,8 +510,31 @@
       "yolo": {
         "desc": "本會話內所有工具直接執行（保護路徑仍記稽核日誌）",
         "label": "完全放行"
+      }
+    },
+    "sandboxMode": {
+      "isolated": {
+        "desc": "隔離副本試跑，編輯審批不放鬆",
+        "label": "Isolated Sandbox"
       },
-      "menuLabel": "權限模式"
+      "menuLabel": "沙箱",
+      "off": {
+        "desc": "Run on the host; approval behavior is unchanged.",
+        "label": "Sandbox Off"
+      },
+      "setupTitle": "Configure Docker to enable sandbox",
+      "standard": {
+        "desc": "Run in Docker; approval behavior is unchanged.",
+        "label": "Standard Sandbox"
+      },
+      "trusted": {
+        "desc": "沙箱內 exec 最大自治，嚴格風險仍審批",
+        "label": "Trusted Sandbox"
+      },
+      "workspace": {
+        "desc": "掛載目前工作區，減少編輯命令審批",
+        "label": "Workspace Sandbox"
+      }
     },
     "pickSession": "選擇工作階段",
     "profileRotationTitle": "設定切換",
@@ -651,30 +675,6 @@
       "reloadBody": "已安裝的擴充功能與宿主版本不符,重新載入即可恢復對真實 Chrome 的控制。",
       "openSettings": "前往設定",
       "dismiss": "不再顯示"
-    },
-    "sandboxMode": {
-      "isolated": {
-        "desc": "隔離副本試跑，編輯審批不放鬆",
-        "label": "Isolated Sandbox"
-      },
-      "off": {
-        "desc": "Run on the host; approval behavior is unchanged.",
-        "label": "Sandbox Off"
-      },
-      "setupTitle": "Configure Docker to enable sandbox",
-      "standard": {
-        "desc": "Run in Docker; approval behavior is unchanged.",
-        "label": "Standard Sandbox"
-      },
-      "trusted": {
-        "desc": "沙箱內 exec 最大自治，嚴格風險仍審批",
-        "label": "Trusted Sandbox"
-      },
-      "workspace": {
-        "desc": "掛載目前工作區，減少編輯命令審批",
-        "label": "Workspace Sandbox"
-      },
-      "menuLabel": "沙箱"
     },
     "browserExtensionRequired": {
       "nextAction": "下一步行動：{{nextAction}}",
@@ -1235,7 +1235,11 @@
       "ttft": "首Token耗時",
       "ttftTrend": "首 Token 耗時趨勢 (TTFT)",
       "inputTokens": "輸入令牌",
-      "outputTokens": "輸出代幣"
+      "outputTokens": "輸出代幣",
+      "byDomain": "依用途分佈",
+      "byOperation": "依操作細分",
+      "operation": "操作",
+      "domain": "用途"
     },
     "tool": {
       "avgDuration": "平均耗時",
@@ -1911,7 +1915,11 @@
     "backgroundJobFailed": "背景任務失敗",
     "backgroundJobFallback": "一項背景任務已完成",
     "backgroundJobToggle": "背景任務完成時通知",
-    "backgroundJobDesc": "當視窗位於背景時，背景任務完成後顯示桌面通知"
+    "backgroundJobDesc": "當視窗位於背景時，背景任務完成後顯示桌面通知",
+    "knowledgeScanComplete": "知識空間掃描完成",
+    "knowledgeScanFailed": "知識空間掃描失敗",
+    "knowledgeImportComplete": "知識空間匯入完成",
+    "knowledgeImportFailed": "知識空間匯入部分失敗"
   },
   "onboarding": {
     "channels": {
@@ -2775,9 +2783,8 @@
       },
       "intro": "審批彈窗與「永遠跳過審批」的全域開關、保護路徑 / 編輯命令 / 危險命令模式列表，以及智慧審批模式設定。",
       "judgeExtraPromptPlaceholder": "可選：附加給判官的提示詞（白名單路徑、信任命令等）",
-      "judgeModelPlaceholder": "Model（如 claude-haiku-4-5）",
+      "judgeModelPlaceholder": "選擇裁判模型",
       "judgeModelTitle": "判官模型設定",
-      "judgeProviderPlaceholder": "Provider ID（如 anthropic-1）",
       "protectedPathsDesc": "命中以下路徑模式時強制審批，不可 AllowAlways 跳過。支援 ~/ 展開、目錄前綴（結尾 /）、萬用字元（*.pem）。",
       "protectedPathsPlaceholder": "如：~/.ssh/、.env、*.pem",
       "protectedPathsTitle": "保護路徑",
@@ -2859,8 +2866,6 @@
       "digestMaxChars": "摘要輸出預算（字元）",
       "dynamicEnabled": "每輪刷新 suffix",
       "enabledForSession": "此對話啟用",
-      "extractionAgent": "擷取 Agent ID（可選）",
-      "extractionAgentPlaceholder": "留空則繼承 recap.analysisAgent",
       "includeChannel": "納入 IM 頻道對話",
       "includeCron": "納入定時任務對話",
       "includeSubagents": "納入子 Agent 對話",
@@ -2884,7 +2889,9 @@
       "resetOverride": "重設為全域設定",
       "sameAgentOnly": "僅同一 Agent",
       "sessionOverride": "對話層級覆寫",
-      "title": "行為感知"
+      "title": "行為感知",
+      "extractionModel": "提取模型（選填）",
+      "extractionModelInherit": "複用目前對話 Agent（快取友善）"
     },
     "browser": {
       "activeBadge": "使用中",
@@ -3262,7 +3269,7 @@
       "narrativeMaxTokensDesc": "敘事 side query 的輸出預算。",
       "narrativeModel": "敘事模型",
       "narrativeModelClear": "清空",
-      "narrativeModelDefault": "沿用主對話 Agent",
+      "narrativeModelDefault": "跟隨自動化預設鏈",
       "narrativeModelDesc": "覆寫評分使用的模型。留空則沿用主對話 / recap 模型鏈。",
       "narrativeTimeoutSecs": "逾時（秒）",
       "narrativeTimeoutSecsDesc": "side query 超過此秒數將中止。",
@@ -3381,7 +3388,8 @@
       "matcherPlaceholder": "工具名 / 來源（支援正規表示式），留空 = 全部",
       "addHandler": "新增處理器",
       "advanced": "進階",
-      "slowHandlerWarning": "此處理器會內聯執行 LLM / 子 Agent，每次該阻斷事件觸發都會拖慢。建議這裡改用 command / http，或移至觀察型事件（如 PostToolUse）。"
+      "slowHandlerWarning": "此處理器會內聯執行 LLM / 子 Agent，每次該阻斷事件觸發都會拖慢。建議這裡改用 command / http，或移至觀察型事件（如 PostToolUse）。",
+      "modelInheritDefault": "跟隨自動化預設鏈"
     },
     "hours": "小時",
     "imageGenApiKey": "API Key",
@@ -3434,6 +3442,11 @@
     "kb": "KB",
     "knowledge": {
       "tab": "知識空間"
+    },
+    "knowledgeCompile": {
+      "agent": "整理模型",
+      "agentDefault": "跟隨自動化預設鏈",
+      "agentDesc": "用於把來源資料整理成可審閱筆記建議的模型鏈。留空則跟隨自動化預設鏈。"
     },
     "knowledgeChunk": {
       "title": "進階 · 分塊",
@@ -3491,7 +3504,20 @@
         "sourceConflict": "Source conflicts",
         "openQuestionsMoc": "Open Questions MOC",
         "forAgentSummary": "For Agent summaries"
-      }
+      },
+      "model": "模型",
+      "modelDesc": "4 個基於 LLM 的產生器（自動標籤、MOC 維護、記憶轉筆記、資料衝突）共用此設定。",
+      "modelDefault": "跟隨自動化預設鏈"
+    },
+    "knowledgeMediaRetention": {
+      "saved": "已儲存",
+      "title": "原始媒體留存",
+      "description": "可選擇保留匯入的音訊、影片和圖片原件，用於來源證據回看。",
+      "maxTotal": "總配額（MiB）",
+      "maxSource": "單一資料上限（MiB）",
+      "thumbnail": "縮圖最長邊（px）",
+      "prune": "超過配額時清理最舊媒體",
+      "pruneDesc": "當新的留存檔案會超過配額時，先刪除最舊的已留存原件；若仍不足，則跳過新檔案留存。"
     },
     "knowledgePassiveRecall": {
       "title": "被動相關筆記",
@@ -4280,9 +4306,9 @@
     "proxyUrl": "代理地址",
     "proxyUrlPlaceholder": "http://127.0.0.1:7890",
     "recap": "復盤報告",
-    "recapAnalysisAgent": "分析 Agent",
-    "recapAnalysisAgentDefault": "使用全域預設 Agent",
-    "recapAnalysisAgentDesc": "用於擷取 facet 與撰寫報告章節的 Agent，未設定時繼承全域預設 Agent",
+    "recapAnalysisAgent": "分析模型",
+    "recapAnalysisAgentDefault": "跟隨自動化預設鏈",
+    "recapAnalysisAgentDesc": "用於提取 facet 和撰寫報告章節的模型鏈。留空則跟隨自動化預設鏈。",
     "recapCacheRetentionDays": "Facet 快取保留天數",
     "recapCacheRetentionDaysDesc": "已快取的會話 facet 保留時長，每 24 小時背景掃描清理。設為 0 則永久保留。預設 180 天",
     "recapDefaultRangeDays": "預設時間範圍（天）",
@@ -4348,6 +4374,9 @@
     "serverEmbeddedBind": "監聽地址",
     "serverEmbeddedBindDesc": "默認 127.0.0.1 僅本機訪問。改為 0.0.0.0 可對外暴露到局域網",
     "serverGenerateApiKey": "生成",
+    "serverKnowledgeAgentReadToken": "知識空間 Agent 唯讀 Token",
+    "serverKnowledgeAgentReadTokenPlaceholder": "留空則關閉唯讀 Agent 存取",
+    "serverKnowledgeAgentReadTokenDesc": "給外部 Agent 使用的受限 Token。只有同時設定 owner API Key 時才生效；生效後只能呼叫知識空間唯讀介面，不授予 owner API 權限。",
     "serverMode": "服務器模式",
     "serverModeDesc": "選擇內嵌模式或連接遠程服務器",
     "serverModeEmbedded": "內嵌",
@@ -4555,7 +4584,8 @@
         },
         "reviewModel": {
           "label": "专用审核模型",
-          "help": "格式 provider:model。留空则复用主对话的缓存前缀。"
+          "help": "用於審核候選技能的模型鏈。留空則複用觸發對話的快取前綴（再退到自動化預設鏈）。",
+          "inheritDefault": "複用觸發對話（快取友善）"
         },
         "extraRejectCategories": {
           "label": "追加禁拍主题",
@@ -4656,7 +4686,10 @@
         "conversation": "對話上下文",
         "memory": "記憶召回",
         "awareness": "跨會話感知"
-      }
+      },
+      "model": "模型",
+      "modelDesc": "精靈的建議呼叫是即發即棄——使用完整的降級鏈沒問題，不必只給單一模型。",
+      "modelDefault": "跟隨自動化預設鏈"
     },
     "ssrfBrowserPolicyDesc": "套用於 page.goto / new_page 的目標 URL。注意：browser.evaluate 中的 JS fetch() 不在此攔截範圍內。",
     "ssrfDefaultPolicy": "預設策略",
@@ -5013,24 +5046,6 @@
     "webSearchSaved": "已保存",
     "webSearchTimeout": "超時（秒）",
     "webSearchTimeoutDesc": "搜索請求 HTTP 超時時間（5-120 秒）",
-    "knowledgeCompile": {
-      "agent": "資料整理 Agent",
-      "agentDefault": "使用全域預設 Agent",
-      "agentDesc": "用於將來源資料整理成可審閱的筆記建議，未設定時繼承全域預設 Agent。"
-    },
-    "knowledgeMediaRetention": {
-      "saved": "已儲存",
-      "title": "原始媒體留存",
-      "description": "可選擇保留匯入的音訊、影片和圖片原件，用於來源證據回看。",
-      "maxTotal": "總配額（MiB）",
-      "maxSource": "單一資料上限（MiB）",
-      "thumbnail": "縮圖最長邊（px）",
-      "prune": "超過配額時清理最舊媒體",
-      "pruneDesc": "當新的留存檔案會超過配額時，先刪除最舊的已留存原件；若仍不足，則跳過新檔案留存。"
-    },
-    "serverKnowledgeAgentReadToken": "知識空間 Agent 唯讀 Token",
-    "serverKnowledgeAgentReadTokenPlaceholder": "留空則關閉唯讀 Agent 存取",
-    "serverKnowledgeAgentReadTokenDesc": "給外部 Agent 使用的受限 Token。只有同時設定 owner API Key 時才生效；生效後只能呼叫知識空間唯讀介面，不授予 owner API 權限。",
     "devVisualTest": "UI動畫測試",
     "permLoading": "正在檢查權限...",
     "uiEffects": "背景動畫",
@@ -5050,7 +5065,35 @@
     "visionBridgeModel": "視覺橋模型",
     "visionBridgeModelDesc": "僅當主模型不支援看圖時生效。用一個單獨的模型把圖片轉成文字描述，讓對話繼續。",
     "visionBridgeModelClear": "關閉視覺橋",
-    "selectVisionBridgeModel": "選擇視覺模型"
+    "selectVisionBridgeModel": "選擇視覺模型",
+    "modelChainRestoreInherit": "恢復為繼承的預設值",
+    "automationModelChain": "自動化預設模型",
+    "automationModelChainDesc": "用於 Recap、Dreaming、資料整理等後台一次性 AI 任務的預設模型鏈（含降級），與上方的聊天預設模型相互獨立；未設定時跟隨聊天預設模型。",
+    "automationModelChainInherit": "跟隨聊天預設模型",
+    "knowledgeVision": {
+      "model": "視覺模型",
+      "modelDesc": "匯入知識空間時用於為圖片做 OCR 的模型鏈。留空則跟隨自動化預設鏈。",
+      "modelDefault": "跟隨自動化預設鏈",
+      "ocrConcurrency": "掃描版 PDF OCR 並發數",
+      "maxOcrPages": "掃描版 PDF OCR 頁數上限"
+    },
+    "noteTools": {
+      "title": "筆記工具模型",
+      "desc": "筆記萃取、MOC 生成、會談轉筆記三個工具共用的模型。",
+      "modelDefault": "跟隨自動化預設鏈"
+    },
+    "recallSummary": {
+      "title": "召回摘要",
+      "desc": "當 recall_memory / session_search 回傳較多命中時，額外呼叫一次 LLM 把它們壓縮成一段簡潔摘要，而非回傳原始片段。預設關閉——每次符合條件的檢索都會多花一次呼叫。",
+      "enabled": "啟用摘要",
+      "minHits": "觸發所需最小命中數",
+      "contextCharBudget": "內容脈絡預算（字元）",
+      "timeoutSecs": "逾時時間（秒）",
+      "maxTokens": "最大輸出 token 數",
+      "includeHistory": "同時摘要對話歷史命中",
+      "model": "模型",
+      "modelDefault": "跟隨自動化預設鏈"
+    }
   },
   "shortcuts": {
     "actionOpenSettings": "打開設置",
@@ -5760,15 +5803,29 @@
     "reindexing": "重新索引中…",
     "reindexDone": "索引已重建",
     "jobs": {
-      "tooltip": "重建任務",
-      "title": "重建任務",
-      "empty": "尚無重建任務",
+      "tooltip": "知識空間活動",
+      "title": "知識空間活動",
+      "empty": "尚無活動",
       "kindReindex": "重建索引（全文）",
       "kindReembed": "重新向量化",
       "fts": "全文索引",
-      "result": "已重建 {{notes}} 篇筆記 · {{kbs}} 個知識空間",
-      "emptyHint": "重建某個空間，或切換向量模型，進度會顯示在這裡。",
-      "model": "模型：{{name}}"
+      "emptyHint": "綁定或重建某個空間，或匯入檔案，進度會顯示在這裡。",
+      "model": "模型：{{name}}",
+      "kindImport": "匯入資料",
+      "space": "空間：{{name}}",
+      "progressFiles": "{{done}} / {{total}} 個檔案",
+      "progressItems": "{{done}} / {{total}} 個來源",
+      "resultOk": "已重建 {{notes}} 篇筆記",
+      "resultPartial": "已重建 {{notes}} 篇筆記 · {{failed}} 篇略過",
+      "importResultOk": "已匯入 {{imported}} 個來源",
+      "importResultPartial": "已匯入 {{imported}} 個 · {{failed}} 個失敗",
+      "importStatus": {
+        "running": "進行中",
+        "completed": "已完成",
+        "failed": "失敗",
+        "cancelled": "已取消",
+        "timed_out": "已逾時"
+      }
     },
     "maintenance": {
       "tooltip": "維護",
@@ -5996,7 +6053,13 @@
       "similarScope": {
         "crossKb": "跨空間",
         "sameKb": "此空間"
-      }
+      },
+      "ocrRunning": "OCR 執行中…",
+      "ocrPartial": "OCR：部分頁面失敗",
+      "ocrFailed": "OCR 失敗",
+      "ocrRetry": "重試失敗頁面",
+      "ocrRetryStarted": "正在重試失敗頁面…",
+      "ocrRetryFailed": "無法重試 OCR 頁面"
     },
     "queryFile": {
       "action": "文件",
@@ -6023,6 +6086,13 @@
       "openQuestionsPlaceholder": "帶開放問題的筆記",
       "mocPlaceholder": "MOCs/Conversation Filings.md",
       "createNotePlaceholder": "Filed Conversations/example.md"
+    },
+    "emptyState": {
+      "scanning": "正在掃描這個空間…",
+      "scanFailed": "掃描失敗",
+      "emptyExternal": "這個資料夾裡還沒有 Markdown 筆記。",
+      "emptyInternal": "這個空間還是空的。",
+      "importFiles": "匯入檔案"
     }
   },
   "backgroundJobs": {

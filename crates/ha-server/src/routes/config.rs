@@ -332,6 +332,29 @@ pub async fn save_recap_config(
     Ok(Json(json!({ "saved": true })))
 }
 
+// ── Recall Summary Config ───────────────────────────────────────
+
+/// `GET /api/config/recall-summary` -- get recall summary config.
+pub async fn get_recall_summary_config(
+) -> Result<Json<ha_core::memory::RecallSummaryConfig>, AppError> {
+    Ok(Json(
+        ha_core::config::cached_config().recall_summary.clone(),
+    ))
+}
+
+/// `PUT /api/config/recall-summary` -- save recall summary config.
+pub async fn save_recall_summary_config(
+    Json(body): Json<ConfigBody<ha_core::memory::RecallSummaryConfig>>,
+) -> Result<Json<ha_core::memory::RecallSummaryConfig>, AppError> {
+    let to_save = body.config.clone();
+    ha_core::config::mutate_config_async(("recall_summary", "http"), move |store| {
+        store.recall_summary = to_save.clone();
+        Ok(())
+    })
+    .await?;
+    Ok(Json(body.config))
+}
+
 /// `GET /api/config/dreaming` -- get dreaming config.
 pub async fn get_dreaming_config(
 ) -> Result<Json<ha_core::memory::dreaming::DreamingConfig>, AppError> {

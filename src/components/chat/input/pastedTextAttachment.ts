@@ -21,17 +21,14 @@ export function shouldCreatePastedTextAttachment(text: string): boolean {
 export function createPastedTextAttachment(text: string): File {
   const normalized = normalizePastedText(text)
   const title = pastedTextTitle(normalized)
-  const file = new File([normalized], `${title}.txt`, {
-    type: "text/plain",
-    lastModified: Date.now(),
-  })
-  metaByFile.set(file, {
-    source: PASTED_TEXT_ATTACHMENT_SOURCE,
-    title,
-    charCount: normalized.length,
-    lineCount: lineCount(normalized),
-  })
-  return file
+  return createPastedTextFile(normalized, `${title}.txt`, title)
+}
+
+export function updatePastedTextAttachment(file: File, text: string): File {
+  const normalized = normalizePastedText(text)
+  const existingMeta = metaByFile.get(file)
+  const title = existingMeta?.title || titleFromFileName(file.name) || pastedTextTitle(normalized)
+  return createPastedTextFile(normalized, file.name, title)
 }
 
 export function getPastedTextFileMeta(file: File): PastedTextFileMeta | undefined {
@@ -44,6 +41,24 @@ function normalizePastedText(text: string): string {
 
 function lineCount(text: string): number {
   return text.length === 0 ? 0 : text.split("\n").length
+}
+
+function createPastedTextFile(text: string, fileName: string, title: string): File {
+  const file = new File([text], fileName, {
+    type: "text/plain",
+    lastModified: Date.now(),
+  })
+  metaByFile.set(file, {
+    source: PASTED_TEXT_ATTACHMENT_SOURCE,
+    title,
+    charCount: text.length,
+    lineCount: lineCount(text),
+  })
+  return file
+}
+
+function titleFromFileName(fileName: string): string {
+  return fileName.replace(/\.txt$/i, "").trim()
 }
 
 function pastedTextTitle(text: string): string {

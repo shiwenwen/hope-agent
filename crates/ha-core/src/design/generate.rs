@@ -210,11 +210,16 @@ pub async fn generate_design_parts(
     recipe_id: Option<&str>,
 ) -> Result<ArtifactParts> {
     let prompt = build_generation_prompt(brief, kind, system_md, tokens, recipe_id)?;
-    let config = crate::config::cached_config();
-    let (agent, _model) = crate::recap::report::build_analysis_agent(&config).await?;
     // 16000：一个完整网页 / 多页 deck / dashboard 的 HTML+CSS 很占 token，预算不足会截断。
-    let res = agent.side_query(&prompt, 16000).await?;
-    validate_not_truncated(&res.text, kind)
+    let text = super::run_design_task(
+        "design.generate",
+        "automation:design.generate",
+        &prompt,
+        16000,
+        None,
+    )
+    .await?;
+    validate_not_truncated(&text, kind)
 }
 
 /// 「按反馈精修现有设计」prompt：与 `build_generation_prompt` 关键差异——当前设计
@@ -267,10 +272,15 @@ pub async fn refine_design_parts(
     tokens: &BTreeMap<String, String>,
 ) -> Result<ArtifactParts> {
     let prompt = build_refine_prompt(instruction, current, kind, system_md, tokens)?;
-    let config = crate::config::cached_config();
-    let (agent, _model) = crate::recap::report::build_analysis_agent(&config).await?;
-    let res = agent.side_query(&prompt, 16000).await?;
-    validate_not_truncated(&res.text, kind)
+    let text = super::run_design_task(
+        "design.refine",
+        "automation:design.refine",
+        &prompt,
+        16000,
+        None,
+    )
+    .await?;
+    validate_not_truncated(&text, kind)
 }
 
 /// 真流式生成：走 `side_query_streaming`，把「到目前为止的完整 CSS + 正在增长的 body」经
@@ -287,7 +297,12 @@ pub async fn stream_design_parts(
 ) -> Result<ArtifactParts> {
     let prompt = build_generation_prompt(brief, kind, system_md, tokens, recipe_id)?;
     let config = crate::config::cached_config();
-    let (agent, _model) = crate::recap::report::build_analysis_agent(&config).await?;
+    let chain = crate::automation::effective_chain(&config, None);
+    if chain.is_empty() {
+        anyhow::bail!(
+            "no LLM provider configured — set a default model in Settings before generating designs"
+        );
+    }
 
     // 按字节增长节流（≥ STEP 才发一帧）：帧小、纯文本、频率有界，稳过 WS broadcast，避免
     // per-token 洪泛。首帧在 CSS 段完整（`<<<BODY>>>` 一现）即触发，让样式尽早落地。
@@ -314,10 +329,19 @@ pub async fn stream_design_parts(
         on_snapshot(&parts);
     };
 
-    let res = agent
-        .side_query_streaming(&prompt, 16000, cancel, &on_text)
-        .await?;
-    validate_not_truncated(&res.text, kind)
+    let out = crate::automation::run_streaming(
+        crate::automation::ModelTaskSpec {
+            purpose: "design.stream",
+            chain,
+            session_key: "automation:design.stream",
+            instruction: &prompt,
+            max_tokens: 16000,
+        },
+        cancel,
+        &on_text,
+    )
+    .await?;
+    validate_not_truncated(&out.text, kind)
 }
 
 /// 生成交互式 `Component` 产物的 React 组件源（JSX/TSX，classic runtime、全局 React、无 import/
@@ -358,10 +382,15 @@ BRIEF:\n{brief}",
         system = system_block,
         brief = truncate(brief, 4000),
     );
-    let config = crate::config::cached_config();
-    let (agent, _model) = crate::recap::report::build_analysis_agent(&config).await?;
-    let res = agent.side_query(&prompt, 16000).await?;
-    let src = strip_fence(&res.text);
+    let text = super::run_design_task(
+        "design.component",
+        "automation:design.component",
+        &prompt,
+        16000,
+        None,
+    )
+    .await?;
+    let src = strip_fence(&text);
     if src.trim().is_empty() {
         anyhow::bail!("model returned no component source");
     }

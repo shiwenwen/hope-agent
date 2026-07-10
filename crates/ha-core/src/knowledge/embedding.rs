@@ -101,7 +101,7 @@ pub fn set_knowledge_embedding_default(
     // Cancel any in-flight reembed BEFORE swapping the embedder (which may DROP +
     // recreate note_vec on a dimension change), so the old job can't write
     // old-dimension vectors into the freshly recreated table.
-    cancel_active_knowledge_reembed_jobs();
+    cancel_active_knowledge_reembed_jobs(None);
 
     crate::config::mutate_config(("knowledge_embedding.set_default", source), |store| {
         store.knowledge_embedding.enabled = true;
@@ -137,7 +137,7 @@ pub fn disable_knowledge_embedding(source: &str) -> Result<EmbeddingSelectionSta
     // Cancel any in-flight reembed first: an orphan job would otherwise keep
     // running against the about-to-be-cleared embedder (embedding nothing) and
     // still stamp `last_reembedded_signature` on completion.
-    cancel_active_knowledge_reembed_jobs();
+    cancel_active_knowledge_reembed_jobs(None);
     crate::config::mutate_config(("knowledge_embedding.disable", source), |store| {
         store.knowledge_embedding.enabled = false;
         Ok(())

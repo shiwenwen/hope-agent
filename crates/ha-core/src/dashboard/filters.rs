@@ -131,6 +131,13 @@ pub(super) fn build_model_usage_filter(
         }
     }
 
+    if let Some(ref operation) = filter.operation {
+        if !operation.is_empty() {
+            clauses.push(format!("{}.operation = ?", usage_alias));
+            params.push(Box::new(operation.clone()));
+        }
+    }
+
     let where_sql = if clauses.is_empty() {
         String::new()
     } else {

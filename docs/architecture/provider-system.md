@@ -404,7 +404,8 @@ Hope Agent 始终用 `store: false` 调 Responses API。在这一模式下，服
 
 与 OpenAI Responses API 相同的请求/响应格式，额外特性：
 - **OAuth 认证**：`Authorization: Bearer {access_token}` + `chatgpt-account-id` header
-- **终端登录入口**：`hope-agent auth codex login` 复用同一 PKCE loopback 流程，登录成功后写 `~/.hope-agent/credentials/auth.json` 并调用 `ensure_codex_provider_persisted(Always("gpt-5.4"))`；`--no-open` 只打印 URL，适合 SSH/headless 配合 `ssh -L 1455:127.0.0.1:1455 <host>` 使用
+- **终端登录入口**：`hope-agent auth codex login` 复用同一 PKCE loopback 流程，登录成功后写 `~/.hope-agent/credentials/auth.json` 并调用 `ensure_codex_provider_persisted(Always(DEFAULT_CODEX_MODEL_ID))`；`--no-open` 只打印 URL，适合 SSH/headless 配合 `ssh -L 1455:127.0.0.1:1455 <host>` 使用
+- **内置模型目录**：`agent::config::get_codex_models()` / `provider::helpers::default_codex_models()` / `provider::crud::default_codex_model_ids()` 三份列表必须同步（id 集合 + 顺序一致，后两者靠 `codex_noop_detects_existing_provider_and_active_model` 单测锁长度）；`DEFAULT_CODEX_MODEL_ID` 当前是 `gpt-5.6-terra`——不是列表里的旗舰 `gpt-5.6-sol`，因为 GPT-5.6 按 ChatGPT 套餐分级（Free/Go 只有 Terra，Sol 需付费套餐/workspace），而这个常量会通过 `ActiveModelUpdate::Always` 套到每个新登录账号，必须选所有 Codex 账号都有的那一档
 - **重试 / 降级**：Codex 调用同样走 `failover::executor::execute_with_failover` + `chat_engine_default` policy（max_retries=2，退避基数与上限统一），不再有 Codex 自管的「3 次 1s/2s/4s」逻辑
 - **不参与 auth profile 轮换**：executor 内部硬编码 Codex Provider 跳过 profile 选择/轮换；Codex 凭据失败直接经标准失败路径走下一模型
 - **构造期失败保活**：Codex Provider 在 `crates/ha-core/src/provider/crud.rs::ensure_codex_provider_persisted`（commit `99bc84a7`）保证 token 缺失或构造异常时配置仍持久化，下次手动登录补回即可，不会被静默移除
@@ -984,6 +985,8 @@ flowchart TD
 ## 12. 视觉桥（Vision Bridge，issue #434）
 
 主模型不支持视觉（`ProviderConfig::model_supports_vision(model_id)==false`，即 `ModelConfig.input_types` 显式不含 `"image"`，如 DeepSeek 系列）却收到图片时，用一个**单独配置**的视觉模型把图片转成文字描述注入主模型，替代旧行为「丢图 + `[image omitted]` 占位符」。核心实现 [`agent/vision_bridge.rs`](../../crates/ha-core/src/agent/vision_bridge.rs)。
+
+> `function_models.vision`（本节）与 `function_models.automation`（后台一次性 LLM 调用的默认模型链）是同一个 `FunctionModelsConfig` 容器下平级的两个功能，互不影响。后者的执行原语、15 个消费者清单见 [模型 vs Agent 统一配置](automation-model.md)。
 
 ### 12.1 配置与解析
 

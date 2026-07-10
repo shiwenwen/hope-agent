@@ -5,10 +5,17 @@ import { parsePayload } from "@/lib/transport"
 import { MCP_EVENTS } from "@/lib/mcp"
 import { getCachedConfig, notifyIfBackground } from "@/lib/notifications"
 import { logger } from "@/lib/logger"
+import { LOCAL_MODEL_JOB_EVENTS } from "@/types/local-model-jobs"
 
 // Background-job terminal statuses worth a "跑完叫我" notification — skip
 // user-cancelled / restart-interrupted (not noteworthy outcomes).
 const NOTIFIABLE_JOB_STATUSES = new Set(["completed", "failed", "timed_out"])
+
+// Below this, skip the desktop escalation for knowledge scan / import
+// completions (the in-app toast + activity panel still reflect it) — binding
+// a small space or importing a couple of sources finishes fast enough that a
+// system notification is just noise, not a "you can stop watching" signal.
+const MIN_JOB_DURATION_FOR_NOTIFICATION_SECS = 8
 
 // Truncate user-visible strings (commands, questions) so notifications
 // don't blow past Notification Center's character limit.
@@ -43,6 +50,11 @@ export function useDesktopAlerts() {
   useEffect(() => {
     tRef.current = t
   }, [t])
+  // Knowledge source import's `job:created`/`job:completed` payloads carry no
+  // timestamp (unlike `local_model_job:*`, which is the full snapshot and
+  // already has `createdAt`) — track start times locally so the duration gate
+  // above has something to compare against.
+  const importJobStartedAtRef = useRef<Map<string, number>>(new Map())
 
   useEffect(() => {
     const transport = getTransport()
@@ -168,20 +180,62 @@ export function useDesktopAlerts() {
       },
     )
 
+    // Record knowledge import job start times for the duration gate below.
+    // Not routed through `bindAlert` — it never produces a notification by
+    // itself.
+    const offImportJobCreated = transport.listen("job:created", (raw) => {
+      const ev = parsePayload<{ job_id?: string; tool?: string }>(raw)
+      if (ev?.job_id && ev.tool === "knowledge_source_import") {
+        importJobStartedAtRef.current.set(ev.job_id, Date.now())
+      }
+    })
+
     // R4: "跑完叫我" — a background job (tool / group, R3 `job:*`) finishing in
     // the background fires a desktop notification, gated by the dedicated
     // `notifyOnBackgroundJobComplete` toggle. Subagent jobs ride `subagent:*` and
     // are out of scope here. Background-only via `notifyIfBackground` (the user
     // already sees the panel/badge when the window is up front).
     const offJobCompleted = bindAlert<{
+      job_id?: string
       tool?: string
       status?: string
       kind?: string
+      imported_count?: number
+      duplicate_count?: number
+      failed_count?: number
     }>("job:completed", "useDesktopAlerts::job_completed", (ev) => {
       if (getCachedConfig()?.notifyOnBackgroundJobComplete === false) return null
       const status = ev?.status ?? ""
       if (!NOTIFIABLE_JOB_STATUSES.has(status)) return null
       const tx = tRef.current
+
+      if (ev?.tool === "knowledge_source_import") {
+        const jobId = ev.job_id
+        const startedAt = jobId ? importJobStartedAtRef.current.get(jobId) : undefined
+        if (jobId) importJobStartedAtRef.current.delete(jobId)
+        // Unknown start time (this hook mounted after the import began) →
+        // don't suppress; better to over-notify than silently drop the only
+        // signal the user might get for a job they never saw start.
+        const durationSecs = startedAt ? (Date.now() - startedAt) / 1000 : Infinity
+        if (durationSecs < MIN_JOB_DURATION_FOR_NOTIFICATION_SECS) return null
+        const imported = ev.imported_count ?? 0
+        const duplicate = ev.duplicate_count ?? 0
+        const failedCount = ev.failed_count ?? 0
+        const body =
+          failedCount > 0
+            ? tx("knowledge.sources.importRunPartial", { imported, duplicate, failed: failedCount })
+            : duplicate > 0
+              ? tx("knowledge.sources.importRunDeduped", { imported, duplicate })
+              : tx("knowledge.sources.importedCount", { count: imported })
+        return {
+          title:
+            failedCount > 0
+              ? tx("notification.knowledgeImportFailed", "知识空间导入部分失败")
+              : tx("notification.knowledgeImportComplete", "知识空间导入完成"),
+          body,
+        }
+      }
+
       const failed = status !== "completed"
       // A Group's `tool` is the internal id "subagent:batch" — show a friendly
       // localized label instead; tool jobs surface their real tool name.
@@ -198,6 +252,48 @@ export function useDesktopAlerts() {
       }
     })
 
+    // Knowledge space reindex/re-embed completion (bind a new space,
+    // per-space Reindex, or the settings-page "rebuild everything" — all
+    // `knowledge_reembed`, see `reembed.rs`). `local_model_job:*` was
+    // previously not wired into desktop alerts at all, so binding a large
+    // vault and tabbing away gave no signal it had finished.
+    const offKnowledgeReembedCompleted = bindAlert<{
+      kind?: string
+      status?: string
+      createdAt?: number
+      completedAt?: number
+      error?: string
+      resultJson?: { reindexed?: number; failedFiles?: number; kbCount?: number } | null
+    }>(LOCAL_MODEL_JOB_EVENTS.completed, "useDesktopAlerts::knowledge_reembed", (ev) => {
+      if (ev?.kind !== "knowledge_reembed") return null
+      if (getCachedConfig()?.notifyOnBackgroundJobComplete === false) return null
+      const status = ev?.status ?? ""
+      if (!NOTIFIABLE_JOB_STATUSES.has(status)) return null
+      const durationSecs = (ev.completedAt ?? 0) - (ev.createdAt ?? 0)
+      if (durationSecs < MIN_JOB_DURATION_FOR_NOTIFICATION_SECS) return null
+      const tx = tRef.current
+      const failed = status !== "completed"
+      const failedFiles = ev.resultJson?.failedFiles ?? 0
+      const body = failed
+        ? truncate(ev.error ?? "") || tx("notification.backgroundJobFallback", "一个后台任务已结束")
+        : failedFiles > 0
+          ? tx("knowledge.jobs.resultPartial", {
+              notes: ev.resultJson?.reindexed ?? 0,
+              failed: failedFiles,
+              defaultValue: "Reindexed {{notes}} notes · {{failed}} skipped",
+            })
+          : tx("knowledge.jobs.resultOk", {
+              notes: ev.resultJson?.reindexed ?? 0,
+              defaultValue: "Reindexed {{notes}} notes",
+            })
+      return {
+        title: failed
+          ? tx("notification.knowledgeScanFailed", "知识空间扫描失败")
+          : tx("notification.knowledgeScanComplete", "知识空间扫描完成"),
+        body,
+      }
+    })
+
     return () => {
       offApproval()
       offApprovalTimedOut()
@@ -205,7 +301,9 @@ export function useDesktopAlerts() {
       offAskUserTimedOut()
       offMcpAuth()
       offChannelAuth()
+      offImportJobCreated()
       offJobCompleted()
+      offKnowledgeReembedCompleted()
     }
   }, [])
 }

@@ -32,6 +32,8 @@ export type FileKind =
 /** Extension → Shiki language id (also doubles as the "is code" set). */
 const CODE_LANG: Record<string, string> = {
   ts: "typescript",
+  mts: "typescript",
+  cts: "typescript",
   tsx: "tsx",
   js: "javascript",
   jsx: "jsx",
@@ -47,12 +49,15 @@ const CODE_LANG: Record<string, string> = {
   h: "c",
   cpp: "cpp",
   cc: "cpp",
+  cxx: "cpp",
   hpp: "cpp",
+  hh: "cpp",
   cs: "csharp",
   rb: "ruby",
   php: "php",
   swift: "swift",
   kt: "kotlin",
+  kts: "kotlin",
   scala: "scala",
   sh: "bash",
   bash: "bash",
@@ -63,6 +68,7 @@ const CODE_LANG: Record<string, string> = {
   htm: "html",
   css: "css",
   scss: "scss",
+  sass: "sass",
   less: "less",
   vue: "vue",
   svelte: "svelte",
@@ -84,6 +90,15 @@ const CODE_LANG: Record<string, string> = {
   proto: "protobuf",
   diff: "diff",
   patch: "diff",
+}
+
+/** Extensionless filenames that still have a useful Shiki grammar. */
+const CODE_FILENAME_LANG: Record<string, string> = {
+  dockerfile: "dockerfile",
+  makefile: "make",
+  gemfile: "ruby",
+  rakefile: "ruby",
+  procfile: "bash",
 }
 
 const IMAGE_EXT = new Set(["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "ico", "avif"])
@@ -157,6 +172,7 @@ export function fileKind(name: string): FileKind {
   if (AUDIO_EXT.has(ext)) return "audio"
   if (VIDEO_EXT.has(ext)) return "video"
   if (ext in CODE_LANG) return "code"
+  if (ext === "" && CODE_FILENAME_LANG[baseLower(name)]) return "code"
   if (TEXT_EXT.has(ext)) return "text"
   if (ext === "" && TEXT_FILENAMES.has(baseLower(name))) return "text"
   // Unknown / archive / binary — not auto-previewed; click → open (local) or
@@ -191,12 +207,51 @@ const OFFICE_MIME = new Set([
   "application/vnd.openxmlformats-officedocument.presentationml.presentation",
 ])
 
+const PLAIN_TEXT_LANG = new Set(["", "text", "txt", "plain", "plaintext"])
+const MARKDOWN_LANG = new Set(["md", "mdx", "markdown"])
+
+function normalizeShikiLanguage(language?: string | null): string | null {
+  const raw = language?.trim().toLowerCase()
+  if (!raw) return null
+  switch (raw) {
+    case "shell":
+    case "shellscript":
+      return "bash"
+    case "ts":
+      return "typescript"
+    case "js":
+      return "javascript"
+    case "rs":
+      return "rust"
+    case "py":
+      return "python"
+    case "yml":
+      return "yaml"
+    case "plaintext":
+    case "plain":
+    case "txt":
+      return "text"
+    case "md":
+    case "mdx":
+      return "markdown"
+    default:
+      return raw
+  }
+}
+
+function kindFromLanguage(language?: string | null): FileKind | null {
+  const lang = normalizeShikiLanguage(language)
+  if (!lang || PLAIN_TEXT_LANG.has(lang)) return null
+  if (MARKDOWN_LANG.has(lang)) return "markdown"
+  return "code"
+}
+
 /**
  * Like {@link fileKind} but trusts a known MIME type first (attachments carry
- * a reliable `mime`), falling back to the filename extension. Use this wherever
- * a MIME is available; otherwise call {@link fileKind}.
+ * a reliable `mime`) and can use explicit tool metadata language before
+ * falling back to the filename extension.
  */
-export function fileKindOf(name: string, mime?: string | null): FileKind {
+export function fileKindOf(name: string, mime?: string | null, language?: string | null): FileKind {
   if (mime) {
     const m = mime.toLowerCase()
     if (m.startsWith("image/")) return "image"
@@ -211,15 +266,24 @@ export function fileKindOf(name: string, mime?: string | null): FileKind {
       m === "application/javascript"
     ) {
       const byExt = fileKind(name)
-      return byExt === "other" ? "text" : byExt
+      if (byExt !== "other") return byExt
+      return kindFromLanguage(language) ?? "text"
     }
   }
-  return fileKind(name)
+  const byExt = fileKind(name)
+  if (byExt === "text" || byExt === "other") {
+    return kindFromLanguage(language) ?? byExt
+  }
+  return byExt
 }
 
 /** Shiki language id for a code/text file. Falls back to plain `"text"`. */
-export function shikiLang(name: string): string {
-  return CODE_LANG[extOf(name)] ?? "text"
+export function shikiLang(name: string, language?: string | null): string {
+  const explicit = normalizeShikiLanguage(language)
+  if (explicit && !PLAIN_TEXT_LANG.has(explicit)) return explicit
+  const ext = extOf(name)
+  if (MARKDOWN_EXT.has(ext)) return "markdown"
+  return CODE_LANG[ext] ?? CODE_FILENAME_LANG[baseLower(name)] ?? "text"
 }
 
 export function iconForEntry(name: string, isDir: boolean, expanded = false): LucideIcon {

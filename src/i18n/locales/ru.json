@@ -502,6 +502,7 @@
         "desc": "Инструменты редактирования и опасные команды требуют одобрения, остальное выполняется.",
         "label": "По умолчанию"
       },
+      "menuLabel": "Режим разрешений",
       "smart": {
         "desc": "Решение об одобрении принимает модель-судья или само-оценка модели.",
         "label": "Умное одобрение"
@@ -509,8 +510,31 @@
       "yolo": {
         "desc": "Все инструменты в этой сессии запускаются без одобрения (защищённые пути логируются).",
         "label": "YOLO"
+      }
+    },
+    "sandboxMode": {
+      "isolated": {
+        "desc": "Run in an isolated copy; edit approvals are unchanged until apply-back is supported.",
+        "label": "Isolated Sandbox"
       },
-      "menuLabel": "Режим разрешений"
+      "menuLabel": "Песочница",
+      "off": {
+        "desc": "Run on the host; approval behavior is unchanged.",
+        "label": "Sandbox Off"
+      },
+      "setupTitle": "Configure Docker to enable sandbox",
+      "standard": {
+        "desc": "Run in Docker; approval behavior is unchanged.",
+        "label": "Standard Sandbox"
+      },
+      "trusted": {
+        "desc": "Max autonomy for sandboxed exec; strict risks still ask.",
+        "label": "Trusted Sandbox"
+      },
+      "workspace": {
+        "desc": "Mount this workspace and reduce edit-command approvals.",
+        "label": "Workspace Sandbox"
+      }
     },
     "pickSession": "Выбрать сессию",
     "profileRotationTitle": "Смена профиля",
@@ -651,30 +675,6 @@
       "reloadBody": "Установленное расширение не соответствует хосту. Перезагрузите его, чтобы восстановить управление вашим реальным Chrome.",
       "openSettings": "Открыть настройки",
       "dismiss": "Больше не показывать"
-    },
-    "sandboxMode": {
-      "isolated": {
-        "desc": "Run in an isolated copy; edit approvals are unchanged until apply-back is supported.",
-        "label": "Isolated Sandbox"
-      },
-      "off": {
-        "desc": "Run on the host; approval behavior is unchanged.",
-        "label": "Sandbox Off"
-      },
-      "setupTitle": "Configure Docker to enable sandbox",
-      "standard": {
-        "desc": "Run in Docker; approval behavior is unchanged.",
-        "label": "Standard Sandbox"
-      },
-      "trusted": {
-        "desc": "Max autonomy for sandboxed exec; strict risks still ask.",
-        "label": "Trusted Sandbox"
-      },
-      "workspace": {
-        "desc": "Mount this workspace and reduce edit-command approvals.",
-        "label": "Workspace Sandbox"
-      },
-      "menuLabel": "Песочница"
     },
     "browserExtensionRequired": {
       "nextAction": "Следующее действие: {{nextAction}}",
@@ -1235,7 +1235,11 @@
       "ttft": "TTFT",
       "ttftTrend": "Время до первого токена (TTFT)",
       "inputTokens": "Входные токены",
-      "outputTokens": "Выходные токены"
+      "outputTokens": "Выходные токены",
+      "byDomain": "Распределение по домену",
+      "byOperation": "По операциям",
+      "operation": "Операция",
+      "domain": "Домен"
     },
     "tool": {
       "avgDuration": "Среднее время",
@@ -1911,7 +1915,11 @@
     "backgroundJobFailed": "Фоновая задача не выполнена",
     "backgroundJobFallback": "Фоновая задача завершилась",
     "backgroundJobToggle": "Уведомлять о завершении фоновых задач",
-    "backgroundJobDesc": "Показывать уведомление на рабочем столе, когда фоновая задача завершается, пока окно находится в фоне"
+    "backgroundJobDesc": "Показывать уведомление на рабочем столе, когда фоновая задача завершается, пока окно находится в фоне",
+    "knowledgeScanComplete": "Сканирование пространства знаний завершено",
+    "knowledgeScanFailed": "Ошибка сканирования пространства знаний",
+    "knowledgeImportComplete": "Импорт в пространство знаний завершён",
+    "knowledgeImportFailed": "Импорт в пространство знаний частично не удался"
   },
   "onboarding": {
     "channels": {
@@ -2775,9 +2783,8 @@
       },
       "intro": "Глобальный переключатель YOLO, списки шаблонов защищенных путей / команд редактирования / опасных команд и настройка режима умного подтверждения.",
       "judgeExtraPromptPlaceholder": "Необязательно: дополнительные инструкции для судьи (белые списки путей, доверенные команды...)",
-      "judgeModelPlaceholder": "Модель (например, claude-haiku-4-5)",
+      "judgeModelPlaceholder": "Выбрать модель судьи",
       "judgeModelTitle": "Настройка модели-судьи",
-      "judgeProviderPlaceholder": "ID провайдера (например, anthropic-1)",
       "protectedPathsDesc": "Вызовы инструментов, затрагивающие эти пути, принудительно требуют подтверждения и не могут быть «Всегда разрешать». Поддерживает раскрытие ~/, префикс каталога (с / на конце) и glob-шаблоны *.pattern.",
       "protectedPathsPlaceholder": "например: ~/.ssh/, .env, *.pem",
       "protectedPathsTitle": "Защищенные пути",
@@ -2859,8 +2866,6 @@
       "digestMaxChars": "Бюджет вывода дайджеста (символы)",
       "dynamicEnabled": "Обновлять суффикс каждый ход",
       "enabledForSession": "Включено для этой сессии",
-      "extractionAgent": "ID Agent извлечения (необязательно)",
-      "extractionAgentPlaceholder": "Оставьте пустым, чтобы наследовать recap.analysisAgent",
       "includeChannel": "Включать сессии IM-каналов",
       "includeCron": "Включать сессии cron",
       "includeSubagents": "Включать сессии sub-agent",
@@ -2884,7 +2889,9 @@
       "resetOverride": "Сбросить к глобальным",
       "sameAgentOnly": "Только тот же Agent",
       "sessionOverride": "Переопределение сессии",
-      "title": "Отслеживание поведения"
+      "title": "Отслеживание поведения",
+      "extractionModel": "Модель извлечения (необязательно)",
+      "extractionModelInherit": "Использовать текущего агента чата (экономит кэш)"
     },
     "browser": {
       "activeBadge": "активный",
@@ -3262,7 +3269,7 @@
       "narrativeMaxTokensDesc": "Output budget for the narrative side query.",
       "narrativeModel": "Narrative model",
       "narrativeModelClear": "Clear",
-      "narrativeModelDefault": "Follow active chat agent",
+      "narrativeModelDefault": "Использовать значение автоматизации по умолчанию",
       "narrativeModelDesc": "Override the model used for narrative scoring. Empty falls back to the active chat / recap model chain.",
       "narrativeTimeoutSecs": "Timeout (seconds)",
       "narrativeTimeoutSecsDesc": "Side query is aborted after this many seconds.",
@@ -3381,7 +3388,8 @@
       "matcherPlaceholder": "имя инструмента / источник (regex), пусто = все",
       "addHandler": "Добавить обработчик",
       "advanced": "Дополнительно",
-      "slowHandlerWarning": "Этот обработчик запускает LLM / субагента встроенно и будет замедлять каждый раз, когда срабатывает это блокирующее событие. Здесь предпочтите command / http или перенесите его на событие наблюдения (например, PostToolUse)."
+      "slowHandlerWarning": "Этот обработчик запускает LLM / субагента встроенно и будет замедлять каждый раз, когда срабатывает это блокирующее событие. Здесь предпочтите command / http или перенесите его на событие наблюдения (например, PostToolUse).",
+      "modelInheritDefault": "Использовать значение автоматизации по умолчанию"
     },
     "hours": "ч",
     "imageGenApiKey": "API Key",
@@ -3434,6 +3442,11 @@
     "kb": "КБ",
     "knowledge": {
       "tab": "База знаний"
+    },
+    "knowledgeCompile": {
+      "agent": "Модель сборки",
+      "agentDefault": "Использовать значение автоматизации по умолчанию",
+      "agentDesc": "Цепочка моделей для превращения источников в предложения заметок для проверки. Пусто — используется значение автоматизации по умолчанию."
     },
     "knowledgeChunk": {
       "title": "Дополнительно · разбиение",
@@ -3491,7 +3504,20 @@
         "sourceConflict": "Source conflicts",
         "openQuestionsMoc": "Open Questions MOC",
         "forAgentSummary": "For Agent summaries"
-      }
+      },
+      "model": "Модель",
+      "modelDesc": "Общая для всех 4 генераторов на основе LLM (авто-теги, обслуживание MOC, память→заметка, конфликт источников).",
+      "modelDefault": "Использовать значение автоматизации по умолчанию"
+    },
+    "knowledgeMediaRetention": {
+      "saved": "Сохранено",
+      "title": "Хранение исходных медиа",
+      "description": "При желании сохраняйте импортированные оригиналы аудио, видео и изображений для проверки доказательств источников.",
+      "maxTotal": "Общая квота (MiB)",
+      "maxSource": "На источник (MiB)",
+      "thumbnail": "Длинная сторона миниатюры (px)",
+      "prune": "Удалять старые медиа при превышении квоты",
+      "pruneDesc": "Если новый сохраняемый файл превысит квоту, сначала удаляются самые старые сохранённые оригиналы; если места всё равно не хватит, новый файл пропускается."
     },
     "knowledgePassiveRecall": {
       "title": "Пассивные связанные заметки",
@@ -4280,9 +4306,9 @@
     "proxyUrl": "URL прокси",
     "proxyUrlPlaceholder": "http://127.0.0.1:7890",
     "recap": "Отчёт",
-    "recapAnalysisAgent": "Агент анализа",
-    "recapAnalysisAgentDefault": "Использовать глобального агента по умолчанию",
-    "recapAnalysisAgentDesc": "Агент, используемый для извлечения facet и генерации разделов отчёта. Если не задан, наследует глобального агента по умолчанию.",
+    "recapAnalysisAgent": "Модель анализа",
+    "recapAnalysisAgentDefault": "Использовать значение автоматизации по умолчанию",
+    "recapAnalysisAgentDesc": "Цепочка моделей для извлечения фактов и написания разделов отчёта. Пусто — используется значение автоматизации по умолчанию.",
     "recapCacheRetentionDays": "Срок хранения кэша facet (дни)",
     "recapCacheRetentionDaysDesc": "Срок хранения кэшированных facet до ежедневной очистки. 0 = хранить всегда. По умолчанию 180.",
     "recapDefaultRangeDays": "Диапазон по умолчанию (дней)",
@@ -4348,6 +4374,9 @@
     "serverEmbeddedBind": "Адрес привязки",
     "serverEmbeddedBindDesc": "По умолчанию 127.0.0.1 — только localhost. Установите 0.0.0.0 для доступа из сети",
     "serverGenerateApiKey": "Сгенерировать",
+    "serverKnowledgeAgentReadToken": "Токен чтения Knowledge Agent",
+    "serverKnowledgeAgentReadTokenPlaceholder": "Оставьте пустым, чтобы отключить доступ agent только для чтения",
+    "serverKnowledgeAgentReadTokenDesc": "Токен с ограниченной областью для внешних agent. Он работает только когда также задан owner API key; тогда может вызывать только read-only endpoints Knowledge Agent и не даёт доступ owner API.",
     "serverMode": "Режим сервера",
     "serverModeDesc": "Выберите встроенный режим или подключение к удалённому серверу",
     "serverModeEmbedded": "Встроенный",
@@ -4555,7 +4584,8 @@
         },
         "reviewModel": {
           "label": "Dedicated review model",
-          "help": "Format: provider:model. Empty reuses the main chat's cached prefix."
+          "help": "Цепочка моделей для проверки предложенных навыков. Пусто — используется кэш чата-инициатора (с откатом к значению автоматизации по умолчанию).",
+          "inheritDefault": "Использовать чат-инициатор (экономит кэш)"
         },
         "extraRejectCategories": {
           "label": "Extra reject categories",
@@ -4656,7 +4686,10 @@
         "conversation": "Разговор",
         "memory": "Воспоминание",
         "awareness": "Меж-сессионное восприятие"
-      }
+      },
+      "model": "Модель",
+      "modelDesc": "Вызов предложения спрайта — по принципу «отправил и забыл», поэтому подходит полная резервная цепочка, а не только одна модель.",
+      "modelDefault": "Использовать значение автоматизации по умолчанию"
     },
     "ssrfBrowserPolicyDesc": "Применяется к целевому URL page.goto / new_page. Примечание: JS fetch() внутри browser.evaluate вне зоны.",
     "ssrfDefaultPolicy": "Политика по умолчанию",
@@ -5013,24 +5046,6 @@
     "webSearchSaved": "Сохранено",
     "webSearchTimeout": "Таймаут (секунд)",
     "webSearchTimeoutDesc": "HTTP-таймаут поисковых запросов (5-120 с)",
-    "knowledgeCompile": {
-      "agent": "Агент для организации источников",
-      "agentDefault": "Использовать глобального агента по умолчанию",
-      "agentDesc": "Агент, который превращает источники в предложения заметок для проверки. Если не задан, наследует глобального агента по умолчанию."
-    },
-    "knowledgeMediaRetention": {
-      "saved": "Сохранено",
-      "title": "Хранение исходных медиа",
-      "description": "При желании сохраняйте импортированные оригиналы аудио, видео и изображений для проверки доказательств источников.",
-      "maxTotal": "Общая квота (MiB)",
-      "maxSource": "На источник (MiB)",
-      "thumbnail": "Длинная сторона миниатюры (px)",
-      "prune": "Удалять старые медиа при превышении квоты",
-      "pruneDesc": "Если новый сохраняемый файл превысит квоту, сначала удаляются самые старые сохранённые оригиналы; если места всё равно не хватит, новый файл пропускается."
-    },
-    "serverKnowledgeAgentReadToken": "Токен чтения Knowledge Agent",
-    "serverKnowledgeAgentReadTokenPlaceholder": "Оставьте пустым, чтобы отключить доступ agent только для чтения",
-    "serverKnowledgeAgentReadTokenDesc": "Токен с ограниченной областью для внешних agent. Он работает только когда также задан owner API key; тогда может вызывать только read-only endpoints Knowledge Agent и не даёт доступ owner API.",
     "devVisualTest": "Тестирование пользовательской анимации",
     "permLoading": "Проверяем разрешения...",
     "uiEffects": "Фоновая анимация",
@@ -5050,7 +5065,35 @@
     "visionBridgeModel": "Модель зрительного моста",
     "visionBridgeModelDesc": "Используется только когда основная модель не поддерживает изображения. Отдельная модель преобразует изображения в текстовые описания, чтобы диалог мог продолжиться.",
     "visionBridgeModelClear": "Отключить зрительный мост",
-    "selectVisionBridgeModel": "Выбрать модель зрения"
+    "selectVisionBridgeModel": "Выбрать модель зрения",
+    "modelChainRestoreInherit": "Сбросить к унаследованному значению",
+    "automationModelChain": "Модель автоматизации по умолчанию",
+    "automationModelChainDesc": "Цепочка моделей по умолчанию (с резервом) для фоновых одноразовых задач ИИ, таких как Recap, Dreaming и сборка базы знаний — независимо от модели чата по умолчанию выше. Оставьте пустым, чтобы использовать модель чата по умолчанию.",
+    "automationModelChainInherit": "Использовать модель чата по умолчанию",
+    "knowledgeVision": {
+      "model": "Модель для распознавания изображений",
+      "modelDesc": "Цепочка моделей для OCR изображений при импорте в базу знаний. Пусто — используется значение автоматизации по умолчанию.",
+      "modelDefault": "Использовать значение автоматизации по умолчанию",
+      "ocrConcurrency": "Параллелизм OCR для сканированных PDF",
+      "maxOcrPages": "Лимит страниц OCR для сканированных PDF"
+    },
+    "noteTools": {
+      "title": "Модель инструментов заметок",
+      "desc": "Модель, общая для инструментов извлечения заметок, генерации MOC и преобразования сессии в заметку.",
+      "modelDefault": "Использовать значение автоматизации по умолчанию"
+    },
+    "recallSummary": {
+      "title": "Суммаризация при вспоминании",
+      "desc": "Когда recall_memory / session_search возвращают много совпадений, они сжимаются в один краткий абзац дополнительным вызовом LLM вместо возврата необработанных фрагментов. По умолчанию выключено — стоит один дополнительный вызов на каждый подходящий поиск.",
+      "enabled": "Включить суммаризацию",
+      "minHits": "Минимум совпадений для срабатывания",
+      "contextCharBudget": "Бюджет контекста (символы)",
+      "timeoutSecs": "Тайм-аут (с)",
+      "maxTokens": "Макс. токенов на выходе",
+      "includeHistory": "Также суммировать совпадения из истории разговора",
+      "model": "Модель",
+      "modelDefault": "Использовать значение автоматизации по умолчанию"
+    }
   },
   "shortcuts": {
     "actionOpenSettings": "Открыть настройки",
@@ -5760,15 +5803,29 @@
     "reindexing": "Переиндексация…",
     "reindexDone": "Индекс перестроен",
     "jobs": {
-      "tooltip": "Задачи перестроения",
-      "title": "Задачи перестроения",
-      "empty": "Пока нет задач перестроения.",
+      "tooltip": "Активность пространства знаний",
+      "title": "Активность пространства знаний",
+      "empty": "Пока нет активности.",
       "kindReindex": "Перестроить индекс",
       "kindReembed": "Перевекторизация",
       "fts": "Полнотекстовый индекс",
-      "result": "Перестроено: {{notes}} заметок · {{kbs}} пространств",
-      "emptyHint": "Переиндексируйте пространство или смените модель эмбеддингов — прогресс появится здесь.",
-      "model": "Модель: {{name}}"
+      "emptyHint": "Привяжите или переиндексируйте пространство, либо импортируйте файлы — прогресс появится здесь.",
+      "model": "Модель: {{name}}",
+      "kindImport": "Импорт источников",
+      "space": "Пространство: {{name}}",
+      "progressFiles": "{{done}} / {{total}} файлов",
+      "progressItems": "{{done}} / {{total}} источников",
+      "resultOk": "Переиндексировано заметок: {{notes}}",
+      "resultPartial": "Переиндексировано заметок: {{notes}} · пропущено: {{failed}}",
+      "importResultOk": "Импортировано источников: {{imported}}",
+      "importResultPartial": "Импортировано: {{imported}} · ошибок: {{failed}}",
+      "importStatus": {
+        "running": "Выполняется",
+        "completed": "Завершено",
+        "failed": "Ошибка",
+        "cancelled": "Отменено",
+        "timed_out": "Истекло время ожидания"
+      }
     },
     "maintenance": {
       "tooltip": "Обслуживание",
@@ -5996,7 +6053,13 @@
       "similarScope": {
         "crossKb": "Перекрестное пространство",
         "sameKb": "Это пространство"
-      }
+      },
+      "ocrRunning": "Распознавание OCR выполняется…",
+      "ocrPartial": "OCR: некоторые страницы не удалось распознать",
+      "ocrFailed": "Ошибка OCR",
+      "ocrRetry": "Повторить неудавшиеся страницы",
+      "ocrRetryStarted": "Повторная попытка для неудавшихся страниц…",
+      "ocrRetryFailed": "Не удалось повторить страницы OCR"
     },
     "queryFile": {
       "action": "Файл",
@@ -6023,6 +6086,13 @@
       "openQuestionsPlaceholder": "Примечание с открытыми вопросами",
       "mocPlaceholder": "MOCs/Conversation Filings.md",
       "createNotePlaceholder": "Filed Conversations/example.md"
+    },
+    "emptyState": {
+      "scanning": "Сканирование этого пространства…",
+      "scanFailed": "Ошибка сканирования",
+      "emptyExternal": "В этой папке пока нет заметок в формате markdown.",
+      "emptyInternal": "Это пространство пусто.",
+      "importFiles": "Импортировать файлы"
     }
   },
   "backgroundJobs": {

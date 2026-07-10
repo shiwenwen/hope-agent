@@ -502,6 +502,7 @@
         "desc": "Düzenleme araçları ve riskli komutlar onay gerektirir, diğerleri çalıştırılır.",
         "label": "Varsayılan"
       },
+      "menuLabel": "İzin modu",
       "smart": {
         "desc": "Yargıç model veya modelin kendi güven etiketi onay kararını verir.",
         "label": "Akıllı onay"
@@ -509,8 +510,31 @@
       "yolo": {
         "desc": "Bu oturumda tüm araçlar onaysız çalışır (korunan yollar hâlâ denetlenir).",
         "label": "YOLO"
+      }
+    },
+    "sandboxMode": {
+      "isolated": {
+        "desc": "Run in an isolated copy; edit approvals are unchanged until apply-back is supported.",
+        "label": "Isolated Sandbox"
       },
-      "menuLabel": "İzin modu"
+      "menuLabel": "Kum havuzu",
+      "off": {
+        "desc": "Run on the host; approval behavior is unchanged.",
+        "label": "Sandbox Off"
+      },
+      "setupTitle": "Configure Docker to enable sandbox",
+      "standard": {
+        "desc": "Run in Docker; approval behavior is unchanged.",
+        "label": "Standard Sandbox"
+      },
+      "trusted": {
+        "desc": "Max autonomy for sandboxed exec; strict risks still ask.",
+        "label": "Trusted Sandbox"
+      },
+      "workspace": {
+        "desc": "Mount this workspace and reduce edit-command approvals.",
+        "label": "Workspace Sandbox"
+      }
     },
     "pickSession": "Bir oturum seç",
     "profileRotationTitle": "Profil değişimi",
@@ -651,30 +675,6 @@
       "reloadBody": "Yüklü uzantı ana bilgisayarla eşleşmiyor. Gerçek Chrome'unuzun denetimini geri kazanmak için yeniden yükleyin.",
       "openSettings": "Ayarları aç",
       "dismiss": "Tekrar gösterme"
-    },
-    "sandboxMode": {
-      "isolated": {
-        "desc": "Run in an isolated copy; edit approvals are unchanged until apply-back is supported.",
-        "label": "Isolated Sandbox"
-      },
-      "off": {
-        "desc": "Run on the host; approval behavior is unchanged.",
-        "label": "Sandbox Off"
-      },
-      "setupTitle": "Configure Docker to enable sandbox",
-      "standard": {
-        "desc": "Run in Docker; approval behavior is unchanged.",
-        "label": "Standard Sandbox"
-      },
-      "trusted": {
-        "desc": "Max autonomy for sandboxed exec; strict risks still ask.",
-        "label": "Trusted Sandbox"
-      },
-      "workspace": {
-        "desc": "Mount this workspace and reduce edit-command approvals.",
-        "label": "Workspace Sandbox"
-      },
-      "menuLabel": "Kum havuzu"
     },
     "browserExtensionRequired": {
       "nextAction": "Sonraki eylem: {{nextAction}}",
@@ -1235,7 +1235,11 @@
       "ttft": "TTFT",
       "ttftTrend": "İlk Token Süresi (TTFT)",
       "inputTokens": "Giriş jetonları",
-      "outputTokens": "Çıkış jetonları"
+      "outputTokens": "Çıkış jetonları",
+      "byDomain": "Alana Göre Dağılım",
+      "byOperation": "İşleme Göre Ayrım",
+      "operation": "İşlem",
+      "domain": "Alan"
     },
     "tool": {
       "avgDuration": "Ort. süre",
@@ -1911,7 +1915,11 @@
     "backgroundJobFailed": "Arka plan görevi başarısız oldu",
     "backgroundJobFallback": "Bir arka plan görevi tamamlandı",
     "backgroundJobToggle": "Arka plan görevleri tamamlandığında bildir",
-    "backgroundJobDesc": "Pencere arka plandayken bir arka plan görevi tamamlandığında masaüstü bildirimi göster"
+    "backgroundJobDesc": "Pencere arka plandayken bir arka plan görevi tamamlandığında masaüstü bildirimi göster",
+    "knowledgeScanComplete": "Bilgi alanı taraması tamamlandı",
+    "knowledgeScanFailed": "Bilgi alanı taraması başarısız oldu",
+    "knowledgeImportComplete": "Bilgi alanı içe aktarımı tamamlandı",
+    "knowledgeImportFailed": "Bilgi alanı içe aktarımı kısmen başarısız oldu"
   },
   "onboarding": {
     "channels": {
@@ -2775,9 +2783,8 @@
       },
       "intro": "Genel YOLO anahtarı, korunan yol / düzenleme komutu / tehlikeli komut desen listeleri ve Akıllı onay modu yapılandırması.",
       "judgeExtraPromptPlaceholder": "İsteğe bağlı: yargıç için ek talimatlar (yol izin listeleri, güvenilir komutlar...)",
-      "judgeModelPlaceholder": "Model (örn. claude-haiku-4-5)",
+      "judgeModelPlaceholder": "Hakem modeli seç",
       "judgeModelTitle": "Yargıç Model Yapılandırması",
-      "judgeProviderPlaceholder": "Sağlayıcı ID’si (örn. anthropic-1)",
       "protectedPathsDesc": "Bu yollara dokunan araç çağrıları onayı zorunlu kılar ve Her zaman izin ver yapılamaz. ~/ genişletme, dizin öneki (sonunda /) ve *.pattern glob desteği vardır.",
       "protectedPathsPlaceholder": "örn. ~/.ssh/, .env, *.pem",
       "protectedPathsTitle": "Korunan Yollar",
@@ -2859,8 +2866,6 @@
       "digestMaxChars": "Özet çıktı bütçesi (karakter)",
       "dynamicEnabled": "Her turda son eki yenile",
       "enabledForSession": "Bu oturum için etkin",
-      "extractionAgent": "Çıkarım Agent ID (isteğe bağlı)",
-      "extractionAgentPlaceholder": "recap.analysisAgent'ı devralmak için boş bırakın",
       "includeChannel": "IM kanalı oturumlarını dahil et",
       "includeCron": "cron oturumlarını dahil et",
       "includeSubagents": "alt-Agent oturumlarını dahil et",
@@ -2884,7 +2889,9 @@
       "resetOverride": "Globale sıfırla",
       "sameAgentOnly": "Yalnızca aynı Agent",
       "sessionOverride": "Oturum geçersiz kılma",
-      "title": "Davranış Farkındalığı"
+      "title": "Davranış Farkındalığı",
+      "extractionModel": "Çıkarım modeli (isteğe bağlı)",
+      "extractionModelInherit": "Mevcut sohbet ajanını yeniden kullan (önbellek dostu)"
     },
     "browser": {
       "activeBadge": "aktif",
@@ -3262,7 +3269,7 @@
       "narrativeMaxTokensDesc": "Output budget for the narrative side query.",
       "narrativeModel": "Narrative model",
       "narrativeModelClear": "Clear",
-      "narrativeModelDefault": "Follow active chat agent",
+      "narrativeModelDefault": "Otomasyon varsayılanını kullan",
       "narrativeModelDesc": "Override the model used for narrative scoring. Empty falls back to the active chat / recap model chain.",
       "narrativeTimeoutSecs": "Timeout (seconds)",
       "narrativeTimeoutSecsDesc": "Side query is aborted after this many seconds.",
@@ -3381,7 +3388,8 @@
       "matcherPlaceholder": "araç adı / kaynak (regex olabilir), boş = tümü",
       "addHandler": "İşleyici ekle",
       "advanced": "Gelişmiş",
-      "slowHandlerWarning": "Bu işleyici LLM / alt ajanı satır içi çalıştırır ve bu engelleyici olay her tetiklendiğinde gecikmeye yol açar. Burada command / http tercih edin veya bir gözlem olayına (örn. PostToolUse) taşıyın."
+      "slowHandlerWarning": "Bu işleyici LLM / alt ajanı satır içi çalıştırır ve bu engelleyici olay her tetiklendiğinde gecikmeye yol açar. Burada command / http tercih edin veya bir gözlem olayına (örn. PostToolUse) taşıyın.",
+      "modelInheritDefault": "Otomasyon varsayılanını kullan"
     },
     "hours": "sa",
     "imageGenApiKey": "API Key",
@@ -3434,6 +3442,11 @@
     "kb": "KB",
     "knowledge": {
       "tab": "Bilgi"
+    },
+    "knowledgeCompile": {
+      "agent": "Derleme modeli",
+      "agentDefault": "Otomasyon varsayılanını kullan",
+      "agentDesc": "Kaynakları incelenebilir not önerilerine dönüştürmek için kullanılan model zinciri. Boşsa otomasyon varsayılanı kullanılır."
     },
     "knowledgeChunk": {
       "title": "Gelişmiş · parçalama",
@@ -3491,7 +3504,20 @@
         "sourceConflict": "Source conflicts",
         "openQuestionsMoc": "Open Questions MOC",
         "forAgentSummary": "For Agent summaries"
-      }
+      },
+      "model": "Model",
+      "modelDesc": "LLM tabanlı 4 üreticinin tümü tarafından paylaşılır (otomatik etiketleme, MOC bakımı, bellek→not, kaynak çakışması).",
+      "modelDefault": "Otomasyon varsayılanını kullan"
+    },
+    "knowledgeMediaRetention": {
+      "saved": "Kaydedildi",
+      "title": "Orijinal medya saklama",
+      "description": "İçe aktarılan ses, video ve görüntü orijinallerini kaynak kanıtlarını incelemek için isteğe bağlı olarak saklayın.",
+      "maxTotal": "Toplam kota (MiB)",
+      "maxSource": "Kaynak başına (MiB)",
+      "thumbnail": "Küçük resim uzun kenarı (px)",
+      "prune": "Kota aşılınca en eski medyayı temizle",
+      "pruneDesc": "Yeni saklanacak dosya kotayı aşacaksa, yeni dosyayı atlamadan önce en eski saklanan orijinaller kaldırılır."
     },
     "knowledgePassiveRecall": {
       "title": "Pasif ilgili notlar",
@@ -4280,9 +4306,9 @@
     "proxyUrl": "Proxy URL",
     "proxyUrlPlaceholder": "http://127.0.0.1:7890",
     "recap": "Recap",
-    "recapAnalysisAgent": "Analiz ajanı",
-    "recapAnalysisAgentDefault": "Genel varsayılan ajanı kullan",
-    "recapAnalysisAgentDesc": "Facet çıkarmak ve rapor bölümlerini yazmak için kullanılan ajan. Belirlenmediğinde genel varsayılan ajanı devralır.",
+    "recapAnalysisAgent": "Analiz modeli",
+    "recapAnalysisAgentDefault": "Otomasyon varsayılanını kullan",
+    "recapAnalysisAgentDesc": "Facet çıkarımı ve rapor bölümlerini yazmak için kullanılan model zinciri. Boşsa otomasyon varsayılanı kullanılır.",
     "recapCacheRetentionDays": "Facet önbellek saklama (gün)",
     "recapCacheRetentionDaysDesc": "Önbelleğe alınmış facet’lerin günlük temizlikten önce saklanma süresi. 0 = süresiz. Varsayılan 180.",
     "recapDefaultRangeDays": "Varsayılan aralık (gün)",
@@ -4348,6 +4374,9 @@
     "serverEmbeddedBind": "Bağlama adresi",
     "serverEmbeddedBindDesc": "Yalnızca localhost için varsayılan 127.0.0.1. Ağa açmak için 0.0.0.0 olarak ayarlayın",
     "serverGenerateApiKey": "Oluştur",
+    "serverKnowledgeAgentReadToken": "Knowledge Agent okuma belirteci",
+    "serverKnowledgeAgentReadTokenPlaceholder": "Salt okunur agent erişimini devre dışı bırakmak için boş bırakın",
+    "serverKnowledgeAgentReadTokenDesc": "Harici agentlar için kapsamı sınırlı belirteçtir. Yalnızca owner API anahtarı da ayarlandığında çalışır; etkin olduğunda sadece salt okunur knowledge agent uç noktalarını çağırır ve owner API erişimi vermez.",
     "serverMode": "Sunucu modu",
     "serverModeDesc": "Gömülü modu seçin veya bir uzak sunucuya bağlanın",
     "serverModeEmbedded": "Gömülü",
@@ -4555,7 +4584,8 @@
         },
         "reviewModel": {
           "label": "Dedicated review model",
-          "help": "Format: provider:model. Empty reuses the main chat's cached prefix."
+          "help": "Aday becerileri incelemek için kullanılan model zinciri. Boşsa tetikleyen sohbetin önbelleği yeniden kullanılır (otomasyon varsayılanına geri döner).",
+          "inheritDefault": "Tetikleyen sohbeti yeniden kullan (önbellek dostu)"
         },
         "extraRejectCategories": {
           "label": "Extra reject categories",
@@ -4656,7 +4686,10 @@
         "conversation": "Sohbet",
         "memory": "Bellek anımsama",
         "awareness": "Oturumlar arası farkındalık"
-      }
+      },
+      "model": "Model",
+      "modelDesc": "Sprite'ın öneri çağrısı gönder-ve-unut şeklindedir — tek bir model yerine tam bir yedekleme zinciri kullanılabilir.",
+      "modelDefault": "Otomasyon varsayılanını kullan"
     },
     "ssrfBrowserPolicyDesc": "page.goto / new_page hedef URL'sine uygulanır. Not: browser.evaluate içindeki JS fetch() kapsam dışıdır.",
     "ssrfDefaultPolicy": "Varsayılan politika",
@@ -5013,24 +5046,6 @@
     "webSearchSaved": "Kaydedildi",
     "webSearchTimeout": "Zaman aşımı (saniye)",
     "webSearchTimeoutDesc": "Arama istekleri için HTTP zaman aşımı (5-120 sn)",
-    "knowledgeCompile": {
-      "agent": "Kaynak düzenleme ajanı",
-      "agentDefault": "Genel varsayılan ajanı kullan",
-      "agentDesc": "Kaynakları incelenebilir not önerilerine dönüştüren ajan. Ayarlanmadığında genel varsayılan ajanı devralır."
-    },
-    "knowledgeMediaRetention": {
-      "saved": "Kaydedildi",
-      "title": "Orijinal medya saklama",
-      "description": "İçe aktarılan ses, video ve görüntü orijinallerini kaynak kanıtlarını incelemek için isteğe bağlı olarak saklayın.",
-      "maxTotal": "Toplam kota (MiB)",
-      "maxSource": "Kaynak başına (MiB)",
-      "thumbnail": "Küçük resim uzun kenarı (px)",
-      "prune": "Kota aşılınca en eski medyayı temizle",
-      "pruneDesc": "Yeni saklanacak dosya kotayı aşacaksa, yeni dosyayı atlamadan önce en eski saklanan orijinaller kaldırılır."
-    },
-    "serverKnowledgeAgentReadToken": "Knowledge Agent okuma belirteci",
-    "serverKnowledgeAgentReadTokenPlaceholder": "Salt okunur agent erişimini devre dışı bırakmak için boş bırakın",
-    "serverKnowledgeAgentReadTokenDesc": "Harici agentlar için kapsamı sınırlı belirteçtir. Yalnızca owner API anahtarı da ayarlandığında çalışır; etkin olduğunda sadece salt okunur knowledge agent uç noktalarını çağırır ve owner API erişimi vermez.",
     "devVisualTest": "Kullanıcı arayüzü animasyon testi",
     "permLoading": "İzinler kontrol ediliyor...",
     "uiEffects": "Arka plan animasyonu",
@@ -5050,7 +5065,35 @@
     "visionBridgeModel": "Görsel köprü modeli",
     "visionBridgeModelDesc": "Yalnızca ana model görselleri göremediğinde kullanılır. Ayrı bir model, sohbetin devam edebilmesi için görselleri metin açıklamalarına dönüştürür.",
     "visionBridgeModelClear": "Görsel köprüyü kapat",
-    "selectVisionBridgeModel": "Görsel modeli seç"
+    "selectVisionBridgeModel": "Görsel modeli seç",
+    "modelChainRestoreInherit": "Devralınan varsayılana sıfırla",
+    "automationModelChain": "Otomasyon varsayılan modeli",
+    "automationModelChainDesc": "Recap, Dreaming ve Bilgi Derleme gibi arka planda çalışan tek seferlik AI görevleri için varsayılan model zinciri (yedekli); yukarıdaki varsayılan sohbet modelinden bağımsızdır. Ayarlanmazsa varsayılan sohbet modeline döner.",
+    "automationModelChainInherit": "Varsayılan sohbet modelini kullan",
+    "knowledgeVision": {
+      "model": "Görsel modeli",
+      "modelDesc": "Görselleri bir bilgi alanına aktarırken OCR için kullanılan model zinciri. Boşsa otomasyon varsayılanı kullanılır.",
+      "modelDefault": "Otomasyon varsayılanını kullan",
+      "ocrConcurrency": "Taranmış PDF OCR eşzamanlılığı",
+      "maxOcrPages": "Taranmış PDF OCR sayfa sınırı"
+    },
+    "noteTools": {
+      "title": "Not araçları modeli",
+      "desc": "Not damıtma, MOC oluşturma ve oturumdan-nota araçlarının paylaştığı model.",
+      "modelDefault": "Otomasyon varsayılanını kullan"
+    },
+    "recallSummary": {
+      "title": "Hatırlama özetleme",
+      "desc": "recall_memory / session_search çok sayıda sonuç döndürdüğünde, ham parçaları döndürmek yerine ek bir LLM çağrısıyla tek bir kısa paragrafa sıkıştırır. Varsayılan olarak kapalıdır — uygun her aramada bir çağrı daha maliyetlidir.",
+      "enabled": "Özetlemeyi etkinleştir",
+      "minHits": "Tetiklenmesi için gereken minimum sonuç sayısı",
+      "contextCharBudget": "Bağlam bütçesi (karakter)",
+      "timeoutSecs": "Zaman aşımı (sn)",
+      "maxTokens": "Maksimum çıktı token sayısı",
+      "includeHistory": "Konuşma geçmişi sonuçlarını da özetle",
+      "model": "Model",
+      "modelDefault": "Otomasyon varsayılanını kullan"
+    }
   },
   "shortcuts": {
     "actionOpenSettings": "Ayarları aç",
@@ -5760,15 +5803,29 @@
     "reindexing": "Yeniden dizinleniyor…",
     "reindexDone": "Dizin yeniden oluşturuldu",
     "jobs": {
-      "tooltip": "Yeniden oluşturma görevleri",
-      "title": "Yeniden oluşturma görevleri",
-      "empty": "Henüz yeniden oluşturma görevi yok.",
+      "tooltip": "Bilgi alanı etkinliği",
+      "title": "Bilgi alanı etkinliği",
+      "empty": "Henüz etkinlik yok.",
       "kindReindex": "Dizini yeniden oluştur",
       "kindReembed": "Vektörleri yeniden gömme",
       "fts": "Tam metin dizini",
-      "result": "{{notes}} not · {{kbs}} alan yeniden oluşturuldu",
-      "emptyHint": "Bir alanı yeniden dizinleyin veya gömme modelini değiştirin; ilerleme burada görünür.",
-      "model": "Model: {{name}}"
+      "emptyHint": "Bir alanı bağlayın veya yeniden dizinleyin, ya da dosya içe aktarın; ilerleme burada görünür.",
+      "model": "Model: {{name}}",
+      "kindImport": "Kaynakları içe aktar",
+      "space": "Alan: {{name}}",
+      "progressFiles": "{{done}} / {{total}} dosya",
+      "progressItems": "{{done}} / {{total}} kaynak",
+      "resultOk": "{{notes}} not yeniden dizinlendi",
+      "resultPartial": "{{notes}} not yeniden dizinlendi · {{failed}} atlandı",
+      "importResultOk": "{{imported}} kaynak içe aktarıldı",
+      "importResultPartial": "{{imported}} içe aktarıldı · {{failed}} başarısız",
+      "importStatus": {
+        "running": "Çalışıyor",
+        "completed": "Tamamlandı",
+        "failed": "Başarısız",
+        "cancelled": "İptal edildi",
+        "timed_out": "Zaman aşımına uğradı"
+      }
     },
     "maintenance": {
       "tooltip": "Bakım",
@@ -5996,7 +6053,13 @@
       "similarScope": {
         "crossKb": "Çapraz alan",
         "sameKb": "Bu alan"
-      }
+      },
+      "ocrRunning": "OCR çalışıyor…",
+      "ocrPartial": "OCR: bazı sayfalar başarısız oldu",
+      "ocrFailed": "OCR başarısız oldu",
+      "ocrRetry": "Başarısız sayfaları yeniden dene",
+      "ocrRetryStarted": "Başarısız sayfalar yeniden deneniyor…",
+      "ocrRetryFailed": "OCR sayfaları yeniden denenemedi"
     },
     "queryFile": {
       "action": "Dosya",
@@ -6023,6 +6086,13 @@
       "openQuestionsPlaceholder": "Açık Sorularla Not",
       "mocPlaceholder": "MOCs/Conversation Filings.md",
       "createNotePlaceholder": "Filed Conversations/example.md"
+    },
+    "emptyState": {
+      "scanning": "Bu alan taranıyor…",
+      "scanFailed": "Tarama başarısız oldu",
+      "emptyExternal": "Bu klasörde henüz markdown notu bulunamadı.",
+      "emptyInternal": "Bu alan boş.",
+      "importFiles": "Dosyaları içe aktar"
     }
   },
   "backgroundJobs": {

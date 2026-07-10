@@ -15,6 +15,8 @@ import {
 import { ChevronDown, ChevronRight, Loader2, Check, Plus, Trash2, Webhook } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { logger } from "@/lib/logger"
+import { ModelChainEditor, type ModelChainRef } from "@/components/ui/model-chain-editor"
+import type { AvailableModel } from "@/components/ui/model-selector"
 
 // ── Types (mirror ha-core HooksConfig / HookHandlerConfig JSON) ──────────────
 
@@ -69,7 +71,7 @@ const HANDLER_TYPES: HandlerType[] = ["command", "http", "mcp_tool", "prompt", "
 const BLOCKING_EVENTS = new Set(["PreToolUse", "UserPromptSubmit", "PreCompact"])
 const SLOW_HANDLERS = new Set<HandlerType>(["prompt", "agent"])
 
-type FieldKind = "text" | "textarea" | "number" | "switch" | "csv" | "json" | "shell"
+type FieldKind = "text" | "textarea" | "number" | "switch" | "csv" | "json" | "shell" | "modelChain"
 interface FieldDef {
   key: string
   label: string
@@ -97,7 +99,7 @@ const FIELDS_BY_TYPE: Record<HandlerType, FieldDef[]> = {
   ],
   prompt: [
     { key: "prompt", label: "prompt", kind: "textarea" },
-    { key: "model", label: "model (provider:model)", kind: "text" },
+    { key: "modelOverride", label: "model", kind: "modelChain" },
   ],
   agent: [
     { key: "prompt", label: "prompt", kind: "textarea" },
@@ -176,12 +178,24 @@ function FieldInput({
   def,
   value,
   onChange,
+  availableModels,
 }: {
   def: FieldDef
   value: unknown
   onChange: (v: unknown) => void
+  availableModels: AvailableModel[]
 }) {
+  const { t } = useTranslation()
   switch (def.kind) {
+    case "modelChain":
+      return (
+        <ModelChainEditor
+          value={(value ?? null) as ModelChainRef | null}
+          onChange={(next) => onChange(next ?? undefined)}
+          availableModels={availableModels}
+          inheritLabel={t("settings.hooks.modelInheritDefault")}
+        />
+      )
     case "switch":
       return <Switch checked={value === true} onCheckedChange={(c) => onChange(c || undefined)} />
     case "number":
@@ -247,16 +261,18 @@ function FieldRow({
   def,
   value,
   onChange,
+  availableModels,
 }: {
   def: FieldDef
   value: unknown
   onChange: (v: unknown) => void
+  availableModels: AvailableModel[]
 }) {
   const inline = def.kind === "switch"
   return (
     <div className={cn("gap-1", inline ? "flex items-center justify-between" : "flex flex-col")}>
       <label className="text-xs font-mono text-muted-foreground">{def.label}</label>
-      <FieldInput def={def} value={value} onChange={onChange} />
+      <FieldInput def={def} value={value} onChange={onChange} availableModels={availableModels} />
     </div>
   )
 }
@@ -268,11 +284,13 @@ function HandlerCard({
   event,
   onChange,
   onRemove,
+  availableModels,
 }: {
   handler: Handler
   event: string
   onChange: (h: Handler) => void
   onRemove: () => void
+  availableModels: AvailableModel[]
 }) {
   const { t } = useTranslation()
   const [adv, setAdv] = useState(false)
@@ -314,7 +332,13 @@ function HandlerCard({
         </p>
       )}
       {FIELDS_BY_TYPE[handler.type].map((def) => (
-        <FieldRow key={def.key} def={def} value={handler[def.key]} onChange={(v) => setField(def.key, v)} />
+        <FieldRow
+          key={def.key}
+          def={def}
+          value={handler[def.key]}
+          onChange={(v) => setField(def.key, v)}
+          availableModels={availableModels}
+        />
       ))}
       <button
         type="button"
@@ -327,7 +351,13 @@ function HandlerCard({
       {adv && (
         <div className="space-y-2 border-l border-border/40 pl-2">
           {COMMON_FIELDS.map((def) => (
-            <FieldRow key={def.key} def={def} value={handler[def.key]} onChange={(v) => setField(def.key, v)} />
+            <FieldRow
+              key={def.key}
+              def={def}
+              value={handler[def.key]}
+              onChange={(v) => setField(def.key, v)}
+              availableModels={availableModels}
+            />
           ))}
         </div>
       )}
@@ -340,11 +370,13 @@ function GroupCard({
   event,
   onChange,
   onRemove,
+  availableModels,
 }: {
   group: MatcherGroup
   event: string
   onChange: (g: MatcherGroup) => void
   onRemove: () => void
+  availableModels: AvailableModel[]
 }) {
   const { t } = useTranslation()
   const setHandler = (i: number, h: Handler) => {
@@ -385,6 +417,7 @@ function GroupCard({
           event={event}
           onChange={(nh) => setHandler(i, nh)}
           onRemove={() => removeHandler(i)}
+          availableModels={availableModels}
         />
       ))}
       <Button
@@ -410,6 +443,7 @@ export default function HooksPanel() {
   const [saveStatus, setSaveStatus] = useState<"idle" | "saved" | "failed">("idle")
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
   const [pickEvent, setPickEvent] = useState("")
+  const [availableModels, setAvailableModels] = useState<AvailableModel[]>([])
 
   useEffect(() => {
     getTransport()
@@ -424,6 +458,13 @@ export default function HooksPanel() {
         setSavedJson(JSON.stringify(norm))
       })
       .catch((e) => logger.error("settings", "HooksPanel::load", "Failed to load hooks config", e))
+  }, [])
+
+  useEffect(() => {
+    getTransport()
+      .call<AvailableModel[]>("get_available_models")
+      .then(setAvailableModels)
+      .catch((e) => logger.error("settings", "HooksPanel::loadModels", "Failed to load available models", e))
   }, [])
 
   const dirty = useMemo(
@@ -480,7 +521,7 @@ export default function HooksPanel() {
   }
 
   return (
-    <div className="mx-auto max-w-4xl space-y-4 p-1">
+    <div className="flex-1 overflow-y-auto mx-auto max-w-4xl space-y-4 p-1">
       <div className="flex items-start justify-between gap-4">
         <div className="space-y-1">
           <h2 className="flex items-center gap-2 text-lg font-semibold">
@@ -598,6 +639,7 @@ export default function HooksPanel() {
                       event={ev}
                       onChange={(ng) => setGroup(ev, i, ng)}
                       onRemove={() => removeGroup(ev, i)}
+                      availableModels={availableModels}
                     />
                   ))}
                   <Button

@@ -1,5 +1,6 @@
 import { useTranslation } from "react-i18next"
 import ExtractConfig from "./ExtractConfig"
+import RecallSummarySection from "./RecallSummarySection"
 import BudgetConfig from "./BudgetConfig"
 import EmbeddingSettingsSection from "./EmbeddingSettingsSection"
 import type { useMemoryData } from "./useMemoryData"
@@ -25,6 +26,8 @@ export default function MemorySettingsView({ data, isAgentMode }: MemorySettings
         </div>
 
         <ExtractConfig data={data} isAgentMode={isAgentMode} />
+
+        {!isAgentMode && <RecallSummarySection />}
 
         {!isAgentMode && <BudgetConfig />}
 

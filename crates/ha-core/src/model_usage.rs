@@ -188,21 +188,36 @@ impl SessionDB {
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
 
-        if let Some(session_id) = event.session_id.as_deref() {
-            let Some(incognito) = conn
-                .query_row(
-                    "SELECT incognito FROM sessions WHERE id = ?1",
-                    params![session_id],
-                    |r| r.get::<_, i64>(0),
-                )
-                .optional()?
-            else {
-                return Ok(false);
-            };
-            if incognito != 0 {
-                return Ok(false);
+        // `session_id` may be a synthetic bookkeeping key rather than a real
+        // `sessions` row — background automation tasks (Recap, Dreaming,
+        // Knowledge OCR, etc.) pass a stable synthetic string (e.g.
+        // `"automation:recap"`) as their `PROFILE_STICKY`/`PROFILE_COOLDOWNS`
+        // failover-affinity key, since they aren't tied to any one chat
+        // session. Only a `session_id` that DOES match a real row needs the
+        // incognito check below (privacy: incognito sessions must never
+        // appear in the usage ledger) — a `session_id` matching no row at
+        // all isn't an incognito session to protect against, so it's stored
+        // as NULL (same as passing no `session_id` at all) instead of
+        // silently dropping the whole event, which would otherwise make
+        // every synthetic-keyed background call invisible to the Dashboard
+        // and cost ledger.
+        let stored_session_id = match event.session_id.as_deref() {
+            Some(session_id) => {
+                let incognito = conn
+                    .query_row(
+                        "SELECT incognito FROM sessions WHERE id = ?1",
+                        params![session_id],
+                        |r| r.get::<_, i64>(0),
+                    )
+                    .optional()?;
+                match incognito {
+                    Some(0) => Some(session_id),
+                    Some(_) => return Ok(false),
+                    None => None,
+                }
             }
-        }
+            None => None,
+        };
 
         let metadata = event
             .metadata
@@ -226,7 +241,7 @@ impl SessionDB {
                 event.provider_id.as_deref(),
                 event.provider_name.as_deref(),
                 event.model_id.as_deref(),
-                event.session_id.as_deref(),
+                stored_session_id,
                 event.agent_id.as_deref(),
                 opt_i64(event.input_tokens),
                 opt_i64(event.output_tokens),
@@ -263,5 +278,116 @@ pub fn record_model_usage_best_effort(event: ModelUsageEvent) {
                 event.kind
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::session::SessionDB;
+
+    fn open_test_db() -> (SessionDB, std::path::PathBuf) {
+        let path =
+            std::env::temp_dir().join(format!("ha-model-usage-test-{}.db", uuid::Uuid::new_v4()));
+        let db = SessionDB::open(&path).expect("open session db");
+        (db, path)
+    }
+
+    fn cleanup(path: &std::path::Path) {
+        let _ = std::fs::remove_file(path);
+        let _ = std::fs::remove_file(path.with_extension("db-wal"));
+        let _ = std::fs::remove_file(path.with_extension("db-shm"));
+    }
+
+    #[test]
+    fn synthetic_session_id_is_recorded_with_null_session_id_not_dropped() {
+        let (db, path) = open_test_db();
+        let event = ModelUsageEvent {
+            session_id: Some("automation:recap".to_string()),
+            ..ModelUsageEvent::new(KIND_SIDE_QUERY)
+        };
+        let inserted = db
+            .insert_model_usage_event(&event)
+            .expect("insert should succeed");
+        assert!(
+            inserted,
+            "a synthetic session_id with no matching sessions row must still be recorded"
+        );
+        let stored: Option<String> = db
+            .conn
+            .lock()
+            .unwrap()
+            .query_row(
+                "SELECT session_id FROM model_usage_events WHERE kind = ?1",
+                params![KIND_SIDE_QUERY],
+                |r| r.get(0),
+            )
+            .expect("row should exist");
+        assert_eq!(
+            stored, None,
+            "synthetic session_id should be stored as NULL, not the raw synthetic string"
+        );
+        cleanup(&path);
+    }
+
+    #[test]
+    fn real_session_id_is_recorded_normally() {
+        let (db, path) = open_test_db();
+        let session = db
+            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .expect("create session");
+        let event = ModelUsageEvent {
+            session_id: Some(session.id.clone()),
+            ..ModelUsageEvent::new(KIND_CHAT)
+        };
+        let inserted = db
+            .insert_model_usage_event(&event)
+            .expect("insert should succeed");
+        assert!(inserted);
+        let stored: Option<String> = db
+            .conn
+            .lock()
+            .unwrap()
+            .query_row(
+                "SELECT session_id FROM model_usage_events WHERE kind = ?1",
+                params![KIND_CHAT],
+                |r| r.get(0),
+            )
+            .expect("row should exist");
+        assert_eq!(stored, Some(session.id));
+        cleanup(&path);
+    }
+
+    #[test]
+    fn incognito_session_id_is_dropped() {
+        let (db, path) = open_test_db();
+        let session = db
+            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .expect("create session");
+        // Raw UPDATE rather than `update_session_incognito`: that method's
+        // own guard reads (project/channel checks) join against tables a
+        // bare test SessionDB doesn't have — irrelevant to what's under
+        // test here, which is only `insert_model_usage_event`'s own
+        // incognito check.
+        db.conn
+            .lock()
+            .unwrap()
+            .execute(
+                "UPDATE sessions SET incognito = 1 WHERE id = ?1",
+                params![session.id],
+            )
+            .expect("mark incognito");
+        let event = ModelUsageEvent {
+            session_id: Some(session.id.clone()),
+            ..ModelUsageEvent::new(KIND_CHAT)
+        };
+        let inserted = db
+            .insert_model_usage_event(&event)
+            .expect("insert should not error");
+        assert!(
+            !inserted,
+            "an incognito session's usage must not be recorded"
+        );
+        cleanup(&path);
     }
 }

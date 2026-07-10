@@ -1,5 +1,8 @@
 import {
+  AlertCircle,
   Check,
+  CheckCircle2,
+  Circle,
   Download,
   EyeOff,
   ExternalLink,
@@ -53,6 +56,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { IconTip } from "@/components/ui/tooltip"
 import { formatBytes } from "@/lib/format"
 import { logger } from "@/lib/logger"
+import { parsePayload } from "@/lib/transport"
 import { getTransport } from "@/lib/transport-provider"
 import { cn } from "@/lib/utils"
 import type {
@@ -66,6 +70,7 @@ import type {
   KnowledgeSourceImportRunDetail,
   KnowledgeSourceImportInput,
   KnowledgeSourceKind,
+  KnowledgeSourceOcrPage,
   KnowledgeSourceReadResult,
   KnowledgeSourceRefreshResult,
   KnowledgeSourceSimilarityGroup,
@@ -125,6 +130,7 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
   const [compileOpen, setCompileOpen] = useState(false)
   const [compileSourceIds, setCompileSourceIds] = useState<string[]>([])
   const [compileRequestToken, setCompileRequestToken] = useState(0)
+  const [ocrRoundActive, setOcrRoundActive] = useState<Record<string, boolean>>({})
 
   const reload = useCallback(async () => {
     if (!kbId) {
@@ -148,6 +154,22 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
         { kbId, limit: 8 },
       )
       setImportRuns(runs)
+      // Resume tracking a run that was already `running` before this panel
+      // instance mounted (switched away and back, reopened the app mid-import,
+      // etc.) — otherwise nothing ever sets `runDetail`, so the poll /
+      // event-driven refresh below never starts and progress stays invisible
+      // until the user happens to reopen the import-history dialog.
+      if (runs[0]?.status === "running") {
+        try {
+          const detail = await getTransport().call<KnowledgeSourceImportRunDetail>(
+            "kb_source_import_run_detail_cmd",
+            { kbId, runId: runs[0].id },
+          )
+          setRunDetail(detail)
+        } catch (e) {
+          logger.warn("knowledge", "KnowledgeSourcesPanel::reload", "resume run detail failed", e)
+        }
+      }
     } catch (e) {
       logger.warn("knowledge", "KnowledgeSourcesPanel::reload", "source import runs failed", e)
     }
@@ -187,19 +209,62 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
     return getTransport().listen("knowledge:changed", () => void reload())
   }, [reload])
 
+  // `partially_extracted` is set the instant a scanned-PDF OCR placeholder is
+  // created (0 pages attempted yet), not just once a round genuinely leaves
+  // some pages failed — so the status alone can't tell "still running" from
+  // "finished with real failures" apart. Cross-check against the per-page
+  // ledger for any source in that state to decide which badge to show.
+  // Re-runs whenever `sources` refreshes (including the `knowledge:changed`
+  // reload fired when an OCR round finishes), so it naturally stays current.
+  useEffect(() => {
+    const pdfPartial = sources.filter(
+      (s) => s.kind === "pdf" && s.status === "partially_extracted",
+    )
+    if (!kbId || pdfPartial.length === 0) return
+    let cancelled = false
+    void (async () => {
+      const entries = await Promise.all(
+        pdfPartial.map(async (s) => {
+          try {
+            const pages = await getTransport().call<KnowledgeSourceOcrPage[]>(
+              "kb_source_ocr_pages_cmd",
+              { kbId, sourceId: s.id },
+            )
+            const active = pages.some((p) => p.status === "pending" || p.status === "running")
+            return [s.id, active] as const
+          } catch (e) {
+            logger.warn(
+              "knowledge",
+              "KnowledgeSourcesPanel::ocrRoundActive",
+              "OCR page status fetch failed",
+              e,
+            )
+            return [s.id, false] as const
+          }
+        }),
+      )
+      if (cancelled) return
+      setOcrRoundActive(Object.fromEntries(entries))
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [sources, kbId])
+
   const activeRunId = runDetail?.status === "running" ? runDetail.id : null
 
-  useEffect(() => {
-    if (!kbId || !activeRunId) return
-    let cancelled = false
-    const refreshRun = async () => {
+  const refreshRun = useCallback(
+    async (runId: string) => {
+      if (!kbId) return
       try {
         const detail = await getTransport().call<KnowledgeSourceImportRunDetail>(
           "kb_source_import_run_detail_cmd",
-          { kbId, runId: activeRunId },
+          { kbId, runId },
         )
-        if (cancelled) return
-        setRunDetail(detail)
+        // Only apply if we're still tracking this run — guards against a
+        // stale response landing after the user switched to a different run
+        // / space in the meantime.
+        setRunDetail((prev) => (prev == null || prev.id === runId ? detail : prev))
         setImportRuns((prev) =>
           prev.map((run) =>
             run.id === detail.id
@@ -222,16 +287,40 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
           await reload()
         }
       } catch (e) {
-        logger.warn("knowledge", "KnowledgeSourcesPanel::pollRun", "source run poll failed", e)
+        logger.warn("knowledge", "KnowledgeSourcesPanel::refreshRun", "source run refresh failed", e)
       }
-    }
-    void refreshRun()
-    const timer = window.setInterval(() => void refreshRun(), 1500)
+    },
+    [kbId, reload],
+  )
+
+  // Poll as a fallback (covers the rare case a run has no `backgroundJobId` —
+  // job DB uninitialized — so the event-driven effect below has nothing to
+  // match on) rather than the primary update path.
+  useEffect(() => {
+    if (!kbId || !activeRunId) return
+    const timer = window.setInterval(() => void refreshRun(activeRunId), 1500)
+    return () => window.clearInterval(timer)
+  }, [activeRunId, kbId, refreshRun])
+
+  // Primary update path: react to the batch's background-job progress ticks
+  // (one per item settled, see `process_import_run`) and its completion,
+  // instead of waiting up to 1.5s for the poll above.
+  useEffect(() => {
+    if (!kbId || !activeRunId) return
+    const jobId = runDetail?.backgroundJobId
+    if (!jobId) return
+    const matchesJob = (raw: unknown) => parsePayload<{ job_id?: string }>(raw)?.job_id === jobId
+    const off1 = getTransport().listen("job:progress", (raw) => {
+      if (matchesJob(raw)) void refreshRun(activeRunId)
+    })
+    const off2 = getTransport().listen("job:completed", (raw) => {
+      if (matchesJob(raw)) void refreshRun(activeRunId)
+    })
     return () => {
-      cancelled = true
-      window.clearInterval(timer)
+      off1()
+      off2()
     }
-  }, [activeRunId, kbId, reload])
+  }, [kbId, activeRunId, runDetail?.backgroundJobId, refreshRun])
 
   const canImport = useMemo(() => {
     if (!kbId || importing) return false
@@ -273,6 +362,12 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
           duplicate,
           failed,
         }),
+        {
+          action: {
+            label: t("knowledge.sources.retryFailedAction", "Retry failed"),
+            onClick: () => void retryFailed(detail),
+          },
+        },
       )
     } else if (duplicate > 0) {
       toast.success(
@@ -537,6 +632,21 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
     }
   }
 
+  async function retryOcrPages(source: KnowledgeSource) {
+    if (!kbId) return
+    try {
+      const updated = await getTransport().call<KnowledgeSource>("kb_source_ocr_retry_cmd", {
+        kbId,
+        sourceId: source.id,
+      })
+      setSources((items) => items.map((item) => (item.id === updated.id ? updated : item)))
+      toast.success(t("knowledge.sources.ocrRetryStarted", "Retrying failed pages…"))
+    } catch (e) {
+      logger.warn("knowledge", "KnowledgeSourcesPanel::retryOcr", "OCR page retry failed", e)
+      toast.error(t("knowledge.sources.ocrRetryFailed", "Couldn't retry OCR pages"))
+    }
+  }
+
   async function refreshSource(source: KnowledgeSource) {
     if (!kbId || !isRefreshableSourceKind(source.kind) || refreshingSourceId) return
     setRefreshingSourceId(source.id)
@@ -634,10 +744,10 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
     setTitle((v) => (picked.length === 1 ? v || stripExt(picked[0].name) : v))
   }
 
-  const selectedIdsInOrder = sources
-    .filter((source) => selectedSourceIds.has(source.id))
-    .map((source) => source.id)
+  const selectedSources = sources.filter((source) => selectedSourceIds.has(source.id))
+  const selectedIdsInOrder = selectedSources.map((source) => source.id)
   const selectedCount = selectedIdsInOrder.length
+  const hasUnreadySelected = selectedSources.some((source) => source.status !== "ready")
   const latestRun = importRuns[0]
 
   if (!kbId) {
@@ -691,7 +801,7 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
               size="icon"
               className="relative h-6 w-6"
               onClick={() => openCompile(selectedIdsInOrder)}
-              disabled={selectedCount === 0}
+              disabled={selectedCount === 0 || hasUnreadySelected}
             >
               <Sparkles className="h-3 w-3" />
               {selectedCount > 0 ? (
@@ -728,13 +838,29 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
       {latestRun || similarGroups.length > 0 ? (
         <div className="border-b border-border-soft/50 px-2 py-1 text-[10px] text-muted-foreground">
           {latestRun ? (
-            <button
-              type="button"
-              className="mr-2 rounded-sm px-1 py-0.5 hover:bg-muted/60"
-              onClick={() => void openRunDetail(latestRun)}
-            >
-              {formatDate(latestRun.createdAt)} · +{latestRun.importedCount} · ={latestRun.duplicateCount} · !{latestRun.failedCount}
-            </button>
+            <>
+              <button
+                type="button"
+                className="mr-2 rounded-sm px-1 py-0.5 hover:bg-muted/60"
+                onClick={() => void openRunDetail(latestRun)}
+              >
+                {formatDate(latestRun.createdAt)} · +{latestRun.importedCount} · ={latestRun.duplicateCount} · !{latestRun.failedCount}
+              </button>
+              {latestRun.status !== "running" && latestRun.failedCount > 0 ? (
+                <button
+                  type="button"
+                  className="mr-2 rounded-sm px-1 py-0.5 text-destructive hover:bg-muted/60"
+                  disabled={!!retryingRunId}
+                  onClick={() => void retryFailed(latestRun)}
+                >
+                  {retryingRunId === latestRun.id ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : (
+                    t("knowledge.sources.retryFailedAction", "Retry failed")
+                  )}
+                </button>
+              ) : null}
+            </>
           ) : null}
           {similarGroups.length > 0 ? (
             <button
@@ -820,6 +946,29 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
                           <span>{t("knowledge.sources.mediaRetained", "Media retained")}</span>
                         </>
                       ) : null}
+                      {source.status === "partially_extracted" ? (
+                        <>
+                          <span>·</span>
+                          {ocrRoundActive[source.id] ? (
+                            <span className="inline-flex items-center gap-1 text-muted-foreground">
+                              <Loader2 className="h-2.5 w-2.5 animate-spin" />
+                              {t("knowledge.sources.ocrRunning", "OCR running…")}
+                            </span>
+                          ) : (
+                            <span className="text-amber-600 dark:text-amber-500">
+                              {t("knowledge.sources.ocrPartial", "OCR: some pages failed")}
+                            </span>
+                          )}
+                        </>
+                      ) : null}
+                      {source.status === "failed" && source.kind === "pdf" ? (
+                        <>
+                          <span>·</span>
+                          <span className="text-destructive">
+                            {t("knowledge.sources.ocrFailed", "OCR failed")}
+                          </span>
+                        </>
+                      ) : null}
                       {source.externalRawPath ? (
                         <>
                           <span>·</span>
@@ -836,7 +985,10 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
                 <FileText className="mr-2 h-3.5 w-3.5" />
                 {t("knowledge.sources.open", "Open")}
               </ContextMenuItem>
-              <ContextMenuItem onClick={() => openCompile([source.id])}>
+              <ContextMenuItem
+                disabled={source.status !== "ready"}
+                onClick={() => openCompile([source.id])}
+              >
                 <Sparkles className="mr-2 h-3.5 w-3.5" />
                 {t("knowledge.sources.compileOne", "Organize into note")}
               </ContextMenuItem>
@@ -859,6 +1011,13 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
                 <RefreshCw className="mr-2 h-3.5 w-3.5" />
                 {t("knowledge.sources.reextract", "Re-extract")}
               </ContextMenuItem>
+              {source.kind === "pdf" &&
+              (source.status === "partially_extracted" || source.status === "failed") ? (
+                <ContextMenuItem onClick={() => void retryOcrPages(source)}>
+                  <RotateCcw className="mr-2 h-3.5 w-3.5" />
+                  {t("knowledge.sources.ocrRetry", "Retry failed OCR pages")}
+                </ContextMenuItem>
+              ) : null}
               <ContextMenuItem
                 className="text-destructive focus:text-destructive"
                 onClick={() => setDeleteTarget(source)}
@@ -1291,8 +1450,11 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
                   {runDetail.items.map((item) => (
                     <div key={item.id} className="p-2 text-xs">
                       <div className="flex min-w-0 items-center justify-between gap-2">
-                        <span className="truncate font-medium">
-                          {item.label || item.sourceId || `#${item.position + 1}`}
+                        <span className="flex min-w-0 items-center gap-1 truncate font-medium">
+                          <ItemStatusIcon status={item.status} />
+                          <span className="truncate">
+                            {item.label || item.sourceId || `#${item.position + 1}`}
+                          </span>
                         </span>
                         <span className={cn("shrink-0 text-[10px]", item.status === "failed" && "text-destructive")}>
                           {itemStatusLabel(item.status, t)}
@@ -1864,6 +2026,29 @@ function itemStatusLabel(status: KnowledgeSourceImportRunDetail["items"][number]
     case "pending":
     default:
       return t("knowledge.sources.itemStatus.pending", "Pending")
+  }
+}
+
+// Same icon vocabulary as `KnowledgeActivityButton`'s `StatusIcon` — the
+// import history dialog previously distinguished statuses by text alone
+// (plus a red tint on "failed"), unlike every other job-progress surface.
+function ItemStatusIcon({
+  status,
+}: {
+  status: KnowledgeSourceImportRunDetail["items"][number]["status"]
+}) {
+  switch (status) {
+    case "running":
+      return <Loader2 className="h-3 w-3 shrink-0 animate-spin text-primary" />
+    case "imported":
+      return <CheckCircle2 className="h-3 w-3 shrink-0 text-emerald-500" />
+    case "duplicate":
+      return <CheckCircle2 className="h-3 w-3 shrink-0 text-muted-foreground" />
+    case "failed":
+      return <AlertCircle className="h-3 w-3 shrink-0 text-destructive" />
+    case "pending":
+    default:
+      return <Circle className="h-3 w-3 shrink-0 text-muted-foreground" />
   }
 }
 

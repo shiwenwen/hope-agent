@@ -19,13 +19,13 @@ use ha_core::knowledge::{
     KnowledgeSourceAssetKind, KnowledgeSourceAssetLink, KnowledgeSourceDiff,
     KnowledgeSourceExternalRawSyncResult, KnowledgeSourceImportBatchInput,
     KnowledgeSourceImportInput, KnowledgeSourceImportRun, KnowledgeSourceImportRunDetail,
-    KnowledgeSourceImportSessionAttachmentInput, KnowledgeSourceReadResult,
+    KnowledgeSourceImportSessionAttachmentInput, KnowledgeSourceOcrPage, KnowledgeSourceReadResult,
     KnowledgeSourceRefreshInput, KnowledgeSourceRefreshResult,
     KnowledgeSourceSimilarityDismissInput, KnowledgeSourceSimilarityGroup,
     KnowledgeSourceSimilarityResolveInput, KnowledgeSourceSimilarityResolveResult,
-    KnowledgeSourceVersionHistory, Note, NoteReadResult, NoteSearchHit, NoteSourceRef,
-    QueryFileInput, ReferenceableNote, RenameOutcome, SchemaIssue, SchemaProfile,
-    UpdateKnowledgeBaseInput,
+    KnowledgeSourceVersionHistory, KnowledgeVisionConfig, Note, NoteReadResult, NoteSearchHit,
+    NoteSourceRef, NoteToolsConfig, QueryFileInput, ReferenceableNote, RenameOutcome, SchemaIssue,
+    SchemaProfile, UpdateKnowledgeBaseInput,
 };
 use ha_core::session::SessionMeta;
 
@@ -56,8 +56,27 @@ pub async fn get_kb_cmd(id: String) -> Result<Option<KnowledgeBase>, CmdError> {
 #[tauri::command]
 pub async fn create_kb_cmd(input: CreateKnowledgeBaseInput) -> Result<KnowledgeBase, CmdError> {
     let kb = registry()?.create(input)?;
-    // Index + watch the new KB (external vaults get a full scan).
-    knowledge::index::spawn_reindex_kb(kb.id.clone(), true);
+    // Index + watch the new KB. External vaults may already hold a large
+    // number of files worth tracking with real progress — route them through
+    // the job-tracked reembed/reindex path (the same one the settings-page
+    // rebuild uses) so the bind shows live file-level progress instead of a
+    // silent scan. Internal KBs are guaranteed empty at creation, so the
+    // cheap fire-and-forget path is enough and skips job overhead.
+    if kb.root_dir.is_some() {
+        if let Err(e) =
+            knowledge::start_knowledge_reembed_job(Some(vec![kb.id.clone()]), "kb-create")
+        {
+            ha_core::app_warn!(
+                "knowledge",
+                "create_kb",
+                "job-tracked scan failed, falling back to untracked reindex: {}",
+                e
+            );
+            knowledge::index::spawn_reindex_kb(kb.id.clone(), true);
+        }
+    } else {
+        knowledge::index::spawn_reindex_kb(kb.id.clone(), true);
+    }
     let _ = knowledge::watcher::start_watcher(&kb.id);
     emit("knowledge:created", serde_json::json!({ "kbId": kb.id }));
     Ok(kb)
@@ -185,6 +204,24 @@ pub async fn kb_source_import_retry_failed_cmd(
     run_id: String,
 ) -> Result<KnowledgeSourceImportRunDetail, CmdError> {
     service::source_import_retry_failed(&kb_id, &run_id)
+        .await
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub fn kb_source_ocr_pages_cmd(
+    kb_id: String,
+    source_id: String,
+) -> Result<Vec<KnowledgeSourceOcrPage>, CmdError> {
+    service::source_ocr_pages(&kb_id, &source_id).map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn kb_source_ocr_retry_cmd(
+    kb_id: String,
+    source_id: String,
+) -> Result<KnowledgeSource, CmdError> {
+    service::source_ocr_retry(&kb_id, &source_id)
         .await
         .map_err(Into::into)
 }
@@ -343,6 +380,34 @@ pub async fn knowledge_compile_config_set_cmd(
     config: KnowledgeCompileConfig,
 ) -> Result<KnowledgeCompileConfig, CmdError> {
     service::set_compile_config(config, "desktop").map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn knowledge_vision_config_get_cmd() -> Result<KnowledgeVisionConfig, CmdError> {
+    Ok(service::get_vision_config())
+}
+
+#[tauri::command]
+pub async fn knowledge_vision_config_set_cmd(
+    config: KnowledgeVisionConfig,
+) -> Result<KnowledgeVisionConfig, CmdError> {
+    service::set_vision_config(config, "desktop")
+        .await
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn note_tools_config_get_cmd() -> Result<NoteToolsConfig, CmdError> {
+    Ok(service::get_note_tools_config())
+}
+
+#[tauri::command]
+pub async fn note_tools_config_set_cmd(
+    config: NoteToolsConfig,
+) -> Result<NoteToolsConfig, CmdError> {
+    service::set_note_tools_config(config, "desktop")
+        .await
+        .map_err(Into::into)
 }
 
 // ── Schema profile + evidence refs (Phase 3) ─────────────────────

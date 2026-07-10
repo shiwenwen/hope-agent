@@ -82,11 +82,16 @@ async fn run_extract(source_label: &str, material: &str) -> Result<ExtractedSyst
         anyhow::bail!("nothing to extract from");
     }
     let prompt = build_prompt(source_label, material);
-    let config = crate::config::cached_config();
-    let (agent, _model) = crate::recap::report::build_analysis_agent(&config).await?;
     // 4096：容纳完整 9 段 systemMd + 整套（核心 + 扩展）token 的 JSON，避免截断。
-    let res = agent.side_query(&prompt, 4096).await?;
-    parse(&res.text)
+    let text = super::run_design_task(
+        "design.extract",
+        "automation:design.extract",
+        &prompt,
+        4096,
+        None,
+    )
+    .await?;
+    parse(&text)
 }
 
 fn parse(text: &str) -> Result<ExtractedSystem> {
@@ -140,10 +145,15 @@ font stacks): {vocab}\n\nBRIEF:\n{brief}",
         vocab = TOKEN_VOCAB,
         brief = truncate(brief, 4000),
     );
-    let config = crate::config::cached_config();
-    let (agent, _model) = crate::recap::report::build_analysis_agent(&config).await?;
-    let res = agent.side_query(&prompt, 2000).await?;
-    let t = res.text.trim();
+    let text = super::run_design_task(
+        "design.directions",
+        "automation:design.directions",
+        &prompt,
+        2000,
+        None,
+    )
+    .await?;
+    let t = text.trim();
     let wrap: DirectionsWrap = serde_json::from_str(t)
         .or_else(|_| {
             let (a, b) = (t.find('{'), t.rfind('}'));

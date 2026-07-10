@@ -66,9 +66,17 @@ HTML:\n{html}",
     );
 
     let config = crate::config::cached_config();
-    let agent = build_critique_agent(&config).await?;
-    let res = agent.side_query(&prompt, 1200).await?;
-    let mut out = parse_critique(&res.text)?;
+    let text = super::run_design_task(
+        "design.critique",
+        "automation:design.critique",
+        &prompt,
+        1200,
+        // Honor the `design.critiqueModel` ("providerId:modelId") override;
+        // otherwise the automation chain (same as /recap) is used.
+        config.design.critique_model.as_deref(),
+    )
+    .await?;
+    let mut out = parse_critique(&text)?;
     out.brand = clamp10(out.brand);
     out.accessibility = clamp10(out.accessibility);
     out.hierarchy = clamp10(out.hierarchy);
@@ -79,33 +87,6 @@ HTML:\n{html}",
     );
     out.fixes.truncate(6);
     Ok(out)
-}
-
-/// Build the agent that runs the critique side-query. Honors the
-/// `design.critiqueModel` ("providerId:modelId") override; otherwise reuses the shared
-/// analysis agent (same model as `/recap`), which reuses the cache-warm side path.
-async fn build_critique_agent(
-    config: &crate::config::AppConfig,
-) -> Result<crate::agent::AssistantAgent> {
-    if let Some(over) = config
-        .design
-        .critique_model
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-    {
-        let (pid, mid) = over.split_once(':').ok_or_else(|| {
-            anyhow::anyhow!("invalid design.critiqueModel '{over}' (want 'providerId:modelId')")
-        })?;
-        let prov = crate::provider::find_provider(&config.providers, pid)
-            .ok_or_else(|| anyhow::anyhow!("design.critiqueModel provider '{pid}' not found"))?;
-        let agent = crate::agent::AssistantAgent::try_new_from_provider(prov, mid)
-            .await?
-            .with_failover_context(prov);
-        return Ok(agent);
-    }
-    let (agent, _model) = crate::recap::report::build_analysis_agent(config).await?;
-    Ok(agent)
 }
 
 fn truncate(s: &str, max: usize) -> &str {

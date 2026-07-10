@@ -502,6 +502,7 @@
         "desc": "Các công cụ chỉnh sửa và lệnh nguy hiểm cần phê duyệt, các công cụ khác chạy ngay.",
         "label": "Mặc định"
       },
+      "menuLabel": "Chế độ quyền",
       "smart": {
         "desc": "Mô hình giám định hoặc tự đánh giá tin cậy quyết định việc phê duyệt.",
         "label": "Phê duyệt thông minh"
@@ -509,8 +510,31 @@
       "yolo": {
         "desc": "Mọi công cụ trong phiên này chạy không cần phê duyệt (đường dẫn bảo vệ vẫn ghi log).",
         "label": "YOLO"
+      }
+    },
+    "sandboxMode": {
+      "isolated": {
+        "desc": "Run in an isolated copy; edit approvals are unchanged until apply-back is supported.",
+        "label": "Isolated Sandbox"
       },
-      "menuLabel": "Chế độ quyền"
+      "menuLabel": "Hộp cát",
+      "off": {
+        "desc": "Run on the host; approval behavior is unchanged.",
+        "label": "Sandbox Off"
+      },
+      "setupTitle": "Configure Docker to enable sandbox",
+      "standard": {
+        "desc": "Run in Docker; approval behavior is unchanged.",
+        "label": "Standard Sandbox"
+      },
+      "trusted": {
+        "desc": "Max autonomy for sandboxed exec; strict risks still ask.",
+        "label": "Trusted Sandbox"
+      },
+      "workspace": {
+        "desc": "Mount this workspace and reduce edit-command approvals.",
+        "label": "Workspace Sandbox"
+      }
     },
     "pickSession": "Chọn phiên",
     "profileRotationTitle": "Đổi profile",
@@ -651,30 +675,6 @@
       "reloadBody": "Tiện ích đã cài không khớp với host. Tải lại để khôi phục quyền điều khiển Chrome thật của bạn.",
       "openSettings": "Mở cài đặt",
       "dismiss": "Không hiển thị lại"
-    },
-    "sandboxMode": {
-      "isolated": {
-        "desc": "Run in an isolated copy; edit approvals are unchanged until apply-back is supported.",
-        "label": "Isolated Sandbox"
-      },
-      "off": {
-        "desc": "Run on the host; approval behavior is unchanged.",
-        "label": "Sandbox Off"
-      },
-      "setupTitle": "Configure Docker to enable sandbox",
-      "standard": {
-        "desc": "Run in Docker; approval behavior is unchanged.",
-        "label": "Standard Sandbox"
-      },
-      "trusted": {
-        "desc": "Max autonomy for sandboxed exec; strict risks still ask.",
-        "label": "Trusted Sandbox"
-      },
-      "workspace": {
-        "desc": "Mount this workspace and reduce edit-command approvals.",
-        "label": "Workspace Sandbox"
-      },
-      "menuLabel": "Hộp cát"
     },
     "browserExtensionRequired": {
       "nextAction": "Hành động tiếp theo: {{nextAction}}",
@@ -1235,7 +1235,11 @@
       "ttft": "TTFT",
       "ttftTrend": "Thời gian đến token đầu tiên (TTFT)",
       "inputTokens": "Mã thông báo đầu vào",
-      "outputTokens": "Mã thông báo đầu ra"
+      "outputTokens": "Mã thông báo đầu ra",
+      "byDomain": "Phân bố theo miền",
+      "byOperation": "Theo thao tác",
+      "operation": "Thao tác",
+      "domain": "Miền"
     },
     "tool": {
       "avgDuration": "Thời lượng trung bình",
@@ -1911,7 +1915,11 @@
     "backgroundJobFailed": "Tác vụ nền thất bại",
     "backgroundJobFallback": "Một tác vụ nền đã hoàn tất",
     "backgroundJobToggle": "Thông báo khi tác vụ nền hoàn tất",
-    "backgroundJobDesc": "Hiển thị thông báo trên màn hình khi một tác vụ nền hoàn tất trong lúc cửa sổ ở chế độ nền"
+    "backgroundJobDesc": "Hiển thị thông báo trên màn hình khi một tác vụ nền hoàn tất trong lúc cửa sổ ở chế độ nền",
+    "knowledgeScanComplete": "Đã quét xong không gian tri thức",
+    "knowledgeScanFailed": "Quét không gian tri thức thất bại",
+    "knowledgeImportComplete": "Đã nhập xong không gian tri thức",
+    "knowledgeImportFailed": "Nhập không gian tri thức thất bại một phần"
   },
   "onboarding": {
     "channels": {
@@ -2775,9 +2783,8 @@
       },
       "intro": "Công tắc YOLO toàn cục, danh sách mẫu đường dẫn bảo vệ / lệnh chỉnh sửa / lệnh nguy hiểm, và cấu hình chế độ phê duyệt thông minh.",
       "judgeExtraPromptPlaceholder": "Tùy chọn: hướng dẫn thêm cho giám khảo (danh sách đường dẫn cho phép, lệnh tin cậy...)",
-      "judgeModelPlaceholder": "Mô hình (vd: claude-haiku-4-5)",
+      "judgeModelPlaceholder": "Chọn mô hình giám khảo",
       "judgeModelTitle": "Cấu hình mô hình giám khảo",
-      "judgeProviderPlaceholder": "ID provider (vd: anthropic-1)",
       "protectedPathsDesc": "Lần gọi công cụ chạm tới các đường dẫn này sẽ bắt buộc phê duyệt và không thể Luôn cho phép. Hỗ trợ mở rộng ~/, tiền tố thư mục (kết thúc bằng /) và glob *.pattern.",
       "protectedPathsPlaceholder": "vd: ~/.ssh/, .env, *.pem",
       "protectedPathsTitle": "Đường dẫn được bảo vệ",
@@ -2859,8 +2866,6 @@
       "digestMaxChars": "Ngân sách đầu ra tóm tắt (ký tự)",
       "dynamicEnabled": "Làm mới hậu tố mỗi lượt",
       "enabledForSession": "Bật cho phiên này",
-      "extractionAgent": "Agent ID trích xuất (tùy chọn)",
-      "extractionAgentPlaceholder": "Để trống để kế thừa recap.analysisAgent",
       "includeChannel": "Bao gồm phiên kênh IM",
       "includeCron": "Bao gồm phiên cron",
       "includeSubagents": "Bao gồm phiên sub-agent",
@@ -2884,7 +2889,9 @@
       "resetOverride": "Đặt lại về toàn cục",
       "sameAgentOnly": "Chỉ cùng Agent",
       "sessionOverride": "Ghi đè phiên",
-      "title": "Nhận biết hành vi"
+      "title": "Nhận biết hành vi",
+      "extractionModel": "Mô hình trích xuất (tùy chọn)",
+      "extractionModelInherit": "Dùng lại agent trò chuyện hiện tại (thân thiện với bộ nhớ đệm)"
     },
     "browser": {
       "activeBadge": "đang dùng",
@@ -3262,7 +3269,7 @@
       "narrativeMaxTokensDesc": "Output budget for the narrative side query.",
       "narrativeModel": "Narrative model",
       "narrativeModelClear": "Clear",
-      "narrativeModelDefault": "Follow active chat agent",
+      "narrativeModelDefault": "Theo mặc định tự động hóa",
       "narrativeModelDesc": "Override the model used for narrative scoring. Empty falls back to the active chat / recap model chain.",
       "narrativeTimeoutSecs": "Timeout (seconds)",
       "narrativeTimeoutSecsDesc": "Side query is aborted after this many seconds.",
@@ -3381,7 +3388,8 @@
       "matcherPlaceholder": "tên công cụ / nguồn (regex được), trống = tất cả",
       "addHandler": "Thêm trình xử lý",
       "advanced": "Nâng cao",
-      "slowHandlerWarning": "Trình xử lý này chạy LLM / sub-agent nội tuyến và sẽ làm chậm mỗi lần sự kiện chặn này kích hoạt. Hãy ưu tiên command / http ở đây, hoặc chuyển sang sự kiện quan sát (vd. PostToolUse)."
+      "slowHandlerWarning": "Trình xử lý này chạy LLM / sub-agent nội tuyến và sẽ làm chậm mỗi lần sự kiện chặn này kích hoạt. Hãy ưu tiên command / http ở đây, hoặc chuyển sang sự kiện quan sát (vd. PostToolUse).",
+      "modelInheritDefault": "Theo mặc định tự động hóa"
     },
     "hours": "giờ",
     "imageGenApiKey": "API Key",
@@ -3434,6 +3442,11 @@
     "kb": "KB",
     "knowledge": {
       "tab": "Kiến thức"
+    },
+    "knowledgeCompile": {
+      "agent": "Mô hình biên soạn",
+      "agentDefault": "Theo mặc định tự động hóa",
+      "agentDesc": "Chuỗi mô hình dùng để biến nguồn tài liệu thành đề xuất ghi chú có thể xét duyệt. Để trống sẽ theo mặc định tự động hóa."
     },
     "knowledgeChunk": {
       "title": "Nâng cao · phân đoạn",
@@ -3491,7 +3504,20 @@
         "sourceConflict": "Source conflicts",
         "openQuestionsMoc": "Open Questions MOC",
         "forAgentSummary": "For Agent summaries"
-      }
+      },
+      "model": "Mô hình",
+      "modelDesc": "Dùng chung cho cả 4 bộ tạo dựa trên LLM (gắn thẻ tự động, bảo trì MOC, bộ nhớ→ghi chú, xung đột nguồn).",
+      "modelDefault": "Theo mặc định tự động hóa"
+    },
+    "knowledgeMediaRetention": {
+      "saved": "Đã lưu",
+      "title": "Lưu giữ media gốc",
+      "description": "Tùy chọn giữ lại bản gốc âm thanh, video và hình ảnh đã nhập để xem lại bằng chứng nguồn.",
+      "maxTotal": "Tổng hạn mức (MiB)",
+      "maxSource": "Mỗi nguồn (MiB)",
+      "thumbnail": "Cạnh dài thumbnail (px)",
+      "prune": "Xóa media cũ nhất khi vượt hạn mức",
+      "pruneDesc": "Khi tệp mới được lưu giữ sẽ vượt hạn mức, hãy xóa các bản gốc đã lưu cũ nhất trước khi bỏ qua tệp mới."
     },
     "knowledgePassiveRecall": {
       "title": "Ghi chú liên quan thụ động",
@@ -4280,9 +4306,9 @@
     "proxyUrl": "URL proxy",
     "proxyUrlPlaceholder": "http://127.0.0.1:7890",
     "recap": "Recap",
-    "recapAnalysisAgent": "Agent phân tích",
-    "recapAnalysisAgentDefault": "Dùng agent mặc định toàn cục",
-    "recapAnalysisAgentDesc": "Agent dùng để trích xuất facet và viết phần báo cáo. Nếu không đặt, kế thừa agent mặc định toàn cục.",
+    "recapAnalysisAgent": "Mô hình phân tích",
+    "recapAnalysisAgentDefault": "Theo mặc định tự động hóa",
+    "recapAnalysisAgentDesc": "Chuỗi mô hình dùng để trích xuất facet và viết các mục báo cáo. Để trống sẽ theo mặc định tự động hóa.",
     "recapCacheRetentionDays": "Thời gian lưu cache facet (ngày)",
     "recapCacheRetentionDaysDesc": "Thời gian giữ facet đã cache trước khi dọn dẹp hằng ngày. 0 = giữ mãi. Mặc định 180.",
     "recapDefaultRangeDays": "Khoảng thời gian mặc định (ngày)",
@@ -4348,6 +4374,9 @@
     "serverEmbeddedBind": "Địa chỉ bind",
     "serverEmbeddedBindDesc": "Mặc định 127.0.0.1 chỉ cho localhost. Đặt thành 0.0.0.0 để mở ra mạng",
     "serverGenerateApiKey": "Tạo",
+    "serverKnowledgeAgentReadToken": "Token đọc của Knowledge Agent",
+    "serverKnowledgeAgentReadTokenPlaceholder": "Để trống để tắt quyền truy cập agent chỉ đọc",
+    "serverKnowledgeAgentReadTokenDesc": "Token giới hạn cho agent bên ngoài. Chỉ có hiệu lực khi cũng đặt owner API key; khi đó token chỉ gọi được các endpoint knowledge agent chỉ đọc và không cấp quyền owner API.",
     "serverMode": "Chế độ máy chủ",
     "serverModeDesc": "Chọn chế độ nhúng hoặc kết nối với máy chủ từ xa",
     "serverModeEmbedded": "Nhúng",
@@ -4555,7 +4584,8 @@
         },
         "reviewModel": {
           "label": "Dedicated review model",
-          "help": "Format: provider:model. Empty reuses the main chat's cached prefix."
+          "help": "Chuỗi mô hình dùng để xét duyệt kỹ năng ứng viên. Để trống sẽ dùng lại bộ nhớ đệm của cuộc trò chuyện kích hoạt (rồi mới về mặc định tự động hóa).",
+          "inheritDefault": "Dùng lại cuộc trò chuyện kích hoạt (thân thiện với bộ nhớ đệm)"
         },
         "extraRejectCategories": {
           "label": "Extra reject categories",
@@ -4656,7 +4686,10 @@
         "conversation": "Hội thoại",
         "memory": "Gợi nhớ ký ức",
         "awareness": "Nhận thức xuyên phiên"
-      }
+      },
+      "model": "Mô hình",
+      "modelDesc": "Lệnh gợi ý của Sprite là gửi-rồi-quên — dùng cả chuỗi dự phòng đầy đủ cũng không sao, không cần chỉ một mô hình.",
+      "modelDefault": "Theo mặc định tự động hóa"
     },
     "ssrfBrowserPolicyDesc": "Áp dụng cho URL đích của page.goto / new_page. Lưu ý: JS fetch() bên trong browser.evaluate không nằm trong phạm vi.",
     "ssrfDefaultPolicy": "Chính sách mặc định",
@@ -5013,24 +5046,6 @@
     "webSearchSaved": "Đã lưu",
     "webSearchTimeout": "Hết thời gian (giây)",
     "webSearchTimeoutDesc": "Thời gian chờ HTTP cho yêu cầu tìm kiếm (5-120 giây)",
-    "knowledgeCompile": {
-      "agent": "Agent sắp xếp nguồn",
-      "agentDefault": "Dùng Agent mặc định toàn cục",
-      "agentDesc": "Agent dùng để chuyển nguồn thành đề xuất ghi chú có thể xem lại. Khi chưa đặt, sẽ kế thừa Agent mặc định toàn cục."
-    },
-    "knowledgeMediaRetention": {
-      "saved": "Đã lưu",
-      "title": "Lưu giữ media gốc",
-      "description": "Tùy chọn giữ lại bản gốc âm thanh, video và hình ảnh đã nhập để xem lại bằng chứng nguồn.",
-      "maxTotal": "Tổng hạn mức (MiB)",
-      "maxSource": "Mỗi nguồn (MiB)",
-      "thumbnail": "Cạnh dài thumbnail (px)",
-      "prune": "Xóa media cũ nhất khi vượt hạn mức",
-      "pruneDesc": "Khi tệp mới được lưu giữ sẽ vượt hạn mức, hãy xóa các bản gốc đã lưu cũ nhất trước khi bỏ qua tệp mới."
-    },
-    "serverKnowledgeAgentReadToken": "Token đọc của Knowledge Agent",
-    "serverKnowledgeAgentReadTokenPlaceholder": "Để trống để tắt quyền truy cập agent chỉ đọc",
-    "serverKnowledgeAgentReadTokenDesc": "Token giới hạn cho agent bên ngoài. Chỉ có hiệu lực khi cũng đặt owner API key; khi đó token chỉ gọi được các endpoint knowledge agent chỉ đọc và không cấp quyền owner API.",
     "devVisualTest": "Kiểm tra hoạt ảnh UI",
     "permLoading": "Đang kiểm tra quyền...",
     "uiEffects": "Hoạt hình nền",
@@ -5050,7 +5065,35 @@
     "visionBridgeModel": "Mô hình cầu nối thị giác",
     "visionBridgeModelDesc": "Chỉ dùng khi mô hình chính không xem được hình ảnh. Một mô hình riêng chuyển hình ảnh thành mô tả văn bản để cuộc trò chuyện tiếp tục.",
     "visionBridgeModelClear": "Tắt cầu nối thị giác",
-    "selectVisionBridgeModel": "Chọn mô hình thị giác"
+    "selectVisionBridgeModel": "Chọn mô hình thị giác",
+    "modelChainRestoreInherit": "Đặt lại về mặc định kế thừa",
+    "automationModelChain": "Mô hình mặc định tự động hóa",
+    "automationModelChainDesc": "Chuỗi mô hình mặc định (có dự phòng) cho các tác vụ AI nền một lần như Recap, Dreaming và Biên soạn tri thức — độc lập với mô hình trò chuyện mặc định ở trên. Để trống sẽ dùng mô hình trò chuyện mặc định.",
+    "automationModelChainInherit": "Theo mô hình trò chuyện mặc định",
+    "knowledgeVision": {
+      "model": "Mô hình thị giác",
+      "modelDesc": "Chuỗi mô hình dùng để OCR hình ảnh khi nhập vào không gian tri thức. Để trống sẽ theo mặc định tự động hóa.",
+      "modelDefault": "Theo mặc định tự động hóa",
+      "ocrConcurrency": "Số luồng OCR đồng thời cho PDF quét",
+      "maxOcrPages": "Giới hạn số trang OCR cho PDF quét"
+    },
+    "noteTools": {
+      "title": "Mô hình công cụ ghi chú",
+      "desc": "Mô hình dùng chung cho công cụ chắt lọc ghi chú, tạo MOC và chuyển phiên thành ghi chú.",
+      "modelDefault": "Theo mặc định tự động hóa"
+    },
+    "recallSummary": {
+      "title": "Tóm tắt khi gợi nhớ",
+      "desc": "Khi recall_memory / session_search trả về nhiều kết quả, nén chúng thành một đoạn tóm tắt ngắn gọn bằng một lệnh gọi LLM bổ sung thay vì trả về đoạn trích thô. Mặc định tắt — tốn thêm một lệnh gọi cho mỗi lần tìm kiếm đủ điều kiện.",
+      "enabled": "Bật tóm tắt",
+      "minHits": "Số kết quả tối thiểu để kích hoạt",
+      "contextCharBudget": "Ngân sách ngữ cảnh (ký tự)",
+      "timeoutSecs": "Thời gian chờ (giây)",
+      "maxTokens": "Số token đầu ra tối đa",
+      "includeHistory": "Cũng tóm tắt các kết quả trong lịch sử trò chuyện",
+      "model": "Mô hình",
+      "modelDefault": "Theo mặc định tự động hóa"
+    }
   },
   "shortcuts": {
     "actionOpenSettings": "Mở cài đặt",
@@ -5760,15 +5803,29 @@
     "reindexing": "Đang lập chỉ mục lại…",
     "reindexDone": "Đã xây dựng lại chỉ mục",
     "jobs": {
-      "tooltip": "Tác vụ xây dựng lại",
-      "title": "Tác vụ xây dựng lại",
-      "empty": "Chưa có tác vụ xây dựng lại.",
+      "tooltip": "Hoạt động không gian tri thức",
+      "title": "Hoạt động không gian tri thức",
+      "empty": "Chưa có hoạt động nào.",
       "kindReindex": "Dựng lại chỉ mục",
       "kindReembed": "Nhúng lại vector",
       "fts": "Chỉ mục toàn văn",
-      "result": "Đã dựng lại {{notes}} ghi chú · {{kbs}} không gian",
-      "emptyHint": "Lập chỉ mục lại một không gian hoặc đổi mô hình nhúng, tiến trình sẽ hiện ở đây.",
-      "model": "Mô hình: {{name}}"
+      "emptyHint": "Liên kết hoặc lập chỉ mục lại một không gian, hoặc nhập tệp, tiến trình sẽ hiện ở đây.",
+      "model": "Mô hình: {{name}}",
+      "kindImport": "Nhập nguồn",
+      "space": "Không gian: {{name}}",
+      "progressFiles": "{{done}} / {{total}} tệp",
+      "progressItems": "{{done}} / {{total}} nguồn",
+      "resultOk": "Đã lập chỉ mục lại {{notes}} ghi chú",
+      "resultPartial": "Đã lập chỉ mục lại {{notes}} ghi chú · bỏ qua {{failed}}",
+      "importResultOk": "Đã nhập {{imported}} nguồn",
+      "importResultPartial": "Đã nhập {{imported}} · {{failed}} thất bại",
+      "importStatus": {
+        "running": "Đang chạy",
+        "completed": "Đã hoàn tất",
+        "failed": "Thất bại",
+        "cancelled": "Đã hủy",
+        "timed_out": "Hết thời gian"
+      }
     },
     "maintenance": {
       "tooltip": "Bảo trì",
@@ -5996,7 +6053,13 @@
       "similarScope": {
         "crossKb": "Xuyên không gian",
         "sameKb": "Không gian này"
-      }
+      },
+      "ocrRunning": "Đang chạy OCR…",
+      "ocrPartial": "OCR: một số trang bị lỗi",
+      "ocrFailed": "OCR thất bại",
+      "ocrRetry": "Thử lại các trang bị lỗi",
+      "ocrRetryStarted": "Đang thử lại các trang bị lỗi…",
+      "ocrRetryFailed": "Không thể thử lại các trang OCR"
     },
     "queryFile": {
       "action": "Tập tin",
@@ -6023,6 +6086,13 @@
       "openQuestionsPlaceholder": "Lưu ý với câu hỏi mở",
       "mocPlaceholder": "MOCs/Conversation Filings.md",
       "createNotePlaceholder": "Filed Conversations/example.md"
+    },
+    "emptyState": {
+      "scanning": "Đang quét không gian này…",
+      "scanFailed": "Quét thất bại",
+      "emptyExternal": "Chưa tìm thấy ghi chú markdown nào trong thư mục này.",
+      "emptyInternal": "Không gian này đang trống.",
+      "importFiles": "Nhập tệp"
     }
   },
   "backgroundJobs": {

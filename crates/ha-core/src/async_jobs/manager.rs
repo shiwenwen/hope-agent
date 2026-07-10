@@ -22,6 +22,19 @@ use super::types::{BackgroundJob, BackgroundJobSnapshot, JobKind, JobOrigin, Job
 use crate::subagent::SubagentStatus;
 use crate::tools::ToolExecContext;
 
+/// Per-item outcome counts for a finished knowledge source import run,
+/// carried on the `job:completed` payload so `useDesktopAlerts` can build a
+/// real "imported N, failed M" notification instead of showing the raw tool
+/// name. Plain `u32`s so `async_jobs` doesn't need to depend on `knowledge`
+/// types — the caller (`knowledge::source`) maps its own richer run/item
+/// model down to this before calling `JobManager::finish_knowledge_import`.
+pub struct KnowledgeImportCounts {
+    pub imported: u32,
+    pub duplicate: u32,
+    pub failed: u32,
+    pub total: u32,
+}
+
 /// Single entry point for background-job operations (R1). Zero-sized; all
 /// methods are associated functions delegating to the shared internals.
 pub struct JobManager;
@@ -295,11 +308,22 @@ impl JobManager {
         Some(job_id)
     }
 
+    /// Push a per-item progress tick for a running knowledge import job
+    /// (`current` of `total` items settled). First real `Tool`-kind caller of
+    /// `events::emit_progress` — previously only `Group` fan-out used it.
+    /// A batch is capped at `MAX_SOURCE_IMPORT_BATCH_ITEMS` items and this is
+    /// called at most twice per item, so unlike `local_model_jobs` progress
+    /// there's no need for throttling here.
+    pub fn progress_knowledge_import(job_id: &str, current: usize, total: usize) {
+        super::events::emit_progress(job_id, JobKind::Tool, None, current, total);
+    }
+
     pub fn finish_knowledge_import(
         job_id: &str,
         status: JobStatus,
         result_preview: Option<&str>,
         error: Option<&str>,
+        counts: Option<KnowledgeImportCounts>,
     ) {
         let Some(db) = super::get_async_jobs_db() else {
             return;
@@ -316,10 +340,115 @@ impl JobManager {
             return;
         }
         let _ = db.mark_injected(job_id);
+        // `emit_completed`'s generic payload (shared by ~6 other Tool/Group/
+        // Subagent call sites) has no room for structured counts, so this one
+        // call site builds its own payload directly instead of widening that
+        // shared signature. Without these counts `useDesktopAlerts` has
+        // nothing to build a real "imported N, failed M" notification from —
+        // only the raw tool name.
+        if let Some(bus) = crate::get_event_bus() {
+            let mut payload = serde_json::json!({
+                "job_id": job_id,
+                "kind": JobKind::Tool.as_str(),
+                "tool": "knowledge_source_import",
+                "status": status.as_str(),
+                "session_id": serde_json::Value::Null,
+            });
+            if let (Some(obj), Some(c)) = (payload.as_object_mut(), counts) {
+                obj.insert("imported_count".into(), serde_json::json!(c.imported));
+                obj.insert("duplicate_count".into(), serde_json::json!(c.duplicate));
+                obj.insert("failed_count".into(), serde_json::json!(c.failed));
+                obj.insert("total_count".into(), serde_json::json!(c.total));
+            }
+            bus.emit("job:completed", payload);
+        }
+    }
+
+    // ── Owner-plane scanned-PDF OCR projection ────────────────────────────
+    //
+    // Same shape as the knowledge-import projection above: per-page OCR
+    // state has its own durable fact layer (`knowledge_source_ocr_pages` in
+    // sessions.db). This row is only the unified background-job lifecycle
+    // projection, covering both the initial import round and later
+    // per-page retries.
+
+    pub fn spawn_knowledge_ocr(kb_id: &str, source_id: &str, page_count: u32) -> Option<String> {
+        let db = super::get_async_jobs_db()?;
+        let job_id = uuid::Uuid::new_v4().to_string();
+        let now = chrono::Utc::now().timestamp();
+        let job = BackgroundJob {
+            job_id: job_id.clone(),
+            kind: JobKind::Tool,
+            subagent_run_id: None,
+            group_id: None,
+            session_id: None,
+            agent_id: None,
+            tool_name: "knowledge_source_ocr".to_string(),
+            tool_call_id: None,
+            args_json: serde_json::json!({
+                "kbId": kb_id,
+                "sourceId": source_id,
+                "pageCount": page_count,
+            })
+            .to_string(),
+            status: JobStatus::Running,
+            result_preview: None,
+            result_path: None,
+            error: None,
+            created_at: now,
+            completed_at: None,
+            injected: true,
+            origin: "owner".to_string(),
+            approval_origin: None,
+            incognito: false,
+            pid: None,
+            cancel_requested: false,
+        };
+        if let Err(e) = db.insert(&job) {
+            crate::app_warn!(
+                "async_jobs",
+                "knowledge_ocr",
+                "Failed to insert knowledge OCR job for source {}: {}",
+                source_id,
+                e
+            );
+            return None;
+        }
+        super::events::emit_created(
+            &job_id,
+            JobKind::Tool,
+            "knowledge_source_ocr",
+            JobStatus::Running.as_str(),
+            None,
+        );
+        Some(job_id)
+    }
+
+    pub fn finish_knowledge_ocr(
+        job_id: &str,
+        status: JobStatus,
+        result_preview: Option<&str>,
+        error: Option<&str>,
+    ) {
+        let Some(db) = super::get_async_jobs_db() else {
+            return;
+        };
+        let now = chrono::Utc::now().timestamp();
+        if let Err(e) = db.update_terminal(job_id, status, result_preview, None, error, now) {
+            crate::app_warn!(
+                "async_jobs",
+                "knowledge_ocr",
+                "Failed to finish knowledge OCR job {}: {}",
+                job_id,
+                e
+            );
+            return;
+        }
+        let _ = db.mark_injected(job_id);
         super::events::emit_completed(
             job_id,
             JobKind::Tool,
-            "knowledge_source_import",
+            "knowledge_source_ocr",
             status.as_str(),
             None,
         );

@@ -10,15 +10,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import {
-  AgentSelectDisplay,
-  INHERIT_AGENT_SENTINEL,
-  InheritAgentSelectDisplay,
-} from "@/components/common/AgentSelectDisplay"
+import { ModelChainEditor, type ModelChainRef } from "@/components/ui/model-chain-editor"
+import type { AvailableModel } from "@/components/ui/model-selector"
 import { SUPPORTED_LANGUAGES } from "@/i18n/i18n"
 
 interface RecapConfig {
+  /** Deprecated — superseded by `modelOverride`. Read-only display concern;
+   * the GUI no longer writes this field. */
   analysisAgent?: string | null
+  modelOverride?: ModelChainRef | null
   language?: string | null
   defaultRangeDays: number
   maxSessionsPerReport: number
@@ -28,15 +28,9 @@ interface RecapConfig {
 
 const FOLLOW_LANGUAGE_SENTINEL = "__follow__"
 
-interface AgentItem {
-  id: string
-  name: string
-  emoji?: string | null
-  avatar?: string | null
-}
-
 const DEFAULT_CONFIG: RecapConfig = {
   analysisAgent: null,
+  modelOverride: null,
   language: null,
   defaultRangeDays: 30,
   maxSessionsPerReport: 500,
@@ -48,7 +42,7 @@ export default function RecapSettingsPanel() {
   const { t } = useTranslation()
   const [config, setConfig] = useState<RecapConfig>(DEFAULT_CONFIG)
   const [savedSnapshot, setSavedSnapshot] = useState<string>("")
-  const [agents, setAgents] = useState<AgentItem[]>([])
+  const [availableModels, setAvailableModels] = useState<AvailableModel[]>([])
   const [loaded, setLoaded] = useState(false)
 
   const persist = useCallback(async (next: RecapConfig) => {
@@ -64,14 +58,14 @@ export default function RecapSettingsPanel() {
     let cancelled = false
     Promise.all([
       getTransport().call<RecapConfig>("get_recap_config"),
-      getTransport().call<AgentItem[]>("list_agents").catch(() => [] as AgentItem[]),
+      getTransport().call<AvailableModel[]>("get_available_models").catch(() => []),
     ])
-      .then(([cfg, agentList]) => {
+      .then(([cfg, models]) => {
         if (cancelled) return
         const merged = { ...DEFAULT_CONFIG, ...cfg }
         setConfig(merged)
         setSavedSnapshot(JSON.stringify(merged))
-        setAgents(agentList)
+        setAvailableModels(models)
         setLoaded(true)
       })
       .catch((e: unknown) => {
@@ -104,13 +98,14 @@ export default function RecapSettingsPanel() {
       commitIfChanged(next)
     }
 
-  const handleAgentChange = (value: string) => {
-    const next: RecapConfig = {
-      ...config,
-      analysisAgent: value === INHERIT_AGENT_SENTINEL ? null : value,
-    }
-    setConfig(next)
-    commitIfChanged(next)
+  const handleModelOverrideChange = (next: ModelChainRef | null) => {
+    // Also clears the deprecated `analysisAgent` field: this panel no longer
+    // displays it, but the backend still falls back to it whenever
+    // `modelOverride` is unset — leaving it set would keep silently
+    // overriding this control with no way to fix it from the GUI.
+    const nextConfig: RecapConfig = { ...config, modelOverride: next, analysisAgent: null }
+    setConfig(nextConfig)
+    commitIfChanged(nextConfig)
   }
 
   const handleLanguageChange = (value: string) => {
@@ -123,13 +118,6 @@ export default function RecapSettingsPanel() {
   }
 
   if (!loaded) return null
-  const selectedAgentId = config.analysisAgent?.trim() || null
-  const selectedAgent = selectedAgentId
-    ? agents.find((agent) => agent.id === selectedAgentId)
-    : undefined
-  const selectedAgentExists = selectedAgentId
-    ? agents.some((agent) => agent.id === selectedAgentId)
-    : false
 
   return (
     <div className="flex-1 overflow-y-auto p-6">
@@ -138,45 +126,19 @@ export default function RecapSettingsPanel() {
       </div>
 
       <div className="mt-4 space-y-6">
-        <div className="flex flex-col gap-3 px-3 py-3 rounded-lg hover:bg-secondary/40 transition-colors sm:flex-row sm:items-center sm:justify-between">
-          <div className="min-w-0 space-y-0.5 sm:pr-4">
+        <div className="px-3 py-3 rounded-lg hover:bg-secondary/40 transition-colors">
+          <div className="min-w-0 space-y-0.5 mb-2">
             <div className="text-sm font-medium">{t("settings.recapAnalysisAgent")}</div>
             <div className="text-xs text-muted-foreground">
               {t("settings.recapAnalysisAgentDesc")}
             </div>
           </div>
-          <Select
-            value={selectedAgentId ?? INHERIT_AGENT_SENTINEL}
-            onValueChange={handleAgentChange}
-          >
-            <SelectTrigger className="h-8 w-full overflow-hidden text-sm sm:w-72">
-              <div className="flex min-w-0 flex-1 items-center overflow-hidden">
-                {selectedAgentId ? (
-                  <AgentSelectDisplay agent={selectedAgent} fallbackName={selectedAgentId} />
-                ) : (
-                  <InheritAgentSelectDisplay label={t("settings.recapAnalysisAgentDefault")} />
-                )}
-              </div>
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem
-                value={INHERIT_AGENT_SENTINEL}
-                textValue={t("settings.recapAnalysisAgentDefault")}
-              >
-                {t("settings.recapAnalysisAgentDefault")}
-              </SelectItem>
-              {selectedAgentId && !selectedAgentExists && (
-                <SelectItem value={selectedAgentId} textValue={selectedAgentId}>
-                  <AgentSelectDisplay fallbackName={selectedAgentId} />
-                </SelectItem>
-              )}
-              {agents.map((agent) => (
-                <SelectItem key={agent.id} value={agent.id} textValue={agent.name}>
-                  <AgentSelectDisplay agent={agent} />
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <ModelChainEditor
+            value={config.modelOverride ?? null}
+            onChange={handleModelOverrideChange}
+            availableModels={availableModels}
+            inheritLabel={t("settings.recapAnalysisAgentDefault")}
+          />
         </div>
 
         <div className="flex flex-col gap-3 px-3 py-3 rounded-lg hover:bg-secondary/40 transition-colors sm:flex-row sm:items-center sm:justify-between">

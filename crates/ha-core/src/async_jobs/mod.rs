@@ -43,7 +43,7 @@ pub use db::{JobsDB, PurgeStats};
 // operations (spawn / cancel / list / replay / schedule). The spawn / scheduler
 // / cancel / retention helpers are now `pub(crate)` internals reached only
 // through it. `synthetic_started_result` stays re-exported as a pure formatter.
-pub use manager::JobManager;
+pub use manager::{JobManager, KnowledgeImportCounts};
 pub use spawn::synthetic_started_result;
 pub use types::{BackgroundJob, BackgroundJobSnapshot, JobKind, JobOrigin, JobStatus};
 

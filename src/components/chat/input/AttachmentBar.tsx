@@ -2,6 +2,7 @@ import { useCallback, useRef, useMemo, useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
+import { Textarea } from "@/components/ui/textarea"
 import {
   Dialog,
   DialogClose,
@@ -15,21 +16,25 @@ import { AnimatedCollapse } from "@/components/ui/animated-presence"
 import { IconTip } from "@/components/ui/tooltip"
 import { Copy, FileText, Paperclip, X } from "lucide-react"
 import { useLightbox } from "@/components/common/ImageLightbox"
-import { getPastedTextFileMeta } from "./pastedTextAttachment"
+import { getPastedTextFileMeta, updatePastedTextAttachment } from "./pastedTextAttachment"
 
 interface AttachmentPreviewProps {
   attachedFiles: File[]
   onRemoveFile: (index: number) => void
+  onUpdateFile: (index: number, file: File) => void
 }
 
-export function AttachmentPreview({ attachedFiles, onRemoveFile }: AttachmentPreviewProps) {
+export function AttachmentPreview({
+  attachedFiles,
+  onRemoveFile,
+  onUpdateFile,
+}: AttachmentPreviewProps) {
   const { t } = useTranslation()
   const { openLightbox } = useLightbox()
   const [pastedTextPreview, setPastedTextPreview] = useState<{
+    index: number
     fileName: string
     text: string
-    chars: number
-    lines: number
   } | null>(null)
 
   // Stable blob URLs with cleanup to prevent memory leaks
@@ -46,22 +51,36 @@ export function AttachmentPreview({ attachedFiles, onRemoveFile }: AttachmentPre
     [blobUrls],
   )
 
-  const openPastedTextPreview = useCallback(async (file: File) => {
+  const openPastedTextPreview = useCallback(async (file: File, index: number) => {
     const text = await file.text()
-    const meta = getPastedTextFileMeta(file)
     setPastedTextPreview({
+      index,
       fileName: file.name,
       text,
-      chars: meta?.charCount ?? text.length,
-      lines: meta?.lineCount ?? countLines(text),
     })
   }, [])
+
+  const previewStats = pastedTextPreview
+    ? {
+        chars: pastedTextPreview.text.length,
+        lines: countLines(pastedTextPreview.text),
+      }
+    : null
 
   const copyPreviewText = useCallback(async () => {
     if (!pastedTextPreview) return
     await navigator.clipboard.writeText(pastedTextPreview.text)
     toast.success(t("chat.copied"))
   }, [pastedTextPreview, t])
+
+  const savePreviewText = useCallback(() => {
+    if (!pastedTextPreview) return
+    const file = attachedFiles[pastedTextPreview.index]
+    if (!file) return
+    onUpdateFile(pastedTextPreview.index, updatePastedTextAttachment(file, pastedTextPreview.text))
+    setPastedTextPreview(null)
+    toast.success(t("common.saved"))
+  }, [attachedFiles, onUpdateFile, pastedTextPreview, t])
 
   return (
     <>
@@ -86,24 +105,34 @@ export function AttachmentPreview({ attachedFiles, onRemoveFile }: AttachmentPre
           if (!open) setPastedTextPreview(null)
         }}
       >
-        <DialogContent className="max-h-[86vh] max-w-3xl grid-rows-[auto_minmax(0,1fr)_auto]">
-          <DialogHeader>
-            <DialogTitle className="truncate">
+        <DialogContent className="flex h-[min(86vh,42rem)] max-h-[86vh] w-[calc(100vw-2rem)] max-w-4xl flex-col gap-0 overflow-hidden p-0 sm:w-[calc(100vw-4rem)]">
+          <DialogHeader className="shrink-0 px-6 pt-6 pr-12">
+            <DialogTitle className="truncate text-left">
               {pastedTextPreview?.fileName || t("chat.pastedTextPreviewTitle")}
             </DialogTitle>
-            <DialogDescription>
-              {pastedTextPreview
+            <DialogDescription className="text-left">
+              {previewStats
                 ? t("chat.pastedTextPreviewMeta", {
-                    chars: pastedTextPreview.chars.toLocaleString(),
-                    lines: pastedTextPreview.lines.toLocaleString(),
+                    chars: previewStats.chars.toLocaleString(),
+                    lines: previewStats.lines.toLocaleString(),
                   })
                 : null}
             </DialogDescription>
           </DialogHeader>
-          <pre className="min-h-0 overflow-auto rounded-md border border-border/70 bg-secondary/35 p-3 font-mono text-xs leading-relaxed whitespace-pre-wrap text-foreground">
-            {pastedTextPreview?.text}
-          </pre>
-          <DialogFooter className="gap-2 sm:gap-2">
+          <div className="min-h-0 flex-1 px-6 py-4">
+            <Textarea
+              aria-label={t("chat.pastedTextPreviewTitle")}
+              spellCheck={false}
+              value={pastedTextPreview?.text ?? ""}
+              onChange={(event) =>
+                setPastedTextPreview((preview) =>
+                  preview ? { ...preview, text: event.target.value } : preview,
+                )
+              }
+              className="h-full min-h-0 resize-none overflow-auto whitespace-pre-wrap border-border/70 bg-secondary/35 font-mono text-xs leading-relaxed shadow-none"
+            />
+          </div>
+          <DialogFooter className="shrink-0 gap-2 border-t border-border/70 px-6 py-4 sm:gap-2">
             <Button
               type="button"
               variant="outline"
@@ -114,8 +143,13 @@ export function AttachmentPreview({ attachedFiles, onRemoveFile }: AttachmentPre
               {t("chat.copy")}
             </Button>
             <DialogClose asChild>
-              <Button type="button">{t("common.close")}</Button>
+              <Button type="button" variant="outline">
+                {t("common.cancel")}
+              </Button>
             </DialogClose>
+            <Button type="button" onClick={savePreviewText} disabled={!pastedTextPreview}>
+              {t("common.save")}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -140,7 +174,7 @@ function AttachmentPreviewItem({
   blobUrl: string
   onRemoveFile: (index: number) => void
   openLightbox: (src: string, alt?: string) => void
-  onOpenPastedText: (file: File) => void
+  onOpenPastedText: (file: File, index: number) => void
 }) {
   const { t } = useTranslation()
   const pastedTextMeta = getPastedTextFileMeta(file)
@@ -159,7 +193,7 @@ function AttachmentPreviewItem({
           if (blobUrl) {
             openLightbox(blobUrl, file.name)
           } else if (canPreviewPastedText) {
-            void onOpenPastedText(file)
+            void onOpenPastedText(file, index)
           }
         }}
       >

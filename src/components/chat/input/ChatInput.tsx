@@ -102,6 +102,7 @@ interface ChatInputProps {
   attachedFiles: File[]
   onAttachFiles: (files: File[]) => void
   onRemoveFile: (index: number) => void
+  onUpdateFile: (index: number, file: File) => void
   pendingQuotes?: PendingFileQuote[]
   onRemoveQuote?: (index: number) => void
   /** Click a staged quote chip to reveal that file in the file browser. */
@@ -220,6 +221,7 @@ export default function ChatInput({
   attachedFiles,
   onAttachFiles,
   onRemoveFile,
+  onUpdateFile,
   pendingQuotes,
   onRemoveQuote,
   onJumpToQuote,
@@ -1049,7 +1051,11 @@ export default function ChatInput({
         )}
 
         {/* Attached files preview (rendered above textarea) */}
-        <AttachmentPreview attachedFiles={attachedFiles} onRemoveFile={onRemoveFile} />
+        <AttachmentPreview
+          attachedFiles={attachedFiles}
+          onRemoveFile={onRemoveFile}
+          onUpdateFile={onUpdateFile}
+        />
 
         {/* Staged "quote to chat" references */}
         <AnimatedCollapse open={!!pendingQuotes?.length}>

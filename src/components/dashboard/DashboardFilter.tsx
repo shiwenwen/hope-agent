@@ -127,12 +127,18 @@ export default function DashboardFilter({ filter, onChange }: DashboardFilterPro
       providerId: null,
       modelId: null,
       usageKind: null,
+      operation: null,
     })
   }, [onChange])
 
   const hasActiveFilters = useMemo(
-    () => filter.agentId || filter.providerId || filter.modelId || filter.usageKind,
-    [filter.agentId, filter.providerId, filter.modelId, filter.usageKind],
+    () =>
+      filter.agentId ||
+      filter.providerId ||
+      filter.modelId ||
+      filter.usageKind ||
+      filter.operation,
+    [filter.agentId, filter.providerId, filter.modelId, filter.usageKind, filter.operation],
   )
   const selectedAgent = agents.find((a) => a.id === filter.agentId)
 
@@ -249,6 +255,22 @@ export default function DashboardFilter({ filter, onChange }: DashboardFilterPro
           <span className="font-medium">{filter.modelId}</span>
           <button
             onClick={() => onChange({ ...filter, modelId: null })}
+            className="ml-1 hover:text-foreground text-muted-foreground"
+          >
+            <X className="h-3 w-3" />
+          </button>
+        </div>
+      )}
+
+      {/* Active operation (purpose tag) filter indicator — drill-down only,
+          no dropdown; set by clicking a row in the Tokens tab's operation
+          table. */}
+      {filter.operation && (
+        <div className="flex items-center gap-1 rounded-md bg-secondary px-2 py-1 text-xs">
+          <span className="text-muted-foreground">{t("dashboard.token.operation")}:</span>
+          <span className="font-mono font-medium">{filter.operation}</span>
+          <button
+            onClick={() => onChange({ ...filter, operation: null })}
             className="ml-1 hover:text-foreground text-muted-foreground"
           >
             <X className="h-3 w-3" />

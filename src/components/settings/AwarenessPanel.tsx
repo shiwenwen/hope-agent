@@ -5,7 +5,6 @@ import { Loader2, Check, AlertTriangle } from "lucide-react"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
 import { DeferredNumberInput } from "@/components/ui/deferred-number-input"
 import { Switch } from "@/components/ui/switch"
 import {
@@ -15,19 +14,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { ModelChainEditor, type ModelChainRef } from "@/components/ui/model-chain-editor"
+import type { AvailableModel } from "@/components/ui/model-selector"
 
 // ── Types ─────────────────────────────────────────────────────────
 
 type AwarenessMode = "off" | "structured" | "llm_digest"
 
-interface ExtractionModelRef {
-  providerId: string
-  model: string
-}
-
 interface LlmExtractionConfig {
-  extractionAgent: string | null
-  extractionModel: ExtractionModelRef | null
+  modelOverride: ModelChainRef | null
   minIntervalSecs: number
   maxCandidates: number
   digestMaxChars: number
@@ -67,6 +62,7 @@ export default function AwarenessPanel() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle")
+  const [availableModels, setAvailableModels] = useState<AvailableModel[]>([])
 
   useEffect(() => {
     getTransport()
@@ -84,6 +80,15 @@ export default function AwarenessPanel() {
         )
         setLoading(false)
       })
+  }, [])
+
+  useEffect(() => {
+    getTransport()
+      .call<AvailableModel[]>("get_available_models")
+      .then(setAvailableModels)
+      .catch((e: unknown) =>
+        logger.error("settings", "AwarenessPanel::loadModels", "Failed to load available models", e),
+      )
   }, [])
 
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -330,28 +335,29 @@ export default function AwarenessPanel() {
                 })
               }
             />
-            <div>
+            <div className="space-y-1">
               <label className="text-xs font-medium">
                 {t(
-                  "settings.awareness.extractionAgent",
-                  "Extraction agent ID (optional)",
+                  "settings.awareness.extractionModel",
+                  "Extraction model (optional)",
                 )}
               </label>
-              <Input
-                value={cfg.llmExtraction.extractionAgent ?? ""}
-                placeholder={t(
-                  "settings.awareness.extractionAgentPlaceholder",
-                  "Leave empty to inherit recap.analysisAgent",
-                )}
-                onChange={(e) =>
+              <ModelChainEditor
+                value={cfg.llmExtraction.modelOverride}
+                onChange={(next) =>
                   save({
                     ...cfg,
                     llmExtraction: {
                       ...cfg.llmExtraction,
-                      extractionAgent: e.target.value || null,
+                      modelOverride: next,
                     },
                   })
                 }
+                availableModels={availableModels}
+                inheritLabel={t(
+                  "settings.awareness.extractionModelInherit",
+                  "Reuse the current chat agent (cache-friendly)",
+                )}
               />
             </div>
           </div>
