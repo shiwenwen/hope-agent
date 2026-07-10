@@ -348,7 +348,8 @@ const INSPECTOR_BRIDGE: &str = r#"<script>
     'padding','padding-top','padding-right','padding-bottom','padding-left',
     'margin','margin-top','margin-right','margin-bottom','margin-left',
     'gap','width','height','max-width','min-height',
-    'border-radius','border-width','border-style','border-color','box-shadow','opacity',
+    'border-radius','border-width','border-top-width','border-right-width','border-bottom-width','border-left-width',\
+    'border-style','border-color','box-shadow','opacity',
     'display','align-items','justify-content','z-index'];
   function elByOid(oid){return document.querySelector('[data-ds-oid="'+oid+'"]')}
   // 可编辑元素可发现性：编辑态给所有 [data-ds-oid] 一层极淡虚线 outline（低透明、outline 不占布局），

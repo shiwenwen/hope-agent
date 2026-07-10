@@ -2957,7 +2957,7 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
               if (e.key === "Enter") (e.target as HTMLInputElement).blur()
               else if (e.key === "Escape") setRenamingProject(false)
             }}
-            className="w-48 rounded border border-primary/50 bg-background px-2 py-0.5 text-sm font-semibold outline-none"
+            className="w-48 rounded border border-primary/50 bg-background px-2 py-0.5 text-sm font-semibold outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1"
           />
         ) : (
           <span
@@ -3333,7 +3333,7 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                               setRenamingArtifactId(null)
                             } else if (e.key === "Escape") setRenamingArtifactId(null)
                           }}
-                          className="w-[150px] rounded-lg border border-primary/50 bg-background px-2.5 py-1 text-xs outline-none"
+                          className="w-[150px] rounded-lg border border-primary/50 bg-background px-2.5 py-1 text-xs outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1"
                         />
                       ) : (
                         <>

@@ -168,14 +168,18 @@ function QuadRow({
   prop,
   styles,
   onCommit,
+  sideKey = (side) => `${prop}-${side}`,
 }: {
   label: string
-  prop: "padding" | "margin"
+  /** 联动锁定态提交的 shorthand（padding / margin / border-width）。 */
+  prop: string
   styles: Record<string, string>
   onCommit: (prop: string, v: string) => void
+  /** 逐边 longhand 键（默认 `${prop}-${side}`；border 走 `border-${side}-width`）。 */
+  sideKey?: (side: string) => string
 }) {
   const { t } = useTranslation()
-  const vals = QUAD_SIDES.map((side) => px(styles[`${prop}-${side}`] || styles[prop] || "0"))
+  const vals = QUAD_SIDES.map((side) => px(styles[sideKey(side)] || styles[prop] || "0"))
   const allEqual = vals.every((v) => v === vals[0])
   const [draft, setDraft] = useState<string[]>(vals.map(String))
   const [linked, setLinked] = useState(allEqual)
@@ -195,7 +199,7 @@ function QuadRow({
       setDraft(QUAD_SIDES.map(() => String(n)))
       onCommit(prop, `${n}px`)
     } else {
-      onCommit(`${prop}-${QUAD_SIDES[i]}`, `${n}px`)
+      onCommit(sideKey(QUAD_SIDES[i]), `${n}px`)
     }
   }
   return (
@@ -789,11 +793,12 @@ export default function DesignInspector({
       </Section>
 
       <Section title={t("design.insp.stroke", "描边")}>
-        <NumberRow
+        <QuadRow
           label={t("design.insp.borderWidth", "边框宽")}
           prop="border-width"
-          value={px(s["border-width"] || "0")}
+          styles={s}
           onCommit={onCommitStyle}
+          sideKey={(side) => `border-${side}-width`}
         />
         <SelectRow
           label={t("design.insp.borderStyle", "边框样式")}
