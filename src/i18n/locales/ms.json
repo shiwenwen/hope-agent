@@ -6188,7 +6188,8 @@
       "lineHeight": "Tinggi baris",
       "letterSpacing": "Jarak huruf",
       "quadLinked": "Terpaut (klik untuk edit setiap sisi)",
-      "quadUnlinked": "Ikut sisi (klik untuk paut)"
+      "quadUnlinked": "Ikut sisi (klik untuk paut)",
+      "deleteEl": "Padam elemen"
     },
     "settings": {
       "desc": "Ruang Reka Bentuk: jana, tala halus dan eksport artifak reka bentuk boleh serah.",

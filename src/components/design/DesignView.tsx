@@ -1293,6 +1293,7 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
       styles?: [string, string][]
       text?: string
       attrs?: [string, string][]
+      remove?: boolean
     }) => {
       if (!activeArtifact) return false
       suppressReloadRef.current = true
@@ -1328,6 +1329,14 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
     },
     [postToIframe],
   )
+  // 删除元素（Wave 3-⑫）：确定性 remove patch + 关面板 + 重载反映结构变化。最后一个元素后端拒。
+  const handleDeleteElement = useCallback(async () => {
+    const oid = selectedRef.current?.oid
+    if (oid == null) return
+    setSelected(null)
+    const ok = await commitPatch({ oid: Number(oid), remove: true })
+    if (ok) setPreviewKey((k) => k + 1)
+  }, [commitPatch])
   const handleCommitStyle = useCallback(
     (prop: string, value: string) => {
       const oid = selectedRef.current?.oid
@@ -3757,6 +3766,7 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
               onLiveAttr={handleLiveAttr}
               onCommitAttr={handleCommitAttr}
               onPickImage={handlePickImage}
+              onDelete={() => void handleDeleteElement()}
               onClose={() => setSelected(null)}
             />
           )}

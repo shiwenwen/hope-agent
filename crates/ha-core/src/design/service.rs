@@ -1783,6 +1783,9 @@ pub struct ElementPatch {
     /// 属性编辑（B5：`href`/`src`/`alt`，白名单外静默跳过）。空值 = 清除该属性。
     #[serde(default)]
     pub attrs: Option<Vec<(String, String)>>,
+    /// 删除元素（Wave 3-⑫）：为 true 时整段剔除 oid 元素（与其它字段互斥、优先处理）。
+    #[serde(default)]
+    pub remove: Option<bool>,
     /// 可选 stale-write 守卫（load 时拿到的 bodyHash）。
     #[serde(default)]
     pub expected_hash: Option<String>,
@@ -1811,6 +1814,25 @@ pub fn patch_element(p: ElementPatch) -> Result<DesignArtifact> {
 
     let mut new_body = body;
     let mut map = oidmap;
+    // 删除元素（Wave 3-⑫）：与其它字段互斥，优先处理。删后 body 无任何元素则拒（最后可见元素保护）。
+    if p.remove == Some(true) {
+        let r = patch::apply_remove_patch(&new_body, &map, p.oid, None)
+            .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+        if patch::annotate(&r.new_source).1.is_empty() {
+            anyhow::bail!("cannot remove the last remaining element");
+        }
+        return update_artifact(UpdateArtifactInput {
+            id: a.id.clone(),
+            title: None,
+            body_html: Some(r.new_source),
+            css: None,
+            js: None,
+            message: Some("Visual edit: remove element".to_string()),
+            origin: Some("manual".to_string()),
+            prompt_summary: None,
+            expected_body_hash: Some(base_hash),
+        });
+    }
     // 先文本（改内部内容，位于 open tag 之后），后属性 / 样式（都改 open tag）。**每次改动 open tag
     // 后 re-annotate 拿新 offset**——attrs 与 styles 同改一个 open tag，若共用旧 map 第二次会用到
     // 被第一次改动移位的字节范围（值仅变、结构不变故 oid 稳定，re-annotate 给回同一 oid 的新偏移）。

@@ -6188,7 +6188,8 @@
       "lineHeight": "Chiều cao dòng",
       "letterSpacing": "Giãn cách chữ",
       "quadLinked": "Liên kết (bấm để chỉnh từng cạnh)",
-      "quadUnlinked": "Từng cạnh (bấm để liên kết)"
+      "quadUnlinked": "Từng cạnh (bấm để liên kết)",
+      "deleteEl": "Xóa phần tử"
     },
     "settings": {
       "desc": "Không gian Thiết kế: tạo, tinh chỉnh và xuất các sản phẩm thiết kế bàn giao được.",

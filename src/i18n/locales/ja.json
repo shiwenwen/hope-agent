@@ -6188,7 +6188,8 @@
       "lineHeight": "行間",
       "letterSpacing": "字間",
       "quadLinked": "四辺連動（クリックで個別編集）",
-      "quadUnlinked": "辺ごと（クリックで連動）"
+      "quadUnlinked": "辺ごと（クリックで連動）",
+      "deleteEl": "要素を削除"
     },
     "settings": {
       "desc": "デザインスペース：納品可能なデザイン成果物を生成・微調整・エクスポート。",

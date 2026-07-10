@@ -6188,7 +6188,8 @@
       "lineHeight": "Line height",
       "letterSpacing": "Letter spacing",
       "quadLinked": "Linked (click to edit sides individually)",
-      "quadUnlinked": "Per-side (click to link all)"
+      "quadUnlinked": "Per-side (click to link all)",
+      "deleteEl": "Delete element"
     },
     "settings": {
       "desc": "Design Space: generate, fine-tune, and export deliverable design artifacts.",

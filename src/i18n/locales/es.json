@@ -6188,7 +6188,8 @@
       "lineHeight": "Altura de línea",
       "letterSpacing": "Espaciado",
       "quadLinked": "Vinculado (clic para editar por lado)",
-      "quadUnlinked": "Por lado (clic para vincular)"
+      "quadUnlinked": "Por lado (clic para vincular)",
+      "deleteEl": "Eliminar elemento"
     },
     "settings": {
       "desc": "Espacio de Diseño: genera, ajusta y exporta artefactos de diseño entregables.",

@@ -199,7 +199,7 @@ const STORAGE_POLYFILL: &str = "<script>(function(){function mk(){var s={};retur
 /// 编辑态渲染版本：**inspector bridge / oid 注入等编辑工具层**变更时 +1。烧进可编辑 `index.html`
 /// 的 `data-ds-r` 属性；`service::ensure_artifact_render_fresh` 据此自愈老产物——工具层升级无需
 /// 用户重新编辑即对既有产物生效（bridge 烧死在 index.html，否则老产物永远用旧工具）。
-pub const RENDER_VERSION: u32 = 6;
+pub const RENDER_VERSION: u32 = 7;
 
 pub fn build_artifact_html(
     kind: ArtifactKind,
@@ -494,7 +494,11 @@ const INSPECTOR_BRIDGE: &str = r#"<script>
     }
     if(!active)return;
     if(editing){if(editing.contains(e.target))return;endEdit(true)} // 编辑内点=移光标；点外=提交
-    var el=e.target.closest('[data-ds-oid]');if(!el)return;
+    var el=e.target.closest('[data-ds-oid]');
+    // 点空白（无命中元素）→ 回落到页面根元素（文档序首个 oid），使「改整页背景/字体」可达
+    //（Wave 3-⑫；根容器多铺满视口，其 bg/font ≈ 页面级）。
+    if(!el)el=document.querySelector('[data-ds-oid]');
+    if(!el)return;
     e.preventDefault();e.stopPropagation();
     clearSel();clearHover();selected=el;el.style.outline='2px solid #2563eb';
     parent.postMessage({type:'ds_selected',payload:info(el)},'*');

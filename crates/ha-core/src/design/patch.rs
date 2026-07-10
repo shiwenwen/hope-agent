@@ -294,6 +294,90 @@ pub fn apply_style_patch(
     Ok(PatchResult { new_source })
 }
 
+/// oid 元素的**完整字节范围** `[open_start, end)`：void / 自闭合元素 = start tag 本身；否则从
+/// `open_end` 起做**同名标签平衡扫描**（正确处理嵌套同名元素，如 `<div><div/></div>`），
+/// 到匹配 `</tag>` 的 `>` 之后。找不到闭合返回 `None`。
+fn element_full_range(source: &str, e: &OidEntry) -> Option<(usize, usize)> {
+    let open = &source[e.open_start..e.open_end];
+    if e.void || is_void(&e.tag) || open.trim_end().ends_with("/>") {
+        return Some((e.open_start, e.open_end));
+    }
+    let bytes = source.as_bytes();
+    let tl = e.tag.as_bytes();
+    let boundary = |b: Option<u8>| {
+        matches!(
+            b,
+            Some(b'>') | Some(b'/') | Some(b' ') | Some(b'\t') | Some(b'\n') | Some(b'\r') | None
+        )
+    };
+    let mut i = e.open_end;
+    let mut depth = 1usize;
+    while i < bytes.len() {
+        if bytes[i] != b'<' {
+            i += 1;
+            continue;
+        }
+        // 匹配 `</tag`（同名闭合）。
+        if bytes.get(i + 1) == Some(&b'/')
+            && bytes
+                .get(i + 2..i + 2 + tl.len())
+                .is_some_and(|s| s.eq_ignore_ascii_case(tl))
+            && boundary(bytes.get(i + 2 + tl.len()).copied())
+        {
+            depth -= 1;
+            let mut j = i + 2 + tl.len();
+            while j < bytes.len() && bytes[j] != b'>' {
+                j += 1;
+            }
+            if depth == 0 {
+                return Some((e.open_start, (j + 1).min(bytes.len())));
+            }
+            i = (j + 1).min(bytes.len());
+            continue;
+        }
+        // 匹配 `<tag`（同名开标签）→ 非自闭合才加深。
+        if bytes
+            .get(i + 1..i + 1 + tl.len())
+            .is_some_and(|s| s.eq_ignore_ascii_case(tl))
+            && boundary(bytes.get(i + 1 + tl.len()).copied())
+        {
+            let mut j = i + 1;
+            while j < bytes.len() && bytes[j] != b'>' {
+                j += 1;
+            }
+            let self_closing = j > 0 && bytes.get(j - 1) == Some(&b'/');
+            if !self_closing {
+                depth += 1;
+            }
+            i = (j + 1).min(bytes.len());
+            continue;
+        }
+        i += 1;
+    }
+    None
+}
+
+/// 删除元素（Wave 3-⑫）：把 oid 元素整段（含内部内容与闭合）从源码剔除。**平衡扫描**正确处理
+/// 嵌套同名元素。「最后一个可见元素」保护在 `service::patch_element` 层（删后 body 为空则拒）。
+pub fn apply_remove_patch(
+    source: &str,
+    map: &[OidEntry],
+    oid: u32,
+    expected_hash: Option<&str>,
+) -> Result<PatchResult, PatchError> {
+    if let Some(h) = expected_hash {
+        if body_hash(source) != h {
+            return Err(PatchError::Stale);
+        }
+    }
+    let e = find_entry(map, oid).ok_or(PatchError::OidNotFound(oid))?;
+    let (start, end) = element_full_range(source, e).ok_or(PatchError::NoClose(oid))?;
+    let mut new_source = String::with_capacity(source.len());
+    new_source.push_str(&source[..start]);
+    new_source.push_str(&source[end..]);
+    Ok(PatchResult { new_source })
+}
+
 /// 属性编辑白名单（B5，红线）：只放行 `href`/`src`/`alt`——绝不允许写任意属性，否则可注入
 /// `onclick`/`onerror` 等事件处理器或 `style`（`style` 走 `apply_style_patch` 的 CSS 白名单）。
 pub const ALLOWED_ATTRS: &[&str] = &["href", "src", "alt"];
@@ -764,6 +848,37 @@ mod tests {
             r.new_source
         );
         assert!(!r.new_source.contains("url("), "url() 绝不能落进产物源码");
+    }
+
+    #[test]
+    fn remove_patch_balanced_nested() {
+        // 嵌套同名 div：删外层必须连同内层与其闭合一起剔除（平衡扫描，不被内层 </div> 骗停）。
+        let src = "<section><div><div>x</div></div><p>keep</p></section>";
+        let (_, map) = annotate(src);
+        // oid: 0=section,1=outer div,2=inner div,3=p
+        let outer = map.iter().find(|e| e.oid == 1).unwrap();
+        assert_eq!(outer.tag, "div");
+        let r = apply_remove_patch(src, &map, 1, None).unwrap();
+        assert_eq!(r.new_source, "<section><p>keep</p></section>");
+    }
+
+    #[test]
+    fn remove_patch_void_element() {
+        let src = "<div><img src=\"a.png\"><span>t</span></div>";
+        let (_, map) = annotate(src);
+        let img = map.iter().find(|e| e.tag == "img").unwrap();
+        let r = apply_remove_patch(src, &map, img.oid, None).unwrap();
+        assert_eq!(r.new_source, "<div><span>t</span></div>");
+    }
+
+    #[test]
+    fn remove_patch_stale_guard() {
+        let src = "<div><p>a</p></div>";
+        let (_, map) = annotate(src);
+        assert!(matches!(
+            apply_remove_patch(src, &map, 0, Some("wronghash")),
+            Err(PatchError::Stale)
+        ));
     }
 
     #[test]
