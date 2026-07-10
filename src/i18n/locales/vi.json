@@ -6183,7 +6183,10 @@
       "imageSrc": "URL hình ảnh",
       "uploadImage": "Tải ảnh lên",
       "imageAlt": "Văn bản thay thế (alt)",
-      "imageAltHint": "Mô tả hình ảnh"
+      "imageAltHint": "Mô tả hình ảnh",
+      "fontFamily": "Phông chữ",
+      "lineHeight": "Chiều cao dòng",
+      "letterSpacing": "Giãn cách chữ"
     },
     "settings": {
       "desc": "Không gian Thiết kế: tạo, tinh chỉnh và xuất các sản phẩm thiết kế bàn giao được.",

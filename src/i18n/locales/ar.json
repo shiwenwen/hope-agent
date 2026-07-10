@@ -6183,7 +6183,10 @@
       "imageSrc": "عنوان الصورة",
       "uploadImage": "رفع صورة",
       "imageAlt": "نص بديل (alt)",
-      "imageAltHint": "صف الصورة"
+      "imageAltHint": "صف الصورة",
+      "fontFamily": "الخط",
+      "lineHeight": "ارتفاع السطر",
+      "letterSpacing": "تباعد الأحرف"
     },
     "settings": {
       "desc": "مساحة التصميم: أنشئ عناصر تصميم قابلة للتسليم واضبطها وصدّرها.",

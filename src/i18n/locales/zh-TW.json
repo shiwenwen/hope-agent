@@ -6183,7 +6183,10 @@
       "imageSrc": "圖片網址",
       "uploadImage": "上傳本機圖片",
       "imageAlt": "替代文字 (alt)",
-      "imageAltHint": "圖片描述"
+      "imageAltHint": "圖片描述",
+      "fontFamily": "字型",
+      "lineHeight": "行高",
+      "letterSpacing": "字距"
     },
     "settings": {
       "desc": "設計空間：產生、微調並匯出可交付的設計產物。",

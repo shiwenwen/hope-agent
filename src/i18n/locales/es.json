@@ -6183,7 +6183,10 @@
       "imageSrc": "URL de la imagen",
       "uploadImage": "Subir imagen",
       "imageAlt": "Texto alternativo (alt)",
-      "imageAltHint": "Describe la imagen"
+      "imageAltHint": "Describe la imagen",
+      "fontFamily": "Fuente",
+      "lineHeight": "Altura de línea",
+      "letterSpacing": "Espaciado"
     },
     "settings": {
       "desc": "Espacio de Diseño: genera, ajusta y exporta artefactos de diseño entregables.",

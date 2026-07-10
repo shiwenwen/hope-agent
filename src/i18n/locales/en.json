@@ -6183,7 +6183,10 @@
       "imageSrc": "Image URL",
       "uploadImage": "Upload image",
       "imageAlt": "Alt text",
-      "imageAltHint": "Describe the image"
+      "imageAltHint": "Describe the image",
+      "fontFamily": "Font",
+      "lineHeight": "Line height",
+      "letterSpacing": "Letter spacing"
     },
     "settings": {
       "desc": "Design Space: generate, fine-tune, and export deliverable design artifacts.",

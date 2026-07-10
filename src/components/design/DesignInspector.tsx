@@ -8,7 +8,7 @@
 
 import { useState } from "react"
 import { useTranslation } from "react-i18next"
-import { X, AlignLeft, AlignCenter, AlignRight, Link2, ImageUp, Loader2 } from "lucide-react"
+import { X, AlignLeft, AlignCenter, AlignRight, Link2, Link, Unlink, ImageUp, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
@@ -37,6 +37,15 @@ interface Props {
   onPickImage: () => Promise<string | null>
   onClose: () => void
 }
+
+/** 内置字体栈（Wave 3-⑫）。name 为字体本名（专有名词、无需 i18n）。 */
+const FONT_STACKS: { name: string; stack: string }[] = [
+  { name: "System", stack: "system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" },
+  { name: "Helvetica", stack: "'Helvetica Neue', Helvetica, Arial, sans-serif" },
+  { name: "Inter", stack: "Inter, 'Segoe UI', sans-serif" },
+  { name: "Georgia", stack: "Georgia, 'Times New Roman', serif" },
+  { name: "Menlo", stack: "ui-monospace, 'SF Mono', Menlo, Consolas, monospace" },
+]
 
 const hex2 = (n: number) => Math.max(0, Math.min(255, n || 0)).toString(16).padStart(2, "0")
 
@@ -106,11 +115,33 @@ function ColorRow({
   onCommit: (prop: string, v: string) => void
 }) {
   const hex = toHex(value)
+  // 可编辑 hex 手输（Wave 3-⑫）：粘贴品牌色不必再回对话。非法回退当前值。渲染期 prev-prop
+  // 同步（与 NumberRow 一致，避免 setState-in-effect 级联渲染）。
+  const [draft, setDraft] = useState(hex)
+  const [prevHex, setPrevHex] = useState(hex)
+  if (hex !== prevHex) {
+    setPrevHex(hex)
+    setDraft(hex)
+  }
+  const commitDraft = () => {
+    let v = draft.trim()
+    if (v && !v.startsWith("#")) v = `#${v}`
+    if (/^#[0-9a-fA-F]{3}$/.test(v) || /^#[0-9a-fA-F]{6}$/.test(v)) onCommit(prop, v.toLowerCase())
+    else setDraft(hex)
+  }
   return (
     <label className="flex items-center justify-between gap-2 text-sm">
       <span className="text-muted-foreground">{label}</span>
       <span className="flex items-center gap-1.5">
-        <span className="font-mono text-xs text-muted-foreground">{hex}</span>
+        <Input
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={commitDraft}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") e.currentTarget.blur()
+          }}
+          className="h-6 w-[72px] px-1.5 font-mono text-[11px]"
+        />
         <input
           type="color"
           value={hex}
@@ -120,6 +151,56 @@ function ColorRow({
         />
       </span>
     </label>
+  )
+}
+
+/** 四向数值控件（Wave 3-⑫）：内 / 外边距逐边可调 + 联动锁（锁时改一边=改全等）。 */
+function QuadRow({
+  label,
+  prop,
+  styles,
+  onCommit,
+}: {
+  label: string
+  prop: "padding" | "margin"
+  styles: Record<string, string>
+  onCommit: (prop: string, v: string) => void
+}) {
+  const sides = ["top", "right", "bottom", "left"] as const
+  const vals = sides.map((side) => px(styles[`${prop}-${side}`] || styles[prop] || "0"))
+  const [linked, setLinked] = useState(vals.every((v) => v === vals[0]))
+  const set = (i: number, raw: string) => {
+    const v = Math.round(parseFloat(raw) || 0)
+    if (linked) sides.forEach((side) => onCommit(`${prop}-${side}`, `${v}px`))
+    else onCommit(`${prop}-${sides[i]}`, `${v}px`)
+  }
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between">
+        <span className="text-sm text-muted-foreground">{label}</span>
+        <IconTip label={linked ? label : label} side="left">
+          <button
+            type="button"
+            onClick={() => setLinked((v) => !v)}
+            className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
+          >
+            {linked ? <Link className="h-3.5 w-3.5" /> : <Unlink className="h-3.5 w-3.5" />}
+          </button>
+        </IconTip>
+      </div>
+      <div className="grid grid-cols-4 gap-1">
+        {sides.map((side, i) => (
+          <Input
+            key={side}
+            type="number"
+            value={vals[i]}
+            onChange={(e) => set(i, e.target.value)}
+            className="h-7 px-1 text-center text-xs"
+            aria-label={side}
+          />
+        ))}
+      </div>
+    </div>
   )
 }
 
@@ -331,6 +412,10 @@ export default function DesignInspector({
   const align = s["text-align"] || "left"
   const display = s["display"] || "block"
   const isFlexish = display === "flex" || display === "inline-flex" || display === "grid"
+  // 字体族匹配到内置栈（Wave 3-⑫）：computed font-family 含某栈首字体即选中，否则默认「系统」。
+  const rawFF = (s["font-family"] || "").toLowerCase()
+  const fontFamilyKey =
+    FONT_STACKS.find((f) => rawFF.includes(f.name.toLowerCase()))?.stack ?? FONT_STACKS[0].stack
   const opacity = parseFloat(s["opacity"] || "1")
 
   return (
@@ -471,6 +556,13 @@ export default function DesignInspector({
       </Section>
 
       <Section title={t("design.insp.typography", "排版")}>
+        <SelectRow
+          label={t("design.insp.fontFamily", "字体")}
+          prop="font-family"
+          value={fontFamilyKey}
+          options={FONT_STACKS.map((f) => [f.stack, f.name] as [string, string])}
+          onCommit={onCommitStyle}
+        />
         <NumberRow
           label={t("design.insp.fontSize", "字号")}
           prop="font-size"
@@ -482,6 +574,20 @@ export default function DesignInspector({
           prop="font-weight"
           value={parseInt(s["font-weight"] || "400", 10)}
           suffix=""
+          onCommit={onCommitStyle}
+        />
+        <TextRow
+          label={t("design.insp.lineHeight", "行高")}
+          prop="line-height"
+          value={s["line-height"] === "normal" ? "" : s["line-height"] || ""}
+          placeholder="1.5 / 24px"
+          onCommit={onCommitStyle}
+        />
+        <TextRow
+          label={t("design.insp.letterSpacing", "字距")}
+          prop="letter-spacing"
+          value={s["letter-spacing"] === "normal" ? "" : s["letter-spacing"] || ""}
+          placeholder="normal"
           onCommit={onCommitStyle}
         />
         <div className="flex items-center justify-between text-sm">
@@ -509,16 +615,16 @@ export default function DesignInspector({
       </Section>
 
       <Section title={t("design.insp.spacing", "间距与圆角")}>
-        <NumberRow
+        <QuadRow
           label={t("design.insp.padding", "内边距")}
           prop="padding"
-          value={px(s["padding"] || "0")}
+          styles={s}
           onCommit={onCommitStyle}
         />
-        <NumberRow
+        <QuadRow
           label={t("design.insp.margin", "外边距")}
           prop="margin"
-          value={px(s["margin"] || "0")}
+          styles={s}
           onCommit={onCommitStyle}
         />
         <NumberRow

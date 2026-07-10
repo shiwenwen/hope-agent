@@ -6183,7 +6183,10 @@
       "imageSrc": "URL imej",
       "uploadImage": "Muat naik imej",
       "imageAlt": "Teks alt",
-      "imageAltHint": "Terangkan imej"
+      "imageAltHint": "Terangkan imej",
+      "fontFamily": "Fon",
+      "lineHeight": "Tinggi baris",
+      "letterSpacing": "Jarak huruf"
     },
     "settings": {
       "desc": "Ruang Reka Bentuk: jana, tala halus dan eksport artifak reka bentuk boleh serah.",

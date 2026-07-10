@@ -6183,7 +6183,10 @@
       "imageSrc": "Görsel URL'si",
       "uploadImage": "Görsel yükle",
       "imageAlt": "Alternatif metin (alt)",
-      "imageAltHint": "Görseli açıklayın"
+      "imageAltHint": "Görseli açıklayın",
+      "fontFamily": "Yazı tipi",
+      "lineHeight": "Satır yüksekliği",
+      "letterSpacing": "Harf aralığı"
     },
     "settings": {
       "desc": "Tasarım Alanı: teslim edilebilir tasarım çıktıları üret, ince ayar yap ve dışa aktar.",
