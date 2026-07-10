@@ -6186,7 +6186,9 @@
       "imageAltHint": "Terangkan imej",
       "fontFamily": "Fon",
       "lineHeight": "Tinggi baris",
-      "letterSpacing": "Jarak huruf"
+      "letterSpacing": "Jarak huruf",
+      "quadLinked": "Terpaut (klik untuk edit setiap sisi)",
+      "quadUnlinked": "Ikut sisi (klik untuk paut)"
     },
     "settings": {
       "desc": "Ruang Reka Bentuk: jana, tala halus dan eksport artifak reka bentuk boleh serah.",

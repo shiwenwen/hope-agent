@@ -6186,7 +6186,9 @@
       "imageAltHint": "圖片描述",
       "fontFamily": "字型",
       "lineHeight": "行高",
-      "letterSpacing": "字距"
+      "letterSpacing": "字距",
+      "quadLinked": "四邊聯動（點擊解鎖逐邊）",
+      "quadUnlinked": "逐邊獨立（點擊鎖定四邊）"
     },
     "settings": {
       "desc": "設計空間：產生、微調並匯出可交付的設計產物。",

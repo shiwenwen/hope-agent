@@ -154,7 +154,11 @@ function ColorRow({
   )
 }
 
-/** 四向数值控件（Wave 3-⑫）：内 / 外边距逐边可调 + 联动锁（锁时改一边=改全等）。 */
+const QUAD_SIDES = ["top", "right", "bottom", "left"] as const
+
+/** 四向数值控件（Wave 3-⑫）：内 / 外边距逐边可调 + 联动锁（锁时改一边=改全等）。
+ *  本地草稿 + blur/Enter 才 commit（避免逐键 patch+reload 丢焦点）；渲染期 prev-prop 同步
+ *  草稿与联动锁（切元素时不留旧状态，inspector 未按选中重挂）。 */
 function QuadRow({
   label,
   prop,
@@ -166,19 +170,42 @@ function QuadRow({
   styles: Record<string, string>
   onCommit: (prop: string, v: string) => void
 }) {
-  const sides = ["top", "right", "bottom", "left"] as const
-  const vals = sides.map((side) => px(styles[`${prop}-${side}`] || styles[prop] || "0"))
-  const [linked, setLinked] = useState(vals.every((v) => v === vals[0]))
-  const set = (i: number, raw: string) => {
-    const v = Math.round(parseFloat(raw) || 0)
-    if (linked) sides.forEach((side) => onCommit(`${prop}-${side}`, `${v}px`))
-    else onCommit(`${prop}-${sides[i]}`, `${v}px`)
+  const { t } = useTranslation()
+  const vals = QUAD_SIDES.map((side) => px(styles[`${prop}-${side}`] || styles[prop] || "0"))
+  const allEqual = vals.every((v) => v === vals[0])
+  const [draft, setDraft] = useState<string[]>(vals.map(String))
+  const [linked, setLinked] = useState(allEqual)
+  const [prev, setPrev] = useState(vals)
+  if (vals.some((v, i) => v !== prev[i])) {
+    setPrev(vals)
+    setDraft(vals.map(String))
+    setLinked(allEqual)
+  }
+  const commit = (i: number) => {
+    const n = Math.round(parseFloat(draft[i]) || 0)
+    if (!linked && n === vals[i]) return // 未变不 commit（防聚焦-失焦原样写回）
+    if (linked) {
+      // **单条 shorthand patch**（review HIGH）：锁定态改一边=四边全等，写 `padding: Npx` 一次
+      // 即可——绝不发 4 条共用同一 bodyHash 的 longhand patch（后 3 条必被 stale-write 守卫拒、
+      // 弹错关面板）。commitPatch 非串行、bodyHash 需异步刷新，逐条会撞。
+      setDraft(QUAD_SIDES.map(() => String(n)))
+      onCommit(prop, `${n}px`)
+    } else {
+      onCommit(`${prop}-${QUAD_SIDES[i]}`, `${n}px`)
+    }
   }
   return (
     <div className="space-y-1.5">
       <div className="flex items-center justify-between">
         <span className="text-sm text-muted-foreground">{label}</span>
-        <IconTip label={linked ? label : label} side="left">
+        <IconTip
+          label={
+            linked
+              ? t("design.insp.quadLinked", "四边联动（点击解锁逐边）")
+              : t("design.insp.quadUnlinked", "逐边独立（点击锁定四边）")
+          }
+          side="left"
+        >
           <button
             type="button"
             onClick={() => setLinked((v) => !v)}
@@ -189,12 +216,16 @@ function QuadRow({
         </IconTip>
       </div>
       <div className="grid grid-cols-4 gap-1">
-        {sides.map((side, i) => (
+        {QUAD_SIDES.map((side, i) => (
           <Input
             key={side}
             type="number"
-            value={vals[i]}
-            onChange={(e) => set(i, e.target.value)}
+            value={draft[i]}
+            onChange={(e) => setDraft((d) => d.map((x, j) => (j === i ? e.target.value : x)))}
+            onBlur={() => commit(i)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") commit(i)
+            }}
             className="h-7 px-1 text-center text-xs"
             aria-label={side}
           />

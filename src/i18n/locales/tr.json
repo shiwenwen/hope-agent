@@ -6186,7 +6186,9 @@
       "imageAltHint": "Görseli açıklayın",
       "fontFamily": "Yazı tipi",
       "lineHeight": "Satır yüksekliği",
-      "letterSpacing": "Harf aralığı"
+      "letterSpacing": "Harf aralığı",
+      "quadLinked": "Bağlı (tek tek düzenlemek için tıkla)",
+      "quadUnlinked": "Kenar bazında (bağlamak için tıkla)"
     },
     "settings": {
       "desc": "Tasarım Alanı: teslim edilebilir tasarım çıktıları üret, ince ayar yap ve dışa aktar.",

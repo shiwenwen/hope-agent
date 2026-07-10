@@ -2303,7 +2303,9 @@ pub fn export_selected_zip(ids: &[String]) -> Result<String> {
     let mut zitems = Vec::new();
     let mut gallery = String::new();
     for id in ids {
-        let Some(a) = db.get_artifact(id)? else { continue };
+        let Some(a) = db.get_artifact(id)? else {
+            continue;
+        };
         let Some(kind) = ArtifactKind::from_str(&a.kind) else {
             continue;
         };

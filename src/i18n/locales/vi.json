@@ -6186,7 +6186,9 @@
       "imageAltHint": "Mô tả hình ảnh",
       "fontFamily": "Phông chữ",
       "lineHeight": "Chiều cao dòng",
-      "letterSpacing": "Giãn cách chữ"
+      "letterSpacing": "Giãn cách chữ",
+      "quadLinked": "Liên kết (bấm để chỉnh từng cạnh)",
+      "quadUnlinked": "Từng cạnh (bấm để liên kết)"
     },
     "settings": {
       "desc": "Không gian Thiết kế: tạo, tinh chỉnh và xuất các sản phẩm thiết kế bàn giao được.",

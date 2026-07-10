@@ -6186,7 +6186,9 @@
       "imageAltHint": "Descreva a imagem",
       "fontFamily": "Fonte",
       "lineHeight": "Altura da linha",
-      "letterSpacing": "Espaçamento"
+      "letterSpacing": "Espaçamento",
+      "quadLinked": "Vinculado (clique para editar por lado)",
+      "quadUnlinked": "Por lado (clique para vincular)"
     },
     "settings": {
       "desc": "Espaço de Design: gere, ajuste e exporte artefatos de design entregáveis.",

@@ -6186,7 +6186,9 @@
       "imageAltHint": "이미지 설명",
       "fontFamily": "글꼴",
       "lineHeight": "줄 높이",
-      "letterSpacing": "자간"
+      "letterSpacing": "자간",
+      "quadLinked": "네 변 연동(클릭하여 개별 편집)",
+      "quadUnlinked": "변별 개별(클릭하여 연동)"
     },
     "settings": {
       "desc": "디자인 스페이스: 전달 가능한 디자인 산출물을 생성·조정·내보내기.",
