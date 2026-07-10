@@ -310,20 +310,43 @@ fn collect_file_change_path(change: &Value, paths: &mut HashSet<String>) {
 }
 
 fn collect_paths_from_attachments_meta(raw: &str, paths: &mut HashSet<String>) {
-    if !raw.contains(ha_core::session::ATTACHMENT_META_KEY_TOOL_MEDIA_ITEMS) {
-        return;
-    }
     let Ok(meta) = serde_json::from_str::<Value>(raw) else {
         return;
     };
-    let Some(items) = meta
+
+    if let Some(items) = meta
         .get(ha_core::session::ATTACHMENT_META_KEY_TOOL_MEDIA_ITEMS)
         .and_then(Value::as_array)
-    else {
-        return;
-    };
+    {
+        for item in items {
+            add_nonempty_path(paths, item.get("localPath").and_then(Value::as_str));
+        }
+    }
+
+    match &meta {
+        Value::Array(items) => collect_user_attachment_paths(items, paths),
+        Value::Object(obj) => {
+            for key in ["user_attachments", "attachments"] {
+                if let Some(items) = obj.get(key).and_then(Value::as_array) {
+                    collect_user_attachment_paths(items, paths);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn collect_user_attachment_paths(items: &[Value], paths: &mut HashSet<String>) {
     for item in items {
-        add_nonempty_path(paths, item.get("localPath").and_then(Value::as_str));
+        if item.get("kind").and_then(Value::as_str) == Some("quote") {
+            continue;
+        }
+        add_nonempty_path(
+            paths,
+            item.get("path")
+                .or_else(|| item.get("localPath"))
+                .and_then(Value::as_str),
+        );
     }
 }
 
@@ -1421,5 +1444,20 @@ mod tests {
             assert!(rewritten[0].get("path").is_none());
             assert!(rewritten[0].get("url").is_none());
         });
+    }
+
+    #[test]
+    fn attachment_path_authorization_skips_quote_references() {
+        let mut paths = HashSet::new();
+        collect_paths_from_attachments_meta(
+            r#"[
+                {"name":"upload.pdf","mime_type":"application/pdf","size":123,"path":"/tmp/upload.pdf"},
+                {"kind":"quote","name":"secret.rs","path":"/tmp/secret.rs","lines":"10-12","content":"let secret = true;"}
+            ]"#,
+            &mut paths,
+        );
+
+        assert!(paths.contains("/tmp/upload.pdf"));
+        assert!(!paths.contains("/tmp/secret.rs"));
     }
 }
