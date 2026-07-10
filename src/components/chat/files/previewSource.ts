@@ -20,11 +20,13 @@ import type { MediaItem } from "@/types/chat"
 export interface PreviewSource {
   /** File name (drives the preview kind + Shiki language). */
   name: string
-  /** MIME, when known (attachments). The pane categorizes via `fileKindOf(name,
-   *  mime)` — the SAME function the action layer uses — so the render kind never
+  /** MIME, when known (attachments). The pane categorizes via `fileKindOf` —
+   *  the SAME function the action layer uses — so the render kind never
    *  disagrees with the click decision (e.g. a pdf attachment named without a
    *  `.pdf` extension). */
   mime?: string | null
+  /** Optional Shiki language id from file-change metadata. */
+  language?: string | null
   /** Path/identifier shown under the title and embedded in quote payloads. */
   displayPath?: string
   sizeBytes?: number
@@ -54,11 +56,13 @@ export function pathPreviewSource(
   name: string,
   sessionId: string | null | undefined,
   mime?: string | null,
+  language?: string | null,
 ): PreviewSource {
   const transport = getTransport()
   return {
     name,
     mime,
+    language,
     displayPath: path,
     readText: () => transport.previewReadText(path, { sessionId }),
     extractDoc: () => transport.previewExtractDoc(path, { sessionId }),

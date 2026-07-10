@@ -269,8 +269,13 @@ function FileRow({
   // summary or live diff); the diff *button* needs the structured `diff`.
   const showDelta = entry.kind === "modified" && (entry.linesAdded > 0 || entry.linesRemoved > 0)
   const target = useMemo<PreviewTarget>(
-    () => ({ kind: "path", path: entry.path, name }),
-    [entry.path, name],
+    () => ({
+      kind: "path",
+      path: entry.path,
+      name,
+      language: entry.language ?? diff?.language ?? null,
+    }),
+    [diff?.language, entry.language, entry.path, name],
   )
   const overrides = useMemo(() => ({ sessionId, onPreviewFile }), [sessionId, onPreviewFile])
   const { primary, run } = useFileActions(target, overrides)

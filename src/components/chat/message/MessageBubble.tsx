@@ -247,7 +247,17 @@ function mergeMessageFileAttachments(
   for (const file of ownFiles) merged.set(messageFileAttachmentKey(file), file)
   for (const file of footerFiles) {
     const key = messageFileAttachmentKey(file)
-    if (!merged.has(key)) merged.set(key, file)
+    const existing = merged.get(key)
+    if (!existing) {
+      merged.set(key, file)
+    } else if (
+      existing.kind === "path" &&
+      file.kind === "path" &&
+      !existing.language &&
+      file.language
+    ) {
+      existing.language = file.language
+    }
   }
   return [...merged.values()]
 }

@@ -505,6 +505,7 @@ export interface FileArtifactSummary {
   linesAdded: number;
   linesRemoved: number;
   readLines: number | null;
+  language?: string | null;
 }
 
 /** Backend-aggregated URL source (mirror of `SessionUrlSource`). */

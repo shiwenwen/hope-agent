@@ -1,9 +1,10 @@
 import { describe, expect, test, vi } from "vitest"
-import type { Message, SessionMessage } from "@/types/chat"
+import type { ContentBlock, Message, SessionMessage } from "@/types/chat"
 import type { Transport } from "@/lib/transport"
 import { setTransport } from "@/lib/transport-provider"
 import {
   computeContextUsage,
+  extractMessageFileAttachments,
   mergeMessagesByDbId,
   parseSessionMessages,
   reloadAndMergeSessionMessages,
@@ -230,6 +231,65 @@ describe("parseSessionMessages events", () => {
       ],
     })
     expect(parsed[0]?.retrievalPlanner?.layers).toHaveLength(1)
+  })
+})
+
+describe("extractMessageFileAttachments", () => {
+  test("preserves file-change language for path previews", () => {
+    const blocks: ContentBlock[] = [
+      {
+        type: "tool_call",
+        tool: {
+          callId: "c1",
+          name: "edit",
+          arguments: "{}",
+          metadata: {
+            kind: "file_change",
+            path: "/repo/generated",
+            action: "edit",
+            linesAdded: 2,
+            linesRemoved: 1,
+            before: "old",
+            after: "new",
+            language: "typescript",
+            truncated: false,
+          },
+        },
+      },
+    ]
+
+    expect(extractMessageFileAttachments(blocks)).toEqual([
+      { kind: "path", path: "/repo/generated", language: "typescript" },
+    ])
+  })
+
+  test("upgrades an existing path attachment with later metadata language", () => {
+    const blocks: ContentBlock[] = [
+      {
+        type: "tool_call",
+        tool: {
+          callId: "c1",
+          name: "edit",
+          arguments: "{}",
+          mediaUrls: ["/repo/generated"],
+          metadata: {
+            kind: "file_change",
+            path: "/repo/generated",
+            action: "edit",
+            linesAdded: 2,
+            linesRemoved: 1,
+            before: "old",
+            after: "new",
+            language: "typescript",
+            truncated: false,
+          },
+        },
+      },
+    ]
+
+    expect(extractMessageFileAttachments(blocks)).toEqual([
+      { kind: "path", path: "/repo/generated", language: "typescript" },
+    ])
   })
 })
 

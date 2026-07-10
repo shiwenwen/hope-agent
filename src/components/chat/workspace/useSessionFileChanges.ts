@@ -15,6 +15,8 @@ export interface SessionFileEntry {
   readLines: number | null
   linesAdded: number
   linesRemoved: number
+  /** Shiki language id when the file-change metadata provided one. */
+  language?: string | null
 }
 
 /**
@@ -53,6 +55,7 @@ export function aggregateSessionFileChanges(messages: Message[]): SessionFileEnt
       readLines: null,
       linesAdded: m.linesAdded,
       linesRemoved: m.linesRemoved,
+      language: m.language || null,
     })
   }
 
@@ -76,6 +79,7 @@ export function aggregateSessionFileChanges(messages: Message[]): SessionFileEnt
             readLines: meta.lines,
             linesAdded: 0,
             linesRemoved: 0,
+            language: null,
           })
         }
       }
@@ -98,6 +102,7 @@ export function aggregateSessionFileChanges(messages: Message[]): SessionFileEnt
             readLines: null,
             linesAdded: 0,
             linesRemoved: 0,
+            language: null,
           })
         }
       }
@@ -115,6 +120,7 @@ export function aggregateSessionFileChanges(messages: Message[]): SessionFileEnt
         readLines: null,
         linesAdded: 0,
         linesRemoved: 0,
+        language: null,
       })
     }
   }
