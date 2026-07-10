@@ -12,8 +12,8 @@ use super::types::{
     PendingWorkflowMilestoneInjection, SaveWorkflowTemplateInput, SavedWorkflowTemplate,
     SavedWorkflowTemplateScope, StartedOpRecoveryAction, UpsertWorkflowOpInput,
     WorkflowAgentUsageSnapshot, WorkflowEffectClass, WorkflowEvent, WorkflowOp, WorkflowOpState,
-    WorkflowRun, WorkflowRunSnapshot, WorkflowRunState, WorkflowRunUsageSnapshot,
-    WorkflowWatchdogFinding,
+    WorkflowRun, WorkflowRunControl, WorkflowRunControlInput, WorkflowRunSnapshot,
+    WorkflowRunState, WorkflowRunUsageSnapshot, WorkflowWatchdogFinding,
 };
 
 const EVENT_PAYLOAD_MAX_BYTES: usize = 64 * 1024;
@@ -21,6 +21,7 @@ const SAVED_WORKFLOW_TEMPLATE_LIMIT_DEFAULT: usize = 50;
 const SAVED_WORKFLOW_TEMPLATE_LIMIT_MAX: usize = 200;
 const SAVED_WORKFLOW_TEMPLATE_NAME_MAX_CHARS: usize = 120;
 const SAVED_WORKFLOW_TEMPLATE_DESCRIPTION_MAX_CHARS: usize = 1000;
+const WORKFLOW_RUN_CONTROL_MAX_BYTES: usize = 64 * 1024;
 
 #[derive(Debug, Clone, Default)]
 struct WorkflowParentInjectionUsageSnapshot {
@@ -97,6 +98,19 @@ pub(crate) fn ensure_tables(conn: &Connection) -> Result<()> {
             UNIQUE(run_id, seq)
         );
 
+        CREATE TABLE IF NOT EXISTS workflow_run_controls (
+            run_id TEXT PRIMARY KEY,
+            api_version INTEGER NOT NULL,
+            meta_json TEXT NOT NULL DEFAULT '{}',
+            meta_hash TEXT NOT NULL,
+            args_json TEXT NOT NULL DEFAULT '{}',
+            args_hash TEXT NOT NULL,
+            resume_from_run_id TEXT,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (run_id) REFERENCES workflow_runs(id) ON DELETE CASCADE,
+            FOREIGN KEY (resume_from_run_id) REFERENCES workflow_runs(id) ON DELETE SET NULL
+        );
+
         CREATE INDEX IF NOT EXISTS idx_workflow_runs_session_updated
             ON workflow_runs(session_id, updated_at DESC);
         CREATE INDEX IF NOT EXISTS idx_workflow_runs_state
@@ -109,6 +123,8 @@ pub(crate) fn ensure_tables(conn: &Connection) -> Result<()> {
             ON workflow_events(run_id, seq);
         CREATE INDEX IF NOT EXISTS idx_workflow_events_type_id
             ON workflow_events(type, id);
+        CREATE INDEX IF NOT EXISTS idx_workflow_run_controls_resume
+            ON workflow_run_controls(resume_from_run_id);
 
         CREATE TABLE IF NOT EXISTS saved_workflow_templates (
             id TEXT PRIMARY KEY,
@@ -181,6 +197,31 @@ pub(crate) fn ensure_tables(conn: &Connection) -> Result<()> {
     {
         conn.execute_batch("ALTER TABLE workflow_runs ADD COLUMN worktree_id TEXT;")?;
     }
+    if conn
+        .prepare("SELECT meta_hash FROM workflow_run_controls LIMIT 1")
+        .is_err()
+    {
+        conn.execute_batch(
+            "ALTER TABLE workflow_run_controls ADD COLUMN meta_hash TEXT NOT NULL DEFAULT '';",
+        )?;
+        let rows = {
+            let mut stmt = conn.prepare(
+                "SELECT run_id, meta_json FROM workflow_run_controls WHERE meta_hash = ''",
+            )?;
+            let rows = stmt
+                .query_map([], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                })?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            rows
+        };
+        for (run_id, meta_json) in rows {
+            conn.execute(
+                "UPDATE workflow_run_controls SET meta_hash = ?2 WHERE run_id = ?1",
+                params![run_id, blake3_hex(meta_json.as_bytes())],
+            )?;
+        }
+    }
     conn.execute_batch(
         "CREATE INDEX IF NOT EXISTS idx_workflow_runs_parent
             ON workflow_runs(parent_run_id);",
@@ -201,6 +242,120 @@ pub(crate) fn ensure_tables(conn: &Connection) -> Result<()> {
 }
 
 impl SessionDB {
+    pub fn create_workflow_run_with_control(
+        &self,
+        mut input: CreateWorkflowRunInput,
+        control: WorkflowRunControlInput,
+    ) -> Result<WorkflowRun> {
+        if control.api_version != 4 {
+            return Err(anyhow!(
+                "unsupported workflow apiVersion {}; expected 4",
+                control.api_version
+            ));
+        }
+        if !control.meta.is_object() || !control.args.is_object() {
+            return Err(anyhow!("workflow meta and args must be JSON objects"));
+        }
+        let meta_json = stable_json(&control.meta)?;
+        let args_json = stable_json(&control.args)?;
+        if meta_json.len().saturating_add(args_json.len()) > WORKFLOW_RUN_CONTROL_MAX_BYTES {
+            return Err(anyhow!(
+                "workflow meta + args exceed {} bytes",
+                WORKFLOW_RUN_CONTROL_MAX_BYTES
+            ));
+        }
+        if let Some(source_run_id) = control.resume_from_run_id.as_deref() {
+            let source = self
+                .get_workflow_run(source_run_id)?
+                .ok_or_else(|| anyhow!("resume source workflow not found: {source_run_id}"))?;
+            if source.session_id != input.session_id {
+                return Err(anyhow!(
+                    "resume source workflow {} belongs to another session",
+                    source_run_id
+                ));
+            }
+            if !source.state.is_terminal() {
+                return Err(anyhow!(
+                    "resume source workflow {} must be terminal; current state is {}",
+                    source_run_id,
+                    source.state.as_str()
+                ));
+            }
+        }
+        let budget = input
+            .budget
+            .as_object_mut()
+            .ok_or_else(|| anyhow!("workflow budget must be a JSON object"))?;
+        budget.insert("__hopeWorkflowApiVersion".to_string(), json!(4));
+        let run = self.create_workflow_run(input)?;
+        let meta_hash = blake3_hex(meta_json.as_bytes());
+        let args_hash = blake3_hex(args_json.as_bytes());
+        let inserted = (|| -> Result<()> {
+            let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
+            conn.execute(
+                "INSERT INTO workflow_run_controls (
+                    run_id, api_version, meta_json, meta_hash, args_json, args_hash,
+                    resume_from_run_id, created_at
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                params![
+                    run.id,
+                    control.api_version,
+                    meta_json,
+                    meta_hash,
+                    args_json,
+                    args_hash,
+                    control.resume_from_run_id,
+                    now_rfc3339(),
+                ],
+            )?;
+            Ok(())
+        })();
+        if let Err(err) = inserted {
+            if let Ok(conn) = self.conn.lock() {
+                let _ = conn.execute("DELETE FROM workflow_runs WHERE id = ?1", params![run.id]);
+            }
+            return Err(err);
+        }
+        let _ = self.append_workflow_event(
+            &run.id,
+            "workflow_v4_control",
+            json!({
+                "apiVersion": control.api_version,
+                "meta": control.meta,
+                "metaHash": meta_hash,
+                "argsHash": args_hash,
+                "resumeFromRunId": control.resume_from_run_id,
+            }),
+        )?;
+        Ok(run)
+    }
+
+    pub fn get_workflow_run_control(&self, run_id: &str) -> Result<Option<WorkflowRunControl>> {
+        let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
+        Ok(conn
+            .query_row(
+                "SELECT run_id, api_version, meta_json, meta_hash, args_json, args_hash,
+                        resume_from_run_id, created_at
+                 FROM workflow_run_controls WHERE run_id = ?1",
+                params![run_id],
+                |row| {
+                    let meta_json: String = row.get(2)?;
+                    let args_json: String = row.get(4)?;
+                    Ok(WorkflowRunControl {
+                        run_id: row.get(0)?,
+                        api_version: row.get(1)?,
+                        meta: serde_json::from_str(&meta_json).unwrap_or_else(|_| json!({})),
+                        meta_hash: row.get(3)?,
+                        args: serde_json::from_str(&args_json).unwrap_or_else(|_| json!({})),
+                        args_hash: row.get(5)?,
+                        resume_from_run_id: row.get(6)?,
+                        created_at: row.get(7)?,
+                    })
+                },
+            )
+            .optional()?)
+    }
+
     pub fn create_workflow_run(&self, input: CreateWorkflowRunInput) -> Result<WorkflowRun> {
         let now = now_rfc3339();
         let id = format!("wfr_{}", uuid::Uuid::new_v4().simple());
@@ -1389,15 +1544,42 @@ impl SessionDB {
     pub fn list_workflow_child_handles(&self, run_id: &str) -> Result<Vec<(String, String)>> {
         let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
         let mut stmt = conn.prepare(
-            "SELECT op_type, child_handle
+            "SELECT op_type, child_handle, output_json
              FROM workflow_ops
-             WHERE run_id = ?1 AND child_handle IS NOT NULL AND child_handle != ''
+             WHERE run_id = ?1
+               AND (
+                 (child_handle IS NOT NULL AND child_handle != '')
+                 OR (op_type = 'spawnAgent' AND state = 'completed' AND output_json IS NOT NULL)
+               )
              ORDER BY started_at ASC, id ASC",
         )?;
         let rows = stmt.query_map(params![run_id], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, Option<String>>(1)?,
+                row.get::<_, Option<String>>(2)?,
+            ))
         })?;
-        collect_rows(rows)
+        let mut handles = Vec::new();
+        for row in rows {
+            let (op_type, child_handle, output_json) = row?;
+            let child_handle = child_handle.filter(|value| !value.is_empty()).or_else(|| {
+                output_json
+                    .as_deref()
+                    .and_then(|value| serde_json::from_str::<Value>(value).ok())
+                    .and_then(|value| {
+                        value
+                            .get("runId")
+                            .or_else(|| value.get("run_id"))
+                            .and_then(Value::as_str)
+                            .map(ToOwned::to_owned)
+                    })
+            });
+            if let Some(child_handle) = child_handle {
+                handles.push((op_type, child_handle));
+            }
+        }
+        Ok(handles)
     }
 
     pub fn list_workflow_ops_for_child(&self, child_handle: &str) -> Result<Vec<WorkflowOp>> {
@@ -1440,30 +1622,10 @@ impl SessionDB {
     }
 
     pub fn workflow_agent_result_handled(&self, run_id: &str, child_run_id: &str) -> Result<bool> {
-        let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
-        let mut stmt = conn.prepare(
-            "SELECT payload_json
-             FROM workflow_events
-             WHERE run_id = ?1
-               AND type IN (
-                 'workflow_agent_result_consumed',
-                 'workflow_agent_result_suppressed'
-               )",
-        )?;
-        let rows = stmt.query_map(params![run_id], |row| row.get::<_, String>(0))?;
-        for row in rows {
-            let Ok(payload) = serde_json::from_str::<Value>(&row?) else {
-                continue;
-            };
-            if payload
-                .get("childRunIds")
-                .and_then(Value::as_array)
-                .is_some_and(|ids| ids.iter().any(|id| id.as_str() == Some(child_run_id)))
-            {
-                return Ok(true);
-            }
+        if self.workflow_agent_result_event_recorded(run_id, child_run_id)? {
+            return Ok(true);
         }
-
+        let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
         let mut stmt = conn.prepare(
             "SELECT op_type, output_json
              FROM workflow_ops
@@ -1492,6 +1654,37 @@ impl SessionDB {
             let mut consumed = HashSet::new();
             collect_handled_workflow_agent_ids(&output, &mut consumed);
             if consumed.contains(child_run_id) {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
+    pub fn workflow_agent_result_event_recorded(
+        &self,
+        run_id: &str,
+        child_run_id: &str,
+    ) -> Result<bool> {
+        let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
+        let mut stmt = conn.prepare(
+            "SELECT payload_json
+             FROM workflow_events
+             WHERE run_id = ?1
+               AND type IN (
+                 'workflow_agent_result_consumed',
+                 'workflow_agent_result_suppressed'
+               )",
+        )?;
+        let rows = stmt.query_map(params![run_id], |row| row.get::<_, String>(0))?;
+        for row in rows {
+            let Ok(payload) = serde_json::from_str::<Value>(&row?) else {
+                continue;
+            };
+            if payload
+                .get("childRunIds")
+                .and_then(Value::as_array)
+                .is_some_and(|ids| ids.iter().any(|id| id.as_str() == Some(child_run_id)))
+            {
                 return Ok(true);
             }
         }

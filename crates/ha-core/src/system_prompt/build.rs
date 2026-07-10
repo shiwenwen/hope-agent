@@ -579,7 +579,9 @@ fn render_active_goal_section(snapshot: &crate::goal::GoalSnapshot) -> String {
         String::new(),
         "The user has set a durable goal for this session. Treat it as the current north star until the user changes, pauses, clears, or completes it.".to_string(),
         "Goal Runtime Contract: autonomously keep working toward this goal across long tasks; do not stop merely because one turn is long or a subtask is hard. Maintain evidence, recover from interruptions, and only finish after the current revision's completion criteria are actually satisfied.".to_string(),
-        "Use the Goal tools when useful: `goal_status` to re-read the latest objective/revision/budget, `goal_checkpoint` after meaningful milestones or handoffs, `goal_record_evidence` for truthful general-domain evidence, `goal_evaluate` before any completion claim, `goal_finish_request` only when the audit should pass, and `goal_block_request` only after repeated failed attempts or a real user/external blocker.".to_string(),
+        "Autonomous execution rules: when the next in-scope action is already determined, perform it in this turn instead of ending with a plan, promise, or list of next steps. If the user asks a side question while the Goal remains active, answer it and then continue unless they changed, paused, or cancelled the Goal.".to_string(),
+        "Scope rules: reversible work that directly advances the Goal should proceed without needless reconfirmation, while irreversible, outward-facing, or genuinely scope-changing actions still require the normal permission or user decision. If the user's Goal is an assessment or answer rather than a requested change, the assessment is the deliverable; do not mutate merely because Goal Mode is active. Do not add unrelated features, cleanup, or abstractions.".to_string(),
+        "Use the Goal tools when useful: `goal_status` to re-read the latest objective/revision/budget; `goal_prepare_contract` early to form a gradeable rubric and viability preflight when the objective is underspecified (without expanding scope, and while preserving explicit criteria exactly); `goal_checkpoint` after meaningful milestones or handoffs; `goal_record_evidence` for truthful general-domain evidence; `goal_evaluate` before any completion claim; `goal_finish_request` only when the audit should pass; and `goal_block_request` only after repeated failed attempts or a real user/external blocker.".to_string(),
         format!("- State: {}", goal.state.as_str()),
         format!("- Revision: {}", goal.revision),
         format!("- Objective: {}", truncate(&goal.objective, 1200)),
@@ -627,10 +629,21 @@ fn render_active_goal_section(snapshot: &crate::goal::GoalSnapshot) -> String {
             "- Criteria ids for traceability; when creating a workflow run for a specific criterion, pass the matching `goalCriterionId`:".to_string(),
         );
         for criterion in snapshot.criteria_items.iter().take(12) {
+            let check = criterion
+                .check_kind
+                .map(|kind| format!(", check={}", kind.as_str()))
+                .unwrap_or_default();
+            let expected = if criterion.expected_evidence.is_empty() {
+                String::new()
+            } else {
+                format!(", evidence={}", criterion.expected_evidence.join("|"))
+            };
             lines.push(format!(
-                "  - {} [{}]: {}",
+                "  - {} [{}{}{}]: {}",
                 criterion.id,
                 criterion.kind.as_str(),
+                check,
+                expected,
                 truncate(&criterion.text, 240)
             ));
         }
@@ -709,10 +722,89 @@ fn render_active_goal_section(snapshot: &crate::goal::GoalSnapshot) -> String {
             snapshot.budget.exceeded
         ));
     }
+    append_goal_handoff(&mut lines, snapshot);
     lines.push(
         "Behavior rules: prefer actions that create concrete evidence toward the completion criteria; keep user-visible tasks current; if the user updates the goal, immediately follow the latest revision; if you complete it, call `goal_finish_request` before the final user summary; if you cannot proceed, call `goal_block_request` with concrete attempts instead of silently stopping.".to_string(),
     );
     lines.join("\n")
+}
+
+fn append_goal_handoff(lines: &mut Vec<String>, snapshot: &crate::goal::GoalSnapshot) {
+    let current_task = snapshot
+        .tasks
+        .iter()
+        .find(|task| task.status == "in_progress")
+        .or_else(|| snapshot.tasks.iter().find(|task| task.status == "pending"));
+    let active_workflow = snapshot.workflow_runs.iter().find(|run| {
+        matches!(
+            run.state,
+            crate::workflow::WorkflowRunState::Running
+                | crate::workflow::WorkflowRunState::Recovering
+        )
+    });
+    let waiting_workflow = snapshot.workflow_runs.iter().find(|run| {
+        matches!(
+            run.state,
+            crate::workflow::WorkflowRunState::AwaitingApproval
+                | crate::workflow::WorkflowRunState::AwaitingUser
+                | crate::workflow::WorkflowRunState::Paused
+        )
+    });
+    let next_evidence = snapshot
+        .goal
+        .last_evaluator_result
+        .get("nextEvidenceNeeded")
+        .or_else(|| {
+            snapshot
+                .goal
+                .last_evaluator_result
+                .get("next_evidence_needed")
+        })
+        .and_then(|value| value.as_array())
+        .and_then(|items| items.iter().find_map(|item| item.as_str()))
+        .filter(|value| !value.trim().is_empty());
+    let checkpoint_next = snapshot
+        .events
+        .iter()
+        .rev()
+        .filter(|event| event.kind == "goal_checkpoint")
+        .find_map(|event| event.payload.get("next").and_then(|value| value.as_str()))
+        .filter(|value| !value.trim().is_empty());
+
+    if current_task.is_none()
+        && active_workflow.is_none()
+        && waiting_workflow.is_none()
+        && next_evidence.is_none()
+        && checkpoint_next.is_none()
+    {
+        return;
+    }
+
+    lines.push("- Goal handoff packet:".to_string());
+    if let Some(task) = current_task {
+        lines.push(format!(
+            "  - Current task: {} ({})",
+            truncate(&task.content, 240),
+            task.status
+        ));
+    }
+    if let Some(run) = active_workflow {
+        lines.push(format!(
+            "  - Active workflow: {} ({})",
+            truncate(&run.kind, 180),
+            run.state.as_str()
+        ));
+    }
+    if let Some(run) = waiting_workflow {
+        lines.push(format!(
+            "  - Waiting on workflow: {} ({})",
+            truncate(&run.kind, 180),
+            run.state.as_str()
+        ));
+    }
+    if let Some(next) = next_evidence.or(checkpoint_next) {
+        lines.push(format!("  - One next action: {}", truncate(next, 320)));
+    }
 }
 
 /// Build a system prompt using the legacy path (no AgentDefinition).
@@ -881,6 +973,9 @@ mod memory_section_tests {
                 id: "criterion-1".to_string(),
                 text: "status machine is stable".to_string(),
                 kind: GoalCriterionKind::Required,
+                check_kind: None,
+                expected_evidence: Vec::new(),
+                inferred: false,
             }],
             criteria: vec![GoalCriterionAudit {
                 id: "criterion-1".to_string(),
@@ -895,6 +990,7 @@ mod memory_section_tests {
             budget: GoalBudgetSnapshot::default(),
             workflow_runs: Vec::new(),
             tasks: Vec::new(),
+            grader_runs: Vec::new(),
         }
     }
 
@@ -904,6 +1000,8 @@ mod memory_section_tests {
 
         assert!(out.contains("# Active Goal"));
         assert!(out.contains("Goal Runtime Contract"));
+        assert!(out.contains("perform it in this turn instead of ending with a plan"));
+        assert!(out.contains("If the user's Goal is an assessment or answer"));
         assert!(out.contains("goal_status"));
         assert!(out.contains("goal_finish_request"));
         assert!(out.contains("- Revision: 7"));
@@ -917,6 +1015,19 @@ mod memory_section_tests {
         assert!(out.contains("User closure decision: needs_strict_evidence"));
         assert!(out.contains("Do not claim the goal is closed"));
         assert!(out.contains("Blocked reason: needs_strict_evidence"));
+    }
+
+    #[test]
+    fn active_goal_section_includes_durable_handoff_next_action() {
+        let mut snapshot = mk_goal_snapshot();
+        snapshot.goal.last_evaluator_result = json!({
+            "nextEvidenceNeeded": ["Run the release smoke test"]
+        });
+
+        let out = render_active_goal_section(&snapshot);
+
+        assert!(out.contains("Goal handoff packet"));
+        assert!(out.contains("One next action: Run the release smoke test"));
     }
 
     #[test]

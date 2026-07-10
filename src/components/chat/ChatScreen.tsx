@@ -39,8 +39,13 @@ import {
   goalSlashCommandDisplay,
   isGoalUpsertSlashCommand,
   parseGoalObjectiveAndCriteria,
+  parseGoalUpsertSlashCommand,
 } from "./goalSlashCommand"
-import { isLoopCreateSlashCommand, loopSlashCommandDisplay } from "./loopSlashCommand"
+import {
+  isLoopCreateSlashCommand,
+  loopSlashCommandDisplay,
+  parseLoopCreateSlashCommand,
+} from "./loopSlashCommand"
 import type { AgentConfig } from "@/components/settings/types"
 import ApprovalDialog from "@/components/chat/ApprovalDialog"
 import ChatSidebar from "@/components/chat/ChatSidebar"
@@ -2261,7 +2266,8 @@ export default function ChatScreen({
 
   const handleGoalModeSubmit = useCallback(
     async (objective: string, action?: string): Promise<boolean> => {
-      const trimmed = objective.trim()
+      const rawObjective = objective.trim()
+      const trimmed = parseGoalUpsertSlashCommand(rawObjective) ?? rawObjective
       if (!trimmed) return false
       if (incognitoEnabled || draftIncognito) {
         toast.error(t("chat.goalMode.incognito", "无痕会话不持久化目标"))
@@ -2384,7 +2390,8 @@ export default function ChatScreen({
 
   const handleLoopModeSubmit = useCallback(
     async (prompt: string): Promise<boolean> => {
-      const trimmed = prompt.trim()
+      const rawPrompt = prompt.trim()
+      const trimmed = parseLoopCreateSlashCommand(rawPrompt) ?? rawPrompt
       if (!trimmed) return false
       if (incognitoEnabled || draftIncognito) {
         toast.error(t("chat.loopMode.incognito", "无痕会话不持久化持续推进"))
@@ -3486,6 +3493,7 @@ export default function ChatScreen({
                       draftWorkflowMode={draftWorkflowMode}
                       onDraftWorkflowModeChange={setDraftWorkflowMode}
                       goalSnapshot={chatGoal.snapshot}
+                      autonomyActivity={chatGoal.activity}
                       goalLoading={chatGoal.loading}
                       onGoalModeSubmit={handleGoalModeSubmit}
                       onLoopModeSubmit={handleLoopModeSubmit}

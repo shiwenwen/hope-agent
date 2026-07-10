@@ -14,6 +14,13 @@ export type LoopRunState =
   | "skipped"
 export type LoopTriggerKind = "interval" | "cron" | "condition" | "event" | "dynamic"
 export type LoopExecutionStrategy = "continue" | "workflow"
+export type LoopWatchKind =
+  | "app_event"
+  | "job"
+  | "subagent"
+  | "file"
+  | "command"
+  | "websocket"
 export type LoopProgressState =
   | "progressed"
   | "weak_progress"
@@ -95,9 +102,26 @@ export interface LoopRunUsageSnapshot {
   providerAttribution?: string
 }
 
+export interface LoopWatch {
+  id: string
+  loopId: string
+  kind: LoopWatchKind
+  spec: Record<string, unknown>
+  active: boolean
+  generation: number
+  lastEventAt?: string | null
+  lastFingerprint?: string | null
+  failureCount: number
+  lastError?: string | null
+  monitorJobId?: string | null
+  createdAt: string
+  updatedAt: string
+}
+
 export interface LoopSnapshot {
   schedule: LoopSchedule
   runs: LoopRun[]
+  watches?: LoopWatch[]
 }
 
 export interface LoopWatchdogFinding {
@@ -221,6 +245,7 @@ export function useLoopSchedules(
   useEffect(() => {
     const was = prevTurnActive.current
     prevTurnActive.current = turnActive
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- refresh after the foreground turn settles
     if (was && !turnActive) fetchSchedules()
   }, [fetchSchedules, turnActive])
 

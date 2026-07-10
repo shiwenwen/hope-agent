@@ -632,6 +632,25 @@ describe("ChatInput", () => {
     expect(onInputChange).toHaveBeenCalledWith("")
   })
 
+  test("strips /goal when the goal composer is already active", async () => {
+    const onGoalModeSubmit = vi.fn(() => Promise.resolve(true))
+    const onInputChange = vi.fn()
+
+    renderChatInput({
+      input: "/goal Complete the product-grade UI pass",
+      onGoalModeSubmit,
+      onInputChange,
+    })
+
+    fireEvent.click(await screen.findByRole("button", { name: "chat.goalMode.enter" }))
+    fireEvent.click(screen.getByRole("button", { name: "chat.send" }))
+
+    await waitFor(() => {
+      expect(onGoalModeSubmit).toHaveBeenCalledWith("Complete the product-grade UI pass")
+    })
+    expect(onInputChange).toHaveBeenCalledWith("")
+  })
+
   test("submits the current draft through loop mode instead of normal send", async () => {
     const onLoopModeSubmit = vi.fn(() => Promise.resolve(true))
     const onInputChange = vi.fn()
@@ -674,6 +693,25 @@ describe("ChatInput", () => {
       expect(onLoopModeSubmit).toHaveBeenCalledWith("every 10m: check release blockers")
     })
     expect(onSend).not.toHaveBeenCalled()
+    expect(onInputChange).toHaveBeenCalledWith("")
+  })
+
+  test("strips /loop when the loop composer is already active", async () => {
+    const onLoopModeSubmit = vi.fn(() => Promise.resolve(true))
+    const onInputChange = vi.fn()
+
+    renderChatInput({
+      input: "/loop every 10m: check release blockers",
+      onLoopModeSubmit,
+      onInputChange,
+    })
+
+    fireEvent.click(await screen.findByRole("button", { name: "chat.loopMode.enter" }))
+    fireEvent.click(screen.getByRole("button", { name: "chat.send" }))
+
+    await waitFor(() => {
+      expect(onLoopModeSubmit).toHaveBeenCalledWith("every 10m: check release blockers")
+    })
     expect(onInputChange).toHaveBeenCalledWith("")
   })
 
@@ -897,6 +935,44 @@ describe("ChatInput", () => {
     expect(screen.getByText("1/2")).toBeTruthy()
   })
 
+  test("projects goal acceptance as a compact user-attention activity", () => {
+    renderChatInput({
+      goalSnapshot: activeGoalSnapshot,
+      autonomyActivity: {
+        sessionId: "s1",
+        state: "waiting_user",
+        headlineCode: "waiting_goal_acceptance",
+        currentStep: "Complete Goal v4 review",
+        waitingOn: {
+          kind: "goal",
+          reasonCode: "goal_acceptance_required",
+          sourceId: "goal-1",
+          label: "Complete Goal v4 review",
+        },
+        nextAction: {
+          kind: "user",
+          reasonCode: "review_goal_closure",
+          sourceId: "goal-1",
+          label: "Complete Goal v4 review",
+        },
+        needsUser: true,
+        counts: {
+          activeWorkflows: 0,
+          activeTasks: 0,
+          activeLoops: 0,
+          activeJobs: 0,
+          awaitingApproval: 0,
+        },
+        sourceRefs: [],
+        projectedAt: "2026-01-01T00:11:00Z",
+      },
+    })
+
+    const activity = screen.getByText("chat.activity.waitingGoalAcceptance")
+    expect(activity).toBeTruthy()
+    expect(activity.getAttribute("title")).toContain("Complete Goal v4 review")
+  })
+
   test("shows a compact workflow progress line for the most relevant run", () => {
     renderChatInput({
       workflowProgressRun: {
@@ -922,6 +998,76 @@ describe("ChatInput", () => {
     expect(screen.getByText("chat.workflowProgress.steps")).toBeTruthy()
     expect(screen.getByText("chat.workflowProgress.more")).toBeTruthy()
     expect(screen.getByRole("button", { name: "chat.workflowProgress.view" })).toBeTruthy()
+  })
+
+  test("folds workflow progress into the single active-goal activity strip", () => {
+    renderChatInput({
+      goalSnapshot: activeGoalSnapshot,
+      autonomyActivity: {
+        sessionId: "s1",
+        state: "active",
+        headlineCode: "running_workflow",
+        currentStep: "Review implementation evidence",
+        needsUser: false,
+        counts: {
+          activeWorkflows: 1,
+          activeTasks: 0,
+          activeLoops: 0,
+          activeJobs: 2,
+          awaitingApproval: 0,
+        },
+        sourceRefs: [],
+        projectedAt: "2026-07-08T00:03:00Z",
+      },
+      workflowProgressRun: {
+        id: "wfr_goal_owned",
+        sessionId: "s1",
+        kind: "coding.workflow",
+        state: "running",
+        executionMode: "guarded",
+        scriptHash: "abc",
+        scriptSource: "export default async function main(workflow) {}",
+        budget: { sizeGuideline: "large" },
+        cursorSeq: 4,
+        createdAt: "2026-07-08T00:00:00Z",
+        updatedAt: "2026-07-08T00:03:00Z",
+      },
+    })
+
+    expect(screen.getByText("chat.activity.runningWorkflow")).toBeTruthy()
+    expect(screen.queryByText("chat.workflowProgress.title")).toBeNull()
+  })
+
+  test("shows unified Loop activity when no Goal or Workflow strip owns the status", () => {
+    renderChatInput({
+      autonomyActivity: {
+        sessionId: "s1",
+        state: "waiting_external",
+        headlineCode: "waiting_loop_trigger",
+        currentStep: "Wait for the monitored file",
+        waitingOn: {
+          kind: "loop",
+          reasonCode: "loop_waiting_trigger",
+          sourceId: "loop-1",
+          label: "Wait for the monitored file",
+        },
+        nextWakeupAt: "2026-07-08T00:20:00Z",
+        needsUser: false,
+        counts: {
+          activeWorkflows: 0,
+          activeTasks: 0,
+          activeLoops: 1,
+          activeJobs: 1,
+          awaitingApproval: 0,
+        },
+        sourceRefs: [],
+        projectedAt: "2026-07-08T00:03:00Z",
+      },
+      onOpenWorkspace: vi.fn(),
+    })
+
+    expect(screen.getByText("chat.activity.waitingLoopTrigger")).toBeTruthy()
+    expect(screen.getByText("Wait for the monitored file")).toBeTruthy()
   })
 
   test("previews required optional and follow-up criteria while editing the active goal", () => {

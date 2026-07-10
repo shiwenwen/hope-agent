@@ -543,6 +543,14 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
         return Err("No model configured for chat execution".to_string());
     }
 
+    crate::session_title::maybe_schedule_autonomous_start(
+        db.clone(),
+        session_id.clone(),
+        agent_id.clone(),
+        model_chain[0].clone(),
+        providers.clone(),
+    );
+
     // Resolve the Plan-mode bundle once at turn start. Spawn-supplied
     // overrides win (their child sessions have backend `plan_mode = Off`
     // even though they're meant to run as PlanAgent); otherwise read this
@@ -1346,15 +1354,15 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                         }
                     }
 
-                    if post_turn_effects {
-                        crate::session_title::maybe_schedule_after_success(
-                            db.clone(),
-                            session_id.clone(),
-                            agent_id.clone(),
-                            model_ref.clone(),
-                            providers.clone(),
-                        );
+                    crate::session_title::maybe_schedule_after_success(
+                        db.clone(),
+                        session_id.clone(),
+                        agent_id.clone(),
+                        model_ref.clone(),
+                        providers.clone(),
+                    );
 
+                    if post_turn_effects {
                         {
                             let usage_snapshot = persister.usage();
                             let round_tokens = {

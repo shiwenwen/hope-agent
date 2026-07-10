@@ -545,6 +545,26 @@
       "updated": "Đã cập nhật mục tiêu\nVòng lặp",
       "messageBadge": "Mục tiêu"
     },
+    "activity": {
+      "waitingJobApproval": "Đang chờ phê duyệt công cụ",
+      "waitingWorkflowUser": "Đang chờ bạn phản hồi",
+      "waitingGoalAcceptance": "Đang chờ xác nhận kết quả mục tiêu",
+      "evaluatingGoal": "Đang đánh giá mục tiêu",
+      "runningWorkflow": "Quy trình đang chạy",
+      "runningTask": "Tác vụ đang chạy",
+      "waitingBackgroundWork": "Đang chờ kết quả nền",
+      "waitingLoopTrigger": "Đang chờ vòng lặp kích hoạt",
+      "goalPaused": "Mục tiêu đã tạm dừng",
+      "workflowPaused": "Quy trình đã tạm dừng",
+      "workflowBlocked": "Quy trình làm việc cần xử lý",
+      "goalBlocked": "Mục tiêu cần xử lý",
+      "loopPaused": "Vòng lặp đã tạm dừng",
+      "loopBlocked": "Vòng lặp cần xử lý",
+      "activeGoal": "Đang tiếp tục mục tiêu",
+      "goalTerminal": "Mục tiêu đã kết thúc",
+      "needsUser": "Cần bạn xử lý",
+      "active": "Đang tiến hành"
+    },
     "loopMode": {
       "label": "Vòng lặp",
       "enter": "Chế độ Loop: tạo một tác vụ lặp lại để agent tiếp tục thúc đẩy",
@@ -6032,7 +6052,12 @@
       "editPolicy": "Chỉnh sửa chính sách",
       "policyTitle": "Chính sách vòng lặp",
       "viewMore": "Xem thêm sự tiến bộ liên tục ({{count}})",
-      "viewLess": "Xem ít hơn"
+      "viewLess": "Xem ít hơn",
+      "watchesTitle": "Trình theo dõi",
+      "watchGeneration": "Thế hệ {{value}}",
+      "watchArmed": "Đang theo dõi",
+      "watchSettled": "Đã kết thúc",
+      "watchFailures": "{{count}} lần lỗi"
     },
     "workflow": {
       "title": "Quy trình làm việc",

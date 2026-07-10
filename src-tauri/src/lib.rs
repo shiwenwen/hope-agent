@@ -848,6 +848,7 @@ pub fn run() {
             commands::execution_mode::set_workflow_mode,
             // Goals (top-level completion criteria and evidence)
             commands::goal::get_active_goal,
+            commands::goal::get_autonomy_activity,
             commands::goal::get_goal,
             commands::goal::list_goal_watchdog_findings,
             commands::goal::create_goal,

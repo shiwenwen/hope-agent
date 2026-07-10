@@ -2,7 +2,7 @@ use serde_json::json;
 
 use super::super::{
     TOOL_GOAL_BLOCK_REQUEST, TOOL_GOAL_CHECKPOINT, TOOL_GOAL_EVALUATE, TOOL_GOAL_FINISH_REQUEST,
-    TOOL_GOAL_RECORD_EVIDENCE, TOOL_GOAL_STATUS,
+    TOOL_GOAL_PREPARE_CONTRACT, TOOL_GOAL_RECORD_EVIDENCE, TOOL_GOAL_STATUS,
 };
 use super::types::{CoreSubclass, ToolDefinition, ToolTier};
 
@@ -40,6 +40,67 @@ whether to continue, evaluate, finish, or ask the user."
             "additionalProperties": false
         }),
     }
+}
+
+pub fn get_goal_prepare_contract_tool() -> ToolDefinition {
+    goal_core_tool(
+        TOOL_GOAL_PREPARE_CONTRACT,
+        "Prepare or refresh the current Goal revision's structured, gradeable contract before \
+expensive work. Use this early when the user supplied only an objective, or when explicit criteria \
+need check/evidence metadata. Inferred criteria must stay within the user's objective; explicit \
+criteria text and kind cannot be changed or expanded. The viability preflight reports unavailable \
+tools and paths but grants no permissions.",
+        json!({
+            "type": "object",
+            "properties": {
+                "criteria": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 12,
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "id": { "type": "string", "description": "Contiguous criterion-1..N id." },
+                            "text": { "type": "string", "description": "Gradeable criterion. Preserve explicit user criteria exactly." },
+                            "kind": { "type": "string", "enum": ["required", "optional", "follow_up"] },
+                            "checkKind": { "type": "string", "enum": ["evidence", "artifact", "test", "semantic", "user_acceptance", "external_state"] },
+                            "expectedEvidence": {
+                                "type": "array",
+                                "items": { "type": "string" },
+                                "description": "Expected durable Goal evidence relation ids, such as validation_passed, artifact_reviewed, source_cited, or user_decision."
+                            }
+                        },
+                        "required": ["id", "text", "kind", "checkKind", "expectedEvidence"],
+                        "additionalProperties": false
+                    }
+                },
+                "scopeRationale": {
+                    "type": "string",
+                    "description": "Why these criteria are sufficient without broadening the user's objective."
+                },
+                "requiredTools": {
+                    "type": "array",
+                    "items": { "type": "string" },
+                    "description": "Tool ids truly required by the intended approach."
+                },
+                "requiredPaths": {
+                    "type": "array",
+                    "items": { "type": "string" },
+                    "description": "Files or directories that must already exist. Relative paths resolve from the session workspace."
+                },
+                "requiresApproval": {
+                    "type": "boolean",
+                    "description": "Whether the intended execution path is expected to require a user approval surface. This only diagnoses availability; it never grants approval."
+                },
+                "requiresNetwork": {
+                    "type": "boolean",
+                    "description": "Whether the intended execution path needs network access. Include the concrete network-capable tool in requiredTools when known."
+                }
+            },
+            "required": ["criteria", "scopeRationale"],
+            "additionalProperties": false
+        }),
+    )
 }
 
 pub fn get_goal_checkpoint_tool() -> ToolDefinition {
@@ -142,16 +203,20 @@ automatically.",
 pub fn get_goal_evaluate_tool() -> ToolDefinition {
     goal_core_tool(
         TOOL_GOAL_EVALUATE,
-        "Run the deterministic completion audit for the active durable Goal. Use this before \
-claiming completion, when evidence changed, or when you need a precise list of missing items. \
-If required evidence is missing, the goal remains open but may be marked blocked until more \
-evidence is produced.",
+        "Run the hybrid completion audit for the active durable Goal. The deterministic hard \
+gate runs first; structured semantic criteria are then judged by an independent grader that \
+can reject but never override missing evidence or close the Goal. Use this before claiming \
+completion, when evidence changed, or when you need criterion-specific gaps.",
         json!({
             "type": "object",
             "properties": {
                 "reason": {
                     "type": "string",
                     "description": "Why you are running the audit now."
+                },
+                "strict": {
+                    "type": "boolean",
+                    "description": "Run the optional adversarial semantic grader after the deterministic gate. Use only when the user requests strict evidence or the task is unusually high risk."
                 }
             },
             "additionalProperties": false
@@ -162,10 +227,10 @@ evidence is produced.",
 pub fn get_goal_finish_request_tool() -> ToolDefinition {
     goal_core_tool(
         TOOL_GOAL_FINISH_REQUEST,
-        "Request final completion of the active durable Goal. This tool will re-run/validate \
-the current audit and only closes the goal when the deterministic evidence gate says completed \
-for the current revision. Call this after you believe the objective and required completion \
-criteria are satisfied, immediately before your final concise summary to the user.",
+        "Request final completion of the active durable Goal. This tool re-runs the deterministic \
+hard gate and, when the Goal has semantic criteria, requires an independent structured grader \
+verdict for the current revision and evidence watermark. Neither grader failure nor a semantic \
+gap can silently close the Goal. Call this immediately before the final concise summary.",
         json!({
             "type": "object",
             "properties": {
@@ -181,6 +246,10 @@ criteria are satisfied, immediately before your final concise summary to the use
                 "remainingRisk": {
                     "type": "string",
                     "description": "Optional honest residual risk or evidence limitation."
+                },
+                "strictEvaluation": {
+                    "type": "boolean",
+                    "description": "Require the optional adversarial semantic grader before closure."
                 }
             },
             "additionalProperties": false

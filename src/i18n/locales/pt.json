@@ -545,6 +545,26 @@
       "updated": "Meta atualizada",
       "messageBadge": "Meta"
     },
+    "activity": {
+      "waitingJobApproval": "Aguardando aprovação da ferramenta",
+      "waitingWorkflowUser": "Aguardando sua resposta",
+      "waitingGoalAcceptance": "Aguardando a confirmação do resultado da meta",
+      "evaluatingGoal": "Avaliando a meta",
+      "runningWorkflow": "Fluxo de trabalho em execução",
+      "runningTask": "Tarefa em execução",
+      "waitingBackgroundWork": "Aguardando resultados em segundo plano",
+      "waitingLoopTrigger": "Aguardando o acionamento do loop",
+      "goalPaused": "Meta pausada",
+      "workflowPaused": "Fluxo de trabalho pausado",
+      "workflowBlocked": "O fluxo de trabalho requer atenção",
+      "goalBlocked": "A meta requer atenção",
+      "loopPaused": "Loop pausado",
+      "loopBlocked": "O loop requer atenção",
+      "activeGoal": "Avançando a meta",
+      "goalTerminal": "Meta concluída",
+      "needsUser": "Requer sua atenção",
+      "active": "Em andamento"
+    },
     "loopMode": {
       "label": "Ciclo",
       "enter": "Modo Loop: cria uma tarefa recorrente que o agente pode continuar avançando",
@@ -6032,7 +6052,12 @@
       "editPolicy": "Editar política",
       "policyTitle": "Política de loop",
       "viewMore": "Ver mais avanço contínuo ({{count}})",
-      "viewLess": "Ver menos"
+      "viewLess": "Ver menos",
+      "watchesTitle": "Monitores",
+      "watchGeneration": "Geração {{value}}",
+      "watchArmed": "Ativo",
+      "watchSettled": "Finalizado",
+      "watchFailures": "{{count}} falhas"
     },
     "workflow": {
       "title": "Fluxo de trabalho",

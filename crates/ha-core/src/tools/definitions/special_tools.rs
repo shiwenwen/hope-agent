@@ -243,7 +243,7 @@ pub fn get_tool_search_tool() -> ToolDefinition {
 pub fn get_workflow_tool() -> ToolDefinition {
     ToolDefinition {
         name: TOOL_WORKFLOW.into(),
-        description: "Create, inspect, trace, and control observable durable workflow runs. Use this only when Workflow Mode is enabled. The assistant writes workflow scripts itself when orchestration helps; do not ask the user to provide a script or enter a coding-only mode first. Workflows are not coding-only: use them for substantial research, writing, data, connector, operations, knowledge, or coding tasks where durable, inspectable orchestration improves reliability. Use action=create to start a dynamic JavaScript workflow, action=list/status/trace to monitor runs, action=control to pause/resume/cancel a run, and action=followup to repair or continue from an existing run. Include sizeGuideline when creating/following up so the user and later model turns understand intended workflow scale. The model must not approve user permissions; approval remains with the user.".into(),
+        description: "Create, inspect, trace, and control observable durable workflow runs. Use this only when Workflow Mode is enabled. The assistant writes workflow scripts itself when orchestration helps; do not ask the user to provide a script or enter a coding-only mode first. Workflows are not coding-only: use them for substantial research, writing, data, connector, operations, knowledge, or coding tasks where durable, inspectable orchestration improves reliability. Call action=guide immediately before authoring a script to load the current V4 API without keeping a large guide in the system prompt. Use action=create to start, list/status/trace to inspect, control to pause/resume/cancel, and followup to repair or continue. The model must not approve user permissions; approval remains with the user.".into(),
         tier: ToolTier::Core {
             subclass: CoreSubclass::Meta,
         },
@@ -255,12 +255,12 @@ pub fn get_workflow_tool() -> ToolDefinition {
             "properties": {
                 "action": {
                     "type": "string",
-                    "enum": ["create", "list", "status", "trace", "control", "followup"],
-                    "description": "Workflow control action. create starts a workflow from a script; list/status/trace inspect visible runs; control pauses/resumes/cancels; followup creates a repair or continuation workflow from an existing run."
+                    "enum": ["guide", "create", "list", "status", "trace", "control", "followup"],
+                    "description": "Workflow control action. guide returns the current on-demand authoring contract; create starts a workflow from a script; list/status/trace inspect visible runs; control pauses/resumes/cancels; followup creates a repair or continuation workflow from an existing run."
                 },
                 "script": {
                     "type": "string",
-                    "description": "For action=create/followup: complete JavaScript workflow script. It must define `export default async function main(workflow) { ... }`, use the workflow host APIs, and finish via `workflow.finish(...)`."
+                    "description": "For action=create/followup: complete JavaScript workflow script. For V4 define `export default async function main(workflow, args) { ... }`, use the workflow host APIs from action=guide, and finish via `workflow.finish(...)`."
                 },
                 "kind": {
                     "type": "string",
@@ -274,6 +274,23 @@ pub fn get_workflow_tool() -> ToolDefinition {
                 "budget": {
                     "type": "object",
                     "description": "Optional run budget, for example `{ \"maxScriptSecs\": 900, \"maxOps\": 64, \"maxOutputTokens\": 20000 }`. Required for `executionMode: \"autonomous\"`."
+                },
+                "apiVersion": {
+                    "type": "integer",
+                    "enum": [4],
+                    "description": "Workflow runtime API version. New scripts should use 4."
+                },
+                "meta": {
+                    "type": "object",
+                    "description": "Small immutable literal metadata such as name, description, tags, and authoring intent. Metadata is not executable and grants no permissions."
+                },
+                "args": {
+                    "type": "object",
+                    "description": "Immutable JSON inputs exposed as workflow.args and the second main(workflow, args) argument. Args are included in durable op identity."
+                },
+                "resumeFromRunId": {
+                    "type": "string",
+                    "description": "Optional terminal source run for edited-script resume. Only the longest matching shared_read_only Agent prefix may be reused; the first fingerprint difference closes reuse."
                 },
                 "sizeGuideline": {
                     "type": "string",

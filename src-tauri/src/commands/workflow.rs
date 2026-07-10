@@ -135,6 +135,10 @@ pub async fn create_workflow_run(
     kind: Option<String>,
     execution_mode: Option<String>,
     budget: Option<Value>,
+    api_version: Option<i64>,
+    meta: Option<Value>,
+    args: Option<Value>,
+    resume_from_run_id: Option<String>,
     parent_run_id: Option<String>,
     origin: Option<String>,
     goal_id: Option<String>,
@@ -156,9 +160,8 @@ pub async fn create_workflow_run(
         &script_source,
         Some(parsed_mode.as_str()),
     )?;
-    let run = app_state
-        .session_db
-        .create_workflow_run(CreateWorkflowRunInput {
+    let run = app_state.session_db.create_workflow_run_with_control(
+        CreateWorkflowRunInput {
             session_id,
             kind: kind.unwrap_or_else(|| "general.workflow".to_string()),
             execution_mode: parsed_mode.as_str().to_string(),
@@ -169,7 +172,14 @@ pub async fn create_workflow_run(
             goal_id,
             goal_criterion_id,
             worktree_id,
-        })?;
+        },
+        ha_core::workflow::WorkflowRunControlInput {
+            api_version: api_version.unwrap_or(4),
+            meta: meta.unwrap_or_else(|| json!({})),
+            args: args.unwrap_or_else(|| json!({})),
+            resume_from_run_id,
+        },
+    )?;
     if run_now {
         ha_core::workflow::spawn_workflow_run_if_primary(
             app_state.session_db.clone(),

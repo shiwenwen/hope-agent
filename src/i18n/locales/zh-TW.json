@@ -545,6 +545,26 @@
       "updated": "目標已更新",
       "messageBadge": "目標"
     },
+    "activity": {
+      "waitingJobApproval": "等待工具審批",
+      "waitingWorkflowUser": "等待你處理",
+      "waitingGoalAcceptance": "等待確認目標結果",
+      "evaluatingGoal": "正在驗收目標",
+      "runningWorkflow": "工作流程執行中",
+      "runningTask": "任務執行中",
+      "waitingBackgroundWork": "等待背景結果",
+      "waitingLoopTrigger": "等待持續推進觸發",
+      "goalPaused": "目標已暫停",
+      "workflowPaused": "工作流程已暫停",
+      "workflowBlocked": "工作流程待處理",
+      "goalBlocked": "目標待處理",
+      "loopPaused": "持續推進已暫停",
+      "loopBlocked": "持續推進待處理",
+      "activeGoal": "持續推進目標",
+      "goalTerminal": "目標已結束",
+      "needsUser": "需要你處理",
+      "active": "正在推進"
+    },
     "loopMode": {
       "label": "持續推進",
       "enter": "持續推進（Loop）：建立一個可重複觸發、讓模型持續推進的任務",
@@ -6032,7 +6052,12 @@
       "editPolicy": "編輯政策",
       "policyTitle": "循環策略",
       "viewMore": "看更多持續推進（{{count}}）",
-      "viewLess": "看更少"
+      "viewLess": "看更少",
+      "watchesTitle": "監聽器",
+      "watchGeneration": "第 {{value}} 代",
+      "watchArmed": "監聽中",
+      "watchSettled": "已結束",
+      "watchFailures": "失敗 {{count}} 次"
     },
     "workflow": {
       "title": "工作流",

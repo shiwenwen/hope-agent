@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { Toaster } from "@/components/ui/sonner"
-import ChatInput, { type GoalModeSubmitAction } from "@/components/chat/input/ChatInput"
+import ChatInput from "@/components/chat/input/ChatInput"
 import { setTransport } from "@/lib/transport-provider"
 import type { Transport } from "@/lib/transport"
 import type { ActiveModel, AvailableModel, SandboxMode, SessionMode } from "@/types/chat"
@@ -224,7 +224,7 @@ export default function ChatInputSmokeWindow() {
   const [wide, setWide] = useState(false)
   const snapshot = useMemo(() => goalSnapshot(), [])
 
-  const handleGoalSubmit = async (_objective: string, _action?: GoalModeSubmitAction) => {
+  const handleGoalSubmit = async () => {
     setGoalModeSubmitCount((value) => value + 1)
     return true
   }

@@ -95,6 +95,28 @@ pub(crate) fn cancel_job(job_id: &str) -> anyhow::Result<Option<BackgroundJob>> 
         return db.load(job_id);
     }
 
+    if job.kind == JobKind::Monitor {
+        crate::loop_control::cancel_loop_monitor_by_job_id(job_id, job.tool_call_id.as_deref())?;
+        let cancelled_now = db.update_terminal(
+            job_id,
+            JobStatus::Cancelled,
+            None,
+            None,
+            Some("Monitor cancelled by user"),
+            chrono::Utc::now().timestamp(),
+        )?;
+        if cancelled_now {
+            events::emit_completed(
+                job_id,
+                JobKind::Monitor,
+                &job.tool_name,
+                JobStatus::Cancelled.as_str(),
+                job.session_id.as_deref(),
+            );
+        }
+        return db.load(job_id);
+    }
+
     // R5: cancelling a `Group` marks the group terminal FIRST, THEN cancels each
     // child. Order is load-bearing: `request_cancel_run`'s no-flag fallback
     // stamps a child `Killed` *synchronously*, which flows through

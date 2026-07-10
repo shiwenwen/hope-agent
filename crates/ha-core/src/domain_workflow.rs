@@ -3379,7 +3379,7 @@ mod tests {
                 .gate
                 .issues
                 .iter()
-                .all(|issue| format!("{:?}", issue.severity).to_ascii_lowercase() != "error"),
+                .all(|issue| !format!("{:?}", issue.severity).eq_ignore_ascii_case("error")),
             "script gate errors: {:?}",
             draft.script_preview.gate.issues
         );

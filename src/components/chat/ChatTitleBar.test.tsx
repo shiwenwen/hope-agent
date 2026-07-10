@@ -76,21 +76,21 @@ afterEach(() => {
 })
 
 describe("ChatTitleBar working directory affordances", () => {
-  test("shows a visible workflow workspace entry in the title bar", () => {
+  test("shows a visible workspace entry in the title bar", () => {
     const onToggleWorkspacePanel = vi.fn()
     renderTitleBar({
       onToggleWorkspacePanel,
     })
 
-    expect(screen.getByText("Workflow")).toBeTruthy()
+    expect(screen.getByText("Workspace")).toBeTruthy()
 
-    const codingButton = screen.getByRole("button", { name: "Open Workflow workspace" })
+    const codingButton = screen.getByRole("button", { name: "Open workspace" })
     fireEvent.click(codingButton)
 
     expect(onToggleWorkspacePanel).toHaveBeenCalledTimes(1)
   })
 
-  test("badges the workflow entry when workflow runs need attention", () => {
+  test("badges the workspace entry when workflow runs need attention", () => {
     renderTitleBar({
       onToggleWorkspacePanel: vi.fn(),
       workspaceWorkflowStatus: {
@@ -100,7 +100,7 @@ describe("ChatTitleBar working directory affordances", () => {
       },
     })
 
-    expect(screen.getByRole("button", { name: /need attention/ })).toBeTruthy()
+    expect(screen.getByRole("button", { name: "Open workspace" })).toBeTruthy()
     expect(screen.getByText("1")).toBeTruthy()
   })
 

@@ -72,6 +72,16 @@ export interface GoalCriterionItem {
   id: string
   text: string
   kind: GoalCriterionKind
+  checkKind?:
+    | "evidence"
+    | "artifact"
+    | "test"
+    | "semantic"
+    | "user_acceptance"
+    | "external_state"
+    | null
+  expectedEvidence?: string[]
+  inferred?: boolean
 }
 
 export interface GoalCriterionAudit {
@@ -129,6 +139,22 @@ export interface GoalBudgetSnapshot {
   exceeded: string[]
 }
 
+export interface GoalGraderRun {
+  id: string
+  goalId: string
+  revision: number
+  evaluationKey: string
+  strict: boolean
+  attempt: number
+  state: "running" | "completed" | "failed" | string
+  result: unknown
+  model?: string | null
+  usage: unknown
+  error?: string | null
+  createdAt: string
+  updatedAt: string
+}
+
 export interface GoalSnapshot {
   goal: Goal
   links: GoalLink[]
@@ -141,6 +167,51 @@ export interface GoalSnapshot {
   budget?: GoalBudgetSnapshot
   workflowRuns: WorkflowRun[]
   tasks: Task[]
+  graderRuns?: GoalGraderRun[]
+}
+
+export type AutonomyActivityState =
+  | "idle"
+  | "active"
+  | "waiting_user"
+  | "waiting_external"
+  | "evaluating"
+  | "paused"
+  | "blocked"
+  | "terminal"
+
+export interface ActivityDirective {
+  kind: string
+  reasonCode: string
+  sourceId?: string | null
+  label?: string | null
+}
+
+export interface ActivitySourceRef {
+  kind: string
+  id: string
+  state: string
+  label?: string | null
+}
+
+export interface AutonomyActivity {
+  sessionId: string
+  state: AutonomyActivityState
+  headlineCode: string
+  currentStep?: string | null
+  waitingOn?: ActivityDirective | null
+  nextAction?: ActivityDirective | null
+  nextWakeupAt?: string | null
+  needsUser: boolean
+  counts: {
+    activeWorkflows: number
+    activeTasks: number
+    activeLoops: number
+    activeJobs: number
+    awaitingApproval: number
+  }
+  sourceRefs: ActivitySourceRef[]
+  projectedAt: string
 }
 
 export interface GoalWatchdogFinding {
@@ -161,6 +232,7 @@ export interface GoalWatchdogFinding {
 
 export interface GoalStateSnapshot {
   snapshot: GoalSnapshot | null
+  activity: AutonomyActivity | null
   watchdogFindings: GoalWatchdogFinding[]
   loading: boolean
   error: string | null
@@ -185,6 +257,7 @@ export function useGoal(
 ): GoalStateSnapshot {
   const { incognito = false, disabled = false } = opts
   const [snapshot, setSnapshot] = useState<GoalSnapshot | null>(null)
+  const [activity, setActivity] = useState<AutonomyActivity | null>(null)
   const [watchdogFindings, setWatchdogFindings] = useState<GoalWatchdogFinding[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -195,6 +268,7 @@ export function useGoal(
     if (disabled) {
       reqRef.current += 1
       setSnapshot(null)
+      setActivity(null)
       setWatchdogFindings([])
       setLoading(false)
       setError(null)
@@ -203,6 +277,7 @@ export function useGoal(
     if (!sessionId || incognito) {
       reqRef.current += 1
       setSnapshot(null)
+      setActivity(null)
       setWatchdogFindings([])
       setLoading(false)
       setError(null)
@@ -212,9 +287,16 @@ export function useGoal(
     setLoading(true)
     setError(null)
     const transport = getTransport()
-    transport
-      .call<GoalSnapshot | null>("get_active_goal", { sessionId })
-      .then(async (next) => {
+    Promise.all([
+      transport.call<GoalSnapshot | null>("get_active_goal", { sessionId }),
+      transport
+        .call<AutonomyActivity>("get_autonomy_activity", { sessionId })
+        .catch((e) => {
+          logger.warn("ui", "useGoal", "Failed to load autonomy activity projection", e)
+          return null
+        }),
+    ])
+      .then(async ([next, nextActivity]) => {
         if (reqRef.current !== req) return
         let nextFindings: GoalWatchdogFinding[] = []
         if (next) {
@@ -229,6 +311,7 @@ export function useGoal(
         }
         if (reqRef.current !== req) return
         setSnapshot(next)
+        setActivity(nextActivity)
         setWatchdogFindings(Array.isArray(nextFindings) ? nextFindings : [])
         setLoading(false)
       })
@@ -237,6 +320,7 @@ export function useGoal(
         const message = e instanceof Error ? e.message : String(e)
         logger.error("ui", "useGoal", "Failed to load active goal", e)
         setError(message)
+        setActivity(null)
         setWatchdogFindings([])
         setLoading(false)
       })
@@ -275,12 +359,20 @@ export function useGoal(
     const offEvent = getTransport().listen("goal:event", scheduleRefresh)
     const offLink = getTransport().listen("goal:link_updated", scheduleRefresh)
     const offWorkflow = getTransport().listen("workflow:updated", scheduleRefresh)
+    const offLoop = getTransport().listen("loop:changed", scheduleRefresh)
+    const offJobCreated = getTransport().listen("job:created", scheduleRefresh)
+    const offJobUpdated = getTransport().listen("job:updated", scheduleRefresh)
+    const offJobCompleted = getTransport().listen("job:completed", scheduleRefresh)
     return () => {
       offCreated()
       offUpdated()
       offEvent()
       offLink()
       offWorkflow()
+      offLoop()
+      offJobCreated()
+      offJobUpdated()
+      offJobCompleted()
       if (eventRefreshTimerRef.current !== null) {
         window.clearTimeout(eventRefreshTimerRef.current)
         eventRefreshTimerRef.current = null
@@ -291,12 +383,13 @@ export function useGoal(
   return useMemo(
     () => ({
       snapshot,
+      activity,
       watchdogFindings,
       loading,
       error,
       refresh: fetchGoal,
       setSnapshot: setSnapshotFromOwner,
     }),
-    [error, fetchGoal, loading, setSnapshotFromOwner, snapshot, watchdogFindings],
+    [activity, error, fetchGoal, loading, setSnapshotFromOwner, snapshot, watchdogFindings],
   )
 }

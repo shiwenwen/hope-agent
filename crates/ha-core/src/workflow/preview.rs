@@ -225,6 +225,9 @@ fn preview_raw_call(
         "workflow.review"
         | "workflow.verify"
         | "workflow.repairLoop"
+        | "workflow.parallel"
+        | "workflow.pipeline"
+        | "workflow.budgetStatus"
         | "workflow.evidence.record"
         | "workflow.block"
         | "workflow.now"
@@ -387,6 +390,9 @@ fn is_permission_neutral_api(api: &str) -> bool {
             | "workflow.review"
             | "workflow.verify"
             | "workflow.repairLoop"
+            | "workflow.parallel"
+            | "workflow.pipeline"
+            | "workflow.budgetStatus"
             | "workflow.evidence.record"
             | "workflow.block"
             | "workflow.now"
@@ -651,6 +657,9 @@ fn collect_raw_calls(script: &str) -> Vec<RawWorkflowCall> {
         ("workflow.review", "workflow.review("),
         ("workflow.verify", "workflow.verify("),
         ("workflow.repairLoop", "workflow.repairLoop("),
+        ("workflow.parallel", "workflow.parallel("),
+        ("workflow.pipeline", "workflow.pipeline("),
+        ("workflow.budgetStatus", "workflow.budgetStatus("),
         ("workflow.evidence.record", "workflow.evidence.record("),
         ("workflow.block", "workflow.block("),
         ("workflow.now", "workflow.now("),

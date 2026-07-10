@@ -2648,11 +2648,20 @@ impl SessionDB {
 
     /// Update session title.
     pub fn update_session_title(&self, session_id: &str, title: &str) -> Result<()> {
-        self.update_session_title_with_source(
-            session_id,
-            title,
-            crate::session_title::TITLE_SOURCE_MANUAL,
-        )
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        // Entering title edit mode and blurring without changing the text is
+        // not a manual rename. Preserve the existing source so an immediate
+        // first-message fallback remains eligible for LLM refinement.
+        conn.execute(
+            "UPDATE sessions
+                SET title = ?1, title_source = ?2
+              WHERE id = ?3 AND (title IS NULL OR title <> ?1)",
+            params![title, crate::session_title::TITLE_SOURCE_MANUAL, session_id],
+        )?;
+        Ok(())
     }
 
     /// Pin or unpin a session in sidebar listings. This intentionally does
@@ -2707,6 +2716,29 @@ impl SessionDB {
                 SET title = ?1, title_source = ?2
               WHERE id = ?3 AND title_source = ?4",
             params![title, title_source, session_id, expected_source],
+        )?;
+        Ok(changed > 0)
+    }
+
+    /// Reclassify a title without changing its text, guarded by both the
+    /// current source and current title. This is used to repair legacy
+    /// auto-generated Goal fallbacks without racing a real user rename.
+    pub(crate) fn update_session_title_source_if_title_and_source(
+        &self,
+        session_id: &str,
+        expected_title: &str,
+        expected_source: &str,
+        title_source: &str,
+    ) -> Result<bool> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let changed = conn.execute(
+            "UPDATE sessions
+                SET title_source = ?1
+              WHERE id = ?2 AND title = ?3 AND title_source = ?4",
+            params![title_source, session_id, expected_title, expected_source],
         )?;
         Ok(changed > 0)
     }
@@ -5398,6 +5430,18 @@ mod tests {
         assert_eq!(
             first.title_source,
             crate::session_title::TITLE_SOURCE_FIRST_MESSAGE
+        );
+
+        db.update_session_title(&created.id, "帮我分析这个 Rust 报错")
+            .expect("no-op rename");
+        let unchanged = db
+            .get_session(&created.id)
+            .expect("get unchanged session")
+            .expect("session exists");
+        assert_eq!(
+            unchanged.title_source,
+            crate::session_title::TITLE_SOURCE_FIRST_MESSAGE,
+            "an unchanged title must not become a manual rename"
         );
 
         let changed = db

@@ -884,7 +884,7 @@ pub struct CodingLearningGeneralizationReport {
     pub checks: Vec<CodingLearningGeneralizationCheck>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CodingBenchmarkCenterInput {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -899,19 +899,6 @@ pub struct CodingBenchmarkCenterInput {
     pub require_external_model_baseline: bool,
     #[serde(default)]
     pub require_learning_generalization: bool,
-}
-
-impl Default for CodingBenchmarkCenterInput {
-    fn default() -> Self {
-        Self {
-            session_id: None,
-            project_id: None,
-            window_days: None,
-            limit: None,
-            require_external_model_baseline: false,
-            require_learning_generalization: false,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -1033,7 +1020,7 @@ pub struct CodingBenchmarkCampaignModel {
     pub label: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CodingBenchmarkCampaignCreateInput {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1052,21 +1039,6 @@ pub struct CodingBenchmarkCampaignCreateInput {
     pub max_budget_usd: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub timeout_secs: Option<u64>,
-}
-
-impl Default for CodingBenchmarkCampaignCreateInput {
-    fn default() -> Self {
-        Self {
-            session_id: None,
-            project_id: None,
-            name: None,
-            gold_task_input: GoldTaskPackRunInput::default(),
-            models: Vec::new(),
-            run_now: false,
-            max_budget_usd: None,
-            timeout_secs: None,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -5744,8 +5716,7 @@ impl SessionDB {
             .take(MAX_BENCHMARK_CAMPAIGN_LIMIT)
             .collect::<Vec<_>>();
         if !campaign_ids.is_empty() {
-            let placeholders = std::iter::repeat("?")
-                .take(campaign_ids.len())
+            let placeholders = std::iter::repeat_n("?", campaign_ids.len())
                 .collect::<Vec<_>>()
                 .join(", ");
             clauses.push(format!("c.id IN ({placeholders})"));
@@ -6160,8 +6131,7 @@ impl SessionDB {
             params.push(session_id.clone());
         }
         if !scope.campaign_ids.is_empty() {
-            let placeholders = std::iter::repeat("?")
-                .take(scope.campaign_ids.len())
+            let placeholders = std::iter::repeat_n("?", scope.campaign_ids.len())
                 .collect::<Vec<_>>()
                 .join(", ");
             clauses.push(format!("c.id IN ({placeholders})"));

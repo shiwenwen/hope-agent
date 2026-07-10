@@ -545,6 +545,26 @@
       "updated": "تم تحديث الهدف",
       "messageBadge": "الهدف"
     },
+    "activity": {
+      "waitingJobApproval": "بانتظار الموافقة على الأداة",
+      "waitingWorkflowUser": "بانتظار ردك",
+      "waitingGoalAcceptance": "بانتظار تأكيد نتيجة الهدف",
+      "evaluatingGoal": "جارٍ تقييم الهدف",
+      "runningWorkflow": "سير العمل قيد التنفيذ",
+      "runningTask": "المهمة قيد التنفيذ",
+      "waitingBackgroundWork": "بانتظار نتائج الخلفية",
+      "waitingLoopTrigger": "بانتظار تشغيل الحلقة",
+      "goalPaused": "الهدف متوقف مؤقتًا",
+      "workflowPaused": "سير العمل متوقف مؤقتًا",
+      "workflowBlocked": "سير العمل يحتاج إلى مراجعة",
+      "goalBlocked": "الهدف يحتاج إلى الانتباه",
+      "loopPaused": "الحلقة متوقفة مؤقتًا",
+      "loopBlocked": "الحلقة تحتاج إلى الانتباه",
+      "activeGoal": "جارٍ التقدم نحو الهدف",
+      "goalTerminal": "انتهى الهدف",
+      "needsUser": "يحتاج إلى تدخلك",
+      "active": "قيد التقدم"
+    },
     "loopMode": {
       "label": "حلقة",
       "enter": "وضع الحلقة: قم بإنشاء مهمة ذاتية متكررة يمكن للوكيل الاستمرار في التقدم فيها",
@@ -6032,7 +6052,12 @@
       "editPolicy": "تعديل السياسة",
       "policyTitle": "سياسة الحلقة",
       "viewMore": "عرض المزيد من التقدم المستمر ({{count}})",
-      "viewLess": "عرض أقل"
+      "viewLess": "عرض أقل",
+      "watchesTitle": "أدوات المراقبة",
+      "watchGeneration": "الجيل {{value}}",
+      "watchArmed": "نشط",
+      "watchSettled": "انتهى",
+      "watchFailures": "{{count}} إخفاقات"
     },
     "workflow": {
       "title": "سير العمل",

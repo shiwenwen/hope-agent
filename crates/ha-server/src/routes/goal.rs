@@ -1,5 +1,6 @@
 use axum::extract::{Path, Query};
 use axum::Json;
+use ha_core::activity::AutonomyActivity;
 use ha_core::goal::{
     AppendGoalFollowUpInput, CloseGoalInput, CreateGoalInput, GoalClosureDecision, GoalSnapshot,
     GoalWatchdogFinding, UpdateGoalInput,
@@ -13,6 +14,14 @@ pub async fn get_active_goal(
     Path(session_id): Path<String>,
 ) -> Result<Json<Option<GoalSnapshot>>, AppError> {
     Ok(Json(session_db()?.active_goal_for_session(&session_id)?))
+}
+
+pub async fn get_autonomy_activity(
+    Path(session_id): Path<String>,
+) -> Result<Json<AutonomyActivity>, AppError> {
+    Ok(Json(
+        session_db()?.autonomy_activity_for_session(&session_id)?,
+    ))
 }
 
 pub async fn get_goal(Path(goal_id): Path<String>) -> Result<Json<Option<GoalSnapshot>>, AppError> {

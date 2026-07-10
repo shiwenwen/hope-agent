@@ -590,7 +590,7 @@ mod tests {
         let f = Fixture::new();
         assert_eq!(
             resolve_tool_fate(def, &f.ctx(DEFAULT_AGENT_ID)),
-            ToolFate::InjectEager
+            ToolFate::InjectDeferred
         );
         assert_eq!(
             resolve_tool_fate(def, &f.ctx("translator")),

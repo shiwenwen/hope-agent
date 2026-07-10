@@ -996,8 +996,10 @@ async fn execute_session_loop_payload(
     if action.pause_cron_job {
         let _ = cron_db.toggle_job(&job.id, false);
     }
-    let drain_next_event = admission.trigger_kind == crate::loop_control::LoopTriggerKind::Event
-        && !action.pause_cron_job
+    let drain_next_event = matches!(
+        admission.trigger_kind,
+        crate::loop_control::LoopTriggerKind::Event | crate::loop_control::LoopTriggerKind::Dynamic
+    ) && !action.pause_cron_job
         && session_db
             .loop_has_pending_event_ticks(&admission.loop_id)
             .unwrap_or(false);

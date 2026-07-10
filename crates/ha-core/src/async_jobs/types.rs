@@ -14,6 +14,9 @@ pub enum JobKind {
     Subagent,
     /// A fan-out of child jobs joined as one unit (R5).
     Group,
+    /// A long-lived Loop monitor (file / WebSocket). The monitor adapter owns
+    /// execution; JobManager owns its unified lifecycle projection.
+    Monitor,
 }
 
 impl JobKind {
@@ -22,6 +25,7 @@ impl JobKind {
             Self::Tool => "tool",
             Self::Subagent => "subagent",
             Self::Group => "group",
+            Self::Monitor => "monitor",
         }
     }
 
@@ -33,6 +37,7 @@ impl JobKind {
             "tool" => Some(Self::Tool),
             "subagent" => Some(Self::Subagent),
             "group" => Some(Self::Group),
+            "monitor" => Some(Self::Monitor),
             _ => None,
         }
     }
@@ -336,7 +341,12 @@ mod tests {
 
     #[test]
     fn job_kind_as_str_parse_roundtrip() {
-        for k in [JobKind::Tool, JobKind::Subagent, JobKind::Group] {
+        for k in [
+            JobKind::Tool,
+            JobKind::Subagent,
+            JobKind::Group,
+            JobKind::Monitor,
+        ] {
             assert_eq!(JobKind::parse(k.as_str()), Some(k));
         }
         assert_eq!(JobKind::default(), JobKind::Tool);

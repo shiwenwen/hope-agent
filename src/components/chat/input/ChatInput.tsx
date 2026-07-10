@@ -94,7 +94,7 @@ import type { ContextUsageInfo } from "../chatUtils"
 import { contextUsageBarClass } from "../contextUsageColor"
 import type { AgentConfig } from "@/components/settings/types"
 import type { QuickPromptItem } from "@/types/quickPrompts"
-import type { GoalSnapshot } from "../workspace/useGoal"
+import type { AutonomyActivity, GoalSnapshot } from "../workspace/useGoal"
 import { parseGoalCriteriaDraft, type DraftGoalCriterionKind } from "../workspace/goalCriteriaDraft"
 import { parseGoalUpsertSlashCommand } from "../goalSlashCommand"
 import { parseLoopCreateSlashCommand } from "../loopSlashCommand"
@@ -317,6 +317,7 @@ interface ChatInputProps {
   onDraftWorkflowModeChange?: (mode: WorkflowMode) => void
   // Goal mode
   goalSnapshot?: GoalSnapshot | null
+  autonomyActivity?: AutonomyActivity | null
   goalLoading?: boolean
   onGoalModeSubmit?: (objective: string, action?: GoalModeSubmitAction) => Promise<boolean>
   onLoopModeSubmit?: (prompt: string) => Promise<boolean>
@@ -505,6 +506,7 @@ export default function ChatInput({
   draftWorkflowMode = "off",
   onDraftWorkflowModeChange,
   goalSnapshot,
+  autonomyActivity,
   goalLoading = false,
   onGoalModeSubmit,
   onLoopModeSubmit,
@@ -1107,9 +1109,12 @@ export default function ChatInput({
   const handleSend = useCallback(() => {
     if (sendUnavailable) return
     resetHistoryBrowsing()
-    const directGoalObjective = goalComposerMode ? null : parseGoalUpsertSlashCommand(input)
+    // Normalize slash-form Goal drafts even when the Goal composer is already
+    // active. Pasting a reusable `/goal ...` prompt after clicking the Goal
+    // button must not persist the command prefix as part of the objective.
+    const directGoalObjective = parseGoalUpsertSlashCommand(input)
     const directLoopPrompt =
-      goalComposerMode || loopComposerMode || !onLoopModeSubmit
+      goalComposerMode || !onLoopModeSubmit
         ? null
         : parseLoopCreateSlashCommand(input)
     if (goalComposerMode || directGoalObjective) {
@@ -1263,6 +1268,51 @@ export default function ChatInput({
         return ""
     }
   })()
+  const activityHeadlineLabel = (() => {
+    switch (autonomyActivity?.headlineCode) {
+      case "waiting_job_approval":
+        return t("chat.activity.waitingJobApproval", "等待工具审批")
+      case "waiting_workflow_user":
+        return t("chat.activity.waitingWorkflowUser", "等待你处理")
+      case "waiting_goal_acceptance":
+        return t("chat.activity.waitingGoalAcceptance", "等待确认目标结果")
+      case "evaluating_goal":
+        return t("chat.activity.evaluatingGoal", "正在验收目标")
+      case "running_workflow":
+        return t("chat.activity.runningWorkflow", "工作流执行中")
+      case "running_task":
+        return t("chat.activity.runningTask", "任务执行中")
+      case "waiting_background_work":
+        return t("chat.activity.waitingBackgroundWork", "等待后台结果")
+      case "waiting_loop_trigger":
+        return t("chat.activity.waitingLoopTrigger", "等待持续推进触发")
+      case "goal_paused":
+        return t("chat.activity.goalPaused", "目标已暂停")
+      case "workflow_paused":
+        return t("chat.activity.workflowPaused", "工作流已暂停")
+      case "workflow_blocked":
+        return t("chat.activity.workflowBlocked", "工作流待处理")
+      case "goal_blocked":
+        return t("chat.activity.goalBlocked", "目标待处理")
+      case "loop_paused":
+        return t("chat.activity.loopPaused", "持续推进已暂停")
+      case "loop_blocked":
+        return t("chat.activity.loopBlocked", "持续推进待处理")
+      case "active_goal":
+        return t("chat.activity.activeGoal", "持续推进目标")
+      case "goal_terminal":
+        return t("chat.activity.goalTerminal", "目标已结束")
+      default:
+        return activeGoalStateLabel
+    }
+  })()
+  const activityDetail = [
+    activityHeadlineLabel,
+    autonomyActivity?.currentStep,
+    autonomyActivity?.waitingOn?.label,
+  ]
+    .filter(Boolean)
+    .join(" · ")
   const activeGoalCriteria = goalSnapshot?.criteria ?? []
   const activeGoalRequiredTotal = activeGoalCriteria.filter(
     (criterion) => (criterion.kind ?? "required") === "required",
@@ -1509,16 +1559,23 @@ export default function ChatInput({
   const workflowTriggerHintIsFirstContent = topStripBase
   const activeGoalStripIsFirstContent = topStripBase && !showWorkflowTriggerHint
   const activeGoalStatusOpen = !!activeGoal && !goalComposerMode
+  const effectiveShowWorkflowProgressLine = showWorkflowProgressLine && !activeGoalStatusOpen
+  const standaloneActivityStatusOpen =
+    !activeGoalStatusOpen &&
+    !effectiveShowWorkflowProgressLine &&
+    !hasVisibleTaskProgress &&
+    !!autonomyActivity &&
+    autonomyActivity.state !== "idle" &&
+    autonomyActivity.state !== "terminal"
   const workflowModeStatusOpen = workflowModeActive && !incognitoEnabled
   const workflowProgressLineIsFirstContent =
     activeGoalStripIsFirstContent && !activeGoalStatusOpen
+  const standaloneActivityStripIsFirstContent =
+    workflowProgressLineIsFirstContent && !effectiveShowWorkflowProgressLine
   const workflowModeStatusIsFirstContent =
-    activeGoalStripIsFirstContent && !activeGoalStatusOpen && !showWorkflowProgressLine
+    standaloneActivityStripIsFirstContent && !standaloneActivityStatusOpen
   const modeBannerIsFirstContent =
-    activeGoalStripIsFirstContent &&
-    !activeGoalStatusOpen &&
-    !showWorkflowProgressLine &&
-    !workflowModeStatusOpen
+    workflowModeStatusIsFirstContent && !workflowModeStatusOpen
 
   const pendingStatusLabel = (item: PendingSendPreview) => {
     switch (item.status) {
@@ -2060,8 +2117,18 @@ export default function ChatInput({
                 {goalLoading ? (
                   <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground" />
                 ) : null}
-                <span className="shrink-0 rounded-full border border-emerald-500/20 bg-background/45 px-2 py-0.5 text-[11px]">
-                  {activeGoalStateLabel}
+                <span
+                  className={cn(
+                    "shrink-0 rounded-full border bg-background/45 px-2 py-0.5 text-[11px]",
+                    autonomyActivity?.needsUser
+                      ? "border-amber-500/30 text-amber-700 dark:text-amber-300"
+                      : autonomyActivity?.state === "blocked"
+                        ? "border-destructive/30 text-destructive"
+                        : "border-emerald-500/20",
+                  )}
+                  title={activityDetail || undefined}
+                >
+                  {activityHeadlineLabel}
                 </span>
                 {activeGoalProgressLabel ? (
                   <span className="shrink-0 rounded-full border border-emerald-500/20 bg-background/45 px-2 py-0.5 text-[11px]">
@@ -2190,7 +2257,7 @@ export default function ChatInput({
         </AnimatedCollapse>
 
         {/* Workflow progress line — compact run status without opening the expert workspace. */}
-        <AnimatedCollapse open={showWorkflowProgressLine}>
+        <AnimatedCollapse open={effectiveShowWorkflowProgressLine}>
           {workflowProgressRun ? (
             <div
               className={cn(
@@ -2236,6 +2303,46 @@ export default function ChatInput({
                   >
                     {t("chat.workflowProgress.view", "查看")}
                   </button>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
+        </AnimatedCollapse>
+
+        {/* Unified activity fallback for Loop/background states without an active Goal or Workflow. */}
+        <AnimatedCollapse open={standaloneActivityStatusOpen}>
+          {autonomyActivity ? (
+            <div
+              className={cn(
+                "border-b px-3 py-1.5 text-xs",
+                autonomyActivity.needsUser
+                  ? "border-amber-500/20 bg-amber-500/8 text-amber-700 dark:text-amber-300"
+                  : autonomyActivity.state === "blocked"
+                    ? "border-destructive/20 bg-destructive/7 text-destructive"
+                    : "border-sky-500/20 bg-sky-500/8 text-sky-700 dark:text-sky-300",
+                standaloneActivityStripIsFirstContent && "rounded-t-2xl",
+              )}
+            >
+              <div className="flex min-w-0 items-center gap-2">
+                <Radio className="h-3.5 w-3.5 shrink-0" />
+                <button
+                  type="button"
+                  className="min-w-0 flex-1 truncate text-left font-medium"
+                  onClick={onOpenWorkspace}
+                  title={activityDetail || undefined}
+                >
+                  {activityHeadlineLabel}
+                  {autonomyActivity.currentStep ? (
+                    <span className="font-normal text-foreground/70">
+                      {" "}
+                      {autonomyActivity.currentStep}
+                    </span>
+                  ) : null}
+                </button>
+                {autonomyActivity.needsUser ? (
+                  <span className="shrink-0 rounded-full border border-current/15 bg-background/45 px-2 py-0.5 text-[11px]">
+                    {t("chat.activity.needsUser", "需要你处理")}
+                  </span>
                 ) : null}
               </div>
             </div>

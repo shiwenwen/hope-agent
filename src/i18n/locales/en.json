@@ -545,6 +545,26 @@
       "updated": "Goal updated",
       "messageBadge": "Goal"
     },
+    "activity": {
+      "waitingJobApproval": "Waiting for tool approval",
+      "waitingWorkflowUser": "Waiting for you",
+      "waitingGoalAcceptance": "Waiting for goal result confirmation",
+      "evaluatingGoal": "Evaluating goal",
+      "runningWorkflow": "Workflow running",
+      "runningTask": "Task running",
+      "waitingBackgroundWork": "Waiting for background results",
+      "waitingLoopTrigger": "Waiting for Loop trigger",
+      "goalPaused": "Goal paused",
+      "workflowPaused": "Workflow paused",
+      "workflowBlocked": "Workflow needs attention",
+      "goalBlocked": "Goal needs attention",
+      "loopPaused": "Loop paused",
+      "loopBlocked": "Loop needs attention",
+      "activeGoal": "Advancing goal",
+      "goalTerminal": "Goal finished",
+      "needsUser": "Needs your attention",
+      "active": "In progress"
+    },
     "loopMode": {
       "label": "Loop",
       "enter": "Loop mode: create a recurring self-paced task the agent can keep advancing",
@@ -6032,7 +6052,12 @@
       "editPolicy": "Edit policy",
       "policyTitle": "Loop policy",
       "viewMore": "View more continuous advancement ({{count}})",
-      "viewLess": "View less"
+      "viewLess": "View less",
+      "watchesTitle": "Monitors",
+      "watchGeneration": "Generation {{value}}",
+      "watchArmed": "Armed",
+      "watchSettled": "Settled",
+      "watchFailures": "{{count}} failures"
     },
     "workflow": {
       "title": "Workflow",

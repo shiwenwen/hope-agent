@@ -9,6 +9,29 @@ use crate::subagent::{self, SpawnParams, SubagentStatus};
 
 pub(crate) const WORKFLOW_PREALLOCATED_RUN_ID_ARG: &str = "__hope_workflow_preallocated_run_id";
 pub(crate) const WORKFLOW_SKIP_PARENT_INJECTION_ARG: &str = "__hope_workflow_skip_parent_injection";
+pub(crate) const WORKFLOW_ISOLATION_ARG: &str = "__hope_workflow_isolation";
+
+fn workflow_shared_read_only_mode() -> crate::agent::PlanAgentMode {
+    crate::agent::PlanAgentMode::PlanAgent {
+        allowed_tools: [
+            "read",
+            "ls",
+            "grep",
+            "find",
+            "lsp",
+            "glob",
+            "web_search",
+            "web_fetch",
+            "ask_user_question",
+            "recall_memory",
+            "memory_get",
+        ]
+        .into_iter()
+        .map(str::to_string)
+        .collect(),
+        ask_tools: Vec::new(),
+    }
+}
 
 /// Look up the dispatcher's verdict on the `subagent` Tier 3 tool for the
 /// given agent. Used by the runtime spawn gate (`tools::subagent`) and the
@@ -301,6 +324,15 @@ async fn do_spawn(args: &Value, ctx: &ToolExecContext) -> Result<String> {
         .get(WORKFLOW_SKIP_PARENT_INJECTION_ARG)
         .and_then(Value::as_bool)
         .unwrap_or(false);
+    let workflow_isolation = workflow_preallocated_run_id
+        .as_ref()
+        .and_then(|_| args.get(WORKFLOW_ISOLATION_ARG).and_then(Value::as_str));
+    let shared_read_only = workflow_isolation == Some("shared_read_only");
+    let (plan_agent_mode, plan_mode_allow_paths, lock_plan_agent_mode) = if shared_read_only {
+        (Some(workflow_shared_read_only_mode()), Vec::new(), true)
+    } else {
+        (None, Vec::new(), false)
+    };
 
     let attachments = parse_subagent_files(args)?;
 
@@ -316,13 +348,15 @@ async fn do_spawn(args: &Value, ctx: &ToolExecContext) -> Result<String> {
         timeout_secs,
         model_override,
         label,
-        isolate_worktree: true,
+        isolate_worktree: !shared_read_only,
         attachments,
-        plan_agent_mode: None,
-        plan_mode_allow_paths: Vec::new(),
-        lock_plan_agent_mode: false,
+        plan_agent_mode,
+        plan_mode_allow_paths,
+        lock_plan_agent_mode,
         skip_parent_injection,
-        extra_system_context: None,
+        extra_system_context: shared_read_only.then(|| {
+            "## Workflow Read-only Shared Workspace\nThis child shares the parent workspace for inspection only. Do not write, edit, patch, create, delete, rename, or run commands that mutate workspace or external state. Return findings to the owning Workflow; request a worktree-isolated child when mutation is required.".to_string()
+        }),
         skill_allowed_tools: Vec::new(),
         reasoning_effort: None,
         skill_name: None,
@@ -991,6 +1025,37 @@ fn get_cancel_registry() -> Result<Arc<subagent::SubagentCancelRegistry>> {
 #[cfg(test)]
 mod delegation_gate_tests {
     use super::*;
+
+    #[test]
+    fn workflow_shared_read_only_mode_has_no_mutation_or_delegation_tools() {
+        let crate::agent::PlanAgentMode::PlanAgent {
+            allowed_tools,
+            ask_tools,
+        } = workflow_shared_read_only_mode()
+        else {
+            panic!("workflow shared read-only isolation must use the hard plan gate");
+        };
+
+        for denied in [
+            "write",
+            "edit",
+            "apply_patch",
+            "canvas",
+            "exec",
+            "process",
+            "browser",
+            "subagent",
+            "team",
+        ] {
+            assert!(
+                !allowed_tools.iter().any(|tool| tool == denied),
+                "shared read-only isolation unexpectedly allows {denied}"
+            );
+        }
+        assert!(allowed_tools.iter().any(|tool| tool == "read"));
+        assert!(allowed_tools.iter().any(|tool| tool == "grep"));
+        assert!(ask_tools.is_empty());
+    }
 
     #[test]
     fn subagent_file_parser_supports_shared_and_task_specific_payloads() {

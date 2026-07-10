@@ -66,30 +66,34 @@ impl WorkflowRunState {
         if self == next {
             return true;
         }
-        match (self, next) {
+        matches!(
+            (self, next),
             (
                 Self::Draft,
                 Self::AwaitingApproval | Self::Running | Self::Cancelled | Self::Blocked,
-            ) => true,
-            (Self::AwaitingApproval, Self::Running | Self::Cancelled | Self::Blocked) => true,
-            (
+            ) | (
+                Self::AwaitingApproval,
+                Self::Running | Self::Cancelled | Self::Blocked
+            ) | (
                 Self::Running,
                 Self::AwaitingUser
-                | Self::Paused
-                | Self::Recovering
-                | Self::Completed
-                | Self::Failed
-                | Self::Cancelled
-                | Self::Blocked,
-            ) => true,
-            (Self::AwaitingUser, Self::Running | Self::Cancelled | Self::Blocked) => true,
-            (Self::Paused, Self::Running | Self::Cancelled | Self::Blocked) => true,
-            (
+                    | Self::Paused
+                    | Self::Recovering
+                    | Self::Completed
+                    | Self::Failed
+                    | Self::Cancelled
+                    | Self::Blocked,
+            ) | (
+                Self::AwaitingUser,
+                Self::Running | Self::Cancelled | Self::Blocked
+            ) | (
+                Self::Paused,
+                Self::Running | Self::Cancelled | Self::Blocked
+            ) | (
                 Self::Recovering,
                 Self::Running | Self::Completed | Self::Failed | Self::Cancelled | Self::Blocked,
-            ) => true,
-            _ => false,
-        }
+            )
+        )
     }
 }
 
@@ -256,6 +260,52 @@ pub struct CreateWorkflowRunInput {
     pub goal_criterion_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub worktree_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkflowRunControlInput {
+    #[serde(default = "default_workflow_api_version")]
+    pub api_version: i64,
+    #[serde(default)]
+    pub meta: Value,
+    #[serde(default)]
+    pub args: Value,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resume_from_run_id: Option<String>,
+}
+
+impl Default for WorkflowRunControlInput {
+    fn default() -> Self {
+        Self {
+            api_version: default_workflow_api_version(),
+            meta: json_object(),
+            args: json_object(),
+            resume_from_run_id: None,
+        }
+    }
+}
+
+fn default_workflow_api_version() -> i64 {
+    4
+}
+
+fn json_object() -> Value {
+    Value::Object(serde_json::Map::new())
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkflowRunControl {
+    pub run_id: String,
+    pub api_version: i64,
+    pub meta: Value,
+    pub meta_hash: String,
+    pub args: Value,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resume_from_run_id: Option<String>,
+    pub args_hash: String,
+    pub created_at: String,
 }
 
 fn default_execution_mode() -> String {

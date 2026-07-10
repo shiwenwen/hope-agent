@@ -545,6 +545,26 @@
       "updated": "Цель обновлена",
       "messageBadge": "Цель"
     },
+    "activity": {
+      "waitingJobApproval": "Ожидание одобрения инструмента",
+      "waitingWorkflowUser": "Ожидание вашего ответа",
+      "waitingGoalAcceptance": "Ожидание подтверждения результата цели",
+      "evaluatingGoal": "Оценка цели",
+      "runningWorkflow": "Рабочий процесс выполняется",
+      "runningTask": "Задача выполняется",
+      "waitingBackgroundWork": "Ожидание фоновых результатов",
+      "waitingLoopTrigger": "Ожидание запуска цикла",
+      "goalPaused": "Цель приостановлена",
+      "workflowPaused": "Рабочий процесс приостановлен",
+      "workflowBlocked": "Рабочий процесс требует внимания",
+      "goalBlocked": "Цель требует внимания",
+      "loopPaused": "Цикл приостановлен",
+      "loopBlocked": "Цикл требует внимания",
+      "activeGoal": "Продвижение к цели",
+      "goalTerminal": "Цель завершена",
+      "needsUser": "Требуется ваше внимание",
+      "active": "Выполняется"
+    },
     "loopMode": {
       "label": "Цикл",
       "enter": "Режим Loop: создать повторяющуюся задачу, которую агент будет продвигать",
@@ -6032,7 +6052,12 @@
       "editPolicy": "Редактировать политику",
       "policyTitle": "Политика зацикливания",
       "viewMore": "Посмотреть дальнейшее постоянное продвижение ({{count}})",
-      "viewLess": "Показать меньше"
+      "viewLess": "Показать меньше",
+      "watchesTitle": "Мониторы",
+      "watchGeneration": "Поколение {{value}}",
+      "watchArmed": "Активен",
+      "watchSettled": "Завершён",
+      "watchFailures": "Сбоев: {{count}}"
     },
     "workflow": {
       "title": "Рабочий процесс",

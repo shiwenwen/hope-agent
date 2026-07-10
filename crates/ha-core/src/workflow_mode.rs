@@ -1,17 +1,12 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum WorkflowMode {
+    #[default]
     Off,
     On,
     Ultracode,
-}
-
-impl Default for WorkflowMode {
-    fn default() -> Self {
-        Self::Off
-    }
 }
 
 impl WorkflowMode {
@@ -71,12 +66,13 @@ const WORKFLOW_MODE_ON_PROMPT: &str = concat!(
     "- Use `workflow` with `action=followup` to create a repair or continuation workflow from a prior run when the trace shows a bounded next phase.\n",
     "- Workflow is not coding-only. Use it for any domain where structured background orchestration is useful; coding-specific validation is only one template.\n",
     "- Prefer a hybrid pattern: scout inline first to learn the work-list, then author a compact JavaScript workflow script for the deterministic fan-out or verification phase.\n",
+    "- Immediately before authoring a durable script, call `workflow` with `action=guide` for the current V4 API. Keep `meta`/`args` small, choose isolation and result timing deliberately, and use resume only for safe matching read-only work.\n",
     "- When Workflow Mode is active and a task needs multiple sub-agents, prefer workflow-owned children created with `workflow.spawnAgent`. Do not create an empty registration workflow and then run the real fan-out through unrelated `subagent.batch_spawn` calls outside it.\n",
+    "- Use typed child results, bounded Parallel/Pipeline, output reservations, and shared read-only isolation only as described by the guide; reduce fan-out instead of oversubscribing the run budget.\n",
     "- Choose child-result timing deliberately: `injectPolicy: \"checkpoint\"` for stage-by-stage parent awareness, `none` for explicit `agentStatus`/`agentResult` queries, and `final` when only the final synthesis should surface. Use `waitAny` to react to early results and `waitAll` for a deliberate final join. `waitAll(..., { resultMode: \"status\" })` observes progress without consuming child results.\n",
     "- You may steer a running child with `workflow.agentSteer`, cancel no-longer-useful children with `workflow.cancelAgent`, and spawn additional children after inspecting partial results. A partial join does not detach remaining children: cancel or consume them before finishing.\n",
     "- Before `workflow.finish`, consume every required terminal child result and ensure no workflow-owned child is still running. As a safety fallback, finish waits for owned children and attaches unconsumed results; it blocks on timeout instead of showing a misleading completed state.\n",
     "- Script shape: `export default async function main(workflow) { const task = await workflow.task.create({ title: \"...\" }); ... await workflow.task.update({ task, status: \"completed\" }); await workflow.finish({ summary, verification, residualRisk }); }`.\n",
-    "- Core host APIs use options objects: `workflow.phase({ name, label?, expected?, criteriaIds?, injectPolicy? }, async (phase) => { ... })`, `workflow.progress({ phase?, phaseKey?, message, percent?, counters?, payload?, importance? })`, `workflow.checkpoint({ title, summary, phase?, importance?, inject?, findings?, evidence?, decisions?, next?, payload? })`, `workflow.report({ title?, summary, nextAction?, needsUser?, inject?, payload? })`, `workflow.fileSearch({ query, limit?, label? })`, `workflow.read({ path, label? })`, `workflow.grep({ pattern, path?, label? })`, `workflow.tool({ name, args, label? })`, `workflow.spawnAgent({ task, label?, agent_id?, timeout_secs?, files?, injectPolicy?, resultMode? })`, `workflow.agentStatus(handles, { label? })`, `workflow.agentResult(handle, { mode?, label? })`, `workflow.waitAny(handles, { min?, timeout?, label? })`, `workflow.waitAll(handles, { timeout?, partial?, resultMode?, label? })`, `workflow.agentSteer(handle, { message, label? })`, `workflow.cancelAgent(handles, { reason?, label? })`, `workflow.validate({ commands, reason?, label? })`, `workflow.review({ profiles?, focusPaths?, label? })`, `workflow.verify({ scope?, focusPaths?, maxCommands?, label? })`, `workflow.diff({ label? })`, `workflow.askUser({ question, context?, label? })` or `workflow.askUser({ questions, context? })`, `workflow.trace({ label?, payload })`, `workflow.block({ reason?, label?, payload? })`, `workflow.repairLoop({ label?, maxAttempts?, validationCommands?, focusPaths?, reviewProfiles? }, fn)`, `workflow.now()`, `workflow.random(seed)`, `workflow.finish({ summary, verification?, residualRisk? })`.\n",
     "- `label` is display-only. Reuse handles returned by APIs (for example task handles and spawn handles) instead of inventing stable ids.\n",
     "- Keep workflows well scoped. For large tasks, run several smaller workflows across phases and inspect each result before deciding the next phase.\n",
     "- Do not use Workflow for trivial conversational turns or simple one-shot edits.\n",
@@ -114,26 +110,15 @@ mod tests {
         assert!(prompt.contains("Do not ask the user to write a workflow script"));
         assert!(prompt.contains("Decision rule: create a workflow"));
         assert!(prompt.contains("research, writing, data analysis, meeting prep"));
-        assert!(prompt.contains("workflow.verify({ scope?, focusPaths?, maxCommands?, label? })"));
-        assert!(prompt.contains("workflow.phase({ name, label?, expected?"));
-        assert!(prompt.contains("workflow.checkpoint({ title, summary"));
-        assert!(prompt.contains("workflow.report({ title?, summary"));
-        assert!(prompt.contains("workflow.agentStatus(handles, { label? })"));
-        assert!(prompt.contains("workflow.agentResult(handle, { mode?, label? })"));
-        assert!(prompt.contains("workflow.waitAny(handles, { min?, timeout?, label? })"));
-        assert!(prompt.contains("workflow.waitAll(handles, { timeout?, partial?, resultMode?"));
-        assert!(prompt.contains("workflow.agentSteer(handle, { message, label? })"));
-        assert!(prompt.contains("workflow.cancelAgent(handles, { reason?, label? })"));
+        assert!(prompt.contains("`action=guide`"));
+        assert!(prompt.contains("typed child results, bounded Parallel/Pipeline"));
         assert!(prompt.contains("Do not create an empty registration workflow"));
-        assert!(prompt.contains("workflow.askUser({ question, context?, label? })"));
-        assert!(prompt.contains("workflow.askUser({ questions, context? })"));
-        assert!(prompt.contains("workflow.block({ reason?, label?, payload? })"));
-        assert!(prompt.contains("workflow.repairLoop("));
-        assert!(prompt.contains("workflow.now()"));
-        assert!(prompt.contains("workflow.random(seed)"));
-        assert!(!prompt.contains("workflow.verify({ claims?"));
-        assert!(!prompt.contains("workflow.block({ reason, next?"));
-        assert!(!prompt.contains("workflow.askUser({ questions })"));
+        assert!(!prompt.contains("Core host APIs use options objects"));
+        assert!(
+            prompt.len() < 7_300,
+            "Workflow Mode prompt regressed to {} bytes",
+            prompt.len()
+        );
         assert_eq!(prompt, WORKFLOW_MODE_ON_PROMPT);
     }
 }

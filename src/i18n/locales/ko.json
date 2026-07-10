@@ -545,6 +545,26 @@
       "updated": "목표가 업데이트되었습니다.",
       "messageBadge": "목표"
     },
+    "activity": {
+      "waitingJobApproval": "도구 승인 대기 중",
+      "waitingWorkflowUser": "사용자 응답 대기 중",
+      "waitingGoalAcceptance": "목표 결과 확인 대기 중",
+      "evaluatingGoal": "목표 평가 중",
+      "runningWorkflow": "워크플로 실행 중",
+      "runningTask": "작업 실행 중",
+      "waitingBackgroundWork": "백그라운드 결과 대기 중",
+      "waitingLoopTrigger": "루프 트리거 대기 중",
+      "goalPaused": "목표 일시 중지됨",
+      "workflowPaused": "워크플로 일시 중지됨",
+      "workflowBlocked": "워크플로에 조치 필요",
+      "goalBlocked": "목표 확인 필요",
+      "loopPaused": "루프 일시 중지됨",
+      "loopBlocked": "루프 확인 필요",
+      "activeGoal": "목표 계속 진행 중",
+      "goalTerminal": "목표 종료됨",
+      "needsUser": "사용자 확인 필요",
+      "active": "진행 중"
+    },
     "loopMode": {
       "label": "루프",
       "enter": "Loop 모드: 에이전트가 계속 진행할 반복 작업을 만듭니다",
@@ -6032,7 +6052,12 @@
       "editPolicy": "정책 수정",
       "policyTitle": "루프 정책",
       "viewMore": "지속적인 발전 더 보기 ({{count}})",
-      "viewLess": "간략히 보기"
+      "viewLess": "간략히 보기",
+      "watchesTitle": "모니터",
+      "watchGeneration": "세대 {{value}}",
+      "watchArmed": "감시 중",
+      "watchSettled": "종료됨",
+      "watchFailures": "실패 {{count}}회"
     },
     "workflow": {
       "title": "작업 흐름",

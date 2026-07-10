@@ -545,6 +545,26 @@
       "updated": "目標を更新しました",
       "messageBadge": "目標"
     },
+    "activity": {
+      "waitingJobApproval": "ツールの承認待ち",
+      "waitingWorkflowUser": "あなたの対応待ち",
+      "waitingGoalAcceptance": "目標結果の確認待ち",
+      "evaluatingGoal": "目標を評価中",
+      "runningWorkflow": "ワークフローを実行中",
+      "runningTask": "タスクを実行中",
+      "waitingBackgroundWork": "バックグラウンド結果を待機中",
+      "waitingLoopTrigger": "ループのトリガーを待機中",
+      "goalPaused": "目標は一時停止中",
+      "workflowPaused": "ワークフローは一時停止中",
+      "workflowBlocked": "ワークフローに対応が必要です",
+      "goalBlocked": "目標に対応が必要です",
+      "loopPaused": "ループは一時停止中",
+      "loopBlocked": "ループに対応が必要です",
+      "activeGoal": "目標を継続的に推進中",
+      "goalTerminal": "目標は終了しました",
+      "needsUser": "あなたの対応が必要です",
+      "active": "進行中"
+    },
     "loopMode": {
       "label": "ループ",
       "enter": "Loop モード: エージェントが継続的に進める反復タスクを作成します",
@@ -6032,7 +6052,12 @@
       "editPolicy": "ポリシーを編集",
       "policyTitle": "ループポリシー",
       "viewMore": "継続的な進歩をさらに見る ({{count}})",
-      "viewLess": "折りたたむ"
+      "viewLess": "折りたたむ",
+      "watchesTitle": "モニター",
+      "watchGeneration": "世代 {{value}}",
+      "watchArmed": "監視中",
+      "watchSettled": "終了",
+      "watchFailures": "失敗 {{count}} 回"
     },
     "workflow": {
       "title": "ワークフロー",

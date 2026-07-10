@@ -545,6 +545,26 @@
       "updated": "目标已更新",
       "messageBadge": "目标"
     },
+    "activity": {
+      "waitingJobApproval": "等待工具审批",
+      "waitingWorkflowUser": "等待你处理",
+      "waitingGoalAcceptance": "等待确认目标结果",
+      "evaluatingGoal": "正在验收目标",
+      "runningWorkflow": "工作流执行中",
+      "runningTask": "任务执行中",
+      "waitingBackgroundWork": "等待后台结果",
+      "waitingLoopTrigger": "等待持续推进触发",
+      "goalPaused": "目标已暂停",
+      "workflowPaused": "工作流已暂停",
+      "workflowBlocked": "工作流待处理",
+      "goalBlocked": "目标待处理",
+      "loopPaused": "持续推进已暂停",
+      "loopBlocked": "持续推进待处理",
+      "activeGoal": "持续推进目标",
+      "goalTerminal": "目标已结束",
+      "needsUser": "需要你处理",
+      "active": "正在推进"
+    },
     "loopMode": {
       "label": "持续推进",
       "enter": "持续推进（Loop）：创建一个可重复触发、让模型持续推进的任务",
@@ -6032,7 +6052,12 @@
       "editPolicy": "编辑策略",
       "policyTitle": "运行策略",
       "viewMore": "查看更多持续推进（{{count}}）",
-      "viewLess": "收起持续推进"
+      "viewLess": "收起持续推进",
+      "watchesTitle": "监听器",
+      "watchGeneration": "第 {{value}} 代",
+      "watchArmed": "监听中",
+      "watchSettled": "已结束",
+      "watchFailures": "失败 {{count}} 次"
     },
     "workflow": {
       "title": "工作流",

@@ -2022,8 +2022,7 @@ fn normalize_profile(value: &str) -> String {
     value
         .trim()
         .to_ascii_lowercase()
-        .replace('_', "-")
-        .replace(' ', "-")
+        .replace(['_', ' '], "-")
         .replace("a11y", "accessibility")
         .replace("security-review", "security")
         .replace("frontend-review", "frontend")

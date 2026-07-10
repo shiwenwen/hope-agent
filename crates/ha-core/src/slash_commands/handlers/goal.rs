@@ -635,6 +635,7 @@ mod tests {
             },
             workflow_runs: Vec::new(),
             tasks: Vec::new(),
+            grader_runs: Vec::new(),
         };
 
         let rendered = render_goal_snapshot(&snapshot);

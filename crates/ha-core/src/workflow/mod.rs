@@ -26,7 +26,8 @@ pub use types::{
     CreateWorkflowRunFromTemplateInput, CreateWorkflowRunInput, ListSavedWorkflowTemplatesInput,
     SaveWorkflowTemplateInput, SavedWorkflowTemplate, SavedWorkflowTemplateScope,
     StartedOpRecoveryAction, UpsertWorkflowOpInput, WorkflowEffectClass, WorkflowEvent, WorkflowOp,
-    WorkflowOpState, WorkflowRun, WorkflowRunSnapshot, WorkflowRunState, WorkflowWatchdogFinding,
+    WorkflowOpState, WorkflowRun, WorkflowRunControl, WorkflowRunControlInput, WorkflowRunSnapshot,
+    WorkflowRunState, WorkflowWatchdogFinding,
 };
 
 #[cfg(test)]

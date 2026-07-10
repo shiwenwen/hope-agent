@@ -4,7 +4,7 @@ use serde_json::{json, Value};
 
 use crate::cron::CronDB;
 use crate::loop_control::{
-    LoopProgressState, LoopSchedule, LoopSnapshot, LoopState, LoopTriggerKind,
+    LoopProgressState, LoopSchedule, LoopSnapshot, LoopState, LoopTriggerKind, LoopWatchKind,
 };
 use crate::session::SessionDB;
 
@@ -159,6 +159,17 @@ fn compact_snapshot(snapshot: &LoopSnapshot) -> Value {
     json!({
         "schedule": compact_schedule(&snapshot.schedule),
         "runs": runs,
+        "watches": snapshot.watches.iter().map(|watch| json!({
+            "id": watch.id,
+            "kind": watch.kind.as_str(),
+            "spec": watch.spec,
+            "active": watch.active,
+            "generation": watch.generation,
+            "lastEventAt": watch.last_event_at,
+            "failureCount": watch.failure_count,
+            "lastError": watch.last_error,
+            "monitorJobId": watch.monitor_job_id,
+        })).collect::<Vec<_>>(),
     })
 }
 
@@ -345,5 +356,92 @@ pub(crate) async fn tool_loop_record_progress(args: &Value, ctx: &ToolExecContex
             }
         })),
         Err(e) => error_json(format!("Failed to record loop progress: {e}")),
+    }
+}
+
+pub(crate) async fn tool_loop_watch(args: &Value, ctx: &ToolExecContext) -> String {
+    let (session_id, db) = match resolve_ctx(ctx) {
+        Ok(value) => value,
+        Err(err) => return error_json(err),
+    };
+    let kind = match string_arg(args, "kind")
+        .as_deref()
+        .and_then(LoopWatchKind::from_str)
+    {
+        Some(value) => value,
+        None => return error_json(
+            "kind is required and must be app_event, job, subagent, file, command, or websocket.",
+        ),
+    };
+    let mut spec = args.get("spec").cloned().unwrap_or_else(|| json!({}));
+    if kind == LoopWatchKind::File {
+        let Some(raw_path) = spec.get("path").and_then(Value::as_str) else {
+            return error_json("file watch requires spec.path.");
+        };
+        spec["path"] = Value::String(ctx.resolve_path(raw_path));
+    }
+    let loop_id = string_arg(args, "loopId");
+    let schedule = match resolve_loop_for_session(&db, &session_id, loop_id.as_deref(), true, true)
+    {
+        Ok(schedule) => schedule,
+        Err(err) => return error_json(err),
+    };
+    match db.upsert_loop_watch(&schedule.id, kind, &spec) {
+        Ok(watch) => {
+            let cron_db = match resolve_cron_db() {
+                Ok(value) => value,
+                Err(err) => return error_json(err),
+            };
+            if let Err(err) =
+                crate::loop_control::start_loop_monitor_adapter(db.clone(), cron_db, &watch).await
+            {
+                let _ = db.record_loop_monitor_error(&watch.id, &err.to_string());
+                return error_json(format!(
+                    "Loop watch was persisted but its monitor could not start; the fallback remains active: {err}"
+                ));
+            }
+            json_string(json!({
+                "ok": true,
+                "loopId": schedule.id,
+                "watch": {
+                    "id": watch.id,
+                    "kind": watch.kind.as_str(),
+                    "spec": watch.spec,
+                    "active": watch.active,
+                    "generation": watch.generation,
+                },
+                "fallbackAt": schedule.next_run_at,
+            }))
+        }
+        Err(e) => error_json(format!("Failed to attach loop watch: {e}")),
+    }
+}
+
+pub(crate) async fn tool_loop_unwatch(args: &Value, ctx: &ToolExecContext) -> String {
+    let (session_id, db) = match resolve_ctx(ctx) {
+        Ok(value) => value,
+        Err(err) => return error_json(err),
+    };
+    let watch_id = match string_arg(args, "watchId") {
+        Some(value) => value,
+        None => return error_json("watchId is required."),
+    };
+    let loop_id = string_arg(args, "loopId");
+    let schedule = match resolve_loop_for_session(&db, &session_id, loop_id.as_deref(), true, false)
+    {
+        Ok(schedule) => schedule,
+        Err(err) => return error_json(err),
+    };
+    match db.remove_loop_watch(&schedule.id, &watch_id) {
+        Ok(watch) => json_string(json!({
+            "ok": true,
+            "loopId": schedule.id,
+            "watch": {
+                "id": watch.id,
+                "active": watch.active,
+                "generation": watch.generation,
+            }
+        })),
+        Err(e) => error_json(format!("Failed to remove loop watch: {e}")),
     }
 }

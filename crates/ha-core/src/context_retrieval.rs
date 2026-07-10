@@ -758,8 +758,7 @@ fn gather_domain_artifacts(
                 title: source
                     .url
                     .split('/')
-                    .filter(|segment| !segment.is_empty())
-                    .next_back()
+                    .rfind(|segment| !segment.is_empty())
                     .unwrap_or(source.url.as_str())
                     .to_string(),
                 subtitle: Some(source.url.clone()),
@@ -1075,8 +1074,7 @@ async fn gather_artifacts(
         let title = source
             .url
             .split('/')
-            .filter(|s| !s.is_empty())
-            .next_back()
+            .rfind(|s| !s.is_empty())
             .unwrap_or(source.url.as_str())
             .to_string();
         upsert_candidate(

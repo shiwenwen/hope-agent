@@ -2570,7 +2570,9 @@ describe("WorkspacePanel workflow section", () => {
   })
 
   it("opens operational and soak evidence from the advanced diagnostics workbench", async () => {
-    const writeText = vi.fn(async (_value: string) => {})
+    const writeText = vi.fn(async (value: string) => {
+      void value
+    })
     Object.defineProperty(navigator, "clipboard", {
       value: { writeText },
       configurable: true,
@@ -2895,7 +2897,9 @@ describe("WorkspacePanel workflow section", () => {
   })
 
   it("includes recent evidence provenance in copied acceptance review packets", async () => {
-    const writeText = vi.fn(async (_value: string) => {})
+    const writeText = vi.fn(async (value: string) => {
+      void value
+    })
     Object.defineProperty(navigator, "clipboard", {
       value: { writeText },
       configurable: true,
@@ -3746,6 +3750,22 @@ describe("WorkspacePanel workflow section", () => {
           },
         },
       ],
+      watches: [
+        {
+          id: "loop-watch-1",
+          loopId: "loop-1",
+          kind: "file",
+          spec: { path: "/repo/report.md" },
+          active: true,
+          generation: 3,
+          failureCount: 0,
+          lastEventAt: null,
+          lastError: null,
+          monitorJobId: "job-monitor-1",
+          createdAt: "2026-01-01T00:00:00Z",
+          updatedAt: "2026-01-01T00:04:00Z",
+        },
+      ],
     })
     transportMock.call.mockImplementation((name: string, args?: Record<string, unknown>) => {
       if (name === "list_workflow_runs") return Promise.resolve([])
@@ -3777,6 +3797,10 @@ describe("WorkspacePanel workflow section", () => {
     expect(screen.getByText(/10m 后继续/)).toBeTruthy()
     expect(screen.getByText(/CI is still running/)).toBeTruthy()
     expect(screen.getByText("workflow launched")).toBeTruthy()
+    expect(screen.getByText("监听器")).toBeTruthy()
+    expect(screen.getByText("file")).toBeTruthy()
+    expect(screen.getByText("第 3 代")).toBeTruthy()
+    expect(screen.getByText("监听中")).toBeTruthy()
   })
 
   it("supports the persistent progress center view more run-now and policy editing", async () => {
@@ -5160,7 +5184,9 @@ describe("WorkspacePanel workflow section", () => {
   })
 
   it("renders validation command details and recovery guidance", async () => {
-    const writeText = vi.fn(async (_value: string) => {})
+    const writeText = vi.fn(async (value: string) => {
+      void value
+    })
     Object.defineProperty(navigator, "clipboard", {
       value: { writeText },
       configurable: true,

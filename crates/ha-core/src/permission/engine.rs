@@ -2272,6 +2272,29 @@ mod tests {
     }
 
     #[test]
+    fn loop_file_watch_on_protected_path_requires_strict_approval() {
+        let args = json!({
+            "kind": "file",
+            "spec": { "path": "~/.ssh/config" }
+        });
+        let plan: Vec<String> = vec![];
+        let custom: Vec<String> = vec![];
+        let c = ctx(
+            crate::tools::TOOL_LOOP_WATCH,
+            &args,
+            SessionMode::Default,
+            &plan,
+            &custom,
+        );
+        assert!(matches!(
+            resolve(&c),
+            Decision::Ask {
+                reason: AskReason::ProtectedPath { .. }
+            }
+        ));
+    }
+
+    #[test]
     fn relative_path_resolves_before_protected_path_check() {
         let args = json!({"path": "id_rsa"});
         let plan: Vec<String> = vec![];

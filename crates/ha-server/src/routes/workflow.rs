@@ -118,6 +118,10 @@ pub struct CreateWorkflowRunBody {
     pub execution_mode: Option<String>,
     pub script_source: String,
     pub budget: Option<Value>,
+    pub api_version: Option<i64>,
+    pub meta: Option<Value>,
+    pub args: Option<Value>,
+    pub resume_from_run_id: Option<String>,
     pub parent_run_id: Option<String>,
     pub origin: Option<String>,
     pub goal_id: Option<String>,
@@ -170,18 +174,26 @@ pub async fn create_workflow_run(
     )
     .map_err(|e| AppError::bad_request(e.to_string()))?;
     let run = db
-        .create_workflow_run(ha_core::workflow::CreateWorkflowRunInput {
-            session_id,
-            kind: body.kind.unwrap_or_else(|| "general.workflow".to_string()),
-            execution_mode: parsed_mode.as_str().to_string(),
-            script_source,
-            budget: body.budget.unwrap_or_else(|| json!({})),
-            parent_run_id: body.parent_run_id,
-            origin: body.origin,
-            goal_id: body.goal_id,
-            goal_criterion_id: body.goal_criterion_id,
-            worktree_id: body.worktree_id,
-        })
+        .create_workflow_run_with_control(
+            ha_core::workflow::CreateWorkflowRunInput {
+                session_id,
+                kind: body.kind.unwrap_or_else(|| "general.workflow".to_string()),
+                execution_mode: parsed_mode.as_str().to_string(),
+                script_source,
+                budget: body.budget.unwrap_or_else(|| json!({})),
+                parent_run_id: body.parent_run_id,
+                origin: body.origin,
+                goal_id: body.goal_id,
+                goal_criterion_id: body.goal_criterion_id,
+                worktree_id: body.worktree_id,
+            },
+            ha_core::workflow::WorkflowRunControlInput {
+                api_version: body.api_version.unwrap_or(4),
+                meta: body.meta.unwrap_or_else(|| json!({})),
+                args: body.args.unwrap_or_else(|| json!({})),
+                resume_from_run_id: body.resume_from_run_id,
+            },
+        )
         .map_err(|e| AppError::bad_request(e.to_string()))?;
     if run_now {
         ha_core::workflow::spawn_workflow_run_if_primary(

@@ -323,7 +323,7 @@ Evaluator v2 是确定性规则门禁，输入为：
 - budget exhausted → `blocked`，且新 workflow create hard stop。
 - 无 blocker、无 required missing 且有 strong evidence → `completed`。若用户尚未接受关闭，GUI / prompt 仍把它视作 pending closure，而不是彻底结束。
 
-可选 LLM auditor 当前不启用；`ruleGate.llmAuditor.status='skipped'`，后续只能在 hard blocker 通过后补 rationale，不能覆盖规则结果。
+旧 final-audit 内的可选 LLM auditor 当前仍不启用；`ruleGate.llmAuditor.status='skipped'`。它与 V4 的 criterion-scoped semantic grader 是两个独立层：前者不会参与 final-audit 结论，后者只在 deterministic hard gate 通过且存在 semantic criterion 时运行，也不能覆盖规则 blocker 或直接关闭 Goal。
 
 ## 7. Owner API 与事件
 
@@ -415,9 +415,58 @@ Workspace 内有独立 Goal section；Goal 不再藏在 Workflow 区域里：
 
 - `/loop` 的定时、重复、轮询调度，详见 [Loop 控制平面](loop.md)。
 - agent 工具面直接修改 objective / criteria / domain / budget。
-- LLM side-query evaluator。
 - follow-up pool 迁移到独立 task / backlog 的批量管理面。
 
 Goal v2/v3 过程 roadmap 已归档到外部 Plans；已实现事实以本文为准。后续最值得补的是更严格的真实运行 evidence profile、follow-up pool 批量治理，以及与 Loop progress guard 的更深联动。
 
 这些边界用于保证后续增强不推翻当前已实现契约：Goal 是终点和完成证据，不是执行引擎，也不是持续调度器。
+
+## 10. Goal V4：结构化契约与独立验收
+
+V4 在原有 Goal state、revision、evidence gate、Runner 和 closure 之上增加 contract quality 与 independent semantic grader；旧 Goal 没有结构化 rubric 时仍按自然文本 criteria 解析，迁移不要求历史回填。
+
+### 10.1 Viability Preflight 与 Rubric
+
+模型工具 `goal_prepare_contract` 在昂贵执行前生成当前 revision 的结构化 rubric，并只做确定性诊断，不执行外部动作、不申请或授予权限。输出状态为：
+
+```text
+ready | under_specified | missing_capability | missing_resource |
+needs_permission_surface | unverifiable_criteria
+```
+
+检查项包括当前工具可见性、工作目录相对路径、网络工具声明、审批 surface、Goal budget 是否已耗尽，以及 required criterion 的 evidence relation。明确 criteria 必须逐字、逐 kind 保留；只有用户未提供 criteria 时才允许派生，且 `scopeRationale` 必须说明没有扩大目标。
+
+`goal_criterion_specs` 以 `(goal_id, revision, id)` 为主键，保存：
+
+- `kind = required | optional | follow_up`；
+- `check_kind = evidence | artifact | test | semantic | user_acceptance | external_state`；
+- `expected_evidence_json`；
+- `inferred`。
+
+通用关系证据与完成信号分开判定：若 criterion 声明 `expected_evidence=source_cited/artifact_reviewed/...`，该关系必须真实存在，同时还必须有独立的 `workflow_completed/validation_passed/domain_quality_passed/task_completed` 强信号。模型通过 `goal_record_evidence` 单独记录一条关系不能自证完成；反过来，已有完成 Workflow 但缺指定来源/审阅关系也不能通过。
+
+### 10.2 Hybrid Evaluator
+
+`goal_evaluate` 与 `goal_finish_request` 先调用原 deterministic audit：revision freshness、budget、required evidence、workflow/task/validation blocker 和 provenance 任一不满足，都不得启动语义 grader。
+
+deterministic audit 通过但当前 Goal 含 required semantic criterion、且没有匹配当前 revision/evidence evaluation key 的 completed+satisfied grader run 时，Goal 只能进入 `evaluating`，不能进入可接受关闭的 `completed`。这条规则也覆盖 Workflow terminal 自动触发的 `evaluate_goal`，因此后台 Workflow 完成不能绕过独立 grader。Goal Runner 会把 semantic pending 视为仍需推进，并在 continuation 中要求调用 `goal_evaluate`；用户直接 `accept_v1` 会被后端拒绝。
+
+仅存在 semantic criteria 且 hard gate 已通过时，才使用独立 analysis agent。grader prompt 只含当前 objective/rubric 和有界 evidence，证据包在 `<untrusted_external_data>` 中；grader 只能返回逐 criterion 的 `satisfied | needs_revision | insufficient_evidence | not_applicable`、evidence ids、reason 和 next actions，不能执行修复、批准动作、修改 Goal 或直接做 closure decision。
+
+归一化规则要求每条 semantic criterion 恰好出现一次，required satisfied 必须引用真实 evidence id。`needs_revision` 把 Goal 重开为 `active` 并留下 criterion-specific next actions；`insufficient_evidence` 进入可解释的 `blocked`；grader 构建、请求、超时或 schema 失败进入 `semantic_grader_unavailable`，不能沿用 deterministic completed 冒充最终完成。
+
+### 10.3 Durable Grader Run
+
+`goal_grader_runs` 记录 `revision/evaluation_key/strict/attempt/state/result/model/usage/error`。evaluation key 由 Goal id、revision、semantic rubric 和 evidence watermark 派生；相同 key/strict 的成功结果可缓存复用，单 key 最多 4 次 run attempt，单次模型响应最多做 2 次结构解析尝试，side query 超时 60s、输出上限 2500 tokens。
+
+同一 key 同时只允许一个 `running`；超过 5 分钟的遗留 running 在下一次 begin 时标记 `grader_interrupted`。若用户在 grader 运行中修改 Goal 或 evidence，完成写入会立即把旧 run 标记 failed 并丢弃 verdict，不改变新 revision。grader usage 单独保存在 run 中，同时纳入 Goal budget。
+
+用户选择 `needs_strict_evidence` 后，后续 `goal_evaluate/goal_finish_request` 自动继承 strict 要求，非 strict 的旧 verdict 不再满足关闭门禁。只有 strict grader 对当前 key 返回 satisfied，系统才清除旧 strict closure decision，把 Goal 恢复为“completed、等待用户确认”；strict 请求与结果仍保留在 Goal events/final evidence 中。
+
+`GoalSnapshot.graderRuns` 有界返回最近 20 条，供高级 trace 审查 attempt、模型、用量、错误和 verdict。`finalEvidence.semanticGrade` 保存当前有效 grade；Goal events 记录 start/graded/failed，原 evidence 永不被 grader 改写。
+
+### 10.4 Runner 与 Handoff
+
+post-turn Goal Runner 继续做 deterministic gap 检查，并在 Goal 仍可推进且没有 active background job 时排 durable continuation wakeup。semantic `needs_revision` 返回 active 后，当前 Agent 可以立即按 next action 修订；若本轮结束，Runner 会在下一轮读取最新 grader gap 后继续。Checkpoint、compaction 和重启时 system prompt 从 durable snapshot 派生 objective/revision、required gap、当前 Task/Workflow、latest evidence、waiting condition 和一个 next action。
+
+统一状态展示不写 Goal state，见 [Agent Control Activity Projection](agent-control.md)。Goal completed 但 closure 尚未确认时显示 `waiting_user`；accepted/cancelled 等 sealed Goal 在没有更高优先级活动时显示 `terminal`。

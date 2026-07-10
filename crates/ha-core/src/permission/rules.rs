@@ -185,6 +185,10 @@ pub fn extract_path_arg(tool: &str, args: &serde_json::Value) -> Option<PathBuf>
         {
             args.get("path").and_then(|v| v.as_str())
         }
+        n if n == crate::tools::TOOL_LOOP_WATCH => args
+            .get("spec")
+            .and_then(|spec| spec.get("path"))
+            .and_then(|value| value.as_str()),
         "exec" | "process" | "apply_patch" => args.get("cwd").and_then(|v| v.as_str()),
         _ => None,
     };
@@ -495,6 +499,17 @@ mod tests {
         let raw = std::path::PathBuf::from("../sneaky");
         let norm = normalize_lexical(&raw);
         assert_eq!(norm, std::path::PathBuf::from("../sneaky"));
+    }
+
+    #[test]
+    fn loop_watch_exposes_nested_file_path_to_permission_rules() {
+        let args = serde_json::json!({
+            "kind": "file",
+            "spec": { "path": "~/.ssh/config" }
+        });
+        let path =
+            extract_path_arg(crate::tools::TOOL_LOOP_WATCH, &args).expect("nested file watch path");
+        assert!(path.ends_with(".ssh/config"));
     }
 
     #[cfg(windows)]

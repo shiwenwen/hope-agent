@@ -18,6 +18,14 @@ struct WorkflowToolArgs {
     execution_mode: Option<String>,
     #[serde(default)]
     budget: Option<Value>,
+    #[serde(default, alias = "api_version", alias = "apiVersion")]
+    api_version: Option<i64>,
+    #[serde(default)]
+    meta: Option<Value>,
+    #[serde(default)]
+    args: Option<Value>,
+    #[serde(default, alias = "resume_from_run_id", alias = "resumeFromRunId")]
+    resume_from_run_id: Option<String>,
     #[serde(default, alias = "size_guideline", alias = "workflowSize")]
     size_guideline: Option<String>,
     #[serde(default, alias = "run_immediately", alias = "runImmediately")]
@@ -53,6 +61,7 @@ struct WorkflowToolArgs {
 #[derive(Debug, Deserialize, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 enum WorkflowToolAction {
+    Guide,
     Create,
     List,
     Status,
@@ -64,6 +73,7 @@ enum WorkflowToolAction {
 impl WorkflowToolAction {
     fn as_str(self) -> &'static str {
         match self {
+            Self::Guide => "guide",
             Self::Create => "create",
             Self::List => "list",
             Self::Status => "status",
@@ -98,6 +108,7 @@ pub async fn tool_workflow(args: &Value, ctx: &ToolExecContext) -> Result<String
     let (session_id, db, workflow_mode) = workflow_context(ctx)?;
 
     let output = match input.action {
+        WorkflowToolAction::Guide => workflow_authoring_guide(workflow_mode),
         WorkflowToolAction::Create => create_workflow(&input, &db, &session_id, workflow_mode)?,
         WorkflowToolAction::Followup => {
             create_followup_workflow(&input, &db, &session_id, workflow_mode)?
@@ -111,6 +122,51 @@ pub async fn tool_workflow(args: &Value, ctx: &ToolExecContext) -> Result<String
     };
 
     Ok(serde_json::to_string_pretty(&output)?)
+}
+
+fn workflow_authoring_guide(workflow_mode: crate::workflow_mode::WorkflowMode) -> Value {
+    json!({
+        "apiVersion": 4,
+        "workflowMode": workflow_mode.as_str(),
+        "contract": [
+            "Export default async function main(workflow, args). Use immutable workflow.meta/workflow.args for durable inputs.",
+            "Use options objects. Labels are display-only; retain returned task and agent handles.",
+            "Use shared_read_only only for analysis that cannot mutate; keep worktree isolation for editing children.",
+            "Before finish, consume or cancel every required child. Runtime blocks rather than claiming false completion.",
+            "Permission, approval, Goal scope, incognito, connector and browser guards remain authoritative."
+        ],
+        "scriptShape": "export default async function main(workflow, args) { const task = await workflow.task.create({ title: '...' }); /* work */ await workflow.task.update({ task, status: 'completed' }); await workflow.finish({ summary, verification, residualRisk }); }",
+        "runInputs": {
+            "create": ["apiVersion", "meta", "args", "resumeFromRunId", "sizeGuideline", "budget"],
+            "resume": "Only a terminal same-session run. Only the longest matching completed explicit shared_read_only agent prefix is reusable; side effects and worktrees never are."
+        },
+        "orchestration": [
+            "workflow.parallel(label, items, spawnFn, { timeout?, partial?, resultMode?, reserveOutputTokens? })",
+            "workflow.pipeline(label, items, spawnFn, consumeFn, { concurrency?, timeout?, resultMode?, reserveOutputTokens? })",
+            "workflow.map(label, items, fn)",
+            "workflow.waitAny(handles, { min?, timeout?, label? })",
+            "workflow.waitAll(handles, { timeout?, partial?, resultMode?, label? })",
+            "workflow.budgetStatus()"
+        ],
+        "children": [
+            "workflow.spawnAgent({ task, label?, agent_id?, timeout_secs?, files?, injectPolicy?, resultMode?, isolation?, outputSchema?, schemaRetries?, reserveOutputTokens? })",
+            "workflow.agentStatus(handles, { label? })",
+            "workflow.agentResult(handle, { mode?, label? })",
+            "workflow.agentSteer(handle, { message, label? })",
+            "workflow.cancelAgent(handles, { reason?, label? })"
+        ],
+        "host": [
+            "workflow.phase({ name, label?, expected?, criteriaIds?, injectPolicy? }, fn)",
+            "workflow.progress({ message, phase?, percent?, counters?, payload?, importance? })",
+            "workflow.checkpoint({ title, summary, phase?, importance?, inject?, findings?, evidence?, decisions?, next?, payload? })",
+            "workflow.report({ title?, summary, nextAction?, needsUser?, inject?, payload? })",
+            "workflow.fileSearch({ query, limit?, label? }) / read / grep / tool",
+            "workflow.validate / review / verify / diff / askUser",
+            "workflow.trace / block / repairLoop / now / random / finish"
+        ],
+        "typedResults": "For machine-consumed child output, provide a bounded outputSchema and schemaRetries. agentResult validates JSON, applies bounded read-only schema repair, and returns original/resolved run provenance.",
+        "timing": "Use checkpoint injection for stage awareness, explicit status/result for coordinator-controlled consumption, waitAny or pipeline for early results, and waitAll only for a deliberate barrier."
+    })
 }
 
 fn workflow_context(
@@ -280,21 +336,29 @@ fn create_workflow_run_from_script(
         &script_source,
         Some(execution_mode.as_str()),
     )?;
-    let run = db.create_workflow_run(crate::workflow::CreateWorkflowRunInput {
-        session_id: session_id.to_string(),
-        kind: input
-            .kind
-            .clone()
-            .unwrap_or_else(|| "general.workflow".to_string()),
-        execution_mode: execution_mode.as_str().to_string(),
-        script_source,
-        budget,
-        parent_run_id,
-        origin,
-        goal_id,
-        goal_criterion_id,
-        worktree_id: input.worktree_id.clone(),
-    })?;
+    let run = db.create_workflow_run_with_control(
+        crate::workflow::CreateWorkflowRunInput {
+            session_id: session_id.to_string(),
+            kind: input
+                .kind
+                .clone()
+                .unwrap_or_else(|| "general.workflow".to_string()),
+            execution_mode: execution_mode.as_str().to_string(),
+            script_source,
+            budget,
+            parent_run_id,
+            origin,
+            goal_id,
+            goal_criterion_id,
+            worktree_id: input.worktree_id.clone(),
+        },
+        crate::workflow::WorkflowRunControlInput {
+            api_version: input.api_version.unwrap_or(4),
+            meta: input.meta.clone().unwrap_or_else(|| json!({})),
+            args: input.args.clone().unwrap_or_else(|| json!({})),
+            resume_from_run_id: input.resume_from_run_id.clone(),
+        },
+    )?;
 
     let launch_accepted = if start_now {
         crate::workflow::spawn_workflow_run_if_primary(
@@ -345,6 +409,8 @@ fn create_workflow_run_from_script(
         "goalCriterionId": run.goal_criterion_id,
         "startRequested": start_now,
         "launchAccepted": launch_accepted,
+        "apiVersion": input.api_version.unwrap_or(4),
+        "resumeFromRunId": input.resume_from_run_id,
         "requiresApproval": preview.requires_approval,
         "permissionSummary": preview.permission.summary,
         "message": message,
@@ -872,5 +938,32 @@ fn model_next_action_for_run(
             }
         }
         crate::workflow::WorkflowRunState::Draft => "start_or_explain_draft_to_user",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::workflow_authoring_guide;
+    use crate::workflow_mode::WorkflowMode;
+
+    #[test]
+    fn authoring_guide_exposes_v4_contract_on_demand() {
+        let guide = workflow_authoring_guide(WorkflowMode::On);
+        assert_eq!(guide["apiVersion"], 4);
+        assert!(guide["orchestration"]
+            .as_array()
+            .is_some_and(|items| items.iter().any(|item| {
+                item.as_str()
+                    .is_some_and(|item| item.contains("workflow.pipeline"))
+            })));
+        assert!(guide["children"]
+            .as_array()
+            .is_some_and(|items| items.iter().any(|item| {
+                item.as_str()
+                    .is_some_and(|item| item.contains("outputSchema"))
+            })));
+        assert!(guide["typedResults"]
+            .as_str()
+            .is_some_and(|value| value.contains("schema repair")));
     }
 }

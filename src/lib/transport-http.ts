@@ -415,6 +415,7 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
 
   // -- Goals --
   get_active_goal:                 { method: "GET",    path: "/api/sessions/{sessionId}/goal" },
+  get_autonomy_activity:           { method: "GET",    path: "/api/sessions/{sessionId}/activity" },
   list_goal_watchdog_findings:      { method: "GET",    path: "/api/sessions/{sessionId}/goal/watchdog" },
   create_goal:                     { method: "POST",   path: "/api/sessions/{sessionId}/goal" },
   get_goal:                        { method: "GET",    path: "/api/goals/{goalId}" },

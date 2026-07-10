@@ -215,6 +215,7 @@ Workflow Mode 是 session 级持久开关，入口是输入框 `+` 菜单/工具
 - 模型侧决策规则：请求包含多阶段依赖、宽搜索/比较、connector 或文件证据、长时间运行、独立验证、可恢复后台执行或可审计轨迹时，应自行调用 `workflow(action=create)` 创建 run；tiny 对话、单个显然动作或已验证机械任务保持 inline。这个规则适用于 Research、Writing、Data Analysis、Meeting Prep、Inbox / Project Ops、Knowledge Curation、Coding 等通用场景。
 - 创建或 follow-up workflow 时，模型应传 `sizeGuideline ∈ unrestricted|small|medium|large`：`small` 表示少量有界步骤，`medium` 是普通多阶段编排，`large` 是宽 fan-out / 迁移 / 验证，`unrestricted` 只用于用户明确要求穷尽式覆盖。该字段是 prompt / GUI / 后续模型回合的 advisory，不是硬 cap，也不绕过 runtime budget、权限、审批或安全策略；后端规范化后写入 `budget_json.sizeGuideline`。若模型省略，普通 Workflow Mode 默认 `medium`，Ultracode 默认 `large`；follow-up 默认继承 parent run。
 - 模型侧 `workflow` schema 必须传 `action`。`create` / `followup` 接收 canonical `script`，且不展示 `scriptSource` / `script_source` alias，避免脚本入口分裂；执行层仍兼容这些历史输入别名。其它可选元数据参数为 `kind`、`executionMode`、`budget`、`runImmediately`、`parentRunId`、`origin`、`goalId`、`goalCriterionId`、`worktreeId`，创建层会校验 parent/goal/criteria/worktree 均属于同一 session / Goal revision。
+- `workflow(action=guide)` 是 V4 按需 authoring guide：返回当前 apiVersion、脚本形态、run inputs、Parallel/Pipeline、child/typed result、host API 和 timing contract，不创建 run、不读写外部系统。Workflow Mode 常驻 Prompt 只保留决策与安全策略，写脚本前再调用 guide，避免每轮重复支付完整 API token。
 - `workflow(action=list|status|trace)` 只返回当前模型可见 session 内的 bounded snapshot；不提供跨 session 查询。`status` 在省略 `runId` 时选择当前 active run 或最近 run。
 - `workflow(action=create|list|status|followup)` 返回的 run summary 带 `sizeGuideline` 和 `runtimeCaps`，让模型不用读完整 script/budget 也能理解规模、预算意图和下一步策略。
 - `workflow(action=control)` 只允许 `pause` / `resume` / `cancel`，并写 `run_model_control_action` 审计事件；它故意不支持 `approve`，模型不能代替用户批准权限或外部动作。
@@ -632,3 +633,56 @@ Workspace 的 Workflow section 是主要用户面，不要求用户记 slash com
 - Workflow marketplace 或外部 npm workflow ecosystem。
 
 仍处于外部 Plans 归档的规划项不能在 architecture 中描述为已实现事实；已经由 Workflow 调用但不归 Workflow 拥有的能力，应在对应子系统架构文档中维护实现细节与后续边界。
+
+## 18. Workflow V4 Runtime
+
+V4 是对 V3 durable runtime 的增量：旧 run 没有 `workflow_run_controls` 时继续使用原 `main(workflow)`、map/waitAny/waitAll 和 text result；只有显式 `apiVersion=4` 的新 run 才安装 immutable `workflow.meta`、`workflow.args`、typed results、Parallel/Pipeline、选择性隔离和 resume provenance。
+
+### 18.1 Run Control 与崩溃边界
+
+`workflow_run_controls` 一对一保存 `api_version=4`、`meta_json/meta_hash`、`args_json/args_hash` 和可选 `resume_from_run_id`。meta+args 必须都是对象且合计不超过 64KB，在 QuickJS 中递归 `Object.freeze`，并以 `main(workflow, args)` 调用；脚本不能修改调用参数。
+
+runtime 每次启动都重新计算 args hash 并校验 `api_version`，不允许损坏或被改写的 control 进入 replay。
+
+创建 V4 run 时 `budget_json.__hopeWorkflowApiVersion=4` 是 fail-closed runtime marker。若进程在 run insert 后、control insert 前崩溃，恢复执行检测到 marker 但缺 control 会拒绝运行，不能静默按 V3 语义执行。正常 V3 run 没有 marker，不受影响。
+
+### 18.2 Typed Child Result
+
+`workflow.spawnAgent` 可传：
+
+```js
+{
+  outputSchema,
+  schemaRetries: 0..3,
+  reserveOutputTokens,
+  isolation: "worktree" | "shared_read_only"
+}
+```
+
+child 最终结果从单一 `<workflow_result>...</workflow_result>` JSON 块解析，并按 runtime 支持的 JSON Schema 子集校验；schema 经过大小、结构和 hash 校验，不参与权限决策。非法结果进入有界 read-only repair child，repair prompt 把原输出放在 untrusted envelope 中，只允许修正结构，不扩大任务或执行外部动作。最终结果返回 `originalRunId/resolvedRunId/repairAttempts/repairChain` provenance；耗尽后显式 `repairExhausted`。没有 `outputSchema` 时直接调用 V3 host result，返回形态不增加 V4 字段。
+
+### 18.3 Parallel 与 Pipeline
+
+- `workflow.parallel(label, list, spawn, options)` 先有界 spawn，再做一次全局 barrier，返回每项 result、join 和 `total/completed/failed/terminal/allTerminal` coverage。
+- `workflow.pipeline(label, list, spawn, consume, options)` 以 `concurrency` 窗口启动，任一 child terminal 就立即 consume 并补下一个，不使用 waitAll barrier；返回 `total/settled/completed/failed/pending` coverage。
+
+两者通过 scoped Workflow facade 绑定 item index/op key，禁止 callback 逃逸后错用 scope。`reserveOutputTokens` 在 spawn 前进入 Workflow budget reservation；Failed spawn 不占 reservation，child terminal/consume 后对账。`workflow.budgetStatus()` 返回 hard budget、已用、已预留和剩余，不能静默裁剪 fan-out。
+
+### 18.4 Isolation
+
+缺省 isolation 仍是 `worktree`，保持旧行为。显式 `shared_read_only` 不创建 managed worktree，并安装 externally-locked PlanAgent hard gate；其专用最小白名单只有 read/ls/grep/find/lsp/glob、只读 web、ask-user 和只读 memory 工具，明确排除 write/edit/apply_patch/canvas、exec/process、browser、subagent/team。工具 schema 和执行权限都读同一 locked allow-list，写入与命令执行不能只靠 prompt 约束。schema repair 固定使用 shared read-only。
+
+### 18.5 Selective Resume
+
+`workflow_run_controls` 保存 `api_version/meta/args/meta_hash/args_hash/resume_from_run_id`。`meta` 与 `args` 深冻结后交给脚本；runtime 在 Script Gate 后、脚本执行前重新计算两份 hash，任一损坏都 fail closed，不能以变化后的控制输入继续 replay。
+
+`resumeFromRunId` 只接受同 session、terminal source run。runtime 从当前位置开始查找最长稳定 op 前缀，仅复用：
+
+- source op 已 completed；
+- op type/input hash/position 匹配；
+- `spawnAgent` 显式 `isolation=shared_read_only`；
+- child 结果和 schema provenance 可读。
+
+首个指纹差异后停止复用。worktree、tool/external side effect、审批、随机或时间相关 op 永不跨 run 复用。复用写入当前 run 的 op/event provenance，不修改 source run。
+
+V4 E2E mock tests 覆盖 schema bounded repair、Parallel barrier、Pipeline 渐进消费、immutable meta/args、read-only prefix resume 和 V4 control marker；V3 tests 继续覆盖旧脚本与 position replay。

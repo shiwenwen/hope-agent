@@ -271,7 +271,7 @@ Loop v2 当前已把 Loop 从“能触发”升级为可靠、可治理、可解
 
 - Loop 仍只表示持续触发器，不重新承载执行强度；执行强度继续归 `/mode` / Execution Mode，具体执行继续归 Workflow。
 - Slash `/loop` 仍保持简单；v2 guard 策略主要在 GUI / owner API 暴露，slash 不解析 criteria id / policy edit。V3.1 的自然固定间隔语法和 V3.2 的 prompt-only / bare dynamic 语法只补体验，不新增权限或调度捷径；模型侧 dynamic 控制走 `loop_*` internal tools，而不是开放 Cron 写权限。
-- 外部 webhook / file watcher / CI provider / connector object stream 仍是后续池；当前 Event Loop 只接内部 EventBus 白名单，避免引入未治理的事件风暴。
+- 外部 webhook / CI provider / connector object stream 仍是后续池；V4 已实现受治理的 file / WebSocket 一次性 Monitor，不能把它们扩展成未限速的通用外部事件总线。
 - Condition workflow 仍等待 Workflow terminal event 能反写 condition result 后再放开；当前 `until` loop 继续依赖 conversation continuation + assistant marker，不能伪装成 workflow 完成。
 - 成本预算精确统计仍等待 provider cost ledger；在此之前 `cost_budget_micros` 继续保持保守拒绝，避免给用户错误安全感。
 
@@ -294,3 +294,36 @@ Loop v2 过程 roadmap 已归档到外部 Plans；已实现事实以本文为准
 - `loop_watchdog_reports_due_active_loop_without_active_run` / `loop_watchdog_reports_missing_backing_cron_even_without_next_run` / `loop_watchdog_reports_stale_running_loop_run_after_cron_recovery` / `loop_watchdog_does_not_flag_cron_job_already_running` 覆盖 Loop Watchdog 只报告 overdue 但未被接管的 active Loop、backing Cron 缺失、Cron startup recovery 后遗留的 running Loop run，并且不会把 Cron 正在执行的 Loop 误报为 stuck。
 - `WorkspacePanel` Loop 相关 Vitest 覆盖 derived workflow 行、run history、dynamic decision reason、「持续推进」中心 view-more、run-now、policy edit、模板创建、event loop 创建、dynamic loop 创建和 Loop Watchdog amber 恢复提示；Core 测试覆盖 dynamic maintenance Loop 在 `loop.md` 修改后下一次 trigger 前刷新 prompt 并写入 run trace metadata。
 - Dev browser smoke 覆盖真实 Workspace UI 路径：打开 `http://127.0.0.1:1420/?window=loop-smoke`，创建 dynamic Loop，检查「模型自定 · 回退 20m」、下一次继续时间、run detail 的「15m 后继续」与原因展示；截图归档在外部 Plans 的 V3 evidence 目录。该 smoke 证明组件交互路径可用，但不替代完整 Tauri 桌面人工长跑。
+
+## Loop V4：Event-first Watch Registry
+
+V4 保留 Cron 作为 durable heartbeat 和 admission 唯一入口，并为 dynamic Loop 增加 `loop_watches`。模型在知道“等哪个事件”时调用 `loop_watch`，事件先到就立即沿 `execute_job_public` 触发；事件没有到则原 fallback 时间照常唤醒。fallback 时间不在 `loop_watches` 重复存储，仍以 Cron job 的 `next_run_at` 为唯一真相源，避免 watcher 与 heartbeat 出现双时间轴。`loop_unwatch`、Loop pause/stop/terminal 会清理对应监听。
+
+### Watch 数据与单赢
+
+`LoopWatch` 保存 `kind/spec/active/generation/last_event_at/last_fingerprint/failure_count/last_error/monitor_job_id`。同一 loop+kind+canonical spec 生成稳定 signature；upsert 复用并递增 generation。事件 fingerprint 同时包含 watch id、generation、outcome、bounded payload 和 debounce bucket，`loop_event_ticks` 的单赢约束保证 event 与 heartbeat 竞争时同一推进只 claim 一次。
+
+支持 kind：
+
+- `app_event`：受支持 EventBus 事件与 filters；
+- `job`：JobManager terminal/status 事件；
+- `subagent`：subagent lifecycle；
+- `command`：后台命令 Job 的完成事件，不启动独立轮询进程；
+- `file`：`notify` 本地文件/目录一次性 watcher；
+- `websocket`：受 SSRF policy 保护的 `ws/wss` 一次性连接。
+
+Event-backed watch 只扫描 active dynamic Loop；payload 有界且进入 Loop trigger 时按内部 untrusted event context 处理。终态 Loop、Goal revision stale、stop/pause 后旧 generation 的回调无法重新激活 Loop。
+
+### Monitor 治理
+
+file/WebSocket 适配器注册 `JobKind::Monitor` 投影，用于状态、取消和泄漏诊断，但不占普通 Tool Job 的 activity 计数。内部固定 backpressure 为每个 Loop 最多 16 个 active watch、每个 session 最多 8 个 active file/WebSocket Monitor、全局最多 64 个；同 spec re-arm 只递增 generation，不重复占位。配额是安全内部上限，不增加用户配置；paused Loop 保留 durable watch 配额，避免 resume 瞬间超额，用户可用 `loop_unwatch` 释放。
+
+file event payload 只保留最多 16 个路径、单路径 500 字符；WebSocket 先把 ws/wss 映射为 http/https 做统一 SSRF 检查，消息 preview 有固定字节上限，timeout 钳在 30s..24h。WebSocket URL 会持久化用于恢复，因此拒绝 userinfo 密码和常见 token/api_key/auth/signature 查询参数；普通非敏感查询参数仍可使用。
+
+`loop_watch` 不是 internal tool：file/WebSocket 会观察外部 IO，必须进入统一 permission engine。`permission::rules::extract_path_arg` 显式识别 `loop_watch.spec.path`，因此 protected-path strict gate 与普通 read/write 一致生效；嵌套路径不能绕过审批，无人值守时按统一 approval-surface policy fail closed。纯控制面的 `loop_status/reschedule/stop/progress/unwatch` 仍保持 internal。WebSocket 即使已过工具 permission，连接前仍必须通过实时 SSRF policy。
+
+Monitor 是 one-shot：message/change/close/failure/timeout 任一结算后 durable watch inactive、generation handle 删除、monitor job 进入明确终态。继续等待必须由下一轮模型显式 re-arm；这避免 silent watcher 和进程/slot 泄漏。启动时 `spawn_loop_monitor_recovery` 只恢复 durable active monitor watch；启动失败记录 error，并保留 Cron heartbeat 作为降级路径。
+
+Loop 进入 paused/blocked 时停止进程内 file/WebSocket handle、结算当前 Monitor job，但保留 durable watch 为 active；resume 在 Primary runtime 中按最新 generation 自动重挂。terminal 则同时 deactive watch 并递增 generation，旧回调无法复活。
+
+`get_loop_schedule` 的 `watches` 给 Workspace 运行详情展示 kind、generation、active/settled、failure 和 fallback；普通对话只显示统一 Activity 的“等待持续推进触发”。核心测试覆盖 event/heartbeat race、generation 去重、terminal cleanup、untrusted payload、真实 file one-shot 与 Monitor job settle。

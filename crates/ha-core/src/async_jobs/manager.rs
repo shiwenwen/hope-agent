@@ -65,6 +65,92 @@ impl JobManager {
         super::spawn::new_job_id()
     }
 
+    /// Register a long-lived Loop monitor in the unified background-job
+    /// lifecycle. The Loop adapter owns the actual watcher/task and calls
+    /// [`Self::finish_monitor`] on terminal outcomes.
+    pub fn register_monitor(
+        session_id: &str,
+        watch_id: &str,
+        adapter: &str,
+        spec: &Value,
+    ) -> Result<Option<String>> {
+        let Some(db) = super::get_async_jobs_db() else {
+            return Ok(None);
+        };
+        let job_id = Self::new_job_id();
+        let now = chrono::Utc::now().timestamp();
+        let job = BackgroundJob {
+            job_id: job_id.clone(),
+            kind: JobKind::Monitor,
+            subagent_run_id: None,
+            group_id: None,
+            session_id: Some(session_id.to_string()),
+            agent_id: None,
+            tool_name: format!("loop_monitor:{adapter}"),
+            tool_call_id: Some(watch_id.to_string()),
+            args_json: serde_json::to_string(spec)?,
+            status: JobStatus::Running,
+            result_preview: None,
+            result_path: None,
+            error: None,
+            created_at: now,
+            completed_at: None,
+            injected: true,
+            origin: "loop_monitor".to_string(),
+            approval_origin: Some("policy_allow".to_string()),
+            incognito: false,
+            pid: None,
+            cancel_requested: false,
+        };
+        db.insert(&job)?;
+        super::events::emit_created(
+            &job_id,
+            JobKind::Monitor,
+            &job.tool_name,
+            JobStatus::Running.as_str(),
+            Some(session_id),
+        );
+        Ok(Some(job_id))
+    }
+
+    pub fn finish_monitor(
+        job_id: &str,
+        status: JobStatus,
+        result_preview: Option<&str>,
+        error: Option<&str>,
+    ) -> Result<bool> {
+        if !status.is_terminal() {
+            return Err(anyhow!("monitor terminal status required"));
+        }
+        let Some(db) = super::get_async_jobs_db() else {
+            return Ok(false);
+        };
+        let Some(job) = db.load(job_id)? else {
+            return Ok(false);
+        };
+        if job.kind != JobKind::Monitor {
+            return Err(anyhow!("background job {job_id} is not a monitor"));
+        }
+        let changed = db.update_terminal(
+            job_id,
+            status,
+            result_preview,
+            None,
+            error,
+            chrono::Utc::now().timestamp(),
+        )?;
+        if changed {
+            super::events::emit_completed(
+                job_id,
+                JobKind::Monitor,
+                &job.tool_name,
+                status.as_str(),
+                job.session_id.as_deref(),
+            );
+        }
+        Ok(changed)
+    }
+
     /// Spawn an explicit background tool job using a caller-preallocated id.
     /// This is for durable parents that must record the child handle before the
     /// side effect starts; ordinary tool calls should use [`Self::spawn_tool`].
@@ -170,6 +256,28 @@ impl JobManager {
             Some(db) => db.list_active_by_session(session_id),
             None => Ok(Vec::new()),
         }
+    }
+
+    /// Bounded active-job read for status projections. Lifecycle owners must
+    /// use [`Self::list_active_by_session`] to avoid skipping cleanup targets.
+    pub fn list_active_by_session_limited(
+        session_id: &str,
+        limit: usize,
+    ) -> Result<Vec<BackgroundJob>> {
+        match super::get_async_jobs_db() {
+            Some(db) => db.list_active_by_session_limited(session_id, limit),
+            None => Ok(Vec::new()),
+        }
+    }
+
+    /// Active executable work, excluding long-lived monitor subscriptions.
+    /// Goal Runner uses this to avoid treating a healthy watcher as a child job
+    /// that must terminate before the Goal can continue.
+    pub fn list_active_work_by_session(session_id: &str) -> Result<Vec<BackgroundJob>> {
+        Ok(Self::list_active_by_session(session_id)?
+            .into_iter()
+            .filter(|job| job.kind != JobKind::Monitor)
+            .collect())
     }
 
     // ── Owner-plane snapshots (R4 panel) ───────────────────────────────────

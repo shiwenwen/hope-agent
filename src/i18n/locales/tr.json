@@ -545,6 +545,26 @@
       "updated": "Hedef güncellendi",
       "messageBadge": "Hedef"
     },
+    "activity": {
+      "waitingJobApproval": "Araç onayı bekleniyor",
+      "waitingWorkflowUser": "Yanıtınız bekleniyor",
+      "waitingGoalAcceptance": "Hedef sonucunun onaylanması bekleniyor",
+      "evaluatingGoal": "Hedef değerlendiriliyor",
+      "runningWorkflow": "İş akışı çalışıyor",
+      "runningTask": "Görev çalışıyor",
+      "waitingBackgroundWork": "Arka plan sonuçları bekleniyor",
+      "waitingLoopTrigger": "Döngü tetikleyicisi bekleniyor",
+      "goalPaused": "Hedef duraklatıldı",
+      "workflowPaused": "İş akışı duraklatıldı",
+      "workflowBlocked": "İş akışı işlem bekliyor",
+      "goalBlocked": "Hedef ilgi gerektiriyor",
+      "loopPaused": "Döngü duraklatıldı",
+      "loopBlocked": "Döngü ilgi gerektiriyor",
+      "activeGoal": "Hedef ilerletiliyor",
+      "goalTerminal": "Hedef sona erdi",
+      "needsUser": "İlginiz gerekiyor",
+      "active": "Devam ediyor"
+    },
     "loopMode": {
       "label": "Döngü",
       "enter": "Loop modu: ajanın ilerletmeye devam edeceği yinelenen bir görev oluşturur",
@@ -6032,7 +6052,12 @@
       "editPolicy": "Politikayı düzenle",
       "policyTitle": "D��ngü politikası",
       "viewMore": "Daha fazla sürekli ilerlemeyi görüntüleyin ({{count}})",
-      "viewLess": "Daha az görüntüle"
+      "viewLess": "Daha az görüntüle",
+      "watchesTitle": "İzleyiciler",
+      "watchGeneration": "Nesil {{value}}",
+      "watchArmed": "Etkin",
+      "watchSettled": "Tamamlandı",
+      "watchFailures": "{{count}} hata"
     },
     "workflow": {
       "title": "İş akışı",

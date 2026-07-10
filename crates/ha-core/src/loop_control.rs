@@ -11,13 +11,16 @@ use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
+    collections::HashMap,
     fs,
     hash::{Hash, Hasher},
     io::Read,
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{Arc, Mutex as StdMutex, OnceLock},
+    time::Duration,
 };
 use tokio::sync::broadcast::error::RecvError;
+use tokio_util::sync::CancellationToken;
 
 use crate::cron::{CronDB, CronPayload, CronSchedule, NewCronJob};
 use crate::event_bus::AppEvent;
@@ -46,6 +49,11 @@ const DEFAULT_LOOP_MAX_NO_PROGRESS_RUNS: i64 = 3;
 const DEFAULT_LOOP_MAX_FAILURES: i64 = 3;
 const DEFAULT_LOOP_BACKOFF_SECS: i64 = 300;
 const MAX_LOOP_BACKOFF_SECS: i64 = 24 * 60 * 60;
+const LOOP_MONITOR_MAX_FAILURES: i64 = 3;
+const LOOP_MONITOR_PAYLOAD_MAX_BYTES: usize = 8 * 1024;
+const MAX_ACTIVE_WATCHES_PER_LOOP: i64 = 16;
+const MAX_ACTIVE_MONITORS_PER_SESSION: i64 = 8;
+const MAX_ACTIVE_MONITORS_GLOBAL: i64 = 64;
 const STRONG_PROGRESS_RELATIONS: &[&str] = &[
     "workflow_completed",
     "validation_passed",
@@ -276,6 +284,117 @@ pub enum LoopTriggerKind {
     Dynamic,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LoopWatchKind {
+    AppEvent,
+    Job,
+    Subagent,
+    File,
+    Command,
+    Websocket,
+}
+
+impl LoopWatchKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::AppEvent => "app_event",
+            Self::Job => "job",
+            Self::Subagent => "subagent",
+            Self::File => "file",
+            Self::Command => "command",
+            Self::Websocket => "websocket",
+        }
+    }
+
+    pub fn from_str(value: &str) -> Option<Self> {
+        match value {
+            "app_event" => Some(Self::AppEvent),
+            "job" => Some(Self::Job),
+            "subagent" => Some(Self::Subagent),
+            "file" => Some(Self::File),
+            "command" => Some(Self::Command),
+            "websocket" => Some(Self::Websocket),
+            _ => None,
+        }
+    }
+
+    fn is_event_backed(self) -> bool {
+        matches!(
+            self,
+            Self::AppEvent | Self::Job | Self::Subagent | Self::Command
+        )
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LoopWatch {
+    pub id: String,
+    pub loop_id: String,
+    pub kind: LoopWatchKind,
+    pub spec: Value,
+    pub active: bool,
+    pub generation: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_event_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_fingerprint: Option<String>,
+    pub failure_count: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub monitor_job_id: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+enum LoopMonitorHandle {
+    File {
+        generation: i64,
+        _watcher: notify::RecommendedWatcher,
+    },
+    Async {
+        generation: i64,
+        cancel: CancellationToken,
+    },
+}
+
+fn loop_monitors() -> &'static StdMutex<HashMap<String, LoopMonitorHandle>> {
+    static MONITORS: OnceLock<StdMutex<HashMap<String, LoopMonitorHandle>>> = OnceLock::new();
+    MONITORS.get_or_init(|| StdMutex::new(HashMap::new()))
+}
+
+fn stop_loop_monitor(watch_id: &str) {
+    if let Some(LoopMonitorHandle::Async { cancel, .. }) = loop_monitors()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .remove(watch_id)
+    {
+        cancel.cancel();
+    }
+}
+
+fn remove_loop_monitor_generation(watch_id: &str, generation: i64) {
+    let mut monitors = loop_monitors()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let matches_generation = match monitors.get(watch_id) {
+        Some(LoopMonitorHandle::File {
+            generation: current,
+            ..
+        })
+        | Some(LoopMonitorHandle::Async {
+            generation: current,
+            ..
+        }) => *current == generation,
+        None => false,
+    };
+    if matches_generation {
+        monitors.remove(watch_id);
+    }
+}
+
 impl LoopTriggerKind {
     pub fn as_str(self) -> &'static str {
         match self {
@@ -299,17 +418,12 @@ impl LoopTriggerKind {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum LoopExecutionStrategy {
+    #[default]
     Continue,
     Workflow,
-}
-
-impl Default for LoopExecutionStrategy {
-    fn default() -> Self {
-        Self::Continue
-    }
 }
 
 impl LoopExecutionStrategy {
@@ -440,6 +554,8 @@ pub struct LoopSnapshot {
     pub schedule: LoopSchedule,
     #[serde(default)]
     pub runs: Vec<LoopRun>,
+    #[serde(default)]
+    pub watches: Vec<LoopWatch>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -666,6 +782,23 @@ pub(crate) fn ensure_tables(conn: &Connection) -> Result<()> {
             UNIQUE(loop_id, event_fingerprint)
         );
 
+        CREATE TABLE IF NOT EXISTS loop_watches (
+            id TEXT PRIMARY KEY,
+            loop_id TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            spec_json TEXT NOT NULL DEFAULT '{}',
+            active INTEGER NOT NULL DEFAULT 1,
+            generation INTEGER NOT NULL DEFAULT 1,
+            last_event_at TEXT,
+            last_fingerprint TEXT,
+            failure_count INTEGER NOT NULL DEFAULT 0,
+            last_error TEXT,
+            monitor_job_id TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (loop_id) REFERENCES loop_schedules(id) ON DELETE CASCADE
+        );
+
         CREATE INDEX IF NOT EXISTS idx_loop_schedules_session_updated
             ON loop_schedules(session_id, updated_at DESC);
         CREATE INDEX IF NOT EXISTS idx_loop_schedules_state
@@ -677,7 +810,11 @@ pub(crate) fn ensure_tables(conn: &Connection) -> Result<()> {
         CREATE INDEX IF NOT EXISTS idx_loop_runs_cron
             ON loop_runs(cron_job_id, started_at DESC);
         CREATE INDEX IF NOT EXISTS idx_loop_event_ticks_loop_pending
-            ON loop_event_ticks(loop_id, consumed_at, created_at);",
+            ON loop_event_ticks(loop_id, consumed_at, created_at);
+        CREATE INDEX IF NOT EXISTS idx_loop_watches_loop_active
+            ON loop_watches(loop_id, active, updated_at);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_loop_watches_loop_kind_spec
+            ON loop_watches(loop_id, kind, spec_json);",
     )?;
     ensure_loop_column(
         conn,
@@ -744,6 +881,11 @@ pub(crate) fn ensure_tables(conn: &Connection) -> Result<()> {
         "progress_state",
         "ALTER TABLE loop_runs ADD COLUMN progress_state TEXT;",
     )?;
+    ensure_loop_watch_column(
+        conn,
+        "monitor_job_id",
+        "ALTER TABLE loop_watches ADD COLUMN monitor_job_id TEXT;",
+    )?;
     ensure_loop_run_column(
         conn,
         "progress_delta_json",
@@ -784,7 +926,41 @@ fn ensure_loop_run_column(conn: &Connection, column: &str, alter_sql: &str) -> R
     Ok(())
 }
 
+fn ensure_loop_watch_column(conn: &Connection, column: &str, alter_sql: &str) -> Result<()> {
+    let query = format!("SELECT {column} FROM loop_watches LIMIT 1");
+    if conn.prepare(&query).is_ok() {
+        return Ok(());
+    }
+    conn.execute(alter_sql, [])?;
+    Ok(())
+}
+
 impl SessionDB {
+    fn deactivate_loop_watch_for_monitor_job(&self, monitor_job_id: &str) -> Result<bool> {
+        let now = now_rfc3339();
+        let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
+        let watch_id: Option<String> = conn
+            .query_row(
+                "SELECT id FROM loop_watches WHERE monitor_job_id = ?1 AND active = 1",
+                params![monitor_job_id],
+                |row| row.get(0),
+            )
+            .optional()?;
+        let Some(watch_id) = watch_id else {
+            return Ok(false);
+        };
+        conn.execute(
+            "UPDATE loop_watches
+             SET active = 0, generation = generation + 1,
+                 monitor_job_id = NULL, updated_at = ?2
+             WHERE id = ?1 AND active = 1",
+            params![watch_id, now],
+        )?;
+        drop(conn);
+        stop_loop_monitor(&watch_id);
+        Ok(true)
+    }
+
     pub fn create_loop_schedule(
         &self,
         cron_db: &CronDB,
@@ -1128,7 +1304,12 @@ impl SessionDB {
             return Ok(None);
         };
         let runs = self.list_loop_runs(loop_id, run_limit)?;
-        Ok(Some(LoopSnapshot { schedule, runs }))
+        let watches = self.list_loop_watches(loop_id)?;
+        Ok(Some(LoopSnapshot {
+            schedule,
+            runs,
+            watches,
+        }))
     }
 
     pub fn loop_snapshot_with_cron(
@@ -1163,6 +1344,165 @@ impl SessionDB {
         Ok(runs)
     }
 
+    pub fn list_loop_watches(&self, loop_id: &str) -> Result<Vec<LoopWatch>> {
+        let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
+        let mut stmt = conn.prepare(
+            "SELECT id, loop_id, kind, spec_json, active, generation, last_event_at,
+                    last_fingerprint, failure_count, last_error, created_at, updated_at,
+                    monitor_job_id
+             FROM loop_watches
+             WHERE loop_id = ?1
+             ORDER BY created_at ASC, id ASC",
+        )?;
+        let rows = stmt.query_map(params![loop_id], row_to_loop_watch)?;
+        collect_rows(rows)
+    }
+
+    pub fn upsert_loop_watch(
+        &self,
+        loop_id: &str,
+        kind: LoopWatchKind,
+        spec: &Value,
+    ) -> Result<LoopWatch> {
+        let schedule = self
+            .get_loop_schedule(loop_id)?
+            .ok_or_else(|| anyhow!("loop schedule not found: {loop_id}"))?;
+        if schedule.trigger_kind != LoopTriggerKind::Dynamic {
+            return Err(anyhow!(
+                "loop watches attach only to dynamic loops; {} is {}",
+                schedule.id,
+                schedule.trigger_kind.as_str()
+            ));
+        }
+        if schedule.state != LoopState::Active {
+            return Err(anyhow!(
+                "loop schedule {} is {}; only active dynamic loops can add or re-arm watches",
+                schedule.id,
+                schedule.state.as_str()
+            ));
+        }
+        let spec = normalize_loop_watch_spec(kind, spec)?;
+        let previous = self.find_loop_watch_by_spec(loop_id, kind, &spec)?;
+        if let Some(previous) = previous.as_ref() {
+            stop_loop_monitor(&previous.id);
+            if let Some(job_id) = previous.monitor_job_id.as_deref() {
+                let _ = crate::async_jobs::JobManager::finish_monitor(
+                    job_id,
+                    crate::async_jobs::JobStatus::Cancelled,
+                    None,
+                    Some("Loop monitor re-armed"),
+                );
+            }
+        }
+        let spec_json = stable_json(&spec)?;
+        let now = now_rfc3339();
+        let id = format!("lwatch_{}", uuid::Uuid::new_v4().simple());
+        {
+            let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
+            if previous.as_ref().is_none_or(|watch| !watch.active) {
+                ensure_loop_watch_capacity(&conn, &schedule, kind)?;
+            }
+            conn.execute(
+                "INSERT INTO loop_watches (
+                    id, loop_id, kind, spec_json, active, generation, created_at, updated_at
+                 ) VALUES (?1, ?2, ?3, ?4, 1, 1, ?5, ?5)
+                 ON CONFLICT(loop_id, kind, spec_json) DO UPDATE SET
+                    active = 1,
+                    generation = loop_watches.generation + 1,
+                    failure_count = 0,
+                    last_error = NULL,
+                    monitor_job_id = NULL,
+                    updated_at = excluded.updated_at",
+                params![id, loop_id, kind.as_str(), spec_json, now],
+            )?;
+        }
+        let watch = self
+            .find_loop_watch_by_spec(loop_id, kind, &spec)?
+            .ok_or_else(|| anyhow!("failed to read the created loop watch"))?;
+        emit_loop_watch_event("loop:watch_changed", &schedule, &watch);
+        Ok(watch)
+    }
+
+    pub fn remove_loop_watch(&self, loop_id: &str, watch_id: &str) -> Result<LoopWatch> {
+        let schedule = self
+            .get_loop_schedule(loop_id)?
+            .ok_or_else(|| anyhow!("loop schedule not found: {loop_id}"))?;
+        let watch = self
+            .get_loop_watch(watch_id)?
+            .ok_or_else(|| anyhow!("loop watch not found: {watch_id}"))?;
+        if watch.loop_id != loop_id {
+            return Err(anyhow!("loop watch does not belong to loop {loop_id}"));
+        }
+        let now = now_rfc3339();
+        let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
+        conn.execute(
+            "UPDATE loop_watches
+             SET active = 0, generation = generation + 1,
+                 monitor_job_id = NULL, updated_at = ?2
+             WHERE id = ?1",
+            params![watch_id, now],
+        )?;
+        drop(conn);
+        if let Some(job_id) = watch.monitor_job_id.as_deref() {
+            let _ = crate::async_jobs::JobManager::finish_monitor(
+                job_id,
+                crate::async_jobs::JobStatus::Cancelled,
+                None,
+                Some("Loop watch removed"),
+            );
+        }
+        let updated = self
+            .get_loop_watch(watch_id)?
+            .ok_or_else(|| anyhow!("loop watch not found after update"))?;
+        stop_loop_monitor(watch_id);
+        emit_loop_watch_event("loop:watch_changed", &schedule, &updated);
+        Ok(updated)
+    }
+
+    fn get_loop_watch(&self, watch_id: &str) -> Result<Option<LoopWatch>> {
+        let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
+        Ok(conn
+            .query_row(
+                "SELECT id, loop_id, kind, spec_json, active, generation, last_event_at,
+                        last_fingerprint, failure_count, last_error, created_at, updated_at,
+                        monitor_job_id
+                 FROM loop_watches WHERE id = ?1",
+                params![watch_id],
+                row_to_loop_watch,
+            )
+            .optional()?)
+    }
+
+    fn find_loop_watch_by_spec(
+        &self,
+        loop_id: &str,
+        kind: LoopWatchKind,
+        spec: &Value,
+    ) -> Result<Option<LoopWatch>> {
+        let spec_json = stable_json(spec)?;
+        let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
+        Ok(conn
+            .query_row(
+                "SELECT id, loop_id, kind, spec_json, active, generation, last_event_at,
+                        last_fingerprint, failure_count, last_error, created_at, updated_at,
+                        monitor_job_id
+                 FROM loop_watches
+                 WHERE loop_id = ?1 AND kind = ?2 AND spec_json = ?3",
+                params![loop_id, kind.as_str(), spec_json],
+                row_to_loop_watch,
+            )
+            .optional()?)
+    }
+
+    fn bind_loop_watch_monitor_job(&self, watch_id: &str, job_id: &str) -> Result<()> {
+        let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
+        conn.execute(
+            "UPDATE loop_watches SET monitor_job_id = ?2, updated_at = ?3 WHERE id = ?1",
+            params![watch_id, job_id, now_rfc3339()],
+        )?;
+        Ok(())
+    }
+
     pub fn enqueue_loop_event_triggers(&self, event: &AppEvent) -> Result<Vec<String>> {
         if !is_loop_trigger_event_name(&event.name) {
             return Ok(Vec::new());
@@ -1185,6 +1525,36 @@ impl SessionDB {
                 &now.to_rfc3339(),
             )? {
                 cron_job_ids.push(schedule.cron_job_id);
+            }
+        }
+        for (schedule, watch) in
+            self.list_active_event_backed_loop_watches_for_session(session_id)?
+        {
+            let Some(mut event_match) =
+                loop_event_matches_spec(&schedule, &watch.spec, event, &now)?
+            else {
+                continue;
+            };
+            event_match.context["watch"] = json!({
+                "id": watch.id,
+                "kind": watch.kind.as_str(),
+                "generation": watch.generation,
+            });
+            let fingerprint =
+                blake3::hash(format!("{}:{}", watch.id, event_match.fingerprint).as_bytes())
+                    .to_hex()
+                    .to_string();
+            if self.insert_loop_event_tick(
+                &schedule.id,
+                &event.name,
+                &fingerprint,
+                &event_match.context,
+                &now.to_rfc3339(),
+            )? {
+                self.mark_loop_watch_event(&watch.id, &fingerprint, &now.to_rfc3339())?;
+                if !cron_job_ids.contains(&schedule.cron_job_id) {
+                    cron_job_ids.push(schedule.cron_job_id);
+                }
             }
         }
         Ok(cron_job_ids)
@@ -1229,6 +1599,7 @@ impl SessionDB {
             schedule.trigger_kind != LoopTriggerKind::Event,
         )?;
         hydrate_loop_schedule_from_cron(cron_db, &mut schedule)?;
+        spawn_loop_monitor_recovery_for_loop(schedule.id.clone());
         Ok(schedule)
     }
 
@@ -1717,7 +2088,10 @@ impl SessionDB {
                 ],
             )?;
         }
-        let event_context = if schedule.trigger_kind == LoopTriggerKind::Event {
+        let event_context = if matches!(
+            schedule.trigger_kind,
+            LoopTriggerKind::Event | LoopTriggerKind::Dynamic
+        ) {
             self.claim_next_loop_event_tick(&schedule.id, &run_id)?
         } else {
             None
@@ -2316,6 +2690,164 @@ impl SessionDB {
         collect_rows(rows)
     }
 
+    fn list_active_event_backed_loop_watches_for_session(
+        &self,
+        session_id: &str,
+    ) -> Result<Vec<(LoopSchedule, LoopWatch)>> {
+        let schedules = self.list_loop_schedules_for_session(session_id, 200)?;
+        let mut items = Vec::new();
+        for schedule in schedules.into_iter().filter(|schedule| {
+            schedule.state == LoopState::Active && schedule.trigger_kind == LoopTriggerKind::Dynamic
+        }) {
+            for watch in self
+                .list_loop_watches(&schedule.id)?
+                .into_iter()
+                .filter(|watch| watch.active && watch.kind.is_event_backed())
+            {
+                items.push((schedule.clone(), watch));
+            }
+        }
+        Ok(items)
+    }
+
+    fn mark_loop_watch_event(
+        &self,
+        watch_id: &str,
+        fingerprint: &str,
+        event_at: &str,
+    ) -> Result<()> {
+        let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
+        conn.execute(
+            "UPDATE loop_watches
+             SET last_event_at = ?2,
+                 last_fingerprint = ?3,
+                 failure_count = 0,
+                 last_error = NULL,
+                 updated_at = ?2
+             WHERE id = ?1 AND active = 1",
+            params![watch_id, event_at, fingerprint],
+        )?;
+        Ok(())
+    }
+
+    fn record_loop_monitor_event(
+        &self,
+        watch_id: &str,
+        outcome: &str,
+        payload: Value,
+    ) -> Result<Option<String>> {
+        let Some(watch) = self.get_loop_watch(watch_id)? else {
+            return Ok(None);
+        };
+        if !watch.active {
+            return Ok(None);
+        }
+        let Some(schedule) = self.get_loop_schedule(&watch.loop_id)? else {
+            return Ok(None);
+        };
+        if schedule.state != LoopState::Active {
+            return Ok(None);
+        }
+        let now = Utc::now();
+        let debounce_secs = watch
+            .spec
+            .get("debounceSecs")
+            .and_then(Value::as_i64)
+            .unwrap_or(1)
+            .clamp(1, MAX_EVENT_DEBOUNCE_SECS);
+        let bucket = now.timestamp().div_euclid(debounce_secs);
+        let fingerprint_input = stable_json(&json!({
+            "watchId": watch.id,
+            "generation": watch.generation,
+            "outcome": outcome,
+            "payload": payload,
+            "bucket": bucket,
+        }))?;
+        let fingerprint = blake3::hash(fingerprint_input.as_bytes())
+            .to_hex()
+            .to_string();
+        let context = json!({
+            "eventName": format!("loop:monitor:{}", watch.kind.as_str()),
+            "sessionId": schedule.session_id,
+            "watch": {
+                "id": watch.id,
+                "kind": watch.kind.as_str(),
+                "generation": watch.generation,
+            },
+            "outcome": outcome,
+            "untrusted": true,
+            "payload": payload,
+        });
+        if !self.insert_loop_event_tick(
+            &schedule.id,
+            context["eventName"].as_str().unwrap_or("loop:monitor"),
+            &fingerprint,
+            &context,
+            &now.to_rfc3339(),
+        )? {
+            return Ok(None);
+        }
+        self.mark_loop_watch_event(&watch.id, &fingerprint, &now.to_rfc3339())?;
+        Ok(Some(schedule.cron_job_id))
+    }
+
+    pub(crate) fn record_loop_monitor_error(&self, watch_id: &str, error: &str) -> Result<()> {
+        let now = now_rfc3339();
+        let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
+        conn.execute(
+            "UPDATE loop_watches
+             SET failure_count = failure_count + 1,
+                 last_error = ?2,
+                 active = CASE WHEN failure_count + 1 >= ?3 THEN 0 ELSE active END,
+                 monitor_job_id = NULL,
+                 updated_at = ?4
+             WHERE id = ?1",
+            params![
+                watch_id,
+                truncate_utf8(error, 1000),
+                LOOP_MONITOR_MAX_FAILURES,
+                now,
+            ],
+        )?;
+        Ok(())
+    }
+
+    fn settle_loop_monitor_watch(&self, watch_id: &str, generation: i64) -> Result<()> {
+        let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
+        conn.execute(
+            "UPDATE loop_watches
+             SET active = 0, monitor_job_id = NULL, updated_at = ?3
+             WHERE id = ?1 AND generation = ?2",
+            params![watch_id, generation, now_rfc3339()],
+        )?;
+        Ok(())
+    }
+
+    fn list_active_loop_monitor_watches(&self) -> Result<Vec<(LoopSchedule, LoopWatch)>> {
+        let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
+        let mut stmt = conn.prepare(
+            "SELECT w.id, w.loop_id, w.kind, w.spec_json, w.active, w.generation,
+                    w.last_event_at, w.last_fingerprint, w.failure_count, w.last_error,
+                    w.created_at, w.updated_at, w.monitor_job_id
+             FROM loop_watches w
+             JOIN loop_schedules s ON s.id = w.loop_id
+             WHERE w.active = 1 AND s.state = 'active'
+               AND w.kind IN ('file','websocket')
+             ORDER BY w.updated_at ASC",
+        )?;
+        let rows = stmt.query_map([], row_to_loop_watch)?;
+        let watches = collect_rows(rows)?;
+        drop(stmt);
+        drop(conn);
+        let mut items = Vec::new();
+        for watch in watches {
+            if let Some(schedule) = self.get_loop_schedule(&watch.loop_id)? {
+                items.push((schedule, watch));
+            }
+        }
+        Ok(items)
+    }
+
     fn insert_loop_event_tick(
         &self,
         loop_id: &str,
@@ -2392,6 +2924,17 @@ impl SessionDB {
         blocked_reason: Option<&str>,
     ) -> Result<LoopSchedule> {
         let now = now_rfc3339();
+        let monitor_watches = if state != LoopState::Active {
+            self.list_loop_watches(loop_id)?
+                .into_iter()
+                .filter(|watch| {
+                    watch.active
+                        && matches!(watch.kind, LoopWatchKind::File | LoopWatchKind::Websocket)
+                })
+                .collect::<Vec<_>>()
+        } else {
+            Vec::new()
+        };
         {
             let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
             conn.execute(
@@ -2410,10 +2953,42 @@ impl SessionDB {
                     blocked_reason,
                 ],
             )?;
+            if state.is_terminal() {
+                conn.execute(
+                    "UPDATE loop_watches
+                     SET active = 0, generation = generation + 1, updated_at = ?2
+                     WHERE loop_id = ?1 AND active = 1",
+                    params![loop_id, now],
+                )?;
+            } else if state != LoopState::Active {
+                conn.execute(
+                    "UPDATE loop_watches
+                     SET monitor_job_id = NULL, updated_at = ?2
+                     WHERE loop_id = ?1 AND active = 1
+                       AND kind IN ('file','websocket')",
+                    params![loop_id, now],
+                )?;
+            }
         }
         let schedule = self
             .get_loop_schedule(loop_id)?
             .ok_or_else(|| anyhow!("loop schedule not found: {loop_id}"))?;
+        for watch in monitor_watches {
+            stop_loop_monitor(&watch.id);
+            if let Some(job_id) = watch.monitor_job_id.as_deref() {
+                let reason = if state.is_terminal() {
+                    "Owning Loop reached a terminal state"
+                } else {
+                    "Owning Loop is not active; monitor suspended"
+                };
+                let _ = crate::async_jobs::JobManager::finish_monitor(
+                    job_id,
+                    crate::async_jobs::JobStatus::Cancelled,
+                    None,
+                    Some(reason),
+                );
+            }
+        }
         emit_loop_event("loop:changed", &schedule);
         Ok(schedule)
     }
@@ -2936,6 +3511,14 @@ impl SessionDB {
     }
 }
 
+pub(crate) fn cancel_loop_monitor_by_job_id(job_id: &str, watch_id: Option<&str>) -> Result<bool> {
+    let result = crate::require_session_db()?.deactivate_loop_watch_for_monitor_job(job_id);
+    if let Some(watch_id) = watch_id {
+        stop_loop_monitor(watch_id);
+    }
+    result
+}
+
 fn loop_runtime_limit_secs(schedule: &LoopSchedule) -> Option<i64> {
     schedule.max_runtime_secs.or_else(|| {
         (schedule.trigger_kind == LoopTriggerKind::Dynamic)
@@ -3184,7 +3767,7 @@ fn parse_dynamic_reschedule(input: &str) -> Option<(i64, String)> {
         .get(consumed_len..)
         .unwrap_or("")
         .trim()
-        .trim_start_matches(|c: char| matches!(c, '-' | ':' | ',' | ';'))
+        .trim_start_matches(['-', ':', ',', ';'])
         .trim();
     Some((
         delay_secs,
@@ -3341,6 +3924,175 @@ fn normalized_trigger_spec(kind: LoopTriggerKind, spec: &Value) -> Result<Value>
     }
 }
 
+fn normalize_loop_watch_spec(kind: LoopWatchKind, spec: &Value) -> Result<Value> {
+    let default_event_name = match kind {
+        LoopWatchKind::Job => Some("job:completed"),
+        LoopWatchKind::Subagent => Some("subagent_event"),
+        LoopWatchKind::AppEvent => None,
+        LoopWatchKind::Command => Some("job:completed"),
+        LoopWatchKind::File => {
+            let path = json_string(spec, "path")
+                .ok_or_else(|| anyhow!("file watch requires spec.path"))?;
+            let recursive = spec
+                .get("recursive")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            let debounce_secs = spec
+                .get("debounceSecs")
+                .or_else(|| spec.get("debounce_secs"))
+                .and_then(Value::as_i64)
+                .unwrap_or(2)
+                .clamp(1, MAX_EVENT_DEBOUNCE_SECS);
+            return Ok(json!({
+                "path": path,
+                "recursive": recursive,
+                "debounceSecs": debounce_secs,
+            }));
+        }
+        LoopWatchKind::Websocket => {
+            let url = json_string(spec, "url")
+                .ok_or_else(|| anyhow!("websocket watch requires spec.url"))?;
+            let parsed =
+                url::Url::parse(url).map_err(|err| anyhow!("invalid websocket URL: {err}"))?;
+            let scheme = parsed.scheme().to_string();
+            if !matches!(scheme.as_str(), "ws" | "wss") {
+                return Err(anyhow!("websocket watch URL must use ws:// or wss://"));
+            }
+            if !parsed.username().is_empty() || parsed.password().is_some() {
+                return Err(anyhow!(
+                    "websocket watch URL must not contain persisted credentials"
+                ));
+            }
+            const SENSITIVE_QUERY_KEYS: &[&str] = &[
+                "access_token",
+                "api_key",
+                "apikey",
+                "auth",
+                "authorization",
+                "key",
+                "password",
+                "secret",
+                "sig",
+                "signature",
+                "token",
+            ];
+            if parsed
+                .query_pairs()
+                .any(|(key, _)| SENSITIVE_QUERY_KEYS.contains(&key.to_ascii_lowercase().as_str()))
+            {
+                return Err(anyhow!(
+                    "websocket watch URL must not contain secrets in persisted query parameters"
+                ));
+            }
+            let timeout_secs = spec
+                .get("timeoutSecs")
+                .or_else(|| spec.get("timeout_secs"))
+                .and_then(Value::as_i64)
+                .unwrap_or(DEFAULT_DYNAMIC_LOOP_FALLBACK_SECS)
+                .clamp(30, 24 * 60 * 60);
+            let match_text = json_string(spec, "matchText").map(str::to_string);
+            return Ok(json!({
+                "url": url,
+                "timeoutSecs": timeout_secs,
+                "matchText": match_text,
+            }));
+        }
+    };
+    let event_name = spec
+        .get("eventName")
+        .or_else(|| spec.get("event_name"))
+        .or_else(|| spec.get("event"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .or(default_event_name)
+        .ok_or_else(|| anyhow!("app_event watch requires spec.eventName"))?;
+    let valid_for_kind = match kind {
+        LoopWatchKind::AppEvent => is_supported_loop_event_name(event_name),
+        LoopWatchKind::Job => event_name.starts_with("job:"),
+        LoopWatchKind::Subagent => event_name == "subagent_event",
+        LoopWatchKind::Command => event_name == "job:completed",
+        LoopWatchKind::File | LoopWatchKind::Websocket => false,
+    };
+    if !valid_for_kind || !is_supported_loop_event_name(event_name) {
+        return Err(anyhow!(
+            "unsupported {} loop watch event: {event_name}",
+            kind.as_str()
+        ));
+    }
+    let filters = spec.get("filters").cloned().unwrap_or_else(|| json!({}));
+    if kind == LoopWatchKind::Command
+        && filters
+            .get("jobId")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .is_none_or(str::is_empty)
+    {
+        return Err(anyhow!(
+            "command watch requires spec.filters.jobId from an existing permission-checked background exec job"
+        ));
+    }
+    validate_loop_event_filters(event_name, &filters)?;
+    let debounce_secs = spec
+        .get("debounceSecs")
+        .or_else(|| spec.get("debounce_secs"))
+        .and_then(Value::as_i64)
+        .unwrap_or(DEFAULT_EVENT_DEBOUNCE_SECS)
+        .clamp(1, MAX_EVENT_DEBOUNCE_SECS);
+    Ok(json!({
+        "eventName": event_name,
+        "filters": filters,
+        "debounceSecs": debounce_secs,
+    }))
+}
+
+fn ensure_loop_watch_capacity(
+    conn: &Connection,
+    schedule: &LoopSchedule,
+    kind: LoopWatchKind,
+) -> Result<()> {
+    let loop_count: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM loop_watches WHERE loop_id = ?1 AND active = 1",
+        params![schedule.id],
+        |row| row.get(0),
+    )?;
+    if loop_count >= MAX_ACTIVE_WATCHES_PER_LOOP {
+        return Err(anyhow!(
+            "loop watch limit reached: at most {MAX_ACTIVE_WATCHES_PER_LOOP} active watches per Loop"
+        ));
+    }
+    if !matches!(kind, LoopWatchKind::File | LoopWatchKind::Websocket) {
+        return Ok(());
+    }
+
+    let session_count: i64 = conn.query_row(
+        "SELECT COUNT(*)
+         FROM loop_watches w
+         JOIN loop_schedules s ON s.id = w.loop_id
+         WHERE s.session_id = ?1 AND w.active = 1
+           AND w.kind IN ('file','websocket')",
+        params![schedule.session_id],
+        |row| row.get(0),
+    )?;
+    if session_count >= MAX_ACTIVE_MONITORS_PER_SESSION {
+        return Err(anyhow!(
+            "loop monitor limit reached: at most {MAX_ACTIVE_MONITORS_PER_SESSION} active file/WebSocket monitors per session"
+        ));
+    }
+    let global_count: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM loop_watches
+         WHERE active = 1 AND kind IN ('file','websocket')",
+        [],
+        |row| row.get(0),
+    )?;
+    if global_count >= MAX_ACTIVE_MONITORS_GLOBAL {
+        return Err(anyhow!(
+            "global loop monitor limit reached: at most {MAX_ACTIVE_MONITORS_GLOBAL} active file/WebSocket monitors"
+        ));
+    }
+    Ok(())
+}
+
 fn row_to_loop_schedule(row: &rusqlite::Row<'_>) -> rusqlite::Result<LoopSchedule> {
     let trigger_kind: String = row.get(9)?;
     let trigger_spec_json: String = row.get(10)?;
@@ -3384,6 +4136,26 @@ fn row_to_loop_schedule(row: &rusqlite::Row<'_>) -> rusqlite::Result<LoopSchedul
         updated_at: row.get(27)?,
         completed_at: row.get(28)?,
         blocked_reason: row.get(29)?,
+    })
+}
+
+fn row_to_loop_watch(row: &rusqlite::Row<'_>) -> rusqlite::Result<LoopWatch> {
+    let kind: String = row.get(2)?;
+    let spec_json: String = row.get(3)?;
+    Ok(LoopWatch {
+        id: row.get(0)?,
+        loop_id: row.get(1)?,
+        kind: LoopWatchKind::from_str(&kind).unwrap_or(LoopWatchKind::AppEvent),
+        spec: serde_json::from_str(&spec_json).unwrap_or_else(|_| json!({})),
+        active: row.get::<_, i64>(4)? != 0,
+        generation: row.get(5)?,
+        last_event_at: row.get(6)?,
+        last_fingerprint: row.get(7)?,
+        failure_count: row.get(8)?,
+        last_error: row.get(9)?,
+        created_at: row.get(10)?,
+        updated_at: row.get(11)?,
+        monitor_job_id: row.get(12)?,
     })
 }
 
@@ -3793,7 +4565,16 @@ fn json_string<'a>(value: &'a Value, field: &str) -> Option<&'a str> {
 fn is_supported_loop_event_name(event_name: &str) -> bool {
     matches!(
         event_name,
-        "workflow:updated" | "goal:updated" | "task_updated"
+        "workflow:created"
+            | "workflow:updated"
+            | "workflow:op_updated"
+            | "goal:updated"
+            | "task_updated"
+            | "job:created"
+            | "job:updated"
+            | "job:progress"
+            | "job:completed"
+            | "subagent_event"
     )
 }
 
@@ -3803,9 +4584,14 @@ fn is_loop_trigger_event_name(event_name: &str) -> bool {
 
 fn validate_loop_event_filters(event_name: &str, filters: &Value) -> Result<()> {
     let allowed = match event_name {
-        "workflow:updated" => &["workflowState"][..],
+        "workflow:created" | "workflow:updated" => &["workflowState", "workflowId"][..],
+        "workflow:op_updated" => &["workflowId", "opState", "opKind"][..],
         "goal:updated" => &["goalState"][..],
         "task_updated" => &["taskStatus"][..],
+        "job:created" | "job:updated" | "job:progress" | "job:completed" => {
+            &["jobId", "jobKind", "tool", "jobStatus"][..]
+        }
+        "subagent_event" => &["eventType", "runId", "agentId", "subagentStatus"][..],
         _ => return Err(anyhow!("unsupported loop event trigger: {event_name}")),
     };
     let Some(object) = filters.as_object() else {
@@ -3829,6 +4615,7 @@ fn loop_event_session_id(event: &AppEvent) -> Option<&str> {
         .payload
         .get("sessionId")
         .or_else(|| event.payload.get("session_id"))
+        .or_else(|| event.payload.get("parentSessionId"))
         .and_then(Value::as_str)
         .map(str::trim)
         .filter(|value| !value.is_empty())
@@ -3839,17 +4626,22 @@ fn loop_event_matches_schedule(
     event: &AppEvent,
     now: &DateTime<Utc>,
 ) -> Result<Option<LoopEventMatch>> {
-    let event_name = json_string(&schedule.trigger_spec, "eventName")
-        .or_else(|| json_string(&schedule.trigger_spec, "event_name"))
-        .or_else(|| json_string(&schedule.trigger_spec, "event"));
+    loop_event_matches_spec(schedule, &schedule.trigger_spec, event, now)
+}
+
+fn loop_event_matches_spec(
+    schedule: &LoopSchedule,
+    spec: &Value,
+    event: &AppEvent,
+    now: &DateTime<Utc>,
+) -> Result<Option<LoopEventMatch>> {
+    let event_name = json_string(spec, "eventName")
+        .or_else(|| json_string(spec, "event_name"))
+        .or_else(|| json_string(spec, "event"));
     if event_name != Some(event.name.as_str()) {
         return Ok(None);
     }
-    let filters = schedule
-        .trigger_spec
-        .get("filters")
-        .cloned()
-        .unwrap_or_else(|| json!({}));
+    let filters = spec.get("filters").cloned().unwrap_or_else(|| json!({}));
     validate_loop_event_filters(&event.name, &filters)?;
     let Some(session_id) = loop_event_session_id(event) else {
         return Ok(None);
@@ -3858,17 +4650,35 @@ fn loop_event_matches_schedule(
         return Ok(None);
     }
     let identity = match event.name.as_str() {
-        "workflow:updated" => {
+        "workflow:created" | "workflow:updated" => {
             let state = json_string(&event.payload, "state").unwrap_or("");
             if !loop_filter_matches(&filters, "workflowState", state) {
                 return Ok(None);
             }
+            let workflow_id = json_string(&event.payload, "id").unwrap_or("");
+            if !loop_filter_matches(&filters, "workflowId", workflow_id) {
+                return Ok(None);
+            }
             json!({
-                "id": json_string(&event.payload, "id"),
+                "id": workflow_id,
                 "state": state,
                 "kind": json_string(&event.payload, "kind"),
                 "goalId": json_string(&event.payload, "goalId"),
             })
+        }
+        "workflow:op_updated" => {
+            let workflow_id = json_string(&event.payload, "runId")
+                .or_else(|| json_string(&event.payload, "workflowRunId"))
+                .unwrap_or("");
+            let state = json_string(&event.payload, "state").unwrap_or("");
+            let kind = json_string(&event.payload, "kind").unwrap_or("");
+            if !loop_filter_matches(&filters, "workflowId", workflow_id)
+                || !loop_filter_matches(&filters, "opState", state)
+                || !loop_filter_matches(&filters, "opKind", kind)
+            {
+                return Ok(None);
+            }
+            json!({ "workflowId": workflow_id, "state": state, "kind": kind })
         }
         "goal:updated" => {
             let state = json_string(&event.payload, "state").unwrap_or("");
@@ -3914,10 +4724,44 @@ fn loop_event_matches_schedule(
             }
             json!({ "tasks": matching })
         }
+        "job:created" | "job:updated" | "job:progress" | "job:completed" => {
+            let job_id = json_string(&event.payload, "job_id")
+                .or_else(|| json_string(&event.payload, "jobId"))
+                .unwrap_or("");
+            let kind = json_string(&event.payload, "kind").unwrap_or("");
+            let tool = json_string(&event.payload, "tool").unwrap_or("");
+            let status = json_string(&event.payload, "status").unwrap_or("");
+            if !loop_filter_matches(&filters, "jobId", job_id)
+                || !loop_filter_matches(&filters, "jobKind", kind)
+                || !loop_filter_matches(&filters, "tool", tool)
+                || !loop_filter_matches(&filters, "jobStatus", status)
+            {
+                return Ok(None);
+            }
+            json!({ "jobId": job_id, "kind": kind, "tool": tool, "status": status })
+        }
+        "subagent_event" => {
+            let event_type = json_string(&event.payload, "eventType").unwrap_or("");
+            let run_id = json_string(&event.payload, "runId").unwrap_or("");
+            let agent_id = json_string(&event.payload, "childAgentId").unwrap_or("");
+            let status = json_string(&event.payload, "status").unwrap_or("");
+            if !loop_filter_matches(&filters, "eventType", event_type)
+                || !loop_filter_matches(&filters, "runId", run_id)
+                || !loop_filter_matches(&filters, "agentId", agent_id)
+                || !loop_filter_matches(&filters, "subagentStatus", status)
+            {
+                return Ok(None);
+            }
+            json!({
+                "eventType": event_type,
+                "runId": run_id,
+                "agentId": agent_id,
+                "status": status,
+            })
+        }
         _ => return Ok(None),
     };
-    let debounce_secs = schedule
-        .trigger_spec
+    let debounce_secs = spec
         .get("debounceSecs")
         .or_else(|| schedule.trigger_spec.get("debounce_secs"))
         .and_then(Value::as_i64)
@@ -4096,7 +4940,10 @@ pub fn build_loop_trigger_message(
              or `LOOP_BLOCKED: <reason>` when user input or an external state change is required. \
              Choose a duration between 1 minute and 1 hour. If no decision line appears, the \
              system will schedule one fallback wakeup after {} and then block if the fallback \
-             turn also has no decision.\n",
+             turn also has no decision. When progress depends on a known Workflow, Job, subagent, \
+             file, or WebSocket event, prefer `loop_watch` plus this fallback instead of frequent \
+             polling. Re-arm a one-shot monitor after each observed event when continued watching \
+             is still useful; use `loop_unwatch` when it is no longer relevant.\n",
             format_loop_duration(fallback_secs)
         )
     } else {
@@ -4168,6 +5015,486 @@ fn emit_loop_event(event: &str, schedule: &LoopSchedule) {
     }
 }
 
+fn emit_loop_watch_event(event: &str, schedule: &LoopSchedule, watch: &LoopWatch) {
+    if let Some(bus) = crate::get_event_bus() {
+        bus.emit(
+            event,
+            json!({
+                "loopId": schedule.id,
+                "sessionId": schedule.session_id,
+                "goalId": schedule.goal_id,
+                "watchId": watch.id,
+                "kind": watch.kind,
+                "active": watch.active,
+                "generation": watch.generation,
+            }),
+        );
+    }
+}
+
+fn spawn_loop_monitor_run(
+    session_db: Arc<SessionDB>,
+    cron_db: Arc<CronDB>,
+    watch_id: String,
+    outcome: &'static str,
+    payload: Value,
+) -> bool {
+    let cron_job_id = match session_db.record_loop_monitor_event(&watch_id, outcome, payload) {
+        Ok(Some(id)) => id,
+        Ok(None) => return false,
+        Err(err) => {
+            let _ = session_db.record_loop_monitor_error(&watch_id, &err.to_string());
+            app_warn!(
+                "loop",
+                "monitor",
+                "failed to record monitor event for {}: {}",
+                watch_id,
+                err
+            );
+            return false;
+        }
+    };
+    let job = match cron_db.get_job(&cron_job_id) {
+        Ok(Some(job)) => job,
+        Ok(None) => {
+            app_warn!(
+                "loop",
+                "monitor",
+                "monitor event for {} was recorded but cron job {} is missing",
+                watch_id,
+                cron_job_id
+            );
+            return true;
+        }
+        Err(err) => {
+            app_warn!(
+                "loop",
+                "monitor",
+                "failed to load monitor cron job {}: {}",
+                cron_job_id,
+                err
+            );
+            return true;
+        }
+    };
+    tokio::spawn(async move {
+        crate::cron::execute_job_public(&cron_db, &session_db, &job).await;
+    });
+    true
+}
+
+fn start_file_loop_monitor(
+    session_db: Arc<SessionDB>,
+    cron_db: Arc<CronDB>,
+    watch: &LoopWatch,
+    monitor_job_id: Option<String>,
+) -> Result<()> {
+    use notify::Watcher as _;
+
+    let path = watch
+        .spec
+        .get("path")
+        .and_then(Value::as_str)
+        .map(PathBuf::from)
+        .ok_or_else(|| anyhow!("file watch path is missing"))?;
+    if !path.exists() {
+        return Err(anyhow!(
+            "file watch path does not exist: {}",
+            path.display()
+        ));
+    }
+    let recursive = watch
+        .spec
+        .get("recursive")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let watch_id = watch.id.clone();
+    let generation = watch.generation;
+    let callback_watch_id = watch_id.clone();
+    let callback_db = session_db.clone();
+    let callback_cron = cron_db.clone();
+    let callback_monitor_job_id = monitor_job_id.clone();
+    let handle = tokio::runtime::Handle::try_current()
+        .map_err(|_| anyhow!("file loop monitor requires an active Tokio runtime"))?;
+    let mut watcher = notify::recommended_watcher(move |result: notify::Result<notify::Event>| {
+        let session_db = callback_db.clone();
+        let cron_db = callback_cron.clone();
+        let watch_id = callback_watch_id.clone();
+        let monitor_job_id = callback_monitor_job_id.clone();
+        match result {
+            Ok(event) => {
+                let paths: Vec<String> = event
+                    .paths
+                    .iter()
+                    .take(16)
+                    .map(|path| truncate_utf8(&path.to_string_lossy(), 500).to_string())
+                    .collect();
+                let payload = json!({
+                    "kind": format!("{:?}", event.kind),
+                    "paths": paths,
+                    "truncated": event.paths.len() > 16,
+                });
+                handle.spawn(async move {
+                    if spawn_loop_monitor_run(
+                        session_db.clone(),
+                        cron_db,
+                        watch_id.clone(),
+                        "changed",
+                        payload,
+                    ) {
+                        let _ = session_db.settle_loop_monitor_watch(&watch_id, generation);
+                        remove_loop_monitor_generation(&watch_id, generation);
+                        if let Some(job_id) = monitor_job_id.as_deref() {
+                            let _ = crate::async_jobs::JobManager::finish_monitor(
+                                job_id,
+                                crate::async_jobs::JobStatus::Completed,
+                                Some("changed"),
+                                None,
+                            );
+                        }
+                    }
+                });
+            }
+            Err(err) => {
+                let message = err.to_string();
+                handle.spawn(async move {
+                    let _ = session_db.record_loop_monitor_error(&watch_id, &message);
+                    if spawn_loop_monitor_run(
+                        session_db.clone(),
+                        cron_db,
+                        watch_id.clone(),
+                        "failed",
+                        json!({ "error": truncate_utf8(&message, 1000) }),
+                    ) {
+                        let _ = session_db.settle_loop_monitor_watch(&watch_id, generation);
+                        remove_loop_monitor_generation(&watch_id, generation);
+                        if let Some(job_id) = monitor_job_id.as_deref() {
+                            let _ = crate::async_jobs::JobManager::finish_monitor(
+                                job_id,
+                                crate::async_jobs::JobStatus::Failed,
+                                None,
+                                Some(&message),
+                            );
+                        }
+                    }
+                });
+            }
+        }
+    })?;
+    watcher.watch(
+        &path,
+        if recursive {
+            notify::RecursiveMode::Recursive
+        } else {
+            notify::RecursiveMode::NonRecursive
+        },
+    )?;
+    stop_loop_monitor(&watch_id);
+    loop_monitors()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .insert(
+            watch_id,
+            LoopMonitorHandle::File {
+                generation,
+                _watcher: watcher,
+            },
+        );
+    Ok(())
+}
+
+async fn validate_loop_websocket_url(raw_url: &str) -> Result<()> {
+    let mut policy_url = url::Url::parse(raw_url)?;
+    let replacement = if policy_url.scheme() == "wss" {
+        "https"
+    } else {
+        "http"
+    };
+    policy_url
+        .set_scheme(replacement)
+        .map_err(|_| anyhow!("invalid websocket URL scheme"))?;
+    let ssrf = crate::config::cached_config().ssrf.clone();
+    crate::security::ssrf::check_url(
+        policy_url.as_str(),
+        ssrf.default_policy,
+        &ssrf.trusted_hosts,
+    )
+    .await?;
+    Ok(())
+}
+
+async fn start_websocket_loop_monitor(
+    session_db: Arc<SessionDB>,
+    cron_db: Arc<CronDB>,
+    watch: &LoopWatch,
+    monitor_job_id: Option<String>,
+) -> Result<()> {
+    use futures_util::StreamExt as _;
+
+    let raw_url = watch
+        .spec
+        .get("url")
+        .and_then(Value::as_str)
+        .ok_or_else(|| anyhow!("websocket watch URL is missing"))?;
+    validate_loop_websocket_url(raw_url).await?;
+    let timeout_secs = watch
+        .spec
+        .get("timeoutSecs")
+        .and_then(Value::as_i64)
+        .unwrap_or(DEFAULT_DYNAMIC_LOOP_FALLBACK_SECS)
+        .clamp(30, 24 * 60 * 60) as u64;
+    let match_text = watch
+        .spec
+        .get("matchText")
+        .and_then(Value::as_str)
+        .map(str::to_string);
+    let watch_id = watch.id.clone();
+    let generation = watch.generation;
+    let url = raw_url.to_string();
+    let cancel = CancellationToken::new();
+    stop_loop_monitor(&watch_id);
+    loop_monitors()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .insert(
+            watch_id.clone(),
+            LoopMonitorHandle::Async {
+                generation,
+                cancel: cancel.clone(),
+            },
+        );
+    tokio::spawn(async move {
+        let result = tokio::time::timeout(Duration::from_secs(timeout_secs), async {
+            let (mut stream, _) = tokio_tungstenite::connect_async(&url).await?;
+            loop {
+                tokio::select! {
+                    _ = cancel.cancelled() => return Ok::<Option<(String, Value)>, anyhow::Error>(None),
+                    message = stream.next() => {
+                        let Some(message) = message else {
+                            return Ok(Some(("closed".to_string(), json!({ "reason": "stream_ended" }))));
+                        };
+                        let message = message?;
+                        if message.is_close() {
+                            return Ok(Some(("closed".to_string(), json!({ "reason": "close_frame" }))));
+                        }
+                        let preview = if message.is_text() {
+                            message.into_text()?.to_string()
+                        } else if message.is_binary() {
+                            format!("<binary:{} bytes>", message.len())
+                        } else {
+                            continue;
+                        };
+                        if match_text.as_deref().is_some_and(|needle| !preview.contains(needle)) {
+                            continue;
+                        }
+                        return Ok(Some(("message".to_string(), json!({
+                            "preview": truncate_utf8(&preview, LOOP_MONITOR_PAYLOAD_MAX_BYTES),
+                            "truncated": preview.len() > LOOP_MONITOR_PAYLOAD_MAX_BYTES,
+                        }))));
+                    }
+                }
+            }
+        }).await;
+        match result {
+            Ok(Ok(Some((outcome, payload)))) => {
+                let outcome: &'static str = match outcome.as_str() {
+                    "message" => "message",
+                    _ => "closed",
+                };
+                spawn_loop_monitor_run(
+                    session_db.clone(),
+                    cron_db.clone(),
+                    watch_id.clone(),
+                    outcome,
+                    payload,
+                );
+                if let Some(job_id) = monitor_job_id.as_deref() {
+                    let _ = crate::async_jobs::JobManager::finish_monitor(
+                        job_id,
+                        crate::async_jobs::JobStatus::Completed,
+                        Some(outcome),
+                        None,
+                    );
+                }
+            }
+            Ok(Ok(None)) => {}
+            Ok(Err(err)) => {
+                let message = err.to_string();
+                let _ = session_db.record_loop_monitor_error(&watch_id, &message);
+                spawn_loop_monitor_run(
+                    session_db.clone(),
+                    cron_db.clone(),
+                    watch_id.clone(),
+                    "failed",
+                    json!({ "error": truncate_utf8(&message, 1000) }),
+                );
+                if let Some(job_id) = monitor_job_id.as_deref() {
+                    let _ = crate::async_jobs::JobManager::finish_monitor(
+                        job_id,
+                        crate::async_jobs::JobStatus::Failed,
+                        None,
+                        Some(&message),
+                    );
+                }
+            }
+            Err(_) => {
+                let message = format!("websocket monitor timed out after {timeout_secs}s");
+                let _ = session_db.record_loop_monitor_error(&watch_id, &message);
+                spawn_loop_monitor_run(
+                    session_db.clone(),
+                    cron_db.clone(),
+                    watch_id.clone(),
+                    "timed_out",
+                    json!({ "timeoutSecs": timeout_secs }),
+                );
+                if let Some(job_id) = monitor_job_id.as_deref() {
+                    let _ = crate::async_jobs::JobManager::finish_monitor(
+                        job_id,
+                        crate::async_jobs::JobStatus::TimedOut,
+                        None,
+                        Some(&message),
+                    );
+                }
+            }
+        }
+        let _ = session_db.settle_loop_monitor_watch(&watch_id, generation);
+        remove_loop_monitor_generation(&watch_id, generation);
+    });
+    Ok(())
+}
+
+pub(crate) async fn start_loop_monitor_adapter(
+    session_db: Arc<SessionDB>,
+    cron_db: Arc<CronDB>,
+    watch: &LoopWatch,
+) -> Result<()> {
+    if !matches!(watch.kind, LoopWatchKind::File | LoopWatchKind::Websocket) {
+        return Ok(());
+    }
+    let schedule = session_db
+        .get_loop_schedule(&watch.loop_id)?
+        .ok_or_else(|| anyhow!("loop schedule not found: {}", watch.loop_id))?;
+    let monitor_job_id = crate::async_jobs::JobManager::register_monitor(
+        &schedule.session_id,
+        &watch.id,
+        watch.kind.as_str(),
+        &watch.spec,
+    )?;
+    if let Some(job_id) = monitor_job_id.as_deref() {
+        session_db.bind_loop_watch_monitor_job(&watch.id, job_id)?;
+    }
+    let result = match watch.kind {
+        LoopWatchKind::File => {
+            start_file_loop_monitor(session_db, cron_db, watch, monitor_job_id.clone())
+        }
+        LoopWatchKind::Websocket => {
+            start_websocket_loop_monitor(session_db, cron_db, watch, monitor_job_id.clone()).await
+        }
+        LoopWatchKind::AppEvent
+        | LoopWatchKind::Job
+        | LoopWatchKind::Subagent
+        | LoopWatchKind::Command => unreachable!(),
+    };
+    if let Err(err) = result.as_ref() {
+        if let Some(job_id) = monitor_job_id.as_deref() {
+            let _ = crate::async_jobs::JobManager::finish_monitor(
+                job_id,
+                crate::async_jobs::JobStatus::Failed,
+                None,
+                Some(&err.to_string()),
+            );
+        }
+    }
+    result
+}
+
+fn spawn_loop_monitor_recovery(session_db: Arc<SessionDB>, cron_db: Arc<CronDB>) {
+    tokio::spawn(async move {
+        let watches = match session_db.list_active_loop_monitor_watches() {
+            Ok(items) => items,
+            Err(err) => {
+                app_warn!(
+                    "loop",
+                    "monitor_recovery",
+                    "failed to list monitors: {}",
+                    err
+                );
+                return;
+            }
+        };
+        for (_, watch) in watches {
+            if let Err(err) =
+                start_loop_monitor_adapter(session_db.clone(), cron_db.clone(), &watch).await
+            {
+                let _ = session_db.record_loop_monitor_error(&watch.id, &err.to_string());
+                app_warn!(
+                    "loop",
+                    "monitor_recovery",
+                    "failed to recover monitor {}: {}",
+                    watch.id,
+                    err
+                );
+            }
+        }
+    });
+}
+
+fn spawn_loop_monitor_recovery_for_loop(loop_id: String) {
+    if !crate::runtime_lock::is_primary() {
+        return;
+    }
+    let (Some(session_db), Some(cron_db)) = (
+        crate::get_session_db().cloned(),
+        crate::get_cron_db().cloned(),
+    ) else {
+        return;
+    };
+    let Ok(handle) = tokio::runtime::Handle::try_current() else {
+        app_warn!(
+            "loop",
+            "monitor_recovery",
+            "Loop {} resumed without an active Tokio runtime; Cron fallback remains active",
+            loop_id
+        );
+        return;
+    };
+    handle.spawn(async move {
+        let schedule = match session_db.get_loop_schedule(&loop_id) {
+            Ok(Some(schedule)) if schedule.state == LoopState::Active => schedule,
+            _ => return,
+        };
+        let watches = match session_db.list_loop_watches(&schedule.id) {
+            Ok(watches) => watches,
+            Err(err) => {
+                app_warn!(
+                    "loop",
+                    "monitor_recovery",
+                    "failed to list monitors for resumed Loop {}: {}",
+                    schedule.id,
+                    err
+                );
+                return;
+            }
+        };
+        for watch in watches.into_iter().filter(|watch| {
+            watch.active && matches!(watch.kind, LoopWatchKind::File | LoopWatchKind::Websocket)
+        }) {
+            if let Err(err) =
+                start_loop_monitor_adapter(session_db.clone(), cron_db.clone(), &watch).await
+            {
+                let _ = session_db.record_loop_monitor_error(&watch.id, &err.to_string());
+                app_warn!(
+                    "loop",
+                    "monitor_recovery",
+                    "failed to recover resumed monitor {}: {}",
+                    watch.id,
+                    err
+                );
+            }
+        }
+    });
+}
+
 pub fn spawn_loop_event_trigger_watcher() {
     if !crate::runtime_lock::is_primary() {
         return;
@@ -4197,6 +5524,7 @@ pub fn spawn_loop_event_trigger_watcher() {
         return;
     };
     let mut rx = bus.subscribe();
+    spawn_loop_monitor_recovery(session_db.clone(), cron_db.clone());
     tokio::spawn(async move {
         loop {
             match rx.recv().await {
@@ -4260,6 +5588,8 @@ pub fn spawn_loop_event_trigger_watcher() {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::OnceLock;
+
     use super::*;
     use crate::domain_eval::{DomainOperationalGateInput, DomainSoakReportInput};
     use crate::goal::{CreateGoalInput, UpdateGoalInput};
@@ -4294,6 +5624,20 @@ mod tests {
         }
         let cron_db = CronDB::open(&dir.path().join("cron.db")).expect("cron db");
         (dir, session_db, cron_db)
+    }
+
+    fn ensure_monitor_jobs_db() {
+        static DIR: OnceLock<tempfile::TempDir> = OnceLock::new();
+        static INIT: OnceLock<()> = OnceLock::new();
+        INIT.get_or_init(|| {
+            if crate::async_jobs::get_async_jobs_db().is_some() {
+                return;
+            }
+            let dir = DIR.get_or_init(|| tempfile::tempdir().expect("monitor jobs tempdir"));
+            let db = crate::async_jobs::JobsDB::open(&dir.path().join("background_jobs.db"))
+                .expect("monitor jobs db");
+            crate::async_jobs::set_async_jobs_db(Arc::new(db));
+        });
     }
 
     #[test]
@@ -4548,6 +5892,610 @@ mod tests {
         assert!(!session_db
             .loop_has_pending_event_ticks(&schedule.id)
             .expect("pending"));
+    }
+
+    #[test]
+    fn dynamic_loop_watch_rearms_dedups_and_carries_event_context() {
+        let (_dir, session_db, cron_db) = temp_dbs();
+        let session = session_db.create_session("ha-main").expect("session");
+        let schedule = session_db
+            .create_loop_schedule(
+                &cron_db,
+                CreateLoopScheduleInput {
+                    session_id: session.id.clone(),
+                    goal_id: None,
+                    goal_criterion_id: None,
+                    prompt: "continue when the background job settles".into(),
+                    trigger_kind: LoopTriggerKind::Dynamic,
+                    trigger_spec: json!({ "fallbackSecs": 1200 }),
+                    execution_strategy: LoopExecutionStrategy::Continue,
+                    max_runs: None,
+                    max_runtime_secs: None,
+                    token_budget: None,
+                    cost_budget_micros: None,
+                    max_no_progress_runs: None,
+                    max_failures: None,
+                    backoff_secs: None,
+                    agent_id: None,
+                },
+            )
+            .expect("dynamic loop");
+        let spec = json!({
+            "eventName": "job:completed",
+            "filters": { "jobId": "job_1", "jobStatus": "completed" },
+            "debounceSecs": 30,
+        });
+        let first_watch = session_db
+            .upsert_loop_watch(&schedule.id, LoopWatchKind::Job, &spec)
+            .expect("watch");
+        let rearmed = session_db
+            .upsert_loop_watch(&schedule.id, LoopWatchKind::Job, &spec)
+            .expect("rearm");
+        assert_eq!(first_watch.id, rearmed.id);
+        assert_eq!(rearmed.generation, first_watch.generation + 1);
+
+        let event = AppEvent {
+            name: "job:completed".to_string(),
+            payload: json!({
+                "job_id": "job_1",
+                "session_id": session.id,
+                "kind": "tool",
+                "tool": "web_search",
+                "status": "completed",
+            }),
+        };
+        assert_eq!(
+            session_db
+                .enqueue_loop_event_triggers(&event)
+                .expect("enqueue"),
+            vec![schedule.cron_job_id.clone()]
+        );
+        assert!(session_db
+            .enqueue_loop_event_triggers(&event)
+            .expect("dedup")
+            .is_empty());
+
+        let admission = session_db
+            .prepare_loop_cron_run(&schedule.cron_job_id, &session.id, &now_rfc3339())
+            .expect("prepare");
+        let LoopRunDecision::Admit(admission) = admission else {
+            panic!("dynamic event wake should admit");
+        };
+        let context = admission.event_context.expect("event context");
+        assert_eq!(context["eventName"], json!("job:completed"));
+        assert_eq!(context["payload"]["watch"]["id"], json!(rearmed.id));
+        assert_eq!(
+            context["payload"]["watch"]["generation"],
+            json!(rearmed.generation)
+        );
+    }
+
+    #[test]
+    fn terminal_loop_deactivates_durable_watches() {
+        let (_dir, session_db, cron_db) = temp_dbs();
+        let session = session_db.create_session("ha-main").expect("session");
+        let schedule = session_db
+            .create_loop_schedule(
+                &cron_db,
+                CreateLoopScheduleInput {
+                    session_id: session.id,
+                    goal_id: None,
+                    goal_criterion_id: None,
+                    prompt: "watch workflow".into(),
+                    trigger_kind: LoopTriggerKind::Dynamic,
+                    trigger_spec: json!({ "fallbackSecs": 1200 }),
+                    execution_strategy: LoopExecutionStrategy::Continue,
+                    max_runs: None,
+                    max_runtime_secs: None,
+                    token_budget: None,
+                    cost_budget_micros: None,
+                    max_no_progress_runs: None,
+                    max_failures: None,
+                    backoff_secs: None,
+                    agent_id: None,
+                },
+            )
+            .expect("dynamic loop");
+        let watch = session_db
+            .upsert_loop_watch(
+                &schedule.id,
+                LoopWatchKind::AppEvent,
+                &json!({ "eventName": "workflow:updated", "filters": {} }),
+            )
+            .expect("watch");
+        session_db
+            .transition_loop_schedule(&schedule.id, LoopState::Completed, None)
+            .expect("complete");
+        let watches = session_db.list_loop_watches(&schedule.id).expect("watches");
+        assert_eq!(watches.len(), 1);
+        assert!(!watches[0].active);
+        assert_eq!(watches[0].generation, watch.generation + 1);
+    }
+
+    #[test]
+    fn file_monitor_terminal_event_is_untrusted_and_wakes_dynamic_loop() {
+        let (dir, session_db, cron_db) = temp_dbs();
+        let session = session_db.create_session("ha-main").expect("session");
+        let schedule = session_db
+            .create_loop_schedule(
+                &cron_db,
+                CreateLoopScheduleInput {
+                    session_id: session.id.clone(),
+                    goal_id: None,
+                    goal_criterion_id: None,
+                    prompt: "inspect changed report".into(),
+                    trigger_kind: LoopTriggerKind::Dynamic,
+                    trigger_spec: json!({ "fallbackSecs": 1200 }),
+                    execution_strategy: LoopExecutionStrategy::Continue,
+                    max_runs: None,
+                    max_runtime_secs: None,
+                    token_budget: None,
+                    cost_budget_micros: None,
+                    max_no_progress_runs: None,
+                    max_failures: None,
+                    backoff_secs: None,
+                    agent_id: None,
+                },
+            )
+            .expect("dynamic loop");
+        let watch = session_db
+            .upsert_loop_watch(
+                &schedule.id,
+                LoopWatchKind::File,
+                &json!({ "path": dir.path(), "debounceSecs": 1 }),
+            )
+            .expect("file watch");
+        let cron_job_id = session_db
+            .record_loop_monitor_event(
+                &watch.id,
+                "changed",
+                json!({ "paths": [dir.path().join("report.md")] }),
+            )
+            .expect("record monitor event")
+            .expect("wakeup");
+        assert_eq!(cron_job_id, schedule.cron_job_id);
+
+        let admission = session_db
+            .prepare_loop_cron_run(&schedule.cron_job_id, &session.id, &now_rfc3339())
+            .expect("prepare");
+        let LoopRunDecision::Admit(admission) = admission else {
+            panic!("file monitor wake should admit");
+        };
+        let context = admission.event_context.expect("event context");
+        assert_eq!(context["payload"]["untrusted"], json!(true));
+        assert_eq!(context["payload"]["outcome"], json!("changed"));
+        assert_eq!(context["payload"]["watch"]["id"], json!(watch.id));
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn real_file_monitor_is_one_shot_and_settles_monitor_job() {
+        ensure_monitor_jobs_db();
+        let (dir, session_db, cron_db) = temp_dbs();
+        let session_db = Arc::new(session_db);
+        let cron_db = Arc::new(cron_db);
+        let session = session_db.create_session("ha-main").expect("session");
+        let watched = dir.path().join("watched");
+        std::fs::create_dir_all(&watched).expect("create watched dir");
+        let schedule = session_db
+            .create_loop_schedule(
+                &cron_db,
+                CreateLoopScheduleInput {
+                    session_id: session.id,
+                    goal_id: None,
+                    goal_criterion_id: None,
+                    prompt: "inspect a changed file".into(),
+                    trigger_kind: LoopTriggerKind::Dynamic,
+                    trigger_spec: json!({ "fallbackSecs": 1200 }),
+                    execution_strategy: LoopExecutionStrategy::Continue,
+                    max_runs: None,
+                    max_runtime_secs: None,
+                    token_budget: None,
+                    cost_budget_micros: None,
+                    max_no_progress_runs: None,
+                    max_failures: None,
+                    backoff_secs: None,
+                    agent_id: None,
+                },
+            )
+            .expect("dynamic loop");
+        let watch = session_db
+            .upsert_loop_watch(
+                &schedule.id,
+                LoopWatchKind::File,
+                &json!({ "path": watched, "debounceSecs": 1 }),
+            )
+            .expect("file watch");
+        start_loop_monitor_adapter(session_db.clone(), cron_db, &watch)
+            .await
+            .expect("start file monitor");
+        let monitor_job_id = session_db
+            .get_loop_watch(&watch.id)
+            .expect("read armed watch")
+            .expect("watch exists")
+            .monitor_job_id
+            .expect("monitor job id");
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        std::fs::write(watched.join("result.txt"), "ready").expect("write watched file");
+
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                let current = session_db
+                    .get_loop_watch(&watch.id)
+                    .expect("read watch")
+                    .expect("watch exists");
+                if !current.active {
+                    assert!(
+                        current.monitor_job_id.is_none(),
+                        "terminal watches must not retain a stale monitor binding"
+                    );
+                    let job = crate::async_jobs::JobManager::get(&monitor_job_id)
+                        .expect("read monitor job")
+                        .expect("monitor job exists");
+                    assert_eq!(job.status, crate::async_jobs::JobStatus::Completed);
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(25)).await;
+            }
+        })
+        .await
+        .expect("file monitor should settle");
+
+        let pending_ticks: i64 = {
+            let conn = session_db.conn.lock().expect("lock session db");
+            conn.query_row(
+                "SELECT COUNT(*) FROM loop_event_ticks WHERE loop_id = ?1 AND consumed_at IS NULL",
+                params![schedule.id],
+                |row| row.get(0),
+            )
+            .expect("count pending ticks")
+        };
+        assert_eq!(
+            pending_ticks, 1,
+            "one watch generation emits one durable tick"
+        );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn pause_suspends_file_monitor_without_disabling_durable_watch() {
+        ensure_monitor_jobs_db();
+        let (dir, session_db, cron_db) = temp_dbs();
+        let session_db = Arc::new(session_db);
+        let cron_db = Arc::new(cron_db);
+        let session = session_db.create_session("ha-main").expect("session");
+        let watched = dir.path().join("paused-watch");
+        std::fs::create_dir_all(&watched).expect("create watched dir");
+        let schedule = session_db
+            .create_loop_schedule(
+                &cron_db,
+                CreateLoopScheduleInput {
+                    session_id: session.id,
+                    goal_id: None,
+                    goal_criterion_id: None,
+                    prompt: "wait for a file".into(),
+                    trigger_kind: LoopTriggerKind::Dynamic,
+                    trigger_spec: json!({ "fallbackSecs": 1200 }),
+                    execution_strategy: LoopExecutionStrategy::Continue,
+                    max_runs: None,
+                    max_runtime_secs: None,
+                    token_budget: None,
+                    cost_budget_micros: None,
+                    max_no_progress_runs: None,
+                    max_failures: None,
+                    backoff_secs: None,
+                    agent_id: None,
+                },
+            )
+            .expect("dynamic loop");
+        let watch = session_db
+            .upsert_loop_watch(
+                &schedule.id,
+                LoopWatchKind::File,
+                &json!({ "path": watched }),
+            )
+            .expect("file watch");
+        start_loop_monitor_adapter(session_db.clone(), cron_db.clone(), &watch)
+            .await
+            .expect("start file monitor");
+        let running = session_db
+            .get_loop_watch(&watch.id)
+            .expect("read watch")
+            .expect("watch exists");
+        let monitor_job_id = running.monitor_job_id.expect("monitor job id");
+
+        session_db
+            .pause_loop_schedule(&cron_db, &schedule.id)
+            .expect("pause Loop");
+
+        let paused = session_db
+            .get_loop_watch(&watch.id)
+            .expect("read paused watch")
+            .expect("watch remains durable");
+        assert!(paused.active, "resume can re-arm the same durable watch");
+        assert!(paused.monitor_job_id.is_none());
+        assert!(!loop_monitors()
+            .lock()
+            .expect("monitor registry")
+            .contains_key(&watch.id));
+        let job = crate::async_jobs::JobManager::get(&monitor_job_id)
+            .expect("read monitor job")
+            .expect("monitor job exists");
+        assert_eq!(job.status, crate::async_jobs::JobStatus::Cancelled);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn monitor_job_cancellation_clears_durable_watch_binding() {
+        ensure_monitor_jobs_db();
+        let (dir, session_db, cron_db) = temp_dbs();
+        let session_db = Arc::new(session_db);
+        let cron_db = Arc::new(cron_db);
+        let session = session_db.create_session("ha-main").expect("session");
+        let watched = dir.path().join("cancelled-watch");
+        std::fs::create_dir_all(&watched).expect("create watched dir");
+        let schedule = session_db
+            .create_loop_schedule(
+                &cron_db,
+                CreateLoopScheduleInput {
+                    session_id: session.id,
+                    goal_id: None,
+                    goal_criterion_id: None,
+                    prompt: "wait for a file".into(),
+                    trigger_kind: LoopTriggerKind::Dynamic,
+                    trigger_spec: json!({ "fallbackSecs": 1200 }),
+                    execution_strategy: LoopExecutionStrategy::Continue,
+                    max_runs: None,
+                    max_runtime_secs: None,
+                    token_budget: None,
+                    cost_budget_micros: None,
+                    max_no_progress_runs: None,
+                    max_failures: None,
+                    backoff_secs: None,
+                    agent_id: None,
+                },
+            )
+            .expect("dynamic loop");
+        let watch = session_db
+            .upsert_loop_watch(
+                &schedule.id,
+                LoopWatchKind::File,
+                &json!({ "path": watched }),
+            )
+            .expect("file watch");
+        start_loop_monitor_adapter(session_db.clone(), cron_db, &watch)
+            .await
+            .expect("start monitor");
+        let armed = session_db
+            .get_loop_watch(&watch.id)
+            .expect("read watch")
+            .expect("watch exists");
+        let monitor_job_id = armed.monitor_job_id.expect("monitor binding");
+
+        assert!(session_db
+            .deactivate_loop_watch_for_monitor_job(&monitor_job_id)
+            .expect("deactivate durable watch"));
+        let cancelled = session_db
+            .get_loop_watch(&watch.id)
+            .expect("read watch")
+            .expect("watch exists");
+        assert!(!cancelled.active);
+        assert!(cancelled.monitor_job_id.is_none());
+        assert!(!loop_monitors()
+            .lock()
+            .expect("monitor registry")
+            .contains_key(&watch.id));
+        crate::async_jobs::JobManager::finish_monitor(
+            &monitor_job_id,
+            crate::async_jobs::JobStatus::Cancelled,
+            None,
+            Some("test cleanup"),
+        )
+        .expect("finish monitor job");
+    }
+
+    #[test]
+    fn noisy_monitor_is_disabled_after_failure_limit_without_stopping_fallback() {
+        let (_dir, session_db, cron_db) = temp_dbs();
+        let session = session_db.create_session("ha-main").expect("session");
+        let schedule = session_db
+            .create_loop_schedule(
+                &cron_db,
+                CreateLoopScheduleInput {
+                    session_id: session.id,
+                    goal_id: None,
+                    goal_criterion_id: None,
+                    prompt: "wait safely".into(),
+                    trigger_kind: LoopTriggerKind::Dynamic,
+                    trigger_spec: json!({ "fallbackSecs": 1200 }),
+                    execution_strategy: LoopExecutionStrategy::Continue,
+                    max_runs: None,
+                    max_runtime_secs: None,
+                    token_budget: None,
+                    cost_budget_micros: None,
+                    max_no_progress_runs: None,
+                    max_failures: None,
+                    backoff_secs: None,
+                    agent_id: None,
+                },
+            )
+            .expect("dynamic loop");
+        let watch = session_db
+            .upsert_loop_watch(
+                &schedule.id,
+                LoopWatchKind::Websocket,
+                &json!({ "url": "wss://example.com/events", "timeoutSecs": 30 }),
+            )
+            .expect("websocket watch");
+        session_db
+            .bind_loop_watch_monitor_job(&watch.id, "job_failed_monitor")
+            .expect("bind failed monitor projection");
+        for _ in 0..LOOP_MONITOR_MAX_FAILURES {
+            session_db
+                .record_loop_monitor_error(&watch.id, "connection failed")
+                .expect("record failure");
+        }
+        let updated = session_db
+            .list_loop_watches(&schedule.id)
+            .expect("watches")
+            .remove(0);
+        assert!(!updated.active);
+        assert_eq!(updated.failure_count, LOOP_MONITOR_MAX_FAILURES);
+        assert!(updated.monitor_job_id.is_none());
+        assert_eq!(
+            cron_db
+                .get_job(&schedule.cron_job_id)
+                .expect("cron")
+                .expect("cron job")
+                .status
+                .as_str(),
+            "active"
+        );
+    }
+
+    #[test]
+    fn command_monitor_requires_existing_background_job_handle() {
+        let err = normalize_loop_watch_spec(
+            LoopWatchKind::Command,
+            &json!({ "filters": { "jobStatus": "completed" } }),
+        )
+        .expect_err("command monitor without job id");
+        assert!(err.to_string().contains("filters.jobId"));
+    }
+
+    #[test]
+    fn websocket_monitor_rejects_credentials_in_durable_url() {
+        for url in [
+            "wss://user:pass@example.com/events",
+            "wss://example.com/events?access_token=secret",
+            "wss://example.com/events?api_key=secret",
+        ] {
+            let err = normalize_loop_watch_spec(LoopWatchKind::Websocket, &json!({ "url": url }))
+                .expect_err("durable websocket watch must reject embedded credentials");
+            assert!(err.to_string().contains("must not contain"));
+        }
+
+        normalize_loop_watch_spec(
+            LoopWatchKind::Websocket,
+            &json!({ "url": "wss://example.com/events?channel=updates" }),
+        )
+        .expect("non-sensitive query parameters remain supported");
+    }
+
+    #[test]
+    fn loop_monitor_quota_is_bounded_but_idempotent_rearm_still_works() {
+        let (_dir, session_db, cron_db) = temp_dbs();
+        let session = session_db.create_session("ha-main").expect("session");
+        let schedule = session_db
+            .create_loop_schedule(
+                &cron_db,
+                CreateLoopScheduleInput {
+                    session_id: session.id,
+                    goal_id: None,
+                    goal_criterion_id: None,
+                    prompt: "wait for bounded external events".into(),
+                    trigger_kind: LoopTriggerKind::Dynamic,
+                    trigger_spec: json!({ "fallbackSecs": 1200 }),
+                    execution_strategy: LoopExecutionStrategy::Continue,
+                    max_runs: None,
+                    max_runtime_secs: None,
+                    token_budget: None,
+                    cost_budget_micros: None,
+                    max_no_progress_runs: None,
+                    max_failures: None,
+                    backoff_secs: None,
+                    agent_id: None,
+                },
+            )
+            .expect("dynamic loop");
+        let first_spec = json!({ "url": "wss://example.com/events/0" });
+        let first = session_db
+            .upsert_loop_watch(&schedule.id, LoopWatchKind::Websocket, &first_spec)
+            .expect("first monitor");
+        for index in 1..MAX_ACTIVE_MONITORS_PER_SESSION {
+            session_db
+                .upsert_loop_watch(
+                    &schedule.id,
+                    LoopWatchKind::Websocket,
+                    &json!({ "url": format!("wss://example.com/events/{index}") }),
+                )
+                .expect("monitor within quota");
+        }
+        let overflow = session_db
+            .upsert_loop_watch(
+                &schedule.id,
+                LoopWatchKind::Websocket,
+                &json!({ "url": "wss://example.com/events/overflow" }),
+            )
+            .expect_err("session monitor quota must reject overflow");
+        assert!(overflow.to_string().contains("monitor limit reached"));
+
+        let rearmed = session_db
+            .upsert_loop_watch(&schedule.id, LoopWatchKind::Websocket, &first_spec)
+            .expect("rearming an existing active monitor does not consume another slot");
+        assert_eq!(rearmed.id, first.id);
+        assert_eq!(rearmed.generation, first.generation + 1);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn hundred_file_monitor_start_stop_cycles_leave_no_active_resources() {
+        ensure_monitor_jobs_db();
+        let (dir, session_db, cron_db) = temp_dbs();
+        let session_db = Arc::new(session_db);
+        let cron_db = Arc::new(cron_db);
+        let session = session_db.create_session("ha-main").expect("session");
+        let watched = dir.path().join("monitor-soak");
+        std::fs::create_dir_all(&watched).expect("create watched dir");
+        let schedule = session_db
+            .create_loop_schedule(
+                &cron_db,
+                CreateLoopScheduleInput {
+                    session_id: session.id.clone(),
+                    goal_id: None,
+                    goal_criterion_id: None,
+                    prompt: "exercise monitor lifecycle".into(),
+                    trigger_kind: LoopTriggerKind::Dynamic,
+                    trigger_spec: json!({ "fallbackSecs": 1200 }),
+                    execution_strategy: LoopExecutionStrategy::Continue,
+                    max_runs: None,
+                    max_runtime_secs: None,
+                    token_budget: None,
+                    cost_budget_micros: None,
+                    max_no_progress_runs: None,
+                    max_failures: None,
+                    backoff_secs: None,
+                    agent_id: None,
+                },
+            )
+            .expect("dynamic loop");
+        for _ in 0..100 {
+            let watch = session_db
+                .upsert_loop_watch(
+                    &schedule.id,
+                    LoopWatchKind::File,
+                    &json!({ "path": watched }),
+                )
+                .expect("arm file monitor");
+            start_loop_monitor_adapter(session_db.clone(), cron_db.clone(), &watch)
+                .await
+                .expect("start file monitor");
+            session_db
+                .remove_loop_watch(&schedule.id, &watch.id)
+                .expect("stop file monitor");
+        }
+
+        let watches = session_db
+            .list_loop_watches(&schedule.id)
+            .expect("list durable watches");
+        assert_eq!(watches.len(), 1, "same canonical watch reuses one row");
+        assert!(!watches[0].active);
+        assert!(watches[0].monitor_job_id.is_none());
+        assert!(!loop_monitors()
+            .lock()
+            .expect("monitor registry")
+            .contains_key(&watches[0].id));
+        assert!(
+            crate::async_jobs::JobManager::list_active_by_session_limited(&session.id, 50)
+                .expect("active monitor jobs")
+                .is_empty()
+        );
     }
 
     #[test]

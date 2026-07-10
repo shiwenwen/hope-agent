@@ -277,7 +277,7 @@ impl SessionDB {
                 ],
             )?;
             copy_worktreeinclude(&repo_root, &default_path)?;
-            canonical_dir(&default_path.to_string_lossy())?
+            canonical_dir(default_path.to_string_lossy())?
         };
 
         let git_branch = current_branch(&path);

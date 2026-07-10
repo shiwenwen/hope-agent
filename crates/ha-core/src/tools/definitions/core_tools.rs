@@ -1892,6 +1892,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
 
     // ── Goal Runtime (session-scoped durable objective control, always available) ──
     tools.push(super::goal_tools::get_goal_status_tool());
+    tools.push(super::goal_tools::get_goal_prepare_contract_tool());
     tools.push(super::goal_tools::get_goal_checkpoint_tool());
     tools.push(super::goal_tools::get_goal_record_evidence_tool());
     tools.push(super::goal_tools::get_goal_evaluate_tool());
@@ -1903,6 +1904,8 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
     tools.push(super::loop_tools::get_loop_reschedule_tool());
     tools.push(super::loop_tools::get_loop_stop_tool());
     tools.push(super::loop_tools::get_loop_record_progress_tool());
+    tools.push(super::loop_tools::get_loop_watch_tool());
+    tools.push(super::loop_tools::get_loop_unwatch_tool());
 
     // ── Self-Update (Meta tier — always eager so model can suggest upgrades) ──
     tools.push(super::update_tools::get_app_update_tool());

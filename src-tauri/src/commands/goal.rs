@@ -1,4 +1,5 @@
 use crate::commands::CmdError;
+use ha_core::activity::AutonomyActivity;
 use ha_core::goal::{
     AppendGoalFollowUpInput, CloseGoalInput, CreateGoalInput, GoalClosureDecision, GoalSnapshot,
     GoalWatchdogFinding, UpdateGoalInput,
@@ -12,6 +13,17 @@ pub async fn get_active_goal(
     app_state
         .session_db
         .active_goal_for_session(&session_id)
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn get_autonomy_activity(
+    session_id: String,
+    app_state: tauri::State<'_, crate::AppState>,
+) -> Result<AutonomyActivity, CmdError> {
+    app_state
+        .session_db
+        .autonomy_activity_for_session(&session_id)
         .map_err(Into::into)
 }
 

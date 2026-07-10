@@ -20,6 +20,7 @@ const GOAL_EVIDENCE_MAX_ARTIFACT_LINKS: usize = 25;
 const GOAL_EVIDENCE_MAX_DIAGNOSTIC_LINKS: usize = 50;
 const GOAL_AUTO_CONTINUE_DELAY_SECS: i64 = 10;
 const GOAL_AUTO_CONTINUE_MAX_PER_REVISION: usize = 20;
+const GOAL_SEMANTIC_GRADER_MAX_ATTEMPTS: i64 = 4;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -74,26 +75,27 @@ impl GoalState {
         if self == next {
             return true;
         }
-        match (self, next) {
+        matches!(
+            (self, next),
             (
                 Self::Active,
                 Self::Paused
-                | Self::Evaluating
-                | Self::Completed
-                | Self::Failed
-                | Self::Cancelled
-                | Self::Blocked,
-            ) => true,
-            (Self::Paused, Self::Active | Self::Evaluating | Self::Cancelled) => true,
-            (
+                    | Self::Evaluating
+                    | Self::Completed
+                    | Self::Failed
+                    | Self::Cancelled
+                    | Self::Blocked,
+            ) | (
+                Self::Paused,
+                Self::Active | Self::Evaluating | Self::Cancelled
+            ) | (
                 Self::Evaluating,
                 Self::Active | Self::Completed | Self::Failed | Self::Cancelled | Self::Blocked,
-            ) => true,
-            (Self::Blocked, Self::Active | Self::Evaluating | Self::Failed | Self::Cancelled) => {
-                true
-            }
-            _ => false,
-        }
+            ) | (
+                Self::Blocked,
+                Self::Active | Self::Evaluating | Self::Failed | Self::Cancelled
+            )
+        )
     }
 }
 
@@ -206,17 +208,48 @@ impl GoalCriterionStatus {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum GoalCriterionKind {
+    #[default]
     Required,
     Optional,
     FollowUp,
 }
 
-impl Default for GoalCriterionKind {
-    fn default() -> Self {
-        Self::Required
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GoalCriterionCheckKind {
+    Evidence,
+    Artifact,
+    Test,
+    Semantic,
+    UserAcceptance,
+    ExternalState,
+}
+
+impl GoalCriterionCheckKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Evidence => "evidence",
+            Self::Artifact => "artifact",
+            Self::Test => "test",
+            Self::Semantic => "semantic",
+            Self::UserAcceptance => "user_acceptance",
+            Self::ExternalState => "external_state",
+        }
+    }
+
+    pub fn from_str(value: &str) -> Option<Self> {
+        match value {
+            "evidence" => Some(Self::Evidence),
+            "artifact" => Some(Self::Artifact),
+            "test" => Some(Self::Test),
+            "semantic" => Some(Self::Semantic),
+            "user_acceptance" => Some(Self::UserAcceptance),
+            "external_state" => Some(Self::ExternalState),
+            _ => None,
+        }
     }
 }
 
@@ -249,6 +282,24 @@ pub struct GoalCriterionItem {
     pub id: String,
     pub text: String,
     pub kind: GoalCriterionKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub check_kind: Option<GoalCriterionCheckKind>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub expected_evidence: Vec<String>,
+    #[serde(default)]
+    pub inferred: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GoalCriterionSpecInput {
+    pub id: String,
+    pub text: String,
+    #[serde(default)]
+    pub kind: GoalCriterionKind,
+    pub check_kind: GoalCriterionCheckKind,
+    #[serde(default)]
+    pub expected_evidence: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -272,6 +323,108 @@ pub struct GoalCriterionAudit {
     pub evidence_ids: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GoalSemanticCriterionVerdict {
+    Satisfied,
+    NeedsRevision,
+    InsufficientEvidence,
+    NotApplicable,
+}
+
+impl GoalSemanticCriterionVerdict {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Satisfied => "satisfied",
+            Self::NeedsRevision => "needs_revision",
+            Self::InsufficientEvidence => "insufficient_evidence",
+            Self::NotApplicable => "not_applicable",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GoalSemanticOverallVerdict {
+    Satisfied,
+    NeedsRevision,
+    InsufficientEvidence,
+}
+
+impl GoalSemanticOverallVerdict {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Satisfied => "satisfied",
+            Self::NeedsRevision => "needs_revision",
+            Self::InsufficientEvidence => "insufficient_evidence",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GoalSemanticCriterionGrade {
+    pub id: String,
+    pub verdict: GoalSemanticCriterionVerdict,
+    #[serde(default)]
+    pub evidence_ids: Vec<String>,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GoalSemanticGrade {
+    pub overall: GoalSemanticOverallVerdict,
+    pub summary: String,
+    pub criteria: Vec<GoalSemanticCriterionGrade>,
+    #[serde(default)]
+    pub next_actions: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GoalGraderRun {
+    pub id: String,
+    pub goal_id: String,
+    pub revision: i64,
+    pub evaluation_key: String,
+    pub strict: bool,
+    pub attempt: i64,
+    pub state: String,
+    pub result: Value,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    pub usage: Value,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone)]
+pub enum GoalSemanticGradeStart {
+    NotRequired,
+    Cached {
+        run_id: String,
+        grade: GoalSemanticGrade,
+        model: String,
+        usage: Value,
+    },
+    Started {
+        run_id: String,
+        evaluation_key: String,
+        attempt: i64,
+    },
+    InProgress {
+        run_id: String,
+    },
+    Exhausted {
+        evaluation_key: String,
+        attempts: i64,
+        last_run_id: String,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -394,6 +547,8 @@ pub struct GoalSnapshot {
     pub workflow_runs: Vec<WorkflowRun>,
     #[serde(default)]
     pub tasks: Vec<Task>,
+    #[serde(default)]
+    pub grader_runs: Vec<GoalGraderRun>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -619,6 +774,38 @@ pub(crate) fn ensure_tables(conn: &Connection) -> Result<()> {
             UNIQUE(goal_id, target_type, target_id, relation)
         );
 
+        CREATE TABLE IF NOT EXISTS goal_criterion_specs (
+            goal_id TEXT NOT NULL,
+            revision INTEGER NOT NULL,
+            id TEXT NOT NULL,
+            text TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            check_kind TEXT NOT NULL,
+            expected_evidence_json TEXT NOT NULL DEFAULT '[]',
+            inferred INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            PRIMARY KEY (goal_id, revision, id),
+            FOREIGN KEY (goal_id) REFERENCES goals(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS goal_grader_runs (
+            id TEXT PRIMARY KEY,
+            goal_id TEXT NOT NULL,
+            revision INTEGER NOT NULL,
+            evaluation_key TEXT NOT NULL,
+            strict INTEGER NOT NULL DEFAULT 0,
+            attempt INTEGER NOT NULL,
+            state TEXT NOT NULL,
+            result_json TEXT NOT NULL DEFAULT '{}',
+            model TEXT,
+            usage_json TEXT NOT NULL DEFAULT '{}',
+            error TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (goal_id) REFERENCES goals(id) ON DELETE CASCADE,
+            UNIQUE(evaluation_key, strict, attempt)
+        );
+
         CREATE INDEX IF NOT EXISTS idx_goals_session_updated
             ON goals(session_id, updated_at DESC);
         CREATE UNIQUE INDEX IF NOT EXISTS idx_goals_session_open
@@ -631,7 +818,11 @@ pub(crate) fn ensure_tables(conn: &Connection) -> Result<()> {
         CREATE INDEX IF NOT EXISTS idx_goal_links_goal
             ON goal_links(goal_id);
         CREATE INDEX IF NOT EXISTS idx_goal_links_target
-            ON goal_links(target_type, target_id);",
+            ON goal_links(target_type, target_id);
+        CREATE INDEX IF NOT EXISTS idx_goal_criterion_specs_revision
+            ON goal_criterion_specs(goal_id, revision, id);
+        CREATE INDEX IF NOT EXISTS idx_goal_grader_runs_goal
+            ON goal_grader_runs(goal_id, revision, evaluation_key, strict, attempt DESC);",
     )?;
     ensure_goal_column(
         conn,
@@ -1127,7 +1318,7 @@ impl SessionDB {
         let goal = self
             .get_goal(goal_id)?
             .ok_or_else(|| anyhow!("goal {} not found", goal_id))?;
-        let criteria = parse_goal_criteria_items(&goal.completion_criteria);
+        let criteria = self.goal_criteria_items(&goal)?;
         let item = criteria
             .into_iter()
             .find(|item| item.id == criterion_id)
@@ -1147,6 +1338,189 @@ impl SessionDB {
         }))
     }
 
+    pub fn prepare_goal_contract(
+        &self,
+        goal_id: &str,
+        revision: i64,
+        criteria: Vec<GoalCriterionSpecInput>,
+        scope_rationale: &str,
+        viability: Value,
+    ) -> Result<GoalSnapshot> {
+        let goal = self
+            .get_goal(goal_id)?
+            .ok_or_else(|| anyhow!("goal not found: {goal_id}"))?;
+        if goal.revision != revision {
+            return Err(anyhow!(
+                "goal revision changed: expected {revision}, current {}",
+                goal.revision
+            ));
+        }
+        if goal.state != GoalState::Active {
+            return Err(anyhow!(
+                "goal contract can only be prepared while active; current state is {}",
+                goal.state.as_str()
+            ));
+        }
+        let rationale = scope_rationale.trim();
+        if rationale.is_empty() {
+            return Err(anyhow!("scopeRationale is required"));
+        }
+        if criteria.is_empty() || criteria.len() > 12 {
+            return Err(anyhow!("goal rubric requires 1..12 criteria"));
+        }
+        let explicit = parse_goal_criteria_items(&goal.completion_criteria);
+        let inferred = explicit.is_empty();
+        let mut seen = std::collections::HashSet::new();
+        for (index, criterion) in criteria.iter().enumerate() {
+            if criterion.id != format!("criterion-{}", index + 1) {
+                return Err(anyhow!(
+                    "goal rubric criterion ids must be contiguous criterion-1..N"
+                ));
+            }
+            if criterion.text.trim().is_empty() || criterion.text.chars().count() > 500 {
+                return Err(anyhow!("goal rubric criterion text must be 1..500 chars"));
+            }
+            if !seen.insert(criterion.text.trim().to_lowercase()) {
+                return Err(anyhow!("goal rubric criteria must be unique"));
+            }
+            if !inferred {
+                let Some(source) = explicit.get(index) else {
+                    return Err(anyhow!(
+                        "structured rubric cannot add criteria beyond the user's explicit completion criteria"
+                    ));
+                };
+                if source.id != criterion.id
+                    || source.text.trim() != criterion.text.trim()
+                    || source.kind != criterion.kind
+                {
+                    return Err(anyhow!(
+                        "structured rubric must preserve explicit criterion {} text and kind",
+                        source.id
+                    ));
+                }
+            }
+            if criterion.expected_evidence.len() > 12
+                || criterion
+                    .expected_evidence
+                    .iter()
+                    .any(|item| item.trim().is_empty() || item.chars().count() > 120)
+            {
+                return Err(anyhow!(
+                    "expectedEvidence accepts at most 12 non-empty values up to 120 chars"
+                ));
+            }
+        }
+        if !inferred && criteria.len() != explicit.len() {
+            return Err(anyhow!(
+                "structured rubric must cover every explicit completion criterion"
+            ));
+        }
+        let now = now_rfc3339();
+        {
+            let mut conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
+            let tx = conn.transaction()?;
+            tx.execute(
+                "DELETE FROM goal_criterion_specs WHERE goal_id = ?1 AND revision = ?2",
+                params![goal_id, revision],
+            )?;
+            for criterion in &criteria {
+                tx.execute(
+                    "INSERT INTO goal_criterion_specs (
+                        goal_id, revision, id, text, kind, check_kind,
+                        expected_evidence_json, inferred, created_at
+                     ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                    params![
+                        goal_id,
+                        revision,
+                        criterion.id,
+                        criterion.text.trim(),
+                        criterion.kind.as_str(),
+                        criterion.check_kind.as_str(),
+                        serde_json::to_string(&criterion.expected_evidence)?,
+                        if inferred { 1i64 } else { 0i64 },
+                        now,
+                    ],
+                )?;
+            }
+            tx.commit()?;
+        }
+        self.append_goal_event(
+            goal_id,
+            "goal_contract_prepared",
+            json!({
+                "revision": revision,
+                "inferred": inferred,
+                "criteriaCount": criteria.len(),
+                "scopeRationale": rationale,
+                "viability": viability,
+            }),
+        )?;
+        self.goal_snapshot(goal_id, 500)?
+            .ok_or_else(|| anyhow!("goal disappeared after contract preparation"))
+    }
+
+    fn goal_criteria_items(&self, goal: &Goal) -> Result<Vec<GoalCriterionItem>> {
+        let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
+        let mut stmt = conn.prepare(
+            "SELECT id, text, kind, check_kind, expected_evidence_json, inferred
+             FROM goal_criterion_specs
+             WHERE goal_id = ?1 AND revision = ?2
+             ORDER BY id ASC",
+        )?;
+        let rows = stmt.query_map(params![goal.id, goal.revision], |row| {
+            let kind: String = row.get(2)?;
+            let check_kind: String = row.get(3)?;
+            let expected_json: String = row.get(4)?;
+            Ok(GoalCriterionItem {
+                id: row.get(0)?,
+                text: row.get(1)?,
+                kind: GoalCriterionKind::from_str(&kind).unwrap_or_default(),
+                check_kind: GoalCriterionCheckKind::from_str(&check_kind),
+                expected_evidence: serde_json::from_str(&expected_json).unwrap_or_default(),
+                inferred: row.get::<_, i64>(5)? != 0,
+            })
+        })?;
+        let structured = collect_rows(rows)?;
+        if structured.is_empty() {
+            Ok(parse_goal_criteria_items(&goal.completion_criteria))
+        } else {
+            Ok(structured)
+        }
+    }
+
+    pub fn list_goal_grader_runs(&self, goal_id: &str, limit: usize) -> Result<Vec<GoalGraderRun>> {
+        let limit = limit.clamp(1, 50) as i64;
+        let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
+        let mut stmt = conn.prepare(
+            "SELECT id, goal_id, revision, evaluation_key, strict, attempt, state,
+                    result_json, model, usage_json, error, created_at, updated_at
+             FROM goal_grader_runs
+             WHERE goal_id = ?1
+             ORDER BY created_at DESC, attempt DESC
+             LIMIT ?2",
+        )?;
+        let rows = stmt.query_map(params![goal_id, limit], |row| {
+            let result_json: String = row.get(7)?;
+            let usage_json: String = row.get(9)?;
+            Ok(GoalGraderRun {
+                id: row.get(0)?,
+                goal_id: row.get(1)?,
+                revision: row.get(2)?,
+                evaluation_key: row.get(3)?,
+                strict: row.get::<_, i64>(4)? != 0,
+                attempt: row.get(5)?,
+                state: row.get(6)?,
+                result: serde_json::from_str(&result_json).unwrap_or_else(|_| json!({})),
+                model: row.get(8)?,
+                usage: serde_json::from_str(&usage_json).unwrap_or_else(|_| json!({})),
+                error: row.get(10)?,
+                created_at: row.get(11)?,
+                updated_at: row.get(12)?,
+            })
+        })?;
+        collect_rows(rows)
+    }
+
     pub fn goal_snapshot(&self, goal_id: &str, event_limit: usize) -> Result<Option<GoalSnapshot>> {
         let Some(goal) = self.get_goal(goal_id)? else {
             return Ok(None);
@@ -1157,9 +1531,10 @@ impl SessionDB {
         let tasks = self.list_tasks(&goal.session_id).unwrap_or_default();
         let evidence = build_goal_evidence_items(&links, &tasks);
         let budget = self.build_goal_budget_snapshot(&goal)?;
+        let grader_runs = self.list_goal_grader_runs(goal_id, 20)?;
         let latest_goal_linked_event = self.latest_goal_linked_event_marker(goal_id)?;
         let audit_stale = goal_final_audit_stale(&goal, &latest_goal_linked_event);
-        let criteria_items = parse_goal_criteria_items(&goal.completion_criteria);
+        let criteria_items = self.goal_criteria_items(&goal)?;
         let mut snapshot = GoalSnapshot {
             goal,
             links,
@@ -1172,6 +1547,7 @@ impl SessionDB {
             budget,
             workflow_runs,
             tasks,
+            grader_runs,
         };
         snapshot.criteria = build_goal_criteria_audit(&snapshot);
         snapshot.timeline = build_goal_timeline(&snapshot);
@@ -1202,7 +1578,7 @@ impl SessionDB {
             .filter(|task| task.status == "in_progress")
             .count();
         let active_background_job_count =
-            match crate::async_jobs::JobManager::list_active_by_session(session_id) {
+            match crate::async_jobs::JobManager::list_active_work_by_session(session_id) {
                 Ok(jobs) => jobs.len(),
                 Err(_) => return Ok(Vec::new()),
             };
@@ -1286,6 +1662,23 @@ impl SessionDB {
                 .unwrap_or(0)
                 .max(0);
             tokens_used += message.tokens_out.unwrap_or(0).max(0);
+        }
+        {
+            let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
+            let mut stmt =
+                conn.prepare("SELECT usage_json FROM goal_grader_runs WHERE goal_id = ?1")?;
+            let rows = stmt.query_map(params![goal.id], |row| row.get::<_, String>(0))?;
+            for row in rows {
+                let usage: Value = serde_json::from_str(&row?).unwrap_or_else(|_| json!({}));
+                for key in [
+                    "inputTokens",
+                    "outputTokens",
+                    "cacheCreationInputTokens",
+                    "cacheReadInputTokens",
+                ] {
+                    tokens_used += usage.get(key).and_then(Value::as_i64).unwrap_or(0).max(0);
+                }
+            }
         }
 
         let token_ratio = ratio(tokens_used, token_limit);
@@ -1399,12 +1792,17 @@ impl SessionDB {
             .get("status")
             .and_then(|v| v.as_str())
             .is_some_and(|status| status == "completed");
-        let next = if completed {
+        let semantic_required = completed && goal_requires_semantic_grade(&snapshot);
+        let semantic_satisfied = semantic_required
+            && goal_has_current_satisfied_semantic_grade(&snapshot).unwrap_or(false);
+        let next = if completed && semantic_required && !semantic_satisfied {
+            GoalState::Evaluating
+        } else if completed {
             GoalState::Completed
         } else {
             GoalState::Blocked
         };
-        let summary = audit
+        let mut summary = audit
             .get("summary")
             .and_then(|v| v.as_str())
             .unwrap_or(if completed {
@@ -1413,6 +1811,10 @@ impl SessionDB {
                 "Goal is not complete"
             })
             .to_string();
+        if next == GoalState::Evaluating {
+            summary = "Deterministic audit passed; independent semantic evaluation is required"
+                .to_string();
+        }
         let blocked_reason = if completed {
             None
         } else {
@@ -1426,13 +1828,15 @@ impl SessionDB {
         };
         let now = now_rfc3339();
         audit["evaluatedAt"] = json!(now);
+        audit["semanticGradeRequired"] = json!(semantic_required);
+        audit["semanticGradeSatisfied"] = json!(semantic_satisfied);
         let evidence_json = stable_json(&audit)?;
         let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
         conn.execute(
             "UPDATE goals
                 SET state = ?1,
                     updated_at = ?2,
-                    completed_at = CASE WHEN ?1 IN ('completed','failed','cancelled') THEN ?2 ELSE completed_at END,
+                    completed_at = CASE WHEN ?1 IN ('completed','failed','cancelled') THEN ?2 ELSE NULL END,
                     final_summary = ?3,
                     final_evidence_json = ?4,
                     blocked_reason = ?5,
@@ -1454,6 +1858,374 @@ impl SessionDB {
             .ok_or_else(|| anyhow!("goal {} not found after evaluation", goal_id))?;
         emit_goal("goal:updated", &next_snapshot.goal);
         Ok(next_snapshot)
+    }
+
+    pub fn begin_goal_semantic_grade(
+        &self,
+        goal_id: &str,
+        strict: bool,
+    ) -> Result<GoalSemanticGradeStart> {
+        let snapshot = self
+            .goal_snapshot(goal_id, 500)?
+            .ok_or_else(|| anyhow!("goal {} not found", goal_id))?;
+        if !goal_requires_semantic_grade(&snapshot) {
+            return Ok(GoalSemanticGradeStart::NotRequired);
+        }
+        if snapshot.audit_stale
+            || snapshot
+                .goal
+                .final_evidence
+                .get("status")
+                .and_then(Value::as_str)
+                != Some("completed")
+        {
+            return Err(anyhow!(
+                "deterministic goal audit must pass before semantic grading"
+            ));
+        }
+        let evaluation_key = goal_semantic_evaluation_key(&snapshot)?;
+        let now = now_rfc3339();
+        let stale_before = (chrono::Utc::now() - chrono::Duration::minutes(5)).to_rfc3339();
+        let mut conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
+        let tx = conn.transaction()?;
+        tx.execute(
+            "UPDATE goal_grader_runs
+             SET state = 'failed', error = 'grader_interrupted', updated_at = ?1
+             WHERE goal_id = ?2 AND state = 'running' AND updated_at < ?3",
+            params![now, goal_id, stale_before],
+        )?;
+        let cached: Option<(String, String, String, String)> = tx
+            .query_row(
+                "SELECT id, result_json, COALESCE(model, ''), usage_json
+                 FROM goal_grader_runs
+                 WHERE evaluation_key = ?1 AND strict = ?2 AND state = 'completed'
+                 ORDER BY attempt DESC LIMIT 1",
+                params![evaluation_key, if strict { 1i64 } else { 0i64 }],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .optional()?;
+        if let Some((run_id, result_json, model, usage_json)) = cached {
+            tx.commit()?;
+            return Ok(GoalSemanticGradeStart::Cached {
+                run_id,
+                grade: serde_json::from_str(&result_json)
+                    .map_err(|e| anyhow!("invalid cached semantic grade: {e}"))?,
+                model,
+                usage: serde_json::from_str(&usage_json).unwrap_or_else(|_| json!({})),
+            });
+        }
+        let running: Option<String> = tx
+            .query_row(
+                "SELECT id FROM goal_grader_runs
+                 WHERE evaluation_key = ?1 AND strict = ?2 AND state = 'running'
+                 ORDER BY attempt DESC LIMIT 1",
+                params![evaluation_key, if strict { 1i64 } else { 0i64 }],
+                |row| row.get(0),
+            )
+            .optional()?;
+        if let Some(run_id) = running {
+            tx.commit()?;
+            return Ok(GoalSemanticGradeStart::InProgress { run_id });
+        }
+        let attempts: i64 = tx.query_row(
+            "SELECT COUNT(*) FROM goal_grader_runs
+             WHERE evaluation_key = ?1 AND strict = ?2",
+            params![evaluation_key, if strict { 1i64 } else { 0i64 }],
+            |row| row.get(0),
+        )?;
+        if attempts >= GOAL_SEMANTIC_GRADER_MAX_ATTEMPTS {
+            let last_run_id: String = tx.query_row(
+                "SELECT id FROM goal_grader_runs
+                 WHERE evaluation_key = ?1 AND strict = ?2
+                 ORDER BY attempt DESC LIMIT 1",
+                params![evaluation_key, if strict { 1i64 } else { 0i64 }],
+                |row| row.get(0),
+            )?;
+            tx.commit()?;
+            return Ok(GoalSemanticGradeStart::Exhausted {
+                evaluation_key,
+                attempts,
+                last_run_id,
+            });
+        }
+        let run_id = format!("ggr_{}", uuid::Uuid::new_v4().simple());
+        let attempt = attempts + 1;
+        tx.execute(
+            "INSERT INTO goal_grader_runs (
+                id, goal_id, revision, evaluation_key, strict, attempt, state,
+                result_json, usage_json, created_at, updated_at
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'running', '{}', '{}', ?7, ?7)",
+            params![
+                run_id,
+                goal_id,
+                snapshot.goal.revision,
+                evaluation_key,
+                if strict { 1i64 } else { 0i64 },
+                attempt,
+                now,
+            ],
+        )?;
+        tx.execute(
+            "UPDATE goals
+             SET state = 'evaluating', completed_at = NULL, updated_at = ?1
+             WHERE id = ?2 AND revision = ?3 AND closure_decision IS NULL",
+            params![now, goal_id, snapshot.goal.revision],
+        )?;
+        tx.commit()?;
+        drop(conn);
+        let _ = self.append_goal_event(
+            goal_id,
+            "goal_semantic_grade_started",
+            json!({
+                "runId": run_id,
+                "evaluationKey": evaluation_key,
+                "revision": snapshot.goal.revision,
+                "strict": strict,
+                "attempt": attempt,
+            }),
+        );
+        Ok(GoalSemanticGradeStart::Started {
+            run_id,
+            evaluation_key,
+            attempt,
+        })
+    }
+
+    pub fn complete_goal_semantic_grade(
+        &self,
+        run_id: &str,
+        model: &str,
+        grade: &GoalSemanticGrade,
+        usage: Value,
+    ) -> Result<GoalSnapshot> {
+        let (goal_id, revision, evaluation_key, strict, state) = {
+            let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
+            conn.query_row(
+                "SELECT goal_id, revision, evaluation_key, strict, state
+                 FROM goal_grader_runs WHERE id = ?1",
+                params![run_id],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, i64>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, i64>(3)? != 0,
+                        row.get::<_, String>(4)?,
+                    ))
+                },
+            )
+            .optional()?
+            .ok_or_else(|| anyhow!("goal grader run {} not found", run_id))?
+        };
+        if state != "running" && state != "completed" {
+            return Err(anyhow!("goal grader run {} is {}", run_id, state));
+        }
+        let snapshot = self
+            .goal_snapshot(&goal_id, 500)?
+            .ok_or_else(|| anyhow!("goal {} not found", goal_id))?;
+        if snapshot.goal.revision != revision
+            || goal_semantic_evaluation_key(&snapshot)? != evaluation_key
+        {
+            if state == "running" {
+                let _ = self.fail_goal_semantic_grade(
+                    run_id,
+                    "goal changed while semantic grader was running; stale verdict discarded",
+                    Some(model),
+                    usage,
+                );
+            }
+            return Err(anyhow!(
+                "goal changed while semantic grader was running; discard stale verdict"
+            ));
+        }
+        if snapshot.audit_stale
+            || snapshot
+                .goal
+                .final_evidence
+                .get("status")
+                .and_then(Value::as_str)
+                != Some("completed")
+        {
+            return Err(anyhow!(
+                "semantic grader cannot override an incomplete deterministic audit"
+            ));
+        }
+        let now = now_rfc3339();
+        let mut final_evidence = snapshot.goal.final_evidence.clone();
+        final_evidence["semanticGrade"] = serde_json::to_value(grade)?;
+        final_evidence["semanticEvaluationKey"] = json!(evaluation_key);
+        final_evidence["semanticGraderRunId"] = json!(run_id);
+        final_evidence["semanticStrict"] = json!(strict);
+        final_evidence["semanticGraderUsage"] = usage.clone();
+        let (next_state, status, blocked_reason) = match grade.overall {
+            GoalSemanticOverallVerdict::Satisfied => (GoalState::Completed, "completed", None),
+            GoalSemanticOverallVerdict::NeedsRevision => (
+                GoalState::Active,
+                "needs_revision",
+                Some("semantic_needs_revision"),
+            ),
+            GoalSemanticOverallVerdict::InsufficientEvidence => (
+                GoalState::Blocked,
+                "insufficient_evidence",
+                Some("semantic_evidence_insufficient"),
+            ),
+        };
+        let strict_route_satisfied = strict && next_state == GoalState::Completed;
+        if strict_route_satisfied {
+            final_evidence["closure"] = json!({
+                "decision": Value::Null,
+                "reason": "strict_semantic_grade_satisfied",
+                "closedAt": Value::Null,
+                "requiresUserAcceptance": true,
+            });
+        }
+        final_evidence["status"] = json!(status);
+        final_evidence["summary"] = json!(grade.summary);
+        let result_json = stable_json(&serde_json::to_value(grade)?)?;
+        let usage_json = stable_json(&usage)?;
+        let evidence_json = stable_json(&final_evidence)?;
+        {
+            let mut conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
+            let tx = conn.transaction()?;
+            tx.execute(
+                "UPDATE goal_grader_runs
+                 SET state = 'completed', result_json = ?1, model = ?2,
+                     usage_json = ?3, error = NULL, updated_at = ?4
+                 WHERE id = ?5",
+                params![result_json, model, usage_json, now, run_id],
+            )?;
+            tx.execute(
+                "UPDATE goals
+                 SET state = ?1, updated_at = ?2,
+                     completed_at = CASE WHEN ?1 = 'completed' THEN ?2 ELSE NULL END,
+                     final_summary = ?3, final_evidence_json = ?4,
+                     blocked_reason = ?5, last_evaluator_result_json = ?6,
+                     closure_decision = CASE
+                        WHEN ?9 = 1 AND closure_decision = 'needs_strict_evidence' THEN NULL
+                        ELSE closure_decision END,
+                     closure_reason = CASE
+                        WHEN ?9 = 1 AND closure_decision = 'needs_strict_evidence' THEN NULL
+                        ELSE closure_reason END,
+                     closed_at = CASE
+                        WHEN ?9 = 1 AND closure_decision = 'needs_strict_evidence' THEN NULL
+                        ELSE closed_at END
+                 WHERE id = ?7 AND revision = ?8",
+                params![
+                    next_state.as_str(),
+                    now,
+                    grade.summary,
+                    evidence_json,
+                    blocked_reason,
+                    result_json,
+                    goal_id,
+                    revision,
+                    if strict_route_satisfied { 1i64 } else { 0i64 },
+                ],
+            )?;
+            tx.commit()?;
+        }
+        let _ = self.append_goal_event(
+            &goal_id,
+            "goal_semantic_graded",
+            json!({
+                "runId": run_id,
+                "evaluationKey": evaluation_key,
+                "revision": revision,
+                "strict": strict,
+                "model": model,
+                "usage": usage,
+                "grade": grade,
+            }),
+        );
+        let next = self
+            .goal_snapshot(&goal_id, 500)?
+            .ok_or_else(|| anyhow!("goal {} not found after semantic grade", goal_id))?;
+        emit_goal("goal:updated", &next.goal);
+        Ok(next)
+    }
+
+    pub fn fail_goal_semantic_grade(
+        &self,
+        run_id: &str,
+        error: &str,
+        model: Option<&str>,
+        usage: Value,
+    ) -> Result<GoalSnapshot> {
+        let error = truncate_goal_text(error, 2_000);
+        let now = now_rfc3339();
+        let usage_json = stable_json(&usage)?;
+        let (goal_id, revision, evaluation_key) = {
+            let mut conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
+            let tx = conn.transaction()?;
+            let row: Option<(String, i64, String)> = tx
+                .query_row(
+                    "SELECT goal_id, revision, evaluation_key
+                     FROM goal_grader_runs WHERE id = ?1",
+                    params![run_id],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                )
+                .optional()?;
+            let (goal_id, revision, evaluation_key) =
+                row.ok_or_else(|| anyhow!("goal grader run {} not found", run_id))?;
+            tx.execute(
+                "UPDATE goal_grader_runs
+                 SET state = 'failed', error = ?1, model = COALESCE(?2, model),
+                     usage_json = CASE WHEN ?3 = '{}' THEN usage_json ELSE ?3 END,
+                     updated_at = ?4
+                 WHERE id = ?5 AND state = 'running'",
+                params![error, model, usage_json, now, run_id],
+            )?;
+            tx.commit()?;
+            (goal_id, revision, evaluation_key)
+        };
+        let snapshot = self
+            .goal_snapshot(&goal_id, 500)?
+            .ok_or_else(|| anyhow!("goal {} not found", goal_id))?;
+        if snapshot.goal.revision == revision
+            && !snapshot.audit_stale
+            && snapshot
+                .goal
+                .final_evidence
+                .get("status")
+                .and_then(Value::as_str)
+                == Some("completed")
+        {
+            let mut final_evidence = snapshot.goal.final_evidence.clone();
+            final_evidence["status"] = json!("semantic_grader_unavailable");
+            final_evidence["semanticEvaluationKey"] = json!(evaluation_key);
+            final_evidence["semanticGraderRunId"] = json!(run_id);
+            final_evidence["semanticGraderError"] = json!(error);
+            let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
+            conn.execute(
+                "UPDATE goals
+                 SET state = 'blocked', updated_at = ?1, completed_at = NULL,
+                     blocked_reason = 'semantic_grader_unavailable',
+                     final_evidence_json = ?2, last_evaluator_result_json = ?3
+                 WHERE id = ?4 AND revision = ?5",
+                params![
+                    now,
+                    stable_json(&final_evidence)?,
+                    stable_json(&json!({"error": error, "runId": run_id}))?,
+                    goal_id,
+                    revision,
+                ],
+            )?;
+        }
+        let _ = self.append_goal_event(
+            &goal_id,
+            "goal_semantic_grade_failed",
+            json!({
+                "runId": run_id,
+                "evaluationKey": evaluation_key,
+                "revision": revision,
+                "error": error,
+            }),
+        );
+        let next = self
+            .goal_snapshot(&goal_id, 500)?
+            .ok_or_else(|| anyhow!("goal {} not found after grader failure", goal_id))?;
+        emit_goal("goal:updated", &next.goal);
+        Ok(next)
     }
 
     pub fn record_goal_runner_evaluation(
@@ -1492,6 +2264,14 @@ impl SessionDB {
     }
 
     pub fn close_goal(&self, input: CloseGoalInput) -> Result<GoalSnapshot> {
+        let semantic_acceptance_ready = if input.decision == GoalClosureDecision::AcceptedV1 {
+            let snapshot = self
+                .goal_snapshot(&input.goal_id, 500)?
+                .ok_or_else(|| anyhow!("goal {} not found", input.goal_id))?;
+            goal_has_current_satisfied_semantic_grade(&snapshot)?
+        } else {
+            true
+        };
         let now = now_rfc3339();
         let reason = input.reason.as_deref().map(str::trim).and_then(non_empty);
         let (previous_state, next_state, appended_follow_ups) = {
@@ -1528,6 +2308,11 @@ impl SessionDB {
             }
             let mut final_evidence = json_from_sql(&final_evidence_json)?;
             if input.decision == GoalClosureDecision::AcceptedV1 {
+                if !semantic_acceptance_ready {
+                    return Err(anyhow!(
+                        "cannot accept goal closure before the current independent semantic evaluation is satisfied"
+                    ));
+                }
                 let final_status = final_evidence.get("status").and_then(Value::as_str);
                 let final_revision = final_evidence.get("goalRevision").and_then(Value::as_i64);
                 if final_status != Some("completed") || final_revision != Some(revision) {
@@ -2359,6 +3144,94 @@ impl SessionDB {
     }
 }
 
+pub fn goal_requires_semantic_grade(snapshot: &GoalSnapshot) -> bool {
+    snapshot.criteria_items.iter().any(|criterion| {
+        criterion.kind.is_required()
+            && criterion.check_kind == Some(GoalCriterionCheckKind::Semantic)
+    })
+}
+
+fn goal_semantic_evaluation_key(snapshot: &GoalSnapshot) -> Result<String> {
+    let semantic_criteria = snapshot
+        .criteria_items
+        .iter()
+        .filter(|criterion| criterion.check_kind == Some(GoalCriterionCheckKind::Semantic))
+        .collect::<Vec<_>>();
+    let evidence = snapshot
+        .evidence
+        .iter()
+        .map(|item| {
+            json!({
+                "id": item.id,
+                "sourceType": item.source_type,
+                "sourceId": item.source_id,
+                "relation": item.relation,
+                "title": item.title,
+                "summary": item.summary,
+                "metadata": item.metadata,
+                "createdAt": item.created_at,
+            })
+        })
+        .collect::<Vec<_>>();
+    let material = stable_json(&json!({
+        "goalId": snapshot.goal.id,
+        "revision": snapshot.goal.revision,
+        "objective": snapshot.goal.objective,
+        "criteria": semantic_criteria,
+        "evidence": evidence,
+        "goalLinkedEventSeq": snapshot
+            .goal
+            .final_evidence
+            .get("goalLinkedEventSeq")
+            .cloned()
+            .unwrap_or(Value::Null),
+    }))?;
+    Ok(blake3::hash(material.as_bytes()).to_hex().to_string())
+}
+
+fn goal_has_current_satisfied_semantic_grade(snapshot: &GoalSnapshot) -> Result<bool> {
+    if !goal_requires_semantic_grade(snapshot) {
+        return Ok(true);
+    }
+    let evaluation_key = goal_semantic_evaluation_key(snapshot)?;
+    let final_key = snapshot
+        .goal
+        .final_evidence
+        .get("semanticEvaluationKey")
+        .and_then(Value::as_str);
+    let final_verdict = snapshot
+        .goal
+        .final_evidence
+        .get("semanticGrade")
+        .and_then(|grade| grade.get("overall"))
+        .and_then(Value::as_str);
+    let strict_required =
+        snapshot.goal.closure_decision == Some(GoalClosureDecision::NeedsStrictEvidence);
+    let final_strict = snapshot
+        .goal
+        .final_evidence
+        .get("semanticStrict")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    if final_key != Some(evaluation_key.as_str()) || final_verdict != Some("satisfied") {
+        return Ok(false);
+    }
+    if strict_required && !final_strict {
+        return Ok(false);
+    }
+    Ok(snapshot.grader_runs.iter().any(|run| {
+        run.revision == snapshot.goal.revision
+            && run.evaluation_key == evaluation_key
+            && run.state == "completed"
+            && (!strict_required || run.strict)
+            && run.result.get("overall").and_then(Value::as_str) == Some("satisfied")
+    }))
+}
+
+fn truncate_goal_text(value: &str, max_chars: usize) -> String {
+    value.chars().take(max_chars).collect()
+}
+
 pub fn maybe_schedule_goal_continuation(
     db: &SessionDB,
     session_id: &str,
@@ -2421,17 +3294,25 @@ pub fn maybe_schedule_goal_continuation(
         return Ok(None);
     }
 
+    let semantic_instruction = if goal_requires_semantic_grade(&snapshot)
+        && !goal_has_current_satisfied_semantic_grade(&snapshot).unwrap_or(false)
+    {
+        "- The deterministic audit may have passed, but independent semantic evaluation is still required. Call `goal_evaluate` before requesting closure.\n"
+    } else {
+        ""
+    };
     let note = format!(
         "<goal-continuation>\n\
          Continue the active Goal autonomously.\n\
          - Goal id: {}\n\
          - Revision: {}\n\
          - First call `goal_status` to verify the latest objective, revision, budget, and evidence.\n\
+         {}\
          - If required criteria are satisfied, call `goal_finish_request` before the final user summary.\n\
          - If real progress is impossible, call `goal_block_request` with concrete attempts.\n\
          - Otherwise complete one meaningful step, update tasks/checkpoints/evidence, and continue until the Goal is done.\n\
          </goal-continuation>",
-        snapshot.goal.id, snapshot.goal.revision
+        snapshot.goal.id, snapshot.goal.revision, semantic_instruction
     );
     let outcome = crate::wakeup::schedule(
         session_id,
@@ -2463,7 +3344,7 @@ fn goal_runner_should_wait_for_background_jobs(
     session_id: &str,
     goal_id: &str,
 ) -> Result<bool> {
-    let active_jobs = match crate::async_jobs::JobManager::list_active_by_session(session_id) {
+    let active_jobs = match crate::async_jobs::JobManager::list_active_work_by_session(session_id) {
         Ok(jobs) => jobs,
         Err(e) => {
             let _ = db.append_goal_event(
@@ -2534,7 +3415,9 @@ fn goal_runner_should_continue(snapshot: &GoalSnapshot) -> bool {
         .final_evidence
         .get("status")
         .and_then(Value::as_str);
-    audit_status != Some("completed") || snapshot.audit_stale
+    let semantic_pending = goal_requires_semantic_grade(snapshot)
+        && !goal_has_current_satisfied_semantic_grade(snapshot).unwrap_or(false);
+    semantic_pending || audit_status != Some("completed") || snapshot.audit_stale
 }
 
 fn goal_watchdog_workflow_blocks_runner(state: WorkflowRunState) -> bool {
@@ -2635,6 +3518,9 @@ fn parse_goal_criteria_items(raw: &str) -> Vec<GoalCriterionItem> {
             id: format!("criterion-{}", items.len() + 1),
             text,
             kind,
+            check_kind: None,
+            expected_evidence: Vec::new(),
+            inferred: false,
         });
     }
     items
@@ -3160,20 +4046,40 @@ fn build_goal_criteria_audit(snapshot: &GoalSnapshot) -> Vec<GoalCriterionAudit>
             } else {
                 let supporting =
                     supporting_evidence_for_criterion(&item.id, &item.text, &snapshot.evidence);
-                let has_strong = supporting.iter().any(|item| goal_evidence_is_strong_positive(item));
-                if has_strong {
+                let expected_supporting = if item.expected_evidence.is_empty() {
+                    supporting.clone()
+                } else {
+                    supporting
+                        .iter()
+                        .copied()
+                        .filter(|evidence| {
+                            item.expected_evidence
+                                .iter()
+                                .any(|expected| expected == &evidence.relation)
+                        })
+                        .collect::<Vec<_>>()
+                };
+                let strong_supporting = supporting
+                    .iter()
+                    .copied()
+                    .filter(|evidence| goal_evidence_is_strong_positive(evidence))
+                    .collect::<Vec<_>>();
+                if !expected_supporting.is_empty() && !strong_supporting.is_empty() {
+                    let mut evidence_ids = expected_supporting
+                        .iter()
+                        .chain(strong_supporting.iter())
+                        .map(|evidence| evidence.id.clone())
+                        .collect::<Vec<_>>();
+                    evidence_ids.sort();
+                    evidence_ids.dedup();
                     GoalCriterionAudit {
                         id: item.id.clone(),
                         text: item.text.clone(),
                         kind: item.kind,
                         status: GoalCriterionStatus::Satisfied,
-                        evidence_ids: supporting
-                            .iter()
-                            .take(8)
-                            .map(|item| item.id.clone())
-                            .collect(),
+                        evidence_ids: evidence_ids.into_iter().take(8).collect(),
                         reason: Some(
-                            "Strong completion or validation evidence supports this criterion."
+                            "The expected relation and an independent strong completion signal support this criterion."
                                 .to_string(),
                         ),
                     }
@@ -3188,10 +4094,13 @@ fn build_goal_criteria_audit(snapshot: &GoalSnapshot) -> Vec<GoalCriterionAudit>
                             .take(8)
                             .map(|item| item.id.clone())
                             .collect(),
-                        reason: Some(
-                            "Implementation evidence exists, but final validation/completion evidence is missing."
-                                .to_string(),
-                        ),
+                        reason: Some(if expected_supporting.is_empty() {
+                            "Supporting evidence exists, but the criterion's expected evidence relation is missing."
+                                .to_string()
+                        } else {
+                            "Expected evidence exists, but an independent final completion/validation signal is missing."
+                                .to_string()
+                        }),
                     }
                 } else {
                     GoalCriterionAudit {
@@ -3309,10 +4218,10 @@ fn active_blocking_evidence(evidence: &[GoalEvidenceItem]) -> Vec<&GoalEvidenceI
         .collect()
 }
 
-fn latest_evidence_time<'a>(
-    evidence: &'a [GoalEvidenceItem],
+fn latest_evidence_time(
+    evidence: &[GoalEvidenceItem],
     predicate: impl Fn(&GoalEvidenceItem) -> bool,
-) -> Option<&'a str> {
+) -> Option<&str> {
     evidence
         .iter()
         .filter(|item| predicate(item))
@@ -4047,6 +4956,7 @@ fn bounded_payload(payload: Value) -> Result<String> {
 }
 
 #[cfg(test)]
+#[allow(clippy::items_after_test_module)]
 mod tests {
     use rusqlite::params;
     use serde_json::{json, Value};
@@ -4556,12 +5466,12 @@ mod tests {
             assert_eq!(job.status, crate::async_jobs::JobStatus::Interrupted);
         }
         assert!(
-            crate::async_jobs::JobManager::list_active_by_session(&running_session.id)
+            crate::async_jobs::JobManager::list_active_work_by_session(&running_session.id)
                 .expect("running session active jobs")
                 .is_empty()
         );
         assert!(
-            crate::async_jobs::JobManager::list_active_by_session(&awaiting_session.id)
+            crate::async_jobs::JobManager::list_active_work_by_session(&awaiting_session.id)
                 .expect("awaiting session active jobs")
                 .is_empty()
         );
@@ -6157,6 +7067,534 @@ mod tests {
                 .and_then(Value::as_str),
             Some("blocked")
         );
+    }
+
+    fn semantic_goal_with_evidence(db: &SessionDB) -> GoalSnapshot {
+        let session = db.create_session("ha-main").expect("create session");
+        let goal = db
+            .create_goal(CreateGoalInput {
+                session_id: session.id,
+                objective: "Produce a clear decision memo".to_string(),
+                completion_criteria: "[required] The memo is coherent and decision-ready"
+                    .to_string(),
+                domain: None,
+                workflow_template_id: None,
+                workflow_template_version: None,
+                workflow_task_type: None,
+                budget_token_limit: Some(50_000),
+                budget_time_limit_secs: None,
+                budget_turn_limit: None,
+            })
+            .expect("create semantic goal");
+        let goal = db
+            .prepare_goal_contract(
+                &goal.goal.id,
+                goal.goal.revision,
+                vec![GoalCriterionSpecInput {
+                    id: "criterion-1".to_string(),
+                    text: "The memo is coherent and decision-ready".to_string(),
+                    kind: GoalCriterionKind::Required,
+                    check_kind: GoalCriterionCheckKind::Semantic,
+                    expected_evidence: vec!["validation_passed".to_string()],
+                }],
+                "The inferred check only operationalizes the user's stated quality criterion.",
+                json!({"status": "ready"}),
+            )
+            .expect("prepare semantic contract");
+        db.link_goal_target(
+            &goal.goal.id,
+            "general",
+            "memo-review-1",
+            "validation_passed",
+            json!({
+                "title": "Memo review passed",
+                "summary": "The completed memo was reviewed against the stated criterion.",
+                "goalCriterionId": "criterion-1",
+                "goalRevision": goal.goal.revision,
+            }),
+        )
+        .expect("attach semantic evidence");
+        db.evaluate_goal(&goal.goal.id)
+            .expect("deterministic gate should pass")
+    }
+
+    #[test]
+    fn goal_contract_preserves_explicit_criteria_and_only_infers_when_absent() {
+        let (_dir, db) = temp_db();
+        let explicit_session = db.create_session("ha-main").expect("session");
+        let explicit = db
+            .create_goal(CreateGoalInput {
+                session_id: explicit_session.id,
+                objective: "Ship a reviewed release".to_string(),
+                completion_criteria: "[required] Tests pass\n[optional] Release notes are polished"
+                    .to_string(),
+                domain: None,
+                workflow_template_id: None,
+                workflow_template_version: None,
+                workflow_task_type: None,
+                budget_token_limit: None,
+                budget_time_limit_secs: None,
+                budget_turn_limit: None,
+            })
+            .expect("explicit goal");
+        let altered = db
+            .prepare_goal_contract(
+                &explicit.goal.id,
+                explicit.goal.revision,
+                vec![
+                    GoalCriterionSpecInput {
+                        id: "criterion-1".to_string(),
+                        text: "Tests and lint pass".to_string(),
+                        kind: GoalCriterionKind::Required,
+                        check_kind: GoalCriterionCheckKind::Test,
+                        expected_evidence: vec!["validation_passed".to_string()],
+                    },
+                    GoalCriterionSpecInput {
+                        id: "criterion-2".to_string(),
+                        text: "Release notes are polished".to_string(),
+                        kind: GoalCriterionKind::Optional,
+                        check_kind: GoalCriterionCheckKind::Semantic,
+                        expected_evidence: vec!["review_passed".to_string()],
+                    },
+                ],
+                "Operationalize only the user's criteria.",
+                json!({"status": "ready"}),
+            )
+            .expect_err("the model cannot rewrite an explicit criterion");
+        assert!(altered
+            .to_string()
+            .contains("must preserve explicit criterion"));
+
+        let inferred_session = db.create_session("ha-main").expect("session");
+        let inferred = db
+            .create_goal(CreateGoalInput {
+                session_id: inferred_session.id,
+                objective: "Prepare a decision-ready launch memo".to_string(),
+                completion_criteria: String::new(),
+                domain: None,
+                workflow_template_id: None,
+                workflow_template_version: None,
+                workflow_task_type: None,
+                budget_token_limit: None,
+                budget_time_limit_secs: None,
+                budget_turn_limit: None,
+            })
+            .expect("one-line goal");
+        let prepared = db
+            .prepare_goal_contract(
+                &inferred.goal.id,
+                inferred.goal.revision,
+                vec![GoalCriterionSpecInput {
+                    id: "criterion-1".to_string(),
+                    text: "The launch memo is decision-ready".to_string(),
+                    kind: GoalCriterionKind::Required,
+                    check_kind: GoalCriterionCheckKind::Semantic,
+                    expected_evidence: vec!["review_passed".to_string()],
+                }],
+                "Translate the stated objective into one directly matching check.",
+                json!({"status": "ready"}),
+            )
+            .expect("infer a rubric for a one-line goal");
+        assert_eq!(prepared.criteria_items.len(), 1);
+        assert!(prepared.criteria_items[0].inferred);
+    }
+
+    #[test]
+    fn general_expected_evidence_requires_an_independent_strong_completion_signal() {
+        let (_dir, db) = temp_db();
+        let session = db.create_session("ha-main").expect("session");
+        let goal = db
+            .create_goal(CreateGoalInput {
+                session_id: session.id.clone(),
+                objective: "Prepare a source-backed recommendation".to_string(),
+                completion_criteria: "[required] Cite an authoritative source".to_string(),
+                domain: None,
+                workflow_template_id: None,
+                workflow_template_version: None,
+                workflow_task_type: None,
+                budget_token_limit: None,
+                budget_time_limit_secs: None,
+                budget_turn_limit: None,
+            })
+            .expect("goal");
+        let prepared = db
+            .prepare_goal_contract(
+                &goal.goal.id,
+                goal.goal.revision,
+                vec![GoalCriterionSpecInput {
+                    id: "criterion-1".to_string(),
+                    text: "Cite an authoritative source".to_string(),
+                    kind: GoalCriterionKind::Required,
+                    check_kind: GoalCriterionCheckKind::Evidence,
+                    expected_evidence: vec!["source_cited".to_string()],
+                }],
+                "Preserve the explicit source requirement.",
+                json!({"status": "ready"}),
+            )
+            .expect("contract");
+        db.link_goal_target(
+            &prepared.goal.id,
+            "general",
+            "https://example.com/authoritative",
+            "source_cited",
+            json!({
+                "title": "Authoritative source",
+                "summary": "A source was cited in the recommendation.",
+                "goalCriterionId": "criterion-1",
+                "goalRevision": prepared.goal.revision,
+                "source": "goal_record_evidence",
+            }),
+        )
+        .expect("record source evidence");
+        let evidence_only = db.evaluate_goal(&prepared.goal.id).expect("audit evidence");
+        assert_eq!(evidence_only.goal.state, GoalState::Blocked);
+        assert_eq!(
+            evidence_only.criteria[0].status,
+            GoalCriterionStatus::Missing,
+            "model-recorded relation alone cannot self-certify completion"
+        );
+
+        let workflow = db
+            .create_workflow_run(crate::workflow::CreateWorkflowRunInput {
+                session_id: session.id,
+                kind: "research.recommendation".to_string(),
+                execution_mode: "guarded".to_string(),
+                script_source: "export default async function main(workflow) {}".to_string(),
+                budget: json!({"max_script_secs": 30, "max_ops": 8}),
+                parent_run_id: None,
+                origin: None,
+                goal_id: Some(prepared.goal.id.clone()),
+                goal_criterion_id: None,
+                worktree_id: None,
+            })
+            .expect("workflow");
+        db.transition_workflow_run(
+            &workflow.id,
+            crate::workflow::WorkflowRunState::Running,
+            Some("start"),
+        )
+        .expect("start workflow");
+        db.transition_workflow_run(
+            &workflow.id,
+            crate::workflow::WorkflowRunState::Completed,
+            Some("finish"),
+        )
+        .expect("complete workflow");
+        let completed = db.evaluate_goal(&prepared.goal.id).expect("final audit");
+        assert_eq!(completed.goal.state, GoalState::Completed);
+        assert_eq!(completed.criteria[0].status, GoalCriterionStatus::Satisfied);
+        assert!(completed.criteria[0].evidence_ids.len() >= 2);
+    }
+
+    #[test]
+    fn semantic_grader_is_durable_cached_and_cannot_override_hard_gate() {
+        let (_dir, db) = temp_db();
+        let evaluated = semantic_goal_with_evidence(&db);
+        assert_eq!(evaluated.goal.state, GoalState::Evaluating);
+        assert!(goal_runner_should_continue(&evaluated));
+        assert_eq!(
+            evaluated
+                .goal
+                .final_evidence
+                .get("status")
+                .and_then(Value::as_str),
+            Some("completed")
+        );
+        let premature_close = db
+            .close_goal(CloseGoalInput {
+                goal_id: evaluated.goal.id.clone(),
+                decision: GoalClosureDecision::AcceptedV1,
+                reason: Some("premature".to_string()),
+                follow_up_items: Vec::new(),
+            })
+            .expect_err("deterministic pass cannot bypass independent semantic grading");
+        assert!(premature_close
+            .to_string()
+            .contains("semantic evaluation is satisfied"));
+        let evidence_id = evaluated.criteria[0].evidence_ids[0].clone();
+        let (run_id, evaluation_key) = match db
+            .begin_goal_semantic_grade(&evaluated.goal.id, false)
+            .expect("start semantic grade")
+        {
+            GoalSemanticGradeStart::Started {
+                run_id,
+                evaluation_key,
+                attempt,
+            } => {
+                assert_eq!(attempt, 1);
+                (run_id, evaluation_key)
+            }
+            other => panic!("unexpected grader start: {other:?}"),
+        };
+        assert!(matches!(
+            db.begin_goal_semantic_grade(&evaluated.goal.id, false)
+                .expect("read in-progress grader"),
+            GoalSemanticGradeStart::InProgress { .. }
+        ));
+        let grade = GoalSemanticGrade {
+            overall: GoalSemanticOverallVerdict::Satisfied,
+            summary: "The cited review supports the semantic criterion.".to_string(),
+            criteria: vec![GoalSemanticCriterionGrade {
+                id: "criterion-1".to_string(),
+                verdict: GoalSemanticCriterionVerdict::Satisfied,
+                evidence_ids: vec![evidence_id],
+                reason: "The review directly assessed coherence and decision readiness."
+                    .to_string(),
+            }],
+            next_actions: Vec::new(),
+        };
+        let completed = db
+            .complete_goal_semantic_grade(
+                &run_id,
+                "test-grader",
+                &grade,
+                json!({"inputTokens": 20, "outputTokens": 5}),
+            )
+            .expect("apply semantic grade");
+        assert_eq!(completed.goal.state, GoalState::Completed);
+        assert_eq!(
+            completed
+                .goal
+                .final_evidence
+                .get("semanticEvaluationKey")
+                .and_then(Value::as_str),
+            Some(evaluation_key.as_str())
+        );
+        assert!(completed.budget.tokens_used >= 25);
+
+        let deterministic_again = db
+            .evaluate_goal(&evaluated.goal.id)
+            .expect("rerun deterministic gate");
+        assert_eq!(deterministic_again.goal.state, GoalState::Completed);
+        match db
+            .begin_goal_semantic_grade(&evaluated.goal.id, false)
+            .expect("reuse cached grade")
+        {
+            GoalSemanticGradeStart::Cached {
+                run_id: cached_id,
+                grade: cached_grade,
+                ..
+            } => {
+                assert_eq!(cached_id, run_id);
+                assert_eq!(cached_grade.overall, GoalSemanticOverallVerdict::Satisfied);
+            }
+            other => panic!("expected cached grade, got {other:?}"),
+        }
+
+        let no_evidence_session = db.create_session("ha-main").expect("create session");
+        let no_evidence = db
+            .create_goal(CreateGoalInput {
+                session_id: no_evidence_session.id,
+                objective: "Unverified semantic goal".to_string(),
+                completion_criteria: "quality is acceptable".to_string(),
+                domain: None,
+                workflow_template_id: None,
+                workflow_template_version: None,
+                workflow_task_type: None,
+                budget_token_limit: None,
+                budget_time_limit_secs: None,
+                budget_turn_limit: None,
+            })
+            .expect("create unverified goal");
+        db.prepare_goal_contract(
+            &no_evidence.goal.id,
+            no_evidence.goal.revision,
+            vec![GoalCriterionSpecInput {
+                id: "criterion-1".to_string(),
+                text: "quality is acceptable".to_string(),
+                kind: GoalCriterionKind::Required,
+                check_kind: GoalCriterionCheckKind::Semantic,
+                expected_evidence: vec!["validation_passed".to_string()],
+            }],
+            "Preserve the user's quality criterion.",
+            json!({"status": "ready"}),
+        )
+        .expect("prepare unverified contract");
+        db.evaluate_goal(&no_evidence.goal.id)
+            .expect("hard gate blocks");
+        assert!(db
+            .begin_goal_semantic_grade(&no_evidence.goal.id, false)
+            .expect_err("hard gate must prevent semantic grading")
+            .to_string()
+            .contains("deterministic goal audit must pass"));
+    }
+
+    #[test]
+    fn semantic_needs_revision_reopens_goal_without_changing_revision_or_evidence() {
+        let (_dir, db) = temp_db();
+        let evaluated = semantic_goal_with_evidence(&db);
+        let evidence_count = evaluated.evidence.len();
+        let revision = evaluated.goal.revision;
+        let run_id = match db
+            .begin_goal_semantic_grade(&evaluated.goal.id, true)
+            .expect("start strict semantic grade")
+        {
+            GoalSemanticGradeStart::Started { run_id, .. } => run_id,
+            other => panic!("unexpected grader start: {other:?}"),
+        };
+        let reopened = db
+            .complete_goal_semantic_grade(
+                &run_id,
+                "test-adversarial-grader",
+                &GoalSemanticGrade {
+                    overall: GoalSemanticOverallVerdict::NeedsRevision,
+                    summary: "The memo states a recommendation but does not resolve a conflict."
+                        .to_string(),
+                    criteria: vec![GoalSemanticCriterionGrade {
+                        id: "criterion-1".to_string(),
+                        verdict: GoalSemanticCriterionVerdict::NeedsRevision,
+                        evidence_ids: evaluated.criteria[0].evidence_ids.clone(),
+                        reason: "Resolve the contradictory recommendation before acceptance."
+                            .to_string(),
+                    }],
+                    next_actions: vec!["Reconcile the contradictory recommendation.".to_string()],
+                },
+                json!({"inputTokens": 10, "outputTokens": 5}),
+            )
+            .expect("apply needs-revision grade");
+        assert_eq!(reopened.goal.state, GoalState::Active);
+        assert_eq!(reopened.goal.revision, revision);
+        assert_eq!(reopened.evidence.len(), evidence_count);
+        assert_eq!(
+            reopened
+                .goal
+                .final_evidence
+                .get("status")
+                .and_then(Value::as_str),
+            Some("needs_revision")
+        );
+    }
+
+    #[test]
+    fn strict_semantic_success_returns_goal_to_pending_user_acceptance() {
+        let (_dir, db) = temp_db();
+        let evaluated = semantic_goal_with_evidence(&db);
+        let evidence_id = evaluated.criteria[0].evidence_ids[0].clone();
+        let non_strict_run = match db
+            .begin_goal_semantic_grade(&evaluated.goal.id, false)
+            .expect("start non-strict grade")
+        {
+            GoalSemanticGradeStart::Started { run_id, .. } => run_id,
+            other => panic!("unexpected non-strict start: {other:?}"),
+        };
+        let grade = GoalSemanticGrade {
+            overall: GoalSemanticOverallVerdict::Satisfied,
+            summary: "The memo meets the semantic criterion.".to_string(),
+            criteria: vec![GoalSemanticCriterionGrade {
+                id: "criterion-1".to_string(),
+                verdict: GoalSemanticCriterionVerdict::Satisfied,
+                evidence_ids: vec![evidence_id.clone()],
+                reason: "The review directly supports the criterion.".to_string(),
+            }],
+            next_actions: Vec::new(),
+        };
+        db.complete_goal_semantic_grade(
+            &non_strict_run,
+            "test-grader",
+            &grade,
+            json!({"inputTokens": 10, "outputTokens": 5}),
+        )
+        .expect("complete non-strict grade");
+        let strict_requested = db
+            .close_goal(CloseGoalInput {
+                goal_id: evaluated.goal.id.clone(),
+                decision: GoalClosureDecision::NeedsStrictEvidence,
+                reason: Some("adversarial semantic review required".to_string()),
+                follow_up_items: Vec::new(),
+            })
+            .expect("request strict evidence");
+        assert_eq!(strict_requested.goal.state, GoalState::Blocked);
+        assert_eq!(
+            strict_requested.goal.closure_decision,
+            Some(GoalClosureDecision::NeedsStrictEvidence)
+        );
+        assert!(
+            !goal_has_current_satisfied_semantic_grade(&strict_requested)
+                .expect("strict route invalidates non-strict acceptance")
+        );
+
+        let strict_run = match db
+            .begin_goal_semantic_grade(&evaluated.goal.id, true)
+            .expect("start strict grade")
+        {
+            GoalSemanticGradeStart::Started { run_id, .. } => run_id,
+            other => panic!("unexpected strict start: {other:?}"),
+        };
+        let strict_completed = db
+            .complete_goal_semantic_grade(
+                &strict_run,
+                "test-strict-grader",
+                &grade,
+                json!({"inputTokens": 12, "outputTokens": 6}),
+            )
+            .expect("complete strict grade");
+        assert_eq!(strict_completed.goal.state, GoalState::Completed);
+        assert_eq!(strict_completed.goal.closure_decision, None);
+        assert!(goal_has_current_satisfied_semantic_grade(&strict_completed)
+            .expect("strict semantic verdict is current"));
+
+        let accepted = db
+            .close_goal(CloseGoalInput {
+                goal_id: evaluated.goal.id,
+                decision: GoalClosureDecision::AcceptedV1,
+                reason: Some("strict semantic review passed".to_string()),
+                follow_up_items: Vec::new(),
+            })
+            .expect("user can accept after strict success");
+        assert_eq!(
+            accepted.goal.closure_decision,
+            Some(GoalClosureDecision::AcceptedV1)
+        );
+    }
+
+    #[test]
+    fn semantic_grader_marks_stale_run_failed_when_goal_revision_changes() {
+        let (_dir, db) = temp_db();
+        let evaluated = semantic_goal_with_evidence(&db);
+        let run_id = match db
+            .begin_goal_semantic_grade(&evaluated.goal.id, false)
+            .expect("start semantic grade")
+        {
+            GoalSemanticGradeStart::Started { run_id, .. } => run_id,
+            other => panic!("unexpected grader start: {other:?}"),
+        };
+        db.update_goal(UpdateGoalInput {
+            goal_id: evaluated.goal.id.clone(),
+            objective: Some("Prepare a revised decision-ready memo".to_string()),
+            completion_criteria: None,
+            domain: None,
+            workflow_template_id: None,
+            workflow_template_version: None,
+            workflow_task_type: None,
+        })
+        .expect("revise goal while grader is running");
+
+        let error = db
+            .complete_goal_semantic_grade(
+                &run_id,
+                "test-grader",
+                &GoalSemanticGrade {
+                    overall: GoalSemanticOverallVerdict::Satisfied,
+                    summary: "Stale result".to_string(),
+                    criteria: Vec::new(),
+                    next_actions: Vec::new(),
+                },
+                json!({"inputTokens": 5, "outputTokens": 2}),
+            )
+            .expect_err("stale grade must be discarded");
+        assert!(error.to_string().contains("goal changed"));
+        let runs = db
+            .list_goal_grader_runs(&evaluated.goal.id, 10)
+            .expect("list grader runs");
+        let stale = runs
+            .iter()
+            .find(|run| run.id == run_id)
+            .expect("stale run remains traceable");
+        assert_eq!(stale.state, "failed");
+        assert!(stale
+            .error
+            .as_deref()
+            .is_some_and(|error| error.contains("stale verdict discarded")));
     }
 }
 

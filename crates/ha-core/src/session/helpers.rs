@@ -110,6 +110,7 @@ pub fn first_message_title_candidate(
 }
 
 #[cfg(test)]
+#[allow(clippy::items_after_test_module)]
 mod title_tests {
     use super::first_message_title_candidate;
 

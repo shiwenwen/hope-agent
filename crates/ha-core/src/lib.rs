@@ -23,6 +23,7 @@ pub(crate) mod test_support;
 // ── Core modules (migrated from src-tauri) ────────────────────────
 pub mod acp;
 pub mod acp_control;
+pub mod activity;
 pub mod agent;
 pub mod agent_config;
 pub mod agent_loader;

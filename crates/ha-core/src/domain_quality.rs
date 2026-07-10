@@ -382,12 +382,12 @@ impl SessionDB {
     ) -> Result<DomainQualityRunSnapshot> {
         let context = self.resolve_quality_context(input)?;
         let run = self.create_domain_quality_run(&context)?;
-        let result = (|| {
+        let result = {
             let checks = build_quality_checks(&context);
             let stats = build_quality_stats(&context, &checks);
             let (state, summary) = summarize_quality(&context, &checks);
             self.complete_domain_quality_run(&run.id, state, &summary, stats, checks)
-        })();
+        };
         match result {
             Ok(snapshot) => Ok(snapshot),
             Err(err) => self.fail_domain_quality_run(&run.id, &err.to_string()),

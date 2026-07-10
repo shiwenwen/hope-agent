@@ -1479,6 +1479,10 @@ fn build_router_with_cors(
             get(routes::goal::get_active_goal).post(routes::goal::create_goal),
         )
         .route(
+            "/sessions/{sid}/activity",
+            get(routes::goal::get_autonomy_activity),
+        )
+        .route(
             "/sessions/{sid}/goal/watchdog",
             get(routes::goal::list_goal_watchdog_findings),
         )

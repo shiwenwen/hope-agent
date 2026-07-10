@@ -2448,8 +2448,7 @@ impl SessionDB {
             .filter_map(|id| non_empty(id).map(str::to_string))
             .collect::<Vec<_>>();
         if !campaign_ids.is_empty() {
-            let placeholders = std::iter::repeat("?")
-                .take(campaign_ids.len())
+            let placeholders = std::iter::repeat_n("?", campaign_ids.len())
                 .collect::<Vec<_>>()
                 .join(", ");
             clauses.push(format!("c.id IN ({placeholders})"));
@@ -3277,8 +3276,10 @@ impl SessionDB {
         let scope = self.resolve_domain_operational_gate_scope(&operational_input, window_days)?;
         let operational_gate = self.evaluate_domain_operational_gate(operational_input)?;
         let until = now_rfc3339();
-        let mut summary = DomainSoakReportSummary::default();
-        summary.required_sample_days = if window_days > 1 { 2 } else { 1 };
+        let mut summary = DomainSoakReportSummary {
+            required_sample_days: if window_days > 1 { 2 } else { 1 },
+            ..Default::default()
+        };
         let mut sample_days = BTreeSet::new();
         let mut incidents = Vec::new();
         let mut timeline = Vec::new();
@@ -3483,11 +3484,11 @@ impl SessionDB {
                     .get("from")
                     .and_then(Value::as_str)
                     .is_some_and(|state| state == "awaiting_approval")
-                && !event
+                && event
                     .payload
                     .get("to")
                     .and_then(Value::as_str)
-                    .is_some_and(|state| state == "awaiting_approval")
+                    .is_none_or(|state| state != "awaiting_approval")
             {
                 summary.approval_decision_events += 1;
                 if let Some(started_at) = approval_wait_started.remove(&event.run_id) {
@@ -4442,8 +4443,7 @@ impl SessionDB {
         let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
         let mut total = 0usize;
         for chunk in campaign_ids.chunks(500) {
-            let placeholders = std::iter::repeat("?")
-                .take(chunk.len())
+            let placeholders = std::iter::repeat_n("?", chunk.len())
                 .collect::<Vec<_>>()
                 .join(", ");
             let count = conn.query_row(
@@ -4472,8 +4472,7 @@ impl SessionDB {
         let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
         let mut materialized = BTreeSet::new();
         for chunk in failed_campaign_ids.chunks(500) {
-            let placeholders = std::iter::repeat("?")
-                .take(chunk.len())
+            let placeholders = std::iter::repeat_n("?", chunk.len())
                 .collect::<Vec<_>>()
                 .join(", ");
             let mut stmt = conn.prepare(&format!(

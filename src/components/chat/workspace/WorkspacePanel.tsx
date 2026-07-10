@@ -205,6 +205,7 @@ import {
 } from "./useWorkflowRuns"
 import {
   useGoal,
+  type AutonomyActivity,
   type Goal,
   type GoalBudgetSnapshot,
   type GoalClosureDecision,
@@ -336,6 +337,7 @@ function WorkspaceSection({
   const lastExpandSignalRef = useRef(expandSignal ?? 0)
   const lastAutoExpandWhenRef = useRef(Boolean(autoExpandWhen))
 
+  /* eslint-disable react-hooks/set-state-in-effect -- external expand signals intentionally synchronize local disclosure state */
   useEffect(() => {
     const nextSignal = expandSignal ?? 0
     if (nextSignal === lastExpandSignalRef.current) return
@@ -350,6 +352,7 @@ function WorkspaceSection({
     }
     lastAutoExpandWhenRef.current = nextAutoExpand
   }, [autoExpandWhen])
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   return (
     <div className="overflow-hidden rounded-2xl border border-border/80 bg-surface-floating shadow-sm">
@@ -1714,45 +1717,25 @@ function KnowledgeSection({
   )
 }
 
-function contextKindIcon(kind: ContextCandidateKind): LucideIcon {
-  switch (kind) {
-    case "file":
-      return FileText
-    case "symbol":
-      return Hash
-    case "diagnostic":
-      return CircleAlert
-    case "review_finding":
-      return GitPullRequest
-    case "verification_step":
-      return CheckCircle2
-    case "goal_evidence":
-      return Brain
-    case "task":
-      return Check
-    case "workflow_op":
-      return Layers
-    case "ide_context":
-      return Monitor
-    case "url_source":
-      return Globe
-    case "document":
-      return FileText
-    case "email_thread":
-      return MessageCircle
-    case "calendar_event":
-      return CalendarClock
-    case "sheet_range":
-      return Database
-    case "knowledge_note":
-      return BookText
-    case "web_source":
-      return Globe
-    case "decision":
-      return Brain
-    case "artifact":
-      return Files
-  }
+const contextKindIcons: Record<ContextCandidateKind, LucideIcon> = {
+  file: FileText,
+  symbol: Hash,
+  diagnostic: CircleAlert,
+  review_finding: GitPullRequest,
+  verification_step: CheckCircle2,
+  goal_evidence: Brain,
+  task: Check,
+  workflow_op: Layers,
+  ide_context: Monitor,
+  url_source: Globe,
+  document: FileText,
+  email_thread: MessageCircle,
+  calendar_event: CalendarClock,
+  sheet_range: Database,
+  knowledge_note: BookText,
+  web_source: Globe,
+  decision: Brain,
+  artifact: Files,
 }
 
 function contextKindLabel(
@@ -2438,7 +2421,7 @@ function ContextFileCandidateRow({
   onCreateTask?: (candidate: ContextCandidate) => void
 }) {
   const { t } = useTranslation()
-  const Icon = contextKindIcon(candidate.kind)
+  const Icon = contextKindIcons[candidate.kind]
   const path = candidate.path ?? ""
   const target = useMemo<PreviewTarget>(
     () => ({ kind: "path", path, name: basename(path) || candidate.title }),
@@ -2531,7 +2514,7 @@ function ContextGenericCandidateRow({
   onCreateTask?: (candidate: ContextCandidate) => void
 }) {
   const { t } = useTranslation()
-  const Icon = contextKindIcon(candidate.kind)
+  const Icon = contextKindIcons[candidate.kind]
   const label = candidate.url ?? candidate.subtitle ?? candidate.path ?? candidate.title
   const clickable = Boolean(candidate.url)
   const content = (
@@ -12422,6 +12405,25 @@ function GoalWorkspaceSection({
               </div>
             </div>
           ) : null}
+          {goalState.activity && goalState.activity.state !== "idle" ? (
+            <div className="mb-2 flex min-w-0 items-center gap-2 border-y border-border/55 bg-muted/25 px-2 py-1.5 text-[11px]">
+              <Radio className="h-3.5 w-3.5 shrink-0 text-primary" />
+              <span className="shrink-0 font-medium text-foreground/85">
+                {autonomyActivityLabel(t, goalState.activity)}
+              </span>
+              {goalState.activity.currentStep ? (
+                <span className="min-w-0 flex-1 truncate text-muted-foreground">
+                  {goalState.activity.currentStep}
+                </span>
+              ) : null}
+              {goalState.activity.needsUser ? (
+                <StatusPill
+                  label={t("chat.activity.needsUser", "需要你处理")}
+                  tone="warn"
+                />
+              ) : null}
+            </div>
+          ) : null}
           <GoalControlStrip
             snapshot={goalState.snapshot}
             loading={goalState.loading}
@@ -13774,15 +13776,50 @@ function LoopRunHistory({
     )
   }
   if (!snapshot) return null
-  if (snapshot.runs.length === 0) {
-    return (
+  const watches = snapshot.watches ?? []
+  return (
+    <>
+      {watches.length > 0 ? (
+        <div className="mt-2 space-y-1 border-y border-border/55 bg-muted/20 px-2 py-1.5">
+          <div className="flex items-center gap-1.5 text-[10px] font-medium text-muted-foreground">
+            <Radio className="h-3 w-3" />
+            {t("workspace.loop.watchesTitle", "监听器")}
+          </div>
+          {watches.slice(0, 4).map((watch) => (
+            <div key={watch.id} className="flex min-w-0 items-center gap-2 text-[10px]">
+              <span className="min-w-0 flex-1 truncate font-mono text-foreground/75">
+                {watch.kind}
+              </span>
+              <span className="shrink-0 text-muted-foreground">
+                {t("workspace.loop.watchGeneration", "第 {{value}} 代", {
+                  value: watch.generation,
+                })}
+              </span>
+              <StatusPill
+                label={
+                  watch.active
+                    ? t("workspace.loop.watchArmed", "监听中")
+                    : t("workspace.loop.watchSettled", "已结束")
+                }
+                tone={watch.active ? "info" : watch.lastError ? "danger" : "muted"}
+              />
+              {watch.failureCount > 0 ? (
+                <span className="shrink-0 text-destructive">
+                  {t("workspace.loop.watchFailures", "失败 {{count}} 次", {
+                    count: watch.failureCount,
+                  })}
+                </span>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      ) : null}
+      {snapshot.runs.length === 0 ? (
       <div className="mt-2 rounded-md bg-secondary/20 px-2 py-1.5 text-[11px] text-muted-foreground">
         {t("workspace.loop.historyEmpty", "还没有触发记录")}
       </div>
-    )
-  }
-  return (
-    <div className="mt-2 space-y-1 rounded-md border border-border/60 bg-secondary/15 p-1.5">
+      ) : (
+      <div className="mt-2 space-y-1 rounded-md border border-border/60 bg-secondary/15 p-1.5">
       <div className="flex items-center gap-1.5 px-0.5 text-[10px] font-medium text-muted-foreground">
         <Clock className="h-3 w-3" />
         {t("workspace.loop.historyTitle", "最近运行")}
@@ -13902,7 +13939,9 @@ function LoopRunHistory({
           </div>
         )
       })}
-    </div>
+      </div>
+      )}
+    </>
   )
 }
 
@@ -16986,6 +17025,7 @@ function WorkflowCreateComposer({
   const repairOrigin = draftOrigin?.type === "repair" ? draftOrigin : null
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- closing the parent disclosure resets its advanced child
     if (!open) setAdvancedOpen(false)
   }, [open])
 
@@ -17991,6 +18031,48 @@ function goalStateLabel(t: ReturnType<typeof useTranslation>["t"], state: GoalSt
   }
 }
 
+function autonomyActivityLabel(
+  t: ReturnType<typeof useTranslation>["t"],
+  activity: AutonomyActivity,
+): string {
+  switch (activity.headlineCode) {
+    case "waiting_job_approval":
+      return t("chat.activity.waitingJobApproval", "等待工具审批")
+    case "waiting_workflow_user":
+      return t("chat.activity.waitingWorkflowUser", "等待你处理")
+    case "waiting_goal_acceptance":
+      return t("chat.activity.waitingGoalAcceptance", "等待确认目标结果")
+    case "evaluating_goal":
+      return t("chat.activity.evaluatingGoal", "正在验收目标")
+    case "running_workflow":
+      return t("chat.activity.runningWorkflow", "工作流执行中")
+    case "running_task":
+      return t("chat.activity.runningTask", "任务执行中")
+    case "waiting_background_work":
+      return t("chat.activity.waitingBackgroundWork", "等待后台结果")
+    case "waiting_loop_trigger":
+      return t("chat.activity.waitingLoopTrigger", "等待持续推进触发")
+    case "goal_paused":
+      return t("chat.activity.goalPaused", "目标已暂停")
+    case "workflow_paused":
+      return t("chat.activity.workflowPaused", "工作流已暂停")
+    case "workflow_blocked":
+      return t("chat.activity.workflowBlocked", "工作流待处理")
+    case "goal_blocked":
+      return t("chat.activity.goalBlocked", "目标待处理")
+    case "loop_paused":
+      return t("chat.activity.loopPaused", "持续推进已暂停")
+    case "loop_blocked":
+      return t("chat.activity.loopBlocked", "持续推进待处理")
+    case "active_goal":
+      return t("chat.activity.activeGoal", "持续推进目标")
+    case "goal_terminal":
+      return t("chat.activity.goalTerminal", "目标已结束")
+    default:
+      return t("chat.activity.active", "正在推进")
+  }
+}
+
 function goalStateTone(state: GoalState): StatusTone {
   switch (state) {
     case "completed":
@@ -18650,6 +18732,7 @@ function GoalControlStrip({
     editTemplate?.taskTypes[0] ??
     ""
 
+  /* eslint-disable react-hooks/set-state-in-effect -- durable Goal changes intentionally reset the local editor draft */
   useEffect(() => {
     setEditObjective(goal?.objective ?? "")
     setEditCriteria(goal?.completionCriteria ?? "")
@@ -18689,6 +18772,7 @@ function GoalControlStrip({
       setEditTaskType(template.taskTypes[0] ?? "")
     }
   }, [domainTemplates, editTaskType, editTemplateId])
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   return (
     <div className="rounded-md border border-border/55 bg-secondary/20">
@@ -20374,7 +20458,7 @@ function WorkflowRunFocusCard({
   let title: string
   let body: string
   let tone: "muted" | "good" | "warn" | "danger" | "info" = workflowRunTone(run.state)
-  let Icon: LucideIcon = Radio
+  let Icon: LucideIcon
   let targetTab: WorkflowDetailTab | null = null
 
   if (displayState.kind === "children" && agentUsage) {
@@ -21702,6 +21786,7 @@ export default function WorkspacePanel({
     if (openLoopCreateRequest === lastExternalLoopCreateRequestRef.current) return
     lastExternalLoopCreateRequestRef.current = openLoopCreateRequest
     if (openLoopCreateRequest <= 0) return
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- an external composer request opens and focuses the local creator
     openLoopCreate()
   }, [openLoopCreate, openLoopCreateRequest])
   const focusWorkflowRun = useCallback((runId: string) => {

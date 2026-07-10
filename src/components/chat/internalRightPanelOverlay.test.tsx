@@ -7,6 +7,7 @@ import CanvasPanel from "./CanvasPanel"
 import { FileBrowserPanel } from "./FileBrowserPanel"
 import MacControlPanel from "./MacControlPanel"
 import { TeamPanel } from "@/components/team/TeamPanel"
+import { TooltipProvider } from "@/components/ui/tooltip"
 
 const transportMock = vi.hoisted(() => ({
   call: vi.fn((name: string) => {
@@ -93,15 +94,19 @@ function expectOverlay(container: HTMLElement) {
   expect(shell?.className).toContain("inset-0")
 }
 
+function renderPanel(ui: React.ReactNode) {
+  return render(<TooltipProvider>{ui}</TooltipProvider>)
+}
+
 describe("internal right-panel overlay contract", () => {
   test("BrowserPanel uses the shared fixed overlay surface", () => {
-    const { container } = render(<BrowserPanel overlay onClose={() => {}} />)
+    const { container } = renderPanel(<BrowserPanel overlay onClose={() => {}} />)
 
     expectOverlay(container)
   })
 
   test("FileBrowserPanel uses the shared fixed overlay surface", () => {
-    const { container } = render(
+    const { container } = renderPanel(
       <FileBrowserPanel
         scope="session"
         scopeId="s1"
@@ -120,19 +125,21 @@ describe("internal right-panel overlay contract", () => {
   })
 
   test("MacControlPanel uses the shared fixed overlay surface", () => {
-    const { container } = render(<MacControlPanel overlay onClose={() => {}} />)
+    const { container } = renderPanel(<MacControlPanel overlay onClose={() => {}} />)
 
     expectOverlay(container)
   })
 
   test("TeamPanel uses the shared fixed overlay surface", () => {
-    const { container } = render(<TeamPanel teamId="team-1" overlay onClose={() => {}} />)
+    const { container } = renderPanel(
+      <TeamPanel teamId="team-1" overlay onClose={() => {}} />,
+    )
 
     expectOverlay(container)
   })
 
   test("CanvasPanel uses the shared fixed overlay surface after restoring a canvas", async () => {
-    const { container } = render(<CanvasPanel currentSessionId="s1" visible overlay />)
+    const { container } = renderPanel(<CanvasPanel currentSessionId="s1" visible overlay />)
 
     await waitFor(() => expect(screen.getByText("Canvas Preview")).toBeTruthy())
     expectOverlay(container)

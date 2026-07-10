@@ -545,6 +545,26 @@
       "updated": "Matlamat dikemas kini\n<<HA38>>> Gelung",
       "messageBadge": "Matlamat"
     },
+    "activity": {
+      "waitingJobApproval": "Menunggu kelulusan alat",
+      "waitingWorkflowUser": "Menunggu respons anda",
+      "waitingGoalAcceptance": "Menunggu pengesahan hasil matlamat",
+      "evaluatingGoal": "Menilai matlamat",
+      "runningWorkflow": "Aliran kerja sedang berjalan",
+      "runningTask": "Tugas sedang berjalan",
+      "waitingBackgroundWork": "Menunggu hasil latar belakang",
+      "waitingLoopTrigger": "Menunggu pencetus gelung",
+      "goalPaused": "Matlamat dijeda",
+      "workflowPaused": "Aliran kerja dijeda",
+      "workflowBlocked": "Aliran kerja memerlukan perhatian",
+      "goalBlocked": "Matlamat memerlukan perhatian",
+      "loopPaused": "Gelung dijeda",
+      "loopBlocked": "Gelung memerlukan perhatian",
+      "activeGoal": "Meneruskan matlamat",
+      "goalTerminal": "Matlamat telah tamat",
+      "needsUser": "Memerlukan perhatian anda",
+      "active": "Sedang berjalan"
+    },
     "loopMode": {
       "label": "Gelung",
       "enter": "Mod gelung: buat tugasan kendiri berulang yang ejen boleh terus maju",
@@ -6032,7 +6052,12 @@
       "editPolicy": "Edit dasar",
       "policyTitle": "Dasar gelung",
       "viewMore": "Lihat lebih banyak kemajuan berterusan ({{count}})",
-      "viewLess": "Lihat kurang\n<<HA25>>> Hidup"
+      "viewLess": "Lihat kurang\n<<HA25>>> Hidup",
+      "watchesTitle": "Pemantau",
+      "watchGeneration": "Generasi {{value}}",
+      "watchArmed": "Aktif",
+      "watchSettled": "Selesai",
+      "watchFailures": "{{count}} kegagalan"
     },
     "workflow": {
       "title": "Aliran kerja",
