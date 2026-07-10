@@ -6260,7 +6260,8 @@
       "addToChat": "Добавить в чат",
       "batchToChat": "Отправить выбранное в чат",
       "batchScopeHint": "Измените ТОЛЬКО отмеченные ниже элементы, остальное оставьте без изменений:",
-      "batchLabel": "Комментариев: {{count}}"
+      "batchLabel": "Комментариев: {{count}}",
+      "lassoScope": "Выбрано {{n}}: {{list}}"
     },
     "exporting": "Экспорт…",
     "exportProgressSlide": "Экспорт {{done}}/{{total}}",

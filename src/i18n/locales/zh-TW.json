@@ -6260,7 +6260,8 @@
       "addToChat": "帶到對話",
       "batchToChat": "多選帶到對話",
       "batchScopeHint": "請僅修改下列被標註的元素，其它保持不變：",
-      "batchLabel": "{{count}} 則批註"
+      "batchLabel": "{{count}} 則批註",
+      "lassoScope": "套選 {{n}} 個：{{list}}"
     },
     "exporting": "正在匯出…",
     "exportProgressSlide": "正在匯出 {{done}}/{{total}}",

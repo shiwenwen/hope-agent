@@ -6260,7 +6260,8 @@
       "addToChat": "إضافة إلى المحادثة",
       "batchToChat": "إرسال المحدد إلى المحادثة",
       "batchScopeHint": "غيّر العناصر المشروحة أدناه فقط؛ واترك الباقي دون تغيير:",
-      "batchLabel": "{{count}} تعليقات"
+      "batchLabel": "{{count}} تعليقات",
+      "lassoScope": "تم تحديد {{n}}: {{list}}"
     },
     "exporting": "جارٍ التصدير…",
     "exportProgressSlide": "جارٍ التصدير {{done}}/{{total}}",

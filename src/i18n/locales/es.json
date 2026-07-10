@@ -6260,7 +6260,8 @@
       "addToChat": "Añadir al chat",
       "batchToChat": "Enviar selección al chat",
       "batchScopeHint": "Modifica SOLO los elementos anotados a continuación; deja el resto sin cambios:",
-      "batchLabel": "{{count}} comentarios"
+      "batchLabel": "{{count}} comentarios",
+      "lassoScope": "{{n}} seleccionados: {{list}}"
     },
     "exporting": "Exportando…",
     "exportProgressSlide": "Exportando {{done}}/{{total}}",

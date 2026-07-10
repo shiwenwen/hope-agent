@@ -199,7 +199,7 @@ const STORAGE_POLYFILL: &str = "<script>(function(){function mk(){var s={};retur
 /// 编辑态渲染版本：**inspector bridge / oid 注入等编辑工具层**变更时 +1。烧进可编辑 `index.html`
 /// 的 `data-ds-r` 属性；`service::ensure_artifact_render_fresh` 据此自愈老产物——工具层升级无需
 /// 用户重新编辑即对既有产物生效（bridge 烧死在 index.html，否则老产物永远用旧工具）。
-pub const RENDER_VERSION: u32 = 7;
+pub const RENDER_VERSION: u32 = 8;
 
 pub fn build_artifact_html(
     kind: ArtifactKind,
@@ -478,6 +478,7 @@ const INSPECTOR_BRIDGE: &str = r#"<script>
   document.addEventListener('click',function(e){
     if(commentMode){
       e.preventDefault();e.stopPropagation(); // 批注态吞掉所有点击，不泄漏到设计自身 handler
+      if(lassoSuppressClick){lassoSuppressClick=false;return} // 套选拖拽后紧随的 click 不再落单钉
       var cel=e.target.closest('[data-ds-oid]');
       if(!cel)return; // 点在钉 / 空白 → 已吞事件、不落新钉（钉自身走 pointerup）
       // **持久高亮当前待填元素**（2px 蓝框，填批注期间一直在，用户明确知道在标注谁）。
@@ -505,6 +506,44 @@ const INSPECTOR_BRIDGE: &str = r#"<script>
     // 单击文本 / 链接**叶子**即进就地编辑，光标落点击处（Wave 1-④，不再必须双击、不再全选整段）。
     // 非叶子 / 无文本叶子（图标等）只选中给属性面板，不进编辑。双击仍兼容（beginEdit 幂等）。
     if(el.childElementCount===0&&(el.textContent||'').trim())beginEdit(el,e.clientX,e.clientY);
+  },true);
+  // 批注态套选（Wave 2-⑪）：拖出矩形 → 命中所有 oid 元素（覆盖率>50%，排除大容器）→ 一条多成员批注。
+  var lassoStart=null,lassoBox=null,lassoMoved=false,lassoSuppressClick=false;
+  document.addEventListener('mousedown',function(e){
+    if(!commentMode)return;
+    // 按在钉上 = 钉拖拽（pointer 事件），不启套选——否则 mouse 兼容事件与 pointer 并行触发，
+    // 拖钉会同时完成一次套选、误发 ds_lasso_place（review HIGH）。
+    if(e.target&&e.target.closest&&e.target.closest('[data-ds-pinlayer]'))return;
+    lassoStart={x:e.clientX,y:e.clientY};lassoMoved=false;
+  },true);
+  document.addEventListener('mousemove',function(e){
+    if(!commentMode||!lassoStart)return;
+    var dx=e.clientX-lassoStart.x,dy=e.clientY-lassoStart.y;
+    if(!lassoMoved&&Math.abs(dx)+Math.abs(dy)<6)return;
+    lassoMoved=true;
+    if(!lassoBox){lassoBox=document.createElement('div');
+      lassoBox.style.cssText='position:fixed;border:1.5px dashed #2563eb;background:rgba(37,99,235,.08);z-index:2147483646;pointer-events:none';
+      document.documentElement.appendChild(lassoBox);}
+    lassoBox.style.left=Math.min(e.clientX,lassoStart.x)+'px';lassoBox.style.top=Math.min(e.clientY,lassoStart.y)+'px';
+    lassoBox.style.width=Math.abs(dx)+'px';lassoBox.style.height=Math.abs(dy)+'px';
+  },true);
+  document.addEventListener('mouseup',function(e){
+    if(!commentMode||!lassoStart)return;
+    var start=lassoStart,moved=lassoMoved;lassoStart=null;
+    if(lassoBox){lassoBox.remove();lassoBox=null}
+    if(!moved)return; // 纯点击 → 交给 click handler 落单钉
+    // 有拖拽即抑制紧随 click（即便 0 命中也不落单钉，review LOW）。
+    lassoSuppressClick=true;setTimeout(function(){lassoSuppressClick=false},0);
+    var x0=Math.min(e.clientX,start.x),y0=Math.min(e.clientY,start.y),x1=Math.max(e.clientX,start.x),y1=Math.max(e.clientY,start.y);
+    var cx=(x0+x1)/2,cy=(y0+y1)/2,els=document.querySelectorAll('[data-ds-oid]'),members=[];
+    for(var i=0;i<els.length;i++){var el=els[i],r=el.getBoundingClientRect(),area=r.width*r.height;
+      if(area<=0)continue;
+      var ox=Math.max(0,Math.min(r.right,x1)-Math.max(r.left,x0)),oy=Math.max(0,Math.min(r.bottom,y1)-Math.max(r.top,y0));
+      if(ox*oy/area>0.5){ // 元素被套选覆盖过半 = 选中；大容器仅小部分被覆盖故排除
+        members.push({oid:Number(el.getAttribute('data-ds-oid')),tag:el.tagName.toLowerCase(),snippet:labelOf(el),
+          relX:r.width?(cx-r.left)/r.width:0.5,relY:r.height?(cy-r.top)/r.height:0.5});}}
+    if(!members.length)return;
+    parent.postMessage({type:'ds_lasso_place',members:members},'*');
   },true);
   document.addEventListener('dblclick',function(e){
     if(!active)return;var el=e.target.closest('[data-ds-oid]');

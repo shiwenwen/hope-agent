@@ -294,71 +294,22 @@ pub fn apply_style_patch(
     Ok(PatchResult { new_source })
 }
 
-/// oid 元素的**完整字节范围** `[open_start, end)`：void / 自闭合元素 = start tag 本身；否则从
-/// `open_end` 起做**同名标签平衡扫描**（正确处理嵌套同名元素，如 `<div><div/></div>`），
-/// 到匹配 `</tag>` 的 `>` 之后。找不到闭合返回 `None`。
+/// oid 元素的**完整字节范围** `[open_start, end)`：void / 自闭合元素 = start tag 本身；否则复用
+/// `find_close_start`（平衡 + 引号 + 注释 + raw-text 感知，与 annotate/text-edit 同口径）定位匹配
+/// `</tag>` 的起点，再经 `find_tag_end` 取其 `>` 之后。找不到闭合返回 `None`。
 fn element_full_range(source: &str, e: &OidEntry) -> Option<(usize, usize)> {
     let open = &source[e.open_start..e.open_end];
     if e.void || is_void(&e.tag) || open.trim_end().ends_with("/>") {
         return Some((e.open_start, e.open_end));
     }
-    let bytes = source.as_bytes();
-    let tl = e.tag.as_bytes();
-    let boundary = |b: Option<u8>| {
-        matches!(
-            b,
-            Some(b'>') | Some(b'/') | Some(b' ') | Some(b'\t') | Some(b'\n') | Some(b'\r') | None
-        )
-    };
-    let mut i = e.open_end;
-    let mut depth = 1usize;
-    while i < bytes.len() {
-        if bytes[i] != b'<' {
-            i += 1;
-            continue;
-        }
-        // 匹配 `</tag`（同名闭合）。
-        if bytes.get(i + 1) == Some(&b'/')
-            && bytes
-                .get(i + 2..i + 2 + tl.len())
-                .is_some_and(|s| s.eq_ignore_ascii_case(tl))
-            && boundary(bytes.get(i + 2 + tl.len()).copied())
-        {
-            depth -= 1;
-            let mut j = i + 2 + tl.len();
-            while j < bytes.len() && bytes[j] != b'>' {
-                j += 1;
-            }
-            if depth == 0 {
-                return Some((e.open_start, (j + 1).min(bytes.len())));
-            }
-            i = (j + 1).min(bytes.len());
-            continue;
-        }
-        // 匹配 `<tag`（同名开标签）→ 非自闭合才加深。
-        if bytes
-            .get(i + 1..i + 1 + tl.len())
-            .is_some_and(|s| s.eq_ignore_ascii_case(tl))
-            && boundary(bytes.get(i + 1 + tl.len()).copied())
-        {
-            let mut j = i + 1;
-            while j < bytes.len() && bytes[j] != b'>' {
-                j += 1;
-            }
-            let self_closing = j > 0 && bytes.get(j - 1) == Some(&b'/');
-            if !self_closing {
-                depth += 1;
-            }
-            i = (j + 1).min(bytes.len());
-            continue;
-        }
-        i += 1;
-    }
-    None
+    let close_start = find_close_start(source, e)?;
+    let close_end = find_tag_end(source.as_bytes(), close_start).unwrap_or(source.len());
+    Some((e.open_start, close_end))
 }
 
 /// 删除元素（Wave 3-⑫）：把 oid 元素整段（含内部内容与闭合）从源码剔除。**平衡扫描**正确处理
-/// 嵌套同名元素。「最后一个可见元素」保护在 `service::patch_element` 层（删后 body 为空则拒）。
+/// 嵌套同名元素、引号内 / 注释内 / raw-text 内容里的假标签。「最后一个可见元素」保护在
+/// `service::patch_element` 层（删后 body 为空则拒）。
 pub fn apply_remove_patch(
     source: &str,
     map: &[OidEntry],
@@ -574,6 +525,14 @@ fn find_close_start(source: &str, e: &OidEntry) -> Option<usize> {
                 if depth == 0 {
                     return Some(i);
                 }
+            }
+        } else if RAW_TEXT_TAGS.contains(&name.as_str()) && !tag_str.trim_end().ends_with("/>") {
+            // raw-text 元素（script/style/textarea/title）内容是 CDATA——其中的 `<div>` / `</div>`
+            // 不是标签，必须整段跳过，否则删除容器时被内嵌脚本里的 `</tag>` 字符串误判提前收尾、
+            // 剪出错乱源码（review HIGH/MED）。与 annotate 同口径。
+            if let Some(close) = find_close_ci(bytes, end, &name) {
+                i = find_tag_end(bytes, close).unwrap_or(n);
+                continue;
             }
         } else if name == want && !tag_str.trim_end().ends_with("/>") && !is_void(&name) {
             depth += 1;
@@ -860,6 +819,27 @@ mod tests {
         assert_eq!(outer.tag, "div");
         let r = apply_remove_patch(src, &map, 1, None).unwrap();
         assert_eq!(r.new_source, "<section><p>keep</p></section>");
+    }
+
+    #[test]
+    fn remove_patch_ignores_fake_close_in_attr() {
+        // 属性值里的 </div> 不该被当作闭合（find_tag_end 引号感知）。
+        let src = "<section><div><img alt=\"a </div> b\"><span>x</span></div><p>keep</p></section>";
+        let (_, map) = annotate(src);
+        let div = map.iter().find(|e| e.tag == "div").unwrap();
+        let r = apply_remove_patch(src, &map, div.oid, None).unwrap();
+        assert_eq!(r.new_source, "<section><p>keep</p></section>");
+    }
+
+    #[test]
+    fn remove_patch_ignores_fake_close_in_script() {
+        // raw-text（script）内容里的 </div> 不该被当作闭合。
+        let src =
+            "<section><div><script>var a=\"</div>\";</script><h1>Hi</h1></div><p>k</p></section>";
+        let (_, map) = annotate(src);
+        let div = map.iter().find(|e| e.tag == "div").unwrap();
+        let r = apply_remove_patch(src, &map, div.oid, None).unwrap();
+        assert_eq!(r.new_source, "<section><p>k</p></section>");
     }
 
     #[test]

@@ -122,6 +122,8 @@ export interface CommentPlacement {
   relY: number;
   tag?: string;
   snippet?: string;
+  /** 套选（Wave 2-⑪）：命中的多个成员元素（一条批注覆盖多元素，成员随批注带给 AI）。 */
+  members?: { oid: number; tag: string; snippet: string }[];
 }
 
 /** 5 维质量评审结果（`critique_design_artifact_cmd`）。 */

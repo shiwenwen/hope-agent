@@ -6260,7 +6260,8 @@
       "addToChat": "대화에 추가",
       "batchToChat": "선택 항목을 채팅으로",
       "batchScopeHint": "아래에 표시된 요소만 변경하고 나머지는 그대로 두세요:",
-      "batchLabel": "댓글 {{count}}개"
+      "batchLabel": "댓글 {{count}}개",
+      "lassoScope": "{{n}}개 선택: {{list}}"
     },
     "exporting": "내보내는 중…",
     "exportProgressSlide": "내보내는 중 {{done}}/{{total}}",

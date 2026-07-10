@@ -6260,7 +6260,8 @@
       "addToChat": "Sohbete ekle",
       "batchToChat": "Seçileni sohbete gönder",
       "batchScopeHint": "SADECE aşağıda işaretlenen öğeleri değiştir; gerisini olduğu gibi bırak:",
-      "batchLabel": "{{count}} yorum"
+      "batchLabel": "{{count}} yorum",
+      "lassoScope": "{{n}} seçildi: {{list}}"
     },
     "exporting": "Dışa aktarılıyor…",
     "exportProgressSlide": "Dışa aktarılıyor {{done}}/{{total}}",

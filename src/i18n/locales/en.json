@@ -6260,7 +6260,8 @@
       "addToChat": "Add to chat",
       "batchToChat": "Send selected to chat",
       "batchScopeHint": "Change ONLY the annotated elements below; keep everything else unchanged:",
-      "batchLabel": "{{count}} comments"
+      "batchLabel": "{{count}} comments",
+      "lassoScope": "Lassoed {{n}}: {{list}}"
     },
     "exporting": "Exporting…",
     "exportProgressSlide": "Exporting {{done}}/{{total}}",

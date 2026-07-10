@@ -6260,7 +6260,8 @@
       "addToChat": "Thêm vào trò chuyện",
       "batchToChat": "Gửi mục đã chọn vào trò chuyện",
       "batchScopeHint": "CHỈ thay đổi các phần tử được chú thích bên dưới; giữ nguyên phần còn lại:",
-      "batchLabel": "{{count}} chú thích"
+      "batchLabel": "{{count}} chú thích",
+      "lassoScope": "Chọn {{n}}: {{list}}"
     },
     "exporting": "Đang xuất…",
     "exportProgressSlide": "Đang xuất {{done}}/{{total}}",

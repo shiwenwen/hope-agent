@@ -1531,6 +1531,16 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
       const aid = activeArtifactRef.current?.id
       const p = pendingPlacement
       if (!aid || !p) return
+      // 套选批注（Wave 2-⑪）：把成员清单作范围前缀写进正文，随批注带给 AI（snippet 留作 pin 锚点）。
+      const finalBody =
+        p.members && p.members.length > 1
+          ? `${t("design.comment.lassoScope", "套选 {{n}} 个：{{list}}", {
+              n: p.members.length,
+              list: p.members
+                .map((m) => (m.snippet ? `${m.tag}「${m.snippet.slice(0, 16)}」` : m.tag))
+                .join("、"),
+            })}\n${body}`
+          : body
       try {
         await tx.call("design_comment_add_cmd", {
           artifactId: aid,
@@ -1539,7 +1549,7 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
           relY: p.relY,
           tag: p.tag,
           snippet: p.snippet,
-          body,
+          body: finalBody,
         })
         setPendingPlacement(null)
         await loadComments()
@@ -1771,6 +1781,7 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
         y?: number
         active?: number
         count?: number
+        members?: { oid: number; tag: string; snippet: string; relX: number; relY: number }[]
       }
       // 画框批注视口度量回传（B4-1，跨源；resolve 对应 requestViewportMetrics 的 promise）。
       if (d?.type === "ds_viewport_result" && typeof d.id === "number") {
@@ -1791,6 +1802,23 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
           relY: Number(d.relY ?? 0.5),
           tag: d.tag,
           snippet: d.snippet,
+        })
+      }
+      // 套选（Wave 2-⑪）：命中多个成员 → 一条批注锚到首成员、pin 落质心，snippet 汇总成员
+      //（成员 tag/文本随批注带给 AI = 定向多元素范围约束）。
+      else if (d?.type === "ds_lasso_place" && commentModeRef.current && Array.isArray(d.members)) {
+        const members = d.members as { oid: number; tag: string; snippet: string; relX: number; relY: number }[]
+        if (members.length === 0) return
+        const first = members[0]
+        // snippet 取首成员**真实文本**（保 resolveEl 文本软着陆，review LOW）；成员汇总在保存时
+        // 写进批注正文带给 AI（见 handleCreateComment）。
+        setPendingPlacement({
+          oid: first.oid,
+          relX: Number(first.relX ?? 0.5),
+          relY: Number(first.relY ?? 0.5),
+          tag: first.tag,
+          snippet: first.snippet,
+          members: members.map((m) => ({ oid: m.oid, tag: m.tag, snippet: m.snippet })),
         })
       }
       // 拖拽钉 → 重锚到落点元素（确定性回写 rel 位 + oid）。
@@ -1831,7 +1859,7 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
     }
     window.addEventListener("message", onMsg)
     return () => window.removeEventListener("message", onMsg)
-  }, [postToIframe, commitPatch, handleRelocateComment])
+  }, [postToIframe, commitPatch, handleRelocateComment, t])
 
   // Toggle bridge activation with edit mode. 画框批注（父层叠层）需 iframe bridge 关闭，避免
   // 底层 iframe 抢事件 / 出选中框——drawMode 期间强制 ds_deactivate（editMode 已被三态互斥关掉）。

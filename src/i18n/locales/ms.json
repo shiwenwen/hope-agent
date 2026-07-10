@@ -6260,7 +6260,8 @@
       "addToChat": "Tambah ke sembang",
       "batchToChat": "Hantar pilihan ke sembang",
       "batchScopeHint": "Ubah HANYA elemen bertanda di bawah; kekalkan yang lain:",
-      "batchLabel": "{{count}} komen"
+      "batchLabel": "{{count}} komen",
+      "lassoScope": "{{n}} dipilih: {{list}}"
     },
     "exporting": "Mengeksport…",
     "exportProgressSlide": "Mengeksport {{done}}/{{total}}",
