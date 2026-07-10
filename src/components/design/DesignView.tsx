@@ -3417,6 +3417,20 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                   {t("common.retry", "重试")}
                 </Button>
               </div>
+            ) : showGrid && loadingArtifacts && artifacts.length === 0 ? (
+              /* 骨架屏：加载中不闪「空库」文案，占位卡对齐真实网格列宽。 */
+              <div
+                className="grid grid-cols-2 gap-2.5 p-3 sm:grid-cols-3 lg:grid-cols-4"
+                aria-busy="true"
+                aria-label={t("design.loadingLibrary", "正在加载产物库…")}
+              >
+                {Array.from({ length: 8 }).map((_, i) => (
+                  <div key={i} className="space-y-1.5">
+                    <div className="aspect-[4/3] animate-pulse rounded-lg bg-muted/60" />
+                    <div className="h-3 w-2/3 animate-pulse rounded bg-muted/50" />
+                  </div>
+                ))}
+              </div>
             ) : showGrid ? (
               /* 页面文件管理面（本轮·源码级复刻 OD DesignFilesPanel）：面包屑 + 文件夹 + 类型分组。 */
               <DesignFilesPanel

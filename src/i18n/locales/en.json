@@ -6657,6 +6657,7 @@
     "scene2": "An 8-slide investor pitch deck, dark tech style",
     "scene3": "A mobile app sign-in / sign-up screen, rounded friendly style",
     "scene4": "A product launch poster, big headline + key selling points",
-    "scene5": "A data dashboard, KPI cards + line trends"
+    "scene5": "A data dashboard, KPI cards + line trends",
+    "loadingLibrary": "Loading library…"
   }
 }

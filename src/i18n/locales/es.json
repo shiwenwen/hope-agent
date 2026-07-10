@@ -6657,6 +6657,7 @@
     "scene2": "Un pitch para inversores de 8 diapositivas, estilo tech oscuro",
     "scene3": "Una pantalla de acceso / registro de app móvil, estilo redondeado",
     "scene4": "Un póster de lanzamiento, gran titular + puntos clave",
-    "scene5": "Un panel de datos, tarjetas KPI + tendencias de línea"
+    "scene5": "Un panel de datos, tarjetas KPI + tendencias de línea",
+    "loadingLibrary": "Cargando biblioteca…"
   }
 }
