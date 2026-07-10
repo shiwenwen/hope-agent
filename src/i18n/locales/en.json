@@ -6263,7 +6263,9 @@
       "letterSpacing": "Letter spacing",
       "quadLinked": "Linked (click to edit sides individually)",
       "quadUnlinked": "Per-side (click to link all)",
-      "deleteEl": "Delete element"
+      "deleteEl": "Delete element",
+      "addToChat": "Add to chat",
+      "addedToChat": "Added to chat — tell the AI what to change"
     },
     "settings": {
       "desc": "Design Space: generate, fine-tune, and export deliverable design artifacts.",

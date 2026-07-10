@@ -6263,7 +6263,9 @@
       "letterSpacing": "字距",
       "quadLinked": "四邊聯動（點擊解鎖逐邊）",
       "quadUnlinked": "逐邊獨立（點擊鎖定四邊）",
-      "deleteEl": "刪除元素"
+      "deleteEl": "刪除元素",
+      "addToChat": "加入對話",
+      "addedToChat": "已加入對話，補充你的需求"
     },
     "settings": {
       "desc": "設計空間：產生、微調並匯出可交付的設計產物。",

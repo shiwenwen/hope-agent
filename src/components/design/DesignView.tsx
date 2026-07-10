@@ -1629,6 +1629,29 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
     [comments, t, enqueueChatQuote],
   )
 
+  // 编辑模式选中元素 → 一键带到对话（不必先进批注模式）。复用 comment→chat 的同一 quote 注入，
+  // 但源取自 editMode 的 selected（含 oid/tag/text）：把 oid + 硬范围提示带给 AI，用户在 composer
+  // 里补充「怎么改」后随 turn 发。oid 与 get_artifact / edit_element 同一确定性编号，命中同一元素。
+  const handleAddSelectedToChat = useCallback(() => {
+    const el = selectedRef.current
+    if (!el) return
+    const snippet = el.text?.trim().slice(0, 40)
+    const context = snippet ? `元素「${snippet}」` : `<${el.tag}>`
+    const label = snippet ? `<${el.tag}> · ${snippet}` : `<${el.tag}>`
+    const content =
+      `已选中${context}（oid=${el.oid}）。请只改这一个元素：用 design 工具 ` +
+      `edit_element(oid=${el.oid}, style/text/...) 就地精改，保留其它一切；不确定当前样式先 ` +
+      `get_artifact 读 source。别为这点改动重造整个产物。`
+    enqueueChatQuote({
+      path: `design-element:${el.oid}`,
+      name: label,
+      startLine: 0,
+      endLine: 0,
+      content,
+    })
+    toast.success(t("design.insp.addedToChat", "已加入对话，去补充你的要求"))
+  }, [t, enqueueChatQuote])
+
   // 批量带到对话（B4-2）：多条批注合成一个 scope-guarded 结构块（编号 + 元素 + 反馈），
   // 作为单条 quote 塞进 composer——对齐参照 <attached-preview-comments> 的「硬范围」约束。
   const handleBatchCommentsToChat = useCallback(
@@ -3788,6 +3811,7 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
               onCommitAttr={handleCommitAttr}
               onPickImage={handlePickImage}
               onDelete={() => void handleDeleteElement()}
+              onAddToChat={handleAddSelectedToChat}
               onClose={() => setSelected(null)}
             />
           )}

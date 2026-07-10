@@ -8,7 +8,7 @@
 
 import { useState } from "react"
 import { useTranslation } from "react-i18next"
-import { X, AlignLeft, AlignCenter, AlignRight, Link2, Link, Unlink, Trash2, ImageUp, Loader2 } from "lucide-react"
+import { X, AlignLeft, AlignCenter, AlignRight, Link2, Link, Unlink, Trash2, ImageUp, Loader2, MessagesSquare } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
@@ -37,6 +37,8 @@ interface Props {
   onPickImage: () => Promise<string | null>
   /** 删除选中元素（Wave 3-⑫）。 */
   onDelete: () => void
+  /** 把选中元素（含 oid）一键带到对话，让 AI 就地精改——不必先进批注模式。 */
+  onAddToChat: () => void
   onClose: () => void
 }
 
@@ -407,6 +409,7 @@ export default function DesignInspector({
   onCommitAttr,
   onPickImage,
   onDelete,
+  onAddToChat,
   onClose,
 }: Props) {
   const { t } = useTranslation()
@@ -459,11 +462,21 @@ export default function DesignInspector({
           &lt;{selected.tag}&gt;
         </span>
         <span className="text-[11px] text-muted-foreground">#{selected.oid}</span>
+        <IconTip label={t("design.insp.addToChat", "添加到对话")} side="bottom">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="ml-auto h-6 w-6 text-primary hover:bg-primary/10 hover:text-primary"
+            onClick={onAddToChat}
+          >
+            <MessagesSquare className="h-3.5 w-3.5" />
+          </Button>
+        </IconTip>
         <IconTip label={t("design.insp.deleteEl", "删除元素")} side="bottom">
           <Button
             variant="ghost"
             size="icon"
-            className="ml-auto h-6 w-6 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+            className="h-6 w-6 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
             onClick={onDelete}
           >
             <Trash2 className="h-3.5 w-3.5" />

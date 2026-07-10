@@ -6263,7 +6263,9 @@
       "letterSpacing": "Harf aralığı",
       "quadLinked": "Bağlı (tek tek düzenlemek için tıkla)",
       "quadUnlinked": "Kenar bazında (bağlamak için tıkla)",
-      "deleteEl": "Öğeyi sil"
+      "deleteEl": "Öğeyi sil",
+      "addToChat": "Sohbete ekle",
+      "addedToChat": "Sohbete eklendi — neyi değiştireceğini yaz"
     },
     "settings": {
       "desc": "Tasarım Alanı: teslim edilebilir tasarım çıktıları üret, ince ayar yap ve dışa aktar.",

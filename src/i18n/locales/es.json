@@ -6263,7 +6263,9 @@
       "letterSpacing": "Espaciado",
       "quadLinked": "Vinculado (clic para editar por lado)",
       "quadUnlinked": "Por lado (clic para vincular)",
-      "deleteEl": "Eliminar elemento"
+      "deleteEl": "Eliminar elemento",
+      "addToChat": "Añadir al chat",
+      "addedToChat": "Añadido al chat: indica qué cambiar"
     },
     "settings": {
       "desc": "Espacio de Diseño: genera, ajusta y exporta artefactos de diseño entregables.",
