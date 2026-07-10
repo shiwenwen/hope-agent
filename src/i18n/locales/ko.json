@@ -1332,7 +1332,8 @@
       "web_search": "웹 검색",
       "image_generation": "이미지 생성",
       "provider_test": "제공자 테스트",
-      "vision": "비전"
+      "vision": "비전",
+      "audio_generation": "오디오 생성"
     }
   },
   "fileActions": {
@@ -6281,13 +6282,7 @@
       "exportScale": "내보내기 선명도 (배)",
       "exportScaleDesc": "래스터화 배율; 클수록 선명하고 용량 큼. 기본 2.",
       "exportJpegQuality": "PDF 이미지 품질",
-      "exportJpegQualityDesc": "PDF 페이지 JPEG 품질 (1–100). 기본 92.",
-      "extractVisionModel": "추출용 비전 모델",
-      "extractVisionModelDesc": "스크린샷 역추출 전용; 비우면 활성 모델 재사용(비전 지원 필요).",
-      "critiqueModel": "품질 검토 모델",
-      "critiqueModelDesc": "5차원 품질 검토 전용; 비우면 기본 분석 모델 재사용.",
-      "modelActive": "활성 모델 재사용",
-      "modelDefault": "기본 분석 모델 재사용"
+      "exportJpegQualityDesc": "PDF 페이지 JPEG 품질 (1–100). 기본 92."
     },
     "deleteTitle": "삭제하시겠습니까?",
     "deleteProjectDesc": "프로젝트와 모든 산출물이 영구 삭제됩니다. 되돌릴 수 없습니다.",

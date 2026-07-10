@@ -5,26 +5,8 @@ import { Loader2, Check, Palette, ChevronsUpDown } from "lucide-react"
 import { Switch } from "@/components/ui/switch"
 import { Button } from "@/components/ui/button"
 import { DeferredNumberInput } from "@/components/ui/deferred-number-input"
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectLabel,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 import { DesignSystemPicker } from "@/components/design/DesignSystemPicker"
 import type { DesignConfig, DesignSystemMeta } from "@/types/design"
-
-interface ProviderOption {
-  id: string
-  name: string
-  models: { id: string; name: string }[]
-  enabled?: boolean
-}
-
-const MODEL_DEFAULT = "__default__"
 
 const DEFAULTS: DesignConfig = {
   enabled: true,
@@ -37,62 +19,12 @@ const DEFAULTS: DesignConfig = {
   maxExtractImageMb: 24,
   exportScale: 2,
   exportJpegQuality: 92,
-  extractVisionModel: undefined,
-  critiqueModel: undefined,
-}
-
-/** Optional model override picker (`providerId:modelId`); default = reuse. */
-function ModelPicker({
-  label,
-  desc,
-  value,
-  providers,
-  onChange,
-  defaultLabel,
-}: {
-  label: string
-  desc: string
-  value: string | undefined
-  providers: ProviderOption[]
-  onChange: (v: string | undefined) => void
-  defaultLabel: string
-}) {
-  return (
-    <div className="space-y-1.5">
-      <span className="text-sm font-medium">{label}</span>
-      <p className="text-xs text-muted-foreground">{desc}</p>
-      <Select
-        value={value || MODEL_DEFAULT}
-        onValueChange={(v) => onChange(v === MODEL_DEFAULT ? undefined : v)}
-      >
-        <SelectTrigger className="w-full">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value={MODEL_DEFAULT}>{defaultLabel}</SelectItem>
-          {providers
-            .filter((p) => p.enabled !== false && p.models.length > 0)
-            .map((p) => (
-              <SelectGroup key={p.id}>
-                <SelectLabel>{p.name}</SelectLabel>
-                {p.models.map((m) => (
-                  <SelectItem key={`${p.id}:${m.id}`} value={`${p.id}:${m.id}`}>
-                    {m.name}
-                  </SelectItem>
-                ))}
-              </SelectGroup>
-            ))}
-        </SelectContent>
-      </Select>
-    </div>
-  )
 }
 
 export default function DesignSettingsPanel() {
   const { t } = useTranslation()
   const [config, setConfig] = useState<DesignConfig>(DEFAULTS)
   const [systems, setSystems] = useState<DesignSystemMeta[]>([])
-  const [providers, setProviders] = useState<ProviderOption[]>([])
   const [savedSnapshot, setSavedSnapshot] = useState("")
   const [saving, setSaving] = useState(false)
   const [saveStatus, setSaveStatus] = useState<"idle" | "saved" | "failed">("idle")
@@ -111,10 +43,6 @@ export default function DesignSettingsPanel() {
     getTransport()
       .call<DesignSystemMeta[]>("list_design_systems_cmd")
       .then((list) => setSystems(list ?? []))
-      .catch(() => {})
-    getTransport()
-      .call<ProviderOption[]>("get_providers")
-      .then((list) => setProviders(list ?? []))
       .catch(() => {})
   }, [])
 
@@ -297,30 +225,6 @@ export default function DesignSettingsPanel() {
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <ModelPicker
-              label={t("design.settings.extractVisionModel", "提取视觉模型")}
-              desc={t(
-                "design.settings.extractVisionModelDesc",
-                "反向提取截图专用；留空复用当前活跃模型（需支持视觉）。",
-              )}
-              value={config.extractVisionModel}
-              providers={providers}
-              onChange={(v) => setConfig((c) => ({ ...c, extractVisionModel: v }))}
-              defaultLabel={t("design.settings.modelActive", "复用活跃模型")}
-            />
-            <ModelPicker
-              label={t("design.settings.critiqueModel", "质量评审模型")}
-              desc={t(
-                "design.settings.critiqueModelDesc",
-                "5 维质量评审专用；留空复用默认分析模型。",
-              )}
-              value={config.critiqueModel}
-              providers={providers}
-              onChange={(v) => setConfig((c) => ({ ...c, critiqueModel: v }))}
-              defaultLabel={t("design.settings.modelDefault", "复用默认分析模型")}
-            />
-          </div>
         </div>
       </div>
 

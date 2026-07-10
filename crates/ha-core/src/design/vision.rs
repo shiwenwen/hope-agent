@@ -21,7 +21,17 @@ fn is_vision_format(t: &ApiType) -> bool {
     )
 }
 
+/// 一次 vision 单发的结果：助手文本 + provider 原始 usage（无则 0）。
+struct VisionCall {
+    text: String,
+    input_tokens: u64,
+    output_tokens: u64,
+}
+
 /// 视觉提取：instruction + 一张 base64 图片 → 助手文本回复。
+///
+/// owner 平面单发（截图 → 设计系统），不绑会话。计入模型用量总账为 `KIND_VISION`
+/// （红线：所有触发推理的入口必须入账）；session_id 留空（owner 操作、非 incognito 会话）。
 pub async fn vision_extract(instruction: &str, mime: &str, b64: &str) -> Result<String> {
     let cfg = crate::config::cached_config();
     let (provider, model) = resolve_vision_provider(&cfg)?;
@@ -48,7 +58,8 @@ pub async fn vision_extract(instruction: &str, mime: &str, b64: &str) -> Result<
         provider.api_type
     );
 
-    match &provider.api_type {
+    let started = std::time::Instant::now();
+    let result = match &provider.api_type {
         ApiType::Anthropic => {
             anthropic_vision(&client, &base, &key, &model, instruction, mime, b64).await
         }
@@ -63,35 +74,56 @@ pub async fn vision_extract(instruction: &str, mime: &str, b64: &str) -> Result<
 (the active provider format is {other:?}). Switch the active model to a vision-capable provider, \
 or use extract from URL / codebase / description instead."
         ),
-    }
+    };
+    record_vision_usage(
+        provider,
+        &model,
+        started.elapsed().as_millis() as u64,
+        result.as_ref().ok(),
+        result.as_ref().err().map(|e| e.to_string()),
+    );
+    result.map(|c| c.text)
 }
 
-/// 选 vision provider：优先当前激活模型（若格式受支持 + 支持 vision），否则回退首个
-/// enabled 的 Anthropic / OpenAI-Chat provider。
+/// 记一条 `KIND_VISION` 用量（design 截图提取）。
+fn record_vision_usage(
+    provider: &ProviderConfig,
+    model: &str,
+    duration_ms: u64,
+    call: Option<&VisionCall>,
+    error: Option<String>,
+) {
+    let mut event = crate::model_usage::ModelUsageEvent::new(crate::model_usage::KIND_VISION);
+    event.operation = Some("design.extract_vision".to_string());
+    event.source = Some("design.vision".to_string());
+    event.provider_id = Some(provider.id.clone());
+    event.provider_name = Some(provider.name.clone());
+    event.model_id = Some(model.to_string());
+    event.duration_ms = Some(duration_ms);
+    event.success = error.is_none();
+    event.error = error;
+    if let Some(call) = call {
+        event.input_tokens = Some(call.input_tokens);
+        event.output_tokens = Some(call.output_tokens);
+    }
+    crate::model_usage::record_model_usage_best_effort(event);
+}
+
+/// 选 vision provider：优先统一的视觉模型（`function_models.vision`，与视觉桥共用、
+/// 在设置→模型里配），否则当前激活模型（若格式受支持 + 支持 vision），再否则回退首个
+/// enabled 的 Anthropic / OpenAI-Chat provider。design 不再自持 extract-vision 覆盖。
 fn resolve_vision_provider(cfg: &AppConfig) -> Result<(&ProviderConfig, String)> {
-    // Explicit override (design.extractVisionModel = "providerId:modelId"). User chose
-    // it, so we trust the model but still enforce a format the code can actually call.
-    if let Some(over) = cfg
-        .design
-        .extract_vision_model
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-    {
-        let (pid, mid) = over.split_once(':').ok_or_else(|| {
-            anyhow!("invalid design.extractVisionModel '{over}' (want 'providerId:modelId')")
-        })?;
-        let p = find_provider(&cfg.providers, pid)
-            .ok_or_else(|| anyhow!("design.extractVisionModel provider '{pid}' not found"))?;
-        if !is_vision_format(&p.api_type) {
-            bail!(
-                "design.extractVisionModel provider '{}' is {:?}; screenshot extraction \
-needs an Anthropic / OpenAI-Chat / OpenAI-Responses vision model",
-                p.name,
-                p.api_type
-            );
+    // Unified vision model: the shared `function_models.vision` (the vision
+    // bridge's model, configured in Settings → Models) doubles as design's
+    // screenshot-extraction model whenever it's a format this self-contained
+    // path can call; otherwise fall through to the active model / first
+    // vision-capable provider.
+    if let Some(vm) = &cfg.function_models.vision {
+        if let Some(p) = find_provider(&cfg.providers, &vm.provider_id) {
+            if is_vision_format(&p.api_type) {
+                return Ok((p, vm.model_id.clone()));
+            }
         }
-        return Ok((p, mid.to_string()));
     }
     if let Some(am) = &cfg.active_model {
         if let Some(p) = find_provider(&cfg.providers, &am.provider_id) {
@@ -130,7 +162,7 @@ async fn anthropic_vision(
     instruction: &str,
     mime: &str,
     b64: &str,
-) -> Result<String> {
+) -> Result<VisionCall> {
     let url = join_v1(base, "/messages");
     let body = json!({
         "model": model,
@@ -173,7 +205,11 @@ async fn anthropic_vision(
     if text.trim().is_empty() {
         bail!("empty vision response from anthropic");
     }
-    Ok(text)
+    Ok(VisionCall {
+        text,
+        input_tokens: v["usage"]["input_tokens"].as_u64().unwrap_or(0),
+        output_tokens: v["usage"]["output_tokens"].as_u64().unwrap_or(0),
+    })
 }
 
 async fn openai_vision(
@@ -184,7 +220,7 @@ async fn openai_vision(
     instruction: &str,
     mime: &str,
     b64: &str,
-) -> Result<String> {
+) -> Result<VisionCall> {
     let url = join_v1(base, "/chat/completions");
     let data_uri = format!("data:{mime};base64,{b64}");
     let body = json!({
@@ -220,7 +256,11 @@ async fn openai_vision(
     if text.trim().is_empty() {
         bail!("empty vision response from openai");
     }
-    Ok(text)
+    Ok(VisionCall {
+        text,
+        input_tokens: v["usage"]["prompt_tokens"].as_u64().unwrap_or(0),
+        output_tokens: v["usage"]["completion_tokens"].as_u64().unwrap_or(0),
+    })
 }
 
 async fn openai_responses_vision(
@@ -231,7 +271,7 @@ async fn openai_responses_vision(
     instruction: &str,
     mime: &str,
     b64: &str,
-) -> Result<String> {
+) -> Result<VisionCall> {
     let url = join_v1(base, "/responses");
     let data_uri = format!("data:{mime};base64,{b64}");
     let body = json!({
@@ -282,7 +322,11 @@ async fn openai_responses_vision(
     if text.trim().is_empty() {
         bail!("empty vision response from openai responses");
     }
-    Ok(text)
+    Ok(VisionCall {
+        text,
+        input_tokens: v["usage"]["input_tokens"].as_u64().unwrap_or(0),
+        output_tokens: v["usage"]["output_tokens"].as_u64().unwrap_or(0),
+    })
 }
 
 #[cfg(test)]

@@ -86,8 +86,20 @@ async fn generate_image_bytes(prompt: &str, opts: &ImageGenOptions) -> Result<(V
             resolution: None,
             input_images: &opts.input_images,
         };
+        let started = std::time::Instant::now();
         match provider.generate(params).await {
             Ok(ImageGenResult { images, .. }) => {
+                // Image providers return no token usage — record call + duration
+                // only (KIND_IMAGE_GENERATION), matching `tool_image_generate`.
+                record_image_usage(
+                    &entry.id,
+                    provider.display_name(),
+                    &model,
+                    started.elapsed().as_millis() as u64,
+                    true,
+                    None,
+                    Some(images.len()),
+                );
                 if let Some(img) = images.into_iter().next() {
                     crate::app_info!(
                         "design",
@@ -102,6 +114,15 @@ async fn generate_image_bytes(prompt: &str, opts: &ImageGenOptions) -> Result<(V
                 last_err = Some(anyhow!("image provider '{}' returned no images", entry.id));
             }
             Err(e) => {
+                record_image_usage(
+                    &entry.id,
+                    provider.display_name(),
+                    &model,
+                    started.elapsed().as_millis() as u64,
+                    false,
+                    Some(e.to_string()),
+                    None,
+                );
                 crate::app_warn!(
                     "design",
                     "image",
@@ -113,4 +134,33 @@ async fn generate_image_bytes(prompt: &str, opts: &ImageGenOptions) -> Result<(V
         }
     }
     Err(last_err.unwrap_or_else(|| anyhow!("all image providers failed")))
+}
+
+/// Record one design image-generation attempt (`KIND_IMAGE_GENERATION`, owner
+/// plane so no session/agent id). Images carry no token usage — call count +
+/// duration only, per the usage-ledger contract.
+fn record_image_usage(
+    provider_id: &str,
+    provider_name: &str,
+    model: &str,
+    duration_ms: u64,
+    success: bool,
+    error: Option<String>,
+    output_image_count: Option<usize>,
+) {
+    let mut event =
+        crate::model_usage::ModelUsageEvent::new(crate::model_usage::KIND_IMAGE_GENERATION);
+    event.operation = Some("design.image".to_string());
+    event.source = Some("design.image".to_string());
+    event.provider_id = Some(provider_id.to_string());
+    // Human display name (matches `tool_image_generate`) so the Dashboard
+    // "by model" GROUP BY (model_id, provider_name) doesn't fragment the same
+    // provider/model into two rows across the two image entry points.
+    event.provider_name = Some(provider_name.to_string());
+    event.model_id = Some(model.to_string());
+    event.duration_ms = Some(duration_ms);
+    event.success = success;
+    event.error = error;
+    event.metadata = Some(serde_json::json!({ "output_image_count": output_image_count }));
+    crate::model_usage::record_model_usage_best_effort(event);
 }

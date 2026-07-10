@@ -1332,7 +1332,8 @@
       "web_search": "Web araması",
       "image_generation": "Görsel oluşturma",
       "provider_test": "Sağlayıcı testi",
-      "vision": "Görsel"
+      "vision": "Görsel",
+      "audio_generation": "Ses üretimi"
     }
   },
   "fileActions": {
@@ -6281,13 +6282,7 @@
       "exportScale": "Dışa aktarma netliği (×)",
       "exportScaleDesc": "Rasterleştirme ölçeği; yüksek = daha net ve büyük. Varsayılan 2.",
       "exportJpegQuality": "PDF görüntü kalitesi",
-      "exportJpegQualityDesc": "PDF sayfası JPEG kalitesi (1–100). Varsayılan 92.",
-      "extractVisionModel": "Çıkarım görü modeli",
-      "extractVisionModelDesc": "Ekran görüntüsü geri çıkarımına özel; boş = etkin modeli yeniden kullanır (görü desteği gerekir).",
-      "critiqueModel": "Değerlendirme modeli",
-      "critiqueModelDesc": "5 boyutlu kalite incelemesine özel; boş = varsayılan analiz modelini yeniden kullanır.",
-      "modelActive": "Etkin modeli yeniden kullan",
-      "modelDefault": "Varsayılan analiz modelini yeniden kullan"
+      "exportJpegQualityDesc": "PDF sayfası JPEG kalitesi (1–100). Varsayılan 92."
     },
     "deleteTitle": "Silme onaylansın mı?",
     "deleteProjectDesc": "Bu, projeyi ve tüm çıktılarını kalıcı olarak siler. Geri alınamaz.",

@@ -1332,7 +1332,8 @@
       "web_search": "Web search",
       "image_generation": "Image generation",
       "provider_test": "Provider test",
-      "vision": "Vision"
+      "vision": "Vision",
+      "audio_generation": "Audio generation"
     }
   },
   "fileActions": {
@@ -6281,13 +6282,7 @@
       "exportScale": "Export clarity (×)",
       "exportScaleDesc": "Rasterization scale; higher = sharper & larger. Default 2.",
       "exportJpegQuality": "PDF image quality",
-      "exportJpegQualityDesc": "PDF page JPEG quality (1–100). Default 92.",
-      "extractVisionModel": "Extraction vision model",
-      "extractVisionModelDesc": "For screenshot reverse-extraction; empty reuses the active model (must support vision).",
-      "critiqueModel": "Critique model",
-      "critiqueModelDesc": "For the 5-dimension quality review; empty reuses the default analysis model.",
-      "modelActive": "Reuse active model",
-      "modelDefault": "Reuse default analysis model"
+      "exportJpegQualityDesc": "PDF page JPEG quality (1–100). Default 92."
     },
     "deleteTitle": "Confirm delete?",
     "deleteProjectDesc": "This permanently deletes the project and all its artifacts. This cannot be undone.",

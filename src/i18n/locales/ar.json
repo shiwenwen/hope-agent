@@ -1332,7 +1332,8 @@
       "web_search": "بحث الويب",
       "image_generation": "توليد الصور",
       "provider_test": "اختبار المزوّد",
-      "vision": "الرؤية"
+      "vision": "الرؤية",
+      "audio_generation": "توليد الصوت"
     }
   },
   "fileActions": {
@@ -6281,13 +6282,7 @@
       "exportScale": "دقة التصدير (×)",
       "exportScaleDesc": "معامل التنقيط؛ الأعلى أوضح وأكبر حجمًا. الافتراضي 2.",
       "exportJpegQuality": "جودة صورة PDF",
-      "exportJpegQualityDesc": "جودة JPEG لصفحات PDF (1–100). الافتراضي 92.",
-      "extractVisionModel": "نموذج الرؤية للاستخراج",
-      "extractVisionModelDesc": "للاستخراج العكسي من لقطات الشاشة؛ الفراغ يعيد استخدام النموذج النشط (يجب أن يدعم الرؤية).",
-      "critiqueModel": "نموذج التقييم",
-      "critiqueModelDesc": "لتقييم الجودة بخمسة أبعاد؛ الفراغ يعيد استخدام نموذج التحليل الافتراضي.",
-      "modelActive": "إعادة استخدام النموذج النشط",
-      "modelDefault": "إعادة استخدام نموذج التحليل الافتراضي"
+      "exportJpegQualityDesc": "جودة JPEG لصفحات PDF (1–100). الافتراضي 92."
     },
     "deleteTitle": "تأكيد الحذف؟",
     "deleteProjectDesc": "سيحذف هذا المشروع وجميع عناصره نهائيًا. لا يمكن التراجع.",

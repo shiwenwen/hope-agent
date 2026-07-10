@@ -1332,7 +1332,8 @@
       "web_search": "Carian web",
       "image_generation": "Penjanaan imej",
       "provider_test": "Ujian pembekal",
-      "vision": "Penglihatan"
+      "vision": "Penglihatan",
+      "audio_generation": "Penjanaan audio"
     }
   },
   "fileActions": {
@@ -6281,13 +6282,7 @@
       "exportScale": "Kejelasan eksport (×)",
       "exportScaleDesc": "Skala rasterisasi; lebih tinggi = lebih jelas & besar. Lalai 2.",
       "exportJpegQuality": "Kualiti imej PDF",
-      "exportJpegQualityDesc": "Kualiti JPEG halaman PDF (1–100). Lalai 92.",
-      "extractVisionModel": "Model visi ekstrak",
-      "extractVisionModelDesc": "Untuk ekstrak balik tangkapan skrin; kosong guna semula model aktif (perlu sokongan visi).",
-      "critiqueModel": "Model penilaian",
-      "critiqueModelDesc": "Untuk penilaian kualiti 5 dimensi; kosong guna semula model analisis lalai.",
-      "modelActive": "Guna semula model aktif",
-      "modelDefault": "Guna semula model analisis lalai"
+      "exportJpegQualityDesc": "Kualiti JPEG halaman PDF (1–100). Lalai 92."
     },
     "deleteTitle": "Sahkan padam?",
     "deleteProjectDesc": "Ini memadam projek dan semua artifaknya secara kekal. Tidak boleh dibuat asal.",

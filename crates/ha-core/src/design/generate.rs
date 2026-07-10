@@ -216,7 +216,6 @@ pub async fn generate_design_parts(
         "automation:design.generate",
         &prompt,
         16000,
-        None,
     )
     .await?;
     validate_not_truncated(&text, kind)
@@ -272,14 +271,8 @@ pub async fn refine_design_parts(
     tokens: &BTreeMap<String, String>,
 ) -> Result<ArtifactParts> {
     let prompt = build_refine_prompt(instruction, current, kind, system_md, tokens)?;
-    let text = super::run_design_task(
-        "design.refine",
-        "automation:design.refine",
-        &prompt,
-        16000,
-        None,
-    )
-    .await?;
+    let text =
+        super::run_design_task("design.refine", "automation:design.refine", &prompt, 16000).await?;
     validate_not_truncated(&text, kind)
 }
 
@@ -387,7 +380,6 @@ BRIEF:\n{brief}",
         "automation:design.component",
         &prompt,
         16000,
-        None,
     )
     .await?;
     let src = strip_fence(&text);

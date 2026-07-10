@@ -1332,7 +1332,8 @@
       "web_search": "网页搜索",
       "image_generation": "图片生成",
       "provider_test": "供应商测试",
-      "vision": "视觉"
+      "vision": "视觉",
+      "audio_generation": "音频生成"
     }
   },
   "diffPanel": {
@@ -6281,13 +6282,7 @@
       "exportScale": "导出清晰度 (倍)",
       "exportScaleDesc": "栅格化倍率；越大越清晰、文件越大。默认 2。",
       "exportJpegQuality": "PDF 图像质量",
-      "exportJpegQualityDesc": "PDF 页 JPEG 压缩质量 (1–100)。默认 92。",
-      "extractVisionModel": "提取视觉模型",
-      "extractVisionModelDesc": "反向提取截图专用；留空复用当前活跃模型（需支持视觉）。",
-      "critiqueModel": "质量评审模型",
-      "critiqueModelDesc": "5 维质量评审专用；留空复用默认分析模型。",
-      "modelActive": "复用活跃模型",
-      "modelDefault": "复用默认分析模型"
+      "exportJpegQualityDesc": "PDF 页 JPEG 压缩质量 (1–100)。默认 92。"
     },
     "deleteTitle": "确认删除？",
     "deleteProjectDesc": "将永久删除该项目及其全部产物，无法恢复。",

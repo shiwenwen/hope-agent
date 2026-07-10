@@ -167,7 +167,9 @@ pub struct ResolveCommentBody {
 /// `GET /api/design/projects`
 pub async fn list_projects() -> Result<Json<Vec<DesignProject>>, AppError> {
     Ok(Json(
-        service::list_projects().map_err(|e| AppError::internal(e.to_string()))?,
+        ha_core::blocking::run_blocking(service::list_projects)
+            .await
+            .map_err(|e| AppError::internal(e.to_string()))?,
     ))
 }
 
@@ -176,14 +178,19 @@ pub async fn create_project(
     Json(body): Json<CreateProjectBody>,
 ) -> Result<Json<DesignProject>, AppError> {
     Ok(Json(
-        service::create_project(body.input).map_err(|e| AppError::internal(e.to_string()))?,
+        ha_core::blocking::run_blocking(move || service::create_project(body.input))
+            .await
+            .map_err(|e| AppError::internal(e.to_string()))?,
     ))
 }
 
 /// `GET /api/design/projects/{id}`
 pub async fn get_project(Path(id): Path<String>) -> Result<Json<Value>, AppError> {
     validate_id(&id)?;
-    match service::get_project(&id).map_err(|e| AppError::internal(e.to_string()))? {
+    match ha_core::blocking::run_blocking(move || service::get_project(&id))
+        .await
+        .map_err(|e| AppError::internal(e.to_string()))?
+    {
         Some(p) => Ok(Json(serde_json::to_value(p).unwrap_or(Value::Null))),
         None => Err(AppError::not_found("design project not found")),
     }
@@ -195,14 +202,18 @@ pub async fn update_project(
 ) -> Result<Json<DesignProject>, AppError> {
     validate_id(&body.input.id)?;
     Ok(Json(
-        service::update_project(body.input).map_err(|e| AppError::internal(e.to_string()))?,
+        ha_core::blocking::run_blocking(move || service::update_project(body.input))
+            .await
+            .map_err(|e| AppError::internal(e.to_string()))?,
     ))
 }
 
 /// `DELETE /api/design/projects/{id}`
 pub async fn delete_project(Path(id): Path<String>) -> Result<Json<Value>, AppError> {
     validate_id(&id)?;
-    service::delete_project(&id).map_err(|e| AppError::internal(e.to_string()))?;
+    ha_core::blocking::run_blocking(move || service::delete_project(&id))
+        .await
+        .map_err(|e| AppError::internal(e.to_string()))?;
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -210,7 +221,9 @@ pub async fn delete_project(Path(id): Path<String>) -> Result<Json<Value>, AppEr
 pub async fn duplicate_project(Path(id): Path<String>) -> Result<Json<DesignProject>, AppError> {
     validate_id(&id)?;
     Ok(Json(
-        service::duplicate_project(&id).map_err(|e| AppError::internal(e.to_string()))?,
+        ha_core::blocking::run_blocking(move || service::duplicate_project(&id))
+            .await
+            .map_err(|e| AppError::internal(e.to_string()))?,
     ))
 }
 
@@ -233,7 +246,8 @@ pub async fn rename_artifact(
 ) -> Result<Json<DesignArtifact>, AppError> {
     validate_id(&id)?;
     Ok(Json(
-        service::rename_artifact(&id, &body.title)
+        ha_core::blocking::run_blocking(move || service::rename_artifact(&id, &body.title))
+            .await
             .map_err(|e| AppError::internal(e.to_string()))?,
     ))
 }
@@ -242,7 +256,9 @@ pub async fn rename_artifact(
 pub async fn duplicate_artifact(Path(id): Path<String>) -> Result<Json<DesignArtifact>, AppError> {
     validate_id(&id)?;
     Ok(Json(
-        service::duplicate_artifact(&id).map_err(|e| AppError::internal(e.to_string()))?,
+        ha_core::blocking::run_blocking(move || service::duplicate_artifact(&id))
+            .await
+            .map_err(|e| AppError::internal(e.to_string()))?,
     ))
 }
 
@@ -252,7 +268,8 @@ pub async fn reorder_artifacts(
     Json(body): Json<ReorderArtifactsBody>,
 ) -> Result<Json<Value>, AppError> {
     validate_id(&id)?;
-    service::reorder_artifacts(&id, &body.ordered_ids)
+    ha_core::blocking::run_blocking(move || service::reorder_artifacts(&id, &body.ordered_ids))
+        .await
         .map_err(|e| AppError::internal(e.to_string()))?;
     Ok(Json(json!({ "ok": true })))
 }
@@ -287,7 +304,9 @@ pub struct MoveArtifactBody {
 pub async fn list_folders(Path(id): Path<String>) -> Result<Json<Vec<String>>, AppError> {
     validate_id(&id)?;
     Ok(Json(
-        service::list_folders(&id).map_err(|e| AppError::internal(e.to_string()))?,
+        ha_core::blocking::run_blocking(move || service::list_folders(&id))
+            .await
+            .map_err(|e| AppError::internal(e.to_string()))?,
     ))
 }
 
@@ -297,7 +316,9 @@ pub async fn create_folder(
     Json(body): Json<CreateFolderBody>,
 ) -> Result<Json<Value>, AppError> {
     validate_id(&id)?;
-    service::create_folder(&id, &body.name).map_err(|e| AppError::internal(e.to_string()))?;
+    ha_core::blocking::run_blocking(move || service::create_folder(&id, &body.name))
+        .await
+        .map_err(|e| AppError::internal(e.to_string()))?;
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -307,7 +328,8 @@ pub async fn rename_folder(
     Json(body): Json<RenameFolderBody>,
 ) -> Result<Json<Value>, AppError> {
     validate_id(&id)?;
-    service::rename_folder(&id, &body.from, &body.to)
+    ha_core::blocking::run_blocking(move || service::rename_folder(&id, &body.from, &body.to))
+        .await
         .map_err(|e| AppError::internal(e.to_string()))?;
     Ok(Json(json!({ "ok": true })))
 }
@@ -318,7 +340,9 @@ pub async fn delete_folder(
     Query(q): Query<DeleteFolderQuery>,
 ) -> Result<Json<Value>, AppError> {
     validate_id(&id)?;
-    service::delete_folder(&id, &q.path).map_err(|e| AppError::internal(e.to_string()))?;
+    ha_core::blocking::run_blocking(move || service::delete_folder(&id, &q.path))
+        .await
+        .map_err(|e| AppError::internal(e.to_string()))?;
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -329,8 +353,11 @@ pub async fn move_artifact(
 ) -> Result<Json<DesignArtifact>, AppError> {
     validate_id(&id)?;
     Ok(Json(
-        service::move_artifact_to_folder(&id, &body.folder)
-            .map_err(|e| AppError::internal(e.to_string()))?,
+        ha_core::blocking::run_blocking(move || {
+            service::move_artifact_to_folder(&id, &body.folder)
+        })
+        .await
+        .map_err(|e| AppError::internal(e.to_string()))?,
     ))
 }
 
@@ -342,7 +369,9 @@ pub async fn list_artifacts(
 ) -> Result<Json<Vec<DesignArtifact>>, AppError> {
     validate_id(&project_id)?;
     Ok(Json(
-        service::list_artifacts(&project_id).map_err(|e| AppError::internal(e.to_string()))?,
+        ha_core::blocking::run_blocking(move || service::list_artifacts(&project_id))
+            .await
+            .map_err(|e| AppError::internal(e.to_string()))?,
     ))
 }
 
@@ -374,14 +403,19 @@ pub async fn generate_artifact(
 /// `GET /api/design/artifacts` — all artifacts across projects (library wall).
 pub async fn list_all_artifacts() -> Result<Json<Vec<DesignArtifact>>, AppError> {
     Ok(Json(
-        service::list_all_artifacts().map_err(|e| AppError::internal(e.to_string()))?,
+        ha_core::blocking::run_blocking(service::list_all_artifacts)
+            .await
+            .map_err(|e| AppError::internal(e.to_string()))?,
     ))
 }
 
 /// `GET /api/design/artifacts/{id}` — artifact + resolved preview path.
 pub async fn get_artifact(Path(id): Path<String>) -> Result<Json<Value>, AppError> {
     validate_id(&id)?;
-    match service::get_artifact_view(&id).map_err(|e| AppError::internal(e.to_string()))? {
+    match ha_core::blocking::run_blocking(move || service::get_artifact_view(&id))
+        .await
+        .map_err(|e| AppError::internal(e.to_string()))?
+    {
         Some(v) => Ok(Json(serde_json::to_value(v).unwrap_or(Value::Null))),
         None => Err(AppError::not_found("design artifact not found")),
     }
@@ -390,7 +424,9 @@ pub async fn get_artifact(Path(id): Path<String>) -> Result<Json<Value>, AppErro
 /// `DELETE /api/design/artifacts/{id}`
 pub async fn delete_artifact(Path(id): Path<String>) -> Result<Json<Value>, AppError> {
     validate_id(&id)?;
-    service::delete_artifact(&id).map_err(|e| AppError::internal(e.to_string()))?;
+    ha_core::blocking::run_blocking(move || service::delete_artifact(&id))
+        .await
+        .map_err(|e| AppError::internal(e.to_string()))?;
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -406,9 +442,11 @@ pub async fn export_artifact(
     Query(q): Query<ExportQuery>,
 ) -> Result<Json<Value>, AppError> {
     validate_id(&id)?;
-    let format = q.format.as_deref().unwrap_or("html");
-    let res =
-        service::export_artifact(&id, format).map_err(|e| AppError::internal(e.to_string()))?;
+    let res = ha_core::blocking::run_blocking(move || {
+        service::export_artifact(&id, q.format.as_deref().unwrap_or("html"))
+    })
+    .await
+    .map_err(|e| AppError::internal(e.to_string()))?;
     Ok(Json(serde_json::to_value(res).unwrap_or(Value::Null)))
 }
 
@@ -416,7 +454,9 @@ pub async fn export_artifact(
 /// clean index.html + source/ + multi-platform tokens/ + HANDOFF.md.
 pub async fn export_handoff(Path(id): Path<String>) -> Result<Json<Value>, AppError> {
     validate_id(&id)?;
-    let res = service::export_handoff(&id).map_err(|e| AppError::internal(e.to_string()))?;
+    let res = ha_core::blocking::run_blocking(move || service::export_handoff(&id))
+        .await
+        .map_err(|e| AppError::internal(e.to_string()))?;
     Ok(Json(serde_json::to_value(res).unwrap_or(Value::Null)))
 }
 
@@ -459,12 +499,15 @@ pub async fn bind_code(
     Json(body): Json<BindCodeBody>,
 ) -> Result<Json<DesignCodeBinding>, AppError> {
     ensure_design_writes_allowed()?;
-    let b = service::bind_code_project(
-        &body.system_id,
-        &body.target_dir,
-        body.subfolder.as_deref().unwrap_or(""),
-        &body.formats.unwrap_or_default(),
-    )
+    let b = ha_core::blocking::run_blocking(move || {
+        service::bind_code_project(
+            &body.system_id,
+            &body.target_dir,
+            body.subfolder.as_deref().unwrap_or(""),
+            &body.formats.unwrap_or_default(),
+        )
+    })
+    .await
     .map_err(|e| AppError::internal(e.to_string()))?;
     Ok(Json(b))
 }
@@ -472,7 +515,9 @@ pub async fn bind_code(
 /// `POST /api/design/bindings/{id}/sync` — write tokens to the bound dir (write-gated).
 pub async fn sync_code(Path(id): Path<i64>) -> Result<Json<BindingSyncReport>, AppError> {
     ensure_design_writes_allowed()?;
-    let r = service::sync_code_binding(id).map_err(|e| AppError::internal(e.to_string()))?;
+    let r = ha_core::blocking::run_blocking(move || service::sync_code_binding(id))
+        .await
+        .map_err(|e| AppError::internal(e.to_string()))?;
     Ok(Json(r))
 }
 
@@ -480,14 +525,19 @@ pub async fn sync_code(Path(id): Path<i64>) -> Result<Json<BindingSyncReport>, A
 pub async fn list_code_bindings(
     Query(q): Query<BindingsQuery>,
 ) -> Result<Json<Vec<DesignCodeBinding>>, AppError> {
-    let list = service::list_code_bindings(q.system_id.as_deref())
-        .map_err(|e| AppError::internal(e.to_string()))?;
+    let list = ha_core::blocking::run_blocking(move || {
+        service::list_code_bindings(q.system_id.as_deref())
+    })
+    .await
+    .map_err(|e| AppError::internal(e.to_string()))?;
     Ok(Json(list))
 }
 
 /// `DELETE /api/design/bindings/{id}` — unbind (no external write).
 pub async fn unbind_code(Path(id): Path<i64>) -> Result<Json<Value>, AppError> {
-    service::unbind_code_project(id).map_err(|e| AppError::internal(e.to_string()))?;
+    ha_core::blocking::run_blocking(move || service::unbind_code_project(id))
+        .await
+        .map_err(|e| AppError::internal(e.to_string()))?;
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -504,8 +554,11 @@ pub async fn restyle_artifact(
     Json(body): Json<RestyleBody>,
 ) -> Result<Json<DesignArtifact>, AppError> {
     validate_id(&id)?;
-    let a = service::restyle_artifact(&id, body.system_id.as_deref())
-        .map_err(|e| AppError::internal(e.to_string()))?;
+    let a = ha_core::blocking::run_blocking(move || {
+        service::restyle_artifact(&id, body.system_id.as_deref())
+    })
+    .await
+    .map_err(|e| AppError::internal(e.to_string()))?;
     Ok(Json(a))
 }
 
@@ -522,7 +575,9 @@ pub async fn critique_artifact(Path(id): Path<String>) -> Result<Json<Value>, Ap
 pub async fn patch_element(Json(body): Json<PatchBody>) -> Result<Json<DesignArtifact>, AppError> {
     validate_id(&body.input.artifact_id)?;
     Ok(Json(
-        service::patch_element(body.input).map_err(|e| AppError::internal(e.to_string()))?,
+        ha_core::blocking::run_blocking(move || service::patch_element(body.input))
+            .await
+            .map_err(|e| AppError::internal(e.to_string()))?,
     ))
 }
 
@@ -532,7 +587,9 @@ pub async fn list_versions(
 ) -> Result<Json<Vec<DesignArtifactVersion>>, AppError> {
     validate_id(&id)?;
     Ok(Json(
-        service::list_versions(&id).map_err(|e| AppError::internal(e.to_string()))?,
+        ha_core::blocking::run_blocking(move || service::list_versions(&id))
+            .await
+            .map_err(|e| AppError::internal(e.to_string()))?,
     ))
 }
 
@@ -542,8 +599,10 @@ pub async fn get_version_html(
     Path((id, version)): Path<(String, i64)>,
 ) -> Result<Json<String>, AppError> {
     validate_id(&id)?;
-    let html = service::get_artifact_version_html(&id, version)
-        .map_err(|e| AppError::internal(e.to_string()))?;
+    let html =
+        ha_core::blocking::run_blocking(move || service::get_artifact_version_html(&id, version))
+            .await
+            .map_err(|e| AppError::internal(e.to_string()))?;
     Ok(Json(html))
 }
 
@@ -552,23 +611,27 @@ pub async fn get_version_html(
 /// `POST /api/design/artifacts/{id}/share` — 建/取只读分享 token（owner，幂等）。
 pub async fn create_share(Path(id): Path<String>) -> Result<Json<Value>, AppError> {
     validate_id(&id)?;
-    let token = service::create_share(&id).map_err(|e| AppError::internal(e.to_string()))?;
+    let token = ha_core::blocking::run_blocking(move || service::create_share(&id))
+        .await
+        .map_err(|e| AppError::internal(e.to_string()))?;
     Ok(Json(json!({ "token": token })))
 }
 
 /// `GET /api/design/artifacts/{id}/share` — 产物当前分享 token（owner；无则 null）。
 pub async fn get_share(Path(id): Path<String>) -> Result<Json<Value>, AppError> {
     validate_id(&id)?;
-    let token =
-        service::share_token_for_artifact(&id).map_err(|e| AppError::internal(e.to_string()))?;
+    let token = ha_core::blocking::run_blocking(move || service::share_token_for_artifact(&id))
+        .await
+        .map_err(|e| AppError::internal(e.to_string()))?;
     Ok(Json(json!({ "token": token })))
 }
 
 /// `DELETE /api/design/artifacts/{id}/share` — 撤销分享（owner）。
 pub async fn revoke_share(Path(id): Path<String>) -> Result<Json<Value>, AppError> {
     validate_id(&id)?;
-    let ok =
-        service::revoke_share_for_artifact(&id).map_err(|e| AppError::internal(e.to_string()))?;
+    let ok = ha_core::blocking::run_blocking(move || service::revoke_share_for_artifact(&id))
+        .await
+        .map_err(|e| AppError::internal(e.to_string()))?;
     Ok(Json(json!({ "ok": ok })))
 }
 
@@ -580,7 +643,10 @@ pub async fn serve_share(Path(token): Path<String>) -> Result<Response, AppError
     if token.is_empty() || token.len() > 128 || !token.chars().all(|c| c.is_ascii_alphanumeric()) {
         return Err(AppError::not_found("share not found"));
     }
-    match service::render_share_html(&token).map_err(|e| AppError::internal(e.to_string()))? {
+    match ha_core::blocking::run_blocking(move || service::render_share_html(&token))
+        .await
+        .map_err(|e| AppError::internal(e.to_string()))?
+    {
         Some(html) => {
             let mut resp = axum::response::Html(html).into_response();
             let h = resp.headers_mut();
@@ -613,14 +679,18 @@ pub struct CfConfigBody {
 
 /// `PUT /api/design/deploy/config` — 保存 CF token（0600）+ account。
 pub async fn save_deploy_config(Json(body): Json<CfConfigBody>) -> Result<Json<Value>, AppError> {
-    ha_core::design::deploy::save_cf_config(&body.api_token, &body.account_id)
-        .map_err(|e| AppError::internal(e.to_string()))?;
+    ha_core::blocking::run_blocking(move || {
+        ha_core::design::deploy::save_cf_config(&body.api_token, &body.account_id)
+    })
+    .await
+    .map_err(|e| AppError::internal(e.to_string()))?;
     Ok(Json(json!({ "ok": true })))
 }
 
 /// `GET /api/design/deploy/config` — 读配置（**token 脱敏**）。
 pub async fn get_deploy_config() -> Result<Json<Value>, AppError> {
-    let cfg = ha_core::design::deploy::public_cf_config()
+    let cfg = ha_core::blocking::run_blocking(ha_core::design::deploy::public_cf_config)
+        .await
         .map_err(|e| AppError::internal(e.to_string()))?;
     Ok(Json(serde_json::to_value(cfg).unwrap_or(Value::Null)))
 }
@@ -638,8 +708,10 @@ pub async fn deploy_artifact(Path(id): Path<String>) -> Result<Json<Value>, AppE
 /// 返回 `bool`（是否重渲染），与 Tauri `ensure_design_artifact_fresh_cmd` 同形。
 pub async fn ensure_artifact_fresh(Path(id): Path<String>) -> Result<Json<bool>, AppError> {
     validate_id(&id)?;
-    let rerendered = service::ensure_artifact_render_fresh(&id)
-        .map_err(|e| AppError::internal(e.to_string()))?;
+    let rerendered =
+        ha_core::blocking::run_blocking(move || service::ensure_artifact_render_fresh(&id))
+            .await
+            .map_err(|e| AppError::internal(e.to_string()))?;
     Ok(Json(rerendered))
 }
 
@@ -650,24 +722,30 @@ pub async fn restore_version(
 ) -> Result<Json<DesignArtifact>, AppError> {
     validate_id(&id)?;
     Ok(Json(
-        service::restore_version(&id, body.version_id)
+        ha_core::blocking::run_blocking(move || service::restore_version(&id, body.version_id))
+            .await
             .map_err(|e| AppError::internal(e.to_string()))?,
     ))
 }
 
 /// `POST /api/design/pptx` — assemble PPTX from client-rasterized slide PNGs (base64).
 pub async fn export_pptx(Json(body): Json<ExportPptxBody>) -> Result<Json<Value>, AppError> {
-    let title = body.title.as_deref().unwrap_or("design");
-    let b64 =
-        service::export_pptx(&body.slides, title).map_err(|e| AppError::internal(e.to_string()))?;
+    let b64 = ha_core::blocking::run_blocking(move || {
+        service::export_pptx(&body.slides, body.title.as_deref().unwrap_or("design"))
+    })
+    .await
+    .map_err(|e| AppError::internal(e.to_string()))?;
     Ok(Json(json!({ "pptx": b64 })))
 }
 
 /// `POST /api/design/zip` — single-artifact source bundle (`artifactId`) or
 /// project-level bundle (`projectId`). Returns `{ zip: base64 }`.
 pub async fn export_zip(Json(body): Json<ExportZipBody>) -> Result<Json<Value>, AppError> {
-    let b64 = service::export_zip(body.artifact_id.as_deref(), body.project_id.as_deref())
-        .map_err(|e| AppError::internal(e.to_string()))?;
+    let b64 = ha_core::blocking::run_blocking(move || {
+        service::export_zip(body.artifact_id.as_deref(), body.project_id.as_deref())
+    })
+    .await
+    .map_err(|e| AppError::internal(e.to_string()))?;
     Ok(Json(json!({ "zip": b64 })))
 }
 
@@ -683,8 +761,10 @@ pub struct ExportSelectedZipBody {
 pub async fn export_selected_zip(
     Json(body): Json<ExportSelectedZipBody>,
 ) -> Result<Json<Value>, AppError> {
-    let b64 = service::export_selected_zip(&body.artifact_ids)
-        .map_err(|e| AppError::internal(e.to_string()))?;
+    let b64 =
+        ha_core::blocking::run_blocking(move || service::export_selected_zip(&body.artifact_ids))
+            .await
+            .map_err(|e| AppError::internal(e.to_string()))?;
     Ok(Json(json!({ "zip": b64 })))
 }
 
@@ -693,14 +773,18 @@ pub async fn export_selected_zip(
 /// `GET /api/design/systems`
 pub async fn list_systems() -> Result<Json<Vec<DesignSystemMeta>>, AppError> {
     Ok(Json(
-        service::list_systems().map_err(|e| AppError::internal(e.to_string()))?,
+        ha_core::blocking::run_blocking(service::list_systems)
+            .await
+            .map_err(|e| AppError::internal(e.to_string()))?,
     ))
 }
 
 /// `GET /api/design/systems/{id}` — system meta + prose + tokens.
 pub async fn get_system(Path(id): Path<String>) -> Result<Json<Value>, AppError> {
     validate_id(&id)?;
-    let full = service::get_system_full(&id).map_err(|e| AppError::internal(e.to_string()))?;
+    let full = ha_core::blocking::run_blocking(move || service::get_system_full(&id))
+        .await
+        .map_err(|e| AppError::internal(e.to_string()))?;
     Ok(Json(serde_json::to_value(full).unwrap_or(Value::Null)))
 }
 
@@ -709,14 +793,18 @@ pub async fn save_system(
     Json(body): Json<SaveSystemBody>,
 ) -> Result<Json<DesignSystemMeta>, AppError> {
     Ok(Json(
-        service::save_system(body.input).map_err(|e| AppError::internal(e.to_string()))?,
+        ha_core::blocking::run_blocking(move || service::save_system(body.input))
+            .await
+            .map_err(|e| AppError::internal(e.to_string()))?,
     ))
 }
 
 /// `DELETE /api/design/systems/{id}`
 pub async fn delete_system(Path(id): Path<String>) -> Result<Json<Value>, AppError> {
     validate_id(&id)?;
-    service::delete_system(&id).map_err(|e| AppError::internal(e.to_string()))?;
+    ha_core::blocking::run_blocking(move || service::delete_system(&id))
+        .await
+        .map_err(|e| AppError::internal(e.to_string()))?;
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -758,7 +846,9 @@ pub async fn import_figma_system(
 pub async fn export_design_md(
     axum::extract::Path(id): axum::extract::Path<String>,
 ) -> Result<Json<Value>, AppError> {
-    let md = service::export_design_md(&id).map_err(|e| AppError::internal(e.to_string()))?;
+    let md = ha_core::blocking::run_blocking(move || service::export_design_md(&id))
+        .await
+        .map_err(|e| AppError::internal(e.to_string()))?;
     Ok(Json(json!({ "designMd": md })))
 }
 
@@ -767,7 +857,9 @@ pub async fn export_design_md(
 pub async fn export_design_tokens(
     axum::extract::Path(id): axum::extract::Path<String>,
 ) -> Result<Json<Vec<ha_core::design::token_export::TokenExport>>, AppError> {
-    let out = service::export_tokens(&id).map_err(|e| AppError::internal(e.to_string()))?;
+    let out = ha_core::blocking::run_blocking(move || service::export_tokens(&id))
+        .await
+        .map_err(|e| AppError::internal(e.to_string()))?;
     Ok(Json(out))
 }
 
@@ -883,7 +975,9 @@ pub async fn list_comments(
 ) -> Result<Json<Vec<DesignComment>>, AppError> {
     validate_id(&artifact_id)?;
     Ok(Json(
-        service::list_comments(&artifact_id).map_err(|e| AppError::internal(e.to_string()))?,
+        ha_core::blocking::run_blocking(move || service::list_comments(&artifact_id))
+            .await
+            .map_err(|e| AppError::internal(e.to_string()))?,
     ))
 }
 
@@ -894,15 +988,18 @@ pub async fn add_comment(
 ) -> Result<Json<DesignComment>, AppError> {
     validate_id(&artifact_id)?;
     Ok(Json(
-        service::add_comment(
-            &artifact_id,
-            payload.oid,
-            payload.rel_x,
-            payload.rel_y,
-            payload.tag.as_deref(),
-            payload.snippet.as_deref(),
-            &payload.body,
-        )
+        ha_core::blocking::run_blocking(move || {
+            service::add_comment(
+                &artifact_id,
+                payload.oid,
+                payload.rel_x,
+                payload.rel_y,
+                payload.tag.as_deref(),
+                payload.snippet.as_deref(),
+                &payload.body,
+            )
+        })
+        .await
         .map_err(|e| AppError::internal(e.to_string()))?,
     ))
 }
@@ -913,13 +1010,16 @@ pub async fn relocate_comment(
     Json(payload): Json<RelocateCommentBody>,
 ) -> Result<Json<Value>, AppError> {
     validate_id(&artifact_id)?;
-    let ok = service::relocate_comment(
-        &artifact_id,
-        comment_id,
-        payload.oid,
-        payload.rel_x,
-        payload.rel_y,
-    )
+    let ok = ha_core::blocking::run_blocking(move || {
+        service::relocate_comment(
+            &artifact_id,
+            comment_id,
+            payload.oid,
+            payload.rel_x,
+            payload.rel_y,
+        )
+    })
+    .await
     .map_err(|e| AppError::internal(e.to_string()))?;
     Ok(Json(json!({ "ok": ok })))
 }
@@ -930,8 +1030,11 @@ pub async fn update_comment(
     Json(payload): Json<UpdateCommentBody>,
 ) -> Result<Json<Value>, AppError> {
     validate_id(&artifact_id)?;
-    let ok = service::update_comment_body(&artifact_id, comment_id, &payload.body)
-        .map_err(|e| AppError::internal(e.to_string()))?;
+    let ok = ha_core::blocking::run_blocking(move || {
+        service::update_comment_body(&artifact_id, comment_id, &payload.body)
+    })
+    .await
+    .map_err(|e| AppError::internal(e.to_string()))?;
     Ok(Json(json!({ "ok": ok })))
 }
 
@@ -941,8 +1044,11 @@ pub async fn resolve_comment(
     Json(payload): Json<ResolveCommentBody>,
 ) -> Result<Json<Value>, AppError> {
     validate_id(&artifact_id)?;
-    let ok = service::set_comment_resolved(&artifact_id, comment_id, payload.resolved)
-        .map_err(|e| AppError::internal(e.to_string()))?;
+    let ok = ha_core::blocking::run_blocking(move || {
+        service::set_comment_resolved(&artifact_id, comment_id, payload.resolved)
+    })
+    .await
+    .map_err(|e| AppError::internal(e.to_string()))?;
     Ok(Json(json!({ "ok": ok })))
 }
 
@@ -951,8 +1057,10 @@ pub async fn delete_comment(
     Path((artifact_id, comment_id)): Path<(String, i64)>,
 ) -> Result<Json<Value>, AppError> {
     validate_id(&artifact_id)?;
-    let ok = service::delete_comment(&artifact_id, comment_id)
-        .map_err(|e| AppError::internal(e.to_string()))?;
+    let ok =
+        ha_core::blocking::run_blocking(move || service::delete_comment(&artifact_id, comment_id))
+            .await
+            .map_err(|e| AppError::internal(e.to_string()))?;
     Ok(Json(json!({ "ok": ok })))
 }
 
@@ -972,7 +1080,9 @@ pub async fn refine_comment(
 /// 与 Tauri `get_design_system_kit_cmd` 的 `String` 返回一致，前端 `call<string>` 两态通用）。
 pub async fn system_kit(Path(id): Path<String>) -> Result<Json<String>, AppError> {
     validate_id(&id)?;
-    let html = service::get_system_kit_html(&id).map_err(|e| AppError::internal(e.to_string()))?;
+    let html = ha_core::blocking::run_blocking(move || service::get_system_kit_html(&id))
+        .await
+        .map_err(|e| AppError::internal(e.to_string()))?;
     Ok(Json(html))
 }
 
@@ -988,7 +1098,8 @@ pub async fn review_artifact(
 ) -> Result<Json<DesignArtifact>, AppError> {
     validate_id(&id)?;
     Ok(Json(
-        service::review_artifact(&id, &body.action)
+        ha_core::blocking::run_blocking(move || service::review_artifact(&id, &body.action))
+            .await
             .map_err(|e| AppError::internal(e.to_string()))?,
     ))
 }
@@ -1009,7 +1120,8 @@ pub async fn chat_thread_latest(
 ) -> Result<Json<Option<SessionMeta>>, AppError> {
     validate_id(&project_id)?;
     Ok(Json(
-        service::design_chat_thread_latest(&project_id)
+        ha_core::blocking::run_blocking(move || service::design_chat_thread_latest(&project_id))
+            .await
             .map_err(|e| AppError::internal(e.to_string()))?,
     ))
 }
@@ -1021,8 +1133,11 @@ pub async fn chat_threads_list(
 ) -> Result<Json<Vec<DesignChatThread>>, AppError> {
     validate_id(&project_id)?;
     Ok(Json(
-        service::design_chat_threads_list(&project_id, q.query.as_deref(), q.limit, q.offset)
-            .map_err(|e| AppError::internal(e.to_string()))?,
+        ha_core::blocking::run_blocking(move || {
+            service::design_chat_threads_list(&project_id, q.query.as_deref(), q.limit, q.offset)
+        })
+        .await
+        .map_err(|e| AppError::internal(e.to_string()))?,
     ))
 }
 

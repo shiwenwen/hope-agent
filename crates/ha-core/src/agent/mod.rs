@@ -35,7 +35,7 @@ pub(crate) use context::build_compaction_provider;
 pub use plan_context::{
     merge_extra_system_context, resolve_plan_context_for_session, PlanResolvedContext,
 };
-pub use types::{AssistantAgent, Attachment, CodexModel, LlmProvider, PlanAgentMode};
+pub use types::{AssistantAgent, Attachment, ChatUsage, CodexModel, LlmProvider, PlanAgentMode};
 
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;

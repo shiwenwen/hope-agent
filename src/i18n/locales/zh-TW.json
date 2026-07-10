@@ -1332,7 +1332,8 @@
       "web_search": "網頁搜尋",
       "image_generation": "圖片生成",
       "provider_test": "供應商測試",
-      "vision": "視覺"
+      "vision": "視覺",
+      "audio_generation": "音訊生成"
     }
   },
   "fileActions": {
@@ -6281,13 +6282,7 @@
       "exportScale": "匯出清晰度 (倍)",
       "exportScaleDesc": "點陣化倍率；越大越清晰、檔案越大。預設 2。",
       "exportJpegQuality": "PDF 影像品質",
-      "exportJpegQualityDesc": "PDF 頁 JPEG 壓縮品質 (1–100)。預設 92。",
-      "extractVisionModel": "擷取視覺模型",
-      "extractVisionModelDesc": "反向擷取截圖專用；留空複用當前活躍模型（需支援視覺）。",
-      "critiqueModel": "品質評審模型",
-      "critiqueModelDesc": "5 維品質評審專用；留空複用預設分析模型。",
-      "modelActive": "複用活躍模型",
-      "modelDefault": "複用預設分析模型"
+      "exportJpegQualityDesc": "PDF 頁 JPEG 壓縮品質 (1–100)。預設 92。"
     },
     "deleteTitle": "確認刪除？",
     "deleteProjectDesc": "將永久刪除該專案及其全部產物，無法復原。",

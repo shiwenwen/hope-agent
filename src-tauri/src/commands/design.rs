@@ -23,36 +23,48 @@ use ha_core::session::SessionMeta;
 
 #[tauri::command]
 pub async fn list_design_projects_cmd() -> Result<Vec<DesignProject>, CmdError> {
-    service::list_projects().map_err(Into::into)
+    ha_core::blocking::run_blocking(service::list_projects)
+        .await
+        .map_err(Into::into)
 }
 
 #[tauri::command]
 pub async fn create_design_project_cmd(
     input: CreateProjectInput,
 ) -> Result<DesignProject, CmdError> {
-    service::create_project(input).map_err(Into::into)
+    ha_core::blocking::run_blocking(move || service::create_project(input))
+        .await
+        .map_err(Into::into)
 }
 
 #[tauri::command]
 pub async fn get_design_project_cmd(id: String) -> Result<Option<DesignProject>, CmdError> {
-    service::get_project(&id).map_err(Into::into)
+    ha_core::blocking::run_blocking(move || service::get_project(&id))
+        .await
+        .map_err(Into::into)
 }
 
 #[tauri::command]
 pub async fn update_design_project_cmd(
     input: UpdateProjectInput,
 ) -> Result<DesignProject, CmdError> {
-    service::update_project(input).map_err(Into::into)
+    ha_core::blocking::run_blocking(move || service::update_project(input))
+        .await
+        .map_err(Into::into)
 }
 
 #[tauri::command]
 pub async fn delete_design_project_cmd(id: String) -> Result<(), CmdError> {
-    service::delete_project(&id).map_err(Into::into)
+    ha_core::blocking::run_blocking(move || service::delete_project(&id))
+        .await
+        .map_err(Into::into)
 }
 
 #[tauri::command]
 pub async fn duplicate_design_project_cmd(id: String) -> Result<DesignProject, CmdError> {
-    service::duplicate_project(&id).map_err(Into::into)
+    ha_core::blocking::run_blocking(move || service::duplicate_project(&id))
+        .await
+        .map_err(Into::into)
 }
 
 // ── Artifacts ───────────────────────────────────────────────────
@@ -61,7 +73,9 @@ pub async fn duplicate_design_project_cmd(id: String) -> Result<DesignProject, C
 pub async fn list_design_artifacts_cmd(
     project_id: String,
 ) -> Result<Vec<DesignArtifact>, CmdError> {
-    service::list_artifacts(&project_id).map_err(Into::into)
+    ha_core::blocking::run_blocking(move || service::list_artifacts(&project_id))
+        .await
+        .map_err(Into::into)
 }
 
 #[tauri::command]
@@ -86,23 +100,31 @@ pub async fn generate_design_artifact_cmd(
 
 #[tauri::command]
 pub async fn list_all_design_artifacts_cmd() -> Result<Vec<DesignArtifact>, CmdError> {
-    service::list_all_artifacts().map_err(Into::into)
+    ha_core::blocking::run_blocking(service::list_all_artifacts)
+        .await
+        .map_err(Into::into)
 }
 
 #[tauri::command]
 pub async fn get_design_artifact_cmd(id: String) -> Result<Option<ArtifactView>, CmdError> {
-    service::get_artifact_view(&id).map_err(Into::into)
+    ha_core::blocking::run_blocking(move || service::get_artifact_view(&id))
+        .await
+        .map_err(Into::into)
 }
 
 /// 打开产物时自愈渲染版本（inspector bridge 等工具层升级对老产物生效）。返回是否重渲染。
 #[tauri::command]
 pub async fn ensure_design_artifact_fresh_cmd(id: String) -> Result<bool, CmdError> {
-    service::ensure_artifact_render_fresh(&id).map_err(Into::into)
+    ha_core::blocking::run_blocking(move || service::ensure_artifact_render_fresh(&id))
+        .await
+        .map_err(Into::into)
 }
 
 #[tauri::command]
 pub async fn delete_design_artifact_cmd(id: String) -> Result<(), CmdError> {
-    service::delete_artifact(&id).map_err(Into::into)
+    ha_core::blocking::run_blocking(move || service::delete_artifact(&id))
+        .await
+        .map_err(Into::into)
 }
 
 /// 轻量改名产物（仅 title）。
@@ -111,13 +133,17 @@ pub async fn rename_design_artifact_cmd(
     id: String,
     title: String,
 ) -> Result<DesignArtifact, CmdError> {
-    service::rename_artifact(&id, &title).map_err(Into::into)
+    ha_core::blocking::run_blocking(move || service::rename_artifact(&id, &title))
+        .await
+        .map_err(Into::into)
 }
 
 /// 复制产物（同项目内，深拷贝，标题加「(副本)」）。
 #[tauri::command]
 pub async fn duplicate_design_artifact_cmd(id: String) -> Result<DesignArtifact, CmdError> {
-    service::duplicate_artifact(&id).map_err(Into::into)
+    ha_core::blocking::run_blocking(move || service::duplicate_artifact(&id))
+        .await
+        .map_err(Into::into)
 }
 
 /// 重排项目内产物页面顺序（拖动）。
@@ -126,23 +152,31 @@ pub async fn reorder_design_artifacts_cmd(
     project_id: String,
     ordered_ids: Vec<String>,
 ) -> Result<(), CmdError> {
-    service::reorder_artifacts(&project_id, &ordered_ids).map_err(Into::into)
+    ha_core::blocking::run_blocking(move || service::reorder_artifacts(&project_id, &ordered_ids))
+        .await
+        .map_err(Into::into)
 }
 
 // ── 页面分组文件夹 ──
 #[tauri::command]
 pub async fn list_design_folders_cmd(project_id: String) -> Result<Vec<String>, CmdError> {
-    service::list_folders(&project_id).map_err(Into::into)
+    ha_core::blocking::run_blocking(move || service::list_folders(&project_id))
+        .await
+        .map_err(Into::into)
 }
 
 #[tauri::command]
 pub async fn create_design_folder_cmd(project_id: String, name: String) -> Result<(), CmdError> {
-    service::create_folder(&project_id, &name).map_err(Into::into)
+    ha_core::blocking::run_blocking(move || service::create_folder(&project_id, &name))
+        .await
+        .map_err(Into::into)
 }
 
 #[tauri::command]
 pub async fn delete_design_folder_cmd(project_id: String, path: String) -> Result<(), CmdError> {
-    service::delete_folder(&project_id, &path).map_err(Into::into)
+    ha_core::blocking::run_blocking(move || service::delete_folder(&project_id, &path))
+        .await
+        .map_err(Into::into)
 }
 
 #[tauri::command]
@@ -151,7 +185,9 @@ pub async fn rename_design_folder_cmd(
     from: String,
     to: String,
 ) -> Result<(), CmdError> {
-    service::rename_folder(&project_id, &from, &to).map_err(Into::into)
+    ha_core::blocking::run_blocking(move || service::rename_folder(&project_id, &from, &to))
+        .await
+        .map_err(Into::into)
 }
 
 /// 把页面移到某文件夹（folder 空 = 根）。
@@ -160,14 +196,18 @@ pub async fn move_design_artifact_cmd(
     id: String,
     folder: String,
 ) -> Result<DesignArtifact, CmdError> {
-    service::move_artifact_to_folder(&id, &folder).map_err(Into::into)
+    ha_core::blocking::run_blocking(move || service::move_artifact_to_folder(&id, &folder))
+        .await
+        .map_err(Into::into)
 }
 
 #[tauri::command]
 pub async fn list_design_artifact_versions_cmd(
     id: String,
 ) -> Result<Vec<DesignArtifactVersion>, CmdError> {
-    service::list_versions(&id).map_err(Into::into)
+    ha_core::blocking::run_blocking(move || service::list_versions(&id))
+        .await
+        .map_err(Into::into)
 }
 
 /// 某历史版本快照的 index.html（历史面板右栏 iframe srcdoc 预览用）。
@@ -176,7 +216,11 @@ pub async fn get_design_artifact_version_html_cmd(
     artifact_id: String,
     version_number: i64,
 ) -> Result<String, CmdError> {
-    service::get_artifact_version_html(&artifact_id, version_number).map_err(Into::into)
+    ha_core::blocking::run_blocking(move || {
+        service::get_artifact_version_html(&artifact_id, version_number)
+    })
+    .await
+    .map_err(Into::into)
 }
 
 // ── Shares（B7-1 只读分享，owner 平面）────────────────────────────
@@ -184,19 +228,25 @@ pub async fn get_design_artifact_version_html_cmd(
 /// 建/取产物只读分享 token（幂等）。
 #[tauri::command]
 pub async fn create_design_share_cmd(artifact_id: String) -> Result<String, CmdError> {
-    service::create_share(&artifact_id).map_err(Into::into)
+    ha_core::blocking::run_blocking(move || service::create_share(&artifact_id))
+        .await
+        .map_err(Into::into)
 }
 
 /// 取产物当前分享 token（无则 None）。
 #[tauri::command]
 pub async fn get_design_share_cmd(artifact_id: String) -> Result<Option<String>, CmdError> {
-    service::share_token_for_artifact(&artifact_id).map_err(Into::into)
+    ha_core::blocking::run_blocking(move || service::share_token_for_artifact(&artifact_id))
+        .await
+        .map_err(Into::into)
 }
 
 /// 撤销产物分享。
 #[tauri::command]
 pub async fn revoke_design_share_cmd(artifact_id: String) -> Result<bool, CmdError> {
-    service::revoke_share_for_artifact(&artifact_id).map_err(Into::into)
+    ha_core::blocking::run_blocking(move || service::revoke_share_for_artifact(&artifact_id))
+        .await
+        .map_err(Into::into)
 }
 
 // ── Cloudflare Pages 部署（B7-2，owner 平面 opt-in）─────────────────
@@ -207,14 +257,20 @@ pub async fn save_cf_deploy_config_cmd(
     api_token: String,
     account_id: String,
 ) -> Result<(), CmdError> {
-    ha_core::design::deploy::save_cf_config(&api_token, &account_id).map_err(Into::into)
+    ha_core::blocking::run_blocking(move || {
+        ha_core::design::deploy::save_cf_config(&api_token, &account_id)
+    })
+    .await
+    .map_err(Into::into)
 }
 
 /// 读 CF 部署配置（**token 脱敏**：只回 hasToken + mask 哨兵）。
 #[tauri::command]
 pub async fn get_cf_deploy_config_cmd() -> Result<ha_core::design::deploy::CfConfigPublic, CmdError>
 {
-    ha_core::design::deploy::public_cf_config().map_err(Into::into)
+    ha_core::blocking::run_blocking(ha_core::design::deploy::public_cf_config)
+        .await
+        .map_err(Into::into)
 }
 
 /// 部署产物到 CF Pages，返回 `{ url }`（与 HTTP `POST /deploy` 同形，前端统一读 `res.url`）。
@@ -230,7 +286,9 @@ pub async fn deploy_design_artifact_cmd(artifact_id: String) -> Result<DeployUrl
 
 #[tauri::command]
 pub async fn patch_design_element_cmd(input: ElementPatch) -> Result<DesignArtifact, CmdError> {
-    service::patch_element(input).map_err(Into::into)
+    ha_core::blocking::run_blocking(move || service::patch_element(input))
+        .await
+        .map_err(Into::into)
 }
 
 #[tauri::command]
@@ -238,7 +296,11 @@ pub async fn export_design_artifact_cmd(
     id: String,
     format: Option<String>,
 ) -> Result<ExportResult, CmdError> {
-    service::export_artifact(&id, format.as_deref().unwrap_or("html")).map_err(Into::into)
+    ha_core::blocking::run_blocking(move || {
+        service::export_artifact(&id, format.as_deref().unwrap_or("html"))
+    })
+    .await
+    .map_err(Into::into)
 }
 
 #[tauri::command]
@@ -252,13 +314,17 @@ pub async fn restyle_design_artifact_cmd(
     id: String,
     system_id: Option<String>,
 ) -> Result<DesignArtifact, CmdError> {
-    service::restyle_artifact(&id, system_id.as_deref()).map_err(Into::into)
+    ha_core::blocking::run_blocking(move || service::restyle_artifact(&id, system_id.as_deref()))
+        .await
+        .map_err(Into::into)
 }
 
 /// 导出代码交付包（handoff ZIP，content 为 base64）。owner 平面。
 #[tauri::command]
 pub async fn export_design_handoff_cmd(id: String) -> Result<ExportResult, CmdError> {
-    service::export_handoff(&id).map_err(Into::into)
+    ha_core::blocking::run_blocking(move || service::export_handoff(&id))
+        .await
+        .map_err(Into::into)
 }
 
 // ── Code bindings (工程轴 D) ────────────────────────────────────
@@ -271,19 +337,24 @@ pub async fn bind_design_code_project_cmd(
     subfolder: Option<String>,
     formats: Option<Vec<String>>,
 ) -> Result<DesignCodeBinding, CmdError> {
-    service::bind_code_project(
-        &system_id,
-        &target_dir,
-        subfolder.as_deref().unwrap_or(""),
-        &formats.unwrap_or_default(),
-    )
+    ha_core::blocking::run_blocking(move || {
+        service::bind_code_project(
+            &system_id,
+            &target_dir,
+            subfolder.as_deref().unwrap_or(""),
+            &formats.unwrap_or_default(),
+        )
+    })
+    .await
     .map_err(Into::into)
 }
 
 /// 同步：把绑定系统的多平台 token 写入代码工程目录（owner 平面）。
 #[tauri::command]
 pub async fn sync_design_code_binding_cmd(id: i64) -> Result<BindingSyncReport, CmdError> {
-    service::sync_code_binding(id).map_err(Into::into)
+    ha_core::blocking::run_blocking(move || service::sync_code_binding(id))
+        .await
+        .map_err(Into::into)
 }
 
 /// 列出代码绑定（可按 system 过滤）。owner 平面。
@@ -291,13 +362,17 @@ pub async fn sync_design_code_binding_cmd(id: i64) -> Result<BindingSyncReport, 
 pub async fn list_design_code_bindings_cmd(
     system_id: Option<String>,
 ) -> Result<Vec<DesignCodeBinding>, CmdError> {
-    service::list_code_bindings(system_id.as_deref()).map_err(Into::into)
+    ha_core::blocking::run_blocking(move || service::list_code_bindings(system_id.as_deref()))
+        .await
+        .map_err(Into::into)
 }
 
 /// 解绑（删记录，不删已写文件）。owner 平面。
 #[tauri::command]
 pub async fn unbind_design_code_project_cmd(id: i64) -> Result<(), CmdError> {
-    service::unbind_code_project(id).map_err(Into::into)
+    ha_core::blocking::run_blocking(move || service::unbind_code_project(id))
+        .await
+        .map_err(Into::into)
 }
 
 #[tauri::command]
@@ -305,7 +380,9 @@ pub async fn restore_design_version_cmd(
     artifact_id: String,
     version_id: i64,
 ) -> Result<DesignArtifact, CmdError> {
-    service::restore_version(&artifact_id, version_id).map_err(Into::into)
+    ha_core::blocking::run_blocking(move || service::restore_version(&artifact_id, version_id))
+        .await
+        .map_err(Into::into)
 }
 
 /// 导出强路依赖预检：ffmpeg（MP4 编码器）三态状态。导出面板在走 MP4 强路前调它。
@@ -353,7 +430,10 @@ pub async fn export_design_pptx_cmd(
     slides: Vec<String>,
     title: Option<String>,
 ) -> Result<serde_json::Value, CmdError> {
-    let pptx = service::export_pptx(&slides, title.as_deref().unwrap_or("design"))?;
+    let pptx = ha_core::blocking::run_blocking(move || {
+        service::export_pptx(&slides, title.as_deref().unwrap_or("design"))
+    })
+    .await?;
     Ok(serde_json::json!({ "pptx": pptx }))
 }
 
@@ -363,7 +443,10 @@ pub async fn export_design_zip_cmd(
     artifact_id: Option<String>,
     project_id: Option<String>,
 ) -> Result<serde_json::Value, CmdError> {
-    let zip = service::export_zip(artifact_id.as_deref(), project_id.as_deref())?;
+    let zip = ha_core::blocking::run_blocking(move || {
+        service::export_zip(artifact_id.as_deref(), project_id.as_deref())
+    })
+    .await?;
     Ok(serde_json::json!({ "zip": zip }))
 }
 
@@ -372,7 +455,8 @@ pub async fn export_design_zip_cmd(
 pub async fn export_design_selected_zip_cmd(
     artifact_ids: Vec<String>,
 ) -> Result<serde_json::Value, CmdError> {
-    let zip = service::export_selected_zip(&artifact_ids)?;
+    let zip = ha_core::blocking::run_blocking(move || service::export_selected_zip(&artifact_ids))
+        .await?;
     Ok(serde_json::json!({ "zip": zip }))
 }
 
@@ -380,22 +464,30 @@ pub async fn export_design_selected_zip_cmd(
 
 #[tauri::command]
 pub async fn list_design_systems_cmd() -> Result<Vec<DesignSystemMeta>, CmdError> {
-    service::list_systems().map_err(Into::into)
+    ha_core::blocking::run_blocking(service::list_systems)
+        .await
+        .map_err(Into::into)
 }
 
 #[tauri::command]
 pub async fn get_design_system_cmd(id: String) -> Result<DesignSystemFull, CmdError> {
-    service::get_system_full(&id).map_err(Into::into)
+    ha_core::blocking::run_blocking(move || service::get_system_full(&id))
+        .await
+        .map_err(Into::into)
 }
 
 #[tauri::command]
 pub async fn save_design_system_cmd(input: SaveSystemInput) -> Result<DesignSystemMeta, CmdError> {
-    service::save_system(input).map_err(Into::into)
+    ha_core::blocking::run_blocking(move || service::save_system(input))
+        .await
+        .map_err(Into::into)
 }
 
 #[tauri::command]
 pub async fn delete_design_system_cmd(id: String) -> Result<(), CmdError> {
-    service::delete_system(&id).map_err(Into::into)
+    ha_core::blocking::run_blocking(move || service::delete_system(&id))
+        .await
+        .map_err(Into::into)
 }
 
 /// 反向提取设计系统（brief / codebase / url / image）。owner 平面。
@@ -429,14 +521,14 @@ pub async fn import_figma_system_cmd(
 /// 导出一个设计系统为规范 DESIGN.md 文本 → `{ designMd }`。owner 平面。
 #[tauri::command]
 pub async fn export_design_md_cmd(system_id: String) -> Result<serde_json::Value, CmdError> {
-    let md = service::export_design_md(&system_id)?;
+    let md = ha_core::blocking::run_blocking(move || service::export_design_md(&system_id)).await?;
     Ok(serde_json::json!({ "designMd": md }))
 }
 
 /// 导出设计系统 Token 为多平台开发者格式（CSS/SCSS/TS/Swift/Android/DTCG）。owner 平面。
 #[tauri::command]
 pub async fn export_design_tokens_cmd(system_id: String) -> Result<Vec<TokenExport>, CmdError> {
-    Ok(service::export_tokens(&system_id)?)
+    Ok(ha_core::blocking::run_blocking(move || service::export_tokens(&system_id)).await?)
 }
 
 /// 设计方向候选（无品牌 brief 时的选择器）。
@@ -498,21 +590,26 @@ pub async fn design_comment_add_cmd(
     snippet: Option<String>,
     body: String,
 ) -> Result<DesignComment, CmdError> {
-    service::add_comment(
-        &artifact_id,
-        oid,
-        rel_x,
-        rel_y,
-        tag.as_deref(),
-        snippet.as_deref(),
-        &body,
-    )
+    ha_core::blocking::run_blocking(move || {
+        service::add_comment(
+            &artifact_id,
+            oid,
+            rel_x,
+            rel_y,
+            tag.as_deref(),
+            snippet.as_deref(),
+            &body,
+        )
+    })
+    .await
     .map_err(Into::into)
 }
 
 #[tauri::command]
 pub async fn design_comment_list_cmd(artifact_id: String) -> Result<Vec<DesignComment>, CmdError> {
-    service::list_comments(&artifact_id).map_err(Into::into)
+    ha_core::blocking::run_blocking(move || service::list_comments(&artifact_id))
+        .await
+        .map_err(Into::into)
 }
 
 #[tauri::command]
@@ -523,7 +620,11 @@ pub async fn design_comment_relocate_cmd(
     rel_x: f64,
     rel_y: f64,
 ) -> Result<bool, CmdError> {
-    service::relocate_comment(&artifact_id, comment_id, oid, rel_x, rel_y).map_err(Into::into)
+    ha_core::blocking::run_blocking(move || {
+        service::relocate_comment(&artifact_id, comment_id, oid, rel_x, rel_y)
+    })
+    .await
+    .map_err(Into::into)
 }
 
 #[tauri::command]
@@ -532,7 +633,11 @@ pub async fn design_comment_update_cmd(
     comment_id: i64,
     body: String,
 ) -> Result<bool, CmdError> {
-    service::update_comment_body(&artifact_id, comment_id, &body).map_err(Into::into)
+    ha_core::blocking::run_blocking(move || {
+        service::update_comment_body(&artifact_id, comment_id, &body)
+    })
+    .await
+    .map_err(Into::into)
 }
 
 #[tauri::command]
@@ -541,7 +646,11 @@ pub async fn design_comment_resolve_cmd(
     comment_id: i64,
     resolved: bool,
 ) -> Result<bool, CmdError> {
-    service::set_comment_resolved(&artifact_id, comment_id, resolved).map_err(Into::into)
+    ha_core::blocking::run_blocking(move || {
+        service::set_comment_resolved(&artifact_id, comment_id, resolved)
+    })
+    .await
+    .map_err(Into::into)
 }
 
 #[tauri::command]
@@ -549,7 +658,9 @@ pub async fn design_comment_delete_cmd(
     artifact_id: String,
     comment_id: i64,
 ) -> Result<bool, CmdError> {
-    service::delete_comment(&artifact_id, comment_id).map_err(Into::into)
+    ha_core::blocking::run_blocking(move || service::delete_comment(&artifact_id, comment_id))
+        .await
+        .map_err(Into::into)
 }
 
 /// 回灌对话：让 AI 按批注精修产物（产物就地更新新版本）。
@@ -566,7 +677,9 @@ pub async fn design_comment_refine_cmd(
 /// 设计系统套件视图自包含 HTML（前端进沙箱 iframe 渲染）。
 #[tauri::command]
 pub async fn get_design_system_kit_cmd(id: String) -> Result<String, CmdError> {
-    service::get_system_kit_html(&id).map_err(Into::into)
+    ha_core::blocking::run_blocking(move || service::get_system_kit_html(&id))
+        .await
+        .map_err(Into::into)
 }
 
 /// 反-slop 自查复查：`action ∈ recheck|dismiss`，返回更新后的产物。
@@ -575,7 +688,9 @@ pub async fn design_review_artifact_cmd(
     artifact_id: String,
     action: String,
 ) -> Result<DesignArtifact, CmdError> {
-    service::review_artifact(&artifact_id, &action).map_err(Into::into)
+    ha_core::blocking::run_blocking(move || service::review_artifact(&artifact_id, &action))
+        .await
+        .map_err(Into::into)
 }
 
 // ── Design-space per-project chat threads ───────────────────────
@@ -586,7 +701,9 @@ pub async fn design_review_artifact_cmd(
 pub async fn design_chat_thread_get_cmd(
     project_id: String,
 ) -> Result<Option<SessionMeta>, CmdError> {
-    service::design_chat_thread_latest(&project_id).map_err(Into::into)
+    ha_core::blocking::run_blocking(move || service::design_chat_thread_latest(&project_id))
+        .await
+        .map_err(Into::into)
 }
 
 /// History picker: a page of chat threads in a design project, newest-active
@@ -599,6 +716,9 @@ pub async fn design_chat_threads_list_cmd(
     limit: Option<i64>,
     offset: Option<i64>,
 ) -> Result<Vec<DesignChatThread>, CmdError> {
-    service::design_chat_threads_list(&project_id, query.as_deref(), limit, offset)
-        .map_err(Into::into)
+    ha_core::blocking::run_blocking(move || {
+        service::design_chat_threads_list(&project_id, query.as_deref(), limit, offset)
+    })
+    .await
+    .map_err(Into::into)
 }

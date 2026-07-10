@@ -22,6 +22,10 @@ pub const KIND_VISION: &str = "vision";
 pub const KIND_SUMMARIZE: &str = "summarize";
 pub const KIND_WEB_SEARCH: &str = "web_search";
 pub const KIND_IMAGE_GENERATION: &str = "image_generation";
+/// Audio generation (design space TTS narration / music / SFX). Like image
+/// generation, providers return no token usage — only call count + duration
+/// are recorded.
+pub const KIND_AUDIO_GENERATION: &str = "audio_generation";
 pub const KIND_PROVIDER_TEST: &str = "provider_test";
 
 #[derive(Debug, Clone, Default)]

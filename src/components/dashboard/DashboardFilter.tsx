@@ -38,6 +38,7 @@ const USAGE_KIND_VALUES = [
   "summarize",
   "web_search",
   "image_generation",
+  "audio_generation",
   "provider_test",
   "vision",
 ] as const

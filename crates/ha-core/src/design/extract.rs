@@ -83,14 +83,8 @@ async fn run_extract(source_label: &str, material: &str) -> Result<ExtractedSyst
     }
     let prompt = build_prompt(source_label, material);
     // 4096：容纳完整 9 段 systemMd + 整套（核心 + 扩展）token 的 JSON，避免截断。
-    let text = super::run_design_task(
-        "design.extract",
-        "automation:design.extract",
-        &prompt,
-        4096,
-        None,
-    )
-    .await?;
+    let text = super::run_design_task("design.extract", "automation:design.extract", &prompt, 4096)
+        .await?;
     parse(&text)
 }
 
@@ -150,7 +144,6 @@ font stacks): {vocab}\n\nBRIEF:\n{brief}",
         "automation:design.directions",
         &prompt,
         2000,
-        None,
     )
     .await?;
     let t = text.trim();

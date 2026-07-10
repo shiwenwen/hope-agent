@@ -195,10 +195,6 @@ export interface DesignConfig {
   exportScale: number;
   /** PDF 导出 JPEG 质量（1–100），[40,100]。默认 92。 */
   exportJpegQuality: number;
-  /** 反向提取专用视觉模型（providerId:modelId）。空 = 复用活跃模型。 */
-  extractVisionModel?: string;
-  /** 质量评审专用模型（providerId:modelId）。空 = 复用默认分析模型。 */
-  critiqueModel?: string;
 }
 
 /** 设计模板（recipe）：某形态的常见场景，供首屏模板快选。 */

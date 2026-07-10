@@ -288,10 +288,26 @@ pub async fn run_streaming(
             }
         };
 
-        match agent
+        let started = std::time::Instant::now();
+        let result = agent
             .side_query_streaming(spec.instruction, spec.max_tokens, cancel, on_text)
-            .await
-        {
+            .await;
+        let duration_ms = started.elapsed().as_millis() as u64;
+        // `side_query_streaming` does not self-record (unlike the one-shot
+        // `side_query_with_purpose`), so stamp the usage ledger here — otherwise
+        // the design space's PRIMARY (streaming) generation path is invisible to
+        // Dashboard cost accounting. `session_key` is the synthetic
+        // `automation:*` id, never an incognito session, so this never leaks
+        // an incognito turn into the ledger.
+        record_streaming_usage(
+            &config,
+            &spec,
+            candidate,
+            duration_ms,
+            result.as_ref().ok().map(|r| &r.usage),
+            result.as_ref().err().map(|e| e.to_string()),
+        );
+        match result {
             Ok(result) => {
                 return Ok(ModelTaskOutput {
                     text: result.text,
@@ -311,6 +327,42 @@ pub async fn run_streaming(
             spec.purpose
         )
     }))
+}
+
+/// Record one streaming attempt to the model-usage ledger. Mirrors the fields
+/// `AssistantAgent::record_side_query_usage` stamps for one-shot side queries,
+/// so streaming rows are `KIND_SIDE_QUERY` with the same shape (per-candidate,
+/// so a fallover shows both the failed primary and the winning fallback).
+fn record_streaming_usage(
+    config: &AppConfig,
+    spec: &ModelTaskSpec<'_>,
+    candidate: &ActiveModel,
+    duration_ms: u64,
+    usage: Option<&crate::agent::ChatUsage>,
+    error: Option<String>,
+) {
+    let mut event = crate::model_usage::ModelUsageEvent::new(crate::model_usage::KIND_SIDE_QUERY);
+    event.operation = Some(spec.purpose.to_string());
+    event.source = Some("automation.stream".to_string());
+    event.provider_id = Some(candidate.provider_id.clone());
+    event.provider_name =
+        find_provider(&config.providers, &candidate.provider_id).map(|p| p.name.clone());
+    event.model_id = Some(candidate.model_id.clone());
+    event.session_id = Some(spec.session_key.to_string());
+    event.duration_ms = Some(duration_ms);
+    event.success = error.is_none();
+    event.error = error;
+    event.metadata = Some(serde_json::json!({
+        "path": "automation.run_streaming",
+        "max_tokens": spec.max_tokens,
+    }));
+    if let Some(usage) = usage {
+        event.input_tokens = Some(usage.input_tokens);
+        event.output_tokens = Some(usage.output_tokens);
+        event.cache_creation_input_tokens = Some(usage.cache_creation_input_tokens);
+        event.cache_read_input_tokens = Some(usage.cache_read_input_tokens);
+    }
+    crate::model_usage::record_model_usage_best_effort(event);
 }
 
 /// Spec for a one-shot background VISION-capable model call. See [`run_vision`].

@@ -65,15 +65,14 @@ HTML:\n{html}",
         html = truncate(html, 24000),
     );
 
-    let config = crate::config::cached_config();
+    // Critique is a background analysis task → rides the unified automation
+    // model chain (`function_models.automation`, same as /recap and design
+    // generation) rather than a design-specific model override.
     let text = super::run_design_task(
         "design.critique",
         "automation:design.critique",
         &prompt,
         1200,
-        // Honor the `design.critiqueModel` ("providerId:modelId") override;
-        // otherwise the automation chain (same as /recap) is used.
-        config.design.critique_model.as_deref(),
     )
     .await?;
     let mut out = parse_critique(&text)?;

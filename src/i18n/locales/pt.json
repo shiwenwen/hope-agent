@@ -1332,7 +1332,8 @@
       "web_search": "Pesquisa na web",
       "image_generation": "Geração de imagens",
       "provider_test": "Teste de provedor",
-      "vision": "Visão"
+      "vision": "Visão",
+      "audio_generation": "Geração de áudio"
     }
   },
   "fileActions": {
@@ -6281,13 +6282,7 @@
       "exportScale": "Nitidez de exportação (×)",
       "exportScaleDesc": "Escala de rasterização; maior = mais nítido e grande. Predef. 2.",
       "exportJpegQuality": "Qualidade de imagem PDF",
-      "exportJpegQualityDesc": "Qualidade JPEG das páginas PDF (1–100). Predef. 92.",
-      "extractVisionModel": "Modelo de visão para extração",
-      "extractVisionModelDesc": "Para extração inversa de capturas; vazio reutiliza o modelo ativo (tem de suportar visão).",
-      "critiqueModel": "Modelo de avaliação",
-      "critiqueModelDesc": "Para a avaliação de qualidade de 5 dimensões; vazio reutiliza o modelo de análise predefinido.",
-      "modelActive": "Reutilizar modelo ativo",
-      "modelDefault": "Reutilizar modelo de análise predefinido"
+      "exportJpegQualityDesc": "Qualidade JPEG das páginas PDF (1–100). Predef. 92."
     },
     "deleteTitle": "Confirmar exclusão?",
     "deleteProjectDesc": "Isto exclui permanentemente o projeto e todos os seus artefatos. Não pode ser desfeito.",

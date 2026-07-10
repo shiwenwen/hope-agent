@@ -117,8 +117,20 @@ async fn generate_audio_bytes(
             duration_seconds,
             entry,
         };
+        let started = std::time::Instant::now();
         match provider.generate(params).await {
             Ok(AudioGenResult { data, mime }) => {
+                // Audio providers return no token usage — record call + duration
+                // only (KIND_AUDIO_GENERATION), matching the image path.
+                record_audio_usage(
+                    &entry.id,
+                    provider.display_name(),
+                    &model,
+                    kind,
+                    started.elapsed().as_millis() as u64,
+                    true,
+                    None,
+                );
                 crate::app_info!(
                     "design",
                     "audio",
@@ -130,6 +142,15 @@ async fn generate_audio_bytes(
                 return Ok((data, mime));
             }
             Err(e) => {
+                record_audio_usage(
+                    &entry.id,
+                    provider.display_name(),
+                    &model,
+                    kind,
+                    started.elapsed().as_millis() as u64,
+                    false,
+                    Some(e.to_string()),
+                );
                 crate::app_warn!(
                     "design",
                     "audio",
@@ -142,4 +163,32 @@ async fn generate_audio_bytes(
         }
     }
     Err(last_err.unwrap_or_else(|| anyhow!("all audio providers failed")))
+}
+
+/// Record one design audio-generation attempt (`KIND_AUDIO_GENERATION`, owner
+/// plane so no session/agent id). Audio carries no token usage — call count +
+/// duration only, per the usage-ledger contract.
+fn record_audio_usage(
+    provider_id: &str,
+    provider_name: &str,
+    model: &str,
+    kind: AudioKind,
+    duration_ms: u64,
+    success: bool,
+    error: Option<String>,
+) {
+    let mut event =
+        crate::model_usage::ModelUsageEvent::new(crate::model_usage::KIND_AUDIO_GENERATION);
+    event.operation = Some("design.audio".to_string());
+    event.source = Some("design.audio".to_string());
+    event.provider_id = Some(provider_id.to_string());
+    // Human display name (uniform with the image / tool paths) so Dashboard
+    // "by model" grouping shows a clean provider label.
+    event.provider_name = Some(provider_name.to_string());
+    event.model_id = Some(model.to_string());
+    event.duration_ms = Some(duration_ms);
+    event.success = success;
+    event.error = error;
+    event.metadata = Some(serde_json::json!({ "audio_kind": kind.as_str() }));
+    crate::model_usage::record_model_usage_best_effort(event);
 }

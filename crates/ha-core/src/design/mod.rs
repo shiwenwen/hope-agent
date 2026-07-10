@@ -68,12 +68,9 @@ pub struct DesignConfig {
     /// PDF 导出的 JPEG 压缩质量（1–100）。读时钳 `[40,100]`。默认 92。
     #[serde(default = "default_export_jpeg_quality")]
     pub export_jpeg_quality: u32,
-    /// 反向提取截图的专用视觉模型（`providerId:modelId`）。空 = 复用当前激活模型。
-    #[serde(default)]
-    pub extract_vision_model: Option<String>,
-    /// 质量评审的专用模型（`providerId:modelId`）。空 = 复用默认分析 agent 模型。
-    #[serde(default)]
-    pub critique_model: Option<String>,
+    // 设计生成 / 质量评审 / 截图提取的模型不再由 design 自持覆盖：
+    // 生成 + critique 走统一 `function_models.automation`，截图提取走
+    // `function_models.vision`（见 design::run_design_task / vision.rs）。
 }
 
 /// 导出倍率安全钳（`[1,4]`）。
@@ -124,8 +121,6 @@ impl Default for DesignConfig {
             max_extract_image_mb: default_max_extract_image_mb(),
             export_scale: default_export_scale(),
             export_jpeg_quality: default_export_jpeg_quality(),
-            extract_vision_model: None,
-            critique_model: None,
         }
     }
 }
@@ -138,25 +133,21 @@ pub fn is_design_enabled() -> bool {
 
 /// One-shot background model call for design generation / analysis / critique.
 ///
-/// Single entry so every design side-task goes through `automation::run`'s
-/// chain-level failover: resolve the automation model chain (honoring an
-/// optional `providerId:modelId` override such as `design.critiqueModel`), then
-/// run with bad-primary-falls-through-to-next-model. Returns the model's raw
-/// text; callers parse / validate it. Live streaming generation instead calls
-/// `automation::run_streaming` directly (it needs `cancel` + `on_text`).
+/// Single entry so every design side-task rides the unified automation model
+/// chain (`function_models.automation` → chat default) through
+/// `automation::run`'s chain-level failover (bad-primary-falls-through). Returns
+/// the model's raw text; callers parse / validate it. Live streaming generation
+/// instead calls `automation::run_streaming` directly (it needs `cancel` +
+/// `on_text`). Design no longer keeps its own generation-model override — it
+/// consumes the shared `function_models` config like every other background task.
 pub(crate) async fn run_design_task(
     purpose: &'static str,
     session_key: &'static str,
     prompt: &str,
     max_tokens: u32,
-    override_model: Option<&str>,
 ) -> anyhow::Result<String> {
     let config = crate::config::cached_config();
-    let override_chain = override_model
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .and_then(crate::automation::parse_legacy_model_string);
-    let chain = crate::automation::effective_chain(&config, override_chain);
+    let chain = crate::automation::effective_chain(&config, None);
     if chain.is_empty() {
         anyhow::bail!(
             "no LLM provider configured — set a default model in Settings before generating designs"
