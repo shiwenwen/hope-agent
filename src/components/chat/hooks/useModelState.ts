@@ -70,28 +70,33 @@ export function useModelState(): UseModelStateReturn {
     }
   }, [])
 
-  // 切换会话内使用的模型：
-  // - 已有 sessionId：写到 sessions.provider_id/model_id（只影响这个会话）
-  // - 没有 sessionId：仅更新 UI state，等首次发消息时 useChatStream 把
-  //   activeModel 作为 modelOverride 透传，chat_engine 的事后 update_session_model
-  //   会自动把它落到 sessions 行
-  // 全局默认模型现在只能由 Settings 里的 GlobalModelPanel 修改。
+  // 用户手动选择的模型同时承担两个作用：更新后续新会话的全局默认，
+  // 并在当前会话已经存在时保留该会话自己的模型固定值。
   const handleModelChange = useCallback(
     async (key: string, sessionId?: string | null, agentId?: string | null) => {
       const [providerId, modelId] = key.split("::")
       if (!providerId || !modelId) return
-      setActiveModel({ providerId, modelId })
-      if (sessionId) {
-        try {
-          await getTransport().call("set_session_model", {
-            sessionId,
-            providerId,
-            modelId,
-          })
-        } catch (e) {
-          logger.error("ui", "ChatScreen::modelChange", "Failed to pin session model", e)
-        }
-      }
+      const nextModel = { providerId, modelId }
+      setActiveModel(nextModel)
+      globalActiveModelRef.current = nextModel
+
+      const persistGlobalModel = getTransport()
+        .call("set_active_model", { providerId, modelId })
+        .catch((e) => {
+          logger.error("ui", "ChatScreen::modelChange", "Failed to set global active model", e)
+        })
+      const persistSessionModel = sessionId
+        ? getTransport()
+            .call("set_session_model", {
+              sessionId,
+              providerId,
+              modelId,
+            })
+            .catch((e) => {
+              logger.error("ui", "ChatScreen::modelChange", "Failed to pin session model", e)
+            })
+        : Promise.resolve()
+
       const newModel = availableModels.find(
         (m) => m.providerId === providerId && m.modelId === modelId,
       )
@@ -112,6 +117,8 @@ export function useModelState(): UseModelStateReturn {
           }
         }
       }
+
+      await Promise.all([persistGlobalModel, persistSessionModel])
     },
     [availableModels, reasoningEffort, t, handleEffortChange],
   )

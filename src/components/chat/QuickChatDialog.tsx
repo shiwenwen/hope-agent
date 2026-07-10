@@ -109,7 +109,7 @@ export default function QuickChatDialog({
     sessionCacheRef: session.sessionCacheRef,
     sessions: session.sessions,
     agents: session.agents,
-    activeModel: session.activeModel,
+    manualModelOverrideRef: session.manualModelOverrideRef,
     reasoningEffort: session.reasoningEffort,
     reloadSessions: session.reloadSessions,
     updateSessionMessages: session.updateSessionMessages,

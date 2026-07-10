@@ -44,6 +44,7 @@ import {
 } from "@/components/chat/input/pastedTextAttachment"
 import { useNotificationListeners } from "./useNotificationListeners"
 import type { SessionStreamState } from "./useChatStreamReattach"
+import { modelOverrideFromManualSelection } from "../modelSelection"
 
 const ACTIVE_STREAM_ERROR_CODE = "active_stream"
 const CHAT_NOTIFICATION_PREVIEW_MAX_CHARS = 220
@@ -193,12 +194,12 @@ export interface UseChatStreamOptions {
    *  don't otherwise route through `handleSwitchSession` (new-session
    *  rename in particular). */
   touchSessionCacheLru?: (sessionId: string) => void
-  sessions: Pick<
-    SessionMeta,
-    "id" | "title" | "workingDir" | "permissionMode" | "sandboxMode"
-  >[]
+  sessions: Pick<SessionMeta, "id" | "title" | "workingDir" | "permissionMode" | "sandboxMode">[]
   agents: AgentSummaryForSidebar[]
-  activeModel: ActiveModel | null
+  /** Display-only compatibility input; never converted into a strict override. */
+  activeModel?: ActiveModel | null
+  /** Explicit picker intent. Display-only model restoration must never populate this ref. */
+  manualModelOverrideRef?: React.MutableRefObject<ActiveModel | null>
   reloadSessions: () => Promise<void>
   updateSessionMessages: (sessionId: string, updater: (prev: Message[]) => Message[]) => void
   /**
@@ -326,7 +327,7 @@ export function useChatStream({
   touchSessionCacheLru,
   sessions,
   agents,
-  activeModel,
+  manualModelOverrideRef,
   reloadSessions,
   updateSessionMessages,
   lastSeqRef,
@@ -388,8 +389,7 @@ export function useChatStream({
   const setAttachedFiles = useCallback<React.Dispatch<React.SetStateAction<File[]>>>(
     (value) => {
       setAttachedFilesState((prev) => {
-        const next =
-          typeof value === "function" ? (value as (p: File[]) => File[])(prev) : value
+        const next = typeof value === "function" ? (value as (p: File[]) => File[])(prev) : value
         attachedFilesRef.current = next
         saveInputDraft(activeInputDraftKeyRef.current, {
           input: inputRef.current,
@@ -412,8 +412,7 @@ export function useChatStream({
     })
 
     activeInputDraftKeyRef.current = nextKey
-    const nextDraft =
-      inputDraftsRef.current.get(nextKey) ??
+    const nextDraft = inputDraftsRef.current.get(nextKey) ??
       (previousKey === "draft" ? inputDraftsRef.current.get(previousKey) : undefined) ?? {
         input: "",
         attachedFiles: [],
@@ -457,9 +456,7 @@ export function useChatStream({
   )
   const canForceInsertPending = useCallback(
     (pending: PendingSend): boolean =>
-      !pending.options &&
-      pending.status === "queued" &&
-      pending.mode !== "force_insert",
+      !pending.options && pending.status === "queued" && pending.mode !== "force_insert",
     [],
   )
   // External views: keep the original `pendingMessage: string | null` API for
@@ -474,29 +471,30 @@ export function useChatStream({
     attachmentCount: pending.attachedFiles?.length ?? 0,
     quoteCount: pending.quotes?.length ?? 0,
   }))
-  const setPendingMessage = useCallback<
-    React.Dispatch<React.SetStateAction<string | null>>
-  >((value) => {
-    updatePendingSends((prev) => {
-      const first = prev[0]
-      const next =
-        typeof value === "function"
-          ? (value as (p: string | null) => string | null)(
-              first ? pendingDisplayText(first) : null,
-            )
-          : value
-      if (next === null) return prev.slice(1)
-      return [
-        {
-          id: generateClientId(),
-          createdAt: Date.now(),
-          text: next,
-          mode: "queue",
-          status: "queued",
-        },
-      ]
-    })
-  }, [pendingDisplayText, updatePendingSends])
+  const setPendingMessage = useCallback<React.Dispatch<React.SetStateAction<string | null>>>(
+    (value) => {
+      updatePendingSends((prev) => {
+        const first = prev[0]
+        const next =
+          typeof value === "function"
+            ? (value as (p: string | null) => string | null)(
+                first ? pendingDisplayText(first) : null,
+              )
+            : value
+        if (next === null) return prev.slice(1)
+        return [
+          {
+            id: generateClientId(),
+            createdAt: Date.now(),
+            text: next,
+            mode: "queue",
+            status: "queued",
+          },
+        ]
+      })
+    },
+    [pendingDisplayText, updatePendingSends],
+  )
   const [showCodexAuthExpired, setShowCodexAuthExpired] = useState(false)
   const [permissionMode, setPermissionModeState] = useState<SessionMode>("default")
   const permissionModeRef = useRef<SessionMode>("default")
@@ -530,40 +528,37 @@ export function useChatStream({
   // changes it. Backend re-reads the column at the start of each tool round,
   // so in-flight loops pick up the change without a separate global snapshot.
   // Without a session id the choice is local-only until the first send.
-  const setPermissionMode = useCallback<
-    React.Dispatch<React.SetStateAction<SessionMode>>
-  >((value) => {
-    setPermissionModeState((prev) => {
-      const next =
-        typeof value === "function"
-          ? (value as (p: SessionMode) => SessionMode)(prev)
-          : value
-      if (next !== prev) {
-        const sid = currentSessionIdRef.current
-        if (sid) {
-          getTransport()
-            .call("set_permission_mode", { sessionId: sid, mode: next })
-            .catch((e) => {
-              logger.error(
-                "chat",
-                "setPermissionMode",
-                "Failed to sync session permission mode",
-                e,
-              )
-            })
+  const setPermissionMode = useCallback<React.Dispatch<React.SetStateAction<SessionMode>>>(
+    (value) => {
+      setPermissionModeState((prev) => {
+        const next =
+          typeof value === "function" ? (value as (p: SessionMode) => SessionMode)(prev) : value
+        if (next !== prev) {
+          const sid = currentSessionIdRef.current
+          if (sid) {
+            getTransport()
+              .call("set_permission_mode", { sessionId: sid, mode: next })
+              .catch((e) => {
+                logger.error(
+                  "chat",
+                  "setPermissionMode",
+                  "Failed to sync session permission mode",
+                  e,
+                )
+              })
+          }
         }
-      }
-      return next
-    })
-  }, [currentSessionIdRef])
+        return next
+      })
+    },
+    [currentSessionIdRef],
+  )
 
   // User-initiated permission-mode change (switcher / `/permission`). Marks the
   // draft "dirty" so a new session's first send carries the chosen mode, then
   // delegates to the persist/state logic. Programmatic callers (seeding, restore,
   // backend events) must use `setPermissionMode` so they don't mark the draft.
-  const setPermissionModeByUser = useCallback<
-    React.Dispatch<React.SetStateAction<SessionMode>>
-  >(
+  const setPermissionModeByUser = useCallback<React.Dispatch<React.SetStateAction<SessionMode>>>(
     (value) => {
       permissionModeDirtyRef.current = true
       setPermissionMode(value)
@@ -571,35 +566,29 @@ export function useChatStream({
     [setPermissionMode],
   )
 
-  const setSandboxMode = useCallback<React.Dispatch<React.SetStateAction<SandboxMode>>>((value) => {
-    setSandboxModeState((prev) => {
-      const next =
-        typeof value === "function"
-          ? (value as (p: SandboxMode) => SandboxMode)(prev)
-          : value
-      if (next !== prev) {
-        const sid = currentSessionIdRef.current
-        if (sid) {
-          getTransport()
-            .call("set_sandbox_mode", { sessionId: sid, mode: next })
-            .then(() => onSandboxModeSynced?.(sid, next))
-            .catch((e) => {
-              logger.error(
-                "chat",
-                "setSandboxMode",
-                "Failed to sync session sandbox mode",
-                e,
-              )
-            })
+  const setSandboxMode = useCallback<React.Dispatch<React.SetStateAction<SandboxMode>>>(
+    (value) => {
+      setSandboxModeState((prev) => {
+        const next =
+          typeof value === "function" ? (value as (p: SandboxMode) => SandboxMode)(prev) : value
+        if (next !== prev) {
+          const sid = currentSessionIdRef.current
+          if (sid) {
+            getTransport()
+              .call("set_sandbox_mode", { sessionId: sid, mode: next })
+              .then(() => onSandboxModeSynced?.(sid, next))
+              .catch((e) => {
+                logger.error("chat", "setSandboxMode", "Failed to sync session sandbox mode", e)
+              })
+          }
         }
-      }
-      return next
-    })
-  }, [currentSessionIdRef, onSandboxModeSynced])
+        return next
+      })
+    },
+    [currentSessionIdRef, onSandboxModeSynced],
+  )
 
-  const setSandboxModeByUser = useCallback<
-    React.Dispatch<React.SetStateAction<SandboxMode>>
-  >(
+  const setSandboxModeByUser = useCallback<React.Dispatch<React.SetStateAction<SandboxMode>>>(
     (value) => {
       sandboxModeDirtyRef.current = true
       setSandboxMode(value)
@@ -786,7 +775,8 @@ export function useChatStream({
 
   // Load config on mount
   useEffect(() => {
-    getTransport().call<{ autoSendPending?: boolean }>("get_user_config")
+    getTransport()
+      .call<{ autoSendPending?: boolean }>("get_user_config")
       .then((cfg) => {
         autoSendPendingRef.current = cfg.autoSendPending !== false
       })
@@ -847,9 +837,11 @@ export function useChatStream({
     [],
   )
 
-  const quoteLineLabel = useCallback((q: PendingFileQuote) =>
-    q.startLine === q.endLine ? `${q.startLine}` : `${q.startLine}-${q.endLine}`,
-  [])
+  const quoteLineLabel = useCallback(
+    (q: PendingFileQuote) =>
+      q.startLine === q.endLine ? `${q.startLine}` : `${q.startLine}-${q.endLine}`,
+    [],
+  )
 
   const buildChatAttachments = useCallback(
     async (
@@ -860,8 +852,7 @@ export function useChatStream({
     ): Promise<ChatAttachment[]> => {
       const attachments: ChatAttachment[] = []
 
-      const sessionWorkingDir =
-        sessions.find((s) => s.id === targetSessionId)?.workingDir ?? null
+      const sessionWorkingDir = sessions.find((s) => s.id === targetSessionId)?.workingDir ?? null
       const resolvedWorkingDir = targetSessionId ? sessionWorkingDir : draftWorkingDir
       const mentionAttachments = expandMentionsToAttachments(text, resolvedWorkingDir ?? null)
       for (const m of mentionAttachments) {
@@ -1012,9 +1003,7 @@ export function useChatStream({
     const sidForCap = currentSessionIdRef.current
     setMessages((prev) => {
       const next = [...prev, optimisticUserMessage]
-      return sidForCap && capMessagesForSession
-        ? capMessagesForSession(sidForCap, next)
-        : next
+      return sidForCap && capMessagesForSession ? capMessagesForSession(sidForCap, next) : next
     })
     setLoading(true)
 
@@ -1044,9 +1033,7 @@ export function useChatStream({
           _clientId: assistantPlaceholderClientId,
         },
       ]
-      return sidForCap && capMessagesForSession
-        ? capMessagesForSession(sidForCap, next)
-        : next
+      return sidForCap && capMessagesForSession ? capMessagesForSession(sidForCap, next) : next
     })
 
     let targetSessionId = currentSessionId
@@ -1102,10 +1089,7 @@ export function useChatStream({
         return true
       }
 
-      const shouldDropStreamEvent = (
-        event: Record<string, unknown>,
-        sid: string,
-      ): boolean => {
+      const shouldDropStreamEvent = (event: Record<string, unknown>, sid: string): boolean => {
         const streamId = streamIdFromEvent(event)
         if (streamId && endedStreamIdsRef.current.get(sid) === streamId) return true
 
@@ -1204,9 +1188,7 @@ export function useChatStream({
         sessionCacheRef.current.set("__pending__", cappedFreshMessages)
       }
 
-      const modelOverride = activeModel
-        ? `${activeModel.providerId}::${activeModel.modelId}`
-        : undefined
+      const modelOverride = modelOverrideFromManualSelection(manualModelOverrideRef?.current)
       const effectivePlanMode = options?.planMode ?? planMode
       await getTransport().startChat(
         {
@@ -1226,15 +1208,16 @@ export function useChatStream({
               : undefined,
           sandboxMode:
             currentSessionId || sandboxModeDirtyRef.current ? sandboxModeRef.current : undefined,
-          planMode: effectivePlanMode && effectivePlanMode !== "off" ? effectivePlanMode : undefined,
+          planMode:
+            effectivePlanMode && effectivePlanMode !== "off" ? effectivePlanMode : undefined,
           temperatureOverride: temperatureOverride ?? undefined,
           reasoningEffort: reasoningEffort ?? undefined,
           displayText: options?.displayText?.trim() || undefined,
           isPlanTrigger: options?.isPlanTrigger,
           planComment: options?.planComment,
-          workingDir: currentSessionId ? undefined : draftWorkingDir ?? undefined,
+          workingDir: currentSessionId ? undefined : (draftWorkingDir ?? undefined),
           // Lazy project binding — send-time snapshot, only on the auto-create send.
-          projectId: currentSessionId ? undefined : draftProjectIdRef.current ?? undefined,
+          projectId: currentSessionId ? undefined : (draftProjectIdRef.current ?? undefined),
           // Send-time snapshot: only on the auto-create send, never incognito.
           kbAttachments:
             currentSessionId || incognitoEnabled
@@ -1284,10 +1267,9 @@ export function useChatStream({
           return updated
         })
         try {
-          const state = await getTransport().call<SessionStreamState>(
-            "get_session_stream_state",
-            { sessionId: sid },
-          )
+          const state = await getTransport().call<SessionStreamState>("get_session_stream_state", {
+            sessionId: sid,
+          })
           if (state.turnId && state.active) {
             activeTurnBySessionRef.current.set(sid, state.turnId)
           } else if (!state.active) {
@@ -1318,12 +1300,7 @@ export function useChatStream({
         updateSessionMessages(sid, (prev) => {
           const updated = [...prev]
           const last = updated[updated.length - 1]
-          if (
-            last &&
-            last.role === "assistant" &&
-            last.content === "" &&
-            !last.toolCalls?.length
-          ) {
+          if (last && last.role === "assistant" && last.content === "" && !last.toolCalls?.length) {
             updated.pop()
           }
           updated.push({ role: "event", content: `${e}` })
@@ -1344,9 +1321,7 @@ export function useChatStream({
           // conversation content into the system notification center.
           const userPreview =
             getCachedConfig()?.showChatContent !== false
-              ? latestUserNotificationPreview(
-                  sessionCacheRef.current.get(targetSessionId) ?? [],
-                )
+              ? latestUserNotificationPreview(sessionCacheRef.current.get(targetSessionId) ?? [])
               : null
           const title = t("notification.chatError")
           notify(title, sessionTitle || userPreview || title)
@@ -1390,9 +1365,7 @@ export function useChatStream({
         if (isAgentNotifyEnabled(agent?.notifyOnComplete)) {
           const status = lastTurnStatusBySessionRef.current.get(targetSessionId)?.status
           const completed =
-            status !== "failed" &&
-            status !== "interrupted" &&
-            status !== "cancelling"
+            status !== "failed" && status !== "interrupted" && status !== "cancelling"
           const sessionTitle = sessions.find((s) => s.id === targetSessionId)?.title || agentName
           const notification = chatCompletionNotificationPayload(
             sessionTitle,

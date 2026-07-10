@@ -547,32 +547,53 @@ pub async fn chat(
         None
     };
 
-    let (primary, fallbacks) = if let Some(ref override_str) = body.model_override {
-        let mut cfg = agent_model_config.clone();
-        if provider::parse_model_ref(override_str).is_some() {
-            cfg.primary = Some(override_str.clone());
+    // Explicit current-turn overrides are strict. Persisted Session pins are
+    // preferences and may fall through, but an invalid override must not
+    // silently switch the request to another Provider.
+    if let Some(override_str) = body.model_override.as_deref() {
+        let override_is_available = provider::parse_model_ref(override_str)
+            .is_some_and(|model| provider::model_ref_is_available(&store.providers, &model));
+        if !override_is_available {
+            let err = format!(
+                "Selected model override is unavailable: {override_str}. Please choose an enabled provider and model."
+            );
+            let partial = ha_core::chat_engine::finalize::PartialMeta {
+                user_message: Some(body.message.clone()),
+                turn_id: Some(turn_id.clone()),
+                ..Default::default()
+            };
+            let outcome = ha_core::chat_engine::finalize::finalize_turn_context_blocking(
+                &db,
+                &sid,
+                ha_core::chat_engine::finalize::TerminationReason::Other {
+                    message: err.clone(),
+                },
+                partial,
+                ha_core::chat_engine::ChatSource::Http,
+            );
+            ha_core::chat_engine::stream_broadcast::broadcast_stream_end(
+                &sid,
+                None,
+                Some(&turn_id),
+                outcome.turn_status,
+                outcome.interrupt_reason,
+                Some(&err),
+            );
+            return Err(AppError::bad_request(err));
         }
-        provider::resolve_model_chain(&cfg, &store)
-    } else if let Some(ref pinned) = session_pinned_model {
-        let mut cfg = agent_model_config.clone();
-        cfg.primary = Some(pinned.clone());
-        provider::resolve_model_chain(&cfg, &store)
-    } else {
-        provider::resolve_model_chain(&agent_model_config, &store)
-    };
+    }
 
-    let mut model_chain: Vec<ActiveModel> = Vec::new();
-    if let Some(p) = primary {
-        model_chain.push(p);
-    }
-    for fb in fallbacks {
-        if !model_chain
-            .iter()
-            .any(|m| m.provider_id == fb.provider_id && m.model_id == fb.model_id)
-        {
-            model_chain.push(fb);
-        }
-    }
+    let preferred_model = body
+        .model_override
+        .as_deref()
+        .or(session_pinned_model.as_deref());
+    let (primary, fallbacks) = provider::resolve_model_chain_with_preferred(
+        preferred_model,
+        &agent_model_config,
+        &store,
+    );
+
+    let model_chain: Vec<ActiveModel> = primary.into_iter().chain(fallbacks).collect();
 
     if model_chain.is_empty() {
         let err = "No model configured. Please add a provider and set an active model.";

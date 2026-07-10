@@ -59,6 +59,7 @@ import {
 } from "@/components/ui/alert-dialog"
 import { useChatSession } from "./useChatSession"
 import { useChatStream } from "./useChatStream"
+import { resolveAvailableDisplayModel } from "./modelSelection"
 import { useChatStreamReattach } from "./hooks/useChatStreamReattach"
 import { usePlanMode } from "./plan-mode/usePlanMode"
 import { useTaskProgressSnapshot } from "./tasks/useTaskProgressSnapshot"
@@ -658,7 +659,6 @@ export default function ChatScreen({
     availableModels,
     setActiveModel,
     globalActiveModelRef,
-    handleModelChange,
     applyModelForDisplay,
     initialSessionId,
     onSessionNavigated,
@@ -1021,7 +1021,6 @@ export default function ChatScreen({
       setAvailableModels(models)
       globalActiveModelRef.current = active
 
-      let displayModel = active
       const manualOverride = manualModelOverrideRef.current
       const manualModel = manualOverride
         ? models.find(
@@ -1033,27 +1032,22 @@ export default function ChatScreen({
         manualModelOverrideRef.current = null
       }
 
-      if (manualModel && manualOverride) {
-        displayModel = manualOverride
-      } else if (currentSessionMeta?.providerId && currentSessionMeta?.modelId) {
-        const sessionModel = models.find(
-          (m) =>
-            m.providerId === currentSessionMeta.providerId &&
-            m.modelId === currentSessionMeta.modelId,
-        )
-        if (sessionModel) {
-          displayModel = {
-            providerId: sessionModel.providerId,
-            modelId: sessionModel.modelId,
-          }
-        }
-      } else if (agentConfig?.model?.primary) {
-        const [providerId, modelId] = agentConfig.model.primary.split("::")
-        const agentModel = models.find((m) => m.providerId === providerId && m.modelId === modelId)
-        if (agentModel) {
-          displayModel = { providerId, modelId }
-        }
-      }
+      const sessionPreferred =
+        currentSessionMeta?.providerId && currentSessionMeta?.modelId
+          ? {
+              providerId: currentSessionMeta.providerId,
+              modelId: currentSessionMeta.modelId,
+            }
+          : null
+      const displayModel =
+        manualModel && manualOverride
+          ? manualOverride
+          : resolveAvailableDisplayModel(
+              models,
+              sessionPreferred,
+              agentConfig?.model?.primary,
+              active,
+            )
 
       setActiveModel(displayModel)
       const displayModelInfo = displayModel
@@ -1523,7 +1517,7 @@ export default function ChatScreen({
     touchSessionCacheLru: session.touchSessionCacheLru,
     sessions: session.sessions,
     agents: session.agents,
-    activeModel,
+    manualModelOverrideRef,
     reloadSessions: refreshUnreadState,
     updateSessionMessages: session.updateSessionMessages,
     lastSeqRef: streamSeqRef,

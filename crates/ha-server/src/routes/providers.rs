@@ -21,7 +21,9 @@ fn provider_write_error(err: ProviderWriteError) -> AppError {
         ProviderWriteError::NotFound(_) | ProviderWriteError::ModelNotFound { .. } => {
             AppError::not_found(err.to_string())
         }
-        ProviderWriteError::UnknownLocalBackend(_) => AppError::bad_request(err.to_string()),
+        ProviderWriteError::ProviderUnavailable(_) | ProviderWriteError::UnknownLocalBackend(_) => {
+            AppError::bad_request(err.to_string())
+        }
         ProviderWriteError::Config(err) => AppError::internal(err.to_string()),
     }
 }
