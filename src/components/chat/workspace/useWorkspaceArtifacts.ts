@@ -44,6 +44,11 @@ function backendBrowserToEntry(activity: BrowserActivityDto): SessionBrowserActi
   }
 }
 
+function hasSyntaxLanguage(language: string | null | undefined): boolean {
+  const value = language?.trim().toLowerCase()
+  return !!value && value !== "text" && value !== "txt" && value !== "plain" && value !== "plaintext"
+}
+
 /**
  * Merge the in-memory live tail with the complete backend list. Both are
  * most-recent-first; the live tail is the loaded window (always the most
@@ -70,6 +75,18 @@ export function mergeArtifacts<T>(
     : live
   const backendOnly = backend.filter((b) => !liveKeys.has(keyOf(b)))
   return backendOnly.length ? [...mergedLive, ...backendOnly] : mergedLive
+}
+
+/** Preserve a lightweight syntax hint from the full-history backend summary
+ *  when the loaded-window live entry only knows that the file was read. */
+export function reconcileFile(
+  live: SessionFileEntry,
+  backend: SessionFileEntry,
+): SessionFileEntry {
+  if (!hasSyntaxLanguage(live.language) && hasSyntaxLanguage(backend.language)) {
+    return { ...live, language: backend.language }
+  }
+  return live
 }
 
 /** Preserve a `web_search` badge: if either side saw the URL via search, the
@@ -177,7 +194,7 @@ export function useWorkspaceArtifacts(
   const data = !incognito && backend && backend.sid === sessionId ? backend : null
 
   const files = useMemo(
-    () => mergeArtifacts(data?.files ?? [], liveFiles, (e) => e.path),
+    () => mergeArtifacts(data?.files ?? [], liveFiles, (e) => e.path, reconcileFile),
     [data, liveFiles],
   )
   const sources = useMemo(

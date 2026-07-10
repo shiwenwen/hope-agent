@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest"
-import { mergeArtifacts } from "./useWorkspaceArtifacts"
+import { mergeArtifacts, reconcileFile } from "./useWorkspaceArtifacts"
+import type { SessionFileEntry } from "./useSessionFileChanges"
 
 interface Item {
   k: string
@@ -68,5 +69,42 @@ describe("mergeArtifacts", () => {
     // The web_search origin (badge) is preserved even though the live tail only
     // saw a later plain-prose mention.
     expect(merged).toEqual([{ url: "u", origin: "web_search" }])
+  })
+
+  it("file reconciliation preserves backend language when a live read overlaps", () => {
+    const backend: SessionFileEntry[] = [
+      {
+        path: "/repo/generated",
+        kind: "modified",
+        diff: null,
+        readLines: null,
+        linesAdded: 4,
+        linesRemoved: 1,
+        language: "typescript",
+      },
+    ]
+    const live: SessionFileEntry[] = [
+      {
+        path: "/repo/generated",
+        kind: "read",
+        diff: null,
+        readLines: 42,
+        linesAdded: 0,
+        linesRemoved: 0,
+        language: null,
+      },
+    ]
+
+    expect(mergeArtifacts(backend, live, (f) => f.path, reconcileFile)).toEqual([
+      {
+        path: "/repo/generated",
+        kind: "read",
+        diff: null,
+        readLines: 42,
+        linesAdded: 0,
+        linesRemoved: 0,
+        language: "typescript",
+      },
+    ])
   })
 })
