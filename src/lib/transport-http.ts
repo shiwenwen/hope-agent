@@ -300,6 +300,7 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   unbind_design_code_project_cmd:    { method: "DELETE", path: "/api/design/bindings/{id}" },
   export_design_pptx_cmd:            { method: "POST",   path: "/api/design/pptx" },
   export_design_zip_cmd:             { method: "POST",   path: "/api/design/zip" },
+  export_design_selected_zip_cmd:    { method: "POST",   path: "/api/design/zip/selected" },
   import_design_md_cmd:              { method: "POST",   path: "/api/design/systems/import" },
   import_figma_system_cmd:           { method: "POST",   path: "/api/design/systems/figma" },
   export_design_md_cmd:              { method: "GET",    path: "/api/design/systems/{systemId}/design-md" },

@@ -6403,7 +6403,10 @@
       "starterLayoutPrompt": "把这个页面改成更清晰的布局：拉开留白、统一间距与字号层级。",
       "producedArtifact": "本轮产物",
       "starterOutlineTitle": "先规划大纲",
-      "starterOutlinePrompt": "先别急着做，请先给我一份结构大纲（分节 / 分页的标题与要点、叙事顺序），我确认后你再按大纲生成正式产物。"
+      "starterOutlinePrompt": "先别急着做，请先给我一份结构大纲（分节 / 分页的标题与要点、叙事顺序），我确认后你再按大纲生成正式产物。",
+      "turnFailed": "这一轮没有结果",
+      "retry": "重试",
+      "regenerate": "重新生成"
     },
     "emptyArtifactsInline": "还没有产物——右上角「新建产物」，或直接让左侧 AI 生成。",
     "review": {
@@ -6487,7 +6490,17 @@
       "button": "分享",
       "copied": "已复制只读分享链接",
       "exported": "已导出可分享的 HTML",
-      "failed": "分享失败"
+      "failed": "分享失败",
+      "linkTitle": "公开分享链接",
+      "createLink": "创建公开链接",
+      "emptyHint": "创建一个只读公开链接，任何拿到链接的人都能查看当前页面（可随时停止）。",
+      "readonlyNote": "只读快照，任何拿到链接的人都能查看这个页面。",
+      "openPreview": "打开",
+      "stopSharing": "停止分享",
+      "stopped": "已停止分享",
+      "copyLink": "复制链接",
+      "copied2": "已复制",
+      "loadErr": "加载分享状态失败"
     },
     "deploy": {
       "menu": "部署到 Cloudflare Pages",
@@ -6540,7 +6553,13 @@
       "folderNamePh": "文件夹名",
       "deleteFolder": "删除文件夹（页面移到全部）",
       "moveTo": "移到文件夹",
-      "emptyFolder": "这个文件夹还没有页面——把页面拖进来，或用 ⋯ 菜单移入。"
-    }
+      "emptyFolder": "这个文件夹还没有页面——把页面拖进来，或用 ⋯ 菜单移入。",
+      "selectedCount": "已选 {{n}} 项",
+      "batchExport": "导出",
+      "batchDelete": "删除",
+      "clearSelection": "取消选择",
+      "select": "选择"
+    },
+    "deleteBatchDesc": "将永久删除选中的这些页面及其全部版本，无法恢复。"
   }
 }

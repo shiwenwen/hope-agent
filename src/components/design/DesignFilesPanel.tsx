@@ -6,7 +6,7 @@
  * API 设计）：新建文件夹、把页面移到文件夹（拖拽到文件夹/面包屑 或 ⋯ 菜单）、文件夹改名/删除；
  * 行上带真实缩略图（比 OD 纯图标列表更强，不弱化）；文件夹内拖动排序（沿用 position）。
  */
-import { useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import {
   Folder,
@@ -18,6 +18,9 @@ import {
   Trash2,
   Pencil,
   FolderInput,
+  Check,
+  Download,
+  X,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -46,6 +49,10 @@ interface Props {
   onRenameFolder: (from: string, to: string) => void
   onDeleteFolder: (path: string) => void
   onReorder: (orderedIds: string[]) => void
+  /** 批量删除选中产物（Wave 1-③，单次确认在 DesignView 侧）。 */
+  onBatchDelete: (ids: string[]) => void
+  /** 批量导出选中产物（逐个走已有导出保存出口）。 */
+  onBatchExport: (ids: string[]) => void
 }
 
 /** kind → 类型分组 section（OD 按文件类型分组的对应；一个项目多是 Pages）。 */
@@ -75,9 +82,28 @@ export default function DesignFilesPanel({
   onRenameFolder,
   onDeleteFolder,
   onReorder,
+  onBatchDelete,
+  onBatchExport,
 }: Props) {
   const { t } = useTranslation()
   const [currentDir, setCurrentDir] = useState("")
+  // 多选（Wave 1-③，OD 式悬停即勾轻量多选，非重模式）。artifacts 变化时剔除失效 id。
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  useEffect(() => {
+    setSelected((prev) => {
+      if (prev.size === 0) return prev
+      const live = new Set(artifacts.map((a) => a.id))
+      const next = new Set([...prev].filter((id) => live.has(id)))
+      return next.size === prev.size ? prev : next
+    })
+  }, [artifacts])
+  const toggleSelected = (id: string) =>
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [renameDraft, setRenameDraft] = useState("")
   const [creatingFolder, setCreatingFolder] = useState(false)
@@ -236,6 +262,44 @@ export default function DesignFilesPanel({
         </div>
       </div>
 
+      {/* 批量操作栏（Wave 1-③）：有选中时出现，一次删/导出多个页面。 */}
+      {selected.size > 0 && (
+        <div className="flex h-9 shrink-0 items-center gap-2 border-b bg-primary/5 px-3 text-xs">
+          <span className="font-medium text-foreground">
+            {t("design.files.selectedCount", "已选 {{n}} 项", { n: selected.size })}
+          </span>
+          <div className="ml-auto flex items-center gap-1">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 gap-1 px-2 text-xs"
+              onClick={() => onBatchExport([...selected])}
+            >
+              <Download className="h-3.5 w-3.5" />
+              {t("design.files.batchExport", "导出")}
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 gap-1 px-2 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
+              onClick={() => onBatchDelete([...selected])}
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              {t("design.files.batchDelete", "删除")}
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-6 w-6"
+              onClick={() => setSelected(new Set())}
+              aria-label={t("design.files.clearSelection", "取消选择")}
+            >
+              <X className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+        </div>
+      )}
+
       <div className="flex-1 space-y-4 overflow-y-auto p-3">
         {/* Folders 区（置顶） */}
         {(subfolders.length > 0 || creatingFolder) && (
@@ -257,7 +321,7 @@ export default function DesignFilesPanel({
                       else if (e.key === "Escape") setCreatingFolder(false)
                     }}
                     placeholder={t("design.files.folderNamePh", "文件夹名")}
-                    className="h-6 border-0 px-0 text-xs shadow-none focus-visible:ring-0"
+                    className="h-6 border-0 px-0 text-xs shadow-none focus-visible:ring-1"
                   />
                 </div>
               )}
@@ -267,7 +331,22 @@ export default function DesignFilesPanel({
                 return (
                   <div
                     key={path}
+                    role="button"
+                    tabIndex={renaming ? -1 : 0}
+                    aria-label={path.split("/").pop() ?? path}
                     onClick={() => !renaming && setCurrentDir(path)}
+                    onKeyDown={(e) => {
+                      // a11y（Wave 1-⑤）：键盘用户可进子文件夹（此前 div-onClick 键盘完全不可达 =
+                      // 导航主路径断链）。Enter/Space 进入，忽略重命名态。
+                      // **只处理落在卡片本身的键**（e.target===currentTarget）——否则会吞掉从嵌套
+                      // ⋯ 菜单 trigger / 重命名 input 冒泡上来的 Enter/Space，使菜单键盘不可达
+                      //（对抗 review 定位的 a11y 回归修复）。
+                      if (e.target !== e.currentTarget) return
+                      if (!renaming && (e.key === "Enter" || e.key === " ")) {
+                        e.preventDefault()
+                        setCurrentDir(path)
+                      }
+                    }}
                     onDragOver={(e) => {
                       e.preventDefault()
                       setDropTarget(path)
@@ -279,7 +358,7 @@ export default function DesignFilesPanel({
                       setDropTarget(null)
                     }}
                     className={cn(
-                      "group/folder flex cursor-pointer items-center gap-1.5 rounded-lg border bg-card px-2.5 py-2 transition-colors hover:bg-muted",
+                      "group/folder flex cursor-pointer items-center gap-1.5 rounded-lg border bg-card px-2.5 py-2 transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
                       dropTarget === path && "border-primary bg-primary/10 ring-1 ring-primary",
                     )}
                   >
@@ -295,7 +374,7 @@ export default function DesignFilesPanel({
                           if (e.key === "Enter") commitRenameFolder(path)
                           else if (e.key === "Escape") setRenamingFolder(null)
                         }}
-                        className="h-6 border-0 px-0 text-xs shadow-none focus-visible:ring-0"
+                        className="h-6 border-0 px-0 text-xs shadow-none focus-visible:ring-1"
                       />
                     ) : (
                       <>
@@ -369,10 +448,29 @@ export default function DesignFilesPanel({
                       dragIdRef.current = null
                     }}
                     className={cn(
-                      "group/card flex flex-col overflow-hidden rounded-lg border bg-card shadow-sm transition-shadow hover:shadow-md",
+                      "group/card relative flex flex-col overflow-hidden rounded-lg border bg-card shadow-sm transition-shadow hover:shadow-md",
                       activeArtifactId === a.id && "ring-2 ring-primary/40",
+                      selected.has(a.id) && "ring-2 ring-primary",
                     )}
                   >
+                    {/* 选择框（Wave 1-③）：悬停显现 / 选中常驻；点它只切选中不打开产物。 */}
+                    <button
+                      type="button"
+                      aria-pressed={selected.has(a.id)}
+                      aria-label={t("design.files.select", "选择")}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        toggleSelected(a.id)
+                      }}
+                      className={cn(
+                        "absolute left-1.5 top-1.5 z-10 flex h-5 w-5 items-center justify-center rounded border bg-background/90 shadow-sm transition-opacity",
+                        selected.has(a.id)
+                          ? "border-primary bg-primary text-primary-foreground opacity-100"
+                          : "border-border text-transparent opacity-0 focus-visible:opacity-100 group-hover/card:opacity-100",
+                      )}
+                    >
+                      <Check className="h-3.5 w-3.5" />
+                    </button>
                     <button
                       type="button"
                       onClick={() => onOpen(a)}
@@ -397,7 +495,7 @@ export default function DesignFilesPanel({
                             if (e.key === "Enter") commitRename(a.id)
                             else if (e.key === "Escape") setRenamingId(null)
                           }}
-                          className="min-w-0 flex-1 rounded border border-primary/50 bg-background px-1.5 py-0.5 text-xs outline-none"
+                          className="min-w-0 flex-1 rounded border border-primary/50 bg-background px-1.5 py-0.5 text-xs outline-none focus-visible:ring-2 focus-visible:ring-primary"
                         />
                       ) : (
                         <span

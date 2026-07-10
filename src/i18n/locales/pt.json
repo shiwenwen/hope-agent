@@ -6403,7 +6403,10 @@
       "starterLayoutPrompt": "Refaça esta página com um layout mais limpo: amplie o espaço em branco, unifique espaçamento e escala tipográfica.",
       "producedArtifact": "Artefato",
       "starterOutlineTitle": "Planeje o esboço primeiro",
-      "starterOutlinePrompt": "Antes de construir, dê-me primeiro um esboço estrutural (títulos de seções/slides, pontos-chave, ordem narrativa). Após eu confirmar, gere o artefato final a partir do esboço."
+      "starterOutlinePrompt": "Antes de construir, dê-me primeiro um esboço estrutural (títulos de seções/slides, pontos-chave, ordem narrativa). Após eu confirmar, gere o artefato final a partir do esboço.",
+      "turnFailed": "Esta rodada não gerou resultado",
+      "retry": "Repetir",
+      "regenerate": "Regenerar"
     },
     "emptyArtifactsInline": "Ainda sem artefatos — clique em “Novo artefato” (canto superior direito) ou peça à IA à esquerda para gerar um.",
     "review": {
@@ -6487,7 +6490,17 @@
       "button": "Compartilhar",
       "copied": "Link de compartilhamento (somente leitura) copiado",
       "exported": "HTML compartilhável exportado",
-      "failed": "Falha ao compartilhar"
+      "failed": "Falha ao compartilhar",
+      "linkTitle": "Link público",
+      "createLink": "Criar link público",
+      "emptyHint": "Crie um link público somente leitura; qualquer pessoa com ele pode ver esta página (pare quando quiser).",
+      "readonlyNote": "Instantâneo somente leitura; qualquer pessoa com o link pode ver esta página.",
+      "openPreview": "Abrir",
+      "stopSharing": "Parar de compartilhar",
+      "stopped": "Compartilhamento interrompido",
+      "copyLink": "Copiar link",
+      "copied2": "Copiado",
+      "loadErr": "Falha ao carregar o status"
     },
     "deploy": {
       "menu": "Implantar no Cloudflare Pages",
@@ -6540,7 +6553,13 @@
       "folderNamePh": "Nome da pasta",
       "deleteFolder": "Excluir pasta (páginas vão para Todas)",
       "moveTo": "Mover para pasta",
-      "emptyFolder": "Esta pasta ainda não tem páginas — arraste páginas ou use o menu ⋯."
-    }
+      "emptyFolder": "Esta pasta ainda não tem páginas — arraste páginas ou use o menu ⋯.",
+      "selectedCount": "{{n}} selecionados",
+      "batchExport": "Exportar",
+      "batchDelete": "Excluir",
+      "clearSelection": "Limpar seleção",
+      "select": "Selecionar"
+    },
+    "deleteBatchDesc": "Exclui permanentemente as páginas selecionadas e todas as suas versões. Não pode ser desfeito."
   }
 }

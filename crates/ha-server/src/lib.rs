@@ -2005,6 +2005,10 @@ fn build_router_with_cors(
         .route("/design/pptx", post(routes::design::export_pptx))
         .route("/design/zip", post(routes::design::export_zip))
         .route(
+            "/design/zip/selected",
+            post(routes::design::export_selected_zip),
+        )
+        .route(
             "/design/systems",
             get(routes::design::list_systems).post(routes::design::save_system),
         )

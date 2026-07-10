@@ -6403,7 +6403,10 @@
       "starterLayoutPrompt": "이 페이지를 더 깔끔한 레이아웃으로: 여백을 넓히고 간격과 타이포 스케일을 통일하세요.",
       "producedArtifact": "산출물",
       "starterOutlineTitle": "먼저 개요 계획",
-      "starterOutlinePrompt": "만들기 전에 먼저 구조 개요(섹션/슬라이드 제목과 핵심, 서술 순서)를 주세요. 제가 확인한 뒤 개요에 따라 최종 산출물을 생성하세요."
+      "starterOutlinePrompt": "만들기 전에 먼저 구조 개요(섹션/슬라이드 제목과 핵심, 서술 순서)를 주세요. 제가 확인한 뒤 개요에 따라 최종 산출물을 생성하세요.",
+      "turnFailed": "이번 턴은 결과가 없습니다",
+      "retry": "다시 시도",
+      "regenerate": "다시 생성"
     },
     "emptyArtifactsInline": "아직 산출물이 없습니다 — 오른쪽 위 ‘새 산출물’을 누르거나 왼쪽 AI에게 생성을 요청하세요.",
     "review": {
@@ -6487,7 +6490,17 @@
       "button": "공유",
       "copied": "읽기 전용 공유 링크를 복사했습니다",
       "exported": "공유 가능한 HTML을 내보냈습니다",
-      "failed": "공유 실패"
+      "failed": "공유 실패",
+      "linkTitle": "공개 공유 링크",
+      "createLink": "공개 링크 만들기",
+      "emptyHint": "읽기 전용 공개 링크를 만듭니다. 링크가 있으면 누구나 이 페이지를 볼 수 있습니다(언제든 중지).",
+      "readonlyNote": "읽기 전용 스냅샷. 링크가 있으면 누구나 볼 수 있습니다.",
+      "openPreview": "열기",
+      "stopSharing": "공유 중지",
+      "stopped": "공유를 중지했습니다",
+      "copyLink": "링크 복사",
+      "copied2": "복사됨",
+      "loadErr": "공유 상태 불러오기 실패"
     },
     "deploy": {
       "menu": "Cloudflare Pages에 배포",
@@ -6540,7 +6553,13 @@
       "folderNamePh": "폴더 이름",
       "deleteFolder": "폴더 삭제(페이지는 전체로 이동)",
       "moveTo": "폴더로 이동",
-      "emptyFolder": "이 폴더에는 아직 페이지가 없습니다 — 페이지를 끌어다 놓거나 ⋯ 메뉴로 옮기세요."
-    }
+      "emptyFolder": "이 폴더에는 아직 페이지가 없습니다 — 페이지를 끌어다 놓거나 ⋯ 메뉴로 옮기세요.",
+      "selectedCount": "{{n}}개 선택됨",
+      "batchExport": "내보내기",
+      "batchDelete": "삭제",
+      "clearSelection": "선택 해제",
+      "select": "선택"
+    },
+    "deleteBatchDesc": "선택한 페이지와 모든 버전을 영구적으로 삭제합니다. 되돌릴 수 없습니다."
   }
 }

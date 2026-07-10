@@ -8,7 +8,7 @@ import {
   useState,
 } from "react"
 import { useTranslation } from "react-i18next"
-import { Plus, History, FileStack, Blocks } from "lucide-react"
+import { Plus, History, FileStack, Blocks, RotateCcw } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { IconTip } from "@/components/ui/tooltip"
@@ -360,6 +360,26 @@ export const DesignChatPanel = forwardRef<DesignChatPanelHandle, Props>(function
     [onFocusArtifact, resolveArtifactTitle, t],
   )
 
+  // ── 重新生成（Wave 1-①，收敛后的稳健版）────────────────────────
+  // 只在**已有成功文本回复**（末条 assistant 且 content 非空）后，于 next-step 条首位给
+  // 「重新生成」快捷键，重跑上一句 user prompt。
+  // 刻意**不**做「失败/空回合」的启发式恢复条：HTTP 传输下成功回合在 reconcile 完成前
+  // 本就无 assistant 正文（会误报失败刷屏），且 tool-only 回合（改了产物但无尾随文本）也
+  // content='' —— 无可靠、reconcile-safe 的失败信号可判，故不判，避免在成功回合误显「无结果」
+  // + 重试重复产物（对抗 review 定位的 HIGH/MED 全簇）。失败本身仍由消息流里的 error 事件呈现。
+  const lastUserContent = useMemo(() => {
+    for (let i = session.messages.length - 1; i >= 0; i--) {
+      if (session.messages[i].role === "user") return session.messages[i].content
+    }
+    return ""
+  }, [session.messages])
+  const retryLastTurn = useCallback(() => {
+    const text = lastUserContent.trim()
+    if (!text || session.loading) return
+    // 注：handleSend(directText) 按设计不带原回合附件（纯文本重发）；重新生成场景可接受。
+    void stream.handleSend(text)
+  }, [lastUserContent, session.loading, stream])
+
   if (!projectId) {
     return (
       <div className="flex h-full items-center justify-center p-4 text-center text-xs text-muted-foreground">
@@ -512,13 +532,23 @@ export const DesignChatPanel = forwardRef<DesignChatPanelHandle, Props>(function
 
       <ApprovalDialog requests={stream.approvalRequests} onRespond={stream.handleApprovalResponse} />
 
-      {/* Next-step 引导条（B2-1）：idle + 末条是 assistant 回复时显示，点击填 composer 不自动发。
-          输入框已有内容 / 生成中不显示，避免打扰。 */}
+      {/* Next-step 引导条（B2-1）：idle + 末条是 assistant 回复（有正文）时显示，点击填 composer
+          不自动发。输入框已有内容 / 生成中不显示，避免打扰。首位「重新生成」直接重跑上一句。 */}
       {!session.loading &&
         !stream.input.trim() &&
         session.messages[session.messages.length - 1]?.role === "assistant" &&
         session.messages[session.messages.length - 1]?.content.trim() && (
           <div className="flex flex-wrap gap-1.5 px-3 pb-1.5">
+            {lastUserContent.trim() && (
+              <button
+                type="button"
+                onClick={retryLastTurn}
+                className="flex items-center gap-1 rounded-full border border-border/60 px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:border-primary/40 hover:bg-accent hover:text-foreground"
+              >
+                <RotateCcw className="h-3 w-3" />
+                {t("design.chat.regenerate", "重新生成")}
+              </button>
+            )}
             {DESIGN_NEXT_STEP_ACTIONS.map((a) => (
               <button
                 key={a.key}

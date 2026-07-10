@@ -367,6 +367,15 @@ pub async fn export_design_zip_cmd(
     Ok(serde_json::json!({ "zip": zip }))
 }
 
+/// 批量导出选中产物为一个 ZIP（每产物一目录 + 画廊，Wave 1-③）→ `{ zip: base64 }`。
+#[tauri::command]
+pub async fn export_design_selected_zip_cmd(
+    artifact_ids: Vec<String>,
+) -> Result<serde_json::Value, CmdError> {
+    let zip = service::export_selected_zip(&artifact_ids)?;
+    Ok(serde_json::json!({ "zip": zip }))
+}
+
 // ── Design systems ──────────────────────────────────────────────
 
 #[tauri::command]

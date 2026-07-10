@@ -6403,7 +6403,10 @@
       "starterLayoutPrompt": "このページをより整理されたレイアウトに：余白を広げ、間隔と文字サイズの階層を統一する。",
       "producedArtifact": "生成物",
       "starterOutlineTitle": "まず構成を計画",
-      "starterOutlinePrompt": "作り始める前に、まず構成の概要（セクション/スライドの見出しと要点、話の流れ）を出してください。確認後、その概要に沿って正式な成果物を生成してください。"
+      "starterOutlinePrompt": "作り始める前に、まず構成の概要（セクション/スライドの見出しと要点、話の流れ）を出してください。確認後、その概要に沿って正式な成果物を生成してください。",
+      "turnFailed": "この回では結果が出ませんでした",
+      "retry": "再試行",
+      "regenerate": "再生成"
     },
     "emptyArtifactsInline": "アーティファクトはまだありません — 右上の「新規アーティファクト」か、左の AI に生成を頼んでください。",
     "review": {
@@ -6487,7 +6490,17 @@
       "button": "共有",
       "copied": "読み取り専用の共有リンクをコピーしました",
       "exported": "共有可能なHTMLを書き出しました",
-      "failed": "共有に失敗しました"
+      "failed": "共有に失敗しました",
+      "linkTitle": "公開共有リンク",
+      "createLink": "公開リンクを作成",
+      "emptyHint": "読み取り専用の公開リンクを作成します。リンクを持つ人は誰でもこのページを閲覧できます（いつでも停止可）。",
+      "readonlyNote": "読み取り専用スナップショット。リンクを持つ人は誰でも閲覧できます。",
+      "openPreview": "開く",
+      "stopSharing": "共有を停止",
+      "stopped": "共有を停止しました",
+      "copyLink": "リンクをコピー",
+      "copied2": "コピーしました",
+      "loadErr": "共有状態の読み込みに失敗"
     },
     "deploy": {
       "menu": "Cloudflare Pages にデプロイ",
@@ -6540,7 +6553,13 @@
       "folderNamePh": "フォルダ名",
       "deleteFolder": "フォルダを削除（ページはすべてへ移動）",
       "moveTo": "フォルダへ移動",
-      "emptyFolder": "このフォルダにはまだページがありません——ページをドラッグするか、⋯ メニューから移動してください。"
-    }
+      "emptyFolder": "このフォルダにはまだページがありません——ページをドラッグするか、⋯ メニューから移動してください。",
+      "selectedCount": "{{n}} 件選択",
+      "batchExport": "書き出し",
+      "batchDelete": "削除",
+      "clearSelection": "選択を解除",
+      "select": "選択"
+    },
+    "deleteBatchDesc": "選択したページとそのすべてのバージョンを完全に削除します。元に戻せません。"
   }
 }

@@ -15,13 +15,16 @@ interface SecretInputProps {
   onChange: (next: string) => void
   placeholder?: string
   className?: string
+  /** Bind a `<label htmlFor>` to the inner input for accessibility. */
+  id?: string
 }
 
-export function SecretInput({ value, onChange, placeholder, className }: SecretInputProps) {
+export function SecretInput({ value, onChange, placeholder, className, id }: SecretInputProps) {
   const [visible, setVisible] = useState(false)
   return (
     <div className={cn("relative", className)}>
       <Input
+        id={id}
         type={visible ? "text" : "password"}
         value={value}
         onChange={(e) => onChange(e.target.value)}

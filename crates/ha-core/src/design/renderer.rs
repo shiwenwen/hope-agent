@@ -199,7 +199,7 @@ const STORAGE_POLYFILL: &str = "<script>(function(){function mk(){var s={};retur
 /// 编辑态渲染版本：**inspector bridge / oid 注入等编辑工具层**变更时 +1。烧进可编辑 `index.html`
 /// 的 `data-ds-r` 属性；`service::ensure_artifact_render_fresh` 据此自愈老产物——工具层升级无需
 /// 用户重新编辑即对既有产物生效（bridge 烧死在 index.html，否则老产物永远用旧工具）。
-pub const RENDER_VERSION: u32 = 2;
+pub const RENDER_VERSION: u32 = 3;
 
 pub fn build_artifact_html(
     kind: ArtifactKind,
@@ -351,6 +351,27 @@ const INSPECTOR_BRIDGE: &str = r#"<script>
     }else{el.textContent=editOrig}
     editOrig=null;
   }
+  // 光标落到点击坐标处（caretRangeFromPoint / caretPositionFromPoint 兜底），替代整段全选。
+  // 坐标解析失败 → 落到文本末尾（collapse false），绝不回退全选。
+  function placeCaret(el,x,y){
+    var range=null;
+    if(document.caretRangeFromPoint)range=document.caretRangeFromPoint(x,y);
+    else if(document.caretPositionFromPoint){var p=document.caretPositionFromPoint(x,y);
+      if(p){range=document.createRange();range.setStart(p.offsetNode,p.offset)}}
+    var s=window.getSelection();s.removeAllRanges();
+    if(range){range.collapse(true);s.addRange(range)}
+    else{var r=document.createRange();r.selectNodeContents(el);r.collapse(false);s.addRange(r)}
+  }
+  // 进入就地文本编辑：contenteditable + 焦点 + **光标落点击处**（而非全选整段，Wave 1-④）。
+  // 单击叶子文本 / 双击都走这里；重复进入同元素幂等。
+  function beginEdit(el,x,y){
+    if(editing===el)return;
+    if(editing&&editing!==el)endEdit(true);
+    clearHover();clearSel();selected=el;editing=el;editOrig=el.textContent||'';
+    el.setAttribute('contenteditable','true');el.style.outline='2px dashed #16a34a';el.focus();
+    if(x!=null&&y!=null)placeCaret(el,x,y);
+    else{var s=window.getSelection(),r=document.createRange();r.selectNodeContents(el);r.collapse(false);s.removeAllRanges();s.addRange(r)}
+  }
   // ── 批注钉：iframe 内渲染（坐标随锚元素、zoom 无关）；点钉回传父窗 ──
   function ensurePinLayer(){
     if(pinLayer)return pinLayer;
@@ -465,15 +486,15 @@ const INSPECTOR_BRIDGE: &str = r#"<script>
     e.preventDefault();e.stopPropagation();
     clearSel();clearHover();selected=el;el.style.outline='2px solid #2563eb';
     parent.postMessage({type:'ds_selected',payload:info(el)},'*');
+    // 单击文本 / 链接**叶子**即进就地编辑，光标落点击处（Wave 1-④，不再必须双击、不再全选整段）。
+    // 非叶子 / 无文本叶子（图标等）只选中给属性面板，不进编辑。双击仍兼容（beginEdit 幂等）。
+    if(el.childElementCount===0&&(el.textContent||'').trim())beginEdit(el,e.clientX,e.clientY);
   },true);
   document.addEventListener('dblclick',function(e){
     if(!active)return;var el=e.target.closest('[data-ds-oid]');
     if(!el||el.childElementCount!==0)return; // 仅叶子文本元素（有子元素则改会拍平内部标记）
     e.preventDefault();e.stopPropagation();
-    if(editing&&editing!==el)endEdit(true);
-    clearHover();clearSel();selected=el;editing=el;editOrig=el.textContent||'';
-    el.setAttribute('contenteditable','true');el.style.outline='2px dashed #16a34a';el.focus();
-    var s=window.getSelection(),r=document.createRange();r.selectNodeContents(el);s.removeAllRanges();s.addRange(r);
+    beginEdit(el,e.clientX,e.clientY); // 光标落点击处（Wave 1-④）
   },true);
   document.addEventListener('keydown',function(e){
     if(!editing)return;

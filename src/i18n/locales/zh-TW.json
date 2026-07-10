@@ -6403,7 +6403,10 @@
       "starterLayoutPrompt": "把這個頁面改成更清晰的版面：拉開留白、統一間距與字級層次。",
       "producedArtifact": "本輪產物",
       "starterOutlineTitle": "先規劃大綱",
-      "starterOutlinePrompt": "先別急著做，請先給我一份結構大綱（分節 / 分頁的標題與要點、敘事順序），我確認後你再按大綱生成正式產物。"
+      "starterOutlinePrompt": "先別急著做，請先給我一份結構大綱（分節 / 分頁的標題與要點、敘事順序），我確認後你再按大綱生成正式產物。",
+      "turnFailed": "這一輪沒有結果",
+      "retry": "重試",
+      "regenerate": "重新生成"
     },
     "emptyArtifactsInline": "還沒有產物——右上角「新增產物」，或直接讓左側 AI 生成。",
     "review": {
@@ -6487,7 +6490,17 @@
       "button": "分享",
       "copied": "已複製唯讀分享連結",
       "exported": "已匯出可分享的 HTML",
-      "failed": "分享失敗"
+      "failed": "分享失敗",
+      "linkTitle": "公開分享連結",
+      "createLink": "建立公開連結",
+      "emptyHint": "建立一個唯讀公開連結，任何拿到連結的人都能查看目前頁面（可隨時停止）。",
+      "readonlyNote": "唯讀快照，任何拿到連結的人都能查看這個頁面。",
+      "openPreview": "開啟",
+      "stopSharing": "停止分享",
+      "stopped": "已停止分享",
+      "copyLink": "複製連結",
+      "copied2": "已複製",
+      "loadErr": "載入分享狀態失敗"
     },
     "deploy": {
       "menu": "部署到 Cloudflare Pages",
@@ -6540,7 +6553,13 @@
       "folderNamePh": "資料夾名",
       "deleteFolder": "刪除資料夾（頁面移到全部）",
       "moveTo": "移到資料夾",
-      "emptyFolder": "這個資料夾還沒有頁面——把頁面拖進來，或用 ⋯ 選單移入。"
-    }
+      "emptyFolder": "這個資料夾還沒有頁面——把頁面拖進來，或用 ⋯ 選單移入。",
+      "selectedCount": "已選 {{n}} 項",
+      "batchExport": "匯出",
+      "batchDelete": "刪除",
+      "clearSelection": "取消選擇",
+      "select": "選擇"
+    },
+    "deleteBatchDesc": "將永久刪除選中的這些頁面及其全部版本，無法復原。"
   }
 }

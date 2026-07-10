@@ -2291,6 +2291,53 @@ pub fn export_zip(artifact_id: Option<&str>, project_id: Option<&str>) -> Result
     Ok(base64::engine::general_purpose::STANDARD.encode(&bytes))
 }
 
+/// 批量导出选中产物为**一个** ZIP（每产物一目录 + 根 index.html 画廊），供文件面批量导出
+/// （Wave 1-③）。集来自显式 id 列表而非整项目，其余目录/画廊结构与整包导出一致；不存在 /
+/// 未知 kind 的 id 跳过，全空则报错。
+pub fn export_selected_zip(ids: &[String]) -> Result<String> {
+    use base64::Engine;
+    if ids.is_empty() {
+        anyhow::bail!("export_selected_zip needs at least one artifact id");
+    }
+    let db = open_db()?;
+    let mut zitems = Vec::new();
+    let mut gallery = String::new();
+    for id in ids {
+        let Some(a) = db.get_artifact(id)? else { continue };
+        let Some(kind) = ArtifactKind::from_str(&a.kind) else {
+            continue;
+        };
+        let dir = paths::design_artifact_dir(&a.project_id, &a.id)?;
+        let parts = read_source(&dir)?;
+        let tokens = resolve_tokens(a.system_id.as_deref());
+        let html = render_clean(kind, &a.title, &parts, &tokens);
+        let folder = format!(
+            "{}-{}",
+            safe_filename(&a.title),
+            a.id.get(..8).unwrap_or(&a.id)
+        );
+        gallery.push_str(&format!(
+            "<li><a href=\"{f}/index.html\">{t}</a><span>{k}</span></li>\n",
+            f = folder,
+            t = renderer::html_escape(&a.title),
+            k = renderer::html_escape(&a.kind),
+        ));
+        zitems.push(super::export::ZipArtifact {
+            folder,
+            html,
+            source: Some((parts.body_html, parts.css, parts.js)),
+            title: a.title.clone(),
+            kind: a.kind.clone(),
+        });
+    }
+    if zitems.is_empty() {
+        anyhow::bail!("no exportable artifacts in selection");
+    }
+    let title = format!("Selected artifacts ({})", zitems.len());
+    let bytes = super::export::build_zip(&zitems, Some(&project_gallery_html(&title, &gallery)))?;
+    Ok(base64::engine::general_purpose::STANDARD.encode(&bytes))
+}
+
 /// 由前端栅格化的整页 PNG（base64，可带 data-uri 前缀）组装 PPTX，返回 base64。
 /// PNG/PDF 走前端客户端栅格化；PPTX 因需 zip 打包由此后端构建（见 design/export.rs）。
 pub fn export_pptx(slides_b64: &[String], title: &str) -> Result<String> {

@@ -112,10 +112,11 @@ export function DesignDeployModal({ open, onClose, artifactId }: Props) {
             )}
           </p>
           <div className="space-y-1">
-            <label className="text-xs font-medium">
+            <label htmlFor="design-deploy-account" className="text-xs font-medium">
               {t("design.deploy.accountId", "Account ID")}
             </label>
             <Input
+              id="design-deploy-account"
               value={accountId}
               onChange={(e) => setAccountId(e.target.value)}
               placeholder="e.g. 0a1b2c3d…"
@@ -123,7 +124,7 @@ export function DesignDeployModal({ open, onClose, artifactId }: Props) {
             />
           </div>
           <div className="space-y-1">
-            <label className="flex items-center justify-between text-xs font-medium">
+            <label htmlFor="design-deploy-token" className="flex items-center justify-between text-xs font-medium">
               {t("design.deploy.token", "API Token")}
               <a
                 href="https://dash.cloudflare.com/profile/api-tokens"
@@ -136,6 +137,7 @@ export function DesignDeployModal({ open, onClose, artifactId }: Props) {
               </a>
             </label>
             <SecretInput
+              id="design-deploy-token"
               value={token}
               onChange={(v) => setToken(v)}
               placeholder={hasToken ? mask : t("design.deploy.tokenPh", "粘贴 API Token")}

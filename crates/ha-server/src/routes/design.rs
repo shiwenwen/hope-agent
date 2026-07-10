@@ -671,6 +671,23 @@ pub async fn export_zip(Json(body): Json<ExportZipBody>) -> Result<Json<Value>, 
     Ok(Json(json!({ "zip": b64 })))
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportSelectedZipBody {
+    #[serde(default)]
+    pub artifact_ids: Vec<String>,
+}
+
+/// `POST /api/design/zip/selected` — bundle the given artifacts into one ZIP
+/// (one folder each + gallery). Returns `{ zip: base64 }`.
+pub async fn export_selected_zip(
+    Json(body): Json<ExportSelectedZipBody>,
+) -> Result<Json<Value>, AppError> {
+    let b64 = service::export_selected_zip(&body.artifact_ids)
+        .map_err(|e| AppError::internal(e.to_string()))?;
+    Ok(Json(json!({ "zip": b64 })))
+}
+
 // ── Design systems ─────────────────────────────────────────────────
 
 /// `GET /api/design/systems`

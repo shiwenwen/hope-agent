@@ -6403,7 +6403,10 @@
       "starterLayoutPrompt": "Susun semula halaman ini kepada reka letak lebih kemas: luaskan ruang putih, seragamkan jarak dan skala taip.",
       "producedArtifact": "Artifak",
       "starterOutlineTitle": "Rancang rangka dahulu",
-      "starterOutlinePrompt": "Sebelum membina, beri saya rangka struktur dahulu (tajuk bahagian/slaid, perkara utama, susunan naratif). Selepas saya sahkan, jana artifak akhir daripada rangka itu."
+      "starterOutlinePrompt": "Sebelum membina, beri saya rangka struktur dahulu (tajuk bahagian/slaid, perkara utama, susunan naratif). Selepas saya sahkan, jana artifak akhir daripada rangka itu.",
+      "turnFailed": "Pusingan ini tiada hasil",
+      "retry": "Cuba lagi",
+      "regenerate": "Jana semula"
     },
     "emptyArtifactsInline": "Belum ada artifak — klik “Artifak baharu” (kanan atas), atau minta AI di kiri menjananya.",
     "review": {
@@ -6487,7 +6490,17 @@
       "button": "Kongsi",
       "copied": "Pautan kongsi baca sahaja disalin",
       "exported": "HTML boleh dikongsi dieksport",
-      "failed": "Kongsi gagal"
+      "failed": "Kongsi gagal",
+      "linkTitle": "Pautan kongsi awam",
+      "createLink": "Cipta pautan awam",
+      "emptyHint": "Cipta pautan awam baca sahaja; sesiapa yang memilikinya boleh melihat halaman ini (boleh henti bila-bila masa).",
+      "readonlyNote": "Petikan baca sahaja; sesiapa dengan pautan boleh melihat halaman ini.",
+      "openPreview": "Buka",
+      "stopSharing": "Henti berkongsi",
+      "stopped": "Perkongsian dihentikan",
+      "copyLink": "Salin pautan",
+      "copied2": "Disalin",
+      "loadErr": "Gagal memuatkan status kongsi"
     },
     "deploy": {
       "menu": "Deploy ke Cloudflare Pages",
@@ -6540,7 +6553,13 @@
       "folderNamePh": "Nama folder",
       "deleteFolder": "Padam folder (halaman ke Semua)",
       "moveTo": "Alih ke folder",
-      "emptyFolder": "Folder ini belum ada halaman — seret halaman masuk, atau guna menu ⋯."
-    }
+      "emptyFolder": "Folder ini belum ada halaman — seret halaman masuk, atau guna menu ⋯.",
+      "selectedCount": "{{n}} dipilih",
+      "batchExport": "Eksport",
+      "batchDelete": "Padam",
+      "clearSelection": "Kosongkan pilihan",
+      "select": "Pilih"
+    },
+    "deleteBatchDesc": "Memadam kekal halaman terpilih dan semua versinya. Tidak boleh dibuat asal."
   }
 }

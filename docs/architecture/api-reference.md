@@ -482,6 +482,7 @@ KB 文件预览端点是**纯 owner 平面，无 session 参数、无 owner fall
 | `unbind_design_code_project_cmd` | `DELETE /api/design/bindings/{id}`（解绑，不删已写文件） | ✅ |
 | `export_design_pptx_cmd` | `POST /api/design/pptx`（前端整页 PNG → OOXML 组装） | ✅ |
 | `export_design_zip_cmd` | `POST /api/design/zip`（artifactId=单产物源码包 / projectId=项目级全产物包） | ✅ |
+| `export_design_selected_zip_cmd` | `POST /api/design/zip/selected`（body `artifactIds` → 选中产物打成一个 ZIP + 画廊，文件面批量导出） | ✅ |
 | `critique_design_artifact_cmd` | `POST /api/design/artifacts/{id}/critique` | ✅ |
 | `list_design_systems_cmd` | `GET /api/design/systems` | ✅ |
 | `get_design_system_cmd` | `GET /api/design/systems/{id}` | ✅ |

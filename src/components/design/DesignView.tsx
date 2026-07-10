@@ -148,6 +148,8 @@ import { exportVideo } from "@/lib/designVideo"
 import DesignDrawOverlay, { type DesignDrawSubmit } from "@/components/design/DesignDrawOverlay"
 import { ArtifactThumb } from "@/components/design/ArtifactThumb"
 import DesignFilesPanel from "@/components/design/DesignFilesPanel"
+import DesignSharePanel from "@/components/design/DesignSharePanel"
+import { useClickOutside } from "@/hooks/useClickOutside"
 
 interface DesignViewProps {
   onBack: () => void
@@ -369,7 +371,10 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
   const [codeBindSystem, setCodeBindSystem] = useState<DesignSystemMeta | null>(null)
 
   const [deleteTarget, setDeleteTarget] = useState<
-    { type: "project"; id: string; title: string } | { type: "artifact"; id: string; title: string } | null
+    | { type: "project"; id: string; title: string }
+    | { type: "artifact"; id: string; title: string }
+    | { type: "artifacts-batch"; ids: string[]; title: string }
+    | null
   >(null)
   // 页面组织（本轮）：产物总览网格 / 就地改名（产物 + 项目）/ 拖动排序。
   const [showGrid, setShowGrid] = useState(false)
@@ -2050,6 +2055,31 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
     }
   }, [tx, activeProject, exportingProject, t])
 
+  // 批量导出选中产物为一个 ZIP（Wave 1-③）：一次栅格 / 一个保存框，避免 N 个下载对话框。
+  const batchExportArtifacts = useCallback(
+    async (ids: string[]) => {
+      if (ids.length === 0) return
+      const toastId = toast.loading(t("design.exporting", "正在导出…"))
+      try {
+        const res = await tx.call<{ zip: string }>("export_design_selected_zip_cmd", {
+          artifactIds: ids,
+        })
+        if (!res?.zip) return
+        const base = activeProject ? safeFilename(activeProject.title) : "design"
+        presentSaveResult(
+          await tx.saveFileAs(base64ToBlob(res.zip, "application/zip"), `${base}-${ids.length}.zip`),
+          tx,
+          t,
+          { toastId },
+        )
+      } catch (e) {
+        logger.error("design", "DesignView::batchExport", "batch export failed", e)
+        toast.error(t("design.err.export", "导出失败"), { id: toastId })
+      }
+    },
+    [tx, activeProject, t],
+  )
+
   // 产物取出（B3-2，仅桌面）：复制产物目录路径 / 在 Finder 打开。远端无本机路径故不显示。
   const copyArtifactPath = useCallback(async () => {
     const path = activeArtifactRef.current?.artifactPath
@@ -2076,6 +2106,13 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
   // 桌面（无公开 server）= 直接导出干净自包含 HTML 供发送（拍板的降级路径）。
   const [sharing, setSharing] = useState(false)
   const [deployOpen, setDeployOpen] = useState(false) // B7-2 CF 部署对话框
+  // 分享面板（Wave 1-②，仅 server 模式）：点击 toggle，外点关闭。
+  const [shareOpen, setShareOpen] = useState(false)
+  const shareRef = useRef<HTMLDivElement>(null)
+  useClickOutside(
+    shareRef,
+    useCallback(() => setShareOpen(false), []),
+  )
   const handleShare = useCallback(async () => {
     const a = activeArtifactRef.current
     if (!a || sharing) return
@@ -2350,6 +2387,18 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
         await tx.call("delete_design_project_cmd", { id: deleteTarget.id })
         if (activeProject?.id === deleteTarget.id) backToHome()
         await loadProjects()
+      } else if (deleteTarget.type === "artifacts-batch") {
+        // 批量删除（Wave 1-③）：逐个删（后端无批量端点），全部结束后统一刷一次。
+        const ids = deleteTarget.ids
+        await Promise.all(
+          ids.map((id) =>
+            tx.call("delete_design_artifact_cmd", { id }).catch((e) => {
+              logger.error("design", "DesignView::batchDelete", `delete ${id} failed`, e)
+            }),
+          ),
+        )
+        if (activeArtifact && ids.includes(activeArtifact.id)) setActiveArtifact(null)
+        if (activeProject) await loadArtifacts(activeProject.id)
       } else {
         await tx.call("delete_design_artifact_cmd", { id: deleteTarget.id })
         if (activeArtifact?.id === deleteTarget.id) setActiveArtifact(null)
@@ -3082,6 +3131,14 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                 onRenameFolder={(from, to) => void renameFolder(from, to)}
                 onDeleteFolder={(path) => void deleteFolder(path)}
                 onReorder={(ids) => void reorderArtifacts(ids)}
+                onBatchDelete={(ids) =>
+                  setDeleteTarget({
+                    type: "artifacts-batch",
+                    ids,
+                    title: t("design.files.selectedCount", "已选 {{n}} 项", { n: ids.length }),
+                  })
+                }
+                onBatchExport={(ids) => void batchExportArtifacts(ids)}
               />
             ) : activeArtifact ? (
               <>
@@ -3269,21 +3326,44 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                         <History className="h-3.5 w-3.5" />
                       </Button>
                     </IconTip>
-                    <IconTip label={t("design.share.button", "分享")} side="bottom">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-6 w-6"
-                        disabled={sharing}
-                        onClick={() => void handleShare()}
-                      >
-                        {sharing ? (
-                          <Loader2Icon className="h-3.5 w-3.5 animate-spin" />
-                        ) : (
-                          <Share2 className="h-3.5 w-3.5" />
+                    {tx.supportsLocalFileOps() ? (
+                      // 桌面无公网服务器：分享 = 一键导出可分享 HTML（保持一键，不加弹层）。
+                      <IconTip label={t("design.share.button", "分享")} side="bottom">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6"
+                          disabled={sharing}
+                          onClick={() => void handleShare()}
+                        >
+                          {sharing ? (
+                            <Loader2Icon className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <Share2 className="h-3.5 w-3.5" />
+                          )}
+                        </Button>
+                      </IconTip>
+                    ) : (
+                      // server 模式：分享面板（显示/复制/打开/停止公开链接，Wave 1-②）。
+                      <div className="relative" ref={shareRef}>
+                        <IconTip label={t("design.share.button", "分享")} side="bottom">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className={cn("h-6 w-6", shareOpen && "bg-secondary")}
+                            onClick={() => setShareOpen((v) => !v)}
+                          >
+                            <Share2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </IconTip>
+                        {shareOpen && activeArtifact && (
+                          <DesignSharePanel
+                            artifactId={activeArtifact.id}
+                            origin={window.location.origin}
+                          />
                         )}
-                      </Button>
-                    </IconTip>
+                      </div>
+                    )}
                     <DropdownMenu>
                       <IconTip label={t("design.exportArtifact", "导出本页")} side="bottom">
                         <DropdownMenuTrigger asChild>
@@ -4000,7 +4080,9 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
             <AlertDialogDescription>
               {deleteTarget?.type === "project"
                 ? t("design.deleteProjectDesc", "将永久删除该项目及其全部产物，无法恢复。")
-                : t("design.deleteArtifactDesc", "将永久删除该产物及其全部版本，无法恢复。")}
+                : deleteTarget?.type === "artifacts-batch"
+                  ? t("design.deleteBatchDesc", "将永久删除选中的这些页面及其全部版本，无法恢复。")
+                  : t("design.deleteArtifactDesc", "将永久删除该产物及其全部版本，无法恢复。")}
               {deleteTarget ? ` — ${deleteTarget.title}` : ""}
             </AlertDialogDescription>
           </AlertDialogHeader>

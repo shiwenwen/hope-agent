@@ -6403,7 +6403,10 @@
       "starterLayoutPrompt": "Rehaz esta página con una maquetación más limpia: amplía el espacio en blanco, unifica el espaciado y la escala tipográfica.",
       "producedArtifact": "Artefacto",
       "starterOutlineTitle": "Planifica el esquema primero",
-      "starterOutlinePrompt": "Antes de construir, dame primero un esquema estructural (títulos de secciones/diapositivas, puntos clave, orden narrativo). Tras confirmarlo, genera el artefacto final a partir del esquema."
+      "starterOutlinePrompt": "Antes de construir, dame primero un esquema estructural (títulos de secciones/diapositivas, puntos clave, orden narrativo). Tras confirmarlo, genera el artefacto final a partir del esquema.",
+      "turnFailed": "Esta ronda no produjo resultado",
+      "retry": "Reintentar",
+      "regenerate": "Regenerar"
     },
     "emptyArtifactsInline": "Aún no hay artefactos: pulsa «Nuevo artefacto» (arriba a la derecha) o pídele a la IA de la izquierda que genere uno.",
     "review": {
@@ -6487,7 +6490,17 @@
       "button": "Compartir",
       "copied": "Enlace de solo lectura copiado",
       "exported": "HTML compartible exportado",
-      "failed": "Error al compartir"
+      "failed": "Error al compartir",
+      "linkTitle": "Enlace público",
+      "createLink": "Crear enlace público",
+      "emptyHint": "Crea un enlace público de solo lectura; cualquiera con él puede ver esta página (puedes detenerlo cuando quieras).",
+      "readonlyNote": "Instantánea de solo lectura; cualquiera con el enlace puede ver esta página.",
+      "openPreview": "Abrir",
+      "stopSharing": "Dejar de compartir",
+      "stopped": "Compartir detenido",
+      "copyLink": "Copiar enlace",
+      "copied2": "Copiado",
+      "loadErr": "Error al cargar el estado"
     },
     "deploy": {
       "menu": "Desplegar en Cloudflare Pages",
@@ -6540,7 +6553,13 @@
       "folderNamePh": "Nombre de carpeta",
       "deleteFolder": "Eliminar carpeta (las páginas van a Todas)",
       "moveTo": "Mover a carpeta",
-      "emptyFolder": "Esta carpeta aún no tiene páginas: arrastra páginas aquí o usa el menú ⋯."
-    }
+      "emptyFolder": "Esta carpeta aún no tiene páginas: arrastra páginas aquí o usa el menú ⋯.",
+      "selectedCount": "{{n}} seleccionados",
+      "batchExport": "Exportar",
+      "batchDelete": "Eliminar",
+      "clearSelection": "Quitar selección",
+      "select": "Seleccionar"
+    },
+    "deleteBatchDesc": "Elimina permanentemente las páginas seleccionadas y todas sus versiones. No se puede deshacer."
   }
 }
