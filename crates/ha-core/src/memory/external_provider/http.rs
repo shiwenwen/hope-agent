@@ -20,6 +20,7 @@ pub(super) fn client() -> Result<Client> {
 }
 
 pub(super) async fn validated_endpoint(raw: &str) -> Result<String> {
+    super::ensure_provider_sync_request_budget()?;
     let ssrf = crate::config::cached_config().ssrf.clone();
     let url =
         crate::security::ssrf::check_url(raw, ssrf.default_policy, &ssrf.trusted_hosts).await?;
@@ -44,6 +45,8 @@ pub(super) async fn send_json(
     request: RequestBuilder,
     outcome: &mut ExternalMemoryAdapterSyncOutcome,
 ) -> std::result::Result<Value, ExternalMemoryAdapterSyncFailure> {
+    super::ensure_provider_sync_request_budget()
+        .map_err(|error| failure(outcome.clone(), error))?;
     outcome.external_io_performed = true;
     let response = request
         .send()
@@ -186,5 +189,27 @@ mod tests {
 
         assert!(outcome.external_io_performed);
         assert!(error.error.to_string().contains("response is too large"));
+    }
+
+    #[tokio::test]
+    async fn expired_sync_budget_stops_before_remote_io_and_preserves_outcome() {
+        let server = MockServer::start().await;
+        let mut outcome = ExternalMemoryAdapterSyncOutcome {
+            imported_memory_count: 3,
+            ..Default::default()
+        };
+        let request = client()
+            .unwrap()
+            .get(format!("{}/never-sent", server.uri()));
+
+        let error = super::super::PROVIDER_SYNC_DEADLINE
+            .scope(std::time::Instant::now(), send_json(request, &mut outcome))
+            .await
+            .unwrap_err();
+
+        assert!(!outcome.external_io_performed);
+        assert_eq!(error.outcome.imported_memory_count, 3);
+        assert!(error.error.to_string().contains("request budget"));
+        assert!(server.received_requests().await.unwrap().is_empty());
     }
 }

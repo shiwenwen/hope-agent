@@ -786,7 +786,8 @@ pub async fn memory_import(
     format: String,
     dedup: bool,
 ) -> Result<memory::ImportResult, CmdError> {
-    let entries = memory::parse_import(&content, &format)?;
+    let entries =
+        ha_core::blocking::run_blocking(move || memory::parse_import(&content, &format)).await?;
     let backend = get_memory_backend()
         .ok_or_else(|| CmdError::msg("Memory backend not initialized"))?
         .clone();
@@ -818,7 +819,10 @@ pub async fn memory_import_preview(
         })
         .await)
     } else {
-        Ok(memory::preview_import(&content, &format, limit))
+        Ok(ha_core::blocking::run_blocking(move || {
+            memory::preview_import(&content, &format, limit)
+        })
+        .await)
     }
 }
 
@@ -896,8 +900,7 @@ pub async fn memory_db_snapshot_restore(
 
 #[tauri::command]
 pub async fn get_extract_config() -> Result<memory::MemoryExtractConfig, CmdError> {
-    let store = ha_core::config::load_config()?;
-    Ok(store.memory_extract)
+    Ok(ha_core::config::cached_config().memory_extract.clone())
 }
 
 #[tauri::command]
@@ -912,8 +915,7 @@ pub async fn save_extract_config(config: memory::MemoryExtractConfig) -> Result<
 
 #[tauri::command]
 pub async fn get_memory_selection_config() -> Result<memory::MemorySelectionConfig, CmdError> {
-    let store = ha_core::config::load_config()?;
-    Ok(store.memory_selection)
+    Ok(ha_core::config::cached_config().memory_selection.clone())
 }
 
 #[tauri::command]
@@ -952,7 +954,7 @@ pub async fn get_external_memory_providers_config(
 #[tauri::command]
 pub async fn get_external_memory_providers_preflight(
 ) -> Result<memory::ExternalMemoryProviderPreflightReport, CmdError> {
-    Ok(memory::get_external_memory_provider_preflight())
+    Ok(ha_core::blocking::run_blocking(memory::get_external_memory_provider_preflight).await)
 }
 
 #[tauri::command]
@@ -965,7 +967,11 @@ pub async fn run_external_memory_provider_sync(
 pub async fn get_external_memory_provider_credential_status(
     provider_id: String,
 ) -> Result<memory::ExternalMemoryProviderCredentialStatus, CmdError> {
-    memory::get_external_memory_provider_credential_status(&provider_id).map_err(Into::into)
+    ha_core::blocking::run_blocking(move || {
+        memory::get_external_memory_provider_credential_status(&provider_id)
+    })
+    .await
+    .map_err(Into::into)
 }
 
 #[tauri::command]
@@ -988,20 +994,27 @@ pub async fn save_external_memory_provider_credentials(
 pub async fn clear_external_memory_provider_credentials(
     provider_id: String,
 ) -> Result<(), CmdError> {
-    memory::clear_external_memory_provider_credentials(&provider_id).map_err(Into::into)
+    ha_core::blocking::run_blocking(move || {
+        memory::clear_external_memory_provider_credentials(&provider_id)
+    })
+    .await
+    .map_err(Into::into)
 }
 
 #[tauri::command]
 pub async fn save_external_memory_providers_config(
     config: memory::ExternalMemoryProvidersConfig,
 ) -> Result<(), CmdError> {
-    memory::save_external_memory_providers_config(config, "settings-ui").map_err(Into::into)
+    ha_core::blocking::run_blocking(move || {
+        memory::save_external_memory_providers_config(config, "settings-ui")
+    })
+    .await
+    .map_err(Into::into)
 }
 
 #[tauri::command]
 pub async fn get_dedup_config() -> Result<memory::DedupConfig, CmdError> {
-    let store = ha_core::config::load_config()?;
-    Ok(store.dedup)
+    Ok(ha_core::config::cached_config().dedup.clone())
 }
 
 #[tauri::command]
@@ -1018,8 +1031,7 @@ pub async fn save_dedup_config(config: memory::DedupConfig) -> Result<(), CmdErr
 
 #[tauri::command]
 pub async fn get_hybrid_search_config() -> Result<memory::HybridSearchConfig, CmdError> {
-    let store = ha_core::config::load_config()?;
-    Ok(store.hybrid_search)
+    Ok(ha_core::config::cached_config().hybrid_search.clone())
 }
 
 #[tauri::command]
@@ -1034,8 +1046,7 @@ pub async fn save_hybrid_search_config(config: memory::HybridSearchConfig) -> Re
 
 #[tauri::command]
 pub async fn get_temporal_decay_config() -> Result<memory::TemporalDecayConfig, CmdError> {
-    let store = ha_core::config::load_config()?;
-    Ok(store.temporal_decay)
+    Ok(ha_core::config::cached_config().temporal_decay.clone())
 }
 
 #[tauri::command]
@@ -1052,8 +1063,7 @@ pub async fn save_temporal_decay_config(
 
 #[tauri::command]
 pub async fn get_mmr_config() -> Result<memory::MmrConfig, CmdError> {
-    let store = ha_core::config::load_config()?;
-    Ok(store.mmr)
+    Ok(ha_core::config::cached_config().mmr.clone())
 }
 
 #[tauri::command]
@@ -1068,8 +1078,7 @@ pub async fn save_mmr_config(config: memory::MmrConfig) -> Result<(), CmdError> 
 
 #[tauri::command]
 pub async fn get_embedding_cache_config() -> Result<memory::EmbeddingCacheConfig, CmdError> {
-    let store = ha_core::config::load_config()?;
-    Ok(store.embedding_cache)
+    Ok(ha_core::config::cached_config().embedding_cache.clone())
 }
 
 #[tauri::command]
@@ -1086,8 +1095,7 @@ pub async fn save_embedding_cache_config(
 
 #[tauri::command]
 pub async fn get_multimodal_config() -> Result<memory::MultimodalConfig, CmdError> {
-    let store = ha_core::config::load_config()?;
-    Ok(store.multimodal)
+    Ok(ha_core::config::cached_config().multimodal.clone())
 }
 
 #[tauri::command]
@@ -1112,7 +1120,10 @@ pub async fn get_embedding_config() -> Result<memory::EmbeddingConfig, CmdError>
 
 #[tauri::command]
 pub async fn save_embedding_config(config: memory::EmbeddingConfig) -> Result<(), CmdError> {
-    memory::save_legacy_embedding_config(config, "settings-ui")?;
+    ha_core::blocking::run_blocking(move || {
+        memory::save_legacy_embedding_config(config, "settings-ui")
+    })
+    .await?;
     Ok(())
 }
 
@@ -1123,7 +1134,7 @@ pub async fn get_embedding_presets() -> Result<Vec<memory::EmbeddingPreset>, Cmd
 
 #[tauri::command]
 pub async fn list_local_embedding_models() -> Result<Vec<memory::LocalEmbeddingModel>, CmdError> {
-    Ok(memory::list_local_models_with_status())
+    Ok(ha_core::blocking::run_blocking(memory::list_local_models_with_status).await)
 }
 
 #[tauri::command]
@@ -1141,12 +1152,20 @@ pub async fn embedding_model_config_templates(
 pub async fn embedding_model_config_save(
     config: memory::EmbeddingModelConfig,
 ) -> Result<memory::EmbeddingModelConfig, CmdError> {
-    memory::save_embedding_model_config(config, "settings-ui").map_err(Into::into)
+    ha_core::blocking::run_blocking(move || {
+        memory::save_embedding_model_config(config, "settings-ui")
+    })
+    .await
+    .map_err(Into::into)
 }
 
 #[tauri::command]
 pub async fn embedding_model_config_delete(id: String) -> Result<(), CmdError> {
-    memory::delete_embedding_model_config(&id, "settings-ui").map_err(Into::into)
+    ha_core::blocking::run_blocking(move || {
+        memory::delete_embedding_model_config(&id, "settings-ui")
+    })
+    .await
+    .map_err(Into::into)
 }
 
 #[tauri::command]
@@ -1170,8 +1189,11 @@ pub async fn memory_embedding_set_default(
     model_config_id: String,
     mode: memory::ReembedMode,
 ) -> Result<memory::EmbeddingSetDefaultResult, CmdError> {
-    memory::set_memory_embedding_default(&model_config_id, mode, "settings-ui", None)
-        .map_err(Into::into)
+    ha_core::blocking::run_blocking(move || {
+        memory::set_memory_embedding_default(&model_config_id, mode, "settings-ui", None)
+    })
+    .await
+    .map_err(Into::into)
 }
 
 #[tauri::command]
@@ -1194,7 +1216,9 @@ pub async fn memory_reembed_start(
 
 #[tauri::command]
 pub async fn memory_embedding_disable() -> Result<memory::EmbeddingSelectionState, CmdError> {
-    memory::disable_memory_embedding("settings-ui").map_err(Into::into)
+    ha_core::blocking::run_blocking(move || memory::disable_memory_embedding("settings-ui"))
+        .await
+        .map_err(Into::into)
 }
 
 // ── Core Memory (memory.md) commands ────────────────────────────
@@ -1202,32 +1226,45 @@ pub async fn memory_embedding_disable() -> Result<memory::EmbeddingSelectionStat
 #[tauri::command]
 pub async fn get_global_memory_md() -> Result<Option<String>, CmdError> {
     let path = crate::paths::root_dir()?.join("memory.md");
-    if path.exists() {
-        std::fs::read_to_string(&path).map(Some).map_err(Into::into)
-    } else {
-        Ok(None)
-    }
+    ha_core::blocking::run_blocking(move || {
+        if path.exists() {
+            std::fs::read_to_string(&path).map(Some).map_err(Into::into)
+        } else {
+            Ok(None)
+        }
+    })
+    .await
 }
 
 #[tauri::command]
 pub async fn save_global_memory_md(content: String) -> Result<(), CmdError> {
     let path = crate::paths::root_dir()?.join("memory.md");
-    ha_core::platform::write_atomic(&path, content.as_bytes()).map_err(Into::into)
+    ha_core::blocking::run_blocking(move || {
+        ha_core::platform::write_atomic(&path, content.as_bytes()).map_err(Into::into)
+    })
+    .await
 }
 
 #[tauri::command]
 pub async fn get_agent_memory_md(id: String) -> Result<Option<String>, CmdError> {
     let path = crate::paths::agent_dir(&id)?.join("memory.md");
-    if path.exists() {
-        std::fs::read_to_string(&path).map(Some).map_err(Into::into)
-    } else {
-        Ok(None)
-    }
+    ha_core::blocking::run_blocking(move || {
+        if path.exists() {
+            std::fs::read_to_string(&path).map(Some).map_err(Into::into)
+        } else {
+            Ok(None)
+        }
+    })
+    .await
 }
 
 #[tauri::command]
 pub async fn save_agent_memory_md(id: String, content: String) -> Result<(), CmdError> {
     let dir = crate::paths::agent_dir(&id)?;
-    let _ = std::fs::create_dir_all(&dir);
-    ha_core::platform::write_atomic(&dir.join("memory.md"), content.as_bytes()).map_err(Into::into)
+    ha_core::blocking::run_blocking(move || {
+        let _ = std::fs::create_dir_all(&dir);
+        ha_core::platform::write_atomic(&dir.join("memory.md"), content.as_bytes())
+            .map_err(Into::into)
+    })
+    .await
 }

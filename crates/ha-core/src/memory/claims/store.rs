@@ -1390,6 +1390,15 @@ impl ClaimStore {
         let cand_limit = (limit * 3) as i64;
         let (filter_sql, filter_args) = claim_search_filters(scope, &now);
 
+        // Embedding cache access uses the shared memory backend's reader/writer
+        // pool. Resolve it before taking the claim query reader to avoid nested
+        // reader acquisition and four-way pool deadlock under concurrent chats.
+        let vector_query = crate::memory::helpers::active_embedding_signature().and_then(|sig| {
+            self.backend
+                .generate_embedding(query)
+                .map(|embedding| (sig, embedding))
+        });
+
         let conn = self.backend.read_conn()?;
 
         // ── Arm 1: FTS5 keyword candidates (rowids in rank order) ──
@@ -1480,12 +1489,11 @@ impl ClaimStore {
         // embedder is configured. Mirrors the `memories` hybrid path: vec0 KNN
         // with a `rowid IN (...)` filter for signature + scope/freshness. ──
         let mut vec_rowids: Vec<i64> = Vec::new();
-        if let Some(signature) = crate::memory::helpers::active_embedding_signature() {
-            if let Some(emb) = self.backend.generate_embedding(query) {
-                let emb_bytes: Vec<u8> = emb.iter().flat_map(|f| f.to_le_bytes()).collect();
-                let overfetch = ((cand_limit as usize).saturating_mul(8).min(2_000)) as i64;
-                let fast_sql = format!(
-                    "WITH nearest AS (
+        if let Some((signature, emb)) = vector_query {
+            let emb_bytes: Vec<u8> = emb.iter().flat_map(|f| f.to_le_bytes()).collect();
+            let overfetch = ((cand_limit as usize).saturating_mul(8).min(2_000)) as i64;
+            let fast_sql = format!(
+                "WITH nearest AS (
                         SELECT rowid, distance FROM memory_claims_vec
                         WHERE embedding MATCH ?
                         ORDER BY distance LIMIT ?
@@ -1495,43 +1503,42 @@ impl ClaimStore {
                      JOIN memory_claims c ON c.rowid = nearest.rowid
                      WHERE c.embedding_signature = ? AND {filter_sql}
                      ORDER BY nearest.distance LIMIT ?"
-                );
-                let mut fast_args: Vec<SqlValue> = vec![
-                    SqlValue::Blob(emb_bytes.clone()),
-                    SqlValue::Integer(overfetch),
-                    SqlValue::Text(signature.clone()),
-                ];
-                fast_args.extend(filter_args.iter().cloned());
-                fast_args.push(SqlValue::Integer(cand_limit));
-                if let Ok(mut stmt) = conn.prepare(&fast_sql) {
-                    if let Ok(rows) =
-                        stmt.query_map(params_from_iter(fast_args), |row| row.get::<_, i64>(0))
-                    {
-                        vec_rowids.extend(rows.filter_map(|row| row.ok()));
-                    }
+            );
+            let mut fast_args: Vec<SqlValue> = vec![
+                SqlValue::Blob(emb_bytes.clone()),
+                SqlValue::Integer(overfetch),
+                SqlValue::Text(signature.clone()),
+            ];
+            fast_args.extend(filter_args.iter().cloned());
+            fast_args.push(SqlValue::Integer(cand_limit));
+            if let Ok(mut stmt) = conn.prepare(&fast_sql) {
+                if let Ok(rows) =
+                    stmt.query_map(params_from_iter(fast_args), |row| row.get::<_, i64>(0))
+                {
+                    vec_rowids.extend(rows.filter_map(|row| row.ok()));
                 }
+            }
 
-                if vec_rowids.len() < limit.min(8) {
-                    vec_rowids.clear();
-                    let safe_sql = format!(
-                        "SELECT rowid FROM memory_claims_vec
+            if vec_rowids.len() < limit.min(8) {
+                vec_rowids.clear();
+                let safe_sql = format!(
+                    "SELECT rowid FROM memory_claims_vec
                          WHERE embedding MATCH ?
                            AND rowid IN (
                                SELECT c.rowid FROM memory_claims c
                                WHERE c.embedding_signature = ? AND {filter_sql}
                            )
                          ORDER BY distance LIMIT ?"
-                    );
-                    let mut safe_args: Vec<SqlValue> =
-                        vec![SqlValue::Blob(emb_bytes), SqlValue::Text(signature)];
-                    safe_args.extend(filter_args.iter().cloned());
-                    safe_args.push(SqlValue::Integer(cand_limit));
-                    if let Ok(mut stmt) = conn.prepare(&safe_sql) {
-                        if let Ok(rows) =
-                            stmt.query_map(params_from_iter(safe_args), |row| row.get::<_, i64>(0))
-                        {
-                            vec_rowids.extend(rows.filter_map(|row| row.ok()));
-                        }
+                );
+                let mut safe_args: Vec<SqlValue> =
+                    vec![SqlValue::Blob(emb_bytes), SqlValue::Text(signature)];
+                safe_args.extend(filter_args.iter().cloned());
+                safe_args.push(SqlValue::Integer(cand_limit));
+                if let Ok(mut stmt) = conn.prepare(&safe_sql) {
+                    if let Ok(rows) =
+                        stmt.query_map(params_from_iter(safe_args), |row| row.get::<_, i64>(0))
+                    {
+                        vec_rowids.extend(rows.filter_map(|row| row.ok()));
                     }
                 }
             }

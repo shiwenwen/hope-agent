@@ -8,11 +8,11 @@ use super::http::{
     client as external_http_client, endpoint_with_path, send_json, validated_endpoint,
 };
 use super::{
-    import_external_memory_for_review, load_local_memory_snapshot, load_sync_ledger,
-    local_memory_fingerprint, persist_sync_ledger, resolve_external_memory_provider_credentials,
-    ExternalMemoryAdapterSyncFailure, ExternalMemoryAdapterSyncOutcome,
-    ExternalMemoryProviderAdapter, ExternalMemoryProviderCredentials,
-    ExternalMemoryProviderSyncLedger,
+    import_external_memory_for_review, load_local_memory_snapshot, load_sync_ledger_async,
+    local_memory_fingerprint, persist_sync_ledger_async,
+    resolve_external_memory_provider_credentials_async, ExternalMemoryAdapterSyncFailure,
+    ExternalMemoryAdapterSyncOutcome, ExternalMemoryProviderAdapter,
+    ExternalMemoryProviderCredentials, ExternalMemoryProviderSyncLedger,
 };
 
 pub(super) static HINDSIGHT_ADAPTER: HindsightAdapter = HindsightAdapter;
@@ -58,7 +58,8 @@ async fn sync_hindsight(
     provider: &ExternalMemoryProviderConfig,
 ) -> std::result::Result<ExternalMemoryAdapterSyncOutcome, ExternalMemoryAdapterSyncFailure> {
     let mut outcome = ExternalMemoryAdapterSyncOutcome::default();
-    let (credentials, _) = resolve_external_memory_provider_credentials(&provider.id)
+    let (credentials, _) = resolve_external_memory_provider_credentials_async(&provider.id)
+        .await
         .map_err(|error| failure(outcome.clone(), error))?
         .ok_or_else(|| failure(outcome.clone(), anyhow!("provider credentials are missing")))?;
     let _protocol =
@@ -67,8 +68,9 @@ async fn sync_hindsight(
         .await
         .map_err(|error| failure(outcome.clone(), error))?;
     let client = external_http_client().map_err(|error| failure(outcome.clone(), error))?;
-    let mut ledger =
-        load_sync_ledger(&provider.id).map_err(|error| failure(outcome.clone(), error))?;
+    let mut ledger = load_sync_ledger_async(&provider.id)
+        .await
+        .map_err(|error| failure(outcome.clone(), error))?;
 
     if provider.sync_policy.imports_external_memory() {
         pull_memories(
@@ -92,6 +94,9 @@ async fn sync_hindsight(
         )
         .await?;
     }
+    persist_sync_ledger_async(&provider.id, &ledger)
+        .await
+        .map_err(|error| failure(outcome.clone(), error))?;
     Ok(outcome)
 }
 
@@ -158,10 +163,12 @@ async fn pull_memories(
                 ledger,
                 outcome,
             )
+            .await
             .map_err(|error| failure(outcome.clone(), error))?;
             if let Some(version) = memory.version {
                 ledger.remote_versions.insert(memory.id, version);
-                persist_sync_ledger(&provider.id, ledger)
+                persist_sync_ledger_async(&provider.id, ledger)
+                    .await
                     .map_err(|error| failure(outcome.clone(), error))?;
             }
         }
@@ -266,7 +273,8 @@ async fn push_memories(
                 outcome.exported_memory_count += 1;
             }
         }
-        persist_sync_ledger(&provider.id, ledger)
+        persist_sync_ledger_async(&provider.id, ledger)
+            .await
             .map_err(|error| failure(outcome.clone(), error))?;
     }
     Ok(())

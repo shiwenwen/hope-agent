@@ -869,11 +869,15 @@ pub async fn reembed_start(
 /// `GET /api/memory/global-md` — read the user's global `memory.md` file.
 pub async fn get_global_memory_md() -> Result<Json<Value>, AppError> {
     let path = ha_core::paths::root_dir()?.join("memory.md");
-    let content = if path.exists() {
-        Some(std::fs::read_to_string(&path).map_err(|e| AppError::internal(e.to_string()))?)
-    } else {
-        None
-    };
+    let content = run_blocking(move || {
+        if path.exists() {
+            std::fs::read_to_string(&path).map(Some)
+        } else {
+            Ok(None)
+        }
+    })
+    .await
+    .map_err(|e| AppError::internal(e.to_string()))?;
     Ok(Json(json!({ "content": content })))
 }
 
@@ -887,7 +891,8 @@ pub async fn save_global_memory_md(
     Json(body): Json<MemoryMdBody>,
 ) -> Result<Json<Value>, AppError> {
     let path = ha_core::paths::root_dir()?.join("memory.md");
-    ha_core::platform::write_atomic(&path, body.content.as_bytes())
+    run_blocking(move || ha_core::platform::write_atomic(&path, body.content.as_bytes()))
+        .await
         .map_err(|e| AppError::internal(e.to_string()))?;
     Ok(Json(json!({ "saved": true })))
 }
@@ -1175,10 +1180,14 @@ pub struct ImportMemoryBody {
 pub async fn import_memory(
     Json(body): Json<ImportMemoryBody>,
 ) -> Result<Json<ha_core::memory::ImportResult>, AppError> {
-    let entries = ha_core::memory::parse_import(&body.content, &body.format)
+    let content = body.content;
+    let format = body.format;
+    let dedup = body.dedup;
+    let entries = run_blocking(move || ha_core::memory::parse_import(&content, &format))
+        .await
         .map_err(|e| AppError::bad_request(e.to_string()))?;
     let backend = get_backend()?;
-    let result = run_blocking(move || backend.import_entries(entries, body.dedup)).await?;
+    let result = run_blocking(move || backend.import_entries(entries, dedup)).await?;
     if result.created > 0 {
         ha_core::memory::emit_memory_changed("import", None, Some(result.created));
     }
@@ -1234,5 +1243,7 @@ pub async fn find_similar(
 /// Tauri `list_local_embedding_models` command.
 pub async fn list_local_embedding_models(
 ) -> Result<Json<Vec<ha_core::memory::LocalEmbeddingModel>>, AppError> {
-    Ok(Json(ha_core::memory::list_local_models_with_status()))
+    Ok(Json(
+        run_blocking(ha_core::memory::list_local_models_with_status).await,
+    ))
 }

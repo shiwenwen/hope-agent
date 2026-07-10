@@ -51,6 +51,12 @@ fn terminal_assistant_text_for_history<'a>(
     }
 }
 
+async fn wait_for_cancel(cancel: &AtomicBool) {
+    while !cancel.load(Ordering::SeqCst) {
+        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+    }
+}
+
 /// Run `futs` concurrently with at most `max` in flight at any time, returning
 /// results in the SAME order as the input. Order preservation lets callers pair
 /// results to inputs positionally. The semaphore is never closed, so permit
@@ -547,18 +553,26 @@ impl AssistantAgent {
         let provider_label = adapter.provider_format().label();
 
         self.reset_chat_flags();
+        self.warm_kb_access().await;
+        self.warm_memory_agent_config().await;
         self.configure_retrieval_planner_context(message);
         // Dynamic context refreshers write independent slots / trace ledgers
         // and never read each other; run them concurrently so the worst case
         // stays bounded by the slowest refresher instead of their sum.
-        tokio::join!(
-            self.refresh_awareness_suffix(message),
-            self.refresh_active_memory_suffix(message),
-            self.refresh_related_notes_suffix(message),
-            self.refresh_experience_memory_trace(message),
-            self.refresh_graph_memory_trace(message),
-        );
-        self.refresh_static_memory_refs();
+        let refresh_turn_context = async {
+            tokio::join!(
+                self.refresh_awareness_suffix(message),
+                self.refresh_active_memory_suffix(message),
+                self.refresh_related_notes_suffix(message),
+                self.refresh_experience_memory_trace(message),
+                self.refresh_graph_memory_trace(message),
+                self.prepare_full_system_prompt(model, provider_label),
+            )
+        };
+        let (_, _, _, _, _, prepared_system_prompt) = tokio::select! {
+            refreshed = refresh_turn_context => refreshed,
+            _ = wait_for_cancel(cancel) => return Ok((String::new(), None)),
+        };
 
         let client =
             crate::provider::apply_proxy(reqwest::Client::builder().user_agent(&self.user_agent))
@@ -590,8 +604,8 @@ impl AssistantAgent {
         // Static system prompt prefix (cache-friendly). The dynamic awareness
         // and active-memory suffixes go in their own cache breakpoints inside
         // chat_round (each adapter handles the placement).
-        let system_prompt = self.build_full_system_prompt(model, provider_label);
-        let mut system_prompt_for_budget = self.build_merged_system_prompt(model, provider_label);
+        let system_prompt = prepared_system_prompt;
+        let mut system_prompt_for_budget = self.merge_dynamic_system_prompt(system_prompt.clone());
 
         self.run_compaction(
             &mut messages,
@@ -691,8 +705,8 @@ impl AssistantAgent {
             // child sessions (plan_subagent) skip the probe entirely.
             if self.maybe_resync_plan_mode_from_backend().await {
                 tool_schemas = self.build_tool_schemas(adapter.tool_provider());
-                system_prompt = self.build_full_system_prompt(model, provider_label);
-                system_prompt_for_budget = self.build_merged_system_prompt(model, provider_label);
+                system_prompt = self.prepare_full_system_prompt(model, provider_label).await;
+                system_prompt_for_budget = self.merge_dynamic_system_prompt(system_prompt.clone());
                 self.select_memories_if_needed(&mut system_prompt, message)
                     .await;
                 self.apply_engine_prompt_addition(&mut system_prompt);
@@ -838,6 +852,11 @@ impl AssistantAgent {
                 .partition(|tc| tools::is_concurrent_safe(&tc.name));
 
             let mut executed: Vec<ExecutedTool> = Vec::new();
+            // A provider response can stream for minutes. Refresh agent-level
+            // tool filters and approval policy immediately before execution so
+            // a user revocation made while the model was responding takes
+            // effect in this batch.
+            self.warm_memory_agent_config().await;
             let tool_ctx = self.tool_context_with_usage(Some(estimated_used));
 
             // Phase 1: concurrent-safe in parallel, but BOUNDED — a single
@@ -961,20 +980,17 @@ impl AssistantAgent {
             // Concurrent phase doesn't need this hook: it only contains
             // `is_concurrent_safe` tools (read-only) which by definition
             // can't mutate plan state.
-            let mut tool_ctx = tool_ctx;
             for tc in &sequential_tcs {
                 if cancel.load(Ordering::SeqCst) {
                     break;
                 }
 
-                if self.maybe_resync_plan_mode_from_backend().await {
-                    // Plan state changed — refresh the ctx so this tool's
-                    // permission check sees the new PlanAgent allow-list.
-                    // The schema rebuild will happen at the next round head
-                    // (the LLM has already been sent this batch's tool_call
-                    // list, so updating its schema mid-batch is moot).
-                    tool_ctx = self.tool_context_with_usage(Some(estimated_used));
-                }
+                // Sequential tools may span user approvals and long-running
+                // work. Re-check both agent.json and plan state before every
+                // execution, then rebuild one coherent permission snapshot.
+                self.warm_memory_agent_config().await;
+                let _plan_changed = self.maybe_resync_plan_mode_from_backend().await;
+                let tool_ctx = self.tool_context_with_usage(Some(estimated_used));
 
                 emit_tool_call(on_delta, &tc.call_id, &tc.name, &tc.arguments);
                 log_tool_input(tc, round);

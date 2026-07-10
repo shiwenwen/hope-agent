@@ -173,7 +173,8 @@ pub fn get_external_memory_provider_preflight() -> ExternalMemoryProviderPreflig
 
 pub async fn run_external_memory_provider_sync() -> ExternalMemoryProviderSyncReport {
     let cfg = crate::config::cached_config().memory_providers.clone();
-    let (stats, stats_error) = external_memory_provider_stats_for_planning();
+    let (stats, stats_error) =
+        crate::blocking::run_blocking(external_memory_provider_stats_for_planning).await;
     crate::memory::execute_external_memory_provider_sync(cfg, stats, stats_error).await
 }
 

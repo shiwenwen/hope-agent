@@ -68,6 +68,10 @@ pub struct CachedAgentConfig {
     pub memory_enabled: bool,
     pub active_memory: ActiveMemoryConfig,
     pub shared_global: bool,
+    pub procedure_memory: crate::agent_config::ProcedureMemoryConfig,
+    pub graph_memory: crate::agent_config::GraphMemoryConfig,
+    pub retrieval_planner: crate::agent_config::RetrievalPlannerConfig,
+    pub prompt_budget: usize,
 }
 
 /// Frontend- and log-safe reference to a memory candidate considered by Active
@@ -258,6 +262,25 @@ impl ActiveMemoryState {
         *guard = Some(cfg.clone());
         self.cache.clear();
         cfg
+    }
+
+    pub fn cached_agent_config(
+        &self,
+        fingerprint: Option<AgentConfigFingerprint>,
+    ) -> Option<CachedAgentConfig> {
+        self.agent_config
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+            .filter(|cfg| cfg.fingerprint == fingerprint)
+            .cloned()
+    }
+
+    pub fn current_agent_config(&self) -> Option<CachedAgentConfig> {
+        self.agent_config
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
     }
 
     /// Drop the cached agent-config snapshot. Also clears the recall
@@ -700,6 +723,10 @@ mod tests {
                 memory_enabled: true,
                 active_memory: ActiveMemoryConfig::default(),
                 shared_global: true,
+                procedure_memory: crate::agent_config::ProcedureMemoryConfig::default(),
+                graph_memory: crate::agent_config::GraphMemoryConfig::default(),
+                retrieval_planner: crate::agent_config::RetrievalPlannerConfig::default(),
+                prompt_budget: 5_000,
             }
         });
         let second = state.agent_config_or_load(Some(fp1), || {
@@ -709,6 +736,10 @@ mod tests {
                 memory_enabled: false,
                 active_memory: ActiveMemoryConfig::default(),
                 shared_global: false,
+                procedure_memory: crate::agent_config::ProcedureMemoryConfig::default(),
+                graph_memory: crate::agent_config::GraphMemoryConfig::default(),
+                retrieval_planner: crate::agent_config::RetrievalPlannerConfig::default(),
+                prompt_budget: 5_000,
             }
         });
         let third = state.agent_config_or_load(Some(fp2), || {
@@ -718,6 +749,10 @@ mod tests {
                 memory_enabled: false,
                 active_memory: ActiveMemoryConfig::default(),
                 shared_global: false,
+                procedure_memory: crate::agent_config::ProcedureMemoryConfig::default(),
+                graph_memory: crate::agent_config::GraphMemoryConfig::default(),
+                retrieval_planner: crate::agent_config::RetrievalPlannerConfig::default(),
+                prompt_budget: 5_000,
             }
         });
 

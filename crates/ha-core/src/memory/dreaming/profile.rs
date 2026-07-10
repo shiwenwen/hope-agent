@@ -300,27 +300,39 @@ pub async fn run_profile_synthesis_cycle(trigger: DreamTrigger) -> ProfileReport
     let lock_key = format!("{}:global", phase.as_str());
     let run_id = uuid::Uuid::new_v4().to_string();
     let lease_ttl = store::lease_ttl_secs(cfg.narrative_timeout_secs);
-    let Some(_lease) = store::acquire_lease(&lock_key, &run_id, lease_ttl) else {
+    let lock_key_for_acquire = lock_key.clone();
+    let run_id_for_acquire = run_id.clone();
+    let Some(lease) = crate::blocking::run_blocking(move || {
+        store::acquire_lease(&lock_key_for_acquire, &run_id_for_acquire, lease_ttl)
+    })
+    .await
+    else {
         return ProfileReport::skipped("another instance holds the dreaming lease", started);
     };
 
-    if let Some(s) = store::store() {
-        let scope_json = json!({ "phase": "profile" }).to_string();
-        if let Err(e) = s.create_run(
-            &run_id,
-            trigger.as_str(),
-            phase.as_str(),
-            &scope_json,
-            lease_ttl,
-        ) {
-            app_warn!(
-                "memory",
-                "dreaming::store",
-                "failed to persist run row: {}",
-                e
-            );
+    let run_id_for_create = run_id.clone();
+    let trigger_name = trigger.as_str().to_string();
+    let phase_name = phase.as_str().to_string();
+    crate::blocking::run_blocking(move || {
+        if let Some(s) = store::store() {
+            let scope_json = json!({ "phase": "profile" }).to_string();
+            if let Err(e) = s.create_run(
+                &run_id_for_create,
+                &trigger_name,
+                &phase_name,
+                &scope_json,
+                lease_ttl,
+            ) {
+                app_warn!(
+                    "memory",
+                    "dreaming::store",
+                    "failed to persist run row: {}",
+                    e
+                );
+            }
         }
-    }
+    })
+    .await;
     app_info!(
         "memory",
         "dreaming::profile",
@@ -521,18 +533,23 @@ pub async fn run_profile_synthesis_cycle(trigger: DreamTrigger) -> ProfileReport
     let note = truncated.then(|| {
         format!("processed {MAX_PROFILE_SCOPES} of {total_scopes} scopes; rerun to continue")
     });
-    if let Some(s) = store::store() {
-        if let Err(e) = s.finish_resolver_run(
-            &run_id,
-            DreamRunStatus::Completed,
-            scanned,
-            written,
-            duration_ms,
-            note.as_deref(),
-        ) {
-            app_warn!("memory", "dreaming::store", "failed to finalise run: {}", e);
+    let run_id_for_finish = run_id.clone();
+    let note_for_finish = note.clone();
+    crate::blocking::run_blocking(move || {
+        if let Some(s) = store::store() {
+            if let Err(e) = s.finish_resolver_run(
+                &run_id_for_finish,
+                DreamRunStatus::Completed,
+                scanned,
+                written,
+                duration_ms,
+                note_for_finish.as_deref(),
+            ) {
+                app_warn!("memory", "dreaming::store", "failed to finalise run: {}", e);
+            }
         }
-    }
+    })
+    .await;
 
     if let Some(bus) = crate::get_event_bus() {
         bus.emit(
@@ -559,14 +576,16 @@ pub async fn run_profile_synthesis_cycle(trigger: DreamTrigger) -> ProfileReport
         duration_ms
     );
 
-    ProfileReport {
+    let report = ProfileReport {
         run_id: Some(run_id),
         scanned,
         scopes: scopes_considered,
         snapshots_written: written,
         duration_ms,
         note,
-    }
+    };
+    lease.release().await;
+    report
 }
 
 #[cfg(test)]

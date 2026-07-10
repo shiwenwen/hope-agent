@@ -9,8 +9,8 @@ use super::http::{
 };
 use super::{
     content_fingerprint, import_external_memory_for_review, load_local_memory_snapshot,
-    load_sync_ledger, local_memory_fingerprint, persist_sync_ledger,
-    resolve_external_memory_provider_credentials, ExternalMemoryAdapterSyncFailure,
+    load_sync_ledger_async, local_memory_fingerprint, persist_sync_ledger_async,
+    resolve_external_memory_provider_credentials_async, ExternalMemoryAdapterSyncFailure,
     ExternalMemoryAdapterSyncOutcome, ExternalMemoryProviderAdapter,
     ExternalMemoryProviderCredentials, ExternalMemoryProviderSyncLedger,
 };
@@ -53,7 +53,8 @@ async fn sync_supermemory(
     provider: &ExternalMemoryProviderConfig,
 ) -> std::result::Result<ExternalMemoryAdapterSyncOutcome, ExternalMemoryAdapterSyncFailure> {
     let mut outcome = ExternalMemoryAdapterSyncOutcome::default();
-    let (credentials, _) = resolve_external_memory_provider_credentials(&provider.id)
+    let (credentials, _) = resolve_external_memory_provider_credentials_async(&provider.id)
+        .await
         .map_err(|error| failure(outcome.clone(), error))?
         .ok_or_else(|| failure(outcome.clone(), anyhow!("provider credentials are missing")))?;
     validate_protocol(&credentials).map_err(|error| failure(outcome.clone(), error))?;
@@ -64,8 +65,9 @@ async fn sync_supermemory(
         .await
         .map_err(|error| failure(outcome.clone(), error))?;
     let client = external_http_client().map_err(|error| failure(outcome.clone(), error))?;
-    let mut ledger =
-        load_sync_ledger(&provider.id).map_err(|error| failure(outcome.clone(), error))?;
+    let mut ledger = load_sync_ledger_async(&provider.id)
+        .await
+        .map_err(|error| failure(outcome.clone(), error))?;
 
     if provider.sync_policy.imports_external_memory() {
         pull_memories(
@@ -89,6 +91,9 @@ async fn sync_supermemory(
         )
         .await?;
     }
+    persist_sync_ledger_async(&provider.id, &ledger)
+        .await
+        .map_err(|error| failure(outcome.clone(), error))?;
     Ok(outcome)
 }
 
@@ -157,9 +162,11 @@ async fn pull_memories(
                 ledger,
                 outcome,
             )
+            .await
             .map_err(|error| failure(outcome.clone(), error))?;
             ledger.remote_versions.insert(memory.id, memory.version);
-            persist_sync_ledger(&provider.id, ledger)
+            persist_sync_ledger_async(&provider.id, ledger)
+                .await
                 .map_err(|error| failure(outcome.clone(), error))?;
         }
 
@@ -303,7 +310,8 @@ async fn push_memories(
         } else {
             ledger.pending_export_hashes.insert(local_id, hash);
         }
-        persist_sync_ledger(&provider.id, ledger)
+        persist_sync_ledger_async(&provider.id, ledger)
+            .await
             .map_err(|error| failure(outcome.clone(), error))?;
     }
     Ok(())
@@ -336,7 +344,8 @@ async fn reconcile_pending_exports(
             }
             DocumentStatus::Pending => outcome.skipped_memory_count += 1,
         }
-        persist_sync_ledger(&provider.id, ledger)
+        persist_sync_ledger_async(&provider.id, ledger)
+            .await
             .map_err(|error| failure(outcome.clone(), error))?;
     }
     Ok(())
