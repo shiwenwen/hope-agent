@@ -2966,6 +2966,11 @@ export default function ChatScreen({
                       onRemoveFile={(index) =>
                         stream.setAttachedFiles((prev) => prev.filter((_, i) => i !== index))
                       }
+                      onUpdateFile={(index, file) =>
+                        stream.setAttachedFiles((prev) =>
+                          prev.map((existing, i) => (i === index ? file : existing)),
+                        )
+                      }
                       pendingQuotes={stream.pendingQuotes}
                       onRemoveQuote={(index) => {
                         stream.setPendingQuotes((prev) => prev.filter((_, i) => i !== index))
