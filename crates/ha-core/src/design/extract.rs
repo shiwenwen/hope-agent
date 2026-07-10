@@ -230,6 +230,8 @@ const MAX_IMAGES: usize = 6;
 /// 单资产字节门：太小多为 tracking 像素 / 空白，太大不内嵌。
 const MIN_ASSET_BYTES: usize = 256;
 const MAX_ASSET_BYTES: usize = 6 * 1024 * 1024;
+/// imagery 长边下限（px）：滤掉小图标 / 追踪像素混进 hero/配图集（logo 不受此限）。
+const MIN_IMAGE_LONG_EDGE: u32 = 320;
 
 /// 从页面 HTML 确定性抽取 logo / 配图候选 URL（优先链对齐参照品类），逐个 SSRF-gated 抓取、
 /// content-hash 去重、转 data-uri。失败/越界的静默跳过，绝不阻断主提取。**复用
@@ -244,16 +246,29 @@ async fn harvest_assets(base_url: &str, html: &str) -> (Vec<String>, Vec<String>
     image_urls.truncate(14);
     // content-hash 去重跨 logo/image（og:image 常与某 hero img 同图）。
     let mut seen: std::collections::HashSet<u64> = std::collections::HashSet::new();
-    let logos = fetch_assets_into(logo_urls, MAX_LOGOS, &mut seen).await;
-    let images = fetch_assets_into(image_urls, MAX_IMAGES, &mut seen).await;
+    // logo 可小（favicon / 字标），不设维度门；imagery 设长边 ≥ 320 门，滤掉小图标混入 hero/配图集
+    //（对齐参考实现的 imagery size-gate，提升配图保真度）。
+    let logos = fetch_assets_into(logo_urls, MAX_LOGOS, &mut seen, None).await;
+    let images = fetch_assets_into(image_urls, MAX_IMAGES, &mut seen, Some(MIN_IMAGE_LONG_EDGE)).await;
     (logos, images)
 }
 
 /// 顺序抓取候选 URL（保优先序）→ size-gate + content-hash 去重 → data-uri，至多 `cap` 个。
+/// 位图长边（px）；无法解码（非位图 / 损坏 / 未知格式）返回 None（= 不因测不出而丢弃）。
+fn image_long_edge(bytes: &[u8]) -> Option<u32> {
+    image::ImageReader::new(std::io::Cursor::new(bytes))
+        .with_guessed_format()
+        .ok()?
+        .into_dimensions()
+        .ok()
+        .map(|(w, h)| w.max(h))
+}
+
 async fn fetch_assets_into(
     urls: Vec<String>,
     cap: usize,
     seen: &mut std::collections::HashSet<u64>,
+    min_long_edge: Option<u32>,
 ) -> Vec<String> {
     use std::hash::{Hash, Hasher};
     let mut out = Vec::new();
@@ -266,6 +281,12 @@ async fn fetch_assets_into(
         };
         if bytes.len() < MIN_ASSET_BYTES {
             continue;
+        }
+        // 维度门（仅 imagery）：解码取长边，< 阈值 = 小图标 / 追踪像素，跳过。SVG 无位图维度 → 放行。
+        if let Some(min_edge) = min_long_edge {
+            if !mime.contains("svg") && image_long_edge(&bytes).is_some_and(|e| e < min_edge) {
+                continue;
+            }
         }
         let mut h = std::collections::hash_map::DefaultHasher::new();
         bytes.hash(&mut h);
@@ -1033,6 +1054,24 @@ fn collect_style_samples(root: &Path) -> Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn png_bytes(w: u32, h: u32) -> Vec<u8> {
+        let img = image::RgbImage::new(w, h);
+        let mut buf = std::io::Cursor::new(Vec::new());
+        image::DynamicImage::ImageRgb8(img)
+            .write_to(&mut buf, image::ImageFormat::Png)
+            .unwrap();
+        buf.into_inner()
+    }
+
+    #[test]
+    fn image_long_edge_reads_dimensions_and_tolerates_garbage() {
+        assert_eq!(image_long_edge(&png_bytes(400, 200)), Some(400));
+        assert_eq!(image_long_edge(&png_bytes(16, 16)), Some(16));
+        // 非位图（SVG 文本 / 垃圾）→ None（不因测不出而丢弃）。
+        assert_eq!(image_long_edge(b"<svg></svg>"), None);
+        assert_eq!(image_long_edge(b"not an image"), None);
+    }
 
     #[test]
     fn antiscrape_detects_challenge_pages() {
