@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **工作台新增浏览器活动区块**：浏览器工具成功执行后会把导航、标签页接管 / 切换、点击、截图、脚本等轻量活动摘要汇总到右侧工作台，显示页面标题、URL / 域名、动作、后端类型与时间；点击活动可切回实时 BrowserPanel，历史活动不保存截图 / DOM / PDF 等大 payload，避免拖慢会话与面板渲染。
 - **Dashboard 模型用量改为统一总账统计**：新增 `model_usage_events` 用量总账，Dashboard token / cost 统计不再只看聊天消息，而是覆盖主对话、side query、摘要、embedding、语音转写、审批 judge、LLM 型网页搜索、生图与 Provider 测试等模型入口；支持按调用类型筛选并查看分类用量。统计只记录 Provider 原始 usage 返回值，未返回 token 的调用仅记录次数与耗时，不做字符估算；无痕会话不入账。新增开发约束，后续新增模型调用入口必须接入该总账。
 - **长文本粘贴自动转为持久文本附件**：在对话输入框粘贴超长文本时，自动生成会话文本附件并在输入框展示为可预览卡片；发送给模型时只注入文件引用与读取提示，避免一次性塞满上下文，同时保留附件路径以便上下文压缩后仍可按需读取完整原文。相关附件预览文案已补齐 12 种界面语言。
+- **Codex 内置模型目录新增 GPT-5.6 Sol/Terra/Luna**：已用 ChatGPT/Codex 账号登录的用户，模型选择器现在能看到这三个新模型；新登录 / 未手动选过模型时默认使用 GPT-5.6 Terra——GPT-5.6 按 ChatGPT 套餐分级，Free/Go 只有 Terra，旗舰 Sol 需付费套餐或 workspace，选 Terra 才能保证所有 Codex 账号首次对话就能用。
 
 ### Changed
 
