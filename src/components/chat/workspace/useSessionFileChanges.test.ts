@@ -36,6 +36,7 @@ describe("aggregateSessionFileChanges", () => {
     expect(result[0]).toMatchObject({ path: "a.ts", kind: "modified", linesAdded: 3, linesRemoved: 1 })
     expect(result[0].diff).not.toBeNull()
     expect(result[0].readLines).toBeNull()
+    expect(result[0].language).toBe("ts")
   })
 
   it("expands a file_changes payload into one entry per file", () => {
@@ -59,6 +60,7 @@ describe("aggregateSessionFileChanges", () => {
     expect(result).toHaveLength(1)
     expect(result[0].kind).toBe("modified")
     expect(result[0].diff).not.toBeNull()
+    expect(result[0].language).toBe("ts")
   })
 
   it("upgrades a read file to modified (edit after read)", () => {

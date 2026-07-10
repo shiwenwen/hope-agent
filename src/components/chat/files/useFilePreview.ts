@@ -13,6 +13,8 @@ export type PreviewTarget =
       path: string
       name: string
       mime?: string
+      /** Optional Shiki language id from tool metadata / diff metadata. */
+      language?: string | null
       /** Optional line reveal requested by callers such as the diff panel. */
       revealLines?: { start: number; end: number; nonce: number }
     }

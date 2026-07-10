@@ -26,6 +26,7 @@ function backendFileToEntry(f: FileArtifactSummary): SessionFileEntry {
     readLines: f.readLines,
     linesAdded: f.linesAdded,
     linesRemoved: f.linesRemoved,
+    language: f.language ?? null,
   }
 }
 

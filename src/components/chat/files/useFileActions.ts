@@ -63,7 +63,7 @@ export function useFileActions(
     if (!target) return "other"
     return target.kind === "media"
       ? fileKindOf(target.item.name, target.item.mimeType)
-      : fileKindOf(target.name, target.mime)
+      : fileKindOf(target.name, target.mime, target.language)
   }, [target])
 
   const primary = useMemo<FileAction>(() => {
