@@ -915,10 +915,14 @@ struct ArtifactMeta {
 /// 反 AI-slop 确定性自查：开启 `design.self_check` 时对产物正文跑无 LLM 检测，返回
 /// `(status, metadata)`。命中翻 `needs_review` + 合并 `selfCheck` 键；未命中 / 关闭 →
 /// `ready` + 清 `selfCheck` 键（回收自动标记，保留其它 metadata）。见 selfcheck.rs。
-fn resolve_self_check(existing_meta: Option<&str>, body_html: &str) -> (String, Option<String>) {
+fn resolve_self_check(
+    existing_meta: Option<&str>,
+    body_html: &str,
+    css: &str,
+) -> (String, Option<String>) {
     let enabled = crate::config::cached_config().design.self_check;
     let verdict = if enabled {
-        super::selfcheck::evaluate(body_html)
+        super::selfcheck::evaluate(body_html, css)
     } else {
         None
     };
@@ -982,7 +986,7 @@ pub fn create_artifact(input: CreateArtifactInput) -> Result<DesignArtifact> {
         }
     };
     let (status, self_check_meta) = if had_body {
-        resolve_self_check(None, &parts.body_html)
+        resolve_self_check(None, &parts.body_html, &parts.css)
     } else {
         ("ready".to_string(), None)
     };
@@ -1312,7 +1316,7 @@ pub fn review_artifact(id: &str, action: &str) -> Result<DesignArtifact> {
         // recheck：读当前磁盘正文重跑自查（未开自查 → 归 ready 清键）。
         let dir = paths::design_artifact_dir(&a.project_id, &a.id)?;
         let parts = read_source(&dir)?;
-        resolve_self_check(a.metadata.as_deref(), &parts.body_html)
+        resolve_self_check(a.metadata.as_deref(), &parts.body_html, &parts.css)
     };
     db.update_artifact_review(id, None, &status, None, metadata.as_deref(), &now())?;
     crate::app_info!("design", "service", "review artifact {} -> {}", id, status);
@@ -1352,7 +1356,7 @@ pub fn finalize_generating_artifact(
 
     let ts = now();
     // 生成定稿：对模型产出的正文跑确定性自查，命中翻 needs_review + 写 selfCheck 元数据。
-    let (status, self_check_meta) = resolve_self_check(a.metadata.as_deref(), &parts.body_html);
+    let (status, self_check_meta) = resolve_self_check(a.metadata.as_deref(), &parts.body_html, &parts.css);
     db.update_artifact_review(id, None, &status, None, self_check_meta.as_deref(), &ts)?;
     // 壳未建版本行——定稿补首版（避免 list_versions 为空）。
     db.create_version(&DesignArtifactVersion {
@@ -2041,7 +2045,7 @@ pub fn update_artifact(input: UpdateArtifactInput) -> Result<DesignArtifact> {
 
     let ts = now();
     // 编辑落新版本：重跑确定性自查——改好的正文清 selfCheck 标记回 ready，仍 slop 保持标记。
-    let (status, self_check_meta) = resolve_self_check(a.metadata.as_deref(), &parts.body_html);
+    let (status, self_check_meta) = resolve_self_check(a.metadata.as_deref(), &parts.body_html, &parts.css);
     db.update_artifact_review(
         &a.id,
         input.title.as_deref(),

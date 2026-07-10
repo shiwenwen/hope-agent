@@ -145,8 +145,47 @@ pub fn find_placeholder(body: &str) -> Option<&'static str> {
         .copied()
 }
 
-/// 单产物确定性自查：placeholder（更具体）优先于 thin。
-pub fn evaluate(body: &str) -> Option<SelfCheckFlag> {
+/// AI-slop 表层「tell 色」：Tailwind indigo / violet 500-700 的硬写 hex——被当 accent 直用（不走
+/// 设计 token）是最经典的 AI 味信号。仅列这几个高置信值，谨慎防误标。
+const SLOP_INDIGO_HEXES: &[&str] = &[
+    "#6366f1", "#4f46e5", "#4338ca", "#818cf8", "#a78bfa", "#8b5cf6", "#7c3aed", "#6d28d9",
+];
+
+/// 字符是否落在常见 emoji 区（主 emoji + misc symbols + dingbats），用于「emoji 当图标」检测。
+fn is_emoji_char(c: char) -> bool {
+    matches!(c as u32, 0x1F300..=0x1FAFF | 0x2600..=0x27BF)
+}
+
+/// 确定性反 AI-slop 表层检测（无 LLM、可单测）：只抓最可靠的两类 tell，谨慎设阈值防误标。
+/// 与既有 thin / placeholder **叠加**（诊断用，不阻断）。返回命中的信号 key。
+pub fn find_slop_signals(body: &str, css: &str) -> Vec<&'static str> {
+    let mut out = Vec::new();
+    let hay = format!("{}\n{}", body.to_ascii_lowercase(), css.to_ascii_lowercase());
+    // ① indigo/violet 硬写作 accent（AI 味头号 tell 色）。
+    if SLOP_INDIGO_HEXES.iter().any(|h| hay.contains(h)) {
+        out.push("indigo-accent");
+    }
+    // ② emoji 当图标 / section marker（≥3 个 emoji = 模式，而非偶发）。
+    if body.chars().filter(|&c| is_emoji_char(c)).count() >= 3 {
+        out.push("emoji-icons");
+    }
+    out
+}
+
+fn slop_detail(signals: &[&str]) -> String {
+    let parts: Vec<&str> = signals
+        .iter()
+        .map(|s| match *s {
+            "indigo-accent" => "indigo/violet 硬写作 accent（未走设计 token）",
+            "emoji-icons" => "emoji 当图标 / 段落标记",
+            other => other,
+        })
+        .collect();
+    format!("疑似 AI-slop 表层信号：{}", parts.join("、"))
+}
+
+/// 单产物确定性自查：placeholder（更具体）> thin（近空壳）> slop（表层 AI 味）。
+pub fn evaluate(body: &str, css: &str) -> Option<SelfCheckFlag> {
     if let Some(marker) = find_placeholder(body) {
         return Some(SelfCheckFlag {
             flag: "placeholder",
@@ -157,6 +196,13 @@ pub fn evaluate(body: &str) -> Option<SelfCheckFlag> {
         return Some(SelfCheckFlag {
             flag: "thin",
             detail: "内容近空（元素与文字过少）".to_string(),
+        });
+    }
+    let slop = find_slop_signals(body, css);
+    if !slop.is_empty() {
+        return Some(SelfCheckFlag {
+            flag: "slop",
+            detail: slop_detail(&slop),
         });
     }
     None
@@ -273,6 +319,39 @@ mod tests {
     }
 
     #[test]
+    fn slop_flags_indigo_accent_hex() {
+        // CSS 里硬写 indigo tell 色 → slop 命中。
+        let sig = find_slop_signals("<div>real content here</div>", ".btn{background:#6366F1}");
+        assert!(sig.contains(&"indigo-accent"));
+    }
+
+    #[test]
+    fn slop_flags_emoji_icons_over_threshold() {
+        assert!(find_slop_signals("<h2>🚀 Fast</h2><h2>🎨 Design</h2><h2>📊 Data</h2>", "")
+            .contains(&"emoji-icons"));
+        // 偶发单个 emoji 不算。
+        assert!(!find_slop_signals("<p>Nice 🚀</p>", "").contains(&"emoji-icons"));
+    }
+
+    #[test]
+    fn slop_clean_design_no_false_positive() {
+        // 走 token 的正常配色 + 无 emoji → 不误标。
+        let sig = find_slop_signals(
+            "<section class=\"hero\"><h1>产品标题</h1><p>真实文案</p></section>",
+            ".hero{background:var(--ds-color-primary);color:var(--ds-color-fg)}",
+        );
+        assert!(sig.is_empty());
+    }
+
+    #[test]
+    fn evaluate_slop_after_thin_and_placeholder() {
+        // 内容充实但 indigo 硬写 → slop（非 thin / placeholder）。
+        let body = "<section><h1>Real Product Headline</h1><p>Substantive marketing copy that is clearly not a placeholder and has enough text.</p></section>";
+        let v = evaluate(body, ".x{color:#4f46e5}").unwrap();
+        assert_eq!(v.flag, "slop");
+    }
+
+    #[test]
     fn thin_ignores_script_and_style_bulk() {
         // 大量 script/style 不算内容——剥离后仍近空 = thin。
         let body = "<div><style>.a{color:red}.b{margin:0}.c{padding:2rem}</style>\
@@ -287,7 +366,7 @@ mod tests {
                     <main><section><h2>议程</h2><ul><li>开场</li><li>主题演讲</li>\
                     <li>产品揭示</li></ul></section></main>";
         assert!(!is_thin(body));
-        assert!(evaluate(body).is_none());
+        assert!(evaluate(body, "").is_none());
     }
 
     #[test]
@@ -308,7 +387,7 @@ mod tests {
     #[test]
     fn evaluate_prioritizes_placeholder_over_thin() {
         // 近空 + 占位 → 报 placeholder（更具体）。
-        let v = evaluate("<div>Lorem ipsum</div>").expect("flagged");
+        let v = evaluate("<div>Lorem ipsum</div>", "").expect("flagged");
         assert_eq!(v.flag, "placeholder");
     }
 
