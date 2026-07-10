@@ -2093,7 +2093,11 @@ fn finalize_pdf_ocr_source(
                 body.push('\n');
             }
             None => match page.status {
-                KnowledgeSourceOcrPageStatus::Succeeded => {
+                KnowledgeSourceOcrPageStatus::Succeeded
+                    if carried_over
+                        .get(&page.page_number)
+                        .is_some_and(|text| !text.is_empty()) =>
+                {
                     succeeded_count += 1;
                     let carried = carried_over
                         .get(&page.page_number)
@@ -2102,6 +2106,47 @@ fn finalize_pdf_ocr_source(
                     body.push_str(&carried);
                     body.push('\n');
                     extracted_text_parts.push(carried);
+                }
+                // Ledger says Succeeded but no text survives in the current
+                // snapshot — a prior round's finalize must have persisted
+                // this page's ledger row before failing to persist the
+                // snapshot write itself (e.g. `write_atomic`/
+                // `replace_source_chunks` erroring after `finish_ocr_page`
+                // already committed). Downgrade back to failed/retryable
+                // rather than silently writing an empty section for a page
+                // the ledger claims succeeded — retry only ever targets
+                // `Failed` pages, so leaving it `Succeeded` here would make
+                // the lost text permanently unrecoverable short of
+                // reimporting the whole document.
+                KnowledgeSourceOcrPageStatus::Succeeded => {
+                    let error = "OCR text was lost after a prior save failed; retry this page";
+                    if let Err(e) = registry()?.finish_ocr_page(
+                        page.id,
+                        KnowledgeSourceOcrPageStatus::Failed,
+                        Some(KnowledgeSourceOcrPageStage::Vision),
+                        Some(error),
+                        None,
+                        None,
+                    ) {
+                        crate::app_warn!(
+                            "knowledge",
+                            "source_ocr",
+                            "failed to downgrade recovered-lost page {} of source {} back to Failed: {}",
+                            page.page_number,
+                            source_id,
+                            e
+                        );
+                    }
+                    failed_lines.push(format!(
+                        "- Page {}: vision — {} (attempt {})",
+                        page.page_number, error, page.attempt_count
+                    ));
+                    body.push_str(&pdf_ocr_failure_placeholder(
+                        KnowledgeSourceOcrPageStage::Vision,
+                        error,
+                        page.attempt_count,
+                    ));
+                    body.push('\n');
                 }
                 KnowledgeSourceOcrPageStatus::Failed => {
                     let msg = page
