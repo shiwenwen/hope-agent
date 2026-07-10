@@ -110,12 +110,24 @@ pub fn is_valid_codex_model(id: &str) -> bool {
 /// picked one. Single source of truth — must match the first entry of
 /// [`get_codex_models`]. All auth paths (server / desktop / CLI) reference this
 /// instead of hard-coding a model id, so bumping the default is a one-line change.
-pub const DEFAULT_CODEX_MODEL_ID: &str = "gpt-5.5";
+pub const DEFAULT_CODEX_MODEL_ID: &str = "gpt-5.6-sol";
 
 pub fn get_codex_models() -> Vec<CodexModel> {
     vec![
         CodexModel {
             id: DEFAULT_CODEX_MODEL_ID.into(),
+            name: "GPT-5.6 Sol".into(),
+        },
+        CodexModel {
+            id: "gpt-5.6-terra".into(),
+            name: "GPT-5.6 Terra".into(),
+        },
+        CodexModel {
+            id: "gpt-5.6-luna".into(),
+            name: "GPT-5.6 Luna".into(),
+        },
+        CodexModel {
+            id: "gpt-5.5".into(),
             name: "GPT-5.5".into(),
         },
         CodexModel {
