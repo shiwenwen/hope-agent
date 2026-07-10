@@ -43,6 +43,9 @@ pub struct FileArtifact {
     pub lines_removed: i64,
     /// Line count for read-only files; `None` for modified files.
     pub read_lines: Option<i64>,
+    /// Shiki language id from file-change metadata, when available.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub language: Option<String>,
 }
 
 /// One URL the session referenced.
@@ -163,6 +166,11 @@ fn upsert_write(map: &mut HashMap<String, FileAgg>, seq: &mut u64, c: &Value) {
         lines_added: c.get("linesAdded").and_then(Value::as_i64).unwrap_or(0),
         lines_removed: c.get("linesRemoved").and_then(Value::as_i64).unwrap_or(0),
         read_lines: None,
+        language: c
+            .get("language")
+            .and_then(Value::as_str)
+            .filter(|s| !s.trim().is_empty())
+            .map(str::to_string),
     };
     map.insert(path.to_string(), FileAgg { art, order: *seq });
     *seq += 1;
@@ -188,6 +196,7 @@ fn upsert_media(map: &mut HashMap<String, FileAgg>, seq: &mut u64, path: &str) {
                 lines_added: 0,
                 lines_removed: 0,
                 read_lines: None,
+                language: None,
             },
             order: *seq,
         },
@@ -242,6 +251,7 @@ fn aggregate_files(messages: &[SessionMessage]) -> (Vec<FileArtifact>, bool) {
                                         lines_added: 0,
                                         lines_removed: 0,
                                         read_lines: meta.get("lines").and_then(Value::as_i64),
+                                        language: None,
                                     },
                                     order: seq,
                                 },
@@ -442,7 +452,7 @@ mod tests {
             ),
             tool_meta(
                 MessageRole::Tool,
-                r#"{"kind":"file_change","path":"/b.rs","action":"edit","linesAdded":3,"linesRemoved":1}"#,
+                r#"{"kind":"file_change","path":"/b.rs","action":"edit","linesAdded":3,"linesRemoved":1,"language":"rust"}"#,
             ),
             // Re-reading /b.rs must NOT downgrade it from modified to read.
             tool_meta(
@@ -459,6 +469,7 @@ mod tests {
         assert_eq!(files[0].lines_added, 3);
         assert_eq!(files[0].lines_removed, 1);
         assert_eq!(files[0].read_lines, None);
+        assert_eq!(files[0].language.as_deref(), Some("rust"));
         assert_eq!(files[1].path, "/a.txt");
         assert_eq!(files[1].kind, "read");
         assert_eq!(files[1].read_lines, Some(10));

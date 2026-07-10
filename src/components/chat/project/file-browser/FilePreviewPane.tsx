@@ -76,7 +76,7 @@ export function FilePreviewPane({
     }
     setLoading(true)
     setError(null)
-    const kind = fileKindOf(source.name, source.mime)
+    const kind = fileKindOf(source.name, source.mime, source.language)
     void (async () => {
       try {
         if (kind === "image" || kind === "pdf" || kind === "audio" || kind === "video") {
@@ -328,7 +328,7 @@ function PreviewBody({
       <ShikiCodeView
         key={source.displayPath ?? source.name}
         content={loaded.data.content}
-        lang={shikiLang(source.name)}
+        lang={shikiLang(source.name, source.language)}
         onQuote={onQuote}
         highlightLines={highlightLines}
         className="text-sm"

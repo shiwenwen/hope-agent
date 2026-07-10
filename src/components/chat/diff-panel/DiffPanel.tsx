@@ -424,6 +424,7 @@ export function DiffPanel({
         kind: "path",
         path: target.path,
         name: basename(target.path),
+        language: target.language,
         revealLines: { start: line, end: line, nonce: Date.now() },
       })
     },
