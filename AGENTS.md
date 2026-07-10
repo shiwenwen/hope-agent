@@ -196,6 +196,7 @@ ha-core 主要领域：`agent/` `chat_engine/` `context_compact/` `memory/` `kno
 - **两鉴权平面**：owner 平面（Tauri/HTTP `service.rs`）本机/API key 信任、不经 access 检查；agent 平面（`design` 工具）；写盘走 `platform::write_atomic`，静态托管三闸（id 白名单 + `validate_safe_rest_path` + `contained_canonical`），iframe `sandbox="allow-scripts"`
 - **设置三件套**：`AppConfig.design`（MEDIUM，含 `auto_critique` 成本项）+ `DesignSettingsPanel`（Tools 设置页 tab）+ `ha-settings` `design` category + SKILL.md 登记
 - **每项目 AI 对话（对话改写主入口，复用主对话栈）**：设计视图左栏内嵌 `DesignChatPanel`（`useDesignChat` + 复用 `useChatStream`/`ChatInput`/`MessageList`，同知识空间 `KnowledgeChatPanel` 模式）。会话 = `SessionKind::Design`（从主侧栏/`/sessions`/全局 FTS 隐藏，与 knowledge 同谓词）经 `design_chat_threads`（sessions.db，无跨库 FK）锚到设计项目；`chat` 命令 `tool_scope=design` 新会话提升为 thread（Tauri+HTTP 双写，镜像 KB 分支）。`ToolScope::Design` 白名单收窄注入工具面（`design` + 参考检索 + 框架基础），**纯 schema 可见性、非安全边界**。`design` 工具经 `threads::project_for_session` 从锚定会话解析项目；面板每轮注入当前打开产物为 `<design_context>` 让「改这个」落到正确产物。**incognito 零对话**（design 工具在无痕会话 fail-closed）
+- **发现问卷 + 视觉风格卡（走 `ask_user_question` 扩展）**：设计 Agent 在**需求不清时**先弹结构化发现问卷、**需要定视觉方向时**弹 `direction-cards` 风格卡（选项带调色板/字体/气质/参考），需求写清则直接开做——行为写在 `design` 工具描述里。前端经 `useAskUserPending` 把 `ask_user_question` 接进设计对话（`useDesignChat` → `DesignChatPanel` 传 `askUserVariant="design"` → `MessageList`）。**红线见上「ask_user_question」条**：扩展非 fork、答案走 `selected[]`、富卡仅设计对话渲染其余降级。**首页不再有静态「补充简报」表单**（已删，需求补全交给对话按需追问）
 - **新增 design 工具 action / 端点**：工具全在 `tools/design/mod.rs`（复用 `design::service`）；owner 薄壳 Tauri `commands/design.rs` + HTTP `routes/design.rs`，逻辑全在 ha-core（红线）
 
 ### 工具 & 审批
@@ -332,7 +333,7 @@ ha-core 主要领域：`agent/` `chat_engine/` `context_compact/` `memory/` `kno
 - **统一日志**：前后端走 [`logging/mod.rs`](crates/ha-core/src/logging/mod.rs)（SQLite + 文本双写），API 请求体 `redact_sensitive` + 32KB 截断；agent 自主排查入口见 [`skills/ha-logs/SKILL.md`](skills/ha-logs/SKILL.md)（用 `exec` + `sqlite3 -readonly` 直查 `~/.hope-agent/{logs,sessions,background_jobs}.db`）
 - **延迟工具加载**：opt-in `deferredTools.enabled`，只发核心 ~10 个 schema，其余通过 `tool_search` 发现；execution dispatch 不变
 - **会话搜索**：FTS5 + `<mark>` 高亮 + XSS 防御（escape → 白名单反解）；`Cmd+F` 复用同一 `search_messages` + session_id 过滤
-- **ask_user_question**：1–4 题结构化问答（单选/多选/输入）；pending 持久化 SQLite，App 重启 replay 断点续答；IM 按 `supports_buttons` 走按钮或文本
+- **ask_user_question**：1–4 题结构化问答（单选/多选/输入）；pending 持久化 SQLite，App 重启 replay 断点续答；IM 按 `supports_buttons` 走按钮或文本。**唯一结构化问答入口**——富输入（`input_kind ∈ text|textarea|direction-cards`）与设计空间视觉风格卡都靠**扩展本工具**实现、**绝不 fork 并行问答机制**；`direction-cards` 是「选项带 `card` 载荷的单选」，**答案仍走 `selected[]`**（Yes/No 门 / IM 协议 / DB 零改动），富卡仅在设计对话 `variant="design"` 渲染、其余降级选项列表，风格卡色值/字体经 sanitize（详见 [`ask-user.md`](docs/architecture/ask-user.md)）
 - **会话级工作目录**：`sessions.working_dir` 注入 system_prompt `# Working Directory` 段，并作为 `exec` 实际 cwd（`execution.rs::default_cwd()`）与 `read` 工具相对路径解析的首选根
 - **桌面专属 markdown 路径链接**：仅 `is_desktop()` 注入 `MARKDOWN_PATH_LINKS_GUIDANCE`，要求 LLM 写 `[名](绝对路径)`；前端按 `localPathFromHref()` + Transport 分流（Tauri 走 `open_directory`；HTTP/server 早返回禁用）。**例外**：anchor `title` 用 native HTML 不用 shadcn Tooltip（一条流式消息可能渲染上百个）
 

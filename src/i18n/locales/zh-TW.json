@@ -2228,7 +2228,10 @@
       "submit": "提交回答",
       "timedOut": "已超時",
       "timeoutHint": "剩余時間",
-      "title": "需要你的確認"
+      "title": "需要你的確認",
+      "selected": "已選",
+      "typeSample": "快速的棕色狐狸",
+      "refs": "參考"
     },
     "reattach": "收回到面板",
     "requestChanges": "請求修改",
@@ -6484,17 +6487,6 @@
     "exitPresent": "退出簡報 (Esc)",
     "undo": "復原",
     "redo": "重做",
-    "brief": {
-      "toggle": "補充簡報（可選，30 秒）",
-      "audience": "受眾",
-      "audiencePh": "誰會看 / 用，例如「企業採購決策者」",
-      "tone": "語氣 / 風格",
-      "tonePh": "例如「專業克制」「活潑年輕」",
-      "points": "要點",
-      "pointsPh": "必須體現的關鍵資訊 / 賣點，逐條列",
-      "reference": "參考",
-      "referencePh": "參考網址 / 產品 / 風格描述"
-    },
     "share": {
       "button": "分享",
       "copied": "已複製唯讀分享連結",

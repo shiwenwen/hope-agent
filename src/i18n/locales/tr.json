@@ -2228,7 +2228,10 @@
       "submit": "Yanıtları gönder",
       "timedOut": "zaman aşımı",
       "timeoutHint": "Kalan süre",
-      "title": "AI girişinizi bekliyor"
+      "title": "AI girişinizi bekliyor",
+      "selected": "Seçildi",
+      "typeSample": "Pijamalı hasta şoför",
+      "refs": "Örnekler"
     },
     "reattach": "Panele geri al",
     "requestChanges": "Değişiklik iste",
@@ -6484,17 +6487,6 @@
     "exitPresent": "Sunumdan çık (Esc)",
     "undo": "Geri al",
     "redo": "Yinele",
-    "brief": {
-      "toggle": "Kısa brief ekle (isteğe bağlı, 30sn)",
-      "audience": "Hedef kitle",
-      "audiencePh": "Kim görecek/kullanacak, örn. \"kurumsal alıcılar\"",
-      "tone": "Ton / stil",
-      "tonePh": "örn. \"profesyonel ve sade\", \"canlı\"",
-      "points": "Ana noktalar",
-      "pointsPh": "Olmazsa olmaz mesajlar / avantajlar, her satıra bir tane",
-      "reference": "Referans",
-      "referencePh": "Referans URL / ürün / stil"
-    },
     "share": {
       "button": "Paylaş",
       "copied": "Salt okunur paylaşım bağlantısı kopyalandı",

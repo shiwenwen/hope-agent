@@ -68,6 +68,10 @@ interface MessageListProps {
   onScrollTargetHandled?: () => void
   pendingQuestionGroup?: AskUserQuestionGroup | null
   onQuestionSubmitted?: () => void
+  /** Rendering variant for the ask_user_question footer card. `"design"`
+   *  unlocks the rich direction-card style picker; the default keeps the plain
+   *  option list used everywhere else. */
+  askUserVariant?: "default" | "design"
   planCardData?: PlanCardData | null
   planState?: PlanModeState
   onOpenPlanPanel?: () => void
@@ -625,6 +629,7 @@ export default function MessageList({
   onScrollTargetHandled,
   pendingQuestionGroup,
   onQuestionSubmitted,
+  askUserVariant = "default",
   planCardData,
   planState,
   onOpenPlanPanel,
@@ -1586,6 +1591,7 @@ export default function MessageList({
                     key={pendingQuestionGroup.requestId}
                     group={pendingQuestionGroup}
                     onSubmitted={onQuestionSubmitted}
+                    variant={askUserVariant}
                   />
                 </div>
               )}

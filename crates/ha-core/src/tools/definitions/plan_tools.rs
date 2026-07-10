@@ -50,9 +50,14 @@ settings. Do NOT use this tool to ask 'is my plan ready?' — in Plan Mode use `
                                 "type": "string",
                                 "description": "Very short chip/tag label (max ~12 chars) shown next to the question, e.g. 'Auth', 'Framework', 'Scope'"
                             },
+                            "input_kind": {
+                                "type": "string",
+                                "description": "Primary input shape (frontend rendering hint; answer channel is unchanged). Omit for the default single/multi behavior. 'text'/'textarea' render a free-text box (answer comes back as the custom input) — use for open-ended discovery questions. 'direction-cards' renders each option as a rich VISUAL STYLE CARD (palette swatches + live 'Aa' type sample + mood + reference names) in the Design Space chat, degrading to a plain option list elsewhere — use it to let the user pick a visual design direction; each option must also carry a 'card' payload.",
+                                "enum": ["single", "multi", "text", "textarea", "direction-cards"]
+                            },
                             "options": {
                                 "type": "array",
-                                "description": "Suggested options (2-4 recommended). The UI also renders an explicit 'Other' choice that reveals a free-form custom input, so do not add your own duplicate Other option.",
+                                "description": "Suggested options (2-4 recommended). The UI also renders an explicit 'Other' choice that reveals a free-form custom input, so do not add your own duplicate Other option. Omit entirely for input_kind 'text'/'textarea'.",
                                 "items": {
                                     "type": "object",
                                     "properties": {
@@ -61,7 +66,18 @@ settings. Do NOT use this tool to ask 'is my plan ready?' — in Plan Mode use `
                                         "description": { "type": "string", "description": "Additional explanation of the option or its trade-offs" },
                                         "recommended": { "type": "boolean", "description": "Mark as recommended (renders with ★ badge). Put recommended option first.", "default": false },
                                         "preview": { "type": "string", "description": "Optional rich preview body for visual comparison: markdown (code/tables), image URL, or mermaid source. Displayed side-by-side with the option list." },
-                                        "previewKind": { "type": "string", "description": "Preview kind: 'markdown' (default), 'image', or 'mermaid'", "enum": ["markdown", "image", "mermaid"] }
+                                        "previewKind": { "type": "string", "description": "Preview kind: 'markdown' (default), 'image', or 'mermaid'", "enum": ["markdown", "image", "mermaid"] },
+                                        "card": {
+                                            "type": "object",
+                                            "description": "Visual style-card payload — only for input_kind 'direction-cards'. Rendered as a rich card in the Design Space chat; ignored (option shows as a plain row) elsewhere.",
+                                            "properties": {
+                                                "palette": { "type": "array", "items": { "type": "string" }, "description": "4–6 swatch colors (hex/rgb/oklch), shown as a color row. Order suggestion: [bg, surface, border, muted, fg, accent]." },
+                                                "displayFont": { "type": "string", "description": "Headline font stack (CSS font-family), used to render the live 'Aa' sample." },
+                                                "bodyFont": { "type": "string", "description": "Body font stack (CSS font-family) for the secondary sample." },
+                                                "mood": { "type": "string", "description": "One- or two-sentence mood blurb." },
+                                                "references": { "type": "array", "items": { "type": "string" }, "description": "Up to 4 real-world exemplars (e.g. 'Linear', 'Stripe'), shown on the refs line." }
+                                            }
+                                        }
                                     },
                                     "required": ["value", "label"]
                                 }

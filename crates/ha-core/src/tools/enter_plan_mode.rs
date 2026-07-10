@@ -88,6 +88,7 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
                     recommended: true,
                     preview: None,
                     preview_kind: None,
+                    card: None,
                 },
                 AskUserQuestionOption {
                     value: "no".to_string(),
@@ -98,8 +99,10 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
                     recommended: false,
                     preview: None,
                     preview_kind: None,
+                    card: None,
                 },
             ],
+            input_kind: None,
             allow_custom: false,
             multi_select: false,
             template: None,

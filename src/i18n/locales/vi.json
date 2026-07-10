@@ -2228,7 +2228,10 @@
       "submit": "Gửi câu trả lời",
       "timedOut": "hết thời gian",
       "timeoutHint": "Thời gian còn lại",
-      "title": "AI cần bạn cung cấp thông tin"
+      "title": "AI cần bạn cung cấp thông tin",
+      "selected": "Đã chọn",
+      "typeSample": "Con cáo nâu nhanh nhẹn",
+      "refs": "Tham khảo"
     },
     "reattach": "Quay lại bảng điều khiển",
     "requestChanges": "Yêu cầu thay đổi",
@@ -6484,17 +6487,6 @@
     "exitPresent": "Thoát trình bày (Esc)",
     "undo": "Hoàn tác",
     "redo": "Làm lại",
-    "brief": {
-      "toggle": "Thêm brief (tùy chọn, 30 giây)",
-      "audience": "Đối tượng",
-      "audiencePh": "Ai sẽ xem/dùng, vd. \"người mua doanh nghiệp\"",
-      "tone": "Giọng điệu / phong cách",
-      "tonePh": "vd. \"chuyên nghiệp, tiết chế\", \"trẻ trung\"",
-      "points": "Điểm chính",
-      "pointsPh": "Thông điệp / điểm bán bắt buộc, mỗi dòng một ý",
-      "reference": "Tham khảo",
-      "referencePh": "URL / sản phẩm / phong cách tham khảo"
-    },
     "share": {
       "button": "Chia sẻ",
       "copied": "Đã sao chép liên kết chia sẻ chỉ đọc",

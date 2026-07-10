@@ -551,9 +551,19 @@ pub fn spawn_channel_ask_user_listener(channel_db: Arc<ChannelDB>, registry: Arc
                 .map(|p| p.capabilities().supports_buttons)
                 .unwrap_or(false);
 
+            // A pure free-text question (`input_kind` text/textarea → empty
+            // `options`) has nothing to render as buttons; on a button channel
+            // it would show only [Cancel] and typed replies would leak as a new
+            // chat turn (BUTTON_PENDING has no free-text capture). So fall the
+            // WHOLE group back to the numbered-text path (which routes replies
+            // through TEXT_PENDING as custom_input) whenever any question lacks
+            // options — otherwise a free-text question is silently unanswerable.
+            let use_buttons =
+                supports_buttons && group.questions.iter().all(|q| !q.options.is_empty());
+
             let prompt_text = format_prompt(&group);
 
-            let payload = if supports_buttons {
+            let payload = if use_buttons {
                 // Register pending state keyed by request_id.
                 {
                     let mut pending = get_button_pending().lock().await;

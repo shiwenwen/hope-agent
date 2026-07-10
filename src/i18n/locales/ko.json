@@ -2228,7 +2228,10 @@
       "submit": "답변 제출",
       "timedOut": "시간 초과",
       "timeoutHint": "남은 시간",
-      "title": "입력이 필요합니다"
+      "title": "입력이 필요합니다",
+      "selected": "선택됨",
+      "typeSample": "다람쥐 헌 쳇바퀴",
+      "refs": "참고"
     },
     "reattach": "패널로 되돌리기",
     "requestChanges": "변경 요청",
@@ -6484,17 +6487,6 @@
     "exitPresent": "발표 종료 (Esc)",
     "undo": "실행 취소",
     "redo": "다시 실행",
-    "brief": {
-      "toggle": "브리프 추가 (선택, 30초)",
-      "audience": "대상",
-      "audiencePh": "누가 보고/사용하나요, 예: 기업 구매 담당자",
-      "tone": "톤 / 스타일",
-      "tonePh": "예: \"전문적이고 절제된\", \"발랄한\"",
-      "points": "핵심 사항",
-      "pointsPh": "꼭 담아야 할 메시지 / 강점을 한 줄씩",
-      "reference": "참고",
-      "referencePh": "참고 URL / 제품 / 스타일"
-    },
     "share": {
       "button": "공유",
       "copied": "읽기 전용 공유 링크를 복사했습니다",

@@ -56,7 +56,6 @@ import {
   Maximize2,
   Undo2,
   Redo2,
-  ChevronDown,
   Share2,
   Cloud,
   Wand2,
@@ -196,19 +195,6 @@ const DEVICE_PRESETS: Record<Exclude<PreviewDevice, "auto">, { w: number; h: num
 /** 可视化编辑 undo/redo 的 inverse-patch 载荷 / 记录（B5）。 */
 type PatchPayload = { styles?: [string, string][]; text?: string; attrs?: [string, string][] }
 type EditOp = { oid: number; before: PatchPayload; after: PatchPayload }
-
-/** 生成前简报（B6-1，可选）：结构化意图，composeBriefPrompt 拼进生成 prompt。 */
-type DesignBrief = { audience?: string; tone?: string; points?: string; reference?: string }
-/** 把简报字段拼到用户一句话后（仅含已填字段；空简报 = 原 prompt，零回归）。 */
-function composeBriefPrompt(userPrompt: string, brief: DesignBrief): string {
-  const lines: string[] = []
-  if (brief.audience?.trim()) lines.push(`- 受众：${brief.audience.trim()}`)
-  if (brief.tone?.trim()) lines.push(`- 语气 / 风格：${brief.tone.trim()}`)
-  if (brief.points?.trim()) lines.push(`- 要点：${brief.points.trim()}`)
-  if (brief.reference?.trim()) lines.push(`- 参考：${brief.reference.trim()}`)
-  if (lines.length === 0) return userPrompt
-  return `${userPrompt}\n\n【设计简报】\n${lines.join("\n")}`
-}
 
 /**
  * 本地图片 → 自包含 data-uri（B5）。fetch src（objectURL / Tauri convertFileSrc 均可 fetch）
@@ -1207,21 +1193,20 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
   // 首屏选中的 recipe（模板）id：点模板卡时置入，随生成传给后端让「选不同模板产出可辨差异」。
   // 后端按 (id, kind) 匹配、不匹配即回退，故换 kind 无需清空。
   const [homeRecipeId, setHomeRecipeId] = useState<string | null>(null)
-  const [homeBrief, setHomeBrief] = useState<DesignBrief>({}) // B6-1 可选简报
   const [generatingHome, setGeneratingHome] = useState(false)
 
   // 首屏「一句话 → 生成」：建项目 → 带 prompt 建产物（后端一次模型生成完整自包含设计）→ 打开。
+  // 需求补全交给设计 Agent 在对话里按需追问（ask_user_question 的 discovery / direction-cards），
+  // 首屏只收一句话，不再叠加静态简报表单。
   const generateFromHome = useCallback(async () => {
     const base = homePrompt.trim()
     if (!base || generatingHome) return
-    const prompt = composeBriefPrompt(base, homeBrief) // B6-1：拼入可选简报
+    const prompt = base
     const systemId = homeSystemId ?? designConfig?.defaultSystemId ?? undefined
     let createdProjectId: string | null = null
     setGeneratingHome(true)
     try {
       const project = await tx.call<DesignProject>("create_design_project_cmd", {
-        // 标题用干净的 base（用户一句话），不用拼了简报的 prompt——否则短 base + 有简报时
-        // 【设计简报】块会漏进项目标题。
         input: { title: base.slice(0, 40) },
       })
       createdProjectId = project.id
@@ -1238,7 +1223,6 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
       })
       setHomePrompt("")
       setHomeRecipeId(null)
-      setHomeBrief({})
       openProject(project)
       if (artifact) void openArtifact(artifact)
     } catch (e) {
@@ -1261,7 +1245,6 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
     homeKind,
     homeSystemId,
     homeRecipeId,
-    homeBrief,
     generatingHome,
     designConfig,
     kindLabel,
@@ -3082,8 +3065,6 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
           setKind={setHomeKind}
           systemId={homeSystemId}
           setSystemId={setHomeSystemId}
-          brief={homeBrief}
-          setBrief={setHomeBrief}
           generating={generatingHome}
           onGenerate={() => void generateFromHome()}
           kindLabel={kindLabel}
@@ -4419,8 +4400,6 @@ function LaunchHome({
   setKind,
   systemId,
   setSystemId,
-  brief,
-  setBrief,
   generating,
   onGenerate,
   kindLabel,
@@ -4442,8 +4421,6 @@ function LaunchHome({
   setKind: (k: ArtifactKind) => void
   systemId: string | null
   setSystemId: (id: string | null) => void
-  brief: DesignBrief
-  setBrief: (b: DesignBrief) => void
   generating: boolean
   onGenerate: () => void
   kindLabel: (k: ArtifactKind) => string
@@ -4456,11 +4433,7 @@ function LaunchHome({
 }) {
   const { t } = useTranslation()
   const [pickerOpen, setPickerOpen] = useState(false)
-  const [briefOpen, setBriefOpen] = useState(false) // B6-1 简报展开
   const systemName = systems.find((s) => s.id === systemId)?.name
-  const briefFilled = [brief.audience, brief.tone, brief.points, brief.reference].filter(
-    (v) => v?.trim(),
-  ).length
 
   // ── 项目库管理（B3-1）：搜索 / 网格·列表切换 / 多选批量删 / 改名 ──
   const [query, setQuery] = useState("")
@@ -4584,75 +4557,6 @@ function LaunchHome({
               </button>
             )
           })}
-        </div>
-
-        {/* 补充简报（B6-1，可选，默认折叠 = 零回归）：受众 / 语气 / 要点 / 参考拼进生成 prompt */}
-        <div className="mx-auto mt-4 max-w-2xl">
-          <button
-            type="button"
-            onClick={() => setBriefOpen((o) => !o)}
-            className="mx-auto flex items-center gap-1.5 rounded-full px-3 py-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
-          >
-            <Sparkles className="h-3.5 w-3.5" />
-            {t("design.brief.toggle", "补充简报（可选，30 秒）")}
-            {briefFilled > 0 && (
-              <span className="rounded-full bg-primary/10 px-1.5 text-[10px] font-medium text-primary">
-                {briefFilled}
-              </span>
-            )}
-            <ChevronDown
-              className={cn("h-3.5 w-3.5 transition-transform", briefOpen && "rotate-180")}
-            />
-          </button>
-          {briefOpen && (
-            <div className="mt-2 grid grid-cols-1 gap-2.5 rounded-xl border border-border/60 bg-card/50 p-3 sm:grid-cols-2">
-              <div className="space-y-1">
-                <label className="text-[11px] font-medium text-muted-foreground">
-                  {t("design.brief.audience", "受众")}
-                </label>
-                <Input
-                  value={brief.audience ?? ""}
-                  onChange={(e) => setBrief({ ...brief, audience: e.target.value })}
-                  placeholder={t("design.brief.audiencePh", "谁会看 / 用，例如「企业采购决策者」")}
-                  className="h-8 text-xs"
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="text-[11px] font-medium text-muted-foreground">
-                  {t("design.brief.tone", "语气 / 风格")}
-                </label>
-                <Input
-                  value={brief.tone ?? ""}
-                  onChange={(e) => setBrief({ ...brief, tone: e.target.value })}
-                  placeholder={t("design.brief.tonePh", "例如「专业克制」「活泼年轻」")}
-                  className="h-8 text-xs"
-                />
-              </div>
-              <div className="space-y-1 sm:col-span-2">
-                <label className="text-[11px] font-medium text-muted-foreground">
-                  {t("design.brief.points", "要点")}
-                </label>
-                <Textarea
-                  value={brief.points ?? ""}
-                  onChange={(e) => setBrief({ ...brief, points: e.target.value })}
-                  placeholder={t("design.brief.pointsPh", "必须体现的关键信息 / 卖点，逐条列")}
-                  rows={2}
-                  className="resize-none text-xs"
-                />
-              </div>
-              <div className="space-y-1 sm:col-span-2">
-                <label className="text-[11px] font-medium text-muted-foreground">
-                  {t("design.brief.reference", "参考")}
-                </label>
-                <Input
-                  value={brief.reference ?? ""}
-                  onChange={(e) => setBrief({ ...brief, reference: e.target.value })}
-                  placeholder={t("design.brief.referencePh", "参考网址 / 产品 / 风格描述")}
-                  className="h-8 text-xs"
-                />
-              </div>
-            </div>
-          )}
         </div>
 
         {/* Templates（从模板开始：点选 → 填入形态 + 场景 brief，可编辑后生成；换行网格，不横向滚动） */}

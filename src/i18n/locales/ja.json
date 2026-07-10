@@ -2228,7 +2228,10 @@
       "submit": "回答を送信",
       "timedOut": "タイムアウト",
       "timeoutHint": "残り時間",
-      "title": "入力が必要です"
+      "title": "入力が必要です",
+      "selected": "選択中",
+      "typeSample": "いろはにほへと",
+      "refs": "参考"
     },
     "reattach": "パネルに戻す",
     "requestChanges": "変更を依頼",
@@ -6484,17 +6487,6 @@
     "exitPresent": "発表を終了 (Esc)",
     "undo": "元に戻す",
     "redo": "やり直し",
-    "brief": {
-      "toggle": "ブリーフを追加（任意・30秒）",
-      "audience": "対象者",
-      "audiencePh": "誰が見る/使うか（例：法人購買担当）",
-      "tone": "トーン / スタイル",
-      "tonePh": "例：「プロで控えめ」「若々しく元気」",
-      "points": "要点",
-      "pointsPh": "必ず盛り込む要点／訴求を箇条書きで",
-      "reference": "参考",
-      "referencePh": "参考URL／製品／スタイル"
-    },
     "share": {
       "button": "共有",
       "copied": "読み取り専用の共有リンクをコピーしました",

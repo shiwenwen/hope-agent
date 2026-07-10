@@ -482,9 +482,12 @@ export const DesignChatPanel = forwardRef<DesignChatPanelHandle, Props>(function
       </div>
 
       {/* Messages — height-bounded flex column so MessageList scrolls internally.
-          Empty draft (no messages) shows starter prompts (click fills, no auto-send). */}
+          Empty draft (no messages) shows starter prompts (click fills, no auto-send).
+          A pending ask_user question forces MessageList (its footer hosts the card),
+          so a restored discovery / direction-card question is never hidden by the
+          empty-state starters — even if the message load errored. */}
       <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
-        {session.messages.length === 0 && !session.loading ? (
+        {session.messages.length === 0 && !session.loading && !session.pendingQuestionGroup ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-4 overflow-y-auto p-5 text-center">
             <div>
               <p className="text-sm font-medium text-foreground">
@@ -526,6 +529,9 @@ export const DesignChatPanel = forwardRef<DesignChatPanelHandle, Props>(function
             onLoadMore={session.handleLoadMore}
             sessionId={session.currentSessionId}
             renderMessageActions={renderMessageActions}
+            pendingQuestionGroup={session.pendingQuestionGroup}
+            onQuestionSubmitted={() => session.setPendingQuestionGroup(null)}
+            askUserVariant="design"
           />
         )}
       </div>

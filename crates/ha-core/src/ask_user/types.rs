@@ -72,6 +72,38 @@ pub struct AskUserQuestionOption {
     /// Preview content kind: `markdown` (default), `image`, or `mermaid`.
     #[serde(skip_serializing_if = "Option::is_none", rename = "previewKind")]
     pub preview_kind: Option<String>,
+    /// Rich "design direction" card payload for `direction-cards` questions.
+    /// When present and the surface supports it (the design-space chat), the
+    /// option renders as a visual style card (palette + type sample + mood +
+    /// refs) instead of a plain radio row. The selected answer is still this
+    /// option's `value`, so non-rich surfaces (main chat / IM) degrade to the
+    /// plain option list with **zero** answer-contract change.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub card: Option<AskUserDirectionCard>,
+}
+
+/// Visual "design direction" card metadata carried by an option of a
+/// `direction-cards` question. Purely presentational — the answer channel is
+/// unchanged (the option `value` / `selected[]`), so this never touches the
+/// Yes/No affirmative gates or the IM button protocol.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AskUserDirectionCard {
+    /// 4–6 swatch color strings (hex / rgb / oklch) for the palette row.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub palette: Vec<String>,
+    /// Display (headline) font stack, used to render the live "Aa" sample.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub display_font: Option<String>,
+    /// Body font stack, used to render the secondary sample.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub body_font: Option<String>,
+    /// One- or two-sentence mood blurb.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mood: Option<AskUserText>,
+    /// Real-world exemplars (≤ 4) joined with " · " on the refs line.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub references: Vec<String>,
 }
 
 /// A structured question sent by LLM to the user.
@@ -81,6 +113,16 @@ pub struct AskUserQuestion {
     pub question_id: String,
     pub text: AskUserText,
     pub options: Vec<AskUserQuestionOption>,
+    /// Primary input shape. `None` (default) preserves the legacy single/multi
+    /// behavior derived from `multi_select`. Explicit values:
+    /// `single` | `multi` | `text` | `textarea` | `direction-cards`.
+    /// `direction-cards` is a single-select whose options carry a `card`
+    /// payload (the design chat renders visual style cards; other surfaces
+    /// show the plain option list). `text` / `textarea` are primary free-text
+    /// questions (the answer arrives via `custom_input`). Rich/scalar
+    /// rendering is a **frontend** concern — the answer channel is unchanged.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub input_kind: Option<String>,
     /// Whether to render a free-form custom input alongside the options.
     ///
     /// 保留该字段以维持原有的开关能力。当前在工具入口强制覆盖为 `true`，

@@ -2,6 +2,8 @@ import { useState, useRef, useEffect, useCallback } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import { parseSessionMessages, reloadAndMergeSessionMessages } from "@/components/chat/chatUtils"
+import { useAskUserPending } from "@/components/chat/ask-user/useAskUserPending"
+import type { AskUserQuestionGroup } from "@/components/chat/ask-user/AskUserQuestionBlock"
 import { normalizeEffortForModel } from "@/types/chat"
 import { DEFAULT_AGENT_ID } from "@/types/tools"
 import type {
@@ -72,6 +74,10 @@ export interface UseDesignChatReturn {
    *  session-guarded: never blanks the view on a transient error and never
    *  clobbers a thread the user has since switched to. */
   reconcileThread: (sessionId: string) => Promise<void>
+
+  // ask_user_question surface (design agent discovery / direction-cards).
+  pendingQuestionGroup: AskUserQuestionGroup | null
+  setPendingQuestionGroup: React.Dispatch<React.SetStateAction<AskUserQuestionGroup | null>>
 }
 
 /**
@@ -117,6 +123,11 @@ export function useDesignChat(projectId: string | null, active: boolean): UseDes
   const [availableModels, setAvailableModels] = useState<AvailableModel[]>([])
   const [activeModel, setActiveModel] = useState<ActiveModel | null>(null)
   const [reasoningEffort, setReasoningEffort] = useState("medium")
+
+  // Discovery / direction-card questions the design agent raises via
+  // ask_user_question. Keyed on the design THREAD session, so only this panel's
+  // active thread picks up its own questions (main chat stays independent).
+  const { pendingQuestionGroup, setPendingQuestionGroup } = useAskUserPending(currentSessionId)
 
   useEffect(() => {
     currentSessionIdRef.current = currentSessionId
@@ -477,5 +488,7 @@ export function useDesignChat(projectId: string | null, active: boolean): UseDes
     handleNewThread,
     switchThread,
     reconcileThread,
+    pendingQuestionGroup,
+    setPendingQuestionGroup,
   }
 }

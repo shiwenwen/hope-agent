@@ -2228,7 +2228,10 @@
       "submit": "Submit Answers",
       "timedOut": "timed out",
       "timeoutHint": "Time remaining",
-      "title": "AI needs your input"
+      "title": "AI needs your input",
+      "selected": "Selected",
+      "typeSample": "The quick brown fox",
+      "refs": "Refs"
     },
     "reattach": "Reattach to Panel",
     "requestChanges": "Request Changes",
@@ -6484,17 +6487,6 @@
     "exitPresent": "Exit present (Esc)",
     "undo": "Undo",
     "redo": "Redo",
-    "brief": {
-      "toggle": "Add a brief (optional, 30s)",
-      "audience": "Audience",
-      "audiencePh": "Who will see/use it, e.g. \"enterprise buyers\"",
-      "tone": "Tone / style",
-      "tonePh": "e.g. \"professional & restrained\", \"playful\"",
-      "points": "Key points",
-      "pointsPh": "Must-have messages / selling points, one per line",
-      "reference": "Reference",
-      "referencePh": "Reference URL / product / style"
-    },
     "share": {
       "button": "Share",
       "copied": "Read-only share link copied",

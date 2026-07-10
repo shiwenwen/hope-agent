@@ -2228,7 +2228,10 @@
       "submit": "Enviar respuestas",
       "timedOut": "tiempo agotado",
       "timeoutHint": "Tiempo restante",
-      "title": "La IA necesita tu input"
+      "title": "La IA necesita tu input",
+      "selected": "Seleccionado",
+      "typeSample": "El veloz zorro marrón",
+      "refs": "Refs"
     },
     "reattach": "Volver al panel",
     "requestChanges": "Solicitar cambios",
@@ -6484,17 +6487,6 @@
     "exitPresent": "Salir de la presentación (Esc)",
     "undo": "Deshacer",
     "redo": "Rehacer",
-    "brief": {
-      "toggle": "Añadir un brief (opcional, 30s)",
-      "audience": "Audiencia",
-      "audiencePh": "Quién lo verá/usará, p. ej. \"compradores de empresa\"",
-      "tone": "Tono / estilo",
-      "tonePh": "p. ej. \"profesional y sobrio\", \"desenfadado\"",
-      "points": "Puntos clave",
-      "pointsPh": "Mensajes / argumentos imprescindibles, uno por línea",
-      "reference": "Referencia",
-      "referencePh": "URL / producto / estilo de referencia"
-    },
     "share": {
       "button": "Compartir",
       "copied": "Enlace de solo lectura copiado",

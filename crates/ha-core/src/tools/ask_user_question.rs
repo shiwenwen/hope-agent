@@ -6,8 +6,8 @@
 //! formatting the result for the LLM.
 
 use crate::ask_user::{
-    self, AskUserI18nText, AskUserQuestion, AskUserQuestionAnswer, AskUserQuestionGroup,
-    AskUserQuestionOption, AskUserText,
+    self, AskUserDirectionCard, AskUserI18nText, AskUserQuestion, AskUserQuestionAnswer,
+    AskUserQuestionGroup, AskUserQuestionOption, AskUserText,
 };
 use crate::process_registry::create_session_id;
 use serde_json::json;
@@ -64,6 +64,7 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
                             .or_else(|| opt.get("preview_kind"))
                             .and_then(|v| v.as_str())
                             .map(|s| s.to_string());
+                        let card = opt.get("card").and_then(parse_direction_card);
                         Some(AskUserQuestionOption {
                             value,
                             label,
@@ -71,6 +72,7 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
                             recommended,
                             preview,
                             preview_kind,
+                            card,
                         })
                     })
                     .collect::<Vec<_>>()
@@ -87,6 +89,14 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
             .get("multi_select")
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
+        // Primary input shape (frontend rendering hint). Unknown / garbage
+        // values fall back to None = legacy single/multi so a drifting model
+        // can never produce an unrenderable question.
+        let input_kind = q
+            .get("input_kind")
+            .or_else(|| q.get("inputKind"))
+            .and_then(|v| v.as_str())
+            .and_then(normalize_input_kind);
 
         let question_id = q
             .get("question_id")
@@ -119,6 +129,7 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
             question_id,
             text,
             options,
+            input_kind,
             allow_custom,
             multi_select,
             template,
@@ -408,6 +419,57 @@ fn format_answers_for_llm(
     serde_json::Value::Object(root).to_string()
 }
 
+/// Whitelist the model-provided `input_kind`; anything outside the known set
+/// (including empty/garbage) collapses to `None` = legacy single/multi so a
+/// drifting model can never produce an unrenderable question.
+fn normalize_input_kind(raw: &str) -> Option<String> {
+    let s = raw.trim().to_ascii_lowercase();
+    matches!(
+        s.as_str(),
+        "single" | "multi" | "text" | "textarea" | "direction-cards"
+    )
+    .then_some(s)
+}
+
+/// Parse a `direction-cards` option's `card` payload. Any malformed shape
+/// yields `None` (the option then renders as a plain radio row) rather than
+/// failing the whole question — presentation must never gate the answer.
+fn parse_direction_card(value: &Value) -> Option<AskUserDirectionCard> {
+    let obj = value.as_object()?;
+    let str_vec = |key: &str, cap: usize| -> Vec<String> {
+        obj.get(key)
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(str::to_string))
+                    .filter(|s| !s.trim().is_empty())
+                    .take(cap)
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default()
+    };
+    let str_field = |key: &str| -> Option<String> {
+        obj.get(key)
+            .and_then(|v| v.as_str())
+            .map(str::to_string)
+            .filter(|s| !s.trim().is_empty())
+    };
+    let card = AskUserDirectionCard {
+        palette: str_vec("palette", 6),
+        display_font: str_field("displayFont").or_else(|| str_field("display_font")),
+        body_font: str_field("bodyFont").or_else(|| str_field("body_font")),
+        mood: obj.get("mood").and_then(parse_text_value),
+        references: str_vec("references", 4),
+    };
+    // Drop an entirely empty card so an option with `card: {}` stays a plain row.
+    let empty = card.palette.is_empty()
+        && card.display_font.is_none()
+        && card.body_font.is_none()
+        && card.mood.is_none()
+        && card.references.is_empty();
+    (!empty).then_some(card)
+}
+
 fn parse_optional_text_field(value: &Value, field: &str) -> Option<AskUserText> {
     value.get(field).and_then(parse_text_value)
 }
@@ -447,4 +509,69 @@ pub(super) fn i18n_text(key: &str, params: Value, fallback: impl Into<String>) -
         "params": params,
         "fallback": fallback.into(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn input_kind_whitelist_filters_garbage() {
+        for good in ["single", "multi", "text", "textarea", "direction-cards"] {
+            assert_eq!(normalize_input_kind(good).as_deref(), Some(good));
+        }
+        // Case / whitespace tolerant.
+        assert_eq!(
+            normalize_input_kind("  Direction-Cards  ").as_deref(),
+            Some("direction-cards")
+        );
+        // Unknown / empty collapse to None (legacy single/multi).
+        for bad in ["", "color", "number", "range", "radio", "🙂"] {
+            assert_eq!(normalize_input_kind(bad), None, "should reject {bad:?}");
+        }
+    }
+
+    #[test]
+    fn direction_card_parses_rich_payload() {
+        let card = parse_direction_card(&json!({
+            "palette": ["#111", "#fff", "", "#888", "#000", "#0af", "#extra7"],
+            "displayFont": "Playfair Display, serif",
+            "bodyFont": "Inter, sans-serif",
+            "mood": "Editorial and confident.",
+            "references": ["Monocle", "FT", "Kinfolk", "Cereal", "Extra5"]
+        }))
+        .expect("valid card");
+        // Blanks dropped; palette capped at 6, references at 4.
+        assert_eq!(
+            card.palette,
+            ["#111", "#fff", "#888", "#000", "#0af", "#extra7"]
+        );
+        assert_eq!(card.references.len(), 4);
+        assert_eq!(
+            card.display_font.as_deref(),
+            Some("Playfair Display, serif")
+        );
+        assert_eq!(
+            card.mood.as_ref().map(|m| m.fallback_text()),
+            Some("Editorial and confident.")
+        );
+    }
+
+    #[test]
+    fn direction_card_snake_case_font_aliases() {
+        let card = parse_direction_card(&json!({
+            "display_font": "Georgia",
+            "body_font": "Verdana"
+        }))
+        .expect("aliases accepted");
+        assert_eq!(card.display_font.as_deref(), Some("Georgia"));
+        assert_eq!(card.body_font.as_deref(), Some("Verdana"));
+    }
+
+    #[test]
+    fn empty_card_is_none_so_option_stays_plain() {
+        assert!(parse_direction_card(&json!({})).is_none());
+        assert!(parse_direction_card(&json!({ "palette": [], "references": [] })).is_none());
+        assert!(parse_direction_card(&json!("not an object")).is_none());
+    }
 }

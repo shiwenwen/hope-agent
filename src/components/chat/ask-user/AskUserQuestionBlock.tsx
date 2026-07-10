@@ -7,6 +7,7 @@ import { logger } from "@/lib/logger"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
 import { Button } from "@/components/ui/button"
 import { IconTip } from "@/components/ui/tooltip"
 import { MarkdownStreamdown } from "@/components/common/MarkdownRenderer"
@@ -32,6 +33,17 @@ export type AskUserLocalizedText =
       fallback?: string
     }
 
+/** Visual "design direction" card payload carried by a `direction-cards`
+ *  option — rendered richly only in the design chat (`variant="design"`),
+ *  ignored (plain row) elsewhere. Answer is still the option `value`. */
+export interface AskUserDirectionCard {
+  palette?: string[]
+  displayFont?: string
+  bodyFont?: string
+  mood?: AskUserLocalizedText
+  references?: string[]
+}
+
 export interface AskUserQuestionOption {
   value: string
   label: AskUserLocalizedText
@@ -40,6 +52,7 @@ export interface AskUserQuestionOption {
   /** Rich preview body (markdown by default, or image URL / mermaid source). */
   preview?: string
   previewKind?: "markdown" | "image" | "mermaid"
+  card?: AskUserDirectionCard
 }
 
 export interface AskUserQuestion {
@@ -53,6 +66,9 @@ export interface AskUserQuestion {
    */
   allowCustom: boolean
   multiSelect: boolean
+  /** Primary input shape. Omitted = legacy single/multi (by `multiSelect`).
+   *  `text`/`textarea` = free-text; `direction-cards` = visual style picker. */
+  inputKind?: "single" | "multi" | "text" | "textarea" | "direction-cards"
   template?: string
   /** Very short chip label (<=12 chars). */
   header?: AskUserLocalizedText
@@ -81,6 +97,9 @@ export interface AskUserQuestionAnswer {
 interface AskUserQuestionBlockProps {
   group: AskUserQuestionGroup
   onSubmitted?: () => void
+  /** `"design"` unlocks the rich `direction-cards` visual style picker. Any
+   *  other surface keeps the plain option list (safe degrade). */
+  variant?: "default" | "design"
 }
 
 interface QuestionState {
@@ -110,6 +129,106 @@ function localizedText(
     ...(text.params ?? {}),
     defaultValue: text.fallback || text.key,
   })
+}
+
+// ── Direction cards (design-variant visual style picker) ─────────
+
+/** Allowlist a model-supplied CSS color before it hits `style={{ background }}`.
+ *  These cards render in the MAIN app (not the sandboxed artifact iframe), so a
+ *  raw palette string is untrusted input — reject anything that isn't a #hex or
+ *  a known functional color form to close the `url(...)` / CSS-injection vector.
+ *  Unknown → `transparent` (the swatch still shows its border cell). */
+const CSS_COLOR_RE =
+  /^(#(?:[0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})|(?:rgb|rgba|hsl|hsla|hwb|lab|lch|oklab|oklch|color)\([0-9a-z.,%/ +-]*\))$/i
+function sanitizeCssColor(raw: string): string {
+  const s = raw.trim()
+  return CSS_COLOR_RE.test(s) ? s : "transparent"
+}
+
+/** Sanitize a model-supplied font-family stack before inline style. Strips
+ *  CSS-breaking chars so `fontFamily` can't smuggle a second declaration and
+ *  caps length; empty / unsafe → undefined (browser default font). */
+function sanitizeFontFamily(raw: string | undefined): string | undefined {
+  if (!raw) return undefined
+  const s = raw
+    .replace(/url\s*\(/gi, "")
+    .replace(/[;{}<>]/g, "")
+    .trim()
+    .slice(0, 200)
+  return s || undefined
+}
+
+function DirectionCardView({
+  option,
+  selected,
+  onSelect,
+}: {
+  option: AskUserQuestionOption
+  selected: boolean
+  onSelect: () => void
+}) {
+  const { t } = useTranslation()
+  const card = option.card ?? {}
+  const palette = (card.palette ?? []).slice(0, 6).map(sanitizeCssColor)
+  const displayFont = sanitizeFontFamily(card.displayFont)
+  const bodyFont = sanitizeFontFamily(card.bodyFont)
+  const mood = localizedText(card.mood, t)
+  const refs = (card.references ?? []).slice(0, 4)
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      className={cn(
+        "flex flex-col gap-2 rounded-lg border p-3 text-left transition-colors cursor-pointer",
+        selected
+          ? "border-blue-500 ring-1 ring-blue-500/40 bg-blue-500/5"
+          : "border-border hover:border-blue-500/50 hover:bg-blue-500/5"
+      )}
+    >
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-sm font-medium">{localizedText(option.label, t)}</span>
+        {selected && (
+          <span className="inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded-full bg-blue-500/15 text-blue-600 shrink-0">
+            <Check className="h-2.5 w-2.5" />
+            {t("planMode.question.selected", { defaultValue: "Selected" })}
+          </span>
+        )}
+      </div>
+      {palette.length > 0 && (
+        <div className="flex gap-1">
+          {palette.map((c, i) => (
+            <span
+              key={i}
+              className="h-5 flex-1 rounded-sm border border-border/40"
+              style={{ background: c }}
+            />
+          ))}
+        </div>
+      )}
+      {(displayFont || bodyFont) && (
+        <div className="flex items-baseline gap-2 overflow-hidden">
+          <span
+            className="text-2xl leading-none shrink-0"
+            style={displayFont ? { fontFamily: displayFont } : undefined}
+          >
+            Aa
+          </span>
+          <span
+            className="text-xs text-muted-foreground truncate"
+            style={bodyFont ? { fontFamily: bodyFont } : undefined}
+          >
+            {t("planMode.question.typeSample", { defaultValue: "The quick brown fox" })}
+          </span>
+        </div>
+      )}
+      {mood && <p className="text-xs text-muted-foreground line-clamp-2">{mood}</p>}
+      {refs.length > 0 && (
+        <p className="text-[11px] text-muted-foreground/80 truncate">
+          {t("planMode.question.refs", { defaultValue: "Refs" })}: {refs.join(" · ")}
+        </p>
+      )}
+    </button>
+  )
 }
 
 function OptionPreview({
@@ -204,7 +323,11 @@ function formatRemaining(secs: number): string {
 
 // ── Main component ───────────────────────────────────────────────
 
-export default function AskUserQuestionBlock({ group, onSubmitted }: AskUserQuestionBlockProps) {
+export default function AskUserQuestionBlock({
+  group,
+  onSubmitted,
+  variant = "default",
+}: AskUserQuestionBlockProps) {
   const { t } = useTranslation()
 
   // The `enter_plan_mode` tool uses this generic ask-user UI but its prompt
@@ -314,7 +437,11 @@ export default function AskUserQuestionBlock({ group, onSubmitted }: AskUserQues
     try {
       const answerList: AskUserQuestionAnswer[] = group.questions.map((q) => {
         const state = answers[q.questionId]
-        const customInput = state?.customSelected ? state.customInput.trim() : ""
+        // Free-text questions have no options — the typed value IS the answer,
+        // so it flows through `customInput` without the explicit "Other" toggle.
+        const isFreeText = q.inputKind === "text" || q.inputKind === "textarea"
+        const customInput =
+          isFreeText || state?.customSelected ? (state?.customInput.trim() ?? "") : ""
         return {
           questionId: q.questionId,
           selected: state ? Array.from(state.selected) : [],
@@ -404,6 +531,13 @@ export default function AskUserQuestionBlock({ group, onSubmitted }: AskUserQues
         // so it reads as reference, not as the hovered option's detail.
         const previewIsFallback = !!previewOpt && previewOpt !== focusedOpt
         const customSelected = state?.customSelected ?? false
+        const isFreeText = q.inputKind === "text" || q.inputKind === "textarea"
+        // Rich style cards only in the design chat AND only when the model
+        // actually attached card payloads — otherwise degrade to the plain list.
+        const isDirectionCards =
+          variant === "design" &&
+          q.inputKind === "direction-cards" &&
+          q.options.some((o) => o.card)
         return (
           <div
             key={q.questionId}
@@ -446,7 +580,40 @@ export default function AskUserQuestionBlock({ group, onSubmitted }: AskUserQues
                 )}
               </div>
 
+              {isFreeText ? (
+                <div className="pl-5">
+                  {q.inputKind === "textarea" ? (
+                    <Textarea
+                      placeholder={localizedText(q.text, t)}
+                      value={state?.customInput || ""}
+                      onChange={(e) => setCustomInput(q.questionId, e.target.value)}
+                      rows={3}
+                      className="text-sm resize-none"
+                    />
+                  ) : (
+                    <Input
+                      placeholder={localizedText(q.text, t)}
+                      value={state?.customInput || ""}
+                      onChange={(e) => setCustomInput(q.questionId, e.target.value)}
+                      className="text-sm h-9"
+                    />
+                  )}
+                </div>
+              ) : (
               <div className="pl-5 space-y-1.5">
+                {isDirectionCards ? (
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    {q.options.map((opt) => (
+                      <DirectionCardView
+                        key={opt.value}
+                        option={opt}
+                        selected={state?.selected.has(opt.value) ?? false}
+                        onSelect={() => toggleOption(q.questionId, opt.value, q.multiSelect)}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <>
                 {q.options.map((opt) => {
                   const isSelected = state?.selected.has(opt.value) ?? false
                   const isDefault =
@@ -525,6 +692,8 @@ export default function AskUserQuestionBlock({ group, onSubmitted }: AskUserQues
                     </button>
                   )
                 })}
+                  </>
+                )}
 
                 {/* Custom input is gated behind an explicit "Other" choice so
                     regular selections and free-form answers don't blur together. */}
@@ -574,6 +743,7 @@ export default function AskUserQuestionBlock({ group, onSubmitted }: AskUserQues
                   </>
                 )}
               </div>
+              )}
             </div>
 
             {/* Right column: side preview pane. Absolutely filled inside the

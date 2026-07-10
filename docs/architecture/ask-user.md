@@ -96,12 +96,28 @@ pub struct AskUserQuestionOption {
     pub recommended: bool,      // 推荐项，UI 渲染 ★ 徽章
     pub preview: Option<String>,       // markdown / image URL / mermaid 源
     pub preview_kind: Option<String>,  // "markdown" | "image" | "mermaid"
+    pub card: Option<AskUserDirectionCard>, // direction-cards 题型的视觉风格卡载荷
+}
+
+// 视觉「设计方向」卡载荷，挂在 direction-cards 题型的选项上。纯展示——答案仍是
+// 选项的 `value`（走 selected[]），绝不触碰 Yes/No 门或 IM 按钮协议。
+pub struct AskUserDirectionCard {
+    pub palette: Vec<String>,          // 4–6 个色值（hex / rgb / oklch），色板行
+    pub display_font: Option<String>,  // 标题字体栈，渲染 "Aa" 样张
+    pub body_font: Option<String>,     // 正文字体栈，渲染次级样张
+    pub mood: Option<AskUserText>,     // 一两句气质描述
+    pub references: Vec<String>,       // ≤4 个真实参考，refs 行以 " · " 连接
 }
 
 pub struct AskUserQuestion {
     pub question_id: String,
     pub text: AskUserText,
     pub options: Vec<AskUserQuestionOption>,
+    // 主输入形态（前端渲染提示，答案通道不变）。None（默认）= 沿用 multi_select 派生的
+    // 单选/多选。显式值：single | multi | text | textarea | direction-cards。
+    // direction-cards 是「选项带 card 载荷的单选」；text/textarea 是自由文本（答案走
+    // custom_input）。未知/垃圾值在解析期归 None（`normalize_input_kind` 白名单）。
+    pub input_kind: Option<String>,
     pub allow_custom: bool,     // 默认 true，当前运行时强制覆盖为 true
     pub multi_select: bool,     // 默认 false
     pub template: Option<String>,   // scope | tech_choice | priority
@@ -124,6 +140,17 @@ pub struct AskUserQuestionGroup {
 ```
 
 所有结构体 `#[serde(rename_all = "camelCase")]`，前端 TypeScript 类型在 `src/components/chat/ask-user/AskUserQuestionBlock.tsx` 中镜像定义。`AskUserText` 是 `#[serde(untagged)]`，所以历史 DB 行和模型调用的纯字符串不需要迁移；桌面 / HTTP UI 遇到 `{ key, params, fallback }` 时用当前 locale 渲染，IM 渠道和 LLM result formatter 使用 `fallback_text()`。
+
+### input_kind 富输入类型 + direction-cards 视觉风格卡（设计空间）
+
+`input_kind` 与 `card` 是给**设计空间发现问卷**用的加法式扩展，核心红线是**答案通道零变化**：
+
+- **`text` / `textarea`**：无选项的自由文本题，答案走 `custom_input`（前端渲染纯文本框，不再套「其他」开关）。用于开放式发现问题。
+- **`direction-cards`**：**带 `card` 载荷的单选题**——每个选项照常有 `value`/`label`，额外挂调色板 + 字体 + 气质 + 参考。**答案仍是选项 `value`、走 `selected[]`**，所以 `was_affirmative()` 的 Yes/No 门、IM 按钮/编号协议、DB 持久化全部不动。
+- **富渲染只在设计对话（`variant="design"`）发生**：`AskUserQuestionBlock` 收到 `variant` prop，仅在 `design` 变体 + 选项确有 `card` 时把选项画成视觉风格卡（色板行 + 实时 "Aa" 字体样张 + 气质 + refs）；主对话、IM、历史回放一律**降级成普通选项列表**（安全降级，非安全边界）。区分靠**渲染方 `variant`**，不靠 `group.source`（设计 thread 的 source 仍是 `normal`）。
+- **风格卡在主 App 渲染 → 色值/字体是 untrusted 输入**：`palette` 经 `sanitizeCssColor`（只放行 #hex 与已知函数式色，堵 `url(...)`/CSS 注入），字体经 `sanitizeFontFamily`（剥 `;{}<>` 与 `url(`），二者都在 `AskUserQuestionBlock.tsx`。
+- **IM 零改动**：`direction-cards` 因带 `options` 走既有按钮/编号；`text`/`textarea` 因无 `options` 走既有自由文本兜底（`allow_custom` 强制 true）。新增 `input_kind` 不需要 `channel/worker/ask_user.rs` 任何降级分支。
+- **设计对话接线**：`useAskUserPending`（`src/components/chat/ask-user/useAskUserPending.ts`，从 `usePlanMode` 的 ask_user 部分提炼的共享 hook）给 `useDesignChat` 提供 `pendingQuestionGroup` + 监听 + 会话切换恢复；`DesignChatPanel` 把它与 `askUserVariant="design"` 传进 `MessageList`。主对话 `usePlanMode` 保留自己的内联副本不动。设计 Agent 何时提问（需求不清才问、需要选方向才弹风格卡）写在 `design` 工具描述里（`extra_tools.rs`）。
 
 ### AskUserQuestionAnswer
 

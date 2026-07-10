@@ -2228,7 +2228,10 @@
       "submit": "提交回答",
       "timedOut": "已超时",
       "timeoutHint": "剩余时间",
-      "title": "需要你的确认"
+      "title": "需要你的确认",
+      "selected": "已选",
+      "typeSample": "快速的棕色狐狸",
+      "refs": "参考"
     },
     "reattach": "收回到面板",
     "requestChanges": "请求修改",
@@ -6484,17 +6487,6 @@
     "exitPresent": "退出演示 (Esc)",
     "undo": "撤销",
     "redo": "重做",
-    "brief": {
-      "toggle": "补充简报（可选，30 秒）",
-      "audience": "受众",
-      "audiencePh": "谁会看 / 用，例如「企业采购决策者」",
-      "tone": "语气 / 风格",
-      "tonePh": "例如「专业克制」「活泼年轻」",
-      "points": "要点",
-      "pointsPh": "必须体现的关键信息 / 卖点，逐条列",
-      "reference": "参考",
-      "referencePh": "参考网址 / 产品 / 风格描述"
-    },
     "share": {
       "button": "分享",
       "copied": "已复制只读分享链接",

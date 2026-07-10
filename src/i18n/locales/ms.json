@@ -2228,7 +2228,10 @@
       "submit": "Hantar jawapan",
       "timedOut": "tamat masa",
       "timeoutHint": "Masa yang tinggal",
-      "title": "AI memerlukan input anda"
+      "title": "AI memerlukan input anda",
+      "selected": "Dipilih",
+      "typeSample": "Rubah coklat pantas",
+      "refs": "Rujukan"
     },
     "reattach": "Kembali ke panel",
     "requestChanges": "Minta perubahan",
@@ -6484,17 +6487,6 @@
     "exitPresent": "Keluar bentang (Esc)",
     "undo": "Buat asal",
     "redo": "Buat semula",
-    "brief": {
-      "toggle": "Tambah brief (pilihan, 30s)",
-      "audience": "Audiens",
-      "audiencePh": "Siapa akan lihat/guna, cth. \"pembeli korporat\"",
-      "tone": "Nada / gaya",
-      "tonePh": "cth. \"profesional & terkawal\", \"ceria\"",
-      "points": "Perkara utama",
-      "pointsPh": "Mesej / kelebihan wajib, satu setiap baris",
-      "reference": "Rujukan",
-      "referencePh": "URL / produk / gaya rujukan"
-    },
     "share": {
       "button": "Kongsi",
       "copied": "Pautan kongsi baca sahaja disalin",
