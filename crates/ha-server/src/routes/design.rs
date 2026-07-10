@@ -732,6 +732,17 @@ pub async fn list_domains(Path(id): Path<String>) -> Result<Json<Value>, AppErro
         .collect::<Vec<_>>())))
 }
 
+/// `GET /api/design/artifacts/{id}/deploy/preflight` — 部署预检（CF/Vercel 共用）。
+pub async fn preflight_deploy(Path(id): Path<String>) -> Result<Json<Value>, AppError> {
+    validate_id(&id)?;
+    let report = ha_core::blocking::run_blocking(move || {
+        ha_core::design::deploy::preflight_artifact(&id)
+    })
+    .await
+    .map_err(|e| AppError::internal(e.to_string()))?;
+    Ok(Json(serde_json::to_value(report).unwrap_or(Value::Null)))
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VercelConfigBody {

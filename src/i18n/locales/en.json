@@ -6596,7 +6596,9 @@
       "titleVercel": "Deploy to Vercel",
       "hintVercel": "Publish this design as a public page (*.vercel.app). Requires a Vercel API token, stored locally and encrypted.",
       "teamId": "Team ID (optional, for team accounts)",
-      "teamIdPh": "Leave blank for personal account"
+      "teamIdPh": "Leave blank for personal account",
+      "preflightBlocked": "Can't deploy",
+      "preflightReady": "Artifact is ready to deploy"
     },
     "draw": {
       "mode": "Markup: box/pen the region to change, sent as a screenshot to chat",

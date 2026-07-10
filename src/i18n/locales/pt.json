@@ -6596,7 +6596,9 @@
       "titleVercel": "Implantar no Vercel",
       "hintVercel": "Publique este design como uma página pública (*.vercel.app). Requer um token de API do Vercel, armazenado localmente e criptografado.",
       "teamId": "Team ID (opcional, para contas de equipe)",
-      "teamIdPh": "Deixe em branco para conta pessoal"
+      "teamIdPh": "Deixe em branco para conta pessoal",
+      "preflightBlocked": "Não é possível implantar",
+      "preflightReady": "O artefato está pronto para implantar"
     },
     "draw": {
       "mode": "Marcação: enquadre/desenhe a região a alterar e envie como captura ao chat",

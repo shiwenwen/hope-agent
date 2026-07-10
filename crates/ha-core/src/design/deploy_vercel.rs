@@ -133,6 +133,11 @@ pub async fn deploy_artifact(artifact_id: &str) -> Result<String> {
         .get_artifact(artifact_id)?
         .context("artifact not found")?;
     let html = super::service::render_clean_html_for_artifact(&a)?;
+    // 部署前预检（与 CF 共用）：空 / 超限直接拒。
+    let pf = super::deploy::preflight_report(&html);
+    if !pf.ok {
+        bail!("部署预检未通过：{}", pf.errors.join("；"));
+    }
     // 复用 CF 的 DNS-safe 项目名派生（同产物重部署命中同项目、覆盖同 vercel.app 子域）。
     let name = super::deploy::project_name_for(&a.title, &a.id);
 

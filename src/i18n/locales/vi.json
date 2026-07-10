@@ -6596,7 +6596,9 @@
       "titleVercel": "Triển khai lên Vercel",
       "hintVercel": "Xuất bản thiết kế này thành trang công khai (*.vercel.app). Cần một Vercel API token, được lưu cục bộ và mã hóa.",
       "teamId": "Team ID (tùy chọn, cho tài khoản nhóm)",
-      "teamIdPh": "Để trống cho tài khoản cá nhân"
+      "teamIdPh": "Để trống cho tài khoản cá nhân",
+      "preflightBlocked": "Không thể triển khai",
+      "preflightReady": "Sản phẩm đã sẵn sàng triển khai"
     },
     "draw": {
       "mode": "Đánh dấu: khoanh/vẽ vùng cần đổi rồi gửi ảnh chụp vào trò chuyện",

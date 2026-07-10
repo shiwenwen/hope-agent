@@ -6596,7 +6596,9 @@
       "titleVercel": "Desplegar en Vercel",
       "hintVercel": "Publica este diseño como una página pública (*.vercel.app). Requiere un token de API de Vercel, guardado localmente y cifrado.",
       "teamId": "Team ID (opcional, para cuentas de equipo)",
-      "teamIdPh": "Déjalo vacío para una cuenta personal"
+      "teamIdPh": "Déjalo vacío para una cuenta personal",
+      "preflightBlocked": "No se puede desplegar",
+      "preflightReady": "El artefacto está listo para desplegar"
     },
     "draw": {
       "mode": "Marcado: encuadra/dibuja la región a cambiar y envíala como captura al chat",

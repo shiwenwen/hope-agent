@@ -174,6 +174,11 @@ pub async fn deploy_artifact(artifact_id: &str) -> Result<String> {
         .get_artifact(artifact_id)?
         .context("artifact not found")?;
     let html = super::service::render_clean_html_for_artifact(&a)?;
+    // 部署前预检：空 / 超限直接拒（不上传半成品）。
+    let pf = preflight_report(&html);
+    if !pf.ok {
+        bail!("部署预检未通过：{}", pf.errors.join("；"));
+    }
     let name = project_name_for(&a.title, &a.id);
     let b64 = base64::engine::general_purpose::STANDARD.encode(html.as_bytes());
     let hash = asset_hash(&b64, ".html");
@@ -300,6 +305,76 @@ pub async fn deploy_artifact(artifact_id: &str) -> Result<String> {
     Ok(url)
 }
 
+/// 部署单文件上限（保守，覆盖 CF Pages / Vercel 内联单文件安全区）。
+pub(crate) const MAX_DEPLOY_BYTES: usize = 25 * 1024 * 1024;
+
+/// 部署预检报告：`errors` 阻断（空 / 超限），`warnings` 非阻断（破坏自包含的外部资源引用等）。
+/// CF / Vercel 共用；owner 平面读，部署时 errors 非空则 fail-fast。
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PreflightReport {
+    /// 无阻断问题（可部署）。
+    pub ok: bool,
+    pub size_bytes: usize,
+    pub warnings: Vec<String>,
+    pub errors: Vec<String>,
+}
+
+/// 统计破坏自包含的**资源**引用（`src=`/`url(`/`@import` 指向 http(s)）。锚点 `href="http…"`
+/// 是合法导航、**不计**（只查资源加载）。产物本应全部 data: URI 内联。
+pub(crate) fn count_external_refs(html: &str) -> usize {
+    let lower = html.to_ascii_lowercase();
+    let needles = [
+        "src=\"http",
+        "src='http",
+        "url(http",
+        "url('http",
+        "url(\"http",
+        "@import \"http",
+        "@import 'http",
+    ];
+    needles.iter().map(|n| lower.matches(n).count()).sum()
+}
+
+/// 纯函数：从干净 HTML 算预检（无 IO，便于单测）。
+pub(crate) fn preflight_report(html: &str) -> PreflightReport {
+    let size_bytes = html.len();
+    let mut warnings = Vec::new();
+    let mut errors = Vec::new();
+    let trimmed = html.trim();
+    if trimmed.is_empty() {
+        errors.push("产物为空，无法部署".to_string());
+    } else if !trimmed.to_ascii_lowercase().contains("<html") {
+        warnings.push("缺少 <html> 根标签".to_string());
+    }
+    if size_bytes > MAX_DEPLOY_BYTES {
+        errors.push(format!(
+            "产物过大（{} MB，上限 {} MB）",
+            size_bytes / 1024 / 1024,
+            MAX_DEPLOY_BYTES / 1024 / 1024
+        ));
+    }
+    let ext = count_external_refs(html);
+    if ext > 0 {
+        warnings.push(format!("检测到 {ext} 处外部资源引用（应内联为 data: URI）"));
+    }
+    PreflightReport {
+        ok: errors.is_empty(),
+        size_bytes,
+        warnings,
+        errors,
+    }
+}
+
+/// owner 平面：对产物做部署预检（渲染干净 HTML → 报告）。
+pub fn preflight_artifact(artifact_id: &str) -> Result<PreflightReport> {
+    let a = super::service::open_db()?
+        .get_artifact(artifact_id)?
+        .context("artifact not found")?;
+    let html = super::service::render_clean_html_for_artifact(&a)?;
+    Ok(preflight_report(&html))
+}
+
 /// 自定义域名基本格式校验（防注入 CF API 垃圾 / 路径穿越）。宽松但拒明显非法。
 pub(crate) fn valid_domain(d: &str) -> bool {
     let d = d.trim();
@@ -395,6 +470,26 @@ pub async fn list_custom_domains(artifact_id: &str) -> Result<Vec<CustomDomain>>
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn preflight_flags_empty_and_external_refs() {
+        // 空 → 阻断。
+        let empty = preflight_report("   ");
+        assert!(!empty.ok);
+        assert!(!empty.errors.is_empty());
+        // 正常自包含 → ok 且无外部引用告警。
+        let good = preflight_report("<html><body><img src=\"data:image/png;base64,AAA\"></body></html>");
+        assert!(good.ok, "{:?}", good.errors);
+        assert_eq!(count_external_refs("<img src=\"data:image/png;base64,AAA\">"), 0);
+        // 外部资源引用 → 非阻断告警（仍可部署）。
+        let ext = preflight_report("<html><img src=\"https://cdn.example.com/a.png\"></html>");
+        assert!(ext.ok, "外部引用只告警不阻断");
+        assert!(!ext.warnings.is_empty());
+        // 锚点 href 不计为资源引用。
+        assert_eq!(count_external_refs("<a href=\"https://example.com\">x</a>"), 0);
+        // CSS url() 计入。
+        assert_eq!(count_external_refs("body{background:url(https://x/y.png)}"), 1);
+    }
 
     #[test]
     fn valid_domain_accepts_real_rejects_garbage() {

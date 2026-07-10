@@ -479,6 +479,7 @@ KB 文件预览端点是**纯 owner 平面，无 session 参数、无 owner fall
 | `deploy_design_artifact_cmd` | `POST /api/design/artifacts/{artifactId}/deploy` | ✅ |
 | `bind_design_domain_cmd` | `POST /api/design/artifacts/{artifactId}/domains`（绑定 CF Pages 自定义域名，回域名+验证态） | ✅ |
 | `list_design_domains_cmd` | `GET /api/design/artifacts/{artifactId}/domains`（列已绑定域名+验证态） | ✅ |
+| `preflight_design_deploy_cmd` | `GET /api/design/artifacts/{artifactId}/deploy/preflight`（部署预检：空/超限阻断、外部引用告警） | ✅ |
 | `save_vercel_deploy_config_cmd` | `PUT /api/design/deploy/vercel/config`（保存 Vercel token 0600 + team） | ✅ |
 | `get_vercel_deploy_config_cmd` | `GET /api/design/deploy/vercel/config`（读配置，token 脱敏） | ✅ |
 | `deploy_design_artifact_vercel_cmd` | `POST /api/design/artifacts/{artifactId}/deploy/vercel`（部署到 Vercel，回 `{url}`） | ✅ |

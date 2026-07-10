@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { Cloud, Loader2, ExternalLink, Copy, Check, Globe } from "lucide-react"
+import { Cloud, Loader2, ExternalLink, Copy, Check, Globe, AlertTriangle, CheckCircle2 } from "lucide-react"
 
 import {
   Dialog,
@@ -52,6 +52,13 @@ export function DesignDeployModal({ open, onClose, artifactId }: Props) {
   const [vercelMask, setVercelMask] = useState("")
   const [vercelHasToken, setVercelHasToken] = useState(false)
   const [teamId, setTeamId] = useState("")
+  // 部署预检（provider 无关，查产物本身）：errors 阻断部署，warnings 仅提示。
+  const [preflight, setPreflight] = useState<{
+    ok: boolean
+    sizeBytes: number
+    warnings: string[]
+    errors: string[]
+  } | null>(null)
 
   // 渲染期重置：打开时清结果（避免 effect 内同步 setState）。
   const [prevOpen, setPrevOpen] = useState(false)
@@ -63,6 +70,20 @@ export function DesignDeployModal({ open, onClose, artifactId }: Props) {
   useEffect(() => {
     if (!open) return
     let cancelled = false
+    // 部署预检（provider 无关）：产物空 / 超限 / 外部引用。
+    if (artifactId) {
+      void getTransport()
+        .call<{ ok: boolean; sizeBytes: number; warnings: string[]; errors: string[] }>(
+          "preflight_design_deploy_cmd",
+          { artifactId },
+        )
+        .then((r) => {
+          if (!cancelled) setPreflight(r)
+        })
+        .catch(() => {
+          if (!cancelled) setPreflight(null)
+        })
+    }
     if (provider === "cloudflare") {
       void getTransport()
         .call<{ accountId: string; hasToken: boolean; tokenMask: string }>("get_cf_deploy_config_cmd")
@@ -163,6 +184,7 @@ export function DesignDeployModal({ open, onClose, artifactId }: Props) {
   // （送 mask 保留）；无 token 且字段空/仅 mask 则禁用（须先输入 token）。CF 另需 account。
   const canDeploy =
     !deploying &&
+    (!preflight || preflight.ok) &&
     (provider === "vercel"
       ? vercelHasToken || (!!vercelToken.trim() && vercelToken !== vercelMask)
       : !!accountId.trim() && (hasToken || (!!token.trim() && token !== mask)))
@@ -217,6 +239,37 @@ export function DesignDeployModal({ open, onClose, artifactId }: Props) {
                   "把这个设计发布成公开网页（*.pages.dev）。需要一个 Cloudflare API Token（Pages 编辑权限）和 Account ID，只保存在本机、加密存放。",
                 )}
           </p>
+
+          {/* 部署预检就绪状态：阻断（红）/ 告警（琥珀）/ 就绪（绿） */}
+          {preflight && !preflight.ok && (
+            <div className="flex items-start gap-2 rounded-lg border border-destructive/40 bg-destructive/5 px-2.5 py-2 text-[11px] text-destructive">
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              <div className="min-w-0">
+                <p className="font-medium">{t("design.deploy.preflightBlocked", "无法部署")}</p>
+                <ul className="mt-0.5 list-inside list-disc space-y-0.5">
+                  {preflight.errors.map((e, i) => (
+                    <li key={i}>{e}</li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          )}
+          {preflight?.ok && preflight.warnings.length > 0 && (
+            <div className="flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/5 px-2.5 py-2 text-[11px] text-amber-600 dark:text-amber-400">
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              <ul className="min-w-0 list-inside list-disc space-y-0.5">
+                {preflight.warnings.map((w, i) => (
+                  <li key={i}>{w}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {preflight?.ok && preflight.warnings.length === 0 && (
+            <div className="flex items-center gap-1.5 text-[11px] text-emerald-600 dark:text-emerald-400">
+              <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
+              {t("design.deploy.preflightReady", "产物已就绪，可部署")}
+            </div>
+          )}
 
           {provider === "cloudflare" ? (
             <>

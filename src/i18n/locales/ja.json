@@ -6596,7 +6596,9 @@
       "titleVercel": "Vercel にデプロイ",
       "hintVercel": "このデザインを公開ページ（*.vercel.app）として公開します。Vercel API トークンが必要で、暗号化してローカルにのみ保存します。",
       "teamId": "Team ID（チームアカウントの場合は任意）",
-      "teamIdPh": "個人アカウントは空欄のまま"
+      "teamIdPh": "個人アカウントは空欄のまま",
+      "preflightBlocked": "デプロイできません",
+      "preflightReady": "成果物はデプロイ可能です"
     },
     "draw": {
       "mode": "マークアップ：変更する領域を枠/ペンで指定し、スクリーンショットとしてチャットに送信",

@@ -6596,7 +6596,9 @@
       "titleVercel": "Atur guna ke Vercel",
       "hintVercel": "Terbitkan reka bentuk ini sebagai halaman awam (*.vercel.app). Memerlukan token API Vercel, disimpan secara setempat dan disulitkan.",
       "teamId": "Team ID (pilihan, untuk akaun pasukan)",
-      "teamIdPh": "Biarkan kosong untuk akaun peribadi"
+      "teamIdPh": "Biarkan kosong untuk akaun peribadi",
+      "preflightBlocked": "Tidak boleh atur guna",
+      "preflightReady": "Artifak sedia untuk diatur guna"
     },
     "draw": {
       "mode": "Tanda: kotak/pen kawasan untuk diubah dan hantar sebagai tangkapan skrin ke sembang",

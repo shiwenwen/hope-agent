@@ -301,6 +301,18 @@ pub async fn list_design_domains_cmd(
         .map_err(Into::into)
 }
 
+/// 部署预检（CF / Vercel 共用）：渲染干净 HTML → 报告（空/超限阻断，外部引用告警）。
+#[tauri::command]
+pub async fn preflight_design_deploy_cmd(
+    artifact_id: String,
+) -> Result<ha_core::design::deploy::PreflightReport, CmdError> {
+    ha_core::blocking::run_blocking(move || {
+        ha_core::design::deploy::preflight_artifact(&artifact_id)
+    })
+    .await
+    .map_err(Into::into)
+}
+
 // ── Vercel 部署（多提供商第二 provider，owner 平面 opt-in）─────────────────
 
 /// 保存 Vercel 部署配置（token 0600 落 credentials；token=mask 保留原值）。

@@ -6596,7 +6596,9 @@
       "titleVercel": "Vercel'e dağıt",
       "hintVercel": "Bu tasarımı herkese açık bir sayfa (*.vercel.app) olarak yayımlayın. Bir Vercel API belirteci gerekir; yerel olarak ve şifreli saklanır.",
       "teamId": "Team ID (isteğe bağlı, ekip hesapları için)",
-      "teamIdPh": "Kişisel hesap için boş bırakın"
+      "teamIdPh": "Kişisel hesap için boş bırakın",
+      "preflightBlocked": "Dağıtılamıyor",
+      "preflightReady": "Çıktı dağıtıma hazır"
     },
     "draw": {
       "mode": "İşaretleme: değişecek bölgeyi kutu/kalemle işaretleyip ekran görüntüsü olarak sohbete gönder",

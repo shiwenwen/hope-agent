@@ -6596,7 +6596,9 @@
       "titleVercel": "Vercel에 배포",
       "hintVercel": "이 디자인을 공개 페이지(*.vercel.app)로 게시합니다. Vercel API 토큰이 필요하며, 암호화되어 로컬에만 저장됩니다.",
       "teamId": "Team ID (팀 계정은 선택 사항)",
-      "teamIdPh": "개인 계정은 비워 두세요"
+      "teamIdPh": "개인 계정은 비워 두세요",
+      "preflightBlocked": "배포할 수 없음",
+      "preflightReady": "배포 준비 완료"
     },
     "draw": {
       "mode": "마크업: 변경할 영역을 상자/펜으로 표시해 스크린샷으로 대화에 전송",
