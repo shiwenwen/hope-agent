@@ -125,6 +125,32 @@ export function DesignSharePanel({ artifactId, origin }: Props) {
               {t("design.share.openPreview", "打开")}
             </Button>
           </div>
+          {/* 社媒分发：复用分享 URL 打开各平台 share intent（proper noun 无需 i18n）。 */}
+          <div className="mt-1.5 flex items-center gap-1.5">
+            <span className="shrink-0 text-[10px] text-muted-foreground">
+              {t("design.share.shareTo", "分享到")}
+            </span>
+            {(
+              [
+                ["X", `https://twitter.com/intent/tweet?url=${encodeURIComponent(url)}`],
+                ["微博", `https://service.weibo.com/share/share.php?url=${encodeURIComponent(url)}`],
+                [
+                  "LinkedIn",
+                  `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(url)}`,
+                ],
+              ] as const
+            ).map(([label, intent]) => (
+              <Button
+                key={label}
+                size="sm"
+                variant="outline"
+                className="h-7 flex-1 gap-1 px-1 text-[11px]"
+                onClick={() => window.open(intent, "_blank", "noopener,noreferrer")}
+              >
+                {label}
+              </Button>
+            ))}
+          </div>
           <Button
             size="sm"
             variant="ghost"
