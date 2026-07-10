@@ -508,8 +508,30 @@ export interface FileArtifactSummary {
   language?: string | null;
 }
 
-/** Backend-aggregated URL source (mirror of `SessionUrlSource`). */
-export interface UrlSourceDto {
+/** Backend-aggregated source (mirror of `SessionUrlSource`). */
+export type UrlSourceDto =
+  | {
+      kind: "url";
+      url: string;
+      origin: "web_search" | "message" | "user_url";
+    }
+  | {
+      kind: "attachment";
+      origin: "user_attachment";
+      name: string;
+      mimeType: string;
+      sizeBytes: number;
+      attachmentKind: "image" | "file" | "quote";
+      localPath?: string;
+      url?: string;
+      previewUrl?: string;
+      quotePath?: string;
+      quoteLines?: string;
+      quoteContent?: string;
+    };
+
+/** Legacy backend-aggregated URL source shape. Kept for docs/searchability. */
+export interface LegacyUrlSourceDto {
   url: string;
   origin: "web_search" | "message";
 }

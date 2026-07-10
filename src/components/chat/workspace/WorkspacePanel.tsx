@@ -88,6 +88,7 @@ import type {
   AvailableModel,
   FileChangeMetadata,
   FileChangesMetadata,
+  MediaItem,
   Message,
   SessionMeta,
   SessionMode,
@@ -102,7 +103,7 @@ import TaskProgressPanel from "@/components/chat/tasks/TaskProgressPanel"
 import type { TaskProgressSnapshot } from "@/components/chat/tasks/taskProgress"
 import type { PlanModeState } from "@/components/chat/plan-mode/usePlanMode"
 import type { SessionFileEntry } from "./useSessionFileChanges"
-import type { SessionUrlSource } from "./useSessionUrlSources"
+import { sessionSourceKey, type SessionUrlSource } from "./useSessionUrlSources"
 import type { SessionBrowserActivity } from "./useSessionBrowserActivity"
 import { useWorkspaceArtifacts } from "./useWorkspaceArtifacts"
 import { useWorkspaceEnvironment } from "./useWorkspaceEnvironment"
@@ -321,7 +322,7 @@ function FileRow({
   )
 }
 
-function SourceRow({ source }: { source: SessionUrlSource }) {
+function UrlSourceRow({ source }: { source: Extract<SessionUrlSource, { kind: "url" }> }) {
   const { t } = useTranslation()
   const faviconUrl = useSafeFavicon(source.url)
   const openSource = useCallback(() => {
@@ -361,9 +362,110 @@ function SourceRow({ source }: { source: SessionUrlSource }) {
             {t("workspace.sourceFromSearch", "搜索")}
           </span>
         )}
+        {source.origin === "user_url" && (
+          <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-secondary/70 px-1.5 py-0.5 text-[10px] text-muted-foreground">
+            <MessageCircle className="h-2.5 w-2.5" />
+            {t("workspace.sourceFromUser", "用户")}
+          </span>
+        )}
       </button>
     </IconTip>
   )
+}
+
+function sourceMediaItem(source: Extract<SessionUrlSource, { kind: "attachment" }>): MediaItem {
+  return {
+    url: source.url ?? "",
+    ...(source.localPath ? { localPath: source.localPath } : {}),
+    name: source.name,
+    mimeType: source.mimeType,
+    sizeBytes: source.sizeBytes,
+    kind: source.attachmentKind === "image" ? "image" : "file",
+  }
+}
+
+function attachmentSourceTarget(
+  source: Extract<SessionUrlSource, { kind: "attachment" }>,
+): PreviewTarget | null {
+  if (source.attachmentKind === "quote") {
+    return null
+  }
+  if (source.localPath) {
+    return {
+      kind: "path",
+      path: source.localPath,
+      name: source.name,
+      mime: source.mimeType,
+    }
+  }
+  if (source.url) {
+    return { kind: "media", item: sourceMediaItem(source) }
+  }
+  return null
+}
+
+function AttachmentSourceRow({
+  source,
+  sessionId,
+  onPreviewFile,
+}: {
+  source: Extract<SessionUrlSource, { kind: "attachment" }>
+  sessionId?: string | null
+  onPreviewFile?: (target: PreviewTarget) => void
+}) {
+  const { t } = useTranslation()
+  const target = useMemo(() => attachmentSourceTarget(source), [source])
+  const overrides = useMemo(() => ({ sessionId, onPreviewFile }), [sessionId, onPreviewFile])
+  const { primary, run } = useFileActions(target, overrides)
+  const label = source.quoteLines ? `${source.name} L${source.quoteLines}` : source.name
+
+  return (
+    <FileContextMenu target={target} overrides={overrides}>
+      <div className="flex w-full items-center gap-1 rounded-md px-2 py-1.5 transition-colors hover:bg-secondary/45">
+        <IconTip label={label}>
+          <button
+            type="button"
+            disabled={!target}
+            onClick={() => run(primary)}
+            className="flex min-w-0 flex-1 items-center gap-2 text-left disabled:cursor-default"
+          >
+            <FileMimeIcon
+              mime={source.mimeType}
+              name={source.name}
+              className="h-3.5 w-3.5 shrink-0"
+            />
+            <span className="min-w-0 flex-1 truncate text-xs text-foreground/90">{label}</span>
+            <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-secondary/70 px-1.5 py-0.5 text-[10px] text-muted-foreground">
+              <Files className="h-2.5 w-2.5" />
+              {t("workspace.sourceFromAttachment", "附件")}
+            </span>
+          </button>
+        </IconTip>
+        <FileActionsMoreButton target={target} overrides={overrides} className="shrink-0" />
+      </div>
+    </FileContextMenu>
+  )
+}
+
+function SourceRow({
+  source,
+  sessionId,
+  onPreviewFile,
+}: {
+  source: SessionUrlSource
+  sessionId?: string | null
+  onPreviewFile?: (target: PreviewTarget) => void
+}) {
+  if (source.kind === "attachment") {
+    return (
+      <AttachmentSourceRow
+        source={source}
+        sessionId={sessionId}
+        onPreviewFile={onPreviewFile}
+      />
+    )
+  }
+  return <UrlSourceRow source={source} />
 }
 
 function browserActivityLabel(
@@ -1748,7 +1850,12 @@ export default function WorkspacePanel({
           {sources.length > 0 ? (
             <div className="max-h-[40vh] space-y-0.5 overflow-y-auto pr-0.5">
               {visibleSources.map((source) => (
-                <SourceRow key={source.url} source={source} />
+                <SourceRow
+                  key={sessionSourceKey(source)}
+                  source={source}
+                  sessionId={sessionId}
+                  onPreviewFile={onPreviewFile}
+                />
               ))}
               {hasMoreSources && <div ref={setSourcesSentinel} className="h-px" />}
               {sourcesTruncated && <TruncatedNote />}
