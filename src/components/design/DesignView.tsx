@@ -181,7 +181,7 @@ function isEditableKind(kind: ArtifactKind): boolean {
   return kind !== "image" && kind !== "audio" && kind !== "component"
 }
 
-type ZoomMode = "fit" | 0.5 | 1
+type ZoomMode = "fit" | number
 
 // 预览设备视口（B4-3，源码级对标参照 PREVIEW_VIEWPORT_PRESETS）。`auto` = 沿用产物自然
 // viewportW/H（默认，零回归）；其余固定逻辑宽高、居中缩放适配 + 设备框。
@@ -3572,8 +3572,11 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                         </SelectTrigger>
                         <SelectContent>
                           <SelectItem value="fit">{t("design.zoomFit", "适应")}</SelectItem>
-                          <SelectItem value="1">100%</SelectItem>
-                          <SelectItem value="0.5">50%</SelectItem>
+                          {[0.5, 0.75, 1, 1.25, 1.5, 2].map((z) => (
+                            <SelectItem key={z} value={String(z)}>
+                              {Math.round(z * 100)}%
+                            </SelectItem>
+                          ))}
                         </SelectContent>
                       </Select>
                     )}
