@@ -41,13 +41,16 @@ export function useTypewriterPlaceholder(scenes: string[], active: boolean): str
           timer = window.setTimeout(tick, 1700) // 打完停顿
           return
         }
+      } else if (char <= 1) {
+        // 删到最后一字 → **直接切下一句第一个字**，绝不渲染空串。否则外层 `typed || fallback`
+        // 会在空帧一次性闪出静态回退占位（一整句、且与打字机不同），每轮切换都闪一下（用户报告）。
+        deleting = false
+        scene = (scene + 1) % list.length
+        char = 1
+        setText((list[scene % list.length] ?? "").slice(0, 1))
       } else {
         char--
         setText(s.slice(0, char))
-        if (char <= 0) {
-          deleting = false
-          scene = (scene + 1) % list.length
-        }
       }
       timer = window.setTimeout(tick, deleting ? 28 : 52)
     }
