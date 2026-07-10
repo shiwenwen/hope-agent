@@ -161,6 +161,7 @@ interface Props {
 const DESIGN_MUTATING_ACTIONS = new Set([
   "create_artifact",
   "update_artifact",
+  "edit_element",
   "restyle",
   "restore",
 ])
@@ -178,14 +179,24 @@ function producedArtifactIds(msg: Message): string[] {
       /* ignore */
     }
     if (!DESIGN_MUTATING_ACTIONS.has(action)) continue
+    // artifactId 优先取 result；缺失回退 arguments.artifact_id（edit_element / restyle 等就地精改
+    // 不一定在 result 回 artifactId）——覆盖「未回 artifactId 的产/改」漏检。
+    let aid: string | undefined
     try {
-      const r = JSON.parse(tc.result) as { artifactId?: string }
-      if (r.artifactId && !seen.has(r.artifactId)) {
-        seen.add(r.artifactId)
-        ids.push(r.artifactId)
-      }
+      aid = (JSON.parse(tc.result) as { artifactId?: string })?.artifactId
     } catch {
       /* ignore */
+    }
+    if (!aid) {
+      try {
+        aid = (JSON.parse(tc.arguments) as { artifact_id?: string })?.artifact_id
+      } catch {
+        /* ignore */
+      }
+    }
+    if (aid && !seen.has(aid)) {
+      seen.add(aid)
+      ids.push(aid)
     }
   }
   return ids
