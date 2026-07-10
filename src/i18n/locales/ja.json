@@ -6537,6 +6537,7 @@
       "originAi": "AI",
       "originManual": "手動",
       "originRestore": "復元",
+      "restoredFrom": "v{{n}} から復元",
       "search": "バージョンを検索…",
       "noMatch": "一致するバージョンがありません",
       "current": "現在",

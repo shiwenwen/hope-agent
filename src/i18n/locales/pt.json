@@ -6537,6 +6537,7 @@
       "originAi": "IA",
       "originManual": "Manual",
       "originRestore": "Restaurar",
+      "restoredFrom": "De v{{n}}",
       "search": "Pesquisar versões…",
       "noMatch": "Nenhuma versão correspondente",
       "current": "Atual",

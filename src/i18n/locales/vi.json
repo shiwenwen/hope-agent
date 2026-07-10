@@ -6537,6 +6537,7 @@
       "originAi": "AI",
       "originManual": "Thủ công",
       "originRestore": "Khôi phục",
+      "restoredFrom": "Từ v{{n}}",
       "search": "Tìm phiên bản…",
       "noMatch": "Không có phiên bản phù hợp",
       "current": "Hiện tại",

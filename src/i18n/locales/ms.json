@@ -6537,6 +6537,7 @@
       "originAi": "AI",
       "originManual": "Manual",
       "originRestore": "Pulih",
+      "restoredFrom": "Dari v{{n}}",
       "search": "Cari versi…",
       "noMatch": "Tiada versi sepadan",
       "current": "Semasa",

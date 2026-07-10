@@ -6537,6 +6537,7 @@
       "originAi": "ИИ",
       "originManual": "Вручную",
       "originRestore": "Восстановление",
+      "restoredFrom": "Из v{{n}}",
       "search": "Поиск версий…",
       "noMatch": "Нет совпадающих версий",
       "current": "Текущая",

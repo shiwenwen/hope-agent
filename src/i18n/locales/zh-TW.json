@@ -6537,6 +6537,7 @@
       "originAi": "AI 生成",
       "originManual": "手動編輯",
       "originRestore": "回滾",
+      "restoredFrom": "還原自 v{{n}}",
       "search": "搜尋版本…",
       "noMatch": "無符合版本",
       "current": "目前",

@@ -6537,6 +6537,7 @@
       "originAi": "ذكاء اصطناعي",
       "originManual": "يدوي",
       "originRestore": "استعادة",
+      "restoredFrom": "من الإصدار v{{n}}",
       "search": "البحث في الإصدارات…",
       "noMatch": "لا توجد إصدارات مطابقة",
       "current": "الحالي",

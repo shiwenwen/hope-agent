@@ -338,7 +338,11 @@ export function DesignVersionHistoryModal({
                             )}
                           >
                             <om.Icon className="h-2.5 w-2.5" />
-                            {t(om.key, om.fallback)}
+                            {v.origin === "restore" && /v(\d+)/.exec(v.message ?? "")
+                              ? t("design.ver.restoredFrom", "恢复自 v{{n}}", {
+                                  n: /v(\d+)/.exec(v.message ?? "")![1],
+                                })
+                              : t(om.key, om.fallback)}
                           </span>
                         )}
                       </div>

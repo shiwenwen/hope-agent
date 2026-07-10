@@ -6537,6 +6537,7 @@
       "originAi": "AI",
       "originManual": "수동",
       "originRestore": "복원",
+      "restoredFrom": "v{{n}}에서 복원",
       "search": "버전 검색…",
       "noMatch": "일치하는 버전이 없습니다",
       "current": "현재",

@@ -6537,6 +6537,7 @@
       "originAi": "YZ",
       "originManual": "Elle",
       "originRestore": "Geri yükle",
+      "restoredFrom": "v{{n}}'den",
       "search": "Sürüm ara…",
       "noMatch": "Eşleşen sürüm yok",
       "current": "Geçerli",
