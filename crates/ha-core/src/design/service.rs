@@ -2910,6 +2910,7 @@ pub fn get_system_kit_html(id: &str) -> Result<String> {
         &full.tokens,
         &full.assets.logos,
         &full.assets.images,
+        &full.assets.fonts,
     ))
 }
 
@@ -3093,6 +3094,7 @@ pub async fn extract_system(input: ExtractSystemInput) -> Result<DesignSystemMet
         &system::DesignAssets {
             logos: extracted.logos,
             images: extracted.images,
+            fonts: extracted.fonts,
         },
     );
     emit("design:system_changed", json!({ "systemId": id }));

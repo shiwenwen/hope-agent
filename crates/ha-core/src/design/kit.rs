@@ -33,10 +33,13 @@ pub fn build_kit_html(
     tokens: &BTreeMap<String, String>,
     logos: &[String],
     images: &[String],
+    fonts: &[String],
 ) -> String {
     let token_vec: Vec<(String, String)> =
         tokens.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
     let root = tokens_root_css(&token_vec);
+    // webfont 保真：harvest 的 @font-face（自包含 data-uri）注入 Kit head，排版样张以真实字体渲染。
+    let font_faces: String = fonts.join("\n");
     let esc_name = html_escape(name);
     // 真 dark / compact 变体：从单一 light token 集确定性派生（非 4 中性色表面切换）。
     // dark 只覆盖 --ds-color-*（派生值均为安全 hex），compact 只覆盖尺寸。
@@ -191,6 +194,7 @@ pub fn build_kit_html(
         r##"<!doctype html><html lang="zh"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>{name} · 套件</title>
 <style>
+{font_faces}
 {root}
 :root{{color-scheme:light}}
 *{{box-sizing:border-box}}
@@ -282,6 +286,7 @@ window.addEventListener('message',function(e){{var d=e.data;if(d&&d.type==='ds_k
 </body></html>"##,
         name = esc_name,
         root = root,
+        font_faces = font_faces,
         dark_css = dark_css,
         compact_css = compact_css,
         logos = section("Logo", &logo_html, "logos"),
@@ -315,7 +320,7 @@ mod tests {
 
     #[test]
     fn kit_is_self_contained_and_reflects_tokens() {
-        let html = build_kit_html("测试系统", &sys(), &[], &[]);
+        let html = build_kit_html("测试系统", &sys(), &[], &[], &[]);
         assert!(html.starts_with("<!doctype html>"));
         // 无外链 / 无网络（自包含红线）。
         assert!(!html.contains("http://") && !html.contains("https://"));
@@ -334,14 +339,14 @@ mod tests {
     fn kit_escapes_name_and_values() {
         let mut t = sys();
         t.insert("--ds-color-x".into(), "#fff".into());
-        let html = build_kit_html("<script>alert(1)</script>", &t, &[], &[]);
+        let html = build_kit_html("<script>alert(1)</script>", &t, &[], &[], &[]);
         assert!(!html.contains("<script>alert(1)"));
         assert!(html.contains("&lt;script&gt;"));
     }
 
     #[test]
     fn kit_handles_empty_tokens() {
-        let html = build_kit_html("空系统", &BTreeMap::new(), &[], &[]);
+        let html = build_kit_html("空系统", &BTreeMap::new(), &[], &[], &[]);
         assert!(html.contains("空系统"));
         // 空 token 也出组件 showcase（用骨架默认值），不 panic、不空页。
         assert!(html.contains("btn-primary"));
@@ -355,7 +360,7 @@ mod tests {
             "https://evil.example/x.png".to_string(), // 非 data → 滤掉
         ];
         let images = vec!["data:image/jpeg;base64,/9j/4AAQ".to_string()];
-        let html = build_kit_html("带资产", &sys(), &logos, &images);
+        let html = build_kit_html("带资产", &sys(), &logos, &images, &[]);
         assert!(html.contains("data:image/png;base64,iVBORw0KGgo="));
         assert!(html.contains("data:image/jpeg;base64,/9j/4AAQ"));
         assert!(html.contains("class=\"logo-tile\""));
@@ -366,7 +371,7 @@ mod tests {
     #[test]
     fn kit_no_assets_omits_asset_sections() {
         // 无资产 → 不出 Logo/配图段（section() 空 inner 返回空）；CSS 里的类名不算。
-        let html = build_kit_html("无资产", &sys(), &[], &[]);
+        let html = build_kit_html("无资产", &sys(), &[], &[], &[]);
         assert!(!html.contains(">Logo</h2>"));
         assert!(!html.contains("配图 · Imagery</h2>"));
         assert!(!html.contains("<img"));

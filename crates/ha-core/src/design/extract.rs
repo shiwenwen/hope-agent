@@ -28,6 +28,10 @@ pub struct ExtractedSystem {
     /// 从 URL 确定性 harvest 的 hero/封面配图（data-uri，og:image + 大图）。B1-4。
     #[serde(default)]
     pub images: Vec<String>,
+    /// 从来源页 CSS harvest 的 web 字体（内嵌 data-uri src 的 `@font-face` 规则，自包含）。
+    /// 仅 `from_url` 填充，其余通道空。webfont 提取保真。
+    #[serde(default)]
+    pub fonts: Vec<String>,
 }
 
 /// 核心 token 词表（每个都必须填值，与 `system::expand` / DESIGN.md 互通格式对齐）。
@@ -221,6 +225,8 @@ pub async fn from_url(url: &str) -> Result<ExtractedSystem> {
     let (logos, images) = harvest_assets(url, &html).await;
     sys.logos = logos;
     sys.images = images;
+    // webfont 保真：harvest 内联 @font-face 真实字体（自包含 data-uri），供 Kit 排版样张真实渲染。
+    sys.fonts = harvest_fonts(url, &html).await;
     Ok(sys)
 }
 
@@ -427,6 +433,219 @@ async fn fetch_asset(url: &str) -> Option<(Vec<u8>, String)> {
         mime
     };
     Some((bytes, mime))
+}
+
+// ── Web 字体 harvest（webfont 提取保真）────────────────────────────
+const MAX_FONTS: usize = 6;
+const MAX_FONT_BYTES: usize = 2 * 1024 * 1024;
+
+/// 从来源页内联 CSS 的 `@font-face` 规则 harvest web 字体：解析 family/weight/style + 首个
+/// woff2/woff/ttf/otf 源 → SSRF-gated 抓取 → 转 data-uri → 重建**自包含** `@font-face` 规则。
+/// 只解析内联 `<style>`（不追链接样式表，避免抓取放大）；失败/越界静默跳过，绝不阻断主提取。
+async fn harvest_fonts(base_url: &str, html: &str) -> Vec<String> {
+    let Ok(base) = url::Url::parse(base_url) else {
+        return Vec::new();
+    };
+    use std::hash::{Hash, Hasher};
+    let mut out = Vec::new();
+    let mut seen: std::collections::HashSet<u64> = std::collections::HashSet::new();
+    for (header, src) in parse_font_faces(html) {
+        if out.len() >= MAX_FONTS {
+            break;
+        }
+        let Ok(abs) = base.join(&src) else {
+            continue;
+        };
+        let abs = abs.to_string();
+        let Some(bytes) = fetch_font(&abs).await else {
+            continue;
+        };
+        if bytes.is_empty() || bytes.len() > MAX_FONT_BYTES {
+            continue;
+        }
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        bytes.hash(&mut h);
+        if !seen.insert(h.finish()) {
+            continue;
+        }
+        let fmt = font_format(&abs);
+        let mime = font_mime(&abs);
+        let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
+        out.push(format!(
+            "@font-face{{{header}src:url(data:{mime};base64,{b64}) format('{fmt}')}}"
+        ));
+    }
+    out
+}
+
+/// 抓字体字节（SSRF-gated，不限 content-type——字体 mime 各家不一，靠扩展名判定）。
+async fn fetch_font(url: &str) -> Option<Vec<u8>> {
+    use futures_util::StreamExt;
+    let ssrf_cfg = crate::config::cached_config().ssrf.clone();
+    let policy = ssrf_cfg.web_fetch();
+    let trusted = ssrf_cfg.trusted_hosts.clone();
+    let parsed = crate::security::ssrf::check_url(url, policy, &trusted)
+        .await
+        .ok()?;
+    let redirect_hosts = trusted.clone();
+    let redirect_policy = reqwest::redirect::Policy::custom(move |attempt| {
+        if attempt.previous().len() >= 5 {
+            return attempt.error("too many redirects");
+        }
+        if let Some(host) = attempt.url().host_str() {
+            if crate::security::ssrf::check_host_blocking_sync(host, policy, &redirect_hosts) {
+                return attempt.stop();
+            }
+        }
+        attempt.follow()
+    });
+    let client = crate::provider::apply_proxy(
+        reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(20))
+            .redirect(redirect_policy),
+    )
+    .build()
+    .ok()?;
+    let resp = crate::tools::web_fetch_common::apply_browser_headers(client.get(parsed))
+        .send()
+        .await
+        .ok()?;
+    if !resp.status().is_success() {
+        return None;
+    }
+    let mut bytes = Vec::new();
+    let mut stream = resp.bytes_stream();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.ok()?;
+        bytes.extend_from_slice(&chunk);
+        if bytes.len() > MAX_FONT_BYTES {
+            return None;
+        }
+    }
+    Some(bytes)
+}
+
+/// 字体 URL 扩展名 → CSS `format()` 值（未知回退 woff2，最常见）。
+fn font_format(url: &str) -> &'static str {
+    let low = url.split('?').next().unwrap_or(url).to_ascii_lowercase();
+    if low.ends_with(".woff2") {
+        "woff2"
+    } else if low.ends_with(".woff") {
+        "woff"
+    } else if low.ends_with(".ttf") {
+        "truetype"
+    } else if low.ends_with(".otf") {
+        "opentype"
+    } else {
+        "woff2"
+    }
+}
+
+/// 字体 URL 扩展名 → data-uri mime。
+fn font_mime(url: &str) -> &'static str {
+    match font_format(url) {
+        "woff2" => "font/woff2",
+        "woff" => "font/woff",
+        "truetype" => "font/ttf",
+        _ => "font/otf",
+    }
+}
+
+/// 解析 CSS 里的 `@font-face` 块 → (保留声明串, 首个字体源 url)。只取带 woff2/woff/ttf/otf 的源。
+fn parse_font_faces(css: &str) -> Vec<(String, String)> {
+    let lower = css.to_ascii_lowercase();
+    let mut out = Vec::new();
+    let mut search = 0;
+    while let Some(rel) = lower[search..].find("@font-face") {
+        let at = search + rel;
+        let Some(open_rel) = lower[at..].find('{') else {
+            break;
+        };
+        let open = at + open_rel;
+        let Some(close_rel) = lower[open..].find('}') else {
+            break;
+        };
+        let close = open + close_rel;
+        search = close + 1;
+        if let Some(face) = parse_one_font_face(&css[open + 1..close]) {
+            out.push(face);
+        }
+        if out.len() >= 32 {
+            break; // 病态页防护
+        }
+    }
+    out
+}
+
+fn parse_one_font_face(block: &str) -> Option<(String, String)> {
+    let family = css_decl(block, "font-family")?;
+    let src_val = css_decl(block, "src")?;
+    let url = first_font_url(src_val)?;
+    let mut header = format!("font-family:{};", sanitize_decl(family));
+    if let Some(w) = css_decl(block, "font-weight") {
+        header.push_str(&format!("font-weight:{};", sanitize_decl(w)));
+    }
+    if let Some(s) = css_decl(block, "font-style") {
+        header.push_str(&format!("font-style:{};", sanitize_decl(s)));
+    }
+    header.push_str("font-display:swap;");
+    Some((header, url))
+}
+
+/// 取块内某声明的值（`prop:` 后到 `;`），要求 prop 处于声明边界（防 `x-font-family` 误命中）。
+fn css_decl<'a>(block: &'a str, prop: &str) -> Option<&'a str> {
+    let low = block.to_ascii_lowercase();
+    let key = format!("{prop}:");
+    let mut from = 0;
+    while let Some(rel) = low[from..].find(&key) {
+        let idx = from + rel;
+        let ok_before =
+            idx == 0 || matches!(block.as_bytes()[idx - 1], b';' | b'{' | b' ' | b'\n' | b'\t');
+        if ok_before {
+            let vstart = idx + key.len();
+            let vend = block[vstart..]
+                .find(';')
+                .map(|e| vstart + e)
+                .unwrap_or(block.len());
+            return Some(block[vstart..vend].trim());
+        }
+        from = idx + key.len();
+    }
+    None
+}
+
+/// 从 `src:` 值里挑第一个 woff2/woff/ttf/otf 的 `url(...)`（去引号）。
+fn first_font_url(src_val: &str) -> Option<String> {
+    let mut from = 0;
+    let low = src_val.to_ascii_lowercase();
+    while let Some(rel) = low[from..].find("url(") {
+        let start = from + rel + 4;
+        let end_rel = src_val[start..].find(')')?;
+        let raw = src_val[start..start + end_rel]
+            .trim()
+            .trim_matches(|c| c == '"' || c == '\'')
+            .trim();
+        from = start + end_rel + 1;
+        let path = raw.split('?').next().unwrap_or(raw).to_ascii_lowercase();
+        if path.ends_with(".woff2")
+            || path.ends_with(".woff")
+            || path.ends_with(".ttf")
+            || path.ends_with(".otf")
+        {
+            return Some(raw.to_string());
+        }
+    }
+    None
+}
+
+/// 声明值消毒（进产物 CSS）：滤除会逃逸块的字符 + 限长。
+fn sanitize_decl(v: &str) -> String {
+    v.chars()
+        .filter(|c| *c != '{' && *c != '}' && *c != '<' && *c != ';')
+        .take(200)
+        .collect::<String>()
+        .trim()
+        .to_string()
 }
 
 /// 从 `Content-Type` header / `<meta charset>` 探测编码并正确解码（非 UTF-8 页——GBK /
@@ -951,6 +1170,7 @@ pub async fn from_design_md(md: &str) -> Result<ExtractedSystem> {
             tokens,
             logos: Vec::new(),
             images: Vec::new(),
+            fonts: Vec::new(),
         })
     } else {
         // token 不足 → LLM 从正文合成 token，但保留原 DESIGN.md 正文。
@@ -961,6 +1181,7 @@ pub async fn from_design_md(md: &str) -> Result<ExtractedSystem> {
             tokens: synth.tokens,
             logos: Vec::new(),
             images: Vec::new(),
+            fonts: Vec::new(),
         })
     }
 }
@@ -1054,6 +1275,47 @@ fn collect_style_samples(root: &Path) -> Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parse_font_faces_extracts_family_and_woff_src() {
+        let css = r#"
+        <style>
+        @font-face{font-family:'Inter';font-weight:600;font-style:normal;
+          src:url('/fonts/inter.woff2') format('woff2'),url('/fonts/inter.woff') format('woff');}
+        body{color:red}
+        @font-face{font-family:"Serif";src:url(https://x/y.otf)}
+        </style>"#;
+        let faces = parse_font_faces(css);
+        assert_eq!(faces.len(), 2);
+        assert!(faces[0].0.contains("font-family:'Inter'"));
+        assert!(faces[0].0.contains("font-weight:600"));
+        assert!(faces[0].0.contains("font-display:swap"));
+        // 首个 woff2 源胜出。
+        assert_eq!(faces[0].1, "/fonts/inter.woff2");
+        assert_eq!(faces[1].1, "https://x/y.otf");
+    }
+
+    #[test]
+    fn first_font_url_skips_non_font_sources() {
+        // svg 源不是字体 → 跳过，落到 woff。
+        let v = "url(x.svg#a) format('svg'),url(y.woff2) format('woff2')";
+        assert_eq!(first_font_url(v).as_deref(), Some("y.woff2"));
+        // 全非字体 → None。
+        assert!(first_font_url("url(data:image/png;base64,AAA)").is_none());
+    }
+
+    #[test]
+    fn font_format_and_mime_by_ext() {
+        assert_eq!(font_format("a/b.woff2?v=1"), "woff2");
+        assert_eq!(font_format("a/b.ttf"), "truetype");
+        assert_eq!(font_mime("a/b.otf"), "font/otf");
+        assert_eq!(font_mime("a/b.woff"), "font/woff");
+    }
+
+    #[test]
+    fn sanitize_decl_strips_escape_chars() {
+        assert_eq!(sanitize_decl("'Inter'; } <x"), "'Inter'  x");
+    }
 
     fn png_bytes(w: u32, h: u32) -> Vec<u8> {
         let img = image::RgbImage::new(w, h);

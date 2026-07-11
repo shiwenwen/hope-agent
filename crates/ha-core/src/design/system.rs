@@ -39,11 +39,15 @@ pub struct DesignAssets {
     pub logos: Vec<String>,
     #[serde(default)]
     pub images: Vec<String>,
+    /// 从来源页 harvest 的 web 字体：每项是一条内嵌 data-uri src 的 `@font-face` CSS 规则
+    /// （自包含）。Kit 套件页据此以**真实字体**渲染排版样张（webfont 提取保真）。
+    #[serde(default)]
+    pub fonts: Vec<String>,
 }
 
 /// 落盘/读取系统资产 `assets.json`（写经原子写；读缺失/损坏回退空）。
 pub fn write_assets(id: &str, assets: &DesignAssets) -> Result<()> {
-    if assets.logos.is_empty() && assets.images.is_empty() {
+    if assets.logos.is_empty() && assets.images.is_empty() && assets.fonts.is_empty() {
         return Ok(());
     }
     let dir = paths::design_system_dir(id)?;
