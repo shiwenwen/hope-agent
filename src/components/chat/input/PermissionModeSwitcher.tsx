@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next"
 import { Switch } from "@/components/ui/switch"
 import { AnimatedCollapse } from "@/components/ui/animated-presence"
 import { FloatingMenu } from "@/components/ui/floating-menu"
+import { IconTip } from "@/components/ui/tooltip"
 import { useClickOutside } from "@/hooks/useClickOutside"
 import { cn } from "@/lib/utils"
 import { ChevronDown, Shield, ShieldCheck, ShieldAlert } from "lucide-react"
@@ -187,19 +188,20 @@ export default function PermissionModeSwitcher({
           <span className="ml-auto truncate text-xs text-muted-foreground">{activeLabel}</span>
         </button>
       ) : (
-        <button
-          type="button"
-          aria-label={`${activeLabel} (Shift+Tab)`}
-          title={`${activeLabel} (Shift+Tab)`}
-          onClick={() => setOpen(!open)}
-          className={cn(
-            "flex items-center gap-1 bg-transparent text-xs font-medium px-2 py-1 rounded-lg cursor-pointer transition-colors hover:bg-secondary shrink-0 whitespace-nowrap",
-            activeTheme.buttonTone,
-          )}
-        >
-          <ActiveIcon className="h-4 w-4 shrink-0" />
-          <span>{activeLabel}</span>
-        </button>
+        <IconTip label={`${activeLabel} (Shift+Tab)`}>
+          <button
+            type="button"
+            aria-label={`${activeLabel} (Shift+Tab)`}
+            onClick={() => setOpen(!open)}
+            className={cn(
+              "flex items-center gap-1 bg-transparent text-xs font-medium px-2 py-1 rounded-lg cursor-pointer transition-colors hover:bg-secondary shrink-0 whitespace-nowrap",
+              activeTheme.buttonTone,
+            )}
+          >
+            <ActiveIcon className="h-4 w-4 shrink-0" />
+            <span>{activeLabel}</span>
+          </button>
+        </IconTip>
       )}
 
       {isMenu ? (

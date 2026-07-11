@@ -505,7 +505,7 @@ export default function ChatTitleBar({
               <button
                 onClick={() => onOpenProjectSettings?.(project)}
                 className="inline-flex items-center gap-1 shrink-0 text-[12px] px-1.5 py-0.5 rounded hover:bg-accent/40 transition-colors"
-                title={project.description ?? project.name}
+                data-ha-title-tip={project.description ?? project.name}
               >
                 <Folder className={cn("h-3.5 w-3.5 shrink-0", projectFolderColorClass)} />
                 <span className="truncate max-w-[140px] text-foreground/80">{project.name}</span>

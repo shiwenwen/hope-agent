@@ -104,7 +104,7 @@ export default function SubagentRunDetails({
                   "min-w-0 truncate select-text",
                   row.monospace && "font-mono text-[10px]",
                 )}
-                title={value}
+                data-ha-title-tip={value}
               >
                 {value}
               </span>

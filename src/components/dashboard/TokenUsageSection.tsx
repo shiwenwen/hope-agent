@@ -431,7 +431,7 @@ const TokenUsageSection = React.memo(function TokenUsageSection({
                   <button
                     className="truncate text-left font-mono hover:underline"
                     onClick={() => onDrillDownOperation(row.operation)}
-                    title={row.operation}
+                    data-ha-title-tip={row.operation}
                   >
                     {row.operation}
                   </button>

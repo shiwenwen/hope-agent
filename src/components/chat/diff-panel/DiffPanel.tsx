@@ -637,7 +637,7 @@ export function DiffPanel({
                         )}
                       />
                       <ActionBadge action={c.action} />
-                      <span className="min-w-0 flex-1 truncate font-mono text-xs text-foreground/90" title={c.path}>
+                      <span className="min-w-0 flex-1 truncate font-mono text-xs text-foreground/90" data-ha-title-tip={c.path}>
                         {c.path}
                       </span>
                       <FileDeltaCounter

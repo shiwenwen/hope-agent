@@ -285,7 +285,7 @@ function StateStackBar({
                 width: `${(b.value / total) * 100}%`,
                 backgroundColor: b.color,
               }}
-              title={`${b.label}: ${b.value}`}
+              data-ha-title-tip={`${b.label}: ${b.value}`}
             />
           ))}
       </div>

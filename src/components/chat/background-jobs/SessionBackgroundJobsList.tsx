@@ -180,7 +180,7 @@ function BackgroundJobRow({
           {merged.resultPath && (
             <div
               className="truncate text-[10px] text-muted-foreground/75"
-              title={merged.resultPath}
+              data-ha-title-tip={merged.resultPath}
             >
               {t("backgroundJobs.outputFile", "完整结果")}: {merged.resultPath}
             </div>

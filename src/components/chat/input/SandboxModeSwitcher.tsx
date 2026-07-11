@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { FloatingMenu } from "@/components/ui/floating-menu"
+import { IconTip } from "@/components/ui/tooltip"
 import { useClickOutside } from "@/hooks/useClickOutside"
 import { cn } from "@/lib/utils"
 import { getTransport } from "@/lib/transport-provider"
@@ -197,23 +198,26 @@ export default function SandboxModeSwitcher({
           )}
         >
           <ActiveIcon className="h-4 w-4 shrink-0" />
-          <span className="truncate">{t("chat.sandboxMode.menuLabel", { defaultValue: "沙箱" })}</span>
+          <span className="truncate">
+            {t("chat.sandboxMode.menuLabel", { defaultValue: "沙箱" })}
+          </span>
           <span className="ml-auto truncate text-xs text-muted-foreground">{activeLabel}</span>
         </button>
       ) : (
-        <button
-          type="button"
-          aria-label={activeLabel}
-          title={activeLabel}
-          onClick={() => setOpen(!open)}
-          className={cn(
-            "flex items-center gap-1 bg-transparent text-xs font-medium px-2 py-1 rounded-lg cursor-pointer transition-colors hover:bg-secondary shrink-0 whitespace-nowrap",
-            activeTheme.buttonTone,
-          )}
-        >
-          <ActiveIcon className="h-4 w-4 shrink-0" />
-          <span>{activeLabel}</span>
-        </button>
+        <IconTip label={activeLabel}>
+          <button
+            type="button"
+            aria-label={activeLabel}
+            onClick={() => setOpen(!open)}
+            className={cn(
+              "flex items-center gap-1 bg-transparent text-xs font-medium px-2 py-1 rounded-lg cursor-pointer transition-colors hover:bg-secondary shrink-0 whitespace-nowrap",
+              activeTheme.buttonTone,
+            )}
+          >
+            <ActiveIcon className="h-4 w-4 shrink-0" />
+            <span>{activeLabel}</span>
+          </button>
+        </IconTip>
       )}
 
       {isMenu ? (

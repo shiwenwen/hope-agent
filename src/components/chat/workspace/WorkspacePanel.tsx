@@ -976,7 +976,7 @@ function MemoryDiagnosticsSection({
                       "inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] tabular-nums",
                       turnToneClass(turn.status, turn.degraded),
                     )}
-                    title={`${retrievalTraceStatusLabel(turn.status, t)} · ${turn.contextRefCount}/${turn.candidateRefCount}`}
+                    data-ha-title-tip={`${retrievalTraceStatusLabel(turn.status, t)} · ${turn.contextRefCount}/${turn.candidateRefCount}`}
                   >
                     #{turn.index + 1}
                     <span className="ml-1 text-muted-foreground">
@@ -1849,7 +1849,7 @@ function ManagedWorktreesMiniPanel({
                   "flex min-w-0 items-center gap-1.5 rounded-md px-1.5 py-1 text-[10px]",
                   isActive ? "bg-primary/10" : "bg-background/35",
                 )}
-                title={worktree.path}
+                data-ha-title-tip={worktree.path}
               >
                 <div className="min-w-0 flex-1">
                   <div className="flex min-w-0 items-center gap-1.5">
@@ -14328,7 +14328,7 @@ function LoopRunHistory({
                     {usageVisible && usage ? (
                       <span
                         className="min-w-0 truncate"
-                        title={t(
+                        data-ha-title-tip={t(
                           "workspace.loop.runUsageBoundary",
                           "优先按 Loop 触发消息到下一条用户消息之间统计；历史数据无触发元数据时回退到运行窗口。不代表完整成本。",
                         )}
@@ -17961,7 +17961,7 @@ function WorkflowCreateComposer({
                     )}
                     disabled={saving || previewLoading}
                     aria-pressed={worktreeMode === worktree.id}
-                    title={worktree.path}
+                    data-ha-title-tip={worktree.path}
                     onClick={() => onWorktreeModeChange(worktree.id)}
                   >
                     <FolderGit2 className="h-3.5 w-3.5 shrink-0" />

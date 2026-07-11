@@ -455,7 +455,7 @@ export function FileBrowserView({
         <Select value={selectedWorktreePath} onValueChange={jumpToWorktree}>
           <SelectTrigger
             className="h-7 min-w-0 flex-1 gap-1.5 rounded-md bg-background/70 px-2 py-0 text-xs shadow-sm"
-            title={gitTitle}
+            data-ha-title-tip={gitTitle}
           >
             {gitLabel}
           </SelectTrigger>
@@ -474,7 +474,7 @@ export function FileBrowserView({
       ) : (
         <div
           className="flex h-7 min-w-0 flex-1 items-center gap-1.5 rounded-md border border-input bg-background/70 px-2 text-xs text-foreground shadow-sm"
-          title={gitTitle}
+          data-ha-title-tip={gitTitle}
         >
           {gitLabel}
         </div>

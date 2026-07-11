@@ -3691,7 +3691,7 @@ export default function ClaimsBetaView({ focus }: ClaimsBetaViewProps) {
             size="icon"
             className="h-6 w-6 shrink-0 text-muted-foreground hover:text-foreground"
             aria-label={t("settings.claims.reviewHistoryCopyItem")}
-            title={t("settings.claims.reviewHistoryCopyItem")}
+            data-ha-title-tip={t("settings.claims.reviewHistoryCopyItem")}
             onClick={() => void copyReviewHistoryItem(item)}
           >
             <Copy className="h-3 w-3" />
@@ -3772,7 +3772,7 @@ export default function ClaimsBetaView({ focus }: ClaimsBetaViewProps) {
             <div className="mt-1 flex flex-wrap gap-1 text-[10px] text-muted-foreground">
               <span
                 className="rounded bg-secondary/70 px-1.5 py-0.5"
-                title={trustDetail(evidenceSummary.trust)}
+                data-ha-title-tip={trustDetail(evidenceSummary.trust)}
               >
                 {trustLabel(evidenceSummary.trust)}
               </span>
@@ -3868,7 +3868,7 @@ export default function ClaimsBetaView({ focus }: ClaimsBetaViewProps) {
                 <span
                   key={example.claimId}
                   className="min-w-0 max-w-[180px] truncate rounded bg-secondary/70 px-1.5 py-0.5"
-                  title={example.content || example.object}
+                  data-ha-title-tip={example.content || example.object}
                 >
                   {example.object || example.content} ·{" "}
                   {example.status === "active"
@@ -4031,7 +4031,7 @@ export default function ClaimsBetaView({ focus }: ClaimsBetaViewProps) {
                 setClaimListSort(normalizeClaimListSort(value))
               }}
             >
-              <SelectTrigger className="h-8 w-[155px] text-xs" title={claimListSortRuntimeText}>
+              <SelectTrigger className="h-8 w-[155px] text-xs" data-ha-title-tip={claimListSortRuntimeText}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -4188,7 +4188,7 @@ export default function ClaimsBetaView({ focus }: ClaimsBetaViewProps) {
                         variant="ghost"
                         size="sm"
                         className="h-6 min-w-0 max-w-[220px] justify-start truncate px-2 text-[10px]"
-                        title={label}
+                        data-ha-title-tip={label}
                         onClick={() => applyClaimListFilterPreset(preset)}
                       >
                         <span className="truncate">{label}</span>
@@ -4400,7 +4400,7 @@ export default function ClaimsBetaView({ focus }: ClaimsBetaViewProps) {
                               variant="ghost"
                               size="sm"
                               className="h-6 min-w-0 max-w-[220px] justify-start truncate px-2 text-[10px]"
-                              title={label}
+                              data-ha-title-tip={label}
                               onClick={() => applyReviewHistoryFilterPreset(preset)}
                             >
                               <span className="truncate">{label}</span>
@@ -4605,7 +4605,7 @@ export default function ClaimsBetaView({ focus }: ClaimsBetaViewProps) {
                     size="sm"
                     className="h-6 shrink-0 gap-1 px-2 text-[10px] text-muted-foreground"
                     onClick={() => void copyClaimLink(detail.claim)}
-                    title={t("settings.claims.copyLink")}
+                    data-ha-title-tip={t("settings.claims.copyLink")}
                     aria-label={t("settings.claims.copyLink")}
                   >
                     <Link2 className="h-3 w-3" />
@@ -4629,7 +4629,7 @@ export default function ClaimsBetaView({ focus }: ClaimsBetaViewProps) {
                         size="sm"
                         className="h-5 shrink-0 px-1"
                         onClick={() => openScope(detail.claim)}
-                        title={t("settings.claims.openScope")}
+                        data-ha-title-tip={t("settings.claims.openScope")}
                         aria-label={t("settings.claims.openScope")}
                       >
                         <ExternalLink className="h-3 w-3" />

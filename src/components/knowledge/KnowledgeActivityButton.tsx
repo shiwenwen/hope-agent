@@ -382,7 +382,7 @@ function ReembedJobRow({
       <div className="flex items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-1.5">
           <StatusIcon status={job.status} />
-          <span className="truncate text-xs font-medium" title={title}>
+          <span className="truncate text-xs font-medium" data-ha-title-tip={title}>
             {title}
           </span>
         </div>
@@ -397,7 +397,7 @@ function ReembedJobRow({
       </div>
 
       <div className="mt-1 flex items-center gap-1.5 text-[11px] text-muted-foreground">
-        <span className="truncate" title={subject}>
+        <span className="truncate" data-ha-title-tip={subject}>
           {subject}
         </span>
         <span className="shrink-0">·</span>

@@ -54,7 +54,7 @@ function ChangeSection({ change }: { change: FileChangeMetadata }) {
         </span>
         <span
           className="min-w-0 flex-1 truncate font-mono text-muted-foreground"
-          title={change.path}
+          data-ha-title-tip={change.path}
         >
           {change.path}
         </span>

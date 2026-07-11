@@ -288,18 +288,18 @@ function PlanListRow({ entry, active, onSelect }: PlanListRowProps) {
     >
       <div className="flex items-center gap-2 mb-1">
         <StateBadge state={entry.state} orphan={entry.orphan} />
-        <span className="text-xs font-medium truncate flex-1" title={title}>
+        <span className="text-xs font-medium truncate flex-1" data-ha-title-tip={title}>
           {title}
         </span>
       </div>
       <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
-        <span className="truncate" title={entry.agentId}>
+        <span className="truncate" data-ha-title-tip={entry.agentId}>
           {entry.agentId}
         </span>
         <span>·</span>
         <span>v{entry.versionCount}</span>
         <span>·</span>
-        <span className="ml-auto" title={entry.updatedAt}>
+        <span className="ml-auto" data-ha-title-tip={entry.updatedAt}>
           {formatShortDate(entry.updatedAt)}
         </span>
       </div>

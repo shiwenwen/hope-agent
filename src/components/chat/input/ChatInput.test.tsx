@@ -10,6 +10,7 @@ import type { GoalSnapshot } from "@/components/chat/workspace/useGoal"
 import ChatInput from "./ChatInput"
 import IncognitoToggle from "./IncognitoToggle"
 import PermissionModeSwitcher from "./PermissionModeSwitcher"
+import SandboxModeSwitcher from "./SandboxModeSwitcher"
 import { getPastedTextFileMeta } from "./pastedTextAttachment"
 
 vi.mock("react-i18next", () => ({
@@ -280,6 +281,27 @@ describe("IncognitoToggle", () => {
 })
 
 describe("Collapsed toolbar mode switchers", () => {
+  test("uses the standard tooltip for toolbar permission and sandbox controls", () => {
+    render(
+      <TooltipProvider>
+        <PermissionModeSwitcher permissionMode="default" onPermissionModeChange={vi.fn()} />
+        <SandboxModeSwitcher sandboxMode="off" onSandboxModeChange={vi.fn()} />
+      </TooltipProvider>,
+    )
+
+    const permissionButton = screen.getByRole("button", {
+      name: "chat.permissionMode.default.label (Shift+Tab)",
+    })
+    const sandboxButton = screen.getByRole("button", { name: "off" })
+
+    expect(permissionButton.getAttribute("title")).toBeNull()
+    expect(permissionButton.getAttribute("data-ha-tip")).toBe(
+      "chat.permissionMode.default.label (Shift+Tab)",
+    )
+    expect(sandboxButton.getAttribute("title")).toBeNull()
+    expect(sandboxButton.getAttribute("data-ha-tip")).toBe("off")
+  })
+
   test("renders sandbox choices inside the inline permission menu", async () => {
     render(
       <TooltipProvider>
@@ -395,7 +417,7 @@ describe("ChatInput", () => {
     expect(screen.getByText("chat.loopMode.restricted")).toBeTruthy()
   })
 
-  test("stacks model submenus upward when a side panel would overflow the viewport", async () => {
+  test("places model submenus below when neither horizontal side fits and space below is larger", async () => {
     const originalInnerWidth = window.innerWidth
     const originalGetBoundingClientRect = HTMLElement.prototype.getBoundingClientRect
     const longModel: AvailableModel = {
@@ -435,7 +457,7 @@ describe("ChatInput", () => {
 
       await waitFor(() => {
         const submenuItem = screen.getByText(longModel.modelName)
-        expect(submenuItem.closest(".ha-menu-from-top")).toBeTruthy()
+        expect(submenuItem.closest(".ha-menu-from-bottom")).toBeTruthy()
         expect(submenuItem.closest(".ha-menu-from-left")).toBeFalsy()
       })
     } finally {
@@ -757,10 +779,7 @@ describe("ChatInput", () => {
       expect(onGoalModeSubmit).toHaveBeenCalledWith("Build a durable goal flow")
     })
     expect(onCommandAction).not.toHaveBeenCalled()
-    expect(transportMock.call).not.toHaveBeenCalledWith(
-      "execute_slash_command",
-      expect.anything(),
-    )
+    expect(transportMock.call).not.toHaveBeenCalledWith("execute_slash_command", expect.anything())
   })
 
   test("lets /loop drafts bypass slash execution on Enter", async () => {
@@ -804,10 +823,7 @@ describe("ChatInput", () => {
       expect(onLoopModeSubmit).toHaveBeenCalledWith("Build release notes every 10m")
     })
     expect(onCommandAction).not.toHaveBeenCalled()
-    expect(transportMock.call).not.toHaveBeenCalledWith(
-      "execute_slash_command",
-      expect.anything(),
-    )
+    expect(transportMock.call).not.toHaveBeenCalledWith("execute_slash_command", expect.anything())
   })
 
   test("executes /loop drafts as slash commands when loop composer submit is unavailable", async () => {
@@ -917,10 +933,7 @@ describe("ChatInput", () => {
       fireEvent.click(screen.getByRole("button", { name: "chat.send" }))
 
       await waitFor(() => {
-        expect(onGoalModeSubmit).toHaveBeenCalledWith(
-          "Manual browser smoke",
-          "append_follow_up",
-        )
+        expect(onGoalModeSubmit).toHaveBeenCalledWith("Manual browser smoke", "append_follow_up")
       })
       expect(onInputChange).toHaveBeenCalledWith("")
     } finally {
@@ -971,7 +984,7 @@ describe("ChatInput", () => {
 
     const activity = screen.getByText("chat.activity.waitingGoalAcceptance")
     expect(activity).toBeTruthy()
-    expect(activity.getAttribute("title")).toContain("Complete Goal v4 review")
+    expect(activity.getAttribute("data-ha-title-tip")).toContain("Complete Goal v4 review")
   })
 
   test("shows a compact workflow progress line for the most relevant run", () => {
@@ -1133,10 +1146,7 @@ describe("ChatInput", () => {
         expect(onDraftWorkflowModeChange).toHaveBeenCalledWith("on")
       })
       expect(onEnsureSession).not.toHaveBeenCalled()
-      expect(transportMock.call).not.toHaveBeenCalledWith(
-        "set_workflow_mode",
-        expect.anything(),
-      )
+      expect(transportMock.call).not.toHaveBeenCalledWith("set_workflow_mode", expect.anything())
       expect(await screen.findByText("chat.workflowMode.activeOnDetail")).toBeTruthy()
     } finally {
       rectSpy.mockRestore()

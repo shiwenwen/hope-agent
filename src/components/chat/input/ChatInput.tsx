@@ -2242,7 +2242,7 @@ export default function ChatInput({
                         ? "border-destructive/30 text-destructive"
                         : "border-emerald-500/20",
                   )}
-                  title={activityDetail || undefined}
+                  data-ha-title-tip={activityDetail || undefined}
                 >
                   {activityHeadlineLabel}
                 </span>
@@ -2445,7 +2445,7 @@ export default function ChatInput({
                   type="button"
                   className="min-w-0 flex-1 truncate text-left font-medium"
                   onClick={onOpenWorkspace}
-                  title={activityDetail || undefined}
+                  data-ha-title-tip={activityDetail || undefined}
                 >
                   {activityHeadlineLabel}
                   {autonomyActivity.currentStep ? (

@@ -214,7 +214,7 @@ export default function ApprovalDialog({ requests, onRespond }: ApprovalDialogPr
               size="sm"
               onClick={() => void respond("allow_always")}
               disabled={allowAlwaysBarred || isResponding}
-              title={allowAlwaysBarred ? t("approval.allowAlwaysDisabled") : undefined}
+              data-ha-title-tip={allowAlwaysBarred ? t("approval.allowAlwaysDisabled") : undefined}
             >
               {t("approval.allowAlways")}
             </Button>
@@ -277,7 +277,7 @@ function CountdownRing({
   return (
     <div
       className="flex shrink-0 items-center gap-1.5"
-      title={t("approval.countdownTooltip", {
+      data-ha-title-tip={t("approval.countdownTooltip", {
         seconds: remaining,
         action: t(`approval.countdownAction.${autoAction}`),
       })}

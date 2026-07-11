@@ -839,7 +839,7 @@ export default function MemoryListView({
                     variant="ghost"
                     size="sm"
                     className="h-6 min-w-0 max-w-[260px] justify-start truncate px-2 text-xs"
-                    title={label}
+                    data-ha-title-tip={label}
                     onClick={() => applyFilterPreset(preset)}
                   >
                     <span className="truncate">{label}</span>

@@ -570,7 +570,7 @@ function ProjectGroup({
 
               <div className="min-w-0 flex-1 pr-12">
                 <div
-                  title={project.name}
+                  data-ha-title-tip={project.name}
                   className={cn(
                     "truncate font-semibold text-foreground",
                     displayMode === "compact" ? "text-[12.5px]" : "text-sm",

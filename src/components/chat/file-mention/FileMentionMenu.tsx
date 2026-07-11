@@ -266,7 +266,7 @@ export default function FileMentionMenu({
             className={rowClass(isSelected)}
             onClick={() => onSelectSkill(skill)}
             onMouseEnter={() => onHover(flatIdx)}
-            title={skill.description}
+            data-ha-title-tip={skill.description}
           >
             {meta && (
               <SkillMentionIcon kind={meta.iconKind} className="h-4 w-4 shrink-0 text-rose-500" />
@@ -307,7 +307,7 @@ export default function FileMentionMenu({
             className={rowClass(isSelected)}
             onClick={() => onSelectAgent(agent)}
             onMouseEnter={() => onHover(flatIdx)}
-            title={agent.description ?? agent.id}
+            data-ha-title-tip={agent.description ?? agent.id}
           >
             <AgentSelectDisplay agent={agent} size="sm" className="min-w-0 text-[13px]" />
             <span className="ml-auto shrink-0 font-mono text-[11px] text-muted-foreground/50">

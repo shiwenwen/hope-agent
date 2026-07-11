@@ -1714,7 +1714,7 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
             )}
           >
             <FileText className="h-3 w-3 shrink-0 text-muted-foreground" />
-            <span className="flex-1 truncate" title={n.relPath}>
+            <span className="flex-1 truncate" data-ha-title-tip={n.relPath}>
               {node.name}
             </span>
             {/* Unsaved marker — only the currently-open note can be dirty
@@ -1810,7 +1810,7 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
                 <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" />
               )}
               <Folder className="h-3 w-3 shrink-0 text-muted-foreground" />
-              <span className="flex-1 truncate font-medium" title={node.path}>
+              <span className="flex-1 truncate font-medium" data-ha-title-tip={node.path}>
                 {node.name}
               </span>
             </button>
@@ -2361,7 +2361,7 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
                 {draftFolder ? (
                   <span
                     className="flex shrink-0 items-center gap-1 truncate text-xs text-muted-foreground"
-                    title={draftFolder}
+                    data-ha-title-tip={draftFolder}
                   >
                     <Folder className="h-3 w-3 shrink-0" />
                     {draftFolder}/
@@ -2421,7 +2421,7 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
                 {openDir && (
                   <span
                     className="flex shrink-0 items-center gap-1 truncate text-xs text-muted-foreground"
-                    title={openDir}
+                    data-ha-title-tip={openDir}
                   >
                     <Folder className="h-3 w-3 shrink-0" />
                     {openDir}/
@@ -2450,7 +2450,7 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
                   <button
                     type="button"
                     disabled={readOnly}
-                    title={readOnly ? (openPath ?? "") : t("knowledge.clickToRename", "Click to rename")}
+                    data-ha-title-tip={readOnly ? (openPath ?? "") : t("knowledge.clickToRename", "Click to rename")}
                     onClick={() => {
                       setTitleValue(openBase)
                       setTitleEditing(true)
@@ -2742,7 +2742,7 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
                           "min-w-0 flex-1 truncate text-left",
                           broken ? "text-red-500" : "text-foreground hover:underline",
                         )}
-                        title={l.rawText}
+                        data-ha-title-tip={l.rawText}
                       >
                         {l.alias || l.targetRef}
                       </button>
