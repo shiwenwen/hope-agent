@@ -25,9 +25,13 @@ import {
   type LucideIcon,
 } from "lucide-react"
 import type {
+  ActiveMemoryRecall,
+  ActiveMemoryRecallEvent,
   ActiveModel,
   AvailableModel,
+  ChatRuntimeDefaults,
   Message,
+  SessionMessage,
   SessionMeta,
   SessionMode,
   SandboxMode,
@@ -81,7 +85,7 @@ import { useChatStream } from "./useChatStream"
 import { useChatStreamReattach } from "./hooks/useChatStreamReattach"
 import { usePlanMode } from "./plan-mode/usePlanMode"
 import { useTaskProgressSnapshot } from "./tasks/useTaskProgressSnapshot"
-import { computeContextUsage, formatContextUsage } from "./chatUtils"
+import { activeMemoryRecallToUsedRefs, computeContextUsage, formatContextUsage } from "./chatUtils"
 import { recentUserInputHistory } from "./quick-prompts/messageQuickPrompts"
 import {
   COMPACT_CONTEXT_UPDATED_EVENT,
@@ -121,6 +125,11 @@ import { PlanPanel } from "./plan-mode/PlanPanel"
 import type { BuiltPlanComment } from "./plan-mode/planCommentMessage"
 import { RightPanelShell } from "./right-panel/RightPanelShell"
 import { useProjects } from "./project/hooks/useProjects"
+import {
+  projectFocusLoadErrorToast,
+  projectFocusMissingToast,
+} from "./project/projectFocusFeedback"
+import { chatKnowledgeReferenceAttachErrorToast } from "./chatKnowledgeReferenceFeedback"
 import ProjectDialog from "./project/ProjectDialog"
 import ProjectOverviewDialog from "./project/ProjectOverviewDialog"
 import {
@@ -140,9 +149,15 @@ import {
   CHAT_SIDEBAR_MIN_WIDTH,
   CHAT_SIDEBAR_WIDTH_STORAGE_KEY,
 } from "./sidebar/types"
-import { generateClientId } from "./chatScrollKeys"
+import { generateClientId, getLatestUserTurnKey } from "./chatScrollKeys"
 import type { Project, ProjectMeta } from "@/types/project"
 import type { KbDraftAttachment } from "@/types/knowledge"
+import type { ChatFocusTarget } from "@/components/chat/chatFocus"
+import {
+  chatFocusLoadErrorToast,
+  chatFocusMissingMessageToast,
+  chatFocusMissingSessionToast,
+} from "./chatFocusFeedback"
 
 function appendGoalCriterionLine(
   existingCriteria: string | null | undefined,
@@ -179,6 +194,10 @@ interface ChatScreenProps {
   onOpenDashboardTab?: (tab: string, initialReportId?: string | null) => void
   sessionsRefreshTrigger?: number
   onCurrentProjectChange?: (projectId: string | null) => void
+  externalChatFocus?: (ChatFocusTarget & { nonce: number }) | null
+  onExternalChatFocusHandled?: (nonce: number) => void
+  externalProjectFocus?: { projectId: string; nonce: number } | null
+  onExternalProjectFocusHandled?: (nonce: number) => void
   /** Token to append to the chat input on next render (e.g. `@plan:abcd:v0` or a
    *  `[[note]]` ref). */
   pendingChatInsert?: ChatInsert
@@ -186,6 +205,8 @@ interface ChatScreenProps {
   onChatInsertConsumed?: () => void
   /** Open the settings view, optionally to a specific section. */
   onOpenSettings?: (section?: SettingsSection) => void
+  /** Open the Knowledge Space view. */
+  onOpenKnowledge?: () => void
 }
 
 interface ManualCompactOverride {
@@ -361,6 +382,34 @@ function slashCommandDisplay(commandText: string): {
   return goalSlashCommandDisplay(commandText)
 }
 
+function attachActiveMemoryToLatestAssistant(
+  messages: Message[],
+  turnKey: string | null,
+  recall: ActiveMemoryRecall,
+): Message[] {
+  if (!turnKey) return messages
+  if (getLatestUserTurnKey(messages) !== turnKey) return messages
+
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const msg = messages[i]
+    if (msg.role === "user") break
+    if (msg.role !== "assistant") continue
+    const usedMemoryRefs = activeMemoryRecallToUsedRefs(recall)
+    if (msg.activeMemory === recall && msg.usedMemoryRefs?.length === usedMemoryRefs.length) {
+      return messages
+    }
+    const next = messages.slice()
+    next[i] = {
+      ...msg,
+      activeMemory: recall,
+      ...(usedMemoryRefs.length > 0 ? { usedMemoryRefs } : {}),
+    }
+    return next
+  }
+
+  return messages
+}
+
 type BrowserExtensionRequiredPayload = {
   requirement?: string
   reason?: string
@@ -487,9 +536,14 @@ export default function ChatScreen({
   onOpenDashboardTab,
   sessionsRefreshTrigger,
   onCurrentProjectChange,
+  externalChatFocus,
+  onExternalChatFocusHandled,
+  externalProjectFocus,
+  onExternalProjectFocusHandled,
   pendingChatInsert,
   onChatInsertConsumed,
   onOpenSettings,
+  onOpenKnowledge,
 }: ChatScreenProps) {
   const { t } = useTranslation()
 
@@ -507,7 +561,11 @@ export default function ChatScreen({
     applyModelForDisplay,
     handleModelChange,
     handleEffortChange,
+    handleTemperatureChange,
+    resetSessionEffort,
+    resetSessionTemperature,
   } = useModelState()
+  const [unavailableModelPreference, setUnavailableModelPreference] = useState<string | null>(null)
 
   // Sidebar panel width
   const [panelWidth, setPanelWidth] = useState(() => {
@@ -715,6 +773,9 @@ export default function ChatScreen({
   const activeSessionIdForProjectsRef = useRef<string | null>(initialSessionId ?? null)
   const {
     projects,
+    loading: projectsLoading,
+    loaded: projectsLoaded,
+    error: projectsError,
     createProject,
     updateProject,
     deleteProject,
@@ -737,7 +798,6 @@ export default function ChatScreen({
     availableModels,
     setActiveModel,
     globalActiveModelRef,
-    handleModelChange,
     applyModelForDisplay,
     initialSessionId,
     onSessionNavigated,
@@ -806,6 +866,7 @@ export default function ChatScreen({
   const setAgentName = session.setAgentName
   const updateSessionMeta = session.updateSessionMeta
   const rawHandleSwitchSession = session.handleSwitchSession
+  const lastExternalChatFocusNonceRef = useRef<number | null>(null)
   const latestMessagesRef = useRef<Message[]>(session.messages)
   const incognitoComposerStateRef = useRef({
     input: "",
@@ -897,17 +958,29 @@ export default function ChatScreen({
   )
 
   const handleSessionEffortChange = useCallback(
-    async (effort: string) => {
+    async (effort: string, options?: { applyToAgentDefault?: boolean }) => {
       const sid = session.currentSessionId
       if (sid) {
         updateSessionMeta(sid, (prev) =>
           prev.reasoningEffort === effort ? prev : { ...prev, reasoningEffort: effort },
         )
       }
-      await handleEffortChange(effort, sid, session.currentAgentId)
+      await handleEffortChange(effort, sid, session.currentAgentId, options)
     },
     [handleEffortChange, session.currentAgentId, session.currentSessionId, updateSessionMeta],
   )
+
+  const handleSessionEffortReset = useCallback(async () => {
+    const sid = session.currentSessionId
+    if (sid) {
+      await resetSessionEffort(sid)
+      return
+    }
+    const defaults = await getTransport().call<ChatRuntimeDefaults>("get_chat_runtime_defaults", {
+      agentId: session.currentAgentId,
+    })
+    setReasoningEffort(defaults.reasoningEffort)
+  }, [resetSessionEffort, session.currentAgentId, session.currentSessionId, setReasoningEffort])
 
   const hasDisposableIncognitoContent = useCallback(() => {
     const composer = incognitoComposerStateRef.current
@@ -1013,6 +1086,61 @@ export default function ChatScreen({
     [rawHandleSwitchSession, requestIncognitoLeaveConfirmation, session.currentSessionId],
   )
 
+  useEffect(() => {
+    if (!externalChatFocus) return
+    if (lastExternalChatFocusNonceRef.current === externalChatFocus.nonce) return
+    lastExternalChatFocusNonceRef.current = externalChatFocus.nonce
+    ;(async () => {
+      try {
+        await reloadSessions()
+        const sourceSession = await getTransport().call<SessionMeta | null>("get_session_cmd", {
+          sessionId: externalChatFocus.sessionId,
+        })
+        if (!sourceSession) {
+          const failureToast = chatFocusMissingSessionToast(t)
+          toast.error(
+            failureToast.title,
+            failureToast.description ? { description: failureToast.description } : undefined,
+          )
+          onExternalChatFocusHandled?.(externalChatFocus.nonce)
+          return
+        }
+        if (externalChatFocus.targetMessageId !== undefined) {
+          const [messages] = await getTransport().call<
+            [SessionMessage[], number, boolean, boolean]
+          >("load_session_messages_around_cmd", {
+            sessionId: externalChatFocus.sessionId,
+            targetMessageId: externalChatFocus.targetMessageId,
+            before: 1,
+            after: 1,
+          })
+          if (!messages.some((message) => message.id === externalChatFocus.targetMessageId)) {
+            const failureToast = chatFocusMissingMessageToast(t)
+            toast.error(
+              failureToast.title,
+              failureToast.description ? { description: failureToast.description } : undefined,
+            )
+            await handleSwitchSession(externalChatFocus.sessionId)
+            onExternalChatFocusHandled?.(externalChatFocus.nonce)
+            return
+          }
+        }
+        await handleSwitchSession(externalChatFocus.sessionId, {
+          targetMessageId: externalChatFocus.targetMessageId,
+        })
+        onExternalChatFocusHandled?.(externalChatFocus.nonce)
+      } catch (error) {
+        logger.warn("chat", "ChatScreen::externalChatFocus", "Failed to open source chat", error)
+        const failureToast = chatFocusLoadErrorToast(t, error)
+        toast.error(
+          failureToast.title,
+          failureToast.description ? { description: failureToast.description } : undefined,
+        )
+        onExternalChatFocusHandled?.(externalChatFocus.nonce)
+      }
+    })()
+  }, [externalChatFocus, handleSwitchSession, onExternalChatFocusHandled, reloadSessions, t])
+
   const handleNewChatInProject = useCallback(
     async (projectId: string, defaultAgentId?: string | null) => {
       if (
@@ -1106,19 +1234,21 @@ export default function ChatScreen({
 
   const refreshRuntimeModelState = useCallback(async () => {
     try {
-      const [models, active, settings, agentConfig] = await Promise.all([
+      const [models, active, agentConfig, runtimeDefaults] = await Promise.all([
         getTransport().call<AvailableModel[]>("get_available_models"),
         getTransport().call<ActiveModel | null>("get_active_model"),
-        getTransport().call<{ model: string; reasoning_effort: string }>("get_current_settings"),
         getTransport()
           .call<AgentConfig>("get_agent_config", { id: currentAgentId })
           .catch(() => null),
+        getTransport().call<ChatRuntimeDefaults>("get_chat_runtime_defaults", {
+          ...(currentSessionId ? { sessionId: currentSessionId } : {}),
+          agentId: currentAgentId,
+        }),
       ])
 
       setAvailableModels(models)
       globalActiveModelRef.current = active
 
-      let displayModel = active
       const manualOverride = manualModelOverrideRef.current
       const manualModel = manualOverride
         ? models.find(
@@ -1130,27 +1260,8 @@ export default function ChatScreen({
         manualModelOverrideRef.current = null
       }
 
-      if (manualModel && manualOverride) {
-        displayModel = manualOverride
-      } else if (currentSessionMeta?.providerId && currentSessionMeta?.modelId) {
-        const sessionModel = models.find(
-          (m) =>
-            m.providerId === currentSessionMeta.providerId &&
-            m.modelId === currentSessionMeta.modelId,
-        )
-        if (sessionModel) {
-          displayModel = {
-            providerId: sessionModel.providerId,
-            modelId: sessionModel.modelId,
-          }
-        }
-      } else if (agentConfig?.model?.primary) {
-        const [providerId, modelId] = agentConfig.model.primary.split("::")
-        const agentModel = models.find((m) => m.providerId === providerId && m.modelId === modelId)
-        if (agentModel) {
-          displayModel = { providerId, modelId }
-        }
-      }
+      const displayModel =
+        manualModel && manualOverride ? manualOverride : (runtimeDefaults.model ?? null)
 
       setActiveModel(displayModel)
       const displayModelInfo = displayModel
@@ -1158,11 +1269,14 @@ export default function ChatScreen({
             (m) => m.providerId === displayModel.providerId && m.modelId === displayModel.modelId,
           )
         : undefined
-      const effort =
-        currentSessionMeta?.reasoningEffort ??
-        agentConfig?.model?.reasoningEffort ??
-        settings.reasoning_effort
+      const effort = runtimeDefaults.reasoningEffort
       setReasoningEffort(normalizeEffortForModel(displayModelInfo, effort, t))
+      setSessionTemperature(runtimeDefaults.temperature ?? null)
+      setUnavailableModelPreference(
+        !runtimeDefaults.preferredModelAvailable && runtimeDefaults.preferredModel
+          ? `${runtimeDefaults.preferredModel.providerId}::${runtimeDefaults.preferredModel.modelId}`
+          : null,
+      )
 
       if (agentConfig?.name) {
         setAgentName(agentConfig.name)
@@ -1174,23 +1288,49 @@ export default function ChatScreen({
     currentSessionMeta?.modelId,
     currentSessionMeta?.providerId,
     currentSessionMeta?.reasoningEffort,
+    currentSessionId,
     currentAgentId,
     globalActiveModelRef,
     setActiveModel,
     setAgentName,
     setAvailableModels,
     setReasoningEffort,
+    setSessionTemperature,
     t,
   ])
 
   const handleManualModelChange = useCallback(
-    async (key: string) => {
+    async (key: string, options?: { applyToAgentDefault?: boolean }) => {
       const [providerId, modelId] = key.split("::")
       if (!providerId || !modelId) return
-      manualModelOverrideRef.current = { providerId, modelId }
-      await handleModelChange(key, currentSessionId, session.currentAgentId)
+      setUnavailableModelPreference(null)
+      manualModelOverrideRef.current = currentSessionId ? null : { providerId, modelId }
+      await handleModelChange(key, currentSessionId, session.currentAgentId, options)
     },
     [handleModelChange, currentSessionId, session.currentAgentId],
+  )
+
+  const handleSessionTemperatureChange = useCallback(
+    async (temperature: number | null, options?: { applyToAgentDefault?: boolean }) => {
+      const sid = session.currentSessionId
+      if (temperature == null) {
+        if (sid) await resetSessionTemperature(sid)
+        else setSessionTemperature(null)
+        return
+      }
+      await handleTemperatureChange(temperature, sid, session.currentAgentId, options)
+      if (sid) {
+        updateSessionMeta(sid, (previous) => ({ ...previous, temperature }))
+      }
+    },
+    [
+      handleTemperatureChange,
+      resetSessionTemperature,
+      session.currentAgentId,
+      session.currentSessionId,
+      setSessionTemperature,
+      updateSessionMeta,
+    ],
   )
 
   // Auto-show team panel when a team is created
@@ -1361,6 +1501,34 @@ export default function ChatScreen({
     setProjectOverviewOpen(true)
   }, [])
 
+  useEffect(() => {
+    if (!externalProjectFocus) return
+    const project = projects.find((candidate) => candidate.id === externalProjectFocus.projectId)
+    if (project) {
+      setProjectOverviewTargetId(project.id)
+      setProjectOverviewOpen(true)
+      onExternalProjectFocusHandled?.(externalProjectFocus.nonce)
+      return
+    }
+    if (projectsLoading || !projectsLoaded) return
+    const failureToast = projectsError
+      ? projectFocusLoadErrorToast(t, projectsError)
+      : projectFocusMissingToast(t)
+    toast.error(
+      failureToast.title,
+      failureToast.description ? { description: failureToast.description } : undefined,
+    )
+    onExternalProjectFocusHandled?.(externalProjectFocus.nonce)
+  }, [
+    externalProjectFocus,
+    onExternalProjectFocusHandled,
+    projects,
+    projectsError,
+    projectsLoaded,
+    projectsLoading,
+    t,
+  ])
+
   const [deletingProject, setDeletingProject] = useState(false)
 
   const confirmDeleteProject = useCallback(async () => {
@@ -1414,7 +1582,7 @@ export default function ChatScreen({
     (enabled: boolean) => {
       if (session.currentSessionId) return
       // Project + incognito are mutually exclusive — a project draft can't go
-      // incognito (the toggle is also grayed via incognitoDisabledReason).
+      // incognito (the title-bar toggle is hidden via incognitoDisabledReason).
       if (draftProjectId) return
       setDraftIncognito(enabled)
       // Incognito = zero KB (D10). Drop any staged attaches so they can't ride
@@ -1684,7 +1852,7 @@ export default function ChatScreen({
     touchSessionCacheLru: session.touchSessionCacheLru,
     sessions: session.sessions,
     agents: session.agents,
-    activeModel,
+    manualModelOverrideRef,
     reloadSessions: refreshUnreadState,
     updateSessionMessages: session.updateSessionMessages,
     lastSeqRef: streamSeqRef,
@@ -1699,6 +1867,14 @@ export default function ChatScreen({
     onSandboxModeSynced: handleSandboxModeSynced,
     parentInjectionDeltasViaChatStream: true,
   })
+
+  const setProjectWelcomeInput = stream.setInput
+  const handleProjectWelcomeSuggestion = useCallback(
+    (prompt: string) => {
+      setProjectWelcomeInput(prompt)
+    },
+    [setProjectWelcomeInput],
+  )
 
   useEffect(() => {
     incognitoComposerStateRef.current = {
@@ -1784,6 +1960,11 @@ export default function ChatScreen({
         } catch (e) {
           // Non-fatal: the token is still inserted; the user can attach manually.
           logger.warn("ui", "ChatScreen::referenceInChat", "auto-attach KB failed", e)
+          const failure = chatKnowledgeReferenceAttachErrorToast(t, e)
+          toast.error(
+            failure.title,
+            failure.description ? { description: failure.description } : undefined,
+          )
         }
       }
       // Functional updater (not the captured `stream.input`): the `attach` await
@@ -1860,7 +2041,17 @@ export default function ChatScreen({
 
   // ── Memory extraction toast ────────────────────────────────
   const [memoryToast, setMemoryToast] = useState<{ count: number } | null>(null)
+  const [activeMemoryToast, setActiveMemoryToast] = useState<ActiveMemoryRecall | null>(null)
   const memoryToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const activeMemoryToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const messagesRef = useRef<Message[]>(session.messages)
+  const pendingActiveMemoryBySession = useRef<
+    Map<string, { turnKey: string | null; recall: ActiveMemoryRecall }>
+  >(new Map())
+
+  useEffect(() => {
+    messagesRef.current = session.messages
+  }, [session.messages])
 
   useEffect(() => {
     const unlisten = getTransport().listen("memory_extracted", (raw) => {
@@ -1877,6 +2068,40 @@ export default function ChatScreen({
       if (memoryToastTimer.current) clearTimeout(memoryToastTimer.current)
     }
   }, [session.currentSessionId])
+
+  useEffect(() => {
+    const unlisten = getTransport().listen("memory:active_recall", (raw) => {
+      const event = raw as ActiveMemoryRecallEvent
+      if (event.sessionId !== session.currentSessionId || !event.recall?.summary) return
+      const turnKey = getLatestUserTurnKey(messagesRef.current)
+      pendingActiveMemoryBySession.current.set(event.sessionId, { turnKey, recall: event.recall })
+      session.updateSessionMessages(event.sessionId, (prev) =>
+        attachActiveMemoryToLatestAssistant(prev, turnKey, event.recall),
+      )
+      setActiveMemoryToast(event.recall)
+      if (activeMemoryToastTimer.current) clearTimeout(activeMemoryToastTimer.current)
+      activeMemoryToastTimer.current = setTimeout(() => setActiveMemoryToast(null), 6500)
+    })
+    return () => {
+      unlisten()
+      if (activeMemoryToastTimer.current) clearTimeout(activeMemoryToastTimer.current)
+    }
+  }, [session.currentSessionId, session.updateSessionMessages])
+
+  useEffect(() => {
+    const sid = session.currentSessionId
+    if (!sid) return
+    const pending = pendingActiveMemoryBySession.current.get(sid)
+    if (!pending) return
+    const next = attachActiveMemoryToLatestAssistant(
+      session.messages,
+      pending.turnKey,
+      pending.recall,
+    )
+    if (next !== session.messages) {
+      session.updateSessionMessages(sid, () => next)
+    }
+  }, [session.currentSessionId, session.messages, session.updateSessionMessages])
 
   // ── Load system prompt ──────────────────────────────────────────
   const loadSystemPrompt = useCallback(async () => {
@@ -1945,7 +2170,8 @@ export default function ChatScreen({
         action?.type === "skillFork" ||
         action?.type === "compact"
       const suppressLoopCreateResult = isLoopCreateSlashCommand(result._slashCommandText)
-      const shouldAppendResultContent = result.content && !actionRendersResult && !suppressLoopCreateResult
+      const shouldAppendResultContent =
+        result.content && !actionRendersResult && !suppressLoopCreateResult
       const slashHistoryMessages: Message[] = []
       if (shouldShowSlashHistory && result._slashCommandText) {
         const now = new Date().toISOString()
@@ -3019,15 +3245,15 @@ export default function ChatScreen({
     }
   }, [workflowTitleBarRuns.activeCount, workflowTitleBarRuns.runs])
   const workflowInputProgress = useMemo(() => {
-	    const visibleStates = new Set<WorkflowRun["state"]>([
-	      "awaiting_approval",
-	      "awaiting_user",
-	      "blocked",
-	      "failed",
-	      "running",
-	      "recovering",
-	      "paused",
-	    ])
+    const visibleStates = new Set<WorkflowRun["state"]>([
+      "awaiting_approval",
+      "awaiting_user",
+      "blocked",
+      "failed",
+      "running",
+      "recovering",
+      "paused",
+    ])
     const priority = (run: WorkflowRun) => {
       switch (run.state) {
         case "awaiting_approval":
@@ -3035,14 +3261,14 @@ export default function ChatScreen({
         case "blocked":
         case "failed":
           return 0
-	        case "running":
-	        case "recovering":
-	          return 1
-	        case "paused":
-	          return 2
-	        default:
-	          return 9
-	      }
+        case "running":
+        case "recovering":
+          return 1
+        case "paused":
+          return 2
+        default:
+          return 9
+      }
     }
     const candidates = workflowTitleBarRuns.runs
       .filter((run) => visibleStates.has(run.state))
@@ -3402,6 +3628,8 @@ export default function ChatScreen({
                 sessionId={session.currentSessionId}
                 incognito={incognitoEnabled}
                 heroComposer={heroComposerActive}
+                projectName={currentProject?.name ?? null}
+                onProjectSuggestion={currentProject ? handleProjectWelcomeSuggestion : undefined}
                 pendingScrollIntent={session.pendingScrollIntent}
                 onScrollTargetHandled={session.clearPendingScrollIntent}
                 pendingQuestionGroup={planMode.pendingQuestionGroup}
@@ -3425,6 +3653,8 @@ export default function ChatScreen({
                   void stream.handleSend(message)
                 }}
                 onForkFromMessage={handleForkFromMessage}
+                onOpenMemorySettings={onOpenSettings ? () => onOpenSettings("memory") : undefined}
+                onOpenKnowledge={onOpenKnowledge}
                 onAddQuickPrompt={incognitoEnabled ? undefined : handleAddQuickPrompt}
                 displayMode={displayMode}
                 autoCollapseCompletedTurns={autoCollapseCompletedTurns}
@@ -3441,25 +3671,58 @@ export default function ChatScreen({
                       "absolute inset-x-0 top-[48%] z-20 flex -translate-y-1/2 justify-center px-5 sm:px-8",
                   )}
                 >
-                  {memoryToast && (
+                  {(activeMemoryToast || memoryToast) && (
                     <div
                       className={cn(
-                        "absolute bottom-full mb-2 flex items-center gap-2 px-3 py-1.5 rounded-lg bg-secondary/50 text-xs text-muted-foreground animate-in fade-in slide-in-from-bottom-2 duration-300 z-10",
+                        "absolute bottom-full mb-2 flex flex-col gap-2 animate-in fade-in slide-in-from-bottom-2 duration-300 z-10",
                         emptySessionInputHero
                           ? "inset-x-5 mx-auto max-w-[880px] sm:inset-x-8"
                           : "inset-x-3 mx-auto max-w-[880px]",
                       )}
                     >
-                      <Brain className="h-3.5 w-3.5 shrink-0" />
-                      <span>
-                        {t("settings.memoryExtractedToast", { count: memoryToast.count })}
-                      </span>
-                      <button
-                        onClick={() => setMemoryToast(null)}
-                        className="ml-auto text-muted-foreground/60 hover:text-muted-foreground"
-                      >
-                        ×
-                      </button>
+                      {activeMemoryToast && (
+                        <div className="flex items-center gap-2 rounded-lg border border-primary/15 bg-primary/8 px-3 py-1.5 text-xs text-foreground shadow-sm">
+                          <Brain className="h-3.5 w-3.5 shrink-0 text-primary" />
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-1.5">
+                              <span className="font-medium">
+                                {t("memory.activeRecallToastTitle", "已引用记忆")}
+                              </span>
+                              {activeMemoryToast.selected && (
+                                <span className="truncate text-[10px] text-muted-foreground">
+                                  {activeMemoryToast.selected.sourceType} ·{" "}
+                                  {activeMemoryToast.selected.scope}
+                                </span>
+                              )}
+                            </div>
+                            <div className="truncate text-muted-foreground">
+                              {activeMemoryToast.summary}
+                            </div>
+                          </div>
+                          <button
+                            onClick={() => setActiveMemoryToast(null)}
+                            className="ml-auto text-muted-foreground/60 hover:text-muted-foreground"
+                            aria-label={t("common.close", "关闭")}
+                          >
+                            ×
+                          </button>
+                        </div>
+                      )}
+                      {memoryToast && (
+                        <div className="flex items-center gap-2 rounded-lg bg-secondary/50 px-3 py-1.5 text-xs text-muted-foreground">
+                          <Brain className="h-3.5 w-3.5 shrink-0" />
+                          <span>
+                            {t("settings.memoryExtractedToast", { count: memoryToast.count })}
+                          </span>
+                          <button
+                            onClick={() => setMemoryToast(null)}
+                            className="ml-auto text-muted-foreground/60 hover:text-muted-foreground"
+                            aria-label={t("common.close", "关闭")}
+                          >
+                            ×
+                          </button>
+                        </div>
+                      )}
                     </div>
                   )}
 
@@ -3471,7 +3734,13 @@ export default function ChatScreen({
                   >
                     {heroComposerActive && (
                       <div className="mb-5 sm:mb-6">
-                        <ChatWelcomeHero incognito={incognitoEnabled} />
+                        <ChatWelcomeHero
+                          incognito={incognitoEnabled}
+                          projectName={currentProject?.name ?? null}
+                          onProjectSuggestion={
+                            currentProject ? handleProjectWelcomeSuggestion : undefined
+                          }
+                        />
                       </div>
                     )}
                     <ChatInput
@@ -3491,15 +3760,22 @@ export default function ChatScreen({
                       loading={session.loading}
                       availableModels={availableModels}
                       activeModel={activeModel}
+                      unavailableModelPreference={unavailableModelPreference}
                       reasoningEffort={reasoningEffort}
                       onModelChange={handleManualModelChange}
                       onEffortChange={handleSessionEffortChange}
+                      onEffortReset={handleSessionEffortReset}
                       attachedFiles={stream.attachedFiles}
                       onAttachFiles={(files) =>
                         stream.setAttachedFiles((prev) => [...prev, ...files])
                       }
                       onRemoveFile={(index) =>
                         stream.setAttachedFiles((prev) => prev.filter((_, i) => i !== index))
+                      }
+                      onUpdateFile={(index, file) =>
+                        stream.setAttachedFiles((prev) =>
+                          prev.map((existing, i) => (i === index ? file : existing)),
+                        )
                       }
                       pendingQuotes={stream.pendingQuotes}
                       onRemoveQuote={(index) => {
@@ -3530,7 +3806,7 @@ export default function ChatScreen({
                       sandboxMode={stream.sandboxMode}
                       onSandboxModeChange={stream.setSandboxModeByUser}
                       sessionTemperature={sessionTemperature}
-                      onSessionTemperatureChange={setSessionTemperature}
+                      onSessionTemperatureChange={handleSessionTemperatureChange}
                       incognitoEnabled={incognitoEnabled}
                       projectId={effectiveProjectId}
                       draftKbAttachments={draftKbAttachments}

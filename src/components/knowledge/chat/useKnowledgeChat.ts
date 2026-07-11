@@ -8,12 +8,20 @@ import type {
   Message,
   AvailableModel,
   ActiveModel,
+  ChatRuntimeDefaults,
   SessionMeta,
   SessionMessage,
   AgentSummaryForSidebar,
 } from "@/types/chat"
 import type { AgentConfig } from "@/components/settings/types"
 import type { KbChatThread } from "@/types/knowledge"
+import { toast } from "sonner"
+import { useTranslation } from "react-i18next"
+import {
+  knowledgeChatLoadIssue,
+  type KnowledgeChatLoadIssue,
+  type KnowledgeChatLoadOperation,
+} from "./knowledgeChatFeedback"
 
 const PAGE_SIZE = 30
 /** Thread-history page size (separate from the per-thread message page). */
@@ -52,8 +60,22 @@ export interface UseKnowledgeChatReturn {
   availableModels: AvailableModel[]
   activeModel: ActiveModel | null
   reasoningEffort: string
-  handleModelChange: (key: string) => void
-  handleEffortChange: (effort: string) => void
+  sessionTemperature: number | null
+  unavailableModelPreference: string | null
+  manualModelOverrideRef: React.MutableRefObject<ActiveModel | null>
+  handleModelChange: (
+    key: string,
+    options?: { applyToAgentDefault?: boolean },
+  ) => Promise<void>
+  handleEffortChange: (
+    effort: string,
+    options?: { applyToAgentDefault?: boolean },
+  ) => Promise<void>
+  handleEffortReset: () => Promise<void>
+  handleTemperatureChange: (
+    temperature: number | null,
+    options?: { applyToAgentDefault?: boolean },
+  ) => Promise<void>
 
   // Agent
   handleSwitchAgent: (agentId: string) => void
@@ -72,6 +94,9 @@ export interface UseKnowledgeChatReturn {
    *  session-guarded: never blanks the view on a transient error and never
    *  clobbers a thread the user has since switched to. */
   reconcileThread: (sessionId: string) => Promise<void>
+
+  // Load/degraded-state feedback
+  loadIssues: KnowledgeChatLoadIssue[]
 }
 
 /**
@@ -88,6 +113,7 @@ export function useKnowledgeChat(
   notePath: string | null,
   active: boolean,
 ): UseKnowledgeChatReturn {
+  const { t } = useTranslation()
   const [messages, setMessages] = useState<Message[]>([])
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null)
   const currentSessionIdRef = useRef<string | null>(null)
@@ -98,6 +124,7 @@ export function useKnowledgeChat(
   const [sessions, setSessions] = useState<SessionMeta[]>([])
   const [threads, setThreads] = useState<KbChatThread[]>([])
   const [threadsHasMore, setThreadsHasMore] = useState(false)
+  const [loadIssues, setLoadIssues] = useState<KnowledgeChatLoadIssue[]>([])
   // Pagination cursor for the history list. Query + offset live in refs so
   // `loadMoreThreads` keeps the active filter without re-arming on every render.
   const threadsQueryRef = useRef<string | undefined>(undefined)
@@ -125,6 +152,23 @@ export function useKnowledgeChat(
   const [availableModels, setAvailableModels] = useState<AvailableModel[]>([])
   const [activeModel, setActiveModel] = useState<ActiveModel | null>(null)
   const [reasoningEffort, setReasoningEffort] = useState("medium")
+  const [sessionTemperature, setSessionTemperature] = useState<number | null>(null)
+  const [unavailableModelPreference, setUnavailableModelPreference] = useState<string | null>(null)
+
+  const clearLoadIssue = useCallback((operation: KnowledgeChatLoadOperation) => {
+    setLoadIssues((prev) => prev.filter((issue) => issue.operation !== operation))
+  }, [])
+
+  const recordLoadIssue = useCallback(
+    (operation: KnowledgeChatLoadOperation, error: unknown) => {
+      const next = knowledgeChatLoadIssue(operation, error)
+      setLoadIssues((prev) => [
+        next,
+        ...prev.filter((issue) => issue.operation !== operation),
+      ])
+    },
+    [],
+  )
 
   useEffect(() => {
     currentSessionIdRef.current = currentSessionId
@@ -134,31 +178,47 @@ export function useKnowledgeChat(
     try {
       const list = await getTransport().call<AgentSummaryForSidebar[]>("list_agents")
       setAgents(list)
+      clearLoadIssue("loadAgents")
       return list
     } catch (e) {
       logger.error("ui", "KnowledgeChat::loadAgents", "Failed to load agents", e)
+      recordLoadIssue("loadAgents", e)
       return []
     }
-  }, [])
+  }, [clearLoadIssue, recordLoadIssue])
 
   const loadModels = useCallback(
-    async (agentId: string): Promise<ModelSnapshot | null> => {
+    async (agentId: string, sessionId?: string | null): Promise<ModelSnapshot | null> => {
       const version = ++modelLoadVersionRef.current
       try {
-        const [models, active, settings, agentConfig] = await Promise.all([
+        const [models, runtimeDefaults, agentConfigResult] = await Promise.all([
           getTransport().call<AvailableModel[]>("get_available_models"),
-          getTransport().call<ActiveModel | null>("get_active_model"),
-          getTransport().call<{ reasoning_effort: string }>("get_current_settings"),
+          getTransport().call<ChatRuntimeDefaults>("get_chat_runtime_defaults", {
+            sessionId: sessionId || undefined,
+            agentId,
+          }),
           getTransport()
             .call<AgentConfig>("get_agent_config", { id: agentId })
-            .catch(() => null),
+            .then((config) => ({ config, error: null as unknown }))
+            .catch((error) => ({ config: null as AgentConfig | null, error })),
         ])
         // A newer loadModels (e.g. bootstrap's default-agent load vs the
         // thread's real-agent load, or a fast note switch) superseded us —
         // don't let this stale result win the last-writer race.
         if (modelLoadVersionRef.current !== version) return null
+        if (agentConfigResult.error) {
+          logger.error(
+            "ui",
+            "KnowledgeChat::loadAgentConfig",
+            "Failed to load agent config",
+            agentConfigResult.error,
+          )
+          recordLoadIssue("loadAgentConfig", agentConfigResult.error)
+        } else {
+          clearLoadIssue("loadAgentConfig")
+        }
         setAvailableModels(models)
-        let displayModel = active
+        let displayModel = runtimeDefaults.model ?? null
         const manualOverride = manualModelOverrideRef.current
         const manualModel = manualOverride
           ? models.find(
@@ -169,10 +229,6 @@ export function useKnowledgeChat(
         if (manualOverride && !manualModel) manualModelOverrideRef.current = null
         if (manualModel && manualOverride) {
           displayModel = manualOverride
-        } else if (agentConfig?.model.primary) {
-          const [providerId, modelId] = agentConfig.model.primary.split("::")
-          const agentModel = models.find((m) => m.providerId === providerId && m.modelId === modelId)
-          if (agentModel) displayModel = { providerId, modelId }
         }
         setActiveModel(displayModel)
         const currentModel = displayModel
@@ -180,15 +236,23 @@ export function useKnowledgeChat(
               (m) => m.providerId === displayModel!.providerId && m.modelId === displayModel!.modelId,
             )
           : undefined
-        const effort = agentConfig?.model?.reasoningEffort ?? settings.reasoning_effort
+        const effort = runtimeDefaults.reasoningEffort
         setReasoningEffort(normalizeEffortForModel(currentModel, effort, (key) => key))
+        setSessionTemperature(runtimeDefaults.temperature ?? null)
+        setUnavailableModelPreference(
+          !runtimeDefaults.preferredModelAvailable && runtimeDefaults.preferredModel
+            ? `${runtimeDefaults.preferredModel.providerId}::${runtimeDefaults.preferredModel.modelId}`
+            : null,
+        )
+        clearLoadIssue("loadModels")
         return { models, displayModel, defaultEffort: effort }
       } catch (e) {
         logger.error("ui", "KnowledgeChat::loadModels", "Failed to load models", e)
+        recordLoadIssue("loadModels", e)
         return null
       }
     },
-    [],
+    [clearLoadIssue, recordLoadIssue],
   )
 
   // Replace-load for SWITCHING to a thread (clears + repopulates). For
@@ -208,16 +272,19 @@ export function useKnowledgeChat(
       setHasMore(hasMoreFromApi)
       setOldestDbId(rawMsgs[0]?.id ?? null)
       setLoadingMore(false)
+      clearLoadIssue("loadThread")
       return true
     } catch (e) {
       if (switchVersionRef.current !== version) return false
       logger.error("ui", "KnowledgeChat::loadMessages", "Failed to load messages", e)
-      setMessages([])
+      recordLoadIssue("loadThread", e)
+      const cached = sessionCacheRef.current.get(sessionId)
+      setMessages(cached ?? [])
       setHasMore(false)
       setOldestDbId(null)
       return false
     }
-  }, [])
+  }, [clearLoadIssue, recordLoadIssue])
 
   // Reconcile the CURRENT thread with DB truth after a turn ends. Merge-based:
   // preserves paged-in scrollback + optimistic/streamed messages, swallows a
@@ -260,14 +327,16 @@ export function useKnowledgeChat(
         setThreads(list)
         setThreadsHasMore(list.length >= THREADS_PAGE)
         threadsOffsetRef.current = list.length
+        clearLoadIssue("loadThreads")
       } catch (e) {
         if (v !== threadsLoadVersionRef.current) return
         logger.error("ui", "KnowledgeChat::reloadThreads", "Failed to list threads", e)
+        recordLoadIssue("loadThreads", e)
         setThreads([])
         setThreadsHasMore(false)
       }
     },
-    [kbId],
+    [kbId, clearLoadIssue, recordLoadIssue],
   )
 
   // Append the next history page. Offset-based; a thread reordering between pages
@@ -294,13 +363,15 @@ export function useKnowledgeChat(
       })
       setThreadsHasMore(list.length >= THREADS_PAGE)
       threadsOffsetRef.current = offset + list.length
+      clearLoadIssue("loadMoreThreads")
     } catch (e) {
       if (v !== threadsLoadVersionRef.current) return
       logger.error("ui", "KnowledgeChat::loadMoreThreads", "Failed to page threads", e)
+      recordLoadIssue("loadMoreThreads", e)
     } finally {
       threadsLoadingRef.current = false
     }
-  }, [kbId, threadsHasMore])
+  }, [kbId, threadsHasMore, clearLoadIssue, recordLoadIssue])
 
   // reloadSessions for useChatStream compat — refresh the thread list so a newly
   // auto-created session surfaces in history without a manual reload.
@@ -350,7 +421,7 @@ export function useKnowledgeChat(
           setCurrentAgentId(agentId)
           // Restore the thread's own agent's model list (bootstrap only loaded
           // the default agent's) so follow-ups don't inherit a wrong override.
-          void loadModels(agentId)
+          void loadModels(agentId, meta.id)
           setSessions([meta])
           // If we left this note mid-turn and came back, recompute loading and
           // keep the cached live view rather than clobbering the in-flight
@@ -365,6 +436,7 @@ export function useKnowledgeChat(
           } else {
             await loadThreadMessages(meta.id)
           }
+          clearLoadIssue("loadDefaultThread")
         } else {
           setCurrentSessionId(null)
           setMessages([])
@@ -373,9 +445,18 @@ export function useKnowledgeChat(
           // A draft has no in-flight turn — clear any stuck spinner from the
           // note we just left.
           setLoading(false)
+          clearLoadIssue("loadDefaultThread")
         }
       } catch (e) {
-        if (!cancelled) logger.error("ui", "KnowledgeChat::defaultLoad", "Failed", e)
+        if (!cancelled) {
+          logger.error("ui", "KnowledgeChat::defaultLoad", "Failed", e)
+          recordLoadIssue("loadDefaultThread", e)
+          setCurrentSessionId(null)
+          setMessages([])
+          setHasMore(false)
+          setOldestDbId(null)
+          setLoading(false)
+        }
       }
       // Reset the history filter on KB / note switch (the popover's search box
       // remounts empty, so keep threadsQueryRef in sync).
@@ -404,24 +485,142 @@ export function useKnowledgeChat(
       })
       setHasMore(more)
       setOldestDbId(older[0]?.id ?? oldestDbId)
+      clearLoadIssue("loadMoreMessages")
     } catch (e) {
       logger.error("ui", "KnowledgeChat::loadMore", "Failed", e)
+      recordLoadIssue("loadMoreMessages", e)
     } finally {
       setLoadingMore(false)
     }
-  }, [hasMore, loadingMore, oldestDbId])
+  }, [hasMore, loadingMore, oldestDbId, clearLoadIssue, recordLoadIssue])
 
-  const handleModelChange = useCallback((key: string) => {
-    const [providerId, modelId] = key.split("::")
-    if (!providerId || !modelId) return
-    const next = { providerId, modelId }
-    manualModelOverrideRef.current = next
-    setActiveModel(next)
-  }, [])
+  const handleModelChange = useCallback(
+    async (key: string, options?: { applyToAgentDefault?: boolean }) => {
+      const [providerId, modelId] = key.split("::")
+      if (!providerId || !modelId) return
+      const next = { providerId, modelId }
+      const sessionId = currentSessionIdRef.current
+      const previousModel = activeModel
+      const previousManualModel = manualModelOverrideRef.current
+      try {
+        if (sessionId) {
+          await getTransport().call("set_session_model", { sessionId, providerId, modelId })
+          manualModelOverrideRef.current = null
+        } else {
+          manualModelOverrideRef.current = next
+        }
+      } catch (e) {
+        manualModelOverrideRef.current = previousManualModel
+        setActiveModel(previousModel)
+        logger.error("ui", "KnowledgeChat::modelChange", "Failed to set session model", e)
+        toast.error(t("common.saveFailed", "保存失败"))
+        return
+      }
+      setActiveModel(next)
+      setUnavailableModelPreference(null)
+      if (options?.applyToAgentDefault) {
+        try {
+          await getTransport().call("patch_agent_model_defaults", {
+            id: currentAgentId,
+            patch: { primaryModel: next },
+          })
+        } catch (e) {
+          logger.error("ui", "KnowledgeChat::modelAgentDefault", "Failed to set Agent model", e)
+          toast.error(t("chat.modelPicker.agentDefaultFailed", "当前会话已更新，但 Agent 默认保存失败"))
+        }
+      }
+    },
+    [activeModel, currentAgentId, t],
+  )
 
-  const handleEffortChange = useCallback((effort: string) => {
-    setReasoningEffort(effort)
-  }, [])
+  const handleEffortChange = useCallback(
+    async (effort: string, options?: { applyToAgentDefault?: boolean }) => {
+      const sessionId = currentSessionIdRef.current
+      const previous = reasoningEffort
+      try {
+        if (sessionId) {
+          await getTransport().call("set_session_reasoning_effort", {
+            sessionId,
+            mode: "value",
+            value: effort,
+          })
+        }
+      } catch (e) {
+        setReasoningEffort(previous)
+        logger.error("ui", "KnowledgeChat::effortChange", "Failed to set effort", e)
+        toast.error(t("common.saveFailed", "保存失败"))
+        return
+      }
+      setReasoningEffort(effort)
+      if (options?.applyToAgentDefault) {
+        try {
+          await getTransport().call("patch_agent_model_defaults", {
+            id: currentAgentId,
+            patch: { reasoningEffort: effort },
+          })
+        } catch (e) {
+          logger.error("ui", "KnowledgeChat::effortAgentDefault", "Failed to set Agent effort", e)
+          toast.error(t("chat.modelPicker.agentDefaultFailed", "当前会话已更新，但 Agent 默认保存失败"))
+        }
+      }
+    },
+    [currentAgentId, reasoningEffort, t],
+  )
+
+  const handleEffortReset = useCallback(async () => {
+    const sessionId = currentSessionIdRef.current
+    if (!sessionId) {
+      const snapshot = await loadModels(currentAgentId)
+      if (snapshot) setReasoningEffort(snapshot.defaultEffort)
+      return
+    }
+    await getTransport().call("set_session_reasoning_effort", {
+      sessionId,
+      mode: "agentDefault",
+    })
+    await loadModels(currentAgentId, sessionId)
+  }, [currentAgentId, loadModels])
+
+  const handleTemperatureChange = useCallback(
+    async (
+      temperature: number | null,
+      options?: { applyToAgentDefault?: boolean },
+    ) => {
+      const sessionId = currentSessionIdRef.current
+      const previous = sessionTemperature
+      let resolvedTemperature = temperature
+      try {
+        if (sessionId) {
+          resolvedTemperature = await getTransport().call<number | null>(
+            "set_session_temperature",
+            {
+              sessionId,
+              mode: temperature == null ? "agentDefault" : "value",
+              value: temperature,
+            },
+          )
+        }
+      } catch (e) {
+        setSessionTemperature(previous)
+        logger.error("ui", "KnowledgeChat::temperatureChange", "Failed to set temperature", e)
+        toast.error(t("common.saveFailed", "保存失败"))
+        return
+      }
+      setSessionTemperature(resolvedTemperature)
+      if (options?.applyToAgentDefault) {
+        try {
+          await getTransport().call("patch_agent_model_defaults", {
+            id: currentAgentId,
+            patch: { temperature },
+          })
+        } catch (e) {
+          logger.error("ui", "KnowledgeChat::temperatureAgentDefault", "Failed to set Agent temperature", e)
+          toast.error(t("chat.modelPicker.agentDefaultFailed", "当前会话已更新，但 Agent 默认保存失败"))
+        }
+      }
+    },
+    [currentAgentId, sessionTemperature, t],
+  )
 
   const handleSwitchAgent = useCallback(
     (agentId: string) => {
@@ -451,7 +650,8 @@ export function useKnowledgeChat(
     setHasMore(false)
     setOldestDbId(null)
     manualModelOverrideRef.current = null
-  }, [])
+    void loadModels(currentAgentId)
+  }, [currentAgentId, loadModels])
 
   const switchThread = useCallback(
     async (sessionId: string) => {
@@ -466,7 +666,7 @@ export function useKnowledgeChat(
         const agentId = meta.agentId || DEFAULT_AGENT_ID
         manualModelOverrideRef.current = null
         setCurrentAgentId(agentId)
-        void loadModels(agentId)
+        void loadModels(agentId, sessionId)
       }
       // Recompute loading for the target so switching to/from a thread whose
       // turn is still streaming doesn't leave the spinner stuck (mirrors
@@ -508,8 +708,13 @@ export function useKnowledgeChat(
     availableModels,
     activeModel,
     reasoningEffort,
+    sessionTemperature,
+    unavailableModelPreference,
+    manualModelOverrideRef,
     handleModelChange,
     handleEffortChange,
+    handleEffortReset,
+    handleTemperatureChange,
     handleSwitchAgent,
     threads,
     reloadThreads,
@@ -518,5 +723,6 @@ export function useKnowledgeChat(
     handleNewThread,
     switchThread,
     reconcileThread,
+    loadIssues,
   }
 }

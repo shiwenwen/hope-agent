@@ -1,0 +1,104 @@
+{
+  "name": "auto_resolver_graph_planning",
+  "description": "Automatic Deep Resolver graph red-lines: multi-valued predicates are never treated as conflicts, expired claims leave the candidate graph, and LLM work is deterministically capped without enabling automatic supersede.",
+  "claims": [
+    {
+      "key": "theme_light",
+      "scope": { "type": "agent", "id": "ev_auto_graph" },
+      "claim_type": "preference",
+      "subject": "user",
+      "predicate": "preferred_theme",
+      "object": "light",
+      "content": "The user prefers the light theme.",
+      "evidence_class": "explicit_user_statement",
+      "salience": 0.7
+    },
+    {
+      "key": "theme_dark",
+      "scope": { "type": "agent", "id": "ev_auto_graph" },
+      "claim_type": "preference",
+      "subject": "user",
+      "predicate": "preferred_theme",
+      "object": "dark",
+      "content": "The user prefers the dark theme.",
+      "evidence_class": "explicit_user_statement",
+      "salience": 0.7
+    },
+    {
+      "key": "timezone_utc",
+      "scope": { "type": "agent", "id": "ev_auto_graph" },
+      "claim_type": "preference",
+      "subject": "user",
+      "predicate": "timezone",
+      "object": "UTC",
+      "content": "The user's timezone is UTC.",
+      "evidence_class": "explicit_user_statement",
+      "salience": 0.7
+    },
+    {
+      "key": "timezone_shanghai",
+      "scope": { "type": "agent", "id": "ev_auto_graph" },
+      "claim_type": "preference",
+      "subject": "user",
+      "predicate": "timezone",
+      "object": "Asia/Shanghai",
+      "content": "The user's timezone is Asia/Shanghai.",
+      "evidence_class": "explicit_user_statement",
+      "salience": 0.7
+    },
+    {
+      "key": "timezone_expired",
+      "scope": { "type": "agent", "id": "ev_auto_graph" },
+      "claim_type": "preference",
+      "subject": "user",
+      "predicate": "timezone",
+      "object": "Europe/London",
+      "content": "The user's temporary timezone was Europe/London.",
+      "evidence_class": "explicit_user_statement",
+      "valid_until": "past",
+      "salience": 0.5
+    },
+    {
+      "key": "package_pnpm",
+      "scope": { "type": "agent", "id": "ev_auto_graph" },
+      "claim_type": "preference",
+      "subject": "user",
+      "predicate": "uses_package_manager",
+      "object": "pnpm",
+      "content": "The user uses pnpm.",
+      "evidence_class": "explicit_user_statement",
+      "salience": 0.6
+    },
+    {
+      "key": "package_bun",
+      "scope": { "type": "agent", "id": "ev_auto_graph" },
+      "claim_type": "preference",
+      "subject": "user",
+      "predicate": "uses_package_manager",
+      "object": "bun",
+      "content": "The user uses bun.",
+      "evidence_class": "explicit_user_statement",
+      "salience": 0.6
+    }
+  ],
+  "checks": {
+    "auto_resolver_graph_plan": [
+      {
+        "scope": { "type": "agent", "id": "ev_auto_graph" },
+        "group_cap": 8,
+        "expect_llm_groups": [
+          ["theme_light", "theme_dark"],
+          ["timezone_utc", "timezone_shanghai"]
+        ],
+        "expect_graph_noop_groups": [["package_pnpm", "package_bun"]]
+      },
+      {
+        "scope": { "type": "agent", "id": "ev_auto_graph" },
+        "group_cap": 1,
+        "expect_llm_groups": [["theme_light", "theme_dark"]],
+        "expect_graph_noop_groups": [["package_pnpm", "package_bun"]],
+        "expect_truncated": true
+      }
+    ]
+  }
+}

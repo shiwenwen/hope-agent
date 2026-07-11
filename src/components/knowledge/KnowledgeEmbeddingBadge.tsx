@@ -1,12 +1,16 @@
 import { useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { Sparkles } from "lucide-react"
+import { AlertCircle, Sparkles } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { IconTip } from "@/components/ui/tooltip"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import { cn } from "@/lib/utils"
+import {
+  knowledgeEmbeddingLoadErrorDetail,
+  knowledgeEmbeddingUnavailableTip,
+} from "./knowledgeEmbeddingBadgeFeedback"
 // `knowledge_embedding_get_cmd` serializes to the generic EmbeddingSelectionState
 // (same wire shape as memory's) — reuse the TS type.
 import type { MemoryEmbeddingState as EmbeddingSelectionState } from "@/types/embedding-models"
@@ -28,6 +32,7 @@ export default function KnowledgeEmbeddingBadge({
 }) {
   const { t } = useTranslation()
   const [state, setState] = useState<EmbeddingSelectionState | null>(null)
+  const [loadError, setLoadError] = useState<{ detail: string | null } | null>(null)
 
   useEffect(() => {
     const tx = getTransport()
@@ -46,10 +51,12 @@ export default function KnowledgeEmbeddingBadge({
               ? prev
               : st,
           )
+          setLoadError(null)
         })
-        .catch((e) =>
-          logger.warn("knowledge", "KnowledgeEmbeddingBadge::load", "Failed to load state", e),
-        )
+        .catch((e) => {
+          logger.warn("knowledge", "KnowledgeEmbeddingBadge::load", "Failed to load state", e)
+          if (!cancelled) setLoadError({ detail: knowledgeEmbeddingLoadErrorDetail(e) })
+        })
     }
     load()
     const unlisten = tx.listen("config:changed", load)
@@ -59,15 +66,20 @@ export default function KnowledgeEmbeddingBadge({
     }
   }, [])
 
-  const on = !!state?.selection.enabled && !!state.currentModel
-  const label = on
+  const unavailable = loadError != null
+  const on = !unavailable && !!state?.selection.enabled && !!state.currentModel
+  const label = unavailable
+    ? t("knowledge.embeddingStatusUnavailable", "Vector status unavailable")
+    : on
     ? state!.currentModel!.name
     : t("knowledge.embeddingOff", "Vector search off")
 
   return (
     <IconTip
       label={
-        on
+        unavailable
+          ? knowledgeEmbeddingUnavailableTip(t, loadError?.detail ?? null)
+          : on
           ? t("knowledge.embeddingModelTip", {
               name: state!.currentModel!.name,
               defaultValue: "Embedding model: {{name}} — open settings",
@@ -82,9 +94,13 @@ export default function KnowledgeEmbeddingBadge({
         className="h-8 max-w-[180px] gap-1.5 px-2"
         onClick={onOpenSettings}
       >
-        <Sparkles
-          className={cn("h-3.5 w-3.5 shrink-0", on ? "text-primary" : "text-muted-foreground")}
-        />
+        {unavailable ? (
+          <AlertCircle className="h-3.5 w-3.5 shrink-0 text-destructive" />
+        ) : (
+          <Sparkles
+            className={cn("h-3.5 w-3.5 shrink-0", on ? "text-primary" : "text-muted-foreground")}
+          />
+        )}
         <span className={cn("truncate text-xs", !on && "text-muted-foreground")}>{label}</span>
       </Button>
     </IconTip>

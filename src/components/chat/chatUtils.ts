@@ -9,6 +9,10 @@ import type {
   SessionMeta,
   SessionSearchResult,
   MessageUsage,
+  ActiveMemoryRecall,
+  ActiveMemoryCandidateRef,
+  UsedMemoryRef,
+  RetrievalPlannerTrace,
 } from "@/types/chat"
 import { getTransport } from "@/lib/transport-provider"
 import i18n from "@/i18n/i18n"
@@ -20,6 +24,10 @@ import {
 } from "./contextCompactionEvents"
 import { hasToolError } from "./message/executionStatus"
 import { MAX_MESSAGES, KEEP_AFTER_CAP } from "./hooks/constants"
+
+const ATTACHMENT_META_KEY_ACTIVE_MEMORY = "active_memory"
+const ATTACHMENT_META_KEY_USED_MEMORY_REFS = "used_memory_refs"
+const ATTACHMENT_META_KEY_RETRIEVAL_PLANNER = "retrieval_planner"
 
 /** Parse `__MEDIA_ITEMS__<json>\n<text>` header from a tool result, if present.
  *  Returns the structured items; falls back to undefined on malformed JSON. */
@@ -51,6 +59,171 @@ function parseToolMediaItemsMeta(metaJson: string | null | undefined): MediaItem
     if (Array.isArray(items) && items.length > 0) {
       return items as MediaItem[]
     }
+  } catch {
+    /* malformed — ignore */
+  }
+  return undefined
+}
+
+function parseActiveMemoryMeta(
+  metaJson: string | null | undefined,
+): ActiveMemoryRecall | undefined {
+  if (!metaJson) return undefined
+  try {
+    const meta = JSON.parse(metaJson)
+    const recall = meta?.[ATTACHMENT_META_KEY_ACTIVE_MEMORY]
+    if (
+      recall &&
+      typeof recall.summary === "string" &&
+      Array.isArray(recall.candidates)
+    ) {
+      return recall as ActiveMemoryRecall
+    }
+  } catch {
+    /* malformed — ignore */
+  }
+  return undefined
+}
+
+function activeMemoryCandidateToUsedRef(
+  candidate: ActiveMemoryCandidateRef,
+  role: UsedMemoryRef["role"],
+): UsedMemoryRef {
+  return {
+    kind: candidate.kind,
+    id: candidate.id,
+    sourceType: candidate.sourceType,
+    scope: candidate.scope,
+    origin: "active_memory",
+    role,
+    preview: candidate.preview,
+    score: candidate.score,
+    confidence: candidate.confidence,
+    salience: candidate.salience,
+  }
+}
+
+export function activeMemoryRecallToUsedRefs(recall: ActiveMemoryRecall): UsedMemoryRef[] {
+  const selectedKey = recall.selected
+    ? `${recall.selected.kind}:${recall.selected.id}`
+    : null
+  const refs: UsedMemoryRef[] = []
+
+  if (recall.selected) {
+    refs.push(activeMemoryCandidateToUsedRef(recall.selected, "selected"))
+  }
+
+  for (const candidate of recall.candidates) {
+    const candidateKey = `${candidate.kind}:${candidate.id}`
+    if (candidateKey === selectedKey) continue
+    refs.push(activeMemoryCandidateToUsedRef(candidate, "candidate"))
+  }
+
+  return refs
+}
+
+function optionalString(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined
+}
+
+function optionalFiniteNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined
+}
+
+function sanitizeUsedMemoryRef(value: unknown): UsedMemoryRef | null {
+  if (!value || typeof value !== "object") return null
+  const ref = value as Record<string, unknown>
+  if (typeof ref.kind !== "string" || typeof ref.id !== "string") return null
+  return {
+    kind: ref.kind,
+    id: ref.id,
+    sourceType: optionalString(ref.sourceType),
+    scope: optionalString(ref.scope),
+    origin: optionalString(ref.origin),
+    role: optionalString(ref.role),
+    preview: optionalString(ref.preview),
+    path: optionalString(ref.path),
+    line: optionalFiniteNumber(ref.line),
+    col: optionalFiniteNumber(ref.col),
+    headingPath: optionalString(ref.headingPath),
+    blockId: optionalString(ref.blockId),
+    score: optionalFiniteNumber(ref.score),
+    confidence: optionalFiniteNumber(ref.confidence),
+    salience: optionalFiniteNumber(ref.salience),
+  }
+}
+
+function parseUsedMemoryRefsMeta(
+  metaJson: string | null | undefined,
+  activeMemory?: ActiveMemoryRecall,
+): UsedMemoryRef[] | undefined {
+  if (metaJson) {
+    try {
+      const meta = JSON.parse(metaJson)
+      const refs = meta?.[ATTACHMENT_META_KEY_USED_MEMORY_REFS]
+      if (Array.isArray(refs)) {
+        const parsed = refs
+          .map(sanitizeUsedMemoryRef)
+          .filter((ref): ref is UsedMemoryRef => !!ref)
+        if (parsed.length > 0) return parsed
+      }
+    } catch {
+      /* malformed — ignore */
+    }
+  }
+
+  if (activeMemory) {
+    const refs = activeMemoryRecallToUsedRefs(activeMemory)
+    return refs.length > 0 ? refs : undefined
+  }
+  return undefined
+}
+
+function sanitizeRetrievalPlannerTrace(value: unknown): RetrievalPlannerTrace | null {
+  if (!value || typeof value !== "object") return null
+  const trace = value as Record<string, unknown>
+  if (typeof trace.status !== "string" || !Array.isArray(trace.layers)) return null
+  const layers = trace.layers
+    .map((value): RetrievalPlannerTrace["layers"][number] | null => {
+      if (!value || typeof value !== "object") return null
+      const layer = value as Record<string, unknown>
+      if (typeof layer.layer !== "string" || typeof layer.status !== "string") return null
+      const refCount = optionalFiniteNumber(layer.refCount)
+      return {
+        layer: layer.layer,
+        status: layer.status,
+        refCount: refCount ?? 0,
+        injectedCount: optionalFiniteNumber(layer.injectedCount),
+        selectedCount: optionalFiniteNumber(layer.selectedCount),
+        candidateCount: optionalFiniteNumber(layer.candidateCount),
+        droppedCount: optionalFiniteNumber(layer.droppedCount),
+        skippedReason: optionalString(layer.skippedReason) ?? null,
+        latencyMs: optionalFiniteNumber(layer.latencyMs) ?? null,
+        cached: typeof layer.cached === "boolean" ? layer.cached : null,
+      }
+    })
+    .filter((layer): layer is RetrievalPlannerTrace["layers"][number] => !!layer)
+  return {
+    status: trace.status,
+    totalRefs:
+      optionalFiniteNumber(trace.totalRefs) ??
+      layers.reduce((sum, layer) => sum + layer.refCount, 0),
+    rankingVersion: optionalString(trace.rankingVersion),
+    intent: optionalString(trace.intent),
+    maxTraceRefs: optionalFiniteNumber(trace.maxTraceRefs),
+    maxCandidatesPerOrigin: optionalFiniteNumber(trace.maxCandidatesPerOrigin),
+    layers,
+  }
+}
+
+function parseRetrievalPlannerMeta(
+  metaJson: string | null | undefined,
+): RetrievalPlannerTrace | undefined {
+  if (!metaJson) return undefined
+  try {
+    const meta = JSON.parse(metaJson)
+    const trace = meta?.[ATTACHMENT_META_KEY_RETRIEVAL_PLANNER]
+    return sanitizeRetrievalPlannerTrace(trace) ?? undefined
   } catch {
     /* malformed — ignore */
   }
@@ -278,7 +451,7 @@ export function formatDuration(ms: number): string {
 }
 
 export type MessageFileAttachment =
-  | { kind: "path"; path: string }
+  | { kind: "path"; path: string; language?: string | null }
   | { kind: "media"; item: MediaItem }
 
 function inferAttachmentKind(mimeType: string): MessageAttachment["kind"] {
@@ -360,10 +533,15 @@ export function extractMessageFileAttachments(blocks: ContentBlock[]): MessageFi
   const mediaItems = new Map<string, MessageFileAttachment>()
   const mediaLocalPaths = new Set<string>()
 
-  const addPath = (path: string | null | undefined) => {
+  const addPath = (path: string | null | undefined, language?: string | null) => {
     const trimmed = path?.trim()
     if (!trimmed || mediaLocalPaths.has(trimmed)) return
-    if (!pathItems.has(trimmed)) pathItems.set(trimmed, { kind: "path", path: trimmed })
+    const existing = pathItems.get(trimmed)
+    if (!existing) {
+      pathItems.set(trimmed, { kind: "path", path: trimmed, language: language ?? null })
+    } else if (existing.kind === "path" && !existing.language && language) {
+      existing.language = language
+    }
   }
 
   const addMedia = (item: MediaItem) => {
@@ -381,13 +559,13 @@ export function extractMessageFileAttachments(blocks: ContentBlock[]): MessageFi
     const { name, arguments: args, result } = block.tool
     const metadata = block.tool.metadata
     block.tool.mediaItems?.forEach(addMedia)
-    block.tool.mediaUrls?.forEach(addPath)
+    block.tool.mediaUrls?.forEach((url) => addPath(url))
 
     if (metadata?.kind === "file_change") {
-      if (metadata.action !== "delete") addPath(metadata.path)
+      if (metadata.action !== "delete") addPath(metadata.path, metadata.language)
     } else if (metadata?.kind === "file_changes") {
       for (const change of metadata.changes) {
-        if (change.action !== "delete") addPath(change.path)
+        if (change.action !== "delete") addPath(change.path, change.language)
       }
     }
 
@@ -664,6 +842,9 @@ export function parseSessionMessages(
       if (msg.thinking && !hasThinkingBlocks) {
         blocks.unshift({ type: "thinking", content: msg.thinking })
       }
+      const activeMemory = parseActiveMemoryMeta(msg.attachmentsMeta)
+      const usedMemoryRefs = parseUsedMemoryRefsMeta(msg.attachmentsMeta, activeMemory)
+      const retrievalPlanner = parseRetrievalPlannerMeta(msg.attachmentsMeta)
       displayMessages.push({
         role: "assistant",
         content: msg.content,
@@ -674,6 +855,9 @@ export function parseSessionMessages(
         usage,
         model: msg.model || undefined,
         dbId: msg.id,
+        ...(activeMemory ? { activeMemory } : {}),
+        ...(usedMemoryRefs ? { usedMemoryRefs } : {}),
+        ...(retrievalPlanner ? { retrievalPlanner } : {}),
       })
     } else if (msg.role === "event") {
       let slashEvent: Message["slashEvent"] | undefined
@@ -917,10 +1101,92 @@ function messageContentEqual(a: Message, b: Message): boolean {
     a.thinking === b.thinking &&
     a.timestamp === b.timestamp &&
     a.model === b.model &&
+    activeMemoryFingerprint(a.activeMemory) === activeMemoryFingerprint(b.activeMemory) &&
+    usedMemoryRefsFingerprint(a.usedMemoryRefs) === usedMemoryRefsFingerprint(b.usedMemoryRefs) &&
+    retrievalPlannerFingerprint(a.retrievalPlanner) ===
+      retrievalPlannerFingerprint(b.retrievalPlanner) &&
     messageAttachmentsEqual(a.attachments, b.attachments) &&
     (a.contentBlocks?.length ?? 0) === (b.contentBlocks?.length ?? 0) &&
     (a.toolCalls?.length ?? 0) === (b.toolCalls?.length ?? 0)
   )
+}
+
+function activeMemoryFingerprint(memory: Message["activeMemory"]): string {
+  if (!memory) return ""
+  const selected = memory.selected
+    ? activeMemoryCandidateFingerprint(memory.selected)
+    : ""
+  return [
+    memory.summary,
+    selected,
+    memory.totalCandidates,
+    memory.cached ? "cached" : "fresh",
+    ...memory.candidates.map(activeMemoryCandidateFingerprint),
+  ].join("\u0000")
+}
+
+function activeMemoryCandidateFingerprint(candidate: ActiveMemoryCandidateRef): string {
+  return [
+    candidate.kind,
+    candidate.id,
+    candidate.sourceType ?? "",
+    candidate.scope ?? "",
+    candidate.preview ?? "",
+    candidate.score ?? "",
+    candidate.confidence ?? "",
+    candidate.salience ?? "",
+  ].join(":")
+}
+
+function usedMemoryRefsFingerprint(refs: Message["usedMemoryRefs"]): string {
+  if (!refs?.length) return ""
+  return refs
+    .map((ref) =>
+      [
+        ref.origin ?? "",
+        ref.role ?? "",
+        ref.kind,
+        ref.id,
+        ref.sourceType ?? "",
+        ref.scope ?? "",
+        ref.path ?? "",
+        ref.line ?? "",
+        ref.col ?? "",
+        ref.headingPath ?? "",
+        ref.blockId ?? "",
+        ref.preview ?? "",
+        ref.score ?? "",
+        ref.confidence ?? "",
+        ref.salience ?? "",
+      ].join(":"),
+    )
+    .join("\u0000")
+}
+
+function retrievalPlannerFingerprint(trace: Message["retrievalPlanner"]): string {
+  if (!trace) return ""
+  return [
+    trace.status,
+    trace.totalRefs,
+    trace.rankingVersion ?? "",
+    trace.intent ?? "",
+    trace.maxTraceRefs ?? "",
+    trace.maxCandidatesPerOrigin ?? "",
+    ...trace.layers.map((layer) =>
+      [
+        layer.layer,
+        layer.status,
+        layer.refCount,
+        layer.injectedCount ?? 0,
+        layer.selectedCount ?? 0,
+        layer.candidateCount ?? 0,
+        layer.droppedCount ?? 0,
+        layer.skippedReason ?? "",
+        layer.latencyMs ?? "",
+        layer.cached == null ? "" : layer.cached ? "cached" : "fresh",
+      ].join(":"),
+    ),
+  ].join("\u0000")
 }
 
 function messageAttachmentsEqual(
@@ -948,8 +1214,37 @@ function transferPlaceholderState(fresh: Message, placeholder: Message): Message
   return {
     ...fresh,
     _clientId: placeholder._clientId,
+    ...(!fresh.activeMemory && placeholder.activeMemory
+      ? { activeMemory: placeholder.activeMemory }
+      : {}),
+    ...(!fresh.usedMemoryRefs && placeholder.usedMemoryRefs
+      ? { usedMemoryRefs: placeholder.usedMemoryRefs }
+      : {}),
+    ...(!fresh.retrievalPlanner && placeholder.retrievalPlanner
+      ? { retrievalPlanner: placeholder.retrievalPlanner }
+      : {}),
     ...(!fresh.attachments?.length && placeholder.attachments?.length
       ? { attachments: placeholder.attachments }
+      : {}),
+  }
+}
+
+function preserveRuntimeMessageState(fresh: Message, existing: Message): Message {
+  if (
+    (fresh.activeMemory || !existing.activeMemory) &&
+    (fresh.usedMemoryRefs || !existing.usedMemoryRefs) &&
+    (fresh.retrievalPlanner || !existing.retrievalPlanner)
+  ) {
+    return fresh
+  }
+  return {
+    ...fresh,
+    ...(!fresh.activeMemory && existing.activeMemory ? { activeMemory: existing.activeMemory } : {}),
+    ...(!fresh.usedMemoryRefs && existing.usedMemoryRefs
+      ? { usedMemoryRefs: existing.usedMemoryRefs }
+      : {}),
+    ...(!fresh.retrievalPlanner && existing.retrievalPlanner
+      ? { retrievalPlanner: existing.retrievalPlanner }
       : {}),
   }
 }
@@ -995,7 +1290,7 @@ export function mergeMessagesByDbId(existing: Message[], fresh: Message[]): Mess
       // usage from the server) takes the new reference and re-renders.
       merged.push(m)
     } else {
-      merged.push(authoritative)
+      merged.push(preserveRuntimeMessageState(authoritative, m))
     }
     seenIds.add(m.dbId)
   }

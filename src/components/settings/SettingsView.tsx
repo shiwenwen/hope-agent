@@ -75,6 +75,7 @@ import SecurityPanel from "@/components/settings/SecurityPanel"
 import ApprovalPanel from "@/components/settings/ApprovalPanel"
 import HooksPanel from "@/components/settings/HooksPanel"
 import BrowserPanel from "@/components/settings/BrowserPanel"
+import type { AgentTab } from "./agent-panel/types"
 import type { SettingsSection, SettingsSectionItem } from "./types"
 
 const SECTIONS: SettingsSectionItem[] = [
@@ -243,6 +244,7 @@ export default function SettingsView({
   onCodexReauth,
   initialSection,
   initialAgentId,
+  initialAgentTab,
   initialChannelId,
   onProfileSaved,
 }: {
@@ -251,6 +253,7 @@ export default function SettingsView({
   onCodexReauth?: () => void
   initialSection?: SettingsSection
   initialAgentId?: string
+  initialAgentTab?: AgentTab
   /** When `initialSection === "channels"`, pre-open the Add dialog with
    *  this channel pre-selected. Used by the onboarding wizard. */
   initialChannelId?: string
@@ -386,7 +389,9 @@ export default function SettingsView({
                 />
               ))}
             {activeSection === "skills" && <SkillsPanel />}
-            {activeSection === "agents" && <AgentPanel initialAgentId={initialAgentId} />}
+            {activeSection === "agents" && (
+              <AgentPanel initialAgentId={initialAgentId} initialAgentTab={initialAgentTab} />
+            )}
             {activeSection === "teams" && <TeamsPanel />}
             {activeSection === "profile" && <UserProfilePanel onSaved={onProfileSaved} />}
             {activeSection === "memory" && <MemoryPanel />}

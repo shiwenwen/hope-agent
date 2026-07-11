@@ -17,13 +17,14 @@ use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 use anyhow::{anyhow, Result};
-use rusqlite::{params, OptionalExtension};
+use rusqlite::{params, params_from_iter, types::Value as SqlValue, OptionalExtension};
 
 use crate::memory::SqliteMemoryBackend;
 
 use super::types::{
-    DreamReport, DreamRunStatus, DreamingDecisionRecord, DreamingRunDetail, DreamingRunRecord,
-    ProfileSnapshotRecord, PromotionRecord,
+    DreamReport, DreamRunStatus, DreamingDecisionListFilter, DreamingDecisionListItem,
+    DreamingDecisionListResponse, DreamingDecisionRecord, DreamingRunDetail, DreamingRunRecord,
+    ProfileSnapshotRecord, ProfileSnapshotSourceRecord, PromotionRecord,
 };
 
 /// Floor for the cross-process lease lifetime. A healthy Light cycle with the
@@ -33,6 +34,40 @@ const LEASE_MIN_TTL_SECS: i64 = 600;
 /// Margin added on top of the configured narrative timeout when sizing a
 /// lease, to cover the rest of a cycle (agent build, scan, promotion, diary).
 const LEASE_BUFFER_SECS: i64 = 300;
+
+const DEFAULT_DECISION_LIST_LIMIT: usize = 50;
+const MAX_DECISION_LIST_LIMIT: usize = 200;
+const DECISION_LIST_BATCH_SIZE: usize = 500;
+const MAX_DECISION_LIST_SCAN: usize = 5000;
+const MAX_DECISION_QUERY_CHARS: usize = 200;
+
+fn escape_like_pattern(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for ch in value.chars() {
+        if matches!(ch, '%' | '_' | '\\') {
+            out.push('\\');
+        }
+        out.push(ch);
+    }
+    out
+}
+
+fn decision_query_patterns(query: &str) -> Vec<String> {
+    let trimmed = query.trim();
+    if trimmed.is_empty() {
+        return Vec::new();
+    }
+    let lowered = trimmed
+        .chars()
+        .take(MAX_DECISION_QUERY_CHARS)
+        .collect::<String>()
+        .to_lowercase();
+    lowered
+        .split_whitespace()
+        .filter(|term| !term.is_empty())
+        .map(|term| format!("%{}%", escape_like_pattern(term)))
+        .collect()
+}
 
 /// A `claimed` pending row whose claim is older than this is considered
 /// abandoned (the claiming run died) and is returned to `pending`.
@@ -113,6 +148,22 @@ pub fn get_run(run_id: &str) -> Result<Option<DreamingRunDetail>> {
     store.get_run(run_id)
 }
 
+/// Query durable decision rows directly. Owner-plane read API used by Review
+/// Inbox audit history; unlike `list_runs + get_run`, this supports search and
+/// pagination without fan-out.
+pub fn list_decisions(filter: DreamingDecisionListFilter) -> Result<Vec<DreamingDecisionListItem>> {
+    let store = store().ok_or_else(|| anyhow!("dreaming store not initialised"))?;
+    Ok(store.list_decisions_page(filter)?.items)
+}
+
+/// Query durable decision rows with total-match metadata for paged owner UI.
+pub fn list_decisions_page(
+    filter: DreamingDecisionListFilter,
+) -> Result<DreamingDecisionListResponse> {
+    let store = store().ok_or_else(|| anyhow!("dreaming store not initialised"))?;
+    store.list_decisions_page(filter)
+}
+
 /// Record one user-correction action as a durable audit entry: a completed
 /// `user_correction` run carrying a single decision (design §5.3 — "all user
 /// actions have a decision log"). Returns the synthetic run id. `before` /
@@ -130,11 +181,38 @@ pub fn record_user_action(
     store.record_user_action(decision_type, claim_id, rationale, before, after)
 }
 
+/// Record one automatic `needs_review` reason snapshot as a durable audit row.
+/// This is used when a claim enters the Review Inbox outside an existing
+/// Dreaming resolver run (for example review-first extraction, backfill, or
+/// backup restore). It is best-effort at call sites, matching user corrections.
+pub fn record_review_snapshot(
+    claim_id: &str,
+    rationale: &str,
+    before: serde_json::Value,
+    after: serde_json::Value,
+) -> Result<String> {
+    let store = store().ok_or_else(|| anyhow!("dreaming store not initialised"))?;
+    store.record_review_snapshot(claim_id, rationale, before, after)
+}
+
 /// Latest Memory Profile snapshot per scope (read-only profile view). Owner
 /// plane — no scope filter, returns every scope's most recent snapshot.
 pub fn list_profile_snapshots() -> Result<Vec<ProfileSnapshotRecord>> {
     let store = store().ok_or_else(|| anyhow!("dreaming store not initialised"))?;
     store.latest_profile_snapshots()
+}
+
+/// Owner-maintenance import path for backup restore. Allocates the next local
+/// profile version for the scope rather than trusting the source machine's
+/// version number.
+pub fn insert_profile_snapshot_for_restore(
+    scope_type: &str,
+    scope_id: &str,
+    body_md: &str,
+    source_run_id: &str,
+) -> Result<i64> {
+    let store = store().ok_or_else(|| anyhow!("dreaming store not initialised"))?;
+    store.insert_profile_snapshot(scope_type, scope_id, body_md, source_run_id)
 }
 
 /// Latest profile body for one scope, for system-prompt injection. Returns
@@ -218,17 +296,55 @@ impl Drop for LeaseGuard {
         if !self.active {
             return;
         }
-        if let Some(store) = store() {
-            if let Err(e) = store.release_lease(&self.lock_key, &self.run_id) {
-                app_warn!(
-                    "memory",
-                    "dreaming::locks",
-                    "failed to release lease {}: {}",
-                    self.lock_key,
-                    e
-                );
+        self.active = false;
+        let lock_key = std::mem::take(&mut self.lock_key);
+        let run_id = std::mem::take(&mut self.run_id);
+        let release = move || {
+            if let Some(store) = store() {
+                if let Err(e) = store.release_lease(&lock_key, &run_id) {
+                    app_warn!(
+                        "memory",
+                        "dreaming::locks",
+                        "failed to release lease {}: {}",
+                        lock_key,
+                        e
+                    );
+                }
             }
+        };
+        if let Ok(handle) = tokio::runtime::Handle::try_current() {
+            handle.spawn_blocking(release);
+        } else {
+            release();
         }
+    }
+}
+
+impl LeaseGuard {
+    /// Release the durable lease without blocking a Tokio worker. Normal cycle
+    /// exits must await this before their in-process `RunningGuard` is dropped;
+    /// `Drop` remains a best-effort fallback for panic/cancellation paths.
+    pub(super) async fn release(mut self) {
+        if !self.active {
+            return;
+        }
+        self.active = false;
+        let lock_key = std::mem::take(&mut self.lock_key);
+        let run_id = std::mem::take(&mut self.run_id);
+        crate::blocking::run_blocking(move || {
+            if let Some(store) = store() {
+                if let Err(e) = store.release_lease(&lock_key, &run_id) {
+                    app_warn!(
+                        "memory",
+                        "dreaming::locks",
+                        "failed to release lease {}: {}",
+                        lock_key,
+                        e
+                    );
+                }
+            }
+        })
+        .await;
     }
 }
 
@@ -276,6 +392,10 @@ pub(super) fn acquire_lease(lock_key: &str, run_id: &str, ttl_secs: i64) -> Opti
 /// backend's write/read connections (never opens its own).
 pub(crate) struct DreamingStore {
     backend: Arc<SqliteMemoryBackend>,
+}
+
+pub(crate) struct ProfileSnapshotInsertResult {
+    pub version: i64,
 }
 
 impl DreamingStore {
@@ -398,21 +518,42 @@ impl DreamingStore {
         rationale: &str,
         merge_into: Option<&str>,
     ) -> Result<()> {
+        self.insert_claim_decision_with_snapshots(
+            run_id,
+            decision_type,
+            claim_id,
+            rationale,
+            None,
+            merge_into.map(|k| serde_json::json!({ "mergeInto": k })),
+        )
+    }
+
+    pub(crate) fn insert_claim_decision_with_snapshots(
+        &self,
+        run_id: &str,
+        decision_type: &str,
+        claim_id: &str,
+        rationale: &str,
+        before: Option<serde_json::Value>,
+        after: Option<serde_json::Value>,
+    ) -> Result<()> {
         let conn = self.backend.write_conn()?;
         let now = now_rfc3339();
-        let after = merge_into.map(|k| serde_json::json!({ "mergeInto": k }).to_string());
+        let before_json = before.map(|v| v.to_string());
+        let after_json = after.map(|v| v.to_string());
         conn.execute(
             "INSERT INTO dreaming_decisions
                 (id, run_id, decision_type, target_type, target_id, score,
                  rationale, before_json, after_json, created_at)
-             VALUES (?1, ?2, ?3, 'claim', ?4, NULL, ?5, NULL, ?6, ?7)",
+             VALUES (?1, ?2, ?3, 'claim', ?4, NULL, ?5, ?6, ?7, ?8)",
             params![
                 uuid::Uuid::new_v4().to_string(),
                 run_id,
                 decision_type,
                 claim_id,
                 rationale,
-                after,
+                before_json,
+                after_json,
                 now,
             ],
         )?;
@@ -431,6 +572,46 @@ impl DreamingStore {
         before: serde_json::Value,
         after: serde_json::Value,
     ) -> Result<String> {
+        self.record_completed_claim_decision(
+            "user_correction",
+            "user",
+            decision_type,
+            claim_id,
+            rationale,
+            before,
+            after,
+        )
+    }
+
+    pub(crate) fn record_review_snapshot(
+        &self,
+        claim_id: &str,
+        rationale: &str,
+        before: serde_json::Value,
+        after: serde_json::Value,
+    ) -> Result<String> {
+        self.record_completed_claim_decision(
+            "review_snapshot",
+            "review",
+            "needs_review",
+            claim_id,
+            rationale,
+            before,
+            after,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn record_completed_claim_decision(
+        &self,
+        trigger: &str,
+        phase: &str,
+        decision_type: &str,
+        claim_id: &str,
+        rationale: &str,
+        before: serde_json::Value,
+        after: serde_json::Value,
+    ) -> Result<String> {
         let conn = self.backend.write_conn()?;
         let now = now_rfc3339();
         let run_id = uuid::Uuid::new_v4().to_string();
@@ -442,8 +623,8 @@ impl DreamingStore {
                 "INSERT INTO dreaming_runs
                     (id, trigger, phase, status, started_at, finished_at,
                      decision_count, scope_json)
-                 VALUES (?1, 'user_correction', 'user', 'completed', ?2, ?2, 1, '{}')",
-                params![run_id, now],
+                 VALUES (?1, ?2, ?3, 'completed', ?4, ?4, 1, '{}')",
+                params![run_id, trigger, phase, now],
             )?;
             conn.execute(
                 "INSERT INTO dreaming_decisions
@@ -518,8 +699,30 @@ impl DreamingStore {
         body_md: &str,
         source_run_id: &str,
     ) -> Result<i64> {
+        Ok(self
+            .insert_profile_snapshot_with_sources(
+                scope_type,
+                scope_id,
+                body_md,
+                source_run_id,
+                &[],
+            )?
+            .version)
+    }
+
+    /// Insert a profile snapshot and optional claim provenance rows in one
+    /// transaction. Returns the snapshot id plus assigned version.
+    pub(crate) fn insert_profile_snapshot_with_sources(
+        &self,
+        scope_type: &str,
+        scope_id: &str,
+        body_md: &str,
+        source_run_id: &str,
+        sources: &[ProfileSnapshotSourceRecord],
+    ) -> Result<ProfileSnapshotInsertResult> {
         let conn = self.backend.write_conn()?;
         let now = now_rfc3339();
+        let snapshot_id = uuid::Uuid::new_v4().to_string();
         conn.execute_batch("BEGIN IMMEDIATE")?;
         let next: i64 = match conn.query_row(
             "SELECT COALESCE(MAX(version), 0) + 1 FROM memory_profile_snapshots
@@ -538,7 +741,7 @@ impl DreamingStore {
                 (id, scope_type, scope_id, version, body_md, source_run_id, created_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             params![
-                uuid::Uuid::new_v4().to_string(),
+                snapshot_id.as_str(),
                 scope_type,
                 scope_id,
                 next,
@@ -550,8 +753,41 @@ impl DreamingStore {
             let _ = conn.execute_batch("ROLLBACK");
             return Err(e.into());
         }
+        for source in sources {
+            let line_index = source.line_index.map(|v| v as i64);
+            if let Err(e) = conn.execute(
+                "INSERT INTO memory_profile_snapshot_sources
+                    (id, snapshot_id, line_index, claim_id, claim_type, content,
+                     confidence, salience, evidence_id, evidence_class, evidence_source_type,
+                     evidence_quote, evidence_session_id, evidence_message_id, evidence_file_path,
+                     evidence_url, created_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
+                params![
+                    uuid::Uuid::new_v4().to_string(),
+                    snapshot_id.as_str(),
+                    line_index,
+                    source.claim_id.as_str(),
+                    source.claim_type.as_str(),
+                    source.content.as_str(),
+                    source.confidence,
+                    source.salience,
+                    source.evidence_id.as_deref(),
+                    source.evidence_class.as_deref(),
+                    source.evidence_source_type.as_deref(),
+                    source.evidence_quote.as_deref(),
+                    source.evidence_session_id.as_deref(),
+                    source.evidence_message_id.as_deref(),
+                    source.evidence_file_path.as_deref(),
+                    source.evidence_url.as_deref(),
+                    now,
+                ],
+            ) {
+                let _ = conn.execute_batch("ROLLBACK");
+                return Err(e.into());
+            }
+        }
         conn.execute_batch("COMMIT")?;
-        Ok(next)
+        Ok(ProfileSnapshotInsertResult { version: next })
     }
 
     /// Latest snapshot body for one scope (highest version), for system-prompt
@@ -582,7 +818,7 @@ impl DreamingStore {
     pub(crate) fn latest_profile_snapshots(&self) -> Result<Vec<ProfileSnapshotRecord>> {
         let conn = self.backend.read_conn()?;
         let mut stmt = conn.prepare(
-            "SELECT s.scope_type, s.scope_id, s.version, s.body_md, s.source_run_id, s.created_at
+            "SELECT s.id, s.scope_type, s.scope_id, s.version, s.body_md, s.source_run_id, s.created_at
              FROM memory_profile_snapshots s
              JOIN (
                 SELECT scope_type, scope_id, MAX(version) AS v
@@ -595,18 +831,63 @@ impl DreamingStore {
              ORDER BY s.scope_type ASC, s.scope_id ASC",
         )?;
         let rows = stmt.query_map([], |row| {
-            let scope_id_raw: String = row.get(1)?;
-            Ok(ProfileSnapshotRecord {
-                scope_type: row.get(0)?,
-                scope_id: if scope_id_raw.is_empty() {
-                    None
-                } else {
-                    Some(scope_id_raw)
+            let snapshot_id: String = row.get(0)?;
+            let scope_id_raw: String = row.get(2)?;
+            Ok((
+                snapshot_id,
+                ProfileSnapshotRecord {
+                    scope_type: row.get(1)?,
+                    scope_id: if scope_id_raw.is_empty() {
+                        None
+                    } else {
+                        Some(scope_id_raw)
+                    },
+                    version: row.get(3)?,
+                    body_md: row.get(4)?,
+                    sources: Vec::new(),
+                    source_run_id: row.get(5)?,
+                    created_at: row.get(6)?,
                 },
-                version: row.get(2)?,
-                body_md: row.get(3)?,
-                source_run_id: row.get(4)?,
-                created_at: row.get(5)?,
+            ))
+        })?;
+        let mut snapshots: Vec<(String, ProfileSnapshotRecord)> =
+            rows.filter_map(|r| r.ok()).collect();
+        for (snapshot_id, record) in &mut snapshots {
+            record.sources = self.profile_snapshot_sources(&conn, snapshot_id)?;
+        }
+        Ok(snapshots.into_iter().map(|(_, record)| record).collect())
+    }
+
+    fn profile_snapshot_sources(
+        &self,
+        conn: &rusqlite::Connection,
+        snapshot_id: &str,
+    ) -> Result<Vec<ProfileSnapshotSourceRecord>> {
+        let mut stmt = conn.prepare(
+            "SELECT line_index, claim_id, claim_type, content, confidence, salience,
+                    evidence_id, evidence_class, evidence_source_type, evidence_quote,
+                    evidence_session_id, evidence_message_id, evidence_file_path, evidence_url
+             FROM memory_profile_snapshot_sources
+             WHERE snapshot_id = ?1
+             ORDER BY COALESCE(line_index, 999999) ASC, rowid ASC",
+        )?;
+        let rows = stmt.query_map(params![snapshot_id], |row| {
+            let line_index: Option<i64> = row.get(0)?;
+            Ok(ProfileSnapshotSourceRecord {
+                line_index: line_index.and_then(|v| usize::try_from(v).ok()),
+                claim_id: row.get(1)?,
+                claim_type: row.get(2)?,
+                content: row.get(3)?,
+                confidence: row.get::<_, f64>(4)? as f32,
+                salience: row.get::<_, f64>(5)? as f32,
+                evidence_id: row.get(6)?,
+                evidence_class: row.get(7)?,
+                evidence_source_type: row.get(8)?,
+                evidence_quote: row.get(9)?,
+                evidence_session_id: row.get(10)?,
+                evidence_message_id: row.get(11)?,
+                evidence_file_path: row.get(12)?,
+                evidence_url: row.get(13)?,
             })
         })?;
         Ok(rows.filter_map(|r| r.ok()).collect())
@@ -694,6 +975,158 @@ impl DreamingStore {
             .filter_map(|r| r.ok())
             .collect();
         Ok(Some(DreamingRunDetail { run, decisions }))
+    }
+
+    pub(crate) fn list_decisions_page(
+        &self,
+        filter: DreamingDecisionListFilter,
+    ) -> Result<DreamingDecisionListResponse> {
+        let limit = filter
+            .limit
+            .unwrap_or(DEFAULT_DECISION_LIST_LIMIT)
+            .min(MAX_DECISION_LIST_LIMIT);
+        let offset = filter.offset.unwrap_or(0);
+        let target_type = filter
+            .target_type
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or("claim")
+            .to_string();
+        let decision_type = filter
+            .decision_type
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty() && *value != "all")
+            .map(ToOwned::to_owned);
+        let since = filter
+            .since
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToOwned::to_owned);
+        let query_patterns = filter
+            .query
+            .as_deref()
+            .map(decision_query_patterns)
+            .unwrap_or_default();
+
+        let mut conditions = vec!["d.target_type = ?".to_string()];
+        let mut args = vec![SqlValue::Text(target_type)];
+        if let Some(value) = decision_type {
+            conditions.push("d.decision_type = ?".to_string());
+            args.push(SqlValue::Text(value));
+        }
+        if let Some(value) = since {
+            conditions.push("d.created_at >= ?".to_string());
+            args.push(SqlValue::Text(value));
+        }
+        for pattern in query_patterns {
+            conditions.push(
+                "(lower(d.rationale) LIKE ? ESCAPE '\\'
+                  OR lower(COALESCE(d.target_id, '')) LIKE ? ESCAPE '\\'
+                  OR lower(d.decision_type) LIKE ? ESCAPE '\\'
+                  OR lower(COALESCE(d.before_json, '')) LIKE ? ESCAPE '\\'
+                  OR lower(COALESCE(d.after_json, '')) LIKE ? ESCAPE '\\')"
+                    .to_string(),
+            );
+            for _ in 0..5 {
+                args.push(SqlValue::Text(pattern.clone()));
+            }
+        }
+
+        let scope_type = filter
+            .scope_type
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty() && *value != "all")
+            .map(ToOwned::to_owned);
+        let scope_id = filter
+            .scope_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToOwned::to_owned);
+        let needs_scope_filter = scope_type.is_some();
+
+        let where_sql = conditions.join(" AND ");
+        let count_sql = format!(
+            "SELECT COUNT(*)
+             FROM dreaming_decisions d
+             JOIN dreaming_runs r ON r.id = d.run_id
+             WHERE {where_sql}",
+        );
+        let sql = format!(
+            "SELECT d.id, d.run_id, d.decision_type, d.target_type, d.target_id,
+                    d.score, d.rationale, d.before_json, d.after_json, d.created_at,
+                    r.trigger, r.phase, r.status
+             FROM dreaming_decisions d
+             JOIN dreaming_runs r ON r.id = d.run_id
+             WHERE {where_sql}
+             ORDER BY d.created_at DESC, d.id DESC
+             LIMIT ? OFFSET ?",
+        );
+
+        let conn = self.backend.read_conn()?;
+        let exact_total = if needs_scope_filter {
+            None
+        } else {
+            let mut stmt = conn.prepare(&count_sql)?;
+            let total =
+                stmt.query_row(params_from_iter(args.clone()), |row| row.get::<_, i64>(0))?;
+            Some(total.max(0) as usize)
+        };
+        let mut out = Vec::with_capacity(limit);
+        let mut matched_seen = if exact_total.is_some() { offset } else { 0 };
+        let mut scanned = 0usize;
+        let mut sql_offset = if exact_total.is_some() { offset } else { 0 };
+        let mut total = exact_total.unwrap_or(0);
+        let mut total_truncated = false;
+
+        while scanned < MAX_DECISION_LIST_SCAN && (exact_total.is_none() || out.len() < limit) {
+            let mut page_args = args.clone();
+            page_args.push(SqlValue::Integer(DECISION_LIST_BATCH_SIZE as i64));
+            page_args.push(SqlValue::Integer(sql_offset as i64));
+            let mut stmt = conn.prepare(&sql)?;
+            let rows = stmt
+                .query_map(params_from_iter(page_args), row_to_decision_list_item)?
+                .filter_map(|r| r.ok())
+                .collect::<Vec<_>>();
+            if rows.is_empty() {
+                break;
+            }
+            scanned += rows.len();
+            sql_offset += rows.len();
+            if exact_total.is_none() && scanned >= MAX_DECISION_LIST_SCAN {
+                total_truncated = true;
+            }
+            for item in rows {
+                if needs_scope_filter
+                    && !decision_item_matches_scope(
+                        &item,
+                        scope_type.as_deref(),
+                        scope_id.as_deref(),
+                    )
+                {
+                    continue;
+                }
+                if exact_total.is_none() {
+                    total += 1;
+                }
+                if matched_seen < offset {
+                    matched_seen += 1;
+                    continue;
+                }
+                if out.len() < limit {
+                    out.push(item);
+                }
+            }
+        }
+        Ok(DreamingDecisionListResponse {
+            items: out,
+            total,
+            total_truncated,
+        })
     }
 
     /// Mark crash-orphaned `running` rows (expired or missing lease) as failed.
@@ -957,6 +1390,68 @@ fn row_to_decision(row: &rusqlite::Row) -> rusqlite::Result<DreamingDecisionReco
     })
 }
 
+fn row_to_decision_list_item(row: &rusqlite::Row) -> rusqlite::Result<DreamingDecisionListItem> {
+    let before_json: Option<String> = row.get(7)?;
+    let after_json: Option<String> = row.get(8)?;
+    let content = json_string_field(after_json.as_deref(), "content")
+        .or_else(|| json_string_field(before_json.as_deref(), "content"));
+    let scope_type = json_string_field(after_json.as_deref(), "scopeType")
+        .or_else(|| json_string_field(before_json.as_deref(), "scopeType"));
+    let scope_id = json_string_field(after_json.as_deref(), "scopeId")
+        .or_else(|| json_string_field(before_json.as_deref(), "scopeId"));
+    Ok(DreamingDecisionListItem {
+        id: row.get(0)?,
+        run_id: row.get(1)?,
+        decision_type: row.get(2)?,
+        target_type: row.get(3)?,
+        target_id: row.get(4)?,
+        score: row.get::<_, Option<f64>>(5)?.map(|v| v as f32),
+        rationale: row.get(6)?,
+        before_json,
+        after_json,
+        created_at: row.get(9)?,
+        run_trigger: row.get(10)?,
+        run_phase: row.get(11)?,
+        run_status: row.get(12)?,
+        content,
+        scope_type,
+        scope_id,
+    })
+}
+
+fn json_string_field(raw: Option<&str>, field: &str) -> Option<String> {
+    let raw = raw?;
+    let parsed = serde_json::from_str::<serde_json::Value>(raw).ok()?;
+    match parsed.get(field)? {
+        serde_json::Value::String(value) => {
+            let trimmed = value.trim();
+            (!trimmed.is_empty()).then(|| trimmed.to_string())
+        }
+        serde_json::Value::Null => None,
+        value => Some(value.to_string()),
+    }
+}
+
+fn decision_item_matches_scope(
+    item: &DreamingDecisionListItem,
+    scope_type: Option<&str>,
+    scope_id: Option<&str>,
+) -> bool {
+    let Some(scope_type) = scope_type else {
+        return true;
+    };
+    if item.scope_type.as_deref() != Some(scope_type) {
+        return false;
+    }
+    if scope_type == "global" {
+        return true;
+    }
+    match scope_id {
+        Some(expected) => item.scope_id.as_deref() == Some(expected),
+        None => true,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::types::EvidenceRef;
@@ -1021,6 +1516,172 @@ mod tests {
         let list = s.list_runs(50, 0).unwrap();
         assert_eq!(list.len(), 1);
         assert_eq!(list[0].id, run_id);
+    }
+
+    #[test]
+    fn list_decisions_filters_claim_audit_history() {
+        let s = temp_store();
+        s.record_user_action(
+            "approve",
+            "claim-a",
+            "User approved dark mode",
+            serde_json::json!({
+                "content": "Prefers light mode",
+                "scopeType": "global",
+                "scopeId": null,
+            }),
+            serde_json::json!({
+                "content": "Prefers dark mode",
+                "scopeType": "global",
+                "scopeId": null,
+            }),
+        )
+        .unwrap();
+        s.record_user_action(
+            "reject",
+            "claim-b",
+            "Archived weak draft",
+            serde_json::json!({
+                "content": "Draft likes beige",
+                "scopeType": "global",
+                "scopeId": null,
+            }),
+            serde_json::json!({
+                "content": "Draft likes beige",
+                "scopeType": "global",
+                "scopeId": null,
+            }),
+        )
+        .unwrap();
+        s.record_user_action(
+            "approve",
+            "claim-c",
+            "100% project-specific correction",
+            serde_json::json!({
+                "content": "Uses old deploy script",
+                "scopeType": "project",
+                "scopeId": "p1",
+            }),
+            serde_json::json!({
+                "content": "Uses new deploy script 100% of the time",
+                "scopeType": "project",
+                "scopeId": "p1",
+            }),
+        )
+        .unwrap();
+
+        let dark = s
+            .list_decisions_page(DreamingDecisionListFilter {
+                query: Some("dark mode".into()),
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(dark.total, 1);
+        assert!(!dark.total_truncated);
+        assert_eq!(dark.items.len(), 1);
+        assert_eq!(dark.items[0].target_id.as_deref(), Some("claim-a"));
+        assert_eq!(dark.items[0].content.as_deref(), Some("Prefers dark mode"));
+        assert_eq!(dark.items[0].scope_type.as_deref(), Some("global"));
+
+        let split_terms = s
+            .list_decisions_page(DreamingDecisionListFilter {
+                query: Some("claim-a approved".into()),
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(split_terms.total, 1);
+        assert_eq!(split_terms.items[0].target_id.as_deref(), Some("claim-a"));
+
+        let project = s
+            .list_decisions_page(DreamingDecisionListFilter {
+                decision_type: Some("approve".into()),
+                scope_type: Some("project".into()),
+                scope_id: Some("p1".into()),
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(project.total, 1);
+        assert_eq!(project.items.len(), 1);
+        assert_eq!(project.items[0].target_id.as_deref(), Some("claim-c"));
+        assert_eq!(project.items[0].run_trigger, "user_correction");
+
+        let literal_percent = s
+            .list_decisions_page(DreamingDecisionListFilter {
+                query: Some("100%".into()),
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(literal_percent.total, 1);
+        assert_eq!(literal_percent.items.len(), 1);
+        assert_eq!(
+            literal_percent.items[0].target_id.as_deref(),
+            Some("claim-c")
+        );
+
+        let paged = s
+            .list_decisions_page(DreamingDecisionListFilter {
+                limit: Some(1),
+                offset: Some(1),
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(paged.total, 3);
+        assert!(!paged.total_truncated);
+        assert_eq!(paged.items.len(), 1);
+    }
+
+    #[test]
+    fn record_review_snapshot_writes_completed_review_audit_run() {
+        let s = temp_store();
+        let run_id = s
+            .record_review_snapshot(
+                "claim-review",
+                "Review required (review_first): primary=other, risks=pendingConfirmation, conflicts=0",
+                serde_json::json!({
+                    "claimId": "claim-review",
+                    "status": "new",
+                    "reviewReasonSource": "review_first",
+                }),
+                serde_json::json!({
+                    "claimId": "claim-review",
+                    "content": "User prefers terse replies",
+                    "scopeType": "global",
+                    "scopeId": null,
+                    "status": "needs_review",
+                    "reviewReason": {
+                        "source": "review_first",
+                        "primary": "other",
+                        "risks": ["pendingConfirmation"],
+                        "conflictCount": 0,
+                    },
+                }),
+            )
+            .unwrap();
+
+        let detail = s.get_run(&run_id).unwrap().expect("review snapshot run");
+        assert_eq!(detail.run.trigger, "review_snapshot");
+        assert_eq!(detail.run.phase, "review");
+        assert_eq!(detail.run.status, "completed");
+        assert_eq!(detail.decisions.len(), 1);
+        assert_eq!(detail.decisions[0].decision_type, "needs_review");
+        assert_eq!(
+            detail.decisions[0].target_id.as_deref(),
+            Some("claim-review")
+        );
+
+        let page = s
+            .list_decisions_page(DreamingDecisionListFilter {
+                decision_type: Some("needs_review".into()),
+                scope_type: Some("global".into()),
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(page.total, 1);
+        assert_eq!(page.items[0].run_trigger, "review_snapshot");
+        assert_eq!(
+            page.items[0].content.as_deref(),
+            Some("User prefers terse replies")
+        );
     }
 
     #[test]
@@ -1204,6 +1865,56 @@ mod tests {
         let a = snaps.iter().find(|r| r.scope_type == "agent").unwrap();
         assert_eq!(a.version, 1);
         assert_eq!(a.scope_id.as_deref(), Some("ha-main"));
+    }
+
+    #[test]
+    fn profile_snapshot_sources_round_trip_with_latest_snapshot() {
+        let s = temp_store();
+        let sources = vec![ProfileSnapshotSourceRecord {
+            line_index: Some(0),
+            claim_id: "claim-profile-source".to_string(),
+            claim_type: "user_profile".to_string(),
+            content: "User prefers concise Chinese replies.".to_string(),
+            confidence: 0.8,
+            salience: 0.9,
+            evidence_id: Some("ev-profile-source".to_string()),
+            evidence_class: Some("explicit_user_statement".to_string()),
+            evidence_source_type: Some("session_message".to_string()),
+            evidence_quote: Some("Please keep replies concise and in Chinese.".to_string()),
+            evidence_session_id: Some("sess-profile".to_string()),
+            evidence_message_id: Some("42".to_string()),
+            evidence_file_path: None,
+            evidence_url: None,
+        }];
+        let inserted = s
+            .insert_profile_snapshot_with_sources(
+                "global",
+                "",
+                "- concise Chinese replies\n",
+                "r1",
+                &sources,
+            )
+            .unwrap();
+        assert_eq!(inserted.version, 1);
+
+        let snaps = s.latest_profile_snapshots().unwrap();
+        assert_eq!(snaps.len(), 1);
+        assert_eq!(snaps[0].sources.len(), 1);
+        assert_eq!(snaps[0].sources[0].line_index, Some(0));
+        assert_eq!(snaps[0].sources[0].claim_id, "claim-profile-source");
+        assert_eq!(snaps[0].sources[0].claim_type, "user_profile");
+        assert_eq!(
+            snaps[0].sources[0].evidence_quote.as_deref(),
+            Some("Please keep replies concise and in Chinese.")
+        );
+        assert_eq!(
+            snaps[0].sources[0].evidence_session_id.as_deref(),
+            Some("sess-profile")
+        );
+        assert_eq!(
+            snaps[0].sources[0].evidence_message_id.as_deref(),
+            Some("42")
+        );
     }
 
     #[test]

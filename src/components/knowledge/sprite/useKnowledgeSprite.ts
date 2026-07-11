@@ -1,8 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react"
+import { useTranslation } from "react-i18next"
+import { toast } from "sonner"
 
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import type { SpriteConfig, SpriteSuggestion, SpriteTriggers } from "@/types/knowledge"
+import {
+  knowledgeSpriteErrorToast,
+  type KnowledgeSpriteErrorToast,
+} from "./knowledgeSpriteFeedback"
 
 const DOC_SEND_CAP = 8000
 const EDIT_SEND_CAP = 1200
@@ -68,8 +74,10 @@ interface Opts {
  */
 export function useKnowledgeSprite(opts: Opts) {
   const { kbId, notePath, sessionId, agentId, editorRevision, conversationRevision, active } = opts
+  const { t } = useTranslation()
 
   const [config, setConfig] = useState<SpriteConfig | null>(null)
+  const [loadError, setLoadError] = useState<KnowledgeSpriteErrorToast | null>(null)
   const [suggestion, setSuggestion] = useState<SpriteSuggestion | null>(null)
   // True only while the backend is actually running the side_query for THIS note
   // (drives the cat's "casting" glow). Backend emits start/stop around the call.
@@ -85,6 +93,7 @@ export function useKnowledgeSprite(opts: Opts) {
   const lastObservedRef = useRef<string | null>(null)
   // Last seen doc length, for cheap large-insert (paste) detection.
   const prevLenRef = useRef(0)
+  const lastObserveErrorToastAtRef = useRef(0)
   useEffect(() => {
     getEditorValueRef.current = opts.getEditorValue
     getRecentMessagesRef.current = opts.getRecentMessages
@@ -104,29 +113,46 @@ export function useKnowledgeSprite(opts: Opts) {
     const load = () =>
       getTransport()
         .call<SpriteConfig>("sprite_config_get_cmd")
-        .then(setConfig)
-        .catch((e) => logger.warn("knowledge", "useKnowledgeSprite::config", "load failed", e))
+        .then((next) => {
+          setConfig(next)
+          setLoadError(null)
+        })
+        .catch((e) => {
+          logger.warn("knowledge", "useKnowledgeSprite::config", "load failed", e)
+          setConfig(null)
+          setLoadError(knowledgeSpriteErrorToast("loadConfig", t, e))
+        })
     void load()
     // The EventBus `config:changed` payload's `category` is unreliable for
     // routing (the main write path always tags it `"app"`; user-config/rollback
     // paths use other values), so don't filter on it — reload on any config
     // change so an external enabled/tuning edit (settings panel) reflects here.
     return getTransport().listen("config:changed", () => void load())
-  }, [active])
+  }, [active, t])
 
   // Chat-bar toggle: flip + persist `enabled` (optimistic local update). Needs
   // the config loaded first (the button is hidden/disabled until then).
   const setEnabled = useCallback(
-    (on: boolean) => {
-      if (!config) return
+    async (on: boolean): Promise<boolean> => {
+      if (!config) return false
+      const previous = config
       const next = { ...config, enabled: on }
       setConfig(next)
-      getTransport()
-        .call<SpriteConfig>("sprite_config_set_cmd", { config: next })
-        .then(setConfig)
-        .catch((e) => logger.warn("knowledge", "useKnowledgeSprite::toggle", "save failed", e))
+      try {
+        setConfig(await getTransport().call<SpriteConfig>("sprite_config_set_cmd", { config: next }))
+        return true
+      } catch (e) {
+        logger.warn("knowledge", "useKnowledgeSprite::toggle", "save failed", e)
+        setConfig(previous)
+        const failureToast = knowledgeSpriteErrorToast("saveToggle", t, e)
+        toast.error(
+          failureToast.title,
+          failureToast.description ? { description: failureToast.description } : undefined,
+        )
+        return false
+      }
     },
-    [config],
+    [config, t],
   )
 
   const dismiss = useCallback(() => setSuggestion(null), [])
@@ -147,9 +173,19 @@ export function useKnowledgeSprite(opts: Opts) {
             recentMessages: getRecentMessagesRef.current().slice(-6),
           },
         })
-        .catch((e) => logger.warn("knowledge", "useKnowledgeSprite::observe", "post failed", e))
+        .catch((e) => {
+          logger.warn("knowledge", "useKnowledgeSprite::observe", "post failed", e)
+          const now = Date.now()
+          if (now - lastObserveErrorToastAtRef.current < 60_000) return
+          lastObserveErrorToastAtRef.current = now
+          const failureToast = knowledgeSpriteErrorToast("observe", t, e)
+          toast.error(
+            failureToast.title,
+            failureToast.description ? { description: failureToast.description } : undefined,
+          )
+        })
     },
-    [sessionId, kbId, notePath, agentId],
+    [sessionId, kbId, notePath, agentId, t],
   )
 
   // Switching notes invalidates the diff baseline. We intentionally do NOT read
@@ -295,6 +331,7 @@ export function useKnowledgeSprite(opts: Opts) {
     /** Whether sprite mode is on (toggled from the chat bar). `null` config = not loaded yet. */
     enabled,
     ready: config != null,
+    loadError,
     setEnabled,
     suggestion: visibleSuggestion,
     /** Backend is running the side_query for this note → drive the cat "casting" glow. */

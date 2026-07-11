@@ -242,11 +242,6 @@ pub async fn set_session_model(
     model_id: String,
     state: State<'_, AppState>,
 ) -> Result<(), CmdError> {
-    let provider_name = ha_core::config::cached_config()
-        .providers
-        .iter()
-        .find(|p| p.id == provider_id && p.enabled)
-        .map(|p| p.name.clone());
     {
         let session_id = session_id.clone();
         let provider_id = provider_id.clone();
@@ -254,11 +249,11 @@ pub async fn set_session_model(
         state
             .session_db
             .run(move |db| {
-                db.update_session_model(
+                ha_core::session::set_session_model_preference(
+                    db,
                     &session_id,
-                    Some(&provider_id),
-                    provider_name.as_deref(),
-                    Some(&model_id),
+                    &provider_id,
+                    &model_id,
                 )
             })
             .await?;
@@ -274,6 +269,77 @@ pub async fn set_session_model(
         );
     }
     Ok(())
+}
+
+#[tauri::command]
+pub async fn set_session_temperature(
+    session_id: String,
+    mode: String,
+    value: Option<f64>,
+    state: State<'_, AppState>,
+) -> Result<Option<f64>, CmdError> {
+    if !matches!(mode.as_str(), "value" | "agentDefault") {
+        return Err(CmdError::msg(format!("Invalid temperature mode: {mode}")));
+    }
+    state
+        .session_db
+        .run(move |db| {
+            ha_core::session::set_session_temperature_preference(
+                db,
+                &session_id,
+                value,
+                mode == "agentDefault",
+            )
+        })
+        .await
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn set_session_reasoning_effort(
+    session_id: String,
+    mode: String,
+    value: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<String, CmdError> {
+    if !matches!(mode.as_str(), "value" | "agentDefault") {
+        return Err(CmdError::msg(format!(
+            "Invalid reasoning effort mode: {mode}"
+        )));
+    }
+    state
+        .session_db
+        .run(move |db| {
+            ha_core::session::set_session_reasoning_effort_preference(
+                db,
+                &session_id,
+                value.as_deref(),
+                mode == "agentDefault",
+            )
+        })
+        .await
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn get_chat_runtime_defaults(
+    session_id: Option<String>,
+    agent_id: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<ha_core::session::ChatRuntimeDefaults, CmdError> {
+    if let Some(session_id) = session_id {
+        return state
+            .session_db
+            .run(move |db| ha_core::session::ensure_session_runtime_defaults(db, &session_id))
+            .await
+            .map_err(Into::into);
+    }
+    let agent_id = agent_id
+        .filter(|id| !id.trim().is_empty())
+        .unwrap_or_else(|| ha_core::agent_loader::DEFAULT_AGENT_ID.to_string());
+    Ok(ha_core::session::resolve_chat_runtime_defaults(
+        None, &agent_id,
+    ))
 }
 
 #[tauri::command]

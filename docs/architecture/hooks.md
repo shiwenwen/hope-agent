@@ -233,7 +233,7 @@ matcher 目标按事件取：`tool_name`（PreToolUse / PostToolUse / …）、`
 
 ### 7.4 prompt（`runner/prompt.rs`）
 
-- 走 `agent::side_query` 一次性 LLM 调用；结果作 `additionalContext`。复用主对话 system_prompt 前缀命中 cache（成本低）。
+- 走 `crate::automation::run` 一次性 LLM 调用（purpose `hooks.prompt`）；结果作 `additionalContext`。模型链解析优先级：`PromptHookConfig.model_override`（新，`ModelChain`）→ deprecated `model`（单冒号 `provider:model` 字符串，惰性解析）→ `function_models.automation` 全局默认链 → 聊天全局模型；真跨模型降级 + 无重试 bug 已修，详见 [模型 vs Agent 统一配置](automation-model.md)。因 hook 配置本身不持有一个存活的主对话 Agent 实例，不复用主对话 system_prompt 的 cache 前缀。
 
 ### 7.5 agent（`runner/agent.rs`）
 

@@ -23,6 +23,7 @@ import type {
   WorkspaceEnvironmentSnapshot,
 } from "@/lib/transport"
 import type { BackgroundJobSnapshot } from "@/types/background-jobs"
+import type { Message } from "@/types/chat"
 import WorkspacePanel from "./WorkspacePanel"
 import type { GoalSnapshot, GoalWatchdogFinding } from "./useGoal"
 import type { LoopSchedule, LoopSnapshot, LoopWatchdogFinding } from "./useLoopSchedules"
@@ -144,6 +145,7 @@ afterEach(() => {
   vi.useRealTimers()
   envMock.state = { snapshot: null, loading: false, error: null }
   transportMock.supportsLocalFileOps.mockReset()
+  transportMock.supportsLocalFileOps.mockImplementation(() => true)
   transportMock.call.mockReset()
   transportMock.listen.mockReset()
 })
@@ -1695,7 +1697,9 @@ describe("WorkspacePanel goal section", () => {
     })
 
     const goalButtons = await screen.findAllByRole("button", { name: /目标/ })
-    const goalCreateToggle = goalButtons.find((button) => button.getAttribute("aria-expanded") === "false")
+    const goalCreateToggle = goalButtons.find(
+      (button) => button.getAttribute("aria-expanded") === "false",
+    )
     fireEvent.click(goalCreateToggle ?? goalButtons[goalButtons.length - 1])
     fireEvent.change(screen.getByPlaceholderText("例如：完整实现目标模式，并通过针对性检查"), {
       target: { value: "调研新版浏览器自动化能力并整理风险" },
@@ -1911,9 +1915,9 @@ describe("WorkspacePanel goal section", () => {
     await clickTextButton("Keep the research brief fresh")
 
     expect(screen.getByText("目标或证据已变化，需要重新评估")).toBeTruthy()
-    expect((screen.getByRole("button", { name: "接受 v1 关闭" }) as HTMLButtonElement).disabled).toBe(
-      true,
-    )
+    expect(
+      (screen.getByRole("button", { name: "接受 v1 关闭" }) as HTMLButtonElement).disabled,
+    ).toBe(true)
     expect(transportMock.call).not.toHaveBeenCalledWith("close_goal", expect.anything())
   })
 })
@@ -2099,16 +2103,15 @@ describe("WorkspacePanel context retrieval section", () => {
 
     await waitFor(() => {
       expect(
-        transportMock.call.mock.calls.filter(([name]) => name === "get_context_retrieval")
-          .length,
+        transportMock.call.mock.calls.filter(([name]) => name === "get_context_retrieval").length,
       ).toBeGreaterThan(contextCallsBefore)
       expect(
-        transportMock.call.mock.calls.filter(([name]) => name === "list_domain_evidence")
-          .length,
+        transportMock.call.mock.calls.filter(([name]) => name === "list_domain_evidence").length,
       ).toBeGreaterThan(evidenceCallsBefore)
       expect(
-        transportMock.call.mock.calls.filter(([name]) => name === "evaluate_domain_operational_gate")
-          .length,
+        transportMock.call.mock.calls.filter(
+          ([name]) => name === "evaluate_domain_operational_gate",
+        ).length,
       ).toBeGreaterThan(operationalCallsBefore)
       expect(
         transportMock.call.mock.calls.filter(([name]) => name === "generate_domain_soak_report")
@@ -2195,6 +2198,72 @@ describe("WorkspacePanel environment section", () => {
     fireEvent.click(screen.getByRole("button", { name: "收起任务" }))
 
     expect(onBackgroundJobExpandedChange).toHaveBeenCalledWith("job-1", false)
+  })
+
+  it("renders cross-turn memory diagnostics in the workspace section", () => {
+    const messages: Message[] = [
+      {
+        role: "assistant",
+        content: "带记忆的回答",
+        usedMemoryRefs: [
+          {
+            kind: "memory",
+            id: "m1",
+            origin: "active_memory",
+            role: "selected",
+            preview: "private preference",
+          },
+        ],
+        retrievalPlanner: {
+          status: "partial",
+          totalRefs: 1,
+          layers: [
+            {
+              layer: "active_memory",
+              status: "used",
+              refCount: 1,
+              selectedCount: 1,
+            },
+            {
+              layer: "knowledge",
+              status: "skipped",
+              refCount: 0,
+              skippedReason: "side_query_error",
+            },
+          ],
+        },
+      },
+    ]
+
+    renderPanel(null, { messages })
+
+    expect(screen.getByText("记忆诊断")).toBeTruthy()
+    expect(screen.getByText("Partially degraded")).toBeTruthy()
+    expect(screen.getByText("来源对比")).toBeTruthy()
+    expect(screen.getByText("最近轮次")).toBeTruthy()
+    expect(screen.getAllByText("Active recall").length).toBeGreaterThan(0)
+    expect(screen.getByText("#1")).toBeTruthy()
+    expect(screen.getByText(/recall failed/)).toBeTruthy()
+  })
+
+  it("shows knowledge attachment load failures instead of the empty attached state", async () => {
+    transportMock.call.mockImplementation((name: string) => {
+      if (name === "list_session_kbs_cmd") {
+        return Promise.reject(
+          new Error(
+            "Authorization: Bearer bearer-secret token=query-secret api_key=sk-live-secret",
+          ),
+        )
+      }
+      return Promise.resolve(name === "get_background_job" ? null : [])
+    })
+
+    renderPanel(null)
+
+    expect(await screen.findByText("无法读取已挂载知识空间")).toBeTruthy()
+    expect(await screen.findByText(/Authorization: Bearer \[redacted\]/)).toBeTruthy()
+    expect(screen.queryByText("未挂载知识空间")).toBeNull()
+    expect(screen.queryByText(/bearer-secret|query-secret|sk-live-secret/)).toBeNull()
   })
 })
 
@@ -2535,8 +2604,7 @@ describe("WorkspacePanel workflow section", () => {
       if (name === "get_execution_mode") return Promise.resolve({ mode: "guarded" })
       if (name === "evaluate_domain_operational_gate")
         return Promise.resolve(emptyDomainOperationalGateReport())
-      if (name === "generate_domain_soak_report")
-        return Promise.resolve(emptyDomainSoakReport())
+      if (name === "generate_domain_soak_report") return Promise.resolve(emptyDomainSoakReport())
       if (name === "evaluate_domain_artifact_export_guard")
         return Promise.resolve(emptyDomainArtifactExportGuardReport())
       if (name === "evaluate_domain_connector_action_guard")
@@ -2660,9 +2728,7 @@ describe("WorkspacePanel workflow section", () => {
     )
     expect(acceptanceReport).toContain("Evidence IDs：无")
     expect(acceptanceReport).toContain("## 复核协议")
-    expect(acceptanceReport).toContain(
-      "只有验收结论为“可验收”时，当前样本才可作为最终验收证据",
-    )
+    expect(acceptanceReport).toContain("只有验收结论为“可验收”时，当前样本才可作为最终验收证据")
     expect(acceptanceReport).toContain("连接器端到端（E2E）必须来自测试账号或沙箱数据")
     expect(acceptanceReport).toContain("## 守门状态")
     expect(acceptanceReport).toContain("验收结论：不可验收 - 长跑审计仍有事故需要收口。")
@@ -2678,7 +2744,9 @@ describe("WorkspacePanel workflow section", () => {
     expect(acceptanceReport).toContain("Repair the failed workflow.")
     expect(acceptanceReport).toContain("## 验收矩阵")
     expect(acceptanceReport).toContain("[待补] Campaign 样本：缺通过的 Campaign item")
-    expect(acceptanceReport).toContain("证据：Campaign item 使用 deterministic trace pack 或真实 agent 样本。")
+    expect(acceptanceReport).toContain(
+      "证据：Campaign item 使用 deterministic trace pack 或真实 agent 样本。",
+    )
     expect(acceptanceReport).toContain("[待扩展] 连接器端到端（E2E）：当前会话未观察外部动作")
     expect(acceptanceReport).toContain("证据：使用测试账号或沙箱数据，避免真实用户生产账号。")
 
@@ -2715,9 +2783,7 @@ describe("WorkspacePanel workflow section", () => {
     const campaignLane = screen.getByText("缺通过的 Campaign item")
     const campaignLaneRow = campaignLane.parentElement?.parentElement
     expect(campaignLaneRow).toBeTruthy()
-    fireEvent.click(
-      within(campaignLaneRow as HTMLElement).getByRole("button", { name: "转任务" }),
-    )
+    fireEvent.click(within(campaignLaneRow as HTMLElement).getByRole("button", { name: "转任务" }))
 
     await waitFor(() => {
       expect(transportMock.call).toHaveBeenCalledWith("create_session_task", {
@@ -2761,7 +2827,9 @@ describe("WorkspacePanel workflow section", () => {
     expect(acceptancePlanContent).toContain("验收结论：不可验收 - 长跑审计仍有事故需要收口。")
     expect(acceptancePlanContent).toContain("验收进度：34% (3/8)")
     expect(acceptancePlanContent).toContain("[待补] Campaign 样本：缺通过的 Campaign item")
-    expect(acceptancePlanContent).toContain("证据：至少一个 item passed，失败 item 有分类和 retry / cancel 证据。")
+    expect(acceptancePlanContent).toContain(
+      "证据：至少一个 item passed，失败 item 有分类和 retry / cancel 证据。",
+    )
     expect(acceptancePlanContent).toContain("刷新：刷新长跑审计 Soak Report。")
     expect(acceptancePlanContent).toContain("证据：使用测试账号或沙箱数据，避免真实用户生产账号。")
 
@@ -3292,7 +3360,9 @@ describe("WorkspacePanel workflow section", () => {
     fireEvent.click(approveButtons[0])
 
     await waitFor(() => {
-      const calls = transportMock.call.mock.calls.filter(([name]) => name === "record_domain_evidence")
+      const calls = transportMock.call.mock.calls.filter(
+        ([name]) => name === "record_domain_evidence",
+      )
       expect(calls).toHaveLength(1)
     })
 
@@ -3302,7 +3372,9 @@ describe("WorkspacePanel workflow section", () => {
     fireEvent.click(rollbackButtons[0])
 
     await waitFor(() => {
-      const calls = transportMock.call.mock.calls.filter(([name]) => name === "record_domain_evidence")
+      const calls = transportMock.call.mock.calls.filter(
+        ([name]) => name === "record_domain_evidence",
+      )
       expect(calls).toHaveLength(2)
     })
 
@@ -3340,7 +3412,9 @@ describe("WorkspacePanel workflow section", () => {
         decision: { approved: true, confirmed: true },
       }),
     )
-    expect((evidenceCalls[0].sourceMetadata as Record<string, unknown>).rollbackPlan).toBeUndefined()
+    expect(
+      (evidenceCalls[0].sourceMetadata as Record<string, unknown>).rollbackPlan,
+    ).toBeUndefined()
 
     expect(evidenceCalls[1]).toEqual(
       expect.objectContaining({
@@ -3410,7 +3484,9 @@ describe("WorkspacePanel workflow section", () => {
     const exportEvidenceLabel = await screen.findByText("Private source")
     const exportEvidenceRow = exportEvidenceLabel.parentElement
     expect(exportEvidenceRow).toBeTruthy()
-    fireEvent.click(within(exportEvidenceRow as HTMLElement).getByRole("button", { name: "转任务" }))
+    fireEvent.click(
+      within(exportEvidenceRow as HTMLElement).getByRole("button", { name: "转任务" }),
+    )
 
     await waitFor(() => {
       expect(transportMock.call).toHaveBeenCalledWith("create_session_task", {
@@ -3550,9 +3626,9 @@ describe("WorkspacePanel workflow section", () => {
     await clickSectionHeader("通用任务工作台")
     expect((await screen.findAllByText("连接器端到端")).length).toBeGreaterThan(0)
     expect(screen.getByText("下一步：记录执行结果")).toBeTruthy()
-    expect(
-      (screen.getByRole("button", { name: "记录复核" }) as HTMLButtonElement).disabled,
-    ).toBe(true)
+    expect((screen.getByRole("button", { name: "记录复核" }) as HTMLButtonElement).disabled).toBe(
+      true,
+    )
 
     fireEvent.change(screen.getByPlaceholderText("执行结果"), {
       target: { value: executionResult },
@@ -3640,7 +3716,9 @@ describe("WorkspacePanel workflow section", () => {
         verification: { passed: true, verified: true, summary: verificationResult },
       }),
     )
-    expect((evidenceCalls[1].sourceMetadata as Record<string, unknown>).actionExecuted).toBeUndefined()
+    expect(
+      (evidenceCalls[1].sourceMetadata as Record<string, unknown>).actionExecuted,
+    ).toBeUndefined()
   })
 
   it("creates a task from domain workbench next-step gaps", async () => {
@@ -4967,9 +5045,7 @@ describe("WorkspacePanel workflow section", () => {
 
     expect(await screen.findByText("子代理 Token")).toBeTruthy()
     expect(screen.getByText("125 · 1/2 个 Agent")).toBeTruthy()
-    expect(
-      screen.getByText("仅统计本工作流关联子代理用量；完整成本仍等待运行归因。"),
-    ).toBeTruthy()
+    expect(screen.getByText("仅统计本工作流关联子代理用量；完整成本仍等待运行归因。")).toBeTruthy()
   })
 
   it("does not present a completed run as complete while owned agents are still running", async () => {

@@ -60,8 +60,12 @@ pub const PINNED_MIN_SALIENCE: f32 = 0.7;
 pub struct SourceRef {
     pub claim_id: String,
     pub scope_type: String,
+    pub scope_id: Option<String>,
+    pub claim_type: String,
     /// "pinned" today; future sections (e.g. "relevant") reuse this tag.
     pub section: String,
+    /// First sanitized prompt line that was actually rendered.
+    pub preview: String,
 }
 
 /// Prompt-ready static claim segment for the chat hot path (design §4.8).
@@ -185,7 +189,10 @@ fn render_claims_block(
         digest.push(SourceRef {
             claim_id: c.id.clone(),
             scope_type: c.scope_type.clone(),
+            scope_id: c.scope_id.clone(),
+            claim_type: c.claim_type.clone(),
             section: section.to_string(),
+            preview: line.to_string(),
         });
     }
     body
@@ -264,5 +271,10 @@ mod tests {
         // Both claims produced a digest entry tagged with the section.
         assert_eq!(digest.len(), 2);
         assert!(digest.iter().all(|s| s.section == "pinned"));
+        assert_eq!(digest[0].claim_id, "c1");
+        assert_eq!(digest[0].claim_type, "preference");
+        assert_eq!(digest[0].scope_type, "global");
+        assert_eq!(digest[0].scope_id, None);
+        assert_eq!(digest[0].preview, "User prefers dark mode");
     }
 }

@@ -1,6 +1,21 @@
-import { useTranslation } from "react-i18next"
+import { Trans, useTranslation } from "react-i18next"
+import { Bug, Hammer, RefreshCcw, Search, type LucideIcon } from "lucide-react"
 
 import alphaLogoUrl from "@/assets/alpha-logo.png"
+import { cn } from "@/lib/utils"
+
+interface ProjectWelcomeSuggestion {
+  key: "explore" | "build" | "review" | "fix"
+  icon: LucideIcon
+  iconClassName: string
+}
+
+const PROJECT_WELCOME_SUGGESTIONS: ProjectWelcomeSuggestion[] = [
+  { key: "explore", icon: Search, iconClassName: "text-sky-500" },
+  { key: "build", icon: Hammer, iconClassName: "text-violet-500" },
+  { key: "review", icon: RefreshCcw, iconClassName: "text-emerald-500" },
+  { key: "fix", icon: Bug, iconClassName: "text-orange-500" },
+]
 
 /**
  * The empty-session greeting (logo + slogan, or the incognito notice). Shared by
@@ -10,7 +25,15 @@ import alphaLogoUrl from "@/assets/alpha-logo.png"
  * regardless of width/height (the two used to center independently and collided
  * when the pane was squeezed).
  */
-export function ChatWelcomeHero({ incognito = false }: { incognito?: boolean }) {
+export function ChatWelcomeHero({
+  incognito = false,
+  projectName,
+  onProjectSuggestion,
+}: {
+  incognito?: boolean
+  projectName?: string | null
+  onProjectSuggestion?: (prompt: string) => void
+}) {
   const { t } = useTranslation()
 
   if (incognito) {
@@ -25,6 +48,56 @@ export function ChatWelcomeHero({ incognito = false }: { incognito?: boolean }) 
         <p className="mx-auto max-w-[620px] text-sm leading-relaxed text-muted-foreground">
           {t("chat.incognitoEmptyBody")}
         </p>
+      </div>
+    )
+  }
+
+  if (projectName) {
+    return (
+      <div className="mx-auto w-full px-4 text-center">
+        <img
+          src={alphaLogoUrl}
+          alt=""
+          className="mx-auto mb-5 h-[72px] w-[72px] object-contain opacity-95"
+          draggable={false}
+        />
+        <p className="mx-auto max-w-[620px] text-sm leading-relaxed text-muted-foreground">
+          <Trans
+            i18nKey="chat.projectWelcomeTitle"
+            values={{ project: projectName }}
+            components={{
+              project: (
+                <span className="font-medium text-foreground underline decoration-border decoration-dotted underline-offset-4" />
+              ),
+            }}
+          />
+        </p>
+        <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+          {PROJECT_WELCOME_SUGGESTIONS.map((suggestion) => {
+            const Icon = suggestion.icon
+            const title = t(`chat.projectWelcomeSuggestions.${suggestion.key}.title`)
+            const prompt = t(`chat.projectWelcomeSuggestions.${suggestion.key}.prompt`, {
+              project: projectName,
+            })
+            return (
+              <button
+                key={suggestion.key}
+                type="button"
+                onClick={() => onProjectSuggestion?.(prompt)}
+                disabled={!onProjectSuggestion}
+                className="group inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-full border border-border/70 bg-background/40 px-3 text-xs font-medium text-muted-foreground transition-colors hover:border-border hover:bg-muted/35 hover:text-foreground disabled:cursor-default disabled:hover:border-border/70 disabled:hover:bg-background/40 disabled:hover:text-muted-foreground"
+              >
+                <Icon
+                  className={cn(
+                    "h-3.5 w-3.5 shrink-0 transition-transform group-hover:-translate-y-px",
+                    suggestion.iconClassName,
+                  )}
+                />
+                <span>{title}</span>
+              </button>
+            )
+          })}
+        </div>
       </div>
     )
   }

@@ -137,7 +137,8 @@ const TOOL_DESC_WEB_FETCH: &str = "\
 const TOOL_DESC_SAVE_MEMORY: &str = "\
 - save_memory: Save information to persistent memory.\n\
   - Use when the user shares personal info, preferences, corrections, or says \"remember this\"\n\
-  - Params: content (required), type (user/feedback/project/reference), tags (optional array), scope (global/agent)\n\
+  - Params: content (required), type (user/feedback/project/reference), tags (optional array), scope (global/agent/project)\n\
+  - In a project session, omitted scope defaults to project; outside a project it defaults to global. Use scope explicitly when the intended boundary differs.\n\
   - Do NOT save: ephemeral task details, code snippets, debugging steps, or anything derivable from the codebase";
 
 const TOOL_DESC_RECALL_MEMORY: &str = "\

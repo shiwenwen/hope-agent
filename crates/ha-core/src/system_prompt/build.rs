@@ -3,7 +3,7 @@ use super::constants::{
     HUMAN_IN_THE_LOOP_GUIDANCE, MARKDOWN_PATH_LINKS_GUIDANCE, MAX_FILE_CHARS, MEMORY_GUIDELINES,
     SOUL_EMBODIMENT_GUIDANCE, TOOL_CALL_NARRATION_GUIDANCE,
 };
-use super::helpers::truncate;
+use super::helpers::{truncate, truncate_retained_ranges};
 use super::sections::*;
 use super::working_dir_instructions::collect_working_dir_instructions;
 use crate::agent_config::AgentDefinition;
@@ -15,6 +15,12 @@ use crate::skills;
 use crate::user_config;
 
 // ── Build System Prompt ──────────────────────────────────────────
+
+// Per-section cap for the Pinned Claims segment. Constant for now (not a
+// user-config field): it `.min(remaining)` downstream, so claims still share
+// the one `effective_memory_budget` pool — this only bounds how much a single
+// segment can take before the rest of the budget flows to legacy memory.
+const PINNED_CLAIMS_CHARS: usize = 2500;
 
 /// Build the complete system prompt from an AgentDefinition.
 ///
@@ -183,10 +189,15 @@ pub fn build(
     }
 
     // ⑥ Tool definitions (driven by dispatch::resolve_tool_fate)
-    sections.push(build_tools_section(&definition.id, &definition.config));
+    sections.push(build_tools_section(
+        &definition.id,
+        &definition.config,
+        incognito,
+    ));
 
     // ⑥b Deferred tools listing (when deferred loading is enabled)
-    if let Some(deferred_section) = build_deferred_tools_section(&definition.id, &definition.config)
+    if let Some(deferred_section) =
+        build_deferred_tools_section(&definition.id, &definition.config, incognito)
     {
         sections.push(deferred_section);
     }
@@ -279,7 +290,8 @@ pub fn build(
     }
 
     // ⑧ Memory — layered budget negotiation (see `build_memory_section`).
-    if definition.config.memory.enabled && !incognito {
+    let long_term_memory_enabled = crate::memory::load_extract_config().enabled;
+    if long_term_memory_enabled && definition.config.memory.enabled && !incognito {
         let section = build_memory_section(
             definition.memory_md.as_deref(),
             definition.global_memory_md.as_deref(),
@@ -430,12 +442,6 @@ pub(super) fn build_memory_section(
     profile_snapshot: Option<&str>,
     context_pack: Option<&crate::memory::dreaming::MemoryContextPack>,
 ) -> String {
-    // Per-section cap for the Pinned Claims segment. Constant for now (not a
-    // user-config field): it `.min(remaining)` downstream, so claims still share
-    // the one `effective_memory_budget` pool — this only bounds how much a single
-    // segment can take before the rest of the budget flows to legacy memory.
-    const PINNED_CLAIMS_CHARS: usize = 2500;
-
     if budget.total_chars == 0 {
         return String::new();
     }
@@ -503,11 +509,151 @@ pub(super) fn build_memory_section(
     out
 }
 
+/// Return the exact SQLite-memory character cap left after the cache-stable
+/// static memory layers consume their priority budget. This mirrors
+/// [`build_memory_section`] so Retrieval Planner trace code can ask the SQLite
+/// renderer which legacy memory rows actually made it into the prompt.
+pub(crate) fn sqlite_memory_budget_after_static_layers(
+    agent_memory_md: Option<&str>,
+    global_memory_md: Option<&str>,
+    budget: &MemoryBudgetConfig,
+    context_pack: Option<&crate::memory::dreaming::MemoryContextPack>,
+) -> usize {
+    if budget.total_chars == 0 {
+        return 0;
+    }
+    let mut remaining = budget.total_chars.saturating_sub(MEMORY_GUIDELINES.len());
+    debit_core_memory_layer(
+        &mut remaining,
+        agent_memory_md,
+        "## Core Memory (Agent)\n\n",
+        budget.core_memory_file_chars,
+    );
+    debit_core_memory_layer(
+        &mut remaining,
+        global_memory_md,
+        "## Core Memory (Global)\n\n",
+        budget.core_memory_file_chars,
+    );
+    if let Some(pack) = context_pack {
+        debit_core_memory_layer(
+            &mut remaining,
+            Some(pack.pinned_claims_md.as_str()),
+            "## Pinned Memory\n\n",
+            PINNED_CLAIMS_CHARS,
+        );
+    }
+    remaining.min(budget.sqlite_sections.total())
+}
+
+/// Return only the Context Pack sources whose complete bullet lines survive the
+/// exact static-memory budget and head/tail truncation used by
+/// [`build_memory_section`]. Partial lines fail closed: trace code must never
+/// report a claim as injected when the model did not receive its complete line.
+pub(crate) fn rendered_pinned_memory_sources(
+    agent_memory_md: Option<&str>,
+    global_memory_md: Option<&str>,
+    budget: &MemoryBudgetConfig,
+    context_pack: &crate::memory::dreaming::MemoryContextPack,
+) -> Vec<crate::memory::dreaming::SourceRef> {
+    if budget.total_chars == 0 {
+        return Vec::new();
+    }
+    let mut remaining = budget.total_chars.saturating_sub(MEMORY_GUIDELINES.len());
+    debit_core_memory_layer(
+        &mut remaining,
+        agent_memory_md,
+        "## Core Memory (Agent)\n\n",
+        budget.core_memory_file_chars,
+    );
+    debit_core_memory_layer(
+        &mut remaining,
+        global_memory_md,
+        "## Core Memory (Global)\n\n",
+        budget.core_memory_file_chars,
+    );
+    let md = context_pack.pinned_claims_md.as_str();
+    let Some(body_cap) = core_memory_layer_body_cap(
+        remaining,
+        Some(md),
+        "## Pinned Memory\n\n",
+        PINNED_CLAIMS_CHARS,
+    ) else {
+        return Vec::new();
+    };
+    let retained_ranges = truncate_retained_ranges(md, body_cap);
+    let mut cursor = 0;
+    let mut rendered = Vec::new();
+
+    for source in context_pack
+        .source_digest
+        .iter()
+        .filter(|source| source.section == "pinned")
+    {
+        let rendered_line = format!("- {}\n", source.preview);
+        let Some(relative_start) = md[cursor..].find(&rendered_line) else {
+            continue;
+        };
+        let start = cursor + relative_start;
+        let end = start + rendered_line.len();
+        cursor = end;
+        if retained_ranges
+            .iter()
+            .any(|&(range_start, range_end)| start >= range_start && end <= range_end)
+        {
+            rendered.push(source.clone());
+        }
+    }
+
+    rendered
+}
+
 /// Append one heading + truncated body + trailer block, debiting `remaining`.
 /// No-op when `md` is `None` / blank, when `remaining` is already 0, or when
 /// the heading alone wouldn't fit.
 fn push_core_memory_layer(
     out: &mut String,
+    remaining: &mut usize,
+    md: Option<&str>,
+    heading: &str,
+    per_layer_cap: usize,
+) {
+    let Some(md) = md.filter(|s| !s.trim().is_empty()) else {
+        return;
+    };
+    const TRAILER: &str = "\n\n";
+    let overhead = heading.len() + TRAILER.len();
+    let Some(body_cap) = core_memory_layer_body_cap(*remaining, Some(md), heading, per_layer_cap)
+    else {
+        return;
+    };
+    let chunk = truncate(md, body_cap);
+    out.push_str(heading);
+    out.push_str(&chunk);
+    out.push_str(TRAILER);
+    *remaining = remaining.saturating_sub(chunk.len() + overhead);
+}
+
+fn core_memory_layer_body_cap(
+    remaining: usize,
+    md: Option<&str>,
+    heading: &str,
+    per_layer_cap: usize,
+) -> Option<usize> {
+    let _md = md.filter(|s| !s.trim().is_empty())?;
+    if remaining == 0 {
+        return None;
+    }
+    const TRAILER: &str = "\n\n";
+    let overhead = heading.len() + TRAILER.len();
+    let body_cap = per_layer_cap.min(remaining.saturating_sub(overhead));
+    if body_cap == 0 {
+        return None;
+    }
+    Some(body_cap)
+}
+
+fn debit_core_memory_layer(
     remaining: &mut usize,
     md: Option<&str>,
     heading: &str,
@@ -526,9 +672,6 @@ fn push_core_memory_layer(
         return;
     }
     let chunk = truncate(md, body_cap);
-    out.push_str(heading);
-    out.push_str(&chunk);
-    out.push_str(TRAILER);
     *remaining = remaining.saturating_sub(chunk.len() + overhead);
 }
 
@@ -555,9 +698,9 @@ fn push_avatar_line(sections: &mut Vec<String>, avatar: Option<&str>) {
 fn build_incognito_section() -> String {
     "# Incognito Session\n\n\
      This session is running in incognito mode.\n\
-     - Do not use memory or awareness automatically.\n\
-     - Do not infer or store new long-term memory unless the user explicitly asks you to remember something.\n\
-     - Only call memory tools when the user explicitly asks to remember, recall, search, update, or delete memory.\n\
+     - Do not use memory or awareness.\n\
+     - Do not infer, recall, update, delete, or store long-term memory in this session.\n\
+     - Long-term memory tools are unavailable here; answer from the current conversation only.\n\
      - Treat this as a forward-looking rule for the current session only."
         .to_string()
 }
@@ -839,13 +982,15 @@ pub fn build_legacy(model: Option<&str>, provider: Option<&str>, incognito: bool
     }
 
     // Tools
-    sections.push(build_all_tools_description());
+    sections.push(build_all_tools_description(incognito));
 
     // Deferred tools listing — legacy path uses default agent + default config.
     let legacy_agent_config = crate::agent_config::AgentConfig::default();
-    if let Some(deferred_section) =
-        build_deferred_tools_section(crate::agent_loader::DEFAULT_AGENT_ID, &legacy_agent_config)
-    {
+    if let Some(deferred_section) = build_deferred_tools_section(
+        crate::agent_loader::DEFAULT_AGENT_ID,
+        &legacy_agent_config,
+        incognito,
+    ) {
         sections.push(deferred_section);
     }
 
@@ -1107,6 +1252,64 @@ mod memory_section_tests {
             "SQLite section should render when budget allows: {out}"
         );
         assert!(out.contains("## Memory Guidelines"));
+    }
+
+    fn pinned_source(id: &str, preview: &str) -> crate::memory::dreaming::SourceRef {
+        crate::memory::dreaming::SourceRef {
+            claim_id: id.to_string(),
+            scope_type: "global".to_string(),
+            scope_id: None,
+            claim_type: "preference".to_string(),
+            section: "pinned".to_string(),
+            preview: preview.to_string(),
+        }
+    }
+
+    #[test]
+    fn pinned_memory_trace_only_returns_complete_rendered_lines() {
+        let previews = [
+            "first-claim-1234567890",
+            "second-claim-123456789",
+            "third-claim-1234567890",
+        ];
+        let pack = crate::memory::dreaming::MemoryContextPack {
+            pinned_claims_md: previews
+                .iter()
+                .map(|preview| format!("- {preview}\n"))
+                .collect(),
+            source_digest: previews
+                .iter()
+                .enumerate()
+                .map(|(index, preview)| pinned_source(&format!("c{}", index + 1), preview))
+                .collect(),
+        };
+        let budget = MemoryBudgetConfig::default();
+        let all_sources = rendered_pinned_memory_sources(None, None, &budget, &pack);
+        assert_eq!(
+            all_sources
+                .iter()
+                .map(|source| source.claim_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["c1", "c2", "c3"]
+        );
+
+        let first_line_len = format!("- {}\n", previews[0]).len();
+        let body_cap = first_line_len * 2;
+        let pinned_overhead = "## Pinned Memory\n\n".len() + "\n\n".len();
+        let tight_budget = MemoryBudgetConfig {
+            total_chars: MEMORY_GUIDELINES.len() + pinned_overhead + body_cap,
+            core_memory_file_chars: 8_000,
+            sqlite_entry_max_chars: 500,
+            sqlite_sections: SqliteSectionBudgets::default(),
+        };
+        let rendered_sources = rendered_pinned_memory_sources(None, None, &tight_budget, &pack);
+        assert_eq!(
+            rendered_sources
+                .iter()
+                .map(|source| source.claim_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["c1"]
+        );
     }
 
     #[test]
@@ -1647,7 +1850,7 @@ mod memory_section_tests {
         );
 
         assert!(out.contains("# Incognito Session"));
-        assert!(out.contains("Only call memory tools"));
+        assert!(out.contains("Long-term memory tools are unavailable"));
         assert!(
             !out.contains("# Memory\n"),
             "incognito prompt should omit the memory section: {out}"
@@ -1655,6 +1858,14 @@ mod memory_section_tests {
         assert!(
             !out.contains("## Memory Guidelines"),
             "incognito prompt should omit memory guidelines: {out}"
+        );
+        assert!(
+            !out.contains("save_memory:"),
+            "incognito prompt should omit memory tool descriptions: {out}"
+        );
+        assert!(
+            !out.contains("recall_memory:"),
+            "incognito prompt should omit memory tool descriptions: {out}"
         );
     }
 

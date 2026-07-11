@@ -107,15 +107,34 @@ pub fn is_valid_codex_model(id: &str) -> bool {
 }
 
 /// Default Codex model id selected at login / onboarding when the user hasn't
-/// picked one. Single source of truth — must match the first entry of
-/// [`get_codex_models`]. All auth paths (server / desktop / CLI) reference this
-/// instead of hard-coding a model id, so bumping the default is a one-line change.
-pub const DEFAULT_CODEX_MODEL_ID: &str = "gpt-5.5";
+/// picked one. Single source of truth. All auth paths (server / desktop /
+/// CLI) reference this instead of hard-coding a model id, so bumping the
+/// default is a one-line change.
+///
+/// Deliberately `gpt-5.6-terra`, not the flagship `gpt-5.6-sol` at the top of
+/// [`get_codex_models`]: GPT-5.6 access is plan-tiered — Free/Go ChatGPT plans
+/// only get Terra, Sol requires a paid plan or workspace. Every new Codex
+/// login is activated on this id via `ActiveModelUpdate::Always` before the
+/// app knows the account's plan, so it must stay on the tier every Codex
+/// account actually has.
+pub const DEFAULT_CODEX_MODEL_ID: &str = "gpt-5.6-terra";
 
 pub fn get_codex_models() -> Vec<CodexModel> {
     vec![
         CodexModel {
+            id: "gpt-5.6-sol".into(),
+            name: "GPT-5.6 Sol".into(),
+        },
+        CodexModel {
             id: DEFAULT_CODEX_MODEL_ID.into(),
+            name: "GPT-5.6 Terra".into(),
+        },
+        CodexModel {
+            id: "gpt-5.6-luna".into(),
+            name: "GPT-5.6 Luna".into(),
+        },
+        CodexModel {
+            id: "gpt-5.5".into(),
             name: "GPT-5.5".into(),
         },
         CodexModel {
@@ -290,6 +309,11 @@ pub fn build_system_prompt(agent_id: &str, model: &str, provider: &str) -> Strin
     build_system_prompt_with_session(agent_id, model, provider, None)
 }
 
+pub(crate) struct SystemPromptBuild {
+    pub prompt: String,
+    pub static_memory_refs: Vec<super::active_memory::UsedMemoryRef>,
+}
+
 /// Project-aware variant of [`build_system_prompt`]. When `session_id` is
 /// supplied and its session is attached to a project, the system prompt
 /// includes a "Current Project" section, the project's shared-file catalog,
@@ -300,6 +324,18 @@ pub fn build_system_prompt_with_session(
     provider: &str,
     session_id: Option<&str>,
 ) -> String {
+    build_system_prompt_bundle_with_session(agent_id, model, provider, session_id).prompt
+}
+
+/// Build the system prompt and the exact static-memory references represented
+/// in it from the same snapshot. Keeping these together avoids a second pass
+/// over agent files, session/project state, memory SQLite, profiles and claims.
+pub(crate) fn build_system_prompt_bundle_with_session(
+    agent_id: &str,
+    model: &str,
+    provider: &str,
+    session_id: Option<&str>,
+) -> SystemPromptBuild {
     // Try loading the agent definition
     if let Ok(definition) = crate::agent_loader::load_agent(agent_id) {
         let session_meta = crate::session::lookup_session_meta(session_id);
@@ -315,8 +351,11 @@ pub fn build_system_prompt_with_session(
         // filtering and per-section sub-budgets are applied downstream by
         // `system_prompt::build` so that Layer 1/2 (core memory.md files) can
         // consume the total budget first and Layer 3 picks up only the residual.
+        let app_cfg = crate::config::cached_config();
+        let long_term_memory_enabled = app_cfg.memory_extract.enabled;
+
         let memory_entries: Vec<crate::memory::MemoryEntry> =
-            if definition.config.memory.enabled && !incognito {
+            if long_term_memory_enabled && definition.config.memory.enabled && !incognito {
                 crate::get_memory_backend()
                     .and_then(|b| {
                         b.load_prompt_candidates_with_project(
@@ -332,7 +371,6 @@ pub fn build_system_prompt_with_session(
             };
 
         // Resolve the effective memory budget (agent override wins over global).
-        let app_cfg = crate::config::cached_config();
         let memory_budget = crate::agent_config::effective_memory_budget(
             &definition.config.memory,
             &app_cfg.memory_budget,
@@ -345,7 +383,9 @@ pub fn build_system_prompt_with_session(
         // synthesis — the default — never blanks the section). Global +
         // current-agent snapshots are concatenated here; the project profile is
         // shown in the read-only view but injected via the Context Pack later.
-        let profile_snapshot: Option<String> = if definition.config.memory.enabled
+        let mut profile_refs: Vec<super::active_memory::UsedMemoryRef> = Vec::new();
+        let profile_snapshot: Option<String> = if long_term_memory_enabled
+            && definition.config.memory.enabled
             && !incognito
             && app_cfg.dreaming.profile_synthesis.enabled
         {
@@ -356,6 +396,11 @@ pub fn build_system_prompt_with_session(
                 {
                     let body = body.trim();
                     if !body.is_empty() {
+                        if let Some(source_ref) =
+                            super::profile_snapshot_ref(scope_type, scope_id, body)
+                        {
+                            profile_refs.push(source_ref);
+                        }
                         parts.push(body.to_string());
                     }
                 }
@@ -371,33 +416,34 @@ pub fn build_system_prompt_with_session(
         // gate as the profile snapshot: memory on + not incognito. Empty on the
         // dual-track default (no claims yet) → None → no injection. Dynamic
         // per-turn claim recall is served separately by Active Memory v2.
-        let context_pack = if definition.config.memory.enabled && !incognito {
-            let mut scopes = vec![
-                crate::memory::MemoryScope::Global,
-                crate::memory::MemoryScope::Agent {
-                    id: agent_id.to_string(),
-                },
-            ];
-            if let Some(p) = project.as_ref() {
-                scopes.push(crate::memory::MemoryScope::Project { id: p.id.clone() });
-            }
-            let pack = crate::memory::dreaming::build_context_pack(
-                &scopes,
-                &crate::memory::dreaming::ContextPackOptions::default(),
-            );
-            if !pack.source_digest.is_empty() {
-                crate::app_debug!(
-                    "memory",
-                    "context_pack",
-                    "context pack: {} pinned claim(s) for agent {}",
-                    pack.source_digest.len(),
-                    agent_id
+        let context_pack =
+            if long_term_memory_enabled && definition.config.memory.enabled && !incognito {
+                let mut scopes = vec![
+                    crate::memory::MemoryScope::Global,
+                    crate::memory::MemoryScope::Agent {
+                        id: agent_id.to_string(),
+                    },
+                ];
+                if let Some(p) = project.as_ref() {
+                    scopes.push(crate::memory::MemoryScope::Project { id: p.id.clone() });
+                }
+                let pack = crate::memory::dreaming::build_context_pack(
+                    &scopes,
+                    &crate::memory::dreaming::ContextPackOptions::default(),
                 );
-            }
-            (!pack.is_empty()).then_some(pack)
-        } else {
-            None
-        };
+                if !pack.source_digest.is_empty() {
+                    crate::app_debug!(
+                        "memory",
+                        "context_pack",
+                        "context pack: {} pinned claim(s) for agent {}",
+                        pack.source_digest.len(),
+                        agent_id
+                    );
+                }
+                (!pack.is_empty()).then_some(pack)
+            } else {
+                None
+            };
 
         // Resolve agent home directory
         let agent_home = crate::paths::agent_home_dir(agent_id)
@@ -422,7 +468,87 @@ pub fn build_system_prompt_with_session(
             .map(|m| m.workflow_mode)
             .unwrap_or_default();
         let channel_info = session_meta.as_ref().and_then(|m| m.channel_info.as_ref());
-        return crate::system_prompt::build(
+        let mut static_memory_refs = context_pack
+            .as_ref()
+            .map(|pack| {
+                crate::system_prompt::rendered_pinned_memory_sources(
+                    definition.memory_md.as_deref(),
+                    definition.global_memory_md.as_deref(),
+                    &memory_budget,
+                    pack,
+                )
+                .into_iter()
+                .map(|source| super::active_memory::UsedMemoryRef {
+                    kind: "claim".to_string(),
+                    id: source.claim_id,
+                    source_type: source.claim_type,
+                    scope: super::static_memory_scope_label(
+                        &source.scope_type,
+                        source.scope_id.as_deref(),
+                    ),
+                    origin: match source.section.as_str() {
+                        "pinned" => "pinned_memory".to_string(),
+                        other => format!("context_pack:{other}"),
+                    },
+                    role: "injected".to_string(),
+                    preview: source.preview,
+                    path: None,
+                    line: None,
+                    col: None,
+                    heading_path: None,
+                    block_id: None,
+                    score: None,
+                    confidence: None,
+                    salience: None,
+                })
+                .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+
+        let has_profile_snapshot = profile_snapshot
+            .as_deref()
+            .map(str::trim)
+            .is_some_and(|s| !s.is_empty());
+        let sqlite_cap = crate::system_prompt::sqlite_memory_budget_after_static_layers(
+            definition.memory_md.as_deref(),
+            definition.global_memory_md.as_deref(),
+            &memory_budget,
+            context_pack.as_ref(),
+        );
+        if (!memory_entries.is_empty() || has_profile_snapshot) && sqlite_cap > 0 {
+            let scaled = memory_budget.sqlite_sections.scaled_to(sqlite_cap);
+            let summary = crate::memory::sqlite::format_prompt_summary_v2_with_refs(
+                &memory_entries,
+                &scaled,
+                sqlite_cap,
+                memory_budget.sqlite_entry_max_chars,
+                profile_snapshot.as_deref(),
+            );
+            if !profile_refs.is_empty() && summary.text.contains("## User Profile") {
+                static_memory_refs.extend(profile_refs);
+            }
+            static_memory_refs.extend(summary.refs.into_iter().map(|source| {
+                super::active_memory::UsedMemoryRef {
+                    kind: "memory".to_string(),
+                    id: source.id.to_string(),
+                    source_type: source.memory_type,
+                    scope: source.scope,
+                    origin: "static_memory".to_string(),
+                    role: "injected".to_string(),
+                    preview: source.preview,
+                    path: None,
+                    line: None,
+                    col: None,
+                    heading_path: None,
+                    block_id: None,
+                    score: None,
+                    confidence: None,
+                    salience: None,
+                }
+            }));
+        }
+
+        let prompt = crate::system_prompt::build(
             &definition,
             Some(model),
             Some(provider),
@@ -440,13 +566,20 @@ pub fn build_system_prompt_with_session(
             execution_mode,
             workflow_mode,
         );
+        return SystemPromptBuild {
+            prompt,
+            static_memory_refs,
+        };
     }
     // Fallback: legacy prompt
-    crate::system_prompt::build_legacy(
-        Some(model),
-        Some(provider),
-        crate::session::is_session_incognito(session_id),
-    )
+    SystemPromptBuild {
+        prompt: crate::system_prompt::build_legacy(
+            Some(model),
+            Some(provider),
+            crate::session::is_session_incognito(session_id),
+        ),
+        static_memory_refs: Vec::new(),
+    }
 }
 
 #[cfg(test)]

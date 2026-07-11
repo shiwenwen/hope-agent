@@ -254,13 +254,16 @@ pub async fn get_codex_models() -> Result<Vec<agent::CodexModel>, CmdError> {
 }
 
 #[tauri::command]
-pub async fn get_current_settings(state: State<'_, AppState>) -> Result<CurrentSettings, CmdError> {
-    let model = ha_core::config::cached_config()
+pub async fn get_current_settings(
+    _state: State<'_, AppState>,
+) -> Result<CurrentSettings, CmdError> {
+    let config = ha_core::config::cached_config();
+    let model = config
         .active_model
         .as_ref()
         .map(|am| am.model_id.clone())
         .unwrap_or_else(|| ha_core::agent::DEFAULT_CODEX_MODEL_ID.to_string());
-    let effort = state.reasoning_effort.lock().await.clone();
+    let effort = config.reasoning_effort.clone();
     Ok(CurrentSettings {
         model,
         reasoning_effort: effort,
@@ -326,10 +329,9 @@ pub async fn set_reasoning_effort(
         .map(str::trim)
         .filter(|id| !id.is_empty())
         .map(str::to_string);
+    let is_global_update = session_id.is_none() && agent_id.is_none();
 
-    if session_id.is_some() || agent_id.is_none() {
-        set_reasoning_effort_core(&effort, &state).await?;
-    } else if !ha_core::agent::is_valid_reasoning_effort(&effort) {
+    if !ha_core::agent::is_valid_reasoning_effort(&effort) {
         return Err(CmdError::msg(format!(
             "Invalid reasoning effort: {}. Valid: {:?}",
             effort,
@@ -353,6 +355,17 @@ pub async fn set_reasoning_effort(
                 serde_json::json!({ "id": agent_id, "kind": "saved" }),
             );
         }
+    }
+    if is_global_update {
+        ha_core::config::mutate_config_async(("reasoning_effort", "ui"), {
+            let effort = effort.clone();
+            move |store| {
+                store.reasoning_effort = effort;
+                Ok(())
+            }
+        })
+        .await?;
+        set_reasoning_effort_core(&effort, &state).await?;
     }
     Ok(())
 }

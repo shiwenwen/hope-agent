@@ -794,7 +794,10 @@ pub async fn add_ollama_model_as_embedding_config(model_id: &str) -> Result<Embe
         api_dimensions: embedding_dimensions_from_show(&show),
         source: Some("ollama".to_string()),
     };
-    let config = crate::memory::save_embedding_model_config(config, PROVIDER_SOURCE)?;
+    let config = crate::blocking::run_blocking(move || {
+        crate::memory::save_embedding_model_config(config, PROVIDER_SOURCE)
+    })
+    .await?;
     crate::app_info!(
         "local_llm",
         "add_embedding_config",
@@ -940,7 +943,7 @@ fn clear_embedding_model_if_matches(model_id: &str) -> Result<bool> {
         // Cancel any in-flight reembed before clearing the embedder, so an orphan
         // job can't keep running with a captured signature for the just-deleted
         // model and stamp it back into the now-default selection.
-        crate::knowledge::cancel_active_knowledge_reembed_jobs();
+        crate::knowledge::cancel_active_knowledge_reembed_jobs(None);
         if let Some(db) = crate::knowledge::index::get_index_db() {
             db.clear_embedder();
         }

@@ -201,6 +201,63 @@ pub struct DreamingDecisionRecord {
     pub created_at: String,
 }
 
+/// Owner-plane query filter for durable decision history. Used by Review
+/// Inbox audit search; this is read-only and never exposed as an agent tool.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DreamingDecisionListFilter {
+    pub limit: Option<usize>,
+    pub offset: Option<usize>,
+    pub query: Option<String>,
+    pub decision_type: Option<String>,
+    pub scope_type: Option<String>,
+    pub scope_id: Option<String>,
+    pub since: Option<String>,
+    pub target_type: Option<String>,
+}
+
+/// A decision row plus the run metadata needed for the Review Inbox audit
+/// list. `content` / `scope*` are best-effort parsed from before/after JSON so
+/// callers do not need to understand the raw snapshots for common filtering.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DreamingDecisionListItem {
+    pub id: String,
+    pub run_id: String,
+    pub decision_type: String,
+    pub target_type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub score: Option<f32>,
+    pub rationale: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub before_json: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub after_json: Option<String>,
+    pub created_at: String,
+    pub run_trigger: String,
+    pub run_phase: String,
+    pub run_status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scope_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scope_id: Option<String>,
+}
+
+/// A page of decision rows with the total number of rows matching the same
+/// filter. `total_truncated` is true when the scope/content post-filter hit
+/// the bounded scan guard before proving an exact total.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DreamingDecisionListResponse {
+    pub items: Vec<DreamingDecisionListItem>,
+    pub total: usize,
+    pub total_truncated: bool,
+}
+
 /// A run plus its decision log — returned by `dreaming_get_run`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -257,7 +314,42 @@ pub struct ProfileSnapshotRecord {
     pub version: i64,
     /// Rendered profile markdown body (bullets / short prose).
     pub body_md: String,
+    /// Optional claim provenance for profile bullets. Old snapshots and backup
+    /// restores may not have this; the UI must degrade to plain Markdown.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sources: Vec<ProfileSnapshotSourceRecord>,
     /// The `dreaming_runs.id` that produced this snapshot (provenance).
     pub source_run_id: String,
     pub created_at: String,
+}
+
+/// Claim provenance for one profile snapshot bullet. `line_index` is 0-based
+/// over rendered profile body lines after trimming empty lines; `None` means
+/// scope-level provenance when exact line mapping is not available.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProfileSnapshotSourceRecord {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub line_index: Option<usize>,
+    pub claim_id: String,
+    pub claim_type: String,
+    pub content: String,
+    pub confidence: f32,
+    pub salience: f32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub evidence_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub evidence_class: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub evidence_source_type: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub evidence_quote: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub evidence_session_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub evidence_message_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub evidence_file_path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub evidence_url: Option<String>,
 }

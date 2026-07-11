@@ -769,23 +769,25 @@ fn gather_domain_artifacts(
         stats.domain_candidates += 1;
     }
     for (idx, source) in artifacts.sources.into_iter().take(30).enumerate() {
-        let boost = matcher.boost(&[&source.url, &source.origin, &ctx.profile.domain]);
+        let Some(url) = source.url.as_deref().filter(|url| !url.trim().is_empty()) else {
+            continue;
+        };
+        let boost = matcher.boost(&[url, &source.origin, &ctx.profile.domain]);
         upsert_candidate(
             map,
-            format!("domain-web:{}", source.url),
+            format!("domain-web:{url}"),
             ContextCandidate {
-                id: format!("domain-web:{}", source.url),
+                id: format!("domain-web:{url}"),
                 kind: ContextCandidateKind::WebSource,
-                title: source
-                    .url
+                title: url
                     .split('/')
                     .rfind(|segment| !segment.is_empty())
-                    .unwrap_or(source.url.as_str())
+                    .unwrap_or(url)
                     .to_string(),
-                subtitle: Some(source.url.clone()),
+                subtitle: Some(url.to_string()),
                 path: None,
                 line: None,
-                url: Some(source.url.clone()),
+                url: Some(url.to_string()),
                 score: 0,
                 reasons: Vec::new(),
                 sources: Vec::new(),
@@ -1091,24 +1093,26 @@ async fn gather_artifacts(
     }
 
     for (idx, source) in artifacts.sources.into_iter().take(20).enumerate() {
-        let boost = matcher.boost(&[&source.url, &source.origin]);
-        let title = source
-            .url
+        let Some(url) = source.url.as_deref().filter(|url| !url.trim().is_empty()) else {
+            continue;
+        };
+        let boost = matcher.boost(&[url, &source.origin]);
+        let title = url
             .split('/')
             .rfind(|s| !s.is_empty())
-            .unwrap_or(source.url.as_str())
+            .unwrap_or(url)
             .to_string();
         upsert_candidate(
             map,
-            format!("url:{}", source.url),
+            format!("url:{url}"),
             ContextCandidate {
-                id: format!("url:{}", source.url),
+                id: format!("url:{url}"),
                 kind: ContextCandidateKind::UrlSource,
                 title,
-                subtitle: Some(source.url.clone()),
+                subtitle: Some(url.to_string()),
                 path: None,
                 line: None,
-                url: Some(source.url.clone()),
+                url: Some(url.to_string()),
                 score: 0,
                 reasons: Vec::new(),
                 sources: Vec::new(),

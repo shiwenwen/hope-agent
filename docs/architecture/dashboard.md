@@ -74,7 +74,7 @@ graph TB
 
 ### DashboardFilter
 
-所有查询的统一入参，6 个可选维度：
+所有查询的统一入参，7 个可选维度：
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
@@ -84,6 +84,7 @@ graph TB
 | `provider_id` | `Option<String>` | 按 Provider ID 筛选 |
 | `model_id` | `Option<String>` | 按模型 ID 筛选 |
 | `usage_kind` | `Option<String>` | 按模型调用类型筛选（`chat` / `side_query` / `summarize` / `embedding` / `stt` / `judge` / `web_search` / `image_generation` / `provider_test`） |
+| `operation` | `Option<String>` | 按 `model_usage_events.operation`（purpose 标签，见 [`automation-model.md`](automation-model.md) §2.5）精确匹配筛选。无下拉框，只能通过点击 Token 用量趋势 tab 的 operation 明细表下钻写入，与 `model_id` 的下钻方式一致 |
 
 所有字段均为空字符串安全 -- 空字符串等价于 `None`，不会生成 WHERE 子句。
 
@@ -114,7 +115,7 @@ fn build_session_filter(
 
 ### build_model_usage_filter
 
-用于 `model_usage_events` 查询，支持 `start_date`、`end_date`、`agent_id`、`provider_id`、`model_id`、`usage_kind`。该过滤器不自动排除 cron / subagent，因为模型用量总量要覆盖所有非无痕模型请求；无痕会话在写入 `model_usage_events` 时 fail-closed 跳过。
+用于 `model_usage_events` 查询，支持 `start_date`、`end_date`、`agent_id`、`provider_id`、`model_id`、`usage_kind`、`operation`。该过滤器不自动排除 cron / subagent，因为模型用量总量要覆盖所有非无痕模型请求；无痕会话在写入 `model_usage_events` 时 fail-closed 跳过。
 
 ### params_ref 辅助函数
 
@@ -157,6 +158,8 @@ fn build_session_filter(
   - `model_id` / `provider_name` / `input_tokens` / `output_tokens` / `estimated_cost_usd` / `avg_ttft_ms`
 - `by_kind: Vec<TokenByKind>` -- 按模型调用类型分组，按总 token 降序
   - `kind` / `call_count` / `input_tokens` / `output_tokens` / `cache_creation_input_tokens` / `cache_read_input_tokens` / `estimated_cost_usd` / `avg_duration_ms` / `avg_ttft_ms`
+- `by_operation: Vec<TokenByOperation>` -- 按 `operation`（purpose 标签，见 [`automation-model.md`](automation-model.md) §2.5）分组，字段形状同 `TokenByKind` 再加 `operation`/`domain` 两列，按总 token 降序。~33 个精确标签，用作二级下钻表，`operation` 列原样等宽展示不翻译（同 `ErrorByCategory.category`/`ToolUsageStats` 明细行的既有惯例——代码内定义、还在增长的技术标签不值得背 12 语言翻译债）
+- `by_domain: Vec<TokenByDomain>` -- 对 `by_operation` 结果按 `domain` 在内存里再做一次 rollup（不发第二次 SQL），`domain` 由 `operation_domain(operation)` 纯函数按第一个 `.` 切分派生（不是查表，新增 purpose 标签零代码改动就能正确分桶），~15-18 个，用作一级主图表；`domain` 走 `t("dashboard.operationDomain.${domain}", humanizeDomain(domain))` 翻译优先 + 人性化 fallback，零阻塞上线
 - `total_cost_usd: f64` -- 所有模型成本之和
 
 ### 3. 工具使用统计

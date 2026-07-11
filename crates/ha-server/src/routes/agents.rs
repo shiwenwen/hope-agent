@@ -43,6 +43,11 @@ pub struct SaveAgentBody {
     pub config: ha_core::agent_config::AgentConfig,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct PatchAgentModelDefaultsBody {
+    pub patch: ha_core::agent_loader::AgentModelDefaultsPatch,
+}
+
 /// `PUT /api/agents/{id}` -- save (create or update) an agent's config.
 pub async fn save_agent(
     Path(id): Path<String>,
@@ -53,6 +58,23 @@ pub async fn save_agent(
         bus.emit("agents:changed", json!({ "id": id, "kind": "saved" }));
     }
     Ok(Json(json!({ "saved": true })))
+}
+
+/// Patch only composer-owned Agent defaults, avoiding a stale full-config
+/// read/modify/write from the frontend.
+pub async fn patch_agent_model_defaults(
+    Path(id): Path<String>,
+    Json(body): Json<PatchAgentModelDefaultsBody>,
+) -> Result<Json<Value>, AppError> {
+    ha_core::blocking::run_blocking({
+        let id = id.clone();
+        move || ha_core::agent_loader::patch_agent_model_defaults(&id, body.patch)
+    })
+    .await?;
+    if let Some(bus) = ha_core::get_event_bus() {
+        bus.emit("agents:changed", json!({ "id": id, "kind": "saved" }));
+    }
+    Ok(Json(json!({ "updated": true })))
 }
 
 /// `DELETE /api/agents/{id}` -- delete an agent and all its files.
@@ -131,7 +153,7 @@ pub async fn save_agent_memory_md(
 ) -> Result<Json<Value>, AppError> {
     let dir = ha_core::paths::agent_dir(&id)?;
     std::fs::create_dir_all(&dir).map_err(|e| AppError::internal(e.to_string()))?;
-    std::fs::write(dir.join("memory.md"), body.content)
+    ha_core::platform::write_atomic(&dir.join("memory.md"), body.content.as_bytes())
         .map_err(|e| AppError::internal(e.to_string()))?;
     Ok(Json(json!({ "saved": true })))
 }

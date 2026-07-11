@@ -8,7 +8,8 @@
 //!
 //! Three-axis decision:
 //! 1. **Tier-based default** — Tier 1 always eager; Memory bound to global
-//!    `memory.enabled`; Mcp bound to per-agent `mcp_enabled`.
+//!    long-term memory + agent `memory.enabled`; Mcp bound to per-agent
+//!    `mcp_enabled`.
 //! 2. **Per-agent override** — for Standard / Configured tools the user can
 //!    flip the tier default via `capabilities.tools.allow` / `deny`.
 //! 3. **Global provisioning** — Tier 3 also requires the corresponding
@@ -31,6 +32,8 @@ use super::definitions::{CoreSubclass, ToolDefinition, ToolTier};
 #[derive(Debug)]
 pub struct DispatchContext<'a> {
     pub agent_id: &'a str,
+    /// Current session is incognito (`sessions.incognito`).
+    pub incognito: bool,
     /// `agent.json` `capabilities.mcpEnabled`
     pub mcp_enabled: bool,
     /// `agent.json` `memory.enabled`
@@ -204,7 +207,7 @@ pub fn resolve_tool_fate(def: &ToolDefinition, ctx: &DispatchContext) -> ToolFat
             _ => ToolFate::InjectEager,
         },
         ToolTier::Memory => {
-            if ctx.memory_enabled {
+            if !ctx.incognito && ctx.memory_enabled && ctx.app_config.memory_extract.enabled {
                 ToolFate::InjectEager
             } else {
                 ToolFate::Hidden
@@ -297,6 +300,7 @@ mod tests {
     struct Fixture {
         filter: FilterConfig,
         app: AppConfig,
+        incognito: bool,
         mcp_enabled: bool,
         memory_enabled: bool,
     }
@@ -306,6 +310,7 @@ mod tests {
             Self {
                 filter: FilterConfig::default(),
                 app: AppConfig::default(),
+                incognito: false,
                 mcp_enabled: true,
                 memory_enabled: true,
             }
@@ -314,6 +319,7 @@ mod tests {
         fn ctx<'a>(&'a self, agent_id: &'a str) -> DispatchContext<'a> {
             DispatchContext {
                 agent_id,
+                incognito: self.incognito,
                 mcp_enabled: self.mcp_enabled,
                 memory_enabled: self.memory_enabled,
                 tools_filter: &self.filter,
@@ -367,6 +373,62 @@ mod tests {
         let def = def_with_tier("save_memory", ToolTier::Memory);
         let fate = resolve_tool_fate(&def, &f.ctx(DEFAULT_AGENT_ID));
         assert_eq!(fate, ToolFate::Hidden);
+    }
+
+    #[test]
+    fn tier_memory_hidden_when_global_memory_off() {
+        let mut f = Fixture::new();
+        f.app.memory_extract.enabled = false;
+        let def = def_with_tier("save_memory", ToolTier::Memory);
+        let fate = resolve_tool_fate(&def, &f.ctx(DEFAULT_AGENT_ID));
+        assert_eq!(fate, ToolFate::Hidden);
+    }
+
+    #[test]
+    fn tier_memory_hidden_when_incognito() {
+        let mut f = Fixture::new();
+        f.incognito = true;
+        let def = def_with_tier("recall_memory", ToolTier::Memory);
+        let fate = resolve_tool_fate(&def, &f.ctx(DEFAULT_AGENT_ID));
+        assert_eq!(fate, ToolFate::Hidden);
+    }
+
+    #[test]
+    fn builtin_memory_tools_share_memory_tier_gate() {
+        let memory_tool_names = [
+            crate::tools::TOOL_SAVE_MEMORY,
+            crate::tools::TOOL_RECALL_MEMORY,
+            crate::tools::TOOL_UPDATE_MEMORY,
+            crate::tools::TOOL_DELETE_MEMORY,
+            crate::tools::TOOL_UPDATE_CORE_MEMORY,
+            crate::tools::TOOL_MEMORY_GET,
+        ];
+
+        let mut incognito = Fixture::new();
+        incognito.incognito = true;
+        let mut memory_off = Fixture::new();
+        memory_off.app.memory_extract.enabled = false;
+
+        for name in memory_tool_names {
+            let def = all_dispatchable_tools()
+                .iter()
+                .find(|def| def.name == name)
+                .unwrap_or_else(|| panic!("missing built-in memory tool: {name}"));
+            assert!(
+                matches!(def.tier, ToolTier::Memory),
+                "{name} must stay ToolTier::Memory so incognito/off gates apply"
+            );
+            assert_eq!(
+                resolve_tool_fate(def, &incognito.ctx(DEFAULT_AGENT_ID)),
+                ToolFate::Hidden,
+                "{name} must be hidden in incognito sessions"
+            );
+            assert_eq!(
+                resolve_tool_fate(def, &memory_off.ctx(DEFAULT_AGENT_ID)),
+                ToolFate::Hidden,
+                "{name} must be hidden when long-term memory is off"
+            );
+        }
     }
 
     #[test]

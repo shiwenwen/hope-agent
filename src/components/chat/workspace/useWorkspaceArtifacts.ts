@@ -4,7 +4,11 @@ import { logger } from "@/lib/logger"
 import type { BrowserActivityDto, FileArtifactSummary, SessionArtifacts } from "@/lib/transport"
 import type { Message } from "@/types/chat"
 import { useSessionFileChanges, type SessionFileEntry } from "./useSessionFileChanges"
-import { useSessionUrlSources, type SessionUrlSource } from "./useSessionUrlSources"
+import {
+  sessionSourceKey,
+  useSessionUrlSources,
+  type SessionUrlSource,
+} from "./useSessionUrlSources"
 import { useSessionBrowserActivity, type SessionBrowserActivity } from "./useSessionBrowserActivity"
 
 export interface WorkspaceArtifacts {
@@ -26,6 +30,7 @@ function backendFileToEntry(f: FileArtifactSummary): SessionFileEntry {
     readLines: f.readLines,
     linesAdded: f.linesAdded,
     linesRemoved: f.linesRemoved,
+    language: f.language ?? null,
   }
 }
 
@@ -41,6 +46,11 @@ function backendBrowserToEntry(activity: BrowserActivityDto): SessionBrowserActi
     callId: activity.callId,
     at: activity.at,
   }
+}
+
+function hasSyntaxLanguage(language: string | null | undefined): boolean {
+  const value = language?.trim().toLowerCase()
+  return !!value && value !== "text" && value !== "txt" && value !== "plain" && value !== "plaintext"
 }
 
 /**
@@ -71,11 +81,28 @@ export function mergeArtifacts<T>(
   return backendOnly.length ? [...mergedLive, ...backendOnly] : mergedLive
 }
 
+/** Preserve a lightweight syntax hint from the full-history backend summary
+ *  when the loaded-window live entry only knows that the file was read. */
+export function reconcileFile(
+  live: SessionFileEntry,
+  backend: SessionFileEntry,
+): SessionFileEntry {
+  if (!hasSyntaxLanguage(live.language) && hasSyntaxLanguage(backend.language)) {
+    return { ...live, language: backend.language }
+  }
+  return live
+}
+
 /** Preserve a `web_search` badge: if either side saw the URL via search, the
  *  merged source keeps that origin (the live tail may have only seen a later
  *  plain-prose mention of a URL the backend first found via search). */
 function reconcileSource(live: SessionUrlSource, backend: SessionUrlSource): SessionUrlSource {
-  if (live.origin !== "web_search" && backend.origin === "web_search") {
+  if (
+    live.kind === "url" &&
+    backend.kind === "url" &&
+    live.origin !== "web_search" &&
+    backend.origin === "web_search"
+  ) {
     return { ...live, origin: "web_search" }
   }
   return live
@@ -176,11 +203,11 @@ export function useWorkspaceArtifacts(
   const data = !incognito && backend && backend.sid === sessionId ? backend : null
 
   const files = useMemo(
-    () => mergeArtifacts(data?.files ?? [], liveFiles, (e) => e.path),
+    () => mergeArtifacts(data?.files ?? [], liveFiles, (e) => e.path, reconcileFile),
     [data, liveFiles],
   )
   const sources = useMemo(
-    () => mergeArtifacts(data?.sources ?? [], liveSources, (s) => s.url, reconcileSource),
+    () => mergeArtifacts(data?.sources ?? [], liveSources, sessionSourceKey, reconcileSource),
     [data, liveSources],
   )
   const browser = useMemo(

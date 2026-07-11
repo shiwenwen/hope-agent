@@ -91,6 +91,14 @@ impl<'a> StreamingChatAdapter for AnthropicStreamingAdapter<'a> {
         // reminder are appended as plain system blocks WITHOUT cache_control —
         // Anthropic caps total cache_control breakpoints at 4 (system prefix,
         // awareness, active_memory, last tool). Adding a 5th would silently 400.
+        if let Some(procedure_suffix) = req.procedure_memory_suffix {
+            if !procedure_suffix.is_empty() {
+                system_blocks.push(json!({
+                    "type": "text",
+                    "text": procedure_suffix,
+                }));
+            }
+        }
         if let Some(related_suffix) = req.related_notes_suffix {
             if !related_suffix.is_empty() {
                 system_blocks.push(json!({

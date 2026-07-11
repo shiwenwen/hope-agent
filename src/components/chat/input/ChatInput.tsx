@@ -248,12 +248,15 @@ interface ChatInputProps {
   loading: boolean
   availableModels: AvailableModel[]
   activeModel: ActiveModel | null
+  unavailableModelPreference?: string | null
   reasoningEffort: string
-  onModelChange: (key: string) => void
-  onEffortChange: (effort: string) => void
+  onModelChange: (key: string, options?: { applyToAgentDefault?: boolean }) => void
+  onEffortChange: (effort: string, options?: { applyToAgentDefault?: boolean }) => void
+  onEffortReset?: () => void
   attachedFiles: File[]
   onAttachFiles: (files: File[]) => void
   onRemoveFile: (index: number) => void
+  onUpdateFile: (index: number, file: File) => void
   pendingQuotes?: PendingFileQuote[]
   onRemoveQuote?: (index: number) => void
   /** Click a staged quote chip to reveal that file in the file browser. */
@@ -281,7 +284,10 @@ interface ChatInputProps {
   onSandboxModeChange: (mode: SandboxMode) => void
   // Temperature
   sessionTemperature?: number | null
-  onSessionTemperatureChange?: (temp: number | null) => void
+  onSessionTemperatureChange?: (
+    temp: number | null,
+    options?: { applyToAgentDefault?: boolean },
+  ) => void
   // Incognito
   incognitoEnabled?: boolean
   // Knowledge space attach (project context for project-scoped attaches)
@@ -459,12 +465,15 @@ export default function ChatInput({
   loading,
   availableModels,
   activeModel,
+  unavailableModelPreference,
   reasoningEffort,
   onModelChange,
   onEffortChange,
+  onEffortReset,
   attachedFiles,
   onAttachFiles,
   onRemoveFile,
+  onUpdateFile,
   pendingQuotes,
   onRemoveQuote,
   onJumpToQuote,
@@ -1809,6 +1818,7 @@ export default function ChatInput({
           entries={noteMention.entries}
           selectedIndex={noteMention.selectedIndex}
           loading={noteMention.loading}
+          loadErrorDetail={noteMention.loadErrorDetail}
           onSelect={noteMention.applyEntry}
           onHover={noteMention.setSelectedIndex}
         />
@@ -1819,6 +1829,7 @@ export default function ChatInput({
           entries={mention.entries}
           noteEntries={mention.noteEntries}
           notesLoading={mention.notesLoading}
+          noteLoadErrorDetail={mention.noteLoadErrorDetail}
           noteCapable={mention.noteCapable}
           skillEntries={mention.skillEntries}
           skillCapable={mention.skillCapable}
@@ -1860,7 +1871,11 @@ export default function ChatInput({
         )}
 
         {/* Attached files preview (rendered above textarea) */}
-        <AttachmentPreview attachedFiles={attachedFiles} onRemoveFile={onRemoveFile} />
+        <AttachmentPreview
+          attachedFiles={attachedFiles}
+          onRemoveFile={onRemoveFile}
+          onUpdateFile={onUpdateFile}
+        />
 
         {/* Staged "quote to chat" references */}
         <AnimatedCollapse open={!!pendingQuotes?.length}>
@@ -2626,7 +2641,9 @@ export default function ChatInput({
                   reasoningEffort={reasoningEffort}
                   onModelChange={onModelChange}
                   onEffortChange={onEffortChange}
+                  onEffortReset={onEffortReset}
                   currentModelInfo={currentModelInfo}
+                  unavailablePreference={unavailableModelPreference}
                   sessionTemperature={sessionTemperature}
                   onSessionTemperatureChange={onSessionTemperatureChange}
                 />

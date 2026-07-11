@@ -25,6 +25,19 @@ pub struct ListRunsQuery {
 
 #[derive(Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ListDecisionsQuery {
+    pub limit: Option<usize>,
+    pub offset: Option<usize>,
+    pub query: Option<String>,
+    pub decision_type: Option<String>,
+    pub scope_type: Option<String>,
+    pub scope_id: Option<String>,
+    pub since: Option<String>,
+    pub target_type: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct EvidenceQuoteQuery {
     pub session_id: String,
     pub message_id: Option<i64>,
@@ -48,6 +61,12 @@ pub async fn run_resolver() -> Result<Json<dreaming::ResolverReport>, AppError> 
     ))
 }
 
+/// `GET /api/dreaming/resolver/preflight` — read-only Deep resolver preflight.
+/// Does not call the LLM and does not write claim state.
+pub async fn resolver_preflight() -> Result<Json<dreaming::ResolverPreflightReport>, AppError> {
+    Ok(Json(run_blocking(dreaming::resolver_preflight).await))
+}
+
 /// `POST /api/dreaming/profile/run` — run one Memory Profile synthesis cycle
 /// (manual = LLM rewrite) over active claims (trigger=manual).
 pub async fn run_profile() -> Result<Json<dreaming::ProfileReport>, AppError> {
@@ -68,13 +87,16 @@ pub async fn list_profile_snapshots() -> Result<Json<Vec<dreaming::ProfileSnapsh
 pub async fn list_diaries(
     Query(q): Query<ListDiariesQuery>,
 ) -> Result<Json<Vec<dreaming::DiaryEntry>>, AppError> {
-    Ok(Json(dreaming::list_diaries(q.limit)?))
+    Ok(Json(
+        run_blocking(move || dreaming::list_diaries(q.limit)).await?,
+    ))
 }
 
 /// `GET /api/dreaming/diaries/{filename}` — fetch the markdown of a
 /// single diary file.
 pub async fn read_diary(Path(filename): Path<String>) -> Result<Json<Value>, AppError> {
-    let content = dreaming::read_diary(&filename)?;
+    let filename_for_read = filename.clone();
+    let content = run_blocking(move || dreaming::read_diary(&filename_for_read)).await?;
     Ok(Json(json!({ "filename": filename, "content": content })))
 }
 
@@ -116,6 +138,46 @@ pub async fn get_run(
     Path(id): Path<String>,
 ) -> Result<Json<Option<dreaming::DreamingRunDetail>>, AppError> {
     Ok(Json(run_blocking(move || dreaming::get_run(&id)).await?))
+}
+
+/// `GET /api/dreaming/decisions` — owner-plane durable decision history query
+/// for Review Inbox audit search. Read-only; not exposed to agent tools.
+pub async fn list_decisions(
+    Query(q): Query<ListDecisionsQuery>,
+) -> Result<Json<Vec<dreaming::DreamingDecisionListItem>>, AppError> {
+    let filter = dreaming::DreamingDecisionListFilter {
+        limit: q.limit,
+        offset: q.offset,
+        query: q.query,
+        decision_type: q.decision_type,
+        scope_type: q.scope_type,
+        scope_id: q.scope_id,
+        since: q.since,
+        target_type: q.target_type,
+    };
+    Ok(Json(
+        run_blocking(move || dreaming::list_decisions(filter)).await?,
+    ))
+}
+
+/// `GET /api/dreaming/decisions/page` — owner-plane decision history query
+/// with total-match metadata. Read-only; not exposed to agent tools.
+pub async fn list_decisions_page(
+    Query(q): Query<ListDecisionsQuery>,
+) -> Result<Json<dreaming::DreamingDecisionListResponse>, AppError> {
+    let filter = dreaming::DreamingDecisionListFilter {
+        limit: q.limit,
+        offset: q.offset,
+        query: q.query,
+        decision_type: q.decision_type,
+        scope_type: q.scope_type,
+        scope_id: q.scope_id,
+        since: q.since,
+        target_type: q.target_type,
+    };
+    Ok(Json(
+        run_blocking(move || dreaming::list_decisions_page(filter)).await?,
+    ))
 }
 
 /// `GET /api/dreaming/evidence/quote?sessionId=&messageId=` — resolve a

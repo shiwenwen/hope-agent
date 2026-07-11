@@ -22,7 +22,9 @@ use std::path::{Path, PathBuf};
 use anyhow::{anyhow, Context, Result};
 use serde::Deserialize;
 
-use crate::memory::claims::{self, ClaimCandidate, ClaimListFilter, ClaimScopeHint, ClaimTemporal};
+use crate::memory::claims::{
+    self, ClaimCandidate, ClaimListFilter, ClaimScopeHint, ClaimTemporal, ResolveClaim,
+};
 use crate::memory::{MemoryBackend, MemoryScope, MemoryType, NewMemory};
 
 // A claim past this fixed instant reads as effective-expired; a claim valid
@@ -30,6 +32,7 @@ use crate::memory::{MemoryBackend, MemoryScope, MemoryType, NewMemory};
 // lexical `valid_until` compare is deterministic regardless of when CI runs.
 const PAST: &str = "2000-01-01T00:00:00.000Z";
 const FUTURE: &str = "2999-01-01T00:00:00.000Z";
+const EVAL_NOW: &str = "2026-06-07T00:00:00.000Z";
 
 /// `{ "type": "global" | "agent" | "project", "id"?: "..." }`.
 #[derive(Debug, Clone, Deserialize)]
@@ -57,6 +60,21 @@ impl ScopeSpec {
                     .ok_or_else(|| anyhow!("project scope requires id"))?,
             }),
             other => Err(anyhow!("unknown scope type: {other}")),
+        }
+    }
+
+    fn matches_resolve_claim(&self, claim: &ResolveClaim) -> bool {
+        match self.kind.as_str() {
+            "global" => {
+                claim.scope_type == "global" && claim.scope_id.as_deref().unwrap_or("").is_empty()
+            }
+            "agent" => {
+                claim.scope_type == "agent" && claim.scope_id.as_deref() == self.id.as_deref()
+            }
+            "project" => {
+                claim.scope_type == "project" && claim.scope_id.as_deref() == self.id.as_deref()
+            }
+            _ => false,
         }
     }
 }
@@ -139,6 +157,10 @@ fn default_one() -> usize {
     1
 }
 
+fn default_resolver_group_cap() -> usize {
+    8
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct EvidenceCheck {
     pub claim: String,
@@ -170,6 +192,36 @@ pub struct EvidenceQuoteCheck {
     pub expect_available: bool,
 }
 
+/// Assert the deterministic auto-expire subset of Deep Resolver. This checks
+/// planning only: no expired claims means no Deep audit run; present expired
+/// claims may only produce `Expire` decisions.
+#[derive(Debug, Clone, Deserialize)]
+pub struct AutoExpirePlanCheck {
+    pub scope: ScopeSpec,
+    #[serde(default)]
+    pub expect_expire: Vec<String>,
+    #[serde(default)]
+    pub expect_absent: Vec<String>,
+    #[serde(default)]
+    pub expect_no_run: bool,
+}
+
+/// Assert graph-first automatic resolver routing without invoking an LLM.
+/// Claim keys are grouped exactly as the production planner sees them after
+/// deterministic expiry has been removed.
+#[derive(Debug, Clone, Deserialize)]
+pub struct AutoResolverGraphPlanCheck {
+    pub scope: ScopeSpec,
+    #[serde(default = "default_resolver_group_cap")]
+    pub group_cap: usize,
+    #[serde(default)]
+    pub expect_llm_groups: Vec<Vec<String>>,
+    #[serde(default)]
+    pub expect_graph_noop_groups: Vec<Vec<String>>,
+    #[serde(default)]
+    pub expect_truncated: bool,
+}
+
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct FixtureChecks {
     #[serde(default)]
@@ -182,6 +234,10 @@ pub struct FixtureChecks {
     pub injectable: Vec<InjectableCheck>,
     #[serde(default)]
     pub evidence_quote: Vec<EvidenceQuoteCheck>,
+    #[serde(default)]
+    pub auto_expire_plan: Vec<AutoExpirePlanCheck>,
+    #[serde(default)]
+    pub auto_resolver_graph_plan: Vec<AutoResolverGraphPlanCheck>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -341,6 +397,11 @@ pub fn evaluate(backend: &dyn MemoryBackend, fx: &DreamingFixture) -> Result<Fix
             scope: Some(scope),
             status: Some(c.status.clone()),
             claim_type: None,
+            confidence_source: None,
+            evidence_class: None,
+            evidence_source_type: None,
+            query: None,
+            sort: None,
             limit: Some(500),
             offset: None,
         })?;
@@ -473,6 +534,133 @@ pub fn evaluate(backend: &dyn MemoryBackend, fx: &DreamingFixture) -> Result<Fix
                 format!(
                     "expected available={}, got available={} (reason {:?})",
                     c.expect_available, q.available, q.reason
+                )
+            },
+        });
+    }
+
+    for c in &fx.checks.auto_expire_plan {
+        let all = claims::list_active_claims_for_resolve()?;
+        let scoped: Vec<ResolveClaim> = all
+            .into_iter()
+            .filter(|claim| c.scope.matches_resolve_claim(claim))
+            .collect();
+        let planned = super::resolver::plan_auto_expiration_sweep(&scoped, EVAL_NOW);
+        let planned_keys: Vec<&str> = planned
+            .as_ref()
+            .into_iter()
+            .flatten()
+            .filter_map(|d| claim_key_of(&d.claim_id))
+            .collect();
+
+        outcomes.push(CheckOutcome {
+            name: "auto_expire no_run".to_string(),
+            passed: c.expect_no_run == planned.is_none(),
+            detail: if c.expect_no_run == planned.is_none() {
+                String::new()
+            } else {
+                format!(
+                    "expect_no_run={}, planned={planned_keys:?}",
+                    c.expect_no_run
+                )
+            },
+        });
+
+        for k in &c.expect_expire {
+            let present = planned_keys.contains(&k.as_str());
+            outcomes.push(CheckOutcome {
+                name: format!("auto_expire plans {k}"),
+                passed: present,
+                detail: if present {
+                    String::new()
+                } else {
+                    format!("expected {k} in auto-expire plan, got {planned_keys:?}")
+                },
+            });
+        }
+
+        for k in &c.expect_absent {
+            let absent = !planned_keys.contains(&k.as_str());
+            outcomes.push(CheckOutcome {
+                name: format!("auto_expire omits {k}"),
+                passed: absent,
+                detail: if absent {
+                    String::new()
+                } else {
+                    format!("{k} unexpectedly entered auto-expire plan")
+                },
+            });
+        }
+    }
+
+    for c in &fx.checks.auto_resolver_graph_plan {
+        let all = claims::list_active_claims_for_resolve()?;
+        let scoped: Vec<ResolveClaim> = all
+            .into_iter()
+            .filter(|claim| c.scope.matches_resolve_claim(claim))
+            .collect();
+        let expiring = super::resolver::plan_auto_expiration_sweep(&scoped, EVAL_NOW)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|decision| decision.claim_id)
+            .collect::<std::collections::HashSet<_>>();
+        let plan = super::resolver::plan_auto_resolution_groups(&scoped, &expiring, c.group_cap);
+
+        let normalize_groups = |groups: &[Vec<String>]| {
+            let mut normalized = groups
+                .iter()
+                .map(|group| {
+                    let mut keys = group
+                        .iter()
+                        .map(|id| claim_key_of(id).unwrap_or(id.as_str()).to_string())
+                        .collect::<Vec<_>>();
+                    keys.sort();
+                    keys
+                })
+                .collect::<Vec<_>>();
+            normalized.sort();
+            normalized
+        };
+        let normalize_expected = |groups: &[Vec<String>]| {
+            let mut normalized = groups.to_vec();
+            for group in &mut normalized {
+                group.sort();
+            }
+            normalized.sort();
+            normalized
+        };
+        let llm_groups = normalize_groups(&plan.llm_group_ids);
+        let graph_noop_groups = normalize_groups(&plan.graph_noop_group_ids);
+        let expected_llm = normalize_expected(&c.expect_llm_groups);
+        let expected_graph_noop = normalize_expected(&c.expect_graph_noop_groups);
+
+        outcomes.push(CheckOutcome {
+            name: format!("auto_resolver llm_groups cap={}", c.group_cap),
+            passed: llm_groups == expected_llm,
+            detail: if llm_groups == expected_llm {
+                String::new()
+            } else {
+                format!("expected {expected_llm:?}, got {llm_groups:?}")
+            },
+        });
+        outcomes.push(CheckOutcome {
+            name: format!("auto_resolver graph_noop_groups cap={}", c.group_cap),
+            passed: graph_noop_groups == expected_graph_noop,
+            detail: if graph_noop_groups == expected_graph_noop {
+                String::new()
+            } else {
+                format!("expected {expected_graph_noop:?}, got {graph_noop_groups:?}")
+            },
+        });
+        outcomes.push(CheckOutcome {
+            name: format!("auto_resolver truncated={}", c.expect_truncated),
+            passed: plan.truncated == c.expect_truncated,
+            detail: if plan.truncated == c.expect_truncated {
+                String::new()
+            } else {
+                format!(
+                    "expected truncated={}, got {}",
+                    c.expect_truncated, plan.truncated
                 )
             },
         });

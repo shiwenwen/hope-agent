@@ -9,14 +9,21 @@ import { logger } from "@/lib/logger"
 import { getTransport } from "@/lib/transport-provider"
 import type { NoteReadResult } from "@/types/knowledge"
 
+import { knowledgeEmbedErrorDetail } from "./noteEmbedFeedback"
+
 let cacheBust = -1
-const refCache = new Map<string, Promise<NoteReadResult | null>>()
+const refCache = new Map<string, Promise<NoteRefFetchResult>>()
+
+export type NoteRefFetchResult =
+  | { status: "resolved"; note: NoteReadResult }
+  | { status: "missing" }
+  | { status: "failed"; detail: string | null }
 
 export function fetchNoteRef(
   kbId: string,
   reference: string,
   bust: number,
-): Promise<NoteReadResult | null> {
+): Promise<NoteRefFetchResult> {
   if (bust !== cacheBust) {
     refCache.clear()
     cacheBust = bust
@@ -27,13 +34,16 @@ export function fetchNoteRef(
     const tx = getTransport()
     p = tx
       .call<NoteReadResult | null>("kb_note_read_ref_cmd", { kbId, reference })
+      .then((note): NoteRefFetchResult =>
+        note ? { status: "resolved", note } : { status: "missing" },
+      )
       .catch((e) => {
         logger.error("knowledge", "noteRefFetch::fetchNoteRef", "kb_note_read_ref failed", e)
         // Don't pin a transient transport failure as a permanent broken ref —
         // drop the entry so the next access retries. A successful null (genuinely
         // unresolved ref) stays cached.
         refCache.delete(key)
-        return null
+        return { status: "failed", detail: knowledgeEmbedErrorDetail(e) }
       })
     refCache.set(key, p)
   }

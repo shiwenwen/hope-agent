@@ -1407,17 +1407,27 @@ async fn run_llm_reviewer(ctx: &ReviewContext) -> Result<(String, Vec<CandidateF
         return Ok(("none".to_string(), Vec::new()));
     }
     let config = crate::config::cached_config();
-    let (agent, model) = crate::recap::build_analysis_agent(&config)
-        .await
-        .context("build analysis agent for deep review")?;
+    let legacy_chain = config
+        .recap
+        .analysis_agent
+        .as_deref()
+        .and_then(|id| crate::automation::resolve_legacy_agent_chain(&config, id));
+    let chain = crate::automation::effective_chain(&config, legacy_chain);
     let prompt = render_llm_review_prompt(ctx);
     let result = tokio::time::timeout(
         Duration::from_secs(LLM_REVIEW_TIMEOUT_SECS),
-        agent.side_query(&prompt, LLM_REVIEW_MAX_TOKENS),
+        crate::automation::run(crate::automation::ModelTaskSpec {
+            purpose: "review.deep",
+            chain,
+            session_key: "automation:review.deep",
+            instruction: &prompt,
+            max_tokens: LLM_REVIEW_MAX_TOKENS,
+        }),
     )
     .await
     .map_err(|_| anyhow!("LLM reviewer timed out after {LLM_REVIEW_TIMEOUT_SECS}s"))?
-    .context("LLM reviewer side_query failed")?;
+    .context("LLM reviewer automation call failed")?;
+    let model = crate::automation::model_label(&config, &result.model);
     let span = crate::extract_json_span(&result.text, Some('{'))
         .ok_or_else(|| anyhow!("LLM reviewer returned no JSON object"))?;
     let envelope: LlmReviewEnvelope =

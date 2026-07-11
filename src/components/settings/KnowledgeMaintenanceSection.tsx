@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
-import { Check, ChevronDown, Loader2, Sparkles, Wand2 } from "lucide-react"
+import { AlertCircle, Check, ChevronDown, Loader2, RotateCcw, Sparkles, Wand2 } from "lucide-react"
 
 import { AnimatedCollapse } from "@/components/ui/animated-presence"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { DeferredNumberInput } from "@/components/ui/deferred-number-input"
 import { Switch } from "@/components/ui/switch"
+import { ModelChainEditor, type ModelChainRef } from "@/components/ui/model-chain-editor"
+import type { AvailableModel } from "@/components/ui/model-selector"
 import { getTransport } from "@/lib/transport-provider"
 import { cn } from "@/lib/utils"
 import { logger } from "@/lib/logger"
@@ -16,6 +18,10 @@ import type {
   MaintenanceReport,
   MaintenanceTasks,
 } from "@/types/knowledge"
+import {
+  knowledgeMaintenanceSettingsErrorToast,
+  type KnowledgeMaintenanceSettingsErrorToast,
+} from "./knowledgeMaintenanceSettingsFeedback"
 
 const TASK_KEYS: Array<keyof MaintenanceTasks> = [
   "autoLink",
@@ -43,19 +49,51 @@ export default function KnowledgeMaintenanceSection() {
   const [open, setOpen] = useState(false)
   const [cfg, setCfg] = useState<MaintenanceConfig | null>(null)
   const [snapshot, setSnapshot] = useState("")
+  const [loadError, setLoadError] = useState<KnowledgeMaintenanceSettingsErrorToast | null>(null)
   const [saving, setSaving] = useState(false)
   const [saveStatus, setSaveStatus] = useState<"idle" | "saved" | "failed">("idle")
   const [running, setRunning] = useState(false)
+  const [availableModels, setAvailableModels] = useState<AvailableModel[]>([])
+
+  const applyConfig = useCallback((c: MaintenanceConfig) => {
+    setCfg(c)
+    setSnapshot(JSON.stringify(c))
+    setLoadError(null)
+  }, [])
+
+  const reload = useCallback(async () => {
+    try {
+      const c = await getTransport().call<MaintenanceConfig>("kb_maintenance_config_get_cmd")
+      applyConfig(c)
+    } catch (e) {
+      logger.warn("knowledge", "KnowledgeMaintenanceSection::reload", "load failed", e)
+      setLoadError(knowledgeMaintenanceSettingsErrorToast("load", t, e))
+    }
+  }, [applyConfig, t])
 
   useEffect(() => {
+    let cancelled = false
     getTransport()
       .call<MaintenanceConfig>("kb_maintenance_config_get_cmd")
       .then((c) => {
-        setCfg(c)
-        setSnapshot(JSON.stringify(c))
+        if (cancelled) return
+        applyConfig(c)
       })
+      .catch((e) => {
+        logger.warn("knowledge", "KnowledgeMaintenanceSection::load", "load failed", e)
+        if (!cancelled) setLoadError(knowledgeMaintenanceSettingsErrorToast("load", t, e))
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [applyConfig, t])
+
+  useEffect(() => {
+    getTransport()
+      .call<AvailableModel[]>("get_available_models")
+      .then(setAvailableModels)
       .catch((e) =>
-        logger.warn("knowledge", "KnowledgeMaintenanceSection::load", "load failed", e),
+        logger.warn("knowledge", "KnowledgeMaintenanceSection::loadModels", "load failed", e),
       )
   }, [])
 
@@ -76,10 +114,15 @@ export default function KnowledgeMaintenanceSection() {
       logger.warn("knowledge", "KnowledgeMaintenanceSection::save", "save failed", e)
       setSaveStatus("failed")
       setTimeout(() => setSaveStatus("idle"), 2000)
+      const failure = knowledgeMaintenanceSettingsErrorToast("save", t, e)
+      toast.error(
+        failure.title,
+        failure.description ? { description: failure.description } : undefined,
+      )
     } finally {
       setSaving(false)
     }
-  }, [cfg, saving])
+  }, [cfg, saving, t])
 
   const runNow = useCallback(async () => {
     if (running) return
@@ -101,7 +144,11 @@ export default function KnowledgeMaintenanceSection() {
       }
     } catch (e) {
       logger.warn("knowledge", "KnowledgeMaintenanceSection::runNow", "run failed", e)
-      toast.error(t("settings.knowledgeMaintenance.runFailed", "Couldn't run maintenance"))
+      const failure = knowledgeMaintenanceSettingsErrorToast("runNow", t, e)
+      toast.error(
+        failure.title,
+        failure.description ? { description: failure.description } : undefined,
+      )
     } finally {
       setRunning(false)
     }
@@ -138,6 +185,30 @@ export default function KnowledgeMaintenanceSection() {
               "Periodically scan knowledge spaces and queue note-maintenance suggestions (linking, tagging, dedup, MOCs, …) for your review. Nothing is written until you approve a suggestion.",
             )}
           </p>
+
+          {loadError && (
+            <div className="flex items-start gap-2 rounded-md border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-200">
+              <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              <div className="min-w-0 flex-1">
+                <div className="font-medium">{loadError.title}</div>
+                {loadError.description ? (
+                  <div className="mt-0.5 whitespace-pre-wrap text-amber-800/80 dark:text-amber-100/80">
+                    {loadError.description}
+                  </div>
+                ) : null}
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="mt-1 h-7 px-2 text-xs"
+                  onClick={() => void reload()}
+                >
+                  <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
+                  {t("common.retry", "Retry")}
+                </Button>
+              </div>
+            </div>
+          )}
 
           {cfg && (
             <>
@@ -255,6 +326,27 @@ export default function KnowledgeMaintenanceSection() {
                     </label>
                   ))}
                 </div>
+              </div>
+
+              <div className="space-y-1">
+                <div className="text-xs font-medium">
+                  {t("settings.knowledgeMaintenance.model", "Model")}
+                </div>
+                <div className="text-[11px] text-muted-foreground">
+                  {t(
+                    "settings.knowledgeMaintenance.modelDesc",
+                    "Shared by all 4 LLM-backed generators (auto-tag, MOC upkeep, memory-to-note, source conflict).",
+                  )}
+                </div>
+                <ModelChainEditor
+                  value={cfg.modelOverride ?? null}
+                  onChange={(next: ModelChainRef | null) => patch({ modelOverride: next })}
+                  availableModels={availableModels}
+                  inheritLabel={t(
+                    "settings.knowledgeMaintenance.modelDefault",
+                    "Follow automation default",
+                  )}
+                />
               </div>
 
               <div className="flex items-center justify-between gap-2 border-t border-border/60 pt-3">

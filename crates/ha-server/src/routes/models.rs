@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::sync::Arc;
 
-use ha_core::provider::{self, ActiveModel, AvailableModel, ProviderWriteError};
+use ha_core::provider::{self, ActiveModel, AvailableModel, ModelChain, ProviderWriteError};
 
 use crate::error::AppError;
 use crate::AppContext;
@@ -20,7 +20,9 @@ fn provider_write_error(err: ProviderWriteError) -> AppError {
         ProviderWriteError::NotFound(_) | ProviderWriteError::ModelNotFound { .. } => {
             AppError::not_found(err.to_string())
         }
-        ProviderWriteError::UnknownLocalBackend(_) => AppError::bad_request(err.to_string()),
+        ProviderWriteError::ProviderUnavailable(_) | ProviderWriteError::UnknownLocalBackend(_) => {
+            AppError::bad_request(err.to_string())
+        }
         ProviderWriteError::Config(err) => AppError::internal(err.to_string()),
     }
 }
@@ -44,6 +46,13 @@ pub struct SetVisionModelBody {
     /// `None` / omitted disables the vision bridge.
     #[serde(default)]
     pub model: Option<ActiveModel>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SetAutomationModelChainBody {
+    /// `None` / omitted reverts to the chat `active_model`/`fallback_models` chain.
+    #[serde(default)]
+    pub chain: Option<ModelChain>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -125,6 +134,26 @@ pub async fn set_vision_model(
     Ok(Json(json!({ "updated": true })))
 }
 
+/// `GET /api/models/automation` — the configured automation default model
+/// chain, or `null` (falls through to the chat active/fallback chain).
+pub async fn get_automation_model_chain() -> Result<Json<Option<ModelChain>>, AppError> {
+    let store = ha_core::config::cached_config();
+    Ok(Json(store.function_models.automation.clone()))
+}
+
+/// `PUT /api/models/automation` — set (or clear, with `chain: null`) the
+/// automation default model chain.
+pub async fn set_automation_model_chain(
+    Json(body): Json<SetAutomationModelChainBody>,
+) -> Result<Json<Value>, AppError> {
+    ha_core::config::mutate_config_async(("function_models", "http"), move |store| {
+        store.function_models.automation = body.chain;
+        Ok(())
+    })
+    .await?;
+    Ok(Json(json!({ "updated": true })))
+}
+
 /// `POST /api/models/fallback` — overwrite the fallback model chain.
 pub async fn set_fallback_models(
     Json(body): Json<SetFallbackBody>,
@@ -163,12 +192,8 @@ pub async fn set_reasoning_effort(
         .map(str::trim)
         .filter(|id| !id.is_empty())
         .map(str::to_string);
+    let is_global_update = session_id.is_none() && agent_id.is_none();
 
-    if session_id.is_some() || agent_id.is_none() {
-        if let Some(cell) = ha_core::get_reasoning_effort_cell() {
-            *cell.lock().await = body.effort.clone();
-        }
-    }
     if let Some(session_id) = session_id {
         let session_id = session_id.to_string();
         let effort = body.effort.clone();
@@ -189,6 +214,20 @@ pub async fn set_reasoning_effort(
             bus.emit("agents:changed", json!({ "id": agent_id, "kind": "saved" }));
         }
     }
+    if is_global_update {
+        let effort = body.effort.clone();
+        ha_core::config::mutate_config_async(("reasoning_effort", "http"), {
+            let effort = effort.clone();
+            move |store| {
+                store.reasoning_effort = effort;
+                Ok(())
+            }
+        })
+        .await?;
+        if let Some(cell) = ha_core::get_reasoning_effort_cell() {
+            *cell.lock().await = effort;
+        }
+    }
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -200,11 +239,7 @@ pub async fn get_current_settings() -> Result<Json<CurrentSettings>, AppError> {
         .as_ref()
         .map(|am| am.model_id.clone())
         .unwrap_or_else(|| "unknown".to_string());
-    let reasoning_effort = if let Some(cell) = ha_core::get_reasoning_effort_cell() {
-        cell.lock().await.clone()
-    } else {
-        "medium".to_string()
-    };
+    let reasoning_effort = store.reasoning_effort.clone();
     Ok(Json(CurrentSettings {
         model,
         reasoning_effort,
@@ -212,6 +247,36 @@ pub async fn get_current_settings() -> Result<Json<CurrentSettings>, AppError> {
         fallback_models: store.fallback_models.clone(),
         active_model: store.active_model.clone(),
     }))
+}
+
+pub async fn get_global_reasoning_effort() -> Result<Json<Value>, AppError> {
+    Ok(Json(json!({
+        "reasoningEffort": ha_core::config::cached_config().reasoning_effort
+    })))
+}
+
+pub async fn set_global_reasoning_effort(
+    Json(body): Json<SetReasoningEffortBody>,
+) -> Result<Json<Value>, AppError> {
+    if !ha_core::agent::is_valid_reasoning_effort(&body.effort) {
+        return Err(AppError::bad_request(format!(
+            "Invalid reasoning effort: {}",
+            body.effort
+        )));
+    }
+    let effort = body.effort;
+    ha_core::config::mutate_config_async(("reasoning_effort", "http"), {
+        let effort = effort.clone();
+        move |store| {
+            store.reasoning_effort = effort;
+            Ok(())
+        }
+    })
+    .await?;
+    if let Some(cell) = ha_core::get_reasoning_effort_cell() {
+        *cell.lock().await = effort.clone();
+    }
+    Ok(Json(json!({ "reasoningEffort": effort })))
 }
 
 /// `POST /api/models/temperature` — set the global default LLM temperature.

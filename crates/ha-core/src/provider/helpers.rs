@@ -5,6 +5,43 @@ use super::types::{
 };
 use crate::config::AppConfig;
 
+/// Whether the referenced provider and model are still present in config.
+/// Disabled providers still count as existing because disabling is reversible.
+pub fn model_ref_exists(providers: &[ProviderConfig], model: &ActiveModel) -> bool {
+    providers.iter().any(|provider| {
+        provider.id == model.provider_id
+            && provider
+                .models
+                .iter()
+                .any(|candidate| candidate.id == model.model_id)
+    })
+}
+
+/// Whether the referenced provider is enabled and still contains the model.
+pub fn model_ref_is_available(providers: &[ProviderConfig], model: &ActiveModel) -> bool {
+    providers.iter().any(|provider| {
+        provider.enabled
+            && provider.id == model.provider_id
+            && provider
+                .models
+                .iter()
+                .any(|candidate| candidate.id == model.model_id)
+    })
+}
+
+/// Return the first available model in persisted provider/model order.
+pub fn first_available_model(providers: &[ProviderConfig]) -> Option<ActiveModel> {
+    providers
+        .iter()
+        .filter(|provider| provider.enabled)
+        .find_map(|provider| {
+            provider.models.first().map(|model| ActiveModel {
+                provider_id: provider.id.clone(),
+                model_id: model.id.clone(),
+            })
+        })
+}
+
 // ── Helper: Build available models list ───────────────────────────
 
 pub fn build_available_models(providers: &[ProviderConfig]) -> Vec<AvailableModel> {
@@ -52,33 +89,86 @@ pub fn parse_model_ref(ref_str: &str) -> Option<ActiveModel> {
 /// and fallbacks are tried in order if primary fails.
 ///
 /// Resolution logic:
-/// 1. If the agent has a custom primary, use it; otherwise use global active_model
-/// 2. If the agent has custom fallbacks, use them; otherwise use global fallback_models
+/// 1. Use the first available model from agent primary, then global active model
+/// 2. If the agent has custom fallbacks, use its available entries; otherwise
+///    use available global fallback models
+/// 3. Deduplicate fallbacks against the selected primary while preserving order
 pub fn resolve_model_chain(
     agent_model: &crate::agent_config::AgentModelConfig,
     config: &AppConfig,
 ) -> (Option<ActiveModel>, Vec<ActiveModel>) {
-    // Resolve primary
-    let primary = agent_model
-        .primary
-        .as_ref()
-        .and_then(|s| parse_model_ref(s))
-        .or_else(|| config.active_model.clone());
+    resolve_model_chain_with_preferred(None, agent_model, config)
+}
 
-    // Resolve fallbacks
-    let fallbacks = if !agent_model.fallbacks.is_empty() {
-        // Agent has custom fallbacks
-        agent_model
-            .fallbacks
-            .iter()
-            .filter_map(|s| parse_model_ref(s))
-            .collect()
+/// Resolve an available model chain with an optional persisted preference.
+///
+/// `preferred` is intended for a Session pin or Plan Mode preference. An
+/// unavailable preference is skipped so the Agent and global candidates can
+/// still be selected as primary. Lower-priority primary candidates are not
+/// promoted into the fallback chain. Explicit per-turn overrides must be
+/// validated by callers before invoking this resolver because they are not
+/// allowed to fall back silently.
+pub fn resolve_model_chain_with_preferred(
+    preferred: Option<&str>,
+    agent_model: &crate::agent_config::AgentModelConfig,
+    config: &AppConfig,
+) -> (Option<ActiveModel>, Vec<ActiveModel>) {
+    let primary = preferred
+        .and_then(parse_model_ref)
+        .filter(|model| model_ref_is_available(&config.providers, model))
+        .or_else(|| {
+            agent_model
+                .primary
+                .as_deref()
+                .and_then(parse_model_ref)
+                .filter(|model| model_ref_is_available(&config.providers, model))
+        })
+        .or_else(|| {
+            config
+                .active_model
+                .clone()
+                .filter(|model| model_ref_is_available(&config.providers, model))
+        });
+    let mut chain: Vec<ActiveModel> = primary.into_iter().collect();
+
+    if agent_model.fallbacks.is_empty() {
+        for fallback in &config.fallback_models {
+            push_model_if_available(&mut chain, Some(fallback.clone()), &config.providers);
+        }
     } else {
-        // Use global fallbacks
-        config.fallback_models.clone()
-    };
+        for fallback in &agent_model.fallbacks {
+            push_model_ref_if_available(&mut chain, Some(fallback), &config.providers);
+        }
+    }
 
-    (primary, fallbacks)
+    let mut resolved = chain.into_iter();
+    (resolved.next(), resolved.collect())
+}
+
+fn push_model_ref_if_available(
+    chain: &mut Vec<ActiveModel>,
+    model_ref: Option<&str>,
+    providers: &[ProviderConfig],
+) {
+    push_model_if_available(chain, model_ref.and_then(parse_model_ref), providers);
+}
+
+fn push_model_if_available(
+    chain: &mut Vec<ActiveModel>,
+    model: Option<ActiveModel>,
+    providers: &[ProviderConfig],
+) {
+    let Some(model) = model else {
+        return;
+    };
+    if !model_ref_is_available(providers, &model)
+        || chain.iter().any(|candidate| {
+            candidate.provider_id == model.provider_id && candidate.model_id == model.model_id
+        })
+    {
+        return;
+    }
+    chain.push(model);
 }
 
 /// Find a ProviderConfig by provider_id from the providers slice.
@@ -131,6 +221,39 @@ pub fn is_masked_key(key: &str) -> bool {
 /// provider by [`ensure_codex_provider`], so老用户升级后无需重新登录也能拿到新模型。
 fn default_codex_models() -> Vec<ModelConfig> {
     vec![
+        ModelConfig {
+            id: "gpt-5.6-sol".into(),
+            name: "GPT-5.6 Sol".into(),
+            input_types: vec!["text".into()],
+            context_window: 200_000,
+            max_tokens: 16384,
+            reasoning: true,
+            thinking_style: None,
+            cost_input: 0.0,
+            cost_output: 0.0,
+        },
+        ModelConfig {
+            id: "gpt-5.6-terra".into(),
+            name: "GPT-5.6 Terra".into(),
+            input_types: vec!["text".into()],
+            context_window: 200_000,
+            max_tokens: 16384,
+            reasoning: true,
+            thinking_style: None,
+            cost_input: 0.0,
+            cost_output: 0.0,
+        },
+        ModelConfig {
+            id: "gpt-5.6-luna".into(),
+            name: "GPT-5.6 Luna".into(),
+            input_types: vec!["text".into()],
+            context_window: 200_000,
+            max_tokens: 16384,
+            reasoning: true,
+            thinking_style: None,
+            cost_input: 0.0,
+            cost_output: 0.0,
+        },
         ModelConfig {
             id: "gpt-5.5".into(),
             name: "GPT-5.5".into(),
@@ -292,4 +415,255 @@ pub fn ensure_codex_provider(config: &mut AppConfig) -> String {
     let id = provider.id.clone();
     config.providers.push(provider);
     id
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::agent_config::AgentModelConfig;
+
+    fn model(id: &str) -> ModelConfig {
+        ModelConfig {
+            id: id.to_string(),
+            name: id.to_string(),
+            input_types: vec!["text".to_string()],
+            context_window: 128_000,
+            max_tokens: 8192,
+            reasoning: false,
+            thinking_style: None,
+            cost_input: 0.0,
+            cost_output: 0.0,
+        }
+    }
+
+    fn provider(id: &str, enabled: bool, model_ids: &[&str]) -> ProviderConfig {
+        let mut provider = ProviderConfig::new(
+            id.to_string(),
+            ApiType::OpenaiChat,
+            format!("https://{id}.example.com"),
+            "test-key".to_string(),
+        );
+        provider.id = id.to_string();
+        provider.enabled = enabled;
+        provider.models = model_ids.iter().map(|id| model(id)).collect();
+        provider
+    }
+
+    fn active(provider_id: &str, model_id: &str) -> ActiveModel {
+        ActiveModel {
+            provider_id: provider_id.to_string(),
+            model_id: model_id.to_string(),
+        }
+    }
+
+    fn agent_model(primary: Option<&str>, fallbacks: &[&str]) -> AgentModelConfig {
+        AgentModelConfig {
+            primary: primary.map(str::to_string),
+            fallbacks: fallbacks.iter().map(|value| (*value).to_string()).collect(),
+            ..Default::default()
+        }
+    }
+
+    fn resolved_refs(primary: Option<ActiveModel>, fallbacks: Vec<ActiveModel>) -> Vec<String> {
+        primary
+            .into_iter()
+            .chain(fallbacks)
+            .map(|model| model.to_string())
+            .collect()
+    }
+
+    #[test]
+    fn disabled_agent_primary_falls_back_to_available_global_active() {
+        let config = AppConfig {
+            providers: vec![
+                provider("disabled", false, &["agent-model"]),
+                provider("global", true, &["active-model"]),
+            ],
+            active_model: Some(active("global", "active-model")),
+            ..Default::default()
+        };
+        let agent_model = agent_model(Some("disabled::agent-model"), &[]);
+
+        let chain = resolve_model_chain_with_preferred(None, &agent_model, &config);
+
+        assert_eq!(resolved_refs(chain.0, chain.1), ["global::active-model"]);
+    }
+
+    #[test]
+    fn missing_preferred_and_agent_primary_fall_back_to_available_global_active() {
+        let config = AppConfig {
+            providers: vec![provider("global", true, &["active-model"])],
+            active_model: Some(active("global", "active-model")),
+            ..Default::default()
+        };
+        let agent_model = agent_model(Some("missing::agent-model"), &[]);
+
+        let chain = resolve_model_chain_with_preferred(
+            Some("missing::session-model"),
+            &agent_model,
+            &config,
+        );
+
+        assert_eq!(resolved_refs(chain.0, chain.1), ["global::active-model"]);
+    }
+
+    #[test]
+    fn configured_agent_fallbacks_are_filtered_without_appending_global_fallbacks() {
+        let config = AppConfig {
+            providers: vec![
+                provider("primary", true, &["p"]),
+                provider("disabled", false, &["d"]),
+                provider("agent-fallback", true, &["a"]),
+                provider("global-fallback", true, &["g"]),
+            ],
+            active_model: Some(active("primary", "p")),
+            fallback_models: vec![active("global-fallback", "g")],
+            ..Default::default()
+        };
+        let agent_model = agent_model(
+            Some("primary::p"),
+            &["disabled::d", "missing::m", "agent-fallback::a"],
+        );
+
+        let chain = resolve_model_chain_with_preferred(None, &agent_model, &config);
+
+        assert_eq!(
+            resolved_refs(chain.0, chain.1),
+            ["primary::p", "agent-fallback::a"]
+        );
+    }
+
+    #[test]
+    fn unavailable_agent_fallbacks_do_not_expand_to_global_fallbacks() {
+        let config = AppConfig {
+            providers: vec![
+                provider("primary", true, &["p"]),
+                provider("disabled", false, &["d"]),
+                provider("global-fallback", true, &["g"]),
+            ],
+            active_model: Some(active("primary", "p")),
+            fallback_models: vec![active("global-fallback", "g")],
+            ..Default::default()
+        };
+        let agent_model = agent_model(Some("primary::p"), &["disabled::d", "missing::m"]);
+
+        let chain = resolve_model_chain_with_preferred(None, &agent_model, &config);
+
+        assert_eq!(resolved_refs(chain.0, chain.1), ["primary::p"]);
+    }
+
+    #[test]
+    fn global_fallbacks_are_used_when_agent_fallbacks_are_not_configured() {
+        let config = AppConfig {
+            providers: vec![
+                provider("primary", true, &["p"]),
+                provider("disabled", false, &["d"]),
+                provider("global-fallback", true, &["g"]),
+            ],
+            active_model: Some(active("primary", "p")),
+            fallback_models: vec![
+                active("disabled", "d"),
+                active("missing", "m"),
+                active("global-fallback", "g"),
+            ],
+            ..Default::default()
+        };
+        let agent_model = agent_model(Some("primary::p"), &[]);
+
+        let chain = resolve_model_chain_with_preferred(None, &agent_model, &config);
+
+        assert_eq!(
+            resolved_refs(chain.0, chain.1),
+            ["primary::p", "global-fallback::g"]
+        );
+    }
+
+    #[test]
+    fn resolver_deduplicates_candidates_while_preserving_priority_order() {
+        let config = AppConfig {
+            providers: vec![
+                provider("preferred", true, &["m"]),
+                provider("global", true, &["m"]),
+                provider("agent-fallback", true, &["m"]),
+                provider("global-fallback", true, &["m"]),
+            ],
+            active_model: Some(active("global", "m")),
+            fallback_models: vec![active("global", "m"), active("global-fallback", "m")],
+            ..Default::default()
+        };
+        let agent_model = agent_model(
+            Some("preferred::m"),
+            &["global::m", "agent-fallback::m", "preferred::m"],
+        );
+
+        let chain = resolve_model_chain_with_preferred(Some("preferred::m"), &agent_model, &config);
+
+        assert_eq!(
+            resolved_refs(chain.0, chain.1),
+            ["preferred::m", "global::m", "agent-fallback::m",]
+        );
+    }
+
+    #[test]
+    fn invalid_session_preferred_continues_through_agent_then_global() {
+        let config = AppConfig {
+            providers: vec![
+                provider("disabled", false, &["session-model"]),
+                provider("agent", true, &["primary"]),
+                provider("global", true, &["active"]),
+            ],
+            active_model: Some(active("global", "active")),
+            ..Default::default()
+        };
+        let agent_model = agent_model(Some("agent::primary"), &[]);
+
+        for preferred in ["disabled::session-model", "missing::session-model"] {
+            let chain = resolve_model_chain_with_preferred(Some(preferred), &agent_model, &config);
+
+            assert_eq!(resolved_refs(chain.0, chain.1), ["agent::primary"]);
+        }
+    }
+
+    #[test]
+    fn valid_session_preferred_does_not_promote_lower_priority_primaries_to_fallbacks() {
+        let config = AppConfig {
+            providers: vec![
+                provider("session", true, &["preferred"]),
+                provider("agent", true, &["primary"]),
+                provider("global", true, &["active"]),
+                provider("fallback", true, &["configured"]),
+            ],
+            active_model: Some(active("global", "active")),
+            ..Default::default()
+        };
+        let agent_model = agent_model(Some("agent::primary"), &["fallback::configured"]);
+
+        let chain =
+            resolve_model_chain_with_preferred(Some("session::preferred"), &agent_model, &config);
+
+        assert_eq!(
+            resolved_refs(chain.0, chain.1),
+            ["session::preferred", "fallback::configured"]
+        );
+    }
+
+    #[test]
+    fn resolver_returns_empty_chain_when_no_candidate_is_available() {
+        let config = AppConfig {
+            providers: vec![provider("disabled", false, &["m"])],
+            active_model: Some(active("disabled", "m")),
+            fallback_models: vec![active("missing", "m")],
+            ..Default::default()
+        };
+        let agent_model = agent_model(Some("missing::primary"), &["disabled::m"]);
+
+        let chain = resolve_model_chain_with_preferred(
+            Some("missing::session-model"),
+            &agent_model,
+            &config,
+        );
+
+        assert!(chain.0.is_none());
+        assert!(chain.1.is_empty());
+    }
 }

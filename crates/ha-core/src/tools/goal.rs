@@ -736,22 +736,25 @@ async fn run_goal_semantic_grade(
             attempt: _,
         } => {
             let config = crate::config::cached_config();
-            let (agent, model) = match crate::recap::build_analysis_agent(&config).await {
-                Ok(value) => value,
-                Err(error) => {
-                    let message = format!("build semantic grader: {error}");
-                    {
-                        let run_id = run_id.clone();
-                        let message = message.clone();
-                        let _ = db
-                            .run(move |db| {
-                                db.fail_goal_semantic_grade(&run_id, &message, None, json!({}))
-                            })
-                            .await;
-                    }
-                    return Err(message);
-                }
-            };
+            let legacy_chain = config
+                .recap
+                .analysis_agent
+                .as_deref()
+                .and_then(|id| crate::automation::resolve_legacy_agent_chain(&config, id));
+            let chain = crate::automation::effective_chain(&config, legacy_chain);
+            if chain.is_empty() {
+                let message = "build semantic grader: no automation model configured".to_string();
+                let run_id = run_id.clone();
+                let persisted = message.clone();
+                let _ = db
+                    .run(move |db| {
+                        db.fail_goal_semantic_grade(&run_id, &persisted, None, json!({}))
+                    })
+                    .await;
+                return Err(message);
+            }
+            let session_key = evaluated.goal.session_id.clone();
+            let mut model = crate::automation::model_label(&config, &chain[0]);
             let base_prompt = render_goal_semantic_grader_prompt(&evaluated, strict);
             let mut usage_input = 0u64;
             let mut usage_output = 0u64;
@@ -769,7 +772,13 @@ async fn run_goal_semantic_grade(
                 };
                 let result = match tokio::time::timeout(
                     Duration::from_secs(GOAL_SEMANTIC_GRADER_TIMEOUT_SECS),
-                    agent.side_query(&prompt, GOAL_SEMANTIC_GRADER_MAX_TOKENS),
+                    crate::automation::run(crate::automation::ModelTaskSpec {
+                        purpose: "goal.semantic_grader",
+                        chain: chain.clone(),
+                        session_key: &session_key,
+                        instruction: &prompt,
+                        max_tokens: GOAL_SEMANTIC_GRADER_MAX_TOKENS,
+                    }),
                 )
                 .await
                 {
@@ -786,6 +795,7 @@ async fn run_goal_semantic_grade(
                         continue;
                     }
                 };
+                model = crate::automation::model_label(&config, &result.model);
                 usage_input = usage_input.saturating_add(result.usage.input_tokens);
                 usage_output = usage_output.saturating_add(result.usage.output_tokens);
                 usage_cache_creation = usage_cache_creation

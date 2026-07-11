@@ -24,22 +24,24 @@ pub enum AwarenessMode {
 
 // ── Extraction config (LlmDigest mode only) ─────────────────────
 
-/// Reference to a specific provider + model for LLM extraction.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct ExtractionModelRef {
-    pub provider_id: String,
-    pub model: String,
-}
-
 /// LLM extraction tuning knobs.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", default)]
 pub struct LlmExtractionConfig {
-    /// Agent to run the extraction under. None → fall back to `recap.analysisAgent`.
-    pub extraction_agent: Option<String>,
-    /// Explicit provider+model override. Wins over `extraction_agent`.
-    pub extraction_model: Option<ExtractionModelRef>,
+    /// Model override for the extraction side_query. `None` (the default —
+    /// what every existing config has, since this field is new) keeps the
+    /// current, cache-friendly behavior: extraction reuses the *current*
+    /// chat agent's cache prefix via `self.side_query(...)`. Setting this
+    /// switches to a dedicated model via `crate::automation::run`, which is
+    /// correct but gives up that cache-sharing — an explicit trade a user
+    /// opts into, not a free lunch.
+    ///
+    /// Replaces the former `extractionAgent: Option<String>` /
+    /// `extractionModel: Option<ExtractionModelRef>` pair: `extractionAgent`
+    /// was read but never actually switched the agent (a no-op that only
+    /// logged a warning), and `extractionModel` had no reader at all — both
+    /// dead configuration, not preserved.
+    pub model_override: Option<crate::provider::ModelChain>,
     /// Minimum seconds between two real LLM extractions on the same session.
     pub min_interval_secs: u64,
     /// Max number of candidate sessions to feed the extractor.
@@ -61,8 +63,7 @@ pub struct LlmExtractionConfig {
 impl Default for LlmExtractionConfig {
     fn default() -> Self {
         Self {
-            extraction_agent: None,
-            extraction_model: None,
+            model_override: None,
             min_interval_secs: 300,
             max_candidates: 5,
             digest_max_chars: 1200,

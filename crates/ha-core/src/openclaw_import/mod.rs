@@ -499,7 +499,8 @@ fn write_core_memory_md(path: PathBuf, content: &str) -> Result<bool> {
     backup_existing_core_memory_md(&path)?;
     let existing = std::fs::read_to_string(&path).unwrap_or_default();
     let merged = merge_openclaw_memory_section(&existing, content);
-    std::fs::write(&path, merged).with_context(|| format!("Failed to write {}", path.display()))?;
+    crate::platform::write_atomic(&path, merged.as_bytes())
+        .with_context(|| format!("Failed to write {}", path.display()))?;
     Ok(true)
 }
 

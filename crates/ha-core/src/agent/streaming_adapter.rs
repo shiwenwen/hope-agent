@@ -41,6 +41,11 @@ pub(crate) struct RoundRequest<'a> {
     /// kept outside the static prompt prefix. Anthropic sends it without
     /// cache_control to stay under the provider's breakpoint cap.
     pub coding_profile_suffix: Option<&'a str>,
+    /// Procedure Memory soft workflow guidance (P5). It is a bounded dynamic
+    /// system block generated from user-saved/promoted procedures. No cache
+    /// breakpoint: it changes per query and Anthropic's 4-breakpoint cap is
+    /// already reserved for hotter blocks.
+    pub procedure_memory_suffix: Option<&'a str>,
     /// Passive related-notes block (read bridge ③, Phase 3). Note titles from the
     /// accessible KBs. Appended as a plain system block WITHOUT `cache_control` on
     /// Anthropic (the 4 breakpoints are already taken — prefix, awareness,

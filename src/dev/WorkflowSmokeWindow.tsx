@@ -57,7 +57,10 @@ function workflowSnapshot(scenario: SmokeScenario): WorkflowRunSnapshot {
       inputHash: "hash-observe",
       input: { query: "Workflow GUI smoke", label: "target-files" },
       state: "completed",
-      output: { summary: "Found 4 likely files", matches: ["WorkspacePanel.tsx", "workflow/db.rs"] },
+      output: {
+        summary: "Found 4 likely files",
+        matches: ["WorkspacePanel.tsx", "workflow/db.rs"],
+      },
       error: null,
       childHandle: null,
       startedAt: "2026-07-01T01:00:10.000Z",
@@ -98,7 +101,10 @@ function workflowSnapshot(scenario: SmokeScenario): WorkflowRunSnapshot {
       state: scenario === "running" ? "started" : "completed",
       output: {
         ok: scenario !== "failed",
-        summary: scenario === "failed" ? "1/1 validation command(s) failed" : "1/1 validation command(s) passed",
+        summary:
+          scenario === "failed"
+            ? "1/1 validation command(s) failed"
+            : "1/1 validation command(s) passed",
         results: [
           {
             command: "pnpm typecheck",
@@ -242,6 +248,7 @@ function sessionArtifacts(): SessionArtifacts {
     ],
     sources: [
       {
+        kind: "url",
         url: "https://example.test/workflow-smoke",
         origin: "message",
       },
@@ -287,7 +294,8 @@ function workspaceEnvironment(): WorkspaceEnvironmentSnapshot {
 function installSmokeTransport() {
   const transport = {
     call: async <T,>(command: string, args?: Record<string, unknown>): Promise<T> => {
-      const sessionId = typeof args?.sessionId === "string" ? args.sessionId : `${SMOKE_SESSION_PREFIX}-approval`
+      const sessionId =
+        typeof args?.sessionId === "string" ? args.sessionId : `${SMOKE_SESSION_PREFIX}-approval`
       const scenario = smokeScenarioFromSessionId(sessionId)
       switch (command) {
         case "list_workflow_runs":
@@ -350,7 +358,12 @@ function installSmokeTransport() {
       sizeBytes: 0,
       truncated: false,
     }),
-    previewExtractDoc: async () => ({ relPath: "document.txt", kind: "office", text: "", images: [] }),
+    previewExtractDoc: async () => ({
+      relPath: "document.txt",
+      kind: "office",
+      text: "",
+      images: [],
+    }),
     previewRawUrl: async () => null,
   } as unknown as Transport
   setTransport(transport)

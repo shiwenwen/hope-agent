@@ -49,6 +49,7 @@ pub(crate) async fn tool_search(args: &Value, ctx: &ToolExecContext) -> Result<S
 
     let dispatch_ctx = DispatchContext {
         agent_id,
+        incognito: ctx.incognito,
         mcp_enabled: agent_cfg.capabilities.mcp_enabled,
         memory_enabled: agent_cfg.memory.enabled,
         tools_filter: &agent_cfg.capabilities.tools,
@@ -455,5 +456,27 @@ mod tests {
             .iter()
             .any(|v| v.as_str() == Some("execute_process")));
         assert!(first["score"].as_f64().unwrap() > 0.0);
+    }
+
+    #[tokio::test]
+    async fn incognito_hides_memory_tools_from_deferred_discovery() {
+        let args = json!({
+            "query": "select:save_memory,recall_memory,memory_get,update_memory,delete_memory,update_core_memory",
+            "max_results": 20
+        });
+        let ctx = ToolExecContext {
+            incognito: true,
+            ..ToolExecContext::default()
+        };
+
+        let result = tool_search(&args, &ctx).await.unwrap();
+        let parsed: Value = serde_json::from_str(&result).unwrap();
+
+        assert_eq!(
+            parsed["matched_tools"].as_u64().unwrap(),
+            0,
+            "incognito tool_search must not resurrect Memory tier tools"
+        );
+        assert!(parsed["tools"].as_array().unwrap().is_empty());
     }
 }

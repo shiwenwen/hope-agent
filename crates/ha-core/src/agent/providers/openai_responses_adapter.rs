@@ -524,6 +524,17 @@ impl<'a> StreamingChatAdapter for OpenAIResponsesStreamingAdapter<'a> {
         // so suffix churn never invalidates the static instruction prefix
         // (which OpenAI auto-caches).
         let mut api_input: Vec<Value> = expand_responses_image_markers_for_api(req.history_for_api);
+        if let Some(procedure_suffix) = req.procedure_memory_suffix {
+            if !procedure_suffix.is_empty() {
+                api_input.insert(
+                    0,
+                    json!({
+                        "role": "system",
+                        "content": procedure_suffix
+                    }),
+                );
+            }
+        }
         if let Some(active_suffix) = req.active_memory_suffix {
             if !active_suffix.is_empty() {
                 api_input.insert(
@@ -654,7 +665,7 @@ impl<'a> StreamingChatAdapter for OpenAIResponsesStreamingAdapter<'a> {
                 return Err(anyhow::anyhow!(
                     "OpenAI Responses API request failed: {}",
                     e
-                ))
+                ));
             }
         };
 

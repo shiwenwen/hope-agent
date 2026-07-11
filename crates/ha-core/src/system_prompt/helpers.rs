@@ -60,20 +60,32 @@ pub(super) fn current_date() -> String {
 
 /// Truncate text to a maximum length, preserving head (70%) and tail (20%).
 pub(super) fn truncate(text: &str, max_chars: usize) -> String {
-    if text.len() <= max_chars {
+    let retained_ranges = truncate_retained_ranges(text, max_chars);
+    if retained_ranges.len() == 1 {
         return text.to_string();
     }
 
-    let head_size = max_chars * 70 / 100;
-    let tail_size = max_chars * 20 / 100;
-    let head = crate::truncate_utf8(text, head_size);
-    let tail = crate::truncate_utf8_tail(text, tail_size);
+    let head = &text[retained_ranges[0].0..retained_ranges[0].1];
+    let tail = &text[retained_ranges[1].0..retained_ranges[1].1];
     let omitted = text.len().saturating_sub(head.len() + tail.len());
 
     format!(
         "{}\n\n[... truncated {} bytes ...]\n\n{}",
         head, omitted, tail
     )
+}
+
+/// Byte ranges from the original text that [`truncate`] preserves. Consumers
+/// that report provenance for truncated prompt content use these exact ranges
+/// so they cannot claim omitted text was injected.
+pub(super) fn truncate_retained_ranges(text: &str, max_chars: usize) -> Vec<(usize, usize)> {
+    if text.len() <= max_chars {
+        return vec![(0, text.len())];
+    }
+
+    let head = crate::truncate_utf8(text, max_chars * 70 / 100);
+    let tail = crate::truncate_utf8_tail(text, max_chars * 20 / 100);
+    vec![(0, head.len()), (text.len() - tail.len(), text.len())]
 }
 
 #[cfg(test)]

@@ -1,10 +1,12 @@
-import React from "react"
+import React, { useState, useMemo, useCallback } from "react"
 import { useTranslation } from "react-i18next"
 import {
   AreaChart,
   Area,
   LineChart,
   Line,
+  BarChart,
+  Bar,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -14,8 +16,36 @@ import {
   Pie,
   Cell,
 } from "recharts"
+import { ChevronDown, ChevronUp, ArrowUpDown } from "lucide-react"
+import { Button } from "@/components/ui/button"
 import type { DashboardTokenData } from "./types"
-import { chartName, chartNumber, formatNumber, formatCost, formatDuration } from "./types"
+import { chartName, chartNumber, formatNumber, formatCost, formatDuration, humanizeDomain } from "./types"
+
+type OperationSortKey =
+  | "operation"
+  | "domain"
+  | "callCount"
+  | "inputTokens"
+  | "outputTokens"
+  | "estimatedCostUsd"
+type SortDir = "asc" | "desc"
+
+function OperationSortIndicator({
+  column,
+  sortKey,
+  sortDir,
+}: {
+  column: OperationSortKey
+  sortKey: OperationSortKey
+  sortDir: SortDir
+}) {
+  if (sortKey !== column) return <ArrowUpDown className="h-3 w-3 ml-1 opacity-40" />
+  return sortDir === "asc" ? (
+    <ChevronUp className="h-3 w-3 ml-1" />
+  ) : (
+    <ChevronDown className="h-3 w-3 ml-1" />
+  )
+}
 
 const PIE_COLORS = [
   "#8b5cf6",
@@ -33,6 +63,7 @@ interface TokenUsageSectionProps {
   data: DashboardTokenData | null
   loading: boolean
   onDrillDown: (modelId: string) => void
+  onDrillDownOperation: (operation: string) => void
 }
 
 function SectionSkeleton({ height }: { height: number }) {
@@ -48,8 +79,72 @@ const TokenUsageSection = React.memo(function TokenUsageSection({
   data,
   loading,
   onDrillDown,
+  onDrillDownOperation,
 }: TokenUsageSectionProps) {
   const { t } = useTranslation()
+  const [operationsExpanded, setOperationsExpanded] = useState(false)
+  const [selectedDomain, setSelectedDomain] = useState<string | null>(null)
+  const [opSortKey, setOpSortKey] = useState<OperationSortKey>("inputTokens")
+  const [opSortDir, setOpSortDir] = useState<SortDir>("desc")
+  const [prevData, setPrevData] = useState(data)
+
+  const domainLabel = useCallback(
+    (domain: string) => t(`dashboard.operationDomain.${domain}`, humanizeDomain(domain)),
+    [t],
+  )
+
+  // `selectedDomain` is a local drill-down filter that doesn't touch the
+  // global `DashboardFilter` (per design, clicking a domain bar only filters
+  // the operations table below it). But `data` itself DOES change whenever
+  // an unrelated global filter changes and the parent refetches — if the new
+  // dataset has no rows under the previously-selected domain, the table
+  // would silently render "no data" for a scope that actually has usage.
+  // Reset the local selection whenever the underlying dataset changes, using
+  // React's "adjust state during render" pattern (not an effect) so the
+  // reset lands in the same commit as the new data instead of a follow-up
+  // render.
+  if (data !== prevData) {
+    setPrevData(data)
+    setSelectedDomain(null)
+  }
+
+  const domainData = useMemo(() => {
+    if (!data?.byDomain) return []
+    return [...data.byDomain].sort(
+      (a, b) => b.inputTokens + b.outputTokens - (a.inputTokens + a.outputTokens),
+    )
+  }, [data])
+
+  const visibleOperations = useMemo(() => {
+    const ops = data?.byOperation ?? []
+    return selectedDomain ? ops.filter((o) => o.domain === selectedDomain) : ops
+  }, [data, selectedDomain])
+
+  const sortedOperations = useMemo(() => {
+    const sorted = [...visibleOperations].sort((a, b) => {
+      const aVal = a[opSortKey]
+      const bVal = b[opSortKey]
+      if (typeof aVal === "string" && typeof bVal === "string") {
+        return opSortDir === "asc" ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal)
+      }
+      return opSortDir === "asc"
+        ? (aVal as number) - (bVal as number)
+        : (bVal as number) - (aVal as number)
+    })
+    return sorted
+  }, [visibleOperations, opSortKey, opSortDir])
+
+  const handleOpSort = useCallback(
+    (key: OperationSortKey) => {
+      if (opSortKey === key) {
+        setOpSortDir((d) => (d === "asc" ? "desc" : "asc"))
+      } else {
+        setOpSortKey(key)
+        setOpSortDir("desc")
+      }
+    },
+    [opSortKey],
+  )
 
   const ttftData = !data?.trend ? [] : data.trend.filter((t) => t.avgTtftMs != null)
 
@@ -186,6 +281,169 @@ const TokenUsageSection = React.memo(function TokenUsageSection({
             ))
           )}
         </div>
+      </div>
+
+      {/* Domain (coarse purpose) bar chart */}
+      <div className="bg-card border rounded-xl p-4">
+        <h3 className="text-sm font-medium mb-4">{t("dashboard.token.byDomain")}</h3>
+        {domainData.length === 0 ? (
+          <div className="flex items-center justify-center h-[300px] text-sm text-muted-foreground">
+            {t("dashboard.noData")}
+          </div>
+        ) : (
+          <ResponsiveContainer width="100%" height={Math.max(300, domainData.length * 28)}>
+            <BarChart
+              data={domainData}
+              layout="vertical"
+              margin={{ left: 100 }}
+              onClick={(e) => {
+                const domain = (e as { activeLabel?: string } | null)?.activeLabel ?? null
+                setSelectedDomain((prev) => (prev === domain ? null : domain))
+              }}
+            >
+              <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+              <XAxis
+                type="number"
+                tick={{ fontSize: 12 }}
+                className="fill-muted-foreground"
+                tickFormatter={(v: number) => formatNumber(v)}
+              />
+              <YAxis
+                type="category"
+                dataKey="domain"
+                tick={{ fontSize: 11 }}
+                width={100}
+                className="fill-muted-foreground"
+                tickFormatter={domainLabel}
+              />
+              <RechartsTooltip
+                contentStyle={{
+                  backgroundColor: "var(--color-popover)",
+                  border: "1px solid var(--color-border)",
+                  borderRadius: "8px",
+                  fontSize: "12px",
+                  color: "var(--color-popover-foreground)",
+                }}
+                labelFormatter={(name) => domainLabel(chartName(name))}
+                formatter={(value, name) => [
+                  formatNumber(chartNumber(value)),
+                  chartName(name) === "inputTokens"
+                    ? t("dashboard.token.input")
+                    : t("dashboard.token.output"),
+                ]}
+              />
+              <Bar dataKey="inputTokens" stackId="t" fill="#8b5cf6" className="cursor-pointer" />
+              <Bar dataKey="outputTokens" stackId="t" fill="#06b6d4" className="cursor-pointer" />
+            </BarChart>
+          </ResponsiveContainer>
+        )}
+      </div>
+
+      {/* Operation (purpose tag) drill-down table */}
+      <div className="bg-card border rounded-xl p-4">
+        <div className="flex items-center justify-between mb-3 gap-2">
+          <h3 className="text-sm font-medium">
+            {t("dashboard.token.byOperation")}
+            {selectedDomain && (
+              <button
+                className="ml-2 text-xs font-normal text-primary hover:underline"
+                onClick={() => setSelectedDomain(null)}
+              >
+                {domainLabel(selectedDomain)} ×
+              </button>
+            )}
+          </h3>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-xs h-7"
+            onClick={() => setOperationsExpanded((v) => !v)}
+          >
+            {operationsExpanded ? t("dashboard.tool.collapse") : t("dashboard.tool.expand")}
+            {operationsExpanded ? (
+              <ChevronUp className="h-3 w-3 ml-1" />
+            ) : (
+              <ChevronDown className="h-3 w-3 ml-1" />
+            )}
+          </Button>
+        </div>
+
+        {operationsExpanded &&
+          (sortedOperations.length === 0 ? (
+            <div className="py-8 text-center text-sm text-muted-foreground">
+              {t("dashboard.noData")}
+            </div>
+          ) : (
+            <div className="overflow-auto">
+              <div className="grid grid-cols-6 gap-2 text-xs font-medium text-muted-foreground pb-2 border-b min-w-[640px]">
+                <button
+                  className="flex items-center text-left"
+                  onClick={() => handleOpSort("operation")}
+                >
+                  {t("dashboard.token.operation")}
+                  <OperationSortIndicator column="operation" sortKey={opSortKey} sortDir={opSortDir} />
+                </button>
+                <button
+                  className="flex items-center text-left"
+                  onClick={() => handleOpSort("domain")}
+                >
+                  {t("dashboard.token.domain")}
+                  <OperationSortIndicator column="domain" sortKey={opSortKey} sortDir={opSortDir} />
+                </button>
+                <button
+                  className="flex items-center justify-end"
+                  onClick={() => handleOpSort("callCount")}
+                >
+                  {t("dashboard.tool.calls")}
+                  <OperationSortIndicator column="callCount" sortKey={opSortKey} sortDir={opSortDir} />
+                </button>
+                <button
+                  className="flex items-center justify-end"
+                  onClick={() => handleOpSort("inputTokens")}
+                >
+                  {t("dashboard.token.input")}
+                  <OperationSortIndicator column="inputTokens" sortKey={opSortKey} sortDir={opSortDir} />
+                </button>
+                <button
+                  className="flex items-center justify-end"
+                  onClick={() => handleOpSort("outputTokens")}
+                >
+                  {t("dashboard.token.output")}
+                  <OperationSortIndicator column="outputTokens" sortKey={opSortKey} sortDir={opSortDir} />
+                </button>
+                <button
+                  className="flex items-center justify-end"
+                  onClick={() => handleOpSort("estimatedCostUsd")}
+                >
+                  {t("dashboard.token.cost")}
+                  <OperationSortIndicator
+                    column="estimatedCostUsd"
+                    sortKey={opSortKey}
+                    sortDir={opSortDir}
+                  />
+                </button>
+              </div>
+              {sortedOperations.map((row) => (
+                <div
+                  key={row.operation}
+                  className="grid grid-cols-6 gap-2 text-xs py-2 border-b border-border/50 hover:bg-muted/50 min-w-[640px]"
+                >
+                  <button
+                    className="truncate text-left font-mono hover:underline"
+                    onClick={() => onDrillDownOperation(row.operation)}
+                    title={row.operation}
+                  >
+                    {row.operation}
+                  </button>
+                  <div className="truncate text-muted-foreground">{domainLabel(row.domain)}</div>
+                  <div className="text-right">{formatNumber(row.callCount)}</div>
+                  <div className="text-right">{formatNumber(row.inputTokens)}</div>
+                  <div className="text-right">{formatNumber(row.outputTokens)}</div>
+                  <div className="text-right">{formatCost(row.estimatedCostUsd)}</div>
+                </div>
+              ))}
+            </div>
+          ))}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

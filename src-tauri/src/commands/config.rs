@@ -294,10 +294,14 @@ pub(crate) async fn compact_context_now_core(
         .next()
         .ok_or_else(|| CmdError::msg("No model configured for manual compaction"))?;
 
-    let resolved_temperature = agent_def
-        .as_ref()
-        .and_then(|def| def.config.model.temperature)
-        .or(store.temperature);
+    let resolved_temperature = if meta.runtime_defaults_initialized {
+        meta.temperature
+    } else {
+        agent_def
+            .as_ref()
+            .and_then(|def| def.config.model.temperature)
+            .or(store.temperature)
+    };
     let codex_token = state.codex_token.lock().await.clone();
 
     let result =
@@ -895,6 +899,30 @@ pub async fn set_global_temperature(temperature: Option<f64>) -> Result<(), CmdE
 }
 
 #[tauri::command]
+pub async fn get_global_reasoning_effort() -> Result<String, CmdError> {
+    Ok(ha_core::config::cached_config().reasoning_effort.clone())
+}
+
+#[tauri::command]
+pub async fn set_global_reasoning_effort(effort: String) -> Result<(), CmdError> {
+    if !ha_core::agent::is_valid_reasoning_effort(&effort) {
+        return Err(CmdError::msg(format!("Invalid reasoning effort: {effort}")));
+    }
+    ha_core::config::mutate_config_async(("reasoning_effort", "settings-ui"), {
+        let effort = effort.clone();
+        move |store| {
+            store.reasoning_effort = effort;
+            Ok(())
+        }
+    })
+    .await?;
+    if let Some(cell) = ha_core::get_reasoning_effort_cell() {
+        *cell.lock().await = effort;
+    }
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn get_plan_subagent() -> Result<bool, CmdError> {
     let store = ha_core::config::load_config()?;
     Ok(store.plan_subagent)
@@ -964,6 +992,26 @@ pub async fn save_recap_config(config: ha_core::config::RecapConfig) -> Result<(
     })
     .await
     .map_err(Into::into)
+}
+
+// ── Recall Summary Config ───────────────────────────────────────
+
+#[tauri::command]
+pub async fn get_recall_summary_config() -> Result<ha_core::memory::RecallSummaryConfig, CmdError> {
+    Ok(ha_core::config::cached_config().recall_summary.clone())
+}
+
+#[tauri::command]
+pub async fn save_recall_summary_config(
+    config: ha_core::memory::RecallSummaryConfig,
+) -> Result<ha_core::memory::RecallSummaryConfig, CmdError> {
+    let to_save = config.clone();
+    ha_core::config::mutate_config_async(("recall_summary", "settings-ui"), move |store| {
+        store.recall_summary = to_save.clone();
+        Ok(())
+    })
+    .await?;
+    Ok(config)
 }
 
 // ── Dreaming Config ─────────────────────────────────────────────

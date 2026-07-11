@@ -552,14 +552,12 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
         let title_session_id = session_id.clone();
         let title_agent_id = agent_id.clone();
         let title_model = model_chain[0].clone();
-        let title_providers = providers.clone();
         crate::blocking::run_blocking(move || {
             crate::session_title::maybe_schedule_autonomous_start(
                 title_db,
                 title_session_id,
                 title_agent_id,
                 title_model,
-                title_providers,
             )
         })
         .await;
@@ -818,17 +816,6 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
             }
         };
         last_provider_api_kind = Some(prov.api_type.clone());
-
-        // Update session with current model info
-        {
-            let provider_name = Some(prov.name.as_str());
-            let _ = db.update_session_model(
-                &session_id,
-                Some(&model_ref.provider_id),
-                provider_name,
-                Some(&model_ref.model_id),
-            );
-        }
 
         // Emit fallback event if this is not the first model in the chain.
         // Only fires once per model (not per executor retry / rotation).
@@ -1213,8 +1200,37 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
 
                     persister.flush_remaining_thinking();
                     let trailing_text = persister.take_trailing_text();
-                    let assistant_msg =
+                    let mut assistant_msg =
                         persister.build_assistant_message(&trailing_text, thinking, duration_ms);
+                    let active_trace = agent.current_active_memory_trace();
+                    let used_refs = agent.current_used_memory_refs();
+                    let retrieval_planner_trace = agent.current_retrieval_planner_trace(&used_refs);
+                    if active_trace.is_some()
+                        || !used_refs.is_empty()
+                        || retrieval_planner_trace.is_some()
+                    {
+                        let mut meta = serde_json::Map::new();
+                        if let Some(trace) = active_trace {
+                            meta.insert(
+                                session::ATTACHMENT_META_KEY_ACTIVE_MEMORY.to_string(),
+                                serde_json::to_value(&*trace).unwrap_or(serde_json::Value::Null),
+                            );
+                        }
+                        if !used_refs.is_empty() {
+                            meta.insert(
+                                session::ATTACHMENT_META_KEY_USED_MEMORY_REFS.to_string(),
+                                serde_json::to_value(used_refs).unwrap_or(serde_json::Value::Null),
+                            );
+                        }
+                        if let Some(trace) = retrieval_planner_trace {
+                            meta.insert(
+                                session::ATTACHMENT_META_KEY_RETRIEVAL_PLANNER.to_string(),
+                                serde_json::to_value(trace).unwrap_or(serde_json::Value::Null),
+                            );
+                        }
+                        assistant_msg.attachments_meta =
+                            serde_json::to_string(&serde_json::Value::Object(meta)).ok();
+                    }
                     let assistant_id = db.append_message(&session_id, &assistant_msg).ok();
                     if let Some(message_id) = assistant_id {
                         let usage = persister.usage();
@@ -1377,15 +1393,13 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                         }
                     }
 
-                    crate::session_title::maybe_schedule_after_success(
-                        db.clone(),
-                        session_id.clone(),
-                        agent_id.clone(),
-                        model_ref.clone(),
-                        providers.clone(),
-                    );
-
                     if post_turn_effects {
+                        crate::session_title::maybe_schedule_after_success(
+                            db.clone(),
+                            session_id.clone(),
+                            agent_id.clone(),
+                            model_ref.clone(),
+                        );
                         {
                             let usage_snapshot = persister.usage();
                             let round_tokens = {
@@ -1406,7 +1420,8 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                             &session_id,
                             model_ref,
                             &agent,
-                        );
+                        )
+                        .await;
 
                         // Skill auto-review trigger (gate 1 of the five-gate
                         // waterfall). Feed tool_use_count from this round's

@@ -150,9 +150,9 @@ export function useSessionKnowledge(
   sessionId: string | null | undefined,
   projectId: string | null | undefined,
   opts: { incognito?: boolean; messages: Message[] },
-): { attachments: KbAttachment[]; activity: SessionKnowledgeActivity } {
+): { attachments: KbAttachment[]; activity: SessionKnowledgeActivity; loadErrorDetail: string | null } {
   const { incognito = false, messages } = opts
-  const { attachments } = useSessionAttachments(sessionId, projectId, { incognito })
+  const { attachments, loadErrorDetail } = useSessionAttachments(sessionId, projectId, { incognito })
   const activity = useMemo(() => aggregateKnowledgeActivity(messages), [messages])
-  return { attachments, activity }
+  return { attachments, activity, loadErrorDetail }
 }

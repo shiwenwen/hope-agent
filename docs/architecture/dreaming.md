@@ -127,7 +127,7 @@ erDiagram
 | **Cron** | 6 字段 cron 表达式（监听 `config:changed` 重排） | `cronTrigger.enabled=false`，`cronExpr="0 0 3 * * *"` |
 | **Manual** | Dashboard「Run now」/ owner 命令 | `manualEnabled=true` |
 
-idle / cron 自动周期只跑 **Light 固化 + Profile 合成**（Profile 受 `profileSynthesis.enabled` 门控）；**Deep resolver 仅经手动 `dreaming_run_resolver` 触发**，不进自动周期。
+idle / cron 自动周期依次跑 **Light 固化 → 保守自动 Deep sweep → Profile 合成**（后两者各受 `deepResolver.*` / `profileSynthesis.enabled` 门控）。自动 Deep sweep 默认执行确定性过期和最多 8 组 graph-first LLM 分类，但它没有“选一个事实覆盖另一个”的权限：高置信冲突只进待审，近重复只有在高置信且图谱 alias 或词法相似度再次佐证时才合并，任何低置信 / 未知 / 失败都 no-op；`autoSupersede` 固定为 `false`，不是用户旋钮。完整人工 Deep resolver 仍经 `dreaming_run_resolver` 触发。Dashboard 在触发前可通过 owner-only `dreaming_resolver_preflight` / `GET /api/dreaming/resolver/preflight` 做只读预检：统计 active claim、确定性过期候选、冲突候选组、自动阈值、LLM 分组调用上限与配置阻塞原因；预检不调用 LLM、不写 claim、不创建 run。Memory Health 也输出同一组 Deep Resolver backlog 指标，供复制诊断和支持排障；Settings → Memory → Overview 的 Health 卡片必须显示 backlog / blocked / clear 状态，但 backlog 只作为 `info` issue，不改变 health status。手动 resolver 与自动 sweep 都必须在长期记忆总开关关闭时 fail-closed skip，不能继续写 claim 状态。
 
 两道串行锁：进程内 `AtomicBool DREAMING_RUNNING`（`try_claim` 失败即 skip）+ 跨进程 `dreaming_locks` 租约（被他进程持有则 skip，高频源可入 `dreaming_pending_sources` 队列）。Primary 启动时 `recover_stale_*` 把过期 `running` 行标 `failed`、删过期锁、回收超期 `claimed` 源；每日 retention 复跑并 GC。
 
@@ -137,12 +137,15 @@ Dreaming 以三个独立可运行的 cycle 落地（均写 durable run + decisio
 
 1. **Light 固化**（`pipeline.rs`）：
    - **Scanner**（`scanner.rs`，`spawn_blocking`）：取近 `scopeDays` 天未 pin 的 `memories`（超取后客户端过滤到 `candidateLimit`）；为每条挂证据指针，**incognito 会话 fail-closed 剔除**。
-   - **Narrative**（`narrative.rs`，LLM `side_query`）：渲染候选 → 要求 JSON 信封 `{promotions:[{id,score,title,rationale}], diary}`；超时 `narrativeTimeoutSecs`；按 `promotion.minScore`（0.75）/ `maxPromote`（5）过滤排序。模型默认复用当前聊天 Agent，可由 `narrativeModel`（`provider:model`）覆盖。
+   - **Narrative**（`narrative.rs`，经 `crate::automation::run` 一次性 LLM 调用）：渲染候选 → 要求 JSON 信封 `{promotions:[{id,score,title,rationale}], diary}`；超时 `narrativeTimeoutSecs`；按 `promotion.minScore`（0.75）/ `maxPromote`（5）过滤排序。模型链解析（`resolve_dreaming_chain`，Deep Resolver 复用同一函数）：`modelOverride`（`ModelChain`）→ deprecated `narrativeModel`（`provider:model`，惰性解析）→ `function_models.automation` 全局默认链 → 聊天全局模型；真跨模型降级，详见 [模型 vs Agent 统一配置](automation-model.md)。
    - **Promotion**（`promotion.rs`，`spawn_blocking`）：对存活且未 pin 的记忆 `toggle_pin(true)`。
    - **Diary + Finalize**：写 `~/.hope-agent/memory/dreams/*.md`；`finish_run` + 每条 promotion 写 `promote` 决策。
 2. **Deep Resolver**（`resolver.rs`，`dreaming_run_resolver`）：
+   - **Preflight**（`resolver_preflight`）：只读读取 active claims，输出 `ResolverPreflightReport`（`canRunManual`、`expiredCandidateCount`、`conflictGroupCount`、`groupsToAnalyze`、`blockingReasons` 等）；不调用 LLM、不改状态、不落审计 run，供 Dashboard 禁用按钮和解释“这次运行会做什么”。
    - **确定性过期**：扫所有 active claim，`valid_until < now` → `Expire` 决策（纯字符串比较，无 LLM）。
-   - **保守冲突分析**：按 `(scope_type, scope_id, claim_type, subject, predicate)` 分组，只取 >1 成员且 ≥2 种不同归一化 object 的组（去重是 Light 的活），每轮最多 `MAX_RESOLVER_GROUPS=50` 组各发一次 `side_query`。LLM 回 `duplicates → Merge`（保留最高置信 + 最新者，存档另一方）/ `conflict → NeedsReview`（**绝不自动 supersede**）/ `independent → no_op`。
+   - **统一分组**：按 `(scope_type, scope_id, claim_type, subject, predicate)` 分组，只取 >1 成员且 ≥2 种不同归一化 object 的组；过期候选在分类前剔除。claim 内容、图谱邻边和 LLM rationale 都按 untrusted data 处理，进 prompt 前 sanitize，落审计前脱敏并限长。
+   - **自动 graph-first sweep**：已知多值谓词（`uses` / `likes` / `works_on` 等）直接 graph-noop，避免把合法并存事实误判为冲突；其余组携带 alias 连通、对象 degree、邻边、证据数量 / 人工证据 / 最高权重和有效期信号，最多分析 `autoResolveMaxGroups`（默认 8，钳 `[1,20]`）。只有 `confidence >= autoResolveMinConfidence`（默认 0.92）才可写状态：冲突仅 `NeedsReview`；duplicates 还须 alias 连通或词法相似度 ≥ `autoMergeSimilarity`（默认 0.84）才 `Merge`；永不产生 `Supersede`。每组调用经统一 `automation` 模型链，usage operation 为 `dreaming.resolver.auto`，便于单独观察后台治理 token 成本。
+   - **手动完整分析**：每轮最多 `MAX_RESOLVER_GROUPS=50` 组各发一次 `side_query`。LLM 回 `duplicates → Merge`（保留最高置信 + 最新者，存档另一方）/ `conflict → NeedsReview` / `independent → no_op`，同样**绝不自动 supersede**。usage operation 为 `dreaming.resolver.manual`；自动与手动运行都持跨进程 Deep lease，并把 graph-noop / LLM-noop / 截断 / 失败写入 durable run note 与事件。
 3. **Profile 合成**（`profile.rs`，`dreaming_run_profile`，受 `profileSynthesis.enabled` 门控、默认开）：按 scope 取 active claim、按 `confidence × salience` 排序取前 `maxLinesPerScope`（12，排除 `reference` 类）、规则式渲染 Markdown bullet。Idle/Cron 走规则式零 LLM；Manual 额外对每 scope 发一次 `side_query` 重写求流畅（只压缩重组、不创作）。写入 `memory_profile_snapshots`（version=MAX+1）。
 
 ```mermaid
@@ -154,9 +157,12 @@ graph TD
     A2 -->|获得| R["create_run (running)"]
     R --> L["Light: scan → narrative → promote → diary"]
     L --> F["finish_run + promote 决策"]
-    F --> P{"profileSynthesis<br/>.enabled?"}
+    F --> AD{"deepResolver<br/>auto enabled?"}
+    AD -->|是| DS["Auto Deep: expire + graph-first bounded LLM"]
+    AD -->|否| P{"profileSynthesis<br/>.enabled?"}
+    DS --> P
     P -->|是| PF["Profile 合成 → snapshot"]
-    R -.手动.-> D["Deep resolver: 确定性 expire + 冲突 needs_review/merge"]
+    R -.手动.-> D["Manual Deep: expire + 完整冲突 needs_review/merge"]
 ```
 
 ## Claim 写路径与 Backfill
@@ -252,8 +258,14 @@ claim 与 profile 经三条路径进入系统提示，与 legacy 记忆共存于
 | `candidateLimit` | `50` | 单轮候选上限 |
 | `narrativeMaxTokens` | `2048` | narrative side_query token 预算 |
 | `narrativeTimeoutSecs` | `60` | narrative 超时 |
-| `narrativeModel` | `null` | 专用模型 `provider:model`；null = 当前聊天 Agent |
+| `modelOverride` | `null` | 专用模型链 `ModelChain`；null = 落 `function_models.automation` → 聊天全局模型。deprecated `narrativeModel`（`provider:model`）仍惰性兼容 |
 | `profileSynthesis.{enabled, maxLinesPerScope}` | `true` / `12` | Profile 合成 / 每 scope 行数上限 |
+| `deepResolver.autoExpireOnLightCycle` | `true` | Light 后自动执行确定性过期 |
+| `deepResolver.autoResolveOnLightCycle` | `true` | Light 后自动执行保守 graph-first 分类 |
+| `deepResolver.autoResolveMaxGroups` | `8` | 单轮自动 LLM 分组上限，读时钳 `[1,20]` |
+| `deepResolver.autoResolveMinConfidence` | `0.92` | 自动状态变更最低置信度，读时钳 `[0.75,0.99]` |
+| `deepResolver.autoMergeNearDuplicates` | `true` | 允许自动合并被二次佐证的近重复；关闭后冲突仍可进待审 |
+| `deepResolver.autoMergeSimilarity` | `0.84` | 无 alias 边时的词法佐证阈值，读时钳 `[0.70,0.98]` |
 
 GUI 在「设置 → 记忆 → Dreaming」（`DreamingPanel`，含 idle 倒计时与 cron 可视化编辑器）；`ha-settings` 技能可读写同一字段集（风险等级 MEDIUM，登记于 [`skills/ha-settings/SKILL.md`](../../skills/ha-settings/SKILL.md)），二者零偏差。`ActiveMemoryConfig.include_claims`（per-agent，默认关）是 Active Memory v2 的独立开关。
 
@@ -264,7 +276,7 @@ owner 平面命令（Tauri ↔ HTTP 一一对应，**完整签名与语义见 [`
 - **Claim 读 / 纠错**：`claim_list` / `claim_get` / `claim_update`（PATCH，`id` 走 path）/ `claim_forget`。
 - **Backfill**：`memory_backfill_plan` / `memory_backfill_apply`。
 - **运行**：`dreaming_run_now`（Light）/ `dreaming_run_resolver`（Deep）/ `dreaming_run_profile`（Profile）。
-- **状态 / 只读**：`dreaming_list_runs` / `dreaming_get_run` / `dreaming_is_running` / `dreaming_last_report` / `dreaming_idle_status` / `dreaming_list_profile_snapshots` / `dreaming_list_diaries` / `dreaming_read_diary`（路径遍历防护）/ `dreaming_evidence_quote`（incognito 归零）。
+- **状态 / 只读**：`dreaming_list_runs` / `dreaming_get_run` / `dreaming_is_running` / `dreaming_last_report` / `dreaming_idle_status` / `dreaming_resolver_preflight` / `dreaming_list_profile_snapshots` / `dreaming_list_diaries` / `dreaming_read_diary`（路径遍历防护）/ `dreaming_evidence_quote`（incognito 归零）。
 - **配置**：`get_dreaming_config` / `save_dreaming_config`。
 
 EventBus 事件：`dreaming:cycle_started` / `dreaming:cycle_complete`（payload 含 `runId` / `phase` / `trigger`）、`memory:claim_changed`、`memory:review_required`。
@@ -287,7 +299,7 @@ Dreaming 靠离线 eval 守红线、不靠感觉。三层避免 LLM 非确定性
 已落地 **deterministic 层**：
 
 - [`memory/dreaming/eval.rs`](../../crates/ha-core/src/memory/dreaming/eval.rs)——fixture 类型 + `load_fixtures()` + `evaluate(backend, fixture)`，经**公共 API 跑真实读路径**（播种 → list / get / 注入候选 / evidence_quote 断言），不重写被测逻辑。
-- [`tests/fixtures/dreaming/*.json`](../../crates/ha-core/tests/fixtures/dreaming/)——7 个 fixture：`user_preferences` / `project_scope_isolation` / `temporal_supersede` / `conflict_resolution` / `incognito_exclusion` / `source_evidence` / `legacy_sync`。每个限定**唯一 scope 命名空间**，故共享一个 DB 也互不串扰；`valid_until` 用 `past` / `future` token 解析为固定远端日期，使 CI 与时钟无关。
+- [`tests/fixtures/dreaming/*.json`](../../crates/ha-core/tests/fixtures/dreaming/)——9 个 fixture，覆盖基础 claim 红线及 `auto_expire_planning` / `auto_resolver_graph_planning`。每个限定**唯一 scope 命名空间**，故共享一个 DB 也互不串扰；`valid_until` 用 `past` / `future` token 解析为固定远端日期，使 CI 与时钟无关。
 - [`tests/dreaming_eval.rs`](../../crates/ha-core/tests/dreaming_eval.rs)——集成测试（独立进程独占 claim store global），逐 fixture 跑 `evaluate` 并断言全部 check 通过。
 - **契约**：改动 claim 读路径 / effective-status / hidden-set / scope 过滤 / evidence 授权等安全红线时，须在 fixtures 加 case 或保既有绿。
 
@@ -320,4 +332,4 @@ Dreaming 靠离线 eval 守红线、不靠感觉。三层避免 LLM 非确定性
 | [`memory/sqlite/{backend,trait_impl,prompt}.rs`](../../crates/ha-core/src/memory/sqlite/) | schema DDL / hidden-set / sanitize + 快照渲染 |
 | [`agent/active_memory.rs`](../../crates/ha-core/src/agent/active_memory.rs) | Active Memory v2（claim 候选扩展）|
 | [`src/components/dashboard/dreaming/`](../../src/components/dashboard/dreaming/) · [`settings/memory-panel/`](../../src/components/settings/memory-panel/) | Dashboard Dreaming Center + Settings 记忆面板 |
-| [`tests/dreaming_eval.rs`](../../crates/ha-core/tests/dreaming_eval.rs) · [`tests/fixtures/dreaming/`](../../crates/ha-core/tests/fixtures/dreaming/) | 确定性评测 + 7 golden fixtures |
+| [`tests/dreaming_eval.rs`](../../crates/ha-core/tests/dreaming_eval.rs) · [`tests/fixtures/dreaming/`](../../crates/ha-core/tests/fixtures/dreaming/) | 确定性评测 + 9 golden fixtures |

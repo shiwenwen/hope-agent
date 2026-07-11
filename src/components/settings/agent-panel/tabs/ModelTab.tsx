@@ -128,19 +128,15 @@ export default function ModelTab({ config, availableModels, updateConfig }: Mode
             if (v) {
               // Inherit from global settings
               try {
-                const [globalActive, globalFallbacks] = await Promise.all([
-                  getTransport().call<ActiveModelRef | null>("get_active_model"),
-                  getTransport().call<ActiveModelRef[]>("get_fallback_models"),
-                ])
+                const globalActive = await getTransport().call<ActiveModelRef | null>(
+                  "get_active_model",
+                )
                 const primary = globalActive
                   ? `${globalActive.providerId}::${globalActive.modelId}`
                   : availableModels[0]
                     ? `${availableModels[0].providerId}::${availableModels[0].modelId}`
                     : null
-                const fallbacks = globalFallbacks.map(
-                  (f) => `${f.providerId}::${f.modelId}`,
-                )
-                updateConfig({ model: { ...config.model, primary, fallbacks } })
+                updateConfig({ model: { ...config.model, primary } })
               } catch {
                 // Fallback: use first available model
                 const first = availableModels[0]
@@ -154,7 +150,7 @@ export default function ModelTab({ config, availableModels, updateConfig }: Mode
                 }
               }
             } else {
-              updateConfig({ model: { primary: null, fallbacks: [] } })
+              updateConfig({ model: { ...config.model, primary: null } })
             }
           }}
         />
@@ -168,10 +164,9 @@ export default function ModelTab({ config, availableModels, updateConfig }: Mode
         </div>
       )}
 
-      {isCustom && (
-        <>
+      <>
           {/* Primary model selector */}
-          <div>
+          {isCustom && <div>
             <div className="text-xs font-medium text-muted-foreground mb-1 px-1">
               {t("settings.agentModelPrimary")}
             </div>
@@ -185,7 +180,7 @@ export default function ModelTab({ config, availableModels, updateConfig }: Mode
               availableModels={availableModels}
               placeholder={t("settings.selectDefaultModel")}
             />
-          </div>
+          </div>}
 
           <div className="border-t border-border/50" />
 
@@ -362,8 +357,53 @@ export default function ModelTab({ config, availableModels, updateConfig }: Mode
               </IconTip>
             </div>
           </div>
+
+          <div className="border-t border-border/50" />
+
+          {/* Think / reasoning effort override */}
+          <div>
+            <div className="text-xs font-medium text-muted-foreground mb-2 px-1">
+              {t("settings.reasoningEffort", "Think")}
+            </div>
+            <div className="flex items-center gap-3 px-1">
+              <select
+                className="h-8 flex-1 rounded-md border border-border bg-background px-2 text-sm"
+                value={config.model.reasoningEffort ?? ""}
+                onChange={(event) =>
+                  updateConfig({
+                    model: {
+                      ...config.model,
+                      reasoningEffort: event.target.value || null,
+                    },
+                  })
+                }
+              >
+                <option value="">{t("settings.inheritGlobal", "跟随全局")}</option>
+                {(["none", "minimal", "low", "medium", "high", "xhigh"] as const).map(
+                  (effort) => (
+                    <option key={effort} value={effort}>
+                      {effort}
+                    </option>
+                  ),
+                )}
+              </select>
+              <IconTip label={t("settings.temperatureReset")}>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7 text-muted-foreground/50 hover:text-foreground"
+                  onClick={() =>
+                    updateConfig({
+                      model: { ...config.model, reasoningEffort: null },
+                    })
+                  }
+                >
+                  <RotateCcw className="h-3.5 w-3.5" />
+                </Button>
+              </IconTip>
+            </div>
+          </div>
         </>
-      )}
     </div>
   )
 }

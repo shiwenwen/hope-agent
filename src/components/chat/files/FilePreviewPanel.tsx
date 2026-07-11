@@ -36,7 +36,7 @@ export default function FilePreviewPanel({
     if (!target) return null
     return target.kind === "media"
       ? mediaPreviewSource(target.item, sessionId)
-      : pathPreviewSource(target.path, target.name, sessionId, target.mime)
+      : pathPreviewSource(target.path, target.name, sessionId, target.mime, target.language)
   }, [target, sessionId])
   const highlightLines = target?.kind === "path" ? (target.revealLines ?? null) : null
 

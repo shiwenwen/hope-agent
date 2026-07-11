@@ -7,11 +7,17 @@ use crate::agent_config::{AsyncToolPolicy, FilterConfig};
 use crate::permission::SandboxMode;
 use crate::provider::ThinkingStyle;
 
+use super::active_memory::AgentConfigFingerprint;
+
 /// Snapshot of the fields read from `agent.json` on every chat / tool-loop
 /// iteration. Cached on `AssistantAgent` so we stop re-reading and re-parsing
 /// agent.json 10+ times per chat turn.
 #[derive(Debug, Clone)]
 pub(super) struct AgentCapsCache {
+    /// Fingerprint of the `agent.json` that produced this snapshot. When it
+    /// changes, hot-path callers reload the snapshot so tool visibility and
+    /// permission defaults follow Settings edits on the next turn.
+    pub fingerprint: Option<AgentConfigFingerprint>,
     /// Per-agent non-Core tool switch overrides.
     pub agent_tool_filter: FilterConfig,
     pub sandbox_mode: SandboxMode,
@@ -33,6 +39,7 @@ pub(super) struct AgentCapsCache {
 impl Default for AgentCapsCache {
     fn default() -> Self {
         Self {
+            fingerprint: None,
             sandbox_mode: SandboxMode::Off,
             async_tool_policy: AsyncToolPolicy::default(),
             mcp_enabled: true,
@@ -300,6 +307,38 @@ pub struct AssistantAgent {
     /// `None` means: nothing to inject this turn (empty shortlist, LLM said
     /// NONE, timeout, or feature disabled).
     pub(crate) active_memory_suffix: std::sync::Mutex<Option<std::sync::Arc<String>>>,
+    /// Structured trace for the latest Active Memory suffix. This is not sent
+    /// to the model; it powers UI explainability ("which memory was recalled")
+    /// and future used-memory chips. Kept separate from the suffix so provider
+    /// injection remains byte-for-byte compatible except for the recall text.
+    pub(crate) active_memory_trace:
+        std::sync::Mutex<Option<std::sync::Arc<super::active_memory::ActiveMemoryRecall>>>,
+    /// Static memory refs injected through the cache-stable system prompt
+    /// prefix for this turn (currently Pinned claims from Context Pack). These
+    /// are persisted with the assistant row as `used_memory_refs` so the UI can
+    /// explain long-term context even when Active Memory is disabled or empty.
+    pub(crate) static_memory_refs: std::sync::Mutex<Vec<super::active_memory::UsedMemoryRef>>,
+    /// Episode / Procedure candidates considered for this turn. These are not
+    /// all injected into the model; high-confidence procedures may additionally
+    /// enter `procedure_memory_suffix` as bounded soft workflow guidance.
+    pub(crate) experience_memory_refs: std::sync::Mutex<Vec<super::active_memory::UsedMemoryRef>>,
+    /// Temporal graph claim neighbors considered for this turn. These are
+    /// trace-only candidate refs; they do not enter the prompt until the graph
+    /// layer gets an explicit budgeted injection path.
+    pub(crate) graph_memory_refs: std::sync::Mutex<Vec<super::active_memory::UsedMemoryRef>>,
+    /// Latest Procedure Memory soft guidance block. Rebuilt every user turn by
+    /// `refresh_experience_memory_context`. Only user-saved/promoted active
+    /// procedures can enter this suffix; episodes remain trace-only.
+    pub(crate) procedure_memory_suffix: std::sync::Mutex<Option<std::sync::Arc<String>>>,
+    /// Per-turn retrieval-layer status ledger. Each retrieval bridge upserts
+    /// its own layer while `run_streaming_chat` refreshes dynamic context; the
+    /// final assistant row persists the merged trace as diagnostics only.
+    pub(crate) retrieval_planner_layers:
+        std::sync::Mutex<Vec<super::retrieval_planner::RetrievalPlannerLayerTrace>>,
+    /// Query-derived, privacy-safe ranking context for the current turn. The
+    /// raw query is never persisted in Retrieval Planner diagnostics.
+    pub(crate) retrieval_planner_context:
+        std::sync::Mutex<super::retrieval_planner::RetrievalPlannerDecisionContext>,
     /// Read bridge ③ per-agent runtime state (passive related-notes cache).
     pub(crate) related_notes_state: std::sync::Arc<super::related_notes::RelatedNotesState>,
     /// Latest passive related-notes suffix (note titles from the accessible KBs),
@@ -311,6 +350,11 @@ pub struct AssistantAgent {
     /// injected outside the static prompt prefix so task-kind churn does not
     /// invalidate prompt-cache hits.
     pub(crate) coding_profile_suffix: std::sync::Mutex<Option<std::sync::Arc<String>>>,
+    /// Structured trace for the latest passive related-notes suffix. Not sent
+    /// to the model; persisted as `used_memory_refs` so users can see which
+    /// knowledge notes were surfaced for this answer.
+    pub(crate) related_notes_trace:
+        std::sync::Mutex<Option<std::sync::Arc<super::related_notes::RelatedNotesRecall>>>,
     /// Per-turn memo of the resolved effective KB access map. `resolve_kb_access`
     /// is hit up to ~5× per turn (passive recall + the no-KB tool-schema gate +
     /// the `# Knowledge Bases` system-prompt section, the last built twice and

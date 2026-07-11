@@ -146,6 +146,21 @@ pub struct SessionModelBody {
     pub model_id: String,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionScalarPreferenceBody<T> {
+    pub mode: String,
+    #[serde(default)]
+    pub value: Option<T>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeDefaultsQuery {
+    pub session_id: Option<String>,
+    pub agent_id: Option<String>,
+}
+
 // ── Response wrapper for paginated lists ────────────────────────
 
 #[derive(Debug, Serialize)]
@@ -266,6 +281,48 @@ fn rewrite_user_attachment_items_for_http(
     }
 }
 
+fn rewrite_artifact_sources_for_http(
+    session_id: &str,
+    artifacts: &mut ha_core::session::SessionArtifacts,
+    api_key: Option<&str>,
+) {
+    let attachments_dir = match ha_core::paths::attachments_dir(session_id) {
+        Ok(dir) => dir,
+        Err(_) => return,
+    };
+    let canonical_attachments_dir = attachments_dir.canonicalize().ok();
+
+    for source in &mut artifacts.sources {
+        if source.kind != "attachment" || source.attachment_kind.as_deref() == Some("quote") {
+            continue;
+        }
+        let Some(local_path) = source.local_path.take() else {
+            continue;
+        };
+        let path = PathBuf::from(local_path.trim());
+        let is_inside_session_dir = canonical_attachments_dir
+            .as_ref()
+            .and_then(|dir| path.canonicalize().ok().map(|p| p.starts_with(dir)))
+            .unwrap_or(false);
+        if !is_inside_session_dir {
+            continue;
+        }
+        let Some(filename) = path.file_name().and_then(|s| s.to_str()) else {
+            continue;
+        };
+        let mut url = format!(
+            "/api/attachments/{}/{}",
+            percent_encode_url_segment(session_id),
+            percent_encode_url_segment(filename)
+        );
+        if let Some(key) = api_key {
+            url.push_str("?token=");
+            url.push_str(&percent_encode_query_value(key));
+        }
+        source.url = Some(url);
+    }
+}
+
 fn collect_authorized_session_file_paths(messages: &[SessionMessage]) -> HashSet<String> {
     let mut paths = HashSet::new();
     for msg in messages {
@@ -318,20 +375,43 @@ fn collect_file_change_path(change: &Value, paths: &mut HashSet<String>) {
 }
 
 fn collect_paths_from_attachments_meta(raw: &str, paths: &mut HashSet<String>) {
-    if !raw.contains(ha_core::session::ATTACHMENT_META_KEY_TOOL_MEDIA_ITEMS) {
-        return;
-    }
     let Ok(meta) = serde_json::from_str::<Value>(raw) else {
         return;
     };
-    let Some(items) = meta
+
+    if let Some(items) = meta
         .get(ha_core::session::ATTACHMENT_META_KEY_TOOL_MEDIA_ITEMS)
         .and_then(Value::as_array)
-    else {
-        return;
-    };
+    {
+        for item in items {
+            add_nonempty_path(paths, item.get("localPath").and_then(Value::as_str));
+        }
+    }
+
+    match &meta {
+        Value::Array(items) => collect_user_attachment_paths(items, paths),
+        Value::Object(obj) => {
+            for key in ["user_attachments", "attachments"] {
+                if let Some(items) = obj.get(key).and_then(Value::as_array) {
+                    collect_user_attachment_paths(items, paths);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn collect_user_attachment_paths(items: &[Value], paths: &mut HashSet<String>) {
     for item in items {
-        add_nonempty_path(paths, item.get("localPath").and_then(Value::as_str));
+        if item.get("kind").and_then(Value::as_str) == Some("quote") {
+            continue;
+        }
+        add_nonempty_path(
+            paths,
+            item.get("path")
+                .or_else(|| item.get("localPath"))
+                .and_then(Value::as_str),
+        );
     }
 }
 
@@ -705,23 +785,13 @@ pub async fn set_session_model(
     Path(id): Path<String>,
     Json(body): Json<SessionModelBody>,
 ) -> Result<Json<Value>, AppError> {
-    let provider_name = ha_core::config::cached_config()
-        .providers
-        .iter()
-        .find(|p| p.id == body.provider_id && p.enabled)
-        .map(|p| p.name.clone());
     {
         let id = id.clone();
         let provider_id = body.provider_id.clone();
         let model_id = body.model_id.clone();
         ctx.session_db
             .run(move |db| {
-                db.update_session_model(
-                    &id,
-                    Some(&provider_id),
-                    provider_name.as_deref(),
-                    Some(&model_id),
-                )
+                ha_core::session::set_session_model_preference(db, &id, &provider_id, &model_id)
             })
             .await
             .map_err(|e| AppError::bad_request(e.to_string()))?;
@@ -737,6 +807,78 @@ pub async fn set_session_model(
         );
     }
     Ok(Json(json!({ "updated": true })))
+}
+
+pub async fn set_session_temperature(
+    State(ctx): State<Arc<AppContext>>,
+    Path(id): Path<String>,
+    Json(body): Json<SessionScalarPreferenceBody<f64>>,
+) -> Result<Json<Value>, AppError> {
+    if !matches!(body.mode.as_str(), "value" | "agentDefault") {
+        return Err(AppError::bad_request(format!(
+            "Invalid temperature mode: {}",
+            body.mode
+        )));
+    }
+    let value = ctx
+        .session_db
+        .run(move |db| {
+            ha_core::session::set_session_temperature_preference(
+                db,
+                &id,
+                body.value,
+                body.mode == "agentDefault",
+            )
+        })
+        .await
+        .map_err(|error| AppError::bad_request(error.to_string()))?;
+    Ok(Json(json!({ "temperature": value })))
+}
+
+pub async fn set_session_reasoning_effort(
+    State(ctx): State<Arc<AppContext>>,
+    Path(id): Path<String>,
+    Json(body): Json<SessionScalarPreferenceBody<String>>,
+) -> Result<Json<Value>, AppError> {
+    if !matches!(body.mode.as_str(), "value" | "agentDefault") {
+        return Err(AppError::bad_request(format!(
+            "Invalid reasoning effort mode: {}",
+            body.mode
+        )));
+    }
+    let effort = ctx
+        .session_db
+        .run(move |db| {
+            ha_core::session::set_session_reasoning_effort_preference(
+                db,
+                &id,
+                body.value.as_deref(),
+                body.mode == "agentDefault",
+            )
+        })
+        .await
+        .map_err(|error| AppError::bad_request(error.to_string()))?;
+    Ok(Json(json!({ "reasoningEffort": effort })))
+}
+
+pub async fn get_chat_runtime_defaults(
+    State(ctx): State<Arc<AppContext>>,
+    Query(query): Query<RuntimeDefaultsQuery>,
+) -> Result<Json<ha_core::session::ChatRuntimeDefaults>, AppError> {
+    if let Some(session_id) = query.session_id {
+        let defaults = ctx
+            .session_db
+            .run(move |db| ha_core::session::ensure_session_runtime_defaults(db, &session_id))
+            .await?;
+        return Ok(Json(defaults));
+    }
+    let agent_id = query
+        .agent_id
+        .filter(|id| !id.trim().is_empty())
+        .unwrap_or_else(|| ha_core::agent_loader::DEFAULT_AGENT_ID.to_string());
+    Ok(Json(ha_core::session::resolve_chat_runtime_defaults(
+        None, &agent_id,
+    )))
 }
 
 /// `POST /api/sessions/:id/purge-if-incognito` — hard-delete the session if
@@ -871,10 +1013,12 @@ pub async fn get_session_artifacts(
     State(ctx): State<Arc<AppContext>>,
     Path(id): Path<String>,
 ) -> Result<Json<ha_core::session::SessionArtifacts>, AppError> {
-    let artifacts = ctx
+    let session_id = id.clone();
+    let mut artifacts = ctx
         .session_db
         .run(move |db| ha_core::session::aggregate_session_artifacts(db, &id))
         .await?;
+    rewrite_artifact_sources_for_http(&session_id, &mut artifacts, ctx.api_key.as_deref());
     Ok(Json(artifacts))
 }
 
@@ -1178,10 +1322,14 @@ pub async fn compact_context_now(
         .next()
         .ok_or_else(|| AppError::bad_request("No model configured for manual compaction"))?;
 
-    let resolved_temperature = agent_def
-        .as_ref()
-        .and_then(|def| def.config.model.temperature)
-        .or(store.temperature);
+    let resolved_temperature = if meta.runtime_defaults_initialized {
+        meta.temperature
+    } else {
+        agent_def
+            .as_ref()
+            .and_then(|def| def.config.model.temperature)
+            .or(store.temperature)
+    };
 
     let result =
         ha_core::chat_engine::compact_session_now(ha_core::chat_engine::CompactSessionParams {
@@ -1454,5 +1602,61 @@ mod tests {
             assert!(rewritten[0].get("path").is_none());
             assert!(rewritten[0].get("url").is_none());
         });
+    }
+
+    #[test]
+    fn rewrites_artifact_attachment_sources_for_http() {
+        let root = tempfile::tempdir().expect("tempdir");
+        with_ha_data_dir(root.path(), || {
+            let session_id = "s-http";
+            let saved = ha_core::attachments::save_attachment_bytes(
+                Some(session_id),
+                "report.pdf",
+                b"report",
+            )
+            .expect("save session attachment");
+            let mut artifacts = ha_core::session::SessionArtifacts {
+                files: Vec::new(),
+                sources: vec![ha_core::session::UrlSource {
+                    kind: "attachment".to_string(),
+                    url: None,
+                    origin: "user_attachment".to_string(),
+                    name: Some("report.pdf".to_string()),
+                    mime_type: Some("application/pdf".to_string()),
+                    size_bytes: Some(6),
+                    attachment_kind: Some("file".to_string()),
+                    local_path: Some(saved),
+                    quote_path: None,
+                    quote_lines: None,
+                    quote_content: None,
+                }],
+                browser: Vec::new(),
+                files_truncated: false,
+                sources_truncated: false,
+                browser_truncated: false,
+            };
+
+            rewrite_artifact_sources_for_http(session_id, &mut artifacts, Some("key"));
+
+            assert!(artifacts.sources[0].local_path.is_none());
+            let url = artifacts.sources[0].url.as_deref().expect("url");
+            assert!(url.starts_with("/api/attachments/s-http/"));
+            assert!(url.ends_with("_report.pdf?token=key"));
+        });
+    }
+
+    #[test]
+    fn attachment_path_authorization_skips_quote_references() {
+        let mut paths = HashSet::new();
+        collect_paths_from_attachments_meta(
+            r#"[
+                {"name":"upload.pdf","mime_type":"application/pdf","size":123,"path":"/tmp/upload.pdf"},
+                {"kind":"quote","name":"secret.rs","path":"/tmp/secret.rs","lines":"10-12","content":"let secret = true;"}
+            ]"#,
+            &mut paths,
+        );
+
+        assert!(paths.contains("/tmp/upload.pdf"));
+        assert!(!paths.contains("/tmp/secret.rs"));
     }
 }

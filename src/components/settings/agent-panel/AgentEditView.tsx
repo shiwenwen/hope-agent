@@ -16,7 +16,7 @@ import {
 } from "@/components/ui/alert-dialog"
 import { AvatarCropDialog } from "@/components/settings/AvatarCropDialog"
 import { useAvatarUpload } from "@/hooks/useAvatarUpload"
-import { ArrowLeft, Camera, Check, Loader2, Trash2 } from "lucide-react"
+import { AlertTriangle, ArrowLeft, Camera, Check, Loader2, RefreshCw, Trash2 } from "lucide-react"
 import type {
   AgentConfig,
   PersonalityConfig,
@@ -34,13 +34,18 @@ import MemoryTab from "./tabs/MemoryTab"
 import SubagentTab from "./tabs/SubagentTab"
 import ApprovalTab from "./tabs/ApprovalTab"
 import CustomTab from "./tabs/CustomTab"
+import {
+  agentLoadOperationErrorToast,
+  agentOperationErrorToast,
+} from "./agentLoadOperationFeedback"
 
 interface AgentEditViewProps {
   agentId: string
+  initialTab?: AgentTab
   onBack: () => void
 }
 
-export default function AgentEditView({ agentId, onBack }: AgentEditViewProps) {
+export default function AgentEditView({ agentId, initialTab, onBack }: AgentEditViewProps) {
   const { t, i18n } = useTranslation()
   const [config, setConfig] = useState<AgentConfig | null>(null)
   const [agentMd, setAgentMd] = useState("")
@@ -49,7 +54,7 @@ export default function AgentEditView({ agentId, onBack }: AgentEditViewProps) {
   const [agentsMd, setAgentsMd] = useState("")
   const [identityMd, setIdentityMd] = useState("")
   const [soulMd, setSoulMd] = useState("")
-  const [activeTab, setActiveTab] = useState<AgentTab>("identity")
+  const [activeTab, setActiveTab] = useState<AgentTab>(initialTab ?? "identity")
   const [saving, setSaving] = useState(false)
   const [saveStatus, setSaveStatus] = useState<"idle" | "saved" | "failed">("idle")
   const [availableSkills, setAvailableSkills] = useState<SkillSummary[]>([])
@@ -68,10 +73,19 @@ export default function AgentEditView({ agentId, onBack }: AgentEditViewProps) {
   const [availableModels, setAvailableModels] = useState<AvailableModel[]>([])
   const [needsFillTemplate, setNeedsFillTemplate] = useState(false)
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [loadRetryKey, setLoadRetryKey] = useState(0)
   const composingRef = useRef(false)
 
   useEffect(() => {
+    if (initialTab) setActiveTab(initialTab)
+  }, [initialTab])
+
+  useEffect(() => {
+    let cancelled = false
     async function load() {
+      setConfig(null)
+      setLoadError(null)
       try {
         const [cfg, md, per, tg, skills, tools, models] = await Promise.all([
           getTransport().call<AgentConfig>("get_agent_config", { id: agentId }),
@@ -121,6 +135,7 @@ export default function AgentEditView({ agentId, onBack }: AgentEditViewProps) {
             file: "soul.md",
           })
         }
+        if (cancelled) return
         setAvailableModels(models)
         setAvailableSkills(skills.filter((s) => s.enabled))
         setBuiltinTools(tools)
@@ -148,11 +163,21 @@ export default function AgentEditView({ agentId, onBack }: AgentEditViewProps) {
         // Flag: file never created -> fill with template; empty string means user cleared it intentionally
         if (md === null || md === undefined) setNeedsFillTemplate(true)
       } catch (e) {
+        if (cancelled) return
         logger.error("settings", "AgentPanel::loadAgent", "Failed to load agent", e)
+        const failureToast = agentLoadOperationErrorToast(t, e)
+        setLoadError(failureToast.description ?? failureToast.title)
+        toast.error(
+          failureToast.title,
+          failureToast.description ? { description: failureToast.description } : undefined,
+        )
       }
     }
     load()
-  }, [agentId])
+    return () => {
+      cancelled = true
+    }
+  }, [agentId, loadRetryKey, t])
 
   const handleSave = async () => {
     if (!config) return
@@ -213,6 +238,11 @@ export default function AgentEditView({ agentId, onBack }: AgentEditViewProps) {
     } catch (e) {
       logger.error("settings", "AgentPanel::saveAgent", "Failed to save agent", e)
       setSaveStatus("failed")
+      const failureToast = agentOperationErrorToast("save", t, e)
+      toast.error(
+        failureToast.title,
+        failureToast.description ? { description: failureToast.description } : undefined,
+      )
       setTimeout(() => setSaveStatus("idle"), 2000)
     } finally {
       setSaving(false)
@@ -231,9 +261,13 @@ export default function AgentEditView({ agentId, onBack }: AgentEditViewProps) {
       onBack()
     } catch (e) {
       logger.error("settings", "AgentPanel::deleteAgent", "Failed to delete agent", e)
-      toast.error(t("common.deleteFailed"), {
-        description: config.name,
-      })
+      const failureToast = agentOperationErrorToast("delete", t, e)
+      toast.error(
+        failureToast.title,
+        failureToast.description
+          ? { description: failureToast.description }
+          : { description: config.name },
+      )
     }
     setConfirmDeleteOpen(false)
   }
@@ -343,6 +377,46 @@ export default function AgentEditView({ agentId, onBack }: AgentEditViewProps) {
       }),
     )
     updateConfig({ openclawMode: true })
+  }
+
+  if (loadError) {
+    return (
+      <div className="flex min-h-[360px] flex-1 items-center justify-center p-6">
+        <div className="w-full max-w-md space-y-4 text-center">
+          <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full border border-destructive/30 bg-destructive/10 text-destructive">
+            <AlertTriangle className="h-5 w-5" />
+          </div>
+          <div className="space-y-1.5">
+            <h2 className="text-base font-semibold text-foreground">
+              {t("settings.agentLoadFailed")}
+            </h2>
+            <p className="text-sm text-muted-foreground">
+              {t(
+                "settings.agentLoadFailedHint",
+                "The selected agent may have been removed or its configuration could not be read.",
+              )}
+            </p>
+            <p className="break-words text-xs text-muted-foreground/80">{loadError}</p>
+          </div>
+          <div className="flex flex-wrap justify-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="gap-1.5"
+              onClick={() => setLoadRetryKey((value) => value + 1)}
+            >
+              <RefreshCw className="h-3.5 w-3.5" />
+              {t("common.retry")}
+            </Button>
+            <Button type="button" variant="ghost" size="sm" className="gap-1.5" onClick={onBack}>
+              <ArrowLeft className="h-3.5 w-3.5" />
+              {t("settings.agents")}
+            </Button>
+          </div>
+        </div>
+      </div>
+    )
   }
 
   if (!config) {

@@ -29,12 +29,23 @@ import MarkdownRenderer from "@/components/common/MarkdownRenderer"
 import { AuthRequiredDialog } from "@/components/AuthRequiredDialog"
 import ProviderSetup from "@/components/settings/ProviderSetup"
 import type { SettingsSection } from "@/components/settings/types"
+import type { AgentTab } from "@/components/settings/agent-panel/types"
 import { parseOpenSettingsSection } from "@/components/settings/openSettingsEvent"
 import OnboardingWizard from "@/components/onboarding"
 import { CURRENT_ONBOARDING_VERSION } from "@/components/onboarding/version"
 import ConfigRecoveryScreen, { type ConfigHealth } from "@/components/config/ConfigRecoveryScreen"
 import IconSidebar from "@/components/common/IconSidebar"
 import ChatScreen, { type ChatInsert } from "@/components/chat/ChatScreen"
+import { subscribeChatFocus, type ChatFocusTarget } from "@/components/chat/chatFocus"
+import {
+  parseMemoryFocusFromLocation,
+  requestMemoryFocus,
+} from "@/components/settings/memory-panel/memoryFocus"
+import {
+  consumePendingMemoryScopeFocus,
+  subscribeMemoryScopeFocus,
+  type MemoryScopeFocusTarget,
+} from "@/components/settings/memory-panel/scopeFocus"
 import StarrySky from "@/components/common/StarrySky"
 import DangerousModeBanner from "@/components/common/DangerousModeBanner"
 import MissingModelDialog from "@/components/local-model/MissingModelDialog"
@@ -49,6 +60,15 @@ const CronCalendarView = lazy(() => import("@/components/cron/CronCalendarView")
 const PlansView = lazy(() => import("@/components/plans/PlansView"))
 const KnowledgeView = lazy(() => import("@/components/knowledge/KnowledgeView"))
 const SettingsView = lazy(() => import("@/components/settings/SettingsView"))
+
+interface PendingChatFocus extends ChatFocusTarget {
+  nonce: number
+}
+
+interface PendingProjectFocus {
+  projectId: string
+  nonce: number
+}
 
 export default function App() {
   const { t, i18n } = useTranslation()
@@ -71,6 +91,7 @@ export default function App() {
     | "knowledge"
   >("loading")
   const [agentIdForSettings, setAgentIdForSettings] = useState<string | undefined>(undefined)
+  const [agentTabForSettings, setAgentTabForSettings] = useState<AgentTab | undefined>(undefined)
   const [settingsInitialSection, setSettingsInitialSection] = useState<SettingsSection | undefined>(
     undefined,
   )
@@ -84,6 +105,8 @@ export default function App() {
   // PlansView pushes `@plan:<short_id>:v<n>` tokens here; KnowledgeView pushes
   // `[[note]]` refs (with a KB to auto-attach). ChatScreen appends + clears.
   const [pendingChatInsert, setPendingChatInsert] = useState<ChatInsert | undefined>(undefined)
+  const [pendingChatFocus, setPendingChatFocus] = useState<PendingChatFocus | null>(null)
+  const [pendingProjectFocus, setPendingProjectFocus] = useState<PendingProjectFocus | null>(null)
   const [totalUnreadCount, setTotalUnreadCount] = useState(0)
   const [sessionsRefreshTrigger, setSessionsRefreshTrigger] = useState(0)
   const { pendingUpdate: globalPendingUpdate, downloadStatus } = useDesktopUpdateStore()
@@ -97,6 +120,9 @@ export default function App() {
     globalPendingUpdate.version !== ignoredVersion
 
   const completedLocalModelJobToasts = useRef<Set<string>>(new Set())
+  const chatFocusNonceRef = useRef(0)
+  const projectFocusNonceRef = useRef(0)
+  const lastMemoryFocusHashRef = useRef<string | null>(null)
 
   useEffect(() => {
     if (!isTauriMode()) return
@@ -186,12 +212,91 @@ export default function App() {
     setSettingsInitialSectionRequestKey((n) => n + 1)
     setView("settings")
   }, [keepConfigRecoveryView])
+
+  const handleMemoryFocusDeepLink = useCallback(() => {
+    if (typeof window === "undefined") return false
+    const target = parseMemoryFocusFromLocation()
+    if (!target) {
+      lastMemoryFocusHashRef.current = null
+      return false
+    }
+    const hash = window.location.hash
+    if (lastMemoryFocusHashRef.current === hash && view === "settings") return true
+    lastMemoryFocusHashRef.current = hash
+    requestMemoryFocus(target, { updateUrl: false })
+    handleOpenSettings("memory")
+    return true
+  }, [handleOpenSettings, view])
+
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    const onHashChange = () => {
+      handleMemoryFocusDeepLink()
+    }
+    window.addEventListener("hashchange", onHashChange)
+    return () => window.removeEventListener("hashchange", onHashChange)
+  }, [handleMemoryFocusDeepLink])
+
+  useEffect(() => {
+    if (
+      view === "loading"
+      || view === "configRecovery"
+      || view === "onboarding"
+      || view === "setup"
+    ) {
+      return
+    }
+    handleMemoryFocusDeepLink()
+  }, [handleMemoryFocusDeepLink, view])
+
   const handleOpenDashboard = useCallback((tab?: string, reportId?: string | null) => {
     if (keepConfigRecoveryView()) return
     setDashboardInitialTab(tab)
     setDashboardInitialReportId(reportId ?? null)
     setView("dashboard")
   }, [keepConfigRecoveryView])
+  const handleOpenKnowledge = useCallback(() => {
+    if (keepConfigRecoveryView()) return
+    setView("knowledge")
+  }, [keepConfigRecoveryView])
+
+  const handleChatFocus = useCallback(
+    (target: ChatFocusTarget) => {
+      if (keepConfigRecoveryView()) return
+      const nonce = chatFocusNonceRef.current + 1
+      chatFocusNonceRef.current = nonce
+      setPendingChatFocus({ ...target, nonce })
+      setView("chat")
+    },
+    [keepConfigRecoveryView],
+  )
+
+  useEffect(() => subscribeChatFocus(handleChatFocus), [handleChatFocus])
+
+  const handleMemoryScopeFocus = useCallback(
+    (target: MemoryScopeFocusTarget) => {
+      if (keepConfigRecoveryView()) return
+      if (target.kind === "agent") {
+        setAgentIdForSettings(target.id)
+        setAgentTabForSettings(target.agentTab)
+        setView("agents")
+        return
+      }
+      const nonce = projectFocusNonceRef.current + 1
+      projectFocusNonceRef.current = nonce
+      setPendingProjectFocus({ projectId: target.id, nonce })
+      setView("chat")
+    },
+    [keepConfigRecoveryView],
+  )
+
+  useEffect(() => subscribeMemoryScopeFocus(handleMemoryScopeFocus), [handleMemoryScopeFocus])
+
+  useEffect(() => {
+    const pending = consumePendingMemoryScopeFocus()
+    if (pending) handleMemoryScopeFocus(pending)
+  }, [handleMemoryScopeFocus])
+
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       if ((e.metaKey || e.ctrlKey) && e.key === ",") {
@@ -519,6 +624,7 @@ export default function App() {
                 onOpenChat={() => setView("chat")}
                 onOpenAgents={() => {
                   setAgentIdForSettings(undefined)
+                  setAgentTabForSettings(undefined)
                   setView("agents")
                 }}
                 onOpenModelConfig={() => setView("modelConfig")}
@@ -531,7 +637,7 @@ export default function App() {
                 onOpenCalendar={() => setView("calendar")}
                 onOpenDashboard={() => handleOpenDashboard()}
                 onOpenPlans={() => setView("plans")}
-                onOpenKnowledge={() => setView("knowledge")}
+                onOpenKnowledge={handleOpenKnowledge}
                 userAvatar={userAvatar}
                 totalUnreadCount={totalUnreadCount}
                 onMarkAllRead={() => setSessionsRefreshTrigger((n) => n + 1)}
@@ -583,11 +689,13 @@ export default function App() {
                   onBack={() => {
                     setView("chat")
                     setAgentIdForSettings(undefined)
+                    setAgentTabForSettings(undefined)
                   }}
                   onCodexAuth={handleCodexAuth}
                   onCodexReauth={handleCodexAuth}
                   initialSection="agents"
                   initialAgentId={agentIdForSettings}
+                  initialAgentTab={agentTabForSettings}
                 />
               )}
               {view === "modelConfig" && (
@@ -677,6 +785,7 @@ export default function App() {
                 <ChatScreen
                   onOpenAgentSettings={(agentId) => {
                     setAgentIdForSettings(agentId)
+                    setAgentTabForSettings(undefined)
                     setView("agents")
                   }}
                   onCodexReauth={handleCodexAuth}
@@ -686,9 +795,18 @@ export default function App() {
                   onOpenDashboardTab={handleOpenDashboard}
                   sessionsRefreshTrigger={sessionsRefreshTrigger}
                   onCurrentProjectChange={setCurrentChatProjectId}
+                  externalChatFocus={pendingChatFocus}
+                  onExternalChatFocusHandled={(nonce) => {
+                    setPendingChatFocus((prev) => (prev?.nonce === nonce ? null : prev))
+                  }}
+                  externalProjectFocus={pendingProjectFocus}
+                  onExternalProjectFocusHandled={(nonce) => {
+                    setPendingProjectFocus((prev) => (prev?.nonce === nonce ? null : prev))
+                  }}
                   pendingChatInsert={pendingChatInsert}
                   onChatInsertConsumed={() => setPendingChatInsert(undefined)}
                   onOpenSettings={handleOpenSettings}
+                  onOpenKnowledge={handleOpenKnowledge}
                 />
               </div>
 

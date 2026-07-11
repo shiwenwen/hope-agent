@@ -79,7 +79,7 @@ function workflowRun(): WorkflowRun {
     origin: "workflow_mode",
     goalId: "goal-v35-smoke",
     goalCriterionId: "crit-v35-workspace",
-      goalCriterionText: "工作台默认信息架构通过人工界面验收",
+    goalCriterionText: "工作台默认信息架构通过人工界面验收",
     goalCriterionKind: "required",
     goalRevision: 2,
     createdAt: nowIso(2),
@@ -115,7 +115,10 @@ function workflowSnapshot(): WorkflowRunSnapshot {
         opType: "validate",
         effectClass: "non_idempotent",
         inputHash: "validate",
-        input: { label: "工作台回归测试", commands: ["pnpm vitest run src/components/chat/workspace/WorkspacePanel.test.tsx"] },
+        input: {
+          label: "工作台回归测试",
+          commands: ["pnpm vitest run src/components/chat/workspace/WorkspacePanel.test.tsx"],
+        },
         state: "completed",
         output: {
           ok: true,
@@ -603,7 +606,7 @@ function exportGuard(): DomainArtifactExportGuardReport {
         severity: "info",
         expected: "artifact reviewed",
         actual: "1",
-      detail: "V3.5 记录已保存验证结果和剩余 proof。",
+        detail: "V3.5 记录已保存验证结果和剩余 proof。",
       },
     ],
     blockers: [],
@@ -730,10 +733,12 @@ function sessionArtifacts(): SessionArtifacts {
     ],
     sources: [
       {
+        kind: "url",
         url: "https://code.claude.com/docs/en/hooks",
         origin: "web_search",
       },
       {
+        kind: "url",
         url: "https://platform.openai.com/docs/codex",
         origin: "web_search",
       },
@@ -875,7 +880,12 @@ function installWorkspaceSmokeTransport() {
       sizeBytes: 0,
       truncated: false,
     }),
-    previewExtractDoc: async () => ({ relPath: "document.txt", kind: "office", text: "", images: [] }),
+    previewExtractDoc: async () => ({
+      relPath: "document.txt",
+      kind: "office",
+      text: "",
+      images: [],
+    }),
     previewRawUrl: async () => null,
   } as unknown as Transport
   setTransport(transport)

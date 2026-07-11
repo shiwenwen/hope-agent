@@ -151,6 +151,42 @@ pub fn query_overview(
     })
 }
 
+/// Coarse purpose "domain" derived from a fine-grained `operation` tag by
+/// taking the substring before the first '.' (or the whole string for bare
+/// tags like "session_title"/"recall_summary" that have no dot). Pure string
+/// split — NOT a hardcoded lookup table — so newly added purpose tags (see
+/// docs/architecture/automation-model.md §2.5) bucket correctly with zero
+/// code changes here. Also naturally buckets the "kind-level generic"
+/// operation tags (e.g. "agent.side_query" -> "agent", "permission_judge" ->
+/// "permission_judge"), so by_operation/by_domain cover the whole ledger, not
+/// just the automation-purpose subset.
+fn operation_domain(operation: &str) -> &str {
+    operation
+        .split_once('.')
+        .map(|(domain, _)| domain)
+        .unwrap_or(operation)
+}
+
+/// Merges one weighted `(avg, count)` sample into a running weighted average.
+/// `None` samples leave `current` unchanged (matching the historical inline
+/// `if let Some(avg) = ... {}` behavior in the by_kind block below — a
+/// missing sample must not reset an already-accumulated average to None).
+fn merge_weighted_avg(
+    current: Option<f64>,
+    current_count: u64,
+    sample: Option<f64>,
+    sample_count: u64,
+    new_count: u64,
+) -> Option<f64> {
+    match sample {
+        Some(s) => {
+            let total = current.unwrap_or(0.0) * current_count as f64 + s * sample_count as f64;
+            Some(total / new_count.max(1) as f64)
+        }
+        None => current,
+    }
+}
+
 /// Token usage: daily trend and breakdown by model.
 pub fn query_token_usage(
     session_db: &Arc<SessionDB>,
@@ -280,19 +316,157 @@ pub fn query_token_usage(
         entry.cache_creation_input_tokens += cache_creation_input_tokens;
         entry.cache_read_input_tokens += cache_read_input_tokens;
         entry.estimated_cost_usd += estimate_cost(&model_id, input_tokens, output_tokens);
-        if let Some(avg) = avg_duration_ms {
-            let total =
-                entry.avg_duration_ms.unwrap_or(0.0) * old_calls as f64 + avg * call_count as f64;
-            entry.avg_duration_ms = Some(total / entry.call_count.max(1) as f64);
-        }
-        if let Some(avg) = avg_ttft_ms {
-            let total =
-                entry.avg_ttft_ms.unwrap_or(0.0) * old_calls as f64 + avg * call_count as f64;
-            entry.avg_ttft_ms = Some(total / entry.call_count.max(1) as f64);
-        }
+        entry.avg_duration_ms = merge_weighted_avg(
+            entry.avg_duration_ms,
+            old_calls,
+            avg_duration_ms,
+            call_count,
+            entry.call_count,
+        );
+        entry.avg_ttft_ms = merge_weighted_avg(
+            entry.avg_ttft_ms,
+            old_calls,
+            avg_ttft_ms,
+            call_count,
+            entry.call_count,
+        );
     }
     let mut by_kind: Vec<TokenByKind> = by_kind_map.into_values().collect();
     by_kind.sort_by_key(|k| std::cmp::Reverse(k.input_tokens + k.output_tokens));
+
+    // By operation (purpose tag) — same GROUP BY/merge shape as by_kind above,
+    // grouped on `operation` instead of `kind`. `domain` is derived per-row
+    // (operation_domain), not queried.
+    let f = build_model_usage_filter(filter, "u");
+    let sql = format!(
+        "SELECT COALESCE(u.operation, 'unspecified'),
+                COALESCE(u.model_id, 'unknown'),
+                COUNT(*) as call_count,
+                COALESCE(SUM(u.input_tokens), 0),
+                COALESCE(SUM(u.output_tokens), 0),
+                COALESCE(SUM(u.cache_creation_input_tokens), 0),
+                COALESCE(SUM(u.cache_read_input_tokens), 0),
+                AVG(u.duration_ms),
+                AVG(u.ttft_ms)
+         FROM model_usage_events u
+         {}
+         GROUP BY u.operation, u.model_id
+         ORDER BY u.operation ASC",
+        f.where_sql
+    );
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt.query_map(params_ref(&f.params).as_slice(), |r| {
+        Ok((
+            r.get::<_, String>(0)?,
+            r.get::<_, String>(1)?,
+            crate::sql_u64(r, 2)?,
+            crate::sql_u64(r, 3)?,
+            crate::sql_u64(r, 4)?,
+            crate::sql_u64(r, 5)?,
+            crate::sql_u64(r, 6)?,
+            r.get::<_, Option<f64>>(7)?,
+            r.get::<_, Option<f64>>(8)?,
+        ))
+    })?;
+    let mut by_operation_map: std::collections::BTreeMap<String, TokenByOperation> =
+        std::collections::BTreeMap::new();
+    for row in rows {
+        let (
+            operation,
+            model_id,
+            call_count,
+            input_tokens,
+            output_tokens,
+            cache_creation_input_tokens,
+            cache_read_input_tokens,
+            avg_duration_ms,
+            avg_ttft_ms,
+        ) = row?;
+        let domain = operation_domain(&operation).to_string();
+        let entry = by_operation_map
+            .entry(operation.clone())
+            .or_insert(TokenByOperation {
+                operation,
+                domain,
+                call_count: 0,
+                input_tokens: 0,
+                output_tokens: 0,
+                cache_creation_input_tokens: 0,
+                cache_read_input_tokens: 0,
+                estimated_cost_usd: 0.0,
+                avg_duration_ms: None,
+                avg_ttft_ms: None,
+            });
+        let old_calls = entry.call_count;
+        entry.call_count += call_count;
+        entry.input_tokens += input_tokens;
+        entry.output_tokens += output_tokens;
+        entry.cache_creation_input_tokens += cache_creation_input_tokens;
+        entry.cache_read_input_tokens += cache_read_input_tokens;
+        entry.estimated_cost_usd += estimate_cost(&model_id, input_tokens, output_tokens);
+        entry.avg_duration_ms = merge_weighted_avg(
+            entry.avg_duration_ms,
+            old_calls,
+            avg_duration_ms,
+            call_count,
+            entry.call_count,
+        );
+        entry.avg_ttft_ms = merge_weighted_avg(
+            entry.avg_ttft_ms,
+            old_calls,
+            avg_ttft_ms,
+            call_count,
+            entry.call_count,
+        );
+    }
+    let mut by_operation: Vec<TokenByOperation> = by_operation_map.into_values().collect();
+    by_operation.sort_by_key(|o| std::cmp::Reverse(o.input_tokens + o.output_tokens));
+
+    // By domain: rollup of the already-merged by_operation rows in memory —
+    // no second SQL query. Weighted-averaging an already-weighted average by
+    // call_count is exactly correct here because each by_operation row's
+    // avg_* truly represents the mean over exactly call_count events, by
+    // construction above.
+    let mut by_domain_map: std::collections::BTreeMap<String, TokenByDomain> =
+        std::collections::BTreeMap::new();
+    for op in &by_operation {
+        let entry = by_domain_map
+            .entry(op.domain.clone())
+            .or_insert(TokenByDomain {
+                domain: op.domain.clone(),
+                call_count: 0,
+                input_tokens: 0,
+                output_tokens: 0,
+                cache_creation_input_tokens: 0,
+                cache_read_input_tokens: 0,
+                estimated_cost_usd: 0.0,
+                avg_duration_ms: None,
+                avg_ttft_ms: None,
+            });
+        let old_calls = entry.call_count;
+        entry.call_count += op.call_count;
+        entry.input_tokens += op.input_tokens;
+        entry.output_tokens += op.output_tokens;
+        entry.cache_creation_input_tokens += op.cache_creation_input_tokens;
+        entry.cache_read_input_tokens += op.cache_read_input_tokens;
+        entry.estimated_cost_usd += op.estimated_cost_usd;
+        entry.avg_duration_ms = merge_weighted_avg(
+            entry.avg_duration_ms,
+            old_calls,
+            op.avg_duration_ms,
+            op.call_count,
+            entry.call_count,
+        );
+        entry.avg_ttft_ms = merge_weighted_avg(
+            entry.avg_ttft_ms,
+            old_calls,
+            op.avg_ttft_ms,
+            op.call_count,
+            entry.call_count,
+        );
+    }
+    let mut by_domain: Vec<TokenByDomain> = by_domain_map.into_values().collect();
+    by_domain.sort_by_key(|d| std::cmp::Reverse(d.input_tokens + d.output_tokens));
 
     let total_cost_usd = by_model.iter().map(|m| m.estimated_cost_usd).sum();
 
@@ -300,6 +474,8 @@ pub fn query_token_usage(
         trend,
         by_model,
         by_kind,
+        by_operation,
+        by_domain,
         total_cost_usd,
     })
 }
@@ -696,4 +872,94 @@ pub fn query_system_metrics() -> Result<SystemMetrics> {
         host_name,
         system_uptime_secs,
     })
+}
+
+#[cfg(test)]
+mod purpose_breakdown_tests {
+    use super::*;
+    use crate::model_usage::ModelUsageEvent;
+    use crate::session::SessionDB;
+
+    #[test]
+    fn operation_domain_splits_on_first_dot() {
+        assert_eq!(operation_domain("recap.facets"), "recap");
+        assert_eq!(
+            operation_domain("knowledge_maintenance.auto_tag"),
+            "knowledge_maintenance"
+        );
+        assert_eq!(operation_domain("session_title"), "session_title");
+        assert_eq!(operation_domain("recall_summary"), "recall_summary");
+        assert_eq!(operation_domain("agent.side_query"), "agent");
+        assert_eq!(operation_domain("permission_judge"), "permission_judge");
+    }
+
+    fn temp_db_path(name: &str) -> std::path::PathBuf {
+        let unique = format!(
+            "{}-{}-{}.sqlite3",
+            name,
+            std::process::id(),
+            chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default()
+        );
+        std::env::temp_dir().join(unique)
+    }
+
+    fn insert_event(db: &SessionDB, operation: &str, model_id: &str, input: u64, output: u64) {
+        let event = ModelUsageEvent {
+            operation: Some(operation.to_string()),
+            model_id: Some(model_id.to_string()),
+            ..ModelUsageEvent::new("side_query").with_usage(input, output, 0, 0)
+        };
+        db.insert_model_usage_event(&event).expect("insert event");
+    }
+
+    #[test]
+    fn by_operation_and_by_domain_totals_match_by_kind() {
+        let path = temp_db_path("purpose-breakdown");
+        let db = Arc::new(SessionDB::open(&path).expect("open"));
+
+        insert_event(&db, "recap.facets", "claude-haiku-4-5", 100, 50);
+        insert_event(&db, "recap.sections", "claude-haiku-4-5", 200, 80);
+        insert_event(&db, "knowledge.ocr", "claude-sonnet-5", 300, 150);
+        // no operation set -> falls into "unspecified", still counted
+        let no_op_event = ModelUsageEvent {
+            model_id: Some("claude-sonnet-5".to_string()),
+            ..ModelUsageEvent::new("chat").with_usage(40, 20, 0, 0)
+        };
+        db.insert_model_usage_event(&no_op_event)
+            .expect("insert event");
+
+        let filter = DashboardFilter::default();
+        let data = query_token_usage(&db, &filter).expect("query");
+
+        let by_operation_total: u64 = data
+            .by_operation
+            .iter()
+            .map(|o| o.input_tokens + o.output_tokens)
+            .sum();
+        let by_kind_total: u64 = data
+            .by_kind
+            .iter()
+            .map(|k| k.input_tokens + k.output_tokens)
+            .sum();
+        assert_eq!(by_operation_total, by_kind_total);
+
+        let recap_domain = data
+            .by_domain
+            .iter()
+            .find(|d| d.domain == "recap")
+            .expect("recap domain present");
+        assert_eq!(recap_domain.call_count, 2);
+        assert_eq!(recap_domain.input_tokens, 300);
+        assert_eq!(recap_domain.output_tokens, 130);
+
+        let unspecified = data
+            .by_operation
+            .iter()
+            .find(|o| o.operation == "unspecified")
+            .expect("unspecified operation present");
+        assert_eq!(unspecified.domain, "unspecified");
+        assert_eq!(unspecified.call_count, 1);
+
+        let _ = std::fs::remove_file(&path);
+    }
 }

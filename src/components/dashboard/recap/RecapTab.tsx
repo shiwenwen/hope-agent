@@ -117,6 +117,7 @@ export default function RecapTab({ initialReportId }: Props) {
               providerId: null,
               modelId: null,
               usageKind: null,
+              operation: null,
             },
           }
     try {

@@ -98,7 +98,12 @@ function installChatInputSmokeTransport() {
       sizeBytes: 0,
       truncated: false,
     }),
-    previewExtractDoc: async () => ({ relPath: "document.txt", kind: "office", text: "", images: [] }),
+    previewExtractDoc: async () => ({
+      relPath: "document.txt",
+      kind: "office",
+      text: "",
+      images: [],
+    }),
     previewRawUrl: async () => null,
   } as unknown as Transport
   setTransport(transport)
@@ -265,6 +270,7 @@ export default function ChatInputSmokeWindow() {
               attachedFiles={[]}
               onAttachFiles={() => {}}
               onRemoveFile={() => {}}
+              onUpdateFile={() => {}}
               currentSessionId={CHAT_INPUT_SMOKE_SESSION_ID}
               currentAgentId="ha-main"
               onEnsureSession={async () => CHAT_INPUT_SMOKE_SESSION_ID}
@@ -294,11 +300,19 @@ export default function ChatInputSmokeWindow() {
               taskProgressSnapshot={taskSnapshot}
               executionState="running"
               onOpenWorkspace={() => {}}
-              contextUsage={{ usedTokens: 48000, contextWindow: 128000, usedK: 48, ctxK: 128, pct: 38 }}
+              contextUsage={{
+                usedTokens: 48000,
+                contextWindow: 128000,
+                usedK: 48,
+                ctxK: 128,
+                pct: 38,
+              }}
             />
             <div className="mt-3 rounded-lg border border-border bg-card/70 p-3 text-xs text-muted-foreground">
               <div>目标提交次数：{goalModeSubmitCount}</div>
-              <div>权限：{permissionMode} · 沙箱：{sandboxMode} · 工作流：{draftWorkflowMode}</div>
+              <div>
+                权限：{permissionMode} · 沙箱：{sandboxMode} · 工作流：{draftWorkflowMode}
+              </div>
             </div>
           </div>
         </main>

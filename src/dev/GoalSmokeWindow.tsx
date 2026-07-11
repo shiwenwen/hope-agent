@@ -133,7 +133,12 @@ function installGoalSmokeTransport() {
       sizeBytes: 0,
       truncated: false,
     }),
-    previewExtractDoc: async () => ({ relPath: "document.txt", kind: "office", text: "", images: [] }),
+    previewExtractDoc: async () => ({
+      relPath: "document.txt",
+      kind: "office",
+      text: "",
+      images: [],
+    }),
     previewRawUrl: async () => null,
   } as unknown as Transport
   setTransport(transport)
@@ -172,10 +177,7 @@ export default function GoalSmokeWindow() {
   const snapshot = useMemo(() => {
     const initialGoal = result?.startChatArgs.initialGoal
     if (!initialGoal) return null
-    return goalSnapshot(
-      initialGoal.objective,
-      initialGoal.completionCriteria ?? "",
-    )
+    return goalSnapshot(initialGoal.objective, initialGoal.completionCriteria ?? "")
   }, [result])
 
   const handleGoalModeSubmit = async (objective: string): Promise<boolean> => {
@@ -209,7 +211,8 @@ export default function GoalSmokeWindow() {
           <header className="space-y-1">
             <h1 className="text-base font-semibold">Goal V3.3 First-Turn Smoke</h1>
             <p className="text-sm text-muted-foreground">
-              Dev-only harness for slash-style Goal input, first-turn initialGoal payload, and composer status.
+              Dev-only harness for slash-style Goal input, first-turn initialGoal payload, and
+              composer status.
             </p>
           </header>
 
@@ -231,6 +234,7 @@ export default function GoalSmokeWindow() {
               attachedFiles={[]}
               onAttachFiles={() => {}}
               onRemoveFile={() => {}}
+              onUpdateFile={() => {}}
               currentSessionId={null}
               currentAgentId="ha-main"
               onEnsureSession={async () => {

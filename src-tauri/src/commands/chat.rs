@@ -12,31 +12,12 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tauri::State;
 
-const CHAT_CANCEL_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(100);
-const CHAT_CANCELLED_BY_CALLER: &str = "chat cancelled by caller";
-
 #[derive(Debug, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct InitialGoalInput {
     pub objective: String,
     #[serde(default)]
     pub completion_criteria: Option<String>,
-}
-
-async fn wait_for_chat_cancel(cancel: Arc<AtomicBool>) {
-    loop {
-        if cancel.load(Ordering::SeqCst) {
-            return;
-        }
-        tokio::time::sleep(CHAT_CANCEL_POLL_INTERVAL).await;
-    }
-}
-
-fn event_enters_runtime_loop(event: &str) -> bool {
-    event.contains("\"type\":\"text_delta\"")
-        || event.contains("\"type\":\"thinking_delta\"")
-        || event.contains("\"type\":\"tool_call\"")
-        || event.contains("\"type\":\"tool_result\"")
 }
 
 /// Tauri-specific EventSink — wraps `tauri::ipc::Channel<String>`.
@@ -84,41 +65,6 @@ fn finish_turn_once_and_broadcast(
         assistant_message_id,
     );
     broadcast_turn_end(session_id, turn_id, status, interrupt_reason, error);
-}
-
-fn finish_turn_after_execution_and_broadcast(
-    db: &SessionDB,
-    session_id: &str,
-    turn_id: &str,
-    cancel_requested: bool,
-    error: Option<&str>,
-    assistant_message_id: Option<i64>,
-) -> Option<session::ChatTurn> {
-    let turn = db
-        .finish_chat_turn_after_execution(turn_id, cancel_requested, error, assistant_message_id)
-        .ok()
-        .flatten();
-    let status = turn.as_ref().map(|turn| turn.status).unwrap_or_else(|| {
-        if cancel_requested {
-            session::ChatTurnStatus::Interrupted
-        } else if error.is_some() {
-            session::ChatTurnStatus::Failed
-        } else {
-            session::ChatTurnStatus::Completed
-        }
-    });
-    let interrupt_reason = turn.as_ref().and_then(|turn| turn.interrupt_reason);
-    let terminal_error = (status == session::ChatTurnStatus::Failed)
-        .then_some(error)
-        .flatten();
-    broadcast_turn_end(
-        session_id,
-        turn_id,
-        status,
-        interrupt_reason,
-        terminal_error,
-    );
-    turn
 }
 
 /// Save an attachment file to disk. Uses a temp directory when session_id is empty.
@@ -181,6 +127,7 @@ pub async fn chat(
     session_id: Option<String>,
     incognito: Option<bool>,
     model_override: Option<String>,
+    session_defaults: Option<ha_core::session::SessionDefaultsInput>,
     agent_id: Option<String>,
     permission_mode: Option<ha_core::permission::SessionMode>,
     sandbox_mode: Option<ha_core::permission::SandboxMode>,
@@ -314,25 +261,74 @@ pub async fn chat(
         }
     };
     let agent_def = agent_loader::load_agent(&current_agent_id).ok();
-    let agent_default_effort = agent_def
-        .as_ref()
-        .and_then(|def| def.config.model.reasoning_effort.clone());
 
     let requested_effort = reasoning_effort
         .as_deref()
         .map(str::trim)
         .filter(|effort| !effort.is_empty())
         .map(str::to_string);
-    let session_effort = {
-        let sid = sid.clone();
-        db.run(move |db| db.get_session(&sid)).await?
+    if new_session_created.is_some() {
+        let sid_for_defaults = sid.clone();
+        let defaults = session_defaults.clone().unwrap_or_default();
+        let model_for_defaults = defaults.model;
+        let effort_for_defaults = defaults.reasoning_effort;
+        let temperature_for_defaults = defaults.temperature;
+        let apply_defaults = db
+            .run(move |session_db| -> anyhow::Result<()> {
+                if temperature_for_defaults.is_some_and(|value| !(0.0..=2.0).contains(&value)) {
+                    anyhow::bail!("Temperature must be between 0.0 and 2.0");
+                }
+                if effort_for_defaults
+                    .as_deref()
+                    .is_some_and(|effort| !ha_core::agent::is_valid_reasoning_effort(effort))
+                {
+                    anyhow::bail!("Invalid reasoning effort in session defaults");
+                }
+                if let Some(reference) = model_for_defaults.as_deref() {
+                    let model = provider::parse_model_ref(reference)
+                        .ok_or_else(|| anyhow::anyhow!("Invalid model reference: {reference}"))?;
+                    let config = ha_core::config::cached_config();
+                    if !provider::model_ref_exists(&config.providers, &model) {
+                        anyhow::bail!("Selected model no longer exists: {reference}");
+                    }
+                    let provider_name = config
+                        .providers
+                        .iter()
+                        .find(|candidate| candidate.id == model.provider_id)
+                        .map(|candidate| candidate.name.as_str());
+                    session_db.update_session_model(
+                        &sid_for_defaults,
+                        Some(&model.provider_id),
+                        provider_name,
+                        Some(&model.model_id),
+                    )?;
+                }
+                if let Some(temperature) = temperature_for_defaults {
+                    session_db.update_session_temperature(&sid_for_defaults, Some(temperature))?;
+                }
+                if let Some(effort) = effort_for_defaults.as_deref() {
+                    session_db.update_session_reasoning_effort(&sid_for_defaults, Some(effort))?;
+                }
+                Ok(())
+            })
+            .await;
+        if let Err(error) = apply_defaults {
+            // The row was created before draft defaults could be validated.
+            // Remove it so a deleted model / malformed draft does not leave an
+            // empty Session that the frontend never received.
+            let sid_for_cleanup = sid.clone();
+            let _ = db
+                .run(move |session_db| session_db.delete_session(&sid_for_cleanup))
+                .await;
+            return Err(error.into());
+        }
     }
-    .and_then(|meta| meta.reasoning_effort);
-    let global_effort = state.reasoning_effort.lock().await.clone();
-    let effort = requested_effort
-        .or(session_effort)
-        .or(agent_default_effort)
-        .unwrap_or(global_effort);
+    let runtime_defaults = {
+        let sid = sid.clone();
+        db.run(move |db| ha_core::session::ensure_session_runtime_defaults(db, &sid))
+            .await?
+    };
+    let effort = requested_effort.unwrap_or_else(|| runtime_defaults.reasoning_effort.clone());
     if !ha_core::agent::is_valid_reasoning_effort(&effort) {
         return Err(CmdError::msg(format!(
             "Invalid reasoning effort: {}. Valid: {:?}",
@@ -340,15 +336,6 @@ pub async fn chat(
             ha_core::agent::VALID_REASONING_EFFORTS
         )));
     }
-    *state.reasoning_effort.lock().await = effort.clone();
-    {
-        let sid = sid.clone();
-        let effort = effort.clone();
-        db.run(move |db| db.update_session_reasoning_effort(&sid, Some(&effort)))
-            .await?;
-    }
-    let effort_ref_str = effort.clone();
-
     // Apply draft working dir picked before the session existed. Only honored on
     // the auto-create branch — explicit-session callers must use
     // `set_session_working_dir` to change it. Validation errors are surfaced so
@@ -633,15 +620,9 @@ pub async fn chat(
     // One lock-free config snapshot for the whole request.
     let cfg = ha_core::config::cached_config();
 
-    // Resolve temperature: session > agent > global
-    let resolved_temperature: Option<f64> = {
-        let global_temp = cfg.temperature;
-        let agent_temp = agent_def
-            .as_ref()
-            .and_then(|def| def.config.model.temperature);
-        // Priority: session (frontend override) > agent > global
-        temperature_override.or(agent_temp).or(global_temp)
-    };
+    // Explicit API override remains per-turn; otherwise use the immutable
+    // Session snapshot.
+    let resolved_temperature = temperature_override.or(runtime_defaults.temperature);
 
     // Resolve plan state early so we can use plan_model override for model chain
     let early_plan_state = if let Some(ref pm) = plan_mode {
@@ -747,71 +728,82 @@ pub async fn chat(
         // else: use_subagent=false, fall through to inline PlanAgent mode below
     }
 
-    // Session-scoped model pin trumps both agent.primary and config.active_model
-    // when no explicit per-turn override was provided. This is how /api PATCH
-    // /sessions/{id}/model and the new set_session_model Tauri command surface
-    // their effect on subsequent turns. Plan Mode plan_model still wins.
-    let session_pinned_model: Option<String> = if model_override.is_none() {
-        let sid2 = sid.clone();
-        db.run(move |db| db.get_session(&sid2))
-            .await
-            .ok()
-            .flatten()
-            .and_then(|meta| match (meta.provider_id, meta.model_id) {
-                (Some(p), Some(m)) if !p.is_empty() && !m.is_empty() => {
-                    Some(format!("{}::{}", p, m))
-                }
-                _ => None,
-            })
+    // Plan Mode's persisted model preference remains the highest-priority
+    // candidate during Planning. Unlike a per-turn override, a stale Plan or
+    // Session preference is allowed to fall through to Agent/global defaults.
+    let plan_model_preference = if early_plan_state == crate::plan::PlanModeState::Planning {
+        agent_model_config.plan_model.as_deref()
     } else {
         None
     };
 
-    let (primary, fallbacks) = {
-        // Plan Mode model override: use cheaper/faster model during Planning phase
-        let plan_model_override = if early_plan_state == crate::plan::PlanModeState::Planning {
-            agent_model_config.plan_model.clone()
+    // Session-scoped model pin trumps both agent.primary and config.active_model
+    // when neither Plan Mode nor an explicit per-turn override won. This is how
+    // set_session_model surfaces its effect on subsequent turns.
+    let session_pinned_model: Option<String> =
+        if plan_model_preference.is_none() && model_override.is_none() {
+            let sid2 = sid.clone();
+            db.run(move |db| db.get_session(&sid2))
+                .await
+                .ok()
+                .flatten()
+                .and_then(|meta| match (meta.provider_id, meta.model_id) {
+                    (Some(p), Some(m)) if !p.is_empty() && !m.is_empty() => {
+                        Some(format!("{}::{}", p, m))
+                    }
+                    _ => None,
+                })
         } else {
             None
         };
 
-        if let Some(ref plan_model_str) = plan_model_override {
-            // Planning phase: use plan_model as primary, keep fallbacks
-            let mut model_cfg = agent_model_config.clone();
-            model_cfg.primary = Some(plan_model_str.clone());
-            provider::resolve_model_chain(&model_cfg, &cfg)
-        } else if let Some(ref override_str) = model_override {
-            // User explicitly selected a model in the input box
-            let override_model = provider::parse_model_ref(override_str);
-            let mut model_cfg = agent_model_config.clone();
-            if override_model.is_some() {
-                model_cfg.primary = Some(override_str.clone());
+    // Explicit current-turn overrides are strict: if the requested model was
+    // removed or its Provider is disabled, surface the error instead of
+    // silently switching Provider. Plan Mode still wins when configured.
+    if plan_model_preference.is_none() {
+        if let Some(override_str) = model_override.as_deref() {
+            let override_is_available = provider::parse_model_ref(override_str)
+                .is_some_and(|model| provider::model_ref_is_available(&cfg.providers, &model));
+            if !override_is_available {
+                let err = format!(
+                    "Selected model override is unavailable: {override_str}. Please choose an enabled provider and model."
+                );
+                let partial = ha_core::chat_engine::finalize::PartialMeta {
+                    user_message: Some(message.clone()),
+                    turn_id: Some(turn_id.clone()),
+                    ..Default::default()
+                };
+                let outcome = ha_core::chat_engine::finalize::finalize_turn_context_blocking(
+                    &db,
+                    &sid,
+                    ha_core::chat_engine::finalize::TerminationReason::Other {
+                        message: err.clone(),
+                    },
+                    partial,
+                    ha_core::chat_engine::ChatSource::Desktop,
+                );
+                broadcast_turn_end(
+                    &sid,
+                    &turn_id,
+                    outcome
+                        .turn_status
+                        .unwrap_or(session::ChatTurnStatus::Failed),
+                    outcome.interrupt_reason,
+                    Some(&err),
+                );
+                return Err(CmdError::msg(err));
             }
-            provider::resolve_model_chain(&model_cfg, &cfg)
-        } else if let Some(ref pinned) = session_pinned_model {
-            // Session has its own pinned model (set via set_session_model)
-            let mut model_cfg = agent_model_config.clone();
-            model_cfg.primary = Some(pinned.clone());
-            provider::resolve_model_chain(&model_cfg, &cfg)
-        } else {
-            provider::resolve_model_chain(&agent_model_config, &cfg)
         }
-    };
+    }
+
+    let preferred_model = plan_model_preference
+        .or(model_override.as_deref())
+        .or(session_pinned_model.as_deref());
+    let (primary, fallbacks) =
+        provider::resolve_model_chain_with_preferred(preferred_model, &agent_model_config, &cfg);
 
     // Build ordered model chain: [primary, ...fallbacks]
-    let mut model_chain: Vec<ActiveModel> = Vec::new();
-    if let Some(p) = primary {
-        model_chain.push(p);
-    }
-    for fb in fallbacks {
-        // Avoid duplicates
-        if !model_chain
-            .iter()
-            .any(|m| m.provider_id == fb.provider_id && m.model_id == fb.model_id)
-        {
-            model_chain.push(fb);
-        }
-    }
+    let model_chain: Vec<ActiveModel> = primary.into_iter().chain(fallbacks).collect();
 
     // Log model chain resolution
     logger.log("info", "agent", "lib::chat::model_chain",
@@ -823,270 +815,29 @@ pub async fn chat(
         Some(sid.clone()), Some(current_agent_id.clone()));
 
     if model_chain.is_empty() {
-        // No model chain resolved — fall back to existing agent instance
-        let agent_lock = state.agent.lock().await;
-        return match agent_lock.as_ref() {
-            Some(agent) => {
-                // Restore conversation history from DB for this session
-                crate::chat_engine::restore_agent_context(&db, &sid, agent);
-
-                let effort_ref = Some(effort_ref_str.as_str());
-                let db_for_cb = db.clone();
-                let sid_for_cb = sid.clone();
-                let cancel_clone = cancel.clone();
-                let chat_start = std::time::Instant::now();
-                let on_event_clone = on_event.clone();
-                let captured_usage: Arc<std::sync::Mutex<crate::chat_engine::CapturedUsage>> =
-                    Arc::new(std::sync::Mutex::new(Default::default()));
-                let captured_usage_clone = captured_usage.clone();
-                let cancel_wait = cancel_clone.clone();
-                let allow_hard_cancel = Arc::new(AtomicBool::new(true));
-                let allow_hard_cancel_for_cb = allow_hard_cancel.clone();
-                let mut chat_future = Box::pin(agent.chat(
-                    &message,
-                    &attachments,
-                    effort_ref,
-                    cancel_clone,
-                    move |delta| {
-                        if event_enters_runtime_loop(delta) {
-                            allow_hard_cancel_for_cb.store(false, Ordering::SeqCst);
-                        }
-                        if let Ok(event) = serde_json::from_str::<serde_json::Value>(delta) {
-                            if event.get("type").and_then(|t| t.as_str()) == Some("usage") {
-                                if let Ok(mut usage) = captured_usage_clone.lock() {
-                                    usage.absorb_event(&event);
-                                }
-                            }
-                        }
-                        crate::chat_engine::persist_tool_event(
-                            &db_for_cb,
-                            &sid_for_cb,
-                            ha_core::chat_engine::ChatSource::Desktop,
-                            delta,
-                        );
-                        let _ = on_event_clone.send(delta.to_string());
-                    },
-                ));
-                let chat_result = match tokio::select! {
-                    biased;
-                    _ = wait_for_chat_cancel(cancel_wait) => None,
-                    result = &mut chat_future => Some(result),
-                } {
-                    Some(result) => result,
-                    None if allow_hard_cancel.load(Ordering::SeqCst) => {
-                        Err(anyhow::anyhow!(CHAT_CANCELLED_BY_CALLER))
-                    }
-                    None => chat_future.as_mut().await,
-                };
-                drop(chat_future);
-                let (result, thinking) = match chat_result {
-                    Ok((text, thinking)) => (text, thinking),
-                    Err(e) => {
-                        let err = e.to_string();
-                        if cancel.load(Ordering::SeqCst) {
-                            let partial = ha_core::chat_engine::finalize::PartialMeta {
-                                user_message: Some(message.clone()),
-                                turn_id: Some(turn_id.clone()),
-                                ..Default::default()
-                            };
-                            let outcome =
-                                ha_core::chat_engine::finalize::finalize_turn_context_blocking(
-                                    &db,
-                                    &sid,
-                                    ha_core::chat_engine::finalize::TerminationReason::UserStop,
-                                    partial,
-                                    ha_core::chat_engine::ChatSource::Desktop,
-                                );
-                            broadcast_turn_end(
-                                &sid,
-                                &turn_id,
-                                outcome
-                                    .turn_status
-                                    .unwrap_or(session::ChatTurnStatus::Interrupted),
-                                outcome
-                                    .interrupt_reason
-                                    .or(Some(session::ChatTurnInterruptReason::UserStop)),
-                                None,
-                            );
-                            return Ok(String::new());
-                        }
-                        let turn = finish_turn_after_execution_and_broadcast(
-                            &db,
-                            &sid,
-                            &turn_id,
-                            cancel.load(Ordering::SeqCst),
-                            Some(err.as_str()),
-                            None,
-                        );
-                        if turn
-                            .as_ref()
-                            .map(|turn| turn.status != session::ChatTurnStatus::Interrupted)
-                            .unwrap_or(true)
-                        {
-                            // Side-query / agent path (not the main
-                            // `run_chat_engine` loop) — route the
-                            // failure through the unified finalize
-                            // entry so context_json gets a marker and
-                            // the GUI sees a role=event row instead of
-                            // the old hand-rolled append_message hack.
-                            let partial = ha_core::chat_engine::finalize::PartialMeta {
-                                user_message: Some(message.clone()),
-                                turn_id: Some(turn_id.clone()),
-                                ..Default::default()
-                            };
-                            let _ = ha_core::chat_engine::finalize::finalize_turn_context_blocking(
-                                &db,
-                                &sid,
-                                ha_core::chat_engine::finalize::TerminationReason::Other {
-                                    message: err.clone(),
-                                },
-                                partial,
-                                ha_core::chat_engine::ChatSource::Desktop,
-                            );
-                        }
-                        return Err(CmdError::msg(err));
-                    }
-                };
-                let duration_ms = chat_start.elapsed().as_millis() as u64;
-                let usage_event = serde_json::json!({"type": "usage", "duration_ms": duration_ms});
-                if let Ok(json_str) = serde_json::to_string(&usage_event) {
-                    let _ = on_event.send(json_str);
-                }
-                let mut assistant_msg = session::NewMessage::assistant(&result)
-                    .with_source(ha_core::chat_engine::ChatSource::Desktop);
-                assistant_msg.tool_duration_ms = Some(duration_ms as i64);
-                assistant_msg.thinking = thinking;
-                if let Ok(usage) = captured_usage.lock() {
-                    assistant_msg.tokens_in = usage.input_tokens;
-                    assistant_msg.tokens_out = usage.output_tokens;
-                    assistant_msg.tokens_in_last = usage.last_input_tokens;
-                    assistant_msg.model = usage.model.clone();
-                    assistant_msg.ttft_ms = usage.ttft_ms;
-                    assistant_msg.tokens_cache_creation = usage
-                        .last_cache_creation_input_tokens
-                        .or(usage.cache_creation_input_tokens);
-                    assistant_msg.tokens_cache_read = usage
-                        .last_cache_read_input_tokens
-                        .or(usage.cache_read_input_tokens);
-                }
-                let assistant_id = {
-                    let sid = sid.clone();
-                    let agent_id = current_agent_id.clone();
-                    let captured_usage = captured_usage.clone();
-                    db.run(move |db| {
-                        let assistant_id = db.append_message(&sid, &assistant_msg).ok();
-                        let Some(message_id) = assistant_id else {
-                            return assistant_id;
-                        };
-                        if let Ok(usage) = captured_usage.lock() {
-                            let mut event = ha_core::model_usage::ModelUsageEvent::new(
-                                ha_core::model_usage::KIND_CHAT,
-                            )
-                            .with_usage(
-                                usage.input_tokens.unwrap_or(0) as u64,
-                                usage.output_tokens.unwrap_or(0) as u64,
-                                usage.cache_creation_input_tokens.unwrap_or(0) as u64,
-                                usage.cache_read_input_tokens.unwrap_or(0) as u64,
-                            );
-                            event.request_key = Some(format!("message:{message_id}"));
-                            event.operation = Some("chat".to_string());
-                            event.source = Some(
-                                ha_core::chat_engine::ChatSource::Desktop
-                                    .as_str()
-                                    .to_string(),
-                            );
-                            event.model_id = usage.model.clone();
-                            event.session_id = Some(sid.clone());
-                            event.agent_id = Some(agent_id.clone());
-                            event.duration_ms = Some(duration_ms);
-                            event.ttft_ms = usage.ttft_ms.map(|v| v.max(0) as u64);
-                            if let Err(e) = db.insert_model_usage_event(&event) {
-                                ha_core::app_warn!(
-                                    "model_usage",
-                                    "chat",
-                                    "failed to record fallback chat usage for message {}: {}",
-                                    message_id,
-                                    e
-                                );
-                            }
-                        }
-                        assistant_id
-                    })
-                    .await
-                };
-                if cancel.load(Ordering::SeqCst) {
-                    crate::chat_engine::save_agent_context(&db, &sid, agent);
-                    let partial = ha_core::chat_engine::finalize::PartialMeta {
-                        user_message: Some(message.clone()),
-                        turn_id: Some(turn_id.clone()),
-                        assistant_message_id: assistant_id,
-                        ..Default::default()
-                    };
-                    let outcome = ha_core::chat_engine::finalize::finalize_turn_context_blocking(
-                        &db,
-                        &sid,
-                        ha_core::chat_engine::finalize::TerminationReason::UserStop,
-                        partial,
-                        ha_core::chat_engine::ChatSource::Desktop,
-                    );
-                    broadcast_turn_end(
-                        &sid,
-                        &turn_id,
-                        outcome
-                            .turn_status
-                            .unwrap_or(session::ChatTurnStatus::Interrupted),
-                        outcome
-                            .interrupt_reason
-                            .or(Some(session::ChatTurnInterruptReason::UserStop)),
-                        None,
-                    );
-                    return Ok(result);
-                }
-                let _ = finish_turn_after_execution_and_broadcast(
-                    &db,
-                    &sid,
-                    &turn_id,
-                    cancel.load(Ordering::SeqCst),
-                    None,
-                    assistant_id,
-                );
-                crate::chat_engine::save_agent_context(&db, &sid, agent);
-                Ok(result)
-            }
-            None => {
-                let err = "Agent not initialized. Please sign in first.".to_string();
-                // "Agent not initialized" is a configuration-level
-                // failure equivalent to NoProfileAvailable from the
-                // unified taxonomy's perspective: no LLM call was
-                // attempted, the user needs to fix Provider setup.
-                let partial = ha_core::chat_engine::finalize::PartialMeta {
-                    user_message: Some(message.clone()),
-                    turn_id: Some(turn_id.clone()),
-                    ..Default::default()
-                };
-                let _ = ha_core::chat_engine::finalize::finalize_turn_context_blocking(
-                    &db,
-                    &sid,
-                    ha_core::chat_engine::finalize::TerminationReason::NoProfileAvailable,
-                    partial,
-                    ha_core::chat_engine::ChatSource::Desktop,
-                );
-                // `finalize_turn_context_blocking` wrote the chat_turn
-                // row + event row + context marker. Still broadcast the
-                // stream-end event so the frontend's stream listener
-                // sees the closure (finalize only touches DB).
-                finish_turn_once_and_broadcast(
-                    &db,
-                    &sid,
-                    &turn_id,
-                    session::ChatTurnStatus::Failed,
-                    None,
-                    Some(&err),
-                    None,
-                );
-                Err(CmdError::msg(err))
-            }
+        let err = "No model configured. Please add a provider and set an active model.".to_string();
+        let partial = ha_core::chat_engine::finalize::PartialMeta {
+            user_message: Some(message.clone()),
+            turn_id: Some(turn_id.clone()),
+            ..Default::default()
         };
+        let outcome = ha_core::chat_engine::finalize::finalize_turn_context_blocking(
+            &db,
+            &sid,
+            ha_core::chat_engine::finalize::TerminationReason::NoProfileAvailable,
+            partial,
+            ha_core::chat_engine::ChatSource::Desktop,
+        );
+        broadcast_turn_end(
+            &sid,
+            &turn_id,
+            outcome
+                .turn_status
+                .unwrap_or(session::ChatTurnStatus::Failed),
+            outcome.interrupt_reason,
+            Some(&err),
+        );
+        return Err(CmdError::msg(err));
     }
 
     // ── Build ChatEngineParams and delegate to shared engine ──
@@ -1120,7 +871,7 @@ pub async fn chat(
         subagent_depth: 0,
         steer_run_id: None,
         auto_approve_tools: false,
-        follow_global_reasoning_effort: true,
+        follow_global_reasoning_effort: false,
         post_turn_effects: true,
         abort_on_cancel: false,
         persist_final_error_event: true,

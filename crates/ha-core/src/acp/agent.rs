@@ -696,9 +696,9 @@ impl AcpAgent {
         agent.set_session_id(session_id);
         agent.set_compact_config(store.compact.clone());
 
-        if let Some(ref model_ref) = store.compact.summarization_model {
+        if let Some(model_ref) = store.compact.effective_summarization_model_ref() {
             if let Some(cp) =
-                crate::agent::build_compaction_provider(model_ref, &store.providers, session_id)
+                crate::agent::build_compaction_provider(&model_ref, &store.providers, session_id)
             {
                 agent.set_compaction_provider(Some(std::sync::Arc::new(cp)));
             }
@@ -784,10 +784,13 @@ impl AcpAgent {
         // Build CompactionProvider once, reuse across retries
         let compaction_provider: Option<
             std::sync::Arc<dyn crate::context_compact::CompactionProvider>,
-        > = store.compact.summarization_model.as_ref().and_then(|mr| {
-            crate::agent::build_compaction_provider(mr, &store.providers, &session_id_owned)
-                .map(|cp| std::sync::Arc::new(cp) as _)
-        });
+        > = store
+            .compact
+            .effective_summarization_model_ref()
+            .and_then(|mr| {
+                crate::agent::build_compaction_provider(&mr, &store.providers, &session_id_owned)
+                    .map(|cp| std::sync::Arc::new(cp) as _)
+            });
 
         // SessionStart hook (startup/resume). ACP runs `AssistantAgent::chat`
         // directly rather than `run_chat_engine`, so the engine's SessionStart
@@ -988,7 +991,6 @@ impl AcpAgent {
                             session_id_owned.clone(),
                             agent_id.clone(),
                             model_ref.clone(),
-                            store.providers.clone(),
                         );
 
                         let stop = if cancel.load(Ordering::SeqCst) {

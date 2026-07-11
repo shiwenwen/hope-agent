@@ -34,7 +34,7 @@ function attachmentMime(file: MessageFileAttachment): string {
 function targetFor(file: MessageFileAttachment): PreviewTarget {
   return file.kind === "media"
     ? { kind: "media", item: file.item }
-    : { kind: "path", path: file.path, name: basename(file.path) }
+    : { kind: "path", path: file.path, name: basename(file.path), language: file.language ?? null }
 }
 
 /** A single modified-file chip: primary click = preview/open/download by kind ×

@@ -28,6 +28,7 @@ pub mod agent;
 pub mod agent_config;
 pub mod agent_loader;
 pub mod ask_user;
+pub mod automation;
 pub mod awareness;
 pub mod backup;
 pub mod browser;

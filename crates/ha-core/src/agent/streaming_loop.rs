@@ -51,6 +51,12 @@ fn terminal_assistant_text_for_history<'a>(
     }
 }
 
+async fn wait_for_cancel(cancel: &AtomicBool) {
+    while !cancel.load(Ordering::SeqCst) {
+        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+    }
+}
+
 /// Run `futs` concurrently with at most `max` in flight at any time, returning
 /// results in the SAME order as the input. Order preservation lets callers pair
 /// results to inputs positionally. The semaphore is never closed, so permit
@@ -549,21 +555,26 @@ impl AssistantAgent {
 
         self.reset_chat_flags();
         self.refresh_coding_profile_suffix(message);
-        // Awareness + active_memory each write their own independent suffix
-        // slot and never read the other; run them concurrently so the worst
-        // case is max(awareness_timeout, active_memory_timeout) instead of
-        // their sum (was up to 13s with LlmDigest + active_memory both
-        // timing out, now ≤8s).
-        tokio::join!(
-            self.refresh_awareness_suffix(message),
-            self.refresh_active_memory_suffix(message),
-            self.refresh_related_notes_suffix(message),
-        );
-        // Precompute the blocking prompt inputs (base config/goal/memory prompt
-        // + LSP workspace-root discovery) off-worker so the synchronous
-        // build_full/merged_system_prompt calls below never touch SessionDB or
-        // spawn `git` on this async worker.
-        self.refresh_turn_prompt_cache(model, provider_label).await;
+        self.warm_kb_access().await;
+        self.warm_memory_agent_config().await;
+        self.configure_retrieval_planner_context(message);
+        // Dynamic context refreshers write independent slots / trace ledgers
+        // and never read each other; run them concurrently so the worst case
+        // stays bounded by the slowest refresher instead of their sum.
+        let refresh_turn_context = async {
+            tokio::join!(
+                self.refresh_awareness_suffix(message),
+                self.refresh_active_memory_suffix(message),
+                self.refresh_related_notes_suffix(message),
+                self.refresh_experience_memory_trace(message),
+                self.refresh_graph_memory_trace(message),
+                self.prepare_full_system_prompt(model, provider_label),
+            )
+        };
+        let (_, _, _, _, _, prepared_system_prompt) = tokio::select! {
+            refreshed = refresh_turn_context => refreshed,
+            _ = wait_for_cancel(cancel) => return Ok((String::new(), None)),
+        };
 
         let client =
             crate::provider::apply_proxy(reqwest::Client::builder().user_agent(&self.user_agent))
@@ -592,11 +603,11 @@ impl AssistantAgent {
             .lock()
             .unwrap_or_else(|e| e.into_inner()) = messages.clone();
 
-        // Static system prompt prefix (cache-friendly). Dynamic suffixes
-        // (awareness, active memory, coding profile, related notes) go in
-        // their own provider-level system blocks inside chat_round.
-        let system_prompt = self.build_full_system_prompt(model, provider_label);
-        let mut system_prompt_for_budget = self.build_merged_system_prompt(model, provider_label);
+        // Static system prompt prefix (cache-friendly). Dynamic suffixes are
+        // sent as independent provider-level blocks when supported.
+        let system_prompt = prepared_system_prompt;
+        let mut system_prompt_for_budget =
+            self.merge_dynamic_system_prompt(system_prompt.clone(), model, provider_label);
 
         self.run_compaction(
             &mut messages,
@@ -695,12 +706,10 @@ impl AssistantAgent {
             // Honors the externally-locked flag: spawn-supplied PlanAgent
             // child sessions (plan_subagent) skip the probe entirely.
             if self.maybe_resync_plan_mode_from_backend().await {
-                // Plan state changed — refresh the precomputed prompt inputs
-                // before the synchronous rebuilds below read them.
-                self.refresh_turn_prompt_cache(model, provider_label).await;
                 tool_schemas = self.build_tool_schemas(adapter.tool_provider());
-                system_prompt = self.build_full_system_prompt(model, provider_label);
-                system_prompt_for_budget = self.build_merged_system_prompt(model, provider_label);
+                system_prompt = self.prepare_full_system_prompt(model, provider_label).await;
+                system_prompt_for_budget =
+                    self.merge_dynamic_system_prompt(system_prompt.clone(), model, provider_label);
                 self.select_memories_if_needed(&mut system_prompt, message)
                     .await;
                 self.apply_engine_prompt_addition(&mut system_prompt);
@@ -758,6 +767,7 @@ impl AssistantAgent {
             let awareness_suffix = self.current_awareness_suffix();
             let active_suffix = self.current_active_memory_suffix();
             let coding_profile_suffix = self.current_coding_profile_suffix();
+            let procedure_suffix = self.current_procedure_memory_suffix();
             let related_notes_suffix = self.current_related_notes_suffix();
             // Two-step: cheap existence probe first (one SQL row, no Vec
             // alloc), then list+format only when there's actually an active
@@ -786,6 +796,7 @@ impl AssistantAgent {
                 awareness_suffix: awareness_suffix.as_deref().map(|s| s.as_str()),
                 active_memory_suffix: active_suffix.as_deref().map(|s| s.as_str()),
                 coding_profile_suffix: coding_profile_suffix.as_deref().map(|s| s.as_str()),
+                procedure_memory_suffix: procedure_suffix.as_deref().map(|s| s.as_str()),
                 related_notes_suffix: related_notes_suffix.as_deref().map(|s| s.as_str()),
                 task_reminder_suffix: task_reminder.as_deref(),
                 tool_schemas: &tool_schemas,
@@ -846,6 +857,11 @@ impl AssistantAgent {
                 .partition(|tc| tools::is_concurrent_safe(&tc.name));
 
             let mut executed: Vec<ExecutedTool> = Vec::new();
+            // A provider response can stream for minutes. Refresh agent-level
+            // tool filters and approval policy immediately before execution so
+            // a user revocation made while the model was responding takes
+            // effect in this batch.
+            self.warm_memory_agent_config().await;
             let tool_ctx = self.tool_context_with_usage(Some(estimated_used));
 
             // Phase 1: concurrent-safe in parallel, but BOUNDED — a single
@@ -969,20 +985,17 @@ impl AssistantAgent {
             // Concurrent phase doesn't need this hook: it only contains
             // `is_concurrent_safe` tools (read-only) which by definition
             // can't mutate plan state.
-            let mut tool_ctx = tool_ctx;
             for tc in &sequential_tcs {
                 if cancel.load(Ordering::SeqCst) {
                     break;
                 }
 
-                if self.maybe_resync_plan_mode_from_backend().await {
-                    // Plan state changed — refresh the ctx so this tool's
-                    // permission check sees the new PlanAgent allow-list.
-                    // The schema rebuild will happen at the next round head
-                    // (the LLM has already been sent this batch's tool_call
-                    // list, so updating its schema mid-batch is moot).
-                    tool_ctx = self.tool_context_with_usage(Some(estimated_used));
-                }
+                // Sequential tools may span user approvals and long-running
+                // work. Re-check both agent.json and plan state before every
+                // execution, then rebuild one coherent permission snapshot.
+                self.warm_memory_agent_config().await;
+                let _plan_changed = self.maybe_resync_plan_mode_from_backend().await;
+                let tool_ctx = self.tool_context_with_usage(Some(estimated_used));
 
                 emit_tool_call(on_delta, &tc.call_id, &tc.name, &tc.arguments);
                 log_tool_input(tc, round);

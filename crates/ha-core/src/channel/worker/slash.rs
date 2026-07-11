@@ -233,25 +233,6 @@ pub(super) async fn dispatch_slash_for_channel(
             } else {
                 if let Some(db) = crate::get_session_db() {
                     let _ = db.update_session_reasoning_effort(session_id, Some(&effort));
-                    if let Ok(Some(meta)) = db.get_session(session_id) {
-                        if let Err(e) = crate::agent_loader::update_agent_reasoning_effort(
-                            &meta.agent_id,
-                            &effort,
-                        ) {
-                            app_warn!(
-                                "channel",
-                                "worker",
-                                "Failed to persist reasoning effort for agent {}: {}",
-                                meta.agent_id,
-                                e
-                            );
-                        } else if let Some(bus) = crate::get_event_bus() {
-                            bus.emit(
-                                "agents:changed",
-                                serde_json::json!({ "id": meta.agent_id, "kind": "saved" }),
-                            );
-                        }
-                    }
                 }
                 if let Some(bus) = crate::get_event_bus() {
                     bus.emit(
@@ -642,9 +623,9 @@ async fn set_session_model_core(
         let found = store
             .providers
             .iter()
-            .find(|p| p.id == provider_id && p.enabled)
+            .find(|p| p.id == provider_id)
             .cloned()
-            .ok_or_else(|| format!("Provider not found or disabled: {}", provider_id))?;
+            .ok_or_else(|| format!("Provider not found: {}", provider_id))?;
         if !found.models.iter().any(|m| m.id == model_id) {
             return Err(format!("Model not found: {}", model_id));
         }
@@ -671,8 +652,6 @@ async fn set_reasoning_effort_core(effort: &str) -> Result<(), String> {
             crate::agent::VALID_REASONING_EFFORTS
         ));
     }
-    let cell = crate::require_reasoning_effort_cell().map_err(|e| e.to_string())?;
-    *cell.lock().await = effort.to_string();
     Ok(())
 }
 

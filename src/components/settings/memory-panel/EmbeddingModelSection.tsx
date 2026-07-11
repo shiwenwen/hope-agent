@@ -30,6 +30,7 @@ import {
   embeddingProviderLabel,
   openEmbeddingModelSettings,
 } from "@/types/embedding-models"
+import { memoryEmbeddingOperationErrorToast } from "./memoryEmbeddingFeedback"
 
 type MemoryData = ReturnType<typeof useMemoryData>
 type ReembedMode = "keep_existing" | "delete_all"
@@ -80,7 +81,8 @@ export default function EmbeddingModelSection({ data }: EmbeddingModelSectionPro
       }
     } catch (e) {
       logger.error("settings", "EmbeddingModelSection::confirmSwitchDefault", "Failed to switch", e)
-      toast.error(String(e))
+      const failure = memoryEmbeddingOperationErrorToast("setDefault", t, e)
+      toast.error(failure.title, failure.description ? { description: failure.description } : undefined)
     } finally {
       setSwitching(false)
       setPendingModelId(null)

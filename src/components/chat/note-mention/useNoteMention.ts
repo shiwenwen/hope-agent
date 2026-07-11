@@ -3,6 +3,7 @@ import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import type { ReferenceableNote, KbDraftAttachment } from "@/types/knowledge"
 import { detectActiveNoteRef, formatNoteInsertion, relPathToken } from "./noteTokens"
+import { noteMentionErrorDetail } from "./noteMentionFeedback"
 import type { ComposerInputHandle } from "../input/composerInputHandle"
 
 const MAX_ROWS = 50
@@ -12,6 +13,7 @@ export interface NoteMentionState {
   entries: ReferenceableNote[]
   selectedIndex: number
   loading: boolean
+  loadErrorDetail: string | null
   setSelectedIndex: (i: number) => void
   applyEntry: (entry: ReferenceableNote) => void
   handleKeyDown: (e: React.KeyboardEvent<HTMLElement>) => boolean
@@ -41,6 +43,7 @@ export function useNoteMention(
   const [allNotes, setAllNotes] = useState<ReferenceableNote[]>([])
   const [selectedIndex, setSelectedIndex] = useState(0)
   const [loading, setLoading] = useState(false)
+  const [loadErrorDetail, setLoadErrorDetail] = useState<string | null>(null)
   const inputRef = useRef(input)
   inputRef.current = input
   const enabledRef = useRef(enabled)
@@ -82,9 +85,11 @@ export function useNoteMention(
   useEffect(() => {
     if (!isOpen) {
       setAllNotes([])
+      setLoadErrorDetail(null)
       return
     }
     setLoading(true)
+    setLoadErrorDetail(null)
     let cancelled = false
     getTransport()
       .call<ReferenceableNote[]>("list_referenceable_notes_cmd", {
@@ -93,12 +98,16 @@ export function useNoteMention(
         draftKbIds: sessionId ? undefined : draftKbIds,
       })
       .then((notes) => {
-        if (!cancelled) setAllNotes(notes)
+        if (!cancelled) {
+          setAllNotes(notes)
+          setLoadErrorDetail(null)
+        }
       })
       .catch((e) => {
         if (!cancelled) {
           logger.error("chat", "useNoteMention::load", "load referenceable notes failed", e)
           setAllNotes([])
+          setLoadErrorDetail(noteMentionErrorDetail(e))
         }
       })
       .finally(() => {
@@ -211,6 +220,7 @@ export function useNoteMention(
     entries,
     selectedIndex,
     loading,
+    loadErrorDetail,
     setSelectedIndex,
     applyEntry,
     handleKeyDown,

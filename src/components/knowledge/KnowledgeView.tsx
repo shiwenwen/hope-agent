@@ -70,7 +70,7 @@ import { IconTip } from "@/components/ui/tooltip"
 import ServerDirectoryBrowser from "@/components/chat/input/ServerDirectoryBrowser"
 import { useDirectoryPicker } from "@/components/chat/input/useDirectoryPicker"
 import { logger } from "@/lib/logger"
-import { isTauriMode } from "@/lib/transport"
+import { isTauriMode, parsePayload } from "@/lib/transport"
 import { getTransport } from "@/lib/transport-provider"
 import { cn } from "@/lib/utils"
 import type {
@@ -85,15 +85,16 @@ import type {
 } from "@/types/knowledge"
 import type { PendingFileQuote } from "@/types/chat"
 
-import { useReembedJob } from "@/hooks/useReembedJob"
+import { useKnowledgeReembedJobs } from "@/hooks/useKnowledgeReembedJobs"
 import { useDragWidth } from "@/hooks/useDragWidth"
 import { useViewportMediaQuery } from "@/hooks/useViewportMediaQuery"
 import { isLocalModelJobActive } from "@/types/local-model-jobs"
 
 import HeadingOutline from "./HeadingOutline"
+import KnowledgeActivityButton from "./KnowledgeActivityButton"
 import KnowledgeEmbeddingBadge from "./KnowledgeEmbeddingBadge"
+import KnowledgeEmptyState from "./KnowledgeEmptyState"
 import KnowledgeGraphView from "./KnowledgeGraphView"
-import KnowledgeJobsButton from "./KnowledgeJobsButton"
 import KnowledgeMaintenanceButton from "./KnowledgeMaintenanceButton"
 import KnowledgeSourcesPanel from "./KnowledgeSourcesPanel"
 import NoteSourceReferences from "./NoteSourceReferences"
@@ -106,11 +107,29 @@ import { QuickRewriteBar } from "./chat/QuickRewriteBar"
 import { buildKnownTargets, type WikilinkData } from "./cm/wikilinkExtensions"
 import { parseHeadings } from "./outline"
 import { formatNoteInsertion, relPathToken } from "@/components/chat/note-mention/noteTokens"
+import {
+  consumePendingKnowledgeFocus,
+  resolveKnowledgeFocusReveal,
+  subscribeKnowledgeFocus,
+  type KnowledgeFocusRevealRequest,
+  type KnowledgeFocusTarget,
+} from "./knowledgeFocus"
+import { knowledgeFocusErrorDescription } from "./knowledgeFocusFeedback"
+import {
+  knowledgeViewOperationErrorToast,
+  type KnowledgeViewOperation,
+} from "./knowledgeViewFeedback"
 
 interface KnowledgeViewProps {
   onBack: () => void
   /** Jump to Settings → Knowledge (embedding / retrieval config). */
   onOpenSettings?: () => void
+}
+
+interface OpenNoteResult {
+  ok: boolean
+  revealResolved: boolean
+  error?: unknown
 }
 
 type SaveStatus = "idle" | "saved" | "failed"
@@ -169,8 +188,24 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
   const tx = getTransport()
   // Desktop can reveal real files in the OS file manager; HTTP/Web cannot.
   const isLocal = tx.supportsLocalFileOps()
+  const showKnowledgeViewError = useCallback(
+    (operation: KnowledgeViewOperation, error: unknown, options?: Record<string, unknown>) => {
+      const failureToast = knowledgeViewOperationErrorToast(operation, t, error, options)
+      toast.error(
+        failureToast.title,
+        failureToast.description ? { description: failureToast.description } : undefined,
+      )
+    },
+    [t],
+  )
 
   const [kbs, setKbs] = useState<KnowledgeBaseMeta[]>([])
+  // KB ids that just received a `knowledge:changed` pulse from the silent
+  // watcher / startup-reconcile path (no job, no toast — see reembed job
+  // tracking above for the explicit-action path). Each id self-expires after
+  // 1.5s, rendering as a brief sidebar dot so a curious user can confirm "did
+  // Hope pick up my edit" without ever being interrupted by one.
+  const [recentlyChangedKbIds, setRecentlyChangedKbIds] = useState<Set<string>>(new Set())
   const [activeKbId, setActiveKbId] = useState<string | null>(null)
   const [notes, setNotes] = useState<Note[]>([])
   // Real directories under the KB root (incl. empty ones) — the index only tracks
@@ -178,6 +213,9 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
   const [dirs, setDirs] = useState<string[]>([])
   const [kbTags, setKbTags] = useState<string[]>([])
   const [openPath, setOpenPath] = useState<string | null>(null)
+  const [pendingKnowledgeFocus, setPendingKnowledgeFocus] = useState<KnowledgeFocusTarget | null>(
+    null,
+  )
   // Which KB the open note / draft belongs to — guards against the active KB
   // being repicked (archive/delete/external) out from under the editor.
   const [openKbId, setOpenKbId] = useState<string | null>(null)
@@ -488,6 +526,7 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
   const [pendingNav, setPendingNav] = useState<(() => void) | null>(null)
   // A nav intent to resume after a headless draft gets named + saved (#7).
   const resumeNavRef = useRef<(() => void) | null>(null)
+  const lastKnowledgeFocusKeyRef = useRef<string | null>(null)
 
   const noteTree = useMemo(() => buildNoteTree(notes, dirs), [notes, dirs])
 
@@ -518,8 +557,9 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
       )
     } catch (e) {
       logger.error("knowledge", "KnowledgeView::loadKbs", "list_kbs failed", e)
+      showKnowledgeViewError("loadSpaces", e)
     }
-  }, [tx, includeArchived])
+  }, [tx, includeArchived, showKnowledgeViewError])
 
   const loadNotes = useCallback(
     async (kbId: string) => {
@@ -528,10 +568,11 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
         setNotes(list)
       } catch (e) {
         logger.error("knowledge", "KnowledgeView::loadNotes", "list_kb_notes failed", e)
+        showKnowledgeViewError("loadNotes", e)
         setNotes([])
       }
     },
-    [tx],
+    [tx, showKnowledgeViewError],
   )
 
   const loadDirs = useCallback(
@@ -540,10 +581,11 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
         setDirs(await tx.call<string[]>("kb_list_dirs_cmd", { kbId }))
       } catch (e) {
         logger.error("knowledge", "KnowledgeView::loadDirs", "kb_list_dirs failed", e)
+        showKnowledgeViewError("loadFolders", e)
         setDirs([])
       }
     },
-    [tx],
+    [tx, showKnowledgeViewError],
   )
 
   // Tag vocabulary for the editor `#tag` autocomplete (design D13).
@@ -553,18 +595,20 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
         setKbTags(await tx.call<string[]>("kb_list_tags_cmd", { kbId }))
       } catch (e) {
         logger.error("knowledge", "KnowledgeView::loadTags", "kb_list_tags failed", e)
+        showKnowledgeViewError("loadTags", e)
         setKbTags([])
       }
     },
-    [tx],
+    [tx, showKnowledgeViewError],
   )
 
   const openNote = useCallback(
     // `reveal` (optional) scrolls the editor to a 1-based line / 0-based col on
     // open — used by backlink + search clicks for precision navigation (G3).
-    async (kbId: string, path: string, reveal?: { line: number; col?: number }) => {
+    async (kbId: string, path: string, reveal?: KnowledgeFocusRevealRequest | null) => {
       try {
         const data = await tx.call<NoteReadResult>("kb_note_read_cmd", { kbId, path })
+        const resolvedReveal = resolveKnowledgeFocusReveal(data.content, reveal)
         setGraphMode(false) // opening a note leaves graph view
         setDraftMode(false)
         setTitleEditing(false)
@@ -581,10 +625,12 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
         setHits([]) // opening a note dismisses the search-results panel (#10)
         // A fresh object each call so re-clicking the same target re-triggers the
         // editor's reveal effect (identity-compared); null clears it.
-        setRevealTarget(reveal ? { ...reveal } : null)
+        setRevealTarget(resolvedReveal ? { ...resolvedReveal } : null)
         resumeNavRef.current = null // drop any stale parked nav from a prior draft
+        return { ok: true, revealResolved: !!resolvedReveal || !reveal } satisfies OpenNoteResult
       } catch (e) {
         logger.error("knowledge", "KnowledgeView::openNote", "kb_note_read failed", e)
+        return { ok: false, revealResolved: false, error: e } satisfies OpenNoteResult
       }
     },
     [tx],
@@ -675,6 +721,12 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
   }, [loadKbs])
 
   useEffect(() => {
+    const pending = consumePendingKnowledgeFocus()
+    if (pending) setPendingKnowledgeFocus(pending)
+    return subscribeKnowledgeFocus(setPendingKnowledgeFocus)
+  }, [])
+
+  useEffect(() => {
     // Clear the previous KB's tree immediately so we never render KB-A's notes/
     // folders under KB-B while the new loaders are in flight (#6).
     setNotes([])
@@ -738,7 +790,19 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
   // edits, where clobbering would lose their work (the stale-write guard still
   // protects the file).
   useEffect(() => {
-    return tx.listen("knowledge:changed", () => {
+    return tx.listen("knowledge:changed", (raw) => {
+      const kbId = parsePayload<{ kbId?: string }>(raw)?.kbId
+      if (kbId) {
+        setRecentlyChangedKbIds((prev) => new Set(prev).add(kbId))
+        setTimeout(() => {
+          setRecentlyChangedKbIds((prev) => {
+            if (!prev.has(kbId)) return prev
+            const next = new Set(prev)
+            next.delete(kbId)
+            return next
+          })
+        }, 1500)
+      }
       void loadKbs()
       setEmbedCacheKey((n) => n + 1) // invalidate transclusion embed cache
       if (activeKbId) {
@@ -827,14 +891,13 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
       return true
     } catch (e) {
       logger.error("knowledge", "KnowledgeView::handleSave", "kb_note_save failed", e)
-      if (isRemoteWriteBlocked(e))
-        toast.error(t("knowledge.remoteWritesDisabled", "Remote file writing is off."))
+      showKnowledgeViewError("saveNote", e)
       setSaving(false)
       setSaveStatus("failed")
       setTimeout(() => setSaveStatus("idle"), 2000)
       return false
     }
-  }, [tx, activeKbId, openKbId, openPath, readOnly, editorValue, baseHash, t])
+  }, [tx, activeKbId, openKbId, openPath, readOnly, editorValue, baseHash, showKnowledgeViewError])
 
   const runSearch = useCallback(async () => {
     const q = query.trim()
@@ -851,8 +914,9 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
       setHits(res)
     } catch (e) {
       logger.error("knowledge", "KnowledgeView::runSearch", "kb_search failed", e)
+      showKnowledgeViewError("searchNotes", e)
     }
-  }, [tx, query, activeKbId])
+  }, [tx, query, activeKbId, showKnowledgeViewError])
 
   const createKb = useCallback(async () => {
     const name = newKbName.trim()
@@ -869,10 +933,11 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
       setActiveKbId(kb.id)
     } catch (e) {
       logger.error("knowledge", "KnowledgeView::createKb", "create_kb failed", e)
+      showKnowledgeViewError("createSpace", e)
     } finally {
       setKbBusy(false)
     }
-  }, [tx, newKbName, newKbRoot, kbBusy, loadKbs])
+  }, [tx, newKbName, newKbRoot, kbBusy, loadKbs, showKnowledgeViewError])
 
   // External-vault folder picker for the New Space dialog: native dialog on
   // desktop, server-side directory browser on web/HTTP (shared choreography).
@@ -944,15 +1009,14 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
         return true
       } catch (e) {
         logger.error("knowledge", "KnowledgeView::commitDraft", "create note failed", e)
-        if (isRemoteWriteBlocked(e))
-          toast.error(t("knowledge.remoteWritesDisabled", "Remote file writing is off."))
+        showKnowledgeViewError("createNote", e)
         setSaving(false)
         setSaveStatus("failed")
         setTimeout(() => setSaveStatus("idle"), 2000)
         return false
       }
     },
-    [tx, activeKbId, readOnly, draftFolder, editorValue, notes, loadNotes, openNote, t],
+    [tx, activeKbId, readOnly, draftFolder, editorValue, notes, loadNotes, openNote, showKnowledgeViewError],
   )
 
   // Resolve a broken outgoing `[[ref]]` in one click: create the missing note at
@@ -987,11 +1051,10 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
         await openNote(activeKbId, p)
       } catch (e) {
         logger.error("knowledge", "KnowledgeView::createNoteFromRef", "create note from link failed", e)
-        if (isRemoteWriteBlocked(e))
-          toast.error(t("knowledge.remoteWritesDisabled", "Remote file writing is off."))
+        showKnowledgeViewError("createLinkedNote", e)
       }
     },
-    [activeKbId, readOnly, notes, tx, loadNotes, openNote, t],
+    [activeKbId, readOnly, notes, tx, loadNotes, openNote, showKnowledgeViewError],
   )
 
   const saveDraft = useCallback(async () => {
@@ -1023,28 +1086,37 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
       // configured) instead of silently swallowing them — otherwise the click
       // looks dead.
       logger.error("knowledge", "KnowledgeView::reindex", "reindex failed", e)
-      toast.error(String(e))
+      showKnowledgeViewError("reindexSpace", e)
     }
-  }, [tx, activeKbId])
+  }, [tx, activeKbId, showKnowledgeViewError])
 
-  // Toast on reindex/reembed completion so a fast single-KB rebuild (where the
-  // 🔄 spin is too brief to notice) still gives visible feedback. Stable identity
-  // so useReembedJob doesn't re-subscribe every render.
-  const onReindexDone = useCallback(() => {
-    toast.success(t("knowledge.reindexDone", "Index rebuilt"))
-  }, [t])
-
-  // Track the global knowledge reindex/reembed job so the toolbar 🔄 shows
-  // progress (spins + shows N/M while a rebuild — single-KB or full — runs).
-  const { job: reindexJob } = useReembedJob({
-    kind: "knowledge_reembed",
-    onCompleted: onReindexDone,
-  })
+  // Track the knowledge reindex/reembed job scoped to the active space so the
+  // toolbar 🔄 shows progress for *this* KB specifically (spins + shows N/M
+  // while a rebuild runs). Jobs can now run concurrently across KBs (binding
+  // two external vaults back to back no longer cancels one another — see
+  // `cancel_active_knowledge_reembed_jobs`'s scope-aware cancellation), so a
+  // single "most recent job of this kind" tracker (the old `useReembedJob`,
+  // still used for `memory_reembed` which has no per-KB concept) would show
+  // the wrong KB's progress here.
+  const { jobForKb, isKbBusy } = useKnowledgeReembedJobs()
+  const reindexJob = jobForKb(activeKbId)
   const reindexActive = !!reindexJob && isLocalModelJobActive(reindexJob)
   const reindexProgress =
     reindexActive && reindexJob
       ? ` (${Number(reindexJob.bytesCompleted ?? 0)}/${Number(reindexJob.bytesTotal ?? 0)})`
       : ""
+
+  // Toast once when this KB's job transitions into "completed" so a fast
+  // single-KB rebuild (where the 🔄 spin is too brief to notice) still gives
+  // visible feedback.
+  const prevReindexStatusRef = useRef<string | null>(null)
+  useEffect(() => {
+    const status = reindexJob?.status ?? null
+    if (prevReindexStatusRef.current !== "completed" && status === "completed") {
+      toast.success(t("knowledge.reindexDone", "Index rebuilt"))
+    }
+    prevReindexStatusRef.current = status
+  }, [reindexJob?.status, t])
 
   // Per-note / per-folder / per-space "rebuild index" (context menus). Index is
   // an app-side cache (not the vault files), so these work even on read-only
@@ -1057,10 +1129,11 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
         await tx.call("reindex_note_cmd", { kbId: activeKbId, path: relPath })
         toast.success(t("knowledge.reindexDone", "Index rebuilt"))
       } catch (e) {
-        toast.error(String(e))
+        logger.error("knowledge", "KnowledgeView::reindexNote", "reindex note failed", e)
+        showKnowledgeViewError("reindexNote", e, { name: relPath })
       }
     },
-    [tx, activeKbId, t],
+    [tx, activeKbId, t, showKnowledgeViewError],
   )
 
   const reindexDir = useCallback(
@@ -1070,10 +1143,11 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
         await tx.call("reindex_dir_cmd", { kbId: activeKbId, path: dirPath })
         toast.success(t("knowledge.reindexDone", "Index rebuilt"))
       } catch (e) {
-        toast.error(String(e))
+        logger.error("knowledge", "KnowledgeView::reindexDir", "reindex dir failed", e)
+        showKnowledgeViewError("reindexFolder", e, { name: dirPath })
       }
     },
-    [tx, activeKbId, t],
+    [tx, activeKbId, t, showKnowledgeViewError],
   )
 
   const reindexSpace = useCallback(
@@ -1081,10 +1155,11 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
       try {
         await tx.call("reindex_kb_cmd", { id: kbId })
       } catch (e) {
-        toast.error(String(e))
+        logger.error("knowledge", "KnowledgeView::reindexSpace", "reindex space failed", e)
+        showKnowledgeViewError("reindexSpace", e)
       }
     },
-    [tx],
+    [tx, showKnowledgeViewError],
   )
 
   // Rename/move a note's file. Backend guards traversal and re-resolves links.
@@ -1107,14 +1182,10 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
           toast.success(t("knowledge.linksRewritten", { count: outcome.linksRewritten }))
       } catch (e) {
         logger.error("knowledge", "KnowledgeView::renameNote", "rename note failed", e)
-        toast.error(
-          isRemoteWriteBlocked(e)
-            ? t("knowledge.remoteWritesDisabled", "Remote file writing is off.")
-            : t("knowledge.renameMoveFailed", { name: to }),
-        )
+        showKnowledgeViewError("renameMove", e, { name: to })
       }
     },
-    [tx, activeKbId, readOnly, openPath, loadNotes, openNote, t],
+    [tx, activeKbId, readOnly, openPath, loadNotes, openNote, t, showKnowledgeViewError],
   )
 
   const deleteNote = useCallback(
@@ -1130,13 +1201,12 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
         await loadNotes(activeKbId)
       } catch (e) {
         logger.error("knowledge", "KnowledgeView::deleteNote", "delete note failed", e)
-        if (isRemoteWriteBlocked(e))
-          toast.error(t("knowledge.remoteWritesDisabled", "Remote file writing is off."))
+        showKnowledgeViewError("deleteNote", e, { name: rel })
       } finally {
         setDeleteConfirmPath(null)
       }
     },
-    [tx, activeKbId, readOnly, openPath, loadNotes, t],
+    [tx, activeKbId, readOnly, openPath, loadNotes, showKnowledgeViewError],
   )
 
   // Desktop-only: resolve the note to an absolute path and reveal it in the OS
@@ -1149,9 +1219,10 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
         await tx.call("reveal_in_folder", { path: abs })
       } catch (e) {
         logger.error("knowledge", "KnowledgeView::revealNote", "reveal note failed", e)
+        showKnowledgeViewError("revealNote", e, { name: rel })
       }
     },
-    [tx, activeKbId, isLocal],
+    [tx, activeKbId, isLocal, showKnowledgeViewError],
   )
 
   const toggleFolder = useCallback((path: string) => {
@@ -1190,14 +1261,10 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
         )
       } catch (e) {
         logger.error("knowledge", "KnowledgeView::applyFolderMove", "rename/move folder failed", e)
-        toast.error(
-          isRemoteWriteBlocked(e)
-            ? t("knowledge.remoteWritesDisabled", "Remote file writing is off.")
-            : t("knowledge.renameMoveFailed", { name: oldPath }),
-        )
+        showKnowledgeViewError("renameMove", e, { name: oldPath })
       }
     },
-    [tx, activeKbId, readOnly, openPath, loadNotes, loadDirs, openNote, t],
+    [tx, activeKbId, readOnly, openPath, loadNotes, loadDirs, openNote, showKnowledgeViewError],
   )
 
   // Rename a folder in place (same parent, new last segment).
@@ -1240,16 +1307,12 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
         await Promise.all([loadNotes(activeKbId), loadDirs(activeKbId)])
       } catch (e) {
         logger.error("knowledge", "KnowledgeView::deleteFolder", "delete folder failed", e)
-        toast.error(
-          isRemoteWriteBlocked(e)
-            ? t("knowledge.remoteWritesDisabled", "Remote file writing is off.")
-            : t("knowledge.renameMoveFailed", { name: path }),
-        )
+        showKnowledgeViewError("deleteFolder", e, { name: path })
       } finally {
         setDeleteFolderPath(null)
       }
     },
-    [tx, activeKbId, readOnly, openPath, loadNotes, loadDirs, t],
+    [tx, activeKbId, readOnly, openPath, loadNotes, loadDirs, showKnowledgeViewError],
   )
 
   // ── Space (KB) management ──
@@ -1289,6 +1352,7 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
       await loadKbs()
     } catch (e) {
       logger.error("knowledge", "KnowledgeView::saveEditKb", "update kb failed", e)
+      showKnowledgeViewError("updateSpace", e)
     } finally {
       setKbBusy(false)
     }
@@ -1301,6 +1365,7 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
     editKbExternalRawSync,
     kbBusy,
     loadKbs,
+    showKnowledgeViewError,
   ])
 
   const syncEditKbExternalRaw = useCallback(async () => {
@@ -1339,7 +1404,7 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
       await loadKbs()
     } catch (e) {
       logger.error("knowledge", "KnowledgeView::syncEditKbExternalRaw", "external raw sync failed", e)
-      toast.error(t("knowledge.externalRawSyncFailed", "Couldn't sync source snapshots"))
+      showKnowledgeViewError("syncExternalRaw", e)
     } finally {
       setSyncingExternalRaw(false)
     }
@@ -1353,6 +1418,7 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
     syncingExternalRaw,
     loadKbs,
     t,
+    showKnowledgeViewError,
   ])
 
   const toggleArchiveKb = useCallback(
@@ -1362,9 +1428,10 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
         await loadKbs()
       } catch (e) {
         logger.error("knowledge", "KnowledgeView::toggleArchiveKb", "archive kb failed", e)
+        showKnowledgeViewError("archiveSpace", e)
       }
     },
-    [tx, loadKbs],
+    [tx, loadKbs, showKnowledgeViewError],
   )
 
   const deleteKbConfirm = useCallback(async () => {
@@ -1385,8 +1452,9 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
       await loadKbs()
     } catch (e) {
       logger.error("knowledge", "KnowledgeView::deleteKbConfirm", "delete kb failed", e)
+      showKnowledgeViewError("deleteSpace", e)
     }
-  }, [tx, deleteKb, activeKbId, loadKbs])
+  }, [tx, deleteKb, activeKbId, loadKbs, showKnowledgeViewError])
 
   // ⌘S / Ctrl+S saves the draft or the open note (intercepts the webview's
   // default "save page" so it never bubbles out of the Knowledge view).
@@ -1431,6 +1499,64 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
     }
     setPendingNav(() => action)
   }
+
+  useEffect(() => {
+    if (!pendingKnowledgeFocus) return
+    const key = JSON.stringify(pendingKnowledgeFocus)
+    if (lastKnowledgeFocusKeyRef.current === key) return
+    lastKnowledgeFocusKeyRef.current = key
+    const target = pendingKnowledgeFocus
+    const reveal: KnowledgeFocusRevealRequest = {
+      line: target.line,
+      col: target.col,
+      headingPath: target.headingPath,
+      blockId: target.blockId,
+    }
+    const hasRevealHint = !!(
+      reveal.blockId ||
+      reveal.headingPath ||
+      (reveal.line && reveal.line > 0)
+    )
+    guardNavigation(() => {
+      setActiveKbId(target.kbId)
+      if (hasRevealHint && mode === "outline") handleModeChange("source")
+      void (async () => {
+        const opened = await openNote(target.kbId, target.path, reveal)
+        setPendingKnowledgeFocus((current) =>
+          current && JSON.stringify(current) === key ? null : current,
+        )
+        lastKnowledgeFocusKeyRef.current = null
+        if (opened.ok) {
+          if (hasRevealHint && !opened.revealResolved) {
+            toast.error(
+              t(
+                "knowledge.focusLocationUnavailable",
+                "Opened the note, but the exact source location could not be found.",
+              ),
+              { description: target.path },
+            )
+          }
+          return
+        }
+        const kbKnown = kbs.some((kb) => kb.id === target.kbId)
+        const message =
+          kbs.length > 0 && !kbKnown
+            ? t(
+                "knowledge.focusKbUnavailable",
+                { defaultValue: "That knowledge space is no longer available." },
+              )
+            : t(
+                "knowledge.focusNoteUnavailable",
+                {
+                  defaultValue:
+                    "Couldn't open that knowledge note. It may have moved or access changed.",
+                },
+              )
+        const detail = knowledgeFocusErrorDescription(t, opened.error)
+        toast.error(message, { description: detail ? `${target.path}\n${detail}` : target.path })
+      })()
+    })
+  }, [pendingKnowledgeFocus, openNote, kbs, mode, handleModeChange, guardNavigation, t])
 
   // Whether `path` is (or contains) the currently open note — used to decide if a
   // rename/move would clobber unsaved edits on the open note.
@@ -1499,11 +1625,7 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
         await loadDirs(activeKbId)
       } catch (e) {
         logger.error("knowledge", "KnowledgeView::confirmNewFolder", "mkdir failed", e)
-        toast.error(
-          isRemoteWriteBlocked(e)
-            ? t("knowledge.remoteWritesDisabled", "Remote file writing is off.")
-            : t("knowledge.renameMoveFailed", { name: folder }),
-        )
+        showKnowledgeViewError("createFolder", e, { name: folder })
       }
     })()
   }
@@ -1903,7 +2025,7 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
               guardNavigation(() => void openNote(activeKbId, path, line ? { line } : undefined))
           }}
         />
-        <KnowledgeJobsButton />
+        <KnowledgeActivityButton kbs={kbs} />
         {!graphMode && (
           <IconTip
             label={
@@ -2016,6 +2138,21 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
                       ) : (
                         <Lock className="h-3 w-3 shrink-0 text-muted-foreground" />
                       ))}
+                    {isKbBusy(kb.id) ? (
+                      // A reembed/scan job (bind, per-space Reindex, or the
+                      // rare "rebuild everything") is actively running for
+                      // this space.
+                      <Loader2 className="h-3 w-3 shrink-0 animate-spin text-primary" />
+                    ) : (
+                      recentlyChangedKbIds.has(kb.id) && (
+                        // A silent watcher / startup sync just touched this
+                        // space — no job, self-clears in ~1.5s.
+                        <span className="relative flex h-1.5 w-1.5 shrink-0">
+                          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary/70" />
+                          <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-primary" />
+                        </span>
+                      )
+                    )}
                     <span className="shrink-0 text-[10px] text-muted-foreground">
                       {kb.noteCount}
                     </span>
@@ -2150,6 +2287,7 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
                 className={cn(
                   "flex-1 overflow-auto py-0.5",
                   dragOver === "" && dragItem && "bg-primary/5",
+                  noteTree.length === 0 && "flex flex-col",
                 )}
                 onDragOver={(e) => {
                   if (!dragItemRef.current || readOnly) return
@@ -2161,7 +2299,16 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
                   handleDropOn("")
                 }}
               >
-                {renderNodes(noteTree, 0)}
+                {noteTree.length === 0 ? (
+                  <KnowledgeEmptyState
+                    kb={activeKb}
+                    readOnly={readOnly}
+                    onNewNote={() => guardNavigation(() => startDraft())}
+                    onImport={() => setLeftMode("sources")}
+                  />
+                ) : (
+                  renderNodes(noteTree, 0)
+                )}
               </div>
             </>
           ) : (
@@ -2434,12 +2581,12 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
               </div>
             </>
           ) : (
-            <div className="flex flex-1 flex-col items-center justify-center gap-2 text-muted-foreground">
-              <Library className="h-10 w-10 opacity-40" />
-              <span className="text-sm">
-                {t("knowledge.emptyEditor", "Select a note to view or edit.")}
-              </span>
-            </div>
+            <KnowledgeEmptyState
+              kb={activeKb}
+              readOnly={readOnly}
+              onNewNote={() => guardNavigation(() => startDraft())}
+              onImport={() => setLeftMode("sources")}
+            />
           )}
         </div>
 
@@ -3215,13 +3362,6 @@ function buildNoteTree(notes: Note[], dirs: string[]): TreeNode[] {
   }
   sort(root)
   return root
-}
-
-// Detect the HTTP write-gate rejection (filesystem.allowRemoteWrites = false) so
-// we can point the user at the toggle instead of a generic "failed".
-function isRemoteWriteBlocked(e: unknown): boolean {
-  const msg = e instanceof Error ? e.message : String(e)
-  return /allowremotewrites|remote file writes are disabled/i.test(msg)
 }
 
 // First ATX H1 in the body, skipping a leading YAML frontmatter block. Used to

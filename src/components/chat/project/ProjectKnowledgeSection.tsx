@@ -1,12 +1,18 @@
 import { useCallback, useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { Library, Loader2, Lock } from "lucide-react"
+import { CircleAlert, Library, Loader2, Lock } from "lucide-react"
+import { toast } from "sonner"
 
 import { Label } from "@/components/ui/label"
 import { KbAccessControl } from "@/components/knowledge/KbAccessControl"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import type { KbAccess, KbAttachment, KnowledgeBaseMeta } from "@/types/knowledge"
+import {
+  projectKnowledgeLoadErrorToast,
+  projectKnowledgeUpdateErrorToast,
+  type ProjectKnowledgeToast,
+} from "./projectKnowledgeFeedback"
 
 /**
  * Project-level knowledge-space attach control (design D10). Mirrors the chat
@@ -22,9 +28,11 @@ export default function ProjectKnowledgeSection({ projectId }: { projectId: stri
   const [attachments, setAttachments] = useState<KbAttachment[]>([])
   const [loading, setLoading] = useState(false)
   const [busyId, setBusyId] = useState<string | null>(null)
+  const [loadError, setLoadError] = useState<ProjectKnowledgeToast | null>(null)
 
   const load = useCallback(() => {
     setLoading(true)
+    setLoadError(null)
     Promise.all([
       getTransport().call<KnowledgeBaseMeta[]>("list_kbs_cmd", { includeArchived: false }),
       getTransport().call<KbAttachment[]>("list_project_kbs_cmd", { projectId }),
@@ -32,10 +40,14 @@ export default function ProjectKnowledgeSection({ projectId }: { projectId: stri
       .then(([all, att]) => {
         setKbs(all)
         setAttachments(att)
+        setLoadError(null)
       })
-      .catch((e) => logger.error("project", "ProjectKnowledgeSection::load", "load failed", e))
+      .catch((e) => {
+        logger.error("project", "ProjectKnowledgeSection::load", "load failed", e)
+        setLoadError(projectKnowledgeLoadErrorToast(t, e))
+      })
       .finally(() => setLoading(false))
-  }, [projectId])
+  }, [projectId, t])
 
   useEffect(() => {
     load()
@@ -58,11 +70,16 @@ export default function ProjectKnowledgeSection({ projectId }: { projectId: stri
         load()
       } catch (e) {
         logger.error("project", "ProjectKnowledgeSection::setAttach", "attach/detach failed", e)
+        const failure = projectKnowledgeUpdateErrorToast(t, e)
+        toast.error(
+          failure.title,
+          failure.description ? { description: failure.description } : undefined,
+        )
       } finally {
         setBusyId(null)
       }
     },
-    [projectId, load],
+    [projectId, load, t],
   )
 
   return (
@@ -78,11 +95,12 @@ export default function ProjectKnowledgeSection({ projectId }: { projectId: stri
           "Attached spaces let this project's chats search and cite their notes.",
         )}
       </p>
-      {kbs.length === 0 ? (
+      {loadError && <ProjectKnowledgeWarning failure={loadError} />}
+      {kbs.length === 0 && !loading && !loadError ? (
         <p className="rounded-md border border-border/60 px-3 py-2 text-xs text-muted-foreground">
           {t("knowledge.picker.empty", "No knowledge spaces yet.")}
         </p>
-      ) : (
+      ) : kbs.length > 0 ? (
         <div className="flex max-h-52 flex-col gap-0.5 overflow-y-auto rounded-md border border-border/60 p-1">
           {kbs.map((kb) => {
             const att = attachmentFor(kb.id)
@@ -115,7 +133,19 @@ export default function ProjectKnowledgeSection({ projectId }: { projectId: stri
             )
           })}
         </div>
-      )}
+      ) : null}
+    </div>
+  )
+}
+
+function ProjectKnowledgeWarning({ failure }: { failure: ProjectKnowledgeToast }) {
+  return (
+    <div className="flex gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs leading-relaxed text-amber-800 dark:text-amber-200">
+      <CircleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+      <div className="min-w-0">
+        <div className="font-medium">{failure.title}</div>
+        {failure.description && <div className="mt-0.5 break-words opacity-85">{failure.description}</div>}
+      </div>
     </div>
   )
 }

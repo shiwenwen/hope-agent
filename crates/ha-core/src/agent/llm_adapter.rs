@@ -409,18 +409,18 @@ impl<'a> LlmApiAdapter for CodexAdapter<'a> {
             Ok(parsed) => parsed,
             Err(e) => {
                 app_warn!(
-                        "agent",
-                        "codex_one_shot",
-                        "Codex one-shot SSE parse failed: model={} has_token={} has_account_id={} instructions_present={} input_count={} tool_count={} body={}B err={}",
-                        self.model,
-                        !self.token.is_empty(),
-                        !self.account_id.is_empty(),
-                        instructions_present,
-                        input_count,
-                        tool_count,
-                        body_size,
-                        e
-                    );
+                    "agent",
+                    "codex_one_shot",
+                    "Codex one-shot SSE parse failed: model={} has_token={} has_account_id={} instructions_present={} input_count={} tool_count={} body={}B err={}",
+                    self.model,
+                    !self.token.is_empty(),
+                    !self.account_id.is_empty(),
+                    instructions_present,
+                    input_count,
+                    tool_count,
+                    body_size,
+                    e
+                );
                 return Err(e);
             }
         };

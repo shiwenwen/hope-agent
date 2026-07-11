@@ -7,6 +7,10 @@ import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import MarkdownRenderer from "@/components/common/MarkdownRenderer"
 import NeedsReviewQueue from "./NeedsReviewQueue"
+import {
+  dreamingOperationErrorToast,
+  type DreamingOperationErrorToast,
+} from "./dreamingOperationFeedback"
 
 interface DiaryEntry {
   filename: string
@@ -26,6 +30,25 @@ interface DreamReport {
   diaryPath?: string | null
   durationMs: number
   note?: string | null
+}
+
+interface ResolverPreflightReport {
+  generatedAt: string
+  dreamingEnabled: boolean
+  longTermMemoryEnabled: boolean
+  manualEnabled: boolean
+  autoExpireOnLightCycle: boolean
+  canRunManual: boolean
+  activeClaimCount: number
+  expiredCandidateCount: number
+  conflictGroupCount: number
+  groupsToAnalyze: number
+  groupCap: number
+  truncated: boolean
+  wouldCallLlm: boolean
+  wouldWriteExpirations: boolean
+  blockingReasons: string[]
+  loadError?: string | null
 }
 
 // Durable run record — mirrors ha-core `DreamingRunRecord` (camelCase).
@@ -102,6 +125,32 @@ const STATUS_DOT: Record<string, string> = {
   skipped: "bg-muted-foreground/50",
 }
 
+function resolverBlockReasonLabel(
+  reason: string,
+  t: (key: string, options?: Record<string, unknown>) => string,
+): string {
+  switch (reason) {
+    case "dreaming_disabled":
+      return t("dashboard.dreaming.resolverPreflightReasons.dreamingDisabled", {
+        defaultValue: "Dreaming off",
+      })
+    case "long_term_memory_disabled":
+      return t("dashboard.dreaming.resolverPreflightReasons.longTermMemoryDisabled", {
+        defaultValue: "Memory learning off",
+      })
+    case "manual_disabled":
+      return t("dashboard.dreaming.resolverPreflightReasons.manualDisabled", {
+        defaultValue: "Manual runs off",
+      })
+    case "claim_load_failed":
+      return t("dashboard.dreaming.resolverPreflightReasons.claimLoadFailed", {
+        defaultValue: "Claims unavailable",
+      })
+    default:
+      return reason.replace(/_/g, " ")
+  }
+}
+
 // Evidence chips for one decision, with an authorized expand for session
 // sources. The quote is resolved server-side (incognito-gated + redacted),
 // so the control never reveals anything the backend wouldn't.
@@ -109,6 +158,7 @@ function DecisionEvidence({ refs }: { refs: EvidenceRef[] }) {
   const { t } = useTranslation()
   const [openIdx, setOpenIdx] = useState<number | null>(null)
   const [quote, setQuote] = useState<EvidenceQuote | null>(null)
+  const [quoteError, setQuoteError] = useState<DreamingOperationErrorToast | null>(null)
   const [loadingQuote, setLoadingQuote] = useState(false)
 
   if (refs.length === 0) return null
@@ -120,6 +170,7 @@ function DecisionEvidence({ refs }: { refs: EvidenceRef[] }) {
     }
     setOpenIdx(idx)
     setQuote(null)
+    setQuoteError(null)
     setLoadingQuote(true)
     try {
       const q = await getTransport().call<EvidenceQuote>("dreaming_evidence_quote", {
@@ -127,9 +178,11 @@ function DecisionEvidence({ refs }: { refs: EvidenceRef[] }) {
         messageId: messageId ?? undefined,
       })
       setQuote(q ?? null)
+      setQuoteError(null)
     } catch (e) {
       logger.error("dashboard", "DreamingTab::evidence", "Failed to load evidence quote", e)
       setQuote(null)
+      setQuoteError(dreamingOperationErrorToast("loadEvidenceQuote", t, e))
     } finally {
       setLoadingQuote(false)
     }
@@ -189,6 +242,15 @@ function DecisionEvidence({ refs }: { refs: EvidenceRef[] }) {
               <Loader2 className="h-3 w-3 animate-spin" />
               {t("common.loading")}
             </span>
+          ) : quoteError ? (
+            <div>
+              <div className="font-medium text-foreground">{quoteError.title}</div>
+              {quoteError.description && (
+                <div className="mt-0.5 break-all text-muted-foreground">
+                  {quoteError.description}
+                </div>
+              )}
+            </div>
           ) : quote?.available ? (
             <div className="space-y-0.5">
               {quote.role && (
@@ -221,9 +283,20 @@ export default function DreamingTab() {
   const [loading, setLoading] = useState(false)
   const [running, setRunning] = useState(false)
   const [resolving, setResolving] = useState(false)
+  const [resolverPreflight, setResolverPreflight] = useState<ResolverPreflightReport | null>(null)
+  const [resolverPreflightLoading, setResolverPreflightLoading] = useState(false)
+  const [resolverPreflightError, setResolverPreflightError] =
+    useState<DreamingOperationErrorToast | null>(null)
   const [runs, setRuns] = useState<DreamingRun[]>([])
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null)
   const [runDetail, setRunDetail] = useState<DreamingRunDetail | null>(null)
+  const [diaryListError, setDiaryListError] =
+    useState<DreamingOperationErrorToast | null>(null)
+  const [runListError, setRunListError] = useState<DreamingOperationErrorToast | null>(null)
+  const [runDetailError, setRunDetailError] =
+    useState<DreamingOperationErrorToast | null>(null)
+  const [diaryContentError, setDiaryContentError] =
+    useState<DreamingOperationErrorToast | null>(null)
   // Ephemeral note from the most recent manual run that was skipped before a
   // durable row existed (cleared when a real cycle completes).
   const [skipNotice, setSkipNotice] = useState<string | null>(null)
@@ -238,10 +311,12 @@ export default function DreamingTab() {
         { limit: 100 },
       )
       setDiaries(list ?? [])
+      setDiaryListError(null)
     } catch (e) {
       logger.error("dashboard", "DreamingTab::list", "Failed to list diaries", e)
+      setDiaryListError(dreamingOperationErrorToast("loadDiaries", t, e))
     }
-  }, [])
+  }, [t])
 
   // Durable run history — the source of truth for the status summary, so it
   // survives a restart (the old `dreaming_last_report` was process-local).
@@ -251,10 +326,34 @@ export default function DreamingTab() {
         limit: 20,
       })
       setRuns(list ?? [])
+      setRunListError(null)
     } catch (e) {
       logger.error("dashboard", "DreamingTab::runs", "Failed to list runs", e)
+      setRunListError(dreamingOperationErrorToast("loadRuns", t, e))
     }
-  }, [])
+  }, [t])
+
+  const loadResolverPreflight = useCallback(async () => {
+    setResolverPreflightLoading(true)
+    try {
+      const report = await getTransport().call<ResolverPreflightReport>(
+        "dreaming_resolver_preflight",
+      )
+      setResolverPreflight(report ?? null)
+      setResolverPreflightError(null)
+    } catch (e) {
+      logger.error(
+        "dashboard",
+        "DreamingTab::resolverPreflight",
+        "Failed to load resolver preflight",
+        e,
+      )
+      setResolverPreflight(null)
+      setResolverPreflightError(dreamingOperationErrorToast("resolverPreflight", t, e))
+    } finally {
+      setResolverPreflightLoading(false)
+    }
+  }, [t])
 
   const loadRunDetail = useCallback(async (runId: string) => {
     try {
@@ -263,11 +362,13 @@ export default function DreamingTab() {
         { id: runId },
       )
       setRunDetail(detail ?? null)
+      setRunDetailError(null)
     } catch (e) {
       logger.error("dashboard", "DreamingTab::runDetail", "Failed to load run", e)
       setRunDetail(null)
+      setRunDetailError(dreamingOperationErrorToast("loadRunDetail", t, e))
     }
-  }, [])
+  }, [t])
 
   const loadContent = useCallback(async (filename: string) => {
     try {
@@ -282,11 +383,13 @@ export default function DreamingTab() {
             ? res.content
             : ""
       setContent(text ?? "")
+      setDiaryContentError(null)
     } catch (e) {
       logger.error("dashboard", "DreamingTab::read", "Failed to read diary", e)
       setContent("")
+      setDiaryContentError(dreamingOperationErrorToast("loadDiary", t, e))
     }
-  }, [])
+  }, [t])
 
   const refreshStatus = useCallback(async () => {
     try {
@@ -308,9 +411,11 @@ export default function DreamingTab() {
       // A real cycle gets a durable row (shown in history); a skipped run has
       // no runId — surface its note so the click isn't silent.
       setSkipNotice(report && !report.runId ? report.note ?? null : null)
-      await Promise.all([loadDiaries(), loadRuns()])
+      await Promise.all([loadDiaries(), loadRuns(), loadResolverPreflight()])
     } catch (e) {
       logger.error("dashboard", "DreamingTab::run", "Run-now failed", e)
+      const failure = dreamingOperationErrorToast("runNow", t, e)
+      toast.error(failure.title, failure.description ? { description: failure.description } : undefined)
     } finally {
       setRunning(false)
       setLoading(false)
@@ -342,10 +447,11 @@ export default function DreamingTab() {
           })
         )
       }
-      await loadRuns()
+      await Promise.all([loadRuns(), loadResolverPreflight()])
     } catch (e) {
       logger.error("dashboard", "DreamingTab::resolver", "Resolver failed", e)
-      toast.error(t("dashboard.dreaming.resolverFailed"))
+      const failure = dreamingOperationErrorToast("runResolver", t, e)
+      toast.error(failure.title, failure.description ? { description: failure.description } : undefined)
     } finally {
       setResolving(false)
     }
@@ -354,15 +460,18 @@ export default function DreamingTab() {
   useEffect(() => {
     loadDiaries()
     loadRuns()
+    loadResolverPreflight()
     refreshStatus()
     const unlistenComplete = getTransport().listen("dreaming:cycle_complete", () => {
       setSkipNotice(null) // a real cycle ran — clear any stale skip notice
       loadDiaries()
       loadRuns()
+      loadResolverPreflight()
       refreshStatus()
     })
     const unlistenStarted = getTransport().listen("dreaming:cycle_started", () => {
       loadRuns()
+      loadResolverPreflight()
       refreshStatus()
     })
     // User corrections create `user_correction` runs (audit log) but emit
@@ -370,13 +479,14 @@ export default function DreamingTab() {
     // action shows up alongside pipeline runs.
     const unlistenClaim = getTransport().listen("memory:claim_changed", () => {
       loadRuns()
+      loadResolverPreflight()
     })
     return () => {
       unlistenComplete()
       unlistenStarted()
       unlistenClaim()
     }
-  }, [loadDiaries, loadRuns, refreshStatus])
+  }, [loadDiaries, loadResolverPreflight, loadRuns, refreshStatus])
 
   useEffect(() => {
     const sync = async () => {
@@ -410,10 +520,21 @@ export default function DreamingTab() {
 
   useEffect(() => {
     if (selectedRunId) void loadRunDetail(selectedRunId)
-    else setRunDetail(null)
+    else {
+      setRunDetail(null)
+      setRunDetailError(null)
+    }
   }, [selectedRunId, loadRunDetail])
 
   const latest = runs[0] ?? null
+  const recentCorrectionRuns = runs
+    .filter((run) => run.trigger === "user_correction")
+    .slice(0, 5)
+  const resolverBlocked = !!resolverPreflight && !resolverPreflight.canRunManual
+  const resolverBlockReasons =
+    resolverPreflight?.blockingReasons
+      .map((reason) => resolverBlockReasonLabel(reason, t))
+      .join(", ") ?? ""
 
   return (
     <div className="flex flex-col gap-4 mt-4">
@@ -432,6 +553,7 @@ export default function DreamingTab() {
             onClick={() => {
               loadDiaries()
               loadRuns()
+              loadResolverPreflight()
               refreshStatus()
             }}
             disabled={loading}
@@ -459,7 +581,7 @@ export default function DreamingTab() {
               size="sm"
               variant="outline"
               onClick={handleRunResolver}
-              disabled={resolving || running}
+              disabled={resolving || running || resolverBlocked}
             >
               {resolving ? (
                 <>
@@ -483,6 +605,79 @@ export default function DreamingTab() {
         </div>
       )}
 
+      <div className="rounded-lg border border-border/60 bg-secondary/10 px-3 py-2 text-xs">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="min-w-0">
+            <div className="font-medium text-foreground">
+              {t("dashboard.dreaming.resolverPreflightTitle", "Deep Resolver preflight")}
+            </div>
+            <div className="mt-0.5 text-muted-foreground">
+              {resolverPreflight ? (
+                resolverPreflight.canRunManual ? (
+                  t("dashboard.dreaming.resolverPreflightSummary", {
+                    defaultValue:
+                      "{{active}} active claims · {{expired}} expired candidates · {{groups}} conflict groups",
+                    active: resolverPreflight.activeClaimCount,
+                    expired: resolverPreflight.expiredCandidateCount,
+                    groups: resolverPreflight.conflictGroupCount,
+                  })
+                ) : (
+                  t("dashboard.dreaming.resolverPreflightBlocked", {
+                    defaultValue: "Resolver blocked: {{reasons}}",
+                    reasons: resolverBlockReasons,
+                  })
+                )
+              ) : resolverPreflightLoading ? (
+                t("common.loading")
+              ) : resolverPreflightError ? (
+                resolverPreflightError.title
+              ) : (
+                t("dashboard.dreaming.resolverPreflightUnavailable", "Preflight unavailable.")
+              )}
+            </div>
+            {resolverPreflight?.canRunManual && (
+              <div className="mt-0.5 text-[11px] text-muted-foreground">
+                {resolverPreflight.wouldCallLlm
+                  ? t("dashboard.dreaming.resolverPreflightLlm", {
+                      defaultValue: "{{count}}/{{total}} groups would use LLM · cap {{cap}}",
+                      count: resolverPreflight.groupsToAnalyze,
+                      total: resolverPreflight.conflictGroupCount,
+                      cap: resolverPreflight.groupCap,
+                    })
+                  : t(
+                      "dashboard.dreaming.resolverPreflightNoLlm",
+                      "No LLM group call expected.",
+                    )}
+                {resolverPreflight.truncated && (
+                  <span className="ml-1">
+                    {t("dashboard.dreaming.resolverPreflightTruncated", "Will continue next run.")}
+                  </span>
+                )}
+              </div>
+            )}
+            {resolverPreflightError?.description && (
+              <div className="mt-1 break-all text-[11px] text-muted-foreground">
+                {resolverPreflightError.description}
+              </div>
+            )}
+          </div>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-7"
+            disabled={resolverPreflightLoading}
+            onClick={() => void loadResolverPreflight()}
+          >
+            {resolverPreflightLoading ? (
+              <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
+            ) : (
+              <RefreshCw className="h-3.5 w-3.5 mr-1" />
+            )}
+            {t("dashboard.dreaming.resolverPreflightRefresh", "Refresh plan")}
+          </Button>
+        </div>
+      </div>
+
       {latest && (
         <div className="rounded-lg border border-border/60 bg-secondary/20 p-3 text-xs space-y-1">
           <div className="font-medium flex items-center gap-2">
@@ -502,6 +697,46 @@ export default function DreamingTab() {
         </div>
       )}
 
+      <div className="rounded-lg border border-border/60 bg-secondary/10 p-3 text-xs space-y-2">
+        <div className="font-medium flex items-center gap-2">
+          <span className="h-2 w-2 rounded-full bg-sky-500" />
+          {t("dashboard.dreaming.trigger.user_correction")} ·{" "}
+          {t("dashboard.dreaming.runs.decisions")}
+        </div>
+        {recentCorrectionRuns.length === 0 ? (
+          <div className="text-muted-foreground">
+            {t("dashboard.dreaming.runs.empty")}
+          </div>
+        ) : (
+          <div className="grid gap-1.5">
+            {recentCorrectionRuns.map((run) => (
+              <button
+                key={run.id}
+                onClick={() => setSelectedRunId(run.id)}
+                className={`w-full rounded border border-border/40 px-2 py-1.5 text-left transition-colors hover:bg-secondary/40 ${
+                  selectedRunId === run.id ? "bg-secondary/60" : "bg-background/40"
+                }`}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="truncate text-foreground">
+                    {new Date(run.startedAt).toLocaleString()}
+                  </span>
+                  <span className="shrink-0 text-[10px] text-muted-foreground">
+                    {t(`dashboard.dreaming.runs.status.${run.status}`, run.status)} ·{" "}
+                    {run.decisionCount}
+                  </span>
+                </div>
+                {run.note && (
+                  <div className="mt-0.5 truncate text-[10px] text-muted-foreground">
+                    {run.note}
+                  </div>
+                )}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
       {/* Lucid Review queue — claims flagged needs_review, with the full
           correction toolbar (approve / edit / reject / move-scope / forget). */}
       <NeedsReviewQueue />
@@ -512,6 +747,16 @@ export default function DreamingTab() {
           <div className="px-3 py-2 border-b border-border/60 bg-secondary/20 text-xs font-medium">
             {t("dashboard.dreaming.runs.title")} ({runs.length})
           </div>
+          {runListError && (
+            <div className="border-b border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs">
+              <div className="font-medium text-foreground">{runListError.title}</div>
+              {runListError.description && (
+                <div className="mt-1 break-all text-muted-foreground">
+                  {runListError.description}
+                </div>
+              )}
+            </div>
+          )}
           <div className="max-h-[260px] overflow-y-auto">
             {runs.length === 0 ? (
               <div className="px-3 py-6 text-xs text-muted-foreground text-center">
@@ -595,9 +840,22 @@ export default function DreamingTab() {
               )}
             </div>
           ) : (
-            <div className="text-xs text-muted-foreground text-center py-12">
-              {t("dashboard.dreaming.runs.selectRun")}
-            </div>
+            <>
+              {selectedRunId && runDetailError ? (
+                <div className="py-12 text-center text-xs">
+                  <div className="font-medium text-foreground">{runDetailError.title}</div>
+                  {runDetailError.description && (
+                    <div className="mt-1 break-all text-muted-foreground">
+                      {runDetailError.description}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="text-xs text-muted-foreground text-center py-12">
+                  {t("dashboard.dreaming.runs.selectRun")}
+                </div>
+              )}
+            </>
           )}
         </div>
       </div>
@@ -607,6 +865,16 @@ export default function DreamingTab() {
           <div className="px-3 py-2 border-b border-border/60 bg-secondary/20 text-xs font-medium">
             {t("dashboard.dreaming.diaryList")} ({diaries.length})
           </div>
+          {diaryListError && (
+            <div className="border-b border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs">
+              <div className="font-medium text-foreground">{diaryListError.title}</div>
+              {diaryListError.description && (
+                <div className="mt-1 break-all text-muted-foreground">
+                  {diaryListError.description}
+                </div>
+              )}
+            </div>
+          )}
           <div className="max-h-[600px] overflow-y-auto">
             {diaries.length === 0 ? (
               <div className="px-3 py-6 text-xs text-muted-foreground text-center">
@@ -635,9 +903,22 @@ export default function DreamingTab() {
           {content ? (
             <MarkdownRenderer content={content} />
           ) : (
-            <div className="text-xs text-muted-foreground text-center py-12">
-              {t("dashboard.dreaming.selectDiary")}
-            </div>
+            <>
+              {selected && diaryContentError ? (
+                <div className="py-12 text-center text-xs">
+                  <div className="font-medium text-foreground">{diaryContentError.title}</div>
+                  {diaryContentError.description && (
+                    <div className="mt-1 break-all text-muted-foreground">
+                      {diaryContentError.description}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="text-xs text-muted-foreground text-center py-12">
+                  {t("dashboard.dreaming.selectDiary")}
+                </div>
+              )}
+            </>
           )}
         </div>
       </div>

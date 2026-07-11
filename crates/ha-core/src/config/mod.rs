@@ -18,7 +18,7 @@ pub use persistence::{
 
 use serde::{Deserialize, Serialize};
 
-use crate::provider::{ActiveModel, ProviderConfig, ProxyConfig};
+use crate::provider::{ActiveModel, ModelChain, ProviderConfig, ProxyConfig};
 
 // ── Shortcut Config ─────────────────────────────────────────────
 
@@ -727,6 +727,10 @@ fn default_default_agent_id() -> Option<String> {
     Some(crate::agent_loader::DEFAULT_AGENT_ID.to_string())
 }
 
+fn default_reasoning_effort() -> String {
+    "medium".to_string()
+}
+
 pub(crate) fn default_tool_timeout() -> u64 {
     0
 }
@@ -777,10 +781,19 @@ fn default_recap_cache_retention_days() -> u32 {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RecapConfig {
-    /// Agent ID used to extract per-session facets and generate report sections.
-    /// `None` inherits the global default agent.
+    /// Deprecated — superseded by `model_override`. Agent ID used to extract
+    /// per-session facets and generate report sections. Kept for backward
+    /// compatibility: still consulted (resolved to an equivalent
+    /// `ModelChain` via the agent's own model config) when `model_override`
+    /// is unset, so existing configurations keep working, but the GUI no
+    /// longer writes this field.
     #[serde(default)]
     pub analysis_agent: Option<String>,
+    /// Model chain override for facet extraction and report section
+    /// generation. `None` = fall through to `function_models.automation`
+    /// (or the deprecated `analysis_agent`, if still set) → chat default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_override: Option<crate::provider::ModelChain>,
     /// Output language for generated reports. `None` or "auto" follows the
     /// global UI language (`AppConfig.language`, which itself may be "auto" →
     /// system locale). A specific locale code (e.g. "zh", "en") overrides it.
@@ -804,6 +817,7 @@ impl Default for RecapConfig {
     fn default() -> Self {
         Self {
             analysis_agent: None,
+            model_override: None,
             language: None,
             default_range_days: default_recap_default_range_days(),
             max_sessions_per_report: default_recap_max_sessions_per_report(),
@@ -1011,6 +1025,14 @@ pub struct AppConfig {
     /// toggles + auto-approve for the proposal review queue. Disabled by default.
     #[serde(default)]
     pub knowledge_maintenance: crate::knowledge::maintenance::MaintenanceConfig,
+    /// Model selection for Knowledge's vision-capable ingestion (image OCR
+    /// import); see `crate::automation::run_vision`.
+    #[serde(default)]
+    pub knowledge_vision: crate::knowledge::KnowledgeVisionConfig,
+    /// Model selection for the standalone note-authoring tools (note_distill /
+    /// note_moc / session_to_note).
+    #[serde(default)]
+    pub note_tools: crate::knowledge::NoteToolsConfig,
     /// Read bridge ③ — passive related-notes prompt (Phase 3, D7): each user turn
     /// surfaces the top accessible-KB note titles as an independent untrusted
     /// cache block. Enabled by default because it is retrieval-only, title-only,
@@ -1056,6 +1078,11 @@ pub struct AppConfig {
     /// Memory deduplication thresholds
     #[serde(default)]
     pub dedup: crate::memory::DedupConfig,
+    /// Additive external memory providers. Default disabled; local memory
+    /// remains the source of truth and agent-plane recall/write paths ignore
+    /// this until a concrete owner-approved adapter is wired.
+    #[serde(default)]
+    pub memory_providers: crate::memory::ExternalMemoryProvidersConfig,
     /// Hybrid search weight configuration
     #[serde(default)]
     pub hybrid_search: crate::memory::HybridSearchConfig,
@@ -1171,6 +1198,11 @@ pub struct AppConfig {
     /// Can be overridden at the agent level or session level.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub temperature: Option<f64>,
+
+    /// Global default Think / reasoning effort. Agent and Session values may
+    /// override this, but Session-bound turns never mutate it.
+    #[serde(default = "default_reasoning_effort")]
+    pub reasoning_effort: String,
 
     /// Whether to use a dedicated sub-agent for plan creation (Planning phase).
     /// When true, planning runs in an isolated sub-agent (saves main agent context).
@@ -1327,6 +1359,14 @@ pub struct FunctionModelsConfig {
     /// text-only. `None` = bridge disabled (drop image + placeholder, as before).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub vision: Option<ActiveModel>,
+    /// Default model chain for background/automation tasks (Recap, Dreaming,
+    /// Knowledge Compile, Skills auto_review, Hooks `prompt` handler, Smart
+    /// mode judge, session title, memory extraction, compaction summarizer —
+    /// see `crate::automation`). `None` = fall through to the chat `active_model`
+    /// / `fallback_models` chain. Independent of the main chat model so a
+    /// cheaper/faster model can be dedicated to these one-shot calls.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub automation: Option<ModelChain>,
 }
 
 // ── Local LLM (Ollama) auto-maintenance ─────────────────────────────
@@ -1377,6 +1417,8 @@ impl Default for AppConfig {
             knowledge_search: crate::knowledge::KnowledgeSearchConfig::default(),
             knowledge_compile: crate::knowledge::KnowledgeCompileConfig::default(),
             knowledge_maintenance: crate::knowledge::maintenance::MaintenanceConfig::default(),
+            knowledge_vision: crate::knowledge::KnowledgeVisionConfig::default(),
+            note_tools: crate::knowledge::NoteToolsConfig::default(),
             knowledge_passive_recall: crate::knowledge::PassiveRecallConfig::default(),
             knowledge_media_retention: crate::knowledge::KnowledgeMediaRetentionConfig::default(),
             embedding: crate::memory::EmbeddingConfig::default(),
@@ -1384,6 +1426,7 @@ impl Default for AppConfig {
             memory_selection: crate::memory::MemorySelectionConfig::default(),
             memory_budget: crate::memory::MemoryBudgetConfig::default(),
             dedup: crate::memory::DedupConfig::default(),
+            memory_providers: crate::memory::ExternalMemoryProvidersConfig::default(),
             hybrid_search: crate::memory::HybridSearchConfig::default(),
             temporal_decay: crate::memory::TemporalDecayConfig::default(),
             mmr: crate::memory::MmrConfig::default(),
@@ -1420,6 +1463,7 @@ impl Default for AppConfig {
             quick_prompts: QuickPromptConfig::default(),
             plans_directory: None,
             temperature: None,
+            reasoning_effort: default_reasoning_effort(),
             plan_subagent: false,
             ask_user_question_timeout_enabled: false,
             ask_user_question_timeout_secs: default_ask_user_question_timeout(),

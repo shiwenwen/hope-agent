@@ -7,24 +7,40 @@ use super::{
 use anyhow::{anyhow, Result};
 
 /// Clean each word (keep alphanumeric / `_` / `-`), wrap non-empty results in
-/// double quotes for FTS5 MATCH literal matching, and OR-join them. Returns
-/// `None` when no usable term remains — callers short-circuit to an empty
-/// result set instead of running an unbounded full-index scan.
+/// double quotes for FTS5 MATCH literal matching, and AND-join independent
+/// terms. Prefix variants are reserved for identifiers and very short tokens;
+/// adding `term*` to every natural-language word turns ordinary multi-word
+/// queries into a broad OR scan on large indexes.
 fn format_fts_terms<'a, I: Iterator<Item = &'a str>>(words: I) -> Option<String> {
-    let terms: Vec<String> = words
-        .filter_map(|w| {
-            let clean: String = w
-                .chars()
-                .filter(|c| c.is_alphanumeric() || *c == '_' || *c == '-')
-                .collect();
-            (!clean.is_empty()).then(|| format!("\"{}\"", clean))
-        })
-        .collect();
+    let mut groups: Vec<String> = Vec::new();
 
-    if terms.is_empty() {
+    for word in words {
+        let clean: String = word
+            .chars()
+            .filter(|c| c.is_alphanumeric() || *c == '_' || *c == '-')
+            .collect();
+        if clean.is_empty() {
+            continue;
+        }
+
+        let exact = format!("\"{}\"", clean);
+        let char_count = clean.chars().count();
+        let needs_prefix = clean.contains('_') || clean.contains('-') || char_count <= 2;
+        let group = if needs_prefix && char_count > 1 {
+            let prefix = format!("\"{}\"*", clean);
+            format!("({exact} OR {prefix})")
+        } else {
+            exact
+        };
+        if !groups.contains(&group) {
+            groups.push(group);
+        }
+    }
+
+    if groups.is_empty() {
         None
     } else {
-        Some(terms.join(" OR "))
+        Some(groups.join(" AND "))
     }
 }
 
@@ -73,6 +89,36 @@ pub fn load_embedding_cache_config() -> EmbeddingCacheConfig {
     crate::config::cached_config().embedding_cache.clone()
 }
 
+/// Adaptive lexical weights for hybrid RRF. A sparse lexical arm usually
+/// represents an exact identifier / phrase hit and must not be displaced by a
+/// broad vector neighborhood merely because the configured vector weight is
+/// numerically larger. Broad lexical result sets keep the configured weights
+/// unchanged.
+pub(crate) fn adaptive_lexical_rrf_weights(
+    text_weight: f32,
+    vector_weight: f32,
+    primary_count: usize,
+    literal_count: usize,
+    final_limit: usize,
+) -> (f64, f64) {
+    let text_weight = text_weight.max(0.0) as f64;
+    let vector_weight = vector_weight.max(0.0) as f64;
+    let precision_boost = vector_weight + text_weight.max(0.05);
+    let primary_weight = text_weight
+        + if primary_count > 0 && primary_count <= final_limit {
+            precision_boost
+        } else {
+            0.0
+        };
+    let literal_weight = text_weight * 0.5
+        + if primary_count == 0 && literal_count > 0 && literal_count <= final_limit {
+            precision_boost
+        } else {
+            0.0
+        };
+    (primary_weight, literal_weight)
+}
+
 /// Apply the current embedding config to the in-memory backend, if present.
 ///
 /// Config writes happen in several shells (Tauri commands, HTTP routes, and
@@ -115,6 +161,43 @@ pub fn list_embedding_model_configs() -> Vec<EmbeddingModelConfig> {
 pub fn get_memory_embedding_state() -> EmbeddingSelectionState {
     let store = crate::config::cached_config();
     memory_embedding_state(&store.memory_embedding, &store.embedding_models)
+}
+
+pub fn get_external_memory_provider_preflight() -> ExternalMemoryProviderPreflightReport {
+    let cfg = crate::memory::hydrate_external_memory_provider_config(
+        crate::config::cached_config().memory_providers.clone(),
+    );
+    let (stats, stats_error) = external_memory_provider_stats_for_planning();
+    cfg.sync_preflight_with_stats_status(&stats, stats_error)
+}
+
+pub async fn run_external_memory_provider_sync() -> ExternalMemoryProviderSyncReport {
+    let cfg = crate::config::cached_config().memory_providers.clone();
+    let (stats, stats_error) =
+        crate::blocking::run_blocking(external_memory_provider_stats_for_planning).await;
+    crate::memory::execute_external_memory_provider_sync(cfg, stats, stats_error).await
+}
+
+pub(crate) fn external_memory_provider_stats_for_planning() -> (MemoryStats, Option<String>) {
+    let stats_result = match crate::get_memory_backend() {
+        Some(backend) => backend.stats(None).map_err(|err| err.to_string()),
+        None => Err("memory backend unavailable".to_string()),
+    };
+    let (stats, stats_error) = match stats_result {
+        Ok(stats) => (stats, None),
+        Err(err) => (
+            MemoryStats {
+                total: 0,
+                by_type: std::collections::HashMap::new(),
+                by_source: std::collections::HashMap::new(),
+                with_embedding: 0,
+                oldest: None,
+                newest: None,
+            },
+            Some(err),
+        ),
+    };
+    (stats, stats_error)
 }
 
 pub fn active_embedding_signature() -> Option<String> {
@@ -488,4 +571,47 @@ pub(crate) fn expand_query(query: &str) -> Option<String> {
         lower.len() > 1 && !stopwords_en.contains(lower.as_str()) && !stopwords_zh.contains(*w)
     }))
     .or_else(|| sanitize_fts_query(query))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn expand_query_adds_prefix_terms_for_identifier_fragments() {
+        let query = expand_query("prepare_messages").expect("query should be usable");
+        assert!(query.contains("\"prepare_messages\""));
+        assert!(query.contains("\"prepare_messages\"*"));
+    }
+
+    #[test]
+    fn expand_query_keeps_chinese_short_terms_searchable() {
+        let query = expand_query("中文").expect("query should be usable");
+        assert!(query.contains("\"中文\""));
+        assert!(query.contains("\"中文\"*"));
+    }
+
+    #[test]
+    fn expand_query_requires_all_normal_words_without_prefix_scans() {
+        let query = expand_query("release incident").expect("query should be usable");
+        assert_eq!(query, "\"release\" AND \"incident\"");
+    }
+
+    #[test]
+    fn sparse_lexical_rrf_weight_beats_broad_vector_arm() {
+        let (primary, literal) = adaptive_lexical_rrf_weights(0.4, 0.6, 1, 0, 10);
+        assert!(primary > 0.6);
+        assert!((literal - 0.2).abs() < 1e-6);
+
+        let (primary, literal) = adaptive_lexical_rrf_weights(0.4, 0.6, 0, 1, 10);
+        assert!((primary - 0.4).abs() < 1e-6);
+        assert!(literal > 0.6);
+    }
+
+    #[test]
+    fn broad_lexical_rrf_weights_preserve_configured_mix() {
+        let (primary, literal) = adaptive_lexical_rrf_weights(0.4, 0.6, 30, 0, 10);
+        assert!((primary - 0.4).abs() < 1e-6);
+        assert!((literal - 0.2).abs() < 1e-6);
+    }
 }

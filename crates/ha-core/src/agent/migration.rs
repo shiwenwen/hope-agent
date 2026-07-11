@@ -105,7 +105,7 @@ pub fn migrate_default_agent_id_to_ha_main() -> Result<()> {
     update_agent_configs()?;
     update_config_in_place()?;
 
-    std::fs::write(&sentinel, b"")
+    crate::platform::write_atomic(&sentinel, b"")
         .with_context(|| format!("write migration sentinel {}", sentinel.display()))?;
     app_info!(
         "agent",
@@ -405,7 +405,7 @@ fn update_agent_configs() -> Result<()> {
             // Pretty-write to match `save_agent_config` so a subsequent open in
             // the agent editor doesn't reformat the whole file.
             let new_content = serde_json::to_string_pretty(&value)?;
-            std::fs::write(&json_path, new_content)
+            crate::platform::write_atomic(&json_path, new_content.as_bytes())
                 .with_context(|| format!("write migrated agent.json at {}", json_path.display()))?;
             rewritten_files += 1;
         }

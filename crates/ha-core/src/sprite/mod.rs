@@ -342,24 +342,26 @@ pub async fn observe_and_maybe_speak(params: SpriteObserveParams) -> SpriteOutco
         &awareness_lines,
     );
 
-    // Build a bounded analysis agent (no main-conversation cache to reuse).
     let app_cfg = crate::config::cached_config();
-    let agent = match crate::recap::report::build_analysis_agent(&app_cfg).await {
-        Ok((a, _model)) => a,
-        Err(e) => {
-            crate::app_warn!("sprite", "observe", "build agent failed: {}", e);
-            // Keep the cooldown anchored to completion even on the build-fail
-            // path (consistent with the success/llm-error paths below).
-            touch_cooldown(&key);
-            return SpriteOutcome::Skipped("agent");
-        }
-    };
+    let chain = crate::automation::effective_chain(&app_cfg, cfg.model_override.clone());
 
-    // Cat "casting" glow on for exactly the duration of the LLM call.
+    // Cat "casting" glow brackets the WHOLE degradation loop (all candidates),
+    // not one call — a failover attempt sequence should still read as one
+    // continuous "the cat is thinking" glow, not one flicker per attempt.
+    // `cfg.timeout_secs` now bounds the combined budget across every
+    // candidate, not a single attempt — same reinterpretation Compile/
+    // Maintenance already apply to their own timeout around the whole
+    // `automation::run` call.
     emit_casting(&params, true);
     let outcome = tokio::time::timeout(
         Duration::from_secs(cfg.timeout_secs),
-        agent.side_query(&instruction, cfg.max_tokens),
+        crate::automation::run(crate::automation::ModelTaskSpec {
+            purpose: "sprite.observe",
+            chain,
+            session_key: &key,
+            instruction: &instruction,
+            max_tokens: cfg.max_tokens,
+        }),
     )
     .await;
     emit_casting(&params, false);

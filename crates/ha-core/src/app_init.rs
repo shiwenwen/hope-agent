@@ -236,6 +236,7 @@ pub fn init_runtime(role: &'static str) {
     ));
     crate::memory::dreaming::init_store(sqlite_backend.clone());
     crate::memory::claims::init_claim_store(sqlite_backend.clone());
+    crate::memory::episodes::init_episode_store(sqlite_backend.clone());
     let memory_backend: Arc<dyn memory::MemoryBackend> = sqlite_backend;
     let _ = MEMORY_BACKEND.set(memory_backend);
 
@@ -335,8 +336,22 @@ pub fn init_runtime(role: &'static str) {
     // `build_app_state`.
     let _ = CHANNEL_CANCELS.set(Arc::new(channel::ChannelCancelRegistry::new()));
     let _ = CODEX_TOKEN_CACHE.set(Arc::new(Mutex::new(None::<(String, String)>)));
-    let _ = REASONING_EFFORT.set(Arc::new(Mutex::new("medium".to_string())));
+    let global_reasoning_effort = crate::config::cached_config().reasoning_effort.clone();
+    let _ = REASONING_EFFORT.set(Arc::new(Mutex::new(global_reasoning_effort)));
     let _ = CACHED_AGENT.set(Arc::new(Mutex::new(None::<crate::agent::AssistantAgent>)));
+
+    // Idempotent convergence for a previous Provider delete that completed
+    // config persistence but was interrupted while repairing Agent/Session
+    // references across their separate stores.
+    let repair = crate::provider::repair_hard_deleted_model_references();
+    if repair.failures > 0 {
+        crate::app_warn!(
+            "provider",
+            "startup-repair",
+            "model reference repair incomplete: failures={}",
+            repair.failures
+        );
+    }
 
     // Startup orphan sweeps. Gated on Primary tier so a Secondary process
     // (e.g. acp launching while desktop is running) doesn't mark-error the
@@ -1131,6 +1146,11 @@ pub async fn start_background_tasks() {
         // fires `manual_run(Cron)` on the configured schedule. Re-evaluates
         // on every `config:changed { category: "dreaming" }`.
         crate::memory::dreaming::spawn_dreaming_cron_loop();
+
+        // Additive external memory providers reconcile off the chat hot path.
+        // The loop filters out manual policies and every adapter remains
+        // fail-closed when credentials, endpoint or capability checks fail.
+        crate::memory::spawn_external_memory_provider_sync_loop();
 
         // Knowledge maintenance cron-trigger loop (WS6). Reads
         // `knowledge_maintenance.cron_trigger`; off unless the user enables it.

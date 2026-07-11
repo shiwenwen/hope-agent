@@ -20,6 +20,7 @@ import {
   type LocalModelJobSnapshot,
 } from "@/types/local-model-jobs"
 import type { useMemoryData } from "./useMemoryData"
+import { memoryEmbeddingOperationErrorToast } from "./memoryEmbeddingFeedback"
 
 type MemoryData = ReturnType<typeof useMemoryData>
 
@@ -104,10 +105,7 @@ export default function ReembedJobCard({ data }: ReembedJobCardProps) {
           </div>
         </div>
         {active && (
-          <CancelButton
-            jobId={reembedJob.jobId}
-            onError={(msg) => toast.error(msg)}
-          />
+          <CancelButton jobId={reembedJob.jobId} />
         )}
       </div>
 
@@ -135,7 +133,11 @@ export default function ReembedJobCard({ data }: ReembedJobCardProps) {
                   .call("local_model_job_retry", { jobId: reembedJob.jobId })
                   .catch((e) => {
                     logger.error("settings", "ReembedJobCard::retry", "Failed to retry", e)
-                    toast.error(String(e))
+                    const failure = memoryEmbeddingOperationErrorToast("reembedRetry", t, e)
+                    toast.error(
+                      failure.title,
+                      failure.description ? { description: failure.description } : undefined,
+                    )
                   })
               }}
             >
@@ -192,10 +194,8 @@ function StatusBadge({ status }: { status: LocalModelJobSnapshot["status"] }) {
 
 function CancelButton({
   jobId,
-  onError,
 }: {
   jobId: string
-  onError: (msg: string) => void
 }) {
   const { t } = useTranslation()
   return (
@@ -207,7 +207,11 @@ function CancelButton({
           .call("local_model_job_cancel", { jobId })
           .catch((e) => {
             logger.error("settings", "ReembedJobCard::cancel", "Failed to cancel", e)
-            onError(String(e))
+            const failure = memoryEmbeddingOperationErrorToast("reembedCancel", t, e)
+            toast.error(
+              failure.title,
+              failure.description ? { description: failure.description } : undefined,
+            )
           })
       }}
     >

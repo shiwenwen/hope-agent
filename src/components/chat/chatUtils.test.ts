@@ -1,11 +1,13 @@
 import { describe, expect, test, vi } from "vitest"
-import type { Message, SessionMessage } from "@/types/chat"
+import type { ContentBlock, Message, SessionMessage } from "@/types/chat"
 import type { Transport } from "@/lib/transport"
 import { setTransport } from "@/lib/transport-provider"
 import {
   computeContextUsage,
   isCenteredSystemMessage,
   isUserAlignedMessage,
+  extractMessageFileAttachments,
+  mergeMessagesByDbId,
   parseSessionMessages,
   reloadAndMergeSessionMessages,
 } from "./chatUtils"
@@ -73,6 +75,223 @@ describe("parseSessionMessages events", () => {
     expect(parsed.map((msg) => msg.role)).toEqual(["user", "event", "assistant"])
     expect(JSON.parse(parsed[1]!.content).data.description).toBe("summarized")
     expect(parsed[2]?.contentBlocks?.map((block) => block.type)).toEqual(["text", "text", "text"])
+  })
+
+  test("restores active memory trace from assistant attachments metadata", () => {
+    const parsed = parseSessionMessages([
+      sessionMessage({
+        id: 1,
+        role: "assistant",
+        content: "收到。",
+        attachmentsMeta: JSON.stringify({
+          active_memory: {
+            summary: "用户偏好简洁中文回答。",
+            selected: {
+              kind: "memory",
+              id: "m1",
+              sourceType: "user",
+              scope: "Global",
+              preview: "用户偏好简洁中文回答。",
+            },
+            candidates: [],
+            totalCandidates: 1,
+            cached: false,
+          },
+          used_memory_refs: [
+            {
+              kind: "memory",
+              id: "m1",
+              sourceType: "user",
+              scope: "Global",
+              origin: "active_memory",
+              role: "selected",
+              preview: "用户偏好简洁中文回答。",
+            },
+          ],
+          retrieval_planner: {
+            status: "used",
+            totalRefs: 1,
+            rankingVersion: "source_fusion_v2",
+            intent: "profile",
+            maxTraceRefs: 24,
+            maxCandidatesPerOrigin: 4,
+            layers: [
+              {
+                layer: "active_memory",
+                status: "used",
+                refCount: 1,
+                selectedCount: 1,
+                candidateCount: 0,
+                cached: false,
+              },
+            ],
+          },
+        }),
+      }),
+    ])
+
+    expect(parsed[0]?.activeMemory).toMatchObject({
+      summary: "用户偏好简洁中文回答。",
+      selected: { kind: "memory", id: "m1" },
+    })
+    expect(parsed[0]?.usedMemoryRefs).toEqual([
+      expect.objectContaining({
+        kind: "memory",
+        id: "m1",
+        origin: "active_memory",
+        role: "selected",
+      }),
+    ])
+    expect(parsed[0]?.retrievalPlanner).toMatchObject({
+      status: "used",
+      totalRefs: 1,
+      rankingVersion: "source_fusion_v2",
+      intent: "profile",
+      maxTraceRefs: 24,
+      maxCandidatesPerOrigin: 4,
+      layers: [expect.objectContaining({ layer: "active_memory", status: "used" })],
+    })
+  })
+
+  test("sanitizes malformed memory trace metadata before rendering", () => {
+    const parsed = parseSessionMessages([
+      sessionMessage({
+        id: 1,
+        role: "assistant",
+        content: "带记忆的回答。",
+        attachmentsMeta: JSON.stringify({
+          used_memory_refs: [
+            {
+              kind: "memory",
+              id: "42",
+              sourceType: 123,
+              scope: "Global",
+              origin: { bad: true },
+              role: "injected",
+              preview: "用户喜欢简洁说明。",
+              path: "notes/profile.md",
+              line: 12,
+              col: 3,
+              headingPath: "Profile > Preferences",
+              blockId: "pref-1",
+              score: Number.POSITIVE_INFINITY,
+              confidence: 0.91,
+            },
+            { kind: "claim" },
+          ],
+          retrieval_planner: {
+            status: "used",
+            totalRefs: "bad-total",
+            layers: [
+              {
+                layer: "static_memory",
+                status: "used",
+                refCount: 2,
+                latencyMs: 7,
+                cached: false,
+              },
+              {
+                layer: 99,
+                status: "used",
+                refCount: 1,
+              },
+            ],
+          },
+        }),
+      }),
+    ])
+
+    expect(parsed[0]?.usedMemoryRefs).toHaveLength(1)
+    expect(parsed[0]?.usedMemoryRefs?.[0]).toMatchObject({
+      kind: "memory",
+      id: "42",
+      scope: "Global",
+      role: "injected",
+      preview: "用户喜欢简洁说明。",
+      path: "notes/profile.md",
+      line: 12,
+      col: 3,
+      headingPath: "Profile > Preferences",
+      blockId: "pref-1",
+      confidence: 0.91,
+    })
+    expect(parsed[0]?.usedMemoryRefs?.[0]?.origin).toBeUndefined()
+    expect(parsed[0]?.usedMemoryRefs?.[0]?.score).toBeUndefined()
+
+    expect(parsed[0]?.retrievalPlanner).toMatchObject({
+      status: "used",
+      totalRefs: 2,
+      layers: [
+        {
+          layer: "static_memory",
+          status: "used",
+          refCount: 2,
+          skippedReason: null,
+          latencyMs: 7,
+          cached: false,
+        },
+      ],
+    })
+    expect(parsed[0]?.retrievalPlanner?.layers).toHaveLength(1)
+  })
+})
+
+describe("extractMessageFileAttachments", () => {
+  test("preserves file-change language for path previews", () => {
+    const blocks: ContentBlock[] = [
+      {
+        type: "tool_call",
+        tool: {
+          callId: "c1",
+          name: "edit",
+          arguments: "{}",
+          metadata: {
+            kind: "file_change",
+            path: "/repo/generated",
+            action: "edit",
+            linesAdded: 2,
+            linesRemoved: 1,
+            before: "old",
+            after: "new",
+            language: "typescript",
+            truncated: false,
+          },
+        },
+      },
+    ]
+
+    expect(extractMessageFileAttachments(blocks)).toEqual([
+      { kind: "path", path: "/repo/generated", language: "typescript" },
+    ])
+  })
+
+  test("upgrades an existing path attachment with later metadata language", () => {
+    const blocks: ContentBlock[] = [
+      {
+        type: "tool_call",
+        tool: {
+          callId: "c1",
+          name: "edit",
+          arguments: "{}",
+          mediaUrls: ["/repo/generated"],
+          metadata: {
+            kind: "file_change",
+            path: "/repo/generated",
+            action: "edit",
+            linesAdded: 2,
+            linesRemoved: 1,
+            before: "old",
+            after: "new",
+            language: "typescript",
+            truncated: false,
+          },
+        },
+      },
+    ]
+
+    expect(extractMessageFileAttachments(blocks)).toEqual([
+      { kind: "path", path: "/repo/generated", language: "typescript" },
+    ])
   })
 })
 
@@ -371,13 +590,14 @@ describe("parseSessionMessages user attachments", () => {
 
 describe("reloadAndMergeSessionMessages", () => {
   test("merges against latest cache after async DB load resolves", async () => {
-    let resolveLoad:
-      | ((value: [SessionMessage[], number, boolean]) => void)
-      | undefined
+    let resolveLoad: ((value: [SessionMessage[], number, boolean]) => void) | undefined
     const transport = {
-      call: vi.fn(() => new Promise<[SessionMessage[], number, boolean]>((resolve) => {
-        resolveLoad = resolve
-      })),
+      call: vi.fn(
+        () =>
+          new Promise<[SessionMessage[], number, boolean]>((resolve) => {
+            resolveLoad = resolve
+          }),
+      ),
     } as unknown as Transport
     setTransport(transport)
 
@@ -443,12 +663,7 @@ describe("reloadAndMergeSessionMessages", () => {
     await reload
 
     const merged = sessionCacheRef.current.get("s1")
-    expect(merged?.map((msg) => msg.role)).toEqual([
-      "assistant",
-      "event",
-      "user",
-      "assistant",
-    ])
+    expect(merged?.map((msg) => msg.role)).toEqual(["assistant", "event", "user", "assistant"])
     expect(merged?.at(-1)).toMatchObject({
       role: "assistant",
       _clientId: "assistant-next",
@@ -456,13 +671,14 @@ describe("reloadAndMergeSessionMessages", () => {
   })
 
   test("does not re-append placeholders already finalized by DB rows", async () => {
-    let resolveLoad:
-      | ((value: [SessionMessage[], number, boolean]) => void)
-      | undefined
+    let resolveLoad: ((value: [SessionMessage[], number, boolean]) => void) | undefined
     const transport = {
-      call: vi.fn(() => new Promise<[SessionMessage[], number, boolean]>((resolve) => {
-        resolveLoad = resolve
-      })),
+      call: vi.fn(
+        () =>
+          new Promise<[SessionMessage[], number, boolean]>((resolve) => {
+            resolveLoad = resolve
+          }),
+      ),
     } as unknown as Transport
     setTransport(transport)
 
@@ -552,14 +768,364 @@ describe("reloadAndMergeSessionMessages", () => {
     })
   })
 
-  test("preserves dbId-less messages with identical fallback fields", async () => {
-    let resolveLoad:
-      | ((value: [SessionMessage[], number, boolean]) => void)
-      | undefined
+  test("preserves active memory trace when assistant placeholder is finalized", async () => {
+    let resolveLoad: ((value: [SessionMessage[], number, boolean]) => void) | undefined
     const transport = {
-      call: vi.fn(() => new Promise<[SessionMessage[], number, boolean]>((resolve) => {
-        resolveLoad = resolve
-      })),
+      call: vi.fn(
+        () =>
+          new Promise<[SessionMessage[], number, boolean]>((resolve) => {
+            resolveLoad = resolve
+          }),
+      ),
+    } as unknown as Transport
+    setTransport(transport)
+
+    const activeMemory: Message["activeMemory"] = {
+      summary: "用户偏好简洁中文回答。",
+      selected: {
+        kind: "memory",
+        id: "m1",
+        sourceType: "user",
+        scope: "Global",
+        preview: "用户偏好简洁中文回答。",
+      },
+      candidates: [
+        {
+          kind: "memory",
+          id: "m1",
+          sourceType: "user",
+          scope: "Global",
+          preview: "用户偏好简洁中文回答。",
+        },
+      ],
+      totalCandidates: 1,
+      cached: false,
+    }
+    const usedMemoryRefs: Message["usedMemoryRefs"] = [
+      {
+        kind: "memory",
+        id: "m1",
+        sourceType: "user",
+        scope: "Global",
+        origin: "active_memory",
+        role: "selected",
+        preview: "用户偏好简洁中文回答。",
+      },
+    ]
+    const sessionCacheRef = {
+      current: new Map<string, Message[]>([
+        [
+          "s1",
+          [
+            {
+              role: "user",
+              content: "怎么做?",
+              timestamp: "2026-05-12T00:00:02.000Z",
+              _clientId: "user-next",
+            },
+            {
+              role: "assistant",
+              content: "",
+              timestamp: "2026-05-12T00:00:03.000Z",
+              _clientId: "assistant-next",
+              activeMemory,
+              usedMemoryRefs,
+            },
+          ],
+        ],
+      ]),
+    }
+    const setMessages = vi.fn()
+
+    const reload = reloadAndMergeSessionMessages({
+      sessionId: "s1",
+      pageSize: 50,
+      sessionCacheRef,
+      setMessages,
+    })
+
+    resolveLoad?.([
+      [
+        sessionMessage({
+          id: 3,
+          role: "user",
+          content: "怎么做?",
+          timestamp: "2026-05-12T00:00:02.000Z",
+        }),
+        sessionMessage({
+          id: 4,
+          role: "assistant",
+          content: "可以。",
+          timestamp: "2026-05-12T00:00:03.000Z",
+        }),
+      ],
+      2,
+      false,
+    ])
+    await reload
+
+    expect(sessionCacheRef.current.get("s1")?.find((msg) => msg.dbId === 4)).toMatchObject({
+      role: "assistant",
+      content: "可以。",
+      _clientId: "assistant-next",
+      activeMemory,
+      usedMemoryRefs,
+    })
+  })
+
+  test("prefers finalized memory trace over placeholder trace when DB row has metadata", async () => {
+    let resolveLoad: ((value: [SessionMessage[], number, boolean]) => void) | undefined
+    const transport = {
+      call: vi.fn(
+        () =>
+          new Promise<[SessionMessage[], number, boolean]>((resolve) => {
+            resolveLoad = resolve
+          }),
+      ),
+    } as unknown as Transport
+    setTransport(transport)
+
+    const placeholderActiveMemory: Message["activeMemory"] = {
+      summary: "placeholder summary",
+      selected: {
+        kind: "memory",
+        id: "m1",
+        sourceType: "user",
+        scope: "Global",
+        preview: "placeholder preview",
+      },
+      candidates: [
+        {
+          kind: "memory",
+          id: "m1",
+          sourceType: "user",
+          scope: "Global",
+          preview: "placeholder preview",
+        },
+      ],
+      totalCandidates: 1,
+      cached: false,
+    }
+    const placeholderUsedRefs: Message["usedMemoryRefs"] = [
+      {
+        kind: "memory",
+        id: "m1",
+        sourceType: "user",
+        scope: "Global",
+        origin: "active_memory",
+        role: "selected",
+        preview: "placeholder preview",
+        score: 0.1,
+      },
+    ]
+    const placeholderPlanner: Message["retrievalPlanner"] = {
+      status: "used",
+      totalRefs: 1,
+      layers: [
+        {
+          layer: "active_memory",
+          status: "used",
+          refCount: 1,
+          selectedCount: 1,
+          latencyMs: 1,
+          cached: false,
+        },
+      ],
+    }
+    const sessionCacheRef = {
+      current: new Map<string, Message[]>([
+        [
+          "s1",
+          [
+            {
+              role: "user",
+              content: "怎么做?",
+              timestamp: "2026-05-12T00:00:02.000Z",
+              _clientId: "user-next",
+            },
+            {
+              role: "assistant",
+              content: "",
+              timestamp: "2026-05-12T00:00:03.000Z",
+              _clientId: "assistant-next",
+              activeMemory: placeholderActiveMemory,
+              usedMemoryRefs: placeholderUsedRefs,
+              retrievalPlanner: placeholderPlanner,
+            },
+          ],
+        ],
+      ]),
+    }
+    const setMessages = vi.fn()
+
+    const reload = reloadAndMergeSessionMessages({
+      sessionId: "s1",
+      pageSize: 50,
+      sessionCacheRef,
+      setMessages,
+    })
+
+    resolveLoad?.([
+      [
+        sessionMessage({
+          id: 3,
+          role: "user",
+          content: "怎么做?",
+          timestamp: "2026-05-12T00:00:02.000Z",
+        }),
+        sessionMessage({
+          id: 4,
+          role: "assistant",
+          content: "可以。",
+          timestamp: "2026-05-12T00:00:03.000Z",
+          attachmentsMeta: JSON.stringify({
+            active_memory: {
+              summary: "final summary",
+              selected: {
+                kind: "memory",
+                id: "m1",
+                sourceType: "user",
+                scope: "Global",
+                preview: "final preview",
+                score: 0.88,
+              },
+              candidates: [
+                {
+                  kind: "memory",
+                  id: "m1",
+                  sourceType: "user",
+                  scope: "Global",
+                  preview: "final preview",
+                  score: 0.88,
+                },
+              ],
+              totalCandidates: 1,
+              cached: true,
+            },
+            used_memory_refs: [
+              {
+                kind: "memory",
+                id: "m1",
+                sourceType: "user",
+                scope: "Global",
+                origin: "active_memory",
+                role: "selected",
+                preview: "final preview",
+                score: 0.88,
+              },
+            ],
+            retrieval_planner: {
+              status: "used",
+              totalRefs: 1,
+              layers: [
+                {
+                  layer: "active_memory",
+                  status: "used",
+                  refCount: 1,
+                  selectedCount: 1,
+                  latencyMs: 33,
+                  cached: true,
+                },
+              ],
+            },
+          }),
+        }),
+      ],
+      2,
+      false,
+    ])
+    await reload
+
+    const finalized = sessionCacheRef.current.get("s1")?.find((msg) => msg.dbId === 4)
+    expect(finalized).toMatchObject({
+      role: "assistant",
+      content: "可以。",
+      _clientId: "assistant-next",
+      activeMemory: expect.objectContaining({ summary: "final summary", cached: true }),
+      usedMemoryRefs: [expect.objectContaining({ preview: "final preview", score: 0.88 })],
+      retrievalPlanner: expect.objectContaining({
+        layers: [expect.objectContaining({ latencyMs: 33, cached: true })],
+      }),
+    })
+  })
+
+  test("updates persisted messages when only memory diagnostics change", () => {
+    const existing: Message = {
+      role: "assistant",
+      content: "可以。",
+      timestamp: "2026-05-12T00:00:03.000Z",
+      dbId: 4,
+      usedMemoryRefs: [
+        {
+          kind: "memory",
+          id: "m1",
+          origin: "active_memory",
+          role: "selected",
+          preview: "old preview",
+          score: 0.1,
+        },
+      ],
+      retrievalPlanner: {
+        status: "used",
+        totalRefs: 1,
+        layers: [
+          {
+            layer: "active_memory",
+            status: "used",
+            refCount: 1,
+            latencyMs: 1,
+            cached: false,
+          },
+        ],
+      },
+    }
+    const fresh: Message = {
+      ...existing,
+      usedMemoryRefs: [
+        {
+          kind: "memory",
+          id: "m1",
+          origin: "active_memory",
+          role: "selected",
+          preview: "new preview",
+          score: 0.9,
+        },
+      ],
+      retrievalPlanner: {
+        status: "used",
+        totalRefs: 1,
+        layers: [
+          {
+            layer: "active_memory",
+            status: "used",
+            refCount: 1,
+            latencyMs: 42,
+            cached: false,
+          },
+        ],
+      },
+    }
+
+    const merged = mergeMessagesByDbId([existing], [fresh])
+
+    expect(merged[0]).not.toBe(existing)
+    expect(merged[0]).toMatchObject({
+      usedMemoryRefs: [expect.objectContaining({ preview: "new preview", score: 0.9 })],
+      retrievalPlanner: expect.objectContaining({
+        layers: [expect.objectContaining({ latencyMs: 42 })],
+      }),
+    })
+  })
+
+  test("preserves dbId-less messages with identical fallback fields", async () => {
+    let resolveLoad: ((value: [SessionMessage[], number, boolean]) => void) | undefined
+    const transport = {
+      call: vi.fn(
+        () =>
+          new Promise<[SessionMessage[], number, boolean]>((resolve) => {
+            resolveLoad = resolve
+          }),
+      ),
     } as unknown as Transport
     setTransport(transport)
 

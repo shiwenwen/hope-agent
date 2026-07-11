@@ -31,7 +31,9 @@
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::sync::Mutex;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
+
+use serde::{Deserialize, Serialize};
 
 use crate::agent_config::ActiveMemoryConfig;
 use crate::memory::{MemoryEntry, MemoryScope, MemorySearchQuery};
@@ -43,30 +45,190 @@ use crate::ttl_cache::TtlCache;
 const MAX_CACHE_ENTRIES: usize = 32;
 
 /// Snapshot of the agent-level config fields Active Memory needs every
-/// user turn. Cached on `ActiveMemoryState` so the hot path doesn't hit
-/// disk (reading `agent.json` + associated markdown files) per turn.
+/// user turn. Cached on `ActiveMemoryState` so the hot path only stats
+/// `agent.json` and avoids parsing the config unless the file changed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AgentConfigFingerprint {
+    pub modified_at: Option<SystemTime>,
+    pub len: u64,
+}
+
+pub fn agent_config_fingerprint(agent_id: &str) -> Option<AgentConfigFingerprint> {
+    let path = crate::paths::agent_dir(agent_id).ok()?.join("agent.json");
+    let metadata = std::fs::metadata(path).ok()?;
+    Some(AgentConfigFingerprint {
+        modified_at: metadata.modified().ok(),
+        len: metadata.len(),
+    })
+}
+
 #[derive(Clone)]
 pub struct CachedAgentConfig {
+    pub fingerprint: Option<AgentConfigFingerprint>,
+    pub memory_enabled: bool,
     pub active_memory: ActiveMemoryConfig,
     pub shared_global: bool,
+    pub procedure_memory: crate::agent_config::ProcedureMemoryConfig,
+    pub graph_memory: crate::agent_config::GraphMemoryConfig,
+    pub retrieval_planner: crate::agent_config::RetrievalPlannerConfig,
+    pub prompt_budget: usize,
+}
+
+/// Frontend- and log-safe reference to a memory candidate considered by Active
+/// Memory. It intentionally carries previews and scores, never raw evidence
+/// quotes, so the trace can be emitted through EventBus without widening data
+/// access beyond what was already injected into this turn's prompt.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ActiveMemoryCandidateRef {
+    /// `memory` for legacy rows, `claim` for structured next-gen memory.
+    pub kind: String,
+    /// Stable source id: integer memory id or claim uuid.
+    pub id: String,
+    /// User-facing type label (`user`, `feedback`, `preference`, ...).
+    pub source_type: String,
+    /// Scope label (`global`, `agent:<id>`, `project:<id>`).
+    pub scope: String,
+    /// Short sanitized-ish preview suitable for chips and diagnostics.
+    pub preview: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub score: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub confidence: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub salience: Option<f32>,
+}
+
+/// Unified memory-reference metadata attached to assistant messages. Today the
+/// first producer is Active Memory; Retrieval Planner can append static memory,
+/// pinned claims, profile, or knowledge references without changing the message
+/// storage contract again.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UsedMemoryRef {
+    /// `memory` for legacy rows, `claim` for structured next-gen memory.
+    pub kind: String,
+    /// Stable source id: integer memory id or claim uuid.
+    pub id: String,
+    /// User-facing type label (`user`, `feedback`, `preference`, ...).
+    pub source_type: String,
+    /// Scope label (`global`, `agent:<id>`, `project:<id>`).
+    pub scope: String,
+    /// Which retrieval layer produced this reference.
+    pub origin: String,
+    /// How this layer used the item (`selected`, `candidate`, `injected`, ...).
+    pub role: String,
+    /// Short preview suitable for chips and diagnostics.
+    pub preview: String,
+    /// Optional source path for stores whose stable source id is not directly
+    /// openable by the frontend (for example Knowledge notes).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    /// Optional precise source coordinates for openable stores. Line is 1-based;
+    /// column is 0-based, matching the Knowledge D14 contract.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub line: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub col: Option<u32>,
+    /// Optional Markdown heading path / Obsidian block id for Knowledge notes.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub heading_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub block_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub score: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub confidence: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub salience: Option<f32>,
+}
+
+/// The recall object cached per user-text hash and emitted to the UI when a
+/// turn receives Active Memory context.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ActiveMemoryRecall {
+    pub summary: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub selected: Option<ActiveMemoryCandidateRef>,
+    pub candidates: Vec<ActiveMemoryCandidateRef>,
+    pub total_candidates: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub latency_ms: Option<u64>,
+    pub cached: bool,
+}
+
+impl ActiveMemoryRecall {
+    pub fn used_memory_refs(&self) -> Vec<UsedMemoryRef> {
+        let selected_key = self
+            .selected
+            .as_ref()
+            .map(|candidate| (candidate.kind.as_str(), candidate.id.as_str()));
+        let mut refs = Vec::new();
+
+        if let Some(selected) = self.selected.as_ref() {
+            refs.push(used_memory_ref_from_candidate(selected, "selected"));
+        }
+
+        for candidate in &self.candidates {
+            let is_selected = selected_key
+                .map(|(kind, id)| kind == candidate.kind && id == candidate.id)
+                .unwrap_or(false);
+            if is_selected {
+                continue;
+            }
+            refs.push(used_memory_ref_from_candidate(candidate, "candidate"));
+        }
+
+        refs
+    }
+}
+
+fn used_memory_ref_from_candidate(
+    candidate: &ActiveMemoryCandidateRef,
+    role: &str,
+) -> UsedMemoryRef {
+    UsedMemoryRef {
+        kind: candidate.kind.clone(),
+        id: candidate.id.clone(),
+        source_type: candidate.source_type.clone(),
+        scope: candidate.scope.clone(),
+        origin: "active_memory".to_string(),
+        role: role.to_string(),
+        preview: candidate.preview.clone(),
+        path: None,
+        line: None,
+        col: None,
+        heading_path: None,
+        block_id: None,
+        score: candidate.score,
+        confidence: candidate.confidence,
+        salience: candidate.salience,
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct ParsedRecallResponse {
+    pub summary: String,
+    pub selected_index: Option<usize>,
 }
 
 /// Per-agent Active Memory runtime state: recall cache + cached agent
 /// config snapshot.
 ///
-/// The recall cache stores `Option<String>` so that "we ran the
+/// The recall cache stores `Option<ActiveMemoryRecall>` so that "we ran the
 /// side_query and got NONE" is distinct from "no entry at all" — the
 /// outer `Option` returned by `get_cached` is the cache hit/miss signal,
-/// while the inner `Option<String>` is the recalled text (or its
-/// LLM-confirmed absence).
+/// while the inner option is the recalled trace (or its LLM-confirmed absence).
 pub struct ActiveMemoryState {
     /// Per-state TtlCache keyed by hash(user_message). TTL is supplied
     /// per-`get_cached` call so config changes (`cache_ttl_secs`) take
     /// effect immediately without restamping existing entries.
-    cache: TtlCache<u64, Option<String>>,
+    cache: TtlCache<u64, Option<ActiveMemoryRecall>>,
     /// Cached config snapshot. Lazily filled on the first turn and
     /// invalidated by [`ActiveMemoryState::invalidate_config`] (called
-    /// from `AssistantAgent::set_agent_id`).
+    /// from `AssistantAgent::set_agent_id`) or by an `agent.json`
+    /// fingerprint change.
     agent_config: Mutex<Option<CachedAgentConfig>>,
 }
 
@@ -79,20 +241,46 @@ impl ActiveMemoryState {
     }
 
     /// Return the cached agent-config snapshot, or fetch + cache it.
-    /// The loader is invoked at most once per agent-id lifetime; callers
-    /// must invalidate via [`Self::invalidate_config`] when the agent id
-    /// changes so the next turn re-reads disk.
-    pub fn agent_config_or_load<F>(&self, load: F) -> CachedAgentConfig
+    /// The loader is invoked at most once per stable `agent.json`
+    /// fingerprint; callers must invalidate via [`Self::invalidate_config`]
+    /// when the agent id changes so the next turn re-reads disk.
+    pub fn agent_config_or_load<F>(
+        &self,
+        fingerprint: Option<AgentConfigFingerprint>,
+        load: F,
+    ) -> CachedAgentConfig
     where
         F: FnOnce() -> CachedAgentConfig,
     {
         let mut guard = self.agent_config.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(cfg) = guard.as_ref() {
-            return cfg.clone();
+            if cfg.fingerprint == fingerprint {
+                return cfg.clone();
+            }
         }
         let cfg = load();
         *guard = Some(cfg.clone());
+        self.cache.clear();
         cfg
+    }
+
+    pub fn cached_agent_config(
+        &self,
+        fingerprint: Option<AgentConfigFingerprint>,
+    ) -> Option<CachedAgentConfig> {
+        self.agent_config
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+            .filter(|cfg| cfg.fingerprint == fingerprint)
+            .cloned()
+    }
+
+    pub fn current_agent_config(&self) -> Option<CachedAgentConfig> {
+        self.agent_config
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
     }
 
     /// Drop the cached agent-config snapshot. Also clears the recall
@@ -105,12 +293,12 @@ impl ActiveMemoryState {
 
     /// Return the cached recall for this user-text hash if still valid.
     /// `None` return value means "cache miss — go compute".
-    pub fn get_cached(&self, hash: u64, ttl: Duration) -> Option<Option<String>> {
+    pub fn get_cached(&self, hash: u64, ttl: Duration) -> Option<Option<ActiveMemoryRecall>> {
         self.cache.get(&hash, ttl)
     }
 
-    pub fn put_cached(&self, hash: u64, text: Option<String>) {
-        self.cache.put(hash, text);
+    pub fn put_cached(&self, hash: u64, recall: Option<ActiveMemoryRecall>) {
+        self.cache.put(hash, recall);
     }
 }
 
@@ -135,16 +323,68 @@ pub fn hash_user_text(text: &str) -> u64 {
 const RECALL_PROMPT_TEMPLATE: &str = "\
 You are a memory retrieval assistant for the user's assistant agent.\n\
 Given the user's latest message and a shortlist of candidate memories, \
-return at most ONE sentence summarizing the single most relevant memory.\n\n\
+choose at most ONE candidate and summarize why it is useful for the next reply.\n\n\
 Rules:\n\
-- Max {max_chars} characters; no bullets, no JSON, no XML tags\n\
+- Return ONLY JSON: {\"selected\": <candidate number or null>, \"summary\": \"...\"}\n\
+- `summary` max {max_chars} characters; no bullets, no XML tags\n\
 - Focus on user preferences, project facts, or explicit standing instructions\n\
 - Skip trivial recalls already implied by the message\n\
-- If none of the candidates meaningfully helps, return exactly the literal text: NONE\n\n\
+- If none of the candidates meaningfully helps, return {\"selected\": null, \"summary\": \"NONE\"}\n\n\
 Candidate memories (top matches from local store):\n\
 {candidates}\n\n\
 User's latest message:\n\
 {user_msg}\n";
+
+fn scope_label(scope: &MemoryScope) -> String {
+    match scope {
+        MemoryScope::Global => "global".to_string(),
+        MemoryScope::Agent { id } => format!("agent:{id}"),
+        MemoryScope::Project { id } => format!("project:{id}"),
+    }
+}
+
+fn preview_line(content: &str) -> String {
+    crate::truncate_utf8(content.lines().next().unwrap_or(content).trim(), 180).to_string()
+}
+
+/// Build the candidate references that power UI chips and retrieval
+/// diagnostics. Order exactly matches the numbered prompt rendered by
+/// [`build_recall_prompt`].
+pub fn candidate_refs(
+    candidates: &[MemoryEntry],
+    claims: &[crate::memory::claims::ClaimRecord],
+) -> Vec<ActiveMemoryCandidateRef> {
+    let mut refs = Vec::with_capacity(candidates.len() + claims.len());
+    for m in candidates {
+        refs.push(ActiveMemoryCandidateRef {
+            kind: "memory".to_string(),
+            id: m.id.to_string(),
+            source_type: m.memory_type.as_str().to_string(),
+            scope: scope_label(&m.scope),
+            preview: preview_line(&m.content),
+            score: m.relevance_score,
+            confidence: None,
+            salience: None,
+        });
+    }
+    for c in claims {
+        refs.push(ActiveMemoryCandidateRef {
+            kind: "claim".to_string(),
+            id: c.id.clone(),
+            source_type: c.claim_type.clone(),
+            scope: if c.scope_type == "global" {
+                "global".to_string()
+            } else {
+                format!("{}:{}", c.scope_type, c.scope_id.as_deref().unwrap_or("?"))
+            },
+            preview: preview_line(&c.content),
+            score: None,
+            confidence: Some(c.confidence),
+            salience: Some(c.salience),
+        });
+    }
+    refs
+}
 
 /// Build the recall prompt from user text and a shortlist of candidate memories
 /// plus (Active Memory v2) candidate claims. Both render into one numbered list
@@ -167,9 +407,11 @@ pub fn build_recall_prompt(
             format!(" [tags: {}]", m.tags.join(","))
         };
         lines.push(format!(
-            "{:>2}. ({:?}) {}{}",
+            "{:>2}. [memory:{}] ({:?}|{}) {}{}",
             i + 1,
+            m.id,
             m.memory_type,
+            scope_label(&m.scope),
             content,
             tags
         ));
@@ -182,9 +424,15 @@ pub fn build_recall_prompt(
             format!(" [tags: {}]", c.tags.join(","))
         };
         lines.push(format!(
-            "{:>2}. (claim:{}) {}{}",
+            "{:>2}. [claim:{}] (claim:{}|{}) {}{}",
             candidates.len() + j + 1,
+            c.id,
             c.claim_type,
+            if c.scope_type == "global" {
+                "global".to_string()
+            } else {
+                format!("{}:{}", c.scope_type, c.scope_id.as_deref().unwrap_or("?"))
+            },
             content,
             tags
         ));
@@ -199,6 +447,49 @@ pub fn build_recall_prompt(
         .replace("{max_chars}", &max_chars.to_string())
         .replace("{candidates}", &rendered_candidates)
         .replace("{user_msg}", user_msg.trim())
+}
+
+/// Parse the Active Memory sub-query response. Newer prompts ask for JSON with
+/// a selected candidate number so the UI can explain what was injected, but we
+/// keep a tolerant text fallback to avoid regressing existing model behavior.
+pub fn parse_recall_response(raw: &str, max_chars: usize) -> Option<ParsedRecallResponse> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty()
+        || trimmed.eq_ignore_ascii_case("NONE")
+        || trimmed.eq_ignore_ascii_case("NONE.")
+    {
+        return None;
+    }
+
+    if let Some(span) = crate::extract_json_span(trimmed, Some('{')) {
+        if let Ok(value) = serde_json::from_str::<serde_json::Value>(span) {
+            let summary = value
+                .get("summary")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .trim();
+            if summary.is_empty()
+                || summary.eq_ignore_ascii_case("NONE")
+                || summary.eq_ignore_ascii_case("NONE.")
+            {
+                return None;
+            }
+            let selected_index = value
+                .get("selected")
+                .and_then(|v| v.as_u64())
+                .and_then(|n| usize::try_from(n).ok())
+                .and_then(|n| n.checked_sub(1));
+            return Some(ParsedRecallResponse {
+                summary: crate::truncate_utf8(summary, max_chars).to_string(),
+                selected_index,
+            });
+        }
+    }
+
+    Some(ParsedRecallResponse {
+        summary: crate::truncate_utf8(trimmed, max_chars).to_string(),
+        selected_index: None,
+    })
 }
 
 /// Resolve the set of memory scopes to search against for Active Memory
@@ -257,6 +548,7 @@ pub fn shortlist_candidates(query: &str, scopes: &[MemoryScope], limit: usize) -
             query: query.to_string(),
             scope: Some(scope.clone()),
             types: None,
+            sources: None,
             agent_id: None,
             limit: Some(per_scope),
         };
@@ -350,7 +642,7 @@ mod tests {
         // `claim:<type>` tag, after any legacy memory candidates.
         let claims = vec![claim("User prefers dark mode", "preference")];
         let prompt = build_recall_prompt("what theme do I like?", &[], &claims, 220);
-        assert!(prompt.contains("(claim:preference) User prefers dark mode"));
+        assert!(prompt.contains("[claim:c1] (claim:preference|global) User prefers dark mode"));
         assert!(prompt.contains("what theme do I like?"));
     }
 
@@ -358,5 +650,134 @@ mod tests {
     fn recall_prompt_none_when_no_candidates() {
         let prompt = build_recall_prompt("hi", &[], &[], 220);
         assert!(prompt.contains("(none)"));
+    }
+
+    #[test]
+    fn candidate_refs_match_claim_prompt_order() {
+        let claims = vec![claim("User prefers dark mode", "preference")];
+        let refs = candidate_refs(&[], &claims);
+        assert_eq!(refs.len(), 1);
+        assert_eq!(refs[0].kind, "claim");
+        assert_eq!(refs[0].id, "c1");
+        assert_eq!(refs[0].source_type, "preference");
+        assert_eq!(refs[0].scope, "global");
+    }
+
+    #[test]
+    fn active_memory_exports_unified_used_refs() {
+        let selected = ActiveMemoryCandidateRef {
+            kind: "memory".into(),
+            id: "1".into(),
+            source_type: "user".into(),
+            scope: "global".into(),
+            preview: "Prefers concise Chinese replies.".into(),
+            score: Some(0.8),
+            confidence: None,
+            salience: None,
+        };
+        let fallback = ActiveMemoryCandidateRef {
+            kind: "claim".into(),
+            id: "c1".into(),
+            source_type: "preference".into(),
+            scope: "global".into(),
+            preview: "Likes short answers.".into(),
+            score: None,
+            confidence: Some(0.7),
+            salience: Some(0.6),
+        };
+        let recall = ActiveMemoryRecall {
+            summary: "Use the concise-answer preference.".into(),
+            selected: Some(selected.clone()),
+            candidates: vec![selected, fallback],
+            total_candidates: 2,
+            latency_ms: Some(12),
+            cached: false,
+        };
+
+        let refs = recall.used_memory_refs();
+        assert_eq!(refs.len(), 2);
+        assert_eq!(refs[0].id, "1");
+        assert_eq!(refs[0].origin, "active_memory");
+        assert_eq!(refs[0].role, "selected");
+        assert_eq!(refs[1].id, "c1");
+        assert_eq!(refs[1].role, "candidate");
+    }
+
+    #[test]
+    fn active_memory_config_cache_reloads_when_agent_json_fingerprint_changes() {
+        let state = ActiveMemoryState::new();
+        let fp1 = AgentConfigFingerprint {
+            modified_at: None,
+            len: 10,
+        };
+        let fp2 = AgentConfigFingerprint {
+            modified_at: None,
+            len: 11,
+        };
+        let calls = std::cell::Cell::new(0);
+
+        let first = state.agent_config_or_load(Some(fp1), || {
+            calls.set(calls.get() + 1);
+            CachedAgentConfig {
+                fingerprint: Some(fp1),
+                memory_enabled: true,
+                active_memory: ActiveMemoryConfig::default(),
+                shared_global: true,
+                procedure_memory: crate::agent_config::ProcedureMemoryConfig::default(),
+                graph_memory: crate::agent_config::GraphMemoryConfig::default(),
+                retrieval_planner: crate::agent_config::RetrievalPlannerConfig::default(),
+                prompt_budget: 5_000,
+            }
+        });
+        let second = state.agent_config_or_load(Some(fp1), || {
+            calls.set(calls.get() + 1);
+            CachedAgentConfig {
+                fingerprint: Some(fp1),
+                memory_enabled: false,
+                active_memory: ActiveMemoryConfig::default(),
+                shared_global: false,
+                procedure_memory: crate::agent_config::ProcedureMemoryConfig::default(),
+                graph_memory: crate::agent_config::GraphMemoryConfig::default(),
+                retrieval_planner: crate::agent_config::RetrievalPlannerConfig::default(),
+                prompt_budget: 5_000,
+            }
+        });
+        let third = state.agent_config_or_load(Some(fp2), || {
+            calls.set(calls.get() + 1);
+            CachedAgentConfig {
+                fingerprint: Some(fp2),
+                memory_enabled: false,
+                active_memory: ActiveMemoryConfig::default(),
+                shared_global: false,
+                procedure_memory: crate::agent_config::ProcedureMemoryConfig::default(),
+                graph_memory: crate::agent_config::GraphMemoryConfig::default(),
+                retrieval_planner: crate::agent_config::RetrievalPlannerConfig::default(),
+                prompt_budget: 5_000,
+            }
+        });
+
+        assert_eq!(calls.get(), 2);
+        assert!(first.memory_enabled);
+        assert!(second.memory_enabled);
+        assert!(!third.memory_enabled);
+        assert_eq!(third.fingerprint, Some(fp2));
+    }
+
+    #[test]
+    fn parse_recall_response_accepts_json_and_legacy_text() {
+        let parsed = parse_recall_response(
+            r#"{"selected":1,"summary":"Use the dark mode preference."}"#,
+            220,
+        )
+        .expect("json recall");
+        assert_eq!(parsed.selected_index, Some(0));
+        assert_eq!(parsed.summary, "Use the dark mode preference.");
+
+        let legacy =
+            parse_recall_response("User prefers concise answers.", 220).expect("legacy recall");
+        assert_eq!(legacy.selected_index, None);
+        assert_eq!(legacy.summary, "User prefers concise answers.");
+
+        assert!(parse_recall_response(r#"{"selected":null,"summary":"NONE"}"#, 220).is_none());
     }
 }

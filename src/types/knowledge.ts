@@ -85,7 +85,7 @@ export type KnowledgeSourceKind =
   | "image_ocr"
   | "browser_snapshot"
   | "url_snapshot"
-export type KnowledgeSourceStatus = "ready" | "failed"
+export type KnowledgeSourceStatus = "ready" | "failed" | "partially_extracted"
 export type KnowledgeBrowserCaptureMode = "auto" | "selection" | "page"
 export type KnowledgeSourceAssetKind = "original" | "thumbnail"
 
@@ -264,6 +264,23 @@ export interface KnowledgeSourceImportItem {
   createdAt: number
   startedAt?: number | null
   finishedAt?: number | null
+  updatedAt: number
+}
+
+export type KnowledgeSourceOcrPageStatus = "pending" | "running" | "succeeded" | "failed"
+export type KnowledgeSourceOcrPageStage = "render" | "vision" | "timeout"
+
+export interface KnowledgeSourceOcrPage {
+  id: number
+  sourceId: string
+  kbId: string
+  pageNumber: number
+  status: KnowledgeSourceOcrPageStatus
+  stage?: KnowledgeSourceOcrPageStage | null
+  error?: string | null
+  modelLabel?: string | null
+  attemptCount: number
+  createdAt: number
   updatedAt: number
 }
 
@@ -517,7 +534,23 @@ export interface CompileStartInput {
 }
 
 export interface KnowledgeCompileConfig {
+  /** Deprecated — superseded by `modelOverride`. Read-only display concern. */
   agentId?: string | null
+  modelOverride?: { primary: { providerId: string; modelId: string }; fallbacks: { providerId: string; modelId: string }[] } | null
+}
+
+export interface KnowledgeVisionConfig {
+  modelOverride?: { primary: { providerId: string; modelId: string }; fallbacks: { providerId: string; modelId: string }[] } | null
+  timeoutSecs: number
+  maxTokens: number
+  /** Bounded concurrency for the scanned-PDF OCR fallback's per-page calls. */
+  ocrConcurrency: number
+  /** Page cap for the scanned-PDF OCR fallback. */
+  maxOcrPages: number
+}
+
+export interface NoteToolsConfig {
+  modelOverride?: { primary: { providerId: string; modelId: string }; fallbacks: { providerId: string; modelId: string }[] } | null
 }
 
 export type QueryFileMode =
@@ -782,6 +815,7 @@ export interface SpriteConfig {
   senses: SpriteSenses
   maxTokens: number
   timeoutSecs: number
+  modelOverride?: { primary: { providerId: string; modelId: string }; fallbacks: { providerId: string; modelId: string }[] } | null
 }
 
 /** Hybrid `note_search` ranking parameters (`AppConfig.knowledge_search`). */
@@ -888,4 +922,5 @@ export interface MaintenanceConfig {
   dedupSimilarity: number
   llmTimeoutSecs: number
   llmMaxTokens: number
+  modelOverride?: { primary: { providerId: string; modelId: string }; fallbacks: { providerId: string; modelId: string }[] } | null
 }

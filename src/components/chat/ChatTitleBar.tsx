@@ -316,6 +316,8 @@ export default function ChatTitleBar({
   }, [currentSessionId])
 
   const currentModel = resolveCurrentModel(activeModel, availableModels)
+  const showIncognitoToggle =
+    !currentSessionId && onIncognitoChange && incognitoDisabledReason !== "project"
   const activeRightPanel =
     rightPanels.find((panel) => panel.id === activeRightPanelId) ?? rightPanels[0] ?? null
   const rightPanelToggleLabel = rightPanelCollapsed
@@ -571,7 +573,7 @@ export default function ChatTitleBar({
         )}
       </div>
       <div className="flex items-end gap-1">
-        {!currentSessionId && onIncognitoChange && (
+        {showIncognitoToggle && (
           <IncognitoToggle
             sessionId={null}
             enabled={incognitoEnabled}

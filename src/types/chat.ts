@@ -169,6 +169,82 @@ export interface MessageUsage {
   lastInputTokens?: number
 }
 
+export interface ActiveMemoryCandidateRef {
+  kind: "memory" | "claim" | string
+  id: string
+  sourceType: string
+  scope: string
+  preview: string
+  score?: number
+  confidence?: number
+  salience?: number
+}
+
+export interface ActiveMemoryRecall {
+  summary: string
+  selected?: ActiveMemoryCandidateRef | null
+  candidates: ActiveMemoryCandidateRef[]
+  totalCandidates: number
+  latencyMs?: number
+  cached: boolean
+}
+
+export interface ActiveMemoryRecallEvent {
+  sessionId: string
+  agentId: string
+  queryHash: string
+  recall: ActiveMemoryRecall
+}
+
+export interface UsedMemoryRef {
+  kind: "memory" | "claim" | "profile" | "knowledge" | string
+  id: string
+  sourceType?: string
+  scope?: string
+  origin?:
+    | "active_memory"
+    | "pinned_memory"
+    | "static_memory"
+    | "profile"
+    | "knowledge"
+    | "experience"
+    | "graph"
+    | string
+  role?: "selected" | "candidate" | "injected" | string
+  preview?: string
+  path?: string
+  line?: number
+  col?: number
+  headingPath?: string
+  blockId?: string
+  score?: number
+  confidence?: number
+  salience?: number
+}
+
+export interface RetrievalPlannerLayerTrace {
+  layer: string
+  status: "used" | "candidate" | "empty" | "skipped" | "disabled" | string
+  refCount: number
+  injectedCount?: number
+  selectedCount?: number
+  candidateCount?: number
+  droppedCount?: number
+  skippedReason?: string | null
+  latencyMs?: number | null
+  cached?: boolean | null
+}
+
+export interface RetrievalPlannerTrace {
+  status: "used" | "candidates" | "partial" | "degraded" | "disabled" | "no_context" | string
+  totalRefs: number
+  rankingVersion?: string
+  intent?: "general" | "profile" | "procedure" | "episode" | "relationship" | "knowledge" | string
+  maxTraceRefs?: number
+  maxCandidatesPerOrigin?: number
+  layers: RetrievalPlannerLayerTrace[]
+}
+
 /** Ordered content block within an assistant message */
 export type ContentBlock =
   | { type: "thinking"; content: string; durationMs?: number; interrupted?: boolean }
@@ -264,6 +340,18 @@ export interface Message {
   }
   /** Database row ID, used for deduplication during streaming append */
   dbId?: number
+  /** Trace for memory actively recalled for this turn. Live events attach it
+   *  during streaming; completed assistant rows restore it from attachments
+   *  metadata on history reload. */
+  activeMemory?: ActiveMemoryRecall
+  /** Unified memory refs used or considered by retrieval layers for this turn.
+   *  Active Memory writes the first producer; future planner sources append
+   *  here without changing the message contract. */
+  usedMemoryRefs?: UsedMemoryRef[]
+  /** Retrieval Planner diagnostics for this turn. This does not affect model
+   *  context; it explains which memory/knowledge layers ran, used context, or
+   *  degraded. */
+  retrievalPlanner?: RetrievalPlannerTrace
   /** If true, this message is currently being streamed (channel streaming) */
   isStreaming?: boolean
   /**
@@ -352,6 +440,14 @@ export interface ActiveModel {
   modelId: string
 }
 
+export interface ChatRuntimeDefaults {
+  preferredModel?: ActiveModel | null
+  model?: ActiveModel | null
+  preferredModelAvailable: boolean
+  temperature?: number | null
+  reasoningEffort: string
+}
+
 /**
  * Per-session permission mode (permission system v2).
  *
@@ -383,6 +479,8 @@ export interface SessionMeta {
   providerId?: string | null
   providerName?: string | null
   modelId?: string | null
+  /** Temperature fixed for this Session; null is provider-native default. */
+  temperature?: number | null
   /** Session-scoped Think / reasoning effort override. */
   reasoningEffort?: string | null
   createdAt: string

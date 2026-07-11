@@ -6,12 +6,15 @@ import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import { DeferredNumberInput } from "@/components/ui/deferred-number-input"
 import { Switch } from "@/components/ui/switch"
-import { ModelSelector, type AvailableModel } from "@/components/ui/model-selector"
+import type { AvailableModel } from "@/components/ui/model-selector"
+import { ModelChainEditor, type ModelChainRef } from "@/components/ui/model-chain-editor"
 import CronExpressionBuilder from "@/components/cron/CronExpressionBuilder"
 import { buildCronFromVisual, parseCronToVisual } from "@/components/cron/cronHelpers"
 import type { CronFrequency } from "@/components/cron/CronJobForm.types"
-
-const NARRATIVE_MODEL_DEFAULT = "__default__"
+import {
+  dreamingSettingsOperationErrorToast,
+  type DreamingSettingsOperationErrorToast,
+} from "./dreamingSettingsOperationFeedback"
 
 interface IdleTriggerConfig {
   enabled: boolean
@@ -29,6 +32,14 @@ interface ProfileSynthesisConfig {
   enabled: boolean
   maxLinesPerScope: number
 }
+interface DeepResolverConfig {
+  autoExpireOnLightCycle: boolean
+  autoResolveOnLightCycle: boolean
+  autoResolveMaxGroups: number
+  autoResolveMinConfidence: number
+  autoMergeNearDuplicates: boolean
+  autoMergeSimilarity: number
+}
 interface DreamingConfig {
   enabled: boolean
   idleTrigger: IdleTriggerConfig
@@ -39,8 +50,11 @@ interface DreamingConfig {
   candidateLimit: number
   narrativeMaxTokens: number
   narrativeTimeoutSecs: number
+  /** Deprecated — superseded by `modelOverride`. Read-only display concern. */
   narrativeModel?: string | null
+  modelOverride?: ModelChainRef | null
   profileSynthesis: ProfileSynthesisConfig
+  deepResolver?: DeepResolverConfig
 }
 
 interface DreamReport {
@@ -66,6 +80,14 @@ export default function DreamingPanel() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle")
+  const [loadError, setLoadError] = useState<DreamingSettingsOperationErrorToast | null>(null)
+  const [saveError, setSaveError] = useState<DreamingSettingsOperationErrorToast | null>(null)
+  const [saveRecoveryError, setSaveRecoveryError] =
+    useState<DreamingSettingsOperationErrorToast | null>(null)
+  const [modelLoadError, setModelLoadError] =
+    useState<DreamingSettingsOperationErrorToast | null>(null)
+  const [statusLoadError, setStatusLoadError] =
+    useState<DreamingSettingsOperationErrorToast | null>(null)
   const [availableModels, setAvailableModels] = useState<AvailableModel[]>([])
   const [lastReport, setLastReport] = useState<DreamReport | null>(null)
   const [idleStatus, setIdleStatus] = useState<IdleStatus | null>(null)
@@ -74,33 +96,83 @@ export default function DreamingPanel() {
 
   // ── Initial load + live config sync via `config:changed` ──
   const loadCfg = useCallback(async () => {
+    setLoadError(null)
     try {
       const c = await getTransport().call<DreamingConfig>("get_dreaming_config")
       setCfg(c)
+      setLoadError(null)
     } catch (e) {
       logger.error("settings", "DreamingPanel::load", "Failed to load config", e)
+      setLoadError(dreamingSettingsOperationErrorToast("loadConfig", t, e))
     }
-  }, [])
+  }, [t])
+
+  const loadModels = useCallback(async () => {
+    setModelLoadError(null)
+    try {
+      const models = await getTransport().call<AvailableModel[]>("get_available_models")
+      setAvailableModels(models ?? [])
+      setModelLoadError(null)
+    } catch (e) {
+      logger.warn("settings", "DreamingPanel::models", "Failed to load models", e)
+      setAvailableModels([])
+      setModelLoadError(dreamingSettingsOperationErrorToast("loadModels", t, e))
+    }
+  }, [t])
+
+  const loadStatus = useCallback(async () => {
+    let failed = false
+    const [report, idle] = await Promise.all([
+      getTransport()
+        .call<DreamReport | null>("dreaming_last_report")
+        .catch((e) => {
+          failed = true
+          logger.warn("settings", "DreamingPanel::lastReport", "Failed to load last report", e)
+          setStatusLoadError((current) =>
+            current ?? dreamingSettingsOperationErrorToast("loadStatus", t, e),
+          )
+          return null
+        }),
+      getTransport()
+        .call<IdleStatus>("dreaming_idle_status")
+        .catch((e) => {
+          failed = true
+          logger.warn("settings", "DreamingPanel::idleStatus", "Failed to load idle status", e)
+          setStatusLoadError((current) =>
+            current ?? dreamingSettingsOperationErrorToast("loadStatus", t, e),
+          )
+          return null
+        }),
+    ])
+    setLastReport(report ?? null)
+    setIdleStatus(idle ?? null)
+    if (!failed) setStatusLoadError(null)
+  }, [t])
 
   useEffect(() => {
+    let cancelled = false
+    setLoadError(null)
     Promise.all([
       getTransport().call<DreamingConfig>("get_dreaming_config"),
-      getTransport().call<AvailableModel[]>("get_available_models").catch(() => [] as AvailableModel[]),
-      getTransport().call<DreamReport | null>("dreaming_last_report").catch(() => null),
-      getTransport().call<IdleStatus>("dreaming_idle_status").catch(() => null),
+      loadModels(),
+      loadStatus(),
     ])
-      .then(([c, models, report, idle]) => {
+      .then(([c]) => {
+        if (cancelled) return
         setCfg(c)
-        setAvailableModels(models)
-        setLastReport(report ?? null)
-        setIdleStatus(idle ?? null)
+        setLoadError(null)
         setLoading(false)
       })
       .catch((e: unknown) => {
+        if (cancelled) return
         logger.error("settings", "DreamingPanel::loadAll", "Initial load failed", e)
+        setLoadError(dreamingSettingsOperationErrorToast("loadConfig", t, e))
         setLoading(false)
       })
-  }, [])
+    return () => {
+      cancelled = true
+    }
+  }, [loadModels, loadStatus, t])
 
   useEffect(() => {
     return getTransport().listen("config:changed", (raw) => {
@@ -113,15 +185,9 @@ export default function DreamingPanel() {
 
   useEffect(() => {
     return getTransport().listen("dreaming:cycle_complete", () => {
-      void Promise.all([
-        getTransport().call<DreamReport | null>("dreaming_last_report").catch(() => null),
-        getTransport().call<IdleStatus>("dreaming_idle_status").catch(() => null),
-      ]).then(([r, i]) => {
-        setLastReport(r ?? null)
-        setIdleStatus(i ?? null)
-      })
+      void loadStatus()
     })
-  }, [])
+  }, [loadStatus])
 
   // 1Hz tick to drive the idle-countdown re-render. Only mounted while
   // the countdown is actually visible — keeps the panel idle when the
@@ -141,26 +207,42 @@ export default function DreamingPanel() {
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const save = useCallback((next: DreamingConfig) => {
     setCfg(next)
+    setSaveError(null)
+    setSaveRecoveryError(null)
     if (saveTimer.current) clearTimeout(saveTimer.current)
     saveTimer.current = setTimeout(async () => {
       setSaving(true)
       try {
         await getTransport().call("save_dreaming_config", { config: next })
+        setSaveError(null)
+        setSaveRecoveryError(null)
         setSaveStatus("saved")
         setTimeout(() => setSaveStatus("idle"), 1500)
       } catch (e) {
         logger.error("settings", "DreamingPanel::save", "Failed to save", e)
+        setSaveError(dreamingSettingsOperationErrorToast("saveConfig", t, e))
         setSaveStatus("failed")
         setTimeout(() => setSaveStatus("idle"), 1500)
         try {
           const fresh = await getTransport().call<DreamingConfig>("get_dreaming_config")
           setCfg(fresh)
-        } catch { /* best effort */ }
+          setSaveRecoveryError(null)
+        } catch (reloadError) {
+          logger.warn(
+            "settings",
+            "DreamingPanel::reloadAfterSaveFailure",
+            "Failed to reload config after save failure",
+            reloadError,
+          )
+          setSaveRecoveryError(
+            dreamingSettingsOperationErrorToast("reloadAfterSave", t, reloadError),
+          )
+        }
       } finally {
         setSaving(false)
       }
     }, 500)
-  }, [])
+  }, [t])
 
   // ── CronExpressionBuilder state ──
   const [cronFreq, setCronFreq] = useState<CronFrequency>("daily")
@@ -239,9 +321,48 @@ export default function DreamingPanel() {
     setCronWeekdays(next)
   }
 
-  if (loading || !cfg) return null
+  if (loading) return null
+
+  if (!cfg) {
+    return (
+      <div className="flex-1 overflow-y-auto p-6">
+        <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-4 text-sm">
+          <div className="font-medium text-foreground">
+            {loadError?.title ??
+              t("settings.dreaming.errors.loadConfig", {
+                defaultValue: "Failed to load Dreaming settings",
+              })}
+          </div>
+          {loadError?.description && (
+            <div className="mt-1 break-all text-xs text-muted-foreground">
+              {loadError.description}
+            </div>
+          )}
+          <button
+            type="button"
+            className="mt-3 text-xs font-medium text-primary underline"
+            onClick={() => {
+              setLoading(true)
+              void loadCfg().finally(() => setLoading(false))
+            }}
+          >
+            {t("common.refresh")}
+          </button>
+        </div>
+      </div>
+    )
+  }
 
   const masterDisabled = !cfg.enabled
+  const deepResolver: DeepResolverConfig = {
+    autoExpireOnLightCycle: true,
+    autoResolveOnLightCycle: true,
+    autoResolveMaxGroups: 8,
+    autoResolveMinConfidence: 0.92,
+    autoMergeNearDuplicates: true,
+    autoMergeSimilarity: 0.84,
+    ...(cfg.deepResolver ?? {}),
+  }
 
   // Status row idle countdown.
   const idleCountdownSecs =
@@ -249,13 +370,21 @@ export default function DreamingPanel() {
       ? Math.max(0, idleStatus.lastActivityEpochSecs + idleStatus.idleMinutes * 60 - now)
       : null
 
-  const narrativeModelValue = cfg.narrativeModel ?? NARRATIVE_MODEL_DEFAULT
-
   return (
     <div className="flex-1 overflow-y-auto p-6 space-y-6">
       {/* ── Status row ── */}
       {cfg.enabled && (
         <div className="rounded-lg border bg-secondary/30 p-3 text-xs space-y-1">
+          {statusLoadError && (
+            <div className="rounded border border-amber-500/30 bg-amber-500/5 px-2 py-1.5">
+              <div className="font-medium text-foreground">{statusLoadError.title}</div>
+              {statusLoadError.description && (
+                <div className="mt-1 break-all text-muted-foreground">
+                  {statusLoadError.description}
+                </div>
+              )}
+            </div>
+          )}
           {lastReport ? (
             <div className="flex items-center justify-between gap-2">
               <div className="text-muted-foreground">
@@ -305,6 +434,25 @@ export default function DreamingPanel() {
           />
         </div>
       </div>
+
+      {saveError && (
+        <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-xs">
+          <div className="font-medium text-foreground">{saveError.title}</div>
+          {saveError.description && (
+            <div className="mt-1 break-all text-muted-foreground">{saveError.description}</div>
+          )}
+        </div>
+      )}
+      {saveRecoveryError && (
+        <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-xs">
+          <div className="font-medium text-foreground">{saveRecoveryError.title}</div>
+          {saveRecoveryError.description && (
+            <div className="mt-1 break-all text-muted-foreground">
+              {saveRecoveryError.description}
+            </div>
+          )}
+        </div>
+      )}
 
       <div className={masterDisabled ? "pointer-events-none opacity-50" : ""}>
         {/* ── Idle trigger ── */}
@@ -446,29 +594,22 @@ export default function DreamingPanel() {
             <div className="text-xs text-muted-foreground">
               {t("settings.dreaming.narrativeModelDesc")}
             </div>
-            <div className="flex gap-2 items-center">
-              <ModelSelector
-                value={
-                  narrativeModelValue === NARRATIVE_MODEL_DEFAULT ? "" : narrativeModelValue
-                }
-                onChange={(providerId, modelId) =>
-                  save({ ...cfg, narrativeModel: `${providerId}:${modelId}` })
-                }
-                availableModels={availableModels}
-                placeholder={t("settings.dreaming.narrativeModelDefault")}
-                separator=":"
-                className="flex-1"
-              />
-              {cfg.narrativeModel && (
-                <button
-                  type="button"
-                  className="text-xs text-muted-foreground hover:text-foreground underline"
-                  onClick={() => save({ ...cfg, narrativeModel: null })}
-                >
-                  {t("settings.dreaming.narrativeModelClear")}
-                </button>
-              )}
-            </div>
+            {modelLoadError && (
+              <div className="rounded border border-amber-500/30 bg-amber-500/5 px-2 py-1.5 text-xs">
+                <div className="font-medium text-foreground">{modelLoadError.title}</div>
+                {modelLoadError.description && (
+                  <div className="mt-1 break-all text-muted-foreground">
+                    {modelLoadError.description}
+                  </div>
+                )}
+              </div>
+            )}
+            <ModelChainEditor
+              value={cfg.modelOverride ?? null}
+              onChange={(next) => save({ ...cfg, modelOverride: next })}
+              availableModels={availableModels}
+              inheritLabel={t("settings.dreaming.narrativeModelDefault")}
+            />
           </div>
         </Section>
 
@@ -502,6 +643,144 @@ export default function DreamingPanel() {
               })
             }
           />
+        </Section>
+
+        {/* ── Deep Resolver ── */}
+        <Section title={t("settings.dreaming.deepResolverTitle", "Deep Resolver")}>
+          <Row
+            label={t(
+              "settings.dreaming.autoExpireOnLightCycle",
+              "Auto-expire outdated claims"
+            )}
+            desc={t(
+              "settings.dreaming.autoExpireOnLightCycleDesc",
+              "During normal Dreaming cycles, persist deterministic valid-until expiry as an audit-backed resolver action."
+            )}
+            control={
+              <Switch
+                checked={deepResolver.autoExpireOnLightCycle}
+                onCheckedChange={(v) =>
+                  save({
+                    ...cfg,
+                    deepResolver: {
+                      ...deepResolver,
+                      autoExpireOnLightCycle: v,
+                    },
+                  })
+                }
+              />
+            }
+          />
+          <Row
+            label={t(
+              "settings.dreaming.autoResolveOnLightCycle",
+              "Automatically review memory conflicts",
+            )}
+            desc={t(
+              "settings.dreaming.autoResolveOnLightCycleDesc",
+              "Graph rules skip multi-value facts; a bounded LLM pass sends only high-confidence conflicts to Review Inbox and never auto-supersedes a fact.",
+            )}
+            control={
+              <Switch
+                checked={deepResolver.autoResolveOnLightCycle}
+                onCheckedChange={(v) =>
+                  save({
+                    ...cfg,
+                    deepResolver: {
+                      ...deepResolver,
+                      autoResolveOnLightCycle: v,
+                    },
+                  })
+                }
+              />
+            }
+          />
+          {deepResolver.autoResolveOnLightCycle && (
+            <>
+              <NumberRow
+                label={t("settings.dreaming.autoResolveMaxGroups", "Groups per cycle")}
+                desc={t(
+                  "settings.dreaming.autoResolveMaxGroupsDesc",
+                  "Bounds background LLM calls and leaves overflow for the next cycle.",
+                )}
+                min={1}
+                max={20}
+                value={deepResolver.autoResolveMaxGroups}
+                onChange={(v) =>
+                  save({
+                    ...cfg,
+                    deepResolver: { ...deepResolver, autoResolveMaxGroups: v },
+                  })
+                }
+              />
+              <NumberRow
+                label={t(
+                  "settings.dreaming.autoResolveMinConfidence",
+                  "Minimum LLM confidence",
+                )}
+                desc={t(
+                  "settings.dreaming.autoResolveMinConfidenceDesc",
+                  "Lower-confidence classifications leave claims untouched.",
+                )}
+                min={0.75}
+                max={0.99}
+                step={0.01}
+                value={deepResolver.autoResolveMinConfidence}
+                onChange={(v) =>
+                  save({
+                    ...cfg,
+                    deepResolver: { ...deepResolver, autoResolveMinConfidence: v },
+                  })
+                }
+              />
+              <Row
+                label={t(
+                  "settings.dreaming.autoMergeNearDuplicates",
+                  "Merge corroborated near-duplicates",
+                )}
+                desc={t(
+                  "settings.dreaming.autoMergeNearDuplicatesDesc",
+                  "Requires both a high-confidence duplicate verdict and graph alias or strong lexical similarity.",
+                )}
+                control={
+                  <Switch
+                    checked={deepResolver.autoMergeNearDuplicates}
+                    onCheckedChange={(v) =>
+                      save({
+                        ...cfg,
+                        deepResolver: {
+                          ...deepResolver,
+                          autoMergeNearDuplicates: v,
+                        },
+                      })
+                    }
+                  />
+                }
+              />
+              {deepResolver.autoMergeNearDuplicates && (
+                <NumberRow
+                  label={t(
+                    "settings.dreaming.autoMergeSimilarity",
+                    "Near-duplicate similarity",
+                  )}
+                  desc={t(
+                    "settings.dreaming.autoMergeSimilarityDesc",
+                    "Minimum lexical corroboration when no graph alias connects the objects.",
+                  )}
+                  min={0.7}
+                  max={0.98}
+                  step={0.01}
+                  value={deepResolver.autoMergeSimilarity}
+                  onChange={(v) =>
+                    save({
+                      ...cfg,
+                      deepResolver: { ...deepResolver, autoMergeSimilarity: v },
+                    })
+                  }
+                />
+              )}
+            </>
+          )}
         </Section>
       </div>
     </div>

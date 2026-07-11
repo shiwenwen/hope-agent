@@ -45,6 +45,7 @@ pub fn handle_forget(
     let query = memory::MemorySearchQuery {
         query: query_text.to_string(),
         types: None,
+        sources: None,
         scope: None,
         agent_id: None,
         limit: Some(1),

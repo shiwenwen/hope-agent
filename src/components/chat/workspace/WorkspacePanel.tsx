@@ -147,6 +147,14 @@ import {
   formatMessageTime,
   type ContextUsageInfo,
 } from "../chatUtils"
+import {
+  memoryKindLabel,
+  memoryOriginLabel,
+  retrievalLayerLabel,
+  retrievalLayerReasonLabel,
+  retrievalLayerStatusLabel,
+  retrievalTraceStatusLabel,
+} from "../message/memoryTraceFormat"
 import { formatCacheUsageDisplay, formatCompactTokenCount } from "../cacheUsageDisplay"
 import {
   type CompactResult,
@@ -161,6 +169,7 @@ import type {
   AvailableModel,
   FileChangeMetadata,
   FileChangesMetadata,
+  MediaItem,
   Message,
   SessionMeta,
   SessionMode,
@@ -176,7 +185,7 @@ import TaskProgressPanel from "@/components/chat/tasks/TaskProgressPanel"
 import type { TaskProgressSnapshot } from "@/components/chat/tasks/taskProgress"
 import type { PlanModeState } from "@/components/chat/plan-mode/usePlanMode"
 import type { SessionFileEntry } from "./useSessionFileChanges"
-import type { SessionUrlSource } from "./useSessionUrlSources"
+import { sessionSourceKey, type SessionUrlSource } from "./useSessionUrlSources"
 import type { SessionBrowserActivity } from "./useSessionBrowserActivity"
 import { useWorkspaceArtifacts } from "./useWorkspaceArtifacts"
 import { useWorkspaceEnvironment } from "./useWorkspaceEnvironment"
@@ -235,6 +244,13 @@ import {
 } from "./useLoopSchedules"
 import { parseGoalCriteriaDraft, type DraftGoalCriterionKind } from "./goalCriteriaDraft"
 import type { WorkspaceTaskExecutionState } from "./taskExecutionState"
+import {
+  buildWorkspaceMemoryDiagnostics,
+  formatWorkspaceMemoryDiagnosticsMarkdown,
+  workspaceMemoryDiagnosticsCopyErrorToast,
+  type WorkspaceMemoryLayerSummary,
+} from "./workspaceMemoryDiagnostics"
+import { workspaceSourceOpenErrorToast } from "./workspaceSourceFeedback"
 import { PANEL_SCROLL_FADE } from "../right-panel/panelFade"
 import {
   formatGitRef,
@@ -421,8 +437,13 @@ function FileRow({
   // summary or live diff); the diff *button* needs the structured `diff`.
   const showDelta = entry.kind === "modified" && (entry.linesAdded > 0 || entry.linesRemoved > 0)
   const target = useMemo<PreviewTarget>(
-    () => ({ kind: "path", path: entry.path, name }),
-    [entry.path, name],
+    () => ({
+      kind: "path",
+      path: entry.path,
+      name,
+      language: entry.language ?? diff?.language ?? null,
+    }),
+    [diff?.language, entry.language, entry.path, name],
   )
   const overrides = useMemo(() => ({ sessionId, onPreviewFile }), [sessionId, onPreviewFile])
   const { primary, run } = useFileActions(target, overrides)
@@ -468,14 +489,26 @@ function FileRow({
   )
 }
 
-function SourceRow({ source }: { source: SessionUrlSource }) {
+function UrlSourceRow({ source }: { source: Extract<SessionUrlSource, { kind: "url" }> }) {
   const { t } = useTranslation()
   const faviconUrl = useSafeFavicon(source.url)
+  const openSource = useCallback(() => {
+    openExternalUrl(source.url, {
+      onError: (e) => {
+        logger.error("ui", "WorkspaceSource::open", "Open source failed", e)
+        const failure = workspaceSourceOpenErrorToast(t, e)
+        toast.error(
+          failure.title,
+          failure.description ? { description: failure.description } : undefined,
+        )
+      },
+    })
+  }, [source.url, t])
   return (
     <IconTip label={source.url}>
       <button
         type="button"
-        onClick={() => openExternalUrl(source.url)}
+        onClick={openSource}
         className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-secondary/45"
       >
         {faviconUrl ? (
@@ -496,9 +529,106 @@ function SourceRow({ source }: { source: SessionUrlSource }) {
             {t("workspace.sourceFromSearch", "搜索")}
           </span>
         )}
+        {source.origin === "user_url" && (
+          <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-secondary/70 px-1.5 py-0.5 text-[10px] text-muted-foreground">
+            <MessageCircle className="h-2.5 w-2.5" />
+            {t("workspace.sourceFromUser", "用户")}
+          </span>
+        )}
       </button>
     </IconTip>
   )
+}
+
+function sourceMediaItem(source: Extract<SessionUrlSource, { kind: "attachment" }>): MediaItem {
+  return {
+    url: source.url ?? "",
+    ...(source.localPath ? { localPath: source.localPath } : {}),
+    name: source.name,
+    mimeType: source.mimeType,
+    sizeBytes: source.sizeBytes,
+    kind: source.attachmentKind === "image" ? "image" : "file",
+  }
+}
+
+function attachmentSourceTarget(
+  source: Extract<SessionUrlSource, { kind: "attachment" }>,
+): PreviewTarget | null {
+  if (source.attachmentKind === "quote") {
+    return null
+  }
+  if (source.localPath) {
+    return {
+      kind: "path",
+      path: source.localPath,
+      name: source.name,
+      mime: source.mimeType,
+    }
+  }
+  if (source.url) {
+    return { kind: "media", item: sourceMediaItem(source) }
+  }
+  return null
+}
+
+function AttachmentSourceRow({
+  source,
+  sessionId,
+  onPreviewFile,
+}: {
+  source: Extract<SessionUrlSource, { kind: "attachment" }>
+  sessionId?: string | null
+  onPreviewFile?: (target: PreviewTarget) => void
+}) {
+  const { t } = useTranslation()
+  const target = useMemo(() => attachmentSourceTarget(source), [source])
+  const overrides = useMemo(() => ({ sessionId, onPreviewFile }), [sessionId, onPreviewFile])
+  const { primary, run } = useFileActions(target, overrides)
+  const label = source.quoteLines ? `${source.name} L${source.quoteLines}` : source.name
+
+  return (
+    <FileContextMenu target={target} overrides={overrides}>
+      <div className="flex w-full items-center gap-1 rounded-md px-2 py-1.5 transition-colors hover:bg-secondary/45">
+        <IconTip label={label}>
+          <button
+            type="button"
+            disabled={!target}
+            onClick={() => run(primary)}
+            className="flex min-w-0 flex-1 items-center gap-2 text-left disabled:cursor-default"
+          >
+            <FileMimeIcon
+              mime={source.mimeType}
+              name={source.name}
+              className="h-3.5 w-3.5 shrink-0"
+            />
+            <span className="min-w-0 flex-1 truncate text-xs text-foreground/90">{label}</span>
+            <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-secondary/70 px-1.5 py-0.5 text-[10px] text-muted-foreground">
+              <Files className="h-2.5 w-2.5" />
+              {t("workspace.sourceFromAttachment", "附件")}
+            </span>
+          </button>
+        </IconTip>
+        <FileActionsMoreButton target={target} overrides={overrides} className="shrink-0" />
+      </div>
+    </FileContextMenu>
+  )
+}
+
+function SourceRow({
+  source,
+  sessionId,
+  onPreviewFile,
+}: {
+  source: SessionUrlSource
+  sessionId?: string | null
+  onPreviewFile?: (target: PreviewTarget) => void
+}) {
+  if (source.kind === "attachment") {
+    return (
+      <AttachmentSourceRow source={source} sessionId={sessionId} onPreviewFile={onPreviewFile} />
+    )
+  }
+  return <UrlSourceRow source={source} />
 }
 
 function browserActivityLabel(
@@ -669,6 +799,253 @@ function E2EBadge() {
     <span className="shrink-0 rounded-full border border-border/60 bg-secondary/35 px-1.5 py-0.5 text-[9px] font-medium leading-none text-muted-foreground">
       E2E
     </span>
+  )
+}
+
+function compactCountEntries(counts: Record<string, number>, max = 4): Array<[string, number]> {
+  return Object.entries(counts)
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, max)
+}
+
+function traceTone(status: string | undefined): "muted" | "good" | "warn" | "danger" | "info" {
+  switch (status) {
+    case "used":
+      return "good"
+    case "candidates":
+      return "info"
+    case "partial":
+      return "warn"
+    case "degraded":
+      return "danger"
+    case "disabled":
+    case "no_context":
+      return "muted"
+    default:
+      return "muted"
+  }
+}
+
+function dominantLayerStatus(layer: WorkspaceMemoryLayerSummary): string {
+  if (layer.skipped > 0) return "skipped"
+  if (layer.disabled > 0) return "disabled"
+  if (layer.used > 0) return "used"
+  if (layer.candidate > 0) return "candidate"
+  if (layer.empty > 0) return "empty"
+  return "empty"
+}
+
+function MemoryMetric({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-md border border-border/60 bg-secondary/25 px-2 py-1.5">
+      <div className="text-[10px] uppercase tracking-wide text-muted-foreground/70">{label}</div>
+      <div className="mt-0.5 text-sm font-semibold tabular-nums text-foreground">{value}</div>
+    </div>
+  )
+}
+
+function turnToneClass(status: string, degraded: boolean): string {
+  if (degraded) return "border-amber-500/35 bg-amber-500/10 text-amber-700 dark:text-amber-300"
+  if (status === "used")
+    return "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+  if (status === "candidates")
+    return "border-blue-500/35 bg-blue-500/10 text-blue-700 dark:text-blue-300"
+  return "border-border bg-muted/50 text-muted-foreground"
+}
+
+function MemoryDiagnosticsSection({
+  messages,
+  incognito,
+}: {
+  messages: Message[]
+  incognito: boolean
+}) {
+  const { t } = useTranslation()
+  const diagnostics = useMemo(() => buildWorkspaceMemoryDiagnostics(messages), [messages])
+  const latestStatus = diagnostics.latest?.status
+
+  const handleCopy = useCallback(async () => {
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error("clipboard unavailable")
+      await navigator.clipboard.writeText(formatWorkspaceMemoryDiagnosticsMarkdown(diagnostics))
+      toast.success(t("workspace.memoryDiagnostics.copyDone", "记忆诊断已复制"))
+    } catch (e) {
+      logger.error("ui", "WorkspaceMemoryDiagnostics::copy", "Copy diagnostics failed", e)
+      const failure = workspaceMemoryDiagnosticsCopyErrorToast(t, e)
+      toast.error(
+        failure.title,
+        failure.description ? { description: failure.description } : undefined,
+      )
+    }
+  }, [diagnostics, t])
+
+  return (
+    <WorkspaceSection
+      title={t("workspace.sectionMemoryDiagnostics", "记忆诊断")}
+      count={diagnostics.turns}
+      icon={Brain}
+      meta={
+        diagnostics.turns > 0 && latestStatus ? (
+          <StatusPill
+            label={retrievalTraceStatusLabel(latestStatus, t)}
+            tone={traceTone(latestStatus)}
+          />
+        ) : null
+      }
+    >
+      {diagnostics.turns === 0 ? (
+        <EmptyHint>
+          {incognito
+            ? t("workspace.memoryDiagnostics.emptyIncognito", "无痕会话不会读取长期记忆")
+            : t("workspace.memoryDiagnostics.empty", "本会话还没有记忆诊断")}
+        </EmptyHint>
+      ) : (
+        <div className="space-y-2">
+          <div className="grid grid-cols-3 gap-1.5">
+            <MemoryMetric
+              label={t("workspace.memoryDiagnostics.turns", "轮次")}
+              value={diagnostics.turns}
+            />
+            <MemoryMetric
+              label={t("workspace.memoryDiagnostics.contextRefs", "入上下文")}
+              value={diagnostics.contextRefCount}
+            />
+            <MemoryMetric
+              label={t("workspace.memoryDiagnostics.candidates", "候选")}
+              value={diagnostics.candidateRefCount}
+            />
+          </div>
+
+          <div className="flex flex-wrap items-center gap-1.5">
+            {compactCountEntries(diagnostics.kindCounts).map(([kind, count]) => (
+              <span
+                key={kind}
+                className="inline-flex max-w-full items-center rounded-full border border-border/60 bg-background/70 px-2 py-0.5 text-[10px] text-muted-foreground"
+              >
+                <span className="truncate">{memoryKindLabel({ kind }, t)}</span>
+                <span className="ml-1 tabular-nums">{count}</span>
+              </span>
+            ))}
+            {diagnostics.droppedCount > 0 ? (
+              <StatusPill
+                label={`${t("workspace.memoryDiagnostics.dropped", "裁剪")} ${diagnostics.droppedCount}`}
+                tone="warn"
+              />
+            ) : null}
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="ml-auto h-7 px-2 text-[11px]"
+              onClick={handleCopy}
+            >
+              <Copy className="mr-1 h-3 w-3" />
+              {t("workspace.memoryDiagnostics.copy", "复制诊断")}
+            </Button>
+          </div>
+
+          {Object.keys(diagnostics.originCounts).length > 0 ? (
+            <div className="space-y-1 rounded-md border border-border/50 bg-secondary/20 px-2 py-1.5">
+              <div className="text-[10px] uppercase tracking-wide text-muted-foreground/70">
+                {t("workspace.memoryDiagnostics.origins", "来源对比")}
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {compactCountEntries(diagnostics.originCounts, 5).map(([origin, count]) => (
+                  <span
+                    key={origin}
+                    className="inline-flex max-w-full items-center rounded-full border border-border/60 bg-background/70 px-2 py-0.5 text-[10px] text-muted-foreground"
+                  >
+                    <span className="truncate">{memoryOriginLabel(origin, t)}</span>
+                    <span className="ml-1 tabular-nums">{count}</span>
+                  </span>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          {diagnostics.recentTurns.length > 0 ? (
+            <div className="space-y-1 rounded-md border border-border/50 bg-secondary/20 px-2 py-1.5">
+              <div className="text-[10px] uppercase tracking-wide text-muted-foreground/70">
+                {t("workspace.memoryDiagnostics.recentTurns", "最近轮次")}
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {diagnostics.recentTurns.map((turn) => (
+                  <span
+                    key={turn.index}
+                    className={cn(
+                      "inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] tabular-nums",
+                      turnToneClass(turn.status, turn.degraded),
+                    )}
+                    title={`${retrievalTraceStatusLabel(turn.status, t)} · ${turn.contextRefCount}/${turn.candidateRefCount}`}
+                  >
+                    #{turn.index + 1}
+                    <span className="ml-1 text-muted-foreground">
+                      {turn.contextRefCount}/{turn.candidateRefCount}
+                    </span>
+                  </span>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          <div className="space-y-1">
+            {diagnostics.layers.slice(0, 5).map((layer) => {
+              const status = dominantLayerStatus(layer)
+              return (
+                <div
+                  key={layer.layer}
+                  className="flex min-w-0 items-center gap-2 rounded-md border border-border/50 bg-secondary/25 px-2 py-1.5 text-xs"
+                >
+                  <Layers className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  <span className="min-w-0 flex-1 truncate font-medium text-foreground/90">
+                    {retrievalLayerLabel(layer.layer, t)}
+                  </span>
+                  <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground">
+                    {layer.refCount} refs
+                  </span>
+                  <StatusPill
+                    label={retrievalLayerStatusLabel(status, t)}
+                    tone={
+                      status === "used"
+                        ? "good"
+                        : status === "candidate"
+                          ? "info"
+                          : status === "skipped"
+                            ? "warn"
+                            : "muted"
+                    }
+                  />
+                </div>
+              )
+            })}
+          </div>
+
+          {diagnostics.degradedLayers.length > 0 ? (
+            <div className="space-y-1 rounded-md border border-amber-500/25 bg-amber-500/5 px-2 py-1.5">
+              {diagnostics.degradedLayers.map((layer) => (
+                <div
+                  key={`${layer.layer}:${layer.status}:${layer.reason ?? ""}`}
+                  className="flex min-w-0 items-center gap-2 text-[11px]"
+                >
+                  <CircleAlert className="h-3.5 w-3.5 shrink-0 text-amber-600 dark:text-amber-400" />
+                  <span className="min-w-0 flex-1 truncate text-foreground/80">
+                    {retrievalLayerLabel(layer.layer, t)}
+                    {layer.reason ? ` · ${retrievalLayerReasonLabel(layer.reason, t)}` : ""}
+                  </span>
+                  <span className="shrink-0 tabular-nums text-muted-foreground">
+                    x{layer.count}
+                  </span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-md border border-emerald-500/20 bg-emerald-500/5 px-2 py-1.5 text-[11px] text-emerald-700 dark:text-emerald-300">
+              {t("workspace.memoryDiagnostics.noDegraded", "本会话未记录记忆层降级")}
+            </div>
+          )}
+        </div>
+      )}
+    </WorkspaceSection>
   )
 }
 
@@ -1625,7 +2002,7 @@ function KnowledgeSection({
   messages: Message[]
 }) {
   const { t } = useTranslation()
-  const { attachments, activity } = useSessionKnowledge(sessionId, projectId, {
+  const { attachments, activity, loadErrorDetail } = useSessionKnowledge(sessionId, projectId, {
     incognito,
     messages,
   })
@@ -1638,6 +2015,14 @@ function KnowledgeSection({
       count={attachments.length}
       icon={BookText}
     >
+      {loadErrorDetail && (
+        <KnowledgeLoadWarning
+          title={t("workspace.kbAttachmentsLoadFailed", "无法读取已挂载知识空间")}
+          detail={t("workspace.kbLoadDetail", "详细信息：{{error}}", {
+            error: loadErrorDetail,
+          })}
+        />
+      )}
       {hasContent ? (
         <div className="space-y-2">
           {attachments.length > 0 && (
@@ -1710,7 +2095,7 @@ function KnowledgeSection({
             </div>
           )}
         </div>
-      ) : (
+      ) : loadErrorDetail ? null : (
         <EmptyHint>{t("workspace.emptyKnowledge", "未挂载知识空间")}</EmptyHint>
       )}
     </WorkspaceSection>
@@ -2375,11 +2760,7 @@ function DomainContextActionChips({
           }}
           className="inline-flex h-5 items-center gap-1 rounded border border-border/50 bg-background/55 px-1.5 text-[10px] text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-45"
         >
-          {taskBusy ? (
-            <Loader2 className="h-3 w-3 animate-spin" />
-          ) : (
-            <Plus className="h-3 w-3" />
-          )}
+          {taskBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />}
           <span>{t("workspace.context.actionTask", "转任务")}</span>
         </button>
       ) : null}
@@ -2487,6 +2868,18 @@ function ContextFileCandidateRow({
           actionKey={actionKey}
           onAction={onAction}
         />
+      </div>
+    </div>
+  )
+}
+
+function KnowledgeLoadWarning({ title, detail }: { title: string; detail?: string | null }) {
+  return (
+    <div className="mb-2 flex gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-2.5 py-2 text-[11px] leading-relaxed text-amber-800 dark:text-amber-200">
+      <CircleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+      <div className="min-w-0">
+        <div className="font-medium">{title}</div>
+        {detail && <div className="mt-0.5 break-words opacity-85">{detail}</div>}
       </div>
     </div>
   )
@@ -2661,12 +3054,7 @@ function ContextRetrievalSection({
         onDomainEvidenceRecorded?.()
       } catch (e) {
         const message = e instanceof Error ? e.message : String(e)
-        logger.error(
-          "ui",
-          "ContextRetrievalSection",
-          "Record context candidate evidence failed",
-          e,
-        )
+        logger.error("ui", "ContextRetrievalSection", "Record context candidate evidence failed", e)
         toast.error(message)
       } finally {
         setContextActionKey(null)
@@ -2751,12 +3139,7 @@ function ContextRetrievalSection({
         onDomainEvidenceRecorded?.()
       } catch (e) {
         const message = e instanceof Error ? e.message : String(e)
-        logger.error(
-          "ui",
-          "ContextRetrievalSection",
-          "Mark context candidate conflict failed",
-          e,
-        )
+        logger.error("ui", "ContextRetrievalSection", "Mark context candidate conflict failed", e)
         toast.error(message)
       } finally {
         setContextActionKey(null)
@@ -2784,12 +3167,7 @@ function ContextRetrievalSection({
         refresh()
       } catch (e) {
         const message = e instanceof Error ? e.message : String(e)
-        logger.error(
-          "ui",
-          "ContextRetrievalSection",
-          "Create context candidate task failed",
-          e,
-        )
+        logger.error("ui", "ContextRetrievalSection", "Create context candidate task failed", e)
         toast.error(message)
       } finally {
         setContextActionKey(null)
@@ -3004,23 +3382,11 @@ const DOMAIN_SOURCE_EVIDENCE_TYPES = new Set([
   "connector_context_collected",
   "data_quality_checked",
 ])
-const DOMAIN_DRAFT_EVIDENCE_TYPES = new Set([
-  "artifact_created",
-  "connector_draft_created",
-])
-const DOMAIN_REVIEW_EVIDENCE_TYPES = new Set([
-  "artifact_reviewed",
-  "connector_action_verified",
-])
-const DOMAIN_DECISION_EVIDENCE_TYPES = new Set([
-  "user_decision",
-  "message_draft_approved",
-])
+const DOMAIN_DRAFT_EVIDENCE_TYPES = new Set(["artifact_created", "connector_draft_created"])
+const DOMAIN_REVIEW_EVIDENCE_TYPES = new Set(["artifact_reviewed", "connector_action_verified"])
+const DOMAIN_DECISION_EVIDENCE_TYPES = new Set(["user_decision", "message_draft_approved"])
 
-function domainEvidenceTypeLabel(
-  t: ReturnType<typeof useTranslation>["t"],
-  type: string,
-): string {
+function domainEvidenceTypeLabel(t: ReturnType<typeof useTranslation>["t"], type: string): string {
   switch (type) {
     case "source_cited":
       return t("workspace.domainWorkbench.evidenceSourceCited", "引用来源")
@@ -3182,9 +3548,7 @@ function domainWorkbenchOverallTone(args: {
     args.exportStatus === "failed" ||
     args.connectorStatus === "failed" ||
     args.connectorE2EStatus === "failed"
-  const hasRuntimeFailedGate =
-    args.operationalStatus === "failed" ||
-    args.soakStatus === "failed"
+  const hasRuntimeFailedGate = args.operationalStatus === "failed" || args.soakStatus === "failed"
   const hasObservedGate =
     Boolean(args.exportStatus) ||
     Boolean(args.connectorStatus) ||
@@ -3256,7 +3620,9 @@ function domainWorkbenchNextSteps(
     steps.push(t("workspace.domainWorkbench.nextEvidence", "先让模型记录来源、草稿或决策证据。"))
   }
   if (args.sourceCount === 0) {
-    steps.push(t("workspace.domainWorkbench.nextSources", "补齐来源或连接器上下文，避免无依据产物。"))
+    steps.push(
+      t("workspace.domainWorkbench.nextSources", "补齐来源或连接器上下文，避免无依据产物。"),
+    )
   }
   if (args.draftCount === 0) {
     steps.push(t("workspace.domainWorkbench.nextDraft", "生成可审查的草稿、文件或外部动作草案。"))
@@ -3265,7 +3631,9 @@ function domainWorkbenchNextSteps(
     steps.push(t("workspace.domainWorkbench.nextReview", "对草稿做复核，再进入交付或外部执行。"))
   }
   if (args.domainFailed > 0 || args.domainNeedsUser > 0) {
-    steps.push(t("workspace.domainWorkbench.nextDomainQuality", "处理领域复核里的阻塞项或用户确认项。"))
+    steps.push(
+      t("workspace.domainWorkbench.nextDomainQuality", "处理领域复核里的阻塞项或用户确认项。"),
+    )
   }
   if (args.failedVerification > 0) {
     steps.push(t("workspace.domainWorkbench.nextVerification", "查看验证失败步骤并重新验证。"))
@@ -3285,13 +3653,19 @@ function domainWorkbenchNextSteps(
   if (args.connectorE2eGate?.status && args.connectorE2eGate.status !== "passed") {
     steps.push(
       args.connectorE2eGate.recommendedNextSteps[0] ??
-        t("workspace.domainWorkbench.nextConnectorE2E", "补齐连接器输入、草稿、批准、执行、复核和回滚证据。"),
+        t(
+          "workspace.domainWorkbench.nextConnectorE2E",
+          "补齐连接器输入、草稿、批准、执行、复核和回滚证据。",
+        ),
     )
   }
   if (args.operationalGate?.status && args.operationalGate.status !== "passed") {
     steps.push(
       args.operationalGate.recommendedNextSteps[0] ??
-        t("workspace.domainWorkbench.nextOperationalGate", "等待工作流排空，或处理失败/阻塞的运行。"),
+        t(
+          "workspace.domainWorkbench.nextOperationalGate",
+          "等待工作流排空，或处理失败/阻塞的运行。",
+        ),
     )
   }
   if (args.soakReport?.status && args.soakReport.status !== "passed") {
@@ -3302,7 +3676,12 @@ function domainWorkbenchNextSteps(
   }
   return steps.length > 0
     ? steps.slice(0, 4)
-    : [t("workspace.domainWorkbench.nextReady", "证据链健康；交付或外部动作前仍会要求用户最终确认。")]
+    : [
+        t(
+          "workspace.domainWorkbench.nextReady",
+          "证据链健康；交付或外部动作前仍会要求用户最终确认。",
+        ),
+      ]
 }
 
 type DomainAcceptanceCoverageSummary = {
@@ -3501,28 +3880,23 @@ function domainAcceptanceCoverageSummary(
   const completedWorkflowRuns =
     soakSummary?.completedWorkflowRuns ?? operationalSummary?.completedWorkflowRuns ?? 0
   const loopRuns = soakSummary?.loopRuns ?? operationalSummary?.loopRuns ?? 0
-  const succeededLoopRuns = soakSummary?.succeededLoopRuns ?? operationalSummary?.succeededLoopRuns ?? 0
+  const succeededLoopRuns =
+    soakSummary?.succeededLoopRuns ?? operationalSummary?.succeededLoopRuns ?? 0
   const campaignItems = soakSummary?.campaignItems ?? operationalSummary?.campaignItems ?? 0
   const passedCampaignItems =
     soakSummary?.passedCampaignItems ?? operationalSummary?.passedCampaignItems ?? 0
   const controlRecords =
-    soakSummary?.totalRecords ??
-    workflowRuns + loopRuns + campaignItems + args.evidence.length
-  const drainedRuns =
-    completedWorkflowRuns + succeededLoopRuns + passedCampaignItems
+    soakSummary?.totalRecords ?? workflowRuns + loopRuns + campaignItems + args.evidence.length
+  const drainedRuns = completedWorkflowRuns + succeededLoopRuns + passedCampaignItems
   const connectorE2eEvidence =
     connectorE2eSummary?.evidenceItems ??
     soakSummary?.connectorE2eEvidence ??
-    ((soakSummary?.connectorExecutionEvidence ?? 0) +
-      (soakSummary?.connectorVerificationEvidence ?? 0))
+    (soakSummary?.connectorExecutionEvidence ?? 0) +
+      (soakSummary?.connectorVerificationEvidence ?? 0)
   const connectorExecutionEvidence =
-    connectorE2eSummary?.executionEvidence ??
-    soakSummary?.connectorExecutionEvidence ??
-    0
+    connectorE2eSummary?.executionEvidence ?? soakSummary?.connectorExecutionEvidence ?? 0
   const connectorVerificationEvidence =
-    connectorE2eSummary?.verificationEvidence ??
-    soakSummary?.connectorVerificationEvidence ??
-    0
+    connectorE2eSummary?.verificationEvidence ?? soakSummary?.connectorVerificationEvidence ?? 0
   const controlMix: DomainAcceptanceControlMix = {
     workflowRuns,
     completedWorkflowRuns,
@@ -3564,12 +3938,12 @@ function domainAcceptanceCoverageSummary(
   const budgetHealthy = controlRecords > 0 && budgetExhaustedEvents === 0
   const connectorE2eHasScope = Boolean(
     args.connectorE2eGate?.connector ||
-      args.connectorE2eGate?.action ||
-      args.connectorE2eGate?.toolName ||
-      connectorE2eSummary?.evidenceItems ||
-      args.connectorGuard?.summary?.actionEvidence ||
-      connectorExecutionEvidence > 0 ||
-      connectorVerificationEvidence > 0,
+    args.connectorE2eGate?.action ||
+    args.connectorE2eGate?.toolName ||
+    connectorE2eSummary?.evidenceItems ||
+    args.connectorGuard?.summary?.actionEvidence ||
+    connectorExecutionEvidence > 0 ||
+    connectorVerificationEvidence > 0,
   )
   const hasFailedGate =
     hasAcceptanceSample &&
@@ -3605,11 +3979,7 @@ function domainAcceptanceCoverageSummary(
       : null,
   ].filter(Boolean)
   const gaps: DomainAcceptanceGap[] = []
-  const pushGap = (
-    key: string,
-    message: string,
-    severity: DomainAcceptanceGapSeverity,
-  ) => {
+  const pushGap = (key: string, message: string, severity: DomainAcceptanceGapSeverity) => {
     gaps.push({ key, message, severity })
   }
 
@@ -3657,20 +4027,14 @@ function domainAcceptanceCoverageSummary(
   if (controlRecords > 0 && !hasFreshSample) {
     pushGap(
       "freshness",
-      t(
-        "workspace.domainWorkbench.acceptanceGapFreshness",
-        "最近长任务样本过旧或缺少新鲜度信号。",
-      ),
+      t("workspace.domainWorkbench.acceptanceGapFreshness", "最近长任务样本过旧或缺少新鲜度信号。"),
       "warn",
     )
   }
   if (controlRecords > 0 && !hasRequiredSampleDays) {
     pushGap(
       "sample-days",
-      t(
-        "workspace.domainWorkbench.acceptanceGapSampleDays",
-        "多天长跑窗口缺少跨天样本覆盖。",
-      ),
+      t("workspace.domainWorkbench.acceptanceGapSampleDays", "多天长跑窗口缺少跨天样本覆盖。"),
       "warn",
     )
   }
@@ -3697,11 +4061,9 @@ function domainAcceptanceCoverageSummary(
   if (failedGateLabels.length > 0 && criticalIncidents === 0) {
     pushGap(
       "failed-gates",
-      t(
-        "workspace.domainWorkbench.acceptanceGapFailedGates",
-        "仍有未通过守门：{{gates}}。",
-        { gates: failedGateLabels.join("、") },
-      ),
+      t("workspace.domainWorkbench.acceptanceGapFailedGates", "仍有未通过守门：{{gates}}。", {
+        gates: failedGateLabels.join("、"),
+      }),
       "danger",
     )
   }
@@ -3751,7 +4113,10 @@ function domainAcceptanceCoverageSummary(
           ? t("workspace.domainWorkbench.acceptanceReqDrainOk", "{{count}} 个已排空", {
               count: drainedRuns,
             })
-          : t("workspace.domainWorkbench.acceptanceReqDrainMissing", "缺 Workflow / Loop / Campaign"),
+          : t(
+              "workspace.domainWorkbench.acceptanceReqDrainMissing",
+              "缺 Workflow / Loop / Campaign",
+            ),
       passed: drainedRuns > 0,
       tone: drainedRuns > 0 ? "good" : hasAcceptanceSample ? "warn" : "muted",
     },
@@ -3783,11 +4148,10 @@ function domainAcceptanceCoverageSummary(
         controlRecords === 0
           ? t("workspace.domainWorkbench.acceptanceReqSampleDaysNoSample", "先补控制面记录")
           : hasRequiredSampleDays
-            ? t(
-                "workspace.domainWorkbench.acceptanceReqSampleDaysOk",
-                "{{days}}/{{required}} 天",
-                { days: sampleDays, required: requiredSampleDays },
-              )
+            ? t("workspace.domainWorkbench.acceptanceReqSampleDaysOk", "{{days}}/{{required}} 天", {
+                days: sampleDays,
+                required: requiredSampleDays,
+              })
             : t(
                 "workspace.domainWorkbench.acceptanceReqSampleDaysMissing",
                 "{{days}}/{{required}} 天，缺跨天样本",
@@ -3878,11 +4242,7 @@ function domainAcceptanceCoverageSummary(
         : t("workspace.domainWorkbench.acceptanceReqConnectorE2EMissing", "缺执行/复核闭环"),
       passed: connectorPassed,
       tone:
-        args.connectorE2eGate?.status === "failed"
-          ? "danger"
-          : connectorPassed
-            ? "good"
-            : "warn",
+        args.connectorE2eGate?.status === "failed" ? "danger" : connectorPassed ? "good" : "warn",
     })
   }
   const sampleLanes: DomainAcceptanceSampleLane[] = [
@@ -3964,11 +4324,10 @@ function domainAcceptanceCoverageSummary(
       label: t("workspace.domainWorkbench.acceptanceLaneCampaign", "Campaign 样本"),
       detail:
         passedCampaignItems > 0
-          ? t(
-              "workspace.domainWorkbench.acceptanceLaneCampaignOk",
-              "{{passed}}/{{total}} 通过",
-              { passed: passedCampaignItems, total: campaignItems },
-            )
+          ? t("workspace.domainWorkbench.acceptanceLaneCampaignOk", "{{passed}}/{{total}} 通过", {
+              passed: passedCampaignItems,
+              total: campaignItems,
+            })
           : t("workspace.domainWorkbench.acceptanceLaneCampaignMissing", "缺通过的 Campaign item"),
       passed: passedCampaignItems > 0,
       tone: passedCampaignItems > 0 ? "good" : hasAcceptanceSample ? "warn" : "muted",
@@ -4076,7 +4435,10 @@ function domainAcceptanceCoverageSummary(
       refreshTargets: [
         t("workspace.domainWorkbench.acceptanceLaneRefreshCoverage", "刷新真实样本验收卡片。"),
         t("workspace.domainWorkbench.acceptanceLaneRefreshReport", "重新复制真实样本验收报告。"),
-        t("workspace.domainWorkbench.acceptanceLaneRefreshReview", "更新给人工 / Claude Code / PR review 的验收包。"),
+        t(
+          "workspace.domainWorkbench.acceptanceLaneRefreshReview",
+          "更新给人工 / Claude Code / PR review 的验收包。",
+        ),
       ],
     },
   ]
@@ -4087,15 +4449,16 @@ function domainAcceptanceCoverageSummary(
   const diversityBonus = domains.size >= 2 ? 10 : 0
   const readinessPercent = Math.max(0, Math.min(100, Math.round(requiredPercent + diversityBonus)))
 
-  const tone: StatusTone = hasFailedGate || criticalIncidents > 0
-    ? "danger"
-    : !hasAcceptanceSample
-      ? "muted"
-    : gaps.length > 0
-      ? "warn"
-      : controlRecords > 0
-        ? "good"
-        : "muted"
+  const tone: StatusTone =
+    hasFailedGate || criticalIncidents > 0
+      ? "danger"
+      : !hasAcceptanceSample
+        ? "muted"
+        : gaps.length > 0
+          ? "warn"
+          : controlRecords > 0
+            ? "good"
+            : "muted"
 
   return {
     domains: [...domains].sort(),
@@ -4137,9 +4500,12 @@ function domainAcceptanceRequirementStatusLabel(
   requirement: DomainAcceptanceRequirement,
 ): string {
   if (requirement.passed) return t("workspace.domainWorkbench.acceptanceReqPassed", "通过")
-  if (requirement.tone === "danger") return t("workspace.domainWorkbench.acceptanceReqBlocked", "阻塞")
-  if (requirement.tone === "muted") return t("workspace.domainWorkbench.acceptanceReqSampling", "待采样")
-  if (requirement.tone === "info") return t("workspace.domainWorkbench.acceptanceLaneOptional", "待扩展")
+  if (requirement.tone === "danger")
+    return t("workspace.domainWorkbench.acceptanceReqBlocked", "阻塞")
+  if (requirement.tone === "muted")
+    return t("workspace.domainWorkbench.acceptanceReqSampling", "待采样")
+  if (requirement.tone === "info")
+    return t("workspace.domainWorkbench.acceptanceLaneOptional", "待扩展")
   return t("workspace.domainWorkbench.acceptanceReqMissing", "待补")
 }
 
@@ -4159,11 +4525,9 @@ function domainAcceptanceSampleLaneTaskContent(
   lane: DomainAcceptanceSampleLane,
 ): string {
   return [
-    t(
-      "workspace.domainWorkbench.acceptanceLaneTaskTitle",
-      "补齐真实样本验收跑道：{{lane}}",
-      { lane: lane.label },
-    ),
+    t("workspace.domainWorkbench.acceptanceLaneTaskTitle", "补齐真实样本验收跑道：{{lane}}", {
+      lane: lane.label,
+    }),
     "",
     t("workspace.domainWorkbench.acceptanceLaneTaskStatusHeading", "当前状态："),
     `- ${lane.detail}`,
@@ -4186,16 +4550,18 @@ function domainAcceptanceSampleLaneChecklistLines(
 ): string[] {
   return lanes.flatMap((lane) => {
     const status = domainAcceptanceSampleLaneStatusLabel(t, lane)
-    const evidenceLines = lane.evidence.map((item) =>
-      `  - ${t("workspace.domainWorkbench.acceptanceLaneChecklistEvidence", "证据：{{item}}", {
-        item,
-      })}`,
+    const evidenceLines = lane.evidence.map(
+      (item) =>
+        `  - ${t("workspace.domainWorkbench.acceptanceLaneChecklistEvidence", "证据：{{item}}", {
+          item,
+        })}`,
     )
     const refreshLines = options.includeRefreshTargets
-      ? lane.refreshTargets.map((item) =>
-          `  - ${t("workspace.domainWorkbench.acceptanceLaneChecklistRefresh", "刷新：{{item}}", {
-            item,
-          })}`,
+      ? lane.refreshTargets.map(
+          (item) =>
+            `  - ${t("workspace.domainWorkbench.acceptanceLaneChecklistRefresh", "刷新：{{item}}", {
+              item,
+            })}`,
         )
       : []
     return [
@@ -4231,13 +4597,17 @@ function domainAcceptanceStatusLabel(
   t: ReturnType<typeof useTranslation>["t"],
   summary: DomainAcceptanceCoverageSummary,
 ): string {
-  if (summary.tone === "danger") return t("workspace.domainWorkbench.acceptanceFailed", "样本有事故")
-  if (summary.tone === "warn") return t("workspace.domainWorkbench.acceptanceNeedsSamples", "待补样本")
+  if (summary.tone === "danger")
+    return t("workspace.domainWorkbench.acceptanceFailed", "样本有事故")
+  if (summary.tone === "warn")
+    return t("workspace.domainWorkbench.acceptanceNeedsSamples", "待补样本")
   if (summary.tone === "good") return t("workspace.domainWorkbench.acceptanceReady", "样本可审")
   return t("workspace.domainWorkbench.acceptanceIdle", "待采样")
 }
 
-function domainAcceptanceHasActionableSamplingWork(summary: DomainAcceptanceCoverageSummary): boolean {
+function domainAcceptanceHasActionableSamplingWork(
+  summary: DomainAcceptanceCoverageSummary,
+): boolean {
   return (
     summary.gaps.length > 0 ||
     summary.requirements.some((requirement) => !requirement.passed) ||
@@ -4292,8 +4662,11 @@ function domainAcceptanceVerdict(
             "{{label}} 仍缺证据：{{detail}}",
             { label: missingRequirement.label, detail: missingRequirement.detail },
           )
-        : warningGap?.message ??
-          t("workspace.domainWorkbench.acceptanceVerdictNeedsSamplesDetail", "仍有样本缺口需要补齐。"),
+        : (warningGap?.message ??
+          t(
+            "workspace.domainWorkbench.acceptanceVerdictNeedsSamplesDetail",
+            "仍有样本缺口需要补齐。",
+          )),
       tone: "warn",
     }
   }
@@ -4386,9 +4759,7 @@ function domainAcceptanceEvidenceLevel(
   }
 }
 
-function domainAcceptanceReviewProtocolLines(
-  t: ReturnType<typeof useTranslation>["t"],
-): string[] {
+function domainAcceptanceReviewProtocolLines(t: ReturnType<typeof useTranslation>["t"]): string[] {
   return [
     t(
       "workspace.domainWorkbench.acceptanceReviewProtocolVerdict",
@@ -4451,11 +4822,10 @@ function domainAcceptanceSampleDaysText(
   t: ReturnType<typeof useTranslation>["t"],
   summary: DomainAcceptanceCoverageSummary,
 ): string {
-  return t(
-    "workspace.domainWorkbench.acceptanceSampleDaysText",
-    "{{days}}/{{required}} 天",
-    { days: summary.sampleDays, required: summary.requiredSampleDays },
-  )
+  return t("workspace.domainWorkbench.acceptanceSampleDaysText", "{{days}}/{{required}} 天", {
+    days: summary.sampleDays,
+    required: summary.requiredSampleDays,
+  })
 }
 
 function domainAcceptanceSnapshotId(
@@ -4843,10 +5213,12 @@ function domainAcceptanceReviewSoakLines(
         : "-"
     }`,
   ]
-  const incidentLines = soakReport.incidents.slice(0, 3).map(
-    (incident) =>
-      `- ${t("workspace.domainWorkbench.acceptanceReviewIncident", "事故")}：${incident.title} · ${incident.source}/${incident.status}/${incident.severity} · ${incident.recommendation}`,
-  )
+  const incidentLines = soakReport.incidents
+    .slice(0, 3)
+    .map(
+      (incident) =>
+        `- ${t("workspace.domainWorkbench.acceptanceReviewIncident", "事故")}：${incident.title} · ${incident.source}/${incident.status}/${incident.severity} · ${incident.recommendation}`,
+    )
   const timelineLines = soakReport.timeline.slice(0, 5).map((item) => {
     const duration =
       item.durationSecs != null ? ` · ${formatDurationCompact(item.durationSecs)}` : ""
@@ -4999,12 +5371,7 @@ function DomainAcceptanceCoverageCard({
       await navigator.clipboard.writeText(domainAcceptanceReviewMarkdown(t, summary, reviewContext))
       toast.success(t("workspace.domainWorkbench.acceptanceReviewCopied", "已复制验收报告"))
     } catch (e) {
-      logger.error(
-        "ui",
-        "DomainAcceptanceCoverageCard",
-        "Copy acceptance review report failed",
-        e,
-      )
+      logger.error("ui", "DomainAcceptanceCoverageCard", "Copy acceptance review report failed", e)
       toast.error(t("workspace.domainWorkbench.acceptanceReviewCopyFailed", "复制验收报告失败"))
     }
   }
@@ -5519,10 +5886,12 @@ function DomainTaskWorkbenchSection({
   const [creatingAcceptanceGapTaskKey, setCreatingAcceptanceGapTaskKey] = useState<string | null>(
     null,
   )
-  const [creatingAcceptanceRequirementTaskKey, setCreatingAcceptanceRequirementTaskKey] =
-    useState<string | null>(null)
-  const [creatingAcceptanceSampleLaneTaskKey, setCreatingAcceptanceSampleLaneTaskKey] =
-    useState<string | null>(null)
+  const [creatingAcceptanceRequirementTaskKey, setCreatingAcceptanceRequirementTaskKey] = useState<
+    string | null
+  >(null)
+  const [creatingAcceptanceSampleLaneTaskKey, setCreatingAcceptanceSampleLaneTaskKey] = useState<
+    string | null
+  >(null)
   const [creatingAcceptancePlanTask, setCreatingAcceptancePlanTask] = useState(false)
 
   const handleRefresh = () => {
@@ -5570,9 +5939,13 @@ function DomainTaskWorkbenchSection({
       await getTransport().call<Task[]>("create_session_task", {
         sessionId,
         content: step,
-        activeForm: t("workspace.domainWorkbench.stepTaskActiveForm", "正在处理通用任务缺口：{{step}}", {
-          step,
-        }),
+        activeForm: t(
+          "workspace.domainWorkbench.stepTaskActiveForm",
+          "正在处理通用任务缺口：{{step}}",
+          {
+            step,
+          },
+        ),
       })
       toast.success(t("workspace.domainWorkbench.stepTaskCreated", "已创建任务"))
     } catch (e) {
@@ -5802,7 +6175,9 @@ function DomainTaskWorkbenchSection({
             ) : (
               <ClipboardCheck className="h-3.5 w-3.5" />
             )}
-            <span className="truncate">{t("workspace.domainWorkbench.runQuality", "运行领域复核")}</span>
+            <span className="truncate">
+              {t("workspace.domainWorkbench.runQuality", "运行领域复核")}
+            </span>
           </button>
           <button
             type="button"
@@ -5821,7 +6196,9 @@ function DomainTaskWorkbenchSection({
             ) : (
               <Gauge className="h-3.5 w-3.5" />
             )}
-            <span className="truncate">{t("workspace.domainWorkbench.planVerify", "推荐验证")}</span>
+            <span className="truncate">
+              {t("workspace.domainWorkbench.planVerify", "推荐验证")}
+            </span>
           </button>
           <button
             type="button"
@@ -5862,7 +6239,9 @@ function DomainTaskWorkbenchSection({
             {error}
           </div>
         ) : incognito ? (
-          <EmptyHint>{t("workspace.domainWorkbench.incognito", "无痕会话不持久化通用任务证据")}</EmptyHint>
+          <EmptyHint>
+            {t("workspace.domainWorkbench.incognito", "无痕会话不持久化通用任务证据")}
+          </EmptyHint>
         ) : null}
 
         <div className="rounded-md border border-border/50 bg-secondary/20 px-2.5 py-2">
@@ -6291,11 +6670,19 @@ function reviewStatsNumber(snapshot: ReviewRunSnapshot | null, key: string): num
 const REVIEW_PROFILE_OPTIONS = [
   { id: "correctness", labelKey: "workspace.review.profileCorrectness", defaultLabel: "正确性" },
   { id: "security", labelKey: "workspace.review.profileSecurity", defaultLabel: "安全" },
-  { id: "maintainability", labelKey: "workspace.review.profileMaintainability", defaultLabel: "维护性" },
+  {
+    id: "maintainability",
+    labelKey: "workspace.review.profileMaintainability",
+    defaultLabel: "维护性",
+  },
   { id: "tests", labelKey: "workspace.review.profileTests", defaultLabel: "测试" },
   { id: "concurrency", labelKey: "workspace.review.profileConcurrency", defaultLabel: "并发" },
   { id: "frontend", labelKey: "workspace.review.profileFrontend", defaultLabel: "前端" },
-  { id: "accessibility", labelKey: "workspace.review.profileAccessibility", defaultLabel: "可访问性" },
+  {
+    id: "accessibility",
+    labelKey: "workspace.review.profileAccessibility",
+    defaultLabel: "可访问性",
+  },
   { id: "deep", labelKey: "workspace.review.profileDeep", defaultLabel: "深度" },
 ] as const
 
@@ -6362,12 +6749,14 @@ function useDomainTaskWorkbench(
   const [exportGuard, setExportGuard] = useState<DomainArtifactExportGuardReport | null>(null)
   const [exportGuardLoading, setExportGuardLoading] = useState(false)
   const [exportGuardError, setExportGuardError] = useState<string | null>(null)
-  const [connectorGuard, setConnectorGuard] =
-    useState<DomainConnectorActionGuardReport | null>(null)
+  const [connectorGuard, setConnectorGuard] = useState<DomainConnectorActionGuardReport | null>(
+    null,
+  )
   const [connectorGuardLoading, setConnectorGuardLoading] = useState(false)
   const [connectorGuardError, setConnectorGuardError] = useState<string | null>(null)
-  const [connectorE2eGate, setConnectorE2eGate] =
-    useState<DomainConnectorE2EGateReport | null>(null)
+  const [connectorE2eGate, setConnectorE2eGate] = useState<DomainConnectorE2EGateReport | null>(
+    null,
+  )
   const [connectorE2eGateLoading, setConnectorE2eGateLoading] = useState(false)
   const [connectorE2eGateError, setConnectorE2eGateError] = useState<string | null>(null)
   const [operationalGate, setOperationalGate] = useState<DomainOperationalGateReport | null>(null)
@@ -6398,12 +6787,7 @@ function useDomainTaskWorkbench(
       return safeItems
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e)
-      logger.error(
-        "ui",
-        "useDomainTaskWorkbench",
-        "Failed to load domain task evidence",
-        e,
-      )
+      logger.error("ui", "useDomainTaskWorkbench", "Failed to load domain task evidence", e)
       setEvidenceError(message)
       return []
     } finally {
@@ -6438,12 +6822,7 @@ function useDomainTaskWorkbench(
       return safeReport
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e)
-      logger.error(
-        "ui",
-        "useDomainTaskWorkbench",
-        "Failed to evaluate artifact export guard",
-        e,
-      )
+      logger.error("ui", "useDomainTaskWorkbench", "Failed to evaluate artifact export guard", e)
       setExportGuardError(message)
       return null
     } finally {
@@ -6477,12 +6856,7 @@ function useDomainTaskWorkbench(
       return safeReport
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e)
-      logger.error(
-        "ui",
-        "useDomainTaskWorkbench",
-        "Failed to evaluate connector action guard",
-        e,
-      )
+      logger.error("ui", "useDomainTaskWorkbench", "Failed to evaluate connector action guard", e)
       setConnectorGuardError(message)
       return null
     } finally {
@@ -6520,12 +6894,7 @@ function useDomainTaskWorkbench(
       return safeReport
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e)
-      logger.error(
-        "ui",
-        "useDomainTaskWorkbench",
-        "Failed to evaluate connector E2E gate",
-        e,
-      )
+      logger.error("ui", "useDomainTaskWorkbench", "Failed to evaluate connector E2E gate", e)
       setConnectorE2eGateError(message)
       return null
     } finally {
@@ -6566,12 +6935,7 @@ function useDomainTaskWorkbench(
       return safeReport
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e)
-      logger.error(
-        "ui",
-        "useDomainTaskWorkbench",
-        "Failed to evaluate domain operational gate",
-        e,
-      )
+      logger.error("ui", "useDomainTaskWorkbench", "Failed to evaluate domain operational gate", e)
       setOperationalGateError(message)
       return null
     } finally {
@@ -7418,10 +7782,7 @@ function domainQualitySeverityTone(severity: DomainQualitySeverity): StatusTone 
   }
 }
 
-function domainLabel(
-  t: ReturnType<typeof useTranslation>["t"],
-  domain?: string | null,
-): string {
+function domainLabel(t: ReturnType<typeof useTranslation>["t"], domain?: string | null): string {
   return domain
     ? domain.replace(/_/g, " ")
     : t("workspace.domainWorkbench.domainFallbackLabel", "领域")
@@ -7477,18 +7838,22 @@ function domainQualityEvidenceScopeView(
             "未发现 artifact 线索，使用 {{scopeText}}全量证据",
             { scopeText: countText },
           )
-        : t("workspace.domainQuality.scopeLegacyFallbackShort", "未发现 artifact 线索，使用全量证据"),
+        : t(
+            "workspace.domainQuality.scopeLegacyFallbackShort",
+            "未发现 artifact 线索，使用全量证据",
+          ),
     }
   }
   if (mode === "all") {
     return {
       label: t("workspace.domainQuality.scopeAll", "全量证据"),
       tone: "muted",
-      detail: total !== null
-        ? t("workspace.domainQuality.scopeAllDetail", "使用 {{count}} 条领域证据", {
-            count: total,
-          })
-        : null,
+      detail:
+        total !== null
+          ? t("workspace.domainQuality.scopeAllDetail", "使用 {{count}} 条领域证据", {
+              count: total,
+            })
+          : null,
     }
   }
   return {
@@ -8020,8 +8385,7 @@ function DomainQualitySection({
   const disabled = !sessionId || incognito || active || loading
   const evidenceScopeView = latest ? domainQualityEvidenceScopeView(t, latest) : null
   const reviewEvidenceTarget = latest ? domainQualityReviewEvidenceTarget(latest) : null
-  const learning =
-    learningRunId !== null && latest !== undefined && learningRunId === latest.id
+  const learning = learningRunId !== null && latest !== undefined && learningRunId === latest.id
   const canGenerateLearning =
     !!sessionId &&
     !incognito &&
@@ -8413,10 +8777,17 @@ function DomainOperationalGatePanel({
           "正在处理运行稳定性建议",
         ),
       })
-      toast.success(t("workspace.domainOperationalGate.recommendationTaskCreated", "已创建运行稳定性建议任务"))
+      toast.success(
+        t("workspace.domainOperationalGate.recommendationTaskCreated", "已创建运行稳定性建议任务"),
+      )
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e)
-      logger.error("ui", "DomainOperationalGatePanel", "Create operational recommendation task failed", e)
+      logger.error(
+        "ui",
+        "DomainOperationalGatePanel",
+        "Create operational recommendation task failed",
+        e,
+      )
       toast.error(message)
     } finally {
       setCreatingRecommendationTaskKey(null)
@@ -8436,7 +8807,10 @@ function DomainOperationalGatePanel({
               ? t("workspace.domainOperationalGate.generated", "最近评估 {{time}}", {
                   time: formatMessageTime(report.generatedAt),
                 })
-              : t("workspace.domainOperationalGate.emptyHint", "检查工作流、Loop 和评测活动是否已排空")}
+              : t(
+                  "workspace.domainOperationalGate.emptyHint",
+                  "检查工作流、Loop 和评测活动是否已排空",
+                )}
           </div>
         </div>
         <StatusPill
@@ -8504,7 +8878,9 @@ function DomainOperationalGatePanel({
         <div className="mt-2 space-y-1">
           <div className="flex min-w-0 items-center gap-1.5 px-1 text-[10px] font-medium text-muted-foreground">
             <Lightbulb className="h-3 w-3 shrink-0" />
-            <span className="truncate">{t("workspace.domainOperationalGate.recommendations", "稳定性建议")}</span>
+            <span className="truncate">
+              {t("workspace.domainOperationalGate.recommendations", "稳定性建议")}
+            </span>
           </div>
           {recommendedSteps.map((step, index) => {
             const taskKey = `${index}:${step}`
@@ -8527,7 +8903,9 @@ function DomainOperationalGatePanel({
                       ) : (
                         <Plus className="h-3 w-3" />
                       )}
-                      <span>{t("workspace.domainOperationalGate.createRecommendationTask", "转任务")}</span>
+                      <span>
+                        {t("workspace.domainOperationalGate.createRecommendationTask", "转任务")}
+                      </span>
                     </button>
                   ) : null}
                 </div>
@@ -8642,8 +9020,8 @@ function DomainSoakReportPanel({
       : !hasSamples
         ? "muted"
         : summary.sampleDays >= summary.requiredSampleDays
-        ? "info"
-        : "warn"
+          ? "info"
+          : "warn"
   const maxApprovalWait =
     summary?.maxOpenApprovalWaitSecs != null
       ? formatLoopDuration(Math.max(1, Math.round(summary.maxOpenApprovalWaitSecs)))
@@ -8821,7 +9199,11 @@ function DomainSoakReportPanel({
               summary.totalRecords,
               summary.totalRecords > 0 ? "info" : "muted",
             ],
-            [t("workspace.domainSoakReport.freshness", "新鲜"), latestActivityAge, latestActivityTone],
+            [
+              t("workspace.domainSoakReport.freshness", "新鲜"),
+              latestActivityAge,
+              latestActivityTone,
+            ],
             [t("workspace.domainSoakReport.sampleDays", "跨天"), sampleDayCoverage, sampleDayTone],
             [
               t("workspace.domainSoakReport.critical", "事故"),
@@ -8854,7 +9236,11 @@ function DomainSoakReportPanel({
               summary.connectorVerificationEvidence,
               connectorVerificationTone,
             ],
-            [t("workspace.domainSoakReport.outputTokens", "Token"), outputTokenBudget, outputTokenTone],
+            [
+              t("workspace.domainSoakReport.outputTokens", "Token"),
+              outputTokenBudget,
+              outputTokenTone,
+            ],
           ].map(([label, value, tone]) => (
             <div
               key={label as string}
@@ -8871,7 +9257,9 @@ function DomainSoakReportPanel({
         <div className="mt-2 rounded-md border border-border/45 bg-secondary/15 px-2 py-1.5">
           <div className="mb-1 flex min-w-0 items-center gap-1.5 text-[10px] font-medium text-muted-foreground">
             <Clock className="h-3 w-3 shrink-0" />
-            <span className="truncate">{t("workspace.domainSoakReport.timeline", "最近时间线")}</span>
+            <span className="truncate">
+              {t("workspace.domainSoakReport.timeline", "最近时间线")}
+            </span>
           </div>
           <div className="space-y-1">
             {timelineItems.map((item) => {
@@ -8890,7 +9278,9 @@ function DomainSoakReportPanel({
                   />
                   <span className="min-w-0 flex-1 truncate text-foreground/80">{item.label}</span>
                   {duration ? (
-                    <span className="shrink-0 tabular-nums text-muted-foreground/80">{duration}</span>
+                    <span className="shrink-0 tabular-nums text-muted-foreground/80">
+                      {duration}
+                    </span>
                   ) : null}
                   <span className="shrink-0 text-muted-foreground/65">
                     {formatMessageTime(item.at)}
@@ -8926,7 +9316,9 @@ function DomainSoakReportPanel({
                       ) : (
                         <Plus className="h-3 w-3" />
                       )}
-                      <span>{t("workspace.domainSoakReport.createRecommendationTask", "转任务")}</span>
+                      <span>
+                        {t("workspace.domainSoakReport.createRecommendationTask", "转任务")}
+                      </span>
                     </button>
                   ) : null}
                 </div>
@@ -9017,7 +9409,8 @@ function domainOperationalGateLabel(
   if (status && !hasSamples) return t("workspace.domainOperationalGate.noSamples", "未采样")
   if (status === "passed") return t("workspace.domainOperationalGate.passed", "稳定")
   if (status === "failed") return t("workspace.domainOperationalGate.failed", "阻塞")
-  if (status === "insufficient_data") return t("workspace.domainOperationalGate.insufficient", "待排空")
+  if (status === "insufficient_data")
+    return t("workspace.domainOperationalGate.insufficient", "待排空")
   return t("workspace.domainOperationalGate.idle", "未评估")
 }
 
@@ -9090,7 +9483,8 @@ function domainSoakReportLabel(
   if (status && !hasSamples) return t("workspace.domainSoakReport.noSamplesLabel", "未采样")
   if (status === "passed") return t("workspace.domainSoakReport.passed", "干净")
   if (status === "failed") return t("workspace.domainSoakReport.failed", "有事故")
-  if (status === "insufficient_data") return t("workspace.domainSoakReport.insufficient", "样本不足")
+  if (status === "insufficient_data")
+    return t("workspace.domainSoakReport.insufficient", "样本不足")
   return t("workspace.domainSoakReport.idle", "未评估")
 }
 
@@ -9147,9 +9541,7 @@ function DomainArtifactExportGuardPanel({
       if (next.run.state === "completed") {
         toast.success(t("workspace.domainExportGuard.artifactReviewClean", "产物复核通过"))
       } else if (next.run.state === "needs_user") {
-        toast.warning(
-          t("workspace.domainExportGuard.artifactReviewNeedsUser", "产物复核需要确认"),
-        )
+        toast.warning(t("workspace.domainExportGuard.artifactReviewNeedsUser", "产物复核需要确认"))
       } else {
         toast.error(t("workspace.domainExportGuard.artifactReviewBlocked", "产物复核发现阻塞项"))
       }
@@ -9355,7 +9747,9 @@ function DomainArtifactExportGuardPanel({
         <div className="mt-2 rounded-md border border-border/50 bg-secondary/20 px-2 py-1.5">
           <div className="mb-1 flex min-w-0 items-center gap-1.5 text-[10px] font-medium text-muted-foreground">
             <CheckCircle2 className="h-3 w-3 shrink-0" />
-            <span className="truncate">{t("workspace.domainExportGuard.explicitConfirm", "显式确认")}</span>
+            <span className="truncate">
+              {t("workspace.domainExportGuard.explicitConfirm", "显式确认")}
+            </span>
           </div>
           <div className="grid grid-cols-3 gap-1">
             {(["exportReview", "exportReady", "redactionChecked"] as const).map((marker) => (
@@ -9384,7 +9778,10 @@ function DomainArtifactExportGuardPanel({
         </div>
       ) : clean ? (
         <div className="mt-2 rounded-md bg-emerald-500/10 px-2 py-1.5 text-[11px] text-emerald-700 dark:text-emerald-300">
-          {t("workspace.domainExportGuard.clean", "最终交付证据通过，可以进入发送、分享或导出前的用户确认。")}
+          {t(
+            "workspace.domainExportGuard.clean",
+            "最终交付证据通过，可以进入发送、分享或导出前的用户确认。",
+          )}
         </div>
       ) : issueChecks.length > 0 ? (
         <div className="mt-2 space-y-1">
@@ -9567,7 +9964,12 @@ function DomainConnectorActionGuardPanel({
       void onRefresh()
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e)
-      logger.error("ui", "DomainConnectorActionGuardPanel", "Record connector confirmation failed", e)
+      logger.error(
+        "ui",
+        "DomainConnectorActionGuardPanel",
+        "Record connector confirmation failed",
+        e,
+      )
       toast.error(message)
     } finally {
       setRecordingConfirmation(null)
@@ -9629,7 +10031,11 @@ function DomainConnectorActionGuardPanel({
               summary.rollbackEvidence,
               summary.rollbackEvidence > 0 ? "good" : hasScope ? "warn" : "muted",
             ],
-            [t("workspace.domainConnectorGuard.sensitive", "敏感"), summary.sensitiveEvidence, summary.sensitiveEvidence > 0 ? "warn" : "muted"],
+            [
+              t("workspace.domainConnectorGuard.sensitive", "敏感"),
+              summary.sensitiveEvidence,
+              summary.sensitiveEvidence > 0 ? "warn" : "muted",
+            ],
           ].map(([label, count, tone]) => (
             <div
               key={label as string}
@@ -9662,7 +10068,9 @@ function DomainConnectorActionGuardPanel({
         <div className="mt-2 rounded-md border border-border/50 bg-secondary/20 px-2 py-1.5">
           <div className="mb-1 flex min-w-0 items-center gap-1.5 text-[10px] font-medium text-muted-foreground">
             <CheckCircle2 className="h-3 w-3 shrink-0" />
-            <span className="truncate">{t("workspace.domainConnectorGuard.explicitConfirm", "显式确认")}</span>
+            <span className="truncate">
+              {t("workspace.domainConnectorGuard.explicitConfirm", "显式确认")}
+            </span>
           </div>
           <div className="grid grid-cols-2 gap-1">
             <button
@@ -9712,7 +10120,10 @@ function DomainConnectorActionGuardPanel({
         </div>
       ) : clean ? (
         <div className="mt-2 rounded-md bg-emerald-500/10 px-2 py-1.5 text-[11px] text-emerald-700 dark:text-emerald-300">
-          {t("workspace.domainConnectorGuard.clean", "外部动作证据通过，真正执行前仍会逐次弹出确认。")}
+          {t(
+            "workspace.domainConnectorGuard.clean",
+            "外部动作证据通过，真正执行前仍会逐次弹出确认。",
+          )}
         </div>
       ) : issueChecks.length > 0 ? (
         <div className="mt-2 space-y-1">
@@ -9805,7 +10216,9 @@ function DomainConnectorE2EGatePanel({
   onRefresh: () => Promise<DomainConnectorE2EGateReport | null>
 }) {
   const { t } = useTranslation()
-  const [recordingSample, setRecordingSample] = useState<DomainConnectorE2ESampleMarker | null>(null)
+  const [recordingSample, setRecordingSample] = useState<DomainConnectorE2ESampleMarker | null>(
+    null,
+  )
   const [creatingTaskKey, setCreatingTaskKey] = useState<string | null>(null)
   const [executionResultDraft, setExecutionResultDraft] = useState("")
   const [verificationDraft, setVerificationDraft] = useState("")
@@ -9823,7 +10236,9 @@ function DomainConnectorE2EGatePanel({
   const executionResult = executionResultDraft.trim()
   const verification = verificationDraft.trim()
   const reportKey = report
-    ? [report.generatedAt, report.connector ?? "", report.action ?? "", report.toolName ?? ""].join(":")
+    ? [report.generatedAt, report.connector ?? "", report.action ?? "", report.toolName ?? ""].join(
+        ":",
+      )
     : "none"
   useEffect(() => {
     setRecordedExecutionSample(false)
@@ -9936,9 +10351,7 @@ function DomainConnectorE2EGatePanel({
           { name: checkLabel },
         ),
       })
-      toast.success(
-        t("workspace.domainConnectorE2E.checkTaskCreated", "已创建连接器端到端任务"),
-      )
+      toast.success(t("workspace.domainConnectorE2E.checkTaskCreated", "已创建连接器端到端任务"))
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e)
       logger.error("ui", "DomainConnectorE2EGatePanel", "Create connector E2E task failed", e)
@@ -9964,7 +10377,10 @@ function DomainConnectorE2EGatePanel({
               ? t("workspace.domainConnectorE2E.generated", "最近评估 {{time}}", {
                   time: formatMessageTime(report.generatedAt),
                 })
-              : t("workspace.domainConnectorE2E.emptyHint", "检查输入、草稿、批准、执行、复核和回滚证据")}
+              : t(
+                  "workspace.domainConnectorE2E.emptyHint",
+                  "检查输入、草稿、批准、执行、复核和回滚证据",
+                )}
           </div>
         </div>
         <StatusPill
@@ -10038,7 +10454,9 @@ function DomainConnectorE2EGatePanel({
         <div className="mt-2 rounded-md border border-border/50 bg-secondary/20 px-2 py-1.5">
           <div className="mb-1 flex min-w-0 items-center gap-1.5 text-[10px] font-medium text-muted-foreground">
             <CheckCircle2 className="h-3 w-3 shrink-0" />
-            <span className="truncate">{t("workspace.domainConnectorE2E.realSample", "真实样本")}</span>
+            <span className="truncate">
+              {t("workspace.domainConnectorE2E.realSample", "真实样本")}
+            </span>
           </div>
           <div
             className={cn(
@@ -10052,7 +10470,9 @@ function DomainConnectorE2EGatePanel({
               ],
             )}
           >
-            <div className="font-medium">{domainConnectorE2ENextSampleTitle(t, nextSampleStep)}</div>
+            <div className="font-medium">
+              {domainConnectorE2ENextSampleTitle(t, nextSampleStep)}
+            </div>
             <div className="mt-0.5 opacity-85">
               {domainConnectorE2ENextSampleDetail(t, nextSampleStep)}
             </div>
@@ -10091,7 +10511,10 @@ function DomainConnectorE2EGatePanel({
               <Textarea
                 value={verificationDraft}
                 onChange={(event) => setVerificationDraft(event.target.value)}
-                placeholder={t("workspace.domainConnectorE2E.verificationPlaceholder", "执行后复核")}
+                placeholder={t(
+                  "workspace.domainConnectorE2E.verificationPlaceholder",
+                  "执行后复核",
+                )}
                 rows={2}
                 className="min-h-12 resize-none bg-background/55 px-2 py-1 text-[11px]"
               />
@@ -10126,7 +10549,10 @@ function DomainConnectorE2EGatePanel({
         </div>
       ) : clean ? (
         <div className="mt-2 rounded-md bg-emerald-500/10 px-2 py-1.5 text-[11px] text-emerald-700 dark:text-emerald-300">
-          {t("workspace.domainConnectorE2E.clean", "连接器端到端证据通过；真正写入外部系统前仍会逐次确认。")}
+          {t(
+            "workspace.domainConnectorE2E.clean",
+            "连接器端到端证据通过；真正写入外部系统前仍会逐次确认。",
+          )}
         </div>
       ) : issueChecks.length > 0 ? (
         <div className="mt-2 space-y-1">
@@ -10489,7 +10915,9 @@ function CodingProposalDetail({
     !previewingPromotion &&
     !promoting
   const canImportDomainEvalCase =
-    proposal.kind === "domain_eval_case" && proposal.status === "promoted" && !importingDomainEvalCase
+    proposal.kind === "domain_eval_case" &&
+    proposal.status === "promoted" &&
+    !importingDomainEvalCase
   return (
     <div className="mt-2 space-y-2 border-t border-border/50 pt-2 pl-5">
       <div className="flex min-w-0 items-center gap-1.5">
@@ -11092,9 +11520,7 @@ function CodingTrendSection({
         }),
       )
     } else if (result) {
-      toast.success(
-        t("workspace.codingTrend.domainEvalAlreadyImported", "领域评测已在任务库中"),
-      )
+      toast.success(t("workspace.codingTrend.domainEvalAlreadyImported", "领域评测已在任务库中"))
     }
   }
 
@@ -11795,7 +12221,9 @@ function workflowRunRuntimeCaps(
   const ops = numberField(budget, "maxOps") ?? numberField(budget, "max_ops")
   const output = numberField(budget, "maxOutputTokens") ?? numberField(budget, "max_output_tokens")
   const parts = [
-    typeof scriptSecs === "number" && scriptSecs > 0 ? `${formatDurationCompact(scriptSecs)}` : null,
+    typeof scriptSecs === "number" && scriptSecs > 0
+      ? `${formatDurationCompact(scriptSecs)}`
+      : null,
     typeof ops === "number" && ops > 0
       ? t("workspace.workflow.summaryCapOps", "{{value}} 步", { value: compactCount(ops) })
       : null,
@@ -11818,18 +12246,20 @@ function workflowLatestRuntimeSummary(
   const reason = stringField(payload, "reason")
   const error = stringField(payload, "error")
   const tone = workflowEventTone(event)
-  const label =
-    isWorkflowRunState(finalState)
-      ? workflowRunStateLabel(t, finalState)
-      : status ?? t("workspace.workflow.summaryUnknown", "未记录")
-  const detail = [status, reason, error ? truncateMiddle(error, 96) : null].filter(Boolean).join(" · ")
+  const label = isWorkflowRunState(finalState)
+    ? workflowRunStateLabel(t, finalState)
+    : (status ?? t("workspace.workflow.summaryUnknown", "未记录"))
+  const detail = [status, reason, error ? truncateMiddle(error, 96) : null]
+    .filter(Boolean)
+    .join(" · ")
   return { label, detail: detail || null, tone }
 }
 
 function workflowRunSummaryCounts(events: WorkflowEvent[]) {
   return {
     phasesStarted: events.filter((event) => event.eventType === "workflow_phase_started").length,
-    phasesCompleted: events.filter((event) => event.eventType === "workflow_phase_completed").length,
+    phasesCompleted: events.filter((event) => event.eventType === "workflow_phase_completed")
+      .length,
     phasesFailed: events.filter((event) => event.eventType === "workflow_phase_failed").length,
     checkpoints: events.filter((event) => event.eventType === "workflow_checkpoint").length,
     reports: events.filter((event) => event.eventType === "workflow_report").length,
@@ -11949,10 +12379,10 @@ function hasMeaningfulScopeValue(value?: string | null): boolean {
   const normalized = value?.trim().toLowerCase()
   return Boolean(
     normalized &&
-      normalized !== "unknown" &&
-      normalized !== "none" &&
-      normalized !== "null" &&
-      normalized !== "-",
+    normalized !== "unknown" &&
+    normalized !== "none" &&
+    normalized !== "null" &&
+    normalized !== "-",
   )
 }
 
@@ -11962,17 +12392,17 @@ function domainArtifactExportGuardHasScope(
   const summary = report?.summary
   return Boolean(
     report &&
-      (hasMeaningfulScopeValue(report.artifactPath) ||
-        hasMeaningfulScopeValue(report.artifactTitle) ||
-        hasMeaningfulScopeValue(report.artifactKind) ||
-        (summary?.evidenceItems ?? 0) > 0 ||
-        (summary?.artifactCreated ?? 0) > 0 ||
-        (summary?.artifactReviewed ?? 0) > 0 ||
-        (summary?.exportReviewed ?? 0) > 0 ||
-        (summary?.sensitiveEvidence ?? 0) > 0 ||
-        (summary?.privateOrConnectorEvidence ?? 0) > 0 ||
-        (summary?.redactionPending ?? 0) > 0 ||
-        (report.evidenceRequiringReview?.length ?? 0) > 0),
+    (hasMeaningfulScopeValue(report.artifactPath) ||
+      hasMeaningfulScopeValue(report.artifactTitle) ||
+      hasMeaningfulScopeValue(report.artifactKind) ||
+      (summary?.evidenceItems ?? 0) > 0 ||
+      (summary?.artifactCreated ?? 0) > 0 ||
+      (summary?.artifactReviewed ?? 0) > 0 ||
+      (summary?.exportReviewed ?? 0) > 0 ||
+      (summary?.sensitiveEvidence ?? 0) > 0 ||
+      (summary?.privateOrConnectorEvidence ?? 0) > 0 ||
+      (summary?.redactionPending ?? 0) > 0 ||
+      (report.evidenceRequiringReview?.length ?? 0) > 0),
   )
 }
 
@@ -11986,13 +12416,13 @@ function domainConnectorActionGuardHasScope(
     hasMeaningfulScopeValue(report?.action)
   return Boolean(
     report &&
-      (hasConcreteTarget ||
-        (summary?.evidenceItems ?? 0) > 0 ||
-        (summary?.actionEvidence ?? 0) > 0 ||
-        (summary?.approvalEvidence ?? 0) > 0 ||
-        (summary?.rollbackEvidence ?? 0) > 0 ||
-        (summary?.sensitiveEvidence ?? 0) > 0 ||
-        (report.relatedEvidence?.length ?? 0) > 0),
+    (hasConcreteTarget ||
+      (summary?.evidenceItems ?? 0) > 0 ||
+      (summary?.actionEvidence ?? 0) > 0 ||
+      (summary?.approvalEvidence ?? 0) > 0 ||
+      (summary?.rollbackEvidence ?? 0) > 0 ||
+      (summary?.sensitiveEvidence ?? 0) > 0 ||
+      (report.relatedEvidence?.length ?? 0) > 0),
   )
 }
 
@@ -12004,16 +12434,16 @@ function domainConnectorE2EGateHasScope(report?: DomainConnectorE2EGateReport | 
     hasMeaningfulScopeValue(report?.action)
   return Boolean(
     report &&
-      (hasConcreteTarget ||
-        (summary?.evidenceItems ?? 0) > 0 ||
-        (summary?.connectorInputEvidence ?? 0) > 0 ||
-        (summary?.draftEvidence ?? 0) > 0 ||
-        (summary?.approvalEvidence ?? 0) > 0 ||
-        (summary?.executionEvidence ?? 0) > 0 ||
-        (summary?.verificationEvidence ?? 0) > 0 ||
-        (summary?.rollbackEvidence ?? 0) > 0 ||
-        (summary?.sensitiveEvidence ?? 0) > 0 ||
-        (report.relatedEvidence?.length ?? 0) > 0),
+    (hasConcreteTarget ||
+      (summary?.evidenceItems ?? 0) > 0 ||
+      (summary?.connectorInputEvidence ?? 0) > 0 ||
+      (summary?.draftEvidence ?? 0) > 0 ||
+      (summary?.approvalEvidence ?? 0) > 0 ||
+      (summary?.executionEvidence ?? 0) > 0 ||
+      (summary?.verificationEvidence ?? 0) > 0 ||
+      (summary?.rollbackEvidence ?? 0) > 0 ||
+      (summary?.sensitiveEvidence ?? 0) > 0 ||
+      (report.relatedEvidence?.length ?? 0) > 0),
   )
 }
 
@@ -12021,17 +12451,17 @@ function domainOperationalGateHasSamples(report?: DomainOperationalGateReport | 
   const summary = report?.summary
   return Boolean(
     summary &&
-      (summary.workflowRuns > 0 ||
-        summary.loopSchedules > 0 ||
-        summary.loopRuns > 0 ||
-        summary.campaigns > 0 ||
-        summary.campaignItems > 0 ||
-        summary.activeWorkflowRuns > 0 ||
-        summary.activeLoopSchedules > 0 ||
-        summary.activeLoopRuns > 0 ||
-        summary.activeCampaigns > 0 ||
-        hasMeaningfulScopeValue(summary.latestActivityAt) ||
-        summary.maxActiveWorkAgeSecs != null),
+    (summary.workflowRuns > 0 ||
+      summary.loopSchedules > 0 ||
+      summary.loopRuns > 0 ||
+      summary.campaigns > 0 ||
+      summary.campaignItems > 0 ||
+      summary.activeWorkflowRuns > 0 ||
+      summary.activeLoopSchedules > 0 ||
+      summary.activeLoopRuns > 0 ||
+      summary.activeCampaigns > 0 ||
+      hasMeaningfulScopeValue(summary.latestActivityAt) ||
+      summary.maxActiveWorkAgeSecs != null),
   )
 }
 
@@ -12039,17 +12469,17 @@ function domainSoakReportHasSamples(report?: DomainSoakReport | null): boolean {
   const summary = report?.summary
   return Boolean(
     summary &&
-      (summary.totalRecords > 0 ||
-        summary.workflowRuns > 0 ||
-        summary.loopRuns > 0 ||
-        summary.campaignItems > 0 ||
-        summary.connectorE2eEvidence > 0 ||
-        summary.connectorExecutionEvidence > 0 ||
-        summary.connectorVerificationEvidence > 0 ||
-        summary.incidents > 0 ||
-        (report?.incidents.length ?? 0) > 0 ||
-        (report?.timeline.length ?? 0) > 0 ||
-        hasMeaningfulScopeValue(summary.latestActivityAt)),
+    (summary.totalRecords > 0 ||
+      summary.workflowRuns > 0 ||
+      summary.loopRuns > 0 ||
+      summary.campaignItems > 0 ||
+      summary.connectorE2eEvidence > 0 ||
+      summary.connectorExecutionEvidence > 0 ||
+      summary.connectorVerificationEvidence > 0 ||
+      summary.incidents > 0 ||
+      (report?.incidents.length ?? 0) > 0 ||
+      (report?.timeline.length ?? 0) > 0 ||
+      hasMeaningfulScopeValue(summary.latestActivityAt)),
   )
 }
 
@@ -12081,9 +12511,7 @@ function GoalWorkspaceSection({
   const activeGoal = goalState.snapshot?.goal ?? null
   const goalWatchdogFindings = goalState.watchdogFindings ?? []
   const topGoalWatchdogFindings = activeGoal
-    ? goalWatchdogFindings
-        .filter((finding) => finding.goalId === activeGoal.id)
-        .slice(0, 3)
+    ? goalWatchdogFindings.filter((finding) => finding.goalId === activeGoal.id).slice(0, 3)
     : []
   const selectedGoalTemplate =
     goalTemplateId === GOAL_DOMAIN_FREE_VALUE
@@ -12299,7 +12727,9 @@ function GoalWorkspaceSection({
           reason,
           followUpItems,
         })
-        goalState.setSnapshot(decision === "accepted_v1" || decision === "cancelled" ? null : snapshot)
+        goalState.setSnapshot(
+          decision === "accepted_v1" || decision === "cancelled" ? null : snapshot,
+        )
         toast.success(
           decision === "accepted_v1"
             ? t("workspace.goal.closedAccepted", "目标已按当前证据关闭")
@@ -12426,10 +12856,7 @@ function GoalWorkspaceSection({
                 </span>
               ) : null}
               {goalState.activity.needsUser ? (
-                <StatusPill
-                  label={t("chat.activity.needsUser", "需要你处理")}
-                  tone="warn"
-                />
+                <StatusPill label={t("chat.activity.needsUser", "需要你处理")} tone="warn" />
               ) : null}
             </div>
           ) : null}
@@ -13204,11 +13631,7 @@ function workflowEventDetail(
       const summary = stringField(payload, "summary")
       const nextAction = stringField(payload, "nextAction")
       const needsUser = boolField(payload, "needsUser")
-      return [
-        summary,
-        nextAction,
-        needsUser ? t("workspace.workflow.needsUser", "需要用户") : null,
-      ]
+      return [summary, nextAction, needsUser ? t("workspace.workflow.needsUser", "需要用户") : null]
         .filter(Boolean)
         .join(" · ")
     }
@@ -13295,16 +13718,24 @@ function workflowWatchdogFindingLabel(
       : null
   if (finding.code === "workflow_recoverable_owner") {
     return age
-      ? t("workspace.workflow.watchdogRecoverableOwnerWithAge", "运行 owner 不可用，已无进展 {{age}}", {
-          age,
-        })
+      ? t(
+          "workspace.workflow.watchdogRecoverableOwnerWithAge",
+          "运行 owner 不可用，已无进展 {{age}}",
+          {
+            age,
+          },
+        )
       : t("workspace.workflow.watchdogRecoverableOwner", "运行 owner 不可用")
   }
   if (finding.code === "workflow_no_recent_progress") {
     return age
-      ? t("workspace.workflow.watchdogNoRecentProgressWithAge", "运行中但没有新进展，已等待 {{age}}", {
-          age,
-        })
+      ? t(
+          "workspace.workflow.watchdogNoRecentProgressWithAge",
+          "运行中但没有新进展，已等待 {{age}}",
+          {
+            age,
+          },
+        )
       : t("workspace.workflow.watchdogNoRecentProgress", "运行中但没有新进展")
   }
   return finding.message || t("workspace.workflow.watchdogUnknown", "工作流需要确认")
@@ -13355,10 +13786,7 @@ function loopGroupLabel(t: ReturnType<typeof useTranslation>["t"], state: LoopSt
   }
 }
 
-function loopRunStateLabel(
-  t: ReturnType<typeof useTranslation>["t"],
-  state: LoopRunState,
-): string {
+function loopRunStateLabel(t: ReturnType<typeof useTranslation>["t"], state: LoopRunState): string {
   switch (state) {
     case "running":
       return t("workspace.loop.runRunning", "运行中")
@@ -13539,11 +13967,15 @@ function loopScheduleStory(
   }
   if (nextRunLabel) {
     return progressLabel
-      ? t("workspace.loop.storyNextWithProgress", "{{next}}，已运行 {{count}} 次，最近{{progress}}。", {
-          next: nextRunLabel,
-          count: loop.runCount,
-          progress: progressLabel,
-        })
+      ? t(
+          "workspace.loop.storyNextWithProgress",
+          "{{next}}，已运行 {{count}} 次，最近{{progress}}。",
+          {
+            next: nextRunLabel,
+            count: loop.runCount,
+            progress: progressLabel,
+          },
+        )
       : t("workspace.loop.storyNext", "{{next}}，已运行 {{count}} 次。", {
           next: nextRunLabel,
           count: loop.runCount,
@@ -13631,7 +14063,9 @@ function parseOptionalPositiveInt(input: string): number | null {
 
 type LoopEventName = "workflow:updated" | "goal:updated" | "task_updated"
 
-function loopEventFilterKey(eventName: LoopEventName): "workflowState" | "goalState" | "taskStatus" {
+function loopEventFilterKey(
+  eventName: LoopEventName,
+): "workflowState" | "goalState" | "taskStatus" {
   if (eventName === "workflow:updated") return "workflowState"
   if (eventName === "goal:updated") return "goalState"
   return "taskStatus"
@@ -13824,131 +14258,128 @@ function LoopRunHistory({
         </div>
       ) : null}
       {snapshot.runs.length === 0 ? (
-      <div className="mt-2 rounded-md bg-secondary/20 px-2 py-1.5 text-[11px] text-muted-foreground">
-        {t("workspace.loop.historyEmpty", "还没有触发记录")}
-      </div>
+        <div className="mt-2 rounded-md bg-secondary/20 px-2 py-1.5 text-[11px] text-muted-foreground">
+          {t("workspace.loop.historyEmpty", "还没有触发记录")}
+        </div>
       ) : (
-      <div className="mt-2 space-y-1 rounded-md border border-border/60 bg-secondary/15 p-1.5">
-      <div className="flex items-center gap-1.5 px-0.5 text-[10px] font-medium text-muted-foreground">
-        <Clock className="h-3 w-3" />
-        {t("workspace.loop.historyTitle", "最近运行")}
-      </div>
-      {snapshot.runs.slice(0, 5).map((run) => {
-        const workflowRunId = loopRunTraceString(run, "workflowRunId")
-        const template = loopRunTemplateLabel(run)
-        const summary = run.error || run.resultSummary
-        const progressLabel = loopProgressLabel(t, run.progressState)
-        const decisionLabel = loopSchedulingDecisionLabel(t, run.schedulingDecision)
-        const decisionReason = loopRunDynamicDecisionReason(run)
-        const usage = run.usage
-        const usageVisible = Boolean(usage && usage.totalTokens > 0)
-        return (
-          <div
-            key={run.id}
-            className="rounded-md border border-border/45 bg-background/65 px-2 py-1.5"
-          >
-            <div className="flex min-w-0 items-center gap-2">
-              <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
-                #{run.seq}
-              </span>
-              <StatusPill
-                label={loopRunStateLabel(t, run.state)}
-                tone={loopRunStateTone(run.state)}
-                loading={run.state === "running" || run.state === "queued"}
-              />
-              {progressLabel ? (
-                <StatusPill
-                  label={progressLabel}
-                  tone={loopProgressTone(run.progressState)}
-                />
-              ) : null}
-              <span className="min-w-0 flex-1 truncate text-[10px] text-muted-foreground">
-                {formatMessageTime(run.finishedAt ?? run.startedAt)}
-              </span>
-              {workflowRunId && onSelectWorkflowRun ? (
-                <IconTip label={t("workspace.loop.viewWorkflow", "查看工作流")}>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="h-6 w-6 shrink-0"
-                    aria-label={t("workspace.loop.viewWorkflow", "查看工作流")}
-                    onClick={() => onSelectWorkflowRun(workflowRunId)}
-                  >
-                    <Eye className="h-3 w-3" />
-                  </Button>
-                </IconTip>
-              ) : null}
-            </div>
-            {workflowRunId || template || usageVisible ? (
-              <div className="mt-1 flex min-w-0 flex-wrap gap-x-2 gap-y-1 text-[10px] text-muted-foreground">
-                {workflowRunId ? (
-                  <span className="min-w-0 truncate">
-                    {t("workspace.loop.workflowRun", "工作流")}{" "}
-                    <span className="font-mono">{truncateMiddle(workflowRunId, 18)}</span>
-                  </span>
-                ) : null}
-                {template ? (
-                  <span className="min-w-0 truncate">
-                    {t("workspace.loop.template", "模板")}{" "}
-                    <span className="font-mono">{template}</span>
-                  </span>
-                ) : null}
-                {usageVisible && usage ? (
-                  <span
-                    className="min-w-0 truncate"
-                    title={t(
-                      "workspace.loop.runUsageBoundary",
-                      "优先按 Loop 触发消息到下一条用户消息之间统计；历史数据无触发元数据时回退到运行窗口。不代表完整成本。",
-                    )}
-                  >
-                    {t("workspace.loop.runUsage", "本轮 Token")}{" "}
-                    {t(
-                      "workspace.loop.runUsageValue",
-                      "{{total}} · 输入 {{input}} / 输出 {{output}}",
-                      {
-                        total: compactCount(usage.totalTokens),
-                        input: compactCount(usage.inputTokens),
-                        output: compactCount(usage.outputTokens),
-                      },
-                    )}
-                  </span>
-                ) : null}
-              </div>
-            ) : null}
-            {decisionLabel || decisionReason || run.noProgressReason ? (
-              <div className="mt-1 flex min-w-0 flex-wrap gap-x-2 gap-y-1 text-[10px] text-muted-foreground">
-                {decisionLabel ? (
-                  <span>
-                    {t("workspace.loop.decision", "调度")} {decisionLabel}
-                  </span>
-                ) : null}
-                {decisionReason ? (
-                  <span className="min-w-0 truncate">
-                    {t("workspace.loop.decisionReason", "原因")} {decisionReason}
-                  </span>
-                ) : null}
-                {run.noProgressReason ? (
-                  <span className="min-w-0 truncate text-muted-foreground">
-                    {run.noProgressReason}
-                  </span>
-                ) : null}
-              </div>
-            ) : null}
-            {summary ? (
-              <p
-                className={cn(
-                  "mt-1 line-clamp-2 text-[10px]",
-                  run.error ? "text-destructive" : "text-muted-foreground",
-                )}
-              >
-                {summary}
-              </p>
-            ) : null}
+        <div className="mt-2 space-y-1 rounded-md border border-border/60 bg-secondary/15 p-1.5">
+          <div className="flex items-center gap-1.5 px-0.5 text-[10px] font-medium text-muted-foreground">
+            <Clock className="h-3 w-3" />
+            {t("workspace.loop.historyTitle", "最近运行")}
           </div>
-        )
-      })}
-      </div>
+          {snapshot.runs.slice(0, 5).map((run) => {
+            const workflowRunId = loopRunTraceString(run, "workflowRunId")
+            const template = loopRunTemplateLabel(run)
+            const summary = run.error || run.resultSummary
+            const progressLabel = loopProgressLabel(t, run.progressState)
+            const decisionLabel = loopSchedulingDecisionLabel(t, run.schedulingDecision)
+            const decisionReason = loopRunDynamicDecisionReason(run)
+            const usage = run.usage
+            const usageVisible = Boolean(usage && usage.totalTokens > 0)
+            return (
+              <div
+                key={run.id}
+                className="rounded-md border border-border/45 bg-background/65 px-2 py-1.5"
+              >
+                <div className="flex min-w-0 items-center gap-2">
+                  <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
+                    #{run.seq}
+                  </span>
+                  <StatusPill
+                    label={loopRunStateLabel(t, run.state)}
+                    tone={loopRunStateTone(run.state)}
+                    loading={run.state === "running" || run.state === "queued"}
+                  />
+                  {progressLabel ? (
+                    <StatusPill label={progressLabel} tone={loopProgressTone(run.progressState)} />
+                  ) : null}
+                  <span className="min-w-0 flex-1 truncate text-[10px] text-muted-foreground">
+                    {formatMessageTime(run.finishedAt ?? run.startedAt)}
+                  </span>
+                  {workflowRunId && onSelectWorkflowRun ? (
+                    <IconTip label={t("workspace.loop.viewWorkflow", "查看工作流")}>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-6 w-6 shrink-0"
+                        aria-label={t("workspace.loop.viewWorkflow", "查看工作流")}
+                        onClick={() => onSelectWorkflowRun(workflowRunId)}
+                      >
+                        <Eye className="h-3 w-3" />
+                      </Button>
+                    </IconTip>
+                  ) : null}
+                </div>
+                {workflowRunId || template || usageVisible ? (
+                  <div className="mt-1 flex min-w-0 flex-wrap gap-x-2 gap-y-1 text-[10px] text-muted-foreground">
+                    {workflowRunId ? (
+                      <span className="min-w-0 truncate">
+                        {t("workspace.loop.workflowRun", "工作流")}{" "}
+                        <span className="font-mono">{truncateMiddle(workflowRunId, 18)}</span>
+                      </span>
+                    ) : null}
+                    {template ? (
+                      <span className="min-w-0 truncate">
+                        {t("workspace.loop.template", "模板")}{" "}
+                        <span className="font-mono">{template}</span>
+                      </span>
+                    ) : null}
+                    {usageVisible && usage ? (
+                      <span
+                        className="min-w-0 truncate"
+                        title={t(
+                          "workspace.loop.runUsageBoundary",
+                          "优先按 Loop 触发消息到下一条用户消息之间统计；历史数据无触发元数据时回退到运行窗口。不代表完整成本。",
+                        )}
+                      >
+                        {t("workspace.loop.runUsage", "本轮 Token")}{" "}
+                        {t(
+                          "workspace.loop.runUsageValue",
+                          "{{total}} · 输入 {{input}} / 输出 {{output}}",
+                          {
+                            total: compactCount(usage.totalTokens),
+                            input: compactCount(usage.inputTokens),
+                            output: compactCount(usage.outputTokens),
+                          },
+                        )}
+                      </span>
+                    ) : null}
+                  </div>
+                ) : null}
+                {decisionLabel || decisionReason || run.noProgressReason ? (
+                  <div className="mt-1 flex min-w-0 flex-wrap gap-x-2 gap-y-1 text-[10px] text-muted-foreground">
+                    {decisionLabel ? (
+                      <span>
+                        {t("workspace.loop.decision", "调度")} {decisionLabel}
+                      </span>
+                    ) : null}
+                    {decisionReason ? (
+                      <span className="min-w-0 truncate">
+                        {t("workspace.loop.decisionReason", "原因")} {decisionReason}
+                      </span>
+                    ) : null}
+                    {run.noProgressReason ? (
+                      <span className="min-w-0 truncate text-muted-foreground">
+                        {run.noProgressReason}
+                      </span>
+                    ) : null}
+                  </div>
+                ) : null}
+                {summary ? (
+                  <p
+                    className={cn(
+                      "mt-1 line-clamp-2 text-[10px]",
+                      run.error ? "text-destructive" : "text-muted-foreground",
+                    )}
+                  >
+                    {summary}
+                  </p>
+                ) : null}
+              </div>
+            )
+          })}
+        </div>
       )}
     </>
   )
@@ -13990,8 +14421,14 @@ function LoopSchedulesSection({
     turnActive,
     disabled: Boolean(loopSchedulesState),
   })
-  const { schedules, watchdogFindings = [], activeCount, loading, error, refresh } =
-    loopSchedulesState ?? ownedLoopSchedulesState
+  const {
+    schedules,
+    watchdogFindings = [],
+    activeCount,
+    loading,
+    error,
+    refresh,
+  } = loopSchedulesState ?? ownedLoopSchedulesState
   const [actionId, setActionId] = useState<string | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
   const [createSaving, setCreateSaving] = useState(false)
@@ -14031,8 +14468,7 @@ function LoopSchedulesSection({
   const lastInspectRequestRef = useRef(inspectRequest?.nonce ?? 0)
   const activeGoal = goalState.snapshot?.goal ?? null
   const activeGoalCriteria = goalState.snapshot?.criteriaItems ?? []
-  const canUseWorkflowLoop =
-    draftKind === "interval" && Boolean(activeGoal?.workflowTemplateId)
+  const canUseWorkflowLoop = draftKind === "interval" && Boolean(activeGoal?.workflowTemplateId)
   const loopTemplates = useMemo<LoopTemplateOption[]>(
     () => [
       {
@@ -14625,9 +15061,9 @@ function LoopSchedulesSection({
                     ? t("workspace.loop.kindInterval", "定期推进")
                     : kind === "dynamic"
                       ? t("workspace.loop.kindDynamic", "模型自定")
-                    : kind === "condition"
-                      ? t("workspace.loop.kindCondition", "直到条件满足")
-                      : t("workspace.loop.kindEvent", "事件后继续")}
+                      : kind === "condition"
+                        ? t("workspace.loop.kindCondition", "直到条件满足")
+                        : t("workspace.loop.kindEvent", "事件后继续")}
                 </Button>
               ))}
             </div>
@@ -14917,8 +15353,7 @@ function LoopSchedulesSection({
             const progressLabel = loopProgressLabel(t, loop.progressState)
             const nextRunLabel = loopNextRunLabel(t, loop)
             const story = loopScheduleStory(t, loop, nextRunLabel, latestWorkflowRun)
-            const showGroup =
-              index === 0 || visibleSchedules[index - 1]?.state !== loop.state
+            const showGroup = index === 0 || visibleSchedules[index - 1]?.state !== loop.state
             return (
               <div key={loop.id} className="space-y-1">
                 {showGroup ? (
@@ -14928,291 +15363,296 @@ function LoopSchedulesSection({
                 ) : null}
                 <div className="rounded-md border border-border/70 bg-background/70 px-2.5 py-2">
                   <div className="flex items-start gap-2">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex min-w-0 items-center gap-2">
-                      <StatusPill
-                        label={loopStateLabel(t, loop.state)}
-                        tone={loopStateTone(loop.state)}
-                      />
-                      {progressLabel ? (
+                    <div className="min-w-0 flex-1">
+                      <div className="flex min-w-0 items-center gap-2">
                         <StatusPill
-                          label={progressLabel}
-                          tone={loopProgressTone(loop.progressState)}
+                          label={loopStateLabel(t, loop.state)}
+                          tone={loopStateTone(loop.state)}
                         />
+                        {progressLabel ? (
+                          <StatusPill
+                            label={progressLabel}
+                            tone={loopProgressTone(loop.progressState)}
+                          />
+                        ) : null}
+                        {loop.executionStrategy === "workflow" ? (
+                          <StatusPill
+                            label={loopExecutionStrategyLabel(t, loop.executionStrategy)}
+                            tone="info"
+                          />
+                        ) : null}
+                        {loopWatchdogFindings.length > 0 ? (
+                          <StatusPill
+                            label={t("workspace.loop.watchdogPill", "需确认")}
+                            tone="warn"
+                          />
+                        ) : null}
+                        {loop.goalCriterionId ? (
+                          <StatusPill
+                            label={loop.goalCriterionText ?? loop.goalCriterionId}
+                            tone="info"
+                          />
+                        ) : null}
+                        <span className="truncate text-xs font-medium text-foreground">
+                          {loopTriggerSummary(t, loop.triggerKind, loop.triggerSpec)}
+                        </span>
+                      </div>
+                      <p className="mt-1 line-clamp-2 text-xs text-foreground/80">{story}</p>
+                      <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
+                        {loop.prompt}
+                      </p>
+                      <div className="mt-1 flex flex-wrap gap-x-2 gap-y-1 text-[10px] text-muted-foreground">
+                        <span>{loopGuardStory(t, loop)}</span>
+                        {loop.maxRuntimeSecs ? (
+                          <span>
+                            {t("workspace.loop.maxRuntime", "最长")}{" "}
+                            {formatLoopDuration(loop.maxRuntimeSecs)}
+                          </span>
+                        ) : null}
+                        {loop.tokenBudget ? (
+                          <span>
+                            {t("workspace.loop.tokenBudget", "Token")} {loop.tokenBudget}
+                          </span>
+                        ) : null}
+                        <span>{formatMessageTime(loop.updatedAt)}</span>
+                      </div>
+                      {loop.progressSummary ? (
+                        <p className="mt-1 line-clamp-2 text-[10px] text-muted-foreground">
+                          {loop.progressSummary}
+                        </p>
+                      ) : null}
+                      {loop.blockedReason ? (
+                        <p className="mt-1 text-[10px] text-destructive">{loop.blockedReason}</p>
                       ) : null}
                       {loop.executionStrategy === "workflow" ? (
-                        <StatusPill
-                          label={loopExecutionStrategyLabel(t, loop.executionStrategy)}
-                          tone="info"
-                        />
-                      ) : null}
-                      {loopWatchdogFindings.length > 0 ? (
-                        <StatusPill
-                          label={t("workspace.loop.watchdogPill", "需确认")}
-                          tone="warn"
-                        />
-                      ) : null}
-                      {loop.goalCriterionId ? (
-                        <StatusPill
-                          label={loop.goalCriterionText ?? loop.goalCriterionId}
-                          tone="info"
-                        />
-                      ) : null}
-                      <span className="truncate text-xs font-medium text-foreground">
-                        {loopTriggerSummary(t, loop.triggerKind, loop.triggerSpec)}
-                      </span>
-                    </div>
-                    <p className="mt-1 line-clamp-2 text-xs text-foreground/80">{story}</p>
-                    <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{loop.prompt}</p>
-                    <div className="mt-1 flex flex-wrap gap-x-2 gap-y-1 text-[10px] text-muted-foreground">
-                      <span>{loopGuardStory(t, loop)}</span>
-                      {loop.maxRuntimeSecs ? (
-                        <span>
-                          {t("workspace.loop.maxRuntime", "最长")}{" "}
-                          {formatLoopDuration(loop.maxRuntimeSecs)}
-                        </span>
-                      ) : null}
-                      {loop.tokenBudget ? (
-                        <span>
-                          {t("workspace.loop.tokenBudget", "Token")} {loop.tokenBudget}
-                        </span>
-                      ) : null}
-                      <span>{formatMessageTime(loop.updatedAt)}</span>
-                    </div>
-                    {loop.progressSummary ? (
-                      <p className="mt-1 line-clamp-2 text-[10px] text-muted-foreground">
-                        {loop.progressSummary}
-                      </p>
-                    ) : null}
-                    {loop.blockedReason ? (
-                      <p className="mt-1 text-[10px] text-destructive">{loop.blockedReason}</p>
-                    ) : null}
-                    {loop.executionStrategy === "workflow" ? (
-                      latestWorkflowRun ? (
-                        <div className="mt-2 flex min-w-0 items-center gap-2 rounded-md bg-secondary/25 px-2 py-1.5">
-                          <GitPullRequest className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                          <div className="min-w-0 flex-1">
-                            <div className="flex min-w-0 items-center gap-1.5">
-                              <span className="truncate text-[11px] font-medium text-foreground/85">
-                                {latestWorkflowRun.kind}
-                              </span>
-                              {derivedWorkflowRuns.length > 1 ? (
-                                <span className="shrink-0 text-[10px] text-muted-foreground">
-                                  +{derivedWorkflowRuns.length - 1}
+                        latestWorkflowRun ? (
+                          <div className="mt-2 flex min-w-0 items-center gap-2 rounded-md bg-secondary/25 px-2 py-1.5">
+                            <GitPullRequest className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                            <div className="min-w-0 flex-1">
+                              <div className="flex min-w-0 items-center gap-1.5">
+                                <span className="truncate text-[11px] font-medium text-foreground/85">
+                                  {latestWorkflowRun.kind}
                                 </span>
-                              ) : null}
+                                {derivedWorkflowRuns.length > 1 ? (
+                                  <span className="shrink-0 text-[10px] text-muted-foreground">
+                                    +{derivedWorkflowRuns.length - 1}
+                                  </span>
+                                ) : null}
+                              </div>
+                              <div className="truncate text-[10px] text-muted-foreground">
+                                {latestWorkflowRun.id}
+                                <span className="px-1 text-muted-foreground/50">·</span>
+                                {formatMessageTime(latestWorkflowRun.updatedAt)}
+                              </div>
                             </div>
-                            <div className="truncate text-[10px] text-muted-foreground">
-                              {latestWorkflowRun.id}
-                              <span className="px-1 text-muted-foreground/50">·</span>
-                              {formatMessageTime(latestWorkflowRun.updatedAt)}
-                            </div>
+                            <StatusPill
+                              label={workflowRunStateLabel(t, latestWorkflowRun.state)}
+                              tone={workflowRunTone(latestWorkflowRun.state)}
+                              loading={
+                                latestWorkflowRun.state === "running" ||
+                                latestWorkflowRun.state === "recovering"
+                              }
+                            />
+                            {onSelectWorkflowRun ? (
+                              <IconTip label={t("workspace.loop.viewWorkflow", "查看工作流")}>
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-7 w-7 shrink-0"
+                                  aria-label={t("workspace.loop.viewWorkflow", "查看工作流")}
+                                  onClick={() => onSelectWorkflowRun(latestWorkflowRun.id)}
+                                >
+                                  <Eye className="h-3.5 w-3.5" />
+                                </Button>
+                              </IconTip>
+                            ) : null}
                           </div>
-                          <StatusPill
-                            label={workflowRunStateLabel(t, latestWorkflowRun.state)}
-                            tone={workflowRunTone(latestWorkflowRun.state)}
-                            loading={
-                              latestWorkflowRun.state === "running" ||
-                              latestWorkflowRun.state === "recovering"
-                            }
-                          />
-                          {onSelectWorkflowRun ? (
-                            <IconTip label={t("workspace.loop.viewWorkflow", "查看工作流")}>
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="icon"
-                                className="h-7 w-7 shrink-0"
-                                aria-label={t("workspace.loop.viewWorkflow", "查看工作流")}
-                                onClick={() => onSelectWorkflowRun(latestWorkflowRun.id)}
-                              >
-                                <Eye className="h-3.5 w-3.5" />
-                              </Button>
-                            </IconTip>
-                          ) : null}
-                        </div>
-                      ) : (
-                        <div className="mt-2 flex items-center gap-2 rounded-md bg-secondary/20 px-2 py-1.5 text-[10px] text-muted-foreground">
-                          <GitPullRequest className="h-3.5 w-3.5 shrink-0" />
-                          <span className="truncate">
-                            {t("workspace.loop.workflowPending", "等待下一次触发创建 Workflow run")}
-                          </span>
-                        </div>
-                      )
-                    ) : null}
-                  </div>
-                  <div className="flex shrink-0 items-center gap-1">
-                    {loop.state === "active" ? (
-                      <IconTip label={t("workspace.loop.runNow", "立即运行")}>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7"
-                          disabled={isBusy}
-                          aria-label={t("workspace.loop.runNow", "立即运行")}
-                          onClick={() => void runLoopNow(loop)}
-                        >
-                          <RefreshCw className="h-3.5 w-3.5" />
-                        </Button>
-                      </IconTip>
-                    ) : null}
-                    {!isLoopTerminal(loop.state) ? (
-                      <IconTip label={t("workspace.loop.editPolicy", "编辑策略")}>
-                        <Button
-                          variant={policyOpen ? "secondary" : "ghost"}
-                          size="icon"
-                          className="h-7 w-7"
-                          disabled={isBusy}
-                          aria-label={t("workspace.loop.editPolicy", "编辑策略")}
-                          onClick={() => openPolicyEditor(loop)}
-                        >
-                          <Pencil className="h-3.5 w-3.5" />
-                        </Button>
-                      </IconTip>
-                    ) : null}
-                    <IconTip label={t("workspace.loop.history", "运行记录")}>
-                      <Button
-                        variant={detailOpen ? "secondary" : "ghost"}
-                        size="icon"
-                        className="h-7 w-7"
-                        aria-label={t("workspace.loop.history", "运行记录")}
-                        onClick={() => toggleLoopDetail(loop.id)}
-                      >
-                        {detailOpen && detailLoading ? (
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
                         ) : (
-                          <Clock className="h-3.5 w-3.5" />
-                        )}
-                      </Button>
-                    </IconTip>
-                    {loop.state === "active" ? (
-                      <IconTip label={t("workspace.loop.pause", "暂停")}>
+                          <div className="mt-2 flex items-center gap-2 rounded-md bg-secondary/20 px-2 py-1.5 text-[10px] text-muted-foreground">
+                            <GitPullRequest className="h-3.5 w-3.5 shrink-0" />
+                            <span className="truncate">
+                              {t(
+                                "workspace.loop.workflowPending",
+                                "等待下一次触发创建 Workflow run",
+                              )}
+                            </span>
+                          </div>
+                        )
+                      ) : null}
+                    </div>
+                    <div className="flex shrink-0 items-center gap-1">
+                      {loop.state === "active" ? (
+                        <IconTip label={t("workspace.loop.runNow", "立即运行")}>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7"
+                            disabled={isBusy}
+                            aria-label={t("workspace.loop.runNow", "立即运行")}
+                            onClick={() => void runLoopNow(loop)}
+                          >
+                            <RefreshCw className="h-3.5 w-3.5" />
+                          </Button>
+                        </IconTip>
+                      ) : null}
+                      {!isLoopTerminal(loop.state) ? (
+                        <IconTip label={t("workspace.loop.editPolicy", "编辑策略")}>
+                          <Button
+                            variant={policyOpen ? "secondary" : "ghost"}
+                            size="icon"
+                            className="h-7 w-7"
+                            disabled={isBusy}
+                            aria-label={t("workspace.loop.editPolicy", "编辑策略")}
+                            onClick={() => openPolicyEditor(loop)}
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </Button>
+                        </IconTip>
+                      ) : null}
+                      <IconTip label={t("workspace.loop.history", "运行记录")}>
                         <Button
-                          variant="ghost"
+                          variant={detailOpen ? "secondary" : "ghost"}
                           size="icon"
                           className="h-7 w-7"
-                          disabled={isBusy}
-                          onClick={() => void runAction(loop, "pause")}
+                          aria-label={t("workspace.loop.history", "运行记录")}
+                          onClick={() => toggleLoopDetail(loop.id)}
                         >
-                          <Pause className="h-3.5 w-3.5" />
+                          {detailOpen && detailLoading ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <Clock className="h-3.5 w-3.5" />
+                          )}
                         </Button>
                       </IconTip>
-                    ) : loop.state === "paused" || loop.state === "blocked" ? (
-                      <IconTip label={t("workspace.loop.resume", "恢复")}>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7"
-                          disabled={isBusy}
-                          onClick={() => void runAction(loop, "resume")}
-                        >
-                          <Play className="h-3.5 w-3.5" />
-                        </Button>
-                      </IconTip>
-                    ) : null}
-                    {!isLoopTerminal(loop.state) ? (
-                      <IconTip label={t("workspace.loop.stop", "停止")}>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7 text-muted-foreground hover:text-destructive"
-                          disabled={isBusy}
-                          onClick={() => void runAction(loop, "stop")}
-                        >
-                          <X className="h-3.5 w-3.5" />
-                        </Button>
-                      </IconTip>
-                    ) : null}
+                      {loop.state === "active" ? (
+                        <IconTip label={t("workspace.loop.pause", "暂停")}>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7"
+                            disabled={isBusy}
+                            onClick={() => void runAction(loop, "pause")}
+                          >
+                            <Pause className="h-3.5 w-3.5" />
+                          </Button>
+                        </IconTip>
+                      ) : loop.state === "paused" || loop.state === "blocked" ? (
+                        <IconTip label={t("workspace.loop.resume", "恢复")}>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7"
+                            disabled={isBusy}
+                            onClick={() => void runAction(loop, "resume")}
+                          >
+                            <Play className="h-3.5 w-3.5" />
+                          </Button>
+                        </IconTip>
+                      ) : null}
+                      {!isLoopTerminal(loop.state) ? (
+                        <IconTip label={t("workspace.loop.stop", "停止")}>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                            disabled={isBusy}
+                            onClick={() => void runAction(loop, "stop")}
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </Button>
+                        </IconTip>
+                      ) : null}
+                    </div>
                   </div>
+                  {policyOpen ? (
+                    <div className="mt-2 rounded-md border border-border/60 bg-secondary/15 p-2">
+                      <div className="mb-1 flex items-center gap-1.5 text-[10px] font-medium text-muted-foreground">
+                        <Gauge className="h-3 w-3" />
+                        {t("workspace.loop.policyTitle", "运行策略")}
+                      </div>
+                      <div className="grid grid-cols-3 gap-2">
+                        <Input
+                          value={policyMaxRuns}
+                          onChange={(e) => setPolicyMaxRuns(e.target.value)}
+                          placeholder={t("workspace.loop.maxRunsPlaceholder", "最大次数")}
+                          className="h-8 text-xs"
+                          aria-label={t("workspace.loop.maxRunsLabel", "最大次数")}
+                        />
+                        <Input
+                          value={policyMaxRuntime}
+                          onChange={(e) => setPolicyMaxRuntime(e.target.value)}
+                          placeholder={t("workspace.loop.maxRuntimePlaceholder", "最长时间")}
+                          className="h-8 text-xs"
+                          aria-label={t("workspace.loop.maxRuntimeLabel", "最长运行时间")}
+                        />
+                        <Input
+                          value={policyTokens}
+                          onChange={(e) => setPolicyTokens(e.target.value)}
+                          placeholder={t("workspace.loop.tokensPlaceholder", "Token 预算")}
+                          className="h-8 text-xs"
+                          aria-label={t("workspace.loop.tokensLabel", "Token 预算")}
+                        />
+                      </div>
+                      <div className="mt-2 grid grid-cols-3 gap-2">
+                        <Input
+                          value={policyMaxNoProgress}
+                          onChange={(e) => setPolicyMaxNoProgress(e.target.value)}
+                          placeholder={t("workspace.loop.maxNoProgressPlaceholder", "无进展次数")}
+                          className="h-8 text-xs"
+                          aria-label={t("workspace.loop.maxNoProgressLabel", "无进展上限")}
+                        />
+                        <Input
+                          value={policyMaxFailures}
+                          onChange={(e) => setPolicyMaxFailures(e.target.value)}
+                          placeholder={t("workspace.loop.maxFailuresPlaceholder", "失败次数")}
+                          className="h-8 text-xs"
+                          aria-label={t("workspace.loop.maxFailuresLabel", "失败上限")}
+                        />
+                        <Input
+                          value={policyBackoff}
+                          onChange={(e) => setPolicyBackoff(e.target.value)}
+                          placeholder={t("workspace.loop.backoffPlaceholder", "降频间隔")}
+                          className="h-8 text-xs"
+                          aria-label={t("workspace.loop.backoffLabel", "降频间隔")}
+                        />
+                      </div>
+                      <div className="mt-2 flex justify-end gap-1">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 px-2 text-[11px]"
+                          onClick={() => setPolicyLoopId(null)}
+                        >
+                          {t("common.cancel", "取消")}
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          className="h-7 gap-1 px-2 text-[11px]"
+                          disabled={policySaving}
+                          onClick={() => void savePolicy(loop)}
+                        >
+                          {policySaving ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <Check className="h-3.5 w-3.5" />
+                          )}
+                          {t("common.save", "保存")}
+                        </Button>
+                      </div>
+                    </div>
+                  ) : null}
+                  {detailOpen ? (
+                    <LoopRunHistory
+                      snapshot={detailSnapshot}
+                      loading={detailLoading}
+                      error={detailError}
+                      onSelectWorkflowRun={onSelectWorkflowRun}
+                    />
+                  ) : null}
                 </div>
-                {policyOpen ? (
-                  <div className="mt-2 rounded-md border border-border/60 bg-secondary/15 p-2">
-                    <div className="mb-1 flex items-center gap-1.5 text-[10px] font-medium text-muted-foreground">
-                      <Gauge className="h-3 w-3" />
-                      {t("workspace.loop.policyTitle", "运行策略")}
-                    </div>
-                    <div className="grid grid-cols-3 gap-2">
-                      <Input
-                        value={policyMaxRuns}
-                        onChange={(e) => setPolicyMaxRuns(e.target.value)}
-                        placeholder={t("workspace.loop.maxRunsPlaceholder", "最大次数")}
-                        className="h-8 text-xs"
-                        aria-label={t("workspace.loop.maxRunsLabel", "最大次数")}
-                      />
-                      <Input
-                        value={policyMaxRuntime}
-                        onChange={(e) => setPolicyMaxRuntime(e.target.value)}
-                        placeholder={t("workspace.loop.maxRuntimePlaceholder", "最长时间")}
-                        className="h-8 text-xs"
-                        aria-label={t("workspace.loop.maxRuntimeLabel", "最长运行时间")}
-                      />
-                      <Input
-                        value={policyTokens}
-                        onChange={(e) => setPolicyTokens(e.target.value)}
-                        placeholder={t("workspace.loop.tokensPlaceholder", "Token 预算")}
-                        className="h-8 text-xs"
-                        aria-label={t("workspace.loop.tokensLabel", "Token 预算")}
-                      />
-                    </div>
-                    <div className="mt-2 grid grid-cols-3 gap-2">
-                      <Input
-                        value={policyMaxNoProgress}
-                        onChange={(e) => setPolicyMaxNoProgress(e.target.value)}
-                        placeholder={t("workspace.loop.maxNoProgressPlaceholder", "无进展次数")}
-                        className="h-8 text-xs"
-                        aria-label={t("workspace.loop.maxNoProgressLabel", "无进展上限")}
-                      />
-                      <Input
-                        value={policyMaxFailures}
-                        onChange={(e) => setPolicyMaxFailures(e.target.value)}
-                        placeholder={t("workspace.loop.maxFailuresPlaceholder", "失败次数")}
-                        className="h-8 text-xs"
-                        aria-label={t("workspace.loop.maxFailuresLabel", "失败上限")}
-                      />
-                      <Input
-                        value={policyBackoff}
-                        onChange={(e) => setPolicyBackoff(e.target.value)}
-                        placeholder={t("workspace.loop.backoffPlaceholder", "降频间隔")}
-                        className="h-8 text-xs"
-                        aria-label={t("workspace.loop.backoffLabel", "降频间隔")}
-                      />
-                    </div>
-                    <div className="mt-2 flex justify-end gap-1">
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="h-7 px-2 text-[11px]"
-                        onClick={() => setPolicyLoopId(null)}
-                      >
-                        {t("common.cancel", "取消")}
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        className="h-7 gap-1 px-2 text-[11px]"
-                        disabled={policySaving}
-                        onClick={() => void savePolicy(loop)}
-                      >
-                        {policySaving ? (
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        ) : (
-                          <Check className="h-3.5 w-3.5" />
-                        )}
-                        {t("common.save", "保存")}
-                      </Button>
-                    </div>
-                  </div>
-                ) : null}
-                {detailOpen ? (
-                  <LoopRunHistory
-                    snapshot={detailSnapshot}
-                    loading={detailLoading}
-                    error={detailError}
-                    onSelectWorkflowRun={onSelectWorkflowRun}
-                  />
-                ) : null}
-              </div>
               </div>
             )
           })}
@@ -15280,8 +15720,14 @@ function WorkflowRunsSection({
     turnActive,
     disabled: Boolean(workflowRunsState),
   })
-  const { runs, watchdogFindings = [], activeCount, loading, error, refresh } =
-    workflowRunsState ?? ownedWorkflowRuns
+  const {
+    runs,
+    watchdogFindings = [],
+    activeCount,
+    loading,
+    error,
+    refresh,
+  } = workflowRunsState ?? ownedWorkflowRuns
   const managedWorktreesState = useManagedWorktrees(sessionId, { incognito, turnActive })
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null)
   const [snapshot, setSnapshot] = useState<WorkflowRunSnapshot | null>(null)
@@ -15488,7 +15934,6 @@ function WorkflowRunsSection({
   useEffect(() => {
     savedTemplatesRequestedRef.current = false
   }, [projectId])
-
 
   useEffect(() => {
     if (domainTemplates.length === 0) {
@@ -16019,11 +16464,9 @@ ${repairPrompt}`
             "修复失败工作流 {{id}}：\n\n{{prompt}}",
             { id: run.id, prompt: repairPrompt },
           ),
-          activeForm: t(
-            "workspace.workflow.repairTaskActiveForm",
-            "正在修复失败工作流 {{id}}",
-            { id: run.id },
-          ),
+          activeForm: t("workspace.workflow.repairTaskActiveForm", "正在修复失败工作流 {{id}}", {
+            id: run.id,
+          }),
         })
         toast.success(t("workspace.workflow.repairTaskCreated", "已创建工作流修复任务"))
       } catch (e) {
@@ -16363,10 +16806,7 @@ ${repairPrompt}`
             type="button"
             size="sm"
             variant="outline"
-            className={cn(
-              "h-8 min-w-0 gap-1.5 text-xs",
-              actions.length === 0 && "col-span-2",
-            )}
+            className={cn("h-8 min-w-0 gap-1.5 text-xs", actions.length === 0 && "col-span-2")}
             disabled={!!actionKey || !!savingTemplateRunId}
             onClick={() => void saveWorkflowTemplate(run)}
           >
@@ -16564,9 +17004,7 @@ ${repairPrompt}`
                         className="flex min-w-0 items-center gap-2 rounded-md bg-background/55 px-2 py-1.5"
                       >
                         <div className="min-w-0 flex-1">
-                          <div className="truncate font-medium text-foreground/85">
-                            {run.kind}
-                          </div>
+                          <div className="truncate font-medium text-foreground/85">{run.kind}</div>
                           <div className="truncate text-muted-foreground">
                             {workflowWatchdogFindingLabel(t, finding)}
                           </div>
@@ -16578,7 +17016,11 @@ ${repairPrompt}`
                           className="h-7 shrink-0 gap-1 px-2 text-[11px]"
                           onClick={() => {
                             setSelectedRunId(run.id)
-                            if (!runs.slice(0, WORKFLOW_RUN_PREVIEW).some((item) => item.id === run.id)) {
+                            if (
+                              !runs
+                                .slice(0, WORKFLOW_RUN_PREVIEW)
+                                .some((item) => item.id === run.id)
+                            ) {
                               setShowAllRuns(true)
                             }
                           }}
@@ -16592,9 +17034,13 @@ ${repairPrompt}`
                 </div>
                 {watchdogFindings.length > watchdogRuns.length ? (
                   <div className="px-1 text-[10px] text-muted-foreground">
-                    {t("workspace.workflow.watchdogMore", "还有 {{count}} 条诊断在运行详情中可查看", {
-                      count: watchdogFindings.length - watchdogRuns.length,
-                    })}
+                    {t(
+                      "workspace.workflow.watchdogMore",
+                      "还有 {{count}} 条诊断在运行详情中可查看",
+                      {
+                        count: watchdogFindings.length - watchdogRuns.length,
+                      },
+                    )}
                   </div>
                 ) : null}
               </div>
@@ -17360,11 +17806,17 @@ function WorkflowCreateComposer({
                           {template.name}
                         </span>
                         <StatusPill
-                          label={executionModeLabel(t, normalizeExecutionMode(template.executionMode))}
+                          label={executionModeLabel(
+                            t,
+                            normalizeExecutionMode(template.executionMode),
+                          )}
                           tone="muted"
                         />
                         {template.scope === "project" ? (
-                          <StatusPill label={t("workspace.workflow.savedTemplateProject", "项目")} tone="info" />
+                          <StatusPill
+                            label={t("workspace.workflow.savedTemplateProject", "项目")}
+                            tone="info"
+                          />
                         ) : null}
                       </div>
                       <div className="mt-1 flex items-center gap-1.5">
@@ -18126,9 +18578,13 @@ function goalWatchdogFindingLabel(
   }
   if (finding.code === "goal_no_recent_progress") {
     return age
-      ? t("workspace.goal.watchdogNoRecentProgressWithAge", "目标一段时间没有新进展，已等待 {{age}}", {
-          age,
-        })
+      ? t(
+          "workspace.goal.watchdogNoRecentProgressWithAge",
+          "目标一段时间没有新进展，已等待 {{age}}",
+          {
+            age,
+          },
+        )
       : t("workspace.goal.watchdogNoRecentProgress", "目标一段时间没有新进展")
   }
   return finding.message || t("workspace.goal.watchdogUnknown", "目标需要确认")
@@ -18251,7 +18707,10 @@ function goalClosureReviewPacket(
   const missing = stringList("missing")
   const blockers = stringList("blockers")
   const nextEvidence = recordArrayField(audit, "nextEvidenceNeeded")
-    .map((item) => stringField(item, "summary") ?? stringField(item, "text") ?? stringField(item, "kind"))
+    .map(
+      (item) =>
+        stringField(item, "summary") ?? stringField(item, "text") ?? stringField(item, "kind"),
+    )
     .filter((item): item is string => Boolean(item))
   const section = (title: string, items: string[]) => {
     lines.push("", `## ${title}`)
@@ -18696,11 +19155,7 @@ function GoalControlStrip({
     completionCriteria: string,
     domainSelection?: { template: DomainWorkflowTemplate | null; taskType: string },
   ) => Promise<boolean>
-  onCloseGoal: (
-    decision: GoalClosureDecision,
-    reason?: string,
-    followUpItems?: string[],
-  ) => void
+  onCloseGoal: (decision: GoalClosureDecision, reason?: string, followUpItems?: string[]) => void
   onAppendFollowUp: (items: string[]) => Promise<boolean>
 }) {
   const { t } = useTranslation()
@@ -19265,11 +19720,7 @@ function GoalDetailSection({
   evidence: GoalEvidenceItem[]
   timeline: GoalTimelineItem[]
   actionKey?: string | null
-  onCloseGoal: (
-    decision: GoalClosureDecision,
-    reason?: string,
-    followUpItems?: string[],
-  ) => void
+  onCloseGoal: (decision: GoalClosureDecision, reason?: string, followUpItems?: string[]) => void
   onAppendFollowUp: (items: string[]) => Promise<boolean>
 }) {
   const { t } = useTranslation()
@@ -19294,7 +19745,8 @@ function GoalDetailSection({
   const canCloseGoal = snapshot.goal.state !== "evaluating" && snapshot.goal.state !== "cancelled"
   const canAcceptGoal = canCloseGoal && finalAuditCompleted && !snapshot.auditStale
   const requiredDone = criteria.filter(
-    (criterion) => (criterion.kind ?? "required") === "required" && criterion.status === "satisfied",
+    (criterion) =>
+      (criterion.kind ?? "required") === "required" && criterion.status === "satisfied",
   ).length
   const requiredTotal = criteria.filter(
     (criterion) => (criterion.kind ?? "required") === "required",
@@ -19366,16 +19818,16 @@ function GoalDetailSection({
             </div>
             {followUpItems.length > 0 || followUpTexts.length > 0 ? (
               <div className="space-y-1">
-                {[...followUpItems.map((item) => item.text), ...followUpTexts].slice(0, 4).map(
-                  (item, index) => (
+                {[...followUpItems.map((item) => item.text), ...followUpTexts]
+                  .slice(0, 4)
+                  .map((item, index) => (
                     <div
                       key={`${item}:${index}`}
                       className="truncate rounded-md bg-secondary/25 px-2 py-1 text-[10px] text-muted-foreground"
                     >
                       {item}
                     </div>
-                  ),
-                )}
+                  ))}
               </div>
             ) : null}
             <div className="grid grid-cols-2 gap-1.5">
@@ -19711,7 +20163,10 @@ function GoalDetailSection({
                         {item.title}
                       </span>
                       {goalCriterionMetadataId(item.metadata) ? (
-                        <StatusPill label={goalCriterionMetadataId(item.metadata) ?? ""} tone="info" />
+                        <StatusPill
+                          label={goalCriterionMetadataId(item.metadata) ?? ""}
+                          tone="info"
+                        />
                       ) : null}
                       <StatusPill label={item.relation} tone={goalEvidenceTone(item.relation)} />
                     </div>
@@ -20280,26 +20735,27 @@ function WorkflowRunSummaryCard({
         <div className="mt-1 flex min-w-0 items-center gap-2 rounded-md bg-background/45 px-2 py-1 text-[10px]">
           <StatusPill label={runtimeSummary.label} tone={runtimeSummary.tone} />
           <span className="min-w-0 flex-1 truncate text-muted-foreground">
-            {runtimeSummary.detail ?? t("workspace.workflow.summaryRuntimeDone", "runtime 已回报结果")}
+            {runtimeSummary.detail ??
+              t("workspace.workflow.summaryRuntimeDone", "runtime 已回报结果")}
           </span>
         </div>
       ) : null}
 
       <div className="mt-1 truncate text-[10px] text-muted-foreground/65">
         {hasWorkflowUsage
-            ? t(
-                "workspace.workflow.summaryWindowUsageBoundary",
-                "窗口 Token = 父会话运行窗口 + 本工作流关联子代理；工作流注入回合另有强关联口径；不是 provider 级完整成本。",
-              )
+          ? t(
+              "workspace.workflow.summaryWindowUsageBoundary",
+              "窗口 Token = 父会话运行窗口 + 本工作流关联子代理；工作流注入回合另有强关联口径；不是 provider 级完整成本。",
+            )
           : hasAgentUsage
             ? t(
                 "workspace.workflow.summaryAgentUsageBoundary",
                 "仅统计本工作流关联子代理用量；完整成本仍等待运行归因。",
-            )
-          : t(
-              "workspace.workflow.summaryUsageBoundary",
-              "Token/成本等待工作流运行归因接入；当前不估算。",
-            )}
+              )
+            : t(
+                "workspace.workflow.summaryUsageBoundary",
+                "Token/成本等待工作流运行归因接入；当前不估算。",
+              )}
       </div>
     </div>
   )
@@ -20971,7 +21427,7 @@ function WorkflowRecoveryHint({
   const tabLabel = targetTab ? workflowDetailTabLabel(t, targetTab) : null
   const showRepairActions = Boolean(
     repairPrompt &&
-      (run.state === "failed" || run.state === "blocked" || failedOp || hasValidationFailure),
+    (run.state === "failed" || run.state === "blocked" || failedOp || hasValidationFailure),
   )
 
   const copyRepairPrompt = async () => {
@@ -21026,10 +21482,7 @@ function WorkflowRecoveryHint({
       <div className="mt-0.5 truncate opacity-85">{body}</div>
       {showRepairActions ? (
         <div
-          className={cn(
-            "mt-1.5 grid gap-1.5",
-            onCreateRepairTask ? "grid-cols-3" : "grid-cols-2",
-          )}
+          className={cn("mt-1.5 grid gap-1.5", onCreateRepairTask ? "grid-cols-3" : "grid-cols-2")}
         >
           <Button
             type="button"
@@ -21061,9 +21514,7 @@ function WorkflowRecoveryHint({
               ) : (
                 <Plus className="h-3.5 w-3.5" />
               )}
-              <span className="truncate">
-                {t("workspace.workflow.createRepairTask", "转任务")}
-              </span>
+              <span className="truncate">{t("workspace.workflow.createRepairTask", "转任务")}</span>
             </Button>
           ) : null}
           <Button
@@ -21891,6 +22342,7 @@ export default function WorkspacePanel({
           systemPromptLoading={systemPromptLoading}
         />
 
+        <MemoryDiagnosticsSection messages={messages} incognito={incognito} />
         {taskSnapshot && taskSnapshot.total > 0 ? (
           <TaskProgressPanel
             snapshot={taskSnapshot}
@@ -21979,7 +22431,12 @@ export default function WorkspacePanel({
           {sources.length > 0 ? (
             <div className="max-h-[40vh] space-y-0.5 overflow-y-auto pr-0.5">
               {visibleSources.map((source) => (
-                <SourceRow key={source.url} source={source} />
+                <SourceRow
+                  key={sessionSourceKey(source)}
+                  source={source}
+                  sessionId={sessionId}
+                  onPreviewFile={onPreviewFile}
+                />
               ))}
               {hasMoreSources && <div ref={setSourcesSentinel} className="h-px" />}
               {sourcesTruncated && <TruncatedNote />}

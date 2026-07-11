@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react"
 import { useTranslation } from "react-i18next"
-import { Loader2 } from "lucide-react"
+import { CircleAlert, Loader2 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { ReferenceableNote } from "@/types/knowledge"
 
@@ -9,6 +9,7 @@ interface Props {
   entries: ReferenceableNote[]
   selectedIndex: number
   loading: boolean
+  loadErrorDetail: string | null
   onSelect: (entry: ReferenceableNote) => void
   onHover: (index: number) => void
 }
@@ -22,6 +23,7 @@ export default function NoteMentionMenu({
   entries,
   selectedIndex,
   loading,
+  loadErrorDetail,
   onSelect,
   onHover,
 }: Props) {
@@ -44,7 +46,21 @@ export default function NoteMentionMenu({
         {loading && <Loader2 className="h-3 w-3 animate-spin" />}
       </div>
 
-      {entries.length === 0 && !loading ? (
+      {loadErrorDetail ? (
+        <div className="mx-1 mb-1 flex gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-1.5 text-[11px] leading-relaxed text-amber-800 dark:text-amber-200">
+          <CircleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <div className="min-w-0">
+            <div className="font-medium">
+              {t("knowledge.mention.loadFailed", "Failed to load knowledge notes")}
+            </div>
+            <div className="mt-0.5 break-words opacity-85">
+              {t("knowledge.mention.errorDetail", "Details: {{error}}", {
+                error: loadErrorDetail,
+              })}
+            </div>
+          </div>
+        </div>
+      ) : entries.length === 0 && !loading ? (
         <p className="px-2 py-2 text-xs text-muted-foreground">
           {t("knowledge.mention.empty", "No notes — attach a knowledge space first.")}
         </p>

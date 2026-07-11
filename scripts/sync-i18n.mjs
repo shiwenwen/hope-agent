@@ -3,20 +3,23 @@
  * i18n 翻译同步脚本
  *
  * 用法：
- *   node scripts/sync-i18n.mjs --check          # 检查各语言缺失的 key
+ *   node scripts/sync-i18n.mjs --check          # 检查各语言缺失的 key，以及源码 t("key") 是否存在
  *   node scripts/sync-i18n.mjs --apply           # 从 translations 文件补齐缺失翻译
  *   node scripts/sync-i18n.mjs --check --apply   # 检查 + 补齐
  *
- * 以 en.json 为基准，对比其它语言文件，找出缺失的 key，
- * 然后从 scripts/i18n-translations.json 读取翻译并写入。
+ * 以 en.json 为基准，对比其它语言文件，找出缺失的 key；
+ * 同时扫描源码中的字面量 t("key") / t("key", "default") 调用，
+ * 避免所有语言共同漏同一个基准 key，或靠代码内英文 defaultValue 漏到非英文界面。
+ * --apply 会从 scripts/i18n-translations.json 读取翻译并写入。
  */
 
-import { readFileSync, writeFileSync, readdirSync } from "fs"
-import { resolve, dirname } from "path"
+import { readFileSync, writeFileSync, readdirSync, statSync } from "fs"
+import { resolve, dirname, relative } from "path"
 import { fileURLToPath } from "url"
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const LOCALES_DIR = resolve(__dirname, "../src/i18n/locales")
+const SRC_DIR = resolve(__dirname, "../src")
 const TRANSLATIONS_FILE = resolve(__dirname, "i18n-translations.json")
 
 // ── helpers ──────────────────────────────────────────────────────────
@@ -72,6 +75,64 @@ function sortByReference(ref, target) {
   return sorted
 }
 
+function sourceFiles(dir) {
+  const files = []
+  for (const name of readdirSync(dir)) {
+    const path = resolve(dir, name)
+    const stat = statSync(path)
+    if (stat.isDirectory()) {
+      files.push(...sourceFiles(path))
+      continue
+    }
+    if (!/\.(ts|tsx)$/.test(name)) continue
+    if (/\.(test|spec)\.(ts|tsx)$/.test(name)) continue
+    files.push(path)
+  }
+  return files
+}
+
+function findBareSourceTranslationKeys() {
+  const refs = new Map()
+  const callPattern = /\bt\s*\(\s*(["'])([^"'\n]+)\1\s*\)/g
+
+  for (const file of sourceFiles(SRC_DIR)) {
+    const source = readFileSync(file, "utf8")
+    for (const match of source.matchAll(callPattern)) {
+      const key = match[2]
+      if (!key.includes(".")) continue
+
+      const before = source.slice(0, match.index)
+      const line = before.split("\n").length
+      const rel = relative(resolve(__dirname, ".."), file)
+      if (!refs.has(key)) refs.set(key, [])
+      refs.get(key).push(`${rel}:${line}`)
+    }
+  }
+
+  return refs
+}
+
+function findFallbackSourceTranslationKeys() {
+  const refs = new Map()
+  const callPattern = /\bt\s*\(\s*(["'])([^"'\n]+)\1\s*,\s*(["'])([^"'\n]*)\3/g
+
+  for (const file of sourceFiles(SRC_DIR)) {
+    const source = readFileSync(file, "utf8")
+    for (const match of source.matchAll(callPattern)) {
+      const key = match[2]
+      if (!key.includes(".")) continue
+
+      const before = source.slice(0, match.index)
+      const line = before.split("\n").length
+      const rel = relative(resolve(__dirname, ".."), file)
+      if (!refs.has(key)) refs.set(key, [])
+      refs.get(key).push(`${rel}:${line} default="${match[4]}"`)
+    }
+  }
+
+  return refs
+}
+
 // ── main ─────────────────────────────────────────────────────────────
 
 const args = process.argv.slice(2)
@@ -86,6 +147,7 @@ if (!doCheck && !doApply) {
 // 读取基准文件
 const en = JSON.parse(readFileSync(resolve(LOCALES_DIR, "en.json"), "utf8"))
 const enKeys = flatKeys(en)
+const enKeySet = new Set(enKeys)
 
 // 读取翻译数据（如果需要 apply）
 let translations = {}
@@ -113,7 +175,7 @@ for (const file of localeFiles) {
   const localeKeySet = new Set(flatKeys(locale))
 
   const missing = enKeys.filter((k) => !localeKeySet.has(k))
-  const extra = flatKeys(locale).filter((k) => !new Set(enKeys).has(k))
+  const extra = flatKeys(locale).filter((k) => !enKeySet.has(k))
 
   if (doCheck) {
     if (missing.length === 0 && extra.length === 0) {
@@ -167,15 +229,46 @@ for (const file of localeFiles) {
   }
 }
 
+const sourceKeyRefs = findBareSourceTranslationKeys()
+const missingSourceKeys = [...sourceKeyRefs.keys()]
+  .filter((key) => !enKeySet.has(key))
+  .sort()
+const fallbackSourceKeyRefs = findFallbackSourceTranslationKeys()
+const missingFallbackSourceKeys = [...fallbackSourceKeyRefs.keys()]
+  .filter((key) => !enKeySet.has(key))
+  .sort()
+
+if (doCheck && missingSourceKeys.length > 0) {
+  console.log(`\n⚠️  源码裸 t(...) 缺失 ${missingSourceKeys.length} 个 en.json 基准 key`)
+  for (const key of missingSourceKeys) {
+    console.log(`   - ${key}`)
+    for (const ref of sourceKeyRefs.get(key)) {
+      console.log(`     ${ref}`)
+    }
+  }
+}
+
+if (doCheck && missingFallbackSourceKeys.length > 0) {
+  console.log(
+    `\n⚠️  源码 t(..., defaultValue) 缺失 ${missingFallbackSourceKeys.length} 个 en.json 基准 key`,
+  )
+  for (const key of missingFallbackSourceKeys) {
+    console.log(`   - ${key}`)
+    for (const ref of fallbackSourceKeyRefs.get(key)) {
+      console.log(`     ${ref}`)
+    }
+  }
+}
+
 console.log("\n────────────────────────────────")
 if (doCheck) console.log(`总计缺失: ${totalMissing} 条`)
 if (doApply) console.log(`总计写入: ${totalApplied} 条`)
 
 // CI gate: --check 发现缺 key 时退出码 1，让 GitHub Actions / pre-commit
 // 能拦截忘记跑 sync-i18n 的 PR。--apply 不影响退出码。
-if (doCheck && totalMissing > 0) {
+if (doCheck && (totalMissing > 0 || missingSourceKeys.length > 0 || missingFallbackSourceKeys.length > 0)) {
   console.error(
-    `\n❌ 检测到 ${totalMissing} 个缺失 key。请运行 \`pnpm i18n:apply\` 补齐后重新提交。`,
+    `\n❌ 检测到 ${totalMissing} 个 locale 缺失 key、${missingSourceKeys.length} 个源码裸 key、${missingFallbackSourceKeys.length} 个源码 fallback key 未进入 en.json 基准。请补齐后重新提交。`,
   )
   process.exit(1)
 }

@@ -57,7 +57,9 @@ export default function QuickChatWindow() {
     sessionCacheRef: session.sessionCacheRef,
     sessions: session.sessions,
     agents: session.agents,
-    activeModel: session.activeModel,
+    manualModelOverrideRef: session.manualModelOverrideRef,
+    reasoningEffort: session.reasoningEffort,
+    temperatureOverride: session.sessionTemperature,
     reloadSessions: session.reloadSessions,
     updateSessionMessages: session.updateSessionMessages,
     lastSeqRef: quickStreamSeqRef,
@@ -75,7 +77,9 @@ export default function QuickChatWindow() {
     session.setDraftIncognito(enabled)
   }
 
-  useEffect(() => { initLanguageFromConfig() }, [])
+  useEffect(() => {
+    initLanguageFromConfig()
+  }, [])
 
   // Transparent html/body so CSS border-radius shows rounded corners on macOS
   useEffect(() => {
@@ -111,10 +115,16 @@ export default function QuickChatWindow() {
   useEffect(() => {
     const win = getCurrentWindow()
     let unlisten: (() => void) | undefined
-    win.onFocusChanged(({ payload: focused }) => {
-      if (!focused) hideWindow()
-    }).then((fn) => { unlisten = fn })
-    return () => { unlisten?.() }
+    win
+      .onFocusChanged(({ payload: focused }) => {
+        if (!focused) hideWindow()
+      })
+      .then((fn) => {
+        unlisten = fn
+      })
+    return () => {
+      unlisten?.()
+    }
   }, [])
 
   const handleCommandAction = useCallback(
@@ -212,13 +222,22 @@ export default function QuickChatWindow() {
             loading={session.loading}
             availableModels={session.availableModels}
             activeModel={session.activeModel}
+            unavailableModelPreference={session.unavailableModelPreference}
             reasoningEffort={session.reasoningEffort}
             onModelChange={session.handleModelChange}
             onEffortChange={session.handleEffortChange}
+            onEffortReset={session.resetEffort}
+            sessionTemperature={session.sessionTemperature}
+            onSessionTemperatureChange={session.handleTemperatureChange}
             attachedFiles={stream.attachedFiles}
             onAttachFiles={stream.setAttachedFiles}
             onRemoveFile={(i) =>
               stream.setAttachedFiles((prev) => prev.filter((_, idx) => idx !== i))
+            }
+            onUpdateFile={(index, file) =>
+              stream.setAttachedFiles((prev) =>
+                prev.map((existing, idx) => (idx === index ? file : existing)),
+              )
             }
             pendingMessage={stream.pendingMessage}
             onCancelPending={() => stream.setPendingMessage(null)}
@@ -275,9 +294,7 @@ function AgentSelector({
         )}
       >
         <AgentAvatarIcon agent={currentAgent} />
-        <span className="font-medium">
-          {currentAgent?.name || t("chat.mainAgent")}
-        </span>
+        <span className="font-medium">{currentAgent?.name || t("chat.mainAgent")}</span>
         <ChevronDown className="h-3 w-3 text-muted-foreground" />
       </button>
 
@@ -286,7 +303,10 @@ function AgentSelector({
           {agents.map((agent) => (
             <button
               key={agent.id}
-              onClick={() => { onSelect(agent.id); setMenuOpen(false) }}
+              onClick={() => {
+                onSelect(agent.id)
+                setMenuOpen(false)
+              }}
               className={cn(
                 "w-full text-left px-3 py-1.5 text-sm hover:bg-muted transition-colors flex items-center gap-2",
                 agent.id === currentAgent?.id && "bg-muted/50",
