@@ -18,11 +18,13 @@ import type { FileChangesMetadata, MediaItem, SandboxMode, SessionMode } from "@
 export interface ChatAttachment {
   name: string;
   mime_type: string;
-  source?: "upload" | "mention" | "plan_mention" | "quote" | "pasted_text";
+  source?: "upload" | "mention" | "plan_mention" | "quote" | "message_quote" | "pasted_text";
   data?: string;
   file_path?: string;
   /** For `source: "quote"`: 1-based line range of the quoted snippet ("12-20"). */
   quote_lines?: string;
+  /** For `source: "message_quote"`: role of the selected conversation message. */
+  quote_role?: "user" | "assistant";
 }
 
 /**

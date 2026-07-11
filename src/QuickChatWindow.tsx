@@ -2,7 +2,7 @@
  * QuickChatWindow — root component for the independent quick-chat Tauri window.
  * Rendered when `?window=quickchat` is in the URL (see main.tsx).
  */
-import React, { useEffect, useCallback, useRef, useMemo } from "react"
+import React, { useEffect, useCallback, useRef, useMemo, useState } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window"
 import { useTranslation } from "react-i18next"
@@ -17,7 +17,7 @@ import IncognitoToggle from "@/components/chat/input/IncognitoToggle"
 import { useQuickChatSession } from "@/components/chat/useQuickChatSession"
 import { useChatStream } from "@/components/chat/useChatStream"
 import type { CommandResult } from "@/components/chat/slash-commands/types"
-import type { AgentSummaryForSidebar } from "@/types/chat"
+import type { AgentSummaryForSidebar, PendingMessageQuote } from "@/types/chat"
 
 const hideWindow = () => getCurrentWindow().hide()
 const QUICK_CHAT_EMPTY_HEIGHT = 460
@@ -27,6 +27,7 @@ export default function QuickChatWindow() {
   const session = useQuickChatSession(true)
   const quickStreamSeqRef = useRef<Map<string, number>>(new Map())
   const quickEndedStreamIdsRef = useRef<Map<string, string>>(new Map())
+  const [composerFocusSignal, setComposerFocusSignal] = useState<number | undefined>(undefined)
 
   // Effective incognito = persisted session.incognito (continued chat) or
   // draft toggle (new chat). Mirrors `ChatScreen` semantics so the toggle
@@ -66,6 +67,13 @@ export default function QuickChatWindow() {
     endedStreamIdsRef: quickEndedStreamIdsRef,
     incognitoEnabled,
   })
+  const handleMessageQuote = useCallback(
+    (quote: PendingMessageQuote) => {
+      stream.setPendingMessageQuotes((prev) => [...prev, quote])
+      setComposerFocusSignal((prev) => (prev ?? 0) + 1)
+    },
+    [stream],
+  )
 
   // Draft-only incognito toggle handler: ignored once a session exists, just
   // like the main chat (post-create switching is policed by the backend).
@@ -205,6 +213,7 @@ export default function QuickChatWindow() {
           onLoadMore={session.handleLoadMore}
           sessionId={session.currentSessionId}
           incognito={incognitoEnabled}
+          onAddMessageQuote={handleMessageQuote}
         />
 
         {/* ── Approval Dialog ────────────────────── */}
@@ -239,8 +248,19 @@ export default function QuickChatWindow() {
                 prev.map((existing, idx) => (idx === index ? file : existing)),
               )
             }
+            pendingMessageQuotes={stream.pendingMessageQuotes}
+            onRemoveMessageQuote={(i) =>
+              stream.setPendingMessageQuotes((prev) => prev.filter((_, idx) => idx !== i))
+            }
+            focusSignal={composerFocusSignal}
             pendingMessage={stream.pendingMessage}
+            pendingSends={stream.pendingSends}
             onCancelPending={() => stream.setPendingMessage(null)}
+            onDiscardPending={() => stream.setPendingMessage(null)}
+            onEditPending={stream.editPendingSend}
+            onDiscardPendingItem={stream.discardPendingSend}
+            onForceInsertPending={stream.forceInsertPendingSend}
+            onCancelForceInsertPending={stream.cancelForceInsertPendingSend}
             onStop={stream.handleStop}
             currentSessionId={session.currentSessionId}
             currentAgentId={session.currentAgentId}

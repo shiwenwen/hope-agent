@@ -15,6 +15,7 @@ import type {
   Message,
   MessageAttachment,
   PendingFileQuote,
+  PendingMessageQuote,
   PendingSendPreview,
   ActiveModel,
   AgentSummaryForSidebar,
@@ -159,6 +160,7 @@ interface PendingSend {
   options?: SendOptions
   attachedFiles?: File[]
   quotes?: PendingFileQuote[]
+  messageQuotes?: PendingMessageQuote[]
 }
 
 interface QueueTurnUserMessageResult {
@@ -174,6 +176,8 @@ interface CancelQueuedTurnUserMessageResult {
 interface InputDraft {
   input: string
   attachedFiles: File[]
+  pendingQuotes: PendingFileQuote[]
+  pendingMessageQuotes: PendingMessageQuote[]
 }
 
 function inputDraftKey(sessionId: string | null): string {
@@ -283,6 +287,8 @@ export interface UseChatStreamReturn {
   setAttachedFiles: React.Dispatch<React.SetStateAction<File[]>>
   pendingQuotes: PendingFileQuote[]
   setPendingQuotes: React.Dispatch<React.SetStateAction<PendingFileQuote[]>>
+  pendingMessageQuotes: PendingMessageQuote[]
+  setPendingMessageQuotes: React.Dispatch<React.SetStateAction<PendingMessageQuote[]>>
   pendingMessage: string | null
   setPendingMessage: React.Dispatch<React.SetStateAction<string | null>>
   pendingSends: PendingSendPreview[]
@@ -364,14 +370,22 @@ export function useChatStream({
   const { t } = useTranslation()
   const [input, setInputState] = useState("")
   const [attachedFiles, setAttachedFilesState] = useState<File[]>([])
-  const [pendingQuotes, setPendingQuotes] = useState<PendingFileQuote[]>([])
+  const [pendingQuotes, setPendingQuotesState] = useState<PendingFileQuote[]>([])
+  const [pendingMessageQuotes, setPendingMessageQuotesState] = useState<PendingMessageQuote[]>([])
   const inputRef = useRef(input)
   const attachedFilesRef = useRef(attachedFiles)
+  const pendingQuotesRef = useRef(pendingQuotes)
+  const pendingMessageQuotesRef = useRef(pendingMessageQuotes)
   const inputDraftsRef = useRef<Map<string, InputDraft>>(new Map())
   const activeInputDraftKeyRef = useRef(inputDraftKey(currentSessionId))
 
   const saveInputDraft = useCallback((key: string, draft: InputDraft) => {
-    if (!draft.input && draft.attachedFiles.length === 0) {
+    if (
+      !draft.input &&
+      draft.attachedFiles.length === 0 &&
+      draft.pendingQuotes.length === 0 &&
+      draft.pendingMessageQuotes.length === 0
+    ) {
       inputDraftsRef.current.delete(key)
       return
     }
@@ -386,6 +400,8 @@ export function useChatStream({
         saveInputDraft(activeInputDraftKeyRef.current, {
           input: next,
           attachedFiles: attachedFilesRef.current,
+          pendingQuotes: pendingQuotesRef.current,
+          pendingMessageQuotes: pendingMessageQuotesRef.current,
         })
         return next
       })
@@ -401,6 +417,50 @@ export function useChatStream({
         saveInputDraft(activeInputDraftKeyRef.current, {
           input: inputRef.current,
           attachedFiles: next,
+          pendingQuotes: pendingQuotesRef.current,
+          pendingMessageQuotes: pendingMessageQuotesRef.current,
+        })
+        return next
+      })
+    },
+    [saveInputDraft],
+  )
+
+  const setPendingQuotes = useCallback<React.Dispatch<React.SetStateAction<PendingFileQuote[]>>>(
+    (value) => {
+      setPendingQuotesState((prev) => {
+        const next =
+          typeof value === "function"
+            ? (value as (p: PendingFileQuote[]) => PendingFileQuote[])(prev)
+            : value
+        pendingQuotesRef.current = next
+        saveInputDraft(activeInputDraftKeyRef.current, {
+          input: inputRef.current,
+          attachedFiles: attachedFilesRef.current,
+          pendingQuotes: next,
+          pendingMessageQuotes: pendingMessageQuotesRef.current,
+        })
+        return next
+      })
+    },
+    [saveInputDraft],
+  )
+
+  const setPendingMessageQuotes = useCallback<
+    React.Dispatch<React.SetStateAction<PendingMessageQuote[]>>
+  >(
+    (value) => {
+      setPendingMessageQuotesState((prev) => {
+        const next =
+          typeof value === "function"
+            ? (value as (p: PendingMessageQuote[]) => PendingMessageQuote[])(prev)
+            : value
+        pendingMessageQuotesRef.current = next
+        saveInputDraft(activeInputDraftKeyRef.current, {
+          input: inputRef.current,
+          attachedFiles: attachedFilesRef.current,
+          pendingQuotes: pendingQuotesRef.current,
+          pendingMessageQuotes: next,
         })
         return next
       })
@@ -416,6 +476,8 @@ export function useChatStream({
     saveInputDraft(previousKey, {
       input: inputRef.current,
       attachedFiles: attachedFilesRef.current,
+      pendingQuotes: pendingQuotesRef.current,
+      pendingMessageQuotes: pendingMessageQuotesRef.current,
     })
 
     activeInputDraftKeyRef.current = nextKey
@@ -423,6 +485,8 @@ export function useChatStream({
       (previousKey === "draft" ? inputDraftsRef.current.get(previousKey) : undefined) ?? {
         input: "",
         attachedFiles: [],
+        pendingQuotes: [],
+        pendingMessageQuotes: [],
       }
     if (previousKey === "draft" && !inputDraftsRef.current.has(nextKey)) {
       saveInputDraft(nextKey, nextDraft)
@@ -430,8 +494,12 @@ export function useChatStream({
     }
     inputRef.current = nextDraft.input
     attachedFilesRef.current = nextDraft.attachedFiles
+    pendingQuotesRef.current = nextDraft.pendingQuotes
+    pendingMessageQuotesRef.current = nextDraft.pendingMessageQuotes
     setInputState(nextDraft.input)
     setAttachedFilesState(nextDraft.attachedFiles)
+    setPendingQuotesState(nextDraft.pendingQuotes)
+    setPendingMessageQuotesState(nextDraft.pendingMessageQuotes)
   }, [currentSessionId, saveInputDraft])
 
   // Pending sends queued while a response is streaming. Stores the LLM-bound
@@ -451,10 +519,16 @@ export function useChatStream({
     })
   }, [])
   const pendingDisplayText = useCallback(
-    (pending: PendingSend): string =>
-      pending.options?.displayText?.trim() ||
-      pending.text ||
-      (pending.attachedFiles?.length ? t("chat.attachPhotosAndFiles") : ""),
+    (pending: PendingSend): string => {
+      const explicit = pending.options?.displayText?.trim() || pending.text
+      if (explicit) return explicit
+      if (pending.attachedFiles?.length) return t("chat.attachPhotosAndFiles")
+      const quote = pending.messageQuotes?.[0]
+      if (!quote) return ""
+      return quote.role === "user"
+        ? t("chat.messageQuote.yourMessage", "你的消息")
+        : t("chat.messageQuote.assistantMessage", "助手消息")
+    },
     [t],
   )
   const pendingInputText = useCallback(
@@ -476,7 +550,7 @@ export function useChatStream({
     status: pending.status,
     canForceInsert: canForceInsertPending(pending),
     attachmentCount: pending.attachedFiles?.length ?? 0,
-    quoteCount: pending.quotes?.length ?? 0,
+    quoteCount: (pending.quotes?.length ?? 0) + (pending.messageQuotes?.length ?? 0),
   }))
   const setPendingMessage = useCallback<React.Dispatch<React.SetStateAction<string | null>>>(
     (value) => {
@@ -855,6 +929,7 @@ export function useChatStream({
       text: string,
       filesToSend: File[],
       quotesToSend: PendingFileQuote[],
+      messageQuotesToSend: PendingMessageQuote[],
       targetSessionId: string | null,
     ): Promise<ChatAttachment[]> => {
       const attachments: ChatAttachment[] = []
@@ -924,6 +999,16 @@ export function useChatStream({
         })
       }
 
+      for (const q of messageQuotesToSend) {
+        attachments.push({
+          name: "message-quote",
+          mime_type: "text/plain",
+          source: "message_quote",
+          data: q.content,
+          quote_role: q.role,
+        })
+      }
+
       return attachments
     },
     [draftWorkingDir, quoteLineLabel, sessions],
@@ -937,7 +1022,8 @@ export function useChatStream({
     const rawText = directText ?? input
     const hasAttachedFiles = !directText && attachedFiles.length > 0
     const hasQuotes = !directText && pendingQuotes.length > 0
-    if (!rawText.trim() && !hasAttachedFiles && !hasQuotes) return
+    const hasMessageQuotes = !directText && pendingMessageQuotes.length > 0
+    if (!rawText.trim() && !hasAttachedFiles && !hasQuotes && !hasMessageQuotes) return
 
     // If currently loading, queue the message as pending. Capture the
     // LLM-bound text, the original options, and any staged files/quotes so the
@@ -947,6 +1033,7 @@ export function useChatStream({
     if (loading) {
       const queuedFiles = directText ? [] : [...attachedFiles]
       const queuedQuotes = directText ? [] : [...pendingQuotes]
+      const queuedMessageQuotes = directText ? [] : [...pendingMessageQuotes]
       updatePendingSends((prev) => [
         ...prev,
         {
@@ -958,12 +1045,14 @@ export function useChatStream({
           options,
           ...(queuedFiles.length > 0 && { attachedFiles: queuedFiles }),
           ...(queuedQuotes.length > 0 && { quotes: queuedQuotes }),
+          ...(queuedMessageQuotes.length > 0 && { messageQuotes: queuedMessageQuotes }),
         },
       ])
       if (!directText) {
         setInput("")
         setAttachedFiles([])
         setPendingQuotes([])
+        setPendingMessageQuotes([])
       }
       return
     }
@@ -973,6 +1062,7 @@ export function useChatStream({
     // uses this split so the UI shows "/drawio ..." while the LLM receives the expansion.
     const filesToSend = directText ? [] : [...attachedFiles]
     const quotesToSend = directText ? [] : [...pendingQuotes]
+    const messageQuotesToSend = directText ? [] : [...pendingMessageQuotes]
     const displayed = options?.displayText?.trim() || text
     const sendSessionId = options?.sessionIdOverride ?? currentSessionId
     if (options?.sessionIdOverride) {
@@ -988,13 +1078,23 @@ export function useChatStream({
       quoteLines: quoteLineLabel(q),
       quoteContent: q.content,
     }))
+    const optimisticMessageQuoteAttachments: MessageAttachment[] = messageQuotesToSend.map((q) => ({
+      name: "message-quote",
+      mimeType: "text/plain",
+      sizeBytes: 0,
+      kind: "message_quote",
+      quoteContent: q.content,
+      messageQuoteRole: q.role,
+    }))
     const optimisticAttachments = [
       ...filesToSend.map(optimisticAttachmentForFile),
       ...optimisticQuoteAttachments,
+      ...optimisticMessageQuoteAttachments,
     ]
     setInput("")
     setAttachedFiles([])
     setPendingQuotes([])
+    setPendingMessageQuotes([])
     const now = new Date().toISOString()
     // Both placeholders get a `_clientId` up front so `mergeMessagesByDbId`
     // can transfer them to the DB-finalized rows after stream_end. Without
@@ -1020,7 +1120,13 @@ export function useChatStream({
     })
     setLoading(true)
 
-    const attachments = await buildChatAttachments(text, filesToSend, quotesToSend, sendSessionId)
+    const attachments = await buildChatAttachments(
+      text,
+      filesToSend,
+      quotesToSend,
+      messageQuotesToSend,
+      sendSessionId,
+    )
     // Per-turn invisible context (knowledge panel: the currently-open note).
     if (getExtraAttachments) {
       for (const extra of getExtraAttachments()) attachments.push(extra)
@@ -1433,6 +1539,7 @@ export function useChatStream({
         // Restore staged quotes so they ride along with the replayed message
         // (user-draft path) instead of being silently dropped.
         if (queued.quotes?.length) setPendingQuotes(queued.quotes)
+        if (queued.messageQuotes?.length) setPendingMessageQuotes(queued.messageQuotes)
         if (
           queued.options &&
           (queued.options.isPlanTrigger || queued.options.goalTrigger || autoSendPendingRef.current)
@@ -1471,11 +1578,16 @@ export function useChatStream({
       autoSendRef.current = false
       queuedReplayRef.current = null
       void handleSend(replay.text, replay.options)
-    } else if (input.trim() || attachedFiles.length > 0) {
+    } else if (
+      input.trim() ||
+      attachedFiles.length > 0 ||
+      pendingQuotes.length > 0 ||
+      pendingMessageQuotes.length > 0
+    ) {
       autoSendRef.current = false
       void handleSend()
     }
-  }, [attachedFiles, input, loading]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [attachedFiles, input, loading, pendingMessageQuotes, pendingQuotes]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const editPendingSend = useCallback(
     (id: string) => {
@@ -1498,6 +1610,7 @@ export function useChatStream({
       setInput(pendingInputText(item))
       setAttachedFiles(item.attachedFiles ?? [])
       setPendingQuotes(item.quotes ?? [])
+      setPendingMessageQuotes(item.messageQuotes ?? [])
     },
     [currentSessionIdRef, pendingInputText, setInput, updatePendingSends],
   )
@@ -1551,6 +1664,7 @@ export function useChatStream({
           item.text,
           item.attachedFiles ?? [],
           item.quotes ?? [],
+          item.messageQuotes ?? [],
           sid,
         )
         const latest = pendingSendsRef.current.find((pending) => pending.id === id)
@@ -1633,6 +1747,8 @@ export function useChatStream({
     setAttachedFiles,
     pendingQuotes,
     setPendingQuotes,
+    pendingMessageQuotes,
+    setPendingMessageQuotes,
     pendingMessage,
     setPendingMessage,
     pendingSends,

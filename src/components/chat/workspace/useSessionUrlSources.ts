@@ -143,6 +143,7 @@ export function aggregateSessionUrlSources(messages: Message[]): SessionUrlSourc
         add(url, "user_url")
       }
       for (const attachment of message.attachments ?? []) {
+        if (attachment.kind === "message_quote") continue
         addAttachment(attachment)
       }
     }

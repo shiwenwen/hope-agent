@@ -1,1 +1,1 @@
-export { default } from "./message/MessageContextMenu"
+export { default, type MessageContextMenuState } from "./message/MessageContextMenu"

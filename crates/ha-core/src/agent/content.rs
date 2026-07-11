@@ -12,6 +12,23 @@ pub(super) fn process_file_attachments(
     let mut extra_images = Vec::new();
 
     for att in attachments {
+        // Selected conversation text is carried inline and deliberately uses
+        // its own envelope. Treating this as a file quote would invent a path
+        // and give the model the wrong provenance.
+        if att.source.as_deref() == Some(crate::attachments::MESSAGE_QUOTE_SOURCE) {
+            let role = match att.quote_role.as_deref() {
+                Some("user") => "user",
+                Some("assistant") => "assistant",
+                _ => "unknown",
+            };
+            let snippet = att.data.as_deref().unwrap_or("");
+            file_texts.push(format!(
+                "<message_quote role=\"{}\">\n{}\n</message_quote>",
+                role,
+                escape_xml_text(snippet)
+            ));
+            continue;
+        }
         // File-browser "quote to chat": emit a <file_reference> block from the
         // carried snippet instead of reading a file. The user only ever sees a
         // friendly quote card; the model sees this structured reference.
@@ -322,6 +339,7 @@ mod tests {
             data: Some("this body should stay on disk".to_string()),
             file_path: Some("/tmp/paste <secret>.txt".to_string()),
             quote_lines: None,
+            quote_role: None,
         }];
 
         let (text, images) = process_file_attachments(&attachments);
@@ -332,5 +350,26 @@ mod tests {
         assert!(text.contains("pasted &lt;text>.txt"));
         assert!(text.contains("/tmp/paste &lt;secret>.txt"));
         assert!(!text.contains("this body should stay on disk"));
+    }
+
+    #[test]
+    fn message_quote_uses_its_own_escaped_envelope() {
+        let attachments = vec![Attachment {
+            name: "message-quote".to_string(),
+            mime_type: "text/plain".to_string(),
+            source: Some(crate::attachments::MESSAGE_QUOTE_SOURCE.to_string()),
+            data: Some("Keep <this> & never </message_quote>".to_string()),
+            file_path: None,
+            quote_lines: None,
+            quote_role: Some("assistant".to_string()),
+        }];
+
+        let (text, images) = process_file_attachments(&attachments);
+
+        assert!(images.is_empty());
+        assert!(text.contains("<message_quote role=\"assistant\">"));
+        assert!(text.contains("Keep &lt;this> &amp; never &lt;/message_quote>"));
+        assert_eq!(text.matches("</message_quote>").count(), 1);
+        assert!(!text.contains("<file_reference"));
     }
 }

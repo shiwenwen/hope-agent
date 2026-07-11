@@ -413,6 +413,12 @@
     "sidebarDetailedMode": "Tukar ke mod biasa",
     "copied": "Disalin",
     "copy": "Salin",
+    "messageQuote": {
+      "addToChat": "Tambah ke sembang",
+      "assistantMessage": "Mesej pembantu",
+      "remove": "Buang petikan",
+      "yourMessage": "Mesej anda"
+    },
     "quickPrompts": {
       "addAction": "Tambah ke input pantas",
       "addFailed": "Gagal menambah input pantas",

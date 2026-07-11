@@ -356,6 +356,30 @@ describe("ChatInput", () => {
     expect(onSend).toHaveBeenCalledTimes(1)
   })
 
+  test("allows quote-only sends and removes stacked message quotes independently", () => {
+    const onSend = vi.fn()
+    const onRemoveMessageQuote = vi.fn()
+    renderChatInput({
+      pendingMessageQuotes: [
+        { role: "user", content: "First selected excerpt" },
+        { role: "assistant", content: "Second selected excerpt" },
+      ],
+      onRemoveMessageQuote,
+      onSend,
+    })
+
+    expect(screen.getByText("chat.messageQuote.yourMessage")).toBeTruthy()
+    expect(screen.getByText("chat.messageQuote.assistantMessage")).toBeTruthy()
+    const removeButtons = screen.getAllByRole("button", { name: "chat.messageQuote.remove" })
+    fireEvent.click(removeButtons[0]!)
+    expect(onRemoveMessageQuote).toHaveBeenCalledWith(0)
+
+    const sendButton = screen.getByRole("button", { name: "chat.send" }) as HTMLButtonElement
+    expect(sendButton.disabled).toBe(false)
+    fireEvent.click(sendButton)
+    expect(onSend).toHaveBeenCalledTimes(1)
+  })
+
   test("turns long pasted text into a staged text attachment", async () => {
     const onAttachFiles = vi.fn()
     const onInputChange = vi.fn()
@@ -758,10 +782,7 @@ describe("ChatInput", () => {
       expect(onGoalModeSubmit).toHaveBeenCalledWith("Build a durable goal flow")
     })
     expect(onCommandAction).not.toHaveBeenCalled()
-    expect(transportMock.call).not.toHaveBeenCalledWith(
-      "execute_slash_command",
-      expect.anything(),
-    )
+    expect(transportMock.call).not.toHaveBeenCalledWith("execute_slash_command", expect.anything())
   })
 
   test("lets /loop drafts bypass slash execution on Enter", async () => {
@@ -805,10 +826,7 @@ describe("ChatInput", () => {
       expect(onLoopModeSubmit).toHaveBeenCalledWith("Build release notes every 10m")
     })
     expect(onCommandAction).not.toHaveBeenCalled()
-    expect(transportMock.call).not.toHaveBeenCalledWith(
-      "execute_slash_command",
-      expect.anything(),
-    )
+    expect(transportMock.call).not.toHaveBeenCalledWith("execute_slash_command", expect.anything())
   })
 
   test("executes /loop drafts as slash commands when loop composer submit is unavailable", async () => {
@@ -918,10 +936,7 @@ describe("ChatInput", () => {
       fireEvent.click(screen.getByRole("button", { name: "chat.send" }))
 
       await waitFor(() => {
-        expect(onGoalModeSubmit).toHaveBeenCalledWith(
-          "Manual browser smoke",
-          "append_follow_up",
-        )
+        expect(onGoalModeSubmit).toHaveBeenCalledWith("Manual browser smoke", "append_follow_up")
       })
       expect(onInputChange).toHaveBeenCalledWith("")
     } finally {
@@ -1134,10 +1149,7 @@ describe("ChatInput", () => {
         expect(onDraftWorkflowModeChange).toHaveBeenCalledWith("on")
       })
       expect(onEnsureSession).not.toHaveBeenCalled()
-      expect(transportMock.call).not.toHaveBeenCalledWith(
-        "set_workflow_mode",
-        expect.anything(),
-      )
+      expect(transportMock.call).not.toHaveBeenCalledWith("set_workflow_mode", expect.anything())
       expect(await screen.findByText("chat.workflowMode.activeOnDetail")).toBeTruthy()
     } finally {
       rectSpy.mockRestore()

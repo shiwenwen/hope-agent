@@ -55,6 +55,14 @@ export interface PendingFileQuote {
   kbId?: string
 }
 
+/** A selected excerpt from an existing user/assistant message, staged until
+ *  the next message is sent. Unlike file quotes this has no filesystem
+ *  identity and must never be treated as a workspace attachment. */
+export interface PendingMessageQuote {
+  role: "user" | "assistant"
+  content: string
+}
+
 export type PendingSendMode = "queue" | "force_insert"
 
 export type PendingSendStatus =
@@ -77,7 +85,7 @@ export interface MessageAttachment {
   name: string
   mimeType: string
   sizeBytes: number
-  kind: "image" | "file" | "quote"
+  kind: "image" | "file" | "quote" | "message_quote"
   localPath?: string
   url?: string
   previewUrl?: string
@@ -86,6 +94,8 @@ export interface MessageAttachment {
   quotePath?: string
   quoteLines?: string
   quoteContent?: string
+  /** For `kind === "message_quote"`: role of the message the user selected. */
+  messageQuoteRole?: "user" | "assistant"
 }
 
 /**

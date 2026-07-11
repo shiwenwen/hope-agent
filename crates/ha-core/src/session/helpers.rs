@@ -267,6 +267,21 @@ fn safe_pasted_text_first_line(session_id: &str, attachment: &Value) -> Option<S
     None
 }
 
+fn message_quote_first_line(attachment: &Value) -> Option<String> {
+    if attachment.get("kind").and_then(Value::as_str)
+        != Some(crate::attachments::MESSAGE_QUOTE_SOURCE)
+    {
+        return None;
+    }
+    attachment
+        .get("content")
+        .and_then(Value::as_str)?
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .map(str::to_string)
+}
+
 /// Build a non-empty fallback title from the first user-visible input.
 ///
 /// Large pasted text is persisted as an attachment and leaves the message body
@@ -284,6 +299,11 @@ pub fn first_message_title_candidate(
 
     let parsed = attachments_meta.and_then(|raw| serde_json::from_str::<Value>(raw).ok())?;
     let attachments = user_attachment_entries(&parsed);
+    for attachment in &attachments {
+        if let Some(first_line) = message_quote_first_line(attachment) {
+            return Some(auto_title(&first_line));
+        }
+    }
     for attachment in &attachments {
         if let Some(first_line) = safe_pasted_text_first_line(session_id, attachment) {
             return Some(auto_title(&first_line));
@@ -351,6 +371,21 @@ mod title_tests {
         assert_eq!(
             first_message_title_candidate("missing-session", "", None),
             None
+        );
+    }
+
+    #[test]
+    fn title_candidate_uses_message_quote_content() {
+        let meta = serde_json::json!([{
+            "kind": crate::attachments::MESSAGE_QUOTE_SOURCE,
+            "role": "assistant",
+            "content": "\nQuoted conversation line\nsecond line",
+        }])
+        .to_string();
+
+        assert_eq!(
+            first_message_title_candidate("session-a", "", Some(&meta)).as_deref(),
+            Some("Quoted conversation line")
         );
     }
 }

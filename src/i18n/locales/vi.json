@@ -413,6 +413,12 @@
     "sidebarDetailedMode": "Chuyển sang chế độ thường",
     "copied": "Đã sao chép",
     "copy": "Sao chép",
+    "messageQuote": {
+      "addToChat": "Thêm vào cuộc trò chuyện",
+      "assistantMessage": "Tin nhắn của trợ lý",
+      "remove": "Xóa trích dẫn",
+      "yourMessage": "Tin nhắn của bạn"
+    },
     "quickPrompts": {
       "addAction": "Thêm vào nhập nhanh",
       "addFailed": "Không thể thêm nhập nhanh",

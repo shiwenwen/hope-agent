@@ -413,6 +413,12 @@
     "sidebarDetailedMode": "Mudar para modo normal",
     "copied": "Copiado",
     "copy": "Copiar",
+    "messageQuote": {
+      "addToChat": "Adicionar ao chat",
+      "assistantMessage": "Mensagem do assistente",
+      "remove": "Remover citação",
+      "yourMessage": "Sua mensagem"
+    },
     "quickPrompts": {
       "addAction": "Adicionar aos prompts rápidos",
       "addFailed": "Falha ao adicionar prompt rápido",

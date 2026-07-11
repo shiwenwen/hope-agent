@@ -17,6 +17,7 @@ use crate::paths;
 /// chat session). Maps to `~/.hope-agent/attachments/_temp/`.
 pub const TEMP_SESSION_ID: &str = "_temp";
 pub const PASTED_TEXT_SOURCE: &str = "pasted_text";
+pub const MESSAGE_QUOTE_SOURCE: &str = "message_quote";
 
 /// Kind of media item — drives frontend rendering (image preview vs file card).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -171,6 +172,16 @@ pub fn persist_chat_user_attachments_meta(
                 "name": att.name,
                 "path": att.file_path,
                 "lines": att.quote_lines,
+                "content": att.data,
+            }));
+            continue;
+        }
+        // Conversation excerpts are inline context, not files. Persist their
+        // role + exact selected text so history can restore the quote card.
+        if source_ref == Some(MESSAGE_QUOTE_SOURCE) {
+            meta_list.push(json!({
+                "kind": MESSAGE_QUOTE_SOURCE,
+                "role": att.quote_role,
                 "content": att.data,
             }));
             continue;
@@ -348,7 +359,10 @@ fn rewrite_user_attachment_items(
         let Some(object) = item.as_object_mut() else {
             continue;
         };
-        if object.get("kind").and_then(Value::as_str) == Some("quote") {
+        if matches!(
+            object.get("kind").and_then(Value::as_str),
+            Some("quote") | Some(MESSAGE_QUOTE_SOURCE)
+        ) {
             continue;
         }
         let Some(source_path) = object.get("path").and_then(Value::as_str) else {
@@ -722,6 +736,32 @@ mod tests {
     }
 
     #[test]
+    fn persist_chat_user_attachments_meta_keeps_message_quote_inline() {
+        let root = tempfile::tempdir().expect("tempdir");
+        crate::test_support::with_env_vars(&[("HA_DATA_DIR", root.path())], || {
+            let mut attachments = vec![Attachment {
+                name: "message-quote".to_string(),
+                mime_type: "text/plain".to_string(),
+                source: Some(MESSAGE_QUOTE_SOURCE.to_string()),
+                data: Some("Selected answer".to_string()),
+                file_path: None,
+                quote_lines: None,
+                quote_role: Some("assistant".to_string()),
+            }];
+
+            let raw = persist_chat_user_attachments_meta("session-a", &mut attachments)
+                .expect("persist message quote")
+                .expect("message quote metadata");
+            let value: Value = serde_json::from_str(&raw).expect("valid metadata json");
+
+            assert_eq!(value[0]["kind"], MESSAGE_QUOTE_SOURCE);
+            assert_eq!(value[0]["role"], "assistant");
+            assert_eq!(value[0]["content"], "Selected answer");
+            assert!(value[0].get("path").is_none());
+        });
+    }
+
+    #[test]
     fn persist_chat_user_attachments_meta_skips_temp_path_traversal() {
         let root = tempfile::tempdir().expect("tempdir");
         crate::test_support::with_env_vars(&[("HA_DATA_DIR", root.path())], || {
@@ -738,6 +778,7 @@ mod tests {
                 data: None,
                 file_path: Some(traversal.to_string_lossy().to_string()),
                 quote_lines: None,
+                quote_role: None,
             }];
 
             let meta = persist_chat_user_attachments_meta("session-a", &mut attachments)
@@ -773,6 +814,7 @@ mod tests {
                     data: None,
                     file_path: Some(missing.to_string_lossy().to_string()),
                     quote_lines: None,
+                    quote_role: None,
                 },
                 Attachment {
                     name: "note.txt".to_string(),
@@ -781,6 +823,7 @@ mod tests {
                     data: None,
                     file_path: Some(saved.clone()),
                     quote_lines: None,
+                    quote_role: None,
                 },
             ];
 
@@ -811,6 +854,7 @@ mod tests {
                 data: None,
                 file_path: Some(saved.clone()),
                 quote_lines: None,
+                quote_role: None,
             }];
 
             let meta = persist_chat_user_attachments_meta("session-a", &mut attachments)
@@ -840,6 +884,7 @@ mod tests {
                 data: None,
                 file_path: Some(original.clone()),
                 quote_lines: None,
+                quote_role: None,
             }];
 
             let meta = persist_chat_user_attachments_meta("session-a", &mut attachments)

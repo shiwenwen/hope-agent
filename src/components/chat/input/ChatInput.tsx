@@ -40,6 +40,7 @@ import type {
   SandboxMode,
   SessionMode,
   PendingFileQuote,
+  PendingMessageQuote,
   PendingSendPreview,
   AgentSummaryForSidebar,
 } from "@/types/chat"
@@ -261,6 +262,10 @@ interface ChatInputProps {
   onRemoveQuote?: (index: number) => void
   /** Click a staged quote chip to reveal that file in the file browser. */
   onJumpToQuote?: (q: PendingFileQuote) => void
+  pendingMessageQuotes?: PendingMessageQuote[]
+  onRemoveMessageQuote?: (index: number) => void
+  /** Increment to focus the composer after an external action such as quoting. */
+  focusSignal?: number
   pendingMessage?: string | null
   pendingSends?: PendingSendPreview[]
   onCancelPending?: () => void
@@ -477,6 +482,9 @@ export default function ChatInput({
   pendingQuotes,
   onRemoveQuote,
   onJumpToQuote,
+  pendingMessageQuotes,
+  onRemoveMessageQuote,
+  focusSignal,
   pendingMessage,
   pendingSends,
   onCancelPending,
@@ -570,6 +578,11 @@ export default function ChatInput({
   const [dismissedWorkflowHintFor, setDismissedWorkflowHintFor] = useState<string | null>(null)
   const { toolbarCompact, toolbarTight, sandboxCollapsed, permissionCollapsed } =
     getChatInputToolbarFlags(toolbarCollapseLevel)
+
+  useEffect(() => {
+    if (focusSignal == null) return
+    inputHandleRef.current?.focus()
+  }, [focusSignal])
 
   const handlePermissionModeChange = useCallback(
     (mode: SessionMode, options?: PermissionModeChangeOptions) => {
@@ -871,9 +884,13 @@ export default function ChatInput({
   const quickPrompt = useQuickPrompts(input, setComposerInput, inputHandleRef, quickPrompts)
   // URL preview
   const { previews: urlPreviews, dismissedUrls, dismiss: dismissUrl } = useUrlPreview(input)
-  const hasSendableContent = goalComposerMode || loopComposerMode
-    ? input.trim().length > 0
-    : input.trim().length > 0 || attachedFiles.length > 0 || (pendingQuotes?.length ?? 0) > 0
+  const hasSendableContent =
+    goalComposerMode || loopComposerMode
+      ? input.trim().length > 0
+      : input.trim().length > 0 ||
+        attachedFiles.length > 0 ||
+        (pendingQuotes?.length ?? 0) > 0 ||
+        (pendingMessageQuotes?.length ?? 0) > 0
 
   // The chat column can shrink when a right-side panel opens while the viewport
   // stays wide, so the overflow affordance follows the actual toolbar layout.
@@ -902,7 +919,10 @@ export default function ChatInput({
           semanticModesRef.current,
           toolbarGroupWidthsRef.current.semanticModes,
         ),
-        sandbox: readToolbarItemWidth(sandboxModeRef.current, toolbarGroupWidthsRef.current.sandbox),
+        sandbox: readToolbarItemWidth(
+          sandboxModeRef.current,
+          toolbarGroupWidthsRef.current.sandbox,
+        ),
         permission: readToolbarItemWidth(
           permissionModeRef.current,
           toolbarGroupWidthsRef.current.permission,
@@ -1123,9 +1143,7 @@ export default function ChatInput({
     // button must not persist the command prefix as part of the objective.
     const directGoalObjective = parseGoalUpsertSlashCommand(input)
     const directLoopPrompt =
-      goalComposerMode || !onLoopModeSubmit
-        ? null
-        : parseLoopCreateSlashCommand(input)
+      goalComposerMode || !onLoopModeSubmit ? null : parseLoopCreateSlashCommand(input)
     if (goalComposerMode || directGoalObjective) {
       const objective = directGoalObjective ?? input.trim()
       if (!objective || goalSubmitting) return
@@ -1331,9 +1349,7 @@ export default function ChatInput({
       (criterion.kind ?? "required") === "required" && criterion.status === "satisfied",
   ).length
   const activeGoalProgressLabel =
-    activeGoalRequiredTotal > 0
-      ? `${activeGoalRequiredDone}/${activeGoalRequiredTotal}`
-      : null
+    activeGoalRequiredTotal > 0 ? `${activeGoalRequiredDone}/${activeGoalRequiredTotal}` : null
   const planModeActive = planState !== "off" && planState !== "completed"
   const planComposerBannerOpen = planState === "planning" && !goalComposerMode && !loopComposerMode
 
@@ -1564,6 +1580,7 @@ export default function ChatInput({
     !hasVisibleTaskProgress &&
     attachedFiles.length === 0 &&
     !pendingQuotes?.length &&
+    !pendingMessageQuotes?.length &&
     !hasPendingQueue
   const workflowTriggerHintIsFirstContent = topStripBase
   const activeGoalStripIsFirstContent = topStripBase && !showWorkflowTriggerHint
@@ -1577,14 +1594,12 @@ export default function ChatInput({
     autonomyActivity.state !== "idle" &&
     autonomyActivity.state !== "terminal"
   const workflowModeStatusOpen = workflowModeActive && !incognitoEnabled
-  const workflowProgressLineIsFirstContent =
-    activeGoalStripIsFirstContent && !activeGoalStatusOpen
+  const workflowProgressLineIsFirstContent = activeGoalStripIsFirstContent && !activeGoalStatusOpen
   const standaloneActivityStripIsFirstContent =
     workflowProgressLineIsFirstContent && !effectiveShowWorkflowProgressLine
   const workflowModeStatusIsFirstContent =
     standaloneActivityStripIsFirstContent && !standaloneActivityStatusOpen
-  const modeBannerIsFirstContent =
-    workflowModeStatusIsFirstContent && !workflowModeStatusOpen
+  const modeBannerIsFirstContent = workflowModeStatusIsFirstContent && !workflowModeStatusOpen
 
   const pendingStatusLabel = (item: PendingSendPreview) => {
     switch (item.status) {
@@ -1787,17 +1802,16 @@ export default function ChatInput({
         className={cn(
           "relative min-w-0 overflow-visible rounded-input-dock border border-border-soft bg-surface-floating shadow-input-dock",
           hero && "shadow-floating",
-          incognitoEnabled &&
-            [
-              "[--color-surface-floating:hsl(0_0%_13%)]",
-              "[--color-surface-subtle:hsl(0_0%_16%)]",
-              "[--color-secondary:hsl(0_0%_17%)]",
-              "[--color-foreground:hsl(0_0%_96%)]",
-              "[--color-muted-foreground:hsl(0_0%_70%)]",
-              "[--color-border:hsl(0_0%_22%)]",
-              "[--color-border-soft:hsl(0_0%_22%)]",
-              "shadow-[0_18px_52px_hsl(0_0%_4%/0.24)]",
-            ],
+          incognitoEnabled && [
+            "[--color-surface-floating:hsl(0_0%_13%)]",
+            "[--color-surface-subtle:hsl(0_0%_16%)]",
+            "[--color-secondary:hsl(0_0%_17%)]",
+            "[--color-foreground:hsl(0_0%_96%)]",
+            "[--color-muted-foreground:hsl(0_0%_70%)]",
+            "[--color-border:hsl(0_0%_22%)]",
+            "[--color-border-soft:hsl(0_0%_22%)]",
+            "shadow-[0_18px_52px_hsl(0_0%_4%/0.24)]",
+          ],
         )}
       >
         {/* Slash Command Menu */}
@@ -1876,6 +1890,50 @@ export default function ChatInput({
           onRemoveFile={onRemoveFile}
           onUpdateFile={onUpdateFile}
         />
+
+        {/* Selected conversation excerpts staged for the next user turn. */}
+        <AnimatedCollapse open={!!pendingMessageQuotes?.length}>
+          <div className="flex flex-wrap gap-1.5 px-3 pt-2">
+            {pendingMessageQuotes?.map((q, index) => {
+              const cps = Array.from(q.content)
+              const preview = cps.length > 400 ? `${cps.slice(0, 400).join("")}…` : q.content
+              const label =
+                q.role === "user"
+                  ? t("chat.messageQuote.yourMessage", "你的消息")
+                  : t("chat.messageQuote.assistantMessage", "助手消息")
+              return (
+                <span
+                  key={`${q.role}:${q.content}:${index}`}
+                  className="inline-flex max-w-[260px] items-center gap-0.5 rounded-md border border-border/60 bg-secondary/40 py-0.5 pl-1 pr-1 text-xs text-foreground/80"
+                >
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span className="inline-flex min-w-0 items-center gap-1 rounded px-1 py-0.5">
+                        <Quote className="h-3 w-3 shrink-0 text-muted-foreground" />
+                        <span className="truncate">{label}</span>
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent side="top" className="max-w-[340px]">
+                      <span className="block max-h-40 overflow-hidden whitespace-pre-wrap text-xs">
+                        {preview}
+                      </span>
+                    </TooltipContent>
+                  </Tooltip>
+                  {onRemoveMessageQuote && (
+                    <button
+                      type="button"
+                      onClick={() => onRemoveMessageQuote(index)}
+                      className="rounded p-0.5 text-muted-foreground hover:bg-background/70 hover:text-foreground"
+                      aria-label={t("chat.messageQuote.remove", "移除引用")}
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  )}
+                </span>
+              )
+            })}
+          </div>
+        </AnimatedCollapse>
 
         {/* Staged "quote to chat" references */}
         <AnimatedCollapse open={!!pendingQuotes?.length}>
@@ -2434,10 +2492,7 @@ export default function ChatInput({
               <div className="grid grid-cols-2 gap-1 sm:grid-cols-5">
                 {(
                   [
-                    [
-                      "create_or_update",
-                      t("chat.goalMode.actionUpdate", "更新目标"),
-                    ],
+                    ["create_or_update", t("chat.goalMode.actionUpdate", "更新目标")],
                     ["replace", t("chat.goalMode.actionReplace", "替代目标")],
                     ["append_required", t("chat.goalMode.actionRequired", "追加必须")],
                     ["append_optional", t("chat.goalMode.actionOptional", "追加可选")],
@@ -2514,11 +2569,11 @@ export default function ChatInput({
                 ? t("chat.goalMode.placeholder", "描述你希望持续推进并最终完成的目标")
                 : loopComposerMode
                   ? t("chat.loopMode.placeholder", "描述你希望持续推进的任务")
-                : planState === "planning"
-                  ? t("planMode.placeholder")
-                  : hasPendingQueue
-                    ? t("chat.pendingQueued")
-                    : t("chat.askAnything")
+                  : planState === "planning"
+                    ? t("planMode.placeholder")
+                    : hasPendingQueue
+                      ? t("chat.pendingQueued")
+                      : t("chat.askAnything")
             }
             value={input}
             onChange={setComposerInput}

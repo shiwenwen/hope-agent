@@ -364,6 +364,34 @@ describe("computeContextUsage", () => {
 })
 
 describe("parseSessionMessages user attachments", () => {
+  test("restores persisted conversation message quotes", () => {
+    const parsed = parseSessionMessages([
+      sessionMessage({
+        id: 6,
+        role: "user",
+        content: "Explain this",
+        attachmentsMeta: JSON.stringify([
+          {
+            kind: "message_quote",
+            role: "assistant",
+            content: "Selected answer text",
+          },
+        ]),
+      }),
+    ])
+
+    expect(parsed[0]?.attachments).toEqual([
+      {
+        name: "message-quote",
+        mimeType: "text/plain",
+        sizeBytes: 0,
+        kind: "message_quote",
+        messageQuoteRole: "assistant",
+        quoteContent: "Selected answer text",
+      },
+    ])
+  })
+
   test("restores image attachments from user attachments metadata", () => {
     const parsed = parseSessionMessages([
       sessionMessage({

@@ -14,7 +14,7 @@ import IncognitoToggle from "@/components/chat/input/IncognitoToggle"
 import { useQuickChatSession } from "./useQuickChatSession"
 import { useChatStream } from "./useChatStream"
 import type { CommandResult } from "./slash-commands/types"
-import type { AgentSummaryForSidebar } from "@/types/chat"
+import type { AgentSummaryForSidebar, PendingMessageQuote } from "@/types/chat"
 import type { QuickPromptAddResult, QuickPromptConfig, QuickPromptItem } from "@/types/quickPrompts"
 import { recentUserInputHistory } from "./quick-prompts/messageQuickPrompts"
 
@@ -38,6 +38,7 @@ export default function QuickChatDialog({
   const quickStreamSeqRef = useRef<Map<string, number>>(new Map())
   const quickEndedStreamIdsRef = useRef<Map<string, string>>(new Map())
   const [quickPrompts, setQuickPrompts] = useState<QuickPromptItem[]>([])
+  const [composerFocusSignal, setComposerFocusSignal] = useState<number | undefined>(undefined)
 
   // Effective incognito = persisted session.incognito (continued chat) or
   // draft toggle (new chat). Same shape as `ChatScreen` so `useChatStream`
@@ -118,6 +119,13 @@ export default function QuickChatDialog({
     endedStreamIdsRef: quickEndedStreamIdsRef,
     incognitoEnabled,
   })
+  const handleMessageQuote = useCallback(
+    (quote: PendingMessageQuote) => {
+      stream.setPendingMessageQuotes((prev) => [...prev, quote])
+      setComposerFocusSignal((prev) => (prev ?? 0) + 1)
+    },
+    [stream],
+  )
 
   // Draft-only incognito toggle handler. No useCallback — see QuickChatWindow
   // for the React Compiler dep-inference rationale.
@@ -264,6 +272,7 @@ export default function QuickChatDialog({
           sessionId={session.currentSessionId}
           incognito={incognitoEnabled}
           onAddQuickPrompt={incognitoEnabled ? undefined : handleAddQuickPrompt}
+          onAddMessageQuote={handleMessageQuote}
         />
 
         {/* ── Approval Dialog ────────────────────── */}
@@ -300,8 +309,19 @@ export default function QuickChatDialog({
                 prev.map((existing, idx) => (idx === index ? file : existing)),
               )
             }
+            pendingMessageQuotes={stream.pendingMessageQuotes}
+            onRemoveMessageQuote={(i) =>
+              stream.setPendingMessageQuotes((prev) => prev.filter((_, idx) => idx !== i))
+            }
+            focusSignal={composerFocusSignal}
             pendingMessage={stream.pendingMessage}
+            pendingSends={stream.pendingSends}
             onCancelPending={() => stream.setPendingMessage(null)}
+            onDiscardPending={() => stream.setPendingMessage(null)}
+            onEditPending={stream.editPendingSend}
+            onDiscardPendingItem={stream.discardPendingSend}
+            onForceInsertPending={stream.forceInsertPendingSend}
+            onCancelForceInsertPending={stream.cancelForceInsertPendingSend}
             onStop={stream.handleStop}
             currentSessionId={session.currentSessionId}
             currentAgentId={session.currentAgentId}

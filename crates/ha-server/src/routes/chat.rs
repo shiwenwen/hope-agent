@@ -1326,6 +1326,7 @@ mod tests {
             data: None,
             file_path: Some("/tmp/secret.txt".to_string()),
             quote_lines: None,
+            quote_role: None,
         }];
 
         assert!(validate_http_chat_attachments("missing-session", &attachments).is_err());
@@ -1340,6 +1341,7 @@ mod tests {
             data: None,
             file_path: Some("/tmp/upload.txt".to_string()),
             quote_lines: None,
+            quote_role: None,
         }];
 
         assert!(validate_http_chat_attachments("missing-session", &attachments).is_ok());
@@ -1354,6 +1356,7 @@ mod tests {
             data: None,
             file_path: Some("/tmp/pasted-text.txt".to_string()),
             quote_lines: None,
+            quote_role: None,
         }];
 
         assert!(validate_http_chat_attachments("missing-session", &attachments).is_ok());

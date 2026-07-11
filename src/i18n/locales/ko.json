@@ -413,6 +413,12 @@
     "sidebarDetailedMode": "일반 모드로 전환",
     "copied": "복사됨",
     "copy": "복사",
+    "messageQuote": {
+      "addToChat": "채팅에 추가",
+      "assistantMessage": "어시스턴트 메시지",
+      "remove": "인용 삭제",
+      "yourMessage": "내 메시지"
+    },
     "quickPrompts": {
       "addAction": "빠른 입력에 추가",
       "addFailed": "빠른 입력 추가 실패",

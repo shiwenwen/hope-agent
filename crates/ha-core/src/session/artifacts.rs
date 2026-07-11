@@ -396,6 +396,9 @@ fn attachment_source_key(source: &UrlSource) -> String {
 }
 
 fn add_user_attachment(seen: &mut HashSet<String>, sources: &mut Vec<UrlSource>, item: &Value) {
+    if string_field(item, &["kind"]) == Some(crate::attachments::MESSAGE_QUOTE_SOURCE) {
+        return;
+    }
     let Some(name) = string_field(item, &["name"]) else {
         return;
     };
@@ -701,7 +704,8 @@ mod tests {
             attachments_meta: Some(
                 r#"[
                     {"name":"brief.pdf","mime_type":"application/pdf","size":1234,"path":"/tmp/brief.pdf"},
-                    {"kind":"quote","name":"quoted.ts","path":"/repo/quoted.ts","lines":"10-12","content":"const x = 1"}
+                    {"kind":"quote","name":"quoted.ts","path":"/repo/quoted.ts","lines":"10-12","content":"const x = 1"},
+                    {"kind":"message_quote","role":"assistant","content":"not a workspace source"}
                 ]"#
                 .to_string(),
             ),
