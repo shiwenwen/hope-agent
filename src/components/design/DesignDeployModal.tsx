@@ -1,6 +1,16 @@
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { Cloud, Loader2, ExternalLink, Copy, Check, Globe, AlertTriangle, CheckCircle2 } from "lucide-react"
+import {
+  Cloud,
+  Loader2,
+  ExternalLink,
+  Copy,
+  Check,
+  Globe,
+  AlertTriangle,
+  CheckCircle2,
+  RefreshCw,
+} from "lucide-react"
 
 import {
   Dialog,
@@ -37,6 +47,39 @@ export function DesignDeployModal({ open, onClose, artifactId }: Props) {
   const [deploying, setDeploying] = useState(false)
   const [url, setUrl] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
+  // 部署 URL 就绪探测（W3-L）：pages.dev/vercel.app 边缘传播有延迟，部署后立即打开可能 404。
+  // 部署成功后自动轮询、就绪前显示「链接生效中」，另给手动「重新检查」。
+  const [readiness, setReadiness] = useState<null | { ready: boolean; status: number | null }>(null)
+  const [probing, setProbing] = useState(false)
+  // 每轮探测持一 token，re-deploy / 切 provider / 开关模态时自增令在途轮询作废（防错刷旧 URL 态）。
+  const probeTokenRef = useRef(0)
+
+  const runReadinessProbe = useCallback(async (u: string, poll: boolean) => {
+    const token = ++probeTokenRef.current
+    setProbing(true)
+    setReadiness(null)
+    const maxAttempts = poll ? 8 : 1
+    for (let i = 0; i < maxAttempts; i++) {
+      if (probeTokenRef.current !== token) return // 被后续探测取代
+      try {
+        const r = await getTransport().call<{ ready: boolean; status: number | null }>(
+          "probe_design_deploy_cmd",
+          { url: u },
+        )
+        if (probeTokenRef.current !== token) return
+        setReadiness(r)
+        if (r.ready) {
+          setProbing(false)
+          return
+        }
+      } catch {
+        if (probeTokenRef.current !== token) return
+        setReadiness({ ready: false, status: null })
+      }
+      if (i < maxAttempts - 1) await new Promise((res) => window.setTimeout(res, 3000))
+    }
+    if (probeTokenRef.current === token) setProbing(false)
+  }, [])
   // 字段级校验：CF Account ID 是 32 位十六进制。填了但格式不对即标红（touched 后才提示，不空态就唠叨）。
   const [accountTouched, setAccountTouched] = useState(false)
   const accountInvalid =
@@ -80,6 +123,9 @@ export function DesignDeployModal({ open, onClose, artifactId }: Props) {
   const [prevOpen, setPrevOpen] = useState(false)
   if (open !== prevOpen) {
     setPrevOpen(open)
+    probeTokenRef.current++ // 作废任何在途就绪轮询
+    setReadiness(null)
+    setProbing(false)
     if (open) setUrl(null)
   }
 
@@ -162,6 +208,7 @@ export function DesignDeployModal({ open, onClose, artifactId }: Props) {
       }
       setUrl(res.url)
       loadDeployments()
+      void runReadinessProbe(res.url, true) // 部署后自动轮询就绪态
       try {
         await navigator.clipboard.writeText(res.url)
       } catch {
@@ -212,6 +259,9 @@ export function DesignDeployModal({ open, onClose, artifactId }: Props) {
     if (p === provider) return
     setProvider(p)
     setUrl(null)
+    probeTokenRef.current++ // 作废在途就绪轮询
+    setReadiness(null)
+    setProbing(false)
   }
 
   return (
@@ -381,35 +431,66 @@ export function DesignDeployModal({ open, onClose, artifactId }: Props) {
           )}
 
           {url && (
-            <div className="flex items-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/5 px-2.5 py-2">
-              <a
-                href={url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="min-w-0 flex-1 truncate text-xs text-emerald-600 hover:underline dark:text-emerald-400"
-              >
-                {url}
-              </a>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-6 w-6 shrink-0"
-                onClick={async () => {
-                  try {
-                    await navigator.clipboard.writeText(url)
-                    setCopied(true)
-                    window.setTimeout(() => setCopied(false), 1500)
-                  } catch {
-                    /* noop */
-                  }
-                }}
-              >
-                {copied ? (
-                  <Check className="h-3.5 w-3.5 text-emerald-500" />
+            <div className="space-y-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/5 px-2.5 py-2">
+              <div className="flex items-center gap-2">
+                <a
+                  href={url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="min-w-0 flex-1 truncate text-xs text-emerald-600 hover:underline dark:text-emerald-400"
+                >
+                  {url}
+                </a>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-6 shrink-0"
+                  onClick={async () => {
+                    try {
+                      await navigator.clipboard.writeText(url)
+                      setCopied(true)
+                      window.setTimeout(() => setCopied(false), 1500)
+                    } catch {
+                      /* noop */
+                    }
+                  }}
+                >
+                  {copied ? (
+                    <Check className="h-3.5 w-3.5 text-emerald-500" />
+                  ) : (
+                    <Copy className="h-3.5 w-3.5" />
+                  )}
+                </Button>
+              </div>
+              {/* 就绪态：轮询中「链接生效中」/ 已就绪「链接已生效」/ 停滞给「重新检查」，避免用户拿到 404 误以为部署失败 */}
+              <div className="flex items-center gap-1.5 text-[11px]">
+                {readiness?.ready ? (
+                  <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
+                    <CheckCircle2 className="h-3 w-3 shrink-0" />
+                    {t("design.deploy.linkReady", "链接已生效")}
+                  </span>
+                ) : probing ? (
+                  <span className="flex items-center gap-1 text-amber-600 dark:text-amber-400">
+                    <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
+                    {t("design.deploy.linkPreparing", "链接生效中，通常需要几十秒…")}
+                  </span>
                 ) : (
-                  <Copy className="h-3.5 w-3.5" />
+                  <>
+                    <span className="flex items-center gap-1 text-amber-600 dark:text-amber-400">
+                      <AlertTriangle className="h-3 w-3 shrink-0" />
+                      {t("design.deploy.linkNotReady", "链接可能尚未生效")}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => void runReadinessProbe(url, true)}
+                      className="inline-flex items-center gap-0.5 text-primary hover:underline"
+                    >
+                      <RefreshCw className="h-3 w-3" />
+                      {t("design.deploy.recheck", "重新检查")}
+                    </button>
+                  </>
                 )}
-              </Button>
+              </div>
             </div>
           )}
 

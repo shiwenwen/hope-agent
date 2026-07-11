@@ -486,6 +486,7 @@ KB 文件预览端点是**纯 owner 平面，无 session 参数、无 owner fall
 | `save_cf_deploy_config_cmd` | `PUT /api/design/deploy/config` | ✅ |
 | `get_cf_deploy_config_cmd` | `GET /api/design/deploy/config` | ✅ |
 | `deploy_design_artifact_cmd` | `POST /api/design/artifacts/{artifactId}/deploy` | ✅ |
+| `probe_design_deploy_cmd` | `POST /api/design/deploy/probe`（探测部署 URL 是否已生效，body `{url}` 回 `{ready,status}`） | ✅ |
 | `bind_design_domain_cmd` | `POST /api/design/artifacts/{artifactId}/domains`（绑定 CF Pages 自定义域名，回域名+验证态） | ✅ |
 | `list_design_domains_cmd` | `GET /api/design/artifacts/{artifactId}/domains`（列已绑定域名+验证态） | ✅ |
 | `preflight_design_deploy_cmd` | `GET /api/design/artifacts/{artifactId}/deploy/preflight`（部署预检：空/超限阻断、外部引用告警） | ✅ |

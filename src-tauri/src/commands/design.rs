@@ -382,6 +382,15 @@ pub async fn deploy_design_artifact_cmd(artifact_id: String) -> Result<DeployUrl
     let url = ha_core::design::deploy::deploy_artifact(&artifact_id).await?;
     Ok(DeployUrl { url })
 }
+/// 探测部署 URL 是否已生效（部署后 pages.dev/vercel.app 边缘传播延迟，前端轮询显示就绪徽章）。
+#[tauri::command]
+pub async fn probe_design_deploy_cmd(
+    url: String,
+) -> Result<ha_core::design::deploy::DeployReadiness, CmdError> {
+    ha_core::design::deploy::probe_deploy_ready(&url)
+        .await
+        .map_err(Into::into)
+}
 #[tauri::command]
 pub async fn bind_design_domain_cmd(
     artifact_id: String,

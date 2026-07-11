@@ -304,6 +304,7 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   save_cf_deploy_config_cmd:         { method: "PUT",    path: "/api/design/deploy/config" },
   get_cf_deploy_config_cmd:          { method: "GET",    path: "/api/design/deploy/config" },
   deploy_design_artifact_cmd:        { method: "POST",   path: "/api/design/artifacts/{artifactId}/deploy" },
+  probe_design_deploy_cmd:           { method: "POST",   path: "/api/design/deploy/probe" },
   bind_design_domain_cmd:            { method: "POST",   path: "/api/design/artifacts/{artifactId}/domains" },
   list_design_domains_cmd:           { method: "GET",    path: "/api/design/artifacts/{artifactId}/domains" },
   preflight_design_deploy_cmd:       { method: "GET",    path: "/api/design/artifacts/{artifactId}/deploy/preflight" },

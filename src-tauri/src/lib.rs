@@ -845,6 +845,7 @@ pub fn run() {
             commands::design::save_cf_deploy_config_cmd,
             commands::design::get_cf_deploy_config_cmd,
             commands::design::deploy_design_artifact_cmd,
+            commands::design::probe_design_deploy_cmd,
             commands::design::bind_design_domain_cmd,
             commands::design::list_design_domains_cmd,
             commands::design::preflight_design_deploy_cmd,

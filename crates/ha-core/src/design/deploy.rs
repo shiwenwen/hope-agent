@@ -314,6 +314,44 @@ pub async fn deploy_artifact(artifact_id: &str) -> Result<String> {
     Ok(url)
 }
 
+/// 部署 URL 就绪探测结果（W3-J/W3-L）：`ready` 前端显示「链接生效中」+ 轮询重试。
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeployReadiness {
+    /// 边缘已就绪（末跳 2xx/3xx）。
+    pub ready: bool,
+    /// 探测到的 HTTP 状态码（网络层错误 = None，视为未就绪）。
+    pub status: Option<u16>,
+}
+
+/// 探测部署 URL 是否已生效（CF Pages / Vercel 边缘传播有延迟，部署成功后立即打开可能 404）。
+///
+/// **SSRF**：目标是用户的**公网**站点（host 随部署商 / 自定义域可变），用 `Default` 策略
+/// （放行公网、拦私网 / 环回 / 元数据），**不复用部署出站的 Strict + API allowlist**。
+/// 网络层错误（DNS 未生效 / 连接被拒）不算硬失败——回 not-ready 让前端继续轮询。
+pub async fn probe_deploy_ready(url: &str) -> Result<DeployReadiness> {
+    crate::security::ssrf::check_url(url, crate::security::ssrf::SsrfPolicy::Default, &[])
+        .await
+        .with_context(|| format!("SSRF check failed for {url}"))?;
+    let http = reqwest::Client::builder()
+        .timeout(Duration::from_secs(10))
+        .build()
+        .map_err(|e| anyhow!("build probe client: {e}"))?;
+    match http.get(url).send().await {
+        Ok(resp) => {
+            let s = resp.status();
+            Ok(DeployReadiness {
+                ready: s.is_success() || s.is_redirection(),
+                status: Some(s.as_u16()),
+            })
+        }
+        Err(_) => Ok(DeployReadiness {
+            ready: false,
+            status: None,
+        }),
+    }
+}
+
 /// 部署单文件上限（保守，覆盖 CF Pages / Vercel 内联单文件安全区）。
 pub(crate) const MAX_DEPLOY_BYTES: usize = 25 * 1024 * 1024;
 

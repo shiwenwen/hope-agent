@@ -920,6 +920,18 @@ pub async fn deploy_artifact(Path(id): Path<String>) -> Result<Json<Value>, AppE
     Ok(Json(json!({ "url": url })))
 }
 
+/// `POST /api/design/deploy/probe` — 探测部署 URL 是否已生效（body `{ url }`），返回 `{ ready, status }`。
+pub async fn probe_deploy(Json(body): Json<Value>) -> Result<Json<Value>, AppError> {
+    let url = body
+        .get("url")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| AppError::bad_request("missing url"))?;
+    let r = ha_core::design::deploy::probe_deploy_ready(url)
+        .await
+        .map_err(|e| AppError::internal(e.to_string()))?;
+    Ok(Json(json!({ "ready": r.ready, "status": r.status })))
+}
+
 /// `POST /api/design/artifacts/{id}/domains` — 绑定自定义域名（body `{ domain }`），返回 `{ name, status }`。
 pub async fn bind_domain(
     Path(id): Path<String>,
