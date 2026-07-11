@@ -6683,6 +6683,10 @@
     },
     "peek": "快速预览",
     "openArtifact": "打开",
-    "derivedFrom": "派生自"
+    "derivedFrom": "派生自",
+    "gen": {
+      "failedBar": "这个页面生成失败了。可在左侧对话里重新描述，或删除重来。",
+      "deletePage": "删除此页"
+    }
   }
 }

@@ -6683,6 +6683,10 @@
     },
     "peek": "Hızlı bakış",
     "openArtifact": "Aç",
-    "derivedFrom": "Şundan türetildi"
+    "derivedFrom": "Şundan türetildi",
+    "gen": {
+      "failedBar": "Bu sayfa oluşturulamadı. Soldaki sohbette yeniden tarif edin veya silip baştan başlayın.",
+      "deletePage": "Sayfayı sil"
+    }
   }
 }

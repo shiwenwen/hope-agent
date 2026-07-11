@@ -6683,6 +6683,10 @@
     },
     "peek": "クイックプレビュー",
     "openArtifact": "開く",
-    "derivedFrom": "派生元"
+    "derivedFrom": "派生元",
+    "gen": {
+      "failedBar": "このページの生成に失敗しました。左のチャットで再度説明するか、削除してやり直してください。",
+      "deletePage": "ページを削除"
+    }
   }
 }

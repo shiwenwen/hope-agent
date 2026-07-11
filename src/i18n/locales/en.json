@@ -6683,6 +6683,10 @@
     },
     "peek": "Quick look",
     "openArtifact": "Open",
-    "derivedFrom": "Derived from"
+    "derivedFrom": "Derived from",
+    "gen": {
+      "failedBar": "This page failed to generate. Describe it again in the chat, or delete and start over.",
+      "deletePage": "Delete page"
+    }
   }
 }

@@ -6683,6 +6683,10 @@
     },
     "peek": "Lihat pantas",
     "openArtifact": "Buka",
-    "derivedFrom": "Diterbitkan daripada"
+    "derivedFrom": "Diterbitkan daripada",
+    "gen": {
+      "failedBar": "Halaman ini gagal dijana. Terangkan semula dalam sembang, atau padam dan mula semula.",
+      "deletePage": "Padam halaman"
+    }
   }
 }

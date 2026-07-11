@@ -6683,6 +6683,10 @@
     },
     "peek": "빠른 미리보기",
     "openArtifact": "열기",
-    "derivedFrom": "파생 원본"
+    "derivedFrom": "파생 원본",
+    "gen": {
+      "failedBar": "이 페이지 생성에 실패했습니다. 왼쪽 대화에서 다시 설명하거나 삭제 후 다시 시작하세요.",
+      "deletePage": "페이지 삭제"
+    }
   }
 }

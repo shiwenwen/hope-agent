@@ -6683,6 +6683,10 @@
     },
     "peek": "Xem nhanh",
     "openArtifact": "Mở",
-    "derivedFrom": "Bắt nguồn từ"
+    "derivedFrom": "Bắt nguồn từ",
+    "gen": {
+      "failedBar": "Trang này tạo thất bại. Hãy mô tả lại trong cuộc trò chuyện, hoặc xóa và làm lại.",
+      "deletePage": "Xóa trang"
+    }
   }
 }

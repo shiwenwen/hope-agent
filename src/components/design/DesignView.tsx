@@ -3947,6 +3947,28 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                     </div>
                   )
                 })()}
+                {activeArtifact.status === "failed" && (
+                  <div className="flex shrink-0 items-center gap-2 border-b border-destructive/40 bg-destructive/5 px-3 py-1.5 text-xs">
+                    <AlertCircle className="h-3.5 w-3.5 shrink-0 text-destructive" />
+                    <span className="min-w-0 flex-1 truncate text-destructive">
+                      {t("design.gen.failedBar", "这个页面生成失败了。可在左侧对话里重新描述，或删除重来。")}
+                    </span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 shrink-0 px-2 text-xs text-destructive hover:bg-destructive/10"
+                      onClick={() =>
+                        setDeleteTarget({
+                          type: "artifact",
+                          id: activeArtifact.id,
+                          title: activeArtifact.title,
+                        })
+                      }
+                    >
+                      {t("design.gen.deletePage", "删除此页")}
+                    </Button>
+                  </div>
+                )}
                 <div
                   ref={previewPaneRef}
                   className={cn(
