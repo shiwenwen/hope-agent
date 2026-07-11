@@ -8,7 +8,8 @@ import {
   useState,
 } from "react"
 import { useTranslation } from "react-i18next"
-import { Plus, History, FileStack, Blocks, RotateCcw } from "lucide-react"
+import { Plus, History, FileStack, Blocks, RotateCcw, GitFork } from "lucide-react"
+import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
 import { IconTip } from "@/components/ui/tooltip"
@@ -395,6 +396,24 @@ export const DesignChatPanel = forwardRef<DesignChatPanelHandle, Props>(function
     void stream.handleSend(text)
   }, [lastUserContent, session.loading, stream])
 
+  // Fork（分支）：同项目建新会话 + 拷贝当前对话历史，切到新线程继续探索另一方向。
+  const [forking, setForking] = useState(false)
+  const forkThread = useCallback(async () => {
+    const sid = session.currentSessionId
+    if (!sid || forking) return
+    setForking(true)
+    try {
+      const newId = await getTransport().call<string>("fork_design_thread_cmd", { sessionId: sid })
+      await session.switchThread(newId)
+      toast.success(t("design.chat.forked", "已分支为新对话"))
+    } catch (e) {
+      logger.error("design", "DesignChatPanel", "fork failed", e)
+      toast.error(t("design.chat.forkFailed", "分支失败"))
+    } finally {
+      setForking(false)
+    }
+  }, [session, forking, t])
+
   if (!projectId) {
     return (
       <div className="flex h-full items-center justify-center p-4 text-center text-xs text-muted-foreground">
@@ -447,6 +466,19 @@ export const DesignChatPanel = forwardRef<DesignChatPanelHandle, Props>(function
             <Plus className="h-4 w-4" />
           </Button>
         </IconTip>
+        {session.currentSessionId && session.messages.length > 0 && (
+          <IconTip label={t("design.chat.fork", "分支这个对话")}>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7"
+              disabled={forking}
+              onClick={() => void forkThread()}
+            >
+              <GitFork className="h-4 w-4" />
+            </Button>
+          </IconTip>
+        )}
         <div className="relative" ref={historyRef}>
           <IconTip label={t("design.chat.history", "历史对话")}>
             <Button

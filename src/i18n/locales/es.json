@@ -6487,7 +6487,10 @@
       "starterOutlinePrompt": "Antes de construir, dame primero un esquema estructural (títulos de secciones/diapositivas, puntos clave, orden narrativo). Tras confirmarlo, genera el artefacto final a partir del esquema.",
       "turnFailed": "Esta ronda no produjo resultado",
       "retry": "Reintentar",
-      "regenerate": "Regenerar"
+      "regenerate": "Regenerar",
+      "fork": "Bifurcar esta conversación",
+      "forked": "Bifurcado en una nueva conversación",
+      "forkFailed": "Error al bifurcar"
     },
     "emptyArtifactsInline": "Aún no hay artefactos: pulsa «Nuevo artefacto» (arriba a la derecha) o pídele a la IA de la izquierda que genere uno.",
     "review": {

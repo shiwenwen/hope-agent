@@ -1945,6 +1945,10 @@ fn build_router_with_cors(
             // image + mask base64 → 放开 body 限到 32 MiB。
             post(routes::design::inpaint_image).layer(DefaultBodyLimit::max(32 * 1024 * 1024)),
         )
+        .route(
+            "/design/threads/{sessionId}/fork",
+            post(routes::design::fork_thread),
+        )
         .route("/design/patch", post(routes::design::patch_element))
         .route(
             "/design/artifacts/{id}/critique",

@@ -6487,7 +6487,10 @@
       "starterOutlinePrompt": "先別急著做，請先給我一份結構大綱（分節 / 分頁的標題與要點、敘事順序），我確認後你再按大綱生成正式產物。",
       "turnFailed": "這一輪沒有結果",
       "retry": "重試",
-      "regenerate": "重新生成"
+      "regenerate": "重新生成",
+      "fork": "分支這個對話",
+      "forked": "已分支為新對話",
+      "forkFailed": "分支失敗"
     },
     "emptyArtifactsInline": "還沒有產物——右上角「新增產物」，或直接讓左側 AI 生成。",
     "review": {

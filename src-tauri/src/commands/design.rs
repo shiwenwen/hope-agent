@@ -97,6 +97,14 @@ pub async fn review_design_artifact_cmd(
         .map_err(Into::into)
 }
 
+/// Fork 设计对话线程：同项目建新 Design 会话 + 拷贝全部消息，返回新 session_id。
+#[tauri::command]
+pub async fn fork_design_thread_cmd(session_id: String) -> Result<String, CmdError> {
+    ha_core::blocking::run_blocking(move || ha_core::design::threads::fork_thread(&session_id))
+        .await
+        .map_err(Into::into)
+}
+
 /// inpaint：对 image 产物按蒙版局部重绘（mask_b64 = PNG，透明/涂画区=重绘区）。
 #[tauri::command]
 pub async fn inpaint_design_image_cmd(

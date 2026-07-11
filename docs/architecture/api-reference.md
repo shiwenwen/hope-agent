@@ -458,6 +458,7 @@ KB 文件预览端点是**纯 owner 平面，无 session 参数、无 owner fall
 | `patch_design_page_style_cmd` | `PUT /api/design/artifacts/{id}/page-style`（页面级 body 样式，CSS 标记块 + 落版本） | ✅ |
 | `inpaint_design_image_cmd` | `POST /api/design/artifacts/{id}/inpaint`（image 蒙版局部重绘，OpenAI `/images/edits`） | ✅ |
 | `export_design_pptx_outline_cmd` | `GET /api/design/artifacts/{id}/pptx-outline`（deck 结构化可编辑文本 PPTX，服务端抽大纲） | ✅ |
+| `fork_design_thread_cmd` | `POST /api/design/threads/{sessionId}/fork`（分支设计对话，拷贝消息到新线程，回新 sessionId） | ✅ |
 | `review_design_artifact_cmd` | `GET /api/design/artifacts/{id}/quality-review`（确定性多镜头质量审查：a11y/内容/语义） | ✅ |
 | `generate_design_artifact_cmd` | `POST /api/design/artifacts/generate` | ✅ |
 | `design_ffmpeg_doctor_cmd` | `GET /api/design/ffmpeg/doctor` | ✅ |

@@ -6487,7 +6487,10 @@
       "starterOutlinePrompt": "先别急着做，请先给我一份结构大纲（分节 / 分页的标题与要点、叙事顺序），我确认后你再按大纲生成正式产物。",
       "turnFailed": "这一轮没有结果",
       "retry": "重试",
-      "regenerate": "重新生成"
+      "regenerate": "重新生成",
+      "fork": "分支这个对话",
+      "forked": "已分支为新对话",
+      "forkFailed": "分支失败"
     },
     "emptyArtifactsInline": "还没有产物——右上角「新建产物」，或直接让左侧 AI 生成。",
     "review": {

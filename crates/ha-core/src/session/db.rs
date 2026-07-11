@@ -1297,6 +1297,28 @@ impl SessionDB {
     /// Set a session's classification (see [`SessionKind`]). Used by the
     /// knowledge-space chat entry to mark a freshly-created session as a
     /// `Knowledge` conversation so it is hidden from the main session list.
+    /// 忠实拷贝一个会话的全部消息到另一会话（fork 用）。`INSERT…SELECT` 复制除自增 `id`
+    /// 外的所有列并改写 `session_id`，保序、含 tool 元数据/思考/用量等全字段。返回拷贝条数。
+    pub fn copy_session_messages(&self, from_session: &str, to_session: &str) -> Result<usize> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let n = conn.execute(
+            "INSERT INTO messages (session_id, role, content, timestamp, attachments_meta, model,
+                tokens_in, tokens_out, reasoning_effort, tool_call_id, tool_name, tool_arguments,
+                tool_result, tool_duration_ms, is_error, thinking, ttft_ms, tokens_in_last,
+                tokens_cache_creation, tokens_cache_read, tool_metadata, stream_status)
+             SELECT ?2, role, content, timestamp, attachments_meta, model,
+                tokens_in, tokens_out, reasoning_effort, tool_call_id, tool_name, tool_arguments,
+                tool_result, tool_duration_ms, is_error, thinking, ttft_ms, tokens_in_last,
+                tokens_cache_creation, tokens_cache_read, tool_metadata, stream_status
+             FROM messages WHERE session_id = ?1 ORDER BY id ASC",
+            params![from_session, to_session],
+        )?;
+        Ok(n)
+    }
+
     pub fn set_session_kind(&self, session_id: &str, kind: SessionKind) -> Result<()> {
         let conn = self
             .conn

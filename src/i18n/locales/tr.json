@@ -6487,7 +6487,10 @@
       "starterOutlinePrompt": "Yapmadan önce bana yapısal bir ana hat ver (bölüm/slayt başlıkları, ana noktalar, anlatı sırası). Onayladıktan sonra bu ana hattan nihai ürünü oluştur.",
       "turnFailed": "Bu turda sonuç çıkmadı",
       "retry": "Yeniden dene",
-      "regenerate": "Yeniden oluştur"
+      "regenerate": "Yeniden oluştur",
+      "fork": "Bu konuşmayı çatalla",
+      "forked": "Yeni bir konuşmaya çatallandı",
+      "forkFailed": "Çatallama başarısız"
     },
     "emptyArtifactsInline": "Henüz çıktı yok — sağ üstteki “Yeni çıktı”ya tıklayın ya da soldaki yapay zekadan üretmesini isteyin.",
     "review": {

@@ -6487,7 +6487,10 @@
       "starterOutlinePrompt": "만들기 전에 먼저 구조 개요(섹션/슬라이드 제목과 핵심, 서술 순서)를 주세요. 제가 확인한 뒤 개요에 따라 최종 산출물을 생성하세요.",
       "turnFailed": "이번 턴은 결과가 없습니다",
       "retry": "다시 시도",
-      "regenerate": "다시 생성"
+      "regenerate": "다시 생성",
+      "fork": "이 대화 분기",
+      "forked": "새 대화로 분기했습니다",
+      "forkFailed": "분기 실패"
     },
     "emptyArtifactsInline": "아직 산출물이 없습니다 — 오른쪽 위 ‘새 산출물’을 누르거나 왼쪽 AI에게 생성을 요청하세요.",
     "review": {

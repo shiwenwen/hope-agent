@@ -60,6 +60,31 @@ pub fn create_thread(session_id: &str, project_id: &str) -> Result<()> {
     Ok(())
 }
 
+/// Fork（分支）一个设计对话线程：在同项目建新 Design 会话、忠实拷贝源对话全部消息、
+/// 建线程锚点，返回新 `session_id`。让用户从当前对话岔开探索另一方向而不丢原线。
+/// 源须是设计线程（否则拒）。**不碰共享 `useChatStream`**——纯 session 生命周期操作。
+pub fn fork_thread(session_id: &str) -> Result<String> {
+    let db = session_db()?;
+    let project_id = project_for_session(session_id)?
+        .ok_or_else(|| anyhow::anyhow!("not a design thread"))?;
+    let src = db
+        .get_session(session_id)?
+        .ok_or_else(|| anyhow::anyhow!("session not found"))?;
+    let new = db.create_session_with_project(&src.agent_id, Some(&project_id), Some(false))?;
+    db.set_session_kind(&new.id, crate::session::SessionKind::Design)?;
+    let n = db.copy_session_messages(session_id, &new.id)?;
+    create_thread(&new.id, &project_id)?;
+    let base = src.title.clone().unwrap_or_else(|| "设计对话".to_string());
+    let _ = db.update_session_title(&new.id, &format!("{base} (分支)"));
+    crate::app_info!(
+        "design",
+        "threads",
+        "forked design thread {session_id} -> {} ({n} msgs)",
+        new.id
+    );
+    Ok(new.id)
+}
+
 /// The design project a chat-thread session is anchored to, if any. Used by the
 /// `design` tool to resolve which project a `kind='design'` chat turn edits.
 pub fn project_for_session(session_id: &str) -> Result<Option<String>> {

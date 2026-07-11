@@ -6487,7 +6487,10 @@
       "starterOutlinePrompt": "Trước khi làm, hãy cho tôi dàn ý cấu trúc trước (tiêu đề mục/trang, các ý chính, trình tự kể chuyện). Sau khi tôi xác nhận, hãy tạo sản phẩm cuối theo dàn ý.",
       "turnFailed": "Lượt này không có kết quả",
       "retry": "Thử lại",
-      "regenerate": "Tạo lại"
+      "regenerate": "Tạo lại",
+      "fork": "Rẽ nhánh cuộc trò chuyện này",
+      "forked": "Đã rẽ nhánh thành cuộc trò chuyện mới",
+      "forkFailed": "Rẽ nhánh thất bại"
     },
     "emptyArtifactsInline": "Chưa có sản phẩm — nhấn “Sản phẩm mới” ở trên cùng bên phải, hoặc yêu cầu AI bên trái tạo một cái.",
     "review": {

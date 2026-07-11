@@ -6487,7 +6487,10 @@
       "starterOutlinePrompt": "Before building, give me a structural outline first (section/slide titles, key points, narrative order). After I confirm it, generate the final artifact from the outline.",
       "turnFailed": "This turn produced nothing",
       "retry": "Retry",
-      "regenerate": "Regenerate"
+      "regenerate": "Regenerate",
+      "fork": "Fork this conversation",
+      "forked": "Forked into a new conversation",
+      "forkFailed": "Fork failed"
     },
     "emptyArtifactsInline": "No artifacts yet — click “New artifact” (top right), or just ask the AI on the left to generate one.",
     "review": {

@@ -6487,7 +6487,10 @@
       "starterOutlinePrompt": "Sebelum membina, beri saya rangka struktur dahulu (tajuk bahagian/slaid, perkara utama, susunan naratif). Selepas saya sahkan, jana artifak akhir daripada rangka itu.",
       "turnFailed": "Pusingan ini tiada hasil",
       "retry": "Cuba lagi",
-      "regenerate": "Jana semula"
+      "regenerate": "Jana semula",
+      "fork": "Cabang perbualan ini",
+      "forked": "Dicabangkan ke perbualan baharu",
+      "forkFailed": "Pencabangan gagal"
     },
     "emptyArtifactsInline": "Belum ada artifak — klik “Artifak baharu” (kanan atas), atau minta AI di kiri menjananya.",
     "review": {
