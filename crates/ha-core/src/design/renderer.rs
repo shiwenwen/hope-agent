@@ -217,7 +217,7 @@ const STORAGE_POLYFILL: &str = "<script>(function(){function mk(){var s={};retur
 /// 编辑态渲染版本：**inspector bridge / oid 注入等编辑工具层**变更时 +1。烧进可编辑 `index.html`
 /// 的 `data-ds-r` 属性；`service::ensure_artifact_render_fresh` 据此自愈老产物——工具层升级无需
 /// 用户重新编辑即对既有产物生效（bridge 烧死在 index.html，否则老产物永远用旧工具）。
-pub const RENDER_VERSION: u32 = 8;
+pub const RENDER_VERSION: u32 = 9;
 
 pub fn build_artifact_html(
     kind: ArtifactKind,
@@ -358,7 +358,7 @@ const INSPECTOR_BRIDGE: &str = r#"<script>
     'padding','padding-top','padding-right','padding-bottom','padding-left',
     'margin','margin-top','margin-right','margin-bottom','margin-left',
     'gap','width','height','max-width','min-height',
-    'border-radius','border-width','border-top-width','border-right-width','border-bottom-width','border-left-width',\
+    'border-radius','border-width','border-top-width','border-right-width','border-bottom-width','border-left-width',
     'border-style','border-color','box-shadow','opacity',
     'display','align-items','justify-content','z-index'];
   function elByOid(oid){return document.querySelector('[data-ds-oid="'+oid+'"]')}

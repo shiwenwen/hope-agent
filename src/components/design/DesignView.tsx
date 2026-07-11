@@ -2097,10 +2097,12 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
   }, [pendingPlacement, postToIframe])
   // 打开产物时**自愈渲染版本**：inspector bridge 等编辑工具层升级后，老产物 index.html 仍烧着
   // 旧 bridge（bridge 烧死在渲染产物里）。静默用当前 renderer 重渲染（内容不变、不新增版本），
-  // 重渲染了就 bump previewKey 重载 iframe。只对 ready 态跑；id / status 变化各触发一次。
+  // 重渲染了就 bump previewKey 重载 iframe。对 ready / needs_review 态都跑——与后端
+  // ensure_artifact_render_fresh 放行集一致（needs_review 产物同样有 bridge、可微调，此前前端只放
+  // ready 致 slop 标记产物永不自愈老 bridge，工具层修复对它们不生效）；id / status 变化各触发一次。
   useEffect(() => {
     const art = activeArtifactRef.current
-    if (!art || art.status !== "ready") return
+    if (!art || (art.status !== "ready" && art.status !== "needs_review")) return
     let cancelled = false
     void tx
       .call<boolean>("ensure_design_artifact_fresh_cmd", { id: art.id })
