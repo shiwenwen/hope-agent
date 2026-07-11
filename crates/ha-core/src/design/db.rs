@@ -1542,9 +1542,15 @@ mod tests {
         assert!(remaining.contains(&100), "ai milestone v100 must survive");
         assert!(remaining.contains(&105), "ai milestone v105 must survive");
         // 当前(最新)版本保留（即便是 manual）：
-        assert!(remaining.contains(&107), "current version v107 must survive");
+        assert!(
+            remaining.contains(&107),
+            "current version v107 must survive"
+        );
         // 最旧的 manual 微调先被淘汰：
-        assert!(!remaining.contains(&101), "oldest manual v101 must be evicted");
+        assert!(
+            !remaining.contains(&101),
+            "oldest manual v101 must be evicted"
+        );
     }
 
     #[test]

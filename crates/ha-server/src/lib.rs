@@ -2019,10 +2019,7 @@ fn build_router_with_cors(
             "/design/artifacts/{id}/deploy",
             post(routes::design::deploy_artifact),
         )
-        .route(
-            "/design/deploy/probe",
-            post(routes::design::probe_deploy),
-        )
+        .route("/design/deploy/probe", post(routes::design::probe_deploy))
         .route(
             "/design/artifacts/{id}/domains",
             post(routes::design::bind_domain).get(routes::design::list_domains),
