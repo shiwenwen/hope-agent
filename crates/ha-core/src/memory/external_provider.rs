@@ -594,6 +594,36 @@ pub(crate) async fn persist_sync_ledger_async(
     crate::blocking::run_blocking(move || persist_sync_ledger(&provider_id, &ledger)).await
 }
 
+pub(crate) async fn finish_sync_with_ledger_checkpoint(
+    provider_id: &str,
+    ledger: &ExternalMemoryProviderSyncLedger,
+    outcome: ExternalMemoryAdapterSyncOutcome,
+    sync_result: std::result::Result<(), ExternalMemoryAdapterSyncFailure>,
+) -> std::result::Result<ExternalMemoryAdapterSyncOutcome, ExternalMemoryAdapterSyncFailure> {
+    let checkpoint_result = persist_sync_ledger_async(provider_id, ledger).await;
+    finish_sync_after_checkpoint(outcome, sync_result, checkpoint_result)
+}
+
+fn finish_sync_after_checkpoint(
+    outcome: ExternalMemoryAdapterSyncOutcome,
+    sync_result: std::result::Result<(), ExternalMemoryAdapterSyncFailure>,
+    checkpoint_result: Result<()>,
+) -> std::result::Result<ExternalMemoryAdapterSyncOutcome, ExternalMemoryAdapterSyncFailure> {
+    match (sync_result, checkpoint_result) {
+        (Ok(()), Ok(())) => Ok(outcome),
+        (Err(failure), Ok(())) => Err(failure),
+        (Ok(()), Err(error)) => Err(ExternalMemoryAdapterSyncFailure { outcome, error }),
+        (Err(failure), Err(checkpoint_error)) => Err(ExternalMemoryAdapterSyncFailure {
+            outcome: failure.outcome,
+            error: anyhow!(
+                "{}; additionally failed to persist sync ledger: {}",
+                failure.error,
+                checkpoint_error
+            ),
+        }),
+    }
+}
+
 pub(crate) async fn load_local_memory_snapshot(
     scan_limit: usize,
 ) -> Result<(Vec<super::MemoryEntry>, usize)> {
@@ -1166,5 +1196,42 @@ mod tests {
         );
         assert!(normalize_endpoint("file:///tmp/memory").is_err());
         assert!(normalize_endpoint("https://example.com?token=secret").is_err());
+    }
+
+    #[test]
+    fn failed_sync_keeps_partial_outcome_after_successful_checkpoint() {
+        let outcome = ExternalMemoryAdapterSyncOutcome {
+            imported_memory_count: 3,
+            ..Default::default()
+        };
+        let failure = ExternalMemoryAdapterSyncFailure {
+            outcome: outcome.clone(),
+            error: anyhow!("next page failed"),
+        };
+
+        let result = finish_sync_after_checkpoint(outcome, Err(failure), Ok(())).unwrap_err();
+
+        assert_eq!(result.outcome.imported_memory_count, 3);
+        assert_eq!(result.error.to_string(), "next page failed");
+    }
+
+    #[test]
+    fn failed_sync_reports_checkpoint_failure_without_losing_original_error() {
+        let outcome = ExternalMemoryAdapterSyncOutcome {
+            imported_memory_count: 2,
+            ..Default::default()
+        };
+        let failure = ExternalMemoryAdapterSyncFailure {
+            outcome: outcome.clone(),
+            error: anyhow!("push failed"),
+        };
+
+        let result =
+            finish_sync_after_checkpoint(outcome, Err(failure), Err(anyhow!("disk unavailable")))
+                .unwrap_err();
+
+        assert_eq!(result.outcome.imported_memory_count, 2);
+        assert!(result.error.to_string().contains("push failed"));
+        assert!(result.error.to_string().contains("disk unavailable"));
     }
 }
