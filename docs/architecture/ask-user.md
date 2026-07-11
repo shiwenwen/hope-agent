@@ -52,7 +52,7 @@
 - 每题独立 `timeout_secs` + `default_values`，超时自动回退到默认答案
 - 每题 `header` chip 标签、`template`（scope / tech_choice / priority）分类图标
 - `context` / `text` / `header` / `label` / `description` 支持 `string | { key, params, fallback }`，后端受控弹窗走 i18n key，旧字符串 payload 继续兼容
-- pending 组持久化到 session SQLite `ask_user_questions` 表，App 重启后可断点续答
+- pending 组持久化到 session SQLite `ask_user_questions` 表：tool oneshot 行用于识别重启僵尸，owner-plane 行可在重启后恢复答复与超时任务
 - IM 渠道按 `ChannelCapabilities.supports_buttons` 分流：支持按钮的渠道（Telegram / Slack / Discord / Feishu / QQ Bot / LINE / Google Chat）发送原生 inline button，不支持的渠道（WeChat / Signal / iMessage / IRC / WhatsApp）降级为 `1a / 1b / done / cancel` 文本回复
 - 与工具审批（approval）共用统一的 `try_dispatch_interactive_callback` dispatcher，避免每个渠道插件重复路由逻辑
 
@@ -69,7 +69,7 @@
 ## 核心概念
 
 - **Request**：一次 `ask_user_question` 工具调用生成一个 `request_id`（UUID），对应一个 `AskUserQuestionGroup`。
-- **Group**：一组相关问题的集合，共享 `context`、`source`（`plan` / `normal` / skill id）、`timeout_at`。
+- **Group**：一组相关问题的集合，共享 `context`、`source`（`plan` / `normal` / skill id）、`timeout_at` 和持久化的有效 `timeout_secs`。
 - **Question**：组内单个问题，拥有独立的 `question_id`、选项列表、`multi_select`、`timeout_secs`、`default_values`。
 - **Option**：单个选项，可选 `description` / `recommended` / `preview` / `previewKind`。
 - **Pending Oneshot**：`tokio::sync::oneshot::Sender` 注册在内存 `PENDING_ASK_USER_QUESTIONS` map 中，键为 `request_id`。
@@ -120,6 +120,7 @@ pub struct AskUserQuestionGroup {
     pub context: Option<AskUserText>,
     pub source: Option<String>,     // "plan" | "normal" | skill id
     pub timeout_at: Option<u64>,    // unix 秒时间戳
+    pub timeout_secs: Option<u64>,  // 有效 group wall-clock，供重启后准确发 timeout event
 }
 ```
 
@@ -290,9 +291,11 @@ CREATE INDEX IF NOT EXISTS idx_ask_user_status  ON ask_user_questions(status);
 |------|------|
 | `save_ask_user_group(&group)` | `INSERT OR REPLACE`，保留已有 `created_at` |
 | `mark_ask_user_answered(request_id)` | 翻到 `answered` + 写 `answered_at` |
-| `expire_pending_ask_user_groups()` | 启动期一次性把全部 pending → answered（孤儿清理） |
+| `mark_ask_user_timed_out(request_id)` | 仅在仍 pending 且 deadline 已到时原子翻到 `answered`；返回是否赢得终态转换 |
+| `expire_pending_ask_user_groups()` | 启动期把失去 oneshot 的 tool pending → answered；保留 durable owner pending |
 | `purge_old_answered_ask_user_groups(retain_days)` | 删除 `answered_at < now - N days` 的行 |
-| `list_pending_ask_user_groups_for_session(session_id)` | 返回 session 的 pending group（按 `created_at ASC`，LIMIT 50）。**查询前先把 `timeout_at` 已过期的行自动翻到 `answered`**，避免返回给 UI 后立刻显示超时 |
+| `list_pending_ask_user_groups_for_session(session_id)` | 返回 deadline 未到的 pending group（按 `created_at ASC`，LIMIT 50）；读路径不抢占 timer 的原子终态转换 |
+| `list_pending_owner_ask_user_groups()` | 启动时读取带 deadline 的 durable owner group 并重建 timeout task |
 
 `ON DELETE CASCADE` 确保 session 被删时相关 pending 记录自动清理。
 
@@ -303,9 +306,10 @@ CREATE INDEX IF NOT EXISTS idx_ask_user_status  ON ask_user_questions(status);
 **启动期（两步）**：
 
 1. `purge_old_answered_ask_user_groups(7)` —— 删除 7 天前的已回答行
-2. `expire_pending_ask_user_groups()` —— 把**全部** pending 行翻到 answered
+2. `expire_pending_ask_user_groups()` —— 把失去 oneshot 的 **tool-created** pending 行翻到 answered
+3. `restore_owner_question_timeouts()` —— 保留 durable owner-plane 行，并按剩余 deadline 重建幂等 timeout task；已经到期的任务立即竞争原子终态转换
 
-第二步为什么不保留？因为内存 oneshot map 在进程启动时是空的，任何试图从 DB "恢复" 的 pending 都无法被新进程答复：UI 提交时 `submit_ask_user_question_response` 会找不到接收端并返回 "No pending plan question request"。一刀切翻到 answered 比留下"僵尸幽灵"要干净得多。
+tool-created 行不能保留，因为内存 oneshot map 在进程启动时为空；owner-plane 行带 durable response handler，不依赖 oneshot，所以必须保留并恢复。每个 owner timeout task 由进程内 registry 按 `request_id` 去重，回答成功会 abort task；回答与 deadline 同时发生时只有 `mark_ask_user_timed_out` 的获胜者能发出 timeout 终态事件和 `ElicitationResult(timeout)` hook。数据库终态写失败时任务保持注册并以 1–30 秒指数退避持续重试，session delete/purge 可通过 AbortHandle 中断。owner 超时永不把 `default_values` 记成用户决策，避免把沉默提升为 consent。
 
 **守护进程模式下的每日 purge**（`app_init.rs`）：
 
@@ -484,6 +488,14 @@ UI 侧根据 `remaining` 切换三种状态：
 `formatRemaining(secs)` 支持 `s / m s / h m` 三种格式化，1 小时以上用 `Xh Ym` 显示。
 
 `timeoutAt == null`（无超时场景）时 hook 返回 `null`，UI 完全不渲染倒计时 chip。
+
+倒计时 chip 不是唯一安全边界。`usePlanMode` 还按 `pendingQuestionGroup.timeoutAt`
+注册独立 deadline guard：到点后按 `requestId` 清卡片，即使 renderer 挂起导致 interval
+延迟、`ask_user_timed_out` 在 WS 断线期丢失，也不会留下可提交的过期 UI。恢复查询使用
+独立的 mutation epoch 与 successful-response sequence；timeout / submit / session 切换都会
+令旧请求失效，禁止“事件先清空、旧 GET 后返回”把问题复活，同时较新的失败请求不会
+吞掉较早的成功响应。WS 重连/lag、window focus、visibility 恢复会再次读取 durable
+pending 状态，侧边栏的 `pendingInteractionCount` 同步走 300ms debounce reload。
 
 ### Preview 渲染（markdown / image / mermaid）
 
@@ -750,6 +762,9 @@ get_pending_ask_user_group:      { method: "GET",    path: "/api/plan/{sessionId
 | 事件名 | 方向 | 订阅方 |
 |--------|-----|--------|
 | `ask_user_request` | core → 所有 | Desktop UI / WS forwarder / IM listener |
+| `ask_user_timed_out` | core → 所有 | 清 active card、桌面通知、IM timeout notice |
+
+HTTP EventBus 广播不做 replay。`HttpTransport` 因此会在 WS 首次连接、重连和 `_lagged` 时发出本地 `transport:event-stream-resync-required`；聊天区重新读取 `get_pending_ask_user_group`，侧边栏重新读取 session 列表。桌面窗口重新获得焦点或从 hidden 回到 visible 时走同一对账路径。
 
 ---
 
@@ -762,13 +777,13 @@ get_pending_ask_user_group:      { method: "GET",    path: "/api/plan/{sessionId
 #[serde(default)]
 pub ask_user_question_timeout_enabled: bool,
 /// Timeout in seconds for ask_user_question when auto-expiry is enabled.
-/// Default duration: 1800 (30 minutes). 0 = no timeout (wait forever).
+/// Default duration: 0 (no timeout; wait forever).
 #[serde(default = "default_ask_user_question_timeout")]
 pub ask_user_question_timeout_secs: u64,
 ```
 
 - 默认：**关闭自动超时**，即永远等待（依赖 cancel 或手动答复）
-- 开启后默认时长：**1800 秒（30 分钟）**
+- 配置默认时长：**0（永不超时）**；设置页主动开启超时开关时会建议 **1800 秒（30 分钟）**
 - 时长 `0` 表示无限等待
 - 配置读写命令：
   - Tauri：`get_ask_user_question_timeout_enabled` / `set_ask_user_question_timeout_enabled` + `get_ask_user_question_timeout` / `set_ask_user_question_timeout`
@@ -794,7 +809,7 @@ ask_user_question_timeout_enabled
 
 1. **工具结果注入攻击**：返回给 LLM 的 JSON 由 `format_answers_for_llm` 严格构造，选项 label 和 custom input 都通过 `serde_json` 正确转义，不会被用户伪造的 `"`、`}` 破坏结构。自由文本由用户输入，模型应当把它视为不受信内容；这点通过系统提示词对 `ask_user_question` 的定位（"用户答复是输入数据"）自然保证。
 
-2. **僵尸行识别**：内存 oneshot map 与 DB 行的双轨设计——答复通过 `is_ask_user_question_live` 在 `find_live_pending_group_for_session` 中过滤后只返回 live 行。进程重启后 `expire_pending_ask_user_groups` 把所有旧 pending 翻成 answered，禁止跨进程"恢复"幽灵。
+2. **僵尸行识别**：内存 oneshot map 与 DB 行的双轨设计——tool 答复通过 `is_ask_user_question_live` 在 `find_live_pending_group_for_session` 中过滤后只返回 live 行。进程重启后 `expire_pending_ask_user_groups` 只把失去 oneshot 的 tool pending 翻成 answered；带 durable response handler 的 owner pending 保留并重建 timeout task。
 
 3. **会话级隔离**：`handler` 在前端检查 `group.sessionId !== currentSessionId`，IM listener 通过 `channel_db.get_conversation_by_session(group.session_id)` 精确路由到原发渠道。不存在 session 或非 IM session 的场景会静默跳过（`Ok(None) => continue`）。
 
@@ -807,6 +822,8 @@ ask_user_question_timeout_enabled
 7. **tool loop 并发语义**：虽然 `ask_user_question` 挂在 `CONCURRENT_SAFE_TOOL_NAMES` 里，但一次 `execute()` 调用会阻塞整个 tool call 直到用户答复或超时。若模型在同一轮里发起多个 `ask_user_question`，它们会**并发触发**多个独立 event，UI 会一个接一个渲染为 `pendingQuestionGroup`——取决于前端当前是否允许同时显示多组。当前实现只保留最新一组（`setPendingQuestionGroup` 覆盖式写入），其他组的 oneshot 仍会在用户提交最新组后继续等待，直到各自 timeout。**推荐模型一次只发一组 ask_user_question**，这点在系统提示词中有明示。
 
 8. **按钮 callback 字符串长度**：`callback_data` 在 Telegram 限制 64 字节，在 Discord 限制 100 字节。`ask_user:{uuid}:select:{qid}:{value}` 在 `request_id`（36 字节 UUID）+ 固定前缀约 10 + `question_id` 和 `option_value` 合计 ~18 字节时总长 ~64 字节，是一个硬上限。若 LLM 生成了过长的 `question_id` 或 `value`，Telegram 会拒收按钮。目前没有前置长度校验，依赖模型自律（schema description 已提示 "Option identifier"）。
+
+9. **Timeout 事件丢失与竞态**：HTTP WS 是 at-most-once，不能把单次 event 当成最终真相。active card 由本地 deadline 清理，重连 / lag / focus 触发 REST 对账；对账响应受 generation guard 约束。后端 owner timeout 使用条件 UPDATE + per-request terminal gate，回答和超时只能有一个终态获胜者，失败方不得重复发事件或写 evidence。session delete/purge 同时 abort owner timer 并清理 IM button/text pending，避免长 deadline task 和失效 callback 残留。
 
 ---
 

@@ -70,6 +70,8 @@ export interface AskUserQuestionGroup {
   source?: string
   /** Unix timestamp (seconds) after which pending answers auto-fall back. */
   timeoutAt?: number
+  /** Effective duration used to derive timeoutAt; retained across restart. */
+  timeoutSecs?: number
 }
 
 export interface AskUserQuestionAnswer {

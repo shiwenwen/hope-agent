@@ -195,6 +195,7 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
         context: context.clone(),
         source,
         timeout_at,
+        timeout_secs: (effective_timeout_secs > 0).then_some(effective_timeout_secs),
         owner_response: None,
     };
 

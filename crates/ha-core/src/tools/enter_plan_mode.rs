@@ -114,6 +114,7 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
         context: reason.map(AskUserText::plain),
         source: Some("plan".to_string()),
         timeout_at,
+        timeout_secs: (timeout_secs > 0).then_some(timeout_secs),
         owner_response: None,
     };
 

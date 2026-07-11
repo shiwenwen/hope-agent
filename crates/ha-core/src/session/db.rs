@@ -1147,12 +1147,10 @@ impl SessionDB {
         Ok(())
     }
 
-    /// Mark every still-pending ask_user_question row as answered. Called on
-    /// app startup because any rows left behind from a previous process have
-    /// no live in-memory oneshot to deliver answers to — restoring them in
-    /// the UI would produce "No pending ask_user_question request" errors.
-    /// Owner-side questions carry a durable `ownerResponse` handler and are
-    /// safe to keep pending across restarts.
+    /// Mark orphaned tool-created ask_user rows as answered at startup because
+    /// their in-memory oneshot receivers cannot survive a process restart.
+    /// Owner-side questions carry a durable `ownerResponse` handler and stay
+    /// pending so their timeout tasks can be re-armed.
     pub fn expire_pending_ask_user_groups(&self) -> anyhow::Result<usize> {
         let conn = self
             .conn
@@ -1201,6 +1199,73 @@ impl SessionDB {
             params![request_id],
         )?;
         Ok(())
+    }
+
+    /// Atomically expire one due ask-user group. Returns `true` only for the
+    /// caller that won the pending -> answered transition, so duplicate timer
+    /// tasks or a response racing the deadline cannot emit duplicate events.
+    pub fn mark_ask_user_timed_out(&self, request_id: &str) -> anyhow::Result<bool> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let changed = conn.execute(
+            "UPDATE ask_user_questions
+                SET status = 'answered', answered_at = datetime('now')
+                WHERE request_id = ?1
+                  AND status = 'pending'
+                  AND timeout_at IS NOT NULL
+                  AND timeout_at > 0
+                  AND timeout_at <= strftime('%s','now')",
+            params![request_id],
+        )?;
+        Ok(changed > 0)
+    }
+
+    /// Return durable owner-plane questions that need their timeout tasks
+    /// re-armed after process startup. Tool-created rows are intentionally
+    /// excluded because their in-memory oneshot receivers cannot survive a
+    /// restart and are handled by `expire_pending_ask_user_groups`.
+    pub fn list_pending_owner_ask_user_groups(
+        &self,
+    ) -> anyhow::Result<Vec<crate::ask_user::AskUserQuestionGroup>> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let mut stmt = conn.prepare(
+            "SELECT payload, timeout_at, CAST(strftime('%s', created_at) AS INTEGER)
+               FROM ask_user_questions
+                WHERE status = 'pending'
+                  AND timeout_at IS NOT NULL
+                  AND timeout_at > 0",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, Option<i64>>(1)?,
+                row.get::<_, Option<i64>>(2)?,
+            ))
+        })?;
+        let mut out = Vec::new();
+        for row in rows {
+            let (payload, timeout_at, created_at) = row?;
+            if let Ok(mut group) =
+                serde_json::from_str::<crate::ask_user::AskUserQuestionGroup>(&payload)
+            {
+                if group.owner_response.is_some() {
+                    if group.timeout_secs.is_none() {
+                        group.timeout_secs = timeout_at
+                            .zip(created_at)
+                            .and_then(|(deadline, created)| deadline.checked_sub(created))
+                            .and_then(|seconds| u64::try_from(seconds).ok())
+                            .filter(|seconds| *seconds > 0);
+                    }
+                    out.push(group);
+                }
+            }
+        }
+        Ok(out)
     }
 
     /// Drop answered rows older than `retain_days` days so the
@@ -1261,18 +1326,12 @@ impl SessionDB {
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
-        conn.execute(
-            "UPDATE ask_user_questions
-                SET status = 'answered', answered_at = datetime('now')
-                WHERE status = 'pending'
-                  AND timeout_at IS NOT NULL
-                  AND timeout_at > 0
-                  AND timeout_at <= strftime('%s','now')",
-            [],
-        )?;
         let mut stmt = conn.prepare(
             "SELECT payload FROM ask_user_questions
-                WHERE status = 'pending' AND session_id = ?1
+                WHERE status = 'pending'
+                  AND session_id = ?1
+                  AND (timeout_at IS NULL OR timeout_at = 0
+                       OR timeout_at > strftime('%s','now'))
                 ORDER BY created_at ASC
                 LIMIT 50",
         )?;
@@ -1297,15 +1356,6 @@ impl SessionDB {
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
-        conn.execute(
-            "UPDATE ask_user_questions
-                SET status = 'answered', answered_at = datetime('now')
-                WHERE status = 'pending'
-                  AND timeout_at IS NOT NULL
-                  AND timeout_at > 0
-                  AND timeout_at <= strftime('%s','now')",
-            [],
-        )?;
         let payload: Option<String> = conn
             .query_row(
                 "SELECT payload FROM ask_user_questions
@@ -6445,6 +6495,63 @@ mod tests {
         assert!(loaded.runtime_defaults_initialized);
         assert_eq!(loaded.temperature, None);
         assert_eq!(loaded.reasoning_effort.as_deref(), Some("high"));
+
+        let _ = std::fs::remove_file(&db_path);
+    }
+
+    #[test]
+    fn ask_user_timeout_transition_is_atomic_and_reads_do_not_steal_it() {
+        let db_path = temp_db_path("ask-user-timeout-transition");
+        let db = SessionDB::open(&db_path).expect("open session db");
+        ensure_channel_conversations_table(&db);
+        let session = db
+            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .expect("create session");
+        let now = chrono::Utc::now().timestamp().max(1) as u64;
+        let group: crate::ask_user::AskUserQuestionGroup =
+            serde_json::from_value(serde_json::json!({
+                "requestId": "owner-timeout-1",
+                "sessionId": session.id,
+                "questions": [],
+                "source": "owner",
+                "timeoutAt": now - 1,
+                "timeoutSecs": 1,
+                "ownerResponse": { "action": "record_domain_evidence" }
+            }))
+            .expect("deserialize ask_user group");
+        db.save_ask_user_group(&group).expect("save ask_user group");
+
+        assert!(
+            db.list_pending_ask_user_groups_for_session(&group.session_id)
+                .expect("list pending groups")
+                .is_empty(),
+            "expired groups must not be restored to the UI"
+        );
+        {
+            let conn = db.conn.lock().expect("lock connection");
+            let status: String = conn
+                .query_row(
+                    "SELECT status FROM ask_user_questions WHERE request_id = ?1",
+                    rusqlite::params![group.request_id],
+                    |row| row.get(0),
+                )
+                .expect("read pending status");
+            assert_eq!(
+                status, "pending",
+                "read paths must not consume the timeout transition"
+            );
+        }
+
+        assert!(
+            db.mark_ask_user_timed_out(&group.request_id)
+                .expect("expire due group"),
+            "the first timer must win the terminal transition"
+        );
+        assert!(
+            !db.mark_ask_user_timed_out(&group.request_id)
+                .expect("repeat timeout transition"),
+            "duplicate timers must not emit a second terminal transition"
+        );
 
         let _ = std::fs::remove_file(&db_path);
     }

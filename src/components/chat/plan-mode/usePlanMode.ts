@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from "react"
 import { getTransport } from "@/lib/transport-provider"
-import { parsePayload } from "@/lib/transport"
+import { parsePayload, TRANSPORT_EVENT_RESYNC_REQUIRED } from "@/lib/transport"
 import { logger } from "@/lib/logger"
 import type { AskUserQuestionGroup } from "../ask-user/AskUserQuestionBlock"
 
@@ -37,6 +37,10 @@ function normalizePlanContent(value: unknown): string {
   return typeof raw === "string" ? raw : ""
 }
 
+function isExpiredQuestionGroup(group: AskUserQuestionGroup): boolean {
+  return !!group.timeoutAt && group.timeoutAt <= Math.floor(Date.now() / 1000)
+}
+
 export interface UsePlanModeReturn {
   planState: PlanModeState
   setPlanState: React.Dispatch<React.SetStateAction<PlanModeState>>
@@ -66,12 +70,53 @@ export function usePlanMode(
   const [planContent, setPlanContent] = useState<string>("")
   const [showPanel, setShowPanel] = useState(false)
   const [planCardInfo, setPlanCardInfo] = useState<PlanCardInfo | null>(null)
-  const [pendingQuestionGroup, setPendingQuestionGroup] = useState<AskUserQuestionGroup | null>(null)
+  const [pendingQuestionGroup, setPendingQuestionGroupState] = useState<AskUserQuestionGroup | null>(null)
   const [planSubagentRunning, setPlanSubagentRunning] = useState(false)
+  const pendingMutationVersionRef = useRef(0)
+  const pendingReconcileSequenceRef = useRef(0)
+  const pendingAppliedReconcileRef = useRef(0)
+
+  // Any explicit local mutation invalidates older REST reconciliation calls.
+  // This prevents a response started before timeout/submission from restoring
+  // the stale question after the terminal event has already cleared it.
+  const setPendingQuestionGroup = useCallback<
+    React.Dispatch<React.SetStateAction<AskUserQuestionGroup | null>>
+  >((next) => {
+    pendingMutationVersionRef.current += 1
+    setPendingQuestionGroupState(next)
+  }, [])
 
   // Track whether plan mode was entered in the current no-session context
   const preSessionPlanRef = useRef(false)
   const lastSessionIdRef = useRef<string | null>(null)
+
+  const reconcilePendingQuestion = useCallback(async () => {
+    const sessionId = currentSessionId
+    const mutationVersion = pendingMutationVersionRef.current
+    const sequence = ++pendingReconcileSequenceRef.current
+    if (!sessionId) {
+      setPendingQuestionGroupState(null)
+      return
+    }
+    try {
+      const group = await getTransport().call<AskUserQuestionGroup | null>(
+        "get_pending_ask_user_group",
+        { sessionId },
+      )
+      // A terminal/local mutation always invalidates older reads. Among reads
+      // from the same mutation epoch, apply the newest successful response;
+      // a newer request that merely failed must not discard this result.
+      if (mutationVersion !== pendingMutationVersionRef.current) return
+      if (sequence < pendingAppliedReconcileRef.current) return
+      pendingAppliedReconcileRef.current = sequence
+      setPendingQuestionGroupState(
+        group && group.sessionId === sessionId && !isExpiredQuestionGroup(group) ? group : null,
+      )
+    } catch {
+      // Keep the current state on transient transport errors. The local
+      // deadline guard still prevents an expired card accepting responses.
+    }
+  }, [currentSessionId])
 
   // Enter Plan Mode
   const enterPlanMode = useCallback(async () => {
@@ -197,18 +242,9 @@ export function usePlanMode(
 
     let cancelled = false
 
-    // Restore any still-pending group for the target session (resume unanswered).
-    getTransport()
-      .call<AskUserQuestionGroup | null>("get_pending_ask_user_group", {
-        sessionId: currentSessionId,
-      })
-      .then((group) => {
-        if (cancelled) return
-        if (group && group.sessionId === currentSessionId) {
-          setPendingQuestionGroup(group)
-        }
-      })
-      .catch(() => {})
+    // Restore any still-pending group for the target session. The versioned
+    // reconciliation prevents a response racing timeout from reviving it.
+    void reconcilePendingQuestion()
 
     // If plan mode was explicitly entered before the backend session existed,
     // sync that draft state to the newly materialized session. Do not reuse a
@@ -219,6 +255,7 @@ export function usePlanMode(
         .catch(() => {})
       return () => {
         cancelled = true
+        pendingMutationVersionRef.current += 1
       }
     }
 
@@ -268,8 +305,9 @@ export function usePlanMode(
 
     return () => {
       cancelled = true
+      pendingMutationVersionRef.current += 1
     }
-  }, [currentSessionId, setPlanState])
+  }, [currentSessionId, reconcilePendingQuestion, setPendingQuestionGroup, setPlanState])
 
   // Listen for plan_mode_changed events (auto-transition)
   useEffect(() => {
@@ -307,7 +345,7 @@ export function usePlanMode(
         })
         .catch(() => {})
     })
-  }, [currentSessionId, setPlanState])
+  }, [currentSessionId, setPendingQuestionGroup, setPlanState])
 
   // Listen for ask_user_request events emitted by the ask_user_question tool.
   useEffect(() => {
@@ -316,13 +354,13 @@ export function usePlanMode(
         const group = parsePayload<AskUserQuestionGroup>(raw)
         if (!group) return
         if (group.sessionId !== currentSessionId) return
-        setPendingQuestionGroup(group)
+        setPendingQuestionGroup(isExpiredQuestionGroup(group) ? null : group)
       } catch {
         // ignore parse errors
       }
     }
     return getTransport().listen("ask_user_request", handler)
-  }, [currentSessionId])
+  }, [currentSessionId, setPendingQuestionGroup])
 
   // Mirror backend timeout cleanup locally so expired questions no longer
   // accept responses in the active chat UI.
@@ -339,7 +377,55 @@ export function usePlanMode(
         // ignore parse errors
       }
     })
-  }, [currentSessionId])
+  }, [currentSessionId, setPendingQuestionGroup])
+
+  // EventBus delivery is at-most-once. Clear at the durable wall-clock
+  // deadline even when the renderer was suspended or the WS event was lost.
+  useEffect(() => {
+    const requestId = pendingQuestionGroup?.requestId
+    const timeoutAt = pendingQuestionGroup?.timeoutAt
+    if (!requestId || !timeoutAt) return
+
+    let timer: ReturnType<typeof setTimeout> | null = null
+    const checkDeadline = () => {
+      const remainingMs = timeoutAt * 1000 - Date.now()
+      if (remainingMs <= 0) {
+        queueMicrotask(() => {
+          setPendingQuestionGroup((current) =>
+            current?.requestId === requestId ? null : current,
+          )
+        })
+        return
+      }
+      // Recheck periodically so clock changes and long owner timeouts do not
+      // rely on an oversized/clamped browser timer.
+      timer = setTimeout(checkDeadline, Math.min(remainingMs, 60_000))
+    }
+    checkDeadline()
+    return () => {
+      if (timer) clearTimeout(timer)
+    }
+  }, [pendingQuestionGroup?.requestId, pendingQuestionGroup?.timeoutAt, setPendingQuestionGroup])
+
+  // Re-read durable state after HTTP WS reconnect/lag and when a suspended
+  // desktop renderer becomes active again. This heals missed terminal events
+  // and refreshes owner-plane questions restored after backend restart.
+  useEffect(() => {
+    const reconcile = () => {
+      void reconcilePendingQuestion()
+    }
+    const offResync = getTransport().listen(TRANSPORT_EVENT_RESYNC_REQUIRED, reconcile)
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") reconcile()
+    }
+    window.addEventListener("focus", reconcile)
+    document.addEventListener("visibilitychange", onVisibilityChange)
+    return () => {
+      offResync()
+      window.removeEventListener("focus", reconcile)
+      document.removeEventListener("visibilitychange", onVisibilityChange)
+    }
+  }, [reconcilePendingQuestion])
 
   // Listen for plan_subagent_status events (plan sub-agent running/completed)
   useEffect(() => {

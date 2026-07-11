@@ -124,6 +124,10 @@ pub struct AskUserQuestionGroup {
     /// `None` means no overall timeout.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub timeout_at: Option<u64>,
+    /// Effective wall-clock timeout used to derive `timeout_at`. Persisting it
+    /// lets owner-plane questions emit an accurate timeout event after restart.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timeout_secs: Option<u64>,
     /// Optional owner-plane response handler. Tool-created ask_user requests
     /// wait on an in-memory oneshot; owner-created requests instead complete
     /// by recording durable evidence when the user answers.

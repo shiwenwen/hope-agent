@@ -1,7 +1,7 @@
 use anyhow::{bail, Result};
 use serde_json::{json, Map, Value};
 use std::collections::HashMap;
-use std::sync::OnceLock;
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::Mutex as TokioMutex;
 
@@ -52,6 +52,20 @@ static PENDING_ASK_USER_QUESTIONS: OnceLock<
     TokioMutex<HashMap<String, tokio::sync::oneshot::Sender<Vec<AskUserQuestionAnswer>>>>,
 > = OnceLock::new();
 
+/// Durable owner-plane questions do not have a live oneshot receiver, so their
+/// timeout tasks are tracked separately and can be re-armed after restart.
+struct OwnerTimeoutTask {
+    abort_handle: tokio::task::AbortHandle,
+    session_id: String,
+    /// Serializes the deadline transition with an owner response. The response
+    /// holds this gate while writing evidence + answered state; the timer holds
+    /// it while atomically claiming timeout, so both cannot win.
+    gate: Arc<TokioMutex<()>>,
+}
+
+static OWNER_ASK_USER_TIMEOUT_TASKS: OnceLock<Mutex<HashMap<String, OwnerTimeoutTask>>> =
+    OnceLock::new();
+
 fn get_pending_questions(
 ) -> &'static TokioMutex<HashMap<String, tokio::sync::oneshot::Sender<Vec<AskUserQuestionAnswer>>>>
 {
@@ -90,6 +104,179 @@ pub async fn cancel_pending_ask_user_question(request_id: &str) {
     pending.remove(request_id);
     drop(pending);
     crate::tools::approval::emit_pending_interactions_changed(None);
+}
+
+fn owner_timeout_tasks() -> &'static Mutex<HashMap<String, OwnerTimeoutTask>> {
+    OWNER_ASK_USER_TIMEOUT_TASKS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn forget_owner_timeout_task(request_id: &str) {
+    if let Ok(mut tasks) = owner_timeout_tasks().lock() {
+        tasks.remove(request_id);
+    }
+}
+
+fn cancel_owner_timeout_task(request_id: &str) {
+    if let Ok(mut tasks) = owner_timeout_tasks().lock() {
+        if let Some(task) = tasks.remove(request_id) {
+            task.abort_handle.abort();
+        }
+    }
+}
+
+fn owner_timeout_gate(request_id: &str) -> Option<Arc<TokioMutex<()>>> {
+    owner_timeout_tasks()
+        .lock()
+        .ok()
+        .and_then(|tasks| tasks.get(request_id).map(|task| Arc::clone(&task.gate)))
+}
+
+/// Abort durable owner timeout tasks when their session is deleted/purged.
+/// The DB rows are removed by FK cascade, so no terminal event should fire.
+pub fn cancel_owner_question_timeouts_for_session(session_id: &str) -> usize {
+    let Ok(mut tasks) = owner_timeout_tasks().lock() else {
+        return 0;
+    };
+    let request_ids: Vec<String> = tasks
+        .iter()
+        .filter(|(_, task)| task.session_id == session_id)
+        .map(|(request_id, _)| request_id.clone())
+        .collect();
+    for request_id in &request_ids {
+        if let Some(task) = tasks.remove(request_id) {
+            task.abort_handle.abort();
+        }
+    }
+    request_ids.len()
+}
+
+/// Arm one durable owner-plane timeout. Duplicate calls are idempotent, which
+/// makes this safe at both creation time and startup recovery.
+pub fn schedule_owner_question_timeout(group: AskUserQuestionGroup) {
+    let Some(timeout_at) = group.timeout_at.filter(|value| *value > 0) else {
+        return;
+    };
+    if group.owner_response.is_none() {
+        return;
+    }
+    let Ok(runtime) = tokio::runtime::Handle::try_current() else {
+        app_warn!(
+            "ask_user",
+            "owner_timeout",
+            "Cannot arm owner ask_user timeout {} without a Tokio runtime",
+            group.request_id
+        );
+        return;
+    };
+
+    let request_id = group.request_id.clone();
+    let mut tasks = match owner_timeout_tasks().lock() {
+        Ok(tasks) => tasks,
+        Err(e) => {
+            app_warn!(
+                "ask_user",
+                "owner_timeout",
+                "Failed to lock owner ask_user timeout registry: {}",
+                e
+            );
+            return;
+        }
+    };
+    if tasks.contains_key(&request_id) {
+        return;
+    }
+
+    let task_request_id = request_id.clone();
+    let task_session_id = group.session_id.clone();
+    let gate = Arc::new(TokioMutex::new(()));
+    let task_gate = Arc::clone(&gate);
+    let join = runtime.spawn(async move {
+        loop {
+            let now = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|duration| duration.as_secs())
+                .unwrap_or(0);
+            if now >= timeout_at {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_secs(timeout_at - now)).await;
+        }
+
+        let _terminal_guard = task_gate.lock().await;
+        let mut retry_delay = std::time::Duration::from_secs(1);
+        let did_expire = loop {
+            let expire_request_id = task_request_id.clone();
+            let result = crate::blocking::run_blocking(move || -> Result<bool> {
+                let Some(db) = crate::get_session_db() else {
+                    bail!("session DB is unavailable");
+                };
+                db.mark_ask_user_timed_out(&expire_request_id)
+            })
+            .await;
+            match result {
+                Ok(changed) => break changed,
+                Err(e) => {
+                    app_warn!(
+                        "ask_user",
+                        "owner_timeout",
+                        "Failed to expire owner ask_user question {}; retrying in {}s: {}",
+                        task_request_id,
+                        retry_delay.as_secs(),
+                        e
+                    );
+                    // Keep the registry entry and terminal gate while retrying.
+                    // Session deletion aborts this sleep through the stored
+                    // AbortHandle, so an unavailable DB cannot leak the task.
+                    tokio::time::sleep(retry_delay).await;
+                    retry_delay = (retry_delay * 2).min(std::time::Duration::from_secs(30));
+                }
+            }
+        };
+        if did_expire {
+            crate::channel::worker::ask_user::drop_pending_by_request_id(&task_request_id).await;
+            crate::tools::approval::emit_pending_interactions_changed(Some(&group.session_id));
+            crate::hooks::fire_elicitation_result(&group.session_id, &task_request_id, "timeout");
+            let timeout_secs = group.timeout_secs.unwrap_or_else(|| {
+                group
+                    .questions
+                    .iter()
+                    .filter_map(|question| question.timeout_secs)
+                    .max()
+                    .unwrap_or(0)
+            });
+            emit_ask_user_timed_out(
+                &task_request_id,
+                &group.session_id,
+                timeout_secs,
+                false,
+                group.questions.first().map(|question| {
+                    crate::truncate_utf8(question.text.fallback_text(), 160).to_string()
+                }),
+            );
+        }
+        forget_owner_timeout_task(&task_request_id);
+    });
+    tasks.insert(
+        request_id,
+        OwnerTimeoutTask {
+            abort_handle: join.abort_handle(),
+            session_id: task_session_id,
+            gate,
+        },
+    );
+}
+
+/// Re-arm every durable owner-plane timeout left pending across a restart.
+pub fn restore_owner_question_timeouts() -> Result<usize> {
+    let Some(db) = crate::get_session_db() else {
+        return Ok(0);
+    };
+    let groups = db.list_pending_owner_ask_user_groups()?;
+    let count = groups.len();
+    for group in groups {
+        schedule_owner_question_timeout(group);
+    }
+    Ok(count)
 }
 
 /// Check whether a request_id is currently awaited by a live tool call
@@ -200,9 +387,11 @@ pub fn create_owner_ask_user_question(
             .and_then(|value| non_empty(&value).map(str::to_string))
             .or_else(|| Some("owner".to_string())),
         timeout_at,
+        timeout_secs: (timeout_secs > 0).then_some(timeout_secs),
         owner_response: Some(owner_response),
     };
     persist_owner_question(&group)?;
+    schedule_owner_question_timeout(group.clone());
     Ok(group)
 }
 
@@ -219,6 +408,10 @@ async fn submit_owner_question_response(
     request_id: &str,
     answers: Vec<AskUserQuestionAnswer>,
 ) -> Result<()> {
+    let _terminal_guard = match owner_timeout_gate(request_id) {
+        Some(gate) => Some(gate.lock_owned().await),
+        None => None,
+    };
     // The owner-response path issues several synchronous SessionDB writes
     // (lookup + record_domain_evidence + mark_answered). Route them through the
     // blocking pool so they never pin the async worker (see `crate::blocking`).
@@ -251,6 +444,7 @@ async fn submit_owner_question_response(
         Ok(group.session_id)
     })
     .await?;
+    cancel_owner_timeout_task(request_id);
     crate::hooks::fire_elicitation_result(&session_id, request_id, "answered");
     crate::tools::approval::emit_pending_interactions_changed(Some(&session_id));
     Ok(())

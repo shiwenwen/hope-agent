@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest"
 
 import { HttpTransport } from "./transport-http"
+import { TRANSPORT_EVENT_RESYNC_REQUIRED } from "./transport"
 
 const fetchMock = vi.fn()
 
@@ -11,6 +12,52 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllGlobals()
+})
+
+test("HttpTransport requests durable-state resync on connect and EventBus lag", () => {
+  class MockWebSocket {
+    static instances: MockWebSocket[] = []
+    readyState = 0
+    onopen: (() => void) | null = null
+    onmessage: ((event: { data: string }) => void) | null = null
+    onerror: (() => void) | null = null
+    onclose: (() => void) | null = null
+
+    constructor(_url: string) {
+      MockWebSocket.instances.push(this)
+    }
+
+    close() {
+      this.readyState = 3
+      this.onclose?.()
+    }
+
+    open() {
+      this.readyState = 1
+      this.onopen?.()
+    }
+
+    message(value: unknown) {
+      this.onmessage?.({ data: JSON.stringify(value) })
+    }
+  }
+
+  vi.stubGlobal("WebSocket", MockWebSocket)
+  const transport = new HttpTransport("http://localhost:8420")
+  const resyncReasons: unknown[] = []
+  const unsubscribe = transport.listen(TRANSPORT_EVENT_RESYNC_REQUIRED, (payload) => {
+    resyncReasons.push(payload)
+  })
+
+  const socket = MockWebSocket.instances[0]
+  socket.open()
+  socket.message({ name: "_lagged", payload: { missed: 3 } })
+
+  expect(resyncReasons).toEqual([
+    { reason: "connected" },
+    { reason: "lagged", missed: 3 },
+  ])
+  unsubscribe()
 })
 
 test("HttpTransport.startChat only bridges session_created and not late turn_started", async () => {

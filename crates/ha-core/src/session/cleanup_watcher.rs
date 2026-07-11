@@ -132,6 +132,9 @@ async fn cleanup_session(
     descendant_session_ids: Vec<String>,
     im_chat: Option<(String, String)>,
 ) {
+    crate::ask_user::cancel_owner_question_timeouts_for_session(session_id);
+    crate::channel::worker::ask_user::drop_pending_for_session(session_id).await;
+
     // A-8: cancel active / awaiting-approval background jobs (DELETE-4).
     let cancelled_jobs = crate::async_jobs::JobManager::cancel_for_session(session_id);
 
@@ -172,6 +175,8 @@ async fn cleanup_session(
     // it owns, so deleting the parent doesn't strand an orphan approval dialog
     // (or a child-session job) with no way to resolve it.
     for child_sid in &descendant_session_ids {
+        crate::ask_user::cancel_owner_question_timeouts_for_session(child_sid);
+        crate::channel::worker::ask_user::drop_pending_for_session(child_sid).await;
         crate::async_jobs::JobManager::cancel_for_session(child_sid);
         let _ = crate::tools::deny_pending_for_session(
             child_sid,

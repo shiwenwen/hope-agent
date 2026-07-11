@@ -21,6 +21,7 @@ import type {
   SessionArtifacts,
   WorkspaceEnvironmentSnapshot,
 } from "@/lib/transport"
+import { TRANSPORT_EVENT_RESYNC_REQUIRED } from "@/lib/transport"
 import type { FileChangesMetadata, MediaItem } from "@/types/chat"
 import { dispatchAuthRequired, setStoredApiKey } from "@/lib/api-key-storage"
 
@@ -2180,6 +2181,16 @@ export class HttpTransport implements Transport {
     this.eventSubscriptions.push(sub)
     this.ensureEventWs()
 
+    // A subscriber added after the socket opened still needs one durable-state
+    // reconciliation; otherwise it can miss events from before it subscribed.
+    if (eventName === TRANSPORT_EVENT_RESYNC_REQUIRED && this.eventWs?.readyState === 1) {
+      queueMicrotask(() => {
+        if (this.eventSubscriptions.includes(sub)) {
+          handler({ reason: "already_connected" })
+        }
+      })
+    }
+
     return () => {
       const idx = this.eventSubscriptions.indexOf(sub)
       if (idx !== -1) this.eventSubscriptions.splice(idx, 1)
@@ -2203,6 +2214,7 @@ export class HttpTransport implements Transport {
       this.eventWsConnecting = false
       this.eventWs = ws
       this.reconnectAttempts = 0
+      this.dispatchEvent(TRANSPORT_EVENT_RESYNC_REQUIRED, { reason: "connected" })
     }
 
     ws.onmessage = (ev) => {
@@ -2212,10 +2224,14 @@ export class HttpTransport implements Transport {
           name: string
           payload: unknown
         }
-        for (const sub of this.eventSubscriptions) {
-          if (sub.eventName === envelope.name) {
-            sub.handler(envelope.payload)
-          }
+        this.dispatchEvent(envelope.name, envelope.payload)
+        if (envelope.name === "_lagged") {
+          this.dispatchEvent(TRANSPORT_EVENT_RESYNC_REQUIRED, {
+            reason: "lagged",
+            ...(envelope.payload && typeof envelope.payload === "object"
+              ? envelope.payload as Record<string, unknown>
+              : {}),
+          })
         }
       } catch {
         // Ignore malformed messages.
@@ -2248,6 +2264,14 @@ export class HttpTransport implements Transport {
       this.reconnectTimer = null
       this.ensureEventWs()
     }, delay)
+  }
+
+  private dispatchEvent(eventName: string, payload: unknown): void {
+    for (const sub of [...this.eventSubscriptions]) {
+      if (sub.eventName === eventName) {
+        sub.handler(payload)
+      }
+    }
   }
 
   private teardownEventWs(): void {

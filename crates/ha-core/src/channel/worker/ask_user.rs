@@ -224,6 +224,21 @@ pub async fn drop_pending_by_request_id(request_id: &str) {
     }
 }
 
+/// Remove every pending ask_user entry owned by a deleted/purged session.
+pub async fn drop_pending_for_session(session_id: &str) {
+    {
+        let mut map = get_button_pending().lock().await;
+        map.retain(|_, pending| pending.group.session_id != session_id);
+    }
+    {
+        let mut map = get_text_pending().lock().await;
+        map.retain(|_, list| {
+            list.retain(|pending| pending.group.session_id != session_id);
+            !list.is_empty()
+        });
+    }
+}
+
 // ── Button / prompt rendering ─────────────────────────────────────
 
 fn tr(locale: &str, row: [&'static str; 12]) -> &'static str {
