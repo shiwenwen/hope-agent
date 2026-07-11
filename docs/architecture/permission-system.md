@@ -90,7 +90,7 @@ graph TD
 | `workspace` | Docker 直接挂载当前工作区 | workspace 内 `exec` 编辑命令可放松；直接文件工具仍审批 |
 | `trusted` | 沙箱内 exec 最大自治 | 同 `workspace`，strict 项仍每次审批：保护路径、危险命令、raw CDP、macOS 高危控制、外部连接器写动作等 |
 
-切换入口：聊天输入区的 `SandboxModeSwitcher`。会话首次创建时按 `AgentConfig.capabilities.default_sandbox_mode` 解析；该字段缺失时兼容旧布尔 `AgentConfig.capabilities.sandbox`（`true → standard`，`false → off`）。非 `off` 但 Docker 不可用时，工具执行 fail-closed 返回 `SandboxUnavailable`，不得静默回落到宿主机执行。
+切换入口：聊天输入区 `PermissionModeSwitcher` 弹层内默认折叠的「沙箱」分区（选项列表复用 `SandboxModeSwitcher`）。会话首次创建时按 `AgentConfig.capabilities.default_sandbox_mode` 解析；该字段缺失时兼容旧布尔 `AgentConfig.capabilities.sandbox`（`true → standard`，`false → off`）。非 `off` 但 Docker 不可用时，工具执行 fail-closed 返回 `SandboxUnavailable`，不得静默回落到宿主机执行。
 
 ### Global YOLO（进程级）
 

@@ -13,7 +13,7 @@ export function getChatInputOverflowActionIds(): ChatInputOverflowActionId[] {
 export const CHAT_INPUT_INLINE_ADD_ACTIONS_CLASS = "flex items-center gap-1 shrink-0"
 export const CHAT_INPUT_OVERFLOW_MENU_CLASS = "hidden"
 
-export const CHAT_INPUT_TOOLBAR_MAX_COLLAPSE_LEVEL = 4
+export const CHAT_INPUT_TOOLBAR_MAX_COLLAPSE_LEVEL = 3
 export const CHAT_INPUT_TOOLBAR_FIT_BUFFER_PX = 8
 export const CHAT_INPUT_TOOLBAR_EXPAND_BUFFER_PX = 24
 export const CHAT_INPUT_TOOLBAR_ITEM_GAP_PX = 4
@@ -25,7 +25,6 @@ export const CHAT_INPUT_TOOLBAR_GROUP_WIDTH_FALLBACKS = {
   addActions: 108,
   overflowTrigger: 32,
   semanticModes: 336,
-  sandbox: 146,
   permission: 131,
 } as const
 
@@ -40,15 +39,13 @@ export function clampChatInputToolbarCollapseLevel(level: number): number {
 export function getChatInputToolbarFlags(level: number): {
   toolbarCompact: boolean
   toolbarTight: boolean
-  sandboxCollapsed: boolean
   permissionCollapsed: boolean
 } {
   const clamped = clampChatInputToolbarCollapseLevel(level)
   return {
     toolbarCompact: clamped >= 1,
     toolbarTight: clamped >= 2,
-    sandboxCollapsed: clamped >= 3,
-    permissionCollapsed: clamped >= 4,
+    permissionCollapsed: clamped >= 3,
   }
 }
 
@@ -72,21 +69,18 @@ export function estimateChatInputToolbarLevelWidths({
     measuredWidth(widths.addActions) - measuredWidth(widths.overflowTrigger),
   )
   const semantic = measuredWidth(widths.semanticModes) + gap
-  const sandbox = measuredWidth(widths.sandbox) + gap
   const permission = measuredWidth(widths.permission) + gap
 
   let allInlineWidth = measuredWidth(visibleWidth)
   if (level >= 1) allInlineWidth += addDelta
   if (level >= 2) allInlineWidth += semantic
-  if (level >= 3) allInlineWidth += sandbox
-  if (level >= 4) allInlineWidth += permission
+  if (level >= 3) allInlineWidth += permission
 
   const level1 = allInlineWidth - addDelta
   const level2 = level1 - semantic
-  const level3 = level2 - sandbox
-  const level4 = level3 - permission
+  const level3 = level2 - permission
 
-  return [allInlineWidth, level1, level2, level3, level4].map(measuredWidth)
+  return [allInlineWidth, level1, level2, level3].map(measuredWidth)
 }
 
 export function resolveChatInputToolbarCollapseLevel({

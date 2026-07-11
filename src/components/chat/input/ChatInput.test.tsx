@@ -10,7 +10,6 @@ import type { GoalSnapshot } from "@/components/chat/workspace/useGoal"
 import ChatInput from "./ChatInput"
 import IncognitoToggle from "./IncognitoToggle"
 import PermissionModeSwitcher from "./PermissionModeSwitcher"
-import SandboxModeSwitcher from "./SandboxModeSwitcher"
 import { getPastedTextFileMeta } from "./pastedTextAttachment"
 
 vi.mock("react-i18next", () => ({
@@ -281,17 +280,16 @@ describe("IncognitoToggle", () => {
 })
 
 describe("Collapsed toolbar mode switchers", () => {
-  test("render permission and sandbox controls inline when used inside the overflow menu", () => {
+  test("renders sandbox choices inside the inline permission menu", async () => {
     render(
       <TooltipProvider>
-        <div>
-          <PermissionModeSwitcher
-            variant="menu"
-            permissionMode="default"
-            onPermissionModeChange={vi.fn()}
-          />
-          <SandboxModeSwitcher variant="menu" sandboxMode="off" onSandboxModeChange={vi.fn()} />
-        </div>
+        <PermissionModeSwitcher
+          variant="menu"
+          permissionMode="default"
+          onPermissionModeChange={vi.fn()}
+          sandboxMode="off"
+          onSandboxModeChange={vi.fn()}
+        />
       </TooltipProvider>,
     )
 
@@ -302,8 +300,9 @@ describe("Collapsed toolbar mode switchers", () => {
     expect(smartOption.closest(".rounded-floating")).toBeFalsy()
     expect(smartOption.closest(".absolute")).toBeFalsy()
 
-    fireEvent.click(screen.getByRole("button", { name: "off" }))
-    const standardOption = screen.getByText("standard")
+    expect(screen.queryByText("standard")).toBeNull()
+    fireEvent.click(screen.getByRole("button", { name: "沙箱" }))
+    const standardOption = await screen.findByText("standard")
     expect(standardOption.closest(".rounded-floating")).toBeFalsy()
     expect(standardOption.closest(".absolute")).toBeFalsy()
   })
