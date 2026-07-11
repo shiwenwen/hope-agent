@@ -3803,6 +3803,7 @@ export default function ChatScreen({
                       }}
                       onEditPending={stream.editPendingSend}
                       onDiscardPendingItem={stream.discardPendingSend}
+                      onSendPending={stream.sendPendingSend}
                       onForceInsertPending={stream.forceInsertPendingSend}
                       onCancelForceInsertPending={stream.cancelForceInsertPendingSend}
                       onStop={stream.handleStop}

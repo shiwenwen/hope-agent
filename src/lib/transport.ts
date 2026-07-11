@@ -49,6 +49,9 @@ export interface ChatStartArgs {
   temperatureOverride?: number;
   reasoningEffort?: string;
   displayText?: string;
+  /** Dispatch an existing durable pending-message row. The backend loads the
+   * authoritative text, metadata, and attachment references from SQLite. */
+  queuedRequestId?: string;
   /** Marks the user message as a Plan Mode approve/resume trigger so the
    *  backend stamps `attachments_meta = {plan_trigger: true}` and the UI
    *  renders it as a system chip instead of a regular user bubble. */

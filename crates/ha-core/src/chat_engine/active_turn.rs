@@ -36,6 +36,7 @@ struct Entry {
     stream_id: Option<String>,
     source: ChatSource,
     cancel: Arc<AtomicBool>,
+    accepting_insertions: bool,
 }
 
 static ACTIVE_TURNS: OnceLock<Mutex<HashMap<String, Entry>>> = OnceLock::new();
@@ -109,6 +110,7 @@ pub fn try_acquire(
             stream_id: None,
             source,
             cancel,
+            accepting_insertions: true,
         },
     );
     Ok(ActiveTurnGuard {
@@ -136,6 +138,50 @@ pub fn current(session_id: &str) -> Option<ActiveTurnSnapshot> {
         source: entry.source,
         cancel: Arc::clone(&entry.cancel),
     })
+}
+
+/// Execute a short synchronous operation only while this exact user-facing
+/// turn still accepts queued-message insertion. The registry lock deliberately
+/// spans `operation`: turn finalization takes the same lock to close insertion
+/// first, then falls queued rows back after the lock is released. Therefore an
+/// insertion either commits before cleanup observes it or is rejected after
+/// cleanup has closed the turn; it cannot be written behind cleanup's back.
+pub fn with_insertion_target<T>(
+    session_id: &str,
+    turn_id: &str,
+    operation: impl FnOnce() -> T,
+) -> Result<T, &'static str> {
+    let map = registry_lock();
+    let Some(entry) = map.get(session_id) else {
+        return Err("no active turn for session");
+    };
+    if entry.turn_id != turn_id {
+        return Err("active turn id does not match");
+    }
+    if entry.cancel.load(std::sync::atomic::Ordering::SeqCst) {
+        return Err("active turn is cancelling");
+    }
+    if !entry.accepting_insertions {
+        return Err("active turn is finishing");
+    }
+    if !matches!(entry.source, ChatSource::Desktop | ChatSource::Http) {
+        return Err("active turn source does not support insertion");
+    }
+    Ok(operation())
+}
+
+/// Close the insertion gate for an exact turn before its durable queue rows
+/// are converted to ordinary after-reply sends.
+pub fn stop_accepting_insertions(session_id: &str, turn_id: &str) -> bool {
+    let mut map = registry_lock();
+    let Some(entry) = map.get_mut(session_id) else {
+        return false;
+    };
+    if entry.turn_id != turn_id {
+        return false;
+    }
+    entry.accepting_insertions = false;
+    true
 }
 
 /// Fast-path check for the per-token streaming hot loop: returns
@@ -455,5 +501,28 @@ mod tests {
         assert!(current(sid).is_some());
         assert!(force_release(sid, "turn-force"));
         assert!(current(sid).is_none());
+    }
+
+    #[test]
+    fn finishing_turn_closes_insertion_gate() {
+        let _lock = test_lock();
+        let sid = "test-active-turn-insertion-gate";
+        let _guard = try_acquire(
+            sid,
+            ChatSource::Desktop,
+            "turn-insertion".to_string(),
+            Arc::new(AtomicBool::new(false)),
+        )
+        .unwrap();
+
+        assert_eq!(
+            with_insertion_target(sid, "turn-insertion", || "accepted"),
+            Ok("accepted")
+        );
+        assert!(stop_accepting_insertions(sid, "turn-insertion"));
+        assert_eq!(
+            with_insertion_target(sid, "turn-insertion", || "late"),
+            Err("active turn is finishing")
+        );
     }
 }

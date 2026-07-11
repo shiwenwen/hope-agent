@@ -321,6 +321,16 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   // -- Chat --
   chat: { method: "POST", path: "/api/chat" },
   queue_turn_user_message: { method: "POST", path: "/api/chat/turn-message" },
+  list_queued_turn_user_messages: {
+    method: "GET",
+    path: "/api/chat/turn-message/{sessionId}",
+  },
+  update_queued_turn_user_message: { method: "PATCH", path: "/api/chat/turn-message" },
+  delete_queued_turn_user_message: {
+    method: "DELETE",
+    path: "/api/chat/turn-message/{sessionId}/{requestId}",
+  },
+  insert_queued_turn_user_message: { method: "POST", path: "/api/chat/turn-message/insert" },
   cancel_queued_turn_user_message: { method: "POST", path: "/api/chat/turn-message/cancel" },
   stop_chat: { method: "POST", path: "/api/chat/stop" },
   cancel_runtime_task: { method: "POST", path: "/api/runtime-tasks/cancel" },
