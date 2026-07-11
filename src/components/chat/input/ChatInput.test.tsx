@@ -14,6 +14,7 @@ import SandboxModeSwitcher from "./SandboxModeSwitcher"
 import { getPastedTextFileMeta } from "./pastedTextAttachment"
 
 vi.mock("react-i18next", () => ({
+  initReactI18next: { type: "3rdParty", init: () => {} },
   useTranslation: () => ({
     t: (key: string, options?: { defaultValue?: string }) => options?.defaultValue ?? key,
   }),
