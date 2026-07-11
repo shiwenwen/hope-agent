@@ -12,6 +12,7 @@ import { Plus, History, FileStack, Blocks, RotateCcw, GitFork } from "lucide-rea
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { IconTip } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
 import ChatInput from "@/components/chat/ChatInput"
@@ -148,6 +149,8 @@ interface Props {
   activeArtifact: DesignChatContext | null
   /** Name of the active design system, for the context note. */
   systemName?: string | null
+  /** 当前生效设计系统 id（工具箱 demo 预览注入配色）。 */
+  systemId?: string | null
   /** Whether the panel is actually visible (defers network loads until shown). */
   active?: boolean
   /** Click a staged quote chip → focus that element in the preview. */
@@ -220,6 +223,7 @@ export const DesignChatPanel = forwardRef<DesignChatPanelHandle, Props>(function
     projectId,
     activeArtifact,
     systemName,
+    systemId,
     active = true,
     onJumpToQuote,
     onFocusArtifact,
@@ -244,11 +248,6 @@ export const DesignChatPanel = forwardRef<DesignChatPanelHandle, Props>(function
     useCallback(() => setHistoryOpen(false), []),
   )
   const [toolboxOpen, setToolboxOpen] = useState(false)
-  const toolboxRef = useRef<HTMLDivElement>(null)
-  useClickOutside(
-    toolboxRef,
-    useCallback(() => setToolboxOpen(false), []),
-  )
 
   // Stable readers so the per-turn context always reflects the live open artifact.
   const artifactRef = useRef(activeArtifact)
@@ -452,28 +451,34 @@ export const DesignChatPanel = forwardRef<DesignChatPanelHandle, Props>(function
           />
         </div>
         {recipes && recipes.length > 0 && (
-          <div className="relative" ref={toolboxRef}>
+          <Popover open={toolboxOpen} onOpenChange={setToolboxOpen}>
             <IconTip label={t("design.toolbox.title", "设计工具箱")}>
-              <Button
-                variant="ghost"
-                size="icon"
-                className={cn("h-7 w-7", toolboxOpen && "bg-secondary")}
-                onClick={() => setToolboxOpen((v) => !v)}
-              >
-                <Blocks className="h-4 w-4" />
-              </Button>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className={cn("h-7 w-7", toolboxOpen && "bg-secondary")}
+                >
+                  <Blocks className="h-4 w-4" />
+                </Button>
+              </PopoverTrigger>
             </IconTip>
-            {toolboxOpen && (
+            <PopoverContent
+              align="end"
+              sideOffset={6}
+              className="w-[620px] max-w-[calc(100vw-24px)] rounded-xl border-border/60 bg-popover/95 p-2 shadow-[0_8px_30px_rgb(0,0,0,0.12)] backdrop-blur-xl"
+            >
               <DesignToolboxPopover
                 recipes={recipes}
                 kindLabel={kindLabel}
+                systemId={systemId}
                 onPick={(prompt) => {
                   setToolboxOpen(false)
                   stream.setInput(prompt)
                 }}
               />
-            )}
-          </div>
+            </PopoverContent>
+          </Popover>
         )}
         <IconTip label={t("design.chat.newConversation", "新对话")}>
           <Button variant="ghost" size="icon" className="h-7 w-7" onClick={session.handleNewThread}>

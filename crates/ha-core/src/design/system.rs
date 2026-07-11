@@ -653,8 +653,12 @@ pub fn swatches_from_tokens(tokens: &BTreeMap<String, String>) -> Vec<String> {
             .find_map(|k| tokens.get(*k).and_then(|v| safe_color(v)))
     };
     let bg = get(&["--ds-color-bg"]).unwrap_or_else(|| "#ffffff".into());
-    let support = get(&["--ds-color-muted", "--ds-color-border", "--ds-color-secondary"])
-        .unwrap_or_else(|| "#cccccc".into());
+    let support = get(&[
+        "--ds-color-muted",
+        "--ds-color-border",
+        "--ds-color-secondary",
+    ])
+    .unwrap_or_else(|| "#cccccc".into());
     let fg = get(&["--ds-color-fg"]).unwrap_or_else(|| "#111111".into());
     let accent = get(&["--ds-color-primary", "--ds-color-accent"])
         .or_else(|| {

@@ -6535,6 +6535,8 @@
       "critiquePrompt": "Jalankan semakan kualiti artifak semasa, tandakan isu hierarki, jarak, kontras dan kebolehgunaan."
     },
     "toolbox": {
+      "previewHint": "Tuding templat untuk pratonton strukturnya — warna mengikut sistem reka bentuk semasa.",
+      "useTemplate": "Guna templat ini",
       "title": "Kotak alat reka bentuk",
       "search": "Cari templat / senario…",
       "empty": "Tiada templat sepadan",

@@ -6535,6 +6535,8 @@
       "critiquePrompt": "Mevcut çıktının kalite incelemesini yap; hiyerarşi, boşluk, kontrast ve kullanılabilirlik sorunlarını belirt."
     },
     "toolbox": {
+      "previewHint": "Yapısını önizlemek için bir şablonun üzerine gelin; renkler geçerli tasarım sistemini izler.",
+      "useTemplate": "Bu şablonu kullan",
       "title": "Tasarım araç kutusu",
       "search": "Şablon / senaryo ara…",
       "empty": "Eşleşen şablon yok",

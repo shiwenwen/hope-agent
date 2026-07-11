@@ -396,11 +396,10 @@ pub struct PresenterNotesBody {
 /// `POST /api/design/threads/{sessionId}/fork` — fork 设计对话线程，返回新 sessionId。
 pub async fn fork_thread(Path(session_id): Path<String>) -> Result<Json<Value>, AppError> {
     validate_id(&session_id)?;
-    let new_id = ha_core::blocking::run_blocking(move || {
-        ha_core::design::threads::fork_thread(&session_id)
-    })
-    .await
-    .map_err(|e| AppError::internal(e.to_string()))?;
+    let new_id =
+        ha_core::blocking::run_blocking(move || ha_core::design::threads::fork_thread(&session_id))
+            .await
+            .map_err(|e| AppError::internal(e.to_string()))?;
     Ok(Json(json!({ "sessionId": new_id })))
 }
 
@@ -522,7 +521,13 @@ pub async fn import_image(
         let bytes = base64::engine::general_purpose::STANDARD
             .decode(body.data_b64.trim())
             .map_err(|e| anyhow::anyhow!("base64 decode failed: {e}"))?;
-        service::import_image_artifact(&body.project_id, &body.title, &body.mime, &bytes, body.folder)
+        service::import_image_artifact(
+            &body.project_id,
+            &body.title,
+            &body.mime,
+            &bytes,
+            body.folder,
+        )
     })
     .await
     .map_err(|e| AppError::internal(e.to_string()))?;
@@ -886,22 +891,20 @@ pub async fn quality_review_artifact(Path(id): Path<String>) -> Result<Json<Valu
 /// `GET /api/design/artifacts/{id}/deployments` — 部署历史（最新在前）。
 pub async fn list_deployments(Path(id): Path<String>) -> Result<Json<Value>, AppError> {
     validate_id(&id)?;
-    let list = ha_core::blocking::run_blocking(move || {
-        ha_core::design::service::list_deployments(&id)
-    })
-    .await
-    .map_err(|e| AppError::internal(e.to_string()))?;
+    let list =
+        ha_core::blocking::run_blocking(move || ha_core::design::service::list_deployments(&id))
+            .await
+            .map_err(|e| AppError::internal(e.to_string()))?;
     Ok(Json(serde_json::to_value(list).unwrap_or(Value::Null)))
 }
 
 /// `GET /api/design/artifacts/{id}/deploy/preflight` — 部署预检（CF/Vercel 共用）。
 pub async fn preflight_deploy(Path(id): Path<String>) -> Result<Json<Value>, AppError> {
     validate_id(&id)?;
-    let report = ha_core::blocking::run_blocking(move || {
-        ha_core::design::deploy::preflight_artifact(&id)
-    })
-    .await
-    .map_err(|e| AppError::internal(e.to_string()))?;
+    let report =
+        ha_core::blocking::run_blocking(move || ha_core::design::deploy::preflight_artifact(&id))
+            .await
+            .map_err(|e| AppError::internal(e.to_string()))?;
     Ok(Json(serde_json::to_value(report).unwrap_or(Value::Null)))
 }
 
@@ -1124,6 +1127,25 @@ pub async fn propose_directions(
 /// `GET /api/design/recipes` — built-in design template (recipe) catalog.
 pub async fn list_recipes() -> Result<Json<Vec<ha_core::design::recipe::Recipe>>, AppError> {
     Ok(Json(ha_core::design::recipe::builtin_recipes()))
+}
+
+#[derive(Deserialize)]
+pub struct RecipeDemoQuery {
+    /// 注入配色的设计系统 id（camelCase 对齐 Tauri 参数名）。
+    #[serde(rename = "systemId")]
+    pub system_id: Option<String>,
+}
+
+/// `GET /api/design/recipes/{id}/demo?systemId=` — recipe skeleton demo HTML
+/// (toolbox hover preview; bare JSON string, mirrors the Tauri command).
+pub async fn recipe_demo(
+    Path(id): Path<String>,
+    Query(q): Query<RecipeDemoQuery>,
+) -> Result<Json<String>, AppError> {
+    Ok(Json(
+        service::get_recipe_demo_html(&id, q.system_id.as_deref())
+            .map_err(|e| AppError::internal(e.to_string()))?,
+    ))
 }
 
 /// `GET /api/design/artifacts/{id}/native?format=pdf` — real-browser native capture

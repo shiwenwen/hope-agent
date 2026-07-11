@@ -20,6 +20,7 @@ pub mod image;
 pub mod kit;
 pub mod patch;
 pub mod recipe;
+pub mod recipe_demo;
 pub mod render_native;
 pub mod renderer;
 pub mod selfcheck;

@@ -6535,6 +6535,8 @@
       "critiquePrompt": "Haz una revisión de calidad del artefacto actual, señalando problemas de jerarquía, espaciado, contraste y usabilidad."
     },
     "toolbox": {
+      "previewHint": "Pasa el cursor sobre una plantilla para ver su estructura; los colores siguen el sistema de diseño actual.",
+      "useTemplate": "Usar esta plantilla",
       "title": "Caja de herramientas de diseño",
       "search": "Buscar plantillas / escenarios…",
       "empty": "No hay plantillas coincidentes",

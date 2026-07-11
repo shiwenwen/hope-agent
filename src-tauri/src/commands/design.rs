@@ -448,9 +448,7 @@ pub async fn get_vercel_deploy_config_cmd(
 
 /// 部署产物到 Vercel，返回 `{ url }`（与 CF 同形，前端统一读 `res.url`）。
 #[tauri::command]
-pub async fn deploy_design_artifact_vercel_cmd(
-    artifact_id: String,
-) -> Result<DeployUrl, CmdError> {
+pub async fn deploy_design_artifact_vercel_cmd(artifact_id: String) -> Result<DeployUrl, CmdError> {
     let url = ha_core::design::deploy_vercel::deploy_artifact(&artifact_id).await?;
     Ok(DeployUrl { url })
 }
@@ -744,6 +742,18 @@ pub async fn save_design_config_cmd(config: DesignConfig) -> Result<(), CmdError
 #[tauri::command]
 pub async fn list_design_recipes_cmd() -> Result<Vec<ha_core::design::recipe::Recipe>, CmdError> {
     Ok(ha_core::design::recipe::builtin_recipes())
+}
+
+/// Recipe 骨架 demo HTML（工具箱 hover 预览；`system_id` 注入该设计系统配色）。
+#[tauri::command]
+pub async fn get_design_recipe_demo_cmd(
+    id: String,
+    system_id: Option<String>,
+) -> Result<String, CmdError> {
+    Ok(ha_core::design::service::get_recipe_demo_html(
+        &id,
+        system_id.as_deref(),
+    )?)
 }
 
 /// 强路导出：真实浏览器原生捕获（PDF 矢量可选文字 / PNG 全保真）→ `{ data: base64, mime }`。

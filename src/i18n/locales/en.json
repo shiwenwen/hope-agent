@@ -6535,6 +6535,8 @@
       "critiquePrompt": "Run a quality review of the current artifact, flagging hierarchy, spacing, contrast, and usability issues to improve."
     },
     "toolbox": {
+      "previewHint": "Hover a template to preview its structure — colors follow the current design system.",
+      "useTemplate": "Use this template",
       "title": "Design toolbox",
       "search": "Search templates / scenarios…",
       "empty": "No matching templates",

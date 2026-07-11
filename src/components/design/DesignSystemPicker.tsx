@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { useTranslation } from "react-i18next"
-import { Check, Eye, Palette, Search, Star } from "lucide-react"
+import { Check, Eye, Loader2, Palette, Search, Star } from "lucide-react"
 import {
   Dialog,
   DialogContent,
@@ -30,6 +30,12 @@ const GROUP_ORDER = [
 
 /** 右栏预览目标哨兵：「无设计系统」。 */
 const NONE_PREVIEW = "__none__"
+
+/** 气质 demo：用最通用的落地页骨架（导航+hero+特性卡+CTA）呈现该系统渲染出来的页面
+ *  长什么样（`recipe_demo.rs` 900×620 画布，iframe 等比缩放）。 */
+const DEMO_RECIPE = "web-landing"
+const DEMO_W = 900
+const DEMO_H = 620
 
 /** 字体栈首个 family 名（strip 引号）；空栈 null。 */
 function firstFamily(stack: string | undefined): string | null {
@@ -103,6 +109,57 @@ export function DesignSystemPicker({
         : (systems.find((s) => s.id === previewTarget) ?? null),
     [systems, previewTarget],
   )
+
+  // ── 气质 demo（web-landing 骨架注入该系统 tokens）──
+  const [demoHtml, setDemoHtml] = useState<string | null>(null)
+  const [demoLoading, setDemoLoading] = useState(false)
+  const demoCacheRef = useRef<Map<string, string>>(new Map())
+  const demoBoxRef = useRef<HTMLDivElement | null>(null)
+  const [demoScale, setDemoScale] = useState(0.4)
+
+  // demo 容器实测宽 → 等比缩放（Dialog 定宽，打开/切换目标时测一次足够）。
+  useLayoutEffect(() => {
+    if (!open) return
+    const w = demoBoxRef.current?.clientWidth
+    if (w && w > 40) setDemoScale(w / DEMO_W)
+  }, [open, previewTarget])
+
+  useEffect(() => {
+    if (!open || previewTarget === NONE_PREVIEW) {
+      setDemoHtml(null)
+      setDemoLoading(false)
+      return
+    }
+    const id = previewTarget
+    const cached = demoCacheRef.current.get(id)
+    if (cached) {
+      setDemoHtml(cached)
+      setDemoLoading(false)
+      return
+    }
+    setDemoHtml(null)
+    setDemoLoading(true)
+    let cancelled = false
+    const timer = window.setTimeout(() => {
+      void getTransport()
+        .call<string>("get_design_recipe_demo_cmd", { id: DEMO_RECIPE, systemId: id })
+        .then((html) => {
+          demoCacheRef.current.set(id, html)
+          if (!cancelled) {
+            setDemoHtml(html)
+            setDemoLoading(false)
+          }
+        })
+        .catch((e) => {
+          logger.error("design", "DesignSystemPicker", "load system demo failed", e)
+          if (!cancelled) setDemoLoading(false)
+        })
+    }, 150)
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+  }, [open, previewTarget])
 
   // 关闭时重置 hover（下次打开回落到选中项，与打开态一致）。
   useEffect(() => {
@@ -362,6 +419,36 @@ export function DesignSystemPicker({
                     <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
                       {previewMeta.summary}
                     </p>
+                  )}
+                </div>
+                <div
+                  ref={demoBoxRef}
+                  className="relative shrink-0 overflow-hidden rounded-md border bg-white"
+                  style={{ height: Math.round(DEMO_H * demoScale) }}
+                >
+                  {demoHtml != null && (
+                    <iframe
+                      srcDoc={demoHtml}
+                      sandbox=""
+                      tabIndex={-1}
+                      title={previewMeta.name}
+                      className="pointer-events-none absolute left-0 top-0 origin-top-left border-0"
+                      style={{
+                        width: DEMO_W,
+                        height: DEMO_H,
+                        transform: `scale(${demoScale})`,
+                      }}
+                    />
+                  )}
+                  {demoLoading && (
+                    <div
+                      role="status"
+                      aria-live="polite"
+                      className="absolute inset-0 flex items-center justify-center"
+                    >
+                      <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                      <span className="sr-only">{t("common.loading", "加载中...")}</span>
+                    </div>
                   )}
                 </div>
                 {(previewMeta.swatches?.length ?? 0) > 0 && (

@@ -516,6 +516,7 @@ KB 文件预览端点是**纯 owner 平面，无 session 参数、无 owner fall
 | `export_design_tokens_cmd` | `GET /api/design/systems/{id}/tokens/export`（Token 导出多平台代码：CSS/SCSS/TS/Swift/Android XML/DTCG） | ✅ |
 | `propose_design_directions_cmd` | `POST /api/design/directions` | ✅ |
 | `list_design_recipes_cmd` | `GET /api/design/recipes`（内置设计模板目录，首屏模板快选） | ✅ |
+| `get_design_recipe_demo_cmd` | `GET /api/design/recipes/{id}/demo?systemId=`（模板骨架 demo HTML：工具箱 hover 预览，注入设计系统配色） | ✅ |
 | `export_design_native_cmd` | `GET /api/design/artifacts/{id}/native?format=pdf\|png`（真实浏览器原生捕获：矢量 PDF / 全保真 PNG；无后端时前端回退客户端栅格化） | ✅ |
 | `delete_design_system_cmd` | `DELETE /api/design/systems/{id}` | ✅ |
 | `get_design_config_cmd` | `GET /api/config/design` | ✅ |

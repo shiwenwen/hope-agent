@@ -6535,6 +6535,8 @@
       "critiquePrompt": "Faça uma revisão de qualidade do artefato atual, apontando problemas de hierarquia, espaçamento, contraste e usabilidade."
     },
     "toolbox": {
+      "previewHint": "Passe o cursor sobre um modelo para ver a estrutura; as cores seguem o sistema de design atual.",
+      "useTemplate": "Usar este modelo",
       "title": "Caixa de ferramentas de design",
       "search": "Pesquisar modelos / cenários…",
       "empty": "Nenhum modelo correspondente",

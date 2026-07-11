@@ -924,7 +924,9 @@ pub async fn generate_brand_pack(
     // 去重 + 过滤合法 kind + 保序 + 钳数量。
     let kinds = normalize_brand_pack_kinds(kinds);
     if kinds.is_empty() {
-        anyhow::bail!("品牌包需要至少一个合法形态（web/mobile/deck/dashboard/poster/document/email）");
+        anyhow::bail!(
+            "品牌包需要至少一个合法形态（web/mobile/deck/dashboard/poster/document/email）"
+        );
     }
     let mut out = Vec::new();
     let mut last_err: Option<anyhow::Error> = None;
@@ -953,11 +955,7 @@ pub async fn generate_brand_pack(
         match create_artifact_generating(input).await {
             Ok(a) => out.push(a),
             Err(e) => {
-                crate::app_warn!(
-                    "design",
-                    "generate",
-                    "brand pack kind {kind} failed: {e}"
-                );
+                crate::app_warn!("design", "generate", "brand pack kind {kind} failed: {e}");
                 last_err = Some(e);
             }
         }
@@ -1255,7 +1253,13 @@ fn degrade_to_placeholder(id: &str, status: &str) -> Result<bool> {
     let dir = paths::design_artifact_dir(&a.project_id, &a.id)?;
     let parts = renderer::placeholder_parts(kind, &a.title);
     let tokens = resolve_tokens(a.system_id.as_deref());
-    let (html, oidmap_json) = render(kind, &a.title, &parts, &tokens, is_rtl(a.metadata.as_deref()))?;
+    let (html, oidmap_json) = render(
+        kind,
+        &a.title,
+        &parts,
+        &tokens,
+        is_rtl(a.metadata.as_deref()),
+    )?;
     write_working(&dir, &html, &parts, &oidmap_json)?;
     db.update_artifact(id, None, Some(status), None, None, None, &now())?;
     Ok(true)
@@ -1407,12 +1411,25 @@ pub async fn inpaint_image_artifact(
     let _guard = lock.lock().unwrap_or_else(|e| e.into_inner());
     let db = open_db()?;
     let tokens = resolve_tokens(a.system_id.as_deref());
-    let (html, oidmap_json) = render(kind, &a.title, &parts, &tokens, is_rtl(a.metadata.as_deref()))?;
+    let (html, oidmap_json) = render(
+        kind,
+        &a.title,
+        &parts,
+        &tokens,
+        is_rtl(a.metadata.as_deref()),
+    )?;
     write_working(&dir, &html, &parts, &oidmap_json)?;
     let next = a.current_version + 1;
     write_version_snapshot(&dir, next, &html, &parts, &oidmap_json)?;
     let ts = now();
-    db.update_artifact_review(&a.id, None, &a.status, Some(next), a.metadata.as_deref(), &ts)?;
+    db.update_artifact_review(
+        &a.id,
+        None,
+        &a.status,
+        Some(next),
+        a.metadata.as_deref(),
+        &ts,
+    )?;
     db.create_version(&DesignArtifactVersion {
         id: 0,
         artifact_id: a.id.clone(),
@@ -1435,7 +1452,8 @@ pub async fn inpaint_image_artifact(
     }
     db.touch_project(&a.project_id, &ts)?;
     emit("design:reload", json!({ "artifactId": a.id }));
-    db.get_artifact(&a.id)?.context("artifact gone after inpaint")
+    db.get_artifact(&a.id)?
+        .context("artifact gone after inpaint")
 }
 
 /// 设置产物文本方向（RTL/LTR，存 `metadata.dir`）并**立即重渲染 working index.html**（RTL 在
@@ -1476,7 +1494,8 @@ pub fn set_artifact_dir(id: &str, rtl: bool) -> Result<DesignArtifact> {
     db.update_artifact_review(&a.id, None, &a.status, None, Some(&meta_str), &ts)?;
     db.touch_project(&a.project_id, &ts)?;
     emit("design:reload", json!({ "artifactId": a.id }));
-    db.get_artifact(&a.id)?.context("artifact gone after set dir")
+    db.get_artifact(&a.id)?
+        .context("artifact gone after set dir")
 }
 
 /// 页面级样式标记块前缀：`/*ds-page*/body{...}` 追加到用户 CSS 末尾（后出现的规则胜出）。
@@ -1561,12 +1580,25 @@ pub fn patch_page_style(id: &str, props: Vec<(String, String)>) -> Result<Design
         js: existing.js,
     };
     let tokens = resolve_tokens(a.system_id.as_deref());
-    let (html, oidmap_json) = render(kind, &a.title, &parts, &tokens, is_rtl(a.metadata.as_deref()))?;
+    let (html, oidmap_json) = render(
+        kind,
+        &a.title,
+        &parts,
+        &tokens,
+        is_rtl(a.metadata.as_deref()),
+    )?;
     write_working(&dir, &html, &parts, &oidmap_json)?;
     let next = a.current_version + 1;
     write_version_snapshot(&dir, next, &html, &parts, &oidmap_json)?;
     let ts = now();
-    db.update_artifact_review(&a.id, None, &a.status, Some(next), a.metadata.as_deref(), &ts)?;
+    db.update_artifact_review(
+        &a.id,
+        None,
+        &a.status,
+        Some(next),
+        a.metadata.as_deref(),
+        &ts,
+    )?;
     db.create_version(&DesignArtifactVersion {
         id: 0,
         artifact_id: a.id.clone(),
@@ -1778,13 +1810,20 @@ pub fn finalize_generating_artifact(
         .with_context(|| format!("unknown artifact kind: {}", a.kind))?;
     let dir = paths::design_artifact_dir(&a.project_id, &a.id)?;
     let tokens = resolve_tokens(a.system_id.as_deref());
-    let (html, oidmap_json) = render(kind, &a.title, parts, &tokens, is_rtl(a.metadata.as_deref()))?;
+    let (html, oidmap_json) = render(
+        kind,
+        &a.title,
+        parts,
+        &tokens,
+        is_rtl(a.metadata.as_deref()),
+    )?;
     write_working(&dir, &html, parts, &oidmap_json)?;
     write_version_snapshot(&dir, a.current_version, &html, parts, &oidmap_json)?;
 
     let ts = now();
     // 生成定稿：对模型产出的正文跑确定性自查，命中翻 needs_review + 写 selfCheck 元数据。
-    let (status, self_check_meta) = resolve_self_check(a.metadata.as_deref(), &parts.body_html, &parts.css);
+    let (status, self_check_meta) =
+        resolve_self_check(a.metadata.as_deref(), &parts.body_html, &parts.css);
     db.update_artifact_review(id, None, &status, None, self_check_meta.as_deref(), &ts)?;
     // 壳未建版本行——定稿补首版（避免 list_versions 为空）。
     db.create_version(&DesignArtifactVersion {
@@ -2122,7 +2161,13 @@ pub fn render_clean_html_for_artifact(a: &DesignArtifact) -> Result<String> {
     let dir = paths::design_artifact_dir(&a.project_id, &a.id)?;
     let parts = read_source(&dir)?;
     let tokens = resolve_tokens(a.system_id.as_deref());
-    Ok(render_clean(kind, &a.title, &parts, &tokens, is_rtl(a.metadata.as_deref())))
+    Ok(render_clean(
+        kind,
+        &a.title,
+        &parts,
+        &tokens,
+        is_rtl(a.metadata.as_deref()),
+    ))
 }
 
 /// owner 平面：对产物跑确定性多镜头质量审查（a11y / 内容 / 语义），返回结构化发现。
@@ -2270,7 +2315,13 @@ pub fn ensure_artifact_render_fresh(id: &str) -> Result<bool> {
     }
     let parts = read_source(&dir)?;
     let tokens = resolve_tokens(a.system_id.as_deref());
-    let (html, oidmap_json) = render(kind, &a.title, &parts, &tokens, is_rtl(a.metadata.as_deref()))?;
+    let (html, oidmap_json) = render(
+        kind,
+        &a.title,
+        &parts,
+        &tokens,
+        is_rtl(a.metadata.as_deref()),
+    )?;
     write_atomic(&index_path, html.as_bytes())?;
     write_atomic(&dir.join("oidmap.json"), oidmap_json.as_bytes())?;
     crate::app_info!(
@@ -2490,7 +2541,8 @@ pub fn update_artifact(input: UpdateArtifactInput) -> Result<DesignArtifact> {
 
     let ts = now();
     // 编辑落新版本：重跑确定性自查——改好的正文清 selfCheck 标记回 ready，仍 slop 保持标记。
-    let (status, self_check_meta) = resolve_self_check(a.metadata.as_deref(), &parts.body_html, &parts.css);
+    let (status, self_check_meta) =
+        resolve_self_check(a.metadata.as_deref(), &parts.body_html, &parts.css);
     db.update_artifact_review(
         &a.id,
         input.title.as_deref(),
@@ -2552,7 +2604,13 @@ pub fn restyle_artifact(artifact_id: &str, system_id: Option<&str>) -> Result<De
 
     db.set_artifact_system_id(&a.id, system_id)?;
     let tokens = resolve_tokens(system_id);
-    let (html, oidmap_json) = render(kind, &a.title, &parts, &tokens, is_rtl(a.metadata.as_deref()))?;
+    let (html, oidmap_json) = render(
+        kind,
+        &a.title,
+        &parts,
+        &tokens,
+        is_rtl(a.metadata.as_deref()),
+    )?;
     write_working(&dir, &html, &parts, &oidmap_json)?;
 
     let next = a.current_version + 1;
@@ -2709,7 +2767,13 @@ pub fn export_artifact(id: &str, format: &str) -> Result<ExportResult> {
             let parts = read_source(&dir)?;
             let tokens = resolve_tokens(a.system_id.as_deref());
             // editable=false → 无 inspector bridge / 无 oid，干净可交付；Component 走编译。
-            let html = render_clean(kind, &a.title, &parts, &tokens, is_rtl(a.metadata.as_deref()));
+            let html = render_clean(
+                kind,
+                &a.title,
+                &parts,
+                &tokens,
+                is_rtl(a.metadata.as_deref()),
+            );
             Ok(ExportResult {
                 filename: format!("{}.html", safe_filename(&a.title)),
                 mime: "text/html".to_string(),
@@ -2770,7 +2834,13 @@ pub fn export_zip(artifact_id: Option<&str>, project_id: Option<&str>) -> Result
             let dir = paths::design_artifact_dir(&a.project_id, &a.id)?;
             let parts = read_source(&dir)?;
             let tokens = resolve_tokens(a.system_id.as_deref());
-            let html = render_clean(kind, &a.title, &parts, &tokens, is_rtl(a.metadata.as_deref()));
+            let html = render_clean(
+                kind,
+                &a.title,
+                &parts,
+                &tokens,
+                is_rtl(a.metadata.as_deref()),
+            );
             (
                 vec![super::export::ZipArtifact {
                     folder: String::new(),
@@ -2795,7 +2865,13 @@ pub fn export_zip(artifact_id: Option<&str>, project_id: Option<&str>) -> Result
                 let dir = paths::design_artifact_dir(&a.project_id, &a.id)?;
                 let parts = read_source(&dir)?;
                 let tokens = resolve_tokens(a.system_id.as_deref());
-                let html = render_clean(kind, &a.title, &parts, &tokens, is_rtl(a.metadata.as_deref()));
+                let html = render_clean(
+                    kind,
+                    &a.title,
+                    &parts,
+                    &tokens,
+                    is_rtl(a.metadata.as_deref()),
+                );
                 let folder = format!(
                     "{}-{}",
                     safe_filename(&a.title),
@@ -2848,7 +2924,13 @@ pub fn export_selected_zip(ids: &[String]) -> Result<String> {
         let dir = paths::design_artifact_dir(&a.project_id, &a.id)?;
         let parts = read_source(&dir)?;
         let tokens = resolve_tokens(a.system_id.as_deref());
-        let html = render_clean(kind, &a.title, &parts, &tokens, is_rtl(a.metadata.as_deref()));
+        let html = render_clean(
+            kind,
+            &a.title,
+            &parts,
+            &tokens,
+            is_rtl(a.metadata.as_deref()),
+        );
         let folder = format!(
             "{}-{}",
             safe_filename(&a.title),
@@ -2975,8 +3057,10 @@ pub fn export_pptx_outline(artifact_id: &str) -> Result<String> {
     }
     let dir = paths::design_artifact_dir(&a.project_id, &a.id)?;
     let body = read_source(&dir)?.body_html;
-    let outlines: Vec<super::export::SlideOutline> =
-        split_deck_slides(&body).iter().map(|s| slide_outline(s)).collect();
+    let outlines: Vec<super::export::SlideOutline> = split_deck_slides(&body)
+        .iter()
+        .map(|s| slide_outline(s))
+        .collect();
     if outlines.is_empty() {
         anyhow::bail!("deck 无可导出的页面");
     }
@@ -3118,7 +3202,13 @@ pub fn export_handoff(artifact_id: &str) -> Result<ExportResult> {
     let parts = read_source(&dir)?;
     let tokens_vec = resolve_tokens(a.system_id.as_deref());
     // 干净可交付（editable=false，无 inspector/oid）；Component 走 oxc 编译，绝不塞未编译 JSX。
-    let html = render_clean(kind, &a.title, &parts, &tokens_vec, is_rtl(a.metadata.as_deref()));
+    let html = render_clean(
+        kind,
+        &a.title,
+        &parts,
+        &tokens_vec,
+        is_rtl(a.metadata.as_deref()),
+    );
 
     let tokens_map: std::collections::BTreeMap<String, String> =
         tokens_vec.iter().cloned().collect();
@@ -3373,6 +3463,15 @@ pub fn get_system_full(id: &str) -> Result<DesignSystemFull> {
     let db = open_db()?;
     system::ensure_builtins(&db)?;
     system::read_full(&db, id)
+}
+
+/// Recipe 骨架 demo HTML（工具箱 hover 预览）：纯形状 wireframe，注入 `system_id` 的
+/// tokens（None / 无效 id = 骨架默认配色）。未知 recipe 报错。
+pub fn get_recipe_demo_html(recipe_id: &str, system_id: Option<&str>) -> Result<String> {
+    let tokens: std::collections::BTreeMap<String, String> =
+        resolve_tokens(system_id).into_iter().collect();
+    super::recipe_demo::build_recipe_demo_html(recipe_id, &tokens)
+        .with_context(|| format!("unknown recipe: {recipe_id}"))
 }
 
 /// 设计系统「套件视图」自包含 HTML（B1-1）：色板 / 字阶 / 间距 / 圆角+阴影 / 组件 showcase，
@@ -3833,7 +3932,8 @@ mod pptx_outline_tests {
 
     #[test]
     fn split_and_outline_extracts_title_and_bullets() {
-        let body = "<div class=\"ds-slide\"><h1>第一页</h1><ul><li>要点 A</li><li>要点 B</li></ul></div>\
+        let body =
+            "<div class=\"ds-slide\"><h1>第一页</h1><ul><li>要点 A</li><li>要点 B</li></ul></div>\
 <div class=\"ds-slide\"><h2>第二页</h2><p>正文一段</p></div>";
         let slides = split_deck_slides(body);
         assert_eq!(slides.len(), 2);
@@ -3941,7 +4041,12 @@ mod rtl_tests {
         let out = apply_document_dir(html.clone(), true);
         assert!(out.contains("<html dir=\"rtl\" lang=\"zh\""));
         // 幂等：再次应用不重复。
-        assert_eq!(apply_document_dir(out.clone(), true).matches("dir=\"rtl\"").count(), 1);
+        assert_eq!(
+            apply_document_dir(out.clone(), true)
+                .matches("dir=\"rtl\"")
+                .count(),
+            1
+        );
         // LTR 原样返回。
         assert_eq!(apply_document_dir(html.clone(), false), html);
     }
@@ -3955,9 +4060,9 @@ mod brand_pack_tests {
     fn normalize_filters_dedups_caps_and_preserves_order() {
         let out = normalize_brand_pack_kinds(vec![
             "web".into(),
-            "image".into(),   // 媒体形态过滤
+            "image".into(), // 媒体形态过滤
             "deck".into(),
-            "web".into(),      // 重复去掉
+            "web".into(),       // 重复去掉
             "component".into(), // 过滤
             "poster".into(),
         ]);
@@ -3965,10 +4070,18 @@ mod brand_pack_tests {
         // 空 / 全非法 → 空。
         assert!(normalize_brand_pack_kinds(vec!["image".into(), "audio".into()]).is_empty());
         // 超上限钳到 6。
-        let many: Vec<String> = ["web", "mobile", "deck", "dashboard", "poster", "document", "email"]
-            .iter()
-            .map(|s| s.to_string())
-            .collect();
+        let many: Vec<String> = [
+            "web",
+            "mobile",
+            "deck",
+            "dashboard",
+            "poster",
+            "document",
+            "email",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
         assert_eq!(normalize_brand_pack_kinds(many).len(), 6);
     }
 }

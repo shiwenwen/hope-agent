@@ -6535,6 +6535,8 @@
       "critiquePrompt": "Đánh giá chất lượng sản phẩm hiện tại, chỉ ra vấn đề về phân cấp, khoảng cách, tương phản và khả dụng."
     },
     "toolbox": {
+      "previewHint": "Di chuột lên mẫu để xem trước cấu trúc — màu sắc theo hệ thống thiết kế hiện tại.",
+      "useTemplate": "Dùng mẫu này",
       "title": "Hộp công cụ thiết kế",
       "search": "Tìm mẫu / kịch bản…",
       "empty": "Không có mẫu phù hợp",

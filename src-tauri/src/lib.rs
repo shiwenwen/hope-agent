@@ -877,6 +877,7 @@ pub fn run() {
             commands::design::export_design_tokens_cmd,
             commands::design::propose_design_directions_cmd,
             commands::design::list_design_recipes_cmd,
+            commands::design::get_design_recipe_demo_cmd,
             commands::design::export_design_native_cmd,
             commands::design::design_ffmpeg_doctor_cmd,
             commands::design::design_install_ffmpeg_cmd,
