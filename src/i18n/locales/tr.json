@@ -6179,7 +6179,7 @@
     "exportHtml": "HTML",
     "exportPng": "PNG görsel",
     "exportPdf": "PDF",
-    "exportPptx": "PPTX",
+    "exportPptx": "PPTX (sayfa görüntüleri)",
     "critique": "Kalite incelemesi",
     "critiqueScore": "Kalite",
     "history": "Sürüm geçmişi",
@@ -6731,6 +6731,7 @@
       "noMask": "Önce yeniden oluşturulacak alanı boyayın",
       "done": "Maskeden yeniden oluşturuldu",
       "failed": "Yeniden çizim başarısız: {{msg}}"
-    }
+    },
+    "exportPptxOutline": "PPTX (düzenlenebilir metin)"
   }
 }

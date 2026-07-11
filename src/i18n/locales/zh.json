@@ -6179,7 +6179,7 @@
     "exportHtml": "HTML",
     "exportPng": "PNG 图片",
     "exportPdf": "PDF",
-    "exportPptx": "PPTX",
+    "exportPptx": "PPTX（整页图片）",
     "critique": "质量评审",
     "critiqueScore": "质量评分",
     "history": "版本历史",
@@ -6731,6 +6731,7 @@
       "noMask": "请先涂出要重绘的区域",
       "done": "已按蒙版重绘",
       "failed": "重绘失败：{{msg}}"
-    }
+    },
+    "exportPptxOutline": "PPTX（可编辑文本）"
   }
 }

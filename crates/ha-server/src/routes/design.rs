@@ -955,6 +955,15 @@ pub async fn restore_version(
     ))
 }
 
+/// `GET /api/design/artifacts/{id}/pptx-outline` — 结构化可编辑文本 PPTX（服务端抽 deck 大纲）。
+pub async fn export_pptx_outline(Path(id): Path<String>) -> Result<Json<Value>, AppError> {
+    validate_id(&id)?;
+    let pptx = ha_core::blocking::run_blocking(move || service::export_pptx_outline(&id))
+        .await
+        .map_err(|e| AppError::internal(e.to_string()))?;
+    Ok(Json(json!({ "pptx": pptx })))
+}
+
 /// `POST /api/design/pptx` — assemble PPTX from client-rasterized slide PNGs (base64).
 pub async fn export_pptx(Json(body): Json<ExportPptxBody>) -> Result<Json<Value>, AppError> {
     let b64 = ha_core::blocking::run_blocking(move || {

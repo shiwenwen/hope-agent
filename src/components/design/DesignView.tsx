@@ -2218,7 +2218,16 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
   }, [postToIframe])
 
   // ── Export (D3): HTML/MD/ZIP（后端）+ PNG/PDF/PPTX/MP4（客户端栅格化） ──
-  type ExportFormat = "html" | "md" | "zip" | "handoff" | "png" | "pdf" | "pptx" | "video"
+  type ExportFormat =
+    | "html"
+    | "md"
+    | "zip"
+    | "handoff"
+    | "png"
+    | "pdf"
+    | "pptx"
+    | "pptx-outline"
+    | "video"
   const [exporting, setExporting] = useState<null | ExportFormat>(null)
 
   // 导出强路依赖门：MP4 需 ffmpeg 编码器、PDF/PNG 需浏览器引擎。未就绪时弹门让用户主动选
@@ -2348,6 +2357,20 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
         } else if (format === "pptx") {
           out = {
             blob: await exportPptx(res.content, kind, activeArtifact.title, vw, exportOpts),
+            name: `${base}.pptx`,
+          }
+        } else if (format === "pptx-outline") {
+          // 结构化可编辑文本：服务端从 deck HTML 抽大纲组装 pptx（非栅格化）。
+          const r = await tx.call<{ pptx: string }>("export_design_pptx_outline_cmd", {
+            artifactId: activeArtifact.id,
+          })
+          const bin = atob(r.pptx)
+          const arr = new Uint8Array(bin.length)
+          for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i)
+          out = {
+            blob: new Blob([arr], {
+              type: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            }),
             name: `${base}.pptx`,
           }
         } else if (format === "video") {
@@ -4064,7 +4087,13 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                           activeArtifact.kind === "motion") && (
                           <DropdownMenuItem onSelect={() => void handleExport("pptx")}>
                             <FileType2 className="mr-2 h-4 w-4" />
-                            {t("design.exportPptx", "PPTX")}
+                            {t("design.exportPptx", "PPTX（整页图片）")}
+                          </DropdownMenuItem>
+                        )}
+                        {activeArtifact.kind === "deck" && (
+                          <DropdownMenuItem onSelect={() => void handleExport("pptx-outline")}>
+                            <FileType2 className="mr-2 h-4 w-4" />
+                            {t("design.exportPptxOutline", "PPTX（可编辑文本）")}
                           </DropdownMenuItem>
                         )}
                         {activeArtifact.kind === "motion" && (

@@ -6179,7 +6179,7 @@
     "exportHtml": "HTML",
     "exportPng": "PNG 이미지",
     "exportPdf": "PDF",
-    "exportPptx": "PPTX",
+    "exportPptx": "PPTX(페이지 이미지)",
     "critique": "품질 검토",
     "critiqueScore": "품질",
     "history": "버전 기록",
@@ -6731,6 +6731,7 @@
       "noMask": "먼저 재생성할 영역을 칠하세요",
       "done": "마스크로 재생성했습니다",
       "failed": "재생성 실패: {{msg}}"
-    }
+    },
+    "exportPptxOutline": "PPTX(편집 가능 텍스트)"
   }
 }

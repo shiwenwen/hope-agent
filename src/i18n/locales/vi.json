@@ -6179,7 +6179,7 @@
     "exportHtml": "HTML",
     "exportPng": "Ảnh PNG",
     "exportPdf": "PDF",
-    "exportPptx": "PPTX",
+    "exportPptx": "PPTX (ảnh trang)",
     "critique": "Đánh giá chất lượng",
     "critiqueScore": "Chất lượng",
     "history": "Lịch sử phiên bản",
@@ -6731,6 +6731,7 @@
       "noMask": "Hãy tô vùng cần tạo lại trước",
       "done": "Đã tạo lại theo mặt nạ",
       "failed": "Vẽ lại thất bại: {{msg}}"
-    }
+    },
+    "exportPptxOutline": "PPTX (văn bản chỉnh sửa được)"
   }
 }

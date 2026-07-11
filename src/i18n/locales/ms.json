@@ -6179,7 +6179,7 @@
     "exportHtml": "HTML",
     "exportPng": "Imej PNG",
     "exportPdf": "PDF",
-    "exportPptx": "PPTX",
+    "exportPptx": "PPTX (imej halaman)",
     "critique": "Semakan kualiti",
     "critiqueScore": "Kualiti",
     "history": "Sejarah versi",
@@ -6731,6 +6731,7 @@
       "noMask": "Warnakan kawasan dahulu",
       "done": "Dijana semula daripada topeng",
       "failed": "Lukis semula gagal: {{msg}}"
-    }
+    },
+    "exportPptxOutline": "PPTX (teks boleh sunting)"
   }
 }

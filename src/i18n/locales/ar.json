@@ -6179,7 +6179,7 @@
     "exportHtml": "HTML",
     "exportPng": "صورة PNG",
     "exportPdf": "PDF",
-    "exportPptx": "PPTX",
+    "exportPptx": "PPTX (صور الصفحات)",
     "critique": "مراجعة الجودة",
     "critiqueScore": "الجودة",
     "history": "سجل الإصدارات",
@@ -6731,6 +6731,7 @@
       "noMask": "لوّن المنطقة أولاً",
       "done": "تمت إعادة التوليد وفق القناع",
       "failed": "فشلت إعادة الرسم: {{msg}}"
-    }
+    },
+    "exportPptxOutline": "PPTX (نص قابل للتحرير)"
   }
 }

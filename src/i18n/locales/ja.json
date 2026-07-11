@@ -6179,7 +6179,7 @@
     "exportHtml": "HTML",
     "exportPng": "PNG 画像",
     "exportPdf": "PDF",
-    "exportPptx": "PPTX",
+    "exportPptx": "PPTX（ページ画像）",
     "critique": "品質レビュー",
     "critiqueScore": "品質",
     "history": "バージョン履歴",
@@ -6731,6 +6731,7 @@
       "noMask": "先に再生成する領域を塗ってください",
       "done": "マスクで再生成しました",
       "failed": "再生成に失敗：{{msg}}"
-    }
+    },
+    "exportPptxOutline": "PPTX（編集可能テキスト）"
   }
 }

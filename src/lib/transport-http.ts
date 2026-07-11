@@ -319,6 +319,7 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   list_design_code_bindings_cmd:     { method: "GET",    path: "/api/design/bindings" },
   unbind_design_code_project_cmd:    { method: "DELETE", path: "/api/design/bindings/{id}" },
   export_design_pptx_cmd:            { method: "POST",   path: "/api/design/pptx" },
+  export_design_pptx_outline_cmd:    { method: "GET",    path: "/api/design/artifacts/{artifactId}/pptx-outline" },
   export_design_zip_cmd:             { method: "POST",   path: "/api/design/zip" },
   export_design_selected_zip_cmd:    { method: "POST",   path: "/api/design/zip/selected" },
   import_design_md_cmd:              { method: "POST",   path: "/api/design/systems/import" },

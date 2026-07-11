@@ -175,6 +175,197 @@ xmlns:p=\"http://schemas.openxmlformats.org/presentationml/2006/main\">\
     Ok(cursor.into_inner())
 }
 
+/// 结构化 PPTX 的一页大纲（标题 + 要点，可编辑文本）。
+pub struct SlideOutline {
+    pub title: String,
+    pub bullets: Vec<String>,
+}
+
+/// 构建**可编辑文本** PPTX（每页 标题框 + 要点框，从 deck 大纲派生）。与 `build_pptx`（整图）
+/// 双模式：这里产原生文本 shape（PowerPoint 里可直接改字），无位图、无 media 部件。
+pub fn build_pptx_outline(slides: &[SlideOutline], deck_title: &str) -> Result<Vec<u8>> {
+    if slides.is_empty() {
+        anyhow::bail!("no slides to export");
+    }
+    let n = slides.len();
+    let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+    let opts = SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+    let w = |name: &str,
+             data: &[u8],
+             zip: &mut zip::ZipWriter<std::io::Cursor<Vec<u8>>>|
+     -> Result<()> {
+        zip.start_file(name, opts)?;
+        zip.write_all(data)?;
+        Ok(())
+    };
+
+    let mut ct = String::from(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\
+<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\">\
+<Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/>\
+<Default Extension=\"xml\" ContentType=\"application/xml\"/>\
+<Override PartName=\"/ppt/presentation.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml\"/>\
+<Override PartName=\"/ppt/slideMasters/slideMaster1.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.presentationml.slideMaster+xml\"/>\
+<Override PartName=\"/ppt/slideLayouts/slideLayout1.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml\"/>\
+<Override PartName=\"/ppt/theme/theme1.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.theme+xml\"/>",
+    );
+    for i in 1..=n {
+        ct.push_str(&format!(
+            "<Override PartName=\"/ppt/slides/slide{i}.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.presentationml.slide+xml\"/>"
+        ));
+    }
+    ct.push_str("</Types>");
+    w("[Content_Types].xml", ct.as_bytes(), &mut zip)?;
+
+    w(
+        "_rels/.rels",
+        b"<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\
+<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">\
+<Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument\" Target=\"ppt/presentation.xml\"/>\
+</Relationships>",
+        &mut zip,
+    )?;
+
+    let mut pres = String::from(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\
+<p:presentation xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\" \
+xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\" \
+xmlns:p=\"http://schemas.openxmlformats.org/presentationml/2006/main\">\
+<p:sldMasterIdLst><p:sldMasterId id=\"2147483648\" r:id=\"rIdMaster\"/></p:sldMasterIdLst>\
+<p:sldIdLst>",
+    );
+    for i in 1..=n {
+        pres.push_str(&format!("<p:sldId id=\"{}\" r:id=\"rId{}\"/>", 255 + i, i + 1));
+    }
+    pres.push_str(&format!(
+        "</p:sldIdLst><p:sldSz cx=\"{SLIDE_W_EMU}\" cy=\"{SLIDE_H_EMU}\"/>\
+<p:notesSz cx=\"6858000\" cy=\"9144000\"/></p:presentation>"
+    ));
+    w("ppt/presentation.xml", pres.as_bytes(), &mut zip)?;
+
+    let mut prels = String::from(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\
+<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">\
+<Relationship Id=\"rIdMaster\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideMaster\" Target=\"slideMasters/slideMaster1.xml\"/>\
+<Relationship Id=\"rIdTheme\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme\" Target=\"theme/theme1.xml\"/>",
+    );
+    for i in 1..=n {
+        prels.push_str(&format!(
+            "<Relationship Id=\"rId{}\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide\" Target=\"slides/slide{i}.xml\"/>",
+            i + 1
+        ));
+    }
+    prels.push_str("</Relationships>");
+    w("ppt/_rels/presentation.xml.rels", prels.as_bytes(), &mut zip)?;
+
+    w("ppt/theme/theme1.xml", THEME_XML.as_bytes(), &mut zip)?;
+    w(
+        "ppt/slideMasters/slideMaster1.xml",
+        slide_master_xml().as_bytes(),
+        &mut zip,
+    )?;
+    w(
+        "ppt/slideMasters/_rels/slideMaster1.xml.rels",
+        b"<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\
+<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">\
+<Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout\" Target=\"../slideLayouts/slideLayout1.xml\"/>\
+<Relationship Id=\"rId2\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme\" Target=\"../theme/theme1.xml\"/>\
+</Relationships>",
+        &mut zip,
+    )?;
+    w(
+        "ppt/slideLayouts/slideLayout1.xml",
+        slide_layout_xml().as_bytes(),
+        &mut zip,
+    )?;
+    w(
+        "ppt/slideLayouts/_rels/slideLayout1.xml.rels",
+        b"<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\
+<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">\
+<Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideMaster\" Target=\"../slideMasters/slideMaster1.xml\"/>\
+</Relationships>",
+        &mut zip,
+    )?;
+
+    let _ = deck_title;
+    for (idx, slide) in slides.iter().enumerate() {
+        let i = idx + 1;
+        w(
+            &format!("ppt/slides/slide{i}.xml"),
+            outline_slide_xml(slide).as_bytes(),
+            &mut zip,
+        )?;
+        w(
+            &format!("ppt/slides/_rels/slide{i}.xml.rels"),
+            b"<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\
+<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">\
+<Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout\" Target=\"../slideLayouts/slideLayout1.xml\"/>\
+</Relationships>",
+            &mut zip,
+        )?;
+    }
+
+    let cursor = zip.finish().context("finalize pptx zip")?;
+    Ok(cursor.into_inner())
+}
+
+/// 文本 slide XML：标题框（上）+ 要点框（下），显式 xfrm 定位（不依赖占位符）。
+fn outline_slide_xml(slide: &SlideOutline) -> String {
+    let title_runs = if slide.title.trim().is_empty() {
+        String::new()
+    } else {
+        format!(
+            "<a:p><a:r><a:rPr lang=\"en-US\" sz=\"3600\" b=\"1\"/><a:t>{}</a:t></a:r></a:p>",
+            esc(&slide.title)
+        )
+    };
+    let body_runs: String = if slide.bullets.is_empty() {
+        "<a:p><a:endParaRPr/></a:p>".to_string()
+    } else {
+        slide
+            .bullets
+            .iter()
+            .map(|b| {
+                format!(
+                    "<a:p><a:pPr><a:buChar char=\"•\"/></a:pPr>\
+<a:r><a:rPr lang=\"en-US\" sz=\"2000\"/><a:t>{}</a:t></a:r></a:p>",
+                    esc(b)
+                )
+            })
+            .collect()
+    };
+    // 标题框：0.75in 边距，顶部；内容框：其下铺满。
+    let margin: i64 = 685_800;
+    let box_w = SLIDE_W_EMU - margin * 2;
+    let title_y: i64 = 400_000;
+    let title_h: i64 = 1_000_000;
+    let body_y = title_y + title_h + 200_000;
+    let body_h = SLIDE_H_EMU - body_y - margin;
+    format!(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\
+<p:sld xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\" \
+xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\" \
+xmlns:p=\"http://schemas.openxmlformats.org/presentationml/2006/main\">\
+<p:cSld><p:spTree>\
+<p:nvGrpSpPr><p:cNvPr id=\"1\" name=\"\"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>\
+<p:grpSpPr><a:xfrm><a:off x=\"0\" y=\"0\"/><a:ext cx=\"0\" cy=\"0\"/>\
+<a:chOff x=\"0\" y=\"0\"/><a:chExt cx=\"0\" cy=\"0\"/></a:xfrm></p:grpSpPr>\
+<p:sp><p:nvSpPr><p:cNvPr id=\"2\" name=\"Title\"/><p:cNvSpPr><a:spLocks noGrp=\"1\"/></p:cNvSpPr>\
+<p:nvPr/></p:nvSpPr>\
+<p:spPr><a:xfrm><a:off x=\"{margin}\" y=\"{title_y}\"/><a:ext cx=\"{box_w}\" cy=\"{title_h}\"/></a:xfrm>\
+<a:prstGeom prst=\"rect\"><a:avLst/></a:prstGeom></p:spPr>\
+<p:txBody><a:bodyPr wrap=\"square\"/><a:lstStyle/>{title_runs}</p:txBody></p:sp>\
+<p:sp><p:nvSpPr><p:cNvPr id=\"3\" name=\"Content\"/><p:cNvSpPr><a:spLocks noGrp=\"1\"/></p:cNvSpPr>\
+<p:nvPr/></p:nvSpPr>\
+<p:spPr><a:xfrm><a:off x=\"{margin}\" y=\"{body_y}\"/><a:ext cx=\"{box_w}\" cy=\"{body_h}\"/></a:xfrm>\
+<a:prstGeom prst=\"rect\"><a:avLst/></a:prstGeom></p:spPr>\
+<p:txBody><a:bodyPr wrap=\"square\"/><a:lstStyle/>{body_runs}</p:txBody></p:sp>\
+</p:spTree></p:cSld><p:clrMapOvr><a:overrideClrMapping bg1=\"lt1\" tx1=\"dk1\" bg2=\"lt2\" tx2=\"dk2\" \
+accent1=\"accent1\" accent2=\"accent2\" accent3=\"accent3\" accent4=\"accent4\" accent5=\"accent5\" \
+accent6=\"accent6\" hlink=\"hlink\" folHlink=\"folHlink\"/></p:clrMapOvr></p:sld>"
+    )
+}
+
 /// 单页 slide XML：一张铺满整片的图片。
 fn slide_xml(i: usize, title: &str) -> String {
     let alt = esc(&format!("{title} — {i}"));
@@ -434,5 +625,43 @@ mod tests {
     #[test]
     fn empty_slides_errors() {
         assert!(build_pptx(&[], "x").is_err());
+    }
+
+    #[test]
+    fn build_pptx_outline_produces_editable_text_zip() {
+        let slides = vec![
+            SlideOutline {
+                title: "封面 & <预告>".into(),
+                bullets: vec!["要点一".into(), "要点二".into()],
+            },
+            SlideOutline {
+                title: "第二页".into(),
+                bullets: vec![],
+            },
+        ];
+        let bytes = build_pptx_outline(&slides, "Deck").unwrap();
+        assert_eq!(&bytes[0..2], b"PK");
+        let mut reader = zip::ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();
+        let names: Vec<String> = reader.file_names().map(str::to_string).collect();
+        assert!(names.iter().any(|n| n == "ppt/slides/slide1.xml"));
+        assert!(names.iter().any(|n| n == "ppt/slides/slide2.xml"));
+        // 无 media 部件（纯文本）。
+        assert!(!names.iter().any(|n| n.starts_with("ppt/media/")));
+        // slide1 含转义后的标题文本 + 要点。
+        let mut s1 = String::new();
+        use std::io::Read;
+        reader
+            .by_name("ppt/slides/slide1.xml")
+            .unwrap()
+            .read_to_string(&mut s1)
+            .unwrap();
+        assert!(s1.contains("封面 &amp; &lt;预告&gt;"));
+        assert!(s1.contains("要点一"));
+        assert!(s1.contains("<a:buChar"));
+    }
+
+    #[test]
+    fn build_pptx_outline_empty_errors() {
+        assert!(build_pptx_outline(&[], "x").is_err());
     }
 }

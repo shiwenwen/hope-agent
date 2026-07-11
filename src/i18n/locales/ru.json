@@ -6179,7 +6179,7 @@
     "exportHtml": "HTML",
     "exportPng": "PNG-изображение",
     "exportPdf": "PDF",
-    "exportPptx": "PPTX",
+    "exportPptx": "PPTX (изображения страниц)",
     "critique": "Проверка качества",
     "critiqueScore": "Качество",
     "history": "История версий",
@@ -6731,6 +6731,7 @@
       "noMask": "Сначала закрасьте область",
       "done": "Перегенерировано по маске",
       "failed": "Ошибка перерисовки: {{msg}}"
-    }
+    },
+    "exportPptxOutline": "PPTX (редактируемый текст)"
   }
 }

@@ -2081,6 +2081,10 @@ fn build_router_with_cors(
             post(routes::design::refine_comment),
         )
         .route("/design/pptx", post(routes::design::export_pptx))
+        .route(
+            "/design/artifacts/{id}/pptx-outline",
+            get(routes::design::export_pptx_outline),
+        )
         .route("/design/zip", post(routes::design::export_zip))
         .route(
             "/design/zip/selected",

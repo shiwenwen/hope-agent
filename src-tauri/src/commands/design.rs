@@ -600,6 +600,16 @@ pub async fn export_design_pptx_cmd(
     Ok(serde_json::json!({ "pptx": pptx }))
 }
 
+/// 结构化 PPTX（可编辑文本）：服务端从 deck HTML 抽大纲组装 → `{ pptx: base64 }`。
+#[tauri::command]
+pub async fn export_design_pptx_outline_cmd(
+    artifact_id: String,
+) -> Result<serde_json::Value, CmdError> {
+    let pptx =
+        ha_core::blocking::run_blocking(move || service::export_pptx_outline(&artifact_id)).await?;
+    Ok(serde_json::json!({ "pptx": pptx }))
+}
+
 /// ZIP：`artifactId` = 单产物源码包；`projectId` = 项目级全产物包 → `{ zip: base64 }`。
 #[tauri::command]
 pub async fn export_design_zip_cmd(

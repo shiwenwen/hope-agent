@@ -2862,6 +2862,112 @@ pub fn export_selected_zip(ids: &[String]) -> Result<String> {
 
 /// 由前端栅格化的整页 PNG（base64，可带 data-uri 前缀）组装 PPTX，返回 base64。
 /// PNG/PDF 走前端客户端栅格化；PPTX 因需 zip 打包由此后端构建（见 design/export.rs）。
+/// 把一段 HTML 里的可见文本抽出来（剥标签 + 解基本实体 + 折叠空白）。
+fn html_to_text(html: &str) -> String {
+    let mut out = String::new();
+    let mut in_tag = false;
+    for c in html.chars() {
+        match c {
+            '<' => in_tag = true,
+            '>' => in_tag = false,
+            _ if !in_tag => out.push(c),
+            _ => {}
+        }
+    }
+    let out = out
+        .replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+        .replace("&nbsp;", " ");
+    out.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// 取某标签第一处出现的内文（如 `<h1>…</h1>`）。大小写不敏感。
+fn first_tag_inner<'a>(html: &'a str, tag: &str) -> Option<&'a str> {
+    let low = html.to_ascii_lowercase();
+    let open = format!("<{tag}");
+    let start = low.find(&open)?;
+    let gt = low[start..].find('>')? + start + 1;
+    let close = format!("</{tag}");
+    let end = low[gt..].find(&close)? + gt;
+    Some(&html[gt..end])
+}
+
+/// 把 deck body 切成每页 HTML（按 `ds-slide` 类边界；无标记时整体作一页）。
+fn split_deck_slides(body: &str) -> Vec<&str> {
+    let low = body.to_ascii_lowercase();
+    let mut idxs: Vec<usize> = Vec::new();
+    let mut from = 0;
+    while let Some(rel) = low[from..].find("ds-slide") {
+        idxs.push(from + rel);
+        from = from + rel + "ds-slide".len();
+    }
+    if idxs.is_empty() {
+        return vec![body];
+    }
+    let mut out = Vec::new();
+    for (k, &start) in idxs.iter().enumerate() {
+        let end = idxs.get(k + 1).copied().unwrap_or(body.len());
+        out.push(&body[start..end]);
+    }
+    out
+}
+
+/// 从一页 HTML 抽大纲：首个 h1/h2/h3 作标题，其余 li/p 文本作要点。
+fn slide_outline(slide_html: &str) -> super::export::SlideOutline {
+    let title = ["h1", "h2", "h3"]
+        .iter()
+        .find_map(|t| first_tag_inner(slide_html, t))
+        .map(html_to_text)
+        .unwrap_or_default();
+    let mut bullets = Vec::new();
+    let low = slide_html.to_ascii_lowercase();
+    for tag in ["li", "p"] {
+        let open = format!("<{tag}");
+        let close = format!("</{tag}>");
+        let mut from = 0;
+        while let Some(rel) = low[from..].find(&open) {
+            let start = from + rel;
+            let Some(gt) = low[start..].find('>').map(|g| start + g + 1) else {
+                break;
+            };
+            let end = low[gt..].find(&close).map(|e| gt + e).unwrap_or(low.len());
+            let text = html_to_text(&slide_html[gt..end]);
+            if !text.is_empty() && text != title {
+                bullets.push(text);
+            }
+            from = end;
+            if bullets.len() >= 20 {
+                break;
+            }
+        }
+    }
+    super::export::SlideOutline { title, bullets }
+}
+
+/// owner 平面：从 deck 产物**服务端抽大纲**生成可编辑文本 PPTX（结构化双模式的结构化半）。
+/// 非 deck 形态 → 拒（图片模式走 `export_pptx`）。返回 base64 pptx。
+pub fn export_pptx_outline(artifact_id: &str) -> Result<String> {
+    use base64::Engine;
+    let a = open_db()?
+        .get_artifact(artifact_id)?
+        .context("artifact not found")?;
+    if a.kind != "deck" {
+        anyhow::bail!("结构化 PPTX 仅支持 deck 形态");
+    }
+    let dir = paths::design_artifact_dir(&a.project_id, &a.id)?;
+    let body = read_source(&dir)?.body_html;
+    let outlines: Vec<super::export::SlideOutline> =
+        split_deck_slides(&body).iter().map(|s| slide_outline(s)).collect();
+    if outlines.is_empty() {
+        anyhow::bail!("deck 无可导出的页面");
+    }
+    let bytes = super::export::build_pptx_outline(&outlines, &a.title)?;
+    Ok(base64::engine::general_purpose::STANDARD.encode(bytes))
+}
+
 pub fn export_pptx(slides_b64: &[String], title: &str) -> Result<String> {
     use base64::Engine;
     let mut slides = Vec::with_capacity(slides_b64.len());
@@ -3698,6 +3804,30 @@ pub async fn refine_artifact_with_comment(
         prompt_summary: Some(crate::truncate_utf8(&comment.body, 2000).to_string()),
         expected_body_hash: Some(patch::body_hash(&current.body_html)),
     })
+}
+
+#[cfg(test)]
+mod pptx_outline_tests {
+    use super::{slide_outline, split_deck_slides};
+
+    #[test]
+    fn split_and_outline_extracts_title_and_bullets() {
+        let body = "<div class=\"ds-slide\"><h1>第一页</h1><ul><li>要点 A</li><li>要点 B</li></ul></div>\
+<div class=\"ds-slide\"><h2>第二页</h2><p>正文一段</p></div>";
+        let slides = split_deck_slides(body);
+        assert_eq!(slides.len(), 2);
+        let o1 = slide_outline(slides[0]);
+        assert_eq!(o1.title, "第一页");
+        assert_eq!(o1.bullets, vec!["要点 A", "要点 B"]);
+        let o2 = slide_outline(slides[1]);
+        assert_eq!(o2.title, "第二页");
+        assert_eq!(o2.bullets, vec!["正文一段"]);
+    }
+
+    #[test]
+    fn no_slide_marker_falls_back_to_single() {
+        assert_eq!(split_deck_slides("<h1>x</h1>").len(), 1);
+    }
 }
 
 #[cfg(test)]

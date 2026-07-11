@@ -6179,7 +6179,7 @@
     "exportHtml": "HTML",
     "exportPng": "Imagen PNG",
     "exportPdf": "PDF",
-    "exportPptx": "PPTX",
+    "exportPptx": "PPTX (imágenes de página)",
     "critique": "Revisión de calidad",
     "critiqueScore": "Calidad",
     "history": "Historial de versiones",
@@ -6731,6 +6731,7 @@
       "noMask": "Primero pinta el área a regenerar",
       "done": "Regenerado desde la máscara",
       "failed": "Fallo al repintar: {{msg}}"
-    }
+    },
+    "exportPptxOutline": "PPTX (texto editable)"
   }
 }
