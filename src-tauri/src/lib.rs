@@ -198,6 +198,10 @@ pub fn run() {
             // Chat
             commands::chat::save_attachment,
             commands::chat::queue_turn_user_message,
+            commands::chat::list_queued_turn_user_messages,
+            commands::chat::update_queued_turn_user_message,
+            commands::chat::delete_queued_turn_user_message,
+            commands::chat::insert_queued_turn_user_message,
             commands::chat::cancel_queued_turn_user_message,
             commands::chat::chat,
             commands::chat::stop_chat,

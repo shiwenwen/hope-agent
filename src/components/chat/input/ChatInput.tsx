@@ -265,8 +265,9 @@ interface ChatInputProps {
   pendingSends?: PendingSendPreview[]
   onCancelPending?: () => void
   onDiscardPending?: () => void
-  onEditPending?: (id: string) => void
-  onDiscardPendingItem?: (id: string) => void
+  onEditPending?: (id: string, text: string) => Promise<boolean>
+  onDiscardPendingItem?: (id: string) => void | Promise<void>
+  onSendPending?: (id: string) => void | Promise<void>
   onForceInsertPending?: (id: string) => void
   onCancelForceInsertPending?: (id: string) => void
   onStop?: () => void
@@ -483,6 +484,7 @@ export default function ChatInput({
   onDiscardPending,
   onEditPending,
   onDiscardPendingItem,
+  onSendPending,
   onForceInsertPending,
   onCancelForceInsertPending,
   onStop,
@@ -553,6 +555,9 @@ export default function ChatInput({
   const [toolbarCollapseLevel, setToolbarCollapseLevel] = useState(0)
   const [toolbarMinHeight, setToolbarMinHeight] = useState<number | null>(null)
   const [pendingExpanded, setPendingExpanded] = useState(false)
+  const [editingPendingId, setEditingPendingId] = useState<string | null>(null)
+  const [pendingEditValue, setPendingEditValue] = useState("")
+  const [pendingEditSaving, setPendingEditSaving] = useState(false)
   const [goalComposerMode, setGoalComposerMode] = useState(false)
   const [loopComposerMode, setLoopComposerMode] = useState(false)
   const [goalComposerAction, setGoalComposerAction] =
@@ -871,9 +876,10 @@ export default function ChatInput({
   const quickPrompt = useQuickPrompts(input, setComposerInput, inputHandleRef, quickPrompts)
   // URL preview
   const { previews: urlPreviews, dismissedUrls, dismiss: dismissUrl } = useUrlPreview(input)
-  const hasSendableContent = goalComposerMode || loopComposerMode
-    ? input.trim().length > 0
-    : input.trim().length > 0 || attachedFiles.length > 0 || (pendingQuotes?.length ?? 0) > 0
+  const hasSendableContent =
+    goalComposerMode || loopComposerMode
+      ? input.trim().length > 0
+      : input.trim().length > 0 || attachedFiles.length > 0 || (pendingQuotes?.length ?? 0) > 0
 
   // The chat column can shrink when a right-side panel opens while the viewport
   // stays wide, so the overflow affordance follows the actual toolbar layout.
@@ -902,7 +908,10 @@ export default function ChatInput({
           semanticModesRef.current,
           toolbarGroupWidthsRef.current.semanticModes,
         ),
-        sandbox: readToolbarItemWidth(sandboxModeRef.current, toolbarGroupWidthsRef.current.sandbox),
+        sandbox: readToolbarItemWidth(
+          sandboxModeRef.current,
+          toolbarGroupWidthsRef.current.sandbox,
+        ),
         permission: readToolbarItemWidth(
           permissionModeRef.current,
           toolbarGroupWidthsRef.current.permission,
@@ -1123,9 +1132,7 @@ export default function ChatInput({
     // button must not persist the command prefix as part of the objective.
     const directGoalObjective = parseGoalUpsertSlashCommand(input)
     const directLoopPrompt =
-      goalComposerMode || !onLoopModeSubmit
-        ? null
-        : parseLoopCreateSlashCommand(input)
+      goalComposerMode || !onLoopModeSubmit ? null : parseLoopCreateSlashCommand(input)
     if (goalComposerMode || directGoalObjective) {
       const objective = directGoalObjective ?? input.trim()
       if (!objective || goalSubmitting) return
@@ -1331,9 +1338,7 @@ export default function ChatInput({
       (criterion.kind ?? "required") === "required" && criterion.status === "satisfied",
   ).length
   const activeGoalProgressLabel =
-    activeGoalRequiredTotal > 0
-      ? `${activeGoalRequiredDone}/${activeGoalRequiredTotal}`
-      : null
+    activeGoalRequiredTotal > 0 ? `${activeGoalRequiredDone}/${activeGoalRequiredTotal}` : null
   const planModeActive = planState !== "off" && planState !== "completed"
   const planComposerBannerOpen = planState === "planning" && !goalComposerMode && !loopComposerMode
 
@@ -1559,7 +1564,10 @@ export default function ChatInput({
           ]
         : []
   const pendingVisibleItems = pendingExpanded ? pendingQueueItems : pendingQueueItems.slice(0, 2)
-  const hasPendingQueue = loading && pendingQueueItems.length > 0
+  const nextSendablePendingId = pendingQueueItems.find(
+    (item) => item.status === "queued" || item.status === "fallback_after_reply",
+  )?.id
+  const hasPendingQueue = pendingQueueItems.length > 0
   const topStripBase =
     !hasVisibleTaskProgress &&
     attachedFiles.length === 0 &&
@@ -1577,21 +1585,23 @@ export default function ChatInput({
     autonomyActivity.state !== "idle" &&
     autonomyActivity.state !== "terminal"
   const workflowModeStatusOpen = workflowModeActive && !incognitoEnabled
-  const workflowProgressLineIsFirstContent =
-    activeGoalStripIsFirstContent && !activeGoalStatusOpen
+  const workflowProgressLineIsFirstContent = activeGoalStripIsFirstContent && !activeGoalStatusOpen
   const standaloneActivityStripIsFirstContent =
     workflowProgressLineIsFirstContent && !effectiveShowWorkflowProgressLine
   const workflowModeStatusIsFirstContent =
     standaloneActivityStripIsFirstContent && !standaloneActivityStatusOpen
-  const modeBannerIsFirstContent =
-    workflowModeStatusIsFirstContent && !workflowModeStatusOpen
+  const modeBannerIsFirstContent = workflowModeStatusIsFirstContent && !workflowModeStatusOpen
 
   const pendingStatusLabel = (item: PendingSendPreview) => {
     switch (item.status) {
+      case "saving":
+        return t("chat.pendingSaving", "正在保存")
       case "waiting_tool_boundary":
         return t("chat.pendingWaitingToolBoundary", "等待工具完成点")
-      case "inserted":
-        return t("chat.pendingInserted", "已插入")
+      case "inserting":
+        return t("chat.pendingInserting", "正在插入")
+      case "dispatching":
+        return t("chat.pendingDispatching", "正在发送")
       case "fallback_after_reply":
         return t("chat.pendingFallbackAfterReply", "回复后发送")
       case "queued":
@@ -1602,6 +1612,8 @@ export default function ChatInput({
 
   const pendingStatusTip = (item: PendingSendPreview) => {
     switch (item.status) {
+      case "saving":
+        return t("chat.pendingSavingTip", "正在把消息和附件保存到可恢复队列。")
       case "waiting_tool_boundary":
         return t(
           "chat.pendingWaitingToolBoundaryTip",
@@ -1609,8 +1621,10 @@ export default function ChatInput({
         )
       case "fallback_after_reply":
         return t("chat.pendingFallbackAfterReplyTip", "未遇到工具完成点，将在当前回复结束后发送。")
-      case "inserted":
-        return t("chat.pendingInsertedTip", "已在本轮工具完成后插入给模型。")
+      case "inserting":
+        return t("chat.pendingInsertingTip", "已进入工具完成边界，暂时不能编辑或删除。")
+      case "dispatching":
+        return t("chat.pendingDispatchingTip", "正在从持久队列创建新的对话回合。")
       case "queued":
       default:
         return t("chat.pendingQueuedTip", "已加入待发送队列，将在当前回复结束后发送。")
@@ -1787,17 +1801,16 @@ export default function ChatInput({
         className={cn(
           "relative min-w-0 overflow-visible rounded-input-dock border border-border-soft bg-surface-floating shadow-input-dock",
           hero && "shadow-floating",
-          incognitoEnabled &&
-            [
-              "[--color-surface-floating:hsl(0_0%_13%)]",
-              "[--color-surface-subtle:hsl(0_0%_16%)]",
-              "[--color-secondary:hsl(0_0%_17%)]",
-              "[--color-foreground:hsl(0_0%_96%)]",
-              "[--color-muted-foreground:hsl(0_0%_70%)]",
-              "[--color-border:hsl(0_0%_22%)]",
-              "[--color-border-soft:hsl(0_0%_22%)]",
-              "shadow-[0_18px_52px_hsl(0_0%_4%/0.24)]",
-            ],
+          incognitoEnabled && [
+            "[--color-surface-floating:hsl(0_0%_13%)]",
+            "[--color-surface-subtle:hsl(0_0%_16%)]",
+            "[--color-secondary:hsl(0_0%_17%)]",
+            "[--color-foreground:hsl(0_0%_96%)]",
+            "[--color-muted-foreground:hsl(0_0%_70%)]",
+            "[--color-border:hsl(0_0%_22%)]",
+            "[--color-border-soft:hsl(0_0%_22%)]",
+            "shadow-[0_18px_52px_hsl(0_0%_4%/0.24)]",
+          ],
         )}
       >
         {/* Slash Command Menu */}
@@ -1960,15 +1973,40 @@ export default function ChatInput({
               </div>
               <div className="flex flex-col gap-1.5">
                 {pendingVisibleItems.map((item) => {
-                  const edit = () =>
-                    item.id === "__legacy__" ? onCancelPending?.() : onEditPending?.(item.id)
+                  const beginEdit = () => {
+                    if (item.id === "__legacy__") {
+                      onCancelPending?.()
+                      return
+                    }
+                    setEditingPendingId(item.id)
+                    setPendingEditValue(item.text)
+                  }
+                  const saveEdit = async () => {
+                    const next = pendingEditValue.trim()
+                    if (!next || !onEditPending) return
+                    setPendingEditSaving(true)
+                    try {
+                      const changed = await onEditPending(item.id, next)
+                      if (changed) setEditingPendingId(null)
+                    } finally {
+                      setPendingEditSaving(false)
+                    }
+                  }
                   const discard = () =>
                     item.id === "__legacy__"
                       ? onDiscardPending?.()
                       : onDiscardPendingItem?.(item.id)
-                  const readonly = item.status === "inserted"
+                  const readonly =
+                    item.status === "saving" ||
+                    item.status === "inserting" ||
+                    item.status === "dispatching"
                   const canCancelForce =
                     item.mode === "force_insert" && item.status === "waiting_tool_boundary"
+                  const canSendNow =
+                    !loading &&
+                    item.id === nextSendablePendingId &&
+                    (item.status === "queued" || item.status === "fallback_after_reply")
+                  const isEditing = editingPendingId === item.id
                   return (
                     <div
                       key={item.id}
@@ -1979,53 +2017,109 @@ export default function ChatInput({
                           {pendingStatusLabel(item)}
                         </span>
                       </IconTip>
-                      <span className="min-w-0 flex-1 truncate text-sm text-foreground/90">
-                        {item.text}
-                        {(item.attachmentCount > 0 || item.quoteCount > 0) && (
-                          <span className="ml-1 text-xs text-muted-foreground">
-                            +{item.attachmentCount + item.quoteCount}
-                          </span>
-                        )}
-                      </span>
-                      {canCancelForce ? (
-                        <IconTip label={t("chat.pendingCancelForceInsert", "取消插入本轮")}>
+                      {isEditing ? (
+                        <input
+                          autoFocus
+                          value={pendingEditValue}
+                          disabled={pendingEditSaving}
+                          className="h-7 min-w-0 flex-1 rounded border border-border bg-background px-2 text-sm outline-none focus:border-ring"
+                          onChange={(event) => setPendingEditValue(event.target.value)}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter" && !event.shiftKey) {
+                              event.preventDefault()
+                              void saveEdit()
+                            } else if (event.key === "Escape") {
+                              setEditingPendingId(null)
+                            }
+                          }}
+                        />
+                      ) : (
+                        <span className="min-w-0 flex-1 truncate text-sm text-foreground/90">
+                          {item.text}
+                          {(item.attachmentCount > 0 || item.quoteCount > 0) && (
+                            <span className="ml-1 text-xs text-muted-foreground">
+                              +{item.attachmentCount + item.quoteCount}
+                            </span>
+                          )}
+                        </span>
+                      )}
+                      {isEditing ? (
+                        <>
                           <button
                             type="button"
-                            className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-                            onClick={() => onCancelForceInsertPending?.(item.id)}
+                            disabled={pendingEditSaving || !pendingEditValue.trim()}
+                            className="rounded-md p-1 text-emerald-600 hover:bg-emerald-500/10 disabled:opacity-40"
+                            onClick={() => void saveEdit()}
                           >
-                            <Undo2 className="h-3.5 w-3.5" />
+                            {pendingEditSaving ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <Check className="h-3.5 w-3.5" />
+                            )}
+                          </button>
+                          <button
+                            type="button"
+                            className="rounded-md p-1 text-muted-foreground hover:bg-secondary"
+                            onClick={() => setEditingPendingId(null)}
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        </>
+                      ) : null}
+                      {!isEditing && canSendNow && (
+                        <IconTip label={t("chat.pendingSendNow", "立即发送")}>
+                          <button
+                            type="button"
+                            className="rounded-md p-1 text-emerald-600 transition-colors hover:bg-emerald-500/10"
+                            onClick={() => onSendPending?.(item.id)}
+                          >
+                            <PlayCircle className="h-3.5 w-3.5" />
                           </button>
                         </IconTip>
-                      ) : (
-                        item.canForceInsert && (
-                          <IconTip
-                            label={t(
-                              "chat.pendingForceInsertTip",
-                              "会等正在执行的工具完成后插入给模型，不会打断当前工具。",
-                            )}
-                          >
-                            <button
-                              type="button"
-                              className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-                              onClick={() => onForceInsertPending?.(item.id)}
-                            >
-                              <BetweenHorizontalStart className="h-3.5 w-3.5" />
-                            </button>
-                          </IconTip>
-                        )
                       )}
-                      {!readonly && (
-                        <>
-                          <IconTip label={t("chat.pendingEdit")}>
+                      {!isEditing &&
+                        (canCancelForce ? (
+                          <IconTip label={t("chat.pendingCancelForceInsert", "取消插入本轮")}>
                             <button
                               type="button"
                               className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-                              onClick={edit}
+                              onClick={() => onCancelForceInsertPending?.(item.id)}
                             >
-                              <Pencil className="h-3.5 w-3.5" />
+                              <Undo2 className="h-3.5 w-3.5" />
                             </button>
                           </IconTip>
+                        ) : (
+                          loading &&
+                          item.canForceInsert && (
+                            <IconTip
+                              label={t(
+                                "chat.pendingForceInsertTip",
+                                "会等正在执行的工具完成后插入给模型，不会打断当前工具。",
+                              )}
+                            >
+                              <button
+                                type="button"
+                                className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                                onClick={() => onForceInsertPending?.(item.id)}
+                              >
+                                <BetweenHorizontalStart className="h-3.5 w-3.5" />
+                              </button>
+                            </IconTip>
+                          )
+                        ))}
+                      {!isEditing && !readonly && (
+                        <>
+                          {item.editable !== false && (
+                            <IconTip label={t("chat.pendingEdit")}>
+                              <button
+                                type="button"
+                                className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                                onClick={beginEdit}
+                              >
+                                <Pencil className="h-3.5 w-3.5" />
+                              </button>
+                            </IconTip>
+                          )}
                           <IconTip label={t("chat.pendingDelete")}>
                             <button
                               type="button"
@@ -2434,10 +2528,7 @@ export default function ChatInput({
               <div className="grid grid-cols-2 gap-1 sm:grid-cols-5">
                 {(
                   [
-                    [
-                      "create_or_update",
-                      t("chat.goalMode.actionUpdate", "更新目标"),
-                    ],
+                    ["create_or_update", t("chat.goalMode.actionUpdate", "更新目标")],
                     ["replace", t("chat.goalMode.actionReplace", "替代目标")],
                     ["append_required", t("chat.goalMode.actionRequired", "追加必须")],
                     ["append_optional", t("chat.goalMode.actionOptional", "追加可选")],
@@ -2514,11 +2605,11 @@ export default function ChatInput({
                 ? t("chat.goalMode.placeholder", "描述你希望持续推进并最终完成的目标")
                 : loopComposerMode
                   ? t("chat.loopMode.placeholder", "描述你希望持续推进的任务")
-                : planState === "planning"
-                  ? t("planMode.placeholder")
-                  : hasPendingQueue
-                    ? t("chat.pendingQueued")
-                    : t("chat.askAnything")
+                  : planState === "planning"
+                    ? t("planMode.placeholder")
+                    : hasPendingQueue
+                      ? t("chat.pendingQueued")
+                      : t("chat.askAnything")
             }
             value={input}
             onChange={setComposerInput}

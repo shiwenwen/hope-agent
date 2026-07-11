@@ -45,8 +45,14 @@ import {
 import { useNotificationListeners } from "./useNotificationListeners"
 import type { SessionStreamState } from "./useChatStreamReattach"
 import { modelOverrideFromManualSelection } from "../modelSelection"
+import {
+  hasSendableChatPayload,
+  nextDispatchablePending,
+  shouldApplyPendingQueueSnapshot,
+} from "./pendingQueue"
 
 const ACTIVE_STREAM_ERROR_CODE = "active_stream"
+const QUEUED_MESSAGE_UNAVAILABLE_ERROR_CODE = "queued_message_unavailable"
 const CHAT_NOTIFICATION_PREVIEW_MAX_CHARS = 220
 
 function errorText(error: unknown): string {
@@ -61,6 +67,14 @@ function errorText(error: unknown): string {
 
 function isActiveStreamError(error: unknown): boolean {
   return errorText(error).includes(ACTIVE_STREAM_ERROR_CODE)
+}
+
+function isQueuedMessageUnavailableError(error: unknown): boolean {
+  const text = errorText(error)
+  return (
+    text.includes(QUEUED_MESSAGE_UNAVAILABLE_ERROR_CODE) ||
+    text.includes("Queued message is no longer available")
+  )
 }
 
 function normalizeNotificationText(text: string): string {
@@ -144,6 +158,7 @@ interface SendOptions {
     completionCriteria?: string
   }
   sessionIdOverride?: string
+  queuedRequestId?: string
   /** Routed through the chat command into `attachments_meta.plan_comment`
    *  so the desktop GUI can render PlanCommentBubble with structured
    *  selection + comment fields. IM channels ignore this and use displayText. */
@@ -152,23 +167,57 @@ interface SendOptions {
 
 interface PendingSend {
   id: string
+  sessionId: string
   createdAt: number
   text: string
   mode: "queue" | "force_insert"
-  status: "queued" | "waiting_tool_boundary" | "inserted" | "fallback_after_reply"
+  status:
+    | "saving"
+    | "queued"
+    | "waiting_tool_boundary"
+    | "inserting"
+    | "dispatching"
+    | "fallback_after_reply"
   options?: SendOptions
   attachedFiles?: File[]
   quotes?: PendingFileQuote[]
+  attachmentCount?: number
+  quoteCount?: number
+  isPlanTrigger?: boolean
+  goalTrigger?: boolean
+  planComment?: { selectedText: string; comment: string }
+  editable?: boolean
+}
+
+interface QueuedTurnMessageView {
+  requestId: string
+  sessionId: string
+  turnId?: string
+  message: string
+  displayText?: string
+  attachmentCount: number
+  quoteCount: number
+  isPlanTrigger: boolean
+  goalTrigger: boolean
+  planComment?: { selectedText: string; comment: string }
+  planMode?: string
+  workflowMode?: string
+  mode: "queue" | "force_insert"
+  status: "queued" | "waiting_tool_boundary" | "inserting" | "dispatching" | "fallback_after_reply"
+  createdAt: string
+  updatedAt: string
 }
 
 interface QueueTurnUserMessageResult {
   queued: boolean
   requestId: string
   reason?: string
+  item?: QueuedTurnMessageView
 }
 
 interface CancelQueuedTurnUserMessageResult {
   cancelled: boolean
+  reason?: string
 }
 
 interface InputDraft {
@@ -286,8 +335,9 @@ export interface UseChatStreamReturn {
   pendingMessage: string | null
   setPendingMessage: React.Dispatch<React.SetStateAction<string | null>>
   pendingSends: PendingSendPreview[]
-  editPendingSend: (id: string) => void
-  discardPendingSend: (id: string) => void
+  editPendingSend: (id: string, text: string) => Promise<boolean>
+  discardPendingSend: (id: string) => Promise<void>
+  sendPendingSend: (id: string) => Promise<void>
   forceInsertPendingSend: (id: string) => Promise<void>
   cancelForceInsertPendingSend: (id: string) => Promise<void>
   approvalRequests: ApprovalRequest[]
@@ -440,6 +490,7 @@ export function useChatStream({
   // insertion at the next safe tool boundary.
   const [pendingSendsState, setPendingSendsState] = useState<PendingSend[]>([])
   const pendingSendsRef = useRef<PendingSend[]>([])
+  const pendingSyncSeqRef = useRef(0)
   const updatePendingSends = useCallback((updater: React.SetStateAction<PendingSend[]>) => {
     setPendingSendsState((prev) => {
       const next =
@@ -450,20 +501,65 @@ export function useChatStream({
       return next
     })
   }, [])
+  const pendingFromView = useCallback(
+    (item: QueuedTurnMessageView): PendingSend => ({
+      id: item.requestId,
+      sessionId: item.sessionId,
+      createdAt: Date.parse(item.createdAt) || Date.now(),
+      text: item.message,
+      mode: item.mode,
+      status: item.status,
+      options: {
+        ...(item.displayText ? { displayText: item.displayText } : {}),
+        ...(item.isPlanTrigger ? { isPlanTrigger: true } : {}),
+        ...(item.goalTrigger ? { goalTrigger: true } : {}),
+        ...(item.planComment ? { planComment: item.planComment } : {}),
+        ...(item.planMode ? { planMode: item.planMode } : {}),
+        ...(item.workflowMode ? { workflowMode: item.workflowMode } : {}),
+      },
+      attachmentCount: item.attachmentCount,
+      quoteCount: item.quoteCount,
+      isPlanTrigger: item.isPlanTrigger,
+      goalTrigger: item.goalTrigger,
+      planComment: item.planComment,
+      editable: !item.displayText && !item.isPlanTrigger && !item.goalTrigger && !item.planComment,
+    }),
+    [],
+  )
+  const syncPendingSends = useCallback(
+    async (sessionId: string): Promise<PendingSend[]> => {
+      const syncSeq = ++pendingSyncSeqRef.current
+      const items = await getTransport().call<QueuedTurnMessageView[]>(
+        "list_queued_turn_user_messages",
+        { sessionId },
+      )
+      const mapped = items.map(pendingFromView)
+      if (
+        syncSeq === pendingSyncSeqRef.current &&
+        shouldApplyPendingQueueSnapshot(currentSessionIdRef.current, sessionId)
+      ) {
+        updatePendingSends(mapped)
+      }
+      return mapped
+    },
+    [currentSessionIdRef, pendingFromView, updatePendingSends],
+  )
   const pendingDisplayText = useCallback(
     (pending: PendingSend): string =>
       pending.options?.displayText?.trim() ||
       pending.text ||
-      (pending.attachedFiles?.length ? t("chat.attachPhotosAndFiles") : ""),
+      (pending.attachedFiles?.length || pending.attachmentCount || pending.quoteCount
+        ? t("chat.attachPhotosAndFiles")
+        : ""),
     [t],
-  )
-  const pendingInputText = useCallback(
-    (pending: PendingSend): string => pending.options?.displayText?.trim() || pending.text,
-    [],
   )
   const canForceInsertPending = useCallback(
     (pending: PendingSend): boolean =>
-      !pending.options && pending.status === "queued" && pending.mode !== "force_insert",
+      !pending.isPlanTrigger &&
+      !pending.goalTrigger &&
+      !pending.planComment &&
+      (pending.status === "queued" || pending.status === "fallback_after_reply") &&
+      pending.mode !== "force_insert",
     [],
   )
   // External views: keep the original `pendingMessage: string | null` API for
@@ -475,8 +571,12 @@ export function useChatStream({
     mode: pending.mode,
     status: pending.status,
     canForceInsert: canForceInsertPending(pending),
-    attachmentCount: pending.attachedFiles?.length ?? 0,
-    quoteCount: pending.quotes?.length ?? 0,
+    attachmentCount: pending.attachmentCount ?? pending.attachedFiles?.length ?? 0,
+    quoteCount: pending.quoteCount ?? pending.quotes?.length ?? 0,
+    sessionId: pending.sessionId,
+    isPlanTrigger: pending.isPlanTrigger,
+    goalTrigger: pending.goalTrigger,
+    editable: pending.editable,
   }))
   const setPendingMessage = useCallback<React.Dispatch<React.SetStateAction<string | null>>>(
     (value) => {
@@ -492,15 +592,16 @@ export function useChatStream({
         return [
           {
             id: generateClientId(),
+            sessionId: currentSessionId ?? "",
             createdAt: Date.now(),
             text: next,
             mode: "queue",
-            status: "queued",
+            status: "saving",
           },
         ]
       })
     },
-    [pendingDisplayText, updatePendingSends],
+    [currentSessionId, pendingDisplayText, updatePendingSends],
   )
   const [showCodexAuthExpired, setShowCodexAuthExpired] = useState(false)
   const [permissionMode, setPermissionModeState] = useState<SessionMode>("default")
@@ -662,6 +763,32 @@ export function useChatStream({
     })
     return unlisten
   }, [])
+
+  // SQLite is authoritative. Reconcile on session switch, startup/reload, and
+  // every backend mutation event (including another desktop/web client).
+  useEffect(() => {
+    const sid = currentSessionId
+    if (!sid) {
+      pendingSyncSeqRef.current += 1
+      updatePendingSends([])
+      return
+    }
+    updatePendingSends([])
+    void syncPendingSends(sid).catch((error) => {
+      logger.warn("chat", "useChatStream::queueSync", "Failed to load pending messages", error)
+    })
+  }, [currentSessionId, syncPendingSends, updatePendingSends])
+
+  useEffect(() => {
+    return getTransport().listen("chat:turn_queue_changed", (raw) => {
+      const payload = raw as { sessionId?: unknown } | null
+      const sid = typeof payload?.sessionId === "string" ? payload.sessionId : null
+      if (!sid || currentSessionIdRef.current !== sid) return
+      void syncPendingSends(sid).catch((error) => {
+        logger.warn("chat", "useChatStream::queueEvent", "Failed to reconcile queue", error)
+      })
+    })
+  }, [currentSessionIdRef, syncPendingSends])
 
   // Compose sub-hooks
   const { approvalRequests, handleApprovalResponse } = useApprovals(currentSessionId)
@@ -937,7 +1064,9 @@ export function useChatStream({
     const rawText = directText ?? input
     const hasAttachedFiles = !directText && attachedFiles.length > 0
     const hasQuotes = !directText && pendingQuotes.length > 0
-    if (!rawText.trim() && !hasAttachedFiles && !hasQuotes) return
+    if (!hasSendableChatPayload(rawText, hasAttachedFiles, hasQuotes, options?.queuedRequestId)) {
+      return
+    }
 
     // If currently loading, queue the message as pending. Capture the
     // LLM-bound text, the original options, and any staged files/quotes so the
@@ -945,16 +1074,28 @@ export function useChatStream({
     // triggers carry `isPlanTrigger`, slash-skill expansions carry
     // `displayText`, etc.).
     if (loading) {
+      const queueSessionId =
+        options?.sessionIdOverride ?? currentSessionIdRef.current ?? currentSessionId
+      if (!queueSessionId) {
+        logger.warn(
+          "chat",
+          "useChatStream::queue",
+          "Session is still being created; pending message was kept in the composer",
+        )
+        return
+      }
       const queuedFiles = directText ? [] : [...attachedFiles]
       const queuedQuotes = directText ? [] : [...pendingQuotes]
+      const requestId = generateClientId()
       updatePendingSends((prev) => [
         ...prev,
         {
-          id: generateClientId(),
+          id: requestId,
+          sessionId: queueSessionId,
           createdAt: Date.now(),
           text: rawText.trim(),
           mode: "queue",
-          status: "queued",
+          status: "saving",
           options,
           ...(queuedFiles.length > 0 && { attachedFiles: queuedFiles }),
           ...(queuedQuotes.length > 0 && { quotes: queuedQuotes }),
@@ -964,6 +1105,58 @@ export function useChatStream({
         setInput("")
         setAttachedFiles([])
         setPendingQuotes([])
+      }
+      try {
+        const durableAttachments = await buildChatAttachments(
+          rawText.trim(),
+          queuedFiles,
+          queuedQuotes,
+          queueSessionId,
+        )
+        if (getExtraAttachments) {
+          durableAttachments.push(...getExtraAttachments())
+        }
+        await getTransport().call<QueueTurnUserMessageResult>("queue_turn_user_message", {
+          requestId,
+          sessionId: queueSessionId,
+          message: rawText.trim(),
+          attachments: durableAttachments,
+          displayText: options?.displayText,
+          isPlanTrigger: options?.isPlanTrigger,
+          goalTrigger: options?.goalTrigger,
+          planComment: options?.planComment,
+          planMode: options?.planMode,
+          workflowMode: options?.workflowMode,
+        })
+        await syncPendingSends(queueSessionId)
+      } catch (error) {
+        logger.error("chat", "useChatStream::queue", "Failed to persist pending message", error)
+        updatePendingSends((prev) => prev.filter((item) => item.id !== requestId))
+        if (!directText) {
+          const restoreText = (existing: string) =>
+            existing.trim() ? `${rawText}\n${existing}` : rawText
+          if (currentSessionIdRef.current === queueSessionId) {
+            // Do not overwrite text/files the user entered while the durable
+            // save was in flight. Put the failed send back ahead of the newer
+            // draft so nothing silently disappears.
+            setInput(restoreText)
+            setAttachedFiles((existing) => [...queuedFiles, ...existing])
+            setPendingQuotes((existing) => [...queuedQuotes, ...existing])
+          } else {
+            // Session switches are allowed while the queue write is pending.
+            // Restore the failed message into that session's draft cache so it
+            // is waiting in the composer when the user returns.
+            const key = inputDraftKey(queueSessionId)
+            const existing = inputDraftsRef.current.get(key) ?? {
+              input: "",
+              attachedFiles: [],
+            }
+            saveInputDraft(key, {
+              input: restoreText(existing.input),
+              attachedFiles: [...queuedFiles, ...existing.attachedFiles],
+            })
+          }
+        }
       }
       return
     }
@@ -1020,9 +1213,11 @@ export function useChatStream({
     })
     setLoading(true)
 
-    const attachments = await buildChatAttachments(text, filesToSend, quotesToSend, sendSessionId)
-    // Per-turn invisible context (knowledge panel: the currently-open note).
-    if (getExtraAttachments) {
+    const attachments = options?.queuedRequestId
+      ? []
+      : await buildChatAttachments(text, filesToSend, quotesToSend, sendSessionId)
+    // Per-turn invisible context is already snapshotted into durable queue rows.
+    if (getExtraAttachments && !options?.queuedRequestId) {
       for (const extra of getExtraAttachments()) attachments.push(extra)
     }
 
@@ -1121,21 +1316,9 @@ export function useChatStream({
         if (shouldDropStreamEvent(event, sid)) return
 
         if (event.type === "queued_user_message_inserted") {
-          const requestId = typeof event.request_id === "string" ? event.request_id : null
-          if (requestId) {
-            updatePendingSends((prev) =>
-              prev.map((item) =>
-                item.id === requestId
-                  ? { ...item, mode: "force_insert", status: "inserted" }
-                  : item,
-              ),
-            )
-          }
+          if (sid !== "__pending__") void syncPendingSends(sid).catch(() => undefined)
         } else if (event.type === "queued_user_message_blocked") {
-          const requestId = typeof event.request_id === "string" ? event.request_id : null
-          if (requestId) {
-            updatePendingSends((prev) => prev.filter((item) => item.id !== requestId))
-          }
+          if (sid !== "__pending__") void syncPendingSends(sid).catch(() => undefined)
         }
 
         handleStreamEvent(event, sid, {
@@ -1230,6 +1413,7 @@ export function useChatStream({
           // to API clients as one-turn controls. The GUI uses sessionDefaults
           // above so draft choices are consumed only during materialization.
           displayText: options?.displayText?.trim() || undefined,
+          queuedRequestId: options?.queuedRequestId,
           isPlanTrigger: options?.isPlanTrigger,
           goalTrigger: options?.goalTrigger,
           initialGoal:
@@ -1262,11 +1446,13 @@ export function useChatStream({
       chatResolved = true
     } catch (e) {
       const sid = targetSessionId || "__pending__"
-      if (isActiveStreamError(e) && sid !== "__pending__") {
-        // active_stream rejects before the backend persists anything, so the
-        // optimistic user + assistant messages we just appended must be rolled
-        // back. Other errors may have already saved server-side, so we keep
-        // the user message visible there.
+      if (
+        (isActiveStreamError(e) || isQueuedMessageUnavailableError(e)) &&
+        sid !== "__pending__"
+      ) {
+        // active_stream and a lost durable-queue CAS both reject before this
+        // caller persists anything, so roll back its optimistic bubbles. Other
+        // errors may already have saved server-side, so keep those visible.
         keepExistingStreamLoading = true
         updateSessionMessages(sid, (prev) => {
           const updated = [...prev]
@@ -1295,6 +1481,7 @@ export function useChatStream({
           const state = await getTransport().call<SessionStreamState>("get_session_stream_state", {
             sessionId: sid,
           })
+          keepExistingStreamLoading = state.active
           if (state.turnId && state.active) {
             activeTurnBySessionRef.current.set(sid, state.turnId)
           } else if (!state.active) {
@@ -1421,49 +1608,34 @@ export function useChatStream({
       }
       await reloadSessions()
 
-      // Handle pending messages after loading finishes. Replays one FIFO item
-      // per completed turn; the rest stay queued for subsequent turns.
-      const queued = pendingSendsRef.current.find((item) => item.status !== "inserted")
-      updatePendingSends((prev) =>
-        queued
-          ? prev.filter((item) => item.status !== "inserted" && item.id !== queued.id)
-          : prev.filter((item) => item.status !== "inserted"),
-      )
-      if (queued) {
-        // Restore staged quotes so they ride along with the replayed message
-        // (user-draft path) instead of being silently dropped.
-        if (queued.quotes?.length) setPendingQuotes(queued.quotes)
+      // SQLite remains authoritative. Reconcile the completed session, then
+      // schedule exactly one FIFO row. If the user switched sessions we leave
+      // that session's durable queue untouched instead of replaying it into the
+      // newly selected conversation.
+      if (targetSessionId) {
+        const queue = await syncPendingSends(targetSessionId).catch(() => [])
+        const queued = nextDispatchablePending(queue)
         if (
-          queued.options &&
-          (queued.options.isPlanTrigger || queued.options.goalTrigger || autoSendPendingRef.current)
+          queued &&
+          currentSessionIdRef.current === targetSessionId &&
+          (queued.isPlanTrigger || queued.goalTrigger || autoSendPendingRef.current)
         ) {
-          // Programmatic queued send (Plan Mode approve, Goal Mode, slash-skill
-          // expansion). Replay through the auto-send effect with the
-          // original options so `isPlanTrigger` / `goalTrigger` / `displayText` / `planMode`
-          // survive. Plan triggers are button-driven and should always
-          // continue; slash-skill expansions still respect autoSendPending.
-          queuedReplayRef.current = queued
-          autoSendRef.current = true
-        } else {
-          // User-typed drafts and non-auto-sent programmatic sends are
-          // restored for editing / confirmation without turning attachment-only
-          // placeholders into real prompts.
-          setInput(pendingInputText(queued))
-          setAttachedFiles(queued.attachedFiles ?? [])
-          if (autoSendPendingRef.current) {
-            autoSendRef.current = true
+          queuedReplayRef.current = {
+            ...queued,
+            options: {
+              ...queued.options,
+              sessionIdOverride: targetSessionId,
+              queuedRequestId: queued.id,
+            },
           }
+          autoSendRef.current = true
         }
       }
     }
   }
 
-  // Auto-send: fires after React flushes the input state + loading=false.
-  // Two replay paths:
-  //   1. `queuedReplayRef` set → programmatic send (Plan Mode approve etc.)
-  //      with the original options preserved.
-  //   2. Otherwise → user-typed draft restored to `input`, dispatched as a
-  //      regular send.
+  // Auto-send after React flushes loading=false. Durable queue replay always
+  // carries queuedRequestId; the backend loads the authoritative payload.
   useEffect(() => {
     if (!autoSendRef.current || loading) return
     const replay = queuedReplayRef.current
@@ -1471,56 +1643,60 @@ export function useChatStream({
       autoSendRef.current = false
       queuedReplayRef.current = null
       void handleSend(replay.text, replay.options)
-    } else if (input.trim() || attachedFiles.length > 0) {
-      autoSendRef.current = false
-      void handleSend()
     }
-  }, [attachedFiles, input, loading]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [loading]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const editPendingSend = useCallback(
-    (id: string) => {
+    async (id: string, text: string): Promise<boolean> => {
       const item = pendingSendsRef.current.find((pending) => pending.id === id)
-      if (!item) return
-      if (item.mode === "force_insert" && item.status === "waiting_tool_boundary") {
-        const sid = currentSessionIdRef.current
-        const turnId = sid ? activeTurnBySessionRef.current.get(sid) : null
-        if (sid && turnId) {
-          void getTransport()
-            .call<CancelQueuedTurnUserMessageResult>("cancel_queued_turn_user_message", {
-              sessionId: sid,
-              turnId,
-              requestId: id,
-            })
-            .catch(() => {})
-        }
-      }
-      updatePendingSends((prev) => prev.filter((pending) => pending.id !== id))
-      setInput(pendingInputText(item))
-      setAttachedFiles(item.attachedFiles ?? [])
-      setPendingQuotes(item.quotes ?? [])
+      const next = text.trim()
+      if (!item || !next || item.status === "saving") return false
+      const changed = await getTransport().call<boolean>("update_queued_turn_user_message", {
+        sessionId: item.sessionId,
+        requestId: id,
+        message: next,
+        displayText: item.options?.displayText ? next : undefined,
+      })
+      await syncPendingSends(item.sessionId)
+      return changed
     },
-    [currentSessionIdRef, pendingInputText, setInput, updatePendingSends],
+    [syncPendingSends],
   )
 
   const discardPendingSend = useCallback(
-    (id: string) => {
+    async (id: string) => {
       const item = pendingSendsRef.current.find((pending) => pending.id === id)
-      if (item?.mode === "force_insert" && item.status === "waiting_tool_boundary") {
-        const sid = currentSessionIdRef.current
-        const turnId = sid ? activeTurnBySessionRef.current.get(sid) : null
-        if (sid && turnId) {
-          void getTransport()
-            .call<CancelQueuedTurnUserMessageResult>("cancel_queued_turn_user_message", {
-              sessionId: sid,
-              turnId,
-              requestId: id,
-            })
-            .catch(() => {})
-        }
+      if (!item) return
+      if (item.status === "saving") {
+        updatePendingSends((prev) => prev.filter((pending) => pending.id !== id))
+        return
       }
-      updatePendingSends((prev) => prev.filter((pending) => pending.id !== id))
+      await getTransport().call<boolean>("delete_queued_turn_user_message", {
+        sessionId: item.sessionId,
+        requestId: id,
+      })
+      await syncPendingSends(item.sessionId)
     },
-    [currentSessionIdRef, updatePendingSends],
+    [syncPendingSends, updatePendingSends],
+  )
+
+  const sendPendingSend = useCallback(
+    async (id: string) => {
+      const item = pendingSendsRef.current.find((pending) => pending.id === id)
+      if (
+        !item ||
+        loading ||
+        (item.status !== "queued" && item.status !== "fallback_after_reply")
+      ) {
+        return
+      }
+      await handleSend(item.text, {
+        ...item.options,
+        sessionIdOverride: item.sessionId,
+        queuedRequestId: item.id,
+      })
+    },
+    [loading], // eslint-disable-line react-hooks/exhaustive-deps
   )
 
   const forceInsertPendingSend = useCallback(
@@ -1530,78 +1706,31 @@ export function useChatStream({
       const sid = currentSessionIdRef.current ?? currentSessionId
       const turnId = sid ? activeTurnBySessionRef.current.get(sid) : null
       if (!sid || !turnId) {
-        updatePendingSends((prev) =>
-          prev.map((pending) =>
-            pending.id === id ? { ...pending, status: "fallback_after_reply" } : pending,
-          ),
-        )
         return
       }
-
-      updatePendingSends((prev) =>
-        prev.map((pending) =>
-          pending.id === id
-            ? { ...pending, mode: "force_insert", status: "waiting_tool_boundary" }
-            : pending,
-        ),
-      )
-
       try {
-        const attachments = await buildChatAttachments(
-          item.text,
-          item.attachedFiles ?? [],
-          item.quotes ?? [],
-          sid,
-        )
-        const latest = pendingSendsRef.current.find((pending) => pending.id === id)
-        if (
-          !latest ||
-          latest.mode !== "force_insert" ||
-          latest.status !== "waiting_tool_boundary"
-        ) {
-          return
-        }
         const result = await getTransport().call<QueueTurnUserMessageResult>(
-          "queue_turn_user_message",
+          "insert_queued_turn_user_message",
           {
             requestId: id,
             sessionId: sid,
             turnId,
-            message: item.text,
-            attachments,
-            displayText: item.options?.displayText,
-            isPlanTrigger: item.options?.isPlanTrigger,
-            goalTrigger: item.options?.goalTrigger,
-            planComment: item.options?.planComment,
           },
         )
         if (!result.queued) {
-          updatePendingSends((prev) =>
-            prev.map((pending) =>
-              pending.id === id
-                ? { ...pending, mode: "queue", status: "fallback_after_reply" }
-                : pending,
-            ),
+          logger.warn(
+            "chat",
+            "useChatStream::forceInsert",
+            result.reason ?? "Queued message is no longer insertable",
           )
         }
+        await syncPendingSends(sid)
       } catch (e) {
         logger.warn("chat", "useChatStream::forceInsert", "Failed to queue turn insertion", e)
-        updatePendingSends((prev) =>
-          prev.map((pending) =>
-            pending.id === id
-              ? { ...pending, mode: "queue", status: "fallback_after_reply" }
-              : pending,
-          ),
-        )
+        await syncPendingSends(sid).catch(() => undefined)
       }
     },
-    [
-      buildChatAttachments,
-      canForceInsertPending,
-      currentSessionId,
-      currentSessionIdRef,
-      updatePendingSends,
-    ],
+    [canForceInsertPending, currentSessionId, currentSessionIdRef, syncPendingSends],
   )
 
   const cancelForceInsertPendingSend = useCallback(
@@ -1609,21 +1738,24 @@ export function useChatStream({
       const sid = currentSessionIdRef.current ?? currentSessionId
       const turnId = sid ? activeTurnBySessionRef.current.get(sid) : null
       if (sid && turnId) {
-        await getTransport()
+        const result = await getTransport()
           .call<CancelQueuedTurnUserMessageResult>("cancel_queued_turn_user_message", {
             sessionId: sid,
             turnId,
             requestId: id,
           })
           .catch(() => undefined)
+        if (result && !result.cancelled) {
+          logger.warn(
+            "chat",
+            "useChatStream::cancelForceInsert",
+            result.reason ?? "Message already entered an insertion boundary",
+          )
+        }
+        await syncPendingSends(sid).catch(() => undefined)
       }
-      updatePendingSends((prev) =>
-        prev.map((pending) =>
-          pending.id === id ? { ...pending, mode: "queue", status: "queued" } : pending,
-        ),
-      )
     },
-    [currentSessionId, currentSessionIdRef, updatePendingSends],
+    [currentSessionId, currentSessionIdRef, syncPendingSends],
   )
 
   return {
@@ -1638,6 +1770,7 @@ export function useChatStream({
     pendingSends,
     editPendingSend,
     discardPendingSend,
+    sendPendingSend,
     forceInsertPendingSend,
     cancelForceInsertPendingSend,
     approvalRequests,

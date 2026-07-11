@@ -154,6 +154,7 @@ impl SessionDB {
                 tokens_cache_read INTEGER,
                 tool_metadata TEXT,
                 source TEXT,
+                queue_request_id TEXT,
                 FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
             );
 
@@ -429,6 +430,18 @@ impl SessionDB {
             ))?;
         }
         Self::ensure_chat_turns_table(&conn)?;
+        let has_queue_request_id = conn
+            .prepare("SELECT queue_request_id FROM messages LIMIT 1")
+            .is_ok();
+        if !has_queue_request_id {
+            conn.execute_batch("ALTER TABLE messages ADD COLUMN queue_request_id TEXT;")?;
+        }
+        conn.execute_batch(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_queue_request_id
+             ON messages(queue_request_id) WHERE queue_request_id IS NOT NULL;",
+        )?;
+        Self::ensure_turn_message_queue_table(&conn)?;
+        Self::recover_turn_message_queue(&conn)?;
         crate::goal::ensure_tables(&conn)?;
         crate::worktree::ensure_tables(&conn)?;
         crate::workflow::ensure_tables(&conn)?;
@@ -2553,8 +2566,9 @@ impl SessionDB {
                 attachments_meta, model, tokens_in, tokens_out, reasoning_effort,
                 tool_call_id, tool_name, tool_arguments, tool_result,
                 tool_duration_ms, is_error, thinking, ttft_ms, tokens_in_last,
-                tokens_cache_creation, tokens_cache_read, tool_metadata, stream_status, source)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23)",
+                tokens_cache_creation, tokens_cache_read, tool_metadata, stream_status, source,
+                queue_request_id)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24)",
             params![
                 session_id,
                 msg.role.as_str(),
@@ -2579,6 +2593,7 @@ impl SessionDB {
                 msg.tool_metadata,
                 msg.stream_status,
                 msg.source,
+                msg.queue_request_id,
             ],
         )?;
 

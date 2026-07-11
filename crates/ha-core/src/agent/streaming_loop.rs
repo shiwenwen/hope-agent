@@ -299,8 +299,9 @@ async fn drain_queued_turn_user_messages<F>(
                 };
                 let _ = db.append_message(
                     session_id,
-                    &crate::session::NewMessage::event(&notice).with_source(item.source),
+                    &crate::session::NewMessage::event(&notice).with_source(active.source),
                 );
+                let _ = db.remove_claimed_turn_message(session_id, &item.request_id);
                 if let Ok(event) = serde_json::to_string(&json!({
                     "type": "queued_user_message_blocked",
                     "request_id": item.request_id,
@@ -323,8 +324,9 @@ async fn drain_queued_turn_user_messages<F>(
                 let notice = format!("🚫 Failed to insert queued message attachments: {err}");
                 let _ = db.append_message(
                     session_id,
-                    &crate::session::NewMessage::event(&notice).with_source(item.source),
+                    &crate::session::NewMessage::event(&notice).with_source(active.source),
                 );
+                let _ = db.remove_claimed_turn_message(session_id, &item.request_id);
                 if let Ok(event) = serde_json::to_string(&json!({
                     "type": "queued_user_message_blocked",
                     "request_id": item.request_id,
@@ -344,16 +346,17 @@ async fn drain_queued_turn_user_messages<F>(
             attachment_meta,
         );
         let mut user_msg =
-            crate::session::NewMessage::user(&effective_prompt).with_source(item.source);
+            crate::session::NewMessage::user(&effective_prompt).with_source(active.source);
         user_msg.attachments_meta = attachments_meta.clone();
-        let message_id = match db.append_message(session_id, &user_msg) {
+        let message_id = match db.complete_inserted_turn_message(&item, &user_msg) {
             Ok(id) => id,
             Err(err) => {
                 let notice = format!("🚫 Failed to insert queued message: {err}");
                 let _ = db.append_message(
                     session_id,
-                    &crate::session::NewMessage::event(&notice).with_source(item.source),
+                    &crate::session::NewMessage::event(&notice).with_source(active.source),
                 );
+                let _ = db.remove_claimed_turn_message(session_id, &item.request_id);
                 if let Ok(event) = serde_json::to_string(&json!({
                     "type": "queued_user_message_blocked",
                     "request_id": item.request_id,
