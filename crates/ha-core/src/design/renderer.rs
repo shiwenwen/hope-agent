@@ -217,7 +217,7 @@ const STORAGE_POLYFILL: &str = "<script>(function(){function mk(){var s={};retur
 /// 编辑态渲染版本：**inspector bridge / oid 注入等编辑工具层**变更时 +1。烧进可编辑 `index.html`
 /// 的 `data-ds-r` 属性；`service::ensure_artifact_render_fresh` 据此自愈老产物——工具层升级无需
 /// 用户重新编辑即对既有产物生效（bridge 烧死在 index.html，否则老产物永远用旧工具）。
-pub const RENDER_VERSION: u32 = 10;
+pub const RENDER_VERSION: u32 = 11;
 
 pub fn build_artifact_html(
     kind: ArtifactKind,
@@ -546,11 +546,23 @@ const INSPECTOR_BRIDGE: &str = r#"<script>
     if(el.childElementCount===0&&(el.textContent||'').trim())beginEdit(el,e.clientX,e.clientY);
   },true);
   // 编辑态右键 = 元素操作菜单（父层渲染）。**非编辑态零拦截**（原生右键复制/查词/存图照旧）；
-  // 就地文本编辑期间放行原生（contenteditable 需要粘贴/拼写菜单）；有选区文本时放行原生
-  //（对齐主对话 contextMenuGuard——右键选中文字应得到原生「拷贝所选」）；空白处放行原生。
+  // 就地文本编辑期间放行原生（contenteditable 需要粘贴/拼写菜单）；空白处放行原生。
+  // 选区判定不能用事件时的 live selection——WebKit 右键按下会**自动选中光标下的词**，文本元素
+  // 会永远误判成「有选区」全走原生。改在右键 mousedown（早于自动选词）快照旧选区：
+  // 真有用户拖出的选区、且右键落在选区内，才放行原生「拷贝所选」（对齐主对话 contextMenuGuard）。
+  var preSel='',preSelAnchor=null;
+  document.addEventListener('mousedown',function(e){
+    if(e.button!==2)return;
+    var s=window.getSelection();
+    preSel=s?String(s):'';
+    preSelAnchor=(s&&s.rangeCount)?s.getRangeAt(0).commonAncestorContainer:null;
+  },true);
   document.addEventListener('contextmenu',function(e){
     if(!active||editing)return;
-    var sel=window.getSelection();if(sel&&String(sel).trim())return;
+    if(preSel.trim()&&preSelAnchor){
+      var anc=preSelAnchor.nodeType===1?preSelAnchor:preSelAnchor.parentNode;
+      if(anc&&(anc===e.target||anc.contains(e.target)||(e.target.contains&&e.target.contains(anc))))return;
+    }
     var el=e.target.closest('[data-ds-oid]');if(!el)return;
     e.preventDefault();e.stopPropagation();
     clearSel();clearHover();selected=el;el.style.outline='2px solid #2563eb';
