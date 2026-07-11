@@ -331,6 +331,8 @@ pub enum PatchError {
     NoClose(u32),
     VoidText,
     NotLeaf(u32),
+    /// 直属文本节点 patch：给定的子节点下标越界，或该下标不是文本节点。
+    TextNodeNotFound(u32, usize),
 }
 
 impl std::fmt::Display for PatchError {
@@ -343,8 +345,25 @@ impl std::fmt::Display for PatchError {
             PatchError::NotLeaf(o) => {
                 write!(f, "cannot text-edit oid {o}: it contains child elements")
             }
+            PatchError::TextNodeNotFound(o, idx) => {
+                write!(f, "oid {o} child node {idx} is not an editable text node")
+            }
         }
     }
+}
+
+/// 被删元素的重建上下文（结构 undo）：从**源码**（body.html，无 `data-ds-oid`，干净）捕获，
+/// 供 `apply_insert_patch` 原样重新插回。锚点用 oid（`after_oid` 前一个元素兄弟 / `parent_oid`
+/// 最近祖先），二者都在删除点**之前**，删后文档序 oid 不漂移故稳定。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct RemovedElement {
+    /// 被删元素在源码里的完整切片（含内部内容与闭合）。
+    pub html: String,
+    /// 最近祖先元素 oid（`None` = 顶层元素，无 body 包裹）。
+    pub parent_oid: Option<u32>,
+    /// 同层前一个元素兄弟 oid（`None` = 是首个子元素）。重插锚点，优先于 `parent_oid`。
+    pub after_oid: Option<u32>,
 }
 
 impl std::error::Error for PatchError {}
@@ -619,6 +638,245 @@ fn inner_has_child_element(inner: &str) -> bool {
         i += 1;
     }
     false
+}
+
+/// 从 start tag 字符串 `<name ...>` 取小写标签名。
+fn parse_tag_name(tag_str: &str) -> String {
+    let name_end = tag_str[1..]
+        .find(|c: char| c.is_whitespace() || c == '>' || c == '/')
+        .map(|p| p + 1)
+        .unwrap_or(tag_str.len().saturating_sub(1));
+    tag_str[1..name_end].to_ascii_lowercase()
+}
+
+/// 删元素并捕获重建上下文（结构 undo，owner-only）。**锚点即删除起点**是字节精确还原的关键：
+/// 元素与其前一个兄弟（或父 open tag）之间的空白是「无主」的，若只删 `[start,end)` 会把这段
+/// 空白留在原地、撤销时重插又补一份→空白翻倍。故删除范围取 `[anchor, end)`（含前导空白）、捕获的
+/// `html` 也含它、重插又落在同一 anchor，`source[..anchor] + html + source[anchor..]` 逐字节还原。
+///
+/// 锚点计算全在**删除点之前**故删后文档序 oid 稳定：`parent` = 最近祖先（范围严格包含目标、
+/// `open_start` 最大者）；`after` = 同层前一个元素兄弟（`full_range.end <= start` 且
+/// `open_start >= 父内容起点` 中 `end` 最大者——兄弟闭合是目标前最后一个 token，后代 / 更早兄弟
+/// 的 end 都更小）。`anchor` = 有兄弟则兄弟 end，否则父内容起点（`open_end`），否则 0（顶层首元素）。
+pub fn remove_element_with_context(
+    source: &str,
+    map: &[OidEntry],
+    oid: u32,
+    expected_hash: Option<&str>,
+) -> Result<(PatchResult, RemovedElement), PatchError> {
+    if let Some(h) = expected_hash {
+        if body_hash(source) != h {
+            return Err(PatchError::Stale);
+        }
+    }
+    let e = find_entry(map, oid).ok_or(PatchError::OidNotFound(oid))?;
+    let (start, end) = element_full_range(source, e).ok_or(PatchError::NoClose(oid))?;
+
+    // 最近祖先：范围严格包含 [start,end) 的元素里 open_start 最大者。
+    let mut parent: Option<&OidEntry> = None;
+    let mut parent_open = 0usize;
+    for e2 in map {
+        if e2.oid == oid {
+            continue;
+        }
+        if let Some((s2, en2)) = element_full_range(source, e2) {
+            if s2 < start && en2 >= end && (parent.is_none() || s2 > parent_open) {
+                parent = Some(e2);
+                parent_open = s2;
+            }
+        }
+    }
+    let parent_content_start = parent.map_or(0, |p| p.open_end);
+    let parent_oid = parent.map(|p| p.oid);
+
+    // 前一个元素兄弟：full_range.end <= start 且 open_start >= 父内容起点 中 end 最大者。
+    let mut after_oid: Option<u32> = None;
+    let mut after_end = 0usize;
+    for e2 in map {
+        if e2.oid == oid {
+            continue;
+        }
+        if let Some((s2, en2)) = element_full_range(source, e2) {
+            if en2 <= start && s2 >= parent_content_start && (after_oid.is_none() || en2 > after_end)
+            {
+                after_oid = Some(e2.oid);
+                after_end = en2;
+            }
+        }
+    }
+    let anchor = if after_oid.is_some() {
+        after_end
+    } else {
+        parent_content_start
+    };
+
+    let html = source[anchor..end].to_string();
+    let mut new_source = String::with_capacity(source.len());
+    new_source.push_str(&source[..anchor]);
+    new_source.push_str(&source[end..]);
+    Ok((
+        PatchResult { new_source },
+        RemovedElement {
+            html,
+            parent_oid,
+            after_oid,
+        },
+    ))
+}
+
+/// 结构 undo 的重插：把 `html`（`removed_element_context` 捕获的干净源码切片）原样插回锚点位置。
+/// **owner-only**（绝不进 agent `edit_element`）——`html` 是原样字节，不经 CSS/attr 白名单净化，
+/// 只因它来自产物自身此前的源码、且经 `expected_hash` stale 守卫防串改。定位优先级：
+/// `after_oid`（插到该兄弟完整范围之后）> `parent_oid`（插为首子、紧跟父 open tag）> 源码起点。
+pub fn apply_insert_patch(
+    source: &str,
+    map: &[OidEntry],
+    parent_oid: Option<u32>,
+    after_oid: Option<u32>,
+    html: &str,
+    expected_hash: Option<&str>,
+) -> Result<PatchResult, PatchError> {
+    if let Some(h) = expected_hash {
+        if body_hash(source) != h {
+            return Err(PatchError::Stale);
+        }
+    }
+    let pos = if let Some(aid) = after_oid {
+        let e = find_entry(map, aid).ok_or(PatchError::OidNotFound(aid))?;
+        element_full_range(source, e).ok_or(PatchError::NoClose(aid))?.1
+    } else if let Some(pid) = parent_oid {
+        find_entry(map, pid).ok_or(PatchError::OidNotFound(pid))?.open_end
+    } else {
+        0
+    };
+    let mut new_source = String::with_capacity(source.len() + html.len());
+    new_source.push_str(&source[..pos]);
+    new_source.push_str(html);
+    new_source.push_str(&source[pos..]);
+    Ok(PatchResult { new_source })
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum ChildKind {
+    Text,
+    Element,
+    Comment,
+}
+
+/// 直属子节点（相对源码的绝对字节范围）。用于 span 文本节点编辑：与 DOM `element.childNodes`
+/// 下标一一对应（文本 run / 子元素 / 注释各算一个节点，空白 run 也算一个文本节点，元素间无文本
+/// 则不产空节点——对齐 DOM 语义）。
+#[derive(Debug, Clone, Copy)]
+struct ChildNode {
+    kind: ChildKind,
+    start: usize,
+    end: usize,
+}
+
+/// 把元素内部内容 `[inner_start, inner_end)` 按深度 0 切成子节点序列。子元素范围复用
+/// `element_full_range`（平衡 / 引号 / 注释 / raw-text 感知），内部内容由 `find_close_start`
+/// 保证平衡故不会在深度 0 出现游离闭合标签。
+fn direct_child_nodes(source: &str, inner_start: usize, inner_end: usize) -> Vec<ChildNode> {
+    let bytes = source.as_bytes();
+    let mut nodes = Vec::new();
+    let mut i = inner_start;
+    let mut text_start = inner_start;
+    while i < inner_end {
+        if bytes[i] != b'<' {
+            i += 1;
+            continue;
+        }
+        if i > text_start {
+            nodes.push(ChildNode {
+                kind: ChildKind::Text,
+                start: text_start,
+                end: i,
+            });
+        }
+        if source[i..].starts_with("<!--") {
+            let end = source[i..inner_end]
+                .find("-->")
+                .map(|p| i + p + 3)
+                .unwrap_or(inner_end);
+            nodes.push(ChildNode {
+                kind: ChildKind::Comment,
+                start: i,
+                end,
+            });
+            i = end;
+            text_start = i;
+            continue;
+        }
+        let tag_end = find_tag_end(bytes, i).unwrap_or(inner_end).min(inner_end);
+        let tag_str = &source[i..tag_end];
+        let name = parse_tag_name(tag_str);
+        let self_closing = tag_str.trim_end().ends_with("/>");
+        let end = if self_closing || is_void(&name) {
+            tag_end
+        } else {
+            let fake = OidEntry {
+                oid: 0,
+                tag: name,
+                open_start: i,
+                open_end: tag_end,
+                void: false,
+            };
+            element_full_range(source, &fake)
+                .map(|(_, e)| e)
+                .unwrap_or(tag_end)
+                .min(inner_end)
+        };
+        nodes.push(ChildNode {
+            kind: ChildKind::Element,
+            start: i,
+            end,
+        });
+        i = end;
+        text_start = i;
+    }
+    if text_start < inner_end {
+        nodes.push(ChildNode {
+            kind: ChildKind::Text,
+            start: text_start,
+            end: inner_end,
+        });
+    }
+    nodes
+}
+
+/// 编辑**非叶子**元素的某个直属文本节点（决策4A：只改 `<h1>Big <span>x</span></h1>` 里的「Big 」，
+/// 保留内部 `<span>` 子树）。`node_index` = DOM `element.childNodes` 下标（bridge 侧枚举同款）。
+/// 该下标必须落在文本节点上，否则 `TextNodeNotFound`。`new_text` HTML 转义后回写。
+pub fn apply_text_node_patch(
+    source: &str,
+    map: &[OidEntry],
+    oid: u32,
+    node_index: usize,
+    new_text: &str,
+    expected_hash: Option<&str>,
+) -> Result<PatchResult, PatchError> {
+    if let Some(h) = expected_hash {
+        if body_hash(source) != h {
+            return Err(PatchError::Stale);
+        }
+    }
+    let e = find_entry(map, oid).ok_or(PatchError::OidNotFound(oid))?;
+    if e.void {
+        return Err(PatchError::VoidText);
+    }
+    let inner_start = e.open_end;
+    let inner_end = find_close_start(source, e).ok_or(PatchError::NoClose(oid))?;
+    let nodes = direct_child_nodes(source, inner_start, inner_end);
+    let node = nodes
+        .get(node_index)
+        .filter(|n| n.kind == ChildKind::Text)
+        .ok_or(PatchError::TextNodeNotFound(oid, node_index))?;
+    let escaped = super::renderer::html_escape(new_text);
+    let mut new_source = String::with_capacity(source.len());
+    new_source.push_str(&source[..node.start]);
+    new_source.push_str(&escaped);
+    new_source.push_str(&source[node.end..]);
+    Ok(PatchResult { new_source })
 }
 
 /// 从 open tag 之后按标签深度匹配，找到本元素闭合标签 `</tag>` 的起始字节。
@@ -988,6 +1246,110 @@ mod tests {
         let (_, map) = annotate(src);
         assert!(matches!(
             apply_remove_patch(src, &map, 0, Some("wronghash")),
+            Err(PatchError::Stale)
+        ));
+    }
+
+    // ── 结构 undo：removed_element_context + apply_insert_patch（删除可撤销）──────
+
+    /// 删任意 oid 元素（含前导空白）后，用捕获的 context 经 apply_insert_patch 重插，应逐字节还原。
+    fn assert_delete_undo_roundtrip(src: &str) {
+        let (_, map) = annotate(src);
+        for e in &map {
+            let (removed_patch, removed) =
+                remove_element_with_context(src, &map, e.oid, None).unwrap();
+            let after_del = removed_patch.new_source;
+            // 重插用**删后**的源码与其 map（模拟真实 undo：源已变、oid 已重排）。
+            let (_, map2) = annotate(&after_del);
+            let restored = apply_insert_patch(
+                &after_del,
+                &map2,
+                removed.parent_oid,
+                removed.after_oid,
+                &removed.html,
+                None,
+            )
+            .unwrap_or_else(|e2| panic!("insert failed for oid {}: {e2}", e.oid))
+            .new_source;
+            assert_eq!(restored, src, "删 oid {} 再撤销未还原", e.oid);
+        }
+    }
+
+    #[test]
+    fn delete_undo_roundtrip_simple() {
+        assert_delete_undo_roundtrip("<div><p>a</p><p>b</p><p>c</p></div>");
+    }
+
+    #[test]
+    fn delete_undo_roundtrip_nested_and_first_child() {
+        assert_delete_undo_roundtrip("<section><h1>T</h1><div><span>x</span><b>y</b></div></section>");
+    }
+
+    #[test]
+    fn delete_undo_roundtrip_top_level_and_void() {
+        assert_delete_undo_roundtrip("<h1>Title</h1><img src=\"a.png\"><p>body</p>");
+    }
+
+    #[test]
+    fn delete_undo_roundtrip_whitespace_between_siblings() {
+        assert_delete_undo_roundtrip("<ul>\n  <li>1</li>\n  <li>2</li>\n</ul>");
+    }
+
+    #[test]
+    fn insert_patch_stale_guard() {
+        let src = "<div><p>a</p></div>";
+        let (_, map) = annotate(src);
+        assert!(matches!(
+            apply_insert_patch(src, &map, Some(0), None, "<b>x</b>", Some("wronghash")),
+            Err(PatchError::Stale)
+        ));
+    }
+
+    // ── span 直属文本节点编辑（决策4A：改裸文本、保留内部 span）──────
+
+    #[test]
+    fn text_node_patch_edits_leading_bare_text_keeps_span() {
+        // childNodes: [text "Big ", <span>Title</span>] → 改 index 0 的「Big 」。
+        let src = "<h1>Big <span>Title</span></h1>";
+        let (_, map) = annotate(src);
+        let h1 = map.iter().find(|e| e.tag == "h1").unwrap();
+        let r = apply_text_node_patch(src, &map, h1.oid, 0, "Huge ", None).unwrap();
+        assert_eq!(r.new_source, "<h1>Huge <span>Title</span></h1>");
+    }
+
+    #[test]
+    fn text_node_patch_edits_trailing_bare_text() {
+        // childNodes: [<span>Title</span> (0), text " End" (1)] → 改 index 1。
+        let src = "<h1><span>Title</span> End</h1>";
+        let (_, map) = annotate(src);
+        let h1 = map.iter().find(|e| e.tag == "h1").unwrap();
+        let r = apply_text_node_patch(src, &map, h1.oid, 1, " Fin", None).unwrap();
+        assert_eq!(r.new_source, "<h1><span>Title</span> Fin</h1>");
+    }
+
+    #[test]
+    fn text_node_patch_rejects_element_index() {
+        // index 1 落在 <span> 元素上，不是文本节点 → 拒。
+        let src = "<h1>Big <span>Title</span></h1>";
+        let (_, map) = annotate(src);
+        let h1 = map.iter().find(|e| e.tag == "h1").unwrap();
+        assert!(matches!(
+            apply_text_node_patch(src, &map, h1.oid, 1, "x", None),
+            Err(PatchError::TextNodeNotFound(_, 1))
+        ));
+    }
+
+    #[test]
+    fn text_node_patch_escapes_and_guards_stale() {
+        let src = "<p>hi <b>x</b></p>";
+        let (_, map) = annotate(src);
+        let p = map.iter().find(|e| e.tag == "p").unwrap();
+        // HTML 转义（文本节点 "hi "（含尾空格）整体被替换，故新文本自带尾空格才留空格）。
+        let r = apply_text_node_patch(src, &map, p.oid, 0, "a<b>& ", None).unwrap();
+        assert_eq!(r.new_source, "<p>a&lt;b&gt;&amp; <b>x</b></p>");
+        // stale 守卫。
+        assert!(matches!(
+            apply_text_node_patch(src, &map, p.oid, 0, "z", Some("nope")),
             Err(PatchError::Stale)
         ));
     }
