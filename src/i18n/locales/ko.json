@@ -6171,6 +6171,9 @@
     "newBlankProject": "빈 프로젝트",
     "emptyProjectsHint": "아직 프로젝트가 없습니다 — 위에서 디자인을 설명해 시작하세요.",
     "picker": {
+      "noneSummary": "디자인 시스템을 지정하지 않으면 AI가 콘텐츠에 따라 시각 스타일을 자유롭게 결정합니다.",
+      "palette": "팔레트",
+      "typography": "타이포그래피",
       "title": "디자인 시스템 선택",
       "search": "브랜드 / 스타일 검색…",
       "mine": "내 디자인 시스템",

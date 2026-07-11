@@ -538,6 +538,7 @@ pub fn ensure_builtins(db: &DesignDb) -> Result<()> {
                 category: Some(e.category.to_string()),
                 summary: Some(e.summary.to_string()),
                 thumbnail_path: None,
+                swatches: Vec::new(),
                 created_at: now.clone(),
                 updated_at: now.clone(),
             })?,
@@ -550,7 +551,7 @@ pub fn ensure_builtins(db: &DesignDb) -> Result<()> {
 
 /// 读取设计系统正文 + token。
 pub fn read_full(db: &DesignDb, id: &str) -> Result<DesignSystemFull> {
-    let meta = db
+    let mut meta = db
         .get_system(id)?
         .with_context(|| format!("design system not found: {id}"))?;
     let dir = paths::design_system_dir(id)?;
@@ -560,6 +561,7 @@ pub fn read_full(db: &DesignDb, id: &str) -> Result<DesignSystemFull> {
         .ok()
         .and_then(|raw| serde_json::from_str::<BTreeMap<String, String>>(&raw).ok())
         .unwrap_or_default();
+    meta.swatches = swatches_from_tokens(&tokens);
     Ok(DesignSystemFull {
         meta,
         system_md,
@@ -608,11 +610,73 @@ pub fn save_system(
         category,
         summary: summary.map(str::to_string),
         thumbnail_path: None,
+        swatches: swatches_from_tokens(tokens),
         created_at,
         updated_at: now,
     };
     db.upsert_system(&meta)?;
     Ok(meta)
+}
+
+/// 选择器色板：从 tokens 提取 4 槽语义行 `[bg, support, fg, accent]`——一条微缩主题条
+/// （底色 / 辅助 / 文字 / 主色），供列表行内色点与右栏预览即时见色。语义键直取；无任何
+/// `--ds-color-*` 时返回空（前端不渲染色条）。值只放行 hex / rgb / hsl 字面量——swatch
+/// 会进前端 inline style 背景，拒任意 CSS 值注入面。
+pub fn swatches_from_tokens(tokens: &BTreeMap<String, String>) -> Vec<String> {
+    fn safe_color(v: &str) -> Option<String> {
+        let v = v.trim();
+        let hex_ok = v.starts_with('#')
+            && matches!(v.len(), 4 | 5 | 7 | 9)
+            && v[1..].chars().all(|c| c.is_ascii_hexdigit());
+        let fn_ok = ["rgb(", "rgba(", "hsl(", "hsla("]
+            .iter()
+            .any(|p| v.starts_with(p))
+            && v.ends_with(')')
+            && v.len() <= 48
+            && !v.contains([';', '<', '>', '{', '}']);
+        (hex_ok || fn_ok).then(|| v.to_string())
+    }
+    // 中性色（灰阶）：RGB 极差 < 10，仅对 #rrggbb 判定——accent 兜底时跳过灰阶挑真正的品牌色。
+    fn is_neutral(c: &str) -> bool {
+        if c.len() != 7 || !c.starts_with('#') {
+            return false;
+        }
+        let ch = |i: usize| u8::from_str_radix(&c[i..i + 2], 16).unwrap_or(0);
+        let (r, g, b) = (ch(1), ch(3), ch(5));
+        r.max(g).max(b) - r.min(g).min(b) < 10
+    }
+    if !tokens.keys().any(|k| k.starts_with("--ds-color-")) {
+        return Vec::new();
+    }
+    let get = |keys: &[&str]| {
+        keys.iter()
+            .find_map(|k| tokens.get(*k).and_then(|v| safe_color(v)))
+    };
+    let bg = get(&["--ds-color-bg"]).unwrap_or_else(|| "#ffffff".into());
+    let support = get(&["--ds-color-muted", "--ds-color-border", "--ds-color-secondary"])
+        .unwrap_or_else(|| "#cccccc".into());
+    let fg = get(&["--ds-color-fg"]).unwrap_or_else(|| "#111111".into());
+    let accent = get(&["--ds-color-primary", "--ds-color-accent"])
+        .or_else(|| {
+            tokens
+                .iter()
+                .filter(|(k, _)| k.starts_with("--ds-color-"))
+                .find_map(|(_, v)| safe_color(v).filter(|c| !is_neutral(c)))
+        })
+        .unwrap_or_else(|| "#888888".into());
+    vec![bg, support, fg, accent]
+}
+
+/// 轻量读某系统 tokens.json 提取色板（读失败 / 解析失败静默空——列表不因单系统坏 tokens 失败）。
+pub fn system_swatches(id: &str) -> Vec<String> {
+    let Ok(dir) = paths::design_system_dir(id) else {
+        return Vec::new();
+    };
+    std::fs::read_to_string(dir.join("tokens.json"))
+        .ok()
+        .and_then(|raw| serde_json::from_str::<BTreeMap<String, String>>(&raw).ok())
+        .map(|t| swatches_from_tokens(&t))
+        .unwrap_or_default()
 }
 
 /// 删除设计系统（DB + 磁盘目录）。内置系统删除后 `ensure_builtins` 会重建。

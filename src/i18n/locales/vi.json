@@ -6171,6 +6171,9 @@
     "newBlankProject": "Dự án trống",
     "emptyProjectsHint": "Chưa có dự án — mô tả một thiết kế ở trên để bắt đầu.",
     "picker": {
+      "noneSummary": "Không gắn hệ thống thiết kế — AI tự quyết định phong cách thị giác theo nội dung.",
+      "palette": "Bảng màu",
+      "typography": "Kiểu chữ",
       "title": "Chọn hệ thống thiết kế",
       "search": "Tìm thương hiệu / phong cách…",
       "mine": "Hệ thống thiết kế của tôi",

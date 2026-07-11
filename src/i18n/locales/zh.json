@@ -6171,6 +6171,9 @@
     "newBlankProject": "空白项目",
     "emptyProjectsHint": "还没有项目——在上面描述一个设计，直接开始。",
     "picker": {
+      "noneSummary": "不绑定设计系统，AI 按内容自由决定视觉风格。",
+      "palette": "色板",
+      "typography": "字体",
       "title": "选择设计系统",
       "search": "搜索品牌 / 风格…",
       "mine": "我的设计系统",

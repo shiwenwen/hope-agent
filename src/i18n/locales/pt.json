@@ -6171,6 +6171,9 @@
     "newBlankProject": "Projeto em branco",
     "emptyProjectsHint": "Ainda sem projetos — descreva um design acima para começar.",
     "picker": {
+      "noneSummary": "Sem sistema de design: a IA decide livremente o estilo visual conforme o conteúdo.",
+      "palette": "Paleta",
+      "typography": "Tipografia",
       "title": "Escolher sistema de design",
       "search": "Pesquisar marcas / estilos…",
       "mine": "Meus sistemas de design",

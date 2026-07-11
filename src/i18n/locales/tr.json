@@ -6171,6 +6171,9 @@
     "newBlankProject": "Boş proje",
     "emptyProjectsHint": "Henüz proje yok — başlamak için yukarıda bir tasarım tarif et.",
     "picker": {
+      "noneSummary": "Tasarım sistemi bağlanmaz; yapay zekâ görsel stili içeriğe göre özgürce belirler.",
+      "palette": "Palet",
+      "typography": "Tipografi",
       "title": "Tasarım sistemi seç",
       "search": "Marka / stil ara…",
       "mine": "Tasarım sistemlerim",

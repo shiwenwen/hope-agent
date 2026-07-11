@@ -6171,6 +6171,9 @@
     "newBlankProject": "Blank project",
     "emptyProjectsHint": "No projects yet — describe a design above to get started.",
     "picker": {
+      "noneSummary": "No design system — the AI freely decides the visual style based on the content.",
+      "palette": "Palette",
+      "typography": "Typography",
       "title": "Choose design system",
       "search": "Search brands / styles…",
       "mine": "My design systems",

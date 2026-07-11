@@ -3356,11 +3356,16 @@ pub fn unbind_code_project(id: i64) -> Result<()> {
 
 // ── Design systems ─────────────────────────────────────────────────
 
-/// 列出设计系统（首次调用懒 seed 内置系统）。
+/// 列出设计系统（首次调用懒 seed 内置系统）。`swatches` 是 tokens.json 派生（不落库），
+/// 逐系统本地读盘填充——毫秒级，选择器行内色点 + 右栏预览即时可用。
 pub fn list_systems() -> Result<Vec<DesignSystemMeta>> {
     let db = open_db()?;
     system::ensure_builtins(&db)?;
-    db.list_systems()
+    let mut systems = db.list_systems()?;
+    for s in &mut systems {
+        s.swatches = system::system_swatches(&s.id);
+    }
+    Ok(systems)
 }
 
 /// 读取设计系统正文 + token。

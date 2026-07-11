@@ -217,6 +217,8 @@ export interface DesignSystemMeta {
   category?: string;
   summary?: string;
   thumbnailPath?: string;
+  /** 选择器色板：4 槽语义行 [bg, support, fg, accent]（tokens 派生；无色 token 的系统缺省）。 */
+  swatches?: string[];
   createdAt: string;
   updatedAt: string;
 }
@@ -289,8 +291,8 @@ export const ARTIFACT_KINDS: ArtifactKind[] = [
 ];
 
 /** 设计系统正文（`get_design_system_cmd` 返回）。 */
-export interface DesignSystemFull {
-  meta: DesignSystemMeta;
+export interface DesignSystemFull extends DesignSystemMeta {
+  // 注意：Rust 侧 `meta` 是 `#[serde(flatten)]`——meta 字段平铺在顶层，无 `meta` 嵌套对象。
   systemMd: string;
   tokens: Record<string, string>;
   /** 提取时 harvest 的 logo/配图资产（data-uri）；非提取系统为空。套件视图后端渲染时消费。 */

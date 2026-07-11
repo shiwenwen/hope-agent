@@ -6171,6 +6171,9 @@
     "newBlankProject": "Projek kosong",
     "emptyProjectsHint": "Belum ada projek — terangkan reka bentuk di atas untuk bermula.",
     "picker": {
+      "noneSummary": "Tanpa sistem reka bentuk — AI bebas menentukan gaya visual berdasarkan kandungan.",
+      "palette": "Palet",
+      "typography": "Tipografi",
       "title": "Pilih sistem reka bentuk",
       "search": "Cari jenama / gaya…",
       "mine": "Sistem reka bentuk saya",

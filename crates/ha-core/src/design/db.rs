@@ -112,6 +112,10 @@ pub struct DesignSystemMeta {
     pub summary: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub thumbnail_path: Option<String>,
+    /// 选择器色板：4 槽语义行 `[bg, support, fg, accent]`（微缩主题条）。tokens.json
+    /// 派生、**不落库**（list 时由 `system::system_swatches` 填充，tokens 变更自动跟随）。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub swatches: Vec<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -251,6 +255,7 @@ fn map_system_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<DesignSystemMeta>
         category: row.get(4)?,
         summary: row.get(5)?,
         thumbnail_path: row.get(6)?,
+        swatches: Vec::new(),
         created_at: row.get(7)?,
         updated_at: row.get(8)?,
     })
@@ -1383,6 +1388,7 @@ mod tests {
             category: None,
             summary: None,
             thumbnail_path: None,
+            swatches: Vec::new(),
             created_at: "t".to_string(),
             updated_at: "t".to_string(),
         })
