@@ -411,6 +411,12 @@ export const DesignChatPanel = forwardRef<DesignChatPanelHandle, Props>(function
     // 注：handleSend(directText) 按设计不带原回合附件（纯文本重发）；重新生成场景可接受。
     void stream.handleSend(text)
   }, [lastUserContent, session.loading, stream])
+  // 回合失败恢复（P1-G）：末条是**标记的失败事件**（isTurnError，reconcile-safe，非空内容启发式）时
+  // 给一键重试。此前失败只落一行原始 error 文本、无重试出口（audit HIGH）。
+  const lastTurnFailed = useMemo(() => {
+    const last = session.messages[session.messages.length - 1]
+    return !!(last && last.role === "event" && last.isTurnError)
+  }, [session.messages])
 
   // Fork（分支）：同项目建新会话 + 拷贝当前对话历史，切到新线程继续探索另一方向。
   const [forking, setForking] = useState(false)
@@ -609,6 +615,22 @@ export const DesignChatPanel = forwardRef<DesignChatPanelHandle, Props>(function
       </div>
 
       <ApprovalDialog requests={stream.approvalRequests} onRespond={stream.handleApprovalResponse} />
+
+      {/* 回合失败恢复条（P1-G）：末条是标记的失败事件时，给一键重试（重跑上一句 user prompt）。
+          错误详情已由消息流里的 event 行呈现，本条只补此前缺失的「重试」出口。 */}
+      {!session.loading && lastTurnFailed && !stream.input.trim() && lastUserContent.trim() && (
+        <div className="flex items-center gap-2 px-3 pb-1.5">
+          <span className="text-xs text-destructive">{t("design.chat.turnFailed", "回合失败")}</span>
+          <button
+            type="button"
+            onClick={retryLastTurn}
+            className="flex items-center gap-1 rounded-full border border-destructive/40 px-2.5 py-1 text-xs text-destructive transition-colors hover:bg-destructive/10"
+          >
+            <RotateCcw className="h-3 w-3" />
+            {t("design.chat.retry", "重试")}
+          </button>
+        </div>
+      )}
 
       {/* Next-step 引导条（B2-1）：idle + 末条是 assistant 回复（有正文）时显示，点击填 composer
           不自动发。输入框已有内容 / 生成中不显示，避免打扰。首位「重新生成」直接重跑上一句。 */}

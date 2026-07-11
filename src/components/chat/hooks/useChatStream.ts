@@ -1339,7 +1339,9 @@ export function useChatStream({
           ) {
             updated.pop()
           }
-          updated.push({ role: "event", content: `${e}` })
+          // isTurnError：可靠的失败信号（仅真抛错才 push，绝非 reconcile 未决的空成功）——
+          // 让设计对话等消费端可给出一键重试，而不必用会误报的「空内容」启发式。
+          updated.push({ role: "event", content: `${e}`, isTurnError: true })
           return updated
         })
       }

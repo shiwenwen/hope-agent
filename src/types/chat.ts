@@ -204,6 +204,10 @@ export interface Message {
   /** If true, this is an exec process completion notification injected by
    *  the backend after a legacy process session exits. */
   isProcessNotification?: boolean
+  /** If true, this `event` message marks a **failed turn** (handleSend threw).
+   *  Reconcile-safe failure signal (only set on an actual throw, never on a
+   *  reconcile-pending empty success) — surfaces a one-click retry affordance. */
+  isTurnError?: boolean
   /** If true, this user message is a Plan Mode trigger (approve / resume) —
    *  sent to the LLM as a normal user turn but rendered as a system chip
    *  in the UI to distinguish it from real user input. */
