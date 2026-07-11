@@ -10,11 +10,12 @@ use super::http::{
     client as external_http_client, endpoint_with_path, send_json, validated_endpoint,
 };
 use super::{
-    import_external_memory_for_review, load_local_memory_snapshot, load_sync_ledger_async,
-    local_memory_fingerprint, persist_sync_ledger_async,
-    resolve_external_memory_provider_credentials_async, ExternalMemoryAdapterSyncFailure,
-    ExternalMemoryAdapterSyncOutcome, ExternalMemoryProviderAdapter,
-    ExternalMemoryProviderCredentials, ExternalMemoryProviderSyncLedger,
+    finish_sync_with_ledger_checkpoint, import_external_memory_for_review,
+    load_local_memory_snapshot, load_sync_ledger_async, local_memory_fingerprint,
+    persist_sync_ledger_async, resolve_external_memory_provider_credentials_async,
+    ExternalMemoryAdapterSyncFailure, ExternalMemoryAdapterSyncOutcome,
+    ExternalMemoryProviderAdapter, ExternalMemoryProviderCredentials,
+    ExternalMemoryProviderSyncLedger,
 };
 
 pub(super) static HONCHO_ADAPTER: HonchoAdapter = HonchoAdapter;
@@ -76,35 +77,36 @@ async fn sync_honcho(
         .await
         .map_err(|error| failure(outcome.clone(), error))?;
 
-    if provider.sync_policy.sends_local_memory() {
-        ensure_workspace_and_peers(&credentials, &endpoint, &client, &mut outcome).await?;
+    let sync_result = async {
+        if provider.sync_policy.sends_local_memory() {
+            ensure_workspace_and_peers(&credentials, &endpoint, &client, &mut outcome).await?;
+        }
+        if provider.sync_policy.imports_external_memory() {
+            pull_conclusions(
+                provider,
+                &credentials,
+                &endpoint,
+                &client,
+                &mut ledger,
+                &mut outcome,
+            )
+            .await?;
+        }
+        if provider.sync_policy.sends_local_memory() {
+            push_conclusions(
+                provider,
+                &credentials,
+                &endpoint,
+                &client,
+                &mut ledger,
+                &mut outcome,
+            )
+            .await?;
+        }
+        Ok(())
     }
-    if provider.sync_policy.imports_external_memory() {
-        pull_conclusions(
-            provider,
-            &credentials,
-            &endpoint,
-            &client,
-            &mut ledger,
-            &mut outcome,
-        )
-        .await?;
-    }
-    if provider.sync_policy.sends_local_memory() {
-        push_conclusions(
-            provider,
-            &credentials,
-            &endpoint,
-            &client,
-            &mut ledger,
-            &mut outcome,
-        )
-        .await?;
-    }
-    persist_sync_ledger_async(&provider.id, &ledger)
-        .await
-        .map_err(|error| failure(outcome.clone(), error))?;
-    Ok(outcome)
+    .await;
+    finish_sync_with_ledger_checkpoint(&provider.id, &ledger, outcome, sync_result).await
 }
 
 async fn pull_conclusions(
