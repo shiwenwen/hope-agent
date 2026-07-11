@@ -525,17 +525,31 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
   const startChatResize = useCallback(
     (e: React.PointerEvent) => {
       e.preventDefault()
+      // setPointerCapture（W4）：把手捕获指针，拖到窗口外松手也能收到 pointerup 结束拖拽——此前用
+      // window 监听，指针出窗后 pointerup 丢失，回来变成甩不掉的粘滞拖拽。
+      const handle = e.currentTarget as HTMLElement
+      const pointerId = e.pointerId
+      try {
+        handle.setPointerCapture(pointerId)
+      } catch {
+        /* 不支持则回退 window 监听语义 */
+      }
       const startX = e.clientX
       const startW = chatWidth
       const onMove = (ev: PointerEvent) => {
         setChatWidth(Math.max(320, Math.min(640, startW + ev.clientX - startX)))
       }
       const onUp = () => {
-        window.removeEventListener("pointermove", onMove)
-        window.removeEventListener("pointerup", onUp)
+        try {
+          handle.releasePointerCapture(pointerId)
+        } catch {
+          /* noop */
+        }
+        handle.removeEventListener("pointermove", onMove)
+        handle.removeEventListener("pointerup", onUp)
       }
-      window.addEventListener("pointermove", onMove)
-      window.addEventListener("pointerup", onUp)
+      handle.addEventListener("pointermove", onMove)
+      handle.addEventListener("pointerup", onUp)
     },
     [chatWidth],
   )
