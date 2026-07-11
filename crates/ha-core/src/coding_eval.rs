@@ -3468,12 +3468,12 @@ fn check_improvement(
             let found = result
                 .artifacts
                 .iter()
-                .any(|artifact| artifact.path.contains(needle))
+                .any(|artifact| path_contains_fragment(&artifact.path, needle))
                 || result
                     .plan
                     .steps
                     .iter()
-                    .any(|step| step.target_path.contains(needle));
+                    .any(|step| path_contains_fragment(&step.target_path, needle));
             push_check(
                 report,
                 "improvement.action_target",
@@ -3529,12 +3529,12 @@ fn check_improvement(
             let found = result
                 .artifacts
                 .iter()
-                .any(|artifact| artifact.path.contains(needle))
+                .any(|artifact| path_contains_fragment(&artifact.path, needle))
                 || result
                     .plan
                     .steps
                     .iter()
-                    .any(|step| step.target_path.contains(needle));
+                    .any(|step| path_contains_fragment(&step.target_path, needle));
             push_check(
                 report,
                 "improvement.promotion_target",
@@ -5018,6 +5018,11 @@ fn path_matches_suffix(path: &str, suffix: &str) -> bool {
     let path = path.replace('\\', "/");
     let suffix = suffix.replace('\\', "/");
     path == suffix || path.ends_with(&format!("/{suffix}"))
+}
+
+fn path_contains_fragment(path: &str, fragment: &str) -> bool {
+    path.replace('\\', "/")
+        .contains(&fragment.replace('\\', "/"))
 }
 
 fn contains_ci(haystack: &str, needle: &str) -> bool {

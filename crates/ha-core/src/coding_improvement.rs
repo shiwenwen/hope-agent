@@ -11126,6 +11126,11 @@ fn build_workflow_retro(
 mod tests {
     use super::*;
 
+    fn path_contains_fragment(path: &str, fragment: &str) -> bool {
+        path.replace('\\', "/")
+            .contains(&fragment.replace('\\', "/"))
+    }
+
     fn test_db() -> (tempfile::TempDir, SessionDB) {
         let dir = tempfile::tempdir().expect("tempdir");
         let db = SessionDB::open(&dir.path().join("sessions.db")).expect("session db");
@@ -12341,9 +12346,10 @@ mod tests {
             .preview_coding_improvement_proposal_action(&proposal.id)
             .unwrap();
         assert_eq!(plan.target_kind, "eval_candidate");
-        assert!(plan.steps[0]
-            .target_path
-            .contains(".hope-agent/coding-improvement/eval-candidates"));
+        assert!(path_contains_fragment(
+            &plan.steps[0].target_path,
+            ".hope-agent/coding-improvement/eval-candidates"
+        ));
 
         let result = db.apply_coding_improvement_proposal(&proposal.id).unwrap();
         assert!(result.applied);
@@ -12517,9 +12523,10 @@ mod tests {
             .preview_coding_improvement_proposal_action(&proposal.id)
             .unwrap();
         assert_eq!(plan.target_kind, "domain_eval_case");
-        assert!(plan.steps[0]
-            .target_path
-            .contains(".hope-agent/coding-improvement/domain-eval-cases"));
+        assert!(path_contains_fragment(
+            &plan.steps[0].target_path,
+            ".hope-agent/coding-improvement/domain-eval-cases"
+        ));
 
         let result = db.apply_coding_improvement_proposal(&proposal.id).unwrap();
         assert!(result.applied);
@@ -12532,9 +12539,10 @@ mod tests {
             .unwrap();
         assert_eq!(promotion.target_kind, "domain_eval_case");
         assert!(promotion.requires_confirmation);
-        assert!(promotion.steps[0]
-            .target_path
-            .contains(".hope-agent/coding-improvement/promoted/domain-eval-cases"));
+        assert!(path_contains_fragment(
+            &promotion.steps[0].target_path,
+            ".hope-agent/coding-improvement/promoted/domain-eval-cases"
+        ));
     }
 
     #[test]
@@ -12631,9 +12639,10 @@ mod tests {
             .preview_coding_improvement_proposal_action(&eval_case.id)
             .unwrap();
         assert_eq!(plan.target_kind, "domain_eval_case");
-        assert!(plan.steps[0]
-            .target_path
-            .contains(".hope-agent/coding-improvement/domain-eval-cases"));
+        assert!(path_contains_fragment(
+            &plan.steps[0].target_path,
+            ".hope-agent/coding-improvement/domain-eval-cases"
+        ));
     }
 
     #[test]

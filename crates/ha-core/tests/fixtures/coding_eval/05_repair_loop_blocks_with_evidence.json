@@ -30,7 +30,7 @@
         "max_script_secs": 10,
         "max_ops": 20
       },
-      "scriptSource": "export default async function main(workflow) {\n  const budget = { max_runtime_secs: 300, max_ops: 20, max_repair_attempts: 1 };\n  const task = await workflow.task.create({ title: \"Bounded repair\" });\n  await workflow.repairLoop({\n    label: \"repair-answer\",\n    maxAttempts: 1,\n    validationCommands: [\"printf still failing; exit 1\"],\n    review: false,\n    verify: false\n  }, async ({ attempt }) => {\n    await workflow.trace({ label: \"repair-callback\", payload: { attempt, changed: false } });\n    return { changed: false, attempt };\n  });\n  await workflow.task.update({ task, status: \"completed\" });\n  await workflow.finish({ summary: \"unreachable\", budget });\n}\n"
+      "scriptSource": "export default async function main(workflow) {\n  const budget = { max_runtime_secs: 300, max_ops: 20, max_repair_attempts: 1 };\n  const task = await workflow.task.create({ title: \"Bounded repair\" });\n  await workflow.repairLoop({\n    label: \"repair-answer\",\n    maxAttempts: 1,\n    validationCommands: [\"git rev-parse --verify refs/heads/hope-agent-missing-repair\"],\n    review: false,\n    verify: false\n  }, async ({ attempt }) => {\n    await workflow.trace({ label: \"repair-callback\", payload: { attempt, changed: false } });\n    return { changed: false, attempt };\n  });\n  await workflow.task.update({ task, status: \"completed\" });\n  await workflow.finish({ summary: \"unreachable\", budget });\n}\n"
     },
     "context": {
       "query": "repair",

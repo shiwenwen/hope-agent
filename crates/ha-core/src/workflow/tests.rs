@@ -347,6 +347,12 @@ fn git(root: &std::path::Path, args: &[&str]) {
     );
 }
 
+fn path_matches_suffix(path: &str, suffix: &str) -> bool {
+    let path = path.replace('\\', "/");
+    let suffix = suffix.replace('\\', "/");
+    path == suffix || path.ends_with(&format!("/{suffix}"))
+}
+
 #[test]
 fn workflow_run_survives_db_reopen_and_lists_by_session() {
     let dir = tempfile::tempdir().expect("tempdir");
@@ -2559,7 +2565,7 @@ export default async function main(workflow) {
             change
                 .get("path")
                 .and_then(|value| value.as_str())
-                .is_some_and(|path| path.ends_with("src/lib.rs"))
+                .is_some_and(|path| path_matches_suffix(path, "src/lib.rs"))
         })
         .expect("tracked edit");
     assert_eq!(tracked.get("action"), Some(&json!("edit")));
@@ -2784,7 +2790,7 @@ export default async function main(workflow) {
   });
   const diff = await workflow.diff({ label: "feature-diff" });
   const validation = await workflow.validate({
-    commands: ["test -f src/feature.txt"],
+    commands: ["git hash-object src/feature.txt"],
     reason: "feature file exists"
   });
   await workflow.task.update({ task, status: "completed" });
@@ -2823,7 +2829,7 @@ export default async function main(workflow) {
         .expect("changed paths");
     assert!(changed.iter().any(|path| {
         path.as_str()
-            .is_some_and(|path| path.ends_with("src/feature.txt"))
+            .is_some_and(|path| path_matches_suffix(path, "src/feature.txt"))
     }));
     assert_eq!(
         std::fs::read_to_string(workspace.join("src/feature.txt")).expect("read feature"),
@@ -2942,7 +2948,7 @@ export default async function main(workflow) {
   await workflow.repairLoop({
     label: "repair-exhausted",
     maxAttempts: 1,
-    validationCommands: ["printf still failing; exit 1"],
+    validationCommands: ["git rev-parse --verify refs/heads/hope-agent-missing-repair"],
     review: false,
     verify: false
   }, async ({ attempt }) => {
@@ -3102,8 +3108,8 @@ fn runtime_guarded_repair_blocks_repeated_validation_failure() {
     let script = r#"
 export default async function main(workflow) {
   const task = await workflow.task.create({ title: "Repeated validation failure" });
-  await workflow.validate({ commands: ["printf repeated; exit 1"] });
-  await workflow.validate({ commands: ["printf repeated; exit 1"] });
+  await workflow.validate({ commands: ["git rev-parse --verify refs/heads/hope-agent-missing-repeated"] });
+  await workflow.validate({ commands: ["git rev-parse --verify refs/heads/hope-agent-missing-repeated"] });
   await workflow.task.update({ task, status: "completed" });
   await workflow.finish({ reached: true });
 }
@@ -3173,8 +3179,8 @@ fn runtime_guarded_repair_blocks_no_effective_diff_progress() {
     let script = r#"
 export default async function main(workflow) {
   const task = await workflow.task.create({ title: "No diff progress" });
-  await workflow.validate({ commands: ["printf alpha; exit 1"] });
-  await workflow.validate({ commands: ["printf beta; exit 1"] });
+  await workflow.validate({ commands: ["git rev-parse --verify refs/heads/hope-agent-missing-alpha"] });
+  await workflow.validate({ commands: ["git rev-parse --verify refs/heads/hope-agent-missing-beta"] });
   await workflow.task.update({ task, status: "completed" });
   await workflow.finish({ reached: true });
 }
@@ -3227,8 +3233,8 @@ fn runtime_execution_mode_off_does_not_apply_repair_guard() {
     let script = r#"
 export default async function main(workflow) {
   const task = await workflow.task.create({ title: "Loop off validation" });
-  const first = await workflow.validate({ commands: ["printf repeated; exit 1"] });
-  const second = await workflow.validate({ commands: ["printf repeated; exit 1"] });
+  const first = await workflow.validate({ commands: ["git rev-parse --verify refs/heads/hope-agent-missing-repeated"] });
+  const second = await workflow.validate({ commands: ["git rev-parse --verify refs/heads/hope-agent-missing-repeated"] });
   await workflow.task.update({ task, status: "completed" });
   await workflow.finish({ first: first.ok, second: second.ok });
 }
