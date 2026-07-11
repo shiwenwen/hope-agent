@@ -6705,7 +6705,10 @@
       "hint": "Generate a landing page + deck + poster at once, sharing one design system",
       "generating": "Generating brand pack (multiple artifacts, please wait)…",
       "done": "Generated {{count}} artifacts",
-      "progress": "Generating {{kind}} ({{index}}/{{total}})…"
+      "progress": "Generating {{kind}} ({{index}}/{{total}})…",
+      "pickTitle": "Generate brand pack",
+      "pickHint": "Pick the formats to generate at once; they share one design system for a consistent look (up to 6).",
+      "pickGenerate": "Generate {{count}}"
     },
     "rtl": {
       "toRtl": "Switch to right-to-left (RTL)",

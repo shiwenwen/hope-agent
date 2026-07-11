@@ -6705,7 +6705,10 @@
       "hint": "一次生成落地页 + 演示 + 海报，共用同一设计系统",
       "generating": "正在生成品牌包（多个产物，请稍候）…",
       "done": "已生成 {{count}} 个产物",
-      "progress": "正在生成 {{kind}}（{{index}}/{{total}}）…"
+      "progress": "正在生成 {{kind}}（{{index}}/{{total}}）…",
+      "pickTitle": "生成品牌包",
+      "pickHint": "选择要一次生成的形态，它们共用同一设计系统、视觉语言一致（最多 6 个）。",
+      "pickGenerate": "生成 {{count}} 个"
     },
     "rtl": {
       "toRtl": "切换为从右到左（RTL）",

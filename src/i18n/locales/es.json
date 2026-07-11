@@ -6705,7 +6705,10 @@
       "hint": "Genera una página de aterrizaje + presentación + cartel a la vez, con un mismo sistema de diseño",
       "generating": "Generando pack de marca (varios artefactos, espera)…",
       "done": "{{count}} artefactos generados",
-      "progress": "Generando {{kind}} ({{index}}/{{total}})…"
+      "progress": "Generando {{kind}} ({{index}}/{{total}})…",
+      "pickTitle": "Generar pack de marca",
+      "pickHint": "Elige los formatos a generar a la vez; comparten un mismo sistema de diseño para un aspecto coherente (hasta 6).",
+      "pickGenerate": "Generar {{count}}"
     },
     "rtl": {
       "toRtl": "Cambiar a derecha a izquierda (RTL)",

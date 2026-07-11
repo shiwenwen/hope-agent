@@ -6705,7 +6705,10 @@
       "hint": "Jana halaman pendaratan + persembahan + poster sekali gus, berkongsi satu sistem reka bentuk",
       "generating": "Menjana pek jenama (beberapa artifak, sila tunggu)…",
       "done": "{{count}} artifak dijana",
-      "progress": "Menjana {{kind}} ({{index}}/{{total}})…"
+      "progress": "Menjana {{kind}} ({{index}}/{{total}})…",
+      "pickTitle": "Jana pek jenama",
+      "pickHint": "Pilih format untuk dijana sekali gus; ia berkongsi satu sistem reka bentuk untuk rupa yang konsisten (sehingga 6).",
+      "pickGenerate": "Jana {{count}}"
     },
     "rtl": {
       "toRtl": "Tukar ke kanan ke kiri (RTL)",

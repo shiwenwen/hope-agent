@@ -6705,7 +6705,10 @@
       "hint": "Gere uma página de destino + apresentação + cartaz de uma vez, com o mesmo sistema de design",
       "generating": "Gerando pacote de marca (vários artefatos, aguarde)…",
       "done": "{{count}} artefatos gerados",
-      "progress": "Gerando {{kind}} ({{index}}/{{total}})…"
+      "progress": "Gerando {{kind}} ({{index}}/{{total}})…",
+      "pickTitle": "Gerar pacote de marca",
+      "pickHint": "Escolha os formatos a gerar de uma vez; eles compartilham um mesmo sistema de design para um visual coerente (até 6).",
+      "pickGenerate": "Gerar {{count}}"
     },
     "rtl": {
       "toRtl": "Mudar para direita para esquerda (RTL)",

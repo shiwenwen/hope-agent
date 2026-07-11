@@ -1416,10 +1416,10 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
     t,
   ])
 
-  // 品牌包：一句话 → 建项目 → 批量生成一组共享系统的协调产物（落地页 + 演示 + 海报）。
-  const generateBrandPackFromHome = useCallback(async () => {
+  // 品牌包：一句话 → 建项目 → 批量生成一组共享系统的协调产物（形态由弹窗自选）。
+  const generateBrandPackFromHome = useCallback(async (kinds: ArtifactKind[]) => {
     const base = homePrompt.trim()
-    if (!base || generatingHome) return
+    if (!base || generatingHome || kinds.length === 0) return
     const systemId = homeSystemId ?? designConfig?.defaultSystemId ?? undefined
     let createdProjectId: string | null = null
     setGeneratingHome(true)
@@ -1447,7 +1447,7 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
       const arts = await tx.call<DesignArtifact[]>("generate_design_brand_pack_cmd", {
         projectId: project.id,
         brief: base,
-        kinds: ["web", "deck", "poster"],
+        kinds,
         systemId,
       })
       setHomePrompt("")
@@ -2614,6 +2614,11 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
   const [sharing, setSharing] = useState(false)
   const [deployOpen, setDeployOpen] = useState(false) // B7-2 CF 部署对话框
   const [inpaintOpen, setInpaintOpen] = useState(false) // 蒙版局部重绘（image 形态）
+  // 品牌包形态自选弹窗（默认 落地页+演示+海报，可自选）。
+  const [brandPackOpen, setBrandPackOpen] = useState(false)
+  const [brandPackKinds, setBrandPackKinds] = useState<Set<ArtifactKind>>(
+    () => new Set<ArtifactKind>(["web", "deck", "poster"]),
+  )
   // 分享面板（Wave 1-②，仅 server 模式）：点击 toggle，外点关闭。
   const [shareOpen, setShareOpen] = useState(false)
   const shareRef = useRef<HTMLDivElement>(null)
@@ -3476,7 +3481,7 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
           setSystemId={setHomeSystemId}
           generating={generatingHome}
           onGenerate={() => void generateFromHome()}
-          onBrandPack={() => void generateBrandPackFromHome()}
+          onBrandPack={() => setBrandPackOpen(true)}
           kindLabel={kindLabel}
           onOpen={openProject}
           onDelete={(p) => setDeleteTarget({ type: "project", id: p.id, title: p.title })}
@@ -4680,6 +4685,67 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
         onDone={() => setPreviewKey((k) => k + 1)}
       />
 
+      {/* 品牌包形态自选 */}
+      <Dialog open={brandPackOpen} onOpenChange={setBrandPackOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Layers className="h-4 w-4" />
+              {t("design.brandPack.pickTitle", "生成品牌包")}
+            </DialogTitle>
+          </DialogHeader>
+          <p className="text-xs text-muted-foreground">
+            {t(
+              "design.brandPack.pickHint",
+              "选择要一次生成的形态，它们共用同一设计系统、视觉语言一致（最多 6 个）。",
+            )}
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {BRAND_PACK_KINDS.map((k) => {
+              const Icon = KIND_ICON[k] ?? Monitor
+              const active = brandPackKinds.has(k)
+              return (
+                <button
+                  key={k}
+                  type="button"
+                  onClick={() =>
+                    setBrandPackKinds((prev) => {
+                      const next = new Set(prev)
+                      if (next.has(k)) next.delete(k)
+                      else if (next.size < 6) next.add(k)
+                      return next
+                    })
+                  }
+                  className={cn(
+                    "flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm transition-all duration-150",
+                    active
+                      ? "border-primary/60 bg-primary/10 font-medium text-primary shadow-sm"
+                      : "border-border/60 text-muted-foreground hover:border-primary/40 hover:bg-accent hover:text-foreground",
+                  )}
+                >
+                  {active ? <Check className="h-3.5 w-3.5" /> : <Icon className="h-3.5 w-3.5" />}
+                  {kindLabel(k)}
+                </button>
+              )
+            })}
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setBrandPackOpen(false)}>
+              {t("common.cancel", "取消")}
+            </Button>
+            <Button
+              disabled={brandPackKinds.size === 0}
+              onClick={() => {
+                setBrandPackOpen(false)
+                void generateBrandPackFromHome([...brandPackKinds])
+              }}
+            >
+              {t("design.brandPack.pickGenerate", "生成 {{count}} 个", { count: brandPackKinds.size })}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* 本窗口无 chrome 演示态（B4-4）：Escape 退出 */}
       {presentMode && activeArtifact && (
         <div className="fixed inset-0 z-[100] flex flex-col bg-neutral-950">
@@ -5185,6 +5251,17 @@ const LaunchComposerTextarea = memo(function LaunchComposerTextarea({
     />
   )
 })
+
+/** 品牌包可选形态（对齐后端 `is_brand_pack_kind`：媒体/组件形态不进批量文案生成）。 */
+const BRAND_PACK_KINDS: ArtifactKind[] = [
+  "web",
+  "mobile",
+  "deck",
+  "dashboard",
+  "poster",
+  "document",
+  "email",
+]
 
 /** 首次运行场景起步卡（零项目时展示，点选预填形态 + 场景 brief，缓解「不知从何开始」）。 */
 const SCENARIO_STARTERS: {
