@@ -28,7 +28,7 @@ import {
   goalCompletionReportFromMessage,
   type GoalCompletionReport,
 } from "./message/goalCompletionReport"
-import MessageContextMenu, { type MessageContextMenuState } from "./MessageContextMenu"
+import MessageContextMenu, { type MessageContextMenuState } from "./message/MessageContextMenu"
 import LoadMoreRow from "./LoadMoreRow"
 import AskUserQuestionBlock from "./ask-user/AskUserQuestionBlock"
 import PlanCardBlock from "./plan-mode/PlanCardBlock"
