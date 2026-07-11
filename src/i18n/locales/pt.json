@@ -6494,7 +6494,9 @@
       "regenerate": "Regenerar",
       "fork": "Bifurcar esta conversa",
       "forked": "Bifurcado em uma nova conversa",
-      "forkFailed": "Falha ao bifurcar"
+      "forkFailed": "Falha ao bifurcar",
+      "editingContext": "Editando: {{title}}",
+      "dropFiles": "Solte arquivos para anexar"
     },
     "emptyArtifactsInline": "Ainda sem artefatos — clique em “Novo artefato” (canto superior direito) ou peça à IA à esquerda para gerar um.",
     "review": {

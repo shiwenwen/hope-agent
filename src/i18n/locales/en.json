@@ -6494,7 +6494,9 @@
       "regenerate": "Regenerate",
       "fork": "Fork this conversation",
       "forked": "Forked into a new conversation",
-      "forkFailed": "Fork failed"
+      "forkFailed": "Fork failed",
+      "editingContext": "Editing: {{title}}",
+      "dropFiles": "Drop files to attach"
     },
     "emptyArtifactsInline": "No artifacts yet — click “New artifact” (top right), or just ask the AI on the left to generate one.",
     "review": {

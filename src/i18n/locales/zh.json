@@ -6494,7 +6494,9 @@
       "regenerate": "重新生成",
       "fork": "分支这个对话",
       "forked": "已分支为新对话",
-      "forkFailed": "分支失败"
+      "forkFailed": "分支失败",
+      "editingContext": "正在改：{{title}}",
+      "dropFiles": "拖放文件作为对话附件"
     },
     "emptyArtifactsInline": "还没有产物——右上角「新建产物」，或直接让左侧 AI 生成。",
     "review": {

@@ -6494,7 +6494,9 @@
       "regenerate": "Yeniden oluştur",
       "fork": "Bu konuşmayı çatalla",
       "forked": "Yeni bir konuşmaya çatallandı",
-      "forkFailed": "Çatallama başarısız"
+      "forkFailed": "Çatallama başarısız",
+      "editingContext": "Düzenleniyor: {{title}}",
+      "dropFiles": "Eklemek için dosyaları bırakın"
     },
     "emptyArtifactsInline": "Henüz çıktı yok — sağ üstteki “Yeni çıktı”ya tıklayın ya da soldaki yapay zekadan üretmesini isteyin.",
     "review": {

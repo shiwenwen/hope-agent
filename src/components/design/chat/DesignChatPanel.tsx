@@ -446,8 +446,36 @@ export const DesignChatPanel = forwardRef<DesignChatPanelHandle, Props>(function
 
   const currentAgent = session.agents.find((a) => a.id === session.currentAgentId)
 
+  // 拖文件入对话（W2-I）：拖到对话栏 append 成聊天附件（此前拖对话栏无反应、拖预览区却被静默转成
+  // 「导入新产物」，与「照着这张改」意图相反）。Tauri webview 走标准 HTML5 drop 事件。
+  const [dragOver, setDragOver] = useState(false)
+
   return (
-    <div className="flex h-full min-h-0 min-w-0 flex-col">
+    <div
+      className="relative flex h-full min-h-0 min-w-0 flex-col"
+      onDragOver={(e) => {
+        if (Array.from(e.dataTransfer.types).includes("Files")) {
+          e.preventDefault()
+          setDragOver(true)
+        }
+      }}
+      onDragLeave={(e) => {
+        if (e.currentTarget === e.target) setDragOver(false)
+      }}
+      onDrop={(e) => {
+        const files = Array.from(e.dataTransfer.files)
+        if (files.length) {
+          e.preventDefault()
+          stream.setAttachedFiles((prev) => [...prev, ...files])
+        }
+        setDragOver(false)
+      }}
+    >
+      {dragOver && (
+        <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-md border-2 border-dashed border-primary/50 bg-primary/5 text-xs font-medium text-primary">
+          {t("design.chat.dropFiles", "拖放文件作为对话附件")}
+        </div>
+      )}
       {/* Header: agent + new + history — borderless, blends with the surface. */}
       <div className="flex min-w-0 items-center gap-1 px-2 py-1.5">
         <div className="min-w-0 flex-1">
@@ -662,6 +690,21 @@ export const DesignChatPanel = forwardRef<DesignChatPanelHandle, Props>(function
             ))}
           </div>
         )}
+
+      {/* 当前产物上下文 chip（W2-I）：让隐式注入的 <design_context> 对用户可见——「改这个」落到哪个
+          产物一目了然（此前 composer 无任何提示，用户不知 AI 会改哪个）。 */}
+      {activeArtifact && (
+        <div className="px-3 pb-1">
+          <span className="inline-flex max-w-full items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[11px] text-primary">
+            <FileStack className="h-3 w-3 shrink-0" />
+            <span className="truncate">
+              {t("design.chat.editingContext", "正在改：{{title}}", {
+                title: activeArtifact.title,
+              })}
+            </span>
+          </span>
+        </div>
+      )}
 
       {/* Composer — borderless, sits on the surface like the main chat composer. */}
       <div>

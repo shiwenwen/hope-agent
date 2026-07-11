@@ -6494,7 +6494,9 @@
       "regenerate": "Tạo lại",
       "fork": "Rẽ nhánh cuộc trò chuyện này",
       "forked": "Đã rẽ nhánh thành cuộc trò chuyện mới",
-      "forkFailed": "Rẽ nhánh thất bại"
+      "forkFailed": "Rẽ nhánh thất bại",
+      "editingContext": "Đang sửa: {{title}}",
+      "dropFiles": "Thả tệp để đính kèm"
     },
     "emptyArtifactsInline": "Chưa có sản phẩm — nhấn “Sản phẩm mới” ở trên cùng bên phải, hoặc yêu cầu AI bên trái tạo một cái.",
     "review": {

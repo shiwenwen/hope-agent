@@ -6494,7 +6494,9 @@
       "regenerate": "다시 생성",
       "fork": "이 대화 분기",
       "forked": "새 대화로 분기했습니다",
-      "forkFailed": "분기 실패"
+      "forkFailed": "분기 실패",
+      "editingContext": "편집 중: {{title}}",
+      "dropFiles": "파일을 놓아 첨부"
     },
     "emptyArtifactsInline": "아직 산출물이 없습니다 — 오른쪽 위 ‘새 산출물’을 누르거나 왼쪽 AI에게 생성을 요청하세요.",
     "review": {

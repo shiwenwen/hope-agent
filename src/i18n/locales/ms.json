@@ -6494,7 +6494,9 @@
       "regenerate": "Jana semula",
       "fork": "Cabang perbualan ini",
       "forked": "Dicabangkan ke perbualan baharu",
-      "forkFailed": "Pencabangan gagal"
+      "forkFailed": "Pencabangan gagal",
+      "editingContext": "Menyunting: {{title}}",
+      "dropFiles": "Lepas fail untuk dilampirkan"
     },
     "emptyArtifactsInline": "Belum ada artifak — klik “Artifak baharu” (kanan atas), atau minta AI di kiri menjananya.",
     "review": {

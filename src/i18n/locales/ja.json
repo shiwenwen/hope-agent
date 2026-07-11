@@ -6494,7 +6494,9 @@
       "regenerate": "再生成",
       "fork": "この会話を分岐",
       "forked": "新しい会話に分岐しました",
-      "forkFailed": "分岐に失敗しました"
+      "forkFailed": "分岐に失敗しました",
+      "editingContext": "編集中：{{title}}",
+      "dropFiles": "ファイルをドロップして添付"
     },
     "emptyArtifactsInline": "アーティファクトはまだありません — 右上の「新規アーティファクト」か、左の AI に生成を頼んでください。",
     "review": {
