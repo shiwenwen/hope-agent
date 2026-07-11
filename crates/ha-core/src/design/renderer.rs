@@ -217,7 +217,7 @@ const STORAGE_POLYFILL: &str = "<script>(function(){function mk(){var s={};retur
 /// 编辑态渲染版本：**inspector bridge / oid 注入等编辑工具层**变更时 +1。烧进可编辑 `index.html`
 /// 的 `data-ds-r` 属性；`service::ensure_artifact_render_fresh` 据此自愈老产物——工具层升级无需
 /// 用户重新编辑即对既有产物生效（bridge 烧死在 index.html，否则老产物永远用旧工具）。
-pub const RENDER_VERSION: u32 = 16;
+pub const RENDER_VERSION: u32 = 17;
 
 pub fn build_artifact_html(
     kind: ArtifactKind,
@@ -559,6 +559,16 @@ const INSPECTOR_BRIDGE: &str = r#"<script>
     clearHover();hovered=el;el.style.outline='1px solid rgba(37,99,235,.5)';
   },true);
   document.addEventListener('mouseout',function(){if((active||commentMode)&&!editing)clearHover()},true);
+  // 链接导航守卫（W4）：预览里点站内/外链会把 iframe 整个导航走、设计消失、只能手动刷新找回。始终
+  // 拦截 a[href]（页内 #锚点放行）——阻止 iframe 被导航，外链请宿主在新窗口开（sandbox 无 allow-popups
+  // 故不在 iframe 内 window.open）。编辑/批注态照常走后续 handler（不 stopPropagation）。
+  document.addEventListener('click',function(e){
+    var a=e.target&&e.target.closest&&e.target.closest('a[href]');if(!a)return;
+    var href=a.getAttribute('href')||'';
+    if(!href||href.charAt(0)==='#')return; // 页内锚点放行
+    e.preventDefault();
+    if(/^https?:\/\//i.test(href))parent.postMessage({type:'ds_open_external',href:href},'*');
+  },true);
   document.addEventListener('click',function(e){
     if(commentMode){
       e.preventDefault();e.stopPropagation(); // 批注态吞掉所有点击，不泄漏到设计自身 handler

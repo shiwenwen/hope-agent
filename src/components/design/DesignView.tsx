@@ -2437,6 +2437,8 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
         // span 直属文本节点就地编辑（决策4A）：childNode 下标 + 编辑前原文（撤销栈用）。
         nodeIndex?: number
         before?: string
+        // 预览外链新窗口打开（W4）。
+        href?: string
       }
       // 画框批注视口度量回传（B4-1，跨源；resolve 对应 requestViewportMetrics 的 promise）。
       if (d?.type === "ds_viewport_result" && typeof d.id === "number") {
@@ -2475,6 +2477,10 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
         setEditMode(false)
         setCommentMode(false)
         setDrawMode(false)
+      }
+      // 预览里点外链 → 新窗口打开（W4：iframe 被 sandbox 拦 window.open，故请宿主开，避免导航走丢设计）。
+      else if (d?.type === "ds_open_external" && typeof d.href === "string") {
+        if (/^https?:\/\//i.test(d.href)) window.open(d.href, "_blank", "noopener,noreferrer")
       }
       // 编辑态右键菜单：bridge 先发 ds_selected 选中元素、再发本消息带 iframe 内坐标；
       // 换算 = iframe 屏上位置 + 坐标 × 当前预览缩放，再钳进窗口防溢出。
