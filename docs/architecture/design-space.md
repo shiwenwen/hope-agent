@@ -137,8 +137,8 @@ graph TD
 | --- | --- | --- |
 | **设计项目（Project）** | 顶层容器，聚合一组产物，可选绑定一个默认设计系统与一个 Hope Agent 项目 | 用户/模型创建 → 增删产物 → 删除级联清目录 |
 | **产物（Artifact）** | 单个可交付设计，有 `kind`（web/mobile/deck/dashboard/poster/document/email/image），对应磁盘一个目录 + 一份自包含 `index.html` | `create` → `update`（累加版本）→ `delete` |
-| **产物版本（Version）** | 一次 update / restore / 可视化编辑产生的源码快照 | 递增；超 `maxVersionsPerArtifact` 按版本号倒序保留最新 N |
-| **设计系统（DesignSystem）** | 可复用品牌契约：`DESIGN.md`（9 段，真相源）+ `tokens.json`（解析缓存） | 内置只读 / 用户创建 / 反向提取；套用到产物即注入 `:root` token |
+| **产物版本（Version）** | 一次 update / restore / 可视化编辑产生的源码快照，带 `origin`（`ai` 生成/精修 / `manual` 可视化微调·换系统 / `restore` 回滚） | 递增；超 `maxVersionsPerArtifact` 时**里程碑感知淘汰**：优先删最旧的 `manual`（微调自动保存），保留 `ai`/`restore` 里程碑与当前（最新）版本——防重度微调把 AI 里程碑挤掉（`cleanup_old_versions`，manual 淘尽仍超限才动最旧 ai/restore） |
+| **设计系统（DesignSystem）** | 可复用品牌契约：`DESIGN.md`（9 段，真相源）+ `tokens.json`（解析缓存） | 内置只读 / 用户创建 / 反向提取；owner 平面可**改名（内置拒改）/ 删除**；套用到产物即注入 `:root` token |
 | **设计模板（Recipe）** | 某产物形态的生成模板（`RECIPE.md`：frontmatter + 生成指令 + 预览），供模型 `list_recipes/get_recipe` 参考 | 内置随 App 发行 + 用户自建（managed 目录） |
 | **oid 映射（oidmap）** | 渲染期为源码每个元素分配的稳定 `data-ds-oid → 源码字节范围`，可视化回写用 | 每次渲染重算；随版本落盘 |
 
