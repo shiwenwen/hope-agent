@@ -6682,6 +6682,7 @@
       "posterPrompt": "Bir teknoloji buluşması afişi tasarla: tema, zaman ve yer, konuşmacılar ve yer tutucu kayıt QR kodu."
     },
     "peek": "Hızlı bakış",
-    "openArtifact": "Aç"
+    "openArtifact": "Aç",
+    "derivedFrom": "Şundan türetildi"
   }
 }

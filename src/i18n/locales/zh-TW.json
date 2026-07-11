@@ -6682,6 +6682,7 @@
       "posterPrompt": "設計一張科技沙龍活動海報：主題、時間地點、嘉賓、報名 QR code 佔位。"
     },
     "peek": "快速預覽",
-    "openArtifact": "開啟"
+    "openArtifact": "開啟",
+    "derivedFrom": "衍生自"
   }
 }

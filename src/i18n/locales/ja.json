@@ -6682,6 +6682,7 @@
       "posterPrompt": "テック交流会のイベントポスターを設計：テーマ、日時と場所、登壇者、申込 QR コードのプレースホルダー。"
     },
     "peek": "クイックプレビュー",
-    "openArtifact": "開く"
+    "openArtifact": "開く",
+    "derivedFrom": "派生元"
   }
 }

@@ -43,6 +43,23 @@ export function parseSelfCheck(metadata?: string | null): SelfCheckFlag | null {
   }
 }
 
+/** 从产物 metadata 解析血缘来源（派生自哪个产物）；无 / 解析失败 → null。 */
+export function parseDerivedFrom(
+  metadata?: string | null,
+): { id: string; title: string } | null {
+  if (!metadata) return null;
+  try {
+    const obj = JSON.parse(metadata) as { derivedFrom?: { id?: unknown; title?: unknown } };
+    const d = obj?.derivedFrom;
+    if (d && typeof d.id === "string" && typeof d.title === "string") {
+      return { id: d.id, title: d.title };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 /** 从产物 metadata 解析 deck 演讲者备注（按 slide 顺序）；无 / 解析失败 → []。 */
 export function parsePresenterNotes(metadata?: string | null): string[] {
   if (!metadata) return [];

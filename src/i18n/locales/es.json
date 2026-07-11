@@ -6682,6 +6682,7 @@
       "posterPrompt": "Diseña un cartel para un evento tecnológico: tema, hora y lugar, ponentes y un código QR de inscripción de marcador de posición."
     },
     "peek": "Vista rápida",
-    "openArtifact": "Abrir"
+    "openArtifact": "Abrir",
+    "derivedFrom": "Derivado de"
   }
 }

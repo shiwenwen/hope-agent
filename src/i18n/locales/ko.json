@@ -6682,6 +6682,7 @@
       "posterPrompt": "테크 밋업 이벤트 포스터 디자인: 주제, 일시와 장소, 연사, 신청 QR 코드 자리표시자."
     },
     "peek": "빠른 미리보기",
-    "openArtifact": "열기"
+    "openArtifact": "열기",
+    "derivedFrom": "파생 원본"
   }
 }

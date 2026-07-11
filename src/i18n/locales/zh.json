@@ -6682,6 +6682,7 @@
       "posterPrompt": "设计一张科技沙龙活动海报：主题、时间地点、嘉宾、报名二维码占位。"
     },
     "peek": "快速预览",
-    "openArtifact": "打开"
+    "openArtifact": "打开",
+    "derivedFrom": "派生自"
   }
 }

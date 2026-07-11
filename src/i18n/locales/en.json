@@ -6682,6 +6682,7 @@
       "posterPrompt": "Design a tech meetup event poster: theme, time and place, speakers, and a placeholder sign-up QR code."
     },
     "peek": "Quick look",
-    "openArtifact": "Open"
+    "openArtifact": "Open",
+    "derivedFrom": "Derived from"
   }
 }

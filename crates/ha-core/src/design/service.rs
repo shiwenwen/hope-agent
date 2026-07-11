@@ -414,6 +414,8 @@ pub fn duplicate_artifact(id: &str) -> Result<DesignArtifact> {
         let new_artifact = DesignArtifact {
             id: new_aid.clone(),
             title: dup_title.clone(),
+            // 血缘：记派生来源（复用 metadata，免改表），前端展示「派生自 X」。
+            metadata: merge_derived_from(src.metadata.as_deref(), &src.id, &src.title),
             created_at: ts.clone(),
             updated_at: ts.clone(),
             ..src.clone()
@@ -1204,6 +1206,19 @@ fn reconcile_orphaned_generating(rows: &[DesignArtifact]) -> bool {
         }
     }
     degraded_any
+}
+
+/// 往产物 metadata 合并 `derivedFrom`（血缘来源），保留其它键。空/非对象 metadata 从 `{}` 起。
+fn merge_derived_from(existing: Option<&str>, from_id: &str, from_title: &str) -> Option<String> {
+    let mut meta: serde_json::Value = existing
+        .filter(|s| !s.trim().is_empty())
+        .and_then(|s| serde_json::from_str(s).ok())
+        .unwrap_or_else(|| serde_json::json!({}));
+    if !meta.is_object() {
+        meta = serde_json::json!({});
+    }
+    meta["derivedFrom"] = serde_json::json!({ "id": from_id, "title": from_title });
+    Some(meta.to_string())
 }
 
 /// 保存 deck 演讲者备注（按 slide 顺序，存产物 `metadata.presenterNotes`）。owner 平面。
@@ -3334,6 +3349,30 @@ pub async fn refine_artifact_with_comment(
         prompt_summary: Some(crate::truncate_utf8(&comment.body, 2000).to_string()),
         expected_body_hash: Some(patch::body_hash(&current.body_html)),
     })
+}
+
+#[cfg(test)]
+mod lineage_tests {
+    use super::merge_derived_from;
+
+    #[test]
+    fn merge_derived_from_adds_and_preserves() {
+        // 空 metadata → 从 {} 起，只含 derivedFrom。
+        let out = merge_derived_from(None, "src-1", "源产物").unwrap();
+        let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v["derivedFrom"]["id"], "src-1");
+        assert_eq!(v["derivedFrom"]["title"], "源产物");
+        // 既有 metadata（含 selfCheck）→ 保留其它键，追加 derivedFrom。
+        let existing = r#"{"selfCheck":{"detail":"x"}}"#;
+        let out2 = merge_derived_from(Some(existing), "src-2", "B").unwrap();
+        let v2: serde_json::Value = serde_json::from_str(&out2).unwrap();
+        assert_eq!(v2["selfCheck"]["detail"], "x");
+        assert_eq!(v2["derivedFrom"]["id"], "src-2");
+        // 非对象 metadata → 从 {} 起（不 panic）。
+        let out3 = merge_derived_from(Some("[1,2,3]"), "src-3", "C").unwrap();
+        let v3: serde_json::Value = serde_json::from_str(&out3).unwrap();
+        assert_eq!(v3["derivedFrom"]["id"], "src-3");
+    }
 }
 
 #[cfg(test)]

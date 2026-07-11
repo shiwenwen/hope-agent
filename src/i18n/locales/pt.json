@@ -6682,6 +6682,7 @@
       "posterPrompt": "Projete um cartaz para um evento de tecnologia: tema, hora e local, palestrantes e um QR code de inscrição como espaço reservado."
     },
     "peek": "Visualização rápida",
-    "openArtifact": "Abrir"
+    "openArtifact": "Abrir",
+    "derivedFrom": "Derivado de"
   }
 }

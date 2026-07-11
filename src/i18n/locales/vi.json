@@ -6682,6 +6682,7 @@
       "posterPrompt": "Thiết kế áp phích sự kiện công nghệ: chủ đề, thời gian và địa điểm, diễn giả và mã QR đăng ký giữ chỗ."
     },
     "peek": "Xem nhanh",
-    "openArtifact": "Mở"
+    "openArtifact": "Mở",
+    "derivedFrom": "Bắt nguồn từ"
   }
 }

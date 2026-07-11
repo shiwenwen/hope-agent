@@ -32,6 +32,7 @@ import {
   Image as ImageIcon,
   FileText,
   Mail,
+  GitFork,
   Sparkles,
   StickyNote,
   MousePointerClick,
@@ -138,7 +139,7 @@ import type {
   DesignComment,
   CommentPlacement,
 } from "@/types/design"
-import { ARTIFACT_KINDS, parseSelfCheck, parsePresenterNotes } from "@/types/design"
+import { ARTIFACT_KINDS, parseSelfCheck, parsePresenterNotes, parseDerivedFrom } from "@/types/design"
 import {
   exportPng,
   exportPdf,
@@ -3924,6 +3925,28 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                     </Button>
                   </div>
                 )}
+                {(() => {
+                  const from = parseDerivedFrom(activeArtifact.metadata)
+                  if (!from) return null
+                  const target = artifacts.find((a) => a.id === from.id)
+                  return (
+                    <div className="flex shrink-0 items-center gap-1.5 border-b bg-muted/40 px-3 py-1 text-[11px] text-muted-foreground">
+                      <GitFork className="h-3 w-3 shrink-0" />
+                      <span className="shrink-0">{t("design.derivedFrom", "派生自")}</span>
+                      {target ? (
+                        <button
+                          type="button"
+                          onClick={() => void openArtifact(target)}
+                          className="min-w-0 truncate font-medium text-foreground hover:underline"
+                        >
+                          {from.title}
+                        </button>
+                      ) : (
+                        <span className="min-w-0 truncate font-medium">{from.title}</span>
+                      )}
+                    </div>
+                  )
+                })()}
                 <div
                   ref={previewPaneRef}
                   className={cn(
