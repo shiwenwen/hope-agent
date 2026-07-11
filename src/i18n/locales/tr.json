@@ -6717,6 +6717,20 @@
       "color": "Metin rengi",
       "maxWidth": "Maks. genişlik",
       "saved": "Sayfa stili uygulandı"
+    },
+    "inpaint": {
+      "button": "Yeniden çiz",
+      "title": "Maskeyle yeniden çizim",
+      "hint": "Yeniden oluşturulacak alanı boyayın ve ne istediğinizi tanımlayın. Yalnızca OpenAI görüntü modelleri.",
+      "erase": "Sil",
+      "erasing": "Siliniyor",
+      "brush": "Fırça boyutu",
+      "clear": "Temizle",
+      "promptPh": "Bu alanın ne olacağını tanımlayın…",
+      "run": "Yeniden oluştur",
+      "noMask": "Önce yeniden oluşturulacak alanı boyayın",
+      "done": "Maskeden yeniden oluşturuldu",
+      "failed": "Yeniden çizim başarısız: {{msg}}"
     }
   }
 }

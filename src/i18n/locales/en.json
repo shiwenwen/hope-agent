@@ -6717,6 +6717,20 @@
       "color": "Text color",
       "maxWidth": "Max width",
       "saved": "Page style applied"
+    },
+    "inpaint": {
+      "button": "Inpaint",
+      "title": "Masked inpainting",
+      "hint": "Paint the area to regenerate, then describe what you want. OpenAI image models only.",
+      "erase": "Erase",
+      "erasing": "Erasing",
+      "brush": "Brush size",
+      "clear": "Clear",
+      "promptPh": "Describe what this area should become…",
+      "run": "Regenerate",
+      "noMask": "Paint the area to regenerate first",
+      "done": "Regenerated from mask",
+      "failed": "Inpaint failed: {{msg}}"
     }
   }
 }

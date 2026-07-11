@@ -6717,6 +6717,20 @@
       "color": "Color de texto",
       "maxWidth": "Ancho máx.",
       "saved": "Estilo de página aplicado"
+    },
+    "inpaint": {
+      "button": "Repintar",
+      "title": "Repintado con máscara",
+      "hint": "Pinta el área a regenerar y describe lo que quieres. Solo modelos de imagen de OpenAI.",
+      "erase": "Borrar",
+      "erasing": "Borrando",
+      "brush": "Tamaño del pincel",
+      "clear": "Limpiar",
+      "promptPh": "Describe en qué convertir esta área…",
+      "run": "Regenerar",
+      "noMask": "Primero pinta el área a regenerar",
+      "done": "Regenerado desde la máscara",
+      "failed": "Fallo al repintar: {{msg}}"
     }
   }
 }

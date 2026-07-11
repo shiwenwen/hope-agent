@@ -22,6 +22,8 @@ pub struct ImageGenOptions {
     pub aspect_ratio: Option<String>,
     /// 参考/输入图（图生图或编辑）。空 = 纯文生图。
     pub input_images: Vec<InputImage>,
+    /// inpaint 蒙版（PNG，透明/涂画区=重绘区）。与恰一张 input_image 搭配走 OpenAI `/images/edits`。
+    pub mask: Option<Vec<u8>>,
 }
 
 /// 把图片字节内嵌成 `image` 形态 body（一张居中图，data-uri，守自包含红线）。
@@ -91,6 +93,7 @@ async fn generate_image_bytes(prompt: &str, opts: &ImageGenOptions) -> Result<(V
             aspect_ratio: opts.aspect_ratio.as_deref(),
             resolution: None,
             input_images: &opts.input_images,
+            mask: opts.mask.as_deref(),
         };
         let started = std::time::Instant::now();
         match provider.generate(params).await {

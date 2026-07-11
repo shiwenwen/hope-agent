@@ -77,6 +77,10 @@ pub struct ImageGenParams<'a> {
     pub resolution: Option<&'a str>,
     /// Reference/input images for editing
     pub input_images: &'a [InputImage],
+    /// Inpaint mask (PNG bytes; transparent/painted region = area to regenerate). When set with
+    /// exactly one `input_images` entry, OpenAI provider routes to `/images/edits`. Other providers
+    /// ignore it. `None` = normal generation/img2img.
+    pub mask: Option<&'a [u8]>,
 }
 
 /// Trait for image generation providers.

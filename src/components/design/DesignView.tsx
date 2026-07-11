@@ -32,6 +32,7 @@ import {
   Image as ImageIcon,
   FileText,
   Mail,
+  Brush,
   GitFork,
   Layers,
   ListChecks,
@@ -87,6 +88,7 @@ import { DesignSystemPicker } from "@/components/design/DesignSystemPicker"
 import DesignKitModal from "@/components/design/DesignKitModal"
 import DesignVersionHistoryModal from "@/components/design/DesignVersionHistoryModal"
 import DesignDeployModal from "@/components/design/DesignDeployModal"
+import DesignInpaintModal from "@/components/design/DesignInpaintModal"
 import { DesignTokenEditor } from "@/components/design/DesignTokenEditor"
 import { DesignTokenExport } from "@/components/design/DesignTokenExport"
 import { DesignFigmaImport } from "@/components/design/DesignFigmaImport"
@@ -2571,6 +2573,7 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
   // 桌面（无公开 server）= 直接导出干净自包含 HTML 供发送（拍板的降级路径）。
   const [sharing, setSharing] = useState(false)
   const [deployOpen, setDeployOpen] = useState(false) // B7-2 CF 部署对话框
+  const [inpaintOpen, setInpaintOpen] = useState(false) // 蒙版局部重绘（image 形态）
   // 分享面板（Wave 1-②，仅 server 模式）：点击 toggle，外点关闭。
   const [shareOpen, setShareOpen] = useState(false)
   const shareRef = useRef<HTMLDivElement>(null)
@@ -3895,6 +3898,18 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                         <RefreshCw className="h-3.5 w-3.5" />
                       </Button>
                     </IconTip>
+                    {activeArtifact.kind === "image" && (
+                      <IconTip label={t("design.inpaint.button", "蒙版重绘")} side="bottom">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6"
+                          onClick={() => setInpaintOpen(true)}
+                        >
+                          <Brush className="h-3.5 w-3.5" />
+                        </Button>
+                      </IconTip>
+                    )}
                     {activeArtifact.kind !== "image" && activeArtifact.kind !== "audio" && (
                       <IconTip label={t("design.critique", "质量评审")} side="bottom">
                         <Button
@@ -4609,6 +4624,14 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
         open={deployOpen}
         onClose={() => setDeployOpen(false)}
         artifactId={activeArtifact?.id ?? null}
+      />
+
+      <DesignInpaintModal
+        open={inpaintOpen}
+        onClose={() => setInpaintOpen(false)}
+        artifactId={activeArtifact?.id ?? null}
+        indexUrl={iframeSrc}
+        onDone={() => setPreviewKey((k) => k + 1)}
       />
 
       {/* 本窗口无 chrome 演示态（B4-4）：Escape 退出 */}

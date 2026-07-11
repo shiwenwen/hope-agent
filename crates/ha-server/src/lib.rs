@@ -1940,6 +1940,11 @@ fn build_router_with_cors(
             "/design/artifacts/{id}/page-style",
             axum::routing::put(routes::design::patch_page_style),
         )
+        .route(
+            "/design/artifacts/{id}/inpaint",
+            // image + mask base64 → 放开 body 限到 32 MiB。
+            post(routes::design::inpaint_image).layer(DefaultBodyLimit::max(32 * 1024 * 1024)),
+        )
         .route("/design/patch", post(routes::design::patch_element))
         .route(
             "/design/artifacts/{id}/critique",

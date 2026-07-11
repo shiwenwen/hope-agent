@@ -394,6 +394,25 @@ pub struct PresenterNotesBody {
 }
 
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InpaintBody {
+    pub prompt: String,
+    pub mask_b64: String,
+}
+
+/// `POST /api/design/artifacts/{id}/inpaint` — image 产物按蒙版局部重绘。
+pub async fn inpaint_image(
+    Path(id): Path<String>,
+    Json(body): Json<InpaintBody>,
+) -> Result<Json<DesignArtifact>, AppError> {
+    validate_id(&id)?;
+    let a = service::inpaint_image_artifact(&id, &body.prompt, &body.mask_b64)
+        .await
+        .map_err(|e| AppError::internal(e.to_string()))?;
+    Ok(Json(a))
+}
+
+#[derive(Deserialize)]
 pub struct PageStyleBody {
     pub props: std::collections::BTreeMap<String, String>,
 }

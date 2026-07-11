@@ -275,6 +275,7 @@ pub(crate) async fn tool_image_generate(args: &Value, ctx: &ToolExecContext) -> 
                 aspect_ratio,
                 resolution: effective_resolution,
                 input_images: &input_images,
+                mask: None,
             };
 
             let attempt_started = std::time::Instant::now();

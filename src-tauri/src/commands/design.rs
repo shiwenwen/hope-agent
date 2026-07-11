@@ -97,6 +97,18 @@ pub async fn review_design_artifact_cmd(
         .map_err(Into::into)
 }
 
+/// inpaint：对 image 产物按蒙版局部重绘（mask_b64 = PNG，透明/涂画区=重绘区）。
+#[tauri::command]
+pub async fn inpaint_design_image_cmd(
+    id: String,
+    prompt: String,
+    mask_b64: String,
+) -> Result<DesignArtifact, CmdError> {
+    service::inpaint_image_artifact(&id, &prompt, &mask_b64)
+        .await
+        .map_err(Into::into)
+}
+
 /// 页面级样式编辑（body 背景/文字色/最大宽度/字体等）。props 为 CSS 属性→值（空值=移除）。
 #[tauri::command]
 pub async fn patch_design_page_style_cmd(

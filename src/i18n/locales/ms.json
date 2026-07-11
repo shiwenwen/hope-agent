@@ -6717,6 +6717,20 @@
       "color": "Warna teks",
       "maxWidth": "Lebar maks.",
       "saved": "Gaya halaman digunakan"
+    },
+    "inpaint": {
+      "button": "Lukis semula",
+      "title": "Lukisan semula bertopeng",
+      "hint": "Warnakan kawasan untuk dijana semula, kemudian terangkan yang anda mahu. Model imej OpenAI sahaja.",
+      "erase": "Padam",
+      "erasing": "Memadam",
+      "brush": "Saiz berus",
+      "clear": "Kosongkan",
+      "promptPh": "Terangkan kawasan ini patut jadi apa…",
+      "run": "Jana semula",
+      "noMask": "Warnakan kawasan dahulu",
+      "done": "Dijana semula daripada topeng",
+      "failed": "Lukis semula gagal: {{msg}}"
     }
   }
 }

@@ -820,6 +820,7 @@ pub fn run() {
             commands::design::set_design_presenter_notes_cmd,
             commands::design::set_design_artifact_dir_cmd,
             commands::design::patch_design_page_style_cmd,
+            commands::design::inpaint_design_image_cmd,
             commands::design::review_design_artifact_cmd,
             commands::design::generate_design_brand_pack_cmd,
             commands::design::generate_design_artifact_cmd,

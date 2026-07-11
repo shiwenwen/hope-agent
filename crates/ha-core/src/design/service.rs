@@ -815,6 +815,7 @@ pub async fn create_artifact_generating(mut input: CreateArtifactInput) -> Resul
         let opts = super::image::ImageGenOptions {
             aspect_ratio: input.aspect_ratio.clone().filter(|s| !s.trim().is_empty()),
             input_images,
+            mask: None,
         };
         let parts = super::image::generate_image_parts(&prompt, &input.title, &opts).await?;
         input.body_html = Some(parts.body_html);
@@ -1329,6 +1330,96 @@ pub fn set_presenter_notes(artifact_id: &str, notes: Vec<String>) -> Result<()> 
     meta["presenterNotes"] = serde_json::json!(notes);
     db.update_artifact_metadata(artifact_id, Some(&meta.to_string()), &now())?;
     Ok(())
+}
+
+/// 从 image 产物 body 提取内嵌图片（`<img src="data:image/…;base64,…">`）→ (bytes, mime)。
+fn extract_image_from_body(body: &str) -> Option<(Vec<u8>, String)> {
+    use base64::Engine;
+    let start = body.find("data:image/")?;
+    let rest = &body[start + "data:".len()..];
+    let semi = rest.find(";base64,")?;
+    let mime = rest[..semi].to_string();
+    let after = &rest[semi + ";base64,".len()..];
+    let end = after.find(['"', '\'', ')']).unwrap_or(after.len());
+    let b64 = after[..end].trim();
+    let bytes = base64::engine::general_purpose::STANDARD.decode(b64).ok()?;
+    Some((bytes, mime))
+}
+
+/// inpaint：对 image 产物按蒙版局部重绘（`mask_b64` = PNG，透明/涂画区=重绘区）。owner 平面。
+/// 提取产物当前图 + 蒙版 → OpenAI `/images/edits`（走 `image_generate` 栈）→ 落新版本。
+/// 需产物为 image 形态且能提取内嵌图；生图失败/无 provider 由底层报错。
+pub async fn inpaint_image_artifact(
+    id: &str,
+    prompt: &str,
+    mask_b64: &str,
+) -> Result<DesignArtifact> {
+    use base64::Engine;
+    let (a, kind, dir, existing_body) = {
+        let db = open_db()?;
+        let a = db.get_artifact(id)?.context("artifact not found")?;
+        if a.kind != "image" {
+            anyhow::bail!("仅 image 形态产物支持蒙版重绘");
+        }
+        let kind = ArtifactKind::from_str(&a.kind).context("bad kind")?;
+        let dir = paths::design_artifact_dir(&a.project_id, &a.id)?;
+        let body = read_source(&dir)?.body_html;
+        (a, kind, dir, body)
+    };
+    let (img_bytes, img_mime) =
+        extract_image_from_body(&existing_body).context("产物内未找到可重绘的内嵌图片")?;
+    let mask_bytes = base64::engine::general_purpose::STANDARD
+        .decode(mask_b64.trim())
+        .context("mask base64 decode failed")?;
+    let prompt = if prompt.trim().is_empty() {
+        a.title.clone()
+    } else {
+        prompt.trim().to_string()
+    };
+    let opts = super::image::ImageGenOptions {
+        aspect_ratio: None,
+        input_images: vec![crate::tools::image_generate::InputImage {
+            data: img_bytes,
+            mime: img_mime,
+        }],
+        mask: Some(mask_bytes),
+    };
+    let parts = super::image::generate_image_parts(&prompt, &a.title, &opts).await?;
+
+    // 落新版本（image 形态：render editable=false、无 oid）。持锁串行化。
+    let lock = artifact_lock(id);
+    let _guard = lock.lock().unwrap_or_else(|e| e.into_inner());
+    let db = open_db()?;
+    let tokens = resolve_tokens(a.system_id.as_deref());
+    let (html, oidmap_json) = render(kind, &a.title, &parts, &tokens, is_rtl(a.metadata.as_deref()))?;
+    write_working(&dir, &html, &parts, &oidmap_json)?;
+    let next = a.current_version + 1;
+    write_version_snapshot(&dir, next, &html, &parts, &oidmap_json)?;
+    let ts = now();
+    db.update_artifact_review(&a.id, None, &a.status, Some(next), a.metadata.as_deref(), &ts)?;
+    db.create_version(&DesignArtifactVersion {
+        id: 0,
+        artifact_id: a.id.clone(),
+        version_number: next,
+        message: Some("Inpaint".to_string()),
+        critique_score: None,
+        origin: Some("ai".to_string()),
+        prompt_summary: Some(crate::truncate_utf8(&prompt, 120).to_string()),
+        created_at: ts.clone(),
+    })?;
+    let keep = crate::config::cached_config()
+        .design
+        .max_versions_per_artifact
+        .max(1);
+    let _ = db.cleanup_old_versions(&a.id, keep);
+    if let Ok(remaining) = db.list_versions(&a.id) {
+        let keep_set: std::collections::HashSet<i64> =
+            remaining.iter().map(|v| v.version_number).collect();
+        prune_version_dirs_to_db(&dir, &keep_set);
+    }
+    db.touch_project(&a.project_id, &ts)?;
+    emit("design:reload", json!({ "artifactId": a.id }));
+    db.get_artifact(&a.id)?.context("artifact gone after inpaint")
 }
 
 /// 设置产物文本方向（RTL/LTR，存 `metadata.dir`）并**立即重渲染 working index.html**（RTL 在
@@ -3607,6 +3698,24 @@ pub async fn refine_artifact_with_comment(
         prompt_summary: Some(crate::truncate_utf8(&comment.body, 2000).to_string()),
         expected_body_hash: Some(patch::body_hash(&current.body_html)),
     })
+}
+
+#[cfg(test)]
+mod inpaint_tests {
+    use super::extract_image_from_body;
+    use base64::Engine;
+
+    #[test]
+    fn extract_image_reads_data_uri() {
+        let raw = b"hello-png";
+        let b64 = base64::engine::general_purpose::STANDARD.encode(raw);
+        let body = format!("<img src=\"data:image/png;base64,{b64}\" alt=\"x\">");
+        let (bytes, mime) = extract_image_from_body(&body).unwrap();
+        assert_eq!(bytes, raw);
+        assert_eq!(mime, "image/png");
+        // 无内嵌图 → None。
+        assert!(extract_image_from_body("<div>no image</div>").is_none());
+    }
 }
 
 #[cfg(test)]

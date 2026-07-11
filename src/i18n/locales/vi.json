@@ -6717,6 +6717,20 @@
       "color": "Màu chữ",
       "maxWidth": "Chiều rộng tối đa",
       "saved": "Đã áp dụng kiểu trang"
+    },
+    "inpaint": {
+      "button": "Vẽ lại",
+      "title": "Vẽ lại theo mặt nạ",
+      "hint": "Tô vùng cần tạo lại rồi mô tả điều bạn muốn. Chỉ hỗ trợ mô hình ảnh OpenAI.",
+      "erase": "Xóa",
+      "erasing": "Đang xóa",
+      "brush": "Cỡ cọ",
+      "clear": "Xóa hết",
+      "promptPh": "Mô tả vùng này nên trở thành gì…",
+      "run": "Tạo lại",
+      "noMask": "Hãy tô vùng cần tạo lại trước",
+      "done": "Đã tạo lại theo mặt nạ",
+      "failed": "Vẽ lại thất bại: {{msg}}"
     }
   }
 }

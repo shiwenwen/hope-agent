@@ -78,47 +78,14 @@ async fn generate_impl(params: ImageGenParams<'_>) -> Result<ImageGenResult> {
         .filter(|s| !s.is_empty())
         .unwrap_or(DEFAULT_BASE_URL)
         .trim_end_matches('/');
-    let url = format!("{}/v1/images/generations", base);
 
-    let request_body = serde_json::json!({
-        "model": params.model,
-        "prompt": params.prompt,
-        "n": params.n,
-        "size": params.size,
-        "response_format": "b64_json",
-    });
-
-    // Log image generation request
-    if let Some(logger) = crate::get_logger() {
-        let prompt_preview = if params.prompt.len() > 500 {
-            format!("{}...", crate::truncate_utf8(params.prompt, 500))
-        } else {
-            params.prompt.to_string()
-        };
-        logger.log(
-            "debug",
-            "tool",
-            "image_generate::openai::request",
-            &format!(
-                "OpenAI image gen request: model={}, size={}, n={}, url={}",
-                params.model, params.size, params.n, url
-            ),
-            Some(
-                serde_json::json!({
-                    "api_url": &url,
-                    "model": params.model,
-                    "prompt_preview": prompt_preview,
-                    "prompt_length": params.prompt.len(),
-                    "size": params.size,
-                    "n": params.n,
-                    "timeout_secs": params.timeout_secs,
-                })
-                .to_string(),
-            ),
-            None,
-            None,
-        );
-    }
+    // inpaint：有蒙版 + 恰一张输入图 → `/images/edits` multipart（image + mask + prompt）。
+    let inpaint = matches!((params.mask, params.input_images.first()), (Some(_), Some(_)));
+    let url = if inpaint {
+        format!("{}/v1/images/edits", base)
+    } else {
+        format!("{}/v1/images/generations", base)
+    };
 
     let client = crate::provider::apply_proxy(
         Client::builder()
@@ -126,14 +93,65 @@ async fn generate_impl(params: ImageGenParams<'_>) -> Result<ImageGenResult> {
             .timeout(std::time::Duration::from_secs(params.timeout_secs)),
     )
     .build()?;
+
+    if let Some(logger) = crate::get_logger() {
+        logger.log(
+            "debug",
+            "tool",
+            "image_generate::openai::request",
+            &format!(
+                "OpenAI image {} request: model={}, size={}, n={}, url={}",
+                if inpaint { "edit" } else { "gen" },
+                params.model,
+                params.size,
+                params.n,
+                url
+            ),
+            None,
+            None,
+            None,
+        );
+    }
+
     let request_start = std::time::Instant::now();
-    let resp = client
+    let req = client
         .post(&url)
-        .header("Authorization", format!("Bearer {}", params.api_key))
-        .header("Content-Type", "application/json")
-        .json(&request_body)
-        .send()
-        .await?;
+        .header("Authorization", format!("Bearer {}", params.api_key));
+    let resp = if inpaint {
+        // gpt-image-1 edits：multipart，image + mask 同尺寸 PNG，蒙版透明区=重绘区。
+        let img = params.input_images.first().unwrap();
+        let mask = params.mask.unwrap();
+        let form = reqwest::multipart::Form::new()
+            .text("model", params.model.to_string())
+            .text("prompt", params.prompt.to_string())
+            .text("n", params.n.to_string())
+            .text("size", params.size.to_string())
+            .part(
+                "image",
+                reqwest::multipart::Part::bytes(img.data.clone())
+                    .file_name("image.png")
+                    .mime_str(if img.mime.is_empty() { "image/png" } else { &img.mime })?,
+            )
+            .part(
+                "mask",
+                reqwest::multipart::Part::bytes(mask.to_vec())
+                    .file_name("mask.png")
+                    .mime_str("image/png")?,
+            );
+        req.multipart(form).send().await?
+    } else {
+        let request_body = serde_json::json!({
+            "model": params.model,
+            "prompt": params.prompt,
+            "n": params.n,
+            "size": params.size,
+            "response_format": "b64_json",
+        });
+        req.header("Content-Type", "application/json")
+            .json(&request_body)
+            .send()
+            .await?
+    };
 
     let status = resp.status();
     let ttfb_ms = request_start.elapsed().as_millis() as u64;
