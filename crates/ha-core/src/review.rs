@@ -2130,7 +2130,9 @@ fn workspace_root_for_path(path: &Path) -> Option<String> {
     } else {
         path
     };
-    let out = std::process::Command::new("git")
+    let mut command = std::process::Command::new("git");
+    crate::filesystem::isolate_repository_env(&mut command);
+    let out = command
         .arg("rev-parse")
         .arg("--show-toplevel")
         .current_dir(dir)

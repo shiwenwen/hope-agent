@@ -686,6 +686,7 @@ fn path_arg(path: &Path) -> &str {
 
 fn git_output(cwd: &Path, args: &[&str]) -> Result<String> {
     let mut cmd = Command::new("git");
+    crate::filesystem::isolate_repository_env(&mut cmd);
     cmd.current_dir(cwd).args(args);
     crate::platform::hide_console(&mut cmd);
     let out = cmd
@@ -769,6 +770,7 @@ fn copy_worktreeinclude(repo_root: &Path, worktree_path: &Path) -> Result<()> {
 
 fn ignored_paths_for_pattern(repo_root: &Path, pattern: &str) -> Result<Vec<PathBuf>> {
     let mut cmd = Command::new("git");
+    crate::filesystem::isolate_repository_env(&mut cmd);
     cmd.current_dir(repo_root)
         .args([
             "ls-files",

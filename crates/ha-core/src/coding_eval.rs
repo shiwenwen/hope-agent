@@ -4897,7 +4897,9 @@ fn write_fixture_file(root: &Path, file: &FileFixture) -> Result<()> {
 }
 
 fn run_git(cwd: &Path, args: &[&str]) -> Result<String> {
-    let output = Command::new("git")
+    let mut command = Command::new("git");
+    crate::filesystem::isolate_repository_env(&mut command);
+    let output = command
         .args(args)
         .current_dir(cwd)
         .output()

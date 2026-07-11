@@ -331,7 +331,9 @@ fn insert_async_job_row(
 }
 
 fn git(root: &std::path::Path, args: &[&str]) {
-    let output = Command::new("git")
+    let mut command = Command::new("git");
+    crate::filesystem::isolate_repository_env(&mut command);
+    let output = command
         .args(args)
         .current_dir(root)
         .output()

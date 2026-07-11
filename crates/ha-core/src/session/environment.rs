@@ -378,6 +378,7 @@ fn classify_sync_state(
 
 fn run_git(root: &Path, args: &[&str]) -> Option<String> {
     let mut cmd = Command::new("git");
+    crate::filesystem::isolate_repository_env(&mut cmd);
     cmd.current_dir(root).args(args);
     crate::platform::hide_console(&mut cmd);
     let output = cmd.output().ok()?;
@@ -390,6 +391,7 @@ fn run_git(root: &Path, args: &[&str]) -> Option<String> {
 
 fn run_git_bytes(root: &Path, args: &[&str]) -> Result<Vec<u8>> {
     let mut cmd = Command::new("git");
+    crate::filesystem::isolate_repository_env(&mut cmd);
     cmd.current_dir(root).args(args);
     crate::platform::hide_console(&mut cmd);
     let output = cmd.output()?;

@@ -1535,6 +1535,7 @@ fn row_to_verification_event(row: &rusqlite::Row<'_>) -> rusqlite::Result<Verifi
 
 fn repo_root_for_path(path: &Path) -> Option<PathBuf> {
     let mut cmd = std::process::Command::new("git");
+    crate::filesystem::isolate_repository_env(&mut cmd);
     cmd.arg("rev-parse")
         .arg("--show-toplevel")
         .current_dir(path);
