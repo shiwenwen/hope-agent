@@ -1856,9 +1856,11 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
       const ae = document.activeElement as HTMLElement | null
       const inField =
         ae?.tagName === "INPUT" || ae?.tagName === "TEXTAREA" || !!ae?.isContentEditable
+      // 焦点在弹窗 / 菜单里时不抢键（Radix Dialog/Menu 自理 Escape，否则关弹窗顺带误退编辑态）。
+      const inOverlay = !!ae?.closest?.("[role='dialog'],[role='menu'],[role='listbox']")
       // Escape 分级：关右键菜单 → 取消待填批注钉 → 取消选中 → 退出编辑/批注/画框模式。就地文本编辑中
-      // （焦点在 iframe / 输入框）交给 bridge / 原生，宿主不抢。
-      if (e.key === "Escape" && !inField && ae !== iframeRef.current) {
+      // （焦点在 iframe / 输入框 / 弹窗）交给 bridge / 原生，宿主不抢。
+      if (e.key === "Escape" && !inField && !inOverlay && ae !== iframeRef.current) {
         if (previewCtxMenuRef.current) {
           setPreviewCtxMenu(null)
           e.preventDefault()
@@ -1892,8 +1894,10 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
       ) {
         if (inField) return
         const list = artifactsRef.current
-        const cur = activeArtifactRef.current
         if (!list.length) return
+        // 拦住浏览器 back/forward（HTTP 模式 Cmd/Ctrl+[ ]）——即便只有一个产物、切换是 no-op。
+        e.preventDefault()
+        const cur = activeArtifactRef.current
         const idx = cur ? list.findIndex((a) => a.id === cur.id) : -1
         const nextIdx =
           e.key === "]"
@@ -1904,10 +1908,7 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
               ? list.length - 1
               : (idx - 1 + list.length) % list.length
         const target = list[nextIdx]
-        if (target && target.id !== cur?.id) {
-          e.preventDefault()
-          void openArtifact(target)
-        }
+        if (target && target.id !== cur?.id) void openArtifact(target)
       }
     }
     window.addEventListener("keydown", onKey)
