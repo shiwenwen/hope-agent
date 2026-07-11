@@ -6680,6 +6680,8 @@
       "deckPrompt": "做一份 6 頁的創業募資簡報：封面、問題、方案、市場、商業模式、團隊。",
       "posterTitle": "活動海報",
       "posterPrompt": "設計一張科技沙龍活動海報：主題、時間地點、嘉賓、報名 QR code 佔位。"
-    }
+    },
+    "peek": "快速預覽",
+    "openArtifact": "開啟"
   }
 }

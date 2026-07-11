@@ -6680,6 +6680,8 @@
       "deckPrompt": "Girişim yatırım turu için 6 slaytlık bir sunum hazırla: kapak, sorun, çözüm, pazar, iş modeli, ekip.",
       "posterTitle": "Etkinlik afişi",
       "posterPrompt": "Bir teknoloji buluşması afişi tasarla: tema, zaman ve yer, konuşmacılar ve yer tutucu kayıt QR kodu."
-    }
+    },
+    "peek": "Hızlı bakış",
+    "openArtifact": "Aç"
   }
 }

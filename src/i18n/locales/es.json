@@ -6680,6 +6680,8 @@
       "deckPrompt": "Crea una presentación de 6 diapositivas para captación de fondos: portada, problema, solución, mercado, modelo de negocio, equipo.",
       "posterTitle": "Cartel de evento",
       "posterPrompt": "Diseña un cartel para un evento tecnológico: tema, hora y lugar, ponentes y un código QR de inscripción de marcador de posición."
-    }
+    },
+    "peek": "Vista rápida",
+    "openArtifact": "Abrir"
   }
 }

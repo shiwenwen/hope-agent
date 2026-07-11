@@ -20,11 +20,19 @@ import {
   FolderInput,
   Check,
   Download,
+  Eye,
   X,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { IconTip } from "@/components/ui/tooltip"
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -86,6 +94,8 @@ export default function DesignFilesPanel({
   onBatchExport,
 }: Props) {
   const { t } = useTranslation()
+  // 面板内 peek（快速预览）：不切换当前产物，弹大预览浮层（复用 ArtifactThumb 等比放大）。
+  const [peek, setPeek] = useState<DesignArtifact | null>(null)
   // 卡片相对时间角标（按最近改动扫读）：复用主对话 chat.* 时间 i18n 键（已 12 语齐全）。
   const fmtRelative = useCallback(
     (dateStr: string) => {
@@ -500,6 +510,27 @@ export default function DesignFilesPanel({
                       ) : (
                         <ArtifactThumb artifactId={a.id} />
                       )}
+                      {/* 面板内 peek：快速预览，不切换当前产物 */}
+                      <IconTip label={t("design.peek", "快速预览")} side="top">
+                        <span
+                          role="button"
+                          tabIndex={0}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setPeek(a)
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" || e.key === " ") {
+                              e.preventDefault()
+                              e.stopPropagation()
+                              setPeek(a)
+                            }
+                          }}
+                          className="absolute right-1.5 top-1.5 z-10 flex h-5 w-5 items-center justify-center rounded border border-border bg-background/90 text-muted-foreground opacity-0 shadow-sm transition-opacity hover:text-foreground focus-visible:opacity-100 group-hover/card:opacity-100"
+                        >
+                          <Eye className="h-3.5 w-3.5" />
+                        </span>
+                      </IconTip>
                     </button>
                     <div className="flex items-center gap-1 border-t px-2 py-1.5">
                       {renaming ? (
@@ -595,6 +626,33 @@ export default function DesignFilesPanel({
           </div>
         )}
       </div>
+
+      {/* 面板内 peek：大预览浮层（快速看，不切换当前产物）；「打开」再真正切换。 */}
+      <Dialog open={!!peek} onOpenChange={(o) => !o && setPeek(null)}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle className="truncate">{peek?.title}</DialogTitle>
+          </DialogHeader>
+          {peek && (
+            <div className="aspect-[3/4] max-h-[65vh] w-full overflow-hidden rounded-lg border bg-muted">
+              <ArtifactThumb key={peek.id} artifactId={peek.id} />
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setPeek(null)}>
+              {t("common.close", "关闭")}
+            </Button>
+            <Button
+              onClick={() => {
+                if (peek) onOpen(peek)
+                setPeek(null)
+              }}
+            >
+              {t("design.openArtifact", "打开")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

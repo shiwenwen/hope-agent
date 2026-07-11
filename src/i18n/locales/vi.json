@@ -6680,6 +6680,8 @@
       "deckPrompt": "Dựng bản trình bày 6 trang gọi vốn khởi nghiệp: trang bìa, vấn đề, giải pháp, thị trường, mô hình kinh doanh, đội ngũ.",
       "posterTitle": "Áp phích sự kiện",
       "posterPrompt": "Thiết kế áp phích sự kiện công nghệ: chủ đề, thời gian và địa điểm, diễn giả và mã QR đăng ký giữ chỗ."
-    }
+    },
+    "peek": "Xem nhanh",
+    "openArtifact": "Mở"
   }
 }
