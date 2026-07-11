@@ -118,7 +118,7 @@ export function DesignSystemPicker({
               type="button"
               onClick={() => pick(null)}
               className={cn(
-                "flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm hover:bg-accent",
+                "mt-1.5 flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm hover:bg-accent",
                 value == null && "bg-accent",
               )}
             >
@@ -133,8 +133,9 @@ export function DesignSystemPicker({
           )}
           {groups.map(([group, items]) => (
             <div key={group} className="mb-1">
-              <div className="sticky top-0 z-10 bg-background/95 px-2.5 py-1 text-xs font-medium text-muted-foreground backdrop-blur">
-                {group} · {items.length}
+              <div className="sticky top-0 z-10 bg-background/95 px-2.5 py-1.5 text-sm font-semibold text-foreground backdrop-blur">
+                {group}{" "}
+                <span className="font-normal text-muted-foreground">· {items.length}</span>
               </div>
               {items.map((s) => (
                 <div
