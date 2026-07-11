@@ -2200,7 +2200,12 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
         )
         return
       }
-      if (d?.type === "ds_selected" && d.payload) setSelected(d.payload)
+      if (d?.type === "ds_selected" && d.payload) {
+        setSelected(d.payload)
+        // iframe 内点击不冒泡到父 document（关菜单的 mousedown 监听收不到）——改点/改选元素时
+        // 在此关右键菜单。右键流不受影响：bridge 先发本消息再发 ds_context_menu，同批后者重开。
+        setPreviewCtxMenu(null)
+      }
       // 编辑态右键菜单：bridge 先发 ds_selected 选中元素、再发本消息带 iframe 内坐标；
       // 换算 = iframe 屏上位置 + 坐标 × 当前预览缩放，再钳进窗口防溢出。
       else if (d?.type === "ds_context_menu" && editModeRef.current) {
@@ -2265,6 +2270,9 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
       // 滚动保温（Wave 2-⑥）：桥持续上报滚动位置，按当前产物存最新值；重载 onLoad 后回写，
       // 使每轮改稿 / 换系统 / 定稿 swap 不再被打回顶部。返回产物也恢复上次滚动位置。
       else if (d?.type === "ds_scroll") {
+        // iframe 内滚动不触发父层 scroll 监听且菜单锚点随内容滚走——开着就关（null→null 会被
+        // React bail-out，持续滚动上报无重渲染开销）。
+        setPreviewCtxMenu(null)
         // 重载在途（previewLoading）时丢弃上报：换产物瞬间旧文档的晚到滚动（iframe 复用同一
         // contentWindow，源守卫拦不住）可能被记到新产物名下（review LOW）。载完再记正常滚动。
         const aid = activeArtifactRef.current?.id
