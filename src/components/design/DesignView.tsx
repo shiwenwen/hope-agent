@@ -3909,12 +3909,14 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
         />
       ) : (
         <div className="flex flex-1 min-h-0">
-          {/* Left: AI 对话栏（可拖宽 · 可折叠）——设计空间的对话改写主入口 */}
-          {chatOpen && (
-            <div
-              className="flex min-h-0 shrink-0 flex-col border-r"
-              style={{ width: chatWidth }}
-            >
+          {/* Left: AI 对话栏（可拖宽 · 可折叠）——设计空间的对话改写主入口。
+              折叠走 CSS 隐藏（hidden）**不卸载**（W2-I）：保留草稿 / 附件 / 圈选引用，且生成中折叠再
+              展开不冻结消息流（此前 `{chatOpen && …}` 条件渲染整棵卸载 = 状态全丢 + 在途流无人消费）。 */}
+          <div
+            className={cn("flex min-h-0 shrink-0 flex-col border-r", !chatOpen && "hidden")}
+            style={{ width: chatWidth }}
+          >
+            {activeProject && (
               <DesignChatPanel
                 ref={chatPanelRef}
                 projectId={activeProject.id}
@@ -3952,8 +3954,8 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                 kindLabel={(k) => kindLabel(k as ArtifactKind)}
                 active
               />
-            </div>
-          )}
+            )}
+          </div>
           {chatOpen && (
             <div
               onPointerDown={startChatResize}
