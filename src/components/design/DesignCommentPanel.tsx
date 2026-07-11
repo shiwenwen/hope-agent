@@ -190,6 +190,16 @@ export default function DesignCommentPanel({
               <Textarea
                 value={editDraft}
                 onChange={(e) => setEditDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  // 编辑态同款键盘契约（W3-J：此前编辑框零键盘处理、只能点按钮）。
+                  if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+                    e.preventDefault()
+                    submitEdit(c.id)
+                  } else if (e.key === "Escape") {
+                    e.preventDefault()
+                    setEditingId(null)
+                  }
+                }}
                 rows={2}
                 className="text-sm"
                 autoFocus
@@ -349,9 +359,15 @@ export default function DesignCommentPanel({
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                // 纯 Enter 提交（IME 组字期不误触，对齐 ⏎ 图标 + DesignDrawOverlay 契约）；Shift+Enter
+                // 换行；Escape 取消待填钉（W3-J：此前只认 Cmd/Ctrl+Enter、⏎ 图标误导、无 Escape）。
+                if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
                   e.preventDefault()
                   submitNew()
+                } else if (e.key === "Escape") {
+                  e.preventDefault()
+                  setDraft("")
+                  onCancelPending()
                 }
               }}
               rows={2}

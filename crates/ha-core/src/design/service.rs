@@ -4059,7 +4059,7 @@ pub async fn refine_artifact_with_comment(
             .await?;
     // 传 expected_body_hash：LLM 调用期间若有并发编辑改了源，则中止精修（stale-write 守卫，
     // 不静默丢用户改动，review #2）。
-    update_artifact(UpdateArtifactInput {
+    let refined = update_artifact(UpdateArtifactInput {
         id: a.id.clone(),
         title: None,
         body_html: Some(parts.body_html),
@@ -4069,7 +4069,13 @@ pub async fn refine_artifact_with_comment(
         origin: Some("ai".to_string()),
         prompt_summary: Some(crate::truncate_utf8(&comment.body, 2000).to_string()),
         expected_body_hash: Some(patch::body_hash(&current.body_html)),
-    })
+    })?;
+    // 精修成功 → 自动标该批注已解决（W3-J 生命周期闭环：此前 refine 后批注仍 open，用户分不清哪些已让
+    // AI 处理过、批注越攒越多）。best-effort：resolve 失败不回滚已成功的精修。
+    if let Err(e) = set_comment_resolved(artifact_id, comment_id, true) {
+        crate::app_warn!("design", "comment", "auto-resolve after refine failed: {e}");
+    }
+    Ok(refined)
 }
 
 #[cfg(test)]
