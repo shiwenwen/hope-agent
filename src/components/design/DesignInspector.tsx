@@ -168,6 +168,7 @@ function QuadRow({
   prop,
   styles,
   onCommit,
+  onLive,
   sideKey = (side) => `${prop}-${side}`,
 }: {
   label: string
@@ -175,6 +176,7 @@ function QuadRow({
   prop: string
   styles: Record<string, string>
   onCommit: (prop: string, v: string) => void
+  onLive?: (prop: string, v: string) => void
   /** 逐边 longhand 键（默认 `${prop}-${side}`；border 走 `border-${side}-width`）。 */
   sideKey?: (side: string) => string
 }) {
@@ -229,7 +231,16 @@ function QuadRow({
             key={side}
             type="number"
             value={draft[i]}
-            onChange={(e) => setDraft((d) => d.map((x, j) => (j === i ? e.target.value : x)))}
+            onChange={(e) => {
+              const val = e.target.value
+              // 联动态改一边=四边同步（草稿 + live 预览走 shorthand）；逐边态只动该边。
+              setDraft((d) => (linked ? d.map(() => val) : d.map((x, j) => (j === i ? val : x))))
+              const n = parseFloat(val)
+              if (Number.isFinite(n) && onLive) {
+                if (linked) onLive(prop, `${Math.round(n)}px`)
+                else onLive(sideKey(QUAD_SIDES[i]), `${Math.round(n)}px`)
+              }
+            }}
             onBlur={() => commit(i)}
             onKeyDown={(e) => {
               if (e.key === "Enter") commit(i)
@@ -249,12 +260,15 @@ function NumberRow({
   value,
   suffix = "px",
   onCommit,
+  onLive,
 }: {
   label: string
   prop: string
   value: number
   suffix?: string
   onCommit: (prop: string, v: string) => void
+  /** 逐键 / 步进即时预览（ds_preview_style，不落盘）；blur/Enter 才 commit（W2-D 手感）。 */
+  onLive?: (prop: string, v: string) => void
 }) {
   const [v, setV] = useState(String(value))
   // Sync local input when the selected element's value changes (render-phase
@@ -280,7 +294,12 @@ function NumberRow({
       <Input
         type="number"
         value={v}
-        onChange={(e) => setV(e.target.value)}
+        onChange={(e) => {
+          setV(e.target.value)
+          // 逐键 / 原生 spinner 步进即时预览——此前只 setV、画布纹丝不动、要 blur 才见效（W2-D）。
+          const n = parseFloat(e.target.value)
+          if (Number.isFinite(n)) onLive?.(prop, `${n}${suffix}`)
+        }}
         onBlur={commit}
         onKeyDown={(e) => {
           if (e.key === "Enter") commit()
@@ -298,12 +317,14 @@ function TextRow({
   value,
   placeholder,
   onCommit,
+  onLive,
 }: {
   label: string
   prop: string
   value: string
   placeholder?: string
   onCommit: (prop: string, v: string) => void
+  onLive?: (prop: string, v: string) => void
 }) {
   const [v, setV] = useState(value)
   const [prev, setPrev] = useState(value)
@@ -321,7 +342,11 @@ function TextRow({
       <Input
         value={v}
         placeholder={placeholder}
-        onChange={(e) => setV(e.target.value)}
+        onChange={(e) => {
+          setV(e.target.value)
+          const t = e.target.value.trim()
+          if (t) onLive?.(prop, t) // 逐键即时预览（W2-D）
+        }}
         onBlur={commit}
         onKeyDown={(e) => {
           if (e.key === "Enter") commit()
@@ -639,6 +664,7 @@ export default function DesignInspector({
           prop="font-size"
           value={px(s["font-size"] || "16")}
           onCommit={onCommitStyle}
+          onLive={onLiveStyle}
         />
         <NumberRow
           label={t("design.insp.fontWeight", "字重")}
@@ -646,6 +672,7 @@ export default function DesignInspector({
           value={parseInt(s["font-weight"] || "400", 10)}
           suffix=""
           onCommit={onCommitStyle}
+          onLive={onLiveStyle}
         />
         <TextRow
           label={t("design.insp.lineHeight", "行高")}
@@ -653,6 +680,7 @@ export default function DesignInspector({
           value={s["line-height"] === "normal" ? "" : s["line-height"] || ""}
           placeholder="1.5 / 24px"
           onCommit={onCommitStyle}
+          onLive={onLiveStyle}
         />
         <TextRow
           label={t("design.insp.letterSpacing", "字距")}
@@ -660,6 +688,7 @@ export default function DesignInspector({
           value={s["letter-spacing"] === "normal" ? "" : s["letter-spacing"] || ""}
           placeholder="normal"
           onCommit={onCommitStyle}
+          onLive={onLiveStyle}
         />
         <div className="flex items-center justify-between text-sm">
           <span className="text-muted-foreground">{t("design.insp.align", "对齐")}</span>
@@ -691,18 +720,21 @@ export default function DesignInspector({
           prop="padding"
           styles={s}
           onCommit={onCommitStyle}
+          onLive={onLiveStyle}
         />
         <QuadRow
           label={t("design.insp.margin", "外边距")}
           prop="margin"
           styles={s}
           onCommit={onCommitStyle}
+          onLive={onLiveStyle}
         />
         <NumberRow
           label={t("design.insp.radius", "圆角")}
           prop="border-radius"
           value={px(s["border-radius"] || "0")}
           onCommit={onCommitStyle}
+          onLive={onLiveStyle}
         />
       </Section>
 
@@ -755,6 +787,7 @@ export default function DesignInspector({
               prop="gap"
               value={px(s["gap"] || "0")}
               onCommit={onCommitStyle}
+              onLive={onLiveStyle}
             />
           </>
         )}
@@ -767,6 +800,7 @@ export default function DesignInspector({
           value={s["width"] || ""}
           placeholder="auto"
           onCommit={onCommitStyle}
+          onLive={onLiveStyle}
         />
         <TextRow
           label={t("design.insp.height", "高")}
@@ -774,6 +808,7 @@ export default function DesignInspector({
           value={s["height"] || ""}
           placeholder="auto"
           onCommit={onCommitStyle}
+          onLive={onLiveStyle}
         />
         <TextRow
           label={t("design.insp.maxWidth", "最大宽")}
@@ -781,6 +816,7 @@ export default function DesignInspector({
           value={s["max-width"] || ""}
           placeholder="none"
           onCommit={onCommitStyle}
+          onLive={onLiveStyle}
         />
         <TextRow
           label={t("design.insp.minHeight", "最小高")}
@@ -788,6 +824,7 @@ export default function DesignInspector({
           value={s["min-height"] || ""}
           placeholder="0"
           onCommit={onCommitStyle}
+          onLive={onLiveStyle}
         />
       </Section>
 
