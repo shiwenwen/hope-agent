@@ -667,12 +667,26 @@ function retrievalTraceStatusClass(status: string | undefined): string {
   switch (status) {
     case "partial":
     case "degraded":
-      return "bg-destructive/10 text-destructive"
+      return "bg-amber-500/12 text-amber-700 dark:text-amber-300"
     case "disabled":
     case "no_context":
       return "bg-muted text-muted-foreground"
     default:
-      return "bg-primary/8 text-primary/80"
+      return "bg-emerald-500/12 text-emerald-700 dark:text-emerald-300"
+  }
+}
+
+function memoryRoleClass(role: UsedMemoryRef["role"]): string {
+  if (isMemoryCandidateRole(role)) {
+    return "bg-amber-500/12 text-amber-700 dark:text-amber-300"
+  }
+  switch (role) {
+    case "injected":
+      return "bg-emerald-500/12 text-emerald-700 dark:text-emerald-300"
+    case "selected":
+      return "bg-violet-500/12 text-violet-700 dark:text-violet-300"
+    default:
+      return "bg-sky-500/10 text-sky-700 dark:text-sky-300"
   }
 }
 
@@ -894,17 +908,28 @@ function ActiveMemoryTrace({
   }
 
   return (
-    <div className="mt-2 rounded-lg border border-primary/15 bg-primary/6 text-xs">
+    <div
+      className={cn(
+        "mt-2 overflow-hidden rounded-xl border text-xs transition-colors",
+        expanded
+          ? "border-violet-500/10 bg-violet-500/[0.025] dark:border-violet-400/12 dark:bg-violet-400/[0.035]"
+          : "border-violet-500/8 bg-violet-500/[0.025] dark:border-violet-400/10 dark:bg-violet-400/[0.035]",
+      )}
+    >
       <button
         type="button"
-        className="flex w-full min-w-0 items-center gap-2 px-2.5 py-1.5 text-left text-primary transition-colors hover:bg-primary/8"
+        className="flex w-full min-w-0 items-center gap-2 px-2.5 py-1 text-left text-violet-800 transition-colors hover:bg-violet-500/8 dark:text-violet-200 dark:hover:bg-violet-400/10"
         aria-expanded={expanded}
         onClick={() => setExpanded((v) => !v)}
       >
-        <Brain className="h-3.5 w-3.5 shrink-0" />
+        <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-violet-500/12 text-violet-700 dark:text-violet-300">
+          <Brain className="h-3 w-3" />
+        </span>
         <span className="shrink-0 font-medium">{traceTitle}</span>
         {selected && (
-          <span className="min-w-0 truncate text-primary/75">{memorySourceLabel(selected, t)}</span>
+          <span className="min-w-0 truncate text-foreground/55">
+            {memorySourceLabel(selected, t)}
+          </span>
         )}
         {showHeaderStatus && traceStatusLabel && (
           <span
@@ -924,11 +949,11 @@ function ActiveMemoryTrace({
         />
       </button>
       <AnimatedCollapse open={expanded}>
-        <div className="space-y-2 border-t border-primary/10 px-2.5 py-2 text-foreground/80">
-          <p className="m-0 leading-relaxed">{traceSummary}</p>
-          <div className="rounded-md border border-primary/10 bg-background/45 px-2 py-1.5">
-            <div className="flex items-center gap-1.5 text-[11px] font-medium text-foreground/75">
-              <Info className="h-3.5 w-3.5 text-primary/70" />
+        <div className="space-y-2.5 border-t border-violet-500/8 px-3 py-2.5 text-foreground/80">
+          <p className="m-0 leading-relaxed text-foreground/75">{traceSummary}</p>
+          <div className="rounded-lg border border-border/45 bg-background/55 px-2.5 py-2 dark:bg-background/35">
+            <div className="flex items-center gap-1.5 text-[11px] font-semibold text-foreground/80">
+              <Info className="h-3.5 w-3.5 text-violet-600 dark:text-violet-300" />
               {t("chat.memoryTrace.whyTitle", "Why this context appeared")}
             </div>
             <div className="mt-1.5 flex flex-wrap gap-1.5 text-[10px] text-muted-foreground">
@@ -943,13 +968,13 @@ function ActiveMemoryTrace({
                 </span>
               )}
               {retrievalPlanner?.intent && (
-                <span className="rounded bg-primary/8 px-1.5 py-0.5 text-primary/80">
+                <span className="rounded bg-sky-500/10 px-1.5 py-0.5 text-sky-700 dark:text-sky-300">
                   {t("chat.memoryTrace.intentLabel", "Detected task")}:{" "}
                   {retrievalIntentLabel(retrievalPlanner.intent, t)}
                 </span>
               )}
               {traceStats.injected > 0 && (
-                <span className="rounded bg-primary/8 px-1.5 py-0.5 text-primary/80">
+                <span className="rounded bg-emerald-500/12 px-1.5 py-0.5 text-emerald-700 dark:text-emerald-300">
                   {t("chat.memoryTrace.count.injected", {
                     count: traceStats.injected,
                     defaultValue: "{{count}} injected",
@@ -957,7 +982,7 @@ function ActiveMemoryTrace({
                 </span>
               )}
               {traceStats.selected > 0 && (
-                <span className="rounded bg-primary/8 px-1.5 py-0.5 text-primary/80">
+                <span className="rounded bg-violet-500/12 px-1.5 py-0.5 text-violet-700 dark:text-violet-300">
                   {t("chat.memoryTrace.count.selected", {
                     count: traceStats.selected,
                     defaultValue: "{{count}} selected",
@@ -965,7 +990,7 @@ function ActiveMemoryTrace({
                 </span>
               )}
               {traceStats.candidates > 0 && (
-                <span className="rounded bg-muted px-1.5 py-0.5">
+                <span className="rounded bg-amber-500/12 px-1.5 py-0.5 text-amber-700 dark:text-amber-300">
                   {t("chat.memoryTrace.count.candidate", {
                     count: traceStats.candidates,
                     defaultValue: "{{count}} candidates",
@@ -973,7 +998,10 @@ function ActiveMemoryTrace({
                 </span>
               )}
               {traceStats.origins.map(([origin, count]) => (
-                <span key={origin} className="rounded bg-muted px-1.5 py-0.5">
+                <span
+                  key={origin}
+                  className="rounded border border-border/60 bg-muted/55 px-1.5 py-0.5"
+                >
                   {memoryOriginLabel(origin, t)} · {count}
                 </span>
               ))}
@@ -983,7 +1011,10 @@ function ActiveMemoryTrace({
                 {retrievalPlanner.layers.map((layer) => {
                   const parts = retrievalLayerDetailParts(layer, t)
                   return (
-                    <span key={layer.layer} className="rounded bg-background/70 px-1.5 py-0.5">
+                    <span
+                      key={layer.layer}
+                      className="rounded bg-violet-500/6 px-1.5 py-0.5 text-foreground/65"
+                    >
                       {retrievalLayerLabel(layer.layer, t)}: {parts.join(" · ")}
                     </span>
                   )
@@ -1041,18 +1072,23 @@ function ActiveMemoryTrace({
                   <div
                     key={refKey}
                     className={cn(
-                      "rounded-md border px-2 py-1.5",
+                      "rounded-lg border px-2.5 py-2",
                       isHighlightedMemoryRef(candidate, selected)
-                        ? "border-primary/20 bg-primary/8"
-                        : "border-border/60 bg-background/40",
+                        ? "border-violet-500/15 bg-violet-500/[0.035] dark:bg-violet-400/[0.045]"
+                        : "border-border/45 bg-background/50 dark:bg-background/30",
                     )}
                   >
                     <div className="flex min-w-0 items-center gap-2">
-                      <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] uppercase text-muted-foreground">
+                      <span className="shrink-0 rounded bg-violet-500/10 px-1.5 py-0.5 text-[10px] font-medium uppercase text-violet-700 dark:text-violet-300">
                         {memoryKindLabel(candidate, t)}
                       </span>
                       {roleLabel && (
-                        <span className="shrink-0 rounded bg-primary/8 px-1.5 py-0.5 text-[10px] text-primary/80">
+                        <span
+                          className={cn(
+                            "shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium",
+                            memoryRoleClass(candidate.role),
+                          )}
+                        >
                           {roleLabel}
                         </span>
                       )}
@@ -1076,7 +1112,7 @@ function ActiveMemoryTrace({
                                 onOpenMemorySettings()
                               }
                             }}
-                            className="shrink-0 rounded p-0.5 text-muted-foreground/70 transition-colors hover:bg-background/70 hover:text-foreground"
+                            className="shrink-0 rounded p-0.5 text-muted-foreground/70 transition-colors hover:bg-violet-500/10 hover:text-violet-700 dark:hover:text-violet-300"
                             aria-label={sourceActionLabel}
                           >
                             <SourceActionIcon className="h-3.5 w-3.5" />
@@ -1097,8 +1133,9 @@ function ActiveMemoryTrace({
                               }
                             }}
                             className={cn(
-                              "shrink-0 rounded p-0.5 text-muted-foreground/70 transition-colors hover:bg-background/70 hover:text-foreground disabled:pointer-events-none disabled:opacity-60",
-                              quickEditActive && "bg-primary/8 text-primary",
+                              "shrink-0 rounded p-0.5 text-muted-foreground/70 transition-colors hover:bg-violet-500/10 hover:text-violet-700 disabled:pointer-events-none disabled:opacity-60 dark:hover:text-violet-300",
+                              quickEditActive &&
+                                "bg-violet-500/10 text-violet-700 dark:text-violet-300",
                             )}
                             aria-label={t("chat.memoryTrace.quickEdit", "Quick edit memory")}
                           >
@@ -1157,7 +1194,7 @@ function ActiveMemoryTrace({
                       </div>
                     )}
                     {quickEditActive && (
-                      <div className="mt-1.5 rounded-md border border-primary/15 bg-background/70 p-2">
+                      <div className="mt-1.5 rounded-md border border-violet-500/20 bg-background/85 p-2 dark:bg-background/65">
                         {quickEdit.status === "loading" ? (
                           <div className="text-[10px] text-muted-foreground">
                             {t("chat.memoryTrace.quickEditLoading", "Loading memory...")}
@@ -1250,7 +1287,7 @@ function ActiveMemoryTrace({
                 <button
                   type="button"
                   onClick={() => setShowAllRefs((v) => !v)}
-                  className="rounded px-1 py-0.5 text-left text-[10px] font-medium text-muted-foreground transition-colors hover:bg-background/60 hover:text-foreground"
+                  className="rounded px-1 py-0.5 text-left text-[10px] font-medium text-muted-foreground transition-colors hover:bg-violet-500/8 hover:text-violet-700 dark:hover:text-violet-300"
                 >
                   {showAllRefs
                     ? t("common.showLess", "折叠显示")
@@ -1266,7 +1303,7 @@ function ActiveMemoryTrace({
             <button
               type="button"
               onClick={() => void copyTrace()}
-              className="inline-flex items-center gap-1.5 rounded-md border border-border/60 bg-background/70 px-2 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
+              className="inline-flex items-center gap-1.5 rounded-md border border-border/50 bg-background/55 px-2 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:border-violet-500/20 hover:bg-violet-500/6 hover:text-violet-700 dark:bg-background/35 dark:hover:text-violet-300"
             >
               {traceCopied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
               {traceCopied
@@ -1277,7 +1314,7 @@ function ActiveMemoryTrace({
               <button
                 type="button"
                 onClick={onOpenMemorySettings}
-                className="inline-flex items-center gap-1.5 rounded-md border border-border/60 bg-background/70 px-2 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
+                className="inline-flex items-center gap-1.5 rounded-md border border-border/50 bg-background/55 px-2 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:border-violet-500/20 hover:bg-violet-500/6 hover:text-violet-700 dark:bg-background/35 dark:hover:text-violet-300"
               >
                 <Settings className="h-3.5 w-3.5" />
                 {t("settings.memoryTabs.manage")}

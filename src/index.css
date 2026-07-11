@@ -42,7 +42,7 @@
   --shadow-panel: 0 1px 2px hsl(220 18% 20% / 0.04), 0 10px 30px hsl(220 18% 20% / 0.04);
   --shadow-floating: 0 8px 30px hsl(220 18% 20% / 0.12);
   --shadow-input-dock: 0 1px 2px hsl(220 18% 20% / 0.05), 0 16px 48px hsl(220 18% 20% / 0.08);
-  --color-user-bubble: hsl(220 14% 94%);
+  --color-user-bubble: rgb(243 243 244);
 }
 
 /* Knowledge-space editor: current-line (cursor) highlight. Kept very faint so it
@@ -80,7 +80,7 @@
   --color-surface-panel: hsl(0 0% 10%);
   --color-surface-floating: hsl(0 0% 13%);
   --color-surface-subtle: hsl(0 0% 16%);
-  --color-user-bubble: hsl(0 0% 19%);
+  --color-user-bubble: rgb(36 36 36);
 }
 
 @layer base {
