@@ -6365,7 +6365,8 @@
       "duplicate": "Gagal menyalin",
       "batchDeletePartial": "Gagal memadam {{n}} projek",
       "reveal": "Gagal buka",
-      "loadLibrary": "Gagal memuat pustaka"
+      "loadLibrary": "Gagal memuat pustaka",
+      "batchDeleteArtifactPartial": "{{n}} artifak gagal dipadam"
     },
     "ok": {
       "adopted": "Arah reka bentuk diterapkan",
@@ -6376,7 +6377,9 @@
       "restyled": "Diubah gaya",
       "duplicated": "Projek disalin",
       "batchDeleted": "{{n}} projek dipadam",
-      "pathCopied": "Laluan disalin"
+      "pathCopied": "Laluan disalin",
+      "batchDeletedArtifacts": "{{n}} artifak dipadam",
+      "duplicatedArtifact": "Halaman diduplikasi"
     },
     "exportMd": "Markdown",
     "exportZip": "Sumber halaman ini (ZIP)",

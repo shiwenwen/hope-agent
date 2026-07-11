@@ -6365,7 +6365,8 @@
       "duplicate": "Nhân bản thất bại",
       "batchDeletePartial": "Không xóa được {{n}} dự án",
       "reveal": "Không mở được",
-      "loadLibrary": "Không tải được thư viện"
+      "loadLibrary": "Không tải được thư viện",
+      "batchDeleteArtifactPartial": "{{n}} tệp xóa thất bại"
     },
     "ok": {
       "adopted": "Đã áp dụng hướng thiết kế",
@@ -6376,7 +6377,9 @@
       "restyled": "Đã đổi hệ thống thiết kế",
       "duplicated": "Đã nhân bản dự án",
       "batchDeleted": "Đã xóa {{n}} dự án",
-      "pathCopied": "Đã sao chép đường dẫn"
+      "pathCopied": "Đã sao chép đường dẫn",
+      "batchDeletedArtifacts": "Đã xóa {{n}} tệp",
+      "duplicatedArtifact": "Đã sao chép trang"
     },
     "exportMd": "Markdown",
     "exportZip": "Mã nguồn trang này (ZIP)",

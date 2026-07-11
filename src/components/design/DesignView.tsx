@@ -975,8 +975,12 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
   )
 
   // 复制项目（后端深拷贝产物 + 版本快照 + 溯源）。
+  // 复制在途集合（W3-M）：防重入——大产物/项目深拷贝耗时可感，此前无 busy 态、连点两下出两份副本。
+  const duplicatingRef = useRef(new Set<string>())
   const duplicateProject = useCallback(
     async (id: string) => {
+      if (duplicatingRef.current.has(id)) return
+      duplicatingRef.current.add(id)
       try {
         await tx.call<DesignProject>("duplicate_design_project_cmd", { id })
         await loadProjects()
@@ -984,6 +988,8 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
       } catch (e) {
         logger.error("design", "DesignView::duplicateProject", "duplicate failed", e)
         toast.error(t("design.err.duplicate", "复制失败"))
+      } finally {
+        duplicatingRef.current.delete(id)
       }
     },
     [tx, t, loadProjects],
@@ -1052,14 +1058,19 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
   )
   const duplicateArtifact = useCallback(
     async (id: string) => {
+      if (duplicatingRef.current.has(id)) return
+      duplicatingRef.current.add(id)
       try {
         const dup = await tx.call<DesignArtifact>("duplicate_design_artifact_cmd", { id })
         const pid = activeProjectRef.current?.id
         if (pid) await loadArtifacts(pid)
         if (dup) void openArtifact(dup)
+        toast.success(t("design.ok.duplicatedArtifact", "已复制页面"))
       } catch (e) {
         logger.error("design", "DesignView::duplicateArtifact", "duplicate failed", e)
         toast.error(t("design.err.save", "保存失败"))
+      } finally {
+        duplicatingRef.current.delete(id)
       }
     },
     [tx, t, loadArtifacts, openArtifact],
@@ -3333,17 +3344,22 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
         if (activeProject?.id === deleteTarget.id) backToHome()
         await loadProjects()
       } else if (deleteTarget.type === "artifacts-batch") {
-        // 批量删除（Wave 1-③）：逐个删（后端无批量端点），全部结束后统一刷一次。
+        // 批量删除（Wave 1-③）：逐个删（后端无批量端点），全部结束后统一刷一次。**allSettled + 统计
+        // 成败 toast**（W3-M）——此前 .catch 静默吞错、部分失败零反馈，用户以为没删干净反复重删。
         const ids = deleteTarget.ids
-        await Promise.all(
-          ids.map((id) =>
-            tx.call("delete_design_artifact_cmd", { id }).catch((e) => {
-              logger.error("design", "DesignView::batchDelete", `delete ${id} failed`, e)
-            }),
-          ),
+        const results = await Promise.allSettled(
+          ids.map((id) => tx.call("delete_design_artifact_cmd", { id })),
         )
+        const failed = results.filter((r) => r.status === "rejected").length
         if (activeArtifact && ids.includes(activeArtifact.id)) setActiveArtifact(null)
         if (activeProject) await loadArtifacts(activeProject.id)
+        if (failed > 0) {
+          toast.error(
+            t("design.err.batchDeleteArtifactPartial", "{{n}} 个产物删除失败", { n: failed }),
+          )
+        } else {
+          toast.success(t("design.ok.batchDeletedArtifacts", "已删除 {{n}} 个产物", { n: ids.length }))
+        }
       } else {
         await tx.call("delete_design_artifact_cmd", { id: deleteTarget.id })
         if (activeArtifact?.id === deleteTarget.id) setActiveArtifact(null)

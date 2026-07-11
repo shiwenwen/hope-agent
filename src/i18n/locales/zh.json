@@ -6365,7 +6365,8 @@
       "duplicate": "复制失败",
       "batchDeletePartial": "{{n}} 个项目删除失败",
       "reveal": "打开失败",
-      "loadLibrary": "产物库加载失败"
+      "loadLibrary": "产物库加载失败",
+      "batchDeleteArtifactPartial": "{{n}} 个产物删除失败"
     },
     "ok": {
       "adopted": "已应用设计方向",
@@ -6376,7 +6377,9 @@
       "restyled": "已换设计系统",
       "duplicated": "已复制项目",
       "batchDeleted": "已删除 {{n}} 个项目",
-      "pathCopied": "已复制路径"
+      "pathCopied": "已复制路径",
+      "batchDeletedArtifacts": "已删除 {{n}} 个产物",
+      "duplicatedArtifact": "已复制页面"
     },
     "exportMd": "Markdown",
     "exportZip": "本页源码 (ZIP)",

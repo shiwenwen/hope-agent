@@ -6365,7 +6365,8 @@
       "duplicate": "فشل التكرار",
       "batchDeletePartial": "فشل حذف {{n}} مشاريع",
       "reveal": "فشل الفتح",
-      "loadLibrary": "فشل تحميل المكتبة"
+      "loadLibrary": "فشل تحميل المكتبة",
+      "batchDeleteArtifactPartial": "فشل حذف {{n}}"
     },
     "ok": {
       "adopted": "تم تطبيق اتجاه التصميم",
@@ -6376,7 +6377,9 @@
       "restyled": "تم تغيير النظام",
       "duplicated": "تم تكرار المشروع",
       "batchDeleted": "تم حذف {{n}} مشاريع",
-      "pathCopied": "تم نسخ المسار"
+      "pathCopied": "تم نسخ المسار",
+      "batchDeletedArtifacts": "تم حذف {{n}}",
+      "duplicatedArtifact": "تم تكرار الصفحة"
     },
     "exportMd": "Markdown",
     "exportZip": "مصدر هذه الصفحة (ZIP)",

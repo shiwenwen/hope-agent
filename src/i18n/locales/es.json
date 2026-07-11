@@ -6365,7 +6365,8 @@
       "duplicate": "Error al duplicar",
       "batchDeletePartial": "No se pudieron eliminar {{n}} proyectos",
       "reveal": "No se pudo abrir",
-      "loadLibrary": "Error al cargar la biblioteca"
+      "loadLibrary": "Error al cargar la biblioteca",
+      "batchDeleteArtifactPartial": "No se pudieron eliminar {{n}} artefacto(s)"
     },
     "ok": {
       "adopted": "Dirección de diseño aplicada",
@@ -6376,7 +6377,9 @@
       "restyled": "Rediseñado",
       "duplicated": "Proyecto duplicado",
       "batchDeleted": "Se eliminaron {{n}} proyectos",
-      "pathCopied": "Ruta copiada"
+      "pathCopied": "Ruta copiada",
+      "batchDeletedArtifacts": "{{n}} artefacto(s) eliminado(s)",
+      "duplicatedArtifact": "Página duplicada"
     },
     "exportMd": "Markdown",
     "exportZip": "Fuente de esta página (ZIP)",

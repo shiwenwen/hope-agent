@@ -6365,7 +6365,8 @@
       "duplicate": "Duplicate failed",
       "batchDeletePartial": "Failed to delete {{n}} projects",
       "reveal": "Failed to open",
-      "loadLibrary": "Failed to load library"
+      "loadLibrary": "Failed to load library",
+      "batchDeleteArtifactPartial": "{{n}} artifact(s) failed to delete"
     },
     "ok": {
       "adopted": "Design direction applied",
@@ -6376,7 +6377,9 @@
       "restyled": "Restyled",
       "duplicated": "Project duplicated",
       "batchDeleted": "Deleted {{n}} projects",
-      "pathCopied": "Path copied"
+      "pathCopied": "Path copied",
+      "batchDeletedArtifacts": "Deleted {{n}} artifact(s)",
+      "duplicatedArtifact": "Page duplicated"
     },
     "exportMd": "Markdown",
     "exportZip": "This page's source (ZIP)",

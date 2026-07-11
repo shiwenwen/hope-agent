@@ -6365,7 +6365,8 @@
       "duplicate": "複製失敗",
       "batchDeletePartial": "{{n}} 個專案刪除失敗",
       "reveal": "開啟失敗",
-      "loadLibrary": "產物庫載入失敗"
+      "loadLibrary": "產物庫載入失敗",
+      "batchDeleteArtifactPartial": "{{n}} 個產物刪除失敗"
     },
     "ok": {
       "adopted": "已套用設計方向",
@@ -6376,7 +6377,9 @@
       "restyled": "已換設計系統",
       "duplicated": "已複製專案",
       "batchDeleted": "已刪除 {{n}} 個專案",
-      "pathCopied": "已複製路徑"
+      "pathCopied": "已複製路徑",
+      "batchDeletedArtifacts": "已刪除 {{n}} 個產物",
+      "duplicatedArtifact": "已複製頁面"
     },
     "exportMd": "Markdown",
     "exportZip": "本頁原始碼 (ZIP)",

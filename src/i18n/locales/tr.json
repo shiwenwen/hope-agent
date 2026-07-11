@@ -6365,7 +6365,8 @@
       "duplicate": "Çoğaltma başarısız",
       "batchDeletePartial": "{{n}} proje silinemedi",
       "reveal": "Açılamadı",
-      "loadLibrary": "Kütüphane yüklenemedi"
+      "loadLibrary": "Kütüphane yüklenemedi",
+      "batchDeleteArtifactPartial": "{{n}} öğe silinemedi"
     },
     "ok": {
       "adopted": "Tasarım yönü uygulandı",
@@ -6376,7 +6377,9 @@
       "restyled": "Yeniden biçimlendirildi",
       "duplicated": "Proje çoğaltıldı",
       "batchDeleted": "{{n}} proje silindi",
-      "pathCopied": "Yol kopyalandı"
+      "pathCopied": "Yol kopyalandı",
+      "batchDeletedArtifacts": "{{n}} öğe silindi",
+      "duplicatedArtifact": "Sayfa çoğaltıldı"
     },
     "exportMd": "Markdown",
     "exportZip": "Bu sayfanın kaynağı (ZIP)",

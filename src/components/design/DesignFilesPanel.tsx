@@ -22,6 +22,9 @@ import {
   Download,
   Eye,
   X,
+  Loader2,
+  AlertCircle,
+  ShieldAlert,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -509,6 +512,23 @@ export default function DesignFilesPanel({
                         </div>
                       ) : (
                         <ArtifactThumb artifactId={a.id} />
+                      )}
+                      {/* 卡片状态徽标（W3-M）：批量出稿后一眼分清生成中/失败/待评审，不必逐个点开或
+                          眯眼找顶部小 chips。 */}
+                      {a.status === "generating" && (
+                        <span className="absolute left-1.5 top-1.5 z-10 flex items-center rounded-full bg-background/85 p-1 shadow-sm">
+                          <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
+                        </span>
+                      )}
+                      {a.status === "failed" && (
+                        <span className="absolute left-1.5 top-1.5 z-10 flex items-center rounded-full bg-background/85 p-1 shadow-sm">
+                          <AlertCircle className="h-3 w-3 text-destructive" />
+                        </span>
+                      )}
+                      {a.status === "needs_review" && (
+                        <span className="absolute left-1.5 top-1.5 z-10 flex items-center rounded-full bg-background/85 p-1 shadow-sm">
+                          <ShieldAlert className="h-3 w-3 text-amber-500" />
+                        </span>
                       )}
                       {/* 面板内 peek：快速预览，不切换当前产物 */}
                       <IconTip label={t("design.peek", "快速预览")} side="top">

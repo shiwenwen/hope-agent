@@ -6365,7 +6365,8 @@
       "duplicate": "複製に失敗しました",
       "batchDeletePartial": "{{n}} 件のプロジェクトの削除に失敗しました",
       "reveal": "開けませんでした",
-      "loadLibrary": "ライブラリの読み込みに失敗"
+      "loadLibrary": "ライブラリの読み込みに失敗",
+      "batchDeleteArtifactPartial": "{{n}} 件の削除に失敗"
     },
     "ok": {
       "adopted": "デザインの方向性を適用しました",
@@ -6376,7 +6377,9 @@
       "restyled": "デザインを変更しました",
       "duplicated": "プロジェクトを複製しました",
       "batchDeleted": "{{n}} 件のプロジェクトを削除しました",
-      "pathCopied": "パスをコピーしました"
+      "pathCopied": "パスをコピーしました",
+      "batchDeletedArtifacts": "{{n}} 件を削除しました",
+      "duplicatedArtifact": "ページを複製しました"
     },
     "exportMd": "Markdown",
     "exportZip": "このページのソース (ZIP)",

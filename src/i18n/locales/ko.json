@@ -6365,7 +6365,8 @@
       "duplicate": "복제 실패",
       "batchDeletePartial": "프로젝트 {{n}}개 삭제 실패",
       "reveal": "열기 실패",
-      "loadLibrary": "라이브러리 로드 실패"
+      "loadLibrary": "라이브러리 로드 실패",
+      "batchDeleteArtifactPartial": "{{n}}개 삭제 실패"
     },
     "ok": {
       "adopted": "디자인 방향 적용됨",
@@ -6376,7 +6377,9 @@
       "restyled": "디자인 시스템을 변경했습니다",
       "duplicated": "프로젝트를 복제했습니다",
       "batchDeleted": "프로젝트 {{n}}개를 삭제했습니다",
-      "pathCopied": "경로를 복사했습니다"
+      "pathCopied": "경로를 복사했습니다",
+      "batchDeletedArtifacts": "{{n}}개 삭제됨",
+      "duplicatedArtifact": "페이지 복제됨"
     },
     "exportMd": "Markdown",
     "exportZip": "이 페이지 소스 (ZIP)",

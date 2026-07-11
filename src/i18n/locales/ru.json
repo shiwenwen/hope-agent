@@ -6365,7 +6365,8 @@
       "duplicate": "Не удалось дублировать",
       "batchDeletePartial": "Не удалось удалить проектов: {{n}}",
       "reveal": "Не удалось открыть",
-      "loadLibrary": "Не удалось загрузить библиотеку"
+      "loadLibrary": "Не удалось загрузить библиотеку",
+      "batchDeleteArtifactPartial": "Не удалось удалить: {{n}}"
     },
     "ok": {
       "adopted": "Направление дизайна применено",
@@ -6376,7 +6377,9 @@
       "restyled": "Стиль изменён",
       "duplicated": "Проект дублирован",
       "batchDeleted": "Удалено проектов: {{n}}",
-      "pathCopied": "Путь скопирован"
+      "pathCopied": "Путь скопирован",
+      "batchDeletedArtifacts": "Удалено: {{n}}",
+      "duplicatedArtifact": "Страница скопирована"
     },
     "exportMd": "Markdown",
     "exportZip": "Исходники этой страницы (ZIP)",

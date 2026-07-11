@@ -6365,7 +6365,8 @@
       "duplicate": "Falha ao duplicar",
       "batchDeletePartial": "Falha ao excluir {{n}} projetos",
       "reveal": "Falha ao abrir",
-      "loadLibrary": "Falha ao carregar a biblioteca"
+      "loadLibrary": "Falha ao carregar a biblioteca",
+      "batchDeleteArtifactPartial": "Falha ao excluir {{n}} artefato(s)"
     },
     "ok": {
       "adopted": "Direção de design aplicada",
@@ -6376,7 +6377,9 @@
       "restyled": "Reestilizado",
       "duplicated": "Projeto duplicado",
       "batchDeleted": "{{n}} projetos excluídos",
-      "pathCopied": "Caminho copiado"
+      "pathCopied": "Caminho copiado",
+      "batchDeletedArtifacts": "{{n}} artefato(s) excluído(s)",
+      "duplicatedArtifact": "Página duplicada"
     },
     "exportMd": "Markdown",
     "exportZip": "Código-fonte desta página (ZIP)",
