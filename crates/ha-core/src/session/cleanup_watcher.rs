@@ -133,6 +133,8 @@ async fn cleanup_session(
     im_chat: Option<(String, String)>,
 ) {
     crate::ask_user::cancel_owner_question_timeouts_for_session(session_id);
+    crate::ask_user::cancel_pending_ask_user_questions_for_session(session_id, "session_deleted")
+        .await;
     crate::channel::worker::ask_user::drop_pending_for_session(session_id).await;
 
     // A-8: cancel active / awaiting-approval background jobs (DELETE-4).
@@ -176,6 +178,11 @@ async fn cleanup_session(
     // (or a child-session job) with no way to resolve it.
     for child_sid in &descendant_session_ids {
         crate::ask_user::cancel_owner_question_timeouts_for_session(child_sid);
+        crate::ask_user::cancel_pending_ask_user_questions_for_session(
+            child_sid,
+            "session_deleted",
+        )
+        .await;
         crate::channel::worker::ask_user::drop_pending_for_session(child_sid).await;
         crate::async_jobs::JobManager::cancel_for_session(child_sid);
         let _ = crate::tools::deny_pending_for_session(

@@ -72,7 +72,7 @@
 - **Group**：一组相关问题的集合，共享 `context`、`source`（`plan` / `normal` / skill id）、`timeout_at` 和持久化的有效 `timeout_secs`。
 - **Question**：组内单个问题，拥有独立的 `question_id`、选项列表、`multi_select`、`timeout_secs`、`default_values`。
 - **Option**：单个选项，可选 `description` / `recommended` / `preview` / `previewKind`。
-- **Pending Oneshot**：`tokio::sync::oneshot::Sender` 注册在内存 `PENDING_ASK_USER_QUESTIONS` map 中，键为 `request_id`。
+- **Pending Oneshot**：`{ sender, session_id }` 注册在内存 `PENDING_ASK_USER_QUESTIONS` map 中，键为 `request_id`。session 维度用于 Stop / 删除会话时定向唤醒所有阻塞中的工具调用。
 - **Persisted Group**：同一个 group 同步写入 SQLite `ask_user_questions` 表，status 为 `pending` / `answered`。内存 oneshot 与 DB 行双轨存在，是为了在 App 崩溃或重启后能识别「僵尸行」（有 DB 记录但无内存接收端）。
 
 ---
@@ -121,6 +121,7 @@ pub struct AskUserQuestionGroup {
     pub source: Option<String>,     // "plan" | "normal" | skill id
     pub timeout_at: Option<u64>,    // unix 秒时间戳
     pub timeout_secs: Option<u64>,  // 有效 group wall-clock，供重启后准确发 timeout event
+    pub server_now: Option<u64>,    // 响应生成时的服务端 unix 秒，用于前端消除客户端时钟偏移
 }
 ```
 
@@ -249,7 +250,7 @@ flowchart TD
 
 ```rust
 static PENDING_ASK_USER_QUESTIONS: OnceLock<
-    TokioMutex<HashMap<String, tokio::sync::oneshot::Sender<Vec<AskUserQuestionAnswer>>>>,
+    TokioMutex<HashMap<String, PendingAskUserQuestion>>,
 > = OnceLock::new();
 ```
 
@@ -257,9 +258,11 @@ static PENDING_ASK_USER_QUESTIONS: OnceLock<
 
 | 调用点 | 动作 |
 |--------|------|
-| `register_ask_user_question(request_id, sender)` | 工具执行期间插入 |
+| `register_ask_user_question(request_id, session_id, sender)` | 工具执行期间插入 |
 | `submit_ask_user_question_response(request_id, answers)` | Tauri/HTTP/IM channel 回传答案时移除并 `send` |
-| `cancel_pending_ask_user_question(request_id)` | 工具取消时移除（drop sender 触发 `rx.await` 返回 `Err`） |
+| `cancel_pending_ask_user_question(request_id)` | 工具取消时移除并收口终态（drop sender 触发 `rx.await` 返回 `Err`） |
+| `cancel_pending_ask_user_questions_for_session(session_id, source)` | Stop / 删除会话时定向 drain，同步清 DB 行并广播终态 |
+| `cancel_all_pending_ask_user_questions(source)` | 全局 Stop 时 drain 全部 live tool request |
 | `is_ask_user_question_live(request_id)` | `find_live_pending_group_for_session` 用来过滤僵尸 DB 行 |
 
 `find_live_pending_group_for_session` 会遍历 DB 列出的 pending group（按创建时间倒序），对每一行都做一次 `is_ask_user_question_live` 检查，只返回仍有内存接收端的 group。这解决了"DB 行存在但进程已重启"场景下 UI 调用 `respond_ask_user_question` 时报 "No pending ask_user_question request" 的问题。
@@ -332,6 +335,7 @@ loop {
 
 ```rust
 pub const EVENT_ASK_USER_REQUEST: &str = "ask_user_request";
+pub const EVENT_ASK_USER_RESOLVED: &str = "ask_user:resolved";
 ```
 
 `ask_user_question.rs` 在 emit 时发一个事件：
@@ -347,6 +351,10 @@ bus.emit(ask_user::EVENT_ASK_USER_REQUEST, event_data);
 | Desktop UI (`usePlanMode.ts`) | `ask_user_request` |
 | HTTP/WS server | `ask_user_request` 转发为 WS 帧 |
 | IM channel listener (`channel/worker/ask_user.rs`) | `ask_user_request` |
+
+回答、超时、Stop 和会话删除都额外发射统一的 `ask_user:resolved` 终态事件。事件携带
+`requestId`、`sessionId`、`status` 与 `source`；前端据此清理当前卡片并立即对账下一条
+排队问题，IM listener 据此撤销残留的按钮 / 文本 pending。
 
 ### 超时解析与 default_values 合成
 
@@ -467,11 +475,13 @@ if (multiSelect) {
 
 ### 倒计时与 low-time 告警
 
-`useCountdown` hook（`AskUserQuestionBlock.tsx`）每秒 tick 一次，把 `timeoutAt - now` 同步到 state：
+`usePlanMode` 收到 group 时先用 `timeoutAt - serverNow` 计算剩余时长，再映射为客户端单调推进的
+`localTimeoutAtMs`。这样用户系统时间快慢都不会让卡片提前过期或无限延后。`useCountdown` hook
+（`AskUserQuestionBlock.tsx`）每秒 tick 一次：
 
 ```ts
 const tick = () => {
-  const secs = Math.max(0, timeoutAt - Math.floor(Date.now() / 1000))
+  const secs = Math.max(0, Math.ceil((localTimeoutAtMs - Date.now()) / 1000))
   setRemaining(secs)
   if (secs <= 0 && timer !== undefined) { clearInterval(timer); timer = undefined }
 }
@@ -487,13 +497,14 @@ UI 侧根据 `remaining` 切换三种状态：
 
 `formatRemaining(secs)` 支持 `s / m s / h m` 三种格式化，1 小时以上用 `Xh Ym` 显示。
 
-`timeoutAt == null`（无超时场景）时 hook 返回 `null`，UI 完全不渲染倒计时 chip。
+`timeoutAt == null`（无超时场景）时 hook 返回 `null`，UI 完全不渲染倒计时 chip。兼容旧后端时
+若没有 `serverNow`，才回退到直接解释 unix deadline。
 
 倒计时 chip 不是唯一安全边界。`usePlanMode` 还按 `pendingQuestionGroup.timeoutAt`
 注册独立 deadline guard：到点后按 `requestId` 清卡片，即使 renderer 挂起导致 interval
 延迟、`ask_user_timed_out` 在 WS 断线期丢失，也不会留下可提交的过期 UI。恢复查询使用
 独立的 mutation epoch 与 successful-response sequence；timeout / submit / session 切换都会
-令旧请求失效，禁止“事件先清空、旧 GET 后返回”把问题复活，同时较新的失败请求不会
+令旧请求失效，终态 request id 还会进入有界 tombstone，禁止“事件先清空、旧 GET 后返回”把问题复活，同时较新的失败请求不会
 吞掉较早的成功响应。WS 重连/lag、window focus、visibility 恢复会再次读取 durable
 pending 状态，侧边栏的 `pendingInteractionCount` 同步走 300ms debounce reload。
 
@@ -550,7 +561,7 @@ Tauri 命令 `get_pending_ask_user_group(session_id)`（`src-tauri/src/commands/
 
 对应的 HTTP API 是 `GET /api/plan/{session_id}/pending-ask-user`（`ha-server/src/routes/plan.rs`）。两者共享同一个 core 实现。
 
-Server 模式下多客户端连接同一 session 时，已经"live"（内存有 oneshot）的 pending group 就是**跨客户端唯一**的，任何一个客户端先提交答案，其他客户端的同一组 UI 会收到内部 state 的自然失效（oneshot 已被 consume，后续再查 `is_ask_user_question_live` 返回 false）。
+Server 模式下多客户端连接同一 session 时，已经"live"（内存有 oneshot）的 pending group 就是**跨客户端唯一**的。任一客户端提交、超时、Stop 或删除会话后，所有客户端都会收到统一 `ask_user:resolved`；当前卡片清除后立即查询下一条 live pending group，因此并发产生的多组问题不会因覆盖式 UI 状态永久隐藏。
 
 ---
 
@@ -763,6 +774,7 @@ get_pending_ask_user_group:      { method: "GET",    path: "/api/plan/{sessionId
 |--------|-----|--------|
 | `ask_user_request` | core → 所有 | Desktop UI / WS forwarder / IM listener |
 | `ask_user_timed_out` | core → 所有 | 清 active card、桌面通知、IM timeout notice |
+| `ask_user:resolved` | core → 所有 | 所有终态统一清卡、恢复下一条 queued group、清 IM pending |
 
 HTTP EventBus 广播不做 replay。`HttpTransport` 因此会在 WS 首次连接、重连和 `_lagged` 时发出本地 `transport:event-stream-resync-required`；聊天区重新读取 `get_pending_ask_user_group`，侧边栏重新读取 session 列表。桌面窗口重新获得焦点或从 hidden 回到 visible 时走同一对账路径。
 
@@ -817,13 +829,13 @@ ask_user_question_timeout_enabled
 
 5. **子 Agent 路由**：Plan Mode 的子 Agent 会触发 `ask_user_question` 时，`get_plan_owner_session_id` 把事件和 DB 行都记在**父 session** 上，否则事件发到子 session 的孤岛 UI 中会完全丢失。
 
-6. **Cancel 的语义**：`cancel_pending_ask_user_question` 只从内存 map 移除 sender，不会主动把 DB 行翻到 answered。后者由 tool execution 的最终清理块完成（`ask_user_question.rs` 的 `mark_group_answered`）。这种分层避免了取消流程意外写竞。
+6. **Cancel / Stop 的语义**：单 request cancel 与 session/global drain 都会先从内存 map 移除 sender，使阻塞的 `rx.await` 立刻返回；随后 best-effort 把 DB 行翻到 answered、清 IM pending 并发 `ask_user:resolved`。tool execution 的最终清理仍保留为幂等兜底。Stop、会话删除和 purge 因而不会遗留永不结束的工具调用。
 
 7. **tool loop 并发语义**：虽然 `ask_user_question` 挂在 `CONCURRENT_SAFE_TOOL_NAMES` 里，但一次 `execute()` 调用会阻塞整个 tool call 直到用户答复或超时。若模型在同一轮里发起多个 `ask_user_question`，它们会**并发触发**多个独立 event，UI 会一个接一个渲染为 `pendingQuestionGroup`——取决于前端当前是否允许同时显示多组。当前实现只保留最新一组（`setPendingQuestionGroup` 覆盖式写入），其他组的 oneshot 仍会在用户提交最新组后继续等待，直到各自 timeout。**推荐模型一次只发一组 ask_user_question**，这点在系统提示词中有明示。
 
 8. **按钮 callback 字符串长度**：`callback_data` 在 Telegram 限制 64 字节，在 Discord 限制 100 字节。`ask_user:{uuid}:select:{qid}:{value}` 在 `request_id`（36 字节 UUID）+ 固定前缀约 10 + `question_id` 和 `option_value` 合计 ~18 字节时总长 ~64 字节，是一个硬上限。若 LLM 生成了过长的 `question_id` 或 `value`，Telegram 会拒收按钮。目前没有前置长度校验，依赖模型自律（schema description 已提示 "Option identifier"）。
 
-9. **Timeout 事件丢失与竞态**：HTTP WS 是 at-most-once，不能把单次 event 当成最终真相。active card 由本地 deadline 清理，重连 / lag / focus 触发 REST 对账；对账响应受 generation guard 约束。后端 owner timeout 使用条件 UPDATE + per-request terminal gate，回答和超时只能有一个终态获胜者，失败方不得重复发事件或写 evidence。session delete/purge 同时 abort owner timer 并清理 IM button/text pending，避免长 deadline task 和失效 callback 残留。
+9. **终态事件丢失与竞态**：HTTP WS 是 at-most-once，不能把单次 event 当成最终真相。active card 使用服务端相对时长换算出的本地 deadline 清理，重连 / lag / focus 触发 REST 对账；对账响应受 generation guard 与有界终态 tombstone 约束。后端 owner answer/evidence/terminal status 在同一 SQLite transaction 中提交，且 timeout=0 也使用 per-request terminal gate；回答和超时只能有一个终态获胜者，失败方不得重复发事件或写 evidence。session Stop/delete/purge 同时 abort owner timer、drain tool oneshot 并清理 IM button/text pending，避免阻塞调用、长 deadline task 和失效 callback 残留。
 
 ---
 

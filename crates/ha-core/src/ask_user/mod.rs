@@ -15,11 +15,13 @@ pub use types::{
 };
 
 pub use questions::{
-    cancel_owner_question_timeouts_for_session, cancel_pending_ask_user_question,
-    create_owner_ask_user_question, emit_ask_user_timed_out, find_live_pending_group_for_session,
+    cancel_all_pending_ask_user_questions, cancel_owner_question_timeouts_for_session,
+    cancel_pending_ask_user_question, cancel_pending_ask_user_question_with_source,
+    cancel_pending_ask_user_questions_for_session, create_owner_ask_user_question,
+    emit_ask_user_resolved, emit_ask_user_timed_out, find_live_pending_group_for_session,
     is_ask_user_question_live, mark_group_answered, persist_owner_question, persist_pending_group,
     register_ask_user_question, restore_owner_question_timeouts, submit_ask_user_question_response,
-    EVENT_ASK_USER_REQUEST, EVENT_ASK_USER_TIMED_OUT,
+    EVENT_ASK_USER_REQUEST, EVENT_ASK_USER_RESOLVED, EVENT_ASK_USER_TIMED_OUT,
 };
 
 /// Parse an `ask_user_question::execute` reply and return true iff any

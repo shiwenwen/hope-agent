@@ -25,9 +25,10 @@ function questionGroup(overrides: Partial<AskUserQuestionGroup> = {}): AskUserQu
   }
 }
 
-function mockTransport(
-  pending: () => Promise<AskUserQuestionGroup | null>,
-): { transport: Transport; emit: (name: string, payload: unknown) => void } {
+function mockTransport(pending: () => Promise<AskUserQuestionGroup | null>): {
+  transport: Transport
+  emit: (name: string, payload: unknown) => void
+} {
   const listeners = new Map<string, Set<(payload: unknown) => void>>()
   const transport = {
     call: vi.fn((command: string) => {
@@ -123,9 +124,12 @@ describe("usePlanMode ask_user timeout reconciliation", () => {
       await Promise.resolve()
     })
     act(() => {
-      mock.emit("ask_user_request", questionGroup({
-        timeoutAt: Math.floor(Date.now() / 1000) + 1,
-      }))
+      mock.emit(
+        "ask_user_request",
+        questionGroup({
+          timeoutAt: Math.floor(Date.now() / 1000) + 1,
+        }),
+      )
     })
     expect(result.current.pendingQuestionGroup?.requestId).toBe("request-1")
 
@@ -134,5 +138,56 @@ describe("usePlanMode ask_user timeout reconciliation", () => {
       await Promise.resolve()
     })
     expect(result.current.pendingQuestionGroup).toBeNull()
+  })
+
+  test("translates a server deadline onto the client clock", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-01-01T01:00:00Z"))
+    const mock = mockTransport(() => Promise.resolve(null))
+    setTransport(mock.transport)
+    const { result } = renderHook(() => usePlanMode("session-1"))
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    const serverNow = Math.floor(Date.now() / 1000) - 3_600
+    act(() => {
+      mock.emit(
+        "ask_user_request",
+        questionGroup({ serverNow, timeoutAt: serverNow + 10, timeoutSecs: 10 }),
+      )
+    })
+    expect(result.current.pendingQuestionGroup?.localTimeoutAtMs).toBe(Date.now() + 10_000)
+
+    await act(async () => {
+      vi.advanceTimersByTime(10_000)
+      await Promise.resolve()
+    })
+    expect(result.current.pendingQuestionGroup).toBeNull()
+  })
+
+  test("a resolved event immediately restores the next queued question", async () => {
+    let snapshot: AskUserQuestionGroup | null = null
+    const mock = mockTransport(() => Promise.resolve(snapshot))
+    setTransport(mock.transport)
+    const current = questionGroup({ requestId: "current" })
+    const next = questionGroup({ requestId: "next" })
+    const { result } = renderHook(() => usePlanMode("session-1"))
+    await act(async () => {
+      await Promise.resolve()
+    })
+    act(() => mock.emit("ask_user_request", current))
+    expect(result.current.pendingQuestionGroup?.requestId).toBe("current")
+
+    snapshot = next
+    await act(async () => {
+      mock.emit("ask_user:resolved", {
+        requestId: "current",
+        sessionId: "session-1",
+        status: "answered",
+      })
+      await Promise.resolve()
+    })
+    expect(result.current.pendingQuestionGroup?.requestId).toBe("next")
   })
 })

@@ -1141,7 +1141,7 @@ impl SessionDB {
                 group.request_id,
                 group.session_id,
                 payload,
-                group.timeout_at.map(|n| n as i64),
+                group.timeout_at.map(|n| n.min(i64::MAX as u64) as i64),
             ],
         )?;
         Ok(())
@@ -1247,6 +1247,7 @@ impl SessionDB {
                 row.get::<_, Option<i64>>(2)?,
             ))
         })?;
+        let server_now = chrono::Utc::now().timestamp().max(0) as u64;
         let mut out = Vec::new();
         for row in rows {
             let (payload, timeout_at, created_at) = row?;
@@ -1254,6 +1255,7 @@ impl SessionDB {
                 serde_json::from_str::<crate::ask_user::AskUserQuestionGroup>(&payload)
             {
                 if group.owner_response.is_some() {
+                    group.server_now = Some(server_now);
                     if group.timeout_secs.is_none() {
                         group.timeout_secs = timeout_at
                             .zip(created_at)
@@ -1336,12 +1338,14 @@ impl SessionDB {
                 LIMIT 50",
         )?;
         let rows = stmt.query_map(params![session_id], |row| row.get::<_, String>(0))?;
+        let server_now = chrono::Utc::now().timestamp().max(0) as u64;
         let mut out = Vec::new();
         for row in rows {
             let payload = row?;
-            if let Ok(group) =
+            if let Ok(mut group) =
                 serde_json::from_str::<crate::ask_user::AskUserQuestionGroup>(&payload)
             {
+                group.server_now = Some(server_now);
                 out.push(group);
             }
         }

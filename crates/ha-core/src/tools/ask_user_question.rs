@@ -183,7 +183,7 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
         .map(|d| d.as_secs())
         .unwrap_or(0);
     let timeout_at = if effective_timeout_secs > 0 {
-        Some(now_secs + effective_timeout_secs)
+        Some(now_secs.saturating_add(effective_timeout_secs))
     } else {
         None
     };
@@ -196,6 +196,7 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
         source,
         timeout_at,
         timeout_secs: (effective_timeout_secs > 0).then_some(effective_timeout_secs),
+        server_now: Some(now_secs),
         owner_response: None,
     };
 
@@ -212,7 +213,7 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
 
     // Create oneshot channel + register pending.
     let (tx, rx) = tokio::sync::oneshot::channel();
-    ask_user::register_ask_user_question(request_id.clone(), tx).await;
+    ask_user::register_ask_user_question(request_id.clone(), effective_sid.clone(), tx).await;
 
     // Emit event.
     if let Some(bus) = crate::globals::get_event_bus() {
@@ -231,13 +232,13 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
                 );
             }
             Err(e) => {
-                ask_user::cancel_pending_ask_user_question(&request_id).await;
+                ask_user::cancel_pending_ask_user_question_with_source(&request_id, "error").await;
                 let _ = ask_user::mark_group_answered(&request_id);
                 return format!("Error: failed to serialize question: {}", e);
             }
         }
     } else {
-        ask_user::cancel_pending_ask_user_question(&request_id).await;
+        ask_user::cancel_pending_ask_user_question_with_source(&request_id, "error").await;
         let _ = ask_user::mark_group_answered(&request_id);
         return "Error: EventBus not available for ask_user events".to_string();
     }
@@ -253,7 +254,8 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
             Ok(Ok(answers)) => Outcome::Answered(answers),
             Ok(Err(_)) => Outcome::Cancelled,
             Err(_) => {
-                ask_user::cancel_pending_ask_user_question(&request_id).await;
+                ask_user::cancel_pending_ask_user_question_with_source(&request_id, "timeout")
+                    .await;
                 Outcome::TimedOut
             }
         }

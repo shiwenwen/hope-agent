@@ -990,9 +990,12 @@ pub async fn stop_chat(
                 ha_core::tools::ApprovalResolutionSource::UserStop,
             )
             .await;
+            ha_core::ask_user::cancel_pending_ask_user_questions_for_session(sid, "user_stop")
+                .await;
         }
     } else {
         ha_core::tools::deny_all_pending(ha_core::tools::ApprovalResolutionSource::UserStop).await;
+        ha_core::ask_user::cancel_all_pending_ask_user_questions("user_stop").await;
     }
     let runtime_scope = stopped.then_some(session_id.as_deref()).flatten();
     let runtime_cancellations = if stopped || session_id.is_none() {

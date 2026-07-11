@@ -1087,9 +1087,12 @@ pub async fn stop_chat(
     if let Some(sid) = body.session_id.as_deref() {
         if stopped || body.turn_id.is_none() {
             tools::deny_pending_for_session(sid, tools::ApprovalResolutionSource::UserStop).await;
+            ha_core::ask_user::cancel_pending_ask_user_questions_for_session(sid, "user_stop")
+                .await;
         }
     } else {
         tools::deny_all_pending(tools::ApprovalResolutionSource::UserStop).await;
+        ha_core::ask_user::cancel_all_pending_ask_user_questions("user_stop").await;
     }
 
     for (sid, turn_id, source) in watchdog_turns {

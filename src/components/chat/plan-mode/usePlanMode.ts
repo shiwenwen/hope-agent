@@ -37,8 +37,25 @@ function normalizePlanContent(value: unknown): string {
   return typeof raw === "string" ? raw : ""
 }
 
+function withLocalQuestionDeadline(
+  group: AskUserQuestionGroup,
+  existing?: AskUserQuestionGroup | null,
+): AskUserQuestionGroup {
+  if (!group.timeoutAt) return { ...group, localTimeoutAtMs: null }
+  if (
+    existing?.requestId === group.requestId &&
+    existing.timeoutAt === group.timeoutAt &&
+    typeof existing.localTimeoutAtMs === "number"
+  ) {
+    return { ...group, localTimeoutAtMs: existing.localTimeoutAtMs }
+  }
+  const serverNow = group.serverNow ?? Math.floor(Date.now() / 1000)
+  const remainingMs = Math.max(0, (group.timeoutAt - serverNow) * 1000)
+  return { ...group, localTimeoutAtMs: Date.now() + remainingMs }
+}
+
 function isExpiredQuestionGroup(group: AskUserQuestionGroup): boolean {
-  return !!group.timeoutAt && group.timeoutAt <= Math.floor(Date.now() / 1000)
+  return typeof group.localTimeoutAtMs === "number" && group.localTimeoutAtMs <= Date.now()
 }
 
 export interface UsePlanModeReturn {
@@ -51,6 +68,7 @@ export interface UsePlanModeReturn {
   planCardInfo: PlanCardInfo | null
   pendingQuestionGroup: AskUserQuestionGroup | null
   setPendingQuestionGroup: React.Dispatch<React.SetStateAction<AskUserQuestionGroup | null>>
+  refreshPendingQuestion: () => Promise<void>
   planSubagentRunning: boolean
   enterPlanMode: () => Promise<void>
   exitPlanMode: () => Promise<void>
@@ -70,11 +88,25 @@ export function usePlanMode(
   const [planContent, setPlanContent] = useState<string>("")
   const [showPanel, setShowPanel] = useState(false)
   const [planCardInfo, setPlanCardInfo] = useState<PlanCardInfo | null>(null)
-  const [pendingQuestionGroup, setPendingQuestionGroupState] = useState<AskUserQuestionGroup | null>(null)
+  const [pendingQuestionGroup, setPendingQuestionGroupState] =
+    useState<AskUserQuestionGroup | null>(null)
   const [planSubagentRunning, setPlanSubagentRunning] = useState(false)
   const pendingMutationVersionRef = useRef(0)
   const pendingReconcileSequenceRef = useRef(0)
   const pendingAppliedReconcileRef = useRef(0)
+  const terminalQuestionIdsRef = useRef<Set<string>>(new Set())
+
+  const rememberTerminalQuestion = useCallback((requestId: string) => {
+    const terminal = terminalQuestionIdsRef.current
+    terminal.add(requestId)
+    // Request ids are globally unique; retain a small tombstone window so a
+    // stale in-flight snapshot cannot revive a just-resolved card.
+    while (terminal.size > 128) {
+      const oldest = terminal.values().next().value
+      if (typeof oldest !== "string") break
+      terminal.delete(oldest)
+    }
+  }, [])
 
   // Any explicit local mutation invalidates older REST reconciliation calls.
   // This prevents a response started before timeout/submission from restoring
@@ -109,8 +141,14 @@ export function usePlanMode(
       if (mutationVersion !== pendingMutationVersionRef.current) return
       if (sequence < pendingAppliedReconcileRef.current) return
       pendingAppliedReconcileRef.current = sequence
+      const normalized =
+        group && !terminalQuestionIdsRef.current.has(group.requestId)
+          ? withLocalQuestionDeadline(group)
+          : null
       setPendingQuestionGroupState(
-        group && group.sessionId === sessionId && !isExpiredQuestionGroup(group) ? group : null,
+        normalized && normalized.sessionId === sessionId && !isExpiredQuestionGroup(normalized)
+          ? normalized
+          : null,
       )
     } catch {
       // Keep the current state on transient transport errors. The local
@@ -160,7 +198,10 @@ export function usePlanMode(
   const approvePlan = useCallback(async () => {
     if (!currentSessionId) return
     try {
-      await getTransport().call("set_plan_mode", { sessionId: currentSessionId, state: "executing" })
+      await getTransport().call("set_plan_mode", {
+        sessionId: currentSessionId,
+        state: "executing",
+      })
       setPlanState("executing")
     } catch (e) {
       logger.error("plan", "usePlanMode::approve", "Failed to approve plan", e)
@@ -251,7 +292,8 @@ export function usePlanMode(
     // non-off state from a different session; that makes ordinary chats look
     // like plan sessions after switching.
     if (shouldMaterializePreSessionPlan) {
-      getTransport().call("set_plan_mode", { sessionId: currentSessionId, state: planStateRef.current })
+      getTransport()
+        .call("set_plan_mode", { sessionId: currentSessionId, state: planStateRef.current })
         .catch(() => {})
       return () => {
         cancelled = true
@@ -287,11 +329,7 @@ export function usePlanMode(
           setPlanCardInfo(null)
         }
         // Exclude completed: don't hijack chat area when reopening a finished session.
-        if (
-          restoredState !== "off" &&
-          restoredState !== "completed" &&
-          content
-        ) {
+        if (restoredState !== "off" && restoredState !== "completed" && content) {
           setShowPanel(true)
         }
       })
@@ -354,13 +392,41 @@ export function usePlanMode(
         const group = parsePayload<AskUserQuestionGroup>(raw)
         if (!group) return
         if (group.sessionId !== currentSessionId) return
-        setPendingQuestionGroup(isExpiredQuestionGroup(group) ? null : group)
+        if (terminalQuestionIdsRef.current.has(group.requestId)) return
+        setPendingQuestionGroup((existing) => {
+          const normalized = withLocalQuestionDeadline(group, existing)
+          return isExpiredQuestionGroup(normalized) ? null : normalized
+        })
       } catch {
         // ignore parse errors
       }
     }
     return getTransport().listen("ask_user_request", handler)
   }, [currentSessionId, setPendingQuestionGroup])
+
+  // Unified terminal event covers answers/cancels on every surface plus Stop
+  // and session deletion. Reconcile immediately so another queued owner
+  // question becomes visible without waiting for focus/reconnect.
+  useEffect(() => {
+    return getTransport().listen("ask_user:resolved", (raw) => {
+      try {
+        const payload = parsePayload<{ requestId?: string; sessionId?: string }>(raw)
+        if (!payload || payload.sessionId !== currentSessionId) return
+        if (payload.requestId) rememberTerminalQuestion(payload.requestId)
+        setPendingQuestionGroup((current) =>
+          current?.requestId === payload.requestId ? null : current,
+        )
+        void reconcilePendingQuestion()
+      } catch {
+        // ignore parse errors
+      }
+    })
+  }, [
+    currentSessionId,
+    reconcilePendingQuestion,
+    rememberTerminalQuestion,
+    setPendingQuestionGroup,
+  ])
 
   // Mirror backend timeout cleanup locally so expired questions no longer
   // accept responses in the active chat UI.
@@ -370,30 +436,35 @@ export function usePlanMode(
         const payload = parsePayload<{ requestId?: string; sessionId?: string }>(raw)
         if (!payload) return
         if (payload.sessionId !== currentSessionId) return
-        setPendingQuestionGroup((prev) =>
-          prev?.requestId === payload.requestId ? null : prev,
-        )
+        if (payload.requestId) rememberTerminalQuestion(payload.requestId)
+        setPendingQuestionGroup((prev) => (prev?.requestId === payload.requestId ? null : prev))
+        void reconcilePendingQuestion()
       } catch {
         // ignore parse errors
       }
     })
-  }, [currentSessionId, setPendingQuestionGroup])
+  }, [
+    currentSessionId,
+    reconcilePendingQuestion,
+    rememberTerminalQuestion,
+    setPendingQuestionGroup,
+  ])
 
   // EventBus delivery is at-most-once. Clear at the durable wall-clock
   // deadline even when the renderer was suspended or the WS event was lost.
   useEffect(() => {
     const requestId = pendingQuestionGroup?.requestId
-    const timeoutAt = pendingQuestionGroup?.timeoutAt
-    if (!requestId || !timeoutAt) return
+    const timeoutAtMs = pendingQuestionGroup?.localTimeoutAtMs
+    if (!requestId || !timeoutAtMs) return
 
     let timer: ReturnType<typeof setTimeout> | null = null
     const checkDeadline = () => {
-      const remainingMs = timeoutAt * 1000 - Date.now()
+      const remainingMs = timeoutAtMs - Date.now()
       if (remainingMs <= 0) {
+        rememberTerminalQuestion(requestId)
         queueMicrotask(() => {
-          setPendingQuestionGroup((current) =>
-            current?.requestId === requestId ? null : current,
-          )
+          setPendingQuestionGroup((current) => (current?.requestId === requestId ? null : current))
+          void reconcilePendingQuestion()
         })
         return
       }
@@ -405,7 +476,13 @@ export function usePlanMode(
     return () => {
       if (timer) clearTimeout(timer)
     }
-  }, [pendingQuestionGroup?.requestId, pendingQuestionGroup?.timeoutAt, setPendingQuestionGroup])
+  }, [
+    pendingQuestionGroup?.requestId,
+    pendingQuestionGroup?.localTimeoutAtMs,
+    reconcilePendingQuestion,
+    rememberTerminalQuestion,
+    setPendingQuestionGroup,
+  ])
 
   // Re-read durable state after HTTP WS reconnect/lag and when a suspended
   // desktop renderer becomes active again. This heals missed terminal events
@@ -455,6 +532,7 @@ export function usePlanMode(
     planCardInfo,
     pendingQuestionGroup,
     setPendingQuestionGroup,
+    refreshPendingQuestion: reconcilePendingQuestion,
     planSubagentRunning,
     enterPlanMode,
     exitPlanMode,
