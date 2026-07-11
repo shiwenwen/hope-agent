@@ -80,7 +80,10 @@ async fn generate_impl(params: ImageGenParams<'_>) -> Result<ImageGenResult> {
         .trim_end_matches('/');
 
     // inpaint：有蒙版 + 恰一张输入图 → `/images/edits` multipart（image + mask + prompt）。
-    let inpaint = matches!((params.mask, params.input_images.first()), (Some(_), Some(_)));
+    let inpaint = matches!(
+        (params.mask, params.input_images.first()),
+        (Some(_), Some(_))
+    );
     let url = if inpaint {
         format!("{}/v1/images/edits", base)
     } else {
@@ -130,7 +133,11 @@ async fn generate_impl(params: ImageGenParams<'_>) -> Result<ImageGenResult> {
                 "image",
                 reqwest::multipart::Part::bytes(img.data.clone())
                     .file_name("image.png")
-                    .mime_str(if img.mime.is_empty() { "image/png" } else { &img.mime })?,
+                    .mime_str(if img.mime.is_empty() {
+                        "image/png"
+                    } else {
+                        &img.mime
+                    })?,
             )
             .part(
                 "mask",

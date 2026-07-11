@@ -433,7 +433,10 @@ pub async fn bind_custom_domain(artifact_id: &str, domain: &str) -> Result<Custo
         .get_artifact(artifact_id)?
         .context("artifact not found")?;
     let name = project_name_for(&a.title, &a.id);
-    let url = format!("{CF_API}/accounts/{}/pages/projects/{name}/domains", cfg.account_id);
+    let url = format!(
+        "{CF_API}/accounts/{}/pages/projects/{name}/domains",
+        cfg.account_id
+    );
     guard(&url).await?;
     let resp = client()?
         .post(&url)
@@ -457,7 +460,10 @@ pub async fn list_custom_domains(artifact_id: &str) -> Result<Vec<CustomDomain>>
         .get_artifact(artifact_id)?
         .context("artifact not found")?;
     let name = project_name_for(&a.title, &a.id);
-    let url = format!("{CF_API}/accounts/{}/pages/projects/{name}/domains", cfg.account_id);
+    let url = format!(
+        "{CF_API}/accounts/{}/pages/projects/{name}/domains",
+        cfg.account_id
+    );
     guard(&url).await?;
     let resp = client()?
         .get(&url)
@@ -487,17 +493,27 @@ mod tests {
         assert!(!empty.ok);
         assert!(!empty.errors.is_empty());
         // 正常自包含 → ok 且无外部引用告警。
-        let good = preflight_report("<html><body><img src=\"data:image/png;base64,AAA\"></body></html>");
+        let good =
+            preflight_report("<html><body><img src=\"data:image/png;base64,AAA\"></body></html>");
         assert!(good.ok, "{:?}", good.errors);
-        assert_eq!(count_external_refs("<img src=\"data:image/png;base64,AAA\">"), 0);
+        assert_eq!(
+            count_external_refs("<img src=\"data:image/png;base64,AAA\">"),
+            0
+        );
         // 外部资源引用 → 非阻断告警（仍可部署）。
         let ext = preflight_report("<html><img src=\"https://cdn.example.com/a.png\"></html>");
         assert!(ext.ok, "外部引用只告警不阻断");
         assert!(!ext.warnings.is_empty());
         // 锚点 href 不计为资源引用。
-        assert_eq!(count_external_refs("<a href=\"https://example.com\">x</a>"), 0);
+        assert_eq!(
+            count_external_refs("<a href=\"https://example.com\">x</a>"),
+            0
+        );
         // CSS url() 计入。
-        assert_eq!(count_external_refs("body{background:url(https://x/y.png)}"), 1);
+        assert_eq!(
+            count_external_refs("body{background:url(https://x/y.png)}"),
+            1
+        );
     }
 
     #[test]

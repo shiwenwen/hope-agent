@@ -54,7 +54,9 @@ pub fn build_kit_html(
     let compact_vars: String = compact
         .iter()
         .filter(|(k, _)| {
-            k.starts_with("--ds-text-") || k.starts_with("--ds-space-") || k.starts_with("--ds-radius-")
+            k.starts_with("--ds-text-")
+                || k.starts_with("--ds-space-")
+                || k.starts_with("--ds-radius-")
         })
         .map(|(k, v)| format!("{k}:{v};"))
         .collect();

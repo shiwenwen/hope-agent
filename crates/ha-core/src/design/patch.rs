@@ -1045,7 +1045,11 @@ mod tests {
         let src = "<script>var s='<section class=\"ds-slide\">'</script>\
                    <section class=\"ds-slide\">real</section>";
         let out = inject_deck_slide_ids(src);
-        assert_eq!(out.matches("ds-slide-").count(), 1, "only the real slide gets an id");
+        assert_eq!(
+            out.matches("ds-slide-").count(),
+            1,
+            "only the real slide gets an id"
+        );
         assert!(out.contains("id=\"ds-slide-0\""));
         // script 内容原样保留。
         assert!(out.contains("var s='<section class=\"ds-slide\">'"));

@@ -234,7 +234,7 @@ mod tests {
         assert_eq!(c["--ds-text-base"], "13px"); // 16*0.82=13.12 → round 13
         assert_eq!(c["--ds-space-4"], "13px");
         assert_eq!(c["--ds-radius-md"], "8px"); // 10*0.82=8.2 → 8
-        // 颜色 / 字体不缩放。
+                                                // 颜色 / 字体不缩放。
         assert_eq!(c["--ds-color-primary"], "#2563eb");
         assert_eq!(c["--ds-font-sans"], "system-ui");
     }

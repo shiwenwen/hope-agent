@@ -44,7 +44,9 @@ pub fn load_vercel_config() -> Result<Option<VercelConfig>> {
 /// owner 保存：token 为 mask → 保留原 token（GUI 只改 team）。清空 team/token 允许。
 pub fn save_vercel_config(api_token: &str, team_id: &str) -> Result<()> {
     let token = if api_token == TOKEN_MASK {
-        load_vercel_config()?.map(|c| c.api_token).unwrap_or_default()
+        load_vercel_config()?
+            .map(|c| c.api_token)
+            .unwrap_or_default()
     } else {
         api_token.trim().to_string()
     };
@@ -180,11 +182,18 @@ pub async fn deploy_artifact(artifact_id: &str) -> Result<String> {
         bail!("vercel deploy failed (HTTP {status}): {msg}");
     }
     let out = pick_url(&body, &name);
-    crate::app_info!("design", "deploy", "deployed artifact {artifact_id} -> {out}");
+    crate::app_info!(
+        "design",
+        "deploy",
+        "deployed artifact {artifact_id} -> {out}"
+    );
     // 记部署历史（失败不阻断）。
-    if let Err(e) =
-        db.record_deployment(artifact_id, "vercel", &out, &chrono::Utc::now().to_rfc3339())
-    {
+    if let Err(e) = db.record_deployment(
+        artifact_id,
+        "vercel",
+        &out,
+        &chrono::Utc::now().to_rfc3339(),
+    ) {
         crate::app_warn!("design", "deploy", "record deployment history failed: {e}");
     }
     Ok(out)

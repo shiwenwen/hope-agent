@@ -160,7 +160,11 @@ fn is_emoji_char(c: char) -> bool {
 /// 与既有 thin / placeholder **叠加**（诊断用，不阻断）。返回命中的信号 key。
 pub fn find_slop_signals(body: &str, css: &str) -> Vec<&'static str> {
     let mut out = Vec::new();
-    let hay = format!("{}\n{}", body.to_ascii_lowercase(), css.to_ascii_lowercase());
+    let hay = format!(
+        "{}\n{}",
+        body.to_ascii_lowercase(),
+        css.to_ascii_lowercase()
+    );
     // ① indigo/violet 硬写作 accent（AI 味头号 tell 色）。
     if SLOP_INDIGO_HEXES.iter().any(|h| hay.contains(h)) {
         out.push("indigo-accent");
@@ -264,7 +268,10 @@ fn open_tags<'a>(html: &'a str, name: &str) -> Vec<&'a str> {
             after,
             Some(b' ') | Some(b'>') | Some(b'/') | Some(b'\n') | Some(b'\t') | Some(b'\r') | None
         );
-        let end = low[start..].find('>').map(|e| start + e).unwrap_or(low.len());
+        let end = low[start..]
+            .find('>')
+            .map(|e| start + e)
+            .unwrap_or(low.len());
         if boundary {
             out.push(&html[start..end]);
         }
@@ -475,8 +482,10 @@ mod tests {
 
     #[test]
     fn slop_flags_emoji_icons_over_threshold() {
-        assert!(find_slop_signals("<h2>🚀 Fast</h2><h2>🎨 Design</h2><h2>📊 Data</h2>", "")
-            .contains(&"emoji-icons"));
+        assert!(
+            find_slop_signals("<h2>🚀 Fast</h2><h2>🎨 Design</h2><h2>📊 Data</h2>", "")
+                .contains(&"emoji-icons")
+        );
         // 偶发单个 emoji 不算。
         assert!(!find_slop_signals("<p>Nice 🚀</p>", "").contains(&"emoji-icons"));
     }
@@ -484,14 +493,20 @@ mod tests {
     #[test]
     fn slop_flags_color_sprawl_css_only() {
         // 17 个不同 hex 硬写在 CSS → color-sprawl（小值保证都是 6 位）。
-        let css: String = (0..17u32).map(|n| format!(".c{n}{{color:#{:06x}}}", n * 0x100 + 0x10)).collect();
+        let css: String = (0..17u32)
+            .map(|n| format!(".c{n}{{color:#{:06x}}}", n * 0x100 + 0x10))
+            .collect();
         assert!(find_slop_signals("<div>x</div>", &css).contains(&"color-sprawl"));
         // body 里的内联 SVG 多色不计入（只数 CSS）→ 不误标。
         let svg_body: String = format!(
             "<svg>{}</svg>",
-            (0..30u32).map(|n| format!("<rect fill=\"#{:06x}\"/>", n * 0x100 + 0x20)).collect::<String>()
+            (0..30u32)
+                .map(|n| format!("<rect fill=\"#{:06x}\"/>", n * 0x100 + 0x20))
+                .collect::<String>()
         );
-        assert!(!find_slop_signals(&svg_body, ".a{color:#111}.b{color:#222}").contains(&"color-sprawl"));
+        assert!(
+            !find_slop_signals(&svg_body, ".a{color:#111}.b{color:#222}").contains(&"color-sprawl")
+        );
     }
 
     #[test]
@@ -557,9 +572,15 @@ mod tests {
         // 图缺 alt + 无 h1 + lorem + 表单无 label。
         let body = r#"<img src="x.png"><input type="text"><p>Lorem ipsum dolor</p>"#;
         let f = review(body, "");
-        assert!(f.iter().any(|x| x.lens == "a11y" && x.message.contains("alt")));
-        assert!(f.iter().any(|x| x.lens == "a11y" && x.message.contains("label")));
-        assert!(f.iter().any(|x| x.lens == "semantics" && x.message.contains("h1")));
+        assert!(f
+            .iter()
+            .any(|x| x.lens == "a11y" && x.message.contains("alt")));
+        assert!(f
+            .iter()
+            .any(|x| x.lens == "a11y" && x.message.contains("label")));
+        assert!(f
+            .iter()
+            .any(|x| x.lens == "semantics" && x.message.contains("h1")));
         assert!(f.iter().any(|x| x.lens == "content"));
     }
 

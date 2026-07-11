@@ -65,8 +65,8 @@ pub fn create_thread(session_id: &str, project_id: &str) -> Result<()> {
 /// 源须是设计线程（否则拒）。**不碰共享 `useChatStream`**——纯 session 生命周期操作。
 pub fn fork_thread(session_id: &str) -> Result<String> {
     let db = session_db()?;
-    let project_id = project_for_session(session_id)?
-        .ok_or_else(|| anyhow::anyhow!("not a design thread"))?;
+    let project_id =
+        project_for_session(session_id)?.ok_or_else(|| anyhow::anyhow!("not a design thread"))?;
     let src = db
         .get_session(session_id)?
         .ok_or_else(|| anyhow::anyhow!("session not found"))?;

@@ -235,7 +235,11 @@ xmlns:p=\"http://schemas.openxmlformats.org/presentationml/2006/main\">\
 <p:sldIdLst>",
     );
     for i in 1..=n {
-        pres.push_str(&format!("<p:sldId id=\"{}\" r:id=\"rId{}\"/>", 255 + i, i + 1));
+        pres.push_str(&format!(
+            "<p:sldId id=\"{}\" r:id=\"rId{}\"/>",
+            255 + i,
+            i + 1
+        ));
     }
     pres.push_str(&format!(
         "</p:sldIdLst><p:sldSz cx=\"{SLIDE_W_EMU}\" cy=\"{SLIDE_H_EMU}\"/>\
@@ -256,7 +260,11 @@ xmlns:p=\"http://schemas.openxmlformats.org/presentationml/2006/main\">\
         ));
     }
     prels.push_str("</Relationships>");
-    w("ppt/_rels/presentation.xml.rels", prels.as_bytes(), &mut zip)?;
+    w(
+        "ppt/_rels/presentation.xml.rels",
+        prels.as_bytes(),
+        &mut zip,
+    )?;
 
     w("ppt/theme/theme1.xml", THEME_XML.as_bytes(), &mut zip)?;
     w(

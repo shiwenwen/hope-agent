@@ -31,7 +31,11 @@ pub struct ImageGenOptions {
 pub fn image_body_from_bytes(bytes: &[u8], mime: &str, alt: &str) -> String {
     let b64 = base64::engine::general_purpose::STANDARD.encode(bytes);
     let alt = html_escape(alt);
-    let mime = if mime.trim().is_empty() { "image/png" } else { mime };
+    let mime = if mime.trim().is_empty() {
+        "image/png"
+    } else {
+        mime
+    };
     format!(
         "<img src=\"data:{mime};base64,{b64}\" alt=\"{alt}\" \
 style=\"display:block;margin:0 auto;max-width:100%;height:auto\">"

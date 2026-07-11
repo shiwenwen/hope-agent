@@ -255,7 +255,8 @@ async fn harvest_assets(base_url: &str, html: &str) -> (Vec<String>, Vec<String>
     // logo 可小（favicon / 字标），不设维度门；imagery 设长边 ≥ 320 门，滤掉小图标混入 hero/配图集
     //（对齐参考实现的 imagery size-gate，提升配图保真度）。
     let logos = fetch_assets_into(logo_urls, MAX_LOGOS, &mut seen, None).await;
-    let images = fetch_assets_into(image_urls, MAX_IMAGES, &mut seen, Some(MIN_IMAGE_LONG_EDGE)).await;
+    let images =
+        fetch_assets_into(image_urls, MAX_IMAGES, &mut seen, Some(MIN_IMAGE_LONG_EDGE)).await;
     (logos, images)
 }
 
@@ -599,8 +600,11 @@ fn css_decl<'a>(block: &'a str, prop: &str) -> Option<&'a str> {
     let mut from = 0;
     while let Some(rel) = low[from..].find(&key) {
         let idx = from + rel;
-        let ok_before =
-            idx == 0 || matches!(block.as_bytes()[idx - 1], b';' | b'{' | b' ' | b'\n' | b'\t');
+        let ok_before = idx == 0
+            || matches!(
+                block.as_bytes()[idx - 1],
+                b';' | b'{' | b' ' | b'\n' | b'\t'
+            );
         if ok_before {
             let vstart = idx + key.len();
             let vend = block[vstart..]
