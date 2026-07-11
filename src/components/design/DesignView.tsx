@@ -4083,7 +4083,17 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                   // 网格开启时改名在网格里进行（避免 chip 与网格卡同时渲染两个 input）。
                   const renaming = renamingArtifactId === a.id && !showGrid
                   return (
-                    <div key={a.id} className="group/chip relative shrink-0">
+                    <div
+                      key={a.id}
+                      // 激活 chip 自动滚入视野（W4）：AI 新建页面后激活 chip 常在横向溢出区外看不到。
+                      // block/inline:nearest 已在视野时是 no-op，不抖动。
+                      ref={
+                        active
+                          ? (el) => el?.scrollIntoView({ block: "nearest", inline: "nearest" })
+                          : undefined
+                      }
+                      className="group/chip relative shrink-0"
+                    >
                       {renaming ? (
                         <input
                           autoFocus
