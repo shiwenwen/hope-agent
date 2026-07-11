@@ -6271,7 +6271,8 @@
       "quadUnlinked": "Kenar bazında (bağlamak için tıkla)",
       "deleteEl": "Öğeyi sil",
       "addToChat": "Sohbete ekle",
-      "addedToChat": "Sohbete eklendi — neyi değiştireceğini yaz"
+      "addedToChat": "Sohbete eklendi — neyi değiştireceğini yaz",
+      "fontCurrent": "Geçerli"
     },
     "settings": {
       "desc": "Tasarım Alanı: teslim edilebilir tasarım çıktıları üret, ince ayar yap ve dışa aktar.",

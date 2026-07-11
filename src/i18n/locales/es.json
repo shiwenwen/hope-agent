@@ -6271,7 +6271,8 @@
       "quadUnlinked": "Por lado (clic para vincular)",
       "deleteEl": "Eliminar elemento",
       "addToChat": "Añadir al chat",
-      "addedToChat": "Añadido al chat: indica qué cambiar"
+      "addedToChat": "Añadido al chat: indica qué cambiar",
+      "fontCurrent": "Actual"
     },
     "settings": {
       "desc": "Espacio de Diseño: genera, ajusta y exporta artefactos de diseño entregables.",

@@ -6271,7 +6271,8 @@
       "quadUnlinked": "Từng cạnh (bấm để liên kết)",
       "deleteEl": "Xóa phần tử",
       "addToChat": "Thêm vào trò chuyện",
-      "addedToChat": "Đã thêm vào trò chuyện — hãy nêu yêu cầu của bạn"
+      "addedToChat": "Đã thêm vào trò chuyện — hãy nêu yêu cầu của bạn",
+      "fontCurrent": "Hiện tại"
     },
     "settings": {
       "desc": "Không gian Thiết kế: tạo, tinh chỉnh và xuất các sản phẩm thiết kế bàn giao được.",

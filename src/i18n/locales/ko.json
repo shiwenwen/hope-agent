@@ -6271,7 +6271,8 @@
       "quadUnlinked": "변별 개별(클릭하여 연동)",
       "deleteEl": "요소 삭제",
       "addToChat": "대화에 추가",
-      "addedToChat": "대화에 추가했습니다. 변경할 내용을 입력하세요"
+      "addedToChat": "대화에 추가했습니다. 변경할 내용을 입력하세요",
+      "fontCurrent": "현재"
     },
     "settings": {
       "desc": "디자인 스페이스: 전달 가능한 디자인 산출물을 생성·조정·내보내기.",

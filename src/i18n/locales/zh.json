@@ -6271,7 +6271,8 @@
       "quadUnlinked": "逐边独立（点击锁定四边）",
       "deleteEl": "删除元素",
       "addToChat": "添加到对话",
-      "addedToChat": "已加入对话，去补充你的要求"
+      "addedToChat": "已加入对话，去补充你的要求",
+      "fontCurrent": "当前"
     },
     "settings": {
       "desc": "设计空间：生成、微调并导出可交付的设计产物。",

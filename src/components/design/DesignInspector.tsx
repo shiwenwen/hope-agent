@@ -105,6 +105,18 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   )
 }
 
+// 最近使用色（模块级，跨 ColorRow 实例共享）：提交即记，点 swatch 一键复用（W2-N）——此前只有 hex 手输
+// + 裸 picker，换品牌主色要跨面板查 hex 再粘、连改多个元素反复粘。commit 后面板重渲染即刷新此条。
+const recentColors: string[] = []
+function pushRecentColor(hex: string) {
+  const h = hex.toLowerCase()
+  if (!/^#[0-9a-f]{6}$/.test(h)) return
+  const i = recentColors.indexOf(h)
+  if (i >= 0) recentColors.splice(i, 1)
+  recentColors.unshift(h)
+  if (recentColors.length > 8) recentColors.pop()
+}
+
 function ColorRow({
   label,
   prop,
@@ -127,34 +139,54 @@ function ColorRow({
     setPrevHex(hex)
     setDraft(hex)
   }
+  const commit = (v: string) => {
+    pushRecentColor(v)
+    onCommit(prop, v)
+  }
   const commitDraft = () => {
     let v = draft.trim()
     if (v && !v.startsWith("#")) v = `#${v}`
-    if (/^#[0-9a-fA-F]{3}$/.test(v) || /^#[0-9a-fA-F]{6}$/.test(v)) onCommit(prop, v.toLowerCase())
+    if (/^#[0-9a-fA-F]{3}$/.test(v) || /^#[0-9a-fA-F]{6}$/.test(v)) commit(v.toLowerCase())
     else setDraft(hex)
   }
   return (
-    <label className="flex items-center justify-between gap-2 text-sm">
-      <span className="text-muted-foreground">{label}</span>
-      <span className="flex items-center gap-1.5">
-        <Input
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onBlur={commitDraft}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") e.currentTarget.blur()
-          }}
-          className="h-6 w-[72px] px-1.5 font-mono text-[11px]"
-        />
-        <input
-          type="color"
-          value={hex}
-          onInput={(e) => onLive(prop, (e.target as HTMLInputElement).value)}
-          onChange={(e) => onCommit(prop, e.target.value)}
-          className="h-6 w-8 cursor-pointer rounded border bg-transparent p-0"
-        />
-      </span>
-    </label>
+    <div className="space-y-1">
+      <label className="flex items-center justify-between gap-2 text-sm">
+        <span className="text-muted-foreground">{label}</span>
+        <span className="flex items-center gap-1.5">
+          <Input
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onBlur={commitDraft}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") e.currentTarget.blur()
+            }}
+            className="h-6 w-[72px] px-1.5 font-mono text-[11px]"
+          />
+          <input
+            type="color"
+            value={hex}
+            onInput={(e) => onLive(prop, (e.target as HTMLInputElement).value)}
+            onChange={(e) => commit(e.target.value)}
+            className="h-6 w-8 cursor-pointer rounded border bg-transparent p-0"
+          />
+        </span>
+      </label>
+      {recentColors.length > 0 && (
+        <div className="flex flex-wrap justify-end gap-1">
+          {recentColors.map((c) => (
+            <button
+              key={c}
+              type="button"
+              title={c}
+              onClick={() => commit(c)}
+              className="h-4 w-4 rounded border border-border/60 transition-transform hover:scale-110"
+              style={{ backgroundColor: c }}
+            />
+          ))}
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -478,10 +510,31 @@ export default function DesignInspector({
   const align = s["text-align"] || "left"
   const display = s["display"] || "block"
   const isFlexish = display === "flex" || display === "inline-flex" || display === "grid"
-  // 字体族匹配到内置栈（Wave 3-⑫）：computed font-family 含某栈首字体即选中，否则默认「系统」。
-  const rawFF = (s["font-family"] || "").toLowerCase()
-  const fontFamilyKey =
-    FONT_STACKS.find((f) => rawFF.includes(f.name.toLowerCase()))?.stack ?? FONT_STACKS[0].stack
+  // 字体族匹配（W2-N 修）：取 computed 的**首个**字体族精确比对内置栈，匹配不到则把真实字体族作为
+  // 附加选项显示**真值**——绝不再报假「System」。此前用 substring-includes，品牌栈的 `-apple-system`
+  // fallback 会被 System（栈首）子串命中，几乎所有品牌/设计系统字体都被误显示成 System（audit）。
+  const rawFamily = s["font-family"] || ""
+  const primaryFamily = rawFamily
+    .split(",")[0]
+    .trim()
+    .replace(/^['"]|['"]$/g, "")
+  const norm = (x: string) =>
+    x
+      .split(",")[0]
+      .trim()
+      .replace(/^['"]|['"]$/g, "")
+      .toLowerCase()
+  const matchedStack = FONT_STACKS.find(
+    (f) => f.name.toLowerCase() === primaryFamily.toLowerCase() || norm(f.stack) === norm(rawFamily),
+  )
+  const fontFamilyKey = matchedStack?.stack ?? rawFamily
+  // 未匹配内置栈 → 把当前真实字体族作首个选项，下拉显示真值、且选走后仍能选回来。
+  const fontOptions: [string, string][] = matchedStack
+    ? FONT_STACKS.map((f) => [f.stack, f.name] as [string, string])
+    : [
+        [rawFamily, primaryFamily || t("design.insp.fontCurrent", "当前")] as [string, string],
+        ...FONT_STACKS.map((f) => [f.stack, f.name] as [string, string]),
+      ]
   const opacity = parseFloat(s["opacity"] || "1")
   // 人类可读元素名：优先可见文本片段（折叠空白），其次 img alt，再回落 tag。让面板顶部
   // 一眼看出「选的是哪块内容」，而非只有 `<h1> #3` 这种技术标识（tag/oid 降为副标）。
@@ -656,7 +709,7 @@ export default function DesignInspector({
           label={t("design.insp.fontFamily", "字体")}
           prop="font-family"
           value={fontFamilyKey}
-          options={FONT_STACKS.map((f) => [f.stack, f.name] as [string, string])}
+          options={fontOptions}
           onCommit={onCommitStyle}
         />
         <NumberRow

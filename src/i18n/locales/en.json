@@ -6271,7 +6271,8 @@
       "quadUnlinked": "Per-side (click to link all)",
       "deleteEl": "Delete element",
       "addToChat": "Add to chat",
-      "addedToChat": "Added to chat — tell the AI what to change"
+      "addedToChat": "Added to chat — tell the AI what to change",
+      "fontCurrent": "Current"
     },
     "settings": {
       "desc": "Design Space: generate, fine-tune, and export deliverable design artifacts.",
