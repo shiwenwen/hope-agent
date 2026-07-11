@@ -175,7 +175,7 @@ export class TauriTransport implements Transport {
       ],
     });
     if (!selected || typeof selected !== "string") return null;
-    return { src: convertFileSrc(selected) };
+    return { src: convertFileSrc(selected), path: selected };
   }
 
   async pickLocalDirectory(): Promise<string | null> {

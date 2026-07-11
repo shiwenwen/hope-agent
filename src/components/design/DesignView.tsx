@@ -3336,12 +3336,17 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
       if (extractFrom === "brief") input.brief = extractText
       else if (extractFrom === "url") input.url = extractText
       else input.path = extractText
-      await tx.call("extract_design_system_cmd", { input })
+      const meta = await tx.call<DesignSystemMeta>("extract_design_system_cmd", { input })
       setExtractOpen(false)
       setExtractText("")
       setExtractName("")
       await loadSystems()
       toast.success(t("design.ok.extracted", "已提取设计系统"))
+      // 提取成功自动应用新系统（对齐 picker 选择行为，W3-K）：有产物→就地 restyle，否则设为项目默认。
+      if (meta?.id) {
+        if (activeArtifactRef.current) void restyleActiveArtifact(meta.id)
+        else void setProjectSystem(meta.id)
+      }
     } catch (e) {
       logger.error("design", "DesignView::runExtract", "extract failed", e)
       // 后端带的可操作提示（反爬协作式引导 B1-5 等）优先展示，否则通用文案。
@@ -3352,6 +3357,24 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tx, extractFrom, extractName, extractText, t])
+
+  // 反向提取文件选择（W3-K）：codebase 选目录 / image 选图片，回填绝对路径到 extractText。
+  // 仅桌面（supportsLocalFileOps）——HTTP 的 pickLocalDirectory 抛错，图片也拿不到服务器路径。
+  const pickExtractPath = useCallback(async () => {
+    try {
+      if (extractFrom === "codebase") {
+        const dir = await tx.pickLocalDirectory()
+        if (dir) setExtractText(dir)
+      } else if (extractFrom === "image") {
+        const picked = await tx.pickLocalImage()
+        if (picked?.path) setExtractText(picked.path)
+        picked?.revoke?.()
+      }
+    } catch (e) {
+      logger.error("design", "DesignView::pickExtractPath", "pick path failed", e)
+      toast.error(t("design.extractPickFailed", "选择失败，请手动填写路径"))
+    }
+  }, [tx, extractFrom, t])
 
   // ── Direction picker (D2) ────────────────────────────────────
   const [directionsOpen, setDirectionsOpen] = useState(false)
@@ -5713,6 +5736,25 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
             onChange={(e) => setExtractName(e.target.value)}
             placeholder={t("design.systemNamePlaceholder", "设计系统名称")}
           />
+          {/* 路径模式（代码库 / 图片）文件选择器（W3-K）：桌面直接选，免手打绝对路径 */}
+          {(extractFrom === "codebase" || extractFrom === "image") &&
+            tx.supportsLocalFileOps() && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full justify-start gap-2"
+                onClick={() => void pickExtractPath()}
+              >
+                {extractFrom === "codebase" ? (
+                  <FolderOpen className="h-4 w-4" />
+                ) : (
+                  <ImageIcon className="h-4 w-4" />
+                )}
+                {extractFrom === "codebase"
+                  ? t("design.extractPickDir", "选择代码库目录…")
+                  : t("design.extractPickImage", "选择截图 / 图片…")}
+              </Button>
+            )}
           <Textarea
             value={extractText}
             onChange={(e) => setExtractText(e.target.value)}

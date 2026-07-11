@@ -669,6 +669,13 @@ export interface PickedImage {
   src: string;
   file?: File;
   revoke?: () => void;
+  /**
+   * Absolute filesystem path of the picked file on the runtime machine, when
+   * available. Tauri fills this (native picker returns a real path); HTTP mode
+   * leaves it `undefined` (browser `File` has no server-side path). Callers that
+   * need a path (e.g. design reverse-extract from image) must gate on it.
+   */
+  path?: string;
 }
 
 /**
