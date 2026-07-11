@@ -142,7 +142,13 @@ import type {
   DesignComment,
   CommentPlacement,
 } from "@/types/design"
-import { ARTIFACT_KINDS, parseSelfCheck, parsePresenterNotes, parseDerivedFrom } from "@/types/design"
+import {
+  ARTIFACT_KINDS,
+  parseSelfCheck,
+  parsePresenterNotes,
+  parseDerivedFrom,
+  parseIsRtl,
+} from "@/types/design"
 import {
   exportPng,
   exportPdf,
@@ -1946,6 +1952,26 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
       setReviewing(false)
     }
   }, [tx, reviewing, t])
+
+  // RTL 切换：翻转产物文本方向（存 metadata.dir + 后端重渲染，design:reload 刷新预览）。
+  const toggleRtl = useCallback(async () => {
+    const a = activeArtifactRef.current
+    if (!a) return
+    const next = !parseIsRtl(a.metadata)
+    try {
+      const updated = await tx.call<DesignArtifact>("set_design_artifact_dir_cmd", {
+        id: a.id,
+        rtl: next,
+      })
+      await openArtifact(updated)
+      toast.success(
+        next ? t("design.rtl.on", "已切换为从右到左（RTL）") : t("design.rtl.off", "已切换为从左到右（LTR）"),
+      )
+    } catch (e) {
+      logger.error("design", "DesignView::toggleRtl", "set dir failed", e)
+      toast.error(t("design.err.load", "加载失败"))
+    }
+  }, [tx, openArtifact, t])
 
   // 回灌对话：让 AI 按批注精修产物（一键快捷路径）。design-space 原生——产物就地更新新版本、
   // 无需切走；`design:reload` 事件自动刷新预览。
@@ -3855,6 +3881,30 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                           ) : (
                             <Gauge className="h-3.5 w-3.5" />
                           )}
+                        </Button>
+                      </IconTip>
+                    )}
+                    {activeArtifact.kind !== "image" && activeArtifact.kind !== "audio" && (
+                      <IconTip
+                        label={
+                          parseIsRtl(activeArtifact.metadata)
+                            ? t("design.rtl.toLtr", "切换为从左到右")
+                            : t("design.rtl.toRtl", "切换为从右到左（RTL）")
+                        }
+                        side="bottom"
+                      >
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className={cn(
+                            "h-6 w-6",
+                            parseIsRtl(activeArtifact.metadata) && "text-primary",
+                          )}
+                          onClick={() => void toggleRtl()}
+                        >
+                          <span className="text-[13px] font-semibold leading-none">
+                            {parseIsRtl(activeArtifact.metadata) ? "‏RTL" : "LTR"}
+                          </span>
                         </Button>
                       </IconTip>
                     )}

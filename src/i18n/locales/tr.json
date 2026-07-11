@@ -6701,6 +6701,12 @@
       "hint": "Aynı tasarım sistemini paylaşan açılış sayfası + sunum + afişi tek seferde oluşturun",
       "generating": "Marka paketi oluşturuluyor (birden çok çıktı, lütfen bekleyin)…",
       "done": "{{count}} çıktı oluşturuldu"
+    },
+    "rtl": {
+      "toRtl": "Sağdan sola (RTL) geç",
+      "toLtr": "Soldan sağa geç",
+      "on": "Sağdan sola (RTL) geçildi",
+      "off": "Soldan sağa (LTR) geçildi"
     }
   }
 }

@@ -6701,6 +6701,12 @@
       "hint": "Jana halaman pendaratan + persembahan + poster sekali gus, berkongsi satu sistem reka bentuk",
       "generating": "Menjana pek jenama (beberapa artifak, sila tunggu)…",
       "done": "{{count}} artifak dijana"
+    },
+    "rtl": {
+      "toRtl": "Tukar ke kanan ke kiri (RTL)",
+      "toLtr": "Tukar ke kiri ke kanan",
+      "on": "Ditukar ke kanan ke kiri (RTL)",
+      "off": "Ditukar ke kiri ke kanan (LTR)"
     }
   }
 }

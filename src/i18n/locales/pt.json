@@ -6701,6 +6701,12 @@
       "hint": "Gere uma página de destino + apresentação + cartaz de uma vez, com o mesmo sistema de design",
       "generating": "Gerando pacote de marca (vários artefatos, aguarde)…",
       "done": "{{count}} artefatos gerados"
+    },
+    "rtl": {
+      "toRtl": "Mudar para direita para esquerda (RTL)",
+      "toLtr": "Mudar para esquerda para direita",
+      "on": "Alterado para direita para esquerda (RTL)",
+      "off": "Alterado para esquerda para direita (LTR)"
     }
   }
 }

@@ -132,12 +132,22 @@ fn write_working(
     Ok(())
 }
 
-/// 渲染 + 序列化 oidmap（create/update 共用）。
+/// 产物 metadata 是否标记 RTL（`dir == "rtl"`）。缺省 / 解析失败 = LTR。
+fn is_rtl(metadata: Option<&str>) -> bool {
+    metadata
+        .filter(|s| !s.trim().is_empty())
+        .and_then(|s| serde_json::from_str::<serde_json::Value>(s).ok())
+        .and_then(|v| v.get("dir").and_then(|d| d.as_str()).map(|d| d == "rtl"))
+        .unwrap_or(false)
+}
+
+/// 渲染 + 序列化 oidmap（create/update 共用）。`rtl` 注入 `<html dir="rtl">`（post-process）。
 fn render(
     kind: ArtifactKind,
     title: &str,
     parts: &ArtifactParts,
     tokens: &[(String, String)],
+    rtl: bool,
 ) -> Result<(String, String)> {
     // Component：body_html 存 JSX 源，后端 oxc 编译成 JS 后内联 React runtime 组装。编译失败
     // 不 bail、渲染静态错误页（产物仍可开、可重生），故不阻断创建/定稿。无 oid（编译产物≠源码）。
@@ -149,13 +159,13 @@ fn render(
                 renderer::build_component_error_html(title, &e.to_string())
             }
         };
-        return Ok((html, "[]".to_string()));
+        return Ok((renderer::apply_document_dir(html, rtl), "[]".to_string()));
     }
     // Image / Audio 是媒体产物（data-uri 内嵌），无源码 oid 可微调 → 不注 inspector/oid。
     let editable = !matches!(kind, ArtifactKind::Image | ArtifactKind::Audio);
     let (html, oidmap) = renderer::build_artifact_html(kind, title, parts, tokens, editable);
     let oidmap_json = serde_json::to_string(&oidmap)?;
-    Ok((html, oidmap_json))
+    Ok((renderer::apply_document_dir(html, rtl), oidmap_json))
 }
 
 /// 渲染**干净可交付** HTML（`editable=false`，无 inspector/oid）。**Component 走 oxc 编译**（与
@@ -166,18 +176,20 @@ fn render_clean(
     title: &str,
     parts: &ArtifactParts,
     tokens: &[(String, String)],
+    rtl: bool,
 ) -> String {
     if kind == ArtifactKind::Component {
-        return match super::compile::compile_component(&parts.body_html) {
+        let html = match super::compile::compile_component(&parts.body_html) {
             Ok(js) => renderer::build_component_html(title, &js, &parts.css, tokens),
             Err(e) => {
                 crate::app_warn!("design", "compile", "component export compile failed: {e}");
                 renderer::build_component_error_html(title, &e.to_string())
             }
         };
+        return renderer::apply_document_dir(html, rtl);
     }
     let (html, _) = renderer::build_artifact_html(kind, title, parts, tokens, false);
-    html
+    renderer::apply_document_dir(html, rtl)
 }
 
 /// 产物目录绝对路径（前端 iframe / 事件 payload 用）。
@@ -1073,7 +1085,7 @@ pub fn create_artifact(input: CreateArtifactInput) -> Result<DesignArtifact> {
     // 磁盘落地：artifact_dir / index.html / source/ / versions/1 / artifact.json
     let dir = paths::design_artifact_dir(&input.project_id, &artifact_id)?;
     let tokens = resolve_tokens(system_id.as_deref());
-    let (html, oidmap_json) = render(kind, &title, &parts, &tokens)?;
+    let (html, oidmap_json) = render(kind, &title, &parts, &tokens, false)?;
     write_working(&dir, &html, &parts, &oidmap_json)?;
     write_version_snapshot(&dir, 1, &html, &parts, &oidmap_json)?;
 
@@ -1226,7 +1238,7 @@ fn degrade_to_placeholder(id: &str, status: &str) -> Result<bool> {
     let dir = paths::design_artifact_dir(&a.project_id, &a.id)?;
     let parts = renderer::placeholder_parts(kind, &a.title);
     let tokens = resolve_tokens(a.system_id.as_deref());
-    let (html, oidmap_json) = render(kind, &a.title, &parts, &tokens)?;
+    let (html, oidmap_json) = render(kind, &a.title, &parts, &tokens, is_rtl(a.metadata.as_deref()))?;
     write_working(&dir, &html, &parts, &oidmap_json)?;
     db.update_artifact(id, None, Some(status), None, None, None, &now())?;
     Ok(true)
@@ -1317,6 +1329,47 @@ pub fn set_presenter_notes(artifact_id: &str, notes: Vec<String>) -> Result<()> 
     meta["presenterNotes"] = serde_json::json!(notes);
     db.update_artifact_metadata(artifact_id, Some(&meta.to_string()), &now())?;
     Ok(())
+}
+
+/// 设置产物文本方向（RTL/LTR，存 `metadata.dir`）并**立即重渲染 working index.html**（RTL 在
+/// 渲染期注入 `<html dir="rtl">`）。owner 平面。媒体形态（image/audio）无 `<html>` 外壳 → 拒。
+pub fn set_artifact_dir(id: &str, rtl: bool) -> Result<DesignArtifact> {
+    let lock = artifact_lock(id);
+    let _guard = lock.lock().unwrap_or_else(|e| e.into_inner());
+    let db = open_db()?;
+    let a = db.get_artifact(id)?.context("artifact not found")?;
+    let kind = ArtifactKind::from_str(&a.kind)
+        .with_context(|| format!("unknown artifact kind: {}", a.kind))?;
+    if matches!(kind, ArtifactKind::Image | ArtifactKind::Audio) {
+        anyhow::bail!("媒体产物无文本方向可设");
+    }
+    // 合并 metadata.dir（rtl 写入 / ltr 移除键，保留其它键）。
+    let mut meta: serde_json::Value = a
+        .metadata
+        .as_deref()
+        .filter(|s| !s.trim().is_empty())
+        .and_then(|s| serde_json::from_str(s).ok())
+        .unwrap_or_else(|| serde_json::json!({}));
+    if !meta.is_object() {
+        meta = serde_json::json!({});
+    }
+    if rtl {
+        meta["dir"] = serde_json::json!("rtl");
+    } else if let Some(o) = meta.as_object_mut() {
+        o.remove("dir");
+    }
+    let meta_str = meta.to_string();
+    // 重渲染 working（导出/分享读 live metadata 各自反映，无需改历史版本快照）。
+    let dir = paths::design_artifact_dir(&a.project_id, &a.id)?;
+    let parts = read_source(&dir)?;
+    let tokens = resolve_tokens(a.system_id.as_deref());
+    let (html, oidmap_json) = render(kind, &a.title, &parts, &tokens, rtl)?;
+    write_working(&dir, &html, &parts, &oidmap_json)?;
+    let ts = now();
+    db.update_artifact_review(&a.id, None, &a.status, None, Some(&meta_str), &ts)?;
+    db.touch_project(&a.project_id, &ts)?;
+    emit("design:reload", json!({ "artifactId": a.id }));
+    db.get_artifact(&a.id)?.context("artifact gone after set dir")
 }
 
 /// 拖入导入上限（单张图，与部署单文件量级一致的保守值）。
@@ -1504,7 +1557,7 @@ pub fn finalize_generating_artifact(
         .with_context(|| format!("unknown artifact kind: {}", a.kind))?;
     let dir = paths::design_artifact_dir(&a.project_id, &a.id)?;
     let tokens = resolve_tokens(a.system_id.as_deref());
-    let (html, oidmap_json) = render(kind, &a.title, parts, &tokens)?;
+    let (html, oidmap_json) = render(kind, &a.title, parts, &tokens, is_rtl(a.metadata.as_deref()))?;
     write_working(&dir, &html, parts, &oidmap_json)?;
     write_version_snapshot(&dir, a.current_version, &html, parts, &oidmap_json)?;
 
@@ -1848,7 +1901,7 @@ pub fn render_clean_html_for_artifact(a: &DesignArtifact) -> Result<String> {
     let dir = paths::design_artifact_dir(&a.project_id, &a.id)?;
     let parts = read_source(&dir)?;
     let tokens = resolve_tokens(a.system_id.as_deref());
-    Ok(render_clean(kind, &a.title, &parts, &tokens))
+    Ok(render_clean(kind, &a.title, &parts, &tokens, is_rtl(a.metadata.as_deref())))
 }
 
 /// owner 平面：对产物跑确定性多镜头质量审查（a11y / 内容 / 语义），返回结构化发现。
@@ -1996,7 +2049,7 @@ pub fn ensure_artifact_render_fresh(id: &str) -> Result<bool> {
     }
     let parts = read_source(&dir)?;
     let tokens = resolve_tokens(a.system_id.as_deref());
-    let (html, oidmap_json) = render(kind, &a.title, &parts, &tokens)?;
+    let (html, oidmap_json) = render(kind, &a.title, &parts, &tokens, is_rtl(a.metadata.as_deref()))?;
     write_atomic(&index_path, html.as_bytes())?;
     write_atomic(&dir.join("oidmap.json"), oidmap_json.as_bytes())?;
     crate::app_info!(
@@ -2208,7 +2261,7 @@ pub fn update_artifact(input: UpdateArtifactInput) -> Result<DesignArtifact> {
     };
     let title = input.title.clone().unwrap_or_else(|| a.title.clone());
     let tokens = resolve_tokens(a.system_id.as_deref());
-    let (html, oidmap_json) = render(kind, &title, &parts, &tokens)?;
+    let (html, oidmap_json) = render(kind, &title, &parts, &tokens, is_rtl(a.metadata.as_deref()))?;
     write_working(&dir, &html, &parts, &oidmap_json)?;
 
     let next = a.current_version + 1;
@@ -2278,7 +2331,7 @@ pub fn restyle_artifact(artifact_id: &str, system_id: Option<&str>) -> Result<De
 
     db.set_artifact_system_id(&a.id, system_id)?;
     let tokens = resolve_tokens(system_id);
-    let (html, oidmap_json) = render(kind, &a.title, &parts, &tokens)?;
+    let (html, oidmap_json) = render(kind, &a.title, &parts, &tokens, is_rtl(a.metadata.as_deref()))?;
     write_working(&dir, &html, &parts, &oidmap_json)?;
 
     let next = a.current_version + 1;
@@ -2435,7 +2488,7 @@ pub fn export_artifact(id: &str, format: &str) -> Result<ExportResult> {
             let parts = read_source(&dir)?;
             let tokens = resolve_tokens(a.system_id.as_deref());
             // editable=false → 无 inspector bridge / 无 oid，干净可交付；Component 走编译。
-            let html = render_clean(kind, &a.title, &parts, &tokens);
+            let html = render_clean(kind, &a.title, &parts, &tokens, is_rtl(a.metadata.as_deref()));
             Ok(ExportResult {
                 filename: format!("{}.html", safe_filename(&a.title)),
                 mime: "text/html".to_string(),
@@ -2496,7 +2549,7 @@ pub fn export_zip(artifact_id: Option<&str>, project_id: Option<&str>) -> Result
             let dir = paths::design_artifact_dir(&a.project_id, &a.id)?;
             let parts = read_source(&dir)?;
             let tokens = resolve_tokens(a.system_id.as_deref());
-            let html = render_clean(kind, &a.title, &parts, &tokens);
+            let html = render_clean(kind, &a.title, &parts, &tokens, is_rtl(a.metadata.as_deref()));
             (
                 vec![super::export::ZipArtifact {
                     folder: String::new(),
@@ -2521,7 +2574,7 @@ pub fn export_zip(artifact_id: Option<&str>, project_id: Option<&str>) -> Result
                 let dir = paths::design_artifact_dir(&a.project_id, &a.id)?;
                 let parts = read_source(&dir)?;
                 let tokens = resolve_tokens(a.system_id.as_deref());
-                let html = render_clean(kind, &a.title, &parts, &tokens);
+                let html = render_clean(kind, &a.title, &parts, &tokens, is_rtl(a.metadata.as_deref()));
                 let folder = format!(
                     "{}-{}",
                     safe_filename(&a.title),
@@ -2574,7 +2627,7 @@ pub fn export_selected_zip(ids: &[String]) -> Result<String> {
         let dir = paths::design_artifact_dir(&a.project_id, &a.id)?;
         let parts = read_source(&dir)?;
         let tokens = resolve_tokens(a.system_id.as_deref());
-        let html = render_clean(kind, &a.title, &parts, &tokens);
+        let html = render_clean(kind, &a.title, &parts, &tokens, is_rtl(a.metadata.as_deref()));
         let folder = format!(
             "{}-{}",
             safe_filename(&a.title),
@@ -2738,7 +2791,7 @@ pub fn export_handoff(artifact_id: &str) -> Result<ExportResult> {
     let parts = read_source(&dir)?;
     let tokens_vec = resolve_tokens(a.system_id.as_deref());
     // 干净可交付（editable=false，无 inspector/oid）；Component 走 oxc 编译，绝不塞未编译 JSX。
-    let html = render_clean(kind, &a.title, &parts, &tokens_vec);
+    let html = render_clean(kind, &a.title, &parts, &tokens_vec, is_rtl(a.metadata.as_deref()));
 
     let tokens_map: std::collections::BTreeMap<String, String> =
         tokens_vec.iter().cloned().collect();
@@ -3440,6 +3493,32 @@ pub async fn refine_artifact_with_comment(
         prompt_summary: Some(crate::truncate_utf8(&comment.body, 2000).to_string()),
         expected_body_hash: Some(patch::body_hash(&current.body_html)),
     })
+}
+
+#[cfg(test)]
+mod rtl_tests {
+    use super::is_rtl;
+    use crate::design::renderer::apply_document_dir;
+
+    #[test]
+    fn is_rtl_reads_metadata_dir() {
+        assert!(is_rtl(Some(r#"{"dir":"rtl"}"#)));
+        assert!(!is_rtl(Some(r#"{"dir":"ltr"}"#)));
+        assert!(!is_rtl(Some(r#"{"other":"x"}"#)));
+        assert!(!is_rtl(None));
+        assert!(!is_rtl(Some("not json")));
+    }
+
+    #[test]
+    fn apply_document_dir_injects_once() {
+        let html = "<!doctype html>\n<html lang=\"zh\" data-ds-kind=\"web\">\n<head>".to_string();
+        let out = apply_document_dir(html.clone(), true);
+        assert!(out.contains("<html dir=\"rtl\" lang=\"zh\""));
+        // 幂等：再次应用不重复。
+        assert_eq!(apply_document_dir(out.clone(), true).matches("dir=\"rtl\"").count(), 1);
+        // LTR 原样返回。
+        assert_eq!(apply_document_dir(html.clone(), false), html);
+    }
 }
 
 #[cfg(test)]

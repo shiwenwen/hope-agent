@@ -1932,6 +1932,10 @@ fn build_router_with_cors(
             "/design/artifacts/{id}/presenter-notes",
             axum::routing::put(routes::design::set_presenter_notes),
         )
+        .route(
+            "/design/artifacts/{id}/dir",
+            axum::routing::put(routes::design::set_artifact_dir),
+        )
         .route("/design/patch", post(routes::design::patch_element))
         .route(
             "/design/artifacts/{id}/critique",

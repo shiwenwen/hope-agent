@@ -393,6 +393,24 @@ pub struct PresenterNotesBody {
     pub notes: Vec<String>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetDirBody {
+    pub rtl: bool,
+}
+
+/// `PUT /api/design/artifacts/{id}/dir` — 设置产物文本方向（RTL/LTR）。
+pub async fn set_artifact_dir(
+    Path(id): Path<String>,
+    Json(body): Json<SetDirBody>,
+) -> Result<Json<DesignArtifact>, AppError> {
+    validate_id(&id)?;
+    let a = ha_core::blocking::run_blocking(move || service::set_artifact_dir(&id, body.rtl))
+        .await
+        .map_err(|e| AppError::internal(e.to_string()))?;
+    Ok(Json(a))
+}
+
 /// `PUT /api/design/artifacts/{id}/presenter-notes` — 保存 deck 演讲者备注。
 pub async fn set_presenter_notes(
     Path(id): Path<String>,

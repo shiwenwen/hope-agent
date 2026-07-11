@@ -43,6 +43,17 @@ export function parseSelfCheck(metadata?: string | null): SelfCheckFlag | null {
   }
 }
 
+/** 从产物 metadata 解析文本方向；`dir==="rtl"` → true，否则 false。 */
+export function parseIsRtl(metadata?: string | null): boolean {
+  if (!metadata) return false;
+  try {
+    const obj = JSON.parse(metadata) as { dir?: unknown };
+    return obj?.dir === "rtl";
+  } catch {
+    return false;
+  }
+}
+
 /** 从产物 metadata 解析血缘来源（派生自哪个产物）；无 / 解析失败 → null。 */
 export function parseDerivedFrom(
   metadata?: string | null,

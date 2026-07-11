@@ -6701,6 +6701,12 @@
       "hint": "Genera una página de aterrizaje + presentación + cartel a la vez, con un mismo sistema de diseño",
       "generating": "Generando pack de marca (varios artefactos, espera)…",
       "done": "{{count}} artefactos generados"
+    },
+    "rtl": {
+      "toRtl": "Cambiar a derecha a izquierda (RTL)",
+      "toLtr": "Cambiar a izquierda a derecha",
+      "on": "Cambiado a derecha a izquierda (RTL)",
+      "off": "Cambiado a izquierda a derecha (LTR)"
     }
   }
 }

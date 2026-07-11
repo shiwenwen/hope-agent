@@ -97,6 +97,17 @@ pub async fn review_design_artifact_cmd(
         .map_err(Into::into)
 }
 
+/// 设置产物文本方向（RTL/LTR，存 metadata.dir + 重渲染 working）。
+#[tauri::command]
+pub async fn set_design_artifact_dir_cmd(
+    id: String,
+    rtl: bool,
+) -> Result<DesignArtifact, CmdError> {
+    ha_core::blocking::run_blocking(move || service::set_artifact_dir(&id, rtl))
+        .await
+        .map_err(Into::into)
+}
+
 /// 保存 deck 演讲者备注（按 slide 顺序）。
 #[tauri::command]
 pub async fn set_design_presenter_notes_cmd(

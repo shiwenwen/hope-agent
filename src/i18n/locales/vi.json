@@ -6701,6 +6701,12 @@
       "hint": "Tạo trang đích + bản trình bày + áp phích cùng lúc, dùng chung một hệ thống thiết kế",
       "generating": "Đang tạo gói thương hiệu (nhiều sản phẩm, vui lòng đợi)…",
       "done": "Đã tạo {{count}} sản phẩm"
+    },
+    "rtl": {
+      "toRtl": "Chuyển sang phải sang trái (RTL)",
+      "toLtr": "Chuyển sang trái sang phải",
+      "on": "Đã chuyển sang phải sang trái (RTL)",
+      "off": "Đã chuyển sang trái sang phải (LTR)"
     }
   }
 }

@@ -6701,6 +6701,12 @@
       "hint": "Generate a landing page + deck + poster at once, sharing one design system",
       "generating": "Generating brand pack (multiple artifacts, please wait)…",
       "done": "Generated {{count}} artifacts"
+    },
+    "rtl": {
+      "toRtl": "Switch to right-to-left (RTL)",
+      "toLtr": "Switch to left-to-right",
+      "on": "Switched to right-to-left (RTL)",
+      "off": "Switched to left-to-right (LTR)"
     }
   }
 }

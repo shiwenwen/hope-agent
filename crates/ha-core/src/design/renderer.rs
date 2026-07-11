@@ -97,6 +97,16 @@ pub struct ArtifactParts {
     pub js: String,
 }
 
+/// 给已渲染产物 HTML 的 `<html>` 标签注入 `dir="rtl"`（RTL 产物）。幂等（已有 dir 不重复）；
+/// 对 `build_artifact_html` / `build_component_html` 产出的 `<html lang="zh" …>` 统一生效。
+/// **post-process**：不碰两个构建器的格式串，零渲染路径风险。
+pub(crate) fn apply_document_dir(html: String, rtl: bool) -> String {
+    if !rtl || html.contains(" dir=\"rtl\"") {
+        return html;
+    }
+    html.replacen("<html ", "<html dir=\"rtl\" ", 1)
+}
+
 /// 设计系统 token → `:root{--ds-*}` CSS 变量串。空 tokens = 空串（用骨架默认值）。
 /// 单一来源——`build_artifact_html`（定稿产物）与 `build_stream_host_html`（流式占位页）
 /// 及 Kit 套件页（`design/kit.rs`）共用，保证 token 注入的安全过滤在各处字节一致。
