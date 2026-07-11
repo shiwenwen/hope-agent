@@ -6753,6 +6753,8 @@
       "comment": "Add comment",
       "copyText": "Copy text",
       "copied": "Copied"
-    }
+    },
+    "stopGeneration": "Stop generating",
+    "stopGenerationDone": "Generation stopped"
   }
 }

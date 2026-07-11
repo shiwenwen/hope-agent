@@ -6753,6 +6753,8 @@
       "comment": "Tambah komen",
       "copyText": "Salin teks",
       "copied": "Disalin"
-    }
+    },
+    "stopGeneration": "Hentikan penjanaan",
+    "stopGenerationDone": "Penjanaan dihentikan"
   }
 }

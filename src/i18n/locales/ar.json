@@ -6753,6 +6753,8 @@
       "comment": "إضافة تعليق",
       "copyText": "نسخ النص",
       "copied": "تم النسخ"
-    }
+    },
+    "stopGeneration": "إيقاف التوليد",
+    "stopGenerationDone": "تم إيقاف التوليد"
   }
 }

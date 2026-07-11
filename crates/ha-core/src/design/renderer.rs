@@ -217,7 +217,7 @@ const STORAGE_POLYFILL: &str = "<script>(function(){function mk(){var s={};retur
 /// 编辑态渲染版本：**inspector bridge / oid 注入等编辑工具层**变更时 +1。烧进可编辑 `index.html`
 /// 的 `data-ds-r` 属性；`service::ensure_artifact_render_fresh` 据此自愈老产物——工具层升级无需
 /// 用户重新编辑即对既有产物生效（bridge 烧死在 index.html，否则老产物永远用旧工具）。
-pub const RENDER_VERSION: u32 = 12;
+pub const RENDER_VERSION: u32 = 13;
 
 pub fn build_artifact_html(
     kind: ArtifactKind,
@@ -358,6 +358,7 @@ pub fn build_artifact_html(
 const INSPECTOR_BRIDGE: &str = r#"<script>
 (function(){
   var active=false, hovered=null, selected=null, editing=null, editOrig=null;
+  var tnMeta=null; // 直属文本节点编辑（决策4A）：editing 指向临时包裹 span，tnMeta={host,nodeIndex,orig}
   var commentMode=false, comments=[], pinLayer=null, commentSel=null;
   var CSS_PROPS=['color','background-color','font-family','font-size','font-weight','font-style','text-align',
     'text-transform','text-decoration','line-height','letter-spacing',
@@ -398,6 +399,21 @@ const INSPECTOR_BRIDGE: &str = r#"<script>
   // 结束就地编辑：commit 时把新 textContent（拍平任何 contenteditable 插入的标记）发父窗
   // 走确定性回写并回传最新 info 同步 inspector；取消 / 无变化则还原原文。先置 editing=null 防 blur 重入。
   function endEdit(commit){
+    // 直属文本节点编辑（决策4A）：editing 是临时包裹 span，提交发 ds_text_node_commit 带 childNode
+    // 下标，拆包还原为一个纯文本节点（commit 用新文本 / 取消用原文）——host 结构 1:1 复原，无需重挂。
+    if(tnMeta){
+      var span=editing;editing=null;var m=tnMeta;tnMeta=null;
+      var nt=span.textContent||'';span.removeAttribute('contenteditable');
+      var finalText=(commit&&nt!==m.orig)?nt:m.orig;
+      if(span.parentNode)span.parentNode.replaceChild(document.createTextNode(finalText),span);
+      m.host.style.outline='2px solid #2563eb';
+      if(commit&&nt!==m.orig){
+        parent.postMessage({type:'ds_text_node_commit',oid:m.host.getAttribute('data-ds-oid'),
+          nodeIndex:m.nodeIndex,text:nt,before:m.orig},'*');
+        parent.postMessage({type:'ds_selected',payload:info(m.host)},'*');
+      }
+      return;
+    }
     var el=editing;if(!el)return;editing=null;
     el.removeAttribute('contenteditable');el.style.outline='2px solid #2563eb';
     var newText=el.textContent||'',oid=el.getAttribute('data-ds-oid');
@@ -427,6 +443,27 @@ const INSPECTOR_BRIDGE: &str = r#"<script>
     el.setAttribute('contenteditable','true');el.style.outline='2px dashed #16a34a';el.focus();
     if(x!=null&&y!=null)placeCaret(el,x,y);
     else{var s=window.getSelection(),r=document.createRange();r.selectNodeContents(el);r.collapse(false);s.removeAllRanges();s.addRange(r)}
+  }
+  // 点击坐标处的**直属文本节点**（决策4A）：caretRangeFromPoint 的 startContainer 是文本节点且直属
+  // host 才返回，否则 null。用于让「<h1>大 <span>标</span>题</h1>」的裸文本「大 」「题」可就地改。
+  function directTextNodeAt(host,x,y){
+    var range=document.caretRangeFromPoint?document.caretRangeFromPoint(x,y):null;
+    if(!range&&document.caretPositionFromPoint){var p=document.caretPositionFromPoint(x,y);
+      if(p){range=document.createRange();range.setStart(p.offsetNode,p.offset)}}
+    var n=range?range.startContainer:null;
+    return (n&&n.nodeType===3&&n.parentNode===host)?n:null;
+  }
+  // 进入直属文本节点就地编辑：把该文本节点临时包进 contenteditable span（仅它可编辑，内部 span 子树
+  // 不受影响），记 childNode 下标（与后端 direct_child_nodes / DOM childNodes 同序）。
+  function beginTextNodeEdit(host,tn,x,y){
+    if(editing)endEdit(true);
+    var idx=Array.prototype.indexOf.call(host.childNodes,tn);if(idx<0)return;
+    clearHover();clearSel();selected=host;host.style.outline='2px solid #2563eb';
+    var span=document.createElement('span');span.setAttribute('data-ds-tnedit','1');
+    tn.parentNode.insertBefore(span,tn);span.appendChild(tn);
+    editing=span;tnMeta={host:host,nodeIndex:idx,orig:span.textContent||''};
+    span.setAttribute('contenteditable','true');span.style.outline='2px dashed #16a34a';span.focus();
+    if(x!=null&&y!=null)placeCaret(span,x,y);
   }
   // ── 批注钉：iframe 内渲染（坐标随锚元素、zoom 无关）；点钉回传父窗 ──
   function ensurePinLayer(){
@@ -614,10 +651,12 @@ const INSPECTOR_BRIDGE: &str = r#"<script>
     parent.postMessage({type:'ds_lasso_place',members:members},'*');
   },true);
   document.addEventListener('dblclick',function(e){
-    if(!active)return;var el=e.target.closest('[data-ds-oid]');
-    if(!el||el.childElementCount!==0)return; // 仅叶子文本元素（有子元素则改会拍平内部标记）
+    if(!active)return;var el=e.target.closest('[data-ds-oid]');if(!el)return;
     e.preventDefault();e.stopPropagation();
-    beginEdit(el,e.clientX,e.clientY); // 光标落点击处（Wave 1-④）
+    if(el.childElementCount===0){beginEdit(el,e.clientX,e.clientY);return} // 叶子文本，光标落点击处
+    // 非叶子（决策4A）：双击若落在某直属文本节点上，只改那段裸文本、保留内部子树；否则维持只选中。
+    var tn=directTextNodeAt(el,e.clientX,e.clientY);
+    if(tn&&(tn.textContent||'').replace(/\s+/g,'').length)beginTextNodeEdit(el,tn,e.clientX,e.clientY);
   },true);
   document.addEventListener('keydown',function(e){
     if(!editing)return;

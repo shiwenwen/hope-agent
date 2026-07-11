@@ -64,6 +64,7 @@ import {
   Maximize2,
   Undo2,
   Redo2,
+  Square,
   Share2,
   Cloud,
   Wand2,
@@ -219,8 +220,21 @@ const DEVICE_PRESETS: Record<Exclude<PreviewDevice, "auto">, { w: number; h: num
   mobile: { w: 390, h: 844 },
 }
 
-/** 可视化编辑 undo/redo 的 inverse-patch 载荷 / 记录（B5）。 */
-type PatchPayload = { styles?: [string, string][]; text?: string; attrs?: [string, string][] }
+/** 可视化编辑 undo/redo 的 inverse-patch 载荷 / 记录（B5）。
+ * 结构型（P0-A）：`remove` 整段删元素、`insert` 重插被删片段（撤销删除）。线性栈按严格
+ * LIFO/FIFO 回放，每个 op 只在其录制时的源码状态上执行故 oid 稳定；外部替换源（AI 改稿 /
+ * 版本回滚）会清栈避免 oid 错位（见 clearHistory 接线）。 */
+type PatchPayload = {
+  styles?: [string, string][]
+  text?: string
+  attrs?: [string, string][]
+  /** span 直属文本节点编辑（决策4A）：改非叶子元素某 childNode 下标的裸文本、保留内部子树。 */
+  textNode?: { index: number; text: string }
+  /** 整段删元素（结构 undo redo 侧）。 */
+  remove?: boolean
+  /** 重插被删元素（结构 undo 撤销侧）。 */
+  insert?: { parentOid: number | null; afterOid: number | null; html: string }
+}
 type EditOp = { oid: number; before: PatchPayload; after: PatchPayload }
 
 /**
@@ -1518,44 +1532,73 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
       const view = await tx.call<DesignArtifactView | null>("get_design_artifact_cmd", {
         id: active.id,
       })
-      if (view) setActiveArtifact(view)
+      // 同步 ref（不只 state）：串行化的 commitPatch 靠 activeArtifactRef.current.bodyHash 取**最新**
+      // hash，React 的 setActiveArtifact 是异步 render 才刷 ref，故这里立即写 ref 让下一条排队提交
+      // 拿到新 hash，杜绝背靠背提交撞 stale-write（P0-D）。
+      if (view) {
+        activeArtifactRef.current = view
+        setActiveArtifact(view)
+      }
     } catch {
       /* non-fatal */
     }
   }, [tx])
 
+  // 提交串行化队列（P0-D）：背靠背两次微调（改完 top 立刻改 right / 字号→字重）不再撞 stale-write。
+  // 每条提交排在前一条之后跑，读 activeArtifactRef.current.bodyHash 时前一条的 refreshView 已把新
+  // hash 写进 ref，故第二条带的是**新** hash 而非闭包旧 hash。
+  const commitQueueRef = useRef<Promise<boolean>>(Promise.resolve(true))
   const commitPatch = useCallback(
-    async (patch: {
+    (patch: {
       oid: number
       styles?: [string, string][]
       text?: string
       attrs?: [string, string][]
+      textNode?: { index: number; text: string }
       remove?: boolean
-    }) => {
-      if (!activeArtifact) return false
-      suppressReloadRef.current = true
-      try {
-        await tx.call("patch_design_element_cmd", {
-          input: {
-            artifactId: activeArtifact.id,
-            expectedHash: activeArtifact.bodyHash,
-            ...patch,
-          },
-        })
-        await refreshView()
-        return true
-      } catch (e) {
-        // stale write or error → hard reload to resync; clear the now-invalid
-        // selection and tell the user to re-pick (oid may no longer match).
-        suppressReloadRef.current = false
-        setPreviewKey((k) => k + 1)
-        setSelected(null)
-        logger.error("design", "DesignView::commitPatch", "patch failed", e)
-        toast.error(t("design.staleReselect", "源已更新，请重新选择元素后再试"))
-        return false
+      insert?: { parentOid: number | null; afterOid: number | null; html: string }
+    }): Promise<boolean> => {
+      const run = async (): Promise<boolean> => {
+        const active = activeArtifactRef.current
+        if (!active) return false
+        suppressReloadRef.current = true
+        try {
+          if (patch.insert) {
+            await tx.call("insert_design_element_cmd", {
+              id: active.id,
+              parentOid: patch.insert.parentOid,
+              afterOid: patch.insert.afterOid,
+              html: patch.insert.html,
+              expectedHash: active.bodyHash,
+            })
+          } else {
+            const { insert: _drop, ...elementPatch } = patch
+            await tx.call("patch_design_element_cmd", {
+              input: {
+                artifactId: active.id,
+                expectedHash: active.bodyHash,
+                ...elementPatch,
+              },
+            })
+          }
+          await refreshView()
+          return true
+        } catch (e) {
+          // 失败（真正的外部 stale / 后端错）：**保留选中、软重挂**（P0-D，不再清选中让用户从头点）。
+          // 串行化后自撞 stale 已基本消除；此处兜底真外部改动 → 重挂 iframe 反映磁盘真值 + 重取 hash。
+          suppressReloadRef.current = false
+          setPreviewKey((k) => k + 1)
+          void refreshView()
+          logger.error("design", "DesignView::commitPatch", "patch failed", e)
+          toast.error(t("design.staleReselect", "源已更新，请重新选择元素后再试"))
+          return false
+        }
       }
+      const p = commitQueueRef.current.then(run, run)
+      commitQueueRef.current = p.catch(() => false)
+      return p
     },
-    [tx, activeArtifact, refreshView, t],
+    [tx, refreshView, t],
   )
 
   const handleLiveStyle = useCallback(
@@ -1566,14 +1609,37 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
     },
     [postToIframe],
   )
-  // 删除元素（Wave 3-⑫）：确定性 remove patch + 关面板 + 重载反映结构变化。最后一个元素后端拒。
+  // 删除元素（Wave 3-⑫ + P0-A 可撤销）：走 owner remove_design_element_cmd 拿回**重建上下文**，压
+  // 结构 undo op（before=重插被删片段、after=再删）→ Cmd+Z 可字节精确还原。setSuppressReload 让
+  // update_artifact 的 design:reload 走自编辑分支、不清 undo 栈（否则清掉刚压的这条 op）。最后一个
+  // 元素后端拒。
   const handleDeleteElement = useCallback(async () => {
     const oid = selectedRef.current?.oid
-    if (oid == null) return
+    const active = activeArtifactRef.current
+    if (oid == null || !active) return
     setSelected(null)
-    const ok = await commitPatch({ oid: Number(oid), remove: true })
-    if (ok) setPreviewKey((k) => k + 1)
-  }, [commitPatch])
+    suppressReloadRef.current = true
+    try {
+      const res = await tx.call<{
+        removed: { parentOid: number | null; afterOid: number | null; html: string }
+      }>("remove_design_element_cmd", {
+        id: active.id,
+        oid: Number(oid),
+        expectedHash: active.bodyHash,
+      })
+      pushHistoryRef.current({
+        oid: Number(oid),
+        before: { insert: res.removed },
+        after: { remove: true },
+      })
+      await refreshView()
+      setPreviewKey((k) => k + 1)
+    } catch (e) {
+      suppressReloadRef.current = false
+      logger.error("design", "DesignView::handleDeleteElement", "remove failed", e)
+      toast.error(t("design.staleReselect", "源已更新，请重新选择元素后再试"))
+    }
+  }, [tx, refreshView, t])
   const handleCommitStyle = useCallback(
     (prop: string, value: string) => {
       const oid = selectedRef.current?.oid
@@ -1656,18 +1722,26 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
       const op = stack[stack.length - 1]
       const payload = which === "undo" ? op.before : op.after
       historyBusyRef.current = true
-      applyPayloadLive(op.oid, payload)
-      setSelected((prev) => {
-        if (!prev || Number(prev.oid) !== op.oid) return prev
-        const next = { ...prev, styles: { ...prev.styles }, attrs: { ...(prev.attrs ?? {}) } }
-        if (payload.styles) for (const [k, v] of payload.styles) next.styles[k] = v
-        if (payload.text != null) next.text = payload.text
-        if (payload.attrs) for (const [k, v] of payload.attrs) next.attrs[k] = v
-        return next
-      })
+      // 结构（insert/remove）/ 文本节点 op 无干净 live 预览通道 → 跳 live、清选中，靠 commit 后
+      // 重挂 iframe 反映变化；样式 / 文本 / 属性走 live 预览 + 乐观刷 selected。
+      const structural = !!(payload.insert || payload.remove || payload.textNode)
+      if (structural) {
+        setSelected(null)
+      } else {
+        applyPayloadLive(op.oid, payload)
+        setSelected((prev) => {
+          if (!prev || Number(prev.oid) !== op.oid) return prev
+          const next = { ...prev, styles: { ...prev.styles }, attrs: { ...(prev.attrs ?? {}) } }
+          if (payload.styles) for (const [k, v] of payload.styles) next.styles[k] = v
+          if (payload.text != null) next.text = payload.text
+          if (payload.attrs) for (const [k, v] of payload.attrs) next.attrs[k] = v
+          return next
+        })
+      }
       const ok = await commitPatch({ oid: op.oid, ...payload })
       historyBusyRef.current = false
       if (!ok) return // 提交失败：保持栈不动（不脱节）
+      if (structural) setPreviewKey((k) => k + 1)
       // **按身份移栈**（review 修复）：commit 的 await 窗口内若有并发 live 检视器编辑
       //（`historyBusyRef` 只串行 undo/redo，不挡 `handleCommitStyle`）会向 undoStack 顶
       // push 新 op；此时按位置 `slice(0,-1)` 会误删那条新编辑而非本次撤销的 `op`，令内存历史
@@ -2193,6 +2267,9 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
         count?: number
         members?: { oid: number; tag: string; snippet: string; relX: number; relY: number }[]
         styles?: Record<string, Record<string, string>>
+        // span 直属文本节点就地编辑（决策4A）：childNode 下标 + 编辑前原文（撤销栈用）。
+        nodeIndex?: number
+        before?: string
       }
       // 画框批注视口度量回传（B4-1，跨源；resolve 对应 requestViewportMetrics 的 promise）。
       if (d?.type === "ds_viewport_result" && typeof d.id === "number") {
@@ -2231,7 +2308,37 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
       // 就地文本编辑提交：双击叶子元素改文案 → 走同一确定性回写（apply_text_patch +
       // expectedHash）。仅编辑态受理；oid 直接来自被编辑元素。
       else if (d?.type === "ds_text_commit" && d.oid != null && editModeRef.current) {
-        void commitPatch({ oid: Number(d.oid), text: String(d.text ?? "") })
+        const text = String(d.text ?? "")
+        // 就地改文案进撤销栈（P0-A：此前直提交绕过 pushHistory，Cmd+Z 反而回退更早的样式改动）。
+        // 渲染器先发 ds_text_commit 再发携新文本的 ds_selected，故此刻 selected.text 仍是**原文**。
+        const sel = selectedRef.current
+        if (sel && Number(sel.oid) === Number(d.oid)) {
+          pushHistoryRef.current({
+            oid: Number(d.oid),
+            before: { text: sel.text ?? "" },
+            after: { text },
+          })
+        }
+        void commitPatch({ oid: Number(d.oid), text })
+      }
+      // span 直属文本节点就地改（决策4A）：改非叶子元素某 childNode 的裸文本、保留内部子树。
+      else if (
+        d?.type === "ds_text_node_commit" &&
+        d.oid != null &&
+        d.nodeIndex != null &&
+        editModeRef.current
+      ) {
+        const index = Number(d.nodeIndex)
+        const text = String(d.text ?? "")
+        const before = d.before != null ? String(d.before) : undefined
+        if (before != null) {
+          pushHistoryRef.current({
+            oid: Number(d.oid),
+            before: { textNode: { index, text: before } },
+            after: { textNode: { index, text } },
+          })
+        }
+        void commitPatch({ oid: Number(d.oid), textNode: { index, text } })
       }
       // 批注模式点选元素落钉 → 开新钉待填表单（正文在面板里填）。
       else if (d?.type === "ds_comment_place" && commentModeRef.current) {
@@ -2735,6 +2842,21 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
     shareRef,
     useCallback(() => setShareOpen(false), []),
   )
+  // 停止在途流式生成（P0-C）：中断白流 + 后端降级为可读占位（非删产物），刷新反映。
+  const handleStopGeneration = useCallback(async () => {
+    const a = activeArtifactRef.current
+    if (!a) return
+    try {
+      await tx.call("cancel_design_generation_cmd", { id: a.id })
+      streamRef.current = null
+      streamSnapshotRef.current = null
+      await refreshView()
+      setPreviewKey((k) => k + 1)
+      toast.success(t("design.stopGenerationDone", "已停止生成"))
+    } catch (e) {
+      logger.error("design", "DesignView::handleStopGeneration", "cancel failed", e)
+    }
+  }, [tx, refreshView, t])
   const handleShare = useCallback(async () => {
     const a = activeArtifactRef.current
     if (!a || sharing) return
@@ -3097,6 +3219,9 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
           // 在新设计上重新点选（review #5）；选中同理失效。
           setPendingPlacement(null)
           setSelected(null)
+          // 源被外部替换 → oidmap 变，撤销栈旧 op 的 oid 会打到错误元素上（P0-A 数据损坏红线）→ 清栈。
+          setUndoStack([])
+          setRedoStack([])
           // External change (e.g. agent edit) → resync bodyHash/currentVersion so the
           // next visual edit doesn't trip the stale-write guard and get lost.
           if (active && (!p?.artifactId || p.artifactId === active.id)) void refreshView()
@@ -3152,6 +3277,9 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
           // （editable，挂 oid + inspector bridge）。
           void refreshView()
           setPreviewKey((k) => k + 1)
+          // AI 改稿整源替换 → 撤销栈旧 op 失效，清栈防 oid 错位（P0-A）。
+          setUndoStack([])
+          setRedoStack([])
         }
         const proj = activeProjectRef.current
         if (proj) void loadArtifacts(proj.id)
@@ -3877,7 +4005,21 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                     {activeArtifact.title}
                   </span>
                   <div className="flex flex-1 flex-wrap items-center justify-end gap-1">
-                    {isEditableKind(activeArtifact.kind) && (
+                    {/* 生成中：停止按钮（P0-C）——中断白流、降级占位，不必删产物重来。 */}
+                    {activeArtifact.status === "generating" && (
+                      <IconTip label={t("design.stopGeneration", "停止生成")} side="bottom">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6 text-destructive hover:text-destructive"
+                          onClick={() => void handleStopGeneration()}
+                        >
+                          <Square className="h-3.5 w-3.5 fill-current" />
+                        </Button>
+                      </IconTip>
+                    )}
+                    {/* 生成中不挂编辑/批注/画框入口（点了画布无响应，P0-C 生成态锁定）。 */}
+                    {isEditableKind(activeArtifact.kind) && activeArtifact.status !== "generating" && (
                       <>
                         <IconTip
                           label={t("design.editMode", "可视化微调：点选元素改属性")}
@@ -4163,7 +4305,7 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                           variant="ghost"
                           size="icon"
                           className="h-6 w-6"
-                          disabled={sharing}
+                          disabled={sharing || activeArtifact.status === "generating"}
                           onClick={() => void handleShare()}
                         >
                           {sharing ? (
@@ -4197,7 +4339,12 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                     <DropdownMenu>
                       <IconTip label={t("design.exportArtifact", "导出本页")} side="bottom">
                         <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon" className="h-6 w-6" disabled={!!exporting}>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6"
+                            disabled={!!exporting || activeArtifact.status === "generating"}
+                          >
                             {exporting ? (
                               <Loader2Icon className="h-3.5 w-3.5 animate-spin" />
                             ) : (

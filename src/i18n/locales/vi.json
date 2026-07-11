@@ -6753,6 +6753,8 @@
       "comment": "Thêm nhận xét",
       "copyText": "Sao chép văn bản",
       "copied": "Đã sao chép"
-    }
+    },
+    "stopGeneration": "Dừng tạo",
+    "stopGenerationDone": "Đã dừng tạo"
   }
 }

@@ -6753,6 +6753,8 @@
       "comment": "댓글 추가",
       "copyText": "텍스트 복사",
       "copied": "복사됨"
-    }
+    },
+    "stopGeneration": "생성 중지",
+    "stopGenerationDone": "생성을 중지했습니다"
   }
 }

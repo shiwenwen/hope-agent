@@ -6753,6 +6753,8 @@
       "comment": "コメントを追加",
       "copyText": "テキストをコピー",
       "copied": "コピーしました"
-    }
+    },
+    "stopGeneration": "生成を停止",
+    "stopGenerationDone": "生成を停止しました"
   }
 }

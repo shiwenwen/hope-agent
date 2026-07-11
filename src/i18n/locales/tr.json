@@ -6753,6 +6753,8 @@
       "comment": "Yorum ekle",
       "copyText": "Metni kopyala",
       "copied": "Kopyalandı"
-    }
+    },
+    "stopGeneration": "Oluşturmayı durdur",
+    "stopGenerationDone": "Oluşturma durduruldu"
   }
 }
