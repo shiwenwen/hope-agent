@@ -36,7 +36,9 @@ export function ArtifactThumb({ artifactId }: { artifactId: string }) {
   const [src, setSrc] = useState<string | null>(() => urlCache.get(artifactId) ?? null)
   const [scale, setScale] = useState(0.2)
   const liveRef = useRef(false)
-  liveRef.current = live
+  useEffect(() => {
+    liveRef.current = live
+  }, [live])
 
   // 解析带版本 cache-bust 的预览 URL；force=清缓存重拉（内容更新后拿新 currentVersion）。
   const resolveSrc = useCallback(

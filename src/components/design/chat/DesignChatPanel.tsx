@@ -417,6 +417,10 @@ export const DesignChatPanel = forwardRef<DesignChatPanelHandle, Props>(function
     const last = session.messages[session.messages.length - 1]
     return !!(last && last.role === "event" && last.isTurnError)
   }, [session.messages])
+  // 拖文件入对话（W2-I）：拖到对话栏 append 成聊天附件（此前拖对话栏无反应、拖预览区却被静默转成
+  // 「导入新产物」，与「照着这张改」意图相反）。Tauri webview 走标准 HTML5 drop 事件。**必须在任何
+  // 条件 return 之前声明**（hooks 顺序）。
+  const [dragOver, setDragOver] = useState(false)
 
   // Fork（分支）：同项目建新会话 + 拷贝当前对话历史，切到新线程继续探索另一方向。
   const [forking, setForking] = useState(false)
@@ -445,10 +449,6 @@ export const DesignChatPanel = forwardRef<DesignChatPanelHandle, Props>(function
   }
 
   const currentAgent = session.agents.find((a) => a.id === session.currentAgentId)
-
-  // 拖文件入对话（W2-I）：拖到对话栏 append 成聊天附件（此前拖对话栏无反应、拖预览区却被静默转成
-  // 「导入新产物」，与「照着这张改」意图相反）。Tauri webview 走标准 HTML5 drop 事件。
-  const [dragOver, setDragOver] = useState(false)
 
   return (
     <div

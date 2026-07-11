@@ -1609,13 +1609,14 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
               }),
             )
           } else {
-            const { insert: _drop, ...elementPatch } = patch
+            // 本分支 patch.insert 必为 undefined（insert 走上面独立命令）；直接 spread，undefined 键在
+            // JSON 序列化时被略去，后端 ElementPatch 也无 insert 字段。
             await withCallTimeout(
               tx.call("patch_design_element_cmd", {
                 input: {
                   artifactId: active.id,
                   expectedHash: active.bodyHash,
-                  ...elementPatch,
+                  ...patch,
                 },
               }),
             )
