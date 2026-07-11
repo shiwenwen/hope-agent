@@ -197,6 +197,17 @@ function isEditableKind(kind: ArtifactKind): boolean {
   return kind !== "image" && kind !== "audio" && kind !== "component"
 }
 
+/** 产物类型徽标：icon + 本地化类型名——tab 上只有小 icon 不足以辨认类型，预览工具栏明示。 */
+function KindBadge({ kind, label }: { kind: ArtifactKind; label: string }) {
+  const Icon = KIND_ICON[kind] ?? Monitor
+  return (
+    <span className="flex shrink-0 items-center gap-1 rounded-md border border-border/50 bg-muted/60 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+      <Icon className="h-3 w-3" />
+      {label}
+    </span>
+  )
+}
+
 type ZoomMode = "fit" | number
 
 // 预览设备视口（B4-3，源码级对标参照 PREVIEW_VIEWPORT_PRESETS）。`auto` = 沿用产物自然
@@ -3738,7 +3749,7 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                               setRenamingArtifactId(a.id)
                               setRenameDraft(a.title)
                             }}
-                            title={t("design.dblClickRename", "双击改名")}
+                            title={`${kindLabel(a.kind)} · ${t("design.dblClickRename", "双击改名")}`}
                             className={cn(
                               "flex max-w-[180px] items-center gap-1.5 rounded-lg py-1 pl-2.5 pr-11 text-xs transition-colors",
                               active
@@ -3858,6 +3869,10 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                     窄窗口下必须能**换行**而非溢出裁切：外层 min-h + 允许纵向增高，标题 min-w-0 先截断
                     腾地方，控件组 flex-1 + flex-wrap + justify-end → 右对齐逐行回落、任何宽度都不丢按钮。 */}
                 <div className="flex min-h-9 shrink-0 items-center gap-2 border-b bg-background/60 px-3 py-1">
+                  <KindBadge
+                    kind={activeArtifact.kind}
+                    label={kindLabel(activeArtifact.kind)}
+                  />
                   <span className="min-w-0 truncate text-xs font-medium text-muted-foreground">
                     {activeArtifact.title}
                   </span>

@@ -20,6 +20,7 @@ import ApprovalDialog from "@/components/chat/ApprovalDialog"
 import AgentSwitcher from "@/components/chat/AgentSwitcher"
 import { useSidebarDisplayMode } from "@/components/chat/sidebar/useSidebarDisplayMode"
 import { useChatStream } from "@/components/chat/hooks/useChatStream"
+import { useChatDisplayPreferences } from "@/components/chat/hooks/useChatDisplayPreferences"
 import { useClickOutside } from "@/hooks/useClickOutside"
 import type { ChatAttachment } from "@/lib/transport"
 import type { Message, PendingFileQuote } from "@/types/chat"
@@ -74,6 +75,8 @@ export const KnowledgeChatPanel = forwardRef<KnowledgeChatPanelHandle, Props>(
     const session = useKnowledgeChat(kbId, notePath, isActive)
     // Follow 简约模式 like the main chat title bar (compact-pill agent picker).
     const sidebarDisplayMode = useSidebarDisplayMode()
+    // 跟随主聊天的「任务 / 气泡」显示模式与回合折叠偏好（设置页改动实时生效）。
+    const { displayMode, autoCollapseCompletedTurns } = useChatDisplayPreferences()
     const seqRef = useRef<Map<string, number>>(new Map())
     const endedRef = useRef<Map<string, string>>(new Map())
     const [historyOpen, setHistoryOpen] = useState(false)
@@ -379,6 +382,8 @@ export const KnowledgeChatPanel = forwardRef<KnowledgeChatPanelHandle, Props>(
             onLoadMore={session.handleLoadMore}
             sessionId={session.currentSessionId}
             renderMessageActions={renderMessageActions}
+            displayMode={displayMode}
+            autoCollapseCompletedTurns={autoCollapseCompletedTurns}
           />
         </div>
 

@@ -21,6 +21,7 @@ import ApprovalDialog from "@/components/chat/ApprovalDialog"
 import AgentSwitcher from "@/components/chat/AgentSwitcher"
 import { useSidebarDisplayMode } from "@/components/chat/sidebar/useSidebarDisplayMode"
 import { useChatStream } from "@/components/chat/hooks/useChatStream"
+import { useChatDisplayPreferences } from "@/components/chat/hooks/useChatDisplayPreferences"
 import { useClickOutside } from "@/hooks/useClickOutside"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
@@ -239,6 +240,8 @@ export const DesignChatPanel = forwardRef<DesignChatPanelHandle, Props>(function
   // Follow 简约模式 (sidebar compact toggle) like the main chat title bar, so the
   // design panel's agent picker renders as a compact pill when it's on.
   const sidebarDisplayMode = useSidebarDisplayMode()
+  // 跟随主聊天的「任务 / 气泡」显示模式与回合折叠偏好（设置页改动实时生效）。
+  const { displayMode, autoCollapseCompletedTurns } = useChatDisplayPreferences()
   const seqRef = useRef<Map<string, number>>(new Map())
   const endedRef = useRef<Map<string, string>>(new Map())
   const [historyOpen, setHistoryOpen] = useState(false)
@@ -599,6 +602,8 @@ export const DesignChatPanel = forwardRef<DesignChatPanelHandle, Props>(function
             pendingQuestionGroup={session.pendingQuestionGroup}
             onQuestionSubmitted={() => session.setPendingQuestionGroup(null)}
             askUserVariant="design"
+            displayMode={displayMode}
+            autoCollapseCompletedTurns={autoCollapseCompletedTurns}
           />
         )}
       </div>

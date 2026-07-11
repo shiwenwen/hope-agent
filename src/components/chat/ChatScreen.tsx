@@ -102,16 +102,7 @@ import { RightPanelShell } from "./right-panel/RightPanelShell"
 import { useProjects } from "./project/hooks/useProjects"
 import ProjectDialog from "./project/ProjectDialog"
 import ProjectOverviewDialog from "./project/ProjectOverviewDialog"
-import {
-  CHAT_DISPLAY_MODE_EVENT,
-  normalizeChatDisplayMode,
-  readChatDisplayModePreference,
-  writeChatDisplayModePreference,
-} from "./chatDisplayModePreference"
-import {
-  COMPLETED_TURN_COLLAPSE_EVENT,
-  normalizeCompletedTurnCollapsePreference,
-} from "./completedTurnCollapsePreference"
+import { useChatDisplayPreferences } from "./hooks/useChatDisplayPreferences"
 import {
   CHAT_SIDEBAR_DEFAULT_WIDTH,
   CHAT_SIDEBAR_LEGACY_DEFAULT_WIDTH,
@@ -470,51 +461,8 @@ export default function ChatScreen({
     setSidebarCollapsed(collapsed)
   }, [])
 
-  const [defaultDisplayMode, setDefaultDisplayMode] = useState(() =>
-    readChatDisplayModePreference(),
-  )
-  const [autoCollapseCompletedTurns, setAutoCollapseCompletedTurns] = useState(true)
-  useEffect(() => {
-    let cancelled = false
-    getTransport()
-      .call<{ chatDisplayMode?: unknown; autoCollapseCompletedTurns?: unknown }>("get_user_config")
-      .then((cfg) => {
-        const mode = normalizeChatDisplayMode(cfg.chatDisplayMode)
-        if (cancelled) return
-        setAutoCollapseCompletedTurns(
-          normalizeCompletedTurnCollapsePreference(cfg.autoCollapseCompletedTurns),
-        )
-        if (mode) {
-          setDefaultDisplayMode(mode)
-          writeChatDisplayModePreference(mode, { emit: false })
-        }
-      })
-      .catch((e: unknown) =>
-        logger.warn(
-          "settings",
-          "ChatScreen::loadDisplayMode",
-          "Failed to load chat display mode",
-          e,
-        ),
-      )
-
-    const handlePreferenceChange = (event: Event) => {
-      const mode = normalizeChatDisplayMode((event as CustomEvent).detail?.mode)
-      if (mode) setDefaultDisplayMode(mode)
-    }
-    const handleCompletedTurnCollapseChange = (event: Event) => {
-      setAutoCollapseCompletedTurns(
-        normalizeCompletedTurnCollapsePreference((event as CustomEvent).detail?.enabled),
-      )
-    }
-    window.addEventListener(CHAT_DISPLAY_MODE_EVENT, handlePreferenceChange)
-    window.addEventListener(COMPLETED_TURN_COLLAPSE_EVENT, handleCompletedTurnCollapseChange)
-    return () => {
-      cancelled = true
-      window.removeEventListener(CHAT_DISPLAY_MODE_EVENT, handlePreferenceChange)
-      window.removeEventListener(COMPLETED_TURN_COLLAPSE_EVENT, handleCompletedTurnCollapseChange)
-    }
-  }, [])
+  const { displayMode: defaultDisplayMode, autoCollapseCompletedTurns } =
+    useChatDisplayPreferences()
 
   // Right panel width (shared by all switchable right panels)
   const [rightPanelWidth, setRightPanelWidth] = useState(DEFAULT_RIGHT_PANEL_WIDTH)
