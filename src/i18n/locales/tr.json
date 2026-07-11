@@ -6206,6 +6206,7 @@
     "noVersions": "Henüz sürüm yok",
     "version": "Sürüm",
     "extractSystem": "Markayı çıkar…",
+    "restyling": "Tasarım sistemi uygulanıyor…",
     "extractPickDir": "Kod tabanı klasörünü seç…",
     "extractPickImage": "Ekran görüntüsü / görsel seç…",
     "extractPickFailed": "Seçim başarısız — yolu elle girin",

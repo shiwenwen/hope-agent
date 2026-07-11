@@ -933,9 +933,16 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
   )
 
   // 就地换设计系统：对当前打开的产物 restyle（后端重渲染 + 落新版本，源码不变）。
+  // in-flight 态 + 防重入（W4-O）：restyle 是整页重渲染，连点会并发多份 / 相互覆盖。
+  const [restyling, setRestyling] = useState(false)
+  const restylingRef = useRef(false)
   const restyleActiveArtifact = useCallback(
     async (systemId: string | null) => {
       if (!activeArtifactRef.current || activeArtifactRef.current.status === "generating") return
+      if (restylingRef.current) return // 防重入：一次 restyle 未完成不再触发
+      restylingRef.current = true
+      setRestyling(true)
+      const tid = toast.loading(t("design.restyling", "正在换设计系统…"))
       try {
         await tx.call<DesignArtifact>("restyle_design_artifact_cmd", {
           id: activeArtifactRef.current.id,
@@ -943,10 +950,13 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
         })
         await refreshView()
         setPreviewKey((k) => k + 1)
-        toast.success(t("design.ok.restyled", "已换设计系统"))
+        toast.success(t("design.ok.restyled", "已换设计系统"), { id: tid })
       } catch (e) {
         logger.error("design", "DesignView::restyle", "restyle failed", e)
-        toast.error(t("design.err.restyle", "换设计系统失败"))
+        toast.error(t("design.err.restyle", "换设计系统失败"), { id: tid })
+      } finally {
+        restylingRef.current = false
+        setRestyling(false)
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -3789,9 +3799,14 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                 variant="outline"
                 size="sm"
                 className="h-8 gap-1.5"
+                disabled={restyling}
                 onClick={() => setSystemPickerOpen(true)}
               >
-                <Palette className="h-3.5 w-3.5 opacity-70" />
+                {restyling ? (
+                  <Loader2Icon className="h-3.5 w-3.5 animate-spin opacity-70" />
+                ) : (
+                  <Palette className="h-3.5 w-3.5 opacity-70" />
+                )}
                 <span className="max-w-[120px] truncate">
                   {(() => {
                     // 有活跃产物 → 显示/切换该产物的设计系统（restyle）；否则项目默认系统。

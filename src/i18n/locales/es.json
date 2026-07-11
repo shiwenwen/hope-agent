@@ -6206,6 +6206,7 @@
     "noVersions": "Aún no hay versiones",
     "version": "Versión",
     "extractSystem": "Extraer marca…",
+    "restyling": "Aplicando sistema de diseño…",
     "extractPickDir": "Elegir carpeta del código…",
     "extractPickImage": "Elegir captura / imagen…",
     "extractPickFailed": "Error al seleccionar: introduce la ruta manualmente",

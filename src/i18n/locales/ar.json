@@ -6206,6 +6206,7 @@
     "noVersions": "لا توجد إصدارات بعد",
     "version": "الإصدار",
     "extractSystem": "استخراج العلامة…",
+    "restyling": "جارٍ تطبيق نظام التصميم…",
     "extractPickDir": "اختيار مجلد قاعدة الشيفرة…",
     "extractPickImage": "اختيار لقطة / صورة…",
     "extractPickFailed": "فشل الاختيار — يُرجى إدخال المسار يدويًا",

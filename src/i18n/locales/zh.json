@@ -6206,6 +6206,7 @@
     "noVersions": "暂无版本",
     "version": "版本",
     "extractSystem": "反向提取品牌…",
+    "restyling": "正在换设计系统…",
     "extractPickDir": "选择代码库目录…",
     "extractPickImage": "选择截图 / 图片…",
     "extractPickFailed": "选择失败，请手动填写路径",

@@ -6206,6 +6206,7 @@
     "noVersions": "No versions yet",
     "version": "Version",
     "extractSystem": "Extract brand…",
+    "restyling": "Applying design system…",
     "extractPickDir": "Choose codebase folder…",
     "extractPickImage": "Choose screenshot / image…",
     "extractPickFailed": "Selection failed — please enter the path manually",

@@ -922,13 +922,25 @@ impl DesignDb {
     }
 
     /// 保留最新 `keep` 个版本，剪掉更旧的。
+    /// 版本上限淘汰（W4-O：里程碑保护）。超出 `keep` 时**优先淘汰最旧的 `manual`（微调自动保存）
+    /// 版本**，保留 `ai` / `restore` 里程碑与当前（最新 version_number）版本——否则一轮重度可视化
+    /// 微调会把 AI 生成的里程碑从 50 条上限里挤掉。仅当 manual 淘尽仍超限才淘汰最旧的 ai/restore。
+    /// `origin` 为 NULL 的历史行按 `manual` 处理（优先淘汰）。
     pub fn cleanup_old_versions(&self, artifact_id: &str, keep: i64) -> Result<u64> {
         let conn = self.lock()?;
         let deleted = conn.execute(
             "DELETE FROM design_artifact_versions
-             WHERE artifact_id = ?1 AND version_number NOT IN (
+             WHERE artifact_id = ?1 AND version_number IN (
                 SELECT version_number FROM design_artifact_versions
-                WHERE artifact_id = ?1 ORDER BY version_number DESC LIMIT ?2
+                WHERE artifact_id = ?1
+                  AND version_number <> (
+                    SELECT MAX(version_number) FROM design_artifact_versions WHERE artifact_id = ?1
+                  )
+                ORDER BY (COALESCE(origin, 'manual') = 'manual') DESC, version_number ASC
+                LIMIT MAX(
+                    0,
+                    (SELECT COUNT(*) FROM design_artifact_versions WHERE artifact_id = ?1) - ?2
+                )
              )",
             rusqlite::params![artifact_id, keep],
         )?;
@@ -1493,6 +1505,46 @@ mod tests {
         let v2 = rows.iter().find(|v| v.version_number == 2).unwrap();
         assert_eq!(v2.origin.as_deref(), Some("ai"));
         assert_eq!(v2.prompt_summary.as_deref(), Some("做一个定价页"));
+    }
+
+    #[test]
+    fn cleanup_protects_ai_milestones_and_current() {
+        // W4-O：超上限淘汰优先删最旧 manual（微调自动保存），保留 ai 里程碑 + 当前(最新)版本。
+        let (_d, db) = open_temp();
+        let aid = seed_artifact(&db);
+        let mk = |n: i64, origin: &str| DesignArtifactVersion {
+            id: 0,
+            artifact_id: aid.clone(),
+            version_number: n,
+            message: None,
+            critique_score: None,
+            origin: Some(origin.into()),
+            prompt_summary: None,
+            created_at: format!("t{n}"),
+        };
+        // v100=ai 里程碑，v101..v104=manual 微调，v105=ai 里程碑，v106=manual，v107=manual(最新/当前)。
+        db.create_version(&mk(100, "ai")).unwrap();
+        for n in 101..=104 {
+            db.create_version(&mk(n, "manual")).unwrap();
+        }
+        db.create_version(&mk(105, "ai")).unwrap();
+        db.create_version(&mk(106, "manual")).unwrap();
+        db.create_version(&mk(107, "manual")).unwrap();
+
+        db.cleanup_old_versions(&aid, 4).unwrap();
+        let remaining: std::collections::HashSet<i64> = db
+            .list_versions(&aid)
+            .unwrap()
+            .into_iter()
+            .map(|v| v.version_number)
+            .collect();
+        // ai 里程碑保留：
+        assert!(remaining.contains(&100), "ai milestone v100 must survive");
+        assert!(remaining.contains(&105), "ai milestone v105 must survive");
+        // 当前(最新)版本保留（即便是 manual）：
+        assert!(remaining.contains(&107), "current version v107 must survive");
+        // 最旧的 manual 微调先被淘汰：
+        assert!(!remaining.contains(&101), "oldest manual v101 must be evicted");
     }
 
     #[test]
