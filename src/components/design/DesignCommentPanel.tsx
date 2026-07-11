@@ -158,17 +158,18 @@ export default function DesignCommentPanel({
             {selected.has(c.id) && <Check className="h-3 w-3" />}
           </button>
         )}
-        <button
-          type="button"
-          onClick={() => (selectMode && !c.resolved ? toggleSelected(c.id) : onFocus(c.id))}
-          className={cn(
-            "mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold text-white",
-            c.resolved ? "bg-emerald-600" : "bg-amber-500",
-          )}
-          title={t("design.comment.locate", "定位到钉")}
-        >
-          {index + 1}
-        </button>
+        <IconTip label={t("design.comment.locate", "定位到钉")}>
+          <button
+            type="button"
+            onClick={() => (selectMode && !c.resolved ? toggleSelected(c.id) : onFocus(c.id))}
+            className={cn(
+              "mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold text-white",
+              c.resolved ? "bg-emerald-600" : "bg-amber-500",
+            )}
+          >
+            {index + 1}
+          </button>
+        </IconTip>
         <div className="min-w-0 flex-1">
           {(c.snippet || c.tag) && (
             <div className="mb-1 flex items-center gap-1.5 text-[10px] text-muted-foreground">

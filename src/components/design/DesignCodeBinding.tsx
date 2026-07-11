@@ -17,6 +17,7 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
+import { IconTip } from "@/components/ui/tooltip"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import ServerDirectoryBrowser from "@/components/chat/input/ServerDirectoryBrowser"
@@ -263,15 +264,16 @@ export function DesignCodeBinding({ system, open, onOpenChange }: Props) {
                   )}
                   {t("design.bind.sync", "同步")}
                 </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-7 w-7 p-0 text-muted-foreground"
-                  onClick={() => void doUnbind(b.id)}
-                  title={t("design.bind.unbind", "解绑")}
-                >
-                  <Unlink className="h-3.5 w-3.5" />
-                </Button>
+                <IconTip label={t("design.bind.unbind", "解绑")}>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 w-7 p-0 text-muted-foreground"
+                    onClick={() => void doUnbind(b.id)}
+                  >
+                    <Unlink className="h-3.5 w-3.5" />
+                  </Button>
+                </IconTip>
               </div>
             ))
           )}
