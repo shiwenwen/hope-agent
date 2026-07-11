@@ -2559,8 +2559,16 @@ pub fn insert_element(
             anyhow::bail!("stale write: source changed, please re-select");
         }
     }
-    let r = patch::apply_insert_patch(&body, &map, parent_oid, after_oid, insert_offset, html, None)
-        .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+    let r = patch::apply_insert_patch(
+        &body,
+        &map,
+        parent_oid,
+        after_oid,
+        insert_offset,
+        html,
+        None,
+    )
+    .map_err(|e| anyhow::anyhow!(e.to_string()))?;
     update_artifact(UpdateArtifactInput {
         id: a.id.clone(),
         title: None,

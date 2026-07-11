@@ -483,7 +483,14 @@ pub async fn insert_design_element_cmd(
     expected_hash: Option<String>,
 ) -> Result<DesignArtifact, CmdError> {
     ha_core::blocking::run_blocking(move || {
-        service::insert_element(&id, parent_oid, after_oid, insert_offset, &html, expected_hash)
+        service::insert_element(
+            &id,
+            parent_oid,
+            after_oid,
+            insert_offset,
+            &html,
+            expected_hash,
+        )
     })
     .await
     .map_err(Into::into)

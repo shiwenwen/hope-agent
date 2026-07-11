@@ -702,7 +702,9 @@ pub fn remove_element_with_context(
             continue;
         }
         if let Some((s2, en2)) = element_full_range(source, e2) {
-            if en2 <= start && s2 >= parent_content_start && (after_oid.is_none() || en2 > after_end)
+            if en2 <= start
+                && s2 >= parent_content_start
+                && (after_oid.is_none() || en2 > after_end)
             {
                 after_oid = Some(e2.oid);
                 after_end = en2;
@@ -759,9 +761,13 @@ pub fn apply_insert_patch(
     }
     let anchor = if let Some(aid) = after_oid {
         let e = find_entry(map, aid).ok_or(PatchError::OidNotFound(aid))?;
-        element_full_range(source, e).ok_or(PatchError::NoClose(aid))?.1
+        element_full_range(source, e)
+            .ok_or(PatchError::NoClose(aid))?
+            .1
     } else if let Some(pid) = parent_oid {
-        find_entry(map, pid).ok_or(PatchError::OidNotFound(pid))?.open_end
+        find_entry(map, pid)
+            .ok_or(PatchError::OidNotFound(pid))?
+            .open_end
     } else {
         0
     };
@@ -1285,9 +1291,17 @@ mod tests {
             let (_, map_undo) = annotate(&undo1);
             let (redo_patch, removed2) =
                 remove_element_with_context(&undo1, &map_undo, e.oid, None).unwrap();
-            assert_eq!(redo_patch.new_source, after_del, "重做删 oid {} 与首删不一致", e.oid);
+            assert_eq!(
+                redo_patch.new_source, after_del,
+                "重做删 oid {} 与首删不一致",
+                e.oid
+            );
             let undo2 = reinsert(&redo_patch.new_source, &removed2);
-            assert_eq!(undo2, src, "删 oid {} 重做后再撤销未还原（byte-exact 红线）", e.oid);
+            assert_eq!(
+                undo2, src,
+                "删 oid {} 重做后再撤销未还原（byte-exact 红线）",
+                e.oid
+            );
         }
     }
 
@@ -1314,7 +1328,9 @@ mod tests {
 
     #[test]
     fn delete_undo_roundtrip_nested_and_first_child() {
-        assert_delete_undo_roundtrip("<section><h1>T</h1><div><span>x</span><b>y</b></div></section>");
+        assert_delete_undo_roundtrip(
+            "<section><h1>T</h1><div><span>x</span><b>y</b></div></section>",
+        );
     }
 
     #[test]
