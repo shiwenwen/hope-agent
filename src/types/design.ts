@@ -127,6 +127,8 @@ export interface DesignArtifactView extends DesignArtifact {
   artifactPath: string;
   /** 当前 body.html 的 BLAKE3（可视化编辑 stale-write 守卫）。 */
   bodyHash: string;
+  /** 未解决批注数（工具栏批注按钮 badge）。 */
+  openCommentCount: number;
 }
 
 /** iframe bridge 回传的选中元素信息（`ds_selected`）。 */

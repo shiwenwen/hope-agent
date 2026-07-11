@@ -2239,6 +2239,8 @@ pub struct ArtifactView {
     pub artifact_path: String,
     /// 当前 body.html 的 BLAKE3（可视化编辑 stale-write 守卫用）。
     pub body_hash: String,
+    /// 未解决批注数（W3-J：工具栏批注按钮 badge，无需进批注模式即可感知）。
+    pub open_comment_count: i64,
 }
 
 pub fn get_artifact_view(id: &str) -> Result<Option<ArtifactView>> {
@@ -2249,10 +2251,12 @@ pub fn get_artifact_view(id: &str) -> Result<Option<ArtifactView>> {
     let dir = paths::design_artifact_dir(&artifact.project_id, &artifact.id)?;
     let body = read_source(&dir)?.body_html;
     let body_hash = patch::body_hash(&body);
+    let open_comment_count = open_db()?.count_open_comments(&artifact.id).unwrap_or(0);
     Ok(Some(ArtifactView {
         artifact,
         artifact_path,
         body_hash,
+        open_comment_count,
     }))
 }
 

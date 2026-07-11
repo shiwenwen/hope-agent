@@ -1142,6 +1142,17 @@ impl DesignDb {
         rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
     }
 
+    /// 未解决批注数（W3-J badge）：走 `(artifact_id, resolved, id)` 索引，轻量 COUNT。
+    pub fn count_open_comments(&self, artifact_id: &str) -> Result<i64> {
+        let conn = self.lock()?;
+        let n: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM design_comments WHERE artifact_id = ?1 AND resolved = 0",
+            rusqlite::params![artifact_id],
+            |r| r.get(0),
+        )?;
+        Ok(n)
+    }
+
     pub fn get_comment(&self, artifact_id: &str, comment_id: i64) -> Result<Option<DesignComment>> {
         let conn = self.lock()?;
         let mut stmt = conn.prepare(&format!(

@@ -2016,7 +2016,16 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
     if (!aid) return
     try {
       const list = await tx.call<DesignComment[]>("design_comment_list_cmd", { artifactId: aid })
-      setComments(Array.isArray(list) ? list : [])
+      const arr = Array.isArray(list) ? list : []
+      setComments(arr)
+      // 同步工具栏 badge：批注增删/解决/精修都过 loadComments，此处单点回填 openCommentCount，
+      // 免额外后端往返、且不触发 iframe 重载（bodyHash 不变）。
+      const open = arr.filter((c) => !c.resolved).length
+      setActiveArtifact((prev) =>
+        prev && prev.id === aid && prev.openCommentCount !== open
+          ? { ...prev, openCommentCount: open }
+          : prev,
+      )
     } catch (e) {
       logger.error("design", "DesignView::loadComments", "load comments failed", e)
     }
@@ -4311,7 +4320,7 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                           <Button
                             variant={commentMode ? "default" : "ghost"}
                             size="icon"
-                            className="h-6 w-6"
+                            className="relative h-6 w-6"
                             onClick={() => {
                               setCommentMode((v) => !v)
                               setEditMode(false)
@@ -4319,6 +4328,13 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                             }}
                           >
                             <MessageSquare className="h-3.5 w-3.5" />
+                            {(activeArtifact?.openCommentCount ?? 0) > 0 && (
+                              <span className="absolute -right-1 -top-1 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-amber-500 px-0.5 text-[9px] font-semibold leading-none text-white">
+                                {(activeArtifact?.openCommentCount ?? 0) > 99
+                                  ? "99+"
+                                  : activeArtifact?.openCommentCount}
+                              </span>
+                            )}
                           </Button>
                         </IconTip>
                         <IconTip
