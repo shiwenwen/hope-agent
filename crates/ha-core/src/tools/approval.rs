@@ -633,6 +633,10 @@ pub async fn deny_pending_for_session(session_id: &str, source: ApprovalResoluti
     let count = drained.len();
     for (request_id, entry) in drained {
         let _ = entry.sender.send(ApprovalResponse::Deny);
+        // EventBus delivery is best-effort and the IM listener can lag. Clear
+        // its text-reply state directly so Stop cannot leave a stale prompt
+        // that captures a later ordinary chat message.
+        crate::channel::worker::approval::drop_pending_by_request_id(&request_id).await;
         emit_approval_resolved(&request_id, Some(session_id), "deny", source);
     }
     emit_pending_interactions_changed(Some(session_id));
@@ -654,6 +658,7 @@ pub async fn deny_all_pending(source: ApprovalResolutionSource) -> usize {
     for (request_id, entry) in drained {
         let session_id = entry.request.session_id;
         let _ = entry.sender.send(ApprovalResponse::Deny);
+        crate::channel::worker::approval::drop_pending_by_request_id(&request_id).await;
         emit_approval_resolved(&request_id, session_id.as_deref(), "deny", source);
         emit_pending_interactions_changed(session_id.as_deref());
     }
