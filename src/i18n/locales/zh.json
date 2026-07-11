@@ -6746,6 +6746,11 @@
       "done": "已按蒙版重绘",
       "failed": "重绘失败：{{msg}}"
     },
-    "exportPptxOutline": "PPTX（可编辑文本）"
+    "exportPptxOutline": "PPTX（可编辑文本）",
+    "ctx": {
+      "comment": "添加批注",
+      "copyText": "复制文本",
+      "copied": "已复制"
+    }
   }
 }

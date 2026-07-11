@@ -217,7 +217,7 @@ const STORAGE_POLYFILL: &str = "<script>(function(){function mk(){var s={};retur
 /// 编辑态渲染版本：**inspector bridge / oid 注入等编辑工具层**变更时 +1。烧进可编辑 `index.html`
 /// 的 `data-ds-r` 属性；`service::ensure_artifact_render_fresh` 据此自愈老产物——工具层升级无需
 /// 用户重新编辑即对既有产物生效（bridge 烧死在 index.html，否则老产物永远用旧工具）。
-pub const RENDER_VERSION: u32 = 9;
+pub const RENDER_VERSION: u32 = 10;
 
 pub fn build_artifact_html(
     kind: ArtifactKind,
@@ -544,6 +544,18 @@ const INSPECTOR_BRIDGE: &str = r#"<script>
     // 单击文本 / 链接**叶子**即进就地编辑，光标落点击处（Wave 1-④，不再必须双击、不再全选整段）。
     // 非叶子 / 无文本叶子（图标等）只选中给属性面板，不进编辑。双击仍兼容（beginEdit 幂等）。
     if(el.childElementCount===0&&(el.textContent||'').trim())beginEdit(el,e.clientX,e.clientY);
+  },true);
+  // 编辑态右键 = 元素操作菜单（父层渲染）。**非编辑态零拦截**（原生右键复制/查词/存图照旧）；
+  // 就地文本编辑期间放行原生（contenteditable 需要粘贴/拼写菜单）；有选区文本时放行原生
+  //（对齐主对话 contextMenuGuard——右键选中文字应得到原生「拷贝所选」）；空白处放行原生。
+  document.addEventListener('contextmenu',function(e){
+    if(!active||editing)return;
+    var sel=window.getSelection();if(sel&&String(sel).trim())return;
+    var el=e.target.closest('[data-ds-oid]');if(!el)return;
+    e.preventDefault();e.stopPropagation();
+    clearSel();clearHover();selected=el;el.style.outline='2px solid #2563eb';
+    parent.postMessage({type:'ds_selected',payload:info(el)},'*');
+    parent.postMessage({type:'ds_context_menu',x:e.clientX,y:e.clientY},'*');
   },true);
   // 批注态套选（Wave 2-⑪）：拖出矩形 → 命中所有 oid 元素（覆盖率>50%，排除大容器）→ 一条多成员批注。
   var lassoStart=null,lassoBox=null,lassoMoved=false,lassoSuppressClick=false;

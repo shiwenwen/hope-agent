@@ -42,6 +42,7 @@ import {
   StickyNote,
   MousePointerClick,
   MessageSquare,
+  MessagesSquare,
   Highlighter,
   SlidersHorizontal,
   Download,
@@ -503,6 +504,10 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
   selectedRef.current = selected
   const editModeRef = useRef(false)
   editModeRef.current = editMode
+  // 编辑态预览右键菜单：bridge ds_context_menu 回传 iframe 内坐标，父层按当前预览缩放换算成
+  // 窗口坐标弹菜单（非编辑态 bridge 零拦截，原生右键不受影响）。previewScaleRef 在缩放计算处赋值。
+  const [previewCtxMenu, setPreviewCtxMenu] = useState<{ x: number; y: number } | null>(null)
+  const previewScaleRef = useRef(1)
   // 批注钉：模式 / 数据 / 待填新钉锚点。与 editMode 互斥（都用 bridge + 右面板）。
   const [commentMode, setCommentMode] = useState(false)
   const commentModeRef = useRef(false)
@@ -1892,6 +1897,41 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
     toast.success(t("design.insp.addedToChat", "已加入对话，去补充你的要求"))
   }, [t, enqueueChatQuote])
 
+  // 右键菜单：任意点击 / 滚动即关（同 MessageList contextMenu 范式）。
+  useEffect(() => {
+    if (!previewCtxMenu) return
+    const close = () => setPreviewCtxMenu(null)
+    document.addEventListener("mousedown", close)
+    document.addEventListener("scroll", close, true)
+    return () => {
+      document.removeEventListener("mousedown", close)
+      document.removeEventListener("scroll", close, true)
+    }
+  }, [previewCtxMenu])
+  // 右键菜单「添加批注」：切到批注模式并以右键选中元素为锚直接开待填钉（锚点取元素中心）。
+  const handleCtxAddComment = useCallback(() => {
+    const el = selectedRef.current
+    if (!el) return
+    setEditMode(false)
+    setCommentMode(true)
+    setPendingPlacement({
+      oid: el.oid != null ? Number(el.oid) : null,
+      relX: 0.5,
+      relY: 0.5,
+      tag: el.tag,
+      snippet: el.text?.trim().slice(0, 60) || undefined,
+    })
+  }, [])
+  // 右键菜单「复制文本」：编辑态右键被接管后补偿原生最常用需求。
+  const handleCtxCopyText = useCallback(() => {
+    const txt = selectedRef.current?.text?.trim()
+    if (!txt) return
+    void navigator.clipboard
+      .writeText(txt)
+      .then(() => toast.success(t("design.ctx.copied", "已复制")))
+      .catch(() => toast.error(t("design.err.load", "加载失败")))
+  }, [t])
+
   // 批量带到对话（B4-2）：多条批注合成一个 scope-guarded 结构块（编号 + 元素 + 反馈），
   // 作为单条 quote 塞进 composer——对齐参照 <attached-preview-comments> 的「硬范围」约束。
   const handleBatchCommentsToChat = useCallback(
@@ -2161,6 +2201,17 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
         return
       }
       if (d?.type === "ds_selected" && d.payload) setSelected(d.payload)
+      // 编辑态右键菜单：bridge 先发 ds_selected 选中元素、再发本消息带 iframe 内坐标；
+      // 换算 = iframe 屏上位置 + 坐标 × 当前预览缩放，再钳进窗口防溢出。
+      else if (d?.type === "ds_context_menu" && editModeRef.current) {
+        const rect = iframeRef.current?.getBoundingClientRect()
+        if (!rect) return
+        const s = previewScaleRef.current
+        setPreviewCtxMenu({
+          x: Math.max(8, Math.min(rect.left + Number(d.x ?? 0) * s, window.innerWidth - 184)),
+          y: Math.max(8, Math.min(rect.top + Number(d.y ?? 0) * s, window.innerHeight - 200)),
+        })
+      }
       // 就地文本编辑提交：双击叶子元素改文案 → 走同一确定性回写（apply_text_patch +
       // expectedHash）。仅编辑态受理；oid 直接来自被编辑元素。
       else if (d?.type === "ds_text_commit" && d.oid != null && editModeRef.current) {
@@ -2237,7 +2288,10 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
   // 底层 iframe 抢事件 / 出选中框——drawMode 期间强制 ds_deactivate（editMode 已被三态互斥关掉）。
   useEffect(() => {
     postToIframe({ type: editMode && !drawMode ? "ds_activate" : "ds_deactivate" })
-    if (!editMode) setSelected(null)
+    if (!editMode) {
+      setSelected(null)
+      setPreviewCtxMenu(null)
+    }
   }, [editMode, drawMode, postToIframe])
 
   // Reset edit state when switching artifacts.
@@ -2252,6 +2306,7 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
   // Re-arm bridge + restore selection after an iframe (re)mount.
   const handleIframeLoad = useCallback(() => {
     setPreviewLoading(false) // 新帧就绪 → 撤 spinner 叠层（Wave 2-⑥）
+    setPreviewCtxMenu(null) // 重载后旧菜单挂在已失效元素上，关掉
     if (editModeRef.current) postToIframe({ type: "ds_activate" })
     const oid = selectedRef.current?.oid
     if (oid != null) postToIframe({ type: "ds_reselect", oid })
@@ -3183,6 +3238,9 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
     ? devicePreset.h ?? Math.max(400, Math.round((paneSize.h - 32) / (deviceScale || 1)))
     : 0
 
+  // 右键菜单坐标换算用的当前预览缩放（iframe 内 CSS 像素 → 屏上像素）；fit 模式 iframe 100% 无
+  // transform 即 1:1。渲染期赋值（同 editModeRef 模式），消息 handler 经 ref 取最新值。
+  previewScaleRef.current = devicePreset ? deviceScale : zoom === "fit" ? 1 : zoom
   const scaleStyle: CSSProperties = devicePreset
     ? {
         width: `${devicePreset.w}px`,
@@ -4434,6 +4492,59 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
               onAddToChat={handleAddSelectedToChat}
               onClose={() => setSelected(null)}
             />
+          )}
+
+          {/* 编辑态预览右键菜单（bridge ds_context_menu；非编辑态原生右键不受影响） */}
+          {previewCtxMenu && editMode && selected && (
+            <div
+              className="fixed z-[100] min-w-[168px] rounded-lg border border-border bg-popover p-1 shadow-lg animate-in fade-in-0 zoom-in-95"
+              style={{ top: previewCtxMenu.y, left: previewCtxMenu.x }}
+              onMouseDown={(e) => e.stopPropagation()}
+            >
+              <button
+                className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-sm text-primary transition-colors hover:bg-primary/10"
+                onClick={() => {
+                  handleAddSelectedToChat()
+                  setPreviewCtxMenu(null)
+                }}
+              >
+                <MessagesSquare className="h-3.5 w-3.5" />
+                {t("design.insp.addToChat", "添加到对话")}
+              </button>
+              <button
+                className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-sm text-foreground transition-colors hover:bg-muted/80"
+                onClick={() => {
+                  handleCtxAddComment()
+                  setPreviewCtxMenu(null)
+                }}
+              >
+                <MessageSquare className="h-3.5 w-3.5" />
+                {t("design.ctx.comment", "添加批注")}
+              </button>
+              {!!selected.text?.trim() && (
+                <button
+                  className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-sm text-foreground transition-colors hover:bg-muted/80"
+                  onClick={() => {
+                    handleCtxCopyText()
+                    setPreviewCtxMenu(null)
+                  }}
+                >
+                  <Copy className="h-3.5 w-3.5" />
+                  {t("design.ctx.copyText", "复制文本")}
+                </button>
+              )}
+              <div className="my-1 h-px bg-border" />
+              <button
+                className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-sm text-destructive transition-colors hover:bg-destructive/10"
+                onClick={() => {
+                  void handleDeleteElement()
+                  setPreviewCtxMenu(null)
+                }}
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                {t("design.insp.deleteEl", "删除元素")}
+              </button>
+            </div>
           )}
 
           {/* Comment panel (right) — 批注钉（与 Inspector 互斥） */}

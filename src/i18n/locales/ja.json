@@ -6746,6 +6746,11 @@
       "done": "マスクで再生成しました",
       "failed": "再生成に失敗：{{msg}}"
     },
-    "exportPptxOutline": "PPTX（編集可能テキスト）"
+    "exportPptxOutline": "PPTX（編集可能テキスト）",
+    "ctx": {
+      "comment": "コメントを追加",
+      "copyText": "テキストをコピー",
+      "copied": "コピーしました"
+    }
   }
 }

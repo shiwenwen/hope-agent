@@ -6746,6 +6746,11 @@
       "done": "Regenerated from mask",
       "failed": "Inpaint failed: {{msg}}"
     },
-    "exportPptxOutline": "PPTX (editable text)"
+    "exportPptxOutline": "PPTX (editable text)",
+    "ctx": {
+      "comment": "Add comment",
+      "copyText": "Copy text",
+      "copied": "Copied"
+    }
   }
 }

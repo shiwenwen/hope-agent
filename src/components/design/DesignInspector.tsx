@@ -477,16 +477,15 @@ export default function DesignInspector({
             </span>
           </div>
         </IconTip>
-        <IconTip label={t("design.insp.addToChat", "添加到对话")} side="bottom">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-6 w-6 text-primary hover:bg-primary/10 hover:text-primary"
-            onClick={onAddToChat}
-          >
-            <MessagesSquare className="h-3.5 w-3.5" />
-          </Button>
-        </IconTip>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-6 shrink-0 gap-1 px-1.5 text-xs text-primary hover:bg-primary/10 hover:text-primary"
+          onClick={onAddToChat}
+        >
+          <MessagesSquare className="h-3.5 w-3.5" />
+          {t("design.insp.addToChat", "添加到对话")}
+        </Button>
         <IconTip label={t("design.insp.deleteEl", "删除元素")} side="bottom">
           <Button
             variant="ghost"

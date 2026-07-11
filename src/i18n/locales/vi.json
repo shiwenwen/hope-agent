@@ -6746,6 +6746,11 @@
       "done": "Đã tạo lại theo mặt nạ",
       "failed": "Vẽ lại thất bại: {{msg}}"
     },
-    "exportPptxOutline": "PPTX (văn bản chỉnh sửa được)"
+    "exportPptxOutline": "PPTX (văn bản chỉnh sửa được)",
+    "ctx": {
+      "comment": "Thêm nhận xét",
+      "copyText": "Sao chép văn bản",
+      "copied": "Đã sao chép"
+    }
   }
 }

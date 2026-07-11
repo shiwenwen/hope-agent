@@ -6746,6 +6746,11 @@
       "done": "已依遮罩重繪",
       "failed": "重繪失敗：{{msg}}"
     },
-    "exportPptxOutline": "PPTX（可編輯文字）"
+    "exportPptxOutline": "PPTX（可編輯文字）",
+    "ctx": {
+      "comment": "新增批註",
+      "copyText": "複製文字",
+      "copied": "已複製"
+    }
   }
 }

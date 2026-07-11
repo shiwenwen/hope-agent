@@ -6746,6 +6746,11 @@
       "done": "마스크로 재생성했습니다",
       "failed": "재생성 실패: {{msg}}"
     },
-    "exportPptxOutline": "PPTX(편집 가능 텍스트)"
+    "exportPptxOutline": "PPTX(편집 가능 텍스트)",
+    "ctx": {
+      "comment": "댓글 추가",
+      "copyText": "텍스트 복사",
+      "copied": "복사됨"
+    }
   }
 }

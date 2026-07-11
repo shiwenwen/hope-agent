@@ -6746,6 +6746,11 @@
       "done": "Regenerado desde la máscara",
       "failed": "Fallo al repintar: {{msg}}"
     },
-    "exportPptxOutline": "PPTX (texto editable)"
+    "exportPptxOutline": "PPTX (texto editable)",
+    "ctx": {
+      "comment": "Añadir comentario",
+      "copyText": "Copiar texto",
+      "copied": "Copiado"
+    }
   }
 }

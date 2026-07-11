@@ -6746,6 +6746,11 @@
       "done": "Dijana semula daripada topeng",
       "failed": "Lukis semula gagal: {{msg}}"
     },
-    "exportPptxOutline": "PPTX (teks boleh sunting)"
+    "exportPptxOutline": "PPTX (teks boleh sunting)",
+    "ctx": {
+      "comment": "Tambah komen",
+      "copyText": "Salin teks",
+      "copied": "Disalin"
+    }
   }
 }

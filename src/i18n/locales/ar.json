@@ -6746,6 +6746,11 @@
       "done": "تمت إعادة التوليد وفق القناع",
       "failed": "فشلت إعادة الرسم: {{msg}}"
     },
-    "exportPptxOutline": "PPTX (نص قابل للتحرير)"
+    "exportPptxOutline": "PPTX (نص قابل للتحرير)",
+    "ctx": {
+      "comment": "إضافة تعليق",
+      "copyText": "نسخ النص",
+      "copied": "تم النسخ"
+    }
   }
 }

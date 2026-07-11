@@ -6746,6 +6746,11 @@
       "done": "Maskeden yeniden oluşturuldu",
       "failed": "Yeniden çizim başarısız: {{msg}}"
     },
-    "exportPptxOutline": "PPTX (düzenlenebilir metin)"
+    "exportPptxOutline": "PPTX (düzenlenebilir metin)",
+    "ctx": {
+      "comment": "Yorum ekle",
+      "copyText": "Metni kopyala",
+      "copied": "Kopyalandı"
+    }
   }
 }
