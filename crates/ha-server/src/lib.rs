@@ -647,7 +647,20 @@ fn build_router_with_cors(
         .route("/chat", post(routes::chat::chat))
         .route(
             "/chat/turn-message",
-            post(routes::chat::queue_turn_user_message),
+            post(routes::chat::queue_turn_user_message)
+                .patch(routes::chat::update_queued_turn_user_message),
+        )
+        .route(
+            "/chat/turn-message/{session_id}",
+            get(routes::chat::list_queued_turn_user_messages),
+        )
+        .route(
+            "/chat/turn-message/{session_id}/{request_id}",
+            delete(routes::chat::delete_queued_turn_user_message),
+        )
+        .route(
+            "/chat/turn-message/insert",
+            post(routes::chat::insert_queued_turn_user_message),
         )
         .route(
             "/chat/turn-message/cancel",

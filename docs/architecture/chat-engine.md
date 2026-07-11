@@ -1,6 +1,6 @@
 # Chat Engine 对话引擎架构
 
-> 返回 [文档索引](../README.md) | 更新时间：2026-07-09
+> 返回 [文档索引](../README.md) | 更新时间：2026-07-11
 
 ## 目录
 
@@ -16,6 +16,7 @@
 - [流式回调处理](#流式回调处理)
 - [Stream Broadcast & Reload Recovery](#stream-broadcast--reload-recovery)
 - [Turn Lifecycle & Stop Recovery](#turn-lifecycle--stop-recovery)
+- [用户消息持久队列](#用户消息持久队列)
 - [Failover 集成](#failover-集成)
 - [Post-turn Effects](#post-turn-effects)
 - [记忆提取门控](#记忆提取门控)
@@ -427,6 +428,23 @@ SIGTERM / SIGINT / Ctrl+C / Ctrl+Break 触发 `run_clean_shutdown()`：
 
 Partial blocks 在 `[系统事件]` marker 之前 push，所以模型读 history 时先看到结构化
 partial，再看到「上面那段被中断了」的 system event 解释。
+
+## 用户消息持久队列
+
+忙时发送的用户消息以 `sessions.db.queued_turn_user_messages` 为唯一真相源，前端只持有当前会话投影，并在会话切换、窗口恢复和 `chat:turn_queue_changed` 后重新查询。队列按自增 `id` 保证会话内 FIFO，每会话硬上限 100 条。
+
+状态机：
+
+- `queued | fallback_after_reply`：可编辑、删除，也可作为下一独立回合发送。
+- `waiting_tool_boundary`：绑定当前 `turn_id`，等待一批工具全部完成。
+- `inserting`：工具边界已原子 claim；编辑、删除、取消均 CAS 失败，避免 UI 假删除。
+- `dispatching`：正在创建下一独立回合；同样不可变。
+
+普通续发只传 `queuedRequestId`。Desktop / HTTP 壳从 SQLite 取回真实正文、元数据和附件引用，防止刷新后依赖浏览器 `File` 对象，也避免 HTTP 列表暴露服务端绝对路径。用户消息落库时把 request id 写进 `messages.queue_request_id`（partial unique index）；启动恢复先删除已经存在对应消息的队列行，再将未提交的 `dispatching` 恢复为 `queued`、将未完成的工具插入恢复为 `fallback_after_reply`，实现崩溃后的 exactly-once 收敛。
+
+工具插入只在 `assistant + tool_result` 已完整写入 provider-native history 后 claim 并 drain；没有出现工具边界、用户停止或回合失败时，`StreamLifecycle::finish` 把剩余绑定项原子降级为 `fallback_after_reply`。消息和附件在首次入队时即持久化；上传图片只在队列表保存 session-owned `file_path`，不把 base64 大块长期写进 SQLite。
+
+接口必须保持双 Transport 对齐：Tauri commands 与 HTTP `GET/POST/PATCH/DELETE /api/chat/turn-message...` 同时提供 list / enqueue / edit / delete / insert / cancel。
 
 ## Failover 集成
 
