@@ -557,17 +557,27 @@ pub async fn workspace_symbols_for_session(
 }
 
 async fn server_infos(workspace_root: Option<&str>) -> Vec<LspServerInfo> {
+    // `which` walks every PATH entry per command — keep the lookups off the
+    // async worker (and outside the CLIENTS lock).
+    let availability: Vec<bool> = crate::blocking::run_blocking(|| {
+        default_configs()
+            .iter()
+            .map(|cfg| which::which(cfg.command).is_ok())
+            .collect()
+    })
+    .await;
     let clients = CLIENTS.lock().await;
     default_configs()
         .iter()
-        .map(|cfg| {
+        .zip(availability)
+        .map(|(cfg, available)| {
             let key = workspace_root.map(|root| client_key(root, cfg.id));
             let active_client = key.as_ref().and_then(|key| clients.get(key));
             LspServerInfo {
                 id: cfg.id.to_string(),
                 command: cfg.command.to_string(),
                 args: cfg.args.iter().map(|s| s.to_string()).collect(),
-                available: which::which(cfg.command).is_ok(),
+                available,
                 extensions: cfg
                     .extensions
                     .iter()
@@ -606,11 +616,16 @@ fn diagnostics_for_root_cached(root: &str) -> Vec<LspDiagnostic> {
 }
 
 async fn ensure_clients_for_root(root: &str) -> Result<Vec<Arc<LspClient>>> {
+    let installed: Vec<&'static LspServerConfig> = crate::blocking::run_blocking(|| {
+        default_configs()
+            .iter()
+            .filter(|cfg| which::which(cfg.command).is_ok())
+            .collect()
+    })
+    .await;
     let mut out = Vec::new();
-    for cfg in default_configs() {
-        if which::which(cfg.command).is_ok() {
-            out.push(ensure_client(root, cfg).await?);
-        }
+    for cfg in installed {
+        out.push(ensure_client(root, cfg).await?);
     }
     Ok(out)
 }
@@ -619,15 +634,19 @@ async fn ensure_client_for_path(path: &str) -> Result<Arc<LspClient>> {
     let path = PathBuf::from(path);
     let cfg = config_for_path(&path)
         .ok_or_else(|| anyhow!("no default LSP server configured for {}", path.display()))?;
-    if which::which(cfg.command).is_err() {
-        bail!(
-            "LSP server '{}' is not installed or not in PATH. Install `{}` to enable {} files.",
-            cfg.command,
-            cfg.command,
-            cfg.id
-        );
-    }
-    let root = workspace_root_for_path(&path)?;
+    // PATH lookup + `git rev-parse` root discovery are both blocking.
+    let root = crate::blocking::run_blocking(move || -> Result<String> {
+        if which::which(cfg.command).is_err() {
+            bail!(
+                "LSP server '{}' is not installed or not in PATH. Install `{}` to enable {} files.",
+                cfg.command,
+                cfg.command,
+                cfg.id
+            );
+        }
+        workspace_root_for_path(&path)
+    })
+    .await?;
     ensure_client(&root, cfg).await
 }
 

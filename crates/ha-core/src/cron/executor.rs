@@ -13,6 +13,39 @@ use super::types::*;
 /// mid-write tear-down. Bounded so a truly wedged run still releases its slot.
 const CRON_TIMEOUT_CANCEL_GRACE_SECS: u64 = 5;
 
+/// Dedicated runtime for job executions dispatched outside the scheduler
+/// (run-now entries, loop monitors, loop event triggers). `execute_job_public`'s
+/// internals make dozens of synchronous CronDB/SessionDB calls that are exempt
+/// on the scheduler's private runtime (Layer B) but must not run on the shared
+/// app runtime — a long cron turn would pin its worker threads. Long-lived (like
+/// the scheduler's runtime) so tasks spawned by the turn survive job completion.
+fn cron_dispatch_runtime() -> &'static tokio::runtime::Handle {
+    static RT: std::sync::OnceLock<tokio::runtime::Runtime> = std::sync::OnceLock::new();
+    let rt = RT.get_or_init(|| {
+        tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .enable_all()
+            .thread_name("cron-dispatch")
+            .build()
+            .expect("failed to build cron dispatch runtime")
+    });
+    rt.handle()
+}
+
+/// Fire-and-forget dispatch of a job execution onto the dedicated cron runtime.
+/// Every entry that used to `tokio::spawn(execute_job_public(..))` onto the
+/// caller's runtime must go through here instead — the shared app runtime is
+/// not a valid home for a cron turn's synchronous DB call chain.
+pub fn spawn_job_execution(
+    cron_db: Arc<CronDB>,
+    session_db: Arc<crate::session::SessionDB>,
+    job: CronJob,
+) {
+    cron_dispatch_runtime().spawn(async move {
+        execute_job_public(&cron_db, &session_db, &job).await;
+    });
+}
+
 /// Public wrapper for execute_job, callable from Tauri commands.
 pub async fn execute_job_public(
     cron_db: &Arc<CronDB>,

@@ -347,28 +347,29 @@ pub(crate) fn tool_manage_cron<'a>(
                         "run_now is unavailable on this instance: scheduled jobs only run on the primary"
                     );
                 }
-                let job = cron_db
-                    .get_job(id)?
-                    .ok_or_else(|| anyhow::anyhow!("Job '{}' not found", id))?;
+                let job = {
+                    let cron_db = cron_db.clone();
+                    let id = id.to_string();
+                    crate::blocking::run_blocking(move || cron_db.get_job(&id)).await?
+                }
+                .ok_or_else(|| anyhow::anyhow!("Job '{}' not found", id))?;
 
-                // Fire and forget — run in background via tokio::spawn.
-                // The type-level recursion is broken by this function returning
-                // Pin<Box<dyn Future + Send>> instead of an opaque async fn future.
-                let db = cron_db.clone();
-                let job_clone = job;
                 // Prefer the global SessionDB (Tauri app); fall back to opening a fresh
                 // connection (ACP mode where SESSION_DB OnceLock is never populated).
                 let session_db = match crate::get_session_db() {
                     Some(db) => db.clone(),
                     None => {
-                        let path = crate::session::db_path()?;
-                        std::sync::Arc::new(crate::session::SessionDB::open(&path)?)
+                        crate::blocking::run_blocking(move || {
+                            let path = crate::session::db_path()?;
+                            Ok::<_, anyhow::Error>(std::sync::Arc::new(
+                                crate::session::SessionDB::open(&path)?,
+                            ))
+                        })
+                        .await?
                     }
                 };
 
-                tokio::spawn(async move {
-                    cron::execute_job_public(&db, &session_db, &job_clone).await;
-                });
+                cron::spawn_job_execution(cron_db.clone(), session_db, job);
                 Ok(format!("Triggered immediate execution of '{}'.", id))
             }
 

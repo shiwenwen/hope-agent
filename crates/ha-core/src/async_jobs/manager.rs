@@ -194,10 +194,21 @@ impl JobManager {
         job_id: &str,
         timeout: Option<Duration>,
     ) -> Result<Option<BackgroundJob>> {
+        // Each poll is a synchronous JobsDB read — route every one through the
+        // blocking pool so awaiting a long job never pins an async worker.
+        async fn load_off_worker(
+            db: &std::sync::Arc<super::db::JobsDB>,
+            job_id: &str,
+        ) -> Result<Option<BackgroundJob>> {
+            let db = db.clone();
+            let job_id = job_id.to_string();
+            crate::blocking::run_blocking(move || db.load(&job_id)).await
+        }
+
         let db = super::get_async_jobs_db()
             .ok_or_else(|| anyhow!("Async jobs DB not initialized"))?
             .clone();
-        let Some(initial) = db.load(job_id)? else {
+        let Some(initial) = load_off_worker(&db, job_id).await? else {
             return Ok(None);
         };
         if initial.status.is_terminal() {
@@ -209,7 +220,7 @@ impl JobManager {
             notify: super::wait::register_waiter(job_id),
         };
 
-        let Some(recheck) = db.load(job_id)? else {
+        let Some(recheck) = load_off_worker(&db, job_id).await? else {
             return Ok(None);
         };
         if recheck.status.is_terminal() {
@@ -223,7 +234,7 @@ impl JobManager {
                 Some(deadline) => {
                     let remaining = deadline.saturating_duration_since(std::time::Instant::now());
                     if remaining.is_zero() {
-                        return db.load(job_id);
+                        return load_off_worker(&db, job_id).await;
                     }
                     std::cmp::min(backoff, remaining)
                 }
@@ -240,7 +251,7 @@ impl JobManager {
                 }
             }
 
-            let Some(job) = db.load(job_id)? else {
+            let Some(job) = load_off_worker(&db, job_id).await? else {
                 return Ok(None);
             };
             if job.status.is_terminal() {

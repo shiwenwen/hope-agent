@@ -256,9 +256,11 @@ pub async fn context_retrieval_for_session(
         .filter(|s| !s.is_empty())
         .map(str::to_string);
     let matcher = QueryMatcher::new(query.as_deref());
-    let meta = db
-        .get_session(&session_id)?
-        .ok_or_else(|| anyhow!("session not found: {session_id}"))?;
+    let meta = {
+        let sid = session_id.clone();
+        db.run(move |db| db.get_session(&sid)).await?
+    }
+    .ok_or_else(|| anyhow!("session not found: {session_id}"))?;
     let workspace_root = effective_working_dir_for_meta(&meta);
 
     if meta.incognito {
@@ -278,31 +280,50 @@ pub async fn context_retrieval_for_session(
 
     let mut stats = ContextRetrievalStats::default();
     let mut map: HashMap<String, CandidateAccum> = HashMap::new();
-    let ide_context = input.ide_context.clone().or_else(|| {
-        db.get_session_ide_context(&session_id)
-            .ok()
-            .flatten()
-            .map(|snapshot| snapshot.context)
-    });
-    let domain_context = resolve_domain_context(&db, &session_id, &input);
+    let (ide_context, domain_context) = {
+        let sid = session_id.clone();
+        let explicit_ide = input.ide_context.clone();
+        let input = input.clone();
+        db.run(move |db| {
+            let ide_context = explicit_ide.or_else(|| {
+                db.get_session_ide_context(&sid)
+                    .ok()
+                    .flatten()
+                    .map(|snapshot| snapshot.context)
+            });
+            let domain_context = resolve_domain_context(db, &sid, &input);
+            (ide_context, domain_context)
+        })
+        .await
+    };
 
     gather_ide_context(ide_context.as_ref(), &matcher, &mut map, &mut stats);
     gather_git_changes(db.clone(), &session_id, &matcher, &mut map, &mut stats).await;
     gather_artifacts(db.clone(), &session_id, &matcher, &mut map, &mut stats).await;
     gather_lsp_diagnostics(&db, &session_id, &matcher, &mut map, &mut stats).await;
-    gather_review_findings(&db, &session_id, &matcher, &mut map, &mut stats);
-    gather_verification_steps(&db, &session_id, &matcher, &mut map, &mut stats);
-    gather_goal_evidence(&db, &session_id, &matcher, &mut map, &mut stats);
-    gather_tasks(&db, &session_id, &matcher, &mut map, &mut stats);
-    gather_workflow_ops(&db, &session_id, &matcher, &mut map, &mut stats);
-    gather_domain_context(
-        &db,
-        &session_id,
-        domain_context.as_ref(),
-        &matcher,
-        &mut map,
-        &mut stats,
-    );
+    let (mut map, mut stats, domain_context) = {
+        let sid = session_id.clone();
+        let matcher = matcher.clone();
+        db.run(move |db| {
+            let mut map = map;
+            let mut stats = stats;
+            gather_review_findings(db, &sid, &matcher, &mut map, &mut stats);
+            gather_verification_steps(db, &sid, &matcher, &mut map, &mut stats);
+            gather_goal_evidence(db, &sid, &matcher, &mut map, &mut stats);
+            gather_tasks(db, &sid, &matcher, &mut map, &mut stats);
+            gather_workflow_ops(db, &sid, &matcher, &mut map, &mut stats);
+            gather_domain_context(
+                db,
+                &sid,
+                domain_context.as_ref(),
+                &matcher,
+                &mut map,
+                &mut stats,
+            );
+            (map, stats, domain_context)
+        })
+        .await
+    };
     gather_file_search(
         workspace_root.as_deref(),
         query.as_deref(),

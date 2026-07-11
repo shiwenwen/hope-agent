@@ -145,13 +145,7 @@ pub fn spawn_loop_schedule_run_now(
     let job = cron_db
         .get_job(&schedule.cron_job_id)?
         .ok_or_else(|| anyhow!("Cron job not found"))?;
-    let handle = tokio::runtime::Handle::try_current()
-        .map_err(|_| anyhow!("run-now requires an active Tokio runtime"))?;
-    let cron_db = cron_db.clone();
-    let session_db = session_db.clone();
-    handle.spawn(async move {
-        crate::cron::execute_job_public(&cron_db, &session_db, &job).await;
-    });
+    crate::cron::spawn_job_execution(cron_db.clone(), session_db.clone(), job);
     Ok(())
 }
 
@@ -366,32 +360,50 @@ fn loop_monitors() -> &'static StdMutex<HashMap<String, LoopMonitorHandle>> {
 }
 
 fn stop_loop_monitor(watch_id: &str) {
-    if let Some(LoopMonitorHandle::Async { cancel, .. }) = loop_monitors()
+    // Take the handle out of the registry first and only then act on it: a
+    // File handle's drop joins the notify event thread, and that thread's
+    // callback may itself be waiting on the registry mutex (one-shot settle) —
+    // dropping under the lock would deadlock the pair.
+    let removed = loop_monitors()
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .remove(watch_id)
-    {
+        .remove(watch_id);
+    if let Some(LoopMonitorHandle::Async { cancel, .. }) = removed {
         cancel.cancel();
     }
 }
 
 fn remove_loop_monitor_generation(watch_id: &str, generation: i64) {
-    let mut monitors = loop_monitors()
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    let matches_generation = match monitors.get(watch_id) {
-        Some(LoopMonitorHandle::File {
-            generation: current,
-            ..
-        })
-        | Some(LoopMonitorHandle::Async {
-            generation: current,
-            ..
-        }) => *current == generation,
-        None => false,
+    let removed = {
+        let mut monitors = loop_monitors()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let matches_generation = match monitors.get(watch_id) {
+            Some(LoopMonitorHandle::File {
+                generation: current,
+                ..
+            })
+            | Some(LoopMonitorHandle::Async {
+                generation: current,
+                ..
+            }) => *current == generation,
+            None => false,
+        };
+        if matches_generation {
+            monitors.remove(watch_id)
+        } else {
+            None
+        }
     };
-    if matches_generation {
-        monitors.remove(watch_id);
+    if let Some(handle) = removed {
+        if matches!(handle, LoopMonitorHandle::File { .. }) {
+            // Dropping a File handle joins the notify event thread. This fn is
+            // reachable from that very thread (the one-shot settle runs inside
+            // the notify callback), where an inline drop would self-join and
+            // deadlock — while our caller chain sits on the registry mutex.
+            // Hand the drop to a detached thread; settles are rare one-shots.
+            std::thread::spawn(move || drop(handle));
+        }
     }
 }
 
@@ -5077,9 +5089,7 @@ fn spawn_loop_monitor_run(
             return true;
         }
     };
-    tokio::spawn(async move {
-        crate::cron::execute_job_public(&cron_db, &session_db, &job).await;
-    });
+    crate::cron::spawn_job_execution(cron_db, session_db, job);
     true
 }
 
@@ -5114,8 +5124,14 @@ fn start_file_loop_monitor(
     let callback_db = session_db.clone();
     let callback_cron = cron_db.clone();
     let callback_monitor_job_id = monitor_job_id.clone();
-    let handle = tokio::runtime::Handle::try_current()
-        .map_err(|_| anyhow!("file loop monitor requires an active Tokio runtime"))?;
+    // The body runs directly on notify's watcher thread: a dedicated OS thread
+    // (blocking-work exempt), and — critically — notify delivers a watcher's
+    // events sequentially, which serializes the one-shot record→settle
+    // check-then-act sequence. Dispatching the body to a pool would let one
+    // fs write's multiple notify events (Create + Modify…) race past the
+    // `active` check concurrently and emit several durable ticks. Nothing
+    // here needs a runtime: the DB calls are sync and `spawn_job_execution`
+    // carries its own dedicated runtime handle.
     let mut watcher = notify::recommended_watcher(move |result: notify::Result<notify::Event>| {
         let session_db = callback_db.clone();
         let cron_db = callback_cron.clone();
@@ -5134,50 +5150,50 @@ fn start_file_loop_monitor(
                     "paths": paths,
                     "truncated": event.paths.len() > 16,
                 });
-                handle.spawn(async move {
-                    if spawn_loop_monitor_run(
-                        session_db.clone(),
-                        cron_db,
-                        watch_id.clone(),
-                        "changed",
-                        payload,
-                    ) {
-                        let _ = session_db.settle_loop_monitor_watch(&watch_id, generation);
-                        remove_loop_monitor_generation(&watch_id, generation);
-                        if let Some(job_id) = monitor_job_id.as_deref() {
-                            let _ = crate::async_jobs::JobManager::finish_monitor(
-                                job_id,
-                                crate::async_jobs::JobStatus::Completed,
-                                Some("changed"),
-                                None,
-                            );
-                        }
+                if spawn_loop_monitor_run(
+                    session_db.clone(),
+                    cron_db,
+                    watch_id.clone(),
+                    "changed",
+                    payload,
+                ) {
+                    // Terminalize the monitor job BEFORE settling the watch
+                    // (same order as the websocket monitor): observers treat
+                    // `active == false` as "the monitor job is terminal", and
+                    // this thread runs concurrently with them.
+                    if let Some(job_id) = monitor_job_id.as_deref() {
+                        let _ = crate::async_jobs::JobManager::finish_monitor(
+                            job_id,
+                            crate::async_jobs::JobStatus::Completed,
+                            Some("changed"),
+                            None,
+                        );
                     }
-                });
+                    let _ = session_db.settle_loop_monitor_watch(&watch_id, generation);
+                    remove_loop_monitor_generation(&watch_id, generation);
+                }
             }
             Err(err) => {
                 let message = err.to_string();
-                handle.spawn(async move {
-                    let _ = session_db.record_loop_monitor_error(&watch_id, &message);
-                    if spawn_loop_monitor_run(
-                        session_db.clone(),
-                        cron_db,
-                        watch_id.clone(),
-                        "failed",
-                        json!({ "error": truncate_utf8(&message, 1000) }),
-                    ) {
-                        let _ = session_db.settle_loop_monitor_watch(&watch_id, generation);
-                        remove_loop_monitor_generation(&watch_id, generation);
-                        if let Some(job_id) = monitor_job_id.as_deref() {
-                            let _ = crate::async_jobs::JobManager::finish_monitor(
-                                job_id,
-                                crate::async_jobs::JobStatus::Failed,
-                                None,
-                                Some(&message),
-                            );
-                        }
+                let _ = session_db.record_loop_monitor_error(&watch_id, &message);
+                if spawn_loop_monitor_run(
+                    session_db.clone(),
+                    cron_db,
+                    watch_id.clone(),
+                    "failed",
+                    json!({ "error": truncate_utf8(&message, 1000) }),
+                ) {
+                    if let Some(job_id) = monitor_job_id.as_deref() {
+                        let _ = crate::async_jobs::JobManager::finish_monitor(
+                            job_id,
+                            crate::async_jobs::JobStatus::Failed,
+                            None,
+                            Some(&message),
+                        );
                     }
-                });
+                    let _ = session_db.settle_loop_monitor_watch(&watch_id, generation);
+                    remove_loop_monitor_generation(&watch_id, generation);
+                }
             }
         }
     })?;
@@ -5295,70 +5311,73 @@ async fn start_websocket_loop_monitor(
                 }
             }
         }).await;
-        match result {
-            Ok(Ok(Some((outcome, payload)))) => {
-                let outcome: &'static str = match outcome.as_str() {
-                    "message" => "message",
-                    _ => "closed",
-                };
-                spawn_loop_monitor_run(
-                    session_db.clone(),
-                    cron_db.clone(),
-                    watch_id.clone(),
-                    outcome,
-                    payload,
-                );
-                if let Some(job_id) = monitor_job_id.as_deref() {
-                    let _ = crate::async_jobs::JobManager::finish_monitor(
-                        job_id,
-                        crate::async_jobs::JobStatus::Completed,
-                        Some(outcome),
-                        None,
+        crate::blocking::run_blocking(move || {
+            match result {
+                Ok(Ok(Some((outcome, payload)))) => {
+                    let outcome: &'static str = match outcome.as_str() {
+                        "message" => "message",
+                        _ => "closed",
+                    };
+                    spawn_loop_monitor_run(
+                        session_db.clone(),
+                        cron_db.clone(),
+                        watch_id.clone(),
+                        outcome,
+                        payload,
                     );
+                    if let Some(job_id) = monitor_job_id.as_deref() {
+                        let _ = crate::async_jobs::JobManager::finish_monitor(
+                            job_id,
+                            crate::async_jobs::JobStatus::Completed,
+                            Some(outcome),
+                            None,
+                        );
+                    }
+                }
+                Ok(Ok(None)) => {}
+                Ok(Err(err)) => {
+                    let message = err.to_string();
+                    let _ = session_db.record_loop_monitor_error(&watch_id, &message);
+                    spawn_loop_monitor_run(
+                        session_db.clone(),
+                        cron_db.clone(),
+                        watch_id.clone(),
+                        "failed",
+                        json!({ "error": truncate_utf8(&message, 1000) }),
+                    );
+                    if let Some(job_id) = monitor_job_id.as_deref() {
+                        let _ = crate::async_jobs::JobManager::finish_monitor(
+                            job_id,
+                            crate::async_jobs::JobStatus::Failed,
+                            None,
+                            Some(&message),
+                        );
+                    }
+                }
+                Err(_) => {
+                    let message = format!("websocket monitor timed out after {timeout_secs}s");
+                    let _ = session_db.record_loop_monitor_error(&watch_id, &message);
+                    spawn_loop_monitor_run(
+                        session_db.clone(),
+                        cron_db.clone(),
+                        watch_id.clone(),
+                        "timed_out",
+                        json!({ "timeoutSecs": timeout_secs }),
+                    );
+                    if let Some(job_id) = monitor_job_id.as_deref() {
+                        let _ = crate::async_jobs::JobManager::finish_monitor(
+                            job_id,
+                            crate::async_jobs::JobStatus::TimedOut,
+                            None,
+                            Some(&message),
+                        );
+                    }
                 }
             }
-            Ok(Ok(None)) => {}
-            Ok(Err(err)) => {
-                let message = err.to_string();
-                let _ = session_db.record_loop_monitor_error(&watch_id, &message);
-                spawn_loop_monitor_run(
-                    session_db.clone(),
-                    cron_db.clone(),
-                    watch_id.clone(),
-                    "failed",
-                    json!({ "error": truncate_utf8(&message, 1000) }),
-                );
-                if let Some(job_id) = monitor_job_id.as_deref() {
-                    let _ = crate::async_jobs::JobManager::finish_monitor(
-                        job_id,
-                        crate::async_jobs::JobStatus::Failed,
-                        None,
-                        Some(&message),
-                    );
-                }
-            }
-            Err(_) => {
-                let message = format!("websocket monitor timed out after {timeout_secs}s");
-                let _ = session_db.record_loop_monitor_error(&watch_id, &message);
-                spawn_loop_monitor_run(
-                    session_db.clone(),
-                    cron_db.clone(),
-                    watch_id.clone(),
-                    "timed_out",
-                    json!({ "timeoutSecs": timeout_secs }),
-                );
-                if let Some(job_id) = monitor_job_id.as_deref() {
-                    let _ = crate::async_jobs::JobManager::finish_monitor(
-                        job_id,
-                        crate::async_jobs::JobStatus::TimedOut,
-                        None,
-                        Some(&message),
-                    );
-                }
-            }
-        }
-        let _ = session_db.settle_loop_monitor_watch(&watch_id, generation);
-        remove_loop_monitor_generation(&watch_id, generation);
+            let _ = session_db.settle_loop_monitor_watch(&watch_id, generation);
+            remove_loop_monitor_generation(&watch_id, generation);
+        })
+        .await;
     });
     Ok(())
 }
@@ -5371,21 +5390,34 @@ pub(crate) async fn start_loop_monitor_adapter(
     if !matches!(watch.kind, LoopWatchKind::File | LoopWatchKind::Websocket) {
         return Ok(());
     }
-    let schedule = session_db
-        .get_loop_schedule(&watch.loop_id)?
-        .ok_or_else(|| anyhow!("loop schedule not found: {}", watch.loop_id))?;
-    let monitor_job_id = crate::async_jobs::JobManager::register_monitor(
-        &schedule.session_id,
-        &watch.id,
-        watch.kind.as_str(),
-        &watch.spec,
-    )?;
-    if let Some(job_id) = monitor_job_id.as_deref() {
-        session_db.bind_loop_watch_monitor_job(&watch.id, job_id)?;
-    }
+    let monitor_job_id = {
+        let watch = watch.clone();
+        session_db
+            .run(move |db| -> Result<Option<String>> {
+                let schedule = db
+                    .get_loop_schedule(&watch.loop_id)?
+                    .ok_or_else(|| anyhow!("loop schedule not found: {}", watch.loop_id))?;
+                let monitor_job_id = crate::async_jobs::JobManager::register_monitor(
+                    &schedule.session_id,
+                    &watch.id,
+                    watch.kind.as_str(),
+                    &watch.spec,
+                )?;
+                if let Some(job_id) = monitor_job_id.as_deref() {
+                    db.bind_loop_watch_monitor_job(&watch.id, job_id)?;
+                }
+                Ok(monitor_job_id)
+            })
+            .await?
+    };
     let result = match watch.kind {
         LoopWatchKind::File => {
-            start_file_loop_monitor(session_db, cron_db, watch, monitor_job_id.clone())
+            let watch = watch.clone();
+            let monitor_job_id = monitor_job_id.clone();
+            crate::blocking::run_blocking(move || {
+                start_file_loop_monitor(session_db, cron_db, &watch, monitor_job_id)
+            })
+            .await
         }
         LoopWatchKind::Websocket => {
             start_websocket_loop_monitor(session_db, cron_db, watch, monitor_job_id.clone()).await
@@ -5410,7 +5442,10 @@ pub(crate) async fn start_loop_monitor_adapter(
 
 fn spawn_loop_monitor_recovery(session_db: Arc<SessionDB>, cron_db: Arc<CronDB>) {
     tokio::spawn(async move {
-        let watches = match session_db.list_active_loop_monitor_watches() {
+        let watches = match session_db
+            .run(move |db| db.list_active_loop_monitor_watches())
+            .await
+        {
             Ok(items) => items,
             Err(err) => {
                 app_warn!(
@@ -5426,13 +5461,20 @@ fn spawn_loop_monitor_recovery(session_db: Arc<SessionDB>, cron_db: Arc<CronDB>)
             if let Err(err) =
                 start_loop_monitor_adapter(session_db.clone(), cron_db.clone(), &watch).await
             {
-                let _ = session_db.record_loop_monitor_error(&watch.id, &err.to_string());
+                let message = err.to_string();
+                {
+                    let watch_id = watch.id.clone();
+                    let message = message.clone();
+                    let _ = session_db
+                        .run(move |db| db.record_loop_monitor_error(&watch_id, &message))
+                        .await;
+                }
                 app_warn!(
                     "loop",
                     "monitor_recovery",
                     "failed to recover monitor {}: {}",
                     watch.id,
-                    err
+                    message
                 );
             }
         }
@@ -5459,18 +5501,28 @@ fn spawn_loop_monitor_recovery_for_loop(loop_id: String) {
         return;
     };
     handle.spawn(async move {
-        let schedule = match session_db.get_loop_schedule(&loop_id) {
-            Ok(Some(schedule)) if schedule.state == LoopState::Active => schedule,
-            _ => return,
+        let listed = {
+            let loop_id = loop_id.clone();
+            session_db
+                .run(move |db| -> Result<Option<(String, Vec<LoopWatch>)>> {
+                    let schedule = match db.get_loop_schedule(&loop_id)? {
+                        Some(schedule) if schedule.state == LoopState::Active => schedule,
+                        _ => return Ok(None),
+                    };
+                    let watches = db.list_loop_watches(&schedule.id)?;
+                    Ok(Some((schedule.id, watches)))
+                })
+                .await
         };
-        let watches = match session_db.list_loop_watches(&schedule.id) {
-            Ok(watches) => watches,
+        let watches = match listed {
+            Ok(Some((_, watches))) => watches,
+            Ok(None) => return,
             Err(err) => {
                 app_warn!(
                     "loop",
                     "monitor_recovery",
                     "failed to list monitors for resumed Loop {}: {}",
-                    schedule.id,
+                    loop_id,
                     err
                 );
                 return;
@@ -5482,13 +5534,20 @@ fn spawn_loop_monitor_recovery_for_loop(loop_id: String) {
             if let Err(err) =
                 start_loop_monitor_adapter(session_db.clone(), cron_db.clone(), &watch).await
             {
-                let _ = session_db.record_loop_monitor_error(&watch.id, &err.to_string());
+                let message = err.to_string();
+                {
+                    let watch_id = watch.id.clone();
+                    let message = message.clone();
+                    let _ = session_db
+                        .run(move |db| db.record_loop_monitor_error(&watch_id, &message))
+                        .await;
+                }
                 app_warn!(
                     "loop",
                     "monitor_recovery",
                     "failed to recover resumed monitor {}: {}",
                     watch.id,
-                    err
+                    message
                 );
             }
         }
@@ -5529,48 +5588,53 @@ pub fn spawn_loop_event_trigger_watcher() {
         loop {
             match rx.recv().await {
                 Ok(event) => {
-                    let cron_job_ids = match session_db.enqueue_loop_event_triggers(&event) {
-                        Ok(ids) => ids,
-                        Err(err) => {
-                            app_warn!(
-                                "loop",
-                                "event_trigger",
-                                "Failed to enqueue loop event trigger {}: {}",
-                                event.name,
-                                err
-                            );
-                            continue;
-                        }
-                    };
-                    for cron_job_id in cron_job_ids {
-                        let job = match cron_db.get_job(&cron_job_id) {
-                            Ok(Some(job)) => job,
-                            Ok(None) => {
-                                app_warn!(
-                                    "loop",
-                                    "event_trigger",
-                                    "Loop event trigger references missing cron job {}",
-                                    cron_job_id
-                                );
-                                continue;
-                            }
+                    let session_db = session_db.clone();
+                    let cron_db = cron_db.clone();
+                    crate::blocking::run_blocking(move || {
+                        let cron_job_ids = match session_db.enqueue_loop_event_triggers(&event) {
+                            Ok(ids) => ids,
                             Err(err) => {
                                 app_warn!(
                                     "loop",
                                     "event_trigger",
-                                    "Failed to load loop cron job {}: {}",
-                                    cron_job_id,
+                                    "Failed to enqueue loop event trigger {}: {}",
+                                    event.name,
                                     err
                                 );
-                                continue;
+                                return;
                             }
                         };
-                        let cron_db = cron_db.clone();
-                        let session_db = session_db.clone();
-                        tokio::spawn(async move {
-                            crate::cron::execute_job_public(&cron_db, &session_db, &job).await;
-                        });
-                    }
+                        for cron_job_id in cron_job_ids {
+                            let job = match cron_db.get_job(&cron_job_id) {
+                                Ok(Some(job)) => job,
+                                Ok(None) => {
+                                    app_warn!(
+                                        "loop",
+                                        "event_trigger",
+                                        "Loop event trigger references missing cron job {}",
+                                        cron_job_id
+                                    );
+                                    continue;
+                                }
+                                Err(err) => {
+                                    app_warn!(
+                                        "loop",
+                                        "event_trigger",
+                                        "Failed to load loop cron job {}: {}",
+                                        cron_job_id,
+                                        err
+                                    );
+                                    continue;
+                                }
+                            };
+                            crate::cron::spawn_job_execution(
+                                cron_db.clone(),
+                                session_db.clone(),
+                                job,
+                            );
+                        }
+                    })
+                    .await;
                 }
                 Err(RecvError::Lagged(count)) => {
                     app_warn!(

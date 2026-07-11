@@ -1350,14 +1350,23 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                     crate::hooks::fire_stop(&session_id, Some(&agent_id), terminal_status.as_str());
 
                     if terminal_status == session::ChatTurnStatus::Completed {
-                        if let Err(e) = crate::goal::maybe_schedule_goal_continuation(
-                            &db,
-                            &session_id,
-                            &agent_id,
-                            source,
-                            turn_id.as_deref(),
-                            assistant_id,
-                        ) {
+                        let continuation = {
+                            let session_id = session_id.clone();
+                            let agent_id = agent_id.clone();
+                            let turn_id = turn_id.clone();
+                            db.run(move |db| {
+                                crate::goal::maybe_schedule_goal_continuation(
+                                    db,
+                                    &session_id,
+                                    &agent_id,
+                                    source,
+                                    turn_id.as_deref(),
+                                    assistant_id,
+                                )
+                            })
+                            .await
+                        };
+                        if let Err(e) = continuation {
                             app_warn!(
                                 "goal",
                                 "auto_continue",
