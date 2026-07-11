@@ -6506,7 +6506,11 @@
         "a11y": "A11y",
         "content": "Content",
         "semantics": "Semantics"
-      }
+      },
+      "fixWithAgent": "Fix with AI",
+      "fixStarted": "AI is fixing it now",
+      "fixBusy": "A conversation is in progress, please try again shortly",
+      "fixPrompt": "Please fix the issue found by the design self-check: {{detail}}. Use design-system tokens (var(--ds-*)) to consolidate colors and replace hard-coded styles. Make only the minimal necessary changes and keep everything else in the design intact."
     },
     "kit": {
       "title": "Design system kit",

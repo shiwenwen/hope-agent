@@ -6506,7 +6506,11 @@
         "a11y": "Truy cập",
         "content": "Nội dung",
         "semantics": "Ngữ nghĩa"
-      }
+      },
+      "fixWithAgent": "Sửa bằng AI",
+      "fixStarted": "AI đang sửa",
+      "fixBusy": "Cuộc trò chuyện đang diễn ra, vui lòng thử lại sau",
+      "fixPrompt": "Vui lòng sửa vấn đề được phát hiện qua tự kiểm tra thiết kế: {{detail}}. Dùng token hệ thống thiết kế (var(--ds-*)) để gom màu sắc và thay thế kiểu mã hóa cứng. Chỉ thực hiện thay đổi tối thiểu cần thiết và giữ nguyên phần còn lại của thiết kế."
     },
     "kit": {
       "title": "Bộ công cụ hệ thống thiết kế",

@@ -463,6 +463,14 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
     pendingImagesRef.current = []
     for (const f of queued) chatPanelRef.current.addImageAttachment(f)
   }, [chatOpen])
+  // 「让 AI 修复」缓冲（同 quote/image：面板折叠时 ref 为 null，先打开面板缓冲，挂载后 flush 发送）。
+  const pendingFixRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!chatOpen || !chatPanelRef.current || !pendingFixRef.current) return
+    const prompt = pendingFixRef.current
+    pendingFixRef.current = null
+    chatPanelRef.current.submitPrompt(prompt)
+  }, [chatOpen])
   const [chatWidth, setChatWidth] = useState(() => {
     const saved = Number(localStorage.getItem("design_chat_width"))
     return Number.isFinite(saved) && saved >= 320 && saved <= 640 ? saved : 400
@@ -1949,6 +1957,31 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
     },
     [tx, openArtifact, loadArtifacts, t],
   )
+
+  // 「让 AI 修复」：把当前产物自查发现的问题作为一条针对性指令直接发进设计对话——
+  // Agent 走 get_artifact → edit/restyle 就地修，修完 edit 路径重跑确定性自查自动清徽章，
+  // 无需用户再手动 recheck。面板折叠则缓冲、打开后 flush（见 pendingFixRef effect）。
+  const handleFixWithAgent = useCallback(() => {
+    const art = activeArtifactRef.current
+    if (!art) return
+    const detail =
+      parseSelfCheck(art.metadata)?.detail ??
+      t("design.review.flagged", "自查发现可能的质量问题，建议复查")
+    const prompt = t(
+      "design.review.fixPrompt",
+      "请修复设计自查发现的问题：{{detail}}。用设计系统 token（var(--ds-*)）收敛配色、替换硬编码样式，只做必要的最小改动，保持产物其它内容与整体设计不变。",
+      { detail },
+    )
+    setChatOpen(true)
+    if (chatPanelRef.current) {
+      const sent = chatPanelRef.current.submitPrompt(prompt)
+      if (sent) toast.success(t("design.review.fixStarted", "已让 AI 开始修复"))
+      else toast.error(t("design.review.fixBusy", "对话进行中，请稍候再试"))
+    } else {
+      pendingFixRef.current = prompt
+      toast.success(t("design.review.fixStarted", "已让 AI 开始修复"))
+    }
+  }, [t])
 
   // 多镜头质量审查（确定性 a11y / 内容 / 语义）：owner 按需跑，弹结果列表。
   const [reviewFindings, setReviewFindings] = useState<
@@ -4164,6 +4197,14 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                       {parseSelfCheck(activeArtifact.metadata)?.detail ??
                         t("design.review.flagged", "自查发现可能的质量问题，建议复查")}
                     </span>
+                    <Button
+                      size="sm"
+                      className="h-6 shrink-0 gap-1 bg-amber-600 px-2 text-xs text-white hover:bg-amber-700 dark:bg-amber-600 dark:text-white dark:hover:bg-amber-500"
+                      onClick={handleFixWithAgent}
+                    >
+                      <Wand2 className="h-3 w-3" />
+                      {t("design.review.fixWithAgent", "让 AI 修复")}
+                    </Button>
                     <Button
                       variant="ghost"
                       size="sm"

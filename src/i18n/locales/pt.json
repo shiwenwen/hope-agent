@@ -6506,7 +6506,11 @@
         "a11y": "Acessibilidade",
         "content": "Conteúdo",
         "semantics": "Semântica"
-      }
+      },
+      "fixWithAgent": "Corrigir com IA",
+      "fixStarted": "A IA está corrigindo",
+      "fixBusy": "Há uma conversa em andamento, tente novamente em breve",
+      "fixPrompt": "Corrija o problema encontrado pela autoverificação de design: {{detail}}. Use tokens do sistema de design (var(--ds-*)) para consolidar as cores e substituir estilos codificados. Faça apenas as alterações mínimas necessárias e mantenha o restante do design intacto."
     },
     "kit": {
       "title": "Kit do sistema de design",

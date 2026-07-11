@@ -6506,7 +6506,11 @@
         "a11y": "Erişilebilirlik",
         "content": "İçerik",
         "semantics": "Anlamsal"
-      }
+      },
+      "fixWithAgent": "Yapay zeka ile düzelt",
+      "fixStarted": "Yapay zeka düzeltmeye başladı",
+      "fixBusy": "Bir sohbet devam ediyor, lütfen birazdan tekrar deneyin",
+      "fixPrompt": "Tasarım öz denetiminde bulunan sorunu düzeltin: {{detail}}. Renkleri toparlamak ve sabit kodlanmış stilleri değiştirmek için tasarım sistemi belirteçlerini (var(--ds-*)) kullanın. Yalnızca gerekli en az değişikliği yapın ve tasarımın geri kalanını olduğu gibi koruyun."
     },
     "kit": {
       "title": "Tasarım sistemi kiti",

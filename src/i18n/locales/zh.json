@@ -6506,7 +6506,11 @@
         "a11y": "可访问性",
         "content": "内容",
         "semantics": "语义"
-      }
+      },
+      "fixWithAgent": "让 AI 修复",
+      "fixStarted": "已让 AI 开始修复",
+      "fixBusy": "对话进行中，请稍候再试",
+      "fixPrompt": "请修复设计自查发现的问题：{{detail}}。用设计系统 token（var(--ds-*)）收敛配色、替换硬编码样式，只做必要的最小改动，保持产物其它内容与整体设计不变。"
     },
     "kit": {
       "title": "设计系统套件",

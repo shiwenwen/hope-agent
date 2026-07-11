@@ -6506,7 +6506,11 @@
         "a11y": "Kebolehcapaian",
         "content": "Kandungan",
         "semantics": "Semantik"
-      }
+      },
+      "fixWithAgent": "Baiki dengan AI",
+      "fixStarted": "AI sedang membaikinya",
+      "fixBusy": "Perbualan sedang berjalan, cuba lagi sebentar",
+      "fixPrompt": "Sila baiki isu yang ditemui oleh semakan kendiri reka bentuk: {{detail}}. Gunakan token sistem reka bentuk (var(--ds-*)) untuk menyatukan warna dan menggantikan gaya berkod keras. Buat perubahan minimum yang perlu sahaja dan kekalkan reka bentuk yang lain."
     },
     "kit": {
       "title": "Kit sistem reka bentuk",

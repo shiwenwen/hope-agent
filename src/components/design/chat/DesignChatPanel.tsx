@@ -135,6 +135,10 @@ export interface DesignChatPanelHandle {
   insertToken: (token: string) => void
   /** Stage an image File as a chat attachment (B4-1 画框批注合成图 → vision 输入)。 */
   addImageAttachment: (file: File) => void
+  /** Send a ready-made prompt as a user turn right away (e.g. 横幅「让 AI 修复」).
+   *  Returns false when a turn is already streaming so the caller can surface a
+   *  "busy" hint instead of silently dropping the request. */
+  submitPrompt: (text: string) => boolean
 }
 
 interface Props {
@@ -316,6 +320,11 @@ export const DesignChatPanel = forwardRef<DesignChatPanelHandle, Props>(function
     getExtraAttachments,
   })
 
+  // Live streaming flag for the imperative submitPrompt guard (avoid firing a
+  // second turn while one is in flight) without rebuilding the handle each tick.
+  const loadingRef = useRef(session.loading)
+  loadingRef.current = session.loading
+
   // Reconcile against DB truth when a turn finishes (on HTTP this fills in the
   // final answer that wasn't streamed here). Merge-based + guarded.
   const prevLoadingRef = useRef(session.loading)
@@ -344,6 +353,11 @@ export const DesignChatPanel = forwardRef<DesignChatPanelHandle, Props>(function
       insertToken: (token) =>
         stream.setInput((prev) => (prev.trim() ? `${prev} ${token}` : token)),
       addImageAttachment: (file) => stream.setAttachedFiles((prev) => [...prev, file]),
+      submitPrompt: (text) => {
+        if (loadingRef.current) return false
+        void stream.handleSend(text)
+        return true
+      },
     }),
     [stream],
   )

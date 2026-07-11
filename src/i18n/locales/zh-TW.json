@@ -6506,7 +6506,11 @@
         "a11y": "無障礙",
         "content": "內容",
         "semantics": "語意"
-      }
+      },
+      "fixWithAgent": "讓 AI 修復",
+      "fixStarted": "已讓 AI 開始修復",
+      "fixBusy": "對話進行中，請稍候再試",
+      "fixPrompt": "請修復設計自查發現的問題：{{detail}}。用設計系統 token（var(--ds-*)）收斂配色、替換硬編碼樣式，只做必要的最小改動，保持產物其它內容與整體設計不變。"
     },
     "kit": {
       "title": "設計系統套件",
