@@ -1065,6 +1065,20 @@ pub async fn stop_chat(
         .await?
     };
 
+    // Approval waits are separate oneshots and do not wake merely because the
+    // chat cancel flag changed. Resolve them before any fallible runtime-task
+    // cancellation so Stop cannot return early with an authorizable prompt.
+    if let Some(sid) = body.session_id.as_deref() {
+        if stopped || body.turn_id.is_none() {
+            tools::deny_pending_for_session(sid, tools::ApprovalResolutionSource::UserStop).await;
+            ha_core::ask_user::cancel_pending_ask_user_questions_for_session(sid, "user_stop")
+                .await;
+        }
+    } else {
+        tools::deny_all_pending(tools::ApprovalResolutionSource::UserStop).await;
+        ha_core::ask_user::cancel_all_pending_ask_user_questions("user_stop").await;
+    }
+
     let runtime_cancellations = if let Some(sid) = body.session_id.as_deref() {
         if stopped {
             ha_core::runtime_tasks::cancel_runtime_tasks_for_session(Some(sid)).await?
@@ -1080,20 +1094,6 @@ pub async fn stop_chat(
         }
         out
     };
-
-    // Approval waits are separate oneshots and do not wake merely because the
-    // chat cancel flag changed. Resolve them before returning from Stop so a
-    // stale prompt can never authorize post-stop execution.
-    if let Some(sid) = body.session_id.as_deref() {
-        if stopped || body.turn_id.is_none() {
-            tools::deny_pending_for_session(sid, tools::ApprovalResolutionSource::UserStop).await;
-            ha_core::ask_user::cancel_pending_ask_user_questions_for_session(sid, "user_stop")
-                .await;
-        }
-    } else {
-        tools::deny_all_pending(tools::ApprovalResolutionSource::UserStop).await;
-        ha_core::ask_user::cancel_all_pending_ask_user_questions("user_stop").await;
-    }
 
     for (sid, turn_id, source) in watchdog_turns {
         ha_core::chat_engine::spawn_user_stop_watchdog(

@@ -109,6 +109,32 @@ describe("useApprovals recovery lifecycle", () => {
     expect(result.current.approvalRequests).toEqual([])
   })
 
+  test("merges an older missed approval with a concurrent required event", async () => {
+    let resolveSnapshot!: (requests: ApprovalRequest[]) => void
+    const snapshot = new Promise<ApprovalRequest[]>((resolve) => {
+      resolveSnapshot = resolve
+    })
+    const mock = mockTransport({ snapshot: () => snapshot })
+    setTransport(mock.transport)
+    const missed = approval({ request_id: "approval-a", created_at_ms: 1_000 })
+    const concurrent = approval({ request_id: "approval-b", created_at_ms: 2_000 })
+    const { result } = renderHook(() => useApprovals("session-1"))
+
+    act(() => mock.emit("approval_required", concurrent))
+    expect(result.current.approvalRequests.map((request) => request.request_id)).toEqual([
+      "approval-b",
+    ])
+
+    await act(async () => {
+      resolveSnapshot([missed])
+      await snapshot
+    })
+    expect(result.current.approvalRequests.map((request) => request.request_id)).toEqual([
+      "approval-a",
+      "approval-b",
+    ])
+  })
+
   test("keeps a still-pending approval actionable when submit fails", async () => {
     const request = approval()
     const mock = mockTransport({
