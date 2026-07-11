@@ -15,12 +15,29 @@
 //! init. Reads route through `get` / `list_active_by_session`; the raw DB stays
 //! `pub(crate)` for bootstrap (`app_init`) and white-box tests only.
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use serde_json::Value;
+use std::sync::Arc;
+use std::time::Duration;
+use tokio::sync::Notify;
 
 use super::types::{BackgroundJob, BackgroundJobSnapshot, JobKind, JobOrigin, JobStatus};
 use crate::subagent::SubagentStatus;
 use crate::tools::ToolExecContext;
+
+const TERMINAL_WAIT_INITIAL_BACKOFF: Duration = Duration::from_millis(100);
+const TERMINAL_WAIT_MAX_BACKOFF: Duration = Duration::from_secs(2);
+
+struct WaiterGuard {
+    job_id: String,
+    notify: Arc<Notify>,
+}
+
+impl Drop for WaiterGuard {
+    fn drop(&mut self) {
+        super::wait::cleanup_if_last_waiter(&self.job_id, &self.notify);
+    }
+}
 
 /// Per-item outcome counts for a finished knowledge source import run,
 /// carried on the `job:completed` payload so `useDesktopAlerts` can build a
@@ -55,6 +72,111 @@ impl JobManager {
         super::spawn::spawn_explicit_job(tool_name, args, ctx, origin)
     }
 
+    /// Allocate a background job id before launching the side effect, so a
+    /// durable parent operation can persist the child handle first.
+    pub fn new_job_id() -> String {
+        super::spawn::new_job_id()
+    }
+
+    /// Register a long-lived Loop monitor in the unified background-job
+    /// lifecycle. The Loop adapter owns the actual watcher/task and calls
+    /// [`Self::finish_monitor`] on terminal outcomes.
+    pub fn register_monitor(
+        session_id: &str,
+        watch_id: &str,
+        adapter: &str,
+        spec: &Value,
+    ) -> Result<Option<String>> {
+        let Some(db) = super::get_async_jobs_db() else {
+            return Ok(None);
+        };
+        let job_id = Self::new_job_id();
+        let now = chrono::Utc::now().timestamp();
+        let job = BackgroundJob {
+            job_id: job_id.clone(),
+            kind: JobKind::Monitor,
+            subagent_run_id: None,
+            group_id: None,
+            session_id: Some(session_id.to_string()),
+            agent_id: None,
+            tool_name: format!("loop_monitor:{adapter}"),
+            tool_call_id: Some(watch_id.to_string()),
+            args_json: serde_json::to_string(spec)?,
+            status: JobStatus::Running,
+            result_preview: None,
+            result_path: None,
+            error: None,
+            created_at: now,
+            completed_at: None,
+            injected: true,
+            origin: "loop_monitor".to_string(),
+            approval_origin: Some("policy_allow".to_string()),
+            incognito: false,
+            pid: None,
+            cancel_requested: false,
+        };
+        db.insert(&job)?;
+        super::events::emit_created(
+            &job_id,
+            JobKind::Monitor,
+            &job.tool_name,
+            JobStatus::Running.as_str(),
+            Some(session_id),
+        );
+        Ok(Some(job_id))
+    }
+
+    pub fn finish_monitor(
+        job_id: &str,
+        status: JobStatus,
+        result_preview: Option<&str>,
+        error: Option<&str>,
+    ) -> Result<bool> {
+        if !status.is_terminal() {
+            return Err(anyhow!("monitor terminal status required"));
+        }
+        let Some(db) = super::get_async_jobs_db() else {
+            return Ok(false);
+        };
+        let Some(job) = db.load(job_id)? else {
+            return Ok(false);
+        };
+        if job.kind != JobKind::Monitor {
+            return Err(anyhow!("background job {job_id} is not a monitor"));
+        }
+        let changed = db.update_terminal(
+            job_id,
+            status,
+            result_preview,
+            None,
+            error,
+            chrono::Utc::now().timestamp(),
+        )?;
+        if changed {
+            super::events::emit_completed(
+                job_id,
+                JobKind::Monitor,
+                &job.tool_name,
+                status.as_str(),
+                job.session_id.as_deref(),
+            );
+        }
+        Ok(changed)
+    }
+
+    /// Spawn an explicit background tool job using a caller-preallocated id.
+    /// This is for durable parents that must record the child handle before the
+    /// side effect starts; ordinary tool calls should use [`Self::spawn_tool`].
+    pub fn spawn_tool_with_id(
+        tool_name: &str,
+        args: Value,
+        ctx: ToolExecContext,
+        origin: JobOrigin,
+        job_id: String,
+    ) -> Result<String> {
+        super::spawn::spawn_explicit_job_with_id(tool_name, args, ctx, origin, job_id)
+    }
+
     /// Run a tool synchronously but auto-background it if it exceeds the budget
     /// (`config.async_tools.auto_background_secs`). Returns the inline result if
     /// it finished in time, else the synthetic started result.
@@ -78,6 +200,79 @@ impl JobManager {
         }
     }
 
+    /// Wait until a job reaches a terminal state. Unlike the model-facing
+    /// `job_status(wait)`, this helper is for host runtimes that genuinely own
+    /// the child work and need the result before completing their parent op.
+    pub async fn wait_for_terminal(
+        job_id: &str,
+        timeout: Option<Duration>,
+    ) -> Result<Option<BackgroundJob>> {
+        // Each poll is a synchronous JobsDB read — route every one through the
+        // blocking pool so awaiting a long job never pins an async worker.
+        async fn load_off_worker(
+            db: &std::sync::Arc<super::db::JobsDB>,
+            job_id: &str,
+        ) -> Result<Option<BackgroundJob>> {
+            let db = db.clone();
+            let job_id = job_id.to_string();
+            crate::blocking::run_blocking(move || db.load(&job_id)).await
+        }
+
+        let db = super::get_async_jobs_db()
+            .ok_or_else(|| anyhow!("Async jobs DB not initialized"))?
+            .clone();
+        let Some(initial) = load_off_worker(&db, job_id).await? else {
+            return Ok(None);
+        };
+        if initial.status.is_terminal() {
+            return Ok(Some(initial));
+        }
+
+        let guard = WaiterGuard {
+            job_id: job_id.to_string(),
+            notify: super::wait::register_waiter(job_id),
+        };
+
+        let Some(recheck) = load_off_worker(&db, job_id).await? else {
+            return Ok(None);
+        };
+        if recheck.status.is_terminal() {
+            return Ok(Some(recheck));
+        }
+
+        let deadline = timeout.map(|duration| std::time::Instant::now() + duration);
+        let mut backoff = TERMINAL_WAIT_INITIAL_BACKOFF;
+        loop {
+            let sleep_dur = match deadline {
+                Some(deadline) => {
+                    let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+                    if remaining.is_zero() {
+                        return load_off_worker(&db, job_id).await;
+                    }
+                    std::cmp::min(backoff, remaining)
+                }
+                None => backoff,
+            };
+
+            tokio::select! {
+                _ = guard.notify.notified() => {}
+                _ = tokio::time::sleep(sleep_dur) => {
+                    backoff = std::cmp::min(
+                        backoff.saturating_mul(3) / 2,
+                        TERMINAL_WAIT_MAX_BACKOFF,
+                    );
+                }
+            }
+
+            let Some(job) = load_off_worker(&db, job_id).await? else {
+                return Ok(None);
+            };
+            if job.status.is_terminal() {
+                return Ok(Some(job));
+            }
+        }
+    }
+
     /// All active (`queued`/`running`/`cancelling`/`awaiting_approval`) jobs
     /// owned by a session. Empty when the DB is not initialized.
     pub fn list_active_by_session(session_id: &str) -> Result<Vec<BackgroundJob>> {
@@ -85,6 +280,28 @@ impl JobManager {
             Some(db) => db.list_active_by_session(session_id),
             None => Ok(Vec::new()),
         }
+    }
+
+    /// Bounded active-job read for status projections. Lifecycle owners must
+    /// use [`Self::list_active_by_session`] to avoid skipping cleanup targets.
+    pub fn list_active_by_session_limited(
+        session_id: &str,
+        limit: usize,
+    ) -> Result<Vec<BackgroundJob>> {
+        match super::get_async_jobs_db() {
+            Some(db) => db.list_active_by_session_limited(session_id, limit),
+            None => Ok(Vec::new()),
+        }
+    }
+
+    /// Active executable work, excluding long-lived monitor subscriptions.
+    /// Goal Runner uses this to avoid treating a healthy watcher as a child job
+    /// that must terminate before the Goal can continue.
+    pub fn list_active_work_by_session(session_id: &str) -> Result<Vec<BackgroundJob>> {
+        Ok(Self::list_active_by_session(session_id)?
+            .into_iter()
+            .filter(|job| job.kind != JobKind::Monitor)
+            .collect())
     }
 
     // ── Owner-plane snapshots (R4 panel) ───────────────────────────────────

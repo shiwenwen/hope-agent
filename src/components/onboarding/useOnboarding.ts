@@ -174,20 +174,20 @@ export function useOnboarding({ onComplete }: UseOnboardingArgs): UseOnboardingR
           draftStep?: number
           skippedSteps?: string[]
           everCompleted?: boolean
-        }>("get_onboarding_state")
+        } | null | undefined>("get_onboarding_state")
         const seeded = await seedDraftFromCurrentConfig()
-        const restoredDraft = state.draft ?? {}
+        const restoredDraft = state?.draft ?? {}
 
         const mergedDraft = mergeOnboardingDraft(seeded, restoredDraft)
         if (Object.keys(mergedDraft).length > 0) {
           setDraft(mergedDraft)
         }
 
-        if (typeof state.draftStep === "number") {
+        if (typeof state?.draftStep === "number") {
           const activeSteps = stepsForMode(mergedDraft.serverMode)
           setStep(Math.max(0, Math.min(state.draftStep, activeSteps.length - 1)))
         }
-        if (state.skippedSteps?.length) {
+        if (state?.skippedSteps?.length) {
           setSkipped(new Set(state.skippedSteps as OnboardingStepKey[]))
         }
       } catch (e) {

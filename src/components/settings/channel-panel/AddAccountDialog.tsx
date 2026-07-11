@@ -51,8 +51,8 @@ export default function AddAccountDialog({
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
-  plugins: ChannelPluginInfo[]
-  agents: AgentInfo[]
+  plugins?: ChannelPluginInfo[] | null
+  agents?: AgentInfo[] | null
   onAdded: () => void
   initialChannelId?: string
 }) {
@@ -111,8 +111,10 @@ export default function AddAccountDialog({
   const [validationError, setValidationError] = useState<string | null>(null)
   const [wechatConnection, setWeChatConnection] = useState<WeChatConnection | null>(null)
 
-  const selectedPlugin = plugins.find((p) => p.meta.id === channelId)
-  const selectedAgent = agents.find((agent) => agent.id === agentId)
+  const safePlugins = Array.isArray(plugins) ? plugins : []
+  const safeAgents = Array.isArray(agents) ? agents : []
+  const selectedPlugin = safePlugins.find((p) => p.meta.id === channelId)
+  const selectedAgent = safeAgents.find((agent) => agent.id === agentId)
 
   const handleSelectChannel = (id: string) => {
     setChannelId(id)
@@ -308,7 +310,7 @@ export default function AddAccountDialog({
             </DialogHeader>
 
             <div className="grid grid-cols-2 gap-3">
-              {plugins.map((p) => (
+              {safePlugins.map((p) => (
                 <Button
                   key={p.meta.id}
                   variant="outline"
@@ -348,7 +350,7 @@ export default function AddAccountDialog({
               {/* Bot Token (Telegram-specific) */}
               {channelId === "telegram" && (
                 <div className="space-y-2">
-                  <Label>Bot Token</Label>
+                  <Label>{t("channels.botToken")}</Label>
                   <div className="flex gap-2">
                     <Input
                       type="password"
@@ -401,7 +403,7 @@ export default function AddAccountDialog({
               {/* Discord: single Bot Token */}
               {channelId === "discord" && (
                 <div className="space-y-2">
-                  <Label>Bot Token</Label>
+                  <Label>{t("channels.botToken")}</Label>
                   <div className="flex gap-2">
                     <Input
                       type="password"
@@ -425,7 +427,7 @@ export default function AddAccountDialog({
               {channelId === "slack" && (
                 <div className="space-y-3">
                   <div className="space-y-2">
-                    <Label>Bot Token (xoxb-...)</Label>
+                    <Label>{t("channels.slackBotToken")}</Label>
                     <Input
                       type="password"
                       placeholder="xoxb-..."
@@ -434,7 +436,7 @@ export default function AddAccountDialog({
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label>App Token (xapp-...)</Label>
+                    <Label>{t("channels.slackAppToken")}</Label>
                     <div className="flex gap-2">
                       <Input
                         type="password"
@@ -459,7 +461,7 @@ export default function AddAccountDialog({
               {channelId === "feishu" && (
                 <div className="space-y-3">
                   <div className="space-y-2">
-                    <Label>App ID</Label>
+                    <Label>{t("channels.appId")}</Label>
                     <Input
                       placeholder="cli_xxx"
                       value={feishuAppId}
@@ -467,7 +469,7 @@ export default function AddAccountDialog({
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label>App Secret</Label>
+                    <Label>{t("channels.appSecret")}</Label>
                     <div className="flex gap-2">
                       <Input
                         type="password"
@@ -488,8 +490,8 @@ export default function AddAccountDialog({
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="feishu">Feishu (飞书)</SelectItem>
-                        <SelectItem value="lark">Lark (International)</SelectItem>
+                        <SelectItem value="feishu">{t("channels.feishuDomainFeishu")}</SelectItem>
+                        <SelectItem value="lark">{t("channels.feishuDomainLark")}</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -503,7 +505,7 @@ export default function AddAccountDialog({
               {channelId === "qqbot" && (
                 <div className="space-y-3">
                   <div className="space-y-2">
-                    <Label>App ID</Label>
+                    <Label>{t("channels.appId")}</Label>
                     <Input
                       placeholder="102xxx"
                       value={qqAppId}
@@ -511,7 +513,7 @@ export default function AddAccountDialog({
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label>Client Secret</Label>
+                    <Label>{t("channels.clientSecret")}</Label>
                     <div className="flex gap-2">
                       <Input
                         type="password"
@@ -555,10 +557,10 @@ export default function AddAccountDialog({
                   </div>
                   <div className="flex items-center gap-2">
                     <Switch checked={ircTls} onCheckedChange={setIrcTls} />
-                    <Label>TLS</Label>
+                    <Label>{t("channels.ircTls")}</Label>
                   </div>
                   <div className="space-y-2">
-                    <Label>Nick</Label>
+                    <Label>{t("channels.ircNick")}</Label>
                     <div className="flex gap-2">
                       <Input
                         placeholder="mybot"
@@ -704,7 +706,7 @@ export default function AddAccountDialog({
               {channelId === "line" && (
                 <div className="space-y-3">
                   <div className="space-y-2">
-                    <Label>Channel Access Token</Label>
+                    <Label>{t("channels.lineAccessToken")}</Label>
                     <Input
                       type="password"
                       value={lineAccessToken}
@@ -712,7 +714,7 @@ export default function AddAccountDialog({
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label>Channel Secret</Label>
+                    <Label>{t("channels.lineChannelSecret")}</Label>
                     <div className="flex gap-2">
                       <Input
                         type="password"
@@ -781,7 +783,7 @@ export default function AddAccountDialog({
                     >
                       {t("channels.boundAgentDefault")}
                     </SelectItem>
-                    {agents.map((a) => (
+                    {safeAgents.map((a) => (
                       <SelectItem key={a.id} value={a.id} textValue={a.name}>
                         <AgentSelectDisplay agent={a} />
                       </SelectItem>
@@ -826,7 +828,7 @@ export default function AddAccountDialog({
                   onGroupsChange={setGroups}
                   channels={channels}
                   onChannelsChange={setChannels}
-                  agents={agents}
+                  agents={safeAgents}
                   t={t}
                 />
               )}

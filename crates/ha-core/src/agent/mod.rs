@@ -1,5 +1,6 @@
 pub(crate) mod active_memory;
 pub(super) mod api_types;
+mod coding_profile;
 mod config;
 mod content;
 mod context;
@@ -35,7 +36,7 @@ pub(crate) use context::build_compaction_provider;
 pub use plan_context::{
     merge_extra_system_context, resolve_plan_context_for_session, PlanResolvedContext,
 };
-pub use types::{AssistantAgent, Attachment, CodexModel, LlmProvider, PlanAgentMode};
+pub use types::{AssistantAgent, Attachment, ChatUsage, CodexModel, LlmProvider, PlanAgentMode};
 
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
@@ -352,6 +353,7 @@ impl AssistantAgent {
                 crate::context_compact::TokenEstimateCalibrator::new(),
             ),
             session_id: None,
+            session_db: None,
             incognito_cached: std::sync::atomic::AtomicBool::new(false),
             subagent_depth: 0,
             chat_source: None,
@@ -390,8 +392,10 @@ impl AssistantAgent {
             retrieval_planner_context: std::sync::Mutex::new(Default::default()),
             related_notes_state: std::sync::Arc::new(related_notes::RelatedNotesState::new()),
             related_notes_suffix: std::sync::Mutex::new(None),
+            coding_profile_suffix: std::sync::Mutex::new(None),
             related_notes_trace: std::sync::Mutex::new(None),
             kb_access_cache: std::sync::Mutex::new(None),
+            turn_prompt_cache: std::sync::Mutex::new(None),
             provider_config: None,
         }
     }
@@ -417,6 +421,7 @@ impl AssistantAgent {
                 crate::context_compact::TokenEstimateCalibrator::new(),
             ),
             session_id: None,
+            session_db: None,
             incognito_cached: std::sync::atomic::AtomicBool::new(false),
             subagent_depth: 0,
             chat_source: None,
@@ -455,8 +460,10 @@ impl AssistantAgent {
             retrieval_planner_context: std::sync::Mutex::new(Default::default()),
             related_notes_state: std::sync::Arc::new(related_notes::RelatedNotesState::new()),
             related_notes_suffix: std::sync::Mutex::new(None),
+            coding_profile_suffix: std::sync::Mutex::new(None),
             related_notes_trace: std::sync::Mutex::new(None),
             kb_access_cache: std::sync::Mutex::new(None),
+            turn_prompt_cache: std::sync::Mutex::new(None),
             provider_config: None,
         }
     }
@@ -607,6 +614,7 @@ impl AssistantAgent {
                 crate::context_compact::TokenEstimateCalibrator::new(),
             ),
             session_id: None,
+            session_db: None,
             incognito_cached: std::sync::atomic::AtomicBool::new(false),
             subagent_depth: 0,
             chat_source: None,
@@ -645,8 +653,10 @@ impl AssistantAgent {
             retrieval_planner_context: std::sync::Mutex::new(Default::default()),
             related_notes_state: std::sync::Arc::new(related_notes::RelatedNotesState::new()),
             related_notes_suffix: std::sync::Mutex::new(None),
+            coding_profile_suffix: std::sync::Mutex::new(None),
             related_notes_trace: std::sync::Mutex::new(None),
             kb_access_cache: std::sync::Mutex::new(None),
+            turn_prompt_cache: std::sync::Mutex::new(None),
             provider_config: None,
         }
     }
@@ -673,6 +683,12 @@ impl AssistantAgent {
         // shared by all consumers within the turn.
         *self
             .kb_access_cache
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = None;
+        // Same lifecycle for the precomputed prompt inputs: stale data from the
+        // previous turn must never satisfy this turn's builders.
+        *self
+            .turn_prompt_cache
             .lock()
             .unwrap_or_else(|e| e.into_inner()) = None;
         self.retrieval_planner_layers
@@ -705,7 +721,32 @@ impl AssistantAgent {
     /// can read the flag without hitting SQLite every time. Safe no-op when
     /// `session_id` is `None`.
     fn refresh_incognito_cache(&self) {
-        let incognito = crate::session::is_session_incognito(self.session_id.as_deref());
+        let Some(sid) = self.session_id.as_deref() else {
+            self.incognito_cached
+                .store(false, std::sync::atomic::Ordering::Relaxed);
+            return;
+        };
+        let incognito = if let Some(db) = &self.session_db {
+            match db.get_session(sid) {
+                Ok(Some(meta)) => meta.incognito,
+                // Match session::is_session_incognito fail-closed semantics:
+                // if a bound session row disappeared, trailing work must not
+                // persist sidecars for a potentially burned incognito session.
+                Ok(None) => true,
+                Err(e) => {
+                    crate::app_warn!(
+                        "session",
+                        "agent_incognito_cache",
+                        "meta lookup for {} failed, treating as non-incognito: {}",
+                        sid,
+                        e
+                    );
+                    false
+                }
+            }
+        } else {
+            crate::session::is_session_incognito(Some(sid))
+        };
         self.incognito_cached
             .store(incognito, std::sync::atomic::Ordering::Relaxed);
     }
@@ -749,7 +790,58 @@ impl AssistantAgent {
             .agent_caps_cache
             .lock()
             .unwrap_or_else(|e| e.into_inner()) = None;
+        *self
+            .turn_prompt_cache
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = None;
         self.active_memory_state.invalidate_config();
+    }
+
+    /// Bind this agent to the session database used by the active chat-engine
+    /// turn. This is usually the global DB, but eval/headless callers can pass
+    /// an isolated DB and still get correct working-dir / permission metadata.
+    pub(crate) fn set_session_db(&mut self, db: Arc<crate::session::SessionDB>) {
+        self.session_db = Some(db);
+        *self
+            .kb_access_cache
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = None;
+        *self
+            .turn_prompt_cache
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = None;
+        if self.session_id.is_some() {
+            self.refresh_incognito_cache();
+        }
+    }
+
+    fn lookup_session_meta(&self) -> Option<crate::session::SessionMeta> {
+        Self::lookup_session_meta_with(self.session_db.as_ref(), self.session_id.as_deref())
+    }
+
+    /// Static twin of [`Self::lookup_session_meta`] so the turn-prompt refresh
+    /// closure (blocking pool, no `&self`) resolves the meta identically.
+    fn lookup_session_meta_with(
+        session_db: Option<&Arc<crate::session::SessionDB>>,
+        session_id: Option<&str>,
+    ) -> Option<crate::session::SessionMeta> {
+        let sid = session_id?;
+        if let Some(db) = session_db {
+            return match db.get_session(sid) {
+                Ok(meta) => meta,
+                Err(e) => {
+                    crate::app_warn!(
+                        "session",
+                        "agent_session_meta",
+                        "bound meta lookup for {} failed: {}",
+                        sid,
+                        e
+                    );
+                    None
+                }
+            };
+        }
+        crate::session::lookup_session_meta(Some(sid))
     }
 
     /// Return the pre-warmed snapshot of fields used from `agent.json` on hot
@@ -813,6 +905,10 @@ impl AssistantAgent {
             .kb_access_cache
             .lock()
             .unwrap_or_else(|e| e.into_inner()) = None;
+        *self
+            .turn_prompt_cache
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = None;
         *self.awareness.lock().unwrap_or_else(|e| e.into_inner()) = None;
     }
 
@@ -825,7 +921,11 @@ impl AssistantAgent {
             *slot = None;
             return;
         }
-        let Some(db) = crate::get_session_db() else {
+        let Some(db) = self
+            .session_db
+            .clone()
+            .or_else(|| crate::get_session_db().cloned())
+        else {
             return;
         };
         let db = db.clone();
@@ -1800,6 +1900,7 @@ impl AssistantAgent {
             arc
         };
         let map = Self::resolve_kb_access_uncached(
+            self.session_db.clone(),
             self.session_id.clone(),
             self.chat_source,
             self.origin_chat_source,
@@ -1809,6 +1910,7 @@ impl AssistantAgent {
     }
 
     fn resolve_kb_access_uncached(
+        session_db: Option<Arc<crate::session::SessionDB>>,
         session_id: Option<String>,
         chat_source: Option<crate::knowledge::KbAccessSource>,
         origin_chat_source: Option<crate::knowledge::KbAccessSource>,
@@ -1837,8 +1939,7 @@ impl AssistantAgent {
                 channel_info = Some(ci);
             }
         }
-        let project_id = crate::get_session_db()
-            .and_then(|db| db.get_session(&sid).ok().flatten())
+        let project_id = Self::lookup_session_meta_with(session_db.as_ref(), Some(&sid))
             .and_then(|s| s.project_id);
         let actx = crate::knowledge::KnowledgeAccessContext::resolve(
             Some(sid),
@@ -1862,11 +1963,13 @@ impl AssistantAgent {
             return;
         }
         let session_id = self.session_id.clone();
+        let session_db = self.session_db.clone();
         let chat_source = self.chat_source;
         let origin_chat_source = self.origin_chat_source;
         let channel_info = self.channel_kb_context.clone();
         let map = crate::blocking::run_blocking(move || {
             Self::resolve_kb_access_uncached(
+                session_db,
                 session_id,
                 chat_source,
                 origin_chat_source,
@@ -2033,6 +2136,29 @@ impl AssistantAgent {
         }
         self.related_notes_state.put_cached(hash, recall.clone());
         self.set_related_notes_recall(recall);
+    }
+
+    /// Refresh the per-turn Coding Mode profile suffix (Phase 2.2).
+    ///
+    /// This is a deterministic classifier, not a side-query. It stays out of
+    /// the static system-prompt prefix and is injected as a separate provider
+    /// system block so task-kind churn does not invalidate prompt-cache hits.
+    pub(crate) fn refresh_coding_profile_suffix(&self, user_text: &str) {
+        let block = coding_profile::CodingSessionProfile::classify(user_text)
+            .map(|profile| std::sync::Arc::new(profile.render_prompt_block()));
+        *self
+            .coding_profile_suffix
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = block;
+    }
+
+    /// Return the currently-held Coding Mode profile suffix, if this turn's
+    /// user message looked like a coding task.
+    pub(crate) fn current_coding_profile_suffix(&self) -> Option<std::sync::Arc<String>> {
+        self.coding_profile_suffix
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
     }
 
     /// Return the currently-held awareness suffix (if any), for use by
@@ -2630,6 +2756,16 @@ impl AssistantAgent {
         // most recent probe without manual threading.
         self.apply_plan_tools(&mut schemas, provider);
 
+        // Workflow Mode is a session-scoped autonomy capability, not a regular
+        // always-on built-in. Keep it out of the static catalog/tool_search and
+        // inject it only when this session explicitly enables Workflow Mode.
+        // The execution layer re-checks the persisted mode as defense-in-depth.
+        if let Some(meta) = self.lookup_session_meta() {
+            if meta.workflow_mode.enabled() && !meta.incognito {
+                schemas.push(tools::get_workflow_tool().to_provider_schema(provider));
+            }
+        }
+
         // Final filter pipeline (skill / denied / plan-allowed) — defense
         // in depth on top of dispatcher visibility.
         let plan_mode = self.plan_agent_mode.load();
@@ -2678,13 +2814,84 @@ impl AssistantAgent {
     }
 
     /// Build the full system prompt, including any extra context.
+    /// Precompute the blocking system-prompt inputs on the blocking pool and
+    /// stash them in `turn_prompt_cache` for the turn's synchronous builders:
+    /// the base prompt (`build_system_prompt_with_session` — memory / goal /
+    /// working-dir sections, all SessionDB reads) and the LSP diagnostics
+    /// suffix (`git rev-parse` workspace-root discovery). Call from async
+    /// context before `build_full_system_prompt` / `build_merged_system_prompt`
+    /// so those stay off the async worker; readers that miss the cache fall
+    /// back to the original synchronous compute.
+    pub(crate) async fn refresh_turn_prompt_cache(&self, model: &str, provider: &str) {
+        let agent_id = self.agent_id.clone();
+        let session_id = self.session_id.clone();
+        let session_db = self.session_db.clone();
+        let incognito = self.session_is_incognito();
+        let model_owned = model.to_string();
+        let provider_owned = provider.to_string();
+        let (bundle, lsp_suffix) = crate::blocking::run_blocking(move || {
+            let bundle = config::build_system_prompt_bundle_with_session_db(
+                &agent_id,
+                &model_owned,
+                &provider_owned,
+                session_id.as_deref(),
+                session_db.as_deref(),
+            );
+            let lsp = if incognito {
+                None
+            } else {
+                let working_dir =
+                    Self::lookup_session_meta_with(session_db.as_ref(), session_id.as_deref())
+                        .as_ref()
+                        .and_then(crate::session::effective_working_dir_for_meta);
+                crate::lsp::diagnostics_prompt_suffix(session_id.as_deref(), working_dir.as_deref())
+            };
+            (bundle, lsp)
+        })
+        .await;
+        *self
+            .static_memory_refs
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = bundle.static_memory_refs;
+        *self
+            .turn_prompt_cache
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = Some(types::TurnPromptCache {
+            model: model.to_string(),
+            provider: provider.to_string(),
+            base_prompt: std::sync::Arc::new(bundle.prompt),
+            lsp_suffix,
+        });
+    }
+
+    /// Read the turn-prompt memo when it matches the requested model/provider.
+    fn cached_turn_prompt<T>(
+        &self,
+        model: &str,
+        provider: &str,
+        read: impl FnOnce(&types::TurnPromptCache) -> T,
+    ) -> Option<T> {
+        let guard = self
+            .turn_prompt_cache
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        guard
+            .as_ref()
+            .filter(|cache| cache.model == model && cache.provider == provider)
+            .map(read)
+    }
+
     pub(crate) fn build_full_system_prompt(&self, model: &str, provider: &str) -> String {
-        let prompt = config::build_system_prompt_with_session(
-            &self.agent_id,
-            model,
-            provider,
-            self.session_id.as_deref(),
-        );
+        let prompt = self
+            .cached_turn_prompt(model, provider, |cache| (*cache.base_prompt).clone())
+            .unwrap_or_else(|| {
+                config::build_system_prompt_with_session(
+                    &self.agent_id,
+                    model,
+                    provider,
+                    self.session_id.as_deref(),
+                )
+            });
         let attached_knowledge_section = self.build_attached_knowledge_section();
         self.append_full_system_prompt_extras(prompt, attached_knowledge_section)
     }
@@ -2694,26 +2901,19 @@ impl AssistantAgent {
     /// blocking pool. The returned reference snapshot is guaranteed to match
     /// the prompt built in that same pass.
     pub(crate) async fn prepare_full_system_prompt(&self, model: &str, provider: &str) -> String {
-        let agent_id = self.agent_id.clone();
-        let model = model.to_string();
-        let provider = provider.to_string();
-        let session_id = self.session_id.clone();
-        let bundle = crate::blocking::run_blocking(move || {
-            config::build_system_prompt_bundle_with_session(
-                &agent_id,
-                &model,
-                &provider,
-                session_id.as_deref(),
-            )
-        })
-        .await;
-        *self
-            .static_memory_refs
-            .lock()
-            .unwrap_or_else(|e| e.into_inner()) = bundle.static_memory_refs;
-
+        self.refresh_turn_prompt_cache(model, provider).await;
+        let prompt = self
+            .cached_turn_prompt(model, provider, |cache| (*cache.base_prompt).clone())
+            .unwrap_or_else(|| {
+                config::build_system_prompt_with_session(
+                    &self.agent_id,
+                    model,
+                    provider,
+                    self.session_id.as_deref(),
+                )
+            });
         let attached_knowledge_section = self.prepare_attached_knowledge_section().await;
-        self.append_full_system_prompt_extras(bundle.prompt, attached_knowledge_section)
+        self.append_full_system_prompt_extras(prompt, attached_knowledge_section)
     }
 
     fn append_full_system_prompt_extras(
@@ -2898,18 +3098,53 @@ impl AssistantAgent {
         self.build_full_system_prompt(model, provider)
     }
 
-    /// Build the merged system prompt string (static prefix + awareness
-    /// suffix). Used for compaction token budgets and any code path that
-    /// needs a flat string.
+    /// Build the merged system prompt string (static prefix + dynamic suffixes
+    /// that should count toward compaction budgets). Provider adapters still
+    /// send those suffixes as separate system blocks when possible.
     pub(crate) fn build_merged_system_prompt(&self, model: &str, provider: &str) -> String {
-        self.merge_dynamic_system_prompt(self.build_full_system_prompt(model, provider))
+        self.merge_dynamic_system_prompt(
+            self.build_full_system_prompt(model, provider),
+            model,
+            provider,
+        )
     }
 
-    fn merge_dynamic_system_prompt(&self, mut prompt: String) -> String {
+    fn merge_dynamic_system_prompt(
+        &self,
+        mut prompt: String,
+        model: &str,
+        provider: &str,
+    ) -> String {
         if let Some(suffix) = self.current_awareness_suffix() {
             if !suffix.is_empty() {
                 prompt.push_str("\n\n");
                 prompt.push_str(&suffix);
+            }
+        }
+        if let Some(suffix) = self.current_coding_profile_suffix() {
+            if !suffix.is_empty() {
+                prompt.push_str("\n\n");
+                prompt.push_str(&suffix);
+            }
+        }
+        if !self.session_is_incognito() {
+            let suffix = self
+                .cached_turn_prompt(model, provider, |cache| cache.lsp_suffix.clone())
+                .unwrap_or_else(|| {
+                    let working_dir = self
+                        .lookup_session_meta()
+                        .as_ref()
+                        .and_then(crate::session::effective_working_dir_for_meta);
+                    crate::lsp::diagnostics_prompt_suffix(
+                        self.session_id.as_deref(),
+                        working_dir.as_deref(),
+                    )
+                });
+            if let Some(suffix) = suffix {
+                if !suffix.is_empty() {
+                    prompt.push_str("\n\n");
+                    prompt.push_str(&suffix);
+                }
             }
         }
         prompt
@@ -2933,7 +3168,7 @@ impl AssistantAgent {
         // Pull working_dir / permission_mode / project_id from a single
         // SessionMeta lookup — avoids 3 separate SQLite roundtrips per
         // tool round.
-        let meta = crate::session::lookup_session_meta(self.session_id.as_deref());
+        let meta = self.lookup_session_meta();
         // Single source of truth: session-level dir → project's explicit dir →
         // project's lazily-created default workspace.
         let session_working_dir = meta
@@ -2951,6 +3186,11 @@ impl AssistantAgent {
             home_dir: self.agent_home(),
             session_working_dir,
             session_id: self.session_id.clone(),
+            session_db: self
+                .session_db
+                .clone()
+                .or_else(|| crate::get_session_db().cloned())
+                .map(tools::SessionDbHandle),
             tool_call_id: None,
             agent_id: Some(self.agent_id.clone()),
             subagent_depth: self.subagent_depth,
@@ -2987,9 +3227,11 @@ impl AssistantAgent {
             agent_custom_approval_tools: caps.custom_approval_tools.clone(),
             project_id,
             async_tool_policy: caps.async_tool_policy,
+            async_job_id_override: None,
             bypass_async_dispatch: false,
             suppress_global_tool_timeout: false,
             suppress_result_disk_persistence: false,
+            suppress_completion_injection: false,
             // E3/E4/E5 (INCOG-2/5/6): single source of truth for the turn's
             // incognito state, read from the same SessionMeta lookup above.
             incognito: meta.as_ref().map(|m| m.incognito).unwrap_or(false),
@@ -3304,9 +3546,10 @@ impl AssistantAgent {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
     use std::time::{Duration, Instant};
 
-    use super::backdate_instant_safely;
+    use super::{backdate_instant_safely, extract_tool_name};
     use crate::memory::{claims::ClaimGraphEdge, episodes::MemoryProcedureRecord, MemoryScope};
 
     #[test]
@@ -3348,6 +3591,67 @@ mod tests {
         // Turn boundary clears it so the next turn re-resolves.
         agent.reset_chat_flags();
         assert!(!lock(&agent), "reset_chat_flags clears the per-turn memo");
+    }
+
+    #[test]
+    fn workflow_schema_is_injected_only_when_workflow_mode_is_enabled() {
+        let dir = tempfile::tempdir().expect("temp session db dir");
+        let db = Arc::new(
+            crate::session::SessionDB::open(&dir.path().join("sessions.db"))
+                .expect("open session db"),
+        );
+        crate::channel::ChannelDB::new(db.clone())
+            .migrate()
+            .expect("migrate channel table");
+        let off_session = db.create_session("ha-main").expect("create off session");
+        let on_session = db.create_session("ha-main").expect("create on session");
+        let incognito_session = db
+            .create_session_with_project("ha-main", None, Some(true))
+            .expect("create incognito session");
+        db.update_session_workflow_mode(&on_session.id, crate::workflow_mode::WorkflowMode::On)
+            .expect("enable workflow mode");
+        assert!(db
+            .update_session_workflow_mode(
+                &incognito_session.id,
+                crate::workflow_mode::WorkflowMode::Ultracode,
+            )
+            .expect_err("incognito workflow mode enable should fail")
+            .to_string()
+            .contains("incognito session"));
+        assert_eq!(
+            db.get_session(&on_session.id)
+                .expect("read on session")
+                .expect("on session exists")
+                .workflow_mode,
+            crate::workflow_mode::WorkflowMode::On
+        );
+
+        let has_workflow = |session_id: &str| {
+            let mut agent = super::AssistantAgent::new_anthropic("test-key");
+            agent.set_agent_id("ha-main");
+            agent.set_session_db(db.clone());
+            agent.set_session_id(session_id);
+            let meta = agent.lookup_session_meta().expect("session meta");
+            let names: Vec<String> = agent
+                .build_tool_schemas(crate::tools::ToolProvider::Anthropic)
+                .iter()
+                .map(|schema| extract_tool_name(schema).to_string())
+                .collect();
+            (
+                names.iter().any(|name| name == crate::tools::TOOL_WORKFLOW),
+                meta,
+                names,
+            )
+        };
+
+        assert!(!has_workflow(&off_session.id).0);
+        let (on_has_workflow, on_meta, on_names) = has_workflow(&on_session.id);
+        assert!(
+            on_has_workflow,
+            "expected workflow schema for workflow mode {:?}, incognito={}, names={:?}",
+            on_meta.workflow_mode, on_meta.incognito, on_names
+        );
+        assert!(!has_workflow(&incognito_session.id).0);
     }
 
     #[test]

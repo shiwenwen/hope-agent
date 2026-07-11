@@ -5,7 +5,7 @@ mod agents;
 mod app_update;
 mod apply_patch;
 pub(crate) mod approval;
-mod ask_user_question;
+pub(crate) mod ask_user_question;
 pub(crate) mod browser;
 pub mod canvas;
 mod cron;
@@ -18,13 +18,16 @@ pub(crate) mod exec;
 mod execution;
 pub(crate) mod feishu;
 mod find;
+mod goal;
 mod grep;
 pub(crate) mod image;
 pub mod image_generate;
 pub(crate) mod image_markers;
 mod issue_report;
 pub(crate) mod job_status;
+mod loop_tool;
 mod ls;
+mod lsp;
 mod mac_control;
 mod memory;
 pub(crate) mod note;
@@ -50,6 +53,7 @@ mod weather;
 pub mod web_fetch;
 pub mod web_fetch_common;
 pub mod web_search;
+mod workflow_tool;
 mod write;
 
 // ── Public Re-exports ─────────────────────────────────────────────
@@ -65,10 +69,14 @@ pub use definitions::{
     get_core_tools_for_provider, get_deferred_tools, get_enter_plan_mode_tool,
     get_image_generate_tool_dynamic, get_notification_tool, get_subagent_tool,
     get_submit_plan_tool, get_tool_search_tool, get_tools_for_provider, get_web_search_tool,
-    is_async_capable, is_concurrent_safe, is_internal_tool, CoreSubclass, ToolDefinition, ToolTier,
+    get_workflow_tool, is_async_capable, is_concurrent_safe, is_internal_tool, CoreSubclass,
+    ToolApprovalHint, ToolDefinition, ToolEffect, ToolInputMetadata, ToolInterruptBehavior,
+    ToolMetadata, ToolPathExtractorMetadata, ToolPermissionMetadata, ToolPermissionSubject,
+    ToolRenderMetadata, ToolResultKind, ToolRisk, ToolTier, ToolValidationMetadata,
 };
 pub use execution::{
-    execute_tool_with_context, purge_tool_results_for_session, PidSink, ToolExecContext,
+    execute_tool_with_context, purge_tool_results_for_session, PidSink, SessionDbHandle,
+    ToolExecContext,
 };
 pub use rejection::{ToolRejection, TOOL_ERROR_PREFIX};
 
@@ -80,6 +88,7 @@ pub const TOOL_READ: &str = "read";
 pub const TOOL_WRITE: &str = "write";
 pub const TOOL_EDIT: &str = "edit";
 pub const TOOL_LS: &str = "ls";
+pub const TOOL_LSP: &str = "lsp";
 pub const TOOL_GREP: &str = "grep";
 pub const TOOL_FIND: &str = "find";
 pub const TOOL_APPLY_PATCH: &str = "apply_patch";
@@ -140,9 +149,23 @@ pub const TOOL_ASK_USER_QUESTION: &str = "ask_user_question";
 pub const TOOL_SUBMIT_PLAN: &str = "submit_plan";
 pub const TOOL_ENTER_PLAN_MODE: &str = "enter_plan_mode";
 pub const TOOL_TOOL_SEARCH: &str = "tool_search";
+pub const TOOL_WORKFLOW: &str = "workflow";
 pub const TOOL_TASK_CREATE: &str = "task_create";
 pub const TOOL_TASK_UPDATE: &str = "task_update";
 pub const TOOL_TASK_LIST: &str = "task_list";
+pub const TOOL_GOAL_STATUS: &str = "goal_status";
+pub const TOOL_GOAL_PREPARE_CONTRACT: &str = "goal_prepare_contract";
+pub const TOOL_GOAL_CHECKPOINT: &str = "goal_checkpoint";
+pub const TOOL_GOAL_RECORD_EVIDENCE: &str = "goal_record_evidence";
+pub const TOOL_GOAL_EVALUATE: &str = "goal_evaluate";
+pub const TOOL_GOAL_FINISH_REQUEST: &str = "goal_finish_request";
+pub const TOOL_GOAL_BLOCK_REQUEST: &str = "goal_block_request";
+pub const TOOL_LOOP_STATUS: &str = "loop_status";
+pub const TOOL_LOOP_RESCHEDULE: &str = "loop_reschedule";
+pub const TOOL_LOOP_STOP: &str = "loop_stop";
+pub const TOOL_LOOP_RECORD_PROGRESS: &str = "loop_record_progress";
+pub const TOOL_LOOP_WATCH: &str = "loop_watch";
+pub const TOOL_LOOP_UNWATCH: &str = "loop_unwatch";
 pub const TOOL_APP_UPDATE: &str = "app_update";
 pub const TOOL_JOB_STATUS: &str = "job_status";
 pub const TOOL_SCHEDULE_WAKEUP: &str = "schedule_wakeup";

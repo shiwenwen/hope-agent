@@ -14,6 +14,10 @@ use super::{
     MAX_RESULT_CHARS,
 };
 
+fn usage_tokens(value: Option<i64>) -> Option<u64> {
+    value.and_then(|v| u64::try_from(v).ok())
+}
+
 // ── Spawn Logic ─────────────────────────────────────────────────
 
 /// `SpawnParams.label` value used by the `agent` hook handler. Subagents
@@ -33,12 +37,38 @@ fn is_hook_spawn(label: Option<&str>) -> bool {
     label == Some(HOOK_SPAWN_LABEL)
 }
 
+fn append_extra_system_context(existing: Option<String>, addition: String) -> Option<String> {
+    Some(match existing {
+        Some(current) if !current.trim().is_empty() => format!("{current}\n\n{addition}"),
+        _ => addition,
+    })
+}
+
 /// Spawn a sub-agent asynchronously. Returns the run_id immediately.
 pub async fn spawn_subagent(
     params: SpawnParams,
     session_db: Arc<SessionDB>,
     cancel_registry: Arc<SubagentCancelRegistry>,
 ) -> Result<String> {
+    let run_id = uuid::Uuid::new_v4().to_string();
+    spawn_subagent_with_run_id(params, session_db, cancel_registry, run_id).await
+}
+
+/// Spawn a sub-agent using a caller-preallocated run id.
+///
+/// This is used by durable workflow replay: the workflow op stores the run id as
+/// `child_handle` before the side effect is launched, so recovery can reattach to
+/// or safely retry the same child instead of creating an untracked duplicate.
+pub(crate) async fn spawn_subagent_with_run_id(
+    mut params: SpawnParams,
+    session_db: Arc<SessionDB>,
+    cancel_registry: Arc<SubagentCancelRegistry>,
+    run_id: String,
+) -> Result<String> {
+    let run_id = uuid::Uuid::parse_str(&run_id)
+        .map(|id| id.to_string())
+        .map_err(|_| anyhow::anyhow!("preallocated sub-agent run id must be a UUID"))?;
+
     // ── Structural limits: hard-reject (a breach can't become legal by waiting;
     // guarded by `structural_limit_tests`). ──
     // 1. Depth (use parent agent's configured max).
@@ -74,15 +104,103 @@ pub async fn spawn_subagent(
         SubagentStatus::Spawning
     };
 
-    // 4. Generate run_id and create isolated session (linked to parent)
-    let run_id = uuid::Uuid::new_v4().to_string();
-    let child_session =
-        session_db.create_session_with_parent(&params.agent_id, Some(&params.parent_session_id))?;
+    // 4. Create isolated session (linked to parent)
+    let child_session = {
+        let db = session_db.clone();
+        let agent_id = params.agent_id.clone();
+        let parent_session_id = params.parent_session_id.clone();
+        db.run(move |db| db.create_session_with_parent(&agent_id, Some(&parent_session_id)))
+            .await?
+    };
     let child_session_id = child_session.id.clone();
 
     // Set a descriptive title for the sub-agent session
     let task_preview = truncate_str(&params.task, 50);
-    let _ = session_db.update_session_title(&child_session_id, &task_preview);
+    {
+        let db = session_db.clone();
+        let sid = child_session_id.clone();
+        let title = task_preview.clone();
+        let _ = db
+            .run(move |db| db.update_session_title(&sid, &title))
+            .await;
+    }
+
+    let mut assigned_child_working_dir = false;
+    if params.isolate_worktree {
+        match session_db
+            .create_managed_worktree(crate::worktree::CreateManagedWorktreeInput {
+                session_id: params.parent_session_id.clone(),
+                source_working_dir: None,
+                label: params.label.clone().or_else(|| Some(task_preview.clone())),
+                purpose: crate::worktree::ManagedWorktreePurpose::Subagent,
+                workflow_run_id: None,
+                child_session_id: Some(child_session_id.clone()),
+                base_ref: None,
+            })
+            .await
+        {
+            Ok(worktree) => {
+                let update_result = {
+                    let db = session_db.clone();
+                    let sid = child_session_id.clone();
+                    let path = worktree.path.clone();
+                    db.run(move |db| db.update_session_working_dir(&sid, Some(path)))
+                        .await
+                };
+                match update_result {
+                    Ok(_) => {
+                        assigned_child_working_dir = true;
+                        params.extra_system_context = append_extra_system_context(
+                            params.extra_system_context.take(),
+                            format!(
+                                "## Managed Worktree\nThis sub-agent has an isolated managed git worktree at `{}`. Treat this as the default workspace for file reads, edits, commands, and evidence gathering. The parent session tracks it as `{}` for handoff, restore, and cleanup.",
+                                worktree.path, worktree.id
+                            ),
+                        );
+                    }
+                    Err(e) => {
+                        crate::app_warn!(
+                            "subagent",
+                            "worktree",
+                            "created worktree {} but failed to assign child session cwd: {}",
+                            worktree.id,
+                            e
+                        );
+                    }
+                }
+            }
+            Err(e) => {
+                crate::app_warn!(
+                    "subagent",
+                    "worktree",
+                    "failed to create isolated worktree for run {}: {}",
+                    run_id,
+                    e
+                );
+            }
+        }
+    }
+    if !assigned_child_working_dir {
+        if let Some(parent_cwd) =
+            crate::session::effective_session_working_dir(Some(&params.parent_session_id))
+        {
+            let inherit_result = {
+                let db = session_db.clone();
+                let sid = child_session_id.clone();
+                db.run(move |db| db.update_session_working_dir(&sid, Some(parent_cwd)))
+                    .await
+            };
+            if let Err(e) = inherit_result {
+                crate::app_warn!(
+                    "subagent",
+                    "worktree",
+                    "failed to inherit parent working dir for child session {}: {}",
+                    child_session_id,
+                    e
+                );
+            }
+        }
+    }
 
     // 5. Insert run record
     let now = chrono::Utc::now().to_rfc3339();
@@ -313,7 +431,7 @@ pub(crate) fn launch_subagent_run(
         );
 
         enum ExecutionResult {
-            Finished(Result<(String, Option<String>)>),
+            Finished(Result<(String, Option<String>, crate::chat_engine::CapturedUsage)>),
             Timeout,
         }
 
@@ -356,10 +474,16 @@ pub(crate) fn launch_subagent_run(
         let finished_at = chrono::Utc::now().to_rfc3339();
 
         // Determine outcome — handles Ok, Err, Timeout, Cancel, and Panic
-        let (status, result_text, error_text, model_used) = match result {
-            Ok(ExecutionResult::Finished(Ok((response, model)))) => {
+        let (status, result_text, error_text, model_used, usage) = match result {
+            Ok(ExecutionResult::Finished(Ok((response, model, usage)))) => {
                 let truncated = truncate_str(&response, MAX_RESULT_CHARS);
-                (SubagentStatus::Completed, Some(truncated), None, model)
+                (
+                    SubagentStatus::Completed,
+                    Some(truncated),
+                    None,
+                    model,
+                    usage,
+                )
             }
             Ok(ExecutionResult::Finished(Err(e))) => {
                 if cancel_flag.load(Ordering::SeqCst) {
@@ -368,9 +492,16 @@ pub(crate) fn launch_subagent_run(
                         None,
                         Some("Killed by parent".into()),
                         None,
+                        Default::default(),
                     )
                 } else {
-                    (SubagentStatus::Error, None, Some(e.to_string()), None)
+                    (
+                        SubagentStatus::Error,
+                        None,
+                        Some(e.to_string()),
+                        None,
+                        Default::default(),
+                    )
                 }
             }
             Ok(ExecutionResult::Timeout) => {
@@ -380,6 +511,7 @@ pub(crate) fn launch_subagent_run(
                     None,
                     Some(format!("Timed out after {}s", timeout_secs)),
                     None,
+                    Default::default(),
                 )
             }
             Err(_panic) => {
@@ -389,9 +521,12 @@ pub(crate) fn launch_subagent_run(
                     None,
                     Some("Sub-agent panicked unexpectedly".into()),
                     None,
+                    Default::default(),
                 )
             }
         };
+        let input_tokens = usage_tokens(usage.input_tokens);
+        let output_tokens = usage_tokens(usage.output_tokens);
 
         if !matches!(status, SubagentStatus::Completed) {
             let reply_text = error_text
@@ -414,6 +549,7 @@ pub(crate) fn launch_subagent_run(
             model_used.as_deref(),
             Some(duration_ms),
         );
+        let _ = db.set_subagent_usage(&run_id_clone, input_tokens, output_tokens);
         let _ = db.set_subagent_finished_at(&run_id_clone, &finished_at);
 
         // Emit completion event — guaranteed to fire
@@ -450,8 +586,8 @@ pub(crate) fn launch_subagent_run(
             error: error_text.clone(),
             duration_ms: Some(duration_ms),
             label: label.clone(),
-            input_tokens: None, // TODO: extract from agent usage when available
-            output_tokens: None,
+            input_tokens,
+            output_tokens,
             result_full: result_text,
             skill_name: skill_name_for_events.clone(),
         });
@@ -531,7 +667,7 @@ pub(crate) fn launch_subagent_run(
 }
 
 /// Execute the sub-agent (runs within the spawned tokio task).
-/// Returns (response_text, model_used).
+/// Returns (response_text, model_used, captured_usage).
 ///
 /// `+ Send` is declared explicitly so the spawner's `tokio::spawn` bounds
 /// stay self-documenting. Collapsing to `async fn` would infer the bound
@@ -556,7 +692,9 @@ fn execute_subagent(
     reasoning_effort: Option<String>,
     origin_source: Option<crate::knowledge::KbAccessSource>,
     origin_channel_kb_context: Option<crate::knowledge::ChannelKbContext>,
-) -> impl std::future::Future<Output = Result<(String, Option<String>)>> + Send {
+) -> impl std::future::Future<
+    Output = Result<(String, Option<String>, crate::chat_engine::CapturedUsage)>,
+> + Send {
     async move {
         use crate::provider;
 
@@ -713,7 +851,7 @@ fn execute_subagent(
         .map_err(|e| anyhow::anyhow!("All models failed for sub-agent: {}", e))?;
 
         let model_used = result.model_used.as_ref().map(ToString::to_string);
-        Ok((result.response, model_used))
+        Ok((result.response, model_used, result.usage))
     } // async move
 }
 
@@ -765,6 +903,7 @@ mod structural_limit_tests {
             timeout_secs: None,
             model_override: None,
             label: None,
+            isolate_worktree: false,
             attachments: Vec::new(),
             plan_agent_mode: None,
             plan_mode_allow_paths: Vec::new(),
@@ -863,6 +1002,7 @@ mod structural_limit_tests {
                 timeout_secs: None,
                 model_override: None,
                 label: None,
+                isolate_worktree: false,
                 attachments: Vec::new(),
                 plan_agent_mode: None,
                 plan_mode_allow_paths: Vec::new(),

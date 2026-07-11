@@ -574,6 +574,221 @@ export type RecapProgress =
   | { phase: "done"; reportId: string }
   | { phase: "failed"; reportId: string; message: string }
 
+// ── Coding Improvement Learning Dashboard ──────────────────────
+
+export interface CodingImprovementDashboardOverview {
+  totalSessions: number
+  workflowRuns: number
+  completedWorkflows: number
+  blockedWorkflows: number
+  failedWorkflows: number
+  workflowCompletionRate: number | null
+  evalRuns: number
+  passedEvalRuns: number
+  failedEvalRuns: number
+  evalSuccessRate: number | null
+  evalPackRuns: number
+  passedEvalPackRuns: number
+  failedEvalPackRuns: number
+  evalPackPassRate: number | null
+  deterministicPackRuns: number
+  externalPackRuns: number
+  strategyEffectRuns: number
+  improvedStrategyEffects: number
+  regressedStrategyEffects: number
+  mixedStrategyEffects: number
+  missingToolCallRuns: number
+  validationViolationDelta: number
+  scopeCreepDelta: number
+  openReviewBlockers: number
+  failedVerificationSteps: number
+  retros: number
+  retroRecommendations: number
+  proposals: number
+  draftProposals: number
+  appliedProposals: number
+  promotedProposals: number
+  promotionFailures: number
+  distillationCandidates: number
+}
+
+export interface CodingImprovementTimelinePoint {
+  date: string
+  completedWorkflows: number
+  blockedWorkflows: number
+  failedWorkflows: number
+  evalPassed: number
+  evalFailed: number
+  evalPackPassed: number
+  evalPackFailed: number
+  strategyImproved: number
+  strategyRegressed: number
+  strategyMixed: number
+  validationViolationDelta: number
+  scopeCreepDelta: number
+  proposalsCreated: number
+  proposalsApplied: number
+  proposalsPromoted: number
+  retroRecommendations: number
+}
+
+export interface CodingImprovementProjectBucket {
+  projectId: string | null
+  projectName: string | null
+  sessions: number
+  workflowRuns: number
+  workflowCompletionRate: number | null
+  evalRuns: number
+  evalSuccessRate: number | null
+  evalPackRuns: number
+  evalPackPassRate: number | null
+  strategyEffectRuns: number
+  regressedStrategyEffects: number
+  openReviewBlockers: number
+  retroRecommendations: number
+  draftProposals: number
+  appliedProposals: number
+  promotedProposals: number
+  promotionFailures: number
+  distillationCandidates: number
+}
+
+export interface CodingImprovementFailureBucket {
+  category: string
+  label: string
+  severity: string
+  count: number
+}
+
+export interface CodingImprovementStatusBucket {
+  status: string
+  count: number
+}
+
+export interface CodingImprovementStrategyEffectItem {
+  id: string
+  projectId: string | null
+  strategyType: string
+  baselineLabel: string
+  candidateLabel: string
+  verdict: string
+  comparedCases: number
+  passRateDelta: number
+  averageScoreDelta: number
+  contextRecallDelta: number
+  validationViolationDelta: number
+  scopeCreepDelta: number
+  executionFailureDelta: number
+  createdAt: string
+}
+
+export interface CodingRetroRecommendation {
+  kind: string
+  title: string
+  rationale: string
+}
+
+export interface CodingImprovementRetroItem {
+  id: string
+  sessionId: string
+  projectId: string | null
+  workflowRunId: string
+  runState: string
+  summary: string
+  recommendations: CodingRetroRecommendation[]
+  updatedAt: string
+}
+
+export interface DomainQualityDashboardOverview {
+  qualityRuns: number
+  completedQualityRuns: number
+  blockedQualityRuns: number
+  failedQualityRuns: number
+  needsUserQualityRuns: number
+  qualityCompletionRate: number | null
+  approvalBlockers: number
+  evalRuns: number
+  passedEvalRuns: number
+  failedEvalRuns: number
+  evalPassRate: number | null
+  averageEvalScore: number | null
+  domainsCovered: number
+  draftDomainProposals: number
+  promotedDomainProposals: number
+}
+
+export interface DomainQualityTimelinePoint {
+  date: string
+  qualityRuns: number
+  completedQualityRuns: number
+  blockedQualityRuns: number
+  failedQualityRuns: number
+  needsUserQualityRuns: number
+  approvalBlockers: number
+  evalPassed: number
+  evalFailed: number
+  proposalsCreated: number
+}
+
+export interface DomainQualityDomainBucket {
+  domain: string
+  qualityRuns: number
+  completedQualityRuns: number
+  blockedQualityRuns: number
+  failedQualityRuns: number
+  needsUserQualityRuns: number
+  qualityCompletionRate: number | null
+  approvalBlockers: number
+  evalRuns: number
+  evalPassRate: number | null
+  averageEvalScore: number | null
+  draftProposals: number
+  promotedProposals: number
+}
+
+export interface DomainQualityBlockerBucket {
+  category: string
+  label: string
+  severity: string
+  count: number
+}
+
+export interface DomainQualityRunItem {
+  id: string
+  sessionId: string
+  projectId: string | null
+  domain: string
+  templateId: string | null
+  templateVersion: string | null
+  state: string
+  summary: string
+  failedChecks: number
+  needsUserChecks: number
+  approvalBlockers: number
+  updatedAt: string
+}
+
+export interface DomainQualityDashboard {
+  overview: DomainQualityDashboardOverview
+  timeline: DomainQualityTimelinePoint[]
+  byDomain: DomainQualityDomainBucket[]
+  topBlockers: DomainQualityBlockerBucket[]
+  recentRuns: DomainQualityRunItem[]
+}
+
+export interface CodingImprovementDashboard {
+  generatedAt: string
+  overview: CodingImprovementDashboardOverview
+  timeline: CodingImprovementTimelinePoint[]
+  byProject: CodingImprovementProjectBucket[]
+  domainQuality: DomainQualityDashboard
+  topFailures: CodingImprovementFailureBucket[]
+  toolCallFailures: CodingImprovementFailureBucket[]
+  proposalStatuses: CodingImprovementStatusBucket[]
+  latestStrategyEffects: CodingImprovementStrategyEffectItem[]
+  latestRetros: CodingImprovementRetroItem[]
+}
+
 // ── Local Models Tab ────────────────────────────────────────────
 
 export interface DashboardLocalModelUsageRow {

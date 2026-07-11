@@ -39,10 +39,11 @@ export function providerMatchesKnownLocalBackend(
 }
 
 export function hasKnownLocalBackend(
-  providers: ProviderLike[],
-  backends: KnownLocalBackend[],
+  providers: ProviderLike[] | null | undefined,
+  backends: KnownLocalBackend[] | null | undefined,
   backendKey: string,
 ): boolean {
+  if (!Array.isArray(providers) || !Array.isArray(backends)) return false
   const backend = backends.find((entry) => entry.key === backendKey)
   if (!backend) return false
   return providers.some((provider) => providerMatchesKnownLocalBackend(provider, backend))

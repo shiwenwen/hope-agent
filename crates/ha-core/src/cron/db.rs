@@ -798,6 +798,34 @@ impl CronDB {
         Ok(())
     }
 
+    /// Push the next active run out by a Loop-owned progress backoff. This is a
+    /// narrow scheduling override: it never changes the job's schedule, never
+    /// revives paused/terminal jobs, and is intended to run after `update_after_run`
+    /// has already advanced the recurring schedule to its normal next slot.
+    pub fn delay_next_run(&self, id: &str, delay_secs: i64) -> Result<Option<String>> {
+        if delay_secs <= 0 {
+            return Ok(None);
+        }
+        let now = Utc::now();
+        let now_str = now.to_rfc3339();
+        let next_run = (now + Duration::seconds(delay_secs)).to_rfc3339();
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
+        let rows = conn.execute(
+            "UPDATE cron_jobs
+             SET next_run_at = ?1, updated_at = ?2
+             WHERE id = ?3 AND status = 'active'",
+            params![next_run, now_str, id],
+        )?;
+        if rows > 0 {
+            Ok(Some(next_run))
+        } else {
+            Ok(None)
+        }
+    }
+
     /// §11 review fix: terminalize a cancelled one-shot `At` job as `completed`.
     /// Its `next_run_at` was advanced to NULL at claim, so leaving it `active`
     /// strands an un-fireable zombie until the next restart's `mark_missed_at_jobs`.

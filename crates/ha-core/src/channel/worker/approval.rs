@@ -503,6 +503,26 @@ fn reason_line_for_locale(reason: Option<&ApprovalReasonPayload>, locale: &str) 
                 ),
                 &r.detail,
             ),
+            ApprovalReasonKind::ExternalConnectorAction => prefixed_detail(
+                tr(
+                    locale,
+                    [
+                        "外部动作",
+                        "外部動作",
+                        "external action",
+                        "外部操作",
+                        "외부 작업",
+                        "acción externa",
+                        "ação externa",
+                        "внешнее действие",
+                        "إجراء خارجي",
+                        "harici eylem",
+                        "hành động bên ngoài",
+                        "tindakan luaran",
+                    ],
+                ),
+                &r.detail,
+            ),
             ApprovalReasonKind::PlanModeAsk => Some(
                 tr(
                     locale,
@@ -755,6 +775,23 @@ fn reason_label(kind: ApprovalReasonKind, locale: &str) -> &'static str {
                 "⚠ Mac kontrolü",
                 "⚠ Điều khiển Mac",
                 "⚠ Kawalan Mac",
+            ],
+        ),
+        ApprovalReasonKind::ExternalConnectorAction => tr(
+            locale,
+            [
+                "⚠ 外部连接器",
+                "⚠ 外部連接器",
+                "⚠ External Connector",
+                "⚠ 外部コネクタ",
+                "⚠ 외부 커넥터",
+                "⚠ Conector externo",
+                "⚠ Conector externo",
+                "⚠ Внешний коннектор",
+                "⚠ موصل خارجي",
+                "⚠ Harici bağlayıcı",
+                "⚠ Trình kết nối bên ngoài",
+                "⚠ Penyambung luaran",
             ],
         ),
         ApprovalReasonKind::PlanModeAsk => tr(

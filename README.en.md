@@ -327,7 +327,6 @@ node scripts/sync-i18n.mjs --check   # i18n completeness check
 - [openclaw](https://github.com/openclaw/openclaw) — inspiration in the local AI assistant space
 - [Ollama](https://ollama.com/) — the one-click local LLM experience is built on top of Ollama's local runtime and its OpenAI-compatible endpoint; Hope Agent only wraps the GUI layer, while Qwen / Gemma and other models are distributed through the Ollama model library
 - [ClawHub](https://www.clawhub.com/) / [SkillHub](https://skillhub.cn/) — public skill discovery sources for Hope Agent
-- [Hermes Agent](https://github.com/NousResearch/hermes) (originally adapted from [obra/superpowers](https://github.com/obra/superpowers)) — several bundled coding-methodology skills are vendored from here (MIT); see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)
 - [Tauri](https://tauri.app/), [axum](https://github.com/tokio-rs/axum), [React](https://react.dev/), [shadcn/ui](https://ui.shadcn.com/), [Streamdown](https://github.com/streamdown/streamdown), [Radix UI](https://www.radix-ui.com/), and the rest of the open source stack Hope Agent stands on
 - Everyone who has filed issues, tested builds, and given feedback along the way
 

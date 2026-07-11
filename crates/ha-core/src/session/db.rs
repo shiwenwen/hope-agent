@@ -77,7 +77,10 @@ const SESSION_META_SELECT: &str = "SELECT s.id, s.title, s.agent_id, s.provider_
            cc.channel_id, cc.account_id, cc.chat_id, cc.chat_type, cc.sender_name,
            s.working_dir, s.title_source, s.reasoning_effort, s.pinned_at, s.kind,
            (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id AND s.is_cron = 0 AND s.parent_session_id IS NULL AND m.id > COALESCE(s.last_read_message_id, 0) AND m.role = 'assistant' AND COALESCE(m.source, 'desktop') = 'channel') as channel_unread_count,
-           s.sandbox_mode, s.temperature, s.runtime_defaults_initialized
+           s.sandbox_mode, s.temperature, s.runtime_defaults_initialized,
+           s.execution_mode, s.workflow_mode,
+           s.forked_from_session_id, s.forked_from_message_id,
+           (SELECT p.title FROM sessions p WHERE p.id = s.forked_from_session_id) as forked_from_session_title
      FROM sessions s
      LEFT JOIN channel_conversations cc ON cc.session_id = s.id";
 
@@ -121,7 +124,11 @@ impl SessionDB {
                 incognito INTEGER NOT NULL DEFAULT 0,
                 title_source TEXT NOT NULL DEFAULT 'manual',
                 pinned_at TEXT,
-                kind TEXT NOT NULL DEFAULT 'regular'
+                kind TEXT NOT NULL DEFAULT 'regular',
+                execution_mode TEXT NOT NULL DEFAULT 'off',
+                workflow_mode TEXT NOT NULL DEFAULT 'off',
+                forked_from_session_id TEXT,
+                forked_from_message_id INTEGER
             );
 
             CREATE TABLE IF NOT EXISTS messages (
@@ -389,6 +396,28 @@ impl SessionDB {
             conn.execute_batch("ALTER TABLE messages ADD COLUMN source TEXT;")?;
         }
 
+        // Migration: user-facing session forks. Deliberately separate from
+        // `parent_session_id`, which marks hidden sub-agent child sessions.
+        let has_forked_from_session_id = conn
+            .prepare("SELECT forked_from_session_id FROM sessions LIMIT 1")
+            .is_ok();
+        if !has_forked_from_session_id {
+            conn.execute_batch("ALTER TABLE sessions ADD COLUMN forked_from_session_id TEXT;")?;
+        }
+        let has_forked_from_message_id = conn
+            .prepare("SELECT forked_from_message_id FROM sessions LIMIT 1")
+            .is_ok();
+        if !has_forked_from_message_id {
+            conn.execute_batch("ALTER TABLE sessions ADD COLUMN forked_from_message_id INTEGER;")?;
+        }
+        // Keep this index after both ALTER migrations. `CREATE TABLE IF NOT
+        // EXISTS` does not add columns to an existing database, so creating the
+        // index in the bootstrap batch would make old databases fail before
+        // they can reach these migrations.
+        conn.execute_batch(
+            "CREATE INDEX IF NOT EXISTS idx_sessions_forked_from ON sessions(forked_from_session_id);",
+        )?;
+
         Self::ensure_model_usage_table(&conn)?;
         const SCHEMA_FLAG_MODEL_USAGE_BACKFILLED: i64 = 0x4;
         let schema_flags: i64 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
@@ -400,6 +429,16 @@ impl SessionDB {
             ))?;
         }
         Self::ensure_chat_turns_table(&conn)?;
+        crate::goal::ensure_tables(&conn)?;
+        crate::worktree::ensure_tables(&conn)?;
+        crate::workflow::ensure_tables(&conn)?;
+        crate::review::ensure_tables(&conn)?;
+        crate::verification::ensure_tables(&conn)?;
+        crate::loop_control::ensure_tables(&conn)?;
+        crate::coding_improvement::ensure_tables(&conn)?;
+        crate::domain_workflow::ensure_tables(&conn)?;
+        crate::domain_quality::ensure_tables(&conn)?;
+        crate::domain_eval::ensure_tables(&conn)?;
 
         // Migration: fix FTS delete trigger — must match INSERT trigger's WHEN clause
         // to avoid "database disk image is malformed" errors during CASCADE delete.
@@ -657,6 +696,30 @@ impl SessionDB {
             }
         }
 
+        // Migration: persistent per-session execution mode policy
+        // (off | guarded | deep | autonomous). `/mode` writes this value and
+        // the system prompt reads it on every chat entry point.
+        let has_execution_mode = conn
+            .prepare("SELECT execution_mode FROM sessions LIMIT 1")
+            .is_ok();
+        if !has_execution_mode {
+            conn.execute_batch(
+                "ALTER TABLE sessions ADD COLUMN execution_mode TEXT NOT NULL DEFAULT 'off';",
+            )?;
+        }
+
+        // Migration: persistent per-session Workflow Mode policy
+        // (off | on | ultracode). `/workflow on` writes this value and the
+        // system prompt/tool schema read it on every chat entry point.
+        let has_workflow_mode = conn
+            .prepare("SELECT workflow_mode FROM sessions LIMIT 1")
+            .is_ok();
+        if !has_workflow_mode {
+            conn.execute_batch(
+                "ALTER TABLE sessions ADD COLUMN workflow_mode TEXT NOT NULL DEFAULT 'off';",
+            )?;
+        }
+
         // Migration: optional sidebar pin timestamp. NULL means unpinned;
         // non-NULL sorts above normal sessions without changing updated_at.
         let has_pinned_at = conn
@@ -721,6 +784,18 @@ impl SessionDB {
         if !has_batch_id {
             conn.execute_batch("ALTER TABLE tasks ADD COLUMN batch_id TEXT;")?;
         }
+
+        // Migration: latest IDE / ACP context envelope for a session. This is
+        // owner-plane state only: Review Engine and Context Retrieval may read
+        // it, but it is never injected as a system instruction.
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS session_ide_context (
+                session_id TEXT PRIMARY KEY,
+                context_json TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+            );",
+        )?;
 
         // Migration: Agent Team tables
         conn.execute_batch(
@@ -1076,18 +1151,41 @@ impl SessionDB {
     /// app startup because any rows left behind from a previous process have
     /// no live in-memory oneshot to deliver answers to — restoring them in
     /// the UI would produce "No pending ask_user_question request" errors.
+    /// Owner-side questions carry a durable `ownerResponse` handler and are
+    /// safe to keep pending across restarts.
     pub fn expire_pending_ask_user_groups(&self) -> anyhow::Result<usize> {
         let conn = self
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
-        let n = conn.execute(
-            "UPDATE ask_user_questions
-                SET status = 'answered', answered_at = datetime('now')
-                WHERE status = 'pending'",
-            [],
+        let mut stmt = conn.prepare(
+            "SELECT request_id, payload FROM ask_user_questions WHERE status = 'pending'",
         )?;
-        Ok(n)
+        let rows = stmt.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?;
+        let mut pending_rows = Vec::new();
+        for row in rows {
+            pending_rows.push(row?);
+        }
+        drop(stmt);
+        let mut expired = 0usize;
+        for (request_id, payload) in pending_rows {
+            let keep_pending =
+                serde_json::from_str::<crate::ask_user::AskUserQuestionGroup>(&payload)
+                    .map(|group| group.owner_response.is_some())
+                    .unwrap_or(false);
+            if keep_pending {
+                continue;
+            }
+            expired += conn.execute(
+                "UPDATE ask_user_questions
+                    SET status = 'answered', answered_at = datetime('now')
+                    WHERE request_id = ?1 AND status = 'pending'",
+                params![request_id],
+            )?;
+        }
+        Ok(expired)
     }
 
     /// Mark a pending ask_user_question group as answered. Idempotent.
@@ -1189,6 +1287,40 @@ impl SessionDB {
             }
         }
         Ok(out)
+    }
+
+    pub fn get_pending_ask_user_group_by_request_id(
+        &self,
+        request_id: &str,
+    ) -> anyhow::Result<Option<crate::ask_user::AskUserQuestionGroup>> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        conn.execute(
+            "UPDATE ask_user_questions
+                SET status = 'answered', answered_at = datetime('now')
+                WHERE status = 'pending'
+                  AND timeout_at IS NOT NULL
+                  AND timeout_at > 0
+                  AND timeout_at <= strftime('%s','now')",
+            [],
+        )?;
+        let payload: Option<String> = conn
+            .query_row(
+                "SELECT payload FROM ask_user_questions
+                    WHERE request_id = ?1
+                      AND status = 'pending'
+                      AND (timeout_at IS NULL OR timeout_at = 0
+                           OR timeout_at > strftime('%s','now'))
+                    LIMIT 1",
+                params![request_id],
+                |row| row.get(0),
+            )
+            .optional()?;
+        payload
+            .map(|payload| serde_json::from_str(&payload).map_err(Into::into))
+            .transpose()
     }
 
     // ── Session CRUD ─────────────────────────────────────────────
@@ -1325,7 +1457,12 @@ impl SessionDB {
             pending_interaction_count: 0,
             is_cron: false,
             parent_session_id: parent_session_id.map(|s| s.to_string()),
+            forked_from_session_id: None,
+            forked_from_message_id: None,
+            forked_from_session_title: None,
             plan_mode: crate::plan::PlanModeState::Off,
+            execution_mode: crate::execution_mode::ExecutionMode::Off,
+            workflow_mode: crate::workflow_mode::WorkflowMode::Off,
             permission_mode: initial_permission_mode,
             sandbox_mode: initial_sandbox_mode,
             project_id: project_id.map(|s| s.to_string()),
@@ -1334,6 +1471,286 @@ impl SessionDB {
             working_dir: None,
             kind: SessionKind::Regular,
         })
+    }
+
+    /// Fork a regular user-facing session into a new first-class session.
+    ///
+    /// The fork copies the persisted transcript up to `source_message_id`
+    /// (inclusive) or the full transcript when it is `None`. It also copies the
+    /// stable conversation configuration (agent/model/project/workdir,
+    /// permission/sandbox/execution/workflow modes) while intentionally not
+    /// copying active control-plane state such as goals, loops, workflow runs,
+    /// tasks, approvals, or background jobs. Those records are live run state,
+    /// not transcript history, and sharing them would couple the original and
+    /// forked sessions.
+    pub fn fork_session(
+        &self,
+        source_session_id: &str,
+        source_message_id: Option<i64>,
+    ) -> Result<SessionMeta> {
+        let new_session_id = uuid::Uuid::new_v4().to_string();
+        let fork_result = (|| -> Result<()> {
+            let mut conn = self
+                .conn
+                .lock()
+                .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+            let tx = conn.transaction()?;
+
+            let (
+                source_title,
+                source_title_source,
+                agent_id,
+                provider_id,
+                provider_name,
+                model_id,
+                reasoning_effort,
+                project_id,
+                permission_mode,
+                sandbox_mode,
+                execution_mode,
+                workflow_mode,
+                working_dir,
+                kind,
+                incognito,
+                is_cron,
+                parent_session_id,
+            ): (
+                Option<String>,
+                String,
+                String,
+                Option<String>,
+                Option<String>,
+                Option<String>,
+                Option<String>,
+                Option<String>,
+                String,
+                String,
+                String,
+                String,
+                Option<String>,
+                String,
+                i64,
+                i64,
+                Option<String>,
+            ) = tx
+                .query_row(
+                    "SELECT title, title_source, agent_id, provider_id, provider_name, model_id,
+                        reasoning_effort, project_id, permission_mode, sandbox_mode,
+                        execution_mode, workflow_mode, working_dir, kind, incognito,
+                        is_cron, parent_session_id
+                 FROM sessions WHERE id = ?1",
+                    params![source_session_id],
+                    |row| {
+                        Ok((
+                            row.get(0)?,
+                            row.get(1)?,
+                            row.get(2)?,
+                            row.get(3)?,
+                            row.get(4)?,
+                            row.get(5)?,
+                            row.get(6)?,
+                            row.get(7)?,
+                            row.get(8)?,
+                            row.get(9)?,
+                            row.get(10)?,
+                            row.get(11)?,
+                            row.get(12)?,
+                            row.get(13)?,
+                            row.get(14)?,
+                            row.get(15)?,
+                            row.get(16)?,
+                        ))
+                    },
+                )
+                .optional()?
+                .ok_or_else(|| {
+                    anyhow::anyhow!("source session not found: {}", source_session_id)
+                })?;
+
+            if incognito != 0 {
+                anyhow::bail!("incognito sessions cannot be forked");
+            }
+            if is_cron != 0 || parent_session_id.is_some() || kind != SessionKind::Regular.as_str()
+            {
+                anyhow::bail!("only regular top-level sessions can be forked");
+            }
+
+            if let Some(message_id) = source_message_id {
+                let exists: i64 = tx.query_row(
+                    "SELECT EXISTS(SELECT 1 FROM messages WHERE session_id = ?1 AND id = ?2)",
+                    params![source_session_id, message_id],
+                    |row| row.get(0),
+                )?;
+                if exists == 0 {
+                    anyhow::bail!("source message not found in session: {}", message_id);
+                }
+            }
+
+            let active_streaming_rows: i64 = tx.query_row(
+                "SELECT COUNT(*) FROM messages
+             WHERE session_id = ?1
+               AND (?2 IS NULL OR id <= ?2)
+               AND stream_status = 'streaming'",
+                params![source_session_id, source_message_id],
+                |row| row.get(0),
+            )?;
+            if active_streaming_rows > 0 {
+                anyhow::bail!(
+                    "session has an active response; wait for it to finish before forking"
+                );
+            }
+
+            let copied_count: i64 = tx.query_row(
+                "SELECT COUNT(*) FROM messages
+             WHERE session_id = ?1
+               AND (?2 IS NULL OR id <= ?2)",
+                params![source_session_id, source_message_id],
+                |row| row.get(0),
+            )?;
+            if copied_count == 0 {
+                anyhow::bail!("cannot fork an empty session");
+            }
+
+            let has_source_title = source_title
+                .as_deref()
+                .is_some_and(|title| !title.trim().is_empty());
+            let inferred_title: Option<String> = if has_source_title {
+                source_title.clone()
+            } else {
+                tx.query_row(
+                    "SELECT content FROM messages
+                 WHERE session_id = ?1
+                   AND (?2 IS NULL OR id <= ?2)
+                   AND role = 'user'
+                   AND length(trim(content)) > 0
+                 ORDER BY id ASC LIMIT 1",
+                    params![source_session_id, source_message_id],
+                    |row| row.get::<_, String>(0),
+                )
+                .optional()?
+                .map(|content| crate::truncate_utf8(content.trim(), 80).to_string())
+                .filter(|title| !title.is_empty())
+            };
+            let title_source = if has_source_title {
+                source_title_source
+            } else if inferred_title.is_some() {
+                crate::session_title::TITLE_SOURCE_FIRST_MESSAGE.to_string()
+            } else {
+                crate::session_title::TITLE_SOURCE_MANUAL.to_string()
+            };
+
+            let now = chrono::Utc::now().to_rfc3339();
+            tx.execute(
+            "INSERT INTO sessions (
+                id, title, title_source, agent_id, provider_id, provider_name, model_id,
+                reasoning_effort, created_at, updated_at, parent_session_id, project_id,
+                permission_mode, sandbox_mode, execution_mode, workflow_mode, working_dir,
+                kind, forked_from_session_id, forked_from_message_id
+             )
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, NULL, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)",
+            params![
+                new_session_id,
+                inferred_title,
+                title_source,
+                agent_id,
+                provider_id,
+                provider_name,
+                model_id,
+                reasoning_effort,
+                now,
+                now,
+                project_id,
+                permission_mode,
+                sandbox_mode,
+                execution_mode,
+                workflow_mode,
+                working_dir,
+                kind,
+                source_session_id,
+                source_message_id,
+            ],
+        )?;
+
+            tx.execute(
+                "INSERT INTO messages (
+                session_id, role, content, timestamp, attachments_meta, model,
+                tokens_in, tokens_out, reasoning_effort, tool_call_id, tool_name,
+                tool_arguments, tool_result, tool_duration_ms, is_error, thinking,
+                ttft_ms, tokens_in_last, tokens_cache_creation, tokens_cache_read,
+                tool_metadata, stream_status, source
+             )
+             SELECT ?1, role, content, timestamp, attachments_meta, model,
+                tokens_in, tokens_out, reasoning_effort, tool_call_id, tool_name,
+                tool_arguments, tool_result, tool_duration_ms, is_error, thinking,
+                ttft_ms, tokens_in_last, tokens_cache_creation, tokens_cache_read,
+                tool_metadata, stream_status, source
+             FROM messages
+             WHERE session_id = ?2
+               AND (?3 IS NULL OR id <= ?3)
+             ORDER BY id ASC",
+                params![new_session_id, source_session_id, source_message_id],
+            )?;
+
+            let attachment_meta_rewrites = {
+                let mut stmt = tx.prepare(
+                    "SELECT DISTINCT attachments_meta FROM messages
+                 WHERE session_id = ?1
+                   AND (?2 IS NULL OR id <= ?2)
+                   AND attachments_meta IS NOT NULL",
+                )?;
+                let raw_values = stmt
+                    .query_map(params![source_session_id, source_message_id], |row| {
+                        row.get::<_, String>(0)
+                    })?
+                    .collect::<std::result::Result<Vec<_>, _>>()?;
+                raw_values
+                    .into_iter()
+                    .map(|raw| {
+                        let rewritten = crate::attachments::fork_attachments_meta(
+                            source_session_id,
+                            &new_session_id,
+                            &raw,
+                        )?;
+                        Ok((raw, rewritten))
+                    })
+                    .collect::<Result<Vec<_>>>()?
+            };
+
+            for (raw, rewritten) in attachment_meta_rewrites {
+                if raw != rewritten {
+                    tx.execute(
+                        "UPDATE messages SET attachments_meta = ?1
+                     WHERE session_id = ?2 AND attachments_meta = ?3",
+                        params![rewritten, new_session_id, raw],
+                    )?;
+                }
+            }
+
+            let last_message_id: Option<i64> = tx.query_row(
+                "SELECT MAX(id) FROM messages WHERE session_id = ?1",
+                params![new_session_id],
+                |row| row.get(0),
+            )?;
+            if let Some(last_message_id) = last_message_id {
+                tx.execute(
+                    "UPDATE sessions SET last_read_message_id = ?1 WHERE id = ?2",
+                    params![last_message_id, new_session_id],
+                )?;
+            }
+
+            tx.commit()?;
+            Ok(())
+        })();
+
+        if let Err(error) = fork_result {
+            if let Ok(attachments_dir) = crate::paths::attachments_dir(&new_session_id) {
+                let _ = std::fs::remove_dir_all(attachments_dir);
+            }
+            return Err(error);
+        }
+
+        self.get_session(&new_session_id)?
+            .ok_or_else(|| anyhow::anyhow!("forked session disappeared: {}", new_session_id))
     }
 
     /// Set a session's classification (see [`SessionKind`]). Used by the
@@ -1534,7 +1951,7 @@ impl SessionDB {
         // Knowledge-space sidebar conversations live in the KB panel, never the
         // main session list / picker — hide them unconditionally (no active
         // exception, unlike incognito below).
-        where_clauses.push("s.kind != 'knowledge'".to_string());
+        where_clauses.push("s.kind NOT IN ('knowledge','eval_fixture')".to_string());
 
         // Cron run sessions live in the cron panel's "conversations" timeline,
         // never the main sidebar list — hide them when the sidebar asks.
@@ -1999,9 +2416,22 @@ impl SessionDB {
             has_error: row.get::<_, i64>(10).unwrap_or(0) != 0,
             is_cron: row.get::<_, i64>(11).unwrap_or(0) != 0,
             parent_session_id: row.get(12)?,
+            forked_from_session_id: row.get(33).ok().flatten(),
+            forked_from_message_id: row.get(34).ok().flatten(),
+            forked_from_session_title: row.get(35).ok().flatten(),
             plan_mode: row
                 .get::<_, String>(13)
                 .map(|s| crate::plan::PlanModeState::from_str(&s))
+                .unwrap_or_default(),
+            // Appended after sandbox_mode to keep existing locked positions
+            // stable.
+            execution_mode: row
+                .get::<_, String>(31)
+                .map(|s| crate::execution_mode::ExecutionMode::parse_or_default(&s))
+                .unwrap_or_default(),
+            workflow_mode: row
+                .get::<_, String>(32)
+                .map(|s| crate::workflow_mode::WorkflowMode::parse_or_default(&s))
                 .unwrap_or_default(),
             project_id: row.get(14)?,
             permission_mode: row
@@ -2589,11 +3019,20 @@ impl SessionDB {
 
     /// Update session title.
     pub fn update_session_title(&self, session_id: &str, title: &str) -> Result<()> {
-        self.update_session_title_with_source(
-            session_id,
-            title,
-            crate::session_title::TITLE_SOURCE_MANUAL,
-        )
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        // Entering title edit mode and blurring without changing the text is
+        // not a manual rename. Preserve the existing source so an immediate
+        // first-message fallback remains eligible for LLM refinement.
+        conn.execute(
+            "UPDATE sessions
+                SET title = ?1, title_source = ?2
+              WHERE id = ?3 AND (title IS NULL OR title <> ?1)",
+            params![title, crate::session_title::TITLE_SOURCE_MANUAL, session_id],
+        )?;
+        Ok(())
     }
 
     /// Pin or unpin a session in sidebar listings. This intentionally does
@@ -2648,6 +3087,29 @@ impl SessionDB {
                 SET title = ?1, title_source = ?2
               WHERE id = ?3 AND title_source = ?4",
             params![title, title_source, session_id, expected_source],
+        )?;
+        Ok(changed > 0)
+    }
+
+    /// Reclassify a title without changing its text, guarded by both the
+    /// current source and current title. This is used to repair legacy
+    /// auto-generated Goal fallbacks without racing a real user rename.
+    pub(crate) fn update_session_title_source_if_title_and_source(
+        &self,
+        session_id: &str,
+        expected_title: &str,
+        expected_source: &str,
+        title_source: &str,
+    ) -> Result<bool> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let changed = conn.execute(
+            "UPDATE sessions
+                SET title_source = ?1
+              WHERE id = ?2 AND title = ?3 AND title_source = ?4",
+            params![title_source, session_id, expected_title, expected_source],
         )?;
         Ok(changed > 0)
     }
@@ -2909,6 +3371,103 @@ impl SessionDB {
         Ok(row.map(|s| crate::permission::SandboxMode::parse_or_default(&s)))
     }
 
+    /// Persist the session execution mode policy (`off` / `guarded` / `deep` /
+    /// `autonomous`) so `/mode` survives refreshes and all chat entry points
+    /// inject the same behavior contract.
+    pub fn update_session_execution_mode(
+        &self,
+        session_id: &str,
+        mode: crate::execution_mode::ExecutionMode,
+    ) -> Result<()> {
+        let now = chrono::Utc::now().to_rfc3339();
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let affected = conn.execute(
+            "UPDATE sessions SET execution_mode = ?1, updated_at = ?2 WHERE id = ?3",
+            params![mode.as_str(), now, session_id],
+        )?;
+        if affected == 0 {
+            return Err(anyhow::anyhow!("Session not found: {}", session_id));
+        }
+        Ok(())
+    }
+
+    /// Narrow read of just `sessions.execution_mode`.
+    pub fn get_session_execution_mode(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<crate::execution_mode::ExecutionMode>> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let mut stmt = conn.prepare("SELECT execution_mode FROM sessions WHERE id = ?1")?;
+        let row = match stmt.query_row(params![session_id], |row| row.get::<_, String>(0)) {
+            Ok(s) => Some(s),
+            Err(rusqlite::Error::QueryReturnedNoRows) => None,
+            Err(e) => return Err(anyhow::anyhow!("DB error: {}", e)),
+        };
+        Ok(row.map(|s| crate::execution_mode::ExecutionMode::parse_or_default(&s)))
+    }
+
+    /// Persist the session workflow autonomy mode (`off` / `on` /
+    /// `ultracode`) so `/workflow on` survives refreshes and all chat entry
+    /// points expose the same workflow tool/prompt contract.
+    pub fn update_session_workflow_mode(
+        &self,
+        session_id: &str,
+        mode: crate::workflow_mode::WorkflowMode,
+    ) -> Result<()> {
+        let now = chrono::Utc::now().to_rfc3339();
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let incognito = conn
+            .query_row(
+                "SELECT incognito FROM sessions WHERE id = ?1",
+                params![session_id],
+                |row| row.get::<_, i64>(0),
+            )
+            .optional()?;
+        let Some(incognito) = incognito else {
+            return Err(anyhow::anyhow!("Session not found: {}", session_id));
+        };
+        if mode.enabled() && incognito != 0 {
+            return Err(anyhow::anyhow!(
+                "Cannot enable workflow mode on an incognito session"
+            ));
+        }
+        let affected = conn.execute(
+            "UPDATE sessions SET workflow_mode = ?1, updated_at = ?2 WHERE id = ?3",
+            params![mode.as_str(), now, session_id],
+        )?;
+        if affected == 0 {
+            return Err(anyhow::anyhow!("Session not found: {}", session_id));
+        }
+        Ok(())
+    }
+
+    /// Narrow read of just `sessions.workflow_mode`.
+    pub fn get_session_workflow_mode(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<crate::workflow_mode::WorkflowMode>> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let mut stmt = conn.prepare("SELECT workflow_mode FROM sessions WHERE id = ?1")?;
+        let row = match stmt.query_row(params![session_id], |row| row.get::<_, String>(0)) {
+            Ok(s) => Some(s),
+            Err(rusqlite::Error::QueryReturnedNoRows) => None,
+            Err(e) => return Err(anyhow::anyhow!("DB error: {}", e)),
+        };
+        Ok(row.map(|s| crate::workflow_mode::WorkflowMode::parse_or_default(&s)))
+    }
+
     /// Persist the session-scoped incognito mode flag.
     ///
     /// Refuses to enable incognito on Project / IM Channel sessions: project
@@ -2930,15 +3489,59 @@ impl SessionDB {
                     "Cannot enable incognito on an IM Channel session"
                 ));
             }
+            if meta.workflow_mode.enabled() {
+                return Err(anyhow::anyhow!(
+                    "Cannot enable incognito while Workflow Mode is enabled"
+                ));
+            }
+            let conn = self
+                .conn
+                .lock()
+                .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+            let open_goal: Option<String> = conn
+                .query_row(
+                    "SELECT id FROM goals
+                     WHERE session_id = ?1
+                       AND (
+                            state IN ('active','paused','evaluating','blocked')
+                            OR (state = 'completed' AND closure_decision IS NULL)
+                       )
+                     LIMIT 1",
+                    params![session_id],
+                    |row| row.get(0),
+                )
+                .optional()?;
+            if let Some(goal_id) = open_goal {
+                return Err(anyhow::anyhow!(
+                    "Cannot enable incognito while session has an open Goal {}",
+                    goal_id
+                ));
+            }
+            let workflow_run: Option<String> = conn
+                .query_row(
+                    "SELECT id FROM workflow_runs WHERE session_id = ?1 LIMIT 1",
+                    params![session_id],
+                    |row| row.get(0),
+                )
+                .optional()?;
+            if let Some(run_id) = workflow_run {
+                return Err(anyhow::anyhow!(
+                    "Cannot enable incognito after workflow run {} was created",
+                    run_id
+                ));
+            }
         }
         let conn = self
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
-        conn.execute(
+        let affected = conn.execute(
             "UPDATE sessions SET incognito = ?1 WHERE id = ?2",
             params![incognito, session_id],
         )?;
+        if affected == 0 {
+            return Err(anyhow::anyhow!("Session not found: {}", session_id));
+        }
         if incognito {
             crate::memory_extract::cancel_idle_extraction(session_id);
         }
@@ -3767,7 +4370,7 @@ impl SessionDB {
             // The in-session search path (Some(sid)) already scopes to one
             // session and is allowed to search its content while it is open.
             where_clauses.push("s.incognito = 0".to_string());
-            where_clauses.push("s.kind != 'knowledge'".to_string());
+            where_clauses.push("s.kind NOT IN ('knowledge','eval_fixture')".to_string());
         }
 
         // Session type filter — channel presence is detected via LEFT JOIN.
@@ -3777,7 +4380,7 @@ impl SessionDB {
                 for t in type_list {
                     match t {
                         SessionTypeFilter::Regular => type_clauses.push(
-                            "(s.is_cron = 0 AND s.parent_session_id IS NULL AND cc.channel_id IS NULL AND s.kind != 'knowledge')".to_string(),
+                            "(s.is_cron = 0 AND s.parent_session_id IS NULL AND cc.channel_id IS NULL AND s.kind NOT IN ('knowledge','eval_fixture'))".to_string(),
                         ),
                         SessionTypeFilter::Cron => {
                             type_clauses.push("s.is_cron = 1".to_string())
@@ -4095,7 +4698,7 @@ impl SessionDB {
                 "SELECT s.id, COALESCE(s.title, '') AS title
                  FROM sessions s
                  WHERE s.incognito = 0
-                   AND s.kind != 'knowledge'
+                   AND s.kind NOT IN ('knowledge','eval_fixture')
                    AND COALESCE(s.title, '') LIKE ?1 ESCAPE '\\'
                  ORDER BY s.updated_at DESC
                  LIMIT {}",
@@ -4133,7 +4736,7 @@ impl SessionDB {
                      WHERE messages_fts MATCH ?1
                        AND m.role IN ('user', 'assistant')
                        AND s.incognito = 0
-                       AND s.kind != 'knowledge'
+                       AND s.kind NOT IN ('knowledge','eval_fixture')
                  ) WHERE rn = 1
                  ORDER BY rank
                  LIMIT {}",
@@ -4169,7 +4772,7 @@ impl SessionDB {
                      WHERE messages_trigram_fts MATCH ?1
                        AND m.role IN ('user', 'assistant')
                        AND s.incognito = 0
-                       AND s.kind != 'knowledge'
+                       AND s.kind NOT IN ('knowledge','eval_fixture')
                  ) WHERE rn = 1
                  ORDER BY rank
                  LIMIT {}",
@@ -4500,6 +5103,97 @@ mod tests {
                 .sandbox_mode,
             crate::permission::SandboxMode::Workspace
         );
+
+        let _ = std::fs::remove_file(&db_path);
+    }
+
+    #[test]
+    fn session_execution_mode_round_trips() {
+        let db_path = temp_db_path("session-execution-mode");
+        let db = SessionDB::open(&db_path).expect("open session db");
+        ensure_channel_conversations_table(&db);
+        let session = db
+            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .expect("create session");
+
+        assert_eq!(
+            db.get_session_execution_mode(&session.id)
+                .expect("read default execution mode"),
+            Some(crate::execution_mode::ExecutionMode::Off)
+        );
+
+        db.update_session_execution_mode(&session.id, crate::execution_mode::ExecutionMode::Deep)
+            .expect("update execution mode");
+
+        assert_eq!(
+            db.get_session_execution_mode(&session.id)
+                .expect("read updated execution mode"),
+            Some(crate::execution_mode::ExecutionMode::Deep)
+        );
+        assert_eq!(
+            db.get_session(&session.id)
+                .expect("get session")
+                .expect("session exists")
+                .execution_mode,
+            crate::execution_mode::ExecutionMode::Deep
+        );
+
+        assert_eq!(
+            db.get_session_workflow_mode(&session.id)
+                .expect("read default workflow mode"),
+            Some(crate::workflow_mode::WorkflowMode::Off)
+        );
+
+        db.update_session_workflow_mode(&session.id, crate::workflow_mode::WorkflowMode::Ultracode)
+            .expect("update workflow mode");
+
+        assert_eq!(
+            db.get_session_workflow_mode(&session.id)
+                .expect("read updated workflow mode"),
+            Some(crate::workflow_mode::WorkflowMode::Ultracode)
+        );
+        assert_eq!(
+            db.get_session(&session.id)
+                .expect("get session")
+                .expect("session exists")
+                .workflow_mode,
+            crate::workflow_mode::WorkflowMode::Ultracode
+        );
+
+        assert!(db
+            .update_session_execution_mode(
+                "missing-session",
+                crate::execution_mode::ExecutionMode::Deep,
+            )
+            .expect_err("missing session execution mode update should fail")
+            .to_string()
+            .contains("Session not found"));
+        assert!(
+            db.update_session_workflow_mode(
+                "missing-session",
+                crate::workflow_mode::WorkflowMode::On,
+            )
+            .expect_err("missing session workflow mode update should fail")
+            .to_string()
+            .contains("Session not found")
+        );
+
+        let incognito_session = db
+            .create_session_with_project(crate::agent_loader::DEFAULT_AGENT_ID, None, Some(true))
+            .expect("create incognito session");
+        assert!(db
+            .update_session_workflow_mode(
+                &incognito_session.id,
+                crate::workflow_mode::WorkflowMode::On,
+            )
+            .expect_err("incognito workflow mode enable should fail")
+            .to_string()
+            .contains("incognito session"));
+        db.update_session_workflow_mode(
+            &incognito_session.id,
+            crate::workflow_mode::WorkflowMode::Off,
+        )
+        .expect("turning workflow mode off remains allowed for incognito");
 
         let _ = std::fs::remove_file(&db_path);
     }
@@ -4895,6 +5589,209 @@ mod tests {
     }
 
     #[test]
+    fn fork_session_copies_transcript_to_message_boundary_as_regular_read_session() {
+        let db_path = temp_db_path("session-fork-boundary");
+        let db = SessionDB::open(&db_path).expect("open session db");
+        ensure_channel_conversations_table(&db);
+
+        let source = db.create_session("ha-main").expect("source session");
+        db.update_session_title_with_source(
+            &source.id,
+            "Original task",
+            crate::session_title::TITLE_SOURCE_LLM,
+        )
+        .expect("title");
+        db.append_message(&source.id, &NewMessage::user("first prompt"))
+            .expect("append user");
+        let boundary = db
+            .append_message(&source.id, &NewMessage::assistant("first answer"))
+            .expect("append assistant");
+        db.append_message(&source.id, &NewMessage::user("second prompt"))
+            .expect("append later user");
+
+        let forked = db
+            .fork_session(&source.id, Some(boundary))
+            .expect("fork session");
+
+        assert_ne!(forked.id, source.id);
+        assert_eq!(forked.title.as_deref(), Some("Original task"));
+        assert_eq!(
+            forked.forked_from_session_id.as_deref(),
+            Some(source.id.as_str())
+        );
+        assert_eq!(forked.forked_from_message_id, Some(boundary));
+        assert_eq!(
+            forked.forked_from_session_title.as_deref(),
+            Some("Original task")
+        );
+        assert!(forked.parent_session_id.is_none());
+        assert_eq!(forked.message_count, 2);
+        assert_eq!(forked.unread_count, 0, "copied history starts as read");
+
+        let forked_messages = db
+            .load_session_messages(&forked.id)
+            .expect("load forked messages");
+        assert_eq!(forked_messages.len(), 2);
+        assert_eq!(forked_messages[0].content, "first prompt");
+        assert_eq!(forked_messages[1].content, "first answer");
+
+        let original_messages = db
+            .load_session_messages(&source.id)
+            .expect("load original messages");
+        assert_eq!(
+            original_messages.len(),
+            3,
+            "source transcript stays untouched"
+        );
+
+        let (visible, _) = db
+            .list_sessions_paged_for_sidebar(None, super::ProjectFilter::All, None, None, None)
+            .expect("list sessions");
+        assert!(
+            visible.iter().any(|session| session.id == forked.id),
+            "forked session must remain a first-class sidebar session"
+        );
+
+        let _ = std::fs::remove_file(&db_path);
+    }
+
+    #[test]
+    fn fork_session_rejects_incognito_source() {
+        let db_path = temp_db_path("session-fork-incognito");
+        let db = SessionDB::open(&db_path).expect("open session db");
+        ensure_channel_conversations_table(&db);
+
+        let source = db
+            .create_session_with_project("ha-main", None, Some(true))
+            .expect("incognito session");
+        db.append_message(&source.id, &NewMessage::user("private prompt"))
+            .expect("append user");
+
+        let err = db
+            .fork_session(&source.id, None)
+            .expect_err("incognito fork should fail");
+        assert!(
+            err.to_string().contains("incognito"),
+            "unexpected error: {err}"
+        );
+
+        let _ = std::fs::remove_file(&db_path);
+    }
+
+    #[test]
+    fn fork_session_copies_owned_attachments_and_survives_source_deletion() {
+        let db_path = temp_db_path("session-fork-attachments");
+        let db = SessionDB::open(&db_path).expect("open session db");
+        ensure_channel_conversations_table(&db);
+
+        let source = db.create_session("ha-main").expect("source session");
+        let source_dir = crate::paths::attachments_dir(&source.id).expect("source attachments dir");
+        std::fs::create_dir_all(&source_dir).expect("create source attachments dir");
+        let upload_path = source_dir.join("uploaded-note.txt");
+        let tool_path = source_dir.join("generated-report.txt");
+        std::fs::write(&upload_path, b"uploaded content").expect("write upload");
+        std::fs::write(&tool_path, b"generated content").expect("write tool output");
+
+        let mut user = NewMessage::user("review these files");
+        user.attachments_meta = Some(
+            serde_json::json!({
+                "goal_trigger": true,
+                "user_attachments": [{
+                    "name": "uploaded-note.txt",
+                    "mime_type": "text/plain",
+                    "size": 16,
+                    "path": upload_path,
+                    "source": "upload"
+                }]
+            })
+            .to_string(),
+        );
+        db.append_message(&source.id, &user)
+            .expect("append user attachment");
+
+        let mut tool = NewMessage::tool(
+            "call-fork-media",
+            "send_attachment",
+            r#"{"path":"generated-report.txt"}"#,
+            "",
+            None,
+            false,
+        );
+        tool.attachments_meta =
+            crate::session::build_tool_media_items_attachments_meta(&serde_json::json!([{
+                "url": format!(
+                    "/api/attachments/{}/generated-report.txt",
+                    source.id
+                ),
+                "localPath": tool_path,
+                "name": "generated-report.txt",
+                "mimeType": "text/plain",
+                "sizeBytes": 17,
+                "kind": "file"
+            }]));
+        // `NewMessage::tool` models an in-flight engine row by default. This
+        // fixture represents a settled tool result that is safe to fork.
+        tool.stream_status = Some("completed".to_string());
+        db.append_message(&source.id, &tool)
+            .expect("append tool attachment");
+
+        let forked = db
+            .fork_session(&source.id, None)
+            .expect("fork session with attachments");
+        let forked_dir = crate::paths::attachments_dir(&forked.id).expect("forked attachments dir");
+        let messages = db
+            .load_session_messages(&forked.id)
+            .expect("load forked messages");
+
+        let user_meta: serde_json::Value = serde_json::from_str(
+            messages[0]
+                .attachments_meta
+                .as_deref()
+                .expect("forked user metadata"),
+        )
+        .expect("parse user metadata");
+        let forked_upload_path = std::path::PathBuf::from(
+            user_meta["user_attachments"][0]["path"]
+                .as_str()
+                .expect("forked upload path"),
+        );
+        assert!(forked_upload_path.starts_with(&forked_dir));
+
+        let tool_meta: serde_json::Value = serde_json::from_str(
+            messages[1]
+                .attachments_meta
+                .as_deref()
+                .expect("forked tool metadata"),
+        )
+        .expect("parse tool metadata");
+        let forked_tool_path = std::path::PathBuf::from(
+            tool_meta["tool_media_items"][0]["localPath"]
+                .as_str()
+                .expect("forked tool path"),
+        );
+        assert!(forked_tool_path.starts_with(&forked_dir));
+        assert_eq!(
+            tool_meta["tool_media_items"][0]["url"].as_str(),
+            Some(format!("/api/attachments/{}/generated-report.txt", forked.id).as_str())
+        );
+
+        db.delete_session(&source.id)
+            .expect("delete source session");
+        assert_eq!(
+            std::fs::read(&forked_upload_path).expect("read copied upload"),
+            b"uploaded content"
+        );
+        assert_eq!(
+            std::fs::read(&forked_tool_path).expect("read copied tool output"),
+            b"generated content"
+        );
+
+        db.delete_session(&forked.id)
+            .expect("delete forked session");
+        let _ = std::fs::remove_file(&db_path);
+    }
+
+    #[test]
     fn open_migrates_legacy_sessions_without_pinned_at() {
         let db_path = temp_db_path("session-legacy-no-pinned-at");
         let legacy_conn = Connection::open(&db_path).expect("open legacy db");
@@ -4933,6 +5830,23 @@ mod tests {
                 .is_ok(),
             "expected sandbox_mode column to be added during migration"
         );
+        assert!(
+            conn.prepare("SELECT execution_mode FROM sessions LIMIT 1")
+                .is_ok(),
+            "expected execution_mode column to be added during migration"
+        );
+        assert!(
+            conn.prepare("SELECT workflow_mode FROM sessions LIMIT 1")
+                .is_ok(),
+            "expected workflow_mode column to be added during migration"
+        );
+        assert!(
+            conn.prepare(
+                "SELECT forked_from_session_id, forked_from_message_id FROM sessions LIMIT 1"
+            )
+            .is_ok(),
+            "expected session fork columns to be added before their index"
+        );
 
         let mut stmt = conn
             .prepare("PRAGMA index_list(sessions)")
@@ -4947,6 +5861,13 @@ mod tests {
                 .iter()
                 .any(|index| index == "idx_sessions_pinned_at"),
             "expected pinned_at index after migration, got {:?}",
+            indexes
+        );
+        assert!(
+            indexes
+                .iter()
+                .any(|index| index == "idx_sessions_forked_from"),
+            "expected fork lineage index after migration, got {:?}",
             indexes
         );
 
@@ -5155,9 +6076,13 @@ mod tests {
             crate::session_title::TITLE_SOURCE_MANUAL
         );
 
-        let fallback =
-            crate::session::ensure_first_message_title(&db, &created.id, "帮我分析这个 Rust 报错")
-                .expect("set first message title");
+        let fallback = crate::session::ensure_first_message_title(
+            &db,
+            &created.id,
+            "帮我分析这个 Rust 报错",
+            None,
+        )
+        .expect("set first message title");
         assert_eq!(fallback.as_deref(), Some("帮我分析这个 Rust 报错"));
 
         let first = db
@@ -5167,6 +6092,18 @@ mod tests {
         assert_eq!(
             first.title_source,
             crate::session_title::TITLE_SOURCE_FIRST_MESSAGE
+        );
+
+        db.update_session_title(&created.id, "帮我分析这个 Rust 报错")
+            .expect("no-op rename");
+        let unchanged = db
+            .get_session(&created.id)
+            .expect("get unchanged session")
+            .expect("session exists");
+        assert_eq!(
+            unchanged.title_source,
+            crate::session_title::TITLE_SOURCE_FIRST_MESSAGE,
+            "an unchanged title must not become a manual rename"
         );
 
         let changed = db
@@ -5301,6 +6238,79 @@ mod tests {
             !updated.incognito,
             "updated session should persist incognito=false"
         );
+
+        let _ = std::fs::remove_file(&db_path);
+    }
+
+    #[test]
+    fn update_session_incognito_rejects_durable_control_plane_state() {
+        let db_path = temp_db_path("session-incognito-durable-control-plane");
+        let db = SessionDB::open(&db_path).expect("open session db");
+        ensure_channel_conversations_table(&db);
+
+        let workflow_mode_session = db
+            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .expect("create workflow mode session");
+        db.update_session_workflow_mode(
+            &workflow_mode_session.id,
+            crate::workflow_mode::WorkflowMode::On,
+        )
+        .expect("enable workflow mode");
+        assert!(db
+            .update_session_incognito(&workflow_mode_session.id, true)
+            .expect_err("workflow mode session should not become incognito")
+            .to_string()
+            .contains("Workflow Mode"));
+
+        let goal_session = db
+            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .expect("create goal session");
+        db.create_goal(crate::goal::CreateGoalInput {
+            session_id: goal_session.id.clone(),
+            objective: "Ship durable goal".to_string(),
+            completion_criteria: "Evidence is linked".to_string(),
+            domain: None,
+            workflow_template_id: None,
+            workflow_template_version: None,
+            workflow_task_type: None,
+            budget_token_limit: None,
+            budget_time_limit_secs: None,
+            budget_turn_limit: None,
+        })
+        .expect("create goal");
+        assert!(db
+            .update_session_incognito(&goal_session.id, true)
+            .expect_err("open goal session should not become incognito")
+            .to_string()
+            .contains("open Goal"));
+
+        let workflow_run_session = db
+            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .expect("create workflow run session");
+        db.create_workflow_run(crate::workflow::CreateWorkflowRunInput {
+            session_id: workflow_run_session.id.clone(),
+            kind: "general.workflow".to_string(),
+            execution_mode: "guarded".to_string(),
+            script_source: "export default async function main(workflow) { await workflow.finish({ summary: 'done' }); }".to_string(),
+            budget: serde_json::json!({}),
+            parent_run_id: None,
+            origin: None,
+            goal_id: None,
+            goal_criterion_id: None,
+            worktree_id: None,
+        })
+        .expect("create workflow run");
+        assert!(db
+            .update_session_incognito(&workflow_run_session.id, true)
+            .expect_err("workflow run session should not become incognito")
+            .to_string()
+            .contains("workflow run"));
+
+        assert!(db
+            .update_session_incognito("missing-session", false)
+            .expect_err("missing session incognito update should fail")
+            .to_string()
+            .contains("Session not found"));
 
         let _ = std::fs::remove_file(&db_path);
     }

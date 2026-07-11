@@ -84,6 +84,7 @@ impl HookHandler for AgentHandler {
             // SubagentStart / SubagentStop hooks for this child — otherwise
             // a Subagent{Start,Stop} agent hook would respawn forever.
             label: Some(HOOK_SPAWN_LABEL.to_string()),
+            isolate_worktree: false,
             attachments: Vec::new(),
             plan_agent_mode: None,
             plan_mode_allow_paths: Vec::new(),

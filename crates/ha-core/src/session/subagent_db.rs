@@ -64,12 +64,39 @@ impl SessionDB {
           // Best-effort + no-op when the run was never projected (foreground /
           // internal / incognito) — and it NEVER writes run content back.
         let became_terminal = status.is_terminal();
-        crate::async_jobs::JobManager::sync_subagent_projection(run_id, status);
+        crate::async_jobs::JobManager::sync_subagent_projection(run_id, status.clone());
         // R7.2: a terminal status may have freed a per-session concurrency slot —
         // wake the subagent scheduler to promote any parked (`Queued`) spawn.
         if became_terminal {
             crate::subagent::queue::wake_subagent_scheduler();
         }
+        crate::workflow::on_workflow_child_status_changed(self, run_id, status);
+        Ok(())
+    }
+
+    /// Persist token usage for a completed sub-agent run. This is intentionally
+    /// separate from status transitions so kill/error paths can remain lightweight.
+    pub fn set_subagent_usage(
+        &self,
+        run_id: &str,
+        input_tokens: Option<u64>,
+        output_tokens: Option<u64>,
+    ) -> Result<()> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        conn.execute(
+            "UPDATE subagent_runs
+             SET input_tokens = COALESCE(?1, input_tokens),
+                 output_tokens = COALESCE(?2, output_tokens)
+             WHERE run_id = ?3",
+            params![
+                input_tokens.map(|v| v as i64),
+                output_tokens.map(|v| v as i64),
+                run_id,
+            ],
+        )?;
         Ok(())
     }
 
@@ -99,10 +126,11 @@ impl SessionDB {
         }; // drop the SessionDB lock before the cross-DB projection sync below.
         if changed > 0 {
             let became_terminal = to.is_terminal();
-            crate::async_jobs::JobManager::sync_subagent_projection(run_id, to);
+            crate::async_jobs::JobManager::sync_subagent_projection(run_id, to.clone());
             if became_terminal {
                 crate::subagent::queue::wake_subagent_scheduler();
             }
+            crate::workflow::on_workflow_child_status_changed(self, run_id, to);
         }
         Ok(changed > 0)
     }

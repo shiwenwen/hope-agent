@@ -550,7 +550,12 @@ async fn handle_inbound_message(
     let _ = session_db.append_message(&session_id, &user_msg);
 
     // Auto-generate fallback title from the first real message (same logic as normal chat).
-    let _ = crate::session::ensure_first_message_title(&session_db, &session_id, &effective_prompt);
+    let _ = crate::session::ensure_first_message_title(
+        &session_db,
+        &session_id,
+        &effective_prompt,
+        Some(&attachments_meta_json),
+    );
 
     // Notify the desktop / web side that a fresh user message landed on
     // this session from IM, so an attached GUI view can pull it into

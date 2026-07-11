@@ -170,7 +170,7 @@ To revise an approved plan, exit plan mode and re-enter it.\n\n\
 Recommended structure (any markdown is accepted, sections are guidance not enforcement):\n\
 - Context — why this change is being made\n\
 - Approach — the recommended approach (no alternatives needed)\n\
-- Files — paths of critical files to be modified\n\
+- Critical Files / Files — paths of critical files to be modified or inspected for code tasks\n\
 - Reuse — existing functions/utilities to reuse, with file paths\n\
 - Verification — how to confirm the work was done correctly\n\n\
 Do NOT include progress markers (no checkboxes, no status emojis, no \"TODO/DONE\" annotations). \

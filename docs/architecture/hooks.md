@@ -10,7 +10,7 @@
 
 ## 1. 总览
 
-- **28 事件协议面**（`types.rs::HookEvent`）：24 个真触发 + 4 个协议保留。
+- **28 事件协议面**（`types.rs::HookEvent`）：26 个真触发 + 2 个协议保留。
 - **5 种 handler**：`command`（shell 子进程）/ `http`（SSRF-gated POST）/ `mcp_tool`（调 MCP 工具）/ `prompt`（一次性 LLM side-query）/ `agent`（spawn 子 Agent）。
 - **四层配置 scope**（user / managed / project / local），全 UNION 无覆盖。
 - **exit-code + JSON 双通道输出**：`exit 0` 解析 stdout JSON；`exit 2` 阻断 + stderr 回灌；其它非阻断。
@@ -24,17 +24,18 @@
 
 按落地状态分三组。**Matcher 目标**列说明触发时 matcher 与哪个字段比对。**可阻断**列说明 `exit 2` / `{"decision":"block"}` 是否真能拦住流程。**触发位置**是当前代码的埋点（以代码为准）。
 
-### 2.1 真触发 · 阻断型（3）
+### 2.1 真触发 · 阻断型（4）
 
 | 事件 | Matcher 目标 | 触发位置 | 备注 |
 |------|-------------|---------|------|
 | `UserPromptSubmit` | 无（始终触发） | `agent::preflight::user_prompt_preflight` → `hooks::fire_user_prompt_submit`（`mod.rs`）| `block`/`deny`/`continue:false` 拦住 prompt；可注入 `additionalContext` |
 | `PreToolUse` | `tool_name` | `tools::execution::fire_pre_tool_use_hook`（`execution.rs`，可见性闸后、权限引擎前）| `deny`/`ask`/`defer`/`allow` 决策 + `updatedInput` 改写入参 |
 | `PreCompact` | `trigger` ∈ {auto, tool_loop} | `agent::context`（turn-start / tool-loop checkpoint 的 `run_compaction_with_options` 入口，使用率 ≥ `reactiveTriggerRatio` 时）| `block` 跳过本次压缩；使用率 ≥ `CACHE_TTL_EMERGENCY_RATIO` 强制覆盖；连续 block 超过上限后强制执行 |
+| `WorktreeCreate` | `name` | `worktree::create_managed_worktree` → `hooks::dispatch_worktree_create` | 可 block/deny；若匹配 handler 接管创建，必须返回 `hookSpecificOutput.worktreePath` 绝对路径 |
 
 > **async exec 的审批时序**：`PreToolUse` 一律在可见性闸后、引擎/审批前早早触发（与是否后台化无关，下述两档都不变）。`exec` 的命令级审批历来在 `tool_exec` 内部跑;R8 起按两条后台路径分开（详见 [tool-system.md「exec 命令审批：两条后台路径」](tool-system.md#exec-命令审批两条后台路径r8)）:**Auto-Background 档（Tier 3）审批前移**——`execute_tool_with_context` 在 detach 前跑完命令审批,审批/拒绝因果上恒在「后台化」之前;**显式后台 exec（`run_in_background` / `always-background`）R8 起不前移**——命令门下放后台 job 线程,命中审批时 job park 为 `AwaitingApproval`(模型先拿 job id,弹窗可在 synthetic `{status:"started"}` 之后出现,但此时 job 是 parked 非 running,刻意 supersede 旧 HOOKS-2 修复)。异步 job 的**终局** hook（PostToolUse/Failure + `job_id` 关联）见 §2.2「异步 job 终局可见性」。
 
-### 2.2 真触发 · 观察型（21）
+### 2.2 真触发 · 观察型（22）
 
 `block`/`deny` 决策被 `is_observation_only`（`types.rs`）降级为非阻断 + log。
 
@@ -58,6 +59,7 @@
 | `ConfigChange` | `source` | `config::persistence::fire_config_change` |
 | `CwdChanged` | 无 | `session::db::fire_cwd_changed` |
 | `FileChanged` | 文件绝对路径 | `tools::{write,edit,apply_patch}::fire_file_changed` |
+| `WorktreeRemove` | `worktree_path` | `worktree::archive_managed_worktree` clean remove 成功后 |
 | `Elicitation` / `ElicitationResult` | 无 | `tools::ask_user_question`（原生问答触发，非 MCP）|
 
 > `Stop` / `StopFailure` 当前 fire-and-forget（未实现 block-to-continue）；落地该语义时移出 `is_observation_only`。
@@ -79,9 +81,9 @@
 - **重启补发(HOOKS-1)**：`replay_pending_jobs` 对 terminal-but-uninjected 行补发终局 hook，覆盖重启时被标 `interrupted` 的 job(进程死前从未 fire)。正常 finalize 过的 job 是 `injected=true`，被 `list_pending_injection` 排除，不重复 fire。
 - **线程红线**：`fire_async_job_terminal` **强制走进程级 `fire_and_forget_runtime()`**，不用 `Handle::try_current()`——finalize 跑在 job OS 线程的 current-thread runtime 上，该 runtime 线程结束即 drop，spawn 在其上的 dispatch 会被静默杀掉。纯 fire-and-forget，不阻塞 finalize。
 
-### 2.3 协议保留 · 不触发（4）
+### 2.3 协议保留 · 不触发（2）
 
-枚举完整、可配置，但当前无对应概念，永不 dispatch：`WorktreeCreate` / `WorktreeRemove`（无 git-worktree 隔离）、`TeammateIdle`（依赖 team idle 检测）、`InstructionsLoaded`（依赖 system_prompt 组装埋点重构）。后三者见 Roadmap。
+枚举完整、可配置，但当前无对应概念，永不 dispatch：`TeammateIdle`（依赖 team idle 检测）、`InstructionsLoaded`（依赖 system_prompt 组装埋点重构）。二者见 Roadmap。
 
 ### 2.4 协议差异红线
 
@@ -350,7 +352,6 @@ http hook 的 header value 按 `allowedEnvVars` 白名单做 `$VAR`/`${VAR}` 插
 - **`TeammateIdle`**：依赖 team runtime idle 检测（上游单独立项）。
 - **`InstructionsLoaded`**：依赖 system_prompt 组装埋点重构（记录每次 CLAUDE.md / AGENTS.md 加载）。
 - **`Elicitation` / `ElicitationResult` 官方 schema**：当前用原生 `ask_user_question` 的非标 payload；MCP server 本体落地后对齐官方 `mcp_server_name` / `elicitation_form`。
-- **`WorktreeCreate` / `WorktreeRemove`**：worktree 隔离能力落地后激活。
 
 ### 可观测 / 基础设施
 - **Dashboard `hooks_health` 区块** + **Learning Tracker `hook_*` 事件** + **metrics rolling-window**（SQLite metrics + 自动清理窗口）。

@@ -134,15 +134,17 @@ fn user_enables_tool(name: &str, tier: &ToolTier, ctx: &DispatchContext) -> bool
     }
 }
 
-/// Whether any built-in tool is explicitly configured for deferred loading.
+/// Whether any built-in tool is configured for deferred loading.
 pub fn has_deferred_builtin_tools(app_config: &AppConfig) -> bool {
     app_config.deferred_tools.enabled && !app_config.deferred_tools.tool_names.is_empty()
 }
 
 /// Decide whether the tool should be deferred (schema not eagerly sent).
-/// The global switch only enables the mechanism; individual built-in tools
-/// move to the deferred pool only when their name appears in
-/// `deferredTools.toolNames`.
+/// Individual built-in tools move to the deferred pool only when they both
+/// opt in structurally (`default_deferred`) and their name appears in
+/// `deferredTools.toolNames`. The config default pre-populates that list with
+/// low-frequency / large-schema tools, while still letting users opt tools
+/// back into eager loading by removing a name.
 fn is_deferred(name: &str, tier: &ToolTier, app_config: &AppConfig) -> bool {
     if !app_config.deferred_tools.enabled {
         return false;
@@ -473,6 +475,78 @@ mod tests {
     }
 
     #[test]
+    fn default_deferred_tool_moves_to_search_pool() {
+        let f = Fixture::new();
+        let def = def_with_tier(
+            crate::tools::TOOL_BROWSER,
+            ToolTier::Standard {
+                default_for_main: true,
+                default_for_others: true,
+                default_deferred: true,
+            },
+        );
+        assert_eq!(
+            resolve_tool_fate(&def, &f.ctx(DEFAULT_AGENT_ID)),
+            ToolFate::InjectDeferred
+        );
+    }
+
+    #[test]
+    fn default_deferred_requires_configured_tool_name() {
+        let f = Fixture::new();
+        let def = def_with_tier(
+            "custom_low_frequency_tool",
+            ToolTier::Standard {
+                default_for_main: true,
+                default_for_others: true,
+                default_deferred: true,
+            },
+        );
+        assert_eq!(
+            resolve_tool_fate(&def, &f.ctx(DEFAULT_AGENT_ID)),
+            ToolFate::InjectEager
+        );
+    }
+
+    #[test]
+    fn deferred_tools_can_be_disabled_globally() {
+        let mut f = Fixture::new();
+        f.app.deferred_tools.enabled = false;
+        let def = def_with_tier(
+            crate::tools::TOOL_BROWSER,
+            ToolTier::Standard {
+                default_for_main: true,
+                default_for_others: true,
+                default_deferred: true,
+            },
+        );
+        assert_eq!(
+            resolve_tool_fate(&def, &f.ctx(DEFAULT_AGENT_ID)),
+            ToolFate::InjectEager
+        );
+    }
+
+    #[test]
+    fn tool_search_is_injected_when_default_deferred_tools_exist() {
+        let f = Fixture::new();
+        let def = ToolDefinition {
+            name: crate::tools::TOOL_TOOL_SEARCH.into(),
+            description: "test".into(),
+            parameters: serde_json::json!({}),
+            tier: ToolTier::Core {
+                subclass: CoreSubclass::Meta,
+            },
+            internal: true,
+            concurrent_safe: false,
+            async_capable: false,
+        };
+        assert_eq!(
+            resolve_tool_fate(&def, &f.ctx(DEFAULT_AGENT_ID)),
+            ToolFate::InjectEager
+        );
+    }
+
+    #[test]
     fn mac_control_schema_is_readonly_and_main_agent_default() {
         let def = all_dispatchable_tools()
             .iter()
@@ -578,7 +652,7 @@ mod tests {
         let f = Fixture::new();
         assert_eq!(
             resolve_tool_fate(def, &f.ctx(DEFAULT_AGENT_ID)),
-            ToolFate::InjectEager
+            ToolFate::InjectDeferred
         );
         assert_eq!(
             resolve_tool_fate(def, &f.ctx("translator")),

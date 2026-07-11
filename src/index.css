@@ -161,6 +161,12 @@
   }
 }
 
+@layer components {
+  .ha-icon-tip {
+    position: relative;
+  }
+}
+
 @media (max-height: 800px) {
   .icon-sidebar-settings-shortcuts,
   .icon-sidebar-settings-shortcuts-trailing-divider,

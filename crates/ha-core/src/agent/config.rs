@@ -336,11 +336,34 @@ pub(crate) fn build_system_prompt_bundle_with_session(
     provider: &str,
     session_id: Option<&str>,
 ) -> SystemPromptBuild {
+    build_system_prompt_bundle_with_session_db(
+        agent_id,
+        model,
+        provider,
+        session_id,
+        crate::get_session_db().map(std::sync::Arc::as_ref),
+    )
+}
+
+/// Bound-database variant used by chat-engine turns. Supplying a database is
+/// authoritative: missing rows fail closed instead of falling back to the
+/// process-global store and mixing isolated eval/headless state with desktop
+/// session state.
+pub(crate) fn build_system_prompt_bundle_with_session_db(
+    agent_id: &str,
+    model: &str,
+    provider: &str,
+    session_id: Option<&str>,
+    session_db: Option<&crate::session::SessionDB>,
+) -> SystemPromptBuild {
+    let (session_meta, active_goal) = resolve_prompt_session_state(session_id, session_db);
+    let incognito = session_meta
+        .as_ref()
+        .map(|session| session.incognito)
+        .unwrap_or(session_id.is_some() && session_db.is_some());
+
     // Try loading the agent definition
     if let Ok(definition) = crate::agent_loader::load_agent(agent_id) {
-        let session_meta = crate::session::lookup_session_meta(session_id);
-        let incognito = session_meta.as_ref().map(|s| s.incognito).unwrap_or(false);
-
         // Resolve the current project (if any) via session → session.project_id.
         let project = session_meta
             .as_ref()
@@ -459,6 +482,14 @@ pub(crate) fn build_system_prompt_bundle_with_session(
             .as_ref()
             .map(|m| m.permission_mode)
             .unwrap_or_default();
+        let execution_mode = session_meta
+            .as_ref()
+            .map(|m| m.execution_mode)
+            .unwrap_or_default();
+        let workflow_mode = session_meta
+            .as_ref()
+            .map(|m| m.workflow_mode)
+            .unwrap_or_default();
         let channel_info = session_meta.as_ref().and_then(|m| m.channel_info.as_ref());
         let mut static_memory_refs = context_pack
             .as_ref()
@@ -540,7 +571,7 @@ pub(crate) fn build_system_prompt_bundle_with_session(
             }));
         }
 
-        let prompt = crate::system_prompt::build(
+        let prompt = crate::system_prompt::build_with_resolved_session(
             &definition,
             Some(model),
             Some(provider),
@@ -555,6 +586,10 @@ pub(crate) fn build_system_prompt_bundle_with_session(
             session_working_dir.as_deref(),
             channel_info,
             permission_mode,
+            execution_mode,
+            workflow_mode,
+            active_goal.as_ref(),
+            session_meta.as_ref().map(|meta| meta.sandbox_mode),
         );
         return SystemPromptBuild {
             prompt,
@@ -563,18 +598,88 @@ pub(crate) fn build_system_prompt_bundle_with_session(
     }
     // Fallback: legacy prompt
     SystemPromptBuild {
-        prompt: crate::system_prompt::build_legacy(
-            Some(model),
-            Some(provider),
-            crate::session::is_session_incognito(session_id),
-        ),
+        prompt: crate::system_prompt::build_legacy(Some(model), Some(provider), incognito),
         static_memory_refs: Vec::new(),
     }
 }
 
+fn resolve_prompt_session_state(
+    session_id: Option<&str>,
+    session_db: Option<&crate::session::SessionDB>,
+) -> (
+    Option<crate::session::SessionMeta>,
+    Option<crate::goal::GoalSnapshot>,
+) {
+    let session_meta = session_id.and_then(|sid| {
+        session_db.and_then(|db| match db.get_session(sid) {
+            Ok(meta) => meta,
+            Err(error) => {
+                crate::app_warn!(
+                    "session",
+                    "prompt_session_meta",
+                    "bound prompt meta lookup for {} failed: {}",
+                    sid,
+                    error
+                );
+                None
+            }
+        })
+    });
+    let incognito = session_meta
+        .as_ref()
+        .map(|session| session.incognito)
+        .unwrap_or(session_id.is_some() && session_db.is_some());
+    let active_goal = if incognito {
+        None
+    } else {
+        session_id.and_then(|sid| {
+            session_db
+                .and_then(|db| db.active_goal_for_session(sid).ok())
+                .flatten()
+        })
+    };
+    (session_meta, active_goal)
+}
+
 #[cfg(test)]
 mod build_api_url_tests {
-    use super::{build_api_url, is_complete_endpoint_url};
+    use super::{build_api_url, is_complete_endpoint_url, resolve_prompt_session_state};
+
+    #[test]
+    fn prompt_session_state_reads_bound_database_goal() {
+        let dir = tempfile::tempdir().expect("temp session db dir");
+        let db = std::sync::Arc::new(
+            crate::session::SessionDB::open(&dir.path().join("sessions.db"))
+                .expect("open isolated session db"),
+        );
+        crate::channel::ChannelDB::new(db.clone())
+            .migrate()
+            .expect("migrate channel tables");
+        let session = db.create_session("ha-main").expect("create session");
+        let goal = db
+            .create_goal(crate::goal::CreateGoalInput {
+                session_id: session.id.clone(),
+                objective: "Bound database objective".to_string(),
+                completion_criteria: "Bound database criterion".to_string(),
+                domain: None,
+                workflow_template_id: None,
+                workflow_template_version: None,
+                workflow_task_type: None,
+                budget_token_limit: None,
+                budget_time_limit_secs: None,
+                budget_turn_limit: None,
+            })
+            .expect("create isolated goal");
+
+        let (meta, active_goal) =
+            resolve_prompt_session_state(Some(&session.id), Some(db.as_ref()));
+
+        assert_eq!(meta.expect("bound session meta").id, session.id);
+        assert_eq!(
+            active_goal.expect("bound active goal").goal.id,
+            goal.goal.id
+        );
+    }
 
     #[test]
     fn plain_host_appends_full_path() {

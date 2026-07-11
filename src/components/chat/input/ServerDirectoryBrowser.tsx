@@ -40,7 +40,7 @@ export default function ServerDirectoryBrowser({
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
 
-  const load = useCallback(async (path?: string) => {
+  const load = useCallback(async (path?: string): Promise<DirListing | null> => {
     setLoading(true)
     setError(null)
     setCreateError(null)
@@ -48,6 +48,7 @@ export default function ServerDirectoryBrowser({
       const result = await getTransport().listServerDirectory(path)
       setListing(result)
       setManualPath(result.path)
+      return result
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e)
       logger.error(
@@ -57,6 +58,7 @@ export default function ServerDirectoryBrowser({
         e,
       )
       setError(message)
+      return null
     } finally {
       setLoading(false)
     }
@@ -113,8 +115,15 @@ export default function ServerDirectoryBrowser({
     }
   }
 
-  const handleSelectCurrent = () => {
+  const handleSelectCurrent = async () => {
     if (!listing) return
+    const trimmed = manualPath.trim()
+    if (trimmed && trimmed !== listing.path) {
+      const result = await load(trimmed)
+      if (!result) return
+      onSelect(result.path)
+      return
+    }
     onSelect(listing.path)
   }
 
@@ -145,7 +154,13 @@ export default function ServerDirectoryBrowser({
             placeholder={t("chat.workingDir.pathPlaceholder")}
             className="flex-1 font-mono text-xs"
           />
-          <Button type="submit" variant="outline" size="sm" disabled={loading}>
+          <Button
+            type="submit"
+            variant="outline"
+            size="sm"
+            disabled={loading}
+            aria-label={t("chat.workingDir.goToPath", "跳转到路径")}
+          >
             {loading ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : (

@@ -633,7 +633,7 @@ export default function DashboardView({
             <RecapTab initialReportId={initialRecapReportId} />
           </TabsContent>
           <TabsContent value="learning">
-            <LearningTab />
+            <LearningTab filter={filter} />
           </TabsContent>
           <TabsContent value="dreaming">
             <DreamingTab />

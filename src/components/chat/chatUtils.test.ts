@@ -4,11 +4,24 @@ import type { Transport } from "@/lib/transport"
 import { setTransport } from "@/lib/transport-provider"
 import {
   computeContextUsage,
+  isCenteredSystemMessage,
+  isUserAlignedMessage,
   extractMessageFileAttachments,
   mergeMessagesByDbId,
   parseSessionMessages,
   reloadAndMergeSessionMessages,
+  shouldSendDraftWorkflowMode,
 } from "./chatUtils"
+
+describe("shouldSendDraftWorkflowMode", () => {
+  test("only forwards an enabled mode for a non-incognito new session", () => {
+    expect(shouldSendDraftWorkflowMode(null, false, "on")).toBe(true)
+    expect(shouldSendDraftWorkflowMode(null, false, "ultracode")).toBe(true)
+    expect(shouldSendDraftWorkflowMode(null, false, "off")).toBe(false)
+    expect(shouldSendDraftWorkflowMode(null, true, "on")).toBe(false)
+    expect(shouldSendDraftWorkflowMode("session-1", false, "on")).toBe(false)
+  })
+})
 
 function sessionMessage(patch: Partial<SessionMessage>): SessionMessage {
   return {
@@ -397,6 +410,60 @@ describe("parseSessionMessages user attachments", () => {
     expect(parsed[0]).toMatchObject({ isPlanTrigger: true })
   })
 
+  test("parses goal_trigger meta as a normal user-aligned goal message", () => {
+    const parsed = parseSessionMessages([
+      sessionMessage({
+        id: 18,
+        role: "user",
+        content: "完成文档更新",
+        attachmentsMeta: JSON.stringify({ goal_trigger: true }),
+      }),
+    ])
+
+    expect(parsed[0]?.attachments).toBeUndefined()
+    expect(parsed[0]).toMatchObject({ isGoalTrigger: true })
+    expect(isCenteredSystemMessage(parsed[0]!)).toBe(false)
+    expect(isUserAlignedMessage(parsed[0]!)).toBe(true)
+  })
+
+  test("renders display-as-user slash events as user-aligned instead of centered", () => {
+    const msg = {
+      role: "event",
+      content: "完成文档更新",
+      slashEvent: { kind: "command", displayAs: "user", mode: "goal" },
+    } satisfies Message
+
+    expect(isCenteredSystemMessage(msg)).toBe(false)
+    expect(isUserAlignedMessage(msg)).toBe(true)
+  })
+
+  test("renders loop slash events as user-aligned loop messages", () => {
+    const msg = {
+      role: "event",
+      content: "every 10m: check release blockers",
+      slashEvent: { kind: "command", displayAs: "user", mode: "loop" },
+    } satisfies Message
+
+    expect(isCenteredSystemMessage(msg)).toBe(false)
+    expect(isUserAlignedMessage(msg)).toBe(true)
+  })
+
+  test("parses loop_trigger meta as a centered loop chip instead of a user bubble", () => {
+    const parsed = parseSessionMessages([
+      sessionMessage({
+        id: 84,
+        role: "user",
+        content: "<loop_trigger><loop_id>loop_1</loop_id></loop_trigger>",
+        attachmentsMeta: JSON.stringify({ loop_trigger: { run_id: "loop_run_1" } }),
+      }),
+    ])
+
+    expect(parsed[0]).toMatchObject({ isLoopTrigger: true })
+    expect(parsed[0]?.isSubagentResult).toBeFalsy()
+    expect(isCenteredSystemMessage(parsed[0]!)).toBe(true)
+    expect(isUserAlignedMessage(parsed[0]!)).toBe(false)
+  })
+
   test("restores channel user attachments from object-shaped metadata", () => {
     const parsed = parseSessionMessages([
       sessionMessage({
@@ -459,6 +526,22 @@ describe("parseSessionMessages user attachments", () => {
     expect(parsed[0]?.isSubagentResult).toBeFalsy()
   })
 
+  test("parses workflow_result meta as a centered workflow chip", () => {
+    const parsed = parseSessionMessages([
+      sessionMessage({
+        id: 83,
+        role: "user",
+        content: "<workflow-result><state>completed</state></workflow-result>",
+        attachmentsMeta: JSON.stringify({ workflow_result: { run_id: "wfr_123" } }),
+      }),
+    ])
+
+    expect(parsed[0]?.attachments).toBeUndefined()
+    expect(parsed[0]).toMatchObject({ isWorkflowResult: true })
+    expect(parsed[0]?.isSubagentResult).toBeFalsy()
+    expect(isCenteredSystemMessage(parsed[0]!)).toBe(true)
+  })
+
   test("restores non-image user attachments as file attachments", () => {
     const parsed = parseSessionMessages([
       sessionMessage({
@@ -518,13 +601,14 @@ describe("parseSessionMessages user attachments", () => {
 
 describe("reloadAndMergeSessionMessages", () => {
   test("merges against latest cache after async DB load resolves", async () => {
-    let resolveLoad:
-      | ((value: [SessionMessage[], number, boolean]) => void)
-      | undefined
+    let resolveLoad: ((value: [SessionMessage[], number, boolean]) => void) | undefined
     const transport = {
-      call: vi.fn(() => new Promise<[SessionMessage[], number, boolean]>((resolve) => {
-        resolveLoad = resolve
-      })),
+      call: vi.fn(
+        () =>
+          new Promise<[SessionMessage[], number, boolean]>((resolve) => {
+            resolveLoad = resolve
+          }),
+      ),
     } as unknown as Transport
     setTransport(transport)
 
@@ -590,12 +674,7 @@ describe("reloadAndMergeSessionMessages", () => {
     await reload
 
     const merged = sessionCacheRef.current.get("s1")
-    expect(merged?.map((msg) => msg.role)).toEqual([
-      "assistant",
-      "event",
-      "user",
-      "assistant",
-    ])
+    expect(merged?.map((msg) => msg.role)).toEqual(["assistant", "event", "user", "assistant"])
     expect(merged?.at(-1)).toMatchObject({
       role: "assistant",
       _clientId: "assistant-next",
@@ -603,13 +682,14 @@ describe("reloadAndMergeSessionMessages", () => {
   })
 
   test("does not re-append placeholders already finalized by DB rows", async () => {
-    let resolveLoad:
-      | ((value: [SessionMessage[], number, boolean]) => void)
-      | undefined
+    let resolveLoad: ((value: [SessionMessage[], number, boolean]) => void) | undefined
     const transport = {
-      call: vi.fn(() => new Promise<[SessionMessage[], number, boolean]>((resolve) => {
-        resolveLoad = resolve
-      })),
+      call: vi.fn(
+        () =>
+          new Promise<[SessionMessage[], number, boolean]>((resolve) => {
+            resolveLoad = resolve
+          }),
+      ),
     } as unknown as Transport
     setTransport(transport)
 
@@ -700,13 +780,14 @@ describe("reloadAndMergeSessionMessages", () => {
   })
 
   test("preserves active memory trace when assistant placeholder is finalized", async () => {
-    let resolveLoad:
-      | ((value: [SessionMessage[], number, boolean]) => void)
-      | undefined
+    let resolveLoad: ((value: [SessionMessage[], number, boolean]) => void) | undefined
     const transport = {
-      call: vi.fn(() => new Promise<[SessionMessage[], number, boolean]>((resolve) => {
-        resolveLoad = resolve
-      })),
+      call: vi.fn(
+        () =>
+          new Promise<[SessionMessage[], number, boolean]>((resolve) => {
+            resolveLoad = resolve
+          }),
+      ),
     } as unknown as Transport
     setTransport(transport)
 
@@ -804,13 +885,14 @@ describe("reloadAndMergeSessionMessages", () => {
   })
 
   test("prefers finalized memory trace over placeholder trace when DB row has metadata", async () => {
-    let resolveLoad:
-      | ((value: [SessionMessage[], number, boolean]) => void)
-      | undefined
+    let resolveLoad: ((value: [SessionMessage[], number, boolean]) => void) | undefined
     const transport = {
-      call: vi.fn(() => new Promise<[SessionMessage[], number, boolean]>((resolve) => {
-        resolveLoad = resolve
-      })),
+      call: vi.fn(
+        () =>
+          new Promise<[SessionMessage[], number, boolean]>((resolve) => {
+            resolveLoad = resolve
+          }),
+      ),
     } as unknown as Transport
     setTransport(transport)
 
@@ -1047,13 +1129,14 @@ describe("reloadAndMergeSessionMessages", () => {
   })
 
   test("preserves dbId-less messages with identical fallback fields", async () => {
-    let resolveLoad:
-      | ((value: [SessionMessage[], number, boolean]) => void)
-      | undefined
+    let resolveLoad: ((value: [SessionMessage[], number, boolean]) => void) | undefined
     const transport = {
-      call: vi.fn(() => new Promise<[SessionMessage[], number, boolean]>((resolve) => {
-        resolveLoad = resolve
-      })),
+      call: vi.fn(
+        () =>
+          new Promise<[SessionMessage[], number, boolean]>((resolve) => {
+            resolveLoad = resolve
+          }),
+      ),
     } as unknown as Transport
     setTransport(transport)
 

@@ -242,18 +242,28 @@ pub fn append_slash_history_events(
     }
 
     let mut ids = Vec::with_capacity(2);
+    let command_display = slash_history_command_display(command_text);
 
-    let mut command_msg = crate::session::NewMessage::event(command_text).with_source(source);
+    let mut command_msg =
+        crate::session::NewMessage::event(&command_display.content).with_source(source);
     command_msg.attachments_meta = Some(
         serde_json::json!({
             "slash_command": {
                 "kind": "command",
+                "command": command_text,
                 "displayAs": "user",
+                "mode": command_display.mode,
             }
         })
         .to_string(),
     );
     ids.push(session_db.append_message(session_id, &command_msg)?);
+    let _ = crate::session::ensure_first_message_title(
+        session_db,
+        session_id,
+        &command_display.content,
+        None,
+    );
 
     if let Some(result_content) = result_content.filter(|s| !s.trim().is_empty()) {
         let mut result_msg = crate::session::NewMessage::event(result_content).with_source(source);
@@ -272,6 +282,100 @@ pub fn append_slash_history_events(
     Ok(ids)
 }
 
+struct SlashHistoryCommandDisplay {
+    content: String,
+    mode: Option<&'static str>,
+}
+
+fn slash_history_command_display(command_text: &str) -> SlashHistoryCommandDisplay {
+    let trimmed = command_text.trim();
+    if let Some(args) = slash_command_args(trimmed, "goal") {
+        let content = goal_command_display_text(args)
+            .filter(|s| !s.trim().is_empty())
+            .unwrap_or_else(|| "Goal".to_string());
+        return SlashHistoryCommandDisplay {
+            content,
+            mode: Some("goal"),
+        };
+    }
+    if let Some(args) = slash_command_args(trimmed, "loop") {
+        let content = loop_command_display_text(args)
+            .filter(|s| !s.trim().is_empty())
+            .unwrap_or_else(|| "Loop".to_string());
+        return SlashHistoryCommandDisplay {
+            content,
+            mode: Some("loop"),
+        };
+    }
+    SlashHistoryCommandDisplay {
+        content: trimmed.to_string(),
+        mode: None,
+    }
+}
+
+fn slash_command_args<'a>(trimmed: &'a str, name: &str) -> Option<&'a str> {
+    let prefix = format!("/{name}");
+    let raw_rest = trimmed.strip_prefix(&prefix)?;
+    if !raw_rest.is_empty() && !raw_rest.starts_with(char::is_whitespace) {
+        return None;
+    }
+    Some(raw_rest.trim())
+}
+
+fn goal_command_display_text(args: &str) -> Option<String> {
+    let trimmed = args.trim();
+    if trimmed.is_empty() {
+        return Some("Show active goal".to_string());
+    }
+    match trimmed {
+        "status" | "show" => Some("Show active goal".to_string()),
+        "pause" => Some("Pause active goal".to_string()),
+        "resume" => Some("Resume active goal".to_string()),
+        "clear" | "cancel" => Some("Clear active goal".to_string()),
+        "evaluate" | "audit" => Some("Evaluate active goal".to_string()),
+        "help" => Some("Goal help".to_string()),
+        _ => Some(trimmed.to_string()),
+    }
+}
+
+fn loop_command_display_text(args: &str) -> Option<String> {
+    let trimmed = args.trim();
+    if trimmed.is_empty() {
+        return Some("Start self-paced loop".to_string());
+    }
+    let first = trimmed
+        .split_whitespace()
+        .next()
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    match first.as_str() {
+        "status" | "list" | "show" => Some("Show loops".to_string()),
+        "pause" => Some("Pause loop".to_string()),
+        "resume" => Some("Resume loop".to_string()),
+        "stop" | "cancel" => Some("Stop loop".to_string()),
+        "help" => Some("Loop help".to_string()),
+        _ => Some(trimmed.to_string()),
+    }
+}
+
+fn is_loop_create_slash_command(command_text: &str) -> bool {
+    let Some(args) = slash_command_args(command_text.trim(), "loop") else {
+        return false;
+    };
+    if args.trim().is_empty() {
+        return false;
+    }
+    let first = args
+        .split_whitespace()
+        .next()
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    !matches!(
+        first.as_str(),
+        "status" | "list" | "show" | "help" | "pause" | "resume" | "stop" | "cancel"
+    )
+}
+
 /// Persist a full `CommandResult`, including markdown fallbacks for structured
 /// actions whose live desktop UI is card/modal based and therefore has empty
 /// `content`.
@@ -282,7 +386,7 @@ pub fn append_slash_history_result_events(
     result: &CommandResult,
     source: crate::chat_engine::ChatSource,
 ) -> anyhow::Result<Vec<i64>> {
-    let fallback = slash_history_result_content(result);
+    let fallback = slash_history_result_content(command_text, result);
     append_slash_history_events(
         session_db,
         session_id,
@@ -292,7 +396,10 @@ pub fn append_slash_history_result_events(
     )
 }
 
-fn slash_history_result_content(result: &CommandResult) -> Option<String> {
+fn slash_history_result_content(command_text: &str, result: &CommandResult) -> Option<String> {
+    if is_loop_create_slash_command(command_text) {
+        return None;
+    }
     if !result.content.trim().is_empty() {
         return Some(result.content.clone());
     }
@@ -320,6 +427,7 @@ fn slash_history_result_content(result: &CommandResult) -> Option<String> {
         CommandAction::ShowPlan { plan_content } => {
             Some(format!("**Current Plan**\n\n{}", plan_content))
         }
+        CommandAction::SetWorkflowMode { mode } => Some(format!("Workflow Mode set to `{mode}`.")),
         CommandAction::ViewSystemPrompt => Some("Opened system prompt viewer.".into()),
         CommandAction::OpenDashboardTab { tab } => Some(format!("Opened Dashboard tab `{}`.", tab)),
         CommandAction::RecapCard { report_id } => Some(format!(
@@ -518,6 +626,19 @@ mod tests {
     use super::*;
     use crate::skills::{SkillDisplay, SkillEntry, SkillRequires, SkillStatus};
 
+    fn load_session_title(
+        db: &crate::session::SessionDB,
+        session_id: &str,
+    ) -> (Option<String>, String) {
+        let conn = db.conn.lock().expect("lock db");
+        conn.query_row(
+            "SELECT title, title_source FROM sessions WHERE id = ?1",
+            rusqlite::params![session_id],
+            |row| Ok((row.get::<_, Option<String>>(0)?, row.get::<_, String>(1)?)),
+        )
+        .expect("load session title")
+    }
+
     fn mk_skill(name: &str) -> SkillEntry {
         SkillEntry {
             name: name.to_string(),
@@ -616,6 +737,12 @@ mod tests {
             .as_deref()
             .expect("result meta")
             .contains("\"kind\":\"result\""));
+        let (title, title_source) = load_session_title(&db, &meta.id);
+        assert_eq!(title.as_deref(), Some("/status"));
+        assert_eq!(
+            title_source,
+            crate::session_title::TITLE_SOURCE_FIRST_MESSAGE
+        );
     }
 
     #[test]
@@ -658,6 +785,42 @@ mod tests {
     }
 
     #[test]
+    fn slash_history_loop_create_hides_slash_prefix_and_result() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("sessions.db");
+        let db = crate::session::SessionDB::open(&path).expect("open");
+        let meta = db
+            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .expect("session");
+        let result = CommandResult {
+            content: "Loop created.\n\nImmediate first run: queued.".to_string(),
+            action: Some(CommandAction::DisplayOnly),
+        };
+
+        let ids = append_slash_history_result_events(
+            &db,
+            &meta.id,
+            "/loop every 10m: check release notes",
+            &result,
+            crate::chat_engine::ChatSource::Desktop,
+        )
+        .expect("append slash history");
+        assert_eq!(ids.len(), 1);
+
+        let messages = db.load_session_messages(&meta.id).expect("messages");
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].content, "every 10m: check release notes");
+        let command_meta = messages[0]
+            .attachments_meta
+            .as_deref()
+            .expect("command meta");
+        assert!(command_meta.contains("\"displayAs\":\"user\""));
+        assert!(command_meta.contains("\"mode\":\"loop\""));
+        let (title, _) = load_session_title(&db, &meta.id);
+        assert_eq!(title.as_deref(), Some("every 10m: check release notes"));
+    }
+
+    #[test]
     fn command_action_serializes_variant_fields_as_camel_case() {
         let recap = serde_json::to_value(CommandAction::RecapCard {
             report_id: "report-1".into(),
@@ -697,5 +860,25 @@ mod tests {
             &CommandAction::DisplayOnly
         )));
         assert!(should_persist_slash_history(None));
+    }
+
+    #[test]
+    fn goal_slash_history_does_not_strip_objective_prefix_words() {
+        assert_eq!(
+            goal_command_display_text("pause react upgrade"),
+            Some("pause react upgrade".to_string())
+        );
+        assert_eq!(
+            goal_command_display_text("update react upgrade"),
+            Some("update react upgrade".to_string())
+        );
+        assert_eq!(
+            goal_command_display_text("set react upgrade"),
+            Some("set react upgrade".to_string())
+        );
+        assert_eq!(
+            goal_command_display_text("pause"),
+            Some("Pause active goal".to_string())
+        );
     }
 }

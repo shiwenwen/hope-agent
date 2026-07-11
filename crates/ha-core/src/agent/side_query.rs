@@ -575,13 +575,14 @@ impl AssistantAgent {
             started.elapsed().as_millis() as u64,
             outcome.as_ref().ok().map(|o| &o.usage),
             outcome.as_ref().err().map(|e| e.to_string()),
-        );
+        )
+        .await;
         outcome
     }
 
     /// Ledger writer for [`Self::transcribe_images_for_vision_bridge`] —
     /// mirrors [`Self::record_side_query_usage`] but stamps `KIND_VISION`.
-    fn record_vision_bridge_usage(
+    async fn record_vision_bridge_usage(
         &self,
         max_tokens: u32,
         duration_ms: u64,
@@ -609,7 +610,10 @@ impl AssistantAgent {
             event.cache_creation_input_tokens = Some(usage.cache_creation_input_tokens);
             event.cache_read_input_tokens = Some(usage.cache_read_input_tokens);
         }
-        crate::model_usage::record_model_usage_best_effort(event);
+        crate::blocking::run_blocking(move || {
+            crate::model_usage::record_model_usage_best_effort(event)
+        })
+        .await;
     }
 
     /// Bare one-shot LLM call against an arbitrary `ProviderConfig` + model.

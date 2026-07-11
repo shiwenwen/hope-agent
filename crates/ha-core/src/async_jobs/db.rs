@@ -517,6 +517,31 @@ impl JobsDB {
         Ok(out)
     }
 
+    /// Bounded active-job projection for read-only UI/status consumers. Cleanup
+    /// and cancellation must continue to use [`Self::list_active_by_session`]
+    /// so no live job is skipped.
+    pub fn list_active_by_session_limited(
+        &self,
+        session_id: &str,
+        limit: usize,
+    ) -> Result<Vec<BackgroundJob>> {
+        let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
+        let mut stmt = conn.prepare(
+            "SELECT job_id, session_id, agent_id, tool_name, tool_call_id,
+                    args_json, status, result_preview, result_path, error,
+                    created_at, completed_at, injected, origin,
+                    approval_origin, incognito, pid, cancel_requested, kind,
+                    subagent_run_id, group_id
+             FROM background_jobs
+             WHERE session_id=?1 AND status IN ('queued','running','cancelling','awaiting_approval')
+             ORDER BY created_at DESC
+             LIMIT ?2",
+        )?;
+        let rows = stmt.query_map(params![session_id, limit.clamp(1, 500) as i64], row_to_job)?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(Into::into)
+    }
+
     /// R4 owner-plane panel: a session's jobs for the background-jobs panel —
     /// active jobs first (`completed_at IS NULL`), then recent terminal jobs
     /// newest-first — capped at `limit`. Unlike [`list_active_by_session`] (which

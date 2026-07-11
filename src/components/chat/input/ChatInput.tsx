@@ -1,4 +1,4 @@
-import { Fragment, useRef, useEffect, useCallback, useState } from "react"
+import { Fragment, useRef, useEffect, useLayoutEffect, useCallback, useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
@@ -22,6 +22,15 @@ import {
   FolderPlus,
   Quote,
   Undo2,
+  Target,
+  Check,
+  GitPullRequest,
+  Sparkles,
+  Loader2,
+  PauseCircle,
+  PlayCircle,
+  CheckCircle2,
+  Radio,
 } from "lucide-react"
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu"
 import type {
@@ -66,13 +75,13 @@ import {
 } from "@/components/chat/tasks/taskProgress"
 import {
   CHAT_INPUT_INLINE_ADD_ACTIONS_CLASS,
-  CHAT_INPUT_OVERFLOW_BREAKPOINT_PX,
   CHAT_INPUT_OVERFLOW_MENU_CLASS,
-  CHAT_INPUT_PERMISSION_COLLAPSE_BREAKPOINT_PX,
-  CHAT_INPUT_SANDBOX_COLLAPSE_BREAKPOINT_PX,
-  CHAT_INPUT_TIGHT_TOOLBAR_BREAKPOINT_PX,
+  CHAT_INPUT_TOOLBAR_GROUP_WIDTH_FALLBACKS,
   getChatInputOverflowActionIds,
+  getChatInputToolbarFlags,
+  resolveChatInputToolbarCollapseLevel,
   type ChatInputOverflowActionId,
+  type ChatInputToolbarGroupWidths,
 } from "./toolbarOverflow"
 import MentionComposerInput from "./MentionComposerInput"
 import type { ComposerPasteEvent } from "./MentionComposerInput"
@@ -85,6 +94,149 @@ import type { ContextUsageInfo } from "../chatUtils"
 import { contextUsageBarClass } from "../contextUsageColor"
 import type { AgentConfig } from "@/components/settings/types"
 import type { QuickPromptItem } from "@/types/quickPrompts"
+import type { AutonomyActivity, GoalSnapshot } from "../workspace/useGoal"
+import { parseGoalCriteriaDraft, type DraftGoalCriterionKind } from "../workspace/goalCriteriaDraft"
+import { parseGoalUpsertSlashCommand } from "../goalSlashCommand"
+import { parseLoopCreateSlashCommand } from "../loopSlashCommand"
+import type { WorkflowRun, WorkflowRunState } from "../workspace/useWorkflowRuns"
+
+type WorkflowMode = "off" | "on" | "ultracode"
+type WorkflowTriggerHint = {
+  mode: Exclude<WorkflowMode, "off">
+}
+export type GoalModeSubmitAction =
+  | "create_or_update"
+  | "replace"
+  | "append_required"
+  | "append_optional"
+  | "append_follow_up"
+
+const WORKFLOW_MODE_CHANGED_EVENT = "hope-agent:workflow-mode-changed"
+
+const ULTRACODE_TRIGGER_PATTERNS: RegExp[] = [
+  /(?:用|使用|开启|打开|启用|切到|进入).{0,12}(?:ultracode|超高|极致|穷尽)/i,
+  /(?:ultracode|超高|极致|穷尽).{0,12}(?:模式|跑|执行|做|完成|推进|编排|验证)/i,
+  /(?:大规模|全面|完整|彻底).{0,10}(?:交叉验证|并行审查|多代理|multi[-\s]?agent)/i,
+]
+
+const WORKFLOW_TRIGGER_PATTERNS: RegExp[] = [
+  /(?:用|使用|开启|打开|启用|切到|进入).{0,12}(?:工作流|workflow|动态工作流|多代理|multi[-\s]?agent|subagent)/i,
+  /(?:workflow|工作流|动态工作流).{0,16}(?:跑|执行|完成|处理|做|推进|编排|迁移|验证|审查|复核|调研|分析|review|verify|run)/i,
+  /(?:多代理|多\s*agent|multi[-\s]?agent|subagent|并行.{0,6}(?:审查|验证|复核)|交叉验证|cross[-\s]?check|parallel review)/i,
+  /(?:大规模|完整|全面|彻底).{0,12}(?:迁移|重构|验证|审查|复核|调研|分析|排查|修复)/i,
+  /(?:后台|长任务|可恢复|durable|long[-\s]?running).{0,12}(?:执行|运行|跑|推进|orchestrat)/i,
+]
+
+function detectWorkflowTriggerHint(raw: string): WorkflowTriggerHint | null {
+  const text = raw.replace(/\s+/g, " ").trim()
+  if (!text || text.startsWith("/")) return null
+  if (ULTRACODE_TRIGGER_PATTERNS.some((pattern) => pattern.test(text))) {
+    return { mode: "ultracode" }
+  }
+  if (WORKFLOW_TRIGGER_PATTERNS.some((pattern) => pattern.test(text))) {
+    return { mode: "on" }
+  }
+  return null
+}
+
+function normalizeWorkflowMode(value: unknown): WorkflowMode {
+  const raw =
+    typeof value === "string"
+      ? value
+      : typeof value === "object" && value !== null && "mode" in value
+        ? (value as { mode?: unknown }).mode
+        : null
+  return raw === "on" || raw === "ultracode" ? raw : "off"
+}
+
+function workflowModeLabel(t: ReturnType<typeof useTranslation>["t"], mode: WorkflowMode): string {
+  switch (mode) {
+    case "off":
+      return t("chat.workflowMode.off", { defaultValue: "关闭" })
+    case "on":
+      return t("chat.workflowMode.auto", { defaultValue: "自动" })
+    case "ultracode":
+      return t("chat.workflowMode.ultracode", { defaultValue: "Ultracode" })
+  }
+}
+
+function workflowModeDescription(
+  t: ReturnType<typeof useTranslation>["t"],
+  mode: WorkflowMode,
+): string {
+  switch (mode) {
+    case "off":
+      return t("chat.workflowMode.offDesc", { defaultValue: "模型不会自动创建工作流运行" })
+    case "on":
+      return t("chat.workflowMode.autoDesc", {
+        defaultValue: "模型按需自主编排可观察、可恢复的工作流",
+      })
+    case "ultracode":
+      return t("chat.workflowMode.ultracodeDesc", {
+        defaultValue: "更偏向长任务、深度验证和完整动态编排",
+      })
+  }
+}
+
+function workflowRunStateLabel(
+  t: ReturnType<typeof useTranslation>["t"],
+  state: WorkflowRunState,
+): string {
+  switch (state) {
+    case "draft":
+      return t("chat.workflowProgress.stateDraft", "草稿")
+    case "awaiting_approval":
+      return t("chat.workflowProgress.stateAwaitingApproval", "待审批")
+    case "running":
+      return t("chat.workflowProgress.stateRunning", "运行中")
+    case "awaiting_user":
+      return t("chat.workflowProgress.stateAwaitingUser", "等待你")
+    case "paused":
+      return t("chat.workflowProgress.statePaused", "已暂停")
+    case "recovering":
+      return t("chat.workflowProgress.stateRecovering", "恢复中")
+    case "completed":
+      return t("chat.workflowProgress.stateCompleted", "已完成")
+    case "failed":
+      return t("chat.workflowProgress.stateFailed", "失败")
+    case "cancelled":
+      return t("chat.workflowProgress.stateCancelled", "已取消")
+    case "blocked":
+      return t("chat.workflowProgress.stateBlocked", "阻塞")
+  }
+}
+
+function workflowRunToneClass(state: WorkflowRunState): string {
+  switch (state) {
+    case "awaiting_approval":
+    case "awaiting_user":
+    case "blocked":
+    case "failed":
+      return "border-amber-500/20 bg-amber-500/8 text-amber-700 dark:text-amber-300"
+    case "running":
+    case "recovering":
+      return "border-blue-500/20 bg-blue-500/8 text-blue-700 dark:text-blue-300"
+    case "paused":
+    case "draft":
+      return "border-muted-foreground/20 bg-muted/50 text-muted-foreground"
+    case "completed":
+      return "border-emerald-500/20 bg-emerald-500/8 text-emerald-700 dark:text-emerald-300"
+    case "cancelled":
+      return "border-muted-foreground/20 bg-muted/50 text-muted-foreground"
+  }
+}
+
+function workflowRunIsLive(state: WorkflowRunState): boolean {
+  return (
+    state === "awaiting_approval" ||
+    state === "running" ||
+    state === "awaiting_user" ||
+    state === "paused" ||
+    state === "recovering" ||
+    state === "blocked" ||
+    state === "failed"
+  )
+}
 
 interface ChatInputProps {
   input: string
@@ -121,6 +273,8 @@ interface ChatInputProps {
   // Slash command support
   currentSessionId?: string | null
   currentAgentId?: string
+  /** Materializes a draft conversation before applying session-scoped modes. */
+  onEnsureSession?: () => Promise<string | null>
   onCommandAction?: (result: CommandResult) => void
   // Tool permission mode
   permissionMode: SessionMode
@@ -164,11 +318,29 @@ interface ChatInputProps {
   onEnterPlanMode?: () => void
   onExitPlanMode?: () => void
   onTogglePlanPanel?: () => void
+  // Draft workflow mode staged before the first message materializes a session.
+  draftWorkflowMode?: WorkflowMode
+  onDraftWorkflowModeChange?: (mode: WorkflowMode) => void
+  // Goal mode
+  goalSnapshot?: GoalSnapshot | null
+  autonomyActivity?: AutonomyActivity | null
+  goalLoading?: boolean
+  onGoalModeSubmit?: (objective: string, action?: GoalModeSubmitAction) => Promise<boolean>
+  onLoopModeSubmit?: (prompt: string) => Promise<boolean>
+  onGoalUpdate?: (objective: string, completionCriteria: string) => Promise<boolean>
+  onPauseGoal?: () => Promise<boolean>
+  onResumeGoal?: () => Promise<boolean>
+  onClearGoal?: () => Promise<boolean>
+  onEvaluateGoal?: () => Promise<boolean>
   // Session-scoped Todo progress
   taskProgressSnapshot?: TaskProgressSnapshot | null
   executionState?: ChatTurnStatus | null
   /** 打开右侧工作台面板（状态条点击）。 */
   onOpenWorkspace?: () => void
+  /** Most relevant visible workflow run, shown as a compact progress line. */
+  workflowProgressRun?: WorkflowRun | null
+  /** Total workflow runs relevant to the compact progress line. */
+  workflowProgressCount?: number
   /** True when the right-side workspace panel is expanded and showing task detail. */
   workspacePanelVisible?: boolean
   /** Larger centered presentation for a brand-new empty conversation. */
@@ -210,6 +382,79 @@ function ContextUsageBottomBar({ usage }: { usage: ContextUsageInfo }) {
   )
 }
 
+function GoalCriteriaDraftPreview({ criteriaText }: { criteriaText: string }) {
+  const { t } = useTranslation()
+  const items = useMemo(() => parseGoalCriteriaDraft(criteriaText), [criteriaText])
+  if (items.length === 0) return null
+  const required = items.filter((item) => item.kind === "required").length
+  const optional = items.filter((item) => item.kind === "optional").length
+  const followUp = items.filter((item) => item.kind === "follow_up").length
+  return (
+    <div className="space-y-1 rounded-md border border-emerald-500/15 bg-emerald-500/5 p-1.5 text-[10px]">
+      <div className="flex min-w-0 flex-wrap items-center gap-1 text-emerald-800/80 dark:text-emerald-200/80">
+        <span className="shrink-0 font-medium">
+          {t("chat.goalMode.criteriaPreview", "标准预览")}
+        </span>
+        <span>
+          {t("chat.goalMode.criteriaRequiredCount", "必须 {{count}}", { count: required })}
+        </span>
+        <span className="opacity-45">/</span>
+        <span>
+          {t("chat.goalMode.criteriaOptionalCount", "可选 {{count}}", { count: optional })}
+        </span>
+        <span className="opacity-45">/</span>
+        <span>
+          {t("chat.goalMode.criteriaFollowUpCount", "后续 {{count}}", { count: followUp })}
+        </span>
+      </div>
+      <div className="space-y-0.5">
+        {items.slice(0, 3).map((item) => (
+          <div key={item.id} className="flex min-w-0 items-center gap-1">
+            <span className="shrink-0 rounded border border-emerald-500/20 px-1 text-emerald-700 dark:text-emerald-300">
+              {chatGoalDraftKindLabel(t, item.kind)}
+            </span>
+            <span className="min-w-0 flex-1 truncate text-muted-foreground">{item.text}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function chatGoalDraftKindLabel(
+  t: ReturnType<typeof useTranslation>["t"],
+  kind: DraftGoalCriterionKind,
+): string {
+  switch (kind) {
+    case "required":
+      return t("chat.goalMode.criterionRequired", "必须")
+    case "optional":
+      return t("chat.goalMode.criterionOptional", "可选")
+    case "follow_up":
+      return t("chat.goalMode.criterionFollowUp", "后续")
+  }
+}
+
+function readToolbarItemWidth(el: HTMLElement | null, fallback: number): number {
+  if (!el) return fallback
+  const rect = el.getBoundingClientRect()
+  return rect.width > 0 ? Math.ceil(rect.width) : fallback
+}
+
+function visibleToolbarItemRects(container: HTMLElement): DOMRect[] {
+  return Array.from(container.children)
+    .map((child) => child.getBoundingClientRect())
+    .filter((rect) => rect.width > 0 && rect.height > 0)
+}
+
+function toolbarVisibleWidth(container: HTMLElement): number {
+  const rects = visibleToolbarItemRects(container)
+  if (rects.length === 0) return 0
+  const left = Math.min(...rects.map((rect) => rect.left))
+  const right = Math.max(...rects.map((rect) => rect.right))
+  return Math.max(0, Math.ceil(right - left))
+}
+
 export default function ChatInput({
   input,
   onInputChange,
@@ -243,6 +488,7 @@ export default function ChatInput({
   onStop,
   currentSessionId,
   currentAgentId = DEFAULT_AGENT_ID,
+  onEnsureSession,
   onCommandAction,
   permissionMode,
   onPermissionModeChange,
@@ -266,9 +512,23 @@ export default function ChatInput({
   onEnterPlanMode,
   onExitPlanMode,
   onTogglePlanPanel,
+  draftWorkflowMode = "off",
+  onDraftWorkflowModeChange,
+  goalSnapshot,
+  autonomyActivity,
+  goalLoading = false,
+  onGoalModeSubmit,
+  onLoopModeSubmit,
+  onGoalUpdate,
+  onPauseGoal,
+  onResumeGoal,
+  onClearGoal,
+  onEvaluateGoal,
   taskProgressSnapshot,
   executionState,
   onOpenWorkspace,
+  workflowProgressRun,
+  workflowProgressCount = 0,
   workspacePanelVisible = false,
   hero = false,
   contextUsage,
@@ -277,17 +537,39 @@ export default function ChatInput({
   const inputHandleRef = useRef<ComposerInputHandle>(null)
   const inputShellRef = useRef<HTMLDivElement>(null)
   const toolbarRef = useRef<HTMLDivElement>(null)
+  const toolbarLeftRef = useRef<HTMLDivElement>(null)
+  const overflowTriggerRef = useRef<HTMLDivElement>(null)
+  const addActionsRef = useRef<HTMLDivElement>(null)
+  const semanticModesRef = useRef<HTMLDivElement>(null)
+  const sandboxModeRef = useRef<HTMLDivElement>(null)
+  const permissionModeRef = useRef<HTMLDivElement>(null)
+  const toolbarGroupWidthsRef = useRef<ChatInputToolbarGroupWidths>({
+    ...CHAT_INPUT_TOOLBAR_GROUP_WIDTH_FALLBACKS,
+  })
   const [showOverflowMenu, setShowOverflowMenu] = useState(false)
-  const [toolbarCompact, setToolbarCompact] = useState(false)
-  // Narrower tier than `toolbarCompact`: Knowledge + Plan stay inline until the
-  // toolbar is genuinely cramped, then collapse into the "+" menu too.
-  const [toolbarTight, setToolbarTight] = useState(false)
-  // Progressively deeper tiers: sandbox collapses first, then permission mode.
-  // The floor — "+" · model · send/stop — never collapses and never wraps.
-  const [sandboxCollapsed, setSandboxCollapsed] = useState(false)
-  const [permissionCollapsed, setPermissionCollapsed] = useState(false)
+  // 0 = everything inline; 1 = add actions behind "+"; 2 = semantic modes behind
+  // "+"; 3 = sandbox behind "+"; 4 = permission behind "+". The level is chosen
+  // by live DOM measurement instead of fixed container-width breakpoints.
+  const [toolbarCollapseLevel, setToolbarCollapseLevel] = useState(0)
   const [toolbarMinHeight, setToolbarMinHeight] = useState<number | null>(null)
   const [pendingExpanded, setPendingExpanded] = useState(false)
+  const [goalComposerMode, setGoalComposerMode] = useState(false)
+  const [loopComposerMode, setLoopComposerMode] = useState(false)
+  const [goalComposerAction, setGoalComposerAction] =
+    useState<GoalModeSubmitAction>("create_or_update")
+  const [goalSubmitting, setGoalSubmitting] = useState(false)
+  const [loopSubmitting, setLoopSubmitting] = useState(false)
+  const [goalEditOpen, setGoalEditOpen] = useState(false)
+  const [goalEditObjective, setGoalEditObjective] = useState("")
+  const [goalEditCriteria, setGoalEditCriteria] = useState("")
+  const [goalActionPending, setGoalActionPending] = useState<string | null>(null)
+  const [workflowMode, setWorkflowMode] = useState<WorkflowMode>("off")
+  const [workflowModeLoading, setWorkflowModeLoading] = useState(false)
+  const [workflowModeSaving, setWorkflowModeSaving] = useState<WorkflowMode | null>(null)
+  const [workflowMenuOpen, setWorkflowMenuOpen] = useState(false)
+  const [dismissedWorkflowHintFor, setDismissedWorkflowHintFor] = useState<string | null>(null)
+  const { toolbarCompact, toolbarTight, sandboxCollapsed, permissionCollapsed } =
+    getChatInputToolbarFlags(toolbarCollapseLevel)
 
   const handlePermissionModeChange = useCallback(
     (mode: SessionMode, options?: PermissionModeChangeOptions) => {
@@ -349,6 +631,8 @@ export default function ChatInput({
     onCommandAction: onCommandAction ?? (() => {}),
     sessionId: currentSessionId ?? null,
     agentId: currentAgentId,
+    ensureSession: onEnsureSession,
+    bypassLoopCreateOnEnter: !!onLoopModeSubmit,
   }
   const slash = useSlashCommands(input, setComposerInput, slashActions, inputHandleRef)
   const voice = useVoiceInput(currentSessionId)
@@ -360,6 +644,53 @@ export default function ChatInput({
   useEffect(() => {
     inputRef.current = input
   }, [input])
+
+  const activeGoal = goalSnapshot?.goal ?? null
+  useEffect(() => {
+    setGoalEditObjective(activeGoal?.objective ?? "")
+    setGoalEditCriteria(activeGoal?.completionCriteria ?? "")
+    setGoalEditOpen(false)
+    setGoalActionPending(null)
+  }, [activeGoal?.id, activeGoal?.objective, activeGoal?.completionCriteria])
+
+  useEffect(() => {
+    if (!currentSessionId || incognitoEnabled) {
+      setWorkflowMode(incognitoEnabled ? "off" : normalizeWorkflowMode(draftWorkflowMode))
+      setWorkflowModeLoading(false)
+      setWorkflowModeSaving(null)
+      return
+    }
+    let cancelled = false
+    setWorkflowModeLoading(true)
+    getTransport()
+      .call<unknown>("get_workflow_mode", { sessionId: currentSessionId })
+      .then((next) => {
+        if (cancelled) return
+        setWorkflowMode(normalizeWorkflowMode(next))
+      })
+      .catch((e) => {
+        if (cancelled) return
+        logger.error("ui", "ChatInput::loadWorkflowMode", "Failed to load workflow mode", e)
+      })
+      .finally(() => {
+        if (!cancelled) setWorkflowModeLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [currentSessionId, draftWorkflowMode, incognitoEnabled])
+
+  useEffect(() => {
+    const onWorkflowModeChanged = (event: Event) => {
+      const detail = (event as CustomEvent<{ sessionId?: string | null; mode?: unknown }>).detail
+      if (!detail || detail.sessionId !== currentSessionId) return
+      setWorkflowMode(normalizeWorkflowMode(detail.mode))
+      setWorkflowModeSaving(null)
+      setWorkflowModeLoading(false)
+    }
+    window.addEventListener(WORKFLOW_MODE_CHANGED_EVENT, onWorkflowModeChanged)
+    return () => window.removeEventListener(WORKFLOW_MODE_CHANGED_EVENT, onWorkflowModeChanged)
+  }, [currentSessionId])
 
   /**
    * Caret anchor captured at `voice.start()` time. While recording, the
@@ -540,37 +871,91 @@ export default function ChatInput({
   const quickPrompt = useQuickPrompts(input, setComposerInput, inputHandleRef, quickPrompts)
   // URL preview
   const { previews: urlPreviews, dismissedUrls, dismiss: dismissUrl } = useUrlPreview(input)
-  const hasSendableContent =
-    input.trim().length > 0 || attachedFiles.length > 0 || (pendingQuotes?.length ?? 0) > 0
+  const hasSendableContent = goalComposerMode || loopComposerMode
+    ? input.trim().length > 0
+    : input.trim().length > 0 || attachedFiles.length > 0 || (pendingQuotes?.length ?? 0) > 0
 
   // The chat column can shrink when a right-side panel opens while the viewport
-  // stays wide, so the overflow affordance has to follow the input container
-  // width instead of a viewport media query.
-  useEffect(() => {
-    const el = inputShellRef.current
-    if (!el || typeof window === "undefined") return
+  // stays wide, so the overflow affordance follows the actual toolbar layout.
+  // Resolve the target collapse tier from measured widths in one pass; otherwise
+  // very narrow inputs can visibly crop controls while the UI collapses one tier
+  // at a time.
+  useLayoutEffect(() => {
+    if (!normalToolbarOpen || typeof window === "undefined") return
 
-    const update = (width = el.getBoundingClientRect().width) => {
-      setToolbarCompact(width <= CHAT_INPUT_OVERFLOW_BREAKPOINT_PX)
-      setToolbarTight(width <= CHAT_INPUT_TIGHT_TOOLBAR_BREAKPOINT_PX)
-      setSandboxCollapsed(width <= CHAT_INPUT_SANDBOX_COLLAPSE_BREAKPOINT_PX)
-      setPermissionCollapsed(width <= CHAT_INPUT_PERMISSION_COLLAPSE_BREAKPOINT_PX)
+    const left = toolbarLeftRef.current
+    if (!left) return
+
+    let raf: number | null = null
+
+    const updateMeasuredGroupWidths = () => {
+      toolbarGroupWidthsRef.current = {
+        addActions: readToolbarItemWidth(
+          addActionsRef.current,
+          toolbarGroupWidthsRef.current.addActions,
+        ),
+        overflowTrigger: readToolbarItemWidth(
+          overflowTriggerRef.current,
+          toolbarGroupWidthsRef.current.overflowTrigger,
+        ),
+        semanticModes: readToolbarItemWidth(
+          semanticModesRef.current,
+          toolbarGroupWidthsRef.current.semanticModes,
+        ),
+        sandbox: readToolbarItemWidth(sandboxModeRef.current, toolbarGroupWidthsRef.current.sandbox),
+        permission: readToolbarItemWidth(
+          permissionModeRef.current,
+          toolbarGroupWidthsRef.current.permission,
+        ),
+      }
+    }
+
+    const update = () => {
+      if (raf !== null) window.cancelAnimationFrame(raf)
+      raf = window.requestAnimationFrame(() => {
+        raf = null
+        updateMeasuredGroupWidths()
+        setToolbarCollapseLevel((level) => {
+          const currentLeft = toolbarLeftRef.current
+          if (!currentLeft) return level
+          return resolveChatInputToolbarCollapseLevel({
+            currentLevel: level,
+            availableWidth: currentLeft.clientWidth,
+            visibleWidth: toolbarVisibleWidth(currentLeft),
+            widths: toolbarGroupWidthsRef.current,
+          })
+        })
+      })
     }
 
     update()
 
     if (typeof ResizeObserver === "undefined") {
-      const handleResize = () => update()
-      window.addEventListener("resize", handleResize)
-      return () => window.removeEventListener("resize", handleResize)
+      window.addEventListener("resize", update)
+      return () => {
+        if (raf !== null) window.cancelAnimationFrame(raf)
+        window.removeEventListener("resize", update)
+      }
     }
 
-    const observer = new ResizeObserver((entries) => {
-      update(entries[0]?.contentRect.width)
+    const observer = new ResizeObserver(update)
+    ;[
+      inputShellRef.current,
+      toolbarRef.current,
+      left,
+      overflowTriggerRef.current,
+      addActionsRef.current,
+      semanticModesRef.current,
+      sandboxModeRef.current,
+      permissionModeRef.current,
+    ].forEach((el) => {
+      if (el) observer.observe(el)
     })
-    observer.observe(el)
-    return () => observer.disconnect()
-  }, [])
+    return () => {
+      if (raf !== null) window.cancelAnimationFrame(raf)
+      observer.disconnect()
+    }
+  }, [normalToolbarOpen, toolbarCollapseLevel])
 
   useEffect(() => {
     if (showOverflowMenu && !toolbarCompact) setShowOverflowMenu(false)
@@ -578,7 +963,7 @@ export default function ChatInput({
 
   useEffect(() => {
     setToolbarMinHeight(null)
-  }, [toolbarCompact, sandboxCollapsed, permissionCollapsed])
+  }, [toolbarCollapseLevel])
 
   useEffect(() => {
     if (!normalToolbarOpen || typeof window === "undefined") {
@@ -618,7 +1003,7 @@ export default function ChatInput({
       if (raf !== null) window.cancelAnimationFrame(raf)
       observer.disconnect()
     }
-  }, [normalToolbarOpen, toolbarCompact, sandboxCollapsed, permissionCollapsed])
+  }, [normalToolbarOpen, toolbarCollapseLevel])
 
   const handlePaste = useCallback(
     (e: ComposerPasteEvent) => {
@@ -733,8 +1118,70 @@ export default function ChatInput({
   const handleSend = useCallback(() => {
     if (sendUnavailable) return
     resetHistoryBrowsing()
+    // Normalize slash-form Goal drafts even when the Goal composer is already
+    // active. Pasting a reusable `/goal ...` prompt after clicking the Goal
+    // button must not persist the command prefix as part of the objective.
+    const directGoalObjective = parseGoalUpsertSlashCommand(input)
+    const directLoopPrompt =
+      goalComposerMode || !onLoopModeSubmit
+        ? null
+        : parseLoopCreateSlashCommand(input)
+    if (goalComposerMode || directGoalObjective) {
+      const objective = directGoalObjective ?? input.trim()
+      if (!objective || goalSubmitting) return
+      if (incognitoEnabled) {
+        toast.error(t("chat.goalMode.incognito", "无痕会话不持久化目标"))
+        return
+      }
+      if (!onGoalModeSubmit) return
+      const action = activeGoal ? goalComposerAction : undefined
+      setGoalSubmitting(true)
+      const submit = action ? onGoalModeSubmit(objective, action) : onGoalModeSubmit(objective)
+      void submit
+        .then((ok) => {
+          if (!ok) return
+          setComposerInput("")
+          setGoalComposerMode(false)
+        })
+        .finally(() => setGoalSubmitting(false))
+      return
+    }
+    if (loopComposerMode || directLoopPrompt) {
+      const prompt = directLoopPrompt ?? input.trim()
+      if (!prompt || loopSubmitting) return
+      if (incognitoEnabled) {
+        toast.error(t("chat.loopMode.incognito", "无痕会话不持久化持续推进"))
+        return
+      }
+      if (!onLoopModeSubmit) return
+      setLoopSubmitting(true)
+      void onLoopModeSubmit(prompt)
+        .then((ok) => {
+          if (!ok) return
+          setComposerInput("")
+          setLoopComposerMode(false)
+        })
+        .finally(() => setLoopSubmitting(false))
+      return
+    }
     onSend()
-  }, [onSend, resetHistoryBrowsing, sendUnavailable])
+  }, [
+    goalComposerMode,
+    loopComposerMode,
+    goalComposerAction,
+    goalSubmitting,
+    loopSubmitting,
+    incognitoEnabled,
+    input,
+    activeGoal,
+    onGoalModeSubmit,
+    onLoopModeSubmit,
+    onSend,
+    resetHistoryBrowsing,
+    sendUnavailable,
+    setComposerInput,
+    t,
+  ])
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLElement>) {
     if (e.nativeEvent.isComposing || e.keyCode === 229) return
@@ -774,6 +1221,121 @@ export default function ChatInput({
         return t("planMode.executing")
     }
   })()
+  const goalToggleLabel = t("chat.goalMode.label", "目标")
+  const goalToggleTip = goalComposerMode
+    ? t("chat.goalMode.activeTip", "正在设置目标")
+    : t("chat.goalMode.enter", "进入目标模式")
+  const loopToggleLabel = t("chat.loopMode.label", "持续推进")
+  const loopModeAvailable = !!onLoopModeSubmit
+  const loopToggleTip = loopComposerMode
+    ? t("chat.loopMode.activeTip", "正在设置持续推进")
+    : t("chat.loopMode.enter", "进入持续推进模式")
+  const workflowToggleLabel = t("chat.workflowMode.label", "工作流")
+  const workflowModeActive = workflowMode !== "off"
+  const WorkflowModeIcon = workflowMode === "ultracode" ? Sparkles : GitPullRequest
+  const normalizedWorkflowTriggerInput = input.replace(/\s+/g, " ").trim()
+  const workflowTriggerHint = useMemo(() => detectWorkflowTriggerHint(input), [input])
+  const showWorkflowTriggerHint =
+    !!workflowTriggerHint &&
+    workflowMode === "off" &&
+    !incognitoEnabled &&
+    !goalComposerMode &&
+    !loopComposerMode &&
+    planState !== "planning" &&
+    normalizedWorkflowTriggerInput !== dismissedWorkflowHintFor
+  const showWorkflowProgressLine =
+    !!workflowProgressRun && workflowRunIsLive(workflowProgressRun.state) && !incognitoEnabled
+  const workflowProgressExtraCount = Math.max(0, workflowProgressCount - 1)
+  const workflowMenuLabel = t("chat.workflowMode.menuTitle", { defaultValue: "工作流模式" })
+  const workflowButtonLabel = workflowModeActive
+    ? `${workflowToggleLabel} · ${workflowModeLabel(t, workflowMode)}`
+    : workflowToggleLabel
+  const workflowMenuDisabled = incognitoEnabled || workflowModeLoading || !!workflowModeSaving
+  const workflowButtonTone =
+    workflowMode === "on"
+      ? "bg-blue-500/10 text-blue-600"
+      : workflowMode === "ultracode"
+        ? "bg-purple-500/10 text-purple-600"
+        : "text-muted-foreground hover:text-foreground"
+  const activeGoalStateLabel = (() => {
+    switch (activeGoal?.state) {
+      case "active":
+        return t("chat.goalMode.stateActive", "进行中")
+      case "paused":
+        return t("chat.goalMode.statePaused", "已暂停")
+      case "evaluating":
+        return t("chat.goalMode.stateEvaluating", "评估中")
+      case "blocked":
+        return t("chat.goalMode.stateBlocked", "阻塞")
+      case "completed":
+        return t("chat.goalMode.stateCompleted", "完成")
+      case "failed":
+        return t("chat.goalMode.stateFailed", "失败")
+      case "cancelled":
+        return t("chat.goalMode.stateCancelled", "已清除")
+      default:
+        return ""
+    }
+  })()
+  const activityHeadlineLabel = (() => {
+    switch (autonomyActivity?.headlineCode) {
+      case "waiting_job_approval":
+        return t("chat.activity.waitingJobApproval", "等待工具审批")
+      case "waiting_workflow_user":
+        return t("chat.activity.waitingWorkflowUser", "等待你处理")
+      case "waiting_goal_acceptance":
+        return t("chat.activity.waitingGoalAcceptance", "等待确认目标结果")
+      case "evaluating_goal":
+        return t("chat.activity.evaluatingGoal", "正在验收目标")
+      case "running_workflow":
+        return t("chat.activity.runningWorkflow", "工作流执行中")
+      case "running_task":
+        return t("chat.activity.runningTask", "任务执行中")
+      case "waiting_background_work":
+        return t("chat.activity.waitingBackgroundWork", "等待后台结果")
+      case "waiting_loop_trigger":
+        return t("chat.activity.waitingLoopTrigger", "等待持续推进触发")
+      case "goal_paused":
+        return t("chat.activity.goalPaused", "目标已暂停")
+      case "workflow_paused":
+        return t("chat.activity.workflowPaused", "工作流已暂停")
+      case "workflow_blocked":
+        return t("chat.activity.workflowBlocked", "工作流待处理")
+      case "goal_blocked":
+        return t("chat.activity.goalBlocked", "目标待处理")
+      case "loop_paused":
+        return t("chat.activity.loopPaused", "持续推进已暂停")
+      case "loop_blocked":
+        return t("chat.activity.loopBlocked", "持续推进待处理")
+      case "active_goal":
+        return t("chat.activity.activeGoal", "持续推进目标")
+      case "goal_terminal":
+        return t("chat.activity.goalTerminal", "目标已结束")
+      default:
+        return activeGoalStateLabel
+    }
+  })()
+  const activityDetail = [
+    activityHeadlineLabel,
+    autonomyActivity?.currentStep,
+    autonomyActivity?.waitingOn?.label,
+  ]
+    .filter(Boolean)
+    .join(" · ")
+  const activeGoalCriteria = goalSnapshot?.criteria ?? []
+  const activeGoalRequiredTotal = activeGoalCriteria.filter(
+    (criterion) => (criterion.kind ?? "required") === "required",
+  ).length
+  const activeGoalRequiredDone = activeGoalCriteria.filter(
+    (criterion) =>
+      (criterion.kind ?? "required") === "required" && criterion.status === "satisfied",
+  ).length
+  const activeGoalProgressLabel =
+    activeGoalRequiredTotal > 0
+      ? `${activeGoalRequiredDone}/${activeGoalRequiredTotal}`
+      : null
+  const planModeActive = planState !== "off" && planState !== "completed"
+  const planComposerBannerOpen = planState === "planning" && !goalComposerMode && !loopComposerMode
 
   const overflowMenuItemClass =
     "flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left text-[13px] text-foreground/80 outline-none transition-all duration-150 hover:bg-secondary/60 hover:text-foreground focus-visible:bg-secondary/60 focus-visible:text-foreground disabled:pointer-events-none disabled:opacity-50"
@@ -781,12 +1343,193 @@ export default function ChatInput({
   // Shared by the inline Plan toggle and its "+" overflow-menu counterpart.
   const handlePlanToggle = () => {
     if (planState === "off" || planState === "completed") {
+      setGoalComposerMode(false)
+      setLoopComposerMode(false)
       onEnterPlanMode?.()
     } else if (planState === "planning") {
       onExitPlanMode?.()
     } else {
+      setGoalComposerMode(false)
+      setLoopComposerMode(false)
       onTogglePlanPanel?.()
     }
+  }
+
+  const handleGoalModeToggle = () => {
+    if (incognitoEnabled) {
+      toast.error(t("chat.goalMode.incognito", "无痕会话不持久化目标"))
+      return
+    }
+    setGoalComposerMode((value) => {
+      const next = !value
+      if (next) {
+        setLoopComposerMode(false)
+        if (planModeActive) void onExitPlanMode?.()
+        setGoalComposerAction("create_or_update")
+      }
+      return next
+    })
+  }
+
+  const handleLoopModeToggle = () => {
+    if (!loopModeAvailable) return
+    if (incognitoEnabled) {
+      toast.error(t("chat.loopMode.incognito", "无痕会话不持久化持续推进"))
+      return
+    }
+    setLoopComposerMode((value) => {
+      const next = !value
+      if (next) {
+        setGoalComposerMode(false)
+        if (planModeActive) void onExitPlanMode?.()
+      }
+      return next
+    })
+  }
+
+  const updateWorkflowMode = useCallback(
+    async (nextMode: WorkflowMode) => {
+      if (incognitoEnabled) {
+        toast.error(t("chat.workflowMode.incognito", "无痕会话不启用工作流模式"))
+        return
+      }
+      if (nextMode === workflowMode || workflowModeSaving) return
+      if (!currentSessionId) {
+        setWorkflowMode(nextMode)
+        onDraftWorkflowModeChange?.(nextMode)
+        toast.success(
+          nextMode === "off"
+            ? t("chat.workflowMode.draftOff", "工作流模式已关闭")
+            : t("chat.workflowMode.draftSaved", "工作流模式已开启：{{mode}}", {
+                mode: workflowModeLabel(t, nextMode),
+              }),
+        )
+        return
+      }
+      setWorkflowModeSaving(nextMode)
+      try {
+        const next = await getTransport().call<unknown>("set_workflow_mode", {
+          sessionId: currentSessionId,
+          mode: nextMode,
+        })
+        const saved = normalizeWorkflowMode(next)
+        setWorkflowMode(saved)
+        window.dispatchEvent(
+          new CustomEvent(WORKFLOW_MODE_CHANGED_EVENT, {
+            detail: { sessionId: currentSessionId, mode: saved },
+          }),
+        )
+        toast.success(
+          saved === "off"
+            ? t("chat.workflowMode.draftOff", "工作流模式已关闭")
+            : t("chat.workflowMode.saved", "工作流模式已开启：{{mode}}", {
+                mode: workflowModeLabel(t, saved),
+              }),
+        )
+      } catch (e) {
+        logger.error("ui", "ChatInput::updateWorkflowMode", "Failed to update workflow mode", e)
+        toast.error(e instanceof Error ? e.message : String(e))
+      } finally {
+        setWorkflowModeSaving(null)
+      }
+    },
+    [
+      currentSessionId,
+      incognitoEnabled,
+      onDraftWorkflowModeChange,
+      t,
+      workflowMode,
+      workflowModeSaving,
+    ],
+  )
+
+  const renderWorkflowModeMenuItems = (onPicked?: () => void) => {
+    const options: WorkflowMode[] = ["off", "on", "ultracode"]
+    return (
+      <div className="flex flex-col gap-0.5">
+        {options.map((mode) => {
+          const selected = workflowMode === mode
+          const ModeIcon = mode === "ultracode" ? Sparkles : GitPullRequest
+          const savingThis = workflowModeSaving === mode
+          return (
+            <button
+              key={mode}
+              type="button"
+              className={cn(
+                "flex w-full items-start gap-2 rounded-md px-2.5 py-2 text-left transition-all duration-150",
+                selected
+                  ? "bg-secondary text-foreground font-medium shadow-sm"
+                  : "text-foreground/80 hover:bg-secondary/60 hover:text-foreground",
+              )}
+              disabled={workflowMenuDisabled}
+              onClick={() => {
+                onPicked?.()
+                void updateWorkflowMode(mode)
+              }}
+            >
+              {savingThis ? (
+                <Loader2 className="mt-0.5 h-4 w-4 shrink-0 animate-spin" />
+              ) : selected ? (
+                <Check className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+              ) : (
+                <ModeIcon
+                  className={cn(
+                    "mt-0.5 h-4 w-4 shrink-0",
+                    mode === "on" && "text-blue-600",
+                    mode === "ultracode" && "text-purple-600",
+                  )}
+                />
+              )}
+              <span className="flex min-w-0 flex-1 flex-col">
+                <span className="text-[13px]">{workflowModeLabel(t, mode)}</span>
+                <span className="text-[11px] font-normal leading-snug text-muted-foreground">
+                  {workflowModeDescription(t, mode)}
+                </span>
+              </span>
+            </button>
+          )
+        })}
+        {onOpenWorkspace ? (
+          <>
+            <div className="my-1 h-px bg-border/60" />
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-[13px] text-foreground/80 transition-all duration-150 hover:bg-secondary/60 hover:text-foreground"
+              onClick={() => {
+                onPicked?.()
+                onOpenWorkspace()
+              }}
+            >
+              <GitPullRequest className="h-4 w-4 shrink-0 text-muted-foreground" />
+              <span className="truncate">
+                {t("chat.workflowMode.viewRuns", { defaultValue: "查看工作流运行" })}
+              </span>
+            </button>
+          </>
+        ) : null}
+      </div>
+    )
+  }
+
+  const runGoalAction = (key: string, action?: () => Promise<boolean>) => {
+    if (!action || goalActionPending) return
+    setGoalActionPending(key)
+    void action().finally(() => setGoalActionPending(null))
+  }
+
+  const saveGoalEdit = () => {
+    if (!onGoalUpdate || goalActionPending) return
+    const objective = goalEditObjective.trim()
+    if (!objective) {
+      toast.error(t("chat.goalMode.objectiveRequired", "请输入目标"))
+      return
+    }
+    setGoalActionPending("update")
+    void onGoalUpdate(objective, goalEditCriteria)
+      .then((ok) => {
+        if (ok) setGoalEditOpen(false)
+      })
+      .finally(() => setGoalActionPending(null))
   }
 
   const toggleSlashCommandMenu = () => {
@@ -817,6 +1560,31 @@ export default function ChatInput({
         : []
   const pendingVisibleItems = pendingExpanded ? pendingQueueItems : pendingQueueItems.slice(0, 2)
   const hasPendingQueue = loading && pendingQueueItems.length > 0
+  const topStripBase =
+    !hasVisibleTaskProgress &&
+    attachedFiles.length === 0 &&
+    !pendingQuotes?.length &&
+    !hasPendingQueue
+  const workflowTriggerHintIsFirstContent = topStripBase
+  const activeGoalStripIsFirstContent = topStripBase && !showWorkflowTriggerHint
+  const activeGoalStatusOpen = !!activeGoal && !goalComposerMode
+  const effectiveShowWorkflowProgressLine = showWorkflowProgressLine && !activeGoalStatusOpen
+  const standaloneActivityStatusOpen =
+    !activeGoalStatusOpen &&
+    !effectiveShowWorkflowProgressLine &&
+    !hasVisibleTaskProgress &&
+    !!autonomyActivity &&
+    autonomyActivity.state !== "idle" &&
+    autonomyActivity.state !== "terminal"
+  const workflowModeStatusOpen = workflowModeActive && !incognitoEnabled
+  const workflowProgressLineIsFirstContent =
+    activeGoalStripIsFirstContent && !activeGoalStatusOpen
+  const standaloneActivityStripIsFirstContent =
+    workflowProgressLineIsFirstContent && !effectiveShowWorkflowProgressLine
+  const workflowModeStatusIsFirstContent =
+    standaloneActivityStripIsFirstContent && !standaloneActivityStatusOpen
+  const modeBannerIsFirstContent =
+    workflowModeStatusIsFirstContent && !workflowModeStatusOpen
 
   const pendingStatusLabel = (item: PendingSendPreview) => {
     switch (item.status) {
@@ -873,6 +1641,10 @@ export default function ChatInput({
     </>
   )
 
+  const handleLoopCreateOpen = () => {
+    handleLoopModeToggle()
+  }
+
   const renderOverflowMenuItem = (actionId: ChatInputOverflowActionId) => {
     switch (actionId) {
       case "attach-files":
@@ -915,9 +1687,9 @@ export default function ChatInput({
     }
   }
 
-  // Add-style actions (working dir / attach / slash) always live here once the
-  // toolbar is compact. Knowledge + Plan only join the menu at the narrower
-  // `toolbarTight` tier — above it they stay inline.
+  // Add-style actions (working dir / attach / slash) live here once the toolbar
+  // is compact. Knowledge + Goal + Loop + Workflow + Plan join at the narrower
+  // `toolbarTight` tier so semantic mode controls move as one group.
   const renderOverflowMenuItems = () => (
     <>
       {getChatInputOverflowActionIds().map((actionId) => (
@@ -933,6 +1705,45 @@ export default function ChatInput({
             draftAttachments={draftKbAttachments}
             onDraftAttachChange={onDraftKbAttachChange}
           />
+          <button
+            type="button"
+            aria-label={goalToggleTip}
+            className={cn(overflowMenuItemClass, goalComposerMode && "text-emerald-600")}
+            disabled={incognitoEnabled}
+            onClick={() => {
+              setShowOverflowMenu(false)
+              handleGoalModeToggle()
+            }}
+          >
+            <Target className="h-4 w-4 shrink-0" />
+            <span className="truncate">{goalToggleLabel}</span>
+          </button>
+          {loopModeAvailable && (
+            <button
+              type="button"
+              className={cn(overflowMenuItemClass, loopComposerMode && "text-sky-600")}
+              disabled={incognitoEnabled}
+              onClick={() => {
+                setShowOverflowMenu(false)
+                handleLoopCreateOpen()
+              }}
+            >
+              <Radio className="h-4 w-4 shrink-0 text-muted-foreground" />
+              <span className="truncate">{loopToggleLabel}</span>
+            </button>
+          )}
+          <div className="rounded-md border border-border/50 bg-background/35 p-1">
+            <div className="flex items-center gap-2 px-2 py-1 text-[11px] font-medium text-muted-foreground">
+              {workflowModeSaving ? (
+                <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
+              ) : (
+                <WorkflowModeIcon className="h-3.5 w-3.5 shrink-0" />
+              )}
+              <span className="truncate">{workflowToggleLabel}</span>
+              <span className="ml-auto truncate">{workflowModeLabel(t, workflowMode)}</span>
+            </div>
+            {renderWorkflowModeMenuItems(() => setShowOverflowMenu(false))}
+          </div>
           <button
             type="button"
             aria-label={planToggleTip}
@@ -1234,10 +2045,453 @@ export default function ChatInput({
           </div>
         </AnimatedCollapse>
 
-        {/* Plan Mode Banner */}
-        <AnimatedCollapse open={planState === "planning"}>
+        {/* Natural workflow trigger hint — suggests mode only, never creates a run itself. */}
+        <AnimatedCollapse open={showWorkflowTriggerHint}>
+          {workflowTriggerHint ? (
+            <div
+              className={cn(
+                "border-b px-3 py-2 text-xs",
+                workflowTriggerHint.mode === "ultracode"
+                  ? "border-purple-500/15 bg-purple-500/7 text-purple-700 dark:text-purple-300"
+                  : "border-blue-500/15 bg-blue-500/7 text-blue-700 dark:text-blue-300",
+                workflowTriggerHintIsFirstContent && "rounded-t-2xl",
+              )}
+            >
+              <div className="flex min-w-0 items-center gap-2">
+                {workflowTriggerHint.mode === "ultracode" ? (
+                  <Sparkles className="h-3.5 w-3.5 shrink-0" />
+                ) : (
+                  <GitPullRequest className="h-3.5 w-3.5 shrink-0" />
+                )}
+                <div className="min-w-0 flex-1">
+                  <div className="truncate font-medium">
+                    {t("chat.workflowTriggerHint.title", "这条消息看起来适合工作流")}
+                  </div>
+                  <div className="truncate text-foreground/65">
+                    {workflowTriggerHint.mode === "ultracode"
+                      ? t(
+                          "chat.workflowTriggerHint.ultracodeDescription",
+                          "开启后模型会更偏向深度编排、交叉验证和长任务恢复。",
+                        )
+                      : t(
+                          "chat.workflowTriggerHint.description",
+                          "开启后模型可自行判断是否创建可观察、可恢复的后台工作流。",
+                        )}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="shrink-0 rounded-md border border-current/15 bg-background/45 px-2 py-1 text-[11px] font-medium transition-colors hover:bg-background/70 disabled:cursor-not-allowed disabled:opacity-60"
+                  disabled={workflowMenuDisabled}
+                  onClick={() => {
+                    void updateWorkflowMode(workflowTriggerHint.mode).then(() => {
+                      setDismissedWorkflowHintFor(normalizedWorkflowTriggerInput)
+                    })
+                  }}
+                >
+                  {workflowTriggerHint.mode === "ultracode"
+                    ? t("chat.workflowTriggerHint.enableUltracode", "开启 Ultracode")
+                    : t("chat.workflowTriggerHint.enable", "开启自动")}
+                </button>
+                <IconTip label={t("chat.workflowTriggerHint.dismiss", "忽略")}>
+                  <button
+                    type="button"
+                    aria-label={t("chat.workflowTriggerHint.dismiss", "忽略")}
+                    className="shrink-0 rounded-md p-1 transition-colors hover:bg-background/60"
+                    onClick={() => setDismissedWorkflowHintFor(normalizedWorkflowTriggerInput)}
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </IconTip>
+              </div>
+            </div>
+          ) : null}
+        </AnimatedCollapse>
+
+        {/* Active Goal status — always visible near the composer while a durable goal is open. */}
+        <AnimatedCollapse open={activeGoalStatusOpen}>
+          {activeGoal ? (
+            <div
+              className={cn(
+                "border-b border-emerald-500/15 bg-emerald-500/7 px-3 py-2 text-xs text-emerald-700 dark:text-emerald-300",
+                activeGoalStripIsFirstContent && "rounded-t-2xl",
+              )}
+            >
+              <div className="flex min-w-0 items-center gap-2">
+                <Target className="h-3.5 w-3.5 shrink-0" />
+                <button
+                  type="button"
+                  className="min-w-0 flex-1 truncate text-left font-medium"
+                  onClick={onOpenWorkspace}
+                >
+                  {t("chat.goalMode.activeGoal", "进行中的目标")}{" "}
+                  <span className="font-normal text-foreground/75">
+                    {activeGoal.objective.replace(/\s+/g, " ")}
+                  </span>
+                </button>
+                {goalLoading ? (
+                  <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground" />
+                ) : null}
+                <span
+                  className={cn(
+                    "shrink-0 rounded-full border bg-background/45 px-2 py-0.5 text-[11px]",
+                    autonomyActivity?.needsUser
+                      ? "border-amber-500/30 text-amber-700 dark:text-amber-300"
+                      : autonomyActivity?.state === "blocked"
+                        ? "border-destructive/30 text-destructive"
+                        : "border-emerald-500/20",
+                  )}
+                  title={activityDetail || undefined}
+                >
+                  {activityHeadlineLabel}
+                </span>
+                {activeGoalProgressLabel ? (
+                  <span className="shrink-0 rounded-full border border-emerald-500/20 bg-background/45 px-2 py-0.5 text-[11px]">
+                    {activeGoalProgressLabel}
+                  </span>
+                ) : null}
+                <IconTip label={t("chat.goalMode.edit", "编辑目标")}>
+                  <button
+                    type="button"
+                    className="rounded-md p-1 text-emerald-700/75 transition-colors hover:bg-background/60 hover:text-emerald-800 dark:text-emerald-300/75 dark:hover:text-emerald-200"
+                    onClick={() => setGoalEditOpen((value) => !value)}
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                  </button>
+                </IconTip>
+                <IconTip label={t("chat.goalMode.evaluate", "评估目标")}>
+                  <button
+                    type="button"
+                    className="rounded-md p-1 text-emerald-700/75 transition-colors hover:bg-background/60 hover:text-emerald-800 disabled:opacity-50 dark:text-emerald-300/75 dark:hover:text-emerald-200"
+                    disabled={!!goalActionPending || activeGoal.state === "evaluating"}
+                    onClick={() => runGoalAction("evaluate", onEvaluateGoal)}
+                  >
+                    {goalActionPending === "evaluate" ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <CheckCircle2 className="h-3.5 w-3.5" />
+                    )}
+                  </button>
+                </IconTip>
+                {activeGoal.state === "paused" || activeGoal.state === "blocked" ? (
+                  <IconTip label={t("chat.goalMode.resume", "恢复目标")}>
+                    <button
+                      type="button"
+                      className="rounded-md p-1 text-emerald-700/75 transition-colors hover:bg-background/60 hover:text-emerald-800 disabled:opacity-50 dark:text-emerald-300/75 dark:hover:text-emerald-200"
+                      disabled={!!goalActionPending}
+                      onClick={() => runGoalAction("resume", onResumeGoal)}
+                    >
+                      {goalActionPending === "resume" ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <PlayCircle className="h-3.5 w-3.5" />
+                      )}
+                    </button>
+                  </IconTip>
+                ) : (
+                  <IconTip label={t("chat.goalMode.pause", "暂停目标")}>
+                    <button
+                      type="button"
+                      className="rounded-md p-1 text-emerald-700/75 transition-colors hover:bg-background/60 hover:text-emerald-800 disabled:opacity-50 dark:text-emerald-300/75 dark:hover:text-emerald-200"
+                      disabled={!!goalActionPending || activeGoal.state === "evaluating"}
+                      onClick={() => runGoalAction("pause", onPauseGoal)}
+                    >
+                      {goalActionPending === "pause" ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <PauseCircle className="h-3.5 w-3.5" />
+                      )}
+                    </button>
+                  </IconTip>
+                )}
+                <IconTip label={t("chat.goalMode.clear", "清除目标")}>
+                  <button
+                    type="button"
+                    className="rounded-md p-1 text-emerald-700/70 transition-colors hover:bg-destructive/10 hover:text-destructive disabled:opacity-50 dark:text-emerald-300/70"
+                    disabled={!!goalActionPending}
+                    onClick={() => runGoalAction("clear", onClearGoal)}
+                  >
+                    {goalActionPending === "clear" ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Trash2 className="h-3.5 w-3.5" />
+                    )}
+                  </button>
+                </IconTip>
+              </div>
+
+              <AnimatedCollapse open={goalEditOpen}>
+                <div className="mt-2 space-y-2 rounded-lg border border-emerald-500/20 bg-background/65 p-2 text-foreground">
+                  <input
+                    value={goalEditObjective}
+                    onChange={(event) => setGoalEditObjective(event.target.value)}
+                    className="h-8 w-full rounded-md border border-border/60 bg-background px-2 text-xs outline-none focus:border-emerald-500/50"
+                    placeholder={t("chat.goalMode.objectivePlaceholder", "目标")}
+                  />
+                  <textarea
+                    value={goalEditCriteria}
+                    onChange={(event) => setGoalEditCriteria(event.target.value)}
+                    className="min-h-16 w-full resize-y rounded-md border border-border/60 bg-background px-2 py-1.5 text-xs outline-none focus:border-emerald-500/50"
+                    placeholder={t(
+                      "chat.goalMode.criteriaPlaceholder",
+                      "完成标准；可用 [required] / [optional] / [follow-up]",
+                    )}
+                  />
+                  <GoalCriteriaDraftPreview criteriaText={goalEditCriteria} />
+                  <div className="flex justify-end gap-1.5">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      className="h-7 px-2 text-xs"
+                      onClick={() => {
+                        setGoalEditOpen(false)
+                        setGoalEditObjective(activeGoal.objective)
+                        setGoalEditCriteria(activeGoal.completionCriteria)
+                      }}
+                    >
+                      {t("common.cancel", "取消")}
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      className="h-7 px-2 text-xs"
+                      disabled={goalActionPending === "update" || !goalEditObjective.trim()}
+                      onClick={saveGoalEdit}
+                    >
+                      {goalActionPending === "update" ? (
+                        <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                      ) : null}
+                      {t("common.save", "保存")}
+                    </Button>
+                  </div>
+                </div>
+              </AnimatedCollapse>
+            </div>
+          ) : null}
+        </AnimatedCollapse>
+
+        {/* Workflow progress line — compact run status without opening the expert workspace. */}
+        <AnimatedCollapse open={effectiveShowWorkflowProgressLine}>
+          {workflowProgressRun ? (
+            <div
+              className={cn(
+                "border-b px-3 py-1.5 text-xs",
+                workflowRunToneClass(workflowProgressRun.state),
+                workflowProgressLineIsFirstContent && "rounded-t-2xl",
+              )}
+            >
+              <div className="flex min-w-0 items-center gap-2">
+                <GitPullRequest className="h-3.5 w-3.5 shrink-0" />
+                <button
+                  type="button"
+                  className="min-w-0 flex-1 truncate text-left font-medium"
+                  onClick={onOpenWorkspace}
+                >
+                  {t("chat.workflowProgress.title", "工作流运行")}{" "}
+                  <span className="font-normal text-foreground/75">
+                    {workflowProgressRun.kind || t("chat.workflowProgress.defaultKind", "通用任务")}
+                  </span>
+                </button>
+                <span className="shrink-0 rounded-full border border-current/15 bg-background/45 px-2 py-0.5 text-[11px]">
+                  {workflowRunStateLabel(t, workflowProgressRun.state)}
+                </span>
+                {workflowProgressRun.cursorSeq > 0 ? (
+                  <span className="hidden shrink-0 rounded-full border border-current/15 bg-background/45 px-2 py-0.5 text-[11px] sm:inline-flex">
+                    {t("chat.workflowProgress.steps", "{{count}} 步", {
+                      count: workflowProgressRun.cursorSeq,
+                    })}
+                  </span>
+                ) : null}
+                {workflowProgressExtraCount > 0 ? (
+                  <span className="hidden shrink-0 rounded-full border border-current/15 bg-background/45 px-2 py-0.5 text-[11px] sm:inline-flex">
+                    {t("chat.workflowProgress.more", "+{{count}} 个", {
+                      count: workflowProgressExtraCount,
+                    })}
+                  </span>
+                ) : null}
+                {onOpenWorkspace ? (
+                  <button
+                    type="button"
+                    className="shrink-0 rounded-md px-2 py-1 text-[11px] font-medium transition-colors hover:bg-background/60"
+                    onClick={onOpenWorkspace}
+                  >
+                    {t("chat.workflowProgress.view", "查看")}
+                  </button>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
+        </AnimatedCollapse>
+
+        {/* Unified activity fallback for Loop/background states without an active Goal or Workflow. */}
+        <AnimatedCollapse open={standaloneActivityStatusOpen}>
+          {autonomyActivity ? (
+            <div
+              className={cn(
+                "border-b px-3 py-1.5 text-xs",
+                autonomyActivity.needsUser
+                  ? "border-amber-500/20 bg-amber-500/8 text-amber-700 dark:text-amber-300"
+                  : autonomyActivity.state === "blocked"
+                    ? "border-destructive/20 bg-destructive/7 text-destructive"
+                    : "border-sky-500/20 bg-sky-500/8 text-sky-700 dark:text-sky-300",
+                standaloneActivityStripIsFirstContent && "rounded-t-2xl",
+              )}
+            >
+              <div className="flex min-w-0 items-center gap-2">
+                <Radio className="h-3.5 w-3.5 shrink-0" />
+                <button
+                  type="button"
+                  className="min-w-0 flex-1 truncate text-left font-medium"
+                  onClick={onOpenWorkspace}
+                  title={activityDetail || undefined}
+                >
+                  {activityHeadlineLabel}
+                  {autonomyActivity.currentStep ? (
+                    <span className="font-normal text-foreground/70">
+                      {" "}
+                      {autonomyActivity.currentStep}
+                    </span>
+                  ) : null}
+                </button>
+                {autonomyActivity.needsUser ? (
+                  <span className="shrink-0 rounded-full border border-current/15 bg-background/45 px-2 py-0.5 text-[11px]">
+                    {t("chat.activity.needsUser", "需要你处理")}
+                  </span>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
+        </AnimatedCollapse>
+
+        {/* Workflow Mode status — visible only when autonomous orchestration is enabled. */}
+        <AnimatedCollapse open={workflowModeStatusOpen}>
           <div
-            className={`flex items-center gap-2 px-3 py-1.5 bg-blue-500/10 border-b border-blue-500/20 text-blue-600 dark:text-blue-400 text-xs animate-in fade-in slide-in-from-top-1 duration-200${!hasVisibleTaskProgress && attachedFiles.length === 0 && !hasPendingQueue ? " rounded-t-2xl" : ""}`}
+            className={cn(
+              "border-b border-blue-500/15 bg-blue-500/7 px-3 py-1.5 text-xs text-blue-700 dark:text-blue-300",
+              workflowModeStatusIsFirstContent && "rounded-t-2xl",
+            )}
+          >
+            <div className="flex min-w-0 items-center gap-2">
+              <WorkflowModeIcon className="h-3.5 w-3.5 shrink-0" />
+              <button
+                type="button"
+                className="min-w-0 flex-1 truncate text-left font-medium"
+                onClick={onOpenWorkspace}
+              >
+                {t("chat.workflowMode.active", "工作流模式")}{" "}
+                <span className="font-normal text-foreground/75">
+                  {workflowMode === "ultracode"
+                    ? t("chat.workflowMode.activeUltracodeDetail", "模型会优先使用完整动态编排")
+                    : t("chat.workflowMode.activeOnDetail", "模型可按需创建可观察的工作流运行")}
+                </span>
+              </button>
+              <span className="shrink-0 rounded-full border border-blue-500/20 bg-background/45 px-2 py-0.5 text-[11px]">
+                {workflowModeLabel(t, workflowMode)}
+              </span>
+              <IconTip label={t("chat.workflowMode.turnOff", "关闭工作流模式")}>
+                <button
+                  type="button"
+                  className="rounded-md p-1 text-blue-700/75 transition-colors hover:bg-background/60 hover:text-blue-800 disabled:opacity-50 dark:text-blue-300/75 dark:hover:text-blue-200"
+                  disabled={!!workflowModeSaving}
+                  onClick={() => void updateWorkflowMode("off")}
+                >
+                  {workflowModeSaving === "off" ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <X className="h-3.5 w-3.5" />
+                  )}
+                </button>
+              </IconTip>
+            </div>
+          </div>
+        </AnimatedCollapse>
+
+        {/* Goal Mode Banner */}
+        <AnimatedCollapse open={goalComposerMode}>
+          <div
+            className={cn(
+              "space-y-1.5 border-b border-emerald-500/20 bg-emerald-500/10 px-3 py-1.5 text-xs text-emerald-700 animate-in fade-in slide-in-from-top-1 duration-200 dark:text-emerald-300",
+              modeBannerIsFirstContent && "rounded-t-2xl",
+            )}
+          >
+            <div className="flex items-center gap-2">
+              <Target className="h-3.5 w-3.5 shrink-0" />
+              <span className="min-w-0 flex-1 truncate">
+                {activeGoal
+                  ? t("chat.goalMode.activeRestricted", "目标模式：选择如何更新当前目标")
+                  : t("chat.goalMode.restricted", "目标模式：发送后会创建当前会话的持续目标")}
+              </span>
+              <button
+                type="button"
+                onClick={() => setGoalComposerMode(false)}
+                className="transition-colors hover:text-emerald-900 dark:hover:text-emerald-100"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+            {activeGoal ? (
+              <div className="grid grid-cols-2 gap-1 sm:grid-cols-5">
+                {(
+                  [
+                    [
+                      "create_or_update",
+                      t("chat.goalMode.actionUpdate", "更新目标"),
+                    ],
+                    ["replace", t("chat.goalMode.actionReplace", "替代目标")],
+                    ["append_required", t("chat.goalMode.actionRequired", "追加必须")],
+                    ["append_optional", t("chat.goalMode.actionOptional", "追加可选")],
+                    ["append_follow_up", t("chat.goalMode.actionFollowUp", "追加后续")],
+                  ] as const
+                ).map(([action, label]) => (
+                  <button
+                    key={action}
+                    type="button"
+                    className={cn(
+                      "h-7 min-w-0 rounded-md border px-2 text-[11px] transition-colors",
+                      goalComposerAction === action
+                        ? "border-emerald-500/45 bg-background text-emerald-800 dark:text-emerald-100"
+                        : "border-emerald-500/15 bg-background/35 text-emerald-700/75 hover:bg-background/70 dark:text-emerald-300/75",
+                    )}
+                    onClick={() => setGoalComposerAction(action)}
+                  >
+                    <span className="block truncate">{label}</span>
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        </AnimatedCollapse>
+
+        {/* Loop Mode Banner */}
+        <AnimatedCollapse open={loopComposerMode}>
+          <div
+            className={cn(
+              "flex items-center gap-2 border-b border-sky-500/20 bg-sky-500/10 px-3 py-1.5 text-xs text-sky-700 animate-in fade-in slide-in-from-top-1 duration-200 dark:text-sky-300",
+              modeBannerIsFirstContent && "rounded-t-2xl",
+            )}
+          >
+            <Radio className="h-3.5 w-3.5 shrink-0" />
+            <span className="min-w-0 flex-1 truncate">
+              {t("chat.loopMode.restricted", "持续推进模式：发送后会创建可重复触发的推进任务")}
+            </span>
+            <button
+              type="button"
+              onClick={() => setLoopComposerMode(false)}
+              className="transition-colors hover:text-sky-900 dark:hover:text-sky-100"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        </AnimatedCollapse>
+
+        {/* Plan Mode Banner */}
+        <AnimatedCollapse open={planComposerBannerOpen}>
+          <div
+            className={cn(
+              "flex items-center gap-2 border-b border-blue-500/20 bg-blue-500/10 px-3 py-1.5 text-xs text-blue-600 animate-in fade-in slide-in-from-top-1 duration-200 dark:text-blue-400",
+              modeBannerIsFirstContent && "rounded-t-2xl",
+            )}
           >
             <ClipboardList className="h-3.5 w-3.5 shrink-0" />
             <span className="flex-1">{t("planMode.restricted")}</span>
@@ -1256,11 +2510,15 @@ export default function ChatInput({
           <MentionComposerInput
             ref={inputHandleRef}
             placeholder={
-              planState === "planning"
-                ? t("planMode.placeholder")
-                : hasPendingQueue
-                  ? t("chat.pendingQueued")
-                  : t("chat.askAnything")
+              goalComposerMode
+                ? t("chat.goalMode.placeholder", "描述你希望持续推进并最终完成的目标")
+                : loopComposerMode
+                  ? t("chat.loopMode.placeholder", "描述你希望持续推进的任务")
+                : planState === "planning"
+                  ? t("planMode.placeholder")
+                  : hasPendingQueue
+                    ? t("chat.pendingQueued")
+                    : t("chat.askAnything")
             }
             value={input}
             onChange={setComposerInput}
@@ -1328,16 +2586,25 @@ export default function ChatInput({
             <div
               ref={toolbarRef}
               // Always two columns so Send/Stop stays pinned in its own column
-              // on a single row — the left group wraps internally but never
-              // pushes the send controls onto a line of their own.
+              // on a single row. The left group never wraps; overflow is a
+              // measurement signal that pushes controls into the "+" menu.
               className="grid grid-cols-[minmax(0,1fr)_auto] items-end gap-2 px-2 pb-2"
             >
-              <div className="flex min-w-0 flex-wrap items-center gap-1">
-                <div className={toolbarCompact ? "hidden" : CHAT_INPUT_INLINE_ADD_ACTIONS_CLASS}>
+              <div
+                ref={toolbarLeftRef}
+                className="flex min-w-0 flex-nowrap items-center gap-1 overflow-visible"
+              >
+                <div
+                  ref={addActionsRef}
+                  className={toolbarCompact ? "hidden" : CHAT_INPUT_INLINE_ADD_ACTIONS_CLASS}
+                >
                   {renderInlineAddControls()}
                 </div>
 
-                <div className={toolbarCompact ? "block" : CHAT_INPUT_OVERFLOW_MENU_CLASS}>
+                <div
+                  ref={overflowTriggerRef}
+                  className={toolbarCompact ? "block shrink-0" : CHAT_INPUT_OVERFLOW_MENU_CLASS}
+                >
                   <DropdownMenu.Root open={showOverflowMenu} onOpenChange={setShowOverflowMenu}>
                     <Tooltip>
                       <TooltipTrigger asChild>
@@ -1383,54 +2650,130 @@ export default function ChatInput({
 
                 <AwarenessToggle sessionId={currentSessionId ?? null} disabled={incognitoEnabled} />
 
-                {/* Knowledge Space attach + Plan toggle — primary actions, kept
-                    inline down to the narrow `toolbarTight` tier (then they join
-                    the "+" overflow menu, see renderOverflowMenuItems). */}
+                {/* Knowledge + Goal + Loop + Workflow + Plan — semantic mode controls,
+                    kept inline until the measured toolbar would wrap. */}
                 {!toolbarTight && (
-                  <KnowledgePicker
-                    sessionId={currentSessionId ?? null}
-                    projectId={projectId ?? null}
-                    disabled={incognitoEnabled}
-                    draftAttachments={draftKbAttachments}
-                    onDraftAttachChange={onDraftKbAttachChange}
-                  />
-                )}
+                  <div ref={semanticModesRef} className="flex shrink-0 items-center gap-1">
+                    <KnowledgePicker
+                      sessionId={currentSessionId ?? null}
+                      projectId={projectId ?? null}
+                      disabled={incognitoEnabled}
+                      draftAttachments={draftKbAttachments}
+                      onDraftAttachChange={onDraftKbAttachChange}
+                    />
 
-                {!toolbarTight && (
-                  <IconTip label={planToggleTip}>
-                    <button
-                      aria-label={planToggleTip}
-                      onClick={handlePlanToggle}
-                      className={cn(
-                        "flex items-center gap-1 bg-transparent text-xs font-medium px-2 py-1 rounded-lg cursor-pointer transition-colors hover:bg-secondary shrink-0 whitespace-nowrap",
-                        planState === "planning"
-                          ? "text-blue-600 bg-blue-500/10"
-                          : planState === "review"
-                            ? "text-purple-600 bg-purple-500/10"
-                            : planState === "executing"
-                              ? "text-green-600 bg-green-500/10"
+                    <IconTip label={goalToggleTip}>
+                      <button
+                        aria-label={goalToggleTip}
+                        onClick={handleGoalModeToggle}
+                        disabled={incognitoEnabled}
+                        className={cn(
+                          "flex items-center gap-1 bg-transparent text-xs font-medium px-2 py-1 rounded-lg cursor-pointer transition-colors hover:bg-secondary shrink-0 whitespace-nowrap disabled:cursor-not-allowed disabled:opacity-50",
+                          goalComposerMode
+                            ? "text-emerald-600 bg-emerald-500/10"
+                            : activeGoal
+                              ? "text-emerald-600/90 hover:text-emerald-700"
                               : "text-muted-foreground hover:text-foreground",
-                      )}
-                    >
-                      <ClipboardList className="h-4 w-4 shrink-0" />
-                      <span>{planToggleLabel}</span>
-                    </button>
-                  </IconTip>
+                        )}
+                      >
+                        <Target className="h-4 w-4 shrink-0" />
+                        <span>{goalToggleLabel}</span>
+                      </button>
+                    </IconTip>
+
+                    {loopModeAvailable && (
+                      <IconTip label={loopToggleTip}>
+                        <button
+                          type="button"
+                          aria-label={loopToggleTip}
+                          onClick={handleLoopCreateOpen}
+                          disabled={incognitoEnabled}
+                          className={cn(
+                            "flex shrink-0 cursor-pointer items-center gap-1 whitespace-nowrap rounded-lg bg-transparent px-2 py-1 text-xs font-medium transition-colors hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-50",
+                            loopComposerMode
+                              ? "bg-sky-500/10 text-sky-600"
+                              : "text-muted-foreground hover:text-foreground",
+                          )}
+                        >
+                          <Radio className="h-4 w-4 shrink-0" />
+                          <span>{loopToggleLabel}</span>
+                        </button>
+                      </IconTip>
+                    )}
+
+                    <DropdownMenu.Root open={workflowMenuOpen} onOpenChange={setWorkflowMenuOpen}>
+                      <IconTip label={workflowMenuLabel}>
+                        <DropdownMenu.Trigger asChild>
+                          <button
+                            type="button"
+                            aria-label={workflowMenuLabel}
+                            disabled={workflowMenuDisabled}
+                            className={cn(
+                              "flex items-center gap-1 bg-transparent text-xs font-medium px-2 py-1 rounded-lg cursor-pointer transition-colors hover:bg-secondary shrink-0 whitespace-nowrap disabled:cursor-not-allowed disabled:opacity-50 data-[state=open]:bg-secondary",
+                              workflowButtonTone,
+                            )}
+                          >
+                            {workflowModeSaving ? (
+                              <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
+                            ) : (
+                              <WorkflowModeIcon className="h-4 w-4 shrink-0" />
+                            )}
+                            <span>{workflowButtonLabel}</span>
+                            <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-70" />
+                          </button>
+                        </DropdownMenu.Trigger>
+                      </IconTip>
+                      <DropdownMenu.Portal>
+                        <DropdownMenu.Content
+                          className="z-50 min-w-[280px] overflow-hidden rounded-floating border border-border-soft bg-surface-floating/95 p-1.5 text-popover-foreground shadow-floating backdrop-blur-xl animate-in fade-in-0 zoom-in-95 slide-in-from-bottom-1 duration-150"
+                          side="top"
+                          align="start"
+                          sideOffset={8}
+                        >
+                          {renderWorkflowModeMenuItems(() => setWorkflowMenuOpen(false))}
+                        </DropdownMenu.Content>
+                      </DropdownMenu.Portal>
+                    </DropdownMenu.Root>
+
+                    <IconTip label={planToggleTip}>
+                      <button
+                        aria-label={planToggleTip}
+                        onClick={handlePlanToggle}
+                        className={cn(
+                          "flex items-center gap-1 bg-transparent text-xs font-medium px-2 py-1 rounded-lg cursor-pointer transition-colors hover:bg-secondary shrink-0 whitespace-nowrap",
+                          planState === "planning"
+                            ? "text-blue-600 bg-blue-500/10"
+                            : planState === "review"
+                              ? "text-purple-600 bg-purple-500/10"
+                              : planState === "executing"
+                                ? "text-green-600 bg-green-500/10"
+                                : "text-muted-foreground hover:text-foreground",
+                        )}
+                      >
+                        <ClipboardList className="h-4 w-4 shrink-0" />
+                        <span>{planToggleLabel}</span>
+                      </button>
+                    </IconTip>
+                  </div>
                 )}
 
                 {/* Tool Permission Mode — collapses into the "+" menu last, at
                     the narrowest tier (kept inline longer than Sandbox). */}
                 {!permissionCollapsed && (
-                  <PermissionModeSwitcher
-                    permissionMode={permissionMode}
-                    onPermissionModeChange={handlePermissionModeChange}
-                  />
+                  <div ref={permissionModeRef} className="shrink-0">
+                    <PermissionModeSwitcher
+                      permissionMode={permissionMode}
+                      onPermissionModeChange={handlePermissionModeChange}
+                    />
+                  </div>
                 )}
                 {!sandboxCollapsed && (
-                  <SandboxModeSwitcher
-                    sandboxMode={sandboxMode}
-                    onSandboxModeChange={onSandboxModeChange}
-                  />
+                  <div ref={sandboxModeRef} className="shrink-0">
+                    <SandboxModeSwitcher
+                      sandboxMode={sandboxMode}
+                      onSandboxModeChange={onSandboxModeChange}
+                    />
+                  </div>
                 )}
               </div>
 
@@ -1482,14 +2825,18 @@ export default function ChatInput({
                     size="icon"
                     className="h-8 w-8 rounded-full shrink-0"
                     onClick={handleSend}
-                    disabled={sendUnavailable}
+                    disabled={sendUnavailable || goalSubmitting || loopSubmitting}
                     aria-label={
                       loading && hasSendableContent && !sendDisabled
                         ? t("chat.queueMessage")
                         : t("chat.send")
                     }
                   >
-                    <Send className="h-4 w-4" />
+                    {goalSubmitting || loopSubmitting ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Send className="h-4 w-4" />
+                    )}
                   </Button>
                 </IconTip>
               </div>

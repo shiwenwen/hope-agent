@@ -1653,11 +1653,14 @@ sequenceDiagram
 | `ha-self-diagnosis` | meta | 全局可见 | Hope Agent 自我理解与问题上报：解释内部运作、诊断日志、创建 / 提交 GitHub issue |
 | `ha-self-update` | meta | `always: false` | 通过对话检查并安装 Hope Agent 更新；覆盖桌面 bundle / server 包管理 / headless 单 binary 三形态，始终经 `ask_user_question` 用户确认 |
 | `feishu` | 办公集成 | `paths:` 飞书 / feishu / lark 文件触发；`allowed-tools:` 白名单 `feishu_*` + `read` / `web_search` | 飞书 / Lark workspace 操作：云文档 / 多维表格 / 云盘 / 知识库 / 审批 / 日历 / 联系人 / 招聘 |
-| `systematic-debugging` | 编程方法论 | `paths:` 代码文件触发 | Debug / test failure / 异常行为的 4 阶段根因调查流程 |
-| `test-driven-development` | 编程方法论 | `paths:` 代码文件触发 | Feature / bugfix 的 RED-GREEN-REFACTOR test-first 流程 |
-| `writing-plans` | 编程方法论 | `paths:` 代码文件触发 | 多步骤实现计划，要求拆成小任务、明确文件路径和验证方式 |
-| `subagent-driven-development` | 编程方法论 | `paths:` 代码文件触发 | 把独立实现任务拆给子 Agent，并做 spec compliance / code quality 两段 review |
-| `code-review` | 编程方法论 | `paths:` 代码文件触发 | 提交前质量门、静态安全扫描、独立 reviewer subagent、auto-fix loop |
+| `ha-coding-common` | 原生编程方法论 | `paths:` 代码文件触发；Coding Profile 可按名推荐 | 仓库优先、保护用户改动、任务分级、范围控制和交付基线 |
+| `ha-coding-plan` | 原生编程方法论 | `paths:` 代码文件触发；复杂 Feature 推荐 | 基于现有代码设计依赖、关键文件、风险、验证和完成信号；普通执行模式计划后继续推进 |
+| `ha-debug` | 原生编程方法论 | `paths:` 代码文件触发；Debug 推荐 | 复现或刻画故障、可证伪假设、最小根因修复和回归证据 |
+| `ha-test-strategy` | 原生编程方法论 | `paths:` 代码文件触发；Debug / 小 Feature 推荐 | 按风险选择 test-first、regression-first、characterization、集成、E2E 或人工证据 |
+| `ha-code-review` | 原生编程方法论 | `paths:` 代码文件触发；Review 推荐 | findings-first；候选发现与独立验证分离，高风险时才启用独立 reviewer |
+| `ha-multi-agent-coding` | 原生编程方法论 | `paths:` 代码文件触发；Workflow 推荐 | 有界 fan-out、隔离、结构化阶段结果、主动查询、steer/cancel 和主 Agent 综合 |
+| `ha-verify` | 原生编程方法论 | `paths:` 代码文件触发；所有完成审计按需使用 | criteria-to-evidence、最小充分检查、证据时效和诚实完成审计 |
+| `ha-workflow-script` | 原生编程方法论 | `paths:` 代码文件触发；Workflow Script 推荐 | V4 durable Workflow：typed result、parallel/pipeline、预算、replay、阶段消费和 closure gate |
 | `meeting-notes` | 办公方法论 | 全局可见 | 会议记录 / standup / 1:1 纪要模板：议程、决策、行动项、开放问题 |
 | `email-draft` | 办公方法论 | 全局可见 | 邮件起草、润色、翻译和回复，输出 subject / greeting / body / sign-off |
 | `status-report` | 办公方法论 | 全局可见 | 周报 / 月报 / 项目进展，覆盖 shipped / in-flight / blocked / metrics |
@@ -1665,6 +1668,66 @@ sequenceDiagram
 | `office-docx` | Office 文件 | `requires.bins: [python3]` | 创建 / 编辑 / 检查 Word `.docx` 与 Google Docs-targeted 文档；覆盖真实列表、批注、修订、图片 alt、TOC、脚注、水印、保护、内容控件、内部链接、表格导出、合并、对比、脱敏、PDF/PNG 预览 |
 | `office-xlsx` | Office 文件 | `requires.bins: [python3]` | 创建 / 编辑 / 检查 Excel `.xlsx` 与 Google Sheets-targeted 工作簿；覆盖公式、样式、真实表格、数据验证、条件格式、图表、CSV/TSV 转换、公式审计与缓存、LibreOffice 重算、PDF/PNG 预览 |
 | `office-pptx` | Office 文件 | `requires.bins: [python3]` | 创建 / 编辑 / 检查 PowerPoint `.pptx` 与 Google Slides-targeted deck；覆盖标题/章节/图文/指标/表格/时间线/图片、native chart、文本 patch、追加、复制/重排 slide、布局审计、contact sheet、PDF/PNG 预览 |
+
+### Hope-native Coding Skill 契约
+
+内置 coding 方法论全部由 Hope 原生维护，并以当前已实现的 Agent
+Control、工具、权限、后台任务和 worktree 语义为事实基础。历史上随应用
+发行的 5 个 Hermes / obra 移植 skill 已删除；当前发行物不提供旧名 alias、
+deprecated stub、双轨 catalog 或 feature flag。历史 `CHANGELOG.md` 记录保留，
+因为它描述的是过去发行事实，不参与当前 skill discovery。
+
+#### 方法论不是控制面或权限
+
+- Coding skill 只提供按需方法论，不能开启或关闭 Goal、Plan、Workflow、
+  Loop、执行模式、权限模式或 YOLO。
+- Goal 定义持久结果和完成标准；Plan 描述当前实施路径；Task 展示真实进度；
+  Workflow 执行一次 durable orchestration；Loop 决定何时再次触发；Worktree
+  隔离写入。
+- 权限、protected path、审批、只读工具集、配额、child ownership、replay 和
+  closure gate 全部由 runtime 强制，skill 文本不能放宽。
+- Workflow child 全部终态只代表编排状态；主 Agent 仍须消费、综合、验证并
+  回答用户，不能把“Agent 已完成”当作用户任务完成。
+
+#### Coding Session Profile 路由
+
+`crates/ha-core/src/agent/coding_profile.rs` 对每个用户 turn 做轻量确定性分类，
+输出动态 prompt suffix；它不进入静态 system-prompt prefix。路由只推荐最小
+必要组合，最多 3 个且不重复：
+
+| 场景 | 推荐 skill | 计划策略 |
+|------|------------|----------|
+| Review | `ha-code-review`, `ha-verify` | review-only，不自动修复 |
+| Debug | `ha-debug`, `ha-test-strategy`, `ha-verify` | 证据和回归优先 |
+| 小 Feature | `ha-coding-common`, `ha-test-strategy`, `ha-verify` | 直接实施，不做 plan 仪式 |
+| 复杂 Feature | `ha-coding-common`, `ha-coding-plan`, `ha-verify` | 基于仓库证据计划，非 Plan Mode 时继续执行 |
+| Workflow Script | `ha-workflow-script`, `ha-multi-agent-coding`, `ha-verify` | durable script + 有界编排 |
+| Verify | `ha-verify` | 逐要求核对直接证据 |
+| General coding | `ha-coding-common`, `ha-verify` | 轻量执行 |
+
+“复杂 Feature”由跨模块、迁移、架构、Phase/V2+、端到端、完整实现或长输入
+等保守信号判定。泛化的“工作流、复核、验证、报错”只有同时存在 coding
+上下文时才进入 Coding Profile；业务审批工作流、合同复核、设备排障、旅行
+计划等非 coding 请求不会注入 coding suffix。
+
+#### 条件激活和 Prompt 预算
+
+8 个原生 coding skill 都声明代码扩展名 `paths:`，因此默认不占 skill catalog；
+会话触发 read/write/edit/apply_patch 的匹配文件后进入 catalog。Coding Profile
+可以在首次读文件前按稳定名称推荐它们，`skill` 工具从完整 invocable catalog
+按名加载，不受 prompt 可见性过滤影响。
+
+维护门禁：
+
+- 每个 body 小于 8 KiB，避免把方法论写成第二份 system prompt。
+- 8 个 description 合计不超过 2,400 bytes。
+- 推荐名称必须存在、active、互不重复，单 turn 不超过 3 个。
+- 中英文正例覆盖 Review / Debug / Feature / Verify / Workflow / General；
+  非 coding 负例必须返回 `None`。
+- Skill 服从用户和仓库 `AGENTS.md`；不得硬编码全套测试、固定双审、每任务
+  必起新 Agent或强制 test-first。
+- 原生化没有新增普通用户配置；继续使用既有 `SkillPromptBudget`（默认 150
+  项 / 30,000 字符 / 256 KiB 单文件）和 conditional skill 开关。
 
 ### 内置 Office 技能维护契约
 

@@ -1,7 +1,7 @@
 use serde_json::json;
 
 use super::super::{
-    TOOL_ACP_SPAWN, TOOL_IMAGE_GENERATE, TOOL_SUBAGENT, TOOL_TEAM, TOOL_TOOL_SEARCH,
+    TOOL_ACP_SPAWN, TOOL_IMAGE_GENERATE, TOOL_SUBAGENT, TOOL_TEAM, TOOL_TOOL_SEARCH, TOOL_WORKFLOW,
 };
 use super::types::{CoreSubclass, ToolDefinition, ToolTier};
 
@@ -53,6 +53,15 @@ pub fn get_subagent_tool() -> ToolDefinition {
                     "type": "integer",
                     "description": "For check with wait=true: max seconds to wait (default 60, max 300)"
                 },
+                "partial": {
+                    "type": "boolean",
+                    "description": "For wait_all: whether a timeout may return completed child results as an accepted partial result. Defaults to false."
+                },
+                "result_mode": {
+                    "type": "string",
+                    "enum": ["status", "preview", "summary", "full"],
+                    "description": "For wait_all: how much terminal child output to return. Defaults to preview for the generic subagent tool."
+                },
                 "model": {
                     "type": "string",
                     "description": "Model override: 'provider_id/model_id'"
@@ -67,7 +76,7 @@ pub fn get_subagent_tool() -> ToolDefinition {
                 },
                 "tasks": {
                     "type": "array",
-                    "description": "For batch_spawn: array of task objects [{task, agent_id?, label?, timeout_secs?, model?}]",
+                    "description": "For batch_spawn: array of task objects [{task, agent_id?, label?, timeout_secs?, model?, files?}]. Top-level files are shared by every task; task-level files are private to that child.",
                     "items": {
                         "type": "object",
                         "properties": {
@@ -80,7 +89,21 @@ pub fn get_subagent_tool() -> ToolDefinition {
                                 "maximum": 1800,
                                 "description": "Optional timeout in seconds for this child task. Omit by default to use the parent Agent's configured default. 0 = no timeout. Use a positive value only for an explicitly bounded child task."
                             },
-                            "model": { "type": "string" }
+                            "model": { "type": "string" },
+                            "files": {
+                                "type": "array",
+                                "description": "Attachments only for this child task; merged after top-level shared files.",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "name": { "type": "string" },
+                                        "content": { "type": "string" },
+                                        "mime_type": { "type": "string" },
+                                        "encoding": { "type": "string", "enum": ["utf8", "base64"] }
+                                    },
+                                    "required": ["name", "content"]
+                                }
+                            }
                         },
                         "required": ["task"]
                     }
@@ -92,7 +115,7 @@ pub fn get_subagent_tool() -> ToolDefinition {
                 },
                 "files": {
                     "type": "array",
-                    "description": "For spawn: file attachments to pass to the sub-agent",
+                    "description": "For spawn: attachments for the child. For batch_spawn: shared attachments passed to every child.",
                     "items": {
                         "type": "object",
                         "properties": {
@@ -207,6 +230,136 @@ pub fn get_tool_search_tool() -> ToolDefinition {
                 }
             },
             "required": ["query"],
+            "additionalProperties": false
+        }),
+    }
+}
+
+/// Returns the session-gated Workflow Mode orchestration and control tool definition.
+///
+/// This tool is not part of the static dispatch catalog: `AssistantAgent`
+/// injects it only when the current session has Workflow Mode enabled, and
+/// execution re-checks the persisted session mode.
+pub fn get_workflow_tool() -> ToolDefinition {
+    ToolDefinition {
+        name: TOOL_WORKFLOW.into(),
+        description: "Create, inspect, trace, and control observable durable workflow runs. Use this only when Workflow Mode is enabled. The assistant writes workflow scripts itself when orchestration helps; do not ask the user to provide a script or enter a coding-only mode first. Workflows are not coding-only: use them for substantial research, writing, data, connector, operations, knowledge, or coding tasks where durable, inspectable orchestration improves reliability. Call action=guide immediately before authoring a script to load the current V4 API without keeping a large guide in the system prompt. Use action=create to start, list/status/trace to inspect, control to pause/resume/cancel, and followup to repair or continue. The model must not approve user permissions; approval remains with the user.".into(),
+        tier: ToolTier::Core {
+            subclass: CoreSubclass::Meta,
+        },
+        internal: false,
+        concurrent_safe: false,
+        async_capable: false,
+        parameters: json!({
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": ["guide", "create", "list", "status", "trace", "control", "followup"],
+                    "description": "Workflow control action. guide returns the current on-demand authoring contract; create starts a workflow from a script; list/status/trace inspect visible runs; control pauses/resumes/cancels; followup creates a repair or continuation workflow from an existing run."
+                },
+                "script": {
+                    "type": "string",
+                    "description": "For action=create/followup: complete JavaScript workflow script. For V4 define `export default async function main(workflow, args) { ... }`, use the workflow host APIs from action=guide, and finish via `workflow.finish(...)`."
+                },
+                "kind": {
+                    "type": "string",
+                    "description": "Optional run kind for display and filtering. Use a domain-neutral value such as `general.workflow`, `research.workflow`, `document.workflow`, or `coding.workflow`."
+                },
+                "executionMode": {
+                    "type": "string",
+                    "enum": ["guarded", "deep", "autonomous"],
+                    "description": "Optional execution policy for the run. Omit to inherit the session execution mode, falling back to `guarded` when the session mode is off. `autonomous` requires an explicit budget with max runtime and max output tokens."
+                },
+                "budget": {
+                    "type": "object",
+                    "description": "Optional run budget, for example `{ \"maxScriptSecs\": 900, \"maxOps\": 64, \"maxOutputTokens\": 20000 }`. Required for `executionMode: \"autonomous\"`."
+                },
+                "apiVersion": {
+                    "type": "integer",
+                    "enum": [4],
+                    "description": "Workflow runtime API version. New scripts should use 4."
+                },
+                "meta": {
+                    "type": "object",
+                    "description": "Small immutable literal metadata such as name, description, tags, and authoring intent. Metadata is not executable and grants no permissions."
+                },
+                "args": {
+                    "type": "object",
+                    "description": "Immutable JSON inputs exposed as workflow.args and the second main(workflow, args) argument. Args are included in durable op identity."
+                },
+                "resumeFromRunId": {
+                    "type": "string",
+                    "description": "Optional terminal source run for edited-script resume. Only the longest matching shared_read_only Agent prefix may be reused; the first fingerprint difference closes reuse."
+                },
+                "sizeGuideline": {
+                    "type": "string",
+                    "enum": ["unrestricted", "small", "medium", "large"],
+                    "description": "Advisory workflow scale for action=create/followup. This helps users and future model turns understand intent, but it does not bypass runtime caps, budgets, approval, or safety. Use small for a few bounded steps, medium for normal multi-step orchestration, large for broad fan-out/migrations/verification, and unrestricted only when the user explicitly wants exhaustive/Ultracode-style coverage and budgets still bound execution."
+                },
+                "runImmediately": {
+                    "type": "boolean",
+                    "description": "For action=create/followup: start the run immediately after creation. Defaults to true. When permission preview requires approval, the run will stop in the approval state for the user."
+                },
+                "parentRunId": {
+                    "type": "string",
+                    "description": "For action=create/followup: optional parent workflow run id when creating a repair or follow-up workflow."
+                },
+                "runId": {
+                    "type": "string",
+                    "description": "Workflow run id for action=status/trace/control/followup. Omit for status to inspect the most relevant active or recent run in the current session."
+                },
+                "scope": {
+                    "type": "string",
+                    "enum": ["active", "recent", "session", "goal"],
+                    "description": "For action=list: which visible runs to list. Defaults to active."
+                },
+                "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 200,
+                    "description": "Bounded result limit for action=list/status/trace."
+                },
+                "sinceSeq": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "For action=trace: only return workflow events with seq greater than this value."
+                },
+                "includePayload": {
+                    "type": "boolean",
+                    "description": "For action=trace: include bounded event payloads. Defaults to true; set false for summaries only."
+                },
+                "command": {
+                    "type": "string",
+                    "enum": ["pause", "resume", "cancel"],
+                    "description": "For action=control: run-control command. There is intentionally no approval command; user permissions cannot be approved by the model."
+                },
+                "reason": {
+                    "type": "string",
+                    "description": "Optional concise reason for a control or follow-up action."
+                },
+                "inheritGoal": {
+                    "type": "boolean",
+                    "description": "For action=followup: inherit the parent run's goal and criterion binding unless explicitly overridden. Defaults to true."
+                },
+                "origin": {
+                    "type": "string",
+                    "description": "Optional origin label for traceability, such as `agent:workflow_mode` or `repair:<run_id>`."
+                },
+                "goalId": {
+                    "type": "string",
+                    "description": "Optional goal id. Omit to let the runtime auto-bind the active goal for this session."
+                },
+                "goalCriterionId": {
+                    "type": "string",
+                    "description": "Optional active-goal completion criterion id, such as `criterion-1`, when the workflow is meant to advance a specific required/optional/follow-up criterion. It is validated against the bound goal revision."
+                },
+                "worktreeId": {
+                    "type": "string",
+                    "description": "Optional managed worktree id when the workflow is explicitly tied to an isolated worktree."
+                }
+            },
+            "required": ["action"],
             "additionalProperties": false
         }),
     }
@@ -477,5 +630,47 @@ pub fn get_team_tool() -> ToolDefinition {
             },
             "required": ["action"]
         }),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn workflow_schema_requires_action_and_supports_control() {
+        let def = super::get_workflow_tool();
+        assert_eq!(def.name, crate::tools::TOOL_WORKFLOW);
+        assert!(def
+            .description
+            .contains("The assistant writes workflow scripts itself"));
+        assert!(def.description.contains("research, writing, data"));
+        assert!(def
+            .description
+            .contains("must not approve user permissions"));
+        let properties = def
+            .parameters
+            .get("properties")
+            .and_then(|value| value.as_object())
+            .expect("workflow properties");
+        assert!(properties.contains_key("action"));
+        assert!(properties.contains_key("script"));
+        assert!(properties.contains_key("sizeGuideline"));
+        assert!(properties.contains_key("runId"));
+        assert!(properties.contains_key("command"));
+        assert!(
+            !properties.contains_key("scriptSource"),
+            "scriptSource remains an execution-layer compatibility alias, but the model schema should not advertise it while `script` is required"
+        );
+        let required = def
+            .parameters
+            .get("required")
+            .and_then(|value| value.as_array())
+            .expect("workflow required fields");
+        assert_eq!(
+            required
+                .iter()
+                .filter_map(|value| value.as_str())
+                .collect::<Vec<_>>(),
+            vec!["action"]
+        );
     }
 }

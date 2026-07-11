@@ -236,8 +236,14 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   kb_search_cmd: { method: "GET", path: "/api/knowledge/search" },
   kb_file_read_cmd: { method: "GET", path: "/api/knowledge/{kbId}/files/read" },
   kb_file_extract_cmd: { method: "GET", path: "/api/knowledge/{kbId}/files/extract" },
-  kb_source_ocr_pages_cmd: { method: "GET", path: "/api/knowledge/{kbId}/sources/{sourceId}/ocr-pages" },
-  kb_source_ocr_retry_cmd: { method: "POST", path: "/api/knowledge/{kbId}/sources/{sourceId}/ocr-retry" },
+  kb_source_ocr_pages_cmd: {
+    method: "GET",
+    path: "/api/knowledge/{kbId}/sources/{sourceId}/ocr-pages",
+  },
+  kb_source_ocr_retry_cmd: {
+    method: "POST",
+    path: "/api/knowledge/{kbId}/sources/{sourceId}/ocr-retry",
+  },
   knowledge_vision_config_get_cmd: { method: "GET", path: "/api/knowledge/vision/config" },
   knowledge_vision_config_set_cmd: { method: "POST", path: "/api/knowledge/vision/config" },
   note_tools_config_get_cmd: { method: "GET", path: "/api/knowledge/note-tools/config" },
@@ -261,6 +267,7 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   // -- Sessions --
   list_sessions_cmd: { method: "GET", path: "/api/sessions" },
   create_session_cmd: { method: "POST", path: "/api/sessions" },
+  fork_session_cmd: { method: "POST", path: "/api/sessions/{sessionId}/fork" },
   get_session_cmd: { method: "GET", path: "/api/sessions/{sessionId}" },
   set_session_pinned_cmd: { method: "PATCH", path: "/api/sessions/{sessionId}/pinned" },
   set_session_incognito: { method: "PATCH", path: "/api/sessions/{sessionId}/incognito" },
@@ -320,6 +327,7 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
 
   // -- Session-scoped tasks (TaskProgressPanel user controls) --
   list_session_tasks: { method: "GET", path: "/api/sessions/{sessionId}/tasks" },
+  create_session_task: { method: "POST", path: "/api/sessions/{sessionId}/tasks" },
   update_task_status: { method: "PATCH", path: "/api/tasks/{id}/status" },
   delete_task: { method: "DELETE", path: "/api/tasks/{id}" },
   set_permission_mode: { method: "POST", path: "/api/chat/permission-mode" },
@@ -564,6 +572,7 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   cancel_plan_subagent: { method: "POST", path: "/api/plan/{sessionId}/cancel" },
   list_plans: { method: "POST", path: "/api/plan/list" },
   resolve_plan_mention: { method: "POST", path: "/api/plan/resolve-mention" },
+  create_owner_ask_user_question: { method: "POST", path: "/api/ask_user/owner-question" },
   respond_ask_user_question: { method: "POST", path: "/api/ask_user/respond" },
   get_pending_ask_user_group: { method: "GET", path: "/api/plan/{sessionId}/pending-ask-user" },
   set_plan_subagent: { method: "POST", path: "/api/config/plan-subagent" },
@@ -578,6 +587,236 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
     method: "GET",
     path: "/api/config/ask-user-question-timeout-enabled",
   },
+  get_execution_mode: { method: "GET", path: "/api/sessions/{sessionId}/execution-mode" },
+  set_execution_mode: { method: "POST", path: "/api/sessions/{sessionId}/execution-mode" },
+  get_workflow_mode: { method: "GET", path: "/api/sessions/{sessionId}/workflow-mode" },
+  set_workflow_mode: { method: "POST", path: "/api/sessions/{sessionId}/workflow-mode" },
+
+  // -- Goals --
+  get_active_goal: { method: "GET", path: "/api/sessions/{sessionId}/goal" },
+  get_autonomy_activity: { method: "GET", path: "/api/sessions/{sessionId}/activity" },
+  list_goal_watchdog_findings: { method: "GET", path: "/api/sessions/{sessionId}/goal/watchdog" },
+  create_goal: { method: "POST", path: "/api/sessions/{sessionId}/goal" },
+  get_goal: { method: "GET", path: "/api/goals/{goalId}" },
+  update_goal: { method: "PATCH", path: "/api/goals/{goalId}" },
+  pause_goal: { method: "POST", path: "/api/goals/{goalId}/pause" },
+  resume_goal: { method: "POST", path: "/api/goals/{goalId}/resume" },
+  clear_goal: { method: "POST", path: "/api/goals/{goalId}/clear" },
+  evaluate_goal: { method: "POST", path: "/api/goals/{goalId}/evaluate" },
+  close_goal: { method: "POST", path: "/api/goals/{goalId}/close" },
+  append_goal_follow_up: { method: "POST", path: "/api/goals/{goalId}/follow-ups" },
+
+  // -- Loop schedules --
+  list_loop_schedules: { method: "GET", path: "/api/sessions/{sessionId}/loops" },
+  list_loop_watchdog_findings: { method: "GET", path: "/api/sessions/{sessionId}/loops/watchdog" },
+  create_loop_schedule: { method: "POST", path: "/api/sessions/{sessionId}/loops" },
+  get_loop_schedule: { method: "GET", path: "/api/loops/{loopId}" },
+  pause_loop_schedule: { method: "POST", path: "/api/loops/{loopId}/pause" },
+  resume_loop_schedule: { method: "POST", path: "/api/loops/{loopId}/resume" },
+  stop_loop_schedule: { method: "POST", path: "/api/loops/{loopId}/stop" },
+  run_loop_schedule_now: { method: "POST", path: "/api/loops/{loopId}/run-now" },
+  update_loop_schedule_policy: { method: "PATCH", path: "/api/loops/{loopId}/policy" },
+
+  // -- LSP diagnostics --
+  get_lsp_status: { method: "GET", path: "/api/sessions/{sessionId}/lsp/status" },
+  get_lsp_diagnostics: { method: "GET", path: "/api/sessions/{sessionId}/lsp/diagnostics" },
+  get_context_retrieval: { method: "GET", path: "/api/sessions/{sessionId}/context-retrieval" },
+  get_session_ide_context: { method: "GET", path: "/api/sessions/{sessionId}/ide-context" },
+  save_session_ide_context: { method: "PUT", path: "/api/sessions/{sessionId}/ide-context" },
+  clear_session_ide_context: { method: "DELETE", path: "/api/sessions/{sessionId}/ide-context" },
+
+  // -- Review Engine --
+  list_review_runs: { method: "GET", path: "/api/sessions/{sessionId}/review-runs" },
+  run_code_review: { method: "POST", path: "/api/sessions/{sessionId}/review-runs" },
+  get_review_run: { method: "GET", path: "/api/review-runs/{runId}" },
+  update_review_finding_status: { method: "POST", path: "/api/review-findings/{findingId}/status" },
+  list_verification_runs: { method: "GET", path: "/api/sessions/{sessionId}/verification-runs" },
+  plan_smart_verification: {
+    method: "POST",
+    path: "/api/sessions/{sessionId}/verification-runs/plan",
+  },
+  run_smart_verification: {
+    method: "POST",
+    path: "/api/sessions/{sessionId}/verification-runs/run",
+  },
+  get_verification_run: { method: "GET", path: "/api/verification-runs/{runId}" },
+  run_coding_task_eval_fixture: { method: "POST", path: "/api/coding-eval/task-fixtures/run" },
+  list_coding_eval_gold_tasks: { method: "GET", path: "/api/coding-eval/gold-tasks" },
+  run_coding_eval_gold_task_pack: { method: "POST", path: "/api/coding-eval/gold-tasks/run" },
+  evaluate_coding_eval_strategy_effect: {
+    method: "POST",
+    path: "/api/coding-eval/strategy-effects/evaluate",
+  },
+  get_coding_trend_report: { method: "GET", path: "/api/sessions/{sessionId}/coding-trend" },
+  list_coding_improvement_proposals: {
+    method: "GET",
+    path: "/api/sessions/{sessionId}/coding-improvement/proposals",
+  },
+  generate_coding_improvement_proposals: {
+    method: "POST",
+    path: "/api/sessions/{sessionId}/coding-improvement/proposals",
+  },
+  distill_coding_improvement_proposals: {
+    method: "POST",
+    path: "/api/sessions/{sessionId}/coding-improvement/distill",
+  },
+  update_coding_improvement_proposal_status: {
+    method: "POST",
+    path: "/api/coding-improvement/proposals/{proposalId}/status",
+  },
+  preview_coding_improvement_proposal_action: {
+    method: "GET",
+    path: "/api/coding-improvement/proposals/{proposalId}/action-preview",
+  },
+  apply_coding_improvement_proposal: {
+    method: "POST",
+    path: "/api/coding-improvement/proposals/{proposalId}/apply",
+  },
+  preview_coding_improvement_proposal_promotion: {
+    method: "GET",
+    path: "/api/coding-improvement/proposals/{proposalId}/promotion-preview",
+  },
+  promote_coding_improvement_proposal: {
+    method: "POST",
+    path: "/api/coding-improvement/proposals/{proposalId}/promote",
+  },
+  record_coding_eval_run: { method: "POST", path: "/api/coding-improvement/eval-runs" },
+  evaluate_coding_eval_release_gate: {
+    method: "POST",
+    path: "/api/coding-improvement/release-gate/evaluate",
+  },
+  evaluate_coding_learning_generalization: {
+    method: "POST",
+    path: "/api/coding-improvement/generalization/evaluate",
+  },
+  get_coding_benchmark_center: { method: "POST", path: "/api/coding-benchmark/center" },
+  create_coding_benchmark_campaign: {
+    method: "POST",
+    path: "/api/coding-benchmark/campaigns/create",
+  },
+  list_coding_benchmark_campaigns: { method: "POST", path: "/api/coding-benchmark/campaigns" },
+  get_coding_benchmark_campaign: {
+    method: "GET",
+    path: "/api/coding-benchmark/campaigns/{campaignId}",
+  },
+  cancel_coding_benchmark_campaign: {
+    method: "POST",
+    path: "/api/coding-benchmark/campaigns/{campaignId}/cancel",
+  },
+  run_coding_benchmark_campaign: { method: "POST", path: "/api/coding-benchmark/campaigns/run" },
+  get_benchmark_leaderboard: { method: "POST", path: "/api/coding-benchmark/leaderboard" },
+  compare_benchmark_models: { method: "POST", path: "/api/coding-benchmark/compare" },
+  import_benchmark_task_pack: { method: "POST", path: "/api/coding-benchmark/corpus/import" },
+  list_benchmark_task_packs: { method: "POST", path: "/api/coding-benchmark/corpus/packs" },
+  get_benchmark_task_pack: {
+    method: "GET",
+    path: "/api/coding-benchmark/corpus/packs/{packId}/{version}",
+  },
+  update_benchmark_task_pack_status: {
+    method: "POST",
+    path: "/api/coding-benchmark/corpus/packs/status",
+  },
+  validate_benchmark_task_pack: {
+    method: "POST",
+    path: "/api/coding-benchmark/corpus/packs/validate",
+  },
+  get_benchmark_corpus_health: { method: "POST", path: "/api/coding-benchmark/corpus/health" },
+  generate_benchmark_report: { method: "POST", path: "/api/coding-benchmark/reports/generate" },
+  list_benchmark_reports: { method: "POST", path: "/api/coding-benchmark/reports" },
+  get_benchmark_report: { method: "GET", path: "/api/coding-benchmark/reports/{reportId}" },
+  mark_benchmark_report_release_evidence: {
+    method: "POST",
+    path: "/api/coding-benchmark/reports/release-evidence",
+  },
+  evaluate_continuous_benchmark_gate: {
+    method: "POST",
+    path: "/api/coding-benchmark/continuous-gate/evaluate",
+  },
+  materialize_benchmark_backlog: {
+    method: "POST",
+    path: "/api/coding-benchmark/backlog/materialize",
+  },
+  list_benchmark_backlog: { method: "POST", path: "/api/coding-benchmark/backlog" },
+  update_benchmark_backlog_status: { method: "POST", path: "/api/coding-benchmark/backlog/status" },
+  list_domain_workflow_templates: { method: "POST", path: "/api/domain-workflows/templates" },
+  save_domain_workflow_template: { method: "POST", path: "/api/domain-workflows/templates/save" },
+  preview_domain_workflow: { method: "POST", path: "/api/domain-workflows/preview" },
+  record_domain_evidence: { method: "POST", path: "/api/domain-evidence/record" },
+  list_domain_evidence: { method: "POST", path: "/api/domain-evidence" },
+  evaluate_domain_artifact_export_guard: {
+    method: "POST",
+    path: "/api/domain-artifact-export-guard/evaluate",
+  },
+  evaluate_domain_connector_action_guard: {
+    method: "POST",
+    path: "/api/domain-connector-action-guard/evaluate",
+  },
+  evaluate_domain_connector_e2e_gate: {
+    method: "POST",
+    path: "/api/domain-connector-e2e-gate/evaluate",
+  },
+  list_domain_eval_tasks: { method: "POST", path: "/api/domain-eval/tasks" },
+  run_domain_eval_task: { method: "POST", path: "/api/domain-eval/runs/run" },
+  run_domain_eval_fixture: { method: "POST", path: "/api/domain-eval/fixtures/run" },
+  import_domain_eval_case: { method: "POST", path: "/api/domain-eval/cases/import" },
+  record_domain_eval_calibration: { method: "POST", path: "/api/domain-eval/calibrations/record" },
+  list_domain_eval_calibrations: { method: "POST", path: "/api/domain-eval/calibrations" },
+  list_domain_eval_runs: { method: "POST", path: "/api/domain-eval/runs" },
+  list_domain_eval_fixture_runs: { method: "POST", path: "/api/domain-eval/fixture-runs" },
+  create_domain_eval_campaign: { method: "POST", path: "/api/domain-eval/campaigns/create" },
+  list_domain_eval_campaigns: { method: "POST", path: "/api/domain-eval/campaigns" },
+  get_domain_eval_campaign: { method: "GET", path: "/api/domain-eval/campaigns/{campaignId}" },
+  cancel_domain_eval_campaign: {
+    method: "POST",
+    path: "/api/domain-eval/campaigns/{campaignId}/cancel",
+  },
+  run_domain_eval_campaign: { method: "POST", path: "/api/domain-eval/campaigns/run" },
+  get_domain_eval_campaign_leaderboard: {
+    method: "POST",
+    path: "/api/domain-eval/campaigns/leaderboard",
+  },
+  evaluate_domain_quality_gate: { method: "POST", path: "/api/domain-quality-gate/evaluate" },
+  evaluate_domain_readiness_gate: { method: "POST", path: "/api/domain-readiness-gate/evaluate" },
+  evaluate_domain_operational_gate: {
+    method: "POST",
+    path: "/api/domain-operational-gate/evaluate",
+  },
+  generate_domain_soak_report: { method: "POST", path: "/api/domain-soak-report/generate" },
+  list_domain_quality_runs: {
+    method: "GET",
+    path: "/api/sessions/{sessionId}/domain-quality-runs",
+  },
+  get_domain_quality_run: { method: "GET", path: "/api/domain-quality-runs/{runId}" },
+  run_domain_quality: { method: "POST", path: "/api/domain-quality-runs/run" },
+
+  // -- Managed worktrees --
+  list_managed_worktrees: { method: "GET", path: "/api/sessions/{sessionId}/worktrees" },
+  create_managed_worktree: { method: "POST", path: "/api/sessions/{sessionId}/worktrees" },
+  get_managed_worktree: { method: "GET", path: "/api/worktrees/{worktreeId}" },
+  archive_managed_worktree: { method: "POST", path: "/api/worktrees/{worktreeId}/archive" },
+  restore_managed_worktree: { method: "POST", path: "/api/worktrees/{worktreeId}/restore" },
+  handoff_managed_worktree: { method: "POST", path: "/api/worktrees/{worktreeId}/handoff" },
+
+  // -- Workflow runs --
+  list_workflow_runs: { method: "GET", path: "/api/sessions/{sessionId}/workflow-runs" },
+  list_workflow_watchdog_findings: {
+    method: "GET",
+    path: "/api/sessions/{sessionId}/workflow-runs/watchdog",
+  },
+  preview_workflow_script: {
+    method: "POST",
+    path: "/api/sessions/{sessionId}/workflow-runs/preview",
+  },
+  create_workflow_run: { method: "POST", path: "/api/sessions/{sessionId}/workflow-runs" },
+  list_saved_workflow_templates: { method: "POST", path: "/api/workflow-templates" },
+  save_workflow_template_from_run: { method: "POST", path: "/api/workflow-templates/save" },
+  create_workflow_run_from_template: { method: "POST", path: "/api/workflow-templates/run" },
+  get_workflow_run: { method: "GET", path: "/api/workflow-runs/{runId}" },
+  run_workflow_run: { method: "POST", path: "/api/workflow-runs/{runId}/run" },
+  pause_workflow_run: { method: "POST", path: "/api/workflow-runs/{runId}/pause" },
+  resume_workflow_run: { method: "POST", path: "/api/workflow-runs/{runId}/resume" },
+  approve_workflow_run: { method: "POST", path: "/api/workflow-runs/{runId}/approve" },
+  cancel_workflow_run: { method: "POST", path: "/api/workflow-runs/{runId}/cancel" },
 
   // -- Cron --
   cron_list_jobs: { method: "GET", path: "/api/cron/jobs" },
@@ -869,6 +1108,10 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   dashboard_learning_timeline: { method: "POST", path: "/api/dashboard/learning/timeline" },
   dashboard_top_skills: { method: "POST", path: "/api/dashboard/learning/top-skills" },
   dashboard_recall_stats: { method: "POST", path: "/api/dashboard/learning/recall-stats" },
+  dashboard_coding_improvement: {
+    method: "POST",
+    path: "/api/dashboard/learning/coding-improvement",
+  },
   dashboard_plan_stats: { method: "POST", path: "/api/dashboard/plan-stats" },
   dashboard_local_model_usage: { method: "POST", path: "/api/dashboard/local-model-usage" },
 
@@ -1200,9 +1443,38 @@ function normalizeCommandResponse(command: string, value: unknown): unknown {
       case "get_local_llm_auto_maintenance_enabled":
         // axum 路由返回 `{ enabled: bool }`；Tauri 命令直接返回 bool。
         return record.enabled ?? false
+      case "try_restore_session":
+        // HTTP returns `{ restored: bool }`; Tauri returns the boolean directly.
+        return record.restored ?? false
     }
   }
   return value
+}
+
+function providerConfigFromArgs(
+  args: Record<string, unknown> | undefined,
+): Record<string, unknown> | null {
+  const config = args?.config
+  if (!config || typeof config !== "object" || Array.isArray(config)) return null
+  return { ...(config as Record<string, unknown>) }
+}
+
+function normalizeHttpCommandArgs(
+  command: string,
+  args: Record<string, unknown> | undefined,
+): Record<string, unknown> | undefined {
+  if (command === "add_provider" || command === "test_provider") {
+    return providerConfigFromArgs(args) ?? args
+  }
+  if (command === "update_provider") {
+    const config = providerConfigFromArgs(args)
+    if (!config) return args
+    return {
+      ...config,
+      providerId: args?.providerId ?? config.id,
+    }
+  }
+  return args
 }
 
 // ---------------------------------------------------------------------------
@@ -1304,7 +1576,8 @@ export class HttpTransport implements Transport {
       )
     }
 
-    const { url: rawUrl, remainingArgs } = buildUrl(this.baseUrl, def, args)
+    const httpArgs = normalizeHttpCommandArgs(command, args)
+    const { url: rawUrl, remainingArgs } = buildUrl(this.baseUrl, def, httpArgs)
 
     const isBodyMethod = def.method === "POST" || def.method === "PUT" || def.method === "PATCH"
     const url = isBodyMethod ? rawUrl : appendQueryParams(rawUrl, remainingArgs)

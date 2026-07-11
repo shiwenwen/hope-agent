@@ -23,6 +23,7 @@ pub(crate) mod test_support;
 // ── Core modules (migrated from src-tauri) ────────────────────────
 pub mod acp;
 pub mod acp_control;
+pub mod activity;
 pub mod agent;
 pub mod agent_config;
 pub mod agent_loader;
@@ -36,17 +37,25 @@ pub mod browser_ui;
 pub mod canvas_db;
 pub mod channel;
 pub mod chat_engine;
+pub mod coding_eval;
+pub mod coding_improvement;
 pub mod config;
 pub mod context_compact;
+pub mod context_retrieval;
 pub mod crash_flush;
 pub mod crash_journal;
 pub mod cron;
 pub mod dashboard;
 pub mod dev_tools;
 pub mod docker;
+pub mod domain_eval;
+pub mod domain_quality;
+pub mod domain_workflow;
+pub mod execution_mode;
 pub mod failover;
 pub mod file_extract;
 pub mod filesystem;
+pub mod goal;
 pub mod guardian;
 pub mod hooks;
 pub mod i18n;
@@ -55,6 +64,8 @@ pub mod knowledge;
 pub mod local_embedding;
 pub mod local_llm;
 pub mod local_model_jobs;
+pub mod loop_control;
+pub mod lsp;
 pub mod mac_control;
 
 pub mod mcp;
@@ -74,6 +85,7 @@ pub mod process_registry;
 pub mod project;
 pub mod provider;
 pub mod recap;
+pub mod review;
 pub mod runtime_lock;
 pub mod runtime_tasks;
 pub mod sandbox;
@@ -95,10 +107,14 @@ pub mod ttl_cache;
 pub mod updater;
 pub mod url_preview;
 pub mod user_config;
+pub mod verification;
 pub mod wakeup;
 pub mod weather;
 #[cfg(target_os = "macos")]
 pub mod weather_location_macos;
+pub mod workflow;
+pub mod workflow_mode;
+pub mod worktree;
 
 // ── Re-exports ────────────────────────────────────────────────────
 pub use app_init::{

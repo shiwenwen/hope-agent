@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
+use crate::execution_mode::ExecutionMode;
 use crate::permission::{SandboxMode, SessionMode};
 use crate::plan::PlanModeState;
 
@@ -24,6 +25,7 @@ pub struct SessionDefaultsInput {
 // the frontend).
 pub const ATTACHMENT_META_KEY_PLAN_TRIGGER: &str = "plan_trigger";
 pub const ATTACHMENT_META_KEY_PLAN_COMMENT: &str = "plan_comment";
+pub const ATTACHMENT_META_KEY_GOAL_TRIGGER: &str = "goal_trigger";
 pub const ATTACHMENT_META_KEY_TOOL_MEDIA_ITEMS: &str = "tool_media_items";
 pub const ATTACHMENT_META_KEY_ACTIVE_MEMORY: &str = "active_memory";
 pub const ATTACHMENT_META_KEY_USED_MEMORY_REFS: &str = "used_memory_refs";
@@ -31,21 +33,55 @@ pub const ATTACHMENT_META_KEY_RETRIEVAL_PLANNER: &str = "retrieval_planner";
 
 /// Resolve the `attachments_meta` value for a user-message coming from the
 /// `chat` API surface (Tauri command + HTTP route). Centralizes the
-/// plan_trigger > plan_comment > user_attachments precedence so both shells
-/// can't silently drift; if the caller sets both `plan_trigger` and
+/// plan_trigger > plan_comment > goal_trigger > user_attachments precedence so
+/// both shells can't silently drift; if the caller sets both `plan_trigger` and
 /// `plan_comment`, plan_trigger wins (a trigger is never also a comment).
 pub fn build_chat_user_attachments_meta(
     plan_trigger: bool,
     plan_comment: Option<&Value>,
+    goal_trigger: bool,
     user_attachments: Option<String>,
 ) -> Option<String> {
     if plan_trigger {
         Some(json!({ ATTACHMENT_META_KEY_PLAN_TRIGGER: true }).to_string())
     } else if let Some(payload) = plan_comment {
-        Some(json!({ ATTACHMENT_META_KEY_PLAN_COMMENT: payload }).to_string())
+        Some(merge_user_message_meta(
+            json!({ ATTACHMENT_META_KEY_PLAN_COMMENT: payload }),
+            user_attachments,
+        ))
+    } else if goal_trigger {
+        Some(merge_user_message_meta(
+            json!({ ATTACHMENT_META_KEY_GOAL_TRIGGER: true }),
+            user_attachments,
+        ))
     } else {
         user_attachments
     }
+}
+
+fn merge_user_message_meta(base: Value, user_attachments: Option<String>) -> String {
+    let Some(raw) = user_attachments else {
+        return base.to_string();
+    };
+    let Ok(parsed) = serde_json::from_str::<Value>(&raw) else {
+        return base.to_string();
+    };
+    let mut map = match base {
+        Value::Object(map) => map,
+        other => return other.to_string(),
+    };
+    match parsed {
+        Value::Array(items) if !items.is_empty() => {
+            map.insert("user_attachments".to_string(), Value::Array(items));
+        }
+        Value::Object(existing) => {
+            for (key, value) in existing {
+                map.entry(key).or_insert(value);
+            }
+        }
+        _ => {}
+    }
+    Value::Object(map).to_string()
 }
 
 /// Persist structured media emitted by a tool result in `attachments_meta`
@@ -72,6 +108,7 @@ pub enum SessionKind {
     #[default]
     Regular,
     Knowledge,
+    EvalFixture,
 }
 
 impl SessionKind {
@@ -79,6 +116,7 @@ impl SessionKind {
         match self {
             SessionKind::Regular => "regular",
             SessionKind::Knowledge => "knowledge",
+            SessionKind::EvalFixture => "eval_fixture",
         }
     }
 
@@ -87,6 +125,7 @@ impl SessionKind {
     pub fn from_db_string(s: &str) -> Self {
         match s {
             "knowledge" => SessionKind::Knowledge,
+            "eval_fixture" => SessionKind::EvalFixture,
             _ => SessionKind::Regular,
         }
     }
@@ -143,11 +182,35 @@ pub struct SessionMeta {
     pub is_cron: bool,
     /// If this session was created by a sub-agent spawn, stores the parent session ID.
     pub parent_session_id: Option<String>,
+    /// If this session was forked from another user-facing session, stores the
+    /// source session ID. This is intentionally separate from
+    /// `parent_session_id`: forked sessions stay first-class sidebar sessions,
+    /// while `parent_session_id` marks hidden sub-agent children.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub forked_from_session_id: Option<String>,
+    /// Optional source message boundary used when the fork copied only part of
+    /// the source transcript.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub forked_from_message_id: Option<i64>,
+    /// Best-effort live title of the source session for UI breadcrumbs. Null
+    /// when the source session was deleted or had no title.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub forked_from_session_title: Option<String>,
     /// Plan mode state for this session. Serialized as a snake_case string
     /// (`off` / `planning` / `review` / `executing` / `paused` / `completed`)
     /// matching the frontend's loose `string` type.
     #[serde(default)]
     pub plan_mode: PlanModeState,
+    /// Persistent execution mode policy for this session (`off` / `guarded` /
+    /// `deep` / `autonomous`). Injected into the system prompt so `/mode`
+    /// changes survive refreshes and affect every chat entry point.
+    #[serde(default)]
+    pub execution_mode: ExecutionMode,
+    /// Persistent workflow autonomy mode for this session (`off` / `on` /
+    /// `ultracode`). When enabled, the model may call the workflow tool
+    /// to create observable durable workflow runs.
+    #[serde(default)]
+    pub workflow_mode: crate::workflow_mode::WorkflowMode,
     /// Per-session permission mode (`default` / `smart` / `yolo`).
     /// Persisted so the chat title bar's mode switcher is restored when
     /// switching back to a historical session. Serialized as a snake_case
@@ -177,8 +240,9 @@ pub struct SessionMeta {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub working_dir: Option<String>,
     /// Session classification (see [`SessionKind`]). `Regular` for normal
-    /// chats; `Knowledge` for knowledge-space sidebar conversations (hidden
-    /// from the main sidebar / picker, trimmed tool set).
+    /// chats; `Knowledge` for knowledge-space sidebar conversations and
+    /// `EvalFixture` for synthetic eval/smoke runs (both hidden from the main
+    /// sidebar / picker).
     #[serde(default)]
     pub kind: SessionKind,
 }
@@ -590,7 +654,12 @@ mod tests {
             pending_interaction_count: 0,
             is_cron: false,
             parent_session_id: None,
+            forked_from_session_id: None,
+            forked_from_message_id: None,
+            forked_from_session_title: None,
             plan_mode: Default::default(),
+            execution_mode: Default::default(),
+            workflow_mode: Default::default(),
             permission_mode: Default::default(),
             sandbox_mode: Default::default(),
             project_id: None,
@@ -638,15 +707,24 @@ mod tests {
         let mut kb = meta("g");
         kb.kind = SessionKind::Knowledge;
         assert!(!kb.is_regular_chat());
+
+        let mut fixture = meta("h");
+        fixture.kind = SessionKind::EvalFixture;
+        assert!(!fixture.is_regular_chat());
     }
 
     #[test]
     fn session_kind_roundtrips_and_defaults() {
         assert_eq!(SessionKind::Regular.as_str(), "regular");
         assert_eq!(SessionKind::Knowledge.as_str(), "knowledge");
+        assert_eq!(SessionKind::EvalFixture.as_str(), "eval_fixture");
         assert_eq!(
             SessionKind::from_db_string("knowledge"),
             SessionKind::Knowledge
+        );
+        assert_eq!(
+            SessionKind::from_db_string("eval_fixture"),
+            SessionKind::EvalFixture
         );
         // Unknown / legacy NULL coerced to "" → Regular.
         assert_eq!(SessionKind::from_db_string(""), SessionKind::Regular);
@@ -660,5 +738,11 @@ mod tests {
         assert!(json.contains("\"kind\":\"knowledge\""));
         let back: SessionMeta = serde_json::from_str(&json).unwrap();
         assert_eq!(back.kind, SessionKind::Knowledge);
+
+        m.kind = SessionKind::EvalFixture;
+        let json = serde_json::to_string(&m).unwrap();
+        assert!(json.contains("\"kind\":\"eval_fixture\""));
+        let back: SessionMeta = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.kind, SessionKind::EvalFixture);
     }
 }

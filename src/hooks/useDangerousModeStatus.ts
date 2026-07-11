@@ -14,8 +14,19 @@ const DEFAULT_STATUS: DangerousModeStatus = {
   active: false,
 }
 
+function normalizeStatus(value: unknown): DangerousModeStatus {
+  if (typeof value !== "object" || value === null) return DEFAULT_STATUS
+  const record = value as Partial<DangerousModeStatus>
+  return {
+    cliFlag: record.cliFlag === true,
+    configFlag: record.configFlag === true,
+    active: record.active === true,
+  }
+}
+
 async function fetchStatus(): Promise<DangerousModeStatus> {
-  return getTransport().call<DangerousModeStatus>("get_dangerous_mode_status")
+  const status = await getTransport().call<unknown>("get_dangerous_mode_status")
+  return normalizeStatus(status)
 }
 
 /**

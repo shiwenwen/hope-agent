@@ -9,6 +9,7 @@ import { IconTip } from "@/components/ui/tooltip"
 import {
   Copy,
   Check,
+  CheckCircle2,
   Info,
   Network,
   Timer,
@@ -18,6 +19,9 @@ import {
   Code2,
   Type,
   Hash,
+  Target,
+  Radio,
+  GitFork,
   Brain,
   Settings,
   Ban,
@@ -67,10 +71,13 @@ import {
   parseSubagentResultDetail,
   parseSubagentResultStatus,
   parseToolJobPayload,
+  parseWorkflowResultDetail,
+  parseWorkflowResultStatus,
   TOOL_JOB_AGENT_PREFIX,
   TOOL_JOB_STATUSES,
 } from "./asyncResultPayload"
 import { isQuickPromptEligibleUserMessage } from "../quick-prompts/messageQuickPrompts"
+import { goalCompletionReportFromMessage, type GoalCompletionReport } from "./goalCompletionReport"
 import {
   requestMemoryFocus,
   type MemoryFocusTarget,
@@ -109,10 +116,7 @@ function shouldCollapseUserMessage(content: string): boolean {
 
 function collapsedUserMessagePreview(content: string): string {
   const normalized = content.replace(/\r\n/g, "\n").replace(/\r/g, "\n")
-  const lineLimited = normalized
-    .split("\n")
-    .slice(0, USER_MESSAGE_COLLAPSE_LINES)
-    .join("\n")
+  const lineLimited = normalized.split("\n").slice(0, USER_MESSAGE_COLLAPSE_LINES).join("\n")
   const charLimited =
     lineLimited.length > USER_MESSAGE_COLLAPSE_CHARS
       ? lineLimited.slice(0, USER_MESSAGE_COLLAPSE_CHARS)
@@ -223,11 +227,14 @@ export interface MessageBubbleProps {
       | import("@/types/chat").FileChangesMetadata,
   ) => void
   onResume?: (message: string) => void
+  onForkFromMessage?: (messageId: number) => void
   onOpenMemorySettings?: () => void
   onOpenKnowledge?: () => void
   displayMode?: ChatDisplayMode
   footerFiles?: MessageFileAttachment[]
   hideOwnFooterFiles?: boolean
+  goalCompletionReportOverride?: GoalCompletionReport | null
+  suppressGoalCompletionFooter?: boolean
   forceExpandUserContent?: boolean
   onForceExpandedUserContentDismiss?: () => void
 }
@@ -302,6 +309,29 @@ function getSubagentResultDisplay(
     ),
     isToolJob: false,
     detail: parseSubagentResultDetail(msg.content),
+  }
+}
+
+function getWorkflowResultDisplay(
+  msg: Message,
+  t: TFunction,
+): { name: string; status: string; statusText: string; detail?: string } {
+  const status = parseWorkflowResultStatus(msg.content)
+  const statusText =
+    status === "checkpoint"
+      ? String(t("chat.workflowResultCheckpoint", { defaultValue: "已收到阶段结果" }))
+      : status === "completed"
+        ? String(t("chat.workflowResultCompleted", { defaultValue: "已完成" }))
+        : status === "cancelled"
+          ? String(t("chat.workflowResultCancelled", { defaultValue: "已取消" }))
+          : status === "running"
+            ? String(t("chat.workflowResultWaiting", { defaultValue: "等待继续" }))
+            : String(t("chat.workflowResultFailed", { defaultValue: "需处理" }))
+  return {
+    name: String(t("chat.workflowResultName", { defaultValue: "工作流" })),
+    status,
+    statusText,
+    detail: parseWorkflowResultDetail(msg.content),
   }
 }
 
@@ -403,11 +433,36 @@ function WakeupTriggerBubble({ t }: { t: (key: string) => string }) {
   )
 }
 
+function LoopTriggerBubble({ msg, t }: { msg: Message; t: TFunction }) {
+  const [expanded, setExpanded] = useState(false)
+  const detail = useMemo(() => decodeXmlText(msg.content.trim()), [msg.content])
+  return (
+    <div className="flex flex-col items-center gap-1 w-full max-w-[80%]">
+      <button
+        type="button"
+        aria-expanded={expanded}
+        onClick={() => setExpanded((v) => !v)}
+        className="flex max-w-full items-center gap-1.5 px-3 py-1.5 rounded-full bg-blue-500/8 border border-blue-500/20 text-xs text-blue-700 hover:bg-blue-500/15 transition-colors cursor-pointer dark:text-blue-400"
+      >
+        <Radio className="w-3 h-3 shrink-0 text-blue-600 dark:text-blue-400" />
+        <span className="font-medium">{t("chat.loopTrigger", "持续推进")}</span>
+        <span className="opacity-50">·</span>
+        <span>{t("chat.loopTriggered", "已触发一次推进")}</span>
+        <ChevronDown
+          className={cn("h-3 w-3 shrink-0 transition-transform", expanded && "rotate-180")}
+        />
+      </button>
+      <AnimatedCollapse open={expanded}>
+        <pre className="max-h-[360px] w-full overflow-auto whitespace-pre-wrap break-words rounded-lg border border-blue-500/15 bg-blue-500/5 px-3 py-2 font-mono text-[11px] leading-5 text-foreground/85">
+          {detail || msg.content}
+        </pre>
+      </AnimatedCollapse>
+    </div>
+  )
+}
+
 function decodeXmlText(value: string): string {
-  return value
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&amp;/g, "&")
+  return value.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&")
 }
 
 function xmlTag(content: string, tag: string): string | null {
@@ -451,9 +506,7 @@ function ProcessNotificationBubble({ msg, t }: { msg: Message; t: TFunction }) {
         )}
       >
         <Code2 className="h-3 w-3 shrink-0" />
-        <span className="font-medium">
-          {t("chat.processNotification", "进程已结束")}
-        </span>
+        <span className="font-medium">{t("chat.processNotification", "进程已结束")}</span>
         {parsed.processId && (
           <>
             <span className="opacity-50">·</span>
@@ -533,14 +586,8 @@ function memoryTraceMarkdown(
   t: TFunction,
 ): string {
   const traceTitle = retrievalTraceTitle(refs.length, retrievalPlanner, t)
-  const traceSummary =
-    memory?.summary || retrievalTraceSummary(refs.length, retrievalPlanner, t)
-  const lines: string[] = [
-    `# ${traceTitle}`,
-    "",
-    traceSummary,
-    "",
-  ]
+  const traceSummary = memory?.summary || retrievalTraceSummary(refs.length, retrievalPlanner, t)
+  const lines: string[] = [`# ${traceTitle}`, "", traceSummary, ""]
 
   if (retrievalPlanner) {
     lines.push(
@@ -557,9 +604,7 @@ function memoryTraceMarkdown(
             )}`,
           ]
         : []),
-      ...(retrievalPlanner.rankingVersion
-        ? [`- ranking=${retrievalPlanner.rankingVersion}`]
-        : []),
+      ...(retrievalPlanner.rankingVersion ? [`- ranking=${retrievalPlanner.rankingVersion}`] : []),
       ...(typeof retrievalPlanner.maxTraceRefs === "number"
         ? [
             `- budget=${retrievalPlanner.maxTraceRefs}, perSource=${retrievalPlanner.maxCandidatesPerOrigin ?? "?"}`,
@@ -656,14 +701,14 @@ function ActiveMemoryTrace({
   const refs =
     usedMemoryRefs && usedMemoryRefs.length > 0
       ? usedMemoryRefs
-      : memory?.candidates.map((candidate) => ({
+      : (memory?.candidates.map((candidate) => ({
           ...candidate,
           origin: "active_memory",
           role:
             memory.selected?.kind === candidate.kind && memory.selected.id === candidate.id
               ? "selected"
               : "candidate",
-        })) ?? []
+        })) ?? [])
   const displayRefs = useMemo(
     () =>
       refs.map((ref) => {
@@ -710,10 +755,9 @@ function ActiveMemoryTrace({
       await getTransport().call("claim_forget", {
         id: ref.id,
         permanent: false,
-        note:
-          isMemoryCandidateRole(ref.role)
-            ? "User dismissed this candidate memory source from an answer memory chip."
-            : "User marked this memory source as no longer valid from an answer memory chip.",
+        note: isMemoryCandidateRole(ref.role)
+          ? "User dismissed this candidate memory source from an answer memory chip."
+          : "User marked this memory source as no longer valid from an answer memory chip.",
       })
       setClaimCorrections((prev) => ({ ...prev, [ref.id]: "done" }))
       toast.success(
@@ -860,9 +904,7 @@ function ActiveMemoryTrace({
         <Brain className="h-3.5 w-3.5 shrink-0" />
         <span className="shrink-0 font-medium">{traceTitle}</span>
         {selected && (
-          <span className="min-w-0 truncate text-primary/75">
-            {memorySourceLabel(selected, t)}
-          </span>
+          <span className="min-w-0 truncate text-primary/75">{memorySourceLabel(selected, t)}</span>
         )}
         {showHeaderStatus && traceStatusLabel && (
           <span
@@ -902,7 +944,7 @@ function ActiveMemoryTrace({
               )}
               {retrievalPlanner?.intent && (
                 <span className="rounded bg-primary/8 px-1.5 py-0.5 text-primary/80">
-                  {t("chat.memoryTrace.intentLabel", "Detected task")}: {" "}
+                  {t("chat.memoryTrace.intentLabel", "Detected task")}:{" "}
                   {retrievalIntentLabel(retrievalPlanner.intent, t)}
                 </span>
               )}
@@ -942,8 +984,7 @@ function ActiveMemoryTrace({
                   const parts = retrievalLayerDetailParts(layer, t)
                   return (
                     <span key={layer.layer} className="rounded bg-background/70 px-1.5 py-0.5">
-                      {retrievalLayerLabel(layer.layer, t)}:{" "}
-                      {parts.join(" · ")}
+                      {retrievalLayerLabel(layer.layer, t)}: {parts.join(" · ")}
                     </span>
                   )
                 })}
@@ -975,7 +1016,10 @@ function ActiveMemoryTrace({
                   ? t("chat.memoryTrace.doNotSuggestCandidate", "Do not suggest this candidate")
                   : t("chat.memoryTrace.doNotUse", "Do not use this memory")
                 const memoryDismissDoneLabel = isCandidateRef
-                  ? t("chat.memoryTrace.markedCandidateDoNotSuggest", "Marked as no longer suggested")
+                  ? t(
+                      "chat.memoryTrace.markedCandidateDoNotSuggest",
+                      "Marked as no longer suggested",
+                    )
                   : t("chat.memoryTrace.markedDoNotUse", "Marked as no longer used")
                 const confirmMemoryDismissLabel = isCandidateRef
                   ? t(
@@ -1153,7 +1197,9 @@ function ActiveMemoryTrace({
                                 className="inline-flex h-6 items-center gap-1 rounded bg-primary px-1.5 text-[10px] font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-70"
                               >
                                 <Check className="h-3 w-3" />
-                                {quickEdit.status === "saving" ? t("common.loading") : t("common.save")}
+                                {quickEdit.status === "saving"
+                                  ? t("common.loading")
+                                  : t("common.save")}
                               </button>
                             </div>
                           </div>
@@ -1267,11 +1313,14 @@ function MessageBubbleInner({
   onOpenDashboardTab,
   onOpenDiff,
   onResume,
+  onForkFromMessage,
   onOpenMemorySettings,
   onOpenKnowledge,
   displayMode = "bubble",
   footerFiles,
   hideOwnFooterFiles = false,
+  goalCompletionReportOverride,
+  suppressGoalCompletionFooter = false,
   forceExpandUserContent = false,
   onForceExpandedUserContentDismiss,
 }: MessageBubbleProps) {
@@ -1311,15 +1360,68 @@ function MessageBubbleInner({
   const hasTextContent = hasRenderableTextContent(msg)
   const hasDetails = msg.role === "assistant" && !!(msg.usage || msg.model)
   const canAddQuickPrompt = !!onAddQuickPrompt && isQuickPromptEligibleUserMessage(msg)
-  const hasToolbarActions = hasTextContent || hasDetails || canAddQuickPrompt
+  const canForkFromMessage =
+    !!onForkFromMessage &&
+    !!sessionId &&
+    !loading &&
+    typeof msg.dbId === "number" &&
+    (msg.role === "user" || msg.role === "assistant")
+  const hasToolbarActions = hasTextContent || hasDetails || canAddQuickPrompt || canForkFromMessage
   // Always-visible total turn duration, shown at the message bottom once the
   // assistant turn has finished (the per-step / per-group times live above).
   const totalDurationText =
     msg.role === "assistant" && !(loading && isLast) && msg.usage?.durationMs != null
       ? formatDuration(msg.usage.durationMs)
       : null
-  const memoryTraceRefCount =
-    msg.usedMemoryRefs?.length ?? msg.activeMemory?.candidates.length ?? 0
+  const detectedGoalCompletionReport = useMemo(
+    () => (suppressGoalCompletionFooter ? null : goalCompletionReportFromMessage(msg)),
+    [msg, suppressGoalCompletionFooter],
+  )
+  const goalCompletionReport =
+    goalCompletionReportOverride !== undefined
+      ? goalCompletionReportOverride
+      : detectedGoalCompletionReport
+  const goalCompletionDurationText =
+    goalCompletionReport?.usage?.elapsedSecs != null
+      ? formatDuration(goalCompletionReport.usage.elapsedSecs * 1000)
+      : totalDurationText
+  const goalCompletionFallbackTokens =
+    msg.usage && msg.role === "assistant"
+      ? (msg.usage.lastInputTokens ?? msg.usage.inputTokens ?? 0) + (msg.usage.outputTokens ?? 0)
+      : 0
+  const goalCompletionTokens =
+    goalCompletionReport?.usage?.tokensUsed != null && goalCompletionReport.usage.tokensUsed > 0
+      ? goalCompletionReport.usage.tokensUsed
+      : goalCompletionFallbackTokens > 0
+        ? goalCompletionFallbackTokens
+        : null
+  const goalCompletionTokensText =
+    goalCompletionTokens != null ? formatTokens(goalCompletionTokens) : null
+  const goalCompletionFooter = goalCompletionReport ? (
+    <div className="mt-3 flex flex-wrap items-center gap-1.5 text-sm leading-6 text-foreground/85 select-none">
+      <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-500" />
+      <span>
+        {goalCompletionDurationText
+          ? t("chat.goalCompletion.completedWithDuration", {
+              defaultValue: "Goal reached in {{time}}",
+              time: goalCompletionDurationText,
+            })
+          : t("chat.goalCompletion.completed", {
+              defaultValue: "Goal reached",
+            })}
+      </span>
+      {goalCompletionTokensText && (
+        <span className="text-muted-foreground/80">
+          ·{" "}
+          {t("chat.goalCompletion.tokens", {
+            defaultValue: "{{tokens}} tokens",
+            tokens: goalCompletionTokensText,
+          })}
+        </span>
+      )}
+    </div>
+  ) : null
+  const memoryTraceRefCount = msg.usedMemoryRefs?.length ?? msg.activeMemory?.candidates.length ?? 0
   const shouldShowMemoryTrace = shouldRenderMemoryTracePanel(
     memoryTraceRefCount,
     msg.retrievalPlanner,
@@ -1336,9 +1438,7 @@ function MessageBubbleInner({
         type="button"
         aria-label={renderToggleLabel}
         aria-pressed={contentRenderMode === "markdown"}
-        onClick={() =>
-          setContentRenderMode((mode) => (mode === "markdown" ? "text" : "markdown"))
-        }
+        onClick={() => setContentRenderMode((mode) => (mode === "markdown" ? "text" : "markdown"))}
         className={toolbarButtonClass}
       >
         {contentRenderMode === "markdown" ? (
@@ -1357,6 +1457,17 @@ function MessageBubbleInner({
         className={toolbarButtonClass}
       >
         <Hash className="h-3.5 w-3.5" />
+      </button>
+    </IconTip>
+  ) : null
+  const forkButton = canForkFromMessage ? (
+    <IconTip label={t("chat.fork.continueInNewSession", "Continue in new session")}>
+      <button
+        type="button"
+        onClick={() => onForkFromMessage?.(msg.dbId!)}
+        className={toolbarButtonClass}
+      >
+        <GitFork className="h-3.5 w-3.5" />
       </button>
     </IconTip>
   ) : null
@@ -1400,17 +1511,13 @@ function MessageBubbleInner({
             const inputTokens = msg.usage?.inputTokens
             const lastInputTokens = msg.usage?.lastInputTokens
             const showLastInput =
-              inputTokens != null &&
-              lastInputTokens != null &&
-              lastInputTokens !== inputTokens
+              inputTokens != null && lastInputTokens != null && lastInputTokens !== inputTokens
             if (inputTokens == null) return null
             return (
               <>
                 <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-3">
                   <span className="text-muted-foreground whitespace-nowrap shrink-0">
-                    {showLastInput
-                      ? t("chat.inputTokensCumulative")
-                      : t("chat.inputTokens")}
+                    {showLastInput ? t("chat.inputTokensCumulative") : t("chat.inputTokens")}
                   </span>
                   <span className="justify-self-end whitespace-nowrap text-right font-medium text-foreground tabular-nums">
                     {formatTokens(inputTokens)}
@@ -1566,6 +1673,57 @@ function MessageBubbleInner({
     )
   }
 
+  if (msg.isWorkflowResult) {
+    const resultDisplay = getWorkflowResultDisplay(msg, t)
+    const hasDetail = !!resultDisplay.detail
+    const resultTone = getAsyncResultTone(resultDisplay.status)
+    return (
+      <div className="flex flex-col items-center gap-1 w-full max-w-[80%]">
+        <button
+          type="button"
+          disabled={!hasDetail}
+          aria-expanded={hasDetail ? resultExpanded : undefined}
+          aria-label={hasDetail ? t("chat.details") : undefined}
+          onClick={() => {
+            if (hasDetail) setResultExpanded((v) => !v)
+          }}
+          className={cn(
+            "flex flex-wrap items-center gap-1.5 max-w-full px-3 py-1.5 rounded-full border text-xs transition-colors",
+            hasDetail && "cursor-pointer",
+            resultTone.chip,
+            !hasDetail && "disabled:cursor-default",
+          )}
+        >
+          <Network className={cn("w-3 h-3 shrink-0", resultTone.icon)} />
+          <span className={cn("font-medium", resultTone.label)}>{resultDisplay.name}</span>
+          <span className={resultTone.separator}>·</span>
+          <span>{resultDisplay.statusText}</span>
+          {hasDetail && (
+            <ChevronDown
+              className={cn(
+                "w-3 h-3 shrink-0 transition-transform duration-200",
+                resultExpanded && "rotate-180",
+                resultTone.icon,
+              )}
+            />
+          )}
+        </button>
+        {hasDetail && (
+          <AnimatedCollapse open={resultExpanded}>
+            <div
+              className={cn(
+                "w-full max-h-[360px] overflow-auto px-3 py-2 rounded-lg border text-xs text-foreground/85 whitespace-pre-wrap break-words animate-in fade-in-0 slide-in-from-top-1 duration-150 font-mono text-[11px]",
+                resultTone.detail,
+              )}
+            >
+              {resultDisplay.detail}
+            </div>
+          </AnimatedCollapse>
+        )}
+      </div>
+    )
+  }
+
   if (msg.isSubagentResult) {
     const resultDisplay = getSubagentResultDisplay(msg, t)
     const hasDetail = !!resultDisplay.detail
@@ -1588,12 +1746,8 @@ function MessageBubbleInner({
           )}
         >
           <Timer className={cn("w-3 h-3 shrink-0", resultTone.icon)} />
-          <span className={cn("font-medium", resultTone.label)}>
-            {resultDisplay.name}
-          </span>
-          <span className={resultTone.separator}>
-            ·
-          </span>
+          <span className={cn("font-medium", resultTone.label)}>{resultDisplay.name}</span>
+          <span className={resultTone.separator}>·</span>
           <span>{resultDisplay.statusText}</span>
           {hasDetail && (
             <ChevronDown
@@ -1629,6 +1783,10 @@ function MessageBubbleInner({
 
   if (msg.isWakeupTrigger) {
     return <WakeupTriggerBubble t={t} />
+  }
+
+  if (msg.isLoopTrigger) {
+    return <LoopTriggerBubble msg={msg} t={t} />
   }
 
   if (msg.isProcessNotification) {
@@ -1715,6 +1873,7 @@ function MessageBubbleInner({
             displayMode="timeline"
             contentRenderMode={contentRenderMode}
           />
+          {goalCompletionFooter && <div className="ml-7">{goalCompletionFooter}</div>}
           {messageFiles.length > 0 && (
             <div className="ml-7">
               <FileAttachments files={messageFiles} sessionId={sessionId} />
@@ -1765,6 +1924,7 @@ function MessageBubbleInner({
               </IconTip>
             )}
             {addQuickPromptButton}
+            {forkButton}
             {renderToggleButton}
             {detailsButton}
           </div>
@@ -1825,9 +1985,7 @@ function MessageBubbleInner({
               : msg.fromAgentId
                 ? "bg-purple-500/10 border border-purple-500/20 text-foreground"
                 : "bg-card text-foreground/80",
-            contentRenderMode === "markdown"
-              ? "message-markdown-content"
-              : "message-plain-content",
+            contentRenderMode === "markdown" ? "message-markdown-content" : "message-plain-content",
             msg.role === "assistant" &&
               !msg.content &&
               !msg.toolCalls?.length &&
@@ -1855,6 +2013,18 @@ function MessageBubbleInner({
             />
           ) : (
             <>
+              {(msg.isGoalTrigger || msg.slashEvent?.mode === "goal") && (
+                <div className="mb-1.5 flex items-center gap-1 text-[11px] font-medium text-emerald-700 dark:text-emerald-300">
+                  <Target className="h-3 w-3 shrink-0" />
+                  <span>{t("chat.goalMode.messageBadge", "目标")}</span>
+                </div>
+              )}
+              {msg.slashEvent?.mode === "loop" && (
+                <div className="mb-1.5 flex items-center gap-1 text-[11px] font-medium text-sky-700 dark:text-sky-300">
+                  <Radio className="h-3 w-3 shrink-0" />
+                  <span>{t("chat.loopMode.messageBadge", "持续推进")}</span>
+                </div>
+              )}
               <UserAttachments attachments={msg.attachments} sessionId={sessionId} />
               <UserMessageContent
                 content={msg.content}
@@ -1869,6 +2039,7 @@ function MessageBubbleInner({
           {msg.content && !(loading && isLast) && (
             <MessageUrlPreviews content={msg.content} isStreaming={loading && isLast} />
           )}
+          {msg.role === "assistant" && goalCompletionFooter}
           {messageFiles.length > 0 && (
             <FileAttachments files={messageFiles} sessionId={sessionId} />
           )}
@@ -1927,6 +2098,7 @@ function MessageBubbleInner({
             </IconTip>
           )}
           {addQuickPromptButton}
+          {forkButton}
           {renderToggleButton}
           {detailsButton}
         </div>

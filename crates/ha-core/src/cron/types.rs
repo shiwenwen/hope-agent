@@ -33,6 +33,18 @@ pub enum CronPayload {
         prompt: String,
         agent_id: Option<String>,
     },
+    /// Fire a managed `/loop` trigger back into an existing parent session.
+    ///
+    /// This reuses cron's durable scheduling and recovery, but executes through
+    /// the parent-session injection pipeline so the loop preserves conversation
+    /// context, Goal linkage, permissions, Project/KB access, and idle gating.
+    SessionLoop {
+        loop_id: String,
+        session_id: String,
+        prompt: String,
+        agent_id: Option<String>,
+        goal_id: Option<String>,
+    },
 }
 
 /// Job status.

@@ -168,12 +168,12 @@ impl ArgMatcher {
 /// string with `~` expanded (when `expand_tilde` is true). Used by matchers
 /// + the protected-paths gate.
 pub fn extract_path_arg(tool: &str, args: &serde_json::Value) -> Option<PathBuf> {
-    // The tool registry uses `path` for read/write/edit/ls/grep/find and
+    // The tool registry uses `path` for read/write/edit/ls/grep/find/lsp and
     // `cwd` for exec / process. `apply_patch` also has directive paths inside
     // its patch body; those are handled by `paths_in_patch_directives`, while
     // this helper still returns optional `cwd` for generic path checks.
     let candidate = match tool {
-        "read" | "write" | "edit" | "ls" | "grep" | "find" => args
+        "read" | "write" | "edit" | "ls" | "grep" | "find" | "lsp" => args
             .get("path")
             .or_else(|| args.get("file_path"))
             .and_then(|v| v.as_str()),
@@ -185,6 +185,10 @@ pub fn extract_path_arg(tool: &str, args: &serde_json::Value) -> Option<PathBuf>
         {
             args.get("path").and_then(|v| v.as_str())
         }
+        n if n == crate::tools::TOOL_LOOP_WATCH => args
+            .get("spec")
+            .and_then(|spec| spec.get("path"))
+            .and_then(|value| value.as_str()),
         "exec" | "process" | "apply_patch" => args.get("cwd").and_then(|v| v.as_str()),
         _ => None,
     };
@@ -495,6 +499,17 @@ mod tests {
         let raw = std::path::PathBuf::from("../sneaky");
         let norm = normalize_lexical(&raw);
         assert_eq!(norm, std::path::PathBuf::from("../sneaky"));
+    }
+
+    #[test]
+    fn loop_watch_exposes_nested_file_path_to_permission_rules() {
+        let args = serde_json::json!({
+            "kind": "file",
+            "spec": { "path": "~/.ssh/config" }
+        });
+        let path =
+            extract_path_arg(crate::tools::TOOL_LOOP_WATCH, &args).expect("nested file watch path");
+        assert!(path.ends_with(".ssh/config"));
     }
 
     #[cfg(windows)]

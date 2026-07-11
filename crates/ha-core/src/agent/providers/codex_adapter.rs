@@ -107,6 +107,11 @@ impl<'a> StreamingChatAdapter for CodexStreamingAdapter<'a> {
                 api_input.insert(0, json!({ "role": "system", "content": suffix }));
             }
         }
+        if let Some(profile_suffix) = req.coding_profile_suffix {
+            if !profile_suffix.is_empty() {
+                api_input.insert(0, json!({ "role": "system", "content": profile_suffix }));
+            }
+        }
         if let Some(related_suffix) = req.related_notes_suffix {
             if !related_suffix.is_empty() {
                 api_input.push(json!({ "role": "system", "content": related_suffix }));

@@ -94,6 +94,14 @@ pub struct CreateSessionBody {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ForkSessionBody {
+    /// Optional source message boundary. When omitted, the full transcript is
+    /// copied. When set, messages are copied through this ID inclusive.
+    pub message_id: Option<i64>,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct RenameSessionBody {
     pub title: String,
 }
@@ -613,6 +621,19 @@ pub async fn create_session(
     Ok(Json(meta))
 }
 
+/// `POST /api/sessions/:id/fork` — copy a regular session into a new first-class session.
+pub async fn fork_session(
+    State(ctx): State<Arc<AppContext>>,
+    Path(id): Path<String>,
+    Json(body): Json<ForkSessionBody>,
+) -> Result<Json<ha_core::session::SessionMeta>, AppError> {
+    let meta = ctx
+        .session_db
+        .run(move |db| db.fork_session(&id, body.message_id))
+        .await?;
+    Ok(Json(meta))
+}
+
 /// `GET /api/sessions` — list sessions with optional filtering and pagination.
 pub async fn list_sessions(
     State(ctx): State<Arc<AppContext>>,
@@ -709,8 +730,20 @@ pub async fn set_session_incognito(
     let enabled = body.enabled;
     ctx.session_db
         .run(move |db| db.update_session_incognito(&id, enabled))
-        .await?;
+        .await
+        .map_err(map_session_incognito_error)?;
     Ok(Json(json!({ "updated": true })))
+}
+
+fn map_session_incognito_error(err: anyhow::Error) -> AppError {
+    let message = err.to_string();
+    if message.contains("Session not found") {
+        AppError::not_found(message)
+    } else if message.contains("Cannot enable incognito") {
+        AppError::bad_request(message)
+    } else {
+        AppError::internal(message)
+    }
 }
 
 /// `PATCH /api/sessions/:id/working-dir` — persist the per-session working

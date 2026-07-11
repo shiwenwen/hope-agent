@@ -1,0 +1,70 @@
+{
+  "name": "focused_scope_excludes_unfocused_files",
+  "description": "Focused review and verification should not sweep unrelated changed frontend files.",
+  "repo": {
+    "files": [
+      {
+        "path": "crates/ha-eval/Cargo.toml",
+        "text": "[package]\nname = \"ha-eval\"\nversion = \"0.1.0\"\nedition = \"2021\"\n"
+      },
+      {
+        "path": "crates/ha-eval/src/lib.rs",
+        "text": "pub fn answer() -> i32 {\n    41\n}\n"
+      },
+      {
+        "path": "src/app.tsx",
+        "text": "export function App() {\n  return <div>old</div>\n}\n"
+      }
+    ],
+    "changes": [
+      {
+        "path": "crates/ha-eval/src/lib.rs",
+        "text": "pub fn answer() -> i32 {\n    println!(\"debug answer\");\n    42\n}\n"
+      },
+      {
+        "path": "src/app.tsx",
+        "text": "export function App() {\n  console.log('debug app')\n  return <div>new</div>\n}\n"
+      }
+    ]
+  },
+  "runs": {
+    "review": {
+      "focusPaths": [
+        "crates/ha-eval/src/lib.rs"
+      ]
+    },
+    "verification": {
+      "focusPaths": [
+        "crates/ha-eval/src/lib.rs"
+      ],
+      "maxCommands": 4
+    }
+  },
+  "checks": {
+    "review": {
+      "minFindings": 2,
+      "expectFocused": true,
+      "expectedTitles": [
+        "Debug output added in production code"
+      ],
+      "expectedFiles": [
+        "crates/ha-eval/src/lib.rs"
+      ],
+      "forbiddenFiles": [
+        "src/app.tsx"
+      ]
+    },
+    "verification": {
+      "expectedCommands": [
+        "cargo check -p ha-eval --locked"
+      ],
+      "forbiddenCommands": [
+        "pnpm typecheck"
+      ],
+      "expectFocused": true,
+      "expectedFocusPaths": [
+        "crates/ha-eval/src/lib.rs"
+      ]
+    }
+  }
+}

@@ -315,20 +315,54 @@ impl Default for StartupNotificationConfig {
 
 // ── Deferred Tools Config ───────────────────────────────────────
 
+pub const DEFAULT_DEFERRED_TOOL_NAMES: &[&str] = &[
+    "acp_spawn",
+    "browser",
+    "get_weather",
+    "image",
+    "issue_report",
+    "knowledge_recall",
+    "list_settings_backups",
+    "mac_control",
+    "pdf",
+    "restore_settings_backup",
+    "team",
+];
+
+fn default_deferred_tools_enabled() -> bool {
+    true
+}
+
+pub fn default_deferred_tool_names() -> Vec<String> {
+    DEFAULT_DEFERRED_TOOL_NAMES
+        .iter()
+        .map(|name| (*name).to_string())
+        .collect()
+}
+
 /// Configuration for deferred tool loading.
 /// `enabled` turns on the mechanism; `tool_names` is the explicit set of
 /// built-in tools whose schemas should be withheld from the initial LLM
 /// request and discovered via `tool_search`.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DeferredToolsConfig {
-    /// Enable deferred tool loading (default: false, opt-in)
-    #[serde(default)]
+    /// Enable deferred tool loading (default: true for low-frequency tools).
+    #[serde(default = "default_deferred_tools_enabled")]
     pub enabled: bool,
-    /// Built-in tool names explicitly deferred by the user. Default empty,
-    /// meaning enabling the global switch alone does not defer any built-ins.
-    #[serde(default)]
+    /// Built-in tool names explicitly deferred by the user. Defaults to the
+    /// low-frequency / large-schema tools marked `default_deferred`.
+    #[serde(default = "default_deferred_tool_names")]
     pub tool_names: Vec<String>,
+}
+
+impl Default for DeferredToolsConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_deferred_tools_enabled(),
+            tool_names: default_deferred_tool_names(),
+        }
+    }
 }
 
 // ── Async Tools Config ──────────────────────────────────────────
@@ -1457,6 +1491,40 @@ impl Default for AppConfig {
             auto_update: crate::updater::AutoUpdateConfig::default(),
             function_models: FunctionModelsConfig::default(),
         }
+    }
+}
+
+#[cfg(test)]
+mod deferred_tools_config_tests {
+    use super::*;
+
+    #[test]
+    fn default_deferred_tools_preloads_low_frequency_tools() {
+        let d = DeferredToolsConfig::default();
+        assert!(d.enabled);
+        for name in DEFAULT_DEFERRED_TOOL_NAMES {
+            assert!(
+                d.tool_names.iter().any(|configured| configured == name),
+                "missing default deferred tool {name}"
+            );
+        }
+    }
+
+    #[test]
+    fn missing_deferred_tools_deserializes_to_default_policy() {
+        let cfg: AppConfig = serde_json::from_str(r#"{"providers":[]}"#).unwrap();
+        assert!(cfg.deferred_tools.enabled);
+        assert_eq!(cfg.deferred_tools.tool_names, default_deferred_tool_names());
+    }
+
+    #[test]
+    fn explicit_deferred_tools_opt_out_survives_deserialization() {
+        let cfg: AppConfig = serde_json::from_str(
+            r#"{"providers":[],"deferredTools":{"enabled":false,"toolNames":[]}}"#,
+        )
+        .unwrap();
+        assert!(!cfg.deferred_tools.enabled);
+        assert!(cfg.deferred_tools.tool_names.is_empty());
     }
 }
 

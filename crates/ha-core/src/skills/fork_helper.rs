@@ -88,6 +88,7 @@ pub async fn spawn_skill_fork(
         timeout_secs: Some(600),
         model_override: None,
         label: Some(format!("Skill: {}", skill.name)),
+        isolate_worktree: false,
         attachments: Vec::new(),
         plan_agent_mode: None,
         plan_mode_allow_paths: Vec::new(),

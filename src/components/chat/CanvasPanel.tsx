@@ -35,10 +35,11 @@ interface CanvasProjectView {
 
 function toCanvasInfo(
   src: { id?: string; projectId?: string } & Omit<CanvasShowPayload, "projectId">,
+  fallbackTitle: string,
 ): CanvasInfo {
   return {
     projectId: (src.projectId ?? src.id ?? "") as string,
-    title: src.title || "Canvas",
+    title: src.title || fallbackTitle,
     contentType: src.contentType || "html",
     projectPath: src.projectPath,
   }
@@ -52,6 +53,7 @@ interface CanvasPanelProps {
   onOpenChange?: (open: boolean) => void
   visible?: boolean
   collapsed?: boolean
+  overlay?: boolean
 }
 
 export const CLOSE_CANVAS_PANEL_EVENT = "hope-agent:close-canvas"
@@ -64,6 +66,7 @@ export default function CanvasPanel({
   onOpenChange,
   visible = true,
   collapsed = false,
+  overlay = false,
 }: CanvasPanelProps) {
   const { t } = useTranslation()
   const [canvas, setCanvas] = useState<CanvasInfo | null>(null)
@@ -97,13 +100,13 @@ export default function CanvasPanel({
         .call("canvas_submit_snapshot", {
           requestId,
           dataUrl: null,
-          error: "Canvas panel is not open or iframe not loaded",
+          error: t("canvas.notReadyError"),
         })
         .catch(() => {})
       return
     }
     iframe.contentWindow.postMessage({ type: "canvas_snapshot", requestId }, "*")
-  }, [])
+  }, [t])
 
   const handleEvalRequest = useCallback((requestId: string, code: string) => {
     const iframe = iframeRef.current
@@ -112,13 +115,13 @@ export default function CanvasPanel({
         .call("canvas_submit_eval_result", {
           requestId,
           result: null,
-          error: "Canvas panel is not open or iframe not loaded",
+          error: t("canvas.notReadyError"),
         })
         .catch(() => {})
       return
     }
     iframe.contentWindow.postMessage({ type: "canvas_eval", requestId, code }, "*")
-  }, [])
+  }, [t])
 
   // Dynamically adjust window min width when canvas is shown/hidden
   useEffect(() => {
@@ -161,7 +164,7 @@ export default function CanvasPanel({
           setCanvas(null)
           return
         }
-        setCanvas(toCanvasInfo(projects[0]))
+        setCanvas(toCanvasInfo(projects[0], t("canvas.panelTitle")))
       } catch {
         if (!cancelled) setCanvas(null)
       }
@@ -169,7 +172,7 @@ export default function CanvasPanel({
     return () => {
       cancelled = true
     }
-  }, [currentSessionId])
+  }, [currentSessionId, t])
 
   // Listen for canvas events from backend
   useEffect(() => {
@@ -185,7 +188,7 @@ export default function CanvasPanel({
           if (data.sessionId && data.sessionId !== currentSessionIdRef.current) {
             return
           }
-          setCanvas(toCanvasInfo(data))
+          setCanvas(toCanvasInfo(data, t("canvas.panelTitle")))
         } catch {
           /* ignore parse errors */
         }
@@ -280,7 +283,7 @@ export default function CanvasPanel({
     return () => {
       unlisteners.forEach((u) => u())
     }
-  }, [handleEvalRequest, handleSnapshotRequest])
+  }, [handleEvalRequest, handleSnapshotRequest, t])
 
   // Handle messages from iframe (eval results, snapshot results)
   useEffect(() => {
@@ -350,7 +353,7 @@ export default function CanvasPanel({
 
       const webview = new WebviewWindow("canvas-window", {
         url,
-        title: `Canvas: ${canvas.title}`,
+        title: t("canvas.detachedWindowTitle", { title: canvas.title }),
         width: 800,
         height: 600,
         minWidth: 400,
@@ -377,7 +380,7 @@ export default function CanvasPanel({
     } catch {
       /* ignore creation errors */
     }
-  }, [canvas])
+  }, [canvas, t])
 
   const handleRefresh = useCallback(() => {
     setRefreshKey((k) => k + 1)
@@ -415,6 +418,7 @@ export default function CanvasPanel({
         resizeLabel={t("canvas.resizePanel", "Resize canvas panel")}
         reservedMainWidth={reservedMainWidth}
         collapsed={collapsed}
+        overlay={overlay}
         contentKey="canvas-detached"
       >
         {/* Title Bar */}
@@ -457,6 +461,7 @@ export default function CanvasPanel({
       maximized={maximized}
       reservedMainWidth={reservedMainWidth}
       collapsed={collapsed}
+      overlay={overlay}
       contentKey="canvas"
     >
       {/* Title Bar */}

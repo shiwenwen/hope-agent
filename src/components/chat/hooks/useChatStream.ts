@@ -136,7 +136,14 @@ function optimisticAttachmentForFile(file: File): MessageAttachment {
 interface SendOptions {
   displayText?: string
   planMode?: string
+  workflowMode?: "off" | "on" | "ultracode" | string
   isPlanTrigger?: boolean
+  goalTrigger?: boolean
+  initialGoal?: {
+    objective: string
+    completionCriteria?: string
+  }
+  sessionIdOverride?: string
   /** Routed through the chat command into `attachments_meta.plan_comment`
    *  so the desktop GUI can render PlanCommentBubble with structured
    *  selection + comment fields. IM channels ignore this and use displayText. */
@@ -967,6 +974,11 @@ export function useChatStream({
     const filesToSend = directText ? [] : [...attachedFiles]
     const quotesToSend = directText ? [] : [...pendingQuotes]
     const displayed = options?.displayText?.trim() || text
+    const sendSessionId = options?.sessionIdOverride ?? currentSessionId
+    if (options?.sessionIdOverride) {
+      currentSessionIdRef.current = options.sessionIdOverride
+      setCurrentSessionId(options.sessionIdOverride)
+    }
     const optimisticQuoteAttachments: MessageAttachment[] = quotesToSend.map((q) => ({
       name: q.name,
       mimeType: "text/plain",
@@ -998,21 +1010,17 @@ export function useChatStream({
       _clientId: optimisticUserClientId,
       ...(optimisticAttachments.length > 0 && { attachments: optimisticAttachments }),
       ...(options?.isPlanTrigger && { isPlanTrigger: true }),
+      ...(options?.goalTrigger && { isGoalTrigger: true }),
       ...(options?.planComment && { planComment: options.planComment }),
     }
-    const sidForCap = currentSessionIdRef.current
+    const sidForCap = sendSessionId ?? currentSessionIdRef.current
     setMessages((prev) => {
       const next = [...prev, optimisticUserMessage]
       return sidForCap && capMessagesForSession ? capMessagesForSession(sidForCap, next) : next
     })
     setLoading(true)
 
-    const attachments = await buildChatAttachments(
-      text,
-      filesToSend,
-      quotesToSend,
-      currentSessionId,
-    )
+    const attachments = await buildChatAttachments(text, filesToSend, quotesToSend, sendSessionId)
     // Per-turn invisible context (knowledge panel: the currently-open note).
     if (getExtraAttachments) {
       for (const extra of getExtraAttachments()) attachments.push(extra)
@@ -1036,7 +1044,7 @@ export function useChatStream({
       return sidForCap && capMessagesForSession ? capMessagesForSession(sidForCap, next) : next
     })
 
-    let targetSessionId = currentSessionId
+    let targetSessionId = sendSessionId ?? currentSessionId
     let chatResolved = false
     let keepExistingStreamLoading = false
 
@@ -1165,8 +1173,11 @@ export function useChatStream({
       // streaming frame's `updateSessionMessages` would read the
       // uncapped array back and `setMessages` it, undoing the cap on
       // every send.
+      const baseMessagesForSend = sendSessionId
+        ? (sessionCacheRef.current.get(sendSessionId) ?? messages)
+        : messages
       const freshMessages: Message[] = [
-        ...messages,
+        ...baseMessagesForSend,
         optimisticUserMessage,
         {
           role: "assistant" as const,
@@ -1194,9 +1205,9 @@ export function useChatStream({
         {
           message: text,
           attachments,
-          sessionId: currentSessionId,
-          incognito: currentSessionId ? undefined : incognitoEnabled,
-          sessionDefaults: currentSessionId
+          sessionId: sendSessionId,
+          incognito: sendSessionId ? undefined : incognitoEnabled,
+          sessionDefaults: sendSessionId
             ? undefined
             : {
                 model: modelOverride,
@@ -1209,11 +1220,10 @@ export function useChatStream({
           // omit so the backend's create-time agent default (create_session_full)
           // wins instead of a seeded/stale value sent before seeding settled.
           permissionMode:
-            currentSessionId || permissionModeDirtyRef.current
-              ? permissionModeRef.current
-              : undefined,
+            sendSessionId || permissionModeDirtyRef.current ? permissionModeRef.current : undefined,
           sandboxMode:
-            currentSessionId || sandboxModeDirtyRef.current ? sandboxModeRef.current : undefined,
+            sendSessionId || sandboxModeDirtyRef.current ? sandboxModeRef.current : undefined,
+          workflowMode: options?.workflowMode,
           planMode:
             effectivePlanMode && effectivePlanMode !== "off" ? effectivePlanMode : undefined,
           // Legacy top-level model/temperature/Think overrides remain available
@@ -1221,13 +1231,21 @@ export function useChatStream({
           // above so draft choices are consumed only during materialization.
           displayText: options?.displayText?.trim() || undefined,
           isPlanTrigger: options?.isPlanTrigger,
+          goalTrigger: options?.goalTrigger,
+          initialGoal:
+            !sendSessionId && options?.initialGoal
+              ? {
+                  objective: options.initialGoal.objective,
+                  completionCriteria: options.initialGoal.completionCriteria,
+                }
+              : undefined,
           planComment: options?.planComment,
-          workingDir: currentSessionId ? undefined : (draftWorkingDir ?? undefined),
+          workingDir: sendSessionId ? undefined : (draftWorkingDir ?? undefined),
           // Lazy project binding — send-time snapshot, only on the auto-create send.
-          projectId: currentSessionId ? undefined : (draftProjectIdRef.current ?? undefined),
+          projectId: sendSessionId ? undefined : (draftProjectIdRef.current ?? undefined),
           // Send-time snapshot: only on the auto-create send, never incognito.
           kbAttachments:
-            currentSessionId || incognitoEnabled
+            sendSessionId || incognitoEnabled
               ? undefined
               : draftKbAttachmentsRef.current.map((a) => ({
                   kbId: a.kbId,
@@ -1235,7 +1253,7 @@ export function useChatStream({
                 })),
           ...(toolScope ? { toolScope } : {}),
           // Anchor only matters on the auto-create send; mirrors kbAttachments.
-          ...(toolScope && !currentSessionId && draftKbAnchorNote
+          ...(toolScope && !sendSessionId && draftKbAnchorNote
             ? { kbAnchorNote: draftKbAnchorNote }
             : {}),
         },
@@ -1415,10 +1433,13 @@ export function useChatStream({
         // Restore staged quotes so they ride along with the replayed message
         // (user-draft path) instead of being silently dropped.
         if (queued.quotes?.length) setPendingQuotes(queued.quotes)
-        if (queued.options && (queued.options.isPlanTrigger || autoSendPendingRef.current)) {
-          // Programmatic queued send (Plan Mode approve, slash-skill
+        if (
+          queued.options &&
+          (queued.options.isPlanTrigger || queued.options.goalTrigger || autoSendPendingRef.current)
+        ) {
+          // Programmatic queued send (Plan Mode approve, Goal Mode, slash-skill
           // expansion). Replay through the auto-send effect with the
-          // original options so `isPlanTrigger` / `displayText` / `planMode`
+          // original options so `isPlanTrigger` / `goalTrigger` / `displayText` / `planMode`
           // survive. Plan triggers are button-driven and should always
           // continue; slash-skill expansions still respect autoSendPending.
           queuedReplayRef.current = queued
@@ -1550,6 +1571,7 @@ export function useChatStream({
             attachments,
             displayText: item.options?.displayText,
             isPlanTrigger: item.options?.isPlanTrigger,
+            goalTrigger: item.options?.goalTrigger,
             planComment: item.options?.planComment,
           },
         )

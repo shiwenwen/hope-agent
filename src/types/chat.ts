@@ -277,13 +277,23 @@ export interface Message {
    *  (R10 `schedule_wakeup`) — sent to the LLM as a normal user turn but
    *  rendered as a system chip, like a cron trigger. */
   isWakeupTrigger?: boolean
+  /** If true, this is a Loop scheduled trigger injected into the model as a
+   *  user turn. The raw trigger prompt is internal protocol and should render
+   *  as a compact system chip rather than a user bubble. */
+  isLoopTrigger?: boolean
   /** If true, this is an exec process completion notification injected by
    *  the backend after a legacy process session exits. */
   isProcessNotification?: boolean
+  /** If true, this is a workflow completion/status notification injected by
+   *  the backend after a model-created durable workflow settles. */
+  isWorkflowResult?: boolean
   /** If true, this user message is a Plan Mode trigger (approve / resume) —
    *  sent to the LLM as a normal user turn but rendered as a system chip
    *  in the UI to distinguish it from real user input. */
   isPlanTrigger?: boolean
+  /** If true, this user message was sent through Goal Mode. It remains a
+   *  normal user bubble, with an extra Goal badge for context. */
+  isGoalTrigger?: boolean
   /** If set, this is a plan inline-comment user message. The desktop GUI
    *  renders {@link PlanCommentBubble} from this structured payload instead
    *  of falling back to the markdown `content`. IM channels render the
@@ -309,6 +319,7 @@ export interface Message {
     kind: "command" | "result"
     command?: string
     displayAs?: "user"
+    mode?: "goal" | "loop"
   }
   /** Model picker data for rendering interactive model selection cards */
   modelPickerData?: {
@@ -495,12 +506,23 @@ export interface SessionMeta {
   isCron: boolean
   parentSessionId?: string | null
   /**
+   * Source session for a user-facing fork. Separate from `parentSessionId`,
+   * which is reserved for hidden sub-agent child sessions.
+   */
+  forkedFromSessionId?: string | null
+  /** Source message boundary when the fork was created from a specific turn. */
+  forkedFromMessageId?: number | null
+  /** Best-effort current title of the source session, if it still exists. */
+  forkedFromSessionTitle?: string | null
+  /**
    * Per-session permission mode. Persisted so the chat title bar's mode
    * switcher is restored when switching back to a historical session.
    */
   permissionMode?: SessionMode
   /** Per-session sandbox execution posture. */
   sandboxMode?: SandboxMode
+  /** Session-scoped Workflow Mode. Enables autonomous workflow orchestration when not off. */
+  workflowMode?: "off" | "on" | "ultracode"
   /**
    * When set, this session belongs to a Project — project-scoped memories
    * and shared files are automatically injected into its system prompt.

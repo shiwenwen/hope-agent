@@ -29,6 +29,7 @@ export interface ApprovalRequest {
       | "browser_download_action"
       | "mac_control_action"
       | "mac_control_dangerous_action"
+      | "external_connector_action"
       | "plan_mode_ask"
       | "cron_delete"
     /** Pattern / path / rationale text to display. */
@@ -56,7 +57,9 @@ function isStrictReasonKind(
   return (
     kind === "protected_path" ||
     kind === "dangerous_command" ||
+    kind === "browser_raw_cdp" ||
     kind === "mac_control_dangerous_action" ||
+    kind === "external_connector_action" ||
     kind === "plan_mode_ask"
   )
 }

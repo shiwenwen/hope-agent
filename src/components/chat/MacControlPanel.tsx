@@ -49,6 +49,7 @@ interface MacControlPanelProps {
   onPanelWidthChange?: (width: number) => void
   reservedMainWidth?: number
   collapsed?: boolean
+  overlay?: boolean
   onClose: () => void
 }
 
@@ -60,6 +61,7 @@ export default function MacControlPanel({
   onPanelWidthChange,
   reservedMainWidth,
   collapsed = false,
+  overlay = false,
   onClose,
 }: MacControlPanelProps) {
   const { t } = useTranslation()
@@ -138,6 +140,7 @@ export default function MacControlPanel({
       resizeLabel={t("chat.browserPanel.resizePanel", "Resize panel")}
       reservedMainWidth={reservedMainWidth}
       collapsed={collapsed}
+      overlay={overlay}
       contentKey="mac-control"
     >
       <div className="flex items-center gap-2 px-3 py-2">

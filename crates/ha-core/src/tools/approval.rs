@@ -79,6 +79,7 @@ pub enum ApprovalReasonKind {
     BrowserDownloadAction,
     MacControlAction,
     MacControlDangerousAction,
+    ExternalConnectorAction,
     PlanModeAsk,
     CronDelete,
 }
@@ -99,6 +100,7 @@ impl ApprovalReasonKind {
                 | Self::DangerousCommand
                 | Self::MacControlDangerousAction
                 | Self::BrowserRawCdp
+                | Self::ExternalConnectorAction
                 | Self::PlanModeAsk
         )
     }
@@ -155,6 +157,10 @@ impl From<&crate::permission::AskReason> for ApprovalReasonPayload {
             MacControlDangerousAction { action } => Self {
                 kind: ApprovalReasonKind::MacControlDangerousAction,
                 detail: Some(action.clone()),
+            },
+            ExternalConnectorAction { connector, action } => Self {
+                kind: ApprovalReasonKind::ExternalConnectorAction,
+                detail: Some(format!("{connector}: {action}")),
             },
             PlanModeAsk => Self {
                 kind: ApprovalReasonKind::PlanModeAsk,
@@ -1119,6 +1125,10 @@ mod tests {
             },
             AskReason::MacControlDangerousAction {
                 action: "quit".into(),
+            },
+            AskReason::ExternalConnectorAction {
+                connector: "gmail".into(),
+                action: "send message".into(),
             },
             AskReason::PlanModeAsk,
             AskReason::CronDelete,

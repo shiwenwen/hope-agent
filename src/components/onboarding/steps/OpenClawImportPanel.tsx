@@ -103,6 +103,46 @@ interface ImportSummary {
   warnings: string[]
 }
 
+const EMPTY_MEMORY_PREVIEW: MemoryPreview = {
+  globalMdPresent: false,
+  agentMdCounts: [],
+}
+
+function normalizeImportPreview(raw: ImportPreview | null | undefined): ImportPreview {
+  if (!raw || typeof raw !== "object") {
+    return {
+      stateDir: "",
+      stateDirPresent: false,
+      providers: [],
+      agents: [],
+      memories: EMPTY_MEMORY_PREVIEW,
+      warnings: [],
+    }
+  }
+
+  return {
+    stateDir: typeof raw.stateDir === "string" ? raw.stateDir : "",
+    stateDirPresent: raw.stateDirPresent === true,
+    providers: Array.isArray(raw.providers) ? raw.providers : [],
+    agents: Array.isArray(raw.agents) ? raw.agents : [],
+    memories:
+      raw.memories && typeof raw.memories === "object"
+        ? {
+            globalMdPresent: raw.memories.globalMdPresent === true,
+            agentMdCounts: Array.isArray(raw.memories.agentMdCounts)
+              ? raw.memories.agentMdCounts.filter(
+                  (entry): entry is [string, number] =>
+                    Array.isArray(entry) &&
+                    typeof entry[0] === "string" &&
+                    typeof entry[1] === "number",
+                )
+              : [],
+          }
+        : EMPTY_MEMORY_PREVIEW,
+    warnings: Array.isArray(raw.warnings) ? raw.warnings : [],
+  }
+}
+
 // ── Component ──────────────────────────────────────────────────
 
 interface OpenClawImportPanelProps {
@@ -142,7 +182,9 @@ export function OpenClawImportPanel({
     const run = async () => {
       setScanning(true)
       try {
-        const result = await getTransport().call<ImportPreview>("scan_openclaw_full")
+        const result = normalizeImportPreview(
+          await getTransport().call<ImportPreview | null | undefined>("scan_openclaw_full"),
+        )
         if (cancelled) return
         setPreview(result)
         const defaultAgentIds = new Set(
@@ -516,7 +558,7 @@ export function OpenClawImportPanel({
                         )}
                       </div>
                       <div className="text-xs text-muted-foreground">
-                        ID:{" "}
+                        {t("onboarding.importOpenClaw.agents.idLabel")}{" "}
                         <Input
                           type="text"
                           value={edit?.targetId ?? a.id}

@@ -58,7 +58,8 @@ export function ProfileStep({ draft, onChange }: ProfileStepProps) {
   useEffect(() => {
     void (async () => {
       try {
-        const cfg = await getTransport().call<UserConfig>("get_user_config")
+        const cfg = await getTransport().call<UserConfig | null | undefined>("get_user_config")
+        if (!cfg || typeof cfg !== "object") return
         userConfigRef.current = cfg
         if (cfg.avatar) setAvatar(cfg.avatar)
       } catch (e) {

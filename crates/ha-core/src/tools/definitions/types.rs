@@ -2,6 +2,7 @@ use serde::Serialize;
 use serde_json::{json, Value};
 
 use super::super::{ToolProvider, ASYNC_JOB_TIMEOUT_ARG};
+use super::metadata::ToolMetadata;
 
 // ── Tool Tier (single source of truth for visibility / injection) ──
 
@@ -143,6 +144,15 @@ impl ToolDefinition {
         matches!(self.tier, ToolTier::Core { .. })
     }
 
+    /// Rich v2 metadata used by tool search, UI metadata, workflow planning, and
+    /// future review/workflow policies. This is intentionally derived as a sidecar
+    /// instead of a required struct literal field so every existing built-in and
+    /// dynamic MCP tool receives v2 metadata without forcing noisy definition
+    /// churn or changing execution/permission behavior.
+    pub fn v2_metadata(&self) -> ToolMetadata {
+        ToolMetadata::for_definition(self)
+    }
+
     /// Render this tool as a JSON metadata payload for `list_builtin_tools`
     /// (Tauri command + `GET /api/chat/tools`). Single source of truth so
     /// both transports return identically-shaped objects to the frontend.
@@ -205,6 +215,7 @@ impl ToolDefinition {
             "config_hint": config_hint,
             "defer_capable": self.supports_deferred(),
             "globally_configured": globally_configured,
+            "metadata": self.v2_metadata(),
         })
     }
 

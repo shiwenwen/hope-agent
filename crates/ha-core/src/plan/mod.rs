@@ -1,5 +1,6 @@
 mod constants;
 mod file_io;
+mod gates;
 mod git;
 mod index;
 mod store;
@@ -19,6 +20,12 @@ pub use constants::is_plan_mode_path_allowed;
 pub use constants::{
     PLAN_COMPLETED_SYSTEM_PROMPT, PLAN_EXECUTING_SYSTEM_PROMPT_PREFIX, PLAN_MODE_ASK_TOOLS,
     PLAN_MODE_DENIED_TOOLS, PLAN_MODE_PATH_AWARE_TOOLS, PLAN_MODE_SYSTEM_PROMPT,
+};
+
+// Quality gates
+pub use gates::{
+    check_plan_quality, check_workflow_script_draft, GateIssue, GateReport, GateSeverity,
+    ScriptGateOptions,
 };
 
 // Store

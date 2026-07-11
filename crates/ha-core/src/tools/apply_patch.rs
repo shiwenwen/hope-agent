@@ -432,6 +432,13 @@ pub(crate) async fn tool_apply_patch(args: &Value, ctx: &super::ToolExecContext)
     for p in &deleted {
         crate::hooks::fire_file_changed(ctx.session_id.as_deref(), p, "delete");
     }
+    for p in &added {
+        crate::lsp::sync_file_after_tool(ctx, p).await;
+    }
+    for p in &modified {
+        let path = p.rsplit(" -> ").next().unwrap_or(p);
+        crate::lsp::sync_file_after_tool(ctx, path).await;
+    }
 
     // Refresh any open file-browser view for each touched path.
     for p in added.iter().chain(deleted.iter()) {

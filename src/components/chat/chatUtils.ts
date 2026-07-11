@@ -15,6 +15,7 @@ import type {
   RetrievalPlannerTrace,
 } from "@/types/chat"
 import { getTransport } from "@/lib/transport-provider"
+import i18n from "@/i18n/i18n"
 import {
   contextCompactionData,
   isContextCompactionPayload,
@@ -27,6 +28,14 @@ import { MAX_MESSAGES, KEEP_AFTER_CAP } from "./hooks/constants"
 const ATTACHMENT_META_KEY_ACTIVE_MEMORY = "active_memory"
 const ATTACHMENT_META_KEY_USED_MEMORY_REFS = "used_memory_refs"
 const ATTACHMENT_META_KEY_RETRIEVAL_PLANNER = "retrieval_planner"
+
+export function shouldSendDraftWorkflowMode(
+  currentSessionId: string | null,
+  incognitoEnabled: boolean,
+  draftWorkflowMode: "off" | "on" | "ultracode",
+): boolean {
+  return !currentSessionId && !incognitoEnabled && draftWorkflowMode !== "off"
+}
 
 /** Parse `__MEDIA_ITEMS__<json>\n<text>` header from a tool result, if present.
  *  Returns the structured items; falls back to undefined on malformed JSON. */
@@ -233,18 +242,22 @@ function parseRetrievalPlannerMeta(
  *  sub-agent result, cron trigger, plan-mode approve/resume) rather than as
  *  a user/assistant bubble. */
 export function isCenteredSystemMessage(msg: Message): boolean {
+  if (msg.slashEvent?.displayAs === "user") return false
   return (
     msg.role === "event" ||
     !!msg.isSubagentResult ||
     !!msg.isCronTrigger ||
     !!msg.isWakeupTrigger ||
+    !!msg.isLoopTrigger ||
     !!msg.isProcessNotification ||
+    !!msg.isWorkflowResult ||
     !!msg.isPlanTrigger
   )
 }
 
 /** True when a message should align and style like a human user bubble. */
 export function isUserAlignedMessage(msg: Message): boolean {
+  if (isCenteredSystemMessage(msg)) return false
   return msg.role === "user" || msg.slashEvent?.displayAs === "user"
 }
 
@@ -414,7 +427,9 @@ export function formatMessageTime(timestamp?: string): string {
     const minutes = date.getMinutes().toString().padStart(2, "0")
     const time = `${hours}:${minutes}`
     if (isToday) return time
-    if (isYesterday) return `昨天 ${time}`
+    if (isYesterday) {
+      return String(i18n.t("chat.messageTimeYesterday", { time, defaultValue: `Yesterday ${time}` }))
+    }
     const month = date.getMonth() + 1
     const day = date.getDate()
     if (date.getFullYear() === now.getFullYear()) return `${month}/${day} ${time}`
@@ -629,8 +644,11 @@ export function parseSessionMessages(
       let isCronTrigger = false
       let cronJobName: string | undefined
       let isWakeupTrigger = false
+      let isLoopTrigger = false
       let isProcessNotification = false
+      let isWorkflowResult = false
       let isPlanTrigger = false
+      let isGoalTrigger = false
       let planComment: { selectedText: string; comment: string } | undefined
       let channelInbound:
         | { channelId: string; accountId?: string; chatId?: string; senderName?: string }
@@ -650,11 +668,20 @@ export function parseSessionMessages(
           if (meta?.wakeup_trigger) {
             isWakeupTrigger = true
           }
+          if (meta?.loop_trigger) {
+            isLoopTrigger = true
+          }
           if (meta?.process_notification) {
             isProcessNotification = true
           }
+          if (meta?.workflow_result) {
+            isWorkflowResult = true
+          }
           if (meta?.plan_trigger) {
             isPlanTrigger = true
+          }
+          if (meta?.goal_trigger) {
+            isGoalTrigger = true
           }
           if (
             meta?.plan_comment &&
@@ -700,8 +727,11 @@ export function parseSessionMessages(
         isCronTrigger,
         cronJobName,
         isWakeupTrigger,
+        isLoopTrigger,
         isProcessNotification,
+        isWorkflowResult,
         isPlanTrigger,
+        isGoalTrigger,
         planComment,
         channelInbound,
         ...(attachments ? { attachments } : {}),
@@ -848,6 +878,7 @@ export function parseSessionMessages(
               kind: slash.kind,
               command: typeof slash.command === "string" ? slash.command : undefined,
               displayAs: slash.displayAs === "user" ? "user" : undefined,
+              mode: slash.mode === "goal" || slash.mode === "loop" ? slash.mode : undefined,
             }
           }
         } catch {
@@ -1072,6 +1103,9 @@ function messageContentEqual(a: Message, b: Message): boolean {
     a.slashEvent?.kind === b.slashEvent?.kind &&
     a.slashEvent?.displayAs === b.slashEvent?.displayAs &&
     a.slashEvent?.command === b.slashEvent?.command &&
+    a.slashEvent?.mode === b.slashEvent?.mode &&
+    a.isGoalTrigger === b.isGoalTrigger &&
+    a.isLoopTrigger === b.isLoopTrigger &&
     a.thinking === b.thinking &&
     a.timestamp === b.timestamp &&
     a.model === b.model &&

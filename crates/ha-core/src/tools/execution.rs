@@ -10,25 +10,29 @@ use super::issue_report;
 use super::send_attachment;
 use super::skill;
 use super::{
-    acp_spawn, browser, cron, mac_control, memory, note, notification, settings, subagent, team,
-    weather, web_fetch, web_search,
+    acp_spawn, browser, cron, goal, loop_tool, mac_control, memory, note, notification, settings,
+    subagent, team, weather, web_fetch, web_search, workflow_tool,
 };
 use super::{
     agents, ask_user_question, canvas, enter_plan_mode, image, image_generate, job_status, pdf,
     runtime_cancel, schedule_wakeup, sessions, submit_plan, task,
 };
-use super::{apply_patch, edit, exec, find, grep, ls, process, read, write};
+use super::{apply_patch, edit, exec, find, grep, ls, lsp, process, read, write};
 use super::{
     approval, TOOL_ACP_SPAWN, TOOL_AGENTS_LIST, TOOL_APPLY_PATCH, TOOL_ASK_USER_QUESTION,
     TOOL_BROWSER, TOOL_CANVAS, TOOL_DELETE_MEMORY, TOOL_EDIT, TOOL_ENTER_PLAN_MODE, TOOL_EXEC,
-    TOOL_FIND, TOOL_GET_SETTINGS, TOOL_GET_WEATHER, TOOL_GREP, TOOL_IMAGE, TOOL_IMAGE_GENERATE,
-    TOOL_ISSUE_REPORT, TOOL_JOB_STATUS, TOOL_LIST_SETTINGS_BACKUPS, TOOL_LS, TOOL_MAC_CONTROL,
-    TOOL_MANAGE_CRON, TOOL_MEMORY_GET, TOOL_PDF, TOOL_PROCESS, TOOL_READ, TOOL_RECALL_MEMORY,
-    TOOL_RESTORE_SETTINGS_BACKUP, TOOL_RUNTIME_CANCEL, TOOL_SAVE_MEMORY, TOOL_SEND_ATTACHMENT,
-    TOOL_SEND_NOTIFICATION, TOOL_SESSIONS_HISTORY, TOOL_SESSIONS_LIST, TOOL_SESSIONS_SEARCH,
-    TOOL_SESSIONS_SEND, TOOL_SESSION_STATUS, TOOL_SUBAGENT, TOOL_SUBMIT_PLAN, TOOL_TASK_CREATE,
-    TOOL_TASK_LIST, TOOL_TASK_UPDATE, TOOL_TEAM, TOOL_UPDATE_CORE_MEMORY, TOOL_UPDATE_MEMORY,
-    TOOL_UPDATE_SETTINGS, TOOL_WEB_FETCH, TOOL_WEB_SEARCH, TOOL_WRITE,
+    TOOL_FIND, TOOL_GET_SETTINGS, TOOL_GET_WEATHER, TOOL_GOAL_BLOCK_REQUEST, TOOL_GOAL_CHECKPOINT,
+    TOOL_GOAL_EVALUATE, TOOL_GOAL_FINISH_REQUEST, TOOL_GOAL_PREPARE_CONTRACT,
+    TOOL_GOAL_RECORD_EVIDENCE, TOOL_GOAL_STATUS, TOOL_GREP, TOOL_IMAGE, TOOL_IMAGE_GENERATE,
+    TOOL_ISSUE_REPORT, TOOL_JOB_STATUS, TOOL_LIST_SETTINGS_BACKUPS, TOOL_LOOP_RECORD_PROGRESS,
+    TOOL_LOOP_RESCHEDULE, TOOL_LOOP_STATUS, TOOL_LOOP_STOP, TOOL_LOOP_UNWATCH, TOOL_LOOP_WATCH,
+    TOOL_LS, TOOL_LSP, TOOL_MAC_CONTROL, TOOL_MANAGE_CRON, TOOL_MEMORY_GET, TOOL_PDF, TOOL_PROCESS,
+    TOOL_READ, TOOL_RECALL_MEMORY, TOOL_RESTORE_SETTINGS_BACKUP, TOOL_RUNTIME_CANCEL,
+    TOOL_SAVE_MEMORY, TOOL_SEND_ATTACHMENT, TOOL_SEND_NOTIFICATION, TOOL_SESSIONS_HISTORY,
+    TOOL_SESSIONS_LIST, TOOL_SESSIONS_SEARCH, TOOL_SESSIONS_SEND, TOOL_SESSION_STATUS,
+    TOOL_SUBAGENT, TOOL_SUBMIT_PLAN, TOOL_TASK_CREATE, TOOL_TASK_LIST, TOOL_TASK_UPDATE, TOOL_TEAM,
+    TOOL_UPDATE_CORE_MEMORY, TOOL_UPDATE_MEMORY, TOOL_UPDATE_SETTINGS, TOOL_WEB_FETCH,
+    TOOL_WEB_SEARCH, TOOL_WORKFLOW, TOOL_WRITE,
 };
 use super::{
     TOOL_KNOWLEDGE_RECALL, TOOL_NOTE_APPEND, TOOL_NOTE_ASSIGN_BLOCK, TOOL_NOTE_BACKLINKS,
@@ -168,6 +172,18 @@ const TOOL_TIMEOUT_CLEANUP_GRACE: Duration = Duration::from_secs(5);
 
 // ── Tool Execution Context ────────────────────────────────────────
 
+/// Optional bound session database for non-global agent/runtime paths. A
+/// newtype with a hand-written `Debug` keeps SQLite connection internals out of
+/// logs while letting `ToolExecContext` remain debuggable.
+#[derive(Clone)]
+pub struct SessionDbHandle(pub Arc<crate::session::SessionDB>);
+
+impl std::fmt::Debug for SessionDbHandle {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("SessionDbHandle(..)")
+    }
+}
+
 /// Context passed to tool execution for dynamic behavior.
 ///
 /// # Concurrency contract
@@ -201,6 +217,9 @@ pub struct ToolExecContext {
     pub session_working_dir: Option<String>,
     /// Current session ID (for sub-agent spawning context)
     pub session_id: Option<String>,
+    /// Session DB bound to this agent/runtime path. When absent, tools fall
+    /// back to the process-global session DB for legacy callers.
+    pub session_db: Option<SessionDbHandle>,
     /// Provider tool-call id for the currently executing tool. Async jobs
     /// persist this so completion notifications can point back to the exact
     /// original call.
@@ -304,6 +323,11 @@ pub struct ToolExecContext {
     pub channel_kb_context: Option<crate::knowledge::ChannelKbContext>,
     /// Per-agent async tool backgrounding policy (mirrors AgentConfig.capabilities.async_tool_policy).
     pub async_tool_policy: AsyncToolPolicy,
+    /// Optional caller-preallocated async job id. Durable parent runtimes set
+    /// this before dispatching an explicit `run_in_background` tool so they can
+    /// persist the child handle before the side effect starts. Ignored unless
+    /// this dispatch actually takes the immediate async-job path.
+    pub async_job_id_override: Option<String>,
     /// Internal flag set by the async-job spawner when re-dispatching an
     /// async-capable tool inside a background runtime. Prevents infinite
     /// recursion: even if the tool is async-capable and the policy is
@@ -319,6 +343,11 @@ pub struct ToolExecContext {
     /// not wrap the output first, materialize image markers, or turn the async
     /// output-file into a pointer to a second file.
     pub suppress_result_disk_persistence: bool,
+    /// Internal flag for workflow-owned async jobs whose result is surfaced by
+    /// their parent workflow UI instead of by a chat `<task-notification>`.
+    /// Terminal state, hooks, events, and Background Jobs rows still update; the
+    /// row is simply marked injected so replay does not synthesize a chat turn.
+    pub suppress_completion_injection: bool,
     /// Whether the owning session is incognito (`sessions.incognito`). Resolved
     /// once per ctx build from the session row. Incognito sessions must leave no
     /// disk trace, so this gates large-tool-result spooling
@@ -585,9 +614,57 @@ impl ToolExecContext {
         }
     }
 
+    async fn workflow_visibility_error(&self, name: &str) -> Option<String> {
+        if canonical_builtin_tool_name(name) != TOOL_WORKFLOW {
+            return None;
+        }
+        let Some(session_id) = self.session_id.as_deref() else {
+            return Some(
+                "workflow requires an active session with Workflow Mode enabled.".to_string(),
+            );
+        };
+        if self.incognito {
+            return Some(
+                "workflow is disabled for incognito sessions because workflow runs are durable."
+                    .to_string(),
+            );
+        }
+        let Some(db) = self
+            .session_db
+            .as_ref()
+            .map(|handle| handle.0.clone())
+            .or_else(|| crate::get_session_db().cloned())
+        else {
+            return Some("workflow cannot execute because Session DB is unavailable.".into());
+        };
+        let session_id = session_id.to_string();
+        let mode = match db
+            .run(move |db| db.get_session_workflow_mode(&session_id))
+            .await
+        {
+            Ok(Some(mode)) => mode,
+            Ok(None) => Default::default(),
+            Err(e) => {
+                return Some(format!(
+                    "workflow cannot read the session Workflow Mode: {e}"
+                ));
+            }
+        };
+        if !mode.enabled() {
+            return Some(
+                "Workflow Mode is off for this session. Use `/workflow on` or the GUI toggle before calling workflow."
+                    .to_string(),
+            );
+        }
+        None
+    }
+
     /// Human-readable reason when a tool is blocked by the current restrictions.
-    pub fn tool_visibility_error(&self, name: &str) -> Option<String> {
+    pub async fn tool_visibility_error(&self, name: &str) -> Option<String> {
         if let Some(err) = self.builtin_fate_error(name) {
+            return Some(err);
+        }
+        if let Some(err) = self.workflow_visibility_error(name).await {
             return Some(err);
         }
         if self.denied_tools.iter().any(|t| t == name) {
@@ -928,6 +1005,11 @@ fn needs_permission_engine(
     let plan_requires_ask = plan_mode_active && ctx.plan_mode_ask_tools.iter().any(|t| t == name);
     let auto_approve_blocked_by_plan = effective_auto_approve && plan_requires_ask;
     let exec_skip_blocked_by_plan = name == TOOL_EXEC && plan_requires_ask;
+    let connector_action_requires_approval = !ctx.external_pre_approved
+        && crate::permission::engine::classify_external_connector_action(name, args).is_some();
+    if connector_action_requires_approval && !is_skill_read(name, args) {
+        return true;
+    }
     (!effective_auto_approve || auto_approve_blocked_by_plan)
         && !is_skill_read(name, args)
         && (name != TOOL_EXEC || exec_skip_blocked_by_plan)
@@ -1310,7 +1392,7 @@ pub async fn execute_tool_with_context(
     // Defense-in-depth: enforce the same effective visibility rules used for
     // schema generation and tool_search, so a tool cannot execute if it was
     // hidden by Agent filter, denied_tools, skill allowlist, or Plan Mode.
-    if let Some(err) = ctx.tool_visibility_error(name) {
+    if let Some(err) = ctx.tool_visibility_error(name).await {
         return Err(anyhow::anyhow!(err));
     }
 
@@ -1655,7 +1737,18 @@ pub async fn execute_tool_with_context(
         // gate is deferred); the bridge corrects it to the real decision on resume.
         spawn_ctx.exec_pre_approved = exec_pre_approved;
         spawn_ctx.approval_origin = tool_approval_origin;
-        let raw = async_jobs::JobManager::spawn_tool(name, args.clone(), spawn_ctx, origin)?;
+        let job_id_override = spawn_ctx.async_job_id_override.take();
+        let raw = if let Some(job_id) = job_id_override {
+            async_jobs::JobManager::spawn_tool_with_id(
+                name,
+                args.clone(),
+                spawn_ctx,
+                origin,
+                job_id,
+            )?
+        } else {
+            async_jobs::JobManager::spawn_tool(name, args.clone(), spawn_ctx, origin)?
+        };
         // Skip the disk-persist tail since the synthetic JSON is small and
         // mirrors the same shape `job_status` returns later.
         return Ok(raw);
@@ -1730,6 +1823,7 @@ pub async fn execute_tool_with_context(
             TOOL_WRITE | "write_file" => write::tool_write_file(args, dispatch_ctx).await,
             TOOL_EDIT | "patch_file" => edit::tool_edit(args, dispatch_ctx).await,
             TOOL_LS | "list_dir" => ls::tool_ls(args, dispatch_ctx).await,
+            TOOL_LSP => lsp::tool_lsp(args, dispatch_ctx).await,
             TOOL_GREP => grep::tool_grep(args, dispatch_ctx).await,
             TOOL_FIND => find::tool_find(args, dispatch_ctx).await,
             TOOL_APPLY_PATCH => apply_patch::tool_apply_patch(args, dispatch_ctx).await,
@@ -1749,6 +1843,7 @@ pub async fn execute_tool_with_context(
             TOOL_SUBAGENT => subagent::tool_subagent(args, dispatch_ctx).await,
             TOOL_TEAM => team::tool_team(args, dispatch_ctx).await,
             TOOL_ACP_SPAWN => acp_spawn::tool_acp_spawn(args, dispatch_ctx).await,
+            TOOL_WORKFLOW => workflow_tool::tool_workflow(args, dispatch_ctx).await,
             TOOL_MEMORY_GET => memory::tool_memory_get(args).await,
             // Knowledge base (note_*) tools.
             TOOL_NOTE_CREATE => note::tool_note_create(args, dispatch_ctx).await,
@@ -1805,6 +1900,27 @@ pub async fn execute_tool_with_context(
             TOOL_TASK_LIST => {
                 Ok(task::tool_task_list(args, dispatch_ctx.session_id.as_deref()).await)
             }
+            TOOL_GOAL_STATUS => Ok(goal::tool_goal_status(args, dispatch_ctx).await),
+            TOOL_GOAL_PREPARE_CONTRACT => {
+                Ok(goal::tool_goal_prepare_contract(args, dispatch_ctx).await)
+            }
+            TOOL_GOAL_CHECKPOINT => Ok(goal::tool_goal_checkpoint(args, dispatch_ctx).await),
+            TOOL_GOAL_RECORD_EVIDENCE => {
+                Ok(goal::tool_goal_record_evidence(args, dispatch_ctx).await)
+            }
+            TOOL_GOAL_EVALUATE => Ok(goal::tool_goal_evaluate(args, dispatch_ctx).await),
+            TOOL_GOAL_FINISH_REQUEST => {
+                Ok(goal::tool_goal_finish_request(args, dispatch_ctx).await)
+            }
+            TOOL_GOAL_BLOCK_REQUEST => Ok(goal::tool_goal_block_request(args, dispatch_ctx).await),
+            TOOL_LOOP_STATUS => Ok(loop_tool::tool_loop_status(args, dispatch_ctx).await),
+            TOOL_LOOP_RESCHEDULE => Ok(loop_tool::tool_loop_reschedule(args, dispatch_ctx).await),
+            TOOL_LOOP_STOP => Ok(loop_tool::tool_loop_stop(args, dispatch_ctx).await),
+            TOOL_LOOP_RECORD_PROGRESS => {
+                Ok(loop_tool::tool_loop_record_progress(args, dispatch_ctx).await)
+            }
+            TOOL_LOOP_WATCH => Ok(loop_tool::tool_loop_watch(args, dispatch_ctx).await),
+            TOOL_LOOP_UNWATCH => Ok(loop_tool::tool_loop_unwatch(args, dispatch_ctx).await),
             super::TOOL_APP_UPDATE => app_update::tool_app_update(args, dispatch_ctx).await,
             TOOL_JOB_STATUS => {
                 job_status::tool_job_status(args, dispatch_ctx.session_id.as_deref()).await
@@ -2314,11 +2430,11 @@ fn persist_large_result(
 mod tests {
     use super::{
         build_persisted_large_result_preview, decide_async_path_with_config,
-        exec_process_background_mode, maybe_persist_large_tool_result,
+        exec_process_background_mode, execute_tool_with_context, maybe_persist_large_tool_result,
         mcp_server_auto_approves_config, migrate_exec_process_mode_to_async_job_args,
         needs_permission_engine, should_migrate_exec_process_mode_to_async_job_with_config,
         should_run_exec_reorder_gate, tool_timeout, validate_async_background_contract,
-        AsyncDecision, JobOrigin, ToolExecContext,
+        AsyncDecision, JobOrigin, SessionDbHandle, ToolExecContext,
     };
     use crate::agent_config::AsyncToolPolicy;
     use crate::mcp::{McpServerConfig, McpTransportSpec, McpTrustLevel};
@@ -2329,6 +2445,7 @@ mod tests {
     use std::collections::BTreeMap;
     use std::io::Cursor;
     use std::path::Path;
+    use std::sync::Arc;
 
     fn mcp_cfg(auto_approve: bool, trust_level: McpTrustLevel) -> McpServerConfig {
         McpServerConfig {
@@ -2381,6 +2498,155 @@ mod tests {
         };
 
         assert!(tool_timeout(&ctx).is_none());
+    }
+
+    #[tokio::test]
+    async fn workflow_execution_uses_bound_session_db_and_mode_gate() {
+        let dir = tempfile::tempdir().expect("temp session db dir");
+        let db = Arc::new(
+            crate::session::SessionDB::open(&dir.path().join("sessions.db"))
+                .expect("open session db"),
+        );
+        let session = db.create_session("ha-main").expect("create session");
+        let ctx = ToolExecContext {
+            session_id: Some(session.id.clone()),
+            session_db: Some(SessionDbHandle(db.clone())),
+            ..ToolExecContext::default()
+        };
+        let script = r#"
+export default async function main(workflow) {
+  const task = await workflow.task.create({ title: "Run bounded smoke workflow" });
+  await workflow.trace({ label: "budget", payload: { maxRuntimeSecs: 60, maxOps: 6 } });
+  const validation = await workflow.validate({
+    label: "validate",
+    reason: "bounded smoke validation",
+    commands: [{ command: "true", label: "smoke" }]
+  });
+  await workflow.task.update({ task, status: "completed" });
+  await workflow.finish({ summary: "ok", verification: validation, residualRisk: "none" });
+}
+"#;
+        let args = json!({
+            "action": "create",
+            "script": script,
+            "sizeGuideline": "small",
+            "runImmediately": false
+        });
+
+        let off_err = execute_tool_with_context(crate::tools::TOOL_WORKFLOW, &args, &ctx)
+            .await
+            .expect_err("workflow should be rejected while Workflow Mode is off");
+        assert!(off_err.to_string().contains("Workflow Mode is off"));
+        assert!(db
+            .list_workflow_runs_for_session(&session.id, 10)
+            .expect("list workflow runs")
+            .is_empty());
+
+        db.update_session_workflow_mode(&session.id, crate::workflow_mode::WorkflowMode::On)
+            .expect("enable workflow mode");
+        let raw = execute_tool_with_context(crate::tools::TOOL_WORKFLOW, &args, &ctx)
+            .await
+            .expect("workflow should create a run when Workflow Mode is on");
+        let parsed: serde_json::Value = serde_json::from_str(&raw).expect("parse tool result");
+        assert_eq!(parsed["kind"].as_str(), Some("general.workflow"));
+        assert_eq!(parsed["initialState"].as_str(), Some("draft"));
+        assert_eq!(parsed["expectedNextState"].as_str(), Some("draft"));
+        assert_eq!(parsed["sizeGuideline"].as_str(), Some("small"));
+        assert_eq!(parsed["startRequested"].as_bool(), Some(false));
+        assert_eq!(parsed["launchAccepted"].as_bool(), Some(false));
+        assert!(parsed.get("started").is_none());
+        assert!(parsed.get("queued").is_none());
+
+        let runs = db
+            .list_workflow_runs_for_session(&session.id, 10)
+            .expect("list workflow runs");
+        assert_eq!(runs.len(), 1);
+        assert_eq!(runs[0].kind, "general.workflow");
+        assert_eq!(
+            runs[0]
+                .budget
+                .get("sizeGuideline")
+                .and_then(serde_json::Value::as_str),
+            Some("small")
+        );
+        let run_id = runs[0].id.clone();
+
+        let list_raw = execute_tool_with_context(
+            crate::tools::TOOL_WORKFLOW,
+            &json!({ "action": "list", "scope": "active" }),
+            &ctx,
+        )
+        .await
+        .expect("workflow list should return visible runs");
+        let list: serde_json::Value =
+            serde_json::from_str(&list_raw).expect("parse workflow list result");
+        assert_eq!(list["action"].as_str(), Some("list"));
+        assert_eq!(list["count"].as_u64(), Some(1));
+        assert_eq!(list["runs"][0]["runId"].as_str(), Some(run_id.as_str()));
+        assert_eq!(list["runs"][0]["sizeGuideline"].as_str(), Some("small"));
+
+        let status_raw = execute_tool_with_context(
+            crate::tools::TOOL_WORKFLOW,
+            &json!({ "action": "status" }),
+            &ctx,
+        )
+        .await
+        .expect("workflow status should select the visible run");
+        let status: serde_json::Value =
+            serde_json::from_str(&status_raw).expect("parse workflow status result");
+        assert_eq!(status["action"].as_str(), Some("status"));
+        assert_eq!(status["run"]["runId"].as_str(), Some(run_id.as_str()));
+        assert_eq!(status["run"]["sizeGuideline"].as_str(), Some("small"));
+        assert!(status["pendingActions"].is_array());
+
+        db.append_workflow_event(
+            &run_id,
+            "trace",
+            json!({ "label": "checkpoint", "payload": { "summary": "phase done" } }),
+        )
+        .expect("append trace event");
+        let trace_raw = execute_tool_with_context(
+            crate::tools::TOOL_WORKFLOW,
+            &json!({ "action": "trace", "runId": run_id.as_str(), "includePayload": false }),
+            &ctx,
+        )
+        .await
+        .expect("workflow trace should return events");
+        let trace: serde_json::Value =
+            serde_json::from_str(&trace_raw).expect("parse workflow trace result");
+        assert_eq!(trace["action"].as_str(), Some("trace"));
+        assert!(trace["count"].as_u64().unwrap_or(0) >= 1);
+        assert!(trace["events"][0].get("payloadSummary").is_some());
+
+        let invalid_control = execute_tool_with_context(
+            crate::tools::TOOL_WORKFLOW,
+            &json!({ "action": "control", "runId": run_id.as_str(), "command": "approve" }),
+            &ctx,
+        )
+        .await
+        .expect_err("workflow model tool must not accept approval control");
+        assert!(invalid_control.to_string().contains("unknown variant"));
+
+        if !crate::runtime_lock::is_primary() {
+            let start_now_err = execute_tool_with_context(
+                crate::tools::TOOL_WORKFLOW,
+                &json!({ "action": "create", "script": script }),
+                &ctx,
+            )
+            .await
+            .expect_err("non-primary workflow should not create an unstartable draft");
+            assert!(start_now_err
+                .to_string()
+                .contains("primary runtime process"));
+            let runs = db
+                .list_workflow_runs_for_session(&session.id, 10)
+                .expect("list workflow runs");
+            assert_eq!(
+                runs.len(),
+                1,
+                "default-start failure must not create a draft run"
+            );
+        }
     }
 
     #[test]
@@ -2655,6 +2921,40 @@ mod tests {
             &json!({}),
             &ctx,
             true
+        ));
+    }
+
+    #[test]
+    fn auto_approved_connector_action_still_runs_engine() {
+        let ctx = ToolExecContext {
+            auto_approve_tools: true,
+            ..ToolExecContext::default()
+        };
+        assert!(needs_permission_engine(
+            crate::tools::feishu::TOOL_CALENDAR_CREATE_EVENT,
+            &json!({"summary": "Customer call"}),
+            &ctx,
+            ctx.local_auto_approve()
+        ));
+        assert!(needs_permission_engine(
+            "mcp__gmail__send_email",
+            &json!({"to": "user@example.com", "body": "hello"}),
+            &ctx,
+            true
+        ));
+    }
+
+    #[test]
+    fn external_pre_approved_connector_action_skips_engine_reentry() {
+        let ctx = ToolExecContext {
+            external_pre_approved: true,
+            ..ToolExecContext::default()
+        };
+        assert!(!needs_permission_engine(
+            crate::tools::feishu::TOOL_CALENDAR_CREATE_EVENT,
+            &json!({"summary": "Customer call"}),
+            &ctx,
+            ctx.local_auto_approve()
         ));
     }
 

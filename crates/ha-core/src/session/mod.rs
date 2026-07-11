@@ -6,6 +6,7 @@ mod environment;
 pub(crate) mod events;
 pub mod export;
 mod helpers;
+mod ide_context;
 mod pending;
 mod subagent_db;
 mod tasks;
@@ -17,6 +18,7 @@ pub(crate) use db::strip_fts_snippet_sentinels;
 pub use db::{
     LastAssistantTokens, ProjectFilter, SessionDB, SessionSearchResult, SessionTypeFilter,
 };
+pub(crate) use environment::load_git_diff_for_root;
 pub use environment::{
     load_session_environment, load_session_git_diff, WorkspaceEnvironmentSnapshot,
     WorkspaceGitCommit, WorkspaceGitDiff, WorkspaceGitFileAction, WorkspaceGitFileChange,
@@ -26,13 +28,19 @@ pub use environment::{
 pub use helpers::{
     auto_title, cleanup_orphan_incognito, db_path, effective_session_working_dir,
     effective_working_dir_for_meta, ensure_first_message_title, ensure_session_runtime_defaults,
-    is_session_incognito, lookup_session_meta, resolve_chat_runtime_defaults,
-    set_session_model_preference, set_session_reasoning_effort_preference,
-    set_session_temperature_preference, ChatRuntimeDefaults,
+    first_message_title_candidate, is_session_incognito, lookup_session_meta,
+    resolve_chat_runtime_defaults, set_session_model_preference,
+    set_session_reasoning_effort_preference, set_session_temperature_preference,
+    ChatRuntimeDefaults,
+};
+pub use ide_context::{
+    IdeDiagnosticContext, IdeLineRange, IdeSymbolContext, SessionIdeContext,
+    SessionIdeContextSnapshot,
 };
 pub use pending::enrich_pending_interactions;
 pub use tasks::{
-    delete_task_and_snapshot, emit_task_snapshot, set_task_status_and_snapshot, Task, TaskStatus,
+    create_task_and_snapshot, delete_task_and_snapshot, emit_task_snapshot,
+    set_task_status_and_snapshot, Task, TaskStatus,
 };
 pub use turns::{ChatTurn, ChatTurnInterruptReason, ChatTurnStatus};
 pub use types::{

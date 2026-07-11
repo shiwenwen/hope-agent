@@ -24,6 +24,10 @@ import {
 import { ChatWelcomeHero } from "./ChatWelcomeHero"
 import { SkillMentionText } from "./skill-mention/SkillMentionText"
 import MessageBubble from "./MessageBubble"
+import {
+  goalCompletionReportFromMessage,
+  type GoalCompletionReport,
+} from "./message/goalCompletionReport"
 import MessageContextMenu from "./MessageContextMenu"
 import LoadMoreRow from "./LoadMoreRow"
 import AskUserQuestionBlock from "./ask-user/AskUserQuestionBlock"
@@ -88,6 +92,7 @@ interface MessageListProps {
       | import("@/types/chat").FileChangesMetadata,
   ) => void
   onResume?: (message: string) => void
+  onForkFromMessage?: (messageId: number) => void
   onOpenMemorySettings?: () => void
   onOpenKnowledge?: () => void
   onAddQuickPrompt?: (content: string) => void
@@ -117,6 +122,8 @@ interface MessageRenderItem {
   sourceDbId?: number
   footerFiles?: MessageFileAttachment[]
   hideOwnFooterFiles?: boolean
+  goalCompletionReport?: GoalCompletionReport | null
+  suppressGoalCompletionFooter?: boolean
 }
 
 interface CompletedTurnCollapseRow {
@@ -128,9 +135,7 @@ interface CompletedTurnCollapseRow {
   expanded: boolean
 }
 
-type MessageRenderRow =
-  | { kind: "message"; item: MessageRenderItem }
-  | CompletedTurnCollapseRow
+type MessageRenderRow = { kind: "message"; item: MessageRenderItem } | CompletedTurnCollapseRow
 
 interface CompactUserAnchor {
   dbId?: number
@@ -242,9 +247,7 @@ function mergeMessageFileAttachments(
 
 function filesFromRenderItem(item: MessageRenderItem): MessageFileAttachment[] {
   const blocks = item.msg.contentBlocks
-  return item.msg.role === "assistant" && blocks
-    ? extractMessageFileAttachments(blocks)
-    : []
+  return item.msg.role === "assistant" && blocks ? extractMessageFileAttachments(blocks) : []
 }
 
 function hideFooterFilesOnItems(items: MessageRenderItem[]): MessageRenderItem[] {
@@ -283,7 +286,10 @@ function messageSearchText(msg: Message): string {
   return parts.filter(Boolean).join("\n")
 }
 
-function containsAnyHighlightTerm(text: string | null | undefined, terms: string[] | null): boolean {
+function containsAnyHighlightTerm(
+  text: string | null | undefined,
+  terms: string[] | null,
+): boolean {
   if (!terms || terms.length === 0 || !text) return false
   const haystack = text.toLowerCase()
   return terms.some((term) => term && haystack.includes(term.toLowerCase()))
@@ -378,6 +384,12 @@ function splitAssistantFinalAnswer(item: MessageRenderItem): {
   const baseKey = rowKeyForItem(item)
   const prefixContent = textContentFromBlocks(prefixBlocks)
   const finalContent = textContentFromBlocks(finalBlocks) || item.msg.content
+  const hoistedGoalCompletionReport = goalCompletionReportFromMessage({
+    ...item.msg,
+    content: prefixContent,
+    contentBlocks: prefixBlocks,
+    toolCalls: undefined,
+  })
 
   return {
     prefixCount,
@@ -394,6 +406,7 @@ function splitAssistantFinalAnswer(item: MessageRenderItem): {
       originalIndex: item.originalIndex,
       keyOverride: `${baseKey}:prefix`,
       sourceDbId: item.msg.dbId,
+      suppressGoalCompletionFooter: hoistedGoalCompletionReport != null,
     },
     finalItem: {
       msg: {
@@ -405,6 +418,7 @@ function splitAssistantFinalAnswer(item: MessageRenderItem): {
       },
       originalIndex: item.originalIndex,
       keyOverride: `${baseKey}:final`,
+      ...(hoistedGoalCompletionReport ? { goalCompletionReport: hoistedGoalCompletionReport } : {}),
     },
   }
 }
@@ -429,11 +443,7 @@ function completedTurnCollapseKey(
   userItem: MessageRenderItem,
   finalAssistantItem: MessageRenderItem,
 ): string {
-  return [
-    "completed-turn",
-    rowKeyForItem(userItem),
-    rowKeyForItem(finalAssistantItem),
-  ].join(":")
+  return ["completed-turn", rowKeyForItem(userItem), rowKeyForItem(finalAssistantItem)].join(":")
 }
 
 function isCurrentTurnStillRunning(
@@ -482,8 +492,7 @@ function buildMessageRenderRows(
       }
     }
 
-    const finalAssistantItem =
-      finalAssistantPos >= 0 ? turnItems[finalAssistantPos] : undefined
+    const finalAssistantItem = finalAssistantPos >= 0 ? turnItems[finalAssistantPos] : undefined
     const finalAssistantSplit = finalAssistantItem
       ? splitAssistantFinalAnswer(finalAssistantItem)
       : null
@@ -655,6 +664,7 @@ export default function MessageList({
   onViewChildSession,
   onOpenDiff,
   onResume,
+  onForkFromMessage,
   onOpenMemorySettings,
   onOpenKnowledge,
   onAddQuickPrompt,
@@ -671,9 +681,9 @@ export default function MessageList({
   const [hoveredMsgIndex, setHoveredMsgIndex] = useState<number | null>(null)
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null)
   const [highlightMessageId, setHighlightMessageId] = useState<number | null>(null)
-  const [searchExpandedUserMessageId, setSearchExpandedUserMessageId] = useState<
-    number | null
-  >(null)
+  const [searchExpandedUserMessageId, setSearchExpandedUserMessageId] = useState<number | null>(
+    null,
+  )
   const [compactUserAnchor, setCompactUserAnchor] = useState<CompactUserAnchor | null>(null)
   const [compactUserAnchorFrame, setCompactUserAnchorFrame] = useState<{
     left: number
@@ -681,9 +691,7 @@ export default function MessageList({
   } | null>(null)
   const [compactUserAnchorVisible, setCompactUserAnchorVisible] = useState(false)
   const [compactUserAnchorMounted, setCompactUserAnchorMounted] = useState(false)
-  const [expandedCompletedTurns, setExpandedCompletedTurns] = useState<Set<string>>(
-    () => new Set(),
-  )
+  const [expandedCompletedTurns, setExpandedCompletedTurns] = useState<Set<string>>(() => new Set())
   const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const askUserFollowRafRef = useRef<number | null>(null)
@@ -958,8 +966,12 @@ export default function MessageList({
   // history hydration completes.
   const [animationBaseline, setAnimationBaseline] = useState(messages.length)
   const [animationBaselineSession, setAnimationBaselineSession] = useState(sessionKey)
-  const [animationBaselineHistoryLoading, setAnimationBaselineHistoryLoading] = useState(historyLoading)
-  if (animationBaselineSession !== sessionKey || animationBaselineHistoryLoading !== historyLoading) {
+  const [animationBaselineHistoryLoading, setAnimationBaselineHistoryLoading] =
+    useState(historyLoading)
+  if (
+    animationBaselineSession !== sessionKey ||
+    animationBaselineHistoryLoading !== historyLoading
+  ) {
     setAnimationBaselineSession(sessionKey)
     setAnimationBaselineHistoryLoading(historyLoading)
     setAnimationBaseline(messages.length)
@@ -1268,8 +1280,7 @@ export default function MessageList({
           row.items.some(
             (item) =>
               item.msg.dbId === targetId ||
-              (item.sourceDbId === targetId &&
-                itemContainsAnyHighlightTerm(item, highlightTerms)),
+              (item.sourceDbId === targetId && itemContainsAnyHighlightTerm(item, highlightTerms)),
           ),
       )
       if (collapsedTarget) {
@@ -1453,7 +1464,10 @@ export default function MessageList({
   const showEmpty = items.length === 0
   const showHistoryLoading = showEmpty && historyLoading
   const hasFooterContent = Boolean(
-    pendingQuestionGroup || planCardVisible || planSubagentRunning || (showEmpty && !historyLoading),
+    pendingQuestionGroup ||
+    planCardVisible ||
+    planSubagentRunning ||
+    (showEmpty && !historyLoading),
   )
   // Show whenever user is scrolled away from bottom — independent of loading
   // state. Lets the user always have a one-click way back to latest.
@@ -1572,11 +1586,14 @@ export default function MessageList({
                   onOpenDashboardTab={onOpenDashboardTab}
                   onOpenDiff={onOpenDiff}
                   onResume={onResume}
+                  onForkFromMessage={onForkFromMessage}
                   onOpenMemorySettings={onOpenMemorySettings}
                   onOpenKnowledge={onOpenKnowledge}
                   displayMode={displayMode}
                   footerFiles={row.item.footerFiles}
                   hideOwnFooterFiles={row.item.hideOwnFooterFiles}
+                  goalCompletionReportOverride={row.item.goalCompletionReport}
+                  suppressGoalCompletionFooter={row.item.suppressGoalCompletionFooter}
                   forceExpandUserContent={forceExpandUserContent}
                   onForceExpandedUserContentDismiss={
                     forceExpandUserContent

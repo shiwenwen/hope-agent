@@ -52,7 +52,7 @@ pub fn if_matches(rule: &str, input: &HookInput) -> bool {
     // to the whole args JSON since their target isn't a single path/command.
     let target = match tool {
         "exec" | "process" => extract_command_arg(args),
-        "read" | "write" | "edit" | "ls" | "grep" | "find" => {
+        "read" | "write" | "edit" | "ls" | "grep" | "find" | "lsp" => {
             extract_path_arg(tool, args).map(|p| p.to_string_lossy().into_owned())
         }
         // Feishu drive upload/download touch local paths — same family as

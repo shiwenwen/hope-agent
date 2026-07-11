@@ -145,6 +145,7 @@ pub async fn spawn_member(
         timeout_secs: None, // use agent default
         model_override: model_override.map(|s| s.to_string()),
         label: Some(format!("team:{}/{}", team.name, name)),
+        isolate_worktree: false,
         attachments: Vec::new(),
         plan_agent_mode: None,
         plan_mode_allow_paths: Vec::new(),

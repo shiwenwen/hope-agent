@@ -12,6 +12,14 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tauri::State;
 
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InitialGoalInput {
+    pub objective: String,
+    #[serde(default)]
+    pub completion_criteria: Option<String>,
+}
+
 /// Tauri-specific EventSink — wraps `tauri::ipc::Channel<String>`.
 pub(crate) struct ChannelSink {
     pub channel: tauri::ipc::Channel<String>,
@@ -81,6 +89,7 @@ pub async fn queue_turn_user_message(
     turn_id: String,
     display_text: Option<String>,
     is_plan_trigger: Option<bool>,
+    goal_trigger: Option<bool>,
     plan_comment: Option<serde_json::Value>,
 ) -> Result<ha_core::chat_engine::turn_injection::QueueTurnUserMessageResult, CmdError> {
     Ok(ha_core::chat_engine::turn_injection::enqueue(
@@ -92,6 +101,7 @@ pub async fn queue_turn_user_message(
             display_text,
             attachments,
             is_plan_trigger: is_plan_trigger.unwrap_or(false),
+            goal_trigger: goal_trigger.unwrap_or(false),
             plan_comment,
         },
     ))
@@ -121,6 +131,7 @@ pub async fn chat(
     agent_id: Option<String>,
     permission_mode: Option<ha_core::permission::SessionMode>,
     sandbox_mode: Option<ha_core::permission::SandboxMode>,
+    workflow_mode: Option<ha_core::workflow_mode::WorkflowMode>,
     plan_mode: Option<String>,
     temperature_override: Option<f64>,
     reasoning_effort: Option<String>,
@@ -131,6 +142,14 @@ pub async fn chat(
     // `attachments_meta = {"plan_trigger": true}` so the UI can render it as a
     // system chip instead of a regular user bubble (Plan Mode approve/resume).
     is_plan_trigger: Option<bool>,
+    // When true, the persisted user row is tagged with
+    // `attachments_meta = {"goal_trigger": true}` so the UI can render a
+    // regular user bubble with a Goal badge.
+    goal_trigger: Option<bool>,
+    // First-turn Goal creation payload. Only honored on the auto-create branch:
+    // the durable Goal is created after prompt preflight passes and before the
+    // model turn starts, so the first assistant response sees Active Goal.
+    initial_goal: Option<InitialGoalInput>,
     // Structured payload for plan inline-comment messages — stamped into
     // `attachments_meta = {"plan_comment": {selectedText, comment}}`. The
     // desktop GUI reads this back to render PlanCommentBubble; IM channels
@@ -165,6 +184,7 @@ pub async fn chat(
     // Capture optional per-session modes — applied below once we have a session id.
     let permission_mode_pending = permission_mode;
     let sandbox_mode_pending = sandbox_mode;
+    let workflow_mode_pending = workflow_mode;
 
     let db = state.session_db.clone();
     let cancel = Arc::new(AtomicBool::new(false));
@@ -180,6 +200,23 @@ pub async fn chat(
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .map(str::to_owned);
+    let auto_create_session = session_id.as_deref().is_none_or(|id| id.is_empty());
+    if auto_create_session
+        && initial_goal
+            .as_ref()
+            .is_some_and(|goal| goal.objective.trim().is_empty())
+    {
+        return Err(CmdError::msg("Initial goal objective must not be empty"));
+    }
+    if auto_create_session
+        && initial_goal.is_some()
+        && incognito.unwrap_or(false)
+        && project_id.is_none()
+    {
+        return Err(CmdError::msg(
+            "Cannot create a durable goal for an incognito session",
+        ));
+    }
 
     // Resolve or create session — prefer explicit agent_id from frontend
     let current_agent_id = match agent_id {
@@ -317,6 +354,9 @@ pub async fn chat(
         })
         .await?;
     }
+    if let Some(mode) = workflow_mode_pending {
+        db.update_session_workflow_mode(&sid, mode)?;
+    }
 
     if new_session_created.is_some() {
         if let Some(wd) = working_dir.as_ref().filter(|s| !s.trim().is_empty()) {
@@ -414,7 +454,7 @@ pub async fn chat(
                     let new_sid = new_sid.clone();
                     let prompt = raw_prompt.to_string();
                     db.run(move |db| {
-                        ha_core::session::ensure_first_message_title(db, &new_sid, &prompt)
+                        ha_core::session::ensure_first_message_title(db, &new_sid, &prompt, None)
                     })
                     .await
                 };
@@ -437,6 +477,26 @@ pub async fn chat(
             return Ok(notice);
         }
     };
+
+    if let (Some(new_sid), Some(goal)) = (new_session_created.as_ref(), initial_goal.as_ref()) {
+        db.create_goal(ha_core::goal::CreateGoalInput {
+            session_id: new_sid.clone(),
+            objective: goal.objective.trim().to_string(),
+            completion_criteria: goal
+                .completion_criteria
+                .as_deref()
+                .unwrap_or_default()
+                .trim()
+                .to_string(),
+            domain: None,
+            workflow_template_id: None,
+            workflow_template_version: None,
+            workflow_task_type: None,
+            budget_token_limit: None,
+            budget_time_limit_secs: None,
+            budget_turn_limit: None,
+        })?;
+    }
 
     // KB sidebar chat: promote the freshly-created session into a knowledge
     // thread (hidden from the main list; bound to the KB + anchor note) now that
@@ -475,8 +535,10 @@ pub async fn chat(
     user_msg.attachments_meta = session::build_chat_user_attachments_meta(
         is_plan_trigger.unwrap_or(false),
         plan_comment.as_ref(),
+        goal_trigger.unwrap_or(false),
         attachments_meta,
     );
+    let title_attachments_meta = user_msg.attachments_meta.clone();
     let _user_message_id = {
         let sid = sid.clone();
         let turn_id = turn_id.clone();
@@ -515,8 +577,15 @@ pub async fn chat(
     let _ = {
         let sid = sid.clone();
         let prompt = effective_prompt.clone();
-        db.run(move |db| session::ensure_first_message_title(db, &sid, &prompt))
-            .await
+        db.run(move |db| {
+            session::ensure_first_message_title(
+                db,
+                &sid,
+                &prompt,
+                title_attachments_meta.as_deref(),
+            )
+        })
+        .await
     };
 
     // Emit session_created now that title is set, so frontend's reloadSessions() gets the title
@@ -958,9 +1027,9 @@ pub async fn set_permission_mode(
     if session_id.is_empty() {
         return Err(CmdError::from(anyhow::anyhow!("session_id required")));
     }
-    state
-        .session_db
-        .update_session_permission_mode(&session_id, mode)?;
+    let db = state.session_db.clone();
+    db.run(move |db| db.update_session_permission_mode(&session_id, mode))
+        .await?;
     Ok(())
 }
 
@@ -975,9 +1044,10 @@ pub async fn set_sandbox_mode(
     if session_id.is_empty() {
         return Err(CmdError::from(anyhow::anyhow!("session_id required")));
     }
-    state
-        .session_db
-        .update_session_sandbox_mode(&session_id, mode)?;
+    let db = state.session_db.clone();
+    let sid = session_id.clone();
+    db.run(move |db| db.update_session_sandbox_mode(&sid, mode))
+        .await?;
     if let Some(bus) = ha_core::get_event_bus() {
         bus.emit(
             "sandbox:mode_changed",
@@ -1083,12 +1153,15 @@ pub async fn get_system_prompt(
         }
     };
 
-    Ok(crate::agent::build_system_prompt_with_session(
-        &aid,
-        &model,
-        &provider,
-        session_id.as_deref(),
-    ))
+    Ok(ha_core::blocking::run_blocking(move || {
+        crate::agent::build_system_prompt_with_session(
+            &aid,
+            &model,
+            &provider,
+            session_id.as_deref(),
+        )
+    })
+    .await)
 }
 
 // ── Tools Info Commands ───────────────────────────────────────────

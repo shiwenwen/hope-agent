@@ -12,6 +12,7 @@ use super::store::store;
 /// console-flash fix.
 fn git_command() -> std::process::Command {
     let mut cmd = std::process::Command::new("git");
+    crate::filesystem::isolate_repository_env(&mut cmd);
     crate::platform::hide_console(&mut cmd);
     cmd
 }

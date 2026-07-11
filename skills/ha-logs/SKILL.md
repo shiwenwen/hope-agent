@@ -288,7 +288,7 @@ sqlite3 -readonly -cmd ".mode column" -cmd ".headers on" ~/.hope-agent/sessions.
 3. **Start broad, narrow down.** First `level='ERROR'` over the window, then drill into the suspect `category` with full `details`.
 4. **Cross-reference `messages.tool_result`** for tool-related issues — the log line names the failure, the message row holds the actual payload (often a stack trace or HTTP body).
 5. **Report findings as an evidence chain.** Quote real timestamps and verbatim message text. Don't paraphrase vaguely.
-6. **Combine with `systematic-debugging`** for non-trivial bugs — root-cause discipline beats guessing.
+6. **Combine with `ha-debug`** for non-trivial bugs — root-cause discipline beats guessing.
 7. **Verify the fix.** After changing config / code, re-run the same query to confirm the error stops appearing.
 
 ## Privacy & safety caveats

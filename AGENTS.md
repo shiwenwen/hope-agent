@@ -93,7 +93,7 @@ skills/                 内置技能（meta / 编程方法论 vendor / 办公方
 docs/architecture/      子系统设计文档（跨 PR 必读单一真相源）
 ```
 
-ha-core 主要领域：`agent/` `chat_engine/` `context_compact/` `memory/` `knowledge/` `skills/` `tools/` `channel/` `subagent/` `team/` `cron/` `acp/` `dashboard/` `recap/` `awareness/` `config/` `session/` `project/` `plan/` `ask_user/` `async_jobs/` `wakeup/` `failover/` `platform/` `security/` `logging/` `local_llm/`。Vendor skill 来源记录在 `THIRD_PARTY_NOTICES.md`。
+ha-core 主要领域：`agent/` `chat_engine/` `context_compact/` `memory/` `knowledge/` `skills/` `tools/` `channel/` `subagent/` `team/` `cron/` `acp/` `dashboard/` `recap/` `awareness/` `config/` `session/` `project/` `plan/` `goal/` `workflow/` `loop_control.rs` `worktree.rs` `lsp.rs` `review.rs` `verification.rs` `context_retrieval.rs` `coding_eval.rs` `coding_improvement.rs` `domain_workflow.rs` `domain_quality.rs` `domain_eval.rs` `ask_user/` `async_jobs/` `wakeup/` `failover/` `platform/` `security/` `logging/` `local_llm/`。Vendor skill 来源记录在 `THIRD_PARTY_NOTICES.md`。
 
 ## 技术栈
 
@@ -187,6 +187,18 @@ ha-core 主要领域：`agent/` `chat_engine/` `context_compact/` `memory/` `kno
 - **自主维护（Layer 2，默认全关）**：后台扫内部 KB 产提案进 `sessions.db`（D9，级联删）；落地经 owner 平面（用户已批准故**绕 D10**，但写前重读磁盘 hash 守 stale-write + 跳外部只读）；`ha-settings` 归 **HIGH**
 - **块级引用（仅 Obsidian `^block-id`，Logseq 不做）/ 原生大纲只读视图**：见架构文档；大纲红线**只读、永不替代 CM6 底座**
 - **新增 KB 工具 / 端点**：工具走 `tools/note.rs` + `core_tools.rs` + `execution.rs`；Tauri / HTTP owner 薄壳调 `knowledge::service`；逻辑全在 ha-core（红线）
+
+### Agent 控制平面 / 通用场景
+
+详见 [`goal.md`](docs/architecture/goal.md) / [`workflow.md`](docs/architecture/workflow.md) / [`loop.md`](docs/architecture/loop.md) / [`context-retrieval.md`](docs/architecture/context-retrieval.md) / [`domain-workflow.md`](docs/architecture/domain-workflow.md) / [`domain-quality.md`](docs/architecture/domain-quality.md) / [`domain-eval.md`](docs/architecture/domain-eval.md)。
+
+- **语义分层**：`/goal` 定义最终目标和完成标准；`/mode` 定义推进强度；`/workflow` 执行一次可观察、可恢复、可审批的动态脚本；`/task` 展示用户可见进度；`/loop` 复用 Cron 可靠调度重复触发；`/worktree` 隔离 coding 改动。新增功能必须落在正确控制面，禁止把持续触发伪装成 workflow，或把一次性脚本伪装成 loop。
+- **Domain Workflow 不是权限**：`domain_workflow_templates` 只描述 required evidence、approval gates、verification policy、stop conditions 和 output contract；`preview_domain_workflow` 只生成 `workflow.js` draft + Script Gate / permission preview，不创建 run、不执行、不访问连接器、不发送或修改外部系统。
+- **General Evidence 是一等证据**：非 coding 任务用 `domain_evidence_items` + Goal link 表达 `source_cited` / `claim_checked` / `user_decision` / `artifact_reviewed` / `data_quality_checked` 等关系，禁止伪装成 diff / validation / file evidence。
+- **Domain Quality 只做复核事实**：`domain_quality_runs/checks/events` 基于 template、evidence 和输入 metadata 做确定性 review / verification；高风险动作只有在 `requestedAction` 命中 approval gate 或 `highRiskAction=true` 时才 `needs_user`，缺确认 fail closed 并阻塞 Goal；模块自身不访问连接器、不发送、不发布、不学习成正式规则。
+- **Domain Learning 只能产草稿**：Phase 7.5 的通用 proposal 复用 Coding Improvement queue，`domain_workflow_template` / `domain_guidance` / `domain_review_profile` / `domain_eval_case` / `connector_usage_pattern` 必须经过 preview → apply draft → explicit promotion，不能直接改生产模板、AGENTS、connector 策略或 eval fixture。
+- **Domain Eval 与 coding benchmark 分离**：`domain_eval_runs` 只读 Goal / Workflow / Domain Evidence / Domain Quality trace 做 deterministic scoring；`evaluate_domain_quality_gate` 只读通用领域历史，输出 `passed|failed|insufficient_data`。不得混用 `coding_eval_runs`、不得用 coding release gate 代替 general domain quality gate。
+- **通用场景同样守无痕**：Domain Workflow preview / evidence、Domain Quality run、Domain Eval run/gate 遇 incognito session 必须 fail closed 或返回空只读结果，不落 durable 数据。
 
 ### 工具 & 审批
 
@@ -469,12 +481,13 @@ ha-core 主要领域：`agent/` `chat_engine/` `context_compact/` `memory/` `kno
 | 新增/删除子系统、架构文档、运行时 DB 或稳定 log category | [`skills/ha-self-diagnosis/references/`](skills/ha-self-diagnosis/references/)（`diagnostic-playbook.md` 子系统速查） |
 | 新增/删除 Tauri 命令、HTTP 路由、`COMMAND_MAP` 条目 | [`api-reference.md`](docs/architecture/api-reference.md) 对应表格     |
 | 功能变化导致 README 过时                            | `README.md` + `README.en.md`（同一 PR 双语同步）                      |
-| 新增调研/对比分析                                   | `docs/research/` 新建调研文档                                         |
+| 新增调研/对比分析 / 阶段 roadmap / review packet      | 归档到本机 iCloud `HopeAI/Hope Agent/Plans/`，不要放入 `docs/architecture/`；最终实现事实落对应 architecture 文档 |
 | 修改 README 任一语言版本                            | 同一 PR 同步另一语言（`README.md` ↔ `README.en.md`）                  |
 | 新增/修改 Release Notes                             | 同一 PR 内中英双份（`docs/release-notes/vX.Y.Z.md` ↔ `vX.Y.Z.en.md`） |
 
 - **AGENTS.md 是契约面**——只放跨 PR 必守的规则、红线、文件入口；**实现细节、内部数据结构、迁移逻辑、边角行为一律下沉到对应 architecture 文档**
 - **架构文档强制**：子系统边界 / 数据流 / 持久化格式 / 跨模块 contract 改动须更新对应 `docs/architecture/`；新增架构级能力（新子系统 / 协议层）须同 PR 新建文档并登记到 `docs/README.md`
+- **规划归档强制**：调研、路线图、阶段计划、review packet 和原始参考材料归外部 iCloud Plans；仓库内不保留已完成 roadmap。落地完成后必须把最终设计决策同步到对应 architecture 文档，确保只看技术文档也能理解最终设计。
 - **ha-self-diagnosis 索引同步**：新增 / 删除子系统、`docs/architecture/` 文档、`~/.hope-agent/` 运行时 DB（`paths.rs`）或稳定 log `category` 时，同步更新 [`skills/ha-self-diagnosis/references/`](skills/ha-self-diagnosis/references/) 的 `diagnostic-playbook.md`（Subsystem Reference：入口模块 / DB·config / log category / 故障 gotcha）。此处是 agent 自查与排障的 fallback 真相源，过时会直接误导诊断；新增的 log `category` 须为稳定字符串便于 grep
 - **README 双语同步**：根目录 `README.md`（中文）+ `README.en.md`（英文），任一改动同次提交同步另一份
 - **Release Notes 双语同步**：每版本 `vX.Y.Z.md` + `vX.Y.Z.en.md`，顶部互加 `简体中文 · English` 切换链接

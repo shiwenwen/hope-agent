@@ -557,6 +557,17 @@ impl<'a> StreamingChatAdapter for OpenAIResponsesStreamingAdapter<'a> {
                 );
             }
         }
+        if let Some(profile_suffix) = req.coding_profile_suffix {
+            if !profile_suffix.is_empty() {
+                api_input.insert(
+                    0,
+                    json!({
+                        "role": "system",
+                        "content": profile_suffix
+                    }),
+                );
+            }
+        }
         // Passive related-notes (read bridge ③): appended like the task reminder
         // (outside `instructions`, so it never invalidates the cached prefix).
         if let Some(related_suffix) = req.related_notes_suffix {

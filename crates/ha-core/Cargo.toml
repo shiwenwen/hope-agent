@@ -106,6 +106,8 @@ blake3 = "1.8.5"
 pulldown-cmark = "0.13.4"
 notify = "8.2.0"
 unicode-normalization = "0.1.25"
+rquickjs = "0.12"
+rquickjs-serde = "0.6"
 
 [features]
 default = []

@@ -21,6 +21,7 @@ interface RightPanelShellProps {
   reservedMainWidth?: number
   maximized?: boolean
   collapsed?: boolean
+  overlay?: boolean
   contentKey?: string | number | null
   surfaceClassName?: string
   bodyClassName?: string
@@ -37,6 +38,7 @@ export function RightPanelShell({
   reservedMainWidth = 420,
   maximized = false,
   collapsed = false,
+  overlay = false,
   contentKey,
   surfaceClassName,
   bodyClassName,
@@ -127,15 +129,27 @@ export function RightPanelShell({
         maxWidth: `min(${maxWidth}px, ${maxViewportRatio * 100}%, ${availableWidthCss})`,
       }
 
-  if (maximized && !collapsed) {
+  if ((maximized || overlay) && !collapsed) {
     return (
       <div
         className={cn(
           "fixed inset-0 z-50 flex min-h-0 flex-col overflow-hidden bg-surface-app",
+          overlay && !maximized && "p-2 sm:p-3",
           surfaceClassName,
         )}
       >
-        {children}
+        {overlay && !maximized ? (
+          <div
+            className={cn(
+              "flex h-full min-h-0 w-full flex-col overflow-hidden rounded-2xl border border-border-soft bg-surface-panel shadow-panel",
+              bodyClassName,
+            )}
+          >
+            {children}
+          </div>
+        ) : (
+          children
+        )}
       </div>
     )
   }

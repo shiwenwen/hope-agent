@@ -144,6 +144,13 @@ For each step:
 - For code tasks: include code snippets, file references, and wire-up details
 - For non-code tasks: include specific deliverables, criteria, or key points
 
+**Critical Files / Files** (required for code tasks)
+List the main files, modules, or paths expected to change or be inspected. If the exact files are
+unknown, list the search targets and say what must be discovered before implementation.
+
+**Reuse** (recommended)
+Name existing functions, modules, patterns, or contracts the executor should reuse.
+
 **Verification** (how to confirm the plan was executed correctly — test commands, manual checks, review criteria, etc.)
 
 ### Examples:
@@ -164,6 +171,13 @@ For each step:
 2. 后端 — `src-tauri/src/commands/url_preview.rs`
    - 新增 Tauri 命令 `fetch_url_preview`
    - 注册到 `lib.rs` invoke_handler
+
+## Critical Files
+- `src-tauri/src/url_preview.rs`
+- `src-tauri/src/commands/url_preview.rs`
+
+## Reuse
+- `web_fetch.rs:45` 的 `check_ssrf_safe()`
 
 ## Verification
 cargo check && npx tsc --noEmit
@@ -193,7 +207,7 @@ cargo check && npx tsc --noEmit
 
 ## Guidelines
 - Structure by **logical units**, not abstract phases
-- For code tasks: include file paths, code snippets, and source references
+- For code tasks: include a **Critical Files / Files** section with file paths, code snippets, and source references
 - For non-code tasks: include specific deliverables and criteria
 - Each step should be independently verifiable
 - Include a **Verification** section with concrete verification methods

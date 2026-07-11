@@ -4,11 +4,17 @@
 
 ---
 
-## 规划文档
+## 规划归档
 
-| 文档 | 说明 |
-| --- | --- |
-| [Plan 文档索引](plan/README.md) | 尚未固化进架构文档的产品与工程迭代方案 |
+历史调研、RFC、计划方案、roadmap、review packet 和原始参考材料已按任务归档到本机 iCloud：
+
+```text
+/Users/shiwenwen/Library/Mobile Documents/com~apple~CloudDocs/HopeAI/Hope Agent/Plans/hope-agent-control-plane-plans-2026-07-05
+```
+
+仓库内 `docs/architecture/` 只保留已经实现并稳定下来的最终技术架构。重要设计决策已经沉淀到对应 architecture 文档的实现契约、非目标或后续边界中；历史规划材料、阶段 roadmap、review packet 和原始参考材料进入外部 Plans 归档。
+
+截至 2026-07-09，Agent Control Plane V3 的 strict proof evidence 也已归档到同一 Plans 目录下的 `11-agent-control-plane-v3-claude-parity/`：5 个 required strict proof 全部 passed，最终 audit `14/14 passed`。后续若继续扩展 Goal / Loop / Workflow，应继续遵循“过程资料进入 Plans，稳定实现事实进入 architecture”的边界。
 
 ---
 
@@ -59,6 +65,20 @@
 | 文档                                          | 说明                                | 关联源码                  |
 | ------------------------------------------- | --------------------------------- | --------------------- |
 | [Plan Mode](architecture/plan-mode.md)      | 5 状态机、plan = 设计契约 + task = 进度真相双轨分离、enter_plan_mode 模型主动入口、Git Checkpoint 回滚 | `plan/`, `tools/enter_plan_mode.rs`, `tools/submit_plan.rs`, `tools/task.rs` |
+| [Workspace Control Panel](architecture/workspace.md) | 主聊天右侧工作台：Environment / Goal / Session / Progress / Workflow / Loop / Background Jobs / Output / Sources / Knowledge / Advanced Diagnostics 的信息架构、输入框联动、多语言、UI 验收契约与 V3 strict proof 证据边界 | `components/chat/workspace/`, `components/chat/input/ChatInput.tsx` |
+| [Goal 控制平面](architecture/goal.md) | 长任务顶层目标：objective、completion criteria、状态机、证据链、final audit、Goal v3 Runtime/Runner、completion report、Workflow/Loop 绑定与 Workspace Goal section | `goal/`, `workflow/`, `components/chat/workspace/` |
+| [Workflow Mode、Workflow Run 与 Execution Mode](architecture/workflow.md) | Durable `workflow.js` 执行编排、WorkflowRun/Op/Event 三表、QuickJS host API、replay、permission preview、模型自主 create/status/trace/control/followup、阶段注入、pause/resume/cancel、Workspace Workflow section | `workflow/`, `execution_mode.rs`, `components/chat/workspace/` |
+| [Domain Workflow 控制平面](architecture/domain-workflow.md) | Phase 7.1-7.16 通用场景模板 registry、workflow draft 预览、General Evidence 持久化、Goal evidence 链接、Context Retrieval、Domain Quality、Domain Learning、Domain Eval、Artifact Export Guard、Connector Action Guard、Phase 8.2 Connector E2E Gate 与 Phase 8.4 Workspace 通用任务工作台衔接，覆盖 Research / Writing / Data Analysis / Meeting Prep / Knowledge Curation / Inbox / Project Ops | `domain_workflow.rs`, `goal/`, `workflow/`, `context_retrieval.rs`, `components/chat/workspace/` |
+| [Domain Quality 控制平面](architecture/domain-quality.md) | Phase 7.4 通用领域 review / verification：基于 Domain Workflow template、General Evidence 与 approval gates 生成 durable quality run/check/event，失败或需用户确认时写回 Goal blocking evidence，并在 Workspace「领域复核」区块展示；Phase 7.5 作为 Domain Learning 的输入信号 | `domain_quality.rs`, `goal/`, `components/chat/workspace/` |
+| [Domain Eval 与 Quality Gate 控制平面](architecture/domain-eval.md) | Phase 7.6-7.14 通用领域 eval / gate / readiness，Phase 8.1-8.3 运行稳定性 Operational Gate 与跨窗口 Soak Report：基于 Goal、Workflow、Loop、Domain Evidence、Domain Quality、Domain Campaign trace 与 Connector E2E evidence 做 deterministic scoring、质量守门、可交付判断、运行稳定性判断和长期运行审计，并在 Dashboard 独立展示 | `domain_eval.rs`, `domain_quality.rs`, `domain_workflow.rs`, `components/dashboard/learning/` |
+| [Loop 控制平面](architecture/loop.md) | 真实 `/loop`：复用 Cron 的可靠调度，按时间/条件/事件或 dynamic self-paced 触发原会话，记录 loop_schedules / loop_runs trace，支持模型侧 `loop_*` 工具、status / pause / resume / stop / run history / progress guard | `loop_control.rs`, `cron/`, `components/chat/workspace/` |
+| [Managed Worktree 控制平面](architecture/worktree.md) | Durable git worktree 隔离环境：创建/恢复/归档/交接、Workflow 绑定执行、Subagent 隔离、WorktreeCreate/Remove hooks、Workspace GUI 控制 | `worktree.rs`, `workflow/`, `subagent/`, `components/chat/workspace/` |
+| [LSP 与语义代码智能](architecture/lsp.md) | Language Server Protocol 控制面：语义导航工具、诊断缓存、文件修改后同步、动态 diagnostics prompt 后缀、Workspace 诊断面板 | `lsp.rs`, `tools/lsp.rs`, `components/chat/workspace/` |
+| [Review Engine 控制平面](architecture/review-engine.md) | Durable 本地代码审查：review run/finding/event、profiles、Deep Review 降级、symbol/IDE evidence、Goal evidence、Workspace 代码审查面板与 `/review` | `review.rs`, `slash_commands/`, `components/chat/workspace/` |
+| [Smart Verification 控制平面](architecture/verification-engine.md) | Durable 智能验证选择：基于 diff/项目规则推荐最小检查、后台执行低风险 step、Goal validation evidence、Workspace 验证区块 | `verification.rs`, `components/chat/workspace/` |
+| [Context Retrieval v2](architecture/context-retrieval.md) | 任务感知上下文推荐与行动入口：聚合 Git diff、历史 artifacts、LSP diagnostics/symbols、Review findings、Verification steps、Goal evidence、Tasks、Workflow ops、IDE/ACP context、file search v2、URL 来源与 Phase 7.3 domain context，并在候选行触发 focused review / verification 或展示领域动作 | `context_retrieval.rs`, `lsp.rs`, `components/chat/workspace/` |
+| [Coding Eval 控制面评测](architecture/coding-eval.md) | Phase 3.7-6.1 确定性 fixture harness + agent execution runner + task-level scorer + Gold Task Pack 全量自动化 + strategy effect evaluator + release/generalization gates + Benchmark Run Center：临时 git repo + 真实 session/goal/task/workflow/IDE context/improvement state，回归 Review / Smart Verification / Context Retrieval / Improvement Loop 协同质量，并可从 task prompt 执行 agent 后评估候选 diff 与策略改动效果 | `coding_eval.rs`, `coding_improvement.rs`, `tests/fixtures/coding_eval/` |
+| [Coding Improvement Loop](architecture/coding-improvement-loop.md) | Phase 4.4-7.5 质量趋势与学习闭环：基于 durable Goal/Workflow/Review/Verification/Eval/transcript/Domain Quality 数据生成 trend report、workflow retro、transcript distillation、failure feedback 与 proposal 队列，可预览/应用/晋升 eval、workflow、guidance、skill、domain workflow、domain guidance、domain review profile、domain eval case 与 connector pattern 草稿，并在 Dashboard Learning 中提供 Benchmark Run Center、release/generalization gates 和全局 / 项目级学习视图 | `coding_improvement.rs`, `dashboard/coding_improvement.rs`, `coding_eval.rs`, `domain_quality.rs`, `components/chat/workspace/`, `components/dashboard/learning/` |
 | [权限/审批系统](architecture/permission-system.md) | 统一规则引擎 + Default/Smart/Yolo 三模式、Plan 正交、保护路径/危险命令/编辑命令三 list、Smart judge_model + self_confidence、审批弹窗倒计时 | `permission/`, `tools/approval.rs` |
 | [Hooks 系统](architecture/hooks.md)          | 事件 → 可拔插处理器，字段级对齐 Claude Code 协议；28 事件（24 触发 + 4 保留）+ 5 种 handler（command/http/mcp_tool/prompt/agent）+ user/managed/project/local 四 scope UNION + 配置热重载 + JSONL transcript 镜像 | `hooks/`, `agent/preflight.rs` |
 | [Ask User](architecture/ask-user.md)        | 通用结构化问答工具、preview 并排对比、超时回退、IM 渠道集成    | `tools/ask_user_question.rs`, `plan/questions.rs`, `channel/worker/ask_user.rs` |
@@ -91,7 +111,7 @@
 | [Canvas 子系统](architecture/canvas.md)     | 7 种内容类型沙盒预览、版本快照、snapshot/eval 双向通道、独立窗口、HTTP 静态托管 | `tools/canvas/`, `canvas_db.rs` |
 | [Cron 调度](architecture/cron.md)           | 定时任务调度、Agent 执行、Failover、指数退避      | `cron/`                 |
 | [Sandbox 架构](architecture/sandbox.md) | 会话级 Docker 执行沙箱、权限放松矩阵、Docker 平台引导、SearXNG 容器管理 | `sandbox.rs`, `permission/`, `docker/` |
-| [Dashboard](architecture/dashboard.md)    | 跨 DB 聚合分析、成本估算、系统指标                | `dashboard/`            |
+| [Dashboard](architecture/dashboard.md)    | 跨 DB 聚合分析、成本估算、系统指标、Learning Tab、coding release/generalization gate 与 general domain quality gate | `dashboard/`, `components/dashboard/learning/` |
 | [Recap 深度复盘](architecture/recap.md)      | 逐会话 LLM facet 提取、量化+语义融合报告、HTML 导出 | `recap/`                |
 | [日志系统](architecture/logging.md)           | 非阻塞双写、敏感数据脱敏、文件轮转                  | `logging/`              |
 | [可靠性与崩溃自愈](architecture/reliability.md) | Guardian 父子三层保活、退出码协议、Crash Journal、Self-Diagnosis prompt + Auto-Fix 覆盖范围、子系统 watchdog | `guardian.rs`, `crash_journal.rs`, `self_diagnosis.rs`, `service_install.rs` |

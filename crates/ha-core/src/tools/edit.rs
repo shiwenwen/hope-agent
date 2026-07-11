@@ -71,6 +71,7 @@ pub(crate) async fn tool_edit(args: &Value, ctx: &super::ToolExecContext) -> Res
     if write_result.is_ok() {
         emit_file_change_metadata(ctx, &path, &content, &new_content).await;
         ctx.notify_workspace_file_changed(&path);
+        crate::lsp::sync_file_after_tool(ctx, &path).await;
     }
 
     if let Err(ref e) = write_result {

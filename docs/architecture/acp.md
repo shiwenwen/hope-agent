@@ -529,9 +529,20 @@ graph TB
 |------|------|---------|
 | 会话 & 消息 | `~/.hope-agent/sessions.db` | 桌面端 ↔ ACP |
 | 对话上下文 | `sessions.context_json` 列 | 桌面端 ↔ ACP |
+| IDE / ACP 当前上下文 | `session_ide_context` 表 | ACP / 桌面端写 → Review / Context Retrieval 读 |
 | Provider 配置 | `~/.hope-agent/config.json` | 桌面端写 → ACP 读 |
 | Agent 定义 | `~/.hope-agent/agents/{id}/` | 桌面端写 → ACP 读 |
 | 模型降级链 | `config.json` 的 `fallbackModels` | 桌面端写 → ACP 读 |
+
+ACP 的 `newSession` / `loadSession` / `prompt` 请求可以在 `_meta.ideContext` 或 `_meta.ide_context` 中携带当前 IDE 快照：
+
+- `currentFile`
+- `selection { path?, startLine?, endLine?, text? }`
+- `openTabs[]`
+- `activeDiagnostic { path?, line?, severity?, message? }`
+- `activeSymbol { name?, kind?, path?, line? }`
+
+服务端会 best-effort 解析并写入 `session_ide_context`。写入失败只记录 warning，不让 ACP prompt 失败；无痕 session 不持久化。该快照只作为 Review Engine 与 Context Retrieval 的 owner-plane 信号，不提升为 system 指令，也不是权限边界。
 
 ---
 
@@ -552,6 +563,8 @@ graph TB
 | 无 Client 回调 | 不支持 fs/readTextFile 等 Client 能力 | Phase 3: 双向 RPC |
 | 无权限审批转发 | ACP 无审批转发通道，需审批的工具一律 fail-closed 自动拒绝；无人值守编辑需 YOLO / per-agent auto-approve | Phase 3: ACP 审批协议 |
 | 单 Agent 模式 | 虽然可切换，但不支持同一会话多 Agent 并发 | 按需评估 |
+
+已支持的轻量 IDE context envelope 不等同于完整双向 RPC：它只同步“当前正在看什么”，不能替代未来的 client fs / 编辑器操作能力。
 
 ---
 

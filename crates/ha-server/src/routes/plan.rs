@@ -3,7 +3,9 @@ use axum::Json;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-use ha_core::ask_user::{self as ask_user_mod, AskUserQuestionAnswer};
+use ha_core::ask_user::{
+    self as ask_user_mod, AskUserQuestionAnswer, CreateOwnerAskUserQuestionInput,
+};
 use ha_core::plan::{
     self, PlanIndexEntry, PlanIndexFilter, PlanMentionResolution, PlanModeState, PlanVersionInfo,
     TransitionOutcome,
@@ -90,12 +92,26 @@ pub struct RespondQuestionBody {
     pub answers: Vec<AskUserQuestionAnswer>,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateOwnerQuestionBody {
+    pub input: CreateOwnerAskUserQuestionInput,
+}
+
 /// `POST /api/ask_user/respond`
 pub async fn respond_ask_user_question(
     Json(body): Json<RespondQuestionBody>,
 ) -> Result<Json<Value>, AppError> {
     ask_user_mod::submit_ask_user_question_response(&body.request_id, body.answers).await?;
     Ok(Json(json!({ "submitted": true })))
+}
+
+/// `POST /api/ask_user/owner-question`
+pub async fn create_owner_ask_user_question(
+    Json(body): Json<CreateOwnerQuestionBody>,
+) -> Result<Json<Value>, AppError> {
+    let group = ask_user_mod::create_owner_ask_user_question(body.input)?;
+    Ok(Json(json!(group)))
 }
 
 /// `GET /api/plan/{session_id}/pending-ask-user`

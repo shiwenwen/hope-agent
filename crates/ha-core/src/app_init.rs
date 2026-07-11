@@ -928,6 +928,7 @@ pub async fn start_background_tasks() {
         if let (Some(cron_db), Some(session_db)) = (CRON_DB.get(), SESSION_DB.get()) {
             let _handle = cron::start_scheduler(cron_db.clone(), session_db.clone());
         }
+        crate::loop_control::spawn_loop_event_trigger_watcher();
 
         // Headless auto-update: periodic check + optional silent pre-download.
         // Primary-only (avoids N processes racing to download/stage the same
@@ -1053,6 +1054,7 @@ pub async fn start_background_tasks() {
         tokio::spawn(async move {
             crate::async_jobs::JobManager::replay_pending();
         });
+        crate::workflow::spawn_startup_recovery_if_primary();
         crate::local_model_jobs::replay_interrupted_jobs();
 
         // Re-arm agent self-scheduled wakeups (R10). Primary-only — the rows
@@ -1306,7 +1308,9 @@ pub async fn start_minimal_background_tasks() {
         tokio::spawn(async move {
             crate::async_jobs::JobManager::replay_pending();
         });
+        crate::workflow::spawn_startup_recovery_if_primary();
         crate::local_model_jobs::replay_interrupted_jobs();
+        crate::loop_control::spawn_loop_event_trigger_watcher();
 
         // Re-arm agent self-scheduled wakeups (R10). Primary-only (shared rows).
         crate::wakeup::replay_pending();

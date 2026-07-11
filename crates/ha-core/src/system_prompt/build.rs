@@ -7,6 +7,7 @@ use super::helpers::{truncate, truncate_retained_ranges};
 use super::sections::*;
 use super::working_dir_instructions::collect_working_dir_instructions;
 use crate::agent_config::AgentDefinition;
+use crate::execution_mode::ExecutionMode;
 use crate::memory::{MemoryBudgetConfig, MemoryEntry};
 use crate::permission::SessionMode;
 use crate::project::Project;
@@ -58,6 +59,59 @@ pub fn build(
     session_working_dir: Option<&str>,
     channel_info: Option<&crate::session::ChannelSessionInfo>,
     permission_mode: SessionMode,
+    execution_mode: ExecutionMode,
+    workflow_mode: crate::workflow_mode::WorkflowMode,
+) -> String {
+    let session_meta = crate::session::lookup_session_meta(session_id);
+    let active_goal = if incognito {
+        None
+    } else {
+        session_id.and_then(|sid| crate::get_session_db()?.active_goal_for_session(sid).ok()?)
+    };
+    build_with_resolved_session(
+        definition,
+        model,
+        provider,
+        memory_entries,
+        memory_budget,
+        profile_snapshot,
+        context_pack,
+        agent_home,
+        project,
+        session_id,
+        incognito,
+        session_working_dir,
+        channel_info,
+        permission_mode,
+        execution_mode,
+        workflow_mode,
+        active_goal.as_ref(),
+        session_meta.as_ref().map(|meta| meta.sandbox_mode),
+    )
+}
+
+/// Build from session state already resolved by the caller. Chat-engine turns
+/// use this path so isolated eval/headless databases cannot accidentally read
+/// goal or sandbox state from the process-global session database.
+pub(crate) fn build_with_resolved_session(
+    definition: &AgentDefinition,
+    model: Option<&str>,
+    provider: Option<&str>,
+    memory_entries: &[MemoryEntry],
+    memory_budget: &MemoryBudgetConfig,
+    profile_snapshot: Option<&str>,
+    context_pack: Option<&crate::memory::dreaming::MemoryContextPack>,
+    agent_home: Option<&str>,
+    project: Option<&Project>,
+    session_id: Option<&str>,
+    incognito: bool,
+    session_working_dir: Option<&str>,
+    channel_info: Option<&crate::session::ChannelSessionInfo>,
+    permission_mode: SessionMode,
+    execution_mode: ExecutionMode,
+    workflow_mode: crate::workflow_mode::WorkflowMode,
+    active_goal: Option<&crate::goal::GoalSnapshot>,
+    session_sandbox_mode: Option<crate::permission::SandboxMode>,
 ) -> String {
     let mut sections: Vec<String> = Vec::new();
 
@@ -219,6 +273,23 @@ pub fn build(
     // flips from invalidating the larger static prefix cache.
     sections.push(build_permission_mode_guidance(permission_mode));
 
+    // ⑥c¹½ Execution mode policy. Session-scoped and intentionally near other
+    // dynamic execution controls so /mode flips do not churn the larger prefix.
+    if let Some(section) = execution_mode.system_prompt_section() {
+        sections.push(section.to_string());
+    }
+
+    // ⑥c¹¾ Workflow Mode policy. Session-scoped and placed near the other
+    // dynamic execution controls so mode flips avoid churning the static
+    // prefix cache.
+    if let Some(section) = workflow_mode.system_prompt_section() {
+        sections.push(section.to_string());
+    }
+
+    if let Some(section) = build_active_goal_section(active_goal, incognito) {
+        sections.push(section);
+    }
+
     // ⑥c² Tool-call budget reminder — always injected when rounds are bounded,
     // so the model can produce a graceful handoff instead of a cut-off mid-call.
     if let Some(budget) = build_tool_budget_guidance(definition.config.capabilities.max_tool_rounds)
@@ -310,14 +381,12 @@ pub fn build(
     }
 
     // ⑪ Sandbox mode (conditionally injected)
-    let sandbox_mode = session_id
-        .and_then(|sid| crate::session::lookup_session_meta(Some(sid)).map(|m| m.sandbox_mode))
-        .unwrap_or_else(|| {
-            definition
-                .config
-                .capabilities
-                .effective_default_sandbox_mode()
-        });
+    let sandbox_mode = session_sandbox_mode.unwrap_or_else(|| {
+        definition
+            .config
+            .capabilities
+            .effective_default_sandbox_mode()
+    });
     if sandbox_mode.enabled() {
         let sandbox_config = crate::sandbox::load_sandbox_config().unwrap_or_default();
         sections.push(build_sandbox_mode_section(sandbox_mode, &sandbox_config));
@@ -348,6 +417,18 @@ pub fn build(
 
     // Join all non-empty sections
     let section_lengths: Vec<usize> = sections.iter().map(|s| s.len()).collect();
+    let section_debug: Vec<_> = sections
+        .iter()
+        .enumerate()
+        .map(|(index, section)| {
+            serde_json::json!({
+                "index": index,
+                "label": section_debug_label(index),
+                "chars": section.len(),
+                "fingerprint": short_fingerprint(section),
+            })
+        })
+        .collect();
     let prompt = sections
         .into_iter()
         .filter(|s| !s.is_empty())
@@ -368,8 +449,10 @@ pub fn build(
             Some(
                 serde_json::json!({
                     "total_length": prompt.len(),
+                    "prompt_fingerprint": short_fingerprint(&prompt),
                     "section_count": section_lengths.len(),
                     "section_lengths": section_lengths,
+                    "section_debug": section_debug,
                     "agent_name": &definition.config.name,
                     "openclaw_mode": definition.config.openclaw_mode,
                 })
@@ -381,6 +464,16 @@ pub fn build(
     }
 
     prompt
+}
+
+fn short_fingerprint(text: &str) -> String {
+    let mut hash = blake3::hash(text.as_bytes()).to_hex().to_string();
+    hash.truncate(16);
+    hash
+}
+
+fn section_debug_label(index: usize) -> String {
+    format!("section_{index}")
 }
 
 /// Build the Memory section with layered budget negotiation.
@@ -661,6 +754,251 @@ fn build_incognito_section() -> String {
         .to_string()
 }
 
+fn build_active_goal_section(
+    active_goal: Option<&crate::goal::GoalSnapshot>,
+    incognito: bool,
+) -> Option<String> {
+    if incognito {
+        return None;
+    }
+    active_goal.map(render_active_goal_section)
+}
+
+fn render_active_goal_section(snapshot: &crate::goal::GoalSnapshot) -> String {
+    let goal = &snapshot.goal;
+    let mut lines = vec![
+        "# Active Goal".to_string(),
+        String::new(),
+        "The user has set a durable goal for this session. Treat it as the current north star until the user changes, pauses, clears, or completes it.".to_string(),
+        "Goal Runtime Contract: autonomously keep working toward this goal across long tasks; do not stop merely because one turn is long or a subtask is hard. Maintain evidence, recover from interruptions, and only finish after the current revision's completion criteria are actually satisfied.".to_string(),
+        "Autonomous execution rules: when the next in-scope action is already determined, perform it in this turn instead of ending with a plan, promise, or list of next steps. If the user asks a side question while the Goal remains active, answer it and then continue unless they changed, paused, or cancelled the Goal.".to_string(),
+        "Scope rules: reversible work that directly advances the Goal should proceed without needless reconfirmation, while irreversible, outward-facing, or genuinely scope-changing actions still require the normal permission or user decision. If the user's Goal is an assessment or answer rather than a requested change, the assessment is the deliverable; do not mutate merely because Goal Mode is active. Do not add unrelated features, cleanup, or abstractions.".to_string(),
+        "Use the Goal tools when useful: `goal_status` to re-read the latest objective/revision/budget; `goal_prepare_contract` early to form a gradeable rubric and viability preflight when the objective is underspecified (without expanding scope, and while preserving explicit criteria exactly); `goal_checkpoint` after meaningful milestones or handoffs; `goal_record_evidence` for truthful general-domain evidence; `goal_evaluate` before any completion claim; `goal_finish_request` only when the audit should pass; and `goal_block_request` only after repeated failed attempts or a real user/external blocker.".to_string(),
+        format!("- State: {}", goal.state.as_str()),
+        format!("- Revision: {}", goal.revision),
+        format!("- Objective: {}", truncate(&goal.objective, 1200)),
+    ];
+    if snapshot.audit_stale {
+        lines.push("- Latest audit: stale because the goal revision or linked evidence changed; do not rely on the old completion conclusion until a new evaluation runs.".to_string());
+    }
+    if let Some(domain) = goal.domain.as_deref().filter(|s| !s.trim().is_empty()) {
+        lines.push(format!("- Domain: {}", truncate(domain, 200)));
+    }
+    if let Some(template_id) = goal
+        .workflow_template_id
+        .as_deref()
+        .filter(|s| !s.trim().is_empty())
+    {
+        let mut template = template_id.to_string();
+        if let Some(version) = goal
+            .workflow_template_version
+            .as_deref()
+            .filter(|s| !s.trim().is_empty())
+        {
+            template.push('@');
+            template.push_str(version);
+        }
+        lines.push(format!("- Workflow template: {}", truncate(&template, 300)));
+    }
+    if let Some(task_type) = goal
+        .workflow_task_type
+        .as_deref()
+        .filter(|s| !s.trim().is_empty())
+    {
+        lines.push(format!(
+            "- Workflow task type: {}",
+            truncate(task_type, 200)
+        ));
+    }
+    if !goal.completion_criteria.trim().is_empty() {
+        lines.push(format!(
+            "- Completion criteria: {}",
+            truncate(&goal.completion_criteria, 1600)
+        ));
+    }
+    if !snapshot.criteria_items.is_empty() {
+        lines.push(
+            "- Criteria ids for traceability; when creating a workflow run for a specific criterion, pass the matching `goalCriterionId`:".to_string(),
+        );
+        for criterion in snapshot.criteria_items.iter().take(12) {
+            let check = criterion
+                .check_kind
+                .map(|kind| format!(", check={}", kind.as_str()))
+                .unwrap_or_default();
+            let expected = if criterion.expected_evidence.is_empty() {
+                String::new()
+            } else {
+                format!(", evidence={}", criterion.expected_evidence.join("|"))
+            };
+            lines.push(format!(
+                "  - {} [{}{}{}]: {}",
+                criterion.id,
+                criterion.kind.as_str(),
+                check,
+                expected,
+                truncate(&criterion.text, 240)
+            ));
+        }
+    }
+    let required_missing = snapshot
+        .criteria
+        .iter()
+        .filter(|criterion| {
+            criterion.kind.as_str() == "required" && criterion.status.as_str() != "satisfied"
+        })
+        .map(|criterion| {
+            format!(
+                "{} ({})",
+                truncate(&criterion.text, 220),
+                criterion.status.as_str()
+            )
+        })
+        .take(8)
+        .collect::<Vec<_>>();
+    if !required_missing.is_empty() {
+        lines.push("- Required criteria still needing evidence:".to_string());
+        for criterion in required_missing {
+            lines.push(format!("  - {criterion}"));
+        }
+    }
+    let follow_ups = goal
+        .follow_up_items
+        .iter()
+        .map(|item| truncate(&item.text, 220))
+        .take(6)
+        .collect::<Vec<_>>();
+    if !follow_ups.is_empty() {
+        lines.push("- Follow-up pool, not current blockers:".to_string());
+        for item in follow_ups {
+            lines.push(format!("  - {item}"));
+        }
+    }
+    if let Some(decision) = goal.closure_decision {
+        lines.push(format!("- User closure decision: {}", decision.as_str()));
+        if decision.as_str() != "accepted_v1" {
+            lines.push("- Do not claim the goal is closed; continue only toward the requested evidence or ask the user before broadening scope.".to_string());
+        }
+    } else if goal.state.as_str() == "completed" {
+        lines.push("- Closure is not accepted by the user yet. Present the evidence and ask whether to accept v1 closure or require stricter evidence.".to_string());
+    }
+    if let Some(reason) = goal
+        .blocked_reason
+        .as_deref()
+        .filter(|s| !s.trim().is_empty())
+    {
+        lines.push(format!("- Blocked reason: {}", truncate(reason, 600)));
+        if matches!(
+            reason,
+            "goal_evidence_incomplete" | "goal_blocked_by_evidence"
+        ) {
+            lines.push("- This blocked reason means the audit needs more evidence; continue producing concrete evidence unless a real user/external blocker exists.".to_string());
+        }
+    }
+    if let Some(summary) = goal
+        .final_summary
+        .as_deref()
+        .filter(|s| !s.trim().is_empty())
+    {
+        lines.push(format!("- Latest audit: {}", truncate(summary, 800)));
+    }
+    if snapshot.budget.warning || snapshot.budget.exhausted {
+        lines.push(format!(
+            "- Goal budget: tokens {}/{:?}, time {}s/{:?}, turns {}/{:?}; warnings={:?}; exceeded={:?}",
+            snapshot.budget.tokens_used,
+            snapshot.budget.token_limit,
+            snapshot.budget.elapsed_secs,
+            snapshot.budget.time_limit_secs,
+            snapshot.budget.turns_used,
+            snapshot.budget.turn_limit,
+            snapshot.budget.warnings,
+            snapshot.budget.exceeded
+        ));
+    }
+    append_goal_handoff(&mut lines, snapshot);
+    lines.push(
+        "Behavior rules: prefer actions that create concrete evidence toward the completion criteria; keep user-visible tasks current; if the user updates the goal, immediately follow the latest revision; if you complete it, call `goal_finish_request` before the final user summary; if you cannot proceed, call `goal_block_request` with concrete attempts instead of silently stopping.".to_string(),
+    );
+    lines.join("\n")
+}
+
+fn append_goal_handoff(lines: &mut Vec<String>, snapshot: &crate::goal::GoalSnapshot) {
+    let current_task = snapshot
+        .tasks
+        .iter()
+        .find(|task| task.status == "in_progress")
+        .or_else(|| snapshot.tasks.iter().find(|task| task.status == "pending"));
+    let active_workflow = snapshot.workflow_runs.iter().find(|run| {
+        matches!(
+            run.state,
+            crate::workflow::WorkflowRunState::Running
+                | crate::workflow::WorkflowRunState::Recovering
+        )
+    });
+    let waiting_workflow = snapshot.workflow_runs.iter().find(|run| {
+        matches!(
+            run.state,
+            crate::workflow::WorkflowRunState::AwaitingApproval
+                | crate::workflow::WorkflowRunState::AwaitingUser
+                | crate::workflow::WorkflowRunState::Paused
+        )
+    });
+    let next_evidence = snapshot
+        .goal
+        .last_evaluator_result
+        .get("nextEvidenceNeeded")
+        .or_else(|| {
+            snapshot
+                .goal
+                .last_evaluator_result
+                .get("next_evidence_needed")
+        })
+        .and_then(|value| value.as_array())
+        .and_then(|items| items.iter().find_map(|item| item.as_str()))
+        .filter(|value| !value.trim().is_empty());
+    let checkpoint_next = snapshot
+        .events
+        .iter()
+        .rev()
+        .filter(|event| event.kind == "goal_checkpoint")
+        .find_map(|event| event.payload.get("next").and_then(|value| value.as_str()))
+        .filter(|value| !value.trim().is_empty());
+
+    if current_task.is_none()
+        && active_workflow.is_none()
+        && waiting_workflow.is_none()
+        && next_evidence.is_none()
+        && checkpoint_next.is_none()
+    {
+        return;
+    }
+
+    lines.push("- Goal handoff packet:".to_string());
+    if let Some(task) = current_task {
+        lines.push(format!(
+            "  - Current task: {} ({})",
+            truncate(&task.content, 240),
+            task.status
+        ));
+    }
+    if let Some(run) = active_workflow {
+        lines.push(format!(
+            "  - Active workflow: {} ({})",
+            truncate(&run.kind, 180),
+            run.state.as_str()
+        ));
+    }
+    if let Some(run) = waiting_workflow {
+        lines.push(format!(
+            "  - Waiting on workflow: {} ({})",
+            truncate(&run.kind, 180),
+            run.state.as_str()
+        ));
+    }
+    if let Some(next) = next_evidence.or(checkpoint_next) {
+        lines.push(format!("  - One next action: {}", truncate(next, 320)));
+    }
+}
+
 /// Build a system prompt using the legacy path (no AgentDefinition).
 /// This preserves backward compatibility during the transition.
 pub fn build_legacy(model: Option<&str>, provider: Option<&str>, incognito: bool) -> String {
@@ -746,7 +1084,12 @@ pub fn build_legacy(model: Option<&str>, provider: Option<&str>, incognito: bool
 mod memory_section_tests {
     use super::*;
     use crate::agent_config::{AgentConfig, AgentDefinition};
+    use crate::goal::{
+        Goal, GoalBudgetSnapshot, GoalClosureDecision, GoalCriterionAudit, GoalCriterionItem,
+        GoalCriterionKind, GoalCriterionStatus, GoalFollowUpItem, GoalSnapshot, GoalState,
+    };
     use crate::memory::{MemoryEntry, MemoryScope, MemoryType, SqliteSectionBudgets};
+    use serde_json::json;
     use std::path::PathBuf;
 
     fn mk_definition() -> AgentDefinition {
@@ -781,6 +1124,104 @@ mod memory_section_tests {
             attachment_path: None,
             attachment_mime: None,
         }
+    }
+
+    fn mk_goal_snapshot() -> GoalSnapshot {
+        GoalSnapshot {
+            goal: Goal {
+                id: "goal-1".to_string(),
+                session_id: "s1".to_string(),
+                objective: "Ship Goal v2 review".to_string(),
+                completion_criteria: "[required] status machine is stable".to_string(),
+                revision: 7,
+                domain: Some("coding".to_string()),
+                workflow_template_id: Some("goal-v2-review".to_string()),
+                workflow_template_version: Some("1".to_string()),
+                workflow_task_type: Some("review".to_string()),
+                state: GoalState::Blocked,
+                mode_snapshot: None,
+                budget_token_limit: None,
+                budget_time_limit_secs: None,
+                budget_turn_limit: None,
+                created_at: "2026-01-01T00:00:00Z".to_string(),
+                updated_at: "2026-01-01T00:10:00Z".to_string(),
+                completed_at: None,
+                final_summary: Some("Old audit completed before new evidence".to_string()),
+                final_evidence: json!({}),
+                blocked_reason: Some("needs_strict_evidence".to_string()),
+                last_evaluator_result: json!({}),
+                closure_decision: Some(GoalClosureDecision::NeedsStrictEvidence),
+                closure_reason: Some("User asked for strict proof".to_string()),
+                closed_at: None,
+                follow_up_items: vec![GoalFollowUpItem {
+                    id: "followup-1".to_string(),
+                    text: "manual browser profile".to_string(),
+                    created_at: "2026-01-01T00:11:00Z".to_string(),
+                    source: Some("closure".to_string()),
+                }],
+            },
+            links: Vec::new(),
+            events: Vec::new(),
+            audit_stale: true,
+            criteria_items: vec![GoalCriterionItem {
+                id: "criterion-1".to_string(),
+                text: "status machine is stable".to_string(),
+                kind: GoalCriterionKind::Required,
+                check_kind: None,
+                expected_evidence: Vec::new(),
+                inferred: false,
+            }],
+            criteria: vec![GoalCriterionAudit {
+                id: "criterion-1".to_string(),
+                text: "status machine is stable".to_string(),
+                kind: GoalCriterionKind::Required,
+                status: GoalCriterionStatus::Blocked,
+                evidence_ids: Vec::new(),
+                reason: Some("accepted closure cannot reopen".to_string()),
+            }],
+            evidence: Vec::new(),
+            timeline: Vec::new(),
+            budget: GoalBudgetSnapshot::default(),
+            workflow_runs: Vec::new(),
+            tasks: Vec::new(),
+            grader_runs: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn active_goal_section_exposes_goal_v2_control_state() {
+        let out = render_active_goal_section(&mk_goal_snapshot());
+
+        assert!(out.contains("# Active Goal"));
+        assert!(out.contains("Goal Runtime Contract"));
+        assert!(out.contains("perform it in this turn instead of ending with a plan"));
+        assert!(out.contains("If the user's Goal is an assessment or answer"));
+        assert!(out.contains("goal_status"));
+        assert!(out.contains("goal_finish_request"));
+        assert!(out.contains("- Revision: 7"));
+        assert!(out.contains("stale because the goal revision or linked evidence changed"));
+        assert!(out.contains("pass the matching `goalCriterionId`"));
+        assert!(out.contains("criterion-1 [required]: status machine is stable"));
+        assert!(out.contains("Required criteria still needing evidence"));
+        assert!(out.contains("status machine is stable (blocked)"));
+        assert!(out.contains("Follow-up pool, not current blockers"));
+        assert!(out.contains("manual browser profile"));
+        assert!(out.contains("User closure decision: needs_strict_evidence"));
+        assert!(out.contains("Do not claim the goal is closed"));
+        assert!(out.contains("Blocked reason: needs_strict_evidence"));
+    }
+
+    #[test]
+    fn active_goal_section_includes_durable_handoff_next_action() {
+        let mut snapshot = mk_goal_snapshot();
+        snapshot.goal.last_evaluator_result = json!({
+            "nextEvidenceNeeded": ["Run the release smoke test"]
+        });
+
+        let out = render_active_goal_section(&snapshot);
+
+        assert!(out.contains("Goal handoff packet"));
+        assert!(out.contains("One next action: Run the release smoke test"));
     }
 
     #[test]
@@ -1030,6 +1471,8 @@ mod memory_section_tests {
             Some("/srv/projects/demo"),
             None,
             SessionMode::Default,
+            ExecutionMode::Off,
+            crate::workflow_mode::WorkflowMode::Off,
         );
         assert!(
             out.contains("# Working Directory"),
@@ -1060,6 +1503,8 @@ mod memory_section_tests {
             None,
             None,
             SessionMode::Default,
+            ExecutionMode::Off,
+            crate::workflow_mode::WorkflowMode::Off,
         );
         let out_blank = build(
             &definition,
@@ -1076,6 +1521,8 @@ mod memory_section_tests {
             Some("   "),
             None,
             SessionMode::Default,
+            ExecutionMode::Off,
+            crate::workflow_mode::WorkflowMode::Off,
         );
         assert!(
             !out_none.contains("# Working Directory"),
@@ -1085,6 +1532,127 @@ mod memory_section_tests {
             !out_blank.contains("# Working Directory"),
             "blank working_dir should omit section"
         );
+    }
+
+    #[test]
+    fn execution_mode_prompt_injected_only_when_enabled() {
+        let definition = mk_definition();
+        let budget = MemoryBudgetConfig::default();
+        let out_off = build(
+            &definition,
+            Some("gpt-5.4"),
+            Some("OpenAI"),
+            &[],
+            &budget,
+            None,
+            None,
+            None,
+            None,
+            None,
+            false,
+            None,
+            None,
+            SessionMode::Default,
+            ExecutionMode::Off,
+            crate::workflow_mode::WorkflowMode::Off,
+        );
+        let out_guarded = build(
+            &definition,
+            Some("gpt-5.4"),
+            Some("OpenAI"),
+            &[],
+            &budget,
+            None,
+            None,
+            None,
+            None,
+            None,
+            false,
+            None,
+            None,
+            SessionMode::Default,
+            ExecutionMode::Guarded,
+            crate::workflow_mode::WorkflowMode::Off,
+        );
+
+        assert!(
+            !out_off.contains("# Execution Mode"),
+            "off mode should not inject execution policy: {out_off}"
+        );
+        assert!(out_guarded.contains("# Execution Mode: Guarded"));
+        assert!(out_guarded.contains("observe -> plan -> edit -> targeted validate -> report"));
+        assert!(out_guarded.contains("Stop and ask the user"));
+    }
+
+    #[test]
+    fn workflow_mode_prompt_injected_only_when_enabled() {
+        let definition = mk_definition();
+        let budget = MemoryBudgetConfig::default();
+        let out_off = build(
+            &definition,
+            Some("gpt-5.4"),
+            Some("OpenAI"),
+            &[],
+            &budget,
+            None,
+            None,
+            None,
+            None,
+            None,
+            false,
+            None,
+            None,
+            SessionMode::Default,
+            ExecutionMode::Off,
+            crate::workflow_mode::WorkflowMode::Off,
+        );
+        let out_on = build(
+            &definition,
+            Some("gpt-5.4"),
+            Some("OpenAI"),
+            &[],
+            &budget,
+            None,
+            None,
+            None,
+            None,
+            None,
+            false,
+            None,
+            None,
+            SessionMode::Default,
+            ExecutionMode::Off,
+            crate::workflow_mode::WorkflowMode::On,
+        );
+        let out_ultracode = build(
+            &definition,
+            Some("gpt-5.4"),
+            Some("OpenAI"),
+            &[],
+            &budget,
+            None,
+            None,
+            None,
+            None,
+            None,
+            false,
+            None,
+            None,
+            SessionMode::Default,
+            ExecutionMode::Off,
+            crate::workflow_mode::WorkflowMode::Ultracode,
+        );
+
+        assert!(
+            !out_off.contains("# Workflow Mode"),
+            "off mode should not inject workflow policy: {out_off}"
+        );
+        assert!(out_on.contains("# Workflow Mode: On"));
+        assert!(out_on.contains("workflow` with `action=create"));
+        assert!(out_on.contains("workflow.task.create"));
+        assert!(out_on.contains("Workflow is not coding-only"));
+        assert!(out_ultracode.contains("# Workflow Mode: Ultracode"));
+        assert!(out_ultracode.contains("Use `workflow` with `action=create` by default"));
     }
 
     #[test]
@@ -1128,6 +1696,8 @@ mod memory_section_tests {
             None,
             None,
             SessionMode::Default,
+            ExecutionMode::Off,
+            crate::workflow_mode::WorkflowMode::Off,
         );
         assert!(
             !out.contains("# File Path Formatting"),
@@ -1155,6 +1725,8 @@ mod memory_section_tests {
             None,
             None,
             SessionMode::Default,
+            ExecutionMode::Off,
+            crate::workflow_mode::WorkflowMode::Off,
         );
         assert!(
             out.contains("Your avatar image is at: /Users/me/.hope-agent/avatars/foo.png"),
@@ -1182,6 +1754,8 @@ mod memory_section_tests {
             None,
             None,
             SessionMode::Default,
+            ExecutionMode::Off,
+            crate::workflow_mode::WorkflowMode::Off,
         );
         definition.config.avatar = None;
         let out_none = build(
@@ -1199,6 +1773,8 @@ mod memory_section_tests {
             None,
             None,
             SessionMode::Default,
+            ExecutionMode::Off,
+            crate::workflow_mode::WorkflowMode::Off,
         );
         assert!(!out_blank.contains("Your avatar image is at:"));
         assert!(!out_none.contains("Your avatar image is at:"));
@@ -1227,6 +1803,8 @@ mod memory_section_tests {
             None,
             None,
             SessionMode::Default,
+            ExecutionMode::Off,
+            crate::workflow_mode::WorkflowMode::Off,
         );
         assert!(
             !out.contains("Your avatar image is at:"),
@@ -1255,6 +1833,8 @@ mod memory_section_tests {
             None,
             None,
             SessionMode::Default,
+            ExecutionMode::Off,
+            crate::workflow_mode::WorkflowMode::Off,
         );
         assert!(
             !out.contains("Your avatar image is at:"),
@@ -1284,6 +1864,8 @@ mod memory_section_tests {
             None,
             None,
             SessionMode::Default,
+            ExecutionMode::Off,
+            crate::workflow_mode::WorkflowMode::Off,
         );
         assert!(
             out.contains("Your avatar image is at: https://example.com/a.png"),
@@ -1312,6 +1894,8 @@ mod memory_section_tests {
             None,
             None,
             SessionMode::Default,
+            ExecutionMode::Off,
+            crate::workflow_mode::WorkflowMode::Off,
         );
 
         assert!(out.contains("# Incognito Session"));
@@ -1332,5 +1916,16 @@ mod memory_section_tests {
             !out.contains("recall_memory:"),
             "incognito prompt should omit memory tool descriptions: {out}"
         );
+    }
+
+    #[test]
+    fn prompt_render_debug_helpers_are_stable_and_bounded() {
+        assert_eq!(short_fingerprint("abc").len(), 16);
+        assert_eq!(short_fingerprint("abc"), short_fingerprint("abc"));
+        assert_ne!(short_fingerprint("abc"), short_fingerprint("abcd"));
+
+        let label = section_debug_label(3);
+        assert_eq!(label, "section_3");
+        assert!(!label.contains("Available Tools"));
     }
 }

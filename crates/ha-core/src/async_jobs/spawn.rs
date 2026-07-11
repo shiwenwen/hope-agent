@@ -175,8 +175,18 @@ fn effective_max_job_secs(tool_name: &str, args: &Value, ctx: Option<&ToolExecCo
 pub(crate) fn spawn_explicit_job(
     tool_name: &str,
     args: Value,
+    ctx: ToolExecContext,
+    origin: JobOrigin,
+) -> Result<String> {
+    spawn_explicit_job_with_id(tool_name, args, ctx, origin, new_job_id())
+}
+
+pub(crate) fn spawn_explicit_job_with_id(
+    tool_name: &str,
+    args: Value,
     mut ctx: ToolExecContext,
     origin: JobOrigin,
+    job_id: String,
 ) -> Result<String> {
     let db = match super::get_async_jobs_db() {
         Some(db) => db.clone(),
@@ -188,7 +198,6 @@ pub(crate) fn spawn_explicit_job(
         }
     };
 
-    let job_id = new_job_id();
     // review#1: register the cancel token BEFORE the row becomes queryable, so a
     // concurrent cancel (cancel_jobs_for_session on session delete, or a cancel
     // of a still-QUEUED job) finds a live token. Roll back on any early failure.
@@ -371,7 +380,9 @@ fn start_runner(
                     false,
                     &err_msg,
                 );
-                if let Some(sid) = ctx.session_id.clone() {
+                if ctx.suppress_completion_injection {
+                    let _ = db.mark_injected(&job_id_owned);
+                } else if let Some(sid) = ctx.session_id.clone() {
                     // R4: same merge window as the normal finalize path.
                     injection::enqueue_injection(
                         sid,
@@ -611,6 +622,7 @@ pub(crate) async fn dispatch_with_auto_background(
                 let session_id = ctx_w.session_id.clone();
                 let agent_id = ctx_w.agent_id.clone();
                 let tool_call_id = ctx_w.tool_call_id.clone();
+                let suppress_completion_injection = ctx_w.suppress_completion_injection;
                 // E4 (INCOG-2) parity with `run_job_to_completion`: re-check
                 // incognito at settle, not only at spawn. A session burned/deleted
                 // mid-flight would otherwise keep a stale `false` and spool its
@@ -628,6 +640,7 @@ pub(crate) async fn dispatch_with_auto_background(
                     r,
                     preview_bytes,
                     incognito,
+                    suppress_completion_injection,
                 )
                 .await;
             }
@@ -957,6 +970,7 @@ async fn run_job_to_completion(
     let session_id = ctx.session_id.clone();
     let agent_id = ctx.agent_id.clone();
     let tool_call_id = ctx.tool_call_id.clone();
+    let suppress_completion_injection = ctx.suppress_completion_injection;
     let incognito = ctx.incognito;
 
     // R8: install the approval bridge for this job-runner thread so an *attended*
@@ -1009,6 +1023,7 @@ async fn run_job_to_completion(
         result,
         preview_bytes,
         incognito,
+        suppress_completion_injection,
     )
     .await;
 }
@@ -1024,6 +1039,7 @@ async fn finalize_job(
     result: Result<String, JobError>,
     preview_bytes: usize,
     incognito: bool,
+    suppress_completion_injection: bool,
 ) {
     let (status, preview, path, error_text) = match result {
         Ok(output) => {
@@ -1117,7 +1133,9 @@ async fn finalize_job(
     }
 
     // Schedule injection back into the parent session.
-    if status == JobStatus::Cancelled {
+    if suppress_completion_injection {
+        let _ = db.mark_injected(job_id);
+    } else if status == JobStatus::Cancelled {
         let _ = db.mark_injected(job_id);
     } else if let Some(sid) = session_id {
         // R4: buffer through the per-session completion merge window so several

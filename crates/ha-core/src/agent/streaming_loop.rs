@@ -340,6 +340,7 @@ async fn drain_queued_turn_user_messages<F>(
         let attachments_meta = crate::session::build_chat_user_attachments_meta(
             item.is_plan_trigger,
             item.plan_comment.as_ref(),
+            item.goal_trigger,
             attachment_meta,
         );
         let mut user_msg =
@@ -553,6 +554,7 @@ impl AssistantAgent {
         let provider_label = adapter.provider_format().label();
 
         self.reset_chat_flags();
+        self.refresh_coding_profile_suffix(message);
         self.warm_kb_access().await;
         self.warm_memory_agent_config().await;
         self.configure_retrieval_planner_context(message);
@@ -601,11 +603,11 @@ impl AssistantAgent {
             .lock()
             .unwrap_or_else(|e| e.into_inner()) = messages.clone();
 
-        // Static system prompt prefix (cache-friendly). The dynamic awareness
-        // and active-memory suffixes go in their own cache breakpoints inside
-        // chat_round (each adapter handles the placement).
+        // Static system prompt prefix (cache-friendly). Dynamic suffixes are
+        // sent as independent provider-level blocks when supported.
         let system_prompt = prepared_system_prompt;
-        let mut system_prompt_for_budget = self.merge_dynamic_system_prompt(system_prompt.clone());
+        let mut system_prompt_for_budget =
+            self.merge_dynamic_system_prompt(system_prompt.clone(), model, provider_label);
 
         self.run_compaction(
             &mut messages,
@@ -706,7 +708,8 @@ impl AssistantAgent {
             if self.maybe_resync_plan_mode_from_backend().await {
                 tool_schemas = self.build_tool_schemas(adapter.tool_provider());
                 system_prompt = self.prepare_full_system_prompt(model, provider_label).await;
-                system_prompt_for_budget = self.merge_dynamic_system_prompt(system_prompt.clone());
+                system_prompt_for_budget =
+                    self.merge_dynamic_system_prompt(system_prompt.clone(), model, provider_label);
                 self.select_memories_if_needed(&mut system_prompt, message)
                     .await;
                 self.apply_engine_prompt_addition(&mut system_prompt);
@@ -763,6 +766,7 @@ impl AssistantAgent {
             let effort_live = self.effective_reasoning_effort(reasoning_effort).await;
             let awareness_suffix = self.current_awareness_suffix();
             let active_suffix = self.current_active_memory_suffix();
+            let coding_profile_suffix = self.current_coding_profile_suffix();
             let procedure_suffix = self.current_procedure_memory_suffix();
             let related_notes_suffix = self.current_related_notes_suffix();
             // Two-step: cheap existence probe first (one SQL row, no Vec
@@ -791,6 +795,7 @@ impl AssistantAgent {
                 system_prompt: round_system_prompt,
                 awareness_suffix: awareness_suffix.as_deref().map(|s| s.as_str()),
                 active_memory_suffix: active_suffix.as_deref().map(|s| s.as_str()),
+                coding_profile_suffix: coding_profile_suffix.as_deref().map(|s| s.as_str()),
                 procedure_memory_suffix: procedure_suffix.as_deref().map(|s| s.as_str()),
                 related_notes_suffix: related_notes_suffix.as_deref().map(|s| s.as_str()),
                 task_reminder_suffix: task_reminder.as_deref(),

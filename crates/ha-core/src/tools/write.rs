@@ -91,6 +91,7 @@ pub(crate) async fn tool_write_file(args: &Value, ctx: &super::ToolExecContext) 
 
     emit_file_change_metadata(ctx, &path, before_snapshot.as_ref(), content).await;
     ctx.notify_workspace_file_changed(&path);
+    crate::lsp::sync_file_after_tool(ctx, &path).await;
 
     Ok(format!(
         "Successfully wrote {} bytes to {}",

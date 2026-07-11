@@ -98,10 +98,9 @@ impl HookEvent {
 
     /// Whether this event is observation-only — it cannot gate execution, so a
     /// hook returning `block`/`deny` for it is downgraded to non-blocking +
-    /// logged (design §5.1.1). Lists exactly the events fired this phase;
-    /// blocking-capable events (PreToolUse / Stop / PreCompact / …) land with
-    /// their decision semantics in later phases and are deliberately absent so
-    /// their decisions are never neutralized here.
+    /// logged (design §5.1.1). Lists exactly the events that currently fire as
+    /// observations; blocking-capable events are deliberately absent so their
+    /// decisions are never neutralized here.
     pub fn is_observation_only(&self) -> bool {
         matches!(
             self,
@@ -130,6 +129,7 @@ impl HookEvent {
                 | Self::UserPromptExpansion
                 | Self::Elicitation
                 | Self::ElicitationResult
+                | Self::WorktreeRemove
         )
     }
 }
@@ -448,6 +448,18 @@ pub enum HookInput {
         /// `answered` / `cancelled` / `timeout`.
         status: String,
     },
+    WorktreeCreate {
+        #[serde(flatten)]
+        common: CommonHookInput,
+        /// Stable generated worktree id/name. Matcher target.
+        name: String,
+    },
+    WorktreeRemove {
+        #[serde(flatten)]
+        common: CommonHookInput,
+        /// Absolute path being cleaned up. Matcher target.
+        worktree_path: String,
+    },
 }
 
 impl HookInput {
@@ -477,7 +489,9 @@ impl HookInput {
             | Self::PermissionDenied { common, .. }
             | Self::UserPromptExpansion { common, .. }
             | Self::Elicitation { common, .. }
-            | Self::ElicitationResult { common, .. } => common,
+            | Self::ElicitationResult { common, .. }
+            | Self::WorktreeCreate { common, .. }
+            | Self::WorktreeRemove { common, .. } => common,
         }
     }
 
@@ -495,7 +509,10 @@ impl HookInput {
     pub fn is_blocking(&self) -> bool {
         matches!(
             self,
-            Self::PreToolUse { .. } | Self::UserPromptSubmit { .. } | Self::PreCompact { .. }
+            Self::PreToolUse { .. }
+                | Self::UserPromptSubmit { .. }
+                | Self::PreCompact { .. }
+                | Self::WorktreeCreate { .. }
         )
     }
 
@@ -552,6 +569,8 @@ impl HookInput {
             }
             // UserPromptExpansion matches on the slash command name.
             Self::UserPromptExpansion { command, .. } => Some(command.as_str()),
+            Self::WorktreeCreate { name, .. } => Some(name.as_str()),
+            Self::WorktreeRemove { worktree_path, .. } => Some(worktree_path.as_str()),
             // No matcher target → only wildcard matchers fire. Task content is
             // freeform; elicitation ids are UUIDs — all match wildcard only.
             Self::UserPromptSubmit { .. }
@@ -583,6 +602,8 @@ pub struct HookSpecificOutput {
     pub permission_decision_reason: Option<String>,
     #[serde(default)]
     pub updated_input: Option<serde_json::Value>,
+    #[serde(default)]
+    pub worktree_path: Option<String>,
 }
 
 /// Parsed JSON stdout of a hook (design doc §8.2). `continue` is a Rust
@@ -656,6 +677,7 @@ pub struct HookOutcome {
     pub updated_permissions: Vec<PermissionUpdate>,
     pub session_title: Option<String>,
     pub retry: bool,
+    pub worktree_path: Option<String>,
 }
 
 impl Default for HookOutcome {
@@ -679,6 +701,7 @@ impl HookOutcome {
             updated_permissions: Vec::new(),
             session_title: None,
             retry: false,
+            worktree_path: None,
         }
     }
 

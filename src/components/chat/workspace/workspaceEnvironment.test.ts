@@ -47,6 +47,11 @@ describe("resolveWorkspaceEnvironmentStatus", () => {
     expect(resolveWorkspaceEnvironmentStatus(snapshot(null)).kind).toBe("nonGit")
   })
 
+  it("does not classify fallback working directories as non-git before the snapshot loads", () => {
+    const status = resolveWorkspaceEnvironmentStatus(null, "/repo", false)
+    expect(status.kind).toBe("unknown")
+  })
+
   it("prioritizes conflicts above other states", () => {
     expect(
       resolveWorkspaceEnvironmentStatus(

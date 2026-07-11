@@ -44,6 +44,7 @@ interface FileBrowserPanelProps {
    *  mounted) when false, so detached state survives panel switches. */
   visible: boolean
   collapsed?: boolean
+  overlay?: boolean
   panelWidth: number
   onPanelWidthChange: (w: number) => void
   reservedMainWidth?: number
@@ -67,6 +68,7 @@ export function FileBrowserPanel({
   sessionId,
   visible,
   collapsed = false,
+  overlay = false,
   panelWidth,
   onPanelWidthChange,
   reservedMainWidth,
@@ -252,6 +254,7 @@ export function FileBrowserPanel({
       maximized={maximized}
       reservedMainWidth={reservedMainWidth}
       collapsed={collapsed}
+      overlay={overlay}
       contentKey={detached ? "files-detached" : "files"}
     >
       {body}
