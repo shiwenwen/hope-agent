@@ -34,8 +34,6 @@ export default function QuickPromptMenu({
     selectedRef.current?.scrollIntoView({ block: "nearest" })
   }, [selectedIndex])
 
-  if (!isOpen) return null
-
   const sectionHeaderClass =
     "flex items-center gap-2 px-2.5 py-1 text-[11px] font-medium text-muted-foreground/70 uppercase tracking-wider"
   const rowClass = (selected: boolean) =>

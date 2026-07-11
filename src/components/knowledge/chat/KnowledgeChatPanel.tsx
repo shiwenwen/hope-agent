@@ -373,20 +373,19 @@ export const KnowledgeChatPanel = forwardRef<KnowledgeChatPanelHandle, Props>(
                 <History className="h-4 w-4" />
               </Button>
             </IconTip>
-            {historyOpen && (
-              <KnowledgeConversationHistory
-                threads={session.threads}
-                activeSessionId={session.currentSessionId}
-                onSearch={(q) => session.reloadThreads(q)}
-                hasMore={session.threadsHasMore}
-                onLoadMore={() => void session.loadMoreThreads()}
-                loadIssue={historyLoadIssue}
-                onPick={(sid) => {
-                  setHistoryOpen(false)
-                  void session.switchThread(sid)
-                }}
-              />
-            )}
+            <KnowledgeConversationHistory
+              open={historyOpen}
+              threads={session.threads}
+              activeSessionId={session.currentSessionId}
+              onSearch={(q) => session.reloadThreads(q)}
+              hasMore={session.threadsHasMore}
+              onLoadMore={() => void session.loadMoreThreads()}
+              loadIssue={historyLoadIssue}
+              onPick={(sid) => {
+                setHistoryOpen(false)
+                void session.switchThread(sid)
+              }}
+            />
           </div>
         </div>
 

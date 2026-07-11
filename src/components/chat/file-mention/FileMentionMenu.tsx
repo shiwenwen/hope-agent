@@ -80,8 +80,6 @@ export default function FileMentionMenu({
     selectedRef.current?.scrollIntoView({ block: "nearest" })
   }, [selectedIndex])
 
-  if (!isOpen) return null
-
   const hasFiles = entries.length > 0
   const hasNotes = noteEntries.length > 0
   const hasAgents = agentEntries.length > 0
@@ -90,7 +88,7 @@ export default function FileMentionMenu({
   // Nothing to paint: no file section (working dir / its loading+empty/error),
   // no note rows or in-flight note load, and no skill rows. Avoids an empty
   // floating box when `@` opens with nothing to show.
-  if (
+  const hasRenderableContent = !(
     !showFileSection &&
     !error &&
     !hasNotes &&
@@ -98,9 +96,7 @@ export default function FileMentionMenu({
     !noteLoadErrorDetail &&
     !hasAgents &&
     !hasSkills
-  ) {
-    return null
-  }
+  )
 
   // Compute breadcrumb relative to workingDir for list mode; search mode shows
   // the working dir basename.
@@ -120,7 +116,7 @@ export default function FileMentionMenu({
 
   return (
     <FloatingMenu
-      open={isOpen}
+      open={isOpen && hasRenderableContent}
       positionClassName="bottom-full left-0 right-0 mb-2 mx-3"
       className="max-h-[320px] overflow-y-auto overscroll-contain p-1.5"
       role="listbox"

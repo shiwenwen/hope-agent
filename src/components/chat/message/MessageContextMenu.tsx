@@ -1,8 +1,10 @@
+import { useRef } from "react"
 import { useTranslation } from "react-i18next"
 import { Copy } from "lucide-react"
+import { FloatingMenu } from "@/components/ui/floating-menu"
 
 interface MessageContextMenuProps {
-  contextMenu: { x: number; y: number; index: number }
+  contextMenu: { x: number; y: number; index: number } | null
   onCopy: (index: number) => void
   onClose: () => void
 }
@@ -13,23 +15,34 @@ export default function MessageContextMenu({
   onClose,
 }: MessageContextMenuProps) {
   const { t } = useTranslation()
+  const lastMenuRef = useRef(contextMenu)
+  if (contextMenu) lastMenuRef.current = contextMenu
+  const renderedMenu = contextMenu ?? lastMenuRef.current
+
+  if (!renderedMenu) return null
 
   return (
-    <div
-      className="fixed z-[100] min-w-[140px] rounded-lg border border-border bg-popover p-1 shadow-lg animate-in fade-in-0 zoom-in-95"
-      style={{ top: contextMenu.y, left: contextMenu.x }}
-      onMouseDown={(e) => e.stopPropagation()}
+    <FloatingMenu
+      open={contextMenu !== null}
+      strategy="fixed"
+      portal
+      positionClassName=""
+      originClassName="origin-top-left"
+      className="z-[100] min-w-[140px] p-1.5"
+      style={{ top: renderedMenu.y, left: renderedMenu.x }}
     >
-      <button
-        className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-sm text-foreground hover:bg-muted/80 transition-colors"
-        onClick={() => {
-          onCopy(contextMenu.index)
-          onClose()
-        }}
-      >
-        <Copy className="h-3.5 w-3.5" />
-        {t("chat.copy")}
-      </button>
-    </div>
+      <div onMouseDown={(e) => e.stopPropagation()}>
+        <button
+          className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-[13px] text-foreground/80 transition-colors hover:bg-secondary/60 hover:text-foreground"
+          onClick={() => {
+            onCopy(renderedMenu.index)
+            onClose()
+          }}
+        >
+          <Copy className="h-3.5 w-3.5" />
+          {t("chat.copy")}
+        </button>
+      </div>
+    </FloatingMenu>
   )
 }

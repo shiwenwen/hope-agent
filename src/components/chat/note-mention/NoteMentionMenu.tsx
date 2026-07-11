@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react"
 import { useTranslation } from "react-i18next"
 import { CircleAlert, Loader2 } from "lucide-react"
+import { FloatingMenu } from "@/components/ui/floating-menu"
 import { cn } from "@/lib/utils"
 import type { ReferenceableNote } from "@/types/knowledge"
 
@@ -34,11 +35,11 @@ export default function NoteMentionMenu({
     selectedRef.current?.scrollIntoView({ block: "nearest" })
   }, [selectedIndex])
 
-  if (!isOpen) return null
-
   return (
-    <div
-      className="absolute bottom-full left-0 mb-2 w-[360px] max-h-[320px] overflow-y-auto bg-popover/95 backdrop-blur-xl border border-border/60 rounded-xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] z-50 p-1.5 animate-in fade-in-0 zoom-in-95 slide-in-from-bottom-1 duration-150"
+    <FloatingMenu
+      open={isOpen}
+      positionClassName="bottom-full left-0 mb-2 mx-3"
+      className="w-[360px] max-h-[320px] overflow-y-auto overscroll-contain p-1.5"
       role="listbox"
     >
       <div className="flex items-center justify-between px-2 py-1 text-[11px] font-medium text-muted-foreground">
@@ -89,6 +90,6 @@ export default function NoteMentionMenu({
           </button>
         ))
       )}
-    </div>
+    </FloatingMenu>
   )
 }

@@ -1,8 +1,9 @@
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { Search } from "lucide-react"
 
 import { Input } from "@/components/ui/input"
+import { FloatingMenu } from "@/components/ui/floating-menu"
 import { cn } from "@/lib/utils"
 import type { KbChatThread } from "@/types/knowledge"
 import {
@@ -12,6 +13,7 @@ import {
 } from "./knowledgeChatFeedback"
 
 interface Props {
+  open: boolean
   threads: KbChatThread[]
   activeSessionId: string | null
   onSearch: (query: string) => void
@@ -30,6 +32,7 @@ interface Props {
  * filter over the threads' messages (`kb_chat_threads_list_cmd`).
  */
 export function KnowledgeConversationHistory({
+  open,
   threads,
   activeSessionId,
   onSearch,
@@ -44,8 +47,17 @@ export function KnowledgeConversationHistory({
     ? knowledgeChatIssueDescription(loadIssue, t)
     : null
 
+  useEffect(() => {
+    if (!open) setQuery("")
+  }, [open])
+
   return (
-    <div className="absolute right-0 top-full z-30 mt-1 w-[300px] rounded-xl border border-border/60 bg-popover/95 p-2 shadow-[0_8px_30px_rgb(0,0,0,0.12)] backdrop-blur-xl">
+    <FloatingMenu
+      open={open}
+      positionClassName="top-full right-0 mt-1.5"
+      originClassName="origin-top-right"
+      className="ha-menu-from-top w-[300px] p-2"
+    >
       <div className="relative mb-2">
         <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
         <Input
@@ -111,7 +123,7 @@ export function KnowledgeConversationHistory({
           ))}
         </div>
       )}
-    </div>
+    </FloatingMenu>
   )
 }
 

@@ -7,6 +7,7 @@ import {
   type CSSProperties,
   type MouseEventHandler,
   type ReactNode,
+  type Ref,
 } from "react"
 
 import { cn } from "@/lib/utils"
@@ -208,6 +209,8 @@ interface AnimatedPresenceBoxProps {
   unmountOnExit?: boolean
   onClick?: MouseEventHandler<HTMLDivElement>
   role?: AriaRole
+  style?: CSSProperties
+  elementRef?: Ref<HTMLDivElement>
 }
 
 export function AnimatedPresenceBox({
@@ -226,6 +229,8 @@ export function AnimatedPresenceBox({
   unmountOnExit = true,
   onClick,
   role,
+  style,
+  elementRef,
 }: AnimatedPresenceBoxProps) {
   const resolvedEnterDurationMs = enterDurationMs ?? durationMs
   const resolvedExitDurationMs = exitDurationMs ?? durationMs
@@ -346,6 +351,7 @@ export function AnimatedPresenceBox({
 
   return (
     <div
+      ref={elementRef}
       className={cn(
         "transition-[opacity,transform,filter] ease-out motion-reduce:transition-none",
         visible ? enterClassName : hiddenClassName,
@@ -353,6 +359,7 @@ export function AnimatedPresenceBox({
       )}
       style={
         {
+          ...style,
           transitionDuration: `${activeDurationMs}ms`,
           transitionTimingFunction: activeTimingFunction,
           "--ha-presence-enter-duration": `${resolvedEnterDurationMs}ms`,

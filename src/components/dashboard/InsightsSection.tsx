@@ -21,6 +21,7 @@ import {
   Cpu,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import type { DashboardInsights } from "./types"
 import { chartName, chartNumber, formatNumber, formatCost, formatDuration } from "./types"
 
@@ -145,15 +146,17 @@ function Heatmap({
           </div>
           <div className="flex flex-1 gap-1">
             {row.map((v, h) => (
-              <div
-                key={h}
-                className="group relative flex-1 aspect-square rounded-sm border border-border/30 transition-transform hover:scale-110 hover:z-10"
-                style={{ backgroundColor: cellColor(v) }}
-              >
-                <div className="pointer-events-none absolute bottom-full left-1/2 mb-1 hidden -translate-x-1/2 whitespace-nowrap rounded-md bg-popover px-2 py-1 text-[10px] text-popover-foreground shadow-md group-hover:block z-20">
+              <Tooltip key={h}>
+                <TooltipTrigger asChild>
+                  <div
+                    className="relative flex-1 aspect-square rounded-sm border border-border/30 transition-transform hover:scale-110 hover:z-10"
+                    style={{ backgroundColor: cellColor(v) }}
+                  />
+                </TooltipTrigger>
+                <TooltipContent side="top" className="whitespace-nowrap text-[10px]">
                   {t(`dashboard.insights.weekday.${weekdayKeys[wd]}`)} {h.toString().padStart(2, "0")}:00 · {formatNumber(v)}
-                </div>
-              </div>
+                </TooltipContent>
+              </Tooltip>
             ))}
           </div>
         </div>

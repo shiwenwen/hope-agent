@@ -5,6 +5,7 @@ import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { X, Plus, ChevronDown, Bot, ExternalLink } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { FloatingMenu } from "@/components/ui/floating-menu"
 import { IconTip } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
 import ChatInput from "@/components/chat/ChatInput"
@@ -369,8 +370,13 @@ function AgentSelector({
         <ChevronDown className="h-3 w-3 text-muted-foreground" />
       </button>
 
-      {menuOpen && agents.length > 0 && (
-        <div className="absolute top-full left-0 mt-1 min-w-[200px] max-h-[240px] overflow-y-auto bg-popover border border-border rounded-lg shadow-lg py-1 z-10">
+      <FloatingMenu
+        open={menuOpen && agents.length > 0}
+        positionClassName="top-full left-0 mt-1.5"
+        originClassName="origin-top-left"
+        className="ha-menu-from-top min-w-[200px] max-h-[240px] overflow-y-auto p-1.5"
+        onEscapeKeyDown={() => setMenuOpen(false)}
+      >
           {agents.map((agent) => (
             <button
               key={agent.id}
@@ -390,8 +396,7 @@ function AgentSelector({
               )}
             </button>
           ))}
-        </div>
-      )}
+      </FloatingMenu>
     </div>
   )
 }

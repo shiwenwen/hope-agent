@@ -1,5 +1,9 @@
 import * as React from "react"
 import * as TooltipPrimitive from "@radix-ui/react-tooltip"
+import {
+  FLOATING_MENU_RADIX_MOTION_CLASS,
+  FLOATING_MENU_SURFACE_CLASS,
+} from "@/components/ui/floating-menu"
 import { cn } from "@/lib/utils"
 
 const TooltipProvider = ({
@@ -25,7 +29,9 @@ const TooltipContent = React.forwardRef<
       ref={ref}
       sideOffset={sideOffset}
       className={cn(
-        "z-50 rounded-md bg-popover px-2.5 py-1 text-xs text-popover-foreground shadow-md border border-border/50 animate-in fade-in-0 zoom-in-95 pointer-events-none",
+        FLOATING_MENU_SURFACE_CLASS,
+        FLOATING_MENU_RADIX_MOTION_CLASS,
+        "z-50 rounded-md px-2.5 py-1 text-xs pointer-events-none [--ha-presence-enter-duration:120ms] [--ha-presence-exit-duration:100ms]",
         className,
       )}
       {...props}

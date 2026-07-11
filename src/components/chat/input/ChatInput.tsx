@@ -4,6 +4,11 @@ import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { AnimatedCollapse, AnimatedPresenceBox } from "@/components/ui/animated-presence"
 import { FloatingMenu } from "@/components/ui/floating-menu"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { IconTip, Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
 import { logger } from "@/lib/logger"
@@ -33,7 +38,6 @@ import {
   CheckCircle2,
   Radio,
 } from "lucide-react"
-import * as DropdownMenu from "@radix-ui/react-dropdown-menu"
 import type {
   AvailableModel,
   ActiveModel,
@@ -2794,9 +2798,9 @@ export default function ChatInput({
                       </IconTip>
                     )}
 
-                    <DropdownMenu.Root open={workflowMenuOpen} onOpenChange={setWorkflowMenuOpen}>
+                    <DropdownMenu open={workflowMenuOpen} onOpenChange={setWorkflowMenuOpen}>
                       <IconTip label={workflowMenuLabel}>
-                        <DropdownMenu.Trigger asChild>
+                        <DropdownMenuTrigger asChild>
                           <button
                             type="button"
                             aria-label={workflowMenuLabel}
@@ -2814,19 +2818,18 @@ export default function ChatInput({
                             <span>{workflowButtonLabel}</span>
                             <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-70" />
                           </button>
-                        </DropdownMenu.Trigger>
+                        </DropdownMenuTrigger>
                       </IconTip>
-                      <DropdownMenu.Portal>
-                        <DropdownMenu.Content
-                          className="z-50 min-w-[280px] overflow-hidden rounded-floating border border-border-soft bg-surface-floating/95 p-1.5 text-popover-foreground shadow-floating backdrop-blur-xl animate-in fade-in-0 zoom-in-95 slide-in-from-bottom-1 duration-150"
-                          side="top"
-                          align="start"
-                          sideOffset={8}
-                        >
-                          {renderWorkflowModeMenuItems(() => setWorkflowMenuOpen(false))}
-                        </DropdownMenu.Content>
-                      </DropdownMenu.Portal>
-                    </DropdownMenu.Root>
+                      <DropdownMenuContent
+                        variant="floating"
+                        className="min-w-[280px]"
+                        side="top"
+                        align="start"
+                        sideOffset={8}
+                      >
+                        {renderWorkflowModeMenuItems(() => setWorkflowMenuOpen(false))}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
 
                     <IconTip label={planToggleTip}>
                       <button

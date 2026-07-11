@@ -216,6 +216,9 @@ export default function ChatTitleBar({
   const [compactToast, setCompactToast] = useState<{ success: boolean; message: string } | null>(
     null,
   )
+  const lastCompactToastRef = useRef<{ success: boolean; message: string } | null>(null)
+  if (compactToast) lastCompactToastRef.current = compactToast
+  const renderedCompactToast = compactToast ?? lastCompactToastRef.current
   const compactToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Session ID copy feedback
@@ -615,7 +618,7 @@ export default function ChatTitleBar({
             open={showStatus}
             positionClassName="top-full right-0 mt-1.5"
             originClassName="origin-top-right"
-            className="ha-menu-from-top min-w-[260px] rounded-xl border-border bg-popover p-3.5 shadow-xl"
+            className="ha-menu-from-top min-w-[260px] p-3.5"
             onEscapeKeyDown={() => setShowStatus(false)}
             onClick={(e) => e.stopPropagation()}
           >
@@ -868,25 +871,27 @@ export default function ChatTitleBar({
               )}
             </div>
           </FloatingMenu>
-          {compactToast && (
-            <div
+          {renderedCompactToast ? (
+            <FloatingMenu
+              open={compactToast !== null}
+              positionClassName="top-full right-0 mt-1.5"
+              originClassName="origin-top-right"
               className={cn(
-                "absolute top-full right-0 mt-1.5 z-50 whitespace-nowrap rounded-lg border px-2.5 py-1.5 text-xs shadow-lg animate-in fade-in slide-in-from-top-1 duration-200",
-                compactToast.success
-                  ? "border-border bg-popover text-popover-foreground"
-                  : "border-destructive/30 bg-destructive/10 text-destructive",
+                "ha-menu-from-top whitespace-nowrap px-2.5 py-1.5 text-xs",
+                !renderedCompactToast.success &&
+                  "border-destructive/30 bg-destructive/10 text-destructive",
               )}
             >
               <div className="flex items-center gap-1.5">
-                {compactToast.success ? (
+                {renderedCompactToast.success ? (
                   <Check className="h-3 w-3 text-green-500" />
                 ) : (
                   <X className="h-3 w-3" />
                 )}
-                {compactToast.message}
+                {renderedCompactToast.message}
               </div>
-            </div>
-          )}
+            </FloatingMenu>
+          ) : null}
         </div>
         {/* Export Button — open the export-conversation dialog. */}
         {currentSessionId && (

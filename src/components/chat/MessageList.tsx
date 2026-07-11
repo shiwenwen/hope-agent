@@ -1717,16 +1717,14 @@ export default function MessageList({
         </button>
       </AnimatedPresenceBox>
 
-      {contextMenu && (
-        <MessageContextMenu
-          contextMenu={contextMenu}
-          onCopy={(index) => {
-            const msg = messages[index]
-            if (msg?.content) handleCopyMessage(msg.content, index)
-          }}
-          onClose={() => setContextMenu(null)}
-        />
-      )}
+      <MessageContextMenu
+        contextMenu={contextMenu}
+        onCopy={(index) => {
+          const msg = messages[index]
+          if (msg?.content) handleCopyMessage(msg.content, index)
+        }}
+        onClose={() => setContextMenu(null)}
+      />
     </div>
   )
 }

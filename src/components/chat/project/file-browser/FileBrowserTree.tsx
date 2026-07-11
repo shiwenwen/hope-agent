@@ -339,7 +339,7 @@ function TreeNode({
             )}
           </div>
         </ContextMenuTrigger>
-        <ContextMenuContent className="w-48">
+        <ContextMenuContent variant="floating" className="w-48">
           {entry.isDir && ctx.editable ? (
             <>
               <ContextMenuItem

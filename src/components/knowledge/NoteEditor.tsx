@@ -27,6 +27,7 @@ import { useTranslation } from "react-i18next"
 import { MessageSquareQuote, Sparkles } from "lucide-react"
 
 import MarkdownRenderer from "@/components/common/MarkdownRenderer"
+import { FloatingMenu } from "@/components/ui/floating-menu"
 import type { NoteEditorMode } from "@/types/knowledge"
 
 import { fetchNoteRef } from "./noteRefFetch"
@@ -168,6 +169,8 @@ const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function NoteEd
   const viewRef = useRef<EditorView | null>(null)
   // Floating selection toolbar (Cursor-style) — viewport coords or null.
   const [selBar, setSelBar] = useState<{ top: number; left: number } | null>(null)
+  const lastSelBarRef = useRef<{ top: number; left: number } | null>(null)
+  if (selBar) lastSelBarRef.current = selBar
   const selBarRef = useRef<HTMLDivElement | null>(null)
   const onChangeRef = useRef(onChange)
   const dataRef = useRef<WikilinkData>(data)
@@ -473,6 +476,7 @@ const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function NoteEd
 
   const splitActive = showSource && showPreview
   const showSelBar = selBar && (onReferenceSelection || (!readOnly && onRewriteSelection))
+  const renderedSelBar = selBar ?? lastSelBarRef.current
 
   return (
     <div ref={splitContainerRef} className="flex h-full min-h-0 w-full">
@@ -518,12 +522,17 @@ const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function NoteEd
       )}
 
       {/* Floating selection toolbar (Cursor-style) — appears on text selection. */}
-      {showSelBar && (
-        <div
-          ref={selBarRef}
-          className="fixed z-50 flex items-center gap-0.5 rounded-lg border border-border/60 bg-popover/95 p-0.5 shadow-lg backdrop-blur-xl animate-in fade-in-0 zoom-in-95 duration-100"
-          style={{ top: selBar.top, left: selBar.left }}
+      {renderedSelBar ? (
+        <FloatingMenu
+          open={Boolean(showSelBar)}
+          strategy="fixed"
+          portal
+          positionClassName=""
+          originClassName="origin-bottom-left"
+          className="p-0.5"
+          style={{ top: renderedSelBar.top, left: renderedSelBar.left }}
         >
+          <div ref={selBarRef} className="flex items-center gap-0.5">
           {onReferenceSelection && (
             <button
               type="button"
@@ -552,8 +561,9 @@ const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function NoteEd
               {t("knowledge.quickRewrite.title", "Quick rewrite")}
             </button>
           )}
-        </div>
-      )}
+          </div>
+        </FloatingMenu>
+      ) : null}
     </div>
   )
 })

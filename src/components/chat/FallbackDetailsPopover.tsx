@@ -1,4 +1,5 @@
 import { useTranslation } from "react-i18next"
+import { FloatingMenu } from "@/components/ui/floating-menu"
 import { cn } from "@/lib/utils"
 import type { FallbackEvent } from "@/types/chat"
 
@@ -22,13 +23,17 @@ export default function FallbackDetailsPopover({
   open: boolean
 }) {
   const { t } = useTranslation()
-  if (!open) return null
 
   const reasonKey = event.reason ? REASON_KEYS[event.reason] || REASON_KEYS["unknown"] : null
   const reasonText = reasonKey ? t(`chat.${reasonKey}`) : null
 
   return (
-    <div className="absolute top-full mt-1 z-50 min-w-[280px] rounded-lg border border-border bg-popover p-2.5 shadow-lg left-0">
+    <FloatingMenu
+      open={open}
+      positionClassName="top-full left-0 mt-1.5"
+      originClassName="origin-top-left"
+      className="ha-menu-from-top min-w-[280px] p-2.5"
+    >
       <div className="space-y-1.5 text-xs">
         {event.from_model && (
           <div className="flex items-center justify-between gap-3">
@@ -79,6 +84,6 @@ export default function FallbackDetailsPopover({
           </>
         )}
       </div>
-    </div>
+    </FloatingMenu>
   )
 }

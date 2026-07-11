@@ -3,6 +3,7 @@ import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
+import { FloatingMenu } from "@/components/ui/floating-menu"
 import { IconTip } from "@/components/ui/tooltip"
 import ServerStatusIndicator from "@/components/common/ServerStatusIndicator"
 import BrowserStatusIndicator from "@/components/common/BrowserStatusIndicator"
@@ -142,7 +143,7 @@ export default function IconSidebar({
             )}
           </div>
             </ContextMenuTrigger>
-            <ContextMenuContent>
+            <ContextMenuContent variant="floating">
               <ContextMenuItem
                 onClick={async () => {
                   try {
@@ -204,7 +205,7 @@ export default function IconSidebar({
                   )}
                 </div>
               </ContextMenuTrigger>
-              <ContextMenuContent>
+              <ContextMenuContent variant="floating">
                 <ContextMenuItem
                   disabled={cronUnreadCount === 0}
                   onSelect={() => void markAllCronRead()}
@@ -437,9 +438,15 @@ export default function IconSidebar({
                 </Button>
               </IconTip>
               {showLangMenu && (
-                <>
-                  <div className="fixed inset-0 z-40" onClick={() => setShowLangMenu(false)} />
-                  <div className="absolute left-14 bottom-0 z-50 bg-surface-floating border border-border-soft rounded-floating shadow-floating py-1 min-w-[160px] max-h-[400px] overflow-y-auto animate-in fade-in-0 zoom-in-95 slide-in-from-left-1 duration-150">
+                <div className="fixed inset-0 z-40" onClick={() => setShowLangMenu(false)} />
+              )}
+              <FloatingMenu
+                open={showLangMenu}
+                positionClassName="bottom-0 left-14"
+                originClassName="origin-left"
+                className="ha-menu-from-left min-w-[160px] max-h-[400px] overflow-y-auto p-1.5"
+                onEscapeKeyDown={() => setShowLangMenu(false)}
+              >
                     {/* Follow System option */}
                     <button
                       className={`flex items-center gap-2.5 w-full px-3 py-1.5 text-xs transition-colors hover:bg-secondary ${
@@ -481,9 +488,7 @@ export default function IconSidebar({
                           )}
                       </button>
                     ))}
-                  </div>
-                </>
-              )}
+              </FloatingMenu>
             </div>
           </div>
           {/* Settings */}

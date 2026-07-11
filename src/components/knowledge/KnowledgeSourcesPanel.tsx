@@ -1069,7 +1069,7 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
                 </button>
               </div>
             </ContextMenuTrigger>
-            <ContextMenuContent>
+            <ContextMenuContent variant="floating">
               <ContextMenuItem onClick={() => void openSource(source)}>
                 <FileText className="mr-2 h-3.5 w-3.5" />
                 {t("knowledge.sources.open", "Open")}

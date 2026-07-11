@@ -58,6 +58,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
+import { FloatingMenu } from "@/components/ui/floating-menu"
 import {
   Select,
   SelectContent,
@@ -248,6 +249,15 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
     from: number
     to: number
   } | null>(null)
+  const lastQuickRewriteRef = useRef(quickRewrite)
+  const currentQuickRewriteKbId = openKbId ?? activeKbId
+  const lastQuickRewriteKbIdRef = useRef(currentQuickRewriteKbId)
+  if (quickRewrite && currentQuickRewriteKbId) {
+    lastQuickRewriteRef.current = quickRewrite
+    lastQuickRewriteKbIdRef.current = currentQuickRewriteKbId
+  }
+  const renderedQuickRewrite = quickRewrite ?? lastQuickRewriteRef.current
+  const renderedQuickRewriteKbId = currentQuickRewriteKbId ?? lastQuickRewriteKbIdRef.current
   // Right panel: embedded AI chat ↔ backlinks view. The chat panel is anchored
   // to the open note + bound to the active KB, and is the default right-pane tab.
   const [rightMode, setRightMode] = useState<"links" | "chat">("chat")
@@ -1715,7 +1725,7 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
             )}
           </button>
         </ContextMenuTrigger>
-        <ContextMenuContent>
+        <ContextMenuContent variant="floating">
           <ContextMenuItem
             disabled={readOnly}
             onClick={() => {
@@ -1805,7 +1815,7 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
               </span>
             </button>
           </ContextMenuTrigger>
-          <ContextMenuContent>
+          <ContextMenuContent variant="floating">
             <ContextMenuItem
               disabled={readOnly}
               onClick={() => guardNavigation(() => startDraft(node.path))}
@@ -2158,7 +2168,7 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
                     </span>
                   </button>
                 </ContextMenuTrigger>
-                <ContextMenuContent>
+                <ContextMenuContent variant="floating">
                   <ContextMenuItem onClick={() => openEditKb(kb)}>
                     <Pencil className="mr-2 h-3.5 w-3.5" />
                     {t("knowledge.editSpace", "Edit space")}
@@ -3276,16 +3286,24 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
       </Dialog>
 
       {/* One-shot floating quick-rewrite bar (replaces the old AI rewrite modal). */}
-      {quickRewrite && (openKbId ?? activeKbId) && (
-        <div className="fixed left-1/2 top-24 z-50 -translate-x-1/2">
+      {renderedQuickRewrite && renderedQuickRewriteKbId ? (
+        <FloatingMenu
+          open={quickRewrite !== null && currentQuickRewriteKbId !== null}
+          strategy="fixed"
+          portal
+          positionClassName="top-24"
+          originClassName="origin-top"
+          className="p-0"
+          style={{ left: "max(5vw, calc(50% - 210px))" }}
+        >
           <QuickRewriteBar
-            kbId={(openKbId ?? activeKbId) as string}
+            kbId={renderedQuickRewriteKbId}
             notePath={openPath}
-            before={quickRewrite.before}
+            before={renderedQuickRewrite.before}
             onApply={(after) => {
               const ed = editorRef.current
               if (!ed) return
-              const { before, from, to } = quickRewrite
+              const { before, from, to } = renderedQuickRewrite
               const doc = ed.getText()
               // Fast path: the captured range still holds the original text
               // (no shifting edit happened during generation) — apply in place.
@@ -3307,8 +3325,8 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
             }}
             onClose={() => setQuickRewrite(null)}
           />
-        </div>
-      )}
+        </FloatingMenu>
+      ) : null}
     </div>
   )
 }
@@ -3441,7 +3459,7 @@ function ModeSwitch({
             <ChevronDown className="h-3 w-3 text-muted-foreground" />
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="min-w-[8rem]">
+        <DropdownMenuContent variant="floating" align="end" className="min-w-[8rem]">
           {MODE_KEYS.map((m) => (
             <DropdownMenuItem key={m} onSelect={() => onChange(m)} className="gap-2 text-xs">
               <Check
