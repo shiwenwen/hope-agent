@@ -749,7 +749,8 @@
     "duplicate": "建立副本",
     "more": "更多",
     "copy": "複製",
-    "copied": "已複製"
+    "copied": "已複製",
+    "apply": "套用"
   },
   "context": {
     "ago": "前",
@@ -6707,6 +6708,15 @@
       "toLtr": "切換為從左到右",
       "on": "已切換為從右到左（RTL）",
       "off": "已切換為從左到右（LTR）"
+    },
+    "pageStyle": {
+      "button": "頁面樣式",
+      "title": "頁面樣式",
+      "hint": "作用於整頁（body）；留空表示不改該項。與逐元素微調互不影響。",
+      "background": "背景色",
+      "color": "文字色",
+      "maxWidth": "最大寬度",
+      "saved": "已套用頁面樣式"
     }
   }
 }

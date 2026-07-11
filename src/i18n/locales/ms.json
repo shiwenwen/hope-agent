@@ -749,7 +749,8 @@
     "duplicate": "Salin",
     "more": "Lagi",
     "copy": "Salin",
-    "copied": "Disalin"
+    "copied": "Disalin",
+    "apply": "Guna"
   },
   "context": {
     "ago": "yang lalu",
@@ -6707,6 +6708,15 @@
       "toLtr": "Tukar ke kiri ke kanan",
       "on": "Ditukar ke kanan ke kiri (RTL)",
       "off": "Ditukar ke kiri ke kanan (LTR)"
+    },
+    "pageStyle": {
+      "button": "Gaya halaman",
+      "title": "Gaya halaman",
+      "hint": "Digunakan pada seluruh halaman (body); biarkan kosong untuk kekal. Bebas daripada pelarasan setiap elemen.",
+      "background": "Latar",
+      "color": "Warna teks",
+      "maxWidth": "Lebar maks.",
+      "saved": "Gaya halaman digunakan"
     }
   }
 }

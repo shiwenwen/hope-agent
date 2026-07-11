@@ -749,7 +749,8 @@
     "duplicate": "Nhân bản",
     "more": "Thêm",
     "copy": "Sao chép",
-    "copied": "Đã sao chép"
+    "copied": "Đã sao chép",
+    "apply": "Áp dụng"
   },
   "context": {
     "ago": "trước",
@@ -6707,6 +6708,15 @@
       "toLtr": "Chuyển sang trái sang phải",
       "on": "Đã chuyển sang phải sang trái (RTL)",
       "off": "Đã chuyển sang trái sang phải (LTR)"
+    },
+    "pageStyle": {
+      "button": "Kiểu trang",
+      "title": "Kiểu trang",
+      "hint": "Áp dụng cho toàn trang (body); để trống để giữ nguyên. Độc lập với tinh chỉnh từng phần tử.",
+      "background": "Nền",
+      "color": "Màu chữ",
+      "maxWidth": "Chiều rộng tối đa",
+      "saved": "Đã áp dụng kiểu trang"
     }
   }
 }

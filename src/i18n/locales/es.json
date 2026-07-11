@@ -749,7 +749,8 @@
     "duplicate": "Duplicar",
     "more": "Más",
     "copy": "Copiar",
-    "copied": "Copiado"
+    "copied": "Copiado",
+    "apply": "Aplicar"
   },
   "context": {
     "ago": "atrás",
@@ -6707,6 +6708,15 @@
       "toLtr": "Cambiar a izquierda a derecha",
       "on": "Cambiado a derecha a izquierda (RTL)",
       "off": "Cambiado a izquierda a derecha (LTR)"
+    },
+    "pageStyle": {
+      "button": "Estilo de página",
+      "title": "Estilo de página",
+      "hint": "Se aplica a toda la página (body); déjalo vacío para mantener. Independiente de los ajustes por elemento.",
+      "background": "Fondo",
+      "color": "Color de texto",
+      "maxWidth": "Ancho máx.",
+      "saved": "Estilo de página aplicado"
     }
   }
 }

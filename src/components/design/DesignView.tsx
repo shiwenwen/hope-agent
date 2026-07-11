@@ -35,6 +35,7 @@ import {
   GitFork,
   Layers,
   ListChecks,
+  Paintbrush,
   CheckCircle2,
   Sparkles,
   StickyNote,
@@ -1952,6 +1953,33 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
       setReviewing(false)
     }
   }, [tx, reviewing, t])
+
+  // 页面级样式（body 背景/文字色/最大宽度）：与 oid 元素微调正交，落 CSS 标记块 + 重渲染。
+  const [pageStyleOpen, setPageStyleOpen] = useState(false)
+  const [psBackground, setPsBackground] = useState("")
+  const [psColor, setPsColor] = useState("")
+  const [psMaxWidth, setPsMaxWidth] = useState("")
+  const [psSaving, setPsSaving] = useState(false)
+  const savePageStyle = useCallback(async () => {
+    const aid = activeArtifactRef.current?.id
+    if (!aid || psSaving) return
+    setPsSaving(true)
+    try {
+      const props: Record<string, string> = {}
+      if (psBackground.trim()) props["background"] = psBackground.trim()
+      if (psColor.trim()) props["color"] = psColor.trim()
+      if (psMaxWidth.trim()) props["max-width"] = psMaxWidth.trim()
+      // 空值属性会被后端移除；全空 = 清除页面样式块。
+      await tx.call("patch_design_page_style_cmd", { id: aid, props })
+      setPageStyleOpen(false)
+      toast.success(t("design.pageStyle.saved", "已应用页面样式"))
+    } catch (e) {
+      logger.error("design", "DesignView::pageStyle", "save failed", e)
+      toast.error(t("design.err.load", "加载失败"))
+    } finally {
+      setPsSaving(false)
+    }
+  }, [tx, psBackground, psColor, psMaxWidth, psSaving, t])
 
   // RTL 切换：翻转产物文本方向（存 metadata.dir + 后端重渲染，design:reload 刷新预览）。
   const toggleRtl = useCallback(async () => {
@@ -3884,6 +3912,25 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                         </Button>
                       </IconTip>
                     )}
+                    {activeArtifact.kind !== "image" &&
+                      activeArtifact.kind !== "audio" &&
+                      activeArtifact.kind !== "component" && (
+                        <IconTip label={t("design.pageStyle.button", "页面样式")} side="bottom">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6"
+                            onClick={() => {
+                              setPsBackground("")
+                              setPsColor("")
+                              setPsMaxWidth("")
+                              setPageStyleOpen(true)
+                            }}
+                          >
+                            <Paintbrush className="h-3.5 w-3.5" />
+                          </Button>
+                        </IconTip>
+                      )}
                     {activeArtifact.kind !== "image" && activeArtifact.kind !== "audio" && (
                       <IconTip
                         label={
@@ -4664,6 +4711,79 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
           )}
         </div>
       )}
+
+      {/* 页面级样式编辑 */}
+      <Dialog open={pageStyleOpen} onOpenChange={setPageStyleOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Paintbrush className="h-4 w-4" />
+              {t("design.pageStyle.title", "页面样式")}
+            </DialogTitle>
+          </DialogHeader>
+          <p className="text-xs text-muted-foreground">
+            {t("design.pageStyle.hint", "作用于整页（body）；留空表示不改该项。与逐元素微调互不影响。")}
+          </p>
+          <div className="space-y-3">
+            <div className="flex items-center gap-2">
+              <label className="w-20 shrink-0 text-xs font-medium">
+                {t("design.pageStyle.background", "背景色")}
+              </label>
+              <input
+                type="color"
+                value={psBackground || "#ffffff"}
+                onChange={(e) => setPsBackground(e.target.value)}
+                className="h-8 w-10 shrink-0 cursor-pointer rounded border"
+                aria-label={t("design.pageStyle.background", "背景色")}
+              />
+              <Input
+                value={psBackground}
+                onChange={(e) => setPsBackground(e.target.value)}
+                placeholder="#ffffff / transparent"
+                className="h-8 flex-1 text-xs"
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <label className="w-20 shrink-0 text-xs font-medium">
+                {t("design.pageStyle.color", "文字色")}
+              </label>
+              <input
+                type="color"
+                value={psColor || "#111111"}
+                onChange={(e) => setPsColor(e.target.value)}
+                className="h-8 w-10 shrink-0 cursor-pointer rounded border"
+                aria-label={t("design.pageStyle.color", "文字色")}
+              />
+              <Input
+                value={psColor}
+                onChange={(e) => setPsColor(e.target.value)}
+                placeholder="#111111"
+                className="h-8 flex-1 text-xs"
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <label className="w-20 shrink-0 text-xs font-medium">
+                {t("design.pageStyle.maxWidth", "最大宽度")}
+              </label>
+              <Input
+                value={psMaxWidth}
+                onChange={(e) => setPsMaxWidth(e.target.value)}
+                placeholder="1200px / 80rem / none"
+                className="h-8 flex-1 text-xs"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setPageStyleOpen(false)}>
+              {t("common.cancel", "取消")}
+            </Button>
+            <Button onClick={() => void savePageStyle()} disabled={psSaving}>
+              {psSaving && <Loader2Icon className="mr-1.5 h-4 w-4 animate-spin" />}
+              {t("common.apply", "应用")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* 多镜头质量审查结果 */}
       <Dialog open={reviewFindings !== null} onOpenChange={(o) => !o && setReviewFindings(null)}>

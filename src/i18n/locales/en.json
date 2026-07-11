@@ -749,7 +749,8 @@
     "duplicate": "Duplicate",
     "more": "More",
     "copy": "Copy",
-    "copied": "Copied"
+    "copied": "Copied",
+    "apply": "Apply"
   },
   "context": {
     "ago": "ago",
@@ -6707,6 +6708,15 @@
       "toLtr": "Switch to left-to-right",
       "on": "Switched to right-to-left (RTL)",
       "off": "Switched to left-to-right (LTR)"
+    },
+    "pageStyle": {
+      "button": "Page style",
+      "title": "Page style",
+      "hint": "Applies to the whole page (body); leave blank to keep. Independent of per-element tweaks.",
+      "background": "Background",
+      "color": "Text color",
+      "maxWidth": "Max width",
+      "saved": "Page style applied"
     }
   }
 }

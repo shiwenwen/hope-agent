@@ -394,6 +394,25 @@ pub struct PresenterNotesBody {
 }
 
 #[derive(Deserialize)]
+pub struct PageStyleBody {
+    pub props: std::collections::BTreeMap<String, String>,
+}
+
+/// `PUT /api/design/artifacts/{id}/page-style` — 页面级样式编辑（body 层）。
+pub async fn patch_page_style(
+    Path(id): Path<String>,
+    Json(body): Json<PageStyleBody>,
+) -> Result<Json<DesignArtifact>, AppError> {
+    validate_id(&id)?;
+    let a = ha_core::blocking::run_blocking(move || {
+        service::patch_page_style(&id, body.props.into_iter().collect())
+    })
+    .await
+    .map_err(|e| AppError::internal(e.to_string()))?;
+    Ok(Json(a))
+}
+
+#[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SetDirBody {
     pub rtl: bool,

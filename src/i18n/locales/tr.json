@@ -749,7 +749,8 @@
     "duplicate": "Çoğalt",
     "more": "Daha fazla",
     "copy": "Kopyala",
-    "copied": "Kopyalandı"
+    "copied": "Kopyalandı",
+    "apply": "Uygula"
   },
   "context": {
     "ago": "önce",
@@ -6707,6 +6708,15 @@
       "toLtr": "Soldan sağa geç",
       "on": "Sağdan sola (RTL) geçildi",
       "off": "Soldan sağa (LTR) geçildi"
+    },
+    "pageStyle": {
+      "button": "Sayfa stili",
+      "title": "Sayfa stili",
+      "hint": "Tüm sayfaya (body) uygulanır; korumak için boş bırakın. Öğe bazlı ince ayarlardan bağımsızdır.",
+      "background": "Arka plan",
+      "color": "Metin rengi",
+      "maxWidth": "Maks. genişlik",
+      "saved": "Sayfa stili uygulandı"
     }
   }
 }

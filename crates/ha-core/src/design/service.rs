@@ -1372,6 +1372,120 @@ pub fn set_artifact_dir(id: &str, rtl: bool) -> Result<DesignArtifact> {
     db.get_artifact(&a.id)?.context("artifact gone after set dir")
 }
 
+/// 页面级样式标记块前缀：`/*ds-page*/body{...}` 追加到用户 CSS 末尾（后出现的规则胜出）。
+/// 与 oid 元素级微调正交——页面级不走 patch/oid，直接改 CSS 里这一确定性标记块。
+const PAGE_STYLE_MARKER: &str = "/*ds-page*/";
+
+fn is_safe_css_prop(p: &str) -> bool {
+    !p.is_empty() && p.len() <= 40 && p.bytes().all(|b| b.is_ascii_lowercase() || b == b'-')
+}
+
+fn sanitize_css_value(v: &str) -> String {
+    v.chars()
+        .filter(|c| !matches!(c, '{' | '}' | '<' | ';' | '\\'))
+        .take(200)
+        .collect::<String>()
+        .trim()
+        .to_string()
+}
+
+/// 去掉已有 page-style 标记块（幂等，供重写）。
+fn strip_page_style(css: &str) -> String {
+    if let Some(idx) = css.find(PAGE_STYLE_MARKER) {
+        let after = &css[idx..];
+        if let Some(open) = after.find('{') {
+            if let Some(close) = after[open..].find('}') {
+                let end = idx + open + close + 1;
+                let mut out = String::new();
+                out.push_str(css[..idx].trim_end());
+                if !css[end..].trim().is_empty() {
+                    out.push('\n');
+                    out.push_str(css[end..].trim_start());
+                }
+                return out.trim().to_string();
+            }
+        }
+    }
+    css.to_string()
+}
+
+/// 应用页面级样式：strip 旧标记块 + 追加新 `body{...}`（空值属性=移除；全空=只 strip）。纯函数。
+fn apply_page_style_css(css: &str, props: &[(String, String)]) -> String {
+    let base = strip_page_style(css);
+    let decls: String = props
+        .iter()
+        .filter(|(k, _)| is_safe_css_prop(k))
+        .filter_map(|(k, v)| {
+            let sv = sanitize_css_value(v);
+            (!sv.is_empty()).then(|| format!("{k}:{sv};"))
+        })
+        .collect();
+    if decls.is_empty() {
+        return base;
+    }
+    if base.is_empty() {
+        format!("{PAGE_STYLE_MARKER}body{{{decls}}}")
+    } else {
+        format!("{base}\n{PAGE_STYLE_MARKER}body{{{decls}}}")
+    }
+}
+
+/// 页面级样式编辑（背景 / 文字色 / 最大宽度 / 基础字体等，作用于 `body`）。owner 平面。
+/// 与 oid 元素微调正交：只改 CSS 里的确定性标记块，落新版本 + 重渲染 + `design:reload`。
+/// 媒体 / component 无用户 CSS 编辑面 → 拒。
+pub fn patch_page_style(id: &str, props: Vec<(String, String)>) -> Result<DesignArtifact> {
+    let lock = artifact_lock(id);
+    let _guard = lock.lock().unwrap_or_else(|e| e.into_inner());
+    let db = open_db()?;
+    let a = db.get_artifact(id)?.context("artifact not found")?;
+    let kind = ArtifactKind::from_str(&a.kind)
+        .with_context(|| format!("unknown artifact kind: {}", a.kind))?;
+    if matches!(
+        kind,
+        ArtifactKind::Image | ArtifactKind::Audio | ArtifactKind::Component
+    ) {
+        anyhow::bail!("该形态无页面级样式编辑面");
+    }
+    let dir = paths::design_artifact_dir(&a.project_id, &a.id)?;
+    let existing = read_source(&dir)?;
+    let parts = ArtifactParts {
+        body_html: existing.body_html,
+        css: apply_page_style_css(&existing.css, &props),
+        js: existing.js,
+    };
+    let tokens = resolve_tokens(a.system_id.as_deref());
+    let (html, oidmap_json) = render(kind, &a.title, &parts, &tokens, is_rtl(a.metadata.as_deref()))?;
+    write_working(&dir, &html, &parts, &oidmap_json)?;
+    let next = a.current_version + 1;
+    write_version_snapshot(&dir, next, &html, &parts, &oidmap_json)?;
+    let ts = now();
+    db.update_artifact_review(&a.id, None, &a.status, Some(next), a.metadata.as_deref(), &ts)?;
+    db.create_version(&DesignArtifactVersion {
+        id: 0,
+        artifact_id: a.id.clone(),
+        version_number: next,
+        message: Some("Page style".to_string()),
+        critique_score: None,
+        origin: Some("manual".to_string()),
+        prompt_summary: None,
+        created_at: ts.clone(),
+    })?;
+    let keep = crate::config::cached_config()
+        .design
+        .max_versions_per_artifact
+        .max(1);
+    let _ = db.cleanup_old_versions(&a.id, keep);
+    if let Ok(remaining) = db.list_versions(&a.id) {
+        let keep_set: std::collections::HashSet<i64> =
+            remaining.iter().map(|v| v.version_number).collect();
+        prune_version_dirs_to_db(&dir, &keep_set);
+    }
+    db.touch_project(&a.project_id, &ts)?;
+    emit("design:reload", json!({ "artifactId": a.id }));
+    db.get_artifact(&a.id)?
+        .context("artifact gone after page style")
+}
+
 /// 拖入导入上限（单张图，与部署单文件量级一致的保守值）。
 const MAX_IMPORT_IMAGE_BYTES: usize = 20 * 1024 * 1024;
 
@@ -3493,6 +3607,58 @@ pub async fn refine_artifact_with_comment(
         prompt_summary: Some(crate::truncate_utf8(&comment.body, 2000).to_string()),
         expected_body_hash: Some(patch::body_hash(&current.body_html)),
     })
+}
+
+#[cfg(test)]
+mod page_style_tests {
+    use super::apply_page_style_css;
+
+    #[test]
+    fn apply_page_style_appends_marker_block() {
+        let css = ".x{color:red}";
+        let out = apply_page_style_css(
+            css,
+            &[
+                ("background".into(), "#111".into()),
+                ("max-width".into(), "1200px".into()),
+            ],
+        );
+        assert!(out.starts_with(".x{color:red}"));
+        assert!(out.contains("/*ds-page*/body{background:#111;max-width:1200px;}"));
+    }
+
+    #[test]
+    fn apply_page_style_rewrites_not_duplicates() {
+        let css = apply_page_style_css("", &[("background".into(), "#000".into())]);
+        let css2 = apply_page_style_css(&css, &[("background".into(), "#fff".into())]);
+        assert_eq!(css2.matches("/*ds-page*/").count(), 1, "标记块唯一");
+        assert!(css2.contains("background:#fff;"));
+        assert!(!css2.contains("#000"));
+    }
+
+    #[test]
+    fn apply_page_style_sanitizes_and_drops_empty() {
+        // 非法属性名过滤 + 值里的 } 剥除 + 空值移除该属性。
+        let out = apply_page_style_css(
+            "",
+            &[
+                ("color".into(), "red}评论<".into()),
+                ("BAD PROP".into(), "x".into()),
+                ("background".into(), "".into()),
+            ],
+        );
+        assert!(out.contains("color:red评论;"));
+        assert!(!out.contains("BAD PROP"));
+        assert!(!out.contains("background"));
+    }
+
+    #[test]
+    fn apply_page_style_empty_props_strips_block() {
+        let css = apply_page_style_css(".x{}", &[("color".into(), "red".into())]);
+        let cleared = apply_page_style_css(&css, &[]);
+        assert!(!cleared.contains("/*ds-page*/"));
+        assert!(cleared.contains(".x{}"));
+    }
 }
 
 #[cfg(test)]

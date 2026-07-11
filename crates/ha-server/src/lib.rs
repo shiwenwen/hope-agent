@@ -1936,6 +1936,10 @@ fn build_router_with_cors(
             "/design/artifacts/{id}/dir",
             axum::routing::put(routes::design::set_artifact_dir),
         )
+        .route(
+            "/design/artifacts/{id}/page-style",
+            axum::routing::put(routes::design::patch_page_style),
+        )
         .route("/design/patch", post(routes::design::patch_element))
         .route(
             "/design/artifacts/{id}/critique",

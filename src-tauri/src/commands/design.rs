@@ -97,6 +97,19 @@ pub async fn review_design_artifact_cmd(
         .map_err(Into::into)
 }
 
+/// 页面级样式编辑（body 背景/文字色/最大宽度/字体等）。props 为 CSS 属性→值（空值=移除）。
+#[tauri::command]
+pub async fn patch_design_page_style_cmd(
+    id: String,
+    props: std::collections::BTreeMap<String, String>,
+) -> Result<DesignArtifact, CmdError> {
+    ha_core::blocking::run_blocking(move || {
+        service::patch_page_style(&id, props.into_iter().collect())
+    })
+    .await
+    .map_err(Into::into)
+}
+
 /// 设置产物文本方向（RTL/LTR，存 metadata.dir + 重渲染 working）。
 #[tauri::command]
 pub async fn set_design_artifact_dir_cmd(
