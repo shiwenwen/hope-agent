@@ -6761,6 +6761,12 @@
       "copied": "Kopyalandı"
     },
     "stopGeneration": "Oluşturmayı durdur",
-    "stopGenerationDone": "Oluşturma durduruldu"
+    "stopGenerationDone": "Oluşturma durduruldu",
+    "copyImage": {
+      "menu": "Görseli panoya kopyala",
+      "working": "Görsel kopyalanıyor…",
+      "done": "Görsel panoya kopyalandı",
+      "failed": "Kopyalama başarısız — PNG dışa aktarın"
+    }
   }
 }

@@ -6761,6 +6761,12 @@
       "copied": "Copied"
     },
     "stopGeneration": "Stop generating",
-    "stopGenerationDone": "Generation stopped"
+    "stopGenerationDone": "Generation stopped",
+    "copyImage": {
+      "menu": "Copy image to clipboard",
+      "working": "Copying image…",
+      "done": "Image copied to clipboard",
+      "failed": "Copy failed — try exporting PNG"
+    }
   }
 }

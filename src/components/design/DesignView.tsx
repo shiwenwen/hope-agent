@@ -65,6 +65,7 @@ import {
   Undo2,
   Redo2,
   Square,
+  ClipboardCopy,
   Share2,
   Cloud,
   Wand2,
@@ -3037,6 +3038,36 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
       logger.error("design", "DesignView::handleStopGeneration", "cancel failed", e)
     }
   }, [tx, refreshView, t])
+  // 复制图片到剪贴板（W3-L）：别家一键就有、我们此前完全没有（导出→选位置→找文件→拖入四步）。
+  // 优先 native 高保真捕获，浏览器依赖未就绪则客户端栅格化兜底；写 ClipboardItem（Tauri/HTTP 通用）。
+  const handleCopyImage = useCallback(async () => {
+    const a = activeArtifactRef.current
+    if (!a || (a.status !== "ready" && a.status !== "needs_review")) return
+    const tid = toast.loading(t("design.copyImage.working", "正在复制图片…"))
+    try {
+      let blob: Blob
+      try {
+        const nat = await tx.call<{ data: string; mime: string }>("export_design_native_cmd", {
+          id: a.id,
+          format: "png",
+        })
+        blob = base64ToBlob(nat.data, "image/png")
+      } catch {
+        const res = await tx.call<{ content: string }>("export_design_artifact_cmd", {
+          id: a.id,
+          format: "html",
+        })
+        blob = await exportPng(res.content, a.kind as ArtifactKind, a.viewportW, {
+          scale: designConfig?.exportScale ?? 2,
+        })
+      }
+      await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })])
+      toast.success(t("design.copyImage.done", "已复制图片到剪贴板"), { id: tid })
+    } catch (e) {
+      logger.error("design", "DesignView::handleCopyImage", "copy image failed", e)
+      toast.error(t("design.copyImage.failed", "复制图片失败，可改用导出 PNG"), { id: tid })
+    }
+  }, [tx, t, designConfig])
   const handleShare = useCallback(async () => {
     const a = activeArtifactRef.current
     if (!a || sharing) return
@@ -4561,6 +4592,11 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                         </DropdownMenuTrigger>
                       </IconTip>
                       <DropdownMenuContent align="end">
+                        <DropdownMenuItem onSelect={() => void handleCopyImage()}>
+                          <ClipboardCopy className="mr-2 h-4 w-4" />
+                          {t("design.copyImage.menu", "复制图片到剪贴板")}
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
                         <DropdownMenuItem onSelect={() => void handleExport("html")}>
                           <Code2 className="mr-2 h-4 w-4" />
                           {t("design.exportHtml", "HTML")}

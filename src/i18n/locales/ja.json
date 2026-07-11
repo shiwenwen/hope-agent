@@ -6761,6 +6761,12 @@
       "copied": "コピーしました"
     },
     "stopGeneration": "生成を停止",
-    "stopGenerationDone": "生成を停止しました"
+    "stopGenerationDone": "生成を停止しました",
+    "copyImage": {
+      "menu": "画像をクリップボードにコピー",
+      "working": "画像をコピー中…",
+      "done": "画像をクリップボードにコピーしました",
+      "failed": "コピー失敗。PNG 書き出しをお試しください"
+    }
   }
 }

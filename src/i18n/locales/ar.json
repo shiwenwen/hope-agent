@@ -6761,6 +6761,12 @@
       "copied": "تم النسخ"
     },
     "stopGeneration": "إيقاف التوليد",
-    "stopGenerationDone": "تم إيقاف التوليد"
+    "stopGenerationDone": "تم إيقاف التوليد",
+    "copyImage": {
+      "menu": "نسخ الصورة إلى الحافظة",
+      "working": "جارٍ نسخ الصورة…",
+      "done": "تم نسخ الصورة",
+      "failed": "فشل النسخ — جرّب تصدير PNG"
+    }
   }
 }

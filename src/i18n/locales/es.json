@@ -6761,6 +6761,12 @@
       "copied": "Copiado"
     },
     "stopGeneration": "Detener generación",
-    "stopGenerationDone": "Generación detenida"
+    "stopGenerationDone": "Generación detenida",
+    "copyImage": {
+      "menu": "Copiar imagen al portapapeles",
+      "working": "Copiando imagen…",
+      "done": "Imagen copiada al portapapeles",
+      "failed": "Error al copiar — exporta PNG"
+    }
   }
 }

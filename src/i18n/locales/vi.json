@@ -6761,6 +6761,12 @@
       "copied": "Đã sao chép"
     },
     "stopGeneration": "Dừng tạo",
-    "stopGenerationDone": "Đã dừng tạo"
+    "stopGenerationDone": "Đã dừng tạo",
+    "copyImage": {
+      "menu": "Sao chép ảnh vào clipboard",
+      "working": "Đang sao chép ảnh…",
+      "done": "Đã sao chép ảnh",
+      "failed": "Sao chép thất bại — thử xuất PNG"
+    }
   }
 }

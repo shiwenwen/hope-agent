@@ -6761,6 +6761,12 @@
       "copied": "Copiado"
     },
     "stopGeneration": "Parar geração",
-    "stopGenerationDone": "Geração interrompida"
+    "stopGenerationDone": "Geração interrompida",
+    "copyImage": {
+      "menu": "Copiar imagem para área de transferência",
+      "working": "Copiando imagem…",
+      "done": "Imagem copiada",
+      "failed": "Falha ao copiar — exporte PNG"
+    }
   }
 }

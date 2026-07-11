@@ -6761,6 +6761,12 @@
       "copied": "복사됨"
     },
     "stopGeneration": "생성 중지",
-    "stopGenerationDone": "생성을 중지했습니다"
+    "stopGenerationDone": "생성을 중지했습니다",
+    "copyImage": {
+      "menu": "이미지를 클립보드에 복사",
+      "working": "이미지 복사 중…",
+      "done": "이미지를 클립보드에 복사함",
+      "failed": "복사 실패 — PNG 내보내기 사용"
+    }
   }
 }

@@ -6761,6 +6761,12 @@
       "copied": "Disalin"
     },
     "stopGeneration": "Hentikan penjanaan",
-    "stopGenerationDone": "Penjanaan dihentikan"
+    "stopGenerationDone": "Penjanaan dihentikan",
+    "copyImage": {
+      "menu": "Salin imej ke papan klip",
+      "working": "Menyalin imej…",
+      "done": "Imej disalin ke papan klip",
+      "failed": "Salin gagal — eksport PNG"
+    }
   }
 }
