@@ -3660,7 +3660,7 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
 
           {/* Right: 顶部产物切换条 + 单产物预览 */}
           <div
-            className="relative flex min-w-0 flex-1 flex-col"
+            className="relative flex min-h-0 min-w-0 flex-1 flex-col"
             onDragOver={(e) => {
               if (!activeProject) return
               if (Array.from(e.dataTransfer.types).includes("Files")) {
@@ -3804,7 +3804,7 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
             </div>
 
             {/* Single-artifact preview */}
-            <main className="relative flex flex-1 min-w-0 flex-col bg-muted/30">
+            <main className="relative flex min-h-0 flex-1 min-w-0 flex-col bg-muted/30">
             {showGrid && artifactsError && artifacts.length === 0 ? (
               // Wave 2-⑨：库加载失败显式态（区别于空库），带重试。
               <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center">
