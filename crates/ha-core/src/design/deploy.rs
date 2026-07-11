@@ -333,8 +333,13 @@ pub async fn probe_deploy_ready(url: &str) -> Result<DeployReadiness> {
     crate::security::ssrf::check_url(url, crate::security::ssrf::SsrfPolicy::Default, &[])
         .await
         .with_context(|| format!("SSRF check failed for {url}"))?;
+    // **不跟随跳转（红线）**：`check_url` 只校验首个 URL；若跟随默认 10 跳，一个公网 URL 可
+    // `302 → 169.254.169.254 / 内网` 把探测变成盲 SSRF 内网扫描（跳转 hop 不再过 SSRF）。就绪
+    // 探测本就只需知道「边缘有响应」——3xx 本身即响应信号（下方按 redirection 也算 ready），故
+    // 直接 `Policy::none()` 彻底断掉跳转向量，无需 per-hop 复核。
     let http = reqwest::Client::builder()
         .timeout(Duration::from_secs(10))
+        .redirect(reqwest::redirect::Policy::none())
         .build()
         .map_err(|e| anyhow!("build probe client: {e}"))?;
     match http.get(url).send().await {
