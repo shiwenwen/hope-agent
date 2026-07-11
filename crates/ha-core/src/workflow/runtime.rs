@@ -74,14 +74,19 @@ pub async fn recover_pending_workflow_runs(
         ..Default::default()
     };
     let runs = db
-        .list_recoverable_workflow_runs()
+        .run(move |db| db.list_recoverable_workflow_runs())
+        .await
         .context("list recoverable workflow runs")?;
 
     for run in runs {
-        let Some(claimed) = db
-            .claim_workflow_run_for_recovery(&run.id, &owner)
-            .with_context(|| format!("claim workflow run {} for recovery", run.id))?
-        else {
+        let claimed = {
+            let run_id = run.id.clone();
+            let owner = owner.clone();
+            db.run(move |db| db.claim_workflow_run_for_recovery(&run_id, &owner))
+                .await
+                .with_context(|| format!("claim workflow run {} for recovery", run.id))?
+        };
+        let Some(claimed) = claimed else {
             report.skipped += 1;
             continue;
         };
@@ -95,11 +100,13 @@ pub async fn recover_pending_workflow_runs(
                 _ => {}
             },
             Err(err) => {
-                let state = db
-                    .get_workflow_run(&claimed.id)
-                    .ok()
-                    .flatten()
-                    .map(|run| run.state);
+                let state = {
+                    let claimed_id = claimed.id.clone();
+                    db.run(move |db| db.get_workflow_run(&claimed_id)).await
+                }
+                .ok()
+                .flatten()
+                .map(|run| run.state);
                 match state {
                     Some(WorkflowRunState::Blocked) => report.blocked += 1,
                     Some(WorkflowRunState::Failed) => report.failed += 1,
@@ -153,7 +160,13 @@ pub fn spawn_startup_recovery_if_primary() {
 
 fn spawn_pending_workflow_milestone_injection_recovery(db: Arc<SessionDB>) {
     tokio::spawn(async move {
-        match recover_pending_workflow_milestone_injections(db.clone()) {
+        let (injections, checkpoints) = crate::blocking::run_blocking(move || {
+            let injections = recover_pending_workflow_milestone_injections(db.clone());
+            let checkpoints = recover_terminal_workflow_agent_checkpoints(&db);
+            (injections, checkpoints)
+        })
+        .await;
+        match injections {
             Ok(recovered) => {
                 if recovered > 0 {
                     crate::app_info!(
@@ -170,7 +183,7 @@ fn spawn_pending_workflow_milestone_injection_recovery(db: Arc<SessionDB>) {
                 "workflow milestone injection recovery failed: {err:#}"
             ),
         }
-        match recover_terminal_workflow_agent_checkpoints(&db) {
+        match checkpoints {
             Ok(recovered) if recovered > 0 => crate::app_info!(
                 "workflow",
                 "agent_checkpoint_recovery",
@@ -272,7 +285,11 @@ pub fn spawn_workflow_run_if_primary(
         }),
     );
     tokio::spawn(async move {
-        let state = match db.get_workflow_run(&run_id) {
+        let loaded = {
+            let run_id = run_id.clone();
+            db.run(move |db| db.get_workflow_run(&run_id)).await
+        };
+        let state = match loaded {
             Ok(Some(run)) => run.state,
             Ok(None) => {
                 crate::app_warn!(
@@ -296,10 +313,16 @@ pub fn spawn_workflow_run_if_primary(
 
         let result = match state {
             WorkflowRunState::Draft | WorkflowRunState::Running | WorkflowRunState::Recovering => {
-                match db.claim_workflow_run_for_launch(&run_id, &owner) {
+                let claimed = {
+                    let run_id = run_id.clone();
+                    let owner = owner.clone();
+                    db.run(move |db| db.claim_workflow_run_for_launch(&run_id, &owner))
+                        .await
+                };
+                match claimed {
                     Ok(Some(claimed)) => run_workflow_script_async(db.clone(), &claimed.id).await,
                     Ok(None) => {
-                        append_runtime_result_event(
+                        append_runtime_result_event_off_worker(
                             &db,
                             &run_id,
                             &owner,
@@ -309,7 +332,8 @@ pub fn spawn_workflow_run_if_primary(
                                 "reason": "claim_unavailable",
                                 "initialState": state.as_str(),
                             }),
-                        );
+                        )
+                        .await;
                         crate::app_info!(
                             "workflow",
                             "spawn_run",
@@ -328,7 +352,7 @@ pub fn spawn_workflow_run_if_primary(
             | WorkflowRunState::Failed
             | WorkflowRunState::Cancelled
             | WorkflowRunState::Blocked => {
-                append_runtime_result_event(
+                append_runtime_result_event_off_worker(
                     &db,
                     &run_id,
                     &owner,
@@ -338,7 +362,8 @@ pub fn spawn_workflow_run_if_primary(
                         "reason": "state_not_launchable",
                         "initialState": state.as_str(),
                     }),
-                );
+                )
+                .await;
                 crate::app_info!(
                     "workflow",
                     "spawn_run",
@@ -352,7 +377,7 @@ pub fn spawn_workflow_run_if_primary(
 
         match result {
             Ok(result) => {
-                append_runtime_result_event(
+                append_runtime_result_event_off_worker(
                     &db,
                     &run_id,
                     &owner,
@@ -363,7 +388,8 @@ pub fn spawn_workflow_run_if_primary(
                         "finalState": result.snapshot.run.state.as_str(),
                         "hasOutput": result.output.is_some(),
                     }),
-                );
+                )
+                .await;
                 crate::app_info!(
                     "workflow",
                     "spawn_run",
@@ -371,16 +397,24 @@ pub fn spawn_workflow_run_if_primary(
                     run_id,
                     result.snapshot.run.state.as_str()
                 );
-                maybe_spawn_workflow_result_injection(
-                    db.clone(),
-                    &run_id,
-                    owner.as_str(),
-                    Some(&result),
-                    None,
-                );
+                {
+                    let db_for_injection = db.clone();
+                    let run_id = run_id.clone();
+                    let owner = owner.clone();
+                    db.run(move |_| {
+                        maybe_spawn_workflow_result_injection(
+                            db_for_injection,
+                            &run_id,
+                            &owner,
+                            Some(&result),
+                            None,
+                        )
+                    })
+                    .await;
+                }
             }
             Err(err) => {
-                append_runtime_result_event(
+                append_runtime_result_event_off_worker(
                     &db,
                     &run_id,
                     &owner,
@@ -390,24 +424,47 @@ pub fn spawn_workflow_run_if_primary(
                         "reason": "runtime_error",
                         "error": err.to_string(),
                     }),
-                );
+                )
+                .await;
                 crate::app_warn!(
                     "workflow",
                     "spawn_run",
                     "workflow run {} launch failed: {err:#}",
                     run_id
                 );
-                maybe_spawn_workflow_result_injection(
-                    db.clone(),
-                    &run_id,
-                    owner.as_str(),
-                    None,
-                    Some(&err.to_string()),
-                );
+                {
+                    let db_for_injection = db.clone();
+                    let run_id = run_id.clone();
+                    let owner = owner.clone();
+                    let error = err.to_string();
+                    db.run(move |_| {
+                        maybe_spawn_workflow_result_injection(
+                            db_for_injection,
+                            &run_id,
+                            &owner,
+                            None,
+                            Some(&error),
+                        )
+                    })
+                    .await;
+                }
             }
         }
     });
     true
+}
+
+/// Off-worker twin of [`append_runtime_result_event`] for async contexts.
+async fn append_runtime_result_event_off_worker(
+    db: &Arc<SessionDB>,
+    run_id: &str,
+    owner: &str,
+    payload: Value,
+) {
+    let run_id = run_id.to_string();
+    let owner = owner.to_string();
+    db.run(move |db| append_runtime_result_event(db, &run_id, &owner, payload))
+        .await;
 }
 
 fn append_runtime_result_event(db: &SessionDB, run_id: &str, owner: &str, payload: Value) {
@@ -1129,21 +1186,26 @@ pub fn run_workflow_script(db: Arc<SessionDB>, run_id: &str) -> Result<WorkflowR
     runtime.block_on(run_workflow_script_async(db, run_id))
 }
 
-pub async fn run_workflow_script_async(
-    db: Arc<SessionDB>,
-    run_id: &str,
-) -> Result<WorkflowRuntimeResult> {
+/// Outcome of the synchronous pre-launch validation chain, computed on the
+/// blocking pool as one hop (`run_workflow_script_async` prologue).
+enum ScriptLaunchPrep {
+    AlreadyCompleted(Box<super::types::WorkflowRunSnapshot>),
+    Ready {
+        run: Box<super::types::WorkflowRun>,
+        session_context: WorkflowSessionContext,
+    },
+}
+
+fn prepare_workflow_script_launch(db: &SessionDB, run_id: &str) -> Result<ScriptLaunchPrep> {
     let run = db
         .get_workflow_run(run_id)?
         .ok_or_else(|| anyhow!("workflow run {} not found", run_id))?;
 
     if run.state == WorkflowRunState::Completed {
-        return Ok(WorkflowRuntimeResult {
-            snapshot: db
-                .workflow_run_snapshot(run_id, 500)?
+        return Ok(ScriptLaunchPrep::AlreadyCompleted(Box::new(
+            db.workflow_run_snapshot(run_id, 500)?
                 .ok_or_else(|| anyhow!("workflow run {} not found", run_id))?,
-            output: None,
-        });
+        )));
     }
     if matches!(
         run.state,
@@ -1193,7 +1255,7 @@ pub async fn run_workflow_script_async(
     }
 
     if run.state == WorkflowRunState::Draft {
-        let preview = super::preview::preview_workflow_run(&db, &run);
+        let preview = super::preview::preview_workflow_run(db, &run);
         if preview.has_denials() {
             let _ = db.append_workflow_event(
                 run_id,
@@ -1228,7 +1290,7 @@ pub async fn run_workflow_script_async(
         }
     }
 
-    let session_context = match workflow_session_context_for_run(&db, &run) {
+    let session_context = match workflow_session_context_for_run(db, &run) {
         Ok(context) => context,
         Err(err) => {
             let _ = db.transition_workflow_run(
@@ -1242,6 +1304,33 @@ pub async fn run_workflow_script_async(
     if run.state != WorkflowRunState::Running {
         db.transition_workflow_run(run_id, WorkflowRunState::Running, Some("runtime_start"))?;
     }
+    Ok(ScriptLaunchPrep::Ready {
+        run: Box::new(run),
+        session_context,
+    })
+}
+
+pub async fn run_workflow_script_async(
+    db: Arc<SessionDB>,
+    run_id: &str,
+) -> Result<WorkflowRuntimeResult> {
+    let prep = {
+        let run_id = run_id.to_string();
+        db.run(move |db| prepare_workflow_script_launch(db, &run_id))
+            .await?
+    };
+    let (run, session_context) = match prep {
+        ScriptLaunchPrep::AlreadyCompleted(snapshot) => {
+            return Ok(WorkflowRuntimeResult {
+                snapshot: *snapshot,
+                output: None,
+            });
+        }
+        ScriptLaunchPrep::Ready {
+            run,
+            session_context,
+        } => (*run, session_context),
+    };
 
     let tokio_handle = TokioHandle::current();
     let db_for_script = db.clone();
@@ -1254,15 +1343,28 @@ pub async fn run_workflow_script_async(
     {
         Ok(output) => output,
         Err(err) => {
-            let _ =
-                db.transition_workflow_run(run_id, WorkflowRunState::Failed, Some("runtime_error"));
+            {
+                let run_id = run_id.to_string();
+                let _ = db
+                    .run(move |db| {
+                        db.transition_workflow_run(
+                            &run_id,
+                            WorkflowRunState::Failed,
+                            Some("runtime_error"),
+                        )
+                    })
+                    .await;
+            }
             return Err(err);
         }
     };
 
-    let snapshot = db
-        .workflow_run_snapshot(run_id, 500)?
-        .ok_or_else(|| anyhow!("workflow run {} not found", run_id))?;
+    let snapshot = {
+        let run_id = run_id.to_string();
+        db.run(move |db| db.workflow_run_snapshot(&run_id, 500))
+            .await?
+    }
+    .ok_or_else(|| anyhow!("workflow run {} not found", run_id))?;
     Ok(WorkflowRuntimeResult {
         snapshot,
         output: Some(output),

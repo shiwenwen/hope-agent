@@ -51,12 +51,16 @@ fn resolve_ctx(ctx: &ToolExecContext) -> Result<(String, Arc<SessionDB>), String
     Ok((session_id, db))
 }
 
-fn active_goal(ctx: &ToolExecContext) -> Result<(String, Arc<SessionDB>, GoalSnapshot), String> {
+async fn active_goal(
+    ctx: &ToolExecContext,
+) -> Result<(String, Arc<SessionDB>, GoalSnapshot), String> {
     let (session_id, db) = resolve_ctx(ctx)?;
-    let snapshot = db
-        .active_goal_for_session(&session_id)
-        .map_err(|e| format!("Failed to read active goal: {e}"))?
-        .ok_or_else(|| "No active goal exists for this session.".to_string())?;
+    let snapshot = {
+        let sid = session_id.clone();
+        db.run(move |db| db.active_goal_for_session(&sid)).await
+    }
+    .map_err(|e| format!("Failed to read active goal: {e}"))?
+    .ok_or_else(|| "No active goal exists for this session.".to_string())?;
     Ok((session_id, db, snapshot))
 }
 
@@ -189,13 +193,14 @@ fn compact_goal_status(snapshot: &GoalSnapshot) -> Value {
 }
 
 pub(crate) async fn tool_goal_status(_args: &Value, ctx: &ToolExecContext) -> String {
-    let (session_id, db, snapshot) = match active_goal(ctx) {
+    let (session_id, db, snapshot) = match active_goal(ctx).await {
         Ok(value) => value,
         Err(err) => return error_json(err),
     };
     let mut status = compact_goal_status(&snapshot);
     status["activity"] = db
-        .autonomy_activity_for_session(&session_id)
+        .run(move |db| db.autonomy_activity_for_session(&session_id))
+        .await
         .ok()
         .and_then(|activity| serde_json::to_value(activity).ok())
         .unwrap_or(Value::Null);
@@ -203,7 +208,7 @@ pub(crate) async fn tool_goal_status(_args: &Value, ctx: &ToolExecContext) -> St
 }
 
 pub(crate) async fn tool_goal_prepare_contract(args: &Value, ctx: &ToolExecContext) -> String {
-    let (session_id, db, snapshot) = match active_goal(ctx) {
+    let (session_id, db, snapshot) = match active_goal(ctx).await {
         Ok(value) => value,
         Err(err) => return error_json(err),
     };
@@ -310,13 +315,16 @@ pub(crate) async fn tool_goal_prepare_contract(args: &Value, ctx: &ToolExecConte
         "budgetDiagnostics": budget_diagnostics,
         "checkedAt": chrono::Utc::now().to_rfc3339(),
     });
-    match db.prepare_goal_contract(
-        &snapshot.goal.id,
-        snapshot.goal.revision,
-        criteria,
-        &scope_rationale,
-        viability.clone(),
-    ) {
+    let prepared = {
+        let goal_id = snapshot.goal.id.clone();
+        let revision = snapshot.goal.revision;
+        let viability = viability.clone();
+        db.run(move |db| {
+            db.prepare_goal_contract(&goal_id, revision, criteria, &scope_rationale, viability)
+        })
+        .await
+    };
+    match prepared {
         Ok(snapshot) => json_string(json!({
             "ok": true,
             "goalId": snapshot.goal.id,
@@ -340,22 +348,24 @@ pub(crate) async fn tool_goal_checkpoint(args: &Value, ctx: &ToolExecContext) ->
         None => return error_json("summary is required"),
     };
     let status = string_arg(args, "status").unwrap_or_else(|| "progress".to_string());
-    let (_, db, snapshot) = match active_goal(ctx) {
+    let (_, db, snapshot) = match active_goal(ctx).await {
         Ok(value) => value,
         Err(err) => return error_json(err),
     };
-    let event = match db.append_goal_event(
-        &snapshot.goal.id,
-        "goal_checkpoint",
-        json!({
+    let appended = {
+        let goal_id = snapshot.goal.id.clone();
+        let payload = json!({
             "summary": summary,
             "status": status,
             "next": string_arg(args, "next"),
             "evidence": string_array_arg(args, "evidence", 16),
             "confidence": string_arg(args, "confidence"),
             "goalRevision": snapshot.goal.revision,
-        }),
-    ) {
+        });
+        db.run(move |db| db.append_goal_event(&goal_id, "goal_checkpoint", payload))
+            .await
+    };
+    let event = match appended {
         Ok(event) => event,
         Err(e) => return error_json(format!("Failed to record goal checkpoint: {e}")),
     };
@@ -398,16 +408,22 @@ pub(crate) async fn tool_goal_record_evidence(args: &Value, ctx: &ToolExecContex
         Some(value) => value,
         None => return error_json("summary is required"),
     };
-    let (_, db, snapshot) = match active_goal(ctx) {
+    let (_, db, snapshot) = match active_goal(ctx).await {
         Ok(value) => value,
         Err(err) => return error_json(err),
     };
     let criterion_id = string_arg(args, "goalCriterionId");
-    let criterion =
-        match db.resolve_goal_criterion_binding(&snapshot.goal.id, criterion_id.as_deref()) {
+    let criterion = {
+        let goal_id = snapshot.goal.id.clone();
+        let criterion_id = criterion_id.clone();
+        match db
+            .run(move |db| db.resolve_goal_criterion_binding(&goal_id, criterion_id.as_deref()))
+            .await
+        {
             Ok(value) => value,
             Err(e) => return error_json(format!("Invalid goal criterion binding: {e}")),
-        };
+        }
+    };
     let source_id = string_arg(args, "sourceId")
         .unwrap_or_else(|| format!("goal_evidence_{}", uuid::Uuid::new_v4().simple()));
     let mut metadata = args
@@ -432,21 +448,21 @@ pub(crate) async fn tool_goal_record_evidence(args: &Value, ctx: &ToolExecContex
     ) {
         return error_json(err);
     }
-    let link = match db.link_goal_target(
-        &snapshot.goal.id,
-        "general",
-        &source_id,
-        &relation,
-        metadata,
-    ) {
-        Ok(link) => link,
-        Err(e) => return error_json(format!("Failed to attach goal evidence: {e}")),
+    let (link, refreshed) = {
+        let goal_id = snapshot.goal.id.clone();
+        let linked = db
+            .run(move |db| {
+                let link =
+                    db.link_goal_target(&goal_id, "general", &source_id, &relation, metadata)?;
+                let refreshed = db.goal_snapshot(&goal_id, 100).ok().flatten();
+                Ok::<_, anyhow::Error>((link, refreshed))
+            })
+            .await;
+        match linked {
+            Ok((link, refreshed)) => (link, refreshed.unwrap_or(snapshot)),
+            Err(e) => return error_json(format!("Failed to attach goal evidence: {e}")),
+        }
     };
-    let refreshed = db
-        .goal_snapshot(&snapshot.goal.id, 100)
-        .ok()
-        .flatten()
-        .unwrap_or(snapshot);
     json_string(json!({
         "ok": true,
         "goalId": refreshed.goal.id,
@@ -672,14 +688,17 @@ fn usage_json(input: u64, output: u64, cache_creation: u64, cache_read: u64) -> 
 }
 
 async fn run_goal_semantic_grade(
-    db: &SessionDB,
+    db: &Arc<SessionDB>,
     evaluated: GoalSnapshot,
     strict: bool,
 ) -> Result<GoalSnapshot, String> {
-    match db
-        .begin_goal_semantic_grade(&evaluated.goal.id, strict)
-        .map_err(|e| format!("Failed to start semantic grader: {e}"))?
-    {
+    let started = {
+        let goal_id = evaluated.goal.id.clone();
+        db.run(move |db| db.begin_goal_semantic_grade(&goal_id, strict))
+            .await
+            .map_err(|e| format!("Failed to start semantic grader: {e}"))?
+    };
+    match started {
         GoalSemanticGradeStart::NotRequired => Ok(evaluated),
         GoalSemanticGradeStart::Cached {
             run_id,
@@ -687,7 +706,8 @@ async fn run_goal_semantic_grade(
             model,
             usage,
         } => db
-            .complete_goal_semantic_grade(&run_id, &model, &grade, usage)
+            .run(move |db| db.complete_goal_semantic_grade(&run_id, &model, &grade, usage))
+            .await
             .map_err(|e| format!("Failed to restore cached semantic grade: {e}")),
         GoalSemanticGradeStart::InProgress { run_id } => Err(format!(
             "Semantic grader run {run_id} is already in progress; query goal status and retry later."
@@ -700,7 +720,14 @@ async fn run_goal_semantic_grade(
             let message = format!(
                 "semantic grader attempt budget exhausted after {attempts} attempts for {evaluation_key}"
             );
-            let _ = db.fail_goal_semantic_grade(&last_run_id, &message, None, json!({}));
+            {
+                let message = message.clone();
+                let _ = db
+                    .run(move |db| {
+                        db.fail_goal_semantic_grade(&last_run_id, &message, None, json!({}))
+                    })
+                    .await;
+            }
             Err(message)
         }
         GoalSemanticGradeStart::Started {
@@ -713,7 +740,15 @@ async fn run_goal_semantic_grade(
                 Ok(value) => value,
                 Err(error) => {
                     let message = format!("build semantic grader: {error}");
-                    let _ = db.fail_goal_semantic_grade(&run_id, &message, None, json!({}));
+                    {
+                        let run_id = run_id.clone();
+                        let message = message.clone();
+                        let _ = db
+                            .run(move |db| {
+                                db.fail_goal_semantic_grade(&run_id, &message, None, json!({}))
+                            })
+                            .await;
+                    }
                     return Err(message);
                 }
             };
@@ -766,34 +801,38 @@ async fn run_goal_semantic_grade(
                     .and_then(|raw| normalize_semantic_grade(raw, &evaluated));
                 match parsed {
                     Ok(grade) => {
+                        let run_id = run_id.clone();
+                        let model = model.clone();
+                        let usage = usage_json(
+                            usage_input,
+                            usage_output,
+                            usage_cache_creation,
+                            usage_cache_read,
+                        );
                         return db
-                            .complete_goal_semantic_grade(
-                                &run_id,
-                                &model,
-                                &grade,
-                                usage_json(
-                                    usage_input,
-                                    usage_output,
-                                    usage_cache_creation,
-                                    usage_cache_read,
-                                ),
-                            )
+                            .run(move |db| {
+                                db.complete_goal_semantic_grade(&run_id, &model, &grade, usage)
+                            })
+                            .await
                             .map_err(|e| format!("Failed to apply semantic grade: {e}"));
                     }
                     Err(error) => last_error = error,
                 }
             }
-            let _ = db.fail_goal_semantic_grade(
-                &run_id,
-                &last_error,
-                Some(&model),
-                usage_json(
+            {
+                let last_error = last_error.clone();
+                let usage = usage_json(
                     usage_input,
                     usage_output,
                     usage_cache_creation,
                     usage_cache_read,
-                ),
-            );
+                );
+                let _ = db
+                    .run(move |db| {
+                        db.fail_goal_semantic_grade(&run_id, &last_error, Some(&model), usage)
+                    })
+                    .await;
+            }
             Err(last_error)
         }
     }
@@ -801,22 +840,26 @@ async fn run_goal_semantic_grade(
 
 pub(crate) async fn tool_goal_evaluate(args: &Value, ctx: &ToolExecContext) -> String {
     let requested_strict = bool_arg(args, "strict");
-    let (_, db, snapshot) = match active_goal(ctx) {
+    let (_, db, snapshot) = match active_goal(ctx).await {
         Ok(value) => value,
         Err(err) => return error_json(err),
     };
     let strict = requested_strict
         || snapshot.goal.closure_decision == Some(GoalClosureDecision::NeedsStrictEvidence);
-    let _ = db.append_goal_event(
-        &snapshot.goal.id,
-        "goal_evaluate_requested",
-        json!({
+    let evaluated_result = {
+        let goal_id = snapshot.goal.id.clone();
+        let payload = json!({
             "reason": string_arg(args, "reason"),
             "goalRevision": snapshot.goal.revision,
             "strict": strict,
-        }),
-    );
-    let deterministic = match db.evaluate_goal(&snapshot.goal.id) {
+        });
+        db.run(move |db| {
+            let _ = db.append_goal_event(&goal_id, "goal_evaluate_requested", payload);
+            db.evaluate_goal(&goal_id)
+        })
+        .await
+    };
+    let deterministic = match evaluated_result {
         Ok(snapshot) => snapshot,
         Err(e) => return error_json(format!("Goal evaluation failed: {e}")),
     };
@@ -830,7 +873,13 @@ pub(crate) async fn tool_goal_evaluate(args: &Value, ctx: &ToolExecContext) -> S
         match run_goal_semantic_grade(&db, deterministic, strict).await {
             Ok(snapshot) => snapshot,
             Err(error) => {
-                let latest = db.goal_snapshot(&snapshot.goal.id, 500).ok().flatten();
+                let latest = {
+                    let goal_id = snapshot.goal.id.clone();
+                    db.run(move |db| db.goal_snapshot(&goal_id, 500))
+                        .await
+                        .ok()
+                        .flatten()
+                };
                 return json_string(json!({
                     "ok": false,
                     "status": "semantic_grader_failed",
@@ -861,28 +910,34 @@ pub(crate) async fn tool_goal_finish_request(args: &Value, ctx: &ToolExecContext
     let follow_up_items = string_array_arg(args, "followUpItems", 20);
     let remaining_risk = string_arg(args, "remainingRisk");
     let requested_strict = bool_arg(args, "strictEvaluation");
-    let (_, db, snapshot) = match active_goal(ctx) {
+    let (_, db, snapshot) = match active_goal(ctx).await {
         Ok(value) => value,
         Err(err) => return error_json(err),
     };
     let strict = requested_strict
         || snapshot.goal.closure_decision == Some(GoalClosureDecision::NeedsStrictEvidence);
-    let _ = db.append_goal_event(
-        &snapshot.goal.id,
-        "goal_finish_requested",
-        json!({
+    {
+        let goal_id = snapshot.goal.id.clone();
+        let payload = json!({
             "summary": summary,
             "remainingRisk": remaining_risk,
             "followUpItems": follow_up_items,
             "goalRevision": snapshot.goal.revision,
             "strict": strict,
-        }),
-    );
+        });
+        let _ = db
+            .run(move |db| db.append_goal_event(&goal_id, "goal_finish_requested", payload))
+            .await;
+    }
 
     let deterministic = if snapshot.goal.state == GoalState::Completed && !snapshot.audit_stale {
         snapshot
     } else {
-        match db.evaluate_goal(&snapshot.goal.id) {
+        let evaluated = {
+            let goal_id = snapshot.goal.id.clone();
+            db.run(move |db| db.evaluate_goal(&goal_id)).await
+        };
+        match evaluated {
             Ok(snapshot) => snapshot,
             Err(e) => return error_json(format!("Goal finish evaluation failed: {e}")),
         }
@@ -915,16 +970,18 @@ pub(crate) async fn tool_goal_finish_request(args: &Value, ctx: &ToolExecContext
         .get("status")
         .and_then(Value::as_str);
     if final_status != Some("completed") {
-        let _ = db.append_goal_event(
-            &evaluated.goal.id,
-            "goal_finish_rejected",
-            json!({
+        {
+            let goal_id = evaluated.goal.id.clone();
+            let payload = json!({
                 "reason": "final_audit_not_completed",
                 "status": final_status,
                 "missing": evaluated.goal.final_evidence.get("missing").cloned().unwrap_or(Value::Null),
                 "blockers": evaluated.goal.final_evidence.get("blockers").cloned().unwrap_or(Value::Null),
-            }),
-        );
+            });
+            let _ = db
+                .run(move |db| db.append_goal_event(&goal_id, "goal_finish_rejected", payload))
+                .await;
+        }
         return json_string(json!({
             "ok": false,
             "status": "not_ready",
@@ -937,16 +994,19 @@ pub(crate) async fn tool_goal_finish_request(args: &Value, ctx: &ToolExecContext
         }));
     }
 
-    let closed = match db.close_goal(CloseGoalInput {
-        goal_id: evaluated.goal.id.clone(),
-        decision: GoalClosureDecision::AcceptedV1,
-        reason: summary
-            .clone()
-            .or_else(|| Some("goal_finish_request".to_string())),
-        follow_up_items,
-    }) {
-        Ok(snapshot) => snapshot,
-        Err(e) => return error_json(format!("Goal close failed: {e}")),
+    let closed = {
+        let input = CloseGoalInput {
+            goal_id: evaluated.goal.id.clone(),
+            decision: GoalClosureDecision::AcceptedV1,
+            reason: summary
+                .clone()
+                .or_else(|| Some("goal_finish_request".to_string())),
+            follow_up_items,
+        };
+        match db.run(move |db| db.close_goal(input)).await {
+            Ok(snapshot) => snapshot,
+            Err(e) => return error_json(format!("Goal close failed: {e}")),
+        }
     };
     let mut report = build_goal_completion_report(&closed, summary.as_deref());
     if remaining_risk.is_some() {
@@ -979,7 +1039,7 @@ pub(crate) async fn tool_goal_block_request(args: &Value, ctx: &ToolExecContext)
     });
     let needs_user_input = bool_arg(args, "needsUserInput");
     let external_state_required = bool_arg(args, "externalStateRequired");
-    let (_, db, snapshot) = match active_goal(ctx) {
+    let (_, db, snapshot) = match active_goal(ctx).await {
         Ok(value) => value,
         Err(err) => return error_json(err),
     };
@@ -995,10 +1055,9 @@ pub(crate) async fn tool_goal_block_request(args: &Value, ctx: &ToolExecContext)
                     .is_some_and(|value| value == fingerprint)
         })
         .count();
-    let event = match db.append_goal_event(
-        &snapshot.goal.id,
-        "goal_block_requested",
-        json!({
+    let appended = {
+        let goal_id = snapshot.goal.id.clone();
+        let payload = json!({
             "reason": reason,
             "attempted": attempted,
             "needed": needed,
@@ -1007,8 +1066,11 @@ pub(crate) async fn tool_goal_block_request(args: &Value, ctx: &ToolExecContext)
             "externalStateRequired": external_state_required,
             "repeatCount": previous_same + 1,
             "goalRevision": snapshot.goal.revision,
-        }),
-    ) {
+        });
+        db.run(move |db| db.append_goal_event(&goal_id, "goal_block_requested", payload))
+            .await
+    };
+    let event = match appended {
         Ok(event) => event,
         Err(e) => return error_json(format!("Failed to record block request: {e}")),
     };
@@ -1024,9 +1086,16 @@ pub(crate) async fn tool_goal_block_request(args: &Value, ctx: &ToolExecContext)
             "message": "Block request recorded, but the goal remains open. Continue if there is any safe meaningful progress left.",
         }));
     }
-    let blocked = match db.transition_goal(&snapshot.goal.id, GoalState::Blocked, Some(&reason)) {
-        Ok(snapshot) => snapshot,
-        Err(e) => return error_json(format!("Failed to mark goal blocked: {e}")),
+    let blocked = {
+        let goal_id = snapshot.goal.id.clone();
+        let reason = reason.clone();
+        match db
+            .run(move |db| db.transition_goal(&goal_id, GoalState::Blocked, Some(&reason)))
+            .await
+        {
+            Ok(snapshot) => snapshot,
+            Err(e) => return error_json(format!("Failed to mark goal blocked: {e}")),
+        }
     };
     json_string(json!({
         "ok": true,
