@@ -6695,6 +6695,12 @@
     "gen": {
       "failedBar": "Trang này tạo thất bại. Hãy mô tả lại trong cuộc trò chuyện, hoặc xóa và làm lại.",
       "deletePage": "Xóa trang"
+    },
+    "brandPack": {
+      "button": "Gói thương hiệu",
+      "hint": "Tạo trang đích + bản trình bày + áp phích cùng lúc, dùng chung một hệ thống thiết kế",
+      "generating": "Đang tạo gói thương hiệu (nhiều sản phẩm, vui lòng đợi)…",
+      "done": "Đã tạo {{count}} sản phẩm"
     }
   }
 }

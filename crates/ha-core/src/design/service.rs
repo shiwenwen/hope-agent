@@ -873,6 +873,83 @@ pub async fn create_artifact_generating(mut input: CreateArtifactInput) -> Resul
     create_artifact(input)
 }
 
+/// 品牌包批量生成上限（防一次拉起过多模型调用）。
+const MAX_BRAND_PACK_KINDS: usize = 6;
+
+/// 合法的品牌包形态（媒体形态 image/audio/component 不进批量文案生成）。
+fn is_brand_pack_kind(kind: &str) -> bool {
+    matches!(
+        kind,
+        "web" | "mobile" | "deck" | "dashboard" | "poster" | "document" | "email"
+    )
+}
+
+/// 归一化品牌包形态：滤非法 + 去重（保序）+ 钳数量。纯函数，便于单测。
+fn normalize_brand_pack_kinds(kinds: Vec<String>) -> Vec<String> {
+    let mut seen = std::collections::HashSet::new();
+    kinds
+        .into_iter()
+        .filter(|k| is_brand_pack_kind(k) && seen.insert(k.clone()))
+        .take(MAX_BRAND_PACK_KINDS)
+        .collect()
+}
+
+/// 从**一个 brief**批量生成一组**共享同一设计系统**的协调产物（多产物品牌包）。owner 平面。
+/// 每个 kind 复用现成 `create_artifact_generating`（含降级），任一失败不阻断其余、返回成功者。
+/// **顺序生成**（避免并发打满模型），全失败则 `bail!`。
+pub async fn generate_brand_pack(
+    project_id: &str,
+    brief: &str,
+    kinds: Vec<String>,
+    system_id: Option<String>,
+    folder: Option<String>,
+) -> Result<Vec<DesignArtifact>> {
+    let brief = brief.trim();
+    if brief.is_empty() {
+        anyhow::bail!("品牌包需要一句设计 brief");
+    }
+    // 去重 + 过滤合法 kind + 保序 + 钳数量。
+    let kinds = normalize_brand_pack_kinds(kinds);
+    if kinds.is_empty() {
+        anyhow::bail!("品牌包需要至少一个合法形态（web/mobile/deck/dashboard/poster/document/email）");
+    }
+    let mut out = Vec::new();
+    let mut last_err: Option<anyhow::Error> = None;
+    for kind in &kinds {
+        let input = CreateArtifactInput {
+            project_id: project_id.to_string(),
+            title: format!("{brief}").chars().take(40).collect(),
+            kind: kind.clone(),
+            system_id: system_id.clone(),
+            prompt: Some(brief.to_string()),
+            folder: folder.clone(),
+            ..Default::default()
+        };
+        match create_artifact_generating(input).await {
+            Ok(a) => out.push(a),
+            Err(e) => {
+                crate::app_warn!(
+                    "design",
+                    "generate",
+                    "brand pack kind {kind} failed: {e}"
+                );
+                last_err = Some(e);
+            }
+        }
+    }
+    if out.is_empty() {
+        return Err(last_err.unwrap_or_else(|| anyhow::anyhow!("品牌包生成全部失败")));
+    }
+    crate::app_info!(
+        "design",
+        "generate",
+        "brand pack generated {}/{} artifacts for project {project_id}",
+        out.len(),
+        kinds.len()
+    );
+    Ok(out)
+}
+
 /// 解析生成用的设计系统正文 + token（explicit > project default > config default）。
 fn resolve_system_for_generation(
     input: &CreateArtifactInput,
@@ -3363,6 +3440,32 @@ pub async fn refine_artifact_with_comment(
         prompt_summary: Some(crate::truncate_utf8(&comment.body, 2000).to_string()),
         expected_body_hash: Some(patch::body_hash(&current.body_html)),
     })
+}
+
+#[cfg(test)]
+mod brand_pack_tests {
+    use super::normalize_brand_pack_kinds;
+
+    #[test]
+    fn normalize_filters_dedups_caps_and_preserves_order() {
+        let out = normalize_brand_pack_kinds(vec![
+            "web".into(),
+            "image".into(),   // 媒体形态过滤
+            "deck".into(),
+            "web".into(),      // 重复去掉
+            "component".into(), // 过滤
+            "poster".into(),
+        ]);
+        assert_eq!(out, vec!["web", "deck", "poster"]);
+        // 空 / 全非法 → 空。
+        assert!(normalize_brand_pack_kinds(vec!["image".into(), "audio".into()]).is_empty());
+        // 超上限钳到 6。
+        let many: Vec<String> = ["web", "mobile", "deck", "dashboard", "poster", "document", "email"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        assert_eq!(normalize_brand_pack_kinds(many).len(), 6);
+    }
 }
 
 #[cfg(test)]

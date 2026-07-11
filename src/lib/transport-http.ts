@@ -272,6 +272,7 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   design_chat_threads_list_cmd:      { method: "GET",    path: "/api/design/projects/{projectId}/chat/threads" },
   create_design_artifact_cmd:        { method: "POST",   path: "/api/design/artifacts" },
   import_design_image_cmd:           { method: "POST",   path: "/api/design/artifacts/import-image" },
+  generate_design_brand_pack_cmd:    { method: "POST",   path: "/api/design/artifacts/brand-pack" },
   set_design_presenter_notes_cmd:    { method: "PUT",    path: "/api/design/artifacts/{artifactId}/presenter-notes" },
   review_design_artifact_cmd:        { method: "GET",    path: "/api/design/artifacts/{id}/quality-review" },
   generate_design_artifact_cmd:      { method: "POST",   path: "/api/design/artifacts/generate" },

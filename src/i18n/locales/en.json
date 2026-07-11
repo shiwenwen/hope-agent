@@ -6695,6 +6695,12 @@
     "gen": {
       "failedBar": "This page failed to generate. Describe it again in the chat, or delete and start over.",
       "deletePage": "Delete page"
+    },
+    "brandPack": {
+      "button": "Brand pack",
+      "hint": "Generate a landing page + deck + poster at once, sharing one design system",
+      "generating": "Generating brand pack (multiple artifacts, please wait)…",
+      "done": "Generated {{count}} artifacts"
     }
   }
 }

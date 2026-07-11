@@ -452,6 +452,7 @@ KB 文件预览端点是**纯 owner 平面，无 session 参数、无 owner fall
 | `list_design_artifacts_cmd` | `GET /api/design/projects/{projectId}/artifacts` | ✅ |
 | `create_design_artifact_cmd` | `POST /api/design/artifacts` | ✅ |
 | `import_design_image_cmd` | `POST /api/design/artifacts/import-image`（拖入导入：base64 图片→image 产物） | ✅ |
+| `generate_design_brand_pack_cmd` | `POST /api/design/artifacts/brand-pack`（一 brief 批量生成一组共享系统的协调产物） | ✅ |
 | `set_design_presenter_notes_cmd` | `PUT /api/design/artifacts/{artifactId}/presenter-notes`（deck 演讲者备注，存 metadata） | ✅ |
 | `review_design_artifact_cmd` | `GET /api/design/artifacts/{id}/quality-review`（确定性多镜头质量审查：a11y/内容/语义） | ✅ |
 | `generate_design_artifact_cmd` | `POST /api/design/artifacts/generate` | ✅ |

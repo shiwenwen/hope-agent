@@ -33,6 +33,7 @@ import {
   FileText,
   Mail,
   GitFork,
+  Layers,
   ListChecks,
   CheckCircle2,
   Sparkles,
@@ -1401,6 +1402,56 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
     generatingHome,
     designConfig,
     kindLabel,
+    openProject,
+    openArtifact,
+    t,
+  ])
+
+  // 品牌包：一句话 → 建项目 → 批量生成一组共享系统的协调产物（落地页 + 演示 + 海报）。
+  const generateBrandPackFromHome = useCallback(async () => {
+    const base = homePrompt.trim()
+    if (!base || generatingHome) return
+    const systemId = homeSystemId ?? designConfig?.defaultSystemId ?? undefined
+    let createdProjectId: string | null = null
+    setGeneratingHome(true)
+    const tid = toast.loading(t("design.brandPack.generating", "正在生成品牌包（多个产物，请稍候）…"))
+    try {
+      const project = await tx.call<DesignProject>("create_design_project_cmd", {
+        input: { title: base.slice(0, 40) },
+      })
+      createdProjectId = project.id
+      const arts = await tx.call<DesignArtifact[]>("generate_design_brand_pack_cmd", {
+        projectId: project.id,
+        brief: base,
+        kinds: ["web", "deck", "poster"],
+        systemId,
+      })
+      setHomePrompt("")
+      setHomeRecipeId(null)
+      openProject(project)
+      if (arts && arts.length > 0) void openArtifact(arts[0])
+      toast.success(t("design.brandPack.done", "已生成 {{count}} 个产物", { count: arts?.length ?? 0 }), {
+        id: tid,
+      })
+    } catch (e) {
+      logger.error("design", "DesignView::brandPack", "brand pack failed", e)
+      toast.error(t("design.err.create", "创建失败"), { id: tid })
+      if (createdProjectId) {
+        try {
+          await tx.call("delete_design_project_cmd", { id: createdProjectId })
+        } catch {
+          /* best effort */
+        }
+      }
+    } finally {
+      setGeneratingHome(false)
+    }
+  }, [
+    tx,
+    homePrompt,
+    homeSystemId,
+    generatingHome,
+    designConfig,
     openProject,
     openArtifact,
     t,
@@ -3328,6 +3379,7 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
           setSystemId={setHomeSystemId}
           generating={generatingHome}
           onGenerate={() => void generateFromHome()}
+          onBrandPack={() => void generateBrandPackFromHome()}
           kindLabel={kindLabel}
           onOpen={openProject}
           onDelete={(p) => setDeleteTarget({ type: "project", id: p.id, title: p.title })}
@@ -4947,6 +4999,7 @@ function LaunchHome({
   setSystemId,
   generating,
   onGenerate,
+  onBrandPack,
   kindLabel,
   onOpen,
   onDelete,
@@ -4968,6 +5021,7 @@ function LaunchHome({
   setSystemId: (id: string | null) => void
   generating: boolean
   onGenerate: () => void
+  onBrandPack: () => void
   kindLabel: (k: ArtifactKind) => string
   onOpen: (p: DesignProject) => void
   onDelete: (p: DesignProject) => void
@@ -5068,6 +5122,18 @@ function LaunchHome({
                 {systemName ?? t("design.pickSystem", "选择设计系统")}
               </span>
             </Button>
+            <IconTip label={t("design.brandPack.hint", "一次生成落地页 + 演示 + 海报，共用同一设计系统")} side="top">
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-9 rounded-lg px-4 font-medium gap-1.5"
+                disabled={!prompt.trim() || generating}
+                onClick={onBrandPack}
+              >
+                <Layers className="h-4 w-4" />
+                {t("design.brandPack.button", "品牌包")}
+              </Button>
+            </IconTip>
             <Button
               size="sm"
               className="h-9 rounded-lg px-5 font-medium gap-1.5"

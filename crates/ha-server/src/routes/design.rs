@@ -416,6 +416,35 @@ pub struct ImportImageBody {
     pub folder: Option<String>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BrandPackBody {
+    pub project_id: String,
+    pub brief: String,
+    pub kinds: Vec<String>,
+    #[serde(default)]
+    pub system_id: Option<String>,
+    #[serde(default)]
+    pub folder: Option<String>,
+}
+
+/// `POST /api/design/artifacts/brand-pack` — 一个 brief 批量生成一组共享设计系统的协调产物。
+pub async fn generate_brand_pack(
+    Json(body): Json<BrandPackBody>,
+) -> Result<Json<Vec<DesignArtifact>>, AppError> {
+    validate_id(&body.project_id)?;
+    let arts = service::generate_brand_pack(
+        &body.project_id,
+        &body.brief,
+        body.kinds,
+        body.system_id,
+        body.folder,
+    )
+    .await
+    .map_err(|e| AppError::internal(e.to_string()))?;
+    Ok(Json(arts))
+}
+
 /// `POST /api/design/artifacts/import-image` — 拖入导入：base64 图片 → image 产物。
 pub async fn import_image(
     Json(body): Json<ImportImageBody>,

@@ -6695,6 +6695,12 @@
     "gen": {
       "failedBar": "Esta página falhou ao gerar. Descreva-a novamente no chat ou exclua e comece de novo.",
       "deletePage": "Excluir página"
+    },
+    "brandPack": {
+      "button": "Pacote de marca",
+      "hint": "Gere uma página de destino + apresentação + cartaz de uma vez, com o mesmo sistema de design",
+      "generating": "Gerando pacote de marca (vários artefatos, aguarde)…",
+      "done": "{{count}} artefatos gerados"
     }
   }
 }

@@ -6695,6 +6695,12 @@
     "gen": {
       "failedBar": "Halaman ini gagal dijana. Terangkan semula dalam sembang, atau padam dan mula semula.",
       "deletePage": "Padam halaman"
+    },
+    "brandPack": {
+      "button": "Pek jenama",
+      "hint": "Jana halaman pendaratan + persembahan + poster sekali gus, berkongsi satu sistem reka bentuk",
+      "generating": "Menjana pek jenama (beberapa artifak, sila tunggu)…",
+      "done": "{{count}} artifak dijana"
     }
   }
 }

@@ -1925,6 +1925,10 @@ fn build_router_with_cors(
             post(routes::design::import_image).layer(DefaultBodyLimit::max(32 * 1024 * 1024)),
         )
         .route(
+            "/design/artifacts/brand-pack",
+            post(routes::design::generate_brand_pack),
+        )
+        .route(
             "/design/artifacts/{id}/presenter-notes",
             axum::routing::put(routes::design::set_presenter_notes),
         )

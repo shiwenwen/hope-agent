@@ -6695,6 +6695,12 @@
     "gen": {
       "failedBar": "Bu sayfa oluşturulamadı. Soldaki sohbette yeniden tarif edin veya silip baştan başlayın.",
       "deletePage": "Sayfayı sil"
+    },
+    "brandPack": {
+      "button": "Marka paketi",
+      "hint": "Aynı tasarım sistemini paylaşan açılış sayfası + sunum + afişi tek seferde oluşturun",
+      "generating": "Marka paketi oluşturuluyor (birden çok çıktı, lütfen bekleyin)…",
+      "done": "{{count}} çıktı oluşturuldu"
     }
   }
 }

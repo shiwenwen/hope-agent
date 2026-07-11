@@ -128,6 +128,20 @@ pub async fn import_design_image_cmd(
     .map_err(Into::into)
 }
 
+/// 多产物品牌包：一个 brief 批量生成一组共享设计系统的协调产物（顺序生成，返回成功者）。
+#[tauri::command]
+pub async fn generate_design_brand_pack_cmd(
+    project_id: String,
+    brief: String,
+    kinds: Vec<String>,
+    system_id: Option<String>,
+    folder: Option<String>,
+) -> Result<Vec<DesignArtifact>, CmdError> {
+    service::generate_brand_pack(&project_id, &brief, kinds, system_id, folder)
+        .await
+        .map_err(Into::into)
+}
+
 /// 「一句话 → 流式生成」：建 generating 壳同步返回，内容经 `design:generate_delta` 流式回填。
 /// image / 无 brief / 未知 kind 自动回落阻塞生成。
 #[tauri::command]
