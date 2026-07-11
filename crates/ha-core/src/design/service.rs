@@ -3709,6 +3709,31 @@ pub fn delete_system(id: &str) -> Result<()> {
     Ok(())
 }
 
+/// 重命名用户设计系统（仅改显示名，id / tokens / 正文不变）。**内置系统禁改名**
+/// （`ensure_builtins` 会覆盖，改了无意义）。
+pub fn rename_system(id: &str, name: &str) -> Result<DesignSystemMeta> {
+    let name = name.trim();
+    if name.is_empty() {
+        anyhow::bail!("system name must not be empty");
+    }
+    let db = open_db()?;
+    let full = system::read_full(&db, id)?;
+    if full.meta.source == "builtin" {
+        anyhow::bail!("built-in design systems cannot be renamed");
+    }
+    let meta = system::save_system(
+        &db,
+        id,
+        name,
+        full.meta.summary.as_deref(),
+        &full.system_md,
+        &full.tokens,
+        &full.meta.source,
+    )?;
+    emit("design:system_changed", json!({ "systemId": id }));
+    Ok(meta)
+}
+
 // ── DESIGN.md 规范：导入 / 导出 ─────────────────────────────────────
 
 /// 导入一份 **DESIGN.md** 文本为设计系统（互通格式）。抽取显式 token；不足则 LLM 合成。

@@ -3795,6 +3795,7 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                 onPreviewKit={(id, name) => setKitSystem({ id, name })}
                 defaultSystemId={designConfig?.defaultSystemId ?? null}
                 onSetDefault={(id) => void setDefaultSystem(id)}
+                onSystemsChanged={() => void loadSystems()}
                 footer={
                   <div className="flex flex-wrap gap-1">
                     <Button

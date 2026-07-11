@@ -6177,7 +6177,13 @@
       "title": "選擇設計系統",
       "search": "搜尋品牌 / 風格…",
       "mine": "我的設計系統",
-      "noMatch": "無相符的設計系統"
+      "noMatch": "無相符的設計系統",
+      "rename": "重新命名",
+      "renameFailed": "重新命名失敗",
+      "deleted": "已刪除設計系統",
+      "deleteFailed": "刪除失敗",
+      "deleteTitle": "刪除設計系統？",
+      "deleteHint": "將刪除「{{name}}」及其 Token / 資產，無法復原；已使用它的產物保持不變。"
     },
     "exportHtml": "HTML",
     "exportPng": "PNG 圖片",

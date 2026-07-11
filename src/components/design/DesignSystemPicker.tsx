@@ -1,17 +1,28 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { useTranslation } from "react-i18next"
-import { Check, Eye, Loader2, Palette, Search, Star } from "lucide-react"
+import { Check, Eye, Loader2, Palette, Pencil, Search, Star, Trash2, X } from "lucide-react"
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { IconTip } from "@/components/ui/tooltip"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
+import { toast } from "sonner"
 import { cn } from "@/lib/utils"
 import type { DesignSystemFull, DesignSystemMeta } from "@/types/design"
 
@@ -68,6 +79,8 @@ interface Props {
   defaultSystemId?: string | null
   /** 设为/取消新对话默认设计系统；提供时每行显示「设为默认」按钮。 */
   onSetDefault?: (systemId: string | null) => void
+  /** 用户系统被重命名 / 删除后回调（宿主重载 systems）；提供时非内置系统行显示改名 / 删除按钮。 */
+  onSystemsChanged?: () => void
   /** 底部附加操作（反向提取 / 导入 / 导出等）。 */
   footer?: ReactNode
 }
@@ -88,11 +101,55 @@ export function DesignSystemPicker({
   onPreviewKit,
   defaultSystemId,
   onSetDefault,
+  onSystemsChanged,
   footer,
 }: Props) {
   const { t } = useTranslation()
   const [query, setQuery] = useState("")
   const mineLabel = t("design.picker.mine", "我的设计系统")
+  // 用户系统管理（W3-K）：内联改名 + 删除确认（仅 source != builtin 行显示入口）。
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editingName, setEditingName] = useState("")
+  const [renaming, setRenaming] = useState(false)
+  const [deleting, setDeleting] = useState<DesignSystemMeta | null>(null)
+  const [deletingBusy, setDeletingBusy] = useState(false)
+
+  const beginRename = (s: DesignSystemMeta) => {
+    setEditingId(s.id)
+    setEditingName(s.name)
+  }
+  const commitRename = async () => {
+    const id = editingId
+    const name = editingName.trim()
+    if (!id || !name || renaming) return
+    setRenaming(true)
+    try {
+      await getTransport().call("rename_design_system_cmd", { id, name })
+      setEditingId(null)
+      onSystemsChanged?.()
+    } catch (e) {
+      logger.error("design", "DesignSystemPicker", "rename system failed", e)
+      toast.error(t("design.picker.renameFailed", "重命名失败"))
+    } finally {
+      setRenaming(false)
+    }
+  }
+  const confirmDelete = async () => {
+    const s = deleting
+    if (!s || deletingBusy) return
+    setDeletingBusy(true)
+    try {
+      await getTransport().call("delete_design_system_cmd", { id: s.id })
+      setDeleting(null)
+      onSystemsChanged?.()
+      toast.success(t("design.picker.deleted", "已删除设计系统"))
+    } catch (e) {
+      logger.error("design", "DesignSystemPicker", "delete system failed", e)
+      toast.error(t("design.picker.deleteFailed", "删除失败"))
+    } finally {
+      setDeletingBusy(false)
+    }
+  }
 
   // ── 右栏预览状态 ──────────────────────────────────────────────
   // hover 目标（系统 id 或 NONE_PREVIEW）；null = 未 hover，回落到当前选中。
@@ -234,6 +291,7 @@ export function DesignSystemPicker({
   }
 
   return (
+    <>
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-3xl gap-0 overflow-hidden p-0">
         <DialogHeader className="border-b px-4 py-3">
@@ -288,85 +346,167 @@ export function DesignSystemPicker({
                       value === s.id && "bg-accent",
                     )}
                   >
-                    <button
-                      type="button"
-                      onClick={() => pick(s.id)}
-                      onMouseEnter={() => setHoverTarget(s.id)}
-                      onFocus={() => setHoverTarget(s.id)}
-                      className="flex min-w-0 flex-1 items-start gap-2 px-2.5 py-1.5 text-left"
-                    >
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-1.5">
-                          <span className="truncate text-sm">{s.name}</span>
-                          {onSetDefault && defaultSystemId === s.id && (
-                            <span className="shrink-0 rounded bg-primary/10 px-1 text-[10px] font-medium text-primary">
-                              {t("design.default", "默认")}
-                            </span>
+                    {editingId === s.id ? (
+                      <div className="flex min-w-0 flex-1 items-center gap-1 px-2 py-1.5">
+                        <Input
+                          autoFocus
+                          value={editingName}
+                          onChange={(e) => setEditingName(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault()
+                              void commitRename()
+                            } else if (e.key === "Escape") {
+                              e.preventDefault()
+                              setEditingId(null)
+                            }
+                          }}
+                          className="h-7 flex-1 text-sm"
+                        />
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 shrink-0"
+                          disabled={renaming || !editingName.trim()}
+                          onClick={() => void commitRename()}
+                        >
+                          {renaming ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Check className="h-4 w-4 text-primary" />
                           )}
-                          {(s.swatches?.length ?? 0) > 0 && (
-                            <span className="ml-auto flex shrink-0 gap-0.5 pl-1.5">
-                              {s.swatches!.slice(0, 4).map((c, i) => (
-                                <span
-                                  key={i}
-                                  className="h-2.5 w-2.5 rounded-[3px] border border-black/10 dark:border-white/15"
-                                  style={{ background: c }}
-                                />
-                              ))}
-                            </span>
-                          )}
-                        </div>
-                        {s.summary && (
-                          <div className="truncate text-xs text-muted-foreground">{s.summary}</div>
-                        )}
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 shrink-0"
+                          onClick={() => setEditingId(null)}
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
                       </div>
-                      {value === s.id && <Check className="mt-0.5 h-4 w-4 shrink-0 text-primary" />}
-                    </button>
-                    {onSetDefault && (
-                      <IconTip
-                        label={
-                          defaultSystemId === s.id
-                            ? t("design.unsetDefault", "取消默认")
-                            : t("design.setDefault", "设为新对话默认")
-                        }
-                        side="left"
-                      >
-                        <Button
+                    ) : (
+                      <>
+                        <button
                           type="button"
-                          variant="ghost"
-                          size="icon"
-                          className={cn(
-                            "h-7 w-7 shrink-0 transition-opacity",
-                            defaultSystemId === s.id
-                              ? "text-primary opacity-100"
-                              : "opacity-0 group-hover/sys:opacity-100",
+                          onClick={() => pick(s.id)}
+                          onMouseEnter={() => setHoverTarget(s.id)}
+                          onFocus={() => setHoverTarget(s.id)}
+                          className="flex min-w-0 flex-1 items-start gap-2 px-2.5 py-1.5 text-left"
+                        >
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-1.5">
+                              <span className="truncate text-sm">{s.name}</span>
+                              {onSetDefault && defaultSystemId === s.id && (
+                                <span className="shrink-0 rounded bg-primary/10 px-1 text-[10px] font-medium text-primary">
+                                  {t("design.default", "默认")}
+                                </span>
+                              )}
+                              {(s.swatches?.length ?? 0) > 0 && (
+                                <span className="ml-auto flex shrink-0 gap-0.5 pl-1.5">
+                                  {s.swatches!.slice(0, 4).map((c, i) => (
+                                    <span
+                                      key={i}
+                                      className="h-2.5 w-2.5 rounded-[3px] border border-black/10 dark:border-white/15"
+                                      style={{ background: c }}
+                                    />
+                                  ))}
+                                </span>
+                              )}
+                            </div>
+                            {s.summary && (
+                              <div className="truncate text-xs text-muted-foreground">
+                                {s.summary}
+                              </div>
+                            )}
+                          </div>
+                          {value === s.id && (
+                            <Check className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
                           )}
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            onSetDefault(defaultSystemId === s.id ? null : s.id)
-                          }}
-                        >
-                          <Star
-                            className="h-4 w-4"
-                            fill={defaultSystemId === s.id ? "currentColor" : "none"}
-                          />
-                        </Button>
-                      </IconTip>
-                    )}
-                    {onPreviewKit && (
-                      <IconTip label={t("design.kit.preview", "预览套件")} side="left">
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7 shrink-0 opacity-0 transition-opacity group-hover/sys:opacity-100 md:hidden"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            onPreviewKit(s.id, s.name)
-                          }}
-                        >
-                          <Eye className="h-4 w-4" />
-                        </Button>
-                      </IconTip>
+                        </button>
+                        {onSetDefault && (
+                          <IconTip
+                            label={
+                              defaultSystemId === s.id
+                                ? t("design.unsetDefault", "取消默认")
+                                : t("design.setDefault", "设为新对话默认")
+                            }
+                            side="left"
+                          >
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className={cn(
+                                "h-7 w-7 shrink-0 transition-opacity",
+                                defaultSystemId === s.id
+                                  ? "text-primary opacity-100"
+                                  : "opacity-0 group-hover/sys:opacity-100",
+                              )}
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                onSetDefault(defaultSystemId === s.id ? null : s.id)
+                              }}
+                            >
+                              <Star
+                                className="h-4 w-4"
+                                fill={defaultSystemId === s.id ? "currentColor" : "none"}
+                              />
+                            </Button>
+                          </IconTip>
+                        )}
+                        {onPreviewKit && (
+                          <IconTip label={t("design.kit.preview", "预览套件")} side="left">
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7 shrink-0 opacity-0 transition-opacity group-hover/sys:opacity-100 md:hidden"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                onPreviewKit(s.id, s.name)
+                              }}
+                            >
+                              <Eye className="h-4 w-4" />
+                            </Button>
+                          </IconTip>
+                        )}
+                        {/* 用户系统管理（W3-K）：仅非内置行、且宿主提供 onSystemsChanged 时显示 */}
+                        {onSystemsChanged && s.source !== "builtin" && (
+                          <>
+                            <IconTip label={t("design.picker.rename", "重命名")} side="left">
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7 shrink-0 opacity-0 transition-opacity group-hover/sys:opacity-100"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  beginRename(s)
+                                }}
+                              >
+                                <Pencil className="h-4 w-4" />
+                              </Button>
+                            </IconTip>
+                            <IconTip label={t("common.delete", "删除")} side="left">
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7 shrink-0 text-destructive opacity-0 transition-opacity hover:text-destructive group-hover/sys:opacity-100"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  setDeleting(s)
+                                }}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </IconTip>
+                          </>
+                        )}
+                      </>
                     )}
                   </div>
                 ))}
@@ -507,5 +647,38 @@ export function DesignSystemPicker({
         {footer && <div className="border-t p-2">{footer}</div>}
       </DialogContent>
     </Dialog>
+
+    {/* 删除用户设计系统确认（W3-K） */}
+    <AlertDialog open={deleting != null} onOpenChange={(o) => !o && !deletingBusy && setDeleting(null)}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>{t("design.picker.deleteTitle", "删除设计系统？")}</AlertDialogTitle>
+          <AlertDialogDescription>
+            {t(
+              "design.picker.deleteHint",
+              "将删除「{{name}}」及其 Token / 资产，不可撤销；已使用它的产物保持不变。",
+              { name: deleting?.name ?? "" },
+            )}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={deletingBusy}>
+            {t("common.cancel", "取消")}
+          </AlertDialogCancel>
+          <AlertDialogAction
+            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            disabled={deletingBusy}
+            onClick={(e) => {
+              e.preventDefault()
+              void confirmDelete()
+            }}
+          >
+            {deletingBusy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            {t("common.delete", "删除")}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+    </>
   )
 }

@@ -6177,7 +6177,13 @@
       "title": "Pilih sistem reka bentuk",
       "search": "Cari jenama / gaya…",
       "mine": "Sistem reka bentuk saya",
-      "noMatch": "Tiada sistem reka bentuk sepadan"
+      "noMatch": "Tiada sistem reka bentuk sepadan",
+      "rename": "Namakan semula",
+      "renameFailed": "Gagal menamakan semula",
+      "deleted": "Sistem reka bentuk dipadam",
+      "deleteFailed": "Gagal memadam",
+      "deleteTitle": "Padam sistem reka bentuk?",
+      "deleteHint": "Ini memadam “{{name}}” dan token / asetnya — tidak boleh dibatalkan; artifak yang sudah menggunakannya kekal tidak berubah."
     },
     "exportHtml": "HTML",
     "exportPng": "Imej PNG",

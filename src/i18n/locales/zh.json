@@ -6177,7 +6177,13 @@
       "title": "选择设计系统",
       "search": "搜索品牌 / 风格…",
       "mine": "我的设计系统",
-      "noMatch": "无匹配的设计系统"
+      "noMatch": "无匹配的设计系统",
+      "rename": "重命名",
+      "renameFailed": "重命名失败",
+      "deleted": "已删除设计系统",
+      "deleteFailed": "删除失败",
+      "deleteTitle": "删除设计系统？",
+      "deleteHint": "将删除「{{name}}」及其 Token / 资产，不可撤销；已使用它的产物保持不变。"
     },
     "exportHtml": "HTML",
     "exportPng": "PNG 图片",

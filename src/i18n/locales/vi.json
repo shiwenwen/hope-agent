@@ -6177,7 +6177,13 @@
       "title": "Chọn hệ thống thiết kế",
       "search": "Tìm thương hiệu / phong cách…",
       "mine": "Hệ thống thiết kế của tôi",
-      "noMatch": "Không có hệ thống thiết kế phù hợp"
+      "noMatch": "Không có hệ thống thiết kế phù hợp",
+      "rename": "Đổi tên",
+      "renameFailed": "Đổi tên thất bại",
+      "deleted": "Đã xóa hệ thống thiết kế",
+      "deleteFailed": "Xóa thất bại",
+      "deleteTitle": "Xóa hệ thống thiết kế?",
+      "deleteHint": "Thao tác này xóa “{{name}}” cùng token / tài nguyên của nó — không thể hoàn tác; các sản phẩm đã dùng nó vẫn giữ nguyên."
     },
     "exportHtml": "HTML",
     "exportPng": "Ảnh PNG",

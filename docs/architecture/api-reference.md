@@ -523,6 +523,7 @@ KB 文件预览端点是**纯 owner 平面，无 session 参数、无 owner fall
 | `get_design_recipe_demo_cmd` | `GET /api/design/recipes/{id}/demo?systemId=`（模板骨架 demo HTML：工具箱 hover 预览，注入设计系统配色） | ✅ |
 | `export_design_native_cmd` | `GET /api/design/artifacts/{id}/native?format=pdf\|png`（真实浏览器原生捕获：矢量 PDF / 全保真 PNG；无后端时前端回退客户端栅格化） | ✅ |
 | `delete_design_system_cmd` | `DELETE /api/design/systems/{id}` | ✅ |
+| `rename_design_system_cmd` | `PATCH /api/design/systems/{id}`（重命名用户设计系统，body `{name}`，内置拒改） | ✅ |
 | `get_design_config_cmd` | `GET /api/config/design` | ✅ |
 | `save_design_config_cmd` | `PUT /api/config/design` | ✅ |
 | `design_comment_add_cmd` | `POST /api/design/artifacts/{artifactId}/comments` | ✅ |

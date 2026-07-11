@@ -1139,6 +1139,24 @@ pub async fn delete_system(Path(id): Path<String>) -> Result<Json<Value>, AppErr
     Ok(Json(json!({ "ok": true })))
 }
 
+/// `PATCH /api/design/systems/{id}` — rename a user design system (body `{ name }`).
+pub async fn rename_system(
+    Path(id): Path<String>,
+    Json(body): Json<Value>,
+) -> Result<Json<DesignSystemMeta>, AppError> {
+    validate_id(&id)?;
+    let name = body
+        .get("name")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| AppError::bad_request("missing name"))?
+        .to_string();
+    Ok(Json(
+        ha_core::blocking::run_blocking(move || service::rename_system(&id, &name))
+            .await
+            .map_err(|e| AppError::internal(e.to_string()))?,
+    ))
+}
+
 /// `POST /api/design/systems/extract` — reverse-extract a design system.
 pub async fn extract_system(
     Json(body): Json<ExtractSystemBody>,

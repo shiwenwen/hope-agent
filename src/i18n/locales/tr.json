@@ -6177,7 +6177,13 @@
       "title": "Tasarım sistemi seç",
       "search": "Marka / stil ara…",
       "mine": "Tasarım sistemlerim",
-      "noMatch": "Eşleşen tasarım sistemi yok"
+      "noMatch": "Eşleşen tasarım sistemi yok",
+      "rename": "Yeniden adlandır",
+      "renameFailed": "Yeniden adlandırma başarısız",
+      "deleted": "Tasarım sistemi silindi",
+      "deleteFailed": "Silme başarısız",
+      "deleteTitle": "Tasarım sistemi silinsin mi?",
+      "deleteHint": "Bu, “{{name}}” ile birlikte token’larını / varlıklarını siler — geri alınamaz; onu zaten kullanan çıktılar değişmez."
     },
     "exportHtml": "HTML",
     "exportPng": "PNG görsel",

@@ -6177,7 +6177,13 @@
       "title": "디자인 시스템 선택",
       "search": "브랜드 / 스타일 검색…",
       "mine": "내 디자인 시스템",
-      "noMatch": "일치하는 디자인 시스템이 없습니다"
+      "noMatch": "일치하는 디자인 시스템이 없습니다",
+      "rename": "이름 변경",
+      "renameFailed": "이름 변경 실패",
+      "deleted": "디자인 시스템을 삭제했습니다",
+      "deleteFailed": "삭제 실패",
+      "deleteTitle": "디자인 시스템을 삭제할까요?",
+      "deleteHint": "“{{name}}”과(와) 해당 토큰 / 에셋을 삭제합니다(되돌릴 수 없음). 이미 사용 중인 산출물은 그대로 유지됩니다."
     },
     "exportHtml": "HTML",
     "exportPng": "PNG 이미지",

@@ -6177,7 +6177,13 @@
       "title": "Escolher sistema de design",
       "search": "Pesquisar marcas / estilos…",
       "mine": "Meus sistemas de design",
-      "noMatch": "Nenhum sistema de design correspondente"
+      "noMatch": "Nenhum sistema de design correspondente",
+      "rename": "Renomear",
+      "renameFailed": "Falha ao renomear",
+      "deleted": "Sistema de design excluído",
+      "deleteFailed": "Falha ao excluir",
+      "deleteTitle": "Excluir o sistema de design?",
+      "deleteHint": "Isto exclui “{{name}}” e seus tokens / ativos — irreversível; os artefatos que já o usam permanecem inalterados."
     },
     "exportHtml": "HTML",
     "exportPng": "Imagem PNG",

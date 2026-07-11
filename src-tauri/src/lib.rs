@@ -869,6 +869,7 @@ pub fn run() {
             commands::design::get_design_system_cmd,
             commands::design::save_design_system_cmd,
             commands::design::delete_design_system_cmd,
+            commands::design::rename_design_system_cmd,
             commands::design::restore_design_version_cmd,
             commands::design::export_design_pptx_cmd,
             commands::design::export_design_pptx_outline_cmd,

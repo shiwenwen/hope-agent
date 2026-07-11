@@ -6177,7 +6177,13 @@
       "title": "Choose design system",
       "search": "Search brands / styles…",
       "mine": "My design systems",
-      "noMatch": "No matching design systems"
+      "noMatch": "No matching design systems",
+      "rename": "Rename",
+      "renameFailed": "Rename failed",
+      "deleted": "Design system deleted",
+      "deleteFailed": "Delete failed",
+      "deleteTitle": "Delete design system?",
+      "deleteHint": "This deletes “{{name}}” and its tokens / assets — irreversible; artifacts already using it stay unchanged."
     },
     "exportHtml": "Export HTML",
     "exportPng": "PNG image",

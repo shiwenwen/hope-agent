@@ -342,6 +342,7 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   get_design_recipe_demo_cmd:        { method: "GET",    path: "/api/design/recipes/{id}/demo" },
   export_design_native_cmd:          { method: "GET",    path: "/api/design/artifacts/{id}/native" },
   delete_design_system_cmd:          { method: "DELETE", path: "/api/design/systems/{id}" },
+  rename_design_system_cmd:          { method: "PATCH",  path: "/api/design/systems/{id}" },
   get_design_config_cmd:             { method: "GET",    path: "/api/config/design" },
   save_design_config_cmd:            { method: "PUT",    path: "/api/config/design" },
   design_comment_add_cmd:            { method: "POST",   path: "/api/design/artifacts/{artifactId}/comments" },

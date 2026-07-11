@@ -722,6 +722,17 @@ pub async fn delete_design_system_cmd(id: String) -> Result<(), CmdError> {
         .map_err(Into::into)
 }
 
+/// 重命名用户设计系统（内置系统拒改名）。owner 平面。
+#[tauri::command]
+pub async fn rename_design_system_cmd(
+    id: String,
+    name: String,
+) -> Result<DesignSystemMeta, CmdError> {
+    ha_core::blocking::run_blocking(move || service::rename_system(&id, &name))
+        .await
+        .map_err(Into::into)
+}
+
 /// 反向提取设计系统（brief / codebase / url / image）。owner 平面。
 #[tauri::command]
 pub async fn extract_design_system_cmd(
