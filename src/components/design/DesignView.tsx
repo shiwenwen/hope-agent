@@ -1851,16 +1851,27 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
   pendingPlacementRef.current = pendingPlacement
   const artifactsRef = useRef(artifacts)
   artifactsRef.current = artifacts
+  // 产物切换的**同步**目标 id（openArtifact 异步、activeArtifactRef 落后渲染，快速连按用它推进不卡）。
+  const switchTargetRef = useRef<string | null>(null)
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const ae = document.activeElement as HTMLElement | null
       const inField =
         ae?.tagName === "INPUT" || ae?.tagName === "TEXTAREA" || !!ae?.isContentEditable
-      // 焦点在弹窗 / 菜单里时不抢键（Radix Dialog/Menu 自理 Escape，否则关弹窗顺带误退编辑态）。
-      const inOverlay = !!ae?.closest?.("[role='dialog'],[role='menu'],[role='listbox']")
-      // Escape 分级：关右键菜单 → 取消待填批注钉 → 取消选中 → 退出编辑/批注/画框模式。就地文本编辑中
+      // 焦点在弹窗 / 菜单里时不抢键（Radix Dialog/AlertDialog/Menu 自理 Escape，否则关弹窗顺带误退
+      // 编辑态，review MEDIUM——删除确认框是 alertdialog）。
+      const inOverlay =
+        !!ae?.closest?.("[role='dialog'],[role='alertdialog'],[role='menu'],[role='listbox']")
+      // Escape 分级：关右键菜单 → 取消待填批注钉 → 取消选中 → 退出编辑/批注/画框模式。演示态 Escape 交
+      // 给专用处理器退出演示（review MEDIUM：否则退出演示同时误清选中/退编辑态）；就地文本编辑中
       // （焦点在 iframe / 输入框 / 弹窗）交给 bridge / 原生，宿主不抢。
-      if (e.key === "Escape" && !inField && !inOverlay && ae !== iframeRef.current) {
+      if (
+        e.key === "Escape" &&
+        !inField &&
+        !inOverlay &&
+        !presentModeRef.current &&
+        ae !== iframeRef.current
+      ) {
         if (previewCtxMenuRef.current) {
           setPreviewCtxMenu(null)
           e.preventDefault()
@@ -1893,12 +1904,14 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
         (e.key === "[" || e.key === "]")
       ) {
         if (inField) return
+        // 拦住浏览器 back/forward（HTTP 模式 Cmd/Ctrl+[ ]）——设计视图内一律拦，含空产物（review LOW）。
+        e.preventDefault()
         const list = artifactsRef.current
         if (!list.length) return
-        // 拦住浏览器 back/forward（HTTP 模式 Cmd/Ctrl+[ ]）——即便只有一个产物、切换是 no-op。
-        e.preventDefault()
-        const cur = activeArtifactRef.current
-        const idx = cur ? list.findIndex((a) => a.id === cur.id) : -1
+        // 从**同步推进的** switchTargetRef 起算（openArtifact 异步、activeArtifactRef 落后于渲染，
+        // 背靠背/按住会从同一陈旧 cur 重复解析成同一相邻项、卡住，review LOW）。
+        const baseId = switchTargetRef.current ?? activeArtifactRef.current?.id
+        const idx = list.findIndex((a) => a.id === baseId)
         const nextIdx =
           e.key === "]"
             ? idx < 0
@@ -1908,7 +1921,12 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
               ? list.length - 1
               : (idx - 1 + list.length) % list.length
         const target = list[nextIdx]
-        if (target && target.id !== cur?.id) void openArtifact(target)
+        if (target && target.id !== baseId) {
+          switchTargetRef.current = target.id
+          void openArtifact(target).finally(() => {
+            if (switchTargetRef.current === target.id) switchTargetRef.current = null
+          })
+        }
       }
     }
     window.addEventListener("keydown", onKey)
@@ -2438,6 +2456,12 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
       // iframe 聚焦时 Delete/Backspace 删选中元素（P1-E）：走宿主确定性 remove + 撤销栈。
       else if (d?.type === "ds_request_delete" && d.oid != null && editModeRef.current) {
         void handleDeleteElement()
+      }
+      // iframe 聚焦 + 无选中时 Escape 请求退出编辑模式（P1-E review：跨源 iframe 令宿主收不到该 Escape）。
+      else if (d?.type === "ds_request_exit_edit") {
+        setEditMode(false)
+        setCommentMode(false)
+        setDrawMode(false)
       }
       // 编辑态右键菜单：bridge 先发 ds_selected 选中元素、再发本消息带 iframe 内坐标；
       // 换算 = iframe 屏上位置 + 坐标 × 当前预览缩放，再钳进窗口防溢出。

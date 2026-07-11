@@ -217,7 +217,7 @@ const STORAGE_POLYFILL: &str = "<script>(function(){function mk(){var s={};retur
 /// 编辑态渲染版本：**inspector bridge / oid 注入等编辑工具层**变更时 +1。烧进可编辑 `index.html`
 /// 的 `data-ds-r` 属性；`service::ensure_artifact_render_fresh` 据此自愈老产物——工具层升级无需
 /// 用户重新编辑即对既有产物生效（bridge 烧死在 index.html，否则老产物永远用旧工具）。
-pub const RENDER_VERSION: u32 = 15;
+pub const RENDER_VERSION: u32 = 16;
 
 pub fn build_artifact_html(
     kind: ArtifactKind,
@@ -667,9 +667,12 @@ const INSPECTOR_BRIDGE: &str = r#"<script>
       return;
     }
     if(!active)return;
-    // 非编辑态键盘（P1-E，iframe 聚焦时——点选元素后 iframe 持焦，宿主 window keydown 收不到）：
-    // Escape 取消选中；Delete/Backspace 删选中元素（走宿主确定性 remove + 撤销栈）。
-    if(e.key==='Escape'&&selected){e.preventDefault();clearSel();clearHover();parent.postMessage({type:'ds_selection_cleared'},'*')}
+    // 非编辑态键盘（P1-E，iframe 聚焦时——点选元素后 iframe 持焦，跨源沙箱令宿主 window keydown 收不到）：
+    // Escape 有选中则取消选中、无选中则请宿主退出编辑模式（review：否则「点空白后焦点留 iframe」时
+    // 两边都不处理、Escape 成 no-op 退不出编辑态）；Delete/Backspace 删选中元素（走宿主确定性 remove）。
+    if(e.key==='Escape'){e.preventDefault();
+      if(selected){clearSel();clearHover();parent.postMessage({type:'ds_selection_cleared'},'*')}
+      else parent.postMessage({type:'ds_request_exit_edit'},'*')}
     else if((e.key==='Delete'||e.key==='Backspace')&&selected){e.preventDefault();parent.postMessage({type:'ds_request_delete',oid:selected.getAttribute('data-ds-oid')},'*')}
   },true);
   document.addEventListener('blur',function(e){if(editing&&e.target===editing)endEdit(true)},true);
