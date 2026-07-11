@@ -10,7 +10,7 @@ use ha_core::design::extract::Direction;
 use ha_core::design::service::BindingSyncReport;
 use ha_core::design::service::{
     self, ArtifactView, CreateArtifactInput, CreateProjectInput, ElementPatch, ExportResult,
-    ExtractSystemInput, SaveSystemInput, UpdateProjectInput,
+    ExtractSystemInput, RemoveElementResult, SaveSystemInput, UpdateProjectInput,
 };
 use ha_core::design::token_export::TokenExport;
 use ha_core::design::{
@@ -456,6 +456,42 @@ pub async fn deploy_design_artifact_vercel_cmd(artifact_id: String) -> Result<De
 #[tauri::command]
 pub async fn patch_design_element_cmd(input: ElementPatch) -> Result<DesignArtifact, CmdError> {
     ha_core::blocking::run_blocking(move || service::patch_element(input))
+        .await
+        .map_err(Into::into)
+}
+
+/// owner 删元素并回传重建上下文（结构 undo，P0-A）。前端撤销栈存 `removed` 供 undo 重插。
+#[tauri::command]
+pub async fn remove_design_element_cmd(
+    id: String,
+    oid: u32,
+    expected_hash: Option<String>,
+) -> Result<RemoveElementResult, CmdError> {
+    ha_core::blocking::run_blocking(move || service::remove_element_owner(&id, oid, expected_hash))
+        .await
+        .map_err(Into::into)
+}
+
+/// owner 重插被删元素（结构 undo 的撤销侧，P0-A）。`html` 来自 `remove_design_element_cmd` 捕获。
+#[tauri::command]
+pub async fn insert_design_element_cmd(
+    id: String,
+    parent_oid: Option<u32>,
+    after_oid: Option<u32>,
+    html: String,
+    expected_hash: Option<String>,
+) -> Result<DesignArtifact, CmdError> {
+    ha_core::blocking::run_blocking(move || {
+        service::insert_element(&id, parent_oid, after_oid, &html, expected_hash)
+    })
+    .await
+    .map_err(Into::into)
+}
+
+/// owner「停止生成」（P0-C）：中断在途流式生成、降级为可读占位，不删产物。
+#[tauri::command]
+pub async fn cancel_design_generation_cmd(id: String) -> Result<bool, CmdError> {
+    ha_core::blocking::run_blocking(move || service::cancel_artifact_generation(&id))
         .await
         .map_err(Into::into)
 }

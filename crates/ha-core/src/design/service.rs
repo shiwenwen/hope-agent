@@ -1230,6 +1230,16 @@ fn cancel_generation(artifact_id: &str) {
     }
 }
 
+/// owner「停止生成」（P0-C）：用户主动中断在途流式生成，**不删产物**。置取消旗（`stream` 收到即
+/// 促返、止白流）+ 立即降级为可读占位（流循环取消分支只 `return` 不 finalize，故必须自行降级，
+/// 否则产物永久卡 `generating` 转圈）。`degrade_to_placeholder` 锁内重查 status，与流循环的取消
+/// 回调 / regenerate 安全叠加——谁先到谁降级，后到者 no-op。返回 `Ok(true)`=确实降级（原
+/// generating）；`Ok(false)`=已非 generating（已完成/已删/已失败），幂等空操作。
+pub fn cancel_artifact_generation(artifact_id: &str) -> Result<bool> {
+    cancel_generation(artifact_id);
+    degrade_to_placeholder(artifact_id, "failed")
+}
+
 /// 流式失败/崩溃降级：`artifact_lock` 下渲染**干净占位** index.html（不再是 spinner 壳）+ 置
 /// status。让失败产物预览是可读占位而非永久转圈（对齐 `create_artifact_generating` 非流式降级
 /// 产出可用占位）。
@@ -2351,9 +2361,21 @@ pub struct ElementPatch {
     /// 删除元素（Wave 3-⑫）：为 true 时整段剔除 oid 元素（与其它字段互斥、优先处理）。
     #[serde(default)]
     pub remove: Option<bool>,
+    /// 直属文本节点编辑（决策4A）：改非叶子元素某个 childNode 下标处的裸文本、保留内部子树。
+    /// 值经 HTML 转义，安全（不注入、不删子树），与 `text` 平行（`text` 只对叶子）。
+    #[serde(default)]
+    pub text_node: Option<TextNodeEdit>,
     /// 可选 stale-write 守卫（load 时拿到的 bodyHash）。
     #[serde(default)]
     pub expected_hash: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TextNodeEdit {
+    /// DOM `element.childNodes` 下标（bridge 侧同款枚举，须落在文本节点上）。
+    pub index: usize,
+    pub text: String,
 }
 
 pub fn patch_element(p: ElementPatch) -> Result<DesignArtifact> {
@@ -2407,6 +2429,12 @@ pub fn patch_element(p: ElementPatch) -> Result<DesignArtifact> {
         new_body = r.new_source;
         map = patch::annotate(&new_body).1;
     }
+    if let Some(tn) = &p.text_node {
+        let r = patch::apply_text_node_patch(&new_body, &map, p.oid, tn.index, &tn.text, None)
+            .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+        new_body = r.new_source;
+        map = patch::annotate(&new_body).1;
+    }
     if let Some(attrs) = &p.attrs {
         if !attrs.is_empty() {
             let r = patch::apply_attr_patch(&new_body, &map, p.oid, attrs, None)
@@ -2434,6 +2462,98 @@ pub fn patch_element(p: ElementPatch) -> Result<DesignArtifact> {
         prompt_summary: None,
         expected_body_hash: Some(base_hash),
     })
+}
+
+/// owner 删元素并回传重建上下文（结构 undo，P0-A）。**owner-only**：与 agent `edit_element(remove)`
+/// 走的 `patch_element` remove 分支平行，但这里额外捕获 `RemovedElement` 供前端撤销栈重插。删后
+/// body 为空则拒（最后可见元素保护，同 `patch_element`）。
+pub fn remove_element_owner(
+    artifact_id: &str,
+    oid: u32,
+    expected_hash: Option<String>,
+) -> Result<RemoveElementResult> {
+    let db = open_db()?;
+    let a = db
+        .get_artifact(artifact_id)?
+        .with_context(|| format!("artifact not found: {artifact_id}"))?;
+    let dir = paths::design_artifact_dir(&a.project_id, &a.id)?;
+    let body = std::fs::read_to_string(dir.join("source").join("body.html")).unwrap_or_default();
+    let map: Vec<patch::OidEntry> = std::fs::read_to_string(dir.join("oidmap.json"))
+        .ok()
+        .and_then(|r| serde_json::from_str(&r).ok())
+        .unwrap_or_default();
+    let base_hash = patch::body_hash(&body);
+    if let Some(h) = &expected_hash {
+        if base_hash != *h {
+            anyhow::bail!("stale write: source changed, please re-select");
+        }
+    }
+    let (r, removed) = patch::remove_element_with_context(&body, &map, oid, None)
+        .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+    if patch::annotate(&r.new_source).1.is_empty() {
+        anyhow::bail!("cannot remove the last remaining element");
+    }
+    let artifact = update_artifact(UpdateArtifactInput {
+        id: a.id.clone(),
+        title: None,
+        body_html: Some(r.new_source),
+        css: None,
+        js: None,
+        message: Some("Visual edit: remove element".to_string()),
+        origin: Some("manual".to_string()),
+        prompt_summary: None,
+        expected_body_hash: Some(base_hash),
+    })?;
+    Ok(RemoveElementResult { artifact, removed })
+}
+
+/// owner 重插被删元素（结构 undo 的撤销侧，P0-A）。**owner-only、绝不进 agent `edit_element`**——
+/// `html` 是原样字节不经 CSS/attr 白名单，只因它来自产物自身此前源码（`remove_element_owner`
+/// 捕获）且经 stale 守卫防串改。redo（重删）复用 `remove_element_owner`。
+pub fn insert_element(
+    artifact_id: &str,
+    parent_oid: Option<u32>,
+    after_oid: Option<u32>,
+    html: &str,
+    expected_hash: Option<String>,
+) -> Result<DesignArtifact> {
+    let db = open_db()?;
+    let a = db
+        .get_artifact(artifact_id)?
+        .with_context(|| format!("artifact not found: {artifact_id}"))?;
+    let dir = paths::design_artifact_dir(&a.project_id, &a.id)?;
+    let body = std::fs::read_to_string(dir.join("source").join("body.html")).unwrap_or_default();
+    let map: Vec<patch::OidEntry> = std::fs::read_to_string(dir.join("oidmap.json"))
+        .ok()
+        .and_then(|r| serde_json::from_str(&r).ok())
+        .unwrap_or_default();
+    let base_hash = patch::body_hash(&body);
+    if let Some(h) = &expected_hash {
+        if base_hash != *h {
+            anyhow::bail!("stale write: source changed, please re-select");
+        }
+    }
+    let r = patch::apply_insert_patch(&body, &map, parent_oid, after_oid, html, None)
+        .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+    update_artifact(UpdateArtifactInput {
+        id: a.id.clone(),
+        title: None,
+        body_html: Some(r.new_source),
+        css: None,
+        js: None,
+        message: Some("Visual edit: restore element".to_string()),
+        origin: Some("manual".to_string()),
+        prompt_summary: None,
+        expected_body_hash: Some(base_hash),
+    })
+}
+
+/// `remove_element_owner` 结果：更新后的产物 + 被删元素重建上下文（前端撤销栈用）。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoveElementResult {
+    pub artifact: DesignArtifact,
+    pub removed: patch::RemovedElement,
 }
 
 /// 更新产物：未提供的字段沿用当前源，重新渲染 + 累加版本 + 剪旧版本。

@@ -15,7 +15,7 @@ use tower_http::services::ServeFile;
 use ha_core::design::extract::Direction;
 use ha_core::design::service::{
     self, BindingSyncReport, CreateArtifactInput, CreateProjectInput, ElementPatch,
-    ExtractSystemInput, SaveSystemInput, UpdateProjectInput,
+    ExtractSystemInput, RemoveElementResult, SaveSystemInput, UpdateProjectInput,
 };
 use ha_core::design::{
     DesignArtifact, DesignArtifactVersion, DesignChatThread, DesignCodeBinding, DesignComment,
@@ -68,6 +68,26 @@ pub struct SaveSystemBody {
 #[derive(Debug, Deserialize)]
 pub struct PatchBody {
     pub input: ElementPatch,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoveElementBody {
+    pub oid: u32,
+    #[serde(default)]
+    pub expected_hash: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InsertElementBody {
+    #[serde(default)]
+    pub parent_oid: Option<u32>,
+    #[serde(default)]
+    pub after_oid: Option<u32>,
+    pub html: String,
+    #[serde(default)]
+    pub expected_hash: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -723,6 +743,52 @@ pub async fn patch_element(Json(body): Json<PatchBody>) -> Result<Json<DesignArt
     validate_id(&body.input.artifact_id)?;
     Ok(Json(
         ha_core::blocking::run_blocking(move || service::patch_element(body.input))
+            .await
+            .map_err(|e| AppError::internal(e.to_string()))?,
+    ))
+}
+
+/// `POST /api/design/artifacts/{id}/remove-element` — 删元素 + 回传重建上下文（结构 undo）。
+pub async fn remove_element(
+    Path(id): Path<String>,
+    Json(body): Json<RemoveElementBody>,
+) -> Result<Json<RemoveElementResult>, AppError> {
+    validate_id(&id)?;
+    Ok(Json(
+        ha_core::blocking::run_blocking(move || {
+            service::remove_element_owner(&id, body.oid, body.expected_hash)
+        })
+        .await
+        .map_err(|e| AppError::internal(e.to_string()))?,
+    ))
+}
+
+/// `POST /api/design/artifacts/{id}/insert-element` — 重插被删元素（结构 undo 撤销侧）。
+pub async fn insert_element(
+    Path(id): Path<String>,
+    Json(body): Json<InsertElementBody>,
+) -> Result<Json<DesignArtifact>, AppError> {
+    validate_id(&id)?;
+    Ok(Json(
+        ha_core::blocking::run_blocking(move || {
+            service::insert_element(
+                &id,
+                body.parent_oid,
+                body.after_oid,
+                &body.html,
+                body.expected_hash,
+            )
+        })
+        .await
+        .map_err(|e| AppError::internal(e.to_string()))?,
+    ))
+}
+
+/// `POST /api/design/artifacts/{id}/cancel` — 停止在途流式生成（降级占位，不删）。
+pub async fn cancel_generation(Path(id): Path<String>) -> Result<Json<bool>, AppError> {
+    validate_id(&id)?;
+    Ok(Json(
+        ha_core::blocking::run_blocking(move || service::cancel_artifact_generation(&id))
             .await
             .map_err(|e| AppError::internal(e.to_string()))?,
     ))

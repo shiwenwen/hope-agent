@@ -1951,6 +1951,18 @@ fn build_router_with_cors(
         )
         .route("/design/patch", post(routes::design::patch_element))
         .route(
+            "/design/artifacts/{id}/remove-element",
+            post(routes::design::remove_element),
+        )
+        .route(
+            "/design/artifacts/{id}/insert-element",
+            post(routes::design::insert_element),
+        )
+        .route(
+            "/design/artifacts/{id}/cancel",
+            post(routes::design::cancel_generation),
+        )
+        .route(
             "/design/artifacts/{id}/critique",
             post(routes::design::critique_artifact),
         )

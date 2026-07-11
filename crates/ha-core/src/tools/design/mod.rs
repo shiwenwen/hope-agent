@@ -355,6 +355,8 @@ fn action_edit_element(args: &Value) -> Result<String> {
         styles,
         attrs,
         remove,
+        // 直属文本节点编辑 = owner 可视化编辑专属（前端撤销栈用），agent 面不暴露。
+        text_node: None,
         expected_hash,
     })?;
     ok(json!({

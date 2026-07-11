@@ -496,6 +496,9 @@ KB 文件预览端点是**纯 owner 平面，无 session 参数、无 owner fall
 | `restore_design_version_cmd` | `POST /api/design/artifacts/{artifactId}/restore` | ✅ |
 | `restyle_design_artifact_cmd` | `POST /api/design/artifacts/{id}/restyle`（换设计系统重染，新版本快照） | ✅ |
 | `patch_design_element_cmd` | `POST /api/design/patch` | ✅ |
+| `remove_design_element_cmd` | `POST /api/design/artifacts/{id}/remove-element`（删元素+回传重建上下文，结构 undo） | ✅ |
+| `insert_design_element_cmd` | `POST /api/design/artifacts/{id}/insert-element`（重插被删元素，结构 undo 撤销侧，owner-only） | ✅ |
+| `cancel_design_generation_cmd` | `POST /api/design/artifacts/{id}/cancel`（停止在途流式生成、降级占位，不删） | ✅ |
 | `export_design_artifact_cmd` | `GET /api/design/artifacts/{id}/export`（format=html 干净自包含 / markdown HTML→MD） | ✅ |
 | `export_design_handoff_cmd` | `GET /api/design/artifacts/{id}/handoff`（代码交付包 ZIP：index.html + source/ + 多平台 tokens/ + HANDOFF.md，base64） | ✅ |
 | `bind_design_code_project_cmd` | `POST /api/design/bindings`（绑定设计系统→代码工程目录；HTTP 受 `allowRemoteWrites` 门） | ✅ |
