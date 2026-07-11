@@ -105,6 +105,8 @@ export interface ExportOpts {
   scale?: number
   /** PDF 页 JPEG 压缩质量（1–100），钳 [40,100]。默认 92。 */
   jpegQuality?: number
+  /** 图片导出格式（仅 `exportPng` 消费）：`png`（默认，保真/透明）或 `jpeg`（体积小）。 */
+  format?: "png" | "jpeg"
   onProgress?: (done: number, total: number) => void
 }
 
@@ -126,6 +128,18 @@ async function rasterize(el: HTMLElement, scale: number): Promise<HTMLCanvasElem
 function canvasToPngBlob(canvas: HTMLCanvasElement): Promise<Blob> {
   return new Promise((resolve, reject) =>
     canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("canvas toBlob failed"))), "image/png"),
+  )
+}
+
+/** 按 opts.format 输出 PNG（默认，无损/透明）或 JPEG（白底，用 jpegQuality 压缩）。 */
+function canvasToImageBlob(canvas: HTMLCanvasElement, opts?: ExportOpts): Promise<Blob> {
+  if (opts?.format !== "jpeg") return canvasToPngBlob(canvas)
+  return new Promise((resolve, reject) =>
+    canvas.toBlob(
+      (b) => (b ? resolve(b) : reject(new Error("canvas toBlob failed"))),
+      "image/jpeg",
+      jpegQ(opts),
+    ),
   )
 }
 
@@ -190,7 +204,7 @@ function stitchVertical(canvases: HTMLCanvasElement[]): HTMLCanvasElement {
   return out
 }
 
-/** 导出 PNG（多页 deck 纵向拼成一张长图输出全部页；单页/其它取整页或画框）。 */
+/** 导出图片（`opts.format` 选 PNG/JPEG）：多页 deck 纵向拼成一张长图输出全部页；单页/其它取整页或画框。 */
 export async function exportPng(
   html: string,
   kind: ArtifactKind,
@@ -209,9 +223,9 @@ export async function exportPng(
         canvases.push(await rasterize(slides[i], scale))
         opts?.onProgress?.(i + 1, slides.length)
       }
-      return canvasToPngBlob(canvases.length === 1 ? canvases[0] : stitchVertical(canvases))
+      return canvasToImageBlob(canvases.length === 1 ? canvases[0] : stitchVertical(canvases), opts)
     }
-    return canvasToPngBlob(await rasterize(pickTarget(h.doc), scale))
+    return canvasToImageBlob(await rasterize(pickTarget(h.doc), scale), opts)
   } finally {
     h.cleanup()
   }

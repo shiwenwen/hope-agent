@@ -2701,8 +2701,17 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
   } | null>(null)
   const [gateInstalling, setGateInstalling] = useState(false)
   const [gateProgress, setGateProgress] = useState<number | null>(null)
+  // 图片导出就地选项（W3-L）：格式 PNG/JPEG + 倍率 1/2/3x。默认 PNG·2x（retina）。
+  const [imgExportOpen, setImgExportOpen] = useState(false)
+  const [imgExportFormat, setImgExportFormat] = useState<"png" | "jpeg">("png")
+  const [imgExportScale, setImgExportScale] = useState(2)
   const handleExport = useCallback(
-    async (format: ExportFormat) => {
+    async (
+      format: ExportFormat,
+      // 显式图片选项（就地弹窗给的 格式/倍率）：仅 `png` 格式消费。传入即走客户端栅格化
+      // （html2canvas 支持 PNG/JPEG + 任意倍率），跳过只出默认 PNG 的原生强路。缺省=沿用旧行为。
+      imageOpts?: { format: "png" | "jpeg"; scale: number },
+    ) => {
       if (!activeArtifact || exporting) return
       setExporting(format)
       // Text/backend formats are quick; rasterized ones can take seconds → live toast.
@@ -2777,7 +2786,17 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
         // 引擎失败→客户端回退」的 catch 误吞，白白重跑一遍昂贵的客户端重渲染 + 再弹一次保存框
         // （review MED）。保存失败落到外层 catch = 正确的「导出失败」。
         let out: { blob: Blob; name: string } | null = null
-        if (format === "png" || format === "pdf") {
+        if (format === "png" && imageOpts) {
+          // 用户在就地弹窗显式选了格式/倍率 → 客户端栅格化按选项产字节（native 只出默认 PNG，
+          // 无法表达 JPEG/自定义倍率），不走浏览器强路故无需预检引擎。
+          const blob = await exportPng(res.content, kind, vw, {
+            scale: imageOpts.scale,
+            format: imageOpts.format,
+            jpegQuality: designConfig?.exportJpegQuality,
+            onProgress,
+          })
+          out = { blob, name: `${base}.${imageOpts.format === "jpeg" ? "jpg" : "png"}` }
+        } else if (format === "png" || format === "pdf") {
           // PDF/PNG 强路 = 真实浏览器原生捕获（PDF 矢量可选文字 / PNG 全保真）。先预检浏览器
           // 引擎：未就绪则弹门让用户主动选（下载 Chromium runtime / 引导 / 用较低保真客户端）。
           const doc = await tx
@@ -4665,6 +4684,10 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                           <FileImage className="mr-2 h-4 w-4" />
                           {t("design.exportPng", "PNG 图片")}
                         </DropdownMenuItem>
+                        <DropdownMenuItem onSelect={() => setImgExportOpen(true)}>
+                          <SlidersHorizontal className="mr-2 h-4 w-4" />
+                          {t("design.exportImageOptions", "图片（格式 / 清晰度）…")}
+                        </DropdownMenuItem>
                         <DropdownMenuItem onSelect={() => void handleExport("pdf")}>
                           <FileText className="mr-2 h-4 w-4" />
                           {t("design.exportPdf", "PDF")}
@@ -5071,6 +5094,78 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
             <Button onClick={() => void confirmImagePrompt()} disabled={creatingImage || !imagePrompt.trim()}>
               {creatingImage && <Loader2Icon className="mr-2 h-4 w-4 animate-spin" />}
               {t("design.generate", "生成")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 图片导出就地选项（W3-L）：格式 PNG/JPEG + 倍率 1/2/3x */}
+      <Dialog open={imgExportOpen} onOpenChange={setImgExportOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileImage className="h-4 w-4" />
+              {t("design.exportImageTitle", "导出图片")}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <span className="text-sm text-muted-foreground">
+                {t("design.exportImageFormat", "格式")}
+              </span>
+              <div className="flex gap-2">
+                {(["png", "jpeg"] as const).map((f) => (
+                  <Button
+                    key={f}
+                    variant={imgExportFormat === f ? "default" : "outline"}
+                    size="sm"
+                    className="flex-1"
+                    onClick={() => setImgExportFormat(f)}
+                  >
+                    {f === "png"
+                      ? t("design.exportImagePng", "PNG（无损 / 透明）")
+                      : t("design.exportImageJpeg", "JPEG（体积小）")}
+                  </Button>
+                ))}
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <span className="text-sm text-muted-foreground">
+                {t("design.exportImageScale", "清晰度")}
+              </span>
+              <div className="flex gap-2">
+                {[1, 2, 3].map((s) => (
+                  <Button
+                    key={s}
+                    variant={imgExportScale === s ? "default" : "outline"}
+                    size="sm"
+                    className="flex-1"
+                    onClick={() => setImgExportScale(s)}
+                  >
+                    {s}x
+                    {s === 1
+                      ? ` · ${t("design.exportImageScale1", "标准")}`
+                      : s === 2
+                        ? ` · ${t("design.exportImageScale2", "Retina")}`
+                        : ` · ${t("design.exportImageScale3", "超清")}`}
+                  </Button>
+                ))}
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setImgExportOpen(false)}>
+              {t("common.cancel", "取消")}
+            </Button>
+            <Button
+              disabled={!!exporting}
+              onClick={() => {
+                setImgExportOpen(false)
+                void handleExport("png", { format: imgExportFormat, scale: imgExportScale })
+              }}
+            >
+              {exporting === "png" && <Loader2Icon className="mr-2 h-4 w-4 animate-spin" />}
+              {t("design.exportImageConfirm", "导出")}
             </Button>
           </DialogFooter>
         </DialogContent>
