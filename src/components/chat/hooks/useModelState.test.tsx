@@ -24,16 +24,6 @@ function callsFor(command: string) {
   return transportMock.call.mock.calls.filter(([calledCommand]) => calledCommand === command)
 }
 
-function deferred<T>() {
-  let resolve!: (value: T | PromiseLike<T>) => void
-  let reject!: (reason?: unknown) => void
-  const promise = new Promise<T>((res, rej) => {
-    resolve = res
-    reject = rej
-  })
-  return { promise, resolve, reject }
-}
-
 describe("useModelState", () => {
   beforeEach(() => {
     transportMock.call.mockReset()
@@ -45,35 +35,20 @@ describe("useModelState", () => {
     vi.clearAllMocks()
   })
 
-  test("updates the draft UI and local global model before persistence completes", async () => {
-    const persistence = deferred<void>()
-    transportMock.call.mockReturnValueOnce(persistence.promise)
+  test("updates a draft locally without mutating global or Agent defaults", async () => {
     const { result } = renderHook(() => useModelState())
-    let modelChange = Promise.resolve()
 
-    act(() => {
-      modelChange = result.current.handleModelChange("provider-a::model-a")
-    })
+    await act(async () => result.current.handleModelChange("provider-a::model-a"))
 
-    expect(callsFor("set_active_model")).toEqual([
-      ["set_active_model", { providerId: "provider-a", modelId: "model-a" }],
-    ])
+    expect(callsFor("set_active_model")).toHaveLength(0)
+    expect(callsFor("patch_agent_model_defaults")).toHaveLength(0)
     expect(result.current.activeModel).toEqual({
       providerId: "provider-a",
       modelId: "model-a",
     })
-    expect(result.current.globalActiveModelRef.current).toEqual({
-      providerId: "provider-a",
-      modelId: "model-a",
-    })
-
-    await act(async () => {
-      persistence.resolve()
-      await modelChange
-    })
   })
 
-  test("persists an existing session selection globally and pins that session exactly once", async () => {
+  test("pins only the selected existing session", async () => {
     const { result } = renderHook(() => useModelState())
 
     await act(async () => {
@@ -84,9 +59,7 @@ describe("useModelState", () => {
       )
     })
 
-    expect(callsFor("set_active_model")).toEqual([
-      ["set_active_model", { providerId: "provider-b", modelId: "model-b" }],
-    ])
+    expect(callsFor("set_active_model")).toHaveLength(0)
     expect(callsFor("set_session_model")).toEqual([
       [
         "set_session_model",
@@ -99,20 +72,17 @@ describe("useModelState", () => {
     ])
   })
 
-  test("still pins the session and retains the UI selection when global persistence fails", async () => {
-    transportMock.call.mockImplementation((command: string) => {
-      if (command === "set_active_model") {
-        return Promise.reject(new Error("global persistence failed"))
-      }
-      return Promise.resolve(undefined)
-    })
+  test("optionally patches the Agent primary without changing global", async () => {
+    transportMock.call.mockImplementation(() => Promise.resolve(undefined))
     const { result } = renderHook(() => useModelState())
 
     await act(async () => {
-      await result.current.handleModelChange("provider-c::model-c", "session-2")
+      await result.current.handleModelChange("provider-c::model-c", "session-2", "agent-2", {
+        applyToAgentDefault: true,
+      })
     })
 
-    expect(callsFor("set_active_model")).toHaveLength(1)
+    expect(callsFor("set_active_model")).toHaveLength(0)
     expect(callsFor("set_session_model")).toEqual([
       [
         "set_session_model",
@@ -123,11 +93,16 @@ describe("useModelState", () => {
         },
       ],
     ])
+    expect(callsFor("patch_agent_model_defaults")).toEqual([
+      [
+        "patch_agent_model_defaults",
+        {
+          id: "agent-2",
+          patch: { primaryModel: { providerId: "provider-c", modelId: "model-c" } },
+        },
+      ],
+    ])
     expect(result.current.activeModel).toEqual({
-      providerId: "provider-c",
-      modelId: "model-c",
-    })
-    expect(result.current.globalActiveModelRef.current).toEqual({
       providerId: "provider-c",
       modelId: "model-c",
     })
@@ -140,7 +115,7 @@ describe("useModelState", () => {
       await result.current.handleModelChange("provider-d::model-d", null)
     })
 
-    expect(callsFor("set_active_model")).toHaveLength(1)
+    expect(callsFor("set_active_model")).toHaveLength(0)
     expect(callsFor("set_session_model")).toHaveLength(0)
   })
 })

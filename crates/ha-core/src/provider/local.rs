@@ -5,8 +5,8 @@ use serde::{Deserialize, Serialize};
 use crate::config::mutate_config;
 
 use super::crud::{
-    map_config_error, push_model_if_missing, reconcile_model_references, ProviderWriteError,
-    ProviderWriteResult,
+    map_config_error, push_model_if_missing, reconcile_model_references,
+    repair_hard_deleted_model_references, ProviderWriteError, ProviderWriteResult,
 };
 use super::types::{ActiveModel, ApiType, ModelConfig, ProviderConfig};
 
@@ -153,12 +153,22 @@ pub fn remove_known_local_provider_model(
     let backend = known_local_backend(backend_key)
         .ok_or_else(|| ProviderWriteError::UnknownLocalBackend(backend_key.to_string()))?;
     let model_id = model_id.to_string();
-    mutate_config(("providers.remove-local-model", source), move |store| {
+    let result = mutate_config(("providers.remove-local-model", source), move |store| {
         Ok(remove_known_local_provider_model_in_config(
             store, &backend, &model_id,
         ))
     })
-    .map_err(map_config_error)
+    .map_err(map_config_error)?;
+    let repair = repair_hard_deleted_model_references();
+    if repair.failures > 0 {
+        crate::app_warn!(
+            "provider",
+            source,
+            "local model reference repair partially failed: failures={}",
+            repair.failures
+        );
+    }
+    Ok(result)
 }
 
 fn remove_known_local_provider_model_in_config(

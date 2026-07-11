@@ -388,6 +388,15 @@
         "unknown": "tidak diketahui",
         "used": "digunakan"
       },
+      "intentLabel": "Tugas yang dikesan",
+      "intent": {
+        "general": "Umum",
+        "profile": "Profil",
+        "procedure": "Aliran kerja",
+        "episode": "pengalaman lepas",
+        "relationship": "perhubungan",
+        "knowledge": "Pengetahuan"
+      },
       "openSource": "Buka sumber",
       "origin": {
         "activeMemory": "Ingat kembali aktif",
@@ -440,15 +449,6 @@
       "traceStatusLabel": "Status",
       "whyTitle": "Mengapa konteks ini muncul",
       "more": "{{count}} lebih banyak item konteks jangka panjang disembunyikan.",
-      "intentLabel": "Tugas yang dikesan",
-      "intent": {
-        "general": "Umum",
-        "profile": "Profil",
-        "procedure": "Aliran kerja",
-        "episode": "pengalaman lepas",
-        "relationship": "perhubungan",
-        "knowledge": "Pengetahuan"
-      },
       "sources": "Sumber ingatan",
       "editMemory": "Edit ingatan ini",
       "copyTrace": "Salin diagnostik"
@@ -822,6 +822,13 @@
       }
     },
     "reasoningDisabledHint": "Penaakulan tidak didayakan untuk model ini. Untuk melaraskan kedalaman penaakulan, edit model ini di \"Tetapan → Penyedia Model\" dan hidupkan \"Sokongan penaakulan/pemikiran\".",
+    "modelPicker": {
+      "applyToAgentDefault": "Also set as Agent default",
+      "applyToAgentDefaultDesc": "Only affects new conversations for this Agent",
+      "agentDefaultFailed": "The conversation was updated, but the Agent default could not be saved",
+      "restoreAgentDefault": "Restore Agent default",
+      "unavailablePreference": "Preferred model {{model}} is unavailable; a temporary available model is being used."
+    },
     "browserExtensionNudge": {
       "installTitle": "Biar AI mengawal Chrome sebenar anda",
       "installBody": "Pasang sambungan Hope Agent untuk mengendalikan Chrome yang telah anda log masuk. Buat masa ini ia berjalan dalam pelayar terpencil.",
@@ -2785,6 +2792,11 @@
     "graphMemoryDesc": "Tunjukkan dakwaan memori berstruktur berkaitan dalam diagnostik jawapan tanpa menyuntikkannya ke dalam prompt.",
     "graphMemoryMaxCenters": "Dakwaan pusat",
     "graphMemoryMaxEdges": "Dakwaan berkaitan",
+    "retrievalPlannerTitle": "Kedudukan rentas sumber",
+    "retrievalPlannerDesc": "Menggabungkan calon memori, perhubungan, aliran kerja dan pengetahuan dengan kedudukan sedar skop yang stabil.",
+    "retrievalPlannerIntentAware": "Sedar tugas",
+    "retrievalPlannerMaxTraceRefs": "Rujukan diagnostik",
+    "retrievalPlannerMaxPerOrigin": "Calon mengikut sumber",
     "memoryProcedureGuidanceEligible": "Sedia sebagai panduan",
     "memoryProcedureGuidanceEligibleDesc": "Giliran berkaitan boleh menggunakan aliran kerja ini sebagai panduan lembut terhad; arahan semasa dan dasar keselamatan tetap diutamakan.",
     "memoryProcedureGuidanceArchived": "Tidak digunakan",
@@ -5724,6 +5736,7 @@
     "selectDefaultModel": "Pilih model lalai",
     "selectFallbackModel": "Pilih model sandaran",
     "selectPlanModel": "Pilih model Plan Mode",
+    "reasoningEffort": "Think",
     "server": "Pelayan",
     "serverActiveChatStreams": "Sesi Sembang Aktif",
     "serverActiveWebSockets": "WebSocket Aktif",
@@ -6428,11 +6441,6 @@
     "uiEffectsToggle": "Hidupkan kesan",
     "memoryAuditScopeHintAll": "Semua perubahan mencari ingatan jangka panjang, aliran kerja dan keputusan memori berstruktur.",
     "memoryAuditScopeHintMemoryOnly": "Penapis tindakan digunakan pada sejarah ingatan jangka panjang; aliran kerja dan keputusan memori berstruktur kekal di bawah Semua perubahan.",
-    "retrievalPlannerTitle": "Kedudukan rentas sumber",
-    "retrievalPlannerDesc": "Menggabungkan calon memori, perhubungan, aliran kerja dan pengetahuan dengan kedudukan sedar skop yang stabil.",
-    "retrievalPlannerIntentAware": "Sedar tugas",
-    "retrievalPlannerMaxTraceRefs": "Rujukan diagnostik",
-    "retrievalPlannerMaxPerOrigin": "Calon mengikut sumber",
     "visionBridgeModel": "Model jambatan penglihatan",
     "visionBridgeModelDesc": "Hanya digunakan apabila model utama tidak dapat melihat imej. Model berasingan menukar imej menjadi penerangan teks supaya perbualan boleh diteruskan.",
     "visionBridgeModelClear": "Matikan jambatan penglihatan",

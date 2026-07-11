@@ -11,7 +11,7 @@ use crate::config::{cached_config, mutate_config, AppConfig};
 
 use super::helpers::{
     ensure_codex_provider, first_available_model, is_masked_key, merge_profile_keys,
-    model_ref_exists, model_ref_is_available,
+    model_ref_exists, model_ref_is_available, parse_model_ref,
 };
 use super::types::{ActiveModel, ApiType, ModelConfig, ProviderConfig};
 
@@ -117,18 +117,22 @@ pub fn add_many_providers(
 /// This is true when the active Provider was updated or reconciliation changed
 /// the active model reference.
 pub fn update_provider(config: ProviderConfig, source: &'static str) -> ProviderWriteResult<bool> {
-    mutate_config(("providers.update", source), move |store| {
+    let result = mutate_config(("providers.update", source), move |store| {
         update_provider_in_config(store, config).map_err(into_anyhow)
     })
-    .map_err(map_config_error)
+    .map_err(map_config_error)?;
+    repair_hard_deleted_model_references_best_effort(source);
+    Ok(result)
 }
 
 /// Delete a single provider. Returns whether the active model changed.
 pub fn delete_provider(provider_id: String, source: &'static str) -> ProviderWriteResult<bool> {
-    mutate_config(("providers.delete", source), move |store| {
+    let result = mutate_config(("providers.delete", source), move |store| {
         delete_provider_in_config(store, &provider_id).map_err(into_anyhow)
     })
-    .map_err(map_config_error)
+    .map_err(map_config_error)?;
+    repair_hard_deleted_model_references_best_effort(source);
+    Ok(result)
 }
 
 /// Delete all providers of one API type. Returns whether the active model changed.
@@ -136,10 +140,12 @@ pub fn delete_providers_by_api_type(
     api_type: ApiType,
     source: &'static str,
 ) -> ProviderWriteResult<bool> {
-    mutate_config(("providers.delete", source), move |store| {
+    let result = mutate_config(("providers.delete", source), move |store| {
         Ok(delete_providers_by_api_type_in_config(store, &api_type))
     })
-    .map_err(map_config_error)
+    .map_err(map_config_error)?;
+    repair_hard_deleted_model_references_best_effort(source);
+    Ok(result)
 }
 
 pub fn reorder_providers(
@@ -448,10 +454,13 @@ pub(crate) fn reconcile_model_references(store: &mut AppConfig) -> ModelReferenc
         .fallback_models
         .retain(|model| model_ref_exists(&store.providers, model));
 
+    // Disabled Providers are reversible: preserve their configured references
+    // so re-enabling restores the user's intent. Only a hard-deleted reference
+    // is replaced.
     let active_model = store
         .active_model
         .clone()
-        .filter(|model| model_ref_is_available(&store.providers, model))
+        .filter(|model| model_ref_exists(&store.providers, model))
         .or_else(|| {
             store
                 .fallback_models
@@ -487,6 +496,114 @@ fn same_optional_model_ref(left: Option<&ActiveModel>, right: Option<&ActiveMode
 
 fn same_model_ref(left: &ActiveModel, right: &ActiveModel) -> bool {
     left.provider_id == right.provider_id && left.model_id == right.model_id
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ModelReferenceRepairReport {
+    pub agents_updated: usize,
+    pub sessions_updated: usize,
+    pub failures: usize,
+}
+
+/// Remove only hard-deleted model references from Agent files and Session
+/// preferences. Disabled Providers deliberately remain referenced. The repair
+/// is idempotent and is also called at startup to converge after partial IO.
+pub fn repair_hard_deleted_model_references() -> ModelReferenceRepairReport {
+    let config = cached_config();
+    let mut report = ModelReferenceRepairReport::default();
+
+    match crate::agent_loader::list_agent_ids() {
+        Ok(agent_ids) => {
+            for agent_id in agent_ids {
+                let Ok(mut definition) = crate::agent_loader::load_agent(&agent_id) else {
+                    report.failures += 1;
+                    continue;
+                };
+                let model = &mut definition.config.model;
+                let mut changed = false;
+                if model.primary.as_deref().is_some_and(|reference| {
+                    parse_model_ref(reference)
+                        .is_none_or(|parsed| !model_ref_exists(&config.providers, &parsed))
+                }) {
+                    model.primary = None;
+                    changed = true;
+                }
+                let fallback_count = model.fallbacks.len();
+                model.fallbacks.retain(|reference| {
+                    parse_model_ref(reference)
+                        .is_some_and(|parsed| model_ref_exists(&config.providers, &parsed))
+                });
+                changed |= fallback_count != model.fallbacks.len();
+                if model.plan_model.as_deref().is_some_and(|reference| {
+                    parse_model_ref(reference)
+                        .is_none_or(|parsed| !model_ref_exists(&config.providers, &parsed))
+                }) {
+                    model.plan_model = None;
+                    changed = true;
+                }
+                if changed {
+                    match crate::agent_loader::save_agent_config(&agent_id, &definition.config) {
+                        Ok(()) => report.agents_updated += 1,
+                        Err(_) => report.failures += 1,
+                    }
+                }
+            }
+        }
+        Err(_) => report.failures += 1,
+    }
+
+    if let Some(db) = crate::get_session_db() {
+        match db.list_session_model_preferences() {
+            Ok(preferences) => {
+                for (session_id, agent_id, provider_id, model_id) in preferences {
+                    let current = ActiveModel {
+                        provider_id,
+                        model_id,
+                    };
+                    if model_ref_exists(&config.providers, &current) {
+                        continue;
+                    }
+                    let defaults = crate::session::resolve_chat_runtime_defaults(None, &agent_id);
+                    let provider_name = defaults.model.as_ref().and_then(|model| {
+                        config
+                            .providers
+                            .iter()
+                            .find(|provider| provider.id == model.provider_id)
+                            .map(|provider| provider.name.as_str())
+                    });
+                    let result = db.update_session_model(
+                        &session_id,
+                        defaults
+                            .model
+                            .as_ref()
+                            .map(|model| model.provider_id.as_str()),
+                        provider_name,
+                        defaults.model.as_ref().map(|model| model.model_id.as_str()),
+                    );
+                    match result {
+                        Ok(()) => report.sessions_updated += 1,
+                        Err(_) => report.failures += 1,
+                    }
+                }
+            }
+            Err(_) => report.failures += 1,
+        }
+    }
+    report
+}
+
+fn repair_hard_deleted_model_references_best_effort(source: &'static str) {
+    let report = repair_hard_deleted_model_references();
+    if report.failures > 0 {
+        crate::app_warn!(
+            "provider",
+            source,
+            "model reference repair partially failed: agents_updated={}, sessions_updated={}, failures={}",
+            report.agents_updated,
+            report.sessions_updated,
+            report.failures
+        );
+    }
 }
 
 pub(crate) fn push_model_if_missing(provider: &mut ProviderConfig, model: ModelConfig) {
@@ -676,7 +793,7 @@ mod tests {
     }
 
     #[test]
-    fn disabling_active_provider_selects_successor_and_preserves_fallbacks() {
+    fn disabling_active_provider_preserves_preference_for_reenable() {
         let mut cfg = AppConfig::default();
         let active_provider = provider("A", "https://a.example.com");
         let fallback_provider = provider("B", "https://b.example.com");
@@ -696,10 +813,10 @@ mod tests {
         disabled.enabled = false;
         assert!(update_provider_in_config(&mut cfg, disabled).unwrap());
 
-        assert_active_model(&cfg, &later_id, "m1");
+        assert_active_model(&cfg, &active_id, "m1");
         assert_fallback_models(
             &cfg,
-            &[(active_id.as_str(), "m1"), (fallback_id.as_str(), "m1")],
+            &[(later_id.as_str(), "m1"), (fallback_id.as_str(), "m1")],
         );
     }
 

@@ -388,6 +388,15 @@
         "unknown": "không rõ",
         "used": "đã sử dụng"
       },
+      "intentLabel": "Nhiệm vụ được phát hiện",
+      "intent": {
+        "general": "chung",
+        "profile": "Hồ sơ",
+        "procedure": "Quy trình làm việc",
+        "episode": "Kinh nghiệm quá khứ",
+        "relationship": "Mối quan hệ",
+        "knowledge": "Kiến thức"
+      },
       "openSource": "Mở nguồn",
       "origin": {
         "activeMemory": "Thu hồi tích cực",
@@ -440,15 +449,6 @@
       "traceStatusLabel": "Trạng thái",
       "whyTitle": "Tại sao những bối cảnh này xuất hiện",
       "more": "{{count}} nhiều mục ngữ cảnh dài hạn hơn bị ẩn.",
-      "intentLabel": "Nhiệm vụ được phát hiện",
-      "intent": {
-        "general": "chung",
-        "profile": "Hồ sơ",
-        "procedure": "Quy trình làm việc",
-        "episode": "Kinh nghiệm quá khứ",
-        "relationship": "Mối quan hệ",
-        "knowledge": "Kiến thức"
-      },
       "sources": "Nguồn bộ nhớ",
       "editMemory": "Chỉnh sửa bộ nhớ này",
       "copyTrace": "Sao chép chẩn đoán"
@@ -822,6 +822,13 @@
       }
     },
     "reasoningDisabledHint": "Mô hình này chưa bật suy luận. Để điều chỉnh độ sâu suy luận, hãy chỉnh sửa mô hình trong \"Cài đặt → Nhà cung cấp mô hình\" và bật \"Hỗ trợ suy luận/tư duy\".",
+    "modelPicker": {
+      "applyToAgentDefault": "Also set as Agent default",
+      "applyToAgentDefaultDesc": "Only affects new conversations for this Agent",
+      "agentDefaultFailed": "The conversation was updated, but the Agent default could not be saved",
+      "restoreAgentDefault": "Restore Agent default",
+      "unavailablePreference": "Preferred model {{model}} is unavailable; a temporary available model is being used."
+    },
     "browserExtensionNudge": {
       "installTitle": "Để AI điều khiển Chrome thật của bạn",
       "installBody": "Cài tiện ích Hope Agent để vận hành Chrome đã đăng nhập của bạn. Hiện đang chạy trong trình duyệt cách ly.",
@@ -2785,6 +2792,11 @@
     "graphMemoryDesc": "Hiển thị các khẳng định bộ nhớ có cấu trúc liên quan trong chẩn đoán câu trả lời mà không chèn vào prompt.",
     "graphMemoryMaxCenters": "Khẳng định trung tâm",
     "graphMemoryMaxEdges": "Khẳng định liên quan",
+    "retrievalPlannerTitle": "Xếp hạng nguồn chéo",
+    "retrievalPlannerDesc": "Hợp nhất các ứng viên về trí nhớ, mối quan hệ, quy trình làm việc và kiến ​​thức với xếp hạng nhận biết phạm vi ổn định.",
+    "retrievalPlannerIntentAware": "Nhận biết nhiệm vụ",
+    "retrievalPlannerMaxTraceRefs": "Tài liệu tham khảo chẩn đoán",
+    "retrievalPlannerMaxPerOrigin": "Ứng viên theo nguồn",
     "memoryProcedureGuidanceEligible": "Sẵn sàng hướng dẫn",
     "memoryProcedureGuidanceEligibleDesc": "Các lượt liên quan có thể dùng quy trình này làm hướng dẫn mềm có giới hạn; chỉ dẫn hiện tại và chính sách an toàn vẫn ưu tiên.",
     "memoryProcedureGuidanceArchived": "Không dùng",
@@ -5724,6 +5736,7 @@
     "selectDefaultModel": "Chọn mô hình mặc định",
     "selectFallbackModel": "Chọn mô hình dự phòng",
     "selectPlanModel": "Chọn mô hình Plan Mode",
+    "reasoningEffort": "Think",
     "server": "Máy chủ",
     "serverActiveChatStreams": "Phiên trò chuyện đang hoạt động",
     "serverActiveWebSockets": "WebSocket đang hoạt động",
@@ -6428,11 +6441,6 @@
     "uiEffectsToggle": "Bật hiệu ứng",
     "memoryAuditScopeHintAll": "Tất cả các thay đổi đều tìm kiếm ký ức dài hạn, quy trình làm việc và các quyết định về bộ nhớ có cấu trúc.",
     "memoryAuditScopeHintMemoryOnly": "Bộ lọc hành động áp dụng cho lịch sử bộ nhớ dài hạn; quy trình làm việc và các quyết định về bộ nhớ có cấu trúc vẫn ở trong Tất cả thay đổi.",
-    "retrievalPlannerTitle": "Xếp hạng nguồn chéo",
-    "retrievalPlannerDesc": "Hợp nhất các ứng viên về trí nhớ, mối quan hệ, quy trình làm việc và kiến ​​thức với xếp hạng nhận biết phạm vi ổn định.",
-    "retrievalPlannerIntentAware": "Nhận biết nhiệm vụ",
-    "retrievalPlannerMaxTraceRefs": "Tài liệu tham khảo chẩn đoán",
-    "retrievalPlannerMaxPerOrigin": "Ứng viên theo nguồn",
     "visionBridgeModel": "Mô hình cầu nối thị giác",
     "visionBridgeModelDesc": "Chỉ dùng khi mô hình chính không xem được hình ảnh. Một mô hình riêng chuyển hình ảnh thành mô tả văn bản để cuộc trò chuyện tiếp tục.",
     "visionBridgeModelClear": "Tắt cầu nối thị giác",

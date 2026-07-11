@@ -796,17 +796,6 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
         };
         last_provider_api_kind = Some(prov.api_type.clone());
 
-        // Update session with current model info
-        {
-            let provider_name = Some(prov.name.as_str());
-            let _ = db.update_session_model(
-                &session_id,
-                Some(&model_ref.provider_id),
-                provider_name,
-                Some(&model_ref.model_id),
-            );
-        }
-
         // Emit fallback event if this is not the first model in the chain.
         // Only fires once per model (not per executor retry / rotation).
         if idx > 0 {

@@ -388,6 +388,15 @@
         "unknown": "غير معروف",
         "used": "تستخدم"
       },
+      "intentLabel": "المهمة المكتشفة",
+      "intent": {
+        "general": "عام",
+        "profile": "الملف الشخصي",
+        "procedure": "سير العمل",
+        "episode": "الخبرة الماضية",
+        "relationship": "العلاقات",
+        "knowledge": "المعرفة"
+      },
       "openSource": "فتح المصدر",
       "origin": {
         "activeMemory": "الاستدعاء النشط",
@@ -440,15 +449,6 @@
       "traceStatusLabel": "الحالة",
       "whyTitle": "لماذا ظهرت هذه السياقات",
       "more": "{{count}} يتم إخفاء المزيد من عناصر السياق طويلة المدى.",
-      "intentLabel": "المهمة المكتشفة",
-      "intent": {
-        "general": "عام",
-        "profile": "الملف الشخصي",
-        "procedure": "سير العمل",
-        "episode": "الخبرة الماضية",
-        "relationship": "العلاقات",
-        "knowledge": "المعرفة"
-      },
       "sources": "مصادر الذاكرة",
       "editMemory": "تحرير هذه الذاكرة",
       "copyTrace": "نسخ التشخيص"
@@ -822,6 +822,13 @@
       }
     },
     "reasoningDisabledHint": "الاستدلال غير مُفعَّل لهذا النموذج. لضبط عمق الاستدلال، عدِّل هذا النموذج من «الإعدادات ← مزوّدو النماذج» وفعِّل خيار «دعم الاستدلال/التفكير».",
+    "modelPicker": {
+      "applyToAgentDefault": "Also set as Agent default",
+      "applyToAgentDefaultDesc": "Only affects new conversations for this Agent",
+      "agentDefaultFailed": "The conversation was updated, but the Agent default could not be saved",
+      "restoreAgentDefault": "Restore Agent default",
+      "unavailablePreference": "Preferred model {{model}} is unavailable; a temporary available model is being used."
+    },
     "browserExtensionNudge": {
       "installTitle": "دع الذكاء الاصطناعي يتحكم في متصفح Chrome الحقيقي",
       "installBody": "ثبّت إضافة Hope Agent لتشغيل متصفح Chrome الذي سجّلت الدخول إليه. حاليًا يعمل في متصفح معزول.",
@@ -2785,6 +2792,11 @@
     "graphMemoryDesc": "اعرض ادعاءات الذاكرة المنظمة ذات الصلة في تشخيصات الإجابة دون حقنها في المطالبة.",
     "graphMemoryMaxCenters": "الادعاءات المركزية",
     "graphMemoryMaxEdges": "الادعاءات ذات الصلة",
+    "retrievalPlannerTitle": "الترتيب عبر المصادر",
+    "retrievalPlannerDesc": "قم بدمج مرشحي الذاكرة والعلاقات وسير العمل والمعرفة مع تصنيف مستقر مدرك للنطاق.",
+    "retrievalPlannerIntentAware": "على علم بالمهمة",
+    "retrievalPlannerMaxTraceRefs": "المراجع التشخيصية",
+    "retrievalPlannerMaxPerOrigin": "المرشحين لكل مصدر",
     "memoryProcedureGuidanceEligible": "جاهز للإرشاد",
     "memoryProcedureGuidanceEligibleDesc": "قد تستخدم الجولات ذات الصلة سير العمل هذا كإرشاد مرن محدود؛ تبقى التعليمات الحالية وسياسات السلامة هي الأعلى أولوية.",
     "memoryProcedureGuidanceArchived": "غير مستخدم",
@@ -5724,6 +5736,7 @@
     "selectDefaultModel": "اختر النموذج الافتراضي",
     "selectFallbackModel": "اختر نموذجاً احتياطياً",
     "selectPlanModel": "اختر نموذج Plan Mode",
+    "reasoningEffort": "Think",
     "server": "الخادم",
     "serverActiveChatStreams": "جلسات المحادثة النشطة",
     "serverActiveWebSockets": "اتصالات WebSocket النشطة",
@@ -6428,11 +6441,6 @@
     "uiEffectsToggle": "تفعيل التأثير",
     "memoryAuditScopeHintAll": "تبحث جميع التغييرات في الذكريات طويلة المدى، وسير العمل، وقرارات الذاكرة المنظمة.",
     "memoryAuditScopeHintMemoryOnly": "تنطبق مرشحات الإجراءات على سجل الذاكرة طويل المدى؛ تظل مهام سير العمل وقرارات الذاكرة المنظمة ضمن كافة التغييرات.",
-    "retrievalPlannerTitle": "الترتيب عبر المصادر",
-    "retrievalPlannerDesc": "قم بدمج مرشحي الذاكرة والعلاقات وسير العمل والمعرفة مع تصنيف مستقر مدرك للنطاق.",
-    "retrievalPlannerIntentAware": "على علم بالمهمة",
-    "retrievalPlannerMaxTraceRefs": "المراجع التشخيصية",
-    "retrievalPlannerMaxPerOrigin": "المرشحين لكل مصدر",
     "visionBridgeModel": "نموذج جسر الرؤية",
     "visionBridgeModelDesc": "يُستخدم فقط عندما لا يستطيع النموذج الأساسي رؤية الصور. يقوم نموذج منفصل بتحويل الصور إلى أوصاف نصية حتى تستمر المحادثة.",
     "visionBridgeModelClear": "إيقاف جسر الرؤية",

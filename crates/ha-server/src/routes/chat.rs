@@ -38,6 +38,9 @@ pub struct ChatRequest {
     pub agent_id: Option<String>,
     #[serde(default)]
     pub model_override: Option<String>,
+    /// Draft-only defaults consumed when this request creates a Session.
+    #[serde(default)]
+    pub session_defaults: Option<ha_core::session::SessionDefaultsInput>,
     #[serde(default)]
     pub attachments: Vec<Attachment>,
     /// Per-session permission mode. When provided, the session's
@@ -341,9 +344,6 @@ pub async fn chat(
     // Load app/agent config before resolving per-turn settings.
     let store = ha_core::config::cached_config();
     let agent_def = ha_core::agent_loader::load_agent(&agent_id).ok();
-    let agent_default_effort = agent_def
-        .as_ref()
-        .and_then(|def| def.config.model.reasoning_effort.clone());
 
     let requested_effort = body
         .reasoning_effort
@@ -351,35 +351,75 @@ pub async fn chat(
         .map(str::trim)
         .filter(|effort| !effort.is_empty())
         .map(str::to_string);
-    let session_effort = {
-        let sid = sid.clone();
-        db.run(move |db| db.get_session(&sid)).await?
+    if new_session_created {
+        let sid_for_defaults = sid.clone();
+        let defaults = body.session_defaults.clone().unwrap_or_default();
+        let model_for_defaults = defaults.model;
+        let effort_for_defaults = defaults.reasoning_effort;
+        let temperature_for_defaults = defaults.temperature;
+        let apply_defaults = db
+            .run(move |session_db| -> anyhow::Result<()> {
+                if temperature_for_defaults.is_some_and(|value| !(0.0..=2.0).contains(&value)) {
+                    anyhow::bail!("Temperature must be between 0.0 and 2.0");
+                }
+                if effort_for_defaults
+                    .as_deref()
+                    .is_some_and(|effort| !ha_core::agent::is_valid_reasoning_effort(effort))
+                {
+                    anyhow::bail!("Invalid reasoning effort in session defaults");
+                }
+                if let Some(reference) = model_for_defaults.as_deref() {
+                    let model = provider::parse_model_ref(reference)
+                        .ok_or_else(|| anyhow::anyhow!("Invalid model reference: {reference}"))?;
+                    let config = ha_core::config::cached_config();
+                    if !provider::model_ref_exists(&config.providers, &model) {
+                        anyhow::bail!("Selected model no longer exists: {reference}");
+                    }
+                    let provider_name = config
+                        .providers
+                        .iter()
+                        .find(|candidate| candidate.id == model.provider_id)
+                        .map(|candidate| candidate.name.as_str());
+                    session_db.update_session_model(
+                        &sid_for_defaults,
+                        Some(&model.provider_id),
+                        provider_name,
+                        Some(&model.model_id),
+                    )?;
+                }
+                if let Some(temperature) = temperature_for_defaults {
+                    session_db.update_session_temperature(&sid_for_defaults, Some(temperature))?;
+                }
+                if let Some(effort) = effort_for_defaults.as_deref() {
+                    session_db.update_session_reasoning_effort(&sid_for_defaults, Some(effort))?;
+                }
+                Ok(())
+            })
+            .await;
+        if let Err(error) = apply_defaults {
+            // Working-dir and KB draft bindings may already have been applied
+            // on the HTTP path, so delete the complete newly-created Session
+            // and its cascaded side effects before returning the validation
+            // error.
+            let sid_for_cleanup = sid.clone();
+            let _ = db
+                .run(move |session_db| session_db.delete_session(&sid_for_cleanup))
+                .await;
+            return Err(error.into());
+        }
     }
-    .and_then(|meta| meta.reasoning_effort);
-    let global_effort = if let Some(cell) = ha_core::get_reasoning_effort_cell() {
-        cell.lock().await.clone()
-    } else {
-        "medium".to_string()
+    let runtime_defaults = {
+        let sid = sid.clone();
+        db.run(move |db| ha_core::session::ensure_session_runtime_defaults(db, &sid))
+            .await?
     };
-    let effort = requested_effort
-        .or(session_effort)
-        .or(agent_default_effort)
-        .unwrap_or(global_effort);
+    let effort = requested_effort.unwrap_or_else(|| runtime_defaults.reasoning_effort.clone());
     if !ha_core::agent::is_valid_reasoning_effort(&effort) {
         return Err(AppError::bad_request(format!(
             "Invalid reasoning effort: {}. Valid: {:?}",
             effort,
             ha_core::agent::VALID_REASONING_EFFORTS
         )));
-    }
-    {
-        let sid = sid.clone();
-        let effort = effort.clone();
-        db.run(move |db| db.update_session_reasoning_effort(&sid, Some(&effort)))
-            .await?;
-    }
-    if let Some(cell) = ha_core::get_reasoning_effort_cell() {
-        *cell.lock().await = effort.clone();
     }
 
     let turn_id = uuid::Uuid::new_v4().to_string();
@@ -624,13 +664,9 @@ pub async fn chat(
 
     let compact_config = store.compact.clone();
 
-    // Resolve temperature: request > agent > global
-    let resolved_temperature = body.temperature_override.or_else(|| {
-        agent_def
-            .as_ref()
-            .and_then(|def| def.config.model.temperature)
-            .or(store.temperature)
-    });
+    // Explicit API override remains per-turn; otherwise use the immutable
+    // Session snapshot.
+    let resolved_temperature = body.temperature_override.or(runtime_defaults.temperature);
 
     // Register per-session cancel flag after validation. The active-turn
     // guard above already prevents duplicate user-message persistence.
@@ -674,7 +710,7 @@ pub async fn chat(
         // protected paths, plan-mode ask) still run; this just flips the
         // same switch IM auto-approve accounts use.
         auto_approve_tools: crate::auto_approve::is_active(),
-        follow_global_reasoning_effort: true,
+        follow_global_reasoning_effort: false,
         post_turn_effects: true,
         abort_on_cancel: false,
         persist_final_error_event: true,

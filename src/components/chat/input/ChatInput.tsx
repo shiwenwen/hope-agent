@@ -96,9 +96,11 @@ interface ChatInputProps {
   loading: boolean
   availableModels: AvailableModel[]
   activeModel: ActiveModel | null
+  unavailableModelPreference?: string | null
   reasoningEffort: string
-  onModelChange: (key: string) => void
-  onEffortChange: (effort: string) => void
+  onModelChange: (key: string, options?: { applyToAgentDefault?: boolean }) => void
+  onEffortChange: (effort: string, options?: { applyToAgentDefault?: boolean }) => void
+  onEffortReset?: () => void
   attachedFiles: File[]
   onAttachFiles: (files: File[]) => void
   onRemoveFile: (index: number) => void
@@ -128,7 +130,10 @@ interface ChatInputProps {
   onSandboxModeChange: (mode: SandboxMode) => void
   // Temperature
   sessionTemperature?: number | null
-  onSessionTemperatureChange?: (temp: number | null) => void
+  onSessionTemperatureChange?: (
+    temp: number | null,
+    options?: { applyToAgentDefault?: boolean },
+  ) => void
   // Incognito
   incognitoEnabled?: boolean
   // Knowledge space attach (project context for project-scoped attaches)
@@ -215,9 +220,11 @@ export default function ChatInput({
   loading,
   availableModels,
   activeModel,
+  unavailableModelPreference,
   reasoningEffort,
   onModelChange,
   onEffortChange,
+  onEffortReset,
   attachedFiles,
   onAttachFiles,
   onRemoveFile,
@@ -1367,7 +1374,9 @@ export default function ChatInput({
                   reasoningEffort={reasoningEffort}
                   onModelChange={onModelChange}
                   onEffortChange={onEffortChange}
+                  onEffortReset={onEffortReset}
                   currentModelInfo={currentModelInfo}
+                  unavailablePreference={unavailableModelPreference}
                   sessionTemperature={sessionTemperature}
                   onSessionTemperatureChange={onSessionTemperatureChange}
                 />

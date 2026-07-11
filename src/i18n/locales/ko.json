@@ -388,6 +388,15 @@
         "unknown": "알 수 없음",
         "used": "사용됨"
       },
+      "intentLabel": "감지된 작업",
+      "intent": {
+        "general": "일반",
+        "profile": "프로필",
+        "procedure": "작업 흐름",
+        "episode": "과거 경험",
+        "relationship": "관계",
+        "knowledge": "지식"
+      },
       "openSource": "출처 열기",
       "origin": {
         "activeMemory": "적극적인 회상",
@@ -440,15 +449,6 @@
       "traceStatusLabel": "상태",
       "whyTitle": "이러한 맥락이 나타난 이유",
       "more": "{{count}} 더 장기적인 컨텍스트 항목이 숨겨집니다.",
-      "intentLabel": "감지된 작업",
-      "intent": {
-        "general": "일반",
-        "profile": "프로필",
-        "procedure": "작업 흐름",
-        "episode": "과거 경험",
-        "relationship": "관계",
-        "knowledge": "지식"
-      },
       "sources": "메모리 소스",
       "editMemory": "이 추억을 편집하세요",
       "copyTrace": "진단 복사"
@@ -822,6 +822,13 @@
       }
     },
     "reasoningDisabledHint": "이 모델은 추론이 활성화되어 있지 않습니다. 추론 강도를 조정하려면 「설정 → 모델 제공자」에서 이 모델을 편집하고 「추론/사고 지원」을 켜세요.",
+    "modelPicker": {
+      "applyToAgentDefault": "Also set as Agent default",
+      "applyToAgentDefaultDesc": "Only affects new conversations for this Agent",
+      "agentDefaultFailed": "The conversation was updated, but the Agent default could not be saved",
+      "restoreAgentDefault": "Restore Agent default",
+      "unavailablePreference": "Preferred model {{model}} is unavailable; a temporary available model is being used."
+    },
     "browserExtensionNudge": {
       "installTitle": "AI가 실제 Chrome을 제어하도록 하기",
       "installBody": "Hope Agent 확장 프로그램을 설치하면 로그인된 Chrome을 조작할 수 있습니다. 현재는 격리된 브라우저에서 실행 중입니다.",
@@ -2785,6 +2792,11 @@
     "graphMemoryDesc": "관련 구조화 메모리 클레임을 답변 진단에 표시하되 프롬프트에는 주입하지 않습니다.",
     "graphMemoryMaxCenters": "중심 클레임",
     "graphMemoryMaxEdges": "관련 클레임",
+    "retrievalPlannerTitle": "소스 간 순위",
+    "retrievalPlannerDesc": "안정적인 범위 인식 순위를 통해 메모리, 관계, 워크플로 및 지식 후보를 융합합니다.",
+    "retrievalPlannerIntentAware": "작업 인식",
+    "retrievalPlannerMaxTraceRefs": "진단 참고자료",
+    "retrievalPlannerMaxPerOrigin": "소스당 후보자",
     "memoryProcedureGuidanceEligible": "가이드 사용 가능",
     "memoryProcedureGuidanceEligibleDesc": "관련 턴에서 이 워크플로를 제한된 소프트 가이드로 사용할 수 있습니다. 현재 지시와 안전 정책이 항상 우선합니다.",
     "memoryProcedureGuidanceArchived": "사용 안 함",
@@ -5724,6 +5736,7 @@
     "selectDefaultModel": "기본 모델 선택",
     "selectFallbackModel": "폴백 모델 선택",
     "selectPlanModel": "계획 모드 모델 선택",
+    "reasoningEffort": "사고 강도",
     "server": "서버",
     "serverActiveChatStreams": "활성 채팅 세션",
     "serverActiveWebSockets": "활성 WebSocket",
@@ -6428,11 +6441,6 @@
     "uiEffectsToggle": "효과 켜기",
     "memoryAuditScopeHintAll": "모든 변경 사항은 장기 기억, 작업 흐름 및 구조화된 기억 결정을 검색합니다.",
     "memoryAuditScopeHintMemoryOnly": "동작 필터는 장기 기억 기록에 적용됩니다. 워크플로 및 구조화된 메모리 결정은 모든 변경 사항 아래에 있습니다.",
-    "retrievalPlannerTitle": "소스 간 순위",
-    "retrievalPlannerDesc": "안정적인 범위 인식 순위를 통해 메모리, 관계, 워크플로 및 지식 후보를 융합합니다.",
-    "retrievalPlannerIntentAware": "작업 인식",
-    "retrievalPlannerMaxTraceRefs": "진단 참고자료",
-    "retrievalPlannerMaxPerOrigin": "소스당 후보자",
     "visionBridgeModel": "비전 브리지 모델",
     "visionBridgeModelDesc": "기본 모델이 이미지를 볼 수 없을 때만 사용됩니다. 별도의 모델이 이미지를 텍스트 설명으로 변환해 대화를 이어갑니다.",
     "visionBridgeModelClear": "비전 브리지 끄기",

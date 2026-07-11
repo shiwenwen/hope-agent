@@ -822,6 +822,13 @@
       }
     },
     "reasoningDisabledHint": "该模型未启用推理。如需调节推理深度,请在「设置 → 模型服务商」中编辑该模型并开启「支持推理/思考」。",
+    "modelPicker": {
+      "applyToAgentDefault": "同时设为 Agent 默认",
+      "applyToAgentDefaultDesc": "只影响该 Agent 之后新建的会话",
+      "agentDefaultFailed": "当前会话已更新，但 Agent 默认保存失败",
+      "restoreAgentDefault": "恢复 Agent 默认",
+      "unavailablePreference": "首选模型 {{model}} 当前不可用，正在临时使用可用模型。"
+    },
     "browserExtensionNudge": {
       "installTitle": "让 AI 操作你已登录的 Chrome",
       "installBody": "安装 Hope Agent 扩展即可操作你已登录的 Chrome;当前正使用隔离浏览器运行。",
@@ -5694,6 +5701,7 @@
     "selectDefaultModel": "选择默认模型",
     "selectFallbackModel": "选择降级模型",
     "selectPlanModel": "选择计划模式模型",
+    "reasoningEffort": "思考强度",
     "server": "服务器",
     "serverActiveChatStreams": "活跃会话",
     "serverActiveWebSockets": "活跃连接",

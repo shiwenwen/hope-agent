@@ -388,6 +388,15 @@
         "unknown": "неизвестно",
         "used": "использованный"
       },
+      "intentLabel": "Обнаруженная задача",
+      "intent": {
+        "general": "Общий",
+        "profile": "Профиль",
+        "procedure": "Рабочий процесс",
+        "episode": "Прошлый опыт",
+        "relationship": "Отношения",
+        "knowledge": "Знания"
+      },
       "openSource": "Открыть источник",
       "origin": {
         "activeMemory": "Активный отзыв",
@@ -440,15 +449,6 @@
       "traceStatusLabel": "Статус",
       "whyTitle": "Почему появились эти контексты",
       "more": "{{count}} более долгосрочные элементы контекста скрыты.",
-      "intentLabel": "Обнаруженная задача",
-      "intent": {
-        "general": "Общий",
-        "profile": "Профиль",
-        "procedure": "Рабочий процесс",
-        "episode": "Прошлый опыт",
-        "relationship": "Отношения",
-        "knowledge": "Знания"
-      },
       "sources": "Источники памяти",
       "editMemory": "Редактировать это воспоминание",
       "copyTrace": "Копировать диагностику"
@@ -822,6 +822,13 @@
       }
     },
     "reasoningDisabledHint": "Для этой модели рассуждения не включены. Чтобы настроить глубину рассуждений, откройте «Настройки → Поставщики моделей», измените эту модель и включите «Поддержку рассуждений».",
+    "modelPicker": {
+      "applyToAgentDefault": "Also set as Agent default",
+      "applyToAgentDefaultDesc": "Only affects new conversations for this Agent",
+      "agentDefaultFailed": "The conversation was updated, but the Agent default could not be saved",
+      "restoreAgentDefault": "Restore Agent default",
+      "unavailablePreference": "Preferred model {{model}} is unavailable; a temporary available model is being used."
+    },
     "browserExtensionNudge": {
       "installTitle": "Пусть ИИ управляет вашим реальным Chrome",
       "installBody": "Установите расширение Hope Agent, чтобы управлять Chrome с выполненным входом. Пока что работа идёт в изолированном браузере.",
@@ -2785,6 +2792,11 @@
     "graphMemoryDesc": "Показывает связанные структурированные утверждения памяти в диагностике ответа, не добавляя их в prompt.",
     "graphMemoryMaxCenters": "Центральные утверждения",
     "graphMemoryMaxEdges": "Связанные утверждения",
+    "retrievalPlannerTitle": "Рейтинг перекрестных источников",
+    "retrievalPlannerDesc": "Объедините кандидатов в памяти, отношениях, рабочих процессах и знаниях с помощью стабильного ранжирования с учетом области применения.",
+    "retrievalPlannerIntentAware": "Осведомленный о задачах",
+    "retrievalPlannerMaxTraceRefs": "Диагностические ссылки",
+    "retrievalPlannerMaxPerOrigin": "Кандидатов по источнику",
     "memoryProcedureGuidanceEligible": "Готово для подсказки",
     "memoryProcedureGuidanceEligibleDesc": "В релевантных ходах этот процесс может использоваться как ограниченная мягкая подсказка; текущие инструкции и политики безопасности остаются приоритетными.",
     "memoryProcedureGuidanceArchived": "Не используется",
@@ -5724,6 +5736,7 @@
     "selectDefaultModel": "Выбрать модель по умолчанию",
     "selectFallbackModel": "Выбрать резервную модель",
     "selectPlanModel": "Выбор модели Plan Mode",
+    "reasoningEffort": "Think",
     "server": "Сервер",
     "serverActiveChatStreams": "Активные чат-сессии",
     "serverActiveWebSockets": "Активные WebSocket",
@@ -6428,11 +6441,6 @@
     "uiEffectsToggle": "Включить эффект",
     "memoryAuditScopeHintAll": "Все изменения касаются долговременной памяти, рабочих процессов и решений в структурированной памяти.",
     "memoryAuditScopeHintMemoryOnly": "Фильтры действий применяются к истории долговременной памяти; рабочие процессы и решения, связанные со структурированной памятью, остаются в разделе «Все изменения».",
-    "retrievalPlannerTitle": "Рейтинг перекрестных источников",
-    "retrievalPlannerDesc": "Объедините кандидатов в памяти, отношениях, рабочих процессах и знаниях с помощью стабильного ранжирования с учетом области применения.",
-    "retrievalPlannerIntentAware": "Осведомленный о задачах",
-    "retrievalPlannerMaxTraceRefs": "Диагностические ссылки",
-    "retrievalPlannerMaxPerOrigin": "Кандидатов по источнику",
     "visionBridgeModel": "Модель зрительного моста",
     "visionBridgeModelDesc": "Используется только когда основная модель не поддерживает изображения. Отдельная модель преобразует изображения в текстовые описания, чтобы диалог мог продолжиться.",
     "visionBridgeModelClear": "Отключить зрительный мост",

@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
+use std::sync::{Mutex, OnceLock};
 
 use crate::agent_config::{AgentConfig, AgentDefinition, AgentSummary};
 use crate::paths;
@@ -502,6 +503,85 @@ pub fn update_agent_reasoning_effort(id: &str, effort: &str) -> Result<()> {
     }
     let mut def = load_agent(id)?;
     def.config.model.reasoning_effort = Some(effort.to_string());
+    save_agent_config(id, &def.config)
+}
+
+/// Narrow, race-safe patch used by composer controls. Unlike the settings
+/// screen's full save this reloads the latest Agent config and changes only
+/// explicitly supplied defaults.
+#[derive(Debug, Clone, Default, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentModelDefaultsPatch {
+    #[serde(default, deserialize_with = "deserialize_present_option")]
+    pub primary_model: Option<Option<crate::provider::ActiveModel>>,
+    #[serde(default, deserialize_with = "deserialize_present_option")]
+    pub temperature: Option<Option<f64>>,
+    #[serde(default, deserialize_with = "deserialize_present_option")]
+    pub reasoning_effort: Option<Option<String>>,
+}
+
+/// Preserve the difference between an omitted patch field and an explicit
+/// `null` (which means "inherit"). Serde's ordinary `Option<T>` maps both to
+/// `None`, so the outer option records field presence.
+fn deserialize_present_option<'de, D, T>(
+    deserializer: D,
+) -> std::result::Result<Option<Option<T>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: serde::Deserialize<'de>,
+{
+    <Option<T> as serde::Deserialize>::deserialize(deserializer).map(Some)
+}
+
+fn agent_model_defaults_patch_lock() -> &'static Mutex<()> {
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
+}
+
+pub fn patch_agent_model_defaults(id: &str, patch: AgentModelDefaultsPatch) -> Result<()> {
+    // Serialize the complete read-modify-write cycle. `write_atomic` protects
+    // readers from partial files, but without this lock two focused patches
+    // can both load the same old config and the later rename loses the other
+    // request's field.
+    let _write_guard = agent_model_defaults_patch_lock()
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner());
+    let mut def = load_agent(id)?;
+    if let Some(model) = patch.primary_model {
+        if let Some(model) = model {
+            let config = crate::config::cached_config();
+            if !crate::provider::model_ref_exists(&config.providers, &model) {
+                anyhow::bail!(
+                    "Selected model no longer exists: {}::{}",
+                    model.provider_id,
+                    model.model_id
+                );
+            }
+            def.config.model.primary = Some(format!("{}::{}", model.provider_id, model.model_id));
+        } else {
+            def.config.model.primary = None;
+        }
+    }
+    if let Some(temperature) = patch.temperature {
+        if let Some(temperature) = temperature {
+            if !(0.0..=2.0).contains(&temperature) {
+                anyhow::bail!("Temperature must be between 0.0 and 2.0");
+            }
+            def.config.model.temperature = Some(temperature);
+        } else {
+            def.config.model.temperature = None;
+        }
+    }
+    if let Some(effort) = patch.reasoning_effort {
+        if let Some(effort) = effort {
+            if !crate::agent::is_valid_reasoning_effort(&effort) {
+                anyhow::bail!("Invalid reasoning effort: {effort}");
+            }
+            def.config.model.reasoning_effort = Some(effort);
+        } else {
+            def.config.model.reasoning_effort = None;
+        }
+    }
     save_agent_config(id, &def.config)
 }
 

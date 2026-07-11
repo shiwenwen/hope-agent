@@ -4,6 +4,20 @@ use serde_json::{json, Value};
 use crate::permission::{SandboxMode, SessionMode};
 use crate::plan::PlanModeState;
 
+/// Defaults selected while a chat is still a draft. These values are consumed
+/// only when the first turn materializes the Session; legacy top-level chat
+/// overrides remain one-turn-only.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionDefaultsInput {
+    #[serde(default)]
+    pub model: Option<String>,
+    #[serde(default)]
+    pub temperature: Option<f64>,
+    #[serde(default)]
+    pub reasoning_effort: Option<String>,
+}
+
 // Well-known keys for the `messages.attachments_meta` JSON column. Single
 // source of truth for both writers (Tauri/HTTP `chat` commands, channel /
 // cron / subagent injection) and readers (`chatUtils.ts` mirrors these on
@@ -89,10 +103,18 @@ pub struct SessionMeta {
     pub provider_id: Option<String>,
     pub provider_name: Option<String>,
     pub model_id: Option<String>,
+    /// Temperature fixed for this Session. `None` means the provider-native
+    /// default was snapshotted, not that the Session should keep inheriting.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub temperature: Option<f64>,
     /// Per-session Think / reasoning effort override. `None` falls back to
     /// the runtime default.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reasoning_effort: Option<String>,
+    /// Internal marker distinguishing a snapshotted `None` temperature from
+    /// a legacy row that has not captured its defaults yet.
+    #[serde(skip)]
+    pub runtime_defaults_initialized: bool,
     pub created_at: String,
     pub updated_at: String,
     /// When set, the sidebar sorts this session above unpinned sessions.
@@ -555,7 +577,9 @@ mod tests {
             provider_id: None,
             provider_name: None,
             model_id: None,
+            temperature: None,
             reasoning_effort: None,
+            runtime_defaults_initialized: false,
             created_at: "2026-05-01T00:00:00Z".to_string(),
             updated_at: "2026-05-01T00:00:00Z".to_string(),
             pinned_at: None,

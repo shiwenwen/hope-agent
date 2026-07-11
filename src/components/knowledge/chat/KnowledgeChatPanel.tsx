@@ -160,11 +160,13 @@ export const KnowledgeChatPanel = forwardRef<KnowledgeChatPanelHandle, Props>(
       sessions: session.sessions,
       agents: session.agents,
       activeModel: session.activeModel,
+      manualModelOverrideRef: session.manualModelOverrideRef,
       reloadSessions: session.reloadSessions,
       updateSessionMessages: session.updateSessionMessages,
       lastSeqRef: seqRef,
       endedStreamIdsRef: endedRef,
       reasoningEffort: session.reasoningEffort,
+      temperatureOverride: session.sessionTemperature,
       incognitoEnabled: false,
       draftKbAttachments,
       draftKbAnchorNote: notePath,
@@ -452,9 +454,13 @@ export const KnowledgeChatPanel = forwardRef<KnowledgeChatPanelHandle, Props>(
             loading={session.loading}
             availableModels={session.availableModels}
             activeModel={session.activeModel}
+            unavailableModelPreference={session.unavailableModelPreference}
             reasoningEffort={session.reasoningEffort}
             onModelChange={session.handleModelChange}
             onEffortChange={session.handleEffortChange}
+            onEffortReset={session.handleEffortReset}
+            sessionTemperature={session.sessionTemperature}
+            onSessionTemperatureChange={session.handleTemperatureChange}
             attachedFiles={stream.attachedFiles}
             onAttachFiles={stream.setAttachedFiles}
             onRemoveFile={(i) =>

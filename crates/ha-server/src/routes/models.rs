@@ -192,12 +192,8 @@ pub async fn set_reasoning_effort(
         .map(str::trim)
         .filter(|id| !id.is_empty())
         .map(str::to_string);
+    let is_global_update = session_id.is_none() && agent_id.is_none();
 
-    if session_id.is_some() || agent_id.is_none() {
-        if let Some(cell) = ha_core::get_reasoning_effort_cell() {
-            *cell.lock().await = body.effort.clone();
-        }
-    }
     if let Some(session_id) = session_id {
         let session_id = session_id.to_string();
         let effort = body.effort.clone();
@@ -218,6 +214,20 @@ pub async fn set_reasoning_effort(
             bus.emit("agents:changed", json!({ "id": agent_id, "kind": "saved" }));
         }
     }
+    if is_global_update {
+        let effort = body.effort.clone();
+        ha_core::config::mutate_config_async(("reasoning_effort", "http"), {
+            let effort = effort.clone();
+            move |store| {
+                store.reasoning_effort = effort;
+                Ok(())
+            }
+        })
+        .await?;
+        if let Some(cell) = ha_core::get_reasoning_effort_cell() {
+            *cell.lock().await = effort;
+        }
+    }
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -229,11 +239,7 @@ pub async fn get_current_settings() -> Result<Json<CurrentSettings>, AppError> {
         .as_ref()
         .map(|am| am.model_id.clone())
         .unwrap_or_else(|| "unknown".to_string());
-    let reasoning_effort = if let Some(cell) = ha_core::get_reasoning_effort_cell() {
-        cell.lock().await.clone()
-    } else {
-        "medium".to_string()
-    };
+    let reasoning_effort = store.reasoning_effort.clone();
     Ok(Json(CurrentSettings {
         model,
         reasoning_effort,
@@ -241,6 +247,36 @@ pub async fn get_current_settings() -> Result<Json<CurrentSettings>, AppError> {
         fallback_models: store.fallback_models.clone(),
         active_model: store.active_model.clone(),
     }))
+}
+
+pub async fn get_global_reasoning_effort() -> Result<Json<Value>, AppError> {
+    Ok(Json(json!({
+        "reasoningEffort": ha_core::config::cached_config().reasoning_effort
+    })))
+}
+
+pub async fn set_global_reasoning_effort(
+    Json(body): Json<SetReasoningEffortBody>,
+) -> Result<Json<Value>, AppError> {
+    if !ha_core::agent::is_valid_reasoning_effort(&body.effort) {
+        return Err(AppError::bad_request(format!(
+            "Invalid reasoning effort: {}",
+            body.effort
+        )));
+    }
+    let effort = body.effort;
+    ha_core::config::mutate_config_async(("reasoning_effort", "http"), {
+        let effort = effort.clone();
+        move |store| {
+            store.reasoning_effort = effort;
+            Ok(())
+        }
+    })
+    .await?;
+    if let Some(cell) = ha_core::get_reasoning_effort_cell() {
+        *cell.lock().await = effort.clone();
+    }
+    Ok(Json(json!({ "reasoningEffort": effort })))
 }
 
 /// `POST /api/models/temperature` — set the global default LLM temperature.

@@ -5,6 +5,7 @@ import { Check, ChevronDown, ChevronRight } from "lucide-react"
 import { Slider } from "@/components/ui/slider"
 import { FloatingMenu } from "@/components/ui/floating-menu"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { Switch } from "@/components/ui/switch"
 import type { AvailableModel, ActiveModel } from "@/types/chat"
 import { getEffortOptionsForModel, modelSupportsThinking } from "@/types/chat"
 
@@ -12,11 +13,16 @@ interface ModelPickerProps {
   availableModels: AvailableModel[]
   activeModel: ActiveModel | null
   reasoningEffort: string
-  onModelChange: (key: string) => void
-  onEffortChange: (effort: string) => void
+  onModelChange: (key: string, options?: { applyToAgentDefault?: boolean }) => void
+  onEffortChange: (effort: string, options?: { applyToAgentDefault?: boolean }) => void
+  onEffortReset?: () => void
   currentModelInfo?: AvailableModel
+  unavailablePreference?: string | null
   sessionTemperature?: number | null
-  onSessionTemperatureChange?: (temp: number | null) => void
+  onSessionTemperatureChange?: (
+    temp: number | null,
+    options?: { applyToAgentDefault?: boolean },
+  ) => void
 }
 
 export default function ModelPicker({
@@ -25,13 +31,20 @@ export default function ModelPicker({
   reasoningEffort,
   onModelChange,
   onEffortChange,
+  onEffortReset,
   currentModelInfo,
+  unavailablePreference,
   sessionTemperature,
   onSessionTemperatureChange,
 }: ModelPickerProps) {
   const { t } = useTranslation()
   const [showMenu, setShowMenu] = useState(false)
   const [openPanel, setOpenPanel] = useState<"model" | "temperature" | null>(null)
+  const [applyToAgentDefault, setApplyToAgentDefault] = useState(false)
+  // `null` means there is no active slider drag; outside a drag the control
+  // derives directly from the current Session prop, so no syncing effect is
+  // needed when switching conversations.
+  const [temperatureDraft, setTemperatureDraft] = useState<number | null>(null)
   const menuRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -52,8 +65,11 @@ export default function ModelPicker({
   const effortLabel =
     effortOptions.find((o) => o.value === reasoningEffort)?.label ?? reasoningEffort
   const modelLabel = currentModelInfo?.modelName ?? t("chat.selectModel")
+  const displayedTemperature = temperatureDraft ?? sessionTemperature
   const temperatureLabel =
-    sessionTemperature != null ? sessionTemperature.toFixed(2) : t("settings.temperatureDefault")
+    displayedTemperature != null
+      ? displayedTemperature.toFixed(2)
+      : t("settings.temperatureDefault")
 
   const modelGroups = Array.from(
     availableModels.reduce((groups, model) => {
@@ -77,7 +93,12 @@ export default function ModelPicker({
           <button
             type="button"
             onClick={() => {
-              setShowMenu(!showMenu)
+              const nextOpen = !showMenu
+              setShowMenu(nextOpen)
+              if (nextOpen) {
+                setApplyToAgentDefault(false)
+                setTemperatureDraft(null)
+              }
               setOpenPanel(null)
             }}
             className="flex min-w-0 max-w-[220px] items-center gap-1 bg-transparent px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground rounded-lg cursor-pointer"
@@ -116,6 +137,14 @@ export default function ModelPicker({
         }}
       >
         <div className="max-h-[min(420px,calc(100vh-96px))] overflow-y-auto overscroll-contain pr-0.5">
+          {unavailablePreference && (
+            <div className="mb-1.5 rounded-md bg-amber-500/10 px-2.5 py-2 text-[11px] leading-snug text-amber-700 dark:text-amber-300">
+              {t("chat.modelPicker.unavailablePreference", {
+                model: unavailablePreference,
+                defaultValue: `首选模型 ${unavailablePreference} 当前不可用，正在临时使用可用模型。`,
+              })}
+            </div>
+          )}
           <div className="px-2.5 pb-1 pt-1 text-[11px] font-semibold text-muted-foreground">
             {t("settings.localModels.filters.thinking")}
           </div>
@@ -133,7 +162,7 @@ export default function ModelPicker({
                   )}
                   onMouseEnter={() => setOpenPanel(null)}
                   onClick={() => {
-                    onEffortChange(opt.value)
+                    onEffortChange(opt.value, { applyToAgentDefault })
                     setShowMenu(false)
                     setOpenPanel(null)
                   }}
@@ -149,6 +178,19 @@ export default function ModelPicker({
             <p className="px-2.5 pb-1 pt-0.5 text-[11px] leading-relaxed text-muted-foreground/70">
               {t("chat.reasoningDisabledHint")}
             </p>
+          )}
+          {onEffortReset && (
+            <button
+              type="button"
+              className="mt-0.5 w-full rounded-md px-2.5 py-1.5 text-left text-[11px] text-primary hover:bg-secondary/60"
+              onClick={() => {
+                onEffortReset()
+                setShowMenu(false)
+                setOpenPanel(null)
+              }}
+            >
+              {t("chat.modelPicker.restoreAgentDefault", "恢复 Agent 默认")}
+            </button>
           )}
 
           <div className="-mx-1 my-1.5 h-px bg-border-soft" />
@@ -187,6 +229,23 @@ export default function ModelPicker({
             </span>
             <ChevronRight className="h-3.5 w-3.5 shrink-0 opacity-50" />
           </button>
+
+          <div className="-mx-1 my-1.5 h-px bg-border-soft" />
+          <div className="flex items-center gap-3 px-2.5 py-2">
+            <div className="min-w-0 flex-1">
+              <div className="text-[13px] font-medium text-foreground">
+                {t("chat.modelPicker.applyToAgentDefault", "同时设为 Agent 默认")}
+              </div>
+              <div className="text-[11px] leading-snug text-muted-foreground">
+                {t("chat.modelPicker.applyToAgentDefaultDesc", "只影响该 Agent 之后新建的会话")}
+              </div>
+            </div>
+            <Switch
+              checked={applyToAgentDefault}
+              onCheckedChange={setApplyToAgentDefault}
+              aria-label={t("chat.modelPicker.applyToAgentDefault", "同时设为 Agent 默认")}
+            />
+          </div>
         </div>
 
         <FloatingMenu
@@ -219,7 +278,9 @@ export default function ModelPicker({
                             : "text-foreground/80 hover:bg-secondary/60 hover:text-foreground",
                         )}
                         onClick={() => {
-                          onModelChange(`${model.providerId}::${model.modelId}`)
+                          onModelChange(`${model.providerId}::${model.modelId}`, {
+                            applyToAgentDefault,
+                          })
                           setShowMenu(false)
                           setOpenPanel(null)
                         }}
@@ -255,9 +316,13 @@ export default function ModelPicker({
             min={0}
             max={200}
             step={1}
-            value={[sessionTemperature != null ? Math.round(sessionTemperature * 100) : 100]}
+            value={[Math.round((displayedTemperature ?? 1) * 100)]}
             onValueChange={([v]) => {
-              onSessionTemperatureChange?.(v / 100)
+              setTemperatureDraft(v / 100)
+            }}
+            onValueCommit={([v]) => {
+              setTemperatureDraft(null)
+              onSessionTemperatureChange?.(v / 100, { applyToAgentDefault })
             }}
             disabled={!onSessionTemperatureChange}
           />
@@ -270,6 +335,7 @@ export default function ModelPicker({
               className="text-[10px] text-primary transition-colors hover:text-primary/80 disabled:pointer-events-none disabled:opacity-50"
               disabled={!onSessionTemperatureChange}
               onClick={() => {
+                setTemperatureDraft(null)
                 onSessionTemperatureChange?.(null)
                 setShowMenu(false)
                 setOpenPanel(null)

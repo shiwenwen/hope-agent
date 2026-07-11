@@ -25,8 +25,10 @@ pub use environment::{
 };
 pub use helpers::{
     auto_title, cleanup_orphan_incognito, db_path, effective_session_working_dir,
-    effective_working_dir_for_meta, ensure_first_message_title, is_session_incognito,
-    lookup_session_meta,
+    effective_working_dir_for_meta, ensure_first_message_title, ensure_session_runtime_defaults,
+    is_session_incognito, lookup_session_meta, resolve_chat_runtime_defaults,
+    set_session_model_preference, set_session_reasoning_effort_preference,
+    set_session_temperature_preference, ChatRuntimeDefaults,
 };
 pub use pending::enrich_pending_interactions;
 pub use tasks::{
@@ -35,7 +37,7 @@ pub use tasks::{
 pub use turns::{ChatTurn, ChatTurnInterruptReason, ChatTurnStatus};
 pub use types::{
     build_chat_user_attachments_meta, build_tool_media_items_attachments_meta, ChannelSessionInfo,
-    MessageRole, NewMessage, SessionKind, SessionMessage, SessionMeta,
+    MessageRole, NewMessage, SessionDefaultsInput, SessionKind, SessionMessage, SessionMeta,
     ATTACHMENT_META_KEY_ACTIVE_MEMORY, ATTACHMENT_META_KEY_RETRIEVAL_PLANNER,
     ATTACHMENT_META_KEY_TOOL_MEDIA_ITEMS, ATTACHMENT_META_KEY_USED_MEMORY_REFS,
 };

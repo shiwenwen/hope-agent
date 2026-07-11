@@ -388,6 +388,15 @@
         "unknown": "desconhecido",
         "used": "usado"
       },
+      "intentLabel": "Tarefa detectada",
+      "intent": {
+        "general": "Geral",
+        "profile": "Perfil",
+        "procedure": "Fluxo de trabalho",
+        "episode": "Experiência anterior",
+        "relationship": "Relacionamentos",
+        "knowledge": "Conhecimento"
+      },
       "openSource": "Abrir fonte",
       "origin": {
         "activeMemory": "Rechamada ativa",
@@ -440,15 +449,6 @@
       "traceStatusLabel": "Estado",
       "whyTitle": "Por que esses contextos apareceram",
       "more": "{{count}} mais itens de contexto de longo prazo estão ocultos.",
-      "intentLabel": "Tarefa detectada",
-      "intent": {
-        "general": "Geral",
-        "profile": "Perfil",
-        "procedure": "Fluxo de trabalho",
-        "episode": "Experiência anterior",
-        "relationship": "Relacionamentos",
-        "knowledge": "Conhecimento"
-      },
       "sources": "Fontes de memória",
       "editMemory": "Edite esta memória",
       "copyTrace": "Copiar diagnóstico"
@@ -822,6 +822,13 @@
       }
     },
     "reasoningDisabledHint": "O raciocínio não está ativado para este modelo. Para ajustar a profundidade de raciocínio, edite o modelo em Configurações → Provedores de modelos e ative \"Raciocínio\".",
+    "modelPicker": {
+      "applyToAgentDefault": "Also set as Agent default",
+      "applyToAgentDefaultDesc": "Only affects new conversations for this Agent",
+      "agentDefaultFailed": "The conversation was updated, but the Agent default could not be saved",
+      "restoreAgentDefault": "Restore Agent default",
+      "unavailablePreference": "Preferred model {{model}} is unavailable; a temporary available model is being used."
+    },
     "browserExtensionNudge": {
       "installTitle": "Deixe a IA controlar seu Chrome real",
       "installBody": "Instale a extensão do Hope Agent para operar seu Chrome com login. Por enquanto, ele roda em um navegador isolado.",
@@ -2785,6 +2792,11 @@
     "graphMemoryDesc": "Mostra afirmações de memória estruturada relacionadas nos diagnósticos da resposta sem injetá-las no prompt.",
     "graphMemoryMaxCenters": "Afirmações centrais",
     "graphMemoryMaxEdges": "Afirmações relacionadas",
+    "retrievalPlannerTitle": "Classificação entre fontes",
+    "retrievalPlannerDesc": "Combine candidatos de memória, relacionamento, fluxo de trabalho e conhecimento com classificação estável com reconhecimento de escopo.",
+    "retrievalPlannerIntentAware": "Consciente de tarefas",
+    "retrievalPlannerMaxTraceRefs": "Referências de diagnóstico",
+    "retrievalPlannerMaxPerOrigin": "Candidatos por fonte",
     "memoryProcedureGuidanceEligible": "Pronto para orientar",
     "memoryProcedureGuidanceEligibleDesc": "Turnos relevantes podem usar este fluxo como orientação flexível limitada; instruções atuais e políticas de segurança continuam tendo prioridade.",
     "memoryProcedureGuidanceArchived": "Não usado",
@@ -5724,6 +5736,7 @@
     "selectDefaultModel": "Selecionar modelo padrão",
     "selectFallbackModel": "Selecionar modelo de fallback",
     "selectPlanModel": "Selecionar modelo do Plan Mode",
+    "reasoningEffort": "Think",
     "server": "Servidor",
     "serverActiveChatStreams": "Sessões de chat ativas",
     "serverActiveWebSockets": "WebSockets ativos",
@@ -6428,11 +6441,6 @@
     "uiEffectsToggle": "Ativar efeito",
     "memoryAuditScopeHintAll": "Todas as alterações pesquisam memórias de longo prazo, fluxos de trabalho e decisões de memória estruturada.",
     "memoryAuditScopeHintMemoryOnly": "Os filtros de ação aplicam-se ao histórico da memória de longo prazo; fluxos de trabalho e decisões de memória estruturada permanecem em Todas as alterações.",
-    "retrievalPlannerTitle": "Classificação entre fontes",
-    "retrievalPlannerDesc": "Combine candidatos de memória, relacionamento, fluxo de trabalho e conhecimento com classificação estável com reconhecimento de escopo.",
-    "retrievalPlannerIntentAware": "Consciente de tarefas",
-    "retrievalPlannerMaxTraceRefs": "Referências de diagnóstico",
-    "retrievalPlannerMaxPerOrigin": "Candidatos por fonte",
     "visionBridgeModel": "Modelo de ponte de visão",
     "visionBridgeModelDesc": "Usado apenas quando o modelo principal não consegue ver imagens. Um modelo separado converte imagens em descrições de texto para que a conversa continue.",
     "visionBridgeModelClear": "Desativar a ponte de visão",

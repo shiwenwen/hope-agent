@@ -58,6 +58,8 @@ export default function QuickChatWindow() {
     sessions: session.sessions,
     agents: session.agents,
     manualModelOverrideRef: session.manualModelOverrideRef,
+    reasoningEffort: session.reasoningEffort,
+    temperatureOverride: session.sessionTemperature,
     reloadSessions: session.reloadSessions,
     updateSessionMessages: session.updateSessionMessages,
     lastSeqRef: quickStreamSeqRef,
@@ -220,9 +222,13 @@ export default function QuickChatWindow() {
             loading={session.loading}
             availableModels={session.availableModels}
             activeModel={session.activeModel}
+            unavailableModelPreference={session.unavailableModelPreference}
             reasoningEffort={session.reasoningEffort}
             onModelChange={session.handleModelChange}
             onEffortChange={session.handleEffortChange}
+            onEffortReset={session.resetEffort}
+            sessionTemperature={session.sessionTemperature}
+            onSessionTemperatureChange={session.handleTemperatureChange}
             attachedFiles={stream.attachedFiles}
             onAttachFiles={stream.setAttachedFiles}
             onRemoveFile={(i) =>

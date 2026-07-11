@@ -8,12 +8,15 @@ import type {
   Message,
   AvailableModel,
   ActiveModel,
+  ChatRuntimeDefaults,
   SessionMeta,
   SessionMessage,
   AgentSummaryForSidebar,
 } from "@/types/chat"
 import type { AgentConfig } from "@/components/settings/types"
 import type { KbChatThread } from "@/types/knowledge"
+import { toast } from "sonner"
+import { useTranslation } from "react-i18next"
 import {
   knowledgeChatLoadIssue,
   type KnowledgeChatLoadIssue,
@@ -57,8 +60,22 @@ export interface UseKnowledgeChatReturn {
   availableModels: AvailableModel[]
   activeModel: ActiveModel | null
   reasoningEffort: string
-  handleModelChange: (key: string) => void
-  handleEffortChange: (effort: string) => void
+  sessionTemperature: number | null
+  unavailableModelPreference: string | null
+  manualModelOverrideRef: React.MutableRefObject<ActiveModel | null>
+  handleModelChange: (
+    key: string,
+    options?: { applyToAgentDefault?: boolean },
+  ) => Promise<void>
+  handleEffortChange: (
+    effort: string,
+    options?: { applyToAgentDefault?: boolean },
+  ) => Promise<void>
+  handleEffortReset: () => Promise<void>
+  handleTemperatureChange: (
+    temperature: number | null,
+    options?: { applyToAgentDefault?: boolean },
+  ) => Promise<void>
 
   // Agent
   handleSwitchAgent: (agentId: string) => void
@@ -96,6 +113,7 @@ export function useKnowledgeChat(
   notePath: string | null,
   active: boolean,
 ): UseKnowledgeChatReturn {
+  const { t } = useTranslation()
   const [messages, setMessages] = useState<Message[]>([])
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null)
   const currentSessionIdRef = useRef<string | null>(null)
@@ -134,6 +152,8 @@ export function useKnowledgeChat(
   const [availableModels, setAvailableModels] = useState<AvailableModel[]>([])
   const [activeModel, setActiveModel] = useState<ActiveModel | null>(null)
   const [reasoningEffort, setReasoningEffort] = useState("medium")
+  const [sessionTemperature, setSessionTemperature] = useState<number | null>(null)
+  const [unavailableModelPreference, setUnavailableModelPreference] = useState<string | null>(null)
 
   const clearLoadIssue = useCallback((operation: KnowledgeChatLoadOperation) => {
     setLoadIssues((prev) => prev.filter((issue) => issue.operation !== operation))
@@ -168,13 +188,15 @@ export function useKnowledgeChat(
   }, [clearLoadIssue, recordLoadIssue])
 
   const loadModels = useCallback(
-    async (agentId: string): Promise<ModelSnapshot | null> => {
+    async (agentId: string, sessionId?: string | null): Promise<ModelSnapshot | null> => {
       const version = ++modelLoadVersionRef.current
       try {
-        const [models, active, settings, agentConfigResult] = await Promise.all([
+        const [models, runtimeDefaults, agentConfigResult] = await Promise.all([
           getTransport().call<AvailableModel[]>("get_available_models"),
-          getTransport().call<ActiveModel | null>("get_active_model"),
-          getTransport().call<{ reasoning_effort: string }>("get_current_settings"),
+          getTransport().call<ChatRuntimeDefaults>("get_chat_runtime_defaults", {
+            sessionId: sessionId || undefined,
+            agentId,
+          }),
           getTransport()
             .call<AgentConfig>("get_agent_config", { id: agentId })
             .then((config) => ({ config, error: null as unknown }))
@@ -184,7 +206,6 @@ export function useKnowledgeChat(
         // thread's real-agent load, or a fast note switch) superseded us —
         // don't let this stale result win the last-writer race.
         if (modelLoadVersionRef.current !== version) return null
-        const agentConfig = agentConfigResult.config
         if (agentConfigResult.error) {
           logger.error(
             "ui",
@@ -197,7 +218,7 @@ export function useKnowledgeChat(
           clearLoadIssue("loadAgentConfig")
         }
         setAvailableModels(models)
-        let displayModel = active
+        let displayModel = runtimeDefaults.model ?? null
         const manualOverride = manualModelOverrideRef.current
         const manualModel = manualOverride
           ? models.find(
@@ -208,10 +229,6 @@ export function useKnowledgeChat(
         if (manualOverride && !manualModel) manualModelOverrideRef.current = null
         if (manualModel && manualOverride) {
           displayModel = manualOverride
-        } else if (agentConfig?.model.primary) {
-          const [providerId, modelId] = agentConfig.model.primary.split("::")
-          const agentModel = models.find((m) => m.providerId === providerId && m.modelId === modelId)
-          if (agentModel) displayModel = { providerId, modelId }
         }
         setActiveModel(displayModel)
         const currentModel = displayModel
@@ -219,8 +236,14 @@ export function useKnowledgeChat(
               (m) => m.providerId === displayModel!.providerId && m.modelId === displayModel!.modelId,
             )
           : undefined
-        const effort = agentConfig?.model?.reasoningEffort ?? settings.reasoning_effort
+        const effort = runtimeDefaults.reasoningEffort
         setReasoningEffort(normalizeEffortForModel(currentModel, effort, (key) => key))
+        setSessionTemperature(runtimeDefaults.temperature ?? null)
+        setUnavailableModelPreference(
+          !runtimeDefaults.preferredModelAvailable && runtimeDefaults.preferredModel
+            ? `${runtimeDefaults.preferredModel.providerId}::${runtimeDefaults.preferredModel.modelId}`
+            : null,
+        )
         clearLoadIssue("loadModels")
         return { models, displayModel, defaultEffort: effort }
       } catch (e) {
@@ -398,7 +421,7 @@ export function useKnowledgeChat(
           setCurrentAgentId(agentId)
           // Restore the thread's own agent's model list (bootstrap only loaded
           // the default agent's) so follow-ups don't inherit a wrong override.
-          void loadModels(agentId)
+          void loadModels(agentId, meta.id)
           setSessions([meta])
           // If we left this note mid-turn and came back, recompute loading and
           // keep the cached live view rather than clobbering the in-flight
@@ -471,17 +494,133 @@ export function useKnowledgeChat(
     }
   }, [hasMore, loadingMore, oldestDbId, clearLoadIssue, recordLoadIssue])
 
-  const handleModelChange = useCallback((key: string) => {
-    const [providerId, modelId] = key.split("::")
-    if (!providerId || !modelId) return
-    const next = { providerId, modelId }
-    manualModelOverrideRef.current = next
-    setActiveModel(next)
-  }, [])
+  const handleModelChange = useCallback(
+    async (key: string, options?: { applyToAgentDefault?: boolean }) => {
+      const [providerId, modelId] = key.split("::")
+      if (!providerId || !modelId) return
+      const next = { providerId, modelId }
+      const sessionId = currentSessionIdRef.current
+      const previousModel = activeModel
+      const previousManualModel = manualModelOverrideRef.current
+      try {
+        if (sessionId) {
+          await getTransport().call("set_session_model", { sessionId, providerId, modelId })
+          manualModelOverrideRef.current = null
+        } else {
+          manualModelOverrideRef.current = next
+        }
+      } catch (e) {
+        manualModelOverrideRef.current = previousManualModel
+        setActiveModel(previousModel)
+        logger.error("ui", "KnowledgeChat::modelChange", "Failed to set session model", e)
+        toast.error(t("common.saveFailed", "保存失败"))
+        return
+      }
+      setActiveModel(next)
+      setUnavailableModelPreference(null)
+      if (options?.applyToAgentDefault) {
+        try {
+          await getTransport().call("patch_agent_model_defaults", {
+            id: currentAgentId,
+            patch: { primaryModel: next },
+          })
+        } catch (e) {
+          logger.error("ui", "KnowledgeChat::modelAgentDefault", "Failed to set Agent model", e)
+          toast.error(t("chat.modelPicker.agentDefaultFailed", "当前会话已更新，但 Agent 默认保存失败"))
+        }
+      }
+    },
+    [activeModel, currentAgentId, t],
+  )
 
-  const handleEffortChange = useCallback((effort: string) => {
-    setReasoningEffort(effort)
-  }, [])
+  const handleEffortChange = useCallback(
+    async (effort: string, options?: { applyToAgentDefault?: boolean }) => {
+      const sessionId = currentSessionIdRef.current
+      const previous = reasoningEffort
+      try {
+        if (sessionId) {
+          await getTransport().call("set_session_reasoning_effort", {
+            sessionId,
+            mode: "value",
+            value: effort,
+          })
+        }
+      } catch (e) {
+        setReasoningEffort(previous)
+        logger.error("ui", "KnowledgeChat::effortChange", "Failed to set effort", e)
+        toast.error(t("common.saveFailed", "保存失败"))
+        return
+      }
+      setReasoningEffort(effort)
+      if (options?.applyToAgentDefault) {
+        try {
+          await getTransport().call("patch_agent_model_defaults", {
+            id: currentAgentId,
+            patch: { reasoningEffort: effort },
+          })
+        } catch (e) {
+          logger.error("ui", "KnowledgeChat::effortAgentDefault", "Failed to set Agent effort", e)
+          toast.error(t("chat.modelPicker.agentDefaultFailed", "当前会话已更新，但 Agent 默认保存失败"))
+        }
+      }
+    },
+    [currentAgentId, reasoningEffort, t],
+  )
+
+  const handleEffortReset = useCallback(async () => {
+    const sessionId = currentSessionIdRef.current
+    if (!sessionId) {
+      const snapshot = await loadModels(currentAgentId)
+      if (snapshot) setReasoningEffort(snapshot.defaultEffort)
+      return
+    }
+    await getTransport().call("set_session_reasoning_effort", {
+      sessionId,
+      mode: "agentDefault",
+    })
+    await loadModels(currentAgentId, sessionId)
+  }, [currentAgentId, loadModels])
+
+  const handleTemperatureChange = useCallback(
+    async (
+      temperature: number | null,
+      options?: { applyToAgentDefault?: boolean },
+    ) => {
+      const sessionId = currentSessionIdRef.current
+      const previous = sessionTemperature
+      let resolvedTemperature = temperature
+      try {
+        if (sessionId) {
+          resolvedTemperature = await getTransport().call<number | null>(
+            "set_session_temperature",
+            {
+              sessionId,
+              mode: temperature == null ? "agentDefault" : "value",
+              value: temperature,
+            },
+          )
+        }
+      } catch (e) {
+        setSessionTemperature(previous)
+        logger.error("ui", "KnowledgeChat::temperatureChange", "Failed to set temperature", e)
+        toast.error(t("common.saveFailed", "保存失败"))
+        return
+      }
+      setSessionTemperature(resolvedTemperature)
+      if (options?.applyToAgentDefault) {
+        try {
+          await getTransport().call("patch_agent_model_defaults", {
+            id: currentAgentId,
+            patch: { temperature },
+          })
+        } catch (e) {
+          logger.error("ui", "KnowledgeChat::temperatureAgentDefault", "Failed to set Agent temperature", e)
+          toast.error(t("chat.modelPicker.agentDefaultFailed", "当前会话已更新，但 Agent 默认保存失败"))
+        }
+      }
+    },
+    [currentAgentId, sessionTemperature, t],
+  )
 
   const handleSwitchAgent = useCallback(
     (agentId: string) => {
@@ -511,7 +650,8 @@ export function useKnowledgeChat(
     setHasMore(false)
     setOldestDbId(null)
     manualModelOverrideRef.current = null
-  }, [])
+    void loadModels(currentAgentId)
+  }, [currentAgentId, loadModels])
 
   const switchThread = useCallback(
     async (sessionId: string) => {
@@ -526,7 +666,7 @@ export function useKnowledgeChat(
         const agentId = meta.agentId || DEFAULT_AGENT_ID
         manualModelOverrideRef.current = null
         setCurrentAgentId(agentId)
-        void loadModels(agentId)
+        void loadModels(agentId, sessionId)
       }
       // Recompute loading for the target so switching to/from a thread whose
       // turn is still streaming doesn't leave the spinner stuck (mirrors
@@ -568,8 +708,13 @@ export function useKnowledgeChat(
     availableModels,
     activeModel,
     reasoningEffort,
+    sessionTemperature,
+    unavailableModelPreference,
+    manualModelOverrideRef,
     handleModelChange,
     handleEffortChange,
+    handleEffortReset,
+    handleTemperatureChange,
     handleSwitchAgent,
     threads,
     reloadThreads,

@@ -267,6 +267,12 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   set_session_working_dir: { method: "PATCH", path: "/api/sessions/{sessionId}/working-dir" },
   update_session_agent_cmd: { method: "PATCH", path: "/api/sessions/{sessionId}/agent" },
   set_session_model: { method: "PATCH", path: "/api/sessions/{sessionId}/model" },
+  set_session_temperature: { method: "PATCH", path: "/api/sessions/{sessionId}/temperature" },
+  set_session_reasoning_effort: {
+    method: "PATCH",
+    path: "/api/sessions/{sessionId}/reasoning-effort",
+  },
+  get_chat_runtime_defaults: { method: "GET", path: "/api/chat/runtime-defaults" },
   purge_session_if_incognito: {
     method: "POST",
     path: "/api/sessions/{sessionId}/purge-if-incognito",
@@ -371,6 +377,8 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   get_automation_model_chain: { method: "GET", path: "/api/models/automation" },
   set_automation_model_chain: { method: "PUT", path: "/api/models/automation" },
   set_reasoning_effort: { method: "POST", path: "/api/models/reasoning-effort" },
+  get_global_reasoning_effort: { method: "GET", path: "/api/models/global-reasoning-effort" },
+  set_global_reasoning_effort: { method: "POST", path: "/api/models/global-reasoning-effort" },
   get_current_settings: { method: "GET", path: "/api/models/settings" },
   get_global_temperature: { method: "GET", path: "/api/models/temperature" },
   set_global_temperature: { method: "POST", path: "/api/models/temperature" },
@@ -382,6 +390,7 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   initialize_agent: { method: "POST", path: "/api/agents/initialize" },
   get_agent_config: { method: "GET", path: "/api/agents/{id}" },
   save_agent_config_cmd: { method: "PUT", path: "/api/agents/{id}" },
+  patch_agent_model_defaults: { method: "PATCH", path: "/api/agents/{id}/model-defaults" },
   delete_agent: { method: "DELETE", path: "/api/agents/{id}" },
   get_agent_markdown: { method: "GET", path: "/api/agents/{id}/markdown" },
   save_agent_markdown: { method: "PUT", path: "/api/agents/{id}/markdown" },
@@ -1180,6 +1189,14 @@ function normalizeCommandResponse(command: string, value: unknown): unknown {
         // axum 路由用 `Json(json!({"active_model": ...}))` 包了一层；Tauri 命令
         // 直接返回 `Option<ActiveModelRef>`，前端跨 transport 期望统一类型。
         return record.active_model ?? null
+      case "get_global_temperature":
+        return record.temperature ?? null
+      case "get_global_reasoning_effort":
+        return record.reasoningEffort ?? "medium"
+      case "set_session_temperature":
+        return record.temperature ?? null
+      case "set_session_reasoning_effort":
+        return record.reasoningEffort ?? "medium"
       case "get_local_llm_auto_maintenance_enabled":
         // axum 路由返回 `{ enabled: bool }`；Tauri 命令直接返回 bool。
         return record.enabled ?? false

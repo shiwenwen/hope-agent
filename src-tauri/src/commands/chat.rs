@@ -117,6 +117,7 @@ pub async fn chat(
     session_id: Option<String>,
     incognito: Option<bool>,
     model_override: Option<String>,
+    session_defaults: Option<ha_core::session::SessionDefaultsInput>,
     agent_id: Option<String>,
     permission_mode: Option<ha_core::permission::SessionMode>,
     sandbox_mode: Option<ha_core::permission::SandboxMode>,
@@ -223,38 +224,80 @@ pub async fn chat(
         }
     };
     let agent_def = agent_loader::load_agent(&current_agent_id).ok();
-    let agent_default_effort = agent_def
-        .as_ref()
-        .and_then(|def| def.config.model.reasoning_effort.clone());
 
     let requested_effort = reasoning_effort
         .as_deref()
         .map(str::trim)
         .filter(|effort| !effort.is_empty())
         .map(str::to_string);
-    let session_effort = {
-        let sid = sid.clone();
-        db.run(move |db| db.get_session(&sid)).await?
+    if new_session_created.is_some() {
+        let sid_for_defaults = sid.clone();
+        let defaults = session_defaults.clone().unwrap_or_default();
+        let model_for_defaults = defaults.model;
+        let effort_for_defaults = defaults.reasoning_effort;
+        let temperature_for_defaults = defaults.temperature;
+        let apply_defaults = db
+            .run(move |session_db| -> anyhow::Result<()> {
+                if temperature_for_defaults.is_some_and(|value| !(0.0..=2.0).contains(&value)) {
+                    anyhow::bail!("Temperature must be between 0.0 and 2.0");
+                }
+                if effort_for_defaults
+                    .as_deref()
+                    .is_some_and(|effort| !ha_core::agent::is_valid_reasoning_effort(effort))
+                {
+                    anyhow::bail!("Invalid reasoning effort in session defaults");
+                }
+                if let Some(reference) = model_for_defaults.as_deref() {
+                    let model = provider::parse_model_ref(reference)
+                        .ok_or_else(|| anyhow::anyhow!("Invalid model reference: {reference}"))?;
+                    let config = ha_core::config::cached_config();
+                    if !provider::model_ref_exists(&config.providers, &model) {
+                        anyhow::bail!("Selected model no longer exists: {reference}");
+                    }
+                    let provider_name = config
+                        .providers
+                        .iter()
+                        .find(|candidate| candidate.id == model.provider_id)
+                        .map(|candidate| candidate.name.as_str());
+                    session_db.update_session_model(
+                        &sid_for_defaults,
+                        Some(&model.provider_id),
+                        provider_name,
+                        Some(&model.model_id),
+                    )?;
+                }
+                if let Some(temperature) = temperature_for_defaults {
+                    session_db.update_session_temperature(&sid_for_defaults, Some(temperature))?;
+                }
+                if let Some(effort) = effort_for_defaults.as_deref() {
+                    session_db.update_session_reasoning_effort(&sid_for_defaults, Some(effort))?;
+                }
+                Ok(())
+            })
+            .await;
+        if let Err(error) = apply_defaults {
+            // The row was created before draft defaults could be validated.
+            // Remove it so a deleted model / malformed draft does not leave an
+            // empty Session that the frontend never received.
+            let sid_for_cleanup = sid.clone();
+            let _ = db
+                .run(move |session_db| session_db.delete_session(&sid_for_cleanup))
+                .await;
+            return Err(error.into());
+        }
     }
-    .and_then(|meta| meta.reasoning_effort);
-    let global_effort = state.reasoning_effort.lock().await.clone();
-    let effort = requested_effort
-        .or(session_effort)
-        .or(agent_default_effort)
-        .unwrap_or(global_effort);
+    let runtime_defaults = {
+        let sid = sid.clone();
+        db.run(move |db| ha_core::session::ensure_session_runtime_defaults(db, &sid))
+            .await?
+    };
+    let effort = requested_effort.unwrap_or_else(|| runtime_defaults.reasoning_effort.clone());
     if !ha_core::agent::is_valid_reasoning_effort(&effort) {
         return Err(CmdError::msg(format!(
             "Invalid reasoning effort: {}. Valid: {:?}",
             effort,
             ha_core::agent::VALID_REASONING_EFFORTS
         )));
-    }
-    *state.reasoning_effort.lock().await = effort.clone();
-    {
-        let sid = sid.clone();
-        let effort = effort.clone();
-        db.run(move |db| db.update_session_reasoning_effort(&sid, Some(&effort)))
-            .await?;
     }
     // Apply draft working dir picked before the session existed. Only honored on
     // the auto-create branch — explicit-session callers must use
@@ -508,15 +551,9 @@ pub async fn chat(
     // One lock-free config snapshot for the whole request.
     let cfg = ha_core::config::cached_config();
 
-    // Resolve temperature: session > agent > global
-    let resolved_temperature: Option<f64> = {
-        let global_temp = cfg.temperature;
-        let agent_temp = agent_def
-            .as_ref()
-            .and_then(|def| def.config.model.temperature);
-        // Priority: session (frontend override) > agent > global
-        temperature_override.or(agent_temp).or(global_temp)
-    };
+    // Explicit API override remains per-turn; otherwise use the immutable
+    // Session snapshot.
+    let resolved_temperature = temperature_override.or(runtime_defaults.temperature);
 
     // Resolve plan state early so we can use plan_model override for model chain
     let early_plan_state = if let Some(ref pm) = plan_mode {
@@ -765,7 +802,7 @@ pub async fn chat(
         subagent_depth: 0,
         steer_run_id: None,
         auto_approve_tools: false,
-        follow_global_reasoning_effort: true,
+        follow_global_reasoning_effort: false,
         post_turn_effects: true,
         abort_on_cancel: false,
         persist_final_error_event: true,

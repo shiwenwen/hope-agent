@@ -28,6 +28,7 @@ import type {
   ActiveMemoryRecallEvent,
   ActiveModel,
   AvailableModel,
+  ChatRuntimeDefaults,
   Message,
   SessionMessage,
   SessionMeta,
@@ -69,7 +70,6 @@ import {
 } from "@/components/ui/alert-dialog"
 import { useChatSession } from "./useChatSession"
 import { useChatStream } from "./useChatStream"
-import { resolveAvailableDisplayModel } from "./modelSelection"
 import { useChatStreamReattach } from "./hooks/useChatStreamReattach"
 import { usePlanMode } from "./plan-mode/usePlanMode"
 import { useTaskProgressSnapshot } from "./tasks/useTaskProgressSnapshot"
@@ -494,7 +494,11 @@ export default function ChatScreen({
     applyModelForDisplay,
     handleModelChange,
     handleEffortChange,
+    handleTemperatureChange,
+    resetSessionEffort,
+    resetSessionTemperature,
   } = useModelState()
+  const [unavailableModelPreference, setUnavailableModelPreference] = useState<string | null>(null)
 
   // Sidebar panel width
   const [panelWidth, setPanelWidth] = useState(() => {
@@ -868,17 +872,29 @@ export default function ChatScreen({
   )
 
   const handleSessionEffortChange = useCallback(
-    async (effort: string) => {
+    async (effort: string, options?: { applyToAgentDefault?: boolean }) => {
       const sid = session.currentSessionId
       if (sid) {
         updateSessionMeta(sid, (prev) =>
           prev.reasoningEffort === effort ? prev : { ...prev, reasoningEffort: effort },
         )
       }
-      await handleEffortChange(effort, sid, session.currentAgentId)
+      await handleEffortChange(effort, sid, session.currentAgentId, options)
     },
     [handleEffortChange, session.currentAgentId, session.currentSessionId, updateSessionMeta],
   )
+
+  const handleSessionEffortReset = useCallback(async () => {
+    const sid = session.currentSessionId
+    if (sid) {
+      await resetSessionEffort(sid)
+      return
+    }
+    const defaults = await getTransport().call<ChatRuntimeDefaults>("get_chat_runtime_defaults", {
+      agentId: session.currentAgentId,
+    })
+    setReasoningEffort(defaults.reasoningEffort)
+  }, [resetSessionEffort, session.currentAgentId, session.currentSessionId, setReasoningEffort])
 
   const hasDisposableIncognitoContent = useCallback(() => {
     const composer = incognitoComposerStateRef.current
@@ -1132,13 +1148,16 @@ export default function ChatScreen({
 
   const refreshRuntimeModelState = useCallback(async () => {
     try {
-      const [models, active, settings, agentConfig] = await Promise.all([
+      const [models, active, agentConfig, runtimeDefaults] = await Promise.all([
         getTransport().call<AvailableModel[]>("get_available_models"),
         getTransport().call<ActiveModel | null>("get_active_model"),
-        getTransport().call<{ model: string; reasoning_effort: string }>("get_current_settings"),
         getTransport()
           .call<AgentConfig>("get_agent_config", { id: currentAgentId })
           .catch(() => null),
+        getTransport().call<ChatRuntimeDefaults>("get_chat_runtime_defaults", {
+          ...(currentSessionId ? { sessionId: currentSessionId } : {}),
+          agentId: currentAgentId,
+        }),
       ])
 
       setAvailableModels(models)
@@ -1155,22 +1174,10 @@ export default function ChatScreen({
         manualModelOverrideRef.current = null
       }
 
-      const sessionPreferred =
-        currentSessionMeta?.providerId && currentSessionMeta?.modelId
-          ? {
-              providerId: currentSessionMeta.providerId,
-              modelId: currentSessionMeta.modelId,
-            }
-          : null
       const displayModel =
         manualModel && manualOverride
           ? manualOverride
-          : resolveAvailableDisplayModel(
-              models,
-              sessionPreferred,
-              agentConfig?.model?.primary,
-              active,
-            )
+          : (runtimeDefaults.model ?? null)
 
       setActiveModel(displayModel)
       const displayModelInfo = displayModel
@@ -1178,11 +1185,14 @@ export default function ChatScreen({
             (m) => m.providerId === displayModel.providerId && m.modelId === displayModel.modelId,
           )
         : undefined
-      const effort =
-        currentSessionMeta?.reasoningEffort ??
-        agentConfig?.model?.reasoningEffort ??
-        settings.reasoning_effort
+      const effort = runtimeDefaults.reasoningEffort
       setReasoningEffort(normalizeEffortForModel(displayModelInfo, effort, t))
+      setSessionTemperature(runtimeDefaults.temperature ?? null)
+      setUnavailableModelPreference(
+        !runtimeDefaults.preferredModelAvailable && runtimeDefaults.preferredModel
+          ? `${runtimeDefaults.preferredModel.providerId}::${runtimeDefaults.preferredModel.modelId}`
+          : null,
+      )
 
       if (agentConfig?.name) {
         setAgentName(agentConfig.name)
@@ -1194,23 +1204,49 @@ export default function ChatScreen({
     currentSessionMeta?.modelId,
     currentSessionMeta?.providerId,
     currentSessionMeta?.reasoningEffort,
+    currentSessionId,
     currentAgentId,
     globalActiveModelRef,
     setActiveModel,
     setAgentName,
     setAvailableModels,
     setReasoningEffort,
+    setSessionTemperature,
     t,
   ])
 
   const handleManualModelChange = useCallback(
-    async (key: string) => {
+    async (key: string, options?: { applyToAgentDefault?: boolean }) => {
       const [providerId, modelId] = key.split("::")
       if (!providerId || !modelId) return
-      manualModelOverrideRef.current = { providerId, modelId }
-      await handleModelChange(key, currentSessionId, session.currentAgentId)
+      setUnavailableModelPreference(null)
+      manualModelOverrideRef.current = currentSessionId ? null : { providerId, modelId }
+      await handleModelChange(key, currentSessionId, session.currentAgentId, options)
     },
     [handleModelChange, currentSessionId, session.currentAgentId],
+  )
+
+  const handleSessionTemperatureChange = useCallback(
+    async (temperature: number | null, options?: { applyToAgentDefault?: boolean }) => {
+      const sid = session.currentSessionId
+      if (temperature == null) {
+        if (sid) await resetSessionTemperature(sid)
+        else setSessionTemperature(null)
+        return
+      }
+      await handleTemperatureChange(temperature, sid, session.currentAgentId, options)
+      if (sid) {
+        updateSessionMeta(sid, (previous) => ({ ...previous, temperature }))
+      }
+    },
+    [
+      handleTemperatureChange,
+      resetSessionTemperature,
+      session.currentAgentId,
+      session.currentSessionId,
+      setSessionTemperature,
+      updateSessionMeta,
+    ],
   )
 
   // Auto-show team panel when a team is created
@@ -3204,9 +3240,11 @@ export default function ChatScreen({
                       loading={session.loading}
                       availableModels={availableModels}
                       activeModel={activeModel}
+                      unavailableModelPreference={unavailableModelPreference}
                       reasoningEffort={reasoningEffort}
                       onModelChange={handleManualModelChange}
                       onEffortChange={handleSessionEffortChange}
+                      onEffortReset={handleSessionEffortReset}
                       attachedFiles={stream.attachedFiles}
                       onAttachFiles={(files) =>
                         stream.setAttachedFiles((prev) => [...prev, ...files])
@@ -3247,7 +3285,7 @@ export default function ChatScreen({
                       sandboxMode={stream.sandboxMode}
                       onSandboxModeChange={stream.setSandboxModeByUser}
                       sessionTemperature={sessionTemperature}
-                      onSessionTemperatureChange={setSessionTemperature}
+                      onSessionTemperatureChange={handleSessionTemperatureChange}
                       incognitoEnabled={incognitoEnabled}
                       projectId={effectiveProjectId}
                       draftKbAttachments={draftKbAttachments}

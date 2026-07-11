@@ -42,6 +42,18 @@ pub async fn save_agent_config_cmd(
 }
 
 #[tauri::command]
+pub async fn patch_agent_model_defaults(
+    id: String,
+    patch: agent_loader::AgentModelDefaultsPatch,
+) -> Result<(), CmdError> {
+    agent_loader::patch_agent_model_defaults(&id, patch)?;
+    if let Some(bus) = ha_core::get_event_bus() {
+        bus.emit("agents:changed", json!({ "id": id, "kind": "saved" }));
+    }
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn save_agent_markdown(
     id: String,
     file: String,

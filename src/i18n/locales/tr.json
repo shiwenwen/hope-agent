@@ -388,6 +388,15 @@
         "unknown": "bilinmiyor",
         "used": "kullanılmış"
       },
+      "intentLabel": "Algılanan görev",
+      "intent": {
+        "general": "Genel",
+        "profile": "Profil",
+        "procedure": "İş akışı",
+        "episode": "Geçmiş deneyim",
+        "relationship": "İlişkiler",
+        "knowledge": "Bilgi"
+      },
       "openSource": "Kaynağı aç",
       "origin": {
         "activeMemory": "Aktif hatırlama",
@@ -440,15 +449,6 @@
       "traceStatusLabel": "Durum",
       "whyTitle": "Bu bağlamlar neden ortaya çıktı?",
       "more": "{{count}} daha uzun vadeli bağlam öğeleri gizlenir.",
-      "intentLabel": "Algılanan görev",
-      "intent": {
-        "general": "Genel",
-        "profile": "Profil",
-        "procedure": "İş akışı",
-        "episode": "Geçmiş deneyim",
-        "relationship": "İlişkiler",
-        "knowledge": "Bilgi"
-      },
       "sources": "Bellek kaynakları",
       "editMemory": "Bu hafızayı düzenle",
       "copyTrace": "Tanılamayı kopyala"
@@ -822,6 +822,13 @@
       }
     },
     "reasoningDisabledHint": "Bu model için akıl yürütme etkin değil. Akıl yürütme derinliğini ayarlamak için \"Ayarlar → Model Sağlayıcıları\" bölümünden bu modeli düzenleyin ve \"Akıl yürütme/düşünme desteği\" seçeneğini açın.",
+    "modelPicker": {
+      "applyToAgentDefault": "Also set as Agent default",
+      "applyToAgentDefaultDesc": "Only affects new conversations for this Agent",
+      "agentDefaultFailed": "The conversation was updated, but the Agent default could not be saved",
+      "restoreAgentDefault": "Restore Agent default",
+      "unavailablePreference": "Preferred model {{model}} is unavailable; a temporary available model is being used."
+    },
     "browserExtensionNudge": {
       "installTitle": "Yapay zekânın gerçek Chrome'unuzu yönetmesine izin verin",
       "installBody": "Oturum açtığınız Chrome'u kullanmak için Hope Agent uzantısını yükleyin. Şimdilik yalıtılmış bir tarayıcıda çalışıyor.",
@@ -2785,6 +2792,11 @@
     "graphMemoryDesc": "İlgili yapılandırılmış bellek iddialarını yanıt tanılarında gösterir, prompt'a eklemez.",
     "graphMemoryMaxCenters": "Merkez iddialar",
     "graphMemoryMaxEdges": "İlgili iddialar",
+    "retrievalPlannerTitle": "Kaynaklar arası sıralama",
+    "retrievalPlannerDesc": "Bellek, ilişki, iş akışı ve bilgi adaylarını istikrarlı kapsam farkındalığına sahip sıralamayla birleştirin.",
+    "retrievalPlannerIntentAware": "Görev bilincinde",
+    "retrievalPlannerMaxTraceRefs": "Tanılama referansları",
+    "retrievalPlannerMaxPerOrigin": "Kaynak başına adaylar",
     "memoryProcedureGuidanceEligible": "Rehberliğe hazır",
     "memoryProcedureGuidanceEligibleDesc": "İlgili turlarda bu iş akışı sınırlı yumuşak rehberlik olarak kullanılabilir; mevcut talimatlar ve güvenlik ilkeleri önceliklidir.",
     "memoryProcedureGuidanceArchived": "Kullanılmaz",
@@ -5724,6 +5736,7 @@
     "selectDefaultModel": "Varsayılan model seçin",
     "selectFallbackModel": "Yedek model seçin",
     "selectPlanModel": "Plan Mode modeli seç",
+    "reasoningEffort": "Think",
     "server": "Sunucu",
     "serverActiveChatStreams": "Aktif Sohbet Oturumları",
     "serverActiveWebSockets": "Aktif WebSocket",
@@ -6428,11 +6441,6 @@
     "uiEffectsToggle": "Efekti aç",
     "memoryAuditScopeHintAll": "Tüm değişiklikler uzun vadeli hafızaları, iş akışlarını ve yapılandırılmış hafıza kararlarını arar.",
     "memoryAuditScopeHintMemoryOnly": "Eylem filtreleri uzun süreli bellek geçmişine uygulanır; iş akışları ve yapılandırılmış bellek kararları Tüm değişiklikler altında kalır.",
-    "retrievalPlannerTitle": "Kaynaklar arası sıralama",
-    "retrievalPlannerDesc": "Bellek, ilişki, iş akışı ve bilgi adaylarını istikrarlı kapsam farkındalığına sahip sıralamayla birleştirin.",
-    "retrievalPlannerIntentAware": "Görev bilincinde",
-    "retrievalPlannerMaxTraceRefs": "Tanılama referansları",
-    "retrievalPlannerMaxPerOrigin": "Kaynak başına adaylar",
     "visionBridgeModel": "Görsel köprü modeli",
     "visionBridgeModelDesc": "Yalnızca ana model görselleri göremediğinde kullanılır. Ayrı bir model, sohbetin devam edebilmesi için görselleri metin açıklamalarına dönüştürür.",
     "visionBridgeModelClear": "Görsel köprüyü kapat",

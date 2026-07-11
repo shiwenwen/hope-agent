@@ -693,6 +693,10 @@ fn default_default_agent_id() -> Option<String> {
     Some(crate::agent_loader::DEFAULT_AGENT_ID.to_string())
 }
 
+fn default_reasoning_effort() -> String {
+    "medium".to_string()
+}
+
 pub(crate) fn default_tool_timeout() -> u64 {
     0
 }
@@ -1161,6 +1165,11 @@ pub struct AppConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub temperature: Option<f64>,
 
+    /// Global default Think / reasoning effort. Agent and Session values may
+    /// override this, but Session-bound turns never mutate it.
+    #[serde(default = "default_reasoning_effort")]
+    pub reasoning_effort: String,
+
     /// Whether to use a dedicated sub-agent for plan creation (Planning phase).
     /// When true, planning runs in an isolated sub-agent (saves main agent context).
     /// When false, planning runs inline in the main agent (preserves context continuity).
@@ -1420,6 +1429,7 @@ impl Default for AppConfig {
             quick_prompts: QuickPromptConfig::default(),
             plans_directory: None,
             temperature: None,
+            reasoning_effort: default_reasoning_effort(),
             plan_subagent: false,
             ask_user_question_timeout_enabled: false,
             ask_user_question_timeout_secs: default_ask_user_question_timeout(),

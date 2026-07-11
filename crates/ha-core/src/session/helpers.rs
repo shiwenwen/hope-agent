@@ -2,6 +2,204 @@ use anyhow::Result;
 use std::path::PathBuf;
 
 use super::types::SessionMeta;
+use crate::provider::ActiveModel;
+use serde::{Deserialize, Serialize};
+
+/// Fully resolved chat defaults for a draft or materialized Session. The
+/// preferred model is retained even while its Provider is disabled; `model`
+/// is the first currently usable entry in the effective chain.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatRuntimeDefaults {
+    pub preferred_model: Option<ActiveModel>,
+    pub model: Option<ActiveModel>,
+    pub preferred_model_available: bool,
+    pub temperature: Option<f64>,
+    pub reasoning_effort: String,
+}
+
+pub fn resolve_chat_runtime_defaults(
+    session: Option<&SessionMeta>,
+    agent_id: &str,
+) -> ChatRuntimeDefaults {
+    let config = crate::config::cached_config();
+    let agent_model = crate::agent_loader::load_agent(agent_id)
+        .ok()
+        .map(|definition| definition.config.model)
+        .unwrap_or_default();
+    let preferred_model = session.and_then(|meta| match (&meta.provider_id, &meta.model_id) {
+        (Some(provider_id), Some(model_id)) if !provider_id.is_empty() && !model_id.is_empty() => {
+            Some(ActiveModel {
+                provider_id: provider_id.clone(),
+                model_id: model_id.clone(),
+            })
+        }
+        _ => None,
+    });
+    let preferred_ref = preferred_model
+        .as_ref()
+        .map(|model| format!("{}::{}", model.provider_id, model.model_id));
+    let initialized = session.is_some_and(|meta| meta.runtime_defaults_initialized);
+    // An initialized Session with no preferred model represents a real
+    // "unconfigured" snapshot (for example after the last usable model was
+    // deleted). Do not silently start inheriting a model added later.
+    let model = if initialized && preferred_model.is_none() {
+        None
+    } else {
+        crate::provider::resolve_model_chain_with_preferred(
+            preferred_ref.as_deref(),
+            &agent_model,
+            &config,
+        )
+        .0
+    };
+    let temperature = if initialized {
+        session.and_then(|meta| meta.temperature)
+    } else {
+        agent_model.temperature.or(config.temperature)
+    };
+    let reasoning_effort = if initialized {
+        session
+            .and_then(|meta| meta.reasoning_effort.clone())
+            .unwrap_or_else(|| config.reasoning_effort.clone())
+    } else {
+        agent_model
+            .reasoning_effort
+            .clone()
+            .unwrap_or_else(|| config.reasoning_effort.clone())
+    };
+    let preferred_model_available = preferred_model.as_ref().is_none_or(|preferred| {
+        crate::provider::model_ref_is_available(&config.providers, preferred)
+    });
+    ChatRuntimeDefaults {
+        preferred_model,
+        model,
+        preferred_model_available,
+        temperature,
+        reasoning_effort,
+    }
+}
+
+/// Upgrade a legacy Session exactly once, preserving any existing model/Think
+/// values and snapshotting the missing temperature (including `None`).
+pub fn ensure_session_runtime_defaults(
+    db: &super::SessionDB,
+    session_id: &str,
+) -> Result<ChatRuntimeDefaults> {
+    let meta = db
+        .get_session(session_id)?
+        .ok_or_else(|| anyhow::anyhow!("session not found: {session_id}"))?;
+    if !meta.runtime_defaults_initialized {
+        let defaults = resolve_chat_runtime_defaults(Some(&meta), &meta.agent_id);
+        let provider_name = defaults.model.as_ref().and_then(|model| {
+            crate::config::cached_config()
+                .providers
+                .iter()
+                .find(|provider| provider.id == model.provider_id)
+                .map(|provider| provider.name.clone())
+        });
+        db.initialize_session_runtime_defaults(
+            session_id,
+            defaults
+                .model
+                .as_ref()
+                .map(|model| model.provider_id.as_str()),
+            provider_name.as_deref(),
+            defaults.model.as_ref().map(|model| model.model_id.as_str()),
+            defaults.temperature,
+            &defaults.reasoning_effort,
+        )?;
+    }
+    let refreshed = db
+        .get_session(session_id)?
+        .ok_or_else(|| anyhow::anyhow!("session not found: {session_id}"))?;
+    Ok(resolve_chat_runtime_defaults(
+        Some(&refreshed),
+        &refreshed.agent_id,
+    ))
+}
+
+pub fn set_session_model_preference(
+    db: &super::SessionDB,
+    session_id: &str,
+    provider_id: &str,
+    model_id: &str,
+) -> Result<()> {
+    if db.get_session(session_id)?.is_none() {
+        anyhow::bail!("session not found: {session_id}");
+    }
+    let config = crate::config::cached_config();
+    let model = ActiveModel {
+        provider_id: provider_id.to_string(),
+        model_id: model_id.to_string(),
+    };
+    if !crate::provider::model_ref_exists(&config.providers, &model) {
+        anyhow::bail!("Selected model no longer exists: {provider_id}::{model_id}");
+    }
+    let provider_name = config
+        .providers
+        .iter()
+        .find(|provider| provider.id == provider_id)
+        .map(|provider| provider.name.as_str());
+    db.update_session_model(session_id, Some(provider_id), provider_name, Some(model_id))
+}
+
+pub fn set_session_temperature_preference(
+    db: &super::SessionDB,
+    session_id: &str,
+    value: Option<f64>,
+    use_agent_default: bool,
+) -> Result<Option<f64>> {
+    if db.get_session(session_id)?.is_none() {
+        anyhow::bail!("session not found: {session_id}");
+    }
+    let temperature = if use_agent_default {
+        let meta = db
+            .get_session(session_id)?
+            .ok_or_else(|| anyhow::anyhow!("session not found: {session_id}"))?;
+        let agent_temperature = crate::agent_loader::load_agent(&meta.agent_id)
+            .ok()
+            .and_then(|definition| definition.config.model.temperature);
+        agent_temperature.or(crate::config::cached_config().temperature)
+    } else {
+        let value = value.ok_or_else(|| anyhow::anyhow!("temperature value is required"))?;
+        if !(0.0..=2.0).contains(&value) {
+            anyhow::bail!("Temperature must be between 0.0 and 2.0");
+        }
+        Some(value)
+    };
+    db.update_session_temperature(session_id, temperature)?;
+    Ok(temperature)
+}
+
+pub fn set_session_reasoning_effort_preference(
+    db: &super::SessionDB,
+    session_id: &str,
+    value: Option<&str>,
+    use_agent_default: bool,
+) -> Result<String> {
+    if db.get_session(session_id)?.is_none() {
+        anyhow::bail!("session not found: {session_id}");
+    }
+    let effort = if use_agent_default {
+        let meta = db
+            .get_session(session_id)?
+            .ok_or_else(|| anyhow::anyhow!("session not found: {session_id}"))?;
+        crate::agent_loader::load_agent(&meta.agent_id)
+            .ok()
+            .and_then(|definition| definition.config.model.reasoning_effort)
+            .unwrap_or_else(|| crate::config::cached_config().reasoning_effort.clone())
+    } else {
+        value
+            .map(str::to_string)
+            .ok_or_else(|| anyhow::anyhow!("reasoning effort value is required"))?
+    };
+    if !crate::agent::is_valid_reasoning_effort(&effort) {
+        anyhow::bail!("Invalid reasoning effort: {effort}");
+    }
+    db.update_session_reasoning_effort(session_id, Some(&effort))?;
+    Ok(effort)
+}
 
 // ── Auto-title helper ────────────────────────────────────────────
 

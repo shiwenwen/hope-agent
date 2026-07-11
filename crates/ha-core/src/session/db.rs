@@ -77,7 +77,7 @@ const SESSION_META_SELECT: &str = "SELECT s.id, s.title, s.agent_id, s.provider_
            cc.channel_id, cc.account_id, cc.chat_id, cc.chat_type, cc.sender_name,
            s.working_dir, s.title_source, s.reasoning_effort, s.pinned_at, s.kind,
            (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id AND s.is_cron = 0 AND s.parent_session_id IS NULL AND m.id > COALESCE(s.last_read_message_id, 0) AND m.role = 'assistant' AND COALESCE(m.source, 'desktop') = 'channel') as channel_unread_count,
-           s.sandbox_mode
+           s.sandbox_mode, s.temperature, s.runtime_defaults_initialized
      FROM sessions s
      LEFT JOIN channel_conversations cc ON cc.session_id = s.id";
 
@@ -109,6 +109,8 @@ impl SessionDB {
                 provider_id TEXT,
                 provider_name TEXT,
                 model_id TEXT,
+                temperature REAL,
+                runtime_defaults_initialized INTEGER NOT NULL DEFAULT 0,
                 reasoning_effort TEXT,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
@@ -580,6 +582,23 @@ impl SessionDB {
             .is_ok();
         if !has_reasoning_effort {
             conn.execute_batch("ALTER TABLE sessions ADD COLUMN reasoning_effort TEXT;")?;
+        }
+
+        // NULL temperature is a valid fixed provider-native default, so a
+        // separate marker distinguishes it from an old row awaiting snapshot.
+        let has_temperature = conn
+            .prepare("SELECT temperature FROM sessions LIMIT 1")
+            .is_ok();
+        if !has_temperature {
+            conn.execute_batch("ALTER TABLE sessions ADD COLUMN temperature REAL;")?;
+        }
+        let has_runtime_defaults_initialized = conn
+            .prepare("SELECT runtime_defaults_initialized FROM sessions LIMIT 1")
+            .is_ok();
+        if !has_runtime_defaults_initialized {
+            conn.execute_batch(
+                "ALTER TABLE sessions ADD COLUMN runtime_defaults_initialized INTEGER NOT NULL DEFAULT 0;",
+            )?;
         }
 
         // Migration: track who last set the session title so automatic LLM
@@ -1239,15 +1258,48 @@ impl SessionDB {
             .as_ref()
             .map(|def| def.config.capabilities.effective_default_sandbox_mode())
             .unwrap_or_default();
+        let app_config = crate::config::cached_config();
+        let agent_model = agent_definition
+            .as_ref()
+            .map(|def| def.config.model.clone())
+            .unwrap_or_default();
+        let (initial_model, _) = crate::provider::resolve_model_chain(&agent_model, &app_config);
+        let initial_provider_name = initial_model.as_ref().and_then(|model| {
+            app_config
+                .providers
+                .iter()
+                .find(|provider| provider.id == model.provider_id)
+                .map(|provider| provider.name.clone())
+        });
+        let initial_temperature = agent_model.temperature.or(app_config.temperature);
+        let initial_reasoning_effort = agent_model
+            .reasoning_effort
+            .clone()
+            .unwrap_or_else(|| app_config.reasoning_effort.clone());
 
         let conn = self
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         conn.execute(
-            "INSERT INTO sessions (id, agent_id, created_at, updated_at, parent_session_id, project_id, permission_mode, sandbox_mode, incognito)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-            params![id, agent_id, now, now, parent_session_id, project_id, initial_permission_mode.as_str(), initial_sandbox_mode.as_str(), incognito],
+            "INSERT INTO sessions (id, agent_id, provider_id, provider_name, model_id, temperature, reasoning_effort, runtime_defaults_initialized, created_at, updated_at, parent_session_id, project_id, permission_mode, sandbox_mode, incognito)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 1, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+            params![
+                id,
+                agent_id,
+                initial_model.as_ref().map(|model| model.provider_id.as_str()),
+                initial_provider_name.as_deref(),
+                initial_model.as_ref().map(|model| model.model_id.as_str()),
+                initial_temperature,
+                initial_reasoning_effort,
+                now,
+                now,
+                parent_session_id,
+                project_id,
+                initial_permission_mode.as_str(),
+                initial_sandbox_mode.as_str(),
+                incognito
+            ],
         )?;
 
         Ok(SessionMeta {
@@ -1255,10 +1307,14 @@ impl SessionDB {
             title: None,
             title_source: crate::session_title::TITLE_SOURCE_MANUAL.to_string(),
             agent_id: agent_id.to_string(),
-            provider_id: None,
-            provider_name: None,
-            model_id: None,
-            reasoning_effort: None,
+            provider_id: initial_model
+                .as_ref()
+                .map(|model| model.provider_id.clone()),
+            provider_name: initial_provider_name,
+            model_id: initial_model.as_ref().map(|model| model.model_id.clone()),
+            temperature: initial_temperature,
+            reasoning_effort: Some(initial_reasoning_effort),
+            runtime_defaults_initialized: true,
             created_at: now.clone(),
             updated_at: now,
             pinned_at: None,
@@ -1928,7 +1984,9 @@ impl SessionDB {
             provider_id: row.get(3)?,
             provider_name: row.get(4)?,
             model_id: row.get(5)?,
+            temperature: row.get(29).ok().flatten(),
             reasoning_effort: row.get(24).ok().flatten(),
+            runtime_defaults_initialized: row.get::<_, i64>(30).unwrap_or(0) != 0,
             pinned_at: row.get(25).ok().flatten(),
             created_at: row.get(6)?,
             updated_at: row.get(7)?,
@@ -2620,8 +2678,82 @@ impl SessionDB {
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         conn.execute(
-            "UPDATE sessions SET provider_id = ?1, provider_name = ?2, model_id = ?3 WHERE id = ?4",
+            "UPDATE sessions SET provider_id = ?1, provider_name = ?2, model_id = ?3, runtime_defaults_initialized = 1 WHERE id = ?4",
             params![provider_id, provider_name, model_id, session_id],
+        )?;
+        Ok(())
+    }
+
+    /// Return every persisted Session model preference, including hidden,
+    /// cron, channel and sub-agent rows. Provider hard-delete repair must not
+    /// leave any execution surface pointing at a removed model.
+    pub fn list_session_model_preferences(&self) -> Result<Vec<(String, String, String, String)>> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let mut stmt = conn.prepare(
+            "SELECT id, agent_id, provider_id, model_id
+             FROM sessions
+             WHERE provider_id IS NOT NULL AND model_id IS NOT NULL",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+        })?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(Into::into)
+    }
+
+    /// Update the Session-fixed temperature. `None` is a real snapshot of the
+    /// provider-native default, so the initialized marker is always set.
+    pub fn update_session_temperature(
+        &self,
+        session_id: &str,
+        temperature: Option<f64>,
+    ) -> Result<()> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        conn.execute(
+            "UPDATE sessions SET temperature = ?1, runtime_defaults_initialized = 1 WHERE id = ?2",
+            params![temperature, session_id],
+        )?;
+        Ok(())
+    }
+
+    /// Lazily snapshot missing defaults for a legacy Session. Existing model
+    /// and Think preferences win; temperature is new and is always captured.
+    pub fn initialize_session_runtime_defaults(
+        &self,
+        session_id: &str,
+        provider_id: Option<&str>,
+        provider_name: Option<&str>,
+        model_id: Option<&str>,
+        temperature: Option<f64>,
+        reasoning_effort: &str,
+    ) -> Result<()> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        conn.execute(
+            "UPDATE sessions
+             SET provider_id = COALESCE(provider_id, ?1),
+                 provider_name = COALESCE(provider_name, ?2),
+                 model_id = COALESCE(model_id, ?3),
+                 temperature = ?4,
+                 reasoning_effort = COALESCE(reasoning_effort, ?5),
+                 runtime_defaults_initialized = 1
+             WHERE id = ?6 AND runtime_defaults_initialized = 0",
+            params![
+                provider_id,
+                provider_name,
+                model_id,
+                temperature,
+                reasoning_effort,
+                session_id
+            ],
         )?;
         Ok(())
     }
@@ -2637,7 +2769,7 @@ impl SessionDB {
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         conn.execute(
-            "UPDATE sessions SET reasoning_effort = ?1 WHERE id = ?2",
+            "UPDATE sessions SET reasoning_effort = ?1, runtime_defaults_initialized = 1 WHERE id = ?2",
             params![reasoning_effort, session_id],
         )?;
         Ok(())
@@ -5273,6 +5405,36 @@ mod tests {
             after_clear.working_dir.is_none(),
             "working_dir should be None after clear"
         );
+
+        let _ = std::fs::remove_file(&db_path);
+    }
+
+    #[test]
+    fn legacy_runtime_defaults_are_snapshotted_once_and_null_temperature_is_explicit() {
+        let db_path = temp_db_path("session-runtime-defaults");
+        let db = SessionDB::open(&db_path).expect("open session db");
+        ensure_channel_conversations_table(&db);
+        let created = db
+            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .expect("create session");
+        {
+            let conn = db.conn.lock().expect("lock connection");
+            conn.execute(
+                "UPDATE sessions SET runtime_defaults_initialized = 0, temperature = NULL, reasoning_effort = NULL WHERE id = ?1",
+                rusqlite::params![created.id],
+            )
+            .expect("simulate legacy row");
+        }
+
+        db.initialize_session_runtime_defaults(&created.id, None, None, None, None, "high")
+            .expect("snapshot defaults");
+        let loaded = db
+            .get_session(&created.id)
+            .expect("read session")
+            .expect("session exists");
+        assert!(loaded.runtime_defaults_initialized);
+        assert_eq!(loaded.temperature, None);
+        assert_eq!(loaded.reasoning_effort.as_deref(), Some("high"));
 
         let _ = std::fs::remove_file(&db_path);
     }

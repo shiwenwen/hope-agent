@@ -822,6 +822,13 @@
       }
     },
     "reasoningDisabledHint": "Reasoning is not enabled for this model. To adjust the reasoning depth, edit the model under Settings → Model Providers and turn on \"Reasoning\".",
+    "modelPicker": {
+      "applyToAgentDefault": "Also set as Agent default",
+      "applyToAgentDefaultDesc": "Only affects new conversations for this Agent",
+      "agentDefaultFailed": "The conversation was updated, but the Agent default could not be saved",
+      "restoreAgentDefault": "Restore Agent default",
+      "unavailablePreference": "Preferred model {{model}} is unavailable; a temporary available model is being used."
+    },
     "browserExtensionNudge": {
       "installTitle": "Let the AI drive your real Chrome",
       "installBody": "Install the Hope Agent extension to operate your signed-in Chrome. For now it runs in an isolated browser.",
@@ -5729,6 +5736,7 @@
     "selectDefaultModel": "Select default model",
     "selectFallbackModel": "Select fallback model",
     "selectPlanModel": "Select plan mode model",
+    "reasoningEffort": "Think",
     "server": "Server",
     "serverActiveChatStreams": "Active Chat Streams",
     "serverActiveWebSockets": "Active WebSockets",

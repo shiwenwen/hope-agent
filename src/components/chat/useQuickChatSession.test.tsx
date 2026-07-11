@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { act, cleanup, renderHook } from "@testing-library/react"
+import { act, cleanup, renderHook, waitFor } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest"
 import type { AvailableModel } from "@/types/chat"
 import { useQuickChatSession } from "./useQuickChatSession"
@@ -81,8 +81,14 @@ describe("useQuickChatSession", () => {
     transportMock.call.mockImplementation((command: string) => {
       if (command === "get_available_models") return modelLoad.promise
       if (command === "get_active_model") return Promise.resolve(null)
-      if (command === "get_current_settings") {
-        return Promise.resolve({ reasoning_effort: "medium" })
+      if (command === "get_chat_runtime_defaults") {
+        return Promise.resolve({
+          preferredModel: null,
+          model: null,
+          preferredModelAvailable: false,
+          temperature: null,
+          reasoningEffort: "medium",
+        })
       }
       if (command === "get_agent_config") {
         return Promise.resolve({ model: { primary: null, reasoningEffort: null } })
@@ -106,14 +112,45 @@ describe("useQuickChatSession", () => {
       await result.current.handleModelChange("provider-b::model-b")
     })
 
-    expect(callsFor("set_active_model")).toEqual([
-      ["set_active_model", { providerId: "provider-b", modelId: "model-b" }],
-    ])
+    expect(callsFor("set_active_model")).toHaveLength(0)
     expect(callsFor("set_session_model")).toHaveLength(0)
 
     await act(async () => {
       modelLoad.resolve([])
       await switchAgent
+    })
+  })
+
+  test("refreshes config changes with the currently open Session defaults", async () => {
+    transportMock.call.mockImplementation((command: string) => {
+      if (command === "get_available_models") return Promise.resolve([])
+      if (command === "get_chat_runtime_defaults") {
+        return Promise.resolve({
+          preferredModel: null,
+          model: null,
+          preferredModelAvailable: true,
+          temperature: 0.25,
+          reasoningEffort: "high",
+        })
+      }
+      return Promise.resolve(undefined)
+    })
+    const { result } = renderHook(() => useQuickChatSession(false))
+
+    act(() => result.current.setCurrentSessionId("session-a"))
+    const listenCalls = transportMock.listen.mock.calls as unknown as Array<
+      [string, (payload: unknown) => void]
+    >
+    const listener = listenCalls.find(([eventName]) => eventName === "config:changed")?.[1]
+    expect(listener).toBeTypeOf("function")
+
+    act(() => listener?.({}))
+
+    await waitFor(() => {
+      expect(callsFor("get_chat_runtime_defaults").at(-1)).toEqual([
+        "get_chat_runtime_defaults",
+        { agentId: "ha-main", sessionId: "session-a" },
+      ])
     })
   })
 })

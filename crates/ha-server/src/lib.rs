@@ -144,6 +144,18 @@ fn build_router_with_cors(
             patch(routes::sessions::set_session_model),
         )
         .route(
+            "/sessions/{id}/temperature",
+            patch(routes::sessions::set_session_temperature),
+        )
+        .route(
+            "/sessions/{id}/reasoning-effort",
+            patch(routes::sessions::set_session_reasoning_effort),
+        )
+        .route(
+            "/chat/runtime-defaults",
+            get(routes::sessions::get_chat_runtime_defaults),
+        )
+        .route(
             "/sessions/{id}/purge-if-incognito",
             post(routes::sessions::purge_session_if_incognito),
         )
@@ -776,6 +788,11 @@ fn build_router_with_cors(
         .route(
             "/models/reasoning-effort",
             post(routes::models::set_reasoning_effort),
+        )
+        .route(
+            "/models/global-reasoning-effort",
+            get(routes::models::get_global_reasoning_effort)
+                .post(routes::models::set_global_reasoning_effort),
         )
         .route(
             "/models/settings",
@@ -1478,6 +1495,10 @@ fn build_router_with_cors(
         )
         .route("/agents/{id}", get(routes::agents::get_agent))
         .route("/agents/{id}", put(routes::agents::save_agent))
+        .route(
+            "/agents/{id}/model-defaults",
+            patch(routes::agents::patch_agent_model_defaults),
+        )
         .route("/agents/{id}", delete(routes::agents::delete_agent))
         .route(
             "/agents/{id}/markdown",

@@ -1196,7 +1196,13 @@ export function useChatStream({
           attachments,
           sessionId: currentSessionId,
           incognito: currentSessionId ? undefined : incognitoEnabled,
-          modelOverride,
+          sessionDefaults: currentSessionId
+            ? undefined
+            : {
+                model: modelOverride,
+                temperature: temperatureOverride ?? undefined,
+                reasoningEffort: reasoningEffort ?? undefined,
+              },
           agentId: currentAgentId,
           // Existing session: always send (the title-bar switcher persisted it).
           // New session: only send when the user explicitly changed it — otherwise
@@ -1210,8 +1216,9 @@ export function useChatStream({
             currentSessionId || sandboxModeDirtyRef.current ? sandboxModeRef.current : undefined,
           planMode:
             effectivePlanMode && effectivePlanMode !== "off" ? effectivePlanMode : undefined,
-          temperatureOverride: temperatureOverride ?? undefined,
-          reasoningEffort: reasoningEffort ?? undefined,
+          // Legacy top-level model/temperature/Think overrides remain available
+          // to API clients as one-turn controls. The GUI uses sessionDefaults
+          // above so draft choices are consumed only during materialization.
           displayText: options?.displayText?.trim() || undefined,
           isPlanTrigger: options?.isPlanTrigger,
           planComment: options?.planComment,

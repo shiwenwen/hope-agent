@@ -9,20 +9,18 @@ import type {
   SessionMeta,
   SessionMessage,
   AgentSummaryForSidebar,
+  ChatRuntimeDefaults,
 } from "@/types/chat"
 import { normalizeEffortForModel } from "@/types/chat"
 import { DEFAULT_AGENT_ID } from "@/types/tools"
-import type { AgentConfig } from "@/components/settings/types"
-import { resolveAvailableDisplayModel } from "./modelSelection"
+import { toast } from "sonner"
+import { useTranslation } from "react-i18next"
 
 const STORAGE_PREFIX = "quickchat:lastSession:"
 const QUICK_CHAT_PAGE_SIZE = 20
 
 type QuickModelSnapshot = {
   models: AvailableModel[]
-  agentPrimary: string | null
-  globalActive: ActiveModel | null
-  defaultEffort: string
 }
 
 function getLastSessionId(agentId: string): string | null {
@@ -78,12 +76,19 @@ export interface UseQuickChatSessionReturn {
   activeModel: ActiveModel | null
   reasoningEffort: string
   setReasoningEffort: React.Dispatch<React.SetStateAction<string>>
+  sessionTemperature: number | null
+  unavailableModelPreference: string | null
 
   // Handlers
   handleNewChat: () => Promise<void>
   handleSwitchAgent: (agentId: string) => Promise<void>
-  handleModelChange: (key: string) => Promise<void>
-  handleEffortChange: (effort: string) => Promise<void>
+  handleModelChange: (key: string, options?: { applyToAgentDefault?: boolean }) => Promise<void>
+  handleEffortChange: (effort: string, options?: { applyToAgentDefault?: boolean }) => Promise<void>
+  resetEffort: () => Promise<void>
+  handleTemperatureChange: (
+    temperature: number | null,
+    options?: { applyToAgentDefault?: boolean },
+  ) => Promise<void>
   reloadSessions: () => Promise<void>
   updateSessionMessages: (sessionId: string, updater: (prev: Message[]) => Message[]) => void
   initSession: () => Promise<void>
@@ -91,6 +96,7 @@ export interface UseQuickChatSessionReturn {
 }
 
 export function useQuickChatSession(open: boolean): UseQuickChatSessionReturn {
+  const { t } = useTranslation()
   const [messages, setMessages] = useState<Message[]>([])
   const [currentSessionId, setCurrentSessionIdState] = useState<string | null>(null)
   const currentSessionIdRef = useRef<string | null>(null)
@@ -128,6 +134,8 @@ export function useQuickChatSession(open: boolean): UseQuickChatSessionReturn {
   const [availableModels, setAvailableModels] = useState<AvailableModel[]>([])
   const [activeModel, setActiveModel] = useState<ActiveModel | null>(null)
   const [reasoningEffort, setReasoningEffort] = useState("medium")
+  const [sessionTemperature, setSessionTemperature] = useState<number | null>(null)
+  const [unavailableModelPreference, setUnavailableModelPreference] = useState<string | null>(null)
 
   // Load agents list
   const loadAgents = useCallback(async () => {
@@ -143,15 +151,17 @@ export function useQuickChatSession(open: boolean): UseQuickChatSessionReturn {
 
   // Load models and settings
   const loadModels = useCallback(
-    async (agentId = currentAgentId): Promise<QuickModelSnapshot | null> => {
+    async (
+      agentId = currentAgentId,
+      sessionId?: string | null,
+    ): Promise<QuickModelSnapshot | null> => {
       try {
-        const [models, active, settings, agentConfig] = await Promise.all([
+        const [models, runtimeDefaults] = await Promise.all([
           getTransport().call<AvailableModel[]>("get_available_models"),
-          getTransport().call<ActiveModel | null>("get_active_model"),
-          getTransport().call<{ reasoning_effort: string }>("get_current_settings"),
-          getTransport()
-            .call<AgentConfig>("get_agent_config", { id: agentId })
-            .catch(() => null),
+          getTransport().call<ChatRuntimeDefaults>("get_chat_runtime_defaults", {
+            ...(sessionId ? { sessionId } : {}),
+            agentId,
+          }),
         ])
         setAvailableModels(models)
         const manualOverride = manualModelOverrideRef.current
@@ -164,25 +174,25 @@ export function useQuickChatSession(open: boolean): UseQuickChatSessionReturn {
         if (manualOverride && !manualModel) {
           manualModelOverrideRef.current = null
         }
-        const agentPrimary = agentConfig?.model.primary ?? null
         const displayModel =
           manualModel && manualOverride
             ? manualOverride
-            : resolveAvailableDisplayModel(models, null, agentPrimary, active)
+            : (runtimeDefaults.model ?? null)
         setActiveModel(displayModel)
         const currentModel = displayModel
           ? models.find(
               (m) => m.providerId === displayModel.providerId && m.modelId === displayModel.modelId,
             )
           : undefined
-        const effort = agentConfig?.model?.reasoningEffort ?? settings.reasoning_effort
+        const effort = runtimeDefaults.reasoningEffort
         setReasoningEffort(normalizeEffortForModel(currentModel, effort, (key) => key))
-        return {
-          models,
-          agentPrimary,
-          globalActive: active,
-          defaultEffort: effort,
-        }
+        setSessionTemperature(runtimeDefaults.temperature ?? null)
+        setUnavailableModelPreference(
+          !runtimeDefaults.preferredModelAvailable && runtimeDefaults.preferredModel
+            ? `${runtimeDefaults.preferredModel.providerId}::${runtimeDefaults.preferredModel.modelId}`
+            : null,
+        )
+        return { models }
       } catch (e) {
         logger.error("ui", "QuickChat::loadModels", "Failed to load models", e)
         return null
@@ -235,27 +245,28 @@ export function useQuickChatSession(open: boolean): UseQuickChatSessionReturn {
   }, [currentAgentId, loadSessionsForAgent])
 
   const applySessionRuntimeState = useCallback(
-    (session: SessionMeta, snapshot: QuickModelSnapshot | null) => {
+    async (session: SessionMeta, snapshot: QuickModelSnapshot | null) => {
       if (!snapshot) return
       manualModelOverrideRef.current = null
-      const sessionPreferred =
-        session.providerId && session.modelId
-          ? { providerId: session.providerId, modelId: session.modelId }
-          : null
-      const displayModel = resolveAvailableDisplayModel(
-        snapshot.models,
-        sessionPreferred,
-        snapshot.agentPrimary,
-        snapshot.globalActive,
+      const runtimeDefaults = await getTransport().call<ChatRuntimeDefaults>(
+        "get_chat_runtime_defaults",
+        { sessionId: session.id, agentId: session.agentId },
       )
+      const displayModel = runtimeDefaults.model ?? null
       setActiveModel(displayModel)
       const modelInfo = displayModel
         ? snapshot.models.find(
             (m) => m.providerId === displayModel.providerId && m.modelId === displayModel.modelId,
           )
         : undefined
-      const effort = session.reasoningEffort ?? snapshot.defaultEffort
+      const effort = runtimeDefaults.reasoningEffort
       setReasoningEffort(normalizeEffortForModel(modelInfo, effort, (key) => key))
+      setSessionTemperature(runtimeDefaults.temperature ?? null)
+      setUnavailableModelPreference(
+        !runtimeDefaults.preferredModelAvailable && runtimeDefaults.preferredModel
+          ? `${runtimeDefaults.preferredModel.providerId}::${runtimeDefaults.preferredModel.modelId}`
+          : null,
+      )
     },
     [],
   )
@@ -288,7 +299,7 @@ export function useQuickChatSession(open: boolean): UseQuickChatSessionReturn {
       const sessionList = await loadSessionsForAgent(currentAgentId)
       const restoredSession = sessionList.find((s) => s.id === lastSid)
       if (restoredSession) {
-        applySessionRuntimeState(restoredSession, modelSnapshot)
+        await applySessionRuntimeState(restoredSession, modelSnapshot)
       }
       setCurrentSessionId(lastSid)
       return
@@ -324,15 +335,15 @@ export function useQuickChatSession(open: boolean): UseQuickChatSessionReturn {
 
   useEffect(() => {
     const offConfig = getTransport().listen("config:changed", () => {
-      void loadModels()
+      void loadModels(currentAgentId, currentSessionIdRef.current)
     })
     const offAgents = getTransport().listen("agents:changed", () => {
       void loadAgents()
-      void loadModels()
+      void loadModels(currentAgentId, currentSessionIdRef.current)
     })
     const onWindowAgentsChanged = () => {
       void loadAgents()
-      void loadModels()
+      void loadModels(currentAgentId, currentSessionIdRef.current)
     }
     window.addEventListener("agents-changed", onWindowAgentsChanged)
     return () => {
@@ -340,7 +351,7 @@ export function useQuickChatSession(open: boolean): UseQuickChatSessionReturn {
       offAgents()
       window.removeEventListener("agents-changed", onWindowAgentsChanged)
     }
-  }, [loadAgents, loadModels])
+  }, [currentAgentId, loadAgents, loadModels])
 
   const handleNewChat = useCallback(async () => {
     manualModelOverrideRef.current = null
@@ -377,7 +388,7 @@ export function useQuickChatSession(open: boolean): UseQuickChatSessionReturn {
           const sessionList = await loadSessionsForAgent(agentId)
           const restoredSession = sessionList.find((s) => s.id === lastSid)
           if (restoredSession) {
-            applySessionRuntimeState(restoredSession, modelSnapshot)
+            await applySessionRuntimeState(restoredSession, modelSnapshot)
           }
           setCurrentSessionId(lastSid)
           return
@@ -401,32 +412,38 @@ export function useQuickChatSession(open: boolean): UseQuickChatSessionReturn {
     ],
   )
 
-  // Keep the user's latest manual choice as the default for future chats, and
-  // preserve an existing Quick Chat session's own model pin when it has one.
   const handleModelChange = useCallback(
-    async (key: string) => {
+    async (key: string, options?: { applyToAgentDefault?: boolean }) => {
       const [providerId, modelId] = key.split("::")
       if (!providerId || !modelId) return
-      manualModelOverrideRef.current = { providerId, modelId }
-      setActiveModel({ providerId, modelId })
-
-      const persistGlobalModel = getTransport()
-        .call("set_active_model", { providerId, modelId })
-        .catch((e) => {
-          logger.error("ui", "QuickChat::modelChange", "Failed to set global active model", e)
-        })
+      const previousModel = activeModel
+      const previousManualModel = manualModelOverrideRef.current
+      setUnavailableModelPreference(null)
       const sessionId = currentSessionIdRef.current
-      const persistSessionModel = sessionId
-        ? getTransport()
-            .call("set_session_model", {
-              sessionId,
-              providerId,
-              modelId,
-            })
-            .catch((e) => {
-              logger.error("ui", "QuickChat::modelChange", "Failed to pin session model", e)
-            })
-        : Promise.resolve()
+      manualModelOverrideRef.current = sessionId ? null : { providerId, modelId }
+      setActiveModel({ providerId, modelId })
+      if (sessionId) {
+        try {
+          await getTransport().call("set_session_model", { sessionId, providerId, modelId })
+        } catch (e) {
+          manualModelOverrideRef.current = previousManualModel
+          setActiveModel(previousModel)
+          logger.error("ui", "QuickChat::modelChange", "Failed to set session model", e)
+          toast.error(t("common.saveFailed", "保存失败"))
+          return
+        }
+      }
+      if (options?.applyToAgentDefault) {
+        try {
+          await getTransport().call("patch_agent_model_defaults", {
+            id: currentAgentId,
+            patch: { primaryModel: { providerId, modelId } },
+          })
+        } catch (e) {
+          logger.error("ui", "QuickChat::modelAgentDefault", "Failed to set Agent model", e)
+          toast.error(t("chat.modelPicker.agentDefaultFailed", "当前会话已更新，但 Agent 默认保存失败"))
+        }
+      }
 
       const newModel = availableModels.find(
         (m) => m.providerId === providerId && m.modelId === modelId,
@@ -440,27 +457,24 @@ export function useQuickChatSession(open: boolean): UseQuickChatSessionReturn {
               prev.map((s) => (s.id === sessionId ? { ...s, reasoningEffort: normalized } : s)),
             )
           }
-          getTransport()
-            .call("set_reasoning_effort", {
-              effort: normalized,
-              ...(sessionId ? { sessionId } : {}),
-              agentId: currentAgentId,
+          if (sessionId) {
+            await getTransport().call("set_session_reasoning_effort", {
+              sessionId,
+              mode: "value",
+              value: normalized,
             })
-            .catch((e) =>
-              logger.error("ui", "QuickChat::modelChange", "Failed to normalize effort", e),
-            )
+          }
         }
       }
-
-      await Promise.all([persistGlobalModel, persistSessionModel])
     },
-    [availableModels, currentAgentId, reasoningEffort],
+    [activeModel, availableModels, currentAgentId, reasoningEffort, t],
   )
 
   // Effort change
   const handleEffortChange = useCallback(
-    async (effort: string) => {
+    async (effort: string, options?: { applyToAgentDefault?: boolean }) => {
       const sessionId = currentSessionIdRef.current
+      const previous = reasoningEffort
       setReasoningEffort(effort)
       if (sessionId) {
         setSessions((prev) =>
@@ -468,17 +482,100 @@ export function useQuickChatSession(open: boolean): UseQuickChatSessionReturn {
         )
       }
       try {
-        await getTransport().call("set_reasoning_effort", {
-          effort,
-          ...(sessionId ? { sessionId } : {}),
-          agentId: currentAgentId,
-        })
+        if (sessionId) {
+          await getTransport().call("set_session_reasoning_effort", {
+            sessionId,
+            mode: "value",
+            value: effort,
+          })
+        }
       } catch (e) {
+        setReasoningEffort(previous)
+        if (sessionId) {
+          setSessions((prev) =>
+            prev.map((s) => (s.id === sessionId ? { ...s, reasoningEffort: previous } : s)),
+          )
+        }
         logger.error("ui", "QuickChat::effortChange", "Failed to set effort", e)
+        toast.error(t("common.saveFailed", "保存失败"))
+        return
+      }
+      if (options?.applyToAgentDefault) {
+        try {
+          await getTransport().call("patch_agent_model_defaults", {
+            id: currentAgentId,
+            patch: { reasoningEffort: effort },
+          })
+        } catch (e) {
+          logger.error("ui", "QuickChat::effortAgentDefault", "Failed to set Agent effort", e)
+          toast.error(t("chat.modelPicker.agentDefaultFailed", "当前会话已更新，但 Agent 默认保存失败"))
+        }
       }
     },
-    [currentAgentId],
+    [currentAgentId, reasoningEffort, t],
   )
+
+  const handleTemperatureChange = useCallback(
+    async (temperature: number | null, options?: { applyToAgentDefault?: boolean }) => {
+      const sessionId = currentSessionIdRef.current
+      const previous = sessionTemperature
+      try {
+        if (temperature == null && sessionId) {
+          const reset = await getTransport().call<number | null>("set_session_temperature", {
+            sessionId,
+            mode: "agentDefault",
+            value: null,
+          })
+          setSessionTemperature(reset)
+        } else if (temperature == null) {
+          setSessionTemperature(null)
+        } else {
+          setSessionTemperature(temperature)
+          if (sessionId) {
+            await getTransport().call("set_session_temperature", {
+              sessionId,
+              mode: "value",
+              value: temperature,
+            })
+          }
+        }
+      } catch (e) {
+        setSessionTemperature(previous)
+        logger.error("ui", "QuickChat::temperatureChange", "Failed to set temperature", e)
+        toast.error(t("common.saveFailed", "保存失败"))
+        return
+      }
+      if (options?.applyToAgentDefault) {
+        try {
+          await getTransport().call("patch_agent_model_defaults", {
+            id: currentAgentId,
+            patch: { temperature },
+          })
+        } catch (e) {
+          logger.error("ui", "QuickChat::temperatureAgentDefault", "Failed to set Agent temperature", e)
+          toast.error(t("chat.modelPicker.agentDefaultFailed", "当前会话已更新，但 Agent 默认保存失败"))
+        }
+      }
+    },
+    [currentAgentId, sessionTemperature, t],
+  )
+
+  const resetEffort = useCallback(async () => {
+    const sessionId = currentSessionIdRef.current
+    if (sessionId) {
+      const effort = await getTransport().call<string>("set_session_reasoning_effort", {
+        sessionId,
+        mode: "agentDefault",
+        value: null,
+      })
+      setReasoningEffort(effort)
+      return
+    }
+    const defaults = await getTransport().call<ChatRuntimeDefaults>("get_chat_runtime_defaults", {
+      agentId: currentAgentId,
+    })
+    setReasoningEffort(defaults.reasoningEffort)
+  }, [currentAgentId])
 
   const handleLoadMore = useCallback(async () => {
     const curSid = currentSessionIdRef.current
@@ -544,10 +641,14 @@ export function useQuickChatSession(open: boolean): UseQuickChatSessionReturn {
     activeModel,
     reasoningEffort,
     setReasoningEffort,
+    sessionTemperature,
+    unavailableModelPreference,
     handleNewChat,
     handleSwitchAgent,
     handleModelChange,
     handleEffortChange,
+    resetEffort,
+    handleTemperatureChange,
     reloadSessions,
     updateSessionMessages,
     initSession,

@@ -336,8 +336,22 @@ pub fn init_runtime(role: &'static str) {
     // `build_app_state`.
     let _ = CHANNEL_CANCELS.set(Arc::new(channel::ChannelCancelRegistry::new()));
     let _ = CODEX_TOKEN_CACHE.set(Arc::new(Mutex::new(None::<(String, String)>)));
-    let _ = REASONING_EFFORT.set(Arc::new(Mutex::new("medium".to_string())));
+    let global_reasoning_effort = crate::config::cached_config().reasoning_effort.clone();
+    let _ = REASONING_EFFORT.set(Arc::new(Mutex::new(global_reasoning_effort)));
     let _ = CACHED_AGENT.set(Arc::new(Mutex::new(None::<crate::agent::AssistantAgent>)));
+
+    // Idempotent convergence for a previous Provider delete that completed
+    // config persistence but was interrupted while repairing Agent/Session
+    // references across their separate stores.
+    let repair = crate::provider::repair_hard_deleted_model_references();
+    if repair.failures > 0 {
+        crate::app_warn!(
+            "provider",
+            "startup-repair",
+            "model reference repair incomplete: failures={}",
+            repair.failures
+        );
+    }
 
     // Startup orphan sweeps. Gated on Primary tier so a Secondary process
     // (e.g. acp launching while desktop is running) doesn't mark-error the

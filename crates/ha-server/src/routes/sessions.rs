@@ -138,6 +138,21 @@ pub struct SessionModelBody {
     pub model_id: String,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionScalarPreferenceBody<T> {
+    pub mode: String,
+    #[serde(default)]
+    pub value: Option<T>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeDefaultsQuery {
+    pub session_id: Option<String>,
+    pub agent_id: Option<String>,
+}
+
 // ── Response wrapper for paginated lists ────────────────────────
 
 #[derive(Debug, Serialize)]
@@ -737,23 +752,13 @@ pub async fn set_session_model(
     Path(id): Path<String>,
     Json(body): Json<SessionModelBody>,
 ) -> Result<Json<Value>, AppError> {
-    let provider_name = ha_core::config::cached_config()
-        .providers
-        .iter()
-        .find(|p| p.id == body.provider_id && p.enabled)
-        .map(|p| p.name.clone());
     {
         let id = id.clone();
         let provider_id = body.provider_id.clone();
         let model_id = body.model_id.clone();
         ctx.session_db
             .run(move |db| {
-                db.update_session_model(
-                    &id,
-                    Some(&provider_id),
-                    provider_name.as_deref(),
-                    Some(&model_id),
-                )
+                ha_core::session::set_session_model_preference(db, &id, &provider_id, &model_id)
             })
             .await
             .map_err(|e| AppError::bad_request(e.to_string()))?;
@@ -769,6 +774,78 @@ pub async fn set_session_model(
         );
     }
     Ok(Json(json!({ "updated": true })))
+}
+
+pub async fn set_session_temperature(
+    State(ctx): State<Arc<AppContext>>,
+    Path(id): Path<String>,
+    Json(body): Json<SessionScalarPreferenceBody<f64>>,
+) -> Result<Json<Value>, AppError> {
+    if !matches!(body.mode.as_str(), "value" | "agentDefault") {
+        return Err(AppError::bad_request(format!(
+            "Invalid temperature mode: {}",
+            body.mode
+        )));
+    }
+    let value = ctx
+        .session_db
+        .run(move |db| {
+            ha_core::session::set_session_temperature_preference(
+                db,
+                &id,
+                body.value,
+                body.mode == "agentDefault",
+            )
+        })
+        .await
+        .map_err(|error| AppError::bad_request(error.to_string()))?;
+    Ok(Json(json!({ "temperature": value })))
+}
+
+pub async fn set_session_reasoning_effort(
+    State(ctx): State<Arc<AppContext>>,
+    Path(id): Path<String>,
+    Json(body): Json<SessionScalarPreferenceBody<String>>,
+) -> Result<Json<Value>, AppError> {
+    if !matches!(body.mode.as_str(), "value" | "agentDefault") {
+        return Err(AppError::bad_request(format!(
+            "Invalid reasoning effort mode: {}",
+            body.mode
+        )));
+    }
+    let effort = ctx
+        .session_db
+        .run(move |db| {
+            ha_core::session::set_session_reasoning_effort_preference(
+                db,
+                &id,
+                body.value.as_deref(),
+                body.mode == "agentDefault",
+            )
+        })
+        .await
+        .map_err(|error| AppError::bad_request(error.to_string()))?;
+    Ok(Json(json!({ "reasoningEffort": effort })))
+}
+
+pub async fn get_chat_runtime_defaults(
+    State(ctx): State<Arc<AppContext>>,
+    Query(query): Query<RuntimeDefaultsQuery>,
+) -> Result<Json<ha_core::session::ChatRuntimeDefaults>, AppError> {
+    if let Some(session_id) = query.session_id {
+        let defaults = ctx
+            .session_db
+            .run(move |db| ha_core::session::ensure_session_runtime_defaults(db, &session_id))
+            .await?;
+        return Ok(Json(defaults));
+    }
+    let agent_id = query
+        .agent_id
+        .filter(|id| !id.trim().is_empty())
+        .unwrap_or_else(|| ha_core::agent_loader::DEFAULT_AGENT_ID.to_string());
+    Ok(Json(ha_core::session::resolve_chat_runtime_defaults(
+        None, &agent_id,
+    )))
 }
 
 /// `POST /api/sessions/:id/purge-if-incognito` — hard-delete the session if
@@ -1212,10 +1289,14 @@ pub async fn compact_context_now(
         .next()
         .ok_or_else(|| AppError::bad_request("No model configured for manual compaction"))?;
 
-    let resolved_temperature = agent_def
-        .as_ref()
-        .and_then(|def| def.config.model.temperature)
-        .or(store.temperature);
+    let resolved_temperature = if meta.runtime_defaults_initialized {
+        meta.temperature
+    } else {
+        agent_def
+            .as_ref()
+            .and_then(|def| def.config.model.temperature)
+            .or(store.temperature)
+    };
 
     let result =
         ha_core::chat_engine::compact_session_now(ha_core::chat_engine::CompactSessionParams {

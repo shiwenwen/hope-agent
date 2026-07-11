@@ -35,6 +35,12 @@ export interface ChatStartArgs {
   sessionId: string | null;
   incognito?: boolean;
   modelOverride?: string;
+  /** Draft-only values snapshotted when the first turn creates the Session. */
+  sessionDefaults?: {
+    model?: string;
+    temperature?: number;
+    reasoningEffort?: string;
+  };
   agentId?: string;
   permissionMode?: SessionMode;
   sandboxMode?: SandboxMode;

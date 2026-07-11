@@ -93,15 +93,17 @@ export default function GlobalModelPanel() {
   const [loading, setLoading] = useState(true)
   const [addingFallback, setAddingFallback] = useState(false)
   const [globalTemperature, setGlobalTemperature] = useState<number | null>(null)
+  const [globalReasoningEffort, setGlobalReasoningEffort] = useState("medium")
 
   useEffect(() => {
     async function load() {
       try {
-        const [models, active, fallbacks, temp, vision, automation] = await Promise.all([
+        const [models, active, fallbacks, temp, effort, vision, automation] = await Promise.all([
           getTransport().call<AvailableModel[]>("get_available_models"),
           getTransport().call<ActiveModelRef | null>("get_active_model"),
           getTransport().call<ActiveModelRef[]>("get_fallback_models"),
           getTransport().call<number | null>("get_global_temperature"),
+          getTransport().call<string>("get_global_reasoning_effort"),
           getTransport().call<ActiveModelRef | null>("get_vision_model"),
           getTransport().call<ModelChainRef | null>("get_automation_model_chain"),
         ])
@@ -109,6 +111,7 @@ export default function GlobalModelPanel() {
         setActiveModel(active)
         setFallbackModels(fallbacks)
         setGlobalTemperature(temp)
+        setGlobalReasoningEffort(effort)
         setVisionModel(vision)
         setAutomationChain(automation)
       } catch (e) {
@@ -321,6 +324,40 @@ export default function GlobalModelPanel() {
             <span>{t("settings.addFallback")}</span>
           </Button>
         )}
+      </div>
+
+      <div className="border-t border-border/50 mb-6 mt-6" />
+
+      <div>
+        <div className="text-xs font-medium text-muted-foreground mb-2 px-1">
+          {t("settings.reasoningEffort", "Think")}
+        </div>
+        <select
+          className="h-9 w-full rounded-md border border-border bg-background px-3 text-sm"
+          value={globalReasoningEffort}
+          onChange={(event) => {
+            const effort = event.target.value
+            setGlobalReasoningEffort(effort)
+            getTransport()
+              .call("set_global_reasoning_effort", { effort })
+              .catch((error) =>
+                logger.error(
+                  "settings",
+                  "GlobalModelPanel::setReasoningEffort",
+                  "Failed",
+                  error,
+                ),
+              )
+          }}
+        >
+          {(["none", "minimal", "low", "medium", "high", "xhigh"] as const).map(
+            (effort) => (
+              <option key={effort} value={effort}>
+                {effort}
+              </option>
+            ),
+          )}
+        </select>
       </div>
 
       <div className="border-t border-border/50 mb-6 mt-6" />

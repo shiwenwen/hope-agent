@@ -388,6 +388,15 @@
         "unknown": "不明",
         "used": "使用済み"
       },
+      "intentLabel": "検出されたタスク",
+      "intent": {
+        "general": "一般",
+        "profile": "プロフィール",
+        "procedure": "ワークフロー",
+        "episode": "過去の経験",
+        "relationship": "人間関係",
+        "knowledge": "知識"
+      },
       "openSource": "ソースを開く",
       "origin": {
         "activeMemory": "アクティブリコール",
@@ -440,15 +449,6 @@
       "traceStatusLabel": "ステータス",
       "whyTitle": "なぜこれらのコンテキストが現れたのか",
       "more": "{{count}} 個以上の長期コンテキスト項目が非表示になります。",
-      "intentLabel": "検出されたタスク",
-      "intent": {
-        "general": "一般",
-        "profile": "プロフィール",
-        "procedure": "ワークフロー",
-        "episode": "過去の経験",
-        "relationship": "人間関係",
-        "knowledge": "知識"
-      },
       "sources": "メモリソース",
       "editMemory": "この記憶を編集する",
       "copyTrace": "コピー診断"
@@ -822,6 +822,13 @@
       }
     },
     "reasoningDisabledHint": "このモデルでは推論が有効になっていません。推論の深さを調整するには、「設定 → モデルプロバイダー」でこのモデルを編集し、「推論/思考に対応」をオンにしてください。",
+    "modelPicker": {
+      "applyToAgentDefault": "Also set as Agent default",
+      "applyToAgentDefaultDesc": "Only affects new conversations for this Agent",
+      "agentDefaultFailed": "The conversation was updated, but the Agent default could not be saved",
+      "restoreAgentDefault": "Restore Agent default",
+      "unavailablePreference": "Preferred model {{model}} is unavailable; a temporary available model is being used."
+    },
     "browserExtensionNudge": {
       "installTitle": "AI に実際の Chrome を操作させる",
       "installBody": "Hope Agent 拡張機能をインストールすると、ログイン済みの Chrome を操作できます。現在は隔離されたブラウザで動作中です。",
@@ -2785,6 +2792,11 @@
     "graphMemoryDesc": "関連する構造化記憶の主張を回答診断に表示しますが、プロンプトには注入しません。",
     "graphMemoryMaxCenters": "中心クレーム",
     "graphMemoryMaxEdges": "関連クレーム",
+    "retrievalPlannerTitle": "クロスソースランキング",
+    "retrievalPlannerDesc": "記憶、人間関係、ワークフロー、知識の候補を安定した範囲を意識したランキングに統合します。",
+    "retrievalPlannerIntentAware": "タスク認識型",
+    "retrievalPlannerMaxTraceRefs": "診断参考資料",
+    "retrievalPlannerMaxPerOrigin": "ソースごとの候補",
     "memoryProcedureGuidanceEligible": "ガイダンス利用可",
     "memoryProcedureGuidanceEligibleDesc": "関連するターンでは、このワークフローを上限付きのソフトガイダンスとして使えます。現在の指示と安全ポリシーが常に優先されます。",
     "memoryProcedureGuidanceArchived": "使用されません",
@@ -5724,6 +5736,7 @@
     "selectDefaultModel": "デフォルトモデルを選択",
     "selectFallbackModel": "フォールバックモデルを選択",
     "selectPlanModel": "プランモードのモデルを選択",
+    "reasoningEffort": "思考強度",
     "server": "サーバー",
     "serverActiveChatStreams": "アクティブなチャット",
     "serverActiveWebSockets": "アクティブな WebSocket",
@@ -6428,11 +6441,6 @@
     "uiEffectsToggle": "エフェクトをオンにする",
     "memoryAuditScopeHintAll": "すべての変更では、長期記憶、ワークフロー、構造化記憶の意思決定が検索されます。",
     "memoryAuditScopeHintMemoryOnly": "アクション フィルターは長期記憶履歴に適用されます。ワークフローと構造化記憶の決定はすべての変更の下に残ります。",
-    "retrievalPlannerTitle": "クロスソースランキング",
-    "retrievalPlannerDesc": "記憶、人間関係、ワークフロー、知識の候補を安定した範囲を意識したランキングに統合します。",
-    "retrievalPlannerIntentAware": "タスク認識型",
-    "retrievalPlannerMaxTraceRefs": "診断参考資料",
-    "retrievalPlannerMaxPerOrigin": "ソースごとの候補",
     "visionBridgeModel": "ビジョンブリッジモデル",
     "visionBridgeModelDesc": "メインモデルが画像を扱えない場合にのみ使用されます。別のモデルが画像をテキストの説明に変換し、会話を継続できるようにします。",
     "visionBridgeModelClear": "ビジョンブリッジをオフにする",

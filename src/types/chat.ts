@@ -429,6 +429,14 @@ export interface ActiveModel {
   modelId: string
 }
 
+export interface ChatRuntimeDefaults {
+  preferredModel?: ActiveModel | null
+  model?: ActiveModel | null
+  preferredModelAvailable: boolean
+  temperature?: number | null
+  reasoningEffort: string
+}
+
 /**
  * Per-session permission mode (permission system v2).
  *
@@ -460,6 +468,8 @@ export interface SessionMeta {
   providerId?: string | null
   providerName?: string | null
   modelId?: string | null
+  /** Temperature fixed for this Session; null is provider-native default. */
+  temperature?: number | null
   /** Session-scoped Think / reasoning effort override. */
   reasoningEffort?: string | null
   createdAt: string
