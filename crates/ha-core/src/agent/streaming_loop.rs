@@ -559,6 +559,11 @@ impl AssistantAgent {
             self.refresh_active_memory_suffix(message),
             self.refresh_related_notes_suffix(message),
         );
+        // Precompute the blocking prompt inputs (base config/goal/memory prompt
+        // + LSP workspace-root discovery) off-worker so the synchronous
+        // build_full/merged_system_prompt calls below never touch SessionDB or
+        // spawn `git` on this async worker.
+        self.refresh_turn_prompt_cache(model, provider_label).await;
 
         let client =
             crate::provider::apply_proxy(reqwest::Client::builder().user_agent(&self.user_agent))
@@ -690,6 +695,9 @@ impl AssistantAgent {
             // Honors the externally-locked flag: spawn-supplied PlanAgent
             // child sessions (plan_subagent) skip the probe entirely.
             if self.maybe_resync_plan_mode_from_backend().await {
+                // Plan state changed — refresh the precomputed prompt inputs
+                // before the synchronous rebuilds below read them.
+                self.refresh_turn_prompt_cache(model, provider_label).await;
                 tool_schemas = self.build_tool_schemas(adapter.tool_provider());
                 system_prompt = self.build_full_system_prompt(model, provider_label);
                 system_prompt_for_budget = self.build_merged_system_prompt(model, provider_label);

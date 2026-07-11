@@ -161,6 +161,7 @@ impl AssistantAgent {
             related_notes_suffix: std::sync::Mutex::new(None),
             coding_profile_suffix: std::sync::Mutex::new(None),
             kb_access_cache: std::sync::Mutex::new(None),
+            turn_prompt_cache: std::sync::Mutex::new(None),
             provider_config: None,
         }
     }
@@ -220,6 +221,7 @@ impl AssistantAgent {
             related_notes_suffix: std::sync::Mutex::new(None),
             coding_profile_suffix: std::sync::Mutex::new(None),
             kb_access_cache: std::sync::Mutex::new(None),
+            turn_prompt_cache: std::sync::Mutex::new(None),
             provider_config: None,
         }
     }
@@ -404,6 +406,7 @@ impl AssistantAgent {
             related_notes_suffix: std::sync::Mutex::new(None),
             coding_profile_suffix: std::sync::Mutex::new(None),
             kb_access_cache: std::sync::Mutex::new(None),
+            turn_prompt_cache: std::sync::Mutex::new(None),
             provider_config: None,
         }
     }
@@ -430,6 +433,12 @@ impl AssistantAgent {
         // shared by all consumers within the turn.
         *self
             .kb_access_cache
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = None;
+        // Same lifecycle for the precomputed prompt inputs: stale data from the
+        // previous turn must never satisfy this turn's builders.
+        *self
+            .turn_prompt_cache
             .lock()
             .unwrap_or_else(|e| e.into_inner()) = None;
         // Record user activity so the Dreaming idle trigger has a fresh
@@ -511,6 +520,10 @@ impl AssistantAgent {
             .agent_caps_cache
             .lock()
             .unwrap_or_else(|e| e.into_inner()) = None;
+        *self
+            .turn_prompt_cache
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = None;
         self.active_memory_state.invalidate_config();
     }
 
@@ -523,14 +536,27 @@ impl AssistantAgent {
             .kb_access_cache
             .lock()
             .unwrap_or_else(|e| e.into_inner()) = None;
+        *self
+            .turn_prompt_cache
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = None;
         if self.session_id.is_some() {
             self.refresh_incognito_cache();
         }
     }
 
     fn lookup_session_meta(&self) -> Option<crate::session::SessionMeta> {
-        let sid = self.session_id.as_deref()?;
-        if let Some(db) = &self.session_db {
+        Self::lookup_session_meta_with(self.session_db.as_ref(), self.session_id.as_deref())
+    }
+
+    /// Static twin of [`Self::lookup_session_meta`] so the turn-prompt refresh
+    /// closure (blocking pool, no `&self`) resolves the meta identically.
+    fn lookup_session_meta_with(
+        session_db: Option<&Arc<crate::session::SessionDB>>,
+        session_id: Option<&str>,
+    ) -> Option<crate::session::SessionMeta> {
+        let sid = session_id?;
+        if let Some(db) = session_db {
             return match db.get_session(sid) {
                 Ok(meta) => meta,
                 Err(e) => {
@@ -591,6 +617,10 @@ impl AssistantAgent {
         // session's access map.
         *self
             .kb_access_cache
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = None;
+        *self
+            .turn_prompt_cache
             .lock()
             .unwrap_or_else(|e| e.into_inner()) = None;
         self.init_awareness();
@@ -1620,13 +1650,79 @@ impl AssistantAgent {
     }
 
     /// Build the full system prompt, including any extra context.
+    /// Precompute the blocking system-prompt inputs on the blocking pool and
+    /// stash them in `turn_prompt_cache` for the turn's synchronous builders:
+    /// the base prompt (`build_system_prompt_with_session` — memory / goal /
+    /// working-dir sections, all SessionDB reads) and the LSP diagnostics
+    /// suffix (`git rev-parse` workspace-root discovery). Call from async
+    /// context before `build_full_system_prompt` / `build_merged_system_prompt`
+    /// so those stay off the async worker; readers that miss the cache fall
+    /// back to the original synchronous compute.
+    pub(crate) async fn refresh_turn_prompt_cache(&self, model: &str, provider: &str) {
+        let agent_id = self.agent_id.clone();
+        let session_id = self.session_id.clone();
+        let session_db = self.session_db.clone();
+        let incognito = self.session_is_incognito();
+        let model_owned = model.to_string();
+        let provider_owned = provider.to_string();
+        let (base_prompt, lsp_suffix) = crate::blocking::run_blocking(move || {
+            let base = config::build_system_prompt_with_session(
+                &agent_id,
+                &model_owned,
+                &provider_owned,
+                session_id.as_deref(),
+            );
+            let lsp = if incognito {
+                None
+            } else {
+                let working_dir =
+                    Self::lookup_session_meta_with(session_db.as_ref(), session_id.as_deref())
+                        .as_ref()
+                        .and_then(crate::session::effective_working_dir_for_meta);
+                crate::lsp::diagnostics_prompt_suffix(session_id.as_deref(), working_dir.as_deref())
+            };
+            (base, lsp)
+        })
+        .await;
+        *self
+            .turn_prompt_cache
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = Some(types::TurnPromptCache {
+            model: model.to_string(),
+            provider: provider.to_string(),
+            base_prompt: std::sync::Arc::new(base_prompt),
+            lsp_suffix,
+        });
+    }
+
+    /// Read the turn-prompt memo when it matches the requested model/provider.
+    fn cached_turn_prompt<T>(
+        &self,
+        model: &str,
+        provider: &str,
+        read: impl FnOnce(&types::TurnPromptCache) -> T,
+    ) -> Option<T> {
+        let guard = self
+            .turn_prompt_cache
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        guard
+            .as_ref()
+            .filter(|cache| cache.model == model && cache.provider == provider)
+            .map(read)
+    }
+
     pub(crate) fn build_full_system_prompt(&self, model: &str, provider: &str) -> String {
-        let mut prompt = config::build_system_prompt_with_session(
-            &self.agent_id,
-            model,
-            provider,
-            self.session_id.as_deref(),
-        );
+        let mut prompt = self
+            .cached_turn_prompt(model, provider, |cache| (*cache.base_prompt).clone())
+            .unwrap_or_else(|| {
+                config::build_system_prompt_with_session(
+                    &self.agent_id,
+                    model,
+                    provider,
+                    self.session_id.as_deref(),
+                )
+            });
         // Single walk over the static catalog: classify every tool's fate
         // up front, then drive both the eager-capability guidance blocks
         // and the # Unconfigured Capabilities section from the same map.
@@ -1807,14 +1903,19 @@ impl AssistantAgent {
             }
         }
         if !self.session_is_incognito() {
-            let working_dir = self
-                .lookup_session_meta()
-                .as_ref()
-                .and_then(crate::session::effective_working_dir_for_meta);
-            if let Some(suffix) = crate::lsp::diagnostics_prompt_suffix(
-                self.session_id.as_deref(),
-                working_dir.as_deref(),
-            ) {
+            let suffix = self
+                .cached_turn_prompt(model, provider, |cache| cache.lsp_suffix.clone())
+                .unwrap_or_else(|| {
+                    let working_dir = self
+                        .lookup_session_meta()
+                        .as_ref()
+                        .and_then(crate::session::effective_working_dir_for_meta);
+                    crate::lsp::diagnostics_prompt_suffix(
+                        self.session_id.as_deref(),
+                        working_dir.as_deref(),
+                    )
+                });
+            if let Some(suffix) = suffix {
                 if !suffix.is_empty() {
                     prompt.push_str("\n\n");
                     prompt.push_str(&suffix);

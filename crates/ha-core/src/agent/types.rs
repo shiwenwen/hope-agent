@@ -325,6 +325,16 @@ pub struct AssistantAgent {
     pub(crate) kb_access_cache: std::sync::Mutex<
         Option<std::sync::Arc<std::collections::HashMap<String, crate::knowledge::KbAccess>>>,
     >,
+    /// Per-turn memo of the system-prompt inputs that hit SessionDB / spawn a
+    /// `git` subprocess inside the otherwise-synchronous prompt builders (the
+    /// full config/goal/memory base prompt and the LSP diagnostics suffix).
+    /// Refreshed on the blocking pool by `refresh_turn_prompt_cache` at turn
+    /// start and on plan-mode resync, then read synchronously by
+    /// `build_full_system_prompt` / `build_merged_system_prompt`. A miss
+    /// (different model/provider, or a caller outside the streaming turn)
+    /// falls back to the original synchronous compute. Cleared in
+    /// `reset_chat_flags`, `set_agent_id`, `set_session_id`, `set_session_db`.
+    pub(crate) turn_prompt_cache: std::sync::Mutex<Option<TurnPromptCache>>,
     /// Optional `ProviderConfig` reference, injected via
     /// [`AssistantAgent::with_failover_context`]. When present **and**
     /// `session_id` is set, side_query / DedicatedModelProvider routes
@@ -332,6 +342,17 @@ pub struct AssistantAgent {
     /// retry. When `None`, those paths fall back to direct one-shot calls
     /// (legacy behavior, used by `new_anthropic` / `new_openai` test paths).
     pub(crate) provider_config: Option<std::sync::Arc<crate::provider::ProviderConfig>>,
+}
+
+/// See [`AssistantAgent::turn_prompt_cache`]: blocking prompt inputs
+/// precomputed off-worker once per turn, keyed by the turn's model/provider
+/// so a mismatched reader falls back to live compute.
+#[derive(Debug)]
+pub(crate) struct TurnPromptCache {
+    pub(crate) model: String,
+    pub(crate) provider: String,
+    pub(crate) base_prompt: std::sync::Arc<String>,
+    pub(crate) lsp_suffix: Option<String>,
 }
 
 /// Cached parameters from the last main chat request.

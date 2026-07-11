@@ -1154,12 +1154,18 @@ pub async fn get_system_prompt(
         ("unknown".to_string(), "Unknown".to_string())
     };
 
-    let prompt = ha_core::agent::build_system_prompt_with_session(
-        &agent_id,
-        &model,
-        &provider_name,
-        q.session_id.as_deref(),
-    );
+    let prompt = {
+        let session_id = q.session_id.clone();
+        ha_core::blocking::run_blocking(move || {
+            ha_core::agent::build_system_prompt_with_session(
+                &agent_id,
+                &model,
+                &provider_name,
+                session_id.as_deref(),
+            )
+        })
+        .await
+    };
     Ok(Json(json!({ "system_prompt": prompt })))
 }
 
@@ -1226,12 +1232,18 @@ pub async fn get_system_prompt_post(
     } else {
         ("unknown".to_string(), "Unknown".to_string())
     };
-    let prompt = ha_core::agent::build_system_prompt_with_session(
-        &agent_id,
-        &model,
-        &provider_name,
-        body.session_id.as_deref(),
-    );
+    let prompt = {
+        let session_id = body.session_id.clone();
+        ha_core::blocking::run_blocking(move || {
+            ha_core::agent::build_system_prompt_with_session(
+                &agent_id,
+                &model,
+                &provider_name,
+                session_id.as_deref(),
+            )
+        })
+        .await
+    };
     Ok(Json(json!({ "system_prompt": prompt })))
 }
 

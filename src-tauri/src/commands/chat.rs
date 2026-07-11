@@ -1402,12 +1402,15 @@ pub async fn get_system_prompt(
         }
     };
 
-    Ok(crate::agent::build_system_prompt_with_session(
-        &aid,
-        &model,
-        &provider,
-        session_id.as_deref(),
-    ))
+    Ok(ha_core::blocking::run_blocking(move || {
+        crate::agent::build_system_prompt_with_session(
+            &aid,
+            &model,
+            &provider,
+            session_id.as_deref(),
+        )
+    })
+    .await)
 }
 
 // ── Tools Info Commands ───────────────────────────────────────────
