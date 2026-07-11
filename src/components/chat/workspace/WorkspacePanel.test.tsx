@@ -3921,9 +3921,9 @@ describe("WorkspacePanel workflow section", () => {
     })
 
     fireEvent.click(screen.getAllByRole("button", { name: "编辑策略" })[0])
-    fireEvent.change(screen.getByLabelText("无进展上限"), { target: { value: "4" } })
-    fireEvent.change(screen.getByLabelText("失败上限"), { target: { value: "5" } })
-    fireEvent.change(screen.getByLabelText("降频间隔"), { target: { value: "10m" } })
+    fireEvent.change(await screen.findByLabelText("无进展上限"), { target: { value: "4" } })
+    fireEvent.change(await screen.findByLabelText("失败上限"), { target: { value: "5" } })
+    fireEvent.change(await screen.findByLabelText("降频间隔"), { target: { value: "10m" } })
     fireEvent.click(screen.getByRole("button", { name: "保存" }))
 
     await waitFor(() => {

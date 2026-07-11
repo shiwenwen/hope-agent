@@ -93,7 +93,7 @@ describe("AgentListView", () => {
       expect(screen.queryByText("Failed to load agent")).toBeNull()
     })
     expect(listCalls).toBe(2)
-    expect(screen.getByText("Research agent")).toBeTruthy()
+    expect(await screen.findByText("Research agent")).toBeTruthy()
   })
 
   it("shows redacted detail when creating an agent fails", async () => {
