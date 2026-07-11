@@ -928,7 +928,19 @@ pub async fn generate_brand_pack(
     }
     let mut out = Vec::new();
     let mut last_err: Option<anyhow::Error> = None;
-    for kind in &kinds {
+    let total = kinds.len();
+    for (i, kind) in kinds.iter().enumerate() {
+        // 逐件进度：前端据此把「一直转圈」换成「正在生成 演示（2/3）」。
+        emit(
+            "design:brand_pack_progress",
+            json!({
+                "projectId": project_id,
+                "index": i + 1,
+                "total": total,
+                "kind": kind,
+                "done": false,
+            }),
+        );
         let input = CreateArtifactInput {
             project_id: project_id.to_string(),
             title: format!("{brief}").chars().take(40).collect(),
@@ -950,6 +962,10 @@ pub async fn generate_brand_pack(
             }
         }
     }
+    emit(
+        "design:brand_pack_progress",
+        json!({ "projectId": project_id, "index": total, "total": total, "done": true }),
+    );
     if out.is_empty() {
         return Err(last_err.unwrap_or_else(|| anyhow::anyhow!("品牌包生成全部失败")));
     }

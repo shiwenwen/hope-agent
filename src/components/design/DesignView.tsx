@@ -1424,6 +1424,21 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
     let createdProjectId: string | null = null
     setGeneratingHome(true)
     const tid = toast.loading(t("design.brandPack.generating", "正在生成品牌包（多个产物，请稍候）…"))
+    // 逐件进度：后端每开始一件 emit 一次，把「一直转圈」换成「正在生成 演示（2/3）」。
+    const unlisten = tx.listen("design:brand_pack_progress", (raw) => {
+      const p = parsePayload<{ index?: number; total?: number; kind?: string; done?: boolean }>(raw)
+      if (!p || p.done) return
+      if (p.kind && p.index && p.total) {
+        toast.loading(
+          t("design.brandPack.progress", "正在生成 {{kind}}（{{index}}/{{total}}）…", {
+            kind: kindLabel(p.kind as ArtifactKind),
+            index: p.index,
+            total: p.total,
+          }),
+          { id: tid },
+        )
+      }
+    })
     try {
       const project = await tx.call<DesignProject>("create_design_project_cmd", {
         input: { title: base.slice(0, 40) },
@@ -1453,6 +1468,7 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
         }
       }
     } finally {
+      unlisten()
       setGeneratingHome(false)
     }
   }, [
@@ -1461,6 +1477,7 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
     homeSystemId,
     generatingHome,
     designConfig,
+    kindLabel,
     openProject,
     openArtifact,
     t,
@@ -5344,27 +5361,29 @@ function LaunchHome({
                 {systemName ?? t("design.pickSystem", "选择设计系统")}
               </span>
             </Button>
-            <IconTip label={t("design.brandPack.hint", "一次生成落地页 + 演示 + 海报，共用同一设计系统")} side="top">
+            <div className="flex items-center gap-2">
+              <IconTip label={t("design.brandPack.hint", "一次生成落地页 + 演示 + 海报，共用同一设计系统")} side="top">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-9 rounded-lg px-4 font-medium gap-1.5"
+                  disabled={!prompt.trim() || generating}
+                  onClick={onBrandPack}
+                >
+                  <Layers className="h-4 w-4" />
+                  {t("design.brandPack.button", "品牌包")}
+                </Button>
+              </IconTip>
               <Button
                 size="sm"
-                variant="outline"
-                className="h-9 rounded-lg px-4 font-medium gap-1.5"
+                className="h-9 rounded-lg px-5 font-medium gap-1.5"
                 disabled={!prompt.trim() || generating}
-                onClick={onBrandPack}
+                onClick={onGenerate}
               >
-                <Layers className="h-4 w-4" />
-                {t("design.brandPack.button", "品牌包")}
+                {generating && <Loader2 className="h-4 w-4 animate-spin" />}
+                {generating ? t("design.generating", "生成中…") : t("design.generate", "生成")}
               </Button>
-            </IconTip>
-            <Button
-              size="sm"
-              className="h-9 rounded-lg px-5 font-medium gap-1.5"
-              disabled={!prompt.trim() || generating}
-              onClick={onGenerate}
-            >
-              {generating && <Loader2 className="h-4 w-4 animate-spin" />}
-              {generating ? t("design.generating", "生成中…") : t("design.generate", "生成")}
-            </Button>
+            </div>
           </div>
         </div>
 

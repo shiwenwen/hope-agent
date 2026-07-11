@@ -6704,7 +6704,8 @@
       "button": "品牌包",
       "hint": "一次生成落地頁 + 簡報 + 海報，共用同一設計系統",
       "generating": "正在生成品牌包（多個產物，請稍候）…",
-      "done": "已生成 {{count}} 個產物"
+      "done": "已生成 {{count}} 個產物",
+      "progress": "正在生成 {{kind}}（{{index}}/{{total}}）…"
     },
     "rtl": {
       "toRtl": "切換為從右到左（RTL）",

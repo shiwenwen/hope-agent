@@ -6704,7 +6704,8 @@
       "button": "Gói thương hiệu",
       "hint": "Tạo trang đích + bản trình bày + áp phích cùng lúc, dùng chung một hệ thống thiết kế",
       "generating": "Đang tạo gói thương hiệu (nhiều sản phẩm, vui lòng đợi)…",
-      "done": "Đã tạo {{count}} sản phẩm"
+      "done": "Đã tạo {{count}} sản phẩm",
+      "progress": "Đang tạo {{kind}} ({{index}}/{{total}})…"
     },
     "rtl": {
       "toRtl": "Chuyển sang phải sang trái (RTL)",

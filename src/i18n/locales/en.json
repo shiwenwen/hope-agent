@@ -6704,7 +6704,8 @@
       "button": "Brand pack",
       "hint": "Generate a landing page + deck + poster at once, sharing one design system",
       "generating": "Generating brand pack (multiple artifacts, please wait)…",
-      "done": "Generated {{count}} artifacts"
+      "done": "Generated {{count}} artifacts",
+      "progress": "Generating {{kind}} ({{index}}/{{total}})…"
     },
     "rtl": {
       "toRtl": "Switch to right-to-left (RTL)",

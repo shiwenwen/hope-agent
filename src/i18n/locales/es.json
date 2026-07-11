@@ -6704,7 +6704,8 @@
       "button": "Pack de marca",
       "hint": "Genera una página de aterrizaje + presentación + cartel a la vez, con un mismo sistema de diseño",
       "generating": "Generando pack de marca (varios artefactos, espera)…",
-      "done": "{{count}} artefactos generados"
+      "done": "{{count}} artefactos generados",
+      "progress": "Generando {{kind}} ({{index}}/{{total}})…"
     },
     "rtl": {
       "toRtl": "Cambiar a derecha a izquierda (RTL)",

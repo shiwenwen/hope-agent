@@ -6704,7 +6704,8 @@
       "button": "Marka paketi",
       "hint": "Aynı tasarım sistemini paylaşan açılış sayfası + sunum + afişi tek seferde oluşturun",
       "generating": "Marka paketi oluşturuluyor (birden çok çıktı, lütfen bekleyin)…",
-      "done": "{{count}} çıktı oluşturuldu"
+      "done": "{{count}} çıktı oluşturuldu",
+      "progress": "{{kind}} oluşturuluyor ({{index}}/{{total}})…"
     },
     "rtl": {
       "toRtl": "Sağdan sola (RTL) geç",
