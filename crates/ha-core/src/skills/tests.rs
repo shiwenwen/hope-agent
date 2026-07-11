@@ -429,10 +429,10 @@ Body."#;
 
     #[test]
     fn test_parse_hermes_tags_and_related_and_top_level() {
-        // Mirrors hermes-agent skills/software-development/systematic-debugging/SKILL.md.
-        // tags + related_skills under metadata.hermes; version/license/author at top.
+        // Vendor interoperability: tags + related_skills under
+        // metadata.hermes; version/license/author at top.
         let content = r#"---
-name: systematic-debugging
+name: root-cause-guide
 description: "4-phase root cause investigation"
 version: 1.1.0
 author: Hermes Agent (adapted from obra/superpowers)
@@ -441,8 +441,8 @@ metadata:
   hermes:
     tags: [debugging, troubleshooting, root-cause]
     related_skills:
-      - test-driven-development
-      - writing-plans
+      - test-strategy
+      - implementation-plan
 ---
 
 Body."#;
@@ -459,7 +459,7 @@ Body."#;
         );
         assert_eq!(
             parsed.display.related_skills,
-            vec!["test-driven-development", "writing-plans"]
+            vec!["test-strategy", "implementation-plan"]
         );
     }
 
@@ -487,7 +487,7 @@ Body."#;
         // previously read this as the literal description `>` and dropped
         // every continuation line — the regression test guards against that.
         let content = r#"---
-name: code-review
+name: review-pipeline
 description: >
   Pre-commit verification pipeline — static security scan,
   baseline-aware quality gates, independent reviewer subagent,
@@ -496,7 +496,7 @@ description: >
 
 Body."#;
         let parsed = parse_frontmatter(content).unwrap();
-        assert_eq!(parsed.name, "code-review");
+        assert_eq!(parsed.name, "review-pipeline");
         // Folded form joins continuation lines with single spaces.
         assert_eq!(
             parsed.description,
@@ -530,7 +530,7 @@ Body."#;
         // already supported; this test guards the block-list path that the
         // Codex review found broken.
         let content = r#"---
-name: systematic-debugging
+name: debug-guide
 description: "4-phase root cause investigation"
 paths:
   - "*.rs"
@@ -611,8 +611,8 @@ Body."#;
     }
 
     #[test]
-    fn test_load_skills_from_dir_hermes_category_layout() {
-        // Hermes Agent lays out skills as <root>/<category>/<skill>/SKILL.md.
+    fn test_load_skills_from_dir_category_layout() {
+        // Some skill packs lay out skills as <root>/<category>/<skill>/SKILL.md.
         // This was the second issue Codex flagged: Quick Import counted these
         // skills correctly but the loader could not actually load them. This
         // test guards the depth-2 recursion that fixes the discrepancy.
@@ -626,10 +626,10 @@ Body."#;
         )
         .unwrap();
 
-        std::fs::create_dir_all(root.join("software-development/systematic-debugging")).unwrap();
+        std::fs::create_dir_all(root.join("software-development/debug-guide")).unwrap();
         std::fs::write(
-            root.join("software-development/systematic-debugging/SKILL.md"),
-            "---\nname: systematic-debugging\ndescription: 4-phase\n---\nbody",
+            root.join("software-development/debug-guide/SKILL.md"),
+            "---\nname: debug-guide\ndescription: evidence first\n---\nbody",
         )
         .unwrap();
 
@@ -639,7 +639,7 @@ Body."#;
         let mut entries = load_skills_from_dir(root, "test", &SkillPromptBudget::default());
         entries.sort_by(|a, b| a.name.cmp(&b.name));
         let names: Vec<&str> = entries.iter().map(|e| e.name.as_str()).collect();
-        assert_eq!(names, vec!["imessage", "systematic-debugging"]);
+        assert_eq!(names, vec!["debug-guide", "imessage"]);
     }
 
     #[test]
@@ -686,20 +686,31 @@ Body."#;
     }
 
     #[test]
-    fn test_vendored_coding_skills_have_paths_populated() {
-        // End-to-end guard against the original Codex-flagged regression:
-        // five vendored Hermes coding skills authored with block-list `paths:`
-        // syntax must come back with a non-empty `paths` after parsing. If a
-        // future refactor breaks block-list handling, this catches it
-        // regardless of whether the dedicated parser unit test was kept.
+    fn test_hope_native_coding_skill_suite_is_complete_and_bounded() {
+        const LEGACY_NAMES: [&str; 5] = [
+            concat!("systematic-", "debugging"),
+            concat!("test-driven-", "development"),
+            concat!("writing-", "plans"),
+            concat!("code-", "review"),
+            concat!("subagent-driven-", "development"),
+        ];
+        let mut description_bytes = 0;
+
         for name in [
-            "systematic-debugging",
-            "test-driven-development",
-            "writing-plans",
-            "code-review",
-            "subagent-driven-development",
+            "ha-coding-common",
+            "ha-coding-plan",
+            "ha-debug",
+            "ha-test-strategy",
+            "ha-code-review",
+            "ha-multi-agent-coding",
+            "ha-verify",
+            "ha-workflow-script",
         ] {
             let parsed = parse_bundled_skill_frontmatter(name);
+            assert_eq!(parsed.name, name);
+            assert!(parsed.body.len() < 8 * 1024, "{name}: body exceeds 8 KiB");
+            description_bytes += parsed.description.len();
+
             let paths = parsed
                 .paths
                 .as_deref()
@@ -713,14 +724,110 @@ Body."#;
                 "{name}: paths missing *.rs (got {:?})",
                 paths
             );
-            // code-review uses a folded block scalar for description; that
-            // must be a real sentence, not the literal `>` token.
             assert!(
-                parsed.description.len() > 5,
+                parsed.description.len() > 40,
                 "{name}: description should be a real string, got {:?}",
                 parsed.description
             );
             assert_ne!(parsed.description, ">", "{name}: parser stopped at `>`");
+
+            let source = format!("{}\n{}", parsed.description, parsed.body);
+            for legacy in LEGACY_NAMES {
+                let legacy_token = format!("`{legacy}`");
+                assert!(
+                    !source.contains(&legacy_token),
+                    "{name}: still references legacy skill {legacy}"
+                );
+            }
+        }
+
+        assert!(
+            description_bytes <= 2_400,
+            "native coding catalog descriptions grew to {description_bytes} bytes"
+        );
+    }
+
+    #[test]
+    fn test_hope_native_coding_skill_behavior_contracts() {
+        let common = parse_bundled_skill_frontmatter("ha-coding-common").body;
+        assert!(common.contains("### Small and clear"));
+        assert!(common.contains("Do not create a formal plan"));
+        assert!(common.contains("Never revert, overwrite, or"));
+
+        let plan = parse_bundled_skill_frontmatter("ha-coding-plan").body;
+        assert!(plan.contains("Skip a formal plan for a small"));
+        assert!(plan.contains("In Plan Mode, remain read-only"));
+        assert!(plan.contains("continue. Do not ask \"shall I proceed?\""));
+
+        let debug = parse_bundled_skill_frontmatter("ha-debug").body;
+        assert!(debug.contains("Rank Falsifiable Hypotheses"));
+        assert!(debug.contains("After two failed fix attempts"));
+        assert!(debug.contains("would have failed before the fix"));
+
+        let testing = parse_bundled_skill_frontmatter("ha-test-strategy").body;
+        for strategy in [
+            "### Test-first",
+            "### Regression-first",
+            "### Characterization-first",
+            "### Implementation-first with immediate coverage",
+            "### No new automated test",
+        ] {
+            assert!(testing.contains(strategy), "missing strategy {strategy}");
+        }
+
+        let review = parse_bundled_skill_frontmatter("ha-code-review").body;
+        assert!(review.contains("default action is to inspect and report, not to edit"));
+        assert!(review.contains("### Discovery"));
+        assert!(review.contains("### Verification"));
+        assert!(review.contains("Prefer no finding over a speculative"));
+
+        let multi = parse_bundled_skill_frontmatter("ha-multi-agent-coding").body;
+        for contract in [
+            "shared_read_only",
+            "waitAny",
+            "Wait for all children only when a true barrier is required",
+            "steer or cancel",
+            "All Agents completed",
+            "Never recursively create Workflow runs",
+        ] {
+            assert!(
+                multi.contains(contract),
+                "missing multi-agent contract {contract}"
+            );
+        }
+
+        let verify = parse_bundled_skill_frontmatter("ha-verify").body;
+        assert!(verify.contains("Build An Evidence Matrix"));
+        assert!(verify.contains("cannot prove the parent outcome"));
+        assert!(verify.contains("cannot bypass acceptance or close a"));
+
+        let workflow = parse_bundled_skill_frontmatter("ha-workflow-script").body;
+        for contract in [
+            "outputSchema",
+            "workflow.parallel",
+            "workflow.pipeline",
+            "workflow.waitAny",
+            "workflow.waitAll",
+            "workflow.budgetStatus",
+            "shared_read_only",
+            "cannot honestly complete while owned children remain",
+        ] {
+            assert!(
+                workflow.contains(contract),
+                "missing Workflow contract {contract}"
+            );
+        }
+
+        let combined = [
+            common, plan, debug, testing, review, multi, verify, workflow,
+        ]
+        .join("\n");
+        for dogma in [
+            "NO PRODUCTION CODE WITHOUT A FAILING TEST FIRST",
+            "fresh subagent per task",
+            "You MUST complete each phase before proceeding",
+        ] {
+            assert!(!combined.contains(dogma), "legacy dogma retained: {dogma}");
         }
     }
 

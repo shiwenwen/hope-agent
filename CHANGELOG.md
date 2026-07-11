@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **内置 coding 方法论完成 Hope 原生化**：调试、实现计划、测试策略、代码审查、多 Agent 编排、验证和 Workflow 脚本统一为 8 个精简的 `ha-*` skill，并按代码文件条件激活；小改动不再强制先写计划，复杂任务才加载计划，多 Agent 支持阶段结果、主动查询与按需 waitAny / waitAll。移除原先 5 个第三方移植 skill 及双轨 catalog，不保留旧名兼容层；未新增用户配置，Goal / Workflow / Loop、权限与长期任务状态机保持不变。
 - **暗色界面改为更中性的黑灰观感**：暗色主题核心色从偏蓝的 slate 调整为中性黑灰，输入框无痕态等局部暗色 token 同步去蓝相；背景动画默认关闭，减少新用户启动后的视觉干扰。
 - **标题栏与单 Agent 侧边栏更克制**：侧边栏简约模式下，标题栏 Agent 不再显示头像 / Emoji，改为浅灰圆角名称标签；项目会话标题栏只显示项目名称与项目主题色文件夹图标，不再重复展示项目工作目录。只有一个 Agent 时，顶部新建会话按钮会直接创建会话，侧边栏也不再展示多余的 Agent 列表。
 

@@ -1,44 +1,86 @@
 ---
 name: ha-debug
-description: "Hope-native debugging workflow for failing tests, runtime errors, crashes, regressions, flaky behavior, bad output, or confusing logs. Use when the user asks to debug, diagnose, reproduce, trace, root-cause, or fix a bug. Emphasizes observe-before-change, smallest credible hypothesis, minimal fix, and targeted regression verification. Chinese triggers: debug, 排查, 复现, 定位问题, 崩溃, 报错, 失败测试."
+description: "Hope-native debugging for code failures, regressions, crashes, flaky behavior, and bad output: reproduce or characterize, rank falsifiable hypotheses, fix the smallest root cause, and prove the failing path."
+paths: ["*.rs", "*.ts", "*.tsx", "*.js", "*.jsx", "*.py", "*.go", "*.java", "*.kt", "*.swift", "*.c", "*.cpp", "*.h", "*.rb", "*.php", "*.sh"]
 ---
 
 # Hope Debug
 
-Debug from evidence. Avoid guessing fixes into the codebase.
+Debug from evidence, not from the first plausible explanation. This is a
+decision process, not a mandatory four-stage ceremony.
 
-## Workflow
+## 1. Characterize The Failure
 
-1. Reproduce or characterize the failure from the user's report, logs, tests, or current behavior.
-2. Identify the smallest subsystem boundary where the failure can originate.
-3. Inspect recent diffs, call paths, config, persistence, and platform assumptions.
-4. Form one or two concrete hypotheses, then gather evidence for them.
-5. Patch the smallest root cause fix.
-6. Run a targeted regression check that exercises the failing path.
+Capture the strongest available evidence:
 
-## Evidence Sources
+- Exact symptom, expected behavior, and observed behavior.
+- Reproduction steps, failing command, stack trace, log range, or persisted
+  state.
+- Whether it is deterministic, intermittent, platform-specific, data-specific,
+  or timing-sensitive.
+- Recent relevant diffs, dependency/config changes, and known-good boundary.
 
-Use whichever are available and relevant:
+If reproduction is unsafe or requires unavailable credentials, characterize it
+from logs, fixtures, state, and code paths. State the evidence gap explicitly.
 
-- Failing command output or stack traces.
-- Logs, session state, database rows, or persisted job state.
-- Recent git diff and commit history.
-- Architecture docs for subsystem invariants.
-- Existing tests or fixtures that already encode the expected behavior.
+## 2. Bound The Fault
 
-## Guardrails
+Trace the smallest credible path through inputs, state transitions, persistence,
+concurrency boundaries, and outputs. For multi-component systems, compare what
+crosses each boundary rather than adding broad instrumentation everywhere.
 
-- Do not rewrite a subsystem before proving the fault.
-- Do not broaden scope just because nearby code is imperfect.
-- Do not mark a bug fixed without a targeted check or a clear reason verification cannot run.
-- When a failure depends on credentials, external services, or user state, ask for the missing evidence instead of inventing it.
+Common high-value checks:
 
-## Verification
+- Stale or duplicated persisted state.
+- Error swallowing, fallback, retry, cancellation, and timeout paths.
+- Async ordering, locks, process boundaries, and late results.
+- Platform, locale, permission, path, and environment assumptions.
+- Mismatch between source-of-truth data and UI projection.
 
-Choose the narrowest check that would have failed before the fix. For this repo, honor `AGENTS.md`: prefer `cargo check -p <crate>` or frontend typecheck during development, and ask before running full clippy/test/lint suites unless the change is a broad stage closeout.
+## 3. Rank Falsifiable Hypotheses
+
+Keep one or two active hypotheses. For each, write:
+
+- Why it explains the evidence.
+- What observation would disprove it.
+- The cheapest discriminating check.
+
+Run the discriminating check before editing when practical. If a tiny, obvious
+fix is itself the cheapest safe experiment, keep it reversible and inspect the
+result before broadening scope.
+
+## 4. Fix The Root Cause
+
+- Patch the smallest ownership boundary that restores the contract.
+- Avoid subsystem rewrites before the fault is proven.
+- Preserve unrelated user work and existing public behavior.
+- Add defense-in-depth only when it covers a demonstrated adjacent failure, not
+  as speculative cleanup.
+
+After two failed fix attempts, stop patching variants. Re-read the original
+evidence, challenge the shared assumption, and narrow the boundary again.
+
+## 5. Prove The Failing Path
+
+Use `ha-test-strategy` to choose the regression form and `ha-verify` to confirm
+completion. Prefer a check that would have failed before the fix:
+
+- Focused automated regression test.
+- Existing failing command or deterministic fixture.
+- Before/after database or log query.
+- Manual reproduction when automation is not credible.
+
+Passing compilation alone does not prove a runtime bug fixed. If the real path
+cannot be exercised, report the strongest substitute and remaining uncertainty.
+
+## Stop Conditions
+
+Pause and ask for input only when progress requires inaccessible user state, an
+external system change, destructive action, or a product decision. Do not invent
+data or mark an unreproduced hypothesis as confirmed.
 
 ## Smoke Prompts
 
-- "This command fails; debug and fix it."
-- "The app crashes when I do X; find the root cause."
-- "A previous change regressed behavior Y; make the smallest safe fix."
+- "This test fails intermittently; find and fix the root cause."
+- "The UI shows stale state after restart; diagnose the persistence path."
+- "Use this session id and logs to explain the regression, then repair it."

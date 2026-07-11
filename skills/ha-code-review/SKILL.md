@@ -1,46 +1,89 @@
 ---
 name: ha-code-review
-description: "Hope-native code review procedure for staged, unstaged, untracked, branch, commit, or PR diffs. Use when the user asks to review code, inspect uncommitted changes, check a commit, find regressions, or provide actionable review comments. Outputs findings first, focuses on correctness/security/performance/maintainability, and respects inline comment formatting when requested. Chinese triggers: code review, 代码审查, 检查更改, review 当前改动, 复核 commit."
+description: "Hope-native review of uncommitted, staged, commit, branch, or PR changes: discover concrete regressions, independently verify candidates, and report actionable findings first without speculative noise."
+paths: ["*.rs", "*.ts", "*.tsx", "*.js", "*.jsx", "*.py", "*.go", "*.java", "*.kt", "*.swift", "*.c", "*.cpp", "*.h", "*.rb", "*.php", "*.sh"]
 ---
 
 # Hope Code Review
 
-Review as a maintainer, not as a summarizer.
+Review as a maintainer. The default action is to inspect and report, not to edit.
+Only repair findings when the user asks for fixes.
 
-## Review Workflow
+## Establish The Target
 
-1. Establish the review target: uncommitted diff, staged diff, commit range, branch diff, or PR context.
-2. Read the changed files and enough surrounding code to understand behavior.
-3. Look for issues introduced by the change, not old unrelated problems.
-4. Prefer no finding over speculative feedback.
-5. When a finding is real, make it discrete, actionable, and tied to a file/line or function.
+Identify exactly what is under review:
+
+- Staged, unstaged, and untracked changes.
+- A commit or commit range.
+- Branch or PR diff against the correct base.
+- A named file or subsystem.
+
+Read the changed files and enough surrounding code, tests, architecture, and
+callers to understand behavior. Do not report unrelated pre-existing issues as
+findings introduced by the change.
+
+## Two-Phase Reasoning
+
+### Discovery
+
+Search from multiple relevant angles:
+
+- Correctness, state transitions, error paths, and data loss.
+- Security, privacy, permissions, and unsafe trust boundaries.
+- Concurrency, cancellation, retry, persistence, and recovery.
+- Performance on realistic hot paths.
+- Cross-module contracts, compatibility, and missing regression coverage.
+
+Generate candidate issues without committing to them.
+
+### Verification
+
+For each candidate:
+
+1. Trace a concrete scenario that reaches the changed behavior.
+2. Confirm the issue was introduced or exposed by the review target.
+3. Check whether surrounding guards or tests already prevent it.
+4. Keep it only if the author would likely fix it once informed.
+
+Prefer no finding over a speculative or stylistic finding.
+
+For a small, low-risk diff, one reviewer can perform both phases. For a broad or
+high-risk diff, an independent read-only reviewer may verify candidates. Do not
+mandate a fixed number of Agents or two review passes for every change.
 
 ## Finding Bar
 
-Call out an issue only when it meaningfully affects one of:
+A finding must be discrete, actionable, and materially affect correctness,
+security, privacy, performance, maintainability of a shared contract, or
+regression protection. It must explain the triggering scenario and impact.
 
-- Correctness or data loss.
-- Security or privacy.
-- Performance that matters in realistic usage.
-- Maintainability of a shared contract.
-- Missing verification for behavior that is easy to regress.
+Do not report:
 
-Do not report style preferences, naming nits, broad rewrites, or "could be cleaner" comments unless they hide a concrete risk.
+- Personal naming or formatting preferences.
+- Broad rewrites without a concrete failure.
+- Problems outside the changed behavior.
+- Test requests that do not protect a meaningful contract.
 
-## Output Rules
+## Output
 
 - Lead with findings ordered by severity.
-- Include file and line references when available.
-- Keep each finding concise: scenario, impact, fix direction.
-- If inline review directives are requested, emit one directive per actionable changed-line finding.
-- If there are no actionable issues, say that directly and mention residual test risk only if relevant.
+- Use the smallest useful file/line or function reference.
+- State scenario, impact, and fix direction concisely.
+- Emit inline review directives only when requested and only for actionable
+  changed-line findings.
+- If there are no actionable findings, say so directly and mention only real
+  residual verification gaps.
 
-## Verification
+Do not bury findings under a summary. Do not modify code in review-only mode.
 
-Do not run broad test suites just to review unless the user asks. Use targeted commands only when they are cheap and materially improve confidence.
+## Verification Cost
+
+Use cheap targeted checks only when they materially improve confidence. Follow
+repository instructions and do not run broad suites solely to make the review
+look thorough.
 
 ## Smoke Prompts
 
-- "Review my uncommitted changes."
-- "Check this commit for correctness regressions."
-- "Review the current diff and leave inline comments only for actionable issues."
+- "Review all my uncommitted changes."
+- "Check this commit for behavioral regressions."
+- "Review this PR and leave inline comments only for real issues."

@@ -1,52 +1,94 @@
 ---
 name: ha-coding-common
-description: "Shared Hope-native coding discipline for implementation, bug fixing, refactoring, review follow-up, and repository maintenance. Use for general coding tasks when no narrower ha-* coding skill is a better fit, especially when the agent must inspect the current repo, respect AGENTS.md, keep changes scoped, track progress with tasks, avoid reverting user work, and choose targeted verification. Chinese triggers: 编码, 实现, 修复, 改代码, 优化, 提交前整理."
+description: "Hope-native baseline for implementing, fixing, refactoring, and maintaining code: inspect the repository first, protect user changes, keep scope narrow, and finish with direct evidence."
+paths: ["*.rs", "*.ts", "*.tsx", "*.js", "*.jsx", "*.py", "*.go", "*.java", "*.kt", "*.swift", "*.c", "*.cpp", "*.h", "*.rb", "*.php", "*.sh"]
 ---
 
 # Hope Coding Common
 
-Use this skill as the baseline behavior for coding work.
+Use this as the default discipline for coding work. Load a narrower `ha-*`
+coding skill when planning, debugging, testing, review, multi-agent execution,
+verification, or Workflow authoring is the real center of the task.
 
-## Operating Rules
+## Precedence
 
-- Read the nearest `AGENTS.md` and existing code before choosing an approach.
-- Treat the current worktree as shared with the user. Do not revert or overwrite changes you did not make.
-- Prefer `rg` / `rg --files` for search. Read surrounding code before editing.
-- Keep edits scoped to the requested behavior and the owning subsystem.
-- For multi-step work, create or update tasks; keep only one task in progress.
-- Use existing project patterns, helpers, error types, config plumbing, and tests before adding new abstractions.
-- Ask the user only when the next step is genuinely unsafe or cannot be inferred from local evidence.
+1. Follow the user's current request.
+2. Read and follow the nearest `AGENTS.md` and repository instructions.
+3. Preserve existing architecture and local conventions unless the task requires
+   changing them.
+4. Treat this skill as methodology only. It never grants permissions, changes a
+   mode, or overrides a runtime safety gate.
+
+## Start From Evidence
+
+- Inspect the worktree, relevant files, nearby tests, and existing docs before
+  choosing an implementation.
+- Search with `rg` / `rg --files` when available; read surrounding code rather
+  than editing from a single match.
+- Assume uncommitted changes may belong to the user. Never revert, overwrite, or
+  reformat unrelated work.
+- Prefer existing helpers, error types, state models, and ownership boundaries.
+
+## Size The Work
+
+### Small and clear
+
+Act directly when the behavior, owning file, and verification path are obvious.
+Do not create a formal plan, new abstraction, or subagent ceremony merely because
+the task is coding.
+
+### Multi-step or uncertain
+
+Use `ha-coding-plan` when the change spans ownership boundaries, has ordering
+constraints, carries migration risk, or needs explicit completion criteria. In
+normal execution mode, continue implementing after the plan when the next action
+is clear. Plan Mode remains read-only.
+
+### Specialized work
+
+- Bug, regression, crash, or failing test: `ha-debug`.
+- Test design or regression coverage: `ha-test-strategy`.
+- Review request: `ha-code-review`.
+- Independent fan-out with meaningful parallel benefit: `ha-multi-agent-coding`.
+- Proof of completion: `ha-verify`.
+- Durable `workflow.js`: `ha-workflow-script`.
+
+Load the smallest useful set. Do not activate every coding skill up front.
+
+## Control-Plane Boundaries
+
+- Goal defines the durable outcome and completion criteria.
+- Plan describes an implementation approach; it does not create a Goal.
+- Task exposes current progress and must reflect actual state.
+- Workflow executes one durable, observable orchestration run.
+- Loop decides when another turn should be triggered.
+- Worktree isolates writes; it is not a planning or completion signal.
+
+Do not silently enable or complete any control plane from skill instructions.
 
 ## Change Discipline
 
-Before editing:
+- Keep edits scoped to the requested behavior and owning subsystem.
+- Add an abstraction only when it removes real complexity or matches a local
+  pattern.
+- Use structured parsers and APIs for structured data.
+- Avoid unrelated cleanup, metadata churn, generated files, and speculative
+  compatibility layers.
+- For multi-step work, keep user-visible tasks truthful and only one task in
+  progress unless the runtime is genuinely executing independent work.
+- Ask only when the next step is unsafe, irreversible, or cannot be inferred
+  from available evidence.
 
-1. Identify the behavioral surface being changed.
-2. Check related architecture or roadmap docs when the subsystem has them.
-3. List the smallest files that need changes.
+## Finish The Work
 
-While editing:
-
-- Prefer narrow patches.
-- Preserve unrelated formatting and metadata.
-- Add comments only when they clarify non-obvious constraints.
-- Do not add broad refactors just because the area looks messy.
-
-After editing:
-
-- Inspect the diff.
-- Run the smallest meaningful verification allowed by project instructions.
-- If verification is skipped, say why.
-
-## Verification Defaults
-
-- Rust code: prefer `cargo check -p <crate>` unless the repo instructions say otherwise.
-- TypeScript / React: prefer the repo's typecheck command.
-- Docs-only changes: no test command is usually needed; still run a lightweight diff/format sanity check when useful.
-- Full lint/test suites are stage gates, not the default during development. Run them only when the user asks, the repo instructions require it, or the change is broad enough to justify the cost.
+1. Inspect the final diff and current worktree state.
+2. Use `ha-verify` to map requirements to the smallest sufficient evidence.
+3. Report what changed, what was verified, and any real residual risk.
+4. Do not claim completion from intent, a passing unrelated command, or child
+   Agent completion alone.
 
 ## Smoke Prompts
 
 - "Implement this small feature and keep the diff minimal."
-- "Fix this bug without touching unrelated files."
-- "Clean up the uncommitted changes and prepare a concise handoff."
+- "Finish this refactor without touching unrelated user changes."
+- "Continue the current coding task through targeted verification."

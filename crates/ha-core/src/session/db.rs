@@ -5596,6 +5596,9 @@ mod tests {
                 "sizeBytes": 17,
                 "kind": "file"
             }]));
+        // `NewMessage::tool` models an in-flight engine row by default. This
+        // fixture represents a settled tool result that is safe to fork.
+        tool.stream_status = Some("completed".to_string());
         db.append_message(&source.id, &tool)
             .expect("append tool attachment");
 

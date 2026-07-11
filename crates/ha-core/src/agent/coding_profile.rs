@@ -71,68 +71,127 @@ impl CodingSessionProfile {
             return None;
         }
 
-        let has_workflow = has_any(
+        let has_coding_context = has_any(
+            &text,
+            &[
+                "code",
+                "coding",
+                "source",
+                "repo",
+                "commit",
+                "branch",
+                "diff",
+                "pull request",
+                " pr ",
+                "api",
+                "frontend",
+                "backend",
+                "function",
+                "class",
+                "module",
+                "crate",
+                "runtime",
+                "parser",
+                "helper",
+                "component",
+                "button",
+                "page",
+                "service",
+                "database",
+                "file",
+                "sql",
+                "css",
+                "react",
+                "rust",
+                "typescript",
+                "python",
+                "test",
+                "bug",
+                "代码",
+                "编码",
+                "源码",
+                "仓库",
+                "提交",
+                "分支",
+                "接口",
+                "前端",
+                "后端",
+                "函数",
+                "模块",
+                "组件",
+                "按钮",
+                "页面",
+                "界面",
+                "服务",
+                "数据库",
+                "文件",
+                "字段",
+                "逻辑",
+                "状态机",
+                "应用",
+                "测试",
+                "改动",
+                "改代码",
+            ],
+        );
+
+        let has_explicit_workflow_script = has_any(
             &text,
             &[
                 "workflow.js",
                 "workflow script",
-                "dynamic workflow",
                 "durable replay",
-                "execution mode",
-                "/mode",
-                "执行模式",
-                "工作流",
-                "动态工作流",
                 "工作流脚本",
             ],
         );
-        if has_workflow {
+        let has_generic_workflow = has_any(
+            &text,
+            &["workflow", "dynamic workflow", "工作流", "动态工作流"],
+        );
+        if has_explicit_workflow_script || (has_generic_workflow && has_coding_context) {
             return Some(Self::for_kind(CodingTaskKind::WorkflowScript));
         }
 
-        let has_review = has_any(
+        let has_explicit_review = has_any(
             &text,
-            &[
-                "code review",
-                "review",
-                "review 当前",
-                "review my",
-                "检查未提交",
-                "检查我未提交",
-                "检查当前改动",
-                "检查更改",
-                "代码审查",
-                "复核",
-                "审查",
-            ],
+            &["code review", "检查未提交", "检查我未提交", "代码审查"],
         );
-        if has_review {
+        let has_generic_review = has_any(
+            &text,
+            &["review", "复核", "审查", "检查当前改动", "检查更改"],
+        );
+        if has_explicit_review || (has_generic_review && has_coding_context) {
             return Some(Self::for_kind(CodingTaskKind::Review));
         }
 
-        let has_debug = has_any(
+        let has_explicit_debug = has_any(
             &text,
             &[
                 "debug",
-                "diagnose",
                 "root cause",
-                "reproduce",
                 "bug",
                 "crash",
                 "stack trace",
                 "regression",
                 "flaky",
                 "failing test",
+                "回归",
+            ],
+        );
+        let has_generic_debug = has_any(
+            &text,
+            &[
+                "diagnose",
+                "reproduce",
                 "报错",
                 "失败",
                 "崩溃",
                 "复现",
                 "排查",
                 "定位",
-                "回归",
             ],
         );
-        if has_debug {
+        if has_explicit_debug || (has_generic_debug && has_coding_context) {
             return Some(Self::for_kind(CodingTaskKind::Debug));
         }
 
@@ -143,14 +202,14 @@ impl CodingSessionProfile {
                 "verification",
                 "test plan",
                 "what should we run",
+                "测试什么",
+                "收尾检查",
                 "是否完成",
                 "还差什么",
                 "验证",
-                "测试什么",
-                "收尾检查",
             ],
         );
-        if has_verify {
+        if has_verify && has_coding_context {
             return Some(Self::for_kind(CodingTaskKind::Verify));
         }
 
@@ -176,8 +235,8 @@ impl CodingSessionProfile {
                 "完成 phase",
             ],
         );
-        if has_feature {
-            return Some(Self::for_kind(CodingTaskKind::Feature));
+        if has_feature && (has_coding_context || text.contains("改代码")) {
+            return Some(Self::for_feature(feature_requires_plan(&text)));
         }
 
         let has_general_coding = has_any(
@@ -188,6 +247,40 @@ impl CodingSessionProfile {
             ],
         );
         has_general_coding.then(|| Self::for_kind(CodingTaskKind::General))
+    }
+
+    fn for_feature(requires_plan: bool) -> Self {
+        let recommended_skills = if requires_plan {
+            vec!["ha-coding-common", "ha-coding-plan", "ha-verify"]
+        } else {
+            vec!["ha-coding-common", "ha-test-strategy", "ha-verify"]
+        };
+        let task_flow = if requires_plan {
+            TaskFlow::PlanImplement
+        } else {
+            TaskFlow::LightCoding
+        };
+        let first_discipline = if requires_plan {
+            "Ground a concise implementation plan in the current code, then continue when execution is allowed."
+        } else {
+            "The change appears small and direct: inspect the owning path, then implement without plan ceremony."
+        };
+
+        Self {
+            task_kind: CodingTaskKind::Feature,
+            task_flow,
+            requires_plan,
+            requires_script: false,
+            requires_task_truth: true,
+            recommended_skills,
+            verification_policy: "select test-first, regression-first, characterization, or direct verification according to risk; do not default to full suites",
+            risk_level: if requires_plan { "medium" } else { "low" },
+            discipline: vec![
+                first_discipline,
+                "Track progress truthfully for multi-step work and preserve unrelated user changes.",
+                "Keep edits scoped and finish with direct verification evidence.",
+            ],
+        }
     }
 
     fn for_kind(task_kind: CodingTaskKind) -> Self {
@@ -213,7 +306,7 @@ impl CodingSessionProfile {
                 requires_plan: false,
                 requires_script: false,
                 requires_task_truth: true,
-                recommended_skills: vec!["ha-debug", "ha-verify", "ha-coding-common"],
+                recommended_skills: vec!["ha-debug", "ha-test-strategy", "ha-verify"],
                 verification_policy: "reproduce or characterize the failure first; verify with the narrowest regression check",
                 risk_level: "medium",
                 discipline: vec![
@@ -222,28 +315,18 @@ impl CodingSessionProfile {
                     "State the targeted regression check and whether it ran.",
                 ],
             },
-            CodingTaskKind::Feature => Self {
-                task_kind,
-                task_flow: TaskFlow::PlanImplement,
-                requires_plan: true,
-                requires_script: false,
-                requires_task_truth: true,
-                recommended_skills: vec!["ha-coding-common", "ha-verify"],
-                verification_policy: "define a targeted verification path before or during implementation; do not default to full suites",
-                risk_level: "medium",
-                discipline: vec![
-                    "Start from the current code and produce a concise implementation plan when the change is non-trivial.",
-                    "Track progress with task truth for multi-step work.",
-                    "Keep edits scoped and finish with targeted verification evidence.",
-                ],
-            },
+            CodingTaskKind::Feature => Self::for_feature(true),
             CodingTaskKind::WorkflowScript => Self {
                 task_kind,
                 task_flow: TaskFlow::WorkflowScript,
                 requires_plan: true,
                 requires_script: true,
                 requires_task_truth: true,
-                recommended_skills: vec!["ha-workflow-script", "ha-verify", "ha-coding-common"],
+                recommended_skills: vec![
+                    "ha-workflow-script",
+                    "ha-multi-agent-coding",
+                    "ha-verify",
+                ],
                 verification_policy: "review script gates, replay safety, stop conditions, and targeted validation commands",
                 risk_level: "high",
                 discipline: vec![
@@ -324,6 +407,35 @@ fn has_any(text: &str, needles: &[&str]) -> bool {
     needles.iter().any(|needle| text.contains(needle))
 }
 
+fn feature_requires_plan(text: &str) -> bool {
+    text.chars().count() > 240
+        || has_any(
+            text,
+            &[
+                " v2",
+                " v3",
+                " v4",
+                "phase",
+                "multi-step",
+                "cross-module",
+                "cross-crate",
+                "migration",
+                "architecture",
+                "end-to-end",
+                "complete implementation",
+                "复杂",
+                "完整",
+                "全面",
+                "跨模块",
+                "跨 crate",
+                "迁移",
+                "架构",
+                "端到端",
+                "阶段",
+            ],
+        )
+}
+
 #[cfg(test)]
 mod tests {
     use super::{CodingSessionProfile, CodingTaskKind, TaskFlow};
@@ -350,7 +462,19 @@ mod tests {
         let p = CodingSessionProfile::classify("实现 file search v2").unwrap();
         assert_eq!(p.task_kind, CodingTaskKind::Feature);
         assert!(p.requires_plan);
-        assert!(p.render_prompt_block().contains("targeted verification"));
+        assert!(p.recommended_skills.contains(&"ha-coding-plan"));
+        assert!(p
+            .render_prompt_block()
+            .contains("do not default to full suites"));
+    }
+
+    #[test]
+    fn small_feature_skips_plan_ceremony() {
+        let p = CodingSessionProfile::classify("修复按钮文案").unwrap();
+        assert_eq!(p.task_kind, CodingTaskKind::Feature);
+        assert_eq!(p.task_flow, TaskFlow::LightCoding);
+        assert!(!p.requires_plan);
+        assert!(p.recommended_skills.contains(&"ha-test-strategy"));
     }
 
     #[test]
@@ -358,6 +482,81 @@ mod tests {
         let p = CodingSessionProfile::classify("设计 workflow.js 的执行模式").unwrap();
         assert_eq!(p.task_kind, CodingTaskKind::WorkflowScript);
         assert!(p.requires_script);
+        assert!(p.recommended_skills.contains(&"ha-multi-agent-coding"));
         assert!(p.render_prompt_block().contains("runtime-derived"));
+    }
+
+    #[test]
+    fn routing_fixture_covers_coding_and_non_coding_boundaries() {
+        let cases = [
+            ("review my uncommitted diff", Some(CodingTaskKind::Review)),
+            ("请做代码审查", Some(CodingTaskKind::Review)),
+            ("复核这个 Rust commit", Some(CodingTaskKind::Review)),
+            ("检查当前改动", Some(CodingTaskKind::Review)),
+            ("debug this crash", Some(CodingTaskKind::Debug)),
+            ("the parser has a regression", Some(CodingTaskKind::Debug)),
+            ("这个前端报错帮我排查", Some(CodingTaskKind::Debug)),
+            ("复现这个失败测试", Some(CodingTaskKind::Debug)),
+            ("实现一个 parser", Some(CodingTaskKind::Feature)),
+            ("add a retry helper", Some(CodingTaskKind::Feature)),
+            ("修复按钮文案", Some(CodingTaskKind::Feature)),
+            ("refactor this module", Some(CodingTaskKind::Feature)),
+            ("完成 Phase 2 的跨模块迁移", Some(CodingTaskKind::Feature)),
+            (
+                "build a complete frontend feature",
+                Some(CodingTaskKind::Feature),
+            ),
+            ("verify this code change", Some(CodingTaskKind::Verify)),
+            ("这个 crate 还差什么", Some(CodingTaskKind::Verify)),
+            ("测试什么才能证明修复", Some(CodingTaskKind::Verify)),
+            ("对当前代码做收尾检查", Some(CodingTaskKind::Verify)),
+            ("draft a workflow.js", Some(CodingTaskKind::WorkflowScript)),
+            ("设计动态工作流脚本", Some(CodingTaskKind::WorkflowScript)),
+            (
+                "review the workflow runtime",
+                Some(CodingTaskKind::WorkflowScript),
+            ),
+            (
+                "给代码工作流增加 typed result",
+                Some(CodingTaskKind::WorkflowScript),
+            ),
+            ("show the current git branch", Some(CodingTaskKind::General)),
+            ("解释这段 code", Some(CodingTaskKind::General)),
+            ("提交当前仓库", Some(CodingTaskKind::General)),
+            ("inspect the repo", Some(CodingTaskKind::General)),
+            ("设计一个请假审批工作流", None),
+            ("设计一个动态审批工作流", None),
+            ("复核这份合同", None),
+            ("这个打印机报错，帮我排查", None),
+            ("修复打印机故障", None),
+            ("优化旅行路线", None),
+            ("实现新的审批制度", None),
+            ("验证这份旅行计划是否完整", None),
+            ("每周循环提醒我喝水", None),
+            ("写一份项目计划", None),
+        ];
+
+        for (input, expected) in cases {
+            let actual = CodingSessionProfile::classify(input).map(|p| p.task_kind);
+            assert_eq!(actual, expected, "unexpected routing for {input:?}");
+        }
+    }
+
+    #[test]
+    fn every_profile_recommends_at_most_three_distinct_skills() {
+        for kind in [
+            CodingTaskKind::General,
+            CodingTaskKind::Feature,
+            CodingTaskKind::Debug,
+            CodingTaskKind::Review,
+            CodingTaskKind::Verify,
+            CodingTaskKind::WorkflowScript,
+        ] {
+            let profile = CodingSessionProfile::for_kind(kind);
+            let distinct: std::collections::HashSet<_> =
+                profile.recommended_skills.iter().copied().collect();
+            assert_eq!(distinct.len(), profile.recommended_skills.len());
+            assert!(profile.recommended_skills.len() <= 3);
+        }
     }
 }
