@@ -475,7 +475,7 @@ export default function LearningTab({ filter }: LearningTabProps) {
       selectedBenchmarkModels.includes(option.key),
     )
     if (!selected.length) {
-      setBenchmarkError("Select at least one external model.")
+      setBenchmarkError(t("dashboard.learning.selectAtLeastOneModel"))
       return
     }
     const providerIds = new Set(selected.map((option) => option.providerId))
@@ -590,7 +590,7 @@ export default function LearningTab({ filter }: LearningTabProps) {
       selectedDomainModels.includes(option.key),
     )
     if (!selected.length) {
-      setDomainCampaignError("Select at least one external model.")
+      setDomainCampaignError(t("dashboard.learning.selectAtLeastOneModel"))
       return
     }
     const providerIds = new Set(selected.map((option) => option.providerId))
@@ -675,7 +675,7 @@ export default function LearningTab({ filter }: LearningTabProps) {
 
   const generateDomainCampaignLearning = useCallback(async (campaign: DomainEvalCampaign) => {
     if (!campaign.sessionId) {
-      setDomainCampaignError("This domain campaign has no session scope for learning proposals.")
+      setDomainCampaignError(t("dashboard.learning.domainCampaignNoSession"))
       return
     }
     const campaignId = campaign.id
@@ -764,7 +764,11 @@ export default function LearningTab({ filter }: LearningTabProps) {
       )
       if (report.status !== "passed") {
         const failed = report.checks.find((check) => check.status !== "passed")
-        setBenchmarkError(failed ? `${failed.name}: ${failed.actual}` : "Task pack validation failed.")
+        setBenchmarkError(
+          failed
+            ? `${failed.name}: ${failed.actual}`
+            : t("dashboard.learning.taskPackValidationFailed"),
+        )
       }
       await reload()
     } catch (e) {
@@ -1506,7 +1510,7 @@ function CodingImprovementSection({
               {coding.byProject.map((project) => (
                 <ProjectSignalRow
                   key={project.projectId ?? "__unassigned__"}
-                  name={project.projectName ?? project.projectId ?? "Unassigned"}
+                  name={project.projectName ?? project.projectId ?? t("dashboard.learning.unassignedProject")}
                   projectId={project.projectId}
                   workflowRate={project.workflowCompletionRate}
                   evalRate={project.evalSuccessRate}
@@ -2484,7 +2488,7 @@ function BenchmarkCenterPanel({
               </span>
               <div className="flex flex-wrap items-center gap-2">
                 <label className="flex items-center gap-1 text-[10px] text-muted-foreground">
-                  <span>Tasks</span>
+                  <span>{t("dashboard.learning.tasksLabel")}</span>
                   <input
                     className="h-6 w-14 rounded border border-border bg-background px-1.5 text-xs tabular-nums"
                     type="number"
@@ -2497,7 +2501,7 @@ function BenchmarkCenterPanel({
                   />
                 </label>
                 <label className="flex items-center gap-1 text-[10px] text-muted-foreground">
-                  <span>USD</span>
+                  <span>{t("dashboard.learning.usdLabel")}</span>
                   <input
                     className="h-6 w-20 rounded border border-border bg-background px-1.5 text-xs tabular-nums"
                     type="number"
@@ -3837,7 +3841,7 @@ function DomainEvalCampaignPanel({
           </span>
           <div className="flex flex-wrap items-center gap-2">
             <label className="flex items-center gap-1 text-[10px] text-muted-foreground">
-              <span>Tasks</span>
+              <span>{t("dashboard.learning.tasksLabel")}</span>
               <input
                 className="h-6 w-14 rounded border border-border bg-background px-1.5 text-xs tabular-nums"
                 type="number"
@@ -3850,7 +3854,7 @@ function DomainEvalCampaignPanel({
               />
             </label>
             <label className="flex items-center gap-1 text-[10px] text-muted-foreground">
-              <span>USD</span>
+              <span>{t("dashboard.learning.usdLabel")}</span>
               <input
                 className="h-6 w-20 rounded border border-border bg-background px-1.5 text-xs tabular-nums"
                 type="number"

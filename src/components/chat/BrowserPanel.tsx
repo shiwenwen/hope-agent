@@ -193,7 +193,7 @@ export default function BrowserPanel({
         ) : frame?.jpegBase64 ? (
           <img
             src={`data:image/jpeg;base64,${frame.jpegBase64}`}
-            alt={frame.title || "Browser frame"}
+            alt={frame.title || t("chat.browserPanel.frameAlt")}
             className="block h-auto w-full select-none"
             draggable={false}
           />

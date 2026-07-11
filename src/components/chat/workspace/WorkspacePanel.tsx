@@ -1296,7 +1296,7 @@ function EnvironmentSection({
             <EnvRow
               icon={GitBranch}
               label={t("workspace.environment.branch", "分支")}
-              value={formatGitRef(git)}
+              value={formatGitRef(t, git)}
               detail={
                 git.detached ? t("fileBrowser.gitDetached", "detached") : (git.head ?? undefined)
               }
@@ -5243,7 +5243,7 @@ function DomainAcceptanceCoverageCard({
       {summary.domains.length > 0 ? (
         <div className="mt-2 flex min-w-0 flex-wrap gap-1">
           {summary.domains.slice(0, 4).map((domain) => (
-            <StatusPill key={domain} label={domainLabel(domain)} tone="info" />
+            <StatusPill key={domain} label={domainLabel(t, domain)} tone="info" />
           ))}
           {summary.domains.length > 4 ? (
             <StatusPill
@@ -5339,7 +5339,7 @@ function DomainWorkbenchEvidenceRow({ item }: { item: DomainEvidenceItem }) {
           {item.summary || domainWorkbenchEvidenceLocation(item)}
         </div>
         <div className="mt-1 flex min-w-0 items-center gap-1.5 pl-5 text-[10px] text-muted-foreground/65">
-          <span className="truncate">{domainLabel(item.domain)}</span>
+          <span className="truncate">{domainLabel(t, item.domain)}</span>
           <span className="truncate">{domainAccessScopeLabel(t, item.accessScope)}</span>
           <span className="truncate">{domainRedactionStatusLabel(t, item.redactionStatus)}</span>
           <span className="shrink-0">{formatMessageTime(item.createdAt)}</span>
@@ -7418,8 +7418,13 @@ function domainQualitySeverityTone(severity: DomainQualitySeverity): StatusTone 
   }
 }
 
-function domainLabel(domain?: string | null): string {
-  return domain ? domain.replace(/_/g, " ") : "domain"
+function domainLabel(
+  t: ReturnType<typeof useTranslation>["t"],
+  domain?: string | null,
+): string {
+  return domain
+    ? domain.replace(/_/g, " ")
+    : t("workspace.domainWorkbench.domainFallbackLabel", "领域")
 }
 
 function domainQualityTemplateLabel(run: DomainQualityRunSnapshot["run"]): string | null {
@@ -7548,6 +7553,7 @@ function domainQualityReviewEvidenceInput(
 }
 
 function domainArtifactExportGuardArtifactLabel(
+  t: ReturnType<typeof useTranslation>["t"],
   report: DomainArtifactExportGuardReport,
 ): string {
   return (
@@ -7555,7 +7561,7 @@ function domainArtifactExportGuardArtifactLabel(
     report.artifactPath ??
     report.artifactKind ??
     report.scope.domain ??
-    "artifact"
+    t("workspace.domainExportGuard.artifact", "产物")
   )
 }
 
@@ -7625,7 +7631,7 @@ function domainArtifactExportReviewEvidenceInput(
   marker: DomainArtifactExportReviewMarker,
   t: ReturnType<typeof useTranslation>["t"],
 ): RecordDomainEvidenceInput {
-  const artifactLabel = domainArtifactExportGuardArtifactLabel(report)
+  const artifactLabel = domainArtifactExportGuardArtifactLabel(t, report)
   const sourceMetadata: Record<string, unknown> = {
     sourceType: "artifact_export_guard_confirmation",
     marker,
@@ -7662,12 +7668,15 @@ function domainArtifactExportReviewEvidenceInput(
   }
 }
 
-function domainConnectorActionLabel(report: DomainConnectorActionGuardReport): string {
+function domainConnectorActionLabel(
+  t: ReturnType<typeof useTranslation>["t"],
+  report: DomainConnectorActionGuardReport,
+): string {
   return (
     [report.connector, report.action].filter(Boolean).join(":") ||
     report.toolName ||
     report.scope.domain ||
-    "external action"
+    t("workspace.domainConnectorGuard.actionFallbackLabel", "外部动作")
   )
 }
 
@@ -7706,7 +7715,7 @@ function domainConnectorActionApprovalEvidenceInput(
   sessionId: string,
   t: ReturnType<typeof useTranslation>["t"],
 ): RecordDomainEvidenceInput {
-  const actionLabel = domainConnectorActionLabel(report)
+  const actionLabel = domainConnectorActionLabel(t, report)
   return {
     goalId: report.scope.goalId ?? null,
     sessionId,
@@ -7740,7 +7749,7 @@ function domainConnectorActionRollbackEvidenceInput(
   rollbackPlan: string,
   t: ReturnType<typeof useTranslation>["t"],
 ): RecordDomainEvidenceInput {
-  const actionLabel = domainConnectorActionLabel(report)
+  const actionLabel = domainConnectorActionLabel(t, report)
   return {
     goalId: report.scope.goalId ?? null,
     sessionId,
@@ -8277,7 +8286,7 @@ function DomainQualitySection({
               ) : null}
             </div>
             <div className="mt-1 flex min-w-0 flex-wrap gap-1 pl-5">
-              <StatusPill label={domainLabel(latest.domain)} tone="info" />
+              <StatusPill label={domainLabel(t, latest.domain)} tone="info" />
               {domainQualityTemplateLabel(latest) ? (
                 <StatusPill label={domainQualityTemplateLabel(latest)!} tone="muted" />
               ) : null}
@@ -17660,14 +17669,14 @@ function WorkflowDomainDraftSummary({ draft }: { draft: DomainWorkflowDraft }) {
         <WorkflowDomainDraftRow
           icon={ClipboardCheck}
           label={t("workspace.workflow.domainDraftEvidence", "证据")}
-          values={evidence.map(domainEvidenceRequirementLabel)}
+          values={evidence.map((item) => domainEvidenceRequirementLabel(t, item))}
         />
       ) : null}
       {gates.length > 0 ? (
         <WorkflowDomainDraftRow
           icon={ShieldAlert}
           label={t("workspace.workflow.domainDraftGates", "审批")}
-          values={gates.map(domainApprovalGateLabel)}
+          values={gates.map((gate) => domainApprovalGateLabel(t, gate))}
         />
       ) : null}
       {rules.length > 0 ? (
@@ -17709,14 +17718,24 @@ function WorkflowDomainDraftRow({
   )
 }
 
-function domainEvidenceRequirementLabel(requirement: DomainEvidenceRequirement): string {
+function domainEvidenceRequirementLabel(
+  t: ReturnType<typeof useTranslation>["t"],
+  requirement: DomainEvidenceRequirement,
+): string {
   const count = requirement.minCount ? ` x${requirement.minCount}` : ""
-  const optional = requirement.required ? "" : " optional"
+  const optional = requirement.required
+    ? ""
+    : t("workspace.workflow.domainDraftOptionalSuffix", "（可选）")
   return `${requirement.title}${count}${optional}`
 }
 
-function domainApprovalGateLabel(gate: DomainApprovalGate): string {
-  return gate.required ? gate.action : `${gate.action} optional`
+function domainApprovalGateLabel(
+  t: ReturnType<typeof useTranslation>["t"],
+  gate: DomainApprovalGate,
+): string {
+  return gate.required
+    ? gate.action
+    : `${gate.action}${t("workspace.workflow.domainDraftOptionalSuffix", "（可选）")}`
 }
 
 function domainVerificationRuleLabel(rule: DomainVerificationRule): string {

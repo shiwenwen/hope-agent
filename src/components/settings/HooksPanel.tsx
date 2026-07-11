@@ -144,6 +144,7 @@ function csvToArray(s: string): string[] {
 /** JSON object field with a local text buffer so invalid mid-edit text doesn't
  * blow away the value; commits the parsed object only when it parses. */
 function JsonField({ value, onChange }: { value: unknown; onChange: (v: unknown) => void }) {
+  const { t } = useTranslation()
   const [text, setText] = useState(() => (value == null ? "" : JSON.stringify(value, null, 2)))
   const [err, setErr] = useState(false)
   return (
@@ -168,7 +169,7 @@ function JsonField({ value, onChange }: { value: unknown; onChange: (v: unknown)
           }
         }}
       />
-      {err && <p className="text-[11px] text-destructive">invalid JSON</p>}
+      {err && <p className="text-[11px] text-destructive">{t("settings.hooks.invalidJson")}</p>}
     </div>
   )
 }

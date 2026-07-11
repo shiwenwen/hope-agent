@@ -1,3 +1,5 @@
+import i18n from "@/i18n/i18n"
+
 export const GOAL_SLASH_CONTROL_WORDS = new Set([
   "status",
   "show",
@@ -65,25 +67,34 @@ export function goalSlashCommandDisplay(commandText: string): {
   const lowerArgs = args.toLowerCase()
   const goalContent =
     args.length === 0
-      ? "Show active goal"
+      ? String(i18n.t("chat.goalSlash.showActive", { defaultValue: "Show active goal" }))
       : lowerArgs === "status" || lowerArgs === "show"
-        ? "Show active goal"
+        ? String(i18n.t("chat.goalSlash.showActive", { defaultValue: "Show active goal" }))
         : lowerArgs === "pause"
-          ? "Pause active goal"
+          ? String(i18n.t("chat.goalSlash.pause", { defaultValue: "Pause active goal" }))
           : lowerArgs === "resume"
-            ? "Resume active goal"
+            ? String(i18n.t("chat.goalSlash.resume", { defaultValue: "Resume active goal" }))
             : lowerArgs === "clear" || lowerArgs === "cancel"
-              ? "Clear active goal"
+              ? String(i18n.t("chat.goalSlash.clear", { defaultValue: "Clear active goal" }))
               : lowerArgs === "evaluate" || lowerArgs === "audit"
-                ? "Evaluate active goal"
+                ? String(i18n.t("chat.goalSlash.evaluate", { defaultValue: "Evaluate active goal" }))
                 : lowerArgs === "accept" || lowerArgs === "close" || lowerArgs === "done"
-                  ? "Accept goal completion"
+                  ? String(
+                      i18n.t("chat.goalSlash.accept", { defaultValue: "Accept goal completion" }),
+                    )
                   : lowerArgs === "strict" ||
                       lowerArgs === "needs-strict-evidence" ||
                       lowerArgs === "needs_strict_evidence"
-                    ? "Require stricter evidence"
+                    ? String(
+                        i18n.t("chat.goalSlash.strict", {
+                          defaultValue: "Require stricter evidence",
+                        }),
+                      )
                     : lowerArgs === "help"
-                      ? "Goal help"
+                      ? String(i18n.t("chat.goalSlash.help", { defaultValue: "Goal help" }))
                       : args
-  return { content: goalContent || "Goal", mode: "goal" }
+  return {
+    content: goalContent || String(i18n.t("chat.goalSlash.goal", { defaultValue: "Goal" })),
+    mode: "goal",
+  }
 }

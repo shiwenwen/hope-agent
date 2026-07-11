@@ -558,7 +558,7 @@ export function OpenClawImportPanel({
                         )}
                       </div>
                       <div className="text-xs text-muted-foreground">
-                        ID:{" "}
+                        {t("onboarding.importOpenClaw.agents.idLabel")}{" "}
                         <Input
                           type="text"
                           value={edit?.targetId ?? a.id}

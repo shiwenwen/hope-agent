@@ -1,3 +1,5 @@
+import i18n from "@/i18n/i18n"
+
 export const LOOP_SLASH_CONTROL_WORDS = new Set([
   "status",
   "list",
@@ -38,17 +40,20 @@ export function loopSlashCommandDisplay(commandText: string): {
   const first = args.split(/\s+/)[0]?.toLowerCase() ?? ""
   const content =
     args.length === 0
-      ? "Start self-paced loop"
+      ? String(i18n.t("chat.loopSlash.startSelfPaced", { defaultValue: "Start self-paced loop" }))
       : first === "status" || first === "list" || first === "show"
-        ? "Show loops"
+        ? String(i18n.t("chat.loopSlash.showLoops", { defaultValue: "Show loops" }))
         : first === "pause"
-          ? "Pause loop"
+          ? String(i18n.t("chat.loopSlash.pause", { defaultValue: "Pause loop" }))
           : first === "resume"
-            ? "Resume loop"
+            ? String(i18n.t("chat.loopSlash.resume", { defaultValue: "Resume loop" }))
             : first === "stop" || first === "cancel"
-              ? "Stop loop"
+              ? String(i18n.t("chat.loopSlash.stop", { defaultValue: "Stop loop" }))
               : first === "help"
-                ? "Loop help"
+                ? String(i18n.t("chat.loopSlash.help", { defaultValue: "Loop help" }))
                 : args
-  return { content: content || "Loop", mode: "loop" }
+  return {
+    content: content || String(i18n.t("chat.loopSlash.loop", { defaultValue: "Loop" })),
+    mode: "loop",
+  }
 }

@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react"
+import { useTranslation } from "react-i18next"
 import { getTransport } from "@/lib/transport-provider"
 import type { SlashCommandDef, CommandResult } from "./types"
 import { CATEGORY_ORDER } from "./types"
@@ -103,6 +104,7 @@ export function useSlashCommands(
   actions: SlashCommandActions,
   inputHandleRef: React.RefObject<ComposerInputHandle | null>,
 ): UseSlashCommandsReturn {
+  const { t } = useTranslation()
   const [commands, setCommands] = useState<SlashCommandDef[]>([])
   const [isOpen, setIsOpen] = useState(false)
   const [selectedIndex, setSelectedIndex] = useState(0)
@@ -263,7 +265,7 @@ export function useSlashCommands(
       try {
         const sessionId = await resolveSessionIdForCommand(commandText)
         if (!sessionId && commandNeedsMaterializedSession(commandText)) {
-          throw new Error("No active session")
+          throw new Error(t("slashCommands.errors.noActiveSession"))
         }
         const result = await getTransport().call<CommandResult>("execute_slash_command", {
           sessionId,
@@ -275,7 +277,7 @@ export function useSlashCommands(
         actionsRef.current.onCommandAction(result)
       } catch (err) {
         actionsRef.current.onCommandAction({
-          content: `Error: ${err}`,
+          content: t("slashCommands.errors.executionFailed", { error: String(err) }),
           action: { type: "displayOnly" },
           _slashCommandText: commandText,
         })
@@ -283,7 +285,7 @@ export function useSlashCommands(
         setExecuting(false)
       }
     },
-    [input, resolveSessionIdForCommand, setInput],
+    [input, resolveSessionIdForCommand, setInput, t],
   )
 
   const executeOption = useCallback(
@@ -298,7 +300,7 @@ export function useSlashCommands(
       resolveSessionIdForCommand(commandText)
         .then((sessionId) => {
           if (!sessionId && commandNeedsMaterializedSession(commandText)) {
-            throw new Error("No active session")
+            throw new Error(t("slashCommands.errors.noActiveSession"))
           }
           return getTransport()
             .call<CommandResult>("execute_slash_command", {
@@ -315,7 +317,7 @@ export function useSlashCommands(
         })
         .catch((err) =>
           actionsRef.current.onCommandAction({
-            content: `Error: ${err}`,
+            content: t("slashCommands.errors.executionFailed", { error: String(err) }),
             action: { type: "displayOnly" },
             _slashCommandText: commandText,
           }),
@@ -325,7 +327,7 @@ export function useSlashCommands(
           setExecuting(false)
         })
     },
-    [resolveSessionIdForCommand, setInput],
+    [resolveSessionIdForCommand, setInput, t],
   )
 
   const executeSelected = useCallback(() => {

@@ -1,3 +1,4 @@
+import type { TFunction } from "i18next"
 import type {
   WorkspaceEnvironmentSnapshot,
   WorkspaceGitSnapshot,
@@ -118,10 +119,10 @@ export function resolveWorkspaceEnvironmentStatus(
   }
 }
 
-export function formatGitRef(git: WorkspaceGitSnapshot): string {
+export function formatGitRef(t: TFunction, git: WorkspaceGitSnapshot): string {
   if (git.branch) return git.branch
-  if (git.head) return `HEAD ${git.head}`
-  return "HEAD"
+  if (git.head) return t("workspace.environment.headWithHash", "HEAD {{hash}}", { hash: git.head })
+  return t("workspace.environment.headOnly", "HEAD")
 }
 
 export function formatGitChanges(git: WorkspaceGitSnapshot): {

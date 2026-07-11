@@ -46,7 +46,17 @@
     "autoUpdateInterval": "检查间隔（小时）",
     "autoUpdateDownload": "在后台下载更新",
     "autoUpdateNotify": "有可用更新时通知我",
-    "version": "版本"
+    "version": "版本",
+    "updateToast": {
+      "notRemindVersion": "不再提醒 {{version}} 版本？",
+      "ignoreOnce": "仅本次忽略",
+      "neverRemindVersion": "该版本不再提醒",
+      "updating": "正在更新...",
+      "versionReady": "v{{version}} 已就绪",
+      "restartDescription": "更新已安装，重启后生效。可立即重启，或关闭此提示，下次启动自动应用。",
+      "newVersionTitle": "发现新版本 v{{version}}",
+      "downloadedReady": "已后台下载完成，可秒装"
+    }
   },
   "approval": {
     "allowAlways": "始终允许",
@@ -154,7 +164,9 @@
     "snapshot": "截图",
     "versions": "版本历史",
     "panelTitle": "帆布",
-    "resizePanel": "调整画布面板大小"
+    "resizePanel": "调整画布面板大小",
+    "notReadyError": "画布面板未打开或 iframe 未加载",
+    "detachedWindowTitle": "画布：{{title}}"
   },
   "channels": {
     "accountLabel": "账户名称",
@@ -294,7 +306,19 @@
     "kbAccessOptInHint": "允许该渠道读写已挂载的知识空间。默认关闭。群聊还需在聊天中执行 /kb on 单独确认。",
     "removeWithCronTitle": "删除账号？",
     "removeWithCronDesc": "「{{account}}」是 {{count}} 个定时任务的投递目标。删除后这些目标将被标记为失效。",
-    "removeWithCronTargets": "{{count}} 个目标"
+    "removeWithCronTargets": "{{count}} 个目标",
+    "botToken": "Bot Token",
+    "slackBotToken": "Bot Token (xoxb-...)",
+    "slackAppToken": "App Token (xapp-...)",
+    "appId": "App ID",
+    "appSecret": "App Secret",
+    "clientSecret": "Client Secret",
+    "ircTls": "TLS",
+    "ircNick": "昵称",
+    "lineAccessToken": "Channel Access Token",
+    "lineChannelSecret": "Channel Secret",
+    "feishuDomainFeishu": "飞书（国内版）",
+    "feishuDomainLark": "Lark（国际版）"
   },
   "chat": {
     "addWorkingDirectory": "添加工作目录",
@@ -323,7 +347,8 @@
       "resumeMirror": "继续镜像",
       "takeOver": "我来操作",
       "takeOverHint": "暂停 1Hz 自动刷新，你在 Chrome 里手动操作",
-      "resizePanel": "调整浏览器面板大小"
+      "resizePanel": "调整浏览器面板大小",
+      "frameAlt": "浏览器画面"
     },
     "asyncToolJobFallbackName": "后台任务",
     "asyncToolJobNames": {
@@ -601,7 +626,9 @@
       "turnOff": "关闭工作流模式",
       "ultracode": "Ultracode",
       "ultracodeDesc": "更偏向长任务、深度验证和完整动态编排",
-      "viewRuns": "查看工作流运行"
+      "viewRuns": "查看工作流运行",
+      "draftOff": "工作流模式已关闭",
+      "draftSaved": "工作流模式已开启：{{mode}}"
     },
     "workflowProgress": {
       "defaultKind": "通用任务",
@@ -843,7 +870,29 @@
       "switch": "切换右侧面板"
     },
     "visionBridgeEngaged": "主模型不支持看图，已用 {{model}} 转述图片内容。",
-    "visionBridgeUnavailable": "视觉模型转述图片失败，已忽略该图片。"
+    "visionBridgeUnavailable": "视觉模型转述图片失败，已忽略该图片。",
+    "loadingSession": "正在加载会话…",
+    "goalSlash": {
+      "showActive": "查看当前目标",
+      "pause": "暂停当前目标",
+      "resume": "恢复当前目标",
+      "clear": "清除当前目标",
+      "evaluate": "评估当前目标",
+      "accept": "确认目标完成",
+      "strict": "要求更严格的证据",
+      "help": "目标帮助",
+      "goal": "目标"
+    },
+    "messageTimeYesterday": "昨天 {{time}}",
+    "loopSlash": {
+      "startSelfPaced": "启动自主节奏的持续推进",
+      "showLoops": "查看持续推进任务",
+      "pause": "暂停持续推进任务",
+      "resume": "恢复持续推进任务",
+      "stop": "停止持续推进任务",
+      "help": "持续推进帮助",
+      "loop": "持续推进"
+    }
   },
   "codexAuth": {
     "expiredDescription": "你的 Codex OAuth 认证令牌已失效，请重新登录以继续使用。",
@@ -886,7 +935,8 @@
     "collapse": "关闭",
     "expand": "展开",
     "retry": "重试",
-    "unavailable": "不可用"
+    "unavailable": "不可用",
+    "copy": "复制"
   },
   "context": {
     "ago": "前",
@@ -1257,7 +1307,146 @@
       "topSkills": "使用频率 Top",
       "userSkillsHint": "用户创建 {{n}} 项",
       "toggleReleaseEvidenceAdd": "标记为发布证据",
-      "toggleReleaseEvidenceRemove": "移除发布证据"
+      "toggleReleaseEvidenceRemove": "移除发布证据",
+      "codingImprovement": "编码改进",
+      "workflowHealth": "工作流",
+      "evalHealth": "评测",
+      "packHealth": "评测包",
+      "strategyEffects": "策略",
+      "toolCalls": "工具调用",
+      "missingToolCalls": "缺失调用",
+      "blockers": "阻塞",
+      "verificationFailures": "{{n}} 次验证失败",
+      "distillationQueue": "提炼",
+      "proposalHint": "{{n}} 份草案",
+      "retros": "复盘",
+      "retroHint": "{{n}} 条建议",
+      "projectSignals": "项目信号",
+      "noProjectSignals": "暂无编码改进信号",
+      "failureModes": "失败模式",
+      "noFailureModes": "暂无失败模式",
+      "improvementTimeline": "改进时间线",
+      "noTimeline": "暂无时间线数据",
+      "latestStrategyEffects": "最新策略效果",
+      "noStrategyEffects": "暂无策略效果",
+      "latestRetros": "最新复盘",
+      "noRetros": "暂无复盘",
+      "benchmarkReports": "基准测试报告",
+      "generateComparisonReport": "生成对比报告",
+      "reportComparison": "对比",
+      "generateReleaseReport": "生成发布报告",
+      "reportRelease": "发布",
+      "generateCampaignReport": "生成评测活动报告",
+      "reportCampaign": "评测活动",
+      "copyReportPath": "复制报告路径",
+      "noBenchmarkReports": "暂无基准测试报告",
+      "continuousBenchmarkGate": "持续基准测试",
+      "materializeBenchmarkBacklog": "从失败的基准测试用例创建待办项",
+      "createBacklog": "创建待办",
+      "noContinuousGateBlockers": "没有阻塞性 Gate 检查项",
+      "nextSteps": "下一步",
+      "benchmarkBacklog": "基准测试待办",
+      "resolveBacklogItem": "处理待办项",
+      "noBenchmarkBacklog": "没有待处理的基准测试待办",
+      "noContinuousGate": "暂无持续基准测试数据",
+      "benchmarkCorpus": "任务语料库",
+      "importSampleTaskPack": "导入示例任务包",
+      "importSample": "导入示例",
+      "noTaskPacks": "暂无任务包",
+      "corpusClean": "语料库检查通过",
+      "corpusLoading": "正在加载语料库",
+      "validateTaskPack": "校验任务包",
+      "activateTaskPack": "启用任务包",
+      "archiveTaskPack": "归档任务包",
+      "benchmarkCenter": "基准测试中心",
+      "runBenchmark": "运行",
+      "noBenchmarkRuns": "暂无基准测试运行",
+      "benchmarkClean": "基准测试检查通过",
+      "modelLeaderboard": "模型排行榜",
+      "noBenchmarkLeaderboard": "暂无可比较的模型数据",
+      "externalCampaign": "外部评测活动",
+      "runExternalBenchmark": "运行外部基准测试",
+      "noBenchmarkModels": "没有已启用的供应商模型",
+      "benchmarkCampaigns": "评测活动",
+      "noBenchmarkCampaigns": "暂无基准评测活动",
+      "benchmarkLoading": "正在加载基准测试中心",
+      "benchmarkRunFailed": "运行失败：{{message}}",
+      "retryBenchmarkCampaign": "重试失败的评测活动项",
+      "cancelBenchmarkCampaign": "取消评测活动",
+      "domainQualityTrends": "通用领域趋势",
+      "domainQualityTrendsHint": "质量运行、阻塞项、评测与学习候选",
+      "domainsCovered": "{{n}} 个领域",
+      "domainQualityRuns": "质量",
+      "domainQualityBlockers": "阻塞",
+      "approvalBlockers": "{{n}} 个审批阻塞",
+      "domainEval": "领域评测",
+      "domainScore": "分数",
+      "averageEvalScore": "平均评测分",
+      "domainLearning": "学习",
+      "domainPromotedHint": "{{n}} 个已晋升",
+      "domainQualityByDomain": "按领域",
+      "noDomainQualityDomains": "暂无领域质量历史",
+      "domainQualityBlockerReasons": "主要阻塞原因",
+      "noDomainQualityBlockers": "暂无领域质量阻塞项",
+      "domainQualityTimeline": "趋势",
+      "noDomainQualityTimeline": "暂无领域趋势",
+      "recentDomainQualityRuns": "最近运行",
+      "noRecentDomainQualityRuns": "暂无最近的质量运行",
+      "domainQualityTrendsLoading": "正在加载通用领域趋势",
+      "domainOperationalGate": "领域运行状况",
+      "domainOperationalGateHint": "{{scope}} · 自 {{since}}",
+      "domainOperationalGateLoadingHint": "正在加载运行稳定性证据",
+      "domainOperationalClean": "运行稳定性检查通过",
+      "domainOperationalLoading": "正在加载运行就绪状态",
+      "domainSoakReport": "领域长跑审计",
+      "domainSoakReportHint": "{{scope}} · {{days}} 天 · {{records}} 条记录",
+      "domainSoakReportLoadingHint": "正在加载长跑证据",
+      "domainSoakClean": "本窗口内无长跑事故",
+      "domainSoakLoading": "正在加载长跑审计报告",
+      "domainConnectorE2EGate": "连接器端到端（E2E）",
+      "domainConnectorE2EGateHint": "{{scope}} · {{connector}} · {{action}}",
+      "domainConnectorE2EGateLoadingHint": "正在加载连接器证据",
+      "domainConnectorE2EClean": "连接器端到端检查通过",
+      "domainConnectorE2ELoading": "正在加载连接器端到端证据",
+      "domainReadinessGate": "领域就绪度",
+      "domainReadinessGateHint": "{{scope}} · 自 {{since}}",
+      "domainReadinessGateLoadingHint": "正在加载就绪证据",
+      "domainReadinessClean": "领域就绪检查通过",
+      "domainReadinessLoading": "正在加载领域就绪度",
+      "domainQualityGate": "通用领域质量",
+      "domainQualityGateHint": "{{tasks}} 个评测任务 · 已校准 {{calibrated}} 个",
+      "domainQualityClean": "通用领域检查全部通过",
+      "recordDomainCalibration": "标记为已复核",
+      "noDomainEvalRuns": "暂无通用领域评测运行",
+      "domainQualityLoading": "正在加载通用领域质量 Gate",
+      "domainCampaigns": "领域评测活动",
+      "domainCampaignsHint": "批量运行非编码评测包，支持持久化状态、重试与取消",
+      "runDomainCampaign": "运行 trace pack",
+      "noDomainCampaigns": "暂无领域评测活动",
+      "domainExternalCampaign": "外部领域评测活动",
+      "runExternalDomainCampaign": "运行外部评测",
+      "noDomainCampaignModels": "没有已启用的供应商模型",
+      "domainCampaignFailed": "领域评测活动失败：{{message}}",
+      "domainModelLeaderboard": "领域模型排行榜",
+      "noDomainLeaderboard": "暂无可比较的领域评测数据",
+      "generateDomainCampaignLearning": "从此领域评测活动生成学习草稿",
+      "retryDomainCampaign": "重试失败的领域评测活动项",
+      "cancelDomainCampaign": "取消领域评测活动",
+      "domainSmokeCenter": "领域冒烟测试",
+      "domainSmokeCenterHint": "合成 trace 与 agent fixture 运行与正式质量 Gate 相互隔离",
+      "noDomainSmokeRuns": "暂无合成领域冒烟测试运行",
+      "releaseGate": "发布 Gate",
+      "releaseGateClean": "全部检查通过",
+      "releaseGateLoading": "正在加载发布 Gate",
+      "generalizationGate": "泛化 Gate",
+      "generalizationClean": "跨项目检查通过",
+      "generalizationLoading": "正在加载泛化 Gate",
+      "selectAtLeastOneModel": "请至少选择一个外部模型。",
+      "domainCampaignNoSession": "该领域评估活动没有关联的会话范围，无法生成学习提案。",
+      "taskPackValidationFailed": "任务包校验失败。",
+      "unassignedProject": "未分配",
+      "tasksLabel": "任务数",
+      "usdLabel": "美元"
     },
     "loading": "加载中...",
     "noData": "暂无数据",
@@ -1376,7 +1565,14 @@
       "ttft": "首Token耗时",
       "ttftTrend": "首 Token 耗时趋势 (TTFT)",
       "inputTokens": "输入令牌",
-      "outputTokens": "输出代币"
+      "outputTokens": "输出代币",
+      "byType": "按类型统计",
+      "type": "类型",
+      "calls": "调用次数",
+      "cacheWrite": "缓存写入",
+      "cacheRead": "缓存读取",
+      "avgDuration": "平均耗时",
+      "tokensUnit": "Token"
     },
     "tool": {
       "avgDuration": "平均耗时",
@@ -2089,7 +2285,8 @@
         "sandbox": "沙箱模式",
         "skills": "{{count}} 个技能",
         "skills_other": "{{count}} 个技能",
-        "title": "Agents"
+        "title": "Agents",
+        "idLabel": "ID："
       },
       "continue": "继续",
       "description": "已经配置过 OpenClaw 了？我们可以把你的 Provider、API Key、Agents 和 MEMORY.md 一次性拉过来。\n没用过 OpenClaw 可以直接跳过。",
@@ -3519,7 +3716,8 @@
       "matcherPlaceholder": "工具名 / 来源（支持正则），留空 = 全部",
       "addHandler": "添加处理器",
       "advanced": "高级",
-      "slowHandlerWarning": "此处理器会内联运行 LLM / 子 Agent，每次该阻断事件触发都会拖慢。建议这里改用 command / http，或挪到观察型事件（如 PostToolUse）。"
+      "slowHandlerWarning": "此处理器会内联运行 LLM / 子 Agent，每次该阻断事件触发都会拖慢。建议这里改用 command / http，或挪到观察型事件（如 PostToolUse）。",
+      "invalidJson": "JSON 格式有误"
     },
     "hours": "小时",
     "imageGenApiKey": "API Key",
@@ -5337,6 +5535,10 @@
     },
     "kb": {
       "description": "确认或撤销当前群聊的知识空间访问权限"
+    },
+    "errors": {
+      "noActiveSession": "没有活动会话",
+      "executionFailed": "错误：{{error}}"
     }
   },
   "subagent": {
@@ -5743,7 +5945,9 @@
       },
       "gitDiffFailed": "读取 Git diff 失败",
       "loadingDiff": "读取差异",
-      "noTextDiff": "没有文字可显示差异"
+      "noTextDiff": "没有文字可显示差异",
+      "headWithHash": "HEAD {{hash}}",
+      "headOnly": "HEAD"
     },
     "goal": {
       "watchdogTitle": "有目标需要确认",
@@ -5857,7 +6061,8 @@
       "budgetOk": "预算正常",
       "detailBudget": "预算",
       "budgetTime": "时间",
-      "budgetTurns": "回合"
+      "budgetTurns": "回合",
+      "budgetTokens": "Token"
     },
     "worktree": {
       "manualLabel": "手动工作树",
@@ -6066,7 +6271,9 @@
       "watchGeneration": "第 {{value}} 代",
       "watchArmed": "监听中",
       "watchSettled": "已结束",
-      "watchFailures": "失败 {{count}} 次"
+      "watchFailures": "失败 {{count}} 次",
+      "triggerCron": "Cron",
+      "tokenBudget": "Token"
     },
     "workflow": {
       "title": "工作流",
@@ -6444,7 +6651,8 @@
       "createRepairTask": "转任务",
       "collapseValidationOutput": "收起验证输出",
       "expandValidationOutput": "展开验证输出",
-      "validationOutput": "验证输出"
+      "validationOutput": "验证输出",
+      "domainDraftOptionalSuffix": "（可选）"
     },
     "codingEntry": "工作流",
     "openCodingPanel": "打开工作流工作台",
@@ -6787,7 +6995,8 @@
       "domainFailed": "{{count}} 阻塞",
       "domainNeedsUser": "{{count}} 确认",
       "moreEvidence": "还有 {{count}} 条证据",
-      "empty": "还没有通用任务证据"
+      "empty": "还没有通用任务证据",
+      "domainFallbackLabel": "领域"
     },
     "lsp": {
       "severityError": "错误",
@@ -6988,7 +7197,8 @@
       "passed": "可执行",
       "failed": "阻塞",
       "insufficient": "缺证据",
-      "idle": "未评估"
+      "idle": "未评估",
+      "actionFallbackLabel": "外部动作"
     },
     "domainConnectorE2E": {
       "recordExecution": "记录执行",
@@ -7223,7 +7433,29 @@
       "sensitive": "敏感",
       "redacted": "已脱敏",
       "notRequired": "不需要"
-    }
+    },
+    "browserAction": {
+      "navigate": "导航",
+      "newTab": "新标签",
+      "claim": "接管",
+      "select": "切换",
+      "close": "关闭",
+      "tabs": "标签页",
+      "actWithOp": "{{op}}",
+      "act": "操作",
+      "screenshot": "截图",
+      "pdf": "PDF",
+      "snapshot": "快照",
+      "observe": "观察",
+      "scroll": "滚动",
+      "evaluate": "脚本",
+      "wait": "等待",
+      "control": "控制",
+      "profile": "浏览器",
+      "status": "状态"
+    },
+    "sectionBrowser": "浏览器",
+    "emptyBrowser": "还没有浏览器活动"
   },
   "knowledge": {
     "picker": {

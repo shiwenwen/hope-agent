@@ -427,7 +427,7 @@ export default function App() {
         throw new Error(status.error)
       }
     }
-    throw new Error("Login timed out")
+    throw new Error(t("common.loginTimeout"))
   }
 
   async function handleCodexAuth() {
@@ -730,7 +730,9 @@ export default function App() {
                     {showIgnoreOptions ? (
                       <div className="flex flex-col gap-3 animate-in fade-in zoom-in-95 duration-200">
                         <p className="text-sm font-medium text-foreground text-center">
-                          不再提醒 {globalPendingUpdate.version} 版本？
+                          {t("about.updateToast.notRemindVersion", {
+                            version: globalPendingUpdate.version,
+                          })}
                         </p>
                         <div className="flex gap-2 justify-center">
                           <button
@@ -740,7 +742,7 @@ export default function App() {
                               setShowIgnoreOptions(false)
                             }}
                           >
-                            仅本次忽略
+                            {t("about.updateToast.ignoreOnce")}
                           </button>
                           <button
                             className="flex-1 text-xs font-medium text-destructive bg-destructive/10 hover:bg-destructive/20 px-3 py-2 rounded-lg transition-colors"
@@ -753,7 +755,7 @@ export default function App() {
                               setShowIgnoreOptions(false)
                             }}
                           >
-                            该版本不再提醒
+                            {t("about.updateToast.neverRemindVersion")}
                           </button>
                         </div>
                       </div>
@@ -761,7 +763,7 @@ export default function App() {
                       <div className="flex flex-col gap-2 mt-1">
                         <div className="flex items-center justify-between pr-6">
                           <p className="text-sm font-medium text-foreground">
-                            {i18n.language.startsWith("zh") ? "正在更新..." : "Updating..."}
+                            {t("about.updateToast.updating")}
                           </p>
                           <p className="text-sm font-medium text-emerald-500">
                             {downloadPercent ?? 0}%
@@ -793,14 +795,12 @@ export default function App() {
                         </div>
                         <div className="flex-1 min-w-0 pr-5">
                           <p className="text-sm font-semibold text-foreground truncate">
-                            {i18n.language.startsWith("zh")
-                              ? `v${globalPendingUpdate.version} 已就绪`
-                              : `v${globalPendingUpdate.version} ready`}
+                            {t("about.updateToast.versionReady", {
+                              version: globalPendingUpdate.version,
+                            })}
                           </p>
                           <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                            {i18n.language.startsWith("zh")
-                              ? "更新已安装，重启后生效。可立即重启，或关闭此提示，下次启动自动应用。"
-                              : "Update installed. Restart to apply now, or dismiss and it applies on next launch."}
+                            {t("about.updateToast.restartDescription")}
                           </p>
                           <div className="mt-4 flex justify-end">
                             <button
@@ -810,7 +810,7 @@ export default function App() {
                               }}
                               className="px-4 py-2 text-xs font-semibold bg-emerald-500 text-white hover:bg-emerald-600 rounded-lg transition-colors duration-200"
                             >
-                              {i18n.language.startsWith("zh") ? "现在重启" : "Restart now"}
+                              {t("about.restartNow")}
                             </button>
                           </div>
                         </div>
@@ -841,9 +841,9 @@ export default function App() {
                         </div>
                         <div className="flex-1 min-w-0 pr-5">
                           <p className="text-sm font-semibold text-foreground group-hover:text-emerald-500 transition-colors truncate">
-                            {i18n.language.startsWith("zh")
-                              ? `发现新版本 v${globalPendingUpdate.version}`
-                              : `Update v${globalPendingUpdate.version}`}
+                            {t("about.updateToast.newVersionTitle", {
+                              version: globalPendingUpdate.version,
+                            })}
                           </p>
                           <div className="update-notes-markdown mt-2.5 max-h-[180px] overflow-y-auto pr-2 text-xs leading-relaxed text-muted-foreground scrollbar-thin scrollbar-thumb-muted-foreground/20 hover:scrollbar-thumb-muted-foreground/40 scrollbar-track-transparent">
                             {globalPendingUpdate.body ? (
@@ -858,9 +858,7 @@ export default function App() {
                           </div>
                           {downloadStatus === "downloaded" && (
                             <p className="mt-2 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
-                              {i18n.language.startsWith("zh")
-                                ? "已后台下载完成，可秒装"
-                                : "Downloaded — installs instantly"}
+                              {t("about.updateToast.downloadedReady")}
                             </p>
                           )}
                           <div className="mt-4 flex justify-end gap-2">
@@ -871,7 +869,7 @@ export default function App() {
                               }}
                               className="px-3 py-2 text-xs font-medium text-muted-foreground bg-secondary hover:bg-secondary/80 rounded-lg transition-colors duration-200"
                             >
-                              {i18n.language.startsWith("zh") ? "仅更新" : "Update only"}
+                              {t("about.updateOnly")}
                             </button>
                             <button
                               onClick={(e) => {
@@ -880,7 +878,7 @@ export default function App() {
                               }}
                               className="px-4 py-2 text-xs font-semibold bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500 hover:text-white rounded-lg transition-colors duration-200 dark:text-emerald-400 dark:hover:text-white"
                             >
-                              {i18n.language.startsWith("zh") ? "更新并重启" : "Update & restart"}
+                              {t("about.updateAndRestart")}
                             </button>
                           </div>
                         </div>

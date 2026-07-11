@@ -11,6 +11,7 @@ import type {
   MessageUsage,
 } from "@/types/chat"
 import { getTransport } from "@/lib/transport-provider"
+import i18n from "@/i18n/i18n"
 import {
   contextCompactionData,
   isContextCompactionPayload,
@@ -245,7 +246,9 @@ export function formatMessageTime(timestamp?: string): string {
     const minutes = date.getMinutes().toString().padStart(2, "0")
     const time = `${hours}:${minutes}`
     if (isToday) return time
-    if (isYesterday) return `昨天 ${time}`
+    if (isYesterday) {
+      return String(i18n.t("chat.messageTimeYesterday", { time, defaultValue: `Yesterday ${time}` }))
+    }
     const month = date.getMonth() + 1
     const day = date.getDate()
     if (date.getFullYear() === now.getFullYear()) return `${month}/${day} ${time}`
