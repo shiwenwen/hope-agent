@@ -97,11 +97,21 @@ export function DesignSystemPicker({
   // ── 右栏预览状态 ──────────────────────────────────────────────
   // hover 目标（系统 id 或 NONE_PREVIEW）；null = 未 hover，回落到当前选中。
   const [hoverTarget, setHoverTarget] = useState<string | null>(null)
-  const fullCacheRef = useRef<Map<string, DesignSystemFull>>(new Map())
-  const [previewFull, setPreviewFull] = useState<DesignSystemFull | null>(null)
-  const [previewLoading, setPreviewLoading] = useState(false)
+  // full tokens 缓存改用 **state**（异步 fetch 只在 .then/.catch 回调 setState，规避 effect 体内
+  // 同步 setState）；派生 previewFull/previewLoading。缓存 `null` = fetch 失败 sentinel（停 loading、不重试）。
+  const [fullCache, setFullCache] = useState<Map<string, DesignSystemFull | null>>(() => new Map())
+  // 关闭时下次打开回落到选中项：渲染期依 open 跃迁重置 hover（非 effect，规避 set-state-in-effect）。
+  const [prevOpen, setPrevOpen] = useState(open)
+  if (open !== prevOpen) {
+    setPrevOpen(open)
+    if (!open) setHoverTarget(null)
+  }
 
   const previewTarget = hoverTarget ?? value ?? NONE_PREVIEW
+  // 当前生效的预览目标（关闭 / 无目标 = null）：所有右栏派生都以它为键，闭态不渲染任何预览。
+  const activePreviewId = open && previewTarget !== NONE_PREVIEW ? previewTarget : null
+  const previewFull = activePreviewId ? (fullCache.get(activePreviewId) ?? null) : null
+  const previewLoading = activePreviewId != null && !fullCache.has(activePreviewId)
   const previewMeta = useMemo(
     () =>
       previewTarget === NONE_PREVIEW
@@ -111,99 +121,71 @@ export function DesignSystemPicker({
   )
 
   // ── 气质 demo（web-landing 骨架注入该系统 tokens）──
-  const [demoHtml, setDemoHtml] = useState<string | null>(null)
-  const [demoLoading, setDemoLoading] = useState(false)
-  const demoCacheRef = useRef<Map<string, string>>(new Map())
+  // demo HTML 缓存改用 state 派生（同上，异步 fetch 只在回调 setState）；缓存 `""` = fetch 失败 sentinel。
+  const [demoCache, setDemoCache] = useState<Map<string, string>>(() => new Map())
   const demoBoxRef = useRef<HTMLDivElement | null>(null)
   const [demoScale, setDemoScale] = useState(0.4)
+  const demoHtml = activePreviewId ? (demoCache.get(activePreviewId) ?? null) : null
+  const demoLoading = activePreviewId != null && !demoCache.has(activePreviewId)
 
-  // demo 容器实测宽 → 等比缩放（Dialog 定宽，打开/切换目标时测一次足够）。
+  // demo 容器实测宽 → 等比缩放。用 ResizeObserver（setState 在观察回调、非 effect 体内）：既满足
+  // set-state-in-effect 规则、又顺带跟随 Dialog 尺寸变化重测（观察即触发首帧回调，无需同步测一次）。
   useLayoutEffect(() => {
     if (!open) return
-    const w = demoBoxRef.current?.clientWidth
-    if (w && w > 40) setDemoScale(w / DEMO_W)
+    const el = demoBoxRef.current
+    if (!el) return
+    const ro = new ResizeObserver(() => {
+      const w = el.clientWidth
+      if (w && w > 40) setDemoScale(w / DEMO_W)
+    })
+    ro.observe(el)
+    return () => ro.disconnect()
   }, [open, previewTarget])
 
+  // demo fetch（防抖 + 竞态守卫）：命中缓存早退、未命中才 150ms 后拉；结果 / 失败 sentinel 均在回调落缓存。
   useEffect(() => {
-    if (!open || previewTarget === NONE_PREVIEW) {
-      setDemoHtml(null)
-      setDemoLoading(false)
-      return
-    }
-    const id = previewTarget
-    const cached = demoCacheRef.current.get(id)
-    if (cached) {
-      setDemoHtml(cached)
-      setDemoLoading(false)
-      return
-    }
-    setDemoHtml(null)
-    setDemoLoading(true)
+    if (!activePreviewId || demoCache.has(activePreviewId)) return
+    const id = activePreviewId
     let cancelled = false
     const timer = window.setTimeout(() => {
       void getTransport()
         .call<string>("get_design_recipe_demo_cmd", { id: DEMO_RECIPE, systemId: id })
         .then((html) => {
-          demoCacheRef.current.set(id, html)
-          if (!cancelled) {
-            setDemoHtml(html)
-            setDemoLoading(false)
-          }
+          if (!cancelled) setDemoCache((prev) => (prev.has(id) ? prev : new Map(prev).set(id, html)))
         })
         .catch((e) => {
           logger.error("design", "DesignSystemPicker", "load system demo failed", e)
-          if (!cancelled) setDemoLoading(false)
+          if (!cancelled) setDemoCache((prev) => (prev.has(id) ? prev : new Map(prev).set(id, "")))
         })
     }, 150)
     return () => {
       cancelled = true
       window.clearTimeout(timer)
     }
-  }, [open, previewTarget])
-
-  // 关闭时重置 hover（下次打开回落到选中项，与打开态一致）。
-  useEffect(() => {
-    if (!open) setHoverTarget(null)
-  }, [open])
+  }, [activePreviewId, demoCache])
 
   // hover 拉系统 full（tokens 供字体试排）：120ms 微防抖防快速滑过连发 IPC，
   // Map 缓存命中零延迟，cancelled 守卫防慢响应覆盖新目标。
   useEffect(() => {
-    if (!open || previewTarget === NONE_PREVIEW) {
-      setPreviewFull(null)
-      setPreviewLoading(false)
-      return
-    }
-    const id = previewTarget
-    const cached = fullCacheRef.current.get(id)
-    if (cached) {
-      setPreviewFull(cached)
-      setPreviewLoading(false)
-      return
-    }
-    setPreviewFull(null)
-    setPreviewLoading(true)
+    if (!activePreviewId || fullCache.has(activePreviewId)) return
+    const id = activePreviewId
     let cancelled = false
     const timer = window.setTimeout(() => {
       void getTransport()
         .call<DesignSystemFull>("get_design_system_cmd", { id })
         .then((full) => {
-          fullCacheRef.current.set(id, full)
-          if (!cancelled) {
-            setPreviewFull(full)
-            setPreviewLoading(false)
-          }
+          if (!cancelled) setFullCache((prev) => (prev.has(id) ? prev : new Map(prev).set(id, full)))
         })
         .catch((e) => {
           logger.error("design", "DesignSystemPicker", "load system preview failed", e)
-          if (!cancelled) setPreviewLoading(false)
+          if (!cancelled) setFullCache((prev) => (prev.has(id) ? prev : new Map(prev).set(id, null)))
         })
     }, 120)
     return () => {
       cancelled = true
       window.clearTimeout(timer)
     }
-  }, [open, previewTarget])
+  }, [activePreviewId, fullCache])
 
   // 字体试排 tiles（sans / serif / mono，缺键跳过）；full 必须匹配当前目标防陈旧渲染。
   const fontTiles = useMemo(() => {

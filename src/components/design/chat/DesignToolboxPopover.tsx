@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { Blocks, Loader2, Search } from "lucide-react"
 
@@ -41,50 +41,38 @@ export function DesignToolboxPopover({ recipes, onPick, kindLabel, systemId }: P
   const label = kindLabel ?? ((k: string) => k)
 
   // ── 右栏预览状态：hover 目标 + demo HTML（防抖 + 缓存 + 竞态守卫）──
+  // demo 缓存改用 state 派生（异步 fetch 只在回调 setState，规避 effect 体内同步 setState）；
+  // 缓存 `""` = fetch 失败 sentinel（停 loading、不重试）。
   const [preview, setPreview] = useState<DesignRecipe | null>(null)
-  const [demoHtml, setDemoHtml] = useState<string | null>(null)
-  const [demoLoading, setDemoLoading] = useState(false)
-  const demoCacheRef = useRef<Map<string, string>>(new Map())
+  const [demoCache, setDemoCache] = useState<Map<string, string>>(() => new Map())
+  const demoKey = preview ? `${preview.id}|${systemId ?? ""}` : null
+  const demoHtml = demoKey ? (demoCache.get(demoKey) ?? null) : null
+  const demoLoading = demoKey != null && !demoCache.has(demoKey)
 
   useEffect(() => {
-    if (!preview) {
-      setDemoHtml(null)
-      setDemoLoading(false)
-      return
-    }
-    const key = `${preview.id}|${systemId ?? ""}`
-    const cached = demoCacheRef.current.get(key)
-    if (cached) {
-      setDemoHtml(cached)
-      setDemoLoading(false)
-      return
-    }
-    setDemoHtml(null)
-    setDemoLoading(true)
+    if (!preview || !demoKey || demoCache.has(demoKey)) return
+    const key = demoKey
+    const recipeId = preview.id
     let cancelled = false
     const timer = window.setTimeout(() => {
       void getTransport()
         .call<string>("get_design_recipe_demo_cmd", {
-          id: preview.id,
+          id: recipeId,
           systemId: systemId ?? null,
         })
         .then((html) => {
-          demoCacheRef.current.set(key, html)
-          if (!cancelled) {
-            setDemoHtml(html)
-            setDemoLoading(false)
-          }
+          if (!cancelled) setDemoCache((prev) => (prev.has(key) ? prev : new Map(prev).set(key, html)))
         })
         .catch((e) => {
           logger.error("design", "DesignToolboxPopover", "load recipe demo failed", e)
-          if (!cancelled) setDemoLoading(false)
+          if (!cancelled) setDemoCache((prev) => (prev.has(key) ? prev : new Map(prev).set(key, "")))
         })
     }, 150)
     return () => {
       cancelled = true
       window.clearTimeout(timer)
     }
-  }, [preview, systemId])
+  }, [preview, demoKey, demoCache, systemId])
 
   const groups = useMemo(() => {
     const q = query.trim().toLowerCase()
