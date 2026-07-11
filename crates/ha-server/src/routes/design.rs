@@ -778,6 +778,15 @@ pub async fn list_domains(Path(id): Path<String>) -> Result<Json<Value>, AppErro
         .collect::<Vec<_>>())))
 }
 
+/// `GET /api/design/artifacts/{id}/quality-review` — 确定性多镜头质量审查（a11y/内容/语义）。
+pub async fn quality_review_artifact(Path(id): Path<String>) -> Result<Json<Value>, AppError> {
+    validate_id(&id)?;
+    let findings = ha_core::blocking::run_blocking(move || service::quality_review_artifact(&id))
+        .await
+        .map_err(|e| AppError::internal(e.to_string()))?;
+    Ok(Json(serde_json::to_value(findings).unwrap_or(Value::Null)))
+}
+
 /// `GET /api/design/artifacts/{id}/deployments` — 部署历史（最新在前）。
 pub async fn list_deployments(Path(id): Path<String>) -> Result<Json<Value>, AppError> {
     validate_id(&id)?;

@@ -238,6 +238,124 @@ pub fn evaluate(body: &str, css: &str) -> Option<SelfCheckFlag> {
     None
 }
 
+// ── 多镜头质量审查（确定性，owner 按需报告；与单 flag `evaluate` 正交，不改 needs_review）──
+
+/// 一条审查发现：镜头 + 严重度 + 人读消息。
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewFinding {
+    /// `a11y` | `content` | `semantics`
+    pub lens: &'static str,
+    /// `warn` | `info`
+    pub severity: &'static str,
+    pub message: String,
+}
+
+/// 取 html 里某标签的每个开标签内文（`<` 与 `>` 之间），带标签名边界校验（不误命中 `<imgx`）。
+fn open_tags<'a>(html: &'a str, name: &str) -> Vec<&'a str> {
+    let low = html.to_ascii_lowercase();
+    let needle = format!("<{name}");
+    let mut out = Vec::new();
+    let mut from = 0;
+    while let Some(rel) = low[from..].find(&needle) {
+        let start = from + rel;
+        let after = low.as_bytes().get(start + needle.len()).copied();
+        let boundary = matches!(
+            after,
+            Some(b' ') | Some(b'>') | Some(b'/') | Some(b'\n') | Some(b'\t') | Some(b'\r') | None
+        );
+        let end = low[start..].find('>').map(|e| start + e).unwrap_or(low.len());
+        if boundary {
+            out.push(&html[start..end]);
+        }
+        from = end + 1;
+    }
+    out
+}
+
+/// 内容占位/待办标记（除 lorem 外的显式 TODO 类；大小写不敏感）。
+const TODO_MARKERS: &[&str] = &["todo", "fixme", "tbd", "占位", "待补", "待定", "xxx占位"];
+
+/// 确定性多镜头审查：可访问性 / 内容 / 语义三镜头产结构化发现（无 LLM）。空 = 未发现问题。
+pub fn review(body: &str, _css: &str) -> Vec<ReviewFinding> {
+    let mut out = Vec::new();
+    let low = body.to_ascii_lowercase();
+
+    // ── a11y：图片缺 alt ──
+    let imgs = open_tags(body, "img");
+    let no_alt = imgs
+        .iter()
+        .filter(|t| !t.to_ascii_lowercase().contains(" alt="))
+        .count();
+    if no_alt > 0 {
+        out.push(ReviewFinding {
+            lens: "a11y",
+            severity: "warn",
+            message: format!("{no_alt} 张图片缺少 alt 文本（读屏 / SEO 不友好）"),
+        });
+    }
+
+    // ── a11y：表单控件缺可访问名（无 aria-label 且无 id 关联 label 近似判定）──
+    let controls: usize = ["input", "textarea", "select"]
+        .iter()
+        .flat_map(|n| open_tags(body, n))
+        .filter(|t| {
+            let tl = t.to_ascii_lowercase();
+            // hidden / submit 类不需要标签
+            !tl.contains("type=\"hidden\"")
+                && !tl.contains("type=\"submit\"")
+                && !tl.contains("type=\"button\"")
+                && !tl.contains("aria-label")
+                && !tl.contains("aria-labelledby")
+        })
+        .count();
+    // 有 <label> 存在则认为多数已关联（近似，避免误报）；仅在完全无 label 且有控件时告警。
+    if controls > 0 && !low.contains("<label") {
+        out.push(ReviewFinding {
+            lens: "a11y",
+            severity: "warn",
+            message: format!("{controls} 个表单控件疑似缺少关联 label / aria-label"),
+        });
+    }
+
+    // ── a11y / 语义：缺 h1（页面级产物一般应有唯一主标题）──
+    let h1 = open_tags(body, "h1").len();
+    if h1 == 0 {
+        out.push(ReviewFinding {
+            lens: "semantics",
+            severity: "info",
+            message: "未发现 <h1> 主标题（页面缺少标题层级锚点）".to_string(),
+        });
+    } else if h1 > 1 {
+        out.push(ReviewFinding {
+            lens: "semantics",
+            severity: "info",
+            message: format!("发现 {h1} 个 <h1>（主标题通常应唯一）"),
+        });
+    }
+
+    // ── 内容：占位 / lorem / 待办标记 ──
+    if let Some(marker) = find_placeholder(body) {
+        out.push(ReviewFinding {
+            lens: "content",
+            severity: "warn",
+            message: format!("含占位/填充文本「{marker}」"),
+        });
+    }
+    for m in TODO_MARKERS {
+        if low.contains(m) {
+            out.push(ReviewFinding {
+                lens: "content",
+                severity: "info",
+                message: format!("残留待办标记「{m}」"),
+            });
+            break;
+        }
+    }
+
+    out
+}
+
 /// 把自查结论**合并**进现有 metadata JSON：命中写 `selfCheck` 键，未命中清键（保留
 /// 其它键）。返回序列化后的 metadata（清空后为空对象则回 None）。**只动 `selfCheck`
 /// 键**——不覆盖用户 / agent 写的其它 metadata。
@@ -432,6 +550,30 @@ mod tests {
         // 近空 + 占位 → 报 placeholder（更具体）。
         let v = evaluate("<div>Lorem ipsum</div>", "").expect("flagged");
         assert_eq!(v.flag, "placeholder");
+    }
+
+    #[test]
+    fn review_flags_a11y_content_semantics() {
+        // 图缺 alt + 无 h1 + lorem + 表单无 label。
+        let body = r#"<img src="x.png"><input type="text"><p>Lorem ipsum dolor</p>"#;
+        let f = review(body, "");
+        assert!(f.iter().any(|x| x.lens == "a11y" && x.message.contains("alt")));
+        assert!(f.iter().any(|x| x.lens == "a11y" && x.message.contains("label")));
+        assert!(f.iter().any(|x| x.lens == "semantics" && x.message.contains("h1")));
+        assert!(f.iter().any(|x| x.lens == "content"));
+    }
+
+    #[test]
+    fn review_clean_page_has_no_findings() {
+        let body = r#"<h1>标题</h1><img src="x.png" alt="产品图"><label>名字<input type="text"></label><p>真实文案内容充实。</p>"#;
+        let f = review(body, "");
+        assert!(f.is_empty(), "干净页面不应有发现: {f:?}");
+    }
+
+    #[test]
+    fn review_flags_duplicate_h1() {
+        let f = review("<h1>A</h1><h1>B</h1>", "");
+        assert!(f.iter().any(|x| x.message.contains("2 个 <h1>")));
     }
 
     #[test]

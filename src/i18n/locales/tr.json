@@ -6494,7 +6494,15 @@
       "rechecked": "Yeniden denetlendi",
       "flagged": "Öz denetim olası bir kalite sorunu buldu; lütfen inceleyin",
       "recheck": "Yeniden denetle",
-      "dismiss": "İncelendi işaretle"
+      "dismiss": "İncelendi işaretle",
+      "qualityCheck": "Kalite incelemesi (erişilebilirlik/içerik)",
+      "qualityTitle": "Kalite incelemesi",
+      "allClear": "Erişilebilirlik / içerik / anlamsal sorun bulunamadı",
+      "lens": {
+        "a11y": "Erişilebilirlik",
+        "content": "İçerik",
+        "semantics": "Anlamsal"
+      }
     },
     "kit": {
       "title": "Tasarım sistemi kiti",

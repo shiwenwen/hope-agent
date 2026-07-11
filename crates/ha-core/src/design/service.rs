@@ -1774,6 +1774,18 @@ pub fn render_clean_html_for_artifact(a: &DesignArtifact) -> Result<String> {
     Ok(render_clean(kind, &a.title, &parts, &tokens))
 }
 
+/// owner 平面：对产物跑确定性多镜头质量审查（a11y / 内容 / 语义），返回结构化发现。
+/// media 形态（image/audio）无源码 HTML 可查 → 空。
+pub fn quality_review_artifact(id: &str) -> Result<Vec<super::selfcheck::ReviewFinding>> {
+    let a = open_db()?.get_artifact(id)?.context("artifact not found")?;
+    if matches!(a.kind.as_str(), "image" | "audio") {
+        return Ok(Vec::new());
+    }
+    let dir = paths::design_artifact_dir(&a.project_id, &a.id)?;
+    let parts = read_source(&dir)?;
+    Ok(super::selfcheck::review(&parts.body_html, &parts.css))
+}
+
 /// 公开路由：token → 产物干净快照 HTML。token 查不到 / 产物已删 → None（路由回 404）。
 pub fn render_share_html(token: &str) -> Result<Option<String>> {
     let db = open_db()?;

@@ -6494,7 +6494,15 @@
       "rechecked": "Re-checked",
       "flagged": "Self-check flagged a possible quality issue — please review",
       "recheck": "Re-check",
-      "dismiss": "Mark reviewed"
+      "dismiss": "Mark reviewed",
+      "qualityCheck": "Quality review (a11y / content)",
+      "qualityTitle": "Quality review",
+      "allClear": "No accessibility / content / semantic issues found",
+      "lens": {
+        "a11y": "A11y",
+        "content": "Content",
+        "semantics": "Semantics"
+      }
     },
     "kit": {
       "title": "Design system kit",

@@ -6494,7 +6494,15 @@
       "rechecked": "已重新检查",
       "flagged": "自查发现可能的质量问题，建议复查",
       "recheck": "重新检查",
-      "dismiss": "标记已复查"
+      "dismiss": "标记已复查",
+      "qualityCheck": "质量审查（可访问性/内容）",
+      "qualityTitle": "质量审查",
+      "allClear": "未发现可访问性 / 内容 / 语义问题",
+      "lens": {
+        "a11y": "可访问性",
+        "content": "内容",
+        "semantics": "语义"
+      }
     },
     "kit": {
       "title": "设计系统套件",

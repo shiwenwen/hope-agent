@@ -6494,7 +6494,15 @@
       "rechecked": "Đã kiểm tra lại",
       "flagged": "Tự kiểm tra phát hiện vấn đề chất lượng có thể có — hãy xem lại",
       "recheck": "Kiểm tra lại",
-      "dismiss": "Đánh dấu đã xem"
+      "dismiss": "Đánh dấu đã xem",
+      "qualityCheck": "Đánh giá chất lượng (a11y / nội dung)",
+      "qualityTitle": "Đánh giá chất lượng",
+      "allClear": "Không phát hiện vấn đề về khả năng truy cập / nội dung / ngữ nghĩa",
+      "lens": {
+        "a11y": "Truy cập",
+        "content": "Nội dung",
+        "semantics": "Ngữ nghĩa"
+      }
     },
     "kit": {
       "title": "Bộ công cụ hệ thống thiết kế",

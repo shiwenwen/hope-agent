@@ -6494,7 +6494,15 @@
       "rechecked": "다시 검사함",
       "flagged": "자체 점검에서 품질 문제가 감지되었습니다. 검토하세요",
       "recheck": "다시 검사",
-      "dismiss": "검토함으로 표시"
+      "dismiss": "검토함으로 표시",
+      "qualityCheck": "품질 검토(접근성/콘텐츠)",
+      "qualityTitle": "품질 검토",
+      "allClear": "접근성 / 콘텐츠 / 시맨틱 문제가 없습니다",
+      "lens": {
+        "a11y": "접근성",
+        "content": "콘텐츠",
+        "semantics": "시맨틱"
+      }
     },
     "kit": {
       "title": "디자인 시스템 키트",

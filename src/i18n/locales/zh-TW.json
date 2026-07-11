@@ -6494,7 +6494,15 @@
       "rechecked": "已重新檢查",
       "flagged": "自查發現可能的品質問題，建議複查",
       "recheck": "重新檢查",
-      "dismiss": "標記已複查"
+      "dismiss": "標記已複查",
+      "qualityCheck": "品質審查（無障礙/內容）",
+      "qualityTitle": "品質審查",
+      "allClear": "未發現無障礙 / 內容 / 語意問題",
+      "lens": {
+        "a11y": "無障礙",
+        "content": "內容",
+        "semantics": "語意"
+      }
     },
     "kit": {
       "title": "設計系統套件",

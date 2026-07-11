@@ -1999,6 +1999,10 @@ fn build_router_with_cors(
             get(routes::design::list_deployments),
         )
         .route(
+            "/design/artifacts/{id}/quality-review",
+            get(routes::design::quality_review_artifact),
+        )
+        .route(
             "/design/deploy/vercel/config",
             get(routes::design::get_vercel_config).put(routes::design::save_vercel_config),
         )

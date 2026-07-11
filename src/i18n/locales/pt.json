@@ -6494,7 +6494,15 @@
       "rechecked": "Verificado novamente",
       "flagged": "A autoverificação detectou um possível problema de qualidade; revise",
       "recheck": "Verificar de novo",
-      "dismiss": "Marcar revisado"
+      "dismiss": "Marcar revisado",
+      "qualityCheck": "Revisão de qualidade (a11y / conteúdo)",
+      "qualityTitle": "Revisão de qualidade",
+      "allClear": "Nenhum problema de acessibilidade / conteúdo / semântica encontrado",
+      "lens": {
+        "a11y": "Acessibilidade",
+        "content": "Conteúdo",
+        "semantics": "Semântica"
+      }
     },
     "kit": {
       "title": "Kit do sistema de design",

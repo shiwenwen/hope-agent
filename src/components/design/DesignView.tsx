@@ -33,6 +33,8 @@ import {
   FileText,
   Mail,
   GitFork,
+  ListChecks,
+  CheckCircle2,
   Sparkles,
   StickyNote,
   MousePointerClick,
@@ -1870,6 +1872,29 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
     },
     [tx, openArtifact, loadArtifacts, t],
   )
+
+  // 多镜头质量审查（确定性 a11y / 内容 / 语义）：owner 按需跑，弹结果列表。
+  const [reviewFindings, setReviewFindings] = useState<
+    { lens: string; severity: string; message: string }[] | null
+  >(null)
+  const [reviewing, setReviewing] = useState(false)
+  const runQualityReview = useCallback(async () => {
+    const aid = activeArtifactRef.current?.id
+    if (!aid || reviewing) return
+    setReviewing(true)
+    try {
+      const f = await tx.call<{ lens: string; severity: string; message: string }[]>(
+        "review_design_artifact_cmd",
+        { id: aid },
+      )
+      setReviewFindings(Array.isArray(f) ? f : [])
+    } catch (e) {
+      logger.error("design", "DesignView::qualityReview", "review failed", e)
+      toast.error(t("design.err.load", "加载失败"))
+    } finally {
+      setReviewing(false)
+    }
+  }, [tx, reviewing, t])
 
   // 回灌对话：让 AI 按批注精修产物（一键快捷路径）。design-space 原生——产物就地更新新版本、
   // 无需切走；`design:reload` 事件自动刷新预览。
@@ -3781,6 +3806,23 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                         </Button>
                       </IconTip>
                     )}
+                    {activeArtifact.kind !== "image" && activeArtifact.kind !== "audio" && (
+                      <IconTip label={t("design.review.qualityCheck", "质量审查（可访问性/内容）")} side="bottom">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6"
+                          disabled={reviewing}
+                          onClick={() => void runQualityReview()}
+                        >
+                          {reviewing ? (
+                            <Loader2Icon className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <ListChecks className="h-3.5 w-3.5" />
+                          )}
+                        </Button>
+                      </IconTip>
+                    )}
                     <IconTip label={t("design.history", "版本历史")} side="bottom">
                       <Button variant="ghost" size="icon" className="h-6 w-6" onClick={openHistory}>
                         <History className="h-3.5 w-3.5" />
@@ -4520,6 +4562,50 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
           )}
         </div>
       )}
+
+      {/* 多镜头质量审查结果 */}
+      <Dialog open={reviewFindings !== null} onOpenChange={(o) => !o && setReviewFindings(null)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ListChecks className="h-4 w-4" />
+              {t("design.review.qualityTitle", "质量审查")}
+            </DialogTitle>
+          </DialogHeader>
+          {reviewFindings && reviewFindings.length === 0 ? (
+            <div className="flex flex-col items-center gap-2 py-6 text-center text-sm text-muted-foreground">
+              <CheckCircle2 className="h-7 w-7 text-emerald-500" />
+              {t("design.review.allClear", "未发现可访问性 / 内容 / 语义问题")}
+            </div>
+          ) : (
+            <ul className="max-h-[55vh] space-y-1.5 overflow-y-auto">
+              {reviewFindings?.map((f, i) => (
+                <li
+                  key={i}
+                  className="flex items-start gap-2 rounded-lg border bg-muted/30 px-2.5 py-2 text-xs"
+                >
+                  <span
+                    className={cn(
+                      "mt-0.5 shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium uppercase",
+                      f.severity === "warn"
+                        ? "bg-amber-500/15 text-amber-600 dark:text-amber-400"
+                        : "bg-sky-500/15 text-sky-600 dark:text-sky-400",
+                    )}
+                  >
+                    {t(`design.review.lens.${f.lens}`, f.lens)}
+                  </span>
+                  <span className="min-w-0 flex-1">{f.message}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setReviewFindings(null)}>
+              {t("common.close", "关闭")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Reverse-extraction dialog (D2) */}
       <Dialog open={extractOpen} onOpenChange={setExtractOpen}>

@@ -87,6 +87,16 @@ pub async fn create_design_artifact_cmd(
         .map_err(Into::into)
 }
 
+/// 对产物跑确定性多镜头质量审查（a11y / 内容 / 语义），返回结构化发现。
+#[tauri::command]
+pub async fn review_design_artifact_cmd(
+    id: String,
+) -> Result<Vec<ha_core::design::selfcheck::ReviewFinding>, CmdError> {
+    ha_core::blocking::run_blocking(move || service::quality_review_artifact(&id))
+        .await
+        .map_err(Into::into)
+}
+
 /// 保存 deck 演讲者备注（按 slide 顺序）。
 #[tauri::command]
 pub async fn set_design_presenter_notes_cmd(

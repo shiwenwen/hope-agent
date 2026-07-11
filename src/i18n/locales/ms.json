@@ -6494,7 +6494,15 @@
       "rechecked": "Disemak semula",
       "flagged": "Semakan kendiri mengesan isu kualiti berkemungkinan — sila semak",
       "recheck": "Semak semula",
-      "dismiss": "Tanda disemak"
+      "dismiss": "Tanda disemak",
+      "qualityCheck": "Semakan kualiti (a11y / kandungan)",
+      "qualityTitle": "Semakan kualiti",
+      "allClear": "Tiada isu kebolehcapaian / kandungan / semantik ditemui",
+      "lens": {
+        "a11y": "Kebolehcapaian",
+        "content": "Kandungan",
+        "semantics": "Semantik"
+      }
     },
     "kit": {
       "title": "Kit sistem reka bentuk",
