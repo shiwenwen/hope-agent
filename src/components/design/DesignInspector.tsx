@@ -225,7 +225,10 @@ function QuadRow({
   }
   const commit = (i: number) => {
     const n = Math.round(parseFloat(draft[i]) || 0)
-    if (!linked && n === vals[i]) return // 未变不 commit（防聚焦-失焦原样写回）
+    if (!linked && n === vals[i]) {
+      onLive?.(sideKey(QUAD_SIDES[i]), `${vals[i]}px`) // 未变 → 回滚 live 预览（review LOW）
+      return
+    }
     if (linked) {
       // **单条 shorthand patch**（review HIGH）：锁定态改一边=四边全等，写 `padding: Npx` 一次
       // 即可——绝不发 4 条共用同一 bodyHash 的 longhand patch（后 3 条必被 stale-write 守卫拒、
@@ -314,11 +317,14 @@ function NumberRow({
   // NaN / 空守卫（B0-7）：非法输入回填原值、绝不静默 commit 成 0 抹掉尺寸；负值仍合法（不钳）。
   const commit = () => {
     const n = parseFloat(v)
-    if (!Number.isFinite(n)) {
-      setV(String(value))
+    if (Number.isFinite(n) && n !== value) {
+      onCommit(prop, `${n}${suffix}`)
       return
     }
-    if (n !== value) onCommit(prop, `${n}${suffix}`)
+    // 未提交（非法 / 未变）：回滚输入框 + iframe live 预览到原值——打字中途 onLive 可能已把画布改成
+    // 别的值，若不回滚画布会停在未落盘的预览、与源码不一致（review LOW）。
+    setV(String(value))
+    onLive?.(prop, `${value}${suffix}`)
   }
   return (
     <label className="flex items-center justify-between gap-2 text-sm">
@@ -366,7 +372,13 @@ function TextRow({
   }
   // 脏值守卫：未改不 commit（尺寸值来自 computed，聚焦+失焦不该把 `1440px` 写回一个 auto 元素，review #4）。
   const commit = () => {
-    if (v.trim() !== value.trim()) onCommit(prop, v.trim())
+    if (v.trim() !== value.trim()) {
+      onCommit(prop, v.trim())
+      return
+    }
+    // 未提交 → 回滚 iframe live 预览到原值（打字中途 onLive 可能已改画布，review LOW）。
+    setV(value)
+    onLive?.(prop, value)
   }
   return (
     <label className="flex items-center justify-between gap-2 text-sm">

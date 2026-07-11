@@ -525,14 +525,15 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
   const startChatResize = useCallback(
     (e: React.PointerEvent) => {
       e.preventDefault()
-      // setPointerCapture（W4）：把手捕获指针，拖到窗口外松手也能收到 pointerup 结束拖拽——此前用
-      // window 监听，指针出窗后 pointerup 丢失，回来变成甩不掉的粘滞拖拽。
+      // setPointerCapture（W4）：把手捕获指针，拖到窗口外松手也能收到 pointerup 结束拖拽（捕获的
+      // 指针事件仍冒泡到 window，且在指针出窗后照常触发），杜绝甩不掉的粘滞拖拽。监听始终挂 window：
+      // capture 失败也退回原 window 语义（在窗内正常、出窗可能丢 up，但不再泄漏监听）。
       const handle = e.currentTarget as HTMLElement
       const pointerId = e.pointerId
       try {
         handle.setPointerCapture(pointerId)
       } catch {
-        /* 不支持则回退 window 监听语义 */
+        /* 不支持 → 退回纯 window 监听语义 */
       }
       const startX = e.clientX
       const startW = chatWidth
@@ -545,11 +546,11 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
         } catch {
           /* noop */
         }
-        handle.removeEventListener("pointermove", onMove)
-        handle.removeEventListener("pointerup", onUp)
+        window.removeEventListener("pointermove", onMove)
+        window.removeEventListener("pointerup", onUp)
       }
-      handle.addEventListener("pointermove", onMove)
-      handle.addEventListener("pointerup", onUp)
+      window.addEventListener("pointermove", onMove)
+      window.addEventListener("pointerup", onUp)
     },
     [chatWidth],
   )
@@ -1880,6 +1881,11 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
   artifactsRef.current = artifacts
   // 产物切换的**同步**目标 id（openArtifact 异步、activeArtifactRef 落后渲染，快速连按用它推进不卡）。
   const switchTargetRef = useRef<string | null>(null)
+  // 激活 chip 自动滚入视野（W4）：仅在激活产物变化时滚一次，不抢占用户手动横滚。
+  const activeChipRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    activeChipRef.current?.scrollIntoView({ block: "nearest", inline: "nearest" })
+  }, [activeArtifactId])
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const ae = document.activeElement as HTMLElement | null
@@ -2375,11 +2381,14 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
       try {
         await p
         await refreshView()
+        // 精修成功后后端已自动 resolve 该批注（W3-J）→ **重载批注**让面板即时反映已解决态（review：
+        // 否则面板仍显示未解决、用户可能对同一条反复精修）。与其它批注写操作一致。
+        await loadComments()
       } catch (e) {
         logger.error("design", "DesignView::refineComment", "refine failed", e)
       }
     },
-    [tx, t, refreshView],
+    [tx, t, refreshView, loadComments],
   )
 
   // 载入 / 清空批注：进批注模式或切产物时拉取；退出清空。
@@ -3065,24 +3074,28 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
     const a = activeArtifactRef.current
     if (!a || (a.status !== "ready" && a.status !== "needs_review")) return
     const tid = toast.loading(t("design.copyImage.working", "正在复制图片…"))
-    try {
-      let blob: Blob
+    // WebKit（桌面 WKWebView）要求 clipboard.write 在用户手势内**同步**发起——故把 blob 以 Promise 传给
+    // ClipboardItem（WebKit 保留手势激活直到 Promise resolve），而非 await 出 blob 后再 write（review
+    // MEDIUM：await 后手势失效被拒、主平台不可用）。write 前无 await。
+    const blobPromise: Promise<Blob> = (async () => {
       try {
         const nat = await tx.call<{ data: string; mime: string }>("export_design_native_cmd", {
           id: a.id,
           format: "png",
         })
-        blob = base64ToBlob(nat.data, "image/png")
+        return base64ToBlob(nat.data, "image/png")
       } catch {
         const res = await tx.call<{ content: string }>("export_design_artifact_cmd", {
           id: a.id,
           format: "html",
         })
-        blob = await exportPng(res.content, a.kind as ArtifactKind, a.viewportW, {
+        return exportPng(res.content, a.kind as ArtifactKind, a.viewportW, {
           scale: designConfig?.exportScale ?? 2,
         })
       }
-      await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })])
+    })()
+    try {
+      await navigator.clipboard.write([new ClipboardItem({ "image/png": blobPromise })])
       toast.success(t("design.copyImage.done", "已复制图片到剪贴板"), { id: tid })
     } catch (e) {
       logger.error("design", "DesignView::handleCopyImage", "copy image failed", e)
@@ -4099,13 +4112,9 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                   return (
                     <div
                       key={a.id}
-                      // 激活 chip 自动滚入视野（W4）：AI 新建页面后激活 chip 常在横向溢出区外看不到。
-                      // block/inline:nearest 已在视野时是 no-op，不抖动。
-                      ref={
-                        active
-                          ? (el) => el?.scrollIntoView({ block: "nearest", inline: "nearest" })
-                          : undefined
-                      }
+                      // 激活 chip 挂稳定 ref，仅在**激活产物变化**时经 effect 滚一次（review LOW：内联
+                      // callback ref 每次 render 都跑、会抢占用户对 chip 条的手动横向滚动）。
+                      ref={active ? activeChipRef : undefined}
                       className="group/chip relative shrink-0"
                     >
                       {renaming ? (
