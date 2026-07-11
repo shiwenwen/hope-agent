@@ -29,6 +29,14 @@ const ATTACHMENT_META_KEY_ACTIVE_MEMORY = "active_memory"
 const ATTACHMENT_META_KEY_USED_MEMORY_REFS = "used_memory_refs"
 const ATTACHMENT_META_KEY_RETRIEVAL_PLANNER = "retrieval_planner"
 
+export function shouldSendDraftWorkflowMode(
+  currentSessionId: string | null,
+  incognitoEnabled: boolean,
+  draftWorkflowMode: "off" | "on" | "ultracode",
+): boolean {
+  return !currentSessionId && !incognitoEnabled && draftWorkflowMode !== "off"
+}
+
 /** Parse `__MEDIA_ITEMS__<json>\n<text>` header from a tool result, if present.
  *  Returns the structured items; falls back to undefined on malformed JSON. */
 function parseMediaItemsHeader(result: string): MediaItem[] | undefined {

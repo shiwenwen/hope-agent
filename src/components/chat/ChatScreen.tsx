@@ -85,7 +85,12 @@ import { useChatStream } from "./useChatStream"
 import { useChatStreamReattach } from "./hooks/useChatStreamReattach"
 import { usePlanMode } from "./plan-mode/usePlanMode"
 import { useTaskProgressSnapshot } from "./tasks/useTaskProgressSnapshot"
-import { activeMemoryRecallToUsedRefs, computeContextUsage, formatContextUsage } from "./chatUtils"
+import {
+  activeMemoryRecallToUsedRefs,
+  computeContextUsage,
+  formatContextUsage,
+  shouldSendDraftWorkflowMode,
+} from "./chatUtils"
 import { recentUserInputHistory } from "./quick-prompts/messageQuickPrompts"
 import {
   COMPACT_CONTEXT_UPDATED_EVENT,
@@ -3751,7 +3756,11 @@ export default function ChatScreen({
                       onSend={() =>
                         stream.handleSend(
                           undefined,
-                          !session.currentSessionId && draftWorkflowMode !== "off"
+                          shouldSendDraftWorkflowMode(
+                            session.currentSessionId,
+                            incognitoEnabled,
+                            draftWorkflowMode,
+                          )
                             ? { workflowMode: draftWorkflowMode }
                             : undefined,
                         )

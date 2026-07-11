@@ -10,7 +10,18 @@ import {
   mergeMessagesByDbId,
   parseSessionMessages,
   reloadAndMergeSessionMessages,
+  shouldSendDraftWorkflowMode,
 } from "./chatUtils"
+
+describe("shouldSendDraftWorkflowMode", () => {
+  test("only forwards an enabled mode for a non-incognito new session", () => {
+    expect(shouldSendDraftWorkflowMode(null, false, "on")).toBe(true)
+    expect(shouldSendDraftWorkflowMode(null, false, "ultracode")).toBe(true)
+    expect(shouldSendDraftWorkflowMode(null, false, "off")).toBe(false)
+    expect(shouldSendDraftWorkflowMode(null, true, "on")).toBe(false)
+    expect(shouldSendDraftWorkflowMode("session-1", false, "on")).toBe(false)
+  })
+})
 
 function sessionMessage(patch: Partial<SessionMessage>): SessionMessage {
   return {
