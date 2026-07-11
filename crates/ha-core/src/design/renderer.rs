@@ -217,7 +217,7 @@ const STORAGE_POLYFILL: &str = "<script>(function(){function mk(){var s={};retur
 /// 编辑态渲染版本：**inspector bridge / oid 注入等编辑工具层**变更时 +1。烧进可编辑 `index.html`
 /// 的 `data-ds-r` 属性；`service::ensure_artifact_render_fresh` 据此自愈老产物——工具层升级无需
 /// 用户重新编辑即对既有产物生效（bridge 烧死在 index.html，否则老产物永远用旧工具）。
-pub const RENDER_VERSION: u32 = 11;
+pub const RENDER_VERSION: u32 = 12;
 
 pub fn build_artifact_html(
     kind: ArtifactKind,
@@ -268,12 +268,18 @@ pub fn build_artifact_html(
   function show(n){i=Math.max(0,Math.min(slides.length-1,n));
     slides.forEach(function(s,k){s.classList.toggle('active',k===i)});
     pager.textContent=(i+1)+' / '+slides.length;report();}
+  // 就地编辑守卫：inspector bridge 编辑元素时设 contenteditable，其子节点亦继承 isContentEditable。
+  // 编辑期放行按键/点击给编辑器（打字、方向键移光标、点击移光标），翻页器不再抢——否则 deck 就地
+  // 改字幕时空格打不出还翻页、方向键翻页、编辑区内点击=半屏翻页。
+  function editing(e){var t=e&&e.target;return !!(t&&t.isContentEditable);}
   document.addEventListener('keydown',function(e){
+    if(editing(e))return;
     if(e.key==='ArrowRight'||e.key===' '||e.key==='PageDown'){e.preventDefault();show(i+1)}
     else if(e.key==='ArrowLeft'||e.key==='PageUp'){e.preventDefault();show(i-1)}
     else if(e.key==='Home'){e.preventDefault();show(0)}
     else if(e.key==='End'){e.preventDefault();show(slides.length-1)}});
   document.addEventListener('click',function(e){
+    if(editing(e))return;
     show(e.clientX>window.innerWidth/2?i+1:i-1)});
   window.addEventListener('message',function(e){var d=e.data||{};
     if(d.type==='ds_slide_next')show(i+1);
