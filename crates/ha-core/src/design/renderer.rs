@@ -217,7 +217,7 @@ const STORAGE_POLYFILL: &str = "<script>(function(){function mk(){var s={};retur
 /// 编辑态渲染版本：**inspector bridge / oid 注入等编辑工具层**变更时 +1。烧进可编辑 `index.html`
 /// 的 `data-ds-r` 属性；`service::ensure_artifact_render_fresh` 据此自愈老产物——工具层升级无需
 /// 用户重新编辑即对既有产物生效（bridge 烧死在 index.html，否则老产物永远用旧工具）。
-pub const RENDER_VERSION: u32 = 13;
+pub const RENDER_VERSION: u32 = 14;
 
 pub fn build_artifact_html(
     kind: ArtifactKind,
@@ -404,10 +404,13 @@ const INSPECTOR_BRIDGE: &str = r#"<script>
     if(tnMeta){
       var span=editing;editing=null;var m=tnMeta;tnMeta=null;
       var nt=span.textContent||'';span.removeAttribute('contenteditable');
-      var finalText=(commit&&nt!==m.orig)?nt:m.orig;
+      // 清空裸文本会让源码丢掉该文本节点 → 后续 childNode 下标漂移、撤销落到元素节点上 TextNodeNotFound
+      // （review）。故空 / 纯空白结果按取消处理：还原原文、不提交（删文本走删元素，不走文本编辑）。
+      var changed=commit&&nt!==m.orig&&nt.replace(/\s/g,'').length>0;
+      var finalText=changed?nt:m.orig;
       if(span.parentNode)span.parentNode.replaceChild(document.createTextNode(finalText),span);
       m.host.style.outline='2px solid #2563eb';
-      if(commit&&nt!==m.orig){
+      if(changed){
         parent.postMessage({type:'ds_text_node_commit',oid:m.host.getAttribute('data-ds-oid'),
           nodeIndex:m.nodeIndex,text:nt,before:m.orig},'*');
         parent.postMessage({type:'ds_selected',payload:info(m.host)},'*');

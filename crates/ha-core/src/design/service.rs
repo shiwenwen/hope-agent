@@ -1219,6 +1219,15 @@ fn clear_generation_cancel(artifact_id: &str, flag: &Arc<AtomicBool>) {
     }
 }
 
+/// 该产物的取消旗是否已置（供 finalize 在锁内重查，闭合 stream 检查旗与 finalize 之间的 TOCTOU）。
+fn generation_cancelled(artifact_id: &str) -> bool {
+    generation_cancels()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(artifact_id)
+        .is_some_and(|f| f.load(Ordering::SeqCst))
+}
+
 /// delete 时取消该产物在途流式生成（止其白流 + finalize 写已删目录）。
 fn cancel_generation(artifact_id: &str) {
     if let Some(flag) = generation_cancels()
@@ -1473,6 +1482,11 @@ pub fn set_artifact_dir(id: &str, rtl: bool) -> Result<DesignArtifact> {
     let _guard = lock.lock().unwrap_or_else(|e| e.into_inner());
     let db = open_db()?;
     let a = db.get_artifact(id)?.context("artifact not found")?;
+    // 生成中不改（fail-closed）：owner 变更会读到空壳源 + bump 版本号，与流式 finalize 的
+    // create_version 撞 UNIQUE 使生成永久卡死 / 覆盖 stream-host 壳（review MEDIUM）。
+    if a.status == "generating" {
+        anyhow::bail!("产物生成中，请等待完成后再修改");
+    }
     let kind = ArtifactKind::from_str(&a.kind)
         .with_context(|| format!("unknown artifact kind: {}", a.kind))?;
     if matches!(kind, ArtifactKind::Image | ArtifactKind::Audio) {
@@ -1574,6 +1588,11 @@ pub fn patch_page_style(id: &str, props: Vec<(String, String)>) -> Result<Design
     let _guard = lock.lock().unwrap_or_else(|e| e.into_inner());
     let db = open_db()?;
     let a = db.get_artifact(id)?.context("artifact not found")?;
+    // 生成中不改（fail-closed）：bump 版本号会与流式 finalize 的 create_version 撞 UNIQUE 使生成
+    // 永久卡死 + 版本历史损坏（review MEDIUM）。
+    if a.status == "generating" {
+        anyhow::bail!("产物生成中，请等待完成后再修改");
+    }
     let kind = ArtifactKind::from_str(&a.kind)
         .with_context(|| format!("unknown artifact kind: {}", a.kind))?;
     if matches!(
@@ -1816,6 +1835,12 @@ pub fn finalize_generating_artifact(
     let Some(a) = db.get_artifact(id)? else {
         return Ok(None);
     };
+    // 锁内重查：产物已被「停止生成」降级（status != generating）或取消旗已置（停止先置旗、degrade
+    // 可能还没抢到锁）→ 静默 no-op，镜像 degrade_to_placeholder 的「谁先到谁定、后到者不覆盖」对称性。
+    // 否则冲刺线竞态下 finalize 会把用户已停止的产物照常收成 ready 并 emit generate_done（review MEDIUM）。
+    if a.status != "generating" || generation_cancelled(id) {
+        return Ok(None);
+    }
     let kind = ArtifactKind::from_str(&a.kind)
         .with_context(|| format!("unknown artifact kind: {}", a.kind))?;
     let dir = paths::design_artifact_dir(&a.project_id, &a.id)?;
@@ -2514,6 +2539,7 @@ pub fn insert_element(
     artifact_id: &str,
     parent_oid: Option<u32>,
     after_oid: Option<u32>,
+    insert_offset: usize,
     html: &str,
     expected_hash: Option<String>,
 ) -> Result<DesignArtifact> {
@@ -2533,7 +2559,7 @@ pub fn insert_element(
             anyhow::bail!("stale write: source changed, please re-select");
         }
     }
-    let r = patch::apply_insert_patch(&body, &map, parent_oid, after_oid, html, None)
+    let r = patch::apply_insert_patch(&body, &map, parent_oid, after_oid, insert_offset, html, None)
         .map_err(|e| anyhow::anyhow!(e.to_string()))?;
     update_artifact(UpdateArtifactInput {
         id: a.id.clone(),

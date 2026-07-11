@@ -85,6 +85,8 @@ pub struct InsertElementBody {
     pub parent_oid: Option<u32>,
     #[serde(default)]
     pub after_oid: Option<u32>,
+    #[serde(default)]
+    pub insert_offset: usize,
     pub html: String,
     #[serde(default)]
     pub expected_hash: Option<String>,
@@ -775,6 +777,7 @@ pub async fn insert_element(
                 &id,
                 body.parent_oid,
                 body.after_oid,
+                body.insert_offset,
                 &body.html,
                 body.expected_hash,
             )

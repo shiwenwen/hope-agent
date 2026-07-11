@@ -358,12 +358,17 @@ impl std::fmt::Display for PatchError {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct RemovedElement {
-    /// 被删元素在源码里的完整切片（含内部内容与闭合）。
+    /// 被删元素在源码里的完整切片（含内部内容与闭合）。空白前导 gap 时含 gap、文本 gap 时不含。
     pub html: String,
     /// 最近祖先元素 oid（`None` = 顶层元素，无 body 包裹）。
     pub parent_oid: Option<u32>,
     /// 同层前一个元素兄弟 oid（`None` = 是首个子元素）。重插锚点，优先于 `parent_oid`。
     pub after_oid: Option<u32>,
+    /// 重插时从锚点（前兄弟 end / 父 open_end / 0）再前进的字节数——跳过**保留在原地的前导文本
+    /// gap**。空白 gap 已并入 `html` 删掉故为 0；文本 gap 不吞（只删元素本体）、留在源里，重插须
+    /// 落到它之后才字节精确。
+    #[serde(default)]
+    pub insert_offset: usize,
 }
 
 impl std::error::Error for PatchError {}
@@ -704,15 +709,24 @@ pub fn remove_element_with_context(
             }
         }
     }
-    let anchor = if after_oid.is_some() {
+    let candidate = if after_oid.is_some() {
         after_end
     } else {
         parent_content_start
     };
+    // 前导 gap = [candidate, start)。**只有全空白**才并入删除范围（源码整洁 + 撤销字节精确）；
+    // 含非空白（如 inline 布局 `<span>图标</span> 标签 <b>…</b>` 里的「 标签 」）则**只删元素本体**、
+    // gap 留在原地——绝不静默吞掉相邻裸文本（review MEDIUM）。重插锚点用 insert_offset 跳过留下的 gap。
+    let gap = &source[candidate..start];
+    let (remove_start, insert_offset) = if gap.trim().is_empty() {
+        (candidate, 0usize)
+    } else {
+        (start, gap.len())
+    };
 
-    let html = source[anchor..end].to_string();
+    let html = source[remove_start..end].to_string();
     let mut new_source = String::with_capacity(source.len());
-    new_source.push_str(&source[..anchor]);
+    new_source.push_str(&source[..remove_start]);
     new_source.push_str(&source[end..]);
     Ok((
         PatchResult { new_source },
@@ -720,6 +734,7 @@ pub fn remove_element_with_context(
             html,
             parent_oid,
             after_oid,
+            insert_offset,
         },
     ))
 }
@@ -733,6 +748,7 @@ pub fn apply_insert_patch(
     map: &[OidEntry],
     parent_oid: Option<u32>,
     after_oid: Option<u32>,
+    insert_offset: usize,
     html: &str,
     expected_hash: Option<&str>,
 ) -> Result<PatchResult, PatchError> {
@@ -741,7 +757,7 @@ pub fn apply_insert_patch(
             return Err(PatchError::Stale);
         }
     }
-    let pos = if let Some(aid) = after_oid {
+    let anchor = if let Some(aid) = after_oid {
         let e = find_entry(map, aid).ok_or(PatchError::OidNotFound(aid))?;
         element_full_range(source, e).ok_or(PatchError::NoClose(aid))?.1
     } else if let Some(pid) = parent_oid {
@@ -749,6 +765,8 @@ pub fn apply_insert_patch(
     } else {
         0
     };
+    // 跳过删除时留在原地的前导文本 gap（insert_offset 字节），落到它之后才字节精确。钳到源码长度防越界。
+    let pos = (anchor + insert_offset).min(source.len());
     let mut new_source = String::with_capacity(source.len() + html.len());
     new_source.push_str(&source[..pos]);
     new_source.push_str(html);
@@ -1252,27 +1270,41 @@ mod tests {
 
     // ── 结构 undo：removed_element_context + apply_insert_patch（删除可撤销）──────
 
-    /// 删任意 oid 元素（含前导空白）后，用捕获的 context 经 apply_insert_patch 重插，应逐字节还原。
+    /// 删 oid 元素 → 撤销（重插）应逐字节还原；再重做（同 anchor 语义重删）→ 再撤销仍字节精确
+    /// （守 redo 与 delete 对称的 byte-exact 红线，review HIGH）。
     fn assert_delete_undo_roundtrip(src: &str) {
         let (_, map) = annotate(src);
         for e in &map {
             let (removed_patch, removed) =
                 remove_element_with_context(src, &map, e.oid, None).unwrap();
             let after_del = removed_patch.new_source;
-            // 重插用**删后**的源码与其 map（模拟真实 undo：源已变、oid 已重排）。
-            let (_, map2) = annotate(&after_del);
-            let restored = apply_insert_patch(
-                &after_del,
-                &map2,
-                removed.parent_oid,
-                removed.after_oid,
-                &removed.html,
-                None,
-            )
-            .unwrap_or_else(|e2| panic!("insert failed for oid {}: {e2}", e.oid))
-            .new_source;
-            assert_eq!(restored, src, "删 oid {} 再撤销未还原", e.oid);
+            let undo1 = reinsert(&after_del, &removed);
+            assert_eq!(undo1, src, "删 oid {} 再撤销未还原", e.oid);
+            // 重做 = 在还原后的源上按同一 owner 语义重删（对齐前端 redo 走 remove_design_element_cmd）；
+            // 重删产出应与首删一致，其 removed context 再撤销仍字节精确。
+            let (_, map_undo) = annotate(&undo1);
+            let (redo_patch, removed2) =
+                remove_element_with_context(&undo1, &map_undo, e.oid, None).unwrap();
+            assert_eq!(redo_patch.new_source, after_del, "重做删 oid {} 与首删不一致", e.oid);
+            let undo2 = reinsert(&redo_patch.new_source, &removed2);
+            assert_eq!(undo2, src, "删 oid {} 重做后再撤销未还原（byte-exact 红线）", e.oid);
         }
+    }
+
+    /// 在删后的源上按 removed context 重插（模拟真实 undo：源已变、oid 已重排）。
+    fn reinsert(after_del: &str, removed: &RemovedElement) -> String {
+        let (_, map2) = annotate(after_del);
+        apply_insert_patch(
+            after_del,
+            &map2,
+            removed.parent_oid,
+            removed.after_oid,
+            removed.insert_offset,
+            &removed.html,
+            None,
+        )
+        .expect("insert failed")
+        .new_source
     }
 
     #[test]
@@ -1296,11 +1328,30 @@ mod tests {
     }
 
     #[test]
+    fn delete_undo_roundtrip_text_gap_between_siblings() {
+        // 兄弟间有**非空白文本**（inline 布局）——删元素不吞相邻文本、undo/redo 仍字节精确。
+        assert_delete_undo_roundtrip("<p><b>x</b> 价格说明 <i>y</i></p>");
+        assert_delete_undo_roundtrip("<li><span>icon</span> 重要备注 <p>正文</p></li>");
+    }
+
+    #[test]
+    fn delete_text_gap_keeps_adjacent_text() {
+        // 删 <i>y</i>：其前有文本 gap「 价格说明 」——只删元素本体，绝不吞掉相邻裸文本。
+        let src = "<p><b>x</b> 价格说明 <i>y</i></p>";
+        let (_, map) = annotate(src);
+        let i = map.iter().find(|e| e.tag == "i").unwrap();
+        let (r, removed) = remove_element_with_context(src, &map, i.oid, None).unwrap();
+        assert_eq!(r.new_source, "<p><b>x</b> 价格说明 </p>", "相邻文本被误删");
+        assert!(!removed.html.contains("价格说明"), "html 不应吞相邻文本");
+        assert!(removed.insert_offset > 0, "文本 gap 应有 insert_offset");
+    }
+
+    #[test]
     fn insert_patch_stale_guard() {
         let src = "<div><p>a</p></div>";
         let (_, map) = annotate(src);
         assert!(matches!(
-            apply_insert_patch(src, &map, Some(0), None, "<b>x</b>", Some("wronghash")),
+            apply_insert_patch(src, &map, Some(0), None, 0, "<b>x</b>", Some("wronghash")),
             Err(PatchError::Stale)
         ));
     }
