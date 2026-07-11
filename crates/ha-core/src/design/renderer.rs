@@ -217,7 +217,7 @@ const STORAGE_POLYFILL: &str = "<script>(function(){function mk(){var s={};retur
 /// 编辑态渲染版本：**inspector bridge / oid 注入等编辑工具层**变更时 +1。烧进可编辑 `index.html`
 /// 的 `data-ds-r` 属性；`service::ensure_artifact_render_fresh` 据此自愈老产物——工具层升级无需
 /// 用户重新编辑即对既有产物生效（bridge 烧死在 index.html，否则老产物永远用旧工具）。
-pub const RENDER_VERSION: u32 = 14;
+pub const RENDER_VERSION: u32 = 15;
 
 pub fn build_artifact_html(
     kind: ArtifactKind,
@@ -580,10 +580,9 @@ const INSPECTOR_BRIDGE: &str = r#"<script>
     if(!active)return;
     if(editing){if(editing.contains(e.target))return;endEdit(true)} // 编辑内点=移光标；点外=提交
     var el=e.target.closest('[data-ds-oid]');
-    // 点空白（无命中元素）→ 回落到页面根元素（文档序首个 oid），使「改整页背景/字体」可达
-    //（Wave 3-⑫；根容器多铺满视口，其 bg/font ≈ 页面级）。
-    if(!el)el=document.querySelector('[data-ds-oid]');
-    if(!el)return;
+    // 点空白（无命中元素）→ **取消选中**（P1-E）。此前回落选中根元素纯属反直觉——「改整页背景/字体」
+    // 已有专用「页面样式」按钮覆盖，fallback-to-root 只剩「点空白反而选中整页」的害处。
+    if(!el){e.preventDefault();e.stopPropagation();clearSel();clearHover();parent.postMessage({type:'ds_selection_cleared'},'*');return}
     e.preventDefault();e.stopPropagation();
     clearSel();clearHover();selected=el;el.style.outline='2px solid #2563eb';
     parent.postMessage({type:'ds_selected',payload:info(el)},'*');
@@ -662,15 +661,23 @@ const INSPECTOR_BRIDGE: &str = r#"<script>
     if(tn&&(tn.textContent||'').replace(/\s+/g,'').length)beginTextNodeEdit(el,tn,e.clientX,e.clientY);
   },true);
   document.addEventListener('keydown',function(e){
-    if(!editing)return;
-    if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();endEdit(true)}
-    else if(e.key==='Escape'){e.preventDefault();endEdit(false)}
+    if(editing){
+      if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();endEdit(true)}
+      else if(e.key==='Escape'){e.preventDefault();endEdit(false)}
+      return;
+    }
+    if(!active)return;
+    // 非编辑态键盘（P1-E，iframe 聚焦时——点选元素后 iframe 持焦，宿主 window keydown 收不到）：
+    // Escape 取消选中；Delete/Backspace 删选中元素（走宿主确定性 remove + 撤销栈）。
+    if(e.key==='Escape'&&selected){e.preventDefault();clearSel();clearHover();parent.postMessage({type:'ds_selection_cleared'},'*')}
+    else if((e.key==='Delete'||e.key==='Backspace')&&selected){e.preventDefault();parent.postMessage({type:'ds_request_delete',oid:selected.getAttribute('data-ds-oid')},'*')}
   },true);
   document.addEventListener('blur',function(e){if(editing&&e.target===editing)endEdit(true)},true);
   window.addEventListener('message',function(e){
     var d=e.data||{};
     if(d.type==='ds_activate'){active=true;ensureEditStyle();document.body.classList.add('ds-edit-active')}
     else if(d.type==='ds_deactivate'){active=false;document.body.classList.remove('ds-edit-active');endEdit(false);clearSel();clearHover();clearCommentSel()}
+    else if(d.type==='ds_clear_selection'){endEdit(false);clearSel();clearHover()} // 宿主 Escape 清选中（P1-E）
     else if(d.type==='ds_preview_style'){
       var el=elByOid(d.oid);if(!el)return;
       (d.props||[]).forEach(function(kv){el.style.setProperty(kv[0],kv[1])});

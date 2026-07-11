@@ -239,6 +239,10 @@ type PatchPayload = {
 type RemovedCtx = { parentOid: number | null; afterOid: number | null; insertOffset: number; html: string }
 type EditOp = { oid: number; before: PatchPayload; after: PatchPayload }
 
+/** 平台修饰键符号（快捷键提示可发现性，P1-E）：mac 用 ⌘、其余 Ctrl+。 */
+const MOD_KEY =
+  typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘" : "Ctrl+"
+
 /** 单条后端调用超时兜底（结构 undo / 提交串行化用）：backend 永久挂起时 reject，让提交队列前进而非
  * 静默死锁（review MEDIUM）。30s 远超正常本机 IO / HTTP 往返。 */
 function withCallTimeout<T>(p: Promise<T>, ms = 30000): Promise<T> {
@@ -1839,6 +1843,77 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
     return () => window.removeEventListener("keydown", onKey)
   }, [undo, redo])
 
+  // P1-E 键盘体系（宿主聚焦时）：Escape 分级退出 + Cmd/Ctrl+[ ] 切上/下一个产物。镜像 ref 让监听器
+  // 不随 state 反复重挂。
+  const previewCtxMenuRef = useRef(previewCtxMenu)
+  previewCtxMenuRef.current = previewCtxMenu
+  const pendingPlacementRef = useRef(pendingPlacement)
+  pendingPlacementRef.current = pendingPlacement
+  const artifactsRef = useRef(artifacts)
+  artifactsRef.current = artifacts
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const ae = document.activeElement as HTMLElement | null
+      const inField =
+        ae?.tagName === "INPUT" || ae?.tagName === "TEXTAREA" || !!ae?.isContentEditable
+      // Escape 分级：关右键菜单 → 取消待填批注钉 → 取消选中 → 退出编辑/批注/画框模式。就地文本编辑中
+      // （焦点在 iframe / 输入框）交给 bridge / 原生，宿主不抢。
+      if (e.key === "Escape" && !inField && ae !== iframeRef.current) {
+        if (previewCtxMenuRef.current) {
+          setPreviewCtxMenu(null)
+          e.preventDefault()
+          return
+        }
+        if (pendingPlacementRef.current) {
+          setPendingPlacement(null)
+          e.preventDefault()
+          return
+        }
+        if (selectedRef.current) {
+          setSelected(null)
+          postToIframe({ type: "ds_clear_selection" })
+          e.preventDefault()
+          return
+        }
+        if (editModeRef.current || commentModeRef.current || drawModeRef.current) {
+          setEditMode(false)
+          setCommentMode(false)
+          setDrawMode(false)
+          e.preventDefault()
+        }
+        return
+      }
+      // Cmd/Ctrl+[ 上一个产物 / Cmd/Ctrl+] 下一个产物（产物切换键盘通路，P1-E）。
+      if (
+        (e.metaKey || e.ctrlKey) &&
+        !e.shiftKey &&
+        !e.altKey &&
+        (e.key === "[" || e.key === "]")
+      ) {
+        if (inField) return
+        const list = artifactsRef.current
+        const cur = activeArtifactRef.current
+        if (!list.length) return
+        const idx = cur ? list.findIndex((a) => a.id === cur.id) : -1
+        const nextIdx =
+          e.key === "]"
+            ? idx < 0
+              ? 0
+              : (idx + 1) % list.length
+            : idx < 0
+              ? list.length - 1
+              : (idx - 1 + list.length) % list.length
+        const target = list[nextIdx]
+        if (target && target.id !== cur?.id) {
+          e.preventDefault()
+          void openArtifact(target)
+        }
+      }
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [postToIframe, openArtifact])
+
   // ── B5：链接 / 图片属性编辑 ──
   const handleLiveAttr = useCallback(
     (attr: string, value: string) => {
@@ -2353,6 +2428,15 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
         // iframe 内点击不冒泡到父 document（关菜单的 mousedown 监听收不到）——改点/改选元素时
         // 在此关右键菜单。右键流不受影响：bridge 先发本消息再发 ds_context_menu，同批后者重开。
         setPreviewCtxMenu(null)
+      }
+      // 点空白 / iframe 内 Escape 取消选中（P1-E）：清宿主选中态 + 关右键菜单。
+      else if (d?.type === "ds_selection_cleared") {
+        setSelected(null)
+        setPreviewCtxMenu(null)
+      }
+      // iframe 聚焦时 Delete/Backspace 删选中元素（P1-E）：走宿主确定性 remove + 撤销栈。
+      else if (d?.type === "ds_request_delete" && d.oid != null && editModeRef.current) {
+        void handleDeleteElement()
       }
       // 编辑态右键菜单：bridge 先发 ds_selected 选中元素、再发本消息带 iframe 内坐标；
       // 换算 = iframe 屏上位置 + 坐标 × 当前预览缩放，再钳进窗口防溢出。
@@ -4090,7 +4174,7 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                     {isEditableKind(activeArtifact.kind) && activeArtifact.status !== "generating" && (
                       <>
                         <IconTip
-                          label={t("design.editMode", "可视化微调：点选元素改属性")}
+                          label={`${t("design.editMode", "可视化微调：点选元素改属性")} · Delete / Esc · ${MOD_KEY}[ ]`}
                           side="bottom"
                         >
                           <Button
@@ -4145,7 +4229,7 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                     {/* 撤销 / 重做可视化编辑（B5，Cmd/Ctrl+Z） */}
                     {(undoStack.length > 0 || redoStack.length > 0) && (
                       <div className="flex items-center rounded-md border border-border/60 p-0.5">
-                        <IconTip label={t("design.undo", "撤销")} side="bottom">
+                        <IconTip label={`${t("design.undo", "撤销")} (${MOD_KEY}Z)`} side="bottom">
                           <button
                             type="button"
                             onClick={undo}
@@ -4155,7 +4239,7 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                             <Undo2 className="h-3.5 w-3.5" />
                           </button>
                         </IconTip>
-                        <IconTip label={t("design.redo", "重做")} side="bottom">
+                        <IconTip label={`${t("design.redo", "重做")} (${MOD_KEY}⇧Z)`} side="bottom">
                           <button
                             type="button"
                             onClick={redo}
