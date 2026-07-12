@@ -13,6 +13,7 @@ import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { FLOATING_MENU_SURFACE_CLASS } from "@/components/ui/floating-menu"
 import { IconTip } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
 import ChatInput from "@/components/chat/ChatInput"
@@ -506,7 +507,7 @@ export const DesignChatPanel = forwardRef<DesignChatPanelHandle, Props>(function
             <PopoverContent
               align="end"
               sideOffset={6}
-              className="w-[620px] max-w-[calc(100vw-24px)] rounded-xl border-border/60 bg-popover/95 p-2 shadow-[0_8px_30px_rgb(0,0,0,0.12)] backdrop-blur-xl"
+              className={cn(FLOATING_MENU_SURFACE_CLASS, "w-[620px] max-w-[calc(100vw-24px)] p-2")}
             >
               <DesignToolboxPopover
                 recipes={recipes}
@@ -552,39 +553,38 @@ export const DesignChatPanel = forwardRef<DesignChatPanelHandle, Props>(function
               <History className="h-4 w-4" />
             </Button>
           </IconTip>
-          {historyOpen && (
-            <DesignConversationHistory
-              threads={session.threads}
-              activeSessionId={session.currentSessionId}
-              onSearch={(q) => session.reloadThreads(q)}
-              hasMore={session.threadsHasMore}
-              onLoadMore={() => void session.loadMoreThreads()}
-              onPick={(sid) => {
-                setHistoryOpen(false)
-                void session.switchThread(sid)
-              }}
-              onRename={(sid, title) => {
-                void getTransport()
-                  .call("rename_session_cmd", { sessionId: sid, title })
-                  .then(() => session.reloadThreads())
-                  .catch((e) =>
-                    logger.error("ui", "DesignChat::rename", "rename thread failed", e),
-                  )
-              }}
-              onDelete={(sid) => {
-                void getTransport()
-                  .call("delete_session_cmd", { sessionId: sid })
-                  .then(() => {
-                    // 删的是当前线程 → 回到草稿态；否则仅刷新历史。
-                    if (session.currentSessionIdRef.current === sid) session.handleNewThread()
-                    return session.reloadThreads()
-                  })
-                  .catch((e) =>
-                    logger.error("ui", "DesignChat::delete", "delete thread failed", e),
-                  )
-              }}
-            />
-          )}
+          <DesignConversationHistory
+            open={historyOpen}
+            threads={session.threads}
+            activeSessionId={session.currentSessionId}
+            onSearch={(q) => session.reloadThreads(q)}
+            hasMore={session.threadsHasMore}
+            onLoadMore={() => void session.loadMoreThreads()}
+            onPick={(sid) => {
+              setHistoryOpen(false)
+              void session.switchThread(sid)
+            }}
+            onRename={(sid, title) => {
+              void getTransport()
+                .call("rename_session_cmd", { sessionId: sid, title })
+                .then(() => session.reloadThreads())
+                .catch((e) =>
+                  logger.error("ui", "DesignChat::rename", "rename thread failed", e),
+                )
+            }}
+            onDelete={(sid) => {
+              void getTransport()
+                .call("delete_session_cmd", { sessionId: sid })
+                .then(() => {
+                  // 删的是当前线程 → 回到草稿态；否则仅刷新历史。
+                  if (session.currentSessionIdRef.current === sid) session.handleNewThread()
+                  return session.reloadThreads()
+                })
+                .catch((e) =>
+                  logger.error("ui", "DesignChat::delete", "delete thread failed", e),
+                )
+            }}
+          />
         </div>
       </div>
 

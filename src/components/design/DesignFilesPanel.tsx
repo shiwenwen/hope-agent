@@ -421,7 +421,7 @@ export default function DesignFilesPanel({
                               <MoreVertical className="h-3.5 w-3.5" />
                             </button>
                           </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
+                          <DropdownMenuContent variant="floating" align="end" onClick={(e) => e.stopPropagation()}>
                             <DropdownMenuItem
                               onClick={() => {
                                 setRenamingFolder(path)
@@ -587,7 +587,7 @@ export default function DesignFilesPanel({
                             <MoreVertical className="h-3.5 w-3.5" />
                           </button>
                         </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="max-h-80 overflow-y-auto">
+                        <DropdownMenuContent variant="floating" align="end" className="max-h-80 overflow-y-auto">
                           <DropdownMenuItem onClick={() => startRename(a)}>
                             <Pencil className="mr-2 h-3.5 w-3.5" />
                             {t("common.rename", "重命名")}

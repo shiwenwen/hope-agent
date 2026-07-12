@@ -4,10 +4,13 @@ import { Check, Copy, ExternalLink, Loader2, Link2, Share2 } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
+import { FloatingMenu } from "@/components/ui/floating-menu"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 
 interface Props {
+  /** 常挂载、由 open 驱动显隐（统一浮层，保留退场动画）。 */
+  open: boolean
   artifactId: string
   /** Absolute base for the public link. Server mode = the browser origin. */
   origin: string
@@ -18,7 +21,7 @@ interface Props {
  * 显示 URL、可再复制、打开预览、随时停止分享。后端 create/get/revoke 均已就绪
  * （`*_design_share_cmd`），这里只补此前完全缺失的可见/可管 UI，修复「发出去收不回」。
  */
-export function DesignSharePanel({ artifactId, origin }: Props) {
+export function DesignSharePanel({ open, artifactId, origin }: Props) {
   const { t } = useTranslation()
   const [token, setToken] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -30,6 +33,7 @@ export function DesignSharePanel({ artifactId, origin }: Props) {
   const url = token ? `${origin.replace(/\/$/, "")}/api/design/share/${token}` : ""
 
   useEffect(() => {
+    if (!open) return // 常挂载后仅在打开时拉取分享状态，避免关闭态无谓请求
     let alive = true
     setLoading(true)
     tx.call<{ token: string | null }>("get_design_share_cmd", { artifactId })
@@ -47,7 +51,7 @@ export function DesignSharePanel({ artifactId, origin }: Props) {
       alive = false
       if (copiedTimer.current) window.clearTimeout(copiedTimer.current)
     }
-  }, [artifactId, tx, t])
+  }, [open, artifactId, tx, t])
 
   const create = useCallback(async () => {
     setBusy(true)
@@ -93,7 +97,12 @@ export function DesignSharePanel({ artifactId, origin }: Props) {
   }, [artifactId, tx, t])
 
   return (
-    <div className="absolute right-0 top-full z-30 mt-1 w-80 rounded-xl border border-border/60 bg-popover/95 p-3 shadow-[0_8px_30px_rgb(0,0,0,0.12)] backdrop-blur-xl">
+    <FloatingMenu
+      open={open}
+      positionClassName="right-0 top-full mt-1"
+      originClassName="origin-top-right"
+      className="w-80 p-3"
+    >
       <div className="mb-2 flex items-center gap-1.5 text-xs font-medium text-foreground">
         <Share2 className="h-3.5 w-3.5 text-muted-foreground" />
         {t("design.share.linkTitle", "公开分享链接")}
@@ -178,7 +187,7 @@ export function DesignSharePanel({ artifactId, origin }: Props) {
           </Button>
         </>
       )}
-    </div>
+    </FloatingMenu>
   )
 }
 

@@ -113,6 +113,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { IconTip } from "@/components/ui/tooltip"
+import { FloatingMenu } from "@/components/ui/floating-menu"
 import {
   Dialog,
   DialogContent,
@@ -4197,7 +4198,7 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                   {t("design.newArtifact", "新建产物")}
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
+              <DropdownMenuContent variant="floating" align="end">
                 {ARTIFACT_KINDS.map((kind) => {
                   const Icon = KIND_ICON[kind]
                   return (
@@ -4759,7 +4760,7 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                           </Button>
                         </DropdownMenuTrigger>
                       </IconTip>
-                      <DropdownMenuContent align="end">
+                      <DropdownMenuContent variant="floating" align="end">
                         <DropdownMenuItem onSelect={() => setPresentMode(true)}>
                           <Presentation className="mr-2 h-4 w-4" />
                           {t("design.presentInTab", "本窗口演示")}
@@ -4912,8 +4913,9 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                             <Share2 className="h-3.5 w-3.5" />
                           </Button>
                         </IconTip>
-                        {shareOpen && activeArtifact && (
+                        {activeArtifact && (
                           <DesignSharePanel
+                            open={shareOpen}
                             artifactId={activeArtifact.id}
                             origin={window.location.origin}
                           />
@@ -4941,7 +4943,7 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                           </Button>
                         </DropdownMenuTrigger>
                       </IconTip>
-                      <DropdownMenuContent align="end">
+                      <DropdownMenuContent variant="floating" align="end">
                         <DropdownMenuItem onSelect={() => void handleCopyImage()}>
                           <ClipboardCopy className="mr-2 h-4 w-4" />
                           {t("design.copyImage.menu", "复制图片到剪贴板")}
@@ -5262,13 +5264,20 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
             />
           )}
 
-          {/* 编辑态预览右键菜单（bridge ds_context_menu；非编辑态原生右键不受影响） */}
-          {previewCtxMenu && editMode && selected && (
-            <div
-              className="fixed z-[100] min-w-[168px] rounded-lg border border-border bg-popover p-1 shadow-lg animate-in fade-in-0 zoom-in-95"
-              style={{ top: previewCtxMenu.y, left: previewCtxMenu.x }}
-              onMouseDown={(e) => e.stopPropagation()}
-            >
+          {/* 编辑态预览右键菜单（bridge ds_context_menu；非编辑态原生右键不受影响）。统一浮层：
+              FloatingMenu（strategy=fixed + portal + 常挂载，退场动画走冻结坐标/内容，故 style 的
+              `?? 0` 只是 selected/menu 为空时的 TS 兜底）。children 恒被求值 → selected 用可选链。 */}
+          <FloatingMenu
+            open={!!previewCtxMenu && editMode && !!selected}
+            strategy="fixed"
+            portal
+            positionClassName=""
+            originClassName="origin-top-left"
+            className="z-[100] min-w-[168px] p-1"
+            style={{ top: previewCtxMenu?.y ?? 0, left: previewCtxMenu?.x ?? 0 }}
+            onEscapeKeyDown={() => setPreviewCtxMenu(null)}
+          >
+            <div onMouseDown={(e) => e.stopPropagation()}>
               <button
                 className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-sm text-primary transition-colors hover:bg-primary/10"
                 onClick={() => {
@@ -5289,7 +5298,7 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                 <MessageSquare className="h-3.5 w-3.5" />
                 {t("design.ctx.comment", "添加批注")}
               </button>
-              {!!selected.text?.trim() && (
+              {!!selected?.text?.trim() && (
                 <button
                   className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-sm text-foreground transition-colors hover:bg-muted/80"
                   onClick={() => {
@@ -5301,7 +5310,7 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                   {t("design.ctx.copyText", "复制文本")}
                 </button>
               )}
-              <div className="my-1 h-px bg-border" />
+              <div className="my-1 h-px bg-border-soft" />
               <button
                 className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-sm text-destructive transition-colors hover:bg-destructive/10"
                 onClick={() => {
@@ -5313,7 +5322,7 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                 {t("design.insp.deleteEl", "删除元素")}
               </button>
             </div>
-          )}
+          </FloatingMenu>
 
           {/* Comment panel (right) — 批注钉（与 Inspector 互斥） */}
           {commentMode && activeArtifact && (
@@ -6880,7 +6889,7 @@ function LaunchHome({
                             <MoreHorizontal className="h-4 w-4" />
                           </Button>
                         </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
+                        <DropdownMenuContent variant="floating" align="end">
                           <DropdownMenuItem onClick={() => openRename(p)}>
                             <Pencil className="mr-2 h-3.5 w-3.5" />
                             {t("common.rename", "重命名")}
@@ -6972,7 +6981,7 @@ function LaunchHome({
                             <MoreHorizontal className="h-4 w-4" />
                           </Button>
                         </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
+                        <DropdownMenuContent variant="floating" align="end">
                           <DropdownMenuItem onClick={() => openRename(p)}>
                             <Pencil className="mr-2 h-3.5 w-3.5" />
                             {t("common.rename", "重命名")}
