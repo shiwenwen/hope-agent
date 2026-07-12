@@ -157,9 +157,9 @@ const KB_RESPONSIVE_HYSTERESIS = 120 // gap between collapse-at and expand-at (a
 const PANE_WIDTH_TRANSITION =
   "transition-[width] duration-[250ms] ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[width] motion-reduce:transition-none"
 const PANE_SURFACE_TRANSITION =
-  "transition-[opacity,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[opacity,transform] [contain:layout_paint] motion-reduce:transition-none"
+  "transition-[opacity,transform,border-color] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[opacity,transform] [contain:layout_paint] motion-reduce:transition-none"
 const PANE_HANDLE_BASE =
-  "absolute inset-y-0 z-20 cursor-col-resize transition-[width,opacity,background-color] duration-200 ease-out hover:bg-primary/30 active:bg-primary/50"
+  "absolute inset-y-0 z-20 cursor-col-resize transition-[width,opacity] duration-200 ease-out"
 
 function readStoredBool(key: string): boolean {
   if (typeof window === "undefined") return false
@@ -289,6 +289,8 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
   // Suppress the width CSS transition during a drag so the pane tracks the cursor.
   const [isResizingLeft, setIsResizingLeft] = useState(false)
   const [isResizingRight, setIsResizingRight] = useState(false)
+  const [isLeftResizeHandleHovered, setIsLeftResizeHandleHovered] = useState(false)
+  const [isRightResizeHandleHovered, setIsRightResizeHandleHovered] = useState(false)
   // Responsive-collapse intent tracking (per side): distinguishes a viewport-driven
   // collapse from a deliberate user one so auto-expand never fights the user.
   const autoCollapsedLeftRef = useRef(false)
@@ -2087,7 +2089,12 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
               aria-hidden={leftCollapsed}
               inert={leftCollapsed ? true : undefined}
               className={cn(
-                "flex h-full min-w-0 flex-col border-r border-border-soft/60",
+                "flex h-full min-w-0 flex-col border-r",
+                isResizingLeft
+                  ? "border-r-primary/50"
+                  : isLeftResizeHandleHovered
+                    ? "border-r-primary/35"
+                    : "border-r-border-soft/60",
                 PANE_SURFACE_TRANSITION,
                 leftCollapsed
                   ? "pointer-events-none -translate-x-4 opacity-0"
@@ -2330,9 +2337,11 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
             className={cn(
               PANE_HANDLE_BASE,
               "right-0",
-              leftCollapsed ? "w-0 pointer-events-none opacity-0" : "w-1 opacity-100",
+              leftCollapsed ? "w-0 pointer-events-none opacity-0" : "w-3 opacity-100",
             )}
             onMouseDown={onDragLeft}
+            onMouseEnter={() => setIsLeftResizeHandleHovered(true)}
+            onMouseLeave={() => setIsLeftResizeHandleHovered(false)}
             role="separator"
             aria-orientation="vertical"
             aria-label={t("knowledge.resizeLeft", "Resize sidebar")}
@@ -2614,7 +2623,12 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
               aria-hidden={rightCollapsed}
               inert={rightCollapsed ? true : undefined}
               className={cn(
-                "flex h-full min-w-0 flex-col border-l border-border-soft/60",
+                "flex h-full min-w-0 flex-col border-l",
+                isResizingRight
+                  ? "border-l-primary/50"
+                  : isRightResizeHandleHovered
+                    ? "border-l-primary/35"
+                    : "border-l-border-soft/60",
                 PANE_SURFACE_TRANSITION,
                 rightCollapsed
                   ? "pointer-events-none translate-x-4 opacity-0"
@@ -2797,9 +2811,11 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
             className={cn(
               PANE_HANDLE_BASE,
               "left-0",
-              rightCollapsed ? "w-0 pointer-events-none opacity-0" : "w-1 opacity-100",
+              rightCollapsed ? "w-0 pointer-events-none opacity-0" : "w-3 opacity-100",
             )}
             onMouseDown={onDragRight}
+            onMouseEnter={() => setIsRightResizeHandleHovered(true)}
+            onMouseLeave={() => setIsRightResizeHandleHovered(false)}
             role="separator"
             aria-orientation="vertical"
             aria-label={t("knowledge.resizeRight", "Resize panel")}

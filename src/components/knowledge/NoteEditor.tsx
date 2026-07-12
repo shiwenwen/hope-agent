@@ -191,6 +191,7 @@ const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function NoteEd
   // fraction of the editor area; persisted so it survives reloads.
   const splitContainerRef = useRef<HTMLDivElement | null>(null)
   const [splitRatio, setSplitRatio] = useState(readSplitRatio)
+  const [isSplitResizing, setIsSplitResizing] = useState(false)
   const { t } = useTranslation()
 
   onChangeRef.current = onChange
@@ -214,6 +215,7 @@ const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function NoteEd
       if (!container) return
       const totalWidth = container.getBoundingClientRect().width
       if (totalWidth <= 0) return
+      setIsSplitResizing(true)
       const startX = e.clientX
       const startRatio = splitRatio
       const onMove = (ev: MouseEvent) => {
@@ -229,12 +231,15 @@ const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function NoteEd
       const onUp = () => {
         document.removeEventListener("mousemove", onMove)
         document.removeEventListener("mouseup", onUp)
+        window.removeEventListener("blur", onUp)
         document.body.style.cursor = ""
         document.body.style.userSelect = ""
         iframes.forEach((f) => ((f as HTMLElement).style.pointerEvents = ""))
+        setIsSplitResizing(false)
       }
       document.addEventListener("mousemove", onMove)
       document.addEventListener("mouseup", onUp)
+      window.addEventListener("blur", onUp)
       document.body.style.cursor = "col-resize"
       document.body.style.userSelect = "none"
     },
@@ -483,13 +488,13 @@ const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function NoteEd
       {showSource && (
         <div
           ref={hostRef}
-          className={`h-full min-h-0 overflow-hidden ${splitActive ? "shrink-0 border-r border-border-soft/60" : "w-full"}`}
+          className={`h-full min-h-0 overflow-hidden ${splitActive ? "shrink-0" : "w-full"}`}
           style={splitActive ? { width: `${splitRatio * 100}%` } : undefined}
         />
       )}
       {splitActive && (
         <div
-          className="group relative w-px shrink-0 cursor-col-resize bg-border-soft/60"
+          className={`relative w-px shrink-0 cursor-col-resize transition-colors ${isSplitResizing ? "bg-primary/50" : "bg-border-soft/60 hover:bg-primary/35"}`}
           onMouseDown={onSplitDragStart}
           role="separator"
           aria-orientation="vertical"
@@ -497,7 +502,6 @@ const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function NoteEd
         >
           {/* Wider invisible hit area around the 1px divider. */}
           <div className="absolute inset-y-0 -left-1 -right-1" />
-          <div className="absolute inset-y-0 -left-px -right-px transition-colors group-hover:bg-primary/40" />
         </div>
       )}
       {showPreview && (
