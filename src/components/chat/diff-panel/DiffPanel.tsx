@@ -9,6 +9,7 @@ import {
   ExternalLink,
   FoldVertical,
   GitCompare,
+  MessageCircle,
   Pilcrow,
   RefreshCw,
   Rows3,
@@ -20,6 +21,7 @@ import {
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
 import { basename } from "@/lib/path"
+import { openExternalUrl } from "@/lib/openExternalUrl"
 import type {
   GitFileChange,
   GitMutationTarget,
@@ -776,6 +778,46 @@ export function DiffPanel({
             </IconTip>
           </span>
         </div>
+      ) : null}
+
+      {gitContext?.reviewComments.length ? (
+        <details className="shrink-0 border-b border-border/60 bg-blue-500/5">
+          <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2 text-xs font-medium text-foreground/85 hover:bg-secondary/35">
+            <MessageCircle className="h-3.5 w-3.5 text-blue-500" />
+            <span className="flex-1">
+              {t("diffPanel.git.prReviewComments", "PR Review 评论 · {{count}}", {
+                count: gitContext.reviewComments.length,
+              })}
+            </span>
+            <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
+          </summary>
+          <div className="max-h-64 space-y-2 overflow-y-auto border-t border-border/50 p-2">
+            {gitContext.reviewComments.slice(0, 20).map((comment) => (
+              <div
+                key={comment.threadId || comment.commentId}
+                className="rounded-lg border border-border/60 bg-background/75 p-2.5"
+              >
+                <div className="whitespace-pre-wrap break-words text-xs leading-5">{comment.body}</div>
+                <div className="mt-1.5 flex items-center gap-2 text-[11px] text-muted-foreground">
+                  <span className="min-w-0 flex-1 truncate font-mono">
+                    {comment.path}{comment.line ? `:${comment.line}` : ""}
+                  </span>
+                  <span className="shrink-0">{comment.author}</span>
+                  {comment.url ? (
+                    <button
+                      type="button"
+                      className="rounded p-1 hover:bg-secondary hover:text-foreground"
+                      onClick={() => openExternalUrl(comment.url!)}
+                      aria-label={t("workspace.git.openComment", "打开评论")}
+                    >
+                      <ExternalLink className="h-3.5 w-3.5" />
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+            ))}
+          </div>
+        </details>
       ) : null}
 
       {stackedMode && (

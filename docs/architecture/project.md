@@ -152,7 +152,7 @@ CREATE INDEX IF NOT EXISTS idx_projects_archived
 
 **项目会话懒创建（desktop / HTTP 交互入口）**：进项目「新建对话」**不再**预先 `create_session_cmd` 落库，而是停在草稿态（`currentSessionId=null`），前端用 `draftProjectId` 记住项目（仿 `draftWorkingDir`），首条消息发送时通过 `chat` 命令的 `projectId` 走 `create_session_with_project` 才落库——与普通对话对称，进项目不再产生未发消息的空会话行，且草稿态走与普通对话相同的模型 / 权限模式 seeding。`chat` 在 `agent_id` 缺省时按 `project.default_agent_id` 解析 agent（对齐 `create_session_cmd`），`project_id` 与 `incognito` 互斥（后端强制 off）。**仅交互入口懒创建**——IM 入站 / cron / subagent 仍 eager `create_session_with_project`（消息必须立即落库）。前端 `effectiveProjectId = 已加载会话 meta.projectId ?? draftProjectId` 是「当前在哪个项目」的单一来源（覆盖草稿态 + 落库过渡窗口，避免 badge 闪烁与切到普通会话时的陈旧泄漏）。
 
-项目草稿在首发前还维护 `ProjectRuntimeDraft`：默认 `local`；Git 项目在 `local` / `worktree` 两种运行位置下都可从本地/remote-tracking 分支中选择起点。切换项目保留 composer 文本、普通附件和引用，但清空草稿 KB attach、Git 缓存和运行位置。首次发送通过 `ChatStartArgs.projectBootstrap` 接入 Tauri/HTTP 共用的 `ha-core::project_bootstrap` 编排；已有 session 携带该字段、非项目草稿、归档项目、非法 ref 或非 Git 目录均 fail closed。完整磁盘、脏改动与恢复契约见 [Managed Worktree 控制平面](worktree.md#项目首轮-bootstrap)。首版不包含“环境”配置。
+项目草稿在首发前还维护 `ProjectRuntimeDraft`：默认 `local`；Git 项目在 `local` / `worktree` 两种运行位置下都可从本地/remote-tracking 分支中选择起点。切换项目保留 composer 文本、普通附件和引用，但清空草稿 KB attach、Git 缓存和运行位置。首次发送通过 `ChatStartArgs.projectBootstrap` 接入 Tauri/HTTP 共用的 `ha-core::project_bootstrap` 编排；已有 session 携带该字段、非项目草稿、归档项目、非法 ref 或非 Git 目录均 fail closed。统一目录、Bootstrap 状态机、脏改动复制、清理与恢复契约见 [Managed Worktree 控制平面](worktree.md#项目首轮-bootstrap)；Session materialize 后的 Diff、分支、提交、推送、PR 与双向 Handoff 见 [Session Git 控制平面](git-control.md)。首版不包含“环境”配置。
 
 ## 文件浏览器 API
 

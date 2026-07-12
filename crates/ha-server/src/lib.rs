@@ -237,6 +237,14 @@ fn build_router_with_cors(
                 .post(routes::git_control::create_pull_request),
         )
         .route(
+            "/sessions/{id}/git/pull-request/feedback",
+            get(routes::git_control::pull_request_feedback),
+        )
+        .route(
+            "/sessions/{id}/git/pull-request/auto-merge",
+            post(routes::git_control::enable_pull_request_auto_merge),
+        )
+        .route(
             "/sessions/{id}/git/handoff",
             post(routes::git_control::handoff),
         )

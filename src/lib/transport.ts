@@ -3864,6 +3864,40 @@ export interface GitPullRequestInfo {
   isDraft: boolean;
   baseBranch: string;
   headBranch: string;
+  body?: string;
+  author?: string | null;
+  additions?: number;
+  deletions?: number;
+  changedFiles?: number;
+  mergeable?: "MERGEABLE" | "CONFLICTING" | "UNKNOWN" | string;
+  mergeStateStatus?: string;
+  reviewDecision?: string | null;
+  autoMergeEnabled?: boolean;
+  autoMergeMethod?: string | null;
+  reviewers?: GitPullRequestReviewer[];
+  reviews?: GitPullRequestReview[];
+}
+
+export interface GitPullRequestReviewer {
+  login: string;
+  kind: string;
+}
+
+export interface GitPullRequestReview {
+  id: string;
+  author: string;
+  state: string;
+  body: string;
+  submittedAt?: string | null;
+  commitOid?: string | null;
+  url?: string | null;
+}
+
+export interface GitEnablePullRequestAutoMergeInput {
+  requestId: string;
+  expectedRevision: string;
+  method: "merge" | "squash" | "rebase";
+  confirmAutoMerge: boolean;
 }
 
 export interface GitPullRequestPreflight {
@@ -3876,6 +3910,47 @@ export interface GitPullRequestPreflight {
   current?: GitPullRequestInfo | null;
   errorCode?: string | null;
   errorMessage?: string | null;
+}
+
+export interface GitPullRequestCheck {
+  name: string;
+  workflow?: string | null;
+  state: string;
+  bucket: "pass" | "fail" | "pending" | "skipping" | "cancel" | string;
+  description?: string | null;
+  link?: string | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
+}
+
+export interface GitPullRequestReviewComment {
+  threadId: string;
+  commentId: string;
+  author: string;
+  body: string;
+  path: string;
+  line?: number | null;
+  startLine?: number | null;
+  side?: string | null;
+  url?: string | null;
+  createdAt?: string | null;
+  replyCount: number;
+  isResolved: boolean;
+  isOutdated: boolean;
+}
+
+export interface GitPullRequestFeedback {
+  preflight: GitPullRequestPreflight;
+  checks: GitPullRequestCheck[];
+  reviewComments: GitPullRequestReviewComment[];
+  failedChecks: number;
+  pendingChecks: number;
+  passedChecks: number;
+  unresolvedComments: number;
+  checksTruncated: boolean;
+  commentsTruncated: boolean;
+  checksError?: string | null;
+  commentsError?: string | null;
 }
 
 export interface GitOperationRun {

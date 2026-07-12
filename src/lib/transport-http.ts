@@ -835,9 +835,17 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
     method: "GET",
     path: "/api/sessions/{sessionId}/git/pull-request",
   },
+  load_session_git_pr_feedback_cmd: {
+    method: "GET",
+    path: "/api/sessions/{sessionId}/git/pull-request/feedback",
+  },
   create_session_git_pr_cmd: {
     method: "POST",
     path: "/api/sessions/{sessionId}/git/pull-request",
+  },
+  enable_session_git_pr_auto_merge_cmd: {
+    method: "POST",
+    path: "/api/sessions/{sessionId}/git/pull-request/auto-merge",
   },
   handoff_session_git_cmd: { method: "POST", path: "/api/sessions/{sessionId}/git/handoff" },
   get_git_operation_run_cmd: { method: "GET", path: "/api/git-runs/{requestId}" },

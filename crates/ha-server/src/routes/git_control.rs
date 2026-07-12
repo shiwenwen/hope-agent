@@ -11,7 +11,8 @@ use crate::error::AppError;
 use crate::AppContext;
 use ha_core::git_control::{
     self, GitCommitInput, GitCreateBranchInput, GitCreatePullRequestInput, GitDiffScope,
-    GitHandoffInput, GitIndexMutationInput, GitPushInput, GitSwitchBranchInput,
+    GitEnablePullRequestAutoMergeInput, GitHandoffInput, GitIndexMutationInput, GitPushInput,
+    GitSwitchBranchInput,
 };
 
 fn ensure_writes_allowed() -> Result<(), AppError> {
@@ -108,6 +109,11 @@ blocking_mutation!(
     GitCreatePullRequestInput,
     git_control::create_pull_request
 );
+blocking_mutation!(
+    enable_pull_request_auto_merge,
+    GitEnablePullRequestAutoMergeInput,
+    git_control::enable_pull_request_auto_merge
+);
 
 pub async fn pull_request_preflight(
     State(ctx): State<Arc<AppContext>>,
@@ -115,6 +121,14 @@ pub async fn pull_request_preflight(
 ) -> Result<Json<git_control::GitPullRequestPreflight>, AppError> {
     let db = ctx.session_db.clone();
     blocking(move || git_control::pull_request_preflight(&db, &id)).await
+}
+
+pub async fn pull_request_feedback(
+    State(ctx): State<Arc<AppContext>>,
+    Path(id): Path<String>,
+) -> Result<Json<git_control::GitPullRequestFeedback>, AppError> {
+    let db = ctx.session_db.clone();
+    blocking(move || git_control::pull_request_feedback(&db, &id)).await
 }
 
 pub async fn handoff(

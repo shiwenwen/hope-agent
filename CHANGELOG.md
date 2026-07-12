@@ -12,7 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **对话消息支持选中引用到输入框**：在普通用户消息或助手回复中选中文字后右键，可复制选区或「添加到对话」；引用会以可删除卡片暂存，支持连续添加、仅发送引用、流式回复期间排队与恢复编辑。发送后历史消息保留引用卡片，主对话、快速对话和知识空间对话均可使用。
 - **聊天消息排队改为持久、可恢复队列**：回复生成期间继续发送的消息会立即连同附件写入 SQLite，并在输入框上方同步展示真实队列状态；支持编辑、删除、立即发送，以及在安全工具边界插入当前回合。队列按会话严格 FIFO，停止或失败后仍会继续处理下一条，应用重启、页面刷新、会话切换和多客户端并发时可恢复且不会重复发送；附件-only / 引用-only 消息同样支持恢复续发，废弃队列项会清理专属附件文件。Desktop 与 HTTP Server 模式保持一致。
 - **新建代码项目会话支持运行位置与起始分支控制**：项目草稿可在首条消息发送前切换项目、本地处理或 Managed Worktree，并从本地 / 远端跟踪分支启动；从当前分支创建 Worktree 时可安全携带 staged、unstaged 与非忽略 untracked 改动。Worktree 统一落在 Hope Agent 管理目录，准备过程支持幂等、进度反馈、取消、失败清理与重启恢复，Tauri 和 HTTP/server 共用同一套核心编排。
-- **工作台新增完整 Git 控制面**：可查看 staged / unstaged diff 与同步状态，按全部、文件或 hunk 执行暂存、取消暂存和撤销，切换或创建分支，并完成 commit、push 与 GitHub draft PR；Local 与 Managed Worktree 之间支持携带 staged、unstaged、untracked 状态的安全 Handoff，所有写操作按仓库加锁、校验 revision，并提供幂等进度事件与失败恢复。
+- **工作台新增完整 Git 控制面**：可查看 staged / unstaged diff 与同步状态，按全部、文件或 hunk 执行暂存、取消暂存和撤销，切换或创建分支，并完成 commit、push 与 GitHub draft PR；关联 PR 使用可在标题栏切换的独立右侧面板，展示描述、分支与变更统计、reviewers、顶层评审、checks 明细、未解决行内评论和合并冲突，可把单项或全部反馈安全填入当前会话修复，并在无冲突时经二次确认启用 merge/squash/rebase 自动合并。Local 与 Managed Worktree 之间支持携带 staged、unstaged、untracked 状态的安全 Handoff，所有写操作按仓库加锁、校验 revision，并提供幂等进度事件与失败恢复。
 
 ### Changed
 

@@ -2,7 +2,7 @@
 
 import { act, renderHook } from "@testing-library/react"
 import { describe, expect, it } from "vitest"
-import type { SessionGitDiffSnapshot } from "@/lib/transport"
+import type { GitPullRequestReviewComment, SessionGitDiffSnapshot } from "@/lib/transport"
 import { useDiffPanel } from "./useDiffPanel"
 
 const snapshot: SessionGitDiffSnapshot = {
@@ -32,13 +32,25 @@ const snapshot: SessionGitDiffSnapshot = {
 describe("useDiffPanel Git review state", () => {
   it("opens, replaces, and clears a repository diff context", () => {
     const { result } = renderHook(() => useDiffPanel())
+    const reviewComment: GitPullRequestReviewComment = {
+      threadId: "thread-1",
+      commentId: "comment-1",
+      author: "reviewer",
+      body: "Please keep this fail-closed.",
+      path: "src/main.ts",
+      line: 2,
+      replyCount: 0,
+      isResolved: false,
+      isOutdated: false,
+    }
 
-    act(() => result.current.openGitDiff(snapshot, "session-1"))
+    act(() => result.current.openGitDiff(snapshot, "session-1", [reviewComment]))
     expect(result.current.showPanel).toBe(true)
     expect(result.current.gitContext).toEqual({
       sessionId: "session-1",
       scope: "unstaged",
       revision: "rev-1",
+      reviewComments: [reviewComment],
     })
     expect(result.current.activeChanges[0]?.path).toBe("src/main.ts")
 
@@ -51,6 +63,7 @@ describe("useDiffPanel Git review state", () => {
     )
     expect(result.current.gitContext?.scope).toBe("staged")
     expect(result.current.gitContext?.revision).toBe("rev-2")
+    expect(result.current.gitContext?.reviewComments).toEqual([reviewComment])
 
     act(() =>
       result.current.openDiff({

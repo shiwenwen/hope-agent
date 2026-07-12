@@ -135,6 +135,7 @@ import type {
   ReviewRunSnapshot,
   ReviewSeverity,
   ReviewVerdict,
+  GitPullRequestReviewComment,
   SessionGitDiffSnapshot,
   VerificationRisk,
   VerificationRunSnapshot,
@@ -270,7 +271,15 @@ interface WorkspacePanelProps {
   /** 改写类文件「查看 diff」→ 右侧 diff 面板。 */
   onOpenDiff: (payload: FileChangeMetadata | FileChangesMetadata) => void
   /** 仓库真实 staged / unstaged diff → 右侧 diff 面板。 */
-  onOpenGitDiff?: (snapshot: SessionGitDiffSnapshot, sessionId: string) => void
+  onOpenGitDiff?: (
+    snapshot: SessionGitDiffSnapshot,
+    sessionId: string,
+    reviewComments?: GitPullRequestReviewComment[],
+  ) => void
+  /** 将 GitHub 检查/评论修复要求填入当前会话输入框，不自动发送。 */
+  onFillInput?: (value: string) => void
+  /** 打开当前分支关联 PR 的独立右侧面板。 */
+  onOpenPullRequest?: () => void
   /** 预览文件 → 右侧预览面板（与下挂文件 / Markdown 链接同一策略）。 */
   onPreviewFile?: (target: PreviewTarget) => void
   /** 当前会话 id,后端聚合 + 文件作用域解析都需要它。 */
@@ -1447,6 +1456,8 @@ function EnvironmentSection({
   turnActive,
   onOpenDiff,
   onOpenGitDiff = () => {},
+  onFillInput,
+  onOpenPullRequest,
 }: {
   sessionId?: string | null
   sessionMeta?: SessionMeta | null
@@ -1457,7 +1468,13 @@ function EnvironmentSection({
   planState?: PlanModeState
   turnActive?: boolean
   onOpenDiff?: (payload: FileChangeMetadata | FileChangesMetadata) => void
-  onOpenGitDiff: (snapshot: SessionGitDiffSnapshot, sessionId: string) => void
+  onOpenGitDiff: (
+    snapshot: SessionGitDiffSnapshot,
+    sessionId: string,
+    reviewComments?: GitPullRequestReviewComment[],
+  ) => void
+  onFillInput?: (value: string) => void
+  onOpenPullRequest?: () => void
 }) {
   const { t } = useTranslation()
   const [gitDiffLoading, setGitDiffLoading] = useState(false)
@@ -1601,6 +1618,8 @@ function EnvironmentSection({
           state={gitControl}
           managedWorktrees={managedWorktrees}
           onOpenGitDiff={onOpenGitDiff}
+          onFillInput={onFillInput}
+          onOpenPullRequest={onOpenPullRequest}
         />
       ) : null}
 
@@ -22219,6 +22238,8 @@ export default function WorkspacePanel({
   contextUsageOverride,
   onOpenDiff,
   onOpenGitDiff = () => {},
+  onFillInput,
+  onOpenPullRequest,
   onPreviewFile,
   sessionId,
   sessionMeta,
@@ -22343,6 +22364,8 @@ export default function WorkspacePanel({
           turnActive={turnActive}
           onOpenDiff={onOpenDiff}
           onOpenGitDiff={onOpenGitDiff}
+          onFillInput={onFillInput}
+          onOpenPullRequest={onOpenPullRequest}
         />
 
         <GoalWorkspaceSection

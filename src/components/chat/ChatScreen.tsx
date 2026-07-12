@@ -16,6 +16,7 @@ import {
   FolderOpen,
   GitCompare,
   GitFork,
+  GitPullRequest,
   Globe,
   Layers,
   LayoutDashboard,
@@ -114,6 +115,7 @@ import { useFilePreview } from "./files/useFilePreview"
 import FilePreviewPanel from "./files/FilePreviewPanel"
 import { FileActionsContext, type FileActionsContextValue } from "./files/fileActionsContext"
 import WorkspacePanel from "./workspace/WorkspacePanel"
+import { PullRequestPanel } from "./workspace/PullRequestPanel"
 import BackgroundJobsPanel from "./background-jobs/BackgroundJobsPanel"
 import { decideBackgroundJobsAutoOpen } from "./background-jobs/autoOpenPolicy"
 import { useBackgroundJobs } from "./background-jobs/useBackgroundJobs"
@@ -248,6 +250,7 @@ function latestAssistantUsageFingerprint(messages: Message[]): string | null {
 
 type ExclusiveRightPanel =
   | "workspace"
+  | "pull-request"
   | "diff"
   | "plan"
   | "files"
@@ -261,6 +264,7 @@ type ExclusiveRightPanelVisibility = Record<ExclusiveRightPanel, boolean>
 
 const EXCLUSIVE_RIGHT_PANEL_ORDER: readonly ExclusiveRightPanel[] = [
   "diff",
+  "pull-request",
   "plan",
   "files",
   "browser",
@@ -274,6 +278,7 @@ const EXCLUSIVE_RIGHT_PANEL_ORDER: readonly ExclusiveRightPanel[] = [
 
 const EMPTY_RIGHT_PANEL_VISIBILITY: ExclusiveRightPanelVisibility = {
   workspace: false,
+  "pull-request": false,
   diff: false,
   plan: false,
   files: false,
@@ -287,6 +292,7 @@ const EMPTY_RIGHT_PANEL_VISIBILITY: ExclusiveRightPanelVisibility = {
 
 const EXCLUSIVE_RIGHT_PANEL_ICONS: Record<ExclusiveRightPanel, LucideIcon> = {
   workspace: LayoutDashboard,
+  "pull-request": GitPullRequest,
   diff: GitCompare,
   plan: ClipboardList,
   files: FolderOpen,
@@ -689,6 +695,7 @@ export default function ChatScreen({
   // Workspace 面板：聚合任务进度 / 碰到的文件 / 引用来源。首次有内容时自动
   // 展开一次，用户关闭后本会话不再自动弹（dismissedRef 跟踪，仿 browser 面板）。
   const [showWorkspacePanel, setShowWorkspacePanel] = useState(false)
+  const [showPullRequestPanel, setShowPullRequestPanel] = useState(false)
   const workspacePanelDismissedRef = useRef(false)
   const preserveWorkspaceOnSessionSwitchRef = useRef(false)
 
@@ -2935,6 +2942,7 @@ export default function ChatScreen({
   const rightPanelVisibility = useMemo<ExclusiveRightPanelVisibility>(
     () => ({
       workspace: showWorkspacePanel,
+      "pull-request": showPullRequestPanel && !!session.currentSessionId,
       diff: isDiffPanelVisible,
       plan: shouldShowPlanPanel,
       files: showFilesPanel && !!effectiveWorkingDir,
@@ -2956,8 +2964,10 @@ export default function ChatScreen({
       showBrowserPanel,
       showFilesPanel,
       showMacControlPanel,
+      showPullRequestPanel,
       showTeamPanel,
       showWorkspacePanel,
+      session.currentSessionId,
     ],
   )
   const openExclusiveRightPanels = useMemo(
@@ -2975,6 +2985,8 @@ export default function ChatScreen({
       switch (panel) {
         case "workspace":
           return t("workspace.panelTitle", "工作台")
+        case "pull-request":
+          return t("workspace.git.pullRequestPanelTitle", "拉取请求")
         case "diff":
           return t("diffPanel.title", "Diff")
         case "plan":
@@ -3059,6 +3071,11 @@ export default function ChatScreen({
     workspacePanelDismissedRef.current = false
     setShowWorkspacePanel(true)
     showRightPanelByUser("workspace")
+  }, [showRightPanelByUser])
+
+  const openPullRequestPanel = useCallback(() => {
+    setShowPullRequestPanel(true)
+    showRightPanelByUser("pull-request")
   }, [showRightPanelByUser])
 
   const openBrowserPanel = useCallback(() => {
@@ -3245,6 +3262,7 @@ export default function ChatScreen({
     setShowBrowserPanel(false)
     setShowMacControlPanel(false)
     setShowWorkspacePanel(preserveWorkspace)
+    setShowPullRequestPanel(false)
     setShowBackgroundJobsPanel(false)
     setBackgroundJobExpansionOverrides({})
     closeFilePreview()
@@ -4067,6 +4085,27 @@ export default function ChatScreen({
             </RightPanelShell>
           )}
 
+          {shouldRenderRightPanelContent
+            && renderedExclusiveRightPanel === "pull-request"
+            && session.currentSessionId && (
+              <RightPanelShell
+                width={rightPanelWidth}
+                onWidthChange={setRightPanelWidth}
+                resizeLabel={t("workspace.git.resizePullRequestPanel", "调整拉取请求面板宽度")}
+                maxWidth={960}
+                reservedMainWidth={rightPanelReservedMainWidth}
+                collapsed={rightPanelCollapsed}
+                overlay={rightPanelOverlay}
+                contentKey={`pull-request:${session.currentSessionId}`}
+              >
+                <PullRequestPanel
+                  sessionId={session.currentSessionId}
+                  onFillInput={stream.setInput}
+                  onClose={() => setShowPullRequestPanel(false)}
+                />
+              </RightPanelShell>
+            )}
+
           {/* Plan workspace (right side, integrated under the shared title bar) */}
           {shouldRenderRightPanelContent && renderedExclusiveRightPanel === "plan" && (
             <RightPanelShell
@@ -4199,6 +4238,8 @@ export default function ChatScreen({
                 contextUsageOverride={contextUsage}
                 onOpenDiff={diffPanel.openDiff}
                 onOpenGitDiff={diffPanel.openGitDiff}
+                onFillInput={stream.setInput}
+                onOpenPullRequest={openPullRequestPanel}
                 onPreviewFile={filePreview.openPreview}
                 sessionId={session.currentSessionId}
                 sessionMeta={currentSessionMeta}

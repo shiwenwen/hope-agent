@@ -235,6 +235,34 @@ pub struct GitCreatePullRequestInput {
     pub remote: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum GitPullRequestMergeMethod {
+    Merge,
+    Squash,
+    Rebase,
+}
+
+impl GitPullRequestMergeMethod {
+    fn gh_flag(self) -> &'static str {
+        match self {
+            Self::Merge => "--merge",
+            Self::Squash => "--squash",
+            Self::Rebase => "--rebase",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitEnablePullRequestAutoMergeInput {
+    pub request_id: String,
+    pub expected_revision: String,
+    pub method: GitPullRequestMergeMethod,
+    #[serde(default)]
+    pub confirm_auto_merge: bool,
+}
+
 fn default_true() -> bool {
     true
 }
@@ -249,6 +277,37 @@ pub struct GitPullRequestInfo {
     pub is_draft: bool,
     pub base_branch: String,
     pub head_branch: String,
+    pub body: String,
+    pub author: Option<String>,
+    pub additions: u64,
+    pub deletions: u64,
+    pub changed_files: u64,
+    pub mergeable: String,
+    pub merge_state_status: String,
+    pub review_decision: Option<String>,
+    pub auto_merge_enabled: bool,
+    pub auto_merge_method: Option<String>,
+    pub reviewers: Vec<GitPullRequestReviewer>,
+    pub reviews: Vec<GitPullRequestReview>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct GitPullRequestReviewer {
+    pub login: String,
+    pub kind: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct GitPullRequestReview {
+    pub id: String,
+    pub author: String,
+    pub state: String,
+    pub body: String,
+    pub submitted_at: Option<String>,
+    pub commit_oid: Option<String>,
+    pub url: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -263,6 +322,53 @@ pub struct GitPullRequestPreflight {
     pub current: Option<GitPullRequestInfo>,
     pub error_code: Option<String>,
     pub error_message: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct GitPullRequestCheck {
+    pub name: String,
+    pub workflow: Option<String>,
+    pub state: String,
+    pub bucket: String,
+    pub description: Option<String>,
+    pub link: Option<String>,
+    pub started_at: Option<String>,
+    pub completed_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct GitPullRequestReviewComment {
+    pub thread_id: String,
+    pub comment_id: String,
+    pub author: String,
+    pub body: String,
+    pub path: String,
+    pub line: Option<u64>,
+    pub start_line: Option<u64>,
+    pub side: Option<String>,
+    pub url: Option<String>,
+    pub created_at: Option<String>,
+    pub reply_count: usize,
+    pub is_resolved: bool,
+    pub is_outdated: bool,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct GitPullRequestFeedback {
+    pub preflight: GitPullRequestPreflight,
+    pub checks: Vec<GitPullRequestCheck>,
+    pub review_comments: Vec<GitPullRequestReviewComment>,
+    pub failed_checks: usize,
+    pub pending_checks: usize,
+    pub passed_checks: usize,
+    pub unresolved_comments: usize,
+    pub checks_truncated: bool,
+    pub comments_truncated: bool,
+    pub checks_error: Option<String>,
+    pub comments_error: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -690,6 +796,70 @@ pub fn pull_request_preflight(db: &SessionDB, session_id: &str) -> Result<GitPul
     })
 }
 
+pub fn pull_request_feedback(db: &SessionDB, session_id: &str) -> Result<GitPullRequestFeedback> {
+    let preflight = pull_request_preflight(db, session_id)?;
+    let Some(pull_request) = preflight.current.as_ref() else {
+        return Ok(empty_pull_request_feedback(preflight));
+    };
+    if !preflight.available {
+        return Ok(empty_pull_request_feedback(preflight));
+    }
+
+    let ctx = repo_context(db, session_id)?;
+    let gh = which::which("gh").context("gh_unavailable: GitHub CLI is not installed")?;
+    let (checks, checks_truncated, checks_error) =
+        match load_pull_request_checks(&gh, &ctx.checkout_root, pull_request.number) {
+            Ok((checks, truncated)) => (checks, truncated, None),
+            Err(error) => (Vec::new(), false, Some(format!("{error:#}"))),
+        };
+    let repository = preflight
+        .repository
+        .as_deref()
+        .ok_or_else(|| anyhow!("gh_repo_unavailable: GitHub repository is unavailable"))?;
+    let host = preflight
+        .host
+        .as_deref()
+        .ok_or_else(|| anyhow!("gh_repo_unavailable: GitHub host is unavailable"))?;
+    let (review_comments, comments_truncated, comments_error) =
+        match load_pull_request_review_comments(
+            &gh,
+            &ctx.checkout_root,
+            host,
+            repository,
+            pull_request.number,
+        ) {
+            Ok((comments, truncated)) => (comments, truncated, None),
+            Err(error) => (Vec::new(), false, Some(format!("{error:#}"))),
+        };
+    let failed_checks = checks
+        .iter()
+        .filter(|check| matches!(check.bucket.as_str(), "fail" | "cancel"))
+        .count();
+    let pending_checks = checks
+        .iter()
+        .filter(|check| check.bucket == "pending")
+        .count();
+    let passed_checks = checks.iter().filter(|check| check.bucket == "pass").count();
+    let unresolved_comments = review_comments
+        .iter()
+        .filter(|comment| !comment.is_resolved && !comment.is_outdated)
+        .count();
+
+    Ok(GitPullRequestFeedback {
+        preflight,
+        checks,
+        review_comments,
+        failed_checks,
+        pending_checks,
+        passed_checks,
+        unresolved_comments,
+        checks_truncated,
+        comments_truncated,
+        checks_error,
+        comments_error,
+    })
+}
+
 pub fn create_pull_request(
     db: &SessionDB,
     session_id: &str,
@@ -776,6 +946,75 @@ pub fn create_pull_request(
                     anyhow!("gh_pr_create_failed: gh did not return a pull request URL")
                 })?;
             result_from_context(&ctx, "Pull request created", Some(url))
+        },
+    )
+}
+
+pub fn enable_pull_request_auto_merge(
+    db: &SessionDB,
+    session_id: &str,
+    input: &GitEnablePullRequestAutoMergeInput,
+) -> Result<GitMutationResult> {
+    validate_request_id(&input.request_id)?;
+    if !input.confirm_auto_merge {
+        bail!(
+            "auto_merge_confirmation_required: enabling auto-merge requires explicit confirmation"
+        );
+    }
+    with_idempotent_operation(
+        db,
+        session_id,
+        &input.request_id,
+        "enable_pull_request_auto_merge",
+        |ctx| {
+            require_revision(&ctx, &input.expected_revision)?;
+            let preflight = pull_request_preflight(db, session_id)?;
+            if !preflight.available {
+                bail!(
+                    "{}: {}",
+                    preflight
+                        .error_code
+                        .unwrap_or_else(|| "pr_unavailable".into()),
+                    preflight
+                        .error_message
+                        .unwrap_or_else(|| "Pull request unavailable".into())
+                );
+            }
+            let pull_request = preflight.current.ok_or_else(|| {
+                anyhow!("pull_request_missing: current branch has no pull request")
+            })?;
+            if pull_request.state != "OPEN" {
+                bail!("pull_request_not_open: auto-merge requires an open pull request");
+            }
+            if pull_request.mergeable == "CONFLICTING" || pull_request.merge_state_status == "DIRTY"
+            {
+                bail!("merge_conflicts: resolve pull request conflicts before enabling auto-merge");
+            }
+            if pull_request.auto_merge_enabled {
+                return result_from_context(
+                    &ctx,
+                    "Pull request auto-merge is already enabled",
+                    Some(pull_request.url),
+                );
+            }
+            let gh = which::which("gh").context("gh_unavailable: GitHub CLI is not installed")?;
+            let number = pull_request.number.to_string();
+            let output = run_command_timeout(
+                gh_command(
+                    &gh,
+                    &ctx.workspace_root,
+                    &["pr", "merge", &number, "--auto", input.method.gh_flag()],
+                ),
+                GH_TIMEOUT,
+            )?;
+            if !output.status.success() {
+                bail!("gh_auto_merge_failed: {}", output_error(&output));
+            }
+            result_from_context(
+                &ctx,
+                "Pull request auto-merge enabled",
+                Some(pull_request.url),
+            )
         },
     )
 }
@@ -2096,6 +2335,22 @@ fn pr_unavailable(code: &str, message: &str) -> GitPullRequestPreflight {
     }
 }
 
+fn empty_pull_request_feedback(preflight: GitPullRequestPreflight) -> GitPullRequestFeedback {
+    GitPullRequestFeedback {
+        preflight,
+        checks: Vec::new(),
+        review_comments: Vec::new(),
+        failed_checks: 0,
+        pending_checks: 0,
+        passed_checks: 0,
+        unresolved_comments: 0,
+        checks_truncated: false,
+        comments_truncated: false,
+        checks_error: None,
+        comments_error: None,
+    }
+}
+
 fn default_base_branch(root: &Path) -> Option<String> {
     git_optional(
         root,
@@ -2126,7 +2381,7 @@ fn load_current_pr(gh: &Path, root: &Path, branch: &str) -> Result<Option<GitPul
                 "view",
                 branch,
                 "--json",
-                "number,title,url,state,isDraft,baseRefName,headRefName",
+                "number,title,body,url,state,isDraft,baseRefName,headRefName,author,additions,deletions,changedFiles,mergeable,mergeStateStatus,reviewDecision,autoMergeRequest,reviewRequests,latestReviews",
             ],
         ),
         GH_TIMEOUT,
@@ -2134,8 +2389,58 @@ fn load_current_pr(gh: &Path, root: &Path, branch: &str) -> Result<Option<GitPul
     if !output.status.success() {
         return Ok(None);
     }
-    let value: Value = serde_json::from_slice(&output.stdout).context("decode gh pr view")?;
-    Ok(Some(GitPullRequestInfo {
+    Ok(Some(parse_pull_request_info(&output.stdout, branch)?))
+}
+
+fn parse_pull_request_info(bytes: &[u8], branch: &str) -> Result<GitPullRequestInfo> {
+    let value: Value = serde_json::from_slice(bytes).context("decode gh pr view")?;
+    let reviewers = value
+        .get("reviewRequests")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|reviewer| {
+            let login = value_string(reviewer, "login")
+                .or_else(|| value_string(reviewer, "slug"))
+                .or_else(|| value_string(reviewer, "name"))?;
+            let kind = value_string(reviewer, "__typename").unwrap_or_else(|| "User".to_string());
+            Some(GitPullRequestReviewer { login, kind })
+        })
+        .take(100)
+        .collect();
+    let reviews = value
+        .get("latestReviews")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .take(100)
+        .map(|review| GitPullRequestReview {
+            id: value_string(review, "id").unwrap_or_default(),
+            author: review
+                .pointer("/author/login")
+                .and_then(Value::as_str)
+                .unwrap_or("unknown")
+                .to_string(),
+            state: value_string(review, "state").unwrap_or_else(|| "COMMENTED".to_string()),
+            body: bounded_text(
+                review
+                    .get("body")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default(),
+                16_000,
+            ),
+            submitted_at: value_string(review, "submittedAt"),
+            commit_oid: review
+                .pointer("/commit/oid")
+                .and_then(Value::as_str)
+                .map(str::to_string),
+            url: value_string(review, "url"),
+        })
+        .collect();
+    let auto_merge_request = value
+        .get("autoMergeRequest")
+        .filter(|request| !request.is_null());
+    Ok(GitPullRequestInfo {
         number: value.get("number").and_then(Value::as_u64).unwrap_or(0),
         title: value
             .get("title")
@@ -2166,7 +2471,260 @@ fn load_current_pr(gh: &Path, root: &Path, branch: &str) -> Result<Option<GitPul
             .and_then(Value::as_str)
             .unwrap_or(branch)
             .to_string(),
-    }))
+        body: bounded_text(
+            value
+                .get("body")
+                .and_then(Value::as_str)
+                .unwrap_or_default(),
+            32_000,
+        ),
+        author: value
+            .pointer("/author/login")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        additions: value.get("additions").and_then(Value::as_u64).unwrap_or(0),
+        deletions: value.get("deletions").and_then(Value::as_u64).unwrap_or(0),
+        changed_files: value
+            .get("changedFiles")
+            .and_then(Value::as_u64)
+            .unwrap_or(0),
+        mergeable: value_string(&value, "mergeable").unwrap_or_else(|| "UNKNOWN".to_string()),
+        merge_state_status: value_string(&value, "mergeStateStatus")
+            .unwrap_or_else(|| "UNKNOWN".to_string()),
+        review_decision: value_string(&value, "reviewDecision"),
+        auto_merge_enabled: auto_merge_request.is_some(),
+        auto_merge_method: auto_merge_request
+            .and_then(|request| value_string(request, "mergeMethod")),
+        reviewers,
+        reviews,
+    })
+}
+
+fn load_pull_request_checks(
+    gh: &Path,
+    root: &Path,
+    pull_request_number: u64,
+) -> Result<(Vec<GitPullRequestCheck>, bool)> {
+    let number = pull_request_number.to_string();
+    let output = run_command_timeout(
+        gh_command(
+            gh,
+            root,
+            &[
+                "pr",
+                "checks",
+                &number,
+                "--json",
+                "bucket,completedAt,description,link,name,startedAt,state,workflow",
+            ],
+        ),
+        GH_TIMEOUT,
+    )?;
+    if output.stdout.is_empty() && !output.status.success() {
+        let error = output_error(&output);
+        if error.to_ascii_lowercase().contains("no checks reported") {
+            return Ok((Vec::new(), false));
+        }
+        bail!("gh_pr_checks_failed: {error}");
+    }
+    parse_pull_request_checks(&output.stdout)
+}
+
+fn parse_pull_request_checks(bytes: &[u8]) -> Result<(Vec<GitPullRequestCheck>, bool)> {
+    let value: Value = serde_json::from_slice(bytes).context("decode gh pr checks")?;
+    let values = value
+        .as_array()
+        .ok_or_else(|| anyhow!("decode gh pr checks: expected an array"))?;
+    let truncated = values.len() > 100;
+    let checks = values
+        .iter()
+        .take(100)
+        .map(|check| GitPullRequestCheck {
+            name: value_string(check, "name").unwrap_or_else(|| "Unnamed check".to_string()),
+            workflow: value_string(check, "workflow"),
+            state: value_string(check, "state").unwrap_or_else(|| "UNKNOWN".to_string()),
+            bucket: value_string(check, "bucket")
+                .unwrap_or_else(|| "pending".to_string())
+                .to_ascii_lowercase(),
+            description: value_string(check, "description").map(|text| bounded_text(&text, 2_000)),
+            link: value_string(check, "link"),
+            started_at: value_string(check, "startedAt"),
+            completed_at: value_string(check, "completedAt"),
+        })
+        .collect();
+    Ok((checks, truncated))
+}
+
+const REVIEW_THREADS_QUERY: &str = r#"
+query PullRequestReviewThreads($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) {
+      reviewThreads(first: 100) {
+        pageInfo { hasNextPage }
+        nodes {
+          id
+          isResolved
+          isOutdated
+          comments(first: 1) {
+            totalCount
+            nodes {
+              id
+              author { login }
+              body
+              path
+              line
+              originalLine
+              startLine
+              originalStartLine
+              diffSide
+              url
+              createdAt
+            }
+          }
+        }
+      }
+    }
+  }
+}
+"#;
+
+fn load_pull_request_review_comments(
+    gh: &Path,
+    root: &Path,
+    host: &str,
+    repository: &str,
+    pull_request_number: u64,
+) -> Result<(Vec<GitPullRequestReviewComment>, bool)> {
+    let (owner, name) = repository
+        .split_once('/')
+        .ok_or_else(|| anyhow!("gh_repo_unavailable: expected owner/name repository"))?;
+    let number = pull_request_number.to_string();
+    let query = format!("query={REVIEW_THREADS_QUERY}");
+    let owner_field = format!("owner={owner}");
+    let name_field = format!("name={name}");
+    let number_field = format!("number={number}");
+    let output = run_command_timeout(
+        gh_command(
+            gh,
+            root,
+            &[
+                "api",
+                "graphql",
+                "--hostname",
+                host,
+                "-f",
+                &query,
+                "-F",
+                &owner_field,
+                "-F",
+                &name_field,
+                "-F",
+                &number_field,
+            ],
+        ),
+        GH_TIMEOUT,
+    )?;
+    if !output.status.success() {
+        bail!("gh_pr_comments_failed: {}", output_error(&output));
+    }
+    parse_pull_request_review_comments(&output.stdout)
+}
+
+fn parse_pull_request_review_comments(
+    bytes: &[u8],
+) -> Result<(Vec<GitPullRequestReviewComment>, bool)> {
+    let value: Value = serde_json::from_slice(bytes).context("decode GitHub review threads")?;
+    if let Some(errors) = value.get("errors").and_then(Value::as_array) {
+        if !errors.is_empty() {
+            let message = errors
+                .iter()
+                .filter_map(|error| value_string(error, "message"))
+                .collect::<Vec<_>>()
+                .join("; ");
+            bail!("gh_pr_comments_failed: {}", bounded_text(&message, 2_000));
+        }
+    }
+    let threads = value
+        .pointer("/data/repository/pullRequest/reviewThreads")
+        .ok_or_else(|| anyhow!("decode GitHub review threads: missing reviewThreads"))?;
+    let truncated = threads
+        .pointer("/pageInfo/hasNextPage")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let nodes = threads
+        .get("nodes")
+        .and_then(Value::as_array)
+        .ok_or_else(|| anyhow!("decode GitHub review threads: expected nodes"))?;
+    let mut comments = Vec::new();
+    for thread in nodes {
+        let is_resolved = thread
+            .get("isResolved")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let is_outdated = thread
+            .get("isOutdated")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let comment_connection = thread
+            .get("comments")
+            .ok_or_else(|| anyhow!("decode GitHub review threads: missing comments"))?;
+        let comment_nodes = comment_connection
+            .get("nodes")
+            .and_then(Value::as_array)
+            .ok_or_else(|| anyhow!("decode GitHub review threads: expected comment nodes"))?;
+        let Some(comment) = comment_nodes.first() else {
+            continue;
+        };
+        comments.push(GitPullRequestReviewComment {
+            thread_id: value_string(thread, "id").unwrap_or_default(),
+            comment_id: value_string(comment, "id").unwrap_or_default(),
+            author: comment
+                .pointer("/author/login")
+                .and_then(Value::as_str)
+                .unwrap_or("unknown")
+                .to_string(),
+            body: bounded_text(
+                comment
+                    .get("body")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default(),
+                16_000,
+            ),
+            path: value_string(comment, "path").unwrap_or_default(),
+            line: comment
+                .get("line")
+                .and_then(Value::as_u64)
+                .or_else(|| comment.get("originalLine").and_then(Value::as_u64)),
+            start_line: comment
+                .get("startLine")
+                .and_then(Value::as_u64)
+                .or_else(|| comment.get("originalStartLine").and_then(Value::as_u64)),
+            side: value_string(comment, "diffSide"),
+            url: value_string(comment, "url"),
+            created_at: value_string(comment, "createdAt"),
+            reply_count: comment_connection
+                .get("totalCount")
+                .and_then(Value::as_u64)
+                .unwrap_or(comment_nodes.len() as u64)
+                .saturating_sub(1) as usize,
+            is_resolved,
+            is_outdated,
+        });
+    }
+    comments.sort_by(|left, right| right.created_at.cmp(&left.created_at));
+    Ok((comments, truncated))
+}
+
+fn value_string(value: &Value, key: &str) -> Option<String> {
+    value
+        .get(key)
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
+fn bounded_text(value: &str, max_chars: usize) -> String {
+    value.chars().take(max_chars).collect()
 }
 
 fn remote_host(remote: &str) -> Option<String> {
@@ -2743,6 +3301,77 @@ mod tests {
         assert_eq!(hunks[1].info.new_lines, 2);
         assert_ne!(hunks[0].info.id, hunks[1].info.id);
         assert_ne!(hunks[0].info.id, other_revision[0].info.id);
+    }
+
+    #[test]
+    fn parses_pull_request_check_buckets() {
+        let payload = br#"[
+          {"name":"test (ubuntu)","workflow":"CI","state":"FAILURE","bucket":"fail","description":"failed","link":"https://example.test/1","startedAt":"2026-07-12T00:00:00Z","completedAt":"2026-07-12T00:01:00Z"},
+          {"name":"test (macOS)","workflow":"CI","state":"IN_PROGRESS","bucket":"pending","description":"running","link":"https://example.test/2","startedAt":"2026-07-12T00:00:00Z","completedAt":null}
+        ]"#;
+        let (checks, truncated) = parse_pull_request_checks(payload).unwrap();
+        assert!(!truncated);
+        assert_eq!(checks.len(), 2);
+        assert_eq!(checks[0].bucket, "fail");
+        assert_eq!(checks[1].bucket, "pending");
+        assert_eq!(checks[1].workflow.as_deref(), Some("CI"));
+    }
+
+    #[test]
+    fn parses_pull_request_detail_and_review_state() {
+        let payload = br#"{
+          "number":456,"title":"Safe lifecycle","body":"Summary","url":"https://example.test/pr/456","state":"OPEN","isDraft":false,
+          "baseRefName":"main","headRefName":"feature","author":{"login":"author"},"additions":25,"deletions":7,"changedFiles":4,
+          "mergeable":"CONFLICTING","mergeStateStatus":"DIRTY","reviewDecision":"CHANGES_REQUESTED",
+          "autoMergeRequest":{"mergeMethod":"SQUASH"},
+          "reviewRequests":[{"__typename":"User","login":"reviewer"},{"__typename":"Team","name":"Platform","slug":"platform"}],
+          "reviews":[{"id":"old-review","author":{"login":"reviewer"},"state":"CHANGES_REQUESTED","body":"Obsolete feedback."}],
+          "latestReviews":[{"id":"review-1","author":{"login":"reviewer"},"state":"CHANGES_REQUESTED","body":"Please fix this.","submittedAt":"2026-07-12T00:00:00Z","commit":{"oid":"abcdef"},"url":"https://example.test/review"}]
+        }"#;
+        let detail = parse_pull_request_info(payload, "fallback").unwrap();
+        assert_eq!(detail.number, 456);
+        assert_eq!(detail.author.as_deref(), Some("author"));
+        assert_eq!(detail.additions, 25);
+        assert_eq!(detail.deletions, 7);
+        assert_eq!(detail.mergeable, "CONFLICTING");
+        assert_eq!(detail.merge_state_status, "DIRTY");
+        assert_eq!(detail.review_decision.as_deref(), Some("CHANGES_REQUESTED"));
+        assert!(detail.auto_merge_enabled);
+        assert_eq!(detail.auto_merge_method.as_deref(), Some("SQUASH"));
+        assert_eq!(detail.reviewers.len(), 2);
+        assert_eq!(detail.reviewers[1].login, "platform");
+        assert_eq!(detail.reviews.len(), 1);
+        assert_eq!(detail.reviews[0].id, "review-1");
+        assert_eq!(detail.reviews[0].commit_oid.as_deref(), Some("abcdef"));
+    }
+
+    #[test]
+    fn maps_auto_merge_methods_to_non_force_flags() {
+        assert_eq!(GitPullRequestMergeMethod::Merge.gh_flag(), "--merge");
+        assert_eq!(GitPullRequestMergeMethod::Squash.gh_flag(), "--squash");
+        assert_eq!(GitPullRequestMergeMethod::Rebase.gh_flag(), "--rebase");
+    }
+
+    #[test]
+    fn parses_unresolved_pull_request_review_threads() {
+        let payload = br#"{
+          "data":{"repository":{"pullRequest":{"reviewThreads":{
+            "pageInfo":{"hasNextPage":false},
+            "nodes":[{
+              "id":"thread-1","isResolved":false,"isOutdated":false,
+              "comments":{"totalCount":2,"nodes":[
+                {"id":"comment-1","author":{"login":"reviewer"},"body":"Keep this fail-closed.","path":"src/lib.rs","line":23,"originalLine":23,"startLine":null,"originalStartLine":null,"diffSide":"RIGHT","url":"https://example.test/comment","createdAt":"2026-07-12T00:00:00Z"}
+              ]}
+            }]}
+          }}}}"#;
+        let (comments, truncated) = parse_pull_request_review_comments(payload).unwrap();
+        assert!(!truncated);
+        assert_eq!(comments.len(), 1);
+        assert_eq!(comments[0].author, "reviewer");
+        assert_eq!(comments[0].path, "src/lib.rs");
+        assert_eq!(comments[0].line, Some(23));
+        assert_eq!(comments[0].reply_count, 1);
+        assert!(!comments[0].is_resolved);
     }
 
     #[test]

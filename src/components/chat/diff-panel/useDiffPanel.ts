@@ -1,11 +1,16 @@
 import { useCallback, useState } from "react"
-import type { SessionGitDiffScope, SessionGitDiffSnapshot } from "@/lib/transport"
+import type {
+  GitPullRequestReviewComment,
+  SessionGitDiffScope,
+  SessionGitDiffSnapshot,
+} from "@/lib/transport"
 import type { FileChangeMetadata, FileChangesMetadata } from "@/types/chat"
 
 export interface GitDiffContext {
   sessionId: string
   scope: SessionGitDiffScope
   revision: string
+  reviewComments: GitPullRequestReviewComment[]
 }
 
 /**
@@ -30,7 +35,11 @@ export interface UseDiffPanel {
   openNonce: number
   openDiff: (payload: FileChangeMetadata | FileChangesMetadata) => void
   gitContext: GitDiffContext | null
-  openGitDiff: (snapshot: SessionGitDiffSnapshot, sessionId: string) => void
+  openGitDiff: (
+    snapshot: SessionGitDiffSnapshot,
+    sessionId: string,
+    reviewComments?: GitPullRequestReviewComment[],
+  ) => void
   replaceGitDiff: (snapshot: SessionGitDiffSnapshot) => void
   closeDiff: () => void
   panelWidth: number
@@ -59,10 +68,14 @@ export function useDiffPanel(): UseDiffPanel {
     setOpenNonce((n) => n + 1)
   }, [])
 
-  const openGitDiff = useCallback((snapshot: SessionGitDiffSnapshot, sessionId: string) => {
+  const openGitDiff = useCallback((
+    snapshot: SessionGitDiffSnapshot,
+    sessionId: string,
+    reviewComments: GitPullRequestReviewComment[] = [],
+  ) => {
     setActiveChanges(snapshot.changes)
     setActiveIndex(0)
-    setGitContext({ sessionId, scope: snapshot.scope, revision: snapshot.revision })
+    setGitContext({ sessionId, scope: snapshot.scope, revision: snapshot.revision, reviewComments })
     setShowPanel(true)
     setOpenNonce((n) => n + 1)
   }, [])

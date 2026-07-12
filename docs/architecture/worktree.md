@@ -1,8 +1,8 @@
 # Managed Worktree 控制平面
 
-> 返回 [文档索引](../README.md) | 更新时间：2026-07-11
+> 返回 [文档索引](../README.md) | 更新时间：2026-07-12
 
-Managed Worktree 是 Hope Agent 的 durable 隔离执行环境。它不是普通 `git worktree` 命令的薄包装，而是一个带持久状态、owner API、GUI 控制、Workflow 绑定、Subagent 隔离和 Hook 扩展点的控制平面。
+Managed Worktree 是 Hope Agent 的 durable 隔离执行环境。它不是普通 `git worktree` 命令的薄包装，而是一个带持久状态、owner API、GUI 控制、项目首轮 Bootstrap、Workflow 绑定、Subagent 隔离和 Hook 扩展点的控制平面。Session 内的 Diff、分支、commit、push、Pull Request 和 Local/Worktree 双向安全迁移由独立的 [Session Git 控制平面](git-control.md) 负责。
 
 ## 定位
 
@@ -23,7 +23,7 @@ session working dir
 
 非目标：
 
-- 不替代 Git 分支管理、commit、push、PR。
+- 不直接实现 Diff、Git 分支管理、commit、push、PR；这些操作由 `git_control` 复用本模块的 Worktree 身份和生命周期记录。
 - 不给模型暴露任意“切换主会话 cwd”的 agent 工具。当前是 owner 平面能力。
 - 不在无痕会话里创建 durable worktree。
 
@@ -40,7 +40,8 @@ session working dir
 | Subagent | `crates/ha-core/src/subagent/*` | 用户委派的 subagent 默认尝试创建 managed worktree 并设置 child session cwd。 |
 | Tauri | `src-tauri/src/commands/worktree.rs` | 桌面 owner 命令。 |
 | HTTP | `crates/ha-server/src/routes/worktree.rs` | Server/Web owner REST API。 |
-| GUI | `src/components/chat/workspace/WorkspacePanel.tsx` | 环境面板 managed worktree 列表与 workflow 创建运行位置选择。 |
+| Session Git | `crates/ha-core/src/git_control.rs` | Local/Worktree 安全 Handoff、分支 ownership、Session active location；完整契约见 [`git-control.md`](git-control.md)。 |
+| GUI | `src/components/chat/workspace/WorkspacePanel.tsx`、`GitControlCard.tsx` | Managed Worktree 列表、项目/Workflow 运行位置选择和 Session Git 入口。 |
 
 ## 数据模型
 
@@ -66,6 +67,30 @@ session working dir
 
 ## 生命周期
 
+### 统一磁盘布局
+
+内建 Managed Worktree 固定放在 Hope Agent 数据目录，不创建在项目相邻目录：
+
+```text
+~/.hope-agent/worktrees/<repo-slug>/<wt-id>/
+```
+
+- `repo-slug` 由 canonical repo root 派生，只用于目录分组，不作为仓库身份。
+- `wt-id` 使用 `wt_<uuid>`，路径不包含分支名，避免 rename 和特殊字符影响生命周期。
+- `path_source=builtin` 才允许 Hope Agent 在失败清理中对统一目录执行受控删除。
+- Hook 返回的自定义路径记录为 `path_source=hook`；清理只执行 Git-aware remove，禁止对任意路径递归删除。
+
+项目首轮未提交改动的临时快照固定放在：
+
+```text
+~/.hope-agent/bootstrap/<request-id>/
+├── tracked.patch
+├── untracked.manifest
+└── metadata.json
+```
+
+Session Handoff 的临时目录是 `~/.hope-agent/git-operations/<request-id>/`，不与 Bootstrap 混用，详见 [Session Git 控制平面](git-control.md#8-local--managed-worktree-安全-handoff)。
+
 ### 创建
 
 1. 校验 session 存在且非 incognito。
@@ -81,9 +106,55 @@ session working dir
 
 项目草稿首条消息可携带 `ProjectSessionBootstrapInput`。分支选择与运行位置正交：`local` 和 `worktree` 都可选择后端 Git 信息接口返回的 `refs/heads/*` 或 `refs/remotes/*`。`local` 选择当前分支时保留现有未提交改动；选择其他本地分支时仅在工作区干净的情况下执行 `git switch`；选择 remote-tracking 分支时仅在工作区干净的情况下创建本地 tracking branch。不会自动 stash、reset 或丢弃改动。`worktree` 将 ref 解析为固定 SHA 后创建 detached managed worktree，并在进入 Chat Engine 前把临时 session 的 `working_dir` 绑定到该路径。初始化绑定保持 `active`，不标记为后续用户动作 `handoff`。
 
+前端草稿状态：
+
+```ts
+interface ProjectRuntimeDraft {
+  launchMode: "local" | "worktree"
+  baseRef: string | null
+  baseRefKind: "local" | "remote" | null
+  includeLocalChanges: boolean
+}
+```
+
+- 新项目草稿默认 `local`，Git 项目在两种 launch mode 下都显示分支选择。
+- 默认当前本地分支；detached HEAD 时依次回退 `main`、`master`、第一个本地分支、最后第一个远端分支。
+- 只有选择当前本地分支时 `includeLocalChanges=true`；选择其它本地/远端分支时强制 false。
+- 切换项目保留 composer 文本、普通附件与文件引用，但清空旧项目 KB attach、Git 缓存、分支和 runtime draft。
+- Git 信息刷新后 ref 失效时回退默认分支并提示用户，不能静默提交旧 ref。
+
+后端输入：
+
+```ts
+interface ProjectSessionBootstrapInput {
+  requestId: string
+  launchMode: "local" | "worktree"
+  baseRef?: string | null
+  includeLocalChanges?: boolean
+}
+```
+
+该字段只允许无 `sessionId` 的项目草稿使用；已有 Session、普通草稿、项目缺失/归档、目录无效、非 Git、非法 ref、tag、任意 SHA 或跨仓库 ref 均 fail closed。老客户端不传时等价于 `launchMode=local`。后端重新解析 `refs/heads/*` / `refs/remotes/*` 并固定为 commit SHA，不信任前端缓存。
+
 `project_bootstrap_runs` 与 `requestId` 提供持久状态、查询和重复请求保护。`requestId` 限定为字母、数字、`-`、`_`，临时目录为 `~/.hope-agent/bootstrap/<request-id>/`。准备阶段通过 `project:bootstrap_progress` 广播 `resolving_git`、`snapshotting`、`creating_worktree`、`copying_changes`、`binding_session`、`ready`；首轮接管后转换为 `chatting` / `completed` 并发 `project:bootstrap_completed`。失败或取消会在模型调用前删除无消息临时 session、清理内建 Worktree 和 Bootstrap 临时目录。应用重启时只由 primary 把遗留运行标记为 `interrupted` 并执行 Git-aware 清理，secondary 打开数据库不得改动运行态。
 
+状态阶段及可见语义：
+
+| 阶段 | 行为 |
+| --- | --- |
+| `preparing` / `resolving_git` | 校验项目、工作目录、ref 与 repo root，解析固定 SHA。 |
+| `snapshotting` | 仅在当前分支匹配时捕获 tracked/untracked 内容并前后复核 HEAD。 |
+| `creating_worktree` | 创建临时 Session 和 detached Managed Worktree，暂不发送 `session_created`。 |
+| `copying_changes` | 应用 tracked patch、复制 manifest 文件和 `.worktreeinclude`。 |
+| `binding_session` / `ready` | 将 Session cwd 绑定 Worktree，准备进入聊天引擎。 |
+| `chatting` / `completed` | 首轮只允许启动一次；真正开始时才对 UI materialize Session。 |
+| `failed` / `cancelled` / `interrupted` | 不保存首条消息、不调用模型；按 path source 清理并保留诊断状态。 |
+
+同一 `requestId` 正在执行时重复请求附着既有 run；终态重复请求返回既有结果，不重复创建 Worktree 或启动首轮。重试必须生成新 ID。`ready → chatting` 使用条件更新，确保模型首轮最多启动一次。
+
 选择当前本地分支且 HEAD 与已解析 `baseRef` SHA 一致时，可以复制未提交内容：tracked 内容由 `git diff --binary HEAD --` 捕获并以 `git apply --binary` 应用，非忽略 untracked 文件由 NUL 分隔 manifest 复制；staged 状态不保留。所有路径都必须 canonical containment 校验，symlink、HEAD 变化、patch 冲突或部分复制失败会阻止首轮启动。ignored 文件仍仅由 `.worktreeinclude` 控制，`AGENTS.override.md` 延续特殊复制规则。选择其他本地或远端分支时不携带源工作区改动。
+
+失败清理按以下顺序收口：停止复制任务、写 run 终态、解除 Session/Worktree 绑定、Git-aware remove、prune、删除无消息临时 Session、删除 Bootstrap 目录、广播失败事件。内建统一路径可在 Git remove 后做受控目录清理；Hook 路径清理失败时保留现场并标记 `bootstrap_failed`。
 
 首版项目草稿控制面只提供“本地处理 / 新工作树”和起始分支，不包含命名环境、Setup script、环境变量、Actions 或云端运行。
 
@@ -93,9 +164,15 @@ session working dir
 
 Git snapshot 同时返回 checkout root、HEAD/branch/detached、revision、local 与 remote-tracking branches、remotes、worktrees、dirty/status、ahead/behind、最近提交、active location 和 capability。Diff 分 `unstaged` / `staged` / `all`；hunk ID 由后端对 revision、路径和后端重新生成的 patch 内容计算，mutation 时再次匹配，前端不提交任意 patch。stage / unstage / discard 支持 all、file、hunk；binary、rename、submodule、untracked 与 conflict 按能力降为文件级，discard 必须显式确认。
 
+当前分支关联 GitHub PR 时，工作台读取 PR 标题/描述、head/base、变更统计、reviewers、顶层 reviews、merge state、checks 和 review threads，展示检查、评审、未解决评论与合并冲突；单次最多 100 项 checks / 100 个 thread，并返回截断与分通道错误状态。网络读取只由 session 解析出的 checkout、remote 和当前 PR 决定。所有远端文本属于不可信外部数据；“修复”只把经转义和 `<untrusted_external_data>` 包裹的明确任务要求填入当前会话输入框，不自动发送、提交、推送、回复或合并。Attached Worktree 可在已有分支和 PR 上完成这些操作；detached Worktree 仍必须先创建分支。
+
+自动合并是 Session Git 控制面的显式远端写操作，与 Worktree 生命周期无关。用户选择 merge/squash/rebase 并二次确认后，后端重新验证 revision、当前 PR 和冲突状态，再启用远端自动合并；存在冲突时拒绝，不自动改基、fetch 或移动 Session cwd。Local 与 Managed Worktree 使用相同契约和 `git_operation_runs` 幂等记录。
+
 分支、commit、push、PR 和 Handoff 使用 `git_operation_runs` 持久化 `requestId`、阶段、HEAD、结果和错误。事件为 `session:git_progress`、`session:git_changed`、`session:git_completed`。仓库写操作用 `~/.hope-agent/git-locks/<git-common-dir-hash>.lock` 做跨进程短锁；仓库身份和锁基于 `git rev-parse --git-common-dir`，因此 Local 与 linked Worktree 共享同一把锁，而实际 diff/patch 始终在各自 checkout root 执行。Git/gh 子进程禁用终端提示并有超时；不自动 fetch、stash、pull、rebase，也不提供 force push。
 
 安全 Handoff 的快照位于 `~/.hope-agent/git-operations/<request-id>/`，分别保存 staged patch、unstaged patch、untracked manifest/内容和 metadata。目标必须属于同一 Git common dir 且干净；源 checkout 不得有冲突或 untracked symlink。先完整捕获和校验，再移动 branch ownership、应用 staged/index 与 unstaged/worktree 内容，fingerprint 一致后才更新 Session working dir。失败会按 metadata 恢复源并清理目标；启动 reconciler 将遗留运行标为 `interrupted`，不会自动继续 commit、push、PR 或 Handoff。
+
+本节只说明 Worktree 交界面。Snapshot/DTO、Diff/hunk、索引 mutation、分支、commit/push、PR 详情/checks/reviews/comments/自动合并、幂等事件、跨进程锁和逐阶段 Handoff 回滚的单一真相源是 [Session Git 控制平面](git-control.md)。
 
 ### 恢复
 
@@ -107,7 +184,9 @@ Git snapshot 同时返回 checkout root、HEAD/branch/detached、revision、loca
 
 ### 交接
 
-`handoff_managed_worktree` 把父 session 的 `working_dir` 切到 worktree path，并标记 `handoff`。这是用户明确 owner 操作，会触发既有 `CwdChanged` hook。
+`handoff_managed_worktree` 是生命周期兼容入口：把父 session 的 `working_dir` 切到 worktree path，并标记 `handoff`，同时触发既有 `CwdChanged` hook。它不复制 staged/unstaged/untracked 状态。
+
+工作台的 Local ↔ Worktree 双向迁移必须调用 `git_control::handoff`。该入口要求同仓库、目标干净并验证 staged/unstaged/untracked fingerprint；只有完整复制和校验成功后才更新 Session cwd，失败按持久 metadata 回滚。两类 handoff 不可互换。
 
 ## Workflow 集成
 
@@ -202,3 +281,4 @@ Workflow 创建面板有“运行位置”选择：
 - Worktree 的 Goal evidence 只能描述执行环境与交接状态，不能替代 validation / review / workflow completion。
 - `.worktreeinclude` 只复制 git ignored 文件；跳过 symlink，不覆盖 git 语义。
 - Bootstrap 临时文件只能写入 Hope 数据目录；Hook 自定义路径失败清理只允许 `git worktree remove`，禁止对任意路径递归删除。
+- 工作台双向迁移不得调用生命周期兼容 handoff 绕过 Git 状态复制、fingerprint 校验和失败回滚。

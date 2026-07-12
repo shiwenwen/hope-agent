@@ -2,7 +2,8 @@ use std::sync::Arc;
 
 use ha_core::git_control::{
     self, GitCommitInput, GitCreateBranchInput, GitCreatePullRequestInput, GitDiffScope,
-    GitHandoffInput, GitIndexMutationInput, GitPushInput, GitSwitchBranchInput,
+    GitEnablePullRequestAutoMergeInput, GitHandoffInput, GitIndexMutationInput, GitPushInput,
+    GitSwitchBranchInput,
 };
 use tauri::State;
 
@@ -83,6 +84,11 @@ blocking_git_command!(
     GitCreatePullRequestInput,
     git_control::create_pull_request
 );
+blocking_git_command!(
+    enable_session_git_pr_auto_merge_cmd,
+    GitEnablePullRequestAutoMergeInput,
+    git_control::enable_pull_request_auto_merge
+);
 
 #[tauri::command]
 pub async fn session_git_pr_preflight_cmd(
@@ -93,6 +99,18 @@ pub async fn session_git_pr_preflight_cmd(
     tokio::task::spawn_blocking(move || git_control::pull_request_preflight(&db, &session_id))
         .await
         .map_err(|error| CmdError::msg(format!("GitHub preflight task failed: {error}")))?
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn load_session_git_pr_feedback_cmd(
+    session_id: String,
+    state: State<'_, AppState>,
+) -> Result<git_control::GitPullRequestFeedback, CmdError> {
+    let db = state.session_db.clone();
+    tokio::task::spawn_blocking(move || git_control::pull_request_feedback(&db, &session_id))
+        .await
+        .map_err(|error| CmdError::msg(format!("GitHub feedback task failed: {error}")))?
         .map_err(Into::into)
 }
 
