@@ -402,6 +402,7 @@ export default function AskUserQuestionBlock({ group, onSubmitted }: AskUserQues
         // so it reads as reference, not as the hovered option's detail.
         const previewIsFallback = !!previewOpt && previewOpt !== focusedOpt
         const customSelected = state?.customSelected ?? false
+        const hasQuestionPreview = q.options.some((option) => !!option.preview)
         return (
           <div
             key={q.questionId}
@@ -450,9 +451,17 @@ export default function AskUserQuestionBlock({ group, onSubmitted }: AskUserQues
                   return (
                     <button
                       key={opt.value}
+                      type="button"
+                      aria-pressed={isSelected}
                       onClick={() => toggleOption(q.questionId, opt.value, q.multiSelect)}
-                      onMouseEnter={() =>
-                        setFocusedOption((prev) => ({ ...prev, [q.questionId]: opt.value }))
+                      onMouseEnter={
+                        hasQuestionPreview
+                          ? () =>
+                              setFocusedOption((prev) => ({
+                                ...prev,
+                                [q.questionId]: opt.value,
+                              }))
+                          : undefined
                       }
                       className={cn(
                         "w-full text-left px-3 py-2 rounded-md border text-sm transition-colors cursor-pointer",
@@ -526,12 +535,16 @@ export default function AskUserQuestionBlock({ group, onSubmitted }: AskUserQues
                   <>
                     <button
                       type="button"
+                      aria-pressed={customSelected}
                       onClick={() => toggleCustomOption(q.questionId, q.multiSelect)}
-                      onMouseEnter={() =>
-                        setFocusedOption((prev) => ({
-                          ...prev,
-                          [q.questionId]: CUSTOM_OPTION_FOCUS,
-                        }))
+                      onMouseEnter={
+                        hasQuestionPreview
+                          ? () =>
+                              setFocusedOption((prev) => ({
+                                ...prev,
+                                [q.questionId]: CUSTOM_OPTION_FOCUS,
+                              }))
+                          : undefined
                       }
                       className={cn(
                         "w-full text-left px-3 py-2 rounded-md border text-sm transition-colors cursor-pointer",
@@ -606,6 +619,7 @@ export default function AskUserQuestionBlock({ group, onSubmitted }: AskUserQues
       {/* Submit button */}
       <div className="flex justify-end pt-1">
         <Button
+          type="button"
           size="sm"
           onClick={handleSubmit}
           disabled={submitting || timedOut}

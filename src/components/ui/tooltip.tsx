@@ -6,27 +6,43 @@ import {
 } from "@/components/ui/floating-menu"
 import { cn } from "@/lib/utils"
 
-const ATTRIBUTE_TOOLTIP_SELECTOR = "[data-ha-title-tip]"
+const ATTRIBUTE_TOOLTIP_SELECTOR = "[data-ha-title-tip], [data-ha-tip]"
+const DISABLED_ATTRIBUTE_TOOLTIP_SELECTOR =
+  "[data-ha-title-tip]:disabled, [data-ha-tip]:disabled"
+
+type TooltipSide = "top" | "bottom" | "left" | "right"
 
 interface AttributeTooltipSnapshot {
   element: HTMLElement
   label: string
   rect: Pick<DOMRect, "height" | "left" | "top" | "width">
-  side: "top" | "bottom"
+  side: TooltipSide
 }
 
 function readAttributeTooltip(element: HTMLElement): AttributeTooltipSnapshot | null {
-  const label = element.getAttribute("data-ha-title-tip")?.trim()
+  const label =
+    element.getAttribute("data-ha-title-tip")?.trim() ||
+    element.getAttribute("data-ha-tip")?.trim()
   if (!label) return null
   const rect = element.getBoundingClientRect()
   if (rect.width <= 0 && rect.height <= 0) return null
   const roomAbove = rect.top
   const roomBelow = window.innerHeight - (rect.top + rect.height)
+  const requestedSide = element.getAttribute("data-ha-tip-side")
+  const side: TooltipSide =
+    requestedSide === "top" ||
+    requestedSide === "bottom" ||
+    requestedSide === "left" ||
+    requestedSide === "right"
+      ? requestedSide
+      : roomAbove >= 48 || roomAbove >= roomBelow
+        ? "top"
+        : "bottom"
   return {
     element,
     label,
     rect: { height: rect.height, left: rect.left, top: rect.top, width: rect.width },
-    side: roomAbove >= 48 || roomAbove >= roomBelow ? "top" : "bottom",
+    side,
   }
 }
 
@@ -49,10 +65,10 @@ function findDisabledAttributeTooltipAtPoint(
 }
 
 /**
- * One delegated Tooltip instance for long/truncated text and legacy title-style
- * hints. Business nodes expose `data-ha-title-tip`; this bridge avoids mounting
- * dozens of Radix roots while keeping the same surface, collision handling and
- * keyboard behavior as the standard Tooltip primitive.
+ * One delegated Tooltip instance for icon hints, long/truncated text and legacy
+ * title-style hints. Business nodes expose `data-ha-tip` or `data-ha-title-tip`;
+ * this bridge keeps tooltip event handling outside interactive controls so a
+ * pending hint can never participate in or delay their click path.
  */
 function AttributeTooltipBridge({ delayDuration }: { delayDuration: number }) {
   const [active, setActive] = React.useState<AttributeTooltipSnapshot | null>(null)
@@ -63,6 +79,7 @@ function AttributeTooltipBridge({ delayDuration }: { delayDuration: number }) {
   const hoveredElementRef = React.useRef<HTMLElement | null>(null)
   const focusedElementRef = React.useRef<HTMLElement | null>(null)
   const disabledElementsRef = React.useRef<HTMLElement[]>([])
+  const pointerDownElementRef = React.useRef<HTMLElement | null>(null)
   const showTimerRef = React.useRef<number | null>(null)
   const closeTimerRef = React.useRef<number | null>(null)
 
@@ -172,9 +189,26 @@ function AttributeTooltipBridge({ delayDuration }: { delayDuration: number }) {
         show(element, false)
       }
     }
+    const onPointerDown = (event: PointerEvent) => {
+      const element =
+        findAttributeTooltipElement(event.target) ??
+        findDisabledAttributeTooltipAtPoint(
+          disabledElementsRef.current,
+          event.clientX,
+          event.clientY,
+        )
+      pointerDownElementRef.current = element
+      if (element) hide()
+    }
+    const onPointerUp = () => {
+      pointerDownElementRef.current = null
+    }
     const onFocusIn = (event: FocusEvent) => {
       const element = findAttributeTooltipElement(event.target)
       if (!element) return
+      // Pointer focus belongs to the click interaction. Only keyboard focus
+      // should open a tooltip immediately.
+      if (pointerDownElementRef.current === element) return
       focusedElementRef.current = element
       show(element, true)
     }
@@ -198,7 +232,7 @@ function AttributeTooltipBridge({ delayDuration }: { delayDuration: number }) {
     }
     const refreshDisabledElements = () => {
       disabledElementsRef.current = Array.from(
-        document.querySelectorAll<HTMLElement>(`${ATTRIBUTE_TOOLTIP_SELECTOR}:disabled`),
+        document.querySelectorAll<HTMLElement>(DISABLED_ATTRIBUTE_TOOLTIP_SELECTOR),
       )
     }
     refreshDisabledElements()
@@ -208,7 +242,9 @@ function AttributeTooltipBridge({ delayDuration }: { delayDuration: number }) {
           (record) =>
             record.type === "childList" ||
             record.attributeName === "disabled" ||
-            record.attributeName === "data-ha-title-tip",
+            record.attributeName === "data-ha-title-tip" ||
+            record.attributeName === "data-ha-tip" ||
+            record.attributeName === "data-ha-tip-side",
         )
       ) {
         refreshDisabledElements()
@@ -226,7 +262,9 @@ function AttributeTooltipBridge({ delayDuration }: { delayDuration: number }) {
           (record) =>
             record.type === "attributes" &&
             record.target === activeElement &&
-            record.attributeName === "data-ha-title-tip",
+            (record.attributeName === "data-ha-title-tip" ||
+              record.attributeName === "data-ha-tip" ||
+              record.attributeName === "data-ha-tip-side"),
         )
       ) {
         const snapshot = readAttributeTooltip(activeElement)
@@ -239,7 +277,7 @@ function AttributeTooltipBridge({ delayDuration }: { delayDuration: number }) {
       }
     })
     mutationObserver.observe(document.body, {
-      attributeFilter: ["data-ha-title-tip", "disabled"],
+      attributeFilter: ["data-ha-title-tip", "data-ha-tip", "data-ha-tip-side", "disabled"],
       attributes: true,
       childList: true,
       subtree: true,
@@ -248,6 +286,8 @@ function AttributeTooltipBridge({ delayDuration }: { delayDuration: number }) {
     document.addEventListener("pointerover", onPointerOver)
     document.addEventListener("pointerout", onPointerOut)
     document.addEventListener("pointermove", onPointerMove)
+    document.addEventListener("pointerdown", onPointerDown)
+    document.addEventListener("pointerup", onPointerUp)
     document.addEventListener("focusin", onFocusIn)
     document.addEventListener("focusout", onFocusOut)
     document.addEventListener("keydown", onKeyDown)
@@ -259,9 +299,12 @@ function AttributeTooltipBridge({ delayDuration }: { delayDuration: number }) {
       clearCloseTimer()
       mutationObserver.disconnect()
       disabledElementsRef.current = []
+      pointerDownElementRef.current = null
       document.removeEventListener("pointerover", onPointerOver)
       document.removeEventListener("pointerout", onPointerOut)
       document.removeEventListener("pointermove", onPointerMove)
+      document.removeEventListener("pointerdown", onPointerDown)
+      document.removeEventListener("pointerup", onPointerUp)
       document.removeEventListener("focusin", onFocusIn)
       document.removeEventListener("focusout", onFocusOut)
       document.removeEventListener("keydown", onKeyDown)
@@ -381,23 +424,13 @@ function IconTip({
       // hint surface, so suppress even an inherited/explicit native title.
       title: undefined,
     })
-    return (
-      <Tooltip>
-        <TooltipTrigger asChild>{trigger}</TooltipTrigger>
-        <TooltipContent side={side}>{text}</TooltipContent>
-      </Tooltip>
-    )
+    return trigger
   }
 
   return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <span className="ha-icon-tip" {...tipProps}>
-          {children}
-        </span>
-      </TooltipTrigger>
-      <TooltipContent side={side}>{text}</TooltipContent>
-    </Tooltip>
+    <span className="ha-icon-tip" {...tipProps}>
+      {children}
+    </span>
   )
 }
 

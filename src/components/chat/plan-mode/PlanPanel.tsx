@@ -113,6 +113,7 @@ export function PlanPanel({
         height: 700,
         minWidth: 360,
         minHeight: 400,
+        acceptFirstMouse: true,
         center: true,
       })
 

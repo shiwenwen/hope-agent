@@ -80,6 +80,47 @@ describe("IconTip", () => {
     expect(screen.getByRole("button", { name: "Icon action" })).toBeTruthy()
   })
 
+  it("renders icon hints through the delegated standard tooltip", async () => {
+    mockVisibleRect()
+    renderWithTooltipProvider(
+      <IconTip label="Send now" side="left">
+        <button type="button">Send</button>
+      </IconTip>,
+    )
+
+    fireEvent.pointerOver(screen.getByRole("button", { name: "Send" }))
+
+    const tooltip = await screen.findByRole("tooltip")
+    expect(tooltip.textContent).toContain("Send now")
+  })
+
+  it("does not enter the click path and cancels a pending hint on pointer down", async () => {
+    mockVisibleRect()
+    const onClick = vi.fn()
+    render(
+      <TooltipProvider delayDuration={25}>
+        <IconTip label="Send now">
+          <button type="button" onClick={onClick}>
+            Send
+          </button>
+        </IconTip>
+      </TooltipProvider>,
+    )
+
+    const button = screen.getByRole("button", { name: "Send" })
+    fireEvent.pointerOver(button)
+    fireEvent.pointerDown(button)
+    fireEvent.mouseDown(button)
+    fireEvent.focus(button)
+    fireEvent.pointerUp(button)
+    fireEvent.mouseUp(button)
+    fireEvent.click(button)
+
+    expect(onClick).toHaveBeenCalledTimes(1)
+    await new Promise((resolve) => window.setTimeout(resolve, 50))
+    expect(screen.queryByRole("tooltip")).toBeNull()
+  })
+
   it("renders data-ha-title-tip through the standard delegated tooltip", async () => {
     mockVisibleRect()
     renderWithTooltipProvider(

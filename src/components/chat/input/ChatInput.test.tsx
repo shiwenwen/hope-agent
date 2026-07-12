@@ -353,6 +353,23 @@ describe("ChatInput", () => {
     expect(onSend).toHaveBeenCalledTimes(1)
   })
 
+  test("sends on the first click before the hover hint delay elapses", () => {
+    const onSend = vi.fn()
+    renderChatInput({ input: "hello", onSend })
+
+    const sendButton = screen.getByRole("button", { name: "chat.send" })
+    fireEvent.pointerOver(sendButton)
+    fireEvent.pointerDown(sendButton)
+    fireEvent.mouseDown(sendButton)
+    fireEvent.focus(sendButton)
+    fireEvent.pointerUp(sendButton)
+    fireEvent.mouseUp(sendButton)
+    fireEvent.click(sendButton)
+
+    expect(onSend).toHaveBeenCalledTimes(1)
+    expect(screen.queryByRole("tooltip")).toBeNull()
+  })
+
   test("blocks mouse and keyboard sends while send is disabled", () => {
     const onSend = vi.fn()
     renderChatInput({ input: "hello", onSend, sendDisabled: true })

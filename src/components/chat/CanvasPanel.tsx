@@ -358,6 +358,7 @@ export default function CanvasPanel({
         height: 600,
         minWidth: 400,
         minHeight: 300,
+        acceptFirstMouse: true,
         center: true,
       })
 
