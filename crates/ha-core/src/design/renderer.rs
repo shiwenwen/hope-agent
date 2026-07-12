@@ -217,7 +217,7 @@ const STORAGE_POLYFILL: &str = "<script>(function(){function mk(){var s={};retur
 /// 编辑态渲染版本：**inspector bridge / oid 注入等编辑工具层**变更时 +1。烧进可编辑 `index.html`
 /// 的 `data-ds-r` 属性；`service::ensure_artifact_render_fresh` 据此自愈老产物——工具层升级无需
 /// 用户重新编辑即对既有产物生效（bridge 烧死在 index.html，否则老产物永远用旧工具）。
-pub const RENDER_VERSION: u32 = 18;
+pub const RENDER_VERSION: u32 = 19;
 
 pub fn build_artifact_html(
     kind: ArtifactKind,
@@ -267,6 +267,11 @@ pub fn build_artifact_html(
   function report(){try{parent.postMessage({type:'ds_slide_state',active:i,count:slides.length},'*')}catch(e){}}
   function show(n){i=Math.max(0,Math.min(slides.length-1,n));
     slides.forEach(function(s,k){s.classList.toggle('active',k===i)});
+    // 兼容两种 AI 产出：① 纯切换式（.active 一次一页，非 active 页 display:none）；② 滚动堆叠式
+    // （产物 CSS 用 `.ds-slide{display:grid;min-height:100vh}` 同特异性盖住 frame_css 的 display:none
+    // → 所有页堆叠成长滚动 deck，.active 切换视觉无效）。故切 class 之外再 scrollIntoView 到该页——
+    // 切换式滚到顶部无害，堆叠式才真正翻页（否则缩略图 / 方向键翻页在滚动式 deck 上看着「没反应」）。
+    try{slides[i].scrollIntoView({block:'start',inline:'nearest'})}catch(e){}
     pager.textContent=(i+1)+' / '+slides.length;report();}
   // 就地编辑守卫：inspector bridge 编辑元素时设 contenteditable，其子节点亦继承 isContentEditable。
   // 编辑期放行按键/点击给编辑器（打字、方向键移光标、点击移光标），翻页器不再抢——否则 deck 就地
@@ -769,6 +774,18 @@ const INSPECTOR_BRIDGE: &str = r#"<script>
         y:window.scrollY||document.documentElement.scrollTop||0},'*')})
   },true);
 })();
+</script>"#;
+
+/// 手势缩放转发脚本（**仅预览注入，导出不注入**）：捏合 / Ctrl·⌘+滚轮在 iframe 内派发、
+/// 跨源不冒泡到宿主，故转发 `ds_zoom` 让父窗连续驱动预览 CSS scale，并 `preventDefault` 掉本
+/// 文档自身的整页缩放。独立于 inspector 桥——故 image/audio（无桥）与 component（编译产物）
+/// 预览也能手势缩放。普通滚动（无修饰键）不干预，仍走原生内容滚动。`passive:false` 方能拦截。
+/// 导出走 `render_clean` 不注入，保交付物纯净（浏览器打开时 Ctrl+滚轮仍缩放页面）。
+pub(super) const ZOOM_FORWARD_SCRIPT: &str = r#"<script>
+(function(){window.addEventListener('wheel',function(e){
+  if(!e.ctrlKey&&!e.metaKey)return;e.preventDefault();
+  try{parent.postMessage({type:'ds_zoom',deltaY:e.deltaY,deltaMode:e.deltaMode},'*')}catch(_){}
+},{passive:false,capture:true});})();
 </script>"#;
 
 /// 流式占位页接收脚本：**dormant + postMessage + 零网络**（仿 `INSPECTOR_BRIDGE`）。

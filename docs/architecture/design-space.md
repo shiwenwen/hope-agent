@@ -262,7 +262,7 @@ CREATE INDEX idx_design_projects_session  ON design_projects(session_id, updated
 | --- | --- | --- | --- |
 | `web` | 网页 / 落地页 / 桌面原型 | 1440×自适应 | 标准文档流 |
 | `mobile` | 移动端原型 | 390×844 | 设备框 + 状态栏 |
-| `deck` | 演示文稿 | 1280×720 (16:9) | 自带 `<section>` 翻页器（←/→/Space、页码），一份文件多页 |
+| `deck` | 演示文稿 | 1280×720 (16:9) | 自带 `<section>` 翻页器（←/→/Space、页码、缩略图轨秒跳），一份文件多页；翻页经 deck bridge `show()` = toggle `.active` + `scrollIntoView`，**兼容切换式（一次一页）与滚动堆叠式**（AI 产物 CSS 用 `.ds-slide{display:grid;min-height:100vh}` 同特异性盖住 frame_css 的 `display:none`、slide 堆叠成长滚动页）两种产出 |
 | `dashboard` | 数据仪表盘 | 1440×自适应 | 网格布局容器 |
 | `poster` | 海报 / 社媒图 | 尺寸预设（1080×1080 / 1080×1920 / A4 …） | 定尺容器 |
 | `document` | 文档 / 规格 / 报告 | 页宽阅读容器 | 目录 + 排版 |
