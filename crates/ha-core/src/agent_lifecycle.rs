@@ -338,6 +338,7 @@ pub(crate) fn save_agent_config(
         ensure_agent_can_disable(id)?;
     }
 
+    let config_path = crate::paths::agent_dir(id)?.join("agent.json");
     let mut deleted = deleted_agent_ids()
         .lock()
         .unwrap_or_else(|poison| poison.into_inner());
@@ -345,12 +346,17 @@ pub(crate) fn save_agent_config(
         // Agent identity is established by agent.json. An otherwise orphaned
         // directory may legitimately contain memory/markdown written by an
         // import or recovered from an interrupted older create operation.
-        if crate::paths::agent_dir(id)?.join("agent.json").is_file() {
+        if config_path.is_file() {
             anyhow::bail!("Agent '{id}' already exists");
         }
         deleted.remove(id);
     } else if deleted.contains(id) {
         anyhow::bail!("Agent '{id}' was deleted; refusing a stale write");
+    } else if !config_path.is_file() {
+        // Tombstones are deliberately process-local. After a restart, the
+        // durable existence check must still prevent a delayed PUT/edit from
+        // recreating an identity that was deleted in an earlier process.
+        anyhow::bail!("Agent '{id}' does not exist");
     }
     drop(deleted);
 
@@ -1198,8 +1204,8 @@ mod tests {
                 name: "Disabled".into(),
                 ..Default::default()
             };
-            agent_loader::save_agent_config("active", &active).unwrap();
-            agent_loader::save_agent_config("disabled", &disabled).unwrap();
+            agent_loader::create_agent_config("active", &active).unwrap();
+            agent_loader::create_agent_config("disabled", &disabled).unwrap();
 
             let runtime_ids: Vec<_> = agent_loader::list_agents()
                 .unwrap()
@@ -1223,7 +1229,7 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         crate::test_support::with_env_vars(&[("HA_DATA_DIR", temp.path())], || {
             let id = format!("admission-{}", uuid::Uuid::new_v4());
-            agent_loader::save_agent_config(&id, &crate::agent_config::AgentConfig::default())
+            agent_loader::create_agent_config(&id, &crate::agent_config::AgentConfig::default())
                 .unwrap();
 
             let guard = begin_agent_run(&id).unwrap();
@@ -1274,6 +1280,29 @@ mod tests {
                 .unwrap()
                 .join("agent.json")
                 .is_file());
+        });
+    }
+
+    #[test]
+    fn non_create_save_rejects_missing_config_without_process_tombstone() {
+        let temp = tempfile::tempdir().unwrap();
+        crate::test_support::with_env_vars(&[("HA_DATA_DIR", temp.path())], || {
+            let id = format!("missing-{}", uuid::Uuid::new_v4());
+            let config = crate::agent_config::AgentConfig::default();
+
+            assert!(!deleted_agent_ids()
+                .lock()
+                .unwrap_or_else(|poison| poison.into_inner())
+                .contains(&id));
+            let error = agent_loader::save_agent_config(&id, &config).unwrap_err();
+            assert!(error.to_string().contains("does not exist"));
+            assert!(!crate::paths::agent_dir(&id)
+                .unwrap()
+                .join("agent.json")
+                .exists());
+
+            agent_loader::create_agent_config(&id, &config).unwrap();
+            agent_loader::save_agent_config(&id, &config).unwrap();
         });
     }
 }
