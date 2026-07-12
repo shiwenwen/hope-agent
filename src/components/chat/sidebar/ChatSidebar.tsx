@@ -690,11 +690,12 @@ export default function ChatSidebar({
             </div>
           </div>
         </div>
-        {/* Transparent resize hit area; the existing sidebar border provides
-            the hover/drag affordance so no second line can drift out of place. */}
+        {/* Keep the transparent resize hit area outside the scrollable sidebar
+            so native non-overlay scrollbars remain fully interactive. The
+            existing border provides the visual hover/drag affordance. */}
         <div
           className={cn(
-            "absolute inset-y-0 right-0 z-20 cursor-col-resize",
+            "absolute inset-y-0 right-0 z-20 translate-x-full cursor-col-resize",
             !sidebarMotionDisabled &&
               "transition-[width,opacity] duration-200 ease-out",
             sidebarCollapsed ? "w-0 pointer-events-none opacity-0" : "w-3 opacity-100",
