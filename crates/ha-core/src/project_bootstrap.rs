@@ -429,7 +429,7 @@ impl SessionDB {
                 if let Err(error) = self.discard_managed_worktree(worktree_id) {
                     let orphan_cleanup =
                         crate::worktree::cleanup_orphan_builtin_worktree(worktree_id);
-                    if orphan_cleanup.is_err() {
+                    if let Err(orphan_error) = orphan_cleanup {
                         cleanup_ok = false;
                         let _ = self.mark_managed_worktree_bootstrap_failed(worktree_id);
                         let conn = self
@@ -444,7 +444,7 @@ impl SessionDB {
                                 request_id,
                                 format!(
                                     "Startup cleanup failed: {error:#}; orphan cleanup: {:#}",
-                                    orphan_cleanup.unwrap_err()
+                                    orphan_error
                                 ),
                                 now
                             ],

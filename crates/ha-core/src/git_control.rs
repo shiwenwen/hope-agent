@@ -605,7 +605,7 @@ pub fn switch_branch(
                 run_git_ok(&ctx.workspace_root, &["switch", "--track", &selected.name])?;
             }
         }
-        Ok(result_from_context(&ctx, "Branch switched", None)?)
+        result_from_context(&ctx, "Branch switched", None)
     })
 }
 
@@ -632,7 +632,7 @@ pub fn create_branch(
         }
         run_git_ok(&ctx.workspace_root, &["switch", "-c", name])?;
         db.update_managed_worktree_git_branch_for_path(&ctx.workspace_root, Some(name))?;
-        Ok(result_from_context(&ctx, "Branch created", None)?)
+        result_from_context(&ctx, "Branch created", None)
     })
 }
 
@@ -706,7 +706,7 @@ pub fn push(db: &SessionDB, session_id: &str, input: &GitPushInput) -> Result<Gi
     with_idempotent_operation(db, session_id, &input.request_id, "push", |ctx| {
         require_revision(&ctx, &input.expected_revision)?;
         push_current_branch(&ctx, input.remote.as_deref(), input.set_upstream)?;
-        Ok(result_from_context(&ctx, "Branch pushed", None)?)
+        result_from_context(&ctx, "Branch pushed", None)
     })
 }
 
@@ -1128,7 +1128,8 @@ pub async fn handoff(
         )
     })
     .await;
-    if result.is_err() {
+    if let Err(operation_error) = &result {
+        let operation_error = format!("{operation_error:#}");
         if let Some(worktree_id) = created_worktree_id {
             let cleanup_id = worktree_id.clone();
             let cleanup = db
@@ -1151,8 +1152,7 @@ pub async fn handoff(
                 .await;
             if let Err(cleanup_error) = cleanup {
                 return Err(anyhow!(
-                    "{}; created worktree cleanup failed: {cleanup_error:#}",
-                    result.as_ref().unwrap_err()
+                    "{operation_error}; created worktree cleanup failed: {cleanup_error:#}"
                 ));
             }
         }

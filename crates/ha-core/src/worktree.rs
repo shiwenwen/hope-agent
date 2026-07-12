@@ -479,14 +479,12 @@ impl SessionDB {
                 )?;
             }
             if let Some(snapshot) = prep.local_changes.as_ref() {
-                if let Err(error) = apply_local_changes(
+                apply_local_changes(
                     &prep.repo_root,
                     &path,
                     snapshot,
                     input.bootstrap_request_id.as_deref(),
-                ) {
-                    return Err(error);
-                }
+                )?;
             }
             ensure_bootstrap_not_cancelled(input.bootstrap_request_id.as_deref())?;
 
