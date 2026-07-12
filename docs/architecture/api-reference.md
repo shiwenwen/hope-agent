@@ -688,6 +688,24 @@ Loop owner API 管理 session-scoped recurring triggers。`create_loop_schedule`
 | `update_task_status` | `PATCH /api/tasks/{id}/status` | ✅ TaskProgressPanel 用户控件 |
 | `delete_task` | `DELETE /api/tasks/{id}` | ✅ TaskProgressPanel 用户控件 |
 
+#### Chat `attachments` wire format
+
+`chat` / `POST /api/chat` 与 `queue_turn_user_message` / `POST /api/chat/turn-message` 共用同一份 `attachments` 数组；Tauri IPC 和 HTTP 都按 snake_case 原样序列化。每项的基础字段为 `{ name, mime_type, source?, data?, file_path? }`。图片使用 base64 `data`，普通文件须先经 `save_attachment` / `POST /api/chat/attachment` 落盘并以 `file_path` 引用。
+
+对话消息引用使用独立来源，不可复用文件引用语义：
+
+```json
+{
+  "name": "message-quote",
+  "mime_type": "text/plain",
+  "source": "message_quote",
+  "data": "用户实际选中的可见纯文本",
+  "quote_role": "user"
+}
+```
+
+`quote_role` 只能是 `user` 或 `assistant`。`message_quote` 不带 `file_path` / `quote_lines`，不会被当成上传文件、URL 来源或知识空间归档来源；后端将其作为已转义的 `<message_quote role="…">…</message_quote>` 用户上下文处理。历史消息会以 `{ kind: "message_quote", role, content }` 元数据恢复为引用卡片。旧客户端可忽略未知 `source`。
+
 ### macOS Control
 
 | Tauri Command | HTTP | 状态 |

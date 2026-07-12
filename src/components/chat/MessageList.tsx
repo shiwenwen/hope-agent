@@ -28,7 +28,7 @@ import {
   goalCompletionReportFromMessage,
   type GoalCompletionReport,
 } from "./message/goalCompletionReport"
-import MessageContextMenu from "./MessageContextMenu"
+import MessageContextMenu, { type MessageContextMenuState } from "./message/MessageContextMenu"
 import LoadMoreRow from "./LoadMoreRow"
 import AskUserQuestionBlock from "./ask-user/AskUserQuestionBlock"
 import PlanCardBlock from "./plan-mode/PlanCardBlock"
@@ -36,7 +36,13 @@ import { findMessageRowByKey, getLatestUserTurnKey, getMessageRowKey } from "./c
 import type { AskUserQuestionGroup } from "./ask-user/AskUserQuestionBlock"
 import type { PlanCardData } from "./plan-mode/PlanCardBlock"
 import type { CompactResult } from "./sessionStatus"
-import type { ChatDisplayMode, ChatTurnStatus, Message, AgentSummaryForSidebar } from "@/types/chat"
+import type {
+  ChatDisplayMode,
+  ChatTurnStatus,
+  Message,
+  AgentSummaryForSidebar,
+  PendingMessageQuote,
+} from "@/types/chat"
 import type { PlanModeState } from "./plan-mode/usePlanMode"
 
 interface MessageListProps {
@@ -96,6 +102,7 @@ interface MessageListProps {
   onOpenMemorySettings?: () => void
   onOpenKnowledge?: () => void
   onAddQuickPrompt?: (content: string) => void
+  onAddMessageQuote?: (quote: PendingMessageQuote) => void
   renderMessageActions?: (msg: Message, index: number) => ReactNode
   displayMode?: ChatDisplayMode
   autoCollapseCompletedTurns?: boolean
@@ -668,6 +675,7 @@ export default function MessageList({
   onOpenMemorySettings,
   onOpenKnowledge,
   onAddQuickPrompt,
+  onAddMessageQuote,
   renderMessageActions,
   displayMode = "bubble",
   autoCollapseCompletedTurns = true,
@@ -696,11 +704,7 @@ export default function MessageList({
   const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const askUserFollowRafRef = useRef<number | null>(null)
   const lastAskUserFollowKeyRef = useRef<string | null>(null)
-  const [contextMenu, setContextMenu] = useState<{
-    x: number
-    y: number
-    index: number
-  } | null>(null)
+  const [contextMenu, setContextMenu] = useState<MessageContextMenuState | null>(null)
 
   // Single source of truth: are we at (or following) the bottom?
   // Default true so the first paint after mount/session swap aligns to bottom.
@@ -1384,11 +1388,20 @@ export default function MessageList({
   useEffect(() => {
     if (!contextMenu) return
     const close = () => setContextMenu(null)
-    document.addEventListener("mousedown", close)
-    document.addEventListener("scroll", close, true)
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") close()
+    }
+    window.addEventListener("pointerdown", close)
+    window.addEventListener("keydown", onKeyDown)
+    window.addEventListener("resize", close)
+    window.addEventListener("blur", close)
+    window.addEventListener("scroll", close, true)
     return () => {
-      document.removeEventListener("mousedown", close)
-      document.removeEventListener("scroll", close, true)
+      window.removeEventListener("pointerdown", close)
+      window.removeEventListener("keydown", onKeyDown)
+      window.removeEventListener("resize", close)
+      window.removeEventListener("blur", close)
+      window.removeEventListener("scroll", close, true)
     }
   }, [contextMenu])
 
@@ -1436,15 +1449,50 @@ export default function MessageList({
 
   const handleContextMenu = useCallback((e: React.MouseEvent, index: number) => {
     const msg = messagesRef.current[index]
+    const selectionActive = hasActiveTextSelection(e.target)
+    if (selectionActive) {
+      if (
+        (msg.role !== "user" && msg.role !== "assistant") ||
+        msg.isMeta ||
+        isCenteredSystemMessage(msg)
+      ) {
+        return
+      }
+      const selection = window.getSelection()
+      const container = e.currentTarget instanceof HTMLElement ? e.currentTarget : null
+      if (
+        !selection ||
+        !container ||
+        !selection.anchorNode ||
+        !selection.focusNode ||
+        !container.contains(selection.anchorNode) ||
+        !container.contains(selection.focusNode)
+      ) {
+        // Cross-message selections keep the native menu so exact copy remains
+        // available; only a single-bubble excerpt can become a message quote.
+        return
+      }
+      const selectedText = selection.toString()
+      if (!selectedText.trim()) return
+      e.preventDefault()
+      setContextMenu({
+        x: Math.max(8, Math.min(e.clientX, window.innerWidth - 176)),
+        y: Math.max(8, Math.min(e.clientY, window.innerHeight - 92)),
+        index,
+        selectedText,
+        quoteRole: msg.role,
+      })
+      return
+    }
+
+    // Preserve the existing whole-message menu for assistant prose only.
     if (msg.role !== "assistant" || !msg.content) return
-    // Respect standard browser copy: when the user has highlighted part of the
-    // message and right-clicks inside that selection, don't hijack with our
-    // whole-message menu — let the native context menu (whose "Copy" honours
-    // the exact selection) through. The desktop guard defers for the same
-    // reason, so this is consistent in both Tauri and the web client.
-    if (hasActiveTextSelection(e.target)) return
     e.preventDefault()
-    setContextMenu({ x: e.clientX, y: e.clientY, index })
+    setContextMenu({
+      x: Math.max(8, Math.min(e.clientX, window.innerWidth - 176)),
+      y: Math.max(8, Math.min(e.clientY, window.innerHeight - 52)),
+      index,
+    })
   }, [])
 
   const handleCopyMessage = useCallback((content: string, index: number) => {
@@ -1719,10 +1767,12 @@ export default function MessageList({
 
       <MessageContextMenu
         contextMenu={contextMenu}
-        onCopy={(index) => {
+        onCopy={(index, selectedText) => {
           const msg = messages[index]
-          if (msg?.content) handleCopyMessage(msg.content, index)
+          const content = selectedText ?? msg?.content
+          if (content) handleCopyMessage(content, index)
         }}
+        onAddToChat={onAddMessageQuote}
         onClose={() => setContextMenu(null)}
       />
     </div>

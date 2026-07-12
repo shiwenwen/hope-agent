@@ -425,6 +425,12 @@
     "sidebarDetailedMode": "Переключить в обычный режим",
     "copied": "Скопировано",
     "copy": "Копировать",
+    "messageQuote": {
+      "addToChat": "Добавить в чат",
+      "assistantMessage": "Сообщение ассистента",
+      "remove": "Удалить цитату",
+      "yourMessage": "Ваше сообщение"
+    },
     "quickPrompts": {
       "addAction": "Добавить в быстрые подсказки",
       "addFailed": "Не удалось добавить быструю подсказку",

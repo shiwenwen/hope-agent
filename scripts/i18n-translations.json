@@ -16,6 +16,12 @@
         "resizePanel": "ブラウザパネルのサイズを変更する"
       },
       "copy": "コピー",
+      "messageQuote": {
+        "addToChat": "チャットに追加",
+        "assistantMessage": "アシスタントのメッセージ",
+        "remove": "引用を削除",
+        "yourMessage": "あなたのメッセージ"
+      },
       "details": "詳細",
       "duration": "所要時間",
       "inputTokens": "入力",
@@ -1805,6 +1811,12 @@
         "resizePanel": "브라우저 패널 크기 조정"
       },
       "copy": "복사",
+      "messageQuote": {
+        "addToChat": "채팅에 추가",
+        "assistantMessage": "어시스턴트 메시지",
+        "remove": "인용 삭제",
+        "yourMessage": "내 메시지"
+      },
       "details": "상세",
       "duration": "소요 시간",
       "inputTokens": "입력",
@@ -3594,6 +3606,12 @@
         "resizePanel": "調整瀏覽器面板大小"
       },
       "copy": "複製",
+      "messageQuote": {
+        "addToChat": "新增至對話",
+        "assistantMessage": "助理訊息",
+        "remove": "移除引用",
+        "yourMessage": "你的訊息"
+      },
       "details": "詳情",
       "duration": "耗時",
       "inputTokens": "輸入",
@@ -5366,6 +5384,12 @@
         "resizePanel": "Tarayıcı panelini yeniden boyutlandır"
       },
       "copy": "Kopyala",
+      "messageQuote": {
+        "addToChat": "Sohbete ekle",
+        "assistantMessage": "Asistan mesajı",
+        "remove": "Alıntıyı kaldır",
+        "yourMessage": "Mesajınız"
+      },
       "details": "Ayrıntılar",
       "duration": "Süre",
       "inputTokens": "Giriş",
@@ -7155,6 +7179,12 @@
         "resizePanel": "Thay đổi kích thước bảng trình duyệt"
       },
       "copy": "Sao chép",
+      "messageQuote": {
+        "addToChat": "Thêm vào cuộc trò chuyện",
+        "assistantMessage": "Tin nhắn của trợ lý",
+        "remove": "Xóa trích dẫn",
+        "yourMessage": "Tin nhắn của bạn"
+      },
       "details": "Chi tiết",
       "duration": "Thời gian",
       "inputTokens": "Đầu vào",
@@ -8944,6 +8974,12 @@
         "resizePanel": "Redimensionar painel do navegador"
       },
       "copy": "Copiar",
+      "messageQuote": {
+        "addToChat": "Adicionar ao chat",
+        "assistantMessage": "Mensagem do assistente",
+        "remove": "Remover citação",
+        "yourMessage": "Sua mensagem"
+      },
       "details": "Detalhes",
       "duration": "Duração",
       "inputTokens": "Entrada",
@@ -10733,6 +10769,12 @@
         "resizePanel": "Изменить размер панели браузера"
       },
       "copy": "Копировать",
+      "messageQuote": {
+        "addToChat": "Добавить в чат",
+        "assistantMessage": "Сообщение ассистента",
+        "remove": "Удалить цитату",
+        "yourMessage": "Ваше сообщение"
+      },
       "details": "Подробности",
       "duration": "Длительность",
       "inputTokens": "Ввод",
@@ -12522,6 +12564,12 @@
         "resizePanel": "تغيير حجم لوحة المتصفح"
       },
       "copy": "نسخ",
+      "messageQuote": {
+        "addToChat": "إضافة إلى المحادثة",
+        "assistantMessage": "رسالة المساعد",
+        "remove": "إزالة الاقتباس",
+        "yourMessage": "رسالتك"
+      },
       "details": "التفاصيل",
       "duration": "المدة",
       "inputTokens": "الإدخال",
@@ -14311,6 +14359,12 @@
         "resizePanel": "Cambiar el tamaño del panel del navegador"
       },
       "copy": "Copiar",
+      "messageQuote": {
+        "addToChat": "Añadir al chat",
+        "assistantMessage": "Mensaje del asistente",
+        "remove": "Eliminar cita",
+        "yourMessage": "Tu mensaje"
+      },
       "details": "Detalles",
       "duration": "Duración",
       "inputTokens": "Entrada",
@@ -16100,6 +16154,12 @@
         "resizePanel": "Ubah saiz panel penyemak imbas"
       },
       "copy": "Salin",
+      "messageQuote": {
+        "addToChat": "Tambah ke sembang",
+        "assistantMessage": "Mesej pembantu",
+        "remove": "Buang petikan",
+        "yourMessage": "Mesej anda"
+      },
       "details": "Butiran",
       "duration": "Tempoh",
       "inputTokens": "Input",

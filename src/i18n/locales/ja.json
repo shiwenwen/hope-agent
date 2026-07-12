@@ -425,6 +425,12 @@
     "sidebarDetailedMode": "通常表示に切り替え",
     "copied": "コピーしました",
     "copy": "コピー",
+    "messageQuote": {
+      "addToChat": "チャットに追加",
+      "assistantMessage": "アシスタントのメッセージ",
+      "remove": "引用を削除",
+      "yourMessage": "あなたのメッセージ"
+    },
     "quickPrompts": {
       "addAction": "クイック入力に追加",
       "addFailed": "クイック入力を追加できませんでした",

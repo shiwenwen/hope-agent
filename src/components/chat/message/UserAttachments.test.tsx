@@ -58,6 +58,23 @@ function renderUserAttachments(attachments: MessageAttachment[]) {
 }
 
 describe("UserAttachments", () => {
+  test("renders a selected conversation excerpt as a quote card", () => {
+    renderUserAttachments([
+      {
+        name: "message-quote",
+        mimeType: "text/plain",
+        sizeBytes: 0,
+        kind: "message_quote",
+        messageQuoteRole: "assistant",
+        quoteContent: "Selected answer text",
+      },
+    ])
+
+    expect(screen.getByText("chat.messageQuote.assistantMessage")).toBeTruthy()
+    expect(screen.getByText("Selected answer text")).toBeTruthy()
+    expect(screen.queryByRole("button", { name: "chat.openFile" })).toBeNull()
+  })
+
   test("keeps optimistic blob preview alive across immediate remount", async () => {
     vi.useFakeTimers()
     const revokeObjectURL = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {})

@@ -88,6 +88,14 @@ describe("aggregateSessionUrlSources", () => {
             quoteLines: "10-12",
             quoteContent: "const x = 1",
           },
+          {
+            name: "message-quote",
+            mimeType: "text/plain",
+            sizeBytes: 0,
+            kind: "message_quote",
+            messageQuoteRole: "assistant",
+            quoteContent: "not a workspace source",
+          },
         ],
       },
     ])
@@ -120,7 +128,10 @@ describe("aggregateSessionUrlSources", () => {
       role: "assistant",
       content: "",
       contentBlocks: [
-        { type: "tool_call", tool: { callId: "c", name: "read", arguments: "{}", result: "URL: https://nope.com/x" } },
+        {
+          type: "tool_call",
+          tool: { callId: "c", name: "read", arguments: "{}", result: "URL: https://nope.com/x" },
+        },
       ],
     }
     expect(aggregateSessionUrlSources([msg])).toEqual([])

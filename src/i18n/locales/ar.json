@@ -425,6 +425,12 @@
     "sidebarDetailedMode": "التبديل إلى الوضع العادي",
     "copied": "تم النسخ",
     "copy": "نسخ",
+    "messageQuote": {
+      "addToChat": "إضافة إلى المحادثة",
+      "assistantMessage": "رسالة المساعد",
+      "remove": "إزالة الاقتباس",
+      "yourMessage": "رسالتك"
+    },
     "quickPrompts": {
       "addAction": "إضافة إلى الإدخالات السريعة",
       "addFailed": "تعذرت إضافة الإدخال السريع",

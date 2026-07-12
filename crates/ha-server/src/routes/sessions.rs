@@ -244,7 +244,10 @@ fn rewrite_user_attachment_items_for_http(
         };
         // Leave quote reference cards untouched — their `path` is a
         // workspace-relative reference, not a session attachment file to serve.
-        if obj.get("kind").and_then(Value::as_str) == Some("quote") {
+        if matches!(
+            obj.get("kind").and_then(Value::as_str),
+            Some("quote") | Some(ha_core::attachments::MESSAGE_QUOTE_SOURCE)
+        ) {
             rewritten.push(Value::Object(obj));
             continue;
         }
@@ -403,7 +406,10 @@ fn collect_paths_from_attachments_meta(raw: &str, paths: &mut HashSet<String>) {
 
 fn collect_user_attachment_paths(items: &[Value], paths: &mut HashSet<String>) {
     for item in items {
-        if item.get("kind").and_then(Value::as_str) == Some("quote") {
+        if matches!(
+            item.get("kind").and_then(Value::as_str),
+            Some("quote") | Some(ha_core::attachments::MESSAGE_QUOTE_SOURCE)
+        ) {
             continue;
         }
         add_nonempty_path(
@@ -1543,6 +1549,7 @@ mod tests {
                 data: None,
                 file_path: Some(saved),
                 quote_lines: None,
+                quote_role: None,
             }];
             let meta = ha_core::attachments::persist_chat_user_attachments_meta(
                 session_id,
