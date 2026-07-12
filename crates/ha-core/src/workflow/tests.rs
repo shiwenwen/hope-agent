@@ -3791,7 +3791,13 @@ export default async function main(workflow) {
     assert_eq!(result.snapshot.run.state, WorkflowRunState::Completed);
     let output = result.output.as_ref().expect("workflow output");
     assert_eq!(output.get("runId"), Some(&json!(child_handle)));
-    assert_eq!(output.get("status"), Some(&json!("running")));
+    assert!(
+        matches!(
+            output.get("status").and_then(Value::as_str),
+            Some("running" | "completed")
+        ),
+        "attached child may complete before the recovery snapshot: {output:?}"
+    );
     assert_eq!(output.get("label"), Some(&json!("review")));
     let agent_results = output
         .get("agentResults")
