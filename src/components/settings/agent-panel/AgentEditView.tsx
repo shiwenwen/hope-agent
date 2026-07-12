@@ -64,6 +64,7 @@ interface AgentDeletePreview {
     globalConfig: number
     projects: number
     cronJobs: number
+    pendingWakeups: number
     otherAgentConfigs: number
     historicalSessions: number
     historicalSubagentRuns: number
@@ -77,6 +78,7 @@ interface AgentDeletePreview {
     teams: number
     cronRuns: number
     backgroundJobs: number
+    pendingWakeups: number
   }
   hasHomeDir: boolean
   hasPlanDir: boolean
@@ -760,6 +762,7 @@ export default function AgentEditView({ agentId, initialTab, onBack }: AgentEdit
                   {deletePreview.references.globalConfig +
                     deletePreview.references.projects +
                     deletePreview.references.cronJobs +
+                    deletePreview.references.pendingWakeups +
                     deletePreview.references.otherAgentConfigs}
                 </span>
                 <span>{t("agentLifecycle.history")}</span>

@@ -58,6 +58,7 @@ pub struct AgentReferenceCounts {
     pub global_config: usize,
     pub projects: usize,
     pub cron_jobs: usize,
+    pub pending_wakeups: usize,
     pub other_agent_configs: usize,
     pub historical_sessions: usize,
     pub historical_subagent_runs: usize,
@@ -74,6 +75,7 @@ pub struct AgentActiveWorkCounts {
     pub teams: usize,
     pub cron_runs: usize,
     pub background_jobs: usize,
+    pub pending_wakeups: usize,
 }
 
 impl AgentActiveWorkCounts {
@@ -84,6 +86,7 @@ impl AgentActiveWorkCounts {
             + self.teams
             + self.cron_runs
             + self.background_jobs
+            + self.pending_wakeups
     }
 }
 
@@ -140,6 +143,7 @@ struct DeleteRollbackSnapshot {
     agent_configs: Vec<(String, crate::agent_config::AgentConfig)>,
     project_defaults: Vec<ProjectDefaultSnapshot>,
     cron_payloads: Vec<CronPayloadSnapshot>,
+    wakeups: Vec<crate::wakeup::Wakeup>,
 }
 
 #[derive(Default)]
@@ -148,6 +152,7 @@ struct RewriteProgress {
     agent_configs: bool,
     project_defaults: bool,
     cron_payloads: bool,
+    wakeups: bool,
 }
 
 impl DeleteRollbackSnapshot {
@@ -185,6 +190,20 @@ impl DeleteRollbackSnapshot {
         if progress.cron_payloads {
             if let Err(error) = restore_cron_payloads(&self.cron_payloads) {
                 errors.push(format!("Cron payloads: {error}"));
+            }
+        }
+        if progress.wakeups {
+            if let Some(db) = crate::wakeup::get_wakeup_db() {
+                match db.restore_reassigned_agent(&self.wakeups, &self.replacement_agent_id) {
+                    Ok(()) => crate::wakeup::update_armed_agent(
+                        &self.wakeups,
+                        &self.replacement_agent_id,
+                        &self.old_agent_id,
+                    ),
+                    Err(error) => errors.push(format!("Wakeups: {error}")),
+                }
+            } else if !self.wakeups.is_empty() {
+                errors.push("Wakeups: database is unavailable".to_string());
             }
         }
         if errors.is_empty() {
@@ -308,6 +327,9 @@ pub(crate) fn save_agent_config(
     if id == DEFAULT_AGENT_ID && !config.enabled {
         anyhow::bail!("Cannot disable the main agent");
     }
+    if !config.enabled && agent_loader::load_agent(id).is_ok_and(|current| current.config.enabled) {
+        ensure_agent_can_disable(id)?;
+    }
 
     let mut deleted = deleted_agent_ids()
         .lock()
@@ -389,8 +411,29 @@ pub fn set_agent_enabled(id: &str, enabled: bool) -> Result<()> {
         anyhow::bail!("Cannot disable the main agent");
     }
     let mut def = agent_loader::load_agent(id)?;
+    if !enabled && def.config.enabled {
+        ensure_agent_can_disable(id)?;
+    }
     def.config.enabled = enabled;
     agent_loader::save_agent_config_unlocked(id, &def.config)
+}
+
+fn ensure_agent_can_disable(id: &str) -> Result<()> {
+    let references = collect_reference_counts(id)?;
+    let blocking = references.global_config
+        + references.projects
+        + references.cron_jobs
+        + references.pending_wakeups;
+    if blocking > 0 {
+        anyhow::bail!(
+            "Agent '{id}' is still used by live routes (global={}, projects={}, cron={}, wakeups={}); reassign them before disabling",
+            references.global_config,
+            references.projects,
+            references.cron_jobs,
+            references.pending_wakeups,
+        );
+    }
+    Ok(())
 }
 
 pub fn preview_agent_delete(id: &str) -> Result<AgentDeletePreview> {
@@ -441,13 +484,14 @@ pub fn delete_agent(request: &AgentDeleteRequest) -> Result<AgentDeleteSummary> 
     let preview = preview_agent_delete(id)?;
     if preview.active_work.total() > 0 {
         anyhow::bail!(
-            "Agent '{id}' still has active work (runs={}, foreground={}, subagents={}, teams={}, cron={}, background={})",
+            "Agent '{id}' still has active work (runs={}, foreground={}, subagents={}, teams={}, cron={}, background={}, wakeups={})",
             preview.active_work.agent_runs,
             preview.active_work.foreground_sessions,
             preview.active_work.subagent_runs,
             preview.active_work.teams,
             preview.active_work.cron_runs,
             preview.active_work.background_jobs,
+            preview.active_work.pending_wakeups,
         );
     }
 
@@ -513,6 +557,8 @@ pub fn delete_agent(request: &AgentDeleteRequest) -> Result<AgentDeleteSummary> 
         rewrite_progress.project_defaults = true;
         rewrite_cron_references(id, replacement)?;
         rewrite_progress.cron_payloads = true;
+        rewrite_progress.wakeups = true;
+        rewrite_wakeup_references(id, replacement)?;
 
         let trash_root = create_trash_root(id)?;
         let mut summary = AgentDeleteSummary {
@@ -641,6 +687,17 @@ fn capture_delete_rollback(id: &str, replacement: &str) -> Result<DeleteRollback
         }
     }
 
+    let wakeups = crate::wakeup::get_wakeup_db()
+        .map(|db| {
+            db.list_pending().map(|rows| {
+                rows.into_iter()
+                    .filter(|row| row.agent_id == id)
+                    .collect::<Vec<_>>()
+            })
+        })
+        .transpose()?
+        .unwrap_or_default();
+
     Ok(DeleteRollbackSnapshot {
         old_agent_id: id.to_string(),
         replacement_agent_id: replacement.to_string(),
@@ -648,6 +705,7 @@ fn capture_delete_rollback(id: &str, replacement: &str) -> Result<DeleteRollback
         agent_configs,
         project_defaults,
         cron_payloads,
+        wakeups,
     })
 }
 
@@ -735,6 +793,7 @@ fn collect_reference_counts(id: &str) -> Result<AgentReferenceCounts> {
             .filter(|job| payload_references_agent(&job.payload, id))
             .count();
     }
+    counts.pending_wakeups = crate::wakeup::count_pending_for_agent(id)?;
     counts.other_agent_configs = count_allowlist_references(id)?;
     counts.agent_memories = crate::get_memory_backend()
         .and_then(|backend| {
@@ -788,6 +847,7 @@ fn collect_active_work(id: &str) -> Result<AgentActiveWorkCounts> {
             .filter(|job| job.agent_id.as_deref() == Some(id))
             .count();
     }
+    counts.pending_wakeups = crate::wakeup::count_unpersisted_for_agent(id);
     Ok(counts)
 }
 
@@ -879,6 +939,15 @@ fn rewrite_cron_references(old: &str, replacement: &str) -> Result<()> {
         }
     }
     tx.commit()?;
+    Ok(())
+}
+
+fn rewrite_wakeup_references(old: &str, replacement: &str) -> Result<()> {
+    let Some(db) = crate::wakeup::get_wakeup_db() else {
+        return Ok(());
+    };
+    let rows = db.reassign_pending_agent(old, replacement)?;
+    crate::wakeup::update_armed_agent(&rows, old, replacement);
     Ok(())
 }
 

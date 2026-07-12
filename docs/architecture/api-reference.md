@@ -752,8 +752,8 @@ Loop owner API 管理 session-scoped recurring triggers。`create_loop_schedule`
 | `get_agent_config` | `GET /api/agents/{id}` | ✅ |
 | `save_agent_config_cmd` | `PUT /api/agents/{id}` | ✅ `create=true` 仅用于显式新建/重用已删 id；普通保存受删除墓碑保护 |
 | `preview_agent_delete` | `GET /api/agents/{id}/delete-preview` | ✅ 引用/活动工作/保留数据预检 |
-| `set_agent_enabled` | `PATCH /api/agents/{id}/enabled` | ✅ 主 Agent 不可禁用 |
-| `delete_agent` | `DELETE /api/agents/{id}?replacementAgentId=...` | ✅ 活动工作 fail closed、引用重绑、备份 + 可恢复回收站 |
+| `set_agent_enabled` | `PATCH /api/agents/{id}/enabled` | ✅ 主 Agent 不可禁用；仍被全局 / Project / Channel / Cron / Wakeup 实时路由引用时拒绝禁用 |
+| `delete_agent` | `DELETE /api/agents/{id}?replacementAgentId=...` | ✅ 活动工作 fail closed、含待触发 Wakeup 的引用重绑与精确回滚、备份 + 可恢复回收站；无持久化 Wakeup 作为活动工作阻断 |
 | `get_agent_markdown` | `GET /api/agents/{id}/markdown` | ✅ |
 | `save_agent_markdown` | `PUT /api/agents/{id}/markdown` | ✅ |
 | `render_persona_to_soul_md` | `POST /api/agents/{id}/persona/render-soul-md` | ✅ |

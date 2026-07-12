@@ -90,6 +90,8 @@ pub fn get_wakeup_db() -> Option<&'static Arc<WakeupDB>> {
 
 struct ArmedTimer {
     session_id: String,
+    agent_id: String,
+    persisted: bool,
     abort: tokio::task::AbortHandle,
 }
 
@@ -115,6 +117,55 @@ fn count_pending_for_session(session_id: &str) -> usize {
         .values()
         .filter(|t| t.session_id == session_id)
         .count()
+}
+
+/// Count unique durable or process-local wakeups that still target an Agent.
+/// Used by the owner lifecycle plane to prevent disabling a live route and to
+/// surface everything deletion will migrate or block.
+pub(crate) fn count_pending_for_agent(agent_id: &str) -> anyhow::Result<usize> {
+    let mut ids: std::collections::HashSet<String> = ARMED_TIMERS
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .iter()
+        .filter(|(_, timer)| timer.agent_id == agent_id)
+        .map(|(id, _)| id.clone())
+        .collect();
+    if let Some(db) = get_wakeup_db() {
+        ids.extend(
+            db.list_pending()?
+                .into_iter()
+                .filter(|row| row.agent_id == agent_id)
+                .map(|row| row.id),
+        );
+    }
+    Ok(ids.len())
+}
+
+/// In-memory-only wakeups cannot be durably rebound. They therefore count as
+/// active lifecycle work and must fire or be cancelled before Agent deletion.
+pub(crate) fn count_unpersisted_for_agent(agent_id: &str) -> usize {
+    ARMED_TIMERS
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .values()
+        .filter(|timer| timer.agent_id == agent_id && !timer.persisted)
+        .count()
+}
+
+/// Keep the process-local timer index aligned with a durable lifecycle
+/// rewrite. The timer task itself resolves the authoritative row at delivery;
+/// this metadata is used for later lifecycle previews and admission checks.
+pub(crate) fn update_armed_agent(rows: &[Wakeup], expected_current: &str, replacement: &str) {
+    if rows.is_empty() {
+        return;
+    }
+    let ids: std::collections::HashSet<&str> = rows.iter().map(|row| row.id.as_str()).collect();
+    let mut timers = ARMED_TIMERS.lock().unwrap_or_else(|p| p.into_inner());
+    for (id, timer) in timers.iter_mut() {
+        if ids.contains(id.as_str()) && timer.persisted && timer.agent_id == expected_current {
+            timer.agent_id = replacement.to_string();
+        }
+    }
 }
 
 /// Outcome of a successful schedule call (returned to the tool layer).
@@ -167,6 +218,7 @@ pub fn schedule(
     let fire_at = now.saturating_add(delay);
     let id = format!("wakeup_{}", uuid::Uuid::new_v4().simple());
 
+    let mut persisted = false;
     if !incognito {
         // Best-effort persistence: if the DB is missing we still arm the live
         // timer so the wakeup works this session — it just won't survive a
@@ -180,14 +232,17 @@ pub fn schedule(
                 fire_at,
                 created_at: now,
             };
-            if let Err(e) = db.insert(&row) {
-                app_warn!(
-                    "wakeup",
-                    "schedule",
-                    "Failed to persist wakeup {} (arming in-memory only): {}",
-                    id,
-                    e
-                );
+            match db.insert(&row) {
+                Ok(()) => persisted = true,
+                Err(e) => {
+                    app_warn!(
+                        "wakeup",
+                        "schedule",
+                        "Failed to persist wakeup {} (arming in-memory only): {}",
+                        id,
+                        e
+                    );
+                }
             }
         }
     }
@@ -198,7 +253,7 @@ pub fn schedule(
         agent_id.to_string(),
         note,
         fire_at,
-        incognito,
+        persisted,
     );
 
     app_info!(
@@ -227,11 +282,12 @@ fn arm_timer(
     agent_id: String,
     note: Option<String>,
     fire_at: i64,
-    incognito: bool,
+    persisted: bool,
 ) {
     let delay = (fire_at - now_secs()).max(0) as u64;
     // Clone the session id for the map entry before the rest moves into the task.
     let session_for_map = session_id.clone();
+    let agent_for_map = agent_id.clone();
     let task_id = id.clone();
     // Hold the map lock across spawn so a delay==0 task can't `remove_armed`
     // before we insert (its removal blocks on this same lock).
@@ -241,7 +297,7 @@ fn arm_timer(
             tokio::time::sleep(std::time::Duration::from_secs(delay)).await;
         }
         remove_armed(&task_id);
-        fire(task_id, session_id, agent_id, note, incognito);
+        fire(task_id, session_id, agent_id, note, persisted);
     });
     // Defensive: ids are fresh uuids so a collision shouldn't happen, but if one
     // ever did, abort the displaced timer rather than silently dropping its
@@ -250,6 +306,8 @@ fn arm_timer(
         id,
         ArmedTimer {
             session_id: session_for_map,
+            agent_id: agent_for_map,
+            persisted,
             abort: handle.abort_handle(),
         },
     ) {
@@ -267,7 +325,13 @@ fn remove_armed(id: &str) {
 /// Deliver a fired wakeup: inject a `<wakeup>` message back into the session via
 /// the shared injection pipeline. Runs on a detached thread (its own runtime),
 /// exactly like `async_jobs::injection::dispatch_injection`.
-fn fire(id: String, session_id: String, agent_id: String, note: Option<String>, incognito: bool) {
+fn fire(
+    id: String,
+    session_id: String,
+    mut agent_id: String,
+    note: Option<String>,
+    persisted: bool,
+) {
     // Per-process in-flight dedup.
     {
         let mut g = DELIVERING.lock().unwrap_or_else(|p| p.into_inner());
@@ -283,6 +347,40 @@ fn fire(id: String, session_id: String, agent_id: String, note: Option<String>, 
             return;
         }
     };
+
+    // A lifecycle delete may have rebound this durable wakeup after its live
+    // timer was armed. Read the row at delivery time so the task cannot replay
+    // into an Agent that has since moved to trash.
+    if persisted {
+        let Some(db) = get_wakeup_db() else {
+            app_warn!(
+                "wakeup",
+                "fire",
+                "Wakeup {} lost its durable database; leaving it for restart recovery",
+                id
+            );
+            release_delivering(&id);
+            return;
+        };
+        match db.get_pending(&id) {
+            Ok(Some(row)) => agent_id = row.agent_id,
+            Ok(None) => {
+                release_delivering(&id);
+                return;
+            }
+            Err(error) => {
+                app_warn!(
+                    "wakeup",
+                    "fire",
+                    "Failed to resolve durable wakeup {} before delivery: {}",
+                    id,
+                    error
+                );
+                release_delivering(&id);
+                return;
+            }
+        }
+    }
 
     let push_message = build_wakeup_message(note.as_deref());
     let id_for_mark = id.clone();
@@ -304,7 +402,6 @@ fn fire(id: String, session_id: String, agent_id: String, note: Option<String>, 
             Ok(rt) => {
                 let on_injected: crate::subagent::injection::OnInjected = {
                     let jid = id_for_mark.clone();
-                    let persisted = !incognito;
                     Arc::new(move || {
                         if persisted {
                             delete_delivered_with_retry(&jid);
@@ -446,7 +543,7 @@ pub fn replay_pending() {
             continue;
         }
         *c += 1;
-        arm_timer(w.id, w.session_id, w.agent_id, w.note, w.fire_at, false);
+        arm_timer(w.id, w.session_id, w.agent_id, w.note, w.fire_at, true);
         armed += 1;
     }
     if armed > 0 || dropped > 0 {
