@@ -4874,7 +4874,7 @@ describe("WorkspacePanel workflow section", () => {
 
     expect((await screen.findAllByText("待启动")).length).toBeGreaterThan(0)
 
-    fireEvent.click(screen.getAllByRole("button", { name: "运行" })[0])
+    fireEvent.click((await screen.findAllByRole("button", { name: "运行" }))[0])
 
     await waitFor(() => {
       expect(transportMock.call).toHaveBeenCalledWith("run_workflow_run", { runId: "wf-1" })
