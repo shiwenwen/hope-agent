@@ -260,13 +260,7 @@ pub(super) fn import_single_agent(
 ) -> Result<()> {
     let target_id = &req.target_id;
 
-    if target_id.is_empty()
-        || !target_id
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '-')
-    {
-        anyhow::bail!("Invalid agent ID: '{}'", target_id);
-    }
+    crate::paths::validate_agent_id(target_id)?;
 
     let temperature = extract_temperature(source);
     let primary = resolve_primary_model(source, model_id_to_provider, warnings);
@@ -310,7 +304,7 @@ pub(super) fn import_single_agent(
         ..Default::default()
     };
 
-    agent_loader::save_agent_config(target_id, &agent_config)?;
+    agent_loader::create_agent_config(target_id, &agent_config)?;
 
     if let Some(prompt) = &source.system_prompt_override {
         agent_loader::save_agent_markdown(target_id, "agent.md", prompt)?;

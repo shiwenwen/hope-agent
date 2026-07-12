@@ -936,8 +936,11 @@ async fn update_app_config(category: &str, values: &Value) -> Result<String> {
                 if v.is_null() {
                     store.default_agent_id = None;
                 } else if let Some(s) = v.as_str() {
-                    store.default_agent_id =
-                        crate::agent::resolver::normalize_default_agent_id(Some(s));
+                    let normalized = crate::agent::resolver::normalize_default_agent_id(Some(s));
+                    if let Some(id) = normalized.as_deref() {
+                        crate::agent_lifecycle::ensure_agent_runnable(id)?;
+                    }
+                    store.default_agent_id = normalized;
                 } else {
                     bail!("default_agent.defaultAgentId must be a string or null");
                 }

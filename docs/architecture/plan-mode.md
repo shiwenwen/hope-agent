@@ -190,7 +190,7 @@ if !is_internal_tool
 => Decision::Deny { reason: "Plan Mode (state: ...) just entered this turn — '...' is denied." }
 ```
 
-`enter_plan_mode` 工具 result 文本同步告知模型当前 turn schema 已 stale，让它主动收敛到 read-only 工具集（read / grep / glob / find / ls / web_* / ask_user_question / submit_plan）。下一条 user 消息触发新 agent 重建后走标准 PlanAgent 路径。
+`enter_plan_mode` 工具 result 文本同步告知模型当前 turn schema 已 stale，让它主动收敛到 read-only 工具集（read / grep / glob / find / ls / lsp / web_* / ask_user_question / submit_plan）。下一条 user 消息触发新 agent 重建后走标准 PlanAgent 路径。
 
 ## 前端架构
 

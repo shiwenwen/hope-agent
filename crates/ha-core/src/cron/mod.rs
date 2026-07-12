@@ -27,4 +27,4 @@ pub use schedule::{validate_cron_expression, validate_schedule, validate_timezon
 pub use scheduler::start_scheduler;
 
 // Re-export executor
-pub use executor::{cancel_running_job, execute_job_public};
+pub use executor::{cancel_running_job, execute_job_public, spawn_job_execution};

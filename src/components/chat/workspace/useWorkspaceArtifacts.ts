@@ -4,7 +4,11 @@ import { logger } from "@/lib/logger"
 import type { BrowserActivityDto, FileArtifactSummary, SessionArtifacts } from "@/lib/transport"
 import type { Message } from "@/types/chat"
 import { useSessionFileChanges, type SessionFileEntry } from "./useSessionFileChanges"
-import { useSessionUrlSources, type SessionUrlSource } from "./useSessionUrlSources"
+import {
+  sessionSourceKey,
+  useSessionUrlSources,
+  type SessionUrlSource,
+} from "./useSessionUrlSources"
 import { useSessionBrowserActivity, type SessionBrowserActivity } from "./useSessionBrowserActivity"
 
 export interface WorkspaceArtifacts {
@@ -93,7 +97,12 @@ export function reconcileFile(
  *  merged source keeps that origin (the live tail may have only seen a later
  *  plain-prose mention of a URL the backend first found via search). */
 function reconcileSource(live: SessionUrlSource, backend: SessionUrlSource): SessionUrlSource {
-  if (live.origin !== "web_search" && backend.origin === "web_search") {
+  if (
+    live.kind === "url" &&
+    backend.kind === "url" &&
+    live.origin !== "web_search" &&
+    backend.origin === "web_search"
+  ) {
     return { ...live, origin: "web_search" }
   }
   return live
@@ -198,7 +207,7 @@ export function useWorkspaceArtifacts(
     [data, liveFiles],
   )
   const sources = useMemo(
-    () => mergeArtifacts(data?.sources ?? [], liveSources, (s) => s.url, reconcileSource),
+    () => mergeArtifacts(data?.sources ?? [], liveSources, sessionSourceKey, reconcileSource),
     [data, liveSources],
   )
   const browser = useMemo(

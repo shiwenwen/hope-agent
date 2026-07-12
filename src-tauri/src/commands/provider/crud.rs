@@ -21,9 +21,13 @@ pub async fn add_provider(
 #[tauri::command]
 pub async fn update_provider(
     config: ProviderConfig,
-    _state: State<'_, AppState>,
+    state: State<'_, AppState>,
 ) -> Result<(), CmdError> {
-    ha_core::provider::update_provider(config, "ui").map_err(Into::into)
+    let active_agent_invalidated = ha_core::provider::update_provider(config, "ui")?;
+    if active_agent_invalidated {
+        *state.agent.lock().await = None;
+    }
+    Ok(())
 }
 
 #[tauri::command]

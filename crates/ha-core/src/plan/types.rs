@@ -127,6 +127,7 @@ impl PlanAgentConfig {
                 "ls",
                 "grep",
                 "find",
+                "lsp",
                 "glob",
                 "web_search",
                 "web_fetch",

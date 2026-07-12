@@ -166,6 +166,8 @@ pub struct ModelTaskOutput {
     /// before the call, which silently mis-attributes the label whenever a
     /// fallback fires.
     pub model: ActiveModel,
+    /// Provider-reported usage for this successful candidate.
+    pub usage: crate::agent::ChatUsage,
 }
 
 /// Shared per-candidate setup: resolve provider, construct agent, wire
@@ -237,6 +239,7 @@ pub async fn run(spec: ModelTaskSpec<'_>) -> Result<ModelTaskOutput> {
                 return Ok(ModelTaskOutput {
                     text: result.text,
                     model: candidate.clone(),
+                    usage: result.usage,
                 })
             }
             Err(e) => {
@@ -312,6 +315,7 @@ pub async fn run_streaming(
                 return Ok(ModelTaskOutput {
                     text: result.text,
                     model: candidate.clone(),
+                    usage: result.usage,
                 })
             }
             Err(e) => {
@@ -446,6 +450,7 @@ pub async fn run_vision(spec: VisionTaskSpec<'_>) -> Result<ModelTaskOutput> {
                 return Ok(ModelTaskOutput {
                     text: result.text,
                     model: candidate.clone(),
+                    usage: result.usage,
                 })
             }
             Err(e) => {

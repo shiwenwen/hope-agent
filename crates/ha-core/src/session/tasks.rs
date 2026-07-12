@@ -40,6 +40,25 @@ pub async fn set_task_status_and_snapshot(
     Ok(tasks)
 }
 
+/// Create a session-scoped task, emit the post-create snapshot, return the
+/// updated task list. Owner-plane GUI actions use this instead of writing tasks
+/// directly so the live TaskProgressPanel and Workspace panel stay in sync.
+pub fn create_task_and_snapshot(
+    db: &SessionDB,
+    session_id: &str,
+    content: &str,
+    active_form: Option<&str>,
+) -> Result<Vec<Task>> {
+    let content = content.trim();
+    if content.is_empty() {
+        anyhow::bail!("task content cannot be empty");
+    }
+    db.create_task(session_id, content, active_form)?;
+    let tasks = db.list_tasks(session_id).unwrap_or_default();
+    emit_task_snapshot(session_id, &tasks);
+    Ok(tasks)
+}
+
 /// Delete a task, emit the post-delete snapshot, return the post-delete list.
 ///
 /// Mirrors `set_task_status_and_snapshot` in also calling

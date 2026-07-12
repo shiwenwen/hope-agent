@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
-import { Loader2, Sparkles, X } from "lucide-react"
+import { AlertTriangle, Loader2, Sparkles, X } from "lucide-react"
 
 import { UnifiedDiffView } from "@/components/chat/diff-panel/UnifiedDiffView"
 import {
@@ -21,6 +21,11 @@ import {
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import type { ActiveModel, AvailableModel, FileChangeMetadata } from "@/types/chat"
+import {
+  knowledgeQuickRewriteErrorToast,
+  knowledgeQuickRewriteOperationError,
+  type KnowledgeQuickRewriteErrorToast,
+} from "./knowledgeQuickRewriteFeedback"
 
 interface Props {
   kbId: string
@@ -45,6 +50,8 @@ export function QuickRewriteBar({ kbId, notePath, before, onApply, onClose }: Pr
   const [after, setAfter] = useState<string | null>(null)
   const [availableModels, setAvailableModels] = useState<AvailableModel[]>([])
   const [modelKey, setModelKey] = useState<string>("")
+  const [modelLoadError, setModelLoadError] =
+    useState<KnowledgeQuickRewriteErrorToast | null>(null)
 
   // Default the picker to the current conversation model (the global active
   // model) and load the list for the override dropdown. Quick rewrites are
@@ -60,14 +67,19 @@ export function QuickRewriteBar({ kbId, notePath, before, onApply, onClose }: Pr
         if (cancelled) return
         setAvailableModels(models)
         if (active) setModelKey(`${active.providerId}::${active.modelId}`)
-      } catch {
-        /* picker just stays empty → backend default model */
+        setModelLoadError(null)
+      } catch (e) {
+        if (cancelled) return
+        logger.warn("ui", "QuickRewriteBar::loadModels", "model picker load failed", e)
+        setAvailableModels([])
+        setModelKey("")
+        setModelLoadError(knowledgeQuickRewriteOperationError("loadModels", t, e))
       }
     })()
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [t])
   // Whether the current `after` has been logged as discarded, so closing after
   // an apply doesn't double-log.
   const loggedRef = useRef(false)
@@ -102,7 +114,11 @@ export function QuickRewriteBar({ kbId, notePath, before, onApply, onClose }: Pr
       setAfter(result)
     } catch (e) {
       logger.error("ui", "QuickRewriteBar::generate", "rewrite failed", e)
-      toast.error(t("knowledge.quickRewrite.failed"))
+      const failureToast = knowledgeQuickRewriteErrorToast(t, e)
+      toast.error(
+        failureToast.title,
+        failureToast.description ? { description: failureToast.description } : undefined,
+      )
     } finally {
       setBusy(false)
     }
@@ -139,7 +155,7 @@ export function QuickRewriteBar({ kbId, notePath, before, onApply, onClose }: Pr
   )
 
   return (
-    <div className="w-[420px] max-w-[90vw] rounded-xl border border-border/60 bg-popover/95 p-3 shadow-[0_8px_30px_rgb(0,0,0,0.18)] backdrop-blur-xl">
+    <div className="w-[420px] max-w-[90vw] p-3">
       <div className="mb-2 flex items-center gap-1.5">
         <Sparkles className="h-3.5 w-3.5 text-primary" />
         <span className="text-xs font-medium">{t("knowledge.quickRewrite.title")}</span>
@@ -190,6 +206,19 @@ export function QuickRewriteBar({ kbId, notePath, before, onApply, onClose }: Pr
               {t("knowledge.quickRewrite.generate")}
             </Button>
           </div>
+          {modelLoadError ? (
+            <div className="flex gap-1.5 rounded-md border border-destructive/30 bg-destructive/5 px-2 py-1.5 text-xs text-destructive">
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              <div className="min-w-0">
+                <div>{modelLoadError.title}</div>
+                {modelLoadError.description ? (
+                  <div className="mt-1 break-words text-[11px] leading-relaxed text-muted-foreground">
+                    {modelLoadError.description}
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
         </form>
       ) : (
         <div className="space-y-2">

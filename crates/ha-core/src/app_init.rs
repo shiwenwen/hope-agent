@@ -236,6 +236,7 @@ pub fn init_runtime(role: &'static str) {
     ));
     crate::memory::dreaming::init_store(sqlite_backend.clone());
     crate::memory::claims::init_claim_store(sqlite_backend.clone());
+    crate::memory::episodes::init_episode_store(sqlite_backend.clone());
     let memory_backend: Arc<dyn memory::MemoryBackend> = sqlite_backend;
     let _ = MEMORY_BACKEND.set(memory_backend);
 
@@ -335,8 +336,22 @@ pub fn init_runtime(role: &'static str) {
     // `build_app_state`.
     let _ = CHANNEL_CANCELS.set(Arc::new(channel::ChannelCancelRegistry::new()));
     let _ = CODEX_TOKEN_CACHE.set(Arc::new(Mutex::new(None::<(String, String)>)));
-    let _ = REASONING_EFFORT.set(Arc::new(Mutex::new("medium".to_string())));
+    let global_reasoning_effort = crate::config::cached_config().reasoning_effort.clone();
+    let _ = REASONING_EFFORT.set(Arc::new(Mutex::new(global_reasoning_effort)));
     let _ = CACHED_AGENT.set(Arc::new(Mutex::new(None::<crate::agent::AssistantAgent>)));
+
+    // Idempotent convergence for a previous Provider delete that completed
+    // config persistence but was interrupted while repairing Agent/Session
+    // references across their separate stores.
+    let repair = crate::provider::repair_hard_deleted_model_references();
+    if repair.failures > 0 {
+        crate::app_warn!(
+            "provider",
+            "startup-repair",
+            "model reference repair incomplete: failures={}",
+            repair.failures
+        );
+    }
 
     // Startup orphan sweeps. Gated on Primary tier so a Secondary process
     // (e.g. acp launching while desktop is running) doesn't mark-error the
@@ -913,6 +928,7 @@ pub async fn start_background_tasks() {
         if let (Some(cron_db), Some(session_db)) = (CRON_DB.get(), SESSION_DB.get()) {
             let _handle = cron::start_scheduler(cron_db.clone(), session_db.clone());
         }
+        crate::loop_control::spawn_loop_event_trigger_watcher();
 
         // Headless auto-update: periodic check + optional silent pre-download.
         // Primary-only (avoids N processes racing to download/stage the same
@@ -949,10 +965,9 @@ pub async fn start_background_tasks() {
             );
         }
 
-        // Clean up the `ask_user_questions` table: drop old answered rows and
-        // expire any still-pending rows left behind by a previous process
-        // (their in-memory oneshots are gone, so the UI could not deliver
-        // answers to them anyway).
+        // Clean up the `ask_user_questions` table: drop old answered rows,
+        // expire tool rows whose in-memory oneshots vanished on restart, and
+        // re-arm durable owner-plane timeout tasks.
         tokio::spawn(async move {
             if let Some(db) = crate::get_session_db() {
                 if let Err(e) = db.purge_old_answered_ask_user_groups(7) {
@@ -965,10 +980,9 @@ pub async fn start_background_tasks() {
                 }
             }
 
-            // Expire any rows left pending by a previous process. The in-memory
-            // oneshot registry is empty at startup, so a "resume" would produce
-            // orphaned UI entries whose submissions fail with "No pending plan
-            // question request".
+            // Tool-created rows cannot resume because the oneshot registry is
+            // empty. Durable owner rows are preserved by this method and
+            // restored immediately afterward.
             if let Some(db) = crate::get_session_db() {
                 match db.expire_pending_ask_user_groups() {
                     Ok(0) => {}
@@ -985,6 +999,21 @@ pub async fn start_background_tasks() {
                         e
                     ),
                 }
+            }
+            match crate::ask_user::restore_owner_question_timeouts() {
+                Ok(0) => {}
+                Ok(n) => app_info!(
+                    "ask_user",
+                    "startup",
+                    "Re-armed {} durable owner ask_user timeout(s)",
+                    n
+                ),
+                Err(e) => app_warn!(
+                    "ask_user",
+                    "startup",
+                    "Failed to restore owner ask_user timeouts: {}",
+                    e
+                ),
             }
         });
 
@@ -1038,6 +1067,7 @@ pub async fn start_background_tasks() {
         tokio::spawn(async move {
             crate::async_jobs::JobManager::replay_pending();
         });
+        crate::workflow::spawn_startup_recovery_if_primary();
         crate::local_model_jobs::replay_interrupted_jobs();
 
         // Re-arm agent self-scheduled wakeups (R10). Primary-only — the rows
@@ -1129,6 +1159,11 @@ pub async fn start_background_tasks() {
         // fires `manual_run(Cron)` on the configured schedule. Re-evaluates
         // on every `config:changed { category: "dreaming" }`.
         crate::memory::dreaming::spawn_dreaming_cron_loop();
+
+        // Additive external memory providers reconcile off the chat hot path.
+        // The loop filters out manual policies and every adapter remains
+        // fail-closed when credentials, endpoint or capability checks fail.
+        crate::memory::spawn_external_memory_provider_sync_loop();
 
         // Knowledge maintenance cron-trigger loop (WS6). Reads
         // `knowledge_maintenance.cron_trigger`; off unless the user enables it.
@@ -1278,6 +1313,14 @@ pub async fn start_minimal_background_tasks() {
                     );
                 }
             }
+            if let Err(e) = crate::ask_user::restore_owner_question_timeouts() {
+                app_warn!(
+                    "ask_user",
+                    "startup",
+                    "Failed to restore owner ask_user timeouts: {}",
+                    e
+                );
+            }
         });
 
         // Replay leftover async tool jobs. Primary-only: a Secondary ACP
@@ -1286,7 +1329,9 @@ pub async fn start_minimal_background_tasks() {
         tokio::spawn(async move {
             crate::async_jobs::JobManager::replay_pending();
         });
+        crate::workflow::spawn_startup_recovery_if_primary();
         crate::local_model_jobs::replay_interrupted_jobs();
+        crate::loop_control::spawn_loop_event_trigger_watcher();
 
         // Re-arm agent self-scheduled wakeups (R10). Primary-only (shared rows).
         crate::wakeup::replay_pending();

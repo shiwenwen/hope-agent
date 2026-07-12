@@ -21,6 +21,7 @@ interface RightPanelShellProps {
   reservedMainWidth?: number
   maximized?: boolean
   collapsed?: boolean
+  overlay?: boolean
   contentKey?: string | number | null
   surfaceClassName?: string
   bodyClassName?: string
@@ -37,6 +38,7 @@ export function RightPanelShell({
   reservedMainWidth = 420,
   maximized = false,
   collapsed = false,
+  overlay = false,
   contentKey,
   surfaceClassName,
   bodyClassName,
@@ -46,7 +48,9 @@ export function RightPanelShell({
   const lastContentKeyRef = useRef<string | number>(resolvedContentKey)
   const transitionTimerRef = useRef<number | null>(null)
   const transitionFrameRef = useRef<number | null>(null)
+  const dragCleanupRef = useRef<(() => void) | null>(null)
   const [transitionVeilVisible, setTransitionVeilVisible] = useState(false)
+  const [isResizing, setIsResizing] = useState(false)
 
   useLayoutEffect(() => {
     if (Object.is(lastContentKeyRef.current, resolvedContentKey)) return
@@ -76,6 +80,7 @@ export function RightPanelShell({
         window.cancelAnimationFrame(transitionFrameRef.current)
         transitionFrameRef.current = null
       }
+      dragCleanupRef.current?.()
     },
     [],
   )
@@ -84,6 +89,8 @@ export function RightPanelShell({
     (e: React.MouseEvent<HTMLDivElement>) => {
       if (!onWidthChange || collapsed) return
       e.preventDefault()
+      dragCleanupRef.current?.()
+      setIsResizing(true)
       const startX = e.clientX
       const startWidth = width
       const containerWidth =
@@ -103,15 +110,26 @@ export function RightPanelShell({
       }
       const iframes = document.querySelectorAll("iframe")
       iframes.forEach((frame) => ((frame as HTMLElement).style.pointerEvents = "none"))
-      const onMouseUp = () => {
+      let cleanedUp = false
+      const cleanup = () => {
+        if (cleanedUp) return
+        cleanedUp = true
         document.removeEventListener("mousemove", onMouseMove)
-        document.removeEventListener("mouseup", onMouseUp)
+        document.removeEventListener("mouseup", finishDrag)
+        window.removeEventListener("blur", finishDrag)
         document.body.style.cursor = ""
         document.body.style.userSelect = ""
         iframes.forEach((frame) => ((frame as HTMLElement).style.pointerEvents = ""))
+        if (dragCleanupRef.current === cleanup) dragCleanupRef.current = null
       }
+      const finishDrag = () => {
+        cleanup()
+        setIsResizing(false)
+      }
+      dragCleanupRef.current = cleanup
       document.addEventListener("mousemove", onMouseMove)
-      document.addEventListener("mouseup", onMouseUp)
+      document.addEventListener("mouseup", finishDrag)
+      window.addEventListener("blur", finishDrag)
       document.body.style.cursor = "col-resize"
       document.body.style.userSelect = "none"
     },
@@ -127,15 +145,27 @@ export function RightPanelShell({
         maxWidth: `min(${maxWidth}px, ${maxViewportRatio * 100}%, ${availableWidthCss})`,
       }
 
-  if (maximized && !collapsed) {
+  if ((maximized || overlay) && !collapsed) {
     return (
       <div
         className={cn(
           "fixed inset-0 z-50 flex min-h-0 flex-col overflow-hidden bg-surface-app",
+          overlay && !maximized && "p-2 sm:p-3",
           surfaceClassName,
         )}
       >
-        {children}
+        {overlay && !maximized ? (
+          <div
+            className={cn(
+              "flex h-full min-h-0 w-full flex-col overflow-hidden rounded-2xl border border-border-soft bg-surface-panel shadow-panel",
+              bodyClassName,
+            )}
+          >
+            {children}
+          </div>
+        ) : (
+          children
+        )}
       </div>
     )
   }
@@ -144,7 +174,9 @@ export function RightPanelShell({
     <div
       ref={shellRef}
       className={cn(
-        "relative flex h-full min-h-0 shrink-0 overflow-hidden transition-[width,min-width,max-width,padding] duration-[250ms] ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[width] motion-reduce:transition-none",
+        "relative flex h-full min-h-0 shrink-0 overflow-hidden",
+        !isResizing &&
+          "transition-[width,min-width,max-width,padding] duration-[250ms] ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[width] motion-reduce:transition-none",
         collapsed ? "min-w-0 max-w-0 p-0 pointer-events-none" : "p-3 pl-2",
       )}
       style={panelStyle}
@@ -153,7 +185,7 @@ export function RightPanelShell({
     >
       <div
         className={cn(
-          "group absolute left-0 top-3 bottom-3 z-10 flex w-3 items-center justify-center",
+          "peer absolute left-0 top-3 bottom-3 z-10 w-4",
           onWidthChange && !collapsed && "cursor-col-resize",
           collapsed && "hidden",
         )}
@@ -161,12 +193,11 @@ export function RightPanelShell({
         role="separator"
         aria-orientation="vertical"
         aria-label={resizeLabel}
-      >
-        <div className="h-full w-px rounded-full bg-transparent transition-colors group-hover:bg-primary/35 group-active:bg-primary/50" />
-      </div>
+      />
       <div
         className={cn(
-          "flex h-full min-h-0 w-full flex-col overflow-hidden rounded-2xl border border-border-soft bg-surface-panel shadow-panel transition-[opacity,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[opacity,transform] [contain:layout_paint] motion-reduce:transition-none",
+          "flex h-full min-h-0 w-full flex-col overflow-hidden rounded-2xl border border-border-soft bg-surface-panel shadow-panel transition-[opacity,transform,border-color] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[opacity,transform] [contain:layout_paint] peer-hover:border-l-primary/35 motion-reduce:transition-none",
+          isResizing && "border-l-primary/50",
           collapsed ? "translate-x-4 opacity-0" : "translate-x-0 opacity-100",
           bodyClassName,
         )}

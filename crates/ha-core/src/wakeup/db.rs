@@ -100,6 +100,76 @@ impl WakeupDB {
         Ok(rows)
     }
 
+    pub fn get_pending(&self, id: &str) -> Result<Option<Wakeup>> {
+        let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
+        let mut stmt = conn.prepare(
+            "SELECT id, session_id, agent_id, note, fire_at, created_at
+             FROM wakeups WHERE id = ?1 AND fired = 0",
+        )?;
+        let mut rows = stmt.query(params![id])?;
+        let Some(row) = rows.next()? else {
+            return Ok(None);
+        };
+        Ok(Some(Wakeup {
+            id: row.get(0)?,
+            session_id: row.get(1)?,
+            agent_id: row.get(2)?,
+            note: row.get(3)?,
+            fire_at: row.get(4)?,
+            created_at: row.get(5)?,
+        }))
+    }
+
+    /// Reassign every unfired wakeup from one Agent to another and return the
+    /// exact rows changed so a surrounding lifecycle transaction can perform
+    /// conditional compensation if a later step fails.
+    pub fn reassign_pending_agent(&self, old: &str, replacement: &str) -> Result<Vec<Wakeup>> {
+        let mut conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
+        let tx = conn.transaction()?;
+        let rows = {
+            let mut stmt = tx.prepare(
+                "SELECT id, session_id, agent_id, note, fire_at, created_at
+                 FROM wakeups WHERE fired = 0 AND agent_id = ?1 ORDER BY fire_at ASC",
+            )?;
+            let rows = stmt.query_map(params![old], |row| {
+                Ok(Wakeup {
+                    id: row.get(0)?,
+                    session_id: row.get(1)?,
+                    agent_id: row.get(2)?,
+                    note: row.get(3)?,
+                    fire_at: row.get(4)?,
+                    created_at: row.get(5)?,
+                })
+            })?;
+            rows.collect::<std::result::Result<Vec<_>, _>>()?
+        };
+        tx.execute(
+            "UPDATE wakeups SET agent_id = ?1 WHERE fired = 0 AND agent_id = ?2",
+            params![replacement, old],
+        )?;
+        tx.commit()?;
+        Ok(rows)
+    }
+
+    /// Restore only rows that still contain the lifecycle rewrite value. This
+    /// avoids clobbering an unrelated concurrent cancellation or reassignment.
+    pub fn restore_reassigned_agent(&self, rows: &[Wakeup], expected_current: &str) -> Result<()> {
+        if rows.is_empty() {
+            return Ok(());
+        }
+        let mut conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
+        let tx = conn.transaction()?;
+        for row in rows {
+            tx.execute(
+                "UPDATE wakeups SET agent_id = ?1
+                 WHERE id = ?2 AND fired = 0 AND agent_id = ?3",
+                params![row.agent_id, row.id, expected_current],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
     /// Delete a wakeup row (delivered, or being cancelled). Delivered wakeups
     /// are transient — deleting on delivery both prevents a restart re-arming an
     /// already-fired wakeup (the row is gone, so `list_pending` won't see it) and
@@ -179,5 +249,28 @@ mod tests {
             pending.iter().map(|w| w.id.as_str()).collect::<Vec<_>>(),
             ["w3"]
         );
+    }
+
+    #[test]
+    fn reassign_and_restore_pending_agent_are_exact() {
+        let db = temp_db();
+        let mut old = mk("w1", "s1", 200);
+        old.agent_id = "old".into();
+        let mut other = mk("w2", "s2", 250);
+        other.agent_id = "other".into();
+        db.insert(&old).unwrap();
+        db.insert(&other).unwrap();
+
+        let changed = db.reassign_pending_agent("old", "replacement").unwrap();
+        assert_eq!(changed, vec![old.clone()]);
+        let pending = db.list_pending().unwrap();
+        assert_eq!(pending[0].agent_id, "replacement");
+        assert_eq!(pending[1].agent_id, "other");
+
+        db.restore_reassigned_agent(&changed, "replacement")
+            .unwrap();
+        let pending = db.list_pending().unwrap();
+        assert_eq!(pending[0].agent_id, "old");
+        assert_eq!(pending[1].agent_id, "other");
     }
 }

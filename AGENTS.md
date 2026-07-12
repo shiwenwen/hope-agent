@@ -93,7 +93,7 @@ skills/                 内置技能（meta / 编程方法论 vendor / 办公方
 docs/architecture/      子系统设计文档（跨 PR 必读单一真相源）
 ```
 
-ha-core 主要领域：`agent/` `chat_engine/` `context_compact/` `memory/` `knowledge/` `skills/` `tools/` `channel/` `subagent/` `team/` `cron/` `acp/` `dashboard/` `recap/` `awareness/` `config/` `session/` `project/` `plan/` `ask_user/` `async_jobs/` `wakeup/` `failover/` `platform/` `security/` `logging/` `local_llm/`。Vendor skill 来源记录在 `THIRD_PARTY_NOTICES.md`。
+ha-core 主要领域：`agent/` `chat_engine/` `context_compact/` `memory/` `knowledge/` `skills/` `tools/` `channel/` `subagent/` `team/` `cron/` `acp/` `dashboard/` `recap/` `awareness/` `config/` `session/` `project/` `plan/` `goal/` `workflow/` `loop_control.rs` `worktree.rs` `lsp.rs` `review.rs` `verification.rs` `context_retrieval.rs` `coding_eval.rs` `coding_improvement.rs` `domain_workflow.rs` `domain_quality.rs` `domain_eval.rs` `ask_user/` `async_jobs/` `wakeup/` `failover/` `platform/` `security/` `logging/` `local_llm/`。Vendor skill 来源记录在 `THIRD_PARTY_NOTICES.md`。
 
 ## 技术栈
 
@@ -158,9 +158,12 @@ ha-core 主要领域：`agent/` `chat_engine/` `context_compact/` `memory/` `kno
 - Active Memory / Awareness / User Profile 各作**独立 cache block** 注入，不作废静态前缀缓存
 - **Dreaming Context Pack 注入**：高 salience 的 active claim 作 `## Pinned Memory` 段并入 system_prompt **静态 prefix**（复用首个 cache breakpoint，不新开动态 cache block）；claim 内容进 prefix 前必过 `sanitize_for_prompt`。Profile / Pinned 纳入 `effective_memory_budget` 同一预算池（Core > Pinned > Profile+legacy）
 - **dedup 红线**：被 active managed claim 覆盖的 legacy memory 经单一来源 `covered_by_active_claim_memory_ids` 从 `# Memory` 段排除——**去重阈值必须对齐 Pinned 注入阈值 `PINNED_MIN_SALIENCE`（`context_pack.rs` 单一来源常量），dedup 永不比注入更激进**，否则中等 salience（`[0.5,0.7)`）claim 的影子记忆既被踢出 legacy、又够不到 Pinned = 无 prompt 出口；`user_pinned` link / `memories.pinned=1` 豁免
+- **Deep Resolver 自动裁决红线**：Light 后可跑确定性过期 + 有界 graph-first LLM sweep（默认最多 8 组）。已知多值谓词先 graph-noop；自动冲突仅在高置信时写 `needs_review`，**永不自动 supersede**；自动 near-duplicate merge 除高置信外还必须有 alias 图边或词法阈值二次佐证。低置信 / 未知 relation / LLM 失败均 no-op。claim / 图谱文本进 prompt 前 sanitize，rationale 落库前脱敏限长；改动分组 / 基数规则 / 自动决策映射时必须更新 `auto_resolver_graph_planning` fixture 或保既有绿
 - **Active Memory v2**（`ActiveMemoryConfig.include_claims`，per-agent 走 agent.json 不进 `ha-settings`，默认关）把当前 turn 召回候选扩到 effective-active claim（过期 / superseded 不回灌）；incognito 全链归零
 - **Lucid Review 用户纠错闭环**：唯一编排入口 `claims::review`——`update_claim`（PATCH 语义：edit / status / move scope / pin-unpin）+ `forget_claim`（archive / permanent）；decision-type 由 `resolve_update` 纯函数从 diff 派生。**红线**：① 每个用户操作落 `dreaming::record_user_action`（完成态 run + 单 decision）；② approve/edit/reject/expire/move_scope 写最高权重 `manual_correction` evidence，pin/unpin/flag 不写；③ content 变更后 `reembed_claim` 使下一轮召回反映新文本；④ forget archive 翻 `archived` + link 转 `managed` + 仅独管的 memory `pinned=0`，permanent 删 claim 图谱 + 仅独管的 orphan memory；⑤ 发 `memory:claim_changed`。owner 平面 `claim_update` / `claim_forget`（对齐 HTTP `PATCH /api/claims/{id}` / `POST /api/claims/{id}/forget`，本机 / API key 信任）**无 agent 工具面**——claim 纠错只对用户开放，模型不能自改
 - **确定性评测**：`memory/dreaming/eval.rs` golden-fixture + `tests/fixtures/dreaming/*.json` + `tests/dreaming_eval.rs`（**无 LLM**，只测安全红线：作用域隔离 / 过期抑制 / 证据可追溯 / 冲突进待审 / legacy-sync 隐藏 / 证据 fail-closed）。**契约**：改动 claim 读路径 / effective-status / hidden-set / scope 过滤 / evidence 授权时，须加 fixture case 或保既有 fixture 绿
+- **Retrieval Planner source fusion v2**：`role=injected/selected` 是既成 prompt 事实，跨源排序只能 canonical-dedup / 裁剪 `candidate/considered`，不得重排或丢弃已注入 ref。候选按 Project > Agent > Global、query intent、来源内 rank、score/confidence/salience 排序，origin/kind/id 稳定 tie-break；`memory.retrievalPlanner` 的 `maxTraceRefs [8,64]` / `maxCandidatesPerOrigin [1,16]` 只约束 trace 候选预算，不是权限或 prompt token 边界
+- **混合检索规模红线**：legacy / claim 共用 `adaptive_lexical_rrf_weights`，稀疏精确词法命中不得被默认高权重向量挤出 Top-K；CJK / identifier 中段走可重建 trigram shadow，只有短 query / shadow 不可用才 bounded LIKE。claim FTS 必须让虚拟表作为 JOIN 驱动（当前 `CROSS JOIN`），禁止 broad status-first 计划；vec0 先 bounded KNN overfetch 后过滤，不足时保留 prefiltered correctness fallback。改动这些路径须跑 `pnpm memory:benchmark`，需要硬延迟门禁时加 `HA_MEMORY_BENCH_ENFORCE=1`
 - **会话级无痕（`sessions.incognito`）**：单一真相源；不注入 Memory / Active Memory / Awareness、跳过自动提取；**关闭即焚**（不进侧边栏 / 全局 FTS / Dashboard 统计）；**与 Project / IM Channel 互斥**。四旁路守卫红线（Epic E，全貌见 [`session.md`](docs/architecture/session.md#四旁路守卫epic-e)）：`is_session_incognito` fail-closed 三态；大工具结果落盘走内存、异步任务 **占位不 spool**；AllowAlways 经 `choose_scope` 强制内存 `Session` scope 绝不落盘；`session:purged` 焚盘 `tool_results/` + job 行/spool；异步注入与在途回合在会话已删/已焚时跳过
 
 ### Knowledge Base（知识空间）
@@ -200,6 +203,18 @@ ha-core 主要领域：`agent/` `chat_engine/` `context_compact/` `memory/` `kno
 - **发现问卷 + 视觉风格卡（走 `ask_user_question` 扩展）**：设计 Agent 在**需求不清时**先弹结构化发现问卷、**需要定视觉方向时**弹 `direction-cards` 风格卡（选项带调色板/字体/气质/参考），需求写清则直接开做——行为写在 `design` 工具描述里。前端经 `useAskUserPending` 把 `ask_user_question` 接进设计对话（`useDesignChat` → `DesignChatPanel` 传 `askUserVariant="design"` → `MessageList`）。**红线见上「ask_user_question」条**：扩展非 fork、答案走 `selected[]`、富卡仅设计对话渲染其余降级。**首页不再有静态「补充简报」表单**（已删，需求补全交给对话按需追问）
 - **小改就地精改红线**：agent 改已有产物走 `get_artifact`（回 oid 标注源）→ `edit_element(oid)`（复用确定性 `patch_element`、保留其它一切），**绝不为小改 `update_artifact` 整段重造、绝不 `web_fetch`/浏览产物读它**（实测：看不到内容→抓产物失败→凭记忆重造→抹空整页）；仅 `supports_oid_edit` kind（非 image/audio/component）可 `edit_element`；批注带到对话即带 `oid`。详见 [`design-space.md`](docs/architecture/design-space.md) §8
 - **新增 design 工具 action / 端点**：工具全在 `tools/design/mod.rs`（复用 `design::service`）；owner 薄壳 Tauri `commands/design.rs` + HTTP `routes/design.rs`，逻辑全在 ha-core（红线）
+
+### Agent 控制平面 / 通用场景
+
+详见 [`goal.md`](docs/architecture/goal.md) / [`workflow.md`](docs/architecture/workflow.md) / [`loop.md`](docs/architecture/loop.md) / [`context-retrieval.md`](docs/architecture/context-retrieval.md) / [`domain-workflow.md`](docs/architecture/domain-workflow.md) / [`domain-quality.md`](docs/architecture/domain-quality.md) / [`domain-eval.md`](docs/architecture/domain-eval.md)。
+
+- **语义分层**：`/goal` 定义最终目标和完成标准；`/mode` 定义推进强度；`/workflow` 执行一次可观察、可恢复、可审批的动态脚本；`/task` 展示用户可见进度；`/loop` 复用 Cron 可靠调度重复触发；`/worktree` 隔离 coding 改动。新增功能必须落在正确控制面，禁止把持续触发伪装成 workflow，或把一次性脚本伪装成 loop。
+- **Domain Workflow 不是权限**：`domain_workflow_templates` 只描述 required evidence、approval gates、verification policy、stop conditions 和 output contract；`preview_domain_workflow` 只生成 `workflow.js` draft + Script Gate / permission preview，不创建 run、不执行、不访问连接器、不发送或修改外部系统。
+- **General Evidence 是一等证据**：非 coding 任务用 `domain_evidence_items` + Goal link 表达 `source_cited` / `claim_checked` / `user_decision` / `artifact_reviewed` / `data_quality_checked` 等关系，禁止伪装成 diff / validation / file evidence。
+- **Domain Quality 只做复核事实**：`domain_quality_runs/checks/events` 基于 template、evidence 和输入 metadata 做确定性 review / verification；高风险动作只有在 `requestedAction` 命中 approval gate 或 `highRiskAction=true` 时才 `needs_user`，缺确认 fail closed 并阻塞 Goal；模块自身不访问连接器、不发送、不发布、不学习成正式规则。
+- **Domain Learning 只能产草稿**：Phase 7.5 的通用 proposal 复用 Coding Improvement queue，`domain_workflow_template` / `domain_guidance` / `domain_review_profile` / `domain_eval_case` / `connector_usage_pattern` 必须经过 preview → apply draft → explicit promotion，不能直接改生产模板、AGENTS、connector 策略或 eval fixture。
+- **Domain Eval 与 coding benchmark 分离**：`domain_eval_runs` 只读 Goal / Workflow / Domain Evidence / Domain Quality trace 做 deterministic scoring；`evaluate_domain_quality_gate` 只读通用领域历史，输出 `passed|failed|insufficient_data`。不得混用 `coding_eval_runs`、不得用 coding release gate 代替 general domain quality gate。
+- **通用场景同样守无痕**：Domain Workflow preview / evidence、Domain Quality run、Domain Eval run/gate 遇 incognito session 必须 fail closed 或返回空只读结果，不落 durable 数据。
 
 ### 工具 & 审批
 
@@ -482,12 +497,13 @@ ha-core 主要领域：`agent/` `chat_engine/` `context_compact/` `memory/` `kno
 | 新增/删除子系统、架构文档、运行时 DB 或稳定 log category | [`skills/ha-self-diagnosis/references/`](skills/ha-self-diagnosis/references/)（`diagnostic-playbook.md` 子系统速查） |
 | 新增/删除 Tauri 命令、HTTP 路由、`COMMAND_MAP` 条目 | [`api-reference.md`](docs/architecture/api-reference.md) 对应表格     |
 | 功能变化导致 README 过时                            | `README.md` + `README.en.md`（同一 PR 双语同步）                      |
-| 新增调研/对比分析                                   | `docs/research/` 新建调研文档                                         |
+| 新增调研/对比分析 / 阶段 roadmap / review packet      | 归档到本机 iCloud `HopeAI/Hope Agent/Plans/`，不要放入 `docs/architecture/`；最终实现事实落对应 architecture 文档 |
 | 修改 README 任一语言版本                            | 同一 PR 同步另一语言（`README.md` ↔ `README.en.md`）                  |
 | 新增/修改 Release Notes                             | 同一 PR 内中英双份（`docs/release-notes/vX.Y.Z.md` ↔ `vX.Y.Z.en.md`） |
 
 - **AGENTS.md 是契约面**——只放跨 PR 必守的规则、红线、文件入口；**实现细节、内部数据结构、迁移逻辑、边角行为一律下沉到对应 architecture 文档**
 - **架构文档强制**：子系统边界 / 数据流 / 持久化格式 / 跨模块 contract 改动须更新对应 `docs/architecture/`；新增架构级能力（新子系统 / 协议层）须同 PR 新建文档并登记到 `docs/README.md`
+- **规划归档强制**：调研、路线图、阶段计划、review packet 和原始参考材料归外部 iCloud Plans；仓库内不保留已完成 roadmap。落地完成后必须把最终设计决策同步到对应 architecture 文档，确保只看技术文档也能理解最终设计。
 - **ha-self-diagnosis 索引同步**：新增 / 删除子系统、`docs/architecture/` 文档、`~/.hope-agent/` 运行时 DB（`paths.rs`）或稳定 log `category` 时，同步更新 [`skills/ha-self-diagnosis/references/`](skills/ha-self-diagnosis/references/) 的 `diagnostic-playbook.md`（Subsystem Reference：入口模块 / DB·config / log category / 故障 gotcha）。此处是 agent 自查与排障的 fallback 真相源，过时会直接误导诊断；新增的 log `category` 须为稳定字符串便于 grep
 - **README 双语同步**：根目录 `README.md`（中文）+ `README.en.md`（英文），任一改动同次提交同步另一份
 - **Release Notes 双语同步**：每版本 `vX.Y.Z.md` + `vX.Y.Z.en.md`，顶部互加 `简体中文 · English` 切换链接

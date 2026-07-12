@@ -218,7 +218,7 @@ pub fn write_diary(md: &str) -> Result<std::path::PathBuf> {
     // other. Local time mirrors what the user sees in the UI.
     let stamp = Local::now().format("%Y-%m-%d_%H%M%S").to_string();
     let path = dir.join(format!("{}.md", stamp));
-    std::fs::write(&path, md).context("writing diary markdown")?;
+    crate::platform::write_atomic(&path, md.as_bytes()).context("writing diary markdown")?;
     Ok(path)
 }
 

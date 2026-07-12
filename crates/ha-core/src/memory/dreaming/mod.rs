@@ -39,8 +39,8 @@ mod triggers;
 mod types;
 
 pub use config::{
-    CronTriggerConfig, DreamingConfig, IdleTriggerConfig, ProfileSynthesisConfig,
-    PromotionThresholds,
+    CronTriggerConfig, DeepResolverConfig, DreamingConfig, IdleTriggerConfig,
+    ProfileSynthesisConfig, PromotionThresholds,
 };
 pub use context_pack::{
     build_context_pack, ContextPackOptions, MemoryContextPack, SourceRef, PINNED_MIN_SALIENCE,
@@ -49,9 +49,14 @@ pub use cron_loop::spawn_dreaming_cron_loop;
 pub use evidence::evidence_quote;
 pub use pipeline::{last_report_snapshot, run_cycle};
 pub use profile::{run_profile_synthesis_cycle, ProfileReport};
-pub use resolver::{run_resolver_cycle, ResolverReport};
+pub(crate) use resolver::resolver_preflight_from_claims;
+pub use resolver::{
+    resolver_preflight, run_resolver_cycle, ResolverPreflightBlockReason, ResolverPreflightReport,
+    ResolverReport,
+};
 pub use store::{
-    get_run, init_store, latest_profile_body, list_profile_snapshots, list_runs,
+    get_run, init_store, insert_profile_snapshot_for_restore, latest_profile_body, list_decisions,
+    list_decisions_page, list_profile_snapshots, list_runs, record_review_snapshot,
     record_user_action, recover_on_startup, spawn_retention_loop,
 };
 pub use triggers::{
@@ -59,8 +64,9 @@ pub use triggers::{
     DreamTrigger,
 };
 pub use types::{
-    DreamPhase, DreamReport, DreamRunStatus, DreamingDecisionRecord, DreamingRunDetail,
-    DreamingRunRecord, EvidenceQuote, EvidenceRef, ProfileSnapshotRecord, PromotionRecord,
+    DreamPhase, DreamReport, DreamRunStatus, DreamingDecisionListFilter, DreamingDecisionListItem,
+    DreamingDecisionListResponse, DreamingDecisionRecord, DreamingRunDetail, DreamingRunRecord,
+    EvidenceQuote, EvidenceRef, ProfileSnapshotRecord, PromotionRecord,
 };
 
 use anyhow::{Context, Result};

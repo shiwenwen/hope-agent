@@ -16,6 +16,9 @@ pub async fn get_default_agent_id() -> Result<Option<String>, CmdError> {
 #[tauri::command]
 pub async fn set_default_agent_id(agent_id: Option<String>) -> Result<(), CmdError> {
     let normalized = ha_core::agent::resolver::normalize_default_agent_id(agent_id.as_deref());
+    if let Some(id) = normalized.as_deref() {
+        ha_core::agent_lifecycle::ensure_agent_runnable(id)?;
+    }
     ha_core::config::mutate_config_async(("default_agent", "settings-ui"), move |store| {
         store.default_agent_id = normalized;
         Ok(())
@@ -331,10 +334,14 @@ pub(crate) async fn compact_context_now_core(
         .next()
         .ok_or_else(|| CmdError::msg("No model configured for manual compaction"))?;
 
-    let resolved_temperature = agent_def
-        .as_ref()
-        .and_then(|def| def.config.model.temperature)
-        .or(store.temperature);
+    let resolved_temperature = if meta.runtime_defaults_initialized {
+        meta.temperature
+    } else {
+        agent_def
+            .as_ref()
+            .and_then(|def| def.config.model.temperature)
+            .or(store.temperature)
+    };
     let codex_token = state.codex_token.lock().await.clone();
 
     let result =
@@ -929,6 +936,30 @@ pub async fn set_global_temperature(temperature: Option<f64>) -> Result<(), CmdE
     })
     .await
     .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn get_global_reasoning_effort() -> Result<String, CmdError> {
+    Ok(ha_core::config::cached_config().reasoning_effort.clone())
+}
+
+#[tauri::command]
+pub async fn set_global_reasoning_effort(effort: String) -> Result<(), CmdError> {
+    if !ha_core::agent::is_valid_reasoning_effort(&effort) {
+        return Err(CmdError::msg(format!("Invalid reasoning effort: {effort}")));
+    }
+    ha_core::config::mutate_config_async(("reasoning_effort", "settings-ui"), {
+        let effort = effort.clone();
+        move |store| {
+            store.reasoning_effort = effort;
+            Ok(())
+        }
+    })
+    .await?;
+    if let Some(cell) = ha_core::get_reasoning_effort_cell() {
+        *cell.lock().await = effort;
+    }
+    Ok(())
 }
 
 #[tauri::command]

@@ -26,6 +26,7 @@ function matchesKb(job: LocalModelJobSnapshot, kbId: string): boolean {
  */
 export function useKnowledgeReembedJobs() {
   const [jobs, setJobs] = useState<LocalModelJobSnapshot[]>([])
+  const [loadError, setLoadError] = useState<unknown>(null)
 
   const upsert = useCallback((job: LocalModelJobSnapshot) => {
     if (job.kind !== KNOWLEDGE_REEMBED_KIND) return
@@ -47,9 +48,11 @@ export function useKnowledgeReembedJobs() {
     ;(async () => {
       try {
         const list = await getTransport().call<LocalModelJobSnapshot[]>("local_model_job_list")
-        setJobs(list.filter((j) => j.kind === KNOWLEDGE_REEMBED_KIND))
+        setJobs((list ?? []).filter((j) => j.kind === KNOWLEDGE_REEMBED_KIND))
+        setLoadError(null)
       } catch (e) {
         logger.warn("knowledge", "useKnowledgeReembedJobs::refresh", "Failed to load jobs", e)
+        setLoadError(e)
       }
     })()
     const onSnap = (raw: unknown) => {
@@ -111,5 +114,5 @@ export function useKnowledgeReembedJobs() {
     setJobs((prev) => prev.filter((j) => j.jobId !== jobId))
   }, [])
 
-  return { jobs: sorted, isKbBusy, jobForKb, activeCount, dismiss }
+  return { jobs: sorted, isKbBusy, jobForKb, activeCount, dismiss, loadError }
 }

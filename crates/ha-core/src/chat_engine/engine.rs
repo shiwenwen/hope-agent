@@ -425,6 +425,7 @@ pub async fn compact_session_now(
         &mut agent,
         &agent_id,
         &session_id,
+        session_db.clone(),
         resolved_temperature,
         None,
         &[],
@@ -528,6 +529,13 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
         event_sink,
     } = params;
 
+    // Atomically register execution against the lifecycle gate. Every desktop,
+    // HTTP, channel, ACP, subagent, and parent-injection path must fail closed
+    // once an Agent is disabled, and deletion must see admitted work even
+    // before its durable activity rows have been written.
+    let _agent_run_guard =
+        crate::agent_lifecycle::begin_agent_run(&agent_id).map_err(|error| error.to_string())?;
+
     // Effective KB-access origin for this turn (design D10): top-level turns
     // have origin == source; a subagent carries its parent turn's origin so an
     // IM-origin chain can't reacquire KB access via the neutral Subagent source.
@@ -540,6 +548,26 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
 
     if model_chain.is_empty() {
         return Err("No model configured for chat execution".to_string());
+    }
+
+    {
+        // `maybe_schedule_autonomous_start` runs synchronous SessionDB reads
+        // (title classification + goal-fallback repair) before spawning the
+        // title task; route it through the blocking pool so it never pins the
+        // async worker on the per-turn hot path (see `crate::blocking`).
+        let title_db = db.clone();
+        let title_session_id = session_id.clone();
+        let title_agent_id = agent_id.clone();
+        let title_model = model_chain[0].clone();
+        crate::blocking::run_blocking(move || {
+            crate::session_title::maybe_schedule_autonomous_start(
+                title_db,
+                title_session_id,
+                title_agent_id,
+                title_model,
+            )
+        })
+        .await;
     }
 
     // Resolve the Plan-mode bundle once at turn start. Spawn-supplied
@@ -796,17 +824,6 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
         };
         last_provider_api_kind = Some(prov.api_type.clone());
 
-        // Update session with current model info
-        {
-            let provider_name = Some(prov.name.as_str());
-            let _ = db.update_session_model(
-                &session_id,
-                Some(&model_ref.provider_id),
-                provider_name,
-                Some(&model_ref.model_id),
-            );
-        }
-
         // Emit fallback event if this is not the first model in the chain.
         // Only fires once per model (not per executor retry / rotation).
         if idx > 0 {
@@ -983,6 +1000,7 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                             &mut agent,
                             &agent_id_owned,
                             &session_id_owned,
+                            db_owned.clone(),
                             resolved_temperature,
                             extra_ctx_owned.as_deref(),
                             &skill_tools_owned,
@@ -1125,6 +1143,7 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                                 return Ok(ChatEngineResult {
                                     response,
                                     model_used: Some(model_ref.clone()),
+                                    usage: persister.usage(),
                                     agent: Some(agent),
                                 });
                             }
@@ -1163,6 +1182,7 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                         return Ok(ChatEngineResult {
                             response: String::new(),
                             model_used: None,
+                            usage: persister.usage(),
                             agent: None,
                         });
                     }
@@ -1187,8 +1207,37 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
 
                     persister.flush_remaining_thinking();
                     let trailing_text = persister.take_trailing_text();
-                    let assistant_msg =
+                    let mut assistant_msg =
                         persister.build_assistant_message(&trailing_text, thinking, duration_ms);
+                    let active_trace = agent.current_active_memory_trace();
+                    let used_refs = agent.current_used_memory_refs();
+                    let retrieval_planner_trace = agent.current_retrieval_planner_trace(&used_refs);
+                    if active_trace.is_some()
+                        || !used_refs.is_empty()
+                        || retrieval_planner_trace.is_some()
+                    {
+                        let mut meta = serde_json::Map::new();
+                        if let Some(trace) = active_trace {
+                            meta.insert(
+                                session::ATTACHMENT_META_KEY_ACTIVE_MEMORY.to_string(),
+                                serde_json::to_value(&*trace).unwrap_or(serde_json::Value::Null),
+                            );
+                        }
+                        if !used_refs.is_empty() {
+                            meta.insert(
+                                session::ATTACHMENT_META_KEY_USED_MEMORY_REFS.to_string(),
+                                serde_json::to_value(used_refs).unwrap_or(serde_json::Value::Null),
+                            );
+                        }
+                        if let Some(trace) = retrieval_planner_trace {
+                            meta.insert(
+                                session::ATTACHMENT_META_KEY_RETRIEVAL_PLANNER.to_string(),
+                                serde_json::to_value(trace).unwrap_or(serde_json::Value::Null),
+                            );
+                        }
+                        assistant_msg.attachments_meta =
+                            serde_json::to_string(&serde_json::Value::Object(meta)).ok();
+                    }
                     let assistant_id = db.append_message(&session_id, &assistant_msg).ok();
                     if let Some(message_id) = assistant_id {
                         let usage = persister.usage();
@@ -1278,6 +1327,7 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                         return Ok(ChatEngineResult {
                             response,
                             model_used: Some(model_ref.clone()),
+                            usage: persister.usage(),
                             agent: Some(agent),
                         });
                     }
@@ -1322,6 +1372,34 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                     // to here). Observation-only this phase.
                     crate::hooks::fire_stop(&session_id, Some(&agent_id), terminal_status.as_str());
 
+                    if terminal_status == session::ChatTurnStatus::Completed {
+                        let continuation = {
+                            let session_id = session_id.clone();
+                            let agent_id = agent_id.clone();
+                            let turn_id = turn_id.clone();
+                            db.run(move |db| {
+                                crate::goal::maybe_schedule_goal_continuation(
+                                    db,
+                                    &session_id,
+                                    &agent_id,
+                                    source,
+                                    turn_id.as_deref(),
+                                    assistant_id,
+                                )
+                            })
+                            .await
+                        };
+                        if let Err(e) = continuation {
+                            app_warn!(
+                                "goal",
+                                "auto_continue",
+                                "Failed to schedule goal continuation for session {}: {}",
+                                session_id,
+                                e
+                            );
+                        }
+                    }
+
                     if post_turn_effects {
                         crate::session_title::maybe_schedule_after_success(
                             db.clone(),
@@ -1329,7 +1407,6 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                             agent_id.clone(),
                             model_ref.clone(),
                         );
-
                         {
                             let usage_snapshot = persister.usage();
                             let round_tokens = {
@@ -1350,7 +1427,8 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                             &session_id,
                             model_ref,
                             &agent,
-                        );
+                        )
+                        .await;
 
                         // Skill auto-review trigger (gate 1 of the five-gate
                         // waterfall). Feed tool_use_count from this round's
@@ -1438,6 +1516,7 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                     return Ok(ChatEngineResult {
                         response,
                         model_used: Some(model_ref.clone()),
+                        usage: persister.usage(),
                         agent: Some(agent),
                     });
                 }
@@ -1452,6 +1531,7 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                         return Ok(ChatEngineResult {
                             response: String::new(),
                             model_used: Some(model_ref.clone()),
+                            usage: Default::default(),
                             agent: None,
                         });
                     }
@@ -1554,6 +1634,7 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                         &mut compact_agent,
                         &agent_id,
                         &session_id,
+                        db.clone(),
                         resolved_temperature,
                         extra_system_context.as_deref(),
                         &skill_allowed_tools,
@@ -1599,6 +1680,7 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                         return Ok(ChatEngineResult {
                             response: String::new(),
                             model_used: Some(model_ref.clone()),
+                            usage: Default::default(),
                             agent: None,
                         });
                     }
@@ -1841,6 +1923,7 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
         return Ok(ChatEngineResult {
             response: String::new(),
             model_used: None,
+            usage: Default::default(),
             agent: None,
         });
     }
@@ -1977,6 +2060,7 @@ fn configure_agent(
     agent: &mut crate::agent::AssistantAgent,
     agent_id: &str,
     session_id: &str,
+    session_db: Arc<session::SessionDB>,
     temperature: Option<f64>,
     extra_system_context: Option<&str>,
     skill_allowed_tools: &[String],
@@ -1993,6 +2077,7 @@ fn configure_agent(
     channel_kb_context: Option<crate::knowledge::ChannelKbContext>,
 ) {
     agent.set_agent_id(agent_id);
+    agent.set_session_db(session_db);
     agent.set_session_id(session_id);
     agent.set_chat_source(kb_access_source(source));
     agent.set_origin_chat_source(kb_origin);

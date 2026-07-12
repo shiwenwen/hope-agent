@@ -121,6 +121,7 @@ pub async fn spawn_plan_subagent(
         timeout_secs: Some(3600), // 1 hour — ask_user_question can wait 10 min each
         model_override: None,
         label: Some("Plan Creation".to_string()),
+        isolate_worktree: false,
         attachments: Vec::new(),
         plan_agent_mode: Some(plan_mode),
         plan_mode_allow_paths: plan_allow_paths,

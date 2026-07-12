@@ -1,0 +1,123 @@
+{
+  "name": "rust_control_plane_context",
+  "description": "Rust source changes should be reviewed, mapped to a focused verification command, and recalled with goal/task/workflow evidence.",
+  "repo": {
+    "files": [
+      {
+        "path": "crates/ha-eval/Cargo.toml",
+        "text": "[package]\nname = \"ha-eval\"\nversion = \"0.1.0\"\nedition = \"2021\"\n"
+      },
+      {
+        "path": "crates/ha-eval/src/lib.rs",
+        "text": "pub fn answer() -> i32 {\n    41\n}\n"
+      }
+    ],
+    "changes": [
+      {
+        "path": "crates/ha-eval/src/lib.rs",
+        "text": "pub fn answer() -> i32 {\n    println!(\"debug answer\");\n    42\n}\n"
+      }
+    ]
+  },
+  "setup": {
+    "goal": {
+      "objective": "Ship answer fix",
+      "completionCriteria": "Review has no blocking findings and targeted verification is selected."
+    },
+    "tasks": [
+      {
+        "content": "Audit answer implementation",
+        "activeForm": "Auditing answer implementation",
+        "status": "in_progress"
+      }
+    ],
+    "workflow": {
+      "ops": [
+        {
+          "opKey": "review.answer",
+          "opType": "review",
+          "state": "failed",
+          "error": {
+            "message": "seeded review failure"
+          }
+        }
+      ]
+    }
+  },
+  "runs": {
+    "review": {
+      "focusPaths": [
+        "crates/ha-eval/src/lib.rs"
+      ]
+    },
+    "verification": {
+      "focusPaths": [
+        "crates/ha-eval/src/lib.rs"
+      ]
+    },
+    "context": {
+      "query": "answer",
+      "limit": 24
+    }
+  },
+  "checks": {
+    "review": {
+      "minFindings": 2,
+      "expectFocused": true,
+      "expectedTitles": [
+        "Debug output added in production code",
+        "Source change has no nearby test update"
+      ],
+      "expectedCategories": [
+        "maintainability",
+        "tests"
+      ],
+      "expectedFiles": [
+        "crates/ha-eval/src/lib.rs"
+      ]
+    },
+    "verification": {
+      "expectedCommands": [
+        "cargo check -p ha-eval --locked"
+      ],
+      "expectFocused": true,
+      "expectedFocusPaths": [
+        "crates/ha-eval/src/lib.rs"
+      ]
+    },
+    "context": {
+      "minCriticalRecall": 0.85,
+      "minPrecision": 0.2,
+      "maxCandidates": 24,
+      "expectActionPaths": [
+        "crates/ha-eval/src/lib.rs"
+      ],
+      "critical": [
+        {
+          "kind": "file",
+          "pathSuffix": "crates/ha-eval/src/lib.rs"
+        },
+        {
+          "kind": "review_finding",
+          "titleContains": "Debug output"
+        },
+        {
+          "kind": "verification_step",
+          "titleContains": "Check Rust crate"
+        },
+        {
+          "kind": "goal_evidence",
+          "statusContains": "review"
+        },
+        {
+          "kind": "task",
+          "statusContains": "in_progress"
+        },
+        {
+          "kind": "workflow_op",
+          "statusContains": "failed"
+        }
+      ]
+    }
+  }
+}

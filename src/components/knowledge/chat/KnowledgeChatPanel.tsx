@@ -9,7 +9,7 @@ import {
 } from "react"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
-import { Plus, History, Cat, FileArchive } from "lucide-react"
+import { AlertTriangle, Plus, History, Cat, FileArchive } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { IconTip, Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip"
@@ -23,17 +23,28 @@ import { useChatStream } from "@/components/chat/hooks/useChatStream"
 import { useChatDisplayPreferences } from "@/components/chat/hooks/useChatDisplayPreferences"
 import { useClickOutside } from "@/hooks/useClickOutside"
 import type { ChatAttachment } from "@/lib/transport"
-import type { Message, PendingFileQuote } from "@/types/chat"
+import type { Message, PendingFileQuote, PendingMessageQuote } from "@/types/chat"
 import type { KbDraftAttachment } from "@/types/knowledge"
 import { useKnowledgeChat } from "./useKnowledgeChat"
 import { KnowledgeConversationHistory } from "./KnowledgeConversationHistory"
 import KnowledgeQueryFilingDialog from "./KnowledgeQueryFilingDialog"
 import { useKnowledgeSprite } from "../sprite/useKnowledgeSprite"
 import SpriteBubble from "../sprite/SpriteBubble"
+import {
+  knowledgeChatIssueDescription,
+  knowledgeChatIssueTitle,
+  type KnowledgeChatLoadIssue,
+  type KnowledgeChatLoadOperation,
+} from "./knowledgeChatFeedback"
 
 /** Per-turn cap on the auto-injected current-note context (chars). Longer notes
  *  are truncated; the assistant uses `note_read` for the full text. */
 const CURRENT_NOTE_CONTEXT_MAX = 4000
+
+const HISTORY_LOAD_OPERATIONS: ReadonlySet<KnowledgeChatLoadOperation> = new Set([
+  "loadThreads",
+  "loadMoreThreads",
+])
 
 export interface KnowledgeChatPanelHandle {
   /** Stage a selection as a removable quote chip in the composer. */
@@ -80,15 +91,17 @@ export const KnowledgeChatPanel = forwardRef<KnowledgeChatPanelHandle, Props>(
     const seqRef = useRef<Map<string, number>>(new Map())
     const endedRef = useRef<Map<string, string>>(new Map())
     const [historyOpen, setHistoryOpen] = useState(false)
+    const [historyQuery, setHistoryQuery] = useState("")
     const [filingMessage, setFilingMessage] = useState<Message | null>(null)
     const historyRef = useRef<HTMLDivElement>(null)
+    const closeHistory = useCallback(() => {
+      setHistoryOpen(false)
+      setHistoryQuery("")
+    }, [])
     useEffect(() => {
       setFilingMessage(null)
     }, [session.currentSessionId])
-    useClickOutside(
-      historyRef,
-      useCallback(() => setHistoryOpen(false), []),
-    )
+    useClickOutside(historyRef, closeHistory)
 
     // Draft KB attaches for the composer (no live session yet). The panel's own
     // KB stays attached (write) so its notes are reachable for `[[ ]]`/`@`; the
@@ -155,17 +168,27 @@ export const KnowledgeChatPanel = forwardRef<KnowledgeChatPanelHandle, Props>(
       sessions: session.sessions,
       agents: session.agents,
       activeModel: session.activeModel,
+      manualModelOverrideRef: session.manualModelOverrideRef,
       reloadSessions: session.reloadSessions,
       updateSessionMessages: session.updateSessionMessages,
       lastSeqRef: seqRef,
       endedStreamIdsRef: endedRef,
       reasoningEffort: session.reasoningEffort,
+      temperatureOverride: session.sessionTemperature,
       incognitoEnabled: false,
       draftKbAttachments,
       draftKbAnchorNote: notePath,
       toolScope: "knowledge",
       getExtraAttachments,
     })
+    const [composerFocusSignal, setComposerFocusSignal] = useState<number | undefined>(undefined)
+    const handleMessageQuote = useCallback(
+      (quote: PendingMessageQuote) => {
+        stream.setPendingMessageQuotes((prev) => [...prev, quote])
+        setComposerFocusSignal((prev) => (prev ?? 0) + 1)
+      },
+      [stream],
+    )
 
     // Reconcile against DB truth when a turn finishes. On Tauri the per-call
     // channel already streamed the assistant live; on HTTP (no reattach wired
@@ -214,10 +237,20 @@ export const KnowledgeChatPanel = forwardRef<KnowledgeChatPanelHandle, Props>(
       editorRevision,
       conversationRevision,
       getEditorValue,
-      getRecentMessages: () =>
-        session.messages.map((m) => ({ role: m.role, text: m.content })),
+      getRecentMessages: () => session.messages.map((m) => ({ role: m.role, text: m.content })),
       active,
     })
+
+    const mainLoadIssue = useMemo(
+      () =>
+        session.loadIssues.find((issue) => !HISTORY_LOAD_OPERATIONS.has(issue.operation)) ?? null,
+      [session.loadIssues],
+    )
+    const historyLoadIssue = useMemo(
+      () =>
+        session.loadIssues.find((issue) => HISTORY_LOAD_OPERATIONS.has(issue.operation)) ?? null,
+      [session.loadIssues],
+    )
 
     const renderMessageActions = useCallback(
       (msg: Message) => {
@@ -269,17 +302,20 @@ export const KnowledgeChatPanel = forwardRef<KnowledgeChatPanelHandle, Props>(
               <Button
                 variant="ghost"
                 size="icon"
-                disabled={!sprite.ready}
+                disabled={!sprite.ready && !sprite.loadError}
                 className={cn(
                   "relative h-7 w-7 overflow-visible",
+                  sprite.loadError && "text-destructive hover:text-destructive",
                   sprite.enabled &&
                     "text-purple-500 hover:text-purple-500 dark:text-purple-400 dark:hover:text-purple-400",
                   sprite.casting &&
                     "text-fuchsia-500 hover:text-fuchsia-500 dark:text-fuchsia-400 dark:hover:text-fuchsia-400",
                 )}
-                onClick={() => {
+                onClick={async () => {
+                  if (!sprite.ready) return
                   const next = !sprite.enabled
-                  sprite.setEnabled(next)
+                  const saved = await sprite.setEnabled(next)
+                  if (!saved) return
                   if (next) {
                     toast.success(t("knowledge.sprite.toastOn"), {
                       description: t("knowledge.sprite.toastOnDesc"),
@@ -320,9 +356,11 @@ export const KnowledgeChatPanel = forwardRef<KnowledgeChatPanelHandle, Props>(
               </Button>
             </TooltipTrigger>
             <TooltipContent side="bottom" className="max-w-[240px] leading-relaxed">
-              <div className="font-medium">{t("knowledge.sprite.toggle", "Sprite mode")}</div>
+              <div className="font-medium">
+                {sprite.loadError?.title ?? t("knowledge.sprite.toggle", "Sprite mode")}
+              </div>
               <div className="mt-0.5 text-muted-foreground">
-                {t("knowledge.sprite.tooltipDesc")}
+                {sprite.loadError?.description ?? t("knowledge.sprite.tooltipDesc")}
               </div>
             </TooltipContent>
           </Tooltip>
@@ -343,30 +381,41 @@ export const KnowledgeChatPanel = forwardRef<KnowledgeChatPanelHandle, Props>(
                 size="icon"
                 className={cn("h-7 w-7", historyOpen && "bg-secondary")}
                 onClick={() => {
+                  if (historyOpen) {
+                    closeHistory()
+                    return
+                  }
                   // Opening the popover: reset to the unfiltered first page (the
                   // popover's search box mounts empty).
-                  if (!historyOpen) void session.reloadThreads("")
-                  setHistoryOpen((v) => !v)
+                  setHistoryQuery("")
+                  void session.reloadThreads("")
+                  setHistoryOpen(true)
                 }}
               >
                 <History className="h-4 w-4" />
               </Button>
             </IconTip>
-            {historyOpen && (
-              <KnowledgeConversationHistory
-                threads={session.threads}
-                activeSessionId={session.currentSessionId}
-                onSearch={(q) => session.reloadThreads(q)}
-                hasMore={session.threadsHasMore}
-                onLoadMore={() => void session.loadMoreThreads()}
-                onPick={(sid) => {
-                  setHistoryOpen(false)
-                  void session.switchThread(sid)
-                }}
-              />
-            )}
+            <KnowledgeConversationHistory
+              open={historyOpen}
+              threads={session.threads}
+              activeSessionId={session.currentSessionId}
+              query={historyQuery}
+              onSearch={(q) => {
+                setHistoryQuery(q)
+                void session.reloadThreads(q)
+              }}
+              hasMore={session.threadsHasMore}
+              onLoadMore={() => void session.loadMoreThreads()}
+              loadIssue={historyLoadIssue}
+              onPick={(sid) => {
+                closeHistory()
+                void session.switchThread(sid)
+              }}
+            />
           </div>
         </div>
+
+        {mainLoadIssue ? <KnowledgeChatIssueBanner issue={mainLoadIssue} /> : null}
 
         {/* Messages — must be a flex column so MessageList (its root is
             `flex-1 … overflow-hidden`) is height-bounded and scrolls internally
@@ -384,6 +433,7 @@ export const KnowledgeChatPanel = forwardRef<KnowledgeChatPanelHandle, Props>(
             renderMessageActions={renderMessageActions}
             displayMode={displayMode}
             autoCollapseCompletedTurns={autoCollapseCompletedTurns}
+            onAddMessageQuote={handleMessageQuote}
           />
         </div>
 
@@ -415,9 +465,7 @@ export const KnowledgeChatPanel = forwardRef<KnowledgeChatPanelHandle, Props>(
             agent={currentAgent}
             onDismiss={sprite.dismiss}
             onRespond={(text) => {
-              stream.setInput(
-                stream.input ? `${stream.input}\n\n> ${text}\n\n` : `> ${text}\n\n`,
-              )
+              stream.setInput(stream.input ? `${stream.input}\n\n> ${text}\n\n` : `> ${text}\n\n`)
               sprite.dismiss()
             }}
           />
@@ -433,9 +481,13 @@ export const KnowledgeChatPanel = forwardRef<KnowledgeChatPanelHandle, Props>(
             loading={session.loading}
             availableModels={session.availableModels}
             activeModel={session.activeModel}
+            unavailableModelPreference={session.unavailableModelPreference}
             reasoningEffort={session.reasoningEffort}
             onModelChange={session.handleModelChange}
             onEffortChange={session.handleEffortChange}
+            onEffortReset={session.handleEffortReset}
+            sessionTemperature={session.sessionTemperature}
+            onSessionTemperatureChange={session.handleTemperatureChange}
             attachedFiles={stream.attachedFiles}
             onAttachFiles={stream.setAttachedFiles}
             onRemoveFile={(i) =>
@@ -451,8 +503,20 @@ export const KnowledgeChatPanel = forwardRef<KnowledgeChatPanelHandle, Props>(
               stream.setPendingQuotes((prev) => prev.filter((_, idx) => idx !== i))
             }
             onJumpToQuote={onJumpToQuote}
+            pendingMessageQuotes={stream.pendingMessageQuotes}
+            onRemoveMessageQuote={(i) =>
+              stream.setPendingMessageQuotes((prev) => prev.filter((_, idx) => idx !== i))
+            }
+            focusSignal={composerFocusSignal}
             pendingMessage={stream.pendingMessage}
+            pendingSends={stream.pendingSends}
             onCancelPending={() => stream.setPendingMessage(null)}
+            onDiscardPending={() => stream.setPendingMessage(null)}
+            onEditPending={stream.editPendingSend}
+            onDiscardPendingItem={stream.discardPendingSend}
+            onSendPending={stream.sendPendingSend}
+            onForceInsertPending={stream.forceInsertPendingSend}
+            onCancelForceInsertPending={stream.cancelForceInsertPendingSend}
             onStop={stream.handleStop}
             currentSessionId={session.currentSessionId}
             currentAgentId={session.currentAgentId}
@@ -469,5 +533,23 @@ export const KnowledgeChatPanel = forwardRef<KnowledgeChatPanelHandle, Props>(
     )
   },
 )
+
+function KnowledgeChatIssueBanner({ issue }: { issue: KnowledgeChatLoadIssue }) {
+  const { t } = useTranslation()
+  const description = knowledgeChatIssueDescription(issue, t)
+  return (
+    <div className="mx-2 mb-1 flex gap-2 rounded-md border border-destructive/30 bg-destructive/5 px-2 py-1.5 text-xs text-destructive">
+      <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+      <div className="min-w-0">
+        <div>{knowledgeChatIssueTitle(issue, t)}</div>
+        {description ? (
+          <div className="mt-1 break-words text-[11px] leading-relaxed text-muted-foreground">
+            {description}
+          </div>
+        ) : null}
+      </div>
+    </div>
+  )
+}
 
 export default KnowledgeChatPanel

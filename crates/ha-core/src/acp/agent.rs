@@ -16,7 +16,7 @@ use crate::acp::types::*;
 use crate::agent::AssistantAgent;
 use crate::failover;
 use crate::provider;
-use crate::session::{self, SessionDB};
+use crate::session::{self, SessionDB, SessionIdeContext};
 
 /// ACP protocol version we advertise
 const ACP_PROTOCOL_VERSION: &str = "0.2";
@@ -30,6 +30,38 @@ pub struct AcpAgent {
     pub verbose: bool,
     /// Default agent ID (from CLI flag)
     pub default_agent_id: String,
+}
+
+fn persist_acp_ide_context(db: &Arc<SessionDB>, session_id: &str, meta: &Option<Value>) {
+    let Some(value) = meta
+        .as_ref()
+        .and_then(|meta| meta.get("ideContext").or_else(|| meta.get("ide_context")))
+        .cloned()
+    else {
+        return;
+    };
+    match serde_json::from_value::<SessionIdeContext>(value) {
+        Ok(context) => {
+            if let Err(err) = db.save_session_ide_context(session_id, context) {
+                crate::app_warn!(
+                    "acp",
+                    "ide_context",
+                    "failed to persist ACP IDE context for session {}: {}",
+                    session_id,
+                    err
+                );
+            }
+        }
+        Err(err) => {
+            crate::app_warn!(
+                "acp",
+                "ide_context",
+                "invalid ACP ideContext for session {}: {}",
+                session_id,
+                err
+            );
+        }
+    }
 }
 
 impl AcpAgent {
@@ -195,12 +227,23 @@ impl AcpAgent {
             .agent_id
             .unwrap_or_else(|| self.default_agent_id.clone());
 
+        // ACP does not use the shared chat engine. Reserve the Agent before
+        // creating the durable session so deletion cannot slip between
+        // validation and session construction.
+        let _agent_admission = match crate::agent_lifecycle::begin_agent_run(&agent_id) {
+            Ok(guard) => guard,
+            Err(e) => {
+                return JsonRpcResponse::error(id.clone(), ERROR_INVALID_PARAMS, e.to_string())
+            }
+        };
+
         let session_meta = match self.session_db.create_session(&agent_id) {
             Ok(m) => m,
             Err(e) => return JsonRpcResponse::error(id.clone(), ERROR_INTERNAL, e.to_string()),
         };
 
         let acp_session_id = session_meta.id.clone();
+        persist_acp_ide_context(&self.session_db, &acp_session_id, &req.meta);
 
         let agent = match self.build_agent(&agent_id, &acp_session_id) {
             Ok(a) => a,
@@ -258,6 +301,7 @@ impl AcpAgent {
         };
 
         let agent_id = session_meta.agent_id.clone();
+        persist_acp_ide_context(&self.session_db, &req.session_id, &req.meta);
 
         let agent = match self.build_agent(&agent_id, &req.session_id) {
             Ok(a) => a,
@@ -332,6 +376,7 @@ impl AcpAgent {
             session.cancel.store(false, Ordering::SeqCst);
         }
         self.sessions.touch(&session_id);
+        persist_acp_ide_context(&self.session_db, &session_id, &req.meta);
 
         // Extract text and images
         let text = match extract_text_from_prompt(&req.prompt) {
@@ -406,9 +451,12 @@ impl AcpAgent {
         );
 
         // Auto-generate fallback title
-        if let Ok(Some(title)) =
-            session::ensure_first_message_title(&self.session_db, &session_id, &effective_prompt)
-        {
+        if let Ok(Some(title)) = session::ensure_first_message_title(
+            &self.session_db,
+            &session_id,
+            &effective_prompt,
+            None,
+        ) {
             // Emit session_info_update
             let notif = serde_json::json!({
                 "sessionId": session_id,
@@ -585,6 +633,7 @@ impl AcpAgent {
 
     /// Build an AssistantAgent from provider config (mirrors cron::build_and_run_agent)
     fn build_agent(&self, agent_id: &str, session_id: &str) -> Result<AssistantAgent> {
+        let _agent_admission = crate::agent_lifecycle::begin_agent_run(agent_id)?;
         let store = crate::config::cached_config();
         let agent_model_config = crate::agent_loader::load_agent(agent_id)
             .map(|def| def.config.model)
@@ -714,6 +763,7 @@ impl AcpAgent {
             .get(session_id)
             .map(|s| s.agent_id.clone())
             .unwrap_or_else(|| self.default_agent_id.clone());
+        let _agent_run_guard = crate::agent_lifecycle::begin_agent_run(&agent_id)?;
 
         let agent_model_config = crate::agent_loader::load_agent(&agent_id)
             .map(|def| def.config.model)

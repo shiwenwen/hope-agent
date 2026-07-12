@@ -108,7 +108,7 @@ export function DesignSharePanel({ artifactId, origin }: Props) {
         <>
           <div className="flex items-center gap-1 rounded-lg border border-border/60 bg-muted/40 px-2 py-1.5">
             <Link2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-            <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-muted-foreground" title={url}>
+            <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-muted-foreground" data-ha-title-tip={url}>
               {url}
             </span>
           </div>

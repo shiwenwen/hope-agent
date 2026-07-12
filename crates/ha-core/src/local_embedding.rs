@@ -247,7 +247,11 @@ where
         bytes_completed: None,
         bytes_total: None,
     });
-    let result = save_and_set_default_for_model(&model, parent_job_id.as_deref())?;
+    let model_for_switch = model.clone();
+    let result = crate::blocking::run_blocking(move || {
+        save_and_set_default_for_model(&model_for_switch, parent_job_id.as_deref())
+    })
+    .await?;
 
     // 让模型常驻 Ollama runtime（keep_alive=-1）。否则 reembed 跑完 5 分钟超时模型
     // 卸载，下次 Active Memory 召回 cold start，user turn 卡几秒；UI 上「已安装」

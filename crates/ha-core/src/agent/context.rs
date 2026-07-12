@@ -503,12 +503,12 @@ impl AssistantAgent {
                 if blocked {
                     if usage_now >= CACHE_TTL_EMERGENCY_RATIO {
                         app_warn!(
-                        "hooks",
-                        "dispatch",
-                        "PreCompact block overridden: usage {:.1}% >= {:.0}%, compacting anyway",
-                        usage_now * 100.0,
-                        CACHE_TTL_EMERGENCY_RATIO * 100.0
-                    );
+                            "hooks",
+                            "dispatch",
+                            "PreCompact block overridden: usage {:.1}% >= {:.0}%, compacting anyway",
+                            usage_now * 100.0,
+                            CACHE_TTL_EMERGENCY_RATIO * 100.0
+                        );
                         crate::hooks::reset_precompact_blocks(&sid);
                     } else if crate::hooks::honor_precompact_block(&sid) {
                         app_info!(
@@ -678,7 +678,7 @@ impl AssistantAgent {
                         let agent_flush = crate::agent_loader::load_agent(&self.agent_id)
                             .ok()
                             .and_then(|d| d.config.memory.flush_before_compact);
-                        agent_flush.unwrap_or(global.flush_before_compact)
+                        global.enabled && agent_flush.unwrap_or(global.flush_before_compact)
                     } && !is_incognito
                         && options.allow_memory_flush;
 

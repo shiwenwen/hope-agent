@@ -65,6 +65,15 @@ pub fn mark_run_fetched(run_id: &str) {
     if let Ok(mut set) = super::FETCHED_RUN_IDS.lock() {
         set.insert(run_id.to_string());
     }
+    if let Ok(active) = super::INJECTION_CANCELS.lock() {
+        for injection in active.values() {
+            if injection.run_id == run_id {
+                injection
+                    .cancel
+                    .store(true, std::sync::atomic::Ordering::SeqCst);
+            }
+        }
+    }
 }
 
 /// R5: remove the given run ids from the fetched set, returning how many were
@@ -94,5 +103,50 @@ impl Drop for CleanupGuard {
         }
         // Re-trigger next pending injection for this session (serial execution)
         flush_pending_injections(&self.session_id);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{mark_run_fetched, take_runs_fetched};
+    use crate::subagent::{ActiveInjection, INJECTION_CANCELS};
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
+
+    #[test]
+    fn fetched_run_cancels_only_the_matching_active_injection() {
+        let target_run = format!("workflow-checkpoint-{}", uuid::Uuid::new_v4());
+        let other_run = format!("other-injection-{}", uuid::Uuid::new_v4());
+        let target_session = format!("session-{}", uuid::Uuid::new_v4());
+        let other_session = format!("session-{}", uuid::Uuid::new_v4());
+        let target_cancel = Arc::new(AtomicBool::new(false));
+        let other_cancel = Arc::new(AtomicBool::new(false));
+        {
+            let mut active = INJECTION_CANCELS.lock().expect("active injections");
+            active.insert(
+                target_session.clone(),
+                ActiveInjection {
+                    run_id: target_run.clone(),
+                    cancel: target_cancel.clone(),
+                },
+            );
+            active.insert(
+                other_session.clone(),
+                ActiveInjection {
+                    run_id: other_run,
+                    cancel: other_cancel.clone(),
+                },
+            );
+        }
+
+        mark_run_fetched(&target_run);
+
+        assert!(target_cancel.load(Ordering::SeqCst));
+        assert!(!other_cancel.load(Ordering::SeqCst));
+        INJECTION_CANCELS
+            .lock()
+            .expect("active injections")
+            .retain(|session_id, _| session_id != &target_session && session_id != &other_session);
+        assert_eq!(take_runs_fetched(&[target_run]), 1);
     }
 }

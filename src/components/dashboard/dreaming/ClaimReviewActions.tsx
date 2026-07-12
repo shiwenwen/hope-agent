@@ -44,6 +44,10 @@ import {
 } from "@/components/ui/alert-dialog"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
+import {
+  claimReviewActionErrorToast,
+  type ClaimReviewActionOperation,
+} from "./claimReviewActionFeedback"
 
 /** Salience at/above which a claim is force-injected (mirrors ha-core
  * `PINNED_MIN_SALIENCE`). A claim above this reads as "pinned" in the UI. */
@@ -103,6 +107,7 @@ export default function ClaimReviewActions({ claim, onChanged }: ClaimReviewActi
   const isActive = claim.status === "active"
 
   const run = async (
+    operation: Exclude<ClaimReviewActionOperation, "loadQueue">,
     fn: () => Promise<unknown>,
     successMsg: string,
     after?: () => void,
@@ -116,7 +121,8 @@ export default function ClaimReviewActions({ claim, onChanged }: ClaimReviewActi
       onChanged()
     } catch (e) {
       logger.error("dashboard", "ClaimReviewActions", "claim action failed", e)
-      toast.error(t("dashboard.dreaming.review.failed"))
+      const failure = claimReviewActionErrorToast(operation, t, e)
+      toast.error(failure.title, failure.description ? { description: failure.description } : undefined)
     } finally {
       setBusy(false)
     }
@@ -143,6 +149,7 @@ export default function ClaimReviewActions({ claim, onChanged }: ClaimReviewActi
 
   const submitEdit = () =>
     run(
+      "edit",
       () =>
         patch({
           content: editContent.trim(),
@@ -157,6 +164,7 @@ export default function ClaimReviewActions({ claim, onChanged }: ClaimReviewActi
 
   const submitScope = () =>
     run(
+      "moveScope",
       () =>
         patch({
           scopeType,
@@ -168,6 +176,7 @@ export default function ClaimReviewActions({ claim, onChanged }: ClaimReviewActi
 
   const submitForget = () =>
     run(
+      "forget",
       () =>
         getTransport().call("claim_forget", {
           id: claim.id,
@@ -187,7 +196,11 @@ export default function ClaimReviewActions({ claim, onChanged }: ClaimReviewActi
           className="h-7 gap-1 text-xs"
           disabled={busy}
           onClick={() =>
-            run(() => patch({ status: "active" }), t("dashboard.dreaming.review.approveDone"))
+            run(
+              "approve",
+              () => patch({ status: "active" }),
+              t("dashboard.dreaming.review.approveDone"),
+            )
           }
         >
           <Check className="h-3 w-3 text-emerald-500" />
@@ -201,7 +214,11 @@ export default function ClaimReviewActions({ claim, onChanged }: ClaimReviewActi
           className="h-7 gap-1 text-xs"
           disabled={busy}
           onClick={() =>
-            run(() => patch({ status: "expired" }), t("dashboard.dreaming.review.markOutdatedDone"))
+            run(
+              "markOutdated",
+              () => patch({ status: "expired" }),
+              t("dashboard.dreaming.review.markOutdatedDone"),
+            )
           }
         >
           <Clock className="h-3 w-3" />
@@ -219,6 +236,7 @@ export default function ClaimReviewActions({ claim, onChanged }: ClaimReviewActi
           disabled={busy}
           onClick={() =>
             run(
+              isPinned ? "unpin" : "pin",
               () => patch({ pinned: !isPinned }),
               isPinned
                 ? t("dashboard.dreaming.review.unpinDone")
@@ -427,6 +445,7 @@ export default function ClaimReviewActions({ claim, onChanged }: ClaimReviewActi
               onClick={(e) => {
                 e.preventDefault()
                 void run(
+                  "reject",
                   () => patch({ status: "archived" }),
                   t("dashboard.dreaming.review.rejectDone"),
                   () => setRejectOpen(false),

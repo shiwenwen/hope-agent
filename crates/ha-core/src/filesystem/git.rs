@@ -7,6 +7,32 @@ use std::process::Command;
 
 use serde::Serialize;
 
+/// Ensure a Git subprocess discovers its repository from `current_dir` rather
+/// than inheriting repository-local state from a parent Git process or hook.
+pub(crate) fn isolate_repository_env(cmd: &mut Command) {
+    const LOCAL_REPOSITORY_ENV: &[&str] = &[
+        "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+        "GIT_CONFIG",
+        "GIT_CONFIG_PARAMETERS",
+        "GIT_CONFIG_COUNT",
+        "GIT_OBJECT_DIRECTORY",
+        "GIT_DIR",
+        "GIT_WORK_TREE",
+        "GIT_IMPLICIT_WORK_TREE",
+        "GIT_GRAFT_FILE",
+        "GIT_INDEX_FILE",
+        "GIT_NO_REPLACE_OBJECTS",
+        "GIT_REPLACE_REF_BASE",
+        "GIT_PREFIX",
+        "GIT_SHALLOW_FILE",
+        "GIT_COMMON_DIR",
+    ];
+
+    for name in LOCAL_REPOSITORY_ENV {
+        cmd.env_remove(name);
+    }
+}
+
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct GitInfo {
@@ -49,6 +75,7 @@ pub fn git_info(root: &Path) -> Option<GitInfo> {
 /// Cheap probe: is `dir` inside a git work tree?
 pub fn is_inside_work_tree(dir: &Path) -> bool {
     let mut cmd = Command::new("git");
+    isolate_repository_env(&mut cmd);
     cmd.current_dir(dir)
         .args(["rev-parse", "--is-inside-work-tree"]);
     crate::platform::hide_console(&mut cmd);
@@ -78,6 +105,7 @@ pub fn is_worktree_of(base: &Path, target_canon: &Path) -> bool {
 
 fn run_git(root: &Path, args: &[&str]) -> Option<String> {
     let mut cmd = Command::new("git");
+    isolate_repository_env(&mut cmd);
     cmd.current_dir(root).args(args);
     crate::platform::hide_console(&mut cmd);
     let output = cmd.output().ok()?;

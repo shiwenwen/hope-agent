@@ -315,20 +315,54 @@ impl Default for StartupNotificationConfig {
 
 // ── Deferred Tools Config ───────────────────────────────────────
 
+pub const DEFAULT_DEFERRED_TOOL_NAMES: &[&str] = &[
+    "acp_spawn",
+    "browser",
+    "get_weather",
+    "image",
+    "issue_report",
+    "knowledge_recall",
+    "list_settings_backups",
+    "mac_control",
+    "pdf",
+    "restore_settings_backup",
+    "team",
+];
+
+fn default_deferred_tools_enabled() -> bool {
+    true
+}
+
+pub fn default_deferred_tool_names() -> Vec<String> {
+    DEFAULT_DEFERRED_TOOL_NAMES
+        .iter()
+        .map(|name| (*name).to_string())
+        .collect()
+}
+
 /// Configuration for deferred tool loading.
 /// `enabled` turns on the mechanism; `tool_names` is the explicit set of
 /// built-in tools whose schemas should be withheld from the initial LLM
 /// request and discovered via `tool_search`.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DeferredToolsConfig {
-    /// Enable deferred tool loading (default: false, opt-in)
-    #[serde(default)]
+    /// Enable deferred tool loading (default: true for low-frequency tools).
+    #[serde(default = "default_deferred_tools_enabled")]
     pub enabled: bool,
-    /// Built-in tool names explicitly deferred by the user. Default empty,
-    /// meaning enabling the global switch alone does not defer any built-ins.
-    #[serde(default)]
+    /// Built-in tool names explicitly deferred by the user. Defaults to the
+    /// low-frequency / large-schema tools marked `default_deferred`.
+    #[serde(default = "default_deferred_tool_names")]
     pub tool_names: Vec<String>,
+}
+
+impl Default for DeferredToolsConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_deferred_tools_enabled(),
+            tool_names: default_deferred_tool_names(),
+        }
+    }
 }
 
 // ── Async Tools Config ──────────────────────────────────────────
@@ -693,12 +727,16 @@ fn default_default_agent_id() -> Option<String> {
     Some(crate::agent_loader::DEFAULT_AGENT_ID.to_string())
 }
 
+fn default_reasoning_effort() -> String {
+    "medium".to_string()
+}
+
 pub(crate) fn default_tool_timeout() -> u64 {
     0
 }
 
 pub(crate) fn default_ask_user_question_timeout() -> u64 {
-    1800
+    0
 }
 
 pub(crate) fn default_theme() -> String {
@@ -1040,6 +1078,11 @@ pub struct AppConfig {
     /// Memory deduplication thresholds
     #[serde(default)]
     pub dedup: crate::memory::DedupConfig,
+    /// Additive external memory providers. Default disabled; local memory
+    /// remains the source of truth and agent-plane recall/write paths ignore
+    /// this until a concrete owner-approved adapter is wired.
+    #[serde(default)]
+    pub memory_providers: crate::memory::ExternalMemoryProvidersConfig,
     /// Hybrid search weight configuration
     #[serde(default)]
     pub hybrid_search: crate::memory::HybridSearchConfig,
@@ -1162,6 +1205,11 @@ pub struct AppConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub temperature: Option<f64>,
 
+    /// Global default Think / reasoning effort. Agent and Session values may
+    /// override this, but Session-bound turns never mutate it.
+    #[serde(default = "default_reasoning_effort")]
+    pub reasoning_effort: String,
+
     /// Whether to use a dedicated sub-agent for plan creation (Planning phase).
     /// When true, planning runs in an isolated sub-agent (saves main agent context).
     /// When false, planning runs inline in the main agent (preserves context continuity).
@@ -1174,7 +1222,7 @@ pub struct AppConfig {
     pub ask_user_question_timeout_enabled: bool,
     /// Timeout in seconds for ask_user_question tool waiting for user response
     /// when `ask_user_question_timeout_enabled` is true.
-    /// Default duration: 1800 (30 minutes). 0 = no timeout (wait forever).
+    /// Default duration: 0 (no timeout; wait forever).
     #[serde(default = "default_ask_user_question_timeout")]
     pub ask_user_question_timeout_secs: u64,
 
@@ -1384,6 +1432,7 @@ impl Default for AppConfig {
             memory_selection: crate::memory::MemorySelectionConfig::default(),
             memory_budget: crate::memory::MemoryBudgetConfig::default(),
             dedup: crate::memory::DedupConfig::default(),
+            memory_providers: crate::memory::ExternalMemoryProvidersConfig::default(),
             hybrid_search: crate::memory::HybridSearchConfig::default(),
             temporal_decay: crate::memory::TemporalDecayConfig::default(),
             mmr: crate::memory::MmrConfig::default(),
@@ -1422,6 +1471,7 @@ impl Default for AppConfig {
             quick_prompts: QuickPromptConfig::default(),
             plans_directory: None,
             temperature: None,
+            reasoning_effort: default_reasoning_effort(),
             plan_subagent: false,
             ask_user_question_timeout_enabled: false,
             ask_user_question_timeout_secs: default_ask_user_question_timeout(),
@@ -1449,6 +1499,40 @@ impl Default for AppConfig {
             auto_update: crate::updater::AutoUpdateConfig::default(),
             function_models: FunctionModelsConfig::default(),
         }
+    }
+}
+
+#[cfg(test)]
+mod deferred_tools_config_tests {
+    use super::*;
+
+    #[test]
+    fn default_deferred_tools_preloads_low_frequency_tools() {
+        let d = DeferredToolsConfig::default();
+        assert!(d.enabled);
+        for name in DEFAULT_DEFERRED_TOOL_NAMES {
+            assert!(
+                d.tool_names.iter().any(|configured| configured == name),
+                "missing default deferred tool {name}"
+            );
+        }
+    }
+
+    #[test]
+    fn missing_deferred_tools_deserializes_to_default_policy() {
+        let cfg: AppConfig = serde_json::from_str(r#"{"providers":[]}"#).unwrap();
+        assert!(cfg.deferred_tools.enabled);
+        assert_eq!(cfg.deferred_tools.tool_names, default_deferred_tool_names());
+    }
+
+    #[test]
+    fn explicit_deferred_tools_opt_out_survives_deserialization() {
+        let cfg: AppConfig = serde_json::from_str(
+            r#"{"providers":[],"deferredTools":{"enabled":false,"toolNames":[]}}"#,
+        )
+        .unwrap();
+        assert!(!cfg.deferred_tools.enabled);
+        assert!(cfg.deferred_tools.tool_names.is_empty());
     }
 }
 

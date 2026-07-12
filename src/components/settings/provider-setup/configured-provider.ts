@@ -24,8 +24,9 @@ function normalizeBaseUrl(baseUrl: string): string {
 
 export function hasConfiguredTemplate(
   template: Pick<ProviderTemplate, "apiType" | "baseUrl">,
-  configuredProviders: Pick<ProviderConfig, "apiType" | "baseUrl">[],
+  configuredProviders: Pick<ProviderConfig, "apiType" | "baseUrl">[] | null | undefined,
 ): boolean {
+  if (!Array.isArray(configuredProviders)) return false
   const normalizedTemplateUrl = normalizeBaseUrl(template.baseUrl)
   return configuredProviders.some(
     (provider) =>
@@ -36,7 +37,7 @@ export function hasConfiguredTemplate(
 
 export function getConfiguredTemplateKeys(
   templates: Pick<ProviderTemplate, "key" | "apiType" | "baseUrl">[],
-  configuredProviders: Pick<ProviderConfig, "apiType" | "baseUrl">[],
+  configuredProviders: Pick<ProviderConfig, "apiType" | "baseUrl">[] | null | undefined,
 ): Set<string> {
   return new Set(
     templates
@@ -46,7 +47,8 @@ export function getConfiguredTemplateKeys(
 }
 
 export function hasConfiguredCodexProvider(
-  configuredProviders: Pick<ProviderConfig, "apiType">[],
+  configuredProviders: Pick<ProviderConfig, "apiType">[] | null | undefined,
 ): boolean {
+  if (!Array.isArray(configuredProviders)) return false
   return configuredProviders.some((provider) => provider.apiType === "codex")
 }

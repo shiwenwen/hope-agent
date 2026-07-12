@@ -84,11 +84,7 @@ pub async fn cron_run_now(id: String, state: State<'_, AppState>) -> Result<(), 
     }
     .ok_or_else(|| CmdError::msg("Job not found"))?;
 
-    let db = state.cron_db.clone();
-    let sdb = state.session_db.clone();
-    tokio::spawn(async move {
-        cron::execute_job_public(&db, &sdb, &job).await;
-    });
+    cron::spawn_job_execution(state.cron_db.clone(), state.session_db.clone(), job);
     Ok(())
 }
 

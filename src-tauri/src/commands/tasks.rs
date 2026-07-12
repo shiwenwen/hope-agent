@@ -1,4 +1,7 @@
-use ha_core::session::{delete_task_and_snapshot, set_task_status_and_snapshot, Task, TaskStatus};
+use ha_core::session::{
+    create_task_and_snapshot, delete_task_and_snapshot, set_task_status_and_snapshot, Task,
+    TaskStatus,
+};
 
 use crate::commands::CmdError;
 
@@ -20,6 +23,21 @@ fn parse_status(status: &str) -> Result<TaskStatus, CmdError> {
 #[tauri::command]
 pub async fn list_session_tasks(session_id: String) -> Result<Vec<Task>, CmdError> {
     Ok(db()?.run(move |db| db.list_tasks(&session_id)).await?)
+}
+
+#[tauri::command]
+pub async fn create_session_task(
+    session_id: String,
+    content: String,
+    active_form: Option<String>,
+) -> Result<Vec<Task>, CmdError> {
+    let db = db()?;
+    Ok(create_task_and_snapshot(
+        &db,
+        &session_id,
+        &content,
+        active_form.as_deref(),
+    )?)
 }
 
 #[tauri::command]

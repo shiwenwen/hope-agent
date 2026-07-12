@@ -3,10 +3,7 @@ import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
-import {
-  ArrowLeft,
-  User,
-} from "lucide-react"
+import { AlertTriangle, ArrowLeft, User } from "lucide-react"
 import { MEMORY_TYPES, MEMORY_TYPE_ICONS } from "./types"
 import type { useMemoryData } from "./useMemoryData"
 
@@ -20,12 +17,17 @@ export default function MemoryFormView({ data }: MemoryFormViewProps) {
   const { t } = useTranslation()
 
   const {
-    view, setView,
+    view,
+    setView,
     setEditingMemory,
-    formContent, setFormContent,
-    formType, setFormType,
-    formTags, setFormTags,
-    formScope, setFormScope,
+    formContent,
+    setFormContent,
+    formType,
+    setFormType,
+    formTags,
+    setFormTags,
+    formScope,
+    setFormScope,
     dedupSimilar,
     dedupPendingEntry,
     handleAdd,
@@ -36,6 +38,7 @@ export default function MemoryFormView({ data }: MemoryFormViewProps) {
   } = data
 
   const isEdit = view === "edit"
+  const memoryEnabled = data.effectiveMemoryEnabled
 
   return (
     <div className="flex-1 overflow-y-auto p-6">
@@ -58,6 +61,13 @@ export default function MemoryFormView({ data }: MemoryFormViewProps) {
         </h2>
 
         <div className="space-y-4">
+          {!memoryEnabled && (
+            <div className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-muted-foreground">
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600 dark:text-amber-300" />
+              <span>{t("settings.memoryOffFormNotice")}</span>
+            </div>
+          )}
+
           {/* Type selector */}
           <div>
             <label className="text-sm font-medium mb-1.5 block">{t("settings.memoryType")}</label>
@@ -120,6 +130,21 @@ export default function MemoryFormView({ data }: MemoryFormViewProps) {
                   {t("settings.memoryScopeAgent")}
                 </Button>
               </div>
+              {formScope === "agent" && data.agentListError && (
+                <div className="mt-2 flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-muted-foreground">
+                  <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600 dark:text-amber-300" />
+                  <div className="min-w-0">
+                    <div className="font-medium text-foreground">
+                      {data.agentListError.title}
+                    </div>
+                    {data.agentListError.description && (
+                      <div className="mt-0.5 break-words">
+                        {data.agentListError.description}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -187,7 +212,8 @@ export default function MemoryFormView({ data }: MemoryFormViewProps) {
                         <p className="text-xs text-muted-foreground line-clamp-2">{mem.content}</p>
                         {mem.relevanceScore != null && (
                           <span className="text-[10px] text-muted-foreground/60">
-                            {t("settings.memorySimilarity")}: {(mem.relevanceScore * 100).toFixed(0)}%
+                            {t("settings.memorySimilarity")}:{" "}
+                            {(mem.relevanceScore * 100).toFixed(0)}%
                           </span>
                         )}
                       </div>

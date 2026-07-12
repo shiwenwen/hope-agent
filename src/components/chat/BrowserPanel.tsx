@@ -30,6 +30,7 @@ interface BrowserPanelProps {
   onPanelWidthChange?: (width: number) => void
   reservedMainWidth?: number
   collapsed?: boolean
+  overlay?: boolean
   onClose: () => void
 }
 
@@ -48,6 +49,7 @@ export default function BrowserPanel({
   onPanelWidthChange,
   reservedMainWidth,
   collapsed = false,
+  overlay = false,
   onClose,
 }: BrowserPanelProps) {
   const { t } = useTranslation()
@@ -133,6 +135,7 @@ export default function BrowserPanel({
       resizeLabel={t("chat.browserPanel.resizePanel", "Resize browser panel")}
       reservedMainWidth={reservedMainWidth}
       collapsed={collapsed}
+      overlay={overlay}
       contentKey="browser"
     >
       {/* Header */}
@@ -149,7 +152,7 @@ export default function BrowserPanel({
                 ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
                 : "bg-blue-500/15 text-blue-700 dark:text-blue-300",
             )}
-            title={t("chat.browserPanel.backendBadgeTooltip", {
+            data-ha-title-tip={t("chat.browserPanel.backendBadgeTooltip", {
               backend: frame.backend,
             })}
           >
@@ -190,7 +193,7 @@ export default function BrowserPanel({
         ) : frame?.jpegBase64 ? (
           <img
             src={`data:image/jpeg;base64,${frame.jpegBase64}`}
-            alt={frame.title || "Browser frame"}
+            alt={frame.title || t("chat.browserPanel.frameAlt")}
             className="block h-auto w-full select-none"
             draggable={false}
           />

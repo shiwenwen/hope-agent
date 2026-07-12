@@ -16,10 +16,15 @@ use crate::tools::ToolDefinition;
 /// eagerly — tools whose fate is `InjectDeferred` move to the deferred
 /// section (one-liner), `HintOnly` move to the unconfigured-capabilities
 /// banner in `agent::build_full_system_prompt`, and `Hidden` are skipped.
-pub(super) fn build_tools_section(agent_id: &str, agent_config: &AgentConfig) -> String {
+pub(super) fn build_tools_section(
+    agent_id: &str,
+    agent_config: &AgentConfig,
+    incognito: bool,
+) -> String {
     let app_config = crate::config::cached_config();
     let ctx = DispatchContext {
         agent_id,
+        incognito,
         mcp_enabled: agent_config.capabilities.mcp_enabled,
         memory_enabled: agent_config.memory.enabled,
         tools_filter: &agent_config.capabilities.tools,
@@ -45,9 +50,14 @@ pub(super) fn build_tools_section(agent_id: &str, agent_config: &AgentConfig) ->
     format!("# Available Tools\n\n{}", descs.join("\n\n"))
 }
 
-/// Build a flat tool descriptions string for legacy mode (all tools).
-pub(super) fn build_all_tools_description() -> String {
-    let descs: Vec<&str> = TOOL_DESCRIPTIONS.iter().map(|(_, desc)| *desc).collect();
+/// Build a flat tool descriptions string for legacy mode.
+pub(super) fn build_all_tools_description(incognito: bool) -> String {
+    let memory_enabled = crate::config::cached_config().memory_extract.enabled;
+    let descs: Vec<&str> = TOOL_DESCRIPTIONS
+        .iter()
+        .filter(|(name, _)| memory_enabled && !incognito || !crate::tools::is_memory_tool(name))
+        .map(|(_, desc)| *desc)
+        .collect();
     format!("# Available Tools\n\n{}", descs.join("\n\n"))
 }
 
@@ -57,6 +67,7 @@ pub(super) fn build_all_tools_description() -> String {
 pub(super) fn build_deferred_tools_section(
     agent_id: &str,
     agent_config: &AgentConfig,
+    incognito: bool,
 ) -> Option<String> {
     let app_config = crate::config::cached_config();
     let mcp_deferred_servers: Vec<&str> = if agent_config.capabilities.mcp_enabled {
@@ -74,6 +85,7 @@ pub(super) fn build_deferred_tools_section(
     }
     let ctx = DispatchContext {
         agent_id,
+        incognito,
         mcp_enabled: agent_config.capabilities.mcp_enabled,
         memory_enabled: agent_config.memory.enabled,
         tools_filter: &agent_config.capabilities.tools,
@@ -602,13 +614,15 @@ pub(super) fn build_project_context_section(project: &Project) -> String {
         out.push('\n');
     }
 
-    out.push_str(
-        "\nAll memories, files, and context below that live inside this project are \
-         shared across every session in it. When you call `save_memory` from this \
-         session, the new memory defaults to the **project** scope (shared only \
-         inside this project). Pass `scope='global'` or `scope='agent'` explicitly \
-         if you want a memory to escape the project boundary.\n",
-    );
+    if crate::config::cached_config().memory_extract.enabled {
+        out.push_str(
+            "\nAll memories, files, and context below that live inside this project are \
+             shared across every session in it. When you call `save_memory` from this \
+             session, the new memory defaults to the **project** scope (shared only \
+             inside this project). Pass `scope='global'` or `scope='agent'` explicitly \
+             if you want a memory to escape the project boundary.\n",
+        );
+    }
 
     out
 }

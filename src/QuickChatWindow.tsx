@@ -2,13 +2,14 @@
  * QuickChatWindow — root component for the independent quick-chat Tauri window.
  * Rendered when `?window=quickchat` is in the URL (see main.tsx).
  */
-import React, { useEffect, useCallback, useRef, useMemo } from "react"
+import React, { useEffect, useCallback, useRef, useMemo, useState } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window"
 import { useTranslation } from "react-i18next"
 import { initLanguageFromConfig } from "@/i18n/i18n"
 import { Plus, ChevronDown, Bot, X } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { FloatingMenu } from "@/components/ui/floating-menu"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import ChatInput from "@/components/chat/ChatInput"
 import MessageList from "@/components/chat/MessageList"
@@ -17,7 +18,7 @@ import IncognitoToggle from "@/components/chat/input/IncognitoToggle"
 import { useQuickChatSession } from "@/components/chat/useQuickChatSession"
 import { useChatStream } from "@/components/chat/useChatStream"
 import type { CommandResult } from "@/components/chat/slash-commands/types"
-import type { AgentSummaryForSidebar } from "@/types/chat"
+import type { AgentSummaryForSidebar, PendingMessageQuote } from "@/types/chat"
 
 const hideWindow = () => getCurrentWindow().hide()
 const QUICK_CHAT_EMPTY_HEIGHT = 460
@@ -27,6 +28,7 @@ export default function QuickChatWindow() {
   const session = useQuickChatSession(true)
   const quickStreamSeqRef = useRef<Map<string, number>>(new Map())
   const quickEndedStreamIdsRef = useRef<Map<string, string>>(new Map())
+  const [composerFocusSignal, setComposerFocusSignal] = useState<number | undefined>(undefined)
 
   // Effective incognito = persisted session.incognito (continued chat) or
   // draft toggle (new chat). Mirrors `ChatScreen` semantics so the toggle
@@ -57,13 +59,22 @@ export default function QuickChatWindow() {
     sessionCacheRef: session.sessionCacheRef,
     sessions: session.sessions,
     agents: session.agents,
-    activeModel: session.activeModel,
+    manualModelOverrideRef: session.manualModelOverrideRef,
+    reasoningEffort: session.reasoningEffort,
+    temperatureOverride: session.sessionTemperature,
     reloadSessions: session.reloadSessions,
     updateSessionMessages: session.updateSessionMessages,
     lastSeqRef: quickStreamSeqRef,
     endedStreamIdsRef: quickEndedStreamIdsRef,
     incognitoEnabled,
   })
+  const handleMessageQuote = useCallback(
+    (quote: PendingMessageQuote) => {
+      stream.setPendingMessageQuotes((prev) => [...prev, quote])
+      setComposerFocusSignal((prev) => (prev ?? 0) + 1)
+    },
+    [stream],
+  )
 
   // Draft-only incognito toggle handler: ignored once a session exists, just
   // like the main chat (post-create switching is policed by the backend).
@@ -75,7 +86,9 @@ export default function QuickChatWindow() {
     session.setDraftIncognito(enabled)
   }
 
-  useEffect(() => { initLanguageFromConfig() }, [])
+  useEffect(() => {
+    initLanguageFromConfig()
+  }, [])
 
   // Transparent html/body so CSS border-radius shows rounded corners on macOS
   useEffect(() => {
@@ -111,10 +124,16 @@ export default function QuickChatWindow() {
   useEffect(() => {
     const win = getCurrentWindow()
     let unlisten: (() => void) | undefined
-    win.onFocusChanged(({ payload: focused }) => {
-      if (!focused) hideWindow()
-    }).then((fn) => { unlisten = fn })
-    return () => { unlisten?.() }
+    win
+      .onFocusChanged(({ payload: focused }) => {
+        if (!focused) hideWindow()
+      })
+      .then((fn) => {
+        unlisten = fn
+      })
+    return () => {
+      unlisten?.()
+    }
   }, [])
 
   const handleCommandAction = useCallback(
@@ -195,6 +214,7 @@ export default function QuickChatWindow() {
           onLoadMore={session.handleLoadMore}
           sessionId={session.currentSessionId}
           incognito={incognitoEnabled}
+          onAddMessageQuote={handleMessageQuote}
         />
 
         {/* ── Approval Dialog ────────────────────── */}
@@ -212,9 +232,13 @@ export default function QuickChatWindow() {
             loading={session.loading}
             availableModels={session.availableModels}
             activeModel={session.activeModel}
+            unavailableModelPreference={session.unavailableModelPreference}
             reasoningEffort={session.reasoningEffort}
             onModelChange={session.handleModelChange}
             onEffortChange={session.handleEffortChange}
+            onEffortReset={session.resetEffort}
+            sessionTemperature={session.sessionTemperature}
+            onSessionTemperatureChange={session.handleTemperatureChange}
             attachedFiles={stream.attachedFiles}
             onAttachFiles={stream.setAttachedFiles}
             onRemoveFile={(i) =>
@@ -225,8 +249,20 @@ export default function QuickChatWindow() {
                 prev.map((existing, idx) => (idx === index ? file : existing)),
               )
             }
+            pendingMessageQuotes={stream.pendingMessageQuotes}
+            onRemoveMessageQuote={(i) =>
+              stream.setPendingMessageQuotes((prev) => prev.filter((_, idx) => idx !== i))
+            }
+            focusSignal={composerFocusSignal}
             pendingMessage={stream.pendingMessage}
+            pendingSends={stream.pendingSends}
             onCancelPending={() => stream.setPendingMessage(null)}
+            onDiscardPending={() => stream.setPendingMessage(null)}
+            onEditPending={stream.editPendingSend}
+            onDiscardPendingItem={stream.discardPendingSend}
+            onSendPending={stream.sendPendingSend}
+            onForceInsertPending={stream.forceInsertPendingSend}
+            onCancelForceInsertPending={stream.cancelForceInsertPendingSend}
             onStop={stream.handleStop}
             currentSessionId={session.currentSessionId}
             currentAgentId={session.currentAgentId}
@@ -280,18 +316,24 @@ function AgentSelector({
         )}
       >
         <AgentAvatarIcon agent={currentAgent} />
-        <span className="font-medium">
-          {currentAgent?.name || t("chat.mainAgent")}
-        </span>
+        <span className="font-medium">{currentAgent?.name || t("chat.mainAgent")}</span>
         <ChevronDown className="h-3 w-3 text-muted-foreground" />
       </button>
 
-      {menuOpen && agents.length > 0 && (
-        <div className="absolute top-full left-0 mt-1 min-w-[200px] max-h-[240px] overflow-y-auto bg-popover border border-border rounded-lg shadow-lg py-1 z-10">
+      <FloatingMenu
+        open={menuOpen && agents.length > 0}
+        positionClassName="top-full left-0 mt-1.5"
+        originClassName="origin-top-left"
+        className="ha-menu-from-top min-w-[200px] max-h-[240px] overflow-y-auto p-1.5"
+        onEscapeKeyDown={() => setMenuOpen(false)}
+      >
           {agents.map((agent) => (
             <button
               key={agent.id}
-              onClick={() => { onSelect(agent.id); setMenuOpen(false) }}
+              onClick={() => {
+                onSelect(agent.id)
+                setMenuOpen(false)
+              }}
               className={cn(
                 "w-full text-left px-3 py-1.5 text-sm hover:bg-muted transition-colors flex items-center gap-2",
                 agent.id === currentAgent?.id && "bg-muted/50",
@@ -304,8 +346,7 @@ function AgentSelector({
               )}
             </button>
           ))}
-        </div>
-      )}
+      </FloatingMenu>
     </div>
   )
 }

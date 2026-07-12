@@ -109,7 +109,7 @@ export default function AwarenessToggle({ sessionId, disabled = false }: Props) 
   }
 
   return (
-    <div className="relative" ref={ref}>
+    <div className="relative shrink-0" ref={ref}>
       <IconTip
         label={
           disabled

@@ -83,6 +83,14 @@ stateDiagram-v2
 | `skip_parent_injection` | `bool` | 是否跳过自动结果注入 |
 | `extra_system_context` | `Option<String>` | 额外系统上下文（如 `PLAN_MODE_SYSTEM_PROMPT`） |
 | `skill_allowed_tools` | `Vec<String>` | Skill fork 模式继承的工具白名单 |
+| `isolate_worktree` | `bool` | 是否为 child session 尝试创建 Managed Worktree 隔离执行目录 |
+
+`isolate_worktree` 的默认产品语义：
+
+- 用户可见的 `subagent` / `batch_spawn` 工具默认 `true`，让并行实现和长任务探索默认不污染父工作区。
+- 内部 plan / team / hook / skill fork helper 默认 `false`，避免只读分析或短生命周期 helper 大量制造 worktree。
+- 创建成功后 child session `working_dir` 指向 worktree path，并注入额外 system context 告知子 Agent 当前隔离路径和 worktree id。
+- 创建失败时记录告警并继承父会话有效 working dir，避免因环境不支持 git worktree 而使整个父回合失败。需要强隔离保证的上层应显式检查 managed worktree 状态。
 
 ### SubagentEvent（前端事件）
 
@@ -284,6 +292,7 @@ sequenceDiagram
 | 关注点 | 实现 |
 |--------|------|
 | **建** | `action_batch_spawn` **先预校验全部 task**（任一缺 `task` 字段整体拒——否则已建的子代理永不 seal → 漏交付，详见红线）→ 非 incognito 且 jobs DB 就绪时 `JobManager::spawn_group`（group 行 `status=Running`、`args_json={"sealed":false}`、`injected=true`）→ 每个子 `SpawnParams.group_id=Some(group)`。子投影建在 `spawn_subagent`（同 R6 gate），携 `group_id` |
+| **附件** | 顶层 `files[]` 只解析一次并作为共享附件克隆给每个 child；`tasks[].files[]` 只追加到对应 child。UTF-8 内容落有界临时文件引用，base64 保持内存数据；解析失败整体显式报错，不再静默丢附件。`attachment_count` 记录合并后的真实数量。 |
 | **抑制个体注入** | grouped 子（`effective_group_id.is_some()`）在 `spawn.rs` 完成处**跳过** `inject_and_run_parent`——Group 统一发。覆盖**全部终态含 Killed**（个体路径只发 Completed/Error/Timeout，Group 更全） |
 | **seal** | spawn 循环结束后 `JobManager::seal_group`：标 `args_json={"sealed":true}` 再跑一次 `try_complete_group`（兜底「spawn 期间快子已全完成」）。`try_complete_group` 未 sealed 直接 no-op，防 spawn 中途某子完成就误判全完成 |
 | **join + 合并注入** | 每个子终态经 `sync_subagent_projection` → `group_id_for_subagent_run` → `try_complete_group`：sealed + 全子终态 → **单赢 CAS** `claim_group_completion`（`Running→Completed` only if 非终态，N 个并发子只一个赢）→ `build_group_push_message`（单 `<subagent-result>` 封套，body 枚举每子 status/result/error + task/label，XML-escape）→ 复用 `inject_and_run_parent`（`child_agent_id="batch"`、`run_id=group_id`、`on_injected=None`），复用既有 `subagent_result` 前端 pill，**零前端/零文案** |
@@ -413,12 +422,18 @@ R7.1 的队列（`async_jobs/slots.rs`）在 `PreparedJob` 里钉死一份 live 
 | `steer` | `run_id`, `message` | 向运行中的子 Agent 推送引导消息 |
 | `kill` | `run_id` | 取消指定子 Agent |
 | `kill_all` | 无 | 取消当前会话所有活跃**及排队中**子 Agent（`cancel_all_for_session` 只覆盖 active，额外 `queue::purge_for_session` + `request_cancel_run` 收掉排队项，否则它们会在 kill_all 腾出槽位后被提升运行）|
-| `batch_spawn` | `tasks`(数组,最多10个) | 批量调用子 Agent，作为一个 **Group**（R5）fan-out——全部完成时**合并注入一轮**，返回 `group_id` |
-| `wait_all` | `run_ids`(数组), `wait_timeout`(可选,默认120s,上限600s) | 等待多个子 Agent 全部完成 |
+| `batch_spawn` | `tasks`(数组,最多10个), `files`(可选共享附件) | 批量调用子 Agent；每个 task 还可带私有 `files`。作为一个 **Group**（R5）fan-out，全部完成时合并注入一轮，返回 `group_id`。 |
+| `wait_all` | `run_ids`(数组), `wait_timeout`(可选,默认120s,上限600s), `partial?`, `result_mode?` | 等待多个子 Agent；返回 completed/failed/total/timed_out，结果粒度为 status/preview/summary/full。 |
 
 **权限校验**（`do_spawn` 内部）：
 - `agent.config.subagents.enabled` 必须为 `true`
 - 目标 Agent 必须在 `agent.config.subagents` 的允许列表中（`is_agent_allowed`）
+
+### Workflow ownership 与注入去重
+
+- `workflow.spawnAgent` 仍复用 `subagent` 的权限、并发队列、取消和运行引擎，但带预分配 run id 与内部 `skip_parent_injection=true`。普通 subagent/group 行为不变，Workflow child 不走个体或 Group 的通用回注。
+- 子 Agent 终态由 `SessionDB::update_subagent_status` 统一通知 Workflow；Workflow 决定主动查询、checkpoint 或 final 交付。显式读取会调用 `mark_run_fetched` 同时压掉对应待回注 source。
+- `INJECTION_CANCELS` 记录 `{run_id, cancel}`，不再只有 session 级 flag。这样读取某个阶段结果只取消该 source 的活跃注入，不会误伤同会话其他后台结果；用户新发消息仍按 session 取消当前注入并在空闲后重试。
 
 ## 关键源文件索引
 

@@ -48,13 +48,32 @@ pub struct FileArtifact {
     pub language: Option<String>,
 }
 
-/// One URL the session referenced.
+/// One source the session referenced: a URL or a user-sent attachment.
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct UrlSource {
-    pub url: String,
-    /// `"web_search"` | `"message"` (the literal frontend `UrlSourceOrigin`).
+    /// `"url"` | `"attachment"`.
+    pub kind: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    /// `"web_search"` | `"message"` | `"user_url"` | `"user_attachment"`.
     pub origin: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mime_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub size_bytes: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub attachment_kind: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub local_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub quote_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub quote_lines: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub quote_content: Option<String>,
 }
 
 /// One browser automation activity emitted by the browser tool.
@@ -292,33 +311,155 @@ fn normalize_url(raw: &str) -> String {
         .to_string()
 }
 
+fn url_origin_priority(origin: &str) -> u8 {
+    match origin {
+        "web_search" => 3,
+        "user_url" => 2,
+        "message" => 1,
+        _ => 0,
+    }
+}
+
 fn add_url(
-    seen: &mut HashSet<String>,
+    by_url: &mut HashMap<String, usize>,
     sources: &mut Vec<UrlSource>,
     raw: &str,
     origin: &str,
     skip_filtered: bool,
 ) {
     let url = normalize_url(raw);
-    if url.is_empty() || seen.contains(&url) {
+    if url.is_empty() {
         return;
     }
     // Prose URLs run the urlDetect.ts skip-filter; web_search URLs do not.
     if skip_filtered && should_skip_message_url(&url) {
         return;
     }
-    seen.insert(url.clone());
+    if let Some(index) = by_url.get(&url).copied() {
+        if url_origin_priority(origin) > url_origin_priority(&sources[index].origin) {
+            sources[index].origin = origin.to_string();
+        }
+        return;
+    }
+    by_url.insert(url.clone(), sources.len());
     sources.push(UrlSource {
-        url,
+        kind: "url".to_string(),
+        url: Some(url),
         origin: origin.to_string(),
+        name: None,
+        mime_type: None,
+        size_bytes: None,
+        attachment_kind: None,
+        local_path: None,
+        quote_path: None,
+        quote_lines: None,
+        quote_content: None,
     });
+}
+
+fn string_field<'a>(value: &'a Value, keys: &[&str]) -> Option<&'a str> {
+    keys.iter()
+        .find_map(|key| value.get(*key).and_then(Value::as_str))
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+}
+
+fn u64_field(value: &Value, keys: &[&str]) -> Option<u64> {
+    keys.iter()
+        .find_map(|key| value.get(*key).and_then(Value::as_u64))
+}
+
+fn user_attachment_arrays(value: &Value) -> Vec<&Vec<Value>> {
+    match value {
+        Value::Array(items) => vec![items],
+        Value::Object(obj) => ["user_attachments", "attachments"]
+            .iter()
+            .filter_map(|key| obj.get(*key).and_then(Value::as_array))
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+fn attachment_source_key(source: &UrlSource) -> String {
+    format!(
+        "attachment:{}:{}:{}",
+        source
+            .local_path
+            .as_deref()
+            .or(source.url.as_deref())
+            .or(source.quote_path.as_deref())
+            .or(source.name.as_deref())
+            .unwrap_or_default(),
+        source.quote_lines.as_deref().unwrap_or_default(),
+        source.size_bytes.unwrap_or(0)
+    )
+}
+
+fn add_user_attachment(seen: &mut HashSet<String>, sources: &mut Vec<UrlSource>, item: &Value) {
+    if string_field(item, &["kind"]) == Some(crate::attachments::MESSAGE_QUOTE_SOURCE) {
+        return;
+    }
+    let Some(name) = string_field(item, &["name"]) else {
+        return;
+    };
+    let item_kind = string_field(item, &["kind"]);
+    let is_quote = item_kind == Some("quote");
+    let mime_type = if is_quote {
+        "text/plain".to_string()
+    } else {
+        string_field(item, &["mime_type", "mimeType"])
+            .unwrap_or("application/octet-stream")
+            .to_string()
+    };
+    let attachment_kind = if is_quote {
+        "quote".to_string()
+    } else if mime_type.to_lowercase().starts_with("image/") {
+        "image".to_string()
+    } else {
+        "file".to_string()
+    };
+    let source = UrlSource {
+        kind: "attachment".to_string(),
+        url: string_field(item, &["url"]).map(str::to_string),
+        origin: "user_attachment".to_string(),
+        name: Some(name.to_string()),
+        mime_type: Some(mime_type),
+        size_bytes: Some(u64_field(item, &["size", "sizeBytes"]).unwrap_or(0)),
+        attachment_kind: Some(attachment_kind),
+        local_path: if is_quote {
+            None
+        } else {
+            string_field(item, &["path", "localPath"]).map(str::to_string)
+        },
+        quote_path: if is_quote {
+            string_field(item, &["path", "quotePath"]).map(str::to_string)
+        } else {
+            None
+        },
+        quote_lines: if is_quote {
+            string_field(item, &["lines", "quoteLines"]).map(str::to_string)
+        } else {
+            None
+        },
+        quote_content: if is_quote {
+            string_field(item, &["content", "quoteContent"]).map(str::to_string)
+        } else {
+            None
+        },
+    };
+    let key = attachment_source_key(&source);
+    if seen.insert(key) {
+        sources.push(source);
+    }
 }
 
 /// URL sources the session referenced, most-recently-introduced first. Collects
 /// `web_search` result URLs (structured origin) + bare URLs in assistant /
-/// intermediate text-block prose, deduped by normalized URL (first origin kept).
+/// intermediate text-block prose + user-sent URLs / attachments. URLs are
+/// deduped by normalized URL with structured origins taking priority.
 fn aggregate_sources(messages: &[SessionMessage]) -> (Vec<UrlSource>, bool) {
-    let mut seen: HashSet<String> = HashSet::new();
+    let mut by_url: HashMap<String, usize> = HashMap::new();
+    let mut seen_attachments: HashSet<String> = HashSet::new();
     let mut sources: Vec<UrlSource> = Vec::new(); // chronological first-occurrence
 
     for msg in messages {
@@ -326,7 +467,7 @@ fn aggregate_sources(messages: &[SessionMessage]) -> (Vec<UrlSource>, bool) {
             if let Some(result) = msg.tool_result.as_deref() {
                 for cap in WEB_SEARCH_URL_RE.captures_iter(result) {
                     if let Some(m) = cap.get(1) {
-                        add_url(&mut seen, &mut sources, m.as_str(), "web_search", false);
+                        add_url(&mut by_url, &mut sources, m.as_str(), "web_search", false);
                     }
                 }
             }
@@ -335,7 +476,20 @@ fn aggregate_sources(messages: &[SessionMessage]) -> (Vec<UrlSource>, bool) {
         // (intermediate, before tool calls) rows — both carry user-visible text.
         if matches!(msg.role, MessageRole::Assistant | MessageRole::TextBlock) {
             for m in URL_RE.find_iter(&msg.content) {
-                add_url(&mut seen, &mut sources, m.as_str(), "message", true);
+                add_url(&mut by_url, &mut sources, m.as_str(), "message", true);
+            }
+        } else if msg.role == MessageRole::User {
+            for m in URL_RE.find_iter(&msg.content) {
+                add_url(&mut by_url, &mut sources, m.as_str(), "user_url", false);
+            }
+            if let Some(raw) = msg.attachments_meta.as_deref() {
+                if let Ok(meta) = serde_json::from_str::<Value>(raw) {
+                    for items in user_attachment_arrays(&meta) {
+                        for item in items {
+                            add_user_attachment(&mut seen_attachments, &mut sources, item);
+                        }
+                    }
+                }
             }
         }
     }
@@ -516,25 +670,69 @@ mod tests {
         // example.com/a is deduped (web_search origin kept, first occurrence);
         // trailing `.` / `)` stripped. Most-recently-introduced first → b first.
         assert_eq!(sources.len(), 2);
-        assert_eq!(sources[0].url, "https://example.com/b");
+        assert_eq!(sources[0].kind, "url");
+        assert_eq!(sources[0].url.as_deref(), Some("https://example.com/b"));
         assert_eq!(sources[0].origin, "message");
-        assert_eq!(sources[1].url, "https://example.com/a");
+        assert_eq!(sources[1].kind, "url");
+        assert_eq!(sources[1].url.as_deref(), Some("https://example.com/a"));
         assert_eq!(sources[1].origin, "web_search");
     }
 
     #[test]
-    fn sources_ignore_non_assistant_roles() {
-        // A user message URL must not be collected (only assistant / text_block).
+    fn sources_collect_user_message_urls() {
         let messages = vec![msg(
             1,
             MessageRole::User,
-            "https://should-not-appear.example",
+            "use https://example.com/report.pdf",
             None,
             None,
             None,
         )];
         let (sources, _) = aggregate_sources(&messages);
-        assert!(sources.is_empty());
+        assert_eq!(sources.len(), 1);
+        assert_eq!(sources[0].kind, "url");
+        assert_eq!(
+            sources[0].url.as_deref(),
+            Some("https://example.com/report.pdf")
+        );
+        assert_eq!(sources[0].origin, "user_url");
+    }
+
+    #[test]
+    fn sources_collect_user_attachments() {
+        let messages = vec![SessionMessage {
+            attachments_meta: Some(
+                r#"[
+                    {"name":"brief.pdf","mime_type":"application/pdf","size":1234,"path":"/tmp/brief.pdf"},
+                    {"kind":"quote","name":"quoted.ts","path":"/repo/quoted.ts","lines":"10-12","content":"const x = 1"},
+                    {"kind":"message_quote","role":"assistant","content":"not a workspace source"}
+                ]"#
+                .to_string(),
+            ),
+            ..msg(1, MessageRole::User, "", None, None, None)
+        }];
+        let (sources, truncated) = aggregate_sources(&messages);
+        assert!(!truncated);
+        assert_eq!(sources.len(), 2);
+        let upload = sources
+            .iter()
+            .find(|source| source.name.as_deref() == Some("brief.pdf"))
+            .expect("upload attachment source");
+        assert_eq!(upload.kind, "attachment");
+        assert_eq!(upload.origin, "user_attachment");
+        assert_eq!(upload.mime_type.as_deref(), Some("application/pdf"));
+        assert_eq!(upload.size_bytes, Some(1234));
+        assert_eq!(upload.attachment_kind.as_deref(), Some("file"));
+        assert_eq!(upload.local_path.as_deref(), Some("/tmp/brief.pdf"));
+
+        let quote = sources
+            .iter()
+            .find(|source| source.name.as_deref() == Some("quoted.ts"))
+            .expect("quote attachment source");
+        assert_eq!(quote.kind, "attachment");
+        assert_eq!(quote.attachment_kind.as_deref(), Some("quote"));
+        assert_eq!(quote.quote_path.as_deref(), Some("/repo/quoted.ts"));
+        assert_eq!(quote.quote_lines.as_deref(), Some("10-12"));
     }
 
     #[test]
@@ -549,7 +747,7 @@ mod tests {
             None,
         )];
         let (sources, _) = aggregate_sources(&messages);
-        let urls: Vec<&str> = sources.iter().map(|s| s.url.as_str()).collect();
+        let urls: Vec<&str> = sources.iter().filter_map(|s| s.url.as_deref()).collect();
         assert_eq!(urls, vec!["https://example.com/page"]);
     }
 
@@ -567,7 +765,10 @@ mod tests {
         )];
         let (sources, _) = aggregate_sources(&messages);
         assert_eq!(sources.len(), 1);
-        assert_eq!(sources[0].url, "https://cdn.site.com/report.pdf");
+        assert_eq!(
+            sources[0].url.as_deref(),
+            Some("https://cdn.site.com/report.pdf")
+        );
         assert_eq!(sources[0].origin, "web_search");
     }
 

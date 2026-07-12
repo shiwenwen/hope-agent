@@ -1,4 +1,6 @@
 use anyhow::Result;
+use std::collections::{HashMap, HashSet};
+
 use serde_json::Value;
 
 use super::{
@@ -10,15 +12,20 @@ use super::{
 /// Handle the tool_search meta-tool: find tools by query and return their full schemas.
 ///
 /// Supports two query forms:
-/// - `"select:name1,name2"` — exact match by tool name
-/// - `"keyword1 keyword2"` — fuzzy search by name/description relevance
+/// - `"select:name1,name2"` — exact match by tool name or alias
+/// - `"keyword1 keyword2"` — weighted search over name, aliases, hints,
+///   description, parameter hints, effects, risk, and classifier tags.
 ///
 /// Candidates pool: every tool whose dispatcher fate is `InjectEager` or
 /// `InjectDeferred` for the current agent + global config. `Hidden` and
 /// `HintOnly` tools are excluded — they're either disabled or
 /// unprovisioned, so surfacing them via search would be misleading.
 pub(crate) async fn tool_search(args: &Value, ctx: &ToolExecContext) -> Result<String> {
-    let query = args.get("query").and_then(|v| v.as_str()).unwrap_or("");
+    let query = args
+        .get("query")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim();
     let max_results = args
         .get("max_results")
         .and_then(|v| v.as_u64())
@@ -42,6 +49,7 @@ pub(crate) async fn tool_search(args: &Value, ctx: &ToolExecContext) -> Result<S
 
     let dispatch_ctx = DispatchContext {
         agent_id,
+        incognito: ctx.incognito,
         mcp_enabled: agent_cfg.capabilities.mcp_enabled,
         memory_enabled: agent_cfg.memory.enabled,
         tools_filter: &agent_cfg.capabilities.tools,
@@ -94,75 +102,259 @@ pub(crate) async fn tool_search(args: &Value, ctx: &ToolExecContext) -> Result<S
         candidates.retain(|t| !super::is_kb_scoped_tool(&t.name));
     }
 
-    // Select mode: "select:name1,name2" for exact matching
-    if let Some(names_str) = query.strip_prefix("select:") {
-        let names: Vec<&str> = names_str.split(',').map(|s| s.trim()).collect();
+    // Select mode: "select:name1,name2" for exact matching by name or alias.
+    // The prefix and selected names are case/space/hyphen insensitive.
+    if let Some(names_str) = select_payload(query) {
+        let names: Vec<String> = names_str
+            .split(',')
+            .map(normalize_selector)
+            .filter(|s| !s.is_empty())
+            .collect();
         let matched: Vec<&ToolDefinition> = candidates
             .iter()
-            .filter(|t| names.iter().any(|n| n.eq_ignore_ascii_case(&t.name)))
+            .filter(|t| names.iter().any(|n| selector_matches(t, n)))
             .collect();
 
-        let results: Vec<Value> = matched.iter().map(|t| tool_to_schema(t)).collect();
+        let results: Vec<Value> = matched
+            .iter()
+            .map(|t| tool_to_schema(t, None, &app_config))
+            .collect();
 
         return Ok(serde_json::to_string_pretty(&serde_json::json!({
+            "query": query,
+            "mode": "select",
             "matched_tools": results.len(),
             "total_deferred_tools": total_deferred,
+            "total_candidates": candidates.len(),
+            "truncated": false,
             "tools": results,
         }))?);
     }
 
-    // Keyword search mode
-    let query_lower = query.to_lowercase();
-    let keywords: Vec<&str> = query_lower.split_whitespace().collect();
+    // Keyword search mode. Build a small weighted BM25 corpus each call so
+    // tool_search stays data-driven: aliases/search_hints/effects added by
+    // ToolDefinition v2 immediately participate in ranking.
+    let query_terms = tokenize(query);
+    let docs: Vec<SearchDoc<'_>> = candidates.iter().map(SearchDoc::new).collect();
+    let idf = inverse_document_frequency(&docs);
+    let avg_doc_len = average_doc_len(&docs);
+    let normalized_query = normalize_text(query);
 
-    let mut scored: Vec<(f64, &ToolDefinition)> = candidates
+    let mut scored: Vec<(f64, &ToolDefinition)> = docs
         .iter()
-        .map(|t| {
-            let name_lower = t.name.to_lowercase();
-            let desc_lower = t.description.to_lowercase();
+        .map(|doc| {
             let mut score = 0.0;
 
-            // Exact name match
-            if name_lower == query_lower {
-                score += 10.0;
-            }
-            // Name contains full query
-            if name_lower.contains(&query_lower) {
-                score += 5.0;
-            }
-            // Per-keyword scoring
-            for kw in &keywords {
-                if name_lower.contains(kw) {
-                    score += 2.0;
-                }
-                if desc_lower.contains(kw) {
-                    score += 1.0;
+            for term in &query_terms {
+                if let Some(weight) = doc.term_weights.get(term) {
+                    let idf = idf.get(term).copied().unwrap_or(1.0);
+                    score += bm25_score(*weight, idf, doc.weighted_len, avg_doc_len);
                 }
             }
-            (score, t)
+
+            if !normalized_query.is_empty() {
+                if normalize_selector(&doc.tool.name) == normalize_selector(query) {
+                    score += 30.0;
+                }
+                if doc
+                    .metadata
+                    .aliases
+                    .iter()
+                    .any(|a| normalize_selector(a) == normalize_selector(query))
+                {
+                    score += 24.0;
+                }
+                if doc.phrase_text.contains(&normalized_query) {
+                    score += 6.0;
+                }
+                if doc
+                    .tool
+                    .name
+                    .to_ascii_lowercase()
+                    .contains(&normalized_query)
+                {
+                    score += 10.0;
+                }
+            }
+
+            (score, doc.tool)
         })
         .filter(|(score, _)| *score > 0.0)
         .collect();
 
     scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+    let total_matches = scored.len();
     scored.truncate(max_results);
 
-    let results: Vec<Value> = scored.iter().map(|(_, t)| tool_to_schema(t)).collect();
+    let results: Vec<Value> = scored
+        .iter()
+        .map(|(score, t)| tool_to_schema(t, Some(*score), &app_config))
+        .collect();
 
     Ok(serde_json::to_string_pretty(&serde_json::json!({
+        "query": query,
+        "mode": "search",
         "matched_tools": results.len(),
+        "total_matches": total_matches,
         "total_deferred_tools": total_deferred,
+        "total_candidates": candidates.len(),
+        "truncated": total_matches > results.len(),
         "tools": results,
     }))?)
 }
 
 /// Convert a ToolDefinition to its full schema for the response.
-fn tool_to_schema(t: &ToolDefinition) -> Value {
-    serde_json::json!({
-        "name": t.name,
-        "description": t.description,
-        "parameters": t.parameters,
-    })
+fn tool_to_schema(
+    t: &ToolDefinition,
+    score: Option<f64>,
+    app_config: &crate::config::AppConfig,
+) -> Value {
+    let mut obj = t.to_api_metadata(app_config);
+    if let Some(map) = obj.as_object_mut() {
+        map.insert("parameters".to_string(), t.parameters.clone());
+        if let Some(score) = score {
+            map.insert(
+                "score".to_string(),
+                serde_json::json!((score * 1000.0).round() / 1000.0),
+            );
+        }
+    }
+    obj
+}
+
+struct SearchDoc<'a> {
+    tool: &'a ToolDefinition,
+    metadata: super::definitions::ToolMetadata,
+    term_weights: HashMap<String, f64>,
+    weighted_len: f64,
+    phrase_text: String,
+}
+
+impl<'a> SearchDoc<'a> {
+    fn new(tool: &'a ToolDefinition) -> Self {
+        let metadata = tool.v2_metadata();
+        let mut fields: Vec<(String, f64)> = vec![
+            (tool.name.clone(), 9.0),
+            (tool.name.replace('_', " "), 8.0),
+            (tool.description.clone(), 1.2),
+            (metadata.searchable_text(), 2.2),
+        ];
+        fields.extend(metadata.aliases.iter().cloned().map(|s| (s, 7.0)));
+        fields.extend(metadata.search_hints.iter().cloned().map(|s| (s, 4.0)));
+        fields.extend(metadata.classifier_tags.iter().cloned().map(|s| (s, 3.0)));
+
+        if let Some(props) = tool
+            .parameters
+            .get("properties")
+            .and_then(|v| v.as_object())
+        {
+            for (name, schema) in props {
+                fields.push((name.clone(), 2.5));
+                if let Some(desc) = schema.get("description").and_then(|v| v.as_str()) {
+                    fields.push((desc.to_string(), 0.8));
+                }
+            }
+        }
+
+        let mut term_weights = HashMap::new();
+        let mut weighted_len = 0.0;
+        let mut phrase_parts = Vec::new();
+        for (field, weight) in fields {
+            phrase_parts.push(normalize_text(&field));
+            for token in tokenize(&field) {
+                *term_weights.entry(token).or_insert(0.0) += weight;
+                weighted_len += weight;
+            }
+        }
+
+        Self {
+            tool,
+            metadata,
+            term_weights,
+            weighted_len,
+            phrase_text: phrase_parts.join(" "),
+        }
+    }
+}
+
+fn average_doc_len(docs: &[SearchDoc<'_>]) -> f64 {
+    if docs.is_empty() {
+        return 1.0;
+    }
+    let total: f64 = docs.iter().map(|doc| doc.weighted_len).sum();
+    (total / docs.len() as f64).max(1.0)
+}
+
+fn bm25_score(weighted_tf: f64, idf: f64, doc_len: f64, avg_doc_len: f64) -> f64 {
+    let k1 = 1.2;
+    let b = 0.75;
+    let norm = k1 * (1.0 - b + b * (doc_len.max(1.0) / avg_doc_len.max(1.0)));
+    idf * ((weighted_tf * (k1 + 1.0)) / (weighted_tf + norm))
+}
+
+fn inverse_document_frequency(docs: &[SearchDoc<'_>]) -> HashMap<String, f64> {
+    let mut doc_freq: HashMap<String, usize> = HashMap::new();
+    for doc in docs {
+        let unique: HashSet<&String> = doc.term_weights.keys().collect();
+        for term in unique {
+            *doc_freq.entry(term.clone()).or_insert(0) += 1;
+        }
+    }
+    let n = docs.len() as f64;
+    doc_freq
+        .into_iter()
+        .map(|(term, df)| {
+            let idf = ((n + 1.0) / (df as f64 + 1.0)).ln() + 1.0;
+            (term, idf)
+        })
+        .collect()
+}
+
+fn select_payload(query: &str) -> Option<&str> {
+    let trimmed = query.trim();
+    if trimmed.len() < "select:".len() {
+        return None;
+    }
+    let (prefix, rest) = trimmed.split_at("select:".len());
+    if prefix.eq_ignore_ascii_case("select:") {
+        Some(rest)
+    } else {
+        None
+    }
+}
+
+fn selector_matches(tool: &ToolDefinition, normalized: &str) -> bool {
+    normalize_selector(&tool.name) == normalized
+        || tool
+            .v2_metadata()
+            .aliases
+            .iter()
+            .any(|alias| normalize_selector(alias) == normalized)
+}
+
+fn normalize_selector(value: &str) -> String {
+    value
+        .trim()
+        .to_ascii_lowercase()
+        .replace([' ', '-'], "_")
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '_')
+        .collect()
+}
+
+fn normalize_text(value: &str) -> String {
+    tokenize(value).join(" ")
+}
+
+fn tokenize(value: &str) -> Vec<String> {
+    value
+        .to_lowercase()
+        .split(|c: char| !(c.is_alphanumeric() || c == '_'))
+        .flat_map(|part| part.split('_'))
+        .map(str::trim)
+        .filter(|part| !part.is_empty())
+        .map(ToString::to_string)
+        .collect()
 }
 
 #[cfg(test)]
@@ -178,6 +370,19 @@ mod tests {
             .unwrap();
         let parsed: Value = serde_json::from_str(&result).unwrap();
         assert!(parsed["matched_tools"].as_u64().unwrap() >= 2);
+        assert_eq!(parsed["mode"].as_str().unwrap(), "select");
+    }
+
+    #[tokio::test]
+    async fn workflow_is_not_discoverable_via_tool_search() {
+        let args = json!({ "query": "select:workflow" });
+        let result = tool_search(&args, &ToolExecContext::default())
+            .await
+            .unwrap();
+        let parsed: Value = serde_json::from_str(&result).unwrap();
+
+        assert_eq!(parsed["matched_tools"].as_u64().unwrap(), 0);
+        assert!(parsed["tools"].as_array().unwrap().is_empty());
     }
 
     #[tokio::test]
@@ -189,6 +394,7 @@ mod tests {
         let parsed: Value = serde_json::from_str(&result).unwrap();
         assert!(parsed["matched_tools"].as_u64().unwrap() > 0);
         assert!(parsed["matched_tools"].as_u64().unwrap() <= 3);
+        assert_eq!(parsed["mode"].as_str().unwrap(), "search");
     }
 
     #[tokio::test]
@@ -215,5 +421,62 @@ mod tests {
 
         assert_eq!(parsed["matched_tools"].as_u64().unwrap(), 1);
         assert_eq!(tools[0]["name"].as_str().unwrap(), "read");
+    }
+
+    #[tokio::test]
+    async fn test_select_query_is_case_space_and_alias_tolerant() {
+        let args = json!({ "query": "SELECT: Read, modify file" });
+        let result = tool_search(&args, &ToolExecContext::default())
+            .await
+            .unwrap();
+        let parsed: Value = serde_json::from_str(&result).unwrap();
+        let names: Vec<&str> = parsed["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|tool| tool["name"].as_str())
+            .collect();
+        assert!(names.contains(&"read"));
+        assert!(names.contains(&"edit"));
+    }
+
+    #[tokio::test]
+    async fn test_keyword_query_uses_v2_metadata() {
+        let args = json!({ "query": "shell terminal command", "max_results": 1 });
+        let result = tool_search(&args, &ToolExecContext::default())
+            .await
+            .unwrap();
+        let parsed: Value = serde_json::from_str(&result).unwrap();
+        let first = &parsed["tools"].as_array().unwrap()[0];
+        assert_eq!(first["name"].as_str().unwrap(), "exec");
+        assert_eq!(first["metadata"]["risk"].as_str().unwrap(), "strict");
+        assert!(first["metadata"]["effects"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|v| v.as_str() == Some("execute_process")));
+        assert!(first["score"].as_f64().unwrap() > 0.0);
+    }
+
+    #[tokio::test]
+    async fn incognito_hides_memory_tools_from_deferred_discovery() {
+        let args = json!({
+            "query": "select:save_memory,recall_memory,memory_get,update_memory,delete_memory,update_core_memory",
+            "max_results": 20
+        });
+        let ctx = ToolExecContext {
+            incognito: true,
+            ..ToolExecContext::default()
+        };
+
+        let result = tool_search(&args, &ctx).await.unwrap();
+        let parsed: Value = serde_json::from_str(&result).unwrap();
+
+        assert_eq!(
+            parsed["matched_tools"].as_u64().unwrap(),
+            0,
+            "incognito tool_search must not resurrect Memory tier tools"
+        );
+        assert!(parsed["tools"].as_array().unwrap().is_empty());
     }
 }

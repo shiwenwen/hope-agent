@@ -156,17 +156,24 @@ pub fn persist_tool_event(
 /// - Trigger: token count >= token threshold OR message count >= message threshold
 ///
 /// Both cooldown AND trigger must be satisfied.
-pub(super) fn schedule_memory_extraction_after_turn(
+pub(super) async fn schedule_memory_extraction_after_turn(
     agent_id: &str,
     session_id: &str,
     model_ref: &ActiveModel,
     agent: &AssistantAgent,
 ) -> u64 {
-    if crate::session::is_session_incognito(Some(session_id)) {
+    let sid = session_id.to_string();
+    if crate::blocking::run_blocking(move || crate::session::is_session_incognito(Some(&sid))).await
+    {
         return 0;
     }
     let global_extract = crate::memory::load_extract_config();
-    let agent_def = crate::agent_loader::load_agent(agent_id);
+    if !global_extract.enabled {
+        return 0;
+    }
+    let aid = agent_id.to_string();
+    let agent_def =
+        crate::blocking::run_blocking(move || crate::agent_loader::load_agent(&aid)).await;
     let agent_mem = agent_def.as_ref().ok().map(|d| &d.config.memory);
 
     let auto_extract = agent_mem

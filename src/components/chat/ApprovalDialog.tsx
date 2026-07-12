@@ -1,8 +1,7 @@
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { ShieldAlert, ShieldCheck, FolderOpen, Clock, EyeOff } from "lucide-react"
-import { getTransport } from "@/lib/transport-provider"
 
 export interface ApprovalRequest {
   request_id: string
@@ -29,6 +28,7 @@ export interface ApprovalRequest {
       | "browser_download_action"
       | "mac_control_action"
       | "mac_control_dangerous_action"
+      | "external_connector_action"
       | "plan_mode_ask"
       | "cron_delete"
     /** Pattern / path / rationale text to display. */
@@ -40,6 +40,14 @@ export interface ApprovalRequest {
    * forces any AllowAlways to in-memory session scope. Epic E (INCOG-6).
    */
   incognito?: boolean
+  /** Authoritative request creation/deadline metadata from the backend. */
+  created_at_ms?: number
+  server_now_ms?: number
+  timeout_at_ms?: number | null
+  /** Client-clock deadline translated from timeout_at_ms + server_now_ms. */
+  local_timeout_at_ms?: number | null
+  timeout_secs?: number
+  timeout_action?: "deny" | "proceed"
 }
 
 /**
@@ -56,7 +64,9 @@ function isStrictReasonKind(
   return (
     kind === "protected_path" ||
     kind === "dangerous_command" ||
+    kind === "browser_raw_cdp" ||
     kind === "mac_control_dangerous_action" ||
+    kind === "external_connector_action" ||
     kind === "plan_mode_ask"
   )
 }
@@ -78,65 +88,17 @@ function barsAllowAlways(
 
 interface ApprovalDialogProps {
   requests: ApprovalRequest[]
-  onRespond: (requestId: string, response: "allow_once" | "allow_always" | "deny") => void
+  onRespond: (
+    requestId: string,
+    response: "allow_once" | "allow_always" | "deny",
+  ) => void | Promise<void>
 }
-
-const APPROVAL_TIMEOUT_FALLBACK_SECS = 0
 
 export default function ApprovalDialog({ requests, onRespond }: ApprovalDialogProps) {
   const { t } = useTranslation()
-  const [timeoutSecs, setTimeoutSecs] = useState<number | null>(null)
-  const [autoAction, setAutoAction] = useState<"deny" | "proceed">("deny")
+  const [respondingId, setRespondingId] = useState<string | null>(null)
+  const respondingIdsRef = useRef<Set<string>>(new Set())
   const current = requests[0]
-  const currentId = current?.request_id ?? null
-  // Countdown: state is updated only inside the interval callback (not during
-  // render), satisfying react-hooks/purity + react-hooks/set-state-in-effect.
-  // The dialog shows `null` for ~1ms between mount and first tick — not
-  // user-visible.
-  const [remaining, setRemaining] = useState<number | null>(null)
-
-  // Load the approval timeout once — the dialog only needs it for the
-  // visual countdown; the actual timeout enforcement happens server-side.
-  useEffect(() => {
-    let cancelled = false
-    Promise.all([
-      getTransport().call<boolean>("get_approval_timeout_enabled").catch(() => false),
-      getTransport().call<number>("get_approval_timeout").catch(() => APPROVAL_TIMEOUT_FALLBACK_SECS),
-      getTransport()
-        .call<"deny" | "proceed">("get_approval_timeout_action")
-        .catch(() => "deny" as const),
-    ]).then(([enabled, secs, action]) => {
-      if (cancelled) return
-      setTimeoutSecs(enabled ? secs : 0)
-      setAutoAction(action)
-    })
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
-  // Drive the countdown. setState lives inside the interval callback (not
-  // the effect body), satisfying the new react-hooks/set-state-in-effect
-  // lint. Stops itself when the timer hits zero.
-  useEffect(() => {
-    if (!currentId || timeoutSecs === null || timeoutSecs <= 0) return
-    const startMs = Date.now()
-    const total = timeoutSecs
-    let id: number | null = null
-    const tick = () => {
-      const next = Math.max(0, total - Math.floor((Date.now() - startMs) / 1000))
-      setRemaining(next)
-      if (next <= 0 && id !== null) {
-        window.clearInterval(id)
-        id = null
-      }
-    }
-    tick()
-    id = window.setInterval(tick, 1000)
-    return () => {
-      if (id !== null) window.clearInterval(id)
-    }
-  }, [currentId, timeoutSecs])
 
   if (!current) return null
 
@@ -150,6 +112,20 @@ export default function ApprovalDialog({ requests, onRespond }: ApprovalDialogPr
   // E5 (INCOG-6): incognito sessions never persist an AllowAlways grant — hide
   // the button entirely and explain why below the actions.
   const incognito = current.incognito === true
+  const isResponding = respondingId === current.request_id
+
+  const respond = async (response: "allow_once" | "allow_always" | "deny") => {
+    const requestId = current.request_id
+    if (respondingIdsRef.current.has(requestId)) return
+    respondingIdsRef.current.add(requestId)
+    setRespondingId(requestId)
+    try {
+      await onRespond(requestId, response)
+    } finally {
+      respondingIdsRef.current.delete(requestId)
+      setRespondingId((active) => (active === requestId ? null : active))
+    }
+  }
 
   return (
     <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center">
@@ -161,11 +137,7 @@ export default function ApprovalDialog({ requests, onRespond }: ApprovalDialogPr
               isStrict ? "bg-destructive/15 text-destructive" : "bg-amber-500/15 text-amber-500"
             }`}
           >
-            {isStrict ? (
-              <ShieldAlert className="h-5 w-5" />
-            ) : (
-              <ShieldCheck className="h-5 w-5" />
-            )}
+            {isStrict ? <ShieldAlert className="h-5 w-5" /> : <ShieldCheck className="h-5 w-5" />}
           </div>
           <div className="min-w-0 flex-1">
             <h3 className="text-sm font-semibold text-foreground">{t("approval.title")}</h3>
@@ -175,19 +147,28 @@ export default function ApprovalDialog({ requests, onRespond }: ApprovalDialogPr
               </span>
             )}
           </div>
-          {remaining !== null && (
+          {typeof current.local_timeout_at_ms === "number" && current.local_timeout_at_ms > 0 && (
             <CountdownRing
-              remaining={remaining}
-              total={timeoutSecs ?? APPROVAL_TIMEOUT_FALLBACK_SECS}
-              autoAction={autoAction}
+              key={current.request_id}
+              deadlineAtMs={current.local_timeout_at_ms}
+              total={
+                current.timeout_secs ??
+                Math.max(
+                  1,
+                  Math.ceil(
+                    ((current.timeout_at_ms ?? current.local_timeout_at_ms) -
+                      (current.created_at_ms ?? current.server_now_ms ?? Date.now())) /
+                      1000,
+                  ),
+                )
+              }
+              autoAction={current.timeout_action ?? "deny"}
             />
           )}
         </div>
 
         {/* Reason banner */}
-        {reason && (
-          <ReasonBanner kind={reason.kind} detail={reason.detail} t={t} />
-        )}
+        {reason && <ReasonBanner kind={reason.kind} detail={reason.detail} t={t} />}
 
         {/* Working Directory */}
         <div className="mb-3">
@@ -214,7 +195,8 @@ export default function ApprovalDialog({ requests, onRespond }: ApprovalDialogPr
             variant="outline"
             size="sm"
             className="text-red-400 hover:text-red-300 border-red-500/30 hover:border-red-500/50 hover:bg-red-500/10"
-            onClick={() => onRespond(current.request_id, "deny")}
+            onClick={() => void respond("deny")}
+            disabled={isResponding}
           >
             {t("approval.deny")}
           </Button>
@@ -222,16 +204,17 @@ export default function ApprovalDialog({ requests, onRespond }: ApprovalDialogPr
           <Button
             variant="secondary"
             size="sm"
-            onClick={() => onRespond(current.request_id, "allow_once")}
+            onClick={() => void respond("allow_once")}
+            disabled={isResponding}
           >
             {t("approval.allowOnce")}
           </Button>
           {!incognito && (
             <Button
               size="sm"
-              onClick={() => onRespond(current.request_id, "allow_always")}
-              disabled={allowAlwaysBarred}
-              title={allowAlwaysBarred ? t("approval.allowAlwaysDisabled") : undefined}
+              onClick={() => void respond("allow_always")}
+              disabled={allowAlwaysBarred || isResponding}
+              data-ha-title-tip={allowAlwaysBarred ? t("approval.allowAlwaysDisabled") : undefined}
             >
               {t("approval.allowAlways")}
             </Button>
@@ -253,15 +236,34 @@ export default function ApprovalDialog({ requests, onRespond }: ApprovalDialogPr
 // ── CountdownRing ───────────────────────────────────────────────────
 
 function CountdownRing({
-  remaining,
+  deadlineAtMs,
   total,
   autoAction,
 }: {
-  remaining: number
+  deadlineAtMs: number
   total: number
   autoAction: "deny" | "proceed"
 }) {
   const { t } = useTranslation()
+  const [remaining, setRemaining] = useState(() =>
+    Math.max(0, Math.ceil((deadlineAtMs - Date.now()) / 1000)),
+  )
+
+  useEffect(() => {
+    let id: number | null = null
+    const tick = () => {
+      const next = Math.max(0, Math.ceil((deadlineAtMs - Date.now()) / 1000))
+      setRemaining(next)
+      if (next <= 0 && id !== null) {
+        window.clearInterval(id)
+        id = null
+      }
+    }
+    id = window.setInterval(tick, 250)
+    return () => {
+      if (id !== null) window.clearInterval(id)
+    }
+  }, [deadlineAtMs])
   const ratio = total <= 0 ? 0 : Math.max(0, Math.min(1, remaining / total))
   const isUrgent = remaining <= 30
   const stroke = 3
@@ -275,7 +277,7 @@ function CountdownRing({
   return (
     <div
       className="flex shrink-0 items-center gap-1.5"
-      title={t("approval.countdownTooltip", {
+      data-ha-title-tip={t("approval.countdownTooltip", {
         seconds: remaining,
         action: t(`approval.countdownAction.${autoAction}`),
       })}

@@ -45,7 +45,7 @@ export function FileContextMenu({
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
-      <ContextMenuContent>
+      <ContextMenuContent variant="floating">
         {menu.map((action) => {
           const Icon = FILE_ACTION_META[action].icon
           return (
@@ -93,7 +93,7 @@ export function FileActionsMoreButton({
           </button>
         </DropdownMenuTrigger>
       </IconTip>
-      <DropdownMenuContent align="end">
+      <DropdownMenuContent variant="floating" align="end">
         {menu.map((action) => {
           const Icon = FILE_ACTION_META[action].icon
           return (

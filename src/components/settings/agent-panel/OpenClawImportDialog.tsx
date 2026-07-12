@@ -8,7 +8,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 
-import { OpenClawImportPanel } from "@/components/onboarding/steps/OpenClawImportPanel"
+import { OpenClawImportPanel } from "./OpenClawImportPanel"
 
 interface Props {
   open: boolean
@@ -20,14 +20,10 @@ interface Props {
 /**
  * Full OpenClaw → Hope Agent import in a single dialog.
  *
- * Wraps the same `OpenClawImportPanel` used by the onboarding wizard so the
- * Settings entry stays in lockstep with the first-run flow.
+ * The migration flow intentionally lives in Settings instead of onboarding,
+ * keeping third-party imports available without making them part of first run.
  */
-export default function OpenClawImportDialog({
-  open,
-  onOpenChange,
-  onImported,
-}: Props) {
+export default function OpenClawImportDialog({ open, onOpenChange, onImported }: Props) {
   const { t } = useTranslation()
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

@@ -68,7 +68,9 @@ fn dispatch_due_jobs(
             );
             break;
         }
-        match cron_db.claim_scheduled_job_for_execution(&job) {
+        match crate::agent_lifecycle::with_lifecycle_gate(|| {
+            cron_db.claim_scheduled_job_for_execution(&job)
+        }) {
             Ok(Some(claimed)) => {
                 if let Some(a) = available.as_mut() {
                     *a -= 1;

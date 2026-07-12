@@ -22,6 +22,7 @@ import type {
 export interface UseProjectsReturn {
   projects: ProjectMeta[]
   loading: boolean
+  loaded: boolean
   initialLoading: boolean
   error: string | null
   reloadProjects: () => Promise<void>
@@ -47,6 +48,7 @@ export function useProjects(
 
   const [projects, setProjects] = useState<ProjectMeta[]>([])
   const [loading, setLoading] = useState(true)
+  const [loaded, setLoaded] = useState(false)
   const [initialLoading, setInitialLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -73,11 +75,13 @@ export function useProjects(
       })
       if (seq !== reloadSeqRef.current) return
       setProjects(Array.isArray(data) ? data : [])
+      setLoaded(true)
     } catch (e) {
       if (seq !== reloadSeqRef.current) return
       const msg = e instanceof Error ? e.message : String(e)
       logger.warn("chat", "useProjects", "reloadProjects failed", msg)
       setError(msg)
+      setLoaded(true)
     } finally {
       if (seq === reloadSeqRef.current) {
         setInitialLoading(false)
@@ -220,6 +224,7 @@ export function useProjects(
   return {
     projects,
     loading,
+    loaded,
     initialLoading,
     error,
     reloadProjects,

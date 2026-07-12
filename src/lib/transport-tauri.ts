@@ -297,6 +297,56 @@ export class TauriTransport implements Transport {
     return { filename, savedPath };
   }
 
+  async exportMemoryBackupArchive(
+    defaultFilename = "hope-agent-memory-backup.zip",
+  ): Promise<ExportSessionResult | null> {
+    const { save } = await import("@tauri-apps/plugin-dialog");
+    const savedPath = await save({
+      defaultPath: defaultFilename,
+      filters: [{ name: "ZIP Archive", extensions: ["zip"] }],
+    });
+    if (!savedPath) return null;
+    await invoke<string>("memory_backup_export_archive", {
+      outputPath: savedPath,
+    });
+    const filename = savedPath.split(/[\\/]/).pop() ?? defaultFilename;
+    return { filename, savedPath };
+  }
+
+  async previewMemoryBackupArchive(file: File): Promise<unknown> {
+    const data = this.prepareFileData(await file.arrayBuffer());
+    return invoke("memory_backup_preview_archive", { data });
+  }
+
+  async restoreMemoryBackupLegacyArchive(
+    file: File,
+    options?: { dedup?: boolean },
+  ): Promise<unknown> {
+    const data = this.prepareFileData(await file.arrayBuffer());
+    return invoke("memory_backup_restore_legacy_archive", {
+      data,
+      options,
+    });
+  }
+
+  async restoreMemoryBackupStructuredArchive(
+    file: File,
+    options?: {
+      restoreClaims?: boolean;
+      restoreProfileSnapshots?: boolean;
+      restoreEpisodes?: boolean;
+      restoreProcedures?: boolean;
+      restoreExperienceHistory?: boolean;
+      allowProfileScopeConflicts?: boolean;
+    },
+  ): Promise<unknown> {
+    const data = this.prepareFileData(await file.arrayBuffer());
+    return invoke("memory_backup_restore_structured_archive", {
+      data,
+      options,
+    });
+  }
+
   /** Absolute server-side path for Tauri file ops. Legacy items may carry
    *  an absolute path in `url`; items produced after URL migration carry
    *  `/api/attachments/...` there and the absolute path in `localPath`. */

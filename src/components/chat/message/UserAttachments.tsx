@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react"
-import { Archive, Download, FolderOpen, Loader2 } from "lucide-react"
+import { Archive, Download, FolderOpen, Loader2, Quote } from "lucide-react"
 import { toast } from "sonner"
 import { useTranslation } from "react-i18next"
 import { useLightbox } from "@/components/common/ImageLightbox"
@@ -284,8 +284,12 @@ function UserAttachments({ attachments, sessionId }: UserAttachmentsProps) {
     )
   const imageFallbackItems = imageItems.filter((attachment) => !resolveAttachmentPreview(attachment))
   const quoteItems = items.filter((item) => item.kind === "quote")
+  const messageQuoteItems = items.filter((item) => item.kind === "message_quote")
   const fileItems = [
-    ...items.filter((item) => item.kind !== "image" && item.kind !== "quote"),
+    ...items.filter(
+      (item) =>
+        item.kind !== "image" && item.kind !== "quote" && item.kind !== "message_quote",
+    ),
     ...imageFallbackItems,
   ]
 
@@ -453,6 +457,32 @@ function UserAttachments({ attachments, sessionId }: UserAttachmentsProps) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      {messageQuoteItems.length > 0 && (
+        <div className="flex flex-col items-end gap-1.5">
+          {messageQuoteItems.map((q, index) => {
+            const label =
+              q.messageQuoteRole === "user"
+                ? t("chat.messageQuote.yourMessage", "你的消息")
+                : t("chat.messageQuote.assistantMessage", "助手消息")
+            return (
+              <blockquote
+                key={`${q.messageQuoteRole}:${q.quoteContent}:${index}`}
+                className="max-w-[420px] overflow-hidden rounded-md border border-border/60 bg-secondary/30 text-left"
+              >
+                <div className="flex items-center gap-1.5 border-b border-border/40 px-2 py-1 text-xs text-muted-foreground">
+                  <Quote className="h-3 w-3 shrink-0" />
+                  <span className="truncate font-medium text-foreground/80">{label}</span>
+                </div>
+                {q.quoteContent ? (
+                  <pre className="max-h-40 overflow-auto whitespace-pre-wrap px-2 py-1.5 text-xs leading-relaxed text-foreground/80">
+                    {q.quoteContent}
+                  </pre>
+                ) : null}
+              </blockquote>
+            )
+          })}
+        </div>
+      )}
       {quoteItems.length > 0 && (
         <div className="flex flex-col items-end gap-1.5">
           {quoteItems.map((q, index) => (

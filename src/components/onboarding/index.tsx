@@ -22,7 +22,6 @@ import { StepIndicator } from "./StepIndicator"
 import { type OnboardingDraft, type OnboardingStepKey } from "./types"
 import { useOnboarding } from "./useOnboarding"
 import { ChannelsStep } from "./steps/ChannelsStep"
-import { ImportOpenClawStep } from "./steps/ImportOpenClawStep"
 import { ModeStep } from "./steps/ModeStep"
 import { PersonalityStep } from "./steps/PersonalityStep"
 import { ProfileStep } from "./steps/ProfileStep"
@@ -100,9 +99,6 @@ export function OnboardingWizard({
           if (draft.language)
             await t.call("apply_onboarding_language", { language: draft.language })
           return true
-        case "import-openclaw":
-          // Import already happened inside the panel; nothing to apply here.
-          return true
         case "mode":
           return true
         case "provider":
@@ -174,8 +170,7 @@ export function OnboardingWizard({
             }
           }
           await t.call("apply_onboarding_server", {
-            bindAddr:
-              draft.server?.bindMode === "lan" ? "0.0.0.0:8420" : "127.0.0.1:8420",
+            bindAddr: draft.server?.bindMode === "lan" ? "0.0.0.0:8420" : "127.0.0.1:8420",
             apiKey,
           })
           return true
@@ -217,14 +212,6 @@ export function OnboardingWizard({
             initialTheme={draft.theme ?? "auto"}
             onLanguageChange={(lang) => patchDraft({ language: lang })}
             onThemeChange={(theme) => patchDraft({ theme })}
-          />
-        )
-      case "import-openclaw":
-        return (
-          <ImportOpenClawStep
-            onContinue={() => {
-              goNext()
-            }}
           />
         )
       case "mode":
@@ -308,12 +295,7 @@ export function OnboardingWizard({
               try {
                 await getTransport().call("mark_onboarding_completed")
               } catch (e) {
-                logger.warn(
-                  "onboarding",
-                  "jumpToChannels",
-                  "mark_onboarding_completed failed",
-                  e,
-                )
+                logger.warn("onboarding", "jumpToChannels", "mark_onboarding_completed failed", e)
               }
               onJumpToChannelsSettings()
             }}
@@ -328,7 +310,6 @@ export function OnboardingWizard({
   const isProvider = stepKey === "provider"
   const isSearchProvider = stepKey === "search-provider"
   const isMode = stepKey === "mode"
-  const isImport = stepKey === "import-openclaw"
   const canGoBack = step > 0 && !isFinal
   const canSkip = !isFinal && !isMode
   // Mode step's "Next" is a no-op for remote (inline Connect drives completion)
@@ -369,11 +350,7 @@ export function OnboardingWizard({
 
       <div className="flex-1 overflow-y-auto">
         <div className="min-h-full flex items-center justify-center py-6">
-          <div
-            className={`w-full ${
-              isProvider || isSearchProvider || isImport ? "max-w-3xl" : "max-w-2xl"
-            }`}
-          >
+          <div className={`w-full ${isProvider || isSearchProvider ? "max-w-3xl" : "max-w-2xl"}`}>
             {renderStep()}
           </div>
         </div>
@@ -386,7 +363,7 @@ export function OnboardingWizard({
         isFinal={isFinal}
         busy={saving || busy}
         nextDisabled={modeNextDisabled}
-        hideNext={isProvider || isSearchProvider || isImport}
+        hideNext={isProvider || isSearchProvider}
         onBack={goBack}
         onSkip={() => void skipCurrent()}
         onNext={() => void handleNext()}

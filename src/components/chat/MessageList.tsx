@@ -24,7 +24,11 @@ import {
 import { ChatWelcomeHero } from "./ChatWelcomeHero"
 import { SkillMentionText } from "./skill-mention/SkillMentionText"
 import MessageBubble from "./MessageBubble"
-import MessageContextMenu from "./MessageContextMenu"
+import {
+  goalCompletionReportFromMessage,
+  type GoalCompletionReport,
+} from "./message/goalCompletionReport"
+import MessageContextMenu, { type MessageContextMenuState } from "./message/MessageContextMenu"
 import LoadMoreRow from "./LoadMoreRow"
 import AskUserQuestionBlock from "./ask-user/AskUserQuestionBlock"
 import PlanCardBlock from "./plan-mode/PlanCardBlock"
@@ -32,7 +36,13 @@ import { findMessageRowByKey, getLatestUserTurnKey, getMessageRowKey } from "./c
 import type { AskUserQuestionGroup } from "./ask-user/AskUserQuestionBlock"
 import type { PlanCardData } from "./plan-mode/PlanCardBlock"
 import type { CompactResult } from "./sessionStatus"
-import type { ChatDisplayMode, ChatTurnStatus, Message, AgentSummaryForSidebar } from "@/types/chat"
+import type {
+  ChatDisplayMode,
+  ChatTurnStatus,
+  Message,
+  AgentSummaryForSidebar,
+  PendingMessageQuote,
+} from "@/types/chat"
 import type { PlanModeState } from "./plan-mode/usePlanMode"
 
 interface MessageListProps {
@@ -61,6 +71,8 @@ interface MessageListProps {
    * render its own empty greeting (the two would overlap). See {@link ChatWelcomeHero}.
    */
   heroComposer?: boolean
+  projectName?: string | null
+  onProjectSuggestion?: (prompt: string) => void
   /** Search-jump target + literal substrings to inline-highlight inside
    *  the matched bubble. `null` between jumps. The terms are painted via
    *  the CSS Custom Highlight API in `lib/inlineHighlight.ts`. */
@@ -90,7 +102,11 @@ interface MessageListProps {
       | import("@/types/chat").FileChangesMetadata,
   ) => void
   onResume?: (message: string) => void
+  onForkFromMessage?: (messageId: number) => void
+  onOpenMemorySettings?: () => void
+  onOpenKnowledge?: () => void
   onAddQuickPrompt?: (content: string) => void
+  onAddMessageQuote?: (quote: PendingMessageQuote) => void
   renderMessageActions?: (msg: Message, index: number) => ReactNode
   displayMode?: ChatDisplayMode
   autoCollapseCompletedTurns?: boolean
@@ -117,6 +133,8 @@ interface MessageRenderItem {
   sourceDbId?: number
   footerFiles?: MessageFileAttachment[]
   hideOwnFooterFiles?: boolean
+  goalCompletionReport?: GoalCompletionReport | null
+  suppressGoalCompletionFooter?: boolean
 }
 
 interface CompletedTurnCollapseRow {
@@ -128,9 +146,7 @@ interface CompletedTurnCollapseRow {
   expanded: boolean
 }
 
-type MessageRenderRow =
-  | { kind: "message"; item: MessageRenderItem }
-  | CompletedTurnCollapseRow
+type MessageRenderRow = { kind: "message"; item: MessageRenderItem } | CompletedTurnCollapseRow
 
 interface CompactUserAnchor {
   dbId?: number
@@ -242,9 +258,7 @@ function mergeMessageFileAttachments(
 
 function filesFromRenderItem(item: MessageRenderItem): MessageFileAttachment[] {
   const blocks = item.msg.contentBlocks
-  return item.msg.role === "assistant" && blocks
-    ? extractMessageFileAttachments(blocks)
-    : []
+  return item.msg.role === "assistant" && blocks ? extractMessageFileAttachments(blocks) : []
 }
 
 function hideFooterFilesOnItems(items: MessageRenderItem[]): MessageRenderItem[] {
@@ -283,7 +297,10 @@ function messageSearchText(msg: Message): string {
   return parts.filter(Boolean).join("\n")
 }
 
-function containsAnyHighlightTerm(text: string | null | undefined, terms: string[] | null): boolean {
+function containsAnyHighlightTerm(
+  text: string | null | undefined,
+  terms: string[] | null,
+): boolean {
   if (!terms || terms.length === 0 || !text) return false
   const haystack = text.toLowerCase()
   return terms.some((term) => term && haystack.includes(term.toLowerCase()))
@@ -378,6 +395,12 @@ function splitAssistantFinalAnswer(item: MessageRenderItem): {
   const baseKey = rowKeyForItem(item)
   const prefixContent = textContentFromBlocks(prefixBlocks)
   const finalContent = textContentFromBlocks(finalBlocks) || item.msg.content
+  const hoistedGoalCompletionReport = goalCompletionReportFromMessage({
+    ...item.msg,
+    content: prefixContent,
+    contentBlocks: prefixBlocks,
+    toolCalls: undefined,
+  })
 
   return {
     prefixCount,
@@ -394,6 +417,7 @@ function splitAssistantFinalAnswer(item: MessageRenderItem): {
       originalIndex: item.originalIndex,
       keyOverride: `${baseKey}:prefix`,
       sourceDbId: item.msg.dbId,
+      suppressGoalCompletionFooter: hoistedGoalCompletionReport != null,
     },
     finalItem: {
       msg: {
@@ -405,6 +429,7 @@ function splitAssistantFinalAnswer(item: MessageRenderItem): {
       },
       originalIndex: item.originalIndex,
       keyOverride: `${baseKey}:final`,
+      ...(hoistedGoalCompletionReport ? { goalCompletionReport: hoistedGoalCompletionReport } : {}),
     },
   }
 }
@@ -429,11 +454,7 @@ function completedTurnCollapseKey(
   userItem: MessageRenderItem,
   finalAssistantItem: MessageRenderItem,
 ): string {
-  return [
-    "completed-turn",
-    rowKeyForItem(userItem),
-    rowKeyForItem(finalAssistantItem),
-  ].join(":")
+  return ["completed-turn", rowKeyForItem(userItem), rowKeyForItem(finalAssistantItem)].join(":")
 }
 
 function isCurrentTurnStillRunning(
@@ -482,8 +503,7 @@ function buildMessageRenderRows(
       }
     }
 
-    const finalAssistantItem =
-      finalAssistantPos >= 0 ? turnItems[finalAssistantPos] : undefined
+    const finalAssistantItem = finalAssistantPos >= 0 ? turnItems[finalAssistantPos] : undefined
     const finalAssistantSplit = finalAssistantItem
       ? splitAssistantFinalAnswer(finalAssistantItem)
       : null
@@ -635,6 +655,8 @@ export default function MessageList({
   sessionId,
   incognito = false,
   heroComposer = false,
+  projectName,
+  onProjectSuggestion,
   pendingScrollIntent,
   onScrollTargetHandled,
   pendingQuestionGroup,
@@ -654,7 +676,11 @@ export default function MessageList({
   onViewChildSession,
   onOpenDiff,
   onResume,
+  onForkFromMessage,
+  onOpenMemorySettings,
+  onOpenKnowledge,
   onAddQuickPrompt,
+  onAddMessageQuote,
   renderMessageActions,
   displayMode = "bubble",
   autoCollapseCompletedTurns = true,
@@ -668,9 +694,9 @@ export default function MessageList({
   const [hoveredMsgIndex, setHoveredMsgIndex] = useState<number | null>(null)
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null)
   const [highlightMessageId, setHighlightMessageId] = useState<number | null>(null)
-  const [searchExpandedUserMessageId, setSearchExpandedUserMessageId] = useState<
-    number | null
-  >(null)
+  const [searchExpandedUserMessageId, setSearchExpandedUserMessageId] = useState<number | null>(
+    null,
+  )
   const [compactUserAnchor, setCompactUserAnchor] = useState<CompactUserAnchor | null>(null)
   const [compactUserAnchorFrame, setCompactUserAnchorFrame] = useState<{
     left: number
@@ -678,18 +704,12 @@ export default function MessageList({
   } | null>(null)
   const [compactUserAnchorVisible, setCompactUserAnchorVisible] = useState(false)
   const [compactUserAnchorMounted, setCompactUserAnchorMounted] = useState(false)
-  const [expandedCompletedTurns, setExpandedCompletedTurns] = useState<Set<string>>(
-    () => new Set(),
-  )
+  const [expandedCompletedTurns, setExpandedCompletedTurns] = useState<Set<string>>(() => new Set())
   const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const askUserFollowRafRef = useRef<number | null>(null)
   const lastAskUserFollowKeyRef = useRef<string | null>(null)
-  const [contextMenu, setContextMenu] = useState<{
-    x: number
-    y: number
-    index: number
-  } | null>(null)
+  const [contextMenu, setContextMenu] = useState<MessageContextMenuState | null>(null)
 
   // Single source of truth: are we at (or following) the bottom?
   // Default true so the first paint after mount/session swap aligns to bottom.
@@ -955,8 +975,12 @@ export default function MessageList({
   // history hydration completes.
   const [animationBaseline, setAnimationBaseline] = useState(messages.length)
   const [animationBaselineSession, setAnimationBaselineSession] = useState(sessionKey)
-  const [animationBaselineHistoryLoading, setAnimationBaselineHistoryLoading] = useState(historyLoading)
-  if (animationBaselineSession !== sessionKey || animationBaselineHistoryLoading !== historyLoading) {
+  const [animationBaselineHistoryLoading, setAnimationBaselineHistoryLoading] =
+    useState(historyLoading)
+  if (
+    animationBaselineSession !== sessionKey ||
+    animationBaselineHistoryLoading !== historyLoading
+  ) {
     setAnimationBaselineSession(sessionKey)
     setAnimationBaselineHistoryLoading(historyLoading)
     setAnimationBaseline(messages.length)
@@ -1265,8 +1289,7 @@ export default function MessageList({
           row.items.some(
             (item) =>
               item.msg.dbId === targetId ||
-              (item.sourceDbId === targetId &&
-                itemContainsAnyHighlightTerm(item, highlightTerms)),
+              (item.sourceDbId === targetId && itemContainsAnyHighlightTerm(item, highlightTerms)),
           ),
       )
       if (collapsedTarget) {
@@ -1370,11 +1393,20 @@ export default function MessageList({
   useEffect(() => {
     if (!contextMenu) return
     const close = () => setContextMenu(null)
-    document.addEventListener("mousedown", close)
-    document.addEventListener("scroll", close, true)
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") close()
+    }
+    window.addEventListener("pointerdown", close)
+    window.addEventListener("keydown", onKeyDown)
+    window.addEventListener("resize", close)
+    window.addEventListener("blur", close)
+    window.addEventListener("scroll", close, true)
     return () => {
-      document.removeEventListener("mousedown", close)
-      document.removeEventListener("scroll", close, true)
+      window.removeEventListener("pointerdown", close)
+      window.removeEventListener("keydown", onKeyDown)
+      window.removeEventListener("resize", close)
+      window.removeEventListener("blur", close)
+      window.removeEventListener("scroll", close, true)
     }
   }, [contextMenu])
 
@@ -1422,15 +1454,50 @@ export default function MessageList({
 
   const handleContextMenu = useCallback((e: React.MouseEvent, index: number) => {
     const msg = messagesRef.current[index]
+    const selectionActive = hasActiveTextSelection(e.target)
+    if (selectionActive) {
+      if (
+        (msg.role !== "user" && msg.role !== "assistant") ||
+        msg.isMeta ||
+        isCenteredSystemMessage(msg)
+      ) {
+        return
+      }
+      const selection = window.getSelection()
+      const container = e.currentTarget instanceof HTMLElement ? e.currentTarget : null
+      if (
+        !selection ||
+        !container ||
+        !selection.anchorNode ||
+        !selection.focusNode ||
+        !container.contains(selection.anchorNode) ||
+        !container.contains(selection.focusNode)
+      ) {
+        // Cross-message selections keep the native menu so exact copy remains
+        // available; only a single-bubble excerpt can become a message quote.
+        return
+      }
+      const selectedText = selection.toString()
+      if (!selectedText.trim()) return
+      e.preventDefault()
+      setContextMenu({
+        x: Math.max(8, Math.min(e.clientX, window.innerWidth - 176)),
+        y: Math.max(8, Math.min(e.clientY, window.innerHeight - 92)),
+        index,
+        selectedText,
+        quoteRole: msg.role,
+      })
+      return
+    }
+
+    // Preserve the existing whole-message menu for assistant prose only.
     if (msg.role !== "assistant" || !msg.content) return
-    // Respect standard browser copy: when the user has highlighted part of the
-    // message and right-clicks inside that selection, don't hijack with our
-    // whole-message menu — let the native context menu (whose "Copy" honours
-    // the exact selection) through. The desktop guard defers for the same
-    // reason, so this is consistent in both Tauri and the web client.
-    if (hasActiveTextSelection(e.target)) return
     e.preventDefault()
-    setContextMenu({ x: e.clientX, y: e.clientY, index })
+    setContextMenu({
+      x: Math.max(8, Math.min(e.clientX, window.innerWidth - 176)),
+      y: Math.max(8, Math.min(e.clientY, window.innerHeight - 52)),
+      index,
+    })
   }, [])
 
   const handleCopyMessage = useCallback((content: string, index: number) => {
@@ -1450,7 +1517,10 @@ export default function MessageList({
   const showEmpty = items.length === 0
   const showHistoryLoading = showEmpty && historyLoading
   const hasFooterContent = Boolean(
-    pendingQuestionGroup || planCardVisible || planSubagentRunning || (showEmpty && !historyLoading),
+    pendingQuestionGroup ||
+    planCardVisible ||
+    planSubagentRunning ||
+    (showEmpty && !historyLoading),
   )
   // Show whenever user is scrolled away from bottom — independent of loading
   // state. Lets the user always have a one-click way back to latest.
@@ -1569,9 +1639,14 @@ export default function MessageList({
                   onOpenDashboardTab={onOpenDashboardTab}
                   onOpenDiff={onOpenDiff}
                   onResume={onResume}
+                  onForkFromMessage={onForkFromMessage}
+                  onOpenMemorySettings={onOpenMemorySettings}
+                  onOpenKnowledge={onOpenKnowledge}
                   displayMode={displayMode}
                   footerFiles={row.item.footerFiles}
                   hideOwnFooterFiles={row.item.hideOwnFooterFiles}
+                  goalCompletionReportOverride={row.item.goalCompletionReport}
+                  suppressGoalCompletionFooter={row.item.suppressGoalCompletionFooter}
                   forceExpandUserContent={forceExpandUserContent}
                   onForceExpandedUserContentDismiss={
                     forceExpandUserContent
@@ -1626,7 +1701,11 @@ export default function MessageList({
               )}
               {showEmpty && !historyLoading && !heroComposer && (
                 <div className="flex min-h-[50vh] items-center justify-center animate-in fade-in-0 duration-300">
-                  <ChatWelcomeHero incognito={incognito} />
+                  <ChatWelcomeHero
+                    incognito={incognito}
+                    projectName={projectName}
+                    onProjectSuggestion={onProjectSuggestion}
+                  />
                 </div>
               )}
             </div>
@@ -1692,16 +1771,16 @@ export default function MessageList({
         </button>
       </AnimatedPresenceBox>
 
-      {contextMenu && (
-        <MessageContextMenu
-          contextMenu={contextMenu}
-          onCopy={(index) => {
-            const msg = messages[index]
-            if (msg?.content) handleCopyMessage(msg.content, index)
-          }}
-          onClose={() => setContextMenu(null)}
-        />
-      )}
+      <MessageContextMenu
+        contextMenu={contextMenu}
+        onCopy={(index, selectedText) => {
+          const msg = messages[index]
+          const content = selectedText ?? msg?.content
+          if (content) handleCopyMessage(content, index)
+        }}
+        onAddToChat={onAddMessageQuote}
+        onClose={() => setContextMenu(null)}
+      />
     </div>
   )
 }

@@ -104,6 +104,25 @@ impl SessionDB {
         Ok(count as usize)
     }
 
+    /// Count active teams where the Agent is either the lead or a member.
+    /// Lifecycle deletion uses the broader relation so a worker cannot vanish
+    /// while its team is still executing.
+    pub fn count_active_teams_involving_agent(&self, agent_id: &str) -> Result<usize> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let count: i64 = conn.query_row(
+            "SELECT COUNT(DISTINCT t.team_id)
+             FROM teams t
+             LEFT JOIN team_members m ON m.team_id=t.team_id
+             WHERE t.status='active' AND (t.lead_agent_id=?1 OR m.agent_id=?1)",
+            params![agent_id],
+            |row| row.get(0),
+        )?;
+        Ok(count as usize)
+    }
+
     // ── Team Members CRUD ───────────────────────────────────────
 
     pub fn insert_team_member(&self, member: &TeamMember) -> Result<()> {

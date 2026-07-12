@@ -14,6 +14,10 @@ import { logger } from "@/lib/logger"
 import { getTransport } from "@/lib/transport-provider"
 import { cn } from "@/lib/utils"
 import type { KnowledgeSourceReadResult, NoteSourceRef } from "@/types/knowledge"
+import {
+  noteSourceReferenceErrorMessage,
+  type NoteSourceReferenceErrorMessage,
+} from "./noteSourceReferenceFeedback"
 
 interface NoteSourceReferencesProps {
   kbId: string | null
@@ -29,12 +33,14 @@ export default function NoteSourceReferences({
   const { t } = useTranslation()
   const [refs, setRefs] = useState<NoteSourceRef[]>([])
   const [loading, setLoading] = useState(false)
+  const [loadError, setLoadError] = useState<NoteSourceReferenceErrorMessage | null>(null)
   const [selected, setSelected] = useState<KnowledgeSourceReadResult | null>(null)
   const [readingId, setReadingId] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     if (!kbId || !notePath) {
       setRefs([])
+      setLoadError(null)
       return
     }
     setLoading(true)
@@ -44,13 +50,15 @@ export default function NoteSourceReferences({
         path: notePath,
       })
       setRefs(list)
+      setLoadError(null)
     } catch (e) {
       logger.warn("knowledge", "NoteSourceReferences::load", "source refs failed", e)
       setRefs([])
+      setLoadError(noteSourceReferenceErrorMessage("loadRefs", t, e))
     } finally {
       setLoading(false)
     }
-  }, [kbId, notePath])
+  }, [kbId, notePath, t])
 
   useEffect(() => {
     void load()
@@ -69,13 +77,17 @@ export default function NoteSourceReferences({
       setSelected(data)
     } catch (e) {
       logger.warn("knowledge", "NoteSourceReferences::openSource", "source read failed", e)
-      toast.error(t("knowledge.sources.readFailed", "Couldn't open source"))
+      const failure = noteSourceReferenceErrorMessage("readSource", t, e)
+      toast.error(
+        failure.title,
+        failure.description ? { description: failure.description } : undefined,
+      )
     } finally {
       setReadingId(null)
     }
   }
 
-  if (!loading && refs.length === 0) return null
+  if (!loading && refs.length === 0 && !loadError) return null
 
   return (
     <div className="mb-3">
@@ -85,6 +97,26 @@ export default function NoteSourceReferences({
         {loading ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
       </div>
       <div className="space-y-1">
+        {loadError ? (
+          <div className="rounded-md border border-amber-500/25 bg-amber-500/10 px-2 py-1.5 text-[11px] text-amber-800 dark:text-amber-200">
+            <div className="flex items-center gap-1.5 font-medium">
+              <AlertTriangle className="h-3 w-3 shrink-0" />
+              <span>{loadError.title}</span>
+            </div>
+            {loadError.description ? (
+              <div className="mt-0.5 whitespace-pre-wrap text-amber-800/80 dark:text-amber-100/80">
+                {loadError.description}
+              </div>
+            ) : null}
+            <button
+              type="button"
+              className="mt-1 text-[11px] font-medium underline underline-offset-2"
+              onClick={() => void load()}
+            >
+              {t("common.retry", "Retry")}
+            </button>
+          </div>
+        ) : null}
         {refs.map((ref) => (
           <button
             key={ref.sourceId}

@@ -330,7 +330,7 @@ export function DesignTokenEditor({ system, open, onOpenChange, onSaved }: Props
                         <div key={k} className="flex items-center gap-2">
                           <span
                             className="w-40 shrink-0 truncate font-mono text-[11px] text-muted-foreground"
-                            title={k}
+                            data-ha-title-tip={k}
                           >
                             {k.replace(/^--ds-/, "")}
                           </span>

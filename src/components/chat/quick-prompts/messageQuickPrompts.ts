@@ -8,6 +8,7 @@ export function isQuickPromptEligibleUserMessage(msg: Message): boolean {
     !msg.isCronTrigger &&
     !msg.isWakeupTrigger &&
     !msg.isProcessNotification &&
+    !msg.isWorkflowResult &&
     !msg.isPlanTrigger &&
     !msg.planComment &&
     !msg.isMeta &&

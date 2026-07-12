@@ -184,7 +184,12 @@ fn render(
 ///    标记插在 `<html ` 后（骨架恒以 `<html lang=...>` 开头）。任一标签异常缺失则原样返回，绝不破坏产物。
 fn finalize_preview_html(html: String) -> String {
     let html = match html.rfind("</body>") {
-        Some(i) => format!("{}{}\n{}", &html[..i], renderer::ZOOM_FORWARD_SCRIPT, &html[i..]),
+        Some(i) => format!(
+            "{}{}\n{}",
+            &html[..i],
+            renderer::ZOOM_FORWARD_SCRIPT,
+            &html[i..]
+        ),
         None => html,
     };
     // 标记只可能在 `<html>` 开标签（`<body>` 之前）；只扫 head 区，避免 body 正文（如 component
@@ -4287,7 +4292,10 @@ mod preview_finalize_tests {
         let html = "<!doctype html>\n<html lang=\"zh\" data-ds-kind=\"image\">\n<head></head>\n<body>\n<img>\n</body>\n</html>\n".to_string();
         let out = finalize_preview_html(html);
         let si = out.find(ZOOM_FORWARD_SCRIPT).expect("forwarder injected");
-        assert!(si < out.rfind("</body>").unwrap(), "forwarder must precede </body>");
+        assert!(
+            si < out.rfind("</body>").unwrap(),
+            "forwarder must precede </body>"
+        );
     }
 
     #[test]

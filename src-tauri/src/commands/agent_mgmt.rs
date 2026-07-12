@@ -10,6 +10,11 @@ pub async fn list_agents() -> Result<Vec<agent_config::AgentSummary>, CmdError> 
 }
 
 #[tauri::command]
+pub async fn list_all_agents() -> Result<Vec<agent_config::AgentSummary>, CmdError> {
+    agent_loader::list_all_agents().map_err(Into::into)
+}
+
+#[tauri::command]
 pub async fn reorder_agents(agent_ids: Vec<String>) -> Result<(), CmdError> {
     agent_loader::reorder_agents(agent_ids, "ui")?;
     if let Some(bus) = ha_core::get_event_bus() {
@@ -33,8 +38,25 @@ pub async fn get_agent_markdown(id: String, file: String) -> Result<Option<Strin
 pub async fn save_agent_config_cmd(
     id: String,
     config: agent_config::AgentConfig,
+    create: Option<bool>,
 ) -> Result<(), CmdError> {
-    agent_loader::save_agent_config(&id, &config)?;
+    if create.unwrap_or(false) {
+        agent_loader::create_agent_config(&id, &config)?;
+    } else {
+        agent_loader::save_agent_config(&id, &config)?;
+    }
+    if let Some(bus) = ha_core::get_event_bus() {
+        bus.emit("agents:changed", json!({ "id": id, "kind": "saved" }));
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn patch_agent_model_defaults(
+    id: String,
+    patch: agent_loader::AgentModelDefaultsPatch,
+) -> Result<(), CmdError> {
+    agent_loader::patch_agent_model_defaults(&id, patch)?;
     if let Some(bus) = ha_core::get_event_bus() {
         bus.emit("agents:changed", json!({ "id": id, "kind": "saved" }));
     }
@@ -51,12 +73,46 @@ pub async fn save_agent_markdown(
 }
 
 #[tauri::command]
-pub async fn delete_agent(id: String) -> Result<(), CmdError> {
-    agent_loader::delete_agent(&id)?;
+pub async fn preview_agent_delete(
+    id: String,
+) -> Result<ha_core::agent_lifecycle::AgentDeletePreview, CmdError> {
+    ha_core::blocking::run_blocking(move || ha_core::agent_lifecycle::preview_agent_delete(&id))
+        .await
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn set_agent_enabled(id: String, enabled: bool) -> Result<(), CmdError> {
+    ha_core::blocking::run_blocking({
+        let id = id.clone();
+        move || ha_core::agent_lifecycle::set_agent_enabled(&id, enabled)
+    })
+    .await?;
+    if let Some(bus) = ha_core::get_event_bus() {
+        bus.emit(
+            "agents:changed",
+            json!({ "id": id, "kind": "enabled", "enabled": enabled }),
+        );
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn delete_agent(
+    id: String,
+    replacement_agent_id: String,
+) -> Result<ha_core::agent_lifecycle::AgentDeleteSummary, CmdError> {
+    let request = ha_core::agent_lifecycle::AgentDeleteRequest {
+        id: id.clone(),
+        replacement_agent_id,
+    };
+    let summary =
+        ha_core::blocking::run_blocking(move || ha_core::agent_lifecycle::delete_agent(&request))
+            .await?;
     if let Some(bus) = ha_core::get_event_bus() {
         bus.emit("agents:changed", json!({ "id": id, "kind": "deleted" }));
     }
-    Ok(())
+    Ok(summary)
 }
 
 #[tauri::command]

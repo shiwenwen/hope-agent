@@ -42,7 +42,7 @@
   --shadow-panel: 0 1px 2px hsl(220 18% 20% / 0.04), 0 10px 30px hsl(220 18% 20% / 0.04);
   --shadow-floating: 0 8px 30px hsl(220 18% 20% / 0.12);
   --shadow-input-dock: 0 1px 2px hsl(220 18% 20% / 0.05), 0 16px 48px hsl(220 18% 20% / 0.08);
-  --color-user-bubble: hsl(220 14% 94%);
+  --color-user-bubble: rgb(243 243 244);
 }
 
 /* Knowledge-space editor: current-line (cursor) highlight. Kept very faint so it
@@ -80,7 +80,7 @@
   --color-surface-panel: hsl(0 0% 10%);
   --color-surface-floating: hsl(0 0% 13%);
   --color-surface-subtle: hsl(0 0% 16%);
-  --color-user-bubble: hsl(0 0% 19%);
+  --color-user-bubble: rgb(36 36 36);
 }
 
 @layer base {
@@ -158,6 +158,12 @@
   a:focus-visible {
     outline: 1px solid color-mix(in srgb, var(--color-ring) 40%, transparent);
     outline-offset: 1px;
+  }
+}
+
+@layer components {
+  .ha-icon-tip {
+    position: relative;
   }
 }
 
@@ -270,6 +276,47 @@
     var(--ha-presence-exit-easing, cubic-bezier(0.4, 0, 0.2, 1)) both;
 }
 
+/* Radix keeps menu content mounted while a close animation is running. This
+ * bridge gives portal-backed DropdownMenu / ContextMenu / Select-style
+ * surfaces the same motion contract as the local FloatingMenu primitive. */
+.ha-radix-menu-motion {
+  transform: translateZ(0);
+  will-change: opacity, transform, filter;
+}
+
+.ha-radix-menu-motion[data-state="open"],
+.ha-radix-menu-motion[data-state="delayed-open"],
+.ha-radix-menu-motion[data-state="instant-open"] {
+  animation: ha-menu-popover-enter var(--ha-presence-enter-duration, 220ms)
+    var(--ha-presence-enter-easing, cubic-bezier(0.16, 1, 0.3, 1)) both;
+}
+
+.ha-radix-menu-motion[data-state="closed"] {
+  pointer-events: none;
+  animation: ha-menu-popover-exit var(--ha-presence-exit-duration, 180ms)
+    var(--ha-presence-exit-easing, cubic-bezier(0.4, 0, 0.2, 1)) both;
+}
+
+.ha-radix-menu-motion[data-side="top"] {
+  --ha-menu-enter-y: 6px;
+  --ha-menu-exit-y: 6px;
+}
+
+.ha-radix-menu-motion[data-side="bottom"] {
+  --ha-menu-enter-y: -6px;
+  --ha-menu-exit-y: -6px;
+}
+
+.ha-radix-menu-motion[data-side="left"] {
+  --ha-menu-enter-x: 6px;
+  --ha-menu-exit-x: 6px;
+}
+
+.ha-radix-menu-motion[data-side="right"] {
+  --ha-menu-enter-x: -6px;
+  --ha-menu-exit-x: -6px;
+}
+
 .ha-menu-from-top {
   --ha-menu-enter-y: -6px;
   --ha-menu-exit-y: -6px;
@@ -280,6 +327,18 @@
   --ha-menu-enter-y: 0px;
   --ha-menu-exit-x: -6px;
   --ha-menu-exit-y: 0px;
+}
+
+.ha-menu-from-right {
+  --ha-menu-enter-x: 6px;
+  --ha-menu-enter-y: 0px;
+  --ha-menu-exit-x: 6px;
+  --ha-menu-exit-y: 0px;
+}
+
+.ha-menu-from-bottom {
+  --ha-menu-enter-y: 6px;
+  --ha-menu-exit-y: 6px;
 }
 
 /* Pulse highlight for the message that matched a history search result */

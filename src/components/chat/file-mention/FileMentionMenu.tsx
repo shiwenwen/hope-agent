@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react"
 import { useTranslation } from "react-i18next"
-import { File, FileText, Folder, Loader2 } from "lucide-react"
+import { CircleAlert, File, FileText, Folder, Loader2 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { FloatingMenu } from "@/components/ui/floating-menu"
 import { AgentSelectDisplay } from "@/components/common/AgentSelectDisplay"
@@ -17,6 +17,8 @@ interface FileMentionMenuProps {
   noteEntries: ReferenceableNote[]
   /** Knowledge-note fetch in flight. */
   notesLoading: boolean
+  /** Knowledge-note fetch failure detail (already redacted and bounded). */
+  noteLoadErrorDetail: string | null
   /** Whether a note source exists (drives the note header / empty state). */
   noteCapable: boolean
   /** Built-in skill section rows (already filtered). */
@@ -51,6 +53,7 @@ export default function FileMentionMenu({
   entries,
   noteEntries,
   notesLoading,
+  noteLoadErrorDetail,
   noteCapable,
   skillEntries,
   skillCapable,
@@ -77,8 +80,6 @@ export default function FileMentionMenu({
     selectedRef.current?.scrollIntoView({ block: "nearest" })
   }, [selectedIndex])
 
-  if (!isOpen) return null
-
   const hasFiles = entries.length > 0
   const hasNotes = noteEntries.length > 0
   const hasAgents = agentEntries.length > 0
@@ -87,14 +88,20 @@ export default function FileMentionMenu({
   // Nothing to paint: no file section (working dir / its loading+empty/error),
   // no note rows or in-flight note load, and no skill rows. Avoids an empty
   // floating box when `@` opens with nothing to show.
-  if (!showFileSection && !error && !hasNotes && !notesLoading && !hasAgents && !hasSkills) {
-    return null
-  }
+  const hasRenderableContent = !(
+    !showFileSection &&
+    !error &&
+    !hasNotes &&
+    !notesLoading &&
+    !noteLoadErrorDetail &&
+    !hasAgents &&
+    !hasSkills
+  )
 
   // Compute breadcrumb relative to workingDir for list mode; search mode shows
   // the working dir basename.
   const breadcrumb = computeBreadcrumb(workingDir, dirPath, mode)
-  const showNoteSection = hasNotes || (noteCapable && notesLoading)
+  const showNoteSection = hasNotes || (noteCapable && (notesLoading || !!noteLoadErrorDetail))
   const showAgentSection = agentCapable && hasAgents
   const showSkillSection = skillCapable && hasSkills
   const sectionHeaderClass =
@@ -109,7 +116,7 @@ export default function FileMentionMenu({
 
   return (
     <FloatingMenu
-      open={isOpen}
+      open={isOpen && hasRenderableContent}
       positionClassName="bottom-full left-0 right-0 mb-2 mx-3"
       className="max-h-[320px] overflow-y-auto overscroll-contain p-1.5"
       role="listbox"
@@ -186,6 +193,22 @@ export default function FileMentionMenu({
         </div>
       )}
 
+      {noteLoadErrorDetail && (
+        <div className="mx-1 mb-1 flex gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-1.5 text-[11px] leading-relaxed text-amber-800 dark:text-amber-200">
+          <CircleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <div className="min-w-0">
+            <div className="font-medium">
+              {t("knowledge.mention.loadFailed", "Failed to load knowledge notes")}
+            </div>
+            <div className="mt-0.5 break-words opacity-85">
+              {t("knowledge.mention.errorDetail", "Details: {{error}}", {
+                error: noteLoadErrorDetail,
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
       {noteEntries.map((note, j) => {
         const flatIdx = entries.length + j
         const isSelected = flatIdx === selectedIndex
@@ -243,7 +266,7 @@ export default function FileMentionMenu({
             className={rowClass(isSelected)}
             onClick={() => onSelectSkill(skill)}
             onMouseEnter={() => onHover(flatIdx)}
-            title={skill.description}
+            data-ha-title-tip={skill.description}
           >
             {meta && (
               <SkillMentionIcon kind={meta.iconKind} className="h-4 w-4 shrink-0 text-rose-500" />
@@ -284,7 +307,7 @@ export default function FileMentionMenu({
             className={rowClass(isSelected)}
             onClick={() => onSelectAgent(agent)}
             onMouseEnter={() => onHover(flatIdx)}
-            title={agent.description ?? agent.id}
+            data-ha-title-tip={agent.description ?? agent.id}
           >
             <AgentSelectDisplay agent={agent} size="sm" className="min-w-0 text-[13px]" />
             <span className="ml-auto shrink-0 font-mono text-[11px] text-muted-foreground/50">

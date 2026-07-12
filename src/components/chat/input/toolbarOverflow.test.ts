@@ -3,11 +3,14 @@ import { test, expect } from "vitest"
 import {
   CHAT_INPUT_INLINE_ADD_ACTIONS_CLASS,
   CHAT_INPUT_OVERFLOW_ACTION_IDS,
-  CHAT_INPUT_OVERFLOW_BREAKPOINT_PX,
   CHAT_INPUT_OVERFLOW_MENU_CLASS,
-  CHAT_INPUT_PERMISSION_COLLAPSE_BREAKPOINT_PX,
-  CHAT_INPUT_SANDBOX_COLLAPSE_BREAKPOINT_PX,
-  CHAT_INPUT_TIGHT_TOOLBAR_BREAKPOINT_PX,
+  CHAT_INPUT_TOOLBAR_FIT_BUFFER_PX,
+  CHAT_INPUT_TOOLBAR_GROUP_WIDTH_FALLBACKS,
+  CHAT_INPUT_TOOLBAR_MAX_COLLAPSE_LEVEL,
+  clampChatInputToolbarCollapseLevel,
+  estimateChatInputToolbarLevelWidths,
+  getChatInputToolbarFlags,
+  resolveChatInputToolbarCollapseLevel,
 } from "./toolbarOverflow.ts"
 import * as toolbarOverflow from "./toolbarOverflow.ts"
 
@@ -16,25 +19,36 @@ test("groups add-style chat input actions behind the overflow menu", () => {
 })
 
 test("keeps overflow visibility classes static for Tailwind scanning", () => {
-  expect(CHAT_INPUT_INLINE_ADD_ACTIONS_CLASS).toBe("contents")
+  expect(CHAT_INPUT_INLINE_ADD_ACTIONS_CLASS).toBe("flex items-center gap-1 shrink-0")
   expect(CHAT_INPUT_OVERFLOW_MENU_CLASS).toBe("hidden")
-  // JS-side breakpoint is measured against the input container width, so
-  // right-side panels can trigger the compact toolbar without resizing window.
-  // Values are derived from a per-control width budget (see toolbarOverflow.ts).
-  expect(CHAT_INPUT_OVERFLOW_BREAKPOINT_PX).toBe(810)
-  // Knowledge + Plan stay inline down to a narrower width than the add-actions.
-  expect(CHAT_INPUT_TIGHT_TOOLBAR_BREAKPOINT_PX).toBe(730)
-  // Sandbox then Permission collapse at progressively narrower widths.
-  expect(CHAT_INPUT_SANDBOX_COLLAPSE_BREAKPOINT_PX).toBe(620)
-  expect(CHAT_INPUT_PERMISSION_COLLAPSE_BREAKPOINT_PX).toBe(470)
-  // Monotonic subset ordering: 810 ⊃ 730 ⊃ 620 ⊃ 470.
-  expect(CHAT_INPUT_TIGHT_TOOLBAR_BREAKPOINT_PX).toBeLessThan(CHAT_INPUT_OVERFLOW_BREAKPOINT_PX)
-  expect(CHAT_INPUT_SANDBOX_COLLAPSE_BREAKPOINT_PX).toBeLessThan(
-    CHAT_INPUT_TIGHT_TOOLBAR_BREAKPOINT_PX,
+})
+
+test("maps smart toolbar collapse levels to progressive visibility flags", () => {
+  expect(CHAT_INPUT_TOOLBAR_MAX_COLLAPSE_LEVEL).toBe(3)
+  expect(clampChatInputToolbarCollapseLevel(-1)).toBe(0)
+  expect(clampChatInputToolbarCollapseLevel(99)).toBe(3)
+  expect(getChatInputToolbarFlags(0)).toEqual({
+    toolbarCompact: false,
+    toolbarTight: false,
+    permissionCollapsed: false,
+  })
+  expect(getChatInputToolbarFlags(2)).toEqual({
+    toolbarCompact: true,
+    toolbarTight: true,
+    permissionCollapsed: false,
+  })
+  expect(getChatInputToolbarFlags(3)).toEqual({
+    toolbarCompact: true,
+    toolbarTight: true,
+    permissionCollapsed: true,
+  })
+})
+
+test("keeps conservative width fallbacks for first smart toolbar measurement", () => {
+  expect(CHAT_INPUT_TOOLBAR_GROUP_WIDTH_FALLBACKS.addActions).toBeGreaterThan(
+    CHAT_INPUT_TOOLBAR_GROUP_WIDTH_FALLBACKS.overflowTrigger,
   )
-  expect(CHAT_INPUT_PERMISSION_COLLAPSE_BREAKPOINT_PX).toBeLessThan(
-    CHAT_INPUT_SANDBOX_COLLAPSE_BREAKPOINT_PX,
-  )
+  expect(CHAT_INPUT_TOOLBAR_GROUP_WIDTH_FALLBACKS.semanticModes).toBeGreaterThan(0)
 })
 
 test("returns overflow actions for the compact input toolbar", () => {
@@ -42,4 +56,69 @@ test("returns overflow actions for the compact input toolbar", () => {
   const { getChatInputOverflowActionIds } = toolbarOverflow
 
   expect(getChatInputOverflowActionIds()).toEqual(["working-dir", "attach-files", "slash-command"])
+})
+
+test("estimates all toolbar collapse tier widths from the currently visible tier", () => {
+  const widths = CHAT_INPUT_TOOLBAR_GROUP_WIDTH_FALLBACKS
+
+  expect(
+    estimateChatInputToolbarLevelWidths({
+      currentLevel: 2,
+      visibleWidth: 420,
+      widths,
+    }),
+  ).toEqual([836, 760, 420, 285])
+})
+
+test("resolves the toolbar collapse tier directly from available width", () => {
+  const widths = CHAT_INPUT_TOOLBAR_GROUP_WIDTH_FALLBACKS
+
+  expect(
+    resolveChatInputToolbarCollapseLevel({
+      currentLevel: 0,
+      availableWidth: 836 + CHAT_INPUT_TOOLBAR_FIT_BUFFER_PX,
+      visibleWidth: 836,
+      widths,
+    }),
+  ).toBe(0)
+
+  expect(
+    resolveChatInputToolbarCollapseLevel({
+      currentLevel: 0,
+      availableWidth: 500,
+      visibleWidth: 836,
+      widths,
+    }),
+  ).toBe(2)
+
+  expect(
+    resolveChatInputToolbarCollapseLevel({
+      currentLevel: 0,
+      availableWidth: 240,
+      visibleWidth: 836,
+      widths,
+    }),
+  ).toBe(3)
+})
+
+test("keeps an expansion buffer so compact toolbar tiers do not jitter", () => {
+  const widths = CHAT_INPUT_TOOLBAR_GROUP_WIDTH_FALLBACKS
+
+  expect(
+    resolveChatInputToolbarCollapseLevel({
+      currentLevel: 2,
+      availableWidth: 700,
+      visibleWidth: 420,
+      widths,
+    }),
+  ).toBe(2)
+
+  expect(
+    resolveChatInputToolbarCollapseLevel({
+      currentLevel: 2,
+      availableWidth: 790,
+      visibleWidth: 420,
+      widths,
+    }),
+  ).toBe(1)
 })

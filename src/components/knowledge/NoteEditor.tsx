@@ -27,6 +27,7 @@ import { useTranslation } from "react-i18next"
 import { MessageSquareQuote, Sparkles } from "lucide-react"
 
 import MarkdownRenderer from "@/components/common/MarkdownRenderer"
+import { FloatingMenu } from "@/components/ui/floating-menu"
 import type { NoteEditorMode } from "@/types/knowledge"
 
 import { fetchNoteRef } from "./noteRefFetch"
@@ -168,6 +169,8 @@ const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function NoteEd
   const viewRef = useRef<EditorView | null>(null)
   // Floating selection toolbar (Cursor-style) — viewport coords or null.
   const [selBar, setSelBar] = useState<{ top: number; left: number } | null>(null)
+  const lastSelBarRef = useRef<{ top: number; left: number } | null>(null)
+  if (selBar) lastSelBarRef.current = selBar
   const selBarRef = useRef<HTMLDivElement | null>(null)
   const onChangeRef = useRef(onChange)
   const dataRef = useRef<WikilinkData>(data)
@@ -188,6 +191,7 @@ const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function NoteEd
   // fraction of the editor area; persisted so it survives reloads.
   const splitContainerRef = useRef<HTMLDivElement | null>(null)
   const [splitRatio, setSplitRatio] = useState(readSplitRatio)
+  const [isSplitResizing, setIsSplitResizing] = useState(false)
   const { t } = useTranslation()
 
   onChangeRef.current = onChange
@@ -211,6 +215,7 @@ const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function NoteEd
       if (!container) return
       const totalWidth = container.getBoundingClientRect().width
       if (totalWidth <= 0) return
+      setIsSplitResizing(true)
       const startX = e.clientX
       const startRatio = splitRatio
       const onMove = (ev: MouseEvent) => {
@@ -226,12 +231,15 @@ const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function NoteEd
       const onUp = () => {
         document.removeEventListener("mousemove", onMove)
         document.removeEventListener("mouseup", onUp)
+        window.removeEventListener("blur", onUp)
         document.body.style.cursor = ""
         document.body.style.userSelect = ""
         iframes.forEach((f) => ((f as HTMLElement).style.pointerEvents = ""))
+        setIsSplitResizing(false)
       }
       document.addEventListener("mousemove", onMove)
       document.addEventListener("mouseup", onUp)
+      window.addEventListener("blur", onUp)
       document.body.style.cursor = "col-resize"
       document.body.style.userSelect = "none"
     },
@@ -279,7 +287,9 @@ const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function NoteEd
             // Drop `|alias` / `#anchor` so the shared ref cache keys match the
             // transclusion view's (both resolve to the same target note).
             fetchNoteRef(kb, cleanEmbedRef(reference), bustRef.current).then((res) =>
-              res ? { title: res.title, excerpt: noteExcerpt(res.content) } : null,
+              res.status === "resolved"
+                ? { title: res.note.title, excerpt: noteExcerpt(res.note.content) }
+                : null,
             ),
         ),
         notePreviewTheme,
@@ -471,19 +481,20 @@ const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function NoteEd
 
   const splitActive = showSource && showPreview
   const showSelBar = selBar && (onReferenceSelection || (!readOnly && onRewriteSelection))
+  const renderedSelBar = selBar ?? lastSelBarRef.current
 
   return (
     <div ref={splitContainerRef} className="flex h-full min-h-0 w-full">
       {showSource && (
         <div
           ref={hostRef}
-          className={`h-full min-h-0 overflow-hidden ${splitActive ? "shrink-0 border-r border-border-soft/60" : "w-full"}`}
+          className={`h-full min-h-0 overflow-hidden ${splitActive ? "shrink-0" : "w-full"}`}
           style={splitActive ? { width: `${splitRatio * 100}%` } : undefined}
         />
       )}
       {splitActive && (
         <div
-          className="group relative w-px shrink-0 cursor-col-resize bg-border-soft/60"
+          className={`relative w-px shrink-0 cursor-col-resize transition-colors ${isSplitResizing ? "bg-primary/50" : "bg-border-soft/60 hover:bg-primary/35"}`}
           onMouseDown={onSplitDragStart}
           role="separator"
           aria-orientation="vertical"
@@ -491,7 +502,6 @@ const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function NoteEd
         >
           {/* Wider invisible hit area around the 1px divider. */}
           <div className="absolute inset-y-0 -left-1 -right-1" />
-          <div className="absolute inset-y-0 -left-px -right-px transition-colors group-hover:bg-primary/40" />
         </div>
       )}
       {showPreview && (
@@ -506,6 +516,8 @@ const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function NoteEd
               cacheBustKey={embedCacheKey}
               onOpenNote={onOpenNote}
               seen={embedSeen}
+              highlightLine={revealTarget?.line}
+              highlightToken={revealTarget}
             />
           ) : (
             <MarkdownRenderer content={value} />
@@ -514,12 +526,17 @@ const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function NoteEd
       )}
 
       {/* Floating selection toolbar (Cursor-style) — appears on text selection. */}
-      {showSelBar && (
-        <div
-          ref={selBarRef}
-          className="fixed z-50 flex items-center gap-0.5 rounded-lg border border-border/60 bg-popover/95 p-0.5 shadow-lg backdrop-blur-xl animate-in fade-in-0 zoom-in-95 duration-100"
-          style={{ top: selBar.top, left: selBar.left }}
+      {renderedSelBar ? (
+        <FloatingMenu
+          open={Boolean(showSelBar)}
+          strategy="fixed"
+          portal
+          positionClassName=""
+          originClassName="origin-bottom-left"
+          className="p-0.5"
+          style={{ top: renderedSelBar.top, left: renderedSelBar.left }}
         >
+          <div ref={selBarRef} className="flex items-center gap-0.5">
           {onReferenceSelection && (
             <button
               type="button"
@@ -548,8 +565,9 @@ const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function NoteEd
               {t("knowledge.quickRewrite.title", "Quick rewrite")}
             </button>
           )}
-        </div>
-      )}
+          </div>
+        </FloatingMenu>
+      ) : null}
     </div>
   )
 })

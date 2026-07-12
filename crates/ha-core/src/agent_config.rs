@@ -8,6 +8,11 @@ use std::path::PathBuf;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentConfig {
+    /// Lifecycle gate. Disabled Agents remain editable and keep their data,
+    /// but cannot be selected for new executions.
+    #[serde(default = "crate::default_true")]
+    pub enabled: bool,
+
     /// Display name
     #[serde(default = "default_name")]
     pub name: String,
@@ -69,6 +74,7 @@ fn default_name() -> String {
 impl Default for AgentConfig {
     fn default() -> Self {
         Self {
+            enabled: true,
             name: default_name(),
             description: None,
             emoji: None,
@@ -398,6 +404,24 @@ pub struct MemoryConfig {
     #[serde(default)]
     pub active_memory: ActiveMemoryConfig,
 
+    /// User-saved Procedure Memory soft prompt injection (P5).
+    /// Only active, high-confidence procedures selected by the retrieval
+    /// planner enter a bounded dynamic block; episodes remain trace-only.
+    #[serde(default)]
+    pub procedure_memory: ProcedureMemoryConfig,
+
+    /// P4 graph trace candidate expansion. This is trace-only: neighboring
+    /// claims are exposed in Answer Memory Chips as candidates but are not
+    /// injected into the prompt.
+    #[serde(default)]
+    pub graph_memory: GraphMemoryConfig,
+
+    /// Cross-source Retrieval Planner candidate fusion. This governs the
+    /// bounded diagnostic candidate set; already injected / selected context
+    /// is never removed by this budget.
+    #[serde(default)]
+    pub retrieval_planner: RetrievalPlannerConfig,
+
     /// Agent-level override for the system-prompt memory budget. `None`
     /// inherits `AppConfig.memory_budget`. When set, the full budget is
     /// replaced (not merged field-by-field) so an agent configured once can
@@ -416,8 +440,9 @@ pub fn effective_memory_budget(
 }
 
 /// Active Memory configuration — controls the pre-reply recall injection
-/// (Phase B1). Default is enabled with conservative timeouts; failures and
-/// timeouts degrade silently to the passive memory recall path.
+/// (Phase B1). Default is disabled because the side query can add visible
+/// latency; when enabled, failures and timeouts degrade silently to the passive
+/// memory recall path.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ActiveMemoryConfig {
@@ -498,6 +523,156 @@ impl Default for ActiveMemoryConfig {
     }
 }
 
+/// Procedure Memory configuration — controls P5 user-saved workflow soft
+/// guidance. Defaults on because procedures are explicit user-authored or
+/// user-promoted assets, but it is tightly bounded and can be disabled per
+/// agent from the Memory tab.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProcedureMemoryConfig {
+    /// Whether to inject relevant saved workflows as soft guidance.
+    #[serde(default = "crate::default_true")]
+    pub enabled: bool,
+
+    /// Maximum number of procedures injected per turn.
+    #[serde(default = "default_procedure_memory_max_procedures")]
+    pub max_procedures: usize,
+
+    /// Maximum characters for the whole dynamic workflow block.
+    #[serde(default = "default_procedure_memory_max_chars")]
+    pub max_chars: usize,
+
+    /// Minimum confidence required before a procedure can be injected.
+    #[serde(default = "default_procedure_memory_min_confidence")]
+    pub min_confidence: f32,
+}
+
+fn default_procedure_memory_max_procedures() -> usize {
+    1
+}
+fn default_procedure_memory_max_chars() -> usize {
+    800
+}
+fn default_procedure_memory_min_confidence() -> f32 {
+    0.7
+}
+
+impl ProcedureMemoryConfig {
+    pub fn clamped(&self) -> Self {
+        Self {
+            enabled: self.enabled,
+            max_procedures: self.max_procedures.clamp(1, 3),
+            max_chars: self.max_chars.clamp(200, 2_000),
+            min_confidence: self.min_confidence.clamp(0.0, 1.0),
+        }
+    }
+}
+
+impl Default for ProcedureMemoryConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            max_procedures: default_procedure_memory_max_procedures(),
+            max_chars: default_procedure_memory_max_chars(),
+            min_confidence: default_procedure_memory_min_confidence(),
+        }
+    }
+}
+
+/// Graph Memory trace configuration — controls P4 claim-graph candidate
+/// expansion in Retrieval Planner diagnostics. It is enabled by default but
+/// bounded, and never injects graph text into the prompt.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GraphMemoryConfig {
+    /// Whether to expand related active claims into graph trace candidates.
+    #[serde(default = "crate::default_true")]
+    pub enabled: bool,
+
+    /// Maximum query-matched center claims to expand per turn.
+    #[serde(default = "default_graph_memory_max_centers")]
+    pub max_centers: usize,
+
+    /// Maximum neighboring claims surfaced as trace candidates per turn.
+    #[serde(default = "default_graph_memory_max_edges")]
+    pub max_edges: usize,
+}
+
+fn default_graph_memory_max_centers() -> usize {
+    3
+}
+fn default_graph_memory_max_edges() -> usize {
+    6
+}
+
+impl GraphMemoryConfig {
+    pub fn clamped(&self) -> Self {
+        Self {
+            enabled: self.enabled,
+            max_centers: self.max_centers.clamp(1, 8),
+            max_edges: self.max_edges.clamp(1, 20),
+        }
+    }
+}
+
+impl Default for GraphMemoryConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            max_centers: default_graph_memory_max_centers(),
+            max_edges: default_graph_memory_max_edges(),
+        }
+    }
+}
+
+/// Cross-source candidate fusion for Answer Memory diagnostics. Defaults are
+/// intentionally automatic and bounded; advanced users can tune them per
+/// Agent without changing the underlying stores or prompt-injection budgets.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RetrievalPlannerConfig {
+    /// Use lightweight query intent to boost the matching source family.
+    #[serde(default = "crate::default_true")]
+    pub intent_aware: bool,
+
+    /// Maximum total refs retained after preserving all injected / selected
+    /// refs. Candidate refs fill only the remaining room.
+    #[serde(default = "default_retrieval_planner_max_trace_refs")]
+    pub max_trace_refs: usize,
+
+    /// Per-origin candidate cap after cross-source identity de-duplication.
+    #[serde(default = "default_retrieval_planner_max_candidates_per_origin")]
+    pub max_candidates_per_origin: usize,
+}
+
+fn default_retrieval_planner_max_trace_refs() -> usize {
+    24
+}
+
+fn default_retrieval_planner_max_candidates_per_origin() -> usize {
+    4
+}
+
+impl RetrievalPlannerConfig {
+    pub fn clamped(&self) -> Self {
+        Self {
+            intent_aware: self.intent_aware,
+            max_trace_refs: self.max_trace_refs.clamp(8, 64),
+            max_candidates_per_origin: self.max_candidates_per_origin.clamp(1, 16),
+        }
+    }
+}
+
+impl Default for RetrievalPlannerConfig {
+    fn default() -> Self {
+        Self {
+            intent_aware: true,
+            max_trace_refs: default_retrieval_planner_max_trace_refs(),
+            max_candidates_per_origin: default_retrieval_planner_max_candidates_per_origin(),
+        }
+    }
+}
+
 fn default_memory_budget() -> usize {
     5000
 }
@@ -518,6 +693,9 @@ impl Default for MemoryConfig {
             extract_idle_timeout_secs: None,
             enable_reflection: None,
             active_memory: ActiveMemoryConfig::default(),
+            procedure_memory: ProcedureMemoryConfig::default(),
+            graph_memory: GraphMemoryConfig::default(),
+            retrieval_planner: RetrievalPlannerConfig::default(),
             budget: None,
         }
     }
@@ -704,6 +882,7 @@ pub struct AgentDefinition {
 #[serde(rename_all = "camelCase")]
 pub struct AgentSummary {
     pub id: String,
+    pub enabled: bool,
     pub name: String,
     pub description: Option<String>,
     pub emoji: Option<String>,
@@ -714,4 +893,61 @@ pub struct AgentSummary {
     pub has_memory_md: bool,
     pub memory_count: usize,
     pub notify_on_complete: Option<bool>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn graph_memory_config_defaults_and_clamps() {
+        let default = GraphMemoryConfig::default();
+        assert!(default.enabled);
+        assert_eq!(default.max_centers, 3);
+        assert_eq!(default.max_edges, 6);
+
+        let clamped = GraphMemoryConfig {
+            enabled: false,
+            max_centers: 0,
+            max_edges: 999,
+        }
+        .clamped();
+
+        assert!(!clamped.enabled);
+        assert_eq!(clamped.max_centers, 1);
+        assert_eq!(clamped.max_edges, 20);
+    }
+
+    #[test]
+    fn retrieval_planner_config_defaults_and_clamps() {
+        let default = RetrievalPlannerConfig::default();
+        assert!(default.intent_aware);
+        assert_eq!(default.max_trace_refs, 24);
+        assert_eq!(default.max_candidates_per_origin, 4);
+
+        let clamped = RetrievalPlannerConfig {
+            intent_aware: false,
+            max_trace_refs: 0,
+            max_candidates_per_origin: usize::MAX,
+        }
+        .clamped();
+
+        assert!(!clamped.intent_aware);
+        assert_eq!(clamped.max_trace_refs, 8);
+        assert_eq!(clamped.max_candidates_per_origin, 16);
+    }
+
+    #[test]
+    fn legacy_memory_config_gets_retrieval_planner_defaults() {
+        let config: MemoryConfig = serde_json::from_value(serde_json::json!({
+            "enabled": true,
+            "shared": true,
+            "promptBudget": 5000
+        }))
+        .expect("legacy memory config");
+
+        assert!(config.retrieval_planner.intent_aware);
+        assert_eq!(config.retrieval_planner.max_trace_refs, 24);
+        assert_eq!(config.retrieval_planner.max_candidates_per_origin, 4);
+    }
 }

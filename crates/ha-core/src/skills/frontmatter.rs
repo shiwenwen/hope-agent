@@ -788,7 +788,7 @@ pub(super) struct MetadataNamespaces {
 ///   hermes:
 ///     tags: [debugging, tdd]
 ///     related_skills:
-///       - test-driven-development
+///       - test-strategy
 /// ```
 pub(super) fn parse_metadata_namespaces(yaml_block: &str) -> MetadataNamespaces {
     let mut out = MetadataNamespaces::default();

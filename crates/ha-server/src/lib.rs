@@ -126,6 +126,7 @@ fn build_router_with_cors(
         // Sessions
         .route("/sessions", post(routes::sessions::create_session))
         .route("/sessions", get(routes::sessions::list_sessions))
+        .route("/sessions/{id}/fork", post(routes::sessions::fork_session))
         .route("/sessions/{id}", get(routes::sessions::get_session))
         .route("/sessions/{id}", delete(routes::sessions::delete_session))
         .route("/sessions/{id}", patch(routes::sessions::rename_session))
@@ -148,6 +149,18 @@ fn build_router_with_cors(
         .route(
             "/sessions/{id}/model",
             patch(routes::sessions::set_session_model),
+        )
+        .route(
+            "/sessions/{id}/temperature",
+            patch(routes::sessions::set_session_temperature),
+        )
+        .route(
+            "/sessions/{id}/reasoning-effort",
+            patch(routes::sessions::set_session_reasoning_effort),
+        )
+        .route(
+            "/chat/runtime-defaults",
+            get(routes::sessions::get_chat_runtime_defaults),
         )
         .route(
             "/sessions/{id}/purge-if-incognito",
@@ -640,7 +653,20 @@ fn build_router_with_cors(
         .route("/chat", post(routes::chat::chat))
         .route(
             "/chat/turn-message",
-            post(routes::chat::queue_turn_user_message),
+            post(routes::chat::queue_turn_user_message)
+                .patch(routes::chat::update_queued_turn_user_message),
+        )
+        .route(
+            "/chat/turn-message/{session_id}",
+            get(routes::chat::list_queued_turn_user_messages),
+        )
+        .route(
+            "/chat/turn-message/{session_id}/{request_id}",
+            delete(routes::chat::delete_queued_turn_user_message),
+        )
+        .route(
+            "/chat/turn-message/insert",
+            post(routes::chat::insert_queued_turn_user_message),
         )
         .route(
             "/chat/turn-message/cancel",
@@ -648,8 +674,12 @@ fn build_router_with_cors(
         )
         .route("/chat/stop", post(routes::chat::stop_chat))
         .route(
+            "/chat/approvals/pending",
+            get(routes::chat::list_pending_approvals),
+        )
+        .route(
             "/sessions/{sessionId}/tasks",
-            get(routes::tasks::list_session_tasks),
+            get(routes::tasks::list_session_tasks).post(routes::tasks::create_session_task),
         )
         .route(
             "/tasks/{id}/status",
@@ -784,6 +814,11 @@ fn build_router_with_cors(
             post(routes::models::set_reasoning_effort),
         )
         .route(
+            "/models/global-reasoning-effort",
+            get(routes::models::get_global_reasoning_effort)
+                .post(routes::models::set_global_reasoning_effort),
+        )
+        .route(
             "/models/settings",
             get(routes::models::get_current_settings),
         )
@@ -798,10 +833,39 @@ fn build_router_with_cors(
         // Memory
         .route("/memory", post(routes::memory::add_memory))
         .route("/memory", get(routes::memory::list_memories))
+        .route("/claims/schema", get(routes::memory::claim_schema_metadata))
         .route("/claims", get(routes::memory::list_claims))
+        .route("/claims/page", get(routes::memory::list_claims_page))
+        .route(
+            "/claims/conflict-summaries",
+            post(routes::memory::claim_conflict_summaries),
+        )
+        .route(
+            "/claims/evidence-summaries",
+            post(routes::memory::claim_evidence_summaries),
+        )
+        .route(
+            "/claims/review-summaries",
+            post(routes::memory::claim_review_summaries),
+        )
+        .route("/claims/{id}/graph", get(routes::memory::claim_graph))
+        .route(
+            "/claims/{id}/conflicts",
+            get(routes::memory::claim_conflicts),
+        )
+        .route(
+            "/claims/{id}/conflict-details",
+            get(routes::memory::claim_conflict_details),
+        )
         .route("/claims/{id}", get(routes::memory::get_claim))
         .route("/claims/{id}", patch(routes::memory::update_claim))
         .route("/claims/{id}/forget", post(routes::memory::forget_claim))
+        .route("/memory/history", get(routes::memory::memory_history))
+        .route(
+            "/memory/history/page",
+            get(routes::memory::memory_history_page),
+        )
+        .route("/memory/audit/page", get(routes::memory::memory_audit_page))
         .route("/memory/{id}", get(routes::memory::get_memory))
         .route("/memory/{id}", put(routes::memory::update_memory))
         .route("/memory/{id}", delete(routes::memory::delete_memory))
@@ -816,6 +880,63 @@ fn build_router_with_cors(
         )
         .route("/memory/count", get(routes::memory::memory_count))
         .route("/memory/stats", get(routes::memory::memory_stats))
+        .route("/memory/health", get(routes::memory::memory_health))
+        .route("/memory/repair", post(routes::memory::memory_repair))
+        .route(
+            "/memory/db-snapshot/restore-preview",
+            post(routes::memory::memory_db_snapshot_restore_preview),
+        )
+        .route(
+            "/memory/db-snapshot/restore",
+            post(routes::memory::memory_db_snapshot_restore),
+        )
+        .route("/memory/episodes", post(routes::memory::add_episode))
+        .route(
+            "/memory/episodes/page",
+            post(routes::memory::list_episodes_page),
+        )
+        .route("/memory/episodes/{id}", get(routes::memory::get_episode))
+        .route(
+            "/memory/episodes/{id}",
+            patch(routes::memory::update_episode),
+        )
+        .route(
+            "/memory/episodes/{id}/archive",
+            post(routes::memory::archive_episode),
+        )
+        .route(
+            "/memory/episodes/{id}/restore",
+            post(routes::memory::restore_episode),
+        )
+        .route(
+            "/memory/episodes/{id}/promote-procedure",
+            post(routes::memory::promote_episode_to_procedure),
+        )
+        .route("/memory/procedures", post(routes::memory::add_procedure))
+        .route(
+            "/memory/procedures/page",
+            post(routes::memory::list_procedures_page),
+        )
+        .route(
+            "/memory/procedures/{id}",
+            get(routes::memory::get_procedure),
+        )
+        .route(
+            "/memory/procedures/{id}",
+            patch(routes::memory::update_procedure),
+        )
+        .route(
+            "/memory/procedures/{id}/archive",
+            post(routes::memory::archive_procedure),
+        )
+        .route(
+            "/memory/procedures/{id}/restore",
+            post(routes::memory::restore_procedure),
+        )
+        .route(
+            "/memory/experience/history/page",
+            post(routes::memory::experience_history_page),
+        )
         .route(
             "/memory/import-from-ai-prompt",
             get(routes::memory::import_from_ai_prompt),
@@ -826,8 +947,55 @@ fn build_router_with_cors(
         .route("/memory/reembed-start", post(routes::memory::reembed_start))
         .route("/memory/export", post(routes::memory::export_memory))
         .route(
+            "/memory/backup/export",
+            post(routes::memory::export_memory_backup),
+        )
+        .route(
+            "/memory/backup/export-archive",
+            post(routes::memory::export_memory_backup_archive),
+        )
+        .route(
+            "/memory/backup/export-encrypted",
+            post(routes::memory::export_encrypted_memory_backup),
+        )
+        .route(
+            "/memory/backup/preview",
+            post(routes::memory::preview_memory_backup)
+                .layer(DefaultBodyLimit::max(25 * 1024 * 1024)),
+        )
+        .route(
+            "/memory/backup/preview-archive",
+            post(routes::memory::preview_memory_backup_archive)
+                .layer(DefaultBodyLimit::max(512 * 1024 * 1024)),
+        )
+        .route(
+            "/memory/backup/restore-legacy",
+            post(routes::memory::restore_legacy_memory_backup)
+                .layer(DefaultBodyLimit::max(25 * 1024 * 1024)),
+        )
+        .route(
+            "/memory/backup/restore-legacy-archive",
+            post(routes::memory::restore_legacy_memory_backup_archive)
+                .layer(DefaultBodyLimit::max(512 * 1024 * 1024)),
+        )
+        .route(
+            "/memory/backup/restore-structured",
+            post(routes::memory::restore_structured_memory_backup)
+                .layer(DefaultBodyLimit::max(25 * 1024 * 1024)),
+        )
+        .route(
+            "/memory/backup/restore-structured-archive",
+            post(routes::memory::restore_structured_memory_backup_archive)
+                .layer(DefaultBodyLimit::max(512 * 1024 * 1024)),
+        )
+        .route(
             "/memory/import",
             post(routes::memory::import_memory).layer(DefaultBodyLimit::max(25 * 1024 * 1024)),
+        )
+        .route(
+            "/memory/import/preview",
+            post(routes::memory::preview_import_memory)
+                .layer(DefaultBodyLimit::max(25 * 1024 * 1024)),
         )
         .route("/memory/find-similar", post(routes::memory::find_similar))
         .route(
@@ -1019,6 +1187,28 @@ fn build_router_with_cors(
         .route(
             "/config/memory-budget",
             put(routes::config::save_memory_budget_config),
+        )
+        .route(
+            "/config/external-memory-providers",
+            get(routes::config::get_external_memory_providers_config),
+        )
+        .route(
+            "/config/external-memory-providers/preflight",
+            get(routes::config::get_external_memory_providers_preflight),
+        )
+        .route(
+            "/config/external-memory-providers/sync",
+            post(routes::config::run_external_memory_provider_sync),
+        )
+        .route(
+            "/config/external-memory-providers/{provider_id}/credentials",
+            get(routes::config::get_external_memory_provider_credential_status)
+                .put(routes::config::save_external_memory_provider_credentials)
+                .delete(routes::config::clear_external_memory_provider_credentials),
+        )
+        .route(
+            "/config/external-memory-providers",
+            put(routes::config::save_external_memory_providers_config),
         )
         .route(
             "/config/notification",
@@ -1323,6 +1513,7 @@ fn build_router_with_cors(
         )
         // Agents
         .route("/agents", get(routes::agents::list_agents))
+        .route("/agents/all", get(routes::agents::list_all_agents))
         .route("/agents/reorder", post(routes::agents::reorder_agents))
         .route("/agents/template", get(routes::agents::get_agent_template))
         .route("/agents/initialize", post(routes::agents::initialize_agent))
@@ -1344,6 +1535,18 @@ fn build_router_with_cors(
         )
         .route("/agents/{id}", get(routes::agents::get_agent))
         .route("/agents/{id}", put(routes::agents::save_agent))
+        .route(
+            "/agents/{id}/model-defaults",
+            patch(routes::agents::patch_agent_model_defaults),
+        )
+        .route(
+            "/agents/{id}/delete-preview",
+            get(routes::agents::preview_agent_delete),
+        )
+        .route(
+            "/agents/{id}/enabled",
+            patch(routes::agents::set_agent_enabled),
+        )
         .route("/agents/{id}", delete(routes::agents::delete_agent))
         .route(
             "/agents/{id}/markdown",
@@ -1385,6 +1588,10 @@ fn build_router_with_cors(
         // Dreaming (offline memory consolidation, Phase B3)
         .route("/dreaming/run", post(routes::dreaming::run_now))
         .route("/dreaming/resolver", post(routes::dreaming::run_resolver))
+        .route(
+            "/dreaming/resolver/preflight",
+            get(routes::dreaming::resolver_preflight),
+        )
         .route("/dreaming/profile/run", post(routes::dreaming::run_profile))
         .route(
             "/dreaming/profile",
@@ -1398,6 +1605,11 @@ fn build_router_with_cors(
         .route("/dreaming/status", get(routes::dreaming::status))
         .route("/dreaming/last-report", get(routes::dreaming::last_report))
         .route("/dreaming/idle-status", get(routes::dreaming::idle_status))
+        .route("/dreaming/decisions", get(routes::dreaming::list_decisions))
+        .route(
+            "/dreaming/decisions/page",
+            get(routes::dreaming::list_decisions_page),
+        )
         .route("/dreaming/runs", get(routes::dreaming::list_runs))
         .route("/dreaming/runs/{id}", get(routes::dreaming::get_run))
         .route(
@@ -1486,6 +1698,10 @@ fn build_router_with_cors(
             "/dashboard/learning/recall-stats",
             post(routes::dashboard::recall_stats),
         )
+        .route(
+            "/dashboard/learning/coding-improvement",
+            post(routes::dashboard::coding_improvement),
+        )
         .route("/dashboard/plan-stats", post(routes::dashboard::plan_stats))
         .route(
             "/dashboard/local-model-usage",
@@ -1503,11 +1719,86 @@ fn build_router_with_cors(
         // Plan Mode
         .route("/plan/{sid}/mode", get(routes::plan::get_plan_mode))
         .route("/plan/{sid}/mode", post(routes::plan::set_plan_mode))
+        .route(
+            "/sessions/{sid}/execution-mode",
+            get(routes::execution_mode::get_execution_mode),
+        )
+        .route(
+            "/sessions/{sid}/execution-mode",
+            post(routes::execution_mode::set_execution_mode),
+        )
+        .route(
+            "/sessions/{sid}/workflow-mode",
+            get(routes::execution_mode::get_workflow_mode),
+        )
+        .route(
+            "/sessions/{sid}/workflow-mode",
+            post(routes::execution_mode::set_workflow_mode),
+        )
+        .route(
+            "/sessions/{sid}/goal",
+            get(routes::goal::get_active_goal).post(routes::goal::create_goal),
+        )
+        .route(
+            "/sessions/{sid}/activity",
+            get(routes::goal::get_autonomy_activity),
+        )
+        .route(
+            "/sessions/{sid}/goal/watchdog",
+            get(routes::goal::list_goal_watchdog_findings),
+        )
+        .route(
+            "/goals/{id}",
+            get(routes::goal::get_goal).patch(routes::goal::update_goal),
+        )
+        .route("/goals/{id}/pause", post(routes::goal::pause_goal))
+        .route("/goals/{id}/resume", post(routes::goal::resume_goal))
+        .route("/goals/{id}/clear", post(routes::goal::clear_goal))
+        .route("/goals/{id}/evaluate", post(routes::goal::evaluate_goal))
+        .route("/goals/{id}/close", post(routes::goal::close_goal))
+        .route(
+            "/goals/{id}/follow-ups",
+            post(routes::goal::append_goal_follow_up),
+        )
+        .route(
+            "/sessions/{sid}/loops",
+            get(routes::loop_control::list_loop_schedules)
+                .post(routes::loop_control::create_loop_schedule),
+        )
+        .route(
+            "/sessions/{sid}/loops/watchdog",
+            get(routes::loop_control::list_loop_watchdog_findings),
+        )
+        .route("/loops/{id}", get(routes::loop_control::get_loop_schedule))
+        .route(
+            "/loops/{id}/pause",
+            post(routes::loop_control::pause_loop_schedule),
+        )
+        .route(
+            "/loops/{id}/resume",
+            post(routes::loop_control::resume_loop_schedule),
+        )
+        .route(
+            "/loops/{id}/stop",
+            post(routes::loop_control::stop_loop_schedule),
+        )
+        .route(
+            "/loops/{id}/run-now",
+            post(routes::loop_control::run_loop_schedule_now),
+        )
+        .route(
+            "/loops/{id}/policy",
+            patch(routes::loop_control::update_loop_schedule_policy),
+        )
         .route("/plan/{sid}/content", get(routes::plan::get_plan_content))
         .route("/plan/{sid}/content", put(routes::plan::save_plan_content))
         .route(
             "/ask_user/respond",
             post(routes::plan::respond_ask_user_question),
+        )
+        .route(
+            "/ask_user/owner-question",
+            post(routes::plan::create_owner_ask_user_question),
         )
         .route(
             "/plan/{sid}/pending-ask-user",
@@ -1539,6 +1830,392 @@ fn build_router_with_cors(
         .route(
             "/plan/resolve-mention",
             post(routes::plan::resolve_plan_mention),
+        )
+        // Managed worktrees (Phase 3 durable isolation / handoff)
+        .route(
+            "/sessions/{sid}/worktrees",
+            get(routes::worktree::list_managed_worktrees)
+                .post(routes::worktree::create_managed_worktree),
+        )
+        .route(
+            "/worktrees/{id}",
+            get(routes::worktree::get_managed_worktree),
+        )
+        .route(
+            "/worktrees/{id}/archive",
+            post(routes::worktree::archive_managed_worktree),
+        )
+        .route(
+            "/worktrees/{id}/restore",
+            post(routes::worktree::restore_managed_worktree),
+        )
+        .route(
+            "/worktrees/{id}/handoff",
+            post(routes::worktree::handoff_managed_worktree),
+        )
+        // LSP diagnostics and semantic navigation snapshots (Phase 3.2)
+        .route(
+            "/sessions/{sid}/lsp/status",
+            get(routes::lsp::get_lsp_status),
+        )
+        .route(
+            "/sessions/{sid}/lsp/diagnostics",
+            get(routes::lsp::get_lsp_diagnostics),
+        )
+        // Context Retrieval v2 (Phase 3.5 task-aware context ranking)
+        .route(
+            "/sessions/{sid}/context-retrieval",
+            get(routes::context_retrieval::get_context_retrieval),
+        )
+        // IDE / ACP context envelope (Phase 3.10)
+        .route(
+            "/sessions/{sid}/ide-context",
+            get(routes::ide_context::get_session_ide_context)
+                .put(routes::ide_context::save_session_ide_context)
+                .delete(routes::ide_context::clear_session_ide_context),
+        )
+        // Review Engine (Phase 3.3 durable local code review)
+        .route(
+            "/sessions/{sid}/review-runs",
+            get(routes::review::list_review_runs).post(routes::review::run_code_review),
+        )
+        .route("/review-runs/{id}", get(routes::review::get_review_run))
+        .route(
+            "/review-findings/{id}/status",
+            post(routes::review::update_review_finding_status),
+        )
+        // Coding Eval task-level runner (Phase 5.1)
+        .route(
+            "/coding-eval/task-fixtures/run",
+            post(routes::coding_eval::run_coding_task_eval_fixture),
+        )
+        .route(
+            "/coding-eval/gold-tasks",
+            get(routes::coding_eval::list_coding_eval_gold_tasks),
+        )
+        .route(
+            "/coding-eval/gold-tasks/run",
+            post(routes::coding_eval::run_coding_eval_gold_task_pack),
+        )
+        .route(
+            "/coding-eval/strategy-effects/evaluate",
+            post(routes::coding_eval::evaluate_coding_eval_strategy_effect),
+        )
+        // Coding trend report, improvement proposals, distillation, and promotion loop (Phase 3.11-4.4)
+        .route(
+            "/sessions/{sid}/coding-trend",
+            get(routes::coding_improvement::get_coding_trend_report),
+        )
+        .route(
+            "/sessions/{sid}/coding-improvement/proposals",
+            get(routes::coding_improvement::list_coding_improvement_proposals)
+                .post(routes::coding_improvement::generate_coding_improvement_proposals),
+        )
+        .route(
+            "/sessions/{sid}/coding-improvement/distill",
+            post(routes::coding_improvement::distill_coding_improvement_proposals),
+        )
+        .route(
+            "/coding-improvement/proposals/{id}/status",
+            post(routes::coding_improvement::update_coding_improvement_proposal_status),
+        )
+        .route(
+            "/coding-improvement/proposals/{id}/action-preview",
+            get(routes::coding_improvement::preview_coding_improvement_proposal_action),
+        )
+        .route(
+            "/coding-improvement/proposals/{id}/apply",
+            post(routes::coding_improvement::apply_coding_improvement_proposal),
+        )
+        .route(
+            "/coding-improvement/proposals/{id}/promotion-preview",
+            get(routes::coding_improvement::preview_coding_improvement_proposal_promotion),
+        )
+        .route(
+            "/coding-improvement/proposals/{id}/promote",
+            post(routes::coding_improvement::promote_coding_improvement_proposal),
+        )
+        .route(
+            "/coding-improvement/eval-runs",
+            post(routes::coding_improvement::record_coding_eval_run),
+        )
+        .route(
+            "/coding-improvement/release-gate/evaluate",
+            post(routes::coding_improvement::evaluate_coding_eval_release_gate),
+        )
+        .route(
+            "/coding-improvement/generalization/evaluate",
+            post(routes::coding_improvement::evaluate_coding_learning_generalization),
+        )
+        .route(
+            "/coding-benchmark/center",
+            post(routes::coding_improvement::get_coding_benchmark_center),
+        )
+        .route(
+            "/coding-benchmark/campaigns",
+            post(routes::coding_improvement::list_coding_benchmark_campaigns),
+        )
+        .route(
+            "/coding-benchmark/campaigns/create",
+            post(routes::coding_improvement::create_coding_benchmark_campaign),
+        )
+        .route(
+            "/coding-benchmark/campaigns/run",
+            post(routes::coding_improvement::run_coding_benchmark_campaign),
+        )
+        .route(
+            "/coding-benchmark/campaigns/{id}",
+            get(routes::coding_improvement::get_coding_benchmark_campaign),
+        )
+        .route(
+            "/coding-benchmark/campaigns/{id}/cancel",
+            post(routes::coding_improvement::cancel_coding_benchmark_campaign),
+        )
+        .route(
+            "/coding-benchmark/leaderboard",
+            post(routes::coding_improvement::get_benchmark_leaderboard),
+        )
+        .route(
+            "/coding-benchmark/compare",
+            post(routes::coding_improvement::compare_benchmark_models),
+        )
+        .route(
+            "/coding-benchmark/corpus/import",
+            post(routes::coding_improvement::import_benchmark_task_pack),
+        )
+        .route(
+            "/coding-benchmark/corpus/packs",
+            post(routes::coding_improvement::list_benchmark_task_packs),
+        )
+        .route(
+            "/coding-benchmark/corpus/packs/{pack_id}/{version}",
+            get(routes::coding_improvement::get_benchmark_task_pack),
+        )
+        .route(
+            "/coding-benchmark/corpus/packs/status",
+            post(routes::coding_improvement::update_benchmark_task_pack_status),
+        )
+        .route(
+            "/coding-benchmark/corpus/packs/validate",
+            post(routes::coding_improvement::validate_benchmark_task_pack),
+        )
+        .route(
+            "/coding-benchmark/corpus/health",
+            post(routes::coding_improvement::get_benchmark_corpus_health),
+        )
+        .route(
+            "/coding-benchmark/reports/generate",
+            post(routes::coding_improvement::generate_benchmark_report),
+        )
+        .route(
+            "/coding-benchmark/reports",
+            post(routes::coding_improvement::list_benchmark_reports),
+        )
+        .route(
+            "/coding-benchmark/reports/{reportId}",
+            get(routes::coding_improvement::get_benchmark_report),
+        )
+        .route(
+            "/coding-benchmark/reports/release-evidence",
+            post(routes::coding_improvement::mark_benchmark_report_release_evidence),
+        )
+        .route(
+            "/coding-benchmark/continuous-gate/evaluate",
+            post(routes::coding_improvement::evaluate_continuous_benchmark_gate),
+        )
+        .route(
+            "/coding-benchmark/backlog/materialize",
+            post(routes::coding_improvement::materialize_benchmark_backlog),
+        )
+        .route(
+            "/coding-benchmark/backlog",
+            post(routes::coding_improvement::list_benchmark_backlog),
+        )
+        .route(
+            "/coding-benchmark/backlog/status",
+            post(routes::coding_improvement::update_benchmark_backlog_status),
+        )
+        .route(
+            "/domain-workflows/templates",
+            post(routes::domain_workflow::list_domain_workflow_templates),
+        )
+        .route(
+            "/domain-workflows/templates/save",
+            post(routes::domain_workflow::save_domain_workflow_template),
+        )
+        .route(
+            "/domain-workflows/preview",
+            post(routes::domain_workflow::preview_domain_workflow),
+        )
+        .route(
+            "/domain-evidence/record",
+            post(routes::domain_workflow::record_domain_evidence),
+        )
+        .route(
+            "/domain-evidence",
+            post(routes::domain_workflow::list_domain_evidence),
+        )
+        .route(
+            "/domain-artifact-export-guard/evaluate",
+            post(routes::domain_workflow::evaluate_domain_artifact_export_guard),
+        )
+        .route(
+            "/domain-connector-action-guard/evaluate",
+            post(routes::domain_workflow::evaluate_domain_connector_action_guard),
+        )
+        .route(
+            "/domain-connector-e2e-gate/evaluate",
+            post(routes::domain_workflow::evaluate_domain_connector_e2e_gate),
+        )
+        .route(
+            "/domain-eval/tasks",
+            post(routes::domain_eval::list_domain_eval_tasks),
+        )
+        .route(
+            "/domain-eval/runs/run",
+            post(routes::domain_eval::run_domain_eval_task),
+        )
+        .route(
+            "/domain-eval/fixtures/run",
+            post(routes::domain_eval::run_domain_eval_fixture),
+        )
+        .route(
+            "/domain-eval/cases/import",
+            post(routes::domain_eval::import_domain_eval_case),
+        )
+        .route(
+            "/domain-eval/calibrations/record",
+            post(routes::domain_eval::record_domain_eval_calibration),
+        )
+        .route(
+            "/domain-eval/calibrations",
+            post(routes::domain_eval::list_domain_eval_calibrations),
+        )
+        .route(
+            "/domain-eval/runs",
+            post(routes::domain_eval::list_domain_eval_runs),
+        )
+        .route(
+            "/domain-eval/fixture-runs",
+            post(routes::domain_eval::list_domain_eval_fixture_runs),
+        )
+        .route(
+            "/domain-eval/campaigns/create",
+            post(routes::domain_eval::create_domain_eval_campaign),
+        )
+        .route(
+            "/domain-eval/campaigns",
+            post(routes::domain_eval::list_domain_eval_campaigns),
+        )
+        .route(
+            "/domain-eval/campaigns/run",
+            post(routes::domain_eval::run_domain_eval_campaign),
+        )
+        .route(
+            "/domain-eval/campaigns/leaderboard",
+            post(routes::domain_eval::get_domain_eval_campaign_leaderboard),
+        )
+        .route(
+            "/domain-eval/campaigns/{campaign_id}",
+            get(routes::domain_eval::get_domain_eval_campaign),
+        )
+        .route(
+            "/domain-eval/campaigns/{campaign_id}/cancel",
+            post(routes::domain_eval::cancel_domain_eval_campaign),
+        )
+        .route(
+            "/domain-quality-gate/evaluate",
+            post(routes::domain_eval::evaluate_domain_quality_gate),
+        )
+        .route(
+            "/domain-readiness-gate/evaluate",
+            post(routes::domain_eval::evaluate_domain_readiness_gate),
+        )
+        .route(
+            "/domain-operational-gate/evaluate",
+            post(routes::domain_eval::evaluate_domain_operational_gate),
+        )
+        .route(
+            "/domain-soak-report/generate",
+            post(routes::domain_eval::generate_domain_soak_report),
+        )
+        .route(
+            "/sessions/{sid}/domain-quality-runs",
+            get(routes::domain_quality::list_domain_quality_runs),
+        )
+        .route(
+            "/domain-quality-runs/run",
+            post(routes::domain_quality::run_domain_quality),
+        )
+        .route(
+            "/domain-quality-runs/{id}",
+            get(routes::domain_quality::get_domain_quality_run),
+        )
+        // Smart verification selector (Phase 3.4)
+        .route(
+            "/sessions/{sid}/verification-runs",
+            get(routes::verification::list_verification_runs),
+        )
+        .route(
+            "/sessions/{sid}/verification-runs/plan",
+            post(routes::verification::plan_smart_verification),
+        )
+        .route(
+            "/sessions/{sid}/verification-runs/run",
+            post(routes::verification::run_smart_verification),
+        )
+        .route(
+            "/verification-runs/{id}",
+            get(routes::verification::get_verification_run),
+        )
+        // Workflow runs (Phase 2 durable coding workflows)
+        .route(
+            "/sessions/{sid}/workflow-runs",
+            get(routes::workflow::list_workflow_runs).post(routes::workflow::create_workflow_run),
+        )
+        .route(
+            "/sessions/{sid}/workflow-runs/watchdog",
+            get(routes::workflow::list_workflow_watchdog_findings),
+        )
+        .route(
+            "/sessions/{sid}/workflow-runs/preview",
+            post(routes::workflow::preview_workflow_script),
+        )
+        .route(
+            "/workflow-templates",
+            post(routes::workflow::list_saved_workflow_templates),
+        )
+        .route(
+            "/workflow-templates/save",
+            post(routes::workflow::save_workflow_template_from_run),
+        )
+        .route(
+            "/workflow-templates/run",
+            post(routes::workflow::create_workflow_run_from_template),
+        )
+        .route(
+            "/workflow-runs/{id}",
+            get(routes::workflow::get_workflow_run),
+        )
+        .route(
+            "/workflow-runs/{id}/run",
+            post(routes::workflow::run_workflow_run),
+        )
+        .route(
+            "/workflow-runs/{id}/pause",
+            post(routes::workflow::pause_workflow_run),
+        )
+        .route(
+            "/workflow-runs/{id}/resume",
+            post(routes::workflow::resume_workflow_run),
+        )
+        .route(
+            "/workflow-runs/{id}/approve",
+            post(routes::workflow::approve_workflow_run),
+        )
+        .route(
+            "/workflow-runs/{id}/cancel",
+            post(routes::workflow::cancel_workflow_run),
         )
         // Logging
         .route("/logs/query", post(routes::logging::query_logs))

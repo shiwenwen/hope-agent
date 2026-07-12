@@ -90,7 +90,7 @@ export function FileDeltaCounter({
         className,
       )}
       aria-label={label}
-      title={estimated ? label : undefined}
+      data-ha-title-tip={estimated ? label : undefined}
       data-estimated={estimated ? "true" : undefined}
     >
       {estimated && (

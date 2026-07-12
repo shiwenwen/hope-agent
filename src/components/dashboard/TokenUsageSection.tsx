@@ -243,17 +243,17 @@ const TokenUsageSection = React.memo(function TokenUsageSection({
       </div>
 
       <div className="bg-card border rounded-xl p-4">
-        <h3 className="text-sm font-medium mb-4">Usage by type</h3>
+        <h3 className="text-sm font-medium mb-4">{t("dashboard.token.byType")}</h3>
         <div className="overflow-auto">
           <div className="grid grid-cols-8 gap-2 text-xs font-medium text-muted-foreground pb-2 border-b min-w-[760px]">
-            <div>Type</div>
-            <div className="text-right">Calls</div>
+            <div>{t("dashboard.token.type")}</div>
+            <div className="text-right">{t("dashboard.token.calls")}</div>
             <div className="text-right">{t("dashboard.token.input")}</div>
             <div className="text-right">{t("dashboard.token.output")}</div>
-            <div className="text-right">Cache write</div>
-            <div className="text-right">Cache read</div>
+            <div className="text-right">{t("dashboard.token.cacheWrite")}</div>
+            <div className="text-right">{t("dashboard.token.cacheRead")}</div>
             <div className="text-right">{t("dashboard.token.cost")}</div>
-            <div className="text-right">Avg duration</div>
+            <div className="text-right">{t("dashboard.token.avgDuration")}</div>
           </div>
           {(data.byKind ?? []).length === 0 ? (
             <div className="py-8 text-center text-sm text-muted-foreground">
@@ -431,7 +431,7 @@ const TokenUsageSection = React.memo(function TokenUsageSection({
                   <button
                     className="truncate text-left font-mono hover:underline"
                     onClick={() => onDrillDownOperation(row.operation)}
-                    title={row.operation}
+                    data-ha-title-tip={row.operation}
                   >
                     {row.operation}
                   </button>
@@ -493,7 +493,7 @@ const TokenUsageSection = React.memo(function TokenUsageSection({
                     fontSize: "12px",
                   color: "var(--color-popover-foreground)",
                   }}
-                  formatter={(value) => [formatNumber(chartNumber(value)), "tokens"]}
+                  formatter={(value) => [formatNumber(chartNumber(value)), t("dashboard.token.tokensUnit")]}
                 />
               </PieChart>
             </ResponsiveContainer>

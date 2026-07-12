@@ -25,13 +25,13 @@ import {
   useState,
   type MouseEvent as ReactMouseEvent,
 } from "react"
-import { createPortal } from "react-dom"
 import { codeToHtml, type ShikiTransformer } from "shiki"
 import { Copy, Loader2, Quote } from "lucide-react"
 import { toast } from "sonner"
 import { useTranslation } from "react-i18next"
 
 import { cn } from "@/lib/utils"
+import { FloatingMenu } from "@/components/ui/floating-menu"
 
 export interface CodeSelection {
   startLine: number
@@ -44,7 +44,7 @@ export interface CodeSelection {
 const MAX_HIGHLIGHT_BYTES = 400_000
 
 const MENU_ITEM_CLASS =
-  "flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none transition-colors hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
+  "flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-[13px] text-foreground/80 outline-none transition-colors hover:bg-secondary/60 hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
 
 const lineData: ShikiTransformer = {
   name: "line-data",
@@ -242,34 +242,36 @@ export function ShikiCodeView({
   return (
     <>
       {view}
-      {menu
-        ? createPortal(
-            <div
-              className="fixed z-50 min-w-[11rem] overflow-hidden rounded-md border bg-popover p-1 text-popover-foreground shadow-md"
-              style={{ left: menu.x, top: menu.y }}
-              // Keep clicks inside from bubbling to the window "close" listener.
-              onPointerDown={(e) => e.stopPropagation()}
-            >
+      <FloatingMenu
+        open={menu !== null}
+        strategy="fixed"
+        portal
+        positionClassName=""
+        originClassName="origin-top-left"
+        className="min-w-[11rem] p-1.5"
+        style={{ left: menu?.x ?? 0, top: menu?.y ?? 0 }}
+      >
+          <div onPointerDown={(e) => e.stopPropagation()}>
               <button
                 type="button"
                 className={MENU_ITEM_CLASS}
                 onClick={() => {
-                  copyText(menu.sel?.text ?? content)
+                  copyText(menu?.sel?.text ?? content)
                   setMenu(null)
                 }}
               >
                 <Copy className="h-3.5 w-3.5" />
-                {menu.sel
+                {menu?.sel
                   ? t("fileBrowser.copySelection", "Copy selection")
                   : t("fileBrowser.copyAll", "Copy all")}
               </button>
               {onQuote ? (
                 <button
                   type="button"
-                  disabled={!menu.sel}
+                  disabled={!menu?.sel}
                   className={MENU_ITEM_CLASS}
                   onClick={() => {
-                    if (menu.sel) onQuote(menu.sel)
+                    if (menu?.sel) onQuote(menu.sel)
                     setMenu(null)
                   }}
                 >
@@ -277,10 +279,8 @@ export function ShikiCodeView({
                   {t("fileBrowser.quoteToChat", "Quote to chat")}
                 </button>
               ) : null}
-            </div>,
-            document.body,
-          )
-        : null}
+          </div>
+      </FloatingMenu>
     </>
   )
 }

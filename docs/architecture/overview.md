@@ -1,6 +1,6 @@
 # Hope Agent 系统架构总览
 
-> 返回 [文档索引](../README.md) | 更新时间：2026-04-28
+> 返回 [文档索引](../README.md) | 更新时间：2026-07-03
 
 ## 系统定位
 
@@ -62,7 +62,17 @@ graph TD
         ChatEngine --> Memory["Memory"]
         ChatEngine --> Knowledge["Knowledge (知识空间)"]
         ChatEngine --> PlanMode["Plan Mode"]
+        ChatEngine --> Goal["Goal<br/>(objective + evidence)"]
         ChatEngine --> Project["Project / Working Dir"]
+        ChatEngine --> Workflow["Workflow"]
+        Goal --> Workflow
+        ChatEngine --> DomainWorkflow["Domain Workflow"]
+        ChatEngine --> DomainQuality["Domain Quality"]
+        ChatEngine --> DomainEval["Domain Eval / Gate"]
+        DomainWorkflow --> Goal
+        DomainWorkflow --> Workflow
+        DomainQuality --> Goal
+        DomainEval --> DomainQuality
         EventBus["EventBus<br/>(broadcast)"]
         Channel["Channel (12 渠道)"]
         Cron["Cron"]
@@ -77,7 +87,7 @@ graph TD
 
 ```
 
-> Tauri 命令、HTTP 端点、工具数量是会增长的活数据，截至 2026-04-28 分别为 ~434 / ~431 / ~49；以 [API 参考](api-reference.md) 为单一真相源，其它文档不重复维护精确数字。
+> Tauri 命令、HTTP 端点、工具数量是会增长的活数据；以 [API 参考](api-reference.md) 为单一真相源，其它文档不重复维护精确数字。
 
 ## 核心数据流
 
@@ -148,7 +158,22 @@ graph LR
     ChatEngine --> ProjectCtx["Project / Working Dir"]
     ChatEngine --> Awareness["Behavior Awareness"]
     ChatEngine --> PlanMode["Plan Mode (5 态 FSM)"]
+    ChatEngine --> Goal["Goal<br/>(目标 + 证据链)"]
+    ChatEngine --> Workflow["Workflow<br/>(durable script runs)"]
+    ChatEngine --> ContextRetrieval["Context Retrieval<br/>(coding + domain context)"]
+    ChatEngine --> Review["Review Engine"]
+    ChatEngine --> Verification["Smart Verification"]
+    ChatEngine --> DomainWorkflow["Domain Workflow<br/>(template + evidence)"]
+    ChatEngine --> DomainQuality["Domain Quality<br/>(non-coding review)"]
+    ChatEngine --> DomainEval["Domain Eval / Gate"]
+    DomainWorkflow --> Goal
+    DomainWorkflow --> Workflow
+    DomainQuality --> Goal
+    DomainEval --> DomainQuality
     PlanMode --> Subagent["Subagent (spawn + inject)"]
+    Goal --> Workflow
+    Workflow --> Subagent
+    Workflow --> AsyncJobs["Async Jobs"]
     Subagent --> Team["Agent Team"]
 
     Channel["Channel"] --> ChatEngine
@@ -159,6 +184,7 @@ graph LR
     Dashboard["Dashboard"] --> SessionDB
     Dashboard --> LogDB["Log DB"]
     Dashboard --> CronDB["Cron DB"]
+    Dashboard --> DomainEval
     Logging["Logging"] -.->|"非阻塞双写"| AllModules["全模块"]
 
 ```
@@ -195,7 +221,7 @@ graph LR
 
 | 数据库 | 路径 | 用途 |
 |--------|------|------|
-| sessions.db | `~/.hope-agent/sessions.db` | 会话、消息、Subagent/ACP/Team 运行记录 |
+| sessions.db | `~/.hope-agent/sessions.db` | 会话、消息、Goal/Event/Link、WorkflowRun/Op/Event、Subagent/ACP/Team 运行记录 |
 | memory.db | `~/.hope-agent/memory.db` | 记忆条目 + FTS5 + vec0 向量 + embedding cache |
 | knowledge/index.db | `~/.hope-agent/knowledge/index.db` | 知识空间 chunk 索引（FTS5 + vec0），可重建缓存；笔记 `.md` 真相在 `knowledge/{id}/notes/` 或外部 vault，registry 在 sessions.db |
 | logs.db | `~/.hope-agent/logs.db` | 结构化日志（可查询/过滤） |
@@ -240,6 +266,25 @@ graph LR
 | 记忆检索 & 提取 | [记忆系统](memory.md) |
 | 知识空间双链笔记 & 检索 | [知识空间（Knowledge Base）](knowledge-base.md) |
 
+### 控制平面
+
+| 模块 | 文档 |
+|------|------|
+| Goal 顶层目标与完成审计 | [Goal 控制平面](goal.md) |
+| Workspace / 工作台总览 | [Workspace Control Panel](workspace.md) |
+| Durable Workflow / Execution Mode | [Workflow Mode、Workflow Run 与 Execution Mode](workflow.md) |
+| Loop 持续触发 | [Loop 控制平面](loop.md) |
+| Managed Worktree | [Managed Worktree 控制平面](worktree.md) |
+| LSP / Diagnostics / Symbol Context | [LSP 与语义代码智能](lsp.md) |
+| Review Engine | [Review Engine 控制平面](review-engine.md) |
+| Smart Verification | [Smart Verification 控制平面](verification-engine.md) |
+| Context Retrieval v2 | [Context Retrieval v2](context-retrieval.md) |
+| Coding Eval / Benchmark | [Coding Eval 控制面评测](coding-eval.md) |
+| Coding Improvement / Learning Loop | [Coding Improvement Loop](coding-improvement-loop.md) |
+| Domain Workflow / General Evidence | [Domain Workflow 控制平面](domain-workflow.md) |
+| Domain Quality review / verification | [Domain Quality 控制平面](domain-quality.md) |
+| Domain Eval / General Quality Gate | [Domain Eval 与 Quality Gate 控制平面](domain-eval.md) |
+
 ### Agent 能力
 
 | 模块 | 文档 |
@@ -269,7 +314,7 @@ graph LR
 | 图像生成 | [图像生成](image-generation.md) |
 | 定时任务 | [Cron 调度](cron.md) |
 | Sandbox 架构 | [Sandbox](sandbox.md) |
-| 数据大盘 | [Dashboard](dashboard.md) |
+| 数据大盘 / Learning 质量门 | [Dashboard](dashboard.md) |
 | Recap 深度复盘 | [Recap](recap.md) |
 | 日志系统 | [Logging](logging.md) |
 | 可靠性 / Guardian / Crash Journal | [可靠性与崩溃自愈](reliability.md) |

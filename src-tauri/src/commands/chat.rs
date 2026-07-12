@@ -12,23 +12,12 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tauri::State;
 
-const CHAT_CANCEL_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(100);
-const CHAT_CANCELLED_BY_CALLER: &str = "chat cancelled by caller";
-
-async fn wait_for_chat_cancel(cancel: Arc<AtomicBool>) {
-    loop {
-        if cancel.load(Ordering::SeqCst) {
-            return;
-        }
-        tokio::time::sleep(CHAT_CANCEL_POLL_INTERVAL).await;
-    }
-}
-
-fn event_enters_runtime_loop(event: &str) -> bool {
-    event.contains("\"type\":\"text_delta\"")
-        || event.contains("\"type\":\"thinking_delta\"")
-        || event.contains("\"type\":\"tool_call\"")
-        || event.contains("\"type\":\"tool_result\"")
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InitialGoalInput {
+    pub objective: String,
+    #[serde(default)]
+    pub completion_criteria: Option<String>,
 }
 
 /// Tauri-specific EventSink — wraps `tauri::ipc::Channel<String>`.
@@ -78,41 +67,6 @@ fn finish_turn_once_and_broadcast(
     broadcast_turn_end(session_id, turn_id, status, interrupt_reason, error);
 }
 
-fn finish_turn_after_execution_and_broadcast(
-    db: &SessionDB,
-    session_id: &str,
-    turn_id: &str,
-    cancel_requested: bool,
-    error: Option<&str>,
-    assistant_message_id: Option<i64>,
-) -> Option<session::ChatTurn> {
-    let turn = db
-        .finish_chat_turn_after_execution(turn_id, cancel_requested, error, assistant_message_id)
-        .ok()
-        .flatten();
-    let status = turn.as_ref().map(|turn| turn.status).unwrap_or_else(|| {
-        if cancel_requested {
-            session::ChatTurnStatus::Interrupted
-        } else if error.is_some() {
-            session::ChatTurnStatus::Failed
-        } else {
-            session::ChatTurnStatus::Completed
-        }
-    });
-    let interrupt_reason = turn.as_ref().and_then(|turn| turn.interrupt_reason);
-    let terminal_error = (status == session::ChatTurnStatus::Failed)
-        .then_some(error)
-        .flatten();
-    broadcast_turn_end(
-        session_id,
-        turn_id,
-        status,
-        interrupt_reason,
-        terminal_error,
-    );
-    turn
-}
-
 /// Save an attachment file to disk. Uses a temp directory when session_id is empty.
 /// Returns the absolute path to the saved file.
 #[tauri::command]
@@ -130,25 +84,143 @@ pub async fn save_attachment(
 pub async fn queue_turn_user_message(
     request_id: Option<String>,
     message: String,
-    attachments: Vec<Attachment>,
+    mut attachments: Vec<Attachment>,
     session_id: String,
-    turn_id: String,
     display_text: Option<String>,
     is_plan_trigger: Option<bool>,
+    goal_trigger: Option<bool>,
     plan_comment: Option<serde_json::Value>,
+    plan_mode: Option<String>,
+    workflow_mode: Option<String>,
+    state: State<'_, AppState>,
 ) -> Result<ha_core::chat_engine::turn_injection::QueueTurnUserMessageResult, CmdError> {
-    Ok(ha_core::chat_engine::turn_injection::enqueue(
-        ha_core::chat_engine::turn_injection::QueueTurnUserMessageArgs {
+    let request_id = request_id
+        .filter(|id| !id.trim().is_empty())
+        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+    let sid_for_files = session_id.clone();
+    let request_for_files = request_id.clone();
+    attachments = ha_core::blocking::run_blocking(move || {
+        ha_core::attachments::persist_queued_chat_attachments(
+            &sid_for_files,
+            &request_for_files,
+            &mut attachments,
+        )?;
+        anyhow::Ok(attachments)
+    })
+    .await?;
+    let attachments_for_cleanup = attachments.clone();
+    let input = ha_core::session::NewQueuedTurnMessage {
+        request_id: request_id.clone(),
+        session_id: session_id.clone(),
+        message,
+        display_text,
+        attachments,
+        is_plan_trigger: is_plan_trigger.unwrap_or(false),
+        goal_trigger: goal_trigger.unwrap_or(false),
+        plan_comment,
+        plan_mode,
+        workflow_mode,
+    };
+    let item_result = state
+        .session_db
+        .run(move |db| db.enqueue_turn_user_message(input))
+        .await;
+    let item = match item_result {
+        Ok(outcome) => {
+            if !outcome.inserted {
+                ha_core::attachments::remove_discarded_queued_attachments(
+                    &session_id,
+                    &request_id,
+                    &attachments_for_cleanup,
+                );
+            }
+            outcome.item
+        }
+        Err(error) => {
+            ha_core::attachments::remove_discarded_queued_attachments(
+                &session_id,
+                &request_id,
+                &attachments_for_cleanup,
+            );
+            return Err(error.into());
+        }
+    };
+    Ok(
+        ha_core::chat_engine::turn_injection::QueueTurnUserMessageResult {
+            queued: true,
             request_id,
-            session_id,
-            turn_id,
-            message,
-            display_text,
-            attachments,
-            is_plan_trigger: is_plan_trigger.unwrap_or(false),
-            plan_comment,
+            reason: None,
+            item: Some(item),
         },
-    ))
+    )
+}
+
+#[tauri::command]
+pub async fn list_queued_turn_user_messages(
+    session_id: String,
+    state: State<'_, AppState>,
+) -> Result<Vec<ha_core::session::QueuedTurnMessageView>, CmdError> {
+    state
+        .session_db
+        .run(move |db| db.list_queued_turn_user_messages(&session_id))
+        .await
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn update_queued_turn_user_message(
+    session_id: String,
+    request_id: String,
+    message: String,
+    display_text: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<bool, CmdError> {
+    state
+        .session_db
+        .run(move |db| {
+            db.update_queued_turn_user_message(
+                &session_id,
+                &request_id,
+                &message,
+                display_text.as_deref(),
+            )
+        })
+        .await
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn delete_queued_turn_user_message(
+    session_id: String,
+    request_id: String,
+    state: State<'_, AppState>,
+) -> Result<bool, CmdError> {
+    state
+        .session_db
+        .run(move |db| db.delete_queued_turn_user_message(&session_id, &request_id))
+        .await
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn insert_queued_turn_user_message(
+    session_id: String,
+    turn_id: String,
+    request_id: String,
+    state: State<'_, AppState>,
+) -> Result<ha_core::chat_engine::turn_injection::QueueTurnUserMessageResult, CmdError> {
+    state
+        .session_db
+        .run(move |db| {
+            ha_core::chat_engine::turn_injection::request_insertion(
+                db,
+                &session_id,
+                &turn_id,
+                &request_id,
+            )
+        })
+        .await
+        .map_err(Into::into)
 }
 
 #[tauri::command]
@@ -156,41 +228,62 @@ pub async fn cancel_queued_turn_user_message(
     session_id: String,
     turn_id: String,
     request_id: String,
+    state: State<'_, AppState>,
 ) -> Result<ha_core::chat_engine::turn_injection::CancelQueuedTurnMessageResult, CmdError> {
-    Ok(ha_core::chat_engine::turn_injection::cancel(
-        &session_id,
-        &turn_id,
-        &request_id,
-    ))
+    state
+        .session_db
+        .run(move |db| {
+            ha_core::chat_engine::turn_injection::cancel_insertion(
+                db,
+                &session_id,
+                &turn_id,
+                &request_id,
+            )
+        })
+        .await
+        .map_err(Into::into)
 }
 
 #[tauri::command]
 pub async fn chat(
-    message: String,
+    mut message: String,
     mut attachments: Vec<Attachment>,
     session_id: Option<String>,
     incognito: Option<bool>,
     model_override: Option<String>,
+    session_defaults: Option<ha_core::session::SessionDefaultsInput>,
     agent_id: Option<String>,
     permission_mode: Option<ha_core::permission::SessionMode>,
     sandbox_mode: Option<ha_core::permission::SandboxMode>,
-    plan_mode: Option<String>,
+    workflow_mode: Option<ha_core::workflow_mode::WorkflowMode>,
+    mut plan_mode: Option<String>,
     temperature_override: Option<f64>,
     reasoning_effort: Option<String>,
     // When set, DB stores `display_text` as the user message while `message` is still
     // fed to the LLM (slash-skill passThrough uses this).
-    display_text: Option<String>,
+    mut display_text: Option<String>,
     // When true, the persisted user row is tagged with
     // `attachments_meta = {"plan_trigger": true}` so the UI can render it as a
     // system chip instead of a regular user bubble (Plan Mode approve/resume).
-    is_plan_trigger: Option<bool>,
+    mut is_plan_trigger: Option<bool>,
+    // When true, the persisted user row is tagged with
+    // `attachments_meta = {"goal_trigger": true}` so the UI can render a
+    // regular user bubble with a Goal badge.
+    mut goal_trigger: Option<bool>,
+    // First-turn Goal creation payload. Only honored on the auto-create branch:
+    // the durable Goal is created after prompt preflight passes and before the
+    // model turn starts, so the first assistant response sees Active Goal.
+    initial_goal: Option<InitialGoalInput>,
     // Structured payload for plan inline-comment messages — stamped into
     // `attachments_meta = {"plan_comment": {selectedText, comment}}`. The
     // desktop GUI reads this back to render PlanCommentBubble; IM channels
     // ignore it (they consume `display_text` instead). Mutually exclusive
     // with `is_plan_trigger` (a comment is not a trigger), `is_plan_trigger`
     // wins if both are set.
-    plan_comment: Option<serde_json::Value>,
+    mut plan_comment: Option<serde_json::Value>,
+    // Durable pending-message id. When present, the backend claims the row and
+    // replaces all user-controlled message fields from SQLite.
+    queued_request_id: Option<String>,
     // Draft working dir picked before the session was materialized. Only honored
     // when this call also creates the session — applies via the same
     // `update_session_working_dir` validation as the explicit setter command.
@@ -223,6 +316,7 @@ pub async fn chat(
     // Capture optional per-session modes — applied below once we have a session id.
     let permission_mode_pending = permission_mode;
     let sandbox_mode_pending = sandbox_mode;
+    let mut workflow_mode_pending = workflow_mode;
 
     let db = state.session_db.clone();
     let cancel = Arc::new(AtomicBool::new(false));
@@ -238,14 +332,28 @@ pub async fn chat(
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .map(str::to_owned);
+    let auto_create_session = session_id.as_deref().is_none_or(|id| id.is_empty());
+    if auto_create_session
+        && initial_goal
+            .as_ref()
+            .is_some_and(|goal| goal.objective.trim().is_empty())
+    {
+        return Err(CmdError::msg("Initial goal objective must not be empty"));
+    }
+    if auto_create_session
+        && initial_goal.is_some()
+        && incognito.unwrap_or(false)
+        && project_id.is_none()
+    {
+        return Err(CmdError::msg(
+            "Cannot create a durable goal for an incognito session",
+        ));
+    }
 
     // Resolve or create session — prefer explicit agent_id from frontend
+    let has_explicit_agent = agent_id.is_some();
     let current_agent_id = match agent_id {
-        Some(id) => {
-            // Sync backend state so other code paths see the correct agent
-            *state.current_agent_id.lock().await = id.clone();
-            id
-        }
+        Some(id) => id,
         // No explicit agent. For a lazy project draft (no session yet) resolve
         // via the project's default-agent chain so the materialized session
         // matches what `create_session_cmd` / the resolver would pick;
@@ -262,6 +370,15 @@ pub async fn chat(
             None => state.current_agent_id.lock().await.clone(),
         },
     };
+    // Acquire before creating or mutating session state. The engine keeps its
+    // own admission backstop, while this outer guard closes the shell-side
+    // check/create race with Agent deletion.
+    let _agent_admission = ha_core::agent_lifecycle::begin_agent_run(&current_agent_id)
+        .map_err(|e| CmdError::msg(e.to_string()))?;
+    if has_explicit_agent {
+        // Sync backend state only after lifecycle admission succeeds.
+        *state.current_agent_id.lock().await = current_agent_id.clone();
+    }
     let mut new_session_created: Option<String> = None;
     let sid = match session_id {
         Some(id) if !id.is_empty() => id,
@@ -282,25 +399,74 @@ pub async fn chat(
         }
     };
     let agent_def = agent_loader::load_agent(&current_agent_id).ok();
-    let agent_default_effort = agent_def
-        .as_ref()
-        .and_then(|def| def.config.model.reasoning_effort.clone());
 
     let requested_effort = reasoning_effort
         .as_deref()
         .map(str::trim)
         .filter(|effort| !effort.is_empty())
         .map(str::to_string);
-    let session_effort = {
-        let sid = sid.clone();
-        db.run(move |db| db.get_session(&sid)).await?
+    if new_session_created.is_some() {
+        let sid_for_defaults = sid.clone();
+        let defaults = session_defaults.clone().unwrap_or_default();
+        let model_for_defaults = defaults.model;
+        let effort_for_defaults = defaults.reasoning_effort;
+        let temperature_for_defaults = defaults.temperature;
+        let apply_defaults = db
+            .run(move |session_db| -> anyhow::Result<()> {
+                if temperature_for_defaults.is_some_and(|value| !(0.0..=2.0).contains(&value)) {
+                    anyhow::bail!("Temperature must be between 0.0 and 2.0");
+                }
+                if effort_for_defaults
+                    .as_deref()
+                    .is_some_and(|effort| !ha_core::agent::is_valid_reasoning_effort(effort))
+                {
+                    anyhow::bail!("Invalid reasoning effort in session defaults");
+                }
+                if let Some(reference) = model_for_defaults.as_deref() {
+                    let model = provider::parse_model_ref(reference)
+                        .ok_or_else(|| anyhow::anyhow!("Invalid model reference: {reference}"))?;
+                    let config = ha_core::config::cached_config();
+                    if !provider::model_ref_exists(&config.providers, &model) {
+                        anyhow::bail!("Selected model no longer exists: {reference}");
+                    }
+                    let provider_name = config
+                        .providers
+                        .iter()
+                        .find(|candidate| candidate.id == model.provider_id)
+                        .map(|candidate| candidate.name.as_str());
+                    session_db.update_session_model(
+                        &sid_for_defaults,
+                        Some(&model.provider_id),
+                        provider_name,
+                        Some(&model.model_id),
+                    )?;
+                }
+                if let Some(temperature) = temperature_for_defaults {
+                    session_db.update_session_temperature(&sid_for_defaults, Some(temperature))?;
+                }
+                if let Some(effort) = effort_for_defaults.as_deref() {
+                    session_db.update_session_reasoning_effort(&sid_for_defaults, Some(effort))?;
+                }
+                Ok(())
+            })
+            .await;
+        if let Err(error) = apply_defaults {
+            // The row was created before draft defaults could be validated.
+            // Remove it so a deleted model / malformed draft does not leave an
+            // empty Session that the frontend never received.
+            let sid_for_cleanup = sid.clone();
+            let _ = db
+                .run(move |session_db| session_db.delete_session(&sid_for_cleanup))
+                .await;
+            return Err(error.into());
+        }
     }
-    .and_then(|meta| meta.reasoning_effort);
-    let global_effort = state.reasoning_effort.lock().await.clone();
-    let effort = requested_effort
-        .or(session_effort)
-        .or(agent_default_effort)
-        .unwrap_or(global_effort);
+    let runtime_defaults = {
+        let sid = sid.clone();
+        db.run(move |db| ha_core::session::ensure_session_runtime_defaults(db, &sid))
+            .await?
+    };
+    let effort = requested_effort.unwrap_or_else(|| runtime_defaults.reasoning_effort.clone());
     if !ha_core::agent::is_valid_reasoning_effort(&effort) {
         return Err(CmdError::msg(format!(
             "Invalid reasoning effort: {}. Valid: {:?}",
@@ -308,15 +474,6 @@ pub async fn chat(
             ha_core::agent::VALID_REASONING_EFFORTS
         )));
     }
-    *state.reasoning_effort.lock().await = effort.clone();
-    {
-        let sid = sid.clone();
-        let effort = effort.clone();
-        db.run(move |db| db.update_session_reasoning_effort(&sid, Some(&effort)))
-            .await?;
-    }
-    let effort_ref_str = effort.clone();
-
     // Apply draft working dir picked before the session existed. Only honored on
     // the auto-create branch — explicit-session callers must use
     // `set_session_working_dir` to change it. Validation errors are surfaced so
@@ -335,7 +492,6 @@ pub async fn chat(
         })
         .await?;
     }
-
     if new_session_created.is_some() {
         if let Some(wd) = working_dir.as_ref().filter(|s| !s.trim().is_empty()) {
             {
@@ -362,12 +518,65 @@ pub async fn chat(
     }
 
     let turn_id = uuid::Uuid::new_v4().to_string();
-    let _active_turn_guard = crate::chat_engine::active_turn::try_acquire(
+    let queued_request_id = queued_request_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .map(str::to_string);
+    if let Some(request_id) = queued_request_id.as_ref() {
+        let sid_for_claim = sid.clone();
+        let request_id_for_claim = request_id.clone();
+        let turn_for_claim = turn_id.clone();
+        let claimed = db
+            .run(move |db| {
+                db.claim_queued_turn_message_for_dispatch(
+                    &sid_for_claim,
+                    &request_id_for_claim,
+                    &turn_for_claim,
+                )
+            })
+            .await?
+            .ok_or_else(|| CmdError::msg("Queued message is no longer available"))?;
+        message = claimed.message;
+        attachments = claimed.attachments;
+        display_text = claimed.display_text;
+        is_plan_trigger = Some(claimed.is_plan_trigger);
+        goal_trigger = Some(claimed.goal_trigger);
+        plan_comment = claimed.plan_comment;
+        plan_mode = claimed.plan_mode;
+        workflow_mode_pending = claimed
+            .workflow_mode
+            .as_deref()
+            .and_then(ha_core::workflow_mode::WorkflowMode::from_str);
+    }
+    if let Some(mode) = workflow_mode_pending {
+        db.update_session_workflow_mode(&sid, mode)?;
+    }
+    let _active_turn_guard = match crate::chat_engine::active_turn::try_acquire(
         &sid,
         crate::chat_engine::stream_seq::ChatSource::Desktop,
         turn_id.clone(),
         cancel.clone(),
-    )?;
+    ) {
+        Ok(guard) => guard,
+        Err(error) => {
+            if let Some(request_id) = queued_request_id.as_ref() {
+                let sid_for_release = sid.clone();
+                let request_id_for_release = request_id.clone();
+                let turn_for_release = turn_id.clone();
+                let _ = db
+                    .run(move |db| {
+                        db.release_queued_turn_message_dispatch(
+                            &sid_for_release,
+                            &request_id_for_release,
+                            &turn_for_release,
+                        )
+                    })
+                    .await;
+            }
+            return Err(error.into());
+        }
+    };
 
     // Mark this session as active — cancels any running subagent injection and blocks new ones
     let _chat_session_guard = crate::subagent::ChatSessionGuard::new(&sid);
@@ -395,6 +604,15 @@ pub async fn chat(
             effective_prompt
         }
         ha_core::agent::preflight::PreflightOutcome::Block { reason } => {
+            if let Some(request_id) = queued_request_id.as_ref() {
+                let sid_for_remove = sid.clone();
+                let request_id_for_remove = request_id.clone();
+                let _ = db
+                    .run(move |db| {
+                        db.remove_claimed_turn_message(&sid_for_remove, &request_id_for_remove)
+                    })
+                    .await;
+            }
             // A UserPromptSubmit hook blocked the prompt: record a UI-only event
             // marker (visible in history but excluded from LLM context) and
             // surface it. The prompt is neither persisted as a user message nor
@@ -434,7 +652,7 @@ pub async fn chat(
                     let new_sid = new_sid.clone();
                     let prompt = raw_prompt.to_string();
                     db.run(move |db| {
-                        ha_core::session::ensure_first_message_title(db, &new_sid, &prompt)
+                        ha_core::session::ensure_first_message_title(db, &new_sid, &prompt, None)
                     })
                     .await
                 };
@@ -457,6 +675,26 @@ pub async fn chat(
             return Ok(notice);
         }
     };
+
+    if let (Some(new_sid), Some(goal)) = (new_session_created.as_ref(), initial_goal.as_ref()) {
+        db.create_goal(ha_core::goal::CreateGoalInput {
+            session_id: new_sid.clone(),
+            objective: goal.objective.trim().to_string(),
+            completion_criteria: goal
+                .completion_criteria
+                .as_deref()
+                .unwrap_or_default()
+                .trim()
+                .to_string(),
+            domain: None,
+            workflow_template_id: None,
+            workflow_template_version: None,
+            workflow_task_type: None,
+            budget_token_limit: None,
+            budget_time_limit_secs: None,
+            budget_turn_limit: None,
+        })?;
+    }
 
     // KB sidebar chat: promote the freshly-created session into a knowledge
     // thread (hidden from the main list; bound to the KB + anchor note) now that
@@ -486,13 +724,36 @@ pub async fn chat(
     }
 
     let attachments_meta = {
-        let sid = sid.clone();
+        let sid_for_files = sid.clone();
         let mut moved = std::mem::take(&mut attachments);
-        let (meta, persisted) = ha_core::blocking::run_blocking(move || {
-            let meta = ha_core::attachments::persist_chat_user_attachments_meta(&sid, &mut moved)?;
+        let persisted_result = ha_core::blocking::run_blocking(move || {
+            let meta = ha_core::attachments::persist_chat_user_attachments_meta(
+                &sid_for_files,
+                &mut moved,
+            )?;
             anyhow::Ok((meta, moved))
         })
-        .await?;
+        .await;
+        let (meta, persisted) = match persisted_result {
+            Ok(value) => value,
+            Err(error) => {
+                if let Some(request_id) = queued_request_id.as_ref() {
+                    let sid_for_release = sid.clone();
+                    let request_id_for_release = request_id.clone();
+                    let turn_for_release = turn_id.clone();
+                    let _ = db
+                        .run(move |db| {
+                            db.release_queued_turn_message_dispatch(
+                                &sid_for_release,
+                                &request_id_for_release,
+                                &turn_for_release,
+                            )
+                        })
+                        .await;
+                }
+                return Err(error.into());
+            }
+        };
         attachments = persisted;
         meta
     };
@@ -500,16 +761,24 @@ pub async fn chat(
     // Save user message to DB
     let mut user_msg = session::NewMessage::user(&effective_prompt)
         .with_source(ha_core::chat_engine::ChatSource::Desktop);
+    user_msg.queue_request_id = queued_request_id.clone();
     user_msg.attachments_meta = session::build_chat_user_attachments_meta(
         is_plan_trigger.unwrap_or(false),
         plan_comment.as_ref(),
+        goal_trigger.unwrap_or(false),
         attachments_meta,
     );
-    let _user_message_id = {
+    let title_attachments_meta = user_msg.attachments_meta.clone();
+    let user_message_result = {
         let sid = sid.clone();
         let turn_id = turn_id.clone();
+        let queue_id_for_consume = queued_request_id.clone();
         db.run(move |db| -> anyhow::Result<Option<i64>> {
-            let user_message_id = db.append_message(&sid, &user_msg).ok();
+            let user_message_id = if queue_id_for_consume.is_some() {
+                Some(db.append_message(&sid, &user_msg)?)
+            } else {
+                db.append_message(&sid, &user_msg).ok()
+            };
             db.create_chat_turn_with_id(
                 &turn_id,
                 &sid,
@@ -517,9 +786,32 @@ pub async fn chat(
                 None,
                 user_message_id,
             )?;
+            if let Some(request_id) = queue_id_for_consume.as_deref() {
+                db.consume_dispatched_turn_message(&sid, request_id, &turn_id)?;
+            }
             Ok(user_message_id)
         })
-        .await?
+        .await
+    };
+    let _user_message_id = match user_message_result {
+        Ok(message_id) => message_id,
+        Err(error) => {
+            if let Some(request_id) = queued_request_id.as_ref() {
+                let sid_for_reconcile = sid.clone();
+                let request_for_reconcile = request_id.clone();
+                let turn_for_reconcile = turn_id.clone();
+                let _ = db
+                    .run(move |db| {
+                        db.reconcile_failed_turn_message_dispatch(
+                            &sid_for_reconcile,
+                            &request_for_reconcile,
+                            &turn_for_reconcile,
+                        )
+                    })
+                    .await;
+            }
+            return Err(error.into());
+        }
     };
 
     // Log chat start
@@ -543,8 +835,15 @@ pub async fn chat(
     let _ = {
         let sid = sid.clone();
         let prompt = effective_prompt.clone();
-        db.run(move |db| session::ensure_first_message_title(db, &sid, &prompt))
-            .await
+        db.run(move |db| {
+            session::ensure_first_message_title(
+                db,
+                &sid,
+                &prompt,
+                title_attachments_meta.as_deref(),
+            )
+        })
+        .await
     };
 
     // Emit session_created now that title is set, so frontend's reloadSessions() gets the title
@@ -579,15 +878,9 @@ pub async fn chat(
     // One lock-free config snapshot for the whole request.
     let cfg = ha_core::config::cached_config();
 
-    // Resolve temperature: session > agent > global
-    let resolved_temperature: Option<f64> = {
-        let global_temp = cfg.temperature;
-        let agent_temp = agent_def
-            .as_ref()
-            .and_then(|def| def.config.model.temperature);
-        // Priority: session (frontend override) > agent > global
-        temperature_override.or(agent_temp).or(global_temp)
-    };
+    // Explicit API override remains per-turn; otherwise use the immutable
+    // Session snapshot.
+    let resolved_temperature = temperature_override.or(runtime_defaults.temperature);
 
     // Resolve plan state early so we can use plan_model override for model chain
     let early_plan_state = if let Some(ref pm) = plan_mode {
@@ -693,71 +986,82 @@ pub async fn chat(
         // else: use_subagent=false, fall through to inline PlanAgent mode below
     }
 
-    // Session-scoped model pin trumps both agent.primary and config.active_model
-    // when no explicit per-turn override was provided. This is how /api PATCH
-    // /sessions/{id}/model and the new set_session_model Tauri command surface
-    // their effect on subsequent turns. Plan Mode plan_model still wins.
-    let session_pinned_model: Option<String> = if model_override.is_none() {
-        let sid2 = sid.clone();
-        db.run(move |db| db.get_session(&sid2))
-            .await
-            .ok()
-            .flatten()
-            .and_then(|meta| match (meta.provider_id, meta.model_id) {
-                (Some(p), Some(m)) if !p.is_empty() && !m.is_empty() => {
-                    Some(format!("{}::{}", p, m))
-                }
-                _ => None,
-            })
+    // Plan Mode's persisted model preference remains the highest-priority
+    // candidate during Planning. Unlike a per-turn override, a stale Plan or
+    // Session preference is allowed to fall through to Agent/global defaults.
+    let plan_model_preference = if early_plan_state == crate::plan::PlanModeState::Planning {
+        agent_model_config.plan_model.as_deref()
     } else {
         None
     };
 
-    let (primary, fallbacks) = {
-        // Plan Mode model override: use cheaper/faster model during Planning phase
-        let plan_model_override = if early_plan_state == crate::plan::PlanModeState::Planning {
-            agent_model_config.plan_model.clone()
+    // Session-scoped model pin trumps both agent.primary and config.active_model
+    // when neither Plan Mode nor an explicit per-turn override won. This is how
+    // set_session_model surfaces its effect on subsequent turns.
+    let session_pinned_model: Option<String> =
+        if plan_model_preference.is_none() && model_override.is_none() {
+            let sid2 = sid.clone();
+            db.run(move |db| db.get_session(&sid2))
+                .await
+                .ok()
+                .flatten()
+                .and_then(|meta| match (meta.provider_id, meta.model_id) {
+                    (Some(p), Some(m)) if !p.is_empty() && !m.is_empty() => {
+                        Some(format!("{}::{}", p, m))
+                    }
+                    _ => None,
+                })
         } else {
             None
         };
 
-        if let Some(ref plan_model_str) = plan_model_override {
-            // Planning phase: use plan_model as primary, keep fallbacks
-            let mut model_cfg = agent_model_config.clone();
-            model_cfg.primary = Some(plan_model_str.clone());
-            provider::resolve_model_chain(&model_cfg, &cfg)
-        } else if let Some(ref override_str) = model_override {
-            // User explicitly selected a model in the input box
-            let override_model = provider::parse_model_ref(override_str);
-            let mut model_cfg = agent_model_config.clone();
-            if override_model.is_some() {
-                model_cfg.primary = Some(override_str.clone());
+    // Explicit current-turn overrides are strict: if the requested model was
+    // removed or its Provider is disabled, surface the error instead of
+    // silently switching Provider. Plan Mode still wins when configured.
+    if plan_model_preference.is_none() {
+        if let Some(override_str) = model_override.as_deref() {
+            let override_is_available = provider::parse_model_ref(override_str)
+                .is_some_and(|model| provider::model_ref_is_available(&cfg.providers, &model));
+            if !override_is_available {
+                let err = format!(
+                    "Selected model override is unavailable: {override_str}. Please choose an enabled provider and model."
+                );
+                let partial = ha_core::chat_engine::finalize::PartialMeta {
+                    user_message: Some(message.clone()),
+                    turn_id: Some(turn_id.clone()),
+                    ..Default::default()
+                };
+                let outcome = ha_core::chat_engine::finalize::finalize_turn_context_blocking(
+                    &db,
+                    &sid,
+                    ha_core::chat_engine::finalize::TerminationReason::Other {
+                        message: err.clone(),
+                    },
+                    partial,
+                    ha_core::chat_engine::ChatSource::Desktop,
+                );
+                broadcast_turn_end(
+                    &sid,
+                    &turn_id,
+                    outcome
+                        .turn_status
+                        .unwrap_or(session::ChatTurnStatus::Failed),
+                    outcome.interrupt_reason,
+                    Some(&err),
+                );
+                return Err(CmdError::msg(err));
             }
-            provider::resolve_model_chain(&model_cfg, &cfg)
-        } else if let Some(ref pinned) = session_pinned_model {
-            // Session has its own pinned model (set via set_session_model)
-            let mut model_cfg = agent_model_config.clone();
-            model_cfg.primary = Some(pinned.clone());
-            provider::resolve_model_chain(&model_cfg, &cfg)
-        } else {
-            provider::resolve_model_chain(&agent_model_config, &cfg)
         }
-    };
+    }
+
+    let preferred_model = plan_model_preference
+        .or(model_override.as_deref())
+        .or(session_pinned_model.as_deref());
+    let (primary, fallbacks) =
+        provider::resolve_model_chain_with_preferred(preferred_model, &agent_model_config, &cfg);
 
     // Build ordered model chain: [primary, ...fallbacks]
-    let mut model_chain: Vec<ActiveModel> = Vec::new();
-    if let Some(p) = primary {
-        model_chain.push(p);
-    }
-    for fb in fallbacks {
-        // Avoid duplicates
-        if !model_chain
-            .iter()
-            .any(|m| m.provider_id == fb.provider_id && m.model_id == fb.model_id)
-        {
-            model_chain.push(fb);
-        }
-    }
+    let model_chain: Vec<ActiveModel> = primary.into_iter().chain(fallbacks).collect();
 
     // Log model chain resolution
     logger.log("info", "agent", "lib::chat::model_chain",
@@ -769,270 +1073,29 @@ pub async fn chat(
         Some(sid.clone()), Some(current_agent_id.clone()));
 
     if model_chain.is_empty() {
-        // No model chain resolved — fall back to existing agent instance
-        let agent_lock = state.agent.lock().await;
-        return match agent_lock.as_ref() {
-            Some(agent) => {
-                // Restore conversation history from DB for this session
-                crate::chat_engine::restore_agent_context(&db, &sid, agent);
-
-                let effort_ref = Some(effort_ref_str.as_str());
-                let db_for_cb = db.clone();
-                let sid_for_cb = sid.clone();
-                let cancel_clone = cancel.clone();
-                let chat_start = std::time::Instant::now();
-                let on_event_clone = on_event.clone();
-                let captured_usage: Arc<std::sync::Mutex<crate::chat_engine::CapturedUsage>> =
-                    Arc::new(std::sync::Mutex::new(Default::default()));
-                let captured_usage_clone = captured_usage.clone();
-                let cancel_wait = cancel_clone.clone();
-                let allow_hard_cancel = Arc::new(AtomicBool::new(true));
-                let allow_hard_cancel_for_cb = allow_hard_cancel.clone();
-                let mut chat_future = Box::pin(agent.chat(
-                    &message,
-                    &attachments,
-                    effort_ref,
-                    cancel_clone,
-                    move |delta| {
-                        if event_enters_runtime_loop(delta) {
-                            allow_hard_cancel_for_cb.store(false, Ordering::SeqCst);
-                        }
-                        if let Ok(event) = serde_json::from_str::<serde_json::Value>(delta) {
-                            if event.get("type").and_then(|t| t.as_str()) == Some("usage") {
-                                if let Ok(mut usage) = captured_usage_clone.lock() {
-                                    usage.absorb_event(&event);
-                                }
-                            }
-                        }
-                        crate::chat_engine::persist_tool_event(
-                            &db_for_cb,
-                            &sid_for_cb,
-                            ha_core::chat_engine::ChatSource::Desktop,
-                            delta,
-                        );
-                        let _ = on_event_clone.send(delta.to_string());
-                    },
-                ));
-                let chat_result = match tokio::select! {
-                    biased;
-                    _ = wait_for_chat_cancel(cancel_wait) => None,
-                    result = &mut chat_future => Some(result),
-                } {
-                    Some(result) => result,
-                    None if allow_hard_cancel.load(Ordering::SeqCst) => {
-                        Err(anyhow::anyhow!(CHAT_CANCELLED_BY_CALLER))
-                    }
-                    None => chat_future.as_mut().await,
-                };
-                drop(chat_future);
-                let (result, thinking) = match chat_result {
-                    Ok((text, thinking)) => (text, thinking),
-                    Err(e) => {
-                        let err = e.to_string();
-                        if cancel.load(Ordering::SeqCst) {
-                            let partial = ha_core::chat_engine::finalize::PartialMeta {
-                                user_message: Some(message.clone()),
-                                turn_id: Some(turn_id.clone()),
-                                ..Default::default()
-                            };
-                            let outcome =
-                                ha_core::chat_engine::finalize::finalize_turn_context_blocking(
-                                    &db,
-                                    &sid,
-                                    ha_core::chat_engine::finalize::TerminationReason::UserStop,
-                                    partial,
-                                    ha_core::chat_engine::ChatSource::Desktop,
-                                );
-                            broadcast_turn_end(
-                                &sid,
-                                &turn_id,
-                                outcome
-                                    .turn_status
-                                    .unwrap_or(session::ChatTurnStatus::Interrupted),
-                                outcome
-                                    .interrupt_reason
-                                    .or(Some(session::ChatTurnInterruptReason::UserStop)),
-                                None,
-                            );
-                            return Ok(String::new());
-                        }
-                        let turn = finish_turn_after_execution_and_broadcast(
-                            &db,
-                            &sid,
-                            &turn_id,
-                            cancel.load(Ordering::SeqCst),
-                            Some(err.as_str()),
-                            None,
-                        );
-                        if turn
-                            .as_ref()
-                            .map(|turn| turn.status != session::ChatTurnStatus::Interrupted)
-                            .unwrap_or(true)
-                        {
-                            // Side-query / agent path (not the main
-                            // `run_chat_engine` loop) — route the
-                            // failure through the unified finalize
-                            // entry so context_json gets a marker and
-                            // the GUI sees a role=event row instead of
-                            // the old hand-rolled append_message hack.
-                            let partial = ha_core::chat_engine::finalize::PartialMeta {
-                                user_message: Some(message.clone()),
-                                turn_id: Some(turn_id.clone()),
-                                ..Default::default()
-                            };
-                            let _ = ha_core::chat_engine::finalize::finalize_turn_context_blocking(
-                                &db,
-                                &sid,
-                                ha_core::chat_engine::finalize::TerminationReason::Other {
-                                    message: err.clone(),
-                                },
-                                partial,
-                                ha_core::chat_engine::ChatSource::Desktop,
-                            );
-                        }
-                        return Err(CmdError::msg(err));
-                    }
-                };
-                let duration_ms = chat_start.elapsed().as_millis() as u64;
-                let usage_event = serde_json::json!({"type": "usage", "duration_ms": duration_ms});
-                if let Ok(json_str) = serde_json::to_string(&usage_event) {
-                    let _ = on_event.send(json_str);
-                }
-                let mut assistant_msg = session::NewMessage::assistant(&result)
-                    .with_source(ha_core::chat_engine::ChatSource::Desktop);
-                assistant_msg.tool_duration_ms = Some(duration_ms as i64);
-                assistant_msg.thinking = thinking;
-                if let Ok(usage) = captured_usage.lock() {
-                    assistant_msg.tokens_in = usage.input_tokens;
-                    assistant_msg.tokens_out = usage.output_tokens;
-                    assistant_msg.tokens_in_last = usage.last_input_tokens;
-                    assistant_msg.model = usage.model.clone();
-                    assistant_msg.ttft_ms = usage.ttft_ms;
-                    assistant_msg.tokens_cache_creation = usage
-                        .last_cache_creation_input_tokens
-                        .or(usage.cache_creation_input_tokens);
-                    assistant_msg.tokens_cache_read = usage
-                        .last_cache_read_input_tokens
-                        .or(usage.cache_read_input_tokens);
-                }
-                let assistant_id = {
-                    let sid = sid.clone();
-                    let agent_id = current_agent_id.clone();
-                    let captured_usage = captured_usage.clone();
-                    db.run(move |db| {
-                        let assistant_id = db.append_message(&sid, &assistant_msg).ok();
-                        let Some(message_id) = assistant_id else {
-                            return assistant_id;
-                        };
-                        if let Ok(usage) = captured_usage.lock() {
-                            let mut event = ha_core::model_usage::ModelUsageEvent::new(
-                                ha_core::model_usage::KIND_CHAT,
-                            )
-                            .with_usage(
-                                usage.input_tokens.unwrap_or(0) as u64,
-                                usage.output_tokens.unwrap_or(0) as u64,
-                                usage.cache_creation_input_tokens.unwrap_or(0) as u64,
-                                usage.cache_read_input_tokens.unwrap_or(0) as u64,
-                            );
-                            event.request_key = Some(format!("message:{message_id}"));
-                            event.operation = Some("chat".to_string());
-                            event.source = Some(
-                                ha_core::chat_engine::ChatSource::Desktop
-                                    .as_str()
-                                    .to_string(),
-                            );
-                            event.model_id = usage.model.clone();
-                            event.session_id = Some(sid.clone());
-                            event.agent_id = Some(agent_id.clone());
-                            event.duration_ms = Some(duration_ms);
-                            event.ttft_ms = usage.ttft_ms.map(|v| v.max(0) as u64);
-                            if let Err(e) = db.insert_model_usage_event(&event) {
-                                ha_core::app_warn!(
-                                    "model_usage",
-                                    "chat",
-                                    "failed to record fallback chat usage for message {}: {}",
-                                    message_id,
-                                    e
-                                );
-                            }
-                        }
-                        assistant_id
-                    })
-                    .await
-                };
-                if cancel.load(Ordering::SeqCst) {
-                    crate::chat_engine::save_agent_context(&db, &sid, agent);
-                    let partial = ha_core::chat_engine::finalize::PartialMeta {
-                        user_message: Some(message.clone()),
-                        turn_id: Some(turn_id.clone()),
-                        assistant_message_id: assistant_id,
-                        ..Default::default()
-                    };
-                    let outcome = ha_core::chat_engine::finalize::finalize_turn_context_blocking(
-                        &db,
-                        &sid,
-                        ha_core::chat_engine::finalize::TerminationReason::UserStop,
-                        partial,
-                        ha_core::chat_engine::ChatSource::Desktop,
-                    );
-                    broadcast_turn_end(
-                        &sid,
-                        &turn_id,
-                        outcome
-                            .turn_status
-                            .unwrap_or(session::ChatTurnStatus::Interrupted),
-                        outcome
-                            .interrupt_reason
-                            .or(Some(session::ChatTurnInterruptReason::UserStop)),
-                        None,
-                    );
-                    return Ok(result);
-                }
-                let _ = finish_turn_after_execution_and_broadcast(
-                    &db,
-                    &sid,
-                    &turn_id,
-                    cancel.load(Ordering::SeqCst),
-                    None,
-                    assistant_id,
-                );
-                crate::chat_engine::save_agent_context(&db, &sid, agent);
-                Ok(result)
-            }
-            None => {
-                let err = "Agent not initialized. Please sign in first.".to_string();
-                // "Agent not initialized" is a configuration-level
-                // failure equivalent to NoProfileAvailable from the
-                // unified taxonomy's perspective: no LLM call was
-                // attempted, the user needs to fix Provider setup.
-                let partial = ha_core::chat_engine::finalize::PartialMeta {
-                    user_message: Some(message.clone()),
-                    turn_id: Some(turn_id.clone()),
-                    ..Default::default()
-                };
-                let _ = ha_core::chat_engine::finalize::finalize_turn_context_blocking(
-                    &db,
-                    &sid,
-                    ha_core::chat_engine::finalize::TerminationReason::NoProfileAvailable,
-                    partial,
-                    ha_core::chat_engine::ChatSource::Desktop,
-                );
-                // `finalize_turn_context_blocking` wrote the chat_turn
-                // row + event row + context marker. Still broadcast the
-                // stream-end event so the frontend's stream listener
-                // sees the closure (finalize only touches DB).
-                finish_turn_once_and_broadcast(
-                    &db,
-                    &sid,
-                    &turn_id,
-                    session::ChatTurnStatus::Failed,
-                    None,
-                    Some(&err),
-                    None,
-                );
-                Err(CmdError::msg(err))
-            }
+        let err = "No model configured. Please add a provider and set an active model.".to_string();
+        let partial = ha_core::chat_engine::finalize::PartialMeta {
+            user_message: Some(message.clone()),
+            turn_id: Some(turn_id.clone()),
+            ..Default::default()
         };
+        let outcome = ha_core::chat_engine::finalize::finalize_turn_context_blocking(
+            &db,
+            &sid,
+            ha_core::chat_engine::finalize::TerminationReason::NoProfileAvailable,
+            partial,
+            ha_core::chat_engine::ChatSource::Desktop,
+        );
+        broadcast_turn_end(
+            &sid,
+            &turn_id,
+            outcome
+                .turn_status
+                .unwrap_or(session::ChatTurnStatus::Failed),
+            outcome.interrupt_reason,
+            Some(&err),
+        );
+        return Err(CmdError::msg(err));
     }
 
     // ── Build ChatEngineParams and delegate to shared engine ──
@@ -1066,7 +1129,7 @@ pub async fn chat(
         subagent_depth: 0,
         steer_run_id: None,
         auto_approve_tools: false,
-        follow_global_reasoning_effort: true,
+        follow_global_reasoning_effort: false,
         post_turn_effects: true,
         abort_on_cancel: false,
         persist_final_error_event: true,
@@ -1175,6 +1238,23 @@ pub async fn stop_chat(
         }
         stopped = true;
     }
+    // A foreground approval wait does not observe the chat cancel flag itself.
+    // Resolve it explicitly so Stop cannot leave a modal orphaned or allow the
+    // user to authorize a tool after the turn has been marked cancelled.
+    if let Some(sid) = session_id.as_deref() {
+        if stopped || turn_id.is_none() {
+            ha_core::tools::deny_pending_for_session(
+                sid,
+                ha_core::tools::ApprovalResolutionSource::UserStop,
+            )
+            .await;
+            ha_core::ask_user::cancel_pending_ask_user_questions_for_session(sid, "user_stop")
+                .await;
+        }
+    } else {
+        ha_core::tools::deny_all_pending(ha_core::tools::ApprovalResolutionSource::UserStop).await;
+        ha_core::ask_user::cancel_all_pending_ask_user_questions("user_stop").await;
+    }
     let runtime_scope = stopped.then_some(session_id.as_deref()).flatten();
     let runtime_cancellations = if stopped || session_id.is_none() {
         ha_core::runtime_tasks::cancel_runtime_tasks_for_session(runtime_scope).await
@@ -1222,9 +1302,9 @@ pub async fn set_permission_mode(
     if session_id.is_empty() {
         return Err(CmdError::from(anyhow::anyhow!("session_id required")));
     }
-    state
-        .session_db
-        .update_session_permission_mode(&session_id, mode)?;
+    let db = state.session_db.clone();
+    db.run(move |db| db.update_session_permission_mode(&session_id, mode))
+        .await?;
     Ok(())
 }
 
@@ -1239,9 +1319,10 @@ pub async fn set_sandbox_mode(
     if session_id.is_empty() {
         return Err(CmdError::from(anyhow::anyhow!("session_id required")));
     }
-    state
-        .session_db
-        .update_session_sandbox_mode(&session_id, mode)?;
+    let db = state.session_db.clone();
+    let sid = session_id.clone();
+    db.run(move |db| db.update_session_sandbox_mode(&sid, mode))
+        .await?;
     if let Some(bus) = ha_core::get_event_bus() {
         bus.emit(
             "sandbox:mode_changed",
@@ -1313,6 +1394,14 @@ pub async fn respond_to_approval(request_id: String, response: String) -> Result
     .map_err(|e| CmdError::msg(e.to_string()))
 }
 
+/// Return the authoritative owner-surface recovery snapshot. Live events keep
+/// the dialog responsive; this command repairs missed events after reload or a
+/// transport gap.
+#[tauri::command]
+pub async fn list_pending_approvals() -> Result<Vec<ha_core::tools::ApprovalRequest>, CmdError> {
+    Ok(ha_core::tools::list_pending_approval_requests().await)
+}
+
 // ── System Prompt ────────────────────────────────────────────────
 
 /// Return the assembled system prompt for the current agent + model.
@@ -1347,12 +1436,15 @@ pub async fn get_system_prompt(
         }
     };
 
-    Ok(crate::agent::build_system_prompt_with_session(
-        &aid,
-        &model,
-        &provider,
-        session_id.as_deref(),
-    ))
+    Ok(ha_core::blocking::run_blocking(move || {
+        crate::agent::build_system_prompt_with_session(
+            &aid,
+            &model,
+            &provider,
+            session_id.as_deref(),
+        )
+    })
+    .await)
 }
 
 // ── Tools Info Commands ───────────────────────────────────────────

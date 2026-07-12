@@ -370,6 +370,11 @@ async fn handle_inbound_message(
         ),
     };
 
+    // Hold lifecycle admission before the channel mapping can materialize a
+    // session for this Agent. `run_chat_engine` acquires a second guard as a
+    // shared backstop once the turn reaches the engine.
+    let _agent_admission = crate::agent_lifecycle::begin_agent_run(&agent_id)?;
+
     // 3b. Resolve extra system prompt from group/topic/channel config
     let config_system_prompt = match msg.chat_type {
         ChatType::Group | ChatType::Forum => topic_config
@@ -550,7 +555,12 @@ async fn handle_inbound_message(
     let _ = session_db.append_message(&session_id, &user_msg);
 
     // Auto-generate fallback title from the first real message (same logic as normal chat).
-    let _ = crate::session::ensure_first_message_title(&session_db, &session_id, &effective_prompt);
+    let _ = crate::session::ensure_first_message_title(
+        &session_db,
+        &session_id,
+        &effective_prompt,
+        Some(&attachments_meta_json),
+    );
 
     // Notify the desktop / web side that a fresh user message landed on
     // this session from IM, so an attached GUI view can pull it into
@@ -691,22 +701,17 @@ async fn handle_inbound_message(
     // we have to read it back here so the next inbound message actually uses the
     // pinned model. Mirrors the same `session_pinned_model` injection in
     // src-tauri/src/commands/chat.rs and crates/ha-server/src/routes/chat.rs.
-    let session_pinned_model: Option<String> = session_db
-        .get_session(&session_id)
-        .ok()
-        .flatten()
-        .and_then(|meta| match (meta.provider_id, meta.model_id) {
-            (Some(p), Some(m)) if !p.is_empty() && !m.is_empty() => Some(format!("{}::{}", p, m)),
-            _ => None,
-        });
-
-    let (primary, fallbacks) = if let Some(ref pinned) = session_pinned_model {
-        let mut cfg = agent_model_config.clone();
-        cfg.primary = Some(pinned.clone());
-        crate::provider::resolve_model_chain(&cfg, &store)
-    } else {
-        crate::provider::resolve_model_chain(&agent_model_config, &store)
-    };
+    let runtime_defaults =
+        crate::session::ensure_session_runtime_defaults(&session_db, &session_id)?;
+    let session_pinned_model = runtime_defaults
+        .preferred_model
+        .as_ref()
+        .map(|model| format!("{}::{}", model.provider_id, model.model_id));
+    let (primary, fallbacks) = crate::provider::resolve_model_chain_with_preferred(
+        session_pinned_model.as_deref(),
+        &agent_model_config,
+        &store,
+    );
     let mut model_chain = Vec::new();
     if let Some(p) = primary {
         model_chain.push(p);
@@ -724,12 +729,7 @@ async fn handle_inbound_message(
         anyhow::bail!("No model configured for channel chat");
     }
 
-    // Resolve temperature: agent > global
-    let resolved_temperature = {
-        let agent_temp = agent_def.as_ref().and_then(|d| d.config.model.temperature);
-        let global_temp = store.temperature;
-        agent_temp.or(global_temp)
-    };
+    let resolved_temperature = runtime_defaults.temperature;
 
     // 8. Spawn the shared streaming pipeline (preview task + sink). The
     // chat engine writes events into `pipeline.event_sink`; we await the
@@ -766,26 +766,7 @@ async fn handle_inbound_message(
     } else {
         engine_message
     };
-    let reasoning_effort = session_db
-        .get_session(&session_id)
-        .ok()
-        .flatten()
-        .and_then(|meta| meta.reasoning_effort)
-        .or_else(|| {
-            agent_def
-                .as_ref()
-                .and_then(|def| def.config.model.reasoning_effort.clone())
-        })
-        .or(crate::agent::live_reasoning_effort(None).await);
-    if let Some(effort) = reasoning_effort.as_ref() {
-        let _ = session_db.update_session_reasoning_effort(&session_id, Some(effort));
-    }
-    if let (Some(cell), Some(effort)) = (
-        crate::get_reasoning_effort_cell(),
-        reasoning_effort.as_ref(),
-    ) {
-        *cell.lock().await = effort.clone();
-    }
+    let reasoning_effort = Some(runtime_defaults.reasoning_effort);
 
     // Snapshot whether the *entire* fallback chain is Codex before
     // `model_chain` is moved into engine_params. Drives the `🔐 Codex
@@ -835,7 +816,7 @@ async fn handle_inbound_message(
         subagent_depth: 0,
         steer_run_id: None,
         auto_approve_tools: account.auto_approve_tools,
-        follow_global_reasoning_effort: true,
+        follow_global_reasoning_effort: false,
         post_turn_effects: true,
         abort_on_cancel: false,
         persist_final_error_event: true,

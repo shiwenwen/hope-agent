@@ -1,7 +1,208 @@
 use anyhow::Result;
-use std::path::PathBuf;
+use rusqlite::OptionalExtension;
+use serde_json::Value;
+use std::io::BufRead;
+use std::path::{Path, PathBuf};
 
 use super::types::SessionMeta;
+use crate::provider::ActiveModel;
+use serde::{Deserialize, Serialize};
+
+/// Fully resolved chat defaults for a draft or materialized Session. The
+/// preferred model is retained even while its Provider is disabled; `model`
+/// is the first currently usable entry in the effective chain.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatRuntimeDefaults {
+    pub preferred_model: Option<ActiveModel>,
+    pub model: Option<ActiveModel>,
+    pub preferred_model_available: bool,
+    pub temperature: Option<f64>,
+    pub reasoning_effort: String,
+}
+
+pub fn resolve_chat_runtime_defaults(
+    session: Option<&SessionMeta>,
+    agent_id: &str,
+) -> ChatRuntimeDefaults {
+    let config = crate::config::cached_config();
+    let agent_model = crate::agent_loader::load_agent(agent_id)
+        .ok()
+        .map(|definition| definition.config.model)
+        .unwrap_or_default();
+    let preferred_model = session.and_then(|meta| match (&meta.provider_id, &meta.model_id) {
+        (Some(provider_id), Some(model_id)) if !provider_id.is_empty() && !model_id.is_empty() => {
+            Some(ActiveModel {
+                provider_id: provider_id.clone(),
+                model_id: model_id.clone(),
+            })
+        }
+        _ => None,
+    });
+    let preferred_ref = preferred_model
+        .as_ref()
+        .map(|model| format!("{}::{}", model.provider_id, model.model_id));
+    let initialized = session.is_some_and(|meta| meta.runtime_defaults_initialized);
+    // An initialized Session with no preferred model represents a real
+    // "unconfigured" snapshot (for example after the last usable model was
+    // deleted). Do not silently start inheriting a model added later.
+    let model = if initialized && preferred_model.is_none() {
+        None
+    } else {
+        crate::provider::resolve_model_chain_with_preferred(
+            preferred_ref.as_deref(),
+            &agent_model,
+            &config,
+        )
+        .0
+    };
+    let temperature = if initialized {
+        session.and_then(|meta| meta.temperature)
+    } else {
+        agent_model.temperature.or(config.temperature)
+    };
+    let reasoning_effort = if initialized {
+        session
+            .and_then(|meta| meta.reasoning_effort.clone())
+            .unwrap_or_else(|| config.reasoning_effort.clone())
+    } else {
+        agent_model
+            .reasoning_effort
+            .clone()
+            .unwrap_or_else(|| config.reasoning_effort.clone())
+    };
+    let preferred_model_available = preferred_model.as_ref().is_none_or(|preferred| {
+        crate::provider::model_ref_is_available(&config.providers, preferred)
+    });
+    ChatRuntimeDefaults {
+        preferred_model,
+        model,
+        preferred_model_available,
+        temperature,
+        reasoning_effort,
+    }
+}
+
+/// Upgrade a legacy Session exactly once, preserving any existing model/Think
+/// values and snapshotting the missing temperature (including `None`).
+pub fn ensure_session_runtime_defaults(
+    db: &super::SessionDB,
+    session_id: &str,
+) -> Result<ChatRuntimeDefaults> {
+    let meta = db
+        .get_session(session_id)?
+        .ok_or_else(|| anyhow::anyhow!("session not found: {session_id}"))?;
+    if !meta.runtime_defaults_initialized {
+        let defaults = resolve_chat_runtime_defaults(Some(&meta), &meta.agent_id);
+        let provider_name = defaults.model.as_ref().and_then(|model| {
+            crate::config::cached_config()
+                .providers
+                .iter()
+                .find(|provider| provider.id == model.provider_id)
+                .map(|provider| provider.name.clone())
+        });
+        db.initialize_session_runtime_defaults(
+            session_id,
+            defaults
+                .model
+                .as_ref()
+                .map(|model| model.provider_id.as_str()),
+            provider_name.as_deref(),
+            defaults.model.as_ref().map(|model| model.model_id.as_str()),
+            defaults.temperature,
+            &defaults.reasoning_effort,
+        )?;
+    }
+    let refreshed = db
+        .get_session(session_id)?
+        .ok_or_else(|| anyhow::anyhow!("session not found: {session_id}"))?;
+    Ok(resolve_chat_runtime_defaults(
+        Some(&refreshed),
+        &refreshed.agent_id,
+    ))
+}
+
+pub fn set_session_model_preference(
+    db: &super::SessionDB,
+    session_id: &str,
+    provider_id: &str,
+    model_id: &str,
+) -> Result<()> {
+    if db.get_session(session_id)?.is_none() {
+        anyhow::bail!("session not found: {session_id}");
+    }
+    let config = crate::config::cached_config();
+    let model = ActiveModel {
+        provider_id: provider_id.to_string(),
+        model_id: model_id.to_string(),
+    };
+    if !crate::provider::model_ref_exists(&config.providers, &model) {
+        anyhow::bail!("Selected model no longer exists: {provider_id}::{model_id}");
+    }
+    let provider_name = config
+        .providers
+        .iter()
+        .find(|provider| provider.id == provider_id)
+        .map(|provider| provider.name.as_str());
+    db.update_session_model(session_id, Some(provider_id), provider_name, Some(model_id))
+}
+
+pub fn set_session_temperature_preference(
+    db: &super::SessionDB,
+    session_id: &str,
+    value: Option<f64>,
+    use_agent_default: bool,
+) -> Result<Option<f64>> {
+    if db.get_session(session_id)?.is_none() {
+        anyhow::bail!("session not found: {session_id}");
+    }
+    let temperature = if use_agent_default {
+        let meta = db
+            .get_session(session_id)?
+            .ok_or_else(|| anyhow::anyhow!("session not found: {session_id}"))?;
+        let agent_temperature = crate::agent_loader::load_agent(&meta.agent_id)
+            .ok()
+            .and_then(|definition| definition.config.model.temperature);
+        agent_temperature.or(crate::config::cached_config().temperature)
+    } else {
+        let value = value.ok_or_else(|| anyhow::anyhow!("temperature value is required"))?;
+        if !(0.0..=2.0).contains(&value) {
+            anyhow::bail!("Temperature must be between 0.0 and 2.0");
+        }
+        Some(value)
+    };
+    db.update_session_temperature(session_id, temperature)?;
+    Ok(temperature)
+}
+
+pub fn set_session_reasoning_effort_preference(
+    db: &super::SessionDB,
+    session_id: &str,
+    value: Option<&str>,
+    use_agent_default: bool,
+) -> Result<String> {
+    if db.get_session(session_id)?.is_none() {
+        anyhow::bail!("session not found: {session_id}");
+    }
+    let effort = if use_agent_default {
+        let meta = db
+            .get_session(session_id)?
+            .ok_or_else(|| anyhow::anyhow!("session not found: {session_id}"))?;
+        crate::agent_loader::load_agent(&meta.agent_id)
+            .ok()
+            .and_then(|definition| definition.config.model.reasoning_effort)
+            .unwrap_or_else(|| crate::config::cached_config().reasoning_effort.clone())
+    } else {
+        value
+            .map(str::to_string)
+            .ok_or_else(|| anyhow::anyhow!("reasoning effort value is required"))?
+    };
+    if !crate::agent::is_valid_reasoning_effort(&effort) {
+        anyhow::bail!("Invalid reasoning effort: {effort}");
+    }
+    db.update_session_reasoning_effort(session_id, Some(&effort))?;
+    Ok(effort)
+}
 
 // ── Auto-title helper ────────────────────────────────────────────
 
@@ -27,23 +228,223 @@ pub fn auto_title(content: &str) -> String {
     }
 }
 
+fn user_attachment_entries(value: &Value) -> Vec<&Value> {
+    match value {
+        Value::Array(items) => items.iter().collect(),
+        Value::Object(map) => map
+            .get("user_attachments")
+            .and_then(Value::as_array)
+            .map(|items| items.iter().collect())
+            .unwrap_or_else(|| vec![value]),
+        _ => Vec::new(),
+    }
+}
+
+fn safe_pasted_text_first_line(session_id: &str, attachment: &Value) -> Option<String> {
+    if attachment.get("source").and_then(Value::as_str)
+        != Some(crate::attachments::PASTED_TEXT_SOURCE)
+    {
+        return None;
+    }
+    let raw_path = attachment.get("path").and_then(Value::as_str)?;
+    let allowed_dir = crate::paths::attachments_dir(session_id)
+        .ok()?
+        .canonicalize()
+        .ok()?;
+    let path = Path::new(raw_path).canonicalize().ok()?;
+    if !path.starts_with(&allowed_dir) {
+        return None;
+    }
+
+    let reader = std::io::BufReader::new(std::fs::File::open(path).ok()?);
+    for line in reader.lines().take(16) {
+        let line = line.ok()?;
+        let trimmed = line.trim();
+        if !trimmed.is_empty() {
+            return Some(trimmed.to_string());
+        }
+    }
+    None
+}
+
+fn message_quote_first_line(attachment: &Value) -> Option<String> {
+    if attachment.get("kind").and_then(Value::as_str)
+        != Some(crate::attachments::MESSAGE_QUOTE_SOURCE)
+    {
+        return None;
+    }
+    attachment
+        .get("content")
+        .and_then(Value::as_str)?
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .map(str::to_string)
+}
+
+/// Build a non-empty fallback title from the first user-visible input.
+///
+/// Large pasted text is persisted as an attachment and leaves the message body
+/// empty. In that case, prefer the first readable line from the persisted file,
+/// then fall back to the attachment name. The persisted path is only read after
+/// canonicalizing it beneath this session's attachment directory.
+pub fn first_message_title_candidate(
+    session_id: &str,
+    content: &str,
+    attachments_meta: Option<&str>,
+) -> Option<String> {
+    if !content.trim().is_empty() {
+        return Some(auto_title(content));
+    }
+
+    let parsed = attachments_meta.and_then(|raw| serde_json::from_str::<Value>(raw).ok())?;
+    let attachments = user_attachment_entries(&parsed);
+    for attachment in &attachments {
+        if let Some(first_line) = message_quote_first_line(attachment) {
+            return Some(auto_title(&first_line));
+        }
+    }
+    for attachment in &attachments {
+        if let Some(first_line) = safe_pasted_text_first_line(session_id, attachment) {
+            return Some(auto_title(&first_line));
+        }
+    }
+    for attachment in attachments {
+        let Some(name) = attachment.get("name").and_then(Value::as_str) else {
+            continue;
+        };
+        let name = name.trim();
+        if name.is_empty() {
+            continue;
+        }
+        let stem = Path::new(name)
+            .file_stem()
+            .and_then(|value| value.to_str())
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or(name);
+        return Some(auto_title(stem));
+    }
+    None
+}
+
+#[cfg(test)]
+#[allow(clippy::items_after_test_module)]
+mod title_tests {
+    use super::first_message_title_candidate;
+
+    #[test]
+    fn title_candidate_uses_pasted_text_first_line_before_file_name() {
+        let session_id = format!("title-candidate-{}", uuid::Uuid::new_v4());
+        let dir = crate::paths::attachments_dir(&session_id).expect("attachment dir");
+        std::fs::create_dir_all(&dir).expect("create attachment dir");
+        let path = dir.join("long-paste.txt");
+        std::fs::write(&path, "\n这是粘贴内容的第一行\n第二行").expect("write pasted text");
+        let meta = serde_json::json!([{
+            "name": "long-paste.txt",
+            "path": path,
+            "source": crate::attachments::PASTED_TEXT_SOURCE,
+        }])
+        .to_string();
+
+        assert_eq!(
+            first_message_title_candidate(&session_id, "", Some(&meta)).as_deref(),
+            Some("这是粘贴内容的第一行")
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn title_candidate_falls_back_to_nested_attachment_name() {
+        let meta = serde_json::json!({
+            "goal_trigger": true,
+            "user_attachments": [{
+                "name": "产品调研记录.txt",
+                "source": crate::attachments::PASTED_TEXT_SOURCE,
+            }]
+        })
+        .to_string();
+
+        assert_eq!(
+            first_message_title_candidate("missing-session", "", Some(&meta)).as_deref(),
+            Some("产品调研记录")
+        );
+        assert_eq!(
+            first_message_title_candidate("missing-session", "", None),
+            None
+        );
+    }
+
+    #[test]
+    fn title_candidate_uses_message_quote_content() {
+        let meta = serde_json::json!([{
+            "kind": crate::attachments::MESSAGE_QUOTE_SOURCE,
+            "role": "assistant",
+            "content": "\nQuoted conversation line\nsecond line",
+        }])
+        .to_string();
+
+        assert_eq!(
+            first_message_title_candidate("session-a", "", Some(&meta)).as_deref(),
+            Some("Quoted conversation line")
+        );
+    }
+}
+
 /// Set the immediate fallback title from the first user-visible message.
 /// Returns the title when a write happened.
 pub fn ensure_first_message_title(
     db: &super::SessionDB,
     session_id: &str,
     content: &str,
+    attachments_meta: Option<&str>,
 ) -> Result<Option<String>> {
-    if let Some(meta) = db.get_session(session_id)? {
-        if meta.title.is_none() && meta.message_count <= 1 {
-            let title = auto_title(content);
-            db.update_session_title_with_source(
-                session_id,
-                &title,
-                crate::session_title::TITLE_SOURCE_FIRST_MESSAGE,
-            )?;
-            return Ok(Some(title));
+    let should_update = {
+        let conn = db
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let Some((title, incognito, message_count)) = conn
+            .query_row(
+                "SELECT s.title, s.incognito,
+                        (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id) AS message_count
+                   FROM sessions s
+                  WHERE s.id = ?1",
+                rusqlite::params![session_id],
+                |row| {
+                    Ok((
+                        row.get::<_, Option<String>>(0)?,
+                        row.get::<_, bool>(1)?,
+                        row.get::<_, i64>(2)?,
+                    ))
+                },
+            )
+            .optional()?
+        else {
+            return Ok(None);
+        };
+        !incognito && title.is_none() && message_count <= 1
+    };
+
+    if should_update {
+        let Some(title) = first_message_title_candidate(session_id, content, attachments_meta)
+        else {
+            return Ok(None);
+        };
+        db.update_session_title_with_source(
+            session_id,
+            &title,
+            crate::session_title::TITLE_SOURCE_FIRST_MESSAGE,
+        )?;
+        if let Some(bus) = crate::get_event_bus() {
+            bus.emit(
+                "session:title_updated",
+                serde_json::json!({
+                    "sessionId": session_id,
+                    "title": title,
+                }),
+            );
         }
+        return Ok(Some(title));
     }
     Ok(None)
 }

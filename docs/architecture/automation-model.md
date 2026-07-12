@@ -98,7 +98,8 @@ for candidate in &spec.chain {
 | `recap.sections` / `recap.at_a_glance` | Recap 报告分段生成 / 一览摘要 |
 | `dreaming.narrative` | Dreaming 叙事重写 |
 | `dreaming.profile_rewrite` | Dreaming Profile 重写（Phase 4） |
-| `dreaming.resolver` | Dreaming Deep resolver 冲突判定 |
+| `dreaming.resolver.manual` | Dreaming 手动 Deep resolver 冲突判定 |
+| `dreaming.resolver.auto` | Dreaming Light 后的自动 graph-first resolver sweep |
 | `knowledge.compile` | Knowledge Compile 摘要生成 |
 | `hooks.prompt` | Hooks `prompt` handler side-query |
 | `skills.auto_review` | Skills 自动评审 pipeline |

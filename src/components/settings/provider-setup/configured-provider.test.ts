@@ -100,3 +100,16 @@ test("detects an already configured codex provider", () => {
 
   expect(hasConfiguredCodexProvider(configured)).toBe(true)
 })
+
+test("fails closed while configured providers have not loaded", () => {
+  const templates = [
+    makeTemplate({
+      key: "openai",
+      apiType: "openai-responses",
+      baseUrl: "https://api.openai.com",
+    }),
+  ]
+
+  expect(getConfiguredTemplateKeys(templates, undefined)).toEqual(new Set())
+  expect(hasConfiguredCodexProvider(undefined)).toBe(false)
+})

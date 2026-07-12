@@ -6,7 +6,7 @@
 
 <p align="center">
   <strong>A desktop AI assistant that hands off across your devices and gets to know you better the more you use it — also runs headless, on a NAS or in the cloud.</strong><br/>
-  Remembers you · Grows over time · Deeply OS-integrated · Reachable from every chat app you use
+  Remembers you · Grows over time · Pursues goals autonomously · Orchestrates work dynamically · Reachable from every chat app you use
 </p>
 
 <p align="center">
@@ -27,7 +27,7 @@
 
 ---
 
-**Hope Agent** is an AI assistant designed to just work the moment you open it, and to stay dependable over the long run. A native installer ships with provider templates for major model services: install it, paste an API key, and start chatting without setting up runtimes, learning a CLI, or wrestling with config. The desktop app is the most natural entry point, so it gets the most polish: native GUI, performance, interaction details, deep OS integration, and, with your permission, the ability to observe and control your local computer (macOS for now). Hope Agent can also run as an HTTP/WS service on a NAS, home server, or cloud VM, connect to IM channels, and speak ACP to IDEs, so the same conversation can move between desktop, browser, and chat without losing context. Over days of use, it accumulates cross-session memory, organizes what mattered while idle, and turns repeated work into reusable skills. The goal is simple: make everyday tasks effortless, lower maintenance cost, and keep long-running setups reliable.
+**Hope Agent** is an AI assistant designed to just work the moment you open it, and to stay dependable over the long run. A native installer ships with provider templates for major model services: install it, paste an API key, and start chatting without setting up runtimes, learning a CLI, or wrestling with config. The desktop app is the most natural entry point, so it gets the most polish: native GUI, performance, interaction details, deep OS integration, and, with your permission, the ability to observe and control your local computer (macOS for now). For complex or long-running work, you can state the outcome and let the Agent keep moving toward it. It can decide when to build a dynamic Workflow, coordinate multiple sub-agents in parallel, and use a Loop to continue at the right time or when an event arrives. The process remains observable, pausable, and recoverable; automation never bypasses approvals or completion evidence. Hope Agent can also run as an HTTP/WS service on a NAS, home server, or cloud VM, connect to IM channels, and speak ACP to IDEs, so the same conversation can move between desktop, browser, and chat without losing context. Over days of use, it accumulates cross-session memory, organizes what mattered while idle, and turns repeated work into reusable skills. The goal is simple: make everyday tasks effortless, lower maintenance cost, and keep long-running setups reliable.
 
 ## Contents
 
@@ -72,6 +72,19 @@
 <tr><td><b>👁 Cross-session awareness</b></td><td>It knows what your other chats are doing. Before each turn, Hope Agent pulls in the recent goals, actions, and friction points of your other active sessions — so when context crosses over, the right information is available without derailing the main conversation. Defaults to a zero-LLM-cost structured mode; an optional LLM digest mode is available.</td></tr>
 <tr><td><b>💾 Long conversations don't lose the plot</b></td><td>Five-tier progressive context compaction. No matter how long the chat, earlier messages aren't hard-truncated. Tool calls stay paired forever; when messages are summarized, recently edited file contents are auto-restored from disk so you don't have to paste them again. Combined with prompt caching, long-session API costs stay well below naive usage.</td></tr>
 </table>
+
+### 🧭 Autonomous Agent Control
+
+Choose **Goal**, **Workflow**, or **Loop** directly from the composer, or use <code>/goal</code>, <code>/workflow</code>, and <code>/loop</code>. These are general-purpose controls for coding, research, writing, knowledge work, operations, and connector tasks. Coding-specific Worktree, Review, LSP, and verification capabilities are layered in only when relevant.
+
+<table>
+<tr><td width="220"><b>🎯 Goal · Keep pursuing the outcome</b></td><td>Give Hope Agent an outcome and completion criteria, and it creates a durable Goal that it can decompose, execute, inspect, and continue pursuing instead of stopping after one response. Goals can be edited, paused, resumed, budgeted, and tracked against explicit criteria. Waiting for background work or external state preserves the context and resumes when progress is possible. Closure requires a conservative final audit and user acceptance, followed by a concise summary with elapsed time and token usage. Use the composer’s Goal control or send <code>/goal &lt;outcome and completion criteria&gt;</code>.</td></tr>
+<tr><td><b>🧩 Workflow · Model-directed dynamic orchestration</b></td><td>Once Workflow Mode is enabled, the model decides when a task benefits from orchestration; users do not write scripts, and the feature is not tied to Coding Mode. The controlled runtime generates its dynamic Workflow internally and supports phases, tasks, conditions, parallel / pipeline execution, multiple agents, tools, diffs, reviews, verification, and typed results. Sub-agent results can arrive progressively, be queried on demand, or be collected together. Every operation has a durable trace with pause, resume, cancel, and restart recovery, while side effects still pass through the unified permission and approval system. Use the composer’s Workflow control, <code>/workflow on</code>, or <code>/workflow ultracode</code>.</td></tr>
+<tr><td><b>🔁 Loop · Continue on time or events</b></td><td>Loop answers “when should another step run?” without pretending to be an execution-strength setting or a one-shot Workflow. It supports fixed intervals, conditions, internal events, and dynamic self-paced wakeups chosen by the model. Each iteration can continue the current conversation or launch a Goal-bound Workflow. A durable Cron foundation provides run-now, pause / resume, budgets, failure backoff, no-progress protection, and restart diagnostics; the model can inspect status, reschedule, or stop the Loop itself. Use the composer’s Loop control or <code>/loop &lt;recurring task&gt;</code>.</td></tr>
+<tr><td><b>📍 Long tasks stay visible, controllable, and non-blocking</b></td><td>Tasks show user-facing progress, the active Goal remains above the composer, and the Workbench keeps everyday status and controls close while advanced diagnostics stay optional. Workflow milestones, sub-agent completions, and background jobs can be injected progressively, so the main Agent can inspect and adapt instead of always waiting for everything. Long-running tools and parallel agents run in the background without freezing the chat. After an unexpected restart, durable Goal / Workflow / Loop state and recoverable work are replayed conservatively; actions that cannot be resumed safely become explicit blockers rather than silent duplicates.</td></tr>
+</table>
+
+> Mental model: **Goal** defines the outcome, **Workflow** performs one concrete execution, **Loop** decides when to advance again, **Task** exposes current progress, and **Mode** controls execution autonomy. They compose cleanly but can also be used independently. See the [Goal](docs/architecture/goal.md), [Workflow](docs/architecture/workflow.md), and [Loop](docs/architecture/loop.md) architecture docs for implementation details.
 
 ### 🛠 Workflow & tools
 
@@ -327,7 +340,6 @@ node scripts/sync-i18n.mjs --check   # i18n completeness check
 - [openclaw](https://github.com/openclaw/openclaw) — inspiration in the local AI assistant space
 - [Ollama](https://ollama.com/) — the one-click local LLM experience is built on top of Ollama's local runtime and its OpenAI-compatible endpoint; Hope Agent only wraps the GUI layer, while Qwen / Gemma and other models are distributed through the Ollama model library
 - [ClawHub](https://www.clawhub.com/) / [SkillHub](https://skillhub.cn/) — public skill discovery sources for Hope Agent
-- [Hermes Agent](https://github.com/NousResearch/hermes) (originally adapted from [obra/superpowers](https://github.com/obra/superpowers)) — several bundled coding-methodology skills are vendored from here (MIT); see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)
 - [Tauri](https://tauri.app/), [axum](https://github.com/tokio-rs/axum), [React](https://react.dev/), [shadcn/ui](https://ui.shadcn.com/), [Streamdown](https://github.com/streamdown/streamdown), [Radix UI](https://www.radix-ui.com/), and the rest of the open source stack Hope Agent stands on
 - Everyone who has filed issues, tested builds, and given feedback along the way
 

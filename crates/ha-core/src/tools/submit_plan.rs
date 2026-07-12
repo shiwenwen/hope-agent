@@ -24,6 +24,11 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
         None => return "Error: content parameter is required (markdown plan)".to_string(),
     };
 
+    let gate_report = plan::check_plan_quality(&content);
+    if !gate_report.passed() {
+        return format!("Error: {}", gate_report.render_feedback("Plan Gate"));
+    }
+
     // Save plan file under the effective (parent) session
     match plan::save_plan_file(&effective_sid, &content) {
         Ok(file_path) => {

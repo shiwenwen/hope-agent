@@ -16,11 +16,16 @@ import { RotateCcw } from "lucide-react"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import ForceGraph2D, { type ForceGraphMethods } from "react-force-graph-2d"
+import { toast } from "sonner"
 
 import { IconTip } from "@/components/ui/tooltip"
 import { logger } from "@/lib/logger"
 import { getTransport } from "@/lib/transport-provider"
 import type { GraphNodePosition, KnowledgeGraph } from "@/types/knowledge"
+import {
+  knowledgeGraphErrorToast,
+  type KnowledgeGraphErrorToast,
+} from "./knowledgeGraphFeedback"
 
 const COLOR_NODE = "#6366f1" // indigo (connected note)
 const COLOR_ORPHAN = "#f59e0b" // amber (no resolved links)
@@ -76,6 +81,7 @@ export default function KnowledgeGraphView({
     layout: GraphNodePosition[]
   } | null>(null)
   const [size, setSize] = useState<{ w: number; h: number }>({ w: 0, h: 0 })
+  const [loadError, setLoadError] = useState<KnowledgeGraphErrorToast | null>(null)
   // Bumped on drag (a pin mutates a node's fx/fy in place, off-render) to force
   // the derived `hasPins` to recompute.
   const [pinTick, setPinTick] = useState(0)
@@ -86,32 +92,34 @@ export default function KnowledgeGraphView({
   useEffect(() => {
     let alive = true
     const tx = getTransport()
+    queueMicrotask(() => {
+      if (alive) setLoadError(null)
+    })
     Promise.all([
       tx.call<KnowledgeGraph>("kb_graph_cmd", { kbId }),
       tx.call<GraphNodePosition[]>("kb_graph_layout_get_cmd", { kbId }),
     ])
       .then(([g, layout]) => {
-        if (alive) setFetched({ kbId, refreshKey, graph: g, layout: layout ?? [] })
+        if (alive) {
+          setFetched({ kbId, refreshKey, graph: g, layout: layout ?? [] })
+          setLoadError(null)
+        }
       })
       .catch((e) => {
         logger.error("knowledge", "KnowledgeGraphView::fetchGraph", "kb_graph fetch failed", e)
         if (alive) {
-          setFetched({
-            kbId,
-            refreshKey,
-            graph: { nodes: [], edges: [], truncated: false },
-            layout: [],
-          })
+          setFetched(null)
+          setLoadError(knowledgeGraphErrorToast("loadGraph", t, e))
         }
       })
     return () => {
       alive = false
     }
-  }, [kbId, refreshKey])
+  }, [kbId, refreshKey, t])
 
   const graph =
     fetched && fetched.kbId === kbId && fetched.refreshKey === refreshKey ? fetched.graph : null
-  const loading = graph === null
+  const loading = graph === null && !loadError
 
   // Track container size for the canvas.
   useEffect(() => {
@@ -192,9 +200,21 @@ export default function KnowledgeGraphView({
       }
       getTransport()
         .call("kb_graph_layout_save_cmd", { kbId, positions })
-        .catch((e) => logger.error("knowledge", "KnowledgeGraphView::persistLayout", "kb_graph_layout save failed", e))
+        .catch((e) => {
+          logger.error(
+            "knowledge",
+            "KnowledgeGraphView::persistLayout",
+            "kb_graph_layout save failed",
+            e,
+          )
+          const failureToast = knowledgeGraphErrorToast("saveLayout", t, e)
+          toast.error(
+            failureToast.title,
+            failureToast.description ? { description: failureToast.description } : undefined,
+          )
+        })
     }, SAVE_DEBOUNCE_MS)
-  }, [kbId])
+  }, [kbId, t])
 
   useEffect(() => () => clearTimeout(saveTimer.current), [])
 
@@ -220,8 +240,20 @@ export default function KnowledgeGraphView({
     setFetched((prev) => (prev ? { ...prev, layout: [] } : prev))
     getTransport()
       .call("kb_graph_layout_save_cmd", { kbId, positions: [] })
-      .catch((e) => logger.error("knowledge", "KnowledgeGraphView::handleReset", "kb_graph_layout reset failed", e))
-  }, [kbId])
+      .catch((e) => {
+        logger.error(
+          "knowledge",
+          "KnowledgeGraphView::handleReset",
+          "kb_graph_layout reset failed",
+          e,
+        )
+        const failureToast = knowledgeGraphErrorToast("resetLayout", t, e)
+        toast.error(
+          failureToast.title,
+          failureToast.description ? { description: failureToast.description } : undefined,
+        )
+      })
+  }, [kbId, t])
 
   const nodePaint = useCallback(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -271,7 +303,7 @@ export default function KnowledgeGraphView({
     }
   }, [graphKey, data.nodes.length])
 
-  const empty = !loading && data.nodes.length === 0
+  const empty = !loading && !loadError && data.nodes.length === 0
 
   return (
     <div className="flex flex-1 min-w-0 flex-col">
@@ -305,7 +337,16 @@ export default function KnowledgeGraphView({
         )}
       </div>
       <div ref={containerRef} className="relative min-h-0 flex-1 overflow-hidden">
-        {empty ? (
+        {loadError ? (
+          <div className="flex h-full items-center justify-center px-6 text-center">
+            <div className="max-w-md rounded-md border border-destructive/25 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              <div className="font-medium">{loadError.title}</div>
+              {loadError.description ? (
+                <div className="mt-1 text-xs leading-relaxed">{loadError.description}</div>
+              ) : null}
+            </div>
+          </div>
+        ) : empty ? (
           <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
             {t("knowledge.graph.empty", "No notes to graph yet.")}
           </div>

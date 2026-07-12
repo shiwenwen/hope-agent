@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next"
 import {
   CheckCircle2,
   Cpu,
+  AlertCircle,
   ChevronDown,
   ChevronUp,
   Download,
@@ -31,6 +32,7 @@ import { formatBytesFromMb } from "@/lib/format"
 import { cn } from "@/lib/utils"
 import { InstallProgressDialog } from "@/components/settings/local-llm/InstallProgressDialog"
 import type { MemoryEmbeddingSetDefaultResult, OllamaEmbeddingModel } from "./types"
+import { memoryEmbeddingOperationErrorText } from "./memoryEmbeddingFeedback"
 import type { MemoryEmbeddingState } from "@/types/embedding-models"
 import {
   formatLocalModelJobLogLine,
@@ -111,13 +113,14 @@ export default function LocalEmbeddingAssistantCard({
       setChosen((current) =>
         current ? (nextModels.find((model) => model.id === current.id) ?? current) : current,
       )
+      setError(null)
     } catch (e) {
       logger.error("settings", "LocalEmbeddingAssistant::refresh", "Failed to refresh", e)
-      setError(String(e))
+      setError(memoryEmbeddingOperationErrorText("localAssistantRefresh", t, e))
     } finally {
       setRefreshing(false)
     }
-  }, [])
+  }, [t])
 
   useEffect(() => {
     void refresh()
@@ -132,8 +135,19 @@ export default function LocalEmbeddingAssistantCard({
   )
 
   const openDownloadPage = useCallback(() => {
-    openExternalUrl("https://ollama.com/download")
-  }, [])
+    setError(null)
+    openExternalUrl("https://ollama.com/download", {
+      onError: (e) => {
+        logger.warn(
+          "settings",
+          "LocalEmbeddingAssistant::openDownloadPage",
+          "Failed to open Ollama download page",
+          e,
+        )
+        setError(memoryEmbeddingOperationErrorText("localAssistantOpenDownload", t, e))
+      },
+    })
+  }, [t])
 
   const hydrateJobLogs = useCallback(async (jobId: string) => {
     try {
@@ -147,8 +161,9 @@ export default function LocalEmbeddingAssistantCard({
       )
     } catch (e) {
       logger.warn("settings", "LocalEmbeddingAssistant::hydrateJobLogs", "Failed to load logs", e)
+      appendDialogLog(memoryEmbeddingOperationErrorText("localAssistantLogs", t, e))
     }
-  }, [])
+  }, [appendDialogLog, t])
 
   const openJobDialog = useCallback(
     (job: LocalModelJobSnapshot) => {
@@ -182,7 +197,7 @@ export default function LocalEmbeddingAssistantCard({
         ownedJobIdsRef.current.add(job.jobId)
         openJobDialog(job)
       } catch (e) {
-        const msg = String(e)
+        const msg = e instanceof Error ? e.message : String(e)
         logger.error(
           "local-llm",
           "LocalEmbeddingAssistantCard::activateModel",
@@ -193,7 +208,7 @@ export default function LocalEmbeddingAssistantCard({
           },
         )
         setDialogError(msg)
-        setError(t("settings.localEmbedding.error.activateFailed", { message: msg }))
+        setError(memoryEmbeddingOperationErrorText("localAssistantStart", t, e))
       } finally {
         setSubmitting(false)
       }
@@ -237,11 +252,9 @@ export default function LocalEmbeddingAssistantCard({
         // 默认模型也没切；reembed 失败时 pull 已经完成、默认模型已切，只是历史
         // 记忆向量没重建——按「激活失败」报警会误导。
         if (job.kind === "memory_reembed") {
-          setError(
-            t("settings.embedding.reembedJob.failed") + (job.error ? ` — ${job.error}` : ""),
-          )
+          setError(memoryEmbeddingOperationErrorText("reembedJobFailed", t, job.error))
         } else {
-          setError(t("settings.localEmbedding.error.activateFailed", { message: job.error }))
+          setError(memoryEmbeddingOperationErrorText("localAssistantStart", t, job.error))
         }
       }
     },
@@ -312,7 +325,7 @@ export default function LocalEmbeddingAssistantCard({
     void getTransport()
       .call<LocalModelJobSnapshot>("local_model_job_cancel", { jobId: job.jobId })
       .catch((e) => {
-        const msg = String(e)
+        const msg = e instanceof Error ? e.message : String(e)
         logger.error(
           "local-llm",
           "LocalEmbeddingAssistantCard::cancelCurrentJob",
@@ -323,18 +336,41 @@ export default function LocalEmbeddingAssistantCard({
           },
         )
         setDialogError(msg)
-        setError(msg)
+        setError(memoryEmbeddingOperationErrorText("localAssistantCancel", t, e))
       })
-  }, [currentJob])
+  }, [currentJob, t])
 
   const recommended = chosen ?? models.find((model) => model.recommended) ?? models[0] ?? null
 
   if (!recommended) {
     return (
       <div className="rounded-lg border border-dashed border-border bg-card/40 p-3">
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          {t("settings.localEmbedding.detecting")}
+        <div className="flex items-start gap-2 text-xs text-muted-foreground">
+          {error ? (
+            <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-destructive" />
+          ) : (
+            <Loader2 className="mt-0.5 h-3.5 w-3.5 shrink-0 animate-spin" />
+          )}
+          <div className="min-w-0 flex-1">
+            {error ? (
+              <>
+                <p className="whitespace-pre-wrap text-destructive">{error}</p>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="mt-2 h-7 px-2 text-xs"
+                  onClick={() => void refresh()}
+                  disabled={refreshing}
+                >
+                  <RefreshCw className={`mr-1.5 h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} />
+                  {t("common.retry", "Retry")}
+                </Button>
+              </>
+            ) : (
+              t("settings.localEmbedding.detecting")
+            )}
+          </div>
         </div>
       </div>
     )

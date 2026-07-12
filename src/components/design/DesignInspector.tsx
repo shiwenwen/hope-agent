@@ -178,7 +178,7 @@ function ColorRow({
             <button
               key={c}
               type="button"
-              title={c}
+              data-ha-title-tip={c}
               onClick={() => commit(c)}
               className="h-4 w-4 rounded border border-border/60 transition-transform hover:scale-110"
               style={{ backgroundColor: c }}

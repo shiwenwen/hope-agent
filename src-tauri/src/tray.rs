@@ -787,6 +787,8 @@ mod tests {
             is_cron: false,
             parent_session_id: None,
             plan_mode: Default::default(),
+            execution_mode: Default::default(),
+            workflow_mode: Default::default(),
             permission_mode: Default::default(),
             sandbox_mode: Default::default(),
             project_id: None,

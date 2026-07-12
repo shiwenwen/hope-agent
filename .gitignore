@@ -35,7 +35,8 @@ docs/research/
 
 # Local requirements / PRD drafts
 docs/requirements/
-docs/plan/
+docs/plan/*
+!docs/plan/memory-next-generation-plan.md
 
 # Local assistant state
 .claude/

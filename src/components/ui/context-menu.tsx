@@ -1,6 +1,10 @@
 import * as React from "react"
 import * as ContextMenuPrimitive from "@radix-ui/react-context-menu"
 import { ChevronRight } from "lucide-react"
+import {
+  FLOATING_MENU_RADIX_MOTION_CLASS,
+  FLOATING_MENU_SURFACE_CLASS,
+} from "@/components/ui/floating-menu"
 import { cn } from "@/lib/utils"
 
 const ContextMenu = ContextMenuPrimitive.Root
@@ -13,15 +17,21 @@ const ContextMenuVariantContext = React.createContext<ContextMenuVariant>("defau
 const contentVariantClass: Record<ContextMenuVariant, string> = {
   default:
     "z-50 min-w-[8rem] overflow-hidden rounded-md border bg-popover p-1 text-popover-foreground shadow-md animate-in fade-in-80",
-  floating:
-    "z-50 min-w-[9.5rem] overflow-visible rounded-floating border border-border-soft bg-surface-floating/95 p-1.5 text-popover-foreground shadow-floating backdrop-blur-xl animate-in fade-in-0 zoom-in-95 duration-150",
+  floating: cn(
+    "z-50 min-w-[9.5rem] overflow-visible p-1.5",
+    FLOATING_MENU_SURFACE_CLASS,
+    FLOATING_MENU_RADIX_MOTION_CLASS,
+  ),
 }
 
 const subContentVariantClass: Record<ContextMenuVariant, string> = {
   default:
     "z-50 min-w-[10rem] max-h-[300px] overflow-y-auto rounded-md border bg-popover p-1 text-popover-foreground shadow-md animate-in fade-in-80",
-  floating:
-    "z-50 min-w-[10rem] max-h-[300px] overflow-y-auto rounded-floating border border-border-soft bg-surface-floating/95 p-1.5 text-popover-foreground shadow-floating backdrop-blur-xl animate-in fade-in-0 zoom-in-95 duration-150",
+  floating: cn(
+    "z-50 min-w-[10rem] max-h-[300px] overflow-y-auto p-1.5",
+    FLOATING_MENU_SURFACE_CLASS,
+    FLOATING_MENU_RADIX_MOTION_CLASS,
+  ),
 }
 
 const itemVariantClass: Record<ContextMenuVariant, string> = {

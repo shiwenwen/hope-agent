@@ -3,17 +3,17 @@ use serde_json::json;
 use super::super::{
     TOOL_AGENTS_LIST, TOOL_APPLY_PATCH, TOOL_BROWSER, TOOL_DELETE_MEMORY, TOOL_EDIT, TOOL_EXEC,
     TOOL_FIND, TOOL_GET_SETTINGS, TOOL_GET_WEATHER, TOOL_GREP, TOOL_IMAGE, TOOL_ISSUE_REPORT,
-    TOOL_KNOWLEDGE_RECALL, TOOL_LIST_SETTINGS_BACKUPS, TOOL_LS, TOOL_MAC_CONTROL, TOOL_MANAGE_CRON,
-    TOOL_MEMORY_GET, TOOL_NOTE_APPEND, TOOL_NOTE_ASSIGN_BLOCK, TOOL_NOTE_BACKLINKS,
-    TOOL_NOTE_BROKEN_LINKS, TOOL_NOTE_BY_TAG, TOOL_NOTE_CREATE, TOOL_NOTE_DELETE,
-    TOOL_NOTE_DISTILL, TOOL_NOTE_GRAPH, TOOL_NOTE_LINK, TOOL_NOTE_MOC, TOOL_NOTE_MOVE,
-    TOOL_NOTE_ORPHANS, TOOL_NOTE_PATCH, TOOL_NOTE_READ, TOOL_NOTE_RELATED, TOOL_NOTE_RENAME,
-    TOOL_NOTE_SEARCH, TOOL_NOTE_SET_FRONTMATTER, TOOL_NOTE_SIMILAR, TOOL_NOTE_SUGGEST_LINKS,
-    TOOL_NOTE_TAGS, TOOL_NOTE_UPDATE, TOOL_PDF, TOOL_PROCESS, TOOL_READ, TOOL_RECALL_MEMORY,
-    TOOL_RESTORE_SETTINGS_BACKUP, TOOL_RUNTIME_CANCEL, TOOL_SAVE_MEMORY, TOOL_SEND_ATTACHMENT,
-    TOOL_SESSIONS_HISTORY, TOOL_SESSIONS_LIST, TOOL_SESSIONS_SEARCH, TOOL_SESSIONS_SEND,
-    TOOL_SESSION_STATUS, TOOL_SESSION_TO_NOTE, TOOL_SKILL, TOOL_UPDATE_CORE_MEMORY,
-    TOOL_UPDATE_MEMORY, TOOL_UPDATE_SETTINGS, TOOL_WEB_FETCH, TOOL_WRITE,
+    TOOL_KNOWLEDGE_RECALL, TOOL_LIST_SETTINGS_BACKUPS, TOOL_LS, TOOL_LSP, TOOL_MAC_CONTROL,
+    TOOL_MANAGE_CRON, TOOL_MEMORY_GET, TOOL_NOTE_APPEND, TOOL_NOTE_ASSIGN_BLOCK,
+    TOOL_NOTE_BACKLINKS, TOOL_NOTE_BROKEN_LINKS, TOOL_NOTE_BY_TAG, TOOL_NOTE_CREATE,
+    TOOL_NOTE_DELETE, TOOL_NOTE_DISTILL, TOOL_NOTE_GRAPH, TOOL_NOTE_LINK, TOOL_NOTE_MOC,
+    TOOL_NOTE_MOVE, TOOL_NOTE_ORPHANS, TOOL_NOTE_PATCH, TOOL_NOTE_READ, TOOL_NOTE_RELATED,
+    TOOL_NOTE_RENAME, TOOL_NOTE_SEARCH, TOOL_NOTE_SET_FRONTMATTER, TOOL_NOTE_SIMILAR,
+    TOOL_NOTE_SUGGEST_LINKS, TOOL_NOTE_TAGS, TOOL_NOTE_UPDATE, TOOL_PDF, TOOL_PROCESS, TOOL_READ,
+    TOOL_RECALL_MEMORY, TOOL_RESTORE_SETTINGS_BACKUP, TOOL_RUNTIME_CANCEL, TOOL_SAVE_MEMORY,
+    TOOL_SEND_ATTACHMENT, TOOL_SESSIONS_HISTORY, TOOL_SESSIONS_LIST, TOOL_SESSIONS_SEARCH,
+    TOOL_SESSIONS_SEND, TOOL_SESSION_STATUS, TOOL_SESSION_TO_NOTE, TOOL_SKILL,
+    TOOL_UPDATE_CORE_MEMORY, TOOL_UPDATE_MEMORY, TOOL_UPDATE_SETTINGS, TOOL_WEB_FETCH, TOOL_WRITE,
 };
 use super::types::{CoreSubclass, ToolDefinition, ToolTier};
 
@@ -228,6 +228,58 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             }),
         },
         ToolDefinition {
+            name: TOOL_LSP.into(),
+            description: "Query Language Server Protocol code intelligence for the current workspace: diagnostics, definition, references, hover, symbols, implementation, call hierarchy, and file sync after edits. Use this when grep/find is not enough and the task depends on semantic code structure.".into(),
+            tier: ToolTier::Core { subclass: CoreSubclass::FileSystem },
+            internal: false,
+            concurrent_safe: true,
+            async_capable: false,
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "description": "LSP action to perform.",
+                        "enum": [
+                            "status",
+                            "sync_file",
+                            "diagnostics",
+                            "definition",
+                            "references",
+                            "hover",
+                            "implementation",
+                            "document_symbols",
+                            "workspace_symbols",
+                            "call_hierarchy"
+                        ]
+                    },
+                    "path": {
+                        "type": "string",
+                        "description": "File path for file-scoped actions. Relative paths resolve from the session working directory."
+                    },
+                    "line": {
+                        "type": "integer",
+                        "description": "1-based line number for position-scoped actions."
+                    },
+                    "column": {
+                        "type": "integer",
+                        "description": "1-based UTF-16-ish character column. Defaults to 1 when omitted."
+                    },
+                    "query": {
+                        "type": "string",
+                        "description": "Workspace symbol query."
+                    },
+                    "direction": {
+                        "type": "string",
+                        "description": "Call hierarchy direction.",
+                        "enum": ["incoming", "outgoing", "both"]
+                    }
+                },
+                "required": ["action"],
+                "additionalProperties": false
+            }),
+        },
+        ToolDefinition {
             name: TOOL_GREP.into(),
             description: "Search file contents using regex or literal patterns. Relative paths resolve from the session working directory when set, otherwise the agent home. Respects .gitignore. Returns matching lines with file paths and line numbers.".into(),
             tier: ToolTier::Core { subclass: CoreSubclass::FileSystem },
@@ -370,8 +422,8 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                     },
                     "scope": {
                         "type": "string",
-                        "enum": ["global", "agent"],
-                        "description": "Scope: global (shared across agents) or agent (private to current agent). Default: global"
+                        "enum": ["global", "agent", "project"],
+                        "description": "Scope: global (shared across agents), agent (private to current agent), or project (shared only inside the current project). Default: project when the current session belongs to a project; otherwise global."
                     },
                     "pinned": {
                         "type": "boolean",
@@ -1840,6 +1892,23 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
     tools.push(super::task_tools::get_task_update_tool());
     tools.push(super::task_tools::get_task_list_tool());
 
+    // ── Goal Runtime (session-scoped durable objective control, always available) ──
+    tools.push(super::goal_tools::get_goal_status_tool());
+    tools.push(super::goal_tools::get_goal_prepare_contract_tool());
+    tools.push(super::goal_tools::get_goal_checkpoint_tool());
+    tools.push(super::goal_tools::get_goal_record_evidence_tool());
+    tools.push(super::goal_tools::get_goal_evaluate_tool());
+    tools.push(super::goal_tools::get_goal_finish_request_tool());
+    tools.push(super::goal_tools::get_goal_block_request_tool());
+
+    // ── Loop Runtime (session-scoped durable recurrence control, always available) ──
+    tools.push(super::loop_tools::get_loop_status_tool());
+    tools.push(super::loop_tools::get_loop_reschedule_tool());
+    tools.push(super::loop_tools::get_loop_stop_tool());
+    tools.push(super::loop_tools::get_loop_record_progress_tool());
+    tools.push(super::loop_tools::get_loop_watch_tool());
+    tools.push(super::loop_tools::get_loop_unwatch_tool());
+
     // ── Self-Update (Meta tier — always eager so model can suggest upgrades) ──
     tools.push(super::update_tools::get_app_update_tool());
 
@@ -2291,6 +2360,30 @@ mod tests {
                 "manage_cron schema must not expose '{forbidden}' — these overrides are owner-plane only"
             );
         }
+    }
+
+    #[test]
+    fn save_memory_schema_advertises_project_scope() {
+        let tool = get_available_tools()
+            .into_iter()
+            .find(|tool| tool.name == crate::tools::TOOL_SAVE_MEMORY)
+            .expect("save_memory schema");
+        let scope = &tool.parameters["properties"]["scope"];
+        let scope_enum = scope["enum"].as_array().expect("scope enum");
+
+        assert!(scope_enum
+            .iter()
+            .any(|value| value.as_str() == Some("global")));
+        assert!(scope_enum
+            .iter()
+            .any(|value| value.as_str() == Some("agent")));
+        assert!(scope_enum
+            .iter()
+            .any(|value| value.as_str() == Some("project")));
+        assert!(scope["description"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("current project"));
     }
 
     #[test]

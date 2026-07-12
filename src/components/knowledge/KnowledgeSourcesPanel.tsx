@@ -1,4 +1,5 @@
 import {
+  AlertTriangle,
   AlertCircle,
   Check,
   CheckCircle2,
@@ -79,6 +80,10 @@ import type {
 } from "@/types/knowledge"
 
 import KnowledgeCompilePanel from "./KnowledgeCompilePanel"
+import {
+  knowledgeSourceErrorMessage,
+  type KnowledgeSourceErrorMessage,
+} from "./knowledgeSourceFeedback"
 
 interface KnowledgeSourcesPanelProps {
   kbId: string | null
@@ -103,6 +108,10 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
   const [importRuns, setImportRuns] = useState<KnowledgeSourceImportRun[]>([])
   const [runDetail, setRunDetail] = useState<KnowledgeSourceImportRunDetail | null>(null)
   const [similarGroups, setSimilarGroups] = useState<KnowledgeSourceSimilarityGroup[]>([])
+  const [sourceListError, setSourceListError] = useState<KnowledgeSourceErrorMessage | null>(null)
+  const [importRunsError, setImportRunsError] = useState<KnowledgeSourceErrorMessage | null>(null)
+  const [similarGroupsError, setSimilarGroupsError] =
+    useState<KnowledgeSourceErrorMessage | null>(null)
   const [loading, setLoading] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
   const [historyOpen, setHistoryOpen] = useState(false)
@@ -119,6 +128,8 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
   const [browserMode, setBrowserMode] = useState<KnowledgeBrowserCaptureMode>("auto")
   const [selected, setSelected] = useState<KnowledgeSourceReadResult | null>(null)
   const [sourceClaims, setSourceClaims] = useState<KnowledgeEvidenceClaim[]>([])
+  const [sourceClaimsError, setSourceClaimsError] =
+    useState<KnowledgeSourceErrorMessage | null>(null)
   const [reading, setReading] = useState(false)
   const [claimsLoading, setClaimsLoading] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<KnowledgeSource | null>(null)
@@ -137,14 +148,19 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
       setSources([])
       setImportRuns([])
       setSimilarGroups([])
+      setSourceListError(null)
+      setImportRunsError(null)
+      setSimilarGroupsError(null)
       return
     }
     setLoading(true)
     try {
       const list = await getTransport().call<KnowledgeSource[]>("kb_source_list_cmd", { kbId })
       setSources(list)
+      setSourceListError(null)
     } catch (e) {
       logger.warn("knowledge", "KnowledgeSourcesPanel::reload", "source list failed", e)
+      setSourceListError(knowledgeSourceErrorMessage("loadSources", t, e))
     } finally {
       setLoading(false)
     }
@@ -154,6 +170,7 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
         { kbId, limit: 8 },
       )
       setImportRuns(runs)
+      setImportRunsError(null)
       // Resume tracking a run that was already `running` before this panel
       // instance mounted (switched away and back, reopened the app mid-import,
       // etc.) — otherwise nothing ever sets `runDetail`, so the poll /
@@ -168,10 +185,12 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
           setRunDetail(detail)
         } catch (e) {
           logger.warn("knowledge", "KnowledgeSourcesPanel::reload", "resume run detail failed", e)
+          setImportRunsError(knowledgeSourceErrorMessage("openImportHistory", t, e))
         }
       }
     } catch (e) {
       logger.warn("knowledge", "KnowledgeSourcesPanel::reload", "source import runs failed", e)
+      setImportRunsError(knowledgeSourceErrorMessage("loadImportRuns", t, e))
     }
     try {
       const groups = await getTransport().call<KnowledgeSourceSimilarityGroup[]>(
@@ -179,10 +198,12 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
         { kbId },
       )
       setSimilarGroups(groups)
+      setSimilarGroupsError(null)
     } catch (e) {
       logger.warn("knowledge", "KnowledgeSourcesPanel::reload", "source groups failed", e)
+      setSimilarGroupsError(knowledgeSourceErrorMessage("loadSimilarGroups", t, e))
     }
-  }, [kbId])
+  }, [kbId, t])
 
   useEffect(() => {
     void reload()
@@ -194,6 +215,9 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
     setRunDetail(null)
     setImportRuns([])
     setSimilarGroups([])
+    setSourceListError(null)
+    setImportRunsError(null)
+    setSimilarGroupsError(null)
     setResolvingSimilarityId(null)
   }, [kbId])
 
@@ -458,7 +482,11 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
       await reload()
     } catch (e) {
       logger.warn("knowledge", "KnowledgeSourcesPanel::import", "source import failed", e)
-      toast.error(t("knowledge.sources.importFailed", "Couldn't import source"))
+      const failure = knowledgeSourceErrorMessage("importSource", t, e)
+      toast.error(
+        failure.title,
+        failure.description ? { description: failure.description } : undefined,
+      )
     } finally {
       setImporting(false)
     }
@@ -475,7 +503,11 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
       setHistoryOpen(true)
     } catch (e) {
       logger.warn("knowledge", "KnowledgeSourcesPanel::runDetail", "source run detail failed", e)
-      toast.error(t("knowledge.sources.importHistoryFailed", "Couldn't open import history"))
+      const failure = knowledgeSourceErrorMessage("openImportHistory", t, e)
+      toast.error(
+        failure.title,
+        failure.description ? { description: failure.description } : undefined,
+      )
     }
   }
 
@@ -492,7 +524,11 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
       await reload()
     } catch (e) {
       logger.warn("knowledge", "KnowledgeSourcesPanel::retryFailed", "source retry failed", e)
-      toast.error(t("knowledge.sources.retryFailed", "Couldn't retry failed imports"))
+      const failure = knowledgeSourceErrorMessage("retryFailedImport", t, e)
+      toast.error(
+        failure.title,
+        failure.description ? { description: failure.description } : undefined,
+      )
     } finally {
       setRetryingRunId(null)
     }
@@ -511,7 +547,11 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
       await reload()
     } catch (e) {
       logger.warn("knowledge", "KnowledgeSourcesPanel::dismissSimilar", "source similarity dismiss failed", e)
-      toast.error(t("knowledge.sources.similarDismissFailed", "Couldn't hide similarity suggestion"))
+      const failure = knowledgeSourceErrorMessage("dismissSimilarGroup", t, e)
+      toast.error(
+        failure.title,
+        failure.description ? { description: failure.description } : undefined,
+      )
     } finally {
       setResolvingSimilarityId(null)
     }
@@ -558,7 +598,11 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
       await reload()
     } catch (e) {
       logger.warn("knowledge", "KnowledgeSourcesPanel::resolveSimilar", "source similarity resolve failed", e)
-      toast.error(t("knowledge.sources.similarResolveFailed", "Couldn't resolve duplicate sources"))
+      const failure = knowledgeSourceErrorMessage("resolveSimilarGroup", t, e)
+      toast.error(
+        failure.title,
+        failure.description ? { description: failure.description } : undefined,
+      )
     } finally {
       setResolvingSimilarityId(null)
     }
@@ -570,6 +614,7 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
     sourceReadTokenRef.current = token
     setSelected(null)
     setSourceClaims([])
+    setSourceClaimsError(null)
     setReading(true)
     setClaimsLoading(true)
     void getTransport()
@@ -578,10 +623,16 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
         sourceId: source.id,
       })
       .then((claims) => {
-        if (sourceReadTokenRef.current === token) setSourceClaims(claims)
+        if (sourceReadTokenRef.current === token) {
+          setSourceClaims(claims)
+          setSourceClaimsError(null)
+        }
       })
       .catch((e) => {
         logger.warn("knowledge", "KnowledgeSourcesPanel::read", "source claims failed", e)
+        if (sourceReadTokenRef.current === token) {
+          setSourceClaimsError(knowledgeSourceErrorMessage("loadSourceClaims", t, e))
+        }
       })
       .finally(() => {
         if (sourceReadTokenRef.current === token) setClaimsLoading(false)
@@ -596,7 +647,11 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
       }
     } catch (e) {
       logger.warn("knowledge", "KnowledgeSourcesPanel::read", "source read failed", e)
-      toast.error(t("knowledge.sources.readFailed", "Couldn't open source"))
+      const failure = knowledgeSourceErrorMessage("readSource", t, e)
+      toast.error(
+        failure.title,
+        failure.description ? { description: failure.description } : undefined,
+      )
     } finally {
       if (sourceReadTokenRef.current === token) setReading(false)
     }
@@ -613,7 +668,11 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
       await reload()
     } catch (e) {
       logger.warn("knowledge", "KnowledgeSourcesPanel::delete", "source delete failed", e)
-      toast.error(t("knowledge.sources.deleteFailed", "Couldn't delete source"))
+      const failure = knowledgeSourceErrorMessage("deleteSource", t, e)
+      toast.error(
+        failure.title,
+        failure.description ? { description: failure.description } : undefined,
+      )
     }
   }
 
@@ -628,7 +687,11 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
       toast.success(t("knowledge.sources.reextracted", "Source re-extracted"))
     } catch (e) {
       logger.warn("knowledge", "KnowledgeSourcesPanel::reextract", "source reextract failed", e)
-      toast.error(t("knowledge.sources.reextractFailed", "Couldn't re-extract source"))
+      const failure = knowledgeSourceErrorMessage("reextractSource", t, e)
+      toast.error(
+        failure.title,
+        failure.description ? { description: failure.description } : undefined,
+      )
     }
   }
 
@@ -676,7 +739,11 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
       await reload()
     } catch (e) {
       logger.warn("knowledge", "KnowledgeSourcesPanel::refresh", "source refresh failed", e)
-      toast.error(t("knowledge.sources.refreshFailed", "Couldn't refresh source"))
+      const failure = knowledgeSourceErrorMessage("refreshSource", t, e)
+      toast.error(
+        failure.title,
+        failure.description ? { description: failure.description } : undefined,
+      )
     } finally {
       setRefreshingSourceId(null)
     }
@@ -692,7 +759,11 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
       setVersionHistory(history)
     } catch (e) {
       logger.warn("knowledge", "KnowledgeSourcesPanel::versions", "source versions failed", e)
-      toast.error(t("knowledge.sources.versionsFailed", "Couldn't load source versions"))
+      const failure = knowledgeSourceErrorMessage("loadSourceVersions", t, e)
+      toast.error(
+        failure.title,
+        failure.description ? { description: failure.description } : undefined,
+      )
     }
   }
 
@@ -709,7 +780,11 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
       setSourceDiff(diff)
     } catch (e) {
       logger.warn("knowledge", "KnowledgeSourcesPanel::diff", "source diff failed", e)
-      toast.error(t("knowledge.sources.diffFailed", "Couldn't load source diff"))
+      const failure = knowledgeSourceErrorMessage("loadSourceDiff", t, e)
+      toast.error(
+        failure.title,
+        failure.description ? { description: failure.description } : undefined,
+      )
     } finally {
       setDiffLoading(false)
     }
@@ -877,8 +952,22 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
         </div>
       ) : null}
 
+      {sourceListError || importRunsError || similarGroupsError ? (
+        <div className="space-y-1 border-b border-border-soft/50 px-2 py-2">
+          {sourceListError ? (
+            <KnowledgeSourceWarning message={sourceListError} onRetry={() => void reload()} />
+          ) : null}
+          {importRunsError ? (
+            <KnowledgeSourceWarning message={importRunsError} onRetry={() => void reload()} />
+          ) : null}
+          {similarGroupsError ? (
+            <KnowledgeSourceWarning message={similarGroupsError} onRetry={() => void reload()} />
+          ) : null}
+        </div>
+      ) : null}
+
       <div className="flex-1 overflow-auto py-0.5">
-        {sources.length === 0 && !loading ? (
+        {sources.length === 0 && !loading && !sourceListError ? (
           <div className="px-3 py-3 text-xs text-muted-foreground">
             {t("knowledge.sources.empty", "No sources yet.")}
           </div>
@@ -980,7 +1069,7 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
                 </button>
               </div>
             </ContextMenuTrigger>
-            <ContextMenuContent>
+            <ContextMenuContent variant="floating">
               <ContextMenuItem onClick={() => void openSource(source)}>
                 <FileText className="mr-2 h-3.5 w-3.5" />
                 {t("knowledge.sources.open", "Open")}
@@ -1195,6 +1284,7 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
             sourceReadTokenRef.current += 1
             setSelected(null)
             setSourceClaims([])
+            setSourceClaimsError(null)
             setClaimsLoading(false)
           }
         }}
@@ -1216,7 +1306,11 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
               <span className="font-mono text-foreground/80">{selected.externalRawPath}</span>
             </div>
           ) : null}
-          <SourceClaimsSummary claims={sourceClaims} loading={claimsLoading} />
+          <SourceClaimsSummary
+            claims={sourceClaims}
+            loading={claimsLoading}
+            error={sourceClaimsError}
+          />
           <pre className="max-h-[54vh] overflow-auto whitespace-pre-wrap rounded-md border border-border-soft/60 bg-muted/30 p-3 text-xs leading-relaxed">
             {reading ? t("knowledge.sources.loading", "Loading…") : selected?.content}
           </pre>
@@ -1751,22 +1845,34 @@ function SourceAssetSummary({ source }: { source: KnowledgeSource }) {
   const thumbnailUrl = thumbnail?.localPath ? transport.resolveAssetUrl(thumbnail.localPath) : null
   const originalUrl = original?.localPath ? transport.resolveAssetUrl(original.localPath) : null
 
-  function openOriginal() {
+  async function openOriginal() {
     if (!original?.localPath) return
-    if (transport.supportsLocalFileOps()) {
-      void transport.openFilePath(original.localPath)
-      return
+    try {
+      if (transport.supportsLocalFileOps()) {
+        await transport.openFilePath(original.localPath)
+        return
+      }
+      if (!originalUrl) throw new Error("Original asset URL is unavailable")
+      const opened = window.open(originalUrl, "_blank", "noopener,noreferrer")
+      if (!opened) throw new Error("Browser blocked opening the original file")
+    } catch (e) {
+      logger.warn("knowledge", "KnowledgeSourcesPanel::openOriginalAsset", "open failed", e)
+      const failure = knowledgeSourceErrorMessage("openOriginalAsset", t, e)
+      toast.error(
+        failure.title,
+        failure.description ? { description: failure.description } : undefined,
+      )
     }
-    if (originalUrl) window.open(originalUrl, "_blank", "noopener,noreferrer")
   }
 
-  function downloadOriginal() {
+  async function downloadOriginal() {
     if (!original?.localPath) return
-    if (transport.supportsLocalFileOps()) {
-      void transport.downloadFilePath(original.localPath, { filename: original.fileName })
-      return
-    }
-    if (originalUrl) {
+    try {
+      if (transport.supportsLocalFileOps()) {
+        await transport.downloadFilePath(original.localPath, { filename: original.fileName })
+        return
+      }
+      if (!originalUrl) throw new Error("Original asset URL is unavailable")
       const url = new URL(originalUrl)
       url.searchParams.set("download", "1")
       const a = document.createElement("a")
@@ -1776,6 +1882,13 @@ function SourceAssetSummary({ source }: { source: KnowledgeSource }) {
       document.body.appendChild(a)
       a.click()
       a.remove()
+    } catch (e) {
+      logger.warn("knowledge", "KnowledgeSourcesPanel::downloadOriginalAsset", "download failed", e)
+      const failure = knowledgeSourceErrorMessage("downloadOriginalAsset", t, e)
+      toast.error(
+        failure.title,
+        failure.description ? { description: failure.description } : undefined,
+      )
     }
   }
 
@@ -1818,12 +1931,24 @@ function SourceAssetSummary({ source }: { source: KnowledgeSource }) {
       {original?.localPath ? (
         <div className="flex shrink-0 items-center gap-1">
           <IconTip label={t("knowledge.sources.openOriginal", "Open original")}>
-            <Button type="button" variant="ghost" size="icon" className="h-7 w-7" onClick={openOriginal}>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7"
+              onClick={() => void openOriginal()}
+            >
               <ExternalLink className="h-3.5 w-3.5" />
             </Button>
           </IconTip>
           <IconTip label={t("knowledge.sources.downloadOriginal", "Download original")}>
-            <Button type="button" variant="ghost" size="icon" className="h-7 w-7" onClick={downloadOriginal}>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7"
+              onClick={() => void downloadOriginal()}
+            >
               <Download className="h-3.5 w-3.5" />
             </Button>
           </IconTip>
@@ -1836,9 +1961,11 @@ function SourceAssetSummary({ source }: { source: KnowledgeSource }) {
 function SourceClaimsSummary({
   claims,
   loading,
+  error,
 }: {
   claims: KnowledgeEvidenceClaim[]
   loading: boolean
+  error: KnowledgeSourceErrorMessage | null
 }) {
   const { t } = useTranslation()
   const visibleClaims = claims.slice(0, 24)
@@ -1860,6 +1987,18 @@ function SourceClaimsSummary({
       {loading ? (
         <div className="mt-2 text-[11px] text-muted-foreground">
           {t("knowledge.sources.loadingClaims", "Loading evidence index...")}
+        </div>
+      ) : error ? (
+        <div className="mt-2 rounded-md border border-amber-500/25 bg-amber-500/10 px-2 py-1.5 text-[11px] text-amber-800 dark:text-amber-200">
+          <div className="flex items-center gap-1.5 font-medium">
+            <AlertTriangle className="h-3 w-3 shrink-0" />
+            <span>{error.title}</span>
+          </div>
+          {error.description ? (
+            <div className="mt-0.5 whitespace-pre-wrap text-amber-800/80 dark:text-amber-100/80">
+              {error.description}
+            </div>
+          ) : null}
         </div>
       ) : claims.length === 0 ? (
         <div className="mt-2 text-[11px] text-muted-foreground">
@@ -1906,6 +2045,38 @@ function SourceClaimsSummary({
           ) : null}
         </div>
       )}
+    </div>
+  )
+}
+
+function KnowledgeSourceWarning({
+  message,
+  onRetry,
+}: {
+  message: KnowledgeSourceErrorMessage
+  onRetry?: () => void
+}) {
+  const { t } = useTranslation()
+  return (
+    <div className="rounded-md border border-amber-500/25 bg-amber-500/10 px-2 py-1.5 text-[11px] text-amber-800 dark:text-amber-200">
+      <div className="flex items-center gap-1.5 font-medium">
+        <AlertTriangle className="h-3 w-3 shrink-0" />
+        <span>{message.title}</span>
+      </div>
+      {message.description ? (
+        <div className="mt-0.5 whitespace-pre-wrap text-amber-800/80 dark:text-amber-100/80">
+          {message.description}
+        </div>
+      ) : null}
+      {onRetry ? (
+        <button
+          type="button"
+          className="mt-1 text-[11px] font-medium underline underline-offset-2"
+          onClick={onRetry}
+        >
+          {t("common.retry", "Retry")}
+        </button>
+      ) : null}
     </div>
   )
 }

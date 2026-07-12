@@ -7,13 +7,15 @@
 // show a placeholder. Inline `![[ ]]` (mid-paragraph) is left as raw text.
 
 import { FileText } from "lucide-react"
-import { memo, useEffect, useMemo, useState } from "react"
+import { memo, useEffect, useMemo, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 
 import MarkdownRenderer from "@/components/common/MarkdownRenderer"
-import type { NoteReadResult } from "@/types/knowledge"
 
+import { knowledgeEmbedErrorDescription } from "./noteEmbedFeedback"
 import { fetchNoteRef } from "./noteRefFetch"
+import type { NoteRefFetchResult } from "./noteRefFetch"
+import { splitMarkdownForPreviewHighlight } from "./previewHighlight"
 import { embedAnchor, parseEmbedSegments, stripFrontmatter } from "./transclusionParse"
 
 /** Max embed nesting before we stop recursing — the root note is depth 0, so up
@@ -29,6 +31,10 @@ interface NoteTransclusionViewProps {
   cacheBustKey: number
   /** Open a note (clicking an embed header). Optional in nested previews. */
   onOpenNote?: (relPath: string) => void
+  /** Highlight + scroll to a source block in the root note preview. */
+  highlightLine?: number | null
+  /** Identity token for repeated reveal of the same line. */
+  highlightToken?: unknown
   /** Recursion depth (0 = the note itself). */
   depth?: number
   /** Resolved rel-paths already in the embed chain (cycle guard). */
@@ -41,9 +47,77 @@ function NoteTransclusionView({
   content,
   cacheBustKey,
   onOpenNote,
+  highlightLine,
+  highlightToken,
   depth = 0,
   seen,
 }: NoteTransclusionViewProps) {
+  const split = useMemo(
+    () =>
+      depth === 0 ? splitMarkdownForPreviewHighlight(content, highlightLine) : null,
+    [content, depth, highlightLine],
+  )
+
+  if (split) {
+    return (
+      <>
+        <RenderedSegments
+          kbId={kbId}
+          content={split.before}
+          cacheBustKey={cacheBustKey}
+          onOpenNote={onOpenNote}
+          depth={depth}
+          seen={seen}
+        />
+        <HighlightedPreviewBlock token={highlightToken}>
+          <RenderedSegments
+            kbId={kbId}
+            content={split.highlighted}
+            cacheBustKey={cacheBustKey}
+            onOpenNote={onOpenNote}
+            depth={depth}
+            seen={seen}
+          />
+        </HighlightedPreviewBlock>
+        <RenderedSegments
+          kbId={kbId}
+          content={split.after}
+          cacheBustKey={cacheBustKey}
+          onOpenNote={onOpenNote}
+          depth={depth}
+          seen={seen}
+        />
+      </>
+    )
+  }
+
+  return (
+    <RenderedSegments
+      kbId={kbId}
+      content={content}
+      cacheBustKey={cacheBustKey}
+      onOpenNote={onOpenNote}
+      depth={depth}
+      seen={seen}
+    />
+  )
+}
+
+function RenderedSegments({
+  kbId,
+  content,
+  cacheBustKey,
+  onOpenNote,
+  depth,
+  seen,
+}: {
+  kbId: string
+  content: string
+  cacheBustKey: number
+  onOpenNote?: (relPath: string) => void
+  depth: number
+  seen?: ReadonlySet<string>
+}) {
   const segments = useMemo(() => parseEmbedSegments(content), [content])
   return (
     <>
@@ -66,6 +140,27 @@ function NoteTransclusionView({
   )
 }
 
+function HighlightedPreviewBlock({
+  token,
+  children,
+}: {
+  token: unknown
+  children: React.ReactNode
+}) {
+  const ref = useRef<HTMLDivElement | null>(null)
+  useEffect(() => {
+    ref.current?.scrollIntoView({ block: "center" })
+  }, [token])
+  return (
+    <div
+      ref={ref}
+      className="my-2 rounded-md border border-primary/30 bg-primary/5 px-2 py-1 ring-1 ring-primary/15"
+    >
+      {children}
+    </div>
+  )
+}
+
 interface EmbedBlockProps {
   kbId: string
   reference: string
@@ -82,7 +177,7 @@ function EmbedBlock({ kbId, reference, cacheBustKey, onOpenNote, depth, seen }: 
   const [entry, setEntry] = useState<{
     ref: string
     bust: number
-    note: NoteReadResult | null
+    result: NoteRefFetchResult
   } | null>(null)
 
   const overDepth = depth >= MAX_EMBED_DEPTH
@@ -92,8 +187,8 @@ function EmbedBlock({ kbId, reference, cacheBustKey, onOpenNote, depth, seen }: 
     let alive = true
     // Pass the full reference (anchor included) so the resolver slices a
     // `#Heading` section / `#^block` server-side (whole note when no anchor).
-    void fetchNoteRef(kbId, reference, cacheBustKey).then((note) => {
-      if (alive) setEntry({ ref: reference, bust: cacheBustKey, note })
+    void fetchNoteRef(kbId, reference, cacheBustKey).then((result) => {
+      if (alive) setEntry({ ref: reference, bust: cacheBustKey, result })
     })
     return () => {
       alive = false
@@ -121,14 +216,36 @@ function EmbedBlock({ kbId, reference, cacheBustKey, onOpenNote, depth, seen }: 
     )
   }
 
-  const note = entry.note
-  if (!note) {
+  const result = entry.result
+  if (result.status === "failed") {
+    const description = knowledgeEmbedErrorDescription(t, result.detail)
+    return (
+      <EmbedFrame reference={reference}>
+        <div className="space-y-1 text-xs text-destructive">
+          <div>
+            {t("knowledge.embed.loadFailed", {
+              defaultValue: "Couldn't load embedded note",
+            })}
+          </div>
+          {description ? (
+            <div className="break-words text-[11px] leading-relaxed text-muted-foreground">
+              {description}
+            </div>
+          ) : null}
+        </div>
+      </EmbedFrame>
+    )
+  }
+
+  if (result.status === "missing") {
     return (
       <div className="my-2 rounded-md border border-dashed border-destructive/50 bg-destructive/5 px-3 py-1.5 text-xs text-destructive">
         {t('knowledge.embed.broken', 'No note matches "{{ref}}"', { ref: reference })}
       </div>
     )
   }
+
+  const note = result.note
 
   // Scope the cycle guard by target + anchor: an anchored embed (`A#^p1`) is a
   // slice of a distinct block, so it must not collide with the whole-note key

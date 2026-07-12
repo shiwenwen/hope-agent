@@ -64,3 +64,8 @@ test("requires matching api type and port", () => {
     ),
   ).toBe(false)
 })
+
+test("fails closed while provider or backend lists are unavailable", () => {
+  expect(hasKnownLocalBackend(undefined, [ollamaBackend], "ollama")).toBe(false)
+  expect(hasKnownLocalBackend([], undefined, "ollama")).toBe(false)
+})

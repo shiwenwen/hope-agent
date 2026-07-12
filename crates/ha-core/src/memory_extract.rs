@@ -3,8 +3,11 @@
 //! After a chat completion, this module can extract valuable information
 //! (user facts, preferences, project context) and save them as memories.
 
+use std::sync::{Arc, OnceLock};
+
 use anyhow::{Context, Result};
 use serde_json::Value;
+use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 use crate::agent::AssistantAgent;
 use crate::memory::{AddResult, MemoryScope, MemoryType, NewMemory};
@@ -14,6 +17,27 @@ const MEMORY_EXTRACTION_SYSTEM: &str =
 Write every `content` (and free-form `tags`) field in the same language the user predominantly \
 used in the conversation — if the user wrote in Chinese, the memory must be in Chinese; if they \
 wrote in Japanese, write in Japanese; etc. Match the user's language, not the assistant's.";
+
+static EXTRACTION_SLOTS: OnceLock<Arc<Semaphore>> = OnceLock::new();
+const AUTO_EXTRACTION_LLM_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+const FLUSH_EXTRACTION_LLM_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+
+fn extraction_slots() -> &'static Arc<Semaphore> {
+    EXTRACTION_SLOTS.get_or_init(|| {
+        let parallelism = std::thread::available_parallelism()
+            .map(usize::from)
+            .unwrap_or(4);
+        Arc::new(Semaphore::new(parallelism.saturating_sub(1).clamp(2, 4)))
+    })
+}
+
+async fn acquire_extraction_slot() -> OwnedSemaphorePermit {
+    extraction_slots()
+        .clone()
+        .acquire_owned()
+        .await
+        .expect("memory extraction semaphore is never closed")
+}
 
 fn memory_extraction_instruction(prompt: &str) -> String {
     format!("{}\n\n{}", MEMORY_EXTRACTION_SYSTEM, prompt)
@@ -222,12 +246,23 @@ pub async fn run_extraction(
     model_id: &str,
     main_agent: Option<&AssistantAgent>,
 ) {
-    if crate::session::is_session_incognito(Some(session_id)) {
+    let _permit = acquire_extraction_slot().await;
+    let sid = session_id.to_string();
+    if crate::blocking::run_blocking(move || crate::session::is_session_incognito(Some(&sid))).await
+    {
         app_info!(
             "memory",
             "auto_extract",
             "Skipping extraction for incognito session {}",
             session_id
+        );
+        return;
+    }
+    if !crate::memory::load_extract_config().enabled {
+        app_info!(
+            "memory",
+            "auto_extract",
+            "Skipping extraction because long-term memory is turned off"
         );
         return;
     }
@@ -257,9 +292,14 @@ async fn do_extraction(
         .ok_or_else(|| anyhow::anyhow!("Memory backend not initialized"))?;
 
     // Get existing memory summary to avoid re-extracting known info
-    let existing_summary = backend
-        .build_prompt_summary(agent_id, true, 2000)
-        .unwrap_or_default();
+    let backend_for_summary = Arc::clone(backend);
+    let agent_id_for_summary = agent_id.to_string();
+    let existing_summary = crate::blocking::run_blocking(move || {
+        backend_for_summary
+            .build_prompt_summary(&agent_id_for_summary, true, 2000)
+            .unwrap_or_default()
+    })
+    .await;
 
     // Format recent messages (last 6) into a compact representation
     let recent: Vec<String> = messages
@@ -291,7 +331,11 @@ async fn do_extraction(
     // Phase B'2: single roundtrip returns facts + profile when reflection is on.
     // Fall back to the legacy facts-only prompt when the user disabled it.
     let global_extract = crate::memory::load_extract_config();
-    let agent_def = crate::agent_loader::load_agent(agent_id);
+    let agent_id_for_config = agent_id.to_string();
+    let agent_def = crate::blocking::run_blocking(move || {
+        crate::agent_loader::load_agent(&agent_id_for_config)
+    })
+    .await;
     let agent_mem = agent_def.as_ref().ok().map(|d| &d.config.memory);
     let reflect_enabled = agent_mem
         .and_then(|m| m.enable_reflection)
@@ -301,65 +345,76 @@ async fn do_extraction(
     // augmented combined prompt; users who opt out keep the existing prompts
     // and skip the extra tokens.
     let claims_enabled = global_extract.extract_claims;
+    let claims_review_first = global_extract.review_first;
     let prompt_template = select_extract_prompt(claims_enabled, reflect_enabled);
     let prompt = prompt_template
         .replace("{EXISTING}", &existing_summary)
         .replace("{MESSAGES}", &messages_text);
 
     // Make LLM call — prefer side_query for prompt cache sharing
-    let response = if let Some(agent) = main_agent {
-        let instruction = memory_extraction_instruction(&prompt);
-        let result = agent
-            .side_query(&instruction, 4096)
-            .await
-            .with_context(|| {
-                format!(
-                    "memory extraction side_query failed (source=main_agent, provider_id={}, api_type={}, model={}, session={})",
-                    provider_config.id,
-                    provider_config.api_type.display_name(),
-                    model_id,
-                    session_id
-                )
-            })?;
-        if let Some(logger) = crate::get_logger() {
-            logger.log(
-                "info",
-                "memory",
-                "side_query::extract",
-                &format!(
-                    "Memory extraction via side_query: cache_read={}",
-                    result.usage.cache_read_input_tokens
-                ),
-                None,
-                None,
-                None,
-            );
-        }
-        result.text
-    } else {
-        // Fallback: create temp agent (no cache sharing). Use side_query so
-        // Codex hydrates OAuth from disk through build_llm_provider instead
-        // of sending the placeholder provider token from config.
-        let mut agent = AssistantAgent::try_new_from_provider(provider_config, model_id)
-            .await?
-            .with_failover_context(provider_config);
-        agent.set_agent_id(agent_id);
-        agent.set_session_id(session_id);
-        let instruction = memory_extraction_instruction(&prompt);
-        agent
-            .side_query(&instruction, 4096)
-            .await
-            .with_context(|| {
-                format!(
-                    "memory extraction side_query failed (source=temp_agent, provider_id={}, api_type={}, model={}, session={})",
-                    provider_config.id,
-                    provider_config.api_type.display_name(),
-                    model_id,
-                    session_id
-                )
-            })?
-            .text
-    };
+    let response = tokio::time::timeout(AUTO_EXTRACTION_LLM_TIMEOUT, async {
+        let text = if let Some(agent) = main_agent {
+            let instruction = memory_extraction_instruction(&prompt);
+            let result = agent
+                .side_query(&instruction, 4096)
+                .await
+                .with_context(|| {
+                    format!(
+                        "memory extraction side_query failed (source=main_agent, provider_id={}, api_type={}, model={}, session={})",
+                        provider_config.id,
+                        provider_config.api_type.display_name(),
+                        model_id,
+                        session_id
+                    )
+                })?;
+            if let Some(logger) = crate::get_logger() {
+                logger.log(
+                    "info",
+                    "memory",
+                    "side_query::extract",
+                    &format!(
+                        "Memory extraction via side_query: cache_read={}",
+                        result.usage.cache_read_input_tokens
+                    ),
+                    None,
+                    None,
+                    None,
+                );
+            }
+            result.text
+        } else {
+            // Fallback: create temp agent (no cache sharing). Use side_query so
+            // Codex hydrates OAuth from disk through build_llm_provider instead
+            // of sending the placeholder provider token from config.
+            let mut agent = AssistantAgent::try_new_from_provider(provider_config, model_id)
+                .await?
+                .with_failover_context(provider_config);
+            agent.set_agent_id(agent_id);
+            agent.set_session_id(session_id);
+            let instruction = memory_extraction_instruction(&prompt);
+            agent
+                .side_query(&instruction, 4096)
+                .await
+                .with_context(|| {
+                    format!(
+                        "memory extraction side_query failed (source=temp_agent, provider_id={}, api_type={}, model={}, session={})",
+                        provider_config.id,
+                        provider_config.api_type.display_name(),
+                        model_id,
+                        session_id
+                    )
+                })?
+                .text
+        };
+        Ok::<_, anyhow::Error>(text)
+    })
+    .await
+    .map_err(|_| {
+        anyhow::anyhow!(
+            "memory extraction exceeded {} seconds",
+            AUTO_EXTRACTION_LLM_TIMEOUT.as_secs()
+        )
+    })??;
 
     // Parse JSON response
     let extracted = parse_extraction_response(&response)?;
@@ -383,63 +438,26 @@ async fn do_extraction(
         return Ok(());
     }
 
-    // If the session belongs to a project, write the new memory into
-    // that project's scope so it stays local to the project. Otherwise
-    // fall back to the agent's private scope (pre-project behavior).
-    // Resolved once per extraction run (session/agent are constant inside a
-    // turn, so no need to hit the session DB per extracted item).
-    let scope = resolve_extract_scope(session_id, agent_id);
-
-    // Save each extracted memory with dedup
-    let mut saved_count = 0usize;
-    for item in &extracted {
-        // Defense-in-depth: when reflection is off, never persist reflective
-        // profile-tagged items even if the model emitted them unprompted (the
-        // facts-only / facts+claims prompts don't ask for `profile`, but a
-        // model could still surface one). Mirrors the prompt selection above.
-        if !reflect_enabled && item.tags.iter().any(|t| t == "profile") {
-            continue;
-        }
-        // Phase B'2: profile-tagged items get a distinct `source` so they're
-        // easy to filter in Dashboard queries and in the review UI.
-        let source = if item.tags.iter().any(|t| t == "profile") {
-            "auto-reflect".to_string()
+    let extracted_count = extracted.len();
+    let sid = session_id.to_string();
+    let aid = agent_id.to_string();
+    let (saved_count, linked) = crate::blocking::run_blocking(move || {
+        let scope = resolve_extract_scope(&sid, &aid);
+        let saved = persist_extracted_memories(&extracted, &scope, &sid, reflect_enabled);
+        let linked = if claim_candidates.is_empty() {
+            0
         } else {
-            "auto".to_string()
+            dual_write_claims(claim_candidates, &sid, &scope, claims_review_first)
         };
-        let entry = NewMemory {
-            memory_type: item.memory_type.clone(),
-            scope: scope.clone(),
-            content: item.content.clone(),
-            tags: item.tags.clone(),
-            source,
-            source_session_id: Some(session_id.to_string()),
-            pinned: false,
-            attachment_path: None,
-            attachment_mime: None,
-        };
-
-        let dedup = crate::memory::load_dedup_config();
-        match backend.add_with_dedup(entry, dedup.threshold_high, dedup.threshold_merge) {
-            Ok(AddResult::Created { .. }) => saved_count += 1,
-            Ok(AddResult::Updated { .. }) => saved_count += 1,
-            Ok(AddResult::Duplicate { .. }) => {}
-            Err(e) => {
-                app_warn!(
-                    "memory",
-                    "auto_extract",
-                    "Failed to save extracted memory: {}",
-                    e
-                );
-            }
-        }
-    }
+        (saved, linked)
+    })
+    .await;
 
     app_info!(
         "memory",
         "auto_extract",
         "Extracted {} memories, saved {} new (session: {})",
-        extracted.len(),
+        extracted_count,
         saved_count,
         session_id
     );
@@ -462,14 +480,7 @@ async fn do_extraction(
     // claims-only turn still reaches here), write its legacy shadow via
     // add_with_dedup (consuming the 3-state) + the structured claim (rule-only
     // canonicalize) + the link.
-    if !claim_candidates.is_empty() {
-        let sid = session_id.to_string();
-        let scope_for_claims = scope.clone();
-        let linked = tokio::task::spawn_blocking(move || {
-            dual_write_claims(claim_candidates, &sid, &scope_for_claims)
-        })
-        .await
-        .unwrap_or(0);
+    if linked > 0 {
         app_info!(
             "memory",
             "claim_extract",
@@ -480,6 +491,51 @@ async fn do_extraction(
     }
 
     Ok(())
+}
+
+fn persist_extracted_memories(
+    extracted: &[ExtractedMemory],
+    scope: &MemoryScope,
+    session_id: &str,
+    reflect_enabled: bool,
+) -> usize {
+    let Some(backend) = crate::get_memory_backend() else {
+        return 0;
+    };
+    let dedup = crate::memory::load_dedup_config();
+    let mut saved_count = 0usize;
+    for item in extracted {
+        if !reflect_enabled && item.tags.iter().any(|t| t == "profile") {
+            continue;
+        }
+        let source = if item.tags.iter().any(|t| t == "profile") {
+            "auto-reflect".to_string()
+        } else {
+            "auto".to_string()
+        };
+        let entry = NewMemory {
+            memory_type: item.memory_type.clone(),
+            scope: scope.clone(),
+            content: item.content.clone(),
+            tags: item.tags.clone(),
+            source,
+            source_session_id: Some(session_id.to_string()),
+            pinned: false,
+            attachment_path: None,
+            attachment_mime: None,
+        };
+        match backend.add_with_dedup(entry, dedup.threshold_high, dedup.threshold_merge) {
+            Ok(AddResult::Created { .. } | AddResult::Updated { .. }) => saved_count += 1,
+            Ok(AddResult::Duplicate { .. }) => {}
+            Err(e) => app_warn!(
+                "memory",
+                "auto_extract",
+                "Failed to save extracted memory: {}",
+                e
+            ),
+        }
+    }
+    saved_count
 }
 
 /// Map a claim type to the legacy `MemoryType` used for the dual-write shadow.
@@ -528,6 +584,7 @@ fn dual_write_claims(
     candidates: Vec<crate::memory::claims::ClaimCandidate>,
     session_id: &str,
     scope: &MemoryScope,
+    review_first: bool,
 ) -> usize {
     let Some(backend) = crate::get_memory_backend() else {
         return 0;
@@ -571,7 +628,14 @@ fn dual_write_claims(
                     continue;
                 }
             };
-        match crate::memory::claims::write_claim_candidate(c, scope, session_id, None) {
+        let initial_status = review_first.then_some("needs_review");
+        match crate::memory::claims::write_claim_candidate_with_status(
+            c,
+            scope,
+            session_id,
+            None,
+            initial_status,
+        ) {
             Ok(outcome) => {
                 if let Err(e) = crate::memory::claims::link_claim_memory(
                     &outcome.claim_id,
@@ -626,7 +690,10 @@ pub async fn flush_before_compact(
     provider_config: &crate::provider::ProviderConfig,
     model_id: &str,
 ) -> Result<usize> {
-    if crate::session::is_session_incognito(Some(session_id)) {
+    let _permit = acquire_extraction_slot().await;
+    let sid = session_id.to_string();
+    if crate::blocking::run_blocking(move || crate::session::is_session_incognito(Some(&sid))).await
+    {
         app_info!(
             "memory",
             "flush",
@@ -635,12 +702,25 @@ pub async fn flush_before_compact(
         );
         return Ok(0);
     }
+    if !crate::memory::load_extract_config().enabled {
+        app_info!(
+            "memory",
+            "flush",
+            "Skipping flush_before_compact because long-term memory is turned off"
+        );
+        return Ok(0);
+    }
     let backend = crate::get_memory_backend()
         .ok_or_else(|| anyhow::anyhow!("Memory backend not initialized"))?;
 
-    let existing_summary = backend
-        .build_prompt_summary(agent_id, true, 2000)
-        .unwrap_or_default();
+    let backend_for_summary = Arc::clone(backend);
+    let agent_id_for_summary = agent_id.to_string();
+    let existing_summary = crate::blocking::run_blocking(move || {
+        backend_for_summary
+            .build_prompt_summary(&agent_id_for_summary, true, 2000)
+            .unwrap_or_default()
+    })
+    .await;
 
     // Format all messages to be discarded (more generous than auto_extract's 6-message limit)
     let mut total_chars = 0usize;
@@ -672,56 +752,70 @@ pub async fn flush_before_compact(
         .replace("{EXISTING}", &existing_summary)
         .replace("{MESSAGES}", &messages_text);
 
-    let mut agent = AssistantAgent::try_new_from_provider(provider_config, model_id)
-        .await?
-        .with_failover_context(provider_config);
-    agent.set_agent_id(agent_id);
-    agent.set_session_id(session_id);
-    let instruction = memory_extraction_instruction(&prompt);
-    let response = agent
-        .side_query(&instruction, 4096)
-        .await
-        .with_context(|| {
-            format!(
-                "flush_before_compact side_query failed (provider_id={}, api_type={}, model={}, session={})",
-                provider_config.id,
-                provider_config.api_type.display_name(),
-                model_id,
-                session_id
-            )
-        })?
-        .text;
+    let response = tokio::time::timeout(FLUSH_EXTRACTION_LLM_TIMEOUT, async {
+        let mut agent = AssistantAgent::try_new_from_provider(provider_config, model_id)
+            .await?
+            .with_failover_context(provider_config);
+        agent.set_agent_id(agent_id);
+        agent.set_session_id(session_id);
+        let instruction = memory_extraction_instruction(&prompt);
+        agent
+            .side_query(&instruction, 4096)
+            .await
+            .with_context(|| {
+                format!(
+                    "flush_before_compact side_query failed (provider_id={}, api_type={}, model={}, session={})",
+                    provider_config.id,
+                    provider_config.api_type.display_name(),
+                    model_id,
+                    session_id
+                )
+            })
+            .map(|result| result.text)
+    })
+    .await
+    .map_err(|_| {
+        anyhow::anyhow!(
+            "flush_before_compact exceeded {} seconds",
+            FLUSH_EXTRACTION_LLM_TIMEOUT.as_secs()
+        )
+    })??;
 
     let extracted = parse_extraction_response(&response)?;
     if extracted.is_empty() {
         return Ok(0);
     }
 
-    // Resolve once — session/agent are constant inside a flush run.
-    let scope = resolve_extract_scope(session_id, agent_id);
-
-    let mut saved_count = 0usize;
-    for item in &extracted {
-        let entry = NewMemory {
-            memory_type: item.memory_type.clone(),
-            scope: scope.clone(),
-            content: item.content.clone(),
-            tags: item.tags.clone(),
-            source: "flush".to_string(),
-            source_session_id: Some(session_id.to_string()),
-            pinned: false,
-            attachment_path: None,
-            attachment_mime: None,
+    let sid = session_id.to_string();
+    let aid = agent_id.to_string();
+    Ok(crate::blocking::run_blocking(move || {
+        let scope = resolve_extract_scope(&sid, &aid);
+        let Some(backend) = crate::get_memory_backend() else {
+            return 0;
         };
-
         let dedup = crate::memory::load_dedup_config();
-        match backend.add_with_dedup(entry, dedup.threshold_high, dedup.threshold_merge) {
-            Ok(AddResult::Created { .. }) | Ok(AddResult::Updated { .. }) => saved_count += 1,
-            _ => {}
-        }
-    }
-
-    Ok(saved_count)
+        extracted
+            .into_iter()
+            .filter(|item| {
+                let entry = NewMemory {
+                    memory_type: item.memory_type.clone(),
+                    scope: scope.clone(),
+                    content: item.content.clone(),
+                    tags: item.tags.clone(),
+                    source: "flush".to_string(),
+                    source_session_id: Some(sid.clone()),
+                    pinned: false,
+                    attachment_path: None,
+                    attachment_mime: None,
+                };
+                matches!(
+                    backend.add_with_dedup(entry, dedup.threshold_high, dedup.threshold_merge),
+                    Ok(AddResult::Created { .. } | AddResult::Updated { .. })
+                )
+            })
+            .count()
+    })
+    .await)
 }
 
 // ── Parsing ─────────────────────────────────────────────────────
@@ -850,16 +944,6 @@ pub fn schedule_idle_extraction(
         return;
     }
 
-    if crate::session::is_session_incognito(Some(&session_id)) {
-        app_info!(
-            "memory",
-            "idle_extract",
-            "Not scheduling idle extraction for incognito session {}",
-            session_id
-        );
-        return;
-    }
-
     cancel_idle_extraction(&session_id);
 
     let sid = session_id.clone();
@@ -903,6 +987,12 @@ pub fn flush_all_idle_extractions() {
 
 /// Execute idle extraction: load history from DB and run extraction without agent cache.
 async fn run_idle_extraction(agent_id: &str, session_id: &str, expected_updated_at: &str) {
+    // Admission must happen before removing the pending handle. If deletion
+    // wins the lifecycle gate, the extraction fails closed; if extraction wins,
+    // its guard remains visible until all memory writes finish.
+    let _agent_admission = crate::agent_lifecycle::begin_agent_run(agent_id).ok();
+    let admitted = _agent_admission.is_some();
+
     // Remove our handle entry — but only if it still matches the updated_at we
     // were scheduled for. A concurrent `schedule_idle_extraction()` may have
     // cancelled the old abort handle and registered a fresh one while this
@@ -918,76 +1008,78 @@ async fn run_idle_extraction(agent_id: &str, session_id: &str, expected_updated_
         }
     }
 
-    let db = match crate::get_session_db() {
-        Some(db) => db,
-        None => return,
-    };
-
-    let session_meta = match db.get_session(session_id) {
-        Ok(Some(s)) => s,
-        _ => return,
-    };
-    if session_meta.incognito {
+    if !admitted {
         app_info!(
             "memory",
             "idle_extract",
-            "Skipping idle extraction for incognito session {}",
-            session_id
+            "Skipping idle extraction for unavailable agent {}",
+            agent_id
         );
         return;
     }
-    if session_meta.updated_at != expected_updated_at {
-        return; // New messages arrived, skip
-    }
 
-    // Check auto_extract is enabled
-    let global_extract = crate::memory::load_extract_config();
-    let agent_def = crate::agent_loader::load_agent(agent_id);
-    let agent_mem = agent_def.as_ref().ok().map(|d| &d.config.memory);
-    let auto_extract = agent_mem
-        .and_then(|m| m.auto_extract)
-        .unwrap_or(global_extract.auto_extract);
-    if !auto_extract {
-        return;
-    }
+    let aid = agent_id.to_string();
+    let sid = session_id.to_string();
+    let expected_updated_at = expected_updated_at.to_string();
+    let prepared = crate::blocking::run_blocking(move || {
+        let db = crate::get_session_db()?;
+        let session_meta = db.get_session(&sid).ok().flatten()?;
+        if session_meta.incognito || session_meta.updated_at != expected_updated_at {
+            return None;
+        }
 
-    // Load conversation history from DB
-    let history = match db.load_context(session_id) {
-        Ok(Some(json)) => serde_json::from_str::<Vec<Value>>(&json).unwrap_or_default(),
-        _ => return,
-    };
-    if history.is_empty() {
-        return;
-    }
+        let global_extract = crate::memory::load_extract_config();
+        if !global_extract.enabled {
+            return None;
+        }
+        let agent_def = crate::agent_loader::load_agent(&aid);
+        let agent_mem = agent_def.as_ref().ok().map(|d| &d.config.memory);
+        if !agent_mem
+            .and_then(|m| m.auto_extract)
+            .unwrap_or(global_extract.auto_extract)
+        {
+            return None;
+        }
 
-    // Resolve provider/model: per-agent override (unchanged) → global
-    // `modelOverride` (new) → deprecated global pair → the current session's
-    // own model.
-    let extract_provider_id = agent_mem
-        .and_then(|m| m.extract_provider_id.clone())
-        .or_else(|| {
-            global_extract
-                .model_override
-                .as_ref()
-                .map(|m| m.provider_id.clone())
-        })
-        .or_else(|| global_extract.extract_provider_id.clone())
-        .or(session_meta.provider_id.clone())
-        .unwrap_or_default();
-    let extract_model_id = agent_mem
-        .and_then(|m| m.extract_model_id.clone())
-        .or_else(|| {
-            global_extract
-                .model_override
-                .as_ref()
-                .map(|m| m.model_id.clone())
-        })
-        .or_else(|| global_extract.extract_model_id.clone())
-        .or(session_meta.model_id.clone())
-        .unwrap_or_default();
+        let history = db
+            .load_context(&sid)
+            .ok()
+            .flatten()
+            .and_then(|json| serde_json::from_str::<Vec<Value>>(&json).ok())
+            .unwrap_or_default();
+        if history.is_empty() {
+            return None;
+        }
+        let extract_provider_id = agent_mem
+            .and_then(|m| m.extract_provider_id.clone())
+            .or_else(|| {
+                global_extract
+                    .model_override
+                    .as_ref()
+                    .map(|m| m.provider_id.clone())
+            })
+            .or_else(|| global_extract.extract_provider_id.clone())
+            .or(session_meta.provider_id)
+            .unwrap_or_default();
+        let extract_model_id = agent_mem
+            .and_then(|m| m.extract_model_id.clone())
+            .or_else(|| {
+                global_extract
+                    .model_override
+                    .as_ref()
+                    .map(|m| m.model_id.clone())
+            })
+            .or_else(|| global_extract.extract_model_id.clone())
+            .or(session_meta.model_id)
+            .unwrap_or_default();
+        let store = crate::config::cached_config();
+        let provider =
+            crate::provider::find_provider(&store.providers, &extract_provider_id)?.clone();
+        Some((history, provider, extract_model_id))
+    })
+    .await;
 
-    let store = crate::config::cached_config();
-    if let Some(prov) = crate::provider::find_provider(&store.providers, &extract_provider_id) {
+    if let Some((history, prov, extract_model_id)) = prepared {
         app_info!(
             "memory",
             "idle_extract",
@@ -999,7 +1091,7 @@ async fn run_idle_extraction(agent_id: &str, session_id: &str, expected_updated_
             &history,
             agent_id,
             session_id,
-            prov,
+            &prov,
             &extract_model_id,
             None,
         )

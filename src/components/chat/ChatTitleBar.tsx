@@ -70,6 +70,12 @@ interface RightPanelTitleBarItem {
   icon: LucideIcon
 }
 
+interface WorkflowTitleBarStatus {
+  activeCount: number
+  attentionCount: number
+  runningCount: number
+}
+
 interface ChatTitleBarProps {
   agentName: string
   currentAgentId: string
@@ -135,6 +141,8 @@ interface ChatTitleBarProps {
   onToggleWorkspacePanel?: () => void
   /** Whether the workspace panel is currently open (controls active styling). */
   workspacePanelOpen?: boolean
+  /** Compact workflow run status for the Workflow workspace entry badge. */
+  workspaceWorkflowStatus?: WorkflowTitleBarStatus
   /** Toggle the right-side background-jobs panel (R4). */
   onToggleBackgroundJobsPanel?: () => void
   /** Whether the background-jobs panel is currently open (controls active styling). */
@@ -189,6 +197,7 @@ export default function ChatTitleBar({
   filesPanelOpen = false,
   onToggleWorkspacePanel,
   workspacePanelOpen = false,
+  workspaceWorkflowStatus,
   onToggleBackgroundJobsPanel,
   backgroundJobsPanelOpen = false,
   backgroundJobsRunningCount = 0,
@@ -307,11 +316,24 @@ export default function ChatTitleBar({
   }, [currentSessionId])
 
   const currentModel = resolveCurrentModel(activeModel, availableModels)
+  const showIncognitoToggle =
+    !currentSessionId && onIncognitoChange && incognitoDisabledReason !== "project"
   const activeRightPanel =
     rightPanels.find((panel) => panel.id === activeRightPanelId) ?? rightPanels[0] ?? null
   const rightPanelToggleLabel = rightPanelCollapsed
     ? t("chat.rightPanel.expand", "展开右侧面板")
     : t("chat.rightPanel.collapse", "收起右侧面板")
+  const workflowAttentionCount = workspaceWorkflowStatus?.attentionCount ?? 0
+  const workflowActiveCount = workspaceWorkflowStatus?.activeCount ?? 0
+  const workflowRunningCount = workspaceWorkflowStatus?.runningCount ?? 0
+  const workflowBadgeCount = workflowAttentionCount || workflowActiveCount
+  const workflowBadgeTone =
+    workflowAttentionCount > 0
+      ? "bg-amber-500 text-white"
+      : workflowRunningCount > 0
+        ? "bg-blue-500 text-white"
+        : "bg-muted-foreground text-background"
+  const workspaceEntryLabel = t("workspace.openPanel", "Open workspace")
   const hasRightPanelControls =
     !!onToggleFilesPanel ||
     !!onToggleWorkspacePanel ||
@@ -358,18 +380,29 @@ export default function ChatTitleBar({
         </IconTip>
       )}
       {onToggleWorkspacePanel && (
-        <IconTip label={t("workspace.openPanel", "Open workspace")}>
+        <IconTip label={workspaceEntryLabel}>
           <button
             type="button"
             className={cn(
-              "flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary/70 hover:text-foreground",
-              workspacePanelOpen && "text-foreground",
+              "relative flex h-7 max-w-[112px] items-center justify-center gap-1.5 rounded-md px-2 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-secondary/70 hover:text-foreground",
+              workspacePanelOpen && "bg-primary/10 text-primary ring-1 ring-primary/25",
             )}
-            aria-label={t("workspace.openPanel", "Open workspace")}
+            aria-label={workspaceEntryLabel}
             aria-pressed={workspacePanelOpen}
             onClick={onToggleWorkspacePanel}
           >
-            <LayoutDashboard className="h-4 w-4" />
+            <LayoutDashboard className="h-4 w-4 shrink-0" />
+            <span className="truncate">{t("workspace.panelTitle", "Workspace")}</span>
+            {workflowBadgeCount > 0 ? (
+              <span
+                className={cn(
+                  "absolute -right-1 -top-1 z-10 flex h-[15px] min-w-[15px] items-center justify-center rounded-full border border-background px-0.5 text-[9px] font-semibold leading-none tabular-nums",
+                  workflowBadgeTone,
+                )}
+              >
+                {workflowBadgeCount > 99 ? "99+" : workflowBadgeCount}
+              </span>
+            ) : null}
           </button>
         </IconTip>
       )}
@@ -469,7 +502,7 @@ export default function ChatTitleBar({
               <button
                 onClick={() => onOpenProjectSettings?.(project)}
                 className="inline-flex items-center gap-1 shrink-0 text-[12px] px-1.5 py-0.5 rounded hover:bg-accent/40 transition-colors"
-                title={project.description ?? project.name}
+                data-ha-title-tip={project.description ?? project.name}
               >
                 <Folder className={cn("h-3.5 w-3.5 shrink-0", projectFolderColorClass)} />
                 <span className="truncate max-w-[140px] text-foreground/80">{project.name}</span>
@@ -540,7 +573,7 @@ export default function ChatTitleBar({
         )}
       </div>
       <div className="flex items-end gap-1">
-        {!currentSessionId && onIncognitoChange && (
+        {showIncognitoToggle && (
           <IncognitoToggle
             sessionId={null}
             enabled={incognitoEnabled}
@@ -582,7 +615,7 @@ export default function ChatTitleBar({
             open={showStatus}
             positionClassName="top-full right-0 mt-1.5"
             originClassName="origin-top-right"
-            className="ha-menu-from-top min-w-[260px] rounded-xl border-border bg-popover p-3.5 shadow-xl"
+            className="ha-menu-from-top min-w-[260px] p-3.5"
             onEscapeKeyDown={() => setShowStatus(false)}
             onClick={(e) => e.stopPropagation()}
           >
@@ -620,9 +653,9 @@ export default function ChatTitleBar({
               {/* Context window usage. See `getContextUsageTokens` for the
                *  cumulative-vs-last-round rule. */}
               {(() => {
-                const usage = contextUsageOverride ?? (currentModel
-                  ? computeContextUsage(messages, currentModel.contextWindow)
-                  : null)
+                const usage =
+                  contextUsageOverride ??
+                  (currentModel ? computeContextUsage(messages, currentModel.contextWindow) : null)
                 if (!usage) return null
                 const { usedTokens, usedK, ctxK, pct } = usage
                 const barColor = contextUsageBarClass(pct)
@@ -650,7 +683,10 @@ export default function ChatTitleBar({
                             const result = await onCompactContext?.()
                             if (!result) return
                             if (compactToastTimer.current) clearTimeout(compactToastTimer.current)
-                            setCompactToast({ success: true, message: compactResultMessage(t, result) })
+                            setCompactToast({
+                              success: true,
+                              message: compactResultMessage(t, result),
+                            })
                             compactToastTimer.current = setTimeout(
                               () => setCompactToast(null),
                               3000,
@@ -832,15 +868,17 @@ export default function ChatTitleBar({
               )}
             </div>
           </FloatingMenu>
-          {compactToast && (
-            <div
-              className={cn(
-                "absolute top-full right-0 mt-1.5 z-50 whitespace-nowrap rounded-lg border px-2.5 py-1.5 text-xs shadow-lg animate-in fade-in slide-in-from-top-1 duration-200",
-                compactToast.success
-                  ? "border-border bg-popover text-popover-foreground"
-                  : "border-destructive/30 bg-destructive/10 text-destructive",
-              )}
-            >
+          <FloatingMenu
+            open={compactToast !== null}
+            positionClassName="top-full right-0 mt-1.5"
+            originClassName="origin-top-right"
+            className={cn(
+              "ha-menu-from-top whitespace-nowrap px-2.5 py-1.5 text-xs",
+              compactToast?.success === false &&
+                "border-destructive/30 bg-destructive/10 text-destructive",
+            )}
+          >
+            {compactToast ? (
               <div className="flex items-center gap-1.5">
                 {compactToast.success ? (
                   <Check className="h-3 w-3 text-green-500" />
@@ -849,8 +887,8 @@ export default function ChatTitleBar({
                 )}
                 {compactToast.message}
               </div>
-            </div>
-          )}
+            ) : null}
+          </FloatingMenu>
         </div>
         {/* Export Button — open the export-conversation dialog. */}
         {currentSessionId && (

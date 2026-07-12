@@ -26,6 +26,7 @@ pub struct HookContribution {
     pub updated_input: Option<serde_json::Value>,
     pub updated_mcp_output: Option<serde_json::Value>,
     pub retry: bool,
+    pub worktree_path: Option<String>,
 }
 
 impl HookContribution {
@@ -93,6 +94,9 @@ pub fn aggregate(contributions: Vec<HookContribution>) -> HookOutcome {
         }
         if c.updated_mcp_output.is_some() {
             outcome.updated_mcp_output = c.updated_mcp_output;
+        }
+        if outcome.worktree_path.is_none() {
+            outcome.worktree_path = c.worktree_path;
         }
         outcome.permission_allow = outcome.permission_allow || c.permission_allow;
         outcome.retry = outcome.retry || c.retry;

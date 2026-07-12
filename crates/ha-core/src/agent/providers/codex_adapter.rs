@@ -92,6 +92,11 @@ impl<'a> StreamingChatAdapter for CodexStreamingAdapter<'a> {
         // Inject awareness + active memory as leading system items (same as
         // openai_responses_adapter — keeps `instructions` cache-friendly).
         let mut api_input: Vec<Value> = expand_responses_image_markers_for_api(req.history_for_api);
+        if let Some(procedure_suffix) = req.procedure_memory_suffix {
+            if !procedure_suffix.is_empty() {
+                api_input.insert(0, json!({ "role": "system", "content": procedure_suffix }));
+            }
+        }
         if let Some(active_suffix) = req.active_memory_suffix {
             if !active_suffix.is_empty() {
                 api_input.insert(0, json!({ "role": "system", "content": active_suffix }));
@@ -100,6 +105,11 @@ impl<'a> StreamingChatAdapter for CodexStreamingAdapter<'a> {
         if let Some(suffix) = req.awareness_suffix {
             if !suffix.is_empty() {
                 api_input.insert(0, json!({ "role": "system", "content": suffix }));
+            }
+        }
+        if let Some(profile_suffix) = req.coding_profile_suffix {
+            if !profile_suffix.is_empty() {
+                api_input.insert(0, json!({ "role": "system", "content": profile_suffix }));
             }
         }
         if let Some(related_suffix) = req.related_notes_suffix {

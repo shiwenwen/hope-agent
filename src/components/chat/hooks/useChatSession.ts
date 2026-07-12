@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react"
 import { toast } from "sonner"
 import { getTransport } from "@/lib/transport-provider"
+import { TRANSPORT_EVENT_RESYNC_REQUIRED } from "@/lib/transport"
 import { useTranslation } from "react-i18next"
 import { logger } from "@/lib/logger"
 import { desktopUnreadCount } from "@/lib/unread"
@@ -14,6 +15,7 @@ import { DEFAULT_AGENT_ID } from "@/types/tools"
 import { useSessionPagination } from "./useSessionPagination"
 import { useChannelStreaming } from "./useChannelStreaming"
 import { PAGE_SIZE, SESSION_CACHE_LRU_LIMIT } from "./constants"
+import { resolveAvailableDisplayModel } from "../modelSelection"
 import type {
   Message,
   AvailableModel,
@@ -106,7 +108,6 @@ interface UseChatSessionOptions {
   availableModels: AvailableModel[]
   setActiveModel: React.Dispatch<React.SetStateAction<ActiveModel | null>>
   globalActiveModelRef: React.MutableRefObject<ActiveModel | null>
-  handleModelChange: (key: string) => void
   applyModelForDisplay: (key: string) => void
   initialSessionId?: string
   onSessionNavigated?: () => void
@@ -127,7 +128,6 @@ export function useChatSession({
   availableModels,
   setActiveModel,
   globalActiveModelRef,
-  handleModelChange,
   applyModelForDisplay,
   initialSessionId,
   onSessionNavigated,
@@ -144,9 +144,10 @@ export function useChatSession({
   const [historyLoading, setHistoryLoading] = useState(false)
   const [loading, setLoading] = useState(false)
   const [loadingSessionIds, setLoadingSessionIds] = useState<Set<string>>(new Set())
-  const [pendingScrollIntent, setPendingScrollIntent] = useState<
-    { messageId: number; highlightTerms: string[] | null } | null
-  >(null)
+  const [pendingScrollIntent, setPendingScrollIntent] = useState<{
+    messageId: number
+    highlightTerms: string[] | null
+  } | null>(null)
   const clearPendingScrollIntent = useCallback(() => setPendingScrollIntent(null), [])
 
   const currentSessionIdRef = useRef<string | null>(null)
@@ -362,8 +363,7 @@ export function useChatSession({
         let evicted = false
         for (const k of cache.keys()) {
           const isCurrent = k === currentSessionIdRef.current
-          const isLiveStreaming =
-            loadingSessionsRef.current.has(k) && cache.has(k)
+          const isLiveStreaming = loadingSessionsRef.current.has(k) && cache.has(k)
           if (isCurrent || isLiveStreaming) continue
           clearPerSessionRefs(k)
           evicted = true
@@ -476,9 +476,7 @@ export function useChatSession({
       const pinnedAt = pinned ? new Date().toISOString() : null
       setSessions((prev) =>
         sortSessionsForSidebar(
-          prev.map((session) =>
-            session.id === sessionId ? { ...session, pinnedAt } : session,
-          ),
+          prev.map((session) => (session.id === sessionId ? { ...session, pinnedAt } : session)),
         ),
       )
       try {
@@ -498,7 +496,9 @@ export function useChatSession({
       const current = agents
       const byId = new Map(current.map((agent) => [agent.id, agent]))
       const next = [
-        ...agentIds.map((id) => byId.get(id)).filter((agent): agent is AgentSummaryForSidebar => !!agent),
+        ...agentIds
+          .map((id) => byId.get(id))
+          .filter((agent): agent is AgentSummaryForSidebar => !!agent),
         ...current.filter((agent) => !agentIds.includes(agent.id)),
       ]
       setAgents(next)
@@ -601,11 +601,20 @@ export function useChatSession({
     const offApproval = getTransport().listen("approval_required", schedule)
     const offAskUser = getTransport().listen("ask_user_request", schedule)
     const offChanged = getTransport().listen("session_pending_interactions_changed", schedule)
+    const offResync = getTransport().listen(TRANSPORT_EVENT_RESYNC_REQUIRED, schedule)
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") schedule()
+    }
+    window.addEventListener("focus", schedule)
+    document.addEventListener("visibilitychange", onVisibilityChange)
     return () => {
       if (timer) clearTimeout(timer)
       offApproval()
       offAskUser()
       offChanged()
+      offResync()
+      window.removeEventListener("focus", schedule)
+      document.removeEventListener("visibilitychange", onVisibilityChange)
     }
   }, [reloadSessions])
 
@@ -650,10 +659,7 @@ export function useChatSession({
 
   // Switch to an existing session
   const handleSwitchSession = useCallback(
-    async (
-      sessionId: string,
-      opts?: { targetMessageId?: number; highlightTerms?: string[] },
-    ) => {
+    async (sessionId: string, opts?: { targetMessageId?: number; highlightTerms?: string[] }) => {
       const targetMessageId = opts?.targetMessageId
       const highlightTerms = opts?.highlightTerms
       // Always reload when jumping to a specific message; otherwise skip if
@@ -793,56 +799,33 @@ export function useChatSession({
         const agent = agentsRef.current.find((a) => a.id === session.agentId)
         if (agent) setAgentName(agent.name)
 
-        // Restore the model used in this session (if still available)
-        if (session.providerId && session.modelId) {
-          const modelExists = availableModels.some(
-            (m) => m.providerId === session.providerId && m.modelId === session.modelId,
-          )
-          if (modelExists) {
-            handleModelChange(`${session.providerId}::${session.modelId}`)
-          }
-        } else {
-          // Session has no model info, fallback to agent's configured model or global default
+        const sessionPreferred =
+          session.providerId && session.modelId
+            ? { providerId: session.providerId, modelId: session.modelId }
+            : null
+        let agentPrimary: string | null = null
+        if (!resolveAvailableDisplayModel(availableModels, sessionPreferred, null, null)) {
           try {
             const agentConfig = await getTransport().call<AgentConfig>("get_agent_config", {
               id: session.agentId,
             })
             if (switchVersionRef.current !== version) return // stale switch
-            if (agentConfig.model.primary) {
-              const modelExists = availableModels.some(
-                (m) => `${m.providerId}::${m.modelId}` === agentConfig.model.primary,
-              )
-              if (modelExists) {
-                applyModelForDisplay(agentConfig.model.primary)
-                // Mark session as read and refresh (await + log; see #6 below).
-                try {
-                  await getTransport().call("mark_session_read_cmd", { sessionId })
-                  if (switchVersionRef.current !== version) return // stale switch
-                  updateSessionMeta(sessionId, (prev) =>
-                    prev.unreadCount === 0 && prev.channelUnreadCount === 0
-                      ? prev
-                      : { ...prev, unreadCount: 0, channelUnreadCount: 0 },
-                  )
-                } catch (e) {
-                  logger.warn(
-                    "session",
-                    "ChatScreen::switchSession",
-                    "Failed to mark session as read",
-                    e,
-                  )
-                }
-                reloadSessions()
-                onSidebarAggregatesChanged?.()
-                return
-              }
-            }
+            agentPrimary = agentConfig.model.primary ?? null
           } catch {
-            // ignore
+            // A missing agent config still falls through to the global candidate.
           }
-          // No agent model or unavailable — restore global default
-          if (globalActiveModelRef.current) {
-            setActiveModel(globalActiveModelRef.current)
-          }
+        }
+
+        const displayModel = resolveAvailableDisplayModel(
+          availableModels,
+          sessionPreferred,
+          agentPrimary,
+          globalActiveModelRef.current,
+        )
+        if (displayModel) {
+          applyModelForDisplay(`${displayModel.providerId}::${displayModel.modelId}`)
+        } else {
+          setActiveModel(null)
         }
       }
 
@@ -858,19 +841,13 @@ export function useChatSession({
             : { ...prev, unreadCount: 0, channelUnreadCount: 0 },
         )
       } catch (e) {
-        logger.warn(
-          "session",
-          "ChatScreen::switchSession",
-          "Failed to mark session as read",
-          e,
-        )
+        logger.warn("session", "ChatScreen::switchSession", "Failed to mark session as read", e)
       }
       reloadSessions()
       onSidebarAggregatesChanged?.()
     },
     [
       availableModels,
-      handleModelChange,
       applyModelForDisplay,
       globalActiveModelRef,
       setActiveModel,

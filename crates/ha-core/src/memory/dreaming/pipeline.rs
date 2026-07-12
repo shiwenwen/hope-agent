@@ -80,9 +80,8 @@ async fn run_cycle_inner(trigger: DreamTrigger) -> DreamReport {
 
     // 3. Cross-process lease. Phase 0 is Light + global scope, so the lock
     //    key is fixed at "light:global". The lease guards desktop / server /
-    //    ACP multi-process overlap. `_lease` is declared after `_guard`, so on
-    //    every return it drops first (reverse declaration order) — releasing
-    //    the cross-process lease before the in-process AtomicBool flag.
+    //    ACP multi-process overlap. Normal exits explicitly await lease release
+    //    before `_guard` drops the in-process AtomicBool flag.
     let phase = DreamPhase::Light;
     let scope_key = "global";
     let lock_key = format!("{}:{}", phase.as_str(), scope_key);
@@ -92,20 +91,31 @@ async fn run_cycle_inner(trigger: DreamTrigger) -> DreamReport {
     // another process start a concurrent one.
     let lease_ttl = store::lease_ttl_secs(cfg.narrative_timeout_secs);
 
-    let Some(_lease) = store::acquire_lease(&lock_key, &run_id, lease_ttl) else {
+    let lock_key_for_acquire = lock_key.clone();
+    let run_id_for_acquire = run_id.clone();
+    let Some(lease) = crate::blocking::run_blocking(move || {
+        store::acquire_lease(&lock_key_for_acquire, &run_id_for_acquire, lease_ttl)
+    })
+    .await
+    else {
         // Another live run holds the lease. Don't drop the candidate window —
         // record a deferred-capture marker the holder will drain on its next
         // cycle. (Phase 0 only runs Light, so this fires only on genuine
         // multi-process contention; Deep adds richer source payloads.)
-        if let Some(s) = store::store() {
-            let _ = s.enqueue_pending(
-                scope_key,
-                "light_rescan",
-                &run_id,
-                None,
-                &json!({ "trigger": trigger.as_str() }).to_string(),
-            );
-        }
+        let run_id_for_pending = run_id.clone();
+        let trigger_name = trigger.as_str().to_string();
+        crate::blocking::run_blocking(move || {
+            if let Some(s) = store::store() {
+                let _ = s.enqueue_pending(
+                    "global",
+                    "light_rescan",
+                    &run_id_for_pending,
+                    None,
+                    &json!({ "trigger": trigger_name }).to_string(),
+                );
+            }
+        })
+        .await;
         return skipped(
             trigger,
             started,
@@ -120,22 +130,28 @@ async fn run_cycle_inner(trigger: DreamTrigger) -> DreamReport {
         "candidateLimit": cfg.candidate_limit,
     })
     .to_string();
-    if let Some(s) = store::store() {
-        if let Err(e) = s.create_run(
-            &run_id,
-            trigger.as_str(),
-            phase.as_str(),
-            &scope_json,
-            lease_ttl,
-        ) {
-            app_warn!(
-                "memory",
-                "dreaming::store",
-                "failed to persist run row: {}",
-                e
-            );
+    let run_id_for_create = run_id.clone();
+    let trigger_name = trigger.as_str().to_string();
+    let phase_name = phase.as_str().to_string();
+    crate::blocking::run_blocking(move || {
+        if let Some(s) = store::store() {
+            if let Err(e) = s.create_run(
+                &run_id_for_create,
+                &trigger_name,
+                &phase_name,
+                &scope_json,
+                lease_ttl,
+            ) {
+                app_warn!(
+                    "memory",
+                    "dreaming::store",
+                    "failed to persist run row: {}",
+                    e
+                );
+            }
         }
-    }
+    })
+    .await;
 
     app_info!(
         "memory",
@@ -150,15 +166,30 @@ async fn run_cycle_inner(trigger: DreamTrigger) -> DreamReport {
     // 5. Drain deferred-capture markers for this scope (reclaim abandoned
     //    claims first, then claim + acknowledge — the fresh scan below covers
     //    the same recent window).
-    drain_pending(scope_key);
+    crate::blocking::run_blocking(move || drain_pending(scope_key)).await;
 
-    // 6. Resolve the model chain for the narrative side_query. Resolution
-    //    itself can't fail — an empty chain surfaces as a clear "no model
-    //    configured" error from `automation::run` inside `run_side_query`
-    //    below, handled by that call's own error branch.
+    // 6. Conservative Deep resolver automation: deterministic expiry plus a
+    //    bounded graph-informed LLM pass. Automatic conflict handling only
+    //    routes to Review Inbox; it never silently supersedes competing facts.
+    if cfg.deep_resolver.auto_expire_on_light_cycle || cfg.deep_resolver.auto_resolve_on_light_cycle
+    {
+        let sweep = super::resolver::run_auto_resolver_sweep(trigger).await;
+        if sweep.expired + sweep.merged + sweep.needs_review > 0 {
+            app_info!(
+                "memory",
+                "dreaming::run_cycle",
+                "automatic resolver changed {} claim(s) before light cycle {}",
+                sweep.expired + sweep.merged + sweep.needs_review,
+                run_id
+            );
+        }
+    }
+
+    // 7. Resolve the shared automation model chain. A missing chain becomes a
+    // bounded narrative failure below and never weakens the resolver sweep.
     let chain = resolve_dreaming_chain(&cfg);
 
-    // 7. Scan candidates off the async runtime.
+    // 8. Scan candidates off the async runtime.
     let scan_cfg = cfg.clone();
     let candidates = tokio::task::spawn_blocking(move || {
         scanner::collect_candidates(scan_cfg.scope_days, scan_cfg.candidate_limit)
@@ -181,15 +212,25 @@ async fn run_cycle_inner(trigger: DreamTrigger) -> DreamReport {
             note: Some("no candidates in scan window".to_string()),
         };
         // A completed cycle that found nothing to do.
-        if let Some(s) = store::store() {
-            if let Err(e) = s.finish_run(&run_id, DreamRunStatus::Completed, &report) {
-                app_warn!("memory", "dreaming::store", "failed to finalise run: {}", e);
+        let run_id_for_finish = run_id.clone();
+        let report_for_finish = report.clone();
+        crate::blocking::run_blocking(move || {
+            if let Some(s) = store::store() {
+                if let Err(e) = s.finish_run(
+                    &run_id_for_finish,
+                    DreamRunStatus::Completed,
+                    &report_for_finish,
+                ) {
+                    app_warn!("memory", "dreaming::store", "failed to finalise run: {}", e);
+                }
             }
-        }
+        })
+        .await;
+        lease.release().await;
         return report;
     }
 
-    // 8. Run the narrative side_query.
+    // 9. Run the narrative side_query.
     let narrative_out = match narrative::run_side_query(chain, &candidates, &cfg).await {
         Ok(out) => out,
         Err(e) => {
@@ -209,12 +250,13 @@ async fn run_cycle_inner(trigger: DreamTrigger) -> DreamReport {
                 duration_ms: started.elapsed().as_millis() as u64,
                 note: Some(format!("side_query failed: {}", e)),
             };
-            finalize_failed(&run_id, &report);
+            finalize_failed(&run_id, &report).await;
+            lease.release().await;
             return report;
         }
     };
 
-    // 9. Apply promotions (flip pinned=true on each). Render the diary
+    // 10. Apply promotions (flip pinned=true on each). Render the diary
     //    before moving `narrative_out` so we only hold one copy of the
     //    promotion records across the closure boundary.
     let diary_md = narrative::render_diary_markdown(&narrative_out);
@@ -237,19 +279,20 @@ async fn run_cycle_inner(trigger: DreamTrigger) -> DreamReport {
         );
     }
 
-    // 10. Write the diary markdown.
-    let diary_path = match narrative::write_diary(&diary_md) {
-        Ok(path) => Some(path.to_string_lossy().to_string()),
-        Err(e) => {
-            app_warn!(
-                "memory",
-                "dreaming::run_cycle",
-                "failed to write diary markdown: {}",
-                e
-            );
-            None
-        }
-    };
+    // 11. Write the diary markdown.
+    let diary_path =
+        match crate::blocking::run_blocking(move || narrative::write_diary(&diary_md)).await {
+            Ok(path) => Some(path.to_string_lossy().to_string()),
+            Err(e) => {
+                app_warn!(
+                    "memory",
+                    "dreaming::run_cycle",
+                    "failed to write diary markdown: {}",
+                    e
+                );
+                None
+            }
+        };
 
     let duration_ms = started.elapsed().as_millis() as u64;
     emit_cycle_event(
@@ -271,35 +314,37 @@ async fn run_cycle_inner(trigger: DreamTrigger) -> DreamReport {
         note: None,
     };
 
-    // 11. Finalise: durable run + decision log + watermark (best-effort —
+    // 12. Finalise: durable run + decision log + watermark (best-effort —
     //     a store failure must never lose the cycle; the diary is on disk).
-    if let Some(s) = store::store() {
-        if let Err(e) = s.finish_run(&run_id, DreamRunStatus::Completed, &report) {
-            app_warn!("memory", "dreaming::store", "failed to finalise run: {}", e);
+    let run_id_for_finish = run_id.clone();
+    let report_for_finish = report.clone();
+    let newest = candidates
+        .iter()
+        .max_by(|a, b| a.created_at.cmp(&b.created_at))
+        .map(|entry| (entry.id.to_string(), entry.created_at.clone()));
+    crate::blocking::run_blocking(move || {
+        if let Some(s) = store::store() {
+            if let Err(e) = s.finish_run(
+                &run_id_for_finish,
+                DreamRunStatus::Completed,
+                &report_for_finish,
+            ) {
+                app_warn!("memory", "dreaming::store", "failed to finalise run: {}", e);
+            }
+            if let Err(e) = s.insert_decisions(&run_id_for_finish, &report_for_finish.promoted) {
+                app_warn!(
+                    "memory",
+                    "dreaming::store",
+                    "failed to persist decisions: {}",
+                    e
+                );
+            }
+            if let Some((id, created_at)) = newest {
+                let _ = s.set_watermark("global", "memories", Some(&id), Some(&created_at));
+            }
         }
-        if let Err(e) = s.insert_decisions(&run_id, &report.promoted) {
-            app_warn!(
-                "memory",
-                "dreaming::store",
-                "failed to persist decisions: {}",
-                e
-            );
-        }
-        // Newest scanned candidate as the watermark for this scope. Foundation
-        // only: the Light scanner still uses a time window, so this is written
-        // but not yet read (the watermark-aware scanner lands in Phase 1+).
-        if let Some(newest) = candidates
-            .iter()
-            .max_by(|a, b| a.created_at.cmp(&b.created_at))
-        {
-            let _ = s.set_watermark(
-                "global",
-                "memories",
-                Some(&newest.id.to_string()),
-                Some(&newest.created_at),
-            );
-        }
-    }
+    })
+    .await;
 
     app_info!(
         "memory",
@@ -313,17 +358,23 @@ async fn run_cycle_inner(trigger: DreamTrigger) -> DreamReport {
         duration_ms
     );
 
+    lease.release().await;
     report
 }
 
 /// Mark a durable run row as failed (best-effort). Used by the agent-build
 /// and side_query failure paths.
-fn finalize_failed(run_id: &str, report: &DreamReport) {
-    if let Some(s) = store::store() {
-        if let Err(e) = s.finish_run(run_id, DreamRunStatus::Failed, report) {
-            app_warn!("memory", "dreaming::store", "failed to finalise run: {}", e);
+async fn finalize_failed(run_id: &str, report: &DreamReport) {
+    let run_id = run_id.to_string();
+    let report = report.clone();
+    crate::blocking::run_blocking(move || {
+        if let Some(s) = store::store() {
+            if let Err(e) = s.finish_run(&run_id, DreamRunStatus::Failed, &report) {
+                app_warn!("memory", "dreaming::store", "failed to finalise run: {}", e);
+            }
         }
-    }
+    })
+    .await;
 }
 
 /// Reclaim abandoned claims, then claim + acknowledge any deferred-capture
@@ -373,10 +424,8 @@ fn skipped(trigger: DreamTrigger, started: Instant, note: &str) -> DreamReport {
     }
 }
 
-/// Build an `AssistantAgent` for the narrative side_query.
-/// Honours `DreamingConfig.narrative_model` when set (format:
-/// `providerId:modelId`), falls back to the same heuristic as /recap.
-/// `pub(super)` so the Deep resolver reuses the same model resolution.
+/// Resolve the automation model chain for Dreaming. The legacy single-model
+/// field remains a compatibility fallback behind the typed override.
 pub(super) fn resolve_dreaming_chain(cfg: &DreamingConfig) -> Vec<crate::provider::ActiveModel> {
     let app_cfg = crate::config::cached_config();
     let override_chain = cfg

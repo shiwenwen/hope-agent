@@ -80,6 +80,10 @@ pub enum AskReason {
     MacControlAction { action: String },
     /// Native macOS control action with destructive potential.
     MacControlDangerousAction { action: String },
+    /// External connector action that mutates another system of record, such as
+    /// sending mail, editing a calendar event, sharing a document, or updating a
+    /// SaaS record.
+    ExternalConnectorAction { connector: String, action: String },
     /// Plan Mode `ask_tools` list — tool is whitelisted but flagged as
     /// "needs explicit confirmation before each call". The default plan
     /// agent uses this for `exec` so a planning subagent can't quietly run
@@ -96,10 +100,13 @@ pub enum AskReason {
 
 impl AskReason {
     /// `true` if this reason forbids `Allow Always` — protected paths,
-    /// dangerous commands, and raw CDP against the user's real Chrome always
-    /// need a per-call confirmation. `BrowserRawCdp` is strict because a single
-    /// "Allow Always" would otherwise permanently grant arbitrary DevTools
-    /// Protocol access (cookies, storage, navigation) to the logged-in browser.
+    /// dangerous commands, raw CDP against the user's real Chrome, and external
+    /// connector mutations always need a per-call confirmation. `BrowserRawCdp`
+    /// is strict because a single "Allow Always" would otherwise permanently
+    /// grant arbitrary DevTools Protocol access (cookies, storage, navigation)
+    /// to the logged-in browser. Connector mutations are strict because they
+    /// change external systems of record outside Hope Agent's local rollback
+    /// boundary.
     pub fn forbids_allow_always(&self) -> bool {
         matches!(
             self,
@@ -107,6 +114,7 @@ impl AskReason {
                 | AskReason::DangerousCommand { .. }
                 | AskReason::MacControlDangerousAction { .. }
                 | AskReason::BrowserRawCdp { .. }
+                | AskReason::ExternalConnectorAction { .. }
                 | AskReason::PlanModeAsk
         )
     }

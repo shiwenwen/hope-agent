@@ -8,7 +8,8 @@
 //!
 //! Three-axis decision:
 //! 1. **Tier-based default** — Tier 1 always eager; Memory bound to global
-//!    `memory.enabled`; Mcp bound to per-agent `mcp_enabled`.
+//!    long-term memory + agent `memory.enabled`; Mcp bound to per-agent
+//!    `mcp_enabled`.
 //! 2. **Per-agent override** — for Standard / Configured tools the user can
 //!    flip the tier default via `capabilities.tools.allow` / `deny`.
 //! 3. **Global provisioning** — Tier 3 also requires the corresponding
@@ -31,6 +32,8 @@ use super::definitions::{CoreSubclass, ToolDefinition, ToolTier};
 #[derive(Debug)]
 pub struct DispatchContext<'a> {
     pub agent_id: &'a str,
+    /// Current session is incognito (`sessions.incognito`).
+    pub incognito: bool,
     /// `agent.json` `capabilities.mcpEnabled`
     pub mcp_enabled: bool,
     /// `agent.json` `memory.enabled`
@@ -132,15 +135,17 @@ fn user_enables_tool(name: &str, tier: &ToolTier, ctx: &DispatchContext) -> bool
     }
 }
 
-/// Whether any built-in tool is explicitly configured for deferred loading.
+/// Whether any built-in tool is configured for deferred loading.
 pub fn has_deferred_builtin_tools(app_config: &AppConfig) -> bool {
     app_config.deferred_tools.enabled && !app_config.deferred_tools.tool_names.is_empty()
 }
 
 /// Decide whether the tool should be deferred (schema not eagerly sent).
-/// The global switch only enables the mechanism; individual built-in tools
-/// move to the deferred pool only when their name appears in
-/// `deferredTools.toolNames`.
+/// Individual built-in tools move to the deferred pool only when they both
+/// opt in structurally (`default_deferred`) and their name appears in
+/// `deferredTools.toolNames`. The config default pre-populates that list with
+/// low-frequency / large-schema tools, while still letting users opt tools
+/// back into eager loading by removing a name.
 fn is_deferred(name: &str, tier: &ToolTier, app_config: &AppConfig) -> bool {
     if !app_config.deferred_tools.enabled {
         return false;
@@ -203,7 +208,7 @@ pub fn resolve_tool_fate(def: &ToolDefinition, ctx: &DispatchContext) -> ToolFat
             _ => ToolFate::InjectEager,
         },
         ToolTier::Memory => {
-            if ctx.memory_enabled {
+            if !ctx.incognito && ctx.memory_enabled && ctx.app_config.memory_extract.enabled {
                 ToolFate::InjectEager
             } else {
                 ToolFate::Hidden
@@ -297,6 +302,7 @@ mod tests {
     struct Fixture {
         filter: FilterConfig,
         app: AppConfig,
+        incognito: bool,
         mcp_enabled: bool,
         memory_enabled: bool,
     }
@@ -306,6 +312,7 @@ mod tests {
             Self {
                 filter: FilterConfig::default(),
                 app: AppConfig::default(),
+                incognito: false,
                 mcp_enabled: true,
                 memory_enabled: true,
             }
@@ -314,6 +321,7 @@ mod tests {
         fn ctx<'a>(&'a self, agent_id: &'a str) -> DispatchContext<'a> {
             DispatchContext {
                 agent_id,
+                incognito: self.incognito,
                 mcp_enabled: self.mcp_enabled,
                 memory_enabled: self.memory_enabled,
                 tools_filter: &self.filter,
@@ -370,6 +378,62 @@ mod tests {
     }
 
     #[test]
+    fn tier_memory_hidden_when_global_memory_off() {
+        let mut f = Fixture::new();
+        f.app.memory_extract.enabled = false;
+        let def = def_with_tier("save_memory", ToolTier::Memory);
+        let fate = resolve_tool_fate(&def, &f.ctx(DEFAULT_AGENT_ID));
+        assert_eq!(fate, ToolFate::Hidden);
+    }
+
+    #[test]
+    fn tier_memory_hidden_when_incognito() {
+        let mut f = Fixture::new();
+        f.incognito = true;
+        let def = def_with_tier("recall_memory", ToolTier::Memory);
+        let fate = resolve_tool_fate(&def, &f.ctx(DEFAULT_AGENT_ID));
+        assert_eq!(fate, ToolFate::Hidden);
+    }
+
+    #[test]
+    fn builtin_memory_tools_share_memory_tier_gate() {
+        let memory_tool_names = [
+            crate::tools::TOOL_SAVE_MEMORY,
+            crate::tools::TOOL_RECALL_MEMORY,
+            crate::tools::TOOL_UPDATE_MEMORY,
+            crate::tools::TOOL_DELETE_MEMORY,
+            crate::tools::TOOL_UPDATE_CORE_MEMORY,
+            crate::tools::TOOL_MEMORY_GET,
+        ];
+
+        let mut incognito = Fixture::new();
+        incognito.incognito = true;
+        let mut memory_off = Fixture::new();
+        memory_off.app.memory_extract.enabled = false;
+
+        for name in memory_tool_names {
+            let def = all_dispatchable_tools()
+                .iter()
+                .find(|def| def.name == name)
+                .unwrap_or_else(|| panic!("missing built-in memory tool: {name}"));
+            assert!(
+                matches!(def.tier, ToolTier::Memory),
+                "{name} must stay ToolTier::Memory so incognito/off gates apply"
+            );
+            assert_eq!(
+                resolve_tool_fate(def, &incognito.ctx(DEFAULT_AGENT_ID)),
+                ToolFate::Hidden,
+                "{name} must be hidden in incognito sessions"
+            );
+            assert_eq!(
+                resolve_tool_fate(def, &memory_off.ctx(DEFAULT_AGENT_ID)),
+                ToolFate::Hidden,
+                "{name} must be hidden when long-term memory is off"
+            );
+        }
+    }
+
+    #[test]
     fn tier_memory_eager_when_enabled() {
         let f = Fixture::new();
         let def = def_with_tier("save_memory", ToolTier::Memory);
@@ -410,6 +474,78 @@ mod tests {
         assert_eq!(main_fate, ToolFate::InjectEager);
         let other_fate = resolve_tool_fate(&def, &f.ctx("translator"));
         assert_eq!(other_fate, ToolFate::Hidden);
+    }
+
+    #[test]
+    fn default_deferred_tool_moves_to_search_pool() {
+        let f = Fixture::new();
+        let def = def_with_tier(
+            crate::tools::TOOL_BROWSER,
+            ToolTier::Standard {
+                default_for_main: true,
+                default_for_others: true,
+                default_deferred: true,
+            },
+        );
+        assert_eq!(
+            resolve_tool_fate(&def, &f.ctx(DEFAULT_AGENT_ID)),
+            ToolFate::InjectDeferred
+        );
+    }
+
+    #[test]
+    fn default_deferred_requires_configured_tool_name() {
+        let f = Fixture::new();
+        let def = def_with_tier(
+            "custom_low_frequency_tool",
+            ToolTier::Standard {
+                default_for_main: true,
+                default_for_others: true,
+                default_deferred: true,
+            },
+        );
+        assert_eq!(
+            resolve_tool_fate(&def, &f.ctx(DEFAULT_AGENT_ID)),
+            ToolFate::InjectEager
+        );
+    }
+
+    #[test]
+    fn deferred_tools_can_be_disabled_globally() {
+        let mut f = Fixture::new();
+        f.app.deferred_tools.enabled = false;
+        let def = def_with_tier(
+            crate::tools::TOOL_BROWSER,
+            ToolTier::Standard {
+                default_for_main: true,
+                default_for_others: true,
+                default_deferred: true,
+            },
+        );
+        assert_eq!(
+            resolve_tool_fate(&def, &f.ctx(DEFAULT_AGENT_ID)),
+            ToolFate::InjectEager
+        );
+    }
+
+    #[test]
+    fn tool_search_is_injected_when_default_deferred_tools_exist() {
+        let f = Fixture::new();
+        let def = ToolDefinition {
+            name: crate::tools::TOOL_TOOL_SEARCH.into(),
+            description: "test".into(),
+            parameters: serde_json::json!({}),
+            tier: ToolTier::Core {
+                subclass: CoreSubclass::Meta,
+            },
+            internal: true,
+            concurrent_safe: false,
+            async_capable: false,
+        };
+        assert_eq!(
+            resolve_tool_fate(&def, &f.ctx(DEFAULT_AGENT_ID)),
+            ToolFate::InjectEager
+        );
     }
 
     #[test]
@@ -518,7 +654,7 @@ mod tests {
         let f = Fixture::new();
         assert_eq!(
             resolve_tool_fate(def, &f.ctx(DEFAULT_AGENT_ID)),
-            ToolFate::InjectEager
+            ToolFate::InjectDeferred
         );
         assert_eq!(
             resolve_tool_fate(def, &f.ctx("translator")),

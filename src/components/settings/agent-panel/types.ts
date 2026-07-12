@@ -8,6 +8,9 @@ export type {
   ActiveModelRef,
   SkillSummary,
   ActiveMemoryConfig,
+  ProcedureMemoryConfig,
+  GraphMemoryConfig,
+  RetrievalPlannerConfig,
   AgentMemoryConfig,
   MemoryBudgetConfig,
   PersonaMode,
@@ -16,6 +19,9 @@ export type {
 export {
   DEFAULT_PERSONALITY,
   DEFAULT_ACTIVE_MEMORY,
+  DEFAULT_PROCEDURE_MEMORY,
+  DEFAULT_GRAPH_MEMORY,
+  DEFAULT_RETRIEVAL_PLANNER,
   DEFAULT_MEMORY_BUDGET,
   DEFAULT_SQLITE_SECTION_BUDGETS,
 } from "../types"

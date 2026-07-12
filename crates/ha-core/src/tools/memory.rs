@@ -3,6 +3,8 @@ use serde_json::Value;
 
 use crate::memory::{self, AddResult, MemoryScope, MemorySearchQuery, MemoryType, NewMemory};
 
+const SAVE_MEMORY_SOURCE: &str = "user";
+
 /// Tool: save_memory — persist information for future conversations.
 ///
 /// When the active session belongs to a project and the model did not pass
@@ -20,6 +22,11 @@ pub(crate) async fn tool_save_memory(args: &Value, ctx: &super::ToolExecContext)
             "save_memory is unavailable in an incognito session (close = burn)"
         ));
     }
+    if !memory::load_extract_config().enabled {
+        return Err(anyhow::anyhow!(
+            "save_memory is unavailable because long-term memory is turned off"
+        ));
+    }
 
     let content = args
         .get("content")
@@ -31,11 +38,18 @@ pub(crate) async fn tool_save_memory(args: &Value, ctx: &super::ToolExecContext)
     // Detect the current session's project via ctx so we can default
     // project-session memories to the right scope without the model having
     // to pass `scope="project"` and `project_id` every time.
-    let session_project_id: Option<String> = ctx
-        .session_id
-        .as_deref()
-        .and_then(|sid| crate::get_session_db()?.get_session(sid).ok().flatten())
-        .and_then(|s| s.project_id);
+    let lookup_session_id = ctx.session_id.clone().or_else(|| {
+        args.get("session_id")
+            .and_then(|v| v.as_str())
+            .map(String::from)
+    });
+    let session_project_id: Option<String> = crate::blocking::run_blocking(move || {
+        lookup_session_id
+            .as_deref()
+            .and_then(|sid| crate::get_session_db()?.get_session(sid).ok().flatten())
+            .and_then(|s| s.project_id)
+    })
+    .await;
 
     // Resolve the scope string. When the model omits `scope`:
     //   * session is in a project → Project scope (so knowledge stays local)
@@ -80,21 +94,13 @@ pub(crate) async fn tool_save_memory(args: &Value, ctx: &super::ToolExecContext)
                 .get("project_id")
                 .and_then(|v| v.as_str())
                 .map(String::from)
-                .or_else(|| session_project_id.clone())
-                .or_else(|| {
-                    let sid = args.get("session_id").and_then(|v| v.as_str())?;
-                    let db = crate::get_session_db()?;
-                    db.get_session(sid)
-                        .ok()
-                        .flatten()
-                        .and_then(|s| s.project_id)
-                });
+                .or_else(|| session_project_id.clone());
             match pid {
                 Some(id) => MemoryScope::Project { id },
                 None => {
                     return Err(anyhow::anyhow!(
-                    "scope=project requires 'project_id' (or a session_id belonging to a project)"
-                ))
+                        "scope=project requires 'project_id' (or a session_id belonging to a project)"
+                    ));
                 }
             }
         }
@@ -106,7 +112,7 @@ pub(crate) async fn tool_save_memory(args: &Value, ctx: &super::ToolExecContext)
         scope,
         content: content.to_string(),
         tags,
-        source: "auto".to_string(),
+        source: SAVE_MEMORY_SOURCE.to_string(),
         source_session_id: ctx.session_id.clone(),
         pinned,
         attachment_path: None,
@@ -189,6 +195,7 @@ pub(crate) async fn tool_recall_memory(args: &Value) -> Result<String> {
             let query = MemorySearchQuery {
                 query: query_text_for_blocking,
                 types: type_filter,
+                sources: None,
                 scope: None,
                 agent_id,
                 limit: Some(limit),
@@ -433,6 +440,11 @@ pub(crate) async fn tool_update_core_memory(
             "update_core_memory is unavailable in an incognito session (close = burn)"
         ));
     }
+    if !memory::load_extract_config().enabled {
+        return Err(anyhow::anyhow!(
+            "update_core_memory is unavailable because long-term memory is turned off"
+        ));
+    }
 
     let agent_id = ctx
         .agent_id
@@ -479,10 +491,10 @@ pub(crate) async fn tool_update_core_memory(
                 } else {
                     format!("{}\n{}", existing.trim_end(), content_owned)
                 };
-                std::fs::write(&path, &new_content)?;
+                crate::platform::write_atomic(&path, new_content.as_bytes())?;
             }
             "replace" => {
-                std::fs::write(&path, &content_owned)?;
+                crate::platform::write_atomic(&path, content_owned.as_bytes())?;
             }
             other => {
                 anyhow::bail!("Invalid action: '{}'. Use 'append' or 'replace'.", other);
@@ -546,5 +558,10 @@ mod tests {
             err.to_string().contains("incognito"),
             "unexpected error: {err}"
         );
+    }
+
+    #[test]
+    fn save_memory_uses_manual_source_label() {
+        assert_eq!(SAVE_MEMORY_SOURCE, "user");
     }
 }

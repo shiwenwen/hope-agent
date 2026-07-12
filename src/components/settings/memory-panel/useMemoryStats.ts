@@ -1,6 +1,11 @@
 import { useCallback, useState, useEffect } from "react"
+import { useTranslation } from "react-i18next"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
+import {
+  memoryEmbeddingOperationErrorToast,
+  type MemoryEmbeddingOperationErrorToast,
+} from "./memoryEmbeddingFeedback"
 import type {
   EmbeddingConfig,
   EmbeddingModelConfig,
@@ -10,6 +15,7 @@ import type {
 } from "./types"
 
 export function useMemoryStats() {
+  const { t } = useTranslation()
   const [stats, setStats] = useState<MemoryStats | null>(null)
 
   // `embeddingConfig` is kept around for HybridSearchConfig's "is this Gemini
@@ -26,6 +32,8 @@ export function useMemoryStats() {
     currentModel: null,
     needsReembed: false,
   })
+  const [embeddingConfigError, setEmbeddingConfigError] =
+    useState<MemoryEmbeddingOperationErrorToast | null>(null)
 
   const [dedupConfig, setDedupConfig] = useState({ thresholdHigh: 0.02, thresholdMerge: 0.012 })
   const [dedupExpanded, setDedupExpanded] = useState(false)
@@ -44,10 +52,12 @@ export function useMemoryStats() {
       setEmbeddingModels(modelConfigs)
       setMemoryEmbeddingState(memoryEmbedding)
       setDedupConfig(dedup)
+      setEmbeddingConfigError(null)
     } catch (e) {
       logger.error("settings", "MemoryPanel::loadEmbedding", "Failed to load embedding config", e)
+      setEmbeddingConfigError(memoryEmbeddingOperationErrorToast("load", t, e))
     }
-  }, [])
+  }, [t])
 
   useEffect(() => {
     const timeout = window.setTimeout(() => {
@@ -56,9 +66,9 @@ export function useMemoryStats() {
     return () => window.clearTimeout(timeout)
   }, [loadEmbedding])
 
-  function updateStats(statsData: MemoryStats | null) {
-    if (statsData) setStats(statsData)
-  }
+  const updateStats = useCallback((statsData: MemoryStats | null) => {
+    setStats(statsData)
+  }, [])
 
   return {
     stats,
@@ -67,6 +77,7 @@ export function useMemoryStats() {
     embeddingModels, setEmbeddingModels,
     embeddingTemplates,
     memoryEmbeddingState, setMemoryEmbeddingState,
+    embeddingConfigError,
     reloadEmbeddingConfig: loadEmbedding,
     dedupConfig, setDedupConfig,
     dedupExpanded, setDedupExpanded,

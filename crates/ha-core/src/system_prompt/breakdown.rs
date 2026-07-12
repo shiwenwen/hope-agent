@@ -65,6 +65,8 @@ pub fn compute_breakdown(
         None,
         None,
         crate::permission::SessionMode::Default,
+        crate::execution_mode::ExecutionMode::Off,
+        crate::workflow_mode::WorkflowMode::Off,
     );
     let empty_budget = crate::memory::MemoryBudgetConfig::default();
     let without_memory = build(
@@ -82,6 +84,8 @@ pub fn compute_breakdown(
         None,
         None,
         crate::permission::SessionMode::Default,
+        crate::execution_mode::ExecutionMode::Off,
+        crate::workflow_mode::WorkflowMode::Off,
     );
     let memory_chars = full.len().saturating_sub(without_memory.len());
 
@@ -92,7 +96,8 @@ pub fn compute_breakdown(
     )
     .len();
 
-    let tool_descriptions_chars = build_tools_section(&definition.id, &definition.config).len();
+    let tool_descriptions_chars =
+        build_tools_section(&definition.id, &definition.config, false).len();
 
     SystemPromptBreakdown {
         total_chars: full.len(),

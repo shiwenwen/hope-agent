@@ -11,8 +11,23 @@ export interface CronSchedule {
   timezone?: string | null
 }
 
-export interface CronPayload {
-  type: "agentTurn"
+export type CronPayload =
+  | {
+      type: "agentTurn"
+      prompt: string
+      agentId?: string | null
+    }
+  | {
+      type: "sessionLoop"
+      loopId: string
+      sessionId: string
+      prompt: string
+      agentId?: string | null
+      goalId?: string | null
+    }
+
+export interface CronAgentPayload {
+  type: "agentTurn" | "sessionLoop"
   prompt: string
   agentId?: string | null
 }

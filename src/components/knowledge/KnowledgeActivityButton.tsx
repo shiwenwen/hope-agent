@@ -13,6 +13,7 @@ import {
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
+import { FloatingMenu } from "@/components/ui/floating-menu"
 import { Progress } from "@/components/ui/progress"
 import { IconTip } from "@/components/ui/tooltip"
 import { getTransport } from "@/lib/transport-provider"
@@ -26,6 +27,11 @@ import {
   type LocalModelJobSnapshot,
   type LocalModelJobStatus,
 } from "@/types/local-model-jobs"
+import {
+  knowledgeJobsActionOperation,
+  knowledgeJobsErrorDetail,
+  knowledgeJobsErrorToast,
+} from "./knowledgeJobsFeedback"
 
 // The backend stamps model_id with this sentinel for an embedding-disabled,
 // FTS-only reindex (see knowledge/reembed.rs); a vector re-embed carries the
@@ -182,6 +188,7 @@ export default function KnowledgeActivityButton({ kbs }: { kbs: KnowledgeBaseMet
     jobs: reembedJobs,
     activeCount: reembedActiveCount,
     dismiss: dismissReembedJob,
+    loadError: reembedLoadError,
   } = useKnowledgeReembedJobs()
   const importJobs = useKnowledgeImportJobs()
   const [open, setOpen] = useState(false)
@@ -208,6 +215,11 @@ export default function KnowledgeActivityButton({ kbs }: { kbs: KnowledgeBaseMet
   const importActiveCount = useMemo(() => importJobs.filter(isImportJobActive).length, [importJobs])
   const activeCount = reembedActiveCount + importActiveCount
   const isEmpty = reembedJobs.length === 0 && importJobs.length === 0
+  const loadError = useMemo(
+    () =>
+      reembedLoadError ? knowledgeJobsErrorToast("loadJobs", t, reembedLoadError) : null,
+    [reembedLoadError, t],
+  )
 
   const runAction = useCallback(
     async (jobId: string, action: "cancel" | "retry" | "clear") => {
@@ -225,7 +237,11 @@ export default function KnowledgeActivityButton({ kbs }: { kbs: KnowledgeBaseMet
           dismissReembedJob(jobId)
         }
       } catch (e) {
-        toast.error(String(e))
+        const failure = knowledgeJobsErrorToast(knowledgeJobsActionOperation(action), t, e)
+        toast.error(
+          failure.title,
+          failure.description ? { description: failure.description } : undefined,
+        )
       } finally {
         setActioning((prev) => {
           const next = { ...prev }
@@ -234,7 +250,7 @@ export default function KnowledgeActivityButton({ kbs }: { kbs: KnowledgeBaseMet
         })
       }
     },
-    [dismissReembedJob],
+    [dismissReembedJob, t],
   )
 
   return (
@@ -256,8 +272,13 @@ export default function KnowledgeActivityButton({ kbs }: { kbs: KnowledgeBaseMet
         </Button>
       </IconTip>
 
-      {open && (
-        <div className="absolute right-0 top-full z-50 mt-1 w-[340px] rounded-lg border border-border bg-popover shadow-lg">
+      <FloatingMenu
+        open={open}
+        positionClassName="top-full right-0 mt-1.5"
+        originClassName="origin-top-right"
+        className="ha-menu-from-top w-[340px] overflow-hidden p-0"
+        onEscapeKeyDown={() => setOpen(false)}
+      >
           <div className="flex items-center justify-between border-b border-border-soft/60 px-3 py-2">
             <span className="text-xs font-medium">{t("knowledge.jobs.title", "Knowledge activity")}</span>
             {activeCount > 0 && (
@@ -268,6 +289,17 @@ export default function KnowledgeActivityButton({ kbs }: { kbs: KnowledgeBaseMet
             )}
           </div>
           <div className="max-h-[360px] overflow-y-auto p-2">
+            {loadError ? (
+              <div className="mb-2 rounded-md border border-destructive/25 bg-destructive/10 p-2 text-[11px] text-destructive">
+                <div className="flex items-center gap-1.5 font-medium">
+                  <AlertCircle className="h-3.5 w-3.5" />
+                  {loadError.title}
+                </div>
+                {loadError.description ? (
+                  <div className="mt-1 leading-relaxed">{loadError.description}</div>
+                ) : null}
+              </div>
+            ) : null}
             {isEmpty ? (
               <div className="flex flex-col items-center justify-center gap-1.5 px-4 py-8 text-center">
                 <Activity className="h-6 w-6 text-muted-foreground/70" />
@@ -298,8 +330,7 @@ export default function KnowledgeActivityButton({ kbs }: { kbs: KnowledgeBaseMet
               </div>
             )}
           </div>
-        </div>
-      )}
+      </FloatingMenu>
     </div>
   )
 }
@@ -351,7 +382,7 @@ function ReembedJobRow({
       <div className="flex items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-1.5">
           <StatusIcon status={job.status} />
-          <span className="truncate text-xs font-medium" title={title}>
+          <span className="truncate text-xs font-medium" data-ha-title-tip={title}>
             {title}
           </span>
         </div>
@@ -366,7 +397,7 @@ function ReembedJobRow({
       </div>
 
       <div className="mt-1 flex items-center gap-1.5 text-[11px] text-muted-foreground">
-        <span className="truncate" title={subject}>
+        <span className="truncate" data-ha-title-tip={subject}>
           {subject}
         </span>
         <span className="shrink-0">·</span>
@@ -395,7 +426,11 @@ function ReembedJobRow({
         </div>
       )}
 
-      {job.error && <p className="mt-1.5 break-words text-[11px] text-destructive">{job.error}</p>}
+      {job.error && (
+        <p className="mt-1.5 break-words text-[11px] text-destructive">
+          {knowledgeJobsErrorDetail(job.error)}
+        </p>
+      )}
 
       <div className="mt-2 flex justify-end gap-1.5">
         {active && (

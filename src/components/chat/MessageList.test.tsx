@@ -2,16 +2,14 @@
 
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest"
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
+import type { MouseEvent as ReactMouseEvent } from "react"
 
 import type { Message } from "@/types/chat"
 import MessageList from "./MessageList"
 import type { AskUserQuestionGroup } from "./ask-user/AskUserQuestionBlock"
 import type { PlanCardData } from "./plan-mode/PlanCardBlock"
 
-const originalScrollIntoView = Object.getOwnPropertyDescriptor(
-  Element.prototype,
-  "scrollIntoView",
-)
+const originalScrollIntoView = Object.getOwnPropertyDescriptor(Element.prototype, "scrollIntoView")
 const originalScrollTo = Object.getOwnPropertyDescriptor(Element.prototype, "scrollTo")
 
 vi.mock("react-i18next", () => ({
@@ -23,17 +21,28 @@ vi.mock("./MessageBubble", () => ({
   default: ({
     msg,
     executionState,
+    goalCompletionReportOverride,
+    suppressGoalCompletionFooter,
     forceExpandUserContent,
+    index,
+    onContextMenu,
   }: {
     msg: Message
     executionState?: string | null
+    goalCompletionReportOverride?: { status?: string } | null
+    suppressGoalCompletionFooter?: boolean
     forceExpandUserContent?: boolean
+    index: number
+    onContextMenu: (event: ReactMouseEvent, index: number) => void
   }) => (
     <div
       data-testid="message-bubble"
       data-message-db-id={msg.dbId ?? ""}
       data-execution-state={executionState ?? "none"}
+      data-goal-report-status={goalCompletionReportOverride?.status ?? ""}
+      data-suppress-goal-footer={suppressGoalCompletionFooter ? "true" : "false"}
       data-force-expand-user-content={forceExpandUserContent ? "true" : "false"}
+      onContextMenuCapture={(event) => onContextMenu(event, index)}
     >
       {msg.content}
     </div>
@@ -53,12 +62,10 @@ vi.mock("./plan-mode/PlanCardBlock", () => ({
 }))
 
 beforeEach(() => {
-  vi.spyOn(window, "requestAnimationFrame").mockImplementation(
-    (cb: FrameRequestCallback) => {
-      cb(0)
-      return 0
-    },
-  )
+  vi.spyOn(window, "requestAnimationFrame").mockImplementation((cb: FrameRequestCallback) => {
+    cb(0)
+    return 0
+  })
   vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => {})
   installElementMethod("scrollIntoView")
   installElementMethod("scrollTo")
@@ -135,7 +142,97 @@ function makeMessages(count: number, prefix: string): Message[] {
   )
 }
 
+function selectText(element: HTMLElement, start: number, end: number): void {
+  const node = element.firstChild
+  if (!node) throw new Error("text node not found")
+  const range = document.createRange()
+  range.setStart(node, start)
+  range.setEnd(node, end)
+  const selection = window.getSelection()
+  selection?.removeAllRanges()
+  selection?.addRange(range)
+}
+
 describe("MessageList", () => {
+  test("adds an exact user-message selection to chat from the custom menu", () => {
+    const onAddMessageQuote = vi.fn()
+    render(
+      <MessageList
+        messages={[baseMessage({ role: "user", content: "prefix selected suffix", dbId: 1 })]}
+        loading={false}
+        agents={[]}
+        hasMore={false}
+        loadingMore={false}
+        onLoadMore={vi.fn()}
+        onAddMessageQuote={onAddMessageQuote}
+        sessionId="s1"
+      />,
+    )
+
+    const bubble = screen.getByTestId("message-bubble")
+    selectText(bubble, 7, 15)
+    fireEvent.contextMenu(bubble, { clientX: 20, clientY: 30 })
+    fireEvent.click(screen.getByText("chat.messageQuote.addToChat"))
+
+    expect(onAddMessageQuote).toHaveBeenCalledWith({ role: "user", content: "selected" })
+    expect(screen.queryByText("chat.messageQuote.addToChat")).toBeNull()
+  })
+
+  test("copies the exact assistant selection instead of the whole message", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    })
+    render(
+      <MessageList
+        messages={[baseMessage({ role: "assistant", content: "copy only this part", dbId: 2 })]}
+        loading={false}
+        agents={[]}
+        hasMore={false}
+        loadingMore={false}
+        onLoadMore={vi.fn()}
+        onAddMessageQuote={vi.fn()}
+        sessionId="s1"
+      />,
+    )
+
+    const bubble = screen.getByTestId("message-bubble")
+    selectText(bubble, 5, 14)
+    fireEvent.contextMenu(bubble, { clientX: 20, clientY: 30 })
+    fireEvent.click(screen.getByText("chat.copy"))
+
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith("only this"))
+  })
+
+  test("leaves a cross-message selection to the native context menu", () => {
+    render(
+      <MessageList
+        messages={[
+          baseMessage({ role: "user", content: "first message", dbId: 1 }),
+          baseMessage({ role: "assistant", content: "second message", dbId: 2 }),
+        ]}
+        loading={false}
+        agents={[]}
+        hasMore={false}
+        loadingMore={false}
+        onLoadMore={vi.fn()}
+        onAddMessageQuote={vi.fn()}
+        sessionId="s1"
+      />,
+    )
+
+    const bubbles = screen.getAllByTestId("message-bubble")
+    const range = document.createRange()
+    range.setStart(bubbles[0]!.firstChild!, 0)
+    range.setEnd(bubbles[1]!.firstChild!, 6)
+    window.getSelection()?.removeAllRanges()
+    window.getSelection()?.addRange(range)
+    fireEvent.contextMenu(bubbles[0], { clientX: 20, clientY: 30 })
+
+    expect(screen.queryByText("chat.messageQuote.addToChat")).toBeNull()
+  })
+
   test("renders non-meta messages and hides isMeta entries", () => {
     render(
       <MessageList
@@ -312,6 +409,60 @@ describe("MessageList", () => {
 
     fireEvent.click(screen.getByRole("button", { expanded: false }))
     expect(screen.getByText("intermediate note")).toBeTruthy()
+  })
+
+  test("hoists goal completion reports from collapsed process blocks to the final answer", () => {
+    render(
+      <MessageList
+        messages={[
+          baseMessage({ role: "user", content: "goal request", dbId: 1 }),
+          baseMessage({
+            role: "assistant",
+            content: "final summary",
+            dbId: 2,
+            usage: { durationMs: 10_000, lastInputTokens: 50, outputTokens: 7 },
+            contentBlocks: [
+              {
+                type: "tool_call",
+                tool: {
+                  callId: "goal-finish-1",
+                  name: "goal_finish_request",
+                  arguments: "{}",
+                  result: JSON.stringify({
+                    ok: true,
+                    status: "completed",
+                    report: {
+                      status: "completed",
+                      usage: { elapsedSecs: 10, tokensUsed: 0, turnsUsed: 1 },
+                    },
+                  }),
+                },
+              },
+              { type: "text", content: "final summary" },
+            ],
+          }),
+        ]}
+        loading={false}
+        agents={[]}
+        hasMore={false}
+        loadingMore={false}
+        onLoadMore={vi.fn()}
+        sessionId="s1"
+      />,
+    )
+
+    const finalBubble = screen
+      .getAllByTestId("message-bubble")
+      .find((bubble) => bubble.textContent === "final summary")
+    expect(finalBubble?.getAttribute("data-goal-report-status")).toBe("completed")
+    expect(finalBubble?.getAttribute("data-suppress-goal-footer")).toBe("false")
+
+    fireEvent.click(screen.getByRole("button", { expanded: false }))
+    expect(
+      screen
+        .getAllByTestId("message-bubble")
+        .some((bubble) => bubble.getAttribute("data-suppress-goal-footer") === "true"),
+    ).toBe(true)
   })
 
   test("expands collapsed historical prefix when search targets text inside it", async () => {

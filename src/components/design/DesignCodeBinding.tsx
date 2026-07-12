@@ -239,7 +239,7 @@ export function DesignCodeBinding({ system, open, onOpenChange }: Props) {
             bindings.map((b) => (
               <div key={b.id} className="flex items-center gap-2 rounded-md border p-2.5">
                 <div className="min-w-0 flex-1">
-                  <div className="truncate font-mono text-xs" title={`${b.targetDir}/${b.subfolder}`}>
+                  <div className="truncate font-mono text-xs" data-ha-title-tip={`${b.targetDir}/${b.subfolder}`}>
                     {b.targetDir}
                     {b.subfolder ? `/${b.subfolder}` : ""}
                   </div>

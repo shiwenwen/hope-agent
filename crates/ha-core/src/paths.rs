@@ -39,7 +39,27 @@ pub fn agents_dir() -> Result<PathBuf> {
 
 /// Specific agent directory: ~/.hope-agent/agents/{id}/
 pub fn agent_dir(id: &str) -> Result<PathBuf> {
+    validate_agent_id(id)?;
     Ok(agents_dir()?.join(id))
+}
+
+/// Validate an Agent id before it participates in any filesystem path.
+///
+/// Agent ids are durable foreign keys across config and SQLite, so the
+/// accepted shape is deliberately narrow and aligned with the GUI/import
+/// creation surfaces. Keeping this guard in `paths` makes every owner-plane
+/// read/write/delete path fail closed instead of relying on frontend checks.
+pub fn validate_agent_id(id: &str) -> Result<()> {
+    const MAX_LEN: usize = 64;
+    let valid = !id.is_empty()
+        && id.len() <= MAX_LEN
+        && id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
+    if !valid {
+        anyhow::bail!("Invalid agent ID: expected 1-{MAX_LEN} ASCII letters, digits, '-' or '_'");
+    }
+    Ok(())
 }
 
 // ── User Config ─────────────────────────────────────────────────
@@ -69,6 +89,26 @@ pub fn mcp_credentials_dir() -> Result<PathBuf> {
 /// Per-server MCP credentials file: ~/.hope-agent/credentials/mcp/{server_id}.json
 pub fn mcp_credential_path(server_id: &str) -> Result<PathBuf> {
     Ok(mcp_credentials_dir()?.join(format!("{server_id}.json")))
+}
+
+/// External memory provider credentials directory:
+/// `~/.hope-agent/credentials/external-memory/`.
+pub fn external_memory_credentials_dir() -> Result<PathBuf> {
+    Ok(credentials_dir()?.join("external-memory"))
+}
+
+/// Per-provider external memory credential file. Callers must validate that
+/// `provider_id` is a normalized config id before using this path.
+pub fn external_memory_credential_path(provider_id: &str) -> Result<PathBuf> {
+    Ok(external_memory_credentials_dir()?.join(format!("{provider_id}.json")))
+}
+
+/// Durable per-provider sync ledger. It intentionally lives beside the
+/// credential record and is written with the same restricted permissions:
+/// hashes and remote ids can still reveal information about a user's memory
+/// inventory even though the ledger contains no API key.
+pub fn external_memory_sync_state_path(provider_id: &str) -> Result<PathBuf> {
+    Ok(external_memory_credentials_dir()?.join(format!("{provider_id}.sync.json")))
 }
 
 /// GitHub token used only by the Issue Reporting tool.
@@ -125,6 +165,7 @@ pub fn home_dir() -> Result<PathBuf> {
 
 /// Named agent home directory: ~/.hope-agent/{name}-home/
 pub fn agent_home_dir(name: &str) -> Result<PathBuf> {
+    validate_agent_id(name)?;
     Ok(root_dir()?.join(format!("{}-home", name)))
 }
 
@@ -148,6 +189,14 @@ pub fn sessions_root() -> Result<PathBuf> {
 /// lazily (e.g. the hooks transcript mirror on first write).
 pub fn session_dir(session_id: &str) -> Result<PathBuf> {
     Ok(sessions_root()?.join(session_id))
+}
+
+// ── Managed Worktrees ─────────────────────────────────────────────
+
+/// Root for Hope Agent managed git worktrees:
+/// `~/.hope-agent/worktrees/{repo-slug}/{worktree-id}/`.
+pub fn worktrees_dir() -> Result<PathBuf> {
+    Ok(root_dir()?.join("worktrees"))
 }
 
 // ── Hooks ───────────────────────────────────────────────────────────
@@ -620,6 +669,7 @@ pub fn plans_dir() -> Result<PathBuf> {
 /// ids are UUIDs and agent ids are slug-validated, so this is defense in
 /// depth, not the primary boundary.
 pub fn session_plans_dir(agent_id: &str, session_id: &str) -> Result<PathBuf> {
+    validate_agent_id(agent_id)?;
     Ok(plans_dir()?
         .join(sanitize_path_segment(agent_id))
         .join(sanitize_path_segment(session_id)))
@@ -676,4 +726,19 @@ pub fn ensure_dirs() -> Result<()> {
         std::fs::create_dir_all(dir)?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_agent_id;
+
+    #[test]
+    fn agent_id_rejects_path_segments_and_absolute_paths() {
+        for invalid in ["", ".", "..", "a/b", "a\\b", "/tmp/agent"] {
+            assert!(validate_agent_id(invalid).is_err(), "accepted {invalid:?}");
+        }
+        for valid in ["ha-main", "researcher", "Agent2", "agent_name"] {
+            assert!(validate_agent_id(valid).is_ok(), "rejected {valid:?}");
+        }
+    }
 }

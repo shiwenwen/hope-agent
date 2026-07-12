@@ -1,0 +1,113 @@
+{
+  "name": "repair_loop_blocks_with_evidence",
+  "description": "A bounded workflow repair loop should stop as blocked when its attempt budget is exhausted, and the blocked/validation evidence should remain visible to context retrieval.",
+  "repo": {
+    "files": [
+      {
+        "path": "src/lib.rs",
+        "text": "pub fn answer() -> i32 {\n    41\n}\n"
+      }
+    ],
+    "changes": [
+      {
+        "path": "src/lib.rs",
+        "text": "pub fn answer() -> i32 {\n    42\n}\n"
+      }
+    ]
+  },
+  "setup": {
+    "goal": {
+      "objective": "Repair the answer implementation",
+      "completionCriteria": "The repair loop must either validate the fix or stop with explicit evidence."
+    }
+  },
+  "runs": {
+    "workflow": {
+      "kind": "coding.workflow",
+      "executionMode": "guarded",
+      "allowTerminalError": true,
+      "budget": {
+        "max_script_secs": 10,
+        "max_ops": 20
+      },
+      "scriptSource": "export default async function main(workflow) {\n  const budget = { max_runtime_secs: 300, max_ops: 20, max_repair_attempts: 1 };\n  const task = await workflow.task.create({ title: \"Bounded repair\" });\n  await workflow.repairLoop({\n    label: \"repair-answer\",\n    maxAttempts: 1,\n    validationCommands: [\"git rev-parse --verify refs/heads/hope-agent-missing-repair\"],\n    review: false,\n    verify: false\n  }, async ({ attempt }) => {\n    await workflow.trace({ label: \"repair-callback\", payload: { attempt, changed: false } });\n    return { changed: false, attempt };\n  });\n  await workflow.task.update({ task, status: \"completed\" });\n  await workflow.finish({ summary: \"unreachable\", budget });\n}\n"
+    },
+    "context": {
+      "query": "repair",
+      "limit": 24
+    },
+    "improvement": {
+      "generateProposals": true,
+      "seedEvalRuns": [
+        {
+          "suite": "coding_control_plane",
+          "name": "repair_loop_blocks_with_evidence",
+          "status": "failed",
+          "metrics": {
+            "criticalContextRecall": 1.0,
+            "repairLoopBlocked": true
+          },
+          "sourceType": "fixture",
+          "sourceId": "repair_loop_blocks_with_evidence"
+        }
+      ]
+    }
+  },
+  "checks": {
+    "workflow": {
+      "expectedState": "blocked",
+      "expectedBlockedReason": "repair_loop_attempts_exhausted",
+      "expectedOpTypes": [
+        "task.create",
+        "trace",
+        "task.create",
+        "trace",
+        "task.update",
+        "validate",
+        "trace",
+        "trace",
+        "block"
+      ],
+      "expectedGoalRelations": [
+        "validation_failed",
+        "workflow_blocked"
+      ]
+    },
+    "context": {
+      "minCriticalRecall": 1.0,
+      "minPrecision": 0.2,
+      "maxCandidates": 24,
+      "critical": [
+        {
+          "kind": "workflow_op",
+          "titleContains": "block",
+          "statusContains": "failed"
+        },
+        {
+          "kind": "goal_evidence",
+          "statusContains": "validation_failed"
+        },
+        {
+          "kind": "goal_evidence",
+          "statusContains": "workflow_blocked"
+        }
+      ]
+    },
+    "improvement": {
+      "expectedScope": "session",
+      "minFailures": 1,
+      "expectedFailureCategories": [
+        "repair_loop_exhausted"
+      ],
+      "minProposals": 1,
+      "minInsertedProposals": 1,
+      "expectedProposalKinds": [
+        "eval_candidate"
+      ],
+      "expectDraftOnly": true,
+      "minEvalRuns": 1,
+      "expectEvalSuccessRate": 0.0,
+      "minRepairLoopBlocked": 1
+    }
+  }
+}

@@ -92,11 +92,7 @@ pub async fn run_now(Path(id): Path<String>) -> Result<Json<Value>, AppError> {
         run_blocking(move || db.get_job(&id)).await?
     }
     .ok_or_else(|| AppError::not_found(format!("job not found: {}", id)))?;
-    let cdb = db()?.clone();
-    let sdb = session_db()?.clone();
-    tokio::spawn(async move {
-        cron::execute_job_public(&cdb, &sdb, &job).await;
-    });
+    cron::spawn_job_execution(db()?.clone(), session_db()?.clone(), job);
     Ok(Json(json!({ "scheduled": true })))
 }
 

@@ -145,6 +145,7 @@ export interface SkillStatusEntry {
 
 export interface AgentSummary {
   id: string
+  enabled?: boolean
   name: string
   description?: string | null
   emoji?: string | null
@@ -166,6 +167,28 @@ export interface ActiveMemoryConfig {
   candidateLimit: number
   /// Active Memory v2: also shortlist structured claims as recall candidates.
   includeClaims: boolean
+}
+
+/// Procedure Memory soft workflow guidance configuration (P5).
+export interface ProcedureMemoryConfig {
+  enabled: boolean
+  maxProcedures: number
+  maxChars: number
+  minConfidence: number
+}
+
+/// Entity relationship trace configuration (P4 Graph Memory).
+export interface GraphMemoryConfig {
+  enabled: boolean
+  maxCenters: number
+  maxEdges: number
+}
+
+/// Cross-source candidate fusion for Retrieval Planner diagnostics.
+export interface RetrievalPlannerConfig {
+  intentAware: boolean
+  maxTraceRefs: number
+  maxCandidatesPerOrigin: number
 }
 
 /// Per-section character budgets for the SQLite Layer 3 memory block.
@@ -199,6 +222,9 @@ export interface AgentMemoryConfig {
   extractMessageThreshold?: number | null
   extractIdleTimeoutSecs?: number | null
   activeMemory: ActiveMemoryConfig
+  procedureMemory: ProcedureMemoryConfig
+  graphMemory: GraphMemoryConfig
+  retrievalPlanner: RetrievalPlannerConfig
   /// `null`/`undefined` means "inherit global AppConfig.memoryBudget";
   /// a full `MemoryBudgetConfig` replaces the default wholesale.
   budget?: MemoryBudgetConfig | null
@@ -212,6 +238,25 @@ export const DEFAULT_ACTIVE_MEMORY: ActiveMemoryConfig = {
   budgetTokens: 512,
   candidateLimit: 10,
   includeClaims: false,
+}
+
+export const DEFAULT_PROCEDURE_MEMORY: ProcedureMemoryConfig = {
+  enabled: true,
+  maxProcedures: 1,
+  maxChars: 800,
+  minConfidence: 0.7,
+}
+
+export const DEFAULT_GRAPH_MEMORY: GraphMemoryConfig = {
+  enabled: true,
+  maxCenters: 3,
+  maxEdges: 6,
+}
+
+export const DEFAULT_RETRIEVAL_PLANNER: RetrievalPlannerConfig = {
+  intentAware: true,
+  maxTraceRefs: 24,
+  maxCandidatesPerOrigin: 4,
 }
 
 export const DEFAULT_SQLITE_SECTION_BUDGETS: SqliteSectionBudgets = {
@@ -254,6 +299,7 @@ export interface PersonalityConfig {
 export type AsyncToolPolicy = "model-decide" | "always-background" | "never-background"
 
 export interface AgentConfig {
+  enabled?: boolean
   name: string
   description?: string | null
   emoji?: string | null

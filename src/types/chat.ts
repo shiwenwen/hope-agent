@@ -55,12 +55,22 @@ export interface PendingFileQuote {
   kbId?: string
 }
 
+/** A selected excerpt from an existing user/assistant message, staged until
+ *  the next message is sent. Unlike file quotes this has no filesystem
+ *  identity and must never be treated as a workspace attachment. */
+export interface PendingMessageQuote {
+  role: "user" | "assistant"
+  content: string
+}
+
 export type PendingSendMode = "queue" | "force_insert"
 
 export type PendingSendStatus =
+  | "saving"
   | "queued"
   | "waiting_tool_boundary"
-  | "inserted"
+  | "inserting"
+  | "dispatching"
   | "fallback_after_reply"
 
 export interface PendingSendPreview {
@@ -71,13 +81,17 @@ export interface PendingSendPreview {
   canForceInsert: boolean
   attachmentCount: number
   quoteCount: number
+  sessionId?: string
+  isPlanTrigger?: boolean
+  goalTrigger?: boolean
+  editable?: boolean
 }
 
 export interface MessageAttachment {
   name: string
   mimeType: string
   sizeBytes: number
-  kind: "image" | "file" | "quote"
+  kind: "image" | "file" | "quote" | "message_quote"
   localPath?: string
   url?: string
   previewUrl?: string
@@ -86,6 +100,8 @@ export interface MessageAttachment {
   quotePath?: string
   quoteLines?: string
   quoteContent?: string
+  /** For `kind === "message_quote"`: role of the message the user selected. */
+  messageQuoteRole?: "user" | "assistant"
 }
 
 /**
@@ -169,6 +185,82 @@ export interface MessageUsage {
   lastInputTokens?: number
 }
 
+export interface ActiveMemoryCandidateRef {
+  kind: "memory" | "claim" | string
+  id: string
+  sourceType: string
+  scope: string
+  preview: string
+  score?: number
+  confidence?: number
+  salience?: number
+}
+
+export interface ActiveMemoryRecall {
+  summary: string
+  selected?: ActiveMemoryCandidateRef | null
+  candidates: ActiveMemoryCandidateRef[]
+  totalCandidates: number
+  latencyMs?: number
+  cached: boolean
+}
+
+export interface ActiveMemoryRecallEvent {
+  sessionId: string
+  agentId: string
+  queryHash: string
+  recall: ActiveMemoryRecall
+}
+
+export interface UsedMemoryRef {
+  kind: "memory" | "claim" | "profile" | "knowledge" | string
+  id: string
+  sourceType?: string
+  scope?: string
+  origin?:
+    | "active_memory"
+    | "pinned_memory"
+    | "static_memory"
+    | "profile"
+    | "knowledge"
+    | "experience"
+    | "graph"
+    | string
+  role?: "selected" | "candidate" | "injected" | string
+  preview?: string
+  path?: string
+  line?: number
+  col?: number
+  headingPath?: string
+  blockId?: string
+  score?: number
+  confidence?: number
+  salience?: number
+}
+
+export interface RetrievalPlannerLayerTrace {
+  layer: string
+  status: "used" | "candidate" | "empty" | "skipped" | "disabled" | string
+  refCount: number
+  injectedCount?: number
+  selectedCount?: number
+  candidateCount?: number
+  droppedCount?: number
+  skippedReason?: string | null
+  latencyMs?: number | null
+  cached?: boolean | null
+}
+
+export interface RetrievalPlannerTrace {
+  status: "used" | "candidates" | "partial" | "degraded" | "disabled" | "no_context" | string
+  totalRefs: number
+  rankingVersion?: string
+  intent?: "general" | "profile" | "procedure" | "episode" | "relationship" | "knowledge" | string
+  maxTraceRefs?: number
+  maxCandidatesPerOrigin?: number
+  layers: RetrievalPlannerLayerTrace[]
+}
+
 /** Ordered content block within an assistant message */
 export type ContentBlock =
   | { type: "thinking"; content: string; durationMs?: number; interrupted?: boolean }
@@ -201,6 +293,10 @@ export interface Message {
    *  (R10 `schedule_wakeup`) — sent to the LLM as a normal user turn but
    *  rendered as a system chip, like a cron trigger. */
   isWakeupTrigger?: boolean
+  /** If true, this is a Loop scheduled trigger injected into the model as a
+   *  user turn. The raw trigger prompt is internal protocol and should render
+   *  as a compact system chip rather than a user bubble. */
+  isLoopTrigger?: boolean
   /** If true, this is an exec process completion notification injected by
    *  the backend after a legacy process session exits. */
   isProcessNotification?: boolean
@@ -208,10 +304,16 @@ export interface Message {
    *  Reconcile-safe failure signal (only set on an actual throw, never on a
    *  reconcile-pending empty success) — surfaces a one-click retry affordance. */
   isTurnError?: boolean
+  /** If true, this is a workflow completion/status notification injected by
+   *  the backend after a model-created durable workflow settles. */
+  isWorkflowResult?: boolean
   /** If true, this user message is a Plan Mode trigger (approve / resume) —
    *  sent to the LLM as a normal user turn but rendered as a system chip
    *  in the UI to distinguish it from real user input. */
   isPlanTrigger?: boolean
+  /** If true, this user message was sent through Goal Mode. It remains a
+   *  normal user bubble, with an extra Goal badge for context. */
+  isGoalTrigger?: boolean
   /** If set, this is a plan inline-comment user message. The desktop GUI
    *  renders {@link PlanCommentBubble} from this structured payload instead
    *  of falling back to the markdown `content`. IM channels render the
@@ -237,6 +339,7 @@ export interface Message {
     kind: "command" | "result"
     command?: string
     displayAs?: "user"
+    mode?: "goal" | "loop"
   }
   /** Model picker data for rendering interactive model selection cards */
   modelPickerData?: {
@@ -257,6 +360,18 @@ export interface Message {
   }
   /** Database row ID, used for deduplication during streaming append */
   dbId?: number
+  /** Trace for memory actively recalled for this turn. Live events attach it
+   *  during streaming; completed assistant rows restore it from attachments
+   *  metadata on history reload. */
+  activeMemory?: ActiveMemoryRecall
+  /** Unified memory refs used or considered by retrieval layers for this turn.
+   *  Active Memory writes the first producer; future planner sources append
+   *  here without changing the message contract. */
+  usedMemoryRefs?: UsedMemoryRef[]
+  /** Retrieval Planner diagnostics for this turn. This does not affect model
+   *  context; it explains which memory/knowledge layers ran, used context, or
+   *  degraded. */
+  retrievalPlanner?: RetrievalPlannerTrace
   /** If true, this message is currently being streamed (channel streaming) */
   isStreaming?: boolean
   /**
@@ -345,6 +460,14 @@ export interface ActiveModel {
   modelId: string
 }
 
+export interface ChatRuntimeDefaults {
+  preferredModel?: ActiveModel | null
+  model?: ActiveModel | null
+  preferredModelAvailable: boolean
+  temperature?: number | null
+  reasoningEffort: string
+}
+
 /**
  * Per-session permission mode (permission system v2).
  *
@@ -376,6 +499,8 @@ export interface SessionMeta {
   providerId?: string | null
   providerName?: string | null
   modelId?: string | null
+  /** Temperature fixed for this Session; null is provider-native default. */
+  temperature?: number | null
   /** Session-scoped Think / reasoning effort override. */
   reasoningEffort?: string | null
   createdAt: string
@@ -401,12 +526,23 @@ export interface SessionMeta {
   isCron: boolean
   parentSessionId?: string | null
   /**
+   * Source session for a user-facing fork. Separate from `parentSessionId`,
+   * which is reserved for hidden sub-agent child sessions.
+   */
+  forkedFromSessionId?: string | null
+  /** Source message boundary when the fork was created from a specific turn. */
+  forkedFromMessageId?: number | null
+  /** Best-effort current title of the source session, if it still exists. */
+  forkedFromSessionTitle?: string | null
+  /**
    * Per-session permission mode. Persisted so the chat title bar's mode
    * switcher is restored when switching back to a historical session.
    */
   permissionMode?: SessionMode
   /** Per-session sandbox execution posture. */
   sandboxMode?: SandboxMode
+  /** Session-scoped Workflow Mode. Enables autonomous workflow orchestration when not off. */
+  workflowMode?: "off" | "on" | "ultracode"
   /**
    * When set, this session belongs to a Project — project-scoped memories
    * and shared files are automatically injected into its system prompt.
@@ -494,6 +630,7 @@ export type SessionSearchType = "regular" | "cron" | "subagent" | "channel"
 
 export interface AgentSummaryForSidebar {
   id: string
+  enabled?: boolean
   name: string
   description?: string | null
   emoji?: string | null

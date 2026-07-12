@@ -282,6 +282,7 @@ export default function ChatSidebar({
   // Drag handler for resizable panel
   const isDragging = useRef(false)
   const [isResizing, setIsResizing] = useState(false)
+  const [isResizeHandleHovered, setIsResizeHandleHovered] = useState(false)
   const handleDragStart = (e: React.MouseEvent) => {
     e.preventDefault()
     isDragging.current = true
@@ -470,9 +471,14 @@ export default function ChatSidebar({
             onPointerDownCapture={enableSidebarMotion}
             onKeyDownCapture={enableSidebarMotion}
             className={cn(
-              "h-full border-r border-border-soft bg-surface-panel shadow-panel flex flex-col [contain:layout_paint]",
+              "h-full border-r bg-surface-panel shadow-panel flex flex-col [contain:layout_paint]",
+              isResizing
+                ? "border-r-primary/50"
+                : isResizeHandleHovered
+                  ? "border-r-primary/35"
+                  : "border-r-border-soft",
               !sidebarMotionDisabled &&
-                "transition-[opacity,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[opacity,transform] motion-reduce:transition-none",
+                "transition-[opacity,transform,border-color] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[opacity,transform] motion-reduce:transition-none",
               sidebarCollapsed
                 ? "pointer-events-none -translate-x-4 opacity-0"
                 : "translate-x-0 opacity-100",
@@ -684,16 +690,19 @@ export default function ChatSidebar({
             </div>
           </div>
         </div>
-        {/* Keep the resize affordance inside the sidebar bounds so hover/active
-            color does not occupy a strip of the conversation canvas. */}
+        {/* Keep the transparent resize hit area outside the scrollable sidebar
+            so native non-overlay scrollbars remain fully interactive. The
+            existing border provides the visual hover/drag affordance. */}
         <div
           className={cn(
-            "absolute inset-y-0 right-0 z-20 cursor-col-resize hover:bg-primary/30 active:bg-primary/50",
+            "absolute inset-y-0 right-0 z-20 translate-x-full cursor-col-resize",
             !sidebarMotionDisabled &&
-              "transition-[width,opacity,background-color] duration-200 ease-out",
-            sidebarCollapsed ? "w-0 pointer-events-none opacity-0" : "w-1 opacity-100",
+              "transition-[width,opacity] duration-200 ease-out",
+            sidebarCollapsed ? "w-0 pointer-events-none opacity-0" : "w-3 opacity-100",
           )}
           onMouseDown={handleDragStart}
+          onMouseEnter={() => setIsResizeHandleHovered(true)}
+          onMouseLeave={() => setIsResizeHandleHovered(false)}
         />
       </div>
 

@@ -18,6 +18,8 @@ interface UseOnboardingArgs {
   onComplete: () => void
 }
 
+const ONBOARDING_FLOW_VERSION = 2
+
 type ProfileDraft = NonNullable<OnboardingDraft["profile"]>
 type AiExperience = NonNullable<ProfileDraft["aiExperience"]>
 type ResponseStyle = NonNullable<ProfileDraft["responseStyle"]>
@@ -30,7 +32,7 @@ const RESPONSE_STYLE_VALUES: readonly ResponseStyle[] = ["concise", "balanced", 
  *  empty fields rather than blocking hydration. */
 async function seedDraftFromCurrentConfig(): Promise<OnboardingDraft> {
   const t = getTransport()
-  const draft: OnboardingDraft = {}
+  const draft: OnboardingDraft = { flowVersion: ONBOARDING_FLOW_VERSION }
 
   const [userCfg, theme, serverCfg, approvalAction, skills] = await Promise.all([
     t
@@ -159,7 +161,10 @@ interface UseOnboardingReturn {
  */
 export function useOnboarding({ onComplete }: UseOnboardingArgs): UseOnboardingReturn {
   const [step, setStep] = useState(0)
-  const [draft, setDraft] = useState<OnboardingDraft>({ serverMode: "local" })
+  const [draft, setDraft] = useState<OnboardingDraft>({
+    flowVersion: ONBOARDING_FLOW_VERSION,
+    serverMode: "local",
+  })
   const [skipped, setSkipped] = useState<Set<OnboardingStepKey>>(new Set())
   const [busy, setBusy] = useState(false)
   const hydratedRef = useRef(false)
@@ -169,25 +174,39 @@ export function useOnboarding({ onComplete }: UseOnboardingArgs): UseOnboardingR
     hydratedRef.current = true
     void (async () => {
       try {
-        const state = await getTransport().call<{
-          draft?: OnboardingDraft | null
-          draftStep?: number
-          skippedSteps?: string[]
-          everCompleted?: boolean
-        }>("get_onboarding_state")
+        const state = await getTransport().call<
+          | {
+              draft?: OnboardingDraft | null
+              draftStep?: number
+              skippedSteps?: string[]
+              everCompleted?: boolean
+            }
+          | null
+          | undefined
+        >("get_onboarding_state")
         const seeded = await seedDraftFromCurrentConfig()
-        const restoredDraft = state.draft ?? {}
+        const restoredDraft: OnboardingDraft = state?.draft ?? {}
+        const restoredFlowVersion = restoredDraft.flowVersion ?? 1
 
-        const mergedDraft = mergeOnboardingDraft(seeded, restoredDraft)
+        const mergedDraft = {
+          ...mergeOnboardingDraft(seeded, restoredDraft),
+          flowVersion: ONBOARDING_FLOW_VERSION,
+        }
         if (Object.keys(mergedDraft).length > 0) {
           setDraft(mergedDraft)
         }
 
-        if (typeof state.draftStep === "number") {
+        if (typeof state?.draftStep === "number") {
           const activeSteps = stepsForMode(mergedDraft.serverMode)
-          setStep(Math.max(0, Math.min(state.draftStep, activeSteps.length - 1)))
+          // Flow v1 included OpenClaw import at index 1. It is no longer part
+          // of onboarding, so resume at the equivalent next step.
+          const restoredStep =
+            restoredFlowVersion < ONBOARDING_FLOW_VERSION && state.draftStep > 1
+              ? state.draftStep - 1
+              : state.draftStep
+          setStep(Math.max(0, Math.min(restoredStep, activeSteps.length - 1)))
         }
-        if (state.skippedSteps?.length) {
+        if (state?.skippedSteps?.length) {
           setSkipped(new Set(state.skippedSteps as OnboardingStepKey[]))
         }
       } catch (e) {

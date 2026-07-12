@@ -4,8 +4,9 @@
 //! Priority (high → low):
 //! 1. Plan Mode — overrides everything (even YOLO).
 //! 2. YOLO (global / session) — bypasses approvals, but emits `app_warn!`
-//!    audit logs for protected-path / dangerous-command hits.
-//! 3. Protected paths / dangerous commands — strict ask, no AllowAlways.
+//!    audit logs for strict hits.
+//! 3. Protected paths / dangerous commands / external connector mutations —
+//!    strict ask, no AllowAlways.
 //! 4. AllowAlways accumulators (project / session / agent_home / global).
 //! 5. Session mode preset:
 //!    - Default → hardcoded edit-class + edit-command match + agent
@@ -103,6 +104,144 @@ fn is_edit_tool(name: &str) -> bool {
     EDIT_TOOLS.contains(&name)
 }
 
+/// Classify connector tools that mutate another system of record.
+///
+/// This is deliberately conservative for MCP/plugin tools: it requires both a
+/// known connector-ish name and a mutating verb. Built-in Feishu tools are
+/// exact-match because their names and effects are stable in this crate.
+pub fn classify_external_connector_action(
+    tool_name: &str,
+    args: &Value,
+) -> Option<(String, String)> {
+    use crate::tools::feishu;
+
+    let exact = match tool_name {
+        feishu::TOOL_DOCX_CREATE => Some(("feishu_docx", "create document")),
+        feishu::TOOL_DOCX_APPEND_BLOCK => Some(("feishu_docx", "append document block")),
+        feishu::TOOL_DOCX_UPDATE_BLOCK_TEXT => Some(("feishu_docx", "update document block")),
+        feishu::TOOL_BITABLE_CREATE_RECORD => Some(("feishu_bitable", "create record")),
+        feishu::TOOL_BITABLE_BATCH_UPDATE_RECORDS => {
+            Some(("feishu_bitable", "batch update records"))
+        }
+        feishu::TOOL_DRIVE_UPLOAD_MEDIA => Some(("feishu_drive", "upload media")),
+        feishu::TOOL_APPROVAL_CREATE_INSTANCE => {
+            Some(("feishu_approval", "create approval instance"))
+        }
+        feishu::TOOL_APPROVAL_CANCEL_INSTANCE => {
+            Some(("feishu_approval", "cancel approval instance"))
+        }
+        feishu::TOOL_APPROVAL_SUBSCRIBE => Some(("feishu_approval", "subscribe approval events")),
+        feishu::TOOL_CALENDAR_CREATE_EVENT => Some(("feishu_calendar", "create calendar event")),
+        feishu::TOOL_CALENDAR_UPDATE_EVENT => Some(("feishu_calendar", "update calendar event")),
+        feishu::TOOL_CALENDAR_DELETE_EVENT => Some(("feishu_calendar", "delete calendar event")),
+        feishu::TOOL_CALENDAR_ATTENDEES_CREATE => {
+            Some(("feishu_calendar", "add calendar attendees"))
+        }
+        _ => None,
+    };
+    if let Some((connector, action)) = exact {
+        return Some((connector.to_string(), action.to_string()));
+    }
+
+    classify_mcp_external_connector_action(tool_name, args)
+}
+
+fn classify_mcp_external_connector_action(
+    tool_name: &str,
+    args: &Value,
+) -> Option<(String, String)> {
+    if !tool_name.starts_with("mcp__") {
+        return None;
+    }
+    let lower_name = tool_name.to_ascii_lowercase();
+    let args_text = args.to_string().to_ascii_lowercase();
+    let haystack = format!("{lower_name} {args_text}");
+    let connector = connector_keyword(&haystack)?;
+    let action = mutating_action_phrase(&haystack)?;
+    Some((connector.to_string(), action.to_string()))
+}
+
+fn connector_keyword(text: &str) -> Option<&'static str> {
+    const CONNECTORS: &[(&str, &[&str])] = &[
+        ("gmail", &["gmail", "google_mail", "mail"]),
+        (
+            "google_calendar",
+            &["google_calendar", "gcalendar", "calendar"],
+        ),
+        (
+            "google_drive",
+            &["google_drive", "gdrive", "drive", "docs", "document"],
+        ),
+        (
+            "google_sheets",
+            &["google_sheets", "gsheets", "sheets", "spreadsheet"],
+        ),
+        ("slack", &["slack"]),
+        ("notion", &["notion"]),
+        ("jira", &["jira"]),
+        ("github", &["github"]),
+        ("linear", &["linear"]),
+        ("airtable", &["airtable"]),
+        ("salesforce", &["salesforce"]),
+        ("hubspot", &["hubspot"]),
+        ("feishu", &["feishu", "lark"]),
+    ];
+    CONNECTORS
+        .iter()
+        .find(|(_, aliases)| aliases.iter().any(|alias| text.contains(alias)))
+        .map(|(connector, _)| *connector)
+}
+
+fn mutating_action_phrase(text: &str) -> Option<&'static str> {
+    const ACTIONS: &[(&str, &[&str])] = &[
+        ("send message", &["send", "reply", "forward"]),
+        (
+            "create item",
+            &["create", "insert", "add", "invite", "schedule"],
+        ),
+        (
+            "update item",
+            &[
+                "update", "patch", "edit", "write", "append", "label", "assign",
+            ],
+        ),
+        (
+            "delete item",
+            &[
+                "delete", "remove", "trash", "archive", "unlabel", "unassign",
+            ],
+        ),
+        (
+            "share or publish",
+            &["share", "publish", "export", "upload", "submit"],
+        ),
+        (
+            "state transition",
+            &["cancel", "resolve", "close", "reopen", "merge"],
+        ),
+    ];
+    let tokens = normalized_tokens(text);
+    ACTIONS
+        .iter()
+        .find(|(_, aliases)| {
+            aliases
+                .iter()
+                .any(|alias| tokens.iter().any(|t| t == alias))
+        })
+        .map(|(action, _)| *action)
+}
+
+fn normalized_tokens(text: &str) -> Vec<&str> {
+    text.split(|ch: char| !ch.is_ascii_alphanumeric())
+        .filter(|token| !token.is_empty())
+        .collect()
+}
+
+fn check_external_connector_action(ctx: &ResolveContext<'_>) -> Option<AskReason> {
+    classify_external_connector_action(ctx.tool_name, ctx.args)
+        .map(|(connector, action)| AskReason::ExternalConnectorAction { connector, action })
+}
+
 /// The single entry point. Returns a final [`Decision`] for one tool call.
 pub fn resolve(ctx: &ResolveContext<'_>) -> Decision {
     if ctx.plan_mode {
@@ -133,6 +272,9 @@ pub fn resolve(ctx: &ResolveContext<'_>) -> Decision {
             return Decision::Ask { reason };
         }
         if let Some(reason) = check_mac_control_action(ctx) {
+            return Decision::Ask { reason };
+        }
+        if let Some(reason) = check_external_connector_action(ctx) {
             return Decision::Ask { reason };
         }
         if ctx.plan_mode_ask_tools.iter().any(|t| t == ctx.tool_name) {
@@ -176,6 +318,9 @@ pub fn resolve(ctx: &ResolveContext<'_>) -> Decision {
         if let Some(reason) = check_browser_download_action(ctx) {
             log_yolo_warn(ctx, &reason);
         }
+        if let Some(reason) = check_external_connector_action(ctx) {
+            log_yolo_warn(ctx, &reason);
+        }
         return Decision::Allow;
     }
 
@@ -195,6 +340,9 @@ pub fn resolve(ctx: &ResolveContext<'_>) -> Decision {
     // above the AllowAlways accumulator and the per-mode resolvers — so every
     // non-YOLO mode forces a fresh per-call prompt, mirroring protected paths.
     if let Some(reason) = check_browser_raw_cdp(ctx) {
+        return Decision::Ask { reason };
+    }
+    if let Some(reason) = check_external_connector_action(ctx) {
         return Decision::Ask { reason };
     }
     if super::allowlist::allows_tool_call(
@@ -1140,6 +1288,9 @@ fn log_yolo_warn(ctx: &ResolveContext<'_>, reason: &AskReason) {
         MacControlAction { action } => format!("macOS control action '{action}'"),
         MacControlDangerousAction { action } => {
             format!("dangerous macOS control action '{action}'")
+        }
+        ExternalConnectorAction { connector, action } => {
+            format!("external connector action '{connector}: {action}'")
         }
         PlanModeAsk => "plan-mode ask_tools".to_string(),
         CronDelete => "cron delete".to_string(),
@@ -2121,6 +2272,29 @@ mod tests {
     }
 
     #[test]
+    fn loop_file_watch_on_protected_path_requires_strict_approval() {
+        let args = json!({
+            "kind": "file",
+            "spec": { "path": "~/.ssh/config" }
+        });
+        let plan: Vec<String> = vec![];
+        let custom: Vec<String> = vec![];
+        let c = ctx(
+            crate::tools::TOOL_LOOP_WATCH,
+            &args,
+            SessionMode::Default,
+            &plan,
+            &custom,
+        );
+        assert!(matches!(
+            resolve(&c),
+            Decision::Ask {
+                reason: AskReason::ProtectedPath { .. }
+            }
+        ));
+    }
+
+    #[test]
     fn relative_path_resolves_before_protected_path_check() {
         let args = json!({"path": "id_rsa"});
         let plan: Vec<String> = vec![];
@@ -2721,6 +2895,49 @@ mod tests {
         );
         match resolve(&download_ctx) {
             Decision::Ask { reason } => assert!(!reason.forbids_allow_always()),
+            other => panic!("expected Ask, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn external_connector_actions_are_strict_and_classified_conservatively() {
+        let args = json!({
+            "summary": "Customer call",
+            "startTime": "2026-07-04T10:00:00Z",
+        });
+        let plan: Vec<String> = vec![];
+        let custom: Vec<String> = vec![];
+        let calendar_ctx = ctx(
+            crate::tools::feishu::TOOL_CALENDAR_CREATE_EVENT,
+            &args,
+            SessionMode::Default,
+            &plan,
+            &custom,
+        );
+        match resolve(&calendar_ctx) {
+            Decision::Ask {
+                reason: AskReason::ExternalConnectorAction { connector, action },
+            } => {
+                assert_eq!(connector, "feishu_calendar");
+                assert_eq!(action, "create calendar event");
+            }
+            other => panic!("expected external connector ask, got {:?}", other),
+        }
+
+        let mcp_send = json!({"to": "user@example.com", "body": "hello"});
+        let classified = classify_external_connector_action("mcp__gmail__send_email", &mcp_send)
+            .expect("gmail send should classify");
+        assert_eq!(classified.0, "gmail");
+        assert_eq!(classified.1, "send message");
+
+        assert!(classify_external_connector_action(
+            "mcp__gmail__search_email",
+            &json!({"query": "from:alice"})
+        )
+        .is_none());
+
+        match resolve(&calendar_ctx) {
+            Decision::Ask { reason } => assert!(reason.forbids_allow_always()),
             other => panic!("expected Ask, got {:?}", other),
         }
     }

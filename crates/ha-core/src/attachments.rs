@@ -17,6 +17,7 @@ use crate::paths;
 /// chat session). Maps to `~/.hope-agent/attachments/_temp/`.
 pub const TEMP_SESSION_ID: &str = "_temp";
 pub const PASTED_TEXT_SOURCE: &str = "pasted_text";
+pub const MESSAGE_QUOTE_SOURCE: &str = "message_quote";
 
 /// Kind of media item — drives frontend rendering (image preview vs file card).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -175,6 +176,16 @@ pub fn persist_chat_user_attachments_meta(
             }));
             continue;
         }
+        // Conversation excerpts are inline context, not files. Persist their
+        // role + exact selected text so history can restore the quote card.
+        if source_ref == Some(MESSAGE_QUOTE_SOURCE) {
+            meta_list.push(json!({
+                "kind": MESSAGE_QUOTE_SOURCE,
+                "role": att.quote_role,
+                "content": att.data,
+            }));
+            continue;
+        }
         if !is_user_upload_source(source_ref) {
             continue;
         }
@@ -293,6 +304,311 @@ pub fn persist_chat_user_attachments_meta(
     } else {
         Ok(Some(serde_json::to_string(&meta_list)?))
     }
+}
+
+/// Move queue attachments into the session-owned attachment directory before
+/// serializing the queue row. Uploaded image bytes are cleared after a durable
+/// `file_path` is established so the queue DB never balloons with base64 data;
+/// quotes retain their inline excerpt and mention attachments remain references.
+pub fn persist_queued_chat_attachments(
+    session_id: &str,
+    request_id: &str,
+    attachments: &mut [Attachment],
+) -> Result<()> {
+    // A text-only queued message has no attachment directory to prepare. The
+    // generic persistence helper intentionally returns before creating one for
+    // an empty slice, so avoid canonicalizing a path that does not exist yet.
+    if attachments.is_empty() {
+        return Ok(());
+    }
+    let _ = persist_chat_user_attachments_meta(session_id, attachments)?;
+    let attachment_root = paths::attachments_dir(session_id)?;
+    let canonical_root = attachment_root.canonicalize()?;
+    let safe_request_id: String = request_id
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_') {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    let queue_prefix = format!("queue_{safe_request_id}_");
+    for attachment in attachments {
+        if attachment.file_path.is_some()
+            && matches!(
+                attachment.source.as_deref(),
+                Some("upload") | Some(PASTED_TEXT_SOURCE)
+            )
+        {
+            if let Some(path) = attachment.file_path.as_deref().map(PathBuf::from) {
+                let canonical_path = path.canonicalize()?;
+                if canonical_path.starts_with(&canonical_root) {
+                    let basename = canonical_path
+                        .file_name()
+                        .and_then(|name| name.to_str())
+                        .unwrap_or("attachment");
+                    if !basename.starts_with(&queue_prefix) {
+                        let queued_path = attachment_root
+                            .join(format!("{queue_prefix}{}_{basename}", uuid::Uuid::new_v4()));
+                        match std::fs::rename(&canonical_path, &queued_path) {
+                            Ok(()) => {}
+                            Err(_) => {
+                                std::fs::copy(&canonical_path, &queued_path)?;
+                                std::fs::remove_file(&canonical_path)?;
+                            }
+                        }
+                        attachment.file_path = Some(queued_path.to_string_lossy().to_string());
+                    }
+                }
+            }
+            attachment.data = None;
+        }
+    }
+    Ok(())
+}
+
+/// Remove files owned exclusively by a discarded durable queue row. The
+/// request-id filename prefix makes this fail closed: mention/quote paths and
+/// files belonging to another row are never touched.
+pub fn remove_discarded_queued_attachments(
+    session_id: &str,
+    request_id: &str,
+    attachments: &[Attachment],
+) {
+    let Ok(root) = paths::attachments_dir(session_id) else {
+        return;
+    };
+    let Ok(canonical_root) = root.canonicalize() else {
+        return;
+    };
+    let safe_request_id: String = request_id
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_') {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    let queue_prefix = format!("queue_{safe_request_id}_");
+    for attachment in attachments {
+        if !matches!(
+            attachment.source.as_deref(),
+            Some("upload") | Some(PASTED_TEXT_SOURCE)
+        ) {
+            continue;
+        }
+        let Some(path) = attachment.file_path.as_deref().map(PathBuf::from) else {
+            continue;
+        };
+        let Ok(canonical_path) = path.canonicalize() else {
+            continue;
+        };
+        let owned = canonical_path.starts_with(&canonical_root)
+            && canonical_path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.starts_with(&queue_prefix));
+        if owned {
+            let _ = std::fs::remove_file(canonical_path);
+        }
+    }
+}
+
+/// Copy durable attachment files referenced by a message into a forked
+/// session and rewrite the known attachment metadata shapes to point at the
+/// new session. Workspace quote references and unknown metadata are left
+/// untouched because they are references, not session-owned bytes.
+pub(crate) fn fork_attachments_meta(
+    source_session_id: &str,
+    forked_session_id: &str,
+    raw_meta: &str,
+) -> Result<String> {
+    let Ok(mut meta) = serde_json::from_str::<Value>(raw_meta) else {
+        return Ok(raw_meta.to_string());
+    };
+    let mut changed = false;
+
+    match &mut meta {
+        Value::Array(items) => {
+            changed |= rewrite_user_attachment_items(items, source_session_id, forked_session_id)?;
+        }
+        Value::Object(object) => {
+            if let Some(items) = object
+                .get_mut("user_attachments")
+                .and_then(Value::as_array_mut)
+            {
+                changed |=
+                    rewrite_user_attachment_items(items, source_session_id, forked_session_id)?;
+            }
+            if let Some(items) = object
+                .get_mut(crate::session::ATTACHMENT_META_KEY_TOOL_MEDIA_ITEMS)
+                .and_then(Value::as_array_mut)
+            {
+                changed |= rewrite_tool_media_items(items, source_session_id, forked_session_id)?;
+            }
+        }
+        _ => {}
+    }
+
+    if changed {
+        Ok(serde_json::to_string(&meta)?)
+    } else {
+        Ok(raw_meta.to_string())
+    }
+}
+
+fn rewrite_user_attachment_items(
+    items: &mut [Value],
+    source_session_id: &str,
+    forked_session_id: &str,
+) -> Result<bool> {
+    let mut changed = false;
+    for item in items {
+        let Some(object) = item.as_object_mut() else {
+            continue;
+        };
+        if matches!(
+            object.get("kind").and_then(Value::as_str),
+            Some("quote") | Some(MESSAGE_QUOTE_SOURCE)
+        ) {
+            continue;
+        }
+        let Some(source_path) = object.get("path").and_then(Value::as_str) else {
+            continue;
+        };
+        if let Some(copied_path) =
+            copy_session_attachment(source_path, source_session_id, forked_session_id)?
+        {
+            object.insert(
+                "path".to_string(),
+                Value::String(copied_path.to_string_lossy().to_string()),
+            );
+            changed = true;
+        }
+    }
+    Ok(changed)
+}
+
+fn rewrite_tool_media_items(
+    items: &mut [Value],
+    source_session_id: &str,
+    forked_session_id: &str,
+) -> Result<bool> {
+    let source_url_prefix = format!("/api/attachments/{source_session_id}/");
+    let mut changed = false;
+
+    for item in items {
+        let Some(object) = item.as_object_mut() else {
+            continue;
+        };
+
+        let mut copied_path = None;
+        if let Some(local_path) = object.get("localPath").and_then(Value::as_str) {
+            copied_path =
+                copy_session_attachment(local_path, source_session_id, forked_session_id)?;
+        }
+
+        if copied_path.is_none() {
+            if let Some(encoded_name) = object
+                .get("url")
+                .and_then(Value::as_str)
+                .and_then(|url| url.strip_prefix(&source_url_prefix))
+            {
+                let decoded_name = urlencoding::decode(encoded_name)
+                    .with_context(|| format!("decode attachment URL {encoded_name}"))?;
+                if decoded_name.contains(['/', '\\']) {
+                    anyhow::bail!("invalid attachment URL filename: {encoded_name}");
+                }
+                let source_path = paths::attachments_dir(source_session_id)?.join(&*decoded_name);
+                copied_path = copy_session_attachment(
+                    &source_path.to_string_lossy(),
+                    source_session_id,
+                    forked_session_id,
+                )?;
+            }
+        }
+
+        let Some(copied_path) = copied_path else {
+            continue;
+        };
+        let file_name = copied_path
+            .file_name()
+            .and_then(|value| value.to_str())
+            .context("forked attachment filename is not valid UTF-8")?;
+        object.insert(
+            "localPath".to_string(),
+            Value::String(copied_path.to_string_lossy().to_string()),
+        );
+        object.insert(
+            "url".to_string(),
+            Value::String(format!(
+                "/api/attachments/{}/{}",
+                forked_session_id,
+                urlencoding::encode(file_name)
+            )),
+        );
+        changed = true;
+    }
+
+    Ok(changed)
+}
+
+fn copy_session_attachment(
+    raw_path: &str,
+    source_session_id: &str,
+    forked_session_id: &str,
+) -> Result<Option<PathBuf>> {
+    let source_dir = paths::attachments_dir(source_session_id)?;
+    let source_path = PathBuf::from(raw_path);
+    let lexically_owned = source_path.starts_with(&source_dir);
+    let canonical_source_dir = match source_dir.canonicalize() {
+        Ok(path) => path,
+        Err(_) if !lexically_owned => return Ok(None),
+        Err(error) => {
+            return Err(error)
+                .with_context(|| format!("canonicalize attachments dir {}", source_dir.display()));
+        }
+    };
+    let canonical_source_path = match source_path.canonicalize() {
+        Ok(path) => path,
+        Err(_) if !lexically_owned => return Ok(None),
+        Err(error) => {
+            return Err(error)
+                .with_context(|| format!("canonicalize attachment {}", source_path.display()));
+        }
+    };
+    if !canonical_source_path.starts_with(&canonical_source_dir) {
+        if lexically_owned {
+            anyhow::bail!(
+                "attachment escapes source session directory: {}",
+                source_path.display()
+            );
+        }
+        return Ok(None);
+    }
+    if !canonical_source_path.is_file() {
+        anyhow::bail!("attachment path is not a file: {}", source_path.display());
+    }
+
+    let file_name = canonical_source_path
+        .file_name()
+        .context("source attachment has no filename")?;
+    let forked_dir = paths::attachments_dir(forked_session_id)?;
+    std::fs::create_dir_all(&forked_dir)
+        .with_context(|| format!("create attachments dir {}", forked_dir.display()))?;
+    let forked_path = forked_dir.join(file_name);
+    std::fs::copy(&canonical_source_path, &forked_path).with_context(|| {
+        format!(
+            "copy attachment {} to {}",
+            canonical_source_path.display(),
+            forked_path.display()
+        )
+    })?;
+    Ok(Some(forked_path))
 }
 
 fn is_user_upload_source(source: Option<&str>) -> bool {
@@ -532,6 +848,32 @@ mod tests {
     }
 
     #[test]
+    fn persist_chat_user_attachments_meta_keeps_message_quote_inline() {
+        let root = tempfile::tempdir().expect("tempdir");
+        crate::test_support::with_env_vars(&[("HA_DATA_DIR", root.path())], || {
+            let mut attachments = vec![Attachment {
+                name: "message-quote".to_string(),
+                mime_type: "text/plain".to_string(),
+                source: Some(MESSAGE_QUOTE_SOURCE.to_string()),
+                data: Some("Selected answer".to_string()),
+                file_path: None,
+                quote_lines: None,
+                quote_role: Some("assistant".to_string()),
+            }];
+
+            let raw = persist_chat_user_attachments_meta("session-a", &mut attachments)
+                .expect("persist message quote")
+                .expect("message quote metadata");
+            let value: Value = serde_json::from_str(&raw).expect("valid metadata json");
+
+            assert_eq!(value[0]["kind"], MESSAGE_QUOTE_SOURCE);
+            assert_eq!(value[0]["role"], "assistant");
+            assert_eq!(value[0]["content"], "Selected answer");
+            assert!(value[0].get("path").is_none());
+        });
+    }
+
+    #[test]
     fn persist_chat_user_attachments_meta_skips_temp_path_traversal() {
         let root = tempfile::tempdir().expect("tempdir");
         crate::test_support::with_env_vars(&[("HA_DATA_DIR", root.path())], || {
@@ -548,6 +890,7 @@ mod tests {
                 data: None,
                 file_path: Some(traversal.to_string_lossy().to_string()),
                 quote_lines: None,
+                quote_role: None,
             }];
 
             let meta = persist_chat_user_attachments_meta("session-a", &mut attachments)
@@ -583,6 +926,7 @@ mod tests {
                     data: None,
                     file_path: Some(missing.to_string_lossy().to_string()),
                     quote_lines: None,
+                    quote_role: None,
                 },
                 Attachment {
                     name: "note.txt".to_string(),
@@ -591,6 +935,7 @@ mod tests {
                     data: None,
                     file_path: Some(saved.clone()),
                     quote_lines: None,
+                    quote_role: None,
                 },
             ];
 
@@ -621,6 +966,7 @@ mod tests {
                 data: None,
                 file_path: Some(saved.clone()),
                 quote_lines: None,
+                quote_role: None,
             }];
 
             let meta = persist_chat_user_attachments_meta("session-a", &mut attachments)
@@ -650,6 +996,7 @@ mod tests {
                 data: None,
                 file_path: Some(original.clone()),
                 quote_lines: None,
+                quote_role: None,
             }];
 
             let meta = persist_chat_user_attachments_meta("session-a", &mut attachments)
@@ -657,6 +1004,21 @@ mod tests {
 
             assert!(meta.is_none());
             assert_eq!(attachments[0].file_path.as_deref(), Some(original.as_str()));
+        });
+    }
+
+    #[test]
+    fn persist_queued_chat_attachments_accepts_text_only_message_without_directory() {
+        let root = tempfile::tempdir().expect("tempdir");
+        crate::test_support::with_env_vars(&[("HA_DATA_DIR", root.path())], || {
+            let mut attachments = Vec::new();
+            persist_queued_chat_attachments("session-text-only", "request", &mut attachments)
+                .expect("text-only queue persistence");
+            assert!(!root
+                .path()
+                .join("attachments")
+                .join("session-text-only")
+                .exists());
         });
     }
 }

@@ -798,6 +798,34 @@ impl CronDB {
         Ok(())
     }
 
+    /// Push the next active run out by a Loop-owned progress backoff. This is a
+    /// narrow scheduling override: it never changes the job's schedule, never
+    /// revives paused/terminal jobs, and is intended to run after `update_after_run`
+    /// has already advanced the recurring schedule to its normal next slot.
+    pub fn delay_next_run(&self, id: &str, delay_secs: i64) -> Result<Option<String>> {
+        if delay_secs <= 0 {
+            return Ok(None);
+        }
+        let now = Utc::now();
+        let now_str = now.to_rfc3339();
+        let next_run = (now + Duration::seconds(delay_secs)).to_rfc3339();
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
+        let rows = conn.execute(
+            "UPDATE cron_jobs
+             SET next_run_at = ?1, updated_at = ?2
+             WHERE id = ?3 AND status = 'active'",
+            params![next_run, now_str, id],
+        )?;
+        if rows > 0 {
+            Ok(Some(next_run))
+        } else {
+            Ok(None)
+        }
+    }
+
     /// §11 review fix: terminalize a cancelled one-shot `At` job as `completed`.
     /// Its `next_run_at` was advanced to NULL at claim, so leaving it `active`
     /// strands an un-fireable zombie until the next restart's `mark_missed_at_jobs`.
@@ -1294,13 +1322,24 @@ impl CronDB {
             CronSchedule::At { .. } => None, // one-shot: clear next_run_at
             other => compute_next_run(other, &now).map(|dt| dt.to_rfc3339()),
         };
+        let payload_json = serde_json::to_string(&job.payload)?;
 
-        // Atomically claim: only succeed if still active, not running, and next_run_at matches
+        // Atomically claim only the exact payload snapshot that was listed.
+        // Agent deletion may rebind payload_json between list and claim; in
+        // that case defer to the next scheduler tick instead of executing the
+        // stale Agent id while consuming this occurrence.
         let rows = conn.execute(
             "UPDATE cron_jobs SET running_at=?1, next_run_at=?2, updated_at=?1
              WHERE id=?3 AND next_run_at=?4 AND next_run_at <= ?5
-               AND status='active' AND running_at IS NULL",
-            params![now_str, next_run, job.id, job.next_run_at, now_str],
+               AND payload_json=?6 AND status='active' AND running_at IS NULL",
+            params![
+                now_str,
+                next_run,
+                job.id,
+                job.next_run_at,
+                now_str,
+                payload_json
+            ],
         )?;
         Ok((rows > 0).then(|| ClaimedCronJob {
             job: job.clone(),
@@ -1320,9 +1359,11 @@ impl CronDB {
             .lock()
             .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
         let now = chrono::Utc::now().to_rfc3339();
+        let payload_json = serde_json::to_string(&job.payload)?;
         let rows = conn.execute(
-            "UPDATE cron_jobs SET running_at=?1 WHERE id=?2 AND running_at IS NULL",
-            params![now, job.id],
+            "UPDATE cron_jobs SET running_at=?1
+             WHERE id=?2 AND payload_json=?3 AND running_at IS NULL",
+            params![now, job.id, payload_json],
         )?;
         Ok((rows > 0).then(|| ClaimedCronJob {
             job: job.clone(),
@@ -2819,6 +2860,62 @@ mod tests {
             .claim_scheduled_job_for_execution(&job)
             .expect("claim")
             .is_none());
+
+        cleanup_db_files(&path);
+    }
+
+    #[test]
+    fn claims_reject_stale_payload_snapshot_after_agent_rebind() {
+        let path = temp_db_path("stale-payload-claim");
+        let db = CronDB::open(&path).expect("open db");
+        let mut stale_job = db
+            .add_job(&NewCronJob {
+                name: "Rebind-safe".into(),
+                description: None,
+                project_id: None,
+                schedule: CronSchedule::At {
+                    timestamp: (Utc::now() + chrono::Duration::minutes(1)).to_rfc3339(),
+                },
+                payload: CronPayload::AgentTurn {
+                    prompt: "run once".into(),
+                    agent_id: Some("old-agent".into()),
+                },
+                max_failures: None,
+                notify_on_complete: None,
+                delivery_targets: None,
+                prefix_delivery_with_name: None,
+                job_timeout_secs: None,
+                permission_mode_override: None,
+                sandbox_mode_override: None,
+            })
+            .expect("add job");
+        let due_at = (Utc::now() - chrono::Duration::seconds(1)).to_rfc3339();
+        stale_job.next_run_at = Some(due_at.clone());
+        let rebound_payload = serde_json::to_string(&CronPayload::AgentTurn {
+            prompt: "run once".into(),
+            agent_id: Some("replacement-agent".into()),
+        })
+        .unwrap();
+        {
+            let conn = db.conn.lock().expect("lock");
+            conn.execute(
+                "UPDATE cron_jobs SET next_run_at=?1, payload_json=?2 WHERE id=?3",
+                params![due_at, rebound_payload, stale_job.id],
+            )
+            .expect("simulate lifecycle rebind");
+        }
+
+        assert!(db
+            .claim_scheduled_job_for_execution(&stale_job)
+            .expect("scheduled stale claim")
+            .is_none());
+        assert!(db
+            .claim_immediate_job_for_execution(&stale_job)
+            .expect("immediate stale claim")
+            .is_none());
+        let stored = db.get_job(&stale_job.id).unwrap().unwrap();
+        assert!(stored.running_at.is_none());
+        assert_eq!(stored.next_run_at.as_deref(), Some(due_at.as_str()));
 
         cleanup_db_files(&path);
     }

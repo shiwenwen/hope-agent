@@ -75,6 +75,10 @@ describe("onboarding step order", () => {
   })
 
   test("keeps remote setup short-circuited before local provider steps", () => {
-    expect(stepsForMode("remote")).toEqual(["welcome", "import-openclaw", "mode"])
+    expect(stepsForMode("remote")).toEqual(["welcome", "mode"])
+  })
+
+  test("does not include third-party migration in first-run setup", () => {
+    expect(ONBOARDING_STEPS).not.toContain("import-openclaw")
   })
 })

@@ -95,6 +95,10 @@ pub struct SpawnParams {
     pub model_override: Option<String>,
     /// Optional display label for tracking
     pub label: Option<String>,
+    /// Create a managed git worktree for this child session when possible.
+    /// User-delegated subagents enable this for file isolation; internal
+    /// helper spawns leave it off unless they explicitly need isolation.
+    pub isolate_worktree: bool,
     /// File attachments to pass to the sub-agent
     pub attachments: Vec<crate::agent::Attachment>,
     /// Plan agent mode to configure on the sub-agent (None = normal sub-agent)

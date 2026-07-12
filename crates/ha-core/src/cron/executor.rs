@@ -13,6 +13,39 @@ use super::types::*;
 /// mid-write tear-down. Bounded so a truly wedged run still releases its slot.
 const CRON_TIMEOUT_CANCEL_GRACE_SECS: u64 = 5;
 
+/// Dedicated runtime for job executions dispatched outside the scheduler
+/// (run-now entries, loop monitors, loop event triggers). `execute_job_public`'s
+/// internals make dozens of synchronous CronDB/SessionDB calls that are exempt
+/// on the scheduler's private runtime (Layer B) but must not run on the shared
+/// app runtime — a long cron turn would pin its worker threads. Long-lived (like
+/// the scheduler's runtime) so tasks spawned by the turn survive job completion.
+fn cron_dispatch_runtime() -> &'static tokio::runtime::Handle {
+    static RT: std::sync::OnceLock<tokio::runtime::Runtime> = std::sync::OnceLock::new();
+    let rt = RT.get_or_init(|| {
+        tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .enable_all()
+            .thread_name("cron-dispatch")
+            .build()
+            .expect("failed to build cron dispatch runtime")
+    });
+    rt.handle()
+}
+
+/// Fire-and-forget dispatch of a job execution onto the dedicated cron runtime.
+/// Every entry that used to `tokio::spawn(execute_job_public(..))` onto the
+/// caller's runtime must go through here instead — the shared app runtime is
+/// not a valid home for a cron turn's synchronous DB call chain.
+pub fn spawn_job_execution(
+    cron_db: Arc<CronDB>,
+    session_db: Arc<crate::session::SessionDB>,
+    job: CronJob,
+) {
+    cron_dispatch_runtime().spawn(async move {
+        execute_job_public(&cron_db, &session_db, &job).await;
+    });
+}
+
 /// Public wrapper for execute_job, callable from Tauri commands.
 pub async fn execute_job_public(
     cron_db: &Arc<CronDB>,
@@ -36,7 +69,9 @@ pub async fn execute_job_public(
         );
         return;
     }
-    match cron_db.claim_immediate_job_for_execution(job) {
+    match crate::agent_lifecycle::with_lifecycle_gate(|| {
+        cron_db.claim_immediate_job_for_execution(job)
+    }) {
         Ok(Some(claimed)) => execute_claimed_job(cron_db, session_db, claimed).await,
         Ok(None) => {
             app_warn!(
@@ -178,11 +213,40 @@ pub(crate) async fn execute_claimed_job(
         job.id
     );
 
+    if let CronPayload::SessionLoop {
+        loop_id,
+        session_id,
+        prompt,
+        agent_id,
+        goal_id,
+    } = job.payload.clone()
+    {
+        execute_session_loop_payload(
+            cron_db,
+            session_db,
+            &job,
+            &loop_id,
+            &session_id,
+            &prompt,
+            agent_id.as_deref(),
+            goal_id.as_deref(),
+            &started_at,
+            start_time,
+            immediate,
+            &running_guard.run_log_id,
+        )
+        .await;
+        return;
+    }
+
     // Extract prompt and resolve the execution context. Cron sessions are
     // isolated, but can still inherit Project defaults just like a new Project
     // chat when the job is bound to a Project.
     let (prompt, explicit_agent_id) = match &job.payload {
         CronPayload::AgentTurn { prompt, agent_id } => (prompt.clone(), agent_id.as_deref()),
+        CronPayload::SessionLoop { .. } => {
+            unreachable!("SessionLoop handled before AgentTurn path")
+        }
     };
     let context = resolve_execution_context(&job, explicit_agent_id, cron_db);
     let agent_id = context.agent_id;
@@ -208,6 +272,29 @@ pub(crate) async fn execute_claimed_job(
             pid,
             agent_id
         );
+    };
+
+    // Acquire before the isolated session and run metadata are persisted.
+    // The engine retains its own guard as a shared backstop; this outer guard
+    // closes the shell-side create/delete race.
+    let _agent_admission = match crate::agent_lifecycle::begin_agent_run(&agent_id) {
+        Ok(guard) => guard,
+        Err(error) => {
+            record_failure(
+                cron_db,
+                &job,
+                &started_at,
+                start_time,
+                "agent_unavailable",
+                &error.to_string(),
+                "",
+                None,
+                None,
+                false,
+                immediate,
+            );
+            return;
+        }
     };
 
     // Create an isolated session for this cron run
@@ -658,6 +745,337 @@ pub(crate) async fn execute_claimed_job(
                 immediate,
             );
         }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn execute_session_loop_payload(
+    cron_db: &Arc<CronDB>,
+    session_db: &Arc<crate::session::SessionDB>,
+    job: &CronJob,
+    payload_loop_id: &str,
+    parent_session_id: &str,
+    payload_prompt: &str,
+    payload_agent_id: Option<&str>,
+    payload_goal_id: Option<&str>,
+    started_at: &str,
+    start_time: std::time::Instant,
+    immediate: bool,
+    run_log_slot: &AtomicI64,
+) {
+    let run_log_id = match cron_db.add_running_run_log(&job.id, parent_session_id, started_at) {
+        Ok(id) => Some(id),
+        Err(e) => {
+            app_error!(
+                "cron",
+                "executor",
+                "Failed to open loop run log for job '{}' ({}): {} — terminal state will be inserted directly",
+                job.name,
+                job.id,
+                e
+            );
+            None
+        }
+    };
+    run_log_slot.store(run_log_id.unwrap_or(0), Ordering::SeqCst);
+
+    let admission = match session_db.prepare_loop_cron_run(&job.id, parent_session_id, started_at) {
+        Ok(decision) => decision,
+        Err(e) => {
+            let err_text = format!("loop admission failed: {e}");
+            record_failure(
+                cron_db,
+                job,
+                started_at,
+                start_time,
+                "error",
+                &err_text,
+                parent_session_id,
+                None,
+                run_log_id,
+                false,
+                immediate,
+            );
+            return;
+        }
+    };
+
+    let admission = match admission {
+        crate::loop_control::LoopRunDecision::NotLoop => {
+            let err_text = "cron job is not linked to a loop schedule";
+            record_failure(
+                cron_db,
+                job,
+                started_at,
+                start_time,
+                "error",
+                err_text,
+                parent_session_id,
+                None,
+                run_log_id,
+                false,
+                immediate,
+            );
+            return;
+        }
+        crate::loop_control::LoopRunDecision::Reject(rejection) => {
+            let finished_at = Utc::now().to_rfc3339();
+            let duration_ms = start_time.elapsed().as_millis() as u64;
+            let _ = cron_db.finalize_or_insert_run_log(
+                run_log_id,
+                &job.id,
+                parent_session_id,
+                started_at,
+                "cancelled",
+                &finished_at,
+                Some(duration_ms),
+                None,
+                Some(&rejection.reason),
+                None,
+            );
+            let _ = cron_db.clear_running(&job.id);
+            if rejection.pause_cron_job {
+                let _ = cron_db.toggle_job(&job.id, false);
+            }
+            let _ = session_db.finish_loop_cron_run(
+                &job.id,
+                None,
+                run_log_id,
+                crate::loop_control::LoopRunState::Skipped,
+                None,
+                Some(&rejection.reason),
+                &finished_at,
+            );
+            emit_cron_event(&job.id, &job.name, "cancelled", false, None);
+            return;
+        }
+        crate::loop_control::LoopRunDecision::Admit(admission) => admission,
+    };
+
+    if admission.loop_id != payload_loop_id {
+        app_warn!(
+            "cron",
+            "executor",
+            "Loop payload id {} differs from schedule id {} for cron job {}",
+            payload_loop_id,
+            admission.loop_id,
+            job.id
+        );
+    }
+
+    let prompt = if admission.prompt.trim().is_empty() {
+        payload_prompt
+    } else {
+        admission.prompt.as_str()
+    };
+    let mut extra_trace: Option<serde_json::Value> = None;
+    let (cron_status, loop_state, summary, error) =
+        if admission.execution_strategy == crate::loop_control::LoopExecutionStrategy::Workflow {
+            app_info!(
+                "cron",
+                "executor",
+                "Firing loop {} run {} as workflow for session {}",
+                admission.loop_id,
+                admission.run_id,
+                parent_session_id
+            );
+            match crate::workflow::ensure_workflow_launcher_primary()
+                .and_then(|_| session_db.create_loop_workflow_run(&admission))
+            {
+                Ok(launch) => {
+                    let accepted = crate::workflow::spawn_workflow_run_if_primary(
+                        session_db.clone(),
+                        launch.run_id.clone(),
+                        format!(
+                            "loop:{}:{}:pid:{}",
+                            admission.loop_id,
+                            admission.run_id,
+                            std::process::id()
+                        ),
+                    );
+                    if accepted {
+                        extra_trace = Some(serde_json::json!({
+                            "executionStrategy": "workflow",
+                            "workflowRunId": launch.run_id,
+                            "workflowKind": launch.workflow_kind,
+                            "executionMode": launch.execution_mode,
+                            "templateId": launch.template_id,
+                            "templateVersion": launch.template_version,
+                            "requiresApproval": launch.requires_approval,
+                        }));
+                        (
+                            "success",
+                            crate::loop_control::LoopRunState::Succeeded,
+                            Some(format!(
+                                "Workflow run {} launched from loop {}",
+                                launch.run_id, admission.loop_id
+                            )),
+                            None,
+                        )
+                    } else {
+                        extra_trace = Some(serde_json::json!({
+                            "executionStrategy": "workflow",
+                            "workflowRunId": launch.run_id,
+                            "launchAccepted": false,
+                        }));
+                        (
+                            "error",
+                            crate::loop_control::LoopRunState::Failed,
+                            None,
+                            Some(
+                                "workflow launch was rejected because this process is not primary"
+                                    .to_string(),
+                            ),
+                        )
+                    }
+                }
+                Err(err) => {
+                    extra_trace = Some(serde_json::json!({
+                        "executionStrategy": "workflow",
+                        "error": err.to_string(),
+                    }));
+                    (
+                        "error",
+                        crate::loop_control::LoopRunState::Failed,
+                        None,
+                        Some(format!("loop workflow launch failed: {err:#}")),
+                    )
+                }
+            }
+        } else {
+            let parent_agent_id = payload_agent_id
+                .filter(|s| !s.trim().is_empty())
+                .unwrap_or(admission.agent_id.as_str())
+                .to_string();
+            let goal_id = admission.goal_id.as_deref().or(payload_goal_id);
+            let push_message = crate::loop_control::build_loop_trigger_message(
+                &admission.loop_id,
+                &admission.run_id,
+                goal_id,
+                admission.goal_criterion_id.as_deref(),
+                admission.goal_criterion_text.as_deref(),
+                admission.trigger_kind,
+                &admission.trigger_spec,
+                admission.event_context.as_ref(),
+                prompt,
+            );
+
+            app_info!(
+                "cron",
+                "executor",
+                "Firing loop {} run {} into session {}",
+                admission.loop_id,
+                admission.run_id,
+                parent_session_id
+            );
+
+            let outcome = crate::subagent::injection::inject_and_run_parent(
+                parent_session_id.to_string(),
+                parent_agent_id,
+                crate::subagent::injection::LOOP_CHILD_AGENT_ID.to_string(),
+                admission.run_id.clone(),
+                push_message,
+                session_db.clone(),
+                None,
+            )
+            .await;
+
+            let (cron_status, loop_state, error) = match outcome {
+                crate::subagent::injection::InjectionOutcome::Injected => (
+                    "success",
+                    crate::loop_control::LoopRunState::Succeeded,
+                    None,
+                ),
+                crate::subagent::injection::InjectionOutcome::Queued => {
+                    ("queued", crate::loop_control::LoopRunState::Queued, None)
+                }
+                crate::subagent::injection::InjectionOutcome::Abandoned => (
+                    "error",
+                    crate::loop_control::LoopRunState::Failed,
+                    Some("loop injection abandoned before it could be queued".to_string()),
+                ),
+            };
+            let summary = if error.is_none() {
+                session_db
+                    .summarize_latest_assistant_after(parent_session_id, started_at)
+                    .ok()
+                    .flatten()
+            } else {
+                None
+            };
+            (cron_status, loop_state, summary, error)
+        };
+
+    let finished_at = Utc::now().to_rfc3339();
+    let duration_ms = start_time.elapsed().as_millis() as u64;
+
+    let _ = cron_db.finalize_or_insert_run_log(
+        run_log_id,
+        &job.id,
+        parent_session_id,
+        started_at,
+        cron_status,
+        &finished_at,
+        Some(duration_ms),
+        summary.as_deref(),
+        error.as_deref(),
+        None,
+    );
+
+    if immediate {
+        let _ = cron_db.clear_running(&job.id);
+    } else if error.is_some() {
+        let _ = cron_db.update_after_run(&job.id, false, &job.schedule);
+        let _ = cron_db.clear_running(&job.id);
+    } else {
+        let _ = cron_db.update_after_run(&job.id, true, &job.schedule);
+        let _ = cron_db.clear_running(&job.id);
+    }
+
+    let action = session_db
+        .finish_loop_cron_run_with_trace(
+            &job.id,
+            Some(&admission.run_id),
+            run_log_id,
+            loop_state,
+            summary.as_deref(),
+            error.as_deref(),
+            &finished_at,
+            extra_trace,
+        )
+        .unwrap_or(crate::loop_control::LoopAfterRunAction {
+            loop_id: Some(admission.loop_id.clone()),
+            pause_cron_job: false,
+            backoff_secs: None,
+        });
+    if let Some(delay) = action.backoff_secs {
+        let _ = cron_db.delay_next_run(&job.id, delay);
+    }
+    if action.pause_cron_job {
+        let _ = cron_db.toggle_job(&job.id, false);
+    }
+    let drain_next_event = matches!(
+        admission.trigger_kind,
+        crate::loop_control::LoopTriggerKind::Event | crate::loop_control::LoopTriggerKind::Dynamic
+    ) && !action.pause_cron_job
+        && session_db
+            .loop_has_pending_event_ticks(&admission.loop_id)
+            .unwrap_or(false);
+
+    emit_cron_event(
+        &job.id,
+        &job.name,
+        if error.is_some() {
+            "error"
+        } else {
+            cron_status
+        },
+        job.notify_on_complete,
+        error.as_ref().map(|_| "loop_execution"),
+    );
+
+    if drain_next_event {
+        Box::pin(execute_job_public(cron_db, session_db, job)).await;
     }
 }
 

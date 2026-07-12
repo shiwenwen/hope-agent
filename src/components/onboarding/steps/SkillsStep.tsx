@@ -51,14 +51,16 @@ export function SkillsStep({ initialDisabled, onChange }: SkillsStepProps) {
   const reload = async () => {
     try {
       const [list, dirs] = await Promise.all([
-        getTransport().call<SkillInfo[]>("get_skills"),
+        getTransport().call<SkillInfo[] | null | undefined>("get_skills"),
         getTransport()
-          .call<string[]>("get_extra_skills_dirs")
+          .call<string[] | null | undefined>("get_extra_skills_dirs")
           .catch(() => [] as string[]),
       ])
-      const sorted = [...list].sort((a, b) => a.name.localeCompare(b.name))
+      const sorted = [...(Array.isArray(list) ? list : [])].sort((a, b) =>
+        a.name.localeCompare(b.name),
+      )
       setSkills(sorted)
-      setExtraDirs(dirs)
+      setExtraDirs(Array.isArray(dirs) ? dirs : [])
       setError(null)
     } catch (e) {
       logger.warn("onboarding", "SkillsStep", "get_skills failed", e)
@@ -172,7 +174,7 @@ export function SkillsStep({ initialDisabled, onChange }: SkillsStepProps) {
             )}
             <span>{t("settings.skillsDirAdd")}</span>
           </button>
-          <IconTip label={t("settings.skillsImport.tooltip.distinguishOnboarding")}>
+          <IconTip label={t("settings.skillsImport.tooltip.distinguishUserDataImport")}>
             <button
               type="button"
               onClick={() => setQuickImportOpen(true)}

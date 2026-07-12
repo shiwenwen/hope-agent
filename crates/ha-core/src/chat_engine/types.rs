@@ -537,7 +537,8 @@ pub struct ChatEngineParams {
     pub auto_approve_tools: bool,
     /// Whether provider loops should re-read global reasoning effort mid-turn.
     pub follow_global_reasoning_effort: bool,
-    /// Whether to schedule title/memory/skill-review follow-ups after success.
+    /// Whether to schedule memory/skill-review follow-ups after success.
+    /// Session title refinement has its own source/CAS gates and is independent.
     pub post_turn_effects: bool,
     /// Whether a caller-triggered cancel should discard the partial response and
     /// return an error to the caller instead of persisting a final assistant row.
@@ -569,6 +570,9 @@ pub struct ChatEngineResult {
     pub response: String,
     /// The model that produced the successful response.
     pub model_used: Option<ActiveModel>,
+    /// Token usage captured from this chat turn. Subsystems that fan out chat
+    /// turns, such as workflow-owned subagents, use this for durable budgets.
+    pub usage: CapturedUsage,
     /// The agent instance after chat (for UI chat to update State).
     pub agent: Option<AssistantAgent>,
 }

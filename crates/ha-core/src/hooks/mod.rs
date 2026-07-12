@@ -543,6 +543,46 @@ fn observation_common(event: &str, session_id: &str) -> CommonHookInput {
     }
 }
 
+/// Fire a blocking `WorktreeCreate` hook. Returns `None` when no handler
+/// matches this worktree name, allowing the caller to fall back to the built-in
+/// git implementation. When a handler matches, it may block/deny or must return
+/// `hookSpecificOutput.worktreePath` to replace the default creation.
+pub async fn dispatch_worktree_create(
+    session_id: &str,
+    name: &str,
+    cwd: &std::path::Path,
+) -> Option<HookOutcome> {
+    let registry = scopes::resolve_for_cwd(Some(cwd));
+    if !registry.has_handlers_for(HookEvent::WorktreeCreate) {
+        return None;
+    }
+    let mut common = observation_common("WorktreeCreate", session_id);
+    common.cwd = cwd.to_path_buf();
+    let input = HookInput::WorktreeCreate {
+        common,
+        name: name.to_string(),
+    };
+    if registry
+        .matching_handlers(HookEvent::WorktreeCreate, input.matcher_target())
+        .is_empty()
+    {
+        return None;
+    }
+    Some(HookDispatcher::dispatch_with(&registry, HookEvent::WorktreeCreate, input).await)
+}
+
+/// Fire a `WorktreeRemove` observation hook after the built-in cleanup removes
+/// a managed git worktree.
+pub fn fire_worktree_remove(session_id: &str, worktree_path: &str) {
+    let mut common = observation_common("WorktreeRemove", session_id);
+    common.cwd = std::path::PathBuf::from(worktree_path);
+    let input = HookInput::WorktreeRemove {
+        common,
+        worktree_path: worktree_path.to_string(),
+    };
+    fire_and_forget(HookEvent::WorktreeRemove, input);
+}
+
 /// Fire a `Notification` hook (e.g. permission prompt, auth success). Used for
 /// desktop-notification bridging. `additionalContext` is not injected this
 /// phase (these sites are outside a turn).

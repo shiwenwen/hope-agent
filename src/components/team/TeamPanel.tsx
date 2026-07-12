@@ -18,6 +18,7 @@ interface TeamPanelProps {
   onPanelWidthChange?: (w: number) => void
   reservedMainWidth?: number
   collapsed?: boolean
+  overlay?: boolean
   onClose: () => void
   onViewSession?: (sessionId: string) => void
 }
@@ -32,6 +33,7 @@ export function TeamPanel({
   onPanelWidthChange,
   reservedMainWidth,
   collapsed = false,
+  overlay = false,
   onClose,
   onViewSession,
 }: TeamPanelProps) {
@@ -65,6 +67,7 @@ export function TeamPanel({
         maxWidth={MAX_WIDTH}
         reservedMainWidth={reservedMainWidth}
         collapsed={collapsed}
+        overlay={overlay}
         contentKey="team-loading"
       >
         <div className="flex h-full min-h-0 w-full items-center justify-center text-sm text-muted-foreground">
@@ -83,6 +86,7 @@ export function TeamPanel({
       maxWidth={MAX_WIDTH}
       reservedMainWidth={reservedMainWidth}
       collapsed={collapsed}
+      overlay={overlay}
       contentKey="team"
     >
       <div className="relative flex h-full min-h-0 w-full flex-col overflow-hidden">

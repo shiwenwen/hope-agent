@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
 import {
@@ -53,12 +53,30 @@ import {
 import EmbeddingActivationDialog from "./memory-panel/EmbeddingActivationDialog"
 import KnowledgeMaintenanceSection from "./KnowledgeMaintenanceSection"
 import SpriteSection from "./SpriteSection"
+import {
+  knowledgeChunkOperationErrorToast,
+  knowledgeCompileAgentOperationErrorToast,
+  knowledgeMediaRetentionOperationErrorToast,
+  knowledgePassiveRecallOperationErrorToast,
+  knowledgePanelErrorDetail,
+  knowledgePanelOperationErrorToast,
+  knowledgeSearchRankingOperationErrorToast,
+  type KnowledgePanelOperationErrorToast,
+} from "./knowledgePanelFeedback"
 
 
 const EMPTY_STATE: EmbeddingSelectionState = {
   selection: { enabled: false, modelConfigId: null, activeSignature: null, lastReembeddedSignature: null },
   currentModel: null,
   needsReembed: false,
+}
+
+const DEFAULT_KNOWLEDGE_VISION_CONFIG: KnowledgeVisionConfig = {
+  modelOverride: null,
+  timeoutSecs: 90,
+  maxTokens: 4096,
+  ocrConcurrency: 3,
+  maxOcrPages: 40,
 }
 
 /**
@@ -75,6 +93,7 @@ export default function KnowledgePanel() {
   const [state, setState] = useState<EmbeddingSelectionState>(EMPTY_STATE)
   const [models, setModels] = useState<EmbeddingModelConfig[]>([])
   const [activationOpen, setActivationOpen] = useState(false)
+  const [loadError, setLoadError] = useState<KnowledgePanelOperationErrorToast | null>(null)
 
   const reload = useCallback(async () => {
     try {
@@ -84,10 +103,12 @@ export default function KnowledgePanel() {
       ])
       setModels(list)
       setState(st)
+      setLoadError(null)
     } catch (e) {
       logger.error("settings", "KnowledgePanel::reload", "Failed to load knowledge embedding", e)
+      setLoadError(knowledgePanelOperationErrorToast("loadEmbedding", t, e))
     }
-  }, [])
+  }, [t])
 
   // Initial load. setState lives in the async `.then` callback (not the effect
   // body) per react-hooks/set-state-in-effect; `reload` is reused by the reembed
@@ -102,14 +123,16 @@ export default function KnowledgePanel() {
         if (cancelled) return
         setModels(list)
         setState(st)
+        setLoadError(null)
       })
-      .catch((e) =>
-        logger.error("settings", "KnowledgePanel::load", "Failed to load knowledge embedding", e),
-      )
+      .catch((e) => {
+        logger.error("settings", "KnowledgePanel::load", "Failed to load knowledge embedding", e)
+        if (!cancelled) setLoadError(knowledgePanelOperationErrorToast("loadEmbedding", t, e))
+      })
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [t])
 
   // Track the knowledge reembed job via the shared hook (same plumbing as the
   // memory panel; only the kind filter + onCompleted differ). Refresh state on
@@ -128,7 +151,11 @@ export default function KnowledgePanel() {
         return true
       } catch (e) {
         logger.error("settings", "KnowledgePanel::activate", "Failed to activate", e)
-        toast.error(String(e))
+        const failure = knowledgePanelOperationErrorToast("activateEmbedding", t, e)
+        toast.error(
+          failure.title,
+          failure.description ? { description: failure.description } : undefined,
+        )
         return false
       }
     },
@@ -142,7 +169,11 @@ export default function KnowledgePanel() {
         .then(setState)
         .catch((e) => {
           logger.error("settings", "KnowledgePanel::disable", "Failed to disable", e)
-          toast.error(String(e))
+          const failure = knowledgePanelOperationErrorToast("disableEmbedding", t, e)
+          toast.error(
+            failure.title,
+            failure.description ? { description: failure.description } : undefined,
+          )
         })
       return
     }
@@ -162,9 +193,13 @@ export default function KnowledgePanel() {
       await getTransport().call("knowledge_embedding_rebuild_cmd")
     } catch (e) {
       logger.error("settings", "KnowledgePanel::rebuild", "Failed to start rebuild", e)
-      toast.error(String(e))
+      const failure = knowledgePanelOperationErrorToast("rebuildEmbedding", t, e)
+      toast.error(
+        failure.title,
+        failure.description ? { description: failure.description } : undefined,
+      )
     }
-  }, [])
+  }, [t])
 
   const enabled = state.selection.enabled
   const current = state.currentModel
@@ -193,6 +228,30 @@ export default function KnowledgePanel() {
         </div>
         <Switch checked={enabled} onCheckedChange={handleToggle} />
       </div>
+
+      {loadError && (
+        <div className="flex items-start gap-2 rounded-md border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-200">
+          <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <div className="min-w-0 flex-1">
+            <div className="font-medium">{loadError.title}</div>
+            {loadError.description ? (
+              <div className="mt-0.5 whitespace-pre-wrap text-amber-800/80 dark:text-amber-100/80">
+                {loadError.description}
+              </div>
+            ) : null}
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="mt-1 h-7 px-2 text-xs"
+              onClick={() => void reload()}
+            >
+              <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
+              {t("common.retry", "Retry")}
+            </Button>
+          </div>
+        </div>
+      )}
 
       {enabled && current && (
         <div className="flex items-start gap-3 rounded-lg border border-border bg-card px-3 py-2.5">
@@ -247,42 +306,90 @@ function CompileAgentSection() {
   const [config, setConfig] = useState<KnowledgeCompileConfig>({ modelOverride: null })
   const [availableModels, setAvailableModels] = useState<AvailableModel[]>([])
   const [loaded, setLoaded] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [loadIssues, setLoadIssues] = useState<KnowledgePanelOperationErrorToast[]>([])
+  const confirmedConfigRef = useRef<KnowledgeCompileConfig>({ modelOverride: null })
 
   useEffect(() => {
     let cancelled = false
-    Promise.all([
-      getTransport().call<KnowledgeCompileConfig>("knowledge_compile_config_get_cmd"),
-      getTransport().call<AvailableModel[]>("get_available_models").catch(() => []),
-    ])
-      .then(([cfg, models]) => {
-        if (cancelled) return
-        setConfig({ modelOverride: cfg.modelOverride ?? null })
-        setAvailableModels(models)
-        setLoaded(true)
-      })
-      .catch((e) => {
-        logger.error("settings", "KnowledgePanel::compileAgentLoad", "Failed to load", e)
-        setLoaded(true)
-      })
+    async function load() {
+      const issues: KnowledgePanelOperationErrorToast[] = []
+      const [configResult, modelsResult] = await Promise.allSettled([
+        getTransport().call<KnowledgeCompileConfig>(
+          "knowledge_compile_config_get_cmd",
+        ),
+        getTransport().call<AvailableModel[]>("get_available_models"),
+      ])
+
+      if (cancelled) return
+
+      if (configResult.status === "fulfilled") {
+        const loadedConfig = { modelOverride: configResult.value?.modelOverride ?? null }
+        confirmedConfigRef.current = loadedConfig
+        setConfig(loadedConfig)
+      } else {
+        logger.error(
+          "settings",
+          "KnowledgePanel::compileAgentLoad",
+          "Failed to load",
+          configResult.reason,
+        )
+        issues.push(
+          knowledgeCompileAgentOperationErrorToast("loadConfig", t, configResult.reason),
+        )
+      }
+
+      if (modelsResult.status === "fulfilled") {
+        setAvailableModels(modelsResult.value)
+      } else {
+        logger.error(
+          "settings",
+          "KnowledgePanel::compileAgentAgents",
+          "Failed to load models",
+          modelsResult.reason,
+        )
+        issues.push(
+          knowledgeCompileAgentOperationErrorToast("loadAgents", t, modelsResult.reason),
+        )
+      }
+
+      setLoadIssues(issues)
+      setLoaded(true)
+    }
+    void load()
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [t])
 
-  const handleModelOverrideChange = useCallback(async (next: ModelChainRef | null) => {
-    const nextConfig: KnowledgeCompileConfig = { modelOverride: next }
-    setConfig(nextConfig)
-    try {
-      const saved = await getTransport().call<KnowledgeCompileConfig>(
-        "knowledge_compile_config_set_cmd",
-        { config: nextConfig },
-      )
-      setConfig({ modelOverride: saved.modelOverride ?? null })
-    } catch (e) {
-      logger.error("settings", "KnowledgePanel::compileAgentSave", "Failed to save", e)
-      toast.error(String(e))
-    }
-  }, [])
+  const handleModelOverrideChange = useCallback(
+    async (next: ModelChainRef | null) => {
+      const nextConfig: KnowledgeCompileConfig = { modelOverride: next }
+      const previous = confirmedConfigRef.current
+      setConfig(nextConfig)
+      setSaving(true)
+      try {
+        const saved = await getTransport().call<KnowledgeCompileConfig>(
+          "knowledge_compile_config_set_cmd",
+          { config: nextConfig },
+        )
+        const savedConfig = { modelOverride: saved.modelOverride ?? null }
+        confirmedConfigRef.current = savedConfig
+        setConfig(savedConfig)
+      } catch (e) {
+        setConfig(previous)
+        logger.error("settings", "KnowledgePanel::compileAgentSave", "Failed to save", e)
+        const failure = knowledgeCompileAgentOperationErrorToast("saveAgent", t, e)
+        toast.error(
+          failure.title,
+          failure.description ? { description: failure.description } : undefined,
+        )
+      } finally {
+        setSaving(false)
+      }
+    },
+    [t],
+  )
 
   if (!loaded) return null
 
@@ -299,20 +406,35 @@ function CompileAgentSection() {
         onChange={(next) => void handleModelOverrideChange(next)}
         availableModels={availableModels}
         inheritLabel={t("settings.knowledgeCompile.agentDefault")}
+        className={saving ? "pointer-events-none opacity-60" : undefined}
       />
+      {loadIssues.length > 0 && (
+        <div className="mt-2 space-y-1.5">
+          {loadIssues.map((issue) => (
+            <div
+              key={issue.title}
+              className="rounded-md border border-amber-500/25 bg-amber-500/10 px-2.5 py-1.5 text-[11px] text-amber-800 dark:text-amber-200"
+            >
+              <div className="flex items-center gap-1.5 font-medium">
+                <AlertCircle className="h-3 w-3 shrink-0" />
+                <span>{issue.title}</span>
+              </div>
+              {issue.description ? (
+                <div className="mt-0.5 whitespace-pre-wrap text-amber-800/80 dark:text-amber-100/80">
+                  {issue.description}
+                </div>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
 
 function KnowledgeVisionSection() {
   const { t } = useTranslation()
-  const [config, setConfig] = useState<KnowledgeVisionConfig>({
-    modelOverride: null,
-    timeoutSecs: 90,
-    maxTokens: 4096,
-    ocrConcurrency: 3,
-    maxOcrPages: 40,
-  })
+  const [config, setConfig] = useState<KnowledgeVisionConfig>(DEFAULT_KNOWLEDGE_VISION_CONFIG)
   const [availableModels, setAvailableModels] = useState<AvailableModel[]>([])
   const [loaded, setLoaded] = useState(false)
 
@@ -324,8 +446,16 @@ function KnowledgeVisionSection() {
     ])
       .then(([cfg, models]) => {
         if (cancelled) return
-        setConfig(cfg)
-        setAvailableModels(models)
+        setConfig(
+          cfg
+            ? {
+                ...DEFAULT_KNOWLEDGE_VISION_CONFIG,
+                ...cfg,
+                modelOverride: cfg.modelOverride ?? null,
+              }
+            : DEFAULT_KNOWLEDGE_VISION_CONFIG,
+        )
+        setAvailableModels(models ?? [])
         setLoaded(true)
       })
       .catch((e) => {
@@ -416,8 +546,8 @@ function NoteToolsSection() {
     ])
       .then(([cfg, models]) => {
         if (cancelled) return
-        setConfig({ modelOverride: cfg.modelOverride ?? null })
-        setAvailableModels(models)
+        setConfig({ modelOverride: cfg?.modelOverride ?? null })
+        setAvailableModels(models ?? [])
         setLoaded(true)
       })
       .catch((e) => {
@@ -509,6 +639,7 @@ function KnowledgeReembedCard({
   const done = Number(job.bytesCompleted ?? 0)
   const total = Number(job.bytesTotal ?? 0)
   const percent = total > 0 ? Math.min(100, Math.floor((done / total) * 100)) : (job.percent ?? 0)
+  const jobError = knowledgePanelErrorDetail(job.error)
 
   return (
     <div className="rounded-lg border border-border bg-card p-4">
@@ -537,7 +668,13 @@ function KnowledgeReembedCard({
             onClick={() => {
               void getTransport()
                 .call("local_model_job_cancel", { jobId: job.jobId })
-                .catch((e) => toast.error(String(e)))
+                .catch((e) => {
+                  const failure = knowledgePanelOperationErrorToast("cancelReembed", t, e)
+                  toast.error(
+                    failure.title,
+                    failure.description ? { description: failure.description } : undefined,
+                  )
+                })
             }}
           >
             <StopCircle className="mr-1.5 h-3.5 w-3.5" />
@@ -556,10 +693,10 @@ function KnowledgeReembedCard({
         </div>
       )}
 
-      {job.error && (
+      {jobError && (
         <div className="mt-3 flex items-start gap-2 rounded border border-destructive/30 bg-destructive/5 px-2.5 py-2 text-xs text-destructive">
           <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-          <span className="break-words">{job.error}</span>
+          <span className="break-words">{jobError}</span>
         </div>
       )}
 
@@ -571,7 +708,13 @@ function KnowledgeReembedCard({
             onClick={() => {
               void getTransport()
                 .call("local_model_job_retry", { jobId: job.jobId })
-                .catch((e) => toast.error(String(e)))
+                .catch((e) => {
+                  const failure = knowledgePanelOperationErrorToast("retryReembed", t, e)
+                  toast.error(
+                    failure.title,
+                    failure.description ? { description: failure.description } : undefined,
+                  )
+                })
             }}
           >
             <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
@@ -594,8 +737,23 @@ function PassiveRecallSection() {
   const { t } = useTranslation()
   const [loaded, setLoaded] = useState<PassiveRecallConfig | null>(null)
   const [draft, setDraft] = useState<PassiveRecallConfig | null>(null)
+  const [loadError, setLoadError] = useState<KnowledgePanelOperationErrorToast | null>(null)
   const [saving, setSaving] = useState(false)
   const [saveStatus, setSaveStatus] = useState<"idle" | "saved" | "failed">("idle")
+
+  const reload = useCallback(async () => {
+    try {
+      const c = await getTransport().call<PassiveRecallConfig>(
+        "kb_passive_recall_config_get_cmd",
+      )
+      setLoaded(c)
+      setDraft(c)
+      setLoadError(null)
+    } catch (e) {
+      logger.error("settings", "PassiveRecallSection::reload", "Failed to load config", e)
+      setLoadError(knowledgePassiveRecallOperationErrorToast("load", t, e))
+    }
+  }, [t])
 
   useEffect(() => {
     let cancelled = false
@@ -605,14 +763,16 @@ function PassiveRecallSection() {
         if (cancelled) return
         setLoaded(c)
         setDraft(c)
+        setLoadError(null)
       })
-      .catch((e) =>
-        logger.error("settings", "PassiveRecallSection::load", "Failed to load config", e),
-      )
+      .catch((e) => {
+        logger.error("settings", "PassiveRecallSection::load", "Failed to load config", e)
+        if (!cancelled) setLoadError(knowledgePassiveRecallOperationErrorToast("load", t, e))
+      })
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [t])
 
   const persist = useCallback(
     async (next: PassiveRecallConfig, viaButton: boolean) => {
@@ -643,15 +803,61 @@ function PassiveRecallSection() {
           setTimeout(() => setSaveStatus("idle"), 2000)
         } else {
           // Revert the optimistic enable flip.
-          setDraft((d) => (d ? { ...d, enabled: !next.enabled } : d))
+          setDraft((d) => (d ? { ...d, enabled: loaded?.enabled ?? !next.enabled } : d))
         }
-        toast.error(String(e))
+        const failure = knowledgePassiveRecallOperationErrorToast(
+          viaButton ? "save" : "toggle",
+          t,
+          e,
+        )
+        toast.error(
+          failure.title,
+          failure.description ? { description: failure.description } : undefined,
+        )
       }
     },
-    [t],
+    [loaded, t],
   )
 
-  if (!draft || !loaded) return null
+  if (!draft || !loaded) {
+    if (!loadError) return null
+    return (
+      <div className="rounded-lg border border-border bg-card">
+        <div className="px-4 py-3">
+          <div className="text-sm font-medium">
+            {t("settings.knowledgePassiveRecall.title", "Passive related notes")}
+          </div>
+          <div className="mt-0.5 text-xs text-muted-foreground">
+            {t(
+              "settings.knowledgePassiveRecall.description",
+              "Each turn, surface titles of accessible notes related to your message as a hint.",
+            )}
+          </div>
+          <div className="mt-3 flex items-start gap-2 rounded-md border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-200">
+            <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            <div className="min-w-0 flex-1">
+              <div className="font-medium">{loadError.title}</div>
+              {loadError.description ? (
+                <div className="mt-0.5 whitespace-pre-wrap text-amber-800/80 dark:text-amber-100/80">
+                  {loadError.description}
+                </div>
+              ) : null}
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="mt-1 h-7 px-2 text-xs"
+                onClick={() => void reload()}
+              >
+                <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
+                {t("common.retry", "Retry")}
+              </Button>
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   const enabled = draft.enabled
   const dirty =
@@ -774,8 +980,27 @@ function MediaRetentionSection() {
   const { t } = useTranslation()
   const [loaded, setLoaded] = useState<KnowledgeMediaRetentionConfig | null>(null)
   const [draft, setDraft] = useState<KnowledgeMediaRetentionConfig | null>(null)
+  const [loadError, setLoadError] = useState<KnowledgePanelOperationErrorToast | null>(null)
   const [saving, setSaving] = useState(false)
   const [saveStatus, setSaveStatus] = useState<"idle" | "saved" | "failed">("idle")
+
+  const applyConfig = useCallback((c: KnowledgeMediaRetentionConfig) => {
+    setLoaded(c)
+    setDraft(c)
+    setLoadError(null)
+  }, [])
+
+  const reload = useCallback(async () => {
+    try {
+      const c = await getTransport().call<KnowledgeMediaRetentionConfig>(
+        "knowledge_media_retention_config_get_cmd",
+      )
+      applyConfig(c)
+    } catch (e) {
+      logger.error("settings", "MediaRetentionSection::reload", "Failed to load config", e)
+      setLoadError(knowledgeMediaRetentionOperationErrorToast("load", t, e))
+    }
+  }, [applyConfig, t])
 
   useEffect(() => {
     let cancelled = false
@@ -783,16 +1008,16 @@ function MediaRetentionSection() {
       .call<KnowledgeMediaRetentionConfig>("knowledge_media_retention_config_get_cmd")
       .then((c) => {
         if (cancelled) return
-        setLoaded(c)
-        setDraft(c)
+        applyConfig(c)
       })
-      .catch((e) =>
-        logger.error("settings", "MediaRetentionSection::load", "Failed to load config", e),
-      )
+      .catch((e) => {
+        logger.error("settings", "MediaRetentionSection::load", "Failed to load config", e)
+        if (!cancelled) setLoadError(knowledgeMediaRetentionOperationErrorToast("load", t, e))
+      })
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [applyConfig, t])
 
   const persist = useCallback(
     async (next: KnowledgeMediaRetentionConfig, viaButton: boolean) => {
@@ -814,20 +1039,65 @@ function MediaRetentionSection() {
         }
       } catch (e) {
         logger.error("settings", "MediaRetentionSection::save", "Failed to save config", e)
+        const operation = viaButton ? "save" : "toggle"
         if (viaButton) {
-          setSaving(false)
           setSaveStatus("failed")
           setTimeout(() => setSaveStatus("idle"), 2000)
         } else {
           setDraft((d) => (d ? { ...d, enabled: !next.enabled } : d))
         }
-        toast.error(String(e))
+        const failure = knowledgeMediaRetentionOperationErrorToast(operation, t, e)
+        toast.error(
+          failure.title,
+          failure.description ? { description: failure.description } : undefined,
+        )
+      } finally {
+        if (viaButton) setSaving(false)
       }
     },
     [t],
   )
 
-  if (!draft || !loaded) return null
+  if (!draft || !loaded) {
+    return (
+      <div className="rounded-lg border border-border bg-card">
+        <div className="px-4 py-3">
+          <div className="text-sm font-medium">
+            {t("settings.knowledgeMediaRetention.title", "Original media retention")}
+          </div>
+          <div className="mt-0.5 text-xs text-muted-foreground">
+            {t(
+              "settings.knowledgeMediaRetention.description",
+              "Optionally keep imported audio, video, and image originals for source evidence review.",
+            )}
+          </div>
+          {loadError && (
+            <div className="mt-3 flex items-start gap-2 rounded-md border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-200">
+              <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              <div className="min-w-0 flex-1">
+                <div className="font-medium">{loadError.title}</div>
+                {loadError.description ? (
+                  <div className="mt-0.5 whitespace-pre-wrap text-amber-800/80 dark:text-amber-100/80">
+                    {loadError.description}
+                  </div>
+                ) : null}
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="mt-1 h-7 px-2 text-xs"
+                  onClick={() => void reload()}
+                >
+                  <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
+                  {t("common.retry", "Retry")}
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    )
+  }
 
   const enabled = draft.enabled
   const totalMiB = Math.round(draft.maxTotalBytes / MIB)
@@ -956,8 +1226,26 @@ function ChunkAdvancedSection() {
   const [loaded, setLoaded] = useState<ChunkConfig | null>(null)
   const [maxChars, setMaxChars] = useState("")
   const [overlapChars, setOverlapChars] = useState("")
+  const [loadError, setLoadError] = useState<KnowledgePanelOperationErrorToast | null>(null)
   const [saving, setSaving] = useState(false)
   const [saveStatus, setSaveStatus] = useState<"idle" | "saved" | "failed">("idle")
+
+  const applyConfig = useCallback((c: ChunkConfig) => {
+    setLoaded(c)
+    setMaxChars(String(c.maxChars))
+    setOverlapChars(String(c.overlapChars))
+    setLoadError(null)
+  }, [])
+
+  const reload = useCallback(async () => {
+    try {
+      const c = await getTransport().call<ChunkConfig>("knowledge_chunk_get_cmd")
+      applyConfig(c)
+    } catch (e) {
+      logger.error("settings", "ChunkAdvancedSection::reload", "Failed to load chunk config", e)
+      setLoadError(knowledgeChunkOperationErrorToast("load", t, e))
+    }
+  }, [applyConfig, t])
 
   useEffect(() => {
     let cancelled = false
@@ -965,17 +1253,16 @@ function ChunkAdvancedSection() {
       .call<ChunkConfig>("knowledge_chunk_get_cmd")
       .then((c) => {
         if (cancelled) return
-        setLoaded(c)
-        setMaxChars(String(c.maxChars))
-        setOverlapChars(String(c.overlapChars))
+        applyConfig(c)
       })
-      .catch((e) =>
-        logger.error("settings", "ChunkAdvancedSection::load", "Failed to load chunk config", e),
-      )
+      .catch((e) => {
+        logger.error("settings", "ChunkAdvancedSection::load", "Failed to load chunk config", e)
+        if (!cancelled) setLoadError(knowledgeChunkOperationErrorToast("load", t, e))
+      })
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [applyConfig, t])
 
   const mc = Number.parseInt(maxChars, 10)
   const oc = Number.parseInt(overlapChars, 10)
@@ -991,21 +1278,23 @@ function ChunkAdvancedSection() {
         maxChars: mc,
         overlapChars: oc,
       })
-      setLoaded(c)
-      setMaxChars(String(c.maxChars))
-      setOverlapChars(String(c.overlapChars))
-      setSaving(false)
+      applyConfig(c)
       setSaveStatus("saved")
       setTimeout(() => setSaveStatus("idle"), 2000)
       toast.success(t("settings.knowledgeChunk.saved", "Saved — rebuilding every space"))
     } catch (e) {
       logger.error("settings", "ChunkAdvancedSection::save", "Failed to save chunk config", e)
-      setSaving(false)
       setSaveStatus("failed")
       setTimeout(() => setSaveStatus("idle"), 2000)
-      toast.error(String(e))
+      const failure = knowledgeChunkOperationErrorToast("save", t, e)
+      toast.error(
+        failure.title,
+        failure.description ? { description: failure.description } : undefined,
+      )
+    } finally {
+      setSaving(false)
     }
-  }, [valid, saving, mc, oc, t])
+  }, [valid, saving, mc, oc, applyConfig, t])
 
   return (
     <div className="rounded-lg border border-border bg-card">
@@ -1028,55 +1317,84 @@ function ChunkAdvancedSection() {
               "How notes are split into retrieval units. Defaults suit most notes.",
             )}
           </p>
-          <div className="grid grid-cols-2 gap-3">
-            <label className="space-y-1">
-              <span className="text-xs font-medium">
-                {t("settings.knowledgeChunk.maxChars", "Chunk size (chars)")}
-              </span>
-              <Input
-                type="number"
-                min={200}
-                max={8000}
-                value={maxChars}
-                onChange={(e) => setMaxChars(e.target.value)}
-                className="h-8 text-xs"
-              />
-            </label>
-            <label className="space-y-1">
-              <span className="text-xs font-medium">
-                {t("settings.knowledgeChunk.overlap", "Overlap (chars)")}
-              </span>
-              <Input
-                type="number"
-                min={0}
-                value={overlapChars}
-                onChange={(e) => setOverlapChars(e.target.value)}
-                className="h-8 text-xs"
-              />
-            </label>
-          </div>
-          <p className="flex items-start gap-1.5 text-[11px] text-amber-600 dark:text-amber-400">
-            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-            {t(
-              "settings.knowledgeChunk.rebuildWarning",
-              "Saving rebuilds the index for every knowledge space.",
-            )}
-          </p>
-          <div className="flex justify-end">
-            <Button
-              size="sm"
-              disabled={!valid || !dirty || saving}
-              onClick={() => void save()}
-              className={cn(saveStatus === "failed" && "bg-destructive hover:bg-destructive/90")}
-            >
-              {saving ? (
-                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-              ) : saveStatus === "saved" ? (
-                <Check className="mr-1.5 h-3.5 w-3.5 text-emerald-300" />
-              ) : null}
-              {t("common.save", "Save")}
-            </Button>
-          </div>
+
+          {loadError && (
+            <div className="flex items-start gap-2 rounded-md border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-200">
+              <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              <div className="min-w-0 flex-1">
+                <div className="font-medium">{loadError.title}</div>
+                {loadError.description ? (
+                  <div className="mt-0.5 whitespace-pre-wrap text-amber-800/80 dark:text-amber-100/80">
+                    {loadError.description}
+                  </div>
+                ) : null}
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="mt-1 h-7 px-2 text-xs"
+                  onClick={() => void reload()}
+                >
+                  <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
+                  {t("common.retry", "Retry")}
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {loaded && (
+            <>
+              <div className="grid grid-cols-2 gap-3">
+                <label className="space-y-1">
+                  <span className="text-xs font-medium">
+                    {t("settings.knowledgeChunk.maxChars", "Chunk size (chars)")}
+                  </span>
+                  <Input
+                    type="number"
+                    min={200}
+                    max={8000}
+                    value={maxChars}
+                    onChange={(e) => setMaxChars(e.target.value)}
+                    className="h-8 text-xs"
+                  />
+                </label>
+                <label className="space-y-1">
+                  <span className="text-xs font-medium">
+                    {t("settings.knowledgeChunk.overlap", "Overlap (chars)")}
+                  </span>
+                  <Input
+                    type="number"
+                    min={0}
+                    value={overlapChars}
+                    onChange={(e) => setOverlapChars(e.target.value)}
+                    className="h-8 text-xs"
+                  />
+                </label>
+              </div>
+              <p className="flex items-start gap-1.5 text-[11px] text-amber-600 dark:text-amber-400">
+                <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                {t(
+                  "settings.knowledgeChunk.rebuildWarning",
+                  "Saving rebuilds the index for every knowledge space.",
+                )}
+              </p>
+              <div className="flex justify-end">
+                <Button
+                  size="sm"
+                  disabled={!valid || !dirty || saving}
+                  onClick={() => void save()}
+                  className={cn(saveStatus === "failed" && "bg-destructive hover:bg-destructive/90")}
+                >
+                  {saving ? (
+                    <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                  ) : saveStatus === "saved" ? (
+                    <Check className="mr-1.5 h-3.5 w-3.5 text-emerald-300" />
+                  ) : null}
+                  {t("common.save", "Save")}
+                </Button>
+              </div>
+            </>
+          )}
         </div>
       </AnimatedCollapse>
     </div>
@@ -1127,8 +1445,23 @@ function SearchRankingSection() {
   const [open, setOpen] = useState(false)
   const [loaded, setLoaded] = useState<KnowledgeSearchConfig | null>(null)
   const [draft, setDraft] = useState<SearchDraft | null>(null)
+  const [loadError, setLoadError] = useState<KnowledgePanelOperationErrorToast | null>(null)
   const [saving, setSaving] = useState(false)
   const [saveStatus, setSaveStatus] = useState<"idle" | "saved" | "failed">("idle")
+
+  const reload = useCallback(async () => {
+    try {
+      const c = await getTransport().call<KnowledgeSearchConfig>(
+        "knowledge_search_config_get_cmd",
+      )
+      setLoaded(c)
+      setDraft(toSearchDraft(c))
+      setLoadError(null)
+    } catch (e) {
+      logger.error("settings", "SearchRankingSection::reload", "Failed to load search config", e)
+      setLoadError(knowledgeSearchRankingOperationErrorToast("load", t, e))
+    }
+  }, [t])
 
   useEffect(() => {
     let cancelled = false
@@ -1138,38 +1471,47 @@ function SearchRankingSection() {
         if (cancelled) return
         setLoaded(c)
         setDraft(toSearchDraft(c))
+        setLoadError(null)
       })
-      .catch((e) =>
-        logger.error("settings", "SearchRankingSection::load", "Failed to load search config", e),
-      )
+      .catch((e) => {
+        logger.error("settings", "SearchRankingSection::load", "Failed to load search config", e)
+        if (!cancelled) setLoadError(knowledgeSearchRankingOperationErrorToast("load", t, e))
+      })
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [t])
 
   const parsed = draft ? parseSearchDraft(draft) : null
   const dirty = !!loaded && !!parsed && JSON.stringify(loaded) !== JSON.stringify(parsed)
 
-  const persist = useCallback(async (cfg: KnowledgeSearchConfig) => {
-    setSaving(true)
-    try {
-      const saved = await getTransport().call<KnowledgeSearchConfig>(
-        "knowledge_search_config_set_cmd",
-        { config: cfg },
-      )
-      setLoaded(saved)
-      setDraft(toSearchDraft(saved))
-      setSaveStatus("saved")
-      setTimeout(() => setSaveStatus("idle"), 2000)
-    } catch (e) {
-      logger.error("settings", "SearchRankingSection::save", "Failed to save search config", e)
-      setSaveStatus("failed")
-      setTimeout(() => setSaveStatus("idle"), 2000)
-      toast.error(String(e))
-    } finally {
-      setSaving(false)
-    }
-  }, [])
+  const persist = useCallback(
+    async (cfg: KnowledgeSearchConfig, operation: "save" | "restore") => {
+      setSaving(true)
+      try {
+        const saved = await getTransport().call<KnowledgeSearchConfig>(
+          "knowledge_search_config_set_cmd",
+          { config: cfg },
+        )
+        setLoaded(saved)
+        setDraft(toSearchDraft(saved))
+        setSaveStatus("saved")
+        setTimeout(() => setSaveStatus("idle"), 2000)
+      } catch (e) {
+        logger.error("settings", "SearchRankingSection::save", "Failed to save search config", e)
+        setSaveStatus("failed")
+        setTimeout(() => setSaveStatus("idle"), 2000)
+        const failure = knowledgeSearchRankingOperationErrorToast(operation, t, e)
+        toast.error(
+          failure.title,
+          failure.description ? { description: failure.description } : undefined,
+        )
+      } finally {
+        setSaving(false)
+      }
+    },
+    [t],
+  )
 
   const num = (
     key: keyof KnowledgeSearchConfig,
@@ -1208,6 +1550,30 @@ function SearchRankingSection() {
               "How note_search ranks results: it runs keyword (BM25) and semantic (vector) search over note chunks, fuses the two rankings (RRF), then re-ranks for diversity (MMR). Defaults suit most libraries — only touch these if results feel off. Saving takes effect immediately, with no reindex.",
             )}
           </p>
+
+          {loadError && (
+            <div className="flex items-start gap-2 rounded-md border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-200">
+              <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              <div className="min-w-0 flex-1">
+                <div className="font-medium">{loadError.title}</div>
+                {loadError.description ? (
+                  <div className="mt-0.5 whitespace-pre-wrap text-amber-800/80 dark:text-amber-100/80">
+                    {loadError.description}
+                  </div>
+                ) : null}
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="mt-1 h-7 px-2 text-xs"
+                  onClick={() => void reload()}
+                >
+                  <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
+                  {t("common.retry", "Retry")}
+                </Button>
+              </div>
+            </div>
+          )}
 
           {draft && (
             <div className="space-y-3">
@@ -1264,7 +1630,7 @@ function SearchRankingSection() {
               variant="ghost"
               size="sm"
               disabled={saving || !draft}
-              onClick={() => void persist(KNOWLEDGE_SEARCH_DEFAULTS)}
+              onClick={() => void persist(KNOWLEDGE_SEARCH_DEFAULTS, "restore")}
             >
               <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
               {t("settings.knowledgeSearch.restore", "Restore defaults")}
@@ -1272,7 +1638,7 @@ function SearchRankingSection() {
             <Button
               size="sm"
               disabled={!dirty || !parsed || saving}
-              onClick={() => parsed && void persist(parsed)}
+              onClick={() => parsed && void persist(parsed, "save")}
               className={cn(saveStatus === "failed" && "bg-destructive hover:bg-destructive/90")}
             >
               {saving ? (

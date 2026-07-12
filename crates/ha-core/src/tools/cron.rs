@@ -149,15 +149,24 @@ pub(crate) fn tool_manage_cron<'a>(
                 if args.get("schedule_type").is_some() {
                     job.schedule = parse_schedule(args)?;
                 }
-                let CronPayload::AgentTurn {
-                    ref mut prompt,
-                    ref mut agent_id,
-                } = job.payload;
-                if let Some(p) = args.get("prompt").and_then(|v| v.as_str()) {
-                    *prompt = p.to_string();
-                }
-                if let Some(v) = args.get("agent_id") {
-                    *agent_id = v.as_str().map(String::from);
+                match job.payload {
+                    CronPayload::AgentTurn {
+                        ref mut prompt,
+                        ref mut agent_id,
+                    } => {
+                        if let Some(p) = args.get("prompt").and_then(|v| v.as_str()) {
+                            *prompt = p.to_string();
+                        }
+                        if let Some(v) = args.get("agent_id") {
+                            *agent_id = v.as_str().map(String::from);
+                        }
+                    }
+                    CronPayload::SessionLoop { .. } => {
+                        anyhow::bail!(
+                            "Scheduled task '{}' is managed by /loop and can only be edited from the loop control plane.",
+                            id
+                        );
+                    }
                 }
                 if let Some(n) = args.get("max_failures").and_then(|v| v.as_u64()) {
                     job.max_failures = n as u32;
@@ -264,11 +273,15 @@ pub(crate) fn tool_manage_cron<'a>(
                     .get("id")
                     .and_then(|v| v.as_str())
                     .ok_or_else(|| anyhow::anyhow!("Missing 'id' parameter"))?;
+                let job = cron_db.get_job(id)?;
+                if let Some(job) = job.as_ref() {
+                    reject_loop_managed_job(job, id, "deleted")?;
+                }
                 // Best-effort human-readable name for the approval dialog before
                 // we touch anything.
-                let desc = match cron_db.get_job(id) {
-                    Ok(Some(job)) => format!("Delete scheduled task '{}' (id={})", job.name, id),
-                    _ => format!("Delete scheduled task (id={})", id),
+                let desc = match job.as_ref() {
+                    Some(job) => format!("Delete scheduled task '{}' (id={})", job.name, id),
+                    None => format!("Delete scheduled task (id={})", id),
                 };
                 // OQ6: delete is the one consequential `manage_cron` action, so it
                 // takes an explicit trip through the unified permission engine
@@ -297,6 +310,10 @@ pub(crate) fn tool_manage_cron<'a>(
                     .get("id")
                     .and_then(|v| v.as_str())
                     .ok_or_else(|| anyhow::anyhow!("Missing 'id' parameter"))?;
+                let job = cron_db
+                    .get_job(id)?
+                    .ok_or_else(|| anyhow::anyhow!("Job '{}' not found", id))?;
+                reject_loop_managed_job(&job, id, "paused")?;
                 cron_db.toggle_job(id, false)?;
                 Ok(format!("Paused scheduled task '{}'.", id))
             }
@@ -306,6 +323,10 @@ pub(crate) fn tool_manage_cron<'a>(
                     .get("id")
                     .and_then(|v| v.as_str())
                     .ok_or_else(|| anyhow::anyhow!("Missing 'id' parameter"))?;
+                let job = cron_db
+                    .get_job(id)?
+                    .ok_or_else(|| anyhow::anyhow!("Job '{}' not found", id))?;
+                reject_loop_managed_job(&job, id, "resumed")?;
                 cron_db.toggle_job(id, true)?;
                 Ok(format!("Resumed scheduled task '{}'.", id))
             }
@@ -326,28 +347,29 @@ pub(crate) fn tool_manage_cron<'a>(
                         "run_now is unavailable on this instance: scheduled jobs only run on the primary"
                     );
                 }
-                let job = cron_db
-                    .get_job(id)?
-                    .ok_or_else(|| anyhow::anyhow!("Job '{}' not found", id))?;
+                let job = {
+                    let cron_db = cron_db.clone();
+                    let id = id.to_string();
+                    crate::blocking::run_blocking(move || cron_db.get_job(&id)).await?
+                }
+                .ok_or_else(|| anyhow::anyhow!("Job '{}' not found", id))?;
 
-                // Fire and forget — run in background via tokio::spawn.
-                // The type-level recursion is broken by this function returning
-                // Pin<Box<dyn Future + Send>> instead of an opaque async fn future.
-                let db = cron_db.clone();
-                let job_clone = job;
                 // Prefer the global SessionDB (Tauri app); fall back to opening a fresh
                 // connection (ACP mode where SESSION_DB OnceLock is never populated).
                 let session_db = match crate::get_session_db() {
                     Some(db) => db.clone(),
                     None => {
-                        let path = crate::session::db_path()?;
-                        std::sync::Arc::new(crate::session::SessionDB::open(&path)?)
+                        crate::blocking::run_blocking(move || {
+                            let path = crate::session::db_path()?;
+                            Ok::<_, anyhow::Error>(std::sync::Arc::new(
+                                crate::session::SessionDB::open(&path)?,
+                            ))
+                        })
+                        .await?
                     }
                 };
 
-                tokio::spawn(async move {
-                    cron::execute_job_public(&db, &session_db, &job_clone).await;
-                });
+                cron::spawn_job_execution(cron_db.clone(), session_db, job);
                 Ok(format!("Triggered immediate execution of '{}'.", id))
             }
 
@@ -366,6 +388,17 @@ pub(crate) fn tool_manage_cron<'a>(
             )),
         }
     })
+}
+
+fn reject_loop_managed_job(job: &cron::CronJob, id: &str, action: &str) -> Result<()> {
+    if matches!(job.payload, CronPayload::SessionLoop { .. }) {
+        anyhow::bail!(
+            "Scheduled task '{}' is managed by /loop and can only be {} from the loop control plane.",
+            id,
+            action
+        );
+    }
+    Ok(())
 }
 
 /// Gate a `manage_cron action=delete` through the unified permission engine

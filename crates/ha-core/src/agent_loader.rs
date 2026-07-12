@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
+use std::sync::{Mutex, OnceLock};
 
 use crate::agent_config::{AgentConfig, AgentDefinition, AgentSummary};
 use crate::paths;
@@ -244,10 +245,10 @@ pub fn ensure_default_agent() -> Result<()> {
     // Write agent.json
     let config = default_agent_json(&locale, Some(avatar_str));
     let json = serde_json::to_string_pretty(&config)?;
-    std::fs::write(&config_path, json)?;
+    crate::platform::write_atomic(&config_path, json.as_bytes())?;
 
     // Write agent.md
-    std::fs::write(dir.join(AGENT_MD), default_agent_md(&locale))?;
+    crate::platform::write_atomic(&dir.join(AGENT_MD), default_agent_md(&locale).as_bytes())?;
 
     Ok(())
 }
@@ -344,8 +345,17 @@ fn read_optional_md(dir: &Path, filename: &str) -> Result<Option<String>> {
 
 // ── List Agents ──────────────────────────────────────────────────
 
-/// List all available agents from ~/.hope-agent/agents/
+/// List runnable agents from ~/.hope-agent/agents/.
 pub fn list_agents() -> Result<Vec<AgentSummary>> {
+    Ok(list_all_agents()?
+        .into_iter()
+        .filter(|agent| agent.enabled)
+        .collect())
+}
+
+/// Owner-plane list including disabled Agents so they remain editable and can
+/// be re-enabled or deleted safely.
+pub fn list_all_agents() -> Result<Vec<AgentSummary>> {
     let agents_dir = paths::agents_dir()?;
     if !agents_dir.exists() {
         return Ok(Vec::new());
@@ -365,18 +375,19 @@ pub fn list_agents() -> Result<Vec<AgentSummary>> {
             None => continue,
         };
 
-        // Try loading the config, skip if invalid
+        // agent.json is the durable Agent identity. Other files may be
+        // orphaned import/recovery artifacts and must not become runnable
+        // Agents by inheriting a synthesized default config.
         let config_path = path.join("agent.json");
-        let config: AgentConfig = if config_path.exists() {
-            match std::fs::read_to_string(&config_path)
-                .ok()
-                .and_then(|data| serde_json::from_str(&data).ok())
-            {
-                Some(c) => c,
-                None => continue,
-            }
-        } else {
-            AgentConfig::default()
+        if !config_path.is_file() {
+            continue;
+        }
+        let config: AgentConfig = match std::fs::read_to_string(&config_path)
+            .ok()
+            .and_then(|data| serde_json::from_str(&data).ok())
+        {
+            Some(c) => c,
+            None => continue,
         };
         // Count memories for this agent
         let memory_count = crate::get_memory_backend()
@@ -388,6 +399,7 @@ pub fn list_agents() -> Result<Vec<AgentSummary>> {
 
         summaries.push(AgentSummary {
             id,
+            enabled: config.enabled,
             name: config.name,
             description: config.description,
             emoji: config.emoji,
@@ -481,13 +493,25 @@ pub fn list_agent_ids() -> Result<std::collections::HashSet<String>> {
 
 // ── Save Agent Config ────────────────────────────────────────────
 
-/// Save agent.json for the given agent ID. Creates the directory if needed.
+/// Save agent.json for an existing Agent.
+/// Lifecycle coordination and the durable identity check prevent stale writes
+/// from resurrecting an Agent after a successful delete or process restart.
 pub fn save_agent_config(id: &str, config: &AgentConfig) -> Result<()> {
+    crate::agent_lifecycle::save_agent_config(id, config, false)
+}
+
+/// Explicit creation path. Unlike an ordinary save this may intentionally
+/// reuse an id deleted earlier in the same process.
+pub fn create_agent_config(id: &str, config: &AgentConfig) -> Result<()> {
+    crate::agent_lifecycle::save_agent_config(id, config, true)
+}
+
+pub(crate) fn save_agent_config_unlocked(id: &str, config: &AgentConfig) -> Result<()> {
     let dir = paths::agent_dir(id)?;
     std::fs::create_dir_all(&dir)?;
     let path = dir.join("agent.json");
     let json = serde_json::to_string_pretty(config)?;
-    std::fs::write(&path, json)?;
+    crate::platform::write_atomic(&path, json.as_bytes())?;
     Ok(())
 }
 
@@ -505,10 +529,93 @@ pub fn update_agent_reasoning_effort(id: &str, effort: &str) -> Result<()> {
     save_agent_config(id, &def.config)
 }
 
+/// Narrow, race-safe patch used by composer controls. Unlike the settings
+/// screen's full save this reloads the latest Agent config and changes only
+/// explicitly supplied defaults.
+#[derive(Debug, Clone, Default, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentModelDefaultsPatch {
+    #[serde(default, deserialize_with = "deserialize_present_option")]
+    pub primary_model: Option<Option<crate::provider::ActiveModel>>,
+    #[serde(default, deserialize_with = "deserialize_present_option")]
+    pub temperature: Option<Option<f64>>,
+    #[serde(default, deserialize_with = "deserialize_present_option")]
+    pub reasoning_effort: Option<Option<String>>,
+}
+
+/// Preserve the difference between an omitted patch field and an explicit
+/// `null` (which means "inherit"). Serde's ordinary `Option<T>` maps both to
+/// `None`, so the outer option records field presence.
+fn deserialize_present_option<'de, D, T>(
+    deserializer: D,
+) -> std::result::Result<Option<Option<T>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: serde::Deserialize<'de>,
+{
+    <Option<T> as serde::Deserialize>::deserialize(deserializer).map(Some)
+}
+
+fn agent_model_defaults_patch_lock() -> &'static Mutex<()> {
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
+}
+
+pub fn patch_agent_model_defaults(id: &str, patch: AgentModelDefaultsPatch) -> Result<()> {
+    // Serialize the complete read-modify-write cycle. `write_atomic` protects
+    // readers from partial files, but without this lock two focused patches
+    // can both load the same old config and the later rename loses the other
+    // request's field.
+    let _write_guard = agent_model_defaults_patch_lock()
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner());
+    let mut def = load_agent(id)?;
+    if let Some(model) = patch.primary_model {
+        if let Some(model) = model {
+            let config = crate::config::cached_config();
+            if !crate::provider::model_ref_exists(&config.providers, &model) {
+                anyhow::bail!(
+                    "Selected model no longer exists: {}::{}",
+                    model.provider_id,
+                    model.model_id
+                );
+            }
+            def.config.model.primary = Some(format!("{}::{}", model.provider_id, model.model_id));
+        } else {
+            def.config.model.primary = None;
+        }
+    }
+    if let Some(temperature) = patch.temperature {
+        if let Some(temperature) = temperature {
+            if !(0.0..=2.0).contains(&temperature) {
+                anyhow::bail!("Temperature must be between 0.0 and 2.0");
+            }
+            def.config.model.temperature = Some(temperature);
+        } else {
+            def.config.model.temperature = None;
+        }
+    }
+    if let Some(effort) = patch.reasoning_effort {
+        if let Some(effort) = effort {
+            if !crate::agent::is_valid_reasoning_effort(&effort) {
+                anyhow::bail!("Invalid reasoning effort: {effort}");
+            }
+            def.config.model.reasoning_effort = Some(effort);
+        } else {
+            def.config.model.reasoning_effort = None;
+        }
+    }
+    save_agent_config(id, &def.config)
+}
+
 // ── Save Agent Markdown ──────────────────────────────────────────
 
 /// Save a markdown file for the given agent.
 pub fn save_agent_markdown(id: &str, file: &str, content: &str) -> Result<()> {
+    crate::agent_lifecycle::save_agent_markdown(id, file, content)
+}
+
+pub(crate) fn save_agent_markdown_unlocked(id: &str, file: &str, content: &str) -> Result<()> {
     // Validate filename to prevent path traversal
     match file {
         AGENT_MD | PERSONA_MD | TOOLS_MD | AGENTS_MD | IDENTITY_MD | SOUL_MD => {}
@@ -518,7 +625,7 @@ pub fn save_agent_markdown(id: &str, file: &str, content: &str) -> Result<()> {
     let dir = paths::agent_dir(id)?;
     std::fs::create_dir_all(&dir)?;
     let path = dir.join(file);
-    std::fs::write(&path, content)?;
+    crate::platform::write_atomic(&path, content.as_bytes())?;
     Ok(())
 }
 
@@ -605,18 +712,4 @@ pub fn render_persona_to_soul_md(id: &str) -> Result<String> {
     }
 
     Ok(out)
-}
-
-// ── Delete Agent ─────────────────────────────────────────────────
-
-/// Delete an agent directory. Refuses to delete the main agent.
-pub fn delete_agent(id: &str) -> Result<()> {
-    if id == DEFAULT_AGENT_ID {
-        anyhow::bail!("Cannot delete the default agent");
-    }
-    let dir = paths::agent_dir(id)?;
-    if dir.exists() {
-        std::fs::remove_dir_all(&dir)?;
-    }
-    Ok(())
 }

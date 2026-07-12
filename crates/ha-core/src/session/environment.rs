@@ -146,17 +146,31 @@ pub fn load_session_environment(
 /// HEAD. The shape intentionally mirrors the chat tool `file_changes`
 /// metadata so the frontend can render it through the same DiffPanel.
 pub fn load_session_git_diff(db: &SessionDB, session_id: &str) -> Result<WorkspaceGitDiff> {
-    db.get_session(session_id)?
+    let meta = db
+        .get_session(session_id)?
         .ok_or_else(|| anyhow!("session not found: {session_id}"))?;
+    let working_dir = super::effective_working_dir_for_meta(&meta).ok_or_else(|| {
+        anyhow!("session has no workspace scope: session has no working directory")
+    })?;
+    load_git_diff_for_root(Path::new(&working_dir))
+}
 
-    let scope = WorkspaceScope::for_session(session_id)
-        .map_err(|e| anyhow!("session has no workspace scope: {e}"))?;
-    let repo_root = run_git(scope.root(), &["rev-parse", "--show-toplevel"])
+/// Build a text diff payload for an already-authorized workspace root.
+pub(crate) fn load_git_diff_for_root(root: &Path) -> Result<WorkspaceGitDiff> {
+    let scope_root = root
+        .canonicalize()
+        .map_err(|e| anyhow!("cannot resolve workspace root '{}': {}", root.display(), e))?;
+    if !scope_root.is_dir() {
+        return Err(anyhow!(
+            "workspace root is not a directory: {}",
+            scope_root.display()
+        ));
+    }
+    let repo_root = run_git(&scope_root, &["rev-parse", "--show-toplevel"])
         .map(|s| PathBuf::from(s.trim()))
         .and_then(|p| p.canonicalize().ok())
         .filter(|p| !p.as_os_str().is_empty())
         .ok_or_else(|| anyhow!("workspace is not a git repository"))?;
-    let scope_root = scope.root().to_path_buf();
     let pathspec = pathspec_for_scope(&repo_root, &scope_root)?;
 
     let mut specs = parse_name_status_z(
@@ -364,6 +378,7 @@ fn classify_sync_state(
 
 fn run_git(root: &Path, args: &[&str]) -> Option<String> {
     let mut cmd = Command::new("git");
+    crate::filesystem::isolate_repository_env(&mut cmd);
     cmd.current_dir(root).args(args);
     crate::platform::hide_console(&mut cmd);
     let output = cmd.output().ok()?;
@@ -376,6 +391,7 @@ fn run_git(root: &Path, args: &[&str]) -> Option<String> {
 
 fn run_git_bytes(root: &Path, args: &[&str]) -> Result<Vec<u8>> {
     let mut cmd = Command::new("git");
+    crate::filesystem::isolate_repository_env(&mut cmd);
     cmd.current_dir(root).args(args);
     crate::platform::hide_console(&mut cmd);
     let output = cmd.output()?;

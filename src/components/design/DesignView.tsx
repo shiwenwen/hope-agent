@@ -3831,7 +3831,9 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
               "text-sm font-semibold",
               activeProject && "cursor-text rounded px-1 hover:bg-muted",
             )}
-            title={activeProject ? t("design.clickRenameProject", "点击改项目名") : undefined}
+            data-ha-title-tip={
+              activeProject ? t("design.clickRenameProject", "点击改项目名") : undefined
+            }
             onClick={() => {
               if (activeProject) setRenamingProject(true)
             }}
@@ -4257,7 +4259,7 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                               setRenamingArtifactId(a.id)
                               setRenameDraft(a.title)
                             }}
-                            title={`${kindLabel(a.kind)} · ${t("design.dblClickRename", "双击改名")}`}
+                            data-ha-title-tip={`${kindLabel(a.kind)} · ${t("design.dblClickRename", "双击改名")}`}
                             className={cn(
                               "flex max-w-[180px] items-center gap-1.5 rounded-lg py-1 pl-2.5 pr-11 text-xs transition-colors",
                               active
@@ -6332,7 +6334,7 @@ function LaunchHome({
                     key={r.id}
                     type="button"
                     onClick={() => onPickRecipe(r)}
-                    title={r.summary}
+                    data-ha-title-tip={r.summary}
                     className="group flex flex-col gap-1.5 rounded-xl border border-border/60 bg-card p-3.5 text-left transition-all duration-150 hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md"
                   >
                     <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-muted text-muted-foreground transition-colors group-hover:bg-primary/10 group-hover:text-primary">

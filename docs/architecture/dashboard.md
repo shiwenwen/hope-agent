@@ -3,7 +3,7 @@
 
 ## 概述
 
-Dashboard 模块提供跨三个 SQLite 数据库（SessionDB、LogDB、CronDB）的聚合分析查询，为前端 recharts 图表提供标准化 JSON 数据。模块拆分为 10 个文件，采用「筛选器 + 查询函数」的管道式架构。
+Dashboard 模块提供跨三个 SQLite 数据库（SessionDB、LogDB、CronDB）的聚合分析查询，为前端 recharts 图表提供标准化 JSON 数据。模块拆分为 11 个文件，采用「筛选器 + 查询函数」的管道式架构。
 
 核心设计原则：
 - **自动排除非用户数据**：所有 session 级查询自动注入 `is_cron = 0 AND parent_session_id IS NULL AND incognito = 0`，排除定时任务会话、子 Agent 会话和无痕会话；模型用量总账仅硬排无痕，会统计 cron / subagent / 后台维护等所有非无痕模型请求
@@ -24,6 +24,7 @@ Dashboard 模块提供跨三个 SQLite 数据库（SessionDB、LogDB、CronDB）
 | `cost.rs` | 模型定价表与成本计算引擎 |
 | `insights.rs` | 8 个深度洞察查询（同环比 / 趋势 / 热力图 / 健康度 / orchestrator） |
 | `learning.rs` | Learning Tracker 4 个查询 + 9 个事件常量（埋点写入 `session.db.learning_events`） |
+| `coding_improvement.rs` | Coding Improvement 全局 / 项目级学习聚合：workflow、eval、review、verification、proposal、retro 只读 rollup |
 | `plan_stats.rs` | Plan 统计聚合：Dashboard "Plans" tab 数据源（详见下文） |
 | `local_models.rs` | 本地模型 Tab 专属聚合：按 `provider::local::known_local_backends` 反查"本地"provider name 列表后对 sessions / messages 表做 token / 调用次数 / TTFT / 错误率统计；前端 `LocalModelsSection` 消费 |
 
@@ -305,6 +306,55 @@ Learning Tracker 把 skill / memory / MCP 三类关键事件写入 `session.db` 
 - 读：上述 4 个查询函数按 `kind IN (...)` + `ts >= now - window_days` 做窗口聚合
 - 表归属在 `session.db` 而非独立库，避免新增 SQLite 文件；与 sessions / messages 共享连接池
 
+## Coding Improvement Learning（coding_improvement.rs）
+
+> 新增于 Phase 4.3。Dashboard Learning Tab 的全局 / 项目级 coding 学习视图；Tauri `dashboard_coding_improvement` / HTTP `POST /api/dashboard/learning/coding-improvement`。
+
+该模块只读已有 durable control-plane 表，不触发 proposal generation、apply 或 promotion。
+
+| 区块 | 来源 | 说明 |
+|---|---|---|
+| `overview` | `sessions` / `workflow_runs` / `coding_eval_runs` / `coding_eval_pack_runs` / `coding_strategy_effect_runs` / `review_findings` / `verification_steps` / `coding_workflow_retros` / `coding_improvement_proposals` | 汇总 workflow completion、case eval、pack pass rate、strategy verdict、tool-call missing、validation/scope delta、review blocker、verification failure、retro recommendation、proposal status 和 distillation candidates |
+| `timeline` | 同上 | 按日聚合 completed/blocked/failed workflow、passed/failed eval、passed/failed pack、strategy verdict、validation/scope delta、proposal created/applied/promoted、retro recommendation |
+| `byProject` | `project_id` + 可选 `projects.name` | 按项目展示 workflow/eval/pack 成功率、strategy regression、blocker、proposal 与待沉淀候选 |
+| `topFailures` | `coding_improvement_proposals.payload_json` | 从 `eval_candidate` proposal 的 failure taxonomy 中聚合 top failure mode |
+| `toolCallFailures` | `coding_eval_runs.metrics_json` | 聚合 agent 模式下没有产生 tool call 的 task-level eval run，作为 `missing_tool_call` failure mode |
+| `proposalStatuses` | `coding_improvement_proposals.status` | proposal 状态分布 |
+| `latestStrategyEffects` | `coding_strategy_effect_runs` | 最近 strategy effect run 的 verdict 与 pass/task/context/validation/scope/execution delta |
+| `latestRetros` | `coding_workflow_retros` | 最近 terminal workflow retro summary 与 recommendation |
+
+过滤契约：
+
+- 复用 `DashboardFilter` 的时间 / agent / provider / model 维度。
+- session 级数据排除 cron、subagent 和 incognito。
+- sessionless eval / pack / strategy run 可进入全局聚合；一旦按 agent/provider/model 过滤，会自然被排除。
+- Project name 只作显示增强；`projects` 表不存在或缺失行时仍按 `project_id` 聚合。
+
+## General Domain Quality（Domain Eval owner API）
+
+> 新增于 Phase 7.6，Phase 7.7 增加人工校准动作，Phase 7.10 增加隔离的 Smoke Run Center，Phase 7.11 增加 Domain Campaign Center，Phase 7.12 增加 External Campaign 与 Domain Leaderboard，Phase 7.13 增加 Campaign Learning Closure，Phase 7.14 增加 Domain Readiness Gate。Dashboard Learning Tab 的通用领域质量区块；前端直接调用 `evaluate_domain_readiness_gate`、`evaluate_domain_quality_gate`、`list_domain_eval_runs`、`list_domain_eval_tasks`、`list_domain_eval_fixture_runs`、`list_domain_eval_campaigns`、`get_domain_eval_campaign_leaderboard`、`generate_coding_improvement_proposals(sourceType="domain_eval_campaign")` 与 `record_domain_eval_calibration`，后端事实源见 [Domain Eval 与 Quality Gate 控制平面](domain-eval.md)。
+
+该区块不属于 `dashboard::coding_improvement` 聚合，也不与 Release Gate / Continuous Benchmark Gate 合成总分。它只读 Domain Eval / Domain Quality / Domain Evidence 历史，用于回答“非编程长任务的通用质量是否有足够证据”。
+
+| 展示项 | 来源 | 说明 |
+|---|---|---|
+| Readiness status | `evaluate_domain_readiness_gate` | 三态：`passed` / `failed` / `insufficient_data`；聚合 Quality Gate、Domain Campaign、Leaderboard 与 Campaign Learning Closure。 |
+| Gate status | `evaluate_domain_quality_gate` | 三态：`passed` / `failed` / `insufficient_data`。 |
+| Eval pass rate / average score | `domain_eval_runs` | 只统计通用领域 eval，不读取 `coding_eval_runs`。 |
+| Quality blockers | `domain_quality_runs` / `domain_quality_checks` | blocked / failed / needs_user run 与 approval safety blocker。 |
+| Domain coverage | `domain_eval_runs.domain` | 展示已覆盖领域数，首版内置 Research / Writing / Data Analysis / Meeting Prep / Knowledge Curation task。 |
+| Attention checks | gate checks | 列出 failed / insufficient check，帮助用户知道缺的是 eval 样本、quality run、approval safety 还是领域覆盖。 |
+| Recent domain eval runs | `list_domain_eval_runs` | 展示最近通用 eval run，辅助回溯质量判断。 |
+| Calibration status | `list_domain_eval_tasks` / `record_domain_eval_calibration` | 展示已校准 task 数；用户可对最近 eval run 显式标记人工复核，写入 user/project calibration。 |
+| Domain smoke runs | `list_domain_eval_fixture_runs` | 展示最近 trace/agent fixture smoke run，含 source type、执行模式、pass rate、失败数、eval/quality/workflow/turn trace badge 与错误信息；不计入 live gate。 |
+| Domain campaigns | `list_domain_eval_campaigns` / `create_domain_eval_campaign` / `run_domain_eval_campaign` / `cancel_domain_eval_campaign` / `get_domain_eval_campaign_leaderboard` / `generate_coding_improvement_proposals` | 展示批量 domain eval campaign；用户可运行 deterministic trace pack 或选择 provider/model 运行 external agent campaign，取消 queued/running campaign、retry failed/interrupted/cancelled item，查看 item pass rate、平均分、check 数、fixture/eval run 关联和模型 leaderboard，并从失败 item 生成 `domain_eval_case` / `domain_guidance` 学习草稿。 |
+
+红线：
+
+- 通用领域质量门与 coding benchmark 分表、分路径、分 UI 区块展示。
+- 无 domain eval 或 domain quality 历史时必须显示 `insufficient_data`，不能用 coding release gate 替代。
+- Dashboard 默认只读历史，不触发连接器动作；写动作仅限用户显式点击「Mark reviewed」记录 `domain_eval_calibrations` 人工复核，在「Domain campaigns」中创建 / 运行 / 取消 / retry synthetic trace campaign，或把 failed / cancelled / interrupted campaign item 生成 draft-only learning proposal。`evaluate_domain_readiness_gate` 本身只读，不自动生成 proposal 或 retry campaign。`trace_fixture` / `agent` fixture runner 不直接挂在质量门按钮上；合成样本通过 `SessionKind::EvalFixture`、`sourceType=fixture_*`、`domain_eval_fixture_runs` 与 `domain_eval_campaigns/items` 隔离展示，避免污染真实质量判断。
+
 ## Plan 统计（plan_stats.rs）
 
 > 新增于 2026-05-11。Dashboard "Plans" tab 的数据源；Tauri `dashboard_plan_stats` / HTTP `POST /api/dashboard/plan-stats`。
@@ -481,5 +531,6 @@ sequenceDiagram
 | `crates/ha-core/src/dashboard/cost.rs` | 模型定价表与成本计算公式 |
 | `crates/ha-core/src/dashboard/insights.rs` | 8 个深度洞察查询（同环比 / 趋势 / 热力图 / 健康度 / orchestrator） |
 | `crates/ha-core/src/dashboard/learning.rs` | Learning Tracker 4 个查询 + 9 个事件常量（`EVT_SKILL_*` / `EVT_RECALL_*` / `EVT_MCP_*`） + `emit` 写入 `session.db.learning_events` |
+| `crates/ha-core/src/dashboard/coding_improvement.rs` | Coding Improvement 全局 / 项目级只读学习聚合 |
 | `src-tauri/src/commands/dashboard.rs` | - | Tauri 命令注册层（invoke 入口） |
 | `src/components/dashboard/` | - | 前端 recharts 图表组件 |

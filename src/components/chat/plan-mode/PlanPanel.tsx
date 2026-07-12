@@ -113,6 +113,7 @@ export function PlanPanel({
         height: 700,
         minWidth: 360,
         minHeight: 400,
+        acceptFirstMouse: true,
         center: true,
       })
 
@@ -524,18 +525,17 @@ export function PlanPanel({
         )}
 
         {/* Comment popover (positioned absolutely within content area) */}
-        {commentPopover && (
-          <CommentPopover
-            position={commentPopover.position}
-            selectedText={commentPopover.selectedText}
-            onSubmit={handleCommentSubmit}
-            onClose={() => {
-              clearHighlight()
-              setCommentPopover(null)
-              window.getSelection()?.removeAllRanges()
-            }}
-          />
-        )}
+        <CommentPopover
+          open={commentPopover !== null}
+          position={commentPopover?.position ?? null}
+          selectedText={commentPopover?.selectedText ?? null}
+          onSubmit={handleCommentSubmit}
+          onClose={() => {
+            clearHighlight()
+            setCommentPopover(null)
+            window.getSelection()?.removeAllRanges()
+          }}
+        />
       </div>
 
       {/* Action bar */}

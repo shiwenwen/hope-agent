@@ -2,12 +2,15 @@ import React, { useState, useMemo } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import type { TFunction } from "i18next"
+import { toast } from "sonner"
 import { cn } from "@/lib/utils"
-import { AnimatedCollapse, AnimatedPresenceBox } from "@/components/ui/animated-presence"
+import { AnimatedCollapse } from "@/components/ui/animated-presence"
+import { FloatingMenu } from "@/components/ui/floating-menu"
 import { IconTip } from "@/components/ui/tooltip"
 import {
   Copy,
   Check,
+  CheckCircle2,
   Info,
   Network,
   Timer,
@@ -17,6 +20,14 @@ import {
   Code2,
   Type,
   Hash,
+  Target,
+  Radio,
+  GitFork,
+  Brain,
+  Settings,
+  Ban,
+  Pencil,
+  X,
 } from "lucide-react"
 import ChannelIcon from "@/components/common/ChannelIcon"
 import {
@@ -48,6 +59,9 @@ import type {
   ContextCompactionProgressEvent,
   ChatTurnStatus,
   RoundLimitReachedEvent,
+  ActiveMemoryRecall,
+  UsedMemoryRef,
+  RetrievalPlannerTrace,
 } from "@/types/chat"
 import ModelPickerCard from "@/components/chat/ModelPickerCard"
 import ContextBreakdownCard from "@/components/chat/context-view/ContextBreakdownCard"
@@ -58,10 +72,39 @@ import {
   parseSubagentResultDetail,
   parseSubagentResultStatus,
   parseToolJobPayload,
+  parseWorkflowResultDetail,
+  parseWorkflowResultStatus,
   TOOL_JOB_AGENT_PREFIX,
   TOOL_JOB_STATUSES,
 } from "./asyncResultPayload"
 import { isQuickPromptEligibleUserMessage } from "../quick-prompts/messageQuickPrompts"
+import { goalCompletionReportFromMessage, type GoalCompletionReport } from "./goalCompletionReport"
+import {
+  requestMemoryFocus,
+  type MemoryFocusTarget,
+} from "@/components/settings/memory-panel/memoryFocus"
+import {
+  requestKnowledgeFocus,
+  type KnowledgeFocusTarget,
+} from "@/components/knowledge/knowledgeFocus"
+import {
+  memoryKindLabel,
+  memoryTraceErrorDescription,
+  memoryLocationLabel,
+  memoryMetricLabels,
+  memoryOriginLabel,
+  memoryReasonText,
+  memoryRoleLabel,
+  memorySourceLabel,
+  retrievalLayerDetailParts,
+  retrievalLayerLabel,
+  retrievalIntentLabel,
+  retrievalTraceStatusLabel,
+  retrievalTraceSummary,
+  retrievalTraceTitle,
+  isMemoryCandidateRole,
+  shouldRenderMemoryTracePanel,
+} from "./memoryTraceFormat"
 
 const USER_MESSAGE_COLLAPSE_CHARS = 900
 const USER_MESSAGE_COLLAPSE_LINES = 12
@@ -74,10 +117,7 @@ function shouldCollapseUserMessage(content: string): boolean {
 
 function collapsedUserMessagePreview(content: string): string {
   const normalized = content.replace(/\r\n/g, "\n").replace(/\r/g, "\n")
-  const lineLimited = normalized
-    .split("\n")
-    .slice(0, USER_MESSAGE_COLLAPSE_LINES)
-    .join("\n")
+  const lineLimited = normalized.split("\n").slice(0, USER_MESSAGE_COLLAPSE_LINES).join("\n")
   const charLimited =
     lineLimited.length > USER_MESSAGE_COLLAPSE_CHARS
       ? lineLimited.slice(0, USER_MESSAGE_COLLAPSE_CHARS)
@@ -188,9 +228,14 @@ export interface MessageBubbleProps {
       | import("@/types/chat").FileChangesMetadata,
   ) => void
   onResume?: (message: string) => void
+  onForkFromMessage?: (messageId: number) => void
+  onOpenMemorySettings?: () => void
+  onOpenKnowledge?: () => void
   displayMode?: ChatDisplayMode
   footerFiles?: MessageFileAttachment[]
   hideOwnFooterFiles?: boolean
+  goalCompletionReportOverride?: GoalCompletionReport | null
+  suppressGoalCompletionFooter?: boolean
   forceExpandUserContent?: boolean
   onForceExpandedUserContentDismiss?: () => void
 }
@@ -265,6 +310,29 @@ function getSubagentResultDisplay(
     ),
     isToolJob: false,
     detail: parseSubagentResultDetail(msg.content),
+  }
+}
+
+function getWorkflowResultDisplay(
+  msg: Message,
+  t: TFunction,
+): { name: string; status: string; statusText: string; detail?: string } {
+  const status = parseWorkflowResultStatus(msg.content)
+  const statusText =
+    status === "checkpoint"
+      ? String(t("chat.workflowResultCheckpoint", { defaultValue: "已收到阶段结果" }))
+      : status === "completed"
+        ? String(t("chat.workflowResultCompleted", { defaultValue: "已完成" }))
+        : status === "cancelled"
+          ? String(t("chat.workflowResultCancelled", { defaultValue: "已取消" }))
+          : status === "running"
+            ? String(t("chat.workflowResultWaiting", { defaultValue: "等待继续" }))
+            : String(t("chat.workflowResultFailed", { defaultValue: "需处理" }))
+  return {
+    name: String(t("chat.workflowResultName", { defaultValue: "工作流" })),
+    status,
+    statusText,
+    detail: parseWorkflowResultDetail(msg.content),
   }
 }
 
@@ -366,11 +434,36 @@ function WakeupTriggerBubble({ t }: { t: (key: string) => string }) {
   )
 }
 
+function LoopTriggerBubble({ msg, t }: { msg: Message; t: TFunction }) {
+  const [expanded, setExpanded] = useState(false)
+  const detail = useMemo(() => decodeXmlText(msg.content.trim()), [msg.content])
+  return (
+    <div className="flex flex-col items-center gap-1 w-full max-w-[80%]">
+      <button
+        type="button"
+        aria-expanded={expanded}
+        onClick={() => setExpanded((v) => !v)}
+        className="flex max-w-full items-center gap-1.5 px-3 py-1.5 rounded-full bg-blue-500/8 border border-blue-500/20 text-xs text-blue-700 hover:bg-blue-500/15 transition-colors cursor-pointer dark:text-blue-400"
+      >
+        <Radio className="w-3 h-3 shrink-0 text-blue-600 dark:text-blue-400" />
+        <span className="font-medium">{t("chat.loopTrigger", "持续推进")}</span>
+        <span className="opacity-50">·</span>
+        <span>{t("chat.loopTriggered", "已触发一次推进")}</span>
+        <ChevronDown
+          className={cn("h-3 w-3 shrink-0 transition-transform", expanded && "rotate-180")}
+        />
+      </button>
+      <AnimatedCollapse open={expanded}>
+        <pre className="max-h-[360px] w-full overflow-auto whitespace-pre-wrap break-words rounded-lg border border-blue-500/15 bg-blue-500/5 px-3 py-2 font-mono text-[11px] leading-5 text-foreground/85">
+          {detail || msg.content}
+        </pre>
+      </AnimatedCollapse>
+    </div>
+  )
+}
+
 function decodeXmlText(value: string): string {
-  return value
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&amp;/g, "&")
+  return value.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&")
 }
 
 function xmlTag(content: string, tag: string): string | null {
@@ -414,9 +507,7 @@ function ProcessNotificationBubble({ msg, t }: { msg: Message; t: TFunction }) {
         )}
       >
         <Code2 className="h-3 w-3 shrink-0" />
-        <span className="font-medium">
-          {t("chat.processNotification", "进程已结束")}
-        </span>
+        <span className="font-medium">{t("chat.processNotification", "进程已结束")}</span>
         {parsed.processId && (
           <>
             <span className="opacity-50">·</span>
@@ -445,6 +536,798 @@ function ProcessNotificationBubble({ msg, t }: { msg: Message; t: TFunction }) {
   )
 }
 
+function memoryRefKey(ref: UsedMemoryRef): string {
+  return [ref.origin ?? "memory", ref.role ?? "", ref.kind, ref.id].join(":")
+}
+
+function isHighlightedMemoryRef(ref: UsedMemoryRef, selected: UsedMemoryRef | null): boolean {
+  return (
+    !!selected &&
+    (ref.origin ?? "") === (selected.origin ?? "") &&
+    ref.kind === selected.kind &&
+    ref.id === selected.id
+  )
+}
+
+function focusTargetFromMemoryRef(ref: UsedMemoryRef): MemoryFocusTarget | null {
+  if (ref.kind === "memory") {
+    const id = Number(ref.id)
+    return Number.isFinite(id) ? { kind: "memory", id } : null
+  }
+  if (ref.kind === "claim" && ref.id) {
+    return { kind: "claim", id: ref.id }
+  }
+  if (ref.kind === "profile") {
+    return { kind: "profile", id: ref.id }
+  }
+  if ((ref.kind === "episode" || ref.kind === "procedure") && ref.id) {
+    return { kind: ref.kind, id: ref.id }
+  }
+  return null
+}
+
+function focusTargetFromKnowledgeRef(ref: UsedMemoryRef): KnowledgeFocusTarget | null {
+  if (ref.kind !== "knowledge" || !ref.path) return null
+  const [kbId] = ref.id.split(":")
+  if (!kbId) return null
+  return {
+    kbId,
+    path: ref.path,
+    ...(ref.line && ref.line > 0 ? { line: ref.line } : {}),
+    ...(ref.col != null ? { col: ref.col } : {}),
+    ...(ref.headingPath ? { headingPath: ref.headingPath } : {}),
+    ...(ref.blockId ? { blockId: ref.blockId } : {}),
+  }
+}
+
+function memoryTraceMarkdown(
+  refs: UsedMemoryRef[],
+  retrievalPlanner: RetrievalPlannerTrace | undefined,
+  memory: ActiveMemoryRecall | undefined,
+  t: TFunction,
+): string {
+  const traceTitle = retrievalTraceTitle(refs.length, retrievalPlanner, t)
+  const traceSummary = memory?.summary || retrievalTraceSummary(refs.length, retrievalPlanner, t)
+  const lines: string[] = [`# ${traceTitle}`, "", traceSummary, ""]
+
+  if (retrievalPlanner) {
+    lines.push(
+      `- ${t("chat.memoryTrace.traceStatusLabel", "Status")}: ${retrievalTraceStatusLabel(
+        retrievalPlanner.status,
+        t,
+      )}`,
+      `- totalRefs=${retrievalPlanner.totalRefs}`,
+      ...(retrievalPlanner.intent
+        ? [
+            `- ${t("chat.memoryTrace.intentLabel", "Detected task")}: ${retrievalIntentLabel(
+              retrievalPlanner.intent,
+              t,
+            )}`,
+          ]
+        : []),
+      ...(retrievalPlanner.rankingVersion ? [`- ranking=${retrievalPlanner.rankingVersion}`] : []),
+      ...(typeof retrievalPlanner.maxTraceRefs === "number"
+        ? [
+            `- budget=${retrievalPlanner.maxTraceRefs}, perSource=${retrievalPlanner.maxCandidatesPerOrigin ?? "?"}`,
+          ]
+        : []),
+      "",
+    )
+  }
+
+  if (retrievalPlanner?.layers.length) {
+    lines.push(`## ${t("chat.memoryTrace.whyTitle", "Why this context appeared")}`, "")
+    for (const layer of retrievalPlanner.layers) {
+      const parts = retrievalLayerDetailParts(layer, t)
+      lines.push(`- ${retrievalLayerLabel(layer.layer, t)}: ${parts.join(" · ")}`)
+    }
+    lines.push("")
+  }
+
+  if (refs.length) {
+    lines.push(`## ${t("chat.memoryTrace.sources", "Memory sources")}`, "")
+    refs.forEach((ref, index) => {
+      const labels = [
+        memoryKindLabel(ref, t),
+        ref.id ? `id=${ref.id}` : null,
+        ref.origin ? memoryOriginLabel(ref.origin, t) : null,
+        memoryRoleLabel(ref.role, t),
+        memorySourceLabel(ref, t) || null,
+      ].filter(Boolean)
+      lines.push(`${index + 1}. ${labels.join(" · ")}`)
+      lines.push(`   - ${memoryReasonText(ref, t)}`)
+      const metricLabels = memoryMetricLabels(ref, t)
+      if (metricLabels.length) lines.push(`   - ${metricLabels.join(" · ")}`)
+      if (ref.path) lines.push(`   - path: ${ref.path}`)
+      const locationLabel = memoryLocationLabel(ref)
+      if (locationLabel) lines.push(`   - location: ${locationLabel}`)
+      if (ref.preview) lines.push(`   - preview: ${ref.preview}`)
+    })
+    lines.push("")
+  }
+
+  return lines.join("\n").trimEnd()
+}
+
+type MemorySourceCorrectionState = Record<string, "saving" | "done">
+
+interface MemoryQuickEditRecord {
+  content: string
+  tags?: string[]
+}
+
+interface MemoryQuickEditState {
+  key: string
+  id: number
+  draft: string
+  tags: string[]
+  status: "loading" | "editing" | "saving"
+}
+
+function retrievalTraceStatusClass(status: string | undefined): string {
+  switch (status) {
+    case "partial":
+    case "degraded":
+      return "bg-amber-500/12 text-amber-700 dark:text-amber-300"
+    case "disabled":
+    case "no_context":
+      return "bg-muted text-muted-foreground"
+    default:
+      return "bg-emerald-500/12 text-emerald-700 dark:text-emerald-300"
+  }
+}
+
+function memoryRoleClass(role: UsedMemoryRef["role"]): string {
+  if (isMemoryCandidateRole(role)) {
+    return "bg-amber-500/12 text-amber-700 dark:text-amber-300"
+  }
+  switch (role) {
+    case "injected":
+      return "bg-emerald-500/12 text-emerald-700 dark:text-emerald-300"
+    case "selected":
+      return "bg-violet-500/12 text-violet-700 dark:text-violet-300"
+    default:
+      return "bg-sky-500/10 text-sky-700 dark:text-sky-300"
+  }
+}
+
+function ActiveMemoryTrace({
+  memory,
+  usedMemoryRefs,
+  retrievalPlanner,
+  onOpenMemorySettings,
+  onOpenKnowledge,
+}: {
+  memory?: ActiveMemoryRecall
+  usedMemoryRefs?: UsedMemoryRef[]
+  retrievalPlanner?: RetrievalPlannerTrace
+  onOpenMemorySettings?: () => void
+  onOpenKnowledge?: () => void
+}) {
+  const { t } = useTranslation()
+  const [expanded, setExpanded] = useState(false)
+  const [showAllRefs, setShowAllRefs] = useState(false)
+  const [traceCopied, setTraceCopied] = useState(false)
+  const [pendingForgetMemoryId, setPendingForgetMemoryId] = useState<string | null>(null)
+  const [claimCorrections, setClaimCorrections] = useState<MemorySourceCorrectionState>({})
+  const [memoryCorrections, setMemoryCorrections] = useState<MemorySourceCorrectionState>({})
+  const [quickEdit, setQuickEdit] = useState<MemoryQuickEditState | null>(null)
+  const [editedMemoryPreviews, setEditedMemoryPreviews] = useState<Record<string, string>>({})
+  const refs =
+    usedMemoryRefs && usedMemoryRefs.length > 0
+      ? usedMemoryRefs
+      : (memory?.candidates.map((candidate) => ({
+          ...candidate,
+          origin: "active_memory",
+          role:
+            memory.selected?.kind === candidate.kind && memory.selected.id === candidate.id
+              ? "selected"
+              : "candidate",
+        })) ?? [])
+  const displayRefs = useMemo(
+    () =>
+      refs.map((ref) => {
+        const preview = editedMemoryPreviews[memoryRefKey(ref)]
+        return preview ? { ...ref, preview } : ref
+      }),
+    [editedMemoryPreviews, refs],
+  )
+  const selected =
+    displayRefs.find((ref) => ref.role === "selected") ??
+    displayRefs.find((ref) => ref.role === "injected") ??
+    displayRefs[0] ??
+    null
+  const traceTitle = retrievalTraceTitle(displayRefs.length, retrievalPlanner, t)
+  const traceSummary =
+    memory?.summary || retrievalTraceSummary(displayRefs.length, retrievalPlanner, t)
+  const traceStatusLabel = retrievalPlanner
+    ? retrievalTraceStatusLabel(retrievalPlanner.status, t)
+    : null
+  const showHeaderStatus = !!retrievalPlanner && retrievalPlanner.status !== "used"
+  const visibleRefs = showAllRefs ? displayRefs : displayRefs.slice(0, 4)
+  const traceStats = useMemo(() => {
+    const originCounts = new Map<string, number>()
+    const roleCounts = new Map<string, number>()
+    for (const ref of displayRefs) {
+      const origin = ref.origin || "unknown"
+      const role = ref.role || "related"
+      originCounts.set(origin, (originCounts.get(origin) ?? 0) + 1)
+      roleCounts.set(role, (roleCounts.get(role) ?? 0) + 1)
+    }
+    const candidateCount = displayRefs.filter((ref) => isMemoryCandidateRole(ref.role)).length
+    return {
+      origins: [...originCounts.entries()],
+      injected: roleCounts.get("injected") ?? 0,
+      selected: roleCounts.get("selected") ?? 0,
+      candidates: candidateCount,
+    }
+  }, [displayRefs])
+
+  const markClaimDoNotUse = async (ref: UsedMemoryRef) => {
+    if (ref.kind !== "claim" || !ref.id || claimCorrections[ref.id]) return
+    setClaimCorrections((prev) => ({ ...prev, [ref.id]: "saving" }))
+    try {
+      await getTransport().call("claim_forget", {
+        id: ref.id,
+        permanent: false,
+        note: isMemoryCandidateRole(ref.role)
+          ? "User dismissed this candidate memory source from an answer memory chip."
+          : "User marked this memory source as no longer valid from an answer memory chip.",
+      })
+      setClaimCorrections((prev) => ({ ...prev, [ref.id]: "done" }))
+      toast.success(
+        isMemoryCandidateRole(ref.role)
+          ? t(
+              "chat.memoryTrace.claimCandidateDismissedToast",
+              "This structured memory will not be suggested again.",
+            )
+          : t(
+              "chat.memoryTrace.claimMarkedDoNotUseToast",
+              "This structured memory will not be used again.",
+            ),
+      )
+    } catch (error) {
+      setClaimCorrections((prev) => {
+        const next = { ...prev }
+        delete next[ref.id]
+        return next
+      })
+      const description = memoryTraceErrorDescription(error, t)
+      toast.error(
+        t("chat.memoryTrace.correctionFailedToast", "Couldn't update this memory source."),
+        description ? { description } : undefined,
+      )
+    }
+  }
+
+  const requestMemoryDoNotUse = (ref: UsedMemoryRef) => {
+    if (ref.kind !== "memory" || !ref.id || memoryCorrections[ref.id]) return
+    const key = memoryRefKey(ref)
+    if (quickEdit?.key === key && quickEdit.status === "saving") return
+    setQuickEdit((current) => (current?.key === key ? null : current))
+    setPendingForgetMemoryId((current) => (current === ref.id ? null : ref.id))
+  }
+
+  const markMemoryDoNotUse = async (ref: UsedMemoryRef) => {
+    if (ref.kind !== "memory" || !ref.id || memoryCorrections[ref.id]) return
+    const id = Number(ref.id)
+    if (!Number.isFinite(id)) return
+    const key = memoryRefKey(ref)
+    setMemoryCorrections((prev) => ({ ...prev, [ref.id]: "saving" }))
+    setQuickEdit((current) => (current?.key === key ? null : current))
+    try {
+      await getTransport().call("memory_delete", { id })
+      setPendingForgetMemoryId((current) => (current === ref.id ? null : current))
+      setMemoryCorrections((prev) => ({ ...prev, [ref.id]: "done" }))
+      toast.success(t("chat.memoryTrace.memoryDeletedToast", "Memory deleted."))
+    } catch (error) {
+      setPendingForgetMemoryId((current) => (current === ref.id ? null : current))
+      setMemoryCorrections((prev) => {
+        const next = { ...prev }
+        delete next[ref.id]
+        return next
+      })
+      const description = memoryTraceErrorDescription(error, t)
+      toast.error(
+        t("chat.memoryTrace.correctionFailedToast", "Couldn't update this memory source."),
+        description ? { description } : undefined,
+      )
+    }
+  }
+
+  const startMemoryQuickEdit = async (ref: UsedMemoryRef) => {
+    if (ref.kind !== "memory" || !ref.id || memoryCorrections[ref.id]) return
+    const id = Number(ref.id)
+    if (!Number.isFinite(id)) return
+    const key = memoryRefKey(ref)
+    setPendingForgetMemoryId(null)
+    setQuickEdit({ key, id, draft: "", tags: [], status: "loading" })
+    try {
+      const entry = await getTransport().call<MemoryQuickEditRecord | null>("memory_get", { id })
+      if (!entry) {
+        throw new Error(t("chat.memoryTrace.quickEditUnavailable", "Memory no longer exists."))
+      }
+      setQuickEdit({
+        key,
+        id,
+        draft: entry.content,
+        tags: Array.isArray(entry.tags) ? entry.tags : [],
+        status: "editing",
+      })
+    } catch (error) {
+      setQuickEdit((current) => (current?.key === key ? null : current))
+      const description = memoryTraceErrorDescription(error, t)
+      toast.error(
+        t("chat.memoryTrace.quickEditLoadFailed", "Couldn't load this memory."),
+        description ? { description } : undefined,
+      )
+    }
+  }
+
+  const saveMemoryQuickEdit = async () => {
+    const current = quickEdit
+    if (!current || current.status === "loading" || current.status === "saving") return
+    const content = current.draft.trim()
+    if (!content) {
+      toast.error(t("chat.memoryTrace.quickEditEmpty", "Memory content cannot be empty."))
+      return
+    }
+    setQuickEdit({ ...current, status: "saving" })
+    try {
+      await getTransport().call("memory_update", {
+        id: current.id,
+        content,
+        tags: current.tags,
+      })
+      setEditedMemoryPreviews((prev) => ({ ...prev, [current.key]: content }))
+      setQuickEdit(null)
+      toast.success(t("chat.memoryTrace.quickEditSaved", "Memory updated."))
+    } catch (error) {
+      setQuickEdit({ ...current, status: "editing" })
+      const description = memoryTraceErrorDescription(error, t)
+      toast.error(
+        t("chat.memoryTrace.quickEditSaveFailed", "Couldn't save this memory."),
+        description ? { description } : undefined,
+      )
+    }
+  }
+
+  const copyTrace = async () => {
+    try {
+      await navigator.clipboard.writeText(
+        memoryTraceMarkdown(displayRefs, retrievalPlanner, memory, t),
+      )
+      setTraceCopied(true)
+      window.setTimeout(() => setTraceCopied(false), 1600)
+    } catch (error) {
+      const description = memoryTraceErrorDescription(error, t)
+      toast.error(
+        t("chat.memoryTrace.copyFailed", "Failed to copy memory diagnostics"),
+        description ? { description } : undefined,
+      )
+    }
+  }
+
+  return (
+    <div
+      className={cn(
+        "mt-2 overflow-hidden rounded-xl border text-xs transition-colors",
+        expanded
+          ? "border-violet-500/10 bg-violet-500/[0.025] dark:border-violet-400/12 dark:bg-violet-400/[0.035]"
+          : "border-violet-500/8 bg-violet-500/[0.025] dark:border-violet-400/10 dark:bg-violet-400/[0.035]",
+      )}
+    >
+      <button
+        type="button"
+        className="flex w-full min-w-0 items-center gap-2 px-2.5 py-1 text-left text-violet-800 transition-colors hover:bg-violet-500/8 dark:text-violet-200 dark:hover:bg-violet-400/10"
+        aria-expanded={expanded}
+        onClick={() => setExpanded((v) => !v)}
+      >
+        <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-violet-500/12 text-violet-700 dark:text-violet-300">
+          <Brain className="h-3 w-3" />
+        </span>
+        <span className="shrink-0 font-medium">{traceTitle}</span>
+        {selected && (
+          <span className="min-w-0 truncate text-foreground/55">
+            {memorySourceLabel(selected, t)}
+          </span>
+        )}
+        {showHeaderStatus && traceStatusLabel && (
+          <span
+            className={cn(
+              "shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium",
+              retrievalTraceStatusClass(retrievalPlanner.status),
+            )}
+          >
+            {traceStatusLabel}
+          </span>
+        )}
+        <ChevronDown
+          className={cn(
+            "ml-auto h-3.5 w-3.5 shrink-0 transition-transform",
+            expanded && "rotate-180",
+          )}
+        />
+      </button>
+      <AnimatedCollapse open={expanded}>
+        <div className="space-y-2.5 border-t border-violet-500/8 px-3 py-2.5 text-foreground/80">
+          <p className="m-0 leading-relaxed text-foreground/75">{traceSummary}</p>
+          <div className="rounded-lg border border-border/45 bg-background/55 px-2.5 py-2 dark:bg-background/35">
+            <div className="flex items-center gap-1.5 text-[11px] font-semibold text-foreground/80">
+              <Info className="h-3.5 w-3.5 text-violet-600 dark:text-violet-300" />
+              {t("chat.memoryTrace.whyTitle", "Why this context appeared")}
+            </div>
+            <div className="mt-1.5 flex flex-wrap gap-1.5 text-[10px] text-muted-foreground">
+              {retrievalPlanner && traceStatusLabel && (
+                <span
+                  className={cn(
+                    "rounded px-1.5 py-0.5 font-medium",
+                    retrievalTraceStatusClass(retrievalPlanner.status),
+                  )}
+                >
+                  {t("chat.memoryTrace.traceStatusLabel", "Status")}: {traceStatusLabel}
+                </span>
+              )}
+              {retrievalPlanner?.intent && (
+                <span className="rounded bg-sky-500/10 px-1.5 py-0.5 text-sky-700 dark:text-sky-300">
+                  {t("chat.memoryTrace.intentLabel", "Detected task")}:{" "}
+                  {retrievalIntentLabel(retrievalPlanner.intent, t)}
+                </span>
+              )}
+              {traceStats.injected > 0 && (
+                <span className="rounded bg-emerald-500/12 px-1.5 py-0.5 text-emerald-700 dark:text-emerald-300">
+                  {t("chat.memoryTrace.count.injected", {
+                    count: traceStats.injected,
+                    defaultValue: "{{count}} injected",
+                  })}
+                </span>
+              )}
+              {traceStats.selected > 0 && (
+                <span className="rounded bg-violet-500/12 px-1.5 py-0.5 text-violet-700 dark:text-violet-300">
+                  {t("chat.memoryTrace.count.selected", {
+                    count: traceStats.selected,
+                    defaultValue: "{{count}} selected",
+                  })}
+                </span>
+              )}
+              {traceStats.candidates > 0 && (
+                <span className="rounded bg-amber-500/12 px-1.5 py-0.5 text-amber-700 dark:text-amber-300">
+                  {t("chat.memoryTrace.count.candidate", {
+                    count: traceStats.candidates,
+                    defaultValue: "{{count}} candidates",
+                  })}
+                </span>
+              )}
+              {traceStats.origins.map(([origin, count]) => (
+                <span
+                  key={origin}
+                  className="rounded border border-border/60 bg-muted/55 px-1.5 py-0.5"
+                >
+                  {memoryOriginLabel(origin, t)} · {count}
+                </span>
+              ))}
+            </div>
+            {retrievalPlanner?.layers.length ? (
+              <div className="mt-1.5 flex flex-wrap gap-1.5 text-[10px] text-muted-foreground">
+                {retrievalPlanner.layers.map((layer) => {
+                  const parts = retrievalLayerDetailParts(layer, t)
+                  return (
+                    <span
+                      key={layer.layer}
+                      className="rounded bg-violet-500/6 px-1.5 py-0.5 text-foreground/65"
+                    >
+                      {retrievalLayerLabel(layer.layer, t)}: {parts.join(" · ")}
+                    </span>
+                  )
+                })}
+              </div>
+            ) : null}
+          </div>
+          {visibleRefs.length > 0 && (
+            <div className="space-y-1.5">
+              {visibleRefs.map((candidate) => {
+                const refKey = memoryRefKey(candidate)
+                const focusTarget = focusTargetFromMemoryRef(candidate)
+                const knowledgeTarget = focusTargetFromKnowledgeRef(candidate)
+                const roleLabel = memoryRoleLabel(candidate.role, t)
+                const originLabel = memoryOriginLabel(candidate.origin, t)
+                const metricLabels = memoryMetricLabels(candidate, t)
+                const locationLabel = memoryLocationLabel(candidate)
+                const correctionState =
+                  candidate.kind === "claim"
+                    ? claimCorrections[candidate.id]
+                    : candidate.kind === "memory"
+                      ? memoryCorrections[candidate.id]
+                      : undefined
+                const isPendingMemoryForget =
+                  candidate.kind === "memory" &&
+                  pendingForgetMemoryId === candidate.id &&
+                  !correctionState
+                const isCandidateRef = isMemoryCandidateRole(candidate.role)
+                const memoryDismissLabel = isCandidateRef
+                  ? t("chat.memoryTrace.doNotSuggestCandidate", "Do not suggest this candidate")
+                  : t("chat.memoryTrace.doNotUse", "Do not use this memory")
+                const memoryDismissDoneLabel = isCandidateRef
+                  ? t(
+                      "chat.memoryTrace.markedCandidateDoNotSuggest",
+                      "Marked as no longer suggested",
+                    )
+                  : t("chat.memoryTrace.markedDoNotUse", "Marked as no longer used")
+                const confirmMemoryDismissLabel = isCandidateRef
+                  ? t(
+                      "chat.memoryTrace.confirmForgetCandidateAction",
+                      "Confirm not suggesting this candidate",
+                    )
+                  : t("chat.memoryTrace.confirmForgetMemoryAction", "Confirm delete this memory")
+                const opensMemoryCenter = !!focusTarget && !!onOpenMemorySettings
+                const canEditMemoryRef =
+                  opensMemoryCenter && (candidate.kind === "memory" || candidate.kind === "claim")
+                const sourceActionLabel = canEditMemoryRef
+                  ? t("chat.memoryTrace.editMemory", "Edit this memory")
+                  : t("chat.memoryTrace.openSource", "Open source")
+                const SourceActionIcon = canEditMemoryRef ? Pencil : Settings
+                const quickEditActive = quickEdit?.key === refKey
+                const quickEditSaving = quickEditActive && quickEdit?.status === "saving"
+                const previewText = editedMemoryPreviews[refKey] ?? candidate.preview
+                return (
+                  <div
+                    key={refKey}
+                    className={cn(
+                      "rounded-lg border px-2.5 py-2",
+                      isHighlightedMemoryRef(candidate, selected)
+                        ? "border-violet-500/15 bg-violet-500/[0.035] dark:bg-violet-400/[0.045]"
+                        : "border-border/45 bg-background/50 dark:bg-background/30",
+                    )}
+                  >
+                    <div className="flex min-w-0 items-center gap-2">
+                      <span className="shrink-0 rounded bg-violet-500/10 px-1.5 py-0.5 text-[10px] font-medium uppercase text-violet-700 dark:text-violet-300">
+                        {memoryKindLabel(candidate, t)}
+                      </span>
+                      {roleLabel && (
+                        <span
+                          className={cn(
+                            "shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium",
+                            memoryRoleClass(candidate.role),
+                          )}
+                        >
+                          {roleLabel}
+                        </span>
+                      )}
+                      <span className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground">
+                        {memorySourceLabel(candidate, t)}
+                      </span>
+                      {((focusTarget && onOpenMemorySettings) ||
+                        (knowledgeTarget && onOpenKnowledge)) && (
+                        <IconTip label={sourceActionLabel}>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              if (knowledgeTarget && onOpenKnowledge) {
+                                requestKnowledgeFocus(knowledgeTarget)
+                                onOpenKnowledge()
+                                return
+                              }
+                              if (focusTarget && onOpenMemorySettings) {
+                                requestMemoryFocus(focusTarget)
+                                onOpenMemorySettings()
+                              }
+                            }}
+                            className="shrink-0 rounded p-0.5 text-muted-foreground/70 transition-colors hover:bg-violet-500/10 hover:text-violet-700 dark:hover:text-violet-300"
+                            aria-label={sourceActionLabel}
+                          >
+                            <SourceActionIcon className="h-3.5 w-3.5" />
+                          </button>
+                        </IconTip>
+                      )}
+                      {candidate.kind === "memory" && (
+                        <IconTip label={t("chat.memoryTrace.quickEdit", "Quick edit memory")}>
+                          <button
+                            type="button"
+                            disabled={!!correctionState || quickEdit?.status === "saving"}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              if (quickEditActive) {
+                                setQuickEdit(null)
+                              } else {
+                                void startMemoryQuickEdit(candidate)
+                              }
+                            }}
+                            className={cn(
+                              "shrink-0 rounded p-0.5 text-muted-foreground/70 transition-colors hover:bg-violet-500/10 hover:text-violet-700 disabled:pointer-events-none disabled:opacity-60 dark:hover:text-violet-300",
+                              quickEditActive &&
+                                "bg-violet-500/10 text-violet-700 dark:text-violet-300",
+                            )}
+                            aria-label={t("chat.memoryTrace.quickEdit", "Quick edit memory")}
+                          >
+                            <Type className="h-3.5 w-3.5" />
+                          </button>
+                        </IconTip>
+                      )}
+                      {(candidate.kind === "claim" || candidate.kind === "memory") && (
+                        <IconTip
+                          label={
+                            correctionState === "done"
+                              ? memoryDismissDoneLabel
+                              : correctionState === "saving"
+                                ? t("common.loading")
+                                : isPendingMemoryForget
+                                  ? confirmMemoryDismissLabel
+                                  : memoryDismissLabel
+                          }
+                        >
+                          <button
+                            type="button"
+                            disabled={!!correctionState || quickEditSaving}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              if (candidate.kind === "claim") {
+                                void markClaimDoNotUse(candidate)
+                              } else {
+                                requestMemoryDoNotUse(candidate)
+                              }
+                            }}
+                            className={cn(
+                              "shrink-0 rounded p-0.5 text-muted-foreground/70 transition-colors hover:bg-destructive/10 hover:text-destructive disabled:pointer-events-none",
+                              isPendingMemoryForget && "bg-destructive/10 text-destructive",
+                              correctionState === "done" && "text-destructive/70",
+                            )}
+                            aria-label={memoryDismissLabel}
+                          >
+                            <Ban className="h-3.5 w-3.5" />
+                          </button>
+                        </IconTip>
+                      )}
+                    </div>
+                    <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] text-muted-foreground">
+                      <span>{originLabel}</span>
+                      <span>{memoryReasonText(candidate, t)}</span>
+                      {metricLabels.map((label) => (
+                        <span key={label} className="font-mono">
+                          {label}
+                        </span>
+                      ))}
+                      {locationLabel && <span className="font-mono">{locationLabel}</span>}
+                    </div>
+                    {previewText && (
+                      <div className="mt-1 line-clamp-2 leading-relaxed text-foreground/75">
+                        {previewText}
+                      </div>
+                    )}
+                    {quickEditActive && (
+                      <div className="mt-1.5 rounded-md border border-violet-500/20 bg-background/85 p-2 dark:bg-background/65">
+                        {quickEdit.status === "loading" ? (
+                          <div className="text-[10px] text-muted-foreground">
+                            {t("chat.memoryTrace.quickEditLoading", "Loading memory...")}
+                          </div>
+                        ) : (
+                          <div className="space-y-1.5">
+                            <textarea
+                              value={quickEdit.draft}
+                              disabled={quickEdit.status === "saving"}
+                              onChange={(event) =>
+                                setQuickEdit((current) =>
+                                  current?.key === refKey
+                                    ? { ...current, draft: event.target.value }
+                                    : current,
+                                )
+                              }
+                              className="min-h-20 w-full resize-y rounded-md border border-border/70 bg-background px-2 py-1.5 text-[11px] leading-relaxed text-foreground outline-none focus:border-primary/40 disabled:opacity-70"
+                              placeholder={t(
+                                "chat.memoryTrace.quickEditPlaceholder",
+                                "Rewrite this memory...",
+                              )}
+                            />
+                            <div className="flex justify-end gap-1.5">
+                              <button
+                                type="button"
+                                disabled={quickEdit.status === "saving"}
+                                onClick={() => setQuickEdit(null)}
+                                className="inline-flex h-6 items-center gap-1 rounded border border-border/70 bg-background/80 px-1.5 text-[10px] font-medium text-muted-foreground transition-colors hover:bg-background hover:text-foreground disabled:pointer-events-none disabled:opacity-60"
+                              >
+                                <X className="h-3 w-3" />
+                                {t("common.cancel")}
+                              </button>
+                              <button
+                                type="button"
+                                disabled={quickEdit.status === "saving"}
+                                onClick={() => void saveMemoryQuickEdit()}
+                                className="inline-flex h-6 items-center gap-1 rounded bg-primary px-1.5 text-[10px] font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-70"
+                              >
+                                <Check className="h-3 w-3" />
+                                {quickEdit.status === "saving"
+                                  ? t("common.loading")
+                                  : t("common.save")}
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    {isPendingMemoryForget && (
+                      <div className="mt-1.5 flex flex-wrap items-center gap-1.5 rounded-md border border-destructive/20 bg-destructive/5 px-2 py-1.5 text-[10px] text-destructive">
+                        <span className="min-w-[160px] flex-1">
+                          {isCandidateRef
+                            ? t(
+                                "chat.memoryTrace.confirmForgetCandidateInline",
+                                "这会删除这条长期记忆，让它之后不再作为候选出现，并留下审计记录。",
+                              )
+                            : t(
+                                "chat.memoryTrace.confirmForgetMemoryInline",
+                                "这会删除这条长期记忆，并留下审计记录。",
+                              )}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setPendingForgetMemoryId(null)
+                          }}
+                          className="inline-flex h-6 items-center gap-1 rounded border border-border/70 bg-background/80 px-1.5 font-medium text-muted-foreground transition-colors hover:bg-background hover:text-foreground"
+                        >
+                          <X className="h-3 w-3" />
+                          {t("common.cancel")}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            void markMemoryDoNotUse(candidate)
+                          }}
+                          className="inline-flex h-6 items-center gap-1 rounded bg-destructive px-1.5 font-medium text-destructive-foreground transition-colors hover:bg-destructive/90"
+                        >
+                          <Check className="h-3 w-3" />
+                          {t("common.delete")}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+              {displayRefs.length > 4 && (
+                <button
+                  type="button"
+                  onClick={() => setShowAllRefs((v) => !v)}
+                  className="rounded px-1 py-0.5 text-left text-[10px] font-medium text-muted-foreground transition-colors hover:bg-violet-500/8 hover:text-violet-700 dark:hover:text-violet-300"
+                >
+                  {showAllRefs
+                    ? t("common.showLess", "折叠显示")
+                    : t("chat.memoryTrace.more", {
+                        count: displayRefs.length - visibleRefs.length,
+                        defaultValue: "还有 {{count}} 条长期上下文未展开显示。",
+                      })}
+                </button>
+              )}
+            </div>
+          )}
+          <div className="flex flex-wrap gap-1.5">
+            <button
+              type="button"
+              onClick={() => void copyTrace()}
+              className="inline-flex items-center gap-1.5 rounded-md border border-border/50 bg-background/55 px-2 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:border-violet-500/20 hover:bg-violet-500/6 hover:text-violet-700 dark:bg-background/35 dark:hover:text-violet-300"
+            >
+              {traceCopied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+              {traceCopied
+                ? t("common.copied", "Copied")
+                : t("chat.memoryTrace.copyTrace", "Copy diagnostics")}
+            </button>
+            {onOpenMemorySettings && (
+              <button
+                type="button"
+                onClick={onOpenMemorySettings}
+                className="inline-flex items-center gap-1.5 rounded-md border border-border/50 bg-background/55 px-2 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:border-violet-500/20 hover:bg-violet-500/6 hover:text-violet-700 dark:bg-background/35 dark:hover:text-violet-300"
+              >
+                <Settings className="h-3.5 w-3.5" />
+                {t("settings.memoryTabs.manage")}
+              </button>
+            )}
+          </div>
+        </div>
+      </AnimatedCollapse>
+    </div>
+  )
+}
+
 function MessageBubbleInner({
   msg,
   index,
@@ -468,9 +1351,14 @@ function MessageBubbleInner({
   onOpenDashboardTab,
   onOpenDiff,
   onResume,
+  onForkFromMessage,
+  onOpenMemorySettings,
+  onOpenKnowledge,
   displayMode = "bubble",
   footerFiles,
   hideOwnFooterFiles = false,
+  goalCompletionReportOverride,
+  suppressGoalCompletionFooter = false,
   forceExpandUserContent = false,
   onForceExpandedUserContentDismiss,
 }: MessageBubbleProps) {
@@ -510,13 +1398,72 @@ function MessageBubbleInner({
   const hasTextContent = hasRenderableTextContent(msg)
   const hasDetails = msg.role === "assistant" && !!(msg.usage || msg.model)
   const canAddQuickPrompt = !!onAddQuickPrompt && isQuickPromptEligibleUserMessage(msg)
-  const hasToolbarActions = hasTextContent || hasDetails || canAddQuickPrompt
+  const canForkFromMessage =
+    !!onForkFromMessage &&
+    !!sessionId &&
+    !loading &&
+    typeof msg.dbId === "number" &&
+    (msg.role === "user" || msg.role === "assistant")
+  const hasToolbarActions = hasTextContent || hasDetails || canAddQuickPrompt || canForkFromMessage
   // Always-visible total turn duration, shown at the message bottom once the
   // assistant turn has finished (the per-step / per-group times live above).
   const totalDurationText =
     msg.role === "assistant" && !(loading && isLast) && msg.usage?.durationMs != null
       ? formatDuration(msg.usage.durationMs)
       : null
+  const detectedGoalCompletionReport = useMemo(
+    () => (suppressGoalCompletionFooter ? null : goalCompletionReportFromMessage(msg)),
+    [msg, suppressGoalCompletionFooter],
+  )
+  const goalCompletionReport =
+    goalCompletionReportOverride !== undefined
+      ? goalCompletionReportOverride
+      : detectedGoalCompletionReport
+  const goalCompletionDurationText =
+    goalCompletionReport?.usage?.elapsedSecs != null
+      ? formatDuration(goalCompletionReport.usage.elapsedSecs * 1000)
+      : totalDurationText
+  const goalCompletionFallbackTokens =
+    msg.usage && msg.role === "assistant"
+      ? (msg.usage.lastInputTokens ?? msg.usage.inputTokens ?? 0) + (msg.usage.outputTokens ?? 0)
+      : 0
+  const goalCompletionTokens =
+    goalCompletionReport?.usage?.tokensUsed != null && goalCompletionReport.usage.tokensUsed > 0
+      ? goalCompletionReport.usage.tokensUsed
+      : goalCompletionFallbackTokens > 0
+        ? goalCompletionFallbackTokens
+        : null
+  const goalCompletionTokensText =
+    goalCompletionTokens != null ? formatTokens(goalCompletionTokens) : null
+  const goalCompletionFooter = goalCompletionReport ? (
+    <div className="mt-3 flex flex-wrap items-center gap-1.5 text-sm leading-6 text-foreground/85 select-none">
+      <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-500" />
+      <span>
+        {goalCompletionDurationText
+          ? t("chat.goalCompletion.completedWithDuration", {
+              defaultValue: "Goal reached in {{time}}",
+              time: goalCompletionDurationText,
+            })
+          : t("chat.goalCompletion.completed", {
+              defaultValue: "Goal reached",
+            })}
+      </span>
+      {goalCompletionTokensText && (
+        <span className="text-muted-foreground/80">
+          ·{" "}
+          {t("chat.goalCompletion.tokens", {
+            defaultValue: "{{tokens}} tokens",
+            tokens: goalCompletionTokensText,
+          })}
+        </span>
+      )}
+    </div>
+  ) : null
+  const memoryTraceRefCount = msg.usedMemoryRefs?.length ?? msg.activeMemory?.candidates.length ?? 0
+  const shouldShowMemoryTrace = shouldRenderMemoryTracePanel(
+    memoryTraceRefCount,
+    msg.retrievalPlanner,
+  )
   const toolbarButtonClass =
     "flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/80 transition-colors"
   const renderToggleLabel =
@@ -529,9 +1476,7 @@ function MessageBubbleInner({
         type="button"
         aria-label={renderToggleLabel}
         aria-pressed={contentRenderMode === "markdown"}
-        onClick={() =>
-          setContentRenderMode((mode) => (mode === "markdown" ? "text" : "markdown"))
-        }
+        onClick={() => setContentRenderMode((mode) => (mode === "markdown" ? "text" : "markdown"))}
         className={toolbarButtonClass}
       >
         {contentRenderMode === "markdown" ? (
@@ -553,6 +1498,17 @@ function MessageBubbleInner({
       </button>
     </IconTip>
   ) : null
+  const forkButton = canForkFromMessage ? (
+    <IconTip label={t("chat.fork.continueInNewSession", "Continue in new session")}>
+      <button
+        type="button"
+        onClick={() => onForkFromMessage?.(msg.dbId!)}
+        className={toolbarButtonClass}
+      >
+        <GitFork className="h-3.5 w-3.5" />
+      </button>
+    </IconTip>
+  ) : null
   const detailsButton = hasDetails ? (
     <div className="relative flex h-6 w-6 items-center justify-center">
       <IconTip label={t("chat.details")}>
@@ -567,11 +1523,10 @@ function MessageBubbleInner({
           <Info className="h-3.5 w-3.5" />
         </button>
       </IconTip>
-      <AnimatedPresenceBox
+      <FloatingMenu
         open={detailsIndex === index}
-        className="absolute bottom-full left-0 z-50 mb-1 w-64 max-w-[calc(100vw-2rem)] origin-bottom-left rounded-lg border border-border bg-popover p-2.5 shadow-lg"
-        enterClassName="translate-y-0 scale-100 opacity-100"
-        exitClassName="translate-y-1 scale-[0.98] opacity-0 pointer-events-none"
+        positionClassName="bottom-full left-0 mb-1.5"
+        className="w-64 max-w-[calc(100vw-2rem)] p-2.5"
       >
         <div className="space-y-1.5 text-xs">
           {msg.model && (
@@ -593,17 +1548,13 @@ function MessageBubbleInner({
             const inputTokens = msg.usage?.inputTokens
             const lastInputTokens = msg.usage?.lastInputTokens
             const showLastInput =
-              inputTokens != null &&
-              lastInputTokens != null &&
-              lastInputTokens !== inputTokens
+              inputTokens != null && lastInputTokens != null && lastInputTokens !== inputTokens
             if (inputTokens == null) return null
             return (
               <>
                 <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-3">
                   <span className="text-muted-foreground whitespace-nowrap shrink-0">
-                    {showLastInput
-                      ? t("chat.inputTokensCumulative")
-                      : t("chat.inputTokens")}
+                    {showLastInput ? t("chat.inputTokensCumulative") : t("chat.inputTokens")}
                   </span>
                   <span className="justify-self-end whitespace-nowrap text-right font-medium text-foreground tabular-nums">
                     {formatTokens(inputTokens)}
@@ -656,7 +1607,7 @@ function MessageBubbleInner({
             </div>
           )}
         </div>
-      </AnimatedPresenceBox>
+      </FloatingMenu>
     </div>
   ) : null
 
@@ -759,6 +1710,57 @@ function MessageBubbleInner({
     )
   }
 
+  if (msg.isWorkflowResult) {
+    const resultDisplay = getWorkflowResultDisplay(msg, t)
+    const hasDetail = !!resultDisplay.detail
+    const resultTone = getAsyncResultTone(resultDisplay.status)
+    return (
+      <div className="flex flex-col items-center gap-1 w-full max-w-[80%]">
+        <button
+          type="button"
+          disabled={!hasDetail}
+          aria-expanded={hasDetail ? resultExpanded : undefined}
+          aria-label={hasDetail ? t("chat.details") : undefined}
+          onClick={() => {
+            if (hasDetail) setResultExpanded((v) => !v)
+          }}
+          className={cn(
+            "flex flex-wrap items-center gap-1.5 max-w-full px-3 py-1.5 rounded-full border text-xs transition-colors",
+            hasDetail && "cursor-pointer",
+            resultTone.chip,
+            !hasDetail && "disabled:cursor-default",
+          )}
+        >
+          <Network className={cn("w-3 h-3 shrink-0", resultTone.icon)} />
+          <span className={cn("font-medium", resultTone.label)}>{resultDisplay.name}</span>
+          <span className={resultTone.separator}>·</span>
+          <span>{resultDisplay.statusText}</span>
+          {hasDetail && (
+            <ChevronDown
+              className={cn(
+                "w-3 h-3 shrink-0 transition-transform duration-200",
+                resultExpanded && "rotate-180",
+                resultTone.icon,
+              )}
+            />
+          )}
+        </button>
+        {hasDetail && (
+          <AnimatedCollapse open={resultExpanded}>
+            <div
+              className={cn(
+                "w-full max-h-[360px] overflow-auto px-3 py-2 rounded-lg border text-xs text-foreground/85 whitespace-pre-wrap break-words animate-in fade-in-0 slide-in-from-top-1 duration-150 font-mono text-[11px]",
+                resultTone.detail,
+              )}
+            >
+              {resultDisplay.detail}
+            </div>
+          </AnimatedCollapse>
+        )}
+      </div>
+    )
+  }
+
   if (msg.isSubagentResult) {
     const resultDisplay = getSubagentResultDisplay(msg, t)
     const hasDetail = !!resultDisplay.detail
@@ -781,12 +1783,8 @@ function MessageBubbleInner({
           )}
         >
           <Timer className={cn("w-3 h-3 shrink-0", resultTone.icon)} />
-          <span className={cn("font-medium", resultTone.label)}>
-            {resultDisplay.name}
-          </span>
-          <span className={resultTone.separator}>
-            ·
-          </span>
+          <span className={cn("font-medium", resultTone.label)}>{resultDisplay.name}</span>
+          <span className={resultTone.separator}>·</span>
           <span>{resultDisplay.statusText}</span>
           {hasDetail && (
             <ChevronDown
@@ -824,6 +1822,10 @@ function MessageBubbleInner({
     return <WakeupTriggerBubble t={t} />
   }
 
+  if (msg.isLoopTrigger) {
+    return <LoopTriggerBubble msg={msg} t={t} />
+  }
+
   if (msg.isProcessNotification) {
     return <ProcessNotificationBubble msg={msg} t={t} />
   }
@@ -859,7 +1861,7 @@ function MessageBubbleInner({
           onHover(null)
           setDetailsIndex((prev) => (prev === index ? null : prev))
         }}
-        onContextMenu={(e) => onContextMenu(e, index)}
+        onContextMenuCapture={(e) => onContextMenu(e, index)}
       >
         {msg.fromAgentId && (
           <div className="w-6 h-6 rounded-full bg-purple-500/15 flex items-center justify-center text-purple-500 shrink-0 mt-1 text-[10px] overflow-hidden">
@@ -908,9 +1910,21 @@ function MessageBubbleInner({
             displayMode="timeline"
             contentRenderMode={contentRenderMode}
           />
+          {goalCompletionFooter && <div className="ml-7">{goalCompletionFooter}</div>}
           {messageFiles.length > 0 && (
             <div className="ml-7">
               <FileAttachments files={messageFiles} sessionId={sessionId} />
+            </div>
+          )}
+          {shouldShowMemoryTrace && (
+            <div className="ml-7">
+              <ActiveMemoryTrace
+                memory={msg.activeMemory}
+                usedMemoryRefs={msg.usedMemoryRefs}
+                retrievalPlanner={msg.retrievalPlanner}
+                onOpenMemorySettings={onOpenMemorySettings}
+                onOpenKnowledge={onOpenKnowledge}
+              />
             </div>
           )}
           {(msg.timestamp || totalDurationText) && (
@@ -947,6 +1961,7 @@ function MessageBubbleInner({
               </IconTip>
             )}
             {addQuickPromptButton}
+            {forkButton}
             {renderToggleButton}
             {detailsButton}
           </div>
@@ -963,7 +1978,7 @@ function MessageBubbleInner({
         onHover(null)
         setDetailsIndex((prev) => (prev === index ? null : prev))
       }}
-      onContextMenu={(e) => onContextMenu(e, index)}
+      onContextMenuCapture={(e) => onContextMenu(e, index)}
     >
       {/* Parent agent avatar for delegated messages */}
       {msg.fromAgentId && (
@@ -1007,9 +2022,7 @@ function MessageBubbleInner({
               : msg.fromAgentId
                 ? "bg-purple-500/10 border border-purple-500/20 text-foreground"
                 : "bg-card text-foreground/80",
-            contentRenderMode === "markdown"
-              ? "message-markdown-content"
-              : "message-plain-content",
+            contentRenderMode === "markdown" ? "message-markdown-content" : "message-plain-content",
             msg.role === "assistant" &&
               !msg.content &&
               !msg.toolCalls?.length &&
@@ -1037,6 +2050,18 @@ function MessageBubbleInner({
             />
           ) : (
             <>
+              {(msg.isGoalTrigger || msg.slashEvent?.mode === "goal") && (
+                <div className="mb-1.5 flex items-center gap-1 text-[11px] font-medium text-emerald-700 dark:text-emerald-300">
+                  <Target className="h-3 w-3 shrink-0" />
+                  <span>{t("chat.goalMode.messageBadge", "目标")}</span>
+                </div>
+              )}
+              {msg.slashEvent?.mode === "loop" && (
+                <div className="mb-1.5 flex items-center gap-1 text-[11px] font-medium text-sky-700 dark:text-sky-300">
+                  <Radio className="h-3 w-3 shrink-0" />
+                  <span>{t("chat.loopMode.messageBadge", "持续推进")}</span>
+                </div>
+              )}
               <UserAttachments attachments={msg.attachments} sessionId={sessionId} />
               <UserMessageContent
                 content={msg.content}
@@ -1051,8 +2076,18 @@ function MessageBubbleInner({
           {msg.content && !(loading && isLast) && (
             <MessageUrlPreviews content={msg.content} isStreaming={loading && isLast} />
           )}
+          {msg.role === "assistant" && goalCompletionFooter}
           {messageFiles.length > 0 && (
             <FileAttachments files={messageFiles} sessionId={sessionId} />
+          )}
+          {shouldShowMemoryTrace && (
+            <ActiveMemoryTrace
+              memory={msg.activeMemory}
+              usedMemoryRefs={msg.usedMemoryRefs}
+              retrievalPlanner={msg.retrievalPlanner}
+              onOpenMemorySettings={onOpenMemorySettings}
+              onOpenKnowledge={onOpenKnowledge}
+            />
           )}
           {(msg.timestamp || totalDurationText) && (
             <div
@@ -1100,6 +2135,7 @@ function MessageBubbleInner({
             </IconTip>
           )}
           {addQuickPromptButton}
+          {forkButton}
           {renderToggleButton}
           {detailsButton}
         </div>

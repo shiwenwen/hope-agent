@@ -16,6 +16,7 @@ import {
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
+import { FloatingMenu } from "@/components/ui/floating-menu"
 import { IconTip } from "@/components/ui/tooltip"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
@@ -28,6 +29,7 @@ import type {
   KnowledgeEvidenceRebuildResult,
   SchemaIssue,
 } from "@/types/knowledge"
+import { knowledgeMaintenanceErrorToast } from "./knowledgeMaintenanceFeedback"
 
 interface Props {
   /** The active knowledge space; the panel is empty/disabled when null. */
@@ -122,7 +124,11 @@ export default function KnowledgeMaintenanceButton({ kbId, onOpenNote }: Props) 
       await refresh()
     } catch (e) {
       logger.warn("knowledge", "KnowledgeMaintenanceButton::runNow", "run failed", e)
-      toast.error(t("knowledge.maintenance.runFailed", "Couldn't run maintenance"))
+      const failureToast = knowledgeMaintenanceErrorToast("runNow", t, e)
+      toast.error(
+        failureToast.title,
+        failureToast.description ? { description: failureToast.description } : undefined,
+      )
     } finally {
       setRunning(false)
     }
@@ -147,7 +153,11 @@ export default function KnowledgeMaintenanceButton({ kbId, onOpenNote }: Props) 
       await refresh()
     } catch (e) {
       logger.warn("knowledge", "KnowledgeMaintenanceButton::rebuildEvidence", "failed", e)
-      toast.error(t("knowledge.maintenance.evidenceRebuildFailed", "Couldn't rebuild evidence index"))
+      const failureToast = knowledgeMaintenanceErrorToast("rebuildEvidence", t, e)
+      toast.error(
+        failureToast.title,
+        failureToast.description ? { description: failureToast.description } : undefined,
+      )
     } finally {
       setRebuildingEvidence(false)
     }
@@ -174,10 +184,14 @@ export default function KnowledgeMaintenanceButton({ kbId, onOpenNote }: Props) 
         await refresh()
       } catch (e) {
         logger.warn("knowledge", "KnowledgeMaintenanceButton::decide", "decision failed", e)
+        const failureToast = knowledgeMaintenanceErrorToast(
+          approve ? "applyProposal" : "rejectProposal",
+          t,
+          e,
+        )
         toast.error(
-          approve
-            ? t("knowledge.maintenance.applyFailed", "Couldn't apply proposal")
-            : t("knowledge.maintenance.rejectFailed", "Couldn't reject proposal"),
+          failureToast.title,
+          failureToast.description ? { description: failureToast.description } : undefined,
         )
       } finally {
         setBusyId(null)
@@ -194,10 +208,15 @@ export default function KnowledgeMaintenanceButton({ kbId, onOpenNote }: Props) 
       await refresh()
     } catch (e) {
       logger.warn("knowledge", "KnowledgeMaintenanceButton::rejectAll", "failed", e)
+      const failureToast = knowledgeMaintenanceErrorToast("rejectAll", t, e)
+      toast.error(
+        failureToast.title,
+        failureToast.description ? { description: failureToast.description } : undefined,
+      )
     } finally {
       setBusyId(null)
     }
-  }, [kbId, busyId, refresh])
+  }, [kbId, busyId, refresh, t])
 
   // Keep the badge fresh as the space mutates (links resolve/break on edits).
   // `refresh` only setStates after an `await` (a microtask, not a synchronous
@@ -270,8 +289,13 @@ export default function KnowledgeMaintenanceButton({ kbId, onOpenNote }: Props) 
         </Button>
       </IconTip>
 
-      {open && (
-        <div className="absolute right-0 top-full z-50 mt-1 w-[340px] rounded-lg border border-border bg-popover shadow-lg">
+      <FloatingMenu
+        open={open}
+        positionClassName="top-full right-0 mt-1.5"
+        originClassName="origin-top-right"
+        className="ha-menu-from-top w-[340px] overflow-hidden p-0"
+        onEscapeKeyDown={() => setOpen(false)}
+      >
           <div className="flex items-center justify-between border-b border-border-soft/60 px-3 py-2">
             <span className="text-xs font-medium">
               {t("knowledge.maintenance.title", "Maintenance")}
@@ -480,8 +504,7 @@ export default function KnowledgeMaintenanceButton({ kbId, onOpenNote }: Props) 
               </div>
             )}
           </div>
-        </div>
-      )}
+      </FloatingMenu>
     </div>
   )
 }

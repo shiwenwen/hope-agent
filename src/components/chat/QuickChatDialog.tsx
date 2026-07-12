@@ -5,6 +5,7 @@ import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { X, Plus, ChevronDown, Bot, ExternalLink } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { FloatingMenu } from "@/components/ui/floating-menu"
 import { IconTip } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
 import ChatInput from "@/components/chat/ChatInput"
@@ -14,7 +15,7 @@ import IncognitoToggle from "@/components/chat/input/IncognitoToggle"
 import { useQuickChatSession } from "./useQuickChatSession"
 import { useChatStream } from "./useChatStream"
 import type { CommandResult } from "./slash-commands/types"
-import type { AgentSummaryForSidebar } from "@/types/chat"
+import type { AgentSummaryForSidebar, PendingMessageQuote } from "@/types/chat"
 import type { QuickPromptAddResult, QuickPromptConfig, QuickPromptItem } from "@/types/quickPrompts"
 import { recentUserInputHistory } from "./quick-prompts/messageQuickPrompts"
 
@@ -38,6 +39,7 @@ export default function QuickChatDialog({
   const quickStreamSeqRef = useRef<Map<string, number>>(new Map())
   const quickEndedStreamIdsRef = useRef<Map<string, string>>(new Map())
   const [quickPrompts, setQuickPrompts] = useState<QuickPromptItem[]>([])
+  const [composerFocusSignal, setComposerFocusSignal] = useState<number | undefined>(undefined)
 
   // Effective incognito = persisted session.incognito (continued chat) or
   // draft toggle (new chat). Same shape as `ChatScreen` so `useChatStream`
@@ -109,14 +111,22 @@ export default function QuickChatDialog({
     sessionCacheRef: session.sessionCacheRef,
     sessions: session.sessions,
     agents: session.agents,
-    activeModel: session.activeModel,
+    manualModelOverrideRef: session.manualModelOverrideRef,
     reasoningEffort: session.reasoningEffort,
+    temperatureOverride: session.sessionTemperature,
     reloadSessions: session.reloadSessions,
     updateSessionMessages: session.updateSessionMessages,
     lastSeqRef: quickStreamSeqRef,
     endedStreamIdsRef: quickEndedStreamIdsRef,
     incognitoEnabled,
   })
+  const handleMessageQuote = useCallback(
+    (quote: PendingMessageQuote) => {
+      stream.setPendingMessageQuotes((prev) => [...prev, quote])
+      setComposerFocusSignal((prev) => (prev ?? 0) + 1)
+    },
+    [stream],
+  )
 
   // Draft-only incognito toggle handler. No useCallback — see QuickChatWindow
   // for the React Compiler dep-inference rationale.
@@ -263,6 +273,7 @@ export default function QuickChatDialog({
           sessionId={session.currentSessionId}
           incognito={incognitoEnabled}
           onAddQuickPrompt={incognitoEnabled ? undefined : handleAddQuickPrompt}
+          onAddMessageQuote={handleMessageQuote}
         />
 
         {/* ── Approval Dialog ────────────────────── */}
@@ -282,9 +293,13 @@ export default function QuickChatDialog({
             loading={session.loading}
             availableModels={session.availableModels}
             activeModel={session.activeModel}
+            unavailableModelPreference={session.unavailableModelPreference}
             reasoningEffort={session.reasoningEffort}
             onModelChange={session.handleModelChange}
             onEffortChange={session.handleEffortChange}
+            onEffortReset={session.resetEffort}
+            sessionTemperature={session.sessionTemperature}
+            onSessionTemperatureChange={session.handleTemperatureChange}
             attachedFiles={stream.attachedFiles}
             onAttachFiles={stream.setAttachedFiles}
             onRemoveFile={(i) =>
@@ -295,8 +310,20 @@ export default function QuickChatDialog({
                 prev.map((existing, idx) => (idx === index ? file : existing)),
               )
             }
+            pendingMessageQuotes={stream.pendingMessageQuotes}
+            onRemoveMessageQuote={(i) =>
+              stream.setPendingMessageQuotes((prev) => prev.filter((_, idx) => idx !== i))
+            }
+            focusSignal={composerFocusSignal}
             pendingMessage={stream.pendingMessage}
+            pendingSends={stream.pendingSends}
             onCancelPending={() => stream.setPendingMessage(null)}
+            onDiscardPending={() => stream.setPendingMessage(null)}
+            onEditPending={stream.editPendingSend}
+            onDiscardPendingItem={stream.discardPendingSend}
+            onSendPending={stream.sendPendingSend}
+            onForceInsertPending={stream.forceInsertPendingSend}
+            onCancelForceInsertPending={stream.cancelForceInsertPendingSend}
             onStop={stream.handleStop}
             currentSessionId={session.currentSessionId}
             currentAgentId={session.currentAgentId}
@@ -358,8 +385,13 @@ function AgentSelector({
         <ChevronDown className="h-3 w-3 text-muted-foreground" />
       </button>
 
-      {menuOpen && agents.length > 0 && (
-        <div className="absolute top-full left-0 mt-1 min-w-[200px] max-h-[240px] overflow-y-auto bg-popover border border-border rounded-lg shadow-lg py-1 z-10">
+      <FloatingMenu
+        open={menuOpen && agents.length > 0}
+        positionClassName="top-full left-0 mt-1.5"
+        originClassName="origin-top-left"
+        className="ha-menu-from-top min-w-[200px] max-h-[240px] overflow-y-auto p-1.5"
+        onEscapeKeyDown={() => setMenuOpen(false)}
+      >
           {agents.map((agent) => (
             <button
               key={agent.id}
@@ -379,8 +411,7 @@ function AgentSelector({
               )}
             </button>
           ))}
-        </div>
-      )}
+      </FloatingMenu>
     </div>
   )
 }

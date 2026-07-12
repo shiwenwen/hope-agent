@@ -1,0 +1,56 @@
+{
+  "name": "docs_sanity_context",
+  "description": "Docs-only changes should avoid noisy review findings and choose the cheap diff sanity check.",
+  "repo": {
+    "files": [
+      {
+        "path": "docs/notes.md",
+        "text": "# Notes\n\nInitial\n"
+      }
+    ],
+    "changes": [
+      {
+        "path": "docs/notes.md",
+        "text": "# Notes\n\nUpdated documentation.\n"
+      }
+    ]
+  },
+  "runs": {
+    "review": {},
+    "verification": {},
+    "context": {
+      "query": "notes",
+      "limit": 12
+    }
+  },
+  "checks": {
+    "review": {
+      "maxFindings": 0,
+      "expectFocused": false
+    },
+    "verification": {
+      "expectedCommands": [
+        "git diff --check"
+      ],
+      "expectFocused": false
+    },
+    "context": {
+      "minCriticalRecall": 1.0,
+      "minPrecision": 0.25,
+      "maxCandidates": 12,
+      "expectActionPaths": [
+        "docs/notes.md"
+      ],
+      "critical": [
+        {
+          "kind": "file",
+          "pathSuffix": "docs/notes.md"
+        },
+        {
+          "kind": "verification_step",
+          "titleContains": "Check diff whitespace"
+        }
+      ]
+    }
+  }
+}

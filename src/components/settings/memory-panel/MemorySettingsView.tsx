@@ -3,6 +3,7 @@ import ExtractConfig from "./ExtractConfig"
 import RecallSummarySection from "./RecallSummarySection"
 import BudgetConfig from "./BudgetConfig"
 import EmbeddingSettingsSection from "./EmbeddingSettingsSection"
+import ExternalMemoryProvidersConfig from "./ExternalMemoryProvidersConfig"
 import type { useMemoryData } from "./useMemoryData"
 
 type MemoryData = ReturnType<typeof useMemoryData>
@@ -30,6 +31,8 @@ export default function MemorySettingsView({ data, isAgentMode }: MemorySettings
         {!isAgentMode && <RecallSummarySection />}
 
         {!isAgentMode && <BudgetConfig />}
+
+        {!isAgentMode && <ExternalMemoryProvidersConfig />}
 
         {!isAgentMode && (
           <div className="space-y-4 border-t border-border/50 pt-5">

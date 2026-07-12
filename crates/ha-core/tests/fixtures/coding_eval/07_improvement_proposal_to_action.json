@@ -1,0 +1,55 @@
+{
+  "name": "improvement_proposal_to_action",
+  "description": "A coding improvement proposal should be previewed and applied into a reviewable draft artifact without directly changing project policy or production eval fixtures.",
+  "repo": {
+    "files": [
+      {
+        "path": "src/lib.rs",
+        "text": "pub fn answer() -> i32 {\n    41\n}\n"
+      }
+    ]
+  },
+  "setup": {
+    "goal": {
+      "objective": "Repair the answer implementation",
+      "completionCriteria": "The workflow should stop with evidence and create an improvement candidate."
+    }
+  },
+  "runs": {
+    "improvement": {
+      "generateProposals": true,
+      "applyFirstProposal": true,
+      "seedEvalRuns": [
+        {
+          "suite": "coding_control_plane",
+          "name": "improvement_proposal_to_action",
+          "status": "failed",
+          "metrics": {
+            "source": "phase4_1",
+            "proposalToAction": true
+          },
+          "sourceType": "fixture",
+          "sourceId": "improvement_proposal_to_action"
+        }
+      ]
+    }
+  },
+  "checks": {
+    "improvement": {
+      "expectedScope": "session",
+      "minFailures": 1,
+      "expectedFailureCategories": [
+        "eval_failed"
+      ],
+      "minProposals": 1,
+      "minInsertedProposals": 1,
+      "expectedProposalKinds": [
+        "eval_candidate"
+      ],
+      "expectedAppliedStatus": "applied",
+      "expectedAppliedKind": "eval_candidate",
+      "minAppliedArtifacts": 1,
+      "expectedActionTargetContains": ".hope-agent/coding-improvement/eval-candidates"
+    }
+  }
+}
