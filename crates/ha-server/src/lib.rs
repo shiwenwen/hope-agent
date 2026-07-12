@@ -668,6 +668,10 @@ fn build_router_with_cors(
         )
         .route("/chat/stop", post(routes::chat::stop_chat))
         .route(
+            "/chat/approvals/pending",
+            get(routes::chat::list_pending_approvals),
+        )
+        .route(
             "/sessions/{sessionId}/tasks",
             get(routes::tasks::list_session_tasks).post(routes::tasks::create_session_task),
         )

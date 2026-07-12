@@ -215,6 +215,7 @@ pub fn run() {
             commands::chat::set_sandbox_mode,
             // Command approval
             commands::chat::respond_to_approval,
+            commands::chat::list_pending_approvals,
             // System prompt
             commands::chat::get_system_prompt,
             // Tools info

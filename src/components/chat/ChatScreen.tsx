@@ -3638,7 +3638,10 @@ export default function ChatScreen({
                 pendingScrollIntent={session.pendingScrollIntent}
                 onScrollTargetHandled={session.clearPendingScrollIntent}
                 pendingQuestionGroup={planMode.pendingQuestionGroup}
-                onQuestionSubmitted={() => planMode.setPendingQuestionGroup(null)}
+                onQuestionSubmitted={() => {
+                  planMode.setPendingQuestionGroup(null)
+                  void planMode.refreshPendingQuestion()
+                }}
                 planCardData={planMode.planCardInfo ? { title: planMode.planCardInfo.title } : null}
                 planState={planMode.planState}
                 onOpenPlanPanel={planMode.openPlanPanel}

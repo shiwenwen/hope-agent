@@ -58,12 +58,12 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
     } else {
         0
     };
+    let now_secs = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
     let timeout_at = if timeout_secs > 0 {
-        let now_secs = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
-        Some(now_secs + timeout_secs)
+        Some(now_secs.saturating_add(timeout_secs))
     } else {
         None
     };
@@ -114,6 +114,8 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
         context: reason.map(AskUserText::plain),
         source: Some("plan".to_string()),
         timeout_at,
+        timeout_secs: (timeout_secs > 0).then_some(timeout_secs),
+        server_now: Some(now_secs),
         owner_response: None,
     };
 
@@ -128,7 +130,7 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
     }
 
     let (tx, rx) = tokio::sync::oneshot::channel();
-    ask_user::register_ask_user_question(request_id.clone(), tx).await;
+    ask_user::register_ask_user_question(request_id.clone(), sid.to_string(), tx).await;
 
     if let Some(bus) = crate::globals::get_event_bus() {
         match serde_json::to_value(&group) {
@@ -136,13 +138,13 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
                 bus.emit(ask_user::EVENT_ASK_USER_REQUEST, event_data);
             }
             Err(e) => {
-                ask_user::cancel_pending_ask_user_question(&request_id).await;
+                ask_user::cancel_pending_ask_user_question_with_source(&request_id, "error").await;
                 let _ = ask_user::mark_group_answered(&request_id);
                 return format!("Error: failed to serialize plan-mode prompt: {}", e);
             }
         }
     } else {
-        ask_user::cancel_pending_ask_user_question(&request_id).await;
+        ask_user::cancel_pending_ask_user_question_with_source(&request_id, "error").await;
         let _ = ask_user::mark_group_answered(&request_id);
         return "Error: EventBus not available".to_string();
     }
@@ -152,7 +154,8 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
             Ok(Ok(answers)) => Some(answers),
             Ok(Err(_)) => None,
             Err(_) => {
-                ask_user::cancel_pending_ask_user_question(&request_id).await;
+                ask_user::cancel_pending_ask_user_question_with_source(&request_id, "timeout")
+                    .await;
                 let _ = ask_user::mark_group_answered(&request_id);
                 crate::channel::worker::ask_user::drop_pending_by_request_id(&request_id).await;
                 ask_user::emit_ask_user_timed_out(

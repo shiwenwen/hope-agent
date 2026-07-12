@@ -1219,6 +1219,23 @@ pub async fn stop_chat(
         }
         stopped = true;
     }
+    // A foreground approval wait does not observe the chat cancel flag itself.
+    // Resolve it explicitly so Stop cannot leave a modal orphaned or allow the
+    // user to authorize a tool after the turn has been marked cancelled.
+    if let Some(sid) = session_id.as_deref() {
+        if stopped || turn_id.is_none() {
+            ha_core::tools::deny_pending_for_session(
+                sid,
+                ha_core::tools::ApprovalResolutionSource::UserStop,
+            )
+            .await;
+            ha_core::ask_user::cancel_pending_ask_user_questions_for_session(sid, "user_stop")
+                .await;
+        }
+    } else {
+        ha_core::tools::deny_all_pending(ha_core::tools::ApprovalResolutionSource::UserStop).await;
+        ha_core::ask_user::cancel_all_pending_ask_user_questions("user_stop").await;
+    }
     let runtime_scope = stopped.then_some(session_id.as_deref()).flatten();
     let runtime_cancellations = if stopped || session_id.is_none() {
         ha_core::runtime_tasks::cancel_runtime_tasks_for_session(runtime_scope).await
@@ -1356,6 +1373,14 @@ pub async fn respond_to_approval(request_id: String, response: String) -> Result
     )
     .await
     .map_err(|e| CmdError::msg(e.to_string()))
+}
+
+/// Return the authoritative owner-surface recovery snapshot. Live events keep
+/// the dialog responsive; this command repairs missed events after reload or a
+/// transport gap.
+#[tauri::command]
+pub async fn list_pending_approvals() -> Result<Vec<ha_core::tools::ApprovalRequest>, CmdError> {
+    Ok(ha_core::tools::list_pending_approval_requests().await)
 }
 
 // ── System Prompt ────────────────────────────────────────────────

@@ -9,6 +9,13 @@
 import type { FileChangesMetadata, MediaItem, SandboxMode, SessionMode } from "@/types/chat";
 
 /**
+ * Synthetic transport-local event emitted whenever the HTTP event stream
+ * connects/reconnects or reports lag. Consumers should re-read durable state
+ * because backend EventBus broadcasts are intentionally not replayed.
+ */
+export const TRANSPORT_EVENT_RESYNC_REQUIRED = "transport:event-stream-resync-required";
+
+/**
  * One entry in `ChatStartArgs.attachments`. Snake-case fields are the
  * wire form — both Tauri IPC and `POST /api/chat` serialize this object
  * as-is. `data` and `file_path` are mutually-exclusive: inline images
