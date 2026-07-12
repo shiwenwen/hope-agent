@@ -219,8 +219,8 @@ describe("AgentEditView", () => {
     fireEvent.click(screen.getByRole("button", { name: "common.delete" }))
     expect(await screen.findByText("agentLifecycle.deleteTitle")).toBeTruthy()
 
-    const deleteButtons = screen.getAllByRole("button", { name: "common.delete" })
-    fireEvent.click(deleteButtons[deleteButtons.length - 1])
+    const confirmDeleteButton = await screen.findByRole("button", { name: "common.delete" })
+    fireEvent.click(confirmDeleteButton)
 
     await waitFor(() => {
       expect(transportMock.call).toHaveBeenCalledWith("delete_agent", {
