@@ -19,13 +19,15 @@ import type {
 import { getTransport } from "@/lib/transport-provider"
 import {
   PullRequestDetailsContent,
+} from "./GitControlCard"
+import {
   buildChecksFixPrompt,
   buildCommentsFixPrompt,
   buildMergeConflictFixPrompt,
   buildPullRequestFixPrompt,
   hasPullRequestConflicts,
   isActionableReview,
-} from "./GitControlCard"
+} from "./gitPullRequestUtils"
 
 interface PullRequestPanelProps {
   sessionId: string
@@ -56,10 +58,6 @@ export function PullRequestPanel({ sessionId, onClose, onFillInput }: PullReques
       { sessionId },
     )
     setLoading(true)
-    let request: {
-      generation: number
-      promise: Promise<GitPullRequestFeedback | null>
-    }
     const promise = rawPromise
       .then((next) => {
         if (requestGenerationRef.current !== generation) return null
@@ -73,11 +71,12 @@ export function PullRequestPanel({ sessionId, onClose, onFillInput }: PullReques
         return null
       })
       .finally(() => {
-        if (inFlightRequestRef.current === request) inFlightRequestRef.current = null
+        if (inFlightRequestRef.current?.generation === generation) {
+          inFlightRequestRef.current = null
+        }
         if (requestGenerationRef.current === generation) setLoading(false)
       })
-    request = { generation, promise }
-    inFlightRequestRef.current = request
+    inFlightRequestRef.current = { generation, promise }
     return promise
   }, [sessionId])
 

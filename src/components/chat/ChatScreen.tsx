@@ -140,11 +140,11 @@ import {
 import { chatKnowledgeReferenceAttachErrorToast } from "./chatKnowledgeReferenceFeedback"
 import ProjectDialog from "./project/ProjectDialog"
 import ProjectOverviewDialog from "./project/ProjectOverviewDialog"
+import { ProjectSessionDraftBar } from "./project/ProjectSessionDraftBar"
 import {
   createLocalProjectRuntimeDraft,
-  ProjectSessionDraftBar,
   type ProjectRuntimeDraft,
-} from "./project/ProjectSessionDraftBar"
+} from "./project/projectRuntimeDraft"
 import {
   CHAT_DISPLAY_MODE_EVENT,
   normalizeChatDisplayMode,

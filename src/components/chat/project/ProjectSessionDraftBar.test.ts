@@ -6,7 +6,7 @@ import {
   defaultProjectBranch,
   projectBranchDisabledForLaunch,
   projectRuntimeDraftForBranch,
-} from "./ProjectSessionDraftBar"
+} from "./projectRuntimeDraft"
 
 const branch = (overrides: Partial<GitBranchInfo>): GitBranchInfo => ({
   name: "main",

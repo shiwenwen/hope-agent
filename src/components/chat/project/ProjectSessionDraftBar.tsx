@@ -18,52 +18,12 @@ import { getTransport } from "@/lib/transport-provider"
 import type { GitBranchInfo, GitInfo } from "@/lib/transport"
 import { cn } from "@/lib/utils"
 import type { ProjectMeta } from "@/types/project"
-
-export interface ProjectRuntimeDraft {
-  requestId: string
-  launchMode: "local" | "worktree"
-  baseRef: string | null
-  baseRefKind: "local" | "remote" | null
-  includeLocalChanges: boolean
-}
-
-export const createLocalProjectRuntimeDraft = (): ProjectRuntimeDraft => ({
-  requestId: "",
-  launchMode: "local",
-  baseRef: null,
-  baseRefKind: null,
-  includeLocalChanges: false,
-})
-
-export function defaultProjectBranch(info: GitInfo): GitBranchInfo | null {
-  return (
-    info.branches.find((branch) => branch.isCurrent && branch.kind === "local") ??
-    info.branches.find((branch) => branch.kind === "local" && branch.name === "main") ??
-    info.branches.find((branch) => branch.kind === "local" && branch.name === "master") ??
-    info.branches.find((branch) => branch.kind === "local") ??
-    info.branches.find((branch) => branch.kind === "remote") ??
-    null
-  )
-}
-
-export function projectRuntimeDraftForBranch(
-  current: ProjectRuntimeDraft,
-  branch: GitBranchInfo,
-): ProjectRuntimeDraft {
-  return {
-    ...current,
-    baseRef: branch.fullRef,
-    baseRefKind: branch.kind,
-    includeLocalChanges: branch.kind === "local" && branch.isCurrent,
-  }
-}
-
-export function projectBranchDisabledForLaunch(
-  branch: GitBranchInfo,
-  launchMode: ProjectRuntimeDraft["launchMode"],
-): boolean {
-  return launchMode === "local" && branch.isCheckedOut && !branch.isCurrent
-}
+import {
+  defaultProjectBranch,
+  projectBranchDisabledForLaunch,
+  projectRuntimeDraftForBranch,
+  type ProjectRuntimeDraft,
+} from "./projectRuntimeDraft"
 
 export function ProjectSessionDraftBar({
   project,
@@ -110,10 +70,13 @@ export function ProjectSessionDraftBar({
 
   useEffect(() => {
     let cancelled = false
-    setGitLoading(true)
-    setGitError(null)
-    setGitNotice(null)
-    setGitInfo(null)
+    queueMicrotask(() => {
+      if (cancelled) return
+      setGitLoading(true)
+      setGitError(null)
+      setGitNotice(null)
+      setGitInfo(null)
+    })
     getTransport()
       .call<GitInfo | null>("project_git_info", { scope: "project", scopeId: project.id })
       .then((info) => {
@@ -147,10 +110,12 @@ export function ProjectSessionDraftBar({
     const fallback = defaultProjectBranch(gitInfo)
     if (fallback) {
       if (draft.baseRef) {
-        setGitNotice(
-          t("chat.projectRuntime.branchChanged", "原分支已失效，已回退到 {{branch}}", {
-            branch: fallback.name,
-          }),
+        queueMicrotask(() =>
+          setGitNotice(
+            t("chat.projectRuntime.branchChanged", "原分支已失效，已回退到 {{branch}}", {
+              branch: fallback.name,
+            }),
+          ),
         )
       }
       onDraftChange(projectRuntimeDraftForBranch(draft, fallback))

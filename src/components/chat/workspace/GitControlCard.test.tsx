@@ -8,12 +8,14 @@ import type {
   SessionGitDiffSnapshot,
 } from "@/lib/transport"
 import {
+  GitControlCard,
+} from "./GitControlCard"
+import {
   buildChecksFixPrompt,
   buildCommentsFixPrompt,
   buildMergeConflictFixPrompt,
   buildPullRequestFixPrompt,
-  GitControlCard,
-} from "./GitControlCard"
+} from "./gitPullRequestUtils"
 
 const call = vi.fn()
 vi.mock("@/lib/transport-provider", () => ({

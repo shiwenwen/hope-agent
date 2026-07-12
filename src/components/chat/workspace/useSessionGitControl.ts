@@ -98,7 +98,7 @@ export function useSessionGitControl(
   useEffect(() => {
     const wasActive = previousTurnActive.current
     previousTurnActive.current = turnActive
-    if (wasActive && !turnActive) refresh()
+    if (wasActive && !turnActive) queueMicrotask(refresh)
   }, [refresh, turnActive])
 
   return { ...state, refresh }
