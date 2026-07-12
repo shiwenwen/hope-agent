@@ -161,11 +161,13 @@ export function FileBrowserView({
   )
   const expansion = useTreeExpansion(activeScope, activeScopeId)
   const [treeWidth, setTreeWidth] = useFileBrowserSplit(activeScope, activeScopeId)
+  const [isResizingTree, setIsResizingTree] = useState(false)
   const onDragDivider = useDragWidth({
     width: treeWidth,
     min: 180,
     max: 560,
     onChange: setTreeWidth,
+    onResizingChange: setIsResizingTree,
   })
 
   // Reveal a file requested from a composer quote chip: return to the host scope
@@ -592,7 +594,10 @@ export function FileBrowserView({
         {tree}
       </div>
       <div
-        className="group relative w-px shrink-0 cursor-col-resize bg-border"
+        className={cn(
+          "relative w-px shrink-0 cursor-col-resize transition-colors",
+          isResizingTree ? "bg-primary/50" : "bg-border hover:bg-primary/35",
+        )}
         onMouseDown={onDragDivider}
         role="separator"
         aria-orientation="vertical"
@@ -600,7 +605,6 @@ export function FileBrowserView({
       >
         {/* Wider invisible hit area around the 1px divider. */}
         <div className="absolute inset-y-0 -left-1 -right-1" />
-        <div className="absolute inset-y-0 -left-px -right-px transition-colors group-hover:bg-primary/40" />
       </div>
       <FilePreviewPane
         source={previewSource}
