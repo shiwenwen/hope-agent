@@ -73,6 +73,7 @@ interface GitControlCardProps {
   ) => void
   onFillInput?: (value: string) => void
   onOpenPullRequest?: () => void
+  managedWorktreeControls?: ReactNode
 }
 
 interface PrFeedbackViewState {
@@ -94,6 +95,7 @@ export function GitControlCard({
   onOpenGitDiff,
   onFillInput,
   onOpenPullRequest,
+  managedWorktreeControls,
 }: GitControlCardProps) {
   const { t } = useTranslation()
   const snapshot = state.snapshot
@@ -479,6 +481,8 @@ export function GitControlCard({
           </DropdownMenuContent>
         </DropdownMenu>
 
+        {managedWorktreeControls}
+
         <GitRow
           icon={GitBranch}
           label={snapshot.detached ? t("workspace.git.createBranch", "创建分支") : t("workspace.git.branch", "分支")}
@@ -595,7 +599,21 @@ export function GitControlCard({
               ) : null,
             )}
           </div>
-          <div className="flex gap-2 border-t pt-3"><Input value={newBranch} onChange={(event) => setNewBranch(event.target.value)} placeholder="hope-agent/feature-name" /><Button onClick={createBranch} disabled={!newBranch.trim() || busy}>{t("workspace.git.create", "创建")}</Button></div>
+          <div className="flex gap-2 border-t pt-3">
+            <Input
+              value={newBranch}
+              onChange={(event) => setNewBranch(event.target.value)}
+              className="min-w-0 flex-1"
+              placeholder="hope-agent/feature-name"
+            />
+            <Button
+              className="shrink-0 whitespace-nowrap px-4"
+              onClick={createBranch}
+              disabled={!newBranch.trim() || busy}
+            >
+              {t("workspace.git.create", "创建")}
+            </Button>
+          </div>
         </DialogContent>
       </Dialog>
 

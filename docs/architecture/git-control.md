@@ -31,7 +31,7 @@ ha-core::git_control
 | Tauri 适配 | `src-tauri/src/commands/git_control.rs` | `spawn_blocking` 调核心函数并映射桌面命令错误。 |
 | HTTP 适配 | `crates/ha-server/src/routes/git_control.rs` | REST DTO、diff scope 解析、remote-write gate。 |
 | Transport | `src/lib/transport.ts`、`transport-tauri.ts`、`transport-http.ts` | 公共 TypeScript DTO 与双运行模式调用映射。 |
-| 工作台 | `src/components/chat/workspace/GitControlCard.tsx`、`PullRequestPanel.tsx` | 紧凑状态卡、分支/提交/PR/Handoff 对话框，以及独立 PR 详情面板中的 checks、评审、冲突和自动合并。 |
+| 工作台 | `src/components/chat/workspace/GitControlCard.tsx`、`PullRequestPanel.tsx` | Git/Worktree 唯一主控制卡，统一承载运行位置、托管工作树生命周期、分支/提交/PR/Handoff 对话框，以及独立 PR 详情面板中的 checks、评审、冲突和自动合并；环境详细信息区不得复制这些状态和入口。 |
 | Diff 审阅 | `src/components/chat/diff-panel/DiffPanel.tsx` | staged/unstaged/all、文件/hunk 操作、Review 评论上下文。 |
 
 核心边界：

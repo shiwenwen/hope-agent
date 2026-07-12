@@ -121,6 +121,20 @@ describe("GitControlCard", () => {
   beforeEach(() => call.mockReset())
   afterEach(cleanup)
 
+  it("keeps managed worktree lifecycle controls inside the Git card", () => {
+    render(
+      <GitControlCard
+        sessionId="session-1"
+        state={{ snapshot: snapshot(), loading: false, error: null, refresh: vi.fn() }}
+        managedWorktrees={[]}
+        managedWorktreeControls={<div>托管工作树生命周期</div>}
+        onOpenGitDiff={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByText("托管工作树生命周期")).toBeTruthy()
+  })
+
   it("opens the real unstaged repository diff", async () => {
     const diff: SessionGitDiffSnapshot = {
       revision: "rev-1",
@@ -170,6 +184,22 @@ describe("GitControlCard", () => {
     expect(
       (screen.getByRole("button", { name: /提交|Commit/i }) as HTMLButtonElement).disabled,
     ).toBe(true)
+  })
+
+  it("keeps the create-branch action from shrinking or wrapping", () => {
+    render(
+      <GitControlCard
+        sessionId="session-1"
+        state={{ snapshot: snapshot(), loading: false, error: null, refresh: vi.fn() }}
+        managedWorktrees={[]}
+        onOpenGitDiff={vi.fn()}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: /分支|Branch/i }))
+    const create = screen.getByRole("button", { name: "创建" })
+    expect(create.className).toContain("shrink-0")
+    expect(create.className).toContain("whitespace-nowrap")
   })
 
   it("shows PR checks and review comments and fills a safe fix prompt", async () => {
