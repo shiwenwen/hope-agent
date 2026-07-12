@@ -1989,6 +1989,26 @@ async fn run_agent_execution_eval(
                 });
             }
 
+            let _agent_admission = match crate::agent_lifecycle::begin_agent_run(&agent_id) {
+                Ok(guard) => guard,
+                Err(error) => {
+                    let (changed_files, diff_bytes) = execution_diff_snapshot(repo_root)?;
+                    return Ok(AgentExecutionEvalReport {
+                        mode: mode.to_string(),
+                        status: "failed".to_string(),
+                        prompt,
+                        agent_id,
+                        turn_id: None,
+                        response: None,
+                        error: Some(error.to_string()),
+                        model_used: None,
+                        tool_calls: Vec::new(),
+                        changed_files,
+                        diff_bytes,
+                    });
+                }
+            };
+
             let user_message_id = db
                 .append_message(
                     session_id,

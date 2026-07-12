@@ -370,6 +370,11 @@ async fn handle_inbound_message(
         ),
     };
 
+    // Hold lifecycle admission before the channel mapping can materialize a
+    // session for this Agent. `run_chat_engine` acquires a second guard as a
+    // shared backstop once the turn reaches the engine.
+    let _agent_admission = crate::agent_lifecycle::begin_agent_run(&agent_id)?;
+
     // 3b. Resolve extra system prompt from group/topic/channel config
     let config_system_prompt = match msg.chat_type {
         ChatType::Group | ChatType::Forum => topic_config

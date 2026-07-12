@@ -346,12 +346,9 @@ pub async fn chat(
     }
 
     // Resolve or create session — prefer explicit agent_id from frontend
+    let has_explicit_agent = agent_id.is_some();
     let current_agent_id = match agent_id {
-        Some(id) => {
-            // Sync backend state so other code paths see the correct agent
-            *state.current_agent_id.lock().await = id.clone();
-            id
-        }
+        Some(id) => id,
         // No explicit agent. For a lazy project draft (no session yet) resolve
         // via the project's default-agent chain so the materialized session
         // matches what `create_session_cmd` / the resolver would pick;
@@ -368,8 +365,15 @@ pub async fn chat(
             None => state.current_agent_id.lock().await.clone(),
         },
     };
-    ha_core::agent_lifecycle::ensure_agent_runnable(&current_agent_id)
+    // Acquire before creating or mutating session state. The engine keeps its
+    // own admission backstop, while this outer guard closes the shell-side
+    // check/create race with Agent deletion.
+    let _agent_admission = ha_core::agent_lifecycle::begin_agent_run(&current_agent_id)
         .map_err(|e| CmdError::msg(e.to_string()))?;
+    if has_explicit_agent {
+        // Sync backend state only after lifecycle admission succeeds.
+        *state.current_agent_id.lock().await = current_agent_id.clone();
+    }
     let mut new_session_created: Option<String> = None;
     let sid = match session_id {
         Some(id) if !id.is_empty() => id,

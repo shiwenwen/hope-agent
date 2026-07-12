@@ -5884,6 +5884,20 @@ async fn run_domain_eval_agent_execution(
         ));
     }
 
+    let _agent_admission = match crate::agent_lifecycle::begin_agent_run(&agent_id) {
+        Ok(guard) => guard,
+        Err(error) => {
+            return Ok(domain_eval_agent_execution_failed(
+                "agent",
+                prompt,
+                agent_id,
+                workflow_mode_label,
+                error.to_string(),
+                None,
+            ));
+        }
+    };
+
     db.update_session_workflow_mode(session_id, workflow_mode)?;
     let user_message_id = db
         .append_message(

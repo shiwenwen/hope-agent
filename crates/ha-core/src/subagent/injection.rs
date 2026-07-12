@@ -534,6 +534,24 @@ pub(crate) async fn inject_and_run_parent(
         return InjectionOutcome::Injected;
     }
 
+    // Acquire after the potentially long idle wait but before writing the push
+    // row. This closes the terminal-subagent/delete race without pinning the
+    // Agent for the entire wait; the engine keeps its own admission backstop.
+    let _agent_admission = match crate::agent_lifecycle::begin_agent_run(&parent_agent_id) {
+        Ok(guard) => guard,
+        Err(error) => {
+            app_warn!(
+                "subagent",
+                "inject",
+                "Parent agent {} became unavailable before injection {}: {}",
+                &parent_agent_id,
+                &run_id,
+                error
+            );
+            return InjectionOutcome::Abandoned;
+        }
+    };
+
     // Write the push user row BEFORE agent.chat() so intermediate rows
     // streamed from the callback land between it and the final assistant
     // row in id order — `parseSessionMessages` on the frontend groups

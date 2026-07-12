@@ -758,6 +758,8 @@ Loop owner API 管理 session-scoped recurring triggers。`create_loop_schedule`
 | `save_agent_markdown` | `PUT /api/agents/{id}/markdown` | ✅ |
 | `render_persona_to_soul_md` | `POST /api/agents/{id}/persona/render-soul-md` | ✅ |
 | `get_agent_memory_md` | `GET /api/agents/{id}/memory-md` | ✅ |
+
+Agent 执行准入采用两层 guard：Desktop / HTTP / Channel / Cron 等调用方必须在创建会话、写 turn / 注入消息等持久化副作用前取得外层 guard，`run_chat_engine` 入口再取得内层 backstop。删除与两层准入共用同一生命周期锁；禁止退化为“先 `ensure_agent_runnable`、落库后再进引擎”，否则检查与删除之间会留下 TOCTOU 窗口。删除重绑 Subagent allowlist 时，若 replacement 已在 denylist 必须同步移除（deny 优先于 allow）。
 | `save_agent_memory_md` | `PUT /api/agents/{id}/memory-md` | ✅ |
 | `dreaming_run_now` | `POST /api/dreaming/run` | ✅ |
 | `dreaming_run_resolver` | `POST /api/dreaming/resolver` | ✅ owner 平面；Deep resolver（phase=deep）：valid_until 过期确定性 expire + 同主谓多对象组 LLM 判定 duplicates→merge / conflict→needs_review / independent→no_op，绝不自动 supersede 或硬删 |

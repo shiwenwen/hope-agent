@@ -889,17 +889,29 @@ fn rewrite_agent_allowlists(old: &str, replacement: &str) -> Result<()> {
         let Ok(mut def) = agent_loader::load_agent(&id) else {
             continue;
         };
-        let mut changed = replace_vec_value(
-            &mut def.config.subagents.allowed_agents,
-            old,
-            Some(replacement),
-        );
-        changed |= replace_vec_value(&mut def.config.subagents.denied_agents, old, None);
+        let changed = rebind_subagent_config(&mut def.config.subagents, old, replacement);
         if changed {
             agent_loader::save_agent_config_unlocked(&id, &def.config)?;
         }
     }
     Ok(())
+}
+
+fn rebind_subagent_config(
+    config: &mut crate::agent_config::SubagentConfig,
+    old: &str,
+    replacement: &str,
+) -> bool {
+    let rebinding_allowed_child = config.allowed_agents.iter().any(|value| value == old);
+    let mut changed = replace_vec_value(&mut config.allowed_agents, old, Some(replacement));
+    changed |= replace_vec_value(&mut config.denied_agents, old, None);
+    // Deny wins over allow at execution time. If the deleted child was
+    // explicitly allowed, the replacement must not remain explicitly denied
+    // or the durable rebind would be internally contradictory.
+    if rebinding_allowed_child {
+        changed |= replace_vec_value(&mut config.denied_agents, replacement, None);
+    }
+    changed
 }
 
 fn rewrite_session_db_references(old: &str, replacement: &str) -> Result<()> {
@@ -1136,6 +1148,19 @@ mod tests {
         let mut values = vec!["old".to_string()];
         assert!(replace_vec_value(&mut values, "old", Some("new")));
         assert_eq!(values, vec!["new"]);
+    }
+
+    #[test]
+    fn allowed_child_rebind_removes_replacement_from_denylist() {
+        let mut config = crate::agent_config::SubagentConfig {
+            allowed_agents: vec!["old".to_string()],
+            denied_agents: vec!["new".to_string(), "keep-denied".to_string()],
+            ..Default::default()
+        };
+
+        assert!(rebind_subagent_config(&mut config, "old", "new"));
+        assert_eq!(config.allowed_agents, vec!["new"]);
+        assert_eq!(config.denied_agents, vec!["keep-denied"]);
     }
 
     #[test]
