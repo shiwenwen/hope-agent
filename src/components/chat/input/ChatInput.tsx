@@ -45,6 +45,7 @@ import type {
   SandboxMode,
   SessionMode,
   PendingFileQuote,
+  PendingMessageQuote,
   PendingSendPreview,
   AgentSummaryForSidebar,
 } from "@/types/chat"
@@ -265,6 +266,10 @@ interface ChatInputProps {
   onRemoveQuote?: (index: number) => void
   /** Click a staged quote chip to reveal that file in the file browser. */
   onJumpToQuote?: (q: PendingFileQuote) => void
+  pendingMessageQuotes?: PendingMessageQuote[]
+  onRemoveMessageQuote?: (index: number) => void
+  /** Increment to focus the composer after an external action such as quoting. */
+  focusSignal?: number
   pendingMessage?: string | null
   pendingSends?: PendingSendPreview[]
   onCancelPending?: () => void
@@ -482,6 +487,9 @@ export default function ChatInput({
   pendingQuotes,
   onRemoveQuote,
   onJumpToQuote,
+  pendingMessageQuotes,
+  onRemoveMessageQuote,
+  focusSignal,
   pendingMessage,
   pendingSends,
   onCancelPending,
@@ -579,6 +587,11 @@ export default function ChatInput({
   const { toolbarCompact, toolbarTight, permissionCollapsed } = getChatInputToolbarFlags(
     toolbarCollapseLevel,
   )
+
+  useEffect(() => {
+    if (focusSignal == null) return
+    inputHandleRef.current?.focus()
+  }, [focusSignal])
 
   const handlePermissionModeChange = useCallback(
     (mode: SessionMode, options?: PermissionModeChangeOptions) => {
@@ -883,7 +896,10 @@ export default function ChatInput({
   const hasSendableContent =
     goalComposerMode || loopComposerMode
       ? input.trim().length > 0
-      : input.trim().length > 0 || attachedFiles.length > 0 || (pendingQuotes?.length ?? 0) > 0
+      : input.trim().length > 0 ||
+        attachedFiles.length > 0 ||
+        (pendingQuotes?.length ?? 0) > 0 ||
+        (pendingMessageQuotes?.length ?? 0) > 0
 
   // The chat column can shrink when a right-side panel opens while the viewport
   // stays wide, so the overflow affordance follows the actual toolbar layout.
@@ -1584,6 +1600,7 @@ export default function ChatInput({
     !hasVisibleTaskProgress &&
     attachedFiles.length === 0 &&
     !pendingQuotes?.length &&
+    !pendingMessageQuotes?.length &&
     !hasPendingQueue
   const workflowTriggerHintIsFirstContent = topStripBase
   const activeGoalStripIsFirstContent = topStripBase && !showWorkflowTriggerHint
@@ -1896,6 +1913,50 @@ export default function ChatInput({
           onRemoveFile={onRemoveFile}
           onUpdateFile={onUpdateFile}
         />
+
+        {/* Selected conversation excerpts staged for the next user turn. */}
+        <AnimatedCollapse open={!!pendingMessageQuotes?.length}>
+          <div className="flex flex-wrap gap-1.5 px-3 pt-2">
+            {pendingMessageQuotes?.map((q, index) => {
+              const cps = Array.from(q.content)
+              const preview = cps.length > 400 ? `${cps.slice(0, 400).join("")}…` : q.content
+              const label =
+                q.role === "user"
+                  ? t("chat.messageQuote.yourMessage", "你的消息")
+                  : t("chat.messageQuote.assistantMessage", "助手消息")
+              return (
+                <span
+                  key={`${q.role}:${q.content}:${index}`}
+                  className="inline-flex max-w-[260px] items-center gap-0.5 rounded-md border border-border/60 bg-secondary/40 py-0.5 pl-1 pr-1 text-xs text-foreground/80"
+                >
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span className="inline-flex min-w-0 items-center gap-1 rounded px-1 py-0.5">
+                        <Quote className="h-3 w-3 shrink-0 text-muted-foreground" />
+                        <span className="truncate">{label}</span>
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent side="top" className="max-w-[340px]">
+                      <span className="block max-h-40 overflow-hidden whitespace-pre-wrap text-xs">
+                        {preview}
+                      </span>
+                    </TooltipContent>
+                  </Tooltip>
+                  {onRemoveMessageQuote && (
+                    <button
+                      type="button"
+                      onClick={() => onRemoveMessageQuote(index)}
+                      className="rounded p-0.5 text-muted-foreground hover:bg-background/70 hover:text-foreground"
+                      aria-label={t("chat.messageQuote.remove", "移除引用")}
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  )}
+                </span>
+              )
+            })}
+          </div>
+        </AnimatedCollapse>
 
         {/* Staged "quote to chat" references */}
         <AnimatedCollapse open={!!pendingQuotes?.length}>

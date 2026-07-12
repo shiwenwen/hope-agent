@@ -3933,9 +3933,9 @@ describe("WorkspacePanel workflow section", () => {
     })
 
     fireEvent.click(screen.getAllByRole("button", { name: "编辑策略" })[0])
-    fireEvent.change(screen.getByLabelText("无进展上限"), { target: { value: "4" } })
-    fireEvent.change(screen.getByLabelText("失败上限"), { target: { value: "5" } })
-    fireEvent.change(screen.getByLabelText("降频间隔"), { target: { value: "10m" } })
+    fireEvent.change(await screen.findByLabelText("无进展上限"), { target: { value: "4" } })
+    fireEvent.change(await screen.findByLabelText("失败上限"), { target: { value: "5" } })
+    fireEvent.change(await screen.findByLabelText("降频间隔"), { target: { value: "10m" } })
     fireEvent.click(screen.getByRole("button", { name: "保存" }))
 
     await waitFor(() => {
@@ -4928,8 +4928,8 @@ describe("WorkspacePanel workflow section", () => {
     fireEvent.click(await screen.findByText("coding.feature"))
 
     expect((await screen.findAllByText("输出预算")).length).toBeGreaterThan(0)
-    expect(screen.getAllByText("10.0k/10.0k").length).toBeGreaterThan(0)
-    expect(screen.getAllByText("预算用量").length).toBeGreaterThan(0)
+    expect((await screen.findAllByText("10.0k/10.0k")).length).toBeGreaterThan(0)
+    expect((await screen.findAllByText("预算用量")).length).toBeGreaterThan(0)
   })
 
   it("shows reliable workflow run summary metrics without estimating unattributed token cost", async () => {

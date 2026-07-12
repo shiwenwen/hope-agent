@@ -514,6 +514,20 @@ export function parseUserAttachmentsMeta(
         })
         continue
       }
+      if (obj.kind === "message_quote") {
+        const role = stringField(obj, "role")
+        const content = stringField(obj, "content")
+        if ((role !== "user" && role !== "assistant") || !content) continue
+        attachments.push({
+          name: "message-quote",
+          mimeType: "text/plain",
+          sizeBytes: 0,
+          kind: "message_quote",
+          messageQuoteRole: role,
+          quoteContent: content,
+        })
+        continue
+      }
       const name = stringField(obj, "name")
       const mimeType = stringField(obj, "mime_type", "mimeType") ?? "application/octet-stream"
       const localPath = stringField(obj, "path", "localPath")

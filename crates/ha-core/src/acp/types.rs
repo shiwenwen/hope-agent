@@ -552,6 +552,7 @@ pub fn extract_images_from_prompt(prompt: &[ContentBlock]) -> Vec<crate::agent::
                 data: Some(data.clone()),
                 file_path: None,
                 quote_lines: None,
+                quote_role: None,
             });
         }
     }

@@ -31,6 +31,7 @@ import type {
   AvailableModel,
   ChatRuntimeDefaults,
   Message,
+  PendingMessageQuote,
   SessionMessage,
   SessionMeta,
   SessionMode,
@@ -699,6 +700,7 @@ export default function ChatScreen({
   const [showBrowserPanel, setShowBrowserPanel] = useState(false)
   const browserPanelDismissedRef = useRef(false)
   const [showFilesPanel, setShowFilesPanel] = useState(false)
+  const [composerFocusSignal, setComposerFocusSignal] = useState<number | undefined>(undefined)
   // Clicking a staged quote chip reveals that file in the browser. The nonce
   // makes each click a fresh signal, even when re-revealing the same path.
   const revealQuoteNonce = useRef(0)
@@ -1885,7 +1887,7 @@ export default function ChatScreen({
     incognitoComposerStateRef.current = {
       input: stream.input,
       attachedFileCount: stream.attachedFiles.length,
-      pendingQuoteCount: stream.pendingQuotes.length,
+      pendingQuoteCount: stream.pendingQuotes.length + stream.pendingMessageQuotes.length,
       pendingMessage: stream.pendingMessage ?? "",
       pendingSendCount: stream.pendingSends.length,
     }
@@ -1894,6 +1896,7 @@ export default function ChatScreen({
     stream.input,
     stream.pendingMessage,
     stream.pendingQuotes.length,
+    stream.pendingMessageQuotes.length,
     stream.pendingSends.length,
   ])
 
@@ -1902,6 +1905,7 @@ export default function ChatScreen({
       stream.setInput("")
       stream.setAttachedFiles([])
       stream.setPendingQuotes([])
+      stream.setPendingMessageQuotes([])
       for (const pending of stream.pendingSends) {
         stream.discardPendingSend(pending.id)
       }
@@ -2912,6 +2916,13 @@ export default function ChatScreen({
     },
     [stream],
   )
+  const handleMessageQuote = useCallback(
+    (quote: PendingMessageQuote) => {
+      stream.setPendingMessageQuotes((prev) => [...prev, quote])
+      setComposerFocusSignal((prev) => (prev ?? 0) + 1)
+    },
+    [stream],
+  )
   // Reveal a quoted file in the browser: open the files panel + signal target.
   const handleQuoteJump = useCallback(
     (q: QuotePayload) => {
@@ -3664,6 +3675,7 @@ export default function ChatScreen({
                 onOpenMemorySettings={onOpenSettings ? () => onOpenSettings("memory") : undefined}
                 onOpenKnowledge={onOpenKnowledge}
                 onAddQuickPrompt={incognitoEnabled ? undefined : handleAddQuickPrompt}
+                onAddMessageQuote={handleMessageQuote}
                 displayMode={displayMode}
                 autoCollapseCompletedTurns={autoCollapseCompletedTurns}
               />
@@ -3795,6 +3807,11 @@ export default function ChatScreen({
                         setRevealFile(null) // dropping a quote clears its reveal highlight
                       }}
                       onJumpToQuote={handleQuoteJump}
+                      pendingMessageQuotes={stream.pendingMessageQuotes}
+                      onRemoveMessageQuote={(index) =>
+                        stream.setPendingMessageQuotes((prev) => prev.filter((_, i) => i !== index))
+                      }
+                      focusSignal={composerFocusSignal}
                       pendingMessage={stream.pendingMessage}
                       pendingSends={stream.pendingSends}
                       onCancelPending={() => {

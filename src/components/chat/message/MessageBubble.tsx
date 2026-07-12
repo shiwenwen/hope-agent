@@ -1861,7 +1861,7 @@ function MessageBubbleInner({
           onHover(null)
           setDetailsIndex((prev) => (prev === index ? null : prev))
         }}
-        onContextMenu={(e) => onContextMenu(e, index)}
+        onContextMenuCapture={(e) => onContextMenu(e, index)}
       >
         {msg.fromAgentId && (
           <div className="w-6 h-6 rounded-full bg-purple-500/15 flex items-center justify-center text-purple-500 shrink-0 mt-1 text-[10px] overflow-hidden">
@@ -1978,7 +1978,7 @@ function MessageBubbleInner({
         onHover(null)
         setDetailsIndex((prev) => (prev === index ? null : prev))
       }}
-      onContextMenu={(e) => onContextMenu(e, index)}
+      onContextMenuCapture={(e) => onContextMenu(e, index)}
     >
       {/* Parent agent avatar for delegated messages */}
       {msg.fromAgentId && (

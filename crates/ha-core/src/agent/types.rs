@@ -74,6 +74,10 @@ pub struct Attachment {
     /// block to the model. Not persisted as a file.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub quote_lines: Option<String>,
+    /// For `source = "message_quote"`: role of the selected conversation
+    /// message. The inline body remains in `data`; no file is read.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quote_role: Option<String>,
 }
 
 impl Attachment {

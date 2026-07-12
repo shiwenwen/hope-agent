@@ -413,6 +413,12 @@
     "sidebarDetailedMode": "Normal moda geç",
     "copied": "Kopyalandı",
     "copy": "Kopyala",
+    "messageQuote": {
+      "addToChat": "Sohbete ekle",
+      "assistantMessage": "Asistan mesajı",
+      "remove": "Alıntıyı kaldır",
+      "yourMessage": "Mesajınız"
+    },
     "quickPrompts": {
       "addAction": "Hızlı girdilere ekle",
       "addFailed": "Hızlı girdi eklenemedi",

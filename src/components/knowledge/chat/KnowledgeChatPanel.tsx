@@ -21,7 +21,7 @@ import AgentSwitcher from "@/components/chat/AgentSwitcher"
 import { useChatStream } from "@/components/chat/hooks/useChatStream"
 import { useClickOutside } from "@/hooks/useClickOutside"
 import type { ChatAttachment } from "@/lib/transport"
-import type { Message, PendingFileQuote } from "@/types/chat"
+import type { Message, PendingFileQuote, PendingMessageQuote } from "@/types/chat"
 import type { KbDraftAttachment } from "@/types/knowledge"
 import { useKnowledgeChat } from "./useKnowledgeChat"
 import { KnowledgeConversationHistory } from "./KnowledgeConversationHistory"
@@ -175,6 +175,14 @@ export const KnowledgeChatPanel = forwardRef<KnowledgeChatPanelHandle, Props>(
       toolScope: "knowledge",
       getExtraAttachments,
     })
+    const [composerFocusSignal, setComposerFocusSignal] = useState<number | undefined>(undefined)
+    const handleMessageQuote = useCallback(
+      (quote: PendingMessageQuote) => {
+        stream.setPendingMessageQuotes((prev) => [...prev, quote])
+        setComposerFocusSignal((prev) => (prev ?? 0) + 1)
+      },
+      [stream],
+    )
 
     // Reconcile against DB truth when a turn finishes. On Tauri the per-call
     // channel already streamed the assistant live; on HTTP (no reattach wired
@@ -416,6 +424,7 @@ export const KnowledgeChatPanel = forwardRef<KnowledgeChatPanelHandle, Props>(
             onLoadMore={session.handleLoadMore}
             sessionId={session.currentSessionId}
             renderMessageActions={renderMessageActions}
+            onAddMessageQuote={handleMessageQuote}
           />
         </div>
 
@@ -485,9 +494,15 @@ export const KnowledgeChatPanel = forwardRef<KnowledgeChatPanelHandle, Props>(
               stream.setPendingQuotes((prev) => prev.filter((_, idx) => idx !== i))
             }
             onJumpToQuote={onJumpToQuote}
+            pendingMessageQuotes={stream.pendingMessageQuotes}
+            onRemoveMessageQuote={(i) =>
+              stream.setPendingMessageQuotes((prev) => prev.filter((_, idx) => idx !== i))
+            }
+            focusSignal={composerFocusSignal}
             pendingMessage={stream.pendingMessage}
             pendingSends={stream.pendingSends}
             onCancelPending={() => stream.setPendingMessage(null)}
+            onDiscardPending={() => stream.setPendingMessage(null)}
             onEditPending={stream.editPendingSend}
             onDiscardPendingItem={stream.discardPendingSend}
             onSendPending={stream.sendPendingSend}

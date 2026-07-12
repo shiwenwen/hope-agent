@@ -394,6 +394,30 @@ describe("ChatInput", () => {
     expect(onSend).toHaveBeenCalledTimes(1)
   })
 
+  test("allows quote-only sends and removes stacked message quotes independently", () => {
+    const onSend = vi.fn()
+    const onRemoveMessageQuote = vi.fn()
+    renderChatInput({
+      pendingMessageQuotes: [
+        { role: "user", content: "First selected excerpt" },
+        { role: "assistant", content: "Second selected excerpt" },
+      ],
+      onRemoveMessageQuote,
+      onSend,
+    })
+
+    expect(screen.getByText("chat.messageQuote.yourMessage")).toBeTruthy()
+    expect(screen.getByText("chat.messageQuote.assistantMessage")).toBeTruthy()
+    const removeButtons = screen.getAllByRole("button", { name: "chat.messageQuote.remove" })
+    fireEvent.click(removeButtons[0]!)
+    expect(onRemoveMessageQuote).toHaveBeenCalledWith(0)
+
+    const sendButton = screen.getByRole("button", { name: "chat.send" }) as HTMLButtonElement
+    expect(sendButton.disabled).toBe(false)
+    fireEvent.click(sendButton)
+    expect(onSend).toHaveBeenCalledTimes(1)
+  })
+
   test("turns long pasted text into a staged text attachment", async () => {
     const onAttachFiles = vi.fn()
     const onInputChange = vi.fn()

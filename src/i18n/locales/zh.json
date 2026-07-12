@@ -413,6 +413,12 @@
     "sidebarDetailedMode": "切换到普通模式",
     "copied": "已复制",
     "copy": "复制",
+    "messageQuote": {
+      "addToChat": "添加到对话",
+      "assistantMessage": "助手消息",
+      "remove": "移除引用",
+      "yourMessage": "你的消息"
+    },
     "quickPrompts": {
       "addAction": "添加到快捷输入",
       "addFailed": "添加快捷输入失败",
