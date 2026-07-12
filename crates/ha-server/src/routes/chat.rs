@@ -71,6 +71,10 @@ pub struct ChatRequest {
     /// See Tauri `chat` command — DB stores this while `message` goes to the LLM.
     #[serde(default)]
     pub display_text: Option<String>,
+    /// Durable pending-message id. The server replaces message metadata and
+    /// attachments from SQLite before starting the turn.
+    #[serde(default)]
+    pub queued_request_id: Option<String>,
     /// When true, persists the user row with
     /// `attachments_meta = {"plan_trigger": true}` so the UI renders it as a
     /// Plan Mode approve/resume chip (mirrors the Tauri `chat` command).
@@ -127,7 +131,6 @@ pub struct QueueTurnUserMessageRequest {
     #[serde(default)]
     pub attachments: Vec<Attachment>,
     pub session_id: String,
-    pub turn_id: String,
     #[serde(default)]
     pub display_text: Option<String>,
     #[serde(default)]
@@ -136,6 +139,20 @@ pub struct QueueTurnUserMessageRequest {
     pub goal_trigger: Option<bool>,
     #[serde(default)]
     pub plan_comment: Option<serde_json::Value>,
+    #[serde(default)]
+    pub plan_mode: Option<String>,
+    #[serde(default)]
+    pub workflow_mode: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateQueuedTurnUserMessageRequest {
+    pub session_id: String,
+    pub request_id: String,
+    pub message: String,
+    #[serde(default)]
+    pub display_text: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -380,7 +397,7 @@ pub async fn chat(
     // session id (we need a session_id to persist).
     let permission_mode_pending = body.permission_mode;
     let sandbox_mode_pending = body.sandbox_mode;
-    let workflow_mode_pending = body.workflow_mode;
+    let mut workflow_mode_pending = body.workflow_mode;
 
     // Resolve agent ID. Explicit caller wins; otherwise existing sessions use
     // their stored agent, while new sessions inherit the app-wide default.
@@ -502,11 +519,6 @@ pub async fn chat(
         .await
         .map_err(|e| AppError::bad_request(e.to_string()))?;
     }
-    if let Some(mode) = workflow_mode_pending {
-        db.update_session_workflow_mode(&sid, mode)
-            .map_err(|e| AppError::bad_request(e.to_string()))?;
-    }
-
     // Load app/agent config before resolving per-turn settings.
     let store = ha_core::config::cached_config();
     let agent_def = ha_core::agent_loader::load_agent(&agent_id).ok();
@@ -589,19 +601,75 @@ pub async fn chat(
     }
 
     let turn_id = uuid::Uuid::new_v4().to_string();
+    let queued_request_id = body
+        .queued_request_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .map(str::to_string);
+    if let Some(request_id) = queued_request_id.as_ref() {
+        let sid_for_claim = sid.clone();
+        let request_id_for_claim = request_id.clone();
+        let turn_for_claim = turn_id.clone();
+        let claimed = db
+            .run(move |db| {
+                db.claim_queued_turn_message_for_dispatch(
+                    &sid_for_claim,
+                    &request_id_for_claim,
+                    &turn_for_claim,
+                )
+            })
+            .await?
+            .ok_or_else(|| {
+                AppError::conflict_with_code(
+                    "queued_message_unavailable",
+                    "Queued message is no longer available",
+                )
+            })?;
+        body.message = claimed.message;
+        body.attachments = claimed.attachments;
+        body.display_text = claimed.display_text;
+        body.is_plan_trigger = Some(claimed.is_plan_trigger);
+        body.goal_trigger = Some(claimed.goal_trigger);
+        body.plan_comment = claimed.plan_comment;
+        workflow_mode_pending = claimed
+            .workflow_mode
+            .as_deref()
+            .and_then(ha_core::workflow_mode::WorkflowMode::from_str);
+    }
+    if let Some(mode) = workflow_mode_pending {
+        db.update_session_workflow_mode(&sid, mode)
+            .map_err(|e| AppError::bad_request(e.to_string()))?;
+    }
     let cancel = Arc::new(AtomicBool::new(false));
-    let _active_turn_guard = ha_core::chat_engine::active_turn::try_acquire(
+    let _active_turn_guard = match ha_core::chat_engine::active_turn::try_acquire(
         &sid,
         ha_core::chat_engine::stream_seq::ChatSource::Http,
         turn_id.clone(),
         cancel.clone(),
-    )
-    .map_err(|e| {
-        AppError::conflict_with_code(
-            ha_core::chat_engine::stream_seq::ACTIVE_STREAM_ERROR_CODE,
-            e.to_string(),
-        )
-    })?;
+    ) {
+        Ok(guard) => guard,
+        Err(error) => {
+            if let Some(request_id) = queued_request_id.as_ref() {
+                let sid_for_release = sid.clone();
+                let request_id_for_release = request_id.clone();
+                let turn_for_release = turn_id.clone();
+                let _ = db
+                    .run(move |db| {
+                        db.release_queued_turn_message_dispatch(
+                            &sid_for_release,
+                            &request_id_for_release,
+                            &turn_for_release,
+                        )
+                    })
+                    .await;
+            }
+            return Err(AppError::conflict_with_code(
+                ha_core::chat_engine::stream_seq::ACTIVE_STREAM_ERROR_CODE,
+                error.to_string(),
+            ));
+        }
+    };
 
     // Prefer display_text for DB/title, fall back to the LLM-bound message.
     let raw_prompt = ha_core::non_empty_trim_or(body.display_text.as_deref(), &body.message);
@@ -622,6 +690,15 @@ pub async fn chat(
             effective_prompt
         }
         ha_core::agent::preflight::PreflightOutcome::Block { reason } => {
+            if let Some(request_id) = queued_request_id.as_ref() {
+                let sid_for_remove = sid.clone();
+                let request_id_for_remove = request_id.clone();
+                let _ = db
+                    .run(move |db| {
+                        db.remove_claimed_turn_message(&sid_for_remove, &request_id_for_remove)
+                    })
+                    .await;
+            }
             // A UserPromptSubmit hook blocked the prompt: record a UI-only event
             // marker (excluded from LLM context) and return the reason as the
             // response — no user message persisted, no turn run. `blocked_reason`
@@ -701,20 +778,58 @@ pub async fn chat(
     // hook-rewritten `effective_prompt`, so the separate `persisted_content`
     // main computed (identical to `raw_prompt`, now consumed by the preflight) is
     // dropped.
-    validate_http_chat_attachments(&sid, &body.attachments)?;
+    if let Err(error) = validate_http_chat_attachments(&sid, &body.attachments) {
+        if let Some(request_id) = queued_request_id.as_ref() {
+            let sid_for_release = sid.clone();
+            let request_id_for_release = request_id.clone();
+            let turn_for_release = turn_id.clone();
+            let _ = db
+                .run(move |db| {
+                    db.release_queued_turn_message_dispatch(
+                        &sid_for_release,
+                        &request_id_for_release,
+                        &turn_for_release,
+                    )
+                })
+                .await;
+        }
+        return Err(error);
+    }
     // Attachment persistence writes files to disk — offload so a stalled
     // filesystem can't pin the async worker (mirrors the desktop chat path).
     // `persist_*` mutates the attachments in place, so hand them into the
     // blocking closure and take them back out.
     let attachments_meta = {
-        let sid = sid.clone();
+        let sid_for_files = sid.clone();
         let mut moved = std::mem::take(&mut body.attachments);
-        let (meta, persisted) = ha_core::blocking::run_blocking(move || {
-            let meta = ha_core::attachments::persist_chat_user_attachments_meta(&sid, &mut moved)?;
+        let persisted_result = ha_core::blocking::run_blocking(move || {
+            let meta = ha_core::attachments::persist_chat_user_attachments_meta(
+                &sid_for_files,
+                &mut moved,
+            )?;
             anyhow::Ok((meta, moved))
         })
-        .await
-        .map_err(|e| AppError::internal(e.to_string()))?;
+        .await;
+        let (meta, persisted) = match persisted_result {
+            Ok(value) => value,
+            Err(error) => {
+                if let Some(request_id) = queued_request_id.as_ref() {
+                    let sid_for_release = sid.clone();
+                    let request_id_for_release = request_id.clone();
+                    let turn_for_release = turn_id.clone();
+                    let _ = db
+                        .run(move |db| {
+                            db.release_queued_turn_message_dispatch(
+                                &sid_for_release,
+                                &request_id_for_release,
+                                &turn_for_release,
+                            )
+                        })
+                        .await;
+                }
+                return Err(AppError::internal(error.to_string()));
+            }
+        };
         body.attachments = persisted;
         meta
     };
@@ -722,6 +837,7 @@ pub async fn chat(
     // Save user message to DB
     let mut user_msg = session::NewMessage::user(&effective_prompt)
         .with_source(ha_core::chat_engine::ChatSource::Http);
+    user_msg.queue_request_id = queued_request_id.clone();
     user_msg.attachments_meta = session::build_chat_user_attachments_meta(
         body.is_plan_trigger.unwrap_or(false),
         body.plan_comment.as_ref(),
@@ -729,12 +845,17 @@ pub async fn chat(
         attachments_meta,
     );
     let title_attachments_meta = user_msg.attachments_meta.clone();
-    let (_user_message_id, _turn) = {
+    let user_message_result = {
         let sid = sid.clone();
         let turn_id = turn_id.clone();
         let effective_prompt = effective_prompt.clone();
+        let queue_id_for_consume = queued_request_id.clone();
         db.run(move |db| -> anyhow::Result<_> {
-            let user_message_id = db.append_message(&sid, &user_msg).ok();
+            let user_message_id = if queue_id_for_consume.is_some() {
+                Some(db.append_message(&sid, &user_msg)?)
+            } else {
+                db.append_message(&sid, &user_msg).ok()
+            };
             let turn = db.create_chat_turn_with_id(
                 &turn_id,
                 &sid,
@@ -742,6 +863,9 @@ pub async fn chat(
                 None,
                 user_message_id,
             )?;
+            if let Some(request_id) = queue_id_for_consume.as_deref() {
+                db.consume_dispatched_turn_message(&sid, request_id, &turn_id)?;
+            }
 
             // Auto-generate fallback title from first user message (prefer display text so titles read naturally).
             let _ = session::ensure_first_message_title(
@@ -752,7 +876,27 @@ pub async fn chat(
             );
             Ok((user_message_id, turn))
         })
-        .await?
+        .await
+    };
+    let (_user_message_id, _turn) = match user_message_result {
+        Ok(value) => value,
+        Err(error) => {
+            if let Some(request_id) = queued_request_id.as_ref() {
+                let sid_for_reconcile = sid.clone();
+                let request_for_reconcile = request_id.clone();
+                let turn_for_reconcile = turn_id.clone();
+                let _ = db
+                    .run(move |db| {
+                        db.reconcile_failed_turn_message_dispatch(
+                            &sid_for_reconcile,
+                            &request_for_reconcile,
+                            &turn_for_reconcile,
+                        )
+                    })
+                    .await;
+            }
+            return Err(error.into());
+        }
     };
     let mut turn_drop_finalizer =
         HttpChatTurnDropFinalizer::new(db.clone(), sid.clone(), turn_id.clone());
@@ -948,35 +1092,150 @@ pub async fn chat(
 /// `POST /api/chat/turn-message` — queue a user message to be injected at the
 /// next safe tool-loop boundary of the active turn.
 pub async fn queue_turn_user_message(
+    State(ctx): State<Arc<AppContext>>,
     Json(body): Json<QueueTurnUserMessageRequest>,
 ) -> Result<Json<ha_core::chat_engine::turn_injection::QueueTurnUserMessageResult>, AppError> {
     validate_http_chat_attachments(&body.session_id, &body.attachments)?;
-    let result = ha_core::chat_engine::turn_injection::enqueue(
-        ha_core::chat_engine::turn_injection::QueueTurnUserMessageArgs {
-            request_id: body.request_id,
-            session_id: body.session_id,
-            turn_id: body.turn_id,
-            message: body.message,
-            display_text: body.display_text,
-            attachments: body.attachments,
-            is_plan_trigger: body.is_plan_trigger.unwrap_or(false),
-            goal_trigger: body.goal_trigger.unwrap_or(false),
-            plan_comment: body.plan_comment,
+    let request_id = body
+        .request_id
+        .filter(|id| !id.trim().is_empty())
+        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+    let session_id = body.session_id;
+    let sid_for_files = session_id.clone();
+    let request_for_files = request_id.clone();
+    let mut attachments = body.attachments;
+    attachments = ha_core::blocking::run_blocking(move || {
+        ha_core::attachments::persist_queued_chat_attachments(
+            &sid_for_files,
+            &request_for_files,
+            &mut attachments,
+        )?;
+        anyhow::Ok(attachments)
+    })
+    .await
+    .map_err(|error| AppError::internal(error.to_string()))?;
+    let attachments_for_cleanup = attachments.clone();
+    let input = ha_core::session::NewQueuedTurnMessage {
+        request_id: request_id.clone(),
+        session_id: session_id.clone(),
+        message: body.message,
+        display_text: body.display_text,
+        attachments,
+        is_plan_trigger: body.is_plan_trigger.unwrap_or(false),
+        goal_trigger: body.goal_trigger.unwrap_or(false),
+        plan_comment: body.plan_comment,
+        plan_mode: body.plan_mode,
+        workflow_mode: body.workflow_mode,
+    };
+    let item_result = ctx
+        .session_db
+        .run(move |db| db.enqueue_turn_user_message(input))
+        .await;
+    let item = match item_result {
+        Ok(outcome) => {
+            if !outcome.inserted {
+                ha_core::attachments::remove_discarded_queued_attachments(
+                    &session_id,
+                    &request_id,
+                    &attachments_for_cleanup,
+                );
+            }
+            outcome.item
+        }
+        Err(error) => {
+            ha_core::attachments::remove_discarded_queued_attachments(
+                &session_id,
+                &request_id,
+                &attachments_for_cleanup,
+            );
+            return Err(AppError::bad_request(error.to_string()));
+        }
+    };
+    Ok(Json(
+        ha_core::chat_engine::turn_injection::QueueTurnUserMessageResult {
+            queued: true,
+            request_id,
+            reason: None,
+            item: Some(item),
         },
-    );
+    ))
+}
+
+pub async fn list_queued_turn_user_messages(
+    State(ctx): State<Arc<AppContext>>,
+    Path(session_id): Path<String>,
+) -> Result<Json<Vec<ha_core::session::QueuedTurnMessageView>>, AppError> {
+    let items = ctx
+        .session_db
+        .run(move |db| db.list_queued_turn_user_messages(&session_id))
+        .await?;
+    Ok(Json(items))
+}
+
+pub async fn update_queued_turn_user_message(
+    State(ctx): State<Arc<AppContext>>,
+    Json(body): Json<UpdateQueuedTurnUserMessageRequest>,
+) -> Result<Json<bool>, AppError> {
+    let changed = ctx
+        .session_db
+        .run(move |db| {
+            db.update_queued_turn_user_message(
+                &body.session_id,
+                &body.request_id,
+                &body.message,
+                body.display_text.as_deref(),
+            )
+        })
+        .await?;
+    Ok(Json(changed))
+}
+
+pub async fn delete_queued_turn_user_message(
+    State(ctx): State<Arc<AppContext>>,
+    Path((session_id, request_id)): Path<(String, String)>,
+) -> Result<Json<bool>, AppError> {
+    let changed = ctx
+        .session_db
+        .run(move |db| db.delete_queued_turn_user_message(&session_id, &request_id))
+        .await?;
+    Ok(Json(changed))
+}
+
+pub async fn insert_queued_turn_user_message(
+    State(ctx): State<Arc<AppContext>>,
+    Json(body): Json<CancelQueuedTurnUserMessageRequest>,
+) -> Result<Json<ha_core::chat_engine::turn_injection::QueueTurnUserMessageResult>, AppError> {
+    let result = ctx
+        .session_db
+        .run(move |db| {
+            ha_core::chat_engine::turn_injection::request_insertion(
+                db,
+                &body.session_id,
+                &body.turn_id,
+                &body.request_id,
+            )
+        })
+        .await?;
     Ok(Json(result))
 }
 
 /// `POST /api/chat/turn-message/cancel` — cancel a not-yet-injected queued
 /// message for an active turn.
 pub async fn cancel_queued_turn_user_message(
+    State(ctx): State<Arc<AppContext>>,
     Json(body): Json<CancelQueuedTurnUserMessageRequest>,
 ) -> Result<Json<ha_core::chat_engine::turn_injection::CancelQueuedTurnMessageResult>, AppError> {
-    let result = ha_core::chat_engine::turn_injection::cancel(
-        &body.session_id,
-        &body.turn_id,
-        &body.request_id,
-    );
+    let result = ctx
+        .session_db
+        .run(move |db| {
+            ha_core::chat_engine::turn_injection::cancel_insertion(
+                db,
+                &body.session_id,
+                &body.turn_id,
+                &body.request_id,
+            )
+        })
+        .await?;
     Ok(Json(result))
 }
 

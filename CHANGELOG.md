@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **聊天消息排队改为持久、可恢复队列**：回复生成期间继续发送的消息会立即连同附件写入 SQLite，并在输入框上方同步展示真实队列状态；支持编辑、删除、立即发送，以及在安全工具边界插入当前回合。队列按会话严格 FIFO，停止或失败后仍会继续处理下一条，应用重启、页面刷新、会话切换和多客户端并发时可恢复且不会重复发送；附件-only / 引用-only 消息同样支持恢复续发，废弃队列项会清理专属附件文件。Desktop 与 HTTP Server 模式保持一致。
+
 ## [0.17.0] - 2026-07-10
 
 ### Added

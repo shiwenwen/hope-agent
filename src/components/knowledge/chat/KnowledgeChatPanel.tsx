@@ -221,17 +221,18 @@ export const KnowledgeChatPanel = forwardRef<KnowledgeChatPanelHandle, Props>(
       editorRevision,
       conversationRevision,
       getEditorValue,
-      getRecentMessages: () =>
-        session.messages.map((m) => ({ role: m.role, text: m.content })),
+      getRecentMessages: () => session.messages.map((m) => ({ role: m.role, text: m.content })),
       active,
     })
 
     const mainLoadIssue = useMemo(
-      () => session.loadIssues.find((issue) => !HISTORY_LOAD_OPERATIONS.has(issue.operation)) ?? null,
+      () =>
+        session.loadIssues.find((issue) => !HISTORY_LOAD_OPERATIONS.has(issue.operation)) ?? null,
       [session.loadIssues],
     )
     const historyLoadIssue = useMemo(
-      () => session.loadIssues.find((issue) => HISTORY_LOAD_OPERATIONS.has(issue.operation)) ?? null,
+      () =>
+        session.loadIssues.find((issue) => HISTORY_LOAD_OPERATIONS.has(issue.operation)) ?? null,
       [session.loadIssues],
     )
 
@@ -436,9 +437,7 @@ export const KnowledgeChatPanel = forwardRef<KnowledgeChatPanelHandle, Props>(
             agent={currentAgent}
             onDismiss={sprite.dismiss}
             onRespond={(text) => {
-              stream.setInput(
-                stream.input ? `${stream.input}\n\n> ${text}\n\n` : `> ${text}\n\n`,
-              )
+              stream.setInput(stream.input ? `${stream.input}\n\n> ${text}\n\n` : `> ${text}\n\n`)
               sprite.dismiss()
             }}
           />
@@ -477,7 +476,13 @@ export const KnowledgeChatPanel = forwardRef<KnowledgeChatPanelHandle, Props>(
             }
             onJumpToQuote={onJumpToQuote}
             pendingMessage={stream.pendingMessage}
+            pendingSends={stream.pendingSends}
             onCancelPending={() => stream.setPendingMessage(null)}
+            onEditPending={stream.editPendingSend}
+            onDiscardPendingItem={stream.discardPendingSend}
+            onSendPending={stream.sendPendingSend}
+            onForceInsertPending={stream.forceInsertPendingSend}
+            onCancelForceInsertPending={stream.cancelForceInsertPendingSend}
             onStop={stream.handleStop}
             currentSessionId={session.currentSessionId}
             currentAgentId={session.currentAgentId}

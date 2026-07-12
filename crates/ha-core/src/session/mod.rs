@@ -10,6 +10,7 @@ mod ide_context;
 mod pending;
 mod subagent_db;
 mod tasks;
+mod turn_queue;
 mod turns;
 mod types;
 
@@ -41,6 +42,11 @@ pub use pending::enrich_pending_interactions;
 pub use tasks::{
     create_task_and_snapshot, delete_task_and_snapshot, emit_task_snapshot,
     set_task_status_and_snapshot, Task, TaskStatus,
+};
+pub use turn_queue::{
+    EnqueueQueuedTurnMessageOutcome, NewQueuedTurnMessage, QueuedTurnMessageMode,
+    QueuedTurnMessageRecord, QueuedTurnMessageStatus, QueuedTurnMessageView,
+    EVENT_TURN_QUEUE_CHANGED, MAX_QUEUED_TURN_MESSAGES_PER_SESSION,
 };
 pub use turns::{ChatTurn, ChatTurnInterruptReason, ChatTurnStatus};
 pub use types::{

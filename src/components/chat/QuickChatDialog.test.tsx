@@ -74,6 +74,12 @@ vi.mock("./useChatStream", () => ({
     setAttachedFiles: vi.fn(),
     pendingMessage: null,
     setPendingMessage: vi.fn(),
+    pendingSends: [],
+    editPendingSend: vi.fn(),
+    discardPendingSend: vi.fn(),
+    sendPendingSend: vi.fn(),
+    forceInsertPendingSend: vi.fn(),
+    cancelForceInsertPendingSend: vi.fn(),
     handleStop: vi.fn(),
     approvalRequests: [],
     handleApprovalResponse: vi.fn(),
@@ -90,9 +96,7 @@ afterEach(() => {
   cleanup()
   vi.clearAllMocks()
   // Reset session shape mutations between tests
-  sessionShape.messages = [
-    { role: "user", content: "hi", timestamp: "2026-04-26T00:00:00.000Z" },
-  ]
+  sessionShape.messages = [{ role: "user", content: "hi", timestamp: "2026-04-26T00:00:00.000Z" }]
   sessionShape.currentSessionId = "session-123"
 })
 
@@ -119,11 +123,7 @@ describe("QuickChatDialog 'View full chat' button", () => {
   test("hidden when no current session", () => {
     sessionShape.currentSessionId = null as unknown as string
     renderWithProviders(
-      <QuickChatDialog
-        open
-        onOpenChange={vi.fn()}
-        onNavigateToSession={vi.fn()}
-      />,
+      <QuickChatDialog open onOpenChange={vi.fn()} onNavigateToSession={vi.fn()} />,
     )
     expect(screen.queryByLabelText("quickChat.viewFullChat")).toBeNull()
   })
@@ -131,11 +131,7 @@ describe("QuickChatDialog 'View full chat' button", () => {
   test("hidden when messages are empty", () => {
     sessionShape.messages = []
     renderWithProviders(
-      <QuickChatDialog
-        open
-        onOpenChange={vi.fn()}
-        onNavigateToSession={vi.fn()}
-      />,
+      <QuickChatDialog open onOpenChange={vi.fn()} onNavigateToSession={vi.fn()} />,
     )
     expect(screen.queryByLabelText("quickChat.viewFullChat")).toBeNull()
   })

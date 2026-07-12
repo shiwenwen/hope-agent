@@ -84,27 +84,143 @@ pub async fn save_attachment(
 pub async fn queue_turn_user_message(
     request_id: Option<String>,
     message: String,
-    attachments: Vec<Attachment>,
+    mut attachments: Vec<Attachment>,
     session_id: String,
-    turn_id: String,
     display_text: Option<String>,
     is_plan_trigger: Option<bool>,
     goal_trigger: Option<bool>,
     plan_comment: Option<serde_json::Value>,
+    plan_mode: Option<String>,
+    workflow_mode: Option<String>,
+    state: State<'_, AppState>,
 ) -> Result<ha_core::chat_engine::turn_injection::QueueTurnUserMessageResult, CmdError> {
-    Ok(ha_core::chat_engine::turn_injection::enqueue(
-        ha_core::chat_engine::turn_injection::QueueTurnUserMessageArgs {
+    let request_id = request_id
+        .filter(|id| !id.trim().is_empty())
+        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+    let sid_for_files = session_id.clone();
+    let request_for_files = request_id.clone();
+    attachments = ha_core::blocking::run_blocking(move || {
+        ha_core::attachments::persist_queued_chat_attachments(
+            &sid_for_files,
+            &request_for_files,
+            &mut attachments,
+        )?;
+        anyhow::Ok(attachments)
+    })
+    .await?;
+    let attachments_for_cleanup = attachments.clone();
+    let input = ha_core::session::NewQueuedTurnMessage {
+        request_id: request_id.clone(),
+        session_id: session_id.clone(),
+        message,
+        display_text,
+        attachments,
+        is_plan_trigger: is_plan_trigger.unwrap_or(false),
+        goal_trigger: goal_trigger.unwrap_or(false),
+        plan_comment,
+        plan_mode,
+        workflow_mode,
+    };
+    let item_result = state
+        .session_db
+        .run(move |db| db.enqueue_turn_user_message(input))
+        .await;
+    let item = match item_result {
+        Ok(outcome) => {
+            if !outcome.inserted {
+                ha_core::attachments::remove_discarded_queued_attachments(
+                    &session_id,
+                    &request_id,
+                    &attachments_for_cleanup,
+                );
+            }
+            outcome.item
+        }
+        Err(error) => {
+            ha_core::attachments::remove_discarded_queued_attachments(
+                &session_id,
+                &request_id,
+                &attachments_for_cleanup,
+            );
+            return Err(error.into());
+        }
+    };
+    Ok(
+        ha_core::chat_engine::turn_injection::QueueTurnUserMessageResult {
+            queued: true,
             request_id,
-            session_id,
-            turn_id,
-            message,
-            display_text,
-            attachments,
-            is_plan_trigger: is_plan_trigger.unwrap_or(false),
-            goal_trigger: goal_trigger.unwrap_or(false),
-            plan_comment,
+            reason: None,
+            item: Some(item),
         },
-    ))
+    )
+}
+
+#[tauri::command]
+pub async fn list_queued_turn_user_messages(
+    session_id: String,
+    state: State<'_, AppState>,
+) -> Result<Vec<ha_core::session::QueuedTurnMessageView>, CmdError> {
+    state
+        .session_db
+        .run(move |db| db.list_queued_turn_user_messages(&session_id))
+        .await
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn update_queued_turn_user_message(
+    session_id: String,
+    request_id: String,
+    message: String,
+    display_text: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<bool, CmdError> {
+    state
+        .session_db
+        .run(move |db| {
+            db.update_queued_turn_user_message(
+                &session_id,
+                &request_id,
+                &message,
+                display_text.as_deref(),
+            )
+        })
+        .await
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn delete_queued_turn_user_message(
+    session_id: String,
+    request_id: String,
+    state: State<'_, AppState>,
+) -> Result<bool, CmdError> {
+    state
+        .session_db
+        .run(move |db| db.delete_queued_turn_user_message(&session_id, &request_id))
+        .await
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn insert_queued_turn_user_message(
+    session_id: String,
+    turn_id: String,
+    request_id: String,
+    state: State<'_, AppState>,
+) -> Result<ha_core::chat_engine::turn_injection::QueueTurnUserMessageResult, CmdError> {
+    state
+        .session_db
+        .run(move |db| {
+            ha_core::chat_engine::turn_injection::request_insertion(
+                db,
+                &session_id,
+                &turn_id,
+                &request_id,
+            )
+        })
+        .await
+        .map_err(Into::into)
 }
 
 #[tauri::command]
@@ -112,17 +228,25 @@ pub async fn cancel_queued_turn_user_message(
     session_id: String,
     turn_id: String,
     request_id: String,
+    state: State<'_, AppState>,
 ) -> Result<ha_core::chat_engine::turn_injection::CancelQueuedTurnMessageResult, CmdError> {
-    Ok(ha_core::chat_engine::turn_injection::cancel(
-        &session_id,
-        &turn_id,
-        &request_id,
-    ))
+    state
+        .session_db
+        .run(move |db| {
+            ha_core::chat_engine::turn_injection::cancel_insertion(
+                db,
+                &session_id,
+                &turn_id,
+                &request_id,
+            )
+        })
+        .await
+        .map_err(Into::into)
 }
 
 #[tauri::command]
 pub async fn chat(
-    message: String,
+    mut message: String,
     mut attachments: Vec<Attachment>,
     session_id: Option<String>,
     incognito: Option<bool>,
@@ -132,20 +256,20 @@ pub async fn chat(
     permission_mode: Option<ha_core::permission::SessionMode>,
     sandbox_mode: Option<ha_core::permission::SandboxMode>,
     workflow_mode: Option<ha_core::workflow_mode::WorkflowMode>,
-    plan_mode: Option<String>,
+    mut plan_mode: Option<String>,
     temperature_override: Option<f64>,
     reasoning_effort: Option<String>,
     // When set, DB stores `display_text` as the user message while `message` is still
     // fed to the LLM (slash-skill passThrough uses this).
-    display_text: Option<String>,
+    mut display_text: Option<String>,
     // When true, the persisted user row is tagged with
     // `attachments_meta = {"plan_trigger": true}` so the UI can render it as a
     // system chip instead of a regular user bubble (Plan Mode approve/resume).
-    is_plan_trigger: Option<bool>,
+    mut is_plan_trigger: Option<bool>,
     // When true, the persisted user row is tagged with
     // `attachments_meta = {"goal_trigger": true}` so the UI can render a
     // regular user bubble with a Goal badge.
-    goal_trigger: Option<bool>,
+    mut goal_trigger: Option<bool>,
     // First-turn Goal creation payload. Only honored on the auto-create branch:
     // the durable Goal is created after prompt preflight passes and before the
     // model turn starts, so the first assistant response sees Active Goal.
@@ -156,7 +280,10 @@ pub async fn chat(
     // ignore it (they consume `display_text` instead). Mutually exclusive
     // with `is_plan_trigger` (a comment is not a trigger), `is_plan_trigger`
     // wins if both are set.
-    plan_comment: Option<serde_json::Value>,
+    mut plan_comment: Option<serde_json::Value>,
+    // Durable pending-message id. When present, the backend claims the row and
+    // replaces all user-controlled message fields from SQLite.
+    queued_request_id: Option<String>,
     // Draft working dir picked before the session was materialized. Only honored
     // when this call also creates the session — applies via the same
     // `update_session_working_dir` validation as the explicit setter command.
@@ -184,7 +311,7 @@ pub async fn chat(
     // Capture optional per-session modes — applied below once we have a session id.
     let permission_mode_pending = permission_mode;
     let sandbox_mode_pending = sandbox_mode;
-    let workflow_mode_pending = workflow_mode;
+    let mut workflow_mode_pending = workflow_mode;
 
     let db = state.session_db.clone();
     let cancel = Arc::new(AtomicBool::new(false));
@@ -356,10 +483,6 @@ pub async fn chat(
         })
         .await?;
     }
-    if let Some(mode) = workflow_mode_pending {
-        db.update_session_workflow_mode(&sid, mode)?;
-    }
-
     if new_session_created.is_some() {
         if let Some(wd) = working_dir.as_ref().filter(|s| !s.trim().is_empty()) {
             {
@@ -386,12 +509,65 @@ pub async fn chat(
     }
 
     let turn_id = uuid::Uuid::new_v4().to_string();
-    let _active_turn_guard = crate::chat_engine::active_turn::try_acquire(
+    let queued_request_id = queued_request_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .map(str::to_string);
+    if let Some(request_id) = queued_request_id.as_ref() {
+        let sid_for_claim = sid.clone();
+        let request_id_for_claim = request_id.clone();
+        let turn_for_claim = turn_id.clone();
+        let claimed = db
+            .run(move |db| {
+                db.claim_queued_turn_message_for_dispatch(
+                    &sid_for_claim,
+                    &request_id_for_claim,
+                    &turn_for_claim,
+                )
+            })
+            .await?
+            .ok_or_else(|| CmdError::msg("Queued message is no longer available"))?;
+        message = claimed.message;
+        attachments = claimed.attachments;
+        display_text = claimed.display_text;
+        is_plan_trigger = Some(claimed.is_plan_trigger);
+        goal_trigger = Some(claimed.goal_trigger);
+        plan_comment = claimed.plan_comment;
+        plan_mode = claimed.plan_mode;
+        workflow_mode_pending = claimed
+            .workflow_mode
+            .as_deref()
+            .and_then(ha_core::workflow_mode::WorkflowMode::from_str);
+    }
+    if let Some(mode) = workflow_mode_pending {
+        db.update_session_workflow_mode(&sid, mode)?;
+    }
+    let _active_turn_guard = match crate::chat_engine::active_turn::try_acquire(
         &sid,
         crate::chat_engine::stream_seq::ChatSource::Desktop,
         turn_id.clone(),
         cancel.clone(),
-    )?;
+    ) {
+        Ok(guard) => guard,
+        Err(error) => {
+            if let Some(request_id) = queued_request_id.as_ref() {
+                let sid_for_release = sid.clone();
+                let request_id_for_release = request_id.clone();
+                let turn_for_release = turn_id.clone();
+                let _ = db
+                    .run(move |db| {
+                        db.release_queued_turn_message_dispatch(
+                            &sid_for_release,
+                            &request_id_for_release,
+                            &turn_for_release,
+                        )
+                    })
+                    .await;
+            }
+            return Err(error.into());
+        }
+    };
 
     // Mark this session as active — cancels any running subagent injection and blocks new ones
     let _chat_session_guard = crate::subagent::ChatSessionGuard::new(&sid);
@@ -419,6 +595,15 @@ pub async fn chat(
             effective_prompt
         }
         ha_core::agent::preflight::PreflightOutcome::Block { reason } => {
+            if let Some(request_id) = queued_request_id.as_ref() {
+                let sid_for_remove = sid.clone();
+                let request_id_for_remove = request_id.clone();
+                let _ = db
+                    .run(move |db| {
+                        db.remove_claimed_turn_message(&sid_for_remove, &request_id_for_remove)
+                    })
+                    .await;
+            }
             // A UserPromptSubmit hook blocked the prompt: record a UI-only event
             // marker (visible in history but excluded from LLM context) and
             // surface it. The prompt is neither persisted as a user message nor
@@ -520,13 +705,36 @@ pub async fn chat(
     }
 
     let attachments_meta = {
-        let sid = sid.clone();
+        let sid_for_files = sid.clone();
         let mut moved = std::mem::take(&mut attachments);
-        let (meta, persisted) = ha_core::blocking::run_blocking(move || {
-            let meta = ha_core::attachments::persist_chat_user_attachments_meta(&sid, &mut moved)?;
+        let persisted_result = ha_core::blocking::run_blocking(move || {
+            let meta = ha_core::attachments::persist_chat_user_attachments_meta(
+                &sid_for_files,
+                &mut moved,
+            )?;
             anyhow::Ok((meta, moved))
         })
-        .await?;
+        .await;
+        let (meta, persisted) = match persisted_result {
+            Ok(value) => value,
+            Err(error) => {
+                if let Some(request_id) = queued_request_id.as_ref() {
+                    let sid_for_release = sid.clone();
+                    let request_id_for_release = request_id.clone();
+                    let turn_for_release = turn_id.clone();
+                    let _ = db
+                        .run(move |db| {
+                            db.release_queued_turn_message_dispatch(
+                                &sid_for_release,
+                                &request_id_for_release,
+                                &turn_for_release,
+                            )
+                        })
+                        .await;
+                }
+                return Err(error.into());
+            }
+        };
         attachments = persisted;
         meta
     };
@@ -534,6 +742,7 @@ pub async fn chat(
     // Save user message to DB
     let mut user_msg = session::NewMessage::user(&effective_prompt)
         .with_source(ha_core::chat_engine::ChatSource::Desktop);
+    user_msg.queue_request_id = queued_request_id.clone();
     user_msg.attachments_meta = session::build_chat_user_attachments_meta(
         is_plan_trigger.unwrap_or(false),
         plan_comment.as_ref(),
@@ -541,11 +750,16 @@ pub async fn chat(
         attachments_meta,
     );
     let title_attachments_meta = user_msg.attachments_meta.clone();
-    let _user_message_id = {
+    let user_message_result = {
         let sid = sid.clone();
         let turn_id = turn_id.clone();
+        let queue_id_for_consume = queued_request_id.clone();
         db.run(move |db| -> anyhow::Result<Option<i64>> {
-            let user_message_id = db.append_message(&sid, &user_msg).ok();
+            let user_message_id = if queue_id_for_consume.is_some() {
+                Some(db.append_message(&sid, &user_msg)?)
+            } else {
+                db.append_message(&sid, &user_msg).ok()
+            };
             db.create_chat_turn_with_id(
                 &turn_id,
                 &sid,
@@ -553,9 +767,32 @@ pub async fn chat(
                 None,
                 user_message_id,
             )?;
+            if let Some(request_id) = queue_id_for_consume.as_deref() {
+                db.consume_dispatched_turn_message(&sid, request_id, &turn_id)?;
+            }
             Ok(user_message_id)
         })
-        .await?
+        .await
+    };
+    let _user_message_id = match user_message_result {
+        Ok(message_id) => message_id,
+        Err(error) => {
+            if let Some(request_id) = queued_request_id.as_ref() {
+                let sid_for_reconcile = sid.clone();
+                let request_for_reconcile = request_id.clone();
+                let turn_for_reconcile = turn_id.clone();
+                let _ = db
+                    .run(move |db| {
+                        db.reconcile_failed_turn_message_dispatch(
+                            &sid_for_reconcile,
+                            &request_for_reconcile,
+                            &turn_for_reconcile,
+                        )
+                    })
+                    .await;
+            }
+            return Err(error.into());
+        }
     };
 
     // Log chat start

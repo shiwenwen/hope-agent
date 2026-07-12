@@ -301,7 +301,13 @@ export default function QuickChatDialog({
               )
             }
             pendingMessage={stream.pendingMessage}
+            pendingSends={stream.pendingSends}
             onCancelPending={() => stream.setPendingMessage(null)}
+            onEditPending={stream.editPendingSend}
+            onDiscardPendingItem={stream.discardPendingSend}
+            onSendPending={stream.sendPendingSend}
+            onForceInsertPending={stream.forceInsertPendingSend}
+            onCancelForceInsertPending={stream.cancelForceInsertPendingSend}
             onStop={stream.handleStop}
             currentSessionId={session.currentSessionId}
             currentAgentId={session.currentAgentId}
