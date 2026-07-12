@@ -1354,6 +1354,9 @@ mod tests {
         let root = tempfile::tempdir().expect("repo tempdir");
         let repo = root.path();
         git(repo, &["init", "-b", "main"]);
+        // Keep the fixture byte-stable on Windows runners instead of inheriting
+        // a global core.autocrlf setting from the host.
+        git(repo, &["config", "core.autocrlf", "false"]);
         fs::write(repo.join("staged.txt"), "base\n").unwrap();
         fs::write(repo.join("unstaged.txt"), "base\n").unwrap();
         fs::write(repo.join("binary.bin"), [0_u8, 1, 2, 3]).unwrap();
