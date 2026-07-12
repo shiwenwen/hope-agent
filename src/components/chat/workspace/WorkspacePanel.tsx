@@ -135,11 +135,12 @@ import type {
   ReviewRunSnapshot,
   ReviewSeverity,
   ReviewVerdict,
+  GitPullRequestReviewComment,
+  SessionGitDiffSnapshot,
   VerificationRisk,
   VerificationRunSnapshot,
   VerificationStep,
   VerificationStepState,
-  WorkspaceGitSnapshot,
 } from "@/lib/transport"
 import {
   computeContextUsage,
@@ -189,6 +190,8 @@ import { sessionSourceKey, type SessionUrlSource } from "./useSessionUrlSources"
 import type { SessionBrowserActivity } from "./useSessionBrowserActivity"
 import { useWorkspaceArtifacts } from "./useWorkspaceArtifacts"
 import { useWorkspaceEnvironment } from "./useWorkspaceEnvironment"
+import { GitControlCard } from "./GitControlCard"
+import { useSessionGitControl } from "./useSessionGitControl"
 import { useScrollPagedRender } from "./useScrollPagedRender"
 import { useSessionKnowledge } from "./useSessionKnowledge"
 import { useManagedWorktrees } from "./useManagedWorktrees"
@@ -253,7 +256,6 @@ import {
 import { workspaceSourceOpenErrorToast } from "./workspaceSourceFeedback"
 import { PANEL_SCROLL_FADE } from "../right-panel/panelFade"
 import {
-  formatGitRef,
   resolveWorkspaceEnvironmentStatus,
   workingDirSourceLabelKey,
 } from "./workspaceEnvironment"
@@ -266,6 +268,16 @@ interface WorkspacePanelProps {
   contextUsageOverride?: ContextUsageInfo | null
   /** 改写类文件「查看 diff」→ 右侧 diff 面板。 */
   onOpenDiff: (payload: FileChangeMetadata | FileChangesMetadata) => void
+  /** 仓库真实 staged / unstaged diff → 右侧 diff 面板。 */
+  onOpenGitDiff?: (
+    snapshot: SessionGitDiffSnapshot,
+    sessionId: string,
+    reviewComments?: GitPullRequestReviewComment[],
+  ) => void
+  /** 将 GitHub 检查/评论修复要求填入当前会话输入框，不自动发送。 */
+  onFillInput?: (value: string) => void
+  /** 打开当前分支关联 PR 的独立右侧面板。 */
+  onOpenPullRequest?: () => void
   /** 预览文件 → 右侧预览面板（与下挂文件 / Markdown 链接同一策略）。 */
   onPreviewFile?: (target: PreviewTarget) => void
   /** 当前会话 id,后端聚合 + 文件作用域解析都需要它。 */
@@ -1118,31 +1130,6 @@ function planStateLabel(t: ReturnType<typeof useTranslation>["t"], state: PlanMo
   }
 }
 
-function gitSyncLabel(
-  t: ReturnType<typeof useTranslation>["t"],
-  git: WorkspaceGitSnapshot | null,
-): string | null {
-  if (!git) return null
-  const { sync } = git
-  switch (sync.state) {
-    case "ahead":
-      return t("workspace.environment.syncAhead", "领先 {{count}}", { count: sync.ahead })
-    case "behind":
-      return t("workspace.environment.syncBehind", "落后 {{count}}", { count: sync.behind })
-    case "diverged":
-      return t("workspace.environment.syncDiverged", "领先 {{ahead}} / 落后 {{behind}}", {
-        ahead: sync.ahead,
-        behind: sync.behind,
-      })
-    case "upToDate":
-      return sync.upstream ? t("workspace.environment.syncUpToDate", "已同步") : null
-    case "noUpstream":
-      return t("workspace.environment.syncNoUpstream", "无 upstream")
-    case "unknown":
-      return sync.upstream ? t("workspace.environment.syncUnknown", "同步状态未知") : null
-  }
-}
-
 /** Shared action-button styling for the session card (matches the status popover). */
 const SESSION_ACTION_BTN =
   "rounded-md border border-border/50 px-2 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-secondary/60 hover:text-foreground disabled:opacity-50"
@@ -1440,7 +1427,9 @@ function EnvironmentSection({
   permissionMode = "default",
   planState = "off",
   turnActive,
-  onOpenDiff,
+  onOpenGitDiff = () => {},
+  onFillInput,
+  onOpenPullRequest,
 }: {
   sessionId?: string | null
   sessionMeta?: SessionMeta | null
@@ -1450,10 +1439,15 @@ function EnvironmentSection({
   permissionMode?: SessionMode
   planState?: PlanModeState
   turnActive?: boolean
-  onOpenDiff?: (payload: FileChangeMetadata | FileChangesMetadata) => void
+  onOpenGitDiff: (
+    snapshot: SessionGitDiffSnapshot,
+    sessionId: string,
+    reviewComments?: GitPullRequestReviewComment[],
+  ) => void
+  onFillInput?: (value: string) => void
+  onOpenPullRequest?: () => void
 }) {
   const { t } = useTranslation()
-  const [gitDiffLoading, setGitDiffLoading] = useState(false)
   const appVersion = useAppVersion()
   const environmentRefreshKey = useMemo(
     () =>
@@ -1481,34 +1475,15 @@ function EnvironmentSection({
         : "none")
   const sourceLabel = workingDirSourceLabelKey(source)
   const git = env.snapshot?.git ?? null
-  const currentWorktree = git?.worktrees.find((w) => w.isCurrent) ?? null
-  const syncLabel = git ? gitSyncLabel(t, git) : null
   const managedWorktreesState = useManagedWorktrees(sessionId, {
     incognito: sessionMeta?.incognito,
     turnActive,
   })
   const managedWorktrees = managedWorktreesState.worktrees
+  const gitControl = useSessionGitControl(sessionId, turnActive)
   const activeManagedWorktree =
     managedWorktrees.find((wt) => wt.state !== "archived" && wt.path === workingDir) ?? null
   const [worktreeActionKey, setWorktreeActionKey] = useState<string | null>(null)
-  const canOpenGitDiff = !!sessionId && !!git && !git.status.clean && !!onOpenDiff
-  const handleOpenGitDiff = useCallback(async () => {
-    if (!sessionId || !onOpenDiff || gitDiffLoading) return
-    setGitDiffLoading(true)
-    try {
-      const payload = await getTransport().loadSessionGitDiff(sessionId)
-      if (payload.changes.length === 0) {
-        toast.info(t("workspace.environment.noTextDiff", "没有可展示的文本 diff"))
-        return
-      }
-      onOpenDiff(payload)
-    } catch (e) {
-      logger.error("ui", "WorkspaceEnvironment::gitDiff", "Load git diff failed", e)
-      toast.error(t("workspace.environment.gitDiffFailed", "读取 Git diff 失败"))
-    } finally {
-      setGitDiffLoading(false)
-    }
-  }, [gitDiffLoading, onOpenDiff, sessionId, t])
   const createManagedWorktree = useCallback(async () => {
     if (!sessionId || !workingDir || worktreeActionKey) return
     setWorktreeActionKey("create")
@@ -1529,14 +1504,9 @@ function EnvironmentSection({
     }
   }, [managedWorktreesState, sessionId, t, workingDir, worktreeActionKey])
   const runManagedWorktreeAction = useCallback(
-    async (worktree: ManagedWorktree, action: "archive" | "restore" | "handoff") => {
+    async (worktree: ManagedWorktree, action: "archive" | "restore") => {
       if (worktreeActionKey) return
-      const command =
-        action === "archive"
-          ? "archive_managed_worktree"
-          : action === "restore"
-            ? "restore_managed_worktree"
-            : "handoff_managed_worktree"
+      const command = action === "archive" ? "archive_managed_worktree" : "restore_managed_worktree"
       setWorktreeActionKey(`${action}:${worktree.id}`)
       try {
         await getTransport().call<ManagedWorktree>(command, { worktreeId: worktree.id })
@@ -1544,9 +1514,7 @@ function EnvironmentSection({
         toast.success(
           action === "archive"
             ? t("workspace.worktree.archived", "已归档工作树")
-            : action === "restore"
-              ? t("workspace.worktree.restored", "已恢复工作树")
-              : t("workspace.worktree.handoffDone", "已交接到当前会话"),
+            : t("workspace.worktree.restored", "已恢复工作树"),
         )
       } catch (e) {
         logger.error("ui", "EnvironmentSection::managedWorktreeAction", `${action} failed`, e)
@@ -1587,7 +1555,34 @@ function EnvironmentSection({
       icon={Cpu}
       meta={<StatusPill label={statusLabel} tone={status.tone} loading={env.loading} />}
     >
-      <div className="space-y-0.5">
+      {sessionId && git ? (
+        <GitControlCard
+          sessionId={sessionId}
+          state={gitControl}
+          managedWorktrees={managedWorktrees}
+          onOpenGitDiff={onOpenGitDiff}
+          onFillInput={onFillInput}
+          onOpenPullRequest={onOpenPullRequest}
+          managedWorktreeControls={
+            <ManagedWorktreesMiniPanel
+              worktrees={managedWorktrees}
+              activeWorktree={activeManagedWorktree}
+              loading={managedWorktreesState.loading}
+              error={managedWorktreesState.error}
+              actionKey={worktreeActionKey}
+              canCreate={Boolean(sessionId && workingDir && git)}
+              onCreate={() => void createManagedWorktree()}
+              onAction={(worktree, action) => void runManagedWorktreeAction(worktree, action)}
+            />
+          }
+        />
+      ) : null}
+
+      <details className="mt-2 rounded-lg border border-border/45 bg-secondary/10">
+        <summary className="cursor-pointer select-none px-2.5 py-2 text-xs font-medium text-muted-foreground hover:text-foreground">
+          {t("workspace.environment.details", "详细信息")}
+        </summary>
+        <div className="space-y-0.5 border-t border-border/45 p-1.5">
         <EnvRow
           icon={Monitor}
           label={t("workspace.environment.version", "版本")}
@@ -1668,114 +1663,15 @@ function EnvironmentSection({
           />
         ) : null}
 
-        {git ? (
-          <>
-            <EnvRow
-              icon={GitBranch}
-              label={t("workspace.environment.branch", "分支")}
-              value={formatGitRef(t, git)}
-              detail={
-                git.detached ? t("fileBrowser.gitDetached", "detached") : (git.head ?? undefined)
-              }
-            />
-            {currentWorktree || git.worktrees.length > 1 ? (
-              <EnvRow
-                icon={FolderGit2}
-                label={t("workspace.environment.worktree", "工作树")}
-                value={currentWorktree ? basename(currentWorktree.path) : basename(git.root)}
-                detail={
-                  git.worktrees.length > 1
-                    ? t("workspace.environment.worktreeCount", "{{count}} 个", {
-                        count: git.worktrees.length,
-                      })
-                    : undefined
-                }
-                title={currentWorktree?.path ?? git.root}
-              />
-            ) : null}
-            <ManagedWorktreesMiniPanel
-              worktrees={managedWorktrees}
-              activeWorktree={activeManagedWorktree}
-              loading={managedWorktreesState.loading}
-              error={managedWorktreesState.error}
-              actionKey={worktreeActionKey}
-              canCreate={Boolean(sessionId && workingDir && git)}
-              onCreate={() => void createManagedWorktree()}
-              onAction={(worktree, action) => void runManagedWorktreeAction(worktree, action)}
-            />
-            <EnvRow
-              icon={git.status.clean ? CheckCircle2 : GitCompare}
-              label={t("workspace.environment.changes", "变更")}
-              value={
-                gitDiffLoading ? (
-                  <span className="inline-flex items-center gap-1">
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                    {t("workspace.environment.loadingDiff", "读取 diff")}
-                  </span>
-                ) : git.status.clean ? (
-                  t("workspace.environment.clean", "无本地变更")
-                ) : (
-                  t("workspace.environment.changedFiles", "{{count}} 个文件", {
-                    count: git.status.changedFiles,
-                  })
-                )
-              }
-              detail={
-                git.status.linesAdded > 0 || git.status.linesRemoved > 0 ? (
-                  <FileDeltaCounter
-                    linesAdded={git.status.linesAdded}
-                    linesRemoved={git.status.linesRemoved}
-                    className="text-[10px]"
-                  />
-                ) : git.status.conflictedFiles > 0 ? (
-                  t("workspace.environment.conflictCount", "{{count}} 个冲突", {
-                    count: git.status.conflictedFiles,
-                  })
-                ) : undefined
-              }
-              tone={git.status.conflictedFiles > 0 ? "danger" : git.status.clean ? "good" : "warn"}
-              onClick={canOpenGitDiff ? handleOpenGitDiff : undefined}
-              disabled={gitDiffLoading}
-            />
-            {(syncLabel || git.sync.upstream || git.sync.remote) && (
-              <EnvRow
-                icon={GitPullRequest}
-                label={t("workspace.environment.sync", "同步")}
-                value={
-                  syncLabel ??
-                  git.sync.upstream ??
-                  t("workspace.environment.syncUnknown", "同步状态未知")
-                }
-                detail={git.sync.upstream ?? git.sync.remote ?? undefined}
-                tone={
-                  git.sync.state === "diverged"
-                    ? "danger"
-                    : git.sync.state === "behind"
-                      ? "warn"
-                      : git.sync.state === "ahead"
-                        ? "info"
-                        : "muted"
-                }
-                title={git.sync.remote ?? git.sync.upstream ?? undefined}
-              />
-            )}
-            {git.lastCommit ? (
-              <EnvRow
-                icon={GitCommitHorizontal}
-                label={t("workspace.environment.commit", "提交")}
-                value={git.lastCommit.subject}
-                detail={git.lastCommit.hash}
-              />
-            ) : null}
-          </>
-        ) : env.snapshot && workingDir ? (
+        {!git && env.snapshot && workingDir ? (
           <EnvRow
             icon={GitBranch}
             label={t("workspace.environment.git", "Git")}
             value={t("workspace.environment.nonGit", "非 Git 工作目录")}
           />
         ) : null}
-      </div>
+        </div>
+      </details>
     </WorkspaceSection>
   )
 }
@@ -1797,10 +1693,9 @@ function ManagedWorktreesMiniPanel({
   actionKey?: string | null
   canCreate?: boolean
   onCreate: () => void
-  onAction: (worktree: ManagedWorktree, action: "archive" | "restore" | "handoff") => void
+  onAction: (worktree: ManagedWorktree, action: "archive" | "restore") => void
 }) {
   const { t } = useTranslation()
-  const visible = worktrees.slice(0, 4)
   const createBusy = actionKey === "create"
   return (
     <div className="rounded-md border border-border/55 bg-secondary/15">
@@ -1831,13 +1726,13 @@ function ManagedWorktreesMiniPanel({
         <div className="border-t border-border/60 px-2 py-1.5 text-[10px] text-destructive">
           {truncateMiddle(error, 120)}
         </div>
-      ) : visible.length === 0 ? (
+      ) : worktrees.length === 0 ? (
         <div className="border-t border-border/60 px-2 py-1.5 text-[10px] text-muted-foreground">
           {t("workspace.worktree.empty", "暂无托管工作树")}
         </div>
       ) : (
-        <div className="space-y-1 border-t border-border/60 p-1.5">
-          {visible.map((worktree) => {
+        <div className="max-h-48 space-y-1 overflow-y-auto border-t border-border/60 p-1.5">
+          {worktrees.map((worktree) => {
             const isActive = activeWorktree?.id === worktree.id
             const busyPrefix = actionKey?.endsWith(`:${worktree.id}`)
               ? actionKey.split(":")[0]
@@ -1888,52 +1783,27 @@ function ManagedWorktreesMiniPanel({
                       </Button>
                     </IconTip>
                   ) : (
-                    <>
-                      <IconTip label={t("workspace.worktree.handoff", "交接到当前会话")}>
-                        <Button
-                          type="button"
-                          size="icon"
-                          variant="ghost"
-                          className="h-6 w-6"
-                          disabled={Boolean(actionKey) || isActive}
-                          onClick={() => onAction(worktree, "handoff")}
-                        >
-                          {busyPrefix === "handoff" ? (
-                            <Loader2 className="h-3 w-3 animate-spin" />
-                          ) : (
-                            <GitPullRequest className="h-3 w-3" />
-                          )}
-                        </Button>
-                      </IconTip>
-                      <IconTip label={t("workspace.worktree.archive", "归档")}>
-                        <Button
-                          type="button"
-                          size="icon"
-                          variant="ghost"
-                          className="h-6 w-6 text-muted-foreground hover:text-destructive"
-                          disabled={Boolean(actionKey)}
-                          onClick={() => onAction(worktree, "archive")}
-                        >
-                          {busyPrefix === "archive" ? (
-                            <Loader2 className="h-3 w-3 animate-spin" />
-                          ) : (
-                            <X className="h-3 w-3" />
-                          )}
-                        </Button>
-                      </IconTip>
-                    </>
+                    <IconTip label={t("workspace.worktree.archive", "归档")}>
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        className="h-6 w-6 text-muted-foreground hover:text-destructive"
+                        disabled={Boolean(actionKey) || isActive}
+                        onClick={() => onAction(worktree, "archive")}
+                      >
+                        {busyPrefix === "archive" ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : (
+                          <X className="h-3 w-3" />
+                        )}
+                      </Button>
+                    </IconTip>
                   )}
                 </div>
               </div>
             )
           })}
-          {worktrees.length > visible.length ? (
-            <div className="px-1.5 pb-0.5 text-[10px] text-muted-foreground">
-              {t("workspace.worktree.more", "另有 {{count}} 个", {
-                count: worktrees.length - visible.length,
-              })}
-            </div>
-          ) : null}
         </div>
       )}
     </div>
@@ -1951,6 +1821,8 @@ function managedWorktreeStateLabel(
       return t("workspace.worktree.stateArchived", "Archived")
     case "handoff":
       return t("workspace.worktree.stateHandoff", "Handoff")
+    case "bootstrap_failed":
+      return t("workspace.worktree.stateBootstrapFailed", "Bootstrap failed")
   }
 }
 
@@ -18907,7 +18779,9 @@ function goalWorktreeEvidenceFromItem(item: GoalEvidenceItem): GoalWorktreeEvide
 }
 
 function parseManagedWorktreeState(value: string | null): ManagedWorktree["state"] {
-  return value === "archived" || value === "handoff" ? value : "active"
+  return value === "archived" || value === "handoff" || value === "bootstrap_failed"
+    ? value
+    : "active"
 }
 
 function goalWorktreeDirtySnapshotFromMetadata(
@@ -22192,6 +22066,9 @@ export default function WorkspacePanel({
   messages,
   contextUsageOverride,
   onOpenDiff,
+  onOpenGitDiff = () => {},
+  onFillInput,
+  onOpenPullRequest,
   onPreviewFile,
   sessionId,
   sessionMeta,
@@ -22314,7 +22191,9 @@ export default function WorkspacePanel({
           permissionMode={permissionMode}
           planState={planState}
           turnActive={turnActive}
-          onOpenDiff={onOpenDiff}
+          onOpenGitDiff={onOpenGitDiff}
+          onFillInput={onFillInput}
+          onOpenPullRequest={onOpenPullRequest}
         />
 
         <GoalWorkspaceSection

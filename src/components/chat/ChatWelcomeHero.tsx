@@ -45,7 +45,7 @@ export function ChatWelcomeHero({
           className="mx-auto mb-5 h-[72px] w-[72px] object-contain opacity-35 grayscale"
           draggable={false}
         />
-        <p className="mx-auto max-w-[620px] text-sm leading-relaxed text-muted-foreground">
+        <p className="mx-auto max-w-[720px] text-2xl leading-relaxed text-foreground sm:text-3xl">
           {t("chat.incognitoEmptyBody")}
         </p>
       </div>
@@ -72,7 +72,7 @@ export function ChatWelcomeHero({
             }}
           />
         </p>
-        <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+        <div className="mx-auto mt-7 grid w-full max-w-[1040px] grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
           {PROJECT_WELCOME_SUGGESTIONS.map((suggestion) => {
             const Icon = suggestion.icon
             const title = t(`chat.projectWelcomeSuggestions.${suggestion.key}.title`)
@@ -85,15 +85,15 @@ export function ChatWelcomeHero({
                 type="button"
                 onClick={() => onProjectSuggestion?.(prompt)}
                 disabled={!onProjectSuggestion}
-                className="group inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-full border border-border/70 bg-background/40 px-3 text-xs font-medium text-muted-foreground transition-colors hover:border-border hover:bg-muted/35 hover:text-foreground disabled:cursor-default disabled:hover:border-border/70 disabled:hover:bg-background/40 disabled:hover:text-muted-foreground"
+                className="group flex min-h-28 cursor-pointer flex-col items-start justify-between rounded-2xl border border-border/70 bg-background/55 p-4 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-border hover:bg-muted/30 hover:shadow-md disabled:cursor-default disabled:hover:translate-y-0 disabled:hover:border-border/70 disabled:hover:bg-background/55 disabled:hover:shadow-sm"
               >
                 <Icon
                   className={cn(
-                    "h-3.5 w-3.5 shrink-0 transition-transform group-hover:-translate-y-px",
+                    "h-5 w-5 shrink-0 transition-transform group-hover:-translate-y-px",
                     suggestion.iconClassName,
                   )}
                 />
-                <span>{title}</span>
+                <span className="mt-5 text-sm font-medium leading-snug text-foreground">{title}</span>
               </button>
             )
           })}

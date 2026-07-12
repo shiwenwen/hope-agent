@@ -120,6 +120,10 @@ pub struct ChatRequest {
     /// exclusive with incognito (coerced in `create_session_with_project`).
     #[serde(default)]
     pub project_id: Option<String>,
+    /// Draft-only project launch configuration. Worktree mode is prepared and
+    /// bound before the first model turn starts.
+    #[serde(default)]
+    pub project_bootstrap: Option<ha_core::project_bootstrap::ProjectSessionBootstrapInput>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -422,7 +426,34 @@ pub async fn chat(
         .map(str::trim)
         .filter(|pid| !pid.is_empty())
         .map(str::to_owned);
+    let bootstrap_request_id = body
+        .project_bootstrap
+        .as_ref()
+        .map(|bootstrap| bootstrap.request_id.clone());
     let auto_create_session = existing_session_id.is_none();
+    if !auto_create_session && body.project_bootstrap.is_some() {
+        return Err(AppError::bad_request(
+            "projectBootstrap is only valid when creating a new project session",
+        ));
+    }
+    if body.project_bootstrap.is_some() && project_id.is_none() {
+        return Err(AppError::bad_request("projectBootstrap requires projectId"));
+    }
+    if body.project_bootstrap.is_some() {
+        // Project bootstrap can switch the local checkout or create a managed
+        // worktree, so HTTP must enforce the same default-deny write policy as
+        // the session-scoped Git mutation routes before creating a Session.
+        super::git_control::ensure_writes_allowed()?;
+    }
+    if let Some(bootstrap) = body.project_bootstrap.as_ref() {
+        if bootstrap
+            .base_ref
+            .as_deref()
+            .is_none_or(|value| value.trim().is_empty())
+        {
+            return Err(AppError::bad_request("project launch requires baseRef"));
+        }
+    }
     if auto_create_session
         && body
             .initial_goal
@@ -588,6 +619,57 @@ pub async fn chat(
                 .await;
             return Err(error.into());
         }
+
+        if let Some(bootstrap) = body.project_bootstrap.as_ref() {
+            let pid = project_id
+                .as_deref()
+                .ok_or_else(|| AppError::bad_request("projectBootstrap requires projectId"))?;
+            let project = {
+                let project_db = ctx.project_db.clone();
+                let pid = pid.to_string();
+                ha_core::blocking::run_blocking(move || project_db.get(&pid)).await?
+            }
+            .ok_or_else(|| AppError::bad_request(format!("Project not found: {pid}")))?;
+            if project.archived {
+                let sid_for_cleanup = sid.clone();
+                let _ = db
+                    .run(move |session_db| session_db.delete_session(&sid_for_cleanup))
+                    .await;
+                return Err(AppError::bad_request(
+                    "Cannot start a task in an archived project",
+                ));
+            }
+            let source_working_dir = {
+                let sid = sid.clone();
+                db.run(move |session_db| -> anyhow::Result<String> {
+                    let meta = session_db
+                        .get_session(&sid)?
+                        .ok_or_else(|| anyhow::anyhow!("session not found: {sid}"))?;
+                    ha_core::session::effective_working_dir_for_meta(&meta)
+                        .ok_or_else(|| anyhow::anyhow!("project session has no working directory"))
+                })
+                .await?
+            };
+            if let Err(error) = ha_core::project_bootstrap::bootstrap_project_session(
+                &db,
+                ha_core::project_bootstrap::PrepareProjectWorktreeInput {
+                    request: bootstrap.clone(),
+                    session_id: sid.clone(),
+                    project_id: pid.to_string(),
+                    source_working_dir,
+                },
+            )
+            .await
+            {
+                let sid_for_cleanup = sid.clone();
+                let _ = db
+                    .run(move |session_db| session_db.delete_session(&sid_for_cleanup))
+                    .await;
+                return Err(AppError::bad_request(format!(
+                    "project bootstrap failed: {error:#}"
+                )));
+            }
+        }
     }
     let runtime_defaults = {
         let sid = sid.clone();
@@ -601,6 +683,18 @@ pub async fn chat(
             effort,
             ha_core::agent::VALID_REASONING_EFFORTS
         )));
+    }
+    if let Some(request_id) = bootstrap_request_id.as_deref() {
+        let request_id_owned = request_id.to_string();
+        let claimed = db
+            .run(move |db| db.claim_project_bootstrap_chatting(&request_id_owned))
+            .await?;
+        if !claimed {
+            return Err(AppError::conflict_with_code(
+                "project_bootstrap_already_claimed",
+                "project bootstrap was already claimed by another chat request",
+            ));
+        }
     }
 
     let turn_id = uuid::Uuid::new_v4().to_string();
@@ -731,6 +825,12 @@ pub async fn chat(
                 db.run(move |db| db.append_message(&sid, &session::NewMessage::event(&notice)))
                     .await
             };
+            if let Some(request_id) = bootstrap_request_id.as_deref() {
+                let request_id = request_id.to_string();
+                let _ = db
+                    .run(move |db| db.mark_project_bootstrap_completed(&request_id))
+                    .await;
+            }
             return Ok(Json(ChatResponse {
                 session_id: sid,
                 response: notice.clone(),
@@ -1067,6 +1167,11 @@ pub async fn chat(
         event_sink,
     };
 
+    if let Some(request_id) = bootstrap_request_id.as_deref() {
+        let request_id = request_id.to_string();
+        db.run(move |db| db.mark_project_bootstrap_completed(&request_id))
+            .await?;
+    }
     let result = ha_core::chat_engine::run_chat_engine(engine_params).await;
 
     if let Err(error) = &result {

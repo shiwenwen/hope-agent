@@ -6,7 +6,13 @@
  * standalone web app (HTTP / WebSocket).
  */
 
-import type { FileChangesMetadata, MediaItem, SandboxMode, SessionMode } from "@/types/chat";
+import type {
+  FileChangeMetadata,
+  FileChangesMetadata,
+  MediaItem,
+  SandboxMode,
+  SessionMode,
+} from "@/types/chat";
 
 /**
  * Synthetic transport-local event emitted whenever the HTTP event stream
@@ -87,6 +93,10 @@ export interface ChatStartArgs {
    *  materializes the session inside the project. Ignored for existing-session
    *  sends; mutually exclusive with incognito (coerced server-side). */
   projectId?: string | null;
+  /** Draft-only project launch configuration. Both local and worktree modes
+   *  accept a branch ref; worktree mode additionally prepares and binds a
+   *  managed worktree before the first model turn starts. */
+  projectBootstrap?: ProjectSessionBootstrapInput;
   /** Composer-staged KB attaches. The backend applies them on the auto-create
    *  branch (mirrors workingDir), before the first turn runs, so the first
    *  message already sees the access. Ignored for existing-session sends. */
@@ -99,6 +109,40 @@ export interface ChatStartArgs {
   // HTTP's POST body is plain JSON — keep this open so HTTP impl can
   // pass-through without an unsafe `as Record<string, unknown>` cast.
   [key: string]: unknown;
+}
+
+export interface ProjectSessionBootstrapInput {
+  requestId: string;
+  launchMode: "local" | "worktree";
+  baseRef?: string | null;
+  includeLocalChanges?: boolean;
+}
+
+export interface ProjectBootstrapProgressEvent {
+  requestId: string;
+  status: string;
+  stage: string;
+  sessionId?: string | null;
+  worktreeId?: string | null;
+  message?: string | null;
+  errorCode?: string | null;
+}
+
+export interface ProjectBootstrapRun {
+  id: string;
+  projectId: string;
+  sessionId?: string | null;
+  worktreeId?: string | null;
+  launchMode: "local" | "worktree";
+  baseRef?: string | null;
+  includeLocalChanges: boolean;
+  status: string;
+  stage: string;
+  errorCode?: string | null;
+  errorMessage?: string | null;
+  createdAt: number;
+  updatedAt: number;
+  completedAt?: number | null;
 }
 
 /**
@@ -679,8 +723,27 @@ export interface WorktreeInfo {
   isCurrent: boolean;
 }
 
-export type ManagedWorktreeState = "active" | "archived" | "handoff";
+export interface GitBranchInfo {
+  name: string;
+  fullRef: string;
+  kind: "local" | "remote";
+  remote?: string | null;
+  isCurrent: boolean;
+  isCheckedOut: boolean;
+  checkedOutPath?: string | null;
+}
+
+export interface GitDirtySummary {
+  stagedFiles: number;
+  unstagedFiles: number;
+  untrackedFiles: number;
+  conflictedFiles: number;
+  changedFiles: number;
+}
+
+export type ManagedWorktreeState = "active" | "archived" | "handoff" | "bootstrap_failed";
 export type ManagedWorktreePurpose = "manual" | "workflow" | "subagent";
+export type ManagedWorktreePathSource = "builtin" | "hook";
 
 export interface ManagedWorktreeDirtySnapshot {
   clean: boolean;
@@ -702,6 +765,7 @@ export interface ManagedWorktree {
   repoRoot: string;
   sourceWorkingDir: string;
   path: string;
+  pathSource: ManagedWorktreePathSource;
   baseRef?: string | null;
   baseBranch?: string | null;
   baseSha?: string | null;
@@ -3708,7 +3772,201 @@ export interface CodingEvalRunRecord extends RecordCodingEvalRunInput {
 
 export interface GitInfo {
   branch: string | null;
+  branches: GitBranchInfo[];
+  dirty: GitDirtySummary;
   worktrees: WorktreeInfo[];
+}
+
+export type SessionGitDiffScope = "unstaged" | "staged" | "all";
+
+export interface GitHunkInfo {
+  id: string;
+  header: string;
+  oldStart: number;
+  oldLines: number;
+  newStart: number;
+  newLines: number;
+}
+
+export interface GitFileChange extends FileChangeMetadata {
+  oldPath?: string | null;
+  status: string;
+  binary: boolean;
+  submodule: boolean;
+  conflicted: boolean;
+  untracked: boolean;
+  hunks: GitHunkInfo[];
+}
+
+export interface SessionGitDiffSnapshot {
+  revision: string;
+  scope: SessionGitDiffScope;
+  changes: GitFileChange[];
+}
+
+export interface GitRemoteInfo {
+  name: string;
+  fetchUrl: string;
+  pushUrl: string;
+  host?: string | null;
+  isDefault: boolean;
+  isGithub: boolean;
+}
+
+export interface GitCapabilities {
+  canSwitchBranch: boolean;
+  canCreateBranch: boolean;
+  canCommit: boolean;
+  canPush: boolean;
+  canCreatePullRequest: boolean;
+  canHandoff: boolean;
+  reason?: string | null;
+}
+
+export interface SessionGitControlSnapshot {
+  root: string;
+  head: string | null;
+  branch: string | null;
+  detached: boolean;
+  revision: string;
+  branches: GitBranchInfo[];
+  remotes: GitRemoteInfo[];
+  worktrees: WorktreeInfo[];
+  dirty: GitDirtySummary;
+  status: WorkspaceGitStatus;
+  sync: WorkspaceGitSync;
+  lastCommit: WorkspaceGitCommit | null;
+  activeLocation: "local" | "worktree";
+  managedWorktreeId?: string | null;
+  capabilities: GitCapabilities;
+}
+
+export interface GitMutationTarget {
+  kind: "all" | "file" | "hunk";
+  path?: string;
+  hunkId?: string;
+}
+
+export interface GitMutationResult {
+  revision: string;
+  head: string | null;
+  branch: string | null;
+  message: string;
+  url?: string | null;
+  warning?: string | null;
+}
+
+export interface GitPullRequestInfo {
+  number: number;
+  title: string;
+  url: string;
+  state: string;
+  isDraft: boolean;
+  baseBranch: string;
+  headBranch: string;
+  body?: string;
+  author?: string | null;
+  additions?: number;
+  deletions?: number;
+  changedFiles?: number;
+  mergeable?: "MERGEABLE" | "CONFLICTING" | "UNKNOWN" | string;
+  mergeStateStatus?: string;
+  reviewDecision?: string | null;
+  autoMergeEnabled?: boolean;
+  autoMergeMethod?: string | null;
+  reviewers?: GitPullRequestReviewer[];
+  reviews?: GitPullRequestReview[];
+}
+
+export interface GitPullRequestReviewer {
+  login: string;
+  kind: string;
+}
+
+export interface GitPullRequestReview {
+  id: string;
+  author: string;
+  state: string;
+  body: string;
+  submittedAt?: string | null;
+  commitOid?: string | null;
+  url?: string | null;
+}
+
+export interface GitEnablePullRequestAutoMergeInput {
+  requestId: string;
+  expectedRevision: string;
+  method: "merge" | "squash" | "rebase";
+  confirmAutoMerge: boolean;
+}
+
+export interface GitPullRequestPreflight {
+  available: boolean;
+  ghAvailable: boolean;
+  authenticated: boolean;
+  host?: string | null;
+  repository?: string | null;
+  defaultBranch?: string | null;
+  current?: GitPullRequestInfo | null;
+  errorCode?: string | null;
+  errorMessage?: string | null;
+}
+
+export interface GitPullRequestCheck {
+  name: string;
+  workflow?: string | null;
+  state: string;
+  bucket: "pass" | "fail" | "pending" | "skipping" | "cancel" | string;
+  description?: string | null;
+  link?: string | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
+}
+
+export interface GitPullRequestReviewComment {
+  threadId: string;
+  commentId: string;
+  author: string;
+  body: string;
+  path: string;
+  line?: number | null;
+  startLine?: number | null;
+  side?: string | null;
+  url?: string | null;
+  createdAt?: string | null;
+  replyCount: number;
+  isResolved: boolean;
+  isOutdated: boolean;
+}
+
+export interface GitPullRequestFeedback {
+  preflight: GitPullRequestPreflight;
+  checks: GitPullRequestCheck[];
+  reviewComments: GitPullRequestReviewComment[];
+  failedChecks: number;
+  pendingChecks: number;
+  passedChecks: number;
+  unresolvedComments: number;
+  checksTruncated: boolean;
+  commentsTruncated: boolean;
+  checksError?: string | null;
+  commentsError?: string | null;
+}
+
+export interface GitOperationRun {
+  id: string;
+  sessionId: string;
+  operation: string;
+  status: string;
+  stage: string;
+  beforeHead?: string | null;
+  afterHead?: string | null;
+  result?: GitMutationResult | null;
+  errorCode?: string | null;
+  errorMessage?: string | null;
+  createdAt: number;
+  updatedAt: number;
+  completedAt?: number | null;
 }
 
 /**

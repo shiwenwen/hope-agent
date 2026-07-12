@@ -26,6 +26,7 @@ pub mod dreaming;
 pub mod execution_mode;
 pub mod filesystem;
 pub mod generated_images;
+pub mod git_control;
 pub mod goal;
 pub mod health;
 pub mod ide_context;

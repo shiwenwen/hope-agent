@@ -1,5 +1,17 @@
 import { useCallback, useState } from "react"
+import type {
+  GitPullRequestReviewComment,
+  SessionGitDiffScope,
+  SessionGitDiffSnapshot,
+} from "@/lib/transport"
 import type { FileChangeMetadata, FileChangesMetadata } from "@/types/chat"
+
+export interface GitDiffContext {
+  sessionId: string
+  scope: SessionGitDiffScope
+  revision: string
+  reviewComments: GitPullRequestReviewComment[]
+}
 
 /**
  * Local state for the right-side diff panel. Mirrors the PlanPanel /
@@ -22,6 +34,13 @@ export interface UseDiffPanel {
    *  when the diff panel is already visible. See `UseFilePreview.openNonce`. */
   openNonce: number
   openDiff: (payload: FileChangeMetadata | FileChangesMetadata) => void
+  gitContext: GitDiffContext | null
+  openGitDiff: (
+    snapshot: SessionGitDiffSnapshot,
+    sessionId: string,
+    reviewComments?: GitPullRequestReviewComment[],
+  ) => void
+  replaceGitDiff: (snapshot: SessionGitDiffSnapshot) => void
   closeDiff: () => void
   panelWidth: number
   setPanelWidth: (width: number) => void
@@ -35,8 +54,10 @@ export function useDiffPanel(): UseDiffPanel {
   const [activeIndex, setActiveIndex] = useState(0)
   const [panelWidth, setPanelWidth] = useState(DEFAULT_DIFF_PANEL_WIDTH)
   const [openNonce, setOpenNonce] = useState(0)
+  const [gitContext, setGitContext] = useState<GitDiffContext | null>(null)
 
   const openDiff = useCallback((payload: FileChangeMetadata | FileChangesMetadata) => {
+    setGitContext(null)
     if (payload.kind === "file_change") {
       setActiveChanges([payload])
     } else {
@@ -47,10 +68,33 @@ export function useDiffPanel(): UseDiffPanel {
     setOpenNonce((n) => n + 1)
   }, [])
 
+  const openGitDiff = useCallback((
+    snapshot: SessionGitDiffSnapshot,
+    sessionId: string,
+    reviewComments: GitPullRequestReviewComment[] = [],
+  ) => {
+    setActiveChanges(snapshot.changes)
+    setActiveIndex(0)
+    setGitContext({ sessionId, scope: snapshot.scope, revision: snapshot.revision, reviewComments })
+    setShowPanel(true)
+    setOpenNonce((n) => n + 1)
+  }, [])
+
+  const replaceGitDiff = useCallback((snapshot: SessionGitDiffSnapshot) => {
+    setActiveChanges(snapshot.changes)
+    setActiveIndex((index) => Math.min(index, Math.max(0, snapshot.changes.length - 1)))
+    setGitContext((current) =>
+      current
+        ? { ...current, scope: snapshot.scope, revision: snapshot.revision }
+        : current,
+    )
+  }, [])
+
   const closeDiff = useCallback(() => {
     setShowPanel(false)
     setActiveChanges([])
     setActiveIndex(0)
+    setGitContext(null)
   }, [])
 
   return {
@@ -60,6 +104,9 @@ export function useDiffPanel(): UseDiffPanel {
     setActiveIndex,
     openNonce,
     openDiff,
+    gitContext,
+    openGitDiff,
+    replaceGitDiff,
     closeDiff,
     panelWidth,
     setPanelWidth,

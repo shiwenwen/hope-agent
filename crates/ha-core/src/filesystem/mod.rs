@@ -74,7 +74,7 @@ pub(crate) use git::isolate_repository_env;
 mod ops;
 mod workspace;
 
-pub use git::{git_info, GitInfo, WorktreeInfo};
+pub use git::{git_info, GitBranchInfo, GitBranchKind, GitDirtySummary, GitInfo, WorktreeInfo};
 pub use ops::{
     extract_abs, project_delete, project_fs_extract, project_list_dir, project_mkdir,
     project_read_text, project_rename, project_upload, project_write_text, read_text_abs,

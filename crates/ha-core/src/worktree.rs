@@ -10,8 +10,9 @@ use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 use crate::session::{effective_working_dir_for_meta, SessionDB};
 use crate::util::now_rfc3339;
@@ -22,6 +23,7 @@ pub enum ManagedWorktreeState {
     Active,
     Archived,
     Handoff,
+    BootstrapFailed,
 }
 
 impl ManagedWorktreeState {
@@ -30,6 +32,7 @@ impl ManagedWorktreeState {
             Self::Active => "active",
             Self::Archived => "archived",
             Self::Handoff => "handoff",
+            Self::BootstrapFailed => "bootstrap_failed",
         }
     }
 
@@ -37,6 +40,7 @@ impl ManagedWorktreeState {
         match value {
             "archived" => Self::Archived,
             "handoff" => Self::Handoff,
+            "bootstrap_failed" => Self::BootstrapFailed,
             _ => Self::Active,
         }
     }
@@ -48,6 +52,30 @@ pub enum ManagedWorktreePurpose {
     Manual,
     Workflow,
     Subagent,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ManagedWorktreePathSource {
+    Builtin,
+    Hook,
+}
+
+impl ManagedWorktreePathSource {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Builtin => "builtin",
+            Self::Hook => "hook",
+        }
+    }
+
+    fn from_str(value: &str) -> Self {
+        if value == "hook" {
+            Self::Hook
+        } else {
+            Self::Builtin
+        }
+    }
 }
 
 impl ManagedWorktreePurpose {
@@ -95,6 +123,7 @@ pub struct ManagedWorktree {
     pub repo_root: String,
     pub source_working_dir: String,
     pub path: String,
+    pub path_source: ManagedWorktreePathSource,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub base_ref: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -132,6 +161,18 @@ pub struct CreateManagedWorktreeInput {
     pub child_session_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub base_ref: Option<String>,
+    /// Carry the current local branch's tracked and non-ignored untracked
+    /// changes into the new detached worktree.
+    #[serde(default)]
+    pub include_local_changes: bool,
+    /// Required when `include_local_changes` is enabled. Used only to isolate
+    /// ephemeral patch/manifest files under the Hope data directory.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bootstrap_request_id: Option<String>,
+    /// Initial project-chat worktrees become the session cwd immediately,
+    /// without being labelled as a later handoff.
+    #[serde(default)]
+    pub bind_session_working_dir: bool,
 }
 
 fn default_purpose() -> ManagedWorktreePurpose {
@@ -161,6 +202,7 @@ pub(crate) fn ensure_tables(conn: &Connection) -> Result<()> {
             archived_at TEXT,
             restored_at TEXT,
             handed_off_at TEXT,
+            path_source TEXT NOT NULL DEFAULT 'builtin',
             FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
             FOREIGN KEY (child_session_id) REFERENCES sessions(id) ON DELETE SET NULL
         );
@@ -193,6 +235,10 @@ pub(crate) fn ensure_tables(conn: &Connection) -> Result<()> {
             "handed_off_at",
             "ALTER TABLE managed_worktrees ADD COLUMN handed_off_at TEXT;",
         ),
+        (
+            "path_source",
+            "ALTER TABLE managed_worktrees ADD COLUMN path_source TEXT NOT NULL DEFAULT 'builtin';",
+        ),
     ] {
         let sql = format!("SELECT {column} FROM managed_worktrees LIMIT 1");
         if conn.prepare(&sql).is_err() {
@@ -213,6 +259,42 @@ struct WorktreePrep {
     base_branch: Option<String>,
     id: String,
     default_path: std::path::PathBuf,
+    local_changes: Option<LocalChangesSnapshot>,
+    bootstrap_dir: Option<PathBuf>,
+}
+
+struct LocalChangesSnapshot {
+    patch: Vec<u8>,
+    untracked: Vec<PathBuf>,
+}
+
+struct BootstrapDirGuard(Option<PathBuf>);
+
+impl Drop for BootstrapDirGuard {
+    fn drop(&mut self) {
+        if let Some(path) = self.0.take() {
+            let _ = fs::remove_dir_all(path);
+        }
+    }
+}
+
+struct WorktreeCreationGuard {
+    source_dir: PathBuf,
+    path: PathBuf,
+    armed: bool,
+}
+
+impl Drop for WorktreeCreationGuard {
+    fn drop(&mut self) {
+        if !self.armed {
+            return;
+        }
+        let _ = git_status(
+            &self.source_dir,
+            &["worktree", "remove", "--force", path_arg(&self.path)],
+        );
+        let _ = git_status(&self.source_dir, &["worktree", "prune"]);
+    }
 }
 
 impl SessionDB {
@@ -230,6 +312,8 @@ impl SessionDB {
             let child_session_id = input.child_session_id.clone();
             let source_working_dir = input.source_working_dir.clone();
             let base_ref_in = input.base_ref.clone();
+            let include_local_changes = input.include_local_changes;
+            let bootstrap_request_id = input.bootstrap_request_id.clone();
             crate::blocking::run_blocking(move || -> Result<WorktreePrep> {
                 let meta = db
                     .get_session(&session_id)?
@@ -262,7 +346,40 @@ impl SessionDB {
                 let base_sha = git_output(&source_dir, &["rev-parse", "--verify", &base_ref])?
                     .trim()
                     .to_string();
-                let base_branch = current_branch(&source_dir);
+                let base_branch = if base_ref == "HEAD" {
+                    current_branch(&source_dir)
+                } else {
+                    branch_name_for_ref(&base_ref)
+                };
+                let (local_changes, bootstrap_dir) = if include_local_changes {
+                    let request_id = bootstrap_request_id.as_deref().ok_or_else(|| {
+                        anyhow!("bootstrapRequestId is required when including local changes")
+                    })?;
+                    ensure_bootstrap_not_cancelled(Some(request_id))?;
+                    let current_ref =
+                        git_output(&source_dir, &["symbolic-ref", "--quiet", "HEAD"])?;
+                    let current_ref = current_ref.trim();
+                    if current_ref != base_ref {
+                        bail!("Local changes can only be included from the current local branch");
+                    }
+                    let current_head = git_output(&source_dir, &["rev-parse", "HEAD"])?;
+                    if current_head.trim() != base_sha {
+                        bail!("The source branch changed while preparing the worktree; retry");
+                    }
+                    let run_dir = crate::paths::bootstrap_run_dir(request_id)?;
+                    let snapshot = snapshot_local_changes(
+                        &repo_root, &run_dir, request_id, &base_ref, &base_sha,
+                    )?;
+                    ensure_bootstrap_not_cancelled(Some(request_id))?;
+                    let head_after = git_output(&source_dir, &["rev-parse", "HEAD"])?;
+                    if head_after.trim() != base_sha {
+                        let _ = fs::remove_dir_all(&run_dir);
+                        bail!("The source branch changed while preparing the worktree; retry");
+                    }
+                    (Some(snapshot), Some(run_dir))
+                } else {
+                    (None, None)
+                };
                 let id = format!("wt_{}", uuid::Uuid::new_v4().simple());
                 let default_path = crate::paths::worktrees_dir()?
                     .join(repo_slug(&repo_root))
@@ -275,11 +392,16 @@ impl SessionDB {
                     base_branch,
                     id,
                     default_path,
+                    local_changes,
+                    bootstrap_dir,
                 })
             })
             .await?
         };
 
+        // Arm cleanup before the async Hook boundary so task cancellation or a
+        // Hook failure cannot strand snapshot material under bootstrap/.
+        let _bootstrap_guard = BootstrapDirGuard(prep.bootstrap_dir.clone());
         let hook_outcome =
             crate::hooks::dispatch_worktree_create(&input.session_id, &prep.id, &prep.source_dir)
                 .await;
@@ -289,6 +411,19 @@ impl SessionDB {
         // All synchronous; routed to the blocking pool for the same reason.
         let db = self.clone();
         let row = crate::blocking::run_blocking(move || -> Result<ManagedWorktree> {
+            if let Some(request_id) = input.bootstrap_request_id.as_deref() {
+                db.report_project_bootstrap_stage(
+                    request_id,
+                    "creating_worktree",
+                    Some(&input.session_id),
+                    Some(&prep.id),
+                )?;
+            }
+            let path_source = if hook_outcome.is_some() {
+                ManagedWorktreePathSource::Hook
+            } else {
+                ManagedWorktreePathSource::Builtin
+            };
             let path = if let Some(outcome) = hook_outcome {
                 match outcome.decision {
                     crate::hooks::HookDecision::Deny { reason }
@@ -313,9 +448,50 @@ impl SessionDB {
                         &prep.base_sha,
                     ],
                 )?;
-                copy_worktreeinclude(&prep.repo_root, &prep.default_path)?;
                 canonical_dir(prep.default_path.to_string_lossy())?
             };
+            let mut creation_guard = WorktreeCreationGuard {
+                source_dir: prep.source_dir.clone(),
+                path: path.clone(),
+                // Drop only invokes `git worktree remove`; it never recursively
+                // deletes the path, so Hook-owned locations are safe to arm.
+                armed: true,
+            };
+            ensure_bootstrap_not_cancelled(input.bootstrap_request_id.as_deref())?;
+
+            if let Some(request_id) = input.bootstrap_request_id.as_deref() {
+                db.report_project_bootstrap_stage(
+                    request_id,
+                    "copying_changes",
+                    Some(&input.session_id),
+                    Some(&prep.id),
+                )?;
+            }
+            if path == prep.default_path {
+                copy_worktreeinclude(
+                    &prep.repo_root,
+                    &path,
+                    input.bootstrap_request_id.as_deref(),
+                )?;
+            }
+            if let Some(snapshot) = prep.local_changes.as_ref() {
+                apply_local_changes(
+                    &prep.repo_root,
+                    &path,
+                    snapshot,
+                    input.bootstrap_request_id.as_deref(),
+                )?;
+            }
+            ensure_bootstrap_not_cancelled(input.bootstrap_request_id.as_deref())?;
+
+            if let Some(request_id) = input.bootstrap_request_id.as_deref() {
+                db.report_project_bootstrap_stage(
+                    request_id,
+                    "binding_session",
+                    Some(&input.session_id),
+                    Some(&prep.id),
+                )?;
+            }
 
             let git_branch = current_branch(&path);
             let now = now_rfc3339();
@@ -330,6 +506,7 @@ impl SessionDB {
                 repo_root: prep.repo_root.to_string_lossy().to_string(),
                 source_working_dir: prep.source_dir.to_string_lossy().to_string(),
                 path: path.to_string_lossy().to_string(),
+                path_source,
                 base_ref: Some(prep.base_ref),
                 base_branch: prep.base_branch,
                 base_sha: Some(prep.base_sha),
@@ -349,10 +526,10 @@ impl SessionDB {
                         id, session_id, child_session_id, workflow_run_id, purpose, state, label,
                         repo_root, source_working_dir, path, base_ref, base_branch, base_sha,
                         git_branch, dirty_snapshot_json, created_at, updated_at,
-                        archived_at, restored_at, handed_off_at
+                        archived_at, restored_at, handed_off_at, path_source
                     ) VALUES (
                         ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14,
-                        NULL, ?15, ?15, NULL, NULL, NULL
+                        NULL, ?15, ?15, NULL, NULL, NULL, ?16
                     )",
                     params![
                         &row.id,
@@ -369,10 +546,15 @@ impl SessionDB {
                         row.base_branch.as_deref(),
                         row.base_sha.as_deref(),
                         row.git_branch.as_deref(),
-                        &row.created_at
+                        &row.created_at,
+                        row.path_source.as_str()
                     ],
                 )?;
             }
+            if input.bind_session_working_dir {
+                db.update_session_working_dir(&row.session_id, Some(row.path.clone()))?;
+            }
+            creation_guard.armed = false;
             emit_worktree_changed("worktree:created", &row);
             if let Err(err) = db.refresh_goal_worktree_evidence(&row) {
                 crate::app_warn!(
@@ -388,6 +570,50 @@ impl SessionDB {
         Ok(row)
     }
 
+    /// Roll back a prepared worktree through Git. Hook-owned paths are allowed
+    /// here, but are never recursively deleted by Hope; cleanup stays
+    /// Git-aware so an arbitrary hook path cannot become an `rm -rf` target.
+    pub fn discard_managed_worktree(&self, id: &str) -> Result<()> {
+        let worktree = self
+            .get_managed_worktree(id)?
+            .ok_or_else(|| anyhow!("managed worktree not found: {id}"))?;
+        let path = PathBuf::from(&worktree.path);
+        if path.exists() {
+            git_status(
+                Path::new(&worktree.source_working_dir),
+                &["worktree", "remove", "--force", path_arg(&path)],
+            )?;
+            let _ = git_status(
+                Path::new(&worktree.source_working_dir),
+                &["worktree", "prune"],
+            );
+        }
+        {
+            let conn = self
+                .conn
+                .lock()
+                .map_err(|error| anyhow!("Lock error: {error}"))?;
+            conn.execute("DELETE FROM managed_worktrees WHERE id = ?1", params![id])?;
+        }
+        self.update_session_working_dir(&worktree.session_id, None)?;
+        Ok(())
+    }
+
+    pub(crate) fn mark_managed_worktree_bootstrap_failed(&self, id: &str) -> Result<()> {
+        let now = now_rfc3339();
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|error| anyhow!("Lock error: {error}"))?;
+        conn.execute(
+            "UPDATE managed_worktrees
+             SET state = ?2, updated_at = ?3
+             WHERE id = ?1",
+            params![id, ManagedWorktreeState::BootstrapFailed.as_str(), now],
+        )?;
+        Ok(())
+    }
+
     pub fn list_managed_worktrees_for_session(
         &self,
         session_id: &str,
@@ -397,7 +623,7 @@ impl SessionDB {
             "SELECT id, session_id, child_session_id, workflow_run_id, purpose, state, label,
                     repo_root, source_working_dir, path, base_ref, base_branch, base_sha,
                     git_branch, dirty_snapshot_json, created_at, updated_at,
-                    archived_at, restored_at, handed_off_at
+                    archived_at, restored_at, handed_off_at, path_source
              FROM managed_worktrees
              WHERE session_id = ?1 OR child_session_id = ?1
              ORDER BY updated_at DESC, created_at DESC",
@@ -412,7 +638,7 @@ impl SessionDB {
             "SELECT id, session_id, child_session_id, workflow_run_id, purpose, state, label,
                     repo_root, source_working_dir, path, base_ref, base_branch, base_sha,
                     git_branch, dirty_snapshot_json, created_at, updated_at,
-                    archived_at, restored_at, handed_off_at
+                    archived_at, restored_at, handed_off_at, path_source
              FROM managed_worktrees
              WHERE id = ?1",
             params![id],
@@ -545,7 +771,7 @@ impl SessionDB {
                 Path::new(&current.repo_root),
                 &["worktree", "add", "--detach", path_arg(&path), base],
             )?;
-            copy_worktreeinclude(Path::new(&current.repo_root), &path)?;
+            copy_worktreeinclude(Path::new(&current.repo_root), &path, None)?;
         }
         let now = now_rfc3339();
         {
@@ -611,6 +837,39 @@ impl SessionDB {
     }
 }
 
+/// Recover a built-in worktree that was registered by Git but whose DB row was
+/// not committed before process interruption. The search is constrained to
+/// Hope's managed two-level root and removal remains Git-aware.
+pub(crate) fn cleanup_orphan_builtin_worktree(id: &str) -> Result<bool> {
+    if !id.starts_with("wt_")
+        || !id
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || character == '_')
+    {
+        bail!("invalid managed worktree id");
+    }
+    let root = crate::paths::worktrees_dir()?;
+    if !root.is_dir() {
+        return Ok(true);
+    }
+    for repo_entry in fs::read_dir(&root)? {
+        let repo_entry = repo_entry?;
+        if !repo_entry.file_type()?.is_dir() {
+            continue;
+        }
+        let candidate = repo_entry.path().join(id);
+        if !candidate.exists() {
+            continue;
+        }
+        git_status(
+            &candidate,
+            &["worktree", "remove", "--force", path_arg(&candidate)],
+        )?;
+        return Ok(true);
+    }
+    Ok(true)
+}
+
 fn row_to_worktree(row: &rusqlite::Row<'_>) -> rusqlite::Result<ManagedWorktree> {
     let purpose: String = row.get(4)?;
     let state: String = row.get(5)?;
@@ -648,6 +907,7 @@ fn row_to_worktree(row: &rusqlite::Row<'_>) -> rusqlite::Result<ManagedWorktree>
         archived_at: row.get(17)?,
         restored_at: row.get(18)?,
         handed_off_at: row.get(19)?,
+        path_source: ManagedWorktreePathSource::from_str(row.get::<_, String>(20)?.as_str()),
     })
 }
 
@@ -685,6 +945,10 @@ fn path_arg(path: &Path) -> &str {
 }
 
 fn git_output(cwd: &Path, args: &[&str]) -> Result<String> {
+    Ok(String::from_utf8_lossy(&git_output_bytes(cwd, args)?).into_owned())
+}
+
+fn git_output_bytes(cwd: &Path, args: &[&str]) -> Result<Vec<u8>> {
     let mut cmd = Command::new("git");
     crate::filesystem::isolate_repository_env(&mut cmd);
     cmd.current_dir(cwd).args(args);
@@ -699,7 +963,7 @@ fn git_output(cwd: &Path, args: &[&str]) -> Result<String> {
             String::from_utf8_lossy(&out.stderr).trim()
         );
     }
-    Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+    Ok(out.stdout)
 }
 
 fn git_status(cwd: &Path, args: &[&str]) -> Result<()> {
@@ -717,6 +981,103 @@ fn current_branch(cwd: &Path) -> Option<String> {
         .ok()
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty() && s != "HEAD")
+}
+
+fn branch_name_for_ref(base_ref: &str) -> Option<String> {
+    base_ref
+        .strip_prefix("refs/heads/")
+        .or_else(|| base_ref.strip_prefix("refs/remotes/"))
+        .map(str::to_string)
+}
+
+fn snapshot_local_changes(
+    repo_root: &Path,
+    run_dir: &Path,
+    request_id: &str,
+    base_ref: &str,
+    base_sha: &str,
+) -> Result<LocalChangesSnapshot> {
+    if run_dir.exists() {
+        fs::remove_dir_all(run_dir).with_context(|| {
+            format!("failed to reset bootstrap directory {}", run_dir.display())
+        })?;
+    }
+    fs::create_dir_all(run_dir)
+        .with_context(|| format!("failed to create bootstrap directory {}", run_dir.display()))?;
+    let result = (|| -> Result<LocalChangesSnapshot> {
+        let patch = git_output_bytes(repo_root, &["diff", "--binary", "HEAD", "--"])?;
+        let untracked_raw = git_output_bytes(
+            repo_root,
+            &["ls-files", "--others", "--exclude-standard", "-z"],
+        )?;
+        let untracked = untracked_raw
+            .split(|byte| *byte == 0)
+            .filter(|entry| !entry.is_empty())
+            .map(|entry| {
+                String::from_utf8(entry.to_vec())
+                    .map(PathBuf::from)
+                    .map_err(|_| anyhow!("untracked path is not valid UTF-8"))
+            })
+            .collect::<Result<Vec<_>>>()?;
+
+        fs::write(run_dir.join("tracked.patch"), &patch)?;
+        let mut manifest = Vec::new();
+        for rel in &untracked {
+            manifest.extend_from_slice(rel.to_string_lossy().as_bytes());
+            manifest.push(0);
+        }
+        fs::write(run_dir.join("untracked.manifest"), manifest)?;
+        fs::write(
+            run_dir.join("metadata.json"),
+            serde_json::to_vec_pretty(&json!({
+                "requestId": request_id,
+                "baseRef": base_ref,
+                "baseSha": base_sha,
+            }))?,
+        )?;
+        Ok(LocalChangesSnapshot { patch, untracked })
+    })();
+    if result.is_err() {
+        let _ = fs::remove_dir_all(run_dir);
+    }
+    result
+}
+
+fn apply_local_changes(
+    repo_root: &Path,
+    worktree_path: &Path,
+    snapshot: &LocalChangesSnapshot,
+    bootstrap_request_id: Option<&str>,
+) -> Result<()> {
+    ensure_bootstrap_not_cancelled(bootstrap_request_id)?;
+    if !snapshot.patch.is_empty() {
+        let mut cmd = Command::new("git");
+        crate::filesystem::isolate_repository_env(&mut cmd);
+        cmd.current_dir(worktree_path)
+            .args(["apply", "--binary", "--whitespace=nowarn", "-"])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        crate::platform::hide_console(&mut cmd);
+        let mut child = cmd.spawn().context("failed to start git apply")?;
+        child
+            .stdin
+            .take()
+            .ok_or_else(|| anyhow!("git apply stdin unavailable"))?
+            .write_all(&snapshot.patch)?;
+        let output = child.wait_with_output()?;
+        if !output.status.success() {
+            bail!(
+                "failed to apply local changes: {}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            );
+        }
+    }
+    for rel in &snapshot.untracked {
+        ensure_bootstrap_not_cancelled(bootstrap_request_id)?;
+        copy_one_rel(repo_root, worktree_path, rel)?;
+    }
+    Ok(())
 }
 
 fn repo_slug(repo_root: &Path) -> String {
@@ -742,7 +1103,11 @@ fn repo_slug(repo_root: &Path) -> String {
     )
 }
 
-fn copy_worktreeinclude(repo_root: &Path, worktree_path: &Path) -> Result<()> {
+fn copy_worktreeinclude(
+    repo_root: &Path,
+    worktree_path: &Path,
+    bootstrap_request_id: Option<&str>,
+) -> Result<()> {
     let include_path = repo_root.join(".worktreeinclude");
     if include_path.is_file() {
         let content = fs::read_to_string(&include_path).with_context(|| {
@@ -752,6 +1117,7 @@ fn copy_worktreeinclude(repo_root: &Path, worktree_path: &Path) -> Result<()> {
             )
         })?;
         for line in content.lines() {
+            ensure_bootstrap_not_cancelled(bootstrap_request_id)?;
             let pattern = line.trim();
             if pattern.is_empty() || pattern.starts_with('#') {
                 continue;
@@ -764,6 +1130,13 @@ fn copy_worktreeinclude(repo_root: &Path, worktree_path: &Path) -> Result<()> {
     let override_file = repo_root.join("AGENTS.override.md");
     if override_file.is_file() {
         copy_one_rel(repo_root, worktree_path, Path::new("AGENTS.override.md"))?;
+    }
+    Ok(())
+}
+
+fn ensure_bootstrap_not_cancelled(request_id: Option<&str>) -> Result<()> {
+    if request_id.is_some_and(crate::project_bootstrap::is_project_bootstrap_cancelled) {
+        bail!("worktree preparation was cancelled");
     }
     Ok(())
 }
@@ -809,19 +1182,43 @@ fn copy_one_rel(repo_root: &Path, worktree_path: &Path, rel: &Path) -> Result<()
             .components()
             .any(|c| matches!(c, std::path::Component::ParentDir))
     {
+        bail!(
+            "refusing to copy path outside repository: {}",
+            rel.display()
+        );
+    }
+    if contains_symlink_component(repo_root, rel)?
+        || contains_symlink_component(worktree_path, rel)?
+    {
+        crate::app_warn!(
+            "project_bootstrap",
+            "copy_local_changes",
+            "skipped symlink path while copying into worktree: {}",
+            rel.display()
+        );
         return Ok(());
     }
     let src = repo_root.join(rel);
     let dst = worktree_path.join(rel);
-    let meta = match fs::symlink_metadata(&src) {
-        Ok(meta) => meta,
-        Err(_) => return Ok(()),
-    };
+    let canonical_repo = repo_root.canonicalize()?;
+    let canonical_source = src
+        .canonicalize()
+        .with_context(|| format!("source path disappeared while copying: {}", src.display()))?;
+    if !canonical_source.starts_with(&canonical_repo) {
+        bail!("source path escapes repository: {}", rel.display());
+    }
+    let meta = fs::symlink_metadata(&canonical_source)?;
     if meta.file_type().is_symlink() {
+        crate::app_warn!(
+            "project_bootstrap",
+            "copy_local_changes",
+            "skipped symlink while copying into worktree: {}",
+            rel.display()
+        );
         return Ok(());
     }
     if meta.is_dir() {
-        copy_dir_recursive(&src, &dst)?;
+        copy_dir_recursive(&canonical_source, &dst)?;
     } else if meta.is_file() {
         if let Some(parent) = dst.parent() {
             fs::create_dir_all(parent)?;
@@ -829,6 +1226,24 @@ fn copy_one_rel(repo_root: &Path, worktree_path: &Path, rel: &Path) -> Result<()
         fs::copy(&src, &dst)?;
     }
     Ok(())
+}
+
+fn contains_symlink_component(root: &Path, rel: &Path) -> Result<bool> {
+    let mut current = root.to_path_buf();
+    for component in rel.components() {
+        use std::path::Component;
+        let Component::Normal(part) = component else {
+            bail!("invalid relative path: {}", rel.display());
+        };
+        current.push(part);
+        match fs::symlink_metadata(&current) {
+            Ok(metadata) if metadata.file_type().is_symlink() => return Ok(true),
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => break,
+            Err(error) => return Err(error.into()),
+        }
+    }
+    Ok(false)
 }
 
 fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<()> {
@@ -839,6 +1254,12 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<()> {
         let child_src = entry.path();
         let child_dst = dst.join(entry.file_name());
         if meta.file_type().is_symlink() {
+            crate::app_warn!(
+                "project_bootstrap",
+                "copy_local_changes",
+                "skipped nested symlink while copying into worktree: {}",
+                child_src.display()
+            );
             continue;
         }
         if meta.is_dir() {
@@ -862,11 +1283,13 @@ fn worktree_dirty_snapshot(path: &Path) -> Option<ManagedWorktreeDirtySnapshot> 
     let mut unstaged = 0u32;
     let mut untracked = 0u32;
     let mut conflicted = 0u32;
+    let mut changed = 0u32;
     for line in out.lines() {
         let bytes = line.as_bytes();
         if bytes.len() < 2 {
             continue;
         }
+        changed += 1;
         let x = bytes[0] as char;
         let y = bytes[1] as char;
         if x == '?' && y == '?' {
@@ -884,7 +1307,6 @@ fn worktree_dirty_snapshot(path: &Path) -> Option<ManagedWorktreeDirtySnapshot> 
             unstaged += 1;
         }
     }
-    let changed = staged + unstaged + untracked + conflicted;
     Some(ManagedWorktreeDirtySnapshot {
         clean: changed == 0,
         staged_files: staged,
@@ -908,8 +1330,175 @@ fn emit_worktree_changed(event: &str, worktree: &ManagedWorktree) {
                 "state": worktree.state,
                 "label": worktree.label,
                 "path": worktree.path,
+                "pathSource": worktree.path_source,
                 "pathExists": worktree.path_exists,
             }),
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn git(cwd: &Path, args: &[&str]) {
+        git_status(cwd, args).unwrap_or_else(|error| panic!("git {args:?}: {error:#}"));
+    }
+
+    #[test]
+    fn snapshots_and_applies_tracked_binary_and_untracked_changes() {
+        let root = tempfile::tempdir().expect("repo tempdir");
+        let repo = root.path();
+        git(repo, &["init", "-b", "main"]);
+        // Keep the fixture byte-stable on Windows runners instead of inheriting
+        // a global core.autocrlf setting from the host.
+        git(repo, &["config", "core.autocrlf", "false"]);
+        fs::write(repo.join("staged.txt"), "base\n").unwrap();
+        fs::write(repo.join("unstaged.txt"), "base\n").unwrap();
+        fs::write(repo.join("binary.bin"), [0_u8, 1, 2, 3]).unwrap();
+        git(repo, &["add", "."]);
+        git(
+            repo,
+            &[
+                "-c",
+                "user.name=Hope Test",
+                "-c",
+                "user.email=hope@example.invalid",
+                "commit",
+                "-m",
+                "base",
+            ],
+        );
+
+        fs::write(repo.join("staged.txt"), "staged change\n").unwrap();
+        git(repo, &["add", "staged.txt"]);
+        fs::write(repo.join("unstaged.txt"), "unstaged change\n").unwrap();
+        fs::write(repo.join("binary.bin"), [0_u8, 9, 8, 7, 0]).unwrap();
+        fs::write(repo.join("untracked.txt"), "new\n").unwrap();
+
+        let sha = git_output(repo, &["rev-parse", "HEAD"])
+            .unwrap()
+            .trim()
+            .to_string();
+        let run_dir = root.path().join("bootstrap");
+        let snapshot =
+            snapshot_local_changes(repo, &run_dir, "request-1", "refs/heads/main", &sha).unwrap();
+        let worktree = root.path().join("worktree");
+        git(
+            repo,
+            &["worktree", "add", "--detach", path_arg(&worktree), &sha],
+        );
+        apply_local_changes(repo, &worktree, &snapshot, None).unwrap();
+
+        assert_eq!(
+            fs::read_to_string(worktree.join("staged.txt")).unwrap(),
+            "staged change\n"
+        );
+        assert_eq!(
+            fs::read_to_string(worktree.join("unstaged.txt")).unwrap(),
+            "unstaged change\n"
+        );
+        assert_eq!(
+            fs::read(worktree.join("binary.bin")).unwrap(),
+            [0_u8, 9, 8, 7, 0]
+        );
+        assert_eq!(
+            fs::read_to_string(worktree.join("untracked.txt")).unwrap(),
+            "new\n"
+        );
+        let status = git_output(&worktree, &["status", "--porcelain=v1"]).unwrap();
+        assert!(status.contains(" M staged.txt"));
+        assert!(status.contains(" M unstaged.txt"));
+        assert!(status.contains(" M binary.bin"));
+        assert!(status.contains("?? untracked.txt"));
+        assert!(!status.lines().any(|line| line.starts_with("M ")));
+
+        git(
+            repo,
+            &["worktree", "remove", "--force", path_arg(&worktree)],
+        );
+    }
+
+    #[test]
+    fn nested_project_snapshot_keeps_untracked_paths_repo_relative() {
+        let root = tempfile::tempdir().expect("repo tempdir");
+        let repo = root.path();
+        git(repo, &["init", "-b", "main"]);
+        git(repo, &["config", "core.autocrlf", "false"]);
+        let project = repo.join("packages").join("app");
+        fs::create_dir_all(&project).unwrap();
+        fs::write(project.join("tracked.txt"), "base\n").unwrap();
+        git(repo, &["add", "."]);
+        git(
+            repo,
+            &[
+                "-c",
+                "user.name=Hope Test",
+                "-c",
+                "user.email=hope@example.invalid",
+                "commit",
+                "-m",
+                "base",
+            ],
+        );
+
+        fs::write(repo.join("new.txt"), "root file\n").unwrap();
+        fs::write(project.join("new.txt"), "nested file\n").unwrap();
+
+        let sha = git_output(repo, &["rev-parse", "HEAD"])
+            .unwrap()
+            .trim()
+            .to_string();
+        let run_dir = root.path().join("bootstrap");
+        let snapshot =
+            snapshot_local_changes(repo, &run_dir, "request-nested", "refs/heads/main", &sha)
+                .unwrap();
+        assert!(snapshot.untracked.contains(&PathBuf::from("new.txt")));
+        assert!(snapshot
+            .untracked
+            .contains(&PathBuf::from("packages/app/new.txt")));
+
+        let worktree = root.path().join("worktree");
+        git(
+            repo,
+            &["worktree", "add", "--detach", path_arg(&worktree), &sha],
+        );
+        apply_local_changes(repo, &worktree, &snapshot, None).unwrap();
+        assert_eq!(
+            fs::read_to_string(worktree.join("new.txt")).unwrap(),
+            "root file\n"
+        );
+        assert_eq!(
+            fs::read_to_string(worktree.join("packages/app/new.txt")).unwrap(),
+            "nested file\n"
+        );
+
+        git(
+            repo,
+            &["worktree", "remove", "--force", path_arg(&worktree)],
+        );
+    }
+
+    #[test]
+    fn refuses_parent_path_copy() {
+        let source = tempfile::tempdir().unwrap();
+        let target = tempfile::tempdir().unwrap();
+        let error = copy_one_rel(source.path(), target.path(), Path::new("../outside"))
+            .expect_err("parent traversal must fail");
+        assert!(error.to_string().contains("outside repository"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn skips_symlinked_untracked_path() {
+        use std::os::unix::fs::symlink;
+
+        let source = tempfile::tempdir().unwrap();
+        let target = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        fs::write(outside.path().join("secret.txt"), "secret").unwrap();
+        symlink(outside.path(), source.path().join("linked")).unwrap();
+        copy_one_rel(source.path(), target.path(), Path::new("linked/secret.txt")).unwrap();
+        assert!(!target.path().join("linked/secret.txt").exists());
     }
 }

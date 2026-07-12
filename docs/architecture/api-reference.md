@@ -113,6 +113,11 @@ Tauri ↔ COMMAND_MAP 差集为 14 条合法非 REST 命令（5 条 Desktop-only
 | `worktree:archived` | `worktree::archive_managed_worktree` | `ManagedWorktree` 快照，含 dirty snapshot |
 | `worktree:restored` | `worktree::restore_managed_worktree` | `ManagedWorktree` 快照 |
 | `worktree:handoff` | `worktree::handoff_managed_worktree` | `ManagedWorktree` 快照；session working dir 已切换 |
+| `project:bootstrap_progress` | `project_bootstrap::bootstrap_project_session` / `worktree::create_managed_worktree` | `{ requestId, status, stage, sessionId?, worktreeId?, message?, errorCode? }` |
+| `project:bootstrap_completed` | 首轮 Bootstrap 已交给 Chat Engine | `{ requestId }` |
+| `session:git_progress` | `git_control` 长 Git 操作 | `{ requestId, sessionId, operation, status, stage, message?, errorCode? }` |
+| `session:git_changed` | stage/branch/commit/push/PR/Handoff 成功 | `{ sessionId, operation, requestId? }` |
+| `session:git_completed` | Git operation run 进入终态 | 与 progress 终态同形 |
 
 ### LSP
 
@@ -456,8 +461,32 @@ KB 文件预览端点是**纯 owner 平面，无 session 参数、无 owner fall
 | `archive_managed_worktree` | `POST /api/worktrees/{worktreeId}/archive` | ✅ |
 | `restore_managed_worktree` | `POST /api/worktrees/{worktreeId}/restore` | ✅ |
 | `handoff_managed_worktree` | `POST /api/worktrees/{worktreeId}/handoff` | ✅ |
+| `get_project_bootstrap_run` | `GET /api/project-bootstrap/{requestId}` | ✅ |
+| `cancel_project_bootstrap` | `POST /api/project-bootstrap/{requestId}/cancel` | ✅ |
 
-Managed Worktree owner API 管理 session-scoped durable git worktree。`create_managed_worktree` 拒绝 incognito session，默认在 `~/.hope-agent/worktrees/<repo-slug>/<wt-id>` 创建 detached worktree，并支持 `WorktreeCreate` hook 接管创建；`archive` 会记录 dirty snapshot，clean worktree 才 best-effort remove；`restore` 可重建已清理路径；`handoff` 会把父 session `working_dir` 切到 worktree。完整契约见 [Managed Worktree 控制平面](worktree.md)。
+Managed Worktree owner API 管理 session-scoped durable git worktree。`create_managed_worktree` 拒绝 incognito session，默认在 `~/.hope-agent/worktrees/<repo-slug>/<wt-id>` 创建 detached worktree，并支持 `WorktreeCreate` hook 接管创建；`archive` 会记录 dirty snapshot，clean worktree 才 best-effort remove；`restore` 可重建已清理路径；生命周期兼容 `handoff` 只负责绑定父 session cwd，不复制 Git 改动。`chat` / `POST /api/chat` 的新项目草稿可带 `projectBootstrap`；Bootstrap 查询与取消接口用于断线恢复和停止准备。完整契约见 [Managed Worktree 控制平面](worktree.md)。
+
+`POST /api/chat` 的 `projectBootstrap` 可能执行本地分支切换或创建 Worktree，因此与 Git 写端点共用 `filesystem.allow_remote_writes` 默认关闭闸门，并在创建临时 Session 前返回 403；普通聊天以及 Bootstrap 状态查询/取消不受此闸门影响。
+
+### Session Git
+
+| Tauri Command | HTTP | 状态 |
+|---|---|---|
+| `load_session_git_control_cmd` | `GET /api/sessions/{id}/git` | ✅ |
+| `load_session_git_diff_snapshot_cmd` | `GET /api/sessions/{id}/git/diff?scope=unstaged\|staged\|all` | ✅ |
+| `mutate_session_git_index_cmd` | `POST /api/sessions/{id}/git/index` | ✅ |
+| `switch_session_git_branch_cmd` | `POST /api/sessions/{id}/git/branch/switch` | ✅ |
+| `create_session_git_branch_cmd` | `POST /api/sessions/{id}/git/branch/create` | ✅ |
+| `commit_session_git_cmd` | `POST /api/sessions/{id}/git/commit` | ✅ |
+| `push_session_git_cmd` | `POST /api/sessions/{id}/git/push` | ✅ |
+| `session_git_pr_preflight_cmd` | `GET /api/sessions/{id}/git/pull-request` | ✅ |
+| `load_session_git_pr_feedback_cmd` | `GET /api/sessions/{id}/git/pull-request/feedback` | ✅ |
+| `create_session_git_pr_cmd` | `POST /api/sessions/{id}/git/pull-request` | ✅ |
+| `enable_session_git_pr_auto_merge_cmd` | `POST /api/sessions/{id}/git/pull-request/auto-merge` | ✅ |
+| `handoff_session_git_cmd` | `POST /api/sessions/{id}/git/handoff` | ✅ |
+| `get_git_operation_run_cmd` | `GET /api/git-runs/{requestId}` | ✅ |
+
+所有端点只按 session 解析 cwd，不接受客户端指定仓库根目录。HTTP 写端点受 `filesystem.allow_remote_writes` 闸门；PR 网络读取通过已认证的本机 `gh` 获取当前 PR 详情、checks、顶层 reviews 与未解决 review threads，不接受客户端传入 PR 标识。Feedback 的 checks/comments 独立容错并分别返回截断和错误字段；PR 外部文本按不可信数据处理。“修复”只填入当前会话输入框，不自动发送或执行。自动合并必须携带 revision、合并方式和显式确认，存在冲突时拒绝，并纳入 `requestId` 幂等记录。完整 DTO、锁、幂等、Handoff 与失败恢复契约见 [Session Git 控制平面](git-control.md)。
 
 ### LSP / Diagnostics
 

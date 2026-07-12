@@ -280,7 +280,7 @@ fn display_name_for_path(path: &str) -> Option<String> {
         .or_else(|| Some(path.to_string()))
 }
 
-fn build_git_snapshot(root: &Path) -> Option<WorkspaceGitSnapshot> {
+pub(crate) fn build_git_snapshot(root: &Path) -> Option<WorkspaceGitSnapshot> {
     let base = git_info(root)?;
     let repo_root = run_git(root, &["rev-parse", "--show-toplevel"])
         .map(|s| s.trim().to_string())

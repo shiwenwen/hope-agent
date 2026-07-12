@@ -1,0 +1,247 @@
+import { useCallback, useEffect, useRef, useState } from "react"
+import { useTranslation } from "react-i18next"
+import { GitPullRequest, Loader2, X } from "lucide-react"
+import { toast } from "sonner"
+import { Button } from "@/components/ui/button"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import type {
+  GitMutationResult,
+  GitPullRequestFeedback,
+  SessionGitControlSnapshot,
+} from "@/lib/transport"
+import { getTransport } from "@/lib/transport-provider"
+import {
+  PullRequestDetailsContent,
+} from "./GitControlCard"
+import {
+  buildChecksFixPrompt,
+  buildCommentsFixPrompt,
+  buildMergeConflictFixPrompt,
+  buildPullRequestFixPrompt,
+  hasPullRequestConflicts,
+  isActionableReview,
+} from "./gitPullRequestUtils"
+
+interface PullRequestPanelProps {
+  sessionId: string
+  onClose: () => void
+  onFillInput?: (value: string) => void
+}
+
+export function PullRequestPanel({ sessionId, onClose, onFillInput }: PullRequestPanelProps) {
+  const { t } = useTranslation()
+  const [feedback, setFeedback] = useState<GitPullRequestFeedback | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [autoMergeOpen, setAutoMergeOpen] = useState(false)
+  const [autoMergeMethod, setAutoMergeMethod] = useState<"merge" | "squash" | "rebase">("squash")
+  const [autoMergeBusy, setAutoMergeBusy] = useState(false)
+  const requestGenerationRef = useRef(0)
+  const inFlightRequestRef = useRef<{
+    generation: number
+    promise: Promise<GitPullRequestFeedback | null>
+  } | null>(null)
+
+  const loadFeedback = useCallback(() => {
+    const inFlight = inFlightRequestRef.current
+    if (inFlight) return inFlight.promise
+    const generation = ++requestGenerationRef.current
+    const rawPromise = getTransport().call<GitPullRequestFeedback>(
+      "load_session_git_pr_feedback_cmd",
+      { sessionId },
+    )
+    setLoading(true)
+    const promise = rawPromise
+      .then((next) => {
+        if (requestGenerationRef.current !== generation) return null
+        setFeedback(next)
+        setError(null)
+        return next
+      })
+      .catch((cause) => {
+        if (requestGenerationRef.current !== generation) return null
+        setError(cause instanceof Error ? cause.message : String(cause))
+        return null
+      })
+      .finally(() => {
+        if (inFlightRequestRef.current?.generation === generation) {
+          inFlightRequestRef.current = null
+        }
+        if (requestGenerationRef.current === generation) setLoading(false)
+      })
+    inFlightRequestRef.current = { generation, promise }
+    return promise
+  }, [sessionId])
+
+  useEffect(() => {
+    setFeedback(null)
+    setError(null)
+    setAutoMergeOpen(false)
+    void loadFeedback()
+    const timer = window.setInterval(() => void loadFeedback(), 30_000)
+    return () => {
+      window.clearInterval(timer)
+      requestGenerationRef.current += 1
+      inFlightRequestRef.current = null
+    }
+  }, [loadFeedback])
+
+  const fillPrompt = useCallback((prompt: string) => {
+    if (!onFillInput) return
+    onFillInput(prompt)
+    toast.success(t("workspace.git.fixPromptReady", "修复要求已填入输入框，请确认后发送"))
+  }, [onFillInput, t])
+
+  const enableAutoMerge = async () => {
+    if (autoMergeBusy) return
+    setAutoMergeBusy(true)
+    try {
+      const snapshot = await getTransport().call<SessionGitControlSnapshot>(
+        "load_session_git_control_cmd",
+        { sessionId },
+      )
+      const result = await getTransport().call<GitMutationResult>(
+        "enable_session_git_pr_auto_merge_cmd",
+        {
+          sessionId,
+          input: {
+            requestId: crypto.randomUUID(),
+            expectedRevision: snapshot.revision,
+            method: autoMergeMethod,
+            confirmAutoMerge: true,
+          },
+        },
+      )
+      setAutoMergeOpen(false)
+      toast.success(result.message)
+      await loadFeedback()
+    } catch (cause) {
+      toast.error(cause instanceof Error ? cause.message : String(cause))
+    } finally {
+      setAutoMergeBusy(false)
+    }
+  }
+
+  const pullRequest = feedback?.preflight.current ?? null
+  const failedChecks = feedback?.checks.filter(
+    (check) => check.bucket === "fail" || check.bucket === "cancel",
+  ) ?? []
+  const comments = feedback?.reviewComments.filter(
+    (comment) => !comment.isResolved && !comment.isOutdated,
+  ) ?? []
+  const reviews = (pullRequest?.reviews ?? []).filter(isActionableReview)
+  const mergeConflicts = pullRequest ? hasPullRequestConflicts(pullRequest) : false
+  const hasFixableFeedback = failedChecks.length > 0
+    || comments.length > 0
+    || reviews.length > 0
+    || mergeConflicts
+
+  return (
+    <>
+      {pullRequest ? (
+        <PullRequestDetailsContent
+          pullRequest={pullRequest}
+          feedback={feedback}
+          loading={loading}
+          refreshError={error}
+          onClose={onClose}
+          onRefresh={() => void loadFeedback()}
+          onFixAll={!error && onFillInput && hasFixableFeedback
+            ? () => fillPrompt(buildPullRequestFixPrompt(
+                pullRequest,
+                failedChecks,
+                comments,
+                reviews,
+                mergeConflicts,
+              ))
+            : undefined}
+          onFixChecks={!error && onFillInput && failedChecks.length > 0
+            ? (checks) => fillPrompt(buildChecksFixPrompt(pullRequest, checks))
+            : undefined}
+          onFixConflict={!error && onFillInput && mergeConflicts
+            ? () => fillPrompt(buildMergeConflictFixPrompt(pullRequest))
+            : undefined}
+          onFixComments={!error && onFillInput && (comments.length > 0 || reviews.length > 0)
+            ? (selectedComments, selectedReviews) => fillPrompt(
+                buildCommentsFixPrompt(pullRequest, selectedComments, selectedReviews),
+              )
+            : undefined}
+          onEnableAutoMerge={!error && !pullRequest.autoMergeEnabled && !mergeConflicts
+            ? () => setAutoMergeOpen(true)
+            : undefined}
+        />
+      ) : (
+        <div className="flex h-full min-h-0 flex-col">
+          <div className="flex items-center gap-2 border-b px-3 py-2">
+            <GitPullRequest className="h-4 w-4 text-muted-foreground" />
+            <span className="min-w-0 flex-1 truncate text-sm font-medium">
+              {t("workspace.git.pullRequestPanelTitle", "拉取请求")}
+            </span>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7"
+              onClick={onClose}
+              aria-label={t("common.close", "关闭")}
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+          <div className="flex flex-1 items-center justify-center p-6 text-center text-sm text-muted-foreground">
+            {loading ? (
+              <span className="inline-flex items-center gap-2">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                {t("workspace.git.loadingPrFeedback", "读取 PR 检查与评论")}
+              </span>
+            ) : error ? error : t("workspace.git.prFeedbackUnavailable", "PR 信息不可用")}
+          </div>
+        </div>
+      )}
+
+      <Dialog open={autoMergeOpen} onOpenChange={setAutoMergeOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>{t("workspace.git.enableAutoMerge", "启用自动合并")}</DialogTitle>
+            <DialogDescription>
+              {t(
+                "workspace.git.autoMergeWarning",
+                "当分支保护条件满足时，GitHub 可能立即合并此拉取请求。该操作需要明确确认。",
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <label className="space-y-1.5 text-sm">
+            <span className="font-medium">{t("workspace.git.mergeMethod", "合并方式")}</span>
+            <select
+              className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+              value={autoMergeMethod}
+              onChange={(event) => setAutoMergeMethod(
+                event.target.value as "merge" | "squash" | "rebase",
+              )}
+            >
+              <option value="squash">{t("workspace.git.mergeSquash", "压缩合并")}</option>
+              <option value="merge">{t("workspace.git.mergeCommit", "创建合并提交")}</option>
+              <option value="rebase">{t("workspace.git.mergeRebase", "变基合并")}</option>
+            </select>
+          </label>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAutoMergeOpen(false)}>
+              {t("common.cancel", "取消")}
+            </Button>
+            <Button onClick={() => void enableAutoMerge()} disabled={autoMergeBusy}>
+              {autoMergeBusy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              {t("workspace.git.confirmAutoMerge", "确认启用")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  )
+}

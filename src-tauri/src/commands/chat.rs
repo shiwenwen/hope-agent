@@ -305,6 +305,9 @@ pub async fn chat(
     // `session_id` is set (existing sessions keep their project). Mutually
     // exclusive with incognito (coerced in `create_session_with_project`).
     project_id: Option<String>,
+    // Draft-only project launch configuration. Worktree mode materializes and
+    // binds a managed worktree before the first model turn starts.
+    project_bootstrap: Option<ha_core::project_bootstrap::ProjectSessionBootstrapInput>,
     on_event: tauri::ipc::Channel<String>,
     state: State<'_, AppState>,
 ) -> Result<String, CmdError> {
@@ -327,7 +330,27 @@ pub async fn chat(
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .map(str::to_owned);
+    let bootstrap_request_id = project_bootstrap
+        .as_ref()
+        .map(|bootstrap| bootstrap.request_id.clone());
     let auto_create_session = session_id.as_deref().is_none_or(|id| id.is_empty());
+    if !auto_create_session && project_bootstrap.is_some() {
+        return Err(CmdError::msg(
+            "projectBootstrap is only valid when creating a new project session",
+        ));
+    }
+    if project_bootstrap.is_some() && project_id.is_none() {
+        return Err(CmdError::msg("projectBootstrap requires projectId"));
+    }
+    if let Some(bootstrap) = project_bootstrap.as_ref() {
+        if bootstrap
+            .base_ref
+            .as_deref()
+            .is_none_or(|value| value.trim().is_empty())
+        {
+            return Err(CmdError::msg("project launch requires baseRef"));
+        }
+    }
     if auto_create_session
         && initial_goal
             .as_ref()
@@ -503,12 +526,69 @@ pub async fn chat(
                 wd
             );
         }
+        if let Some(bootstrap) = project_bootstrap.as_ref() {
+            let pid = project_id
+                .as_deref()
+                .ok_or_else(|| CmdError::msg("projectBootstrap requires projectId"))?;
+            let project = {
+                let project_db = state.project_db.clone();
+                let pid = pid.to_string();
+                ha_core::blocking::run_blocking(move || project_db.get(&pid)).await?
+            }
+            .ok_or_else(|| CmdError::msg(format!("Project not found: {pid}")))?;
+            if project.archived {
+                let sid_for_cleanup = sid.clone();
+                let _ = db.run(move |db| db.delete_session(&sid_for_cleanup)).await;
+                return Err(CmdError::msg("Cannot start a task in an archived project"));
+            }
+            let source_working_dir = {
+                let sid = sid.clone();
+                db.run(move |db| -> anyhow::Result<String> {
+                    let meta = db
+                        .get_session(&sid)?
+                        .ok_or_else(|| anyhow::anyhow!("session not found: {sid}"))?;
+                    ha_core::session::effective_working_dir_for_meta(&meta)
+                        .ok_or_else(|| anyhow::anyhow!("project session has no working directory"))
+                })
+                .await?
+            };
+            let prepare = ha_core::project_bootstrap::bootstrap_project_session(
+                &db,
+                ha_core::project_bootstrap::PrepareProjectWorktreeInput {
+                    request: bootstrap.clone(),
+                    session_id: sid.clone(),
+                    project_id: pid.to_string(),
+                    source_working_dir,
+                },
+            )
+            .await;
+            if let Err(error) = prepare {
+                let sid_for_cleanup = sid.clone();
+                let _ = db.run(move |db| db.delete_session(&sid_for_cleanup)).await;
+                return Err(CmdError::msg(format!(
+                    "project bootstrap failed: {error:#}"
+                )));
+            }
+        }
         if let Some(attaches) = kb_attachments.as_ref() {
             ha_core::knowledge::service::apply_draft_attachments(
                 &sid,
                 incognito.unwrap_or(false),
                 attaches,
             );
+        }
+    }
+
+    if let Some(request_id) = bootstrap_request_id.as_deref() {
+        let claimed = {
+            let request_id = request_id.to_string();
+            db.run(move |db| db.claim_project_bootstrap_chatting(&request_id))
+                .await?
+        };
+        if !claimed {
+            return Err(CmdError::msg(
+                "project bootstrap was already claimed by another chat request",
+            ));
         }
     }
 
@@ -663,6 +743,12 @@ pub async fn chat(
                 db.run(move |db| db.append_message(&sid, &session::NewMessage::event(&notice)))
                     .await
             };
+            if let Some(request_id) = bootstrap_request_id.as_deref() {
+                let request_id = request_id.to_string();
+                let _ = db
+                    .run(move |db| db.mark_project_bootstrap_completed(&request_id))
+                    .await;
+            }
             let _ =
                 on_event.send(serde_json::json!({ "type": "text", "text": notice }).to_string());
             return Ok(notice);
@@ -840,6 +926,11 @@ pub async fn chat(
         if let Ok(json_str) = serde_json::to_string(&event) {
             let _ = on_event.send(json_str);
         }
+    }
+    if let Some(request_id) = bootstrap_request_id.as_deref() {
+        let request_id = request_id.to_string();
+        db.run(move |db| db.mark_project_bootstrap_completed(&request_id))
+            .await?;
     }
     let turn_event = serde_json::json!({
         "type": "turn_started",

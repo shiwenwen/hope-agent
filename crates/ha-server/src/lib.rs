@@ -212,6 +212,43 @@ fn build_router_with_cors(
             "/sessions/{id}/git-diff",
             get(routes::sessions::get_session_git_diff),
         )
+        .route("/sessions/{id}/git", get(routes::git_control::snapshot))
+        .route("/sessions/{id}/git/diff", get(routes::git_control::diff))
+        .route(
+            "/sessions/{id}/git/index",
+            post(routes::git_control::mutate_index),
+        )
+        .route(
+            "/sessions/{id}/git/branch/switch",
+            post(routes::git_control::switch_branch),
+        )
+        .route(
+            "/sessions/{id}/git/branch/create",
+            post(routes::git_control::create_branch),
+        )
+        .route(
+            "/sessions/{id}/git/commit",
+            post(routes::git_control::commit),
+        )
+        .route("/sessions/{id}/git/push", post(routes::git_control::push))
+        .route(
+            "/sessions/{id}/git/pull-request",
+            get(routes::git_control::pull_request_preflight)
+                .post(routes::git_control::create_pull_request),
+        )
+        .route(
+            "/sessions/{id}/git/pull-request/feedback",
+            get(routes::git_control::pull_request_feedback),
+        )
+        .route(
+            "/sessions/{id}/git/pull-request/auto-merge",
+            post(routes::git_control::enable_pull_request_auto_merge),
+        )
+        .route(
+            "/sessions/{id}/git/handoff",
+            post(routes::git_control::handoff),
+        )
+        .route("/git-runs/{id}", get(routes::git_control::operation_run))
         .route("/sessions/search", get(routes::sessions::search_sessions))
         // Projects
         .route("/projects", get(routes::projects::list_projects))
@@ -1819,6 +1856,14 @@ fn build_router_with_cors(
         .route(
             "/worktrees/{id}",
             get(routes::worktree::get_managed_worktree),
+        )
+        .route(
+            "/project-bootstrap/{id}",
+            get(routes::worktree::get_project_bootstrap_run),
+        )
+        .route(
+            "/project-bootstrap/{id}/cancel",
+            post(routes::worktree::cancel_project_bootstrap),
         )
         .route(
             "/worktrees/{id}/archive",

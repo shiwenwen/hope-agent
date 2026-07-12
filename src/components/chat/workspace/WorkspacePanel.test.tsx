@@ -831,6 +831,7 @@ function managedWorktree(patch: Partial<ManagedWorktree> = {}): ManagedWorktree 
     repoRoot: "/repo",
     sourceWorkingDir: "/repo",
     path: "/repo-worktrees/wt-repair",
+    pathSource: "builtin",
     baseRef: "main",
     baseBranch: "main",
     baseSha: "abcdef123456",
@@ -2143,7 +2144,7 @@ describe("WorkspacePanel environment section", () => {
     expect(screen.getAllByText("未设置").length).toBeGreaterThan(0)
   })
 
-  it("renders project, channel, branch, and dirty git status", () => {
+  it("keeps Git and worktree data out of the detailed environment metadata", () => {
     renderPanel({
       workingDir: { path: "/repo", source: "project", exists: true, name: "repo" },
       git: {
@@ -2176,9 +2177,12 @@ describe("WorkspacePanel environment section", () => {
     expect(screen.getByText("有变更")).toBeTruthy()
     expect(screen.getByText("my-project")).toBeTruthy()
     expect(screen.getByText("telegram")).toBeTruthy()
-    expect(screen.getByText("main")).toBeTruthy()
-    expect(screen.getByText("2 个文件")).toBeTruthy()
-    expect(screen.getByText("Add workspace env")).toBeTruthy()
+    const details = screen.getByText("详细信息").closest("details")
+    expect(details).toBeTruthy()
+    expect(details?.textContent).not.toContain("main")
+    expect(details?.textContent).not.toContain("2 个文件")
+    expect(details?.textContent).not.toContain("Add workspace env")
+    expect(details?.textContent).not.toContain("托管工作树")
   })
 
   it("does not claim a fallback working directory is non-git while environment is loading", () => {
