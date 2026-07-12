@@ -6,7 +6,7 @@
  * 稳定 iframe + CSS 缩放，从架构上规避旧版画布卡顿。见 docs/architecture/design-space.md。
  */
 
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import type { CSSProperties } from "react"
 import { useTranslation } from "react-i18next"
 import {
@@ -211,6 +211,19 @@ function KindBadge({ kind, label }: { kind: ArtifactKind; label: string }) {
 }
 
 type ZoomMode = "fit" | number
+
+// 手势缩放（捏合 / Ctrl·⌘+滚轮）边界与灵敏度。产物墙非无限画布，只对单产物预览的
+// CSS scale 做连续驱动——刻意留有界档位，避免缩到不可用。
+const ZOOM_MIN = 0.2
+const ZOOM_MAX = 4
+const ZOOM_WHEEL_SENSITIVITY = 0.0022
+const clampZoom = (z: number) => Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, z))
+
+/** 归一化不同 deltaMode 的滚轮增量到像素并钳幅，避免行/页模式或一格大 delta 造成跳变。 */
+function normalizeWheelDelta(deltaY: number, deltaMode: number): number {
+  const px = deltaMode === 1 ? deltaY * 16 : deltaMode === 2 ? deltaY * 400 : deltaY
+  return Math.sign(px) * Math.min(Math.abs(px), 60)
+}
 
 // 预览设备视口（B4-3，源码级对标参照 PREVIEW_VIEWPORT_PRESETS）。`auto` = 沿用产物自然
 // viewportW/H（默认，零回归）；其余固定逻辑宽高、居中缩放适配 + 设备框。
@@ -473,6 +486,9 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
   const [presentElapsed, setPresentElapsed] = useState(0)
   const previewPaneRef = useRef<HTMLDivElement>(null)
   const [paneSize, setPaneSize] = useState({ w: 0, h: 0 })
+  // 手势缩放入口（渲染期赋值，收 iframe 桥 ds_zoom 与父层原生 wheel 两路）。用 ref 避免
+  // 让常驻消息/滚轮监听随 zoom/设备/模式频繁重挂。
+  const applyZoomDeltaRef = useRef<(deltaY: number, deltaMode: number) => void>(() => {})
 
   // 设计系统套件（Kit）预览模态：选择器行内「预览套件」触发（B1-1）。
   const [kitSystem, setKitSystem] = useState<{ id: string; name: string } | null>(null)
@@ -2472,6 +2488,8 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
         snippet?: string
         x?: number
         y?: number
+        deltaY?: number
+        deltaMode?: number
         active?: number
         count?: number
         members?: { oid: number; tag: string; snippet: string; relX: number; relY: number }[]
@@ -2626,6 +2644,11 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
         const aid = activeArtifactRef.current?.id
         if (aid && !previewLoadingRef.current)
           previewScrollRef.current.set(aid, { x: Number(d.x ?? 0), y: Number(d.y ?? 0) })
+      }
+      // 手势缩放（B4 增补）：iframe 内捏合 / Ctrl·⌘+滚轮由桥转发（跨源 wheel 不冒泡到父层），
+      // 父层据此连续驱动 CSS scale。桥侧已 preventDefault 掉 iframe 文档自身的整页缩放。
+      else if (d?.type === "ds_zoom") {
+        applyZoomDeltaRef.current(Number(d.deltaY ?? 0), Number(d.deltaMode ?? 0))
       }
       // 流式占位页加载完毕 → 补投最新快照（deltas 可能早于 iframe onload 到达）。
       else if (d?.type === "ds_stream_ready") {
@@ -3274,17 +3297,34 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
     },
     [activeArtifactId],
   )
-  // 测量预览面尺寸（设备模式的适配缩放用）；面随产物条件渲染，故按产物 id 重挂。
-  useEffect(() => {
+  // 测量预览面尺寸（统一渲染的「适应」缩放 + 设备模式都依赖）。useLayoutEffect：paint 前先同步量
+  // 一次，令首帧「适应」即按面板尺寸精确缩放、无 natural→fit 跳一下。用 clientWidth/Height（含 p-4
+  // padding 的盒），frame 里再 `-32` 取内容区。deps 含 showGrid —— 产物墙开关会卸载/重挂预览面，不带
+  // 它则监听绑在旧的已卸载节点、paneSize 停更（切产物才自愈）。
+  useLayoutEffect(() => {
     const el = previewPaneRef.current
-    if (!el || typeof ResizeObserver === "undefined") return
-    const ro = new ResizeObserver((entries) => {
-      const r = entries[0]?.contentRect
-      if (r) setPaneSize({ w: r.width, h: r.height })
-    })
+    if (!el) return
+    const measure = () => setPaneSize({ w: el.clientWidth, h: el.clientHeight })
+    measure()
+    if (typeof ResizeObserver === "undefined") return
+    const ro = new ResizeObserver(() => measure())
     ro.observe(el)
     return () => ro.disconnect()
-  }, [activeArtifactId])
+  }, [activeArtifactId, showGrid])
+  // 父层原生 wheel 监听（预览面 padding 区，光标不在 iframe 上时）：Ctrl·⌘+滚轮 = 缩放。
+  // 必须 passive:false 才能 preventDefault 掉 webview 的整页缩放；iframe 上方的手势另由注入桥
+  // 转发 ds_zoom（跨源事件不冒泡到父层）。按产物 id 重挂（面随产物条件渲染）。
+  useEffect(() => {
+    const el = previewPaneRef.current
+    if (!el) return
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey && !e.metaKey) return
+      e.preventDefault()
+      applyZoomDeltaRef.current(e.deltaY, e.deltaMode)
+    }
+    el.addEventListener("wheel", onWheel, { passive: false })
+    return () => el.removeEventListener("wheel", onWheel)
+  }, [activeArtifactId, showGrid])
   // Present（本标签无 chrome）：Escape 退出。
   useEffect(() => {
     if (!presentMode) return
@@ -3682,63 +3722,70 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
     if (iframeSrc) setPreviewLoading(true)
   }, [iframeSrc])
 
-  // Preview scaling. "fit" stretches the iframe to fill the pane. A numeric zoom
-  // renders at the artifact's natural viewport size and visually scales it, with the
-  // wrapper reserving the *scaled* footprint so 100% shows real pixels (not a no-op
-  // vs. fit) and 50% shows the whole design at half size with correct scrolling.
+  // 预览渲染坐标系（**统一**）：设备预设 / 自动(适应·缩放) 都走「自然尺寸 iframe + CSS transform
+  // scale + 保留纵向滚动的逻辑高度」同一套。**「适应」= 把设计整体缩放进面板**（auto-height 按宽
+  // 适配、纵向内滚；fixed-height 整体 contain），与数值「缩放」**同一渲染路径** —— 故适应↔缩放切换
+  // 零重排、零闪（此前 fit 走 width:100% 响应式填充、缩放走 transform 是两套模型，切换必重排=闪一下）。
+  // 100% 仍是自然像素。frame.{w,h} 是 iframe 逻辑尺寸、frame.scale 是屏上缩放，footprint = w·scale × h·scale。
   const naturalW = activeArtifact?.viewportW && activeArtifact.viewportW > 0 ? activeArtifact.viewportW : 1024
   const naturalH = activeArtifact?.viewportH && activeArtifact.viewportH > 0 ? activeArtifact.viewportH : 768
 
-  // 设备视口模式（B4-3）：固定逻辑宽高，按测得的预览面尺寸整体缩放适配 + 居中设备框。
-  // `auto` 保持原有 zoom 行为（零回归）。
   const devicePreset = previewDevice === "auto" ? null : DEVICE_PRESETS[previewDevice]
-  const deviceScale = (() => {
-    if (!devicePreset) return 1
-    const availW = Math.max(0, paneSize.w - 32)
+  const frame = (() => {
+    const availW = Math.max(0, paneSize.w - 32) // p-4 两侧
     const availH = Math.max(0, paneSize.h - 32)
-    const sw = devicePreset.w > 0 ? availW / devicePreset.w : 1
-    if (devicePreset.h) return Math.min(1, sw, availH / devicePreset.h)
-    return Math.min(1, sw) // desktop（无固定高）：只按宽度适配，内容纵向滚
+    if (devicePreset) {
+      const sw = devicePreset.w > 0 ? availW / devicePreset.w : 1
+      const scale = devicePreset.h ? Math.min(1, sw, availH / devicePreset.h) : Math.min(1, sw)
+      const h = devicePreset.h ?? Math.max(400, Math.round(availH / (scale || 1)))
+      return { w: devicePreset.w, h, scale }
+    }
+    const fixedH = !!(activeArtifact?.viewportH && activeArtifact.viewportH > 0)
+    // 面板未测量（首帧兜底）→ scale=1 natural；测得即适配。fit：auto-height 按宽、fixed-height contain。
+    const fitScale =
+      availW <= 0 || naturalW <= 0
+        ? 1
+        : fixedH
+          ? Math.min(1, availW / naturalW, availH / naturalH)
+          : Math.min(1, availW / naturalW)
+    const scale = zoom === "fit" ? fitScale : zoom
+    // auto-height：iframe 逻辑高 = 面板高/scale，缩放后正好填满面板、内容纵向内滚（同 desktop 设备行为）。
+    const h = fixedH ? naturalH : Math.max(400, Math.round(availH / (scale || 1)))
+    return { w: naturalW, h, scale }
   })()
-  const deviceH = devicePreset
-    ? devicePreset.h ?? Math.max(400, Math.round((paneSize.h - 32) / (deviceScale || 1)))
-    : 0
 
-  // 右键菜单坐标换算用的当前预览缩放（iframe 内 CSS 像素 → 屏上像素）；fit 模式 iframe 100% 无
-  // transform 即 1:1。渲染期赋值（同 editModeRef 模式），消息 handler 经 ref 取最新值。
-  previewScaleRef.current = devicePreset ? deviceScale : zoom === "fit" ? 1 : zoom
-  const scaleStyle: CSSProperties = devicePreset
-    ? {
-        width: `${devicePreset.w}px`,
-        height: `${deviceH}px`,
-        border: 0,
-        transform: `scale(${deviceScale})`,
-        transformOrigin: "top left",
-      }
-    : zoom === "fit"
-      ? { width: "100%", height: "100%", border: 0 }
-      : {
-          width: `${naturalW}px`,
-          height: `${naturalH}px`,
-          border: 0,
-          transform: `scale(${zoom})`,
-          transformOrigin: "top left",
-        }
-  const frameWrapStyle: CSSProperties | undefined = devicePreset
-    ? { width: `${devicePreset.w * deviceScale}px`, height: `${deviceH * deviceScale}px` }
-    : zoom === "fit"
-      ? undefined
-      : { width: `${naturalW * zoom}px`, height: `${naturalH * zoom}px` }
-  // B4-1 画框叠层 canvas 尺寸：贴合 iframe **可视 footprint**（纯宽高、无 transform），逐像素与
-  // iframe 屏上占位一致。**红线（review 坐标漂移修复）**：不可用 `inset-0`——设备/缩放模式下
-  // border-box + 6px 边框会让 content box 比 iframe scaled footprint 窄 12px（footprint 溢出被
-  // overflow-hidden 裁），canvas 只覆 content box 而映射用满 clientWidth → 右/下边缘按 12/deviceScale
-  // 漂移。改让 canvas 与 iframe 同 footprint（同溢出同裁剪），getBoundingClientRect 一致，映射归零漂移。
-  const overlayFrameStyle: CSSProperties = devicePreset
-    ? { width: `${devicePreset.w * deviceScale}px`, height: `${deviceH * deviceScale}px` }
-    : zoom === "fit"
-      ? { width: "100%", height: "100%" }
-      : { width: `${naturalW * zoom}px`, height: `${naturalH * zoom}px` }
+  // 右键菜单 / 编辑选中 / 画框叠层坐标换算用的当前预览缩放（iframe 内 CSS 像素 → 屏上像素）。
+  // 渲染期赋值（同 editModeRef 模式），消息 handler 经 ref 取最新值。适应态现为真实 scale（非恒 1）。
+  previewScaleRef.current = frame.scale
+
+  // 手势缩放：捏合 / Ctrl·⌘+滚轮连续驱动 CSS scale。仅自动视口 + 非画框/演示态生效（设备/画框/演示
+  // 各有自己的坐标系，且演示态主预览不可见、改了只会退出后突现异常缩放）。离开 fit 以「当前适应比例」
+  // 接续 —— 同一渲染路径,尺寸连续无跳变。**NaN 兜底**：ds_zoom 来自沙箱不可信 iframe，非有限增量
+  //（如注入 deltaY:'x' → Number→NaN）直接丢弃，绝不污染 zoom 状态（否则 scale(NaN) 整块预览坏死）。
+  applyZoomDeltaRef.current = (deltaY, deltaMode) => {
+    if (previewDevice !== "auto" || drawMode || presentMode) return
+    const norm = normalizeWheelDelta(deltaY, deltaMode)
+    if (!Number.isFinite(norm) || norm === 0) return
+    setZoom((prev) => {
+      const cur = prev === "fit" ? clampZoom(frame.scale) : prev
+      return clampZoom(cur * Math.exp(-norm * ZOOM_WHEEL_SENSITIVITY))
+    })
+  }
+
+  // 统一样式：iframe 逻辑尺寸 + transform scale（top-left 锚点）；wrap/overlay 预留 scaled footprint，
+  // 逐像素与 iframe 屏上占位一致 —— 画框叠层坐标不漂移（footprint 一致故 getBoundingClientRect 对齐）。
+  const scaleStyle: CSSProperties = {
+    width: `${frame.w}px`,
+    height: `${frame.h}px`,
+    border: 0,
+    transform: `scale(${frame.scale})`,
+    transformOrigin: "top left",
+  }
+  const frameWrapStyle: CSSProperties = {
+    width: `${frame.w * frame.scale}px`,
+    height: `${frame.h * frame.scale}px`,
+  }
+  const overlayFrameStyle: CSSProperties = frameWrapStyle
 
   // ── Render ───────────────────────────────────────────────────
 
@@ -4474,7 +4521,13 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                         }
                       >
                         <SelectTrigger className="h-6 w-auto gap-1 px-1.5 text-xs">
-                          <SelectValue />
+                          {/* 直接渲染当前值而非 SelectValue：手势缩放会产出非预设档位（如 137%），
+                              SelectValue 匹配不到选项会显示空。 */}
+                          <span className="tabular-nums">
+                            {zoom === "fit"
+                              ? t("design.zoomFit", "适应")
+                              : `${Math.round(zoom * 100)}%`}
+                          </span>
                         </SelectTrigger>
                         <SelectContent>
                           <SelectItem value="fit">{t("design.zoomFit", "适应")}</SelectItem>
@@ -4880,10 +4933,8 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                       "relative overflow-hidden bg-white",
                       devicePreset
                         ? "shrink-0 rounded-[1.5rem] border-[6px] border-neutral-800 shadow-xl dark:border-neutral-700"
-                        : cn(
-                            "rounded-lg border shadow-sm",
-                            zoom === "fit" ? "mx-auto h-full w-full" : "mx-auto",
-                          ),
+                        : // 统一渲染后「适应」也是固定 scaled footprint（非 width:100% 填充），恒 mx-auto
+                          "rounded-lg border shadow-sm mx-auto",
                       editMode && "ring-2 ring-primary/40",
                       drawMode && "ring-2 ring-primary/40",
                     )}

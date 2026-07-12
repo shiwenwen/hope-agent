@@ -159,13 +159,26 @@ fn render(
                 renderer::build_component_error_html(title, &e.to_string())
             }
         };
-        return Ok((renderer::apply_document_dir(html, rtl), "[]".to_string()));
+        return Ok((
+            with_zoom_forward(renderer::apply_document_dir(html, rtl)),
+            "[]".to_string(),
+        ));
     }
     // Image / Audio 是媒体产物（data-uri 内嵌），无源码 oid 可微调 → 不注 inspector/oid。
     let editable = !matches!(kind, ArtifactKind::Image | ArtifactKind::Audio);
     let (html, oidmap) = renderer::build_artifact_html(kind, title, parts, tokens, editable);
     let oidmap_json = serde_json::to_string(&oidmap)?;
-    Ok((renderer::apply_document_dir(html, rtl), oidmap_json))
+    Ok((with_zoom_forward(renderer::apply_document_dir(html, rtl)), oidmap_json))
+}
+
+/// 预览态注入手势缩放转发脚本（导出 `render_clean` 不注入）。插在末个 `</body>` 前——生成
+/// 产物正文里无字面 `</body>`（image/audio 为 data-uri，其余为结构化 HTML），`rfind` 定位收尾
+/// 标签即可；万一缺失（异常 HTML）则原样返回，绝不破坏产物。
+fn with_zoom_forward(html: String) -> String {
+    match html.rfind("</body>") {
+        Some(i) => format!("{}{}\n{}", &html[..i], renderer::ZOOM_FORWARD_SCRIPT, &html[i..]),
+        None => html,
+    }
 }
 
 /// 渲染**干净可交付** HTML（`editable=false`，无 inspector/oid）。**Component 走 oxc 编译**（与
