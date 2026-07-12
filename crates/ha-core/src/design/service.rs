@@ -160,7 +160,7 @@ fn render(
             }
         };
         return Ok((
-            with_zoom_forward(renderer::apply_document_dir(html, rtl)),
+            finalize_preview_html(renderer::apply_document_dir(html, rtl)),
             "[]".to_string(),
         ));
     }
@@ -168,16 +168,35 @@ fn render(
     let editable = !matches!(kind, ArtifactKind::Image | ArtifactKind::Audio);
     let (html, oidmap) = renderer::build_artifact_html(kind, title, parts, tokens, editable);
     let oidmap_json = serde_json::to_string(&oidmap)?;
-    Ok((with_zoom_forward(renderer::apply_document_dir(html, rtl)), oidmap_json))
+    Ok((
+        finalize_preview_html(renderer::apply_document_dir(html, rtl)),
+        oidmap_json,
+    ))
 }
 
-/// 预览态注入手势缩放转发脚本（导出 `render_clean` 不注入）。插在末个 `</body>` 前——生成
-/// 产物正文里无字面 `</body>`（image/audio 为 data-uri，其余为结构化 HTML），`rfind` 定位收尾
-/// 标签即可；万一缺失（异常 HTML）则原样返回，绝不破坏产物。
-fn with_zoom_forward(html: String) -> String {
-    match html.rfind("</body>") {
+/// 预览态 HTML 收尾（导出 `render_clean` 不经此，保交付物纯净）：
+/// ① 注入手势缩放转发脚本 `ZOOM_FORWARD_SCRIPT`——插在末个 `</body>` 前（生成产物正文无字面
+///    `</body>`：image/audio 为 data-uri、其余为结构化 HTML，`rfind` 定位收尾标签即可）；
+/// ② 补渲染版本标记 `data-ds-r`：image/audio/component 走 `editable=false`，`build_artifact_html`
+///    只在 editable 时写该标记 → 这三类原本无标记，`ensure_artifact_render_fresh` 无从判定新鲜度
+///    才早退跳过它们。补上后它们也能自愈——令**存量** image/audio/component 打开时重渲染拿到本轮
+///    forwarder（幂等：重渲染即带最新标记，绝不循环；可编辑 kind 已由 build 写入，此处 add-if-missing 跳过）。
+///    标记插在 `<html ` 后（骨架恒以 `<html lang=...>` 开头）。任一标签异常缺失则原样返回，绝不破坏产物。
+fn finalize_preview_html(html: String) -> String {
+    let html = match html.rfind("</body>") {
         Some(i) => format!("{}{}\n{}", &html[..i], renderer::ZOOM_FORWARD_SCRIPT, &html[i..]),
         None => html,
+    };
+    // 标记只可能在 `<html>` 开标签（`<body>` 之前）；只扫 head 区，避免 body 正文（如 component
+    // 编译 JS）里恰好含同串被误判为已标记 → 永不打标记 → 每次打开都重渲染（非幂等）。
+    if head_contains_marker(&html, "data-ds-r=") {
+        html
+    } else {
+        html.replacen(
+            "<html ",
+            &format!("<html data-ds-r=\"{}\" ", renderer::RENDER_VERSION),
+            1,
+        )
     }
 }
 
@@ -2319,10 +2338,11 @@ fn head_contains_marker(html: &str, marker: &str) -> bool {
     html.split("<body").next().unwrap_or(html).contains(marker)
 }
 
-/// 打开产物时自愈：若磁盘 `index.html` 的渲染版本落后当前 `RENDER_VERSION`（如 inspector bridge
-/// 升级），用当前 renderer 从磁盘源重渲染 `index.html` + `oidmap.json`（**内容不变、不新增版本、
-/// 不动 source**），使编辑工具层升级无需用户重编辑即对老产物生效——bridge 烧死在 index.html，
-/// 否则老产物永远用旧工具。仅 `ready` / `needs_review` 的可编辑 kind 执行；已最新或不适用即 no-op。
+/// 打开产物时自愈：若磁盘 `index.html` 的渲染版本落后当前 `RENDER_VERSION`（inspector bridge /
+/// 手势缩放 forwarder 等渲染工具层升级），用当前 renderer 从磁盘源重渲染 `index.html` + `oidmap.json`
+///（**内容不变、不新增版本、不动 source**），使工具层升级无需用户重编辑即对老产物生效——脚本烧死在
+/// index.html，否则老产物永远用旧工具。**全 kind**（含 image/audio/component，`finalize_preview_html`
+/// 给它们补了 `data-ds-r` 标记后即可判定新鲜度）；仅 `ready` / `needs_review` 态执行，已最新即 no-op。
 /// 返回是否发生重渲染（前端据此决定是否重载 iframe）。
 ///
 /// **并发安全（review 修复）**：整段 RMW 持 `artifact_lock`（与 update/restyle/finalize/patch 互斥）。
@@ -2339,13 +2359,9 @@ pub fn ensure_artifact_render_fresh(id: &str) -> Result<bool> {
     let Some(kind) = ArtifactKind::from_str(&a.kind) else {
         return Ok(false);
     };
-    // Image/Audio 无 inspector bridge、Component 是编译产物无 oid → 无 bridge 可自愈。
-    if matches!(
-        kind,
-        ArtifactKind::Image | ArtifactKind::Audio | ArtifactKind::Component
-    ) {
-        return Ok(false);
-    }
+    // 全 kind 参与自愈：可编辑 kind 刷新 inspector bridge/oid，image/audio/component 刷新手势缩放
+    // forwarder（`finalize_preview_html` 已给这三类补 `data-ds-r` 标记 → 从磁盘源无损重渲染即幂等
+    // 自愈，令存量产物拿到本轮 forwarder）。read_source→render→write_atomic 全 kind 通用。
     let dir = paths::design_artifact_dir(&a.project_id, &a.id)?;
     let index_path = dir.join("index.html");
     let marker = format!("data-ds-r=\"{}\"", renderer::RENDER_VERSION);
@@ -4251,6 +4267,54 @@ mod rtl_tests {
         );
         // LTR 原样返回。
         assert_eq!(apply_document_dir(html.clone(), false), html);
+    }
+}
+
+#[cfg(test)]
+mod preview_finalize_tests {
+    use super::finalize_preview_html;
+    use crate::design::renderer::{RENDER_VERSION, ZOOM_FORWARD_SCRIPT};
+
+    fn head_marker() -> String {
+        format!("data-ds-r=\"{}\"", RENDER_VERSION)
+    }
+    fn head_of(html: &str) -> &str {
+        html.split("<body").next().unwrap_or(html)
+    }
+
+    #[test]
+    fn injects_forwarder_before_body_close() {
+        let html = "<!doctype html>\n<html lang=\"zh\" data-ds-kind=\"image\">\n<head></head>\n<body>\n<img>\n</body>\n</html>\n".to_string();
+        let out = finalize_preview_html(html);
+        let si = out.find(ZOOM_FORWARD_SCRIPT).expect("forwarder injected");
+        assert!(si < out.rfind("</body>").unwrap(), "forwarder must precede </body>");
+    }
+
+    #[test]
+    fn stamps_marker_once_when_missing() {
+        // image/audio/component（editable=false，build 不写标记）→ 补到 <html> 开标签，仅一次
+        let html = "<!doctype html>\n<html lang=\"zh\" data-ds-kind=\"image\">\n<head></head>\n<body>\n<img>\n</body>\n</html>\n".to_string();
+        let out = finalize_preview_html(html);
+        assert!(head_of(&out).contains(&head_marker()));
+        assert_eq!(out.matches(&head_marker()).count(), 1);
+    }
+
+    #[test]
+    fn does_not_double_stamp_when_present() {
+        // 可编辑 kind：build_artifact_html 已写标记 → finalize 不再补（幂等）
+        let html = format!(
+            "<!doctype html>\n<html lang=\"zh\" data-ds-kind=\"web\" data-ds-r=\"{RENDER_VERSION}\">\n<head></head>\n<body>\n<div>x</div>\n</body>\n</html>\n"
+        );
+        let out = finalize_preview_html(html);
+        assert_eq!(out.matches(&head_marker()).count(), 1);
+    }
+
+    #[test]
+    fn marker_check_is_head_scoped() {
+        // body 正文恰含 data-ds-r=（如 component 编译 JS）不得被误判为已标记 → head 仍须补真标记
+        let html = "<!doctype html>\n<html lang=\"zh\" data-ds-kind=\"component\">\n<head></head>\n<body>\n<script>var s=\"data-ds-r=\";</script>\n</body>\n</html>\n".to_string();
+        let out = finalize_preview_html(html);
+        assert!(head_of(&out).contains(&head_marker()));
     }
 }
 
