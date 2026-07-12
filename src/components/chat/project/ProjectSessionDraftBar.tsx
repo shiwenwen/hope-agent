@@ -168,11 +168,6 @@ export function ProjectSessionDraftBar({
             key={branch.fullRef}
             type="button"
             disabled={projectBranchDisabledForLaunch(branch, draft.launchMode)}
-            title={
-              projectBranchDisabledForLaunch(branch, draft.launchMode)
-                ? t("chat.projectRuntime.checkedOut", "已在其他工作树中使用")
-                : undefined
-            }
             className={cn(
               FLOATING_MENU_ITEM_CLASS,
               "disabled:cursor-not-allowed disabled:opacity-45",
@@ -219,7 +214,7 @@ export function ProjectSessionDraftBar({
               type="button"
               disabled={disabled}
               aria-label={t("chat.projectRuntime.removeProject", "不在项目中工作")}
-              title={t("chat.projectRuntime.removeProject", "不在项目中工作")}
+              data-ha-title-tip={t("chat.projectRuntime.removeProject", "不在项目中工作")}
               className="mr-1 rounded-full p-0.5 text-muted-foreground hover:bg-foreground hover:text-background disabled:pointer-events-none"
               onClick={onRemoveProject}
             >
@@ -307,11 +302,6 @@ export function ProjectSessionDraftBar({
             <button
               type="button"
               disabled={!canUseWorktree || gitLoading}
-              title={
-                !gitLoading && !canUseWorktree
-                  ? worktreeUnavailableReason
-                  : undefined
-              }
               className={cn(FLOATING_MENU_ITEM_CLASS, "disabled:cursor-not-allowed disabled:opacity-45")}
               onClick={() => chooseLaunchMode("worktree")}
             >

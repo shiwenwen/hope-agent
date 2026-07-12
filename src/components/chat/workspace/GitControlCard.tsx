@@ -601,7 +601,7 @@ export function GitControlCard({
                     {group.label}
                   </div>
                   {group.branches.map((branch) => (
-                    <button key={branch.fullRef} type="button" title={branch.isCheckedOut && !branch.isCurrent ? t("workspace.git.checkedOutAt", "已在 {{path}} 检出", { path: branch.checkedOutPath || t("workspace.git.anotherWorktree", "其他工作树") }) : undefined} className={cn("flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-secondary", (branch.isCurrent || branch.isCheckedOut || dirty) && "opacity-50")} disabled={branch.isCurrent || branch.isCheckedOut || dirty || busy} onClick={() => switchBranch(branch.fullRef)}>
+                    <button key={branch.fullRef} type="button" data-ha-title-tip={branch.isCheckedOut && !branch.isCurrent ? t("workspace.git.checkedOutAt", "已在 {{path}} 检出", { path: branch.checkedOutPath || t("workspace.git.anotherWorktree", "其他工作树") }) : undefined} className={cn("flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-secondary", (branch.isCurrent || branch.isCheckedOut || dirty) && "opacity-50")} disabled={branch.isCurrent || branch.isCheckedOut || dirty || busy} onClick={() => switchBranch(branch.fullRef)}>
                       <GitBranch className="h-3.5 w-3.5" /><span className="min-w-0 flex-1 truncate">{branch.name}</span>{branch.isCurrent ? <Check className="h-4 w-4" /> : null}
                     </button>
                   ))}
@@ -898,7 +898,7 @@ function CheckDetailRow({ check, onFix }: { check: GitPullRequestCheck; onFix?: 
       <Icon className={cn("mt-0.5 h-4 w-4 shrink-0", status.className)} />
       <div className="min-w-0 flex-1">
         <div className="flex items-start gap-2">
-          <span className="min-w-0 flex-1 truncate text-sm font-medium" title={check.name}>{check.name}</span>
+          <span className="min-w-0 flex-1 truncate text-sm font-medium" data-ha-title-tip={check.name}>{check.name}</span>
           <span className="shrink-0 text-xs text-muted-foreground">{status.label}</span>
         </div>
         {check.workflow || check.description ? (
@@ -939,7 +939,7 @@ function ReviewCommentCard({
     <div className="rounded-xl border border-border/65 bg-background/70 p-3">
       <div className="whitespace-pre-wrap break-words text-sm leading-5">{comment.body}</div>
       <div className="mt-2 flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
-        <span className="truncate font-mono" title={location}>{location}</span>
+        <span className="truncate font-mono" data-ha-title-tip={location}>{location}</span>
         <span className="ml-auto shrink-0">{comment.author}</span>
         {comment.createdAt ? <span className="shrink-0">{formatFeedbackTime(comment.createdAt)}</span> : null}
         {comment.url ? (
