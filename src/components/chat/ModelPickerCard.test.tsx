@@ -11,6 +11,10 @@ vi.mock("react-i18next", () => ({
   }),
 }))
 
+vi.mock("@/components/common/ProviderIcon", () => ({
+  default: () => <span data-testid="provider-icon" />,
+}))
+
 afterEach(cleanup)
 
 describe("ModelPickerCard", () => {
@@ -44,6 +48,7 @@ describe("ModelPickerCard", () => {
 
     expect(screen.getByLabelText("model.supportsImageMultimodal")).toBeTruthy()
     expect(screen.getByLabelText("model.supportsVideoMultimodal")).toBeTruthy()
+    expect(screen.getByTestId("provider-icon")).toBeTruthy()
     fireEvent.click(screen.getByRole("button", { name: /GPT Media/ }))
     expect(onSelect).toHaveBeenCalledWith("openai", "gpt-media")
   })

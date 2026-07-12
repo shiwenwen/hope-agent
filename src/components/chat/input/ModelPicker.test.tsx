@@ -15,6 +15,10 @@ vi.mock("react-i18next", () => ({
   }),
 }))
 
+vi.mock("@/components/common/ProviderIcon", () => ({
+  default: () => <span data-testid="provider-icon" />,
+}))
+
 const models: AvailableModel[] = [
   {
     providerId: "openai",
@@ -142,7 +146,7 @@ describe("ModelPicker", () => {
 
     await openModelSubmenu()
 
-    expect(screen.getByText("OpenAI")).toBeTruthy()
+    expect(screen.getAllByTestId("provider-icon").length).toBeGreaterThan(0)
     expect(screen.getByLabelText("model.supportsImageMultimodal")).toBeTruthy()
     expect(screen.getByLabelText("model.supportsVideoMultimodal")).toBeTruthy()
   })
