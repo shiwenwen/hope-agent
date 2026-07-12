@@ -22,20 +22,16 @@ export function CommentPopover({
   const { t } = useTranslation()
   const [comment, setComment] = useState("")
   const textareaRef = useRef<HTMLTextAreaElement>(null)
-  const lastAnchorRef = useRef<{
-    position: { top: number; left: number }
-    selectedText: string
-  } | null>(null)
-  if (open && position && selectedText !== null) {
-    lastAnchorRef.current = { position, selectedText }
-  }
-  const renderedAnchor = lastAnchorRef.current
+  const anchor = position && selectedText !== null ? { position, selectedText } : null
 
   useEffect(() => {
     if (!open) return
-    setComment("")
-    const timer = window.setTimeout(() => textareaRef.current?.focus(), 50)
-    return () => window.clearTimeout(timer)
+    const resetTimer = window.setTimeout(() => setComment(""), 0)
+    const focusTimer = window.setTimeout(() => textareaRef.current?.focus(), 50)
+    return () => {
+      window.clearTimeout(resetTimer)
+      window.clearTimeout(focusTimer)
+    }
   }, [open])
 
   const handleSubmit = useCallback(() => {
@@ -55,21 +51,19 @@ export function CommentPopover({
     }
   }, [handleSubmit, onClose])
 
-  if (!renderedAnchor) return null
-
   return (
     <FloatingMenu
-      open={open}
+      open={open && anchor !== null}
       positionClassName=""
       originClassName="origin-top-left"
       className="w-[280px] overflow-hidden p-0"
-      style={{ top: renderedAnchor.position.top, left: renderedAnchor.position.left }}
+      style={{ top: anchor?.position.top ?? 0, left: anchor?.position.left ?? 0 }}
     >
       <div onMouseDown={(e) => e.stopPropagation()}>
       <div className="px-3 py-2 border-b border-border/50 bg-secondary/30 rounded-t-lg">
         <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
           <MessageSquareQuote className="h-3 w-3 shrink-0" />
-          <span className="truncate italic">&ldquo;{renderedAnchor.selectedText.length > 60 ? renderedAnchor.selectedText.slice(0, 60) + "…" : renderedAnchor.selectedText}&rdquo;</span>
+          <span className="truncate italic">&ldquo;{(anchor?.selectedText.length ?? 0) > 60 ? anchor?.selectedText.slice(0, 60) + "…" : anchor?.selectedText}&rdquo;</span>
         </div>
       </div>
       <div className="p-2 space-y-2">

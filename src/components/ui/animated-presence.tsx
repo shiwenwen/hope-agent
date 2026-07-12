@@ -239,6 +239,8 @@ export function AnimatedPresenceBox({
   const [present, setPresent] = useState(open || !unmountOnExit)
   const [visible, setVisible] = useState(open)
   const [renderedChildren, setRenderedChildren] = useState(children)
+  const [renderedClassName, setRenderedClassName] = useState(className)
+  const [renderedStyle, setRenderedStyle] = useState(style)
   const timerRef = useRef<number | null>(null)
   const frameRef = useRef<number | null>(null)
   const childrenTimerRef = useRef<number | null>(null)
@@ -255,6 +257,8 @@ export function AnimatedPresenceBox({
     }
     childrenTimerRef.current = window.setTimeout(() => {
       setRenderedChildren(children)
+      setRenderedClassName(className)
+      setRenderedStyle(style)
       childrenTimerRef.current = null
     }, 0)
     return () => {
@@ -263,7 +267,7 @@ export function AnimatedPresenceBox({
         childrenTimerRef.current = null
       }
     }
-  }, [children, open])
+  }, [children, className, open, style])
 
   useLayoutEffect(() => {
     if (timerRef.current !== null) {
@@ -348,6 +352,8 @@ export function AnimatedPresenceBox({
   const activeDurationMs = visible ? resolvedEnterDurationMs : resolvedExitDurationMs
   const activeTimingFunction = visible ? resolvedEnterEasing : resolvedExitEasing
   const hiddenClassName = open ? (enterFromClassName ?? exitClassName) : exitClassName
+  const activeClassName = open ? className : renderedClassName
+  const activeStyle = open ? style : renderedStyle
 
   return (
     <div
@@ -355,11 +361,11 @@ export function AnimatedPresenceBox({
       className={cn(
         "transition-[opacity,transform,filter] ease-out motion-reduce:transition-none",
         visible ? enterClassName : hiddenClassName,
-        className,
+        activeClassName,
       )}
       style={
         {
-          ...style,
+          ...activeStyle,
           transitionDuration: `${activeDurationMs}ms`,
           transitionTimingFunction: activeTimingFunction,
           "--ha-presence-enter-duration": `${resolvedEnterDurationMs}ms`,

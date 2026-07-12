@@ -81,9 +81,6 @@ export function ShikiCodeView({
   // Start in the loading state only when we actually intend to highlight.
   const [loading, setLoading] = useState(!tooLarge)
   const [menu, setMenu] = useState<MenuState | null>(null)
-  const lastMenuRef = useRef<MenuState | null>(null)
-  if (menu) lastMenuRef.current = menu
-  const renderedMenu = menu ?? lastMenuRef.current
   const rootRef = useRef<HTMLElement | null>(null)
   const setRootRef = useCallback((el: HTMLElement | null) => {
     rootRef.current = el
@@ -245,37 +242,36 @@ export function ShikiCodeView({
   return (
     <>
       {view}
-      {renderedMenu ? (
-        <FloatingMenu
-          open={menu !== null}
-          strategy="fixed"
-          portal
-          positionClassName=""
-          originClassName="origin-top-left"
-          className="min-w-[11rem] p-1.5"
-          style={{ left: renderedMenu.x, top: renderedMenu.y }}
-        >
+      <FloatingMenu
+        open={menu !== null}
+        strategy="fixed"
+        portal
+        positionClassName=""
+        originClassName="origin-top-left"
+        className="min-w-[11rem] p-1.5"
+        style={{ left: menu?.x ?? 0, top: menu?.y ?? 0 }}
+      >
           <div onPointerDown={(e) => e.stopPropagation()}>
               <button
                 type="button"
                 className={MENU_ITEM_CLASS}
                 onClick={() => {
-                  copyText(renderedMenu.sel?.text ?? content)
+                  copyText(menu?.sel?.text ?? content)
                   setMenu(null)
                 }}
               >
                 <Copy className="h-3.5 w-3.5" />
-                {renderedMenu.sel
+                {menu?.sel
                   ? t("fileBrowser.copySelection", "Copy selection")
                   : t("fileBrowser.copyAll", "Copy all")}
               </button>
               {onQuote ? (
                 <button
                   type="button"
-                  disabled={!renderedMenu.sel}
+                  disabled={!menu?.sel}
                   className={MENU_ITEM_CLASS}
                   onClick={() => {
-                    if (renderedMenu.sel) onQuote(renderedMenu.sel)
+                    if (menu?.sel) onQuote(menu.sel)
                     setMenu(null)
                   }}
                 >
@@ -284,8 +280,7 @@ export function ShikiCodeView({
                 </button>
               ) : null}
           </div>
-        </FloatingMenu>
-      ) : null}
+      </FloatingMenu>
     </>
   )
 }

@@ -216,9 +216,6 @@ export default function ChatTitleBar({
   const [compactToast, setCompactToast] = useState<{ success: boolean; message: string } | null>(
     null,
   )
-  const lastCompactToastRef = useRef<{ success: boolean; message: string } | null>(null)
-  if (compactToast) lastCompactToastRef.current = compactToast
-  const renderedCompactToast = compactToast ?? lastCompactToastRef.current
   const compactToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Session ID copy feedback
@@ -871,27 +868,27 @@ export default function ChatTitleBar({
               )}
             </div>
           </FloatingMenu>
-          {renderedCompactToast ? (
-            <FloatingMenu
-              open={compactToast !== null}
-              positionClassName="top-full right-0 mt-1.5"
-              originClassName="origin-top-right"
-              className={cn(
-                "ha-menu-from-top whitespace-nowrap px-2.5 py-1.5 text-xs",
-                !renderedCompactToast.success &&
-                  "border-destructive/30 bg-destructive/10 text-destructive",
-              )}
-            >
+          <FloatingMenu
+            open={compactToast !== null}
+            positionClassName="top-full right-0 mt-1.5"
+            originClassName="origin-top-right"
+            className={cn(
+              "ha-menu-from-top whitespace-nowrap px-2.5 py-1.5 text-xs",
+              compactToast?.success === false &&
+                "border-destructive/30 bg-destructive/10 text-destructive",
+            )}
+          >
+            {compactToast ? (
               <div className="flex items-center gap-1.5">
-                {renderedCompactToast.success ? (
+                {compactToast.success ? (
                   <Check className="h-3 w-3 text-green-500" />
                 ) : (
                   <X className="h-3 w-3" />
                 )}
-                {renderedCompactToast.message}
+                {compactToast.message}
               </div>
-            </FloatingMenu>
-          ) : null}
+            ) : null}
+          </FloatingMenu>
         </div>
         {/* Export Button — open the export-conversation dialog. */}
         {currentSessionId && (

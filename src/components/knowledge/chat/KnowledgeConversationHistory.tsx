@@ -1,4 +1,3 @@
-import { useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { Search } from "lucide-react"
 
@@ -16,6 +15,7 @@ interface Props {
   open: boolean
   threads: KbChatThread[]
   activeSessionId: string | null
+  query: string
   onSearch: (query: string) => void
   onPick: (sessionId: string) => void
   /** True when more history pages exist beyond the loaded threads. */
@@ -35,6 +35,7 @@ export function KnowledgeConversationHistory({
   open,
   threads,
   activeSessionId,
+  query,
   onSearch,
   onPick,
   hasMore,
@@ -42,14 +43,9 @@ export function KnowledgeConversationHistory({
   loadIssue,
 }: Props) {
   const { t } = useTranslation()
-  const [query, setQuery] = useState("")
   const issueDescription = loadIssue
     ? knowledgeChatIssueDescription(loadIssue, t)
     : null
-
-  useEffect(() => {
-    if (!open) setQuery("")
-  }, [open])
 
   return (
     <FloatingMenu
@@ -64,7 +60,6 @@ export function KnowledgeConversationHistory({
           autoFocus
           value={query}
           onChange={(e) => {
-            setQuery(e.target.value)
             onSearch(e.target.value)
           }}
           placeholder={t("knowledge.chatPanel.searchHistory")}
