@@ -1139,7 +1139,8 @@
     "unknown": "未知",
     "off": "關閉",
     "error": "錯誤",
-    "showLess": "折疊顯示"
+    "showLess": "折疊顯示",
+    "modelNoVision": "不支援圖片"
   },
   "context": {
     "ago": "前",
@@ -10102,7 +10103,8 @@
       "stopped": "已停止分享",
       "copyLink": "複製連結",
       "copied2": "已複製",
-      "loadErr": "載入分享狀態失敗"
+      "loadErr": "載入分享狀態失敗",
+      "shareTo": "分享到"
     },
     "deploy": {
       "menu": "部署到 Cloudflare Pages",
@@ -10275,6 +10277,19 @@
       "working": "正在複製圖片…",
       "done": "已複製圖片到剪貼簿",
       "failed": "複製圖片失敗，可改用匯出 PNG"
+    },
+    "model": {
+      "label": "生成模型",
+      "followDefault": "預設模型",
+      "autoSwitched": "已切換到 {{model}}（支援圖片）",
+      "noVisionAvailable": "未設定支援圖片的模型，請到 設定 → 模型 新增",
+      "followDefaultItem": "跟隨預設模型"
+    },
+    "refImage": {
+      "add": "新增參考圖（也可貼上 / 拖入）",
+      "alt": "參考圖",
+      "hint": "將照著這張參考圖生成",
+      "remove": "移除參考圖"
     }
   },
   "agentLifecycle": {

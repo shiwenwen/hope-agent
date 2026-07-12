@@ -1139,7 +1139,8 @@
     "unknown": "Không xác định",
     "off": "Tắt",
     "error": "Error",
-    "showLess": "Hiển thị ít hơn"
+    "showLess": "Hiển thị ít hơn",
+    "modelNoVision": "Không hỗ trợ hình ảnh"
   },
   "context": {
     "ago": "trước",
@@ -10102,7 +10103,8 @@
       "stopped": "Đã ngừng chia sẻ",
       "copyLink": "Sao chép liên kết",
       "copied2": "Đã sao chép",
-      "loadErr": "Không tải được trạng thái chia sẻ"
+      "loadErr": "Không tải được trạng thái chia sẻ",
+      "shareTo": "Chia sẻ đến"
     },
     "deploy": {
       "menu": "Triển khai lên Cloudflare Pages",
@@ -10275,6 +10277,19 @@
       "working": "Đang sao chép ảnh…",
       "done": "Đã sao chép ảnh",
       "failed": "Sao chép thất bại — thử xuất PNG"
+    },
+    "model": {
+      "label": "Mô hình tạo",
+      "followDefault": "Mô hình mặc định",
+      "autoSwitched": "Đã chuyển sang {{model}} (hỗ trợ hình ảnh)",
+      "noVisionAvailable": "Chưa cấu hình mô hình hỗ trợ hình ảnh, hãy thêm trong Cài đặt → Mô hình",
+      "followDefaultItem": "Theo mô hình mặc định"
+    },
+    "refImage": {
+      "add": "Thêm ảnh tham khảo (dán / kéo thả cũng được)",
+      "alt": "Ảnh tham khảo",
+      "hint": "Sẽ tạo dựa trên ảnh tham khảo này",
+      "remove": "Xóa ảnh tham khảo"
     }
   },
   "agentLifecycle": {

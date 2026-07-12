@@ -31,6 +31,15 @@ export interface ModelSelectorProps {
   onOpenChange?: (open: boolean) => void
   /** Separator used in value string, default "::" */
   separator?: string
+  /** Vision-only mode: models without image input support stay visible but
+   *  grayed out (not selectable) with a "no image support" hint. Omitting the
+   *  prop keeps behavior byte-identical for existing callers. */
+  requireVision?: boolean
+  /** Optional "clear selection" item pinned at the top of the menu (e.g.
+   *  「跟随默认模型」). Rendered only when both are provided; selecting it
+   *  calls `onClear`. Omitting keeps behavior byte-identical. */
+  clearLabel?: string
+  onClear?: () => void
 }
 
 export function ModelSelector({
@@ -43,6 +52,9 @@ export function ModelSelector({
   defaultOpen,
   onOpenChange,
   separator = "::",
+  requireVision,
+  clearLabel,
+  onClear,
 }: ModelSelectorProps) {
   const { t } = useTranslation()
 
@@ -88,6 +100,17 @@ export function ModelSelector({
           sideOffset={6}
           align="start"
         >
+          {clearLabel && onClear && (
+            <DropdownMenu.Item
+              className="relative flex cursor-default select-none items-center rounded-md px-2.5 py-1.5 text-[13px] text-foreground/80 outline-none transition-colors duration-150 focus:bg-secondary/60 focus:text-foreground"
+              onSelect={onClear}
+            >
+              <span className="absolute right-2 flex h-3.5 w-3.5 items-center justify-center">
+                {!selectedModel && <Check className="h-4 w-4" />}
+              </span>
+              <span className="pr-6">{clearLabel}</span>
+            </DropdownMenu.Item>
+          )}
           {Object.entries(modelsByProvider).map(([providerName, models]) => (
             <DropdownMenu.Sub key={providerName}>
               <DropdownMenu.SubTrigger className="flex cursor-default select-none items-center rounded-md px-2.5 py-1.5 text-[13px] text-foreground/80 outline-none transition-colors duration-150 focus:bg-secondary/60 focus:text-foreground data-[state=open]:bg-secondary data-[state=open]:text-foreground data-[state=open]:shadow-sm">
@@ -107,16 +130,31 @@ export function ModelSelector({
                   {models.map((m) => {
                     const isSelected =
                       m.providerId === selectedProviderId && m.modelId === selectedModelId
+                    // Vision gate: gray out (not hide) so users see WHY their
+                    // usual model is unavailable instead of it vanishing.
+                    // Empty inputTypes = "unconfigured, assume capable" — mirrors
+                    // the backend's `model_supports_vision` three-state semantics
+                    // (custom provider entries default to an empty list).
+                    const visionBlocked =
+                      !!requireVision &&
+                      m.inputTypes.length > 0 &&
+                      !m.inputTypes.includes("image")
                     return (
                       <DropdownMenu.Item
                         key={`${m.providerId}::${m.modelId}`}
+                        disabled={visionBlocked}
                         className="relative flex cursor-default select-none items-center rounded-md px-2.5 py-1.5 text-[13px] text-foreground/80 outline-none transition-colors duration-150 focus:bg-secondary/60 focus:text-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50"
                         onSelect={() => onChange(m.providerId, m.modelId)}
                       >
                         <span className="absolute right-2 flex h-3.5 w-3.5 items-center justify-center">
                           {isSelected && <Check className="h-4 w-4" />}
                         </span>
-                        <span className="pr-6">{m.modelName}</span>
+                        <span className={visionBlocked ? "pr-1" : "pr-6"}>{m.modelName}</span>
+                        {visionBlocked && (
+                          <span className="ml-auto shrink-0 pr-6 text-[10px] text-muted-foreground/70">
+                            {t("common.modelNoVision", "不支持图片")}
+                          </span>
+                        )}
                       </DropdownMenu.Item>
                     )
                   })}

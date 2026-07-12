@@ -254,6 +254,9 @@ pub struct CreateProjectInput {
     pub session_id: Option<String>,
     #[serde(default)]
     pub agent_id: Option<String>,
+    /// 项目对话初始模型（首页所选模型带入）。弱引用，缺省 = agent 缺省。
+    #[serde(default)]
+    pub default_model: Option<crate::provider::ActiveModel>,
 }
 
 pub fn create_project(input: CreateProjectInput) -> Result<DesignProject> {
@@ -278,6 +281,7 @@ pub fn create_project(input: CreateProjectInput) -> Result<DesignProject> {
         artifact_count: 0,
         needs_review_count: 0,
         metadata: None,
+        default_model: input.default_model,
     };
     // 建项目目录 + project.json（真相源镜像）。
     let dir = paths::design_project_dir(&project.id)?;
@@ -339,6 +343,8 @@ pub fn duplicate_project(id: &str) -> Result<DesignProject> {
         artifact_count: 0,
         needs_review_count: 0,
         metadata: src.metadata.clone(),
+        // 副本继承源项目的对话模型偏好（弱引用，随时可换）。
+        default_model: src.default_model.clone(),
     };
     let new_dir = paths::design_project_dir(&new_pid)?;
     std::fs::create_dir_all(new_dir.join("artifacts"))?;
@@ -617,6 +623,7 @@ pub fn get_or_create_session_project(
         ha_project_id: None,
         session_id: session_id.map(str::to_string),
         agent_id: agent_id.map(str::to_string),
+        default_model: None,
     })
 }
 
@@ -770,12 +777,17 @@ pub struct CreateArtifactInput {
     /// image 形态：图片描述 prompt（走 image_generate 生成并内嵌）。
     #[serde(default)]
     pub prompt: Option<String>,
-    /// 参考图 base64（「照着这张图生成匹配产物」）：非媒体形态经 vision 描述成重建 brief
-    /// 后走生成管线。与 `prompt` 可叠加（图 = 视觉参照，prompt = 额外要求）。
+    /// 参考图 base64（「照着这张图生成匹配产物」）：非媒体形态作**视觉附件**随生成请求
+    /// 上行，选中的视觉模型直接看原图（真多模态）。与 `prompt` 可叠加（图 = 视觉参照，
+    /// prompt = 额外要求）。
     #[serde(default)]
     pub reference_image_b64: Option<String>,
     #[serde(default)]
     pub reference_image_mime: Option<String>,
+    /// 用户在 GUI 显式选的生成模型（单模型、失败即报错不降级）；涉图时须视觉合格。
+    /// 缺省 = `effective_chain` 默认链。
+    #[serde(default)]
+    pub model_override: Option<crate::provider::ActiveModel>,
     /// image 形态：参考图路径 / URL（agent 面图生图入口）。每项经 `image_generate::load_input_images`
     /// 加载（本地路径 / data: / http(s) 走 SSRF），≤5 张，坏项跳过不阻断。与 `reference_image_b64`
     /// 叠加（owner 面用 b64、agent 面用 paths）。
@@ -887,12 +899,33 @@ pub async fn create_artifact_generating(mut input: CreateArtifactInput) -> Resul
             input.body_html = Some(renderer::placeholder_component_source().to_string());
         }
     } else if body_empty {
-        // 非 image 形态：有 brief 时用一次模型生成完整自包含设计（GUI prompt→生成，对齐
-        // 参照品类）。生成失败**不阻断**——降级为空壳产物（用户可在对话里继续细化）。
-        if let (Some(kind), Some(brief)) = (
-            ArtifactKind::from_str(&input.kind),
-            input.prompt.clone().filter(|p| !p.trim().is_empty()),
-        ) {
+        // 非 image 形态：有 brief（或参考图）时用一次模型生成完整自包含设计。带参考图时
+        // 走真多模态（选中的视觉模型直接看原图）。生成失败**不阻断**——降级为空壳产物
+        // （用户可在对话里继续细化）。
+        let text_brief = input.prompt.clone().filter(|p| !p.trim().is_empty());
+        let reference_image = input
+            .reference_image_b64
+            .as_deref()
+            .filter(|s| !s.trim().is_empty())
+            .and_then(|b64| match super::extract::prepare_reference_image(b64) {
+                Ok((b64, mime)) => Some((b64, mime.to_string())),
+                Err(e) => {
+                    crate::app_warn!(
+                        "design",
+                        "generate",
+                        "reference image prepare failed ({e}), falling back to text brief"
+                    );
+                    None
+                }
+            });
+        let brief = match (&text_brief, &reference_image) {
+            (Some(b), _) => Some(b.clone()),
+            (None, Some(_)) => {
+                Some("Faithfully recreate the attached reference image as this artifact.".into())
+            }
+            (None, None) => None,
+        };
+        if let (Some(kind), Some(brief)) = (ArtifactKind::from_str(&input.kind), brief) {
             let (system_md, tokens) = resolve_system_for_generation(&input);
             let recipe_id = input.recipe_id.clone();
             match super::generate::generate_design_parts(
@@ -901,6 +934,10 @@ pub async fn create_artifact_generating(mut input: CreateArtifactInput) -> Resul
                 &system_md,
                 &tokens,
                 recipe_id.as_deref(),
+                reference_image
+                    .as_ref()
+                    .map(|(b64, mime)| (b64.as_str(), mime.as_str())),
+                input.model_override.clone(),
             )
             .await
             {
@@ -946,16 +983,25 @@ fn normalize_brand_pack_kinds(kinds: Vec<String>) -> Vec<String> {
 
 /// 从**一个 brief**批量生成一组**共享同一设计系统**的协调产物（多产物品牌包）。owner 平面。
 /// 每个 kind 复用现成 `create_artifact_generating`（含降级），任一失败不阻断其余、返回成功者。
-/// **顺序生成**（避免并发打满模型），全失败则 `bail!`。
+/// **顺序生成**（避免并发打满模型），全失败则 `bail!`。带参考图时每件产物都真看原图
+/// （N 件 = N 次带图视觉调用，用户主动选择）；`model_override` 逐件透传（单模型不降级）。
+#[allow(clippy::too_many_arguments)]
 pub async fn generate_brand_pack(
     project_id: &str,
     brief: &str,
     kinds: Vec<String>,
     system_id: Option<String>,
     folder: Option<String>,
+    reference_image_b64: Option<String>,
+    reference_image_mime: Option<String>,
+    model_override: Option<crate::provider::ActiveModel>,
 ) -> Result<Vec<DesignArtifact>> {
     let brief = brief.trim();
-    if brief.is_empty() {
+    let has_ref = reference_image_b64
+        .as_deref()
+        .map(|s| !s.trim().is_empty())
+        .unwrap_or(false);
+    if brief.is_empty() && !has_ref {
         anyhow::bail!("品牌包需要一句设计 brief");
     }
     // 去重 + 过滤合法 kind + 保序 + 钳数量。
@@ -982,11 +1028,19 @@ pub async fn generate_brand_pack(
         );
         let input = CreateArtifactInput {
             project_id: project_id.to_string(),
-            title: format!("{brief}").chars().take(40).collect(),
+            title: if brief.is_empty() {
+                // 图-only 品牌包：无 brief 可作标题，用固定占位（用户可改名）。
+                "参考图设计".to_string()
+            } else {
+                brief.chars().take(40).collect()
+            },
             kind: kind.clone(),
             system_id: system_id.clone(),
-            prompt: Some(brief.to_string()),
+            prompt: Some(brief.to_string()).filter(|s| !s.trim().is_empty()),
             folder: folder.clone(),
+            reference_image_b64: reference_image_b64.clone(),
+            reference_image_mime: reference_image_mime.clone(),
+            model_override: model_override.clone(),
             ..Default::default()
         };
         match create_artifact_generating(input).await {
@@ -1929,6 +1983,8 @@ pub async fn stream_generate_artifact(
     system_md: String,
     tokens: BTreeMap<String, String>,
     recipe_id: Option<String>,
+    reference_image: Option<(String, String)>,
+    model_override: Option<crate::provider::ActiveModel>,
     cancel: Arc<AtomicBool>,
 ) {
     // 本流唯一 id + 单调 seq：前端按 streamId 变化重置累积、按 seq 丢乱序帧（EventBus 无 seq）。
@@ -1959,6 +2015,10 @@ pub async fn stream_generate_artifact(
         &system_md,
         &tokens,
         recipe_id.as_deref(),
+        reference_image
+            .as_ref()
+            .map(|(b64, mime)| (b64.as_str(), mime.as_str())),
+        model_override,
         &cancel,
         &on_snapshot,
     )
@@ -2042,32 +2102,40 @@ pub async fn generate_design_artifact(input: CreateArtifactInput) -> Result<Desi
         None
     };
 
-    // 建壳优先 + 立即返回（含参考图路径）：库里即出 generating 壳、cancel 覆盖 describe 阶段；
-    // 参考图的 vision 描述（可能 ~90s）移进后台任务，命令不阻塞、模态可即时关闭（review #2/#4）。
+    // 建壳优先 + 立即返回（含参考图路径）：库里即出 generating 壳、cancel 覆盖整个生成期；
+    // 参考图规整 + 带图流式生成都在后台任务里，命令不阻塞、模态可即时关闭（review #2/#4）。
     let shell = create_artifact_shell(&input)?;
     let cancel = register_generation_cancel(&shell.id);
     let artifact_id = shell.id.clone();
     let project_id = shell.project_id.clone();
     let recipe_id = input.recipe_id.clone();
+    let model_override = input.model_override.clone();
     tokio::spawn(async move {
         use futures_util::future::FutureExt;
-        // 参考图 → vision 描述成重建 brief（+ 叠加文本要求）；描述失败回退文本 brief。
-        let brief = match ref_b64 {
-            Some(b64) => match super::extract::describe_reference_image(&b64, kind).await {
-                Ok(desc) if text_brief.trim().is_empty() => desc,
-                Ok(desc) => format!("{desc}\n\n额外要求：{text_brief}"),
+        // 真多模态：参考图只做本地规整（大小闸 / 降采样 / 重编码）成附件，选中的视觉模型
+        // **直接看原图**生成——不再经「describe 成文字 brief」两阶段转述（细节丢失源）。
+        // 规整失败回退纯文本 brief（有 brief 时仍可生成）。
+        let reference_image = match ref_b64.as_deref() {
+            Some(b64) => match super::extract::prepare_reference_image(b64) {
+                Ok((b64, mime)) => Some((b64, mime.to_string())),
                 Err(e) => {
                     crate::app_warn!(
                         "design",
                         "generate",
-                        "reference image describe failed ({e}), falling back to text brief"
+                        "reference image prepare failed ({e}), falling back to text brief"
                     );
-                    text_brief.clone()
+                    None
                 }
             },
-            None => text_brief.clone(),
+            None => None,
         };
-        // describe 失败且无文本 brief → 降级壳为空白占位（ready，可编辑），不永久转圈。
+        let brief = if reference_image.is_some() && text_brief.trim().is_empty() {
+            // 图-only 生成：固定复刻指令（详细指引在 generate 层的 REFERENCE_IMAGE_GUIDANCE）。
+            "Faithfully recreate the attached reference image as this artifact.".to_string()
+        } else {
+            text_brief.clone()
+        };
+        // 参考图规整失败且无文本 brief → 降级壳为空白占位（ready，可编辑），不永久转圈。
         if brief.trim().is_empty() {
             let _ = degrade_to_placeholder(&artifact_id, "ready");
             clear_generation_cancel(&artifact_id, &cancel);
@@ -2083,6 +2151,8 @@ pub async fn generate_design_artifact(input: CreateArtifactInput) -> Result<Desi
             system_md,
             tokens,
             recipe_id,
+            reference_image,
+            model_override,
             cancel.clone(),
         ))
         .catch_unwind()
@@ -3826,6 +3896,10 @@ pub struct ExtractSystemInput {
     pub path: Option<String>,
     #[serde(default)]
     pub url: Option<String>,
+    /// `from=image` 专用：用户在 GUI 选的视觉模型（单模型、失败即报错不降级）。
+    /// 缺省 = 默认链里首个视觉合格候选（`automation::run_vision` skip 语义）。
+    #[serde(default)]
+    pub model_override: Option<crate::provider::ActiveModel>,
 }
 
 /// 设计方向选择器：为无品牌 brief 提 N 个候选方向（不落盘）。
@@ -3858,7 +3932,8 @@ pub async fn extract_system(input: ExtractSystemInput) -> Result<DesignSystemMet
                 .as_deref()
                 .filter(|s| !s.trim().is_empty())
                 .context("'path' (image file) required for from=image")?;
-            super::extract::from_image(std::path::Path::new(p)).await?
+            super::extract::from_image(std::path::Path::new(p), input.model_override.clone())
+                .await?
         }
         other => anyhow::bail!("unsupported extract source: {other}"),
     };
@@ -4109,6 +4184,7 @@ pub async fn refine_artifact_with_comment(
         prompt: None,
         reference_image_b64: None,
         reference_image_mime: None,
+        model_override: None,
         reference_image_paths: None,
         recipe_id: None,
         aspect_ratio: None,

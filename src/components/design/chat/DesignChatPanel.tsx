@@ -26,7 +26,7 @@ import { useClickOutside } from "@/hooks/useClickOutside"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import type { ChatAttachment } from "@/lib/transport"
-import type { Message, PendingFileQuote } from "@/types/chat"
+import type { ActiveModel, Message, PendingFileQuote } from "@/types/chat"
 import type { DesignRecipe } from "@/types/design"
 import { useDesignChat } from "./useDesignChat"
 import { DesignConversationHistory } from "./DesignConversationHistory"
@@ -164,6 +164,8 @@ interface Props {
   recipes?: DesignRecipe[]
   /** 形态本地化标签（工具箱分组用）。 */
   kindLabel?: (kind: string) => string
+  /** 项目对话初始模型（首页所选模型带入；会话内切换照常、不回写项目）。 */
+  projectDefaultModel?: ActiveModel | null
 }
 
 /** design 工具里会「产/改产物」的 action（据此从本轮 tool_calls 提取产物 chip）。 */
@@ -231,12 +233,13 @@ export const DesignChatPanel = forwardRef<DesignChatPanelHandle, Props>(function
     resolveArtifactTitle,
     recipes,
     kindLabel,
+    projectDefaultModel,
   },
   ref,
 ) {
   const { t } = useTranslation()
   const isActive = active && !!projectId
-  const session = useDesignChat(projectId, isActive)
+  const session = useDesignChat(projectId, isActive, projectDefaultModel)
   // Follow 简约模式 (sidebar compact toggle) like the main chat title bar, so the
   // design panel's agent picker renders as a compact pill when it's on.
   const sidebarDisplayMode = useSidebarDisplayMode()

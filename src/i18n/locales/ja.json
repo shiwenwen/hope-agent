@@ -1139,7 +1139,8 @@
     "unknown": "不明",
     "off": "オフ",
     "error": "Error",
-    "showLess": "表示を少なくする"
+    "showLess": "表示を少なくする",
+    "modelNoVision": "画像非対応"
   },
   "context": {
     "ago": "前",
@@ -10102,7 +10103,8 @@
       "stopped": "共有を停止しました",
       "copyLink": "リンクをコピー",
       "copied2": "コピーしました",
-      "loadErr": "共有状態の読み込みに失敗"
+      "loadErr": "共有状態の読み込みに失敗",
+      "shareTo": "共有先"
     },
     "deploy": {
       "menu": "Cloudflare Pages にデプロイ",
@@ -10275,6 +10277,19 @@
       "working": "画像をコピー中…",
       "done": "画像をクリップボードにコピーしました",
       "failed": "コピー失敗。PNG 書き出しをお試しください"
+    },
+    "model": {
+      "label": "生成モデル",
+      "followDefault": "デフォルトモデル",
+      "autoSwitched": "{{model}}（画像対応）に切り替えました",
+      "noVisionAvailable": "画像対応モデルが未設定です。設定 → モデル で追加してください",
+      "followDefaultItem": "デフォルトモデルに従う"
+    },
+    "refImage": {
+      "add": "参考画像を追加（貼り付け / ドラッグも可）",
+      "alt": "参考画像",
+      "hint": "この参考画像をもとに生成します",
+      "remove": "参考画像を削除"
     }
   },
   "agentLifecycle": {

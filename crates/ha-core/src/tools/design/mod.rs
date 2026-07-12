@@ -158,6 +158,8 @@ async fn action_extract_system(args: &Value, session_id: Option<&str>) -> Result
         brief: str_arg(args, "brief").map(str::to_string),
         path,
         url: str_arg(args, "url").map(str::to_string),
+        // agent 工具面无模型选择器：走默认链（run_vision 自动跳过非视觉候选）。
+        model_override: None,
     })
     .await?;
     ok(json!({ "status": "extracted", "systemId": meta.id, "name": meta.name }))
@@ -268,6 +270,8 @@ async fn action_create_artifact(
             .map(str::to_string),
         reference_image_b64: None,
         reference_image_mime: None,
+        // agent 工具面无模型选择器：走默认链。
+        model_override: None,
         reference_image_paths: args.get("reference_image_paths").and_then(|v| {
             v.as_array().map(|a| {
                 a.iter()

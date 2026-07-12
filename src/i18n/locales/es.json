@@ -1139,7 +1139,8 @@
     "unknown": "Desconocido",
     "off": "Apagado",
     "error": "Error",
-    "showLess": "Mostrar menos"
+    "showLess": "Mostrar menos",
+    "modelNoVision": "Sin soporte de imágenes"
   },
   "context": {
     "ago": "atrás",
@@ -10102,7 +10103,8 @@
       "stopped": "Compartir detenido",
       "copyLink": "Copiar enlace",
       "copied2": "Copiado",
-      "loadErr": "Error al cargar el estado"
+      "loadErr": "Error al cargar el estado",
+      "shareTo": "Compartir en"
     },
     "deploy": {
       "menu": "Desplegar en Cloudflare Pages",
@@ -10275,6 +10277,19 @@
       "working": "Copiando imagen…",
       "done": "Imagen copiada al portapapeles",
       "failed": "Error al copiar — exporta PNG"
+    },
+    "model": {
+      "label": "Modelo de generación",
+      "followDefault": "Modelo predeterminado",
+      "autoSwitched": "Cambiado a {{model}} (admite imágenes)",
+      "noVisionAvailable": "No hay ningún modelo con soporte de imágenes; añade uno en Ajustes → Modelos",
+      "followDefaultItem": "Seguir el modelo predeterminado"
+    },
+    "refImage": {
+      "add": "Añadir imagen de referencia (también pegar / arrastrar)",
+      "alt": "Imagen de referencia",
+      "hint": "Se generará según esta imagen de referencia",
+      "remove": "Quitar imagen de referencia"
     }
   },
   "agentLifecycle": {

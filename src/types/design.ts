@@ -4,6 +4,8 @@
  * 与 `crates/ha-core/src/design/` 的 serde camelCase 输出对齐。
  */
 
+import type { ActiveModel } from "./chat";
+
 /** 产物形态。 */
 export type ArtifactKind =
   | "web"
@@ -100,6 +102,8 @@ export interface DesignProject {
   /** 待复查（needs_review）产物数（列表状态徽标用，读取时聚合）。 */
   needsReviewCount?: number;
   metadata?: string;
+  /** 项目对话初始模型（首页所选模型带入；弱引用，缺省 = agent 缺省）。 */
+  defaultModel?: ActiveModel;
 }
 
 /** 单个可交付产物。 */
@@ -240,6 +244,8 @@ export interface DesignConfig {
   exportScale: number;
   /** PDF 导出 JPEG 质量（1–100），[40,100]。默认 92。 */
   exportJpegQuality: number;
+  /** 首页 / 涉图入口模型选择器的「上次使用」记忆（选择器隐式更新）。 */
+  lastModel?: ActiveModel;
 }
 
 /** 设计模板（recipe）：某形态的常见场景，供首屏模板快选。 */
@@ -259,6 +265,8 @@ export interface CreateProjectInput {
   color?: string;
   defaultSystemId?: string;
   haProjectId?: string;
+  /** 项目对话初始模型（首页所选模型带入）。 */
+  defaultModel?: ActiveModel;
 }
 
 /** 创建产物入参。 */
@@ -272,9 +280,12 @@ export interface CreateArtifactInput {
   js?: string;
   /** 生成用一句话 brief：image 走 image_generate；其余形态走模型一次生成自包含设计。 */
   prompt?: string;
-  /** 参考图 base64（「照着这张图生成匹配产物」）：非媒体形态经 vision 描述后走生成管线。 */
+  /** 参考图 base64（「照着这张图生成匹配产物」）：作视觉附件随生成请求上行，
+   *  选中的视觉模型直接看原图（真多模态）。 */
   referenceImageB64?: string;
   referenceImageMime?: string;
+  /** 用户显式选的生成模型（单模型、失败即报错不降级）；涉图时须视觉合格。 */
+  modelOverride?: ActiveModel;
 }
 
 /** 产物形态元数据（前端展示：标签 + 图标语义）。 */
@@ -308,6 +319,8 @@ export interface ExtractSystemInput {
   brief?: string;
   path?: string;
   url?: string;
+  /** `from=image` 专用：用户选的视觉模型（单模型不降级；缺省 = 默认链首个视觉候选）。 */
+  modelOverride?: ActiveModel;
 }
 
 /** 设计方向候选（`propose_design_directions_cmd`）。 */

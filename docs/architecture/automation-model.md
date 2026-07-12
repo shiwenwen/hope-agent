@@ -78,7 +78,16 @@ for candidate in &spec.chain {
 
 **`ModelTaskOutput { text, model }`**（Phase 2 加了 `model` 字段）：`model` 是真正产出 `text` 的那个候选——不一定是 `chain[0]`，可能是降级后的备用模型。持久化"生成模型"标签的调用方（Compile 的 `model` 返回值、OCR 的 `OCR-Model:` 头）应该读这个字段，不要像 Phase 1 阶段一些消费者那样在调用前用 `chain[0]` 预算——那样一旦真的走了降级，标签就悄悄错了。
 
-**`build_candidate_agent(config, candidate, session_key) -> Result<AssistantAgent>`**（Phase 2 新增的私有 helper）：把"解析 provider → 构造 Agent → 挂 failover context → 设置 session_id"这四步从 `run()` 里抽出来，`run()` 和 `run_vision()`（见 §2.6）共享同一份实现——这正是防止"新增一条 one-shot 路径却忘了 `set_session_id`"这类回归的地方，也是本模块存在的原因。
+**`build_candidate_agent(config, candidate, session_key) -> Result<AssistantAgent>`**（Phase 2 新增的私有 helper）：把"解析 provider → 构造 Agent → 挂 failover context → 设置 session_id"这四步从 `run()` 里抽出来，`run()` / `run_vision()`（§2.6）/ 两个流式变体（§2.7）共享同一份实现——这正是防止"新增一条 one-shot 路径却忘了 `set_session_id`"这类回归的地方，也是本模块存在的原因。
+
+### 2.7 流式变体：`run_streaming` / `run_vision_streaming`（设计空间生成）
+
+设计空间的 live 生成预览需要"边产出边渲染"，故在 `run`/`run_vision` 之外各有一个流式 sibling：
+
+- **`run_streaming(spec: ModelTaskSpec, cancel, on_text) -> Result<ModelTaskOutput>`**：同 `run` 的跨模型降级循环，但每个候选走 `AssistantAgent::side_query_streaming`（`agent/side_query_stream.rs`），`on_text` 收**当前尝试的累积文本**（failover / 换候选重试会从头重启累积，调用方按快照幂等重渲染）。
+- **`run_vision_streaming(spec: VisionTaskSpec, cancel, on_text) -> Result<ModelTaskOutput>`**：同 `run_vision` 的链走查 + 视觉能力 skip + 诊断分叉，但候选走新增的 `AssistantAgent::side_query_streaming_with_attachments`（同文件；`OneShotMode::Independent { system }` + `build_user_content_for_provider` 构造带图 user content，per-attempt 按实际 provider 格式重建；direct / failover 两路与非流式镜像，含 Codex OAuth hydration）。设计空间「照着图做 / 首页传图」的真多模态流式生成走这里。
+- **记账**：两个流式变体的 agent 方法**不自记**用量，由 automation 层统一经 `record_streaming_usage`（参数化的 purpose/session_key/max_tokens/path）逐候选写 `KIND_SIDE_QUERY` 行（失败候选也留痕）；`path` 标 `automation.run_streaming` / `automation.run_vision_streaming` 区分入口。
+- **取消**：`cancel` 透传进 SSE 拉取（拉取协作停止），且候选循环**每次进入前检查**——取消恰逢候选失败时不会再向下一候选发起完整请求。
 
 ### 2.4 重试修复：`set_session_id` 是关键一行
 

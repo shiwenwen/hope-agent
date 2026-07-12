@@ -1139,7 +1139,8 @@
     "unknown": "Desconhecido",
     "off": "Desligado",
     "error": "Error",
-    "showLess": "Mostrar menos"
+    "showLess": "Mostrar menos",
+    "modelNoVision": "Sem suporte a imagens"
   },
   "context": {
     "ago": "atrás",
@@ -10102,7 +10103,8 @@
       "stopped": "Compartilhamento interrompido",
       "copyLink": "Copiar link",
       "copied2": "Copiado",
-      "loadErr": "Falha ao carregar o status"
+      "loadErr": "Falha ao carregar o status",
+      "shareTo": "Compartilhar em"
     },
     "deploy": {
       "menu": "Implantar no Cloudflare Pages",
@@ -10275,6 +10277,19 @@
       "working": "Copiando imagem…",
       "done": "Imagem copiada",
       "failed": "Falha ao copiar — exporte PNG"
+    },
+    "model": {
+      "label": "Modelo de geração",
+      "followDefault": "Modelo padrão",
+      "autoSwitched": "Alterado para {{model}} (suporta imagens)",
+      "noVisionAvailable": "Nenhum modelo com suporte a imagens configurado; adicione em Configurações → Modelos",
+      "followDefaultItem": "Seguir o modelo padrão"
+    },
+    "refImage": {
+      "add": "Adicionar imagem de referência (colar / arrastar também funciona)",
+      "alt": "Imagem de referência",
+      "hint": "Será gerado com base nesta imagem de referência",
+      "remove": "Remover imagem de referência"
     }
   },
   "agentLifecycle": {

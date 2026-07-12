@@ -29,7 +29,6 @@ pub mod system;
 pub mod theme;
 pub mod threads;
 pub mod token_export;
-pub mod vision;
 
 pub use critique::CritiqueResult;
 pub use db::{
@@ -71,9 +70,14 @@ pub struct DesignConfig {
     /// PDF 导出的 JPEG 压缩质量（1–100）。读时钳 `[40,100]`。默认 92。
     #[serde(default = "default_export_jpeg_quality")]
     pub export_jpeg_quality: u32,
-    // 设计生成 / 质量评审 / 截图提取的模型不再由 design 自持覆盖：
-    // 生成 + critique 走统一 `function_models.automation`，截图提取走
-    // `function_models.vision`（见 design::run_design_task / vision.rs）。
+    /// 首页 / 涉图入口模型选择器的「上次使用」记忆。行为记忆非设置项（GUI 选择器
+    /// 隐式更新，照 `default_system_id` 先例挂 config，跨会话一致）；弱引用，
+    /// provider / 模型已删则消费端回退默认链。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_model: Option<crate::provider::ActiveModel>,
+    // 后台任务（critique / 大纲等一次性调用）的模型不再由 design 自持覆盖，
+    // 走统一 `function_models.automation`（见 design::run_design_task）。
+    // 生成 / 涉图路径可被用户在 GUI 显式选择的模型覆盖（单模型、不降级）。
 }
 
 /// 导出倍率安全钳（`[1,4]`）。
@@ -124,6 +128,7 @@ impl Default for DesignConfig {
             max_extract_image_mb: default_max_extract_image_mb(),
             export_scale: default_export_scale(),
             export_jpeg_quality: default_export_jpeg_quality(),
+            last_model: None,
         }
     }
 }

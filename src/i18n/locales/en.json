@@ -1139,7 +1139,8 @@
     "unknown": "Unknown",
     "off": "Off",
     "error": "Error",
-    "showLess": "Show less"
+    "showLess": "Show less",
+    "modelNoVision": "No image support"
   },
   "context": {
     "ago": "ago",
@@ -10102,7 +10103,8 @@
       "stopped": "Sharing stopped",
       "copyLink": "Copy link",
       "copied2": "Copied",
-      "loadErr": "Failed to load share status"
+      "loadErr": "Failed to load share status",
+      "shareTo": "Share to"
     },
     "deploy": {
       "menu": "Deploy to Cloudflare Pages",
@@ -10275,6 +10277,19 @@
       "working": "Copying image…",
       "done": "Image copied to clipboard",
       "failed": "Copy failed — try exporting PNG"
+    },
+    "model": {
+      "label": "Generation model",
+      "followDefault": "Default model",
+      "autoSwitched": "Switched to {{model}} (supports images)",
+      "noVisionAvailable": "No image-capable model configured — add one in Settings → Models",
+      "followDefaultItem": "Follow default model"
+    },
+    "refImage": {
+      "add": "Add reference image (paste / drag also works)",
+      "alt": "Reference image",
+      "hint": "Will generate based on this reference image",
+      "remove": "Remove reference image"
     }
   },
   "agentLifecycle": {

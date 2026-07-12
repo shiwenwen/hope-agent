@@ -1139,7 +1139,8 @@
     "unknown": "Bilinmiyor",
     "off": "Kapalı",
     "error": "Error",
-    "showLess": "Daha az göster"
+    "showLess": "Daha az göster",
+    "modelNoVision": "Görsel desteklemiyor"
   },
   "context": {
     "ago": "önce",
@@ -10102,7 +10103,8 @@
       "stopped": "Paylaşım durduruldu",
       "copyLink": "Bağlantıyı kopyala",
       "copied2": "Kopyalandı",
-      "loadErr": "Paylaşım durumu yüklenemedi"
+      "loadErr": "Paylaşım durumu yüklenemedi",
+      "shareTo": "Şuraya paylaş"
     },
     "deploy": {
       "menu": "Cloudflare Pages'e dağıt",
@@ -10275,6 +10277,19 @@
       "working": "Görsel kopyalanıyor…",
       "done": "Görsel panoya kopyalandı",
       "failed": "Kopyalama başarısız — PNG dışa aktarın"
+    },
+    "model": {
+      "label": "Üretim modeli",
+      "followDefault": "Varsayılan model",
+      "autoSwitched": "{{model}} modeline geçildi (görsel destekler)",
+      "noVisionAvailable": "Görsel destekleyen model yapılandırılmamış; Ayarlar → Modeller'den ekleyin",
+      "followDefaultItem": "Varsayılan modeli izle"
+    },
+    "refImage": {
+      "add": "Referans görsel ekle (yapıştırma / sürükleme de olur)",
+      "alt": "Referans görsel",
+      "hint": "Bu referans görsele göre üretilecek",
+      "remove": "Referans görseli kaldır"
     }
   },
   "agentLifecycle": {

@@ -1139,7 +1139,8 @@
     "unknown": "알 수 없음",
     "off": "끄기",
     "error": "Error",
-    "showLess": "간략히 보기"
+    "showLess": "간략히 보기",
+    "modelNoVision": "이미지 미지원"
   },
   "context": {
     "ago": "전",
@@ -10102,7 +10103,8 @@
       "stopped": "공유를 중지했습니다",
       "copyLink": "링크 복사",
       "copied2": "복사됨",
-      "loadErr": "공유 상태 불러오기 실패"
+      "loadErr": "공유 상태 불러오기 실패",
+      "shareTo": "공유 대상"
     },
     "deploy": {
       "menu": "Cloudflare Pages에 배포",
@@ -10275,6 +10277,19 @@
       "working": "이미지 복사 중…",
       "done": "이미지를 클립보드에 복사함",
       "failed": "복사 실패 — PNG 내보내기 사용"
+    },
+    "model": {
+      "label": "생성 모델",
+      "followDefault": "기본 모델",
+      "autoSwitched": "{{model}}(이미지 지원)로 전환했습니다",
+      "noVisionAvailable": "이미지 지원 모델이 없습니다. 설정 → 모델에서 추가하세요",
+      "followDefaultItem": "기본 모델 따르기"
+    },
+    "refImage": {
+      "add": "참고 이미지 추가(붙여넣기 / 드래그 가능)",
+      "alt": "참고 이미지",
+      "hint": "이 참고 이미지를 바탕으로 생성합니다",
+      "remove": "참고 이미지 제거"
     }
   },
   "agentLifecycle": {

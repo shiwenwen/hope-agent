@@ -90,7 +90,12 @@ export interface UseDesignChatReturn {
  * by `useChatStream` in the panel; this hook only owns session lifecycle +
  * model/agent state.
  */
-export function useDesignChat(projectId: string | null, active: boolean): UseDesignChatReturn {
+export function useDesignChat(
+  projectId: string | null,
+  active: boolean,
+  /** 项目对话初始模型（首页所选带入）：优先级 手动切换 > 项目默认 > Agent 主模型 > 全局激活。 */
+  projectDefaultModel?: ActiveModel | null,
+): UseDesignChatReturn {
   const [messages, setMessages] = useState<Message[]>([])
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null)
   const currentSessionIdRef = useRef<string | null>(null)
@@ -111,6 +116,9 @@ export function useDesignChat(projectId: string | null, active: boolean): UseDes
   const sessionCacheRef = useRef<Map<string, Message[]>>(new Map())
   const loadingSessionsRef = useRef<Set<string>>(new Set())
   const manualModelOverrideRef = useRef<ActiveModel | null>(null)
+  // 首页所选模型带入项目：作对话初始模型（ref 保持 loadModels 回调身份稳定）。
+  const projectDefaultModelRef = useRef<ActiveModel | null | undefined>(projectDefaultModel)
+  projectDefaultModelRef.current = projectDefaultModel
   // Monotonic guards: a late-resolving messages/model fetch must not clobber a
   // newer thread switch (last-writer-by-intent, not by RTT).
   const switchVersionRef = useRef(0)
@@ -167,8 +175,19 @@ export function useDesignChat(projectId: string | null, active: boolean): UseDes
             )
           : undefined
         if (manualOverride && !manualModel) manualModelOverrideRef.current = null
+        const projectDefault = projectDefaultModelRef.current
+        const projectDefaultLive = projectDefault
+          ? models.find(
+              (m) =>
+                m.providerId === projectDefault.providerId &&
+                m.modelId === projectDefault.modelId,
+            )
+          : undefined
         if (manualModel && manualOverride) {
           displayModel = manualOverride
+        } else if (projectDefault && projectDefaultLive) {
+          // 项目默认（首页所选）胜过 Agent 主模型；弱引用——provider/模型已删则跳过。
+          displayModel = projectDefault
         } else if (agentConfig?.model.primary) {
           const [providerId, modelId] = agentConfig.model.primary.split("::")
           const agentModel = models.find((m) => m.providerId === providerId && m.modelId === modelId)

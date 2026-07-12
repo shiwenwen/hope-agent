@@ -514,9 +514,16 @@ pub struct BrandPackBody {
     pub system_id: Option<String>,
     #[serde(default)]
     pub folder: Option<String>,
+    #[serde(default)]
+    pub reference_image_b64: Option<String>,
+    #[serde(default)]
+    pub reference_image_mime: Option<String>,
+    #[serde(default)]
+    pub model_override: Option<ha_core::provider::ActiveModel>,
 }
 
 /// `POST /api/design/artifacts/brand-pack` — 一个 brief 批量生成一组共享设计系统的协调产物。
+/// 可带参考图（每件产物都真看原图）与显式模型（单模型不降级）。
 pub async fn generate_brand_pack(
     Json(body): Json<BrandPackBody>,
 ) -> Result<Json<Vec<DesignArtifact>>, AppError> {
@@ -527,6 +534,9 @@ pub async fn generate_brand_pack(
         body.kinds,
         body.system_id,
         body.folder,
+        body.reference_image_b64,
+        body.reference_image_mime,
+        body.model_override,
     )
     .await
     .map_err(|e| AppError::internal(e.to_string()))?;

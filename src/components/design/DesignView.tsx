@@ -78,6 +78,7 @@ import {
   Code2,
   AlertCircle,
   X,
+  ImagePlus,
   Loader2 as Loader2Icon,
 } from "lucide-react"
 import { toast } from "sonner"
@@ -88,6 +89,8 @@ import DesignChatPanel, { type DesignChatPanelHandle } from "@/components/design
 import type { PendingFileQuote } from "@/types/chat"
 import DesignCommentPanel from "@/components/design/DesignCommentPanel"
 import { DesignSystemPicker } from "@/components/design/DesignSystemPicker"
+import { ModelSelector, type AvailableModel } from "@/components/ui/model-selector"
+import type { ActiveModel } from "@/types/chat"
 import DesignKitModal from "@/components/design/DesignKitModal"
 import DesignVersionHistoryModal from "@/components/design/DesignVersionHistoryModal"
 import DesignDeployModal from "@/components/design/DesignDeployModal"
@@ -910,6 +913,97 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
       .catch(() => {})
   }, [tx])
 
+  // ── 生成模型选择（首页 + 涉图入口共享一份「上次使用」记忆）────────────
+  // `genModel = null` 表示跟随默认链；显式选择 = 单模型（后端失败即报错不降级）。
+  const [homeModels, setHomeModels] = useState<AvailableModel[]>([])
+  useEffect(() => {
+    const load = () =>
+      tx
+        .call<AvailableModel[]>("get_available_models")
+        .then((m) => setHomeModels(m ?? []))
+        .catch(() => {})
+    void load()
+    // Provider 增删 / 模型改动即刷新（置灰 / 拦截 / 自动切换基于此列表，陈旧会误判）。
+    const unlisten = tx.listen("config:changed", () => void load())
+    return unlisten
+  }, [tx])
+  // 空 inputTypes = 「未配置,假定支持」——对齐后端 `model_supports_vision` 三态语义
+  // (自定义 provider 手填模型默认空列表,按「不支持」处理会整体误封涉图功能)。
+  const modelMaySupportVision = useCallback(
+    (m: AvailableModel) => m.inputTypes.length === 0 || m.inputTypes.includes("image"),
+    [],
+  )
+  const visionModels = useMemo(
+    () => homeModels.filter(modelMaySupportVision),
+    [homeModels, modelMaySupportVision],
+  )
+  const [genModel, setGenModel] = useState<ActiveModel | null>(null)
+  const genModelInitRef = useRef(false)
+  useEffect(() => {
+    // 从 config 恢复「上次使用」恰好一次（等模型列表就绪后校验存在性——弱引用：
+    // provider / 模型已删则不恢复，回落「跟随默认链」，避免每次生成都撞已删模型报错）。
+    if (genModelInitRef.current || !designConfig || homeModels.length === 0) return
+    genModelInitRef.current = true
+    const lm = designConfig.lastModel
+    if (
+      lm &&
+      homeModels.some((m) => m.providerId === lm.providerId && m.modelId === lm.modelId)
+    ) {
+      setGenModel(lm)
+    }
+  }, [designConfig, homeModels])
+  const rememberGenModel = useCallback(
+    (m: ActiveModel) => {
+      setGenModel(m)
+      // 行为记忆：隐式写回 config（照 defaultSystemId 先例），失败静默。
+      setDesignConfig((prev) => {
+        if (!prev) return prev
+        const next = { ...prev, lastModel: m }
+        void tx.call("save_design_config_cmd", { config: next }).catch(() => {})
+        return next
+      })
+    },
+    [tx],
+  )
+  // 回到「跟随默认模型」（清显式选择 + 清持久记忆）——显式选择必须有出口，
+  // 否则一次误选就永久失去默认链的跨模型降级语义。
+  const clearGenModel = useCallback(() => {
+    setGenModel(null)
+    setDesignConfig((prev) => {
+      if (!prev) return prev
+      const next = { ...prev, lastModel: undefined }
+      void tx.call("save_design_config_cmd", { config: next }).catch(() => {})
+      return next
+    })
+  }, [tx])
+  const isVisionModel = useCallback(
+    (m: ActiveModel | null | undefined) =>
+      !!m &&
+      homeModels.some(
+        (am) =>
+          am.providerId === m.providerId &&
+          am.modelId === m.modelId &&
+          modelMaySupportVision(am),
+      ),
+    [homeModels, modelMaySupportVision],
+  )
+  // 传图瞬间**用户显式选中的**模型不认图 → 自动切到可用视觉模型 + toast（因果清楚：
+  // 刚粘了图）。删图**不切回**（模型选择保持粘性，状态机简单可预测）。
+  // `genModel === null`（跟随默认链）**不切换不持久化**——后端 `run_vision*` 会自动
+  // 跳过链上非视觉候选，null 本身涉图可用；强切会凭空制造一次用户从未做过的
+  // 「显式选择」，让之后所有生成变成单模型不降级。
+  const ensureVisionGenModel = useCallback(() => {
+    if (!genModel || isVisionModel(genModel)) return
+    const fallback = visionModels[0]
+    if (!fallback) return // 无视觉模型：涉图入口已在上游置灰/拦截，防御兜底
+    rememberGenModel({ providerId: fallback.providerId, modelId: fallback.modelId })
+    toast.info(
+      t("design.model.autoSwitched", "已切换到 {{model}}（支持图片）", {
+        model: fallback.modelName,
+      }),
+    )
+  }, [genModel, isVisionModel, visionModels, rememberGenModel, t])
+
   // 设为新对话/新项目默认设计系统（B1-3）：写 design.default_system_id；解析链 explicit >
   // 项目 default > **此全局 default** 已在后端就绪，LaunchHome 生成也已 seed 此值。
   const setDefaultSystem = useCallback(
@@ -1378,9 +1472,9 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
 
   // 客户端**自适应降采样 + 压到字节预算**再 base64：逐步降边长(1600→…)+ 质量(0.85→0.55)，
   // 保证 payload 稳在服务端 16 MiB body 限内、上传快（后端 downscale_for_vision 再兜一次）；
-  // 任何读取 / 编码失败给明确 toast（不静默留空）。
-  const onPickRefImage = useCallback(
-    (file: File | null) => {
+  // 任何读取 / 编码失败给明确 toast（不静默留空）。首页传图与「照着图做」弹窗共用。
+  const compressPickedImage = useCallback(
+    (file: File | null, onDone: (img: { b64: string; mime: string; url: string }) => void) => {
       if (!file || !file.type.startsWith("image/")) return
       const fail = () => toast.error(t("design.fromImageReadErr", "无法读取该图片，请换一张"))
       const BUDGET = 4_000_000 // base64 字符数上限（≈4 MB，远低于服务端 16 MiB）
@@ -1412,7 +1506,7 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
             }
             const b64 = url.split(",")[1] || ""
             if (b64 && b64.length <= BUDGET) {
-              setRefImage({ b64, mime: "image/jpeg", url })
+              onDone({ b64, mime: "image/jpeg", url })
               return
             }
           }
@@ -1428,6 +1522,43 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
     },
     [t],
   )
+  const onPickRefImage = useCallback(
+    (file: File | null) => {
+      if (file && visionModels.length === 0) {
+        toast.error(
+          t("design.model.noVisionAvailable", "未配置支持图片的模型，请到 设置 → 模型 添加"),
+        )
+        return
+      }
+      compressPickedImage(file, (img) => {
+        setRefImage(img)
+        ensureVisionGenModel()
+      })
+    },
+    [compressPickedImage, ensureVisionGenModel, visionModels, t],
+  )
+
+  // ── 首页参考图（+ / 粘贴 / 拖拽收单张；无视觉模型时拦截并提示）──────────
+  const [homeRefImage, setHomeRefImage] = useState<{
+    b64: string
+    mime: string
+    url: string
+  } | null>(null)
+  const onPickHomeImage = useCallback(
+    (file: File | null) => {
+      if (file && visionModels.length === 0) {
+        toast.error(
+          t("design.model.noVisionAvailable", "未配置支持图片的模型，请到 设置 → 模型 添加"),
+        )
+        return
+      }
+      compressPickedImage(file, (img) => {
+        setHomeRefImage(img)
+        ensureVisionGenModel()
+      })
+    },
+    [compressPickedImage, ensureVisionGenModel, visionModels, t],
+  )
 
   const createFromReferenceImage = useCallback(async () => {
     if (!activeProject || !refImage) return
@@ -1441,6 +1572,8 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
           referenceImageB64: refImage.b64,
           referenceImageMime: refImage.mime,
           prompt: refExtra.trim() || undefined,
+          // 弹窗选的视觉模型（与首页共享「上次使用」记忆）；真多模态直接看原图。
+          modelOverride: genModel ?? undefined,
         },
       })
       setRefDialogOpen(false)
@@ -1454,7 +1587,18 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
     } finally {
       setRefGenerating(false)
     }
-  }, [tx, activeProject, refImage, refKind, refExtra, kindLabel, loadArtifacts, openArtifact, t])
+  }, [
+    tx,
+    activeProject,
+    refImage,
+    refKind,
+    refExtra,
+    genModel,
+    kindLabel,
+    loadArtifacts,
+    openArtifact,
+    t,
+  ])
 
   // ── Prompt-first launch (home hero → generate) ───────────────
 
@@ -1471,29 +1615,39 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
   // 首屏只收一句话，不再叠加静态简报表单。
   const generateFromHome = useCallback(async () => {
     const base = homePrompt.trim()
-    if (!base || generatingHome) return
+    // 有图无文也可生成（后端固定「照图复刻」指令）。
+    if ((!base && !homeRefImage) || generatingHome) return
     const prompt = base
     const systemId = homeSystemId ?? designConfig?.defaultSystemId ?? undefined
     let createdProjectId: string | null = null
     setGeneratingHome(true)
     try {
       const project = await tx.call<DesignProject>("create_design_project_cmd", {
-        input: { title: base.slice(0, 40) },
+        input: {
+          title: base.slice(0, 40),
+          // 首页选的模型带入项目：作为项目对话的初始模型（会话内切换照常）。
+          defaultModel: genModel ?? undefined,
+        },
       })
       createdProjectId = project.id
       // 首屏一句话 → 流式生成（返回 generating 壳，前端挂稳定 iframe 后逐帧灌入）。
+      // 带参考图时选中的视觉模型**直接看原图**（真多模态）。
       const artifact = await tx.call<DesignArtifact>("generate_design_artifact_cmd", {
         input: {
           projectId: project.id,
           title: kindLabel(homeKind),
           kind: homeKind,
-          prompt,
+          prompt: prompt || undefined,
           systemId,
           recipeId: homeRecipeId ?? undefined,
+          referenceImageB64: homeRefImage?.b64,
+          referenceImageMime: homeRefImage?.mime,
+          modelOverride: genModel ?? undefined,
         },
       })
       setHomePrompt("")
       setHomeRecipeId(null)
+      setHomeRefImage(null)
       openProject(project)
       if (artifact) void openArtifact(artifact)
     } catch (e) {
@@ -1516,6 +1670,8 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
     homeKind,
     homeSystemId,
     homeRecipeId,
+    homeRefImage,
+    genModel,
     generatingHome,
     designConfig,
     kindLabel,
@@ -1525,9 +1681,10 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
   ])
 
   // 品牌包：一句话 → 建项目 → 批量生成一组共享系统的协调产物（形态由弹窗自选）。
+  // 带参考图时每件产物都真看原图（N 件 = N 次带图视觉调用，用户主动选择）。
   const generateBrandPackFromHome = useCallback(async (kinds: ArtifactKind[]) => {
     const base = homePrompt.trim()
-    if (!base || generatingHome || kinds.length === 0) return
+    if ((!base && !homeRefImage) || generatingHome || kinds.length === 0) return
     const systemId = homeSystemId ?? designConfig?.defaultSystemId ?? undefined
     let createdProjectId: string | null = null
     setGeneratingHome(true)
@@ -1549,7 +1706,10 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
     })
     try {
       const project = await tx.call<DesignProject>("create_design_project_cmd", {
-        input: { title: base.slice(0, 40) },
+        input: {
+          title: base.slice(0, 40),
+          defaultModel: genModel ?? undefined,
+        },
       })
       createdProjectId = project.id
       const arts = await tx.call<DesignArtifact[]>("generate_design_brand_pack_cmd", {
@@ -1557,9 +1717,13 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
         brief: base,
         kinds,
         systemId,
+        referenceImageB64: homeRefImage?.b64,
+        referenceImageMime: homeRefImage?.mime,
+        modelOverride: genModel ?? undefined,
       })
       setHomePrompt("")
       setHomeRecipeId(null)
+      setHomeRefImage(null)
       openProject(project)
       if (arts && arts.length > 0) void openArtifact(arts[0])
       toast.success(t("design.brandPack.done", "已生成 {{count}} 个产物", { count: arts?.length ?? 0 }), {
@@ -1583,6 +1747,8 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
     tx,
     homePrompt,
     homeSystemId,
+    homeRefImage,
+    genModel,
     generatingHome,
     designConfig,
     kindLabel,
@@ -3386,6 +3552,8 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
       if (extractFrom === "brief") input.brief = extractText
       else if (extractFrom === "url") input.url = extractText
       else input.path = extractText
+      // 图片提取：带上用户选的视觉模型（单模型不降级；空 = 默认链首个视觉候选）。
+      if (extractFrom === "image" && genModel) input.modelOverride = genModel
       const meta = await tx.call<DesignSystemMeta>("extract_design_system_cmd", { input })
       setExtractOpen(false)
       setExtractText("")
@@ -3406,7 +3574,7 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
       setExtracting(false)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tx, extractFrom, extractName, extractText, t])
+  }, [tx, extractFrom, extractName, extractText, genModel, t])
 
   // 反向提取文件选择（W3-K）：codebase 选目录 / image 选图片，回填绝对路径到 extractText。
   // 仅桌面（supportsLocalFileOps）——HTTP 的 pickLocalDirectory 抛错，图片也拿不到服务器路径。
@@ -3891,6 +4059,9 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                       className="h-8 gap-1.5"
                       onClick={() => {
                         setSystemPickerOpen(false)
+                        // tab 状态跨开合持久：上次停在 image tab 时重开也要补一次
+                        // 视觉模型确保（否则显式非视觉模型直接提交会报错）。
+                        if (extractFrom === "image") ensureVisionGenModel()
                         setExtractOpen(true)
                       }}
                     >
@@ -4041,6 +4212,8 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                   onSelect={() => {
                     setRefImage(null)
                     setRefExtra("")
+                    // 必涉图的入口：当前模型不认图则先自动切到视觉模型。
+                    ensureVisionGenModel()
                     setRefDialogOpen(true)
                   }}
                 >
@@ -4097,6 +4270,13 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
           onGenerate={() => void generateFromHome()}
           onBrandPack={() => setBrandPackOpen(true)}
           kindLabel={kindLabel}
+          refImage={homeRefImage}
+          onPickImage={onPickHomeImage}
+          onClearImage={() => setHomeRefImage(null)}
+          genModel={genModel}
+          models={homeModels}
+          onModelChange={(providerId, modelId) => rememberGenModel({ providerId, modelId })}
+          onModelClear={clearGenModel}
           onOpen={openProject}
           onDelete={(p) => setDeleteTarget({ type: "project", id: p.id, title: p.title })}
           onRename={renameProject}
@@ -4117,6 +4297,7 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
               <DesignChatPanel
                 ref={chatPanelRef}
                 projectId={activeProject.id}
+                projectDefaultModel={activeProject.defaultModel ?? null}
                 activeArtifact={
                   activeArtifact
                     ? {
@@ -5297,6 +5478,24 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                 </SelectContent>
               </Select>
             </div>
+            {/* 视觉模型（必涉图 → 只亮支持图片的模型；记住上次，与首页共享）。 */}
+            {homeModels.length > 0 && (
+              <div className="flex items-center gap-2">
+                <span className="shrink-0 text-sm text-muted-foreground">
+                  {t("design.model.label", "生成模型")}
+                </span>
+                <ModelSelector
+                  value={genModel ? `${genModel.providerId}::${genModel.modelId}` : ""}
+                  onChange={(providerId, modelId) => rememberGenModel({ providerId, modelId })}
+                  availableModels={homeModels}
+                  requireVision
+                  placeholder={t("design.model.followDefault", "默认模型")}
+                  clearLabel={t("design.model.followDefaultItem", "跟随默认模型")}
+                  onClear={clearGenModel}
+                  className="h-8 flex-1"
+                />
+              </div>
+            )}
             <label
               className="flex min-h-32 cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border border-dashed p-4 text-sm text-muted-foreground hover:border-primary/50 hover:bg-muted/30"
               onDragOver={(e) => e.preventDefault()}
@@ -5793,7 +5992,11 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                 variant={extractFrom === f ? "default" : "outline"}
                 size="sm"
                 className="flex-1"
-                onClick={() => setExtractFrom(f)}
+                onClick={() => {
+                  setExtractFrom(f)
+                  // 图片提取必涉图：当前模型不认图则先自动切到视觉模型。
+                  if (f === "image") ensureVisionGenModel()
+                }}
               >
                 {t(`design.from.${f}`, f)}
               </Button>
@@ -5823,6 +6026,24 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                   : t("design.extractPickImage", "选择截图 / 图片…")}
               </Button>
             )}
+          {/* 图片提取的视觉模型（仅图片 tab；只亮支持图片的模型，记住上次、与首页共享）。 */}
+          {extractFrom === "image" && homeModels.length > 0 && (
+            <div className="flex items-center gap-2">
+              <span className="shrink-0 text-sm text-muted-foreground">
+                {t("design.model.label", "生成模型")}
+              </span>
+              <ModelSelector
+                value={genModel ? `${genModel.providerId}::${genModel.modelId}` : ""}
+                onChange={(providerId, modelId) => rememberGenModel({ providerId, modelId })}
+                availableModels={homeModels}
+                requireVision
+                placeholder={t("design.model.followDefault", "默认模型")}
+                clearLabel={t("design.model.followDefaultItem", "跟随默认模型")}
+                onClear={clearGenModel}
+                className="h-8 flex-1"
+              />
+            </div>
+          )}
           <Textarea
             value={extractText}
             onChange={(e) => setExtractText(e.target.value)}
@@ -6048,10 +6269,13 @@ const LaunchComposerTextarea = memo(function LaunchComposerTextarea({
   prompt,
   setPrompt,
   onGenerate,
+  onPasteImage,
 }: {
   prompt: string
   setPrompt: (v: string) => void
   onGenerate: () => void
+  /** 粘贴图片（首页参考图）：收 clipboard 首个 image item。 */
+  onPasteImage?: (file: File) => void
 }) {
   const { t } = useTranslation()
   const scenes = useMemo(
@@ -6073,6 +6297,17 @@ const LaunchComposerTextarea = memo(function LaunchComposerTextarea({
         if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
           e.preventDefault()
           onGenerate()
+        }
+      }}
+      onPaste={(e) => {
+        if (!onPasteImage) return
+        const item = Array.from(e.clipboardData?.items ?? []).find((i) =>
+          i.type.startsWith("image/"),
+        )
+        const file = item?.getAsFile()
+        if (file) {
+          e.preventDefault()
+          onPasteImage(file)
         }
       }}
       placeholder={
@@ -6149,6 +6384,13 @@ function LaunchHome({
   onGenerate,
   onBrandPack,
   kindLabel,
+  refImage,
+  onPickImage,
+  onClearImage,
+  genModel,
+  models,
+  onModelChange,
+  onModelClear,
   onOpen,
   onDelete,
   onRename,
@@ -6171,6 +6413,15 @@ function LaunchHome({
   onGenerate: () => void
   onBrandPack: () => void
   kindLabel: (k: ArtifactKind) => string
+  /** 首页参考图（+ / 粘贴 / 拖拽收单张；选中的视觉模型直接看原图生成）。 */
+  refImage: { url: string } | null
+  onPickImage: (f: File | null) => void
+  onClearImage: () => void
+  /** 生成模型（null = 跟随默认链）；传图态选择器只亮视觉模型。 */
+  genModel: ActiveModel | null
+  models: AvailableModel[]
+  onModelChange: (providerId: string, modelId: string) => void
+  onModelClear: () => void
   onOpen: (p: DesignProject) => void
   onDelete: (p: DesignProject) => void
   onRename: (id: string, title: string) => void
@@ -6181,6 +6432,8 @@ function LaunchHome({
   const { t } = useTranslation()
   const [pickerOpen, setPickerOpen] = useState(false)
   const systemName = systems.find((s) => s.id === systemId)?.name
+  const imageInputRef = useRef<HTMLInputElement>(null)
+  const [dragOver, setDragOver] = useState(false)
 
   // ── 项目库管理（B3-1）：搜索 / 网格·列表切换 / 多选批量删 / 改名 ──
   const [query, setQuery] = useState("")
@@ -6253,30 +6506,111 @@ function LaunchHome({
           </p>
         </div>
 
-        {/* Prompt card */}
-        <div className="rounded-2xl border border-border/60 bg-card p-3 shadow-sm ring-1 ring-transparent transition-all duration-200 focus-within:border-primary/40 focus-within:shadow-lg focus-within:ring-primary/15">
+        {/* Prompt card（支持拖拽参考图；粘贴走 Textarea onPaste） */}
+        <div
+          className={cn(
+            "rounded-2xl border border-border/60 bg-card p-3 shadow-sm ring-1 ring-transparent transition-all duration-200 focus-within:border-primary/40 focus-within:shadow-lg focus-within:ring-primary/15",
+            dragOver && "border-primary/60 ring-primary/20",
+          )}
+          onDragOver={(e) => {
+            if (Array.from(e.dataTransfer.types).includes("Files")) {
+              e.preventDefault()
+              setDragOver(true)
+            }
+          }}
+          onDragLeave={() => setDragOver(false)}
+          onDrop={(e) => {
+            e.preventDefault()
+            setDragOver(false)
+            const file = Array.from(e.dataTransfer.files).find((f) => f.type.startsWith("image/"))
+            if (file) onPickImage(file)
+          }}
+        >
+          {/* 参考图缩略预览（单张；X 移除，删图不切回模型）。 */}
+          {refImage && (
+            <div className="mb-1.5 flex items-center gap-2 px-1.5">
+              <div className="group relative">
+                <img
+                  src={refImage.url}
+                  alt={t("design.refImage.alt", "参考图")}
+                  className="h-14 w-14 rounded-lg border border-border/60 object-cover"
+                />
+                <button
+                  type="button"
+                  aria-label={t("design.refImage.remove", "移除参考图")}
+                  onClick={onClearImage}
+                  className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-foreground/80 text-background opacity-0 transition-opacity group-hover:opacity-100"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </div>
+              <span className="text-xs text-muted-foreground">
+                {t("design.refImage.hint", "将照着这张参考图生成")}
+              </span>
+            </div>
+          )}
           {/* 打字机轮播占位隔离在 memo 子组件里（Wave 2-⑩ review LOW）：其 ~20fps 状态更新只
               重渲染这一小块，不再拖动整个 LaunchHome 项目网格。 */}
-          <LaunchComposerTextarea prompt={prompt} setPrompt={setPrompt} onGenerate={onGenerate} />
+          <LaunchComposerTextarea
+            prompt={prompt}
+            setPrompt={setPrompt}
+            onGenerate={onGenerate}
+            onPasteImage={(f) => onPickImage(f)}
+          />
           <div className="mt-1 flex items-center justify-between gap-2 border-t border-border/50 px-1 pt-2">
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-8 gap-1.5 rounded-lg text-muted-foreground hover:text-foreground"
-              onClick={() => setPickerOpen(true)}
-            >
-              <Palette className="h-3.5 w-3.5 opacity-80" />
-              <span className="max-w-[160px] truncate">
-                {systemName ?? t("design.pickSystem", "选择设计系统")}
-              </span>
-            </Button>
+            <div className="flex min-w-0 items-center gap-1">
+              <input
+                ref={imageInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => {
+                  onPickImage(e.target.files?.[0] ?? null)
+                  e.target.value = "" // 允许再次选同一文件
+                }}
+              />
+              <IconTip label={t("design.refImage.add", "添加参考图（也可粘贴 / 拖入）")} side="top">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 w-8 rounded-lg p-0 text-muted-foreground hover:text-foreground"
+                  onClick={() => imageInputRef.current?.click()}
+                >
+                  <ImagePlus className="h-4 w-4" />
+                </Button>
+              </IconTip>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 gap-1.5 rounded-lg text-muted-foreground hover:text-foreground"
+                onClick={() => setPickerOpen(true)}
+              >
+                <Palette className="h-3.5 w-3.5 opacity-80" />
+                <span className="max-w-[140px] truncate">
+                  {systemName ?? t("design.pickSystem", "选择设计系统")}
+                </span>
+              </Button>
+              {/* 生成模型 chip：传图态只亮视觉模型（requireVision 置灰其余）。 */}
+              {models.length > 0 && (
+                <ModelSelector
+                  value={genModel ? `${genModel.providerId}::${genModel.modelId}` : ""}
+                  onChange={onModelChange}
+                  availableModels={models}
+                  requireVision={!!refImage}
+                  placeholder={t("design.model.followDefault", "默认模型")}
+                  clearLabel={t("design.model.followDefaultItem", "跟随默认模型")}
+                  onClear={onModelClear}
+                  className="h-8 w-auto max-w-[200px] gap-1.5 rounded-lg border-0 bg-transparent px-2 text-xs font-medium text-muted-foreground shadow-none hover:bg-secondary hover:text-foreground"
+                />
+              )}
+            </div>
             <div className="flex items-center gap-2">
               <IconTip label={t("design.brandPack.hint", "一次生成落地页 + 演示 + 海报，共用同一设计系统")} side="top">
                 <Button
                   size="sm"
                   variant="outline"
                   className="h-9 rounded-lg px-4 font-medium gap-1.5"
-                  disabled={!prompt.trim() || generating}
+                  disabled={(!prompt.trim() && !refImage) || generating}
                   onClick={onBrandPack}
                 >
                   <Layers className="h-4 w-4" />
@@ -6286,7 +6620,7 @@ function LaunchHome({
               <Button
                 size="sm"
                 className="h-9 rounded-lg px-5 font-medium gap-1.5"
-                disabled={!prompt.trim() || generating}
+                disabled={(!prompt.trim() && !refImage) || generating}
                 onClick={onGenerate}
               >
                 {generating && <Loader2 className="h-4 w-4 animate-spin" />}

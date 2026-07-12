@@ -1139,7 +1139,8 @@
     "unknown": "Tidak diketahui",
     "off": "Mati",
     "error": "Error",
-    "showLess": "Tunjukkan lebih sedikit"
+    "showLess": "Tunjukkan lebih sedikit",
+    "modelNoVision": "Tidak menyokong imej"
   },
   "context": {
     "ago": "yang lalu",
@@ -10102,7 +10103,8 @@
       "stopped": "Perkongsian dihentikan",
       "copyLink": "Salin pautan",
       "copied2": "Disalin",
-      "loadErr": "Gagal memuatkan status kongsi"
+      "loadErr": "Gagal memuatkan status kongsi",
+      "shareTo": "Kongsi ke"
     },
     "deploy": {
       "menu": "Deploy ke Cloudflare Pages",
@@ -10275,6 +10277,19 @@
       "working": "Menyalin imej…",
       "done": "Imej disalin ke papan klip",
       "failed": "Salin gagal — eksport PNG"
+    },
+    "model": {
+      "label": "Model penjanaan",
+      "followDefault": "Model lalai",
+      "autoSwitched": "Bertukar ke {{model}} (menyokong imej)",
+      "noVisionAvailable": "Tiada model yang menyokong imej; tambah di Tetapan → Model",
+      "followDefaultItem": "Ikut model lalai"
+    },
+    "refImage": {
+      "add": "Tambah imej rujukan (tampal / seret juga boleh)",
+      "alt": "Imej rujukan",
+      "hint": "Akan dijana berdasarkan imej rujukan ini",
+      "remove": "Buang imej rujukan"
     }
   },
   "agentLifecycle": {

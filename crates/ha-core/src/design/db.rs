@@ -42,6 +42,10 @@ pub struct DesignProject {
     pub needs_review_count: i64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<String>,
+    /// 项目对话的初始模型（首页生成时由所选模型写入）。弱引用：provider / 模型
+    /// 已删则前端回退 agent 缺省；只作对话初始值，会话内切换不回写。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_model: Option<crate::provider::ActiveModel>,
 }
 
 /// 单个可交付产物。对应磁盘一个目录 + 一份自包含 `index.html`。
@@ -187,7 +191,7 @@ const PROJECT_COLUMNS: &str = "SELECT p.id, p.title, p.description, p.color, p.d
      p.ha_project_id, p.session_id, p.agent_id, p.created_at, p.updated_at, \
      (SELECT COUNT(*) FROM design_artifacts a WHERE a.project_id = p.id) AS artifact_count, \
      (SELECT COUNT(*) FROM design_artifacts a WHERE a.project_id = p.id AND a.status = 'needs_review') AS needs_review_count, \
-     p.metadata \
+     p.metadata, p.default_model \
      FROM design_projects p";
 
 fn map_project_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<DesignProject> {
@@ -205,6 +209,10 @@ fn map_project_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<DesignProject> {
         artifact_count: row.get(10)?,
         needs_review_count: row.get(11)?,
         metadata: row.get(12)?,
+        // TEXT JSON 列;损坏 / 旧行 NULL 一律回 None(弱引用,消费端自兜底)。
+        default_model: row
+            .get::<_, Option<String>>(13)?
+            .and_then(|s| serde_json::from_str(&s).ok()),
     })
 }
 
@@ -304,7 +312,8 @@ impl DesignDb {
                 agent_id TEXT,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
-                metadata TEXT
+                metadata TEXT,
+                default_model TEXT
             );
 
             CREATE TABLE IF NOT EXISTS design_artifacts (
@@ -395,6 +404,11 @@ impl DesignDb {
 
         // 后加列：对已存在的旧 design.db 幂等补列（列已存在则忽略错误）。
         let _ = conn.execute("ALTER TABLE design_systems ADD COLUMN category TEXT", []);
+        // 项目对话初始模型（首页所选模型带入项目）：TEXT JSON（ActiveModel）。
+        let _ = conn.execute(
+            "ALTER TABLE design_projects ADD COLUMN default_model TEXT",
+            [],
+        );
         // B3 版本溯源（origin: ai/manual/restore + 生成 prompt 摘要）——分支内 dev DB 幂等补列。
         let _ = conn.execute(
             "ALTER TABLE design_artifact_versions ADD COLUMN origin TEXT",
@@ -470,8 +484,8 @@ impl DesignDb {
         conn.execute(
             "INSERT INTO design_projects
                 (id, title, description, color, default_system_id, ha_project_id,
-                 session_id, agent_id, created_at, updated_at, metadata)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                 session_id, agent_id, created_at, updated_at, metadata, default_model)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
             rusqlite::params![
                 p.id,
                 p.title,
@@ -484,6 +498,9 @@ impl DesignDb {
                 p.created_at,
                 p.updated_at,
                 p.metadata,
+                p.default_model
+                    .as_ref()
+                    .and_then(|m| serde_json::to_string(m).ok()),
             ],
         )?;
         Ok(())
@@ -1342,6 +1359,7 @@ mod tests {
             artifact_count: 0,
             needs_review_count: 0,
             metadata: None,
+            default_model: None,
         })
         .unwrap();
         db.create_artifact(&DesignArtifact {

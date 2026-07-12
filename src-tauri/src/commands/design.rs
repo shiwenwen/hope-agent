@@ -173,17 +173,31 @@ pub async fn import_design_image_cmd(
 }
 
 /// 多产物品牌包：一个 brief 批量生成一组共享设计系统的协调产物（顺序生成，返回成功者）。
+/// 可带参考图（每件产物都真看原图）与显式模型（单模型不降级）。
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn generate_design_brand_pack_cmd(
     project_id: String,
     brief: String,
     kinds: Vec<String>,
     system_id: Option<String>,
     folder: Option<String>,
+    reference_image_b64: Option<String>,
+    reference_image_mime: Option<String>,
+    model_override: Option<ha_core::provider::ActiveModel>,
 ) -> Result<Vec<DesignArtifact>, CmdError> {
-    service::generate_brand_pack(&project_id, &brief, kinds, system_id, folder)
-        .await
-        .map_err(Into::into)
+    service::generate_brand_pack(
+        &project_id,
+        &brief,
+        kinds,
+        system_id,
+        folder,
+        reference_image_b64,
+        reference_image_mime,
+        model_override,
+    )
+    .await
+    .map_err(Into::into)
 }
 
 /// 「一句话 → 流式生成」：建 generating 壳同步返回，内容经 `design:generate_delta` 流式回填。
