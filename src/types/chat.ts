@@ -66,9 +66,11 @@ export interface PendingMessageQuote {
 export type PendingSendMode = "queue" | "force_insert"
 
 export type PendingSendStatus =
+  | "saving"
   | "queued"
   | "waiting_tool_boundary"
-  | "inserted"
+  | "inserting"
+  | "dispatching"
   | "fallback_after_reply"
 
 export interface PendingSendPreview {
@@ -79,6 +81,10 @@ export interface PendingSendPreview {
   canForceInsert: boolean
   attachmentCount: number
   quoteCount: number
+  sessionId?: string
+  isPlanTrigger?: boolean
+  goalTrigger?: boolean
+  editable?: boolean
 }
 
 export interface MessageAttachment {

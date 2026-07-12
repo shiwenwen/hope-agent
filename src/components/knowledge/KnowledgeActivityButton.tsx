@@ -13,6 +13,7 @@ import {
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
+import { FloatingMenu } from "@/components/ui/floating-menu"
 import { Progress } from "@/components/ui/progress"
 import { IconTip } from "@/components/ui/tooltip"
 import { getTransport } from "@/lib/transport-provider"
@@ -271,8 +272,13 @@ export default function KnowledgeActivityButton({ kbs }: { kbs: KnowledgeBaseMet
         </Button>
       </IconTip>
 
-      {open && (
-        <div className="absolute right-0 top-full z-50 mt-1 w-[340px] rounded-lg border border-border bg-popover shadow-lg">
+      <FloatingMenu
+        open={open}
+        positionClassName="top-full right-0 mt-1.5"
+        originClassName="origin-top-right"
+        className="ha-menu-from-top w-[340px] overflow-hidden p-0"
+        onEscapeKeyDown={() => setOpen(false)}
+      >
           <div className="flex items-center justify-between border-b border-border-soft/60 px-3 py-2">
             <span className="text-xs font-medium">{t("knowledge.jobs.title", "Knowledge activity")}</span>
             {activeCount > 0 && (
@@ -324,8 +330,7 @@ export default function KnowledgeActivityButton({ kbs }: { kbs: KnowledgeBaseMet
               </div>
             )}
           </div>
-        </div>
-      )}
+      </FloatingMenu>
     </div>
   )
 }
@@ -377,7 +382,7 @@ function ReembedJobRow({
       <div className="flex items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-1.5">
           <StatusIcon status={job.status} />
-          <span className="truncate text-xs font-medium" title={title}>
+          <span className="truncate text-xs font-medium" data-ha-title-tip={title}>
             {title}
           </span>
         </div>
@@ -392,7 +397,7 @@ function ReembedJobRow({
       </div>
 
       <div className="mt-1 flex items-center gap-1.5 text-[11px] text-muted-foreground">
-        <span className="truncate" title={subject}>
+        <span className="truncate" data-ha-title-tip={subject}>
           {subject}
         </span>
         <span className="shrink-0">·</span>

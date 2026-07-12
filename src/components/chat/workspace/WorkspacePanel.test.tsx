@@ -243,6 +243,16 @@ async function clickSectionHeader(title: string) {
   fireEvent.click(header ?? buttons[0])
 }
 
+async function clickEnabledButton(button: HTMLElement) {
+  await waitFor(
+    () => {
+      expect((button as HTMLButtonElement).disabled).toBe(false)
+    },
+    { timeout: 5_000 },
+  )
+  fireEvent.click(button)
+}
+
 async function openWorkflowCreateComposer() {
   await clickSectionHeader("工作流")
   const createToggle = await screen.findByRole("button", { name: "新建工作流" })
@@ -2753,7 +2763,7 @@ describe("WorkspacePanel workflow section", () => {
     const evidenceRequirement = screen.getByText("缺来源/草稿/决策证据")
     const evidenceRequirementRow = evidenceRequirement.parentElement
     expect(evidenceRequirementRow).toBeTruthy()
-    fireEvent.click(
+    await clickEnabledButton(
       within(evidenceRequirementRow as HTMLElement).getByRole("button", { name: "转任务" }),
     )
 
@@ -2768,7 +2778,7 @@ describe("WorkspacePanel workflow section", () => {
     const budgetRequirement = screen.getByText("耗尽 1 次 · 10/10")
     const budgetRequirementRow = budgetRequirement.parentElement
     expect(budgetRequirementRow).toBeTruthy()
-    fireEvent.click(
+    await clickEnabledButton(
       within(budgetRequirementRow as HTMLElement).getByRole("button", { name: "转任务" }),
     )
 
@@ -2783,7 +2793,9 @@ describe("WorkspacePanel workflow section", () => {
     const campaignLane = screen.getByText("缺通过的 Campaign item")
     const campaignLaneRow = campaignLane.parentElement?.parentElement
     expect(campaignLaneRow).toBeTruthy()
-    fireEvent.click(within(campaignLaneRow as HTMLElement).getByRole("button", { name: "转任务" }))
+    await clickEnabledButton(
+      within(campaignLaneRow as HTMLElement).getByRole("button", { name: "转任务" }),
+    )
 
     await waitFor(() => {
       expect(transportMock.call).toHaveBeenCalledWith("create_session_task", {
@@ -2794,7 +2806,7 @@ describe("WorkspacePanel workflow section", () => {
       })
     })
 
-    fireEvent.click(screen.getByRole("button", { name: "采样清单" }))
+    await clickEnabledButton(screen.getByRole("button", { name: "采样清单" }))
     await waitFor(() => {
       expect(transportMock.call).toHaveBeenCalledWith("create_session_task", {
         sessionId: "s1",
@@ -4783,7 +4795,9 @@ describe("WorkspacePanel workflow section", () => {
 
     renderPanel(null)
 
-    fireEvent.click(await screen.findByRole("button", { name: "展开步骤详情" }))
+    fireEvent.click(
+      await screen.findByRole("button", { name: "展开步骤详情" }, { timeout: 5_000 }),
+    )
 
     expect(await screen.findByText("步骤详情")).toBeTruthy()
     expect(screen.getAllByText(/write-file/).length).toBeGreaterThan(1)
@@ -4874,7 +4888,7 @@ describe("WorkspacePanel workflow section", () => {
 
     expect((await screen.findAllByText("待启动")).length).toBeGreaterThan(0)
 
-    fireEvent.click(screen.getAllByRole("button", { name: "运行" })[0])
+    fireEvent.click((await screen.findAllByRole("button", { name: "运行" }))[0])
 
     await waitFor(() => {
       expect(transportMock.call).toHaveBeenCalledWith("run_workflow_run", { runId: "wf-1" })

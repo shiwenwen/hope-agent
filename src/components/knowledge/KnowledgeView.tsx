@@ -58,6 +58,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
+import { FloatingMenu } from "@/components/ui/floating-menu"
 import {
   Select,
   SelectContent,
@@ -248,6 +249,15 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
     from: number
     to: number
   } | null>(null)
+  const lastQuickRewriteRef = useRef(quickRewrite)
+  const currentQuickRewriteKbId = openKbId ?? activeKbId
+  const lastQuickRewriteKbIdRef = useRef(currentQuickRewriteKbId)
+  if (quickRewrite && currentQuickRewriteKbId) {
+    lastQuickRewriteRef.current = quickRewrite
+    lastQuickRewriteKbIdRef.current = currentQuickRewriteKbId
+  }
+  const renderedQuickRewrite = quickRewrite ?? lastQuickRewriteRef.current
+  const renderedQuickRewriteKbId = currentQuickRewriteKbId ?? lastQuickRewriteKbIdRef.current
   // Right panel: embedded AI chat ↔ backlinks view. The chat panel is anchored
   // to the open note + bound to the active KB, and is the default right-pane tab.
   const [rightMode, setRightMode] = useState<"links" | "chat">("chat")
@@ -1704,7 +1714,7 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
             )}
           >
             <FileText className="h-3 w-3 shrink-0 text-muted-foreground" />
-            <span className="flex-1 truncate" title={n.relPath}>
+            <span className="flex-1 truncate" data-ha-title-tip={n.relPath}>
               {node.name}
             </span>
             {/* Unsaved marker — only the currently-open note can be dirty
@@ -1715,7 +1725,7 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
             )}
           </button>
         </ContextMenuTrigger>
-        <ContextMenuContent>
+        <ContextMenuContent variant="floating">
           <ContextMenuItem
             disabled={readOnly}
             onClick={() => {
@@ -1800,12 +1810,12 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
                 <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" />
               )}
               <Folder className="h-3 w-3 shrink-0 text-muted-foreground" />
-              <span className="flex-1 truncate font-medium" title={node.path}>
+              <span className="flex-1 truncate font-medium" data-ha-title-tip={node.path}>
                 {node.name}
               </span>
             </button>
           </ContextMenuTrigger>
-          <ContextMenuContent>
+          <ContextMenuContent variant="floating">
             <ContextMenuItem
               disabled={readOnly}
               onClick={() => guardNavigation(() => startDraft(node.path))}
@@ -2158,7 +2168,7 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
                     </span>
                   </button>
                 </ContextMenuTrigger>
-                <ContextMenuContent>
+                <ContextMenuContent variant="floating">
                   <ContextMenuItem onClick={() => openEditKb(kb)}>
                     <Pencil className="mr-2 h-3.5 w-3.5" />
                     {t("knowledge.editSpace", "Edit space")}
@@ -2351,7 +2361,7 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
                 {draftFolder ? (
                   <span
                     className="flex shrink-0 items-center gap-1 truncate text-xs text-muted-foreground"
-                    title={draftFolder}
+                    data-ha-title-tip={draftFolder}
                   >
                     <Folder className="h-3 w-3 shrink-0" />
                     {draftFolder}/
@@ -2411,7 +2421,7 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
                 {openDir && (
                   <span
                     className="flex shrink-0 items-center gap-1 truncate text-xs text-muted-foreground"
-                    title={openDir}
+                    data-ha-title-tip={openDir}
                   >
                     <Folder className="h-3 w-3 shrink-0" />
                     {openDir}/
@@ -2440,7 +2450,7 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
                   <button
                     type="button"
                     disabled={readOnly}
-                    title={readOnly ? (openPath ?? "") : t("knowledge.clickToRename", "Click to rename")}
+                    data-ha-title-tip={readOnly ? (openPath ?? "") : t("knowledge.clickToRename", "Click to rename")}
                     onClick={() => {
                       setTitleValue(openBase)
                       setTitleEditing(true)
@@ -2732,7 +2742,7 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
                           "min-w-0 flex-1 truncate text-left",
                           broken ? "text-red-500" : "text-foreground hover:underline",
                         )}
-                        title={l.rawText}
+                        data-ha-title-tip={l.rawText}
                       >
                         {l.alias || l.targetRef}
                       </button>
@@ -3276,16 +3286,24 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
       </Dialog>
 
       {/* One-shot floating quick-rewrite bar (replaces the old AI rewrite modal). */}
-      {quickRewrite && (openKbId ?? activeKbId) && (
-        <div className="fixed left-1/2 top-24 z-50 -translate-x-1/2">
+      {renderedQuickRewrite && renderedQuickRewriteKbId ? (
+        <FloatingMenu
+          open={quickRewrite !== null && currentQuickRewriteKbId !== null}
+          strategy="fixed"
+          portal
+          positionClassName="top-24"
+          originClassName="origin-top"
+          className="p-0"
+          style={{ left: "max(5vw, calc(50% - 210px))" }}
+        >
           <QuickRewriteBar
-            kbId={(openKbId ?? activeKbId) as string}
+            kbId={renderedQuickRewriteKbId}
             notePath={openPath}
-            before={quickRewrite.before}
+            before={renderedQuickRewrite.before}
             onApply={(after) => {
               const ed = editorRef.current
               if (!ed) return
-              const { before, from, to } = quickRewrite
+              const { before, from, to } = renderedQuickRewrite
               const doc = ed.getText()
               // Fast path: the captured range still holds the original text
               // (no shifting edit happened during generation) — apply in place.
@@ -3307,8 +3325,8 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
             }}
             onClose={() => setQuickRewrite(null)}
           />
-        </div>
-      )}
+        </FloatingMenu>
+      ) : null}
     </div>
   )
 }
@@ -3441,7 +3459,7 @@ function ModeSwitch({
             <ChevronDown className="h-3 w-3 text-muted-foreground" />
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="min-w-[8rem]">
+        <DropdownMenuContent variant="floating" align="end" className="min-w-[8rem]">
           {MODE_KEYS.map((m) => (
             <DropdownMenuItem key={m} onSelect={() => onChange(m)} className="gap-2 text-xs">
               <Check

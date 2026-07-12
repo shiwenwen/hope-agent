@@ -85,15 +85,17 @@ export const KnowledgeChatPanel = forwardRef<KnowledgeChatPanelHandle, Props>(
     const seqRef = useRef<Map<string, number>>(new Map())
     const endedRef = useRef<Map<string, string>>(new Map())
     const [historyOpen, setHistoryOpen] = useState(false)
+    const [historyQuery, setHistoryQuery] = useState("")
     const [filingMessage, setFilingMessage] = useState<Message | null>(null)
     const historyRef = useRef<HTMLDivElement>(null)
+    const closeHistory = useCallback(() => {
+      setHistoryOpen(false)
+      setHistoryQuery("")
+    }, [])
     useEffect(() => {
       setFilingMessage(null)
     }, [session.currentSessionId])
-    useClickOutside(
-      historyRef,
-      useCallback(() => setHistoryOpen(false), []),
-    )
+    useClickOutside(historyRef, closeHistory)
 
     // Draft KB attaches for the composer (no live session yet). The panel's own
     // KB stays attached (write) so its notes are reachable for `[[ ]]`/`@`; the
@@ -372,29 +374,37 @@ export const KnowledgeChatPanel = forwardRef<KnowledgeChatPanelHandle, Props>(
                 size="icon"
                 className={cn("h-7 w-7", historyOpen && "bg-secondary")}
                 onClick={() => {
+                  if (historyOpen) {
+                    closeHistory()
+                    return
+                  }
                   // Opening the popover: reset to the unfiltered first page (the
                   // popover's search box mounts empty).
-                  if (!historyOpen) void session.reloadThreads("")
-                  setHistoryOpen((v) => !v)
+                  setHistoryQuery("")
+                  void session.reloadThreads("")
+                  setHistoryOpen(true)
                 }}
               >
                 <History className="h-4 w-4" />
               </Button>
             </IconTip>
-            {historyOpen && (
-              <KnowledgeConversationHistory
-                threads={session.threads}
-                activeSessionId={session.currentSessionId}
-                onSearch={(q) => session.reloadThreads(q)}
-                hasMore={session.threadsHasMore}
-                onLoadMore={() => void session.loadMoreThreads()}
-                loadIssue={historyLoadIssue}
-                onPick={(sid) => {
-                  setHistoryOpen(false)
-                  void session.switchThread(sid)
-                }}
-              />
-            )}
+            <KnowledgeConversationHistory
+              open={historyOpen}
+              threads={session.threads}
+              activeSessionId={session.currentSessionId}
+              query={historyQuery}
+              onSearch={(q) => {
+                setHistoryQuery(q)
+                void session.reloadThreads(q)
+              }}
+              hasMore={session.threadsHasMore}
+              onLoadMore={() => void session.loadMoreThreads()}
+              loadIssue={historyLoadIssue}
+              onPick={(sid) => {
+                closeHistory()
+                void session.switchThread(sid)
+              }}
+            />
           </div>
         </div>
 
@@ -495,6 +505,7 @@ export const KnowledgeChatPanel = forwardRef<KnowledgeChatPanelHandle, Props>(
             onDiscardPending={() => stream.setPendingMessage(null)}
             onEditPending={stream.editPendingSend}
             onDiscardPendingItem={stream.discardPendingSend}
+            onSendPending={stream.sendPendingSend}
             onForceInsertPending={stream.forceInsertPendingSend}
             onCancelForceInsertPending={stream.cancelForceInsertPendingSend}
             onStop={stream.handleStop}

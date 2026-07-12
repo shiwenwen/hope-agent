@@ -45,6 +45,26 @@ pub struct ApprovalRequest {
     /// unchanged.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub incognito: bool,
+    /// Wall-clock creation time used by owner surfaces to preserve queue order
+    /// and render a deadline after reload/reconnect.
+    #[serde(default)]
+    pub created_at_ms: i64,
+    /// Server wall clock at serialization time. Snapshot reads refresh this
+    /// value so remote browsers can translate the deadline without assuming
+    /// their device clock is synchronized with the server.
+    #[serde(default)]
+    pub server_now_ms: i64,
+    /// Absolute wall-clock deadline. `None` means the request does not expire.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timeout_at_ms: Option<i64>,
+    /// Captured duration for display/audit. Unlike reading global config in the
+    /// UI, this stays tied to the request that is actually waiting.
+    #[serde(default)]
+    pub timeout_secs: u64,
+    /// Effective timeout action captured at registration time. Strict reasons
+    /// are stored as `Deny` even when the global preference is `Proceed`.
+    #[serde(default)]
+    pub timeout_action: crate::config::ApprovalTimeoutAction,
 }
 
 /// Reason payload — flat shape so the frontend can switch on `kind` without
@@ -210,6 +230,8 @@ pub enum ApprovalResolutionSource {
     /// cancelled (R8) — the job settles `Cancelled` via its own runner; this
     /// only clears the now-orphaned dialog on every surface.
     JobCancelled,
+    /// Auto-denied because the user stopped the foreground chat turn.
+    UserStop,
 }
 
 impl ApprovalResolutionSource {
@@ -223,6 +245,7 @@ impl ApprovalResolutionSource {
             Self::TimeoutProceed => "timeout_proceed",
             Self::Eviction => "eviction",
             Self::JobCancelled => "job_cancelled",
+            Self::UserStop => "user_stop",
         }
     }
 }
@@ -336,12 +359,12 @@ pub fn emit_approval_resolved(
     }
 }
 
-/// In-memory entry for a pending approval. Stores the oneshot sender plus the
-/// originating session id so we can aggregate counts per session for the
-/// sidebar "needs your response" indicator.
+/// In-memory entry for a pending approval. The complete request is retained so
+/// owner surfaces can reconstruct a missed dialog after reload / transport
+/// resync instead of relying on a lossy event stream.
 struct PendingApprovalEntry {
     sender: tokio::sync::oneshot::Sender<ApprovalResponse>,
-    session_id: Option<String>,
+    request: ApprovalRequest,
 }
 
 /// Global approval request registry
@@ -483,7 +506,7 @@ pub(crate) async fn session_has_pending_approval(session_id: &str) -> bool {
     let pending = get_pending_approvals().lock().await;
     pending
         .values()
-        .any(|e| e.session_id.as_deref() == Some(session_id))
+        .any(|e| e.request.session_id.as_deref() == Some(session_id))
 }
 
 /// Return the request ids of every pending approval owned by `session_id`.
@@ -494,7 +517,7 @@ pub async fn pending_request_ids_for_session(session_id: &str) -> Vec<String> {
     let pending = get_pending_approvals().lock().await;
     pending
         .iter()
-        .filter(|(_, e)| e.session_id.as_deref() == Some(session_id))
+        .filter(|(_, e)| e.request.session_id.as_deref() == Some(session_id))
         .map(|(rid, _)| rid.clone())
         .collect()
 }
@@ -505,11 +528,33 @@ pub async fn pending_approvals_per_session() -> HashMap<String, i64> {
     let pending = get_pending_approvals().lock().await;
     let mut out: HashMap<String, i64> = HashMap::new();
     for entry in pending.values() {
-        if let Some(sid) = entry.session_id.as_ref() {
+        if let Some(sid) = entry.request.session_id.as_ref() {
             *out.entry(sid.clone()).or_insert(0) += 1;
         }
     }
     out
+}
+
+/// Return an authoritative snapshot of every pending approval visible to an
+/// owner surface. Events remain the low-latency path; this snapshot is the
+/// recovery path for renderer reloads, WebSocket gaps, and ambiguous submits.
+pub async fn list_pending_approval_requests() -> Vec<ApprovalRequest> {
+    let pending = get_pending_approvals().lock().await;
+    let server_now_ms = chrono::Utc::now().timestamp_millis();
+    let mut requests: Vec<_> = pending
+        .values()
+        .map(|entry| {
+            let mut request = entry.request.clone();
+            request.server_now_ms = server_now_ms;
+            request
+        })
+        .collect();
+    requests.sort_by(|a, b| {
+        a.created_at_ms
+            .cmp(&b.created_at_ms)
+            .then_with(|| a.request_id.cmp(&b.request_id))
+    });
+    requests
 }
 
 /// Return the originating session id for a pending approval request.
@@ -521,7 +566,7 @@ pub async fn pending_approval_session_id(request_id: &str) -> Result<Option<Stri
     let pending = get_pending_approvals().lock().await;
     pending
         .get(request_id)
-        .map(|entry| entry.session_id.clone())
+        .map(|entry| entry.request.session_id.clone())
         .ok_or_else(|| anyhow::anyhow!("No pending approval request: {}", request_id))
 }
 
@@ -543,7 +588,7 @@ pub async fn submit_approval_response(
     let Some(entry) = pending.remove(request_id) else {
         return Err(ApprovalSubmitError::NotPending);
     };
-    let session_id = entry.session_id.clone();
+    let session_id = entry.request.session_id.clone();
     let delivered = entry.sender.send(response).is_ok();
     drop(pending);
     emit_pending_interactions_changed(session_id.as_deref());
@@ -575,7 +620,7 @@ pub async fn deny_pending_for_session(session_id: &str, source: ApprovalResoluti
         let mut pending = get_pending_approvals().lock().await;
         let ids: Vec<String> = pending
             .iter()
-            .filter(|(_, e)| e.session_id.as_deref() == Some(session_id))
+            .filter(|(_, e)| e.request.session_id.as_deref() == Some(session_id))
             .map(|(k, _)| k.clone())
             .collect();
         ids.into_iter()
@@ -588,9 +633,35 @@ pub async fn deny_pending_for_session(session_id: &str, source: ApprovalResoluti
     let count = drained.len();
     for (request_id, entry) in drained {
         let _ = entry.sender.send(ApprovalResponse::Deny);
+        // EventBus delivery is best-effort and the IM listener can lag. Clear
+        // its text-reply state directly so Stop cannot leave a stale prompt
+        // that captures a later ordinary chat message.
+        crate::channel::worker::approval::drop_pending_by_request_id(&request_id).await;
         emit_approval_resolved(&request_id, Some(session_id), "deny", source);
     }
     emit_pending_interactions_changed(Some(session_id));
+    count
+}
+
+/// Deny every pending approval, including requests without a session id. Used
+/// by the legacy/global Stop action so no orphan prompt can later authorize a
+/// tool after the user has stopped all active work.
+pub async fn deny_all_pending(source: ApprovalResolutionSource) -> usize {
+    let drained: Vec<(String, PendingApprovalEntry)> = {
+        let mut pending = get_pending_approvals().lock().await;
+        pending.drain().collect()
+    };
+    if drained.is_empty() {
+        return 0;
+    }
+    let count = drained.len();
+    for (request_id, entry) in drained {
+        let session_id = entry.request.session_id;
+        let _ = entry.sender.send(ApprovalResponse::Deny);
+        crate::channel::worker::approval::drop_pending_by_request_id(&request_id).await;
+        emit_approval_resolved(&request_id, session_id.as_deref(), "deny", source);
+        emit_pending_interactions_changed(session_id.as_deref());
+    }
     count
 }
 
@@ -668,6 +739,9 @@ pub(crate) enum ApprovalCheckError {
         /// deny on timeout regardless of `approval_timeout_action` — a strict
         /// reason must never auto-proceed unattended. Epic F (TIMEOUT-1).
         strict: bool,
+        /// Effective action captured when the prompt was registered. This avoids
+        /// a settings change mid-wait making execution disagree with the event/UI.
+        action: crate::config::ApprovalTimeoutAction,
     },
     /// No human could answer this prompt (cron / headless-no-client / ACP-no-
     /// capability / subagent-no-parent-surface) and `unattendedApprovalAction`
@@ -694,6 +768,7 @@ impl fmt::Display for ApprovalCheckError {
             Self::TimedOut {
                 timeout_secs,
                 strict,
+                ..
             } => {
                 if *strict {
                     write!(
@@ -827,22 +902,22 @@ pub(crate) async fn check_and_request_approval(
     let request_id = create_session_id();
     let (tx, rx) = tokio::sync::oneshot::channel();
     let timeout_secs = approval_timeout_secs();
+    let configured_timeout_action = approval_timeout_action();
+    let effective_timeout_action = if strict {
+        crate::config::ApprovalTimeoutAction::Deny
+    } else {
+        configured_timeout_action
+    };
+    let created_at_ms = chrono::Utc::now().timestamp_millis();
+    let timeout_at_ms = if timeout_secs == 0 {
+        None
+    } else {
+        let timeout_ms = timeout_secs.saturating_mul(1_000).min(i64::MAX as u64) as i64;
+        Some(created_at_ms.saturating_add(timeout_ms))
+    };
     // `strict` was captured above (before the unattended check) and is reused
     // here for the timeout force-deny (F2/F3).
 
-    // Register the pending approval
-    {
-        let mut pending = get_pending_approvals().lock().await;
-        pending.insert(
-            request_id.clone(),
-            PendingApprovalEntry {
-                sender: tx,
-                session_id: session_id.map(|s| s.to_string()),
-            },
-        );
-    }
-
-    // Emit event to frontend
     let request = ApprovalRequest {
         request_id: request_id.clone(),
         command: command.to_string(),
@@ -851,7 +926,27 @@ pub(crate) async fn check_and_request_approval(
         reason,
         // E5 (INCOG-6): tell the surface to hide AllowAlways for incognito turns.
         incognito: crate::session::is_session_incognito(session_id),
+        created_at_ms,
+        server_now_ms: created_at_ms,
+        timeout_at_ms,
+        timeout_secs,
+        timeout_action: effective_timeout_action,
     };
+
+    // Register the complete request before emitting. A surface that receives a
+    // resync immediately after the event can now recover the same payload.
+    {
+        let mut pending = get_pending_approvals().lock().await;
+        pending.insert(
+            request_id.clone(),
+            PendingApprovalEntry {
+                sender: tx,
+                request: request.clone(),
+            },
+        );
+    }
+
+    // Emit event to frontend
 
     if let Some(bus) = crate::globals::get_event_bus() {
         let event_data = match serde_json::to_value(&request) {
@@ -974,16 +1069,10 @@ pub(crate) async fn check_and_request_approval(
             // the raw config value told the IM user a strict-denied command
             // "continued anyway, side effects already happened", the exact
             // opposite of what occurred.
-            let resolved_deny = strict
-                || matches!(
-                    approval_timeout_action(),
-                    crate::config::ApprovalTimeoutAction::Deny
-                );
-            let effective_timeout_action = if resolved_deny {
+            let resolved_deny = matches!(
+                effective_timeout_action,
                 crate::config::ApprovalTimeoutAction::Deny
-            } else {
-                crate::config::ApprovalTimeoutAction::Proceed
-            };
+            );
             if let Some(bus) = crate::globals::get_event_bus() {
                 bus.emit(
                     "approval_timed_out",
@@ -1024,6 +1113,7 @@ pub(crate) async fn check_and_request_approval(
             Err(ApprovalCheckError::TimedOut {
                 timeout_secs,
                 strict,
+                action: effective_timeout_action,
             })
         }
         Err(_) => unreachable!(),
@@ -1157,5 +1247,51 @@ mod tests {
         // Strict: force-denied regardless of the configured action.
         assert!(!unattended_effective_proceed(Proceed, true));
         assert!(!unattended_effective_proceed(Deny, true));
+    }
+
+    #[tokio::test]
+    async fn pending_snapshot_preserves_deadline_and_user_stop_unblocks_waiter() {
+        let request_id = format!("approval-test-{}", create_session_id());
+        let session_id = format!("session-test-{}", create_session_id());
+        let (sender, receiver) = tokio::sync::oneshot::channel();
+        let request = ApprovalRequest {
+            request_id: request_id.clone(),
+            command: "dangerous test command".into(),
+            cwd: "/tmp".into(),
+            session_id: Some(session_id.clone()),
+            reason: None,
+            incognito: false,
+            created_at_ms: 1_000,
+            server_now_ms: 1_000,
+            timeout_at_ms: Some(6_000),
+            timeout_secs: 5,
+            timeout_action: crate::config::ApprovalTimeoutAction::Deny,
+        };
+        get_pending_approvals().lock().await.insert(
+            request_id.clone(),
+            PendingApprovalEntry {
+                sender,
+                request: request.clone(),
+            },
+        );
+
+        let snapshot = list_pending_approval_requests().await;
+        assert_eq!(
+            snapshot
+                .iter()
+                .find(|candidate| candidate.request_id == request_id)
+                .and_then(|candidate| candidate.timeout_at_ms),
+            request.timeout_at_ms
+        );
+
+        assert_eq!(
+            deny_pending_for_session(&session_id, ApprovalResolutionSource::UserStop).await,
+            1
+        );
+        assert_eq!(receiver.await, Ok(ApprovalResponse::Deny));
+        assert!(list_pending_approval_requests()
+            .await
+            .iter()
+            .all(|candidate| candidate.request_id != request_id));
     }
 }

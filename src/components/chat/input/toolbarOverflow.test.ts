@@ -24,25 +24,22 @@ test("keeps overflow visibility classes static for Tailwind scanning", () => {
 })
 
 test("maps smart toolbar collapse levels to progressive visibility flags", () => {
-  expect(CHAT_INPUT_TOOLBAR_MAX_COLLAPSE_LEVEL).toBe(4)
+  expect(CHAT_INPUT_TOOLBAR_MAX_COLLAPSE_LEVEL).toBe(3)
   expect(clampChatInputToolbarCollapseLevel(-1)).toBe(0)
-  expect(clampChatInputToolbarCollapseLevel(99)).toBe(4)
+  expect(clampChatInputToolbarCollapseLevel(99)).toBe(3)
   expect(getChatInputToolbarFlags(0)).toEqual({
     toolbarCompact: false,
     toolbarTight: false,
-    sandboxCollapsed: false,
     permissionCollapsed: false,
   })
   expect(getChatInputToolbarFlags(2)).toEqual({
     toolbarCompact: true,
     toolbarTight: true,
-    sandboxCollapsed: false,
     permissionCollapsed: false,
   })
-  expect(getChatInputToolbarFlags(4)).toEqual({
+  expect(getChatInputToolbarFlags(3)).toEqual({
     toolbarCompact: true,
     toolbarTight: true,
-    sandboxCollapsed: true,
     permissionCollapsed: true,
   })
 })
@@ -70,7 +67,7 @@ test("estimates all toolbar collapse tier widths from the currently visible tier
       visibleWidth: 420,
       widths,
     }),
-  ).toEqual([836, 760, 420, 270, 135])
+  ).toEqual([836, 760, 420, 285])
 })
 
 test("resolves the toolbar collapse tier directly from available width", () => {
@@ -101,7 +98,7 @@ test("resolves the toolbar collapse tier directly from available width", () => {
       visibleWidth: 836,
       widths,
     }),
-  ).toBe(4)
+  ).toBe(3)
 })
 
 test("keeps an expansion buffer so compact toolbar tiers do not jitter", () => {

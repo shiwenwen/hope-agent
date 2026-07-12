@@ -502,7 +502,7 @@ export default function ChatTitleBar({
               <button
                 onClick={() => onOpenProjectSettings?.(project)}
                 className="inline-flex items-center gap-1 shrink-0 text-[12px] px-1.5 py-0.5 rounded hover:bg-accent/40 transition-colors"
-                title={project.description ?? project.name}
+                data-ha-title-tip={project.description ?? project.name}
               >
                 <Folder className={cn("h-3.5 w-3.5 shrink-0", projectFolderColorClass)} />
                 <span className="truncate max-w-[140px] text-foreground/80">{project.name}</span>
@@ -615,7 +615,7 @@ export default function ChatTitleBar({
             open={showStatus}
             positionClassName="top-full right-0 mt-1.5"
             originClassName="origin-top-right"
-            className="ha-menu-from-top min-w-[260px] rounded-xl border-border bg-popover p-3.5 shadow-xl"
+            className="ha-menu-from-top min-w-[260px] p-3.5"
             onEscapeKeyDown={() => setShowStatus(false)}
             onClick={(e) => e.stopPropagation()}
           >
@@ -868,15 +868,17 @@ export default function ChatTitleBar({
               )}
             </div>
           </FloatingMenu>
-          {compactToast && (
-            <div
-              className={cn(
-                "absolute top-full right-0 mt-1.5 z-50 whitespace-nowrap rounded-lg border px-2.5 py-1.5 text-xs shadow-lg animate-in fade-in slide-in-from-top-1 duration-200",
-                compactToast.success
-                  ? "border-border bg-popover text-popover-foreground"
-                  : "border-destructive/30 bg-destructive/10 text-destructive",
-              )}
-            >
+          <FloatingMenu
+            open={compactToast !== null}
+            positionClassName="top-full right-0 mt-1.5"
+            originClassName="origin-top-right"
+            className={cn(
+              "ha-menu-from-top whitespace-nowrap px-2.5 py-1.5 text-xs",
+              compactToast?.success === false &&
+                "border-destructive/30 bg-destructive/10 text-destructive",
+            )}
+          >
+            {compactToast ? (
               <div className="flex items-center gap-1.5">
                 {compactToast.success ? (
                   <Check className="h-3 w-3 text-green-500" />
@@ -885,8 +887,8 @@ export default function ChatTitleBar({
                 )}
                 {compactToast.message}
               </div>
-            </div>
-          )}
+            ) : null}
+          </FloatingMenu>
         </div>
         {/* Export Button — open the export-conversation dialog. */}
         {currentSessionId && (

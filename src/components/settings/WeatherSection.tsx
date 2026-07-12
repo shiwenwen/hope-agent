@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input"
 import { DeferredNumberInput } from "@/components/ui/deferred-number-input"
 import { Switch } from "@/components/ui/switch"
 import { Button } from "@/components/ui/button"
+import { FloatingMenu } from "@/components/ui/floating-menu"
 import { IconTip } from "@/components/ui/tooltip"
 import { MapPin, Search, Cloud, RefreshCw, CircleAlert, Loader2, LocateFixed } from "lucide-react"
 
@@ -258,8 +259,13 @@ export function WeatherSection({ config, update }: WeatherSectionProps) {
               </div>
 
               {/* Dropdown */}
-              {showDropdown && searchQuery.trim().length > 1 && (
-                <div className="absolute z-10 top-full mt-1 w-full bg-popover border rounded-md shadow-md max-h-48 overflow-y-auto">
+              <FloatingMenu
+                open={showDropdown && searchQuery.trim().length > 1}
+                positionClassName="top-full left-0 right-0 mt-1.5"
+                originClassName="origin-top"
+                className="ha-menu-from-top max-h-48 overflow-y-auto p-1.5"
+                onEscapeKeyDown={() => setShowDropdown(false)}
+              >
                   {searchResults.length === 0 && !isSearching ? (
                     <div className="p-2 text-sm text-muted-foreground text-center">
                       {t("settings.weatherCityNoResults")}
@@ -284,8 +290,7 @@ export function WeatherSection({ config, update }: WeatherSectionProps) {
                       </div>
                     ))
                   )}
-                </div>
-              )}
+              </FloatingMenu>
             </div>
 
             {/* Location detection feedback */}

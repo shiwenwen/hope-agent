@@ -168,7 +168,7 @@ function ProfileSourceButton({
         type="button"
         onClick={() => onOpenClaim(source.claimId)}
         className={className}
-        title={title}
+        data-ha-title-tip={title}
       >
         <span className="flex max-w-full items-center gap-1">
           <ExternalLink className="h-3 w-3 shrink-0" />
@@ -190,7 +190,7 @@ function ProfileSourceButton({
           type="button"
           onClick={openEvidenceSource}
           className="inline-flex w-6 shrink-0 items-center justify-center rounded border border-border/60 bg-background/70 text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
-          title={evidenceSourceLabel(source, t)}
+          data-ha-title-tip={evidenceSourceLabel(source, t)}
           aria-label={evidenceSourceLabel(source, t)}
         >
           <EvidenceSourceIcon source={source} />
@@ -411,7 +411,7 @@ function ProfileSnapshotCard({
                 size="icon"
                 className="h-6 w-6 shrink-0 text-muted-foreground hover:text-foreground"
                 onClick={onOpenScope}
-                title={t("settings.claims.openScope")}
+                data-ha-title-tip={t("settings.claims.openScope")}
                 aria-label={t("settings.claims.openScope")}
               >
                 <ExternalLink className="h-3.5 w-3.5" />

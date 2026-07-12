@@ -21,6 +21,7 @@ import type {
   SessionArtifacts,
   WorkspaceEnvironmentSnapshot,
 } from "@/lib/transport"
+import { TRANSPORT_EVENT_RESYNC_REQUIRED } from "@/lib/transport"
 import type { FileChangesMetadata, MediaItem } from "@/types/chat"
 import { dispatchAuthRequired, setStoredApiKey } from "@/lib/api-key-storage"
 
@@ -321,6 +322,16 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   // -- Chat --
   chat: { method: "POST", path: "/api/chat" },
   queue_turn_user_message: { method: "POST", path: "/api/chat/turn-message" },
+  list_queued_turn_user_messages: {
+    method: "GET",
+    path: "/api/chat/turn-message/{sessionId}",
+  },
+  update_queued_turn_user_message: { method: "PATCH", path: "/api/chat/turn-message" },
+  delete_queued_turn_user_message: {
+    method: "DELETE",
+    path: "/api/chat/turn-message/{sessionId}/{requestId}",
+  },
+  insert_queued_turn_user_message: { method: "POST", path: "/api/chat/turn-message/insert" },
   cancel_queued_turn_user_message: { method: "POST", path: "/api/chat/turn-message/cancel" },
   stop_chat: { method: "POST", path: "/api/chat/stop" },
   cancel_runtime_task: { method: "POST", path: "/api/runtime-tasks/cancel" },
@@ -333,6 +344,7 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   set_permission_mode: { method: "POST", path: "/api/chat/permission-mode" },
   set_sandbox_mode: { method: "POST", path: "/api/chat/sandbox-mode" },
   respond_to_approval: { method: "POST", path: "/api/chat/approval" },
+  list_pending_approvals: { method: "GET", path: "/api/chat/approvals/pending" },
   save_attachment: { method: "POST", path: "/api/chat/attachment" },
   list_builtin_tools: { method: "GET", path: "/api/chat/tools" },
 
@@ -2180,6 +2192,16 @@ export class HttpTransport implements Transport {
     this.eventSubscriptions.push(sub)
     this.ensureEventWs()
 
+    // A subscriber added after the socket opened still needs one durable-state
+    // reconciliation; otherwise it can miss events from before it subscribed.
+    if (eventName === TRANSPORT_EVENT_RESYNC_REQUIRED && this.eventWs?.readyState === 1) {
+      queueMicrotask(() => {
+        if (this.eventSubscriptions.includes(sub)) {
+          handler({ reason: "already_connected" })
+        }
+      })
+    }
+
     return () => {
       const idx = this.eventSubscriptions.indexOf(sub)
       if (idx !== -1) this.eventSubscriptions.splice(idx, 1)
@@ -2203,6 +2225,7 @@ export class HttpTransport implements Transport {
       this.eventWsConnecting = false
       this.eventWs = ws
       this.reconnectAttempts = 0
+      this.dispatchEvent(TRANSPORT_EVENT_RESYNC_REQUIRED, { reason: "connected" })
     }
 
     ws.onmessage = (ev) => {
@@ -2212,10 +2235,14 @@ export class HttpTransport implements Transport {
           name: string
           payload: unknown
         }
-        for (const sub of this.eventSubscriptions) {
-          if (sub.eventName === envelope.name) {
-            sub.handler(envelope.payload)
-          }
+        this.dispatchEvent(envelope.name, envelope.payload)
+        if (envelope.name === "_lagged") {
+          this.dispatchEvent(TRANSPORT_EVENT_RESYNC_REQUIRED, {
+            reason: "lagged",
+            ...(envelope.payload && typeof envelope.payload === "object"
+              ? (envelope.payload as Record<string, unknown>)
+              : {}),
+          })
         }
       } catch {
         // Ignore malformed messages.
@@ -2248,6 +2275,14 @@ export class HttpTransport implements Transport {
       this.reconnectTimer = null
       this.ensureEventWs()
     }, delay)
+  }
+
+  private dispatchEvent(eventName: string, payload: unknown): void {
+    for (const sub of [...this.eventSubscriptions]) {
+      if (sub.eventName === eventName) {
+        sub.handler(payload)
+      }
+    }
   }
 
   private teardownEventWs(): void {

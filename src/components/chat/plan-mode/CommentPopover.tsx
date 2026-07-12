@@ -1,29 +1,38 @@
 import { useState, useCallback, useEffect, useRef } from "react"
 import { Send, MessageSquareQuote } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { FloatingMenu } from "@/components/ui/floating-menu"
 import { Textarea } from "@/components/ui/textarea"
 import { useTranslation } from "react-i18next"
 
 /** Floating comment popover shown when user selects text in the plan */
 export function CommentPopover({
+  open,
   position,
   selectedText,
   onSubmit,
   onClose,
 }: {
-  position: { top: number; left: number }
-  selectedText: string
+  open: boolean
+  position: { top: number; left: number } | null
+  selectedText: string | null
   onSubmit: (comment: string) => void
   onClose: () => void
 }) {
   const { t } = useTranslation()
   const [comment, setComment] = useState("")
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const anchor = position && selectedText !== null ? { position, selectedText } : null
 
   useEffect(() => {
-    // Auto-focus textarea on mount
-    setTimeout(() => textareaRef.current?.focus(), 50)
-  }, [])
+    if (!open) return
+    const resetTimer = window.setTimeout(() => setComment(""), 0)
+    const focusTimer = window.setTimeout(() => textareaRef.current?.focus(), 50)
+    return () => {
+      window.clearTimeout(resetTimer)
+      window.clearTimeout(focusTimer)
+    }
+  }, [open])
 
   const handleSubmit = useCallback(() => {
     if (!comment.trim()) return
@@ -43,15 +52,18 @@ export function CommentPopover({
   }, [handleSubmit, onClose])
 
   return (
-    <div
-      className="absolute z-50 w-[280px] rounded-lg border border-border bg-popover shadow-lg animate-in fade-in zoom-in-95 duration-150"
-      style={{ top: position.top, left: position.left }}
-      onMouseDown={(e) => e.stopPropagation()}
+    <FloatingMenu
+      open={open && anchor !== null}
+      positionClassName=""
+      originClassName="origin-top-left"
+      className="w-[280px] overflow-hidden p-0"
+      style={{ top: anchor?.position.top ?? 0, left: anchor?.position.left ?? 0 }}
     >
+      <div onMouseDown={(e) => e.stopPropagation()}>
       <div className="px-3 py-2 border-b border-border/50 bg-secondary/30 rounded-t-lg">
         <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
           <MessageSquareQuote className="h-3 w-3 shrink-0" />
-          <span className="truncate italic">&ldquo;{selectedText.length > 60 ? selectedText.slice(0, 60) + "…" : selectedText}&rdquo;</span>
+          <span className="truncate italic">&ldquo;{(anchor?.selectedText.length ?? 0) > 60 ? anchor?.selectedText.slice(0, 60) + "…" : anchor?.selectedText}&rdquo;</span>
         </div>
       </div>
       <div className="p-2 space-y-2">
@@ -84,6 +96,7 @@ export function CommentPopover({
           </div>
         </div>
       </div>
-    </div>
+      </div>
+    </FloatingMenu>
   )
 }

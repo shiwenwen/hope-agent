@@ -70,6 +70,12 @@ export interface AskUserQuestionGroup {
   source?: string
   /** Unix timestamp (seconds) after which pending answers auto-fall back. */
   timeoutAt?: number
+  /** Effective duration used to derive timeoutAt; retained across restart. */
+  timeoutSecs?: number
+  /** Server UNIX time (seconds) when this payload was emitted/read. */
+  serverNow?: number
+  /** Client-clock deadline derived from timeoutAt + serverNow. */
+  localTimeoutAtMs?: number | null
 }
 
 export interface AskUserQuestionAnswer {
@@ -102,7 +108,7 @@ function fallbackText(text: AskUserLocalizedText | undefined | null): string {
 
 function localizedText(
   text: AskUserLocalizedText | undefined | null,
-  t: ReturnType<typeof useTranslation>["t"]
+  t: ReturnType<typeof useTranslation>["t"],
 ): string {
   if (!text) return ""
   if (typeof text === "string") return text
@@ -131,16 +137,13 @@ function OptionPreview({
       <div
         className={cn(
           "mt-2 rounded-md border border-border overflow-hidden",
-          fill && "flex-1 min-h-0"
+          fill && "flex-1 min-h-0",
         )}
       >
         <img
           src={preview}
           alt={localizedText(option.label, t)}
-          className={cn(
-            "w-full object-contain bg-muted",
-            fill ? "h-full" : "max-h-64"
-          )}
+          className={cn("w-full object-contain bg-muted", fill ? "h-full" : "max-h-64")}
           loading="lazy"
         />
       </div>
@@ -152,29 +155,27 @@ function OptionPreview({
     <div
       className={cn(
         "mt-2 rounded-md border border-border bg-muted/30 px-3 py-2 text-xs overflow-auto",
-        fill ? "flex-1 min-h-0" : "max-h-[28rem]"
+        fill ? "flex-1 min-h-0" : "max-h-[28rem]",
       )}
     >
-      <MarkdownStreamdown plugins={staticPlugins}>
-        {body}
-      </MarkdownStreamdown>
+      <MarkdownStreamdown plugins={staticPlugins}>{body}</MarkdownStreamdown>
     </div>
   )
 }
 
 // ── Countdown timer ──────────────────────────────────────────────
 
-function useCountdown(timeoutAt: number | undefined | null) {
+function useCountdown(timeoutAtMs: number | undefined | null) {
   const [remaining, setRemaining] = useState<number | null>(null)
 
   useEffect(() => {
-    if (!timeoutAt) {
+    if (!timeoutAtMs) {
       const id = window.setTimeout(() => setRemaining(null), 0)
       return () => window.clearTimeout(id)
     }
     let timer: number | undefined
     const tick = () => {
-      const secs = Math.max(0, timeoutAt - Math.floor(Date.now() / 1000))
+      const secs = Math.max(0, Math.ceil((timeoutAtMs - Date.now()) / 1000))
       setRemaining(secs)
       if (secs <= 0 && timer !== undefined) {
         window.clearInterval(timer)
@@ -187,7 +188,7 @@ function useCountdown(timeoutAt: number | undefined | null) {
       if (timer !== undefined) window.clearInterval(timer)
       window.clearTimeout(first)
     }
-  }, [timeoutAt])
+  }, [timeoutAtMs])
 
   return remaining
 }
@@ -215,8 +216,7 @@ export default function AskUserQuestionBlock({ group, onSubmitted }: AskUserQues
   // sends verbatim as `group.context`) is NOT translated — the model writes
   // it in the user's conversation language naturally.
   const isEnterPlanModeAsk =
-    group.questions.length === 1 &&
-    group.questions[0]?.questionId === "enter_plan_mode"
+    group.questions.length === 1 && group.questions[0]?.questionId === "enter_plan_mode"
 
   const [submitted, setSubmitted] = useState(false)
   const [submitting, setSubmitting] = useState(false)
@@ -235,57 +235,53 @@ export default function AskUserQuestionBlock({ group, onSubmitted }: AskUserQues
   const [focusedOption, setFocusedOption] = useState<Record<string, string>>({})
   const otherLabel = t("common.other", { defaultValue: "Other" })
 
-  const remaining = useCountdown(group.timeoutAt)
+  const remaining = useCountdown(
+    group.localTimeoutAtMs ?? (group.timeoutAt ? group.timeoutAt * 1000 : null),
+  )
   const hasAnyPreview = useMemo(
     () => group.questions.some((q) => q.options.some((o) => !!o.preview)),
-    [group.questions]
+    [group.questions],
   )
 
-  const toggleOption = useCallback(
-    (questionId: string, value: string, multiSelect: boolean) => {
-      setAnswers((prev) => {
-        const q = prev[questionId]
-        if (!q) return prev
-        const newSelected = new Set(q.selected)
-        if (multiSelect) {
-          if (newSelected.has(value)) newSelected.delete(value)
-          else newSelected.add(value)
-        } else {
-          newSelected.clear()
-          newSelected.add(value)
-        }
-        return {
-          ...prev,
-          [questionId]: {
-            ...q,
-            selected: newSelected,
-            customSelected: multiSelect ? q.customSelected : false,
-          },
-        }
-      })
-      setFocusedOption((prev) => ({ ...prev, [questionId]: value }))
-    },
-    []
-  )
+  const toggleOption = useCallback((questionId: string, value: string, multiSelect: boolean) => {
+    setAnswers((prev) => {
+      const q = prev[questionId]
+      if (!q) return prev
+      const newSelected = new Set(q.selected)
+      if (multiSelect) {
+        if (newSelected.has(value)) newSelected.delete(value)
+        else newSelected.add(value)
+      } else {
+        newSelected.clear()
+        newSelected.add(value)
+      }
+      return {
+        ...prev,
+        [questionId]: {
+          ...q,
+          selected: newSelected,
+          customSelected: multiSelect ? q.customSelected : false,
+        },
+      }
+    })
+    setFocusedOption((prev) => ({ ...prev, [questionId]: value }))
+  }, [])
 
-  const toggleCustomOption = useCallback(
-    (questionId: string, multiSelect: boolean) => {
-      setAnswers((prev) => {
-        const q = prev[questionId]
-        if (!q) return prev
-        return {
-          ...prev,
-          [questionId]: {
-            ...q,
-            selected: multiSelect ? new Set(q.selected) : new Set<string>(),
-            customSelected: multiSelect ? !q.customSelected : true,
-          },
-        }
-      })
-      setFocusedOption((prev) => ({ ...prev, [questionId]: CUSTOM_OPTION_FOCUS }))
-    },
-    []
-  )
+  const toggleCustomOption = useCallback((questionId: string, multiSelect: boolean) => {
+    setAnswers((prev) => {
+      const q = prev[questionId]
+      if (!q) return prev
+      return {
+        ...prev,
+        [questionId]: {
+          ...q,
+          selected: multiSelect ? new Set(q.selected) : new Set<string>(),
+          customSelected: multiSelect ? !q.customSelected : true,
+        },
+      }
+    })
+    setFocusedOption((prev) => ({ ...prev, [questionId]: CUSTOM_OPTION_FOCUS }))
+  }, [])
 
   const setCustomInput = useCallback((questionId: string, value: string) => {
     setAnswers((prev) => {
@@ -333,7 +329,7 @@ export default function AskUserQuestionBlock({ group, onSubmitted }: AskUserQues
         "ask_user",
         "AskUserQuestionBlock::submit",
         "Failed to submit ask_user response",
-        msg
+        msg,
       )
       setError(msg)
     } finally {
@@ -363,11 +359,15 @@ export default function AskUserQuestionBlock({ group, onSubmitted }: AskUserQues
                   ? "bg-destructive/10 text-destructive"
                   : lowTime
                     ? "bg-amber-500/15 text-amber-600 animate-pulse"
-                    : "bg-muted text-muted-foreground"
+                    : "bg-muted text-muted-foreground",
               )}
             >
               <Timer className="h-3 w-3" />
-              <span>{timedOut ? t("planMode.question.timedOut", { defaultValue: "timed out" }) : formatRemaining(remaining)}</span>
+              <span>
+                {timedOut
+                  ? t("planMode.question.timedOut", { defaultValue: "timed out" })
+                  : formatRemaining(remaining)}
+              </span>
             </div>
           </IconTip>
         )}
@@ -397,21 +397,19 @@ export default function AskUserQuestionBlock({ group, onSubmitted }: AskUserQues
         // column width and made the option boxes jitter (issue #433); the
         // grid itself is reserved group-wide via `hasAnyPreview` so columns
         // stay aligned across questions too.
-        const previewOpt = focusedOpt?.preview
-          ? focusedOpt
-          : q.options.find((o) => !!o.preview)
+        const previewOpt = focusedOpt?.preview ? focusedOpt : q.options.find((o) => !!o.preview)
         // The fallback preview does not describe the focused option — dim it
         // so it reads as reference, not as the hovered option's detail.
         const previewIsFallback = !!previewOpt && previewOpt !== focusedOpt
         const customSelected = state?.customSelected ?? false
+        const hasQuestionPreview = q.options.some((option) => !!option.preview)
         return (
           <div
             key={q.questionId}
             className={cn(
               "space-y-2",
-              hasAnyPreview &&
-                "md:grid md:grid-cols-[minmax(260px,2fr)_3fr] md:gap-4 md:space-y-0",
-              previewOpt && "md:min-h-64"
+              hasAnyPreview && "md:grid md:grid-cols-[minmax(260px,2fr)_3fr] md:gap-4 md:space-y-0",
+              previewOpt && "md:min-h-64",
             )}
           >
             {/* Left column: title + options */}
@@ -449,14 +447,21 @@ export default function AskUserQuestionBlock({ group, onSubmitted }: AskUserQues
               <div className="pl-5 space-y-1.5">
                 {q.options.map((opt) => {
                   const isSelected = state?.selected.has(opt.value) ?? false
-                  const isDefault =
-                    q.defaultValues?.includes(opt.value) ?? false
+                  const isDefault = q.defaultValues?.includes(opt.value) ?? false
                   return (
                     <button
                       key={opt.value}
+                      type="button"
+                      aria-pressed={isSelected}
                       onClick={() => toggleOption(q.questionId, opt.value, q.multiSelect)}
-                      onMouseEnter={() =>
-                        setFocusedOption((prev) => ({ ...prev, [q.questionId]: opt.value }))
+                      onMouseEnter={
+                        hasQuestionPreview
+                          ? () =>
+                              setFocusedOption((prev) => ({
+                                ...prev,
+                                [q.questionId]: opt.value,
+                              }))
+                          : undefined
                       }
                       className={cn(
                         "w-full text-left px-3 py-2 rounded-md border text-sm transition-colors cursor-pointer",
@@ -464,7 +469,7 @@ export default function AskUserQuestionBlock({ group, onSubmitted }: AskUserQues
                           ? "border-blue-500 bg-blue-500/10 text-blue-700 dark:text-blue-300"
                           : opt.recommended
                             ? "border-amber-500/40 bg-amber-500/5 hover:border-amber-500/60"
-                            : "border-border hover:border-blue-500/50 hover:bg-blue-500/5"
+                            : "border-border hover:border-blue-500/50 hover:bg-blue-500/5",
                       )}
                     >
                       <div className="flex items-center gap-2">
@@ -474,7 +479,7 @@ export default function AskUserQuestionBlock({ group, onSubmitted }: AskUserQues
                             q.multiSelect ? "rounded-sm" : "rounded-full",
                             isSelected
                               ? "border-blue-500 bg-blue-500"
-                              : "border-muted-foreground/30"
+                              : "border-muted-foreground/30",
                           )}
                         >
                           {isSelected && <Check className="h-2.5 w-2.5 text-white" />}
@@ -508,9 +513,7 @@ export default function AskUserQuestionBlock({ group, onSubmitted }: AskUserQues
                                 })
                               : localizedText(opt.description, t)
                             return desc ? (
-                              <div className="text-xs text-muted-foreground mt-0.5">
-                                {desc}
-                              </div>
+                              <div className="text-xs text-muted-foreground mt-0.5">{desc}</div>
                             ) : null
                           })()}
                           {/* Inline preview for narrow viewports where the
@@ -532,18 +535,22 @@ export default function AskUserQuestionBlock({ group, onSubmitted }: AskUserQues
                   <>
                     <button
                       type="button"
+                      aria-pressed={customSelected}
                       onClick={() => toggleCustomOption(q.questionId, q.multiSelect)}
-                      onMouseEnter={() =>
-                        setFocusedOption((prev) => ({
-                          ...prev,
-                          [q.questionId]: CUSTOM_OPTION_FOCUS,
-                        }))
+                      onMouseEnter={
+                        hasQuestionPreview
+                          ? () =>
+                              setFocusedOption((prev) => ({
+                                ...prev,
+                                [q.questionId]: CUSTOM_OPTION_FOCUS,
+                              }))
+                          : undefined
                       }
                       className={cn(
                         "w-full text-left px-3 py-2 rounded-md border text-sm transition-colors cursor-pointer",
                         customSelected
                           ? "border-blue-500 bg-blue-500/10 text-blue-700 dark:text-blue-300"
-                          : "border-border hover:border-blue-500/50 hover:bg-blue-500/5"
+                          : "border-border hover:border-blue-500/50 hover:bg-blue-500/5",
                       )}
                     >
                       <div className="flex items-center gap-2">
@@ -553,7 +560,7 @@ export default function AskUserQuestionBlock({ group, onSubmitted }: AskUserQues
                             q.multiSelect ? "rounded-sm" : "rounded-full",
                             customSelected
                               ? "border-blue-500 bg-blue-500"
-                              : "border-muted-foreground/30"
+                              : "border-muted-foreground/30",
                           )}
                         >
                           {customSelected && <Check className="h-2.5 w-2.5 text-white" />}
@@ -590,7 +597,7 @@ export default function AskUserQuestionBlock({ group, onSubmitted }: AskUserQues
                   <div
                     className={cn(
                       "flex-1 min-h-0 flex flex-col transition-opacity",
-                      previewIsFallback && "opacity-60"
+                      previewIsFallback && "opacity-60",
                     )}
                   >
                     <OptionPreview option={previewOpt} fill />
@@ -612,10 +619,14 @@ export default function AskUserQuestionBlock({ group, onSubmitted }: AskUserQues
       {/* Submit button */}
       <div className="flex justify-end pt-1">
         <Button
+          type="button"
           size="sm"
           onClick={handleSubmit}
           disabled={submitting || timedOut}
-          className={cn("gap-1.5", error && "bg-destructive/10 text-destructive hover:bg-destructive/20")}
+          className={cn(
+            "gap-1.5",
+            error && "bg-destructive/10 text-destructive hover:bg-destructive/20",
+          )}
         >
           {submitting ? (
             <span className="animate-spin h-3.5 w-3.5 border-2 border-current border-t-transparent rounded-full" />

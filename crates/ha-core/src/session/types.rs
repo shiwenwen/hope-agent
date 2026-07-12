@@ -417,6 +417,9 @@ pub struct NewMessage {
     /// have no canonical source; readers fall back to `desktop` so old
     /// unread badges aren't disturbed.
     pub source: Option<String>,
+    /// Durable queue id that produced this user row. A partial unique index
+    /// makes queue recovery exactly-once across process crashes.
+    pub queue_request_id: Option<String>,
 }
 
 impl NewMessage {
@@ -445,6 +448,7 @@ impl NewMessage {
             tool_metadata: None,
             stream_status: None,
             source: None,
+            queue_request_id: None,
         }
     }
 
@@ -473,6 +477,7 @@ impl NewMessage {
             tool_metadata: None,
             stream_status: None,
             source: None,
+            queue_request_id: None,
         }
     }
 
@@ -513,6 +518,7 @@ impl NewMessage {
             tool_metadata: None,
             stream_status: Some("streaming".to_string()),
             source: None,
+            queue_request_id: None,
         }
     }
 
@@ -541,6 +547,7 @@ impl NewMessage {
             tool_metadata: None,
             stream_status: None,
             source: None,
+            queue_request_id: None,
         }
     }
 
@@ -574,6 +581,7 @@ impl NewMessage {
             tool_metadata: None,
             stream_status: None,
             source: None,
+            queue_request_id: None,
         }
     }
 
@@ -602,6 +610,7 @@ impl NewMessage {
             tool_metadata: None,
             stream_status: None,
             source: None,
+            queue_request_id: None,
         }
     }
 

@@ -140,7 +140,7 @@ export function FilePreviewPane({
           {source.displayPath && source.displayPath !== source.name ? (
             <span
               className="truncate font-mono text-[11px] leading-tight text-muted-foreground"
-              title={source.displayPath}
+              data-ha-title-tip={source.displayPath}
             >
               {source.displayPath}
             </span>

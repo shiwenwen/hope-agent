@@ -4,7 +4,8 @@ import { useTranslation } from "react-i18next"
 import type { TFunction } from "i18next"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
-import { AnimatedCollapse, AnimatedPresenceBox } from "@/components/ui/animated-presence"
+import { AnimatedCollapse } from "@/components/ui/animated-presence"
+import { FloatingMenu } from "@/components/ui/floating-menu"
 import { IconTip } from "@/components/ui/tooltip"
 import {
   Copy,
@@ -1522,11 +1523,10 @@ function MessageBubbleInner({
           <Info className="h-3.5 w-3.5" />
         </button>
       </IconTip>
-      <AnimatedPresenceBox
+      <FloatingMenu
         open={detailsIndex === index}
-        className="absolute bottom-full left-0 z-50 mb-1 w-64 max-w-[calc(100vw-2rem)] origin-bottom-left rounded-lg border border-border bg-popover p-2.5 shadow-lg"
-        enterClassName="translate-y-0 scale-100 opacity-100"
-        exitClassName="translate-y-1 scale-[0.98] opacity-0 pointer-events-none"
+        positionClassName="bottom-full left-0 mb-1.5"
+        className="w-64 max-w-[calc(100vw-2rem)] p-2.5"
       >
         <div className="space-y-1.5 text-xs">
           {msg.model && (
@@ -1607,7 +1607,7 @@ function MessageBubbleInner({
             </div>
           )}
         </div>
-      </AnimatedPresenceBox>
+      </FloatingMenu>
     </div>
   ) : null
 

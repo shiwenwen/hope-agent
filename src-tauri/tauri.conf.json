@@ -16,6 +16,7 @@
         "title": "Hope Agent",
         "titleBarStyle": "Overlay",
         "hiddenTitle": true,
+        "acceptFirstMouse": true,
         "trafficLightPosition": {
           "x": 8,
           "y": 18

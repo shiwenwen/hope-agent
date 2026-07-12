@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react"
 import { toast } from "sonner"
 import { getTransport } from "@/lib/transport-provider"
+import { TRANSPORT_EVENT_RESYNC_REQUIRED } from "@/lib/transport"
 import { useTranslation } from "react-i18next"
 import { logger } from "@/lib/logger"
 import { desktopUnreadCount } from "@/lib/unread"
@@ -600,11 +601,20 @@ export function useChatSession({
     const offApproval = getTransport().listen("approval_required", schedule)
     const offAskUser = getTransport().listen("ask_user_request", schedule)
     const offChanged = getTransport().listen("session_pending_interactions_changed", schedule)
+    const offResync = getTransport().listen(TRANSPORT_EVENT_RESYNC_REQUIRED, schedule)
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") schedule()
+    }
+    window.addEventListener("focus", schedule)
+    document.addEventListener("visibilitychange", onVisibilityChange)
     return () => {
       if (timer) clearTimeout(timer)
       offApproval()
       offAskUser()
       offChanged()
+      offResync()
+      window.removeEventListener("focus", schedule)
+      document.removeEventListener("visibilitychange", onVisibilityChange)
     }
   }, [reloadSessions])
 

@@ -34,8 +34,6 @@ export default function QuickPromptMenu({
     selectedRef.current?.scrollIntoView({ block: "nearest" })
   }, [selectedIndex])
 
-  if (!isOpen) return null
-
   const sectionHeaderClass =
     "flex items-center gap-2 px-2.5 py-1 text-[11px] font-medium text-muted-foreground/70 uppercase tracking-wider"
   const rowClass = (selected: boolean) =>
@@ -77,7 +75,7 @@ export default function QuickPromptMenu({
               className={rowClass(isSelected)}
               onClick={() => onSelect(entry)}
               onMouseEnter={() => onHover(index)}
-              title={entry.content}
+              data-ha-title-tip={entry.content}
             >
               <Hash className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary/70" />
               <span className="min-w-0 flex-1">

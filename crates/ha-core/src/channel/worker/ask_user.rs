@@ -224,6 +224,21 @@ pub async fn drop_pending_by_request_id(request_id: &str) {
     }
 }
 
+/// Remove every pending ask_user entry owned by a deleted/purged session.
+pub async fn drop_pending_for_session(session_id: &str) {
+    {
+        let mut map = get_button_pending().lock().await;
+        map.retain(|_, pending| pending.group.session_id != session_id);
+    }
+    {
+        let mut map = get_text_pending().lock().await;
+        map.retain(|_, list| {
+            list.retain(|pending| pending.group.session_id != session_id);
+            !list.is_empty()
+        });
+    }
+}
+
 // ── Button / prompt rendering ─────────────────────────────────────
 
 fn tr(locale: &str, row: [&'static str; 12]) -> &'static str {
@@ -495,6 +510,16 @@ pub fn spawn_channel_ask_user_listener(channel_db: Arc<ChannelDB>, registry: Arc
                 Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
             };
 
+            if event.name == ask_user_mod::EVENT_ASK_USER_RESOLVED {
+                if let Some(request_id) = event
+                    .payload
+                    .get("requestId")
+                    .and_then(serde_json::Value::as_str)
+                {
+                    drop_pending_by_request_id(request_id).await;
+                }
+                continue;
+            }
             if event.name == ask_user_mod::EVENT_ASK_USER_TIMED_OUT {
                 handle_timeout_event(event.payload.clone(), channel_db.clone(), registry.clone())
                     .await;

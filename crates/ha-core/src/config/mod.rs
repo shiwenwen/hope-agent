@@ -736,7 +736,7 @@ pub(crate) fn default_tool_timeout() -> u64 {
 }
 
 pub(crate) fn default_ask_user_question_timeout() -> u64 {
-    1800
+    0
 }
 
 pub(crate) fn default_theme() -> String {
@@ -1216,7 +1216,7 @@ pub struct AppConfig {
     pub ask_user_question_timeout_enabled: bool,
     /// Timeout in seconds for ask_user_question tool waiting for user response
     /// when `ask_user_question_timeout_enabled` is true.
-    /// Default duration: 1800 (30 minutes). 0 = no timeout (wait forever).
+    /// Default duration: 0 (no timeout; wait forever).
     #[serde(default = "default_ask_user_question_timeout")]
     pub ask_user_question_timeout_secs: u64,
 

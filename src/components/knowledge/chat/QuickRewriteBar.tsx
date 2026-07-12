@@ -155,7 +155,7 @@ export function QuickRewriteBar({ kbId, notePath, before, onApply, onClose }: Pr
   )
 
   return (
-    <div className="w-[420px] max-w-[90vw] rounded-xl border border-border/60 bg-popover/95 p-3 shadow-[0_8px_30px_rgb(0,0,0,0.18)] backdrop-blur-xl">
+    <div className="w-[420px] max-w-[90vw] p-3">
       <div className="mb-2 flex items-center gap-1.5">
         <Sparkles className="h-3.5 w-3.5 text-primary" />
         <span className="text-xs font-medium">{t("knowledge.quickRewrite.title")}</span>

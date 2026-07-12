@@ -1765,18 +1765,16 @@ export default function MessageList({
         </button>
       </AnimatedPresenceBox>
 
-      {contextMenu && (
-        <MessageContextMenu
-          contextMenu={contextMenu}
-          onCopy={(index, selectedText) => {
-            const msg = messages[index]
-            const content = selectedText ?? msg?.content
-            if (content) handleCopyMessage(content, index)
-          }}
-          onAddToChat={onAddMessageQuote}
-          onClose={() => setContextMenu(null)}
-        />
-      )}
+      <MessageContextMenu
+        contextMenu={contextMenu}
+        onCopy={(index, selectedText) => {
+          const msg = messages[index]
+          const content = selectedText ?? msg?.content
+          if (content) handleCopyMessage(content, index)
+        }}
+        onAddToChat={onAddMessageQuote}
+        onClose={() => setContextMenu(null)}
+      />
     </div>
   )
 }

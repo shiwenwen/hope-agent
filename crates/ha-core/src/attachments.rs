@@ -306,6 +306,118 @@ pub fn persist_chat_user_attachments_meta(
     }
 }
 
+/// Move queue attachments into the session-owned attachment directory before
+/// serializing the queue row. Uploaded image bytes are cleared after a durable
+/// `file_path` is established so the queue DB never balloons with base64 data;
+/// quotes retain their inline excerpt and mention attachments remain references.
+pub fn persist_queued_chat_attachments(
+    session_id: &str,
+    request_id: &str,
+    attachments: &mut [Attachment],
+) -> Result<()> {
+    // A text-only queued message has no attachment directory to prepare. The
+    // generic persistence helper intentionally returns before creating one for
+    // an empty slice, so avoid canonicalizing a path that does not exist yet.
+    if attachments.is_empty() {
+        return Ok(());
+    }
+    let _ = persist_chat_user_attachments_meta(session_id, attachments)?;
+    let attachment_root = paths::attachments_dir(session_id)?;
+    let canonical_root = attachment_root.canonicalize()?;
+    let safe_request_id: String = request_id
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_') {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    let queue_prefix = format!("queue_{safe_request_id}_");
+    for attachment in attachments {
+        if attachment.file_path.is_some()
+            && matches!(
+                attachment.source.as_deref(),
+                Some("upload") | Some(PASTED_TEXT_SOURCE)
+            )
+        {
+            if let Some(path) = attachment.file_path.as_deref().map(PathBuf::from) {
+                let canonical_path = path.canonicalize()?;
+                if canonical_path.starts_with(&canonical_root) {
+                    let basename = canonical_path
+                        .file_name()
+                        .and_then(|name| name.to_str())
+                        .unwrap_or("attachment");
+                    if !basename.starts_with(&queue_prefix) {
+                        let queued_path = attachment_root
+                            .join(format!("{queue_prefix}{}_{basename}", uuid::Uuid::new_v4()));
+                        match std::fs::rename(&canonical_path, &queued_path) {
+                            Ok(()) => {}
+                            Err(_) => {
+                                std::fs::copy(&canonical_path, &queued_path)?;
+                                std::fs::remove_file(&canonical_path)?;
+                            }
+                        }
+                        attachment.file_path = Some(queued_path.to_string_lossy().to_string());
+                    }
+                }
+            }
+            attachment.data = None;
+        }
+    }
+    Ok(())
+}
+
+/// Remove files owned exclusively by a discarded durable queue row. The
+/// request-id filename prefix makes this fail closed: mention/quote paths and
+/// files belonging to another row are never touched.
+pub fn remove_discarded_queued_attachments(
+    session_id: &str,
+    request_id: &str,
+    attachments: &[Attachment],
+) {
+    let Ok(root) = paths::attachments_dir(session_id) else {
+        return;
+    };
+    let Ok(canonical_root) = root.canonicalize() else {
+        return;
+    };
+    let safe_request_id: String = request_id
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_') {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    let queue_prefix = format!("queue_{safe_request_id}_");
+    for attachment in attachments {
+        if !matches!(
+            attachment.source.as_deref(),
+            Some("upload") | Some(PASTED_TEXT_SOURCE)
+        ) {
+            continue;
+        }
+        let Some(path) = attachment.file_path.as_deref().map(PathBuf::from) else {
+            continue;
+        };
+        let Ok(canonical_path) = path.canonicalize() else {
+            continue;
+        };
+        let owned = canonical_path.starts_with(&canonical_root)
+            && canonical_path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.starts_with(&queue_prefix));
+        if owned {
+            let _ = std::fs::remove_file(canonical_path);
+        }
+    }
+}
+
 /// Copy durable attachment files referenced by a message into a forked
 /// session and rewrite the known attachment metadata shapes to point at the
 /// new session. Workspace quote references and unknown metadata are left
@@ -892,6 +1004,21 @@ mod tests {
 
             assert!(meta.is_none());
             assert_eq!(attachments[0].file_path.as_deref(), Some(original.as_str()));
+        });
+    }
+
+    #[test]
+    fn persist_queued_chat_attachments_accepts_text_only_message_without_directory() {
+        let root = tempfile::tempdir().expect("tempdir");
+        crate::test_support::with_env_vars(&[("HA_DATA_DIR", root.path())], || {
+            let mut attachments = Vec::new();
+            persist_queued_chat_attachments("session-text-only", "request", &mut attachments)
+                .expect("text-only queue persistence");
+            assert!(!root
+                .path()
+                .join("attachments")
+                .join("session-text-only")
+                .exists());
         });
     }
 }

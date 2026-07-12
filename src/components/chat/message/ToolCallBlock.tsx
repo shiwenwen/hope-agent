@@ -426,7 +426,7 @@ export default function ToolCallBlock({ tool, shimmer, onOpenDiff }: ToolCallBlo
         )}
         <span
           className="truncate font-mono text-[11px] text-muted-foreground/60"
-          title={displayArgsTitle}
+          data-ha-title-tip={displayArgsTitle}
         >
           {displayArgs}
         </span>

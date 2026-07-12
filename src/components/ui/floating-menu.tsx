@@ -1,4 +1,12 @@
-import { useEffect, type AriaRole, type MouseEventHandler, type ReactNode } from "react"
+import {
+  useEffect,
+  type AriaRole,
+  type CSSProperties,
+  type MouseEventHandler,
+  type ReactNode,
+  type Ref,
+} from "react"
+import { createPortal } from "react-dom"
 
 import { AnimatedPresenceBox } from "@/components/ui/animated-presence"
 import { UI_EASING, UI_MOTION } from "@/components/ui/motion"
@@ -19,10 +27,19 @@ interface FloatingMenuProps {
   onEscapeKeyDown?: () => void
   onClick?: MouseEventHandler<HTMLDivElement>
   role?: AriaRole
+  /** Fixed positioning is used for pointer/selection anchored surfaces. */
+  strategy?: "absolute" | "fixed"
+  /** Dynamic coordinates such as `{ top, left }`. */
+  style?: CSSProperties
+  /** Fixed-coordinate surfaces should portal to avoid transformed ancestors. */
+  portal?: boolean
+  elementRef?: Ref<HTMLDivElement>
 }
 
 export const FLOATING_MENU_SURFACE_CLASS =
   "rounded-floating border border-border-soft bg-surface-floating/95 text-popover-foreground shadow-floating backdrop-blur-xl"
+
+export const FLOATING_MENU_RADIX_MOTION_CLASS = "ha-radix-menu-motion"
 
 export const FLOATING_MENU_ITEM_CLASS =
   "flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left text-[13px] outline-none transition-colors duration-150 hover:bg-secondary/60 hover:text-foreground focus-visible:bg-secondary/60 focus-visible:text-foreground"
@@ -42,6 +59,10 @@ export function FloatingMenu({
   onEscapeKeyDown,
   onClick,
   role,
+  strategy = "absolute",
+  style,
+  portal = false,
+  elementRef,
 }: FloatingMenuProps) {
   useEffect(() => {
     if (!open || !onEscapeKeyDown) return
@@ -54,7 +75,7 @@ export function FloatingMenu({
     return () => document.removeEventListener("keydown", onKeyDown)
   }, [open, onEscapeKeyDown])
 
-  return (
+  const content = (
     <AnimatedPresenceBox
       open={open}
       durationMs={durationMs}
@@ -63,7 +84,8 @@ export function FloatingMenu({
       enterEasing={UI_EASING.menuEnter}
       exitEasing={UI_EASING.menuExit}
       className={cn(
-        "absolute z-50 transform-gpu will-change-[opacity,transform]",
+        strategy === "fixed" ? "fixed" : "absolute",
+        "z-50 transform-gpu will-change-[opacity,transform]",
         FLOATING_MENU_SURFACE_CLASS,
         originClassName,
         positionClassName,
@@ -74,8 +96,12 @@ export function FloatingMenu({
       exitClassName={exitClassName}
       onClick={onClick}
       role={role}
+      style={style}
+      elementRef={elementRef}
     >
       {children}
     </AnimatedPresenceBox>
   )
+
+  return portal && typeof document !== "undefined" ? createPortal(content, document.body) : content
 }

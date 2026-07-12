@@ -4,6 +4,7 @@ import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { logger } from "@/lib/logger"
 import { Button } from "@/components/ui/button"
+import { FloatingMenu } from "@/components/ui/floating-menu"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -164,13 +165,19 @@ function SortableProviderCard({
             <MoreVertical className="h-3.5 w-3.5" />
           </Button>
           {menuId === provider.id && (
-            <>
-              <div className="fixed inset-0 z-40" onClick={() => setMenuId(null)} />
-              <div className="absolute right-0 top-8 z-50 bg-card border border-border rounded-lg shadow-lg py-1 min-w-[130px]">
+            <div className="fixed inset-0 z-40" onClick={() => setMenuId(null)} />
+          )}
+          <FloatingMenu
+            open={menuId === provider.id}
+            positionClassName="right-0 top-8"
+            originClassName="origin-top-right"
+            className="ha-menu-from-top min-w-[130px] p-1.5"
+            onEscapeKeyDown={() => setMenuId(null)}
+          >
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="h-auto w-full justify-start gap-2 rounded-none px-3 py-1.5 text-xs font-normal text-foreground hover:bg-secondary"
+                  className="h-auto w-full justify-start gap-2 rounded-md px-3 py-1.5 text-xs font-normal text-foreground hover:bg-secondary/60"
                   onClick={() => {
                     setMenuId(null)
                     onEditProvider(provider)
@@ -182,7 +189,7 @@ function SortableProviderCard({
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="h-auto w-full justify-start gap-2 rounded-none px-3 py-1.5 text-xs font-normal text-foreground hover:bg-secondary"
+                  className="h-auto w-full justify-start gap-2 rounded-md px-3 py-1.5 text-xs font-normal text-foreground hover:bg-secondary/60"
                   onClick={() => onToggle(provider)}
                 >
                   {provider.enabled ? (
@@ -201,7 +208,7 @@ function SortableProviderCard({
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="h-auto w-full justify-start gap-2 rounded-none px-3 py-1.5 text-xs font-normal text-foreground hover:bg-secondary"
+                    className="h-auto w-full justify-start gap-2 rounded-md px-3 py-1.5 text-xs font-normal text-foreground hover:bg-secondary/60"
                     onClick={() => {
                       setMenuId(null)
                       onCodexReauth()
@@ -215,16 +222,14 @@ function SortableProviderCard({
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="h-auto w-full justify-start gap-2 rounded-none px-3 py-1.5 text-xs font-normal text-red-400 hover:bg-secondary"
+                    className="h-auto w-full justify-start gap-2 rounded-md px-3 py-1.5 text-xs font-normal text-red-400 hover:bg-secondary/60"
                     onClick={() => onDelete(provider.id)}
                   >
                     <Trash2 className="h-3 w-3" />
                     {t("common.delete")}
                   </Button>
                 )}
-              </div>
-            </>
-          )}
+          </FloatingMenu>
         </div>
       </div>
 

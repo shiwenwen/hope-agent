@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from "react"
 import { useTranslation } from "react-i18next"
 import { useClickOutside } from "@/hooks/useClickOutside"
+import { FloatingMenu } from "@/components/ui/floating-menu"
 import { IconTip } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
 import { CircleAlert, Library, Loader2, Lock } from "lucide-react"
@@ -261,17 +262,22 @@ export default function KnowledgePicker({
         </IconTip>
       )}
 
-      {open &&
-        !btnDisabled &&
-        (variant === "menu" ? (
+      {variant === "menu" ? (
+        open &&
+        !btnDisabled && (
           <div className="mt-1 rounded-lg border border-border/50 bg-background/40 p-2 animate-in fade-in-0 slide-in-from-top-1 duration-150">
             {pickerBody}
           </div>
-        ) : (
-          <div className="absolute bottom-full left-0 mb-2 w-[300px] bg-popover/95 backdrop-blur-xl border border-border/60 rounded-xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] z-50 p-3 animate-in fade-in-0 zoom-in-95 slide-in-from-bottom-1 duration-150">
-            {pickerBody}
-          </div>
-        ))}
+        )
+      ) : (
+        <FloatingMenu
+          open={open && !btnDisabled}
+          className="w-[300px] p-3"
+          onEscapeKeyDown={() => setOpen(false)}
+        >
+          {pickerBody}
+        </FloatingMenu>
+      )}
     </div>
   )
 }

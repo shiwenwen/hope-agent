@@ -749,7 +749,7 @@ pub async fn get_ask_user_question_timeout_enabled() -> Result<Json<Value>, AppE
 pub async fn set_ask_user_question_timeout(
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, AppError> {
-    let secs = body.get("secs").and_then(|v| v.as_u64()).unwrap_or(1800);
+    let secs = body.get("secs").and_then(|v| v.as_u64()).unwrap_or(0);
     ha_core::config::mutate_config_async(("ask_user_question_timeout", "http"), move |store| {
         store.ask_user_question_timeout_secs = secs;
         Ok(())

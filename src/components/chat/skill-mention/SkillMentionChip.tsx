@@ -20,7 +20,7 @@ export function SkillMentionChip({ name }: { name: string }) {
   return (
     <span
       data-skill-mention={name}
-      title={label}
+      data-ha-title-tip={label}
       className={cn(
         "mx-0.5 inline-flex items-center gap-1 rounded-md border px-1.5 align-baseline",
         "text-[0.95em] font-medium leading-snug",

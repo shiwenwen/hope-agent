@@ -152,7 +152,7 @@ export default function BrowserPanel({
                 ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
                 : "bg-blue-500/15 text-blue-700 dark:text-blue-300",
             )}
-            title={t("chat.browserPanel.backendBadgeTooltip", {
+            data-ha-title-tip={t("chat.browserPanel.backendBadgeTooltip", {
               backend: frame.backend,
             })}
           >

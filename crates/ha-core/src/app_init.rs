@@ -965,10 +965,9 @@ pub async fn start_background_tasks() {
             );
         }
 
-        // Clean up the `ask_user_questions` table: drop old answered rows and
-        // expire any still-pending rows left behind by a previous process
-        // (their in-memory oneshots are gone, so the UI could not deliver
-        // answers to them anyway).
+        // Clean up the `ask_user_questions` table: drop old answered rows,
+        // expire tool rows whose in-memory oneshots vanished on restart, and
+        // re-arm durable owner-plane timeout tasks.
         tokio::spawn(async move {
             if let Some(db) = crate::get_session_db() {
                 if let Err(e) = db.purge_old_answered_ask_user_groups(7) {
@@ -981,10 +980,9 @@ pub async fn start_background_tasks() {
                 }
             }
 
-            // Expire any rows left pending by a previous process. The in-memory
-            // oneshot registry is empty at startup, so a "resume" would produce
-            // orphaned UI entries whose submissions fail with "No pending plan
-            // question request".
+            // Tool-created rows cannot resume because the oneshot registry is
+            // empty. Durable owner rows are preserved by this method and
+            // restored immediately afterward.
             if let Some(db) = crate::get_session_db() {
                 match db.expire_pending_ask_user_groups() {
                     Ok(0) => {}
@@ -1001,6 +999,21 @@ pub async fn start_background_tasks() {
                         e
                     ),
                 }
+            }
+            match crate::ask_user::restore_owner_question_timeouts() {
+                Ok(0) => {}
+                Ok(n) => app_info!(
+                    "ask_user",
+                    "startup",
+                    "Re-armed {} durable owner ask_user timeout(s)",
+                    n
+                ),
+                Err(e) => app_warn!(
+                    "ask_user",
+                    "startup",
+                    "Failed to restore owner ask_user timeouts: {}",
+                    e
+                ),
             }
         });
 
@@ -1299,6 +1312,14 @@ pub async fn start_minimal_background_tasks() {
                         e
                     );
                 }
+            }
+            if let Err(e) = crate::ask_user::restore_owner_question_timeouts() {
+                app_warn!(
+                    "ask_user",
+                    "startup",
+                    "Failed to restore owner ask_user timeouts: {}",
+                    e
+                );
             }
         });
 

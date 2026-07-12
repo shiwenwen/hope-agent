@@ -1,6 +1,6 @@
 import { useTranslation } from "react-i18next"
 import { Copy, Quote } from "lucide-react"
-import { createPortal } from "react-dom"
+import { FloatingMenu } from "@/components/ui/floating-menu"
 import type { PendingMessageQuote } from "@/types/chat"
 
 export interface MessageContextMenuState {
@@ -12,7 +12,7 @@ export interface MessageContextMenuState {
 }
 
 interface MessageContextMenuProps {
-  contextMenu: MessageContextMenuState
+  contextMenu: MessageContextMenuState | null
   onCopy: (index: number, selectedText?: string) => void
   onAddToChat?: (quote: PendingMessageQuote) => void
   onClose: () => void
@@ -26,37 +26,46 @@ export default function MessageContextMenu({
 }: MessageContextMenuProps) {
   const { t } = useTranslation()
 
-  return createPortal(
-    <div
-      className="fixed z-[100] min-w-[140px] rounded-lg border border-border bg-popover p-1 shadow-lg animate-in fade-in-0 zoom-in-95"
-      style={{ top: contextMenu.y, left: contextMenu.x }}
-      onPointerDown={(e) => e.stopPropagation()}
+  return (
+    <FloatingMenu
+      open={contextMenu !== null}
+      strategy="fixed"
+      portal
+      positionClassName=""
+      originClassName="origin-top-left"
+      className="z-[100] min-w-[140px] p-1.5"
+      style={{ top: contextMenu?.y ?? 0, left: contextMenu?.x ?? 0 }}
     >
-      <button
-        type="button"
-        className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-sm text-foreground hover:bg-muted/80 transition-colors"
-        onClick={() => {
-          onCopy(contextMenu.index, contextMenu.selectedText)
-          onClose()
-        }}
-      >
-        <Copy className="h-3.5 w-3.5" />
-        {t("chat.copy")}
-      </button>
-      {contextMenu.selectedText && contextMenu.quoteRole && onAddToChat ? (
+      <div onMouseDown={(event) => event.stopPropagation()}>
         <button
-          type="button"
-          className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-sm text-foreground hover:bg-muted/80 transition-colors"
+          className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-[13px] text-foreground/80 transition-colors hover:bg-secondary/60 hover:text-foreground"
           onClick={() => {
-            onAddToChat({ role: contextMenu.quoteRole!, content: contextMenu.selectedText! })
+            if (contextMenu) onCopy(contextMenu.index, contextMenu.selectedText)
             onClose()
           }}
         >
-          <Quote className="h-3.5 w-3.5" />
-          {t("chat.messageQuote.addToChat", "添加到对话")}
+          <Copy className="h-3.5 w-3.5" />
+          {t("chat.copy")}
         </button>
-      ) : null}
-    </div>,
-    document.body,
+        {contextMenu?.selectedText && contextMenu.quoteRole && onAddToChat ? (
+          <button
+            className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-[13px] text-foreground/80 transition-colors hover:bg-secondary/60 hover:text-foreground"
+            onClick={() => {
+              const quoteRole = contextMenu?.quoteRole
+              const selectedText = contextMenu?.selectedText
+              if (!quoteRole || !selectedText) return
+              onAddToChat({
+                role: quoteRole,
+                content: selectedText,
+              })
+              onClose()
+            }}
+          >
+            <Quote className="h-3.5 w-3.5" />
+            {t("chat.messageQuote.addToChat", "添加到对话")}
+          </button>
+        ) : null}
+      </div>
+    </FloatingMenu>
   )
 }

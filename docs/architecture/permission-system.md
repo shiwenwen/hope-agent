@@ -90,7 +90,7 @@ graph TD
 | `workspace` | Docker 直接挂载当前工作区 | workspace 内 `exec` 编辑命令可放松；直接文件工具仍审批 |
 | `trusted` | 沙箱内 exec 最大自治 | 同 `workspace`，strict 项仍每次审批：保护路径、危险命令、raw CDP、macOS 高危控制、外部连接器写动作等 |
 
-切换入口：聊天输入区的 `SandboxModeSwitcher`。会话首次创建时按 `AgentConfig.capabilities.default_sandbox_mode` 解析；该字段缺失时兼容旧布尔 `AgentConfig.capabilities.sandbox`（`true → standard`，`false → off`）。非 `off` 但 Docker 不可用时，工具执行 fail-closed 返回 `SandboxUnavailable`，不得静默回落到宿主机执行。
+切换入口：聊天输入区 `PermissionModeSwitcher` 弹层内默认折叠的「沙箱」分区（选项列表复用 `SandboxModeSwitcher`）。会话首次创建时按 `AgentConfig.capabilities.default_sandbox_mode` 解析；该字段缺失时兼容旧布尔 `AgentConfig.capabilities.sandbox`（`true → standard`，`false → off`）。非 `off` 但 Docker 不可用时，工具执行 fail-closed 返回 `SandboxUnavailable`，不得静默回落到宿主机执行。
 
 ### Global YOLO（进程级）
 
@@ -269,7 +269,9 @@ pub struct PermissionGlobalConfig {
 
 一条审批可能同时呈现在多端(桌面弹窗 / Web / IM 按钮或文本),决议必须**单点广播、各端统一撤窗**,且只能由**有权的来源**应答。
 
-- **`approval:resolved` 统一撤窗(SURFACE-1)**:`submit_approval_response`(GUI/HTTP/IM)、超时(F4)、删会话(A-9)、eviction(G5)所有决议路径都 emit `approval:resolved {requestId, sessionId, decision, source}`。前端 `useApprovals` 订阅后按 `requestId` 撤窗;非本端(`locallyResolvedRef` 区分)且来源是另一交互端(`gui`/`http`/`im`)时 toast「已由他端处理」。`ApprovalResolutionSource` 全集（8）:`gui` / `http` / `im` / `session_deleted` / `timeout_deny` / `timeout_proceed` / `eviction` / `job_cancelled`（后台任务 park 在该审批上被取消时由 `dismiss_parked_job_approval` emit,R8）。
+- **`approval:resolved` 统一撤窗(SURFACE-1)**:`submit_approval_response`(GUI/HTTP/IM)、超时(F4)、删会话(A-9)、eviction(G5)、前台 Stop 所有决议路径都 emit `approval:resolved {requestId, sessionId, decision, source}`。前端 `useApprovals` 订阅后按 `requestId` 撤窗;非本端(`locallyResolvedRef` 区分)且来源是另一交互端(`gui`/`http`/`im`)时 toast「已由他端处理」。`ApprovalResolutionSource` 全集（9）:`gui` / `http` / `im` / `session_deleted` / `timeout_deny` / `timeout_proceed` / `eviction` / `job_cancelled` / `user_stop`。Stop 必须 deny 目标会话 pending approvals（全局 Stop 则 drain 全部），因为 oneshot 审批等待不直接观察 chat cancel flag；否则停止后的旧弹窗仍可能授权工具执行。HTTP Stop 必须先收口这些交互，再执行可能失败的 runtime-task cancellation。两种 Stop drain 还必须直接调用 `channel::worker::approval::drop_pending_by_request_id`，不能只依赖可能 `Lagged` 的 EventBus listener，否则 IM 文本审批状态会残留并劫持后续普通消息。
+- **snapshot 恢复是可靠性边界**:`PENDING_APPROVALS` 保存完整 `ApprovalRequest`（含 `created_at_ms` / `timeout_at_ms` / `timeout_secs` / effective `timeout_action`），owner 平面通过 Tauri `list_pending_approvals` / HTTP `GET /api/chat/approvals/pending` 读取权威快照。`useApprovals` 在 mount、transport resync、window focus、visibility 恢复以及提交结果不确定时对账；reconcile sequence 拒绝乱序响应，per-request event version 把请求期间新到的 `approval_required` 合并进快照，有界 terminal tombstone 防旧快照复活已终结请求。倒计时按请求绝对 deadline，而非弹窗出队时重启；快照刷新 `server_now_ms`，远程浏览器先换算本地 deadline，禁止假设客户端与服务器时钟同步。
+- **提交结果不确定时不乐观丢窗**:响应 RPC 成功可本地撤窗兜底；失败时保持当前授权可操作并立即 snapshot reconcile，以区分「请求未送达」与「后端已受理但响应丢失」。同一 request id 在调用未完成前禁止重复提交。
 - **IM listener 残留清理(SURFACE-2)**:`spawn_channel_approval_listener` 收到 `approval:resolved` 调 `drop_pending_by_request_id` 清 IM 端 `TEXT_PENDING`,杜绝旧 prompt 劫持后续消息。
 - **IM 应答来源 fail-closed(MISC-11 + SURFACE-3)**:按钮回调 `handle_approval_callback_with_source` 总是查 session + 校验来源,**缺源(None)直接拒**(fail-closed;共享 `validate_callback_source_for_session` 的 `None→Ok` 仅留给低风险 ask_user Q&A 路径);文本回复 `try_handle_approval_reply` submit 前复用同一 `validate_callback_source_for_session`,session 已改绑别的 chat 则拒 + `send_source_mismatch_notice`。
 - **chat 接管拒决(SURFACE-4)**:`eviction_watcher` 在 `notify_session_eviction` 门之前无条件——`pending_request_ids_for_session` 枚举 + 逐个 `submit_approval_response(Deny, source=eviction)` + `drop_pending_for_chat` 兜底,被踢 chat 的审批即时解阻塞、各端撤窗。

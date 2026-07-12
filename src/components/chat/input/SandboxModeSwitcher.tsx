@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { FloatingMenu } from "@/components/ui/floating-menu"
+import { IconTip } from "@/components/ui/tooltip"
 import { useClickOutside } from "@/hooks/useClickOutside"
 import { cn } from "@/lib/utils"
 import { getTransport } from "@/lib/transport-provider"
@@ -52,28 +53,29 @@ const MODE_THEME: Record<SandboxMode, ModeTheme> = {
   },
 }
 
-export default function SandboxModeSwitcher({
-  sandboxMode,
-  onSandboxModeChange,
-  variant = "toolbar",
-}: {
+export interface SandboxModeOptionsProps {
   sandboxMode: SandboxMode
   onSandboxModeChange: (mode: SandboxMode) => void
-  /** "toolbar" (default) = compact button + floating popover in the composer
-   *  toolbar; "menu" = full-width accordion row for the composer "+" overflow
-   *  when space is tight (expands inline instead of floating). */
-  variant?: "toolbar" | "menu"
-}) {
+  /** Start Docker availability checks only while the containing menu is visible. */
+  active?: boolean
+  /** Called when a selection can close its containing menu. */
+  onSelectionComplete?: () => void
+}
+
+/**
+ * Reusable sandbox choice list. The input permission menu embeds this body so
+ * permission and sandbox controls share one popover without duplicating the
+ * Docker availability check or setup hint.
+ */
+export function SandboxModeOptions({
+  sandboxMode,
+  onSandboxModeChange,
+  active = true,
+  onSelectionComplete,
+}: SandboxModeOptionsProps) {
   const { t } = useTranslation()
-  const [open, setOpen] = useState(false)
   const [status, setStatus] = useState<DockerStatus | null>(null)
   const [checking, setChecking] = useState(false)
-  const menuRef = useRef<HTMLDivElement>(null)
-
-  useClickOutside(
-    menuRef,
-    useCallback(() => setOpen(false), []),
-  )
 
   const refreshStatus = useCallback(async () => {
     setChecking(true)
@@ -88,22 +90,13 @@ export default function SandboxModeSwitcher({
   }, [])
 
   useEffect(() => {
-    if (!open) return
-    if (sandboxMode === "off") return
+    if (!active || sandboxMode === "off") return
     void refreshStatus()
-  }, [open, refreshStatus, sandboxMode])
+  }, [active, refreshStatus, sandboxMode])
 
   const dockerReady = status?.installed && status?.running
-  const activeTheme = MODE_THEME[sandboxMode]
-  const ActiveIcon = activeTheme.Icon
-  const activeLabel = t(`chat.sandboxMode.${sandboxMode}.label`, {
-    defaultValue: sandboxMode,
-  })
-  const isMenu = variant === "menu"
 
-  // Shared body: the mode list + Docker hint, used by both the floating
-  // popover (toolbar) and the inline accordion (menu).
-  const modeListBody = (
+  return (
     <div className="flex flex-col gap-0.5">
       {SESSION_SANDBOX_MODE_ORDER.map((mode) => {
         const theme = MODE_THEME[mode]
@@ -120,7 +113,7 @@ export default function SandboxModeSwitcher({
             onClick={() => {
               onSandboxModeChange(mode)
               if (mode === "off" || dockerReady) {
-                setOpen(false)
+                onSelectionComplete?.()
               } else {
                 void refreshStatus()
               }
@@ -153,6 +146,44 @@ export default function SandboxModeSwitcher({
       )}
     </div>
   )
+}
+
+export default function SandboxModeSwitcher({
+  sandboxMode,
+  onSandboxModeChange,
+  variant = "toolbar",
+}: {
+  sandboxMode: SandboxMode
+  onSandboxModeChange: (mode: SandboxMode) => void
+  /** "toolbar" (default) = compact button + floating popover in the composer
+   *  toolbar; "menu" = full-width accordion row for the composer "+" overflow
+   *  when space is tight (expands inline instead of floating). */
+  variant?: "toolbar" | "menu"
+}) {
+  const { t } = useTranslation()
+  const [open, setOpen] = useState(false)
+  const menuRef = useRef<HTMLDivElement>(null)
+
+  useClickOutside(
+    menuRef,
+    useCallback(() => setOpen(false), []),
+  )
+
+  const activeTheme = MODE_THEME[sandboxMode]
+  const ActiveIcon = activeTheme.Icon
+  const activeLabel = t(`chat.sandboxMode.${sandboxMode}.label`, {
+    defaultValue: sandboxMode,
+  })
+  const isMenu = variant === "menu"
+
+  const modeListBody = (
+    <SandboxModeOptions
+      active={open}
+      sandboxMode={sandboxMode}
+      onSandboxModeChange={onSandboxModeChange}
+      onSelectionComplete={() => setOpen(false)}
+    />
+  )
 
   return (
     <div className={cn("relative", isMenu && "w-full")} ref={menuRef}>
@@ -167,23 +198,26 @@ export default function SandboxModeSwitcher({
           )}
         >
           <ActiveIcon className="h-4 w-4 shrink-0" />
-          <span className="truncate">{t("chat.sandboxMode.menuLabel", { defaultValue: "沙箱" })}</span>
+          <span className="truncate">
+            {t("chat.sandboxMode.menuLabel", { defaultValue: "沙箱" })}
+          </span>
           <span className="ml-auto truncate text-xs text-muted-foreground">{activeLabel}</span>
         </button>
       ) : (
-        <button
-          type="button"
-          aria-label={activeLabel}
-          title={activeLabel}
-          onClick={() => setOpen(!open)}
-          className={cn(
-            "flex items-center gap-1 bg-transparent text-xs font-medium px-2 py-1 rounded-lg cursor-pointer transition-colors hover:bg-secondary shrink-0 whitespace-nowrap",
-            activeTheme.buttonTone,
-          )}
-        >
-          <ActiveIcon className="h-4 w-4 shrink-0" />
-          <span>{activeLabel}</span>
-        </button>
+        <IconTip label={activeLabel}>
+          <button
+            type="button"
+            aria-label={activeLabel}
+            onClick={() => setOpen(!open)}
+            className={cn(
+              "flex items-center gap-1 bg-transparent text-xs font-medium px-2 py-1 rounded-lg cursor-pointer transition-colors hover:bg-secondary shrink-0 whitespace-nowrap",
+              activeTheme.buttonTone,
+            )}
+          >
+            <ActiveIcon className="h-4 w-4 shrink-0" />
+            <span>{activeLabel}</span>
+          </button>
+        </IconTip>
       )}
 
       {isMenu ? (

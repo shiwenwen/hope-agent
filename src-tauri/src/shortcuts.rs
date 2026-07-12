@@ -207,6 +207,7 @@ pub(crate) fn toggle_quickchat_window(app_handle: &tauri::AppHandle) {
         .resizable(false)
         .decorations(false)
         .transparent(true)
+        .accept_first_mouse(true)
         .always_on_top(true)
         .visible(true)
         .center()

@@ -126,6 +126,7 @@ export function FileBrowserPanel({
         height: 680,
         minWidth: 480,
         minHeight: 360,
+        acceptFirstMouse: true,
         center: true,
       })
       // Compare against `webview` so a previous window's late destroyed/error

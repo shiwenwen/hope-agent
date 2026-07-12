@@ -210,7 +210,7 @@ function GroupItem({
         {fileTarget && targetText && (
           <FileMimeIcon mime="" name={fileTarget.name} className="h-3.5 w-3.5 shrink-0" />
         )}
-        <span className="text-muted-foreground/60 truncate font-mono" title={targetTitle}>
+        <span className="text-muted-foreground/60 truncate font-mono" data-ha-title-tip={targetTitle}>
           {targetText}
         </span>
         {/* Inline result preview when collapsed */}

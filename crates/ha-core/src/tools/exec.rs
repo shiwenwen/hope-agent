@@ -10,8 +10,8 @@ use crate::process_registry::{
 };
 
 use super::approval::{
-    approval_timeout_action, check_and_request_approval, is_command_allowed, ApprovalCheckError,
-    ApprovalOrigin, ApprovalResponse,
+    check_and_request_approval, is_command_allowed, ApprovalCheckError, ApprovalOrigin,
+    ApprovalResponse,
 };
 use super::TOOL_EXEC;
 
@@ -253,6 +253,7 @@ fn exec_approval_timeout_outcome(
     command: &str,
     timeout_secs: u64,
     strict: bool,
+    action: crate::config::ApprovalTimeoutAction,
 ) -> Result<ApprovalOrigin> {
     // F3 (TIMEOUT-1): a strict command (dangerous / protected-path) must never
     // run unattended on timeout — force a deny even when
@@ -270,7 +271,7 @@ fn exec_approval_timeout_outcome(
             timeout_secs,
         ));
     }
-    match approval_timeout_action() {
+    match action {
         crate::config::ApprovalTimeoutAction::Deny => {
             app_warn!(
                 "tool",
@@ -416,14 +417,14 @@ pub(crate) async fn resolve_exec_command_approval(
                     );
                     Err(super::rejection::ToolRejection::denied_by_user(TOOL_EXEC))
                 }
-                Err(ApprovalCheckError::TimedOut { timeout_secs, .. }) => {
+                Err(ApprovalCheckError::TimedOut {
+                    timeout_secs,
+                    strict,
+                    action,
+                }) => {
                     // F3: `reason.forbids_allow_always()` is the strict predicate
                     // (same one `allow_always_ok` above derives from).
-                    exec_approval_timeout_outcome(
-                        command,
-                        timeout_secs,
-                        reason.forbids_allow_always(),
-                    )
+                    exec_approval_timeout_outcome(command, timeout_secs, strict, action)
                 }
                 Err(ApprovalCheckError::Unattended { reason }) => {
                     // Surface check already logged + fired the denied hook.

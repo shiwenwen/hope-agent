@@ -2,6 +2,10 @@ import * as React from "react"
 import { useTranslation } from "react-i18next"
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu"
 import { Check, ChevronRight, ChevronDown } from "lucide-react"
+import {
+  FLOATING_MENU_RADIX_MOTION_CLASS,
+  FLOATING_MENU_SURFACE_CLASS,
+} from "@/components/ui/floating-menu"
 import { cn } from "@/lib/utils"
 
 export interface AvailableModel {
@@ -76,20 +80,28 @@ export function ModelSelector({
       </DropdownMenu.Trigger>
       <DropdownMenu.Portal>
         <DropdownMenu.Content
-          className="z-50 min-w-[12rem] overflow-hidden rounded-md border bg-popover p-1 text-popover-foreground shadow-md data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2"
-          sideOffset={4}
+          className={cn(
+            "z-50 min-w-[12rem] overflow-hidden p-1.5",
+            FLOATING_MENU_SURFACE_CLASS,
+            FLOATING_MENU_RADIX_MOTION_CLASS,
+          )}
+          sideOffset={6}
           align="start"
         >
           {Object.entries(modelsByProvider).map(([providerName, models]) => (
             <DropdownMenu.Sub key={providerName}>
-              <DropdownMenu.SubTrigger className="flex cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none focus:bg-accent data-[state=open]:bg-accent">
+              <DropdownMenu.SubTrigger className="flex cursor-default select-none items-center rounded-md px-2.5 py-1.5 text-[13px] text-foreground/80 outline-none transition-colors duration-150 focus:bg-secondary/60 focus:text-foreground data-[state=open]:bg-secondary data-[state=open]:text-foreground data-[state=open]:shadow-sm">
                 {providerName}
                 <ChevronRight className="ml-auto h-4 w-4" />
               </DropdownMenu.SubTrigger>
               <DropdownMenu.Portal>
                 <DropdownMenu.SubContent
-                  className="z-50 min-w-[8rem] overflow-hidden rounded-md border bg-popover p-1 text-popover-foreground shadow-lg data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2"
-                  sideOffset={4}
+                  className={cn(
+                    "z-50 min-w-[8rem] overflow-hidden p-1.5",
+                    FLOATING_MENU_SURFACE_CLASS,
+                    FLOATING_MENU_RADIX_MOTION_CLASS,
+                  )}
+                  sideOffset={6}
                   alignOffset={-4}
                 >
                   {models.map((m) => {
@@ -98,7 +110,7 @@ export function ModelSelector({
                     return (
                       <DropdownMenu.Item
                         key={`${m.providerId}::${m.modelId}`}
-                        className="relative flex cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50"
+                        className="relative flex cursor-default select-none items-center rounded-md px-2.5 py-1.5 text-[13px] text-foreground/80 outline-none transition-colors duration-150 focus:bg-secondary/60 focus:text-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50"
                         onSelect={() => onChange(m.providerId, m.modelId)}
                       >
                         <span className="absolute right-2 flex h-3.5 w-3.5 items-center justify-center">

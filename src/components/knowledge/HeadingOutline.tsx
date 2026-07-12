@@ -3,6 +3,7 @@ import { useCallback, useMemo, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 
 import { IconTip } from "@/components/ui/tooltip"
+import { FloatingMenu } from "@/components/ui/floating-menu"
 import { useClickOutside } from "@/hooks/useClickOutside"
 
 import { parseHeadings } from "./outline"
@@ -36,8 +37,13 @@ export default function HeadingOutline({ content, onJump }: HeadingOutlineProps)
           <List className="h-4 w-4" />
         </button>
       </IconTip>
-      {open && (
-        <div className="absolute right-0 top-full z-50 mt-1 max-h-80 w-64 overflow-auto rounded-xl border border-border/60 bg-popover/95 p-1.5 shadow-[0_8px_30px_rgb(0,0,0,0.12)] backdrop-blur-xl duration-150 animate-in fade-in-0 zoom-in-95">
+      <FloatingMenu
+        open={open}
+        positionClassName="top-full right-0 mt-1.5"
+        originClassName="origin-top-right"
+        className="ha-menu-from-top max-h-80 w-64 overflow-auto p-1.5"
+        onEscapeKeyDown={() => setOpen(false)}
+      >
           {headings.length === 0 ? (
             <div className="px-2 py-3 text-center text-xs text-muted-foreground">
               {t("knowledge.outlineEmpty", "No headings")}
@@ -59,8 +65,7 @@ export default function HeadingOutline({ content, onJump }: HeadingOutlineProps)
               </IconTip>
             ))
           )}
-        </div>
-      )}
+      </FloatingMenu>
     </div>
   )
 }

@@ -1742,7 +1742,7 @@ function BenchmarkReportPanel({
             className="h-7 gap-1.5"
             onClick={() => onGenerate("comparison", null)}
             disabled={Boolean(actionId)}
-            title={t("dashboard.learning.generateComparisonReport", {
+            data-ha-title-tip={t("dashboard.learning.generateComparisonReport", {
               defaultValue: "Generate comparison report",
             })}
           >
@@ -1759,7 +1759,7 @@ function BenchmarkReportPanel({
             className="h-7 gap-1.5"
             onClick={() => onGenerate("release", null)}
             disabled={Boolean(actionId)}
-            title={t("dashboard.learning.generateReleaseReport", {
+            data-ha-title-tip={t("dashboard.learning.generateReleaseReport", {
               defaultValue: "Generate release report",
             })}
           >
@@ -1776,7 +1776,7 @@ function BenchmarkReportPanel({
             className="h-7 gap-1.5"
             onClick={() => latestCampaign && onGenerate("campaign", latestCampaign.id)}
             disabled={Boolean(actionId) || !latestCampaign}
-            title={t("dashboard.learning.generateCampaignReport", {
+            data-ha-title-tip={t("dashboard.learning.generateCampaignReport", {
               defaultValue: "Generate campaign report",
             })}
           >
@@ -1816,7 +1816,9 @@ function BenchmarkReportPanel({
                     variant="ghost"
                     className="h-6 px-1.5"
                     onClick={() => onCopyPath(report.markdownPath)}
-                    title={t("dashboard.learning.copyReportPath", {
+                    data-ha-title-tip={t("dashboard.learning.copyReportPath", {
+                      defaultValue: "Copy report path",
+                    })} aria-label={t("dashboard.learning.copyReportPath", {
                       defaultValue: "Copy report path",
                     })}
                   >
@@ -1828,7 +1830,15 @@ function BenchmarkReportPanel({
                     className="h-6 px-1.5"
                     onClick={() => onMarkReleaseEvidence(report, !report.releaseEvidence)}
                     disabled={Boolean(actionId)}
-                    title={
+                    data-ha-title-tip={
+                      report.releaseEvidence
+                        ? t("dashboard.learning.toggleReleaseEvidenceRemove", {
+                            defaultValue: "Remove release evidence",
+                          })
+                        : t("dashboard.learning.toggleReleaseEvidenceAdd", {
+                            defaultValue: "Mark as release evidence",
+                          })
+                    } aria-label={
                       report.releaseEvidence
                         ? t("dashboard.learning.toggleReleaseEvidenceRemove", {
                             defaultValue: "Remove release evidence",
@@ -1842,10 +1852,10 @@ function BenchmarkReportPanel({
                   </Button>
                 </div>
               </div>
-              <p className="mt-1.5 line-clamp-2 text-[10px] text-muted-foreground" title={report.summary}>
+              <p className="mt-1.5 line-clamp-2 text-[10px] text-muted-foreground" data-ha-title-tip={report.summary}>
                 {report.summary}
               </p>
-              <div className="mt-1.5 truncate text-[10px] text-muted-foreground" title={report.markdownPath}>
+              <div className="mt-1.5 truncate text-[10px] text-muted-foreground" data-ha-title-tip={report.markdownPath}>
                 {report.markdownPath}
               </div>
             </div>
@@ -1898,7 +1908,7 @@ function ContinuousBenchmarkGatePanel({
           className="h-7 gap-1.5"
           onClick={onMaterializeBacklog}
           disabled={Boolean(actionId) || !gate || gate.summary.pendingFailureItems === 0}
-          title={t("dashboard.learning.materializeBenchmarkBacklog", {
+          data-ha-title-tip={t("dashboard.learning.materializeBenchmarkBacklog", {
             defaultValue: "Create backlog items from failed benchmark cases",
           })}
         >
@@ -1994,7 +2004,9 @@ function ContinuousBenchmarkGatePanel({
                         className="h-6 px-1.5"
                         onClick={() => onResolveBacklogItem(item)}
                         disabled={Boolean(actionId)}
-                        title={t("dashboard.learning.resolveBacklogItem", {
+                        data-ha-title-tip={t("dashboard.learning.resolveBacklogItem", {
+                          defaultValue: "Resolve backlog item",
+                        })} aria-label={t("dashboard.learning.resolveBacklogItem", {
                           defaultValue: "Resolve backlog item",
                         })}
                       >
@@ -2063,7 +2075,7 @@ function BenchmarkCorpusPanel({
           className="h-7 gap-1.5"
           onClick={onImportSample}
           disabled={actionId === "import"}
-          title={t("dashboard.learning.importSampleTaskPack", {
+          data-ha-title-tip={t("dashboard.learning.importSampleTaskPack", {
             defaultValue: "Import sample task pack",
           })}
         >
@@ -2114,7 +2126,7 @@ function BenchmarkCorpusPanel({
                   <span
                     key={bucket.key}
                     className="max-w-full truncate rounded bg-secondary/40 px-1.5 py-0.5 text-[10px] text-muted-foreground"
-                    title={bucket.key}
+                    data-ha-title-tip={bucket.key}
                   >
                     {bucket.key}:{bucket.count}
                   </span>
@@ -2126,7 +2138,7 @@ function BenchmarkCorpusPanel({
                     <span
                       key={check.name}
                       className={`max-w-full truncate rounded px-1.5 py-0.5 text-[10px] ${releaseGateCheckTone(check.status)}`}
-                      title={`${check.expected} · ${check.actual}`}
+                      data-ha-title-tip={`${check.expected} · ${check.actual}`}
                     >
                       {check.name}: {check.actual}
                     </span>
@@ -2193,7 +2205,9 @@ function BenchmarkTaskPackRow({
             className="h-6 px-1.5"
             onClick={() => onValidate(pack)}
             disabled={Boolean(busyAction)}
-            title={t("dashboard.learning.validateTaskPack", {
+            data-ha-title-tip={t("dashboard.learning.validateTaskPack", {
+              defaultValue: "Validate task pack",
+            })} aria-label={t("dashboard.learning.validateTaskPack", {
               defaultValue: "Validate task pack",
             })}
           >
@@ -2206,7 +2220,9 @@ function BenchmarkTaskPackRow({
               className="h-6 px-1.5"
               onClick={() => onUpdateStatus(pack, "active")}
               disabled={Boolean(busyAction)}
-              title={t("dashboard.learning.activateTaskPack", {
+              data-ha-title-tip={t("dashboard.learning.activateTaskPack", {
+                defaultValue: "Activate task pack",
+              })} aria-label={t("dashboard.learning.activateTaskPack", {
                 defaultValue: "Activate task pack",
               })}
             >
@@ -2220,7 +2236,9 @@ function BenchmarkTaskPackRow({
               className="h-6 px-1.5 text-muted-foreground hover:text-amber-700 dark:hover:text-amber-300"
               onClick={() => onUpdateStatus(pack, "archived")}
               disabled={Boolean(busyAction)}
-              title={t("dashboard.learning.archiveTaskPack", {
+              data-ha-title-tip={t("dashboard.learning.archiveTaskPack", {
+                defaultValue: "Archive task pack",
+              })} aria-label={t("dashboard.learning.archiveTaskPack", {
                 defaultValue: "Archive task pack",
               })}
             >
@@ -2244,7 +2262,7 @@ function BenchmarkTaskPackRow({
                 ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
                 : "bg-secondary/40 text-muted-foreground"
             }`}
-            title={`${task.taskType} · ${task.difficulty}`}
+            data-ha-title-tip={`${task.taskType} · ${task.difficulty}`}
           >
             {task.taskId}@{task.version}
           </span>
@@ -2406,7 +2424,7 @@ function BenchmarkCenterPanel({
                     <span
                       key={check.name}
                       className={`max-w-full truncate rounded px-1.5 py-0.5 text-[10px] ${releaseGateCheckTone(check.status)}`}
-                      title={`${check.expected} · ${check.actual}`}
+                      data-ha-title-tip={`${check.expected} · ${check.actual}`}
                     >
                       {check.name}: {check.actual}
                     </span>
@@ -2461,7 +2479,7 @@ function BenchmarkCenterPanel({
                       {row.warnings.length > 0 && (
                         <span
                           className="rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-700 dark:text-amber-300"
-                          title={row.warnings.join(", ")}
+                          data-ha-title-tip={row.warnings.join(", ")}
                         >
                           !
                         </span>
@@ -2541,7 +2559,7 @@ function BenchmarkCenterPanel({
                           ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
                           : "border-border/50 bg-secondary/30 text-muted-foreground"
                       }`}
-                      title={`${option.providerName}/${option.modelName}`}
+                      data-ha-title-tip={`${option.providerName}/${option.modelName}`}
                     >
                       {option.providerName}/{option.modelName}
                     </button>
@@ -2602,7 +2620,7 @@ function BenchmarkCenterPanel({
         />
       )}
       {error && (
-        <p className="mt-2 text-[10px] text-destructive line-clamp-2" title={error}>
+        <p className="mt-2 text-[10px] text-destructive line-clamp-2" data-ha-title-tip={error}>
           {t("dashboard.learning.benchmarkRunFailed", {
             defaultValue: "Run failed: {{message}}",
             message: error,
@@ -2663,7 +2681,9 @@ function BenchmarkCampaignRow({
               className="h-6 px-1.5"
               onClick={() => onRetry(campaign.id)}
               disabled={busy}
-              title={t("dashboard.learning.retryBenchmarkCampaign", {
+              data-ha-title-tip={t("dashboard.learning.retryBenchmarkCampaign", {
+                defaultValue: "Retry failed campaign items",
+              })} aria-label={t("dashboard.learning.retryBenchmarkCampaign", {
                 defaultValue: "Retry failed campaign items",
               })}
             >
@@ -2677,7 +2697,9 @@ function BenchmarkCampaignRow({
               className="h-6 px-1.5 text-muted-foreground hover:text-destructive"
               onClick={() => onCancel(campaign.id)}
               disabled={busy}
-              title={t("dashboard.learning.cancelBenchmarkCampaign", {
+              data-ha-title-tip={t("dashboard.learning.cancelBenchmarkCampaign", {
+                defaultValue: "Cancel campaign",
+              })} aria-label={t("dashboard.learning.cancelBenchmarkCampaign", {
                 defaultValue: "Cancel campaign",
               })}
             >
@@ -2691,7 +2713,7 @@ function BenchmarkCampaignRow({
           <span
             key={item.id}
             className={`max-w-full truncate rounded px-1.5 py-0.5 text-[10px] ${benchmarkCampaignTone(item.status)}`}
-            title={item.error ?? item.packRunId ?? item.id}
+            data-ha-title-tip={item.error ?? item.packRunId ?? item.id}
           >
             {formatCampaignItemTarget(item.providerId, item.modelId, item.label)} · {item.status}
             {item.packRunId ? ` · ${item.packRunId}` : ""}
@@ -2704,7 +2726,7 @@ function BenchmarkCampaignRow({
         )}
       </div>
       {(campaign.error || primaryItem?.error) && (
-        <p className="mt-1.5 line-clamp-2 text-[10px] text-destructive" title={campaign.error ?? primaryItem?.error ?? undefined}>
+        <p className="mt-1.5 line-clamp-2 text-[10px] text-destructive" data-ha-title-tip={campaign.error ?? primaryItem?.error ?? undefined}>
           {campaign.error ?? primaryItem?.error}
         </p>
       )}
@@ -3079,7 +3101,7 @@ function DomainOperationalGatePanel({ report }: { report: DomainOperationalGateR
                 <span
                   key={check.name}
                   className={`max-w-full truncate rounded px-1.5 py-0.5 text-[10px] ${releaseGateCheckTone(check.status)}`}
-                  title={`${check.expected} · ${check.actual}`}
+                  data-ha-title-tip={`${check.expected} · ${check.actual}`}
                 >
                   {check.name}: {check.actual}
                 </span>
@@ -3284,7 +3306,7 @@ function DomainSoakReportPanel({ report }: { report: DomainSoakReport | null }) 
                       ? releaseGateCheckTone("failed")
                       : releaseGateCheckTone("insufficient_data")
                   }`}
-                  title={`${incident.reason} · ${incident.recommendation}`}
+                  data-ha-title-tip={`${incident.reason} · ${incident.recommendation}`}
                 >
                   {incident.source}: {incident.status}
                 </span>
@@ -3421,7 +3443,7 @@ function DomainConnectorE2EGatePanel({ report }: { report: DomainConnectorE2EGat
                 <span
                   key={check.name}
                   className={`max-w-full truncate rounded px-1.5 py-0.5 text-[10px] ${releaseGateCheckTone(check.status)}`}
-                  title={`${check.expected} · ${check.actual}`}
+                  data-ha-title-tip={`${check.expected} · ${check.actual}`}
                 >
                   {check.name}: {check.actual}
                 </span>
@@ -3532,7 +3554,7 @@ function DomainReadinessGatePanel({ report }: { report: DomainReadinessGateRepor
                 <span
                   key={check.name}
                   className={`max-w-full truncate rounded px-1.5 py-0.5 text-[10px] ${releaseGateCheckTone(check.status)}`}
-                  title={`${check.expected} · ${check.actual}`}
+                  data-ha-title-tip={`${check.expected} · ${check.actual}`}
                 >
                   {check.name}: {check.actual}
                 </span>
@@ -3639,7 +3661,7 @@ function DomainQualityGatePanel({
                 <span
                   key={check.name}
                   className={`max-w-full truncate rounded px-1.5 py-0.5 text-[10px] ${releaseGateCheckTone(check.status)}`}
-                  title={`${check.expected} · ${check.actual}`}
+                  data-ha-title-tip={`${check.expected} · ${check.actual}`}
                 >
                   {check.name}: {check.actual}
                 </span>
@@ -3898,7 +3920,7 @@ function DomainEvalCampaignPanel({
                       ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
                       : "border-border/50 bg-secondary/30 text-muted-foreground"
                   }`}
-                  title={`${option.providerName}/${option.modelName}`}
+                  data-ha-title-tip={`${option.providerName}/${option.modelName}`}
                 >
                   {option.providerName}/{option.modelName}
                 </button>
@@ -3920,7 +3942,7 @@ function DomainEvalCampaignPanel({
       </div>
       <DomainCampaignLeaderboard leaderboard={leaderboard} />
       {error && (
-        <p className="mt-2 line-clamp-2 text-[10px] text-destructive" title={error}>
+        <p className="mt-2 line-clamp-2 text-[10px] text-destructive" data-ha-title-tip={error}>
           {t("dashboard.learning.domainCampaignFailed", {
             defaultValue: "Domain campaign failed: {{message}}",
             message: error,
@@ -3977,7 +3999,7 @@ function DomainCampaignLeaderboard({
                 {row.warnings.length > 0 && (
                   <span
                     className="rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-700 dark:text-amber-300"
-                    title={row.warnings.join(", ")}
+                    data-ha-title-tip={row.warnings.join(", ")}
                   >
                     !
                   </span>
@@ -4054,7 +4076,9 @@ function DomainEvalCampaignRow({
               className="h-6 px-1.5"
               onClick={() => onGenerateLearning(campaign)}
               disabled={busy}
-              title={t("dashboard.learning.generateDomainCampaignLearning", {
+              data-ha-title-tip={t("dashboard.learning.generateDomainCampaignLearning", {
+                defaultValue: "Create learning drafts from this domain campaign",
+              })} aria-label={t("dashboard.learning.generateDomainCampaignLearning", {
                 defaultValue: "Create learning drafts from this domain campaign",
               })}
             >
@@ -4068,7 +4092,9 @@ function DomainEvalCampaignRow({
               className="h-6 px-1.5"
               onClick={() => onRetry(campaign.id)}
               disabled={busy}
-              title={t("dashboard.learning.retryDomainCampaign", {
+              data-ha-title-tip={t("dashboard.learning.retryDomainCampaign", {
+                defaultValue: "Retry failed domain campaign items",
+              })} aria-label={t("dashboard.learning.retryDomainCampaign", {
                 defaultValue: "Retry failed domain campaign items",
               })}
             >
@@ -4082,7 +4108,9 @@ function DomainEvalCampaignRow({
               className="h-6 px-1.5 text-muted-foreground hover:text-destructive"
               onClick={() => onCancel(campaign.id)}
               disabled={busy}
-              title={t("dashboard.learning.cancelDomainCampaign", {
+              data-ha-title-tip={t("dashboard.learning.cancelDomainCampaign", {
+                defaultValue: "Cancel domain campaign",
+              })} aria-label={t("dashboard.learning.cancelDomainCampaign", {
                 defaultValue: "Cancel domain campaign",
               })}
             >
@@ -4096,7 +4124,7 @@ function DomainEvalCampaignRow({
           <span
             key={item.id}
             className={`max-w-full truncate rounded px-1.5 py-0.5 text-[10px] ${benchmarkCampaignTone(item.status)}`}
-            title={item.error ?? item.fixtureRunId ?? item.evalRunId ?? item.id}
+            data-ha-title-tip={item.error ?? item.fixtureRunId ?? item.evalRunId ?? item.id}
           >
             {item.taskId} · {formatCampaignItemTarget(item.providerId, item.modelId, item.label)} · {item.status}
             {typeof item.score === "number" ? ` · ${formatScore(item.score)}` : ""}
@@ -4109,7 +4137,7 @@ function DomainEvalCampaignRow({
         )}
       </div>
       {(campaign.error || primaryItem?.error) && (
-        <p className="mt-1.5 line-clamp-2 text-[10px] text-destructive" title={campaign.error ?? primaryItem?.error ?? undefined}>
+        <p className="mt-1.5 line-clamp-2 text-[10px] text-destructive" data-ha-title-tip={campaign.error ?? primaryItem?.error ?? undefined}>
           {campaign.error ?? primaryItem?.error}
         </p>
       )}
@@ -4177,7 +4205,7 @@ function DomainFixtureSmokePanel({ runs }: { runs: DomainEvalFixtureRunRecord[] 
                   <TraceBadge active={Boolean(run.report.execution?.turnId)} label="turn" />
                 </div>
                 {run.error ? (
-                  <p className="mt-2 truncate text-[10px] text-red-600" title={run.error}>
+                  <p className="mt-2 truncate text-[10px] text-red-600" data-ha-title-tip={run.error}>
                     {run.error}
                   </p>
                 ) : null}
@@ -4262,7 +4290,7 @@ function ReleaseGatePanel({ report }: { report: CodingEvalReleaseGateReport | nu
                 <span
                   key={check.name}
                   className={`max-w-full truncate rounded px-1.5 py-0.5 text-[10px] ${releaseGateCheckTone(check.status)}`}
-                  title={`${check.expected} · ${check.actual}`}
+                  data-ha-title-tip={`${check.expected} · ${check.actual}`}
                 >
                   {check.name}: {check.actual}
                 </span>
@@ -4334,7 +4362,7 @@ function GeneralizationPanel({
                 <span
                   key={check.name}
                   className={`max-w-full truncate rounded px-1.5 py-0.5 text-[10px] ${releaseGateCheckTone(check.status)}`}
-                  title={`${check.expected} · ${check.actual}`}
+                  data-ha-title-tip={`${check.expected} · ${check.actual}`}
                 >
                   {check.name}: {check.actual}
                 </span>

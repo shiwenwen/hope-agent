@@ -9,6 +9,7 @@ import FileBrowserDetachedWindow from "./FileBrowserDetachedWindow.tsx"
 import { logger } from "./lib/logger"
 import { captureTokenFromUrl } from "./lib/api-key-storage"
 import { installDesktopContextMenuGuard } from "./lib/contextMenuGuard"
+import { installInvertedClickRecovery } from "./lib/inverted-click-recovery"
 
 // Pull `?token=XXX` out of the URL into localStorage before the transport
 // singleton is constructed. Standalone Web GUI mode (Docker / reverse
@@ -16,6 +17,7 @@ import { installDesktopContextMenuGuard } from "./lib/contextMenuGuard"
 // way — see `src/lib/api-key-storage.ts`.
 captureTokenFromUrl()
 installDesktopContextMenuGuard()
+installInvertedClickRecovery()
 
 // Flush buffered logs before page unload to prevent data loss
 window.addEventListener("beforeunload", () => {

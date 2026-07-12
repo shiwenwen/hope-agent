@@ -276,6 +276,47 @@
     var(--ha-presence-exit-easing, cubic-bezier(0.4, 0, 0.2, 1)) both;
 }
 
+/* Radix keeps menu content mounted while a close animation is running. This
+ * bridge gives portal-backed DropdownMenu / ContextMenu / Select-style
+ * surfaces the same motion contract as the local FloatingMenu primitive. */
+.ha-radix-menu-motion {
+  transform: translateZ(0);
+  will-change: opacity, transform, filter;
+}
+
+.ha-radix-menu-motion[data-state="open"],
+.ha-radix-menu-motion[data-state="delayed-open"],
+.ha-radix-menu-motion[data-state="instant-open"] {
+  animation: ha-menu-popover-enter var(--ha-presence-enter-duration, 220ms)
+    var(--ha-presence-enter-easing, cubic-bezier(0.16, 1, 0.3, 1)) both;
+}
+
+.ha-radix-menu-motion[data-state="closed"] {
+  pointer-events: none;
+  animation: ha-menu-popover-exit var(--ha-presence-exit-duration, 180ms)
+    var(--ha-presence-exit-easing, cubic-bezier(0.4, 0, 0.2, 1)) both;
+}
+
+.ha-radix-menu-motion[data-side="top"] {
+  --ha-menu-enter-y: 6px;
+  --ha-menu-exit-y: 6px;
+}
+
+.ha-radix-menu-motion[data-side="bottom"] {
+  --ha-menu-enter-y: -6px;
+  --ha-menu-exit-y: -6px;
+}
+
+.ha-radix-menu-motion[data-side="left"] {
+  --ha-menu-enter-x: 6px;
+  --ha-menu-exit-x: 6px;
+}
+
+.ha-radix-menu-motion[data-side="right"] {
+  --ha-menu-enter-x: -6px;
+  --ha-menu-exit-x: -6px;
+}
+
 .ha-menu-from-top {
   --ha-menu-enter-y: -6px;
   --ha-menu-exit-y: -6px;
@@ -286,6 +327,18 @@
   --ha-menu-enter-y: 0px;
   --ha-menu-exit-x: -6px;
   --ha-menu-exit-y: 0px;
+}
+
+.ha-menu-from-right {
+  --ha-menu-enter-x: 6px;
+  --ha-menu-enter-y: 0px;
+  --ha-menu-exit-x: 6px;
+  --ha-menu-exit-y: 0px;
+}
+
+.ha-menu-from-bottom {
+  --ha-menu-enter-y: 6px;
+  --ha-menu-exit-y: 6px;
 }
 
 /* Pulse highlight for the message that matched a history search result */

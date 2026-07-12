@@ -202,6 +202,27 @@ CREATE TABLE messages (
     tokens_cache_read        INTEGER,
     tool_metadata            TEXT,                            -- JSON: 工具结构化副输出（diff/before-after）
     stream_status            TEXT,                            -- streaming/completed/orphaned，NULL 视为 completed
+    queue_request_id         TEXT,                            -- 持久发送队列 exactly-once 幂等键（partial unique）
+    FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+);
+
+-- 忙时用户消息持久队列（UI 只保存投影）
+CREATE TABLE queued_turn_user_messages (
+    id                       INTEGER PRIMARY KEY AUTOINCREMENT,
+    request_id               TEXT NOT NULL UNIQUE,
+    session_id               TEXT NOT NULL,
+    turn_id                  TEXT,
+    message                  TEXT NOT NULL,
+    display_text             TEXT,
+    attachments_json         TEXT NOT NULL DEFAULT '[]',
+    is_plan_trigger          INTEGER NOT NULL DEFAULT 0,
+    goal_trigger             INTEGER NOT NULL DEFAULT 0,
+    plan_comment_json        TEXT,
+    options_json             TEXT,                            -- planMode / workflowMode 等重放参数
+    mode                     TEXT NOT NULL DEFAULT 'queue',
+    status                   TEXT NOT NULL DEFAULT 'queued',
+    created_at               TEXT NOT NULL,
+    updated_at               TEXT NOT NULL,
     FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
 );
 ```

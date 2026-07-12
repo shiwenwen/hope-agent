@@ -16,6 +16,7 @@ import {
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
+import { FloatingMenu } from "@/components/ui/floating-menu"
 import { IconTip } from "@/components/ui/tooltip"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
@@ -288,8 +289,13 @@ export default function KnowledgeMaintenanceButton({ kbId, onOpenNote }: Props) 
         </Button>
       </IconTip>
 
-      {open && (
-        <div className="absolute right-0 top-full z-50 mt-1 w-[340px] rounded-lg border border-border bg-popover shadow-lg">
+      <FloatingMenu
+        open={open}
+        positionClassName="top-full right-0 mt-1.5"
+        originClassName="origin-top-right"
+        className="ha-menu-from-top w-[340px] overflow-hidden p-0"
+        onEscapeKeyDown={() => setOpen(false)}
+      >
           <div className="flex items-center justify-between border-b border-border-soft/60 px-3 py-2">
             <span className="text-xs font-medium">
               {t("knowledge.maintenance.title", "Maintenance")}
@@ -498,8 +504,7 @@ export default function KnowledgeMaintenanceButton({ kbId, onOpenNote }: Props) 
               </div>
             )}
           </div>
-        </div>
-      )}
+      </FloatingMenu>
     </div>
   )
 }

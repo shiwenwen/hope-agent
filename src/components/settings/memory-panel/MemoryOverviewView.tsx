@@ -5254,7 +5254,7 @@ export default function MemoryOverviewView({
                       </div>
                       <div
                         className="mt-1 truncate font-mono text-[10px] text-muted-foreground"
-                        title={currentDbSnapshotPath}
+                        data-ha-title-tip={currentDbSnapshotPath}
                       >
                         {currentDbSnapshotPath}
                       </div>
@@ -5284,7 +5284,7 @@ export default function MemoryOverviewView({
                           {currentDbSnapshotIssues[0] && (
                             <div
                               className="mt-0.5 truncate font-mono text-[10px]"
-                              title={currentDbSnapshotIssues[0]}
+                              data-ha-title-tip={currentDbSnapshotIssues[0]}
                             >
                               {currentDbSnapshotIssues[0]}
                             </div>
@@ -5327,7 +5327,7 @@ export default function MemoryOverviewView({
                           {dbSnapshotRestoreIssue && (
                             <div
                               className="mt-0.5 truncate font-mono text-[10px]"
-                              title={dbSnapshotRestoreIssue}
+                              data-ha-title-tip={dbSnapshotRestoreIssue}
                             >
                               {dbSnapshotRestoreIssue}
                             </div>
@@ -5581,7 +5581,7 @@ export default function MemoryOverviewView({
                               onClick={() =>
                                 requestMemoryScopeFocus({ kind: "project", id: group.scopeId! })
                               }
-                              title={t("project.openProject")}
+                              data-ha-title-tip={t("project.openProject")}
                               aria-label={t("project.openProject")}
                             >
                               <ExternalLink className="h-3.5 w-3.5" />
@@ -6070,7 +6070,7 @@ export default function MemoryOverviewView({
                                 "inline-flex max-w-full items-center gap-1 truncate rounded border px-1.5 py-0.5",
                                 guidance.className,
                               )}
-                              title={guidance.description}
+                              data-ha-title-tip={guidance.description}
                             >
                               <GuidanceIcon className="h-3 w-3 shrink-0" />
                               <span className="truncate">{guidance.label}</span>
@@ -6445,7 +6445,7 @@ export default function MemoryOverviewView({
                                 variant="ghost"
                                 size="sm"
                                 className="h-6 min-w-0 max-w-[220px] justify-start truncate px-2 text-xs"
-                                title={label}
+                                data-ha-title-tip={label}
                                 onClick={() => applyMemoryAuditPreset(preset)}
                               >
                                 <span className="truncate">{label}</span>
@@ -6825,7 +6825,7 @@ export default function MemoryOverviewView({
                             variant="secondary"
                             size="sm"
                             className="h-6 max-w-full px-1.5 py-0.5 text-[10px] font-normal"
-                            title={id}
+                            data-ha-title-tip={id}
                             disabled={experienceSourceOpening === id}
                             onClick={() => void openSourceEpisode(id)}
                           >

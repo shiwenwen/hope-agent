@@ -224,6 +224,51 @@ pub struct RecordDomainEvidenceInput {
     pub redaction_status: Option<String>,
 }
 
+struct PreparedDomainEvidence {
+    id: String,
+    goal_id: Option<String>,
+    session_id: String,
+    project_id: Option<String>,
+    domain: String,
+    evidence_type: String,
+    title: String,
+    summary: Option<String>,
+    source_metadata_json: String,
+    confidence: Option<f64>,
+    access_scope: String,
+    redaction_status: String,
+    now: String,
+}
+
+fn insert_prepared_domain_evidence(
+    conn: &Connection,
+    prepared: &PreparedDomainEvidence,
+) -> Result<()> {
+    conn.execute(
+        "INSERT INTO domain_evidence_items (
+            id, goal_id, session_id, project_id, domain, evidence_type, title,
+            summary, source_metadata_json, confidence, access_scope, redaction_status,
+            created_at, updated_at
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?13)",
+        params![
+            prepared.id.as_str(),
+            prepared.goal_id.as_deref(),
+            prepared.session_id.as_str(),
+            prepared.project_id.as_deref(),
+            prepared.domain.as_str(),
+            prepared.evidence_type.as_str(),
+            prepared.title.as_str(),
+            prepared.summary.as_deref(),
+            prepared.source_metadata_json.as_str(),
+            prepared.confidence,
+            prepared.access_scope.as_str(),
+            prepared.redaction_status.as_str(),
+            prepared.now.as_str(),
+        ],
+    )?;
+    Ok(())
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ListDomainEvidenceInput {
@@ -1023,6 +1068,63 @@ impl SessionDB {
         &self,
         input: RecordDomainEvidenceInput,
     ) -> Result<DomainEvidenceItem> {
+        let prepared = self.prepare_domain_evidence(input)?;
+        let id = prepared.id.clone();
+        let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
+        insert_prepared_domain_evidence(&conn, &prepared)?;
+        drop(conn);
+        self.finalize_domain_evidence(&id, false)
+    }
+
+    /// Commit an owner ask_user answer and its evidence in one SQLite
+    /// transaction. The pending-row predicate is the idempotency claim: only one
+    /// concurrent surface can insert evidence, and a crash cannot leave evidence
+    /// recorded while the question remains pending/times out later.
+    pub fn record_owner_ask_user_evidence_and_answer(
+        &self,
+        request_id: &str,
+        input: RecordDomainEvidenceInput,
+    ) -> Result<DomainEvidenceItem> {
+        let prepared = self.prepare_domain_evidence(input)?;
+        let id = prepared.id.clone();
+        let mut conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
+        let tx = conn.transaction()?;
+        let pending: bool = tx.query_row(
+            "SELECT EXISTS(
+                SELECT 1 FROM ask_user_questions
+                 WHERE request_id = ?1
+                   AND status = 'pending'
+                   AND (timeout_at IS NULL OR timeout_at = 0
+                        OR timeout_at > strftime('%s','now'))
+             )",
+            params![request_id],
+            |row| row.get(0),
+        )?;
+        if !pending {
+            bail!("No pending ask_user_question request: {request_id}");
+        }
+        insert_prepared_domain_evidence(&tx, &prepared)?;
+        let changed = tx.execute(
+            "UPDATE ask_user_questions
+                SET status = 'answered', answered_at = datetime('now')
+              WHERE request_id = ?1 AND status = 'pending'",
+            params![request_id],
+        )?;
+        if changed != 1 {
+            bail!("No pending ask_user_question request: {request_id}");
+        }
+        tx.commit()?;
+        drop(conn);
+        // Goal-link projection is derived from the committed evidence. A link
+        // failure must not turn an already-committed user answer into a retry
+        // that can duplicate its primary evidence.
+        self.finalize_domain_evidence(&id, true)
+    }
+
+    fn prepare_domain_evidence(
+        &self,
+        input: RecordDomainEvidenceInput,
+    ) -> Result<PreparedDomainEvidence> {
         let goal_id = input
             .goal_id
             .as_deref()
@@ -1096,38 +1198,34 @@ impl SessionDB {
             .and_then(non_empty)
             .map(normalize_redaction_status)
             .unwrap_or_else(|| "none".to_string());
-        let id = format!("devi_{}", uuid::Uuid::new_v4().simple());
-        let now = now_rfc3339();
         let source_metadata = ensure_object(input.source_metadata);
-        let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
-        conn.execute(
-            "INSERT INTO domain_evidence_items (
-                id, goal_id, session_id, project_id, domain, evidence_type, title,
-                summary, source_metadata_json, confidence, access_scope, redaction_status,
-                created_at, updated_at
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?13)",
-            params![
-                id,
-                goal_id,
-                session_id,
-                project_id,
-                domain,
-                evidence_type,
-                title,
-                input.summary,
-                stable_json(&source_metadata)?,
-                confidence,
-                access_scope,
-                redaction_status,
-                now,
-            ],
-        )?;
-        drop(conn);
+        Ok(PreparedDomainEvidence {
+            id: format!("devi_{}", uuid::Uuid::new_v4().simple()),
+            goal_id,
+            session_id: session_id.to_string(),
+            project_id,
+            domain,
+            evidence_type,
+            title: title.to_string(),
+            summary: input.summary,
+            source_metadata_json: stable_json(&source_metadata)?,
+            confidence,
+            access_scope,
+            redaction_status,
+            now: now_rfc3339(),
+        })
+    }
+
+    fn finalize_domain_evidence(
+        &self,
+        id: &str,
+        best_effort_goal_link: bool,
+    ) -> Result<DomainEvidenceItem> {
         let item = self
-            .get_domain_evidence(&id)?
+            .get_domain_evidence(id)?
             .ok_or_else(|| anyhow!("domain evidence missing after insert"))?;
         if let Some(goal_id) = item.goal_id.as_deref() {
-            let _ = self.link_goal_target(
+            let link_result = self.link_goal_target(
                 goal_id,
                 "domain_evidence",
                 &item.id,
@@ -1141,7 +1239,20 @@ impl SessionDB {
                     "redactionStatus": item.redaction_status,
                     "source": item.source_metadata,
                 }),
-            )?;
+            );
+            if let Err(e) = link_result {
+                if best_effort_goal_link {
+                    app_warn!(
+                        "domain_workflow",
+                        "owner_ask_user_link",
+                        "Evidence {} committed but goal link projection failed: {}",
+                        item.id,
+                        e
+                    );
+                } else {
+                    return Err(e);
+                }
+            }
         }
         emit_domain_evidence_recorded(&item);
         Ok(item)
@@ -3458,6 +3569,51 @@ mod tests {
             .any(|item| item.source_type == "domain_evidence"
                 && item.relation == "source_cited"
                 && item.title.contains("Official source cited")));
+    }
+
+    #[test]
+    fn owner_ask_user_evidence_and_terminal_state_commit_once() {
+        let test = test_db();
+        let db = &test.db;
+        let session_id = create_session(db);
+        let group: crate::ask_user::AskUserQuestionGroup = serde_json::from_value(json!({
+            "requestId": "owner-answer-once",
+            "sessionId": session_id,
+            "questions": [],
+            "source": "owner",
+            "ownerResponse": { "action": "record_domain_evidence" }
+        }))
+        .expect("deserialize owner question");
+        db.save_ask_user_group(&group).expect("save owner question");
+        let input = RecordDomainEvidenceInput {
+            session_id: Some(group.session_id.clone()),
+            domain: "general".to_string(),
+            evidence_type: "user_decision".to_string(),
+            title: "Owner answer".to_string(),
+            summary: Some("approved".to_string()),
+            ..Default::default()
+        };
+
+        db.record_owner_ask_user_evidence_and_answer(&group.request_id, input.clone())
+            .expect("first answer commits");
+        assert!(db
+            .record_owner_ask_user_evidence_and_answer(&group.request_id, input)
+            .is_err());
+        let evidence = db
+            .list_domain_evidence(ListDomainEvidenceInput {
+                session_id: Some(group.session_id.clone()),
+                ..Default::default()
+            })
+            .expect("list evidence");
+        assert_eq!(
+            evidence.len(),
+            1,
+            "duplicate answers must not duplicate evidence"
+        );
+        assert!(db
+            .get_pending_ask_user_group_by_request_id(&group.request_id)
+            .expect("read pending")
+            .is_none());
     }
 
     #[test]
