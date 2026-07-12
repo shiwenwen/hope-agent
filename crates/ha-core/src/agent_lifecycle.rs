@@ -308,12 +308,16 @@ fn restore_slot_from_snapshot(
 
 pub fn ensure_agent_runnable(id: &str) -> Result<()> {
     crate::paths::validate_agent_id(id)?;
+    let config_path = crate::paths::agent_dir(id)?.join("agent.json");
     // `ha-main` is the built-in bootstrap identity and can neither be disabled
     // nor deleted. Fresh installs and hermetic engine tests may legitimately
     // run it before onboarding materializes agents/ha-main/agent.json. Once the
     // file exists, still parse it normally so corruption is never hidden.
-    if id == DEFAULT_AGENT_ID && !crate::paths::agent_dir(id)?.join("agent.json").is_file() {
-        return Ok(());
+    if !config_path.is_file() {
+        if id == DEFAULT_AGENT_ID {
+            return Ok(());
+        }
+        anyhow::bail!("Agent '{id}' does not exist");
     }
     let def = agent_loader::load_agent(id)?;
     if !def.config.enabled {
@@ -1258,6 +1262,28 @@ mod tests {
                 .join("agent.json")
                 .exists());
             ensure_agent_runnable(DEFAULT_AGENT_ID).unwrap();
+        });
+    }
+
+    #[test]
+    fn configless_non_main_directory_is_not_an_agent_identity() {
+        let temp = tempfile::tempdir().unwrap();
+        crate::test_support::with_env_vars(&[("HA_DATA_DIR", temp.path())], || {
+            let id = format!("orphan-{}", uuid::Uuid::new_v4());
+            let dir = crate::paths::agent_dir(&id).unwrap();
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(dir.join("memory.md"), "orphaned recovery data").unwrap();
+
+            let error = ensure_agent_runnable(&id).unwrap_err();
+            assert!(error.to_string().contains("does not exist"));
+            assert!(!agent_loader::list_agents()
+                .unwrap()
+                .iter()
+                .any(|agent| agent.id == id));
+            assert!(!agent_loader::list_all_agents()
+                .unwrap()
+                .iter()
+                .any(|agent| agent.id == id));
         });
     }
 

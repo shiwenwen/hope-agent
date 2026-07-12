@@ -375,18 +375,19 @@ pub fn list_all_agents() -> Result<Vec<AgentSummary>> {
             None => continue,
         };
 
-        // Try loading the config, skip if invalid
+        // agent.json is the durable Agent identity. Other files may be
+        // orphaned import/recovery artifacts and must not become runnable
+        // Agents by inheriting a synthesized default config.
         let config_path = path.join("agent.json");
-        let config: AgentConfig = if config_path.exists() {
-            match std::fs::read_to_string(&config_path)
-                .ok()
-                .and_then(|data| serde_json::from_str(&data).ok())
-            {
-                Some(c) => c,
-                None => continue,
-            }
-        } else {
-            AgentConfig::default()
+        if !config_path.is_file() {
+            continue;
+        }
+        let config: AgentConfig = match std::fs::read_to_string(&config_path)
+            .ok()
+            .and_then(|data| serde_json::from_str(&data).ok())
+        {
+            Some(c) => c,
+            None => continue,
         };
         // Count memories for this agent
         let memory_count = crate::get_memory_backend()
@@ -492,9 +493,9 @@ pub fn list_agent_ids() -> Result<std::collections::HashSet<String>> {
 
 // ── Save Agent Config ────────────────────────────────────────────
 
-/// Save agent.json for an existing Agent, or create a never-before-seen id.
-/// Lifecycle coordination prevents stale writes from resurrecting an Agent
-/// after a successful delete.
+/// Save agent.json for an existing Agent.
+/// Lifecycle coordination and the durable identity check prevent stale writes
+/// from resurrecting an Agent after a successful delete or process restart.
 pub fn save_agent_config(id: &str, config: &AgentConfig) -> Result<()> {
     crate::agent_lifecycle::save_agent_config(id, config, false)
 }

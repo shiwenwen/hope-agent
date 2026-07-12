@@ -83,7 +83,11 @@ pub async fn preview_agent_delete(
 
 #[tauri::command]
 pub async fn set_agent_enabled(id: String, enabled: bool) -> Result<(), CmdError> {
-    ha_core::agent_lifecycle::set_agent_enabled(&id, enabled)?;
+    ha_core::blocking::run_blocking({
+        let id = id.clone();
+        move || ha_core::agent_lifecycle::set_agent_enabled(&id, enabled)
+    })
+    .await?;
     if let Some(bus) = ha_core::get_event_bus() {
         bus.emit(
             "agents:changed",

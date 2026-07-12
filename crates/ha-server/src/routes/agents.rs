@@ -109,14 +109,19 @@ pub async fn set_agent_enabled(
     Path(id): Path<String>,
     Json(body): Json<SetAgentEnabledBody>,
 ) -> Result<Json<Value>, AppError> {
-    ha_core::agent_lifecycle::set_agent_enabled(&id, body.enabled)?;
+    let enabled = body.enabled;
+    ha_core::blocking::run_blocking({
+        let id = id.clone();
+        move || ha_core::agent_lifecycle::set_agent_enabled(&id, enabled)
+    })
+    .await?;
     if let Some(bus) = ha_core::get_event_bus() {
         bus.emit(
             "agents:changed",
-            json!({ "id": id, "kind": "enabled", "enabled": body.enabled }),
+            json!({ "id": id, "kind": "enabled", "enabled": enabled }),
         );
     }
-    Ok(Json(json!({ "enabled": body.enabled })))
+    Ok(Json(json!({ "enabled": enabled })))
 }
 
 #[derive(Debug, Deserialize)]
