@@ -308,6 +308,13 @@ fn restore_slot_from_snapshot(
 
 pub fn ensure_agent_runnable(id: &str) -> Result<()> {
     crate::paths::validate_agent_id(id)?;
+    // `ha-main` is the built-in bootstrap identity and can neither be disabled
+    // nor deleted. Fresh installs and hermetic engine tests may legitimately
+    // run it before onboarding materializes agents/ha-main/agent.json. Once the
+    // file exists, still parse it normally so corruption is never hidden.
+    if id == DEFAULT_AGENT_ID && !crate::paths::agent_dir(id)?.join("agent.json").is_file() {
+        return Ok(());
+    }
     let def = agent_loader::load_agent(id)?;
     if !def.config.enabled {
         anyhow::bail!("Agent '{id}' is disabled");
@@ -1209,6 +1216,18 @@ mod tests {
         };
         let error = agent_loader::save_agent_config(DEFAULT_AGENT_ID, &config).unwrap_err();
         assert!(error.to_string().contains("Cannot disable the main agent"));
+    }
+
+    #[test]
+    fn built_in_main_is_runnable_before_config_materialization() {
+        let temp = tempfile::tempdir().unwrap();
+        crate::test_support::with_env_vars(&[("HA_DATA_DIR", temp.path())], || {
+            assert!(!crate::paths::agent_dir(DEFAULT_AGENT_ID)
+                .unwrap()
+                .join("agent.json")
+                .exists());
+            ensure_agent_runnable(DEFAULT_AGENT_ID).unwrap();
+        });
     }
 
     #[test]
