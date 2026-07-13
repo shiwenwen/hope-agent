@@ -10127,6 +10127,33 @@
       "unbind": "Bağı kaldır",
       "dirInvalid": "Geçersiz dizin"
     },
+    "repoBind": {
+      "entry": "Kod deposunu bağla…",
+      "title": "Kod Deposu Bağlama",
+      "desc": "Bağlandıktan sonra: kod tabanından marka çıkarma depoyu doğrudan okuyabilir, tasarım sohbetleri kodu inceleyebilir ve “Koda uygula” uygulamayı bu depo içinde gerçekleştirir.",
+      "dirInvalid": "Geçersiz dizin",
+      "bound": "Kod deposu bağlandı",
+      "unbound": "Bağlantı kaldırıldı",
+      "err": "Bağlama başarısız",
+      "sourceDir": "Kaynak: yerel dizin",
+      "sourceHaProject": "Kaynak: Hope Agent projesi",
+      "stale": "Geçersiz (dizin veya proje artık yok)",
+      "unbind": "Bağlantıyı kaldır",
+      "modeDir": "Yerel dizin",
+      "modeHaProject": "Hope Agent projesi",
+      "dir": "Depo dizini",
+      "dirPlaceholder": "Depo kökünü seçin veya yazın",
+      "choose": "Seç…",
+      "haProject": "Hope Agent projesi",
+      "haProjectPlaceholder": "Proje seçin…",
+      "haProjectHint": "Dizin, projenin çalışma dizininden alınır ve değişiklikleri otomatik izler.",
+      "bind": "Bağla"
+    },
+    "implement": {
+      "menu": "Koda uygula…",
+      "needBind": "Önce bu projeye bir kod deposu bağlayın",
+      "err": "Uygulama oturumu oluşturulamadı"
+    },
     "pickSystem": "Tasarım sistemi seç",
     "chat": {
       "searchHistory": "Geçmişte ara…",

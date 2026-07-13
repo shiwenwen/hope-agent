@@ -10127,6 +10127,33 @@
       "unbind": "Desvincular",
       "dirInvalid": "Directorio no válido"
     },
+    "repoBind": {
+      "entry": "Vincular repositorio de código…",
+      "title": "Vincular repositorio de código",
+      "desc": "Al vincularlo: la extracción de marca puede leer el repositorio directamente, los chats de diseño pueden inspeccionar su código y «Implementar en código» realiza la implementación dentro de él.",
+      "dirInvalid": "Directorio no válido",
+      "bound": "Repositorio de código vinculado",
+      "unbound": "Vínculo eliminado",
+      "err": "Error al vincular",
+      "sourceDir": "Origen: directorio local",
+      "sourceHaProject": "Origen: proyecto de Hope Agent",
+      "stale": "No válido (el directorio o el proyecto ya no existe)",
+      "unbind": "Desvincular",
+      "modeDir": "Directorio local",
+      "modeHaProject": "Proyecto de Hope Agent",
+      "dir": "Directorio del repositorio",
+      "dirPlaceholder": "Elige o escribe la raíz del repositorio",
+      "choose": "Elegir…",
+      "haProject": "Proyecto de Hope Agent",
+      "haProjectPlaceholder": "Selecciona un proyecto…",
+      "haProjectHint": "El directorio proviene del directorio de trabajo del proyecto y sigue sus cambios automáticamente.",
+      "bind": "Vincular"
+    },
+    "implement": {
+      "menu": "Implementar en código…",
+      "needBind": "Primero vincula un repositorio de código a este proyecto",
+      "err": "No se pudo crear la sesión de implementación"
+    },
     "pickSystem": "Elegir sistema de diseño",
     "chat": {
       "searchHistory": "Buscar historial…",

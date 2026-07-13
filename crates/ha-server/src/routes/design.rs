@@ -629,6 +629,58 @@ pub async fn export_handoff(Path(id): Path<String>) -> Result<Json<Value>, AppEr
     Ok(Json(serde_json::to_value(res).unwrap_or(Value::Null)))
 }
 
+// ── 代码仓库绑定（项目级，双源）+ 实现到代码 ─────────────────────
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetCodeBindingBody {
+    #[serde(default)]
+    pub code_dir: Option<String>,
+    #[serde(default)]
+    pub ha_project_id: Option<String>,
+}
+
+/// `GET /api/design/projects/{id}/code-binding` — binding state (source / resolved / stale).
+pub async fn get_code_binding(
+    Path(id): Path<String>,
+) -> Result<Json<service::CodeBindingInfo>, AppError> {
+    validate_id(&id)?;
+    let info = ha_core::blocking::run_blocking(move || service::get_project_code_binding(&id))
+        .await
+        .map_err(|e| AppError::internal(e.to_string()))?;
+    Ok(Json(info))
+}
+
+/// `PUT /api/design/projects/{id}/code-binding` — set / clear the code-repo binding
+/// (`codeDir` xor `haProjectId`; both empty = unbind). Owner plane（Bearer 即 owner
+/// 信任，与 extract 的路径读同级）；只写 design.db + 会话行，不落外部文件，故不过
+/// `filesystem.allowRemoteWrites` 写盘门。
+pub async fn set_code_binding(
+    Path(id): Path<String>,
+    Json(body): Json<SetCodeBindingBody>,
+) -> Result<Json<ha_core::design::DesignProject>, AppError> {
+    validate_id(&id)?;
+    let p = ha_core::blocking::run_blocking(move || {
+        service::set_project_code_binding(&id, body.code_dir, body.ha_project_id)
+    })
+    .await
+    .map_err(|e| AppError::internal(e.to_string()))?;
+    Ok(Json(p))
+}
+
+/// `POST /api/design/artifacts/{id}/implement` — handoff pack + implement session
+/// (working_dir = bound repo). Returns `{sessionId, prompt, codeDir}`; the client
+/// sends `prompt` through the normal chat path (approvals / diff UX all reused).
+pub async fn implement_to_code(
+    Path(id): Path<String>,
+) -> Result<Json<service::ImplementToCodeResult>, AppError> {
+    validate_id(&id)?;
+    let res = ha_core::blocking::run_blocking(move || service::implement_to_code(&id))
+        .await
+        .map_err(|e| AppError::internal(e.to_string()))?;
+    Ok(Json(res))
+}
+
 // ── Code bindings (工程轴 D) ────────────────────────────────────
 
 /// 外部写盘门：HTTP 侧默认禁写外部工程，需 `filesystem.allowRemoteWrites`（桌面 Tauri 不受限）。

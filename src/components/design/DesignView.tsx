@@ -80,6 +80,8 @@ import {
   X,
   ImagePlus,
   Loader2 as Loader2Icon,
+  FolderGit2,
+  Hammer,
 } from "lucide-react"
 import { toast } from "sonner"
 import { getTransport } from "@/lib/transport-provider"
@@ -99,6 +101,7 @@ import { DesignTokenEditor } from "@/components/design/DesignTokenEditor"
 import { DesignTokenExport } from "@/components/design/DesignTokenExport"
 import { DesignFigmaImport } from "@/components/design/DesignFigmaImport"
 import { DesignCodeBinding } from "@/components/design/DesignCodeBinding"
+import { DesignRepoBinding } from "@/components/design/DesignRepoBinding"
 import { logger } from "@/lib/logger"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -152,6 +155,8 @@ import type {
   CritiqueResult,
   DesignComment,
   CommentPlacement,
+  CodeBindingInfo,
+  ImplementToCodeResult,
 } from "@/types/design"
 import {
   ARTIFACT_KINDS,
@@ -181,6 +186,8 @@ import { useClickOutside } from "@/hooks/useClickOutside"
 interface DesignViewProps {
   onBack: () => void
   onOpenSettings: () => void
+  /** 「实现到代码」：跳到主对话该会话并把 prompt 作首条消息自动发送（App 层接线）。 */
+  onImplementToCode?: (sessionId: string, prompt: string) => void
 }
 
 const KIND_ICON: Record<ArtifactKind, typeof Monitor> = {
@@ -429,7 +436,7 @@ async function compositeAnnotation(
   return new File([blob], "design-annotation.png", { type: "image/png" })
 }
 
-export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) {
+export default function DesignView({ onBack, onOpenSettings, onImplementToCode }: DesignViewProps) {
   const { t } = useTranslation()
   const tx = getTransport()
 
@@ -453,6 +460,55 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
   const [figmaImportOpen, setFigmaImportOpen] = useState(false)
   const [codeBindOpen, setCodeBindOpen] = useState(false)
   const [codeBindSystem, setCodeBindSystem] = useState<DesignSystemMeta | null>(null)
+  const [repoBindOpen, setRepoBindOpen] = useState(false)
+  // 项目级代码仓库绑定的生效目录（双源解析结果）：提取预填 / token 同步预填 / 实现到代码门。
+  const [boundRepoDir, setBoundRepoDir] = useState<string | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    if (!activeProject) {
+      setBoundRepoDir(null)
+      return
+    }
+    void tx
+      .call<CodeBindingInfo>("get_design_project_code_binding_cmd", {
+        projectId: activeProject.id,
+      })
+      .then((info) => {
+        if (!cancelled) setBoundRepoDir(info?.resolvedDir ?? null)
+      })
+      .catch(() => {
+        if (!cancelled) setBoundRepoDir(null)
+      })
+    return () => {
+      cancelled = true
+    }
+    // 绑定源字段变化（onBound 回写 activeProject）时重取生效目录。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeProject?.id, activeProject?.codeDir, activeProject?.haProjectId])
+
+  // 「实现到代码」：未绑定先引导关联；已绑定 → 建实现会话 + 跳主对话自动发 pack。
+  const implementToCode = useCallback(
+    async (artifactId: string) => {
+      if (!boundRepoDir) {
+        toast.info(t("design.implement.needBind", "请先为该项目关联代码仓库"))
+        setRepoBindOpen(true)
+        return
+      }
+      try {
+        const res = await tx.call<ImplementToCodeResult>("design_implement_to_code_cmd", {
+          artifactId,
+        })
+        onImplementToCode?.(res.sessionId, res.prompt)
+      } catch (e) {
+        logger.error("design", "DesignView::implementToCode", "implement failed", e)
+        toast.error(
+          t("design.implement.err", "创建实现会话失败") +
+            `: ${e instanceof Error ? e.message : e}`,
+        )
+      }
+    },
+    [boundRepoDir, onImplementToCode, t, tx],
+  )
 
   const [deleteTarget, setDeleteTarget] = useState<
     | { type: "project"; id: string; title: string }
@@ -3557,6 +3613,14 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tx, extractFrom, extractName, extractText, genModel, t])
 
+  // 代码库通道预填：项目已绑代码仓库且路径框为空 → 预填生效目录（用户可改）。
+  useEffect(() => {
+    if (extractOpen && extractFrom === "codebase" && !extractText.trim() && boundRepoDir) {
+      setExtractText(boundRepoDir)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [extractOpen, extractFrom, boundRepoDir])
+
   // 反向提取文件选择（W3-K）：codebase 选目录 / image 选图片，回填绝对路径到 extractText。
   // 仅桌面（supportsLocalFileOps）——HTTP 的 pickLocalDirectory 抛错，图片也拿不到服务器路径。
   const pickExtractPath = useCallback(async () => {
@@ -4153,6 +4217,23 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                         {t("design.bind.entry", "绑定代码工程…")}
                       </Button>
                     )}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 gap-1.5"
+                      onClick={() => {
+                        setSystemPickerOpen(false)
+                        setRepoBindOpen(true)
+                      }}
+                    >
+                      <FolderGit2 className="h-3.5 w-3.5" />
+                      {t("design.repoBind.entry", "关联代码仓库…")}
+                      {boundRepoDir && (
+                        <span className="ml-auto max-w-[10rem] truncate font-mono text-[10px] text-muted-foreground">
+                          {boundRepoDir.split("/").pop()}
+                        </span>
+                      )}
+                    </Button>
                   </div>
                 }
               />
@@ -4987,6 +5068,12 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                           <Braces className="mr-2 h-4 w-4" />
                           {t("design.exportHandoff", "代码交付包 (ZIP)")}
                         </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onSelect={() => void implementToCode(activeArtifact.id)}
+                        >
+                          <Hammer className="mr-2 h-4 w-4" />
+                          {t("design.implement.menu", "实现到代码…")}
+                        </DropdownMenuItem>
                         {tx.supportsLocalFileOps() && activeArtifact.artifactPath && (
                           <>
                             <DropdownMenuSeparator />
@@ -5588,6 +5675,18 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
         system={codeBindSystem}
         open={codeBindOpen}
         onOpenChange={setCodeBindOpen}
+        initialTargetDir={boundRepoDir ?? undefined}
+      />
+
+      {/* 关联代码仓库（项目级双源绑定）：读根授权 + 设计对话 working_dir + 实现到代码 */}
+      <DesignRepoBinding
+        project={activeProject}
+        open={repoBindOpen}
+        onOpenChange={setRepoBindOpen}
+        onBound={(p) => {
+          setActiveProject(p)
+          setProjects((prev) => prev.map((x) => (x.id === p.id ? { ...x, ...p } : x)))
+        }}
       />
 
       {/* 导出强路依赖门（MP4→ffmpeg / PDF·PNG→浏览器引擎）：未就绪让用户主动选，不静默降级。 */}

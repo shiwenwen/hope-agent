@@ -10127,6 +10127,33 @@
       "unbind": "解除綁定",
       "dirInvalid": "目錄無效"
     },
+    "repoBind": {
+      "entry": "關聯程式碼儲存庫…",
+      "title": "關聯程式碼儲存庫",
+      "desc": "關聯後：從程式碼庫擷取品牌可直接讀取該儲存庫，設計對話能檢視其中程式碼，「實作到程式碼」會在該儲存庫中落地實作。",
+      "dirInvalid": "目錄無效",
+      "bound": "已關聯程式碼儲存庫",
+      "unbound": "已解除關聯",
+      "err": "關聯失敗",
+      "sourceDir": "來源：本機目錄",
+      "sourceHaProject": "來源：Hope Agent 專案",
+      "stale": "已失效（目錄或專案不存在）",
+      "unbind": "解除關聯",
+      "modeDir": "本機目錄",
+      "modeHaProject": "Hope Agent 專案",
+      "dir": "儲存庫目錄",
+      "dirPlaceholder": "選擇或輸入程式碼儲存庫根目錄",
+      "choose": "選擇…",
+      "haProject": "Hope Agent 專案",
+      "haProjectPlaceholder": "選擇專案…",
+      "haProjectHint": "目錄取自該專案的工作目錄，專案工作目錄變更會自動跟隨。",
+      "bind": "關聯"
+    },
+    "implement": {
+      "menu": "實作到程式碼…",
+      "needBind": "請先為該專案關聯程式碼儲存庫",
+      "err": "建立實作會話失敗"
+    },
     "pickSystem": "選擇設計系統",
     "chat": {
       "searchHistory": "搜尋歷史對話…",

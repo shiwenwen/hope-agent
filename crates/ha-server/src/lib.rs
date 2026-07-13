@@ -2788,6 +2788,14 @@ fn build_router_with_cors(
             axum::routing::delete(routes::design::unbind_code),
         )
         .route(
+            "/design/projects/{id}/code-binding",
+            get(routes::design::get_code_binding).put(routes::design::set_code_binding),
+        )
+        .route(
+            "/design/artifacts/{id}/implement",
+            post(routes::design::implement_to_code),
+        )
+        .route(
             "/design/artifacts/{id}/restore",
             post(routes::design::restore_version),
         )

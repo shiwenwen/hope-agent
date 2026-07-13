@@ -555,6 +555,44 @@ pub async fn export_design_handoff_cmd(id: String) -> Result<ExportResult, CmdEr
         .map_err(Into::into)
 }
 
+// ── 代码仓库绑定（项目级，双源）+ 实现到代码 ─────────────────────
+
+/// 读设计项目的代码仓库绑定状态（来源 / 生效目录 / stale）。owner 平面。
+#[tauri::command]
+pub async fn get_design_project_code_binding_cmd(
+    project_id: String,
+) -> Result<service::CodeBindingInfo, CmdError> {
+    ha_core::blocking::run_blocking(move || service::get_project_code_binding(&project_id))
+        .await
+        .map_err(Into::into)
+}
+
+/// 设置 / 清除设计项目的代码仓库绑定（`code_dir` 与 `ha_project_id` 互斥，双空=解绑）。
+/// owner 平面专属——agent `design` 工具无此动作（绑定=用户显式授权读该目录）。
+#[tauri::command]
+pub async fn set_design_project_code_binding_cmd(
+    project_id: String,
+    code_dir: Option<String>,
+    ha_project_id: Option<String>,
+) -> Result<DesignProject, CmdError> {
+    ha_core::blocking::run_blocking(move || {
+        service::set_project_code_binding(&project_id, code_dir, ha_project_id)
+    })
+    .await
+    .map_err(Into::into)
+}
+
+/// 「实现到代码」：组 handoff pack + 建实现会话（working_dir=绑定仓库），返回
+/// 会话 id + 首条 prompt；前端跳转后经正常 chat 路径发送（审批/DiffPanel 全复用）。
+#[tauri::command]
+pub async fn design_implement_to_code_cmd(
+    artifact_id: String,
+) -> Result<service::ImplementToCodeResult, CmdError> {
+    ha_core::blocking::run_blocking(move || service::implement_to_code(&artifact_id))
+        .await
+        .map_err(Into::into)
+}
+
 // ── Code bindings (工程轴 D) ────────────────────────────────────
 
 /// 绑定设计系统到代码工程目录（owner 平面）。

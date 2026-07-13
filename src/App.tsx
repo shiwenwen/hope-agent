@@ -112,6 +112,10 @@ export default function App() {
   // PlansView pushes `@plan:<short_id>:v<n>` tokens here; KnowledgeView pushes
   // `[[note]]` refs (with a KB to auto-attach). ChatScreen appends + clears.
   const [pendingChatInsert, setPendingChatInsert] = useState<ChatInsert | undefined>(undefined)
+  // 设计空间「实现到代码」：跳到实现会话后把 handoff pack 作首条消息自动发送（一次性，nonce 防重放）。
+  const [pendingAutoSend, setPendingAutoSend] = useState<
+    { sessionId: string; message: string; nonce: number } | undefined
+  >(undefined)
   const [pendingChatFocus, setPendingChatFocus] = useState<PendingChatFocus | null>(null)
   const [pendingProjectFocus, setPendingProjectFocus] = useState<PendingProjectFocus | null>(null)
   const [totalUnreadCount, setTotalUnreadCount] = useState(0)
@@ -802,6 +806,11 @@ export default function App() {
                   <DesignView
                     onBack={() => setView("chat")}
                     onOpenSettings={() => handleOpenSettings("design")}
+                    onImplementToCode={(sessionId, message) => {
+                      setPendingSessionId(sessionId)
+                      setPendingAutoSend({ sessionId, message, nonce: Date.now() })
+                      setView("chat")
+                    }}
                   />
                 </Suspense>
               )}
@@ -829,6 +838,10 @@ export default function App() {
                   }}
                   pendingChatInsert={pendingChatInsert}
                   onChatInsertConsumed={() => setPendingChatInsert(undefined)}
+                  pendingAutoSend={pendingAutoSend}
+                  onAutoSendConsumed={(nonce) =>
+                    setPendingAutoSend((prev) => (prev?.nonce === nonce ? undefined : prev))
+                  }
                   onOpenSettings={handleOpenSettings}
                   onOpenKnowledge={handleOpenKnowledge}
                 />

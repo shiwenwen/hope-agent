@@ -176,7 +176,9 @@ fn scoped_local_path(session_id: Option<&str>, raw: &str) -> Result<std::path::P
     if raw.is_empty() {
         anyhow::bail!("empty path");
     }
-    // Allowed roots: session working directory (if any) ∪ session attachments dir.
+    // Allowed roots: session working directory (if any) ∪ session attachments dir
+    // ∪ the design project's bound code repo (explicit user authorization via the
+    // owner-plane code binding — the model cannot set that binding itself).
     let mut roots: Vec<std::path::PathBuf> = Vec::new();
     if let Some(wd) = crate::session::effective_session_working_dir(Some(sid)) {
         if let Ok(c) = std::path::Path::new(&wd).canonicalize() {
@@ -185,6 +187,13 @@ fn scoped_local_path(session_id: Option<&str>, raw: &str) -> Result<std::path::P
     }
     if let Ok(c) = crate::paths::attachments_dir(sid).and_then(|d| Ok(d.canonicalize()?)) {
         roots.push(c);
+    }
+    if let Some(dir) = service::session_bound_code_dir(sid) {
+        if let Ok(c) = std::path::Path::new(&dir).canonicalize() {
+            if !roots.contains(&c) {
+                roots.push(c);
+            }
+        }
     }
     if roots.is_empty() {
         anyhow::bail!("no scoped directory is available for reading local files in this session");
@@ -200,8 +209,9 @@ fn scoped_local_path(session_id: Option<&str>, raw: &str) -> Result<std::path::P
         .map_err(|_| anyhow::anyhow!("path not found or inaccessible: {raw}"))?;
     if !roots.iter().any(|r| canon.starts_with(r)) {
         anyhow::bail!(
-            "path is outside the session working directory / attachments — design \
-             extraction is scoped for safety (move the file into the working directory): {raw}"
+            "path is outside the session working directory / attachments / bound code \
+             repository — design extraction is scoped for safety (move the file into \
+             the working directory, or bind the code repository to this design project): {raw}"
         );
     }
     Ok(canon)

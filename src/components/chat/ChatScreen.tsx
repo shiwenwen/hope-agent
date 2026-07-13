@@ -212,6 +212,10 @@ interface ChatScreenProps {
   pendingChatInsert?: ChatInsert
   /** Called once the insert has been consumed so App can clear the pending slot. */
   onChatInsertConsumed?: () => void
+  /** 设计空间「实现到代码」：目标会话就绪后把 message 经正常发送路径发出（一次性）。 */
+  pendingAutoSend?: { sessionId: string; message: string; nonce: number }
+  /** Called once the auto-send has fired so App can clear the pending slot. */
+  onAutoSendConsumed?: (nonce: number) => void
   /** Open the settings view, optionally to a specific section. */
   onOpenSettings?: (section?: SettingsSection) => void
   /** Open the Knowledge Space view. */
@@ -575,6 +579,8 @@ export default function ChatScreen({
   onExternalProjectFocusHandled,
   pendingChatInsert,
   onChatInsertConsumed,
+  pendingAutoSend,
+  onAutoSendConsumed,
   onOpenSettings,
   onOpenKnowledge,
 }: ChatScreenProps) {
@@ -2075,6 +2081,20 @@ export default function ChatScreen({
     void run()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingChatInsert])
+
+  // 设计空间「实现到代码」：跳到刚创建的实现会话后，把 handoff pack 作首条消息
+  // 经正常发送路径发出（流式 / 审批 / DiffPanel 全复用）。仅当当前会话 == 目标会话
+  // 才发；nonce + ref 双保险防 StrictMode / 重渲染下重复发送。
+  const autoSendFiredNonceRef = useRef<number | null>(null)
+  useEffect(() => {
+    if (!pendingAutoSend) return
+    if (autoSendFiredNonceRef.current === pendingAutoSend.nonce) return
+    if (currentSessionId !== pendingAutoSend.sessionId) return
+    autoSendFiredNonceRef.current = pendingAutoSend.nonce
+    void stream.handleSend(pendingAutoSend.message)
+    onAutoSendConsumed?.(pendingAutoSend.nonce)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingAutoSend, currentSessionId])
 
   // ── Stream Reattach Hook ────────────────────────────────────
   // Rehydrates chat streaming after frontend reload / window reopen / browser

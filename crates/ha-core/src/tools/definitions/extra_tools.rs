@@ -201,7 +201,7 @@ pub fn get_design_tool() -> ToolDefinition {
                 "from": { "type": "string", "enum": ["brief", "codebase", "url", "image"], "description": "Source for extract_system: 'brief' (text description), 'codebase' (read a local project's CSS/tailwind/theme files at 'path'), 'url' (fetch a live page's HTML at 'url'), or 'image' (analyze a local screenshot/design image at 'path' via a vision model)." },
                 "brief": { "type": "string", "description": "Brand description text (for extract_system from=brief)." },
                 "content": { "type": "string", "description": "DESIGN.md text to import (for import_design_md): a 9-section design-system doc (Brand/Palette/Typography/Spacing/Layout/Components/Motion/Voice/Anti-patterns) with an optional --ds-* Token table." },
-                "path": { "type": "string", "description": "Local path — a codebase directory (from=codebase) or a screenshot/image file (from=image)." },
+                "path": { "type": "string", "description": "Local path — a codebase directory (from=codebase) or a screenshot/image file (from=image). Must live under the session working directory, its attachments, or the design project's bound code repository (see the project's codeDir/haProjectId)." },
                 "url": { "type": "string", "description": "Web page URL to extract a design system from (for extract_system from=url)." },
                 "count": { "type": "integer", "description": "Number of options for propose_directions (2–6, default 4)." },
                 "title": { "type": "string", "description": "Artifact title" },

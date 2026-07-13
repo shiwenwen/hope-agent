@@ -10127,6 +10127,33 @@
       "unbind": "연결 해제",
       "dirInvalid": "잘못된 디렉터리"
     },
+    "repoBind": {
+      "entry": "코드 저장소 연결…",
+      "title": "코드 저장소 연결",
+      "desc": "연결하면 코드베이스 브랜드 추출이 이 저장소를 직접 읽고, 디자인 대화에서 코드를 확인할 수 있으며, “코드로 구현”이 이 저장소 안에서 구현합니다.",
+      "dirInvalid": "잘못된 디렉터리",
+      "bound": "코드 저장소를 연결했습니다",
+      "unbound": "연결을 해제했습니다",
+      "err": "연결 실패",
+      "sourceDir": "출처: 로컬 디렉터리",
+      "sourceHaProject": "출처: Hope Agent 프로젝트",
+      "stale": "유효하지 않음(디렉터리 또는 프로젝트가 없음)",
+      "unbind": "연결 해제",
+      "modeDir": "로컬 디렉터리",
+      "modeHaProject": "Hope Agent 프로젝트",
+      "dir": "저장소 디렉터리",
+      "dirPlaceholder": "저장소 루트를 선택하거나 입력",
+      "choose": "선택…",
+      "haProject": "Hope Agent 프로젝트",
+      "haProjectPlaceholder": "프로젝트 선택…",
+      "haProjectHint": "디렉터리는 해당 프로젝트의 작업 디렉터리를 따르며 변경 시 자동으로 반영됩니다.",
+      "bind": "연결"
+    },
+    "implement": {
+      "menu": "코드로 구현…",
+      "needBind": "먼저 이 프로젝트에 코드 저장소를 연결하세요",
+      "err": "구현 세션 생성 실패"
+    },
     "pickSystem": "디자인 시스템 선택",
     "chat": {
       "searchHistory": "기록 검색…",

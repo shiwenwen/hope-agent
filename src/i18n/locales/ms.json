@@ -10127,6 +10127,33 @@
       "unbind": "Nyahikat",
       "dirInvalid": "Direktori tidak sah"
     },
+    "repoBind": {
+      "entry": "Pautkan repositori kod…",
+      "title": "Pautkan Repositori Kod",
+      "desc": "Selepas dipautkan: pengekstrakan jenama daripada pangkalan kod boleh membaca repositori terus, perbualan reka bentuk boleh melihat kodnya, dan “Laksanakan ke kod” akan melaksanakan di dalam repositori ini.",
+      "dirInvalid": "Direktori tidak sah",
+      "bound": "Repositori kod dipautkan",
+      "unbound": "Pautan dibuang",
+      "err": "Gagal memautkan",
+      "sourceDir": "Sumber: direktori setempat",
+      "sourceHaProject": "Sumber: projek Hope Agent",
+      "stale": "Tidak sah (direktori atau projek tiada lagi)",
+      "unbind": "Nyahpaut",
+      "modeDir": "Direktori setempat",
+      "modeHaProject": "Projek Hope Agent",
+      "dir": "Direktori repositori",
+      "dirPlaceholder": "Pilih atau taip akar repositori",
+      "choose": "Pilih…",
+      "haProject": "Projek Hope Agent",
+      "haProjectPlaceholder": "Pilih projek…",
+      "haProjectHint": "Direktori diambil daripada direktori kerja projek itu dan mengikuti perubahan secara automatik.",
+      "bind": "Pautkan"
+    },
+    "implement": {
+      "menu": "Laksanakan ke kod…",
+      "needBind": "Pautkan repositori kod kepada projek ini dahulu",
+      "err": "Gagal mencipta sesi pelaksanaan"
+    },
     "pickSystem": "Pilih sistem reka bentuk",
     "chat": {
       "searchHistory": "Cari sejarah…",

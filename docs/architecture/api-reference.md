@@ -841,6 +841,9 @@ Loop owner API 管理 session-scoped recurring triggers。`create_loop_schedule`
 | `sync_design_code_binding_cmd` | `POST /api/design/bindings/{id}/sync`（把多平台 token 写入绑定目录；HTTP 受 `allowRemoteWrites` 门） | ✅ |
 | `list_design_code_bindings_cmd` | `GET /api/design/bindings?systemId=`（列出代码绑定） | ✅ |
 | `unbind_design_code_project_cmd` | `DELETE /api/design/bindings/{id}`（解绑，不删已写文件） | ✅ |
+| `get_design_project_code_binding_cmd` | `GET /api/design/projects/{id}/code-binding`（项目级代码仓库绑定状态：来源/生效目录/stale） | ✅ |
+| `set_design_project_code_binding_cmd` | `PUT /api/design/projects/{id}/code-binding`（设置/清除双源绑定，`codeDir` 与 `haProjectId` 互斥；owner 平面专属） | ✅ |
+| `design_implement_to_code_cmd` | `POST /api/design/artifacts/{id}/implement`（组 handoff pack + 建实现会话，返回 `{sessionId, prompt, codeDir}`） | ✅ |
 | `export_design_pptx_cmd` | `POST /api/design/pptx`（前端整页 PNG → OOXML 组装） | ✅ |
 | `export_design_zip_cmd` | `POST /api/design/zip`（artifactId=单产物源码包 / projectId=项目级全产物包） | ✅ |
 | `export_design_selected_zip_cmd` | `POST /api/design/zip/selected`（body `artifactIds` → 选中产物打成一个 ZIP + 画廊，文件面批量导出） | ✅ |

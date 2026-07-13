@@ -25,7 +25,8 @@ pub struct DesignProject {
     /// 默认设计系统（弱引用）。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub default_system_id: Option<String>,
-    /// 绑定的 Hope Agent 项目（弱引用，D4 联动）。
+    /// 代码仓库绑定源之二：Hope Agent 项目（弱引用，目录从其 working_dir 实时
+    /// 派生、随用户改动跟随）。与 `code_dir` 互斥，单点见 `service::set_project_code_binding`。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ha_project_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -46,6 +47,10 @@ pub struct DesignProject {
     /// 已删则前端回退 agent 缺省；只作对话初始值，会话内切换不回写。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_model: Option<crate::provider::ActiveModel>,
+    /// 代码仓库绑定源之一：本机目录（canonical 绝对路径）。与 `ha_project_id`
+    /// 互斥；解析单一入口 `service::resolve_code_dir`（本列 > HA 项目派生）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code_dir: Option<String>,
 }
 
 /// 单个可交付产物。对应磁盘一个目录 + 一份自包含 `index.html`。
@@ -191,7 +196,7 @@ const PROJECT_COLUMNS: &str = "SELECT p.id, p.title, p.description, p.color, p.d
      p.ha_project_id, p.session_id, p.agent_id, p.created_at, p.updated_at, \
      (SELECT COUNT(*) FROM design_artifacts a WHERE a.project_id = p.id) AS artifact_count, \
      (SELECT COUNT(*) FROM design_artifacts a WHERE a.project_id = p.id AND a.status = 'needs_review') AS needs_review_count, \
-     p.metadata, p.default_model \
+     p.metadata, p.default_model, p.code_dir \
      FROM design_projects p";
 
 fn map_project_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<DesignProject> {
@@ -213,6 +218,7 @@ fn map_project_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<DesignProject> {
         default_model: row
             .get::<_, Option<String>>(13)?
             .and_then(|s| serde_json::from_str(&s).ok()),
+        code_dir: row.get(14)?,
     })
 }
 
@@ -313,7 +319,8 @@ impl DesignDb {
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
                 metadata TEXT,
-                default_model TEXT
+                default_model TEXT,
+                code_dir TEXT
             );
 
             CREATE TABLE IF NOT EXISTS design_artifacts (
@@ -409,6 +416,9 @@ impl DesignDb {
             "ALTER TABLE design_projects ADD COLUMN default_model TEXT",
             [],
         );
+        // 代码仓库绑定（本机目录源）：canonical 绝对路径；与 ha_project_id（HA 项目源）
+        // 互斥，互斥由 service::set_project_code_binding 单点保证。旧 dev DB 幂等补列。
+        let _ = conn.execute("ALTER TABLE design_projects ADD COLUMN code_dir TEXT", []);
         // B3 版本溯源（origin: ai/manual/restore + 生成 prompt 摘要）——分支内 dev DB 幂等补列。
         let _ = conn.execute(
             "ALTER TABLE design_artifact_versions ADD COLUMN origin TEXT",
@@ -484,8 +494,9 @@ impl DesignDb {
         conn.execute(
             "INSERT INTO design_projects
                 (id, title, description, color, default_system_id, ha_project_id,
-                 session_id, agent_id, created_at, updated_at, metadata, default_model)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+                 session_id, agent_id, created_at, updated_at, metadata, default_model,
+                 code_dir)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
             rusqlite::params![
                 p.id,
                 p.title,
@@ -501,6 +512,7 @@ impl DesignDb {
                 p.default_model
                     .as_ref()
                     .and_then(|m| serde_json::to_string(m).ok()),
+                p.code_dir,
             ],
         )?;
         Ok(())
@@ -563,6 +575,24 @@ impl DesignDb {
                 ha_project_id,
                 updated_at
             ],
+        )?;
+        Ok(())
+    }
+
+    /// 代码仓库绑定两列 verbatim 覆写（`None` = 清除，非 COALESCE 语义）。
+    /// 「二选一或全空」的互斥由 `service::set_project_code_binding` 单点校验。
+    pub fn set_project_code_binding(
+        &self,
+        id: &str,
+        code_dir: Option<&str>,
+        ha_project_id: Option<&str>,
+        updated_at: &str,
+    ) -> Result<()> {
+        let conn = self.lock()?;
+        conn.execute(
+            "UPDATE design_projects SET code_dir = ?2, ha_project_id = ?3, updated_at = ?4
+             WHERE id = ?1",
+            rusqlite::params![id, code_dir, ha_project_id, updated_at],
         )?;
         Ok(())
     }
@@ -1360,6 +1390,7 @@ mod tests {
             needs_review_count: 0,
             metadata: None,
             default_model: None,
+            code_dir: None,
         })
         .unwrap();
         db.create_artifact(&DesignArtifact {

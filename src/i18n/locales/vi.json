@@ -10127,6 +10127,33 @@
       "unbind": "Hủy liên kết",
       "dirInvalid": "Thư mục không hợp lệ"
     },
+    "repoBind": {
+      "entry": "Liên kết kho mã nguồn…",
+      "title": "Liên kết kho mã nguồn",
+      "desc": "Sau khi liên kết: trích xuất thương hiệu từ mã nguồn có thể đọc trực tiếp kho này, hội thoại thiết kế xem được mã trong đó, và “Triển khai vào mã” sẽ thực hiện ngay trong kho này.",
+      "dirInvalid": "Thư mục không hợp lệ",
+      "bound": "Đã liên kết kho mã nguồn",
+      "unbound": "Đã gỡ liên kết",
+      "err": "Liên kết thất bại",
+      "sourceDir": "Nguồn: thư mục cục bộ",
+      "sourceHaProject": "Nguồn: dự án Hope Agent",
+      "stale": "Không còn hiệu lực (thư mục hoặc dự án không tồn tại)",
+      "unbind": "Gỡ liên kết",
+      "modeDir": "Thư mục cục bộ",
+      "modeHaProject": "Dự án Hope Agent",
+      "dir": "Thư mục kho",
+      "dirPlaceholder": "Chọn hoặc nhập thư mục gốc của kho",
+      "choose": "Chọn…",
+      "haProject": "Dự án Hope Agent",
+      "haProjectPlaceholder": "Chọn dự án…",
+      "haProjectHint": "Thư mục lấy từ thư mục làm việc của dự án và tự động cập nhật theo thay đổi.",
+      "bind": "Liên kết"
+    },
+    "implement": {
+      "menu": "Triển khai vào mã…",
+      "needBind": "Hãy liên kết kho mã nguồn cho dự án này trước",
+      "err": "Không tạo được phiên triển khai"
+    },
     "pickSystem": "Chọn hệ thống thiết kế",
     "chat": {
       "searchHistory": "Tìm lịch sử…",

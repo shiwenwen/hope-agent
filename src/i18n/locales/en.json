@@ -10127,6 +10127,33 @@
       "unbind": "Unbind",
       "dirInvalid": "Invalid directory"
     },
+    "repoBind": {
+      "entry": "Link code repository…",
+      "title": "Link Code Repository",
+      "desc": "Once linked: brand extraction can read the repository directly, design chats can inspect its code, and “Implement to code” lands the implementation inside it.",
+      "dirInvalid": "Invalid directory",
+      "bound": "Code repository linked",
+      "unbound": "Link removed",
+      "err": "Failed to link",
+      "sourceDir": "Source: local directory",
+      "sourceHaProject": "Source: Hope Agent project",
+      "stale": "Broken (directory or project no longer exists)",
+      "unbind": "Unlink",
+      "modeDir": "Local directory",
+      "modeHaProject": "Hope Agent project",
+      "dir": "Repository directory",
+      "dirPlaceholder": "Pick or type the repository root",
+      "choose": "Choose…",
+      "haProject": "Hope Agent project",
+      "haProjectPlaceholder": "Select a project…",
+      "haProjectHint": "The directory comes from that project's working directory and follows any later changes.",
+      "bind": "Link"
+    },
+    "implement": {
+      "menu": "Implement to code…",
+      "needBind": "Link a code repository to this project first",
+      "err": "Failed to create the implementation session"
+    },
     "pickSystem": "Choose a design system",
     "chat": {
       "searchHistory": "Search history…",

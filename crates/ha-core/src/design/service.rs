@@ -282,6 +282,7 @@ pub fn create_project(input: CreateProjectInput) -> Result<DesignProject> {
         needs_review_count: 0,
         metadata: None,
         default_model: input.default_model,
+        code_dir: None,
     };
     // 建项目目录 + project.json（真相源镜像）。
     let dir = paths::design_project_dir(&project.id)?;
@@ -334,8 +335,9 @@ pub fn duplicate_project(id: &str) -> Result<DesignProject> {
         description: src.description.clone(),
         color: src.color.clone(),
         default_system_id: src.default_system_id.clone(),
-        // 副本是独立项目：不继承源的 HA 项目 / 会话绑定（否则两项目抢 1:1 attach）。
-        ha_project_id: None,
+        // 代码仓库绑定（code_dir / ha_project_id）是只读根引用、无 1:1 争抢，副本继承；
+        // 会话锚定（session_id）有 1:1 语义，不继承。
+        ha_project_id: src.ha_project_id.clone(),
         session_id: None,
         agent_id: src.agent_id.clone(),
         created_at: ts.clone(),
@@ -345,6 +347,7 @@ pub fn duplicate_project(id: &str) -> Result<DesignProject> {
         metadata: src.metadata.clone(),
         // 副本继承源项目的对话模型偏好（弱引用，随时可换）。
         default_model: src.default_model.clone(),
+        code_dir: src.code_dir.clone(),
     };
     let new_dir = paths::design_project_dir(&new_pid)?;
     std::fs::create_dir_all(new_dir.join("artifacts"))?;
@@ -656,6 +659,24 @@ pub fn mark_session_as_design_thread(session_id: &str, project_id: &str) {
             e
         );
     }
+    // 项目绑了代码仓库 → 新设计线程的工作目录对齐生效目录（agent 立刻可 read 仓库、
+    // `from=codebase` 提取根随之扩张）。best-effort：绑定缺失 / 解析失败保持无工作目录。
+    if let Some(dir) = open_db()
+        .ok()
+        .and_then(|d| d.get_project(project_id).ok().flatten())
+        .as_ref()
+        .and_then(resolve_code_dir)
+    {
+        if let Err(e) = db.update_session_working_dir(session_id, Some(dir)) {
+            crate::app_warn!(
+                "design",
+                "thread_mint",
+                "align working_dir failed for {}: {}",
+                session_id,
+                e
+            );
+        }
+    }
 }
 
 /// Default-load target: `SessionMeta` of the most-recently-active chat thread for
@@ -724,6 +745,222 @@ pub fn update_project(input: UpdateProjectInput) -> Result<DesignProject> {
             serde_json::to_string_pretty(&project)?.as_bytes(),
         );
     }
+    emit("design:project_changed", json!({ "projectId": project.id }));
+    Ok(project)
+}
+
+// ── 代码仓库绑定（双源：本机目录 / HA 项目派生） ────────────────────
+
+/// 解析设计项目当前生效的代码仓库目录（canonical 绝对路径字符串）。
+///
+/// 单一入口，优先级 `code_dir`（本机目录源）> `ha_project_id`（HA 项目源，目录从
+/// 其显式 `working_dir` 或 lazy 默认 workspace 实时派生——用户改 HA 项目工作目录
+/// 自动跟随）。任一源解析失败（目录已删 / HA 项目已删 / DB 不可用）按未绑定处理
+/// （fail-safe 回 `None`，不 bail），GUI 经 `get_project_code_binding` 感知 stale。
+pub fn resolve_code_dir(project: &DesignProject) -> Option<String> {
+    if let Some(dir) = project.code_dir.as_deref().filter(|s| !s.trim().is_empty()) {
+        match std::path::Path::new(dir).canonicalize() {
+            Ok(c) if c.is_dir() => return Some(c.to_string_lossy().into_owned()),
+            _ => {
+                crate::app_warn!(
+                    "design",
+                    "code_binding",
+                    "bound code_dir missing for project {}: {dir}",
+                    project.id
+                );
+                return None;
+            }
+        }
+    }
+    let pid = project
+        .ha_project_id
+        .as_deref()
+        .filter(|s| !s.trim().is_empty())?;
+    let db = crate::get_project_db()?;
+    match db.get(pid) {
+        Ok(Some(ha)) => {
+            if let Some(wd) = ha.working_dir.filter(|s| !s.trim().is_empty()) {
+                if let Ok(c) = std::path::Path::new(&wd).canonicalize() {
+                    if c.is_dir() {
+                        return Some(c.to_string_lossy().into_owned());
+                    }
+                }
+            }
+            // 无显式 working_dir → lazy 默认 workspace（与会话工作目录合并同款）。
+            let ws = crate::paths::project_workspace_dir(pid).ok()?;
+            crate::util::ensure_dir_canonical(&ws).ok()
+        }
+        Ok(None) => {
+            crate::app_warn!(
+                "design",
+                "code_binding",
+                "bound ha_project {} no longer exists (project {})",
+                pid,
+                project.id
+            );
+            None
+        }
+        Err(e) => {
+            crate::app_warn!(
+                "design",
+                "code_binding",
+                "ha_project {} lookup failed for project {}: {}",
+                pid,
+                project.id,
+                e
+            );
+            None
+        }
+    }
+}
+
+/// agent 侧：会话 → 锚定设计项目 → 生效代码仓库目录（无绑定 / 非设计线程 = None）。
+/// 供 `scoped_local_path` 扩读根；解析链与 `get_or_create_session_project` 同源
+/// （threads 锚 > `session_id` 列），但只读、绝不新建项目。
+pub fn session_bound_code_dir(session_id: &str) -> Option<String> {
+    let project = crate::design::threads::project_for_session(session_id)
+        .ok()
+        .flatten()
+        .and_then(|pid| open_db().ok()?.get_project(&pid).ok().flatten())
+        .or_else(|| {
+            open_db()
+                .ok()?
+                .list_projects_by_session(session_id)
+                .ok()?
+                .into_iter()
+                .next()
+        })?;
+    resolve_code_dir(&project)
+}
+
+/// 绑定状态 DTO（GUI 展示：来源 / 生效目录 / stale 标记）。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodeBindingInfo {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub code_dir: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ha_project_id: Option<String>,
+    /// 当前实际生效的目录（双源解析结果）；绑定存在但解析失败时为 None。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resolved_dir: Option<String>,
+    /// `dir` | `haProject`；未绑定为 None。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+    /// 绑定存在但已失效（目录被删 / HA 项目被删）——GUI 标红，不自动清列。
+    pub stale: bool,
+}
+
+pub fn get_project_code_binding(project_id: &str) -> Result<CodeBindingInfo> {
+    let project = open_db()?
+        .get_project(project_id)?
+        .with_context(|| format!("project not found: {project_id}"))?;
+    let source = if project.code_dir.as_deref().is_some_and(|s| !s.trim().is_empty()) {
+        Some("dir".to_string())
+    } else if project
+        .ha_project_id
+        .as_deref()
+        .is_some_and(|s| !s.trim().is_empty())
+    {
+        Some("haProject".to_string())
+    } else {
+        None
+    };
+    let resolved_dir = resolve_code_dir(&project);
+    Ok(CodeBindingInfo {
+        stale: source.is_some() && resolved_dir.is_none(),
+        code_dir: project.code_dir,
+        ha_project_id: project.ha_project_id,
+        resolved_dir,
+        source,
+    })
+}
+
+/// 设置 / 清除设计项目的代码仓库绑定（owner 平面专属；agent `design` 工具**无**
+/// 此动作——绑定 = 用户显式授权读取该目录，模型不能自授权，红线见 design-space.md）。
+///
+/// 互斥：`code_dir` 与 `ha_project_id` 至多一个非空（双双传入 bail）；双 None = 解绑。
+/// 副作用：绑定变更后把该项目全部设计线程会话的 `working_dir` 对齐到新生效目录
+/// （解绑清空），让设计对话里的 agent 立刻能 / 不能读到仓库。
+pub fn set_project_code_binding(
+    project_id: &str,
+    code_dir: Option<String>,
+    ha_project_id: Option<String>,
+) -> Result<DesignProject> {
+    let db = open_db()?;
+    db.get_project(project_id)?
+        .with_context(|| format!("project not found: {project_id}"))?;
+
+    let code_dir = code_dir.filter(|s| !s.trim().is_empty());
+    let ha_project_id = ha_project_id.filter(|s| !s.trim().is_empty());
+    if code_dir.is_some() && ha_project_id.is_some() {
+        anyhow::bail!("code_dir and ha_project_id are mutually exclusive — pass only one");
+    }
+
+    // 本机目录源：必须存在且是目录，存 canonical 路径（防 symlink 漂移）。
+    let code_dir = match code_dir {
+        Some(raw) => {
+            let canon = std::path::Path::new(raw.trim())
+                .canonicalize()
+                .map_err(|_| anyhow::anyhow!("directory not found or inaccessible: {raw}"))?;
+            if !canon.is_dir() {
+                anyhow::bail!("not a directory: {raw}");
+            }
+            Some(canon.to_string_lossy().into_owned())
+        }
+        None => None,
+    };
+    // HA 项目源：项目必须存在（目录派生留到解析期，允许 working_dir 后设）。
+    if let Some(pid) = ha_project_id.as_deref() {
+        let ha_db = crate::get_project_db().context("project db unavailable")?;
+        ha_db
+            .get(pid)?
+            .with_context(|| format!("hope-agent project not found: {pid}"))?;
+    }
+
+    db.set_project_code_binding(
+        project_id,
+        code_dir.as_deref(),
+        ha_project_id.as_deref(),
+        &now(),
+    )?;
+    let project = db
+        .get_project(project_id)?
+        .context("project not found after update")?;
+
+    // 对齐既有设计线程会话的工作目录（best-effort：单条失败只警告）。
+    let resolved = resolve_code_dir(&project);
+    if let Some(session_db) = crate::globals::get_session_db() {
+        if let Ok(sids) = crate::design::threads::thread_session_ids(project_id) {
+            for sid in sids {
+                if let Err(e) = session_db.update_session_working_dir(&sid, resolved.clone()) {
+                    crate::app_warn!(
+                        "design",
+                        "code_binding",
+                        "align working_dir failed for thread session {}: {}",
+                        sid,
+                        e
+                    );
+                }
+            }
+        }
+    }
+
+    // 回写 project.json 镜像。
+    if let Ok(dir) = paths::design_project_dir(&project.id) {
+        let _ = write_atomic(
+            &dir.join("project.json"),
+            serde_json::to_string_pretty(&project)?.as_bytes(),
+        );
+    }
+    crate::app_info!(
+        "design",
+        "code_binding",
+        "project {} bound: code_dir={:?} ha_project={:?}",
+        project_id,
+        project.code_dir,
+        project.ha_project_id
+    );
     emit("design:project_changed", json!({ "projectId": project.id }));
     Ok(project)
 }
@@ -3503,6 +3740,172 @@ pub fn export_handoff(artifact_id: &str) -> Result<ExportResult> {
     })
 }
 
+// ── 实现到代码（设计稿 → 绑定仓库内的组件级实现，经正常 chat 会话） ──
+
+/// 单段源码进 pack 的字节上限（超限截断 + 显式标注，防超长产物撑爆首条消息）。
+const IMPLEMENT_PART_MAX: usize = 24 * 1024;
+/// DESIGN.md 摘要进 pack 的字节上限。
+const IMPLEMENT_DESIGN_MD_MAX: usize = 8 * 1024;
+
+fn pack_code_block(s: &mut String, lang: &str, content: &str) {
+    let truncated = crate::util::truncate_utf8(content, IMPLEMENT_PART_MAX);
+    s.push_str(&format!("```{lang}\n{truncated}\n```\n"));
+    if truncated.len() < content.len() {
+        s.push_str("（超长已截断——完整源码可用「代码交付包 (ZIP)」导出查看）\n");
+    }
+    s.push('\n');
+}
+
+/// 组装「实现到代码」的 handoff context pack：作为实现会话的首条 user 消息。
+/// 结构对齐参照物 handoff bundle 的语义（组件用了什么 / 怎么排布 / 有哪些批注），
+/// 素材全部复用 handoff ZIP 的既有函数（`read_source` / `referenced_tokens` /
+/// `export_design_md`），**纯只读**，不落任何文件。
+fn build_implement_pack(
+    db: &super::db::DesignDb,
+    a: &DesignArtifact,
+    project: &DesignProject,
+) -> Result<String> {
+    let dir = paths::design_artifact_dir(&a.project_id, &a.id)?;
+    let parts = read_source(&dir)?;
+    let tokens_vec = resolve_tokens(a.system_id.as_deref());
+    let referenced = referenced_tokens(&parts, &tokens_vec);
+    let system_name = a
+        .system_id
+        .as_deref()
+        .and_then(|id| system::read_full(&db, id).ok().map(|f| f.meta.name));
+
+    let mut s = String::new();
+    s.push_str(
+        "请在当前工作目录的代码仓库中，把下面这份设计稿实现为真实代码。\n\n\
+要求：\n\
+1. 先侦察仓库：读 README / 包清单 / 现有组件与样式约定，确定技术栈与组件规范后再动手。\n\
+2. 用仓库现有技术栈实现（组件框架 / 样式方案跟随现状；确有必要新增依赖须先说明理由）。\n\
+3. 设计变量对照表见下：仓库已有设计变量体系则把 `--ds-*` 值映射过去，没有则按团队约定落新变量。\n\
+4. 落成真实组件文件（含必要的导入 / 导出接线），完成后列出改动清单。\n\n",
+    );
+    s.push_str("## 设计稿信息\n\n");
+    s.push_str(&format!("- 标题：{}\n- 形态（kind）：`{}`\n", a.title, a.kind));
+    if let (Some(w), Some(h)) = (a.viewport_w, a.viewport_h) {
+        s.push_str(&format!("- 视口：{w}×{h}\n"));
+    }
+    if let Some(name) = &system_name {
+        s.push_str(&format!("- 设计系统：{name}\n"));
+    }
+    s.push_str(&format!("- 所属设计项目：{}\n\n", project.title));
+
+    if referenced.is_empty() {
+        s.push_str("## 引用的设计变量\n\n（未检测到 `var(--ds-*)` 引用）\n\n");
+    } else {
+        s.push_str("## 引用的设计变量\n\n| Token | 值 |\n| --- | --- |\n");
+        for (name, value) in &referenced {
+            s.push_str(&format!(
+                "| `{}` | `{}` |\n",
+                md_table_cell(name),
+                md_table_cell(value)
+            ));
+        }
+        s.push('\n');
+    }
+
+    s.push_str("## 设计稿源码\n\n### body.html\n\n");
+    pack_code_block(&mut s, "html", &parts.body_html);
+    s.push_str("### style.css\n\n");
+    pack_code_block(&mut s, "css", &parts.css);
+    if !parts.js.trim().is_empty() {
+        s.push_str("### script.js\n\n");
+        pack_code_block(&mut s, "js", &parts.js);
+    }
+
+    // 未解决批注 = 用户在画布上留下的实现要求，一并带给实现会话。
+    let open_comments: Vec<_> = list_comments(&a.id)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|c| !c.resolved)
+        .take(20)
+        .collect();
+    if !open_comments.is_empty() {
+        s.push_str("## 画布批注（未解决）\n\n");
+        for c in &open_comments {
+            let anchor = c.snippet.as_deref().or(c.tag.as_deref()).unwrap_or("画布");
+            s.push_str(&format!(
+                "- [{}] {}\n",
+                crate::util::truncate_utf8(anchor, 120),
+                crate::util::truncate_utf8(&c.body, 500)
+            ));
+        }
+        s.push('\n');
+    }
+
+    if let Some(id) = a.system_id.as_deref() {
+        if let Ok(md) = export_design_md(id) {
+            s.push_str("## 设计系统摘要（DESIGN.md）\n\n");
+            let truncated = crate::util::truncate_utf8(&md, IMPLEMENT_DESIGN_MD_MAX);
+            s.push_str(truncated);
+            if truncated.len() < md.len() {
+                s.push_str("\n（超长已截断）");
+            }
+            s.push('\n');
+        }
+    }
+    Ok(s)
+}
+
+/// 「实现到代码」结果：前端跳到该会话并把 `prompt` 作首条消息经正常 chat 路径发送。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImplementToCodeResult {
+    pub session_id: String,
+    pub prompt: String,
+    pub code_dir: String,
+}
+
+/// 把一份设计稿交给**正常 chat 会话**在绑定仓库里实现（owner 平面专属）。
+///
+/// 只做三件事：组 pack + 建会话（`working_dir` = 绑定仓库生效目录）+ 返回 prompt；
+/// **不在后端发起 turn**——前端跳转后经既有 chat 路径发送，流式 / 审批 / DiffPanel
+/// 全复用。写代码的每一笔都过权限引擎（红线：`design` 工具自身永不写仓库）。
+pub fn implement_to_code(artifact_id: &str) -> Result<ImplementToCodeResult> {
+    let db = open_db()?;
+    let a = db
+        .get_artifact(artifact_id)?
+        .with_context(|| format!("artifact not found: {artifact_id}"))?;
+    let project = db
+        .get_project(&a.project_id)?
+        .with_context(|| format!("project not found: {}", a.project_id))?;
+    let code_dir = resolve_code_dir(&project)
+        .context("design project has no (valid) bound code repository — bind one first")?;
+    let prompt = build_implement_pack(&db, &a, &project)?;
+
+    let session_db = crate::globals::get_session_db().context("session db unavailable")?;
+    let agent_id = project
+        .agent_id
+        .clone()
+        .unwrap_or_else(|| crate::agent::resolver::resolve_default_agent_id(None, None));
+    let meta = session_db.create_session(&agent_id)?;
+    // 工作目录必须落成功——否则实现会话会在错误 cwd 里写文件，宁可整体失败。
+    session_db
+        .update_session_working_dir(&meta.id, Some(code_dir.clone()))
+        .context("failed to set implement session working directory")?;
+    let title = format!("实现设计：{}", a.title);
+    if let Err(e) = session_db.update_session_title(&meta.id, crate::util::truncate_utf8(&title, 120))
+    {
+        crate::app_warn!("design", "implement", "set title failed for {}: {}", meta.id, e);
+    }
+    crate::app_info!(
+        "design",
+        "implement",
+        "artifact {} -> session {} (cwd {})",
+        artifact_id,
+        meta.id,
+        code_dir
+    );
+    Ok(ImplementToCodeResult {
+        session_id: meta.id,
+        prompt,
+        code_dir,
+    })
+}
+
 // ── Code bindings (工程轴 D：设计系统 → 代码工程 token 同步) ─────────
 
 /// 有效格式 id（token_export 的六目标）。
@@ -4532,6 +4935,88 @@ mod handoff_tests {
                 ("--ds-space-4".to_string(), "16px".to_string()),
             ]
         );
+    }
+}
+
+#[cfg(test)]
+mod code_binding_tests {
+    use super::{resolve_code_dir, DesignProject};
+
+    fn proj(code_dir: Option<String>, ha_project_id: Option<String>) -> DesignProject {
+        DesignProject {
+            id: "p1".into(),
+            title: "t".into(),
+            description: None,
+            color: None,
+            default_system_id: None,
+            ha_project_id,
+            session_id: None,
+            agent_id: None,
+            created_at: "2026-01-01T00:00:00Z".into(),
+            updated_at: "2026-01-01T00:00:00Z".into(),
+            artifact_count: 0,
+            needs_review_count: 0,
+            metadata: None,
+            default_model: None,
+            code_dir,
+        }
+    }
+
+    #[test]
+    fn resolve_prefers_dir_source_and_canonicalizes() {
+        let tmp = tempfile::tempdir().unwrap();
+        let p = proj(Some(tmp.path().to_string_lossy().into_owned()), None);
+        let got = resolve_code_dir(&p).expect("bound dir should resolve");
+        assert_eq!(
+            std::path::PathBuf::from(got),
+            std::fs::canonicalize(tmp.path()).unwrap()
+        );
+    }
+
+    #[test]
+    fn resolve_missing_dir_is_stale_none() {
+        // 绑定后目录被删 → fail-safe 按未绑定处理（None），不 panic 不 bail。
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("gone");
+        std::fs::create_dir(&path).unwrap();
+        let p = proj(Some(path.to_string_lossy().into_owned()), None);
+        std::fs::remove_dir(&path).unwrap();
+        assert!(resolve_code_dir(&p).is_none());
+    }
+
+    #[test]
+    fn resolve_blank_sources_are_unbound() {
+        // 空串 / 全空白与 None 同义（列存过空串的旧行不致误判已绑定）。
+        assert!(resolve_code_dir(&proj(Some("  ".into()), None)).is_none());
+        assert!(resolve_code_dir(&proj(None, Some(String::new()))).is_none());
+        assert!(resolve_code_dir(&proj(None, None)).is_none());
+    }
+
+    #[test]
+    fn db_roundtrip_set_swap_and_clear_binding() {
+        // db 层 verbatim 覆写语义：set 换源、clear 清空，非 COALESCE。
+        let tmp = tempfile::tempdir().unwrap();
+        let db = crate::design::db::DesignDb::open(&tmp.path().join("design.db")).unwrap();
+        let p = proj(None, None);
+        db.create_project(&p).unwrap();
+
+        db.set_project_code_binding("p1", Some("/tmp/a"), None, "2026-01-02T00:00:00Z")
+            .unwrap();
+        let got = db.get_project("p1").unwrap().unwrap();
+        assert_eq!(got.code_dir.as_deref(), Some("/tmp/a"));
+        assert_eq!(got.ha_project_id, None);
+
+        db.set_project_code_binding("p1", None, Some("hap-1"), "2026-01-03T00:00:00Z")
+            .unwrap();
+        let got = db.get_project("p1").unwrap().unwrap();
+        assert_eq!(got.code_dir, None);
+        assert_eq!(got.ha_project_id.as_deref(), Some("hap-1"));
+
+        db.set_project_code_binding("p1", None, None, "2026-01-04T00:00:00Z")
+            .unwrap();
+        let got = db.get_project("p1").unwrap().unwrap();
+        assert_eq!(got.code_dir, None);
+        assert_eq!(got.ha_project_id, None);
     }
 }
 

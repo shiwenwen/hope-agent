@@ -93,6 +93,7 @@ export interface DesignProject {
   description?: string;
   color?: string;
   defaultSystemId?: string;
+  /** 代码仓库绑定源之二：HA 项目（目录从其 working_dir 实时派生）。与 codeDir 互斥。 */
   haProjectId?: string;
   sessionId?: string;
   agentId?: string;
@@ -104,6 +105,27 @@ export interface DesignProject {
   metadata?: string;
   /** 项目对话初始模型（首页所选模型带入；弱引用，缺省 = agent 缺省）。 */
   defaultModel?: ActiveModel;
+  /** 代码仓库绑定源之一：本机目录（canonical 绝对路径）。与 haProjectId 互斥。 */
+  codeDir?: string;
+}
+
+/** 代码仓库绑定状态（code-binding 读端）。 */
+export interface CodeBindingInfo {
+  codeDir?: string;
+  haProjectId?: string;
+  /** 双源解析后的生效目录；绑定存在但解析失败时缺省。 */
+  resolvedDir?: string;
+  /** "dir" | "haProject"；未绑定缺省。 */
+  source?: "dir" | "haProject";
+  /** 绑定存在但已失效（目录被删 / HA 项目被删）。 */
+  stale: boolean;
+}
+
+/** 「实现到代码」结果：跳到该会话并把 prompt 经正常 chat 路径作首条消息发送。 */
+export interface ImplementToCodeResult {
+  sessionId: string;
+  prompt: string;
+  codeDir: string;
 }
 
 /** 单个可交付产物。 */

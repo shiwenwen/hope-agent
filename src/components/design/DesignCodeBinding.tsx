@@ -37,9 +37,11 @@ interface Props {
   system: DesignSystemMeta | null
   open: boolean
   onOpenChange: (open: boolean) => void
+  /** 目标目录预填（项目级代码仓库绑定的生效目录）；用户可改。 */
+  initialTargetDir?: string
 }
 
-export function DesignCodeBinding({ system, open, onOpenChange }: Props) {
+export function DesignCodeBinding({ system, open, onOpenChange, initialTargetDir }: Props) {
   const { t } = useTranslation()
   const tx = getTransport()
   const [bindings, setBindings] = useState<Binding[]>([])
@@ -66,13 +68,17 @@ export function DesignCodeBinding({ system, open, onOpenChange }: Props) {
   }, [system, tx])
 
   useEffect(() => {
-    if (open && system) void load()
+    if (open && system) {
+      void load()
+      // 项目已绑代码仓库 → 预填其生效目录（仅空表单时，不覆盖用户输入）。
+      setTargetDir((prev) => prev || (initialTargetDir ?? ""))
+    }
     if (!open) {
       setTargetDir("")
       setSubfolder("design-tokens")
       setFormats(new Set(ALL_FORMATS))
     }
-  }, [open, system, load])
+  }, [open, system, load, initialTargetDir])
 
   const {
     pick,
