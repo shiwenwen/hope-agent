@@ -12,6 +12,16 @@ import type { AgentSummaryForSidebar } from "@/types/chat"
 import CronSessionViewer from "./CronSessionViewer"
 
 const PAGE_SIZE = 50
+const LOOP_TITLE_PREFIX = /^\s*\[Loop\]\s*/i
+
+function timelineTitleParts(row: CronTimelineRow): { isLoop: boolean; title: string } {
+  const title = row.title || row.jobName
+  const isLoop = LOOP_TITLE_PREFIX.test(title)
+  return {
+    isLoop,
+    title: isLoop ? title.replace(LOOP_TITLE_PREFIX, "") || row.jobName : title,
+  }
+}
 
 function useRelativeTime() {
   const { t } = useTranslation()
@@ -186,16 +196,18 @@ export default function CronConversationsPanel() {
               {t("cron.noConversations")}
             </p>
           ) : (
-            <div className="py-1">
+            <div className="grid auto-rows-max divide-y divide-border/40">
               {rows.map((row) => {
                 const display = runStatusDisplay(row.status)
                 const isActive = row.sessionId === selectedSessionId
+                const title = timelineTitleParts(row)
                 return (
                   <button
+                    type="button"
                     key={row.sessionId}
                     onClick={() => handleSelect(row)}
                     className={cn(
-                      "w-full px-3 py-2.5 text-left transition-colors border-l-2",
+                      "h-auto min-h-0 w-full border-l-2 px-3 py-2 text-left transition-colors",
                       isActive
                         ? "bg-primary/10 border-l-primary"
                         : "border-l-transparent hover:bg-secondary/50",
@@ -208,8 +220,13 @@ export default function CronConversationsPanel() {
                           runLogDotColor(row.status, "active"),
                         )}
                       />
-                      <span className="flex-1 truncate text-xs font-medium">
-                        {row.title || row.jobName}
+                      <span className="flex min-w-0 flex-1 items-center gap-1.5 text-xs font-medium">
+                        {title.isLoop && (
+                          <span className="inline-flex shrink-0 items-center rounded-md bg-sky-500/10 px-1.5 py-0.5 text-[9px] font-semibold leading-none text-sky-700 ring-1 ring-inset ring-sky-500/20 dark:text-sky-300">
+                            Loop
+                          </span>
+                        )}
+                        <span className="truncate">{title.title}</span>
                       </span>
                       {row.unreadCount > 0 && (
                         <span className="flex h-[16px] min-w-[16px] items-center justify-center rounded-full bg-destructive px-1 text-[9px] font-semibold leading-none text-white tabular-nums">
@@ -227,7 +244,7 @@ export default function CronConversationsPanel() {
                       </span>
                     </div>
                     {row.resultPreview && (
-                      <p className="mt-1 line-clamp-2 pl-4 text-[11px] text-muted-foreground">
+                      <p className="mt-1 line-clamp-1 pl-4 text-[11px] text-muted-foreground">
                         {row.resultPreview}
                       </p>
                     )}
