@@ -54,6 +54,7 @@ interface CanvasPanelProps {
   visible?: boolean
   collapsed?: boolean
   overlay?: boolean
+  animateOnMount?: boolean
 }
 
 export const CLOSE_CANVAS_PANEL_EVENT = "hope-agent:close-canvas"
@@ -67,6 +68,7 @@ export default function CanvasPanel({
   visible = true,
   collapsed = false,
   overlay = false,
+  animateOnMount = false,
 }: CanvasPanelProps) {
   const { t } = useTranslation()
   const [canvas, setCanvas] = useState<CanvasInfo | null>(null)
@@ -420,6 +422,7 @@ export default function CanvasPanel({
         reservedMainWidth={reservedMainWidth}
         collapsed={collapsed}
         overlay={overlay}
+        animateOnMount={animateOnMount}
         contentKey="canvas-detached"
       >
         {/* Title Bar */}
@@ -463,6 +466,7 @@ export default function CanvasPanel({
       reservedMainWidth={reservedMainWidth}
       collapsed={collapsed}
       overlay={overlay}
+      animateOnMount={animateOnMount}
       contentKey="canvas"
     >
       {/* Title Bar */}

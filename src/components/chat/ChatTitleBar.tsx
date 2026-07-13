@@ -15,17 +15,12 @@ import {
   FileText,
   Folder,
   FolderCheck,
-  FolderOpen,
-  Layers,
-  LayoutDashboard,
   Loader2,
   Search,
   Send,
   Ghost,
   Share2,
   PanelLeftDashed,
-  PanelRight,
-  PanelRightDashed,
   type LucideIcon,
 } from "lucide-react"
 import { ExportSessionDialog } from "@/components/chat/export/ExportSessionDialog"
@@ -66,14 +61,14 @@ import type { ProjectMeta } from "@/types/project"
 
 interface RightPanelTitleBarItem {
   id: string
-  label: string
+  labelKey: string
   icon: LucideIcon
-}
-
-interface WorkflowTitleBarStatus {
-  activeCount: number
-  attentionCount: number
-  runningCount: number
+  open: boolean
+  badge?: {
+    count: number
+    labelKey: string
+    tone: "attention" | "running" | "neutral"
+  }
 }
 
 interface ChatTitleBarProps {
@@ -133,32 +128,14 @@ interface ChatTitleBarProps {
   incognitoSaving?: boolean
   incognitoDisabledReason?: IncognitoDisabledReason
   onIncognitoChange?: (enabled: boolean) => void
-  /** Toggle the right-side file browser. Undefined when no working directory. */
-  onToggleFilesPanel?: () => void
-  /** Whether the file browser panel is currently open (controls active styling). */
-  filesPanelOpen?: boolean
-  /** Toggle the right-side workspace panel (tasks / files / sources). */
-  onToggleWorkspacePanel?: () => void
-  /** Whether the workspace panel is currently open (controls active styling). */
-  workspacePanelOpen?: boolean
-  /** Compact workflow run status for the Workflow workspace entry badge. */
-  workspaceWorkflowStatus?: WorkflowTitleBarStatus
-  /** Toggle the right-side background-jobs panel (R4). */
-  onToggleBackgroundJobsPanel?: () => void
-  /** Whether the background-jobs panel is currently open (controls active styling). */
-  backgroundJobsPanelOpen?: boolean
-  /** Count of running background jobs in this session (drives the header badge). */
-  backgroundJobsRunningCount?: number
-  /** Open right-side panels available for switching/collapsing. */
+  /** Available persistent entries plus currently-open transient right panels. */
   rightPanels?: RightPanelTitleBarItem[]
   /** Active right-side panel id. */
   activeRightPanelId?: string | null
   /** Whether the active right-side panel is collapsed. */
   rightPanelCollapsed?: boolean
-  /** Switch to an already-open right-side panel. */
-  onSelectRightPanel?: (panelId: string) => void
-  /** Collapse/expand the active right-side panel. */
-  onToggleRightPanelCollapsed?: () => void
+  /** Open, select, collapse or expand a right-side panel. */
+  onRightPanelAction?: (panelId: string) => void
 }
 
 export default function ChatTitleBar({
@@ -193,19 +170,10 @@ export default function ChatTitleBar({
   incognitoSaving = false,
   incognitoDisabledReason,
   onIncognitoChange,
-  onToggleFilesPanel,
-  filesPanelOpen = false,
-  onToggleWorkspacePanel,
-  workspacePanelOpen = false,
-  workspaceWorkflowStatus,
-  onToggleBackgroundJobsPanel,
-  backgroundJobsPanelOpen = false,
-  backgroundJobsRunningCount = 0,
   rightPanels = [],
   activeRightPanelId,
   rightPanelCollapsed = false,
-  onSelectRightPanel,
-  onToggleRightPanelCollapsed,
+  onRightPanelAction,
 }: ChatTitleBarProps) {
   const { t } = useTranslation()
   const appVersion = useAppVersion()
@@ -318,27 +286,6 @@ export default function ChatTitleBar({
   const currentModel = resolveCurrentModel(activeModel, availableModels)
   const showIncognitoToggle =
     !currentSessionId && onIncognitoChange && incognitoDisabledReason !== "project"
-  const activeRightPanel =
-    rightPanels.find((panel) => panel.id === activeRightPanelId) ?? rightPanels[0] ?? null
-  const rightPanelToggleLabel = rightPanelCollapsed
-    ? t("chat.rightPanel.expand", "展开右侧面板")
-    : t("chat.rightPanel.collapse", "收起右侧面板")
-  const workflowAttentionCount = workspaceWorkflowStatus?.attentionCount ?? 0
-  const workflowActiveCount = workspaceWorkflowStatus?.activeCount ?? 0
-  const workflowRunningCount = workspaceWorkflowStatus?.runningCount ?? 0
-  const workflowBadgeCount = workflowAttentionCount || workflowActiveCount
-  const workflowBadgeTone =
-    workflowAttentionCount > 0
-      ? "bg-amber-500 text-white"
-      : workflowRunningCount > 0
-        ? "bg-blue-500 text-white"
-        : "bg-muted-foreground text-background"
-  const workspaceEntryLabel = t("workspace.openPanel", "Open workspace")
-  const hasRightPanelControls =
-    !!onToggleFilesPanel ||
-    !!onToggleWorkspacePanel ||
-    !!onToggleBackgroundJobsPanel ||
-    (rightPanels.length > 0 && (rightPanels.length > 1 || !!onToggleRightPanelCollapsed))
   const workingDirChip = effectiveWorkingDir ? (
     <IconTip
       label={
@@ -361,121 +308,76 @@ export default function ChatTitleBar({
     </IconTip>
   ) : null
   const shouldShowWorkingDirChip = !project || workingDirSource === "session"
-  const rightPanelControls = hasRightPanelControls ? (
+  const rightPanelControls = rightPanels.length > 0 ? (
     <div className="ml-1 flex items-center gap-0.5 border-l border-border-soft pl-1">
-      {onToggleFilesPanel && (
-        <IconTip label={t("fileBrowser.open", "Show files")}>
-          <button
-            type="button"
-            className={cn(
-              "flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary/70 hover:text-foreground",
-              filesPanelOpen && "text-foreground",
-            )}
-            aria-label={t("fileBrowser.open", "Show files")}
-            aria-pressed={filesPanelOpen}
-            onClick={onToggleFilesPanel}
-          >
-            <FolderOpen className="h-4 w-4" />
-          </button>
-        </IconTip>
-      )}
-      {onToggleWorkspacePanel && (
-        <IconTip label={workspaceEntryLabel}>
-          <button
-            type="button"
-            className={cn(
-              "relative flex h-7 max-w-[112px] items-center justify-center gap-1.5 rounded-md px-2 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-secondary/70 hover:text-foreground",
-              workspacePanelOpen && "bg-primary/10 text-primary ring-1 ring-primary/25",
-            )}
-            aria-label={workspaceEntryLabel}
-            aria-pressed={workspacePanelOpen}
-            onClick={onToggleWorkspacePanel}
-          >
-            <LayoutDashboard className="h-4 w-4 shrink-0" />
-            <span className="truncate">{t("workspace.panelTitle", "Workspace")}</span>
-            {workflowBadgeCount > 0 ? (
-              <span
+      <div
+        className="flex h-8 max-w-[248px] items-center gap-0.5 overflow-x-auto p-0.5"
+        role="toolbar"
+        aria-label={t("chat.rightPanel.dock")}
+      >
+        {rightPanels.map((panel) => {
+          const PanelIcon = panel.icon
+          const active = panel.id === activeRightPanelId
+          const panelLabel = t(panel.labelKey)
+          const actionLabel = active
+            ? t(
+                rightPanelCollapsed
+                  ? "chat.rightPanel.expandPanel"
+                  : "chat.rightPanel.collapsePanel",
+                { panel: panelLabel },
+              )
+            : t(panel.open ? "chat.rightPanel.switchToPanel" : "chat.rightPanel.openPanel", {
+                panel: panelLabel,
+              })
+          const badgeTone =
+            panel.badge?.tone === "attention"
+              ? "bg-amber-500 text-white"
+              : panel.badge?.tone === "running"
+                ? "bg-blue-500 text-white"
+                : "bg-muted-foreground text-background"
+          const badgeDescriptionId = panel.badge
+            ? `right-panel-${panel.id}-badge-description`
+            : undefined
+          return (
+            <IconTip key={panel.id} label={actionLabel}>
+              <button
+                type="button"
+                aria-label={actionLabel}
+                aria-pressed={active}
+                aria-expanded={active ? !rightPanelCollapsed : undefined}
+                aria-describedby={badgeDescriptionId}
+                data-panel-id={panel.id}
+                data-panel-state={active ? "active" : panel.open ? "open" : "closed"}
                 className={cn(
-                  "absolute -right-1 -top-1 z-10 flex h-[15px] min-w-[15px] items-center justify-center rounded-full border border-background px-0.5 text-[9px] font-semibold leading-none tabular-nums",
-                  workflowBadgeTone,
+                  "group relative flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors duration-150 hover:text-foreground",
+                  active && "text-foreground",
                 )}
+                onClick={() => onRightPanelAction?.(panel.id)}
               >
-                {workflowBadgeCount > 99 ? "99+" : workflowBadgeCount}
-              </span>
-            ) : null}
-          </button>
-        </IconTip>
-      )}
-      {onToggleBackgroundJobsPanel && (
-        <IconTip label={t("backgroundJobs.openPanel", "后台任务")}>
-          <button
-            type="button"
-            className={cn(
-              "relative flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary/70 hover:text-foreground",
-              backgroundJobsPanelOpen && "text-foreground",
-            )}
-            aria-label={t("backgroundJobs.openPanel", "后台任务")}
-            aria-pressed={backgroundJobsPanelOpen}
-            onClick={onToggleBackgroundJobsPanel}
-          >
-            <Layers className="h-4 w-4" />
-            {backgroundJobsRunningCount > 0 && (
-              <span className="absolute -right-1 -top-1 z-10 flex h-[15px] min-w-[15px] items-center justify-center rounded-full border border-background bg-amber-500 px-0.5 text-[9px] font-semibold leading-none text-white tabular-nums">
-                {backgroundJobsRunningCount > 99 ? "99+" : backgroundJobsRunningCount}
-              </span>
-            )}
-          </button>
-        </IconTip>
-      )}
-      {rightPanels.length > 1 && activeRightPanel && (
-        <div
-          className="flex h-7 max-w-[184px] items-center gap-0.5 overflow-x-auto rounded-lg bg-secondary/40 p-0.5"
-          role="tablist"
-          aria-label={t("chat.rightPanel.switch", "切换右侧面板")}
-        >
-          {rightPanels.map((panel) => {
-            const PanelIcon = panel.icon
-            const active = panel.id === activeRightPanel.id
-            return (
-              <IconTip key={panel.id} label={panel.label}>
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={active}
-                  aria-label={panel.label}
-                  className={cn(
-                    "flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-all hover:bg-background/80 hover:text-foreground",
-                    active && "bg-background text-foreground shadow-sm ring-1 ring-border/60",
-                  )}
-                  onClick={() => onSelectRightPanel?.(panel.id)}
-                >
-                  <PanelIcon className="h-3.5 w-3.5" />
-                </button>
-              </IconTip>
-            )
-          })}
-        </div>
-      )}
-      {onToggleRightPanelCollapsed && (
-        <IconTip label={rightPanelToggleLabel}>
-          <button
-            type="button"
-            className={cn(
-              "flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-secondary/70 hover:text-foreground",
-              rightPanelCollapsed ? "text-muted-foreground" : "text-foreground",
-            )}
-            aria-label={rightPanelToggleLabel}
-            aria-expanded={!rightPanelCollapsed}
-            onClick={onToggleRightPanelCollapsed}
-          >
-            {rightPanelCollapsed ? (
-              <PanelRightDashed className="h-4 w-4" />
-            ) : (
-              <PanelRight className="h-4 w-4" />
-            )}
-          </button>
-        </IconTip>
-      )}
+                <PanelIcon className="h-4 w-4" strokeWidth={active ? 2.15 : 1.9} />
+                {panel.open && !active && !panel.badge ? (
+                  <span
+                    className="pointer-events-none absolute bottom-0.5 h-1 w-1 rounded-full bg-foreground/50"
+                    aria-hidden
+                  />
+                ) : null}
+                {panel.badge && panel.badge.count > 0 ? (
+                  <span
+                    id={badgeDescriptionId}
+                    className={cn(
+                      "absolute -right-1 -top-1 z-10 flex h-[15px] min-w-[15px] items-center justify-center rounded-full border border-background px-0.5 text-[9px] font-semibold leading-none tabular-nums",
+                      badgeTone,
+                    )}
+                    aria-label={t(panel.badge.labelKey, { count: panel.badge.count })}
+                  >
+                    {panel.badge.count > 99 ? "99+" : panel.badge.count}
+                  </span>
+                ) : null}
+              </button>
+            </IconTip>
+          )
+        })}
+      </div>
     </div>
   ) : null
 

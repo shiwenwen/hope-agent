@@ -3,6 +3,7 @@
 import type { ReactNode } from "react"
 import { afterEach, describe, expect, test, vi } from "vitest"
 import { cleanup, fireEvent, render, screen } from "@testing-library/react"
+import { Eye, FolderOpen, Layers, LayoutDashboard } from "lucide-react"
 
 import ChatTitleBar from "./ChatTitleBar"
 import type { SessionMeta } from "@/types/chat"
@@ -21,7 +22,23 @@ vi.mock("react-i18next", () => ({
     init: vi.fn(),
   },
   useTranslation: () => ({
-    t: (key: string, fallback?: string) => (typeof fallback === "string" ? fallback : key),
+    t: (key: string, options?: string | Record<string, unknown>) => {
+      const translations: Record<string, string> = {
+        "chat.rightPanel.dock": "Right panel dock",
+        "chat.rightPanel.openPanel": "Open {{panel}}",
+        "chat.rightPanel.switchToPanel": "Switch to {{panel}}",
+        "chat.rightPanel.collapsePanel": "Collapse {{panel}}",
+        "chat.rightPanel.expandPanel": "Expand {{panel}}",
+        "chat.rightPanel.workflowAttentionCount": "{{count}} workflows need attention",
+        "workspace.panelTitle": "Workspace",
+        "fileBrowser.panelTitle": "Files",
+        "backgroundJobs.panelTitle": "Background Tasks",
+        "filePreview.panelTitle": "Preview",
+      }
+      const template = translations[key] ?? (typeof options === "string" ? options : key)
+      if (!options || typeof options === "string") return template
+      return template.replace(/{{(\w+)}}/g, (_, name: string) => String(options[name] ?? ""))
+    },
   }),
 }))
 
@@ -84,59 +101,97 @@ afterEach(() => {
   transportMock.call.mockImplementation(() => Promise.resolve("full"))
 })
 
-describe("ChatTitleBar working directory affordances", () => {
-  test("shows a visible workspace entry in the title bar", () => {
-    const onToggleWorkspacePanel = vi.fn()
+describe("ChatTitleBar right-panel dock", () => {
+  test("renders a single icon entry for each panel and dispatches its id", () => {
+    const onRightPanelAction = vi.fn()
     renderTitleBar({
-      onToggleWorkspacePanel,
+      onRightPanelAction,
+      rightPanels: [
+        {
+          id: "workspace",
+          labelKey: "workspace.panelTitle",
+          icon: LayoutDashboard,
+          open: false,
+        },
+        {
+          id: "background-jobs",
+          labelKey: "backgroundJobs.panelTitle",
+          icon: Layers,
+          open: false,
+        },
+      ],
     })
 
-    expect(screen.getByText("Workspace")).toBeTruthy()
-
-    const codingButton = screen.getByRole("button", { name: "Open workspace" })
-    fireEvent.click(codingButton)
-
-    expect(onToggleWorkspacePanel).toHaveBeenCalledTimes(1)
+    expect(screen.getByRole("toolbar", { name: "Right panel dock" })).toBeTruthy()
+    expect(screen.getAllByRole("button", { name: "Open Workspace" })).toHaveLength(1)
+    fireEvent.click(screen.getByRole("button", { name: "Open Workspace" }))
+    expect(onRightPanelAction).toHaveBeenCalledWith("workspace")
   })
 
-  test("badges the workspace entry when workflow runs need attention", () => {
+  test("uses a neutral selected state and localizes the badge label", () => {
     renderTitleBar({
-      onToggleWorkspacePanel: vi.fn(),
-      workspaceWorkflowStatus: {
-        activeCount: 2,
-        attentionCount: 1,
-        runningCount: 1,
-      },
+      activeRightPanelId: "workspace",
+      rightPanels: [
+        {
+          id: "workspace",
+          labelKey: "workspace.panelTitle",
+          icon: LayoutDashboard,
+          open: true,
+          badge: {
+            count: 1,
+            labelKey: "chat.rightPanel.workflowAttentionCount",
+            tone: "attention",
+          },
+        },
+      ],
     })
 
-    expect(screen.getByRole("button", { name: "Open workspace" })).toBeTruthy()
-    expect(screen.getByText("1")).toBeTruthy()
+    const workspaceButton = screen.getByRole("button", { name: "Collapse Workspace" })
+    expect(workspaceButton.className.split(" ")).toContain("text-foreground")
+    expect(workspaceButton.dataset.panelState).toBe("active")
+    expect(screen.getByLabelText("1 workflows need attention")).toBeTruthy()
   })
 
-  test("shows file controls for an empty selected session with a working directory", () => {
-    const onToggleFilesPanel = vi.fn()
+  test("keeps open transient panels in the same dock", () => {
+    const onRightPanelAction = vi.fn()
+    renderTitleBar({
+      activeRightPanelId: "workspace",
+      onRightPanelAction,
+      rightPanels: [
+        {
+          id: "workspace",
+          labelKey: "workspace.panelTitle",
+          icon: LayoutDashboard,
+          open: true,
+        },
+        { id: "preview", labelKey: "filePreview.panelTitle", icon: Eye, open: true },
+      ],
+    })
+
+    const previewButton = screen.getByRole("button", { name: "Switch to Preview" })
+    fireEvent.click(previewButton)
+    expect(onRightPanelAction).toHaveBeenCalledWith("preview")
+  })
+
+  test("labels the active icon as expand when the rail is collapsed", () => {
+    renderTitleBar({
+      activeRightPanelId: "files",
+      rightPanelCollapsed: true,
+      rightPanels: [
+        { id: "files", labelKey: "fileBrowser.panelTitle", icon: FolderOpen, open: true },
+      ],
+    })
+
+    expect(screen.getByRole("button", { name: "Expand Files" })).toBeTruthy()
+  })
+
+  test("still shows the localized working-directory chip", () => {
     renderTitleBar({
       sessions: [sessionMeta({ workingDir: "/Users/me/repo" })],
       effectiveWorkingDir: "/Users/me/repo",
       workingDirSource: "session",
-      onToggleFilesPanel,
     })
 
     expect(screen.getByText("repo")).toBeTruthy()
-
-    const filesButton = screen.getByRole("button", { name: "Show files" })
-    fireEvent.click(filesButton)
-
-    expect(onToggleFilesPanel).toHaveBeenCalledTimes(1)
-  })
-
-  test("does not show file controls before a working directory exists", () => {
-    renderTitleBar({
-      sessions: [sessionMeta()],
-      effectiveWorkingDir: null,
-      onToggleFilesPanel: undefined,
-    })
-
-    expect(screen.queryByRole("button", { name: "Show files" })).toBeNull()
   })
 })

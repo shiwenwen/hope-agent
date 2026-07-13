@@ -31,6 +31,7 @@ interface BrowserPanelProps {
   reservedMainWidth?: number
   collapsed?: boolean
   overlay?: boolean
+  animateOnMount?: boolean
   onClose: () => void
 }
 
@@ -50,6 +51,7 @@ export default function BrowserPanel({
   reservedMainWidth,
   collapsed = false,
   overlay = false,
+  animateOnMount = false,
   onClose,
 }: BrowserPanelProps) {
   const { t } = useTranslation()
@@ -136,6 +138,7 @@ export default function BrowserPanel({
       reservedMainWidth={reservedMainWidth}
       collapsed={collapsed}
       overlay={overlay}
+      animateOnMount={animateOnMount}
       contentKey="browser"
     >
       {/* Header */}

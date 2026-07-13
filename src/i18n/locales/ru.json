@@ -892,7 +892,15 @@
     "rightPanel": {
       "collapse": "Свернуть правую панель",
       "expand": "Развернуть правую панель",
-      "switch": "Переключить правую панель"
+      "switch": "Переключить правую панель",
+      "dock": "Панель закрепления справа",
+      "openPanel": "Открыть {{panel}}",
+      "switchToPanel": "Переключиться на {{panel}}",
+      "collapsePanel": "Свернуть {{panel}}",
+      "expandPanel": "Развернуть {{panel}}",
+      "workflowActiveCount": "Активных процессов: {{count}}",
+      "workflowAttentionCount": "Требуют внимания: {{count}}",
+      "backgroundRunningCount": "Фоновых задач выполняется: {{count}}"
     },
     "visionBridgeEngaged": "Основная модель не поддерживает изображения, поэтому {{model}} описала их за неё.",
     "visionBridgeUnavailable": "Модель зрения не смогла описать изображение, поэтому оно было пропущено.",

@@ -892,7 +892,15 @@
     "rightPanel": {
       "collapse": "طي اللوحة اليمنى",
       "expand": "قم بتوسيع اللوحة اليمنى",
-      "switch": "تبديل اللوحة اليمنى"
+      "switch": "تبديل اللوحة اليمنى",
+      "dock": "شريط اللوحات الجانبية",
+      "openPanel": "فتح {{panel}}",
+      "switchToPanel": "التبديل إلى {{panel}}",
+      "collapsePanel": "طي {{panel}}",
+      "expandPanel": "توسيع {{panel}}",
+      "workflowActiveCount": "{{count}} من مهام سير العمل النشطة",
+      "workflowAttentionCount": "{{count}} من مهام سير العمل تحتاج إلى الانتباه",
+      "backgroundRunningCount": "{{count}} من المهام في الخلفية قيد التشغيل"
     },
     "visionBridgeEngaged": "لا يمكن للنموذج الأساسي رؤية الصور، لذا قام {{model}} بوصفها نيابةً عنه.",
     "visionBridgeUnavailable": "تعذّر على نموذج الرؤية وصف الصورة، لذا تم تجاهلها.",

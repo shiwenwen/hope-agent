@@ -25,6 +25,8 @@ interface RightPanelShellProps {
   contentKey?: string | number | null
   surfaceClassName?: string
   bodyClassName?: string
+  /** Animate the rail from zero width when it is the first right panel to open. */
+  animateOnMount?: boolean
 }
 
 export function RightPanelShell({
@@ -42,15 +44,32 @@ export function RightPanelShell({
   contentKey,
   surfaceClassName,
   bodyClassName,
+  animateOnMount = false,
 }: RightPanelShellProps) {
   const shellRef = useRef<HTMLDivElement>(null)
   const resolvedContentKey = contentKey ?? "right-panel-content"
   const lastContentKeyRef = useRef<string | number>(resolvedContentKey)
   const transitionTimerRef = useRef<number | null>(null)
   const transitionFrameRef = useRef<number | null>(null)
+  const entryFrameRef = useRef<number | null>(null)
   const dragCleanupRef = useRef<(() => void) | null>(null)
   const [transitionVeilVisible, setTransitionVeilVisible] = useState(false)
   const [isResizing, setIsResizing] = useState(false)
+  const [entryVisible, setEntryVisible] = useState(!animateOnMount)
+
+  useLayoutEffect(() => {
+    if (entryVisible) return
+    entryFrameRef.current = window.requestAnimationFrame(() => {
+      setEntryVisible(true)
+      entryFrameRef.current = null
+    })
+    return () => {
+      if (entryFrameRef.current !== null) {
+        window.cancelAnimationFrame(entryFrameRef.current)
+        entryFrameRef.current = null
+      }
+    }
+  }, [entryVisible])
 
   useLayoutEffect(() => {
     if (Object.is(lastContentKeyRef.current, resolvedContentKey)) return
@@ -80,14 +99,20 @@ export function RightPanelShell({
         window.cancelAnimationFrame(transitionFrameRef.current)
         transitionFrameRef.current = null
       }
+      if (entryFrameRef.current !== null) {
+        window.cancelAnimationFrame(entryFrameRef.current)
+        entryFrameRef.current = null
+      }
       dragCleanupRef.current?.()
     },
     [],
   )
 
+  const visuallyCollapsed = collapsed || !entryVisible
+
   const handleDragStart = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
-      if (!onWidthChange || collapsed) return
+      if (!onWidthChange || visuallyCollapsed) return
       e.preventDefault()
       dragCleanupRef.current?.()
       setIsResizing(true)
@@ -133,11 +158,19 @@ export function RightPanelShell({
       document.body.style.cursor = "col-resize"
       document.body.style.userSelect = "none"
     },
-    [collapsed, maxViewportRatio, maxWidth, minWidth, onWidthChange, reservedMainWidth, width],
+    [
+      maxViewportRatio,
+      maxWidth,
+      minWidth,
+      onWidthChange,
+      reservedMainWidth,
+      visuallyCollapsed,
+      width,
+    ],
   )
 
   const availableWidthCss = `max(0px, calc(100% - ${reservedMainWidth}px))`
-  const panelStyle: CSSProperties = collapsed
+  const panelStyle: CSSProperties = visuallyCollapsed
     ? { width: 0, minWidth: 0, maxWidth: 0 }
     : {
         width: `min(${width}px, ${availableWidthCss})`,
@@ -151,6 +184,8 @@ export function RightPanelShell({
         className={cn(
           "fixed inset-0 z-50 flex min-h-0 flex-col overflow-hidden bg-surface-app",
           overlay && !maximized && "p-2 sm:p-3",
+          animateOnMount &&
+            "animate-in fade-in-0 slide-in-from-right-2 duration-[250ms] motion-reduce:animate-none",
           surfaceClassName,
         )}
       >
@@ -177,17 +212,17 @@ export function RightPanelShell({
         "relative flex h-full min-h-0 shrink-0 overflow-hidden",
         !isResizing &&
           "transition-[width,min-width,max-width,padding] duration-[250ms] ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[width] motion-reduce:transition-none",
-        collapsed ? "min-w-0 max-w-0 p-0 pointer-events-none" : "p-3 pl-2",
+        visuallyCollapsed ? "min-w-0 max-w-0 p-0 pointer-events-none" : "p-3 pl-2",
       )}
       style={panelStyle}
-      aria-hidden={collapsed ? true : undefined}
-      inert={collapsed ? true : undefined}
+      aria-hidden={visuallyCollapsed ? true : undefined}
+      inert={visuallyCollapsed ? true : undefined}
     >
       <div
         className={cn(
           "peer absolute left-0 top-3 bottom-3 z-10 w-4",
-          onWidthChange && !collapsed && "cursor-col-resize",
-          collapsed && "hidden",
+          onWidthChange && !visuallyCollapsed && "cursor-col-resize",
+          visuallyCollapsed && "hidden",
         )}
         onMouseDown={handleDragStart}
         role="separator"
@@ -198,7 +233,7 @@ export function RightPanelShell({
         className={cn(
           "flex h-full min-h-0 w-full flex-col overflow-hidden rounded-2xl border border-border-soft bg-surface-panel shadow-panel transition-[opacity,transform,border-color] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[opacity,transform] [contain:layout_paint] peer-hover:border-l-primary/35 motion-reduce:transition-none",
           isResizing && "border-l-primary/50",
-          collapsed ? "translate-x-4 opacity-0" : "translate-x-0 opacity-100",
+          visuallyCollapsed ? "translate-x-4 opacity-0" : "translate-x-0 opacity-100",
           bodyClassName,
         )}
       >

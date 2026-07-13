@@ -892,7 +892,15 @@
     "rightPanel": {
       "collapse": "Runtuhkan panel kanan",
       "expand": "Kembangkan panel kanan",
-      "switch": "Tukar panel kanan"
+      "switch": "Tukar panel kanan",
+      "dock": "Dok panel kanan",
+      "openPanel": "Buka {{panel}}",
+      "switchToPanel": "Tukar kepada {{panel}}",
+      "collapsePanel": "Runtuhkan {{panel}}",
+      "expandPanel": "Kembangkan {{panel}}",
+      "workflowActiveCount": "{{count}} aliran kerja aktif",
+      "workflowAttentionCount": "{{count}} aliran kerja memerlukan perhatian",
+      "backgroundRunningCount": "{{count}} tugasan latar belakang sedang berjalan"
     },
     "visionBridgeEngaged": "Model utama tidak dapat melihat imej, jadi {{model}} menerangkannya bagi pihaknya.",
     "visionBridgeUnavailable": "Model penglihatan tidak dapat menerangkan imej itu, jadi ia diabaikan.",

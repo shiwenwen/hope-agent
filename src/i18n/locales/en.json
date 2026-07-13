@@ -892,7 +892,15 @@
     "rightPanel": {
       "collapse": "Collapse right panel",
       "expand": "Expand right panel",
-      "switch": "Switch right panel"
+      "switch": "Switch right panel",
+      "dock": "Right panel dock",
+      "openPanel": "Open {{panel}}",
+      "switchToPanel": "Switch to {{panel}}",
+      "collapsePanel": "Collapse {{panel}}",
+      "expandPanel": "Expand {{panel}}",
+      "workflowActiveCount": "{{count}} active workflows",
+      "workflowAttentionCount": "{{count}} workflows need attention",
+      "backgroundRunningCount": "{{count}} background tasks running"
     },
     "visionBridgeEngaged": "The primary model can't view images, so {{model}} described them for it.",
     "visionBridgeUnavailable": "The vision model couldn't describe the image, so it was left out.",

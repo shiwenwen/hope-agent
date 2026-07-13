@@ -120,7 +120,15 @@
       "rightPanel": {
         "collapse": "右パネルを折りたたむ",
         "expand": "右側のパネルを展開します",
-        "switch": "右パネルを切り替えます"
+        "switch": "右パネルを切り替えます",
+        "dock": "右パネルドック",
+        "openPanel": "{{panel}}を開く",
+        "switchToPanel": "{{panel}}に切り替える",
+        "collapsePanel": "{{panel}}を折りたたむ",
+        "expandPanel": "{{panel}}を展開する",
+        "workflowActiveCount": "{{count}}件のアクティブなワークフロー",
+        "workflowAttentionCount": "{{count}}件のワークフローに対応が必要です",
+        "backgroundRunningCount": "{{count}}件のバックグラウンドタスクが実行中"
       }
     },
     "effort": {
@@ -2022,7 +2030,15 @@
       "rightPanel": {
         "collapse": "오른쪽 패널 접기",
         "expand": "오른쪽 패널 펼치기",
-        "switch": "오른쪽 패널 전환"
+        "switch": "오른쪽 패널 전환",
+        "dock": "오른쪽 패널 도크",
+        "openPanel": "{{panel}} 열기",
+        "switchToPanel": "{{panel}} 패널로 전환",
+        "collapsePanel": "{{panel}} 접기",
+        "expandPanel": "{{panel}} 펼치기",
+        "workflowActiveCount": "활성 워크플로 {{count}}개",
+        "workflowAttentionCount": "주의가 필요한 워크플로 {{count}}개",
+        "backgroundRunningCount": "백그라운드 작업 {{count}}개 실행 중"
       }
     },
     "effort": {
@@ -3924,7 +3940,15 @@
       "rightPanel": {
         "collapse": "折疊右側面板",
         "expand": "展開右側面板",
-        "switch": "切換右側面板"
+        "switch": "切換右側面板",
+        "dock": "右側面板停駐列",
+        "openPanel": "開啟{{panel}}",
+        "switchToPanel": "切換至{{panel}}",
+        "collapsePanel": "收合{{panel}}",
+        "expandPanel": "展開{{panel}}",
+        "workflowActiveCount": "{{count}} 個作用中的工作流程",
+        "workflowAttentionCount": "{{count}} 個工作流程需要處理",
+        "backgroundRunningCount": "{{count}} 個背景任務正在執行"
       }
     },
     "effort": {
@@ -5809,7 +5833,15 @@
       "rightPanel": {
         "collapse": "Sağ paneli daralt",
         "expand": "Sağ paneli genişlet",
-        "switch": "Sağ paneli değiştir"
+        "switch": "Sağ paneli değiştir",
+        "dock": "Sağ panel çubuğu",
+        "openPanel": "{{panel}} panelini aç",
+        "switchToPanel": "{{panel}} paneline geç",
+        "collapsePanel": "{{panel}} panelini daralt",
+        "expandPanel": "{{panel}} panelini genişlet",
+        "workflowActiveCount": "{{count}} etkin iş akışı",
+        "workflowAttentionCount": "{{count}} iş akışı ilgilenmenizi bekliyor",
+        "backgroundRunningCount": "{{count}} arka plan görevi çalışıyor"
       }
     },
     "effort": {
@@ -7711,7 +7743,15 @@
       "rightPanel": {
         "collapse": "Thu gọn bảng bên phải",
         "expand": "Mở rộng bảng bên phải",
-        "switch": "Chuyển bảng bên phải"
+        "switch": "Chuyển bảng bên phải",
+        "dock": "Thanh panel bên phải",
+        "openPanel": "Mở {{panel}}",
+        "switchToPanel": "Chuyển sang {{panel}}",
+        "collapsePanel": "Thu gọn {{panel}}",
+        "expandPanel": "Mở rộng {{panel}}",
+        "workflowActiveCount": "{{count}} quy trình đang hoạt động",
+        "workflowAttentionCount": "{{count}} quy trình cần chú ý",
+        "backgroundRunningCount": "{{count}} tác vụ nền đang chạy"
       }
     },
     "effort": {
@@ -9613,7 +9653,15 @@
       "rightPanel": {
         "collapse": "Recolher painel direito",
         "expand": "Expandir painel direito",
-        "switch": "Alternar painel direito"
+        "switch": "Alternar painel direito",
+        "dock": "Dock de painéis à direita",
+        "openPanel": "Abrir {{panel}}",
+        "switchToPanel": "Alternar para {{panel}}",
+        "collapsePanel": "Recolher {{panel}}",
+        "expandPanel": "Expandir {{panel}}",
+        "workflowActiveCount": "{{count}} fluxos de trabalho ativos",
+        "workflowAttentionCount": "{{count}} fluxos de trabalho precisam de atenção",
+        "backgroundRunningCount": "{{count}} tarefas em segundo plano em execução"
       }
     },
     "effort": {
@@ -11515,7 +11563,15 @@
       "rightPanel": {
         "collapse": "Свернуть правую панель",
         "expand": "Развернуть правую панель",
-        "switch": "Переключить правую панель"
+        "switch": "Переключить правую панель",
+        "dock": "Панель закрепления справа",
+        "openPanel": "Открыть {{panel}}",
+        "switchToPanel": "Переключиться на {{panel}}",
+        "collapsePanel": "Свернуть {{panel}}",
+        "expandPanel": "Развернуть {{panel}}",
+        "workflowActiveCount": "Активных процессов: {{count}}",
+        "workflowAttentionCount": "Требуют внимания: {{count}}",
+        "backgroundRunningCount": "Фоновых задач выполняется: {{count}}"
       }
     },
     "effort": {
@@ -13417,7 +13473,15 @@
       "rightPanel": {
         "collapse": "طي اللوحة اليمنى",
         "expand": "قم بتوسيع اللوحة اليمنى",
-        "switch": "تبديل اللوحة اليمنى"
+        "switch": "تبديل اللوحة اليمنى",
+        "dock": "شريط اللوحات الجانبية",
+        "openPanel": "فتح {{panel}}",
+        "switchToPanel": "التبديل إلى {{panel}}",
+        "collapsePanel": "طي {{panel}}",
+        "expandPanel": "توسيع {{panel}}",
+        "workflowActiveCount": "{{count}} من مهام سير العمل النشطة",
+        "workflowAttentionCount": "{{count}} من مهام سير العمل تحتاج إلى الانتباه",
+        "backgroundRunningCount": "{{count}} من المهام في الخلفية قيد التشغيل"
       }
     },
     "effort": {
@@ -15319,7 +15383,15 @@
       "rightPanel": {
         "collapse": "Contraer panel derecho",
         "expand": "Expandir el panel derecho",
-        "switch": "Cambiar panel derecho"
+        "switch": "Cambiar panel derecho",
+        "dock": "Barra de paneles derechos",
+        "openPanel": "Abrir {{panel}}",
+        "switchToPanel": "Cambiar a {{panel}}",
+        "collapsePanel": "Contraer {{panel}}",
+        "expandPanel": "Expandir {{panel}}",
+        "workflowActiveCount": "{{count}} flujos de trabajo activos",
+        "workflowAttentionCount": "{{count}} flujos de trabajo requieren atención",
+        "backgroundRunningCount": "{{count}} tareas en segundo plano en ejecución"
       }
     },
     "effort": {
@@ -17221,7 +17293,15 @@
       "rightPanel": {
         "collapse": "Runtuhkan panel kanan",
         "expand": "Kembangkan panel kanan",
-        "switch": "Tukar panel kanan"
+        "switch": "Tukar panel kanan",
+        "dock": "Dok panel kanan",
+        "openPanel": "Buka {{panel}}",
+        "switchToPanel": "Tukar kepada {{panel}}",
+        "collapsePanel": "Runtuhkan {{panel}}",
+        "expandPanel": "Kembangkan {{panel}}",
+        "workflowActiveCount": "{{count}} aliran kerja aktif",
+        "workflowAttentionCount": "{{count}} aliran kerja memerlukan perhatian",
+        "backgroundRunningCount": "{{count}} tugasan latar belakang sedang berjalan"
       }
     },
     "effort": {
@@ -19225,7 +19305,15 @@
       "rightPanel": {
         "collapse": "折叠右侧面板",
         "expand": "展开右侧面板",
-        "switch": "切换右侧面板"
+        "switch": "切换右侧面板",
+        "dock": "右侧面板停靠栏",
+        "openPanel": "打开{{panel}}",
+        "switchToPanel": "切换到{{panel}}",
+        "collapsePanel": "收起{{panel}}",
+        "expandPanel": "展开{{panel}}",
+        "workflowActiveCount": "{{count}} 个活跃工作流",
+        "workflowAttentionCount": "{{count}} 个工作流需要处理",
+        "backgroundRunningCount": "{{count}} 个后台任务正在运行"
       }
     },
     "slashCommands": {

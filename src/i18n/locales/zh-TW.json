@@ -892,7 +892,15 @@
     "rightPanel": {
       "collapse": "折疊右側面板",
       "expand": "展開右側面板",
-      "switch": "切換右側面板"
+      "switch": "切換右側面板",
+      "dock": "右側面板停駐列",
+      "openPanel": "開啟{{panel}}",
+      "switchToPanel": "切換至{{panel}}",
+      "collapsePanel": "收合{{panel}}",
+      "expandPanel": "展開{{panel}}",
+      "workflowActiveCount": "{{count}} 個作用中的工作流程",
+      "workflowAttentionCount": "{{count}} 個工作流程需要處理",
+      "backgroundRunningCount": "{{count}} 個背景任務正在執行"
     },
     "visionBridgeEngaged": "主模型不支援看圖，已用 {{model}} 轉述圖片內容。",
     "visionBridgeUnavailable": "視覺模型轉述圖片失敗，已忽略該圖片。",

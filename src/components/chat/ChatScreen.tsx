@@ -304,6 +304,26 @@ const EXCLUSIVE_RIGHT_PANEL_ICONS: Record<ExclusiveRightPanel, LucideIcon> = {
   preview: Eye,
 }
 
+const EXCLUSIVE_RIGHT_PANEL_LABEL_KEYS: Record<ExclusiveRightPanel, string> = {
+  workspace: "workspace.panelTitle",
+  "pull-request": "workspace.git.pullRequestPanelTitle",
+  diff: "diffPanel.title",
+  plan: "planMode.panelTitle",
+  files: "fileBrowser.panelTitle",
+  browser: "browser.panelTitle",
+  "mac-control": "macControl.panelTitle",
+  canvas: "canvas.panelTitle",
+  team: "team.panelTitle",
+  "background-jobs": "backgroundJobs.panelTitle",
+  preview: "filePreview.panelTitle",
+}
+
+const PERSISTENT_RIGHT_PANEL_ORDER: readonly ExclusiveRightPanel[] = [
+  "workspace",
+  "files",
+  "background-jobs",
+]
+
 const DEFAULT_RIGHT_PANEL_WIDTH = 520
 const CHAT_MAIN_MIN_INTERACTIVE_WIDTH = 420
 const CHAT_MAIN_COMPACT_MIN_INTERACTIVE_WIDTH = 320
@@ -2975,49 +2995,17 @@ export default function ChatScreen({
     [rightPanelVisibility],
   )
   const hasOpenExclusiveRightPanel = openExclusiveRightPanels.length > 0
+  const previousHasOpenRightPanelRef = useRef(false)
+  const animateRightPanelOnMount =
+    hasOpenExclusiveRightPanel && !previousHasOpenRightPanelRef.current
+  useLayoutEffect(() => {
+    previousHasOpenRightPanelRef.current = hasOpenExclusiveRightPanel
+  }, [hasOpenExclusiveRightPanel])
   const renderedExclusiveRightPanel =
     activeExclusiveRightPanel && rightPanelVisibility[activeExclusiveRightPanel]
       ? activeExclusiveRightPanel
       : (openExclusiveRightPanels[0] ?? null)
   const shouldRenderRightPanelContent = !!renderedExclusiveRightPanel
-  const getRightPanelLabel = useCallback(
-    (panel: ExclusiveRightPanel) => {
-      switch (panel) {
-        case "workspace":
-          return t("workspace.panelTitle", "工作台")
-        case "pull-request":
-          return t("workspace.git.pullRequestPanelTitle", "拉取请求")
-        case "diff":
-          return t("diffPanel.title", "Diff")
-        case "plan":
-          return t("planMode.panelTitle", "Plan")
-        case "files":
-          return t("fileBrowser.panelTitle", "Files")
-        case "browser":
-          return t("browser.panelTitle", "Browser")
-        case "mac-control":
-          return t("macControl.panelTitle", "Mac Control")
-        case "canvas":
-          return t("canvas.panelTitle", "Canvas")
-        case "team":
-          return t("team.panelTitle", "Team")
-        case "background-jobs":
-          return t("backgroundJobs.panelTitle", "后台任务")
-        case "preview":
-          return t("filePreview.panelTitle", "Preview")
-      }
-    },
-    [t],
-  )
-  const titleBarRightPanels = useMemo(
-    () =>
-      openExclusiveRightPanels.map((panel) => ({
-        id: panel,
-        label: getRightPanelLabel(panel),
-        icon: EXCLUSIVE_RIGHT_PANEL_ICONS[panel],
-      })),
-    [getRightPanelLabel, openExclusiveRightPanels],
-  )
   const handleSelectRightPanel = useCallback((panelId: string) => {
     if (!EXCLUSIVE_RIGHT_PANEL_ORDER.includes(panelId as ExclusiveRightPanel)) return
     setActiveExclusiveRightPanel(panelId as ExclusiveRightPanel)
@@ -3392,6 +3380,60 @@ export default function ChatScreen({
       runningCount: workflowTitleBarRuns.runs.filter(isRunning).length,
     }
   }, [workflowTitleBarRuns.activeCount, workflowTitleBarRuns.runs])
+  const titleBarRightPanels = useMemo(() => {
+    const persistentPanels = PERSISTENT_RIGHT_PANEL_ORDER.filter(
+      (panel) => panel !== "files" || !!effectiveWorkingDir,
+    )
+    const persistentSet = new Set<ExclusiveRightPanel>(persistentPanels)
+    const transientPanels = EXCLUSIVE_RIGHT_PANEL_ORDER.filter(
+      (panel) => !persistentSet.has(panel) && rightPanelVisibility[panel],
+    )
+    const workflowBadgeCount =
+      workflowTitleBarStatus.attentionCount || workflowTitleBarStatus.activeCount
+
+    return [...persistentPanels, ...transientPanels].map((panel) => {
+      const base = {
+        id: panel,
+        labelKey: EXCLUSIVE_RIGHT_PANEL_LABEL_KEYS[panel],
+        icon: EXCLUSIVE_RIGHT_PANEL_ICONS[panel],
+        open: rightPanelVisibility[panel],
+      }
+      if (panel === "workspace" && workflowBadgeCount > 0) {
+        return {
+          ...base,
+          badge: {
+            count: workflowBadgeCount,
+            labelKey:
+              workflowTitleBarStatus.attentionCount > 0
+                ? "chat.rightPanel.workflowAttentionCount"
+                : "chat.rightPanel.workflowActiveCount",
+            tone:
+              workflowTitleBarStatus.attentionCount > 0
+                ? ("attention" as const)
+                : workflowTitleBarStatus.runningCount > 0
+                  ? ("running" as const)
+                  : ("neutral" as const),
+          },
+        }
+      }
+      if (panel === "background-jobs" && backgroundJobs.runningCount > 0) {
+        return {
+          ...base,
+          badge: {
+            count: backgroundJobs.runningCount,
+            labelKey: "chat.rightPanel.backgroundRunningCount",
+            tone: "attention" as const,
+          },
+        }
+      }
+      return base
+    })
+  }, [
+    backgroundJobs.runningCount,
+    effectiveWorkingDir,
+    rightPanelVisibility,
+    workflowTitleBarStatus,
+  ])
   const workflowInputProgress = useMemo(() => {
     const visibleStates = new Set<WorkflowRun["state"]>([
       "awaiting_approval",
@@ -3432,14 +3474,42 @@ export default function ChatScreen({
     }
   }, [workflowTitleBarRuns.runs])
 
-  const handleToggleFilesPanel = useCallback(() => {
-    if (showFilesPanel) {
-      setShowFilesPanel(false)
-      return
-    }
-    setShowFilesPanel(true)
-    showRightPanelByUser("files")
-  }, [showFilesPanel, showRightPanelByUser])
+  const handleRightPanelAction = useCallback(
+    (panelId: string) => {
+      if (!EXCLUSIVE_RIGHT_PANEL_ORDER.includes(panelId as ExclusiveRightPanel)) return
+      const panel = panelId as ExclusiveRightPanel
+      if (panel === renderedExclusiveRightPanel) {
+        const nextCollapsed = !rightPanelCollapsed
+        autoCollapsedRightPanelRef.current = false
+        setManualRightPanelExpandedOverride(!nextCollapsed)
+        setRightPanelCollapsed(nextCollapsed)
+        return
+      }
+
+      if (panel === "workspace") {
+        openWorkspacePanel()
+        return
+      }
+      if (panel === "files") {
+        setShowFilesPanel(true)
+        showRightPanelByUser("files")
+        return
+      }
+      if (panel === "background-jobs") {
+        openBackgroundJobsPanel()
+        return
+      }
+      handleSelectRightPanel(panel)
+    },
+    [
+      handleSelectRightPanel,
+      openBackgroundJobsPanel,
+      openWorkspacePanel,
+      renderedExclusiveRightPanel,
+      rightPanelCollapsed,
+      showRightPanelByUser,
+    ],
+  )
 
   const rightPanelReservedMainWidth =
     manualRightPanelExpandedOverride && !rightPanelCollapsed
@@ -3671,41 +3741,10 @@ export default function ChatScreen({
           incognitoEnabled={incognitoEnabled}
           incognitoDisabledReason={incognitoDisabledReason}
           onIncognitoChange={handleIncognitoChange}
-          onToggleFilesPanel={effectiveWorkingDir ? handleToggleFilesPanel : undefined}
-          filesPanelOpen={showFilesPanel}
-          onToggleWorkspacePanel={() => {
-            if (showWorkspacePanel) {
-              workspacePanelDismissedRef.current = true
-              setShowWorkspacePanel(false)
-            } else {
-              openWorkspacePanel()
-            }
-          }}
-          workspacePanelOpen={showWorkspacePanel}
-          workspaceWorkflowStatus={workflowTitleBarStatus}
-          onToggleBackgroundJobsPanel={() => {
-            if (showBackgroundJobsPanel) {
-              closeBackgroundJobsPanel()
-            } else {
-              openBackgroundJobsPanel()
-            }
-          }}
-          backgroundJobsPanelOpen={showBackgroundJobsPanel}
-          backgroundJobsRunningCount={backgroundJobs.runningCount}
           rightPanels={titleBarRightPanels}
           activeRightPanelId={renderedExclusiveRightPanel}
           rightPanelCollapsed={rightPanelCollapsed}
-          onSelectRightPanel={handleSelectRightPanel}
-          onToggleRightPanelCollapsed={
-            hasOpenExclusiveRightPanel
-              ? () => {
-                  const nextCollapsed = !rightPanelCollapsed
-                  autoCollapsedRightPanelRef.current = false
-                  setManualRightPanelExpandedOverride(!nextCollapsed)
-                  setRightPanelCollapsed(nextCollapsed)
-                }
-              : undefined
-          }
+          onRightPanelAction={handleRightPanelAction}
         />
 
         <BrowserExtensionNudge
@@ -4069,6 +4108,7 @@ export default function ChatScreen({
               reservedMainWidth={rightPanelReservedMainWidth}
               collapsed={rightPanelCollapsed}
               overlay={rightPanelOverlay}
+              animateOnMount={animateRightPanelOnMount}
               contentKey="diff"
             >
               <DiffPanel
@@ -4096,6 +4136,7 @@ export default function ChatScreen({
                 reservedMainWidth={rightPanelReservedMainWidth}
                 collapsed={rightPanelCollapsed}
                 overlay={rightPanelOverlay}
+                animateOnMount={animateRightPanelOnMount}
                 contentKey={`pull-request:${session.currentSessionId}`}
               >
                 <PullRequestPanel
@@ -4116,6 +4157,7 @@ export default function ChatScreen({
               reservedMainWidth={rightPanelReservedMainWidth}
               collapsed={rightPanelCollapsed}
               overlay={rightPanelOverlay}
+              animateOnMount={animateRightPanelOnMount}
               contentKey="plan"
             >
               <PlanPanel
@@ -4149,6 +4191,7 @@ export default function ChatScreen({
             visible={shouldRenderRightPanelContent && renderedExclusiveRightPanel === "files"}
             collapsed={rightPanelCollapsed}
             overlay={rightPanelOverlay}
+            animateOnMount={animateRightPanelOnMount}
             panelWidth={rightPanelWidth}
             onPanelWidthChange={setRightPanelWidth}
             reservedMainWidth={rightPanelReservedMainWidth}
@@ -4165,6 +4208,7 @@ export default function ChatScreen({
             onOpenChange={setCanvasPanelOpen}
             collapsed={rightPanelCollapsed}
             overlay={rightPanelOverlay}
+            animateOnMount={animateRightPanelOnMount}
             reservedMainWidth={rightPanelReservedMainWidth}
             visible={shouldRenderRightPanelContent && renderedExclusiveRightPanel === "canvas"}
           />
@@ -4178,6 +4222,7 @@ export default function ChatScreen({
               onPanelWidthChange={setRightPanelWidth}
               collapsed={rightPanelCollapsed}
               overlay={rightPanelOverlay}
+              animateOnMount={animateRightPanelOnMount}
               reservedMainWidth={rightPanelReservedMainWidth}
               onClose={() => {
                 browserPanelDismissedRef.current = true
@@ -4195,6 +4240,7 @@ export default function ChatScreen({
               onPanelWidthChange={setRightPanelWidth}
               collapsed={rightPanelCollapsed}
               overlay={rightPanelOverlay}
+              animateOnMount={animateRightPanelOnMount}
               reservedMainWidth={rightPanelReservedMainWidth}
               onClose={() => {
                 macControlPanelDismissedRef.current = true
@@ -4213,6 +4259,7 @@ export default function ChatScreen({
                 onPanelWidthChange={setRightPanelWidth}
                 collapsed={rightPanelCollapsed}
                 overlay={rightPanelOverlay}
+                animateOnMount={animateRightPanelOnMount}
                 reservedMainWidth={rightPanelReservedMainWidth}
                 onClose={() => setShowTeamPanel(false)}
                 onViewSession={setSubagentPreviewSessionId}
@@ -4229,6 +4276,7 @@ export default function ChatScreen({
               reservedMainWidth={rightPanelReservedMainWidth}
               collapsed={rightPanelCollapsed}
               overlay={rightPanelOverlay}
+              animateOnMount={animateRightPanelOnMount}
               contentKey="workspace"
             >
               <WorkspacePanel
@@ -4292,6 +4340,7 @@ export default function ChatScreen({
               reservedMainWidth={rightPanelReservedMainWidth}
               collapsed={rightPanelCollapsed}
               overlay={rightPanelOverlay}
+              animateOnMount={animateRightPanelOnMount}
               contentKey="background-jobs"
             >
               <BackgroundJobsPanel
@@ -4317,6 +4366,7 @@ export default function ChatScreen({
               reservedMainWidth={rightPanelReservedMainWidth}
               collapsed={rightPanelCollapsed}
               overlay={rightPanelOverlay}
+              animateOnMount={animateRightPanelOnMount}
               contentKey="preview"
             >
               <FilePreviewPanel

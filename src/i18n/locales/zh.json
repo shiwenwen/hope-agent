@@ -892,7 +892,15 @@
     "rightPanel": {
       "collapse": "折叠右侧面板",
       "expand": "展开右侧面板",
-      "switch": "切换右侧面板"
+      "switch": "切换右侧面板",
+      "dock": "右侧面板停靠栏",
+      "openPanel": "打开{{panel}}",
+      "switchToPanel": "切换到{{panel}}",
+      "collapsePanel": "收起{{panel}}",
+      "expandPanel": "展开{{panel}}",
+      "workflowActiveCount": "{{count}} 个活跃工作流",
+      "workflowAttentionCount": "{{count}} 个工作流需要处理",
+      "backgroundRunningCount": "{{count}} 个后台任务正在运行"
     },
     "visionBridgeEngaged": "主模型不支持看图，已用 {{model}} 转述图片内容。",
     "visionBridgeUnavailable": "视觉模型转述图片失败，已忽略该图片。",

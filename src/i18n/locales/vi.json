@@ -892,7 +892,15 @@
     "rightPanel": {
       "collapse": "Thu gọn bảng bên phải",
       "expand": "Mở rộng bảng bên phải",
-      "switch": "Chuyển bảng bên phải"
+      "switch": "Chuyển bảng bên phải",
+      "dock": "Thanh panel bên phải",
+      "openPanel": "Mở {{panel}}",
+      "switchToPanel": "Chuyển sang {{panel}}",
+      "collapsePanel": "Thu gọn {{panel}}",
+      "expandPanel": "Mở rộng {{panel}}",
+      "workflowActiveCount": "{{count}} quy trình đang hoạt động",
+      "workflowAttentionCount": "{{count}} quy trình cần chú ý",
+      "backgroundRunningCount": "{{count}} tác vụ nền đang chạy"
     },
     "visionBridgeEngaged": "Mô hình chính không xem được hình ảnh, nên {{model}} đã mô tả chúng thay cho nó.",
     "visionBridgeUnavailable": "Mô hình thị giác không mô tả được hình ảnh, nên hình ảnh đã bị bỏ qua.",

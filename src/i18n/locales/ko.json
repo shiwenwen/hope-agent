@@ -892,7 +892,15 @@
     "rightPanel": {
       "collapse": "오른쪽 패널 접기",
       "expand": "오른쪽 패널 펼치기",
-      "switch": "오른쪽 패널 전환"
+      "switch": "오른쪽 패널 전환",
+      "dock": "오른쪽 패널 도크",
+      "openPanel": "{{panel}} 열기",
+      "switchToPanel": "{{panel}} 패널로 전환",
+      "collapsePanel": "{{panel}} 접기",
+      "expandPanel": "{{panel}} 펼치기",
+      "workflowActiveCount": "활성 워크플로 {{count}}개",
+      "workflowAttentionCount": "주의가 필요한 워크플로 {{count}}개",
+      "backgroundRunningCount": "백그라운드 작업 {{count}}개 실행 중"
     },
     "visionBridgeEngaged": "기본 모델이 이미지를 볼 수 없어 {{model}}이(가) 이미지 내용을 설명했습니다.",
     "visionBridgeUnavailable": "비전 모델이 이미지를 설명하지 못해 해당 이미지는 제외되었습니다.",

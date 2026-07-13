@@ -892,7 +892,15 @@
     "rightPanel": {
       "collapse": "右パネルを折りたたむ",
       "expand": "右側のパネルを展開します",
-      "switch": "右パネルを切り替えます"
+      "switch": "右パネルを切り替えます",
+      "dock": "右パネルドック",
+      "openPanel": "{{panel}}を開く",
+      "switchToPanel": "{{panel}}に切り替える",
+      "collapsePanel": "{{panel}}を折りたたむ",
+      "expandPanel": "{{panel}}を展開する",
+      "workflowActiveCount": "{{count}}件のアクティブなワークフロー",
+      "workflowAttentionCount": "{{count}}件のワークフローに対応が必要です",
+      "backgroundRunningCount": "{{count}}件のバックグラウンドタスクが実行中"
     },
     "visionBridgeEngaged": "メインモデルは画像を扱えないため、{{model}} が画像の内容を説明しました。",
     "visionBridgeUnavailable": "画像モデルが画像を説明できなかったため、この画像は無視されました。",

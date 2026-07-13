@@ -50,6 +50,7 @@ interface MacControlPanelProps {
   reservedMainWidth?: number
   collapsed?: boolean
   overlay?: boolean
+  animateOnMount?: boolean
   onClose: () => void
 }
 
@@ -62,6 +63,7 @@ export default function MacControlPanel({
   reservedMainWidth,
   collapsed = false,
   overlay = false,
+  animateOnMount = false,
   onClose,
 }: MacControlPanelProps) {
   const { t } = useTranslation()
@@ -141,6 +143,7 @@ export default function MacControlPanel({
       reservedMainWidth={reservedMainWidth}
       collapsed={collapsed}
       overlay={overlay}
+      animateOnMount={animateOnMount}
       contentKey="mac-control"
     >
       <div className="flex items-center gap-2 px-3 py-2">

@@ -892,7 +892,15 @@
     "rightPanel": {
       "collapse": "Sağ paneli daralt",
       "expand": "Sağ paneli genişlet",
-      "switch": "Sağ paneli değiştir"
+      "switch": "Sağ paneli değiştir",
+      "dock": "Sağ panel çubuğu",
+      "openPanel": "{{panel}} panelini aç",
+      "switchToPanel": "{{panel}} paneline geç",
+      "collapsePanel": "{{panel}} panelini daralt",
+      "expandPanel": "{{panel}} panelini genişlet",
+      "workflowActiveCount": "{{count}} etkin iş akışı",
+      "workflowAttentionCount": "{{count}} iş akışı ilgilenmenizi bekliyor",
+      "backgroundRunningCount": "{{count}} arka plan görevi çalışıyor"
     },
     "visionBridgeEngaged": "Ana model görselleri göremediği için {{model}} onları onun yerine tanımladı.",
     "visionBridgeUnavailable": "Görsel modeli görseli tanımlayamadı, bu yüzden görsel atlandı.",

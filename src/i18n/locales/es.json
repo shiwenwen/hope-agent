@@ -892,7 +892,15 @@
     "rightPanel": {
       "collapse": "Contraer panel derecho",
       "expand": "Expandir el panel derecho",
-      "switch": "Cambiar panel derecho"
+      "switch": "Cambiar panel derecho",
+      "dock": "Barra de paneles derechos",
+      "openPanel": "Abrir {{panel}}",
+      "switchToPanel": "Cambiar a {{panel}}",
+      "collapsePanel": "Contraer {{panel}}",
+      "expandPanel": "Expandir {{panel}}",
+      "workflowActiveCount": "{{count}} flujos de trabajo activos",
+      "workflowAttentionCount": "{{count}} flujos de trabajo requieren atención",
+      "backgroundRunningCount": "{{count}} tareas en segundo plano en ejecución"
     },
     "visionBridgeEngaged": "El modelo principal no puede ver imágenes, así que {{model}} las describió por él.",
     "visionBridgeUnavailable": "El modelo de visión no pudo describir la imagen, por lo que se omitió.",
