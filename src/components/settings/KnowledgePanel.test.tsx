@@ -323,7 +323,9 @@ describe("KnowledgePanel", () => {
 
     const mediaTitle = await screen.findByText("Original media retention")
     const mediaSection = mediaTitle.closest(".rounded-lg") as HTMLElement
-    expect(within(mediaSection).getByText("Failed to load original media retention settings")).toBeTruthy()
+    expect(
+      await within(mediaSection).findByText("Failed to load original media retention settings"),
+    ).toBeTruthy()
     expect(within(mediaSection).getByText("Details: media load token=[redacted]")).toBeTruthy()
     expect(screen.queryByText(/media-load-secret/)).toBeNull()
   })

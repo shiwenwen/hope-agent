@@ -3934,36 +3934,38 @@ export default function ChatScreen({
                         />
                       </div>
                     )}
-                    {!session.currentSessionId && currentProject && !incognitoEnabled ? (
-                      <ProjectSessionDraftBar
-                        project={currentProject}
-                        projects={projects}
-                        draft={draftProjectRuntime}
-                        disabled={session.loading}
-                        progressStage={projectBootstrapProgress?.stage ?? null}
-                        progressError={projectBootstrapProgress?.error ?? null}
-                        onDraftChange={handleProjectRuntimeDraftChange}
-                        onSelectProject={(projectId, defaultAgentId) => {
-                          void handleNewChatInProject(projectId, defaultAgentId)
-                        }}
-                        onRemoveProject={() => {
-                          void handleStartNewChat(currentAgentId)
-                        }}
-                        onRetry={() => {
-                          setProjectBootstrapProgress(null)
-                          window.setTimeout(() => {
-                            void stream.handleSend()
-                          }, 0)
-                        }}
-                        onUseLocal={() => {
-                          handleProjectRuntimeDraftChange({
-                            ...draftProjectRuntime,
-                            launchMode: "local",
-                          })
-                        }}
-                      />
-                    ) : null}
                     <ChatInput
+                      topAccessory={
+                        !session.currentSessionId && !incognitoEnabled ? (
+                          <ProjectSessionDraftBar
+                            project={currentProject}
+                            projects={projects}
+                            draft={draftProjectRuntime}
+                            disabled={session.loading}
+                            progressStage={projectBootstrapProgress?.stage ?? null}
+                            progressError={projectBootstrapProgress?.error ?? null}
+                            onDraftChange={handleProjectRuntimeDraftChange}
+                            onSelectProject={(projectId, defaultAgentId) => {
+                              void handleNewChatInProject(projectId, defaultAgentId)
+                            }}
+                            onRemoveProject={() => {
+                              void handleStartNewChat(currentAgentId)
+                            }}
+                            onRetry={() => {
+                              setProjectBootstrapProgress(null)
+                              window.setTimeout(() => {
+                                void stream.handleSend()
+                              }, 0)
+                            }}
+                            onUseLocal={() => {
+                              handleProjectRuntimeDraftChange({
+                                ...draftProjectRuntime,
+                                launchMode: "local",
+                              })
+                            }}
+                          />
+                        ) : undefined
+                      }
                       input={stream.input}
                       onInputChange={stream.setInput}
                       inputHistory={inputHistory}

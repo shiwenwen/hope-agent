@@ -1090,6 +1090,7 @@
       }
     },
     "projectRuntime": {
+      "selectProject": "选择项目",
       "removeProject": "不在项目中工作",
       "searchProjects": "搜索项目",
       "noProject": "不在项目中",
