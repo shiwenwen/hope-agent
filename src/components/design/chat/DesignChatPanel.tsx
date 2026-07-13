@@ -13,7 +13,11 @@ import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { FLOATING_MENU_SURFACE_CLASS } from "@/components/ui/floating-menu"
+import {
+  FloatingMenu,
+  FLOATING_MENU_ITEM_CLASS,
+  FLOATING_MENU_SURFACE_CLASS,
+} from "@/components/ui/floating-menu"
 import { IconTip } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
 import ChatInput from "@/components/chat/ChatInput"
@@ -255,6 +259,13 @@ export const DesignChatPanel = forwardRef<DesignChatPanelHandle, Props>(function
     useCallback(() => setHistoryOpen(false), []),
   )
   const [toolboxOpen, setToolboxOpen] = useState(false)
+  // Next-step 引导折叠（B2-1 收纳）：默认收起为单个「✨ 下一步」触发，避免一排胶囊常驻挤压消息区。
+  const [nextStepOpen, setNextStepOpen] = useState(false)
+  const nextStepRef = useRef<HTMLDivElement>(null)
+  useClickOutside(
+    nextStepRef,
+    useCallback(() => setNextStepOpen(false), []),
+  )
 
   // Stable readers so the per-turn context always reflects the live open artifact.
   const artifactRef = useRef(activeArtifact)
@@ -415,6 +426,19 @@ export const DesignChatPanel = forwardRef<DesignChatPanelHandle, Props>(function
     // 注：handleSend(directText) 按设计不带原回合附件（纯文本重发）；重新生成场景可接受。
     void stream.handleSend(text)
   }, [lastUserContent, session.loading, stream])
+  // Next-step 触发显示条件（idle + composer 空 + 末条 assistant 有正文）；折叠触发与浮层共用。
+  const lastMsgForNextStep = session.messages[session.messages.length - 1]
+  const showNextStep =
+    !session.loading &&
+    !stream.input.trim() &&
+    lastMsgForNextStep?.role === "assistant" &&
+    !!lastMsgForNextStep?.content.trim()
+  // 触发条件消失（开始输入 / 生成中）时收起浮层，避免清空输入后残留的 open 状态让它自己弹回。
+  const [prevShowNextStep, setPrevShowNextStep] = useState(showNextStep)
+  if (showNextStep !== prevShowNextStep) {
+    setPrevShowNextStep(showNextStep)
+    if (!showNextStep && nextStepOpen) setNextStepOpen(false)
+  }
   // 回合失败恢复（P1-G）：末条是**标记的失败事件**（isTurnError，reconcile-safe，非空内容启发式）时
   // 给一键重试。此前失败只落一行原始 error 文本、无重试出口（audit HIGH）。
   const lastTurnFailed = useMemo(() => {
@@ -663,20 +687,44 @@ export const DesignChatPanel = forwardRef<DesignChatPanelHandle, Props>(function
         </div>
       )}
 
-      {/* Next-step 引导条（B2-1）：idle + 末条是 assistant 回复（有正文）时显示，点击填 composer
-          不自动发。输入框已有内容 / 生成中不显示，避免打扰。首位「重新生成」直接重跑上一句。 */}
-      {!session.loading &&
-        !stream.input.trim() &&
-        session.messages[session.messages.length - 1]?.role === "assistant" &&
-        session.messages[session.messages.length - 1]?.content.trim() && (
-          <div className="flex flex-wrap gap-1.5 px-3 pb-1.5">
+      {/* Next-step 引导（B2-1，收纳版）：默认只显示一个「✨ 下一步」触发，避免一排胶囊常驻挤压消息区。
+          点开在浮层里列出重新生成 + 精修建议——点建议填 composer（不自动发）、点重新生成直接重跑，随即收起。
+          FloatingMenu 常挂载、open 驱动（保留退场动画）；触发按显示条件条件渲染，不满足时整行零占位。 */}
+      <div className="relative px-3" ref={nextStepRef}>
+        {showNextStep && (
+          <button
+            type="button"
+            aria-label={t("common.nextStep", "下一步")}
+            onClick={() => setNextStepOpen((v) => !v)}
+            className={cn(
+              "mb-1.5 flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs transition-colors",
+              nextStepOpen
+                ? "border-primary/40 bg-accent text-foreground"
+                : "border-border/60 text-muted-foreground hover:border-primary/40 hover:bg-accent hover:text-foreground",
+            )}
+          >
+            <span>✨</span>
+            {t("common.nextStep", "下一步")}
+          </button>
+        )}
+        <FloatingMenu
+          open={nextStepOpen && showNextStep}
+          positionClassName="bottom-full left-3 mb-1"
+          originClassName="origin-bottom-left"
+          className="min-w-[176px] p-1"
+          onEscapeKeyDown={() => setNextStepOpen(false)}
+        >
+          <div>
             {lastUserContent.trim() && (
               <button
                 type="button"
-                onClick={retryLastTurn}
-                className="flex items-center gap-1 rounded-full border border-border/60 px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:border-primary/40 hover:bg-accent hover:text-foreground"
+                className={FLOATING_MENU_ITEM_CLASS}
+                onClick={() => {
+                  setNextStepOpen(false)
+                  retryLastTurn()
+                }}
               >
-                <RotateCcw className="h-3 w-3" />
+                <RotateCcw className="h-3.5 w-3.5" />
                 {t("design.chat.regenerate", "重新生成")}
               </button>
             )}
@@ -684,15 +732,19 @@ export const DesignChatPanel = forwardRef<DesignChatPanelHandle, Props>(function
               <button
                 key={a.key}
                 type="button"
-                onClick={() => stream.setInput(t(a.promptKey, a.promptFallback))}
-                className="flex items-center gap-1 rounded-full border border-border/60 px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:border-primary/40 hover:bg-accent hover:text-foreground"
+                className={FLOATING_MENU_ITEM_CLASS}
+                onClick={() => {
+                  setNextStepOpen(false)
+                  stream.setInput(t(a.promptKey, a.promptFallback))
+                }}
               >
                 <span>{a.icon}</span>
                 {t(a.titleKey, a.titleFallback)}
               </button>
             ))}
           </div>
-        )}
+        </FloatingMenu>
+      </div>
 
       {/* 当前产物上下文 chip（W2-I）：让隐式注入的 <design_context> 对用户可见——「改这个」落到哪个
           产物一目了然（此前 composer 无任何提示，用户不知 AI 会改哪个）。 */}
