@@ -15,7 +15,6 @@ import {
   Blocks,
   RotateCcw,
   GitFork,
-  Sparkles,
   Wand2,
   Moon,
   Shuffle,
@@ -26,13 +25,10 @@ import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { FLOATING_MENU_SURFACE_CLASS } from "@/components/ui/floating-menu"
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
+  FLOATING_MENU_ITEM_CLASS,
+  FLOATING_MENU_SURFACE_CLASS,
+} from "@/components/ui/floating-menu"
 import { IconTip } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
 import ChatInput from "@/components/chat/ChatInput"
@@ -441,40 +437,33 @@ export const DesignChatPanel = forwardRef<DesignChatPanelHandle, Props>(function
     !stream.input.trim() &&
     lastMsgForNextStep?.role === "assistant" &&
     !!lastMsgForNextStep?.content.trim()
-  // Next-step 收进输入框工具栏前导槽：一个 Sparkles 图标触发的 Radix 浮层菜单（自带 portal / 碰撞检测，
-  // 不被输入框 dock 裁剪；variant=floating 对齐浮层治理），列出重新生成 + 精修建议。点建议填 composer
-  //（不自动发）、点重新生成直接重跑。不满足显示条件时不渲染 → 工具栏零占位。
-  const nextStepToolbarAction = showNextStep ? (
-    <DropdownMenu>
-      <IconTip label={t("common.nextStep", "下一步")} side="top">
-        <DropdownMenuTrigger asChild>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8 rounded-lg bg-transparent text-muted-foreground hover:bg-transparent hover:text-foreground focus-visible:ring-0"
-          >
-            <Sparkles className="h-4 w-4" />
-          </Button>
-        </DropdownMenuTrigger>
-      </IconTip>
-      <DropdownMenuContent variant="floating" side="top" align="start" className="min-w-[176px]">
-        {lastUserContent.trim() && (
-          <DropdownMenuItem onClick={() => retryLastTurn()}>
-            <RotateCcw className="mr-2 h-3.5 w-3.5" />
-            {t("design.chat.regenerate", "重新生成")}
-          </DropdownMenuItem>
-        )}
-        {DESIGN_NEXT_STEP_ACTIONS.map((a) => (
-          <DropdownMenuItem
-            key={a.key}
-            onClick={() => stream.setInput(t(a.promptKey, a.promptFallback))}
-          >
-            <a.Icon className="mr-2 h-3.5 w-3.5" />
-            {t(a.titleKey, a.titleFallback)}
-          </DropdownMenuItem>
-        ))}
-      </DropdownMenuContent>
-    </DropdownMenu>
+  // Next-step 收进输入框「+」工具栏溢出菜单顶部（overflowLeadingItems）：重新生成 + 精修建议作扁平
+  // 菜单项。点建议填 composer（不自动发）、点重新生成直接重跑；点击冒泡到 ChatInput 包裹层自动收起
+  // 「+」。不满足显示条件时不渲染 → 「+」回落到工具栏内置项（非 compact 时整个隐藏）。
+  const nextStepOverflowItems = showNextStep ? (
+    <>
+      {lastUserContent.trim() && (
+        <button
+          type="button"
+          className={FLOATING_MENU_ITEM_CLASS}
+          onClick={() => retryLastTurn()}
+        >
+          <RotateCcw className="h-3.5 w-3.5" />
+          {t("design.chat.regenerate", "重新生成")}
+        </button>
+      )}
+      {DESIGN_NEXT_STEP_ACTIONS.map((a) => (
+        <button
+          key={a.key}
+          type="button"
+          className={FLOATING_MENU_ITEM_CLASS}
+          onClick={() => stream.setInput(t(a.promptKey, a.promptFallback))}
+        >
+          <a.Icon className="h-3.5 w-3.5" />
+          {t(a.titleKey, a.titleFallback)}
+        </button>
+      ))}
+    </>
   ) : null
   // 回合失败恢复（P1-G）：末条是**标记的失败事件**（isTurnError，reconcile-safe，非空内容启发式）时
   // 给一键重试。此前失败只落一行原始 error 文本、无重试出口（audit HIGH）。
@@ -724,7 +713,7 @@ export const DesignChatPanel = forwardRef<DesignChatPanelHandle, Props>(function
         </div>
       )}
 
-      {/* Next-step 引导已收进输入框工具栏前导槽（见下方 ChatInput leadingToolbarActions），不再单占一行。 */}
+      {/* Next-step 引导已收进输入框「+」溢出菜单（见下方 ChatInput overflowLeadingItems），不再单占一行。 */}
 
       {/* 当前产物上下文 chip（W2-I）：让隐式注入的 <design_context> 对用户可见——「改这个」落到哪个
           产物一目了然（此前 composer 无任何提示，用户不知 AI 会改哪个）。 */}
@@ -744,7 +733,7 @@ export const DesignChatPanel = forwardRef<DesignChatPanelHandle, Props>(function
       {/* Composer — borderless, sits on the surface like the main chat composer. */}
       <div>
         <ChatInput
-          leadingToolbarActions={nextStepToolbarAction}
+          overflowLeadingItems={nextStepOverflowItems}
           input={stream.input}
           onInputChange={stream.setInput}
           onSend={() => stream.handleSend()}
