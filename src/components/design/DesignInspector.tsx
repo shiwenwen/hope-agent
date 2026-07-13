@@ -22,6 +22,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import type { DesignSelectedElement } from "@/types/design"
+import { formatSizeDisplay } from "./inspectorFormat"
 
 interface Props {
   selected: DesignSelectedElement
@@ -863,31 +864,31 @@ export default function DesignInspector({
         <TextRow
           label={t("design.insp.width", "宽")}
           prop="width"
-          value={s["width"] || ""}
-          placeholder="auto"
+          value={formatSizeDisplay(s["width"] || "")}
+          placeholder={t("common.auto", "自动")}
           onCommit={onCommitStyle}
           onLive={onLiveStyle}
         />
         <TextRow
           label={t("design.insp.height", "高")}
           prop="height"
-          value={s["height"] || ""}
-          placeholder="auto"
+          value={formatSizeDisplay(s["height"] || "")}
+          placeholder={t("common.auto", "自动")}
           onCommit={onCommitStyle}
           onLive={onLiveStyle}
         />
         <TextRow
           label={t("design.insp.maxWidth", "最大宽")}
           prop="max-width"
-          value={s["max-width"] || ""}
-          placeholder="none"
+          value={formatSizeDisplay(s["max-width"] || "")}
+          placeholder={t("common.none", "无")}
           onCommit={onCommitStyle}
           onLive={onLiveStyle}
         />
         <TextRow
           label={t("design.insp.minHeight", "最小高")}
           prop="min-height"
-          value={s["min-height"] || ""}
+          value={formatSizeDisplay(s["min-height"] || "")}
           placeholder="0"
           onCommit={onCommitStyle}
           onLive={onLiveStyle}
