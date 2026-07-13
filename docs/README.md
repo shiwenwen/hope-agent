@@ -6,9 +6,11 @@
 
 ## 规划归档
 
-当前实施中的路线文档：
+Memory UX v2 的调研、实施路线与原始召回截图已在 2026-07-13 按任务归档；最终运行时、迁移、Prompt Cache、学习/召回边界和验收契约已沉淀到 [记忆系统架构](architecture/memory.md#memory-ux-v2-最终运行时契约)，并同步更新 Prompt、Project、Agent Config 与 Tool System 文档：
 
-- [Memory UX v2：核心记忆、动态召回与学习控制改造路线](plans/memory-ux-v2.md) — `feat/memory-ux-v2` 分支的分阶段实施、迁移、缓存、测试与验收契约；完成后将稳定事实并回 architecture 文档并归档路线材料。
+```text
+/Users/shiwenwen/Library/Mobile Documents/com~apple~CloudDocs/HopeAI/Hope Agent/Plans/2026-07-13-memory-ux-v2
+```
 
 历史调研、RFC、计划方案、roadmap、review packet 和原始参考材料已按任务归档到本机 iCloud：
 

@@ -130,6 +130,14 @@ impl MemoryRuntimeConfig {
         !self.rollout.enabled || self.compatibility.legacy_static_memory
     }
 
+    /// The V1 LLM selector replaces the complete `# Memory` section and must
+    /// never run alongside V2's Fast/Deep Recall. The compatibility static
+    /// block is additive, while disabling the whole V2 rollout is the only
+    /// state that restores the legacy replacer.
+    pub(crate) fn legacy_selection_replacer_enabled(&self) -> bool {
+        !self.rollout.enabled
+    }
+
     pub fn core_repository_enabled(&self) -> bool {
         self.rollout.enabled && self.rollout.core_repository
     }
@@ -556,6 +564,18 @@ mod tests {
         config.rollout.enabled = false;
         config.compatibility.legacy_static_memory = false;
         assert!(config.legacy_static_injection_enabled());
+    }
+
+    #[test]
+    fn legacy_selection_replacer_requires_a_full_v1_rollback() {
+        let mut config = MemoryRuntimeConfig::default();
+        assert!(!config.legacy_selection_replacer_enabled());
+
+        config.compatibility.legacy_static_memory = true;
+        assert!(!config.legacy_selection_replacer_enabled());
+
+        config.rollout.enabled = false;
+        assert!(config.legacy_selection_replacer_enabled());
     }
 
     #[test]

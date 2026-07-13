@@ -108,8 +108,10 @@ graph LR
     S7e --> S8["⑧ Memory"]
     S8 --> S8a["8a: Core Memory (Global)"]
     S8 --> S8b["8b: Core Memory (Agent)"]
-    S8 --> S8c["8c: SQLite Memories"]
-    S8 --> S8d["8d: Memory Guidelines"]
+    S8 --> S8p["8c: Core Memory (Project, conditional)"]
+    S8 --> S8c["8d: Legacy SQLite/Profile/Pinned (rollback only)"]
+    S8 --> S8d["8e: Memory Guidelines"]
+    S8d --> SD["Dynamic suffix: Fast/Deep Recall (per turn)"]
     AD --> S9["⑨ Runtime Info (Agent home)"]
     AD --> S10["⑩ SubAgent (conditional)"]
     AD --> S11["⑪ Sandbox (conditional)"]
@@ -428,20 +430,22 @@ Phase 5: Review & Refinement   → 用户审核，inline comment 修订
 
 ## Memory Guidelines（记忆指导）
 
-**位置**：`system_prompt/sections.rs`（⑧ Memory 段的 8d 子段）
+**位置**：`system_prompt/sections.rs`（⑧ Memory 段的 guidelines 子段）
 
-仅在 `config.memory.enabled = true` 时注入。指导 Agent 正确使用 4 个记忆工具：
+仅在有效 Memory policy 允许时注入，指导 Agent 区分 Core 与动态记忆工具：
 
 | 工具                                  | 使用场景                                      |
 | ------------------------------------- | --------------------------------------------- |
-| `update_core_memory`                  | 长期指令：「always」「never」「from now on」  |
+| `core_memory`                         | 三层 Core 索引 / topic 的读取、写入、提升与 reload |
+| `update_core_memory`                  | 旧长期指令写入兼容入口，内部映射到 Core       |
+| `project_memory`                      | Project Core topic 的兼容入口，仅项目会话可用 |
 | `save_memory`                         | 事实、截止日期、临时上下文、值得备注的发现    |
 | `recall_memory`                       | 查找先前偏好/约束/上下文                      |
 | `recall_memory(include_history=true)` | 搜索历史对话（「last time」「we discussed」） |
 
 **禁止保存**：临时任务细节、代码片段、调试步骤、可从代码库推导的信息。
 
-记忆段还包括 Core Memory 注入（8a 全局、8b Agent 级别）和 SQLite 记忆检索结果（8c）。
+Memory UX v2 默认只把会话冻结的 Global / Agent / Project `CoreMemorySnapshot` 与紧凑工具协议放进稳定 Memory 段。SQLite memories、Profile Snapshot、Pinned Claims、Episode、Procedure 和 Graph 均走当前 turn 的 Dynamic Recall 后缀，不再默认常驻 system prompt；只有完整 V1 rollback 或显式 `compatibility.legacyStaticMemory=true` 才恢复旧静态块。Prompt 每轮可以重新构造，但同一 session 的 Core snapshot 在 reload、Tier 3 compact、资格变化或进程重启前保持字节稳定；动态召回必须追加在 stable fingerprint 之后，不能反向改写静态前缀。完整预算、迁移、会话 policy 和 fail-closed 契约见 [记忆系统架构](memory.md#memory-ux-v2-最终运行时契约)。
 
 ---
 

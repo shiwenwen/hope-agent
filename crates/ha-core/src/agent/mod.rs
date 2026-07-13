@@ -4304,6 +4304,18 @@ impl AssistantAgent {
         if self.session_is_incognito() {
             return;
         }
+        // Memory UX v2 owns dynamic selection through MemoryRecallPlanner and
+        // optional Deep Recall. The legacy `memorySelection` field remains a
+        // mirrored compatibility setting, so running this V1 replacer while
+        // V2 is active would make the same opt-in issue a second side query
+        // and replace the Core/Guidelines `# Memory` section with SQLite
+        // content. Only a full V1 rollout rollback may execute this path.
+        if !crate::config::cached_config()
+            .memory
+            .legacy_selection_replacer_enabled()
+        {
+            return;
+        }
         let config = crate::memory::helpers::load_memory_selection_config();
         if !config.enabled {
             return;
