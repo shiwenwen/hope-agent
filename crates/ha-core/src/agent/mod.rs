@@ -22,7 +22,7 @@ pub(crate) mod runtime_ledger;
 mod side_query;
 mod streaming_adapter;
 mod streaming_loop;
-mod token_manifest;
+pub(crate) mod token_manifest;
 mod types;
 mod vision_bridge;
 
@@ -380,7 +380,7 @@ impl AssistantAgent {
             context_engine: std::sync::Arc::new(crate::context_compact::DefaultContextEngine),
             compaction_provider: None,
             token_calibrator: std::sync::Mutex::new(
-                crate::context_compact::TokenEstimateCalibrator::new(),
+                crate::context_compact::TokenEstimateCalibrators::default(),
             ),
             activated_tool_names: std::sync::Mutex::new(Vec::new()),
             session_id: None,
@@ -451,7 +451,7 @@ impl AssistantAgent {
             context_engine: std::sync::Arc::new(crate::context_compact::DefaultContextEngine),
             compaction_provider: None,
             token_calibrator: std::sync::Mutex::new(
-                crate::context_compact::TokenEstimateCalibrator::new(),
+                crate::context_compact::TokenEstimateCalibrators::default(),
             ),
             activated_tool_names: std::sync::Mutex::new(Vec::new()),
             session_id: None,
@@ -647,7 +647,7 @@ impl AssistantAgent {
             context_engine: std::sync::Arc::new(crate::context_compact::DefaultContextEngine),
             compaction_provider: None,
             token_calibrator: std::sync::Mutex::new(
-                crate::context_compact::TokenEstimateCalibrator::new(),
+                crate::context_compact::TokenEstimateCalibrators::default(),
             ),
             activated_tool_names: std::sync::Mutex::new(Vec::new()),
             session_id: None,
@@ -791,12 +791,14 @@ impl AssistantAgent {
     }
 
     /// Check if any tool call in this round was a manual memory write
-    /// (save_memory / update_core_memory). If so, set the mutual exclusion
+    /// (save_memory / Core Memory writers). If so, set the mutual exclusion
     /// flag to skip auto-extraction for this round.
     pub(crate) fn check_manual_memory_save(&self, tool_calls: &[api_types::FunctionCallItem]) {
         if tool_calls.iter().any(|tc| {
             tc.name == crate::tools::TOOL_SAVE_MEMORY
                 || tc.name == crate::tools::TOOL_UPDATE_CORE_MEMORY
+                || tc.name == crate::tools::TOOL_CORE_MEMORY
+                || tc.name == crate::tools::TOOL_PROJECT_MEMORY
         }) {
             self.manual_memory_saved
                 .store(true, std::sync::atomic::Ordering::SeqCst);
@@ -943,6 +945,10 @@ impl AssistantAgent {
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .clear();
+            *self
+                .core_memory_snapshot
+                .lock()
+                .unwrap_or_else(|e| e.into_inner()) = None;
         }
         self.session_id = Some(id.to_string());
         self.refresh_incognito_cache();
@@ -1100,21 +1106,44 @@ impl AssistantAgent {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .len();
+        let planner_context = *self
+            .retrieval_planner_context
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let recall_skip_reason = self
+            .retrieval_planner_layers
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .find(|layer| layer.layer == "active_memory")
+            .and_then(|layer| layer.skipped_reason.clone());
+        let runtime = &crate::config::cached_config().memory;
+        let session_access = crate::memory::effective_session_memory_access(
+            self.session_id.as_deref(),
+            self.session_db.as_deref(),
+        );
         let dynamic_context =
             crate::memory::context_manifest::DynamicMemoryContextManifest::from_runtime(
+                runtime.enabled && runtime.recall.enabled,
+                runtime.recall.mode,
+                planner_context.intent,
+                recall_skip_reason,
                 active_trace.as_deref(),
                 active_suffix.as_deref().map(|value| value.as_str()),
                 procedure_suffix.as_deref().map(|value| value.as_str()),
                 experience_ref_count,
                 graph_ref_count,
             );
-        let runtime = &crate::config::cached_config().memory;
         crate::memory::context_manifest::MemoryContextManifest::new(
             provider,
             model,
             round,
+            self.session_id.as_deref(),
             runtime.rollout.enabled,
             runtime.rollout.shadow_plan,
+            runtime.learning.mode,
+            session_access.use_memories,
+            session_access.contribute_to_memories,
             stable_prompt,
             static_context,
             dynamic_context,
@@ -1266,7 +1295,65 @@ impl AssistantAgent {
                     "recall": recall,
                 }),
             );
+            let mut source_counts = std::collections::BTreeMap::new();
+            for candidate in &recall.candidates {
+                *source_counts
+                    .entry(candidate.kind.clone())
+                    .or_insert(0usize) += 1;
+            }
+            bus.emit(
+                "memory:recall_completed",
+                serde_json::json!({
+                    "sessionId": session_id,
+                    "agentId": self.agent_id,
+                    "queryHash": format!("{query_hash:016x}"),
+                    "mode": recall.mode,
+                    "cached": recall.cached,
+                    "candidateCount": recall.total_candidates,
+                    "selectedCount": if recall.selected_candidates.is_empty() {
+                        usize::from(recall.selected.is_some())
+                    } else {
+                        recall.selected_candidates.len()
+                    },
+                    "sourceCounts": source_counts,
+                    "latencyMs": recall.latency_ms,
+                }),
+            );
         }
+    }
+
+    /// Emit a content-free terminal decision even when no memory is injected.
+    /// Without this, the Memory Center keeps showing the previous turn's hit
+    /// after a greeting/disabled/timeout turn, which falsely implies that the
+    /// current response used recalled memory.
+    fn emit_empty_memory_recall(
+        &self,
+        user_text: &str,
+        skip_reason: &str,
+        latency_ms: Option<u64>,
+    ) {
+        let Some(session_id) = self.session_id.as_deref() else {
+            return;
+        };
+        let Some(bus) = crate::get_event_bus() else {
+            return;
+        };
+        let query_hash = active_memory::hash_user_text(user_text.trim());
+        bus.emit(
+            "memory:recall_completed",
+            serde_json::json!({
+                "sessionId": session_id,
+                "agentId": self.agent_id,
+                "queryHash": format!("{query_hash:016x}"),
+                "mode": "skip",
+                "cached": false,
+                "candidateCount": 0,
+                "selectedCount": 0,
+                "sourceCounts": serde_json::Map::<String, serde_json::Value>::new(),
+                "latencyMs": latency_ms,
+                "skipReason": skip_reason,
+            }),
+        );
     }
 
     async fn warm_memory_agent_config(&self) {
@@ -1365,7 +1452,20 @@ impl AssistantAgent {
         use std::time::Duration;
 
         let memory_runtime = crate::config::cached_config().memory.clone();
-        if memory_runtime.rollout.enabled && memory_runtime.rollout.dynamic_recall {
+        let session_access = crate::memory::effective_session_memory_access(
+            self.session_id.as_deref(),
+            self.session_db.as_deref(),
+        );
+        if !session_access.use_memories {
+            self.set_retrieval_planner_layer(retrieval_planner::disabled_layer(
+                "active_memory",
+                "session_policy",
+            ));
+            self.set_active_memory_recall(None);
+            self.emit_empty_memory_recall(user_text, "session_policy", None);
+            return;
+        }
+        if memory_runtime.unified_dynamic_recall_enabled() {
             self.refresh_fast_memory_recall(user_text, &memory_runtime)
                 .await;
             return;
@@ -1464,6 +1564,7 @@ impl AssistantAgent {
         //    doesn't stall the runtime.
         let agent_id = self.agent_id.clone();
         let sid_for_search = sid.clone();
+        let bound_session_db = self.session_db.clone();
         let query = trimmed.to_string();
         let limit = cfg.candidate_limit.max(1);
         let include_claims = cfg.include_claims;
@@ -1486,8 +1587,12 @@ impl AssistantAgent {
             ACTIVE_MEMORY_RETRIEVAL_TIMEOUT,
             tokio::task::spawn_blocking(move || {
                 let _retrieval_slot = retrieval_slot;
-                let scopes =
-                    active_memory::scopes_for_session(&sid_for_search, &agent_id, shared_global);
+                let scopes = active_memory::scopes_for_session(
+                    &sid_for_search,
+                    &agent_id,
+                    shared_global,
+                    bound_session_db.as_deref(),
+                );
                 let mems = active_memory::shortlist_candidates(&query, &scopes, limit);
                 let claims = if include_claims {
                     active_memory::shortlist_claim_candidates(&query, &scopes, limit)
@@ -1639,11 +1744,10 @@ impl AssistantAgent {
         use crate::memory::recall_planner::RecallGate;
         use std::time::Duration;
 
-        let legacy_master_enabled = crate::config::cached_config().memory_extract.enabled;
         let gate = crate::memory::recall_planner::recall_gate(
             user_text,
             self.session_is_incognito(),
-            runtime.enabled && legacy_master_enabled,
+            runtime.enabled,
             runtime.recall.enabled,
         );
         let intent = match gate {
@@ -1656,6 +1760,7 @@ impl AssistantAgent {
                     None,
                 ));
                 self.set_active_memory_recall(None);
+                self.emit_empty_memory_recall(user_text, reason.as_str(), None);
                 return;
             }
         };
@@ -1668,6 +1773,7 @@ impl AssistantAgent {
                 None,
             ));
             self.set_active_memory_recall(None);
+            self.emit_empty_memory_recall(user_text, "agent_config_unavailable", None);
             return;
         };
         if !snapshot.memory_enabled {
@@ -1676,6 +1782,7 @@ impl AssistantAgent {
                 "agent_memory_off",
             ));
             self.set_active_memory_recall(None);
+            self.emit_empty_memory_recall(user_text, "agent_memory_off", None);
             return;
         }
         let Some(session_id) = self.session_id.clone() else {
@@ -1690,13 +1797,47 @@ impl AssistantAgent {
         };
 
         let query = user_text.trim().to_string();
-        let recall_config_fingerprint =
-            serde_json::to_string(&(&runtime.recall, &runtime.deep_recall)).unwrap_or_default();
+        // One-minor compatibility: an Agent that explicitly opted into the
+        // legacy Active Memory side query must retain that deep-recall
+        // capability after V2 becomes the default. New V2 settings win when
+        // explicitly enabled; otherwise the old per-Agent bounds are reused.
+        let v2_deep_requested = runtime.deep_recall.enabled
+            || runtime.recall.mode == crate::memory::MemoryRecallMode::Deep;
+        let legacy_deep_requested = snapshot.active_memory.enabled;
+        let deep_requested = v2_deep_requested || legacy_deep_requested;
+        let deep_timeout_ms = if v2_deep_requested {
+            runtime.deep_recall.timeout_ms
+        } else {
+            snapshot.active_memory.timeout_ms
+        };
+        let deep_cache_ttl_secs = if v2_deep_requested {
+            runtime.deep_recall.cache_ttl_secs
+        } else if legacy_deep_requested {
+            snapshot.active_memory.cache_ttl_secs
+        } else {
+            runtime.deep_recall.cache_ttl_secs
+        };
+        let deep_max_chars = if v2_deep_requested {
+            runtime.deep_recall.max_chars
+        } else {
+            snapshot.active_memory.max_chars
+        };
+        let deep_budget_tokens = if v2_deep_requested {
+            runtime.deep_recall.budget_tokens
+        } else {
+            snapshot.active_memory.budget_tokens
+        };
+        let recall_config_fingerprint = serde_json::to_string(&(
+            &runtime.recall,
+            &runtime.deep_recall,
+            &snapshot.active_memory,
+        ))
+        .unwrap_or_default();
         let hash = active_memory::hash_user_text(&format!(
             "v2-fast:{session_id}:{}:{recall_config_fingerprint}:{query}",
             self.agent_id
         ));
-        let ttl = Duration::from_secs(runtime.deep_recall.cache_ttl_secs.max(1));
+        let ttl = Duration::from_secs(deep_cache_ttl_secs.max(1));
         if let Some(cached) = self.active_memory_state.get_cached(hash, ttl) {
             let recalled = cached.map(|mut recall| {
                 recall.cached = true;
@@ -1709,6 +1850,7 @@ impl AssistantAgent {
                 self.set_retrieval_planner_layer(retrieval_planner::mark_cached(
                     retrieval_planner::empty_layer("active_memory", "no_candidates", 0),
                 ));
+                self.emit_empty_memory_recall(user_text, "no_candidates", None);
             }
             self.set_active_memory_recall(recalled);
             return;
@@ -1722,13 +1864,17 @@ impl AssistantAgent {
                 None,
             ));
             self.set_active_memory_recall(None);
+            self.emit_empty_memory_recall(user_text, "retrieval_busy", None);
             return;
         };
 
         let started = std::time::Instant::now();
         let agent_id = self.agent_id.clone();
         let sid_for_search = session_id.clone();
+        let bound_session_db = self.session_db.clone();
         let shared_global = snapshot.shared_global;
+        let procedure_config = snapshot.procedure_memory.clamped();
+        let graph_config = snapshot.graph_memory.clamped();
         let config = runtime.recall.clone();
         let query_for_search = query.clone();
         let timeout = Duration::from_millis(config.timeout_ms.max(1));
@@ -1736,8 +1882,12 @@ impl AssistantAgent {
             timeout,
             tokio::task::spawn_blocking(move || {
                 let _retrieval_slot = retrieval_slot;
-                let scopes =
-                    active_memory::scopes_for_session(&sid_for_search, &agent_id, shared_global);
+                let scopes = active_memory::scopes_for_session(
+                    &sid_for_search,
+                    &agent_id,
+                    shared_global,
+                    bound_session_db.as_deref(),
+                );
                 let memories = active_memory::shortlist_candidates(
                     &query_for_search,
                     &scopes,
@@ -1752,10 +1902,136 @@ impl AssistantAgent {
                 } else {
                     Vec::new()
                 };
+                let profiles = if config.include_profile
+                    && intent == crate::agent::retrieval_planner::RetrievalIntent::Profile
+                {
+                    scopes
+                        .iter()
+                        .filter_map(|scope| {
+                            let (scope_type, scope_id) = match scope {
+                                crate::memory::MemoryScope::Global => ("global", ""),
+                                crate::memory::MemoryScope::Agent { id } => ("agent", id.as_str()),
+                                crate::memory::MemoryScope::Project { id } => {
+                                    ("project", id.as_str())
+                                }
+                            };
+                            crate::memory::dreaming::latest_profile_body(scope_type, scope_id).map(
+                                |content| crate::memory::recall_planner::ProfileRecallCandidate {
+                                    id: format!("{scope_type}:{scope_id}"),
+                                    scope: scope.clone(),
+                                    content,
+                                },
+                            )
+                        })
+                        .collect()
+                } else {
+                    Vec::new()
+                };
+                let mut auxiliary = Vec::new();
+                if config.include_procedures
+                    && intent == crate::agent::retrieval_planner::RetrievalIntent::Procedure
+                    && procedure_config.enabled
+                {
+                    let candidates = crate::memory::episodes::shortlist_experience_candidates(
+                        &query_for_search,
+                        &scopes,
+                        config.candidate_limit,
+                    );
+                    for candidate in candidates
+                        .into_iter()
+                        .filter(|candidate| candidate.kind == "procedure")
+                        .take(procedure_config.max_procedures)
+                    {
+                        if candidate.confidence.unwrap_or_default()
+                            < procedure_config.min_confidence
+                        {
+                            continue;
+                        }
+                        let Ok(Some(procedure)) =
+                            crate::memory::episodes::get_procedure(&candidate.id)
+                        else {
+                            continue;
+                        };
+                        if procedure.status != "active" {
+                            continue;
+                        }
+                        auxiliary.push(crate::memory::recall_planner::AuxiliaryRecallCandidate {
+                            kind: "procedure".to_string(),
+                            id: procedure.id,
+                            source_type: "saved_workflow".to_string(),
+                            scope: procedure.scope,
+                            content: format!(
+                                "{}\nTrigger: {}\nSteps: {}\nConstraints: {}",
+                                procedure.title,
+                                procedure.trigger,
+                                procedure.steps_markdown,
+                                procedure.constraints_markdown
+                            ),
+                            retrieval_score: candidate.score,
+                            confidence: Some(procedure.confidence),
+                            salience: None,
+                            intent_score: 1.0,
+                        });
+                    }
+                }
+                if config.include_graph
+                    && graph_config.enabled
+                    && intent != crate::agent::retrieval_planner::RetrievalIntent::General
+                {
+                    let mut seen_edges = std::collections::HashSet::new();
+                    'scopes: for scope in &scopes {
+                        let Ok(centers) = crate::memory::claims::search_claims(
+                            &query_for_search,
+                            Some(scope.clone()),
+                            graph_config.max_centers,
+                        ) else {
+                            continue;
+                        };
+                        for center in centers {
+                            if !crate::memory::recall_planner::retrieval_evidence_is_relevant(
+                                center.retrieval_evidence.as_ref(),
+                            ) {
+                                continue;
+                            }
+                            let Ok(graph) = crate::memory::claims::claim_graph(
+                                &center.id,
+                                Some(graph_config.max_edges + 1),
+                            ) else {
+                                continue;
+                            };
+                            for edge in graph.edges {
+                                if edge.claim_id == center.id
+                                    || edge.status != "active"
+                                    || !seen_edges.insert(edge.claim_id.clone())
+                                {
+                                    continue;
+                                }
+                                auxiliary.push(
+                                    crate::memory::recall_planner::AuxiliaryRecallCandidate {
+                                        kind: "graph".to_string(),
+                                        id: edge.claim_id,
+                                        source_type: edge.predicate,
+                                        scope: scope.clone(),
+                                        content: edge.content,
+                                        retrieval_score: None,
+                                        confidence: Some(edge.confidence),
+                                        salience: Some(edge.salience),
+                                        intent_score: 0.75,
+                                    },
+                                );
+                                if seen_edges.len() >= graph_config.max_edges {
+                                    break 'scopes;
+                                }
+                            }
+                        }
+                    }
+                }
                 crate::memory::recall_planner::plan_fast_recall(
                     &query_for_search,
                     memories,
                     claims,
+                    profiles,
+                    auxiliary,
                     &config,
                 )
             }),
@@ -1772,6 +2048,7 @@ impl AssistantAgent {
                     0,
                 ));
                 self.set_active_memory_recall(None);
+                self.emit_empty_memory_recall(user_text, reason.as_str(), None);
                 return;
             }
             Ok(Err(_join_error)) => {
@@ -1782,6 +2059,11 @@ impl AssistantAgent {
                     Some(started.elapsed().as_millis() as u64),
                 ));
                 self.set_active_memory_recall(None);
+                self.emit_empty_memory_recall(
+                    user_text,
+                    "retrieval_error",
+                    Some(started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64),
+                );
                 return;
             }
             Err(_) => {
@@ -1792,21 +2074,24 @@ impl AssistantAgent {
                     Some(timeout.as_millis() as u64),
                 ));
                 self.set_active_memory_recall(None);
+                self.emit_empty_memory_recall(
+                    user_text,
+                    "retrieval_timeout",
+                    Some(timeout.as_millis().min(u128::from(u64::MAX)) as u64),
+                );
                 return;
             }
         };
-        let deep_requested = runtime.deep_recall.enabled
-            || runtime.recall.mode == crate::memory::MemoryRecallMode::Deep;
         if deep_requested {
             let prompt = crate::memory::recall_planner::build_deep_recall_prompt(
                 &query,
                 &recall.candidates,
                 runtime.recall.max_selected,
-                runtime.deep_recall.max_chars,
+                deep_max_chars,
             );
             match tokio::time::timeout(
-                Duration::from_millis(runtime.deep_recall.timeout_ms.max(1)),
-                self.side_query(&prompt, runtime.deep_recall.budget_tokens),
+                Duration::from_millis(deep_timeout_ms.max(1)),
+                self.side_query(&prompt, deep_budget_tokens),
             )
             .await
             {
@@ -1815,7 +2100,7 @@ impl AssistantAgent {
                         &response.text,
                         recall.candidates.len(),
                         runtime.recall.max_selected,
-                        runtime.deep_recall.max_chars,
+                        deep_max_chars,
                     ) {
                         let candidate_count = recall.total_candidates;
                         let Some(deep_recall) = crate::memory::recall_planner::apply_deep_recall(
@@ -1830,6 +2115,7 @@ impl AssistantAgent {
                                 candidate_count,
                             ));
                             self.set_active_memory_recall(None);
+                            self.emit_empty_memory_recall(user_text, "deep_none", None);
                             return;
                         };
                         recall = deep_recall;
@@ -1848,7 +2134,7 @@ impl AssistantAgent {
                         "agent",
                         "memory_deep_recall",
                         "deep rerank timed out after {}ms; using deterministic fast recall",
-                        runtime.deep_recall.timeout_ms
+                        deep_timeout_ms
                     );
                 }
             }
@@ -1881,11 +2167,30 @@ impl AssistantAgent {
             );
             return;
         }
-        if !crate::config::cached_config().memory_extract.enabled {
+        let app_config = crate::config::cached_config();
+        let runtime = &app_config.memory;
+        if runtime.unified_dynamic_recall_enabled() {
             self.set_experience_memory_refs(
                 Vec::new(),
                 None,
-                retrieval_planner::disabled_layer("experience", "memory_off"),
+                retrieval_planner::skipped_layer("experience", "unified_dynamic_recall", 0, None),
+            );
+            return;
+        }
+        let session_access = crate::memory::effective_session_memory_access(
+            self.session_id.as_deref(),
+            self.session_db.as_deref(),
+        );
+        let enabled = if runtime.unified_dynamic_recall_enabled() {
+            runtime.enabled && runtime.recall.enabled && runtime.recall.include_procedures
+        } else {
+            app_config.memory_extract.enabled
+        };
+        if !enabled || !session_access.use_memories {
+            self.set_experience_memory_refs(
+                Vec::new(),
+                None,
+                retrieval_planner::disabled_layer("experience", "memory_off_or_session_policy"),
             );
             return;
         }
@@ -1929,6 +2234,7 @@ impl AssistantAgent {
         let shared_global = memory_config.shared_global;
         let procedure_cfg = memory_config.procedure_memory.clamped();
         let query = trimmed.to_string();
+        let bound_session_db = self.session_db.clone();
         let started = std::time::Instant::now();
         let Some(retrieval_slot) = acquire_memory_retrieval_slot().await else {
             self.set_experience_memory_refs(
@@ -1942,7 +2248,12 @@ impl AssistantAgent {
             EXPERIENCE_RETRIEVAL_TIMEOUT,
             tokio::task::spawn_blocking(move || {
                 let _retrieval_slot = retrieval_slot;
-                let scopes = active_memory::scopes_for_session(&sid, &agent_id, shared_global);
+                let scopes = active_memory::scopes_for_session(
+                    &sid,
+                    &agent_id,
+                    shared_global,
+                    bound_session_db.as_deref(),
+                );
                 let candidates = crate::memory::episodes::shortlist_experience_candidates(
                     &query,
                     &scopes,
@@ -2062,10 +2373,28 @@ impl AssistantAgent {
             );
             return;
         }
-        if !crate::config::cached_config().memory_extract.enabled {
+        let app_config = crate::config::cached_config();
+        let runtime = &app_config.memory;
+        if runtime.unified_dynamic_recall_enabled() {
             self.set_graph_memory_refs(
                 Vec::new(),
-                retrieval_planner::disabled_layer("graph", "memory_off"),
+                retrieval_planner::skipped_layer("graph", "unified_dynamic_recall", 0, None),
+            );
+            return;
+        }
+        let session_access = crate::memory::effective_session_memory_access(
+            self.session_id.as_deref(),
+            self.session_db.as_deref(),
+        );
+        let enabled = if runtime.unified_dynamic_recall_enabled() {
+            runtime.enabled && runtime.recall.enabled && runtime.recall.include_graph
+        } else {
+            app_config.memory_extract.enabled
+        };
+        if !enabled || !session_access.use_memories {
+            self.set_graph_memory_refs(
+                Vec::new(),
+                retrieval_planner::disabled_layer("graph", "memory_off_or_session_policy"),
             );
             return;
         }
@@ -2114,6 +2443,7 @@ impl AssistantAgent {
         let center_limit = graph_config.max_centers;
         let edge_limit = graph_config.max_edges;
         let query = trimmed.to_string();
+        let bound_session_db = self.session_db.clone();
         let started = std::time::Instant::now();
         let Some(retrieval_slot) = acquire_memory_retrieval_slot().await else {
             self.set_graph_memory_refs(
@@ -2126,7 +2456,12 @@ impl AssistantAgent {
             GRAPH_TRACE_RETRIEVAL_TIMEOUT,
             tokio::task::spawn_blocking(move || {
                 let _retrieval_slot = retrieval_slot;
-                let scopes = active_memory::scopes_for_session(&sid, &agent_id, shared_global);
+                let scopes = active_memory::scopes_for_session(
+                    &sid,
+                    &agent_id,
+                    shared_global,
+                    bound_session_db.as_deref(),
+                );
                 let mut refs = Vec::new();
                 let mut seen_edges: std::collections::HashSet<String> =
                     std::collections::HashSet::new();
@@ -3011,6 +3346,9 @@ impl AssistantAgent {
     }
 
     pub(crate) fn invalidate_core_memory_snapshot(&self) {
+        if let Some(session_id) = self.session_id.as_deref() {
+            crate::memory::core_repository::invalidate_session_snapshot(session_id);
+        }
         *self
             .core_memory_snapshot
             .lock()
@@ -3065,11 +3403,17 @@ impl AssistantAgent {
     ) -> Vec<serde_json::Value> {
         let app_config = crate::config::cached_config();
         let caps = self.agent_caps();
+        let session_access = crate::memory::effective_session_memory_access(
+            self.session_id.as_deref(),
+            self.session_db.as_deref(),
+        );
         let ctx = tools::dispatch::DispatchContext {
             agent_id: self.agent_id.as_str(),
             incognito: self.session_is_incognito(),
             mcp_enabled: caps.mcp_enabled,
             memory_enabled: caps.memory_enabled,
+            use_memories: session_access.use_memories,
+            contribute_to_memories: session_access.contribute_to_memories,
             tools_filter: &caps.agent_tool_filter,
             app_config: &app_config,
         };
@@ -3090,6 +3434,22 @@ impl AssistantAgent {
                 def.to_provider_schema(provider)
             };
             schemas.push(schema);
+        }
+
+        // `job_status` is useful at the round head only while this session has
+        // a live background job. In recommended deferred mode it otherwise
+        // stays discoverable, preserving capability without spending eager
+        // schema tokens on ordinary turns.
+        if matches!(
+            app_config.deferred_tools.effective_mode(),
+            crate::config::DeferredToolsMode::Recommended
+        ) && app_config.async_tools.enabled
+            && self.session_has_active_background_job()
+            && !schemas
+                .iter()
+                .any(|schema| extract_tool_name(schema) == tools::TOOL_JOB_STATUS)
+        {
+            schemas.push(tools::job_status::get_job_status_tool().to_provider_schema(provider));
         }
 
         if !self.subagent_depth_allows_subagent() {
@@ -3143,11 +3503,17 @@ impl AssistantAgent {
 
         let app_config = crate::config::cached_config();
         let caps = self.agent_caps();
+        let session_access = crate::memory::effective_session_memory_access(
+            self.session_id.as_deref(),
+            self.session_db.as_deref(),
+        );
         let ctx = tools::dispatch::DispatchContext {
             agent_id: self.agent_id.as_str(),
             incognito: self.session_is_incognito(),
             mcp_enabled: caps.mcp_enabled,
             memory_enabled: caps.memory_enabled,
+            use_memories: session_access.use_memories,
+            contribute_to_memories: session_access.contribute_to_memories,
             tools_filter: &caps.agent_tool_filter,
             app_config: &app_config,
         };
@@ -3165,6 +3531,9 @@ impl AssistantAgent {
                 tools::dispatch::resolve_tool_fate(def, &ctx),
                 tools::dispatch::ToolFate::InjectDeferred
             ) {
+                continue;
+            }
+            if eager_names.contains(def.name.as_str()) {
                 continue;
             }
             deferred_builtin_names.insert(def.name.clone());
@@ -3243,6 +3612,15 @@ impl AssistantAgent {
             deferred_count,
             activated_names,
         }
+    }
+
+    fn session_has_active_background_job(&self) -> bool {
+        let Some(session_id) = self.session_id.as_deref() else {
+            return false;
+        };
+        crate::async_jobs::get_async_jobs_db()
+            .and_then(|db| db.list_active_by_session_limited(session_id, 1).ok())
+            .is_some_and(|jobs| !jobs.is_empty())
     }
 
     pub(crate) fn load_activated_tool_names(&self) -> Vec<String> {
@@ -3536,11 +3914,17 @@ impl AssistantAgent {
         // and the # Unconfigured Capabilities section from the same map.
         let app_config = crate::config::cached_config();
         let caps = self.agent_caps();
+        let session_access = crate::memory::effective_session_memory_access(
+            self.session_id.as_deref(),
+            self.session_db.as_deref(),
+        );
         let ctx = tools::dispatch::DispatchContext {
             agent_id: self.agent_id.as_str(),
             incognito: self.session_is_incognito(),
             mcp_enabled: caps.mcp_enabled,
             memory_enabled: caps.memory_enabled,
+            use_memories: session_access.use_memories,
+            contribute_to_memories: session_access.contribute_to_memories,
             tools_filter: &caps.agent_tool_filter,
             app_config: &app_config,
         };

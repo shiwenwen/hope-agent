@@ -8,6 +8,7 @@ pub(crate) mod approval;
 pub(crate) mod ask_user_question;
 pub(crate) mod browser;
 pub mod canvas;
+mod core_memory;
 mod cron;
 mod definitions;
 pub(crate) mod diff_util;
@@ -101,6 +102,7 @@ pub const TOOL_RECALL_MEMORY: &str = "recall_memory";
 pub const TOOL_UPDATE_MEMORY: &str = "update_memory";
 pub const TOOL_DELETE_MEMORY: &str = "delete_memory";
 pub const TOOL_UPDATE_CORE_MEMORY: &str = "update_core_memory";
+pub const TOOL_CORE_MEMORY: &str = "core_memory";
 pub const TOOL_PROJECT_MEMORY: &str = "project_memory";
 pub const TOOL_MANAGE_CRON: &str = "manage_cron";
 pub const TOOL_BROWSER: &str = "browser";
@@ -322,7 +324,7 @@ pub(crate) async fn emit_model_runtime_timeout_metadata(
 // ── Shared Helpers ────────────────────────────────────────────────
 
 /// True for built-in long-term memory tools. These tools are governed by the
-/// Memory tier gate (`memoryExtract.enabled`, agent memory switch, incognito)
+/// Memory tier gate (effective product master, agent memory switch, incognito)
 /// and must stay aligned across schema generation, tool_search, prompt text,
 /// and execution-layer defense in depth.
 pub fn is_memory_tool(name: &str) -> bool {
@@ -334,6 +336,7 @@ pub fn is_memory_tool(name: &str) -> bool {
             | TOOL_DELETE_MEMORY
             | TOOL_MEMORY_GET
             | TOOL_UPDATE_CORE_MEMORY
+            | TOOL_CORE_MEMORY
             | TOOL_PROJECT_MEMORY
     )
 }

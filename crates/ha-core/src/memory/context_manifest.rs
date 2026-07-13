@@ -9,6 +9,7 @@ use std::collections::BTreeMap;
 use serde::Serialize;
 
 use crate::agent::active_memory::{ActiveMemoryRecall, UsedMemoryRef};
+use crate::agent::retrieval_planner::RetrievalIntent;
 
 #[derive(Debug, Clone, Serialize, Default)]
 #[serde(rename_all = "camelCase")]
@@ -30,7 +31,7 @@ impl MemoryContentMetric {
         Self {
             present: !value.trim().is_empty(),
             bytes: value.len(),
-            tokens_estimate: token_estimate(value.len()),
+            tokens_estimate: token_estimate(value),
             fingerprint: fingerprint(value.as_bytes()),
         }
     }
@@ -43,7 +44,9 @@ pub(crate) struct StaticMemoryContextManifest {
     pub incognito: bool,
     pub legacy_static_memory: bool,
     pub core_snapshot_fingerprint: Option<String>,
+    pub core_snapshot_captured_at: Option<String>,
     pub core_migration_states: BTreeMap<String, String>,
+    pub core_tokens_by_scope: BTreeMap<String, u32>,
     pub agent_core: MemoryContentMetric,
     pub global_core: MemoryContentMetric,
     pub project_index: MemoryContentMetric,
@@ -78,6 +81,7 @@ impl StaticMemoryContextManifest {
                 .or_insert(0) += 1;
         }
         let mut core_migration_states = BTreeMap::new();
+        let mut core_tokens_by_scope = BTreeMap::new();
         if let Some(snapshot) = core_snapshot {
             for (scope, layer) in [
                 ("global", snapshot.global.as_ref()),
@@ -87,6 +91,7 @@ impl StaticMemoryContextManifest {
                 if let Some(layer) = layer {
                     core_migration_states
                         .insert(scope.to_string(), layer.state.as_str().to_string());
+                    core_tokens_by_scope.insert(scope.to_string(), layer.estimated_tokens);
                 }
             }
         }
@@ -95,7 +100,9 @@ impl StaticMemoryContextManifest {
             incognito,
             legacy_static_memory,
             core_snapshot_fingerprint: core_snapshot.map(|snapshot| snapshot.fingerprint.clone()),
+            core_snapshot_captured_at: core_snapshot.map(|snapshot| snapshot.captured_at.clone()),
             core_migration_states,
+            core_tokens_by_scope,
             agent_core: MemoryContentMetric::from_optional(agent_core),
             global_core: MemoryContentMetric::from_optional(global_core),
             project_index: MemoryContentMetric::from_optional(project_index),
@@ -115,6 +122,10 @@ impl StaticMemoryContextManifest {
 #[derive(Debug, Clone, Serialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct DynamicMemoryContextManifest {
+    pub recall_enabled: bool,
+    pub recall_mode_config: super::MemoryRecallMode,
+    pub recall_intent: RetrievalIntent,
+    pub recall_skip_reason: Option<String>,
     pub active_recall_present: bool,
     pub active_recall_mode: Option<String>,
     pub active_recall_cached: bool,
@@ -123,29 +134,64 @@ pub(crate) struct DynamicMemoryContextManifest {
     pub active_recall_latency_ms: Option<u64>,
     pub active_recall: MemoryContentMetric,
     pub procedure: MemoryContentMetric,
+    pub dynamic_suffix_fingerprint: String,
+    pub candidate_counts_by_source: BTreeMap<String, usize>,
+    pub selected_tokens_estimate: u32,
     pub experience_ref_count: usize,
     pub graph_ref_count: usize,
 }
 
 impl DynamicMemoryContextManifest {
     pub(crate) fn from_runtime(
+        recall_enabled: bool,
+        recall_mode_config: super::MemoryRecallMode,
+        recall_intent: RetrievalIntent,
+        recall_skip_reason: Option<String>,
         active: Option<&ActiveMemoryRecall>,
         active_suffix: Option<&str>,
         procedure_suffix: Option<&str>,
         experience_ref_count: usize,
         graph_ref_count: usize,
     ) -> Self {
+        let active_metric = MemoryContentMetric::from_optional(active_suffix);
+        let procedure_metric = MemoryContentMetric::from_optional(procedure_suffix);
+        let mut candidate_counts_by_source = BTreeMap::new();
+        if let Some(active) = active {
+            for candidate in &active.candidates {
+                *candidate_counts_by_source
+                    .entry(candidate.kind.clone())
+                    .or_insert(0) += 1;
+            }
+        }
+        let dynamic_suffix_fingerprint = fingerprint(
+            format!(
+                "{}:{}",
+                active_metric.fingerprint, procedure_metric.fingerprint
+            )
+            .as_bytes(),
+        );
         Self {
+            recall_enabled,
+            recall_mode_config,
+            recall_intent,
+            recall_skip_reason,
             active_recall_present: active.is_some(),
             active_recall_mode: active.map(|recall| recall.mode.clone()),
             active_recall_cached: active.is_some_and(|recall| recall.cached),
             active_recall_candidate_count: active.map_or(0, |recall| recall.total_candidates),
-            active_recall_selected_count: active
-                .and_then(|recall| recall.selected.as_ref())
-                .map_or(0, |_| 1),
+            active_recall_selected_count: active.map_or(0, |recall| {
+                if recall.selected_candidates.is_empty() {
+                    usize::from(recall.selected.is_some())
+                } else {
+                    recall.selected_candidates.len()
+                }
+            }),
             active_recall_latency_ms: active.and_then(|recall| recall.latency_ms),
-            active_recall: MemoryContentMetric::from_optional(active_suffix),
-            procedure: MemoryContentMetric::from_optional(procedure_suffix),
+            selected_tokens_estimate: active_metric.tokens_estimate,
+            active_recall: active_metric,
+            procedure: procedure_metric,
+            dynamic_suffix_fingerprint,
+            candidate_counts_by_source,
             experience_ref_count,
             graph_ref_count,
         }
@@ -155,11 +201,16 @@ impl DynamicMemoryContextManifest {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct MemoryContextManifest {
+    pub session_id_hash: Option<String>,
     pub provider: String,
     pub model: String,
     pub round: u32,
     pub rollout_enabled: bool,
     pub shadow_plan: bool,
+    pub learning_mode: super::MemoryLearningMode,
+    pub session_use_memories: bool,
+    pub session_contribute_to_memories: bool,
+    pub scope_rejection_counts: BTreeMap<String, usize>,
     pub stable_prompt_fingerprint: String,
     pub static_context: StaticMemoryContextManifest,
     pub dynamic_context: DynamicMemoryContextManifest,
@@ -171,18 +222,27 @@ impl MemoryContextManifest {
         provider: &str,
         model: &str,
         round: u32,
+        session_id: Option<&str>,
         rollout_enabled: bool,
         shadow_plan: bool,
+        learning_mode: super::MemoryLearningMode,
+        session_use_memories: bool,
+        session_contribute_to_memories: bool,
         stable_prompt: &str,
         static_context: StaticMemoryContextManifest,
         dynamic_context: DynamicMemoryContextManifest,
     ) -> Self {
         Self {
+            session_id_hash: session_id.map(|value| fingerprint(value.as_bytes())),
             provider: provider.to_string(),
             model: model.to_string(),
             round,
             rollout_enabled,
             shadow_plan,
+            learning_mode,
+            session_use_memories,
+            session_contribute_to_memories,
+            scope_rejection_counts: BTreeMap::new(),
             stable_prompt_fingerprint: fingerprint(stable_prompt.as_bytes()),
             static_context,
             dynamic_context,
@@ -209,9 +269,8 @@ impl MemoryContextManifest {
     }
 }
 
-fn token_estimate(bytes: usize) -> u32 {
-    ((bytes + crate::context_compact::CHARS_PER_TOKEN - 1)
-        / crate::context_compact::CHARS_PER_TOKEN) as u32
+fn token_estimate(value: &str) -> u32 {
+    crate::system_prompt::conservative_core_token_estimate(value).min(u32::MAX as usize) as u32
 }
 
 fn fingerprint(value: &[u8]) -> String {
@@ -264,14 +323,19 @@ mod tests {
             "test",
             "model",
             0,
+            Some("secret-session-id"),
             false,
             true,
+            super::super::MemoryLearningMode::Smart,
+            true,
+            false,
             "stable system",
             static_context,
             DynamicMemoryContextManifest::default(),
         );
         let json = serde_json::to_string(&manifest).unwrap();
         assert!(!json.contains(secret));
+        assert!(!json.contains("secret-session-id"));
         assert!(!json.contains("preview"));
         assert!(json.contains("static_memory"));
         assert!(json.contains("fingerprint"));
@@ -279,8 +343,28 @@ mod tests {
 
     #[test]
     fn dynamic_content_changes_hash_without_entering_static_metric() {
-        let first = DynamicMemoryContextManifest::from_runtime(None, Some("recall a"), None, 0, 0);
-        let second = DynamicMemoryContextManifest::from_runtime(None, Some("recall b"), None, 0, 0);
+        let first = DynamicMemoryContextManifest::from_runtime(
+            true,
+            super::super::MemoryRecallMode::Fast,
+            RetrievalIntent::Profile,
+            None,
+            None,
+            Some("recall a"),
+            None,
+            0,
+            0,
+        );
+        let second = DynamicMemoryContextManifest::from_runtime(
+            true,
+            super::super::MemoryRecallMode::Fast,
+            RetrievalIntent::Profile,
+            None,
+            None,
+            Some("recall b"),
+            None,
+            0,
+            0,
+        );
         assert_ne!(
             first.active_recall.fingerprint,
             second.active_recall.fingerprint

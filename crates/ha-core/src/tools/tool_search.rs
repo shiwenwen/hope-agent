@@ -52,12 +52,18 @@ pub(crate) async fn tool_search(args: &Value, ctx: &ToolExecContext) -> Result<S
         .as_ref()
         .map(|d| &d.config)
         .unwrap_or(&default_cfg);
+    let session_access = crate::memory::effective_session_memory_access(
+        ctx.session_id.as_deref(),
+        ctx.session_db.as_ref().map(|handle| handle.0.as_ref()),
+    );
 
     let dispatch_ctx = DispatchContext {
         agent_id,
         incognito: ctx.incognito,
         mcp_enabled: agent_cfg.capabilities.mcp_enabled,
         memory_enabled: agent_cfg.memory.enabled,
+        use_memories: session_access.use_memories,
+        contribute_to_memories: session_access.contribute_to_memories,
         tools_filter: &agent_cfg.capabilities.tools,
         app_config: &app_config,
     };

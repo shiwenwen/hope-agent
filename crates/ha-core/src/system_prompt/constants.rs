@@ -5,7 +5,7 @@ pub(super) const MAX_FILE_CHARS: usize = 20_000;
 
 /// Memory usage guidance appended after the Core/SQLite memory blocks.
 /// Extracted as a named constant so `build.rs` can **pre-reserve** its length
-/// from the memory-section budget — otherwise a sufficiently large `memory.md`
+/// from the memory-section budget — otherwise a sufficiently large `MEMORY.md`
 /// could crowd out this block entirely and leave the model without guidance
 /// on how to use the memory tools. Always emitted verbatim.
 pub(super) const MEMORY_GUIDELINES: &str =
@@ -159,7 +159,7 @@ const TOOL_DESC_DELETE_MEMORY: &str = "\
   - Params: id (required)";
 
 const TOOL_DESC_UPDATE_CORE_MEMORY: &str = "\
-- update_core_memory: Update the agent's core memory (persistent instructions in memory.md).\n\
+- update_core_memory: Update the agent's core memory (persistent instructions in MEMORY.md).\n\
   - Use for standing instructions, persistent preferences, and recurring corrections\n\
   - Params: content (required), section (optional)";
 

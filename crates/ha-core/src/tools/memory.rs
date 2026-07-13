@@ -5,6 +5,93 @@ use crate::memory::{self, AddResult, MemoryScope, MemorySearchQuery, MemoryType,
 
 const SAVE_MEMORY_SOURCE: &str = "user";
 
+#[derive(Debug, Clone)]
+struct AgentMemoryScopeAccess {
+    agent_id: String,
+    project_id: Option<String>,
+    shared_global: bool,
+}
+
+impl AgentMemoryScopeAccess {
+    fn from_context(ctx: &super::ToolExecContext) -> Result<Self> {
+        let agent_id = ctx
+            .agent_id
+            .clone()
+            .unwrap_or_else(|| crate::agent_loader::DEFAULT_AGENT_ID.to_string());
+        let definition = crate::agent_loader::load_agent(&agent_id).map_err(|error| {
+            anyhow::anyhow!("failed to load current Agent memory policy: {error}")
+        })?;
+        if !definition.config.memory.enabled {
+            anyhow::bail!("Memory is disabled for the current Agent");
+        }
+        Ok(Self {
+            agent_id,
+            project_id: ctx.project_id.clone(),
+            shared_global: definition.config.memory.shared,
+        })
+    }
+
+    fn readable_scopes(&self) -> Vec<MemoryScope> {
+        let mut scopes = Vec::with_capacity(3);
+        if let Some(project_id) = &self.project_id {
+            scopes.push(MemoryScope::Project {
+                id: project_id.clone(),
+            });
+        }
+        scopes.push(MemoryScope::Agent {
+            id: self.agent_id.clone(),
+        });
+        if self.shared_global {
+            scopes.push(MemoryScope::Global);
+        }
+        scopes
+    }
+
+    fn allows(&self, scope: &MemoryScope) -> bool {
+        match scope {
+            MemoryScope::Global => self.shared_global,
+            MemoryScope::Agent { id } => id == &self.agent_id,
+            MemoryScope::Project { id } => self.project_id.as_ref() == Some(id),
+        }
+    }
+
+    fn ensure_allows(&self, scope: &MemoryScope) -> Result<()> {
+        if !self.allows(scope) {
+            anyhow::bail!("memory is outside the current Agent/Project scope");
+        }
+        Ok(())
+    }
+}
+
+pub(crate) fn ensure_session_memory_read(ctx: &super::ToolExecContext, tool: &str) -> Result<()> {
+    let access = memory::effective_session_memory_access(
+        ctx.session_id.as_deref(),
+        ctx.session_db.as_ref().map(|handle| handle.0.as_ref()),
+    );
+    if !access.use_memories {
+        anyhow::bail!(
+            "{tool} is unavailable because this session is configured not to use memories"
+        );
+    }
+    Ok(())
+}
+
+pub(crate) fn ensure_session_memory_contribution(
+    ctx: &super::ToolExecContext,
+    tool: &str,
+) -> Result<()> {
+    let access = memory::effective_session_memory_access(
+        ctx.session_id.as_deref(),
+        ctx.session_db.as_ref().map(|handle| handle.0.as_ref()),
+    );
+    if !access.contribute_to_memories {
+        anyhow::bail!(
+            "{tool} is unavailable because this session is configured not to contribute to memories"
+        );
+    }
+    Ok(())
+}
+
 /// Tool: save_memory — persist information for future conversations.
 ///
 /// When the active session belongs to a project and the model did not pass
@@ -22,8 +109,25 @@ pub(crate) async fn tool_save_memory(args: &Value, ctx: &super::ToolExecContext)
             "save_memory is unavailable in an incognito session (close = burn)"
         ));
     }
+    ensure_session_memory_contribution(ctx, "save_memory")?;
+    let scope_access = AgentMemoryScopeAccess::from_context(ctx)?;
+    if args
+        .get("agent_id")
+        .and_then(Value::as_str)
+        .is_some_and(|id| id != scope_access.agent_id)
+    {
+        anyhow::bail!("save_memory cannot write another Agent's memories");
+    }
+    if args
+        .get("project_id")
+        .and_then(Value::as_str)
+        .is_some_and(|id| scope_access.project_id.as_deref() != Some(id))
+    {
+        anyhow::bail!("save_memory cannot write an unbound Project's memories");
+    }
     let runtime = crate::config::cached_config().memory.clone();
-    if !memory::load_extract_config().enabled || (runtime.rollout.enabled && !runtime.enabled) {
+    let memory_enabled = runtime.effective_enabled(memory::load_extract_config().enabled);
+    if !memory_enabled {
         return Err(anyhow::anyhow!(
             "save_memory is unavailable because long-term memory is turned off"
         ));
@@ -39,34 +143,23 @@ pub(crate) async fn tool_save_memory(args: &Value, ctx: &super::ToolExecContext)
     // Detect the current session's project via ctx so we can default
     // project-session memories to the right scope without the model having
     // to pass `scope="project"` and `project_id` every time.
-    let lookup_session_id = ctx.session_id.clone().or_else(|| {
-        args.get("session_id")
-            .and_then(|v| v.as_str())
-            .map(String::from)
-    });
-    let session_project_id: Option<String> = crate::blocking::run_blocking(move || {
-        lookup_session_id
-            .as_deref()
-            .and_then(|sid| crate::get_session_db()?.get_session(sid).ok().flatten())
-            .and_then(|s| s.project_id)
-    })
-    .await;
+    let session_project_id = scope_access.project_id.clone();
 
     // Resolve the scope string. When the model omits `scope`:
     //   * session is in a project → Project scope (so knowledge stays local)
-    //   * otherwise                → Global scope (pre-project behavior)
+    //   * otherwise, V2            → current Agent scope
+    //   * otherwise, legacy        → Global scope (rollback compatibility)
     let explicit_scope = args.get("scope").and_then(|v| v.as_str());
     let default_scope = if session_project_id.is_some() {
         "project"
+    } else if runtime.rollout.enabled {
+        "agent"
     } else {
         "global"
     };
     let scope_str = explicit_scope.unwrap_or(default_scope);
 
-    let agent_id = args
-        .get("agent_id")
-        .and_then(|v| v.as_str())
-        .unwrap_or(crate::agent_loader::DEFAULT_AGENT_ID);
+    let agent_id = scope_access.agent_id.as_str();
 
     let tags: Vec<String> = args
         .get("tags")
@@ -90,23 +183,18 @@ pub(crate) async fn tool_save_memory(args: &Value, ctx: &super::ToolExecContext)
         "agent" => MemoryScope::Agent {
             id: agent_id.to_string(),
         },
-        "project" => {
-            let pid = args
-                .get("project_id")
-                .and_then(|v| v.as_str())
-                .map(String::from)
-                .or_else(|| session_project_id.clone());
-            match pid {
-                Some(id) => MemoryScope::Project { id },
-                None => {
-                    return Err(anyhow::anyhow!(
-                        "scope=project requires 'project_id' (or a session_id belonging to a project)"
-                    ));
-                }
+        "project" => match session_project_id.clone() {
+            Some(id) => MemoryScope::Project { id },
+            None => {
+                return Err(anyhow::anyhow!(
+                    "scope=project requires a project-bound current session"
+                ));
             }
-        }
-        _ => MemoryScope::Global,
+        },
+        "global" => MemoryScope::Global,
+        other => anyhow::bail!("Invalid scope: '{other}'. Use 'agent', 'project', or 'global'."),
     };
+    scope_access.ensure_allows(&scope)?;
 
     let entry = NewMemory {
         memory_type: MemoryType::from_str(memory_type),
@@ -157,7 +245,12 @@ pub(crate) async fn tool_save_memory(args: &Value, ctx: &super::ToolExecContext)
 /// (memories + optional history) meet `min_hits`, the raw snippet output is
 /// collapsed into a single concise paragraph via a bounded `side_query`.
 /// Failures degrade silently back to the raw output.
-pub(crate) async fn tool_recall_memory(args: &Value) -> Result<String> {
+pub(crate) async fn tool_recall_memory(
+    args: &Value,
+    ctx: &super::ToolExecContext,
+) -> Result<String> {
+    ensure_session_memory_read(ctx, "recall_memory")?;
+    let scope_access = AgentMemoryScopeAccess::from_context(ctx)?;
     let query_text = args
         .get("query")
         .and_then(|v| v.as_str())
@@ -171,10 +264,13 @@ pub(crate) async fn tool_recall_memory(args: &Value) -> Result<String> {
         .and_then(|v| v.as_str())
         .map(|t| vec![MemoryType::from_str(t)]);
 
-    let agent_id = args
+    if args
         .get("agent_id")
-        .and_then(|v| v.as_str())
-        .map(String::from);
+        .and_then(Value::as_str)
+        .is_some_and(|id| id != scope_access.agent_id)
+    {
+        anyhow::bail!("recall_memory cannot search another Agent's memories");
+    }
 
     let include_history = args
         .get("include_history")
@@ -186,23 +282,38 @@ pub(crate) async fn tool_recall_memory(args: &Value) -> Result<String> {
     // the async caller can decide whether to summarize.
     let query_text_for_blocking = query_text.clone();
     let query_text_for_search = query_text.clone();
-    let agent_id_clone = agent_id.clone();
+    let agent_id = scope_access.agent_id.clone();
+    let readable_scopes = scope_access.readable_scopes();
+    let bound_session_db = ctx.session_db.as_ref().map(|handle| handle.0.clone());
 
     let (raw_output, total_hits) =
         tokio::task::spawn_blocking(move || -> Result<(String, usize)> {
             let backend = crate::get_memory_backend()
                 .ok_or_else(|| anyhow::anyhow!("Memory backend not initialized"))?;
 
-            let query = MemorySearchQuery {
-                query: query_text_for_blocking,
-                types: type_filter,
-                sources: None,
-                scope: None,
-                agent_id,
-                limit: Some(limit),
-            };
-
-            let results = backend.search(&query)?;
+            let mut results = Vec::new();
+            let mut seen_ids = std::collections::HashSet::new();
+            for scope in readable_scopes {
+                let query = MemorySearchQuery {
+                    query: query_text_for_blocking.clone(),
+                    types: type_filter.clone(),
+                    sources: None,
+                    scope: Some(scope),
+                    agent_id: None,
+                    limit: Some(limit),
+                };
+                for memory in backend.search(&query)? {
+                    if seen_ids.insert(memory.id) {
+                        results.push(memory);
+                        if results.len() >= limit {
+                            break;
+                        }
+                    }
+                }
+                if results.len() >= limit {
+                    break;
+                }
+            }
 
             let mut output = String::new();
             let mem_count = results.len();
@@ -237,11 +348,15 @@ pub(crate) async fn tool_recall_memory(args: &Value) -> Result<String> {
 
             // Search conversation history if requested
             if include_history {
-                if let Some(session_db) = crate::get_session_db() {
+                let global_session_db = crate::get_session_db();
+                if let Some(session_db) = bound_session_db
+                    .as_deref()
+                    .or_else(|| global_session_db.map(|db| db.as_ref()))
+                {
                     let history_results = session_db
                         .search_message_content(
                             &query_text_for_search,
-                            agent_id_clone.as_deref(),
+                            Some(&agent_id),
                             None,
                             None,
                             5,
@@ -318,7 +433,12 @@ pub(crate) async fn tool_recall_memory(args: &Value) -> Result<String> {
 }
 
 /// Tool: update_memory — update an existing memory's content and/or tags.
-pub(crate) async fn tool_update_memory(args: &Value) -> Result<String> {
+pub(crate) async fn tool_update_memory(
+    args: &Value,
+    ctx: &super::ToolExecContext,
+) -> Result<String> {
+    ensure_session_memory_contribution(ctx, "update_memory")?;
+    let scope_access = AgentMemoryScopeAccess::from_context(ctx)?;
     let id = args
         .get("id")
         .and_then(|v| v.as_i64())
@@ -345,10 +465,10 @@ pub(crate) async fn tool_update_memory(args: &Value) -> Result<String> {
         let backend = crate::get_memory_backend()
             .ok_or_else(|| anyhow::anyhow!("Memory backend not initialized"))?;
 
-        let existing = backend.get(id)?;
-        if existing.is_none() {
+        let Some(existing) = backend.get(id)? else {
             return Ok(format!("Memory with id {} not found.", id));
-        }
+        };
+        scope_access.ensure_allows(&existing.scope)?;
 
         backend.update(id, &content, &tags)?;
 
@@ -360,7 +480,12 @@ pub(crate) async fn tool_update_memory(args: &Value) -> Result<String> {
 }
 
 /// Tool: delete_memory — remove a memory by its ID.
-pub(crate) async fn tool_delete_memory(args: &Value) -> Result<String> {
+pub(crate) async fn tool_delete_memory(
+    args: &Value,
+    ctx: &super::ToolExecContext,
+) -> Result<String> {
+    ensure_session_memory_contribution(ctx, "delete_memory")?;
+    let scope_access = AgentMemoryScopeAccess::from_context(ctx)?;
     let id = args
         .get("id")
         .and_then(|v| v.as_i64())
@@ -371,10 +496,10 @@ pub(crate) async fn tool_delete_memory(args: &Value) -> Result<String> {
         let backend = crate::get_memory_backend()
             .ok_or_else(|| anyhow::anyhow!("Memory backend not initialized"))?;
 
-        let existing = backend.get(id)?;
-        if existing.is_none() {
+        let Some(existing) = backend.get(id)? else {
             return Ok(format!("Memory with id {} not found.", id));
-        }
+        };
+        scope_access.ensure_allows(&existing.scope)?;
 
         backend.delete(id)?;
 
@@ -386,7 +511,9 @@ pub(crate) async fn tool_delete_memory(args: &Value) -> Result<String> {
 }
 
 /// Tool: memory_get — retrieve a specific memory entry by ID with full content and metadata.
-pub(crate) async fn tool_memory_get(args: &Value) -> Result<String> {
+pub(crate) async fn tool_memory_get(args: &Value, ctx: &super::ToolExecContext) -> Result<String> {
+    ensure_session_memory_read(ctx, "memory_get")?;
+    let scope_access = AgentMemoryScopeAccess::from_context(ctx)?;
     let id = args
         .get("id")
         .and_then(|v| v.as_i64())
@@ -398,6 +525,7 @@ pub(crate) async fn tool_memory_get(args: &Value) -> Result<String> {
 
         match backend.get(id)? {
             Some(mem) => {
+                scope_access.ensure_allows(&mem.scope)?;
                 let scope_label = match &mem.scope {
                     MemoryScope::Global => "global".to_string(),
                     MemoryScope::Agent { id } => format!("agent:{}", id),
@@ -428,21 +556,23 @@ pub(crate) async fn tool_memory_get(args: &Value) -> Result<String> {
     Ok(result)
 }
 
-/// Tool: update_core_memory — update the core memory file (memory.md) that is always visible
+/// Tool: update_core_memory — compatibility alias for the Core `MEMORY.md` index
 /// in the system prompt. Used for persistent rules, preferences, and standing instructions.
 pub(crate) async fn tool_update_core_memory(
     args: &Value,
     ctx: &super::ToolExecContext,
 ) -> Result<String> {
-    // Incognito red-line: never write core memory (memory.md) from a
+    // Incognito red-line: never write Core Memory from a
     // burn-on-close session. Mirrors save_memory + the extraction guards.
     if ctx.incognito {
         return Err(anyhow::anyhow!(
             "update_core_memory is unavailable in an incognito session (close = burn)"
         ));
     }
+    ensure_session_memory_contribution(ctx, "update_core_memory")?;
     let runtime = crate::config::cached_config().memory.clone();
-    if !memory::load_extract_config().enabled || (runtime.rollout.enabled && !runtime.enabled) {
+    let memory_enabled = runtime.effective_enabled(memory::load_extract_config().enabled);
+    if !memory_enabled || (runtime.rollout.enabled && !runtime.core.enabled) {
         return Err(anyhow::anyhow!(
             "update_core_memory is unavailable because long-term memory is turned off"
         ));
@@ -452,6 +582,12 @@ pub(crate) async fn tool_update_core_memory(
         .agent_id
         .as_deref()
         .unwrap_or(crate::agent_loader::DEFAULT_AGENT_ID);
+    let agent_memory = crate::agent_loader::load_agent(agent_id)
+        .map(|definition| definition.config.memory)
+        .map_err(|error| anyhow::anyhow!("failed to load current Agent memory policy: {error}"))?;
+    if !agent_memory.enabled {
+        anyhow::bail!("update_core_memory is disabled for the current Agent");
+    }
 
     let action = args
         .get("action")
@@ -469,22 +605,13 @@ pub(crate) async fn tool_update_core_memory(
         .ok_or_else(|| anyhow::anyhow!("Missing 'content' parameter"))?;
 
     let repository_scope = match scope {
-        "global" => crate::memory::core_repository::CoreMemoryScope::Global,
-        _ => crate::memory::core_repository::CoreMemoryScope::Agent {
+        "global" if agent_memory.shared => crate::memory::core_repository::CoreMemoryScope::Global,
+        "global" => anyhow::bail!("global Core Memory is disabled for the current Agent"),
+        "agent" => crate::memory::core_repository::CoreMemoryScope::Agent {
             id: agent_id.to_string(),
         },
+        other => anyhow::bail!("Invalid scope: '{other}'. Use 'agent' or 'global'."),
     };
-    let core_repository_enabled = runtime.core_repository_enabled();
-    // Legacy path remains live until the Core repository rollout starts.
-    let path = match scope {
-        "global" => crate::paths::root_dir()?.join("memory.md"),
-        _ => crate::paths::agent_dir(agent_id)?.join("memory.md"),
-    };
-
-    // Ensure parent directory exists
-    if let Some(parent) = path.parent() {
-        let _ = std::fs::create_dir_all(parent);
-    }
 
     let action_owned = action.to_string();
     let scope_owned = scope.to_string();
@@ -492,36 +619,19 @@ pub(crate) async fn tool_update_core_memory(
     let content_owned = content.to_string();
 
     let result = tokio::task::spawn_blocking(move || -> Result<String> {
-        if core_repository_enabled {
-            let existing = crate::memory::core_repository::load_index(&repository_scope)?
-                .content
-                .unwrap_or_default();
-            let new_content = match action_owned.as_str() {
-                "append" if existing.trim().is_empty() => content_owned.clone(),
-                "append" => format!("{}\n{}", existing.trim_end(), content_owned),
-                "replace" => content_owned.clone(),
-                other => anyhow::bail!("Invalid action: '{}'. Use 'append' or 'replace'.", other),
-            };
-            crate::memory::core_repository::save_index_owner(&repository_scope, &new_content)?;
-        } else {
-            match action_owned.as_str() {
-                "append" => {
-                    let existing = std::fs::read_to_string(&path).unwrap_or_default();
-                    let new_content = if existing.trim().is_empty() {
-                        content_owned
-                    } else {
-                        format!("{}\n{}", existing.trim_end(), content_owned)
-                    };
-                    crate::platform::write_atomic(&path, new_content.as_bytes())?;
-                }
-                "replace" => {
-                    crate::platform::write_atomic(&path, content_owned.as_bytes())?;
-                }
-                other => {
-                    anyhow::bail!("Invalid action: '{}'. Use 'append' or 'replace'.", other);
-                }
-            }
-        }
+        let current = crate::memory::core_repository::load_index(&repository_scope)?;
+        let existing = current.content.unwrap_or_default();
+        let new_content = match action_owned.as_str() {
+            "append" if existing.trim().is_empty() => content_owned.clone(),
+            "append" => format!("{}\n{}", existing.trim_end(), content_owned),
+            "replace" => content_owned.clone(),
+            other => anyhow::bail!("Invalid action: '{}'. Use 'append' or 'replace'.", other),
+        };
+        crate::memory::core_repository::save_index(
+            &repository_scope,
+            &new_content,
+            current.file_hash.as_deref(),
+        )?;
 
         // Emit event to notify frontend
         if let Some(bus) = crate::globals::get_event_bus() {
@@ -585,5 +695,36 @@ mod tests {
     #[test]
     fn save_memory_uses_manual_source_label() {
         assert_eq!(SAVE_MEMORY_SOURCE, "user");
+    }
+
+    #[test]
+    fn dynamic_memory_scope_gate_is_project_agent_global_and_fail_closed() {
+        let access = AgentMemoryScopeAccess {
+            agent_id: "ha-main".into(),
+            project_id: Some("00000000-0000-0000-0000-000000000001".into()),
+            shared_global: false,
+        };
+        assert!(access.allows(&MemoryScope::Agent {
+            id: "ha-main".into()
+        }));
+        assert!(!access.allows(&MemoryScope::Agent { id: "other".into() }));
+        assert!(access.allows(&MemoryScope::Project {
+            id: "00000000-0000-0000-0000-000000000001".into()
+        }));
+        assert!(!access.allows(&MemoryScope::Project {
+            id: "00000000-0000-0000-0000-000000000002".into()
+        }));
+        assert!(!access.allows(&MemoryScope::Global));
+        assert_eq!(
+            access.readable_scopes(),
+            vec![
+                MemoryScope::Project {
+                    id: "00000000-0000-0000-0000-000000000001".into()
+                },
+                MemoryScope::Agent {
+                    id: "ha-main".into()
+                },
+            ]
+        );
     }
 }

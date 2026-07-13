@@ -1488,7 +1488,7 @@ impl ClaimStore {
         // ── Arm 2: vector candidates (rowids in distance order), only when an
         // embedder is configured. Mirrors the `memories` hybrid path: vec0 KNN
         // with a `rowid IN (...)` filter for signature + scope/freshness. ──
-        let mut vec_rowids: Vec<i64> = Vec::new();
+        let mut vec_rowids: Vec<(i64, f64)> = Vec::new();
         if let Some((signature, emb)) = vector_query {
             let emb_bytes: Vec<u8> = emb.iter().flat_map(|f| f.to_le_bytes()).collect();
             let overfetch = ((cand_limit as usize).saturating_mul(8).min(2_000)) as i64;
@@ -1498,7 +1498,7 @@ impl ClaimStore {
                         WHERE embedding MATCH ?
                         ORDER BY distance LIMIT ?
                      )
-                     SELECT nearest.rowid
+                     SELECT nearest.rowid, nearest.distance
                      FROM nearest
                      JOIN memory_claims c ON c.rowid = nearest.rowid
                      WHERE c.embedding_signature = ? AND {filter_sql}
@@ -1512,9 +1512,9 @@ impl ClaimStore {
             fast_args.extend(filter_args.iter().cloned());
             fast_args.push(SqlValue::Integer(cand_limit));
             if let Ok(mut stmt) = conn.prepare(&fast_sql) {
-                if let Ok(rows) =
-                    stmt.query_map(params_from_iter(fast_args), |row| row.get::<_, i64>(0))
-                {
+                if let Ok(rows) = stmt.query_map(params_from_iter(fast_args), |row| {
+                    Ok((row.get::<_, i64>(0)?, row.get::<_, f64>(1)?))
+                }) {
                     vec_rowids.extend(rows.filter_map(|row| row.ok()));
                 }
             }
@@ -1522,7 +1522,7 @@ impl ClaimStore {
             if vec_rowids.len() < limit.min(8) {
                 vec_rowids.clear();
                 let safe_sql = format!(
-                    "SELECT rowid FROM memory_claims_vec
+                    "SELECT rowid, distance FROM memory_claims_vec
                          WHERE embedding MATCH ?
                            AND rowid IN (
                                SELECT c.rowid FROM memory_claims c
@@ -1535,14 +1535,27 @@ impl ClaimStore {
                 safe_args.extend(filter_args.iter().cloned());
                 safe_args.push(SqlValue::Integer(cand_limit));
                 if let Ok(mut stmt) = conn.prepare(&safe_sql) {
-                    if let Ok(rows) =
-                        stmt.query_map(params_from_iter(safe_args), |row| row.get::<_, i64>(0))
-                    {
+                    if let Ok(rows) = stmt.query_map(params_from_iter(safe_args), |row| {
+                        Ok((row.get::<_, i64>(0)?, row.get::<_, f64>(1)?))
+                    }) {
                         vec_rowids.extend(rows.filter_map(|row| row.ok()));
                     }
                 }
             }
         }
+
+        let lexical_rowids = fts_rowids
+            .iter()
+            .chain(literal_rowids.iter())
+            .copied()
+            .collect::<std::collections::HashSet<_>>();
+        let semantic_similarity_by_rowid = vec_rowids
+            .iter()
+            .filter_map(|(rowid, distance)| {
+                crate::memory::helpers::normalized_l2_to_cosine_similarity(*distance)
+                    .map(|similarity| (*rowid, similarity))
+            })
+            .collect::<std::collections::HashMap<_, _>>();
 
         if fts_rowids.is_empty() && literal_rowids.is_empty() && vec_rowids.is_empty() {
             return Ok(Vec::new());
@@ -1567,7 +1580,7 @@ impl ClaimStore {
                 *scores.entry(*rowid).or_insert(0.0) += literal_weight / (k + rank as f64 + 1.0);
             }
         }
-        for (rank, rowid) in vec_rowids.iter().enumerate() {
+        for (rank, (rowid, _)) in vec_rowids.iter().enumerate() {
             *scores.entry(*rowid).or_insert(0.0) +=
                 hybrid.vector_weight as f64 / (k + rank as f64 + 1.0);
         }
@@ -1607,6 +1620,10 @@ impl ClaimStore {
             .filter_map(|rowid| {
                 by_rowid.remove(rowid).map(|mut c| {
                     c.status = write::effective_status(&c.status, c.valid_until.as_deref(), &now);
+                    c.retrieval_evidence = Some(crate::memory::MemoryRetrievalEvidence {
+                        lexical_match: lexical_rowids.contains(rowid),
+                        semantic_similarity: semantic_similarity_by_rowid.get(rowid).copied(),
+                    });
                     c
                 })
             })
@@ -3195,6 +3212,7 @@ fn row_to_claim(row: &Row) -> rusqlite::Result<ClaimRecord> {
         source_run_id: row.get(17)?,
         created_at: row.get(18)?,
         updated_at: row.get(19)?,
+        retrieval_evidence: None,
     })
 }
 
@@ -4394,12 +4412,12 @@ mod tests {
         );
 
         // FTS "rust" across all scopes: active c1/c3 in; archived c4 + effective-expired c5 out.
-        let ids: Vec<String> = s
-            .search_claims("rust", None, 10)
-            .unwrap()
-            .into_iter()
-            .map(|c| c.id)
-            .collect();
+        let results = s.search_claims("rust", None, 10).unwrap();
+        assert!(results.iter().all(|claim| claim
+            .retrieval_evidence
+            .as_ref()
+            .is_some_and(|evidence| evidence.lexical_match)));
+        let ids: Vec<String> = results.into_iter().map(|c| c.id).collect();
         assert!(
             ids.contains(&"c1".to_string()),
             "active global rust: {ids:?}"

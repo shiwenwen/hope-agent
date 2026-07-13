@@ -7,8 +7,20 @@ pub(crate) async fn tool_project_memory(args: &Value, ctx: &ToolExecContext) -> 
     if ctx.incognito {
         anyhow::bail!("project_memory is unavailable in an incognito session");
     }
-    if !crate::memory::load_extract_config().enabled {
+    let runtime = crate::config::cached_config().memory.clone();
+    let memory_enabled = runtime.effective_enabled(crate::memory::load_extract_config().enabled);
+    if !memory_enabled || (runtime.rollout.enabled && !runtime.core.enabled) {
         anyhow::bail!("project_memory is unavailable because long-term memory is turned off");
+    }
+    let agent_id = ctx
+        .agent_id
+        .as_deref()
+        .unwrap_or(crate::agent_loader::DEFAULT_AGENT_ID);
+    let agent_memory_enabled = crate::agent_loader::load_agent(agent_id)
+        .map(|definition| definition.config.memory.enabled)
+        .unwrap_or(false);
+    if !agent_memory_enabled {
+        anyhow::bail!("project_memory is disabled for the current Agent");
     }
     let project_id = ctx
         .project_id
@@ -19,6 +31,15 @@ pub(crate) async fn tool_project_memory(args: &Value, ctx: &ToolExecContext) -> 
         .and_then(Value::as_str)
         .unwrap_or("list")
         .to_string();
+    match action.as_str() {
+        "list" | "read" | "search" => {
+            super::memory::ensure_session_memory_read(ctx, "project_memory")?;
+        }
+        "write" | "delete" | "rebuild_index" => {
+            super::memory::ensure_session_memory_contribution(ctx, "project_memory")?;
+        }
+        _ => {}
+    }
     let args = args.clone();
     let operation_project_id = project_id.clone();
     let operation_action = action.clone();

@@ -38,6 +38,11 @@ pub struct DispatchContext<'a> {
     pub mcp_enabled: bool,
     /// `agent.json` `memory.enabled`
     pub memory_enabled: bool,
+    /// Effective per-session read policy. This is separate from learning so a
+    /// user can consume existing memories without contributing new ones.
+    pub use_memories: bool,
+    /// Effective per-session contribution policy.
+    pub contribute_to_memories: bool,
     /// `agent.json` `capabilities.tools` (non-Core tool switch overrides)
     pub tools_filter: &'a FilterConfig,
     pub app_config: &'a AppConfig,
@@ -168,7 +173,6 @@ fn is_recommended_eager(name: &str) -> bool {
             | TOOL_GREP
             | TOOL_EXEC
             | TOOL_APPLY_PATCH
-            | TOOL_JOB_STATUS
             | TOOL_NOTE_READ
             | TOOL_NOTE_SEARCH
             | TOOL_NOTE_CREATE
@@ -231,7 +235,8 @@ pub fn resolve_tool_fate(def: &ToolDefinition, ctx: &DispatchContext) -> ToolFat
             CoreSubclass::PlanMode => ToolFate::Hidden,
             // Meta tools include framework primitives (skill, runtime_cancel)
             // plus opt-in feature gates (tool_search, job_status). The latter
-            // two only appear when their corresponding global switch is on.
+            // two are eligible only when their corresponding global switch is
+            // on; the Agent may promote job_status for a live session job.
             CoreSubclass::Meta => match def.name.as_str() {
                 crate::tools::TOOL_TOOL_SEARCH => {
                     if has_deferred_builtin_tools(app_config)
@@ -248,7 +253,14 @@ pub fn resolve_tool_fate(def: &ToolDefinition, ctx: &DispatchContext) -> ToolFat
                 }
                 crate::tools::TOOL_JOB_STATUS => {
                     if app_config.async_tools.enabled {
-                        ToolFate::InjectEager
+                        if matches!(
+                            app_config.deferred_tools.effective_mode(),
+                            crate::config::DeferredToolsMode::Recommended
+                        ) {
+                            ToolFate::InjectDeferred
+                        } else {
+                            ToolFate::InjectEager
+                        }
                     } else {
                         ToolFate::Hidden
                     }
@@ -273,7 +285,35 @@ pub fn resolve_tool_fate(def: &ToolDefinition, ctx: &DispatchContext) -> ToolFat
             }
         },
         ToolTier::Memory => {
-            if !ctx.incognito && ctx.memory_enabled && ctx.app_config.memory_extract.enabled {
+            let runtime = &ctx.app_config.memory;
+            let global_memory_enabled =
+                runtime.effective_enabled(ctx.app_config.memory_extract.enabled);
+            let is_core_memory_tool = matches!(
+                def.name.as_str(),
+                crate::tools::TOOL_CORE_MEMORY
+                    | crate::tools::TOOL_UPDATE_CORE_MEMORY
+                    | crate::tools::TOOL_PROJECT_MEMORY
+            );
+            let core_enabled = !runtime.rollout.enabled || runtime.core.enabled;
+            let session_policy_allows = match def.name.as_str() {
+                crate::tools::TOOL_SAVE_MEMORY
+                | crate::tools::TOOL_UPDATE_MEMORY
+                | crate::tools::TOOL_DELETE_MEMORY
+                | crate::tools::TOOL_UPDATE_CORE_MEMORY => ctx.contribute_to_memories,
+                crate::tools::TOOL_RECALL_MEMORY | crate::tools::TOOL_MEMORY_GET => {
+                    ctx.use_memories
+                }
+                crate::tools::TOOL_CORE_MEMORY | crate::tools::TOOL_PROJECT_MEMORY => {
+                    ctx.use_memories || ctx.contribute_to_memories
+                }
+                _ => true,
+            };
+            if !ctx.incognito
+                && ctx.memory_enabled
+                && global_memory_enabled
+                && session_policy_allows
+                && (!is_core_memory_tool || core_enabled)
+            {
                 if is_deferred(&def.name, &def.tier, app_config) {
                     ToolFate::InjectDeferred
                 } else {
@@ -373,6 +413,8 @@ mod tests {
         incognito: bool,
         mcp_enabled: bool,
         memory_enabled: bool,
+        use_memories: bool,
+        contribute_to_memories: bool,
     }
 
     impl Fixture {
@@ -387,6 +429,8 @@ mod tests {
                 incognito: false,
                 mcp_enabled: true,
                 memory_enabled: true,
+                use_memories: true,
+                contribute_to_memories: true,
             }
         }
 
@@ -396,6 +440,8 @@ mod tests {
                 incognito: self.incognito,
                 mcp_enabled: self.mcp_enabled,
                 memory_enabled: self.memory_enabled,
+                use_memories: self.use_memories,
+                contribute_to_memories: self.contribute_to_memories,
                 tools_filter: &self.filter,
                 app_config: &self.app,
             }
@@ -452,7 +498,7 @@ mod tests {
     #[test]
     fn tier_memory_hidden_when_global_memory_off() {
         let mut f = Fixture::new();
-        f.app.memory_extract.enabled = false;
+        f.app.memory.enabled = false;
         let def = def_with_tier("save_memory", ToolTier::Memory);
         let fate = resolve_tool_fate(&def, &f.ctx(DEFAULT_AGENT_ID));
         assert_eq!(fate, ToolFate::Hidden);
@@ -475,6 +521,7 @@ mod tests {
             crate::tools::TOOL_UPDATE_MEMORY,
             crate::tools::TOOL_DELETE_MEMORY,
             crate::tools::TOOL_UPDATE_CORE_MEMORY,
+            crate::tools::TOOL_CORE_MEMORY,
             crate::tools::TOOL_PROJECT_MEMORY,
             crate::tools::TOOL_MEMORY_GET,
         ];
@@ -482,7 +529,7 @@ mod tests {
         let mut incognito = Fixture::new();
         incognito.incognito = true;
         let mut memory_off = Fixture::new();
-        memory_off.app.memory_extract.enabled = false;
+        memory_off.app.memory.enabled = false;
 
         for name in memory_tool_names {
             let def = all_dispatchable_tools()
@@ -512,6 +559,39 @@ mod tests {
         let def = def_with_tier("save_memory", ToolTier::Memory);
         let fate = resolve_tool_fate(&def, &f.ctx(DEFAULT_AGENT_ID));
         assert_eq!(fate, ToolFate::InjectEager);
+    }
+
+    #[test]
+    fn session_read_and_contribution_policies_hide_only_their_tool_classes() {
+        let mut no_read = Fixture::new();
+        no_read.use_memories = false;
+        let recall = all_dispatchable_tools()
+            .iter()
+            .find(|def| def.name == crate::tools::TOOL_RECALL_MEMORY)
+            .expect("recall_memory definition");
+        let save = all_dispatchable_tools()
+            .iter()
+            .find(|def| def.name == crate::tools::TOOL_SAVE_MEMORY)
+            .expect("save_memory definition");
+        assert_eq!(
+            resolve_tool_fate(recall, &no_read.ctx(DEFAULT_AGENT_ID)),
+            ToolFate::Hidden
+        );
+        assert_ne!(
+            resolve_tool_fate(save, &no_read.ctx(DEFAULT_AGENT_ID)),
+            ToolFate::Hidden
+        );
+
+        let mut no_contribution = Fixture::new();
+        no_contribution.contribute_to_memories = false;
+        assert_eq!(
+            resolve_tool_fate(save, &no_contribution.ctx(DEFAULT_AGENT_ID)),
+            ToolFate::Hidden
+        );
+        assert_ne!(
+            resolve_tool_fate(recall, &no_contribution.ctx(DEFAULT_AGENT_ID)),
+            ToolFate::Hidden
+        );
     }
 
     #[test]
@@ -615,6 +695,27 @@ mod tests {
         assert_eq!(
             resolve_tool_fate(&def, &f.ctx(DEFAULT_AGENT_ID)),
             ToolFate::InjectDeferred
+        );
+    }
+
+    #[test]
+    fn recommended_mode_defers_job_status_until_a_session_has_live_work() {
+        let mut f = Fixture::new();
+        f.app.async_tools.enabled = true;
+        f.app.deferred_tools.mode = Some(crate::config::DeferredToolsMode::Recommended);
+        let def = all_dispatchable_tools()
+            .iter()
+            .find(|def| def.name == crate::tools::TOOL_JOB_STATUS)
+            .expect("job_status definition");
+        assert_eq!(
+            resolve_tool_fate(def, &f.ctx(DEFAULT_AGENT_ID)),
+            ToolFate::InjectDeferred
+        );
+
+        f.app.deferred_tools.mode = Some(crate::config::DeferredToolsMode::Disabled);
+        assert_eq!(
+            resolve_tool_fate(def, &f.ctx(DEFAULT_AGENT_ID)),
+            ToolFate::InjectEager
         );
     }
 

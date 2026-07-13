@@ -67,10 +67,15 @@ describe("CoreMemoryEditor", () => {
   it("shows redacted load failure detail without rendering an empty editor, then retries", async () => {
     let loadCalls = 0
     transportMock.call.mockImplementation(async (command: string) => {
-      if (command === "get_global_memory_md") {
+      if (command === "core_memory_get_cmd") {
         loadCalls += 1
         if (loadCalls === 1) throw new Error("core read failed token=core-secret")
-        return "Always explain tradeoffs."
+        return {
+          content: "Always explain tradeoffs.",
+          fileHash: "hash-1",
+          state: "mirrored",
+          canonicalPath: "/memory/MEMORY.md",
+        }
       }
       return null
     })

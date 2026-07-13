@@ -787,7 +787,7 @@ pub async fn import_from_ai_prompt(
     Ok(Json(prompt.to_string()))
 }
 
-// ── Pin / Batch / Re-embed / Global memory.md ─────────────────
+// ── Pin / Batch / Re-embed / Global MEMORY.md ─────────────────
 
 #[derive(Debug, Deserialize)]
 pub struct TogglePinBody {
@@ -866,31 +866,16 @@ pub async fn reembed_start(
     Ok(Json(snapshot))
 }
 
-/// `GET /api/memory/global-md` — read the user's global `memory.md` file.
+/// `GET /api/memory/global-md` — compatibility alias for the user's canonical
+/// global `MEMORY.md` file.
 pub async fn get_global_memory_md() -> Result<Json<Value>, AppError> {
-    if ha_core::config::cached_config()
-        .memory
-        .core_repository_enabled()
-    {
-        let content = ha_core::blocking::run_blocking(move || {
-            ha_core::memory::core_repository::load_index(
-                &ha_core::memory::core_repository::CoreMemoryScope::Global,
-            )
-            .map(|index| index.content)
-        })
-        .await?;
-        return Ok(Json(json!({ "content": content })));
-    }
-    let path = ha_core::paths::root_dir()?.join("memory.md");
-    let content = run_blocking(move || {
-        if path.exists() {
-            std::fs::read_to_string(&path).map(Some)
-        } else {
-            Ok(None)
-        }
+    let content = ha_core::blocking::run_blocking(move || {
+        ha_core::memory::core_repository::load_index(
+            &ha_core::memory::core_repository::CoreMemoryScope::Global,
+        )
+        .map(|index| index.content)
     })
-    .await
-    .map_err(|e| AppError::internal(e.to_string()))?;
+    .await?;
     Ok(Json(json!({ "content": content })))
 }
 
@@ -899,29 +884,350 @@ pub struct MemoryMdBody {
     pub content: String,
 }
 
-/// `PUT /api/memory/global-md` — write the user's global `memory.md` file.
+/// `PUT /api/memory/global-md` — compatibility alias that writes the user's
+/// canonical global `MEMORY.md` through `CoreMemoryRepository`.
 pub async fn save_global_memory_md(
     Json(body): Json<MemoryMdBody>,
 ) -> Result<Json<Value>, AppError> {
-    if ha_core::config::cached_config()
-        .memory
-        .core_repository_enabled()
-    {
-        ha_core::blocking::run_blocking(move || {
-            ha_core::memory::core_repository::save_index_owner(
-                &ha_core::memory::core_repository::CoreMemoryScope::Global,
-                &body.content,
-            )
-            .map(|_| ())
-        })
-        .await?;
-        return Ok(Json(json!({ "saved": true })));
-    }
-    let path = ha_core::paths::root_dir()?.join("memory.md");
-    run_blocking(move || ha_core::platform::write_atomic(&path, body.content.as_bytes()))
-        .await
-        .map_err(|e| AppError::internal(e.to_string()))?;
+    ha_core::blocking::run_blocking(move || {
+        ha_core::memory::core_repository::save_index_owner(
+            &ha_core::memory::core_repository::CoreMemoryScope::Global,
+            &body.content,
+        )
+        .map(|_| ())
+    })
+    .await?;
     Ok(Json(json!({ "saved": true })))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CoreMemoryScopeQuery {
+    pub scope_type: String,
+    pub scope_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CoreMemorySaveBody {
+    pub scope_type: String,
+    pub scope_id: Option<String>,
+    pub content: String,
+    pub expected_file_hash: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CoreMemoryConflictResolveBody {
+    pub scope_type: String,
+    pub scope_id: Option<String>,
+    pub resolution: ha_core::memory::core_repository::CoreMemoryConflictResolution,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CoreMemoryTopicListQuery {
+    pub scope_type: String,
+    pub scope_id: Option<String>,
+    pub offset: Option<usize>,
+    pub limit: Option<usize>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CoreMemoryTopicReadQuery {
+    pub scope_type: String,
+    pub scope_id: Option<String>,
+    pub file_name: String,
+    pub expected_file_hash: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CoreMemoryTopicWriteBody {
+    pub scope_type: String,
+    pub scope_id: Option<String>,
+    pub input: ha_core::memory::core_repository::CoreMemoryTopicWriteInput,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CoreMemoryTopicSearchBody {
+    pub scope_type: String,
+    pub scope_id: Option<String>,
+    pub query: String,
+    pub limit: Option<usize>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CoreMemoryReloadBody {
+    pub session_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CoreMemoryPromoteBody {
+    pub input: ha_core::memory::core_repository::CoreMemoryPromotionInput,
+}
+
+pub async fn core_memory_get(
+    Query(query): Query<CoreMemoryScopeQuery>,
+) -> Result<Json<ha_core::memory::core_repository::CoreMemoryIndex>, AppError> {
+    let index = run_blocking(move || {
+        let scope = ha_core::memory::core_repository::parse_scope(
+            &query.scope_type,
+            query.scope_id.as_deref(),
+        )?;
+        ha_core::memory::core_repository::load_index(&scope)
+    })
+    .await?;
+    Ok(Json(index))
+}
+
+pub async fn core_memory_stats(
+    Query(query): Query<CoreMemoryScopeQuery>,
+) -> Result<Json<ha_core::memory::core_repository::CoreMemoryStats>, AppError> {
+    let stats = run_blocking(move || {
+        let scope = ha_core::memory::core_repository::parse_scope(
+            &query.scope_type,
+            query.scope_id.as_deref(),
+        )?;
+        ha_core::memory::core_repository::load_stats(&scope)
+    })
+    .await?;
+    Ok(Json(stats))
+}
+
+pub async fn core_memory_save(
+    Json(body): Json<CoreMemorySaveBody>,
+) -> Result<Json<ha_core::memory::core_repository::CoreMemoryIndex>, AppError> {
+    let index = run_blocking(move || {
+        let scope = ha_core::memory::core_repository::parse_scope(
+            &body.scope_type,
+            body.scope_id.as_deref(),
+        )?;
+        ha_core::memory::core_repository::save_index(
+            &scope,
+            &body.content,
+            body.expected_file_hash.as_deref(),
+        )
+    })
+    .await?;
+    Ok(Json(index))
+}
+
+pub async fn core_memory_conflict_get(
+    Query(query): Query<CoreMemoryScopeQuery>,
+) -> Result<Json<Option<ha_core::memory::core_repository::CoreMemoryConflict>>, AppError> {
+    let conflict = run_blocking(move || {
+        let scope = ha_core::memory::core_repository::parse_scope(
+            &query.scope_type,
+            query.scope_id.as_deref(),
+        )?;
+        ha_core::memory::core_repository::load_conflict(&scope)
+    })
+    .await?;
+    Ok(Json(conflict))
+}
+
+pub async fn core_memory_conflict_resolve(
+    Json(body): Json<CoreMemoryConflictResolveBody>,
+) -> Result<Json<ha_core::memory::core_repository::CoreMemoryIndex>, AppError> {
+    let index = run_blocking(move || {
+        let scope = ha_core::memory::core_repository::parse_scope(
+            &body.scope_type,
+            body.scope_id.as_deref(),
+        )?;
+        ha_core::memory::core_repository::resolve_conflict(&scope, body.resolution)
+    })
+    .await?;
+    Ok(Json(index))
+}
+
+pub async fn core_memory_topic_list(
+    Query(query): Query<CoreMemoryTopicListQuery>,
+) -> Result<Json<ha_core::memory::core_repository::CoreMemoryTopicPage>, AppError> {
+    let page = run_blocking(move || {
+        let scope = ha_core::memory::core_repository::parse_scope(
+            &query.scope_type,
+            query.scope_id.as_deref(),
+        )?;
+        ha_core::memory::core_repository::list_topics_page(
+            &scope,
+            query.offset.unwrap_or(0),
+            query.limit.unwrap_or(50),
+        )
+    })
+    .await?;
+    Ok(Json(page))
+}
+
+pub async fn core_memory_topic_read(
+    Query(query): Query<CoreMemoryTopicReadQuery>,
+) -> Result<Json<ha_core::memory::core_repository::CoreMemoryTopicFile>, AppError> {
+    let file = run_blocking(move || {
+        let scope = ha_core::memory::core_repository::parse_scope(
+            &query.scope_type,
+            query.scope_id.as_deref(),
+        )?;
+        ha_core::memory::core_repository::read_topic(&scope, &query.file_name)
+    })
+    .await?;
+    Ok(Json(file))
+}
+
+pub async fn core_memory_topic_write(
+    Json(body): Json<CoreMemoryTopicWriteBody>,
+) -> Result<Json<ha_core::memory::core_repository::CoreMemoryTopicFile>, AppError> {
+    let file = run_blocking(move || {
+        let scope = ha_core::memory::core_repository::parse_scope(
+            &body.scope_type,
+            body.scope_id.as_deref(),
+        )?;
+        ha_core::memory::core_repository::write_topic(&scope, body.input)
+    })
+    .await?;
+    Ok(Json(file))
+}
+
+pub async fn core_memory_topic_delete(
+    Query(query): Query<CoreMemoryTopicReadQuery>,
+) -> Result<Json<Value>, AppError> {
+    let deleted = run_blocking(move || {
+        let scope = ha_core::memory::core_repository::parse_scope(
+            &query.scope_type,
+            query.scope_id.as_deref(),
+        )?;
+        ha_core::memory::core_repository::delete_topic(
+            &scope,
+            &query.file_name,
+            query.expected_file_hash.as_deref(),
+        )
+    })
+    .await?;
+    Ok(Json(json!(deleted)))
+}
+
+pub async fn core_memory_topic_search(
+    Json(body): Json<CoreMemoryTopicSearchBody>,
+) -> Result<Json<Vec<ha_core::memory::core_repository::CoreMemoryTopicSearchHit>>, AppError> {
+    let hits = run_blocking(move || {
+        let scope = ha_core::memory::core_repository::parse_scope(
+            &body.scope_type,
+            body.scope_id.as_deref(),
+        )?;
+        ha_core::memory::core_repository::search_topics(
+            &scope,
+            &body.query,
+            body.limit.unwrap_or(20),
+        )
+    })
+    .await?;
+    Ok(Json(hits))
+}
+
+pub async fn core_memory_rebuild_index(
+    Json(body): Json<CoreMemoryScopeQuery>,
+) -> Result<Json<Value>, AppError> {
+    let index = run_blocking(move || {
+        let scope = ha_core::memory::core_repository::parse_scope(
+            &body.scope_type,
+            body.scope_id.as_deref(),
+        )?;
+        ha_core::memory::core_repository::rebuild_topic_index(&scope)
+    })
+    .await?;
+    Ok(Json(json!(index)))
+}
+
+pub async fn core_memory_reload_session(
+    Json(body): Json<CoreMemoryReloadBody>,
+) -> Result<Json<Value>, AppError> {
+    if body.session_id.trim().is_empty() {
+        return Err(AppError::bad_request("sessionId is required".to_string()));
+    }
+    ha_core::memory::core_repository::invalidate_session_snapshot(&body.session_id);
+    if let Some(bus) = ha_core::get_event_bus() {
+        let _ = bus.emit(
+            "memory:core_snapshot_reloaded",
+            json!({ "sessionId": body.session_id }),
+        );
+    }
+    Ok(Json(json!({ "reloaded": true })))
+}
+
+pub async fn core_memory_promote(
+    Json(body): Json<CoreMemoryPromoteBody>,
+) -> Result<Json<ha_core::memory::core_repository::CoreMemoryPromotionResult>, AppError> {
+    let result =
+        run_blocking(move || ha_core::memory::core_repository::promote(body.input)).await?;
+    Ok(Json(result))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PendingMemoryListQuery {
+    pub status: Option<String>,
+    pub offset: Option<usize>,
+    pub limit: Option<usize>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PendingMemoryDecisionBody {
+    pub id: String,
+    pub scope: Option<ha_core::memory::MemoryScope>,
+}
+
+pub async fn pending_memory_list(
+    Query(query): Query<PendingMemoryListQuery>,
+) -> Result<Json<ha_core::memory::pending::PendingMemoryCandidatePage>, AppError> {
+    let page = run_blocking(move || {
+        ha_core::memory::pending::list(
+            query.status.as_deref(),
+            query.offset.unwrap_or(0),
+            query.limit.unwrap_or(50),
+        )
+    })
+    .await?;
+    Ok(Json(page))
+}
+
+pub async fn pending_memory_approve(
+    Json(body): Json<PendingMemoryDecisionBody>,
+) -> Result<Json<Value>, AppError> {
+    let scope = body
+        .scope
+        .ok_or_else(|| AppError::bad_request("scope is required".to_string()))?;
+    let memory_id =
+        run_blocking(move || ha_core::memory::pending::approve(&body.id, scope)).await?;
+    ha_core::memory::emit_memory_changed("pending_approved", Some(memory_id), Some(1));
+    if let Some(bus) = ha_core::get_event_bus() {
+        bus.emit(
+            "memory:pending_changed",
+            json!({ "action": "approved", "memoryId": memory_id }),
+        );
+    }
+    Ok(Json(json!({ "approved": true, "memoryId": memory_id })))
+}
+
+pub async fn pending_memory_reject(
+    Json(body): Json<PendingMemoryDecisionBody>,
+) -> Result<Json<Value>, AppError> {
+    let id = body.id;
+    run_blocking({
+        let id = id.clone();
+        move || ha_core::memory::pending::reject(&id)
+    })
+    .await?;
+    if let Some(bus) = ha_core::get_event_bus() {
+        bus.emit(
+            "memory:pending_changed",
+            json!({ "action": "rejected", "id": id }),
+        );
+    }
+    Ok(Json(json!({ "rejected": true })))
 }
 
 // ── Export / Import / Find similar ─────────────────────────────

@@ -184,7 +184,7 @@ pub struct AssistantAgent {
     pub(super) compaction_provider:
         Option<std::sync::Arc<dyn crate::context_compact::CompactionProvider>>,
     /// Token estimate calibrator (updated with actual API usage)
-    pub(super) token_calibrator: std::sync::Mutex<crate::context_compact::TokenEstimateCalibrator>,
+    pub(super) token_calibrator: std::sync::Mutex<crate::context_compact::TokenEstimateCalibrators>,
     /// Session-scoped deferred tools already discovered by `tool_search`.
     /// Persisted for regular sessions and kept memory-only for incognito.
     pub(super) activated_tool_names: std::sync::Mutex<Vec<String>>,
@@ -193,7 +193,7 @@ pub struct AssistantAgent {
     /// Session database backing the current chat-engine turn. Most runtime
     /// paths use the global DB, but deterministic/eval runners can provide an
     /// isolated DB; agent-side session lookups must honor that source first.
-    pub(super) session_db: Option<std::sync::Arc<crate::session::SessionDB>>,
+    pub(crate) session_db: Option<std::sync::Arc<crate::session::SessionDB>>,
     /// Cached `sessions.incognito` flag for the current session. Refreshed at
     /// each turn boundary (`reset_chat_flags`) and on `set_session_id`; allows
     /// hot-path guards to avoid a SQLite round-trip per call.
@@ -621,6 +621,36 @@ impl ChatUsage {
 #[cfg(test)]
 mod chat_usage_tests {
     use super::ChatUsage;
+
+    #[test]
+    fn anthropic_round_counts_disjoint_cache_counters_in_context() {
+        let mut usage = ChatUsage {
+            input_tokens: 10,
+            cache_creation_input_tokens: 5,
+            cache_read_input_tokens: 20,
+            ..Default::default()
+        };
+
+        usage.normalize_anthropic_round();
+
+        assert_eq!(usage.context_input_tokens, 35);
+        assert_eq!(usage.fresh_input_tokens, 15);
+    }
+
+    #[test]
+    fn openai_round_treats_cached_tokens_as_subset_of_total_input() {
+        let mut usage = ChatUsage {
+            input_tokens: 100,
+            cache_creation_input_tokens: 5,
+            cache_read_input_tokens: 80,
+            ..Default::default()
+        };
+
+        usage.normalize_openai_round();
+
+        assert_eq!(usage.context_input_tokens, 100);
+        assert_eq!(usage.fresh_input_tokens, 20);
+    }
 
     #[test]
     fn accumulate_round_keeps_cache_totals_and_last_round_cache() {

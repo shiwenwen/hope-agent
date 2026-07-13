@@ -1,10 +1,10 @@
 use serde_json::json;
 
 use super::super::{
-    TOOL_AGENTS_LIST, TOOL_APPLY_PATCH, TOOL_BROWSER, TOOL_DELETE_MEMORY, TOOL_EDIT, TOOL_EXEC,
-    TOOL_FIND, TOOL_GET_SETTINGS, TOOL_GET_WEATHER, TOOL_GREP, TOOL_IMAGE, TOOL_ISSUE_REPORT,
-    TOOL_KNOWLEDGE_RECALL, TOOL_LIST_SETTINGS_BACKUPS, TOOL_LS, TOOL_LSP, TOOL_MAC_CONTROL,
-    TOOL_MANAGE_CRON, TOOL_MEMORY_GET, TOOL_NOTE_APPEND, TOOL_NOTE_ASSIGN_BLOCK,
+    TOOL_AGENTS_LIST, TOOL_APPLY_PATCH, TOOL_BROWSER, TOOL_CORE_MEMORY, TOOL_DELETE_MEMORY,
+    TOOL_EDIT, TOOL_EXEC, TOOL_FIND, TOOL_GET_SETTINGS, TOOL_GET_WEATHER, TOOL_GREP, TOOL_IMAGE,
+    TOOL_ISSUE_REPORT, TOOL_KNOWLEDGE_RECALL, TOOL_LIST_SETTINGS_BACKUPS, TOOL_LS, TOOL_LSP,
+    TOOL_MAC_CONTROL, TOOL_MANAGE_CRON, TOOL_MEMORY_GET, TOOL_NOTE_APPEND, TOOL_NOTE_ASSIGN_BLOCK,
     TOOL_NOTE_BACKLINKS, TOOL_NOTE_BROKEN_LINKS, TOOL_NOTE_BY_TAG, TOOL_NOTE_CREATE,
     TOOL_NOTE_DELETE, TOOL_NOTE_DISTILL, TOOL_NOTE_GRAPH, TOOL_NOTE_LINK, TOOL_NOTE_MOC,
     TOOL_NOTE_MOVE, TOOL_NOTE_ORPHANS, TOOL_NOTE_PATCH, TOOL_NOTE_READ, TOOL_NOTE_RELATED,
@@ -1227,8 +1227,48 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         },
         // ── Update Core Memory ─────────────────────────────────
         ToolDefinition {
+            name: TOOL_CORE_MEMORY.into(),
+            description: "Read and maintain bounded Core Memory across Global, current Agent, and current Project scopes. MEMORY.md is the concise always-loaded index; topic bodies under topics/ are loaded only through this tool. Prefer topics for detail. Project scope is limited to the project bound to this session.".into(),
+            tier: ToolTier::Memory,
+            internal: true,
+            concurrent_safe: false,
+            async_capable: false,
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": ["get_index", "append_index", "replace_index", "list", "read", "search", "write", "delete", "rebuild_index", "promote", "reload"]
+                    },
+                    "scope": {
+                        "type": "string",
+                        "enum": ["global", "agent", "project"],
+                        "description": "Defaults to agent. Project means the current session's bound project."
+                    },
+                    "fileName": { "type": "string" },
+                    "expectedFileHash": { "type": "string" },
+                    "name": { "type": "string" },
+                    "description": { "type": "string" },
+                    "memoryType": {
+                        "type": "string",
+                        "enum": ["feedback", "project", "reference", "user"]
+                    },
+                    "content": { "type": "string" },
+                    "query": { "type": "string" },
+                    "offset": { "type": "integer", "minimum": 0 },
+                    "limit": { "type": "integer", "minimum": 1, "maximum": 100 },
+                    "maxChars": { "type": "integer", "minimum": 100, "maximum": 20000 }
+                    ,"sourceKind": { "type": "string", "enum": ["memory", "claim"] }
+                    ,"sourceId": { "type": "string" }
+                    ,"topicName": { "type": "string" }
+                },
+                "required": ["action"],
+                "additionalProperties": false
+            }),
+        },
+        ToolDefinition {
             name: TOOL_UPDATE_CORE_MEMORY.into(),
-            description: "Update the core memory file (memory.md) that is always visible in the system prompt. Use for persistent rules, preferences, and standing instructions that the user wants you to always follow.".into(),
+            description: "Compatibility alias: append or replace the Global/current-Agent Core MEMORY.md index. Prefer core_memory for scoped indexes and progressively loaded topics.".into(),
             tier: ToolTier::Memory,
             internal: true,
             concurrent_safe: false,

@@ -104,6 +104,50 @@ fn build_tools_with_cache(req: &RoundRequest<'_>, native_deferred: bool) -> Vec<
     tools
 }
 
+fn build_anthropic_body(
+    base_url: &str,
+    model: &str,
+    req: &RoundRequest<'_>,
+) -> (Value, Vec<Value>, bool) {
+    let mut system_blocks = vec![json!({
+        "type": "text",
+        "text": req.system_prompt,
+        "cache_control": { "type": "ephemeral" }
+    })];
+    for suffix in super::super::streaming_adapter::all_dynamic_suffixes(req) {
+        system_blocks.push(json!({
+            "type": "text",
+            "text": suffix,
+        }));
+    }
+    let native_deferred = !req.is_final_round
+        && !req.deferred_tool_schemas.is_empty()
+        && supports_native_tool_search(base_url, model);
+    let tools_with_cache = build_tools_with_cache(req, native_deferred);
+    let thinking = map_think_anthropic_style(req.reasoning_effort, req.max_tokens);
+    let messages = expand_anthropic_image_markers_for_api(req.history_for_api);
+    let mut body = json!({
+        "model": model,
+        "max_tokens": req.max_tokens,
+        "system": system_blocks,
+        "messages": messages,
+        "stream": true,
+    });
+    if !req.is_final_round {
+        body["tools"] = json!(tools_with_cache);
+    }
+    if let Some(think_config) = thinking {
+        body["thinking"] = think_config;
+    }
+    if let Some(temp) = req.temperature {
+        body["temperature"] = json!(temp);
+    }
+    if base_url.contains("api.anthropic.com") {
+        body["cache_control"] = json!({ "type": "ephemeral" });
+    }
+    (body, tools_with_cache, native_deferred)
+}
+
 pub(crate) struct AnthropicStreamingAdapter<'a> {
     pub api_key: &'a str,
     pub base_url: &'a str,
@@ -131,99 +175,8 @@ impl<'a> StreamingChatAdapter for AnthropicStreamingAdapter<'a> {
         cancel: &Arc<AtomicBool>,
         on_delta: &(dyn for<'s> Fn(&'s str) + Send + Sync),
     ) -> Result<RoundOutcome> {
-        // ── Build system blocks with cache_control ephemeral breakpoints.
-        // Keep one explicit stable-system breakpoint. Per-turn awareness and
-        // recall blocks deliberately remain outside explicit breakpoints: they
-        // churn too often to justify cache writes. Official Anthropic endpoints
-        // additionally use one automatic latest-message breakpoint below.
-        let mut system_blocks = vec![json!({
-            "type": "text",
-            "text": req.system_prompt,
-            "cache_control": { "type": "ephemeral" }
-        })];
-        if let Some(suffix) = req.awareness_suffix {
-            if !suffix.is_empty() {
-                system_blocks.push(json!({
-                    "type": "text",
-                    "text": suffix
-                }));
-            }
-        }
-        if let Some(active_suffix) = req.active_memory_suffix {
-            if !active_suffix.is_empty() {
-                system_blocks.push(json!({
-                    "type": "text",
-                    "text": active_suffix
-                }));
-            }
-        }
-        if let Some(profile_suffix) = req.coding_profile_suffix {
-            if !profile_suffix.is_empty() {
-                system_blocks.push(json!({
-                    "type": "text",
-                    "text": profile_suffix,
-                }));
-            }
-        }
-        // Coding profile, passive related-notes (read bridge ③), and task
-        // reminder are appended as plain system blocks. They are dynamic and
-        // covered by the automatic latest-message breakpoint when supported.
-        if let Some(procedure_suffix) = req.procedure_memory_suffix {
-            if !procedure_suffix.is_empty() {
-                system_blocks.push(json!({
-                    "type": "text",
-                    "text": procedure_suffix,
-                }));
-            }
-        }
-        if let Some(related_suffix) = req.related_notes_suffix {
-            if !related_suffix.is_empty() {
-                system_blocks.push(json!({
-                    "type": "text",
-                    "text": related_suffix,
-                }));
-            }
-        }
-        if let Some(task_suffix) = req.task_reminder_suffix {
-            if !task_suffix.is_empty() {
-                system_blocks.push(json!({
-                    "type": "text",
-                    "text": task_suffix,
-                }));
-            }
-        }
-        let system_with_cache = json!(system_blocks);
-
-        let native_deferred = !req.is_final_round
-            && !req.deferred_tool_schemas.is_empty()
-            && supports_native_tool_search(self.base_url, self.model);
-        let tools_with_cache = build_tools_with_cache(&req, native_deferred);
-
-        let thinking = map_think_anthropic_style(req.reasoning_effort, req.max_tokens);
-
-        // Body field order: model, max_tokens, system, messages, stream
-        // (then conditional tools / thinking / temperature). Must match the
-        // pre-Phase-2 chat_anthropic byte-level for prompt cache stability.
-        let messages = expand_anthropic_image_markers_for_api(req.history_for_api);
-        let mut body = json!({
-            "model": self.model,
-            "max_tokens": req.max_tokens,
-            "system": system_with_cache,
-            "messages": messages,
-            "stream": true,
-        });
-        if !req.is_final_round {
-            body["tools"] = json!(tools_with_cache);
-        }
-        if let Some(ref think_config) = thinking {
-            body["thinking"] = think_config.clone();
-        }
-        if let Some(temp) = req.temperature {
-            body["temperature"] = json!(temp);
-        }
-        if self.base_url.contains("api.anthropic.com") {
-            body["cache_control"] = json!({ "type": "ephemeral" });
-        }
+        let (body, tools_with_cache, native_deferred) =
+            build_anthropic_body(self.base_url, self.model, &req);
 
         let api_url = build_api_url(self.base_url, "/v1/messages");
 
@@ -268,7 +221,7 @@ impl<'a> StreamingChatAdapter for AnthropicStreamingAdapter<'a> {
                         "message_count": req.history_for_api.len(),
                         "tool_count": tools_with_cache.len(),
                         "body_size_bytes": body_size,
-                        "thinking_enabled": thinking.is_some(),
+                        "thinking_enabled": body.get("thinking").is_some(),
                         "request_body": raw_body,
                     })
                     .to_string(),
@@ -415,6 +368,7 @@ impl<'a> StreamingChatAdapter for AnthropicStreamingAdapter<'a> {
             "Anthropic",
             self.model,
             req.round,
+            req.session_id,
             &usage,
             ttft_ms,
         );
@@ -804,7 +758,10 @@ async fn parse_anthropic_sse(
 
 #[cfg(test)]
 mod tests {
-    use super::{build_tools_with_cache, supports_native_tool_search, AnthropicStreamingAdapter};
+    use super::{
+        build_anthropic_body, build_tools_with_cache, supports_native_tool_search,
+        AnthropicStreamingAdapter,
+    };
     use crate::agent::streaming_adapter::{RoundOutcome, RoundRequest, StreamingChatAdapter};
 
     #[test]
@@ -829,6 +786,7 @@ mod tests {
         })];
         let history = Vec::new();
         let req = RoundRequest {
+            session_id: Some("session"),
             system_prompt: "stable",
             awareness_suffix: None,
             active_memory_suffix: None,
@@ -878,6 +836,63 @@ mod tests {
             "https://api.anthropic.com",
             "claude-mythos-5"
         ));
+    }
+
+    #[test]
+    fn anthropic_request_golden_keeps_stable_prefix_before_dynamic_memory() {
+        let loaded = vec![
+            serde_json::json!({ "name": "tool_search", "input_schema": { "type": "object" } }),
+            serde_json::json!({ "name": "read", "input_schema": { "type": "object" } }),
+        ];
+        let deferred = vec![serde_json::json!({
+            "name": "browser",
+            "input_schema": { "type": "object" }
+        })];
+        let history = vec![serde_json::json!({ "role": "user", "content": "question" })];
+        let req = RoundRequest {
+            session_id: Some("session"),
+            system_prompt: "stable",
+            awareness_suffix: Some("awareness"),
+            active_memory_suffix: Some("memory"),
+            coding_profile_suffix: Some("coding"),
+            procedure_memory_suffix: Some("procedure"),
+            related_notes_suffix: Some("notes"),
+            task_reminder_suffix: Some("task"),
+            tool_schemas: &loaded,
+            deferred_tool_schemas: &deferred,
+            eager_tool_count: 2,
+            deferred_tool_count: 1,
+            activated_tool_count: 0,
+            prompt_cache_key: Some("ignored-by-anthropic"),
+            history_for_api: &history,
+            reasoning_effort: None,
+            temperature: None,
+            max_tokens: 100,
+            is_final_round: false,
+            round: 0,
+        };
+        let (body, tools, native_deferred) =
+            build_anthropic_body("https://api.anthropic.com", "claude-sonnet-4-5", &req);
+        assert!(native_deferred);
+        assert_eq!(
+            body["system"],
+            serde_json::json!([
+                { "type": "text", "text": "stable", "cache_control": { "type": "ephemeral" } },
+                { "type": "text", "text": "awareness" },
+                { "type": "text", "text": "memory" },
+                { "type": "text", "text": "coding" },
+                { "type": "text", "text": "procedure" },
+                { "type": "text", "text": "notes" },
+                { "type": "text", "text": "task" }
+            ])
+        );
+        assert_eq!(body["messages"], serde_json::json!(history));
+        assert_eq!(tools[0]["name"], "read");
+        assert_eq!(tools[0]["cache_control"]["type"], "ephemeral");
+        assert_eq!(tools[1]["name"], "browser");
+        assert_eq!(tools[1]["defer_loading"], true);
+        assert!(tools[1].get("cache_control").is_none());
+        assert_eq!(tools[2]["type"], "tool_search_tool_bm25_20251119");
     }
 
     #[test]

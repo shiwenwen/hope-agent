@@ -10,7 +10,7 @@ use crate::context_compact::CHARS_PER_TOKEN;
 use crate::slash_commands::types::{CommandAction, CommandResult, ContextBreakdown};
 
 fn chars_to_tokens(chars: usize) -> u32 {
-    (chars / CHARS_PER_TOKEN) as u32
+    chars.div_ceil(CHARS_PER_TOKEN).min(u32::MAX as usize) as u32
 }
 
 pub async fn handle_context(
@@ -32,14 +32,14 @@ pub async fn handle_context(
     // Reserved output budget — matches the value used in run_compaction.
     let max_output_tokens: u32 = 16_384;
 
-    // Conversation history (what actually gets sent to the API).
+    // Conversation history fallback. When a real round exists below, its
+    // provider-shaped manifest replaces these heuristic values.
     let history = agent.get_conversation_history();
     let message_count = history.len() as u32;
-    let messages_chars: usize = history
+    let fallback_messages_tokens = history
         .iter()
-        .map(|m| serde_json::to_string(m).map(|s| s.len()).unwrap_or(0))
+        .map(crate::context_compact::estimate_tokens)
         .sum();
-    let messages_tokens = chars_to_tokens(messages_chars);
 
     // Build the same provider-specific prompt and live-gated tool inventory as
     // a chat round, including deferred tools already activated for the session.
@@ -52,13 +52,20 @@ pub async fn handle_context(
     let activated = agent.load_activated_tool_names();
     let inventory = agent.build_tool_inventory(tool_provider, &activated);
     let tool_schemas = inventory.schemas;
-    let tool_schemas_chars: usize = tool_schemas
+    let fallback_tool_schemas_tokens = tool_schemas
         .iter()
-        .map(|s| serde_json::to_string(s).map(|x| x.len()).unwrap_or(0))
+        .map(crate::context_compact::estimate_tokens)
         .sum();
-    let tool_schemas_tokens = chars_to_tokens(tool_schemas_chars);
     let actual_system_prompt = agent.build_full_system_prompt(&model_id, provider_key);
-    let actual_system_tokens = chars_to_tokens(actual_system_prompt.len());
+    let fallback_system_tokens =
+        crate::system_prompt::conservative_core_token_estimate(&actual_system_prompt)
+            .min(u32::MAX as usize) as u32;
+    let static_memory = agent
+        .static_memory_manifest
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .clone();
+    let latest_round = session_id.and_then(crate::agent::token_manifest::latest_round_context);
 
     // Last compaction timer — read directly while we still hold `agent`.
     let last_compact_secs_ago = agent
@@ -70,7 +77,7 @@ pub async fn handle_context(
     drop(agent_guard);
 
     // ── Model / provider resolution ──────────────────────────────
-    let (active_model, active_provider) = {
+    let (configured_model, configured_provider) = {
         let store = crate::config::cached_config();
         if let Some(ref active) = store.active_model {
             let prov = store.providers.iter().find(|p| p.id == active.provider_id);
@@ -91,49 +98,72 @@ pub async fn handle_context(
     let agent_def = crate::agent_loader::load_agent(agent_id)
         .map_err(|e| format!("Failed to load agent: {}", e))?;
 
-    let memory_entries: Vec<crate::memory::MemoryEntry> = if agent_def.config.memory.enabled {
-        crate::get_memory_backend()
-            .and_then(|b| {
-                b.load_prompt_candidates(agent_id, agent_def.config.memory.shared)
-                    .ok()
-            })
-            .unwrap_or_default()
-    } else {
-        Vec::new()
-    };
-
-    let app_cfg = crate::config::cached_config();
-    let memory_budget = crate::agent_config::effective_memory_budget(
-        &agent_def.config.memory,
-        &app_cfg.memory_budget,
-    );
-
     let agent_home = crate::paths::agent_home_dir(agent_id)
         .ok()
         .map(|p| p.to_string_lossy().to_string());
 
     let breakdown_chars = crate::system_prompt::compute_breakdown(
         &agent_def,
-        Some(&active_model),
-        Some(&active_provider),
-        &memory_entries,
-        &memory_budget,
+        Some(&configured_model),
+        Some(&configured_provider),
+        &[],
+        &crate::memory::MemoryBudgetConfig::default(),
         agent_home.as_deref(),
     );
 
-    let memory_tokens = chars_to_tokens(breakdown_chars.memory_chars);
+    // Memory attribution comes from the exact prompt-build manifest, not a
+    // second SQLite/Core reconstruction. Dynamic recall remains in the
+    // separate dynamic suffix category below, so categories do not overlap.
+    let memory_tokens = [
+        static_memory.agent_core.tokens_estimate,
+        static_memory.global_core.tokens_estimate,
+        static_memory.project_index.tokens_estimate,
+        static_memory.legacy_static_block.tokens_estimate,
+    ]
+    .into_iter()
+    .fold(0u32, u32::saturating_add);
     let skill_tokens = chars_to_tokens(breakdown_chars.skills_chars);
     let tool_descriptions_tokens = chars_to_tokens(breakdown_chars.tool_descriptions_chars);
-    // "Base" system prompt = everything in the prompt minus the sub-sections
-    // we already attribute separately (memory, skills, tool descriptions).
-    let system_prompt_tokens = actual_system_tokens
+    let stable_prompt_tokens = latest_round
+        .as_ref()
+        .map(|round| round.stable_prompt_tokens_estimate)
+        .unwrap_or(fallback_system_tokens);
+    let dynamic_prompt_tokens = latest_round
+        .as_ref()
+        .map(|round| round.dynamic_prompt_tokens_estimate)
+        .unwrap_or(0);
+    let messages_tokens = latest_round
+        .as_ref()
+        .map(|round| round.history_tokens_estimate)
+        .unwrap_or(fallback_messages_tokens);
+    let tool_schemas_tokens = latest_round
+        .as_ref()
+        .map(|round| round.tool_schema_tokens_estimate)
+        .unwrap_or(fallback_tool_schemas_tokens);
+    // Base stable prompt = the exact stable prefix minus its attributed
+    // memory/skills/tool-description sections.
+    let system_prompt_tokens = stable_prompt_tokens
         .saturating_sub(memory_tokens)
         .saturating_sub(skill_tokens)
         .saturating_sub(tool_descriptions_tokens);
 
     // ── Totals ───────────────────────────────────────────────────
-    let used_total =
-        actual_system_tokens + tool_schemas_tokens + messages_tokens + max_output_tokens;
+    let request_input_tokens_estimate = latest_round
+        .as_ref()
+        .map(|round| round.request_input_tokens_estimate)
+        .unwrap_or_else(|| {
+            stable_prompt_tokens
+                .saturating_add(dynamic_prompt_tokens)
+                .saturating_add(tool_schemas_tokens)
+                .saturating_add(messages_tokens)
+        });
+    let actual_context_input = latest_round
+        .as_ref()
+        .and_then(|round| round.context_input_tokens);
+    let input_for_window = actual_context_input
+        .unwrap_or(u64::from(request_input_tokens_estimate))
+        .min(u64::from(u32::MAX)) as u32;
+    let used_total = input_for_window.saturating_add(max_output_tokens);
     let free_space = context_window.saturating_sub(used_total);
     let usage_pct = if context_window > 0 {
         (used_total as f32 / context_window as f32) * 100.0
@@ -166,16 +196,59 @@ pub async fn handle_context(
         last_compact_tier,
         last_compact_secs_ago,
         next_compact_allowed_in_secs,
-        active_model,
-        active_provider,
+        active_model: latest_round
+            .as_ref()
+            .map(|round| round.model.clone())
+            .unwrap_or(configured_model),
+        active_provider: latest_round
+            .as_ref()
+            .map(|round| round.provider.clone())
+            .unwrap_or(configured_provider),
         active_agent: agent_id.to_string(),
         message_count,
+        dynamic_prompt_tokens,
+        context_input_tokens: actual_context_input,
+        fresh_input_tokens: latest_round
+            .as_ref()
+            .and_then(|round| round.fresh_input_tokens),
+        cache_read_tokens: latest_round
+            .as_ref()
+            .and_then(|round| round.cache_read_tokens),
+        cache_write_tokens: latest_round
+            .as_ref()
+            .and_then(|round| round.cache_write_tokens),
+        output_tokens: latest_round.as_ref().and_then(|round| round.output_tokens),
+        ttft_ms: latest_round.as_ref().and_then(|round| round.ttft_ms),
+        request_input_tokens_estimate: Some(request_input_tokens_estimate),
+        cacheable_stable_tokens_estimate: latest_round
+            .as_ref()
+            .map(|round| round.cacheable_stable_tokens_estimate),
+        eager_tool_schema_tokens: latest_round
+            .as_ref()
+            .map(|round| round.eager_tool_schema_tokens_estimate),
+        activated_tool_schema_tokens: latest_round
+            .as_ref()
+            .map(|round| round.activated_tool_schema_tokens_estimate),
+        deferred_tool_schema_tokens: latest_round
+            .as_ref()
+            .map(|round| round.deferred_tool_schema_tokens_estimate),
+        eager_tool_count: latest_round
+            .as_ref()
+            .map(|round| round.eager_tool_count.min(u32::MAX as usize) as u32),
+        deferred_tool_count: latest_round
+            .as_ref()
+            .map(|round| round.deferred_tool_count.min(u32::MAX as usize) as u32),
+        activated_tool_count: latest_round
+            .as_ref()
+            .map(|round| round.activated_tool_count.min(u32::MAX as usize) as u32),
+        native_deferred: latest_round.as_ref().map(|round| round.native_deferred),
+        stable_prompt_fingerprint: latest_round
+            .as_ref()
+            .map(|round| round.stable_prompt_fingerprint.clone()),
+        dynamic_prompt_fingerprint: latest_round
+            .as_ref()
+            .map(|round| round.dynamic_prompt_fingerprint.clone()),
     };
-
-    // Silence the unused warning on server-only sessions — session_id is
-    // informational only; the breakdown applies to whichever session owns
-    // the currently-locked `AssistantAgent`.
-    let _ = session_id;
 
     let content = render_markdown_fallback(&breakdown);
 
@@ -220,6 +293,11 @@ fn render_markdown_fallback(b: &ContextBreakdown) -> String {
     ));
     lines.push(format_row("Memory", b.memory_tokens, b.context_window));
     lines.push(format_row("Skills", b.skill_tokens, b.context_window));
+    lines.push(format_row(
+        "Dynamic prompt",
+        b.dynamic_prompt_tokens,
+        b.context_window,
+    ));
     lines.push(format_row("Messages", b.messages_tokens, b.context_window));
     lines.push(format_row(
         "Reserved output",
@@ -228,6 +306,17 @@ fn render_markdown_fallback(b: &ContextBreakdown) -> String {
     ));
     lines.push(format_row("Free space", b.free_space, b.context_window));
     lines.push(String::new());
+
+    if let Some(context_input) = b.context_input_tokens {
+        lines.push(format!("Provider input: {context_input} tokens"));
+        if let (Some(fresh), Some(cache_read)) = (b.fresh_input_tokens, b.cache_read_tokens) {
+            lines.push(format!(
+                "Fresh input: {fresh} · Cache read: {cache_read} (cache does not reduce context-window usage)"
+            ));
+        }
+    } else if let Some(estimate) = b.request_input_tokens_estimate {
+        lines.push(format!("Provider input estimate: {estimate} tokens"));
+    }
 
     if let Some(tier) = b.last_compact_tier {
         if let Some(ago) = b.last_compact_secs_ago {
@@ -249,7 +338,9 @@ fn render_markdown_fallback(b: &ContextBreakdown) -> String {
         "Agent: `{}` · Model: `{}` · Messages: {}",
         b.active_agent, b.active_model, b.message_count
     ));
-    lines.push("_Estimated (char÷4); may differ from billed usage by ~10–20%._".to_string());
+    if b.context_input_tokens.is_none() {
+        lines.push("_Estimated from the exact Provider request manifest; actual usage is shown after the Provider reports it._".to_string());
+    }
 
     lines.join("\n")
 }

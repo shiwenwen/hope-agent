@@ -19,6 +19,44 @@ pub struct SessionDefaultsInput {
     pub reasoning_effort: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SessionMemoryPolicyValue {
+    #[default]
+    Inherit,
+    Allow,
+    Deny,
+}
+
+impl SessionMemoryPolicyValue {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Inherit => "inherit",
+            Self::Allow => "allow",
+            Self::Deny => "deny",
+        }
+    }
+
+    pub fn parse(value: &str) -> Self {
+        match value {
+            "allow" => Self::Allow,
+            "deny" => Self::Deny,
+            _ => Self::Inherit,
+        }
+    }
+
+    pub fn allows(self) -> bool {
+        !matches!(self, Self::Deny)
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionMemoryPolicy {
+    pub use_memories: SessionMemoryPolicyValue,
+    pub contribute_to_memories: SessionMemoryPolicyValue,
+}
+
 // Well-known keys for the `messages.attachments_meta` JSON column. Single
 // source of truth for both writers (Tauri/HTTP `chat` commands, channel /
 // cron / subagent injection) and readers (`chatUtils.ts` mirrors these on

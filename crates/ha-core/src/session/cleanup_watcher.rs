@@ -204,6 +204,12 @@ async fn cleanup_session(
     // A-9: clear per-session allowlist rules so they don't linger (INCOG-7).
     crate::permission::allowlist::clear_session_rules(session_id);
     crate::agent::purge_incognito_tool_activations(session_id);
+    crate::memory::core_repository::invalidate_session_snapshot(session_id);
+    crate::agent::token_manifest::invalidate_round_context(session_id);
+    for child_sid in &descendant_session_ids {
+        crate::memory::core_repository::invalidate_session_snapshot(child_sid);
+        crate::agent::token_manifest::invalidate_round_context(child_sid);
+    }
 
     // A-9: live-cancel any in-flight turn (DELETE-5 / INCOG-1 in-flight turn).
     if let Some(snapshot) = crate::chat_engine::active_turn::current(session_id) {

@@ -874,6 +874,7 @@ impl AssistantAgent {
                 prompt_cache_key(self, adapter.provider_format(), model, round_system_prompt);
 
             let req = RoundRequest {
+                session_id: self.session_id.as_deref(),
                 system_prompt: round_system_prompt,
                 awareness_suffix: awareness_suffix.as_deref().map(|s| s.as_str()),
                 active_memory_suffix: active_suffix.as_deref().map(|s| s.as_str()),
@@ -932,11 +933,13 @@ impl AssistantAgent {
                 &tool_schemas,
                 0,
             );
+            let calibrator_key = format!("{}:{model}", adapter.provider_format().label());
             if outcome.usage.context_input_tokens > 0 {
                 self.token_calibrator
                     .lock()
                     .unwrap_or_else(|e| e.into_inner())
                     .update(
+                        &calibrator_key,
                         raw_round_estimate,
                         outcome.usage.context_input_tokens.min(u64::from(u32::MAX)) as u32,
                     );
@@ -991,7 +994,7 @@ impl AssistantAgent {
                 .token_calibrator
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
-                .calibrated_estimate(raw_estimated_prompt)
+                .calibrated_estimate(&calibrator_key, raw_estimated_prompt)
                 // Compaction/tool-output sizing must fail safe when the
                 // heuristic is slightly optimistic.
                 .saturating_add(raw_estimated_prompt / 10)

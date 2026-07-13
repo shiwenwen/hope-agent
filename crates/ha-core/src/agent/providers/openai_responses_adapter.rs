@@ -606,6 +606,64 @@ fn handle_openai_sse_event_block(
     Ok(())
 }
 
+fn build_responses_request(
+    base_url: &str,
+    model: &str,
+    reasoning: Option<super::super::api_types::ReasoningConfig>,
+    req: &RoundRequest<'_>,
+) -> (ResponsesRequest, Vec<Value>, bool, bool) {
+    let mut api_input: Vec<Value> = Vec::new();
+    for content in super::super::streaming_adapter::leading_dynamic_suffixes(req) {
+        api_input.push(json!({ "role": "system", "content": content }));
+    }
+    api_input.extend(expand_responses_image_markers_for_api(req.history_for_api));
+    for content in super::super::streaming_adapter::trailing_dynamic_suffixes(req) {
+        api_input.push(json!({ "role": "system", "content": content }));
+    }
+
+    let explicit_prompt_cache = supports_explicit_prompt_cache(base_url, model);
+    if explicit_prompt_cache {
+        api_input.insert(
+            0,
+            json!({
+                "type": "message",
+                "role": "developer",
+                "content": [{
+                    "type": "input_text",
+                    "text": req.system_prompt,
+                    "prompt_cache_breakpoint": { "mode": "explicit" }
+                }]
+            }),
+        );
+    }
+
+    let native_deferred = !req.is_final_round
+        && !req.deferred_tool_schemas.is_empty()
+        && supports_native_tool_search(base_url, model);
+    let tools = if req.is_final_round {
+        None
+    } else if native_deferred {
+        Some(native_tool_search_tools(req))
+    } else {
+        Some(req.tool_schemas.to_vec())
+    };
+    let request = ResponsesRequest {
+        model: model.to_string(),
+        store: false,
+        stream: true,
+        instructions: (!explicit_prompt_cache).then(|| req.system_prompt.to_string()),
+        input: api_input.clone(),
+        reasoning,
+        include: None,
+        tools,
+        temperature: req.temperature,
+        prompt_cache_key: req.prompt_cache_key.map(str::to_string),
+        prompt_cache_options: explicit_prompt_cache
+            .then(|| json!({ "mode": "explicit", "ttl": "30m" })),
+    };
+    (request, api_input, explicit_prompt_cache, native_deferred)
+}
+
 pub(crate) struct OpenAIResponsesStreamingAdapter<'a> {
     pub api_key: &'a str,
     pub base_url: &'a str,
@@ -637,120 +695,8 @@ impl<'a> StreamingChatAdapter for OpenAIResponsesStreamingAdapter<'a> {
         cancel: &Arc<AtomicBool>,
         on_delta: &(dyn for<'s> Fn(&'s str) + Send + Sync),
     ) -> Result<RoundOutcome> {
-        // Inject awareness suffix (and active memory suffix) as leading
-        // system items in the input array. These live OUTSIDE `instructions`
-        // so suffix churn never invalidates the static instruction prefix
-        // (which OpenAI auto-caches).
-        let mut api_input: Vec<Value> = expand_responses_image_markers_for_api(req.history_for_api);
-        if let Some(procedure_suffix) = req.procedure_memory_suffix {
-            if !procedure_suffix.is_empty() {
-                api_input.insert(
-                    0,
-                    json!({
-                        "role": "system",
-                        "content": procedure_suffix
-                    }),
-                );
-            }
-        }
-        if let Some(active_suffix) = req.active_memory_suffix {
-            if !active_suffix.is_empty() {
-                api_input.insert(
-                    0,
-                    json!({
-                        "role": "system",
-                        "content": active_suffix
-                    }),
-                );
-            }
-        }
-        if let Some(suffix) = req.awareness_suffix {
-            if !suffix.is_empty() {
-                api_input.insert(
-                    0,
-                    json!({
-                        "role": "system",
-                        "content": suffix
-                    }),
-                );
-            }
-        }
-        if let Some(profile_suffix) = req.coding_profile_suffix {
-            if !profile_suffix.is_empty() {
-                api_input.insert(
-                    0,
-                    json!({
-                        "role": "system",
-                        "content": profile_suffix
-                    }),
-                );
-            }
-        }
-        // Passive related-notes (read bridge ③): appended like the task reminder
-        // (outside `instructions`, so it never invalidates the cached prefix).
-        if let Some(related_suffix) = req.related_notes_suffix {
-            if !related_suffix.is_empty() {
-                api_input.push(json!({ "role": "system", "content": related_suffix }));
-            }
-        }
-        // Task reminder appended at the end of the input array (closest to the
-        // model's next decision) instead of prepended like the other suffixes
-        // — this is harness state about what the model already started, not
-        // background context.
-        if let Some(task_suffix) = req.task_reminder_suffix {
-            if !task_suffix.is_empty() {
-                api_input.push(json!({ "role": "system", "content": task_suffix }));
-            }
-        }
-
-        let explicit_prompt_cache = supports_explicit_prompt_cache(self.base_url, self.model);
-        if explicit_prompt_cache {
-            // GPT-5.6+ only accepts explicit breakpoints on content blocks.
-            // Put the stable PromptEnvelope at the head of `input`; all
-            // per-turn suffixes and conversation items remain after it, so
-            // changing a dynamic suffix cannot invalidate the cached prefix.
-            api_input.insert(
-                0,
-                json!({
-                    "type": "message",
-                    "role": "developer",
-                    "content": [{
-                        "type": "input_text",
-                        "text": req.system_prompt,
-                        "prompt_cache_breakpoint": { "mode": "explicit" }
-                    }]
-                }),
-            );
-        }
-
-        let native_deferred = !req.is_final_round
-            && !req.deferred_tool_schemas.is_empty()
-            && supports_native_tool_search(self.base_url, self.model);
-        let request_tools = if req.is_final_round {
-            None
-        } else if native_deferred {
-            Some(native_tool_search_tools(&req))
-        } else {
-            Some(req.tool_schemas.to_vec())
-        };
-        let request = ResponsesRequest {
-            model: self.model.to_string(),
-            store: false,
-            stream: true,
-            instructions: (!explicit_prompt_cache).then(|| req.system_prompt.to_string()),
-            input: api_input.clone(),
-            reasoning: self.reasoning.clone(),
-            // `reasoning.encrypted_content` is not requested: with
-            // `store: false` we don't replay reasoning items into the next
-            // round, so the encrypted payload would just inflate the SSE
-            // response with no consumer.
-            include: None,
-            tools: request_tools,
-            temperature: req.temperature,
-            prompt_cache_key: req.prompt_cache_key.map(str::to_string),
-            prompt_cache_options: explicit_prompt_cache
-                .then(|| json!({ "mode": "explicit", "ttl": "30m" })),
-        };
+        let (request, api_input, _explicit_prompt_cache, native_deferred) =
+            build_responses_request(self.base_url, self.model, self.reasoning.clone(), &req);
 
         let api_url = build_api_url(self.base_url, "/v1/responses");
 
@@ -939,6 +885,7 @@ impl<'a> StreamingChatAdapter for OpenAIResponsesStreamingAdapter<'a> {
             "OpenAIResponses",
             self.model,
             req.round,
+            req.session_id,
             &usage,
             ttft_ms,
         );
@@ -1220,13 +1167,15 @@ pub(in crate::agent) async fn parse_openai_sse(
 #[cfg(test)]
 mod tests {
     use super::{
-        extract_request_id_from_message, finalize_pending_tool_calls,
+        build_responses_request, extract_request_id_from_message, finalize_pending_tool_calls,
         handle_openai_sse_event_block, has_complete_stream_output, sse_event_error_code,
         sse_event_error_message, sse_event_error_type, supports_explicit_prompt_cache,
         supports_native_tool_search, take_next_sse_event_block, FunctionCallItem,
         OpenAIResponsesStreamingAdapter, SseEvent,
     };
-    use crate::agent::streaming_adapter::{ExecutedTool, RoundOutcome, StreamingChatAdapter};
+    use crate::agent::streaming_adapter::{
+        ExecutedTool, RoundOutcome, RoundRequest, StreamingChatAdapter,
+    };
     use crate::agent::types::ChatUsage;
     use std::collections::HashMap;
 
@@ -1252,6 +1201,69 @@ mod tests {
             "https://api.openai.com",
             "gpt-5.5"
         ));
+    }
+
+    #[test]
+    fn openai_responses_request_golden_preserves_explicit_cache_prefix() {
+        let tools = vec![
+            serde_json::json!({ "type": "function", "name": "tool_search" }),
+            serde_json::json!({ "type": "function", "name": "read" }),
+        ];
+        let deferred = vec![serde_json::json!({ "type": "function", "name": "browser" })];
+        let history = vec![serde_json::json!({ "role": "user", "content": "question" })];
+        let req = RoundRequest {
+            session_id: Some("session"),
+            system_prompt: "stable",
+            awareness_suffix: Some("awareness"),
+            active_memory_suffix: Some("memory"),
+            coding_profile_suffix: Some("coding"),
+            procedure_memory_suffix: Some("procedure"),
+            related_notes_suffix: Some("notes"),
+            task_reminder_suffix: Some("task"),
+            tool_schemas: &tools,
+            deferred_tool_schemas: &deferred,
+            eager_tool_count: 2,
+            deferred_tool_count: 1,
+            activated_tool_count: 0,
+            prompt_cache_key: Some("stable-key"),
+            history_for_api: &history,
+            reasoning_effort: None,
+            temperature: None,
+            max_tokens: 100,
+            is_final_round: false,
+            round: 0,
+        };
+        let (request, input, explicit, native_deferred) =
+            build_responses_request("https://api.openai.com", "gpt-5.6", None, &req);
+        assert!(explicit);
+        assert!(native_deferred);
+        let body = serde_json::to_value(request).unwrap();
+        assert!(body.get("instructions").is_none());
+        assert_eq!(body["prompt_cache_key"], "stable-key");
+        assert_eq!(body["prompt_cache_options"]["mode"], "explicit");
+        assert_eq!(input[0]["role"], "developer");
+        assert_eq!(input[0]["content"][0]["text"], "stable");
+        let contents = input[1..]
+            .iter()
+            .map(|item| item["content"].as_str().unwrap_or_default())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            contents,
+            vec![
+                "awareness",
+                "memory",
+                "coding",
+                "procedure",
+                "question",
+                "notes",
+                "task"
+            ]
+        );
+        let request_tools = body["tools"].as_array().unwrap();
+        assert_eq!(request_tools[0]["name"], "read");
+        assert_eq!(request_tools[1]["name"], "browser");
+        assert_eq!(request_tools[1]["defer_loading"], true);
+        assert_eq!(request_tools[2]["type"], "tool_search");
     }
 
     #[test]

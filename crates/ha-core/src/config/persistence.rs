@@ -346,7 +346,22 @@ fn read_from_path(path: &Path) -> Result<AppConfig> {
 /// config (issue #326).
 fn parse_config_str(data: &str) -> Result<AppConfig> {
     let trimmed = data.strip_prefix('\u{feff}').unwrap_or(data);
-    let config: AppConfig = serde_json::from_str(trimmed)?;
+    let raw: serde_json::Value = serde_json::from_str(trimmed)?;
+    let has_memory_v2 = raw.get("memory").is_some();
+    let mut config: AppConfig = serde_json::from_value(raw)?;
+    if !has_memory_v2 {
+        config.memory = crate::memory::MemoryRuntimeConfig::from_legacy(
+            &config.memory_extract,
+            &config.memory_selection,
+            &config.memory_budget,
+        );
+    } else {
+        // Config files are user-editable and may also come from an older
+        // preview build that did not clamp V2 budgets. Apply the same bounds
+        // on load as the owner save endpoints so a raw file cannot inflate the
+        // stable prompt or turn a bounded recall into an unbounded query.
+        config.memory = config.memory.normalized();
+    }
     Ok(config)
 }
 
@@ -546,6 +561,63 @@ mod parse_tests {
         let cfg = parse_config_str(r#"{"providers":[],"theme":"dark"}"#).expect("parse");
         assert_eq!(cfg.theme, "dark");
         assert!(!cfg.enhanced_focus_indicators);
+    }
+
+    #[test]
+    fn config_without_memory_v2_preserves_legacy_memory_choices() {
+        let cfg = parse_config_str(
+            r#"{
+                "providers": [],
+                "memoryExtract": {
+                    "enabled": true,
+                    "autoExtract": false,
+                    "flushBeforeCompact": false,
+                    "reviewFirst": false
+                },
+                "memorySelection": { "enabled": true, "maxSelected": 4 }
+            }"#,
+        )
+        .expect("parse legacy memory config");
+        assert_eq!(
+            cfg.memory.learning.mode,
+            crate::memory::MemoryLearningMode::Manual
+        );
+        assert!(cfg.memory.deep_recall.enabled);
+        assert_eq!(cfg.memory.recall.max_selected, 4);
+    }
+
+    #[test]
+    fn explicit_memory_v2_is_not_overwritten_by_legacy_fields() {
+        let cfg = parse_config_str(
+            r#"{
+                "providers": [],
+                "memoryExtract": { "autoExtract": false, "flushBeforeCompact": false },
+                "memory": { "learning": { "mode": "smart" } }
+            }"#,
+        )
+        .expect("parse V2 memory config");
+        assert_eq!(
+            cfg.memory.learning.mode,
+            crate::memory::MemoryLearningMode::Smart
+        );
+    }
+
+    #[test]
+    fn explicit_memory_v2_is_normalized_while_loading() {
+        let cfg = parse_config_str(
+            r#"{
+                "providers": [],
+                "memory": {
+                    "core": { "hardMaxTokens": 999999, "totalTokens": 999999 },
+                    "recall": { "candidateLimit": 999999, "timeoutMs": 999999 }
+                }
+            }"#,
+        )
+        .expect("parse bounded V2 memory config");
+        assert_eq!(cfg.memory.core.hard_max_tokens, 4096);
+        assert_eq!(cfg.memory.core.total_tokens, 4096);
+        assert_eq!(cfg.memory.recall.candidate_limit, 100);
+        assert_eq!(cfg.memory.recall.timeout_ms, 2000);
     }
 
     #[test]

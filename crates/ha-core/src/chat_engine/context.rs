@@ -167,15 +167,21 @@ pub(super) async fn schedule_memory_extraction_after_turn(
     {
         return 0;
     }
-    let global_extract = crate::memory::load_extract_config();
-    if !global_extract.enabled {
+    if !crate::memory::automatic_memory_learning_allowed(
+        Some(session_id),
+        agent.session_db.as_deref(),
+    ) {
         return 0;
     }
+    let global_extract = crate::memory::load_extract_config();
     let aid = agent_id.to_string();
     let agent_def =
         crate::blocking::run_blocking(move || crate::agent_loader::load_agent(&aid)).await;
     let agent_mem = agent_def.as_ref().ok().map(|d| &d.config.memory);
 
+    // Preserve an explicit per-Agent legacy override throughout the V2
+    // compatibility window. The V2 global learning mode remains the outer
+    // gate above, so `manual` still wins over `Some(true)`.
     let auto_extract = agent_mem
         .and_then(|m| m.auto_extract)
         .unwrap_or(global_extract.auto_extract);
@@ -274,6 +280,7 @@ pub(super) async fn schedule_memory_extraction_after_turn(
     if let Some(prov) = provider::find_provider(&store.providers, &extract_provider_id).cloned() {
         let agent_id = agent_id.to_string();
         let session_id = session_id.to_string();
+        let session_db = agent.session_db.clone();
         tokio::spawn(async move {
             crate::memory_extract::run_extraction(
                 &history,
@@ -282,6 +289,7 @@ pub(super) async fn schedule_memory_extraction_after_turn(
                 &prov,
                 &extract_model_id,
                 None,
+                session_db,
             )
             .await;
         });

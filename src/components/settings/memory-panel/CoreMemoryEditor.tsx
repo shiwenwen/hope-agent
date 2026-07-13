@@ -13,11 +13,30 @@ import {
 } from "./coreMemoryOperationFeedback"
 
 interface CoreMemoryEditorProps {
-  scope: "global" | "agent"
+  scope: "global" | "agent" | "project"
   agentId?: string
+  projectId?: string
 }
 
-export default function CoreMemoryEditor({ scope, agentId }: CoreMemoryEditorProps) {
+interface CoreMemoryIndex {
+  content?: string | null
+  fileHash?: string | null
+  state: string
+  canonicalPath: string
+  legacyPath?: string | null
+}
+
+interface CoreMemoryConflict {
+  canonicalContent: string
+  canonicalHash: string
+  legacyContent: string
+  legacyHash: string
+  lastSyncedContent?: string | null
+  canonicalPath: string
+  legacyPath: string
+}
+
+export default function CoreMemoryEditor({ scope, agentId, projectId }: CoreMemoryEditorProps) {
   const { t } = useTranslation()
   const [content, setContent] = useState("")
   const [originalContent, setOriginalContent] = useState("")
@@ -27,16 +46,29 @@ export default function CoreMemoryEditor({ scope, agentId }: CoreMemoryEditorPro
   const [saving, setSaving] = useState(false)
   const [saveStatus, setSaveStatus] = useState<"idle" | "saved" | "failed">("idle")
   const [expanded, setExpanded] = useState(true)
+  const [fileHash, setFileHash] = useState<string | null>(null)
+  const [migrationState, setMigrationState] = useState<string>("empty")
+  const [conflict, setConflict] = useState<CoreMemoryConflict | null>(null)
+  const [mergedContent, setMergedContent] = useState("")
+  const [resolvingConflict, setResolvingConflict] = useState(false)
+  const scopeId = scope === "agent" ? agentId : scope === "project" ? projectId : undefined
 
   const loadContent = useCallback(async () => {
     setLoading(true)
     try {
-      const md = scope === "global"
-        ? await getTransport().call<string | null>("get_global_memory_md")
-        : await getTransport().call<string | null>("get_agent_memory_md", { id: agentId })
-      const val = md ?? ""
+      const index = await getTransport().call<CoreMemoryIndex>("core_memory_get_cmd", {
+        scopeType: scope,
+        scopeId,
+      })
+      const val = index.content ?? ""
       setContent(val)
       setOriginalContent(val)
+      setFileHash(index.fileHash ?? null)
+      setMigrationState(index.state)
+      if (index.state !== "conflict") {
+        setConflict(null)
+        setMergedContent("")
+      }
       setLoaded(true)
       setLoadError(null)
     } catch (e) {
@@ -49,32 +81,64 @@ export default function CoreMemoryEditor({ scope, agentId }: CoreMemoryEditorPro
     } finally {
       setLoading(false)
     }
-  }, [scope, agentId, t])
+  }, [scope, scopeId, t])
+
+  const loadConflict = useCallback(async () => {
+    try {
+      const value = await getTransport().call<CoreMemoryConflict | null>(
+        "core_memory_conflict_get_cmd",
+        { scopeType: scope, scopeId },
+      )
+      setConflict(value)
+      setMergedContent(value?.canonicalContent ?? "")
+    } catch (e) {
+      logger.error("settings", "CoreMemoryEditor::loadConflict", "Failed to load conflict", e)
+      toast.error(t("settings.memoryV2.core.conflictLoadFailed"))
+    }
+  }, [scope, scopeId, t])
 
   useEffect(() => {
     loadContent()
   }, [loadContent])
 
   useEffect(() => {
-    return getTransport().listen("core_memory_updated", (raw) => {
-      const payload = raw as { scope: string; agentId?: string }
-      if (payload.scope === scope) {
-        if (scope === "global" || payload.agentId === agentId) {
+    if (migrationState === "conflict") void loadConflict()
+  }, [loadConflict, migrationState])
+
+  useEffect(() => {
+    const matches = (raw: unknown) => {
+      const payload = raw as { scope?: string; scopeType?: string; scopeId?: string; agentId?: string }
+      const eventScope = payload.scopeType ?? payload.scope
+      if (eventScope === "all") {
+        loadContent()
+      } else if (eventScope === scope) {
+        if (scope === "global" || payload.scopeId === scopeId || payload.agentId === scopeId) {
           loadContent()
         }
       }
-    })
-  }, [scope, agentId, loadContent])
+    }
+    const unlistenLegacy = getTransport().listen("core_memory_updated", matches)
+    const unlistenV2 = getTransport().listen("memory:core_changed", matches)
+    return () => {
+      unlistenLegacy()
+      unlistenV2()
+    }
+  }, [scope, scopeId, loadContent])
 
   const handleSave = async () => {
     setSaving(true)
     try {
-      if (scope === "global") {
-        await getTransport().call("save_global_memory_md", { content })
-      } else {
-        await getTransport().call("save_agent_memory_md", { id: agentId, content })
-      }
-      setOriginalContent(content)
+      const index = await getTransport().call<CoreMemoryIndex>("core_memory_save_cmd", {
+        scopeType: scope,
+        scopeId,
+        content,
+        expectedFileHash: fileHash,
+      })
+      const savedContent = index.content ?? ""
+      setContent(savedContent)
+      setOriginalContent(savedContent)
+      setFileHash(index.fileHash ?? null)
+      setMigrationState(index.state)
       setSaveStatus("saved")
       setTimeout(() => setSaveStatus("idle"), 2000)
     } catch (e) {
@@ -96,8 +160,49 @@ export default function CoreMemoryEditor({ scope, agentId }: CoreMemoryEditorPro
   }
 
   const hasChanges = content !== originalContent
-  const title = scope === "global" ? t("settings.coreMemoryGlobal") : t("settings.coreMemory")
-  const desc = scope === "global" ? t("settings.coreMemoryGlobalDesc") : t("settings.coreMemoryAgentDesc")
+  const resolveConflict = async (choice: "canonical" | "legacy" | "merged") => {
+    if (!conflict) return
+    setResolvingConflict(true)
+    try {
+      const index = await getTransport().call<CoreMemoryIndex>(
+        "core_memory_conflict_resolve_cmd",
+        {
+          scopeType: scope,
+          scopeId,
+          resolution: {
+            choice,
+            expectedCanonicalHash: conflict.canonicalHash,
+            expectedLegacyHash: conflict.legacyHash,
+            mergedContent: choice === "merged" ? mergedContent : undefined,
+          },
+        },
+      )
+      const saved = index.content ?? ""
+      setContent(saved)
+      setOriginalContent(saved)
+      setFileHash(index.fileHash ?? null)
+      setMigrationState(index.state)
+      setConflict(null)
+      setMergedContent("")
+      toast.success(t("settings.memoryV2.core.conflictResolved"))
+    } catch (e) {
+      logger.error("settings", "CoreMemoryEditor::resolveConflict", "Failed", e)
+      toast.error(t("settings.memoryV2.core.conflictResolveFailed"))
+      await loadContent()
+    } finally {
+      setResolvingConflict(false)
+    }
+  }
+  const title = scope === "global"
+    ? t("settings.coreMemoryGlobal")
+    : scope === "agent"
+      ? t("settings.coreMemory")
+      : t("settings.memoryV2.core.projectTitle")
+  const desc = scope === "global"
+    ? t("settings.coreMemoryGlobalDesc")
+    : scope === "agent"
+      ? t("settings.coreMemoryAgentDesc")
+      : t("settings.memoryV2.core.projectDesc")
 
   return (
     <div className="rounded-lg bg-secondary/30 mb-4 shrink-0">
@@ -116,7 +221,7 @@ export default function CoreMemoryEditor({ scope, agentId }: CoreMemoryEditorPro
             </span>
           )}
         </Button>
-        {loaded && hasChanges && expanded && (
+        {loaded && hasChanges && expanded && migrationState !== "conflict" && (
           <Button
             size="sm"
             className="gap-1.5 h-6 text-xs shrink-0"
@@ -155,10 +260,54 @@ export default function CoreMemoryEditor({ scope, agentId }: CoreMemoryEditorPro
               </button>
             </div>
           )}
+          {migrationState === "conflict" && (
+            <div className="mb-3 space-y-3 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-3 text-xs">
+              <div className="text-destructive">{t("settings.memoryV2.core.conflict")}</div>
+              {!conflict ? (
+                <Button type="button" size="sm" variant="outline" onClick={() => void loadConflict()}>
+                  {t("common.retry", "Retry")}
+                </Button>
+              ) : (
+                <>
+                  <div className="grid gap-3 lg:grid-cols-2">
+                    <label className="space-y-1 text-muted-foreground">
+                      <span>{t("settings.memoryV2.core.conflictCanonical")}</span>
+                      <Textarea value={conflict.canonicalContent} readOnly className="min-h-32 bg-background font-mono text-xs" />
+                    </label>
+                    <label className="space-y-1 text-muted-foreground">
+                      <span>{t("settings.memoryV2.core.conflictLegacy")}</span>
+                      <Textarea value={conflict.legacyContent} readOnly className="min-h-32 bg-background font-mono text-xs" />
+                    </label>
+                  </div>
+                  <label className="block space-y-1 text-muted-foreground">
+                    <span>{t("settings.memoryV2.core.conflictMerged")}</span>
+                    <Textarea
+                      value={mergedContent}
+                      onChange={(event) => setMergedContent(event.target.value)}
+                      className="min-h-36 bg-background font-mono text-xs"
+                    />
+                  </label>
+                  <div className="flex flex-wrap justify-end gap-2">
+                    <Button type="button" size="sm" variant="outline" disabled={resolvingConflict} onClick={() => void resolveConflict("canonical")}>
+                      {t("settings.memoryV2.core.conflictKeepCanonical")}
+                    </Button>
+                    <Button type="button" size="sm" variant="outline" disabled={resolvingConflict} onClick={() => void resolveConflict("legacy")}>
+                      {t("settings.memoryV2.core.conflictKeepLegacy")}
+                    </Button>
+                    <Button type="button" size="sm" disabled={resolvingConflict} onClick={() => void resolveConflict("merged")}>
+                      {resolvingConflict && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+                      {t("settings.memoryV2.core.conflictSaveMerged")}
+                    </Button>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
           {loaded && (
             <Textarea
               value={content}
               onChange={(e) => setContent(e.target.value)}
+              disabled={migrationState === "conflict"}
               placeholder={t("settings.coreMemoryPlaceholder")}
               className="min-h-[80px] max-h-[200px] text-sm font-mono resize-y"
             />

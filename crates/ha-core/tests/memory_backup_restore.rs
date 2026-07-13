@@ -125,6 +125,7 @@ fn structured_restore_downgrades_conflicts_and_maps_links_safely() {
             source_run_id: Some("backup-run".to_string()),
             created_at: now.clone(),
             updated_at: now.clone(),
+            retrieval_evidence: None,
         },
         evidence: vec![EvidenceRecord {
             id: "backup-evidence-espresso".to_string(),

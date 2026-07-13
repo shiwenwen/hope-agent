@@ -1623,6 +1623,19 @@ impl MemoryBackend for SqliteMemoryBackend {
             }
         }
 
+        let lexical_ids = fts_results
+            .iter()
+            .chain(literal_results.iter())
+            .map(|(id, _)| *id)
+            .collect::<std::collections::HashSet<_>>();
+        let semantic_similarity_by_id = vec_results
+            .iter()
+            .filter_map(|(id, distance)| {
+                crate::memory::helpers::normalized_l2_to_cosine_similarity(*distance)
+                    .map(|similarity| (*id, similarity))
+            })
+            .collect::<std::collections::HashMap<_, _>>();
+
         // ── Step 3: Weighted RRF (Reciprocal Rank Fusion) to merge results ──
         use std::collections::HashMap;
         let k = hybrid_cfg.rrf_k;
@@ -1743,6 +1756,10 @@ impl MemoryBackend for SqliteMemoryBackend {
             .filter_map(|r| r.ok())
             .map(|mut e| {
                 e.relevance_score = score_map.get(&e.id).map(|s| *s as f32);
+                e.retrieval_evidence = Some(crate::memory::MemoryRetrievalEvidence {
+                    lexical_match: lexical_ids.contains(&e.id),
+                    semantic_similarity: semantic_similarity_by_id.get(&e.id).copied(),
+                });
                 e
             })
             .collect();
@@ -2340,7 +2357,9 @@ impl MemoryBackend for SqliteMemoryBackend {
         };
         let resolver_preflight = crate::memory::dreaming::resolver_preflight_from_claims(
             &app_cfg.dreaming,
-            app_cfg.memory_extract.enabled,
+            app_cfg
+                .memory
+                .effective_enabled(app_cfg.memory_extract.enabled),
             resolver_claims_result,
             &now,
         );
@@ -3741,6 +3760,14 @@ mod claim_injection_tests {
             results.iter().any(|entry| entry.id == target_id),
             "Chinese short query should recall the CJK memory; got ids {:?}",
             results.iter().map(|entry| entry.id).collect::<Vec<_>>()
+        );
+        assert!(
+            results
+                .iter()
+                .find(|entry| entry.id == target_id)
+                .and_then(|entry| entry.retrieval_evidence.as_ref())
+                .is_some_and(|evidence| evidence.lexical_match),
+            "literal/FTS search must expose absolute lexical evidence"
         );
     }
 

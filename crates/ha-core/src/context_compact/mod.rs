@@ -135,4 +135,4 @@ pub use summarization::{
     apply_summary, build_summarization_prompt, peel_previous_summary, split_for_summarization,
 };
 pub use truncation::truncate_tool_results;
-pub use types::{CompactResult, TokenEstimateCalibrator};
+pub use types::{CompactResult, TokenEstimateCalibrator, TokenEstimateCalibrators};

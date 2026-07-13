@@ -46,12 +46,18 @@ interface MemoryTabProps {
   updateConfig: (patch: Partial<AgentConfig>) => void
 }
 
+interface CoreMemoryIndex {
+  content?: string | null
+  fileHash?: string | null
+}
+
 export default function MemoryTab({ agentId, openclawMode, config, updateConfig }: MemoryTabProps) {
   const { t } = useTranslation()
   const memoryData = useMemoryData({ agentId, isAgentMode: true })
   const [tab, setTab] = useState<"settings" | "manage">("settings")
   const [content, setContent] = useState("")
   const [originalContent, setOriginalContent] = useState("")
+  const [fileHash, setFileHash] = useState<string | null>(null)
   const [loaded, setLoaded] = useState(false)
   const [loading, setLoading] = useState(false)
   const [loadError, setLoadError] = useState<CoreMemoryOperationErrorToast | null>(null)
@@ -61,10 +67,14 @@ export default function MemoryTab({ agentId, openclawMode, config, updateConfig 
   const loadContent = useCallback(async () => {
     setLoading(true)
     try {
-      const md = await getTransport().call<string | null>("get_agent_memory_md", { id: agentId })
-      const val = md ?? ""
+      const index = await getTransport().call<CoreMemoryIndex>("core_memory_get_cmd", {
+        scopeType: "agent",
+        scopeId: agentId,
+      })
+      const val = index.content ?? ""
       setContent(val)
       setOriginalContent(val)
+      setFileHash(index.fileHash ?? null)
       setLoaded(true)
       setLoadError(null)
     } catch (e) {
@@ -78,6 +88,7 @@ export default function MemoryTab({ agentId, openclawMode, config, updateConfig 
   useEffect(() => {
     setContent("")
     setOriginalContent("")
+    setFileHash(null)
     setLoaded(false)
     setLoadError(null)
     setSaveStatus("idle")
@@ -98,8 +109,16 @@ export default function MemoryTab({ agentId, openclawMode, config, updateConfig 
   const handleSave = async () => {
     setSaving(true)
     try {
-      await getTransport().call("save_agent_memory_md", { id: agentId, content })
-      setOriginalContent(content)
+      const index = await getTransport().call<CoreMemoryIndex>("core_memory_save_cmd", {
+        scopeType: "agent",
+        scopeId: agentId,
+        content,
+        expectedFileHash: fileHash,
+      })
+      const savedContent = index.content ?? ""
+      setContent(savedContent)
+      setOriginalContent(savedContent)
+      setFileHash(index.fileHash ?? null)
       setSaveStatus("saved")
       setTimeout(() => setSaveStatus("idle"), 2000)
     } catch (e) {
@@ -117,6 +136,15 @@ export default function MemoryTab({ agentId, openclawMode, config, updateConfig 
   }
 
   const hasChanges = content !== originalContent
+  const agentMemoryEnabled = config.memory?.enabled ?? true
+  const updateAgentMemoryEnabled = (enabled: boolean) => {
+    const previous = { ...DEFAULT_AGENT_MEMORY, ...(config.memory ?? {}) }
+    updateConfig({ memory: { ...previous, enabled } })
+  }
+  const updateSharedGlobalMemory = (shared: boolean) => {
+    const previous = { ...DEFAULT_AGENT_MEMORY, ...(config.memory ?? {}) }
+    updateConfig({ memory: { ...previous, shared } })
+  }
 
   const activeMemory: ActiveMemoryConfig =
     config.memory?.activeMemory ?? { ...DEFAULT_ACTIVE_MEMORY }
@@ -202,6 +230,35 @@ export default function MemoryTab({ agentId, openclawMode, config, updateConfig 
 
         <TabsContent value="settings" className="px-6 pb-6 outline-none">
           <div className="w-full space-y-4 pt-4">
+            <div className="flex items-center justify-between gap-3 rounded-lg border border-border/60 bg-secondary/20 p-4">
+              <div className="min-w-0 pr-4">
+                <div className="text-sm font-semibold">
+                  {t("settings.agentMemoryEnabledTitle")}
+                </div>
+                <p className="mt-0.5 text-[11px] text-muted-foreground/70">
+                  {t("settings.agentMemoryEnabledDesc")}
+                </p>
+              </div>
+              <Switch
+                checked={agentMemoryEnabled}
+                onCheckedChange={updateAgentMemoryEnabled}
+                aria-label={t("settings.agentMemoryEnabledTitle")}
+              />
+            </div>
+            <div className="flex items-center justify-between gap-3 rounded-lg border border-border/60 bg-secondary/20 p-4">
+              <div className="min-w-0 pr-4">
+                <div className="text-sm font-semibold">{t("settings.coreMemoryGlobal")}</div>
+                <p className="mt-0.5 text-[11px] text-muted-foreground/70">
+                  {t("settings.memoryV2.core.desc")}
+                </p>
+              </div>
+              <Switch
+                checked={agentMemoryEnabled && (config.memory?.shared ?? true)}
+                disabled={!agentMemoryEnabled}
+                onCheckedChange={updateSharedGlobalMemory}
+                aria-label={t("settings.coreMemoryGlobal")}
+              />
+            </div>
             {/* Active Memory (Phase B1) */}
             <div className="rounded-lg border border-border/60 bg-secondary/20 p-4 space-y-3">
               <div className="flex items-center justify-between gap-3">

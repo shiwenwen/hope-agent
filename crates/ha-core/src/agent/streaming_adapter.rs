@@ -28,6 +28,9 @@ use crate::tools::ToolProvider;
 /// reasoning config shape) are constructed inside the adapter from these
 /// inputs. The public orchestrator stays oblivious to body shape differences.
 pub(crate) struct RoundRequest<'a> {
+    /// Used only to retain a bounded, content-free latest-request snapshot for
+    /// `/context`; adapters never serialize this into the provider payload.
+    pub session_id: Option<&'a str>,
     /// Static system prompt (cache-friendly prefix). Cached by Anthropic /
     /// auto-cached by OpenAI as the prompt prefix.
     pub system_prompt: &'a str,
@@ -87,6 +90,37 @@ pub(crate) struct RoundRequest<'a> {
     pub round: u32,
 }
 
+/// Canonical provider-independent ordering for per-turn system context. The
+/// first group precedes conversation history on Responses-shaped APIs; the
+/// tail stays closest to the next model decision. Chat/Anthropic adapters keep
+/// the same concatenated order in their system-message/block sequence.
+pub(crate) fn leading_dynamic_suffixes<'a>(req: &'a RoundRequest<'a>) -> Vec<&'a str> {
+    [
+        req.awareness_suffix,
+        req.active_memory_suffix,
+        req.coding_profile_suffix,
+        req.procedure_memory_suffix,
+    ]
+    .into_iter()
+    .flatten()
+    .filter(|value| !value.is_empty())
+    .collect()
+}
+
+pub(crate) fn trailing_dynamic_suffixes<'a>(req: &'a RoundRequest<'a>) -> Vec<&'a str> {
+    [req.related_notes_suffix, req.task_reminder_suffix]
+        .into_iter()
+        .flatten()
+        .filter(|value| !value.is_empty())
+        .collect()
+}
+
+pub(crate) fn all_dynamic_suffixes<'a>(req: &'a RoundRequest<'a>) -> Vec<&'a str> {
+    let mut values = leading_dynamic_suffixes(req);
+    values.extend(trailing_dynamic_suffixes(req));
+    values
+}
+
 /// Provider-agnostic outcome of one round (after SSE decoding completes).
 pub(crate) struct RoundOutcome {
     pub text: String,
@@ -102,6 +136,55 @@ pub(crate) struct RoundOutcome {
     /// Anthropic-only: stop_reason ("tool_use" / "end_turn" / "max_tokens" / ...).
     /// Other providers leave this `None` and rely on `tool_calls.is_empty()`.
     pub stop_reason: Option<String>,
+}
+
+#[cfg(test)]
+mod dynamic_context_contract_tests {
+    use super::*;
+
+    #[test]
+    fn four_provider_adapters_share_one_dynamic_memory_order() {
+        let empty: Vec<Value> = Vec::new();
+        let req = RoundRequest {
+            session_id: Some("session"),
+            system_prompt: "stable",
+            awareness_suffix: Some("awareness"),
+            active_memory_suffix: Some("memory"),
+            coding_profile_suffix: Some("coding"),
+            procedure_memory_suffix: Some("procedure"),
+            related_notes_suffix: Some("knowledge"),
+            task_reminder_suffix: Some("task"),
+            tool_schemas: &empty,
+            deferred_tool_schemas: &empty,
+            eager_tool_count: 0,
+            deferred_tool_count: 0,
+            activated_tool_count: 0,
+            prompt_cache_key: None,
+            history_for_api: &empty,
+            reasoning_effort: None,
+            temperature: None,
+            max_tokens: 100,
+            is_final_round: false,
+            round: 0,
+        };
+        assert_eq!(
+            leading_dynamic_suffixes(&req),
+            vec!["awareness", "memory", "coding", "procedure"]
+        );
+        assert_eq!(trailing_dynamic_suffixes(&req), vec!["knowledge", "task"]);
+        assert_eq!(
+            all_dynamic_suffixes(&req),
+            vec![
+                "awareness",
+                "memory",
+                "coding",
+                "procedure",
+                "knowledge",
+                "task"
+            ]
+        );
+        assert!(!all_dynamic_suffixes(&req).contains(&"stable"));
+    }
 }
 
 /// One executed tool call, ready to be appended to history by the adapter.

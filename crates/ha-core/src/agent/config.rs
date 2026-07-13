@@ -316,6 +316,41 @@ pub(crate) struct SystemPromptBuild {
     pub core_memory_snapshot: Option<crate::memory::core_repository::CoreMemorySnapshot>,
 }
 
+fn core_memory_ref(
+    scope: &crate::memory::core_repository::CoreMemoryScope,
+    rendered_content: &str,
+    canonical_repository: bool,
+) -> super::active_memory::UsedMemoryRef {
+    let scope_label = scope.key();
+    let path = crate::memory::core_repository::paths(scope)
+        .ok()
+        .map(|paths| {
+            if canonical_repository {
+                paths.canonical
+            } else {
+                paths.legacy.unwrap_or(paths.canonical)
+            }
+        })
+        .map(|path| path.display().to_string());
+    super::active_memory::UsedMemoryRef {
+        kind: "memory".to_string(),
+        id: format!("core-memory:{scope_label}"),
+        source_type: "core_memory_index".to_string(),
+        scope: scope_label,
+        origin: "core_memory".to_string(),
+        role: "injected".to_string(),
+        preview: format!("Core MEMORY.md ({} rendered bytes)", rendered_content.len()),
+        path,
+        line: None,
+        col: None,
+        heading_path: None,
+        block_id: None,
+        score: None,
+        confidence: None,
+        salience: None,
+    }
+}
+
 /// Project-aware variant of [`build_system_prompt`]. When `session_id` is
 /// supplied and its session is attached to a project, the system prompt
 /// includes a "Current Project" section, the project's shared-file catalog,
@@ -376,30 +411,53 @@ pub(crate) fn build_system_prompt_bundle_with_session_db(
 
         // Load candidate memory entries (unscoped raw list). Budget-based
         // filtering and per-section sub-budgets are applied downstream by
-        // `system_prompt::build` so that Layer 1/2 (core memory.md files) can
+        // `system_prompt::build` so that Layer 1/2 (Core MEMORY.md files) can
         // consume the total budget first and Layer 3 picks up only the residual.
         let app_cfg = crate::config::cached_config();
-        let memory_runtime_enabled = !app_cfg.memory.rollout.enabled || app_cfg.memory.enabled;
+        let memory_runtime_enabled = app_cfg
+            .memory
+            .effective_enabled(app_cfg.memory_extract.enabled);
+        let session_memory_access =
+            crate::memory::effective_session_memory_access(session_id, session_db);
+        let memory_use_enabled = memory_runtime_enabled && session_memory_access.use_memories;
         let core_memory_enabled = !app_cfg.memory.rollout.enabled || app_cfg.memory.core.enabled;
         let core_repository_enabled = app_cfg.memory.core_repository_enabled();
-        let long_term_memory_enabled = app_cfg.memory_extract.enabled && memory_runtime_enabled;
+        let long_term_memory_enabled = memory_use_enabled;
         let legacy_static_memory = app_cfg.memory.legacy_static_injection_enabled();
-        let project_id = project.as_ref().map(|project| project.id.as_str());
-        let core_memory_snapshot = if core_repository_enabled
-            && long_term_memory_enabled
+        let core_prompt_enabled = memory_use_enabled
             && core_memory_enabled
             && definition.config.memory.enabled
-            && !incognito
-        {
-            existing_core_snapshot
-                .filter(|snapshot| snapshot.matches_context(agent_id, project_id))
-                .cloned()
-                .or_else(|| {
-                    crate::memory::core_repository::CoreMemorySnapshot::capture(
-                        agent_id, project_id,
-                    )
-                    .ok()
-                })
+            && !incognito;
+        let project_id = project.as_ref().map(|project| project.id.as_str());
+        let core_memory_snapshot = if core_repository_enabled && core_prompt_enabled {
+            let shared_global = definition.config.memory.shared;
+            if let Some(session_id) = session_id {
+                // The repository map is the session-level authority. Owner
+                // reload, policy changes, compaction and backup restore all
+                // invalidate it; preferring the Agent object's local copy here
+                // would make those explicit refresh boundaries ineffective.
+                crate::memory::core_repository::session_snapshot(
+                    session_id,
+                    agent_id,
+                    project_id,
+                    shared_global,
+                )
+                .ok()
+            } else {
+                existing_core_snapshot
+                    .filter(|snapshot| {
+                        snapshot.matches_context(agent_id, project_id, shared_global)
+                    })
+                    .cloned()
+                    .or_else(|| {
+                        crate::memory::core_repository::CoreMemorySnapshot::capture(
+                            agent_id,
+                            project_id,
+                            shared_global,
+                        )
+                        .ok()
+                    })
+            }
         } else {
             None
         };
@@ -409,7 +467,7 @@ pub(crate) fn build_system_prompt_bundle_with_session_db(
                 .and_then(|snapshot| snapshot.agent.as_ref())
                 .map(|layer| layer.content.as_str())
         } else {
-            core_memory_enabled
+            core_prompt_enabled
                 .then_some(definition.memory_md.as_deref())
                 .flatten()
         };
@@ -419,7 +477,7 @@ pub(crate) fn build_system_prompt_bundle_with_session_db(
                 .and_then(|snapshot| snapshot.global.as_ref())
                 .map(|layer| layer.content.as_str())
         } else {
-            core_memory_enabled
+            core_prompt_enabled
                 .then_some(definition.global_memory_md.as_deref())
                 .flatten()
         };
@@ -570,12 +628,41 @@ pub(crate) fn build_system_prompt_bundle_with_session_db(
             .map(|m| m.workflow_mode)
             .unwrap_or_default();
         let channel_info = session_meta.as_ref().and_then(|m| m.channel_info.as_ref());
+        let rendered_v2_core = core_repository_enabled.then(|| {
+            crate::system_prompt::render_core_memory_v2(
+                global_core_memory,
+                agent_core_memory,
+                project_auto_memory_index.as_deref(),
+                &app_cfg.memory.core,
+            )
+        });
+        let (rendered_agent_core, rendered_global_core, rendered_project_core) =
+            if let Some(rendered) = rendered_v2_core.as_ref() {
+                (
+                    rendered.agent.clone(),
+                    rendered.global.clone(),
+                    rendered.project.clone(),
+                )
+            } else {
+                let (agent, global) = crate::system_prompt::rendered_core_memory_bodies(
+                    agent_core_memory,
+                    global_core_memory,
+                    &memory_budget,
+                );
+                (agent, global, project_auto_memory_index.clone())
+            };
+        let legacy_core_agent = (!core_repository_enabled)
+            .then_some(agent_core_memory)
+            .flatten();
+        let legacy_core_global = (!core_repository_enabled)
+            .then_some(global_core_memory)
+            .flatten();
         let mut static_memory_refs = context_pack
             .as_ref()
             .map(|pack| {
                 crate::system_prompt::rendered_pinned_memory_sources(
-                    agent_core_memory,
-                    global_core_memory,
+                    legacy_core_agent,
+                    legacy_core_global,
                     &memory_budget,
                     pack,
                 )
@@ -607,37 +694,70 @@ pub(crate) fn build_system_prompt_bundle_with_session_db(
             })
             .unwrap_or_default();
 
-        if let (Some(project), Some(index)) =
-            (project.as_ref(), project_auto_memory_index.as_deref())
+        for (scope, content) in [
+            (
+                crate::memory::core_repository::CoreMemoryScope::Global,
+                rendered_global_core.as_deref(),
+            ),
+            (
+                crate::memory::core_repository::CoreMemoryScope::Agent {
+                    id: agent_id.to_string(),
+                },
+                rendered_agent_core.as_deref(),
+            ),
+        ] {
+            if let Some(content) = content {
+                static_memory_refs.push(core_memory_ref(&scope, content, core_repository_enabled));
+            }
+        }
+        if let (Some(project), Some(content)) = (project.as_ref(), rendered_project_core.as_deref())
         {
-            let topic_count = index
-                .lines()
-                .filter(|line| line.trim_start().starts_with("- ["))
-                .count();
-            if topic_count > 0 {
-                static_memory_refs.push(super::active_memory::UsedMemoryRef {
-                    kind: "memory".to_string(),
-                    id: format!("project-auto-memory-index:{}", project.id),
-                    source_type: "project_auto_memory_index".to_string(),
-                    scope: format!("project:{}", project.id),
-                    origin: "project_auto_memory".to_string(),
-                    role: "injected".to_string(),
-                    preview: format!("{} project memory topic(s) indexed", topic_count),
-                    path: crate::project::memory::memory_dir(&project.id)
-                        .ok()
-                        .map(|dir| {
-                            dir.join(crate::project::memory::INDEX_FILE)
-                                .display()
-                                .to_string()
-                        }),
-                    line: None,
-                    col: None,
-                    heading_path: None,
-                    block_id: None,
-                    score: None,
-                    confidence: None,
-                    salience: None,
-                });
+            static_memory_refs.push(core_memory_ref(
+                &crate::memory::core_repository::CoreMemoryScope::Project {
+                    id: project.id.clone(),
+                },
+                content,
+                true,
+            ));
+        }
+
+        // Legacy project-auto-memory trace only. Under the V2 Core repository
+        // the same canonical MEMORY.md content is already represented by the
+        // project Core ref above; adding both would double-count one prompt
+        // source in chips, manifests, and diagnostics.
+        if !core_repository_enabled {
+            if let (Some(project), Some(index)) =
+                (project.as_ref(), rendered_project_core.as_deref())
+            {
+                let topic_count = index
+                    .lines()
+                    .filter(|line| line.trim_start().starts_with("- ["))
+                    .count();
+                if topic_count > 0 {
+                    static_memory_refs.push(super::active_memory::UsedMemoryRef {
+                        kind: "memory".to_string(),
+                        id: format!("project-auto-memory-index:{}", project.id),
+                        source_type: "project_auto_memory_index".to_string(),
+                        scope: format!("project:{}", project.id),
+                        origin: "project_auto_memory".to_string(),
+                        role: "injected".to_string(),
+                        preview: format!("{} project memory topic(s) indexed", topic_count),
+                        path: crate::project::memory::memory_dir(&project.id)
+                            .ok()
+                            .map(|dir| {
+                                dir.join(crate::project::memory::INDEX_FILE)
+                                    .display()
+                                    .to_string()
+                            }),
+                        line: None,
+                        col: None,
+                        heading_path: None,
+                        block_id: None,
+                        score: None,
+                        confidence: None,
+                        salience: None,
+                    });
+                }
             }
         }
 
@@ -647,8 +767,8 @@ pub(crate) fn build_system_prompt_bundle_with_session_db(
             .map(str::trim)
             .is_some_and(|s| !s.is_empty());
         let sqlite_cap = crate::system_prompt::sqlite_memory_budget_after_static_layers(
-            agent_core_memory,
-            global_core_memory,
+            legacy_core_agent,
+            legacy_core_global,
             &memory_budget,
             context_pack.as_ref(),
         );
@@ -688,21 +808,15 @@ pub(crate) fn build_system_prompt_bundle_with_session_db(
             }));
         }
 
-        let (rendered_agent_core, rendered_global_core) =
-            crate::system_prompt::rendered_core_memory_bodies(
-                agent_core_memory,
-                global_core_memory,
-                &memory_budget,
-            );
         let static_memory_manifest =
             crate::memory::context_manifest::StaticMemoryContextManifest::from_sources(
-                long_term_memory_enabled && definition.config.memory.enabled,
+                memory_use_enabled && definition.config.memory.enabled,
                 incognito,
                 legacy_static_memory,
                 core_memory_snapshot.as_ref(),
                 rendered_agent_core.as_deref(),
                 rendered_global_core.as_deref(),
-                project_auto_memory_index.as_deref(),
+                rendered_project_core.as_deref(),
                 profile_snapshot.as_deref(),
                 rendered_legacy_static_block.as_deref(),
                 memory_entries.len(),
@@ -712,8 +826,20 @@ pub(crate) fn build_system_prompt_bundle_with_session_db(
                 &static_memory_refs,
             );
 
+        // A CoreMemorySnapshot is immutable for the session. Override the
+        // freshly loaded AgentDefinition with that snapshot before rendering,
+        // otherwise an on-disk edit could silently churn the stable prefix on
+        // the next round even though diagnostics still report the old hash.
+        let mut prompt_definition = definition.clone();
+        if !memory_use_enabled {
+            prompt_definition.config.memory.enabled = false;
+        }
+        if core_repository_enabled {
+            prompt_definition.memory_md = agent_core_memory.map(str::to_owned);
+            prompt_definition.global_memory_md = global_core_memory.map(str::to_owned);
+        }
         let prompt = crate::system_prompt::build_with_resolved_session(
-            &definition,
+            &prompt_definition,
             Some(model),
             Some(provider),
             &memory_entries,

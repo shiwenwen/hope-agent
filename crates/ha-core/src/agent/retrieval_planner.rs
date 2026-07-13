@@ -491,7 +491,26 @@ pub fn classify_intent(query: &str) -> RetrievalIntent {
     if normalized.is_empty() {
         return RetrievalIntent::General;
     }
+    // Temporal markers win when a query also contains a procedural phrase.
+    // “之前如何处理冲突” asks for what happened in the prior episode, not a
+    // generic how-to. Keeping this overlap deterministic prevents procedure
+    // memories from displacing the user's actual historical context.
     if contains_any(
+        &normalized,
+        &[
+            "last time",
+            "previously",
+            "what happened",
+            "when did",
+            "上次",
+            "之前",
+            "曾经",
+            "经历",
+            "发生过",
+        ],
+    ) {
+        RetrievalIntent::Episode
+    } else if contains_any(
         &normalized,
         &[
             "how do",
@@ -512,21 +531,6 @@ pub fn classify_intent(query: &str) -> RetrievalIntent {
     } else if contains_any(
         &normalized,
         &[
-            "last time",
-            "previously",
-            "what happened",
-            "when did",
-            "上次",
-            "之前",
-            "曾经",
-            "经历",
-            "发生过",
-        ],
-    ) {
-        RetrievalIntent::Episode
-    } else if contains_any(
-        &normalized,
-        &[
             "note",
             "notes",
             "document",
@@ -535,6 +539,7 @@ pub fn classify_intent(query: &str) -> RetrievalIntent {
             "file",
             "笔记",
             "文档",
+            "文件",
             "资料",
             "知识库",
         ],
@@ -562,10 +567,14 @@ pub fn classify_intent(query: &str) -> RetrievalIntent {
             "i like",
             "about me",
             "remember me",
+            "my usual",
+            "as usual",
             "我的",
             "偏好",
             "喜欢",
             "我叫",
+            "平时",
+            "习惯",
         ],
     ) {
         RetrievalIntent::Profile
@@ -992,6 +1001,10 @@ mod tests {
         );
         assert_eq!(
             classify_intent("上次发布发生过什么？"),
+            RetrievalIntent::Episode
+        );
+        assert_eq!(
+            classify_intent("之前如何处理冲突？"),
             RetrievalIntent::Episode
         );
         assert_eq!(

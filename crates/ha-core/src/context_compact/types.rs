@@ -1,6 +1,7 @@
 // ── Types ──
 
 use serde::Serialize;
+use std::collections::HashMap;
 
 use super::manifest::CompactionManifest;
 
@@ -42,6 +43,30 @@ impl TokenEstimateCalibrator {
 impl Default for TokenEstimateCalibrator {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// Provider/model-scoped calibrators. Anthropic's disjoint cache counters and
+/// OpenAI's inclusive input counter can produce materially different ratios;
+/// sharing one EMA across request shapes makes compaction oscillate after a
+/// failover or model switch.
+#[derive(Debug, Clone, Default)]
+pub struct TokenEstimateCalibrators {
+    by_key: HashMap<String, TokenEstimateCalibrator>,
+}
+
+impl TokenEstimateCalibrators {
+    pub fn update(&mut self, key: &str, estimated: u32, actual: u32) {
+        self.by_key
+            .entry(key.to_string())
+            .or_default()
+            .update(estimated, actual);
+    }
+
+    pub fn calibrated_estimate(&self, key: &str, raw_estimate: u32) -> u32 {
+        self.by_key.get(key).map_or(raw_estimate, |calibrator| {
+            calibrator.calibrated_estimate(raw_estimate)
+        })
     }
 }
 
@@ -102,4 +127,20 @@ pub(super) struct ToolResultInfo {
     pub(super) tool_name: Option<String>,
     /// Content text length
     pub(super) content_chars: usize,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::TokenEstimateCalibrators;
+
+    #[test]
+    fn calibration_isolated_by_provider_model_shape_key() {
+        let mut calibrators = TokenEstimateCalibrators::default();
+        calibrators.update("anthropic:claude", 100, 200);
+        assert!(calibrators.calibrated_estimate("anthropic:claude", 100) > 100);
+        assert_eq!(
+            calibrators.calibrated_estimate("openai_responses:gpt-5", 100),
+            100
+        );
+    }
 }

@@ -5,8 +5,9 @@
 //! `tool_calls[]` index accumulation + `<think>` tag filtering), and history
 //! persistence in Chat Completions' `tool_calls` + `role=tool` shape.
 
+use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock, RwLock};
 
 use anyhow::Result;
 use async_trait::async_trait;
@@ -24,6 +25,31 @@ use super::super::streaming_adapter::{
 use super::super::types::{AssistantAgent, ChatUsage, ProviderFormat, ThinkTagFilter};
 use crate::provider::ThinkingStyle;
 use crate::tools::ToolProvider;
+
+/// OpenAI-compatible backends differ on whether they accept
+/// `prompt_cache_key`. Probe optimistically once, then remember an explicit
+/// unsupported-parameter response for the rest of the process. This is only a
+/// wire capability cache; it never changes the model-visible prompt.
+static PROMPT_CACHE_KEY_UNSUPPORTED_BACKENDS: LazyLock<RwLock<HashSet<String>>> =
+    LazyLock::new(|| RwLock::new(HashSet::new()));
+
+fn prompt_cache_backend_key(base_url: &str) -> String {
+    base_url.trim_end_matches('/').to_ascii_lowercase()
+}
+
+fn prompt_cache_key_is_supported(base_url: &str) -> bool {
+    let key = prompt_cache_backend_key(base_url);
+    PROMPT_CACHE_KEY_UNSUPPORTED_BACKENDS
+        .read()
+        .map(|backends| !backends.contains(&key))
+        .unwrap_or(true)
+}
+
+fn mark_prompt_cache_key_unsupported(base_url: &str) {
+    if let Ok(mut backends) = PROMPT_CACHE_KEY_UNSUPPORTED_BACKENDS.write() {
+        backends.insert(prompt_cache_backend_key(base_url));
+    }
+}
 
 pub(crate) struct OpenAIChatStreamingAdapter<'a> {
     pub api_key: &'a str,
@@ -80,35 +106,8 @@ fn build_chat_body(
 ) {
     let mut api_messages: Vec<Value> =
         vec![json!({ "role": "system", "content": req.system_prompt })];
-    if let Some(suffix) = req.awareness_suffix {
-        if !suffix.is_empty() {
-            api_messages.push(json!({ "role": "system", "content": suffix }));
-        }
-    }
-    if let Some(active_suffix) = req.active_memory_suffix {
-        if !active_suffix.is_empty() {
-            api_messages.push(json!({ "role": "system", "content": active_suffix }));
-        }
-    }
-    if let Some(profile_suffix) = req.coding_profile_suffix {
-        if !profile_suffix.is_empty() {
-            api_messages.push(json!({ "role": "system", "content": profile_suffix }));
-        }
-    }
-    if let Some(procedure_suffix) = req.procedure_memory_suffix {
-        if !procedure_suffix.is_empty() {
-            api_messages.push(json!({ "role": "system", "content": procedure_suffix }));
-        }
-    }
-    if let Some(related_suffix) = req.related_notes_suffix {
-        if !related_suffix.is_empty() {
-            api_messages.push(json!({ "role": "system", "content": related_suffix }));
-        }
-    }
-    if let Some(task_suffix) = req.task_reminder_suffix {
-        if !task_suffix.is_empty() {
-            api_messages.push(json!({ "role": "system", "content": task_suffix }));
-        }
+    for suffix in super::super::streaming_adapter::all_dynamic_suffixes(req) {
+        api_messages.push(json!({ "role": "system", "content": suffix }));
     }
     let expanded_history =
         expand_openai_chat_image_markers_for_api(req.history_for_api, model_supports_vision);
@@ -138,7 +137,7 @@ fn build_chat_body(
     if let Some(temp) = req.temperature {
         body["temperature"] = json!(temp);
     }
-    if base_url.contains("api.openai.com") {
+    if prompt_cache_key_is_supported(base_url) {
         if let Some(key) = req.prompt_cache_key {
             body["prompt_cache_key"] = json!(key);
         }
@@ -390,6 +389,26 @@ fn is_unsupported_image_url_error(status: u16, error_text: &str) -> bool {
             || lower.contains("not supported"))
 }
 
+fn is_unsupported_prompt_cache_key_error(status: u16, error_text: &str) -> bool {
+    if status != 400 {
+        return false;
+    }
+    let lower = error_text.to_ascii_lowercase();
+    lower.contains("prompt_cache_key")
+        && [
+            "unrecognized",
+            "unsupported",
+            "unknown",
+            "not support",
+            "not supported",
+            "unexpected",
+            "extra input",
+            "extra field",
+        ]
+        .iter()
+        .any(|signal| lower.contains(signal))
+}
+
 fn log_vision_auto_disabled(
     provider_config: Option<&crate::provider::ProviderConfig>,
     model: &str,
@@ -504,22 +523,86 @@ impl<'a> StreamingChatAdapter for OpenAIChatStreamingAdapter<'a> {
             &body,
         );
         let mut request_start = std::time::Instant::now();
-        let Some(mut resp) =
+        let Some(resp) =
             send_chat_request(client, &api_url, self.api_key, &body, req.round, cancel).await?
         else {
             return Ok(super::cancel::cancelled_round_outcome());
         };
+        let mut resp = Some(resp);
 
-        if !resp.status().is_success() {
-            let status = resp.status().as_u16();
-            let error_text = match super::cancel::read_text_with_cancel(resp, cancel).await {
+        if !resp
+            .as_ref()
+            .is_some_and(|value| value.status().is_success())
+        {
+            let status = resp
+                .as_ref()
+                .map(|value| value.status().as_u16())
+                .unwrap_or(500);
+            let error_text = match super::cancel::read_text_with_cancel(
+                resp.take().expect("response exists before reading error"),
+                cancel,
+            )
+            .await
+            {
                 Ok(Some(text)) => text,
                 Ok(None) => return Ok(super::cancel::cancelled_round_outcome()),
                 Err(_) => String::new(),
             };
             log_openai_chat_error(status, &error_text, req.round);
 
-            if let Some(autofix) = maybe_auto_disable_thinking(
+            let mut recovered_by_prompt_cache_fallback = false;
+            let mut status = status;
+            let mut error_text = error_text;
+            if body.get("prompt_cache_key").is_some()
+                && is_unsupported_prompt_cache_key_error(status, &error_text)
+            {
+                mark_prompt_cache_key_unsupported(self.base_url);
+                let (retry_body, retry_messages, retry_tools) = build_chat_body(
+                    self.base_url,
+                    self.model,
+                    self.thinking_style,
+                    model_supports_vision,
+                    &req,
+                );
+                log_openai_chat_request(
+                    &api_url,
+                    self.model,
+                    &req,
+                    &retry_messages,
+                    &retry_tools,
+                    &retry_body,
+                );
+                request_start = std::time::Instant::now();
+                let Some(retry_resp) = send_chat_request(
+                    client,
+                    &api_url,
+                    self.api_key,
+                    &retry_body,
+                    req.round,
+                    cancel,
+                )
+                .await?
+                else {
+                    return Ok(super::cancel::cancelled_round_outcome());
+                };
+                if retry_resp.status().is_success() {
+                    resp = Some(retry_resp);
+                    recovered_by_prompt_cache_fallback = true;
+                } else {
+                    status = retry_resp.status().as_u16();
+                    error_text =
+                        match super::cancel::read_text_with_cancel(retry_resp, cancel).await {
+                            Ok(Some(text)) => text,
+                            Ok(None) => return Ok(super::cancel::cancelled_round_outcome()),
+                            Err(_) => String::new(),
+                        };
+                    log_openai_chat_error(status, &error_text, req.round);
+                }
+            }
+
+            if recovered_by_prompt_cache_fallback {
+                // Continue with the successful retry response.
+            } else if let Some(autofix) = maybe_auto_disable_thinking(
                 self.provider_config,
                 self.model,
                 self.thinking_style,
@@ -556,10 +639,21 @@ impl<'a> StreamingChatAdapter for OpenAIChatStreamingAdapter<'a> {
                 else {
                     return Ok(super::cancel::cancelled_round_outcome());
                 };
-                resp = retry_resp;
-                if !resp.status().is_success() {
-                    let retry_status = resp.status().as_u16();
-                    let retry_error = match super::cancel::read_text_with_cancel(resp, cancel).await
+                resp = Some(retry_resp);
+                if !resp
+                    .as_ref()
+                    .is_some_and(|value| value.status().is_success())
+                {
+                    let retry_status = resp
+                        .as_ref()
+                        .map(|value| value.status().as_u16())
+                        .unwrap_or(500);
+                    let retry_error = match super::cancel::read_text_with_cancel(
+                        resp.take()
+                            .expect("retry response exists before reading error"),
+                        cancel,
+                    )
+                    .await
                     {
                         Ok(Some(text)) => text,
                         Ok(None) => return Ok(super::cancel::cancelled_round_outcome()),
@@ -603,10 +697,21 @@ impl<'a> StreamingChatAdapter for OpenAIChatStreamingAdapter<'a> {
                 else {
                     return Ok(super::cancel::cancelled_round_outcome());
                 };
-                resp = retry_resp;
-                if !resp.status().is_success() {
-                    let retry_status = resp.status().as_u16();
-                    let retry_error = match super::cancel::read_text_with_cancel(resp, cancel).await
+                resp = Some(retry_resp);
+                if !resp
+                    .as_ref()
+                    .is_some_and(|value| value.status().is_success())
+                {
+                    let retry_status = resp
+                        .as_ref()
+                        .map(|value| value.status().as_u16())
+                        .unwrap_or(500);
+                    let retry_error = match super::cancel::read_text_with_cancel(
+                        resp.take()
+                            .expect("retry response exists before reading error"),
+                        cancel,
+                    )
+                    .await
                     {
                         Ok(Some(text)) => text,
                         Ok(None) => return Ok(super::cancel::cancelled_round_outcome()),
@@ -629,9 +734,14 @@ impl<'a> StreamingChatAdapter for OpenAIChatStreamingAdapter<'a> {
         }
 
         // ── Parse SSE.
-        let (text, tool_calls, mut usage, thinking_text, ttft_ms) =
-            parse_chat_completions_sse(resp, request_start, req.reasoning_effort, cancel, on_delta)
-                .await?;
+        let (text, tool_calls, mut usage, thinking_text, ttft_ms) = parse_chat_completions_sse(
+            resp.expect("successful response exists before SSE parsing"),
+            request_start,
+            req.reasoning_effort,
+            cancel,
+            on_delta,
+        )
+        .await?;
 
         if let Some(logger) = crate::get_logger() {
             let tool_names: Vec<&str> = tool_calls.iter().map(|tc| tc.name.as_str()).collect();
@@ -665,6 +775,7 @@ impl<'a> StreamingChatAdapter for OpenAIChatStreamingAdapter<'a> {
             "OpenAIChat",
             self.model,
             req.round,
+            req.session_id,
             &usage,
             ttft_ms,
         );
@@ -969,7 +1080,136 @@ async fn parse_chat_completions_sse(
 
 #[cfg(test)]
 mod tests {
-    use super::is_unsupported_image_url_error;
+    use super::{
+        build_chat_body, is_unsupported_image_url_error, is_unsupported_prompt_cache_key_error,
+        mark_prompt_cache_key_unsupported,
+    };
+    use crate::agent::streaming_adapter::RoundRequest;
+    use crate::provider::ThinkingStyle;
+
+    #[test]
+    fn openai_chat_request_golden_appends_dynamic_blocks_after_stable_system() {
+        let tools = vec![serde_json::json!({
+            "name": "read",
+            "description": "Read a file",
+            "parameters": { "type": "object" }
+        })];
+        let deferred = vec![serde_json::json!({ "name": "browser" })];
+        let history = vec![serde_json::json!({ "role": "user", "content": "question" })];
+        let req = RoundRequest {
+            session_id: Some("session"),
+            system_prompt: "stable",
+            awareness_suffix: Some("awareness"),
+            active_memory_suffix: Some("memory"),
+            coding_profile_suffix: Some("coding"),
+            procedure_memory_suffix: Some("procedure"),
+            related_notes_suffix: Some("notes"),
+            task_reminder_suffix: Some("task"),
+            tool_schemas: &tools,
+            deferred_tool_schemas: &deferred,
+            eager_tool_count: 1,
+            deferred_tool_count: 1,
+            activated_tool_count: 0,
+            prompt_cache_key: Some("stable-key"),
+            history_for_api: &history,
+            reasoning_effort: None,
+            temperature: None,
+            max_tokens: 100,
+            is_final_round: false,
+            round: 0,
+        };
+        let (body, messages, request_tools) = build_chat_body(
+            "https://api.openai.com",
+            "gpt-5.4",
+            &ThinkingStyle::None,
+            false,
+            &req,
+        );
+        assert_eq!(
+            messages,
+            vec![
+                serde_json::json!({ "role": "system", "content": "stable" }),
+                serde_json::json!({ "role": "system", "content": "awareness" }),
+                serde_json::json!({ "role": "system", "content": "memory" }),
+                serde_json::json!({ "role": "system", "content": "coding" }),
+                serde_json::json!({ "role": "system", "content": "procedure" }),
+                serde_json::json!({ "role": "system", "content": "notes" }),
+                serde_json::json!({ "role": "system", "content": "task" }),
+                serde_json::json!({ "role": "user", "content": "question" }),
+            ]
+        );
+        assert_eq!(body["prompt_cache_key"], "stable-key");
+        assert_eq!(request_tools.len(), 1);
+        assert_eq!(body["tools"][0]["function"]["name"], "read");
+        assert!(body.to_string().find("browser").is_none());
+    }
+
+    #[test]
+    fn compatible_backend_uses_cache_key_until_explicitly_rejected() {
+        let tools = Vec::new();
+        let history = Vec::new();
+        let req = RoundRequest {
+            session_id: None,
+            system_prompt: "stable",
+            awareness_suffix: None,
+            active_memory_suffix: None,
+            coding_profile_suffix: None,
+            procedure_memory_suffix: None,
+            related_notes_suffix: None,
+            task_reminder_suffix: None,
+            tool_schemas: &tools,
+            deferred_tool_schemas: &tools,
+            eager_tool_count: 0,
+            deferred_tool_count: 0,
+            activated_tool_count: 0,
+            prompt_cache_key: Some("stable-key"),
+            history_for_api: &history,
+            reasoning_effort: None,
+            temperature: None,
+            max_tokens: 100,
+            is_final_round: false,
+            round: 0,
+        };
+        let base_url = "https://cache-key-test.invalid/v1";
+        let (initial, _, _) = build_chat_body(
+            base_url,
+            "compatible-model",
+            &ThinkingStyle::None,
+            false,
+            &req,
+        );
+        assert_eq!(initial["prompt_cache_key"], "stable-key");
+
+        mark_prompt_cache_key_unsupported(base_url);
+        let (after_rejection, _, _) = build_chat_body(
+            base_url,
+            "compatible-model",
+            &ThinkingStyle::None,
+            false,
+            &req,
+        );
+        assert!(after_rejection.get("prompt_cache_key").is_none());
+    }
+
+    #[test]
+    fn detects_only_explicit_prompt_cache_key_capability_errors() {
+        assert!(is_unsupported_prompt_cache_key_error(
+            400,
+            r#"{"error":{"message":"Unknown parameter: prompt_cache_key"}}"#,
+        ));
+        assert!(is_unsupported_prompt_cache_key_error(
+            400,
+            r#"{"detail":"Extra inputs are not permitted: prompt_cache_key"}"#,
+        ));
+        assert!(!is_unsupported_prompt_cache_key_error(
+            429,
+            "prompt_cache_key temporarily unavailable",
+        ));
+        assert!(!is_unsupported_prompt_cache_key_error(
+            400,
+            "invalid tools schema",
+        ));
+    }
 
     #[test]
     fn detects_deepseek_unknown_variant_rejection() {

@@ -27,7 +27,7 @@ pub fn create_backup() -> Result<String, String> {
     std::fs::create_dir_all(&backup_dir).map_err(|e| format!("Cannot create backup dir: {}", e))?;
 
     // Backup individual files
-    let files_to_backup = ["config.json", "user.json"];
+    let files_to_backup = ["config.json", "user.json", "memory.md"];
     for file in &files_to_backup {
         let src = root.join(file);
         if src.exists() {
@@ -60,6 +60,26 @@ pub fn create_backup() -> Result<String, String> {
         if let Err(e) = copy_dir_recursive(&agents_src, &agents_dst) {
             app_warn!("backup", "create", "Failed to copy agents/: {}", e);
         }
+    }
+
+    // Canonical Global Core Memory. Agent Core Memory is already included in
+    // agents/, while Project Core Memory is copied selectively below so large
+    // project workspaces never enter a configuration backup.
+    let global_memory_src = root.join("memory");
+    if global_memory_src.is_dir() {
+        if let Err(e) = copy_dir_recursive(&global_memory_src, &backup_dir.join("memory")) {
+            app_warn!("backup", "create", "Failed to copy memory/: {}", e);
+        }
+    }
+    if let Err(e) =
+        copy_project_memory_dirs(&root.join("projects"), &backup_dir.join("projects"), false)
+    {
+        app_warn!(
+            "backup",
+            "create",
+            "Failed to copy project Core Memory: {}",
+            e
+        );
     }
 
     // Rotate old backups
@@ -117,7 +137,7 @@ pub fn restore_backup(backup_name: &str) -> Result<(), String> {
     }
 
     // Restore individual files
-    let files = ["config.json", "user.json"];
+    let files = ["config.json", "user.json", "memory.md"];
     for file in &files {
         let src = backup_dir.join(file);
         if src.exists() {
@@ -144,6 +164,26 @@ pub fn restore_backup(backup_name: &str) -> Result<(), String> {
         }
         copy_dir_recursive(&agents_src, &agents_dst)
             .map_err(|e| format!("Failed to restore agents/: {}", e))?;
+    }
+
+    let global_memory_src = backup_dir.join("memory");
+    if global_memory_src.is_dir() {
+        let global_memory_dst = root.join("memory");
+        replace_dir_from_backup(&global_memory_src, &global_memory_dst)
+            .map_err(|e| format!("Failed to restore memory/: {}", e))?;
+    }
+    copy_project_memory_dirs(&backup_dir.join("projects"), &root.join("projects"), true)
+        .map_err(|e| format!("Failed to restore project Core Memory: {}", e))?;
+
+    // Agent/Global/Project Core files were replaced outside the repository.
+    // Existing chats must not retain stale in-memory snapshots after an
+    // explicit full restore.
+    crate::memory::core_repository::invalidate_all_session_snapshots();
+    if let Some(bus) = crate::get_event_bus() {
+        bus.emit(
+            "memory:core_changed",
+            serde_json::json!({ "scopeType": "all", "action": "restore_backup" }),
+        );
     }
 
     // `config.json` was rewritten out-of-band above; drop the in-memory
@@ -192,18 +232,124 @@ fn rotate_backups_internal(backups_dir: &Path, keep: usize) -> Result<(), String
 }
 
 fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<(), String> {
+    validate_copy_source_dir(src)?;
     std::fs::create_dir_all(dst).map_err(|e| format!("Cannot create dir {:?}: {}", dst, e))?;
 
     for entry in std::fs::read_dir(src).map_err(|e| format!("Cannot read dir {:?}: {}", src, e))? {
         let entry = entry.map_err(|e| e.to_string())?;
         let src_path = entry.path();
         let dst_path = dst.join(entry.file_name());
-
-        if src_path.is_dir() {
+        let metadata = std::fs::symlink_metadata(&src_path)
+            .map_err(|e| format!("Cannot inspect {:?}: {}", src_path, e))?;
+        if metadata.file_type().is_symlink() {
+            app_warn!(
+                "backup",
+                "copy",
+                "Skipping symlink while creating/restoring backup: {}",
+                src_path.display()
+            );
+            continue;
+        }
+        if metadata.is_dir() {
             copy_dir_recursive(&src_path, &dst_path)?;
-        } else {
+        } else if metadata.is_file() {
             std::fs::copy(&src_path, &dst_path)
                 .map_err(|e| format!("Cannot copy {:?}: {}", src_path, e))?;
+        }
+    }
+    Ok(())
+}
+
+fn validate_copy_source_dir(src: &Path) -> Result<(), String> {
+    let src_meta = std::fs::symlink_metadata(src)
+        .map_err(|e| format!("Cannot inspect dir {:?}: {}", src, e))?;
+    if src_meta.file_type().is_symlink() || !src_meta.is_dir() {
+        return Err(format!(
+            "Refusing to copy non-directory or symlink {:?}",
+            src
+        ));
+    }
+    Ok(())
+}
+
+/// Stage a complete directory beside the destination before replacing it.
+/// A malformed/tampered backup or a mid-copy failure therefore cannot delete
+/// the currently working Core Memory directory.
+fn replace_dir_from_backup(src: &Path, dst: &Path) -> Result<(), String> {
+    validate_copy_source_dir(src)?;
+    let parent = dst
+        .parent()
+        .ok_or_else(|| format!("Destination has no parent: {:?}", dst))?;
+    std::fs::create_dir_all(parent)
+        .map_err(|e| format!("Cannot create restore parent {:?}: {}", parent, e))?;
+    if let Ok(metadata) = std::fs::symlink_metadata(dst) {
+        if metadata.file_type().is_symlink() || !metadata.is_dir() {
+            return Err(format!("Refusing Core Memory destination {:?}", dst));
+        }
+    }
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
+    let base = dst
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("memory");
+    let staged = parent.join(format!(".{base}.restore-{suffix}"));
+    let previous = parent.join(format!(".{base}.previous-{suffix}"));
+    if let Err(error) = copy_dir_recursive(src, &staged) {
+        let _ = std::fs::remove_dir_all(&staged);
+        return Err(error);
+    }
+    let had_previous = dst.exists();
+    if had_previous {
+        std::fs::rename(dst, &previous)
+            .map_err(|e| format!("Cannot stage current {:?}: {}", dst, e))?;
+    }
+    if let Err(error) = std::fs::rename(&staged, dst) {
+        if had_previous {
+            let _ = std::fs::rename(&previous, dst);
+        }
+        let _ = std::fs::remove_dir_all(&staged);
+        return Err(format!("Cannot install restored {:?}: {}", dst, error));
+    }
+    if had_previous {
+        let _ = std::fs::remove_dir_all(previous);
+    }
+    Ok(())
+}
+
+/// Copy only `projects/{uuid}/memory/`, never project workspaces. During
+/// restore, replace the backed-up scope directory atomically at directory
+/// granularity while leaving projects absent from the backup untouched.
+fn copy_project_memory_dirs(src_root: &Path, dst_root: &Path, replace: bool) -> Result<(), String> {
+    if !src_root.is_dir() {
+        return Ok(());
+    }
+    for entry in std::fs::read_dir(src_root)
+        .map_err(|e| format!("Cannot read projects dir {:?}: {}", src_root, e))?
+    {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let project_id = entry.file_name().to_string_lossy().to_string();
+        if uuid::Uuid::parse_str(&project_id).is_err() || !entry.path().is_dir() {
+            continue;
+        }
+        let src_memory = entry.path().join("memory");
+        if !src_memory.is_dir() {
+            continue;
+        }
+        validate_copy_source_dir(&src_memory)?;
+        let dst_project = dst_root.join(&project_id);
+        if let Ok(metadata) = std::fs::symlink_metadata(&dst_project) {
+            if metadata.file_type().is_symlink() || !metadata.is_dir() {
+                return Err(format!(
+                    "Refusing project Core Memory destination {:?}",
+                    dst_project
+                ));
+            }
+        }
+        let dst_memory = dst_project.join("memory");
+        if replace {
+            replace_dir_from_backup(&src_memory, &dst_memory)?;
+        } else {
+            copy_dir_recursive(&src_memory, &dst_memory)?;
         }
     }
     Ok(())
@@ -217,6 +363,68 @@ pub struct BackupInfo {
     pub name: String,
     pub path: String,
     pub created_at: u64,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn project_core_backup_copies_only_memory_and_restore_replaces_scope() {
+        let temp = tempfile::tempdir().unwrap();
+        let project_id = "00000000-0000-0000-0000-000000000001";
+        let source = temp.path().join("source");
+        let destination = temp.path().join("destination");
+        let source_project = source.join(project_id);
+        std::fs::create_dir_all(source_project.join("memory/topics")).unwrap();
+        std::fs::create_dir_all(source_project.join("workspace")).unwrap();
+        std::fs::write(source_project.join("memory/MEMORY.md"), "core").unwrap();
+        std::fs::write(source_project.join("memory/topics/one.md"), "topic").unwrap();
+        std::fs::write(source_project.join("workspace/private.txt"), "workspace").unwrap();
+
+        copy_project_memory_dirs(&source, &destination, false).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(destination.join(project_id).join("memory/MEMORY.md")).unwrap(),
+            "core"
+        );
+        assert!(!destination
+            .join(project_id)
+            .join("workspace/private.txt")
+            .exists());
+
+        std::fs::write(
+            destination.join(project_id).join("memory/topics/stale.md"),
+            "stale",
+        )
+        .unwrap();
+        copy_project_memory_dirs(&source, &destination, true).unwrap();
+        assert!(!destination
+            .join(project_id)
+            .join("memory/topics/stale.md")
+            .exists());
+        assert!(destination
+            .join(project_id)
+            .join("memory/topics/one.md")
+            .exists());
+    }
+
+    #[test]
+    fn invalid_restore_source_preserves_current_core_memory() {
+        let temp = tempfile::tempdir().unwrap();
+        let source = temp.path().join("invalid-source");
+        let destination = temp.path().join("memory");
+        std::fs::write(&source, "not a directory").unwrap();
+        std::fs::create_dir_all(&destination).unwrap();
+        std::fs::write(destination.join("MEMORY.md"), "current").unwrap();
+
+        let error = replace_dir_from_backup(&source, &destination).unwrap_err();
+
+        assert!(error.contains("non-directory or symlink"));
+        assert_eq!(
+            std::fs::read_to_string(destination.join("MEMORY.md")).unwrap(),
+            "current"
+        );
+    }
 }
 
 // ── Auto-Snapshot on every config write ────────────────────────────

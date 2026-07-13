@@ -8,7 +8,8 @@ mod working_dir_instructions;
 pub use breakdown::{compute_breakdown, SystemPromptBreakdown};
 pub use build::{build, build_legacy};
 pub(crate) use build::{
-    build_with_resolved_session, rendered_core_memory_bodies, rendered_pinned_memory_sources,
+    build_with_resolved_session, conservative_core_token_estimate, render_core_memory_v2,
+    rendered_core_memory_bodies, rendered_pinned_memory_sources,
     sqlite_memory_budget_after_static_layers,
 };
 pub use sections::build_subagent_section_with_depth;

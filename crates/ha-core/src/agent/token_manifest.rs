@@ -4,9 +4,21 @@
 //! fingerprints. It is safe to persist in logs without copying prompts,
 //! memories, tool arguments, or conversation text.
 
+use std::num::NonZeroUsize;
+use std::sync::{LazyLock, Mutex};
+
 use serde::Serialize;
 
 use super::streaming_adapter::RoundRequest;
+
+const LAST_MANIFEST_CAPACITY: usize = 128;
+
+static LAST_ROUND_MANIFESTS: LazyLock<Mutex<lru::LruCache<String, RoundTokenManifest>>> =
+    LazyLock::new(|| {
+        Mutex::new(lru::LruCache::new(
+            NonZeroUsize::new(LAST_MANIFEST_CAPACITY).expect("manifest capacity is non-zero"),
+        ))
+    });
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -43,10 +55,52 @@ pub(crate) struct RoundTokenManifest {
     request_input_tokens_estimate: u32,
     transport_body_bytes: usize,
     native_deferred: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    context_input_tokens: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    fresh_input_tokens: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    cache_read_tokens: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    cache_write_tokens: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    output_tokens: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    ttft_ms: Option<u64>,
 }
 
-fn token_estimate_bytes(bytes: usize) -> u32 {
-    (bytes / crate::context_compact::CHARS_PER_TOKEN) as u32
+/// Content-free view consumed by `/context`. All category fields are built by
+/// the same request manifest as the adapter body; actual usage is populated
+/// after the stream completes when the Provider reports it.
+#[derive(Debug, Clone)]
+pub(crate) struct RoundContextSnapshot {
+    pub provider: String,
+    pub model: String,
+    pub stable_prompt_tokens_estimate: u32,
+    pub dynamic_prompt_tokens_estimate: u32,
+    pub history_tokens_estimate: u32,
+    pub tool_schema_tokens_estimate: u32,
+    pub eager_tool_schema_tokens_estimate: u32,
+    pub activated_tool_schema_tokens_estimate: u32,
+    pub deferred_tool_schema_tokens_estimate: u32,
+    pub cacheable_stable_tokens_estimate: u32,
+    pub request_input_tokens_estimate: u32,
+    pub eager_tool_count: usize,
+    pub deferred_tool_count: usize,
+    pub activated_tool_count: usize,
+    pub native_deferred: bool,
+    pub stable_prompt_fingerprint: String,
+    pub dynamic_prompt_fingerprint: String,
+    pub context_input_tokens: Option<u64>,
+    pub fresh_input_tokens: Option<u64>,
+    pub cache_read_tokens: Option<u64>,
+    pub cache_write_tokens: Option<u64>,
+    pub output_tokens: Option<u64>,
+    pub ttft_ms: Option<u64>,
+}
+
+fn token_estimate_text(value: &str) -> u32 {
+    crate::system_prompt::conservative_core_token_estimate(value).min(u32::MAX as usize) as u32
 }
 
 fn fingerprint(value: &[u8]) -> String {
@@ -92,9 +146,9 @@ impl RoundTokenManifest {
             req.task_reminder_suffix,
         ];
         let mut dynamic_hasher = blake3::Hasher::new();
-        let dynamic_prompt_bytes = dynamic_parts
+        let dynamic_values = dynamic_parts.iter().flatten().copied().collect::<Vec<_>>();
+        let dynamic_prompt_bytes = dynamic_values
             .iter()
-            .flatten()
             .map(|value| {
                 dynamic_hasher.update(value.as_bytes());
                 value.len()
@@ -108,7 +162,7 @@ impl RoundTokenManifest {
         let eager_tool_schema_bytes = json_bytes(eager_tools);
         let activated_tool_schema_bytes = json_bytes(activated_tools);
         let deferred_tool_schema_bytes = json_bytes(req.deferred_tool_schemas);
-        let stable_prompt_tokens_estimate = token_estimate_bytes(req.system_prompt.len());
+        let stable_prompt_tokens_estimate = token_estimate_text(req.system_prompt);
         let tool_schema_tokens_estimate = req
             .tool_schemas
             .iter()
@@ -127,7 +181,10 @@ impl RoundTokenManifest {
             .iter()
             .map(crate::context_compact::estimate_tokens)
             .sum();
-        let dynamic_prompt_tokens_estimate = token_estimate_bytes(dynamic_prompt_bytes);
+        let dynamic_prompt_tokens_estimate = dynamic_values
+            .iter()
+            .map(|value| token_estimate_text(value))
+            .sum();
         let history_tokens_estimate = req
             .history_for_api
             .iter()
@@ -173,6 +230,40 @@ impl RoundTokenManifest {
             request_input_tokens_estimate,
             transport_body_bytes,
             native_deferred,
+            context_input_tokens: None,
+            fresh_input_tokens: None,
+            cache_read_tokens: None,
+            cache_write_tokens: None,
+            output_tokens: None,
+            ttft_ms: None,
+        }
+    }
+
+    fn context_snapshot(&self) -> RoundContextSnapshot {
+        RoundContextSnapshot {
+            provider: self.provider.to_string(),
+            model: self.model.clone(),
+            stable_prompt_tokens_estimate: self.stable_prompt_tokens_estimate,
+            dynamic_prompt_tokens_estimate: self.dynamic_prompt_tokens_estimate,
+            history_tokens_estimate: self.history_tokens_estimate,
+            tool_schema_tokens_estimate: self.tool_schema_tokens_estimate,
+            eager_tool_schema_tokens_estimate: self.eager_tool_schema_tokens_estimate,
+            activated_tool_schema_tokens_estimate: self.activated_tool_schema_tokens_estimate,
+            deferred_tool_schema_tokens_estimate: self.deferred_tool_schema_tokens_estimate,
+            cacheable_stable_tokens_estimate: self.cacheable_stable_tokens_estimate,
+            request_input_tokens_estimate: self.request_input_tokens_estimate,
+            eager_tool_count: self.eager_tool_count,
+            deferred_tool_count: self.deferred_tool_count,
+            activated_tool_count: self.activated_tool_count,
+            native_deferred: self.native_deferred,
+            stable_prompt_fingerprint: self.stable_prompt_fingerprint.clone(),
+            dynamic_prompt_fingerprint: self.dynamic_prompt_fingerprint.clone(),
+            context_input_tokens: self.context_input_tokens,
+            fresh_input_tokens: self.fresh_input_tokens,
+            cache_read_tokens: self.cache_read_tokens,
+            cache_write_tokens: self.cache_write_tokens,
+            output_tokens: self.output_tokens,
+            ttft_ms: self.ttft_ms,
         }
     }
 
@@ -207,15 +298,36 @@ pub(crate) fn log_round_manifest(
     transport_body_bytes: usize,
     native_deferred: bool,
 ) {
-    RoundTokenManifest::from_request(
+    let manifest = RoundTokenManifest::from_request(
         provider,
         model,
         request_shape,
         req,
         transport_body_bytes,
         native_deferred,
-    )
-    .log();
+    );
+    if let Some(session_id) = req.session_id {
+        LAST_ROUND_MANIFESTS
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .put(session_id.to_string(), manifest.clone());
+    }
+    manifest.log();
+}
+
+pub(crate) fn latest_round_context(session_id: &str) -> Option<RoundContextSnapshot> {
+    LAST_ROUND_MANIFESTS
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .get(session_id)
+        .map(RoundTokenManifest::context_snapshot)
+}
+
+pub(crate) fn invalidate_round_context(session_id: &str) {
+    LAST_ROUND_MANIFESTS
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .pop(session_id);
 }
 
 /// Complete the request-side manifest with the provider's authoritative
@@ -225,9 +337,27 @@ pub(crate) fn log_round_usage(
     provider: &'static str,
     model: &str,
     round: u32,
+    session_id: Option<&str>,
     usage: &super::types::ChatUsage,
     ttft_ms: Option<u64>,
 ) {
+    if let Some(session_id) = session_id {
+        let mut manifests = LAST_ROUND_MANIFESTS
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        if let Some(manifest) = manifests.get_mut(session_id).filter(|manifest| {
+            manifest.provider == provider && manifest.model == model && manifest.round == round
+        }) {
+            let has_input_usage = usage.context_input_tokens > 0;
+            manifest.context_input_tokens = has_input_usage.then_some(usage.context_input_tokens);
+            manifest.fresh_input_tokens = has_input_usage.then_some(usage.fresh_input_tokens);
+            manifest.cache_read_tokens = has_input_usage.then_some(usage.cache_read_input_tokens);
+            manifest.cache_write_tokens =
+                has_input_usage.then_some(usage.cache_creation_input_tokens);
+            manifest.output_tokens = (usage.output_tokens > 0).then_some(usage.output_tokens);
+            manifest.ttft_ms = ttft_ms;
+        }
+    }
     if let Some(logger) = crate::get_logger() {
         let details = serde_json::json!({
             "provider": provider,
@@ -288,6 +418,7 @@ mod tests {
         let history = vec![serde_json::json!({ "role": "user", "content": "hi" })];
         let make = |tools: &[serde_json::Value], dynamic: &str| {
             let req = RoundRequest {
+                session_id: Some("session"),
                 system_prompt: "stable system",
                 awareness_suffix: Some(dynamic),
                 active_memory_suffix: None,

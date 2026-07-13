@@ -71,6 +71,7 @@ export interface ContextBreakdown {
   memoryTokens: number
   skillTokens: number
   messagesTokens: number
+  dynamicPromptTokens: number
   usedTotal: number
   freeSpace: number
   usagePct: number
@@ -81,6 +82,23 @@ export interface ContextBreakdown {
   activeProvider: string
   activeAgent: string
   messageCount: number
+  contextInputTokens?: number | null
+  freshInputTokens?: number | null
+  cacheReadTokens?: number | null
+  cacheWriteTokens?: number | null
+  outputTokens?: number | null
+  ttftMs?: number | null
+  requestInputTokensEstimate?: number | null
+  cacheableStableTokensEstimate?: number | null
+  eagerToolSchemaTokens?: number | null
+  activatedToolSchemaTokens?: number | null
+  deferredToolSchemaTokens?: number | null
+  eagerToolCount?: number | null
+  deferredToolCount?: number | null
+  activatedToolCount?: number | null
+  nativeDeferred?: boolean | null
+  stablePromptFingerprint?: string | null
+  dynamicPromptFingerprint?: string | null
 }
 
 /** A model entry in the model picker card */

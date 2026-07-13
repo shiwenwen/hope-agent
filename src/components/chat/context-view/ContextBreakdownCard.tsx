@@ -99,6 +99,13 @@ export default function ContextBreakdownCard({
       dotColor: "bg-green-500",
     },
     {
+      key: "dynamicPrompt",
+      label: t("context.dynamicPrompt", "Dynamic prompt"),
+      tokens: data.dynamicPromptTokens ?? 0,
+      color: "bg-cyan-500/70",
+      dotColor: "bg-cyan-500",
+    },
+    {
       key: "skills",
       label: t("context.skills", "Skills"),
       tokens: data.skillTokens,
@@ -134,6 +141,10 @@ export default function ContextBreakdownCard({
     pct < 50 ? "text-green-500" : pct < 80 ? "text-yellow-500" : "text-red-500"
   const compactBusy = externalCompacting || compacting
   const canCompact = !!sessionId && (cooldown == null || cooldown <= 0) && !compactBusy
+  const cacheReadRatio =
+    data.cacheReadTokens != null && (data.cacheableStableTokensEstimate ?? 0) > 0
+      ? Math.min(100, Math.round((data.cacheReadTokens / data.cacheableStableTokensEstimate!) * 100))
+      : null
 
   const handleCompact = async () => {
     if (!sessionId) return
@@ -230,6 +241,38 @@ export default function ContextBreakdownCard({
         })}
       </div>
 
+      {(data.contextInputTokens != null || data.requestInputTokensEstimate != null) && (
+        <div className="border-t border-border/60 px-4 py-3 text-[11px] text-muted-foreground">
+          <div className="flex flex-wrap gap-x-4 gap-y-1">
+            <span>
+              {t("context.providerInput", "Provider input")}: {formatK(
+                data.contextInputTokens ?? data.requestInputTokensEstimate ?? 0,
+              )}
+              {data.contextInputTokens == null && ` ${t("context.estimated", "estimated")}`}
+            </span>
+            {data.freshInputTokens != null && (
+              <span>{t("context.freshInput", "Fresh input")}: {formatK(data.freshInputTokens)}</span>
+            )}
+            {data.cacheReadTokens != null && (
+              <span>
+                {t("context.cacheRead", "Cache read")}: {formatK(data.cacheReadTokens)}
+                {cacheReadRatio != null && ` · ${cacheReadRatio}%`}
+              </span>
+            )}
+            {data.cacheWriteTokens != null && data.cacheWriteTokens > 0 && (
+              <span>{t("context.cacheWrite", "Cache write")}: {formatK(data.cacheWriteTokens)}</span>
+            )}
+            {data.ttftMs != null && <span>TTFT: {data.ttftMs}ms</span>}
+          </div>
+          <div className="mt-1 opacity-70">
+            {t(
+              "context.cacheWindowNotice",
+              "Cache hits reduce repeated computation, cost, and TTFT; they do not reduce context-window usage.",
+            )}
+          </div>
+        </div>
+      )}
+
       {/* ── Compaction status ───────────────────────────────── */}
       {(data.lastCompactTier != null || cooldown != null) && (
         <div className="px-4 pb-2 text-[11px] text-muted-foreground space-y-0.5">
@@ -278,7 +321,7 @@ export default function ContextBreakdownCard({
         <IconTip
           label={t(
             "context.estimateNote",
-            "Estimated (char÷4); may differ from billed usage by 10–20%.",
+            "Provider usage is authoritative after each round; before that, a conservative request-shape estimate is shown.",
           )}
         >
           <Eye className="w-3.5 h-3.5 text-muted-foreground/70" />

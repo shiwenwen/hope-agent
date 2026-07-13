@@ -869,10 +869,10 @@ pub struct AgentDefinition {
     /// soul.md content — personality/values/tone
     pub soul_md: Option<String>,
 
-    /// Global memory.md content — shared core memory across all agents
+    /// Global MEMORY.md content — shared core memory across all agents
     pub global_memory_md: Option<String>,
 
-    /// Agent-level memory.md content — core memory specific to this agent
+    /// Agent-level MEMORY.md content — core memory specific to this agent
     pub memory_md: Option<String>,
 }
 

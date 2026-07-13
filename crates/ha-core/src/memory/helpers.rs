@@ -119,6 +119,17 @@ pub(crate) fn adaptive_lexical_rrf_weights(
     (primary_weight, literal_weight)
 }
 
+/// sqlite-vec's default metric is L2. All Hope Agent embedding providers
+/// normalize vectors before persistence, so cosine similarity is exactly
+/// `1 - distance² / 2`. Keep this conversion beside the shared retrieval
+/// helpers so memory and claim search expose identical absolute evidence.
+pub(crate) fn normalized_l2_to_cosine_similarity(distance: f64) -> Option<f32> {
+    if !distance.is_finite() || distance < 0.0 {
+        return None;
+    }
+    Some((1.0 - distance * distance / 2.0).clamp(-1.0, 1.0) as f32)
+}
+
 /// Apply the current embedding config to the in-memory backend, if present.
 ///
 /// Config writes happen in several shells (Tauri commands, HTTP routes, and
@@ -613,5 +624,16 @@ mod tests {
         let (primary, literal) = adaptive_lexical_rrf_weights(0.4, 0.6, 30, 0, 10);
         assert!((primary - 0.4).abs() < 1e-6);
         assert!((literal - 0.2).abs() < 1e-6);
+    }
+
+    #[test]
+    fn normalized_l2_distance_converts_to_absolute_cosine_similarity() {
+        assert_eq!(normalized_l2_to_cosine_similarity(0.0), Some(1.0));
+        assert!(
+            normalized_l2_to_cosine_similarity(1.0).is_some_and(|value| (value - 0.5).abs() < 1e-6)
+        );
+        assert_eq!(normalized_l2_to_cosine_similarity(2.0), Some(-1.0));
+        assert_eq!(normalized_l2_to_cosine_similarity(f64::NAN), None);
+        assert_eq!(normalized_l2_to_cosine_similarity(-0.1), None);
     }
 }

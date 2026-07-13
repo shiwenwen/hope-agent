@@ -27,6 +27,8 @@ pub(super) fn build_tools_section(
         incognito,
         mcp_enabled: agent_config.capabilities.mcp_enabled,
         memory_enabled: agent_config.memory.enabled,
+        use_memories: true,
+        contribute_to_memories: true,
         tools_filter: &agent_config.capabilities.tools,
         app_config: &app_config,
     };
@@ -62,6 +64,8 @@ pub(super) fn tool_is_eager(
         incognito,
         mcp_enabled: agent_config.capabilities.mcp_enabled,
         memory_enabled: agent_config.memory.enabled,
+        use_memories: true,
+        contribute_to_memories: true,
         tools_filter: &agent_config.capabilities.tools,
         app_config: &app_config,
     };
@@ -73,7 +77,10 @@ pub(super) fn tool_is_eager(
 
 /// Build a flat tool descriptions string for legacy mode.
 pub(super) fn build_all_tools_description(incognito: bool) -> String {
-    let memory_enabled = crate::config::cached_config().memory_extract.enabled;
+    let app_config = crate::config::cached_config();
+    let memory_enabled = app_config
+        .memory
+        .effective_enabled(app_config.memory_extract.enabled);
     let descs: Vec<&str> = TOOL_DESCRIPTIONS
         .iter()
         .filter(|(name, _)| memory_enabled && !incognito || !crate::tools::is_memory_tool(name))
@@ -109,6 +116,8 @@ pub(super) fn build_deferred_tools_section(
         incognito,
         mcp_enabled: agent_config.capabilities.mcp_enabled,
         memory_enabled: agent_config.memory.enabled,
+        use_memories: true,
+        contribute_to_memories: true,
         tools_filter: &agent_config.capabilities.tools,
         app_config: &app_config,
     };
@@ -605,7 +614,11 @@ pub(super) fn build_project_context_section(project: &Project) -> String {
         out.push('\n');
     }
 
-    if crate::config::cached_config().memory_extract.enabled {
+    let app_config = crate::config::cached_config();
+    if app_config
+        .memory
+        .effective_enabled(app_config.memory_extract.enabled)
+    {
         out.push_str(
             "\nAll memories, files, and context below that live inside this project are \
              shared across every session in it. When you call `save_memory` from this \

@@ -16,6 +16,7 @@ import {
   Folder,
   FolderCheck,
   Loader2,
+  RefreshCw,
   Search,
   Send,
   Ghost,
@@ -69,6 +70,13 @@ interface RightPanelTitleBarItem {
     labelKey: string
     tone: "attention" | "running" | "neutral"
   }
+}
+
+type SessionMemoryPolicyValue = "inherit" | "allow" | "deny"
+
+interface SessionMemoryPolicy {
+  useMemories: SessionMemoryPolicyValue
+  contributeToMemories: SessionMemoryPolicyValue
 }
 
 interface ChatTitleBarProps {
@@ -179,6 +187,85 @@ export default function ChatTitleBar({
   const appVersion = useAppVersion()
   const [showStatus, setShowStatus] = useState(false)
   const statusRef = useRef<HTMLDivElement>(null)
+  const [memoryPolicy, setMemoryPolicy] = useState<SessionMemoryPolicy | null>(null)
+  const [memoryPolicySaving, setMemoryPolicySaving] = useState(false)
+  const [coreMemoryReloading, setCoreMemoryReloading] = useState(false)
+  const activeMemoryPolicySession = useRef(currentSessionId)
+  activeMemoryPolicySession.current = currentSessionId
+
+  useEffect(() => {
+    let cancelled = false
+    if (!currentSessionId) {
+      setMemoryPolicy(null)
+      return
+    }
+    setMemoryPolicy(null)
+    getTransport()
+      .call<SessionMemoryPolicy>("get_session_memory_policy_cmd", {
+        sessionId: currentSessionId,
+      })
+      .then((policy) => {
+        if (!cancelled) setMemoryPolicy(policy)
+      })
+      .catch((error) => {
+        logger.warn("ui", "ChatTitleBar::memoryPolicy", "Failed to load", error)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [currentSessionId])
+
+  useEffect(() => {
+    if (!currentSessionId) return
+    return getTransport().listen("memory:session_policy_changed", (raw) => {
+      const event = raw as { sessionId?: string; policy?: SessionMemoryPolicy }
+      if (event.sessionId === currentSessionId && event.policy) {
+        setMemoryPolicy(event.policy)
+      }
+    })
+  }, [currentSessionId])
+
+  const updateMemoryPolicy = useCallback(
+    async (patch: Partial<SessionMemoryPolicy>) => {
+      if (!currentSessionId || !memoryPolicy || memoryPolicySaving) return
+      const targetSessionId = currentSessionId
+      const previous = memoryPolicy
+      const next = { ...memoryPolicy, ...patch }
+      setMemoryPolicy(next)
+      setMemoryPolicySaving(true)
+      try {
+        const saved = await getTransport().call<SessionMemoryPolicy>(
+          "set_session_memory_policy_cmd",
+          { sessionId: targetSessionId, policy: next },
+        )
+        if (activeMemoryPolicySession.current === targetSessionId) {
+          setMemoryPolicy(saved)
+        }
+      } catch (error) {
+        if (activeMemoryPolicySession.current === targetSessionId) {
+          setMemoryPolicy(previous)
+        }
+        logger.error("ui", "ChatTitleBar::memoryPolicy", "Failed to save", error)
+      } finally {
+        setMemoryPolicySaving(false)
+      }
+    },
+    [currentSessionId, memoryPolicy, memoryPolicySaving],
+  )
+
+  const reloadCoreMemory = useCallback(async () => {
+    if (!currentSessionId || coreMemoryReloading) return
+    setCoreMemoryReloading(true)
+    try {
+      await getTransport().call("core_memory_reload_session_cmd", {
+        sessionId: currentSessionId,
+      })
+    } catch (error) {
+      logger.error("ui", "ChatTitleBar::coreMemoryReload", "Failed to reload", error)
+    } finally {
+      setCoreMemoryReloading(false)
+    }
+  }, [coreMemoryReloading, currentSessionId])
 
   // Compact result toast
   const [compactToast, setCompactToast] = useState<{ success: boolean; message: string } | null>(
@@ -528,6 +615,61 @@ export default function ChatTitleBar({
                 <span className="font-medium text-foreground tabular-nums">v{appVersion}</span>
               </div>
               <div className="border-t border-border" />
+              {currentSessionId && memoryPolicy && (
+                <>
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-medium text-foreground">
+                        🧠 {t("chat.memoryPolicy.title")}
+                      </span>
+                      {memoryPolicySaving && <Loader2 className="h-3 w-3 animate-spin" />}
+                    </div>
+                    <label className="flex items-center justify-between gap-3 text-[11px]">
+                      <span className="text-muted-foreground">{t("chat.memoryPolicy.use")}</span>
+                      <select
+                        value={memoryPolicy.useMemories}
+                        disabled={memoryPolicySaving || !!currentSession?.incognito}
+                        onChange={(event) => void updateMemoryPolicy({ useMemories: event.target.value as SessionMemoryPolicyValue })}
+                        className="h-7 rounded border border-input bg-background px-1.5 text-[11px] text-foreground"
+                      >
+                        <option value="inherit">{t("chat.memoryPolicy.inherit")}</option>
+                        <option value="allow">{t("chat.memoryPolicy.allow")}</option>
+                        <option value="deny">{t("chat.memoryPolicy.deny")}</option>
+                      </select>
+                    </label>
+                    <label className="flex items-center justify-between gap-3 text-[11px]">
+                      <span className="text-muted-foreground">{t("chat.memoryPolicy.contribute")}</span>
+                      <select
+                        value={memoryPolicy.contributeToMemories}
+                        disabled={memoryPolicySaving || !!currentSession?.incognito}
+                        onChange={(event) => void updateMemoryPolicy({ contributeToMemories: event.target.value as SessionMemoryPolicyValue })}
+                        className="h-7 rounded border border-input bg-background px-1.5 text-[11px] text-foreground"
+                      >
+                        <option value="inherit">{t("chat.memoryPolicy.inherit")}</option>
+                        <option value="allow">{t("chat.memoryPolicy.allow")}</option>
+                        <option value="deny">{t("chat.memoryPolicy.deny")}</option>
+                      </select>
+                    </label>
+                    <p className="text-[10px] leading-4 text-muted-foreground">
+                      {currentSession?.incognito
+                        ? t("chat.memoryPolicy.incognito")
+                        : t("chat.memoryPolicy.desc")}
+                    </p>
+                    <button
+                      type="button"
+                      disabled={coreMemoryReloading || !!currentSession?.incognito}
+                      onClick={() => void reloadCoreMemory()}
+                      className="inline-flex h-7 w-full items-center justify-center gap-1.5 rounded border border-border bg-background px-2 text-[11px] text-muted-foreground transition-colors hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
+                    >
+                      <RefreshCw
+                        className={cn("h-3 w-3", coreMemoryReloading && "animate-spin")}
+                      />
+                      {t("chat.memoryPolicy.reloadCore", "Reload MEMORY.md for this session")}
+                    </button>
+                  </div>
+                  <div className="border-t border-border" />
+                </>
+              )}
               {/* Model + Auth */}
               {(() => {
                 const modelLabel = currentModel

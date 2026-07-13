@@ -244,7 +244,7 @@ pub fn import_openclaw_full(req: &OpenClawImportRequest) -> Result<OpenClawImpor
                             }
                         }
                         Err(e) => warnings.push(format!(
-                            "Failed to write global memory.md from {}: {}",
+                            "Failed to write global MEMORY.md from {}: {}",
                             path.display(),
                             e
                         )),
@@ -317,7 +317,7 @@ pub fn import_openclaw_full(req: &OpenClawImportRequest) -> Result<OpenClawImpor
                             }
                         }
                         Err(e) => warnings.push(format!(
-                            "Failed to write memory.md for target agent '{}' from {}: {}",
+                            "Failed to write MEMORY.md for target agent '{}' from {}: {}",
                             target_id,
                             path.display(),
                             e
@@ -480,32 +480,19 @@ fn resolve_agent_memory_path(
 }
 
 fn write_global_memory_md(content: &str) -> Result<bool> {
-    if crate::config::cached_config()
-        .memory
-        .core_repository_enabled()
-    {
-        return write_core_memory_repository(
-            crate::memory::core_repository::CoreMemoryScope::Global,
-            content,
-        );
-    }
-    write_core_memory_md(crate::paths::root_dir()?.join("memory.md"), content)
+    write_core_memory_repository(
+        crate::memory::core_repository::CoreMemoryScope::Global,
+        content,
+    )
 }
 
 fn write_agent_memory_md(agent_id: &str, content: &str) -> Result<bool> {
-    if crate::config::cached_config()
-        .memory
-        .core_repository_enabled()
-    {
-        return write_core_memory_repository(
-            crate::memory::core_repository::CoreMemoryScope::Agent {
-                id: agent_id.to_string(),
-            },
-            content,
-        );
-    }
-    let dir = crate::paths::agent_dir(agent_id)?;
-    write_core_memory_md(dir.join("memory.md"), content)
+    write_core_memory_repository(
+        crate::memory::core_repository::CoreMemoryScope::Agent {
+            id: agent_id.to_string(),
+        },
+        content,
+    )
 }
 
 fn write_core_memory_repository(
@@ -519,22 +506,6 @@ fn write_core_memory_repository(
     backup_existing_core_memory_md(&current.canonical_path)?;
     let merged = merge_openclaw_memory_section(current.content.as_deref().unwrap_or(""), content);
     crate::memory::core_repository::save_index_owner(&scope, &merged)?;
-    Ok(true)
-}
-
-fn write_core_memory_md(path: PathBuf, content: &str) -> Result<bool> {
-    if content.trim().is_empty() {
-        return Ok(false);
-    }
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)
-            .with_context(|| format!("Failed to create {}", parent.display()))?;
-    }
-    backup_existing_core_memory_md(&path)?;
-    let existing = std::fs::read_to_string(&path).unwrap_or_default();
-    let merged = merge_openclaw_memory_section(&existing, content);
-    crate::platform::write_atomic(&path, merged.as_bytes())
-        .with_context(|| format!("Failed to write {}", path.display()))?;
     Ok(true)
 }
 
@@ -595,7 +566,7 @@ fn backup_existing_core_memory_md(path: &std::path::Path) -> Result<()> {
     }
     std::fs::copy(path, &backup_path).with_context(|| {
         format!(
-            "Failed to backup existing memory.md from {} to {}",
+            "Failed to backup existing MEMORY.md from {} to {}",
             path.display(),
             backup_path.display()
         )

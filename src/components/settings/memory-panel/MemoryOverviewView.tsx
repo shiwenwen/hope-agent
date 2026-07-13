@@ -167,6 +167,7 @@ import {
   type MemoryOverviewLoadIssue,
   type MemoryOverviewOperationErrorToast,
 } from "./memoryOverviewOperationFeedback"
+import MemoryEssentials from "./MemoryEssentials"
 
 type MemoryData = ReturnType<typeof useMemoryData>
 type MemoryCenterTab = "overview" | "settings" | "manage" | "dreaming" | "profile" | "claims"
@@ -4631,6 +4632,21 @@ export default function MemoryOverviewView({
           <p className="mt-1 text-xs text-muted-foreground">{t("settings.memoryDesc")}</p>
         </div>
 
+        {!isAgentMode && <MemoryEssentials onManage={() => onSelectTab("manage")} />}
+
+        <details open={isAgentMode || undefined} className="group">
+          <summary
+            className={isAgentMode
+              ? "hidden"
+              : "cursor-pointer list-none rounded-lg border border-border/60 bg-card px-3 py-3 text-sm font-medium [&::-webkit-details-marker]:hidden"}
+          >
+            {t("settings.hooks.advanced")} · {t("settings.memoryV2.title")}
+            <span className="ml-2 text-xs font-normal text-muted-foreground">
+              {t("settings.memoryV2.subtitle")}
+            </span>
+          </summary>
+          <div className="mt-4 space-y-5">
+
         {!isAgentMode && !memoryEnabled && (
           <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-3">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -7319,6 +7335,8 @@ export default function MemoryOverviewView({
             </DialogFooter>
           </DialogContent>
         </Dialog>
+          </div>
+        </details>
       </div>
     </div>
   )

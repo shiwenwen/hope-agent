@@ -11,6 +11,8 @@ import {
   type MemoryBudgetConfig,
   type SqliteSectionBudgets,
 } from "../types"
+import type { MemoryRuntimeConfig } from "./types"
+import MemoryEngineBudgetInputs from "./MemoryEngineBudgetInputs"
 import MemoryBudgetInputs from "./MemoryBudgetInputs"
 import {
   memoryBudgetOperationErrorToast,
@@ -36,11 +38,41 @@ function configsEqual(a: MemoryBudgetConfig, b: MemoryBudgetConfig): boolean {
   )
 }
 
+const DEFAULT_ENGINE_BUDGETS = {
+  core: {
+    totalTokens: 1600,
+    hardMaxTokens: 2400,
+    globalTokens: 350,
+    agentTokens: 450,
+    projectTokens: 650,
+    protocolTokens: 150,
+    topicReadMaxTokens: 800,
+  },
+  recall: {
+    maxTokens: 800,
+    maxSelected: 5,
+    candidateLimit: 24,
+    timeoutMs: 100,
+  },
+  deepRecall: {
+    budgetTokens: 512,
+    timeoutMs: 4500,
+    cacheTtlSecs: 60,
+    maxChars: 220,
+  },
+} as const
+
+function runtimeConfigsEqual(a: MemoryRuntimeConfig, b: MemoryRuntimeConfig): boolean {
+  return JSON.stringify(a) === JSON.stringify(b)
+}
+
 export default function BudgetConfig() {
   const { t } = useTranslation()
   const [expanded, setExpanded] = useState(false)
   const [config, setConfig] = useState<MemoryBudgetConfig>(DEFAULT_MEMORY_BUDGET)
   const [original, setOriginal] = useState<MemoryBudgetConfig>(DEFAULT_MEMORY_BUDGET)
+  const [runtime, setRuntime] = useState<MemoryRuntimeConfig | null>(null)
+  const [originalRuntime, setOriginalRuntime] = useState<MemoryRuntimeConfig | null>(null)
   const [loaded, setLoaded] = useState(false)
   const [loading, setLoading] = useState(false)
   const [loadError, setLoadError] = useState<MemoryBudgetOperationErrorToast | null>(null)
@@ -50,9 +82,14 @@ export default function BudgetConfig() {
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const cfg = await getTransport().call<MemoryBudgetConfig>("get_memory_budget_config")
+      const [cfg, memoryRuntime] = await Promise.all([
+        getTransport().call<MemoryBudgetConfig>("get_memory_budget_config"),
+        getTransport().call<MemoryRuntimeConfig>("get_memory_runtime_config"),
+      ])
       setConfig(cfg)
       setOriginal(cfg)
+      setRuntime(memoryRuntime)
+      setOriginalRuntime(memoryRuntime)
       setLoaded(true)
       setLoadError(null)
     } catch (e) {
@@ -68,16 +105,39 @@ export default function BudgetConfig() {
     load()
   }, [load])
 
-  const dirty = useMemo(
+  const legacyDirty = useMemo(
     () => loaded && !configsEqual(config, original),
     [loaded, config, original],
   )
+  const runtimeDirty = useMemo(
+    () =>
+      loaded &&
+      runtime !== null &&
+      originalRuntime !== null &&
+      !runtimeConfigsEqual(runtime, originalRuntime),
+    [loaded, runtime, originalRuntime],
+  )
+  const dirty = legacyDirty || runtimeDirty
 
   const handleSave = async () => {
     setSaving(true)
     try {
-      await getTransport().call("save_memory_budget_config", { config })
+      if (!runtime) return
+      // Both commands mutate the same config document. Keep them sequential
+      // and skip untouched sections so two concurrent read-modify-write
+      // operations cannot race on compatible HTTP/Tauri transports.
+      let savedRuntime = runtime
+      if (runtimeDirty) {
+        savedRuntime = await getTransport().call<MemoryRuntimeConfig>("save_memory_runtime_config", {
+          config: runtime,
+        })
+      }
+      if (legacyDirty) {
+        await getTransport().call("save_memory_budget_config", { config })
+      }
       setOriginal(config)
+      setRuntime(savedRuntime)
+      setOriginalRuntime(savedRuntime)
       setSaveStatus("saved")
       setTimeout(() => setSaveStatus("idle"), 2000)
     } catch (e) {
@@ -88,6 +148,9 @@ export default function BudgetConfig() {
         failureToast.title,
         failureToast.description ? { description: failureToast.description } : undefined,
       )
+      // A preceding section may already have persisted. Re-read the single
+      // source of truth so the editor never presents stale "unsaved" values.
+      await load()
       setTimeout(() => setSaveStatus("idle"), 2000)
     } finally {
       setSaving(false)
@@ -96,6 +159,12 @@ export default function BudgetConfig() {
 
   const handleReset = () => {
     setConfig(DEFAULT_MEMORY_BUDGET)
+    setRuntime((current) => current && ({
+      ...current,
+      core: { ...current.core, ...DEFAULT_ENGINE_BUDGETS.core },
+      recall: { ...current.recall, ...DEFAULT_ENGINE_BUDGETS.recall },
+      deepRecall: { ...current.deepRecall, ...DEFAULT_ENGINE_BUDGETS.deepRecall },
+    }))
   }
 
   return (
@@ -139,8 +208,18 @@ export default function BudgetConfig() {
                 {t("common.retry", "Retry")}
               </button>
             </div>
-          ) : loaded ? (
+          ) : loaded && runtime ? (
             <>
+              <MemoryEngineBudgetInputs value={runtime} onChange={setRuntime} />
+
+              <div className="border-t border-border/50 pt-4">
+                <h4 className="mb-1 text-xs font-medium text-muted-foreground">
+                  {t("settings.memoryBudget.legacyTitle")}
+                </h4>
+                <p className="mb-3 text-[11px] leading-4 text-muted-foreground">
+                  {t("settings.memoryBudget.legacyDesc")}
+                </p>
+              </div>
               <MemoryBudgetInputs value={config} onChange={setConfig} />
 
               <div className="flex items-center justify-end gap-2 pt-2">

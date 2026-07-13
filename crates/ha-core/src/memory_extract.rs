@@ -43,21 +43,65 @@ fn memory_extraction_instruction(prompt: &str) -> String {
     format!("{}\n\n{}", MEMORY_EXTRACTION_SYSTEM, prompt)
 }
 
-/// Pick the scope to use when auto-saving a memory extracted from `session_id`.
-///
-/// If the session belongs to a project (looked up via the global [`crate::get_session_db`]),
-/// the memory is scoped to that project. Otherwise it falls back to the
-/// agent's private scope, matching pre-project behavior.
-fn resolve_extract_scope(session_id: &str, agent_id: &str) -> MemoryScope {
-    if let Some(db) = crate::get_session_db() {
+fn extract_project_id(
+    session_id: &str,
+    bound_db: Option<&crate::session::SessionDB>,
+) -> Option<String> {
+    let global_db = crate::get_session_db();
+    if let Some(db) = bound_db.or_else(|| global_db.map(|db| db.as_ref())) {
         if let Ok(Some(session)) = db.get_session(session_id) {
-            if let Some(pid) = session.project_id {
-                return MemoryScope::Project { id: pid };
-            }
+            return session.project_id;
         }
     }
-    MemoryScope::Agent {
-        id: agent_id.to_string(),
+    None
+}
+
+#[derive(Debug, Clone, PartialEq)]
+enum ExtractRoute {
+    Scoped(MemoryScope),
+    Pending {
+        reason: crate::memory::pending::PendingMemoryReason,
+        suggested_scope: Option<MemoryScope>,
+    },
+}
+
+fn route_extracted_memory(
+    memory_type: &MemoryType,
+    agent_id: &str,
+    project_id: Option<&str>,
+    review_first: bool,
+) -> ExtractRoute {
+    let scoped = match memory_type {
+        MemoryType::Project => project_id
+            .map(|id| MemoryScope::Project { id: id.to_string() })
+            .map(ExtractRoute::Scoped)
+            .unwrap_or(ExtractRoute::Pending {
+                reason: crate::memory::pending::PendingMemoryReason::ProjectScopeMissing,
+                suggested_scope: None,
+            }),
+        MemoryType::Reference if project_id.is_some() => {
+            ExtractRoute::Scoped(MemoryScope::Project {
+                id: project_id.unwrap_or_default().to_string(),
+            })
+        }
+        MemoryType::User | MemoryType::Feedback | MemoryType::Reference => {
+            ExtractRoute::Scoped(MemoryScope::Agent {
+                id: agent_id.to_string(),
+            })
+        }
+    };
+    if review_first {
+        match scoped {
+            ExtractRoute::Scoped(scope) => ExtractRoute::Pending {
+                reason: crate::memory::pending::PendingMemoryReason::ReviewFirst,
+                suggested_scope: Some(scope),
+            },
+            // A missing project is a stronger and more actionable reason than
+            // the generic review-first mode, so keep it visible in the inbox.
+            pending @ ExtractRoute::Pending { .. } => pending,
+        }
+    } else {
+        scoped
     }
 }
 
@@ -82,6 +126,7 @@ Rules:
 - Be concise — each content should be 1-2 sentences
 - Write `content` in the SAME language the user predominantly used in the conversation
   (Chinese in → Chinese out, English in → English out). Do not translate.
+- Add the exact tag `core_candidate` only when the user explicitly asks to always/permanently remember this stable user preference. Never add it for inferred, project, reference, temporary, or tool-derived facts.
 - Return [] if nothing worth remembering
 - Maximum 5 items
 
@@ -105,7 +150,7 @@ const COMBINED_EXTRACT_PROMPT: &str = r#"Output ONE JSON object with TWO arrays:
   * "project" for technical/project facts (stack, architecture, goals)
   * "reference" for URLs / docs / external resources
 - 1–2 sentences each, max 5 items
-- tags are free-form keywords
+- tags are free-form keywords. Add the exact tag `core_candidate` only when the user explicitly asks to always/permanently remember this stable user preference. Never add it for inferred, project, reference, temporary, or tool-derived facts.
 - Write `content` in the SAME language the user predominantly used in the conversation
   (Chinese in → Chinese out, English in → English out). Do not translate.
 
@@ -147,6 +192,7 @@ const COMBINED_EXTRACT_WITH_CLAIMS_PROMPT: &str = r#"Output ONE JSON object with
 
 "facts" rules — same as before:
 - Extract NEW information not in "Known memories"; types user/feedback/project/reference; 1–2 sentences; max 5; same language as the user.
+- Add the exact tag `core_candidate` only when the user explicitly asks to always/permanently remember a stable user preference. Never add it for inferred, project, reference, temporary, or tool-derived facts.
 
 "profile" rules — reflective user traits; MUST include the "profile" tag; max 3; same language.
 
@@ -192,6 +238,7 @@ const COMBINED_EXTRACT_FACTS_CLAIMS_PROMPT: &str = r#"Output ONE JSON object wit
 
 "facts" rules — same as before:
 - Extract NEW information not in "Known memories"; types user/feedback/project/reference; 1–2 sentences; max 5; same language as the user.
+- Add the exact tag `core_candidate` only when the user explicitly asks to always/permanently remember a stable user preference. Never add it for inferred, project, reference, temporary, or tool-derived facts.
 - Do NOT emit reflective user-profile traits here; the user disabled reflection.
 
 "claims" rules (structured long-term memory):
@@ -245,11 +292,27 @@ pub async fn run_extraction(
     provider_config: &crate::provider::ProviderConfig,
     model_id: &str,
     main_agent: Option<&AssistantAgent>,
+    session_db: Option<Arc<crate::session::SessionDB>>,
 ) {
     let _permit = acquire_extraction_slot().await;
     let sid = session_id.to_string();
-    if crate::blocking::run_blocking(move || crate::session::is_session_incognito(Some(&sid))).await
-    {
+    let gate_db = session_db.clone();
+    let (incognito, learning_allowed) = crate::blocking::run_blocking(move || {
+        let incognito = gate_db.as_deref().map_or_else(
+            || crate::session::is_session_incognito(Some(&sid)),
+            |db| {
+                db.get_session(&sid)
+                    .ok()
+                    .flatten()
+                    .is_none_or(|session| session.incognito)
+            },
+        );
+        let allowed =
+            crate::memory::automatic_memory_learning_allowed(Some(&sid), gate_db.as_deref());
+        (incognito, allowed)
+    })
+    .await;
+    if incognito {
         app_info!(
             "memory",
             "auto_extract",
@@ -258,11 +321,11 @@ pub async fn run_extraction(
         );
         return;
     }
-    if !crate::memory::load_extract_config().enabled {
+    if !learning_allowed {
         app_info!(
             "memory",
             "auto_extract",
-            "Skipping extraction because long-term memory is turned off"
+            "Skipping extraction because learning or session contribution is turned off"
         );
         return;
     }
@@ -273,6 +336,7 @@ pub async fn run_extraction(
         provider_config,
         model_id,
         main_agent,
+        session_db,
     )
     .await
     {
@@ -287,6 +351,7 @@ async fn do_extraction(
     provider_config: &crate::provider::ProviderConfig,
     model_id: &str,
     main_agent: Option<&AssistantAgent>,
+    session_db: Option<Arc<crate::session::SessionDB>>,
 ) -> Result<()> {
     let backend = crate::get_memory_backend()
         .ok_or_else(|| anyhow::anyhow!("Memory backend not initialized"))?;
@@ -345,7 +410,7 @@ async fn do_extraction(
     // augmented combined prompt; users who opt out keep the existing prompts
     // and skip the extra tokens.
     let claims_enabled = global_extract.extract_claims;
-    let claims_review_first = global_extract.review_first;
+    let review_first = crate::memory::review_first_learning_enabled();
     let prompt_template = select_extract_prompt(claims_enabled, reflect_enabled);
     let prompt = prompt_template
         .replace("{EXISTING}", &existing_summary)
@@ -441,15 +506,30 @@ async fn do_extraction(
     let extracted_count = extracted.len();
     let sid = session_id.to_string();
     let aid = agent_id.to_string();
-    let (saved_count, linked) = crate::blocking::run_blocking(move || {
-        let scope = resolve_extract_scope(&sid, &aid);
-        let saved = persist_extracted_memories(&extracted, &scope, &sid, reflect_enabled);
-        let linked = if claim_candidates.is_empty() {
-            0
+    let extraction_db = session_db.clone();
+    let (saved_count, linked, pending_count) = crate::blocking::run_blocking(move || {
+        let project_id = extract_project_id(&sid, extraction_db.as_deref());
+        let (saved, pending_memories) = persist_extracted_memories(
+            &extracted,
+            &aid,
+            project_id.as_deref(),
+            &sid,
+            reflect_enabled,
+            review_first,
+            "auto",
+        );
+        let (linked, pending_claims) = if claim_candidates.is_empty() {
+            (0, 0)
         } else {
-            dual_write_claims(claim_candidates, &sid, &scope, claims_review_first)
+            dual_write_claims(
+                claim_candidates,
+                &sid,
+                &aid,
+                project_id.as_deref(),
+                review_first,
+            )
         };
-        (saved, linked)
+        (saved, linked, pending_memories + pending_claims)
     })
     .await;
 
@@ -469,6 +549,19 @@ async fn do_extraction(
                 "memory_extracted",
                 serde_json::json!({
                     "count": saved_count,
+                    "agentId": agent_id,
+                    "sessionId": session_id,
+                }),
+            );
+        }
+    }
+    if pending_count > 0 {
+        if let Some(bus) = crate::get_event_bus() {
+            bus.emit(
+                "memory:pending_changed",
+                serde_json::json!({
+                    "action": "extracted",
+                    "count": pending_count,
                     "agentId": agent_id,
                     "sessionId": session_id,
                 }),
@@ -495,27 +588,62 @@ async fn do_extraction(
 
 fn persist_extracted_memories(
     extracted: &[ExtractedMemory],
-    scope: &MemoryScope,
+    agent_id: &str,
+    project_id: Option<&str>,
     session_id: &str,
     reflect_enabled: bool,
-) -> usize {
+    review_first: bool,
+    source_label: &str,
+) -> (usize, usize) {
     let Some(backend) = crate::get_memory_backend() else {
-        return 0;
+        return (0, 0);
     };
     let dedup = crate::memory::load_dedup_config();
     let mut saved_count = 0usize;
+    let mut pending_count = 0usize;
     for item in extracted {
         if !reflect_enabled && item.tags.iter().any(|t| t == "profile") {
             continue;
         }
-        let source = if item.tags.iter().any(|t| t == "profile") {
+        let source = if source_label == "auto" && item.tags.iter().any(|t| t == "profile") {
             "auto-reflect".to_string()
         } else {
-            "auto".to_string()
+            source_label.to_string()
         };
+        let scope =
+            match route_extracted_memory(&item.memory_type, agent_id, project_id, review_first) {
+                ExtractRoute::Scoped(scope) => scope,
+                ExtractRoute::Pending {
+                    reason,
+                    suggested_scope,
+                } => {
+                    let pending = crate::memory::pending::NewPendingMemoryCandidate {
+                        content: item.content.clone(),
+                        memory_type: item.memory_type.clone(),
+                        tags: item.tags.clone(),
+                        source_session_id: session_id.to_string(),
+                        agent_id: agent_id.to_string(),
+                        reason,
+                        suggested_scope,
+                        candidate_kind: "memory".to_string(),
+                        payload_json: None,
+                    };
+                    match crate::memory::pending::add(pending) {
+                        Ok(_) => pending_count += 1,
+                        Err(error) => app_warn!(
+                            "memory",
+                            "auto_extract",
+                            "Failed to queue extracted memory for review: {}",
+                            error
+                        ),
+                    }
+                    continue;
+                }
+            };
+        let scope_for_promotion = scope.clone();
         let entry = NewMemory {
             memory_type: item.memory_type.clone(),
-            scope: scope.clone(),
+            scope,
             content: item.content.clone(),
             tags: item.tags.clone(),
             source,
@@ -525,8 +653,35 @@ fn persist_extracted_memories(
             attachment_mime: None,
         };
         match backend.add_with_dedup(entry, dedup.threshold_high, dedup.threshold_merge) {
-            Ok(AddResult::Created { .. } | AddResult::Updated { .. }) => saved_count += 1,
-            Ok(AddResult::Duplicate { .. }) => {}
+            Ok(result) => {
+                let memory_id = match result {
+                    AddResult::Created { id } | AddResult::Updated { id } => {
+                        saved_count += 1;
+                        id
+                    }
+                    AddResult::Duplicate { existing_id, .. } => existing_id,
+                };
+                if should_propose_core(item) {
+                    match crate::memory::pending::propose_core_promotion(
+                        memory_id,
+                        &item.content,
+                        item.memory_type.clone(),
+                        item.tags.clone(),
+                        session_id,
+                        agent_id,
+                        scope_for_promotion,
+                    ) {
+                        Ok(Some(_)) => pending_count += 1,
+                        Ok(None) => {}
+                        Err(error) => app_warn!(
+                            "memory",
+                            "core_promotion_proposal",
+                            "Failed to queue Core promotion proposal: {}",
+                            error
+                        ),
+                    }
+                }
+            }
             Err(e) => app_warn!(
                 "memory",
                 "auto_extract",
@@ -535,7 +690,12 @@ fn persist_extracted_memories(
             ),
         }
     }
-    saved_count
+    (saved_count, pending_count)
+}
+
+fn should_propose_core(item: &ExtractedMemory) -> bool {
+    matches!(item.memory_type, MemoryType::User | MemoryType::Feedback)
+        && item.tags.iter().any(|tag| tag == "core_candidate")
 }
 
 /// Map a claim type to the legacy `MemoryType` used for the dual-write shadow.
@@ -583,17 +743,49 @@ fn parse_claim_candidates(response: &str) -> Vec<crate::memory::claims::ClaimCan
 fn dual_write_claims(
     candidates: Vec<crate::memory::claims::ClaimCandidate>,
     session_id: &str,
-    scope: &MemoryScope,
+    agent_id: &str,
+    project_id: Option<&str>,
     review_first: bool,
-) -> usize {
+) -> (usize, usize) {
     let Some(backend) = crate::get_memory_backend() else {
-        return 0;
+        return (0, 0);
     };
     let dedup = crate::memory::load_dedup_config();
     let mut linked = 0usize;
+    let mut pending = 0usize;
     for c in &candidates {
+        let memory_type = claim_type_to_memory_type(&c.claim_type);
+        let scope = match route_extracted_memory(&memory_type, agent_id, project_id, review_first) {
+            ExtractRoute::Scoped(scope) => scope,
+            ExtractRoute::Pending {
+                reason,
+                suggested_scope,
+            } => {
+                let candidate = crate::memory::pending::NewPendingMemoryCandidate {
+                    content: c.content.clone(),
+                    memory_type,
+                    tags: c.tags.clone(),
+                    source_session_id: session_id.to_string(),
+                    agent_id: agent_id.to_string(),
+                    reason,
+                    suggested_scope,
+                    candidate_kind: "claim".to_string(),
+                    payload_json: serde_json::to_string(c).ok(),
+                };
+                match crate::memory::pending::add(candidate) {
+                    Ok(_) => pending += 1,
+                    Err(error) => app_warn!(
+                        "memory",
+                        "claim_extract",
+                        "Failed to queue extracted claim for review: {}",
+                        error
+                    ),
+                }
+                continue;
+            }
+        };
         let shadow = NewMemory {
-            memory_type: claim_type_to_memory_type(&c.claim_type),
+            memory_type,
             scope: scope.clone(),
             content: c.content.clone(),
             tags: c.tags.clone(),
@@ -628,13 +820,8 @@ fn dual_write_claims(
                     continue;
                 }
             };
-        let initial_status = review_first.then_some("needs_review");
         match crate::memory::claims::write_claim_candidate_with_status(
-            c,
-            scope,
-            session_id,
-            None,
-            initial_status,
+            c, &scope, session_id, None, None,
         ) {
             Ok(outcome) => {
                 if let Err(e) = crate::memory::claims::link_claim_memory(
@@ -650,7 +837,7 @@ fn dual_write_claims(
             Err(e) => app_warn!("memory", "claim_extract", "claim write failed: {}", e),
         }
     }
-    linked
+    (linked, pending)
 }
 
 // ── Flush Before Compact ────────────────────────────────────────
@@ -689,11 +876,27 @@ pub async fn flush_before_compact(
     session_id: &str,
     provider_config: &crate::provider::ProviderConfig,
     model_id: &str,
+    session_db: Option<Arc<crate::session::SessionDB>>,
 ) -> Result<usize> {
     let _permit = acquire_extraction_slot().await;
     let sid = session_id.to_string();
-    if crate::blocking::run_blocking(move || crate::session::is_session_incognito(Some(&sid))).await
-    {
+    let gate_db = session_db.clone();
+    let (incognito, learning_allowed) = crate::blocking::run_blocking(move || {
+        let incognito = gate_db.as_deref().map_or_else(
+            || crate::session::is_session_incognito(Some(&sid)),
+            |db| {
+                db.get_session(&sid)
+                    .ok()
+                    .flatten()
+                    .is_none_or(|session| session.incognito)
+            },
+        );
+        let allowed =
+            crate::memory::automatic_memory_learning_allowed(Some(&sid), gate_db.as_deref());
+        (incognito, allowed)
+    })
+    .await;
+    if incognito {
         app_info!(
             "memory",
             "flush",
@@ -702,11 +905,11 @@ pub async fn flush_before_compact(
         );
         return Ok(0);
     }
-    if !crate::memory::load_extract_config().enabled {
+    if !learning_allowed {
         app_info!(
             "memory",
             "flush",
-            "Skipping flush_before_compact because long-term memory is turned off"
+            "Skipping flush_before_compact because learning or contribution is turned off"
         );
         return Ok(0);
     }
@@ -788,34 +991,35 @@ pub async fn flush_before_compact(
 
     let sid = session_id.to_string();
     let aid = agent_id.to_string();
-    Ok(crate::blocking::run_blocking(move || {
-        let scope = resolve_extract_scope(&sid, &aid);
-        let Some(backend) = crate::get_memory_backend() else {
-            return 0;
-        };
-        let dedup = crate::memory::load_dedup_config();
-        extracted
-            .into_iter()
-            .filter(|item| {
-                let entry = NewMemory {
-                    memory_type: item.memory_type.clone(),
-                    scope: scope.clone(),
-                    content: item.content.clone(),
-                    tags: item.tags.clone(),
-                    source: "flush".to_string(),
-                    source_session_id: Some(sid.clone()),
-                    pinned: false,
-                    attachment_path: None,
-                    attachment_mime: None,
-                };
-                matches!(
-                    backend.add_with_dedup(entry, dedup.threshold_high, dedup.threshold_merge),
-                    Ok(AddResult::Created { .. } | AddResult::Updated { .. })
-                )
-            })
-            .count()
+    let extraction_db = session_db;
+    let review_first = crate::memory::review_first_learning_enabled();
+    let (saved, pending) = crate::blocking::run_blocking(move || {
+        let project_id = extract_project_id(&sid, extraction_db.as_deref());
+        persist_extracted_memories(
+            &extracted,
+            &aid,
+            project_id.as_deref(),
+            &sid,
+            true,
+            review_first,
+            "flush",
+        )
     })
-    .await)
+    .await;
+    if pending > 0 {
+        if let Some(bus) = crate::get_event_bus() {
+            bus.emit(
+                "memory:pending_changed",
+                serde_json::json!({
+                    "action": "flush_extracted",
+                    "count": pending,
+                    "agentId": agent_id,
+                    "sessionId": session_id,
+                }),
+            );
+        }
+    }
+    Ok(saved)
 }
 
 // ── Parsing ─────────────────────────────────────────────────────
@@ -1029,15 +1233,15 @@ async fn run_idle_extraction(agent_id: &str, session_id: &str, expected_updated_
         }
 
         let global_extract = crate::memory::load_extract_config();
-        if !global_extract.enabled {
+        if !crate::memory::automatic_memory_learning_allowed(Some(&sid), Some(db.as_ref())) {
             return None;
         }
         let agent_def = crate::agent_loader::load_agent(&aid);
         let agent_mem = agent_def.as_ref().ok().map(|d| &d.config.memory);
-        if !agent_mem
+        let auto_extract = agent_mem
             .and_then(|m| m.auto_extract)
-            .unwrap_or(global_extract.auto_extract)
-        {
+            .unwrap_or(global_extract.auto_extract);
+        if !auto_extract {
             return None;
         }
 
@@ -1075,11 +1279,11 @@ async fn run_idle_extraction(agent_id: &str, session_id: &str, expected_updated_
         let store = crate::config::cached_config();
         let provider =
             crate::provider::find_provider(&store.providers, &extract_provider_id)?.clone();
-        Some((history, provider, extract_model_id))
+        Some((history, provider, extract_model_id, Arc::clone(db)))
     })
     .await;
 
-    if let Some((history, prov, extract_model_id)) = prepared {
+    if let Some((history, prov, extract_model_id, session_db)) = prepared {
         app_info!(
             "memory",
             "idle_extract",
@@ -1094,6 +1298,7 @@ async fn run_idle_extraction(agent_id: &str, session_id: &str, expected_updated_
             &prov,
             &extract_model_id,
             None,
+            Some(session_db),
         )
         .await;
     }
@@ -1228,5 +1433,49 @@ mod tests {
         let legacy = select_extract_prompt(false, false);
         assert!(!legacy.contains("\"profile\""));
         assert!(!legacy.contains("\"claims\""));
+    }
+
+    #[test]
+    fn project_memory_without_project_is_queued_unassigned() {
+        assert!(matches!(
+            route_extracted_memory(&MemoryType::Project, "ha-main", None, false),
+            ExtractRoute::Pending {
+                reason: crate::memory::pending::PendingMemoryReason::ProjectScopeMissing,
+                suggested_scope: None,
+            }
+        ));
+    }
+
+    #[test]
+    fn automatic_scope_never_promotes_user_memory_to_global() {
+        assert!(matches!(
+            route_extracted_memory(
+                &MemoryType::User,
+                "ha-main",
+                Some("d8d75ea8-c3d4-4907-8059-e8cc32d4e809"),
+                false,
+            ),
+            ExtractRoute::Scoped(MemoryScope::Agent { ref id }) if id == "ha-main"
+        ));
+    }
+
+    #[test]
+    fn project_memory_uses_bound_project_scope() {
+        let project_id = "d8d75ea8-c3d4-4907-8059-e8cc32d4e809";
+        assert!(matches!(
+            route_extracted_memory(&MemoryType::Project, "ha-main", Some(project_id), false),
+            ExtractRoute::Scoped(MemoryScope::Project { ref id }) if id == project_id
+        ));
+    }
+
+    #[test]
+    fn review_first_queues_agent_candidate_without_writing_active_memory() {
+        assert!(matches!(
+            route_extracted_memory(&MemoryType::Feedback, "ha-main", None, true),
+            ExtractRoute::Pending {
+                reason: crate::memory::pending::PendingMemoryReason::ReviewFirst,
+                suggested_scope: Some(MemoryScope::Agent { ref id }),
+            } if id == "ha-main"
+        ));
     }
 }

@@ -57,6 +57,9 @@ pub struct ClaimRecord {
     pub source_run_id: Option<String>,
     pub created_at: String,
     pub updated_at: String,
+    /// Search-time evidence only; absent from ordinary owner list/get rows.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retrieval_evidence: Option<super::super::MemoryRetrievalEvidence>,
 }
 
 /// Page response for owner-plane structured memory listing. `total` is the
@@ -225,7 +228,7 @@ pub struct ClaimGraphEdge {
 /// array of the combined extraction response. Validated + canonicalized by
 /// the write path; `confidence` is NOT taken from the model — it is derived
 /// from `evidence_class` baseline.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ClaimCandidate {
     pub claim_type: String,
@@ -276,7 +279,7 @@ pub struct ResolveClaim {
 }
 
 /// Scope hint from the model: `{type: "global"|"agent"|"project", id?}`.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ClaimScopeHint {
     #[serde(rename = "type")]
@@ -286,7 +289,7 @@ pub struct ClaimScopeHint {
 }
 
 /// Temporal validity hints from the model.
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ClaimTemporal {
     #[serde(default)]

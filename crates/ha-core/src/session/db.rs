@@ -6,7 +6,8 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::Mutex;
 
 use super::types::{
-    ChannelSessionInfo, MessageRole, NewMessage, SessionKind, SessionMessage, SessionMeta,
+    ChannelSessionInfo, MessageRole, NewMessage, SessionKind, SessionMemoryPolicy,
+    SessionMemoryPolicyValue, SessionMessage, SessionMeta,
 };
 
 /// Token snapshot for the latest persisted assistant row of a session.
@@ -926,7 +927,17 @@ impl SessionDB {
                 PRIMARY KEY (session_id, tool_name)
             );
             CREATE INDEX IF NOT EXISTS idx_session_tool_activation_session
-                ON session_tool_activation(session_id);",
+                ON session_tool_activation(session_id);
+
+            CREATE TABLE IF NOT EXISTS session_memory_policy (
+                session_id TEXT PRIMARY KEY,
+                use_memories TEXT NOT NULL DEFAULT 'inherit'
+                    CHECK (use_memories IN ('inherit', 'allow', 'deny')),
+                contribute_to_memories TEXT NOT NULL DEFAULT 'inherit'
+                    CHECK (contribute_to_memories IN ('inherit', 'allow', 'deny')),
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+            );",
         )?;
 
         // ── Idempotent migrations for team_* tables ─────────────────
@@ -4160,6 +4171,66 @@ impl SessionDB {
         )?)
     }
 
+    pub fn get_memory_policy(&self, session_id: &str) -> Result<SessionMemoryPolicy> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let session_exists = conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM sessions WHERE id = ?1)",
+            params![session_id],
+            |row| row.get::<_, bool>(0),
+        )?;
+        if !session_exists {
+            anyhow::bail!("session not found: {session_id}");
+        }
+        let row = conn
+            .query_row(
+                "SELECT use_memories, contribute_to_memories
+                 FROM session_memory_policy WHERE session_id = ?1",
+                params![session_id],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+            )
+            .optional()?;
+        Ok(row.map_or_else(
+            SessionMemoryPolicy::default,
+            |(use_memories, contribute)| SessionMemoryPolicy {
+                use_memories: SessionMemoryPolicyValue::parse(&use_memories),
+                contribute_to_memories: SessionMemoryPolicyValue::parse(&contribute),
+            },
+        ))
+    }
+
+    pub fn set_memory_policy(
+        &self,
+        session_id: &str,
+        policy: SessionMemoryPolicy,
+    ) -> Result<SessionMemoryPolicy> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let changed = conn.execute(
+            "INSERT INTO session_memory_policy (
+                session_id, use_memories, contribute_to_memories, updated_at
+             ) VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT(session_id) DO UPDATE SET
+                use_memories = excluded.use_memories,
+                contribute_to_memories = excluded.contribute_to_memories,
+                updated_at = excluded.updated_at",
+            params![
+                session_id,
+                policy.use_memories.as_str(),
+                policy.contribute_to_memories.as_str(),
+                chrono::Utc::now().to_rfc3339(),
+            ],
+        )?;
+        if changed == 0 {
+            anyhow::bail!("session not found: {session_id}");
+        }
+        Ok(policy)
+    }
+
     /// Save the agent's conversation_history JSON for a session.
     pub fn save_context(&self, session_id: &str, context_json: &str) -> Result<()> {
         let conn = self
@@ -6711,6 +6782,53 @@ mod tests {
                 .expect("repeat timeout transition"),
             "duplicate timers must not emit a second terminal transition"
         );
+
+        let _ = std::fs::remove_file(&db_path);
+    }
+
+    #[test]
+    fn session_memory_policy_defaults_to_inherit_and_is_session_scoped() {
+        let db_path = temp_db_path("session-memory-policy");
+        let db = SessionDB::open(&db_path).expect("open session db");
+        let first = db
+            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .expect("create first session");
+        let second = db
+            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .expect("create second session");
+
+        assert_eq!(
+            db.get_memory_policy(&first.id).expect("default policy"),
+            crate::session::SessionMemoryPolicy::default()
+        );
+        let saved = crate::session::SessionMemoryPolicy {
+            use_memories: crate::session::SessionMemoryPolicyValue::Deny,
+            contribute_to_memories: crate::session::SessionMemoryPolicyValue::Allow,
+        };
+        db.set_memory_policy(&first.id, saved)
+            .expect("save memory policy");
+        assert_eq!(db.get_memory_policy(&first.id).unwrap(), saved);
+        assert_eq!(
+            db.get_memory_policy(&second.id).unwrap(),
+            crate::session::SessionMemoryPolicy::default()
+        );
+        assert!(db.get_memory_policy("missing-session").is_err());
+
+        let conn = db.conn.lock().expect("lock connection");
+        conn.execute(
+            "DELETE FROM sessions WHERE id = ?1",
+            rusqlite::params![first.id],
+        )
+        .expect("delete session row");
+        let remaining: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM session_memory_policy WHERE session_id = ?1",
+                rusqlite::params![first.id],
+                |row| row.get(0),
+            )
+            .expect("count memory policy rows");
+        assert_eq!(remaining, 0);
+        drop(conn);
 
         let _ = std::fs::remove_file(&db_path);
     }

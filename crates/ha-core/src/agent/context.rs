@@ -691,7 +691,17 @@ impl AssistantAgent {
                         let agent_flush = crate::agent_loader::load_agent(&self.agent_id)
                             .ok()
                             .and_then(|d| d.config.memory.flush_before_compact);
-                        global.enabled && agent_flush.unwrap_or(global.flush_before_compact)
+                        let runtime = &crate::config::cached_config().memory;
+                        if runtime.rollout.enabled {
+                            runtime.enabled
+                                && !matches!(
+                                    runtime.learning.mode,
+                                    crate::memory::MemoryLearningMode::Manual
+                                )
+                                && agent_flush.unwrap_or(global.flush_before_compact)
+                        } else {
+                            global.enabled && agent_flush.unwrap_or(global.flush_before_compact)
+                        }
                     } && !is_incognito
                         && options.allow_memory_flush;
 
@@ -706,6 +716,7 @@ impl AssistantAgent {
                                 let session_id = self.session_id.clone().unwrap_or_default();
                                 let msgs = split.summarizable.clone();
                                 let model_id = model.id.clone();
+                                let session_db = self.session_db.clone();
 
                                 // Use a new tokio runtime on a background thread to avoid
                                 // Send bounds issues with the parent async context.
@@ -723,6 +734,7 @@ impl AssistantAgent {
                                                     &session_id,
                                                     &prov,
                                                     &model_id,
+                                                    session_db,
                                                 ),
                                             )
                                             .await

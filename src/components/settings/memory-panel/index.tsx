@@ -6,7 +6,8 @@ import EmbeddingView from "./EmbeddingView"
 import MemoryFormView from "./MemoryFormView"
 import MemoryListView from "./MemoryListView"
 import MemorySettingsView from "./MemorySettingsView"
-import CoreMemoryEditor from "./CoreMemoryEditor"
+import CoreMemoryManager from "./CoreMemoryManager"
+import PendingMemoryReview from "./PendingMemoryReview"
 import DreamingPanel from "./DreamingPanel"
 import ClaimsBetaView from "./ClaimsBetaView"
 import ProfileSnapshotView from "./ProfileSnapshotView"
@@ -193,7 +194,8 @@ export default function MemoryPanel({ agentId, compact }: { agentId?: string; co
       <TabsContent value="manage" className="flex-1 min-h-0 outline-none">
         <div className="flex-1 overflow-y-auto p-6">
           <div className="w-full">
-            {!isAgentMode && <CoreMemoryEditor scope="global" />}
+            {!isAgentMode && <CoreMemoryManager agents={data.agents} />}
+            {!isAgentMode && <PendingMemoryReview agents={data.agents} />}
             <MemoryListView
               data={data}
               isAgentMode={isAgentMode}

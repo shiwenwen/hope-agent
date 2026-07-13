@@ -11,6 +11,7 @@ pub mod helpers;
 pub mod import;
 pub mod import_prompt;
 pub mod mmr;
+pub mod pending;
 pub(crate) mod recall_planner;
 pub mod recall_summary;
 pub mod reembed_job;

@@ -27,6 +27,7 @@ import {
   Settings,
   Ban,
   Pencil,
+  Pin,
   X,
 } from "lucide-react"
 import ChannelIcon from "@/components/common/ChannelIcon"
@@ -549,6 +550,17 @@ function isHighlightedMemoryRef(ref: UsedMemoryRef, selected: UsedMemoryRef | nu
   )
 }
 
+function corePromotionScope(ref: UsedMemoryRef): { scopeType: string; scopeId?: string } | null {
+  const scope = ref.scope
+  if (!scope) return null
+  if (scope === "global") return { scopeType: "global" }
+  const separator = scope.indexOf(":")
+  if (separator <= 0 || separator === scope.length - 1) return null
+  const scopeType = scope.slice(0, separator)
+  if (scopeType !== "agent" && scopeType !== "project") return null
+  return { scopeType, scopeId: scope.slice(separator + 1) }
+}
+
 function focusTargetFromMemoryRef(ref: UsedMemoryRef): MemoryFocusTarget | null {
   if (ref.kind === "memory") {
     const id = Number(ref.id)
@@ -711,6 +723,7 @@ function ActiveMemoryTrace({
   const [pendingForgetMemoryId, setPendingForgetMemoryId] = useState<string | null>(null)
   const [claimCorrections, setClaimCorrections] = useState<MemorySourceCorrectionState>({})
   const [memoryCorrections, setMemoryCorrections] = useState<MemorySourceCorrectionState>({})
+  const [corePromotions, setCorePromotions] = useState<MemorySourceCorrectionState>({})
   const [quickEdit, setQuickEdit] = useState<MemoryQuickEditState | null>(null)
   const [editedMemoryPreviews, setEditedMemoryPreviews] = useState<Record<string, string>>({})
   const refs =
@@ -892,6 +905,39 @@ function ActiveMemoryTrace({
     }
   }
 
+  const promoteToCore = async (ref: UsedMemoryRef) => {
+    if ((ref.kind !== "memory" && ref.kind !== "claim") || !ref.id) return
+    const scope = corePromotionScope(ref)
+    const key = memoryRefKey(ref)
+    if (!scope || corePromotions[key]) return
+    setCorePromotions((current) => ({ ...current, [key]: "saving" }))
+    try {
+      await getTransport().call("core_memory_promote_cmd", {
+        input: {
+          sourceKind: ref.kind,
+          sourceId: ref.id,
+          scopeType: scope.scopeType,
+          scopeId: scope.scopeId,
+        },
+      })
+      setCorePromotions((current) => ({ ...current, [key]: "done" }))
+      toast.success(
+        t("chat.memoryTrace.promotedToCoreToast", "Added to always-remember Core Memory."),
+      )
+    } catch (error) {
+      setCorePromotions((current) => {
+        const next = { ...current }
+        delete next[key]
+        return next
+      })
+      const description = memoryTraceErrorDescription(error, t)
+      toast.error(
+        t("chat.memoryTrace.promoteToCoreFailed", "Couldn't add this to Core Memory."),
+        description ? { description } : undefined,
+      )
+    }
+  }
+
   const copyTrace = async () => {
     try {
       await navigator.clipboard.writeText(
@@ -1068,6 +1114,10 @@ function ActiveMemoryTrace({
                 const SourceActionIcon = canEditMemoryRef ? Pencil : Settings
                 const quickEditActive = quickEdit?.key === refKey
                 const quickEditSaving = quickEditActive && quickEdit?.status === "saving"
+                const promotionState = corePromotions[refKey]
+                const canPromoteToCore =
+                  (candidate.kind === "memory" || candidate.kind === "claim") &&
+                  !!corePromotionScope(candidate)
                 const previewText = editedMemoryPreviews[refKey] ?? candidate.preview
                 return (
                   <div
@@ -1141,6 +1191,41 @@ function ActiveMemoryTrace({
                             aria-label={t("chat.memoryTrace.quickEdit", "Quick edit memory")}
                           >
                             <Type className="h-3.5 w-3.5" />
+                          </button>
+                        </IconTip>
+                      )}
+                      {canPromoteToCore && (
+                        <IconTip
+                          label={
+                            promotionState === "done"
+                              ? t("chat.memoryTrace.promotedToCore", "Always remembered")
+                              : promotionState === "saving"
+                                ? t("common.loading")
+                                : t("chat.memoryTrace.promoteToCore", "Always remember this")
+                          }
+                        >
+                          <button
+                            type="button"
+                            disabled={!!promotionState}
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              void promoteToCore(candidate)
+                            }}
+                            className={cn(
+                              "shrink-0 rounded p-0.5 text-muted-foreground/70 transition-colors hover:bg-emerald-500/10 hover:text-emerald-700 disabled:pointer-events-none disabled:opacity-60 dark:hover:text-emerald-300",
+                              promotionState === "done" &&
+                                "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+                            )}
+                            aria-label={t(
+                              "chat.memoryTrace.promoteToCore",
+                              "Always remember this",
+                            )}
+                          >
+                            {promotionState === "saving" ? (
+                              <Timer className="h-3.5 w-3.5 animate-pulse" />
+                            ) : (
+                              <Pin className="h-3.5 w-3.5" />
+                            )}
                           </button>
                         </IconTip>
                       )}

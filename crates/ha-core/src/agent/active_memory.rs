@@ -1,26 +1,27 @@
-//! Active Memory — pre-reply recall injection (Phase B1).
+//! Active Memory — query-dependent recall outside the stable prompt prefix.
 //!
-//! Each user turn, before the main chat request, the agent asks a bounded
-//! side_query to distill the single most relevant memory for the current
-//! message. The resulting sentence is exposed to the provider layer as an
-//! independent cache block (alongside the static system prompt and the
-//! awareness suffix), so its churn does not invalidate the prefix cache.
+//! Memory UX v2 runs deterministic local Fast Recall by default and can add a
+//! bounded LLM Deep Recall pass when the user enables it. The result is exposed
+//! to the provider layer as an independent dynamic block, so recall churn does
+//! not rewrite Core Memory or invalidate the stable `MEMORY.md` prefix.
 //!
 //! Design principles:
-//! - **Opt-in**: disabled by default — every user turn pays the side_query
-//!   latency and extra input/output tokens, so the feature waits for the user
-//!   to flip the toggle in the Memory tab. The trade-off is a more personalized
-//!   answer when the query-dependent recall succeeds. When off, the static
-//!   memory section in the system prompt still injects entries (passive path).
-//! - **Bounded**: hard timeout from `ActiveMemoryConfig.timeout_ms` (default 8s).
-//!   On timeout we silently skip injection and fall back to the passive memory
-//!   section already baked into the system prompt.
+//! - **Fast by default**: lexical/vector/claim/profile/procedure/graph sources
+//!   are fused locally with deterministic relevance and token gates. There is
+//!   no extra model call on the normal path.
+//! - **Deep is opt-in**: `ActiveMemoryConfig.enabled` is retained as the legacy
+//!   compatibility switch for the bounded side-query reranker. V2's explicit
+//!   `deepRecall` setting controls this path and defaults off because it adds
+//!   latency and tokens.
+//! - **Core stays static**: short Global / Agent / Project `MEMORY.md` snapshots
+//!   are built once per session and never replaced by dynamic database recall.
+//! - **Bounded**: the optional Deep pass has a hard timeout from
+//!   `ActiveMemoryConfig.timeout_ms` (default 8s). Timeout falls back to the
+//!   already selected Fast Recall candidates.
 //! - **Cache-friendly**: `side_query` reuses the main conversation's prompt
 //!   prefix, so the incremental cost is a short suffix + short output.
-//! - **Shortlist first**: a cheap FTS/vector search on the local memory
-//!   backend produces up to `candidate_limit` candidates; only then do we
-//!   ask the LLM to pick one. If the shortlist is empty we skip the LLM
-//!   call entirely.
+//! - **Shortlist first**: local retrieval produces up to `candidate_limit`
+//!   candidates; Deep Recall, when enabled, only reranks that bounded set.
 //! - **TTL cache**: repeating the same user message within `cache_ttl_secs`
 //!   reuses the last recall without another LLM call.
 //!
@@ -209,12 +210,18 @@ fn used_memory_ref_from_candidate(
     candidate: &ActiveMemoryCandidateRef,
     role: &str,
 ) -> UsedMemoryRef {
+    let origin = match candidate.kind.as_str() {
+        "profile" => "profile",
+        "procedure" | "episode" => "experience",
+        "graph" => "graph",
+        _ => "active_memory",
+    };
     UsedMemoryRef {
         kind: candidate.kind.clone(),
         id: candidate.id.clone(),
         source_type: candidate.source_type.clone(),
         scope: candidate.scope.clone(),
-        origin: "active_memory".to_string(),
+        origin: origin.to_string(),
         role: role.to_string(),
         preview: candidate.preview.clone(),
         path: None,
@@ -523,11 +530,13 @@ pub fn scopes_for_session(
     session_id: &str,
     agent_id: &str,
     shared_global: bool,
+    bound_db: Option<&crate::session::SessionDB>,
 ) -> Vec<MemoryScope> {
     let mut scopes = Vec::new();
 
     // Project scope (if session belongs to one).
-    if let Some(db) = crate::get_session_db() {
+    let global_db = crate::get_session_db();
+    if let Some(db) = bound_db.or_else(|| global_db.map(|db| db.as_ref())) {
         if let Ok(Some(session)) = db.get_session(session_id) {
             if let Some(pid) = session.project_id {
                 scopes.push(MemoryScope::Project { id: pid });
@@ -654,6 +663,7 @@ mod tests {
             source_run_id: None,
             created_at: "2026-01-01T00:00:00.000Z".into(),
             updated_at: "2026-01-01T00:00:00.000Z".into(),
+            retrieval_evidence: None,
         }
     }
 

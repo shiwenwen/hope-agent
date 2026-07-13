@@ -166,7 +166,7 @@ fn side_effect_note(category: &str) -> Option<&'static str> {
              discoverable by the model via team(action=\"list_templates\")."
         ),
         "memory_budget" => Some(
-            "Reducing totalChars may hide parts of memory.md from the system prompt. \
+            "Reducing totalChars may hide parts of MEMORY.md from the system prompt. \
              Full content is still retrievable via recall_memory / memory_get tools."
         ),
         "security" => Some(

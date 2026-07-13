@@ -13,6 +13,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
+import { IconTip } from "@/components/ui/tooltip"
 import { sanitizeDiagnosticText } from "@/lib/diagnosticRedaction"
 import { getTransport } from "@/lib/transport-provider"
 import type {
@@ -165,14 +166,16 @@ export function ProjectMemorySection({ projectId }: ProjectMemorySectionProps) {
               <Plus className="mr-1.5 h-3.5 w-3.5" />
               {t("project.autoMemory.newTopic")}
             </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={rebuildIndex}
-              title={t("project.autoMemory.rebuildIndex")}
-            >
-              <RefreshCw className="h-3.5 w-3.5" />
-            </Button>
+            <IconTip label={t("project.autoMemory.rebuildIndex")}>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={rebuildIndex}
+                aria-label={t("project.autoMemory.rebuildIndex")}
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
+              </Button>
+            </IconTip>
           </div>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto p-2">

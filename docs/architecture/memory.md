@@ -3,7 +3,16 @@
 
 ## 概述
 
-记忆系统基于 **SQLite + FTS5 + sqlite-vec** 构建混合检索引擎，为 AI 助手提供跨会话的长期记忆能力。支持 unicode61 关键词检索、trigram 字面片段检索与向量近似最近邻（ANN）检索，通过 RRF（Reciprocal Rank Fusion）融合排序。记忆可由用户手动保存、Agent 自动提取，或通过文件批量导入。记忆支持 **三级作用域**（Global / Agent / Project），项目级记忆在所属会话间共享但与其他项目隔离。除此之外，Project 子系统还有一层独立的**文件式项目自动记忆**：只把 `MEMORY.md` 有界索引放进稳定 prompt，主题详情按需读取；它不计入 SQLite 的项目记忆条数，也不参与 Active Memory side query。
+记忆系统由两条互补的数据路径组成：Global / Agent / Project 三级作用域的 Markdown Core Memory 负责短小、稳定、可人工维护的“始终记住”；SQLite + FTS5 + trigram + sqlite-vec、Claims、Profile、Procedure 和 Graph 负责长期积累与“相关时想起”。动态记忆可由用户手动保存、Agent 自动提取或文件导入，但默认不再批量常驻 system prompt。
+
+## Memory UX v2 默认运行时
+
+- 三个 scope 的 canonical Core 索引文件名统一为大写 `MEMORY.md`：Global 位于 `~/.hope-agent/memory/MEMORY.md`，Agent 位于 `~/.hope-agent/agents/{id}/memory/MEMORY.md`，Project 位于 `~/.hope-agent/projects/{id}/memory/MEMORY.md`。细节正文放在同目录的 `topics/*.md`，只按需读取。
+- 旧 Global / Agent 小写 `memory.md` 不是新的真相源。它只在一个 minor 的兼容窗口中作为双写镜像和旧版本 fallback；迁移、冲突检测、备份和自修复只能经 `CoreMemoryRepository`。新代码、UI 文案和文档不得重新引入小写 canonical 路径。两边冲突时只允许继续注入可信的最后同步快照；快照缺失则两边都不进入 Prompt，必须由 owner 明确选择或合并。
+- Core Memory 按会话生成稳定快照并进入 prompt 前缀；默认总预算 1,600 token、硬上限 2,400 token，Project > Agent > Global。后台文件变化不会改写当前会话快照，显式刷新、Tier 3 压缩或新会话才重新加载。
+- 动态召回默认使用本地快速模式，最多 5 条、800 token、100ms；寒暄等非上下文回合直接跳过。Profile Snapshot 只在明确的个人偏好/习惯意图中作为动态候选，不再常驻静态 prompt。深度 LLM 召回默认关闭，并在 UI 明示其延迟与 token 成本。
+- 学习与使用正交：`smart` 自动学习，`review_first` 只写待审核候选，`manual` 不自动提取。会话还能分别覆盖“使用已有记忆”和“允许本对话贡献记忆”；Incognito 两者都强制关闭。
+- 旧静态 SQLite / Profile / Pinned 注入仅由一个 minor 的显式 legacy rollback 开关保留。V2 默认配置不得删除底层资产或工具能力，只改变其默认注入位置。
 
 ## 最终设计定位：Memory OS
 
@@ -128,7 +137,7 @@ CREATE TABLE embedding_cache (
 
 ### 异步 IO 与锁顺序红线
 
-- `MemoryBackend` / claims / Dreaming store 都是同步 rusqlite API；任何 async chat、tool、Tauri command、HTTP handler 或后台调度器调用它们时，必须经 `crate::blocking::run_blocking` / `spawn_blocking`。配置文件、`memory.md`、Dream Diary、Provider credential/ledger 和本地 embedding provider 构建同样属于 blocking IO。
+- `MemoryBackend` / claims / Dreaming store 都是同步 rusqlite API；任何 async chat、tool、Tauri command、HTTP handler 或后台调度器调用它们时，必须经 `crate::blocking::run_blocking` / `spawn_blocking`。配置文件、`MEMORY.md`、Dream Diary、Provider credential/ledger 和本地 embedding provider 构建同样属于 blocking IO。
 - embedding cache 复用 memory backend 的 reader/writer。`add` / `update` 必须先生成 embedding、完成 cache 读写，再获取 memory writer；`search` / `search_claims` 必须先生成 query embedding，再获取查询 reader。禁止在持有 writer 时重入 cache writer，也禁止持有 reader 时再申请 cache reader，否则会形成确定性 writer 自锁或 4-reader 池耗尽死锁。
 - 主聊天每轮只加载一次 agent memory/capability 配置快照；system prompt 与 `static_memory_refs` 必须从同一批 session/project/memory/profile/context-pack 数据一次构建，禁止为 trace 再跑一遍完整读取。静态 prompt 构建与动态召回并发执行，Stop 可取消等待。
 - Active Memory / Procedure / graph trace / passive Knowledge recall / LLM memory selection 的本地候选读取共用有界 blocking 检索槽位。槽位由底层 blocking closure 持有，因此上层 timeout 后未结束的 embedding / SQLite 请求仍占槽；新请求拿不到槽立即以 `retrieval_busy` 或无选择增强降级，不能无限堆积不可取消的 `spawn_blocking` 任务。
@@ -443,18 +452,18 @@ Settings → "embedding quick card"（commit f64cab52）作为快速入口，首
 
 > 无痕会话在记忆侧 fail-closed：不注入 Memory / Active Memory / Awareness，不自动提取；`save_memory` / `update_core_memory` 等写入路径拒绝落盘。`recall_memory` / `memory_get` 这类读取工具也由执行层按无痕状态归零，避免模型主动绕过无痕边界。
 
-## Memory Budget 4 级优先级
+## Legacy 回滚模式的 Memory Budget 4 级优先级
 
 `effective_memory_budget(agent, global)` 是 system prompt 注入预算的单一入口，按以下优先级消费总字符预算：
 
 1. **Guidelines**（最高，不可裁剪）— Memory 工具使用指南静态文本
-2. **Agent memory.md** — `~/.hope-agent/agents/{id}/memory.md` 截断到 `MAX_FILE_CHARS`
-3. **Global memory.md** — `~/.hope-agent/memory.md` 截断到 `MAX_FILE_CHARS`
+2. **Agent MEMORY.md** — canonical `~/.hope-agent/agents/{id}/memory/MEMORY.md` 截断到 `MAX_FILE_CHARS`
+3. **Global MEMORY.md** — canonical `~/.hope-agent/memory/MEMORY.md` 截断到 `MAX_FILE_CHARS`
 4. **SQLite 记忆**（最易被裁）— `format_prompt_summary` 输出，按 `Project > Agent > Global > pinned 优先`
 
 前端所有记忆相关 owner UI / 复制诊断 / 支持报告错误 detail 的脱敏必须走 [`src/lib/diagnosticRedaction.ts`](../../src/lib/diagnosticRedaction.ts)；memory-panel 内部可通过 `sanitizeMemoryDiagnosticText` 薄包装复用，但不得新增散落的正则副本。该单点负责 token / Authorization / api_key / api-key / apiKey / access_token / accessToken / password / passphrase / OpenAI-style key / Google API key 的脱敏、单行规整和 bounded 截断，并保留原始 `:` / `=` 形状，确保普通用户可读、高级用户可排障且不会泄露凭据。
 
-Core Memory 编辑器的 Global / Agent `memory.md` 加载和保存失败必须显示本地化动作标题，并把底层 owner IPC / 文件读写错误放入本地化 detail；detail 必须先做 token / Authorization / api_key / password / passphrase 脱敏、单行规整和 bounded 截断，空错误不展示 detail。初次加载失败不得渲染空编辑框伪装成“核心记忆为空”，必须在编辑器内显示 inline warning + retry；已有内容刷新失败时可保留旧内容，但必须显示降级 warning。Agent 配置页的独立 Core Memory 管理入口遵守同一契约，并且切换 Agent 时必须先清掉上一位 Agent 的本地草稿 / confirmed 内容，避免新 Agent 读取失败时残留旧 Agent 记忆。该反馈只解释 owner UI 失败，不改变 core memory 文件真相源、注入优先级、截断预算、`update_core_memory` 工具语义或 incognito / memory-off 守卫。
+Core Memory 编辑器的 Global / Agent / Project `MEMORY.md` 加载和保存失败必须显示本地化动作标题，并把底层 owner IPC / 文件读写错误放入本地化 detail；detail 必须先做 token / Authorization / api_key / password / passphrase 脱敏、单行规整和 bounded 截断，空错误不展示 detail。初次加载失败不得渲染空编辑框伪装成“核心记忆为空”，必须在编辑器内显示 inline warning + retry；已有内容刷新失败时可保留旧内容，但必须显示降级 warning。Agent 配置页的独立 Core Memory 管理入口遵守同一契约，并且切换 Agent 时必须先清掉上一位 Agent 的本地草稿 / confirmed 内容，避免新 Agent 读取失败时残留旧 Agent 记忆。该反馈只解释 owner UI 失败，不改变 Core Memory repository 真相源、注入优先级、token 预算、`core_memory` / `update_core_memory` 工具语义或 incognito / memory-off 守卫。
 
 Memory Budget 配置页加载 / 保存失败必须显示本地化动作标题，并把底层 owner IPC / 配置读写错误放入本地化 detail；detail 必须先做 token / Authorization / api_key / password / passphrase 脱敏、单行规整和 bounded 截断，空错误不展示 detail。加载失败时不得把 fallback 默认预算输入渲染成真实配置，必须显示 inline warning + retry；成功重试后再展示后端确认的预算输入。该反馈只解释 owner UI 失败，不改变 `effective_memory_budget` 优先级、预算裁剪、Agent override 语义、prompt 注入或工具返回完整原文的约束。
 
@@ -727,8 +736,8 @@ flowchart TD
     Check -- Yes --> S8a
 
     subgraph Section8["Section ⑧ Memory 组装"]
-        S8a["8a: Global Core Memory<br/>读取全局 memory.md<br/>截断 MAX_FILE_CHARS"] --> S8b
-        S8b["8b: Agent Core Memory<br/>读取 Agent memory.md<br/>截断 MAX_FILE_CHARS"] --> S8c
+        S8a["8a: Global Core Memory<br/>读取全局 MEMORY.md<br/>token bounded"] --> S8b
+        S8b["8b: Agent Core Memory<br/>读取 Agent MEMORY.md<br/>token bounded"] --> S8c
         S8c["8c: SQLite 记忆注入"] --> S8d
         S8d["8d: Memory Guidelines<br/>工具使用指南（静态文本）"]
     end
