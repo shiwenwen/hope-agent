@@ -6,13 +6,10 @@
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-pub const INDEX_FILE: &str = "MEMORY.md";
-pub const INDEX_MAX_LINES: usize = 200;
-pub const INDEX_MAX_BYTES: usize = 25 * 1024;
+pub const INDEX_FILE: &str = crate::memory::core_repository::CORE_INDEX_FILE;
 pub const TOPIC_MAX_BYTES: usize = 128 * 1024;
 pub const MAX_TOPIC_FILES: usize = 256;
 
@@ -76,25 +73,20 @@ pub fn memory_dir(project_id: &str) -> Result<PathBuf> {
 }
 
 pub fn load_index(project_id: &str) -> Result<Option<String>> {
-    let dir = memory_dir(project_id)?;
-    validate_existing_memory_dir(&dir)?;
-    let path = dir.join(INDEX_FILE);
-    if !path.exists() {
-        return Ok(None);
-    }
-    reject_non_regular_file(&path)?;
-    let mut file = fs::File::open(&path).with_context(|| format!("read {}", path.display()))?;
-    let mut bytes = Vec::new();
-    file.by_ref()
-        .take(INDEX_MAX_BYTES as u64)
-        .read_to_end(&mut bytes)?;
-    let text = String::from_utf8_lossy(&bytes);
-    let bounded = text
-        .lines()
-        .take(INDEX_MAX_LINES)
-        .collect::<Vec<_>>()
-        .join("\n");
-    Ok((!bounded.trim().is_empty()).then_some(bounded))
+    crate::memory::core_repository::load_index(
+        &crate::memory::core_repository::CoreMemoryScope::Project {
+            id: project_id.to_string(),
+        },
+    )
+    .map(|index| {
+        index.content.map(|content| {
+            content
+                .lines()
+                .take(crate::memory::core_repository::CORE_INDEX_MAX_LINES)
+                .collect::<Vec<_>>()
+                .join("\n")
+        })
+    })
 }
 
 pub fn render_index_prompt(index: &str) -> String {
@@ -345,7 +337,13 @@ pub fn rebuild_index(project_id: &str) -> Result<String> {
 fn rebuild_index_unlocked(project_id: &str, dir: &Path) -> Result<String> {
     let entries = list(project_id)?;
     let index = render_index(&entries);
-    crate::platform::write_atomic(&dir.join(INDEX_FILE), index.as_bytes())?;
+    let _ = dir;
+    crate::memory::core_repository::save_index_owner(
+        &crate::memory::core_repository::CoreMemoryScope::Project {
+            id: project_id.to_string(),
+        },
+        &index,
+    )?;
     Ok(index)
 }
 

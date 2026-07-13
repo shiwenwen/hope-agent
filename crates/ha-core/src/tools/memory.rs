@@ -22,7 +22,8 @@ pub(crate) async fn tool_save_memory(args: &Value, ctx: &super::ToolExecContext)
             "save_memory is unavailable in an incognito session (close = burn)"
         ));
     }
-    if !memory::load_extract_config().enabled {
+    let runtime = crate::config::cached_config().memory.clone();
+    if !memory::load_extract_config().enabled || (runtime.rollout.enabled && !runtime.enabled) {
         return Err(anyhow::anyhow!(
             "save_memory is unavailable because long-term memory is turned off"
         ));
@@ -440,7 +441,8 @@ pub(crate) async fn tool_update_core_memory(
             "update_core_memory is unavailable in an incognito session (close = burn)"
         ));
     }
-    if !memory::load_extract_config().enabled {
+    let runtime = crate::config::cached_config().memory.clone();
+    if !memory::load_extract_config().enabled || (runtime.rollout.enabled && !runtime.enabled) {
         return Err(anyhow::anyhow!(
             "update_core_memory is unavailable because long-term memory is turned off"
         ));
@@ -466,7 +468,14 @@ pub(crate) async fn tool_update_core_memory(
         .and_then(|v| v.as_str())
         .ok_or_else(|| anyhow::anyhow!("Missing 'content' parameter"))?;
 
-    // Determine file path based on scope
+    let repository_scope = match scope {
+        "global" => crate::memory::core_repository::CoreMemoryScope::Global,
+        _ => crate::memory::core_repository::CoreMemoryScope::Agent {
+            id: agent_id.to_string(),
+        },
+    };
+    let core_repository_enabled = runtime.core_repository_enabled();
+    // Legacy path remains live until the Core repository rollout starts.
     let path = match scope {
         "global" => crate::paths::root_dir()?.join("memory.md"),
         _ => crate::paths::agent_dir(agent_id)?.join("memory.md"),
@@ -483,21 +492,34 @@ pub(crate) async fn tool_update_core_memory(
     let content_owned = content.to_string();
 
     let result = tokio::task::spawn_blocking(move || -> Result<String> {
-        match action_owned.as_str() {
-            "append" => {
-                let existing = std::fs::read_to_string(&path).unwrap_or_default();
-                let new_content = if existing.trim().is_empty() {
-                    content_owned
-                } else {
-                    format!("{}\n{}", existing.trim_end(), content_owned)
-                };
-                crate::platform::write_atomic(&path, new_content.as_bytes())?;
-            }
-            "replace" => {
-                crate::platform::write_atomic(&path, content_owned.as_bytes())?;
-            }
-            other => {
-                anyhow::bail!("Invalid action: '{}'. Use 'append' or 'replace'.", other);
+        if core_repository_enabled {
+            let existing = crate::memory::core_repository::load_index(&repository_scope)?
+                .content
+                .unwrap_or_default();
+            let new_content = match action_owned.as_str() {
+                "append" if existing.trim().is_empty() => content_owned.clone(),
+                "append" => format!("{}\n{}", existing.trim_end(), content_owned),
+                "replace" => content_owned.clone(),
+                other => anyhow::bail!("Invalid action: '{}'. Use 'append' or 'replace'.", other),
+            };
+            crate::memory::core_repository::save_index_owner(&repository_scope, &new_content)?;
+        } else {
+            match action_owned.as_str() {
+                "append" => {
+                    let existing = std::fs::read_to_string(&path).unwrap_or_default();
+                    let new_content = if existing.trim().is_empty() {
+                        content_owned
+                    } else {
+                        format!("{}\n{}", existing.trim_end(), content_owned)
+                    };
+                    crate::platform::write_atomic(&path, new_content.as_bytes())?;
+                }
+                "replace" => {
+                    crate::platform::write_atomic(&path, content_owned.as_bytes())?;
+                }
+                other => {
+                    anyhow::bail!("Invalid action: '{}'. Use 'append' or 'replace'.", other);
+                }
             }
         }
 

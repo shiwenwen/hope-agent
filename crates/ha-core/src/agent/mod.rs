@@ -417,6 +417,7 @@ impl AssistantAgent {
             active_memory_trace: std::sync::Mutex::new(None),
             static_memory_refs: std::sync::Mutex::new(Vec::new()),
             static_memory_manifest: std::sync::Mutex::new(Default::default()),
+            core_memory_snapshot: std::sync::Mutex::new(None),
             experience_memory_refs: std::sync::Mutex::new(Vec::new()),
             graph_memory_refs: std::sync::Mutex::new(Vec::new()),
             procedure_memory_suffix: std::sync::Mutex::new(None),
@@ -487,6 +488,7 @@ impl AssistantAgent {
             active_memory_trace: std::sync::Mutex::new(None),
             static_memory_refs: std::sync::Mutex::new(Vec::new()),
             static_memory_manifest: std::sync::Mutex::new(Default::default()),
+            core_memory_snapshot: std::sync::Mutex::new(None),
             experience_memory_refs: std::sync::Mutex::new(Vec::new()),
             graph_memory_refs: std::sync::Mutex::new(Vec::new()),
             procedure_memory_suffix: std::sync::Mutex::new(None),
@@ -682,6 +684,7 @@ impl AssistantAgent {
             active_memory_trace: std::sync::Mutex::new(None),
             static_memory_refs: std::sync::Mutex::new(Vec::new()),
             static_memory_manifest: std::sync::Mutex::new(Default::default()),
+            core_memory_snapshot: std::sync::Mutex::new(None),
             experience_memory_refs: std::sync::Mutex::new(Vec::new()),
             graph_memory_refs: std::sync::Mutex::new(Vec::new()),
             procedure_memory_suffix: std::sync::Mutex::new(None),
@@ -822,6 +825,10 @@ impl AssistantAgent {
     /// Set the agent ID (for memory context and home directory).
     pub fn set_agent_id(&mut self, id: &str) {
         self.agent_id = id.to_string();
+        *self
+            .core_memory_snapshot
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = None;
         *self
             .agent_caps_cache
             .lock()
@@ -3003,6 +3010,13 @@ impl AssistantAgent {
             .unwrap_or_else(|e| e.into_inner()) = Some(std::time::Instant::now());
     }
 
+    pub(crate) fn invalidate_core_memory_snapshot(&self) {
+        *self
+            .core_memory_snapshot
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = None;
+    }
+
     /// Plan-tool injection: filter / extend the schema list according to
     /// the agent's current Plan-mode. Reads `self.plan_agent_mode` via
     /// ArcSwap so `streaming_loop`'s mid-turn `set_plan_agent_mode_from_backend`
@@ -3408,6 +3422,11 @@ impl AssistantAgent {
         let session_id = self.session_id.clone();
         let session_db = self.session_db.clone();
         let incognito = self.session_is_incognito();
+        let existing_core_snapshot = self
+            .core_memory_snapshot
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
         let model_owned = model.to_string();
         let provider_owned = provider.to_string();
         let (bundle, lsp_suffix) = crate::blocking::run_blocking(move || {
@@ -3417,6 +3436,7 @@ impl AssistantAgent {
                 &provider_owned,
                 session_id.as_deref(),
                 session_db.as_deref(),
+                existing_core_snapshot.as_deref(),
             );
             let lsp = if incognito {
                 None
@@ -3438,6 +3458,11 @@ impl AssistantAgent {
             .static_memory_manifest
             .lock()
             .unwrap_or_else(|e| e.into_inner()) = bundle.static_memory_manifest;
+        *self
+            .core_memory_snapshot
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) =
+            bundle.core_memory_snapshot.map(std::sync::Arc::new);
         *self
             .turn_prompt_cache
             .lock()

@@ -276,7 +276,17 @@ pub fn load_agent(id: &str) -> Result<AgentDefinition> {
     let agent_md = read_optional_md(&dir, AGENT_MD)?;
     let persona = read_optional_md(&dir, PERSONA_MD)?;
     let tools_guide = read_optional_md(&dir, TOOLS_MD)?;
-    let memory_md = read_optional_md(&dir, MEMORY_MD)?;
+    let core_repository_enabled = crate::config::cached_config()
+        .memory
+        .core_repository_enabled();
+    let memory_md = if core_repository_enabled {
+        crate::memory::core_repository::load_index(
+            &crate::memory::core_repository::CoreMemoryScope::Agent { id: id.to_string() },
+        )?
+        .content
+    } else {
+        read_optional_md(&dir, MEMORY_MD)?
+    };
 
     // Load the 4-file markdown prompt set when openclaw mode is on.
     // In non-openclaw mode we still read SOUL.md when the persona authoring
@@ -298,7 +308,12 @@ pub fn load_agent(id: &str) -> Result<AgentDefinition> {
     };
 
     // Load global memory.md from ~/.hope-agent/memory.md
-    let global_memory_md = {
+    let global_memory_md = if core_repository_enabled {
+        crate::memory::core_repository::load_index(
+            &crate::memory::core_repository::CoreMemoryScope::Global,
+        )?
+        .content
+    } else {
         let global_path = paths::root_dir()?.join(MEMORY_MD);
         if global_path.exists() {
             Some(

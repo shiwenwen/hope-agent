@@ -194,6 +194,19 @@ pub async fn render_persona_to_soul_md(Path(id): Path<String>) -> Result<Json<Va
 
 /// `GET /api/agents/{id}/memory-md` — read an agent's `memory.md`.
 pub async fn get_agent_memory_md(Path(id): Path<String>) -> Result<Json<Value>, AppError> {
+    if ha_core::config::cached_config()
+        .memory
+        .core_repository_enabled()
+    {
+        let content = ha_core::blocking::run_blocking(move || {
+            ha_core::memory::core_repository::load_index(
+                &ha_core::memory::core_repository::CoreMemoryScope::Agent { id },
+            )
+            .map(|index| index.content)
+        })
+        .await?;
+        return Ok(Json(json!({ "content": content })));
+    }
     let path = ha_core::paths::agent_dir(&id)?.join("memory.md");
     let content = if path.exists() {
         Some(std::fs::read_to_string(&path).map_err(|e| AppError::internal(e.to_string()))?)

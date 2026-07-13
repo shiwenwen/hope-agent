@@ -2,6 +2,7 @@ pub mod audit;
 pub mod backup;
 pub mod claims;
 pub(crate) mod context_manifest;
+pub mod core_repository;
 pub mod dreaming;
 pub mod embedding;
 pub mod episodes;

@@ -42,6 +42,8 @@ pub(crate) struct StaticMemoryContextManifest {
     pub enabled: bool,
     pub incognito: bool,
     pub legacy_static_memory: bool,
+    pub core_snapshot_fingerprint: Option<String>,
+    pub core_migration_states: BTreeMap<String, String>,
     pub agent_core: MemoryContentMetric,
     pub global_core: MemoryContentMetric,
     pub project_index: MemoryContentMetric,
@@ -59,6 +61,7 @@ impl StaticMemoryContextManifest {
         enabled: bool,
         incognito: bool,
         legacy_static_memory: bool,
+        core_snapshot: Option<&super::core_repository::CoreMemorySnapshot>,
         agent_core: Option<&str>,
         global_core: Option<&str>,
         project_index: Option<&str>,
@@ -74,10 +77,25 @@ impl StaticMemoryContextManifest {
                 .entry(reference.origin.clone())
                 .or_insert(0) += 1;
         }
+        let mut core_migration_states = BTreeMap::new();
+        if let Some(snapshot) = core_snapshot {
+            for (scope, layer) in [
+                ("global", snapshot.global.as_ref()),
+                ("agent", snapshot.agent.as_ref()),
+                ("project", snapshot.project.as_ref()),
+            ] {
+                if let Some(layer) = layer {
+                    core_migration_states
+                        .insert(scope.to_string(), layer.state.as_str().to_string());
+                }
+            }
+        }
         Self {
             enabled,
             incognito,
             legacy_static_memory,
+            core_snapshot_fingerprint: core_snapshot.map(|snapshot| snapshot.fingerprint.clone()),
+            core_migration_states,
             agent_core: MemoryContentMetric::from_optional(agent_core),
             global_core: MemoryContentMetric::from_optional(global_core),
             project_index: MemoryContentMetric::from_optional(project_index),
@@ -232,6 +250,7 @@ mod tests {
             true,
             false,
             true,
+            None,
             Some(secret),
             None,
             None,

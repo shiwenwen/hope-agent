@@ -480,12 +480,46 @@ fn resolve_agent_memory_path(
 }
 
 fn write_global_memory_md(content: &str) -> Result<bool> {
+    if crate::config::cached_config()
+        .memory
+        .core_repository_enabled()
+    {
+        return write_core_memory_repository(
+            crate::memory::core_repository::CoreMemoryScope::Global,
+            content,
+        );
+    }
     write_core_memory_md(crate::paths::root_dir()?.join("memory.md"), content)
 }
 
 fn write_agent_memory_md(agent_id: &str, content: &str) -> Result<bool> {
+    if crate::config::cached_config()
+        .memory
+        .core_repository_enabled()
+    {
+        return write_core_memory_repository(
+            crate::memory::core_repository::CoreMemoryScope::Agent {
+                id: agent_id.to_string(),
+            },
+            content,
+        );
+    }
     let dir = crate::paths::agent_dir(agent_id)?;
     write_core_memory_md(dir.join("memory.md"), content)
+}
+
+fn write_core_memory_repository(
+    scope: crate::memory::core_repository::CoreMemoryScope,
+    content: &str,
+) -> Result<bool> {
+    if content.trim().is_empty() {
+        return Ok(false);
+    }
+    let current = crate::memory::core_repository::load_index(&scope)?;
+    backup_existing_core_memory_md(&current.canonical_path)?;
+    let merged = merge_openclaw_memory_section(current.content.as_deref().unwrap_or(""), content);
+    crate::memory::core_repository::save_index_owner(&scope, &merged)?;
+    Ok(true)
 }
 
 fn write_core_memory_md(path: PathBuf, content: &str) -> Result<bool> {

@@ -39,6 +39,10 @@ impl MemoryRuntimeConfig {
     pub(crate) fn legacy_static_injection_enabled(&self) -> bool {
         !self.rollout.enabled || self.compatibility.legacy_static_memory
     }
+
+    pub fn core_repository_enabled(&self) -> bool {
+        self.rollout.enabled && self.rollout.core_repository
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

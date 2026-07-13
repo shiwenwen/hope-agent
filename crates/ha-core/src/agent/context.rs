@@ -858,6 +858,10 @@ impl AssistantAgent {
                         run_outcome.changed_history = true;
                         // Update cache-TTL timer after successful Tier 3 summarization
                         self.touch_compaction_timer();
+                        // Core Memory is session-stable between refresh points.
+                        // A successful Tier 3 summary is an explicit refresh
+                        // boundary, so the next turn captures current files.
+                        self.invalidate_core_memory_snapshot();
                         // Record the summarized range in the manifest ONLY after the
                         // summary actually applied — on failure/timeout (arms below)
                         // the messages are untouched, so the manifest must not claim

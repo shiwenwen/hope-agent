@@ -328,6 +328,11 @@ pub struct AssistantAgent {
     /// this turn's base prompt. Dynamic recall metrics are joined per round.
     pub(crate) static_memory_manifest:
         std::sync::Mutex<crate::memory::context_manifest::StaticMemoryContextManifest>,
+    /// Session-stable Core Memory contents. File changes do not replace this
+    /// snapshot until explicit reload/compaction or context identity changes.
+    pub(crate) core_memory_snapshot: std::sync::Mutex<
+        Option<std::sync::Arc<crate::memory::core_repository::CoreMemorySnapshot>>,
+    >,
     /// Episode / Procedure candidates considered for this turn. These are not
     /// all injected into the model; high-confidence procedures may additionally
     /// enter `procedure_memory_suffix` as bounded soft workflow guidance.

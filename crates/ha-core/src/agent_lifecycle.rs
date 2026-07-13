@@ -413,6 +413,16 @@ pub fn save_agent_memory_md(id: &str, content: &str) -> Result<()> {
     if !dir.join("agent.json").is_file() {
         anyhow::bail!("Agent '{id}' does not exist");
     }
+    if crate::config::cached_config()
+        .memory
+        .core_repository_enabled()
+    {
+        crate::memory::core_repository::save_index_owner(
+            &crate::memory::core_repository::CoreMemoryScope::Agent { id: id.to_string() },
+            content,
+        )?;
+        return Ok(());
+    }
     crate::platform::write_atomic(&dir.join("memory.md"), content.as_bytes())?;
     Ok(())
 }

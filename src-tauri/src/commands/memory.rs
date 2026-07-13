@@ -1225,6 +1225,19 @@ pub async fn memory_embedding_disable() -> Result<memory::EmbeddingSelectionStat
 
 #[tauri::command]
 pub async fn get_global_memory_md() -> Result<Option<String>, CmdError> {
+    if ha_core::config::cached_config()
+        .memory
+        .core_repository_enabled()
+    {
+        return ha_core::blocking::run_blocking(move || {
+            ha_core::memory::core_repository::load_index(
+                &ha_core::memory::core_repository::CoreMemoryScope::Global,
+            )
+            .map(|index| index.content)
+            .map_err(Into::into)
+        })
+        .await;
+    }
     let path = crate::paths::root_dir()?.join("memory.md");
     ha_core::blocking::run_blocking(move || {
         if path.exists() {
@@ -1238,6 +1251,20 @@ pub async fn get_global_memory_md() -> Result<Option<String>, CmdError> {
 
 #[tauri::command]
 pub async fn save_global_memory_md(content: String) -> Result<(), CmdError> {
+    if ha_core::config::cached_config()
+        .memory
+        .core_repository_enabled()
+    {
+        return ha_core::blocking::run_blocking(move || {
+            ha_core::memory::core_repository::save_index_owner(
+                &ha_core::memory::core_repository::CoreMemoryScope::Global,
+                &content,
+            )
+            .map(|_| ())
+            .map_err(Into::into)
+        })
+        .await;
+    }
     let path = crate::paths::root_dir()?.join("memory.md");
     ha_core::blocking::run_blocking(move || {
         ha_core::platform::write_atomic(&path, content.as_bytes()).map_err(Into::into)
@@ -1247,6 +1274,19 @@ pub async fn save_global_memory_md(content: String) -> Result<(), CmdError> {
 
 #[tauri::command]
 pub async fn get_agent_memory_md(id: String) -> Result<Option<String>, CmdError> {
+    if ha_core::config::cached_config()
+        .memory
+        .core_repository_enabled()
+    {
+        return ha_core::blocking::run_blocking(move || {
+            ha_core::memory::core_repository::load_index(
+                &ha_core::memory::core_repository::CoreMemoryScope::Agent { id },
+            )
+            .map(|index| index.content)
+            .map_err(Into::into)
+        })
+        .await;
+    }
     let path = crate::paths::agent_dir(&id)?.join("memory.md");
     ha_core::blocking::run_blocking(move || {
         if path.exists() {

@@ -868,6 +868,19 @@ pub async fn reembed_start(
 
 /// `GET /api/memory/global-md` — read the user's global `memory.md` file.
 pub async fn get_global_memory_md() -> Result<Json<Value>, AppError> {
+    if ha_core::config::cached_config()
+        .memory
+        .core_repository_enabled()
+    {
+        let content = ha_core::blocking::run_blocking(move || {
+            ha_core::memory::core_repository::load_index(
+                &ha_core::memory::core_repository::CoreMemoryScope::Global,
+            )
+            .map(|index| index.content)
+        })
+        .await?;
+        return Ok(Json(json!({ "content": content })));
+    }
     let path = ha_core::paths::root_dir()?.join("memory.md");
     let content = run_blocking(move || {
         if path.exists() {
@@ -890,6 +903,20 @@ pub struct MemoryMdBody {
 pub async fn save_global_memory_md(
     Json(body): Json<MemoryMdBody>,
 ) -> Result<Json<Value>, AppError> {
+    if ha_core::config::cached_config()
+        .memory
+        .core_repository_enabled()
+    {
+        ha_core::blocking::run_blocking(move || {
+            ha_core::memory::core_repository::save_index_owner(
+                &ha_core::memory::core_repository::CoreMemoryScope::Global,
+                &body.content,
+            )
+            .map(|_| ())
+        })
+        .await?;
+        return Ok(Json(json!({ "saved": true })));
+    }
     let path = ha_core::paths::root_dir()?.join("memory.md");
     run_blocking(move || ha_core::platform::write_atomic(&path, body.content.as_bytes()))
         .await
