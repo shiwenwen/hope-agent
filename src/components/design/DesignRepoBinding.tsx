@@ -61,14 +61,11 @@ export function DesignRepoBinding({ project, open, onOpenChange, onBound }: Prop
     if (!project) return
     setLoading(true)
     try {
-      const [binding, projects] = await Promise.all([
-        tx.call<CodeBindingInfo>("get_design_project_code_binding_cmd", {
-          projectId: project.id,
-        }),
-        tx.call<Project[]>("list_projects_cmd", {}).catch(() => [] as Project[]),
-      ])
+      // 只取绑定状态；HA 项目列表按需懒拉（见下方 effect），dir 模式不白拉（review F14）。
+      const binding = await tx.call<CodeBindingInfo>("get_design_project_code_binding_cmd", {
+        projectId: project.id,
+      })
       setInfo(binding)
-      setHaProjects((projects ?? []).filter((p) => !p.archived))
       // 预填当前绑定；未绑定保持默认 dir 模式空表单。
       if (binding?.source === "haProject") {
         setMode("haProject")
@@ -83,6 +80,21 @@ export function DesignRepoBinding({ project, open, onOpenChange, onBound }: Prop
       setLoading(false)
     }
   }, [project, tx])
+
+  // HA 项目列表按需懒拉：仅当切到（或初始就是）haProject 模式且尚未拉过（review F14）。
+  useEffect(() => {
+    if (!open || mode !== "haProject" || haProjects.length > 0) return
+    let cancelled = false
+    void tx
+      .call<Project[]>("list_projects_cmd", {})
+      .then((projects) => {
+        if (!cancelled) setHaProjects((projects ?? []).filter((p) => !p.archived))
+      })
+      .catch((e) => logger.error("design", "DesignRepoBinding::loadProjects", "list failed", e))
+    return () => {
+      cancelled = true
+    }
+  }, [open, mode, haProjects.length, tx])
 
   useEffect(() => {
     if (open && project) void load()
@@ -109,14 +121,17 @@ export function DesignRepoBinding({ project, open, onOpenChange, onBound }: Prop
         ...payload,
       })
       onBound?.(updated)
-      await load()
       const bound = payload.codeDir || payload.haProjectId
-      toast.success(
-        bound
-          ? t("design.repoBind.bound", "已关联代码仓库")
-          : t("design.repoBind.unbound", "已解除关联"),
-      )
-      if (bound) onOpenChange(false)
+      if (bound) {
+        // 绑定成功即关闭——不 load()（结果会被 !open 清理 effect 丢弃；onBound + 父层
+        // activeProject effect 已带来最新绑定态，review F14）。
+        toast.success(t("design.repoBind.bound", "已关联代码仓库"))
+        onOpenChange(false)
+      } else {
+        // 解绑保持对话框打开 → 刷新展示当前（已清）状态。
+        await load()
+        toast.success(t("design.repoBind.unbound", "已解除关联"))
+      }
     } catch (e) {
       logger.error("design", "DesignRepoBinding::save", "set binding failed", e)
       toast.error(

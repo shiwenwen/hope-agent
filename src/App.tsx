@@ -807,7 +807,8 @@ export default function App() {
                     onBack={() => setView("chat")}
                     onOpenSettings={() => handleOpenSettings("design")}
                     onImplementToCode={(sessionId, message) => {
-                      setPendingSessionId(sessionId)
+                      // 不设 pendingSessionId：auto-send 的 sessionIdOverride 已原子切会话，
+                      // 避免与导航半边竞争加载空历史（review F2）。
                       setPendingAutoSend({ sessionId, message, nonce: Date.now() })
                       setView("chat")
                     }}

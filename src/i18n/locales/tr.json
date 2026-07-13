@@ -10152,7 +10152,8 @@
     "implement": {
       "menu": "Koda uygula…",
       "needBind": "Önce bu projeye bir kod deposu bağlayın",
-      "err": "Uygulama oturumu oluşturulamadı"
+      "err": "Uygulama oturumu oluşturulamadı",
+      "started": "{{dir}} içinde uygulama oturumu oluşturuldu"
     },
     "pickSystem": "Tasarım sistemi seç",
     "chat": {

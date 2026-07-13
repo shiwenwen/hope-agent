@@ -10152,7 +10152,8 @@
     "implement": {
       "menu": "Laksanakan ke kod…",
       "needBind": "Pautkan repositori kod kepada projek ini dahulu",
-      "err": "Gagal mencipta sesi pelaksanaan"
+      "err": "Gagal mencipta sesi pelaksanaan",
+      "started": "Sesi pelaksanaan dicipta dalam {{dir}}"
     },
     "pickSystem": "Pilih sistem reka bentuk",
     "chat": {

@@ -2082,19 +2082,21 @@ export default function ChatScreen({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingChatInsert])
 
-  // 设计空间「实现到代码」：跳到刚创建的实现会话后，把 handoff pack 作首条消息
-  // 经正常发送路径发出（流式 / 审批 / DiffPanel 全复用）。仅当当前会话 == 目标会话
-  // 才发；nonce + ref 双保险防 StrictMode / 重渲染下重复发送。
+  // 设计空间「实现到代码」：把 handoff pack 作首条消息发进实现会话（流式 / 审批 /
+  // DiffPanel 全复用）。用 handleSend 的 sessionIdOverride **原子**切到目标会话并发送
+  // （directText 形态，不带任何 staged 附件 / quote），**不依赖** currentSessionId 会合、
+  // 立即消费——无悬挂窗口、无被抢占后几小时误发（review F2）。nonce ref 防 StrictMode 重投。
   const autoSendFiredNonceRef = useRef<number | null>(null)
   useEffect(() => {
     if (!pendingAutoSend) return
     if (autoSendFiredNonceRef.current === pendingAutoSend.nonce) return
-    if (currentSessionId !== pendingAutoSend.sessionId) return
     autoSendFiredNonceRef.current = pendingAutoSend.nonce
-    void stream.handleSend(pendingAutoSend.message)
+    void stream.handleSend(pendingAutoSend.message, {
+      sessionIdOverride: pendingAutoSend.sessionId,
+    })
     onAutoSendConsumed?.(pendingAutoSend.nonce)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pendingAutoSend, currentSessionId])
+  }, [pendingAutoSend])
 
   // ── Stream Reattach Hook ────────────────────────────────────
   // Rehydrates chat streaming after frontend reload / window reopen / browser

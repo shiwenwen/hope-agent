@@ -529,6 +529,15 @@ pub fn effective_working_dir_for_meta(meta: &SessionMeta) -> Option<String> {
     if let Some(wd) = meta.working_dir.clone().filter(|s| !s.trim().is_empty()) {
         return Some(wd);
     }
+    // 设计线程（kind=Design）无 project_id：其工作目录 = 所属设计项目绑定的代码仓库，
+    // **实时派生**（HA 项目 working_dir 变更 / 绑定切换 / 解绑立即反映，绝不 stale）。
+    // 无绑定则继续走下面的 project 分支（通常 None → 无工作目录段）。design 库句柄缓存，
+    // 非设计会话经 kind 短路零成本（review F3/F5/F6：拆事件拷贝、改实时派生）。
+    if meta.kind == crate::session::SessionKind::Design {
+        if let Some(dir) = crate::design::service::session_bound_code_dir(&meta.id) {
+            return Some(dir);
+        }
+    }
     let pid = meta.project_id.as_deref()?;
     // An explicit project `working_dir` wins — but a missing project row or a
     // transient DB error must NOT silently drop the session to the agent home

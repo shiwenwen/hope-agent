@@ -10152,7 +10152,8 @@
     "implement": {
       "menu": "Implement to code…",
       "needBind": "Link a code repository to this project first",
-      "err": "Failed to create the implementation session"
+      "err": "Failed to create the implementation session",
+      "started": "Implementation session created in {{dir}}"
     },
     "pickSystem": "Choose a design system",
     "chat": {

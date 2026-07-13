@@ -10152,7 +10152,8 @@
     "implement": {
       "menu": "Triển khai vào mã…",
       "needBind": "Hãy liên kết kho mã nguồn cho dự án này trước",
-      "err": "Không tạo được phiên triển khai"
+      "err": "Không tạo được phiên triển khai",
+      "started": "Đã tạo phiên triển khai trong {{dir}}"
     },
     "pickSystem": "Chọn hệ thống thiết kế",
     "chat": {

@@ -10152,7 +10152,8 @@
     "implement": {
       "menu": "Implementar em código…",
       "needBind": "Vincule primeiro um repositório de código a este projeto",
-      "err": "Falha ao criar a sessão de implementação"
+      "err": "Falha ao criar a sessão de implementação",
+      "started": "Sessão de implementação criada em {{dir}}"
     },
     "pickSystem": "Escolher sistema de design",
     "chat": {

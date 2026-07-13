@@ -545,7 +545,9 @@ impl DesignDb {
         rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
     }
 
-    /// 更新项目元数据。`None` 字段保持原值（COALESCE 语义）。
+    /// 更新项目元数据。`None` 字段保持原值（COALESCE 语义）。**不含代码仓库绑定**
+    /// （`code_dir` / `ha_project_id`）——那两列的唯一写入口是 `set_project_code_binding`
+    /// 单点（保证互斥 + 校验 + stale 语义，review F1：否则 update 可绕过互斥破坏不变量）。
     pub fn update_project(
         &self,
         id: &str,
@@ -553,7 +555,6 @@ impl DesignDb {
         description: Option<&str>,
         color: Option<&str>,
         default_system_id: Option<&str>,
-        ha_project_id: Option<&str>,
         updated_at: &str,
     ) -> Result<()> {
         let conn = self.lock()?;
@@ -563,18 +564,9 @@ impl DesignDb {
                 description = COALESCE(?3, description),
                 color = COALESCE(?4, color),
                 default_system_id = COALESCE(?5, default_system_id),
-                ha_project_id = COALESCE(?6, ha_project_id),
-                updated_at = ?7
+                updated_at = ?6
              WHERE id = ?1",
-            rusqlite::params![
-                id,
-                title,
-                description,
-                color,
-                default_system_id,
-                ha_project_id,
-                updated_at
-            ],
+            rusqlite::params![id, title, description, color, default_system_id, updated_at],
         )?;
         Ok(())
     }

@@ -6,7 +6,7 @@
  * canonicalize + 包含校验（防逃逸）；HTTP 侧受 `filesystem.allowRemoteWrites` 门，桌面不受限。
  */
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { Loader2, FolderOpen, RefreshCw, Unlink } from "lucide-react"
 import {
@@ -67,11 +67,15 @@ export function DesignCodeBinding({ system, open, onOpenChange, initialTargetDir
     }
   }, [system, tx])
 
+  // 仅在对话框「打开」的上升沿做一次 load + 预填（review F5-binding）：initialTargetDir
+  // 事后异步 resolve 不得重跑此块——否则会重填用户刻意清空的目标目录、把 token 写错地方。
+  const prevOpenRef = useRef(false)
   useEffect(() => {
-    if (open && system) {
+    const justOpened = open && !prevOpenRef.current
+    prevOpenRef.current = open
+    if (justOpened && system) {
       void load()
-      // 项目已绑代码仓库 → 预填其生效目录（仅空表单时，不覆盖用户输入）。
-      setTargetDir((prev) => prev || (initialTargetDir ?? ""))
+      if (initialTargetDir) setTargetDir(initialTargetDir)
     }
     if (!open) {
       setTargetDir("")

@@ -280,13 +280,12 @@ export interface DesignRecipe {
   guidance: string;
 }
 
-/** 创建项目入参。 */
+/** 创建项目入参。代码仓库绑定不经 create——建后走 set_design_project_code_binding（互斥单点）。 */
 export interface CreateProjectInput {
   title: string;
   description?: string;
   color?: string;
   defaultSystemId?: string;
-  haProjectId?: string;
   /** 项目对话初始模型（首页所选模型带入）。 */
   defaultModel?: ActiveModel;
 }

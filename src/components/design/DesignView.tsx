@@ -498,6 +498,11 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
         const res = await tx.call<ImplementToCodeResult>("design_implement_to_code_cmd", {
           artifactId,
         })
+        toast.success(
+          t("design.implement.started", "已在 {{dir}} 创建实现会话", {
+            dir: res.codeDir.split("/").pop() || res.codeDir,
+          }),
+        )
         onImplementToCode?.(res.sessionId, res.prompt)
       } catch (e) {
         logger.error("design", "DesignView::implementToCode", "implement failed", e)
@@ -5684,8 +5689,10 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
         open={repoBindOpen}
         onOpenChange={setRepoBindOpen}
         onBound={(p) => {
+          // p 是完整服务器行——直接替换，绝不 spread 合并（code_dir/ha_project_id 走
+          // skip_serializing_if，解绑/换源响应会省略这些键，合并会复活已清的旧值，review F4）。
           setActiveProject(p)
-          setProjects((prev) => prev.map((x) => (x.id === p.id ? { ...x, ...p } : x)))
+          setProjects((prev) => prev.map((x) => (x.id === p.id ? p : x)))
         }}
       />
 
