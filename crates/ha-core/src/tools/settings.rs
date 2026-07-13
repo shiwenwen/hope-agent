@@ -51,6 +51,7 @@ fn risk_level(category: &str) -> &'static str {
         "user"
         | "theme"
         | "language"
+        | "focus_indicator"
         | "ui_effects"
         | "prevent_sleep"
         | "sidebar_ui"
@@ -501,6 +502,9 @@ fn read_category(category: &str) -> Result<Value> {
         }
         "theme" => Ok(json!({ "theme": cfg.theme })),
         "language" => Ok(json!({ "language": cfg.language })),
+        "focus_indicator" => Ok(json!({
+            "enhancedFocusIndicators": cfg.enhanced_focus_indicators,
+        })),
         "default_agent" => Ok(json!({ "defaultAgentId": cfg.default_agent_id })),
         "ui_effects" => Ok(json!({ "uiEffectsEnabled": cfg.ui_effects_enabled })),
         "prevent_sleep" => Ok(json!({ "preventSleep": cfg.prevent_sleep })),
@@ -664,6 +668,7 @@ fn get_all_overview() -> Result<String> {
         },
         "theme": cfg.theme,
         "language": cfg.language,
+        "enhancedFocusIndicators": cfg.enhanced_focus_indicators,
         "uiEffectsEnabled": cfg.ui_effects_enabled,
         "preventSleep": cfg.prevent_sleep,
         "sidebarUiMode": config::normalize_sidebar_ui_mode(&cfg.sidebar_ui_mode),
@@ -751,7 +756,7 @@ fn get_all_overview() -> Result<String> {
     // Expose risk classification so the model can decide when to double-confirm.
     let risk_levels = json!({
         "low": [
-            "user", "theme", "language", "ui_effects", "prevent_sleep", "sidebar_ui", "notification", "startup_notification",
+            "user", "theme", "language", "focus_indicator", "ui_effects", "prevent_sleep", "sidebar_ui", "notification", "startup_notification",
             "canvas", "image", "pdf", "image_generate", "temperature", "tool_timeout",
             "default_agent"
         ],
@@ -922,6 +927,14 @@ async fn update_app_config(category: &str, values: &Value) -> Result<String> {
         "language" => {
             if let Some(v) = values.get("language").and_then(|v| v.as_str()) {
                 store.language = v.to_string();
+            }
+        }
+        "focus_indicator" => {
+            if let Some(v) = values
+                .get("enhancedFocusIndicators")
+                .and_then(|v| v.as_bool())
+            {
+                store.enhanced_focus_indicators = v;
             }
         }
         "default_agent" => {
@@ -1421,6 +1434,11 @@ mod tests {
         ] {
             assert_eq!(risk_level(cat), "medium", "{cat} should be medium risk");
         }
+    }
+
+    #[test]
+    fn focus_indicator_is_low_risk() {
+        assert_eq!(risk_level("focus_indicator"), "low");
     }
 
     #[test]
