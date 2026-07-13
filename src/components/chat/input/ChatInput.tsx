@@ -1,4 +1,13 @@
-import { Fragment, useRef, useEffect, useLayoutEffect, useCallback, useMemo, useState } from "react"
+import {
+  Fragment,
+  type ReactNode,
+  useRef,
+  useEffect,
+  useLayoutEffect,
+  useCallback,
+  useMemo,
+  useState,
+} from "react"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
@@ -355,6 +364,10 @@ interface ChatInputProps {
   workspacePanelVisible?: boolean
   /** Larger centered presentation for a brand-new empty conversation. */
   hero?: boolean
+  /** Optional consumer-supplied node rendered at the **start of the toolbar left
+   *  group** (before the "+"). Off by default (renders nothing) so every existing
+   *  surface is unchanged; the design chat uses it to host its next-step menu. */
+  leadingToolbarActions?: ReactNode
   /** Context-window fullness, rendered as a thin bar fused into the dock's
    *  bottom border (green → amber → red). Null hides the bar. */
   contextUsage?: ContextUsageInfo | null
@@ -546,6 +559,7 @@ export default function ChatInput({
   workspacePanelVisible = false,
   hero = false,
   contextUsage,
+  leadingToolbarActions,
 }: ChatInputProps) {
   const { t } = useTranslation()
   const inputHandleRef = useRef<ComposerInputHandle>(null)
@@ -2753,6 +2767,11 @@ export default function ChatInput({
                 ref={toolbarLeftRef}
                 className="flex min-w-0 flex-nowrap items-center gap-1 overflow-visible"
               >
+                {/* 消费方注入的前导操作（design chat 的 next-step 菜单）：默认为空 = 其它面零变化。
+                    不参与折叠分组测量，作固定前导宽度；窄屏时其它组会更早收进「+」（正确行为）。 */}
+                {leadingToolbarActions && (
+                  <div className="flex shrink-0 items-center">{leadingToolbarActions}</div>
+                )}
                 <div
                   ref={addActionsRef}
                   className={toolbarCompact ? "hidden" : CHAT_INPUT_INLINE_ADD_ACTIONS_CLASS}
