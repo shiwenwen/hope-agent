@@ -9,11 +9,12 @@ use super::super::{
     TOOL_NOTE_DELETE, TOOL_NOTE_DISTILL, TOOL_NOTE_GRAPH, TOOL_NOTE_LINK, TOOL_NOTE_MOC,
     TOOL_NOTE_MOVE, TOOL_NOTE_ORPHANS, TOOL_NOTE_PATCH, TOOL_NOTE_READ, TOOL_NOTE_RELATED,
     TOOL_NOTE_RENAME, TOOL_NOTE_SEARCH, TOOL_NOTE_SET_FRONTMATTER, TOOL_NOTE_SIMILAR,
-    TOOL_NOTE_SUGGEST_LINKS, TOOL_NOTE_TAGS, TOOL_NOTE_UPDATE, TOOL_PDF, TOOL_PROCESS, TOOL_READ,
-    TOOL_RECALL_MEMORY, TOOL_RESTORE_SETTINGS_BACKUP, TOOL_RUNTIME_CANCEL, TOOL_SAVE_MEMORY,
-    TOOL_SEND_ATTACHMENT, TOOL_SESSIONS_HISTORY, TOOL_SESSIONS_LIST, TOOL_SESSIONS_SEARCH,
-    TOOL_SESSIONS_SEND, TOOL_SESSION_STATUS, TOOL_SESSION_TO_NOTE, TOOL_SKILL,
-    TOOL_UPDATE_CORE_MEMORY, TOOL_UPDATE_MEMORY, TOOL_UPDATE_SETTINGS, TOOL_WEB_FETCH, TOOL_WRITE,
+    TOOL_NOTE_SUGGEST_LINKS, TOOL_NOTE_TAGS, TOOL_NOTE_UPDATE, TOOL_PDF, TOOL_PROCESS,
+    TOOL_PROJECT_MEMORY, TOOL_READ, TOOL_RECALL_MEMORY, TOOL_RESTORE_SETTINGS_BACKUP,
+    TOOL_RUNTIME_CANCEL, TOOL_SAVE_MEMORY, TOOL_SEND_ATTACHMENT, TOOL_SESSIONS_HISTORY,
+    TOOL_SESSIONS_LIST, TOOL_SESSIONS_SEARCH, TOOL_SESSIONS_SEND, TOOL_SESSION_STATUS,
+    TOOL_SESSION_TO_NOTE, TOOL_SKILL, TOOL_UPDATE_CORE_MEMORY, TOOL_UPDATE_MEMORY,
+    TOOL_UPDATE_SETTINGS, TOOL_WEB_FETCH, TOOL_WRITE,
 };
 use super::types::{CoreSubclass, ToolDefinition, ToolTier};
 
@@ -1251,6 +1252,55 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                     }
                 },
                 "required": ["action", "content"],
+                "additionalProperties": false
+            }),
+        },
+        // ── Project Auto Memory ────────────────────────────────
+        ToolDefinition {
+            name: TOOL_PROJECT_MEMORY.into(),
+            description: "Manage machine-local project auto memory with progressive disclosure. MEMORY.md is a concise index loaded every project turn; topic files are not loaded until this tool reads them. Use search/read before relying on a topic, and write only durable learnings useful in future sessions.".into(),
+            tier: ToolTier::Memory,
+            internal: true,
+            concurrent_safe: false,
+            async_capable: false,
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": ["list", "read", "search", "write", "delete", "rebuild_index"]
+                    },
+                    "fileName": {
+                        "type": "string",
+                        "description": "Safe topic filename such as project_architecture.md. Required for read/delete; optional for write."
+                    },
+                    "expectedFileHash": {
+                        "type": "string",
+                        "description": "BLAKE3 returned by read. Required when updating or deleting an existing topic; the operation fails if the disk file changed."
+                    },
+                    "query": { "type": "string", "description": "Case-insensitive search query." },
+                    "limit": { "type": "integer", "minimum": 1, "maximum": 50 },
+                    "offset": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "description": "Character offset for chunked read. Default 0."
+                    },
+                    "maxChars": {
+                        "type": "integer",
+                        "minimum": 1000,
+                        "maximum": 20000,
+                        "description": "Maximum characters returned by read. Default 12000."
+                    },
+                    "name": { "type": "string", "description": "Short topic title for write." },
+                    "description": { "type": "string", "description": "One-line summary shown in MEMORY.md." },
+                    "memoryType": {
+                        "type": "string",
+                        "enum": ["feedback", "project", "reference", "user"],
+                        "description": "Topic category. Default project."
+                    },
+                    "content": { "type": "string", "description": "Detailed Markdown body for write." }
+                },
+                "required": ["action"],
                 "additionalProperties": false
             }),
         },

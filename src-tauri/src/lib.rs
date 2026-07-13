@@ -676,6 +676,11 @@ pub fn run() {
             commands::project::move_session_to_project_cmd,
             commands::project::mark_project_sessions_read_cmd,
             commands::project::list_project_memories_cmd,
+            commands::project::list_project_memory_files_cmd,
+            commands::project::read_project_memory_file_cmd,
+            commands::project::write_project_memory_file_cmd,
+            commands::project::delete_project_memory_file_cmd,
+            commands::project::rebuild_project_memory_index_cmd,
             // Project file browser (workspace-scoped filesystem)
             commands::project_fs::project_fs_list,
             commands::project_fs::project_fs_read_text,

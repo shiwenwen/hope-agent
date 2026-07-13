@@ -108,6 +108,30 @@ pub(crate) async fn tool_search(args: &Value, ctx: &ToolExecContext) -> Result<S
         candidates.retain(|t| !super::is_kb_scoped_tool(&t.name));
     }
 
+    // Project auto memory must follow the same live eligibility contract as
+    // Agent::finalize_tool_schemas. Otherwise tool_search could claim it was
+    // activated in a non-project session while the next-round inventory quite
+    // correctly refuses to make it callable.
+    let has_live_project = ctx.project_id.as_deref().is_some_and(|project_id| {
+        if let Some(session_db) = ctx.session_db.as_ref() {
+            crate::project::ProjectDB::new(session_db.0.clone())
+                .get(project_id)
+                .ok()
+                .flatten()
+                .is_some()
+        } else {
+            crate::get_project_db()
+                .and_then(|db| db.get(project_id).ok().flatten())
+                .is_some()
+        }
+    });
+    if !has_live_project {
+        candidates.retain(|tool| tool.name != super::TOOL_PROJECT_MEMORY);
+        if deferred_names.remove(super::TOOL_PROJECT_MEMORY) {
+            total_deferred = total_deferred.saturating_sub(1);
+        }
+    }
+
     // Select mode: "select:name1,name2" for exact matching by name or alias.
     // The prefix and selected names are case/space/hyphen insensitive.
     if let Some(names_str) = select_payload(query) {
@@ -552,6 +576,55 @@ mod tests {
 
         assert_eq!(parsed["matched_tools"].as_u64().unwrap(), 0);
         assert!(parsed["tools"].as_array().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn project_memory_is_not_discoverable_without_a_live_project() {
+        let result = tool_search(
+            &json!({ "query": "select:project_memory" }),
+            &ToolExecContext::default(),
+        )
+        .await
+        .unwrap();
+        let parsed: Value = serde_json::from_str(&result).unwrap();
+
+        assert_eq!(parsed["matched_tools"].as_u64().unwrap(), 0);
+        assert!(parsed["tools"].as_array().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn project_memory_is_discoverable_with_a_bound_live_project() {
+        let dir = tempfile::tempdir().unwrap();
+        let session_db = std::sync::Arc::new(
+            crate::session::SessionDB::open(&dir.path().join("sessions.db")).unwrap(),
+        );
+        let project_db = crate::project::ProjectDB::new(session_db.clone());
+        project_db.migrate().unwrap();
+        let project = project_db
+            .create(crate::project::CreateProjectInput {
+                name: "Memory test".into(),
+                description: None,
+                instructions: None,
+                logo: None,
+                color: None,
+                default_agent_id: None,
+                default_model_id: None,
+                working_dir: None,
+            })
+            .unwrap();
+        let ctx = ToolExecContext {
+            project_id: Some(project.id),
+            session_db: Some(crate::tools::execution::SessionDbHandle(session_db)),
+            ..ToolExecContext::default()
+        };
+
+        let result = tool_search(&json!({ "query": "select:project_memory" }), &ctx)
+            .await
+            .unwrap();
+        let parsed: Value = serde_json::from_str(&result).unwrap();
+
+        assert_eq!(parsed["matched_tools"].as_u64().unwrap(), 1);
+        assert_eq!(parsed["tools"][0]["name"], "project_memory");
     }
 
     #[tokio::test]

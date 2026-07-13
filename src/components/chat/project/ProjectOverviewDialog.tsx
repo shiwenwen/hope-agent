@@ -2,7 +2,7 @@
  * Project settings sheet (formerly `ProjectOverviewDialog`).
  *
  * Slides in from the right as a non-modal-feeling drawer. Tabs:
- * Overview | Files | Instructions. The old "Sessions" tab is gone — the
+ * Overview | Files | Instructions | Auto Memory. The old "Sessions" tab is gone — the
  * sidebar now renders project sessions inline as a nested tree node, so
  * having the same list inside this sheet is redundant.
  *
@@ -30,6 +30,7 @@ import type { Project, ProjectMeta, UpdateProjectInput } from "@/types/project"
 
 import { FileBrowserView } from "./file-browser/FileBrowserView"
 import ProjectIcon from "./ProjectIcon"
+import { ProjectMemorySection } from "./ProjectMemorySection"
 
 interface ProjectOverviewDialogProps {
   open: boolean
@@ -118,9 +119,7 @@ export default function ProjectOverviewDialog({
               </IconTip>
               <IconTip
                 label={
-                  project.archived
-                    ? t("project.unarchiveProject")
-                    : t("project.archiveProject")
+                  project.archived ? t("project.unarchiveProject") : t("project.archiveProject")
                 }
               >
                 <Button
@@ -155,6 +154,7 @@ export default function ProjectOverviewDialog({
             <TabsTrigger value="overview">{t("project.tabOverview")}</TabsTrigger>
             <TabsTrigger value="files">{t("project.tabFiles")}</TabsTrigger>
             <TabsTrigger value="instructions">{t("project.tabInstructions")}</TabsTrigger>
+            <TabsTrigger value="auto-memory">{t("project.tabAutoMemory")}</TabsTrigger>
           </TabsList>
 
           {/* Overview */}
@@ -190,10 +190,7 @@ export default function ProjectOverviewDialog({
           </TabsContent>
 
           {/* Instructions */}
-          <TabsContent
-            value="instructions"
-            className="flex-1 overflow-y-auto px-5 py-3 space-y-3"
-          >
+          <TabsContent value="instructions" className="flex-1 overflow-y-auto px-5 py-3 space-y-3">
             <p className="text-xs text-muted-foreground">{t("project.projectInstructionsHint")}</p>
             <Textarea
               value={instructionsDraft}
@@ -228,6 +225,11 @@ export default function ProjectOverviewDialog({
                     : t("common.save")}
               </Button>
             </div>
+          </TabsContent>
+
+          {/* Project auto memory: bounded index + on-demand topic files. */}
+          <TabsContent value="auto-memory" className="flex-1 overflow-hidden p-0">
+            <ProjectMemorySection projectId={project.id} />
           </TabsContent>
         </Tabs>
       </SheetContent>

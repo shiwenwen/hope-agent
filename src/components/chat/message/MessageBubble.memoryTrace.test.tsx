@@ -51,12 +51,10 @@ vi.mock("@/components/common/ProviderIcon", () => ({
 }))
 
 beforeEach(() => {
-  vi.spyOn(window, "requestAnimationFrame").mockImplementation(
-    (callback: FrameRequestCallback) => {
-      callback(0)
-      return 0
-    },
-  )
+  vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback: FrameRequestCallback) => {
+    callback(0)
+    return 0
+  })
   vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => {})
 })
 
@@ -89,10 +87,36 @@ function renderMessageBubble(msg: Message) {
 }
 
 describe("MessageBubble memory trace actions", () => {
+  test("does not show SQLite edit actions for the project auto-memory index", async () => {
+    renderMessageBubble({
+      role: "assistant",
+      content: "answer",
+      usedMemoryRefs: [
+        {
+          kind: "memory",
+          id: "project-auto-memory-index:project-1",
+          sourceType: "project_auto_memory_index",
+          scope: "project:project-1",
+          origin: "project_auto_memory",
+          role: "injected",
+          preview: "2 project memory topics indexed",
+        },
+      ],
+    })
+
+    fireEvent.click(screen.getByRole("button", { name: /used memory/i }))
+
+    expect(await screen.findByText("2 project memory topics indexed")).toBeTruthy()
+    expect(screen.queryByRole("button", { name: "Quick edit memory" })).toBeNull()
+    expect(screen.queryByRole("button", { name: "Do not use this memory" })).toBeNull()
+  })
+
   test("shows a redacted toast when copying diagnostics fails", async () => {
-    const writeText = vi.fn().mockRejectedValue(
-      new Error("clipboard denied token=copy-secret Authorization: Bearer bearer-secret"),
-    )
+    const writeText = vi
+      .fn()
+      .mockRejectedValue(
+        new Error("clipboard denied token=copy-secret Authorization: Bearer bearer-secret"),
+      )
     Object.defineProperty(navigator, "clipboard", {
       configurable: true,
       value: { writeText },
@@ -130,13 +154,9 @@ describe("MessageBubble memory trace actions", () => {
     fireEvent.click(await screen.findByRole("button", { name: /copy diagnostics/i }))
 
     await waitFor(() => {
-      expect(toastMock.error).toHaveBeenCalledWith(
-        "Failed to copy memory diagnostics",
-        {
-          description:
-            "Details: clipboard denied token=[redacted] Authorization: Bearer [redacted]",
-        },
-      )
+      expect(toastMock.error).toHaveBeenCalledWith("Failed to copy memory diagnostics", {
+        description: "Details: clipboard denied token=[redacted] Authorization: Bearer [redacted]",
+      })
     })
     expect(writeText).toHaveBeenCalledTimes(1)
     expect(writeText.mock.calls[0]?.[0]).toContain("User prefers concise answers.")

@@ -10,8 +10,8 @@ use super::issue_report;
 use super::send_attachment;
 use super::skill;
 use super::{
-    acp_spawn, browser, cron, goal, loop_tool, mac_control, memory, note, notification, settings,
-    subagent, team, weather, web_fetch, web_search, workflow_tool,
+    acp_spawn, browser, cron, goal, loop_tool, mac_control, memory, note, notification,
+    project_memory, settings, subagent, team, weather, web_fetch, web_search, workflow_tool,
 };
 use super::{
     agents, ask_user_question, canvas, enter_plan_mode, image, image_generate, job_status, pdf,
@@ -27,12 +27,12 @@ use super::{
     TOOL_ISSUE_REPORT, TOOL_JOB_STATUS, TOOL_LIST_SETTINGS_BACKUPS, TOOL_LOOP_RECORD_PROGRESS,
     TOOL_LOOP_RESCHEDULE, TOOL_LOOP_STATUS, TOOL_LOOP_STOP, TOOL_LOOP_UNWATCH, TOOL_LOOP_WATCH,
     TOOL_LS, TOOL_LSP, TOOL_MAC_CONTROL, TOOL_MANAGE_CRON, TOOL_MEMORY_GET, TOOL_PDF, TOOL_PROCESS,
-    TOOL_READ, TOOL_RECALL_MEMORY, TOOL_RESTORE_SETTINGS_BACKUP, TOOL_RUNTIME_CANCEL,
-    TOOL_SAVE_MEMORY, TOOL_SEND_ATTACHMENT, TOOL_SEND_NOTIFICATION, TOOL_SESSIONS_HISTORY,
-    TOOL_SESSIONS_LIST, TOOL_SESSIONS_SEARCH, TOOL_SESSIONS_SEND, TOOL_SESSION_STATUS,
-    TOOL_SUBAGENT, TOOL_SUBMIT_PLAN, TOOL_TASK_CREATE, TOOL_TASK_LIST, TOOL_TASK_UPDATE, TOOL_TEAM,
-    TOOL_UPDATE_CORE_MEMORY, TOOL_UPDATE_MEMORY, TOOL_UPDATE_SETTINGS, TOOL_WEB_FETCH,
-    TOOL_WEB_SEARCH, TOOL_WORKFLOW, TOOL_WRITE,
+    TOOL_PROJECT_MEMORY, TOOL_READ, TOOL_RECALL_MEMORY, TOOL_RESTORE_SETTINGS_BACKUP,
+    TOOL_RUNTIME_CANCEL, TOOL_SAVE_MEMORY, TOOL_SEND_ATTACHMENT, TOOL_SEND_NOTIFICATION,
+    TOOL_SESSIONS_HISTORY, TOOL_SESSIONS_LIST, TOOL_SESSIONS_SEARCH, TOOL_SESSIONS_SEND,
+    TOOL_SESSION_STATUS, TOOL_SUBAGENT, TOOL_SUBMIT_PLAN, TOOL_TASK_CREATE, TOOL_TASK_LIST,
+    TOOL_TASK_UPDATE, TOOL_TEAM, TOOL_UPDATE_CORE_MEMORY, TOOL_UPDATE_MEMORY, TOOL_UPDATE_SETTINGS,
+    TOOL_WEB_FETCH, TOOL_WEB_SEARCH, TOOL_WORKFLOW, TOOL_WRITE,
 };
 use super::{
     TOOL_KNOWLEDGE_RECALL, TOOL_NOTE_APPEND, TOOL_NOTE_ASSIGN_BLOCK, TOOL_NOTE_BACKLINKS,
@@ -1830,6 +1830,7 @@ pub async fn execute_tool_with_context(
             TOOL_UPDATE_MEMORY => memory::tool_update_memory(args).await,
             TOOL_DELETE_MEMORY => memory::tool_delete_memory(args).await,
             TOOL_UPDATE_CORE_MEMORY => memory::tool_update_core_memory(args, dispatch_ctx).await,
+            TOOL_PROJECT_MEMORY => project_memory::tool_project_memory(args, dispatch_ctx).await,
             TOOL_MANAGE_CRON => cron::tool_manage_cron(args, dispatch_ctx).await,
             TOOL_BROWSER => browser::tool_browser(args, dispatch_ctx).await,
             TOOL_MAC_CONTROL => mac_control::tool_mac_control(args).await,

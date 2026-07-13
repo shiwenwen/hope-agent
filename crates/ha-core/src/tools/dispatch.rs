@@ -475,6 +475,7 @@ mod tests {
             crate::tools::TOOL_UPDATE_MEMORY,
             crate::tools::TOOL_DELETE_MEMORY,
             crate::tools::TOOL_UPDATE_CORE_MEMORY,
+            crate::tools::TOOL_PROJECT_MEMORY,
             crate::tools::TOOL_MEMORY_GET,
         ];
 

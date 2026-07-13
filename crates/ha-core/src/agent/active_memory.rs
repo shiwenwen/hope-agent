@@ -8,9 +8,10 @@
 //!
 //! Design principles:
 //! - **Opt-in**: disabled by default — every user turn pays the side_query
-//!   latency, so the feature waits for the user to flip the toggle in the
-//!   Memory tab. When off, the static memory section in the system prompt
-//!   still injects relevant entries (passive recall path).
+//!   latency and extra input/output tokens, so the feature waits for the user
+//!   to flip the toggle in the Memory tab. The trade-off is a more personalized
+//!   answer when the query-dependent recall succeeds. When off, the static
+//!   memory section in the system prompt still injects entries (passive path).
 //! - **Bounded**: hard timeout from `ActiveMemoryConfig.timeout_ms` (default 8s).
 //!   On timeout we silently skip injection and fall back to the passive memory
 //!   section already baked into the system prompt.

@@ -34,6 +34,7 @@ pub(crate) mod note;
 mod notification;
 pub(crate) mod pdf;
 mod process;
+mod project_memory;
 pub(crate) mod read;
 pub(crate) mod rejection;
 mod runtime_cancel;
@@ -100,6 +101,7 @@ pub const TOOL_RECALL_MEMORY: &str = "recall_memory";
 pub const TOOL_UPDATE_MEMORY: &str = "update_memory";
 pub const TOOL_DELETE_MEMORY: &str = "delete_memory";
 pub const TOOL_UPDATE_CORE_MEMORY: &str = "update_core_memory";
+pub const TOOL_PROJECT_MEMORY: &str = "project_memory";
 pub const TOOL_MANAGE_CRON: &str = "manage_cron";
 pub const TOOL_BROWSER: &str = "browser";
 pub const TOOL_MAC_CONTROL: &str = "mac_control";
@@ -332,6 +334,7 @@ pub fn is_memory_tool(name: &str) -> bool {
             | TOOL_DELETE_MEMORY
             | TOOL_MEMORY_GET
             | TOOL_UPDATE_CORE_MEMORY
+            | TOOL_PROJECT_MEMORY
     )
 }
 

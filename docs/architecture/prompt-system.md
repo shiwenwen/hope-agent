@@ -50,7 +50,7 @@ graph TD
         S6c --> S6d["⑥c¹½ Execution Mode (session, conditional)"]
         S6d --> S6e["⑥c² Tool Budget (conditional)"]
         S6e --> S6f["⑥d Human-in-the-loop (hardcoded)"]
-        S6f --> S7["⑦ Skills (filtered)"] --> S7d["⑦d Working Directory (session, conditional)"] --> S7e["⑦e IM Attachment (conditional)"] --> S8["⑧ Memory"]
+        S6f --> S7["⑦ Skills (filtered)"] --> S7d["⑦d Working Directory (session, conditional)"] --> S7e["⑦e IM Attachment (conditional)"] --> S8["⑧ Memory"] --> S8p["⑧p Project Auto Memory Index"]
         S9["⑨ Runtime Info (Agent home)"] --> S10["⑩ SubAgent Delegation"] --> S11["⑪ Sandbox Mode"]
         S12["⑫ reserved"] --> S13["⑬ ACP Ext Agents"]
     end

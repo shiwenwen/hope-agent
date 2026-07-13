@@ -86,6 +86,18 @@ pub struct ListProjectSessionsQuery {
     pub active_session_id: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct WriteProjectMemoryBody {
+    pub input: ha_core::project::memory::ProjectMemoryWriteInput,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeleteProjectMemoryQuery {
+    #[serde(default)]
+    pub expected_file_hash: Option<String>,
+}
+
 // ── Project CRUD ────────────────────────────────────────────────
 
 /// `GET /api/projects`
@@ -291,4 +303,102 @@ pub async fn list_project_memories(
         ha_core::blocking::run_blocking(move || backend.list(Some(&scope), None, limit, offset))
             .await?;
     Ok(Json(entries))
+}
+
+// ── Project Auto Memory ─────────────────────────────────────────
+
+/// `GET /api/projects/:id/memory-files`
+pub async fn list_project_memory_files(
+    State(ctx): State<Arc<AppContext>>,
+    Path(id): Path<String>,
+) -> Result<Json<Vec<ha_core::project::memory::ProjectMemoryEntry>>, AppError> {
+    let project_db = ctx.project_db.clone();
+    let entries = ha_core::blocking::run_blocking(move || {
+        ensure_project_exists(&project_db, &id)?;
+        ha_core::project::memory::list(&id)
+    })
+    .await?;
+    Ok(Json(entries))
+}
+
+/// `GET /api/projects/:id/memory-files/:file_name`
+pub async fn read_project_memory_file(
+    State(ctx): State<Arc<AppContext>>,
+    Path((id, file_name)): Path<(String, String)>,
+) -> Result<Json<ha_core::project::memory::ProjectMemoryFile>, AppError> {
+    let project_db = ctx.project_db.clone();
+    let file = ha_core::blocking::run_blocking(move || {
+        ensure_project_exists(&project_db, &id)?;
+        ha_core::project::memory::read(&id, &file_name)
+    })
+    .await?;
+    Ok(Json(file))
+}
+
+/// `PUT /api/projects/:id/memory-files`
+pub async fn write_project_memory_file(
+    State(ctx): State<Arc<AppContext>>,
+    Path(id): Path<String>,
+    Json(body): Json<WriteProjectMemoryBody>,
+) -> Result<Json<ha_core::project::memory::ProjectMemoryFile>, AppError> {
+    let project_db = ctx.project_db.clone();
+    let event_project_id = id.clone();
+    let file = ha_core::blocking::run_blocking(move || {
+        ensure_project_exists(&project_db, &id)?;
+        ha_core::project::memory::write(&id, body.input)
+    })
+    .await?;
+    ctx.event_bus.emit(
+        "project_memory:changed",
+        json!({ "projectId": event_project_id, "action": "write" }),
+    );
+    Ok(Json(file))
+}
+
+/// `DELETE /api/projects/:id/memory-files/:file_name`
+pub async fn delete_project_memory_file(
+    State(ctx): State<Arc<AppContext>>,
+    Path((id, file_name)): Path<(String, String)>,
+    Query(q): Query<DeleteProjectMemoryQuery>,
+) -> Result<Json<bool>, AppError> {
+    let project_db = ctx.project_db.clone();
+    let event_project_id = id.clone();
+    let deleted = ha_core::blocking::run_blocking(move || {
+        ensure_project_exists(&project_db, &id)?;
+        ha_core::project::memory::delete(&id, &file_name, q.expected_file_hash.as_deref())
+    })
+    .await?;
+    if deleted {
+        ctx.event_bus.emit(
+            "project_memory:changed",
+            json!({ "projectId": event_project_id, "action": "delete" }),
+        );
+    }
+    Ok(Json(deleted))
+}
+
+/// `POST /api/projects/:id/memory-files/rebuild-index`
+pub async fn rebuild_project_memory_index(
+    State(ctx): State<Arc<AppContext>>,
+    Path(id): Path<String>,
+) -> Result<Json<String>, AppError> {
+    let project_db = ctx.project_db.clone();
+    let event_project_id = id.clone();
+    let index = ha_core::blocking::run_blocking(move || {
+        ensure_project_exists(&project_db, &id)?;
+        ha_core::project::memory::rebuild_index(&id)
+    })
+    .await?;
+    ctx.event_bus.emit(
+        "project_memory:changed",
+        json!({ "projectId": event_project_id, "action": "rebuild_index" }),
+    );
+    Ok(Json(index))
+}
+
+fn ensure_project_exists(project_db: &ha_core::project::ProjectDB, id: &str) -> anyhow::Result<()> {
+    if project_db.get(id)?.is_none() {
+        anyhow::bail!("project not found: {}", id);
+    }
+    Ok(())
 }

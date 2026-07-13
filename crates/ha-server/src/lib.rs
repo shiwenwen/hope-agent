@@ -276,6 +276,20 @@ fn build_router_with_cors(
             "/projects/{id}/memories",
             get(routes::projects::list_project_memories),
         )
+        .route(
+            "/projects/{id}/memory-files",
+            get(routes::projects::list_project_memory_files)
+                .put(routes::projects::write_project_memory_file),
+        )
+        .route(
+            "/projects/{id}/memory-files/rebuild-index",
+            post(routes::projects::rebuild_project_memory_index),
+        )
+        .route(
+            "/projects/{id}/memory-files/{file_name}",
+            get(routes::projects::read_project_memory_file)
+                .delete(routes::projects::delete_project_memory_file),
+        )
         // ── Knowledge Base ──
         .route(
             "/knowledge",

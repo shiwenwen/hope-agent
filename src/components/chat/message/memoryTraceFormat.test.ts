@@ -89,6 +89,7 @@ describe("memoryTraceFormat", () => {
     expect(memoryKindLabel({ kind: "procedure" }, t)).toBe("Workflow")
     expect(memoryOriginLabel("experience", t)).toBe("Experience memory")
     expect(memoryOriginLabel("graph", t)).toBe("Entity relationships")
+    expect(memoryOriginLabel("project_auto_memory", t)).toBe("Auto Memory")
     expect(memoryRoleLabel("selected", t)).toBe("Selected")
     expect(memoryRoleLabel("candidate", t)).toBe("Candidate")
     expect(memoryRoleLabel("considered", t)).toBe("Candidate")
@@ -119,6 +120,9 @@ describe("memoryTraceFormat", () => {
       "claim · Project: hope-agent",
     )
     expect(memorySourceLabel({ sourceType: "manual", scope: undefined }, t)).toBe("manual")
+    expect(
+      memorySourceLabel({ sourceType: "project_auto_memory_index", scope: "project:p1" }, t),
+    ).toBe("Auto Memory · Project: p1")
     expect(memorySourceLabel({ sourceType: undefined, scope: "global" }, t)).toBe("Global")
     expect(memorySourceLabel({ sourceType: undefined, scope: "  " }, t)).toBe("")
   })
@@ -186,9 +190,7 @@ describe("memoryTraceFormat", () => {
       "memory update failed https://api.example.test?token=[redacted] Authorization: Bearer [redacted] api_key=[redacted]",
     )
     expect(
-      memoryTraceErrorDetail(
-        "claim archive failed passphrase=backup-secret password=db-secret",
-      ),
+      memoryTraceErrorDetail("claim archive failed passphrase=backup-secret password=db-secret"),
     ).toBe("claim archive failed passphrase=[redacted] password=[redacted]")
     expect(memoryTraceErrorDetail("   ")).toBeNull()
     expect(memoryTraceErrorDetail(null)).toBeNull()
@@ -224,16 +226,10 @@ describe("memoryTraceFormat", () => {
 
   it("explains injected workflow guidance without calling it candidate-only", () => {
     expect(
-      memoryReasonText(
-        { kind: "procedure", id: "p1", origin: "experience", role: "injected" },
-        t,
-      ),
+      memoryReasonText({ kind: "procedure", id: "p1", origin: "experience", role: "injected" }, t),
     ).toBe("A saved workflow entered this turn's soft guidance.")
     expect(
-      memoryReasonText(
-        { kind: "procedure", id: "p2", origin: "experience", role: "candidate" },
-        t,
-      ),
+      memoryReasonText({ kind: "procedure", id: "p2", origin: "experience", role: "candidate" }, t),
     ).toBe("A saved workflow matched this turn, but did not enter the answer context.")
     expect(
       memoryReasonText({ kind: "episode", id: "e1", origin: "experience", role: "candidate" }, t),

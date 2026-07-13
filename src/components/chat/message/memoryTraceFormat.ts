@@ -98,6 +98,8 @@ export function memoryOriginLabel(origin: UsedMemoryRef["origin"], t: TranslateF
       return t("chat.memoryTrace.origin.experience", "Experience memory")
     case "graph":
       return t("chat.memoryTrace.origin.graph", "Entity relationships")
+    case "project_auto_memory":
+      return t("project.tabAutoMemory", "Auto Memory")
     default:
       return origin || t("chat.memoryTrace.origin.unknown", "Long-term context")
   }
@@ -141,7 +143,11 @@ export function memorySourceLabel(
   ref: Pick<UsedMemoryRef, "sourceType" | "scope">,
   t: TranslateFn,
 ): string {
-  return [ref.sourceType, memoryScopeLabel(ref.scope, t)].filter(Boolean).join(" · ")
+  const sourceType =
+    ref.sourceType === "project_auto_memory_index"
+      ? t("project.tabAutoMemory", "Auto Memory")
+      : ref.sourceType
+  return [sourceType, memoryScopeLabel(ref.scope, t)].filter(Boolean).join(" · ")
 }
 
 export function retrievalLayerLabel(layer: string, t: TranslateFn): string {
@@ -346,7 +352,10 @@ export function memoryTraceErrorDescription(error: unknown, t: TranslateFn): str
 
 export function memoryReasonText(ref: UsedMemoryRef, t: TranslateFn): string {
   if (ref.origin === "active_memory" && ref.role === "selected") {
-    return t("chat.memoryTrace.reason.activeSelected", "Active recall selected it for the current question.")
+    return t(
+      "chat.memoryTrace.reason.activeSelected",
+      "Active recall selected it for the current question.",
+    )
   }
   if (ref.origin === "active_memory" && isMemoryCandidateRole(ref.role)) {
     return t(
@@ -355,7 +364,10 @@ export function memoryReasonText(ref: UsedMemoryRef, t: TranslateFn): string {
     )
   }
   if (ref.origin === "pinned_memory") {
-    return t("chat.memoryTrace.reason.pinned", "A high-salience pinned memory entered this turn's context.")
+    return t(
+      "chat.memoryTrace.reason.pinned",
+      "A high-salience pinned memory entered this turn's context.",
+    )
   }
   if (ref.origin === "static_memory") {
     return t(
@@ -364,10 +376,16 @@ export function memoryReasonText(ref: UsedMemoryRef, t: TranslateFn): string {
     )
   }
   if (ref.origin === "profile") {
-    return t("chat.memoryTrace.reason.profile", "The user profile summary entered this turn's context.")
+    return t(
+      "chat.memoryTrace.reason.profile",
+      "The user profile summary entered this turn's context.",
+    )
   }
   if (ref.origin === "knowledge") {
-    return t("chat.memoryTrace.reason.knowledge", "A related knowledge note entered this turn's context.")
+    return t(
+      "chat.memoryTrace.reason.knowledge",
+      "A related knowledge note entered this turn's context.",
+    )
   }
   if (ref.origin === "experience" && ref.kind === "procedure" && ref.role === "injected") {
     return t(

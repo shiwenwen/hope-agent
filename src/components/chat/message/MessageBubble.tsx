@@ -1033,16 +1033,16 @@ function ActiveMemoryTrace({
                 const originLabel = memoryOriginLabel(candidate.origin, t)
                 const metricLabels = memoryMetricLabels(candidate, t)
                 const locationLabel = memoryLocationLabel(candidate)
+                const isSqliteMemoryRef =
+                  candidate.kind === "memory" && Number.isFinite(Number(candidate.id))
                 const correctionState =
                   candidate.kind === "claim"
                     ? claimCorrections[candidate.id]
-                    : candidate.kind === "memory"
+                    : isSqliteMemoryRef
                       ? memoryCorrections[candidate.id]
                       : undefined
                 const isPendingMemoryForget =
-                  candidate.kind === "memory" &&
-                  pendingForgetMemoryId === candidate.id &&
-                  !correctionState
+                  isSqliteMemoryRef && pendingForgetMemoryId === candidate.id && !correctionState
                 const isCandidateRef = isMemoryCandidateRole(candidate.role)
                 const memoryDismissLabel = isCandidateRef
                   ? t("chat.memoryTrace.doNotSuggestCandidate", "Do not suggest this candidate")
@@ -1061,7 +1061,7 @@ function ActiveMemoryTrace({
                   : t("chat.memoryTrace.confirmForgetMemoryAction", "Confirm delete this memory")
                 const opensMemoryCenter = !!focusTarget && !!onOpenMemorySettings
                 const canEditMemoryRef =
-                  opensMemoryCenter && (candidate.kind === "memory" || candidate.kind === "claim")
+                  opensMemoryCenter && (isSqliteMemoryRef || candidate.kind === "claim")
                 const sourceActionLabel = canEditMemoryRef
                   ? t("chat.memoryTrace.editMemory", "Edit this memory")
                   : t("chat.memoryTrace.openSource", "Open source")
@@ -1120,7 +1120,7 @@ function ActiveMemoryTrace({
                           </button>
                         </IconTip>
                       )}
-                      {candidate.kind === "memory" && (
+                      {isSqliteMemoryRef && (
                         <IconTip label={t("chat.memoryTrace.quickEdit", "Quick edit memory")}>
                           <button
                             type="button"
@@ -1144,7 +1144,7 @@ function ActiveMemoryTrace({
                           </button>
                         </IconTip>
                       )}
-                      {(candidate.kind === "claim" || candidate.kind === "memory") && (
+                      {(candidate.kind === "claim" || isSqliteMemoryRef) && (
                         <IconTip
                           label={
                             correctionState === "done"

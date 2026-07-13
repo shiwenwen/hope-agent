@@ -377,6 +377,23 @@ pub(crate) fn build_system_prompt_bundle_with_session_db(
         let app_cfg = crate::config::cached_config();
         let long_term_memory_enabled = app_cfg.memory_extract.enabled;
 
+        // Project Auto Memory mirrors the progressive-disclosure contract used
+        // by modern coding agents: only the bounded MEMORY.md index enters the
+        // stable prompt; topic files remain on disk until `project_memory`
+        // explicitly reads one. Load it in this same blocking snapshot so the
+        // prompt and `used_memory_refs` cannot disagree.
+        let project_auto_memory_index =
+            if long_term_memory_enabled && definition.config.memory.enabled && !incognito {
+                project.as_ref().map(|project| {
+                    crate::project::memory::load_index(&project.id)
+                        .ok()
+                        .flatten()
+                        .unwrap_or_default()
+                })
+            } else {
+                None
+            };
+
         let memory_entries: Vec<crate::memory::MemoryEntry> =
             if long_term_memory_enabled && definition.config.memory.enabled && !incognito {
                 crate::get_memory_backend()
@@ -528,6 +545,40 @@ pub(crate) fn build_system_prompt_bundle_with_session_db(
             })
             .unwrap_or_default();
 
+        if let (Some(project), Some(index)) =
+            (project.as_ref(), project_auto_memory_index.as_deref())
+        {
+            let topic_count = index
+                .lines()
+                .filter(|line| line.trim_start().starts_with("- ["))
+                .count();
+            if topic_count > 0 {
+                static_memory_refs.push(super::active_memory::UsedMemoryRef {
+                    kind: "memory".to_string(),
+                    id: format!("project-auto-memory-index:{}", project.id),
+                    source_type: "project_auto_memory_index".to_string(),
+                    scope: format!("project:{}", project.id),
+                    origin: "project_auto_memory".to_string(),
+                    role: "injected".to_string(),
+                    preview: format!("{} project memory topic(s) indexed", topic_count),
+                    path: crate::project::memory::memory_dir(&project.id)
+                        .ok()
+                        .map(|dir| {
+                            dir.join(crate::project::memory::INDEX_FILE)
+                                .display()
+                                .to_string()
+                        }),
+                    line: None,
+                    col: None,
+                    heading_path: None,
+                    block_id: None,
+                    score: None,
+                    confidence: None,
+                    salience: None,
+                });
+            }
+        }
+
         let has_profile_snapshot = profile_snapshot
             .as_deref()
             .map(str::trim)
@@ -579,6 +630,7 @@ pub(crate) fn build_system_prompt_bundle_with_session_db(
             &memory_budget,
             profile_snapshot.as_deref(),
             context_pack.as_ref(),
+            project_auto_memory_index.as_deref(),
             agent_home.as_deref(),
             project.as_ref(),
             session_id,

@@ -969,7 +969,7 @@ export default function MemoryOverviewView({
         case "disabled":
           return t(
             "settings.memoryUseInRepliesReadinessDisabled",
-            "Off: the default agent will not proactively look up memories before answering.",
+            "Off by default: the default agent will not proactively look up memories before answering.",
           )
         case "claimsOff":
           return t(
@@ -4760,7 +4760,7 @@ export default function MemoryOverviewView({
                 <p className="mt-1 max-w-3xl text-xs text-muted-foreground">
                   {t(
                     "settings.memoryUseInRepliesDesc",
-                    "Enable the recommended low-latency recall preset for the default agent. Relevant memories can be brought into answers, and recall still skips safely on timeout.",
+                    "Off by default. Enabling proactive recall runs an extra side query before each answer, increasing latency and token usage in exchange for more personalized responses. Timeouts safely skip the enhancement.",
                   )}
                 </p>
                 <p className="mt-1 text-[11px] text-muted-foreground/80">

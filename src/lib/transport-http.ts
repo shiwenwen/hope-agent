@@ -60,6 +60,20 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   mark_project_sessions_read_cmd: { method: "POST", path: "/api/projects/{projectId}/read" },
   move_session_to_project_cmd: { method: "PATCH", path: "/api/sessions/{sessionId}/project" },
   list_project_memories_cmd: { method: "GET", path: "/api/projects/{id}/memories" },
+  list_project_memory_files_cmd: { method: "GET", path: "/api/projects/{id}/memory-files" },
+  read_project_memory_file_cmd: {
+    method: "GET",
+    path: "/api/projects/{id}/memory-files/{fileName}",
+  },
+  write_project_memory_file_cmd: { method: "PUT", path: "/api/projects/{id}/memory-files" },
+  delete_project_memory_file_cmd: {
+    method: "DELETE",
+    path: "/api/projects/{id}/memory-files/{fileName}",
+  },
+  rebuild_project_memory_index_cmd: {
+    method: "POST",
+    path: "/api/projects/{id}/memory-files/rebuild-index",
+  },
 
   // -- Knowledge Base (Knowledge Space) --
   list_kbs_cmd: { method: "GET", path: "/api/knowledge" },

@@ -76,6 +76,7 @@ pub fn build(
         memory_budget,
         profile_snapshot,
         context_pack,
+        None,
         agent_home,
         project,
         session_id,
@@ -101,6 +102,7 @@ pub(crate) fn build_with_resolved_session(
     memory_budget: &MemoryBudgetConfig,
     profile_snapshot: Option<&str>,
     context_pack: Option<&crate::memory::dreaming::MemoryContextPack>,
+    project_auto_memory_index: Option<&str>,
     agent_home: Option<&str>,
     project: Option<&Project>,
     session_id: Option<&str>,
@@ -358,6 +360,14 @@ pub(crate) fn build_with_resolved_session(
 
     if incognito {
         sections.push(build_incognito_section());
+    }
+
+    // File-backed project auto memory uses progressive disclosure: this
+    // bounded generated index stays in the stable prefix, while topic bodies
+    // enter conversation history only after an explicit project_memory read.
+    // Keep it before the volatile working-directory file listing below.
+    if let Some(index) = project_auto_memory_index {
+        sections.push(crate::project::memory::render_index_prompt(index));
     }
 
     // ⑨ Runtime info

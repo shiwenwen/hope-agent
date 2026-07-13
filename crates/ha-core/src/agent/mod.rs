@@ -3059,6 +3059,20 @@ impl AssistantAgent {
             });
         }
 
+        // Project auto memory only exists for project-bound sessions. Keep the
+        // capability out of both eager and deferred inventories elsewhere;
+        // the handler still validates the live project row before every I/O.
+        if self
+            .lookup_session_meta()
+            .and_then(|meta| meta.project_id)
+            .is_none()
+        {
+            schemas.retain(|schema| {
+                tools::canonical_tool_schema_name(extract_tool_name(schema))
+                    != tools::TOOL_PROJECT_MEMORY
+            });
+        }
+
         // Knowledge-space sidebar chat: trim to the curated white-list so the
         // document-writing conversation isn't handed exec / browser / subagent /
         // etc. Pure visibility narrowing — KB access is still `effective_kb_access`.

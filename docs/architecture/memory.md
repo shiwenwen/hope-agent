@@ -3,7 +3,7 @@
 
 ## 概述
 
-记忆系统基于 **SQLite + FTS5 + sqlite-vec** 构建混合检索引擎，为 AI 助手提供跨会话的长期记忆能力。支持 unicode61 关键词检索、trigram 字面片段检索与向量近似最近邻（ANN）检索，通过 RRF（Reciprocal Rank Fusion）融合排序。记忆可由用户手动保存、Agent 自动提取，或通过文件批量导入。记忆支持 **三级作用域**（Global / Agent / Project），项目级记忆在所属会话间共享但与其他项目隔离。
+记忆系统基于 **SQLite + FTS5 + sqlite-vec** 构建混合检索引擎，为 AI 助手提供跨会话的长期记忆能力。支持 unicode61 关键词检索、trigram 字面片段检索与向量近似最近邻（ANN）检索，通过 RRF（Reciprocal Rank Fusion）融合排序。记忆可由用户手动保存、Agent 自动提取，或通过文件批量导入。记忆支持 **三级作用域**（Global / Agent / Project），项目级记忆在所属会话间共享但与其他项目隔离。除此之外，Project 子系统还有一层独立的**文件式项目自动记忆**：只把 `MEMORY.md` 有界索引放进稳定 prompt，主题详情按需读取；它不计入 SQLite 的项目记忆条数，也不参与 Active Memory side query。
 
 ## 最终设计定位：Memory OS
 
@@ -582,12 +582,12 @@ impl Drop for DreamGuard {
 
 被动 system prompt 注入对"用户偶尔提到一次但当前问题相关"的记忆覆盖不够，因为预算有限会被裁掉。Active Memory 在每轮 user turn 之前调 `refresh_active_memory_suffix(user_text)` **针对当前提问主动召回一组相关记忆**，作为独立 cache block 注入。
 
-**默认关闭**（`enabled=false`）——开启会让每轮 user turn 在主请求前先跑一次 `side_query`（最坏等到 `timeout_ms`，默认 8s），有可见的发送延迟。需要召回增强的用户在 Memory tab 主动打开。关闭时静态 system prompt 段里的被动记忆注入仍然有效。
+**默认关闭**（`enabled=false`）——开启会让每轮 user turn 在主请求前先跑一次额外的 `side_query`，增加 token 用量和可见的发送延迟（最坏等到 `timeout_ms`，默认 8s），换取更贴合用户长期偏好和历史上下文的回答。需要个性化召回增强的用户在 Memory tab 主动打开。关闭时静态 system prompt 段里的被动记忆注入仍然有效。
 
 ### 调用时机与预算
 
 - 每轮 user turn 进入时调用，不是流式进行中
-- 内部走 bounded `side_query` 让小模型从候选集挑相关项，**严格预算**（不命中预算就放弃，不阻塞主流程）
+- 内部走 bounded `side_query` 让小模型从候选集挑相关项，**严格预算**；主请求会等待它完成或超时，但失败 / 超时只跳过本次增强，不会让主对话报错
 - 命中后渲染成 `## Active Memory` markdown 段落
 
 ### 三级 scope 候选
