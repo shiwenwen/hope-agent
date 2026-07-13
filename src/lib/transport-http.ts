@@ -390,7 +390,6 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   set_design_artifact_dir_cmd:       { method: "PUT",    path: "/api/design/artifacts/{id}/dir" },
   patch_design_page_style_cmd:       { method: "PUT",    path: "/api/design/artifacts/{id}/page-style" },
   inpaint_design_image_cmd:          { method: "POST",   path: "/api/design/artifacts/{id}/inpaint" },
-  fork_design_thread_cmd:            { method: "POST",   path: "/api/design/threads/{sessionId}/fork" },
   review_design_artifact_cmd:        { method: "GET",    path: "/api/design/artifacts/{id}/quality-review" },
   generate_design_artifact_cmd:      { method: "POST",   path: "/api/design/artifacts/generate" },
   design_ffmpeg_doctor_cmd:          { method: "GET",    path: "/api/design/ffmpeg/doctor" },

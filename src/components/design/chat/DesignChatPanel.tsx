@@ -14,7 +14,6 @@ import {
   FileStack,
   Blocks,
   RotateCcw,
-  GitFork,
   Wand2,
   Moon,
   Shuffle,
@@ -476,23 +475,30 @@ export const DesignChatPanel = forwardRef<DesignChatPanelHandle, Props>(function
   // 条件 return 之前声明**（hooks 顺序）。
   const [dragOver, setDragOver] = useState(false)
 
-  // Fork（分支）：同项目建新会话 + 拷贝当前对话历史，切到新线程继续探索另一方向。
-  const [forking, setForking] = useState(false)
-  const forkThread = useCallback(async () => {
-    const sid = session.currentSessionId
-    if (!sid || forking) return
-    setForking(true)
-    try {
-      const newId = await getTransport().call<string>("fork_design_thread_cmd", { sessionId: sid })
-      await session.switchThread(newId)
-      toast.success(t("design.chat.forked", "已分支为新对话"))
-    } catch (e) {
-      logger.error("design", "DesignChatPanel", "fork failed", e)
-      toast.error(t("design.chat.forkFailed", "分支失败"))
-    } finally {
-      setForking(false)
-    }
-  }, [session, forking, t])
+  // Fork（分支）：从某条消息岔开——复用主对话 `fork_session` 引擎（血缘 / 附件物理拷贝 /
+  // 拒进行中流式 / 边界裁剪），产物仍是本项目的设计线程（后端补建 design_chat_threads 锚点）。
+  // 切到新线程继续探索另一方向而不丢原线。交互与普通对话「消息下方 fork」一致。
+  const handleForkFromMessage = useCallback(
+    async (messageId: number) => {
+      const sid = session.currentSessionId
+      if (!sid) return
+      try {
+        const forked = await getTransport().call<{ id: string }>("fork_session_cmd", {
+          sessionId: sid,
+          messageId,
+        })
+        await session.reloadThreads()
+        await session.switchThread(forked.id)
+        toast.success(t("design.chat.forked", "已分支为新对话"))
+      } catch (e) {
+        logger.error("design", "DesignChatPanel", "fork failed", e)
+        toast.error(
+          e instanceof Error && e.message ? e.message : t("design.chat.forkFailed", "分支失败"),
+        )
+      }
+    },
+    [session, t],
+  )
 
   if (!projectId) {
     return (
@@ -576,19 +582,6 @@ export const DesignChatPanel = forwardRef<DesignChatPanelHandle, Props>(function
             <Plus className="h-4 w-4" />
           </Button>
         </IconTip>
-        {session.currentSessionId && session.messages.length > 0 && (
-          <IconTip label={t("design.chat.fork", "分支这个对话")}>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7"
-              disabled={forking}
-              onClick={() => void forkThread()}
-            >
-              <GitFork className="h-4 w-4" />
-            </Button>
-          </IconTip>
-        )}
         <div className="relative" ref={historyRef}>
           <IconTip label={t("design.chat.history", "历史对话")}>
             <Button
@@ -686,6 +679,7 @@ export const DesignChatPanel = forwardRef<DesignChatPanelHandle, Props>(function
             onLoadMore={session.handleLoadMore}
             sessionId={session.currentSessionId}
             renderMessageActions={renderMessageActions}
+            onForkFromMessage={handleForkFromMessage}
             pendingQuestionGroup={session.pendingQuestionGroup}
             onQuestionSubmitted={() => session.setPendingQuestionGroup(null)}
             askUserVariant="design"

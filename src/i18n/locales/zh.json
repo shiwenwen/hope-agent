@@ -10155,7 +10155,6 @@
       "turnFailed": "这一轮没有结果",
       "retry": "重试",
       "regenerate": "重新生成",
-      "fork": "分支这个对话",
       "forked": "已分支为新对话",
       "forkFailed": "分支失败",
       "editingContext": "正在改：{{title}}",

@@ -415,16 +415,6 @@ pub struct PresenterNotesBody {
     pub notes: Vec<String>,
 }
 
-/// `POST /api/design/threads/{sessionId}/fork` — fork 设计对话线程，返回新 sessionId。
-pub async fn fork_thread(Path(session_id): Path<String>) -> Result<Json<Value>, AppError> {
-    validate_id(&session_id)?;
-    let new_id =
-        ha_core::blocking::run_blocking(move || ha_core::design::threads::fork_thread(&session_id))
-            .await
-            .map_err(|e| AppError::internal(e.to_string()))?;
-    Ok(Json(json!({ "sessionId": new_id })))
-}
-
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct InpaintBody {

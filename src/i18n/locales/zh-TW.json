@@ -10155,7 +10155,6 @@
       "turnFailed": "這一輪沒有結果",
       "retry": "重試",
       "regenerate": "重新生成",
-      "fork": "分支這個對話",
       "forked": "已分支為新對話",
       "forkFailed": "分支失敗",
       "editingContext": "正在改：{{title}}",

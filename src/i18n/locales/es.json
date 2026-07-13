@@ -10155,7 +10155,6 @@
       "turnFailed": "Esta ronda no produjo resultado",
       "retry": "Reintentar",
       "regenerate": "Regenerar",
-      "fork": "Bifurcar esta conversación",
       "forked": "Bifurcado en una nueva conversación",
       "forkFailed": "Error al bifurcar",
       "editingContext": "Editando: {{title}}",

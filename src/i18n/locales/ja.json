@@ -10155,7 +10155,6 @@
       "turnFailed": "この回では結果が出ませんでした",
       "retry": "再試行",
       "regenerate": "再生成",
-      "fork": "この会話を分岐",
       "forked": "新しい会話に分岐しました",
       "forkFailed": "分岐に失敗しました",
       "editingContext": "編集中：{{title}}",

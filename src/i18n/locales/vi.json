@@ -10155,7 +10155,6 @@
       "turnFailed": "Lượt này không có kết quả",
       "retry": "Thử lại",
       "regenerate": "Tạo lại",
-      "fork": "Rẽ nhánh cuộc trò chuyện này",
       "forked": "Đã rẽ nhánh thành cuộc trò chuyện mới",
       "forkFailed": "Rẽ nhánh thất bại",
       "editingContext": "Đang sửa: {{title}}",

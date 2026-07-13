@@ -10155,7 +10155,6 @@
       "turnFailed": "This turn produced nothing",
       "retry": "Retry",
       "regenerate": "Regenerate",
-      "fork": "Fork this conversation",
       "forked": "Forked into a new conversation",
       "forkFailed": "Fork failed",
       "editingContext": "Editing: {{title}}",

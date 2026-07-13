@@ -10155,7 +10155,6 @@
       "turnFailed": "Bu turda sonuç çıkmadı",
       "retry": "Yeniden dene",
       "regenerate": "Yeniden oluştur",
-      "fork": "Bu konuşmayı çatalla",
       "forked": "Yeni bir konuşmaya çatallandı",
       "forkFailed": "Çatallama başarısız",
       "editingContext": "Düzenleniyor: {{title}}",

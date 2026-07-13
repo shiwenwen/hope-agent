@@ -10155,7 +10155,6 @@
       "turnFailed": "이번 턴은 결과가 없습니다",
       "retry": "다시 시도",
       "regenerate": "다시 생성",
-      "fork": "이 대화 분기",
       "forked": "새 대화로 분기했습니다",
       "forkFailed": "분기 실패",
       "editingContext": "편집 중: {{title}}",
