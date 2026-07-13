@@ -416,6 +416,7 @@ impl AssistantAgent {
             active_memory_suffix: std::sync::Mutex::new(None),
             active_memory_trace: std::sync::Mutex::new(None),
             static_memory_refs: std::sync::Mutex::new(Vec::new()),
+            static_memory_manifest: std::sync::Mutex::new(Default::default()),
             experience_memory_refs: std::sync::Mutex::new(Vec::new()),
             graph_memory_refs: std::sync::Mutex::new(Vec::new()),
             procedure_memory_suffix: std::sync::Mutex::new(None),
@@ -485,6 +486,7 @@ impl AssistantAgent {
             active_memory_suffix: std::sync::Mutex::new(None),
             active_memory_trace: std::sync::Mutex::new(None),
             static_memory_refs: std::sync::Mutex::new(Vec::new()),
+            static_memory_manifest: std::sync::Mutex::new(Default::default()),
             experience_memory_refs: std::sync::Mutex::new(Vec::new()),
             graph_memory_refs: std::sync::Mutex::new(Vec::new()),
             procedure_memory_suffix: std::sync::Mutex::new(None),
@@ -679,6 +681,7 @@ impl AssistantAgent {
             active_memory_suffix: std::sync::Mutex::new(None),
             active_memory_trace: std::sync::Mutex::new(None),
             static_memory_refs: std::sync::Mutex::new(Vec::new()),
+            static_memory_manifest: std::sync::Mutex::new(Default::default()),
             experience_memory_refs: std::sync::Mutex::new(Vec::new()),
             graph_memory_refs: std::sync::Mutex::new(Vec::new()),
             procedure_memory_suffix: std::sync::Mutex::new(None),
@@ -1051,6 +1054,65 @@ impl AssistantAgent {
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         retrieval_planner::select_refs_for_trace_with_context(refs, context)
+    }
+
+    pub(crate) fn log_memory_context_manifest(
+        &self,
+        provider: &str,
+        model: &str,
+        round: u32,
+        stable_prompt: &str,
+    ) {
+        let static_context = self
+            .static_memory_manifest
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        let active_trace = self
+            .active_memory_trace
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        let active_suffix = self
+            .active_memory_suffix
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        let procedure_suffix = self
+            .procedure_memory_suffix
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        let experience_ref_count = self
+            .experience_memory_refs
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .len();
+        let graph_ref_count = self
+            .graph_memory_refs
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .len();
+        let dynamic_context =
+            crate::memory::context_manifest::DynamicMemoryContextManifest::from_runtime(
+                active_trace.as_deref(),
+                active_suffix.as_deref().map(|value| value.as_str()),
+                procedure_suffix.as_deref().map(|value| value.as_str()),
+                experience_ref_count,
+                graph_ref_count,
+            );
+        let runtime = &crate::config::cached_config().memory;
+        crate::memory::context_manifest::MemoryContextManifest::new(
+            provider,
+            model,
+            round,
+            runtime.rollout.enabled,
+            runtime.rollout.shadow_plan,
+            stable_prompt,
+            static_context,
+            dynamic_context,
+        )
+        .log();
     }
 
     pub(crate) fn current_retrieval_planner_trace(
@@ -3127,6 +3189,10 @@ impl AssistantAgent {
             .static_memory_refs
             .lock()
             .unwrap_or_else(|e| e.into_inner()) = bundle.static_memory_refs;
+        *self
+            .static_memory_manifest
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = bundle.static_memory_manifest;
         *self
             .turn_prompt_cache
             .lock()

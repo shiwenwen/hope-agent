@@ -626,6 +626,35 @@ pub(crate) fn sqlite_memory_budget_after_static_layers(
     remaining.min(budget.sqlite_sections.total())
 }
 
+/// Return the exact Agent / Global core-memory bodies that survive the legacy
+/// static budget. This is diagnostics-only and mirrors `build_memory_section`
+/// byte-for-byte without re-reading files or databases.
+pub(crate) fn rendered_core_memory_bodies(
+    agent_memory_md: Option<&str>,
+    global_memory_md: Option<&str>,
+    budget: &MemoryBudgetConfig,
+) -> (Option<String>, Option<String>) {
+    if budget.total_chars == 0 {
+        return (None, None);
+    }
+    let mut remaining = budget.total_chars.saturating_sub(MEMORY_GUIDELINES.len());
+    let mut render = |md: Option<&str>, heading: &str| {
+        let md = md.filter(|value| !value.trim().is_empty())?;
+        let cap = core_memory_layer_body_cap(
+            remaining,
+            Some(md),
+            heading,
+            budget.core_memory_file_chars,
+        )?;
+        let chunk = truncate(md, cap);
+        remaining = remaining.saturating_sub(chunk.len() + heading.len() + 2);
+        Some(chunk)
+    };
+    let agent = render(agent_memory_md, "## Core Memory (Agent)\n\n");
+    let global = render(global_memory_md, "## Core Memory (Global)\n\n");
+    (agent, global)
+}
+
 /// Return only the Context Pack sources whose complete bullet lines survive the
 /// exact static-memory budget and head/tail truncation used by
 /// [`build_memory_section`]. Partial lines fail closed: trace code must never

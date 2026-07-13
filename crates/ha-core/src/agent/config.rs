@@ -312,6 +312,7 @@ pub fn build_system_prompt(agent_id: &str, model: &str, provider: &str) -> Strin
 pub(crate) struct SystemPromptBuild {
     pub prompt: String,
     pub static_memory_refs: Vec<super::active_memory::UsedMemoryRef>,
+    pub static_memory_manifest: crate::memory::context_manifest::StaticMemoryContextManifest,
 }
 
 /// Project-aware variant of [`build_system_prompt`]. When `session_id` is
@@ -579,6 +580,7 @@ pub(crate) fn build_system_prompt_bundle_with_session_db(
             }
         }
 
+        let mut rendered_legacy_static_block: Option<String> = None;
         let has_profile_snapshot = profile_snapshot
             .as_deref()
             .map(str::trim)
@@ -598,6 +600,9 @@ pub(crate) fn build_system_prompt_bundle_with_session_db(
                 memory_budget.sqlite_entry_max_chars,
                 profile_snapshot.as_deref(),
             );
+            if !summary.text.is_empty() {
+                rendered_legacy_static_block = Some(summary.text.clone());
+            }
             if !profile_refs.is_empty() && summary.text.contains("## User Profile") {
                 static_memory_refs.extend(profile_refs);
             }
@@ -621,6 +626,29 @@ pub(crate) fn build_system_prompt_bundle_with_session_db(
                 }
             }));
         }
+
+        let (rendered_agent_core, rendered_global_core) =
+            crate::system_prompt::rendered_core_memory_bodies(
+                definition.memory_md.as_deref(),
+                definition.global_memory_md.as_deref(),
+                &memory_budget,
+            );
+        let static_memory_manifest =
+            crate::memory::context_manifest::StaticMemoryContextManifest::from_sources(
+                long_term_memory_enabled && definition.config.memory.enabled,
+                incognito,
+                app_cfg.memory.compatibility.legacy_static_memory,
+                rendered_agent_core.as_deref(),
+                rendered_global_core.as_deref(),
+                project_auto_memory_index.as_deref(),
+                profile_snapshot.as_deref(),
+                rendered_legacy_static_block.as_deref(),
+                memory_entries.len(),
+                context_pack
+                    .as_ref()
+                    .map_or(0, |pack| pack.source_digest.len()),
+                &static_memory_refs,
+            );
 
         let prompt = crate::system_prompt::build_with_resolved_session(
             &definition,
@@ -646,12 +674,15 @@ pub(crate) fn build_system_prompt_bundle_with_session_db(
         return SystemPromptBuild {
             prompt,
             static_memory_refs,
+            static_memory_manifest,
         };
     }
     // Fallback: legacy prompt
     SystemPromptBuild {
         prompt: crate::system_prompt::build_legacy(Some(model), Some(provider), incognito),
         static_memory_refs: Vec::new(),
+        static_memory_manifest:
+            crate::memory::context_manifest::StaticMemoryContextManifest::default(),
     }
 }
 

@@ -324,6 +324,10 @@ pub struct AssistantAgent {
     /// are persisted with the assistant row as `used_memory_refs` so the UI can
     /// explain long-term context even when Active Memory is disabled or empty.
     pub(crate) static_memory_refs: std::sync::Mutex<Vec<super::active_memory::UsedMemoryRef>>,
+    /// Content-free metrics for the exact static memory snapshot used to build
+    /// this turn's base prompt. Dynamic recall metrics are joined per round.
+    pub(crate) static_memory_manifest:
+        std::sync::Mutex<crate::memory::context_manifest::StaticMemoryContextManifest>,
     /// Episode / Procedure candidates considered for this turn. These are not
     /// all injected into the model; high-confidence procedures may additionally
     /// enter `procedure_memory_suffix` as bounded soft workflow guidance.

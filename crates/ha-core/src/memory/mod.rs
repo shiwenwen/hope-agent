@@ -1,6 +1,7 @@
 pub mod audit;
 pub mod backup;
 pub mod claims;
+pub(crate) mod context_manifest;
 pub mod dreaming;
 pub mod embedding;
 pub mod episodes;
@@ -11,6 +12,7 @@ pub mod import_prompt;
 pub mod mmr;
 pub mod recall_summary;
 pub mod reembed_job;
+pub mod runtime_config;
 pub(crate) mod selection;
 pub mod sqlite;
 pub mod traits;
@@ -65,6 +67,7 @@ pub use helpers::{
 pub use import::*;
 pub use recall_summary::{maybe_summarize_recall, RecallSummaryConfig};
 pub use reembed_job::{cancel_active_memory_reembed_jobs, start_memory_reembed_job, ReembedMode};
+pub use runtime_config::*;
 pub use sqlite::SqliteMemoryBackend;
 pub use traits::*;
 pub use types::*;

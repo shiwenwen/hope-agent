@@ -895,6 +895,13 @@ impl AssistantAgent {
                 round,
             };
 
+            self.log_memory_context_manifest(
+                adapter.provider_format().label(),
+                model,
+                round,
+                round_system_prompt,
+            );
+
             let mut outcome = adapter
                 .chat_round(&client, req, cancel, on_delta_dyn)
                 .await?;

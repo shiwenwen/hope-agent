@@ -1109,6 +1109,10 @@ pub struct AppConfig {
     /// Global memory auto-extract configuration
     #[serde(default)]
     pub memory_extract: crate::memory::MemoryExtractConfig,
+    /// Memory UX v2 product-level contract. Legacy fields remain live during
+    /// the staged rollout; this config is shadow-only until rollout.enabled.
+    #[serde(default)]
+    pub memory: crate::memory::MemoryRuntimeConfig,
     /// LLM-based memory selection configuration
     #[serde(default)]
     pub memory_selection: crate::memory::MemorySelectionConfig,
@@ -1467,6 +1471,7 @@ impl Default for AppConfig {
             knowledge_media_retention: crate::knowledge::KnowledgeMediaRetentionConfig::default(),
             embedding: crate::memory::EmbeddingConfig::default(),
             memory_extract: crate::memory::MemoryExtractConfig::default(),
+            memory: crate::memory::MemoryRuntimeConfig::default(),
             memory_selection: crate::memory::MemorySelectionConfig::default(),
             memory_budget: crate::memory::MemoryBudgetConfig::default(),
             dedup: crate::memory::DedupConfig::default(),
