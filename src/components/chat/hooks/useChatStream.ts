@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback, useLayoutEffect } from "react"
 import { getTransport } from "@/lib/transport-provider"
-import type { ChatAttachment } from "@/lib/transport"
+import type { ChatAttachment, ProjectSessionBootstrapInput } from "@/lib/transport"
 import type { KbDraftAttachment } from "@/types/knowledge"
 import { useTranslation } from "react-i18next"
 import { logger } from "@/lib/logger"
@@ -291,6 +291,10 @@ export interface UseChatStreamOptions {
    * sent only when no `sessionId` is set yet.
    */
   draftProjectId?: string | null
+  /** Worktree launch configuration staged alongside a lazy project session. */
+  draftProjectBootstrap?: ProjectSessionBootstrapInput | null
+  /** Surface pre-session bootstrap failures back to the draft control bar. */
+  onProjectBootstrapFailure?: (message: string) => void
   /**
    * KB attaches staged before the session existed (composer draft mode). Like
    * draftWorkingDir, they ride on the `chat` command payload (`kbAttachments`)
@@ -409,6 +413,8 @@ export function useChatStream({
   incognitoEnabled = false,
   draftWorkingDir = null,
   draftProjectId = null,
+  draftProjectBootstrap = null,
+  onProjectBootstrapFailure,
   draftKbAttachments = [],
   draftKbAnchorNote = null,
   toolScope,
@@ -1008,6 +1014,16 @@ export function useChatStream({
   async function handleStop() {
     const sid = currentSessionIdRef.current ?? currentSessionId ?? null
     if (!sid) {
+      if (draftProjectBootstrap) {
+        try {
+          await getTransport().call("cancel_project_bootstrap", {
+            requestId: draftProjectBootstrap.requestId,
+          })
+        } catch (e) {
+          logger.error("ui", "ChatScreen::stopBootstrap", "Failed to stop project task setup", e)
+        }
+        return
+      }
       const active = Array.from(activeTurnBySessionRef.current.entries()).at(-1)
       if (!active) return
       const [activeSid, activeTurnId] = active
@@ -1558,6 +1574,7 @@ export function useChatStream({
           workingDir: sendSessionId ? undefined : (draftWorkingDir ?? undefined),
           // Lazy project binding — send-time snapshot, only on the auto-create send.
           projectId: sendSessionId ? undefined : (draftProjectIdRef.current ?? undefined),
+          projectBootstrap: sendSessionId ? undefined : (draftProjectBootstrap ?? undefined),
           // Send-time snapshot: only on the auto-create send, never incognito.
           kbAttachments:
             sendSessionId || incognitoEnabled
@@ -1581,7 +1598,32 @@ export function useChatStream({
       chatResolved = true
     } catch (e) {
       const sid = targetSessionId || "__pending__"
-      if (
+      const bootstrapFailedBeforeSession =
+        !sendSessionId &&
+        sid === "__pending__" &&
+        !!draftProjectBootstrap
+      if (bootstrapFailedBeforeSession) {
+        onProjectBootstrapFailure?.(e instanceof Error ? e.message : String(e))
+        updateSessionMessages(sid, (prev) => {
+          const updated = [...prev]
+          const last = updated[updated.length - 1]
+          if (last?.role === "assistant" && !last.content && !last.toolCalls?.length) updated.pop()
+          const maybeUser = updated[updated.length - 1]
+          if (
+            maybeUser?.role === "user" &&
+            maybeUser.content === displayed &&
+            maybeUser.timestamp === now
+          ) {
+            updated.pop()
+          }
+          return updated
+        })
+        if (!directText) {
+          setInput(rawText)
+          setAttachedFiles(filesToSend)
+          setPendingQuotes(quotesToSend)
+        }
+      } else if (
         (isActiveStreamError(e) || isQueuedMessageUnavailableError(e)) &&
         sid !== "__pending__"
       ) {

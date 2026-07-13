@@ -41,6 +41,9 @@ pub async fn create_managed_worktree(
             workflow_run_id,
             child_session_id,
             base_ref,
+            include_local_changes: false,
+            bootstrap_request_id: None,
+            bind_session_working_dir: false,
         })
         .await
         .map_err(Into::into)
@@ -55,6 +58,24 @@ pub async fn get_managed_worktree(
     db.run(move |db| db.get_managed_worktree(&worktree_id))
         .await
         .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn get_project_bootstrap_run(
+    request_id: String,
+    app_state: tauri::State<'_, crate::AppState>,
+) -> Result<Option<ha_core::project_bootstrap::ProjectBootstrapRun>, CmdError> {
+    let db = app_state.session_db.clone();
+    db.run(move |db| db.get_project_bootstrap_run(&request_id))
+        .await
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn cancel_project_bootstrap(request_id: String) -> Result<bool, CmdError> {
+    Ok(ha_core::project_bootstrap::cancel_project_bootstrap(
+        &request_id,
+    ))
 }
 
 #[tauri::command]

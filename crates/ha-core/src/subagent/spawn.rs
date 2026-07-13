@@ -136,6 +136,9 @@ pub(crate) async fn spawn_subagent_with_run_id(
                 workflow_run_id: None,
                 child_session_id: Some(child_session_id.clone()),
                 base_ref: None,
+                include_local_changes: false,
+                bootstrap_request_id: None,
+                bind_session_working_dir: false,
             })
             .await
         {

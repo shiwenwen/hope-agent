@@ -45,6 +45,7 @@ interface FileBrowserPanelProps {
   visible: boolean
   collapsed?: boolean
   overlay?: boolean
+  animateOnMount?: boolean
   panelWidth: number
   onPanelWidthChange: (w: number) => void
   reservedMainWidth?: number
@@ -69,6 +70,7 @@ export function FileBrowserPanel({
   visible,
   collapsed = false,
   overlay = false,
+  animateOnMount = false,
   panelWidth,
   onPanelWidthChange,
   reservedMainWidth,
@@ -256,6 +258,7 @@ export function FileBrowserPanel({
       reservedMainWidth={reservedMainWidth}
       collapsed={collapsed}
       overlay={overlay}
+      animateOnMount={animateOnMount}
       contentKey={detached ? "files-detached" : "files"}
     >
       {body}

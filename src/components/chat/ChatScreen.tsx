@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from "react"
 import { toast } from "sonner"
 import { getTransport } from "@/lib/transport-provider"
-import { parsePayload } from "@/lib/transport"
+import { parsePayload, TRANSPORT_EVENT_RESYNC_REQUIRED } from "@/lib/transport"
 import { save } from "@tauri-apps/plugin-dialog"
 import { useTranslation } from "react-i18next"
 import { logger } from "@/lib/logger"
@@ -16,6 +16,7 @@ import {
   FolderOpen,
   GitCompare,
   GitFork,
+  GitPullRequest,
   Globe,
   Layers,
   LayoutDashboard,
@@ -114,6 +115,7 @@ import { useFilePreview } from "./files/useFilePreview"
 import FilePreviewPanel from "./files/FilePreviewPanel"
 import { FileActionsContext, type FileActionsContextValue } from "./files/fileActionsContext"
 import WorkspacePanel from "./workspace/WorkspacePanel"
+import { PullRequestPanel } from "./workspace/PullRequestPanel"
 import BackgroundJobsPanel from "./background-jobs/BackgroundJobsPanel"
 import { decideBackgroundJobsAutoOpen } from "./background-jobs/autoOpenPolicy"
 import { useBackgroundJobs } from "./background-jobs/useBackgroundJobs"
@@ -139,6 +141,11 @@ import { chatKnowledgeReferenceAttachErrorToast } from "./chatKnowledgeReference
 import ProjectDialog from "./project/ProjectDialog"
 import ProjectOverviewDialog from "./project/ProjectOverviewDialog"
 import { useChatDisplayPreferences } from "./hooks/useChatDisplayPreferences"
+import { ProjectSessionDraftBar } from "./project/ProjectSessionDraftBar"
+import {
+  createLocalProjectRuntimeDraft,
+  type ProjectRuntimeDraft,
+} from "./project/projectRuntimeDraft"
 import {
   CHAT_SIDEBAR_DEFAULT_WIDTH,
   CHAT_SIDEBAR_LEGACY_DEFAULT_WIDTH,
@@ -148,6 +155,11 @@ import {
 } from "./sidebar/types"
 import { generateClientId, getLatestUserTurnKey } from "./chatScrollKeys"
 import type { Project, ProjectMeta } from "@/types/project"
+import type {
+  ProjectBootstrapProgressEvent,
+  ProjectBootstrapRun,
+  ProjectSessionBootstrapInput,
+} from "@/lib/transport"
 import type { KbDraftAttachment } from "@/types/knowledge"
 import type { ChatFocusTarget } from "@/components/chat/chatFocus"
 import {
@@ -229,6 +241,7 @@ function latestAssistantUsageFingerprint(messages: Message[]): string | null {
 
 type ExclusiveRightPanel =
   | "workspace"
+  | "pull-request"
   | "diff"
   | "plan"
   | "files"
@@ -242,6 +255,7 @@ type ExclusiveRightPanelVisibility = Record<ExclusiveRightPanel, boolean>
 
 const EXCLUSIVE_RIGHT_PANEL_ORDER: readonly ExclusiveRightPanel[] = [
   "diff",
+  "pull-request",
   "plan",
   "files",
   "browser",
@@ -255,6 +269,7 @@ const EXCLUSIVE_RIGHT_PANEL_ORDER: readonly ExclusiveRightPanel[] = [
 
 const EMPTY_RIGHT_PANEL_VISIBILITY: ExclusiveRightPanelVisibility = {
   workspace: false,
+  "pull-request": false,
   diff: false,
   plan: false,
   files: false,
@@ -268,6 +283,7 @@ const EMPTY_RIGHT_PANEL_VISIBILITY: ExclusiveRightPanelVisibility = {
 
 const EXCLUSIVE_RIGHT_PANEL_ICONS: Record<ExclusiveRightPanel, LucideIcon> = {
   workspace: LayoutDashboard,
+  "pull-request": GitPullRequest,
   diff: GitCompare,
   plan: ClipboardList,
   files: FolderOpen,
@@ -278,6 +294,26 @@ const EXCLUSIVE_RIGHT_PANEL_ICONS: Record<ExclusiveRightPanel, LucideIcon> = {
   "background-jobs": Layers,
   preview: Eye,
 }
+
+const EXCLUSIVE_RIGHT_PANEL_LABEL_KEYS: Record<ExclusiveRightPanel, string> = {
+  workspace: "workspace.panelTitle",
+  "pull-request": "workspace.git.pullRequestPanelTitle",
+  diff: "diffPanel.title",
+  plan: "planMode.panelTitle",
+  files: "fileBrowser.panelTitle",
+  browser: "browser.panelTitle",
+  "mac-control": "macControl.panelTitle",
+  canvas: "canvas.panelTitle",
+  team: "team.panelTitle",
+  "background-jobs": "backgroundJobs.panelTitle",
+  preview: "filePreview.panelTitle",
+}
+
+const PERSISTENT_RIGHT_PANEL_ORDER: readonly ExclusiveRightPanel[] = [
+  "workspace",
+  "files",
+  "background-jobs",
+]
 
 const DEFAULT_RIGHT_PANEL_WIDTH = 520
 const CHAT_MAIN_MIN_INTERACTIVE_WIDTH = 420
@@ -627,6 +663,7 @@ export default function ChatScreen({
   // Workspace 面板：聚合任务进度 / 碰到的文件 / 引用来源。首次有内容时自动
   // 展开一次，用户关闭后本会话不再自动弹（dismissedRef 跟踪，仿 browser 面板）。
   const [showWorkspacePanel, setShowWorkspacePanel] = useState(false)
+  const [showPullRequestPanel, setShowPullRequestPanel] = useState(false)
   const workspacePanelDismissedRef = useRef(false)
   const preserveWorkspaceOnSessionSwitchRef = useRef(false)
 
@@ -707,6 +744,13 @@ export default function ChatScreen({
   // into the new session via the `chat` command's `projectId` on first send, then
   // cleared once the real session meta catches up (see the transition effect).
   const [draftProjectId, setDraftProjectId] = useState<string | null>(null)
+  const [draftProjectRuntime, setDraftProjectRuntime] = useState<ProjectRuntimeDraft>(() =>
+    createLocalProjectRuntimeDraft(),
+  )
+  const [projectBootstrapProgress, setProjectBootstrapProgress] = useState<{
+    stage: string
+    error: string | null
+  } | null>(null)
 
   // Plan mode state (declared early so useChatStream can access it)
   const [planModeState, setPlanModeState] = useState<
@@ -982,6 +1026,8 @@ export default function ChatScreen({
       setDraftKbAttachments([])
       setDraftWorkingDir(null)
       setDraftProjectId(projectId)
+      setDraftProjectRuntime(createLocalProjectRuntimeDraft())
+      setProjectBootstrapProgress(null)
       await handleNewChat(agentId)
     },
     [projects, handleNewChat],
@@ -996,6 +1042,8 @@ export default function ChatScreen({
       // only fires on draft→materialized, not draft→draft).
       setDraftWorkingDir(null)
       setDraftProjectId(null)
+      setDraftProjectRuntime(createLocalProjectRuntimeDraft())
+      setProjectBootstrapProgress(null)
       await handleNewChat(agentId)
     },
     [handleNewChat],
@@ -1129,6 +1177,88 @@ export default function ChatScreen({
     }
     await handleStartNewChat(currentAgentId)
   }, [currentAgentId, effectiveProjectId, handleNewChatInProject, handleStartNewChat])
+
+  const handleProjectRuntimeDraftChange = useCallback((next: ProjectRuntimeDraft) => {
+    setDraftProjectRuntime((previous) => ({
+      ...next,
+      requestId:
+        next.baseRef
+          ? next.requestId || previous.requestId || generateClientId()
+          : "",
+    }))
+    setProjectBootstrapProgress(null)
+  }, [])
+
+  const draftProjectBootstrap = useMemo<ProjectSessionBootstrapInput | null>(() => {
+    if (
+      !draftProjectId ||
+      !draftProjectRuntime.baseRef ||
+      !draftProjectRuntime.requestId
+    ) {
+      return null
+    }
+    return {
+      requestId: draftProjectRuntime.requestId,
+      launchMode: draftProjectRuntime.launchMode,
+      baseRef: draftProjectRuntime.baseRef,
+      includeLocalChanges: draftProjectRuntime.includeLocalChanges,
+    }
+  }, [draftProjectId, draftProjectRuntime])
+
+  useEffect(() => {
+    if (!draftProjectRuntime.requestId) return
+    const requestId = draftProjectRuntime.requestId
+    const transport = getTransport()
+    const applyProgress = (event: ProjectBootstrapProgressEvent) => {
+      if (event.requestId !== requestId) return
+      const failed =
+        event.status === "failed" ||
+        event.status === "cancelled" ||
+        event.status === "interrupted"
+      setProjectBootstrapProgress({
+        stage: event.stage,
+        error: failed ? event.message || t("chat.projectRuntime.prepareFailed", "工作树准备失败") : null,
+      })
+      if (failed) {
+        // A failed request id is durable and cannot be replayed. Keep the
+        // selected branch but mint a fresh id for the user's next Send.
+        setDraftProjectRuntime((current) =>
+          current.requestId === requestId
+            ? { ...current, requestId: generateClientId() }
+            : current,
+        )
+      }
+    }
+    const unlisten = transport.listen("project:bootstrap_progress", (raw) => {
+      const event = parsePayload<ProjectBootstrapProgressEvent>(raw)
+      if (event) applyProgress(event)
+    })
+    const recover = () => {
+      void transport
+        .call<ProjectBootstrapRun | null>("get_project_bootstrap_run", { requestId })
+        .then((run) => {
+          if (!run) return
+          applyProgress({
+            requestId: run.id,
+            status: run.status,
+            stage: run.stage,
+            sessionId: run.sessionId,
+            worktreeId: run.worktreeId,
+            message: run.errorMessage,
+            errorCode: run.errorCode,
+          })
+        })
+        .catch(() => undefined)
+    }
+    // The HTTP event socket can reconnect after progress frames were missed.
+    // Re-read the durable run both now and whenever that socket reconnects.
+    recover()
+    const unlistenReconnect = transport.listen(TRANSPORT_EVENT_RESYNC_REQUIRED, recover)
+    return () => {
+      unlisten()
+      unlistenReconnect()
+    }
+  }, [draftProjectRuntime.requestId, t])
 
   /**
    * Title-bar agent switch handler. Backend rejects the switch when the
@@ -1331,6 +1461,8 @@ export default function ChatScreen({
       materializedProjectDraftSessionIdRef.current === nextSessionId
     ) {
       setDraftProjectId(null)
+      setDraftProjectRuntime(createLocalProjectRuntimeDraft())
+      setProjectBootstrapProgress(null)
       materializedProjectDraftSessionIdRef.current = null
     }
   }, [session.currentSessionId, currentSessionMeta, draftProjectId])
@@ -1818,6 +1950,15 @@ export default function ChatScreen({
     incognitoEnabled,
     draftWorkingDir,
     draftProjectId,
+    draftProjectBootstrap,
+    onProjectBootstrapFailure: (message) => {
+      setProjectBootstrapProgress({ stage: "failed", error: message })
+      setDraftProjectRuntime((current) =>
+        current.baseRef
+          ? { ...current, requestId: generateClientId() }
+          : current,
+      )
+    },
     draftKbAttachments,
     onSandboxModeSynced: handleSandboxModeSynced,
     parentInjectionDeltasViaChatStream: true,
@@ -2769,6 +2910,7 @@ export default function ChatScreen({
   const rightPanelVisibility = useMemo<ExclusiveRightPanelVisibility>(
     () => ({
       workspace: showWorkspacePanel,
+      "pull-request": showPullRequestPanel && !!session.currentSessionId,
       diff: isDiffPanelVisible,
       plan: shouldShowPlanPanel,
       files: showFilesPanel && !!effectiveWorkingDir,
@@ -2790,8 +2932,10 @@ export default function ChatScreen({
       showBrowserPanel,
       showFilesPanel,
       showMacControlPanel,
+      showPullRequestPanel,
       showTeamPanel,
       showWorkspacePanel,
+      session.currentSessionId,
     ],
   )
   const openExclusiveRightPanels = useMemo(
@@ -2799,47 +2943,17 @@ export default function ChatScreen({
     [rightPanelVisibility],
   )
   const hasOpenExclusiveRightPanel = openExclusiveRightPanels.length > 0
+  const previousHasOpenRightPanelRef = useRef(false)
+  const animateRightPanelOnMount =
+    hasOpenExclusiveRightPanel && !previousHasOpenRightPanelRef.current
+  useLayoutEffect(() => {
+    previousHasOpenRightPanelRef.current = hasOpenExclusiveRightPanel
+  }, [hasOpenExclusiveRightPanel])
   const renderedExclusiveRightPanel =
     activeExclusiveRightPanel && rightPanelVisibility[activeExclusiveRightPanel]
       ? activeExclusiveRightPanel
       : (openExclusiveRightPanels[0] ?? null)
   const shouldRenderRightPanelContent = !!renderedExclusiveRightPanel
-  const getRightPanelLabel = useCallback(
-    (panel: ExclusiveRightPanel) => {
-      switch (panel) {
-        case "workspace":
-          return t("workspace.panelTitle", "工作台")
-        case "diff":
-          return t("diffPanel.title", "Diff")
-        case "plan":
-          return t("planMode.panelTitle", "Plan")
-        case "files":
-          return t("fileBrowser.panelTitle", "Files")
-        case "browser":
-          return t("browser.panelTitle", "Browser")
-        case "mac-control":
-          return t("macControl.panelTitle", "Mac Control")
-        case "canvas":
-          return t("canvas.panelTitle", "Canvas")
-        case "team":
-          return t("team.panelTitle", "Team")
-        case "background-jobs":
-          return t("backgroundJobs.panelTitle", "后台任务")
-        case "preview":
-          return t("filePreview.panelTitle", "Preview")
-      }
-    },
-    [t],
-  )
-  const titleBarRightPanels = useMemo(
-    () =>
-      openExclusiveRightPanels.map((panel) => ({
-        id: panel,
-        label: getRightPanelLabel(panel),
-        icon: EXCLUSIVE_RIGHT_PANEL_ICONS[panel],
-      })),
-    [getRightPanelLabel, openExclusiveRightPanels],
-  )
   const handleSelectRightPanel = useCallback((panelId: string) => {
     if (!EXCLUSIVE_RIGHT_PANEL_ORDER.includes(panelId as ExclusiveRightPanel)) return
     setActiveExclusiveRightPanel(panelId as ExclusiveRightPanel)
@@ -2893,6 +3007,11 @@ export default function ChatScreen({
     workspacePanelDismissedRef.current = false
     setShowWorkspacePanel(true)
     showRightPanelByUser("workspace")
+  }, [showRightPanelByUser])
+
+  const openPullRequestPanel = useCallback(() => {
+    setShowPullRequestPanel(true)
+    showRightPanelByUser("pull-request")
   }, [showRightPanelByUser])
 
   const openBrowserPanel = useCallback(() => {
@@ -3079,6 +3198,7 @@ export default function ChatScreen({
     setShowBrowserPanel(false)
     setShowMacControlPanel(false)
     setShowWorkspacePanel(preserveWorkspace)
+    setShowPullRequestPanel(false)
     setShowBackgroundJobsPanel(false)
     setBackgroundJobExpansionOverrides({})
     closeFilePreview()
@@ -3208,6 +3328,60 @@ export default function ChatScreen({
       runningCount: workflowTitleBarRuns.runs.filter(isRunning).length,
     }
   }, [workflowTitleBarRuns.activeCount, workflowTitleBarRuns.runs])
+  const titleBarRightPanels = useMemo(() => {
+    const persistentPanels = PERSISTENT_RIGHT_PANEL_ORDER.filter(
+      (panel) => panel !== "files" || !!effectiveWorkingDir,
+    )
+    const persistentSet = new Set<ExclusiveRightPanel>(persistentPanels)
+    const transientPanels = EXCLUSIVE_RIGHT_PANEL_ORDER.filter(
+      (panel) => !persistentSet.has(panel) && rightPanelVisibility[panel],
+    )
+    const workflowBadgeCount =
+      workflowTitleBarStatus.attentionCount || workflowTitleBarStatus.activeCount
+
+    return [...persistentPanels, ...transientPanels].map((panel) => {
+      const base = {
+        id: panel,
+        labelKey: EXCLUSIVE_RIGHT_PANEL_LABEL_KEYS[panel],
+        icon: EXCLUSIVE_RIGHT_PANEL_ICONS[panel],
+        open: rightPanelVisibility[panel],
+      }
+      if (panel === "workspace" && workflowBadgeCount > 0) {
+        return {
+          ...base,
+          badge: {
+            count: workflowBadgeCount,
+            labelKey:
+              workflowTitleBarStatus.attentionCount > 0
+                ? "chat.rightPanel.workflowAttentionCount"
+                : "chat.rightPanel.workflowActiveCount",
+            tone:
+              workflowTitleBarStatus.attentionCount > 0
+                ? ("attention" as const)
+                : workflowTitleBarStatus.runningCount > 0
+                  ? ("running" as const)
+                  : ("neutral" as const),
+          },
+        }
+      }
+      if (panel === "background-jobs" && backgroundJobs.runningCount > 0) {
+        return {
+          ...base,
+          badge: {
+            count: backgroundJobs.runningCount,
+            labelKey: "chat.rightPanel.backgroundRunningCount",
+            tone: "attention" as const,
+          },
+        }
+      }
+      return base
+    })
+  }, [
+    backgroundJobs.runningCount,
+    effectiveWorkingDir,
+    rightPanelVisibility,
+    workflowTitleBarStatus,
+  ])
   const workflowInputProgress = useMemo(() => {
     const visibleStates = new Set<WorkflowRun["state"]>([
       "awaiting_approval",
@@ -3248,14 +3422,42 @@ export default function ChatScreen({
     }
   }, [workflowTitleBarRuns.runs])
 
-  const handleToggleFilesPanel = useCallback(() => {
-    if (showFilesPanel) {
-      setShowFilesPanel(false)
-      return
-    }
-    setShowFilesPanel(true)
-    showRightPanelByUser("files")
-  }, [showFilesPanel, showRightPanelByUser])
+  const handleRightPanelAction = useCallback(
+    (panelId: string) => {
+      if (!EXCLUSIVE_RIGHT_PANEL_ORDER.includes(panelId as ExclusiveRightPanel)) return
+      const panel = panelId as ExclusiveRightPanel
+      if (panel === renderedExclusiveRightPanel) {
+        const nextCollapsed = !rightPanelCollapsed
+        autoCollapsedRightPanelRef.current = false
+        setManualRightPanelExpandedOverride(!nextCollapsed)
+        setRightPanelCollapsed(nextCollapsed)
+        return
+      }
+
+      if (panel === "workspace") {
+        openWorkspacePanel()
+        return
+      }
+      if (panel === "files") {
+        setShowFilesPanel(true)
+        showRightPanelByUser("files")
+        return
+      }
+      if (panel === "background-jobs") {
+        openBackgroundJobsPanel()
+        return
+      }
+      handleSelectRightPanel(panel)
+    },
+    [
+      handleSelectRightPanel,
+      openBackgroundJobsPanel,
+      openWorkspacePanel,
+      renderedExclusiveRightPanel,
+      rightPanelCollapsed,
+      showRightPanelByUser,
+    ],
+  )
 
   const rightPanelReservedMainWidth =
     manualRightPanelExpandedOverride && !rightPanelCollapsed
@@ -3487,41 +3689,10 @@ export default function ChatScreen({
           incognitoEnabled={incognitoEnabled}
           incognitoDisabledReason={incognitoDisabledReason}
           onIncognitoChange={handleIncognitoChange}
-          onToggleFilesPanel={effectiveWorkingDir ? handleToggleFilesPanel : undefined}
-          filesPanelOpen={showFilesPanel}
-          onToggleWorkspacePanel={() => {
-            if (showWorkspacePanel) {
-              workspacePanelDismissedRef.current = true
-              setShowWorkspacePanel(false)
-            } else {
-              openWorkspacePanel()
-            }
-          }}
-          workspacePanelOpen={showWorkspacePanel}
-          workspaceWorkflowStatus={workflowTitleBarStatus}
-          onToggleBackgroundJobsPanel={() => {
-            if (showBackgroundJobsPanel) {
-              closeBackgroundJobsPanel()
-            } else {
-              openBackgroundJobsPanel()
-            }
-          }}
-          backgroundJobsPanelOpen={showBackgroundJobsPanel}
-          backgroundJobsRunningCount={backgroundJobs.runningCount}
           rightPanels={titleBarRightPanels}
           activeRightPanelId={renderedExclusiveRightPanel}
           rightPanelCollapsed={rightPanelCollapsed}
-          onSelectRightPanel={handleSelectRightPanel}
-          onToggleRightPanelCollapsed={
-            hasOpenExclusiveRightPanel
-              ? () => {
-                  const nextCollapsed = !rightPanelCollapsed
-                  autoCollapsedRightPanelRef.current = false
-                  setManualRightPanelExpandedOverride(!nextCollapsed)
-                  setRightPanelCollapsed(nextCollapsed)
-                }
-              : undefined
-          }
+          onRightPanelAction={handleRightPanelAction}
         />
 
         <BrowserExtensionNudge
@@ -3711,6 +3882,35 @@ export default function ChatScreen({
                         />
                       </div>
                     )}
+                    {!session.currentSessionId && currentProject && !incognitoEnabled ? (
+                      <ProjectSessionDraftBar
+                        project={currentProject}
+                        projects={projects}
+                        draft={draftProjectRuntime}
+                        disabled={session.loading}
+                        progressStage={projectBootstrapProgress?.stage ?? null}
+                        progressError={projectBootstrapProgress?.error ?? null}
+                        onDraftChange={handleProjectRuntimeDraftChange}
+                        onSelectProject={(projectId, defaultAgentId) => {
+                          void handleNewChatInProject(projectId, defaultAgentId)
+                        }}
+                        onRemoveProject={() => {
+                          void handleStartNewChat(currentAgentId)
+                        }}
+                        onRetry={() => {
+                          setProjectBootstrapProgress(null)
+                          window.setTimeout(() => {
+                            void stream.handleSend()
+                          }, 0)
+                        }}
+                        onUseLocal={() => {
+                          handleProjectRuntimeDraftChange({
+                            ...draftProjectRuntime,
+                            launchMode: "local",
+                          })
+                        }}
+                      />
+                    ) : null}
                     <ChatInput
                       input={stream.input}
                       onInputChange={stream.setInput}
@@ -3728,7 +3928,11 @@ export default function ChatScreen({
                             : undefined,
                         )
                       }
-                      sendDisabled={session.historyLoading}
+                      sendDisabled={
+                        session.historyLoading ||
+                        (draftProjectRuntime.launchMode === "worktree" &&
+                          (!draftProjectBootstrap || session.loading))
+                      }
                       loading={session.loading}
                       availableModels={availableModels}
                       activeModel={activeModel}
@@ -3852,6 +4056,7 @@ export default function ChatScreen({
               reservedMainWidth={rightPanelReservedMainWidth}
               collapsed={rightPanelCollapsed}
               overlay={rightPanelOverlay}
+              animateOnMount={animateRightPanelOnMount}
               contentKey="diff"
             >
               <DiffPanel
@@ -3861,10 +4066,34 @@ export default function ChatScreen({
                 onActiveIndexChange={diffPanel.setActiveIndex}
                 onClose={diffPanel.closeDiff}
                 onPreviewFile={filePreview.openPreview}
+                gitContext={diffPanel.gitContext}
+                onGitSnapshotChange={diffPanel.replaceGitDiff}
                 embedded
               />
             </RightPanelShell>
           )}
+
+          {shouldRenderRightPanelContent
+            && renderedExclusiveRightPanel === "pull-request"
+            && session.currentSessionId && (
+              <RightPanelShell
+                width={rightPanelWidth}
+                onWidthChange={setRightPanelWidth}
+                resizeLabel={t("workspace.git.resizePullRequestPanel", "调整拉取请求面板宽度")}
+                maxWidth={960}
+                reservedMainWidth={rightPanelReservedMainWidth}
+                collapsed={rightPanelCollapsed}
+                overlay={rightPanelOverlay}
+                animateOnMount={animateRightPanelOnMount}
+                contentKey={`pull-request:${session.currentSessionId}`}
+              >
+                <PullRequestPanel
+                  sessionId={session.currentSessionId}
+                  onFillInput={stream.setInput}
+                  onClose={() => setShowPullRequestPanel(false)}
+                />
+              </RightPanelShell>
+            )}
 
           {/* Plan workspace (right side, integrated under the shared title bar) */}
           {shouldRenderRightPanelContent && renderedExclusiveRightPanel === "plan" && (
@@ -3876,6 +4105,7 @@ export default function ChatScreen({
               reservedMainWidth={rightPanelReservedMainWidth}
               collapsed={rightPanelCollapsed}
               overlay={rightPanelOverlay}
+              animateOnMount={animateRightPanelOnMount}
               contentKey="plan"
             >
               <PlanPanel
@@ -3909,6 +4139,7 @@ export default function ChatScreen({
             visible={shouldRenderRightPanelContent && renderedExclusiveRightPanel === "files"}
             collapsed={rightPanelCollapsed}
             overlay={rightPanelOverlay}
+            animateOnMount={animateRightPanelOnMount}
             panelWidth={rightPanelWidth}
             onPanelWidthChange={setRightPanelWidth}
             reservedMainWidth={rightPanelReservedMainWidth}
@@ -3925,6 +4156,7 @@ export default function ChatScreen({
             onOpenChange={setCanvasPanelOpen}
             collapsed={rightPanelCollapsed}
             overlay={rightPanelOverlay}
+            animateOnMount={animateRightPanelOnMount}
             reservedMainWidth={rightPanelReservedMainWidth}
             visible={shouldRenderRightPanelContent && renderedExclusiveRightPanel === "canvas"}
           />
@@ -3938,6 +4170,7 @@ export default function ChatScreen({
               onPanelWidthChange={setRightPanelWidth}
               collapsed={rightPanelCollapsed}
               overlay={rightPanelOverlay}
+              animateOnMount={animateRightPanelOnMount}
               reservedMainWidth={rightPanelReservedMainWidth}
               onClose={() => {
                 browserPanelDismissedRef.current = true
@@ -3955,6 +4188,7 @@ export default function ChatScreen({
               onPanelWidthChange={setRightPanelWidth}
               collapsed={rightPanelCollapsed}
               overlay={rightPanelOverlay}
+              animateOnMount={animateRightPanelOnMount}
               reservedMainWidth={rightPanelReservedMainWidth}
               onClose={() => {
                 macControlPanelDismissedRef.current = true
@@ -3973,6 +4207,7 @@ export default function ChatScreen({
                 onPanelWidthChange={setRightPanelWidth}
                 collapsed={rightPanelCollapsed}
                 overlay={rightPanelOverlay}
+                animateOnMount={animateRightPanelOnMount}
                 reservedMainWidth={rightPanelReservedMainWidth}
                 onClose={() => setShowTeamPanel(false)}
                 onViewSession={setSubagentPreviewSessionId}
@@ -3989,6 +4224,7 @@ export default function ChatScreen({
               reservedMainWidth={rightPanelReservedMainWidth}
               collapsed={rightPanelCollapsed}
               overlay={rightPanelOverlay}
+              animateOnMount={animateRightPanelOnMount}
               contentKey="workspace"
             >
               <WorkspacePanel
@@ -3997,6 +4233,9 @@ export default function ChatScreen({
                 messages={session.messages}
                 contextUsageOverride={contextUsage}
                 onOpenDiff={diffPanel.openDiff}
+                onOpenGitDiff={diffPanel.openGitDiff}
+                onFillInput={stream.setInput}
+                onOpenPullRequest={openPullRequestPanel}
                 onPreviewFile={filePreview.openPreview}
                 sessionId={session.currentSessionId}
                 sessionMeta={currentSessionMeta}
@@ -4049,6 +4288,7 @@ export default function ChatScreen({
               reservedMainWidth={rightPanelReservedMainWidth}
               collapsed={rightPanelCollapsed}
               overlay={rightPanelOverlay}
+              animateOnMount={animateRightPanelOnMount}
               contentKey="background-jobs"
             >
               <BackgroundJobsPanel
@@ -4074,6 +4314,7 @@ export default function ChatScreen({
               reservedMainWidth={rightPanelReservedMainWidth}
               collapsed={rightPanelCollapsed}
               overlay={rightPanelOverlay}
+              animateOnMount={animateRightPanelOnMount}
               contentKey="preview"
             >
               <FilePreviewPanel

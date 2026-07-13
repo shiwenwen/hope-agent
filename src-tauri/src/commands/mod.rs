@@ -23,6 +23,7 @@ pub mod domain_workflow;
 pub mod dreaming;
 pub mod execution_mode;
 pub mod filesystem;
+pub mod git_control;
 pub mod goal;
 pub mod ide_context;
 pub mod knowledge;

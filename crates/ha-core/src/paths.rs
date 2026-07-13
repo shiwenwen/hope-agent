@@ -23,6 +23,61 @@ pub fn root_dir() -> Result<PathBuf> {
     Ok(home.join(".hope-agent"))
 }
 
+/// Ephemeral files used while a project chat is preparing a managed worktree.
+pub fn bootstrap_dir() -> Result<PathBuf> {
+    Ok(root_dir()?.join("bootstrap"))
+}
+
+/// Bootstrap request ids are restricted to portable filename characters at
+/// the API boundary and checked again here before becoming a path component.
+pub fn bootstrap_run_dir(request_id: &str) -> Result<PathBuf> {
+    if request_id.is_empty()
+        || request_id.len() > 128
+        || !request_id
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || ch == '-' || ch == '_')
+    {
+        anyhow::bail!("invalid bootstrap request id");
+    }
+    Ok(bootstrap_dir()?.join(request_id))
+}
+
+/// Temporary snapshots used by user-initiated Git operations such as a
+/// Local/Worktree handoff. The request id is validated before it becomes a
+/// path component so cleanup can stay constrained to Hope's data directory.
+pub fn git_operations_dir() -> Result<PathBuf> {
+    Ok(root_dir()?.join("git-operations"))
+}
+
+pub fn git_operation_run_dir(request_id: &str) -> Result<PathBuf> {
+    validate_portable_request_id(request_id)?;
+    Ok(git_operations_dir()?.join(request_id))
+}
+
+/// Cross-process advisory locks for repository mutations. The filename is a
+/// digest of the canonical repository root and never contains user path text.
+pub fn git_locks_dir() -> Result<PathBuf> {
+    Ok(root_dir()?.join("git-locks"))
+}
+
+pub fn git_repo_lock_path(repo_root: &std::path::Path) -> Result<PathBuf> {
+    let canonical = repo_root.canonicalize()?;
+    let digest = blake3::hash(canonical.to_string_lossy().as_bytes());
+    Ok(git_locks_dir()?.join(format!("{}.lock", digest.to_hex())))
+}
+
+fn validate_portable_request_id(request_id: &str) -> Result<()> {
+    if request_id.is_empty()
+        || request_id.len() > 128
+        || !request_id
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || ch == '-' || ch == '_')
+    {
+        anyhow::bail!("invalid git operation request id");
+    }
+    Ok(())
+}
+
 // ── Config ───────────────────────────────────────────────────────
 
 /// Global config file path: ~/.hope-agent/config.json

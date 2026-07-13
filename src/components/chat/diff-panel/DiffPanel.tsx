@@ -9,19 +9,32 @@ import {
   ExternalLink,
   FoldVertical,
   GitCompare,
+  MessageCircle,
   Pilcrow,
+  RefreshCw,
   Rows3,
   Search,
+  Trash2,
+  Undo2,
   X,
 } from "lucide-react"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
 import { basename } from "@/lib/path"
+import { openExternalUrl } from "@/lib/openExternalUrl"
+import type {
+  GitFileChange,
+  GitMutationTarget,
+  SessionGitDiffScope,
+  SessionGitDiffSnapshot,
+} from "@/lib/transport"
+import { getTransport } from "@/lib/transport-provider"
 import { PANEL_SCROLL_FADE } from "../right-panel/panelFade"
 import { Button } from "@/components/ui/button"
 import { IconTip } from "@/components/ui/tooltip"
 import type { FileChangeMetadata } from "@/types/chat"
 import type { PreviewTarget } from "../files/useFilePreview"
+import type { GitDiffContext } from "./useDiffPanel"
 import { FileDeltaCounter } from "@/components/chat/message/FileDeltaCounter"
 import { UnifiedDiffView } from "./UnifiedDiffView"
 import { SplitDiffView } from "./SplitDiffView"
@@ -82,6 +95,8 @@ interface DiffPanelProps {
   onActiveIndexChange: (index: number) => void
   onClose: () => void
   onPreviewFile?: (target: PreviewTarget) => void
+  gitContext?: GitDiffContext | null
+  onGitSnapshotChange?: (snapshot: SessionGitDiffSnapshot) => void
   embedded?: boolean
 }
 
@@ -98,6 +113,8 @@ export function DiffPanel({
   onActiveIndexChange,
   onClose,
   onPreviewFile,
+  gitContext = null,
+  onGitSnapshotChange,
   embedded = false,
 }: DiffPanelProps) {
   const { t } = useTranslation()
@@ -105,6 +122,7 @@ export function DiffPanel({
   const [collapseContext, setCollapseContext] = useState(true)
   const [ignoreWhitespace, setIgnoreWhitespace] = useState(false)
   const [fileQuery, setFileQuery] = useState("")
+  const [gitBusy, setGitBusy] = useState<string | null>(null)
   const [expandedFoldState, setExpandedFoldState] = useState<KeyedFoldState>(() => ({
     key: "",
     ids: new Set(),
@@ -250,6 +268,122 @@ export function DiffPanel({
     if (splitRow.left?.lineNumber) return { line: splitRow.left.lineNumber, side: "old" }
     return null
   }, [activeRows, clampedActiveHunkIndex, layout])
+
+  const refreshGitScope = useCallback(
+    async (scope: SessionGitDiffScope = gitContext?.scope ?? "unstaged") => {
+      if (!gitContext || !onGitSnapshotChange) return
+      setGitBusy("refresh")
+      try {
+        const snapshot = await getTransport().call<SessionGitDiffSnapshot>(
+          "load_session_git_diff_snapshot_cmd",
+          { sessionId: gitContext.sessionId, scope },
+        )
+        onGitSnapshotChange(snapshot)
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : String(error))
+      } finally {
+        setGitBusy(null)
+      }
+    },
+    [gitContext, onGitSnapshotChange],
+  )
+
+  const runGitMutation = useCallback(
+    async (action: "stage" | "unstage" | "discard", target: GitMutationTarget) => {
+      if (!gitContext || !onGitSnapshotChange || gitBusy) return
+      if (
+        action === "discard" &&
+        !window.confirm(
+          t(
+            "diffPanel.git.discardConfirm",
+            "确定要永久丢弃所选改动吗？未跟踪文件会被删除，此操作无法撤销。",
+          ),
+        )
+      ) {
+        return
+      }
+      setGitBusy(`${action}:${target.kind}:${target.path ?? target.hunkId ?? "all"}`)
+      try {
+        const snapshot = await getTransport().call<SessionGitDiffSnapshot>(
+          "mutate_session_git_index_cmd",
+          {
+            sessionId: gitContext.sessionId,
+            input: {
+              expectedRevision: gitContext.revision,
+              action,
+              target,
+              confirmDiscard: action === "discard",
+            },
+          },
+        )
+        onGitSnapshotChange(snapshot)
+        toast.success(
+          action === "stage"
+            ? t("diffPanel.git.staged", "已暂存")
+            : action === "unstage"
+              ? t("diffPanel.git.unstaged", "已取消暂存")
+              : t("diffPanel.git.discarded", "已丢弃改动"),
+        )
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        if (message.includes("stale_snapshot")) {
+          await refreshGitScope(gitContext.scope)
+          toast.info(
+            t("diffPanel.git.stale", "仓库已发生变化，已刷新，请重新确认。"),
+          )
+        } else {
+          toast.error(message)
+        }
+      } finally {
+        setGitBusy(null)
+      }
+    },
+    [gitBusy, gitContext, onGitSnapshotChange, refreshGitScope, t],
+  )
+
+  const renderGitMutationButtons = useCallback(
+    (target: GitMutationTarget, compact = false) => {
+      if (!gitContext || gitContext.scope === "all") return null
+      const sizeClass = compact ? "h-6 px-1.5 text-[10px]" : "h-7 px-2 text-[11px]"
+      return (
+        <span className="inline-flex shrink-0 items-center gap-1" onClick={(event) => event.stopPropagation()}>
+          {gitContext.scope === "unstaged" ? (
+            <>
+              <button
+                type="button"
+                className={cn(gitActionButtonClass, sizeClass)}
+                disabled={Boolean(gitBusy)}
+                onClick={() => void runGitMutation("stage", target)}
+              >
+                <GitCompare className="h-3 w-3" />
+                {t("diffPanel.git.stage", "暂存")}
+              </button>
+              <button
+                type="button"
+                className={cn(gitActionButtonClass, sizeClass, "text-destructive hover:text-destructive")}
+                disabled={Boolean(gitBusy)}
+                onClick={() => void runGitMutation("discard", target)}
+              >
+                <Trash2 className="h-3 w-3" />
+                {t("diffPanel.git.discard", "丢弃")}
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              className={cn(gitActionButtonClass, sizeClass)}
+              disabled={Boolean(gitBusy)}
+              onClick={() => void runGitMutation("unstage", target)}
+            >
+              <Undo2 className="h-3 w-3" />
+              {t("diffPanel.git.unstage", "取消暂存")}
+            </button>
+          )}
+        </span>
+      )
+    },
+    [gitBusy, gitContext, runGitMutation, t],
+  )
 
   useEffect(() => {
     if (previousOpenNonceRef.current !== openNonce) {
@@ -503,6 +637,17 @@ export function DiffPanel({
       ? ""
       : "max-w-4xl rounded-panel border border-border-soft bg-surface-panel shadow-panel",
   )
+  const activeGitChange = gitContext && change ? (change as GitFileChange) : null
+  const activeGitHunk = activeGitChange?.hunks[clampedActiveHunkIndex] ?? null
+  const activeGitHunkAllowed = Boolean(
+    activeGitChange &&
+      activeGitHunk &&
+      !activeGitChange.binary &&
+      !activeGitChange.submodule &&
+      !activeGitChange.conflicted &&
+      !activeGitChange.untracked &&
+      !activeGitChange.oldPath,
+  )
 
   return (
     <div className={wrapperClasses}>
@@ -594,6 +739,87 @@ export function DiffPanel({
         </Button>
       </div>
 
+      {gitContext ? (
+        <div className="flex shrink-0 flex-wrap items-center gap-1.5 border-y border-border/60 bg-muted/20 px-2 py-1.5">
+          <div className="inline-flex rounded-md border border-border/60 bg-background/60 p-0.5">
+            {(["unstaged", "staged", "all"] as SessionGitDiffScope[]).map((scope) => (
+              <button
+                key={scope}
+                type="button"
+                className={cn(
+                  "h-6 rounded px-2 text-[11px] text-muted-foreground transition-colors hover:text-foreground",
+                  gitContext.scope === scope && "bg-secondary text-foreground shadow-sm",
+                )}
+                disabled={Boolean(gitBusy)}
+                onClick={() => void refreshGitScope(scope)}
+              >
+                {scope === "unstaged"
+                  ? t("diffPanel.git.unstagedScope", "未暂存")
+                  : scope === "staged"
+                    ? t("diffPanel.git.stagedScope", "已暂存")
+                    : t("diffPanel.git.allScope", "全部")}
+              </button>
+            ))}
+          </div>
+          <span className="text-[11px] text-muted-foreground">
+            {t("diffPanel.git.fileCount", "{{count}} 个文件", { count: changes.length })}
+          </span>
+          <span className="ml-auto inline-flex items-center gap-1">
+            {renderGitMutationButtons({ kind: "all" })}
+            <IconTip label={t("common.refresh", "刷新")}>
+              <button
+                type="button"
+                className={iconButtonClass}
+                disabled={Boolean(gitBusy)}
+                onClick={() => void refreshGitScope()}
+              >
+                <RefreshCw className={cn("h-3.5 w-3.5", gitBusy === "refresh" && "animate-spin")} />
+              </button>
+            </IconTip>
+          </span>
+        </div>
+      ) : null}
+
+      {gitContext?.reviewComments.length ? (
+        <details className="shrink-0 border-b border-border/60 bg-blue-500/5">
+          <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2 text-xs font-medium text-foreground/85 hover:bg-secondary/35">
+            <MessageCircle className="h-3.5 w-3.5 text-blue-500" />
+            <span className="flex-1">
+              {t("diffPanel.git.prReviewComments", "PR Review 评论 · {{count}}", {
+                count: gitContext.reviewComments.length,
+              })}
+            </span>
+            <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
+          </summary>
+          <div className="max-h-64 space-y-2 overflow-y-auto border-t border-border/50 p-2">
+            {gitContext.reviewComments.slice(0, 20).map((comment) => (
+              <div
+                key={comment.threadId || comment.commentId}
+                className="rounded-lg border border-border/60 bg-background/75 p-2.5"
+              >
+                <div className="whitespace-pre-wrap break-words text-xs leading-5">{comment.body}</div>
+                <div className="mt-1.5 flex items-center gap-2 text-[11px] text-muted-foreground">
+                  <span className="min-w-0 flex-1 truncate font-mono">
+                    {comment.path}{comment.line ? `:${comment.line}` : ""}
+                  </span>
+                  <span className="shrink-0">{comment.author}</span>
+                  {comment.url ? (
+                    <button
+                      type="button"
+                      className="rounded p-1 hover:bg-secondary hover:text-foreground"
+                      onClick={() => openExternalUrl(comment.url!)}
+                      aria-label={t("workspace.git.openComment", "打开评论")}
+                    >
+                      <ExternalLink className="h-3.5 w-3.5" />
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+            ))}
+          </div>
+        </details>
+      ) : null}
+
       {stackedMode && (
         <div className="flex shrink-0 items-center gap-2 border-b border-border bg-muted/30 px-2 py-1.5">
           <div className="relative w-40 shrink-0">
@@ -648,6 +874,14 @@ export function DiffPanel({
                     </button>
                     {!section.collapsed && (
                       <div>
+                        {gitContext && gitContext.scope !== "all" ? (
+                          <div className="flex justify-end border-b border-border/40 bg-muted/15 px-2 py-1">
+                            {renderGitMutationButtons(
+                              { kind: "file", path: c.path },
+                              true,
+                            )}
+                          </div>
+                        ) : null}
                         {c.truncated && (
                           <div className="px-3 py-1.5 text-[11px] text-amber-600">
                             {t("diffPanel.fileTooLarge", "文件过大，仅渲染前 256KB")}
@@ -719,7 +953,21 @@ export function DiffPanel({
                 linesRemoved={change.linesRemoved}
                 className="text-[11px]"
               />
+              {gitContext
+                ? renderGitMutationButtons({ kind: "file", path: change.path }, true)
+                : null}
             </div>
+            {activeGitHunkAllowed && activeGitHunk ? (
+              <div className="mt-1 flex items-center gap-2 border-t border-border/45 pt-1">
+                <span className="min-w-0 flex-1 truncate font-mono text-[10px] text-muted-foreground/80">
+                  {activeGitHunk.header}
+                </span>
+                {renderGitMutationButtons(
+                  { kind: "hunk", path: activeGitChange?.path, hunkId: activeGitHunk.id },
+                  true,
+                )}
+              </div>
+            ) : null}
             {change.truncated && (
               <div className="mt-0.5 text-amber-600">
                 {t("diffPanel.fileTooLarge", "文件过大，仅渲染前 256KB")}
@@ -764,6 +1012,8 @@ export function DiffPanel({
 const iconButtonClass =
   "inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-secondary/60 hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
 const activeIconButtonClass = "bg-secondary text-foreground"
+const gitActionButtonClass =
+  "inline-flex items-center justify-center gap-1 rounded border border-border/60 bg-background/70 font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
 
 function updateActiveHunkFromScroll(
   container: HTMLElement,

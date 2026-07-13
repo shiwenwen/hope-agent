@@ -44,6 +44,9 @@ pub async fn create_managed_worktree(
             workflow_run_id: body.workflow_run_id,
             child_session_id: body.child_session_id,
             base_ref: body.base_ref,
+            include_local_changes: false,
+            bootstrap_request_id: None,
+            bind_session_working_dir: false,
         })
         .await
         .map_err(|e| AppError::bad_request(e.to_string()))?;
@@ -59,6 +62,24 @@ pub async fn get_managed_worktree(
             .await
             .map_err(|e| AppError::bad_request(e.to_string()))?,
     ))
+}
+
+pub async fn get_project_bootstrap_run(
+    Path(request_id): Path<String>,
+) -> Result<Json<Option<ha_core::project_bootstrap::ProjectBootstrapRun>>, AppError> {
+    let db = session_db()?;
+    Ok(Json(
+        db.run(move |db| db.get_project_bootstrap_run(&request_id))
+            .await?,
+    ))
+}
+
+pub async fn cancel_project_bootstrap(
+    Path(request_id): Path<String>,
+) -> Result<Json<bool>, AppError> {
+    Ok(Json(ha_core::project_bootstrap::cancel_project_bootstrap(
+        &request_id,
+    )))
 }
 
 pub async fn archive_managed_worktree(

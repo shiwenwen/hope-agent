@@ -905,9 +905,47 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   list_managed_worktrees: { method: "GET", path: "/api/sessions/{sessionId}/worktrees" },
   create_managed_worktree: { method: "POST", path: "/api/sessions/{sessionId}/worktrees" },
   get_managed_worktree: { method: "GET", path: "/api/worktrees/{worktreeId}" },
+  get_project_bootstrap_run: { method: "GET", path: "/api/project-bootstrap/{requestId}" },
+  cancel_project_bootstrap: { method: "POST", path: "/api/project-bootstrap/{requestId}/cancel" },
   archive_managed_worktree: { method: "POST", path: "/api/worktrees/{worktreeId}/archive" },
   restore_managed_worktree: { method: "POST", path: "/api/worktrees/{worktreeId}/restore" },
   handoff_managed_worktree: { method: "POST", path: "/api/worktrees/{worktreeId}/handoff" },
+
+  // -- Session Git control --
+  load_session_git_control_cmd: { method: "GET", path: "/api/sessions/{sessionId}/git" },
+  load_session_git_diff_snapshot_cmd: {
+    method: "GET",
+    path: "/api/sessions/{sessionId}/git/diff",
+  },
+  mutate_session_git_index_cmd: { method: "POST", path: "/api/sessions/{sessionId}/git/index" },
+  switch_session_git_branch_cmd: {
+    method: "POST",
+    path: "/api/sessions/{sessionId}/git/branch/switch",
+  },
+  create_session_git_branch_cmd: {
+    method: "POST",
+    path: "/api/sessions/{sessionId}/git/branch/create",
+  },
+  commit_session_git_cmd: { method: "POST", path: "/api/sessions/{sessionId}/git/commit" },
+  push_session_git_cmd: { method: "POST", path: "/api/sessions/{sessionId}/git/push" },
+  session_git_pr_preflight_cmd: {
+    method: "GET",
+    path: "/api/sessions/{sessionId}/git/pull-request",
+  },
+  load_session_git_pr_feedback_cmd: {
+    method: "GET",
+    path: "/api/sessions/{sessionId}/git/pull-request/feedback",
+  },
+  create_session_git_pr_cmd: {
+    method: "POST",
+    path: "/api/sessions/{sessionId}/git/pull-request",
+  },
+  enable_session_git_pr_auto_merge_cmd: {
+    method: "POST",
+    path: "/api/sessions/{sessionId}/git/pull-request/auto-merge",
+  },
+  handoff_session_git_cmd: { method: "POST", path: "/api/sessions/{sessionId}/git/handoff" },
+  get_git_operation_run_cmd: { method: "GET", path: "/api/git-runs/{requestId}" },
 
   // -- Workflow runs --
   list_workflow_runs: { method: "GET", path: "/api/sessions/{sessionId}/workflow-runs" },
@@ -1588,6 +1626,21 @@ function normalizeHttpCommandArgs(
     return {
       ...config,
       providerId: args?.providerId ?? config.id,
+    }
+  }
+  if (
+    command === "mutate_session_git_index_cmd" ||
+    command === "switch_session_git_branch_cmd" ||
+    command === "create_session_git_branch_cmd" ||
+    command === "commit_session_git_cmd" ||
+    command === "push_session_git_cmd" ||
+    command === "create_session_git_pr_cmd" ||
+    command === "enable_session_git_pr_auto_merge_cmd" ||
+    command === "handoff_session_git_cmd"
+  ) {
+    const input = args?.input
+    if (input && typeof input === "object" && !Array.isArray(input)) {
+      return { ...(input as Record<string, unknown>), sessionId: args?.sessionId }
     }
   }
   return args

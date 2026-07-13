@@ -131,6 +131,39 @@ test("HttpTransport.try_restore_session unwraps HTTP restored payload", async ()
   expect(restored).toBe(true)
 })
 
+test("HttpTransport unwraps the Git auto-merge input for the HTTP owner API", async () => {
+  const transport = new HttpTransport("http://localhost:8420")
+  fetchMock.mockResolvedValue(
+    new Response(JSON.stringify({ message: "enabled" }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    }),
+  )
+
+  await transport.call("enable_session_git_pr_auto_merge_cmd", {
+    sessionId: "s1",
+    input: {
+      requestId: "request-1",
+      expectedRevision: "revision-1",
+      method: "squash",
+      confirmAutoMerge: true,
+    },
+  })
+
+  expect(fetchMock).toHaveBeenLastCalledWith(
+    "http://localhost:8420/api/sessions/s1/git/pull-request/auto-merge",
+    expect.objectContaining({
+      method: "POST",
+      body: JSON.stringify({
+        requestId: "request-1",
+        expectedRevision: "revision-1",
+        method: "squash",
+        confirmAutoMerge: true,
+      }),
+    }),
+  )
+})
+
 test("HttpTransport maps execution mode and workflow owner commands", async () => {
   const transport = new HttpTransport("http://localhost:8420")
 

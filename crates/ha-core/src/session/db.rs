@@ -458,6 +458,8 @@ impl SessionDB {
         Self::recover_turn_message_queue(&conn)?;
         crate::goal::ensure_tables(&conn)?;
         crate::worktree::ensure_tables(&conn)?;
+        crate::project_bootstrap::ensure_tables(&conn)?;
+        crate::git_control::ensure_tables(&conn)?;
         crate::workflow::ensure_tables(&conn)?;
         crate::review::ensure_tables(&conn)?;
         crate::verification::ensure_tables(&conn)?;

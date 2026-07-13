@@ -1378,6 +1378,36 @@ fn recover_startup_session_state(session_db: &Arc<SessionDB>, tier: crate::runti
         return;
     }
 
+    match session_db.reconcile_interrupted_project_bootstraps() {
+        Ok(0) => {}
+        Ok(count) => app_info!(
+            "project_bootstrap",
+            "startup_recovery",
+            "reconciled {} interrupted project bootstrap run(s)",
+            count
+        ),
+        Err(error) => app_warn!(
+            "project_bootstrap",
+            "startup_recovery",
+            "failed to reconcile interrupted project bootstraps: {error:#}"
+        ),
+    }
+
+    match session_db.reconcile_interrupted_git_operations() {
+        Ok(0) => {}
+        Ok(count) => app_info!(
+            "git_control",
+            "startup_recovery",
+            "reconciled {} interrupted Git operation(s)",
+            count
+        ),
+        Err(error) => app_warn!(
+            "git_control",
+            "startup_recovery",
+            "failed to reconcile interrupted Git operations: {error:#}"
+        ),
+    }
+
     // Read the shutdown sentinel: present → previous process exited
     // cleanly (signal handler ran), absent → crash/SIGKILL/power loss.
     // Drives which `TerminationReason` we attach to each stale turn.
