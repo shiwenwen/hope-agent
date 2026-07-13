@@ -519,7 +519,10 @@ function composerPlaceholder(text: string): Extension {
       span.style.color = "hsl(var(--muted-foreground) / 0.24)"
       return span
     }),
-    EditorView.contentAttributes.of({ "aria-placeholder": text }),
+    EditorView.contentAttributes.of({
+      "aria-placeholder": text,
+      "data-focus-ring": "none",
+    }),
   ]
 }
 
@@ -783,13 +786,14 @@ const MentionComposerInput = forwardRef<ComposerInputHandle, MentionComposerInpu
         ref={hostRef}
         role="textbox"
         data-chat-composer="true"
+        data-focus-scope
         aria-multiline="true"
         aria-readonly={readOnly}
         onKeyDown={onKeyDown}
         onMouseDown={handleMouseDown}
         onClick={handleClick}
         className={cn(
-          "relative w-full cursor-text border-0 bg-transparent text-sm text-foreground outline-none focus-visible:ring-0",
+          "relative w-full cursor-text rounded-md border-0 bg-transparent text-sm text-foreground outline-none",
           "min-h-[42px] max-h-[40vh] overflow-hidden",
           hero && "min-h-[72px]",
           readOnly && "opacity-80",

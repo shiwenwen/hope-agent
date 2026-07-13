@@ -84,7 +84,7 @@ export default function AllowlistTagInput({
         ))}
         <Input
           ref={inputRef}
-          className="flex-1 min-w-[120px] h-auto border-0 bg-transparent p-0 shadow-none text-sm focus-visible:border-0"
+          className="flex-1 min-w-[120px] h-auto border-0 bg-transparent p-0 shadow-none text-sm"
           placeholder={tags.length === 0 ? t("channels.userAllowlistPlaceholder") : ""}
           value={inputValue}
           onChange={(e) => onInputChange(e.target.value)}

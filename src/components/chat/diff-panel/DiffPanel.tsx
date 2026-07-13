@@ -828,7 +828,7 @@ export function DiffPanel({
               value={fileQuery}
               onChange={(e) => setFileQuery(e.target.value)}
               placeholder={t("diffPanel.searchFiles", "搜索文件")}
-              className="h-7 w-full rounded-md border border-border/70 bg-background/60 pl-7 pr-2 text-xs outline-none transition-colors placeholder:text-muted-foreground/60 focus:border-ring"
+              className="h-7 w-full rounded-md border border-border/70 bg-background/60 pl-7 pr-2 text-xs outline-none transition-colors placeholder:text-muted-foreground/60"
             />
           </div>
           <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">

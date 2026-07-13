@@ -71,7 +71,7 @@ export default function WorkingDirectoryButton({
           disabled={saving || disabled}
           onClick={handlePick}
           className={cn(
-            "flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left text-[13px] outline-none transition-all duration-150 hover:bg-secondary/60 hover:text-foreground focus-visible:bg-secondary/60 focus-visible:text-foreground disabled:pointer-events-none disabled:opacity-50",
+            "ha-focus-item flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left text-[13px] outline-none transition-all duration-150 hover:bg-secondary/60 hover:text-foreground focus-visible:bg-secondary/60 focus-visible:text-foreground disabled:pointer-events-none disabled:opacity-50",
             saving && "disabled:opacity-70",
             hasSelection ? "text-primary" : "text-foreground",
           )}

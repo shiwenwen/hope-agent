@@ -594,7 +594,7 @@ export default function ChatSidebar({
                   onChange={(e) => setSearchQuery(e.target.value)}
                   onKeyDown={handleSearchKeyDown}
                   placeholder={t("chat.searchPlaceholder")}
-                  className="h-7 pl-7 pr-7 text-xs border-none shadow-none bg-muted/50 rounded-md focus-visible:ring-0 focus-visible:bg-muted/80 placeholder:text-muted-foreground/50"
+                  className="h-7 pl-7 pr-7 text-xs border-none shadow-none bg-muted/50 rounded-md focus-visible:bg-muted/80 placeholder:text-muted-foreground/50"
                 />
                 {searchQuery && (
                   <button

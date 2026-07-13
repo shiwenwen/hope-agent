@@ -3422,6 +3422,8 @@
     "agentsDesc": "Tentukan dan urus Ejen AI. Setiap Ejen boleh mempunyai identiti, keupayaan dan tingkah laku yang berbeza.",
     "appearance": "Penampilan",
     "appearanceDesc": "Pilih mod penampilan tema",
+    "enhancedFocusIndicators": "Penunjuk fokus dipertingkat",
+    "enhancedFocusIndicatorsDesc": "Sentiasa tunjukkan penunjuk fokus yang lebih jelas. Mod kontras tinggi sistem dipertingkat secara automatik.",
     "approvalNav": "Kebenaran",
     "approvalPanel": {
       "dangerousCommandsDesc": "Paksa kelulusan dan tidak boleh dijadikan Sentiasa Benarkan. Mod YOLO memintasnya tetapi masih menulis log audit.",

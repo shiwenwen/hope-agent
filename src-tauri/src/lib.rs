@@ -527,6 +527,8 @@ pub fn run() {
             // Theme & Language
             commands::config::get_theme,
             commands::config::set_theme,
+            commands::config::get_enhanced_focus_indicators,
+            commands::config::set_enhanced_focus_indicators,
             commands::config::get_language,
             commands::config::set_language,
             commands::config::get_ui_effects_enabled,

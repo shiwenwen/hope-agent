@@ -1260,6 +1260,28 @@ pub async fn set_theme(Json(body): Json<Value>) -> Result<Json<Value>, AppError>
     Ok(Json(json!({ "saved": true })))
 }
 
+/// `GET /api/config/enhanced-focus-indicators` -- get the manual a11y override.
+pub async fn get_enhanced_focus_indicators() -> Result<Json<Value>, AppError> {
+    let store = load_config()?;
+    Ok(Json(json!(store.enhanced_focus_indicators)))
+}
+
+/// `POST /api/config/enhanced-focus-indicators` -- set the manual a11y override.
+pub async fn set_enhanced_focus_indicators(
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, AppError> {
+    let enabled = body
+        .get("enabled")
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false);
+    ha_core::config::mutate_config_async(("focus_indicator", "http"), move |store| {
+        store.enhanced_focus_indicators = enabled;
+        Ok(())
+    })
+    .await?;
+    Ok(Json(json!({ "saved": true })))
+}
+
 /// `POST /api/config/window-theme` -- desktop-only, no-op in server mode.
 pub async fn set_window_theme(Json(_body): Json<Value>) -> Result<Json<Value>, AppError> {
     Ok(Json(json!({ "ok": true, "note": "desktop-only" })))

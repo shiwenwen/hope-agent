@@ -3422,6 +3422,8 @@
     "agentsDesc": "AIエージェントを定義・管理します。各エージェントは異なるアイデンティティ、能力、振る舞いを持てます。",
     "appearance": "外観",
     "appearanceDesc": "テーマの外観モードを選択",
+    "enhancedFocusIndicators": "フォーカス表示を強調",
+    "enhancedFocusIndicatorsDesc": "常に見やすいフォーカス表示を使用します。システムの高コントラストモードでは自動的に強調されます。",
     "approvalNav": "権限",
     "approvalPanel": {
       "dangerousCommandsDesc": "承認を強制し、常に許可にはできません。YOLO モードでは迂回されますが、監査ログは記録されます。",

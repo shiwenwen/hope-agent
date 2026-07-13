@@ -2384,7 +2384,7 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
                   onKeyDown={(e) => {
                     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) void saveDraft()
                   }}
-                  className="h-7 flex-1 border-0 bg-transparent px-1 text-sm font-medium shadow-none focus-visible:ring-0"
+                  className="h-7 flex-1 border-0 bg-transparent px-1 text-sm font-medium shadow-none"
                 />
                 <ModeSwitch mode={mode} onChange={handleModeChange} compact={compactToolbar} />
                 <Button variant="outline" size="sm" className="h-7" disabled={saving} onClick={saveDraft}>

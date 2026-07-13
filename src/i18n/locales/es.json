@@ -3422,6 +3422,8 @@
     "agentsDesc": "Define y gestiona Agentes de IA. Cada Agente puede tener identidad, capacidades y comportamiento diferentes.",
     "appearance": "Apariencia",
     "appearanceDesc": "Elige el modo de apariencia del tema",
+    "enhancedFocusIndicators": "Indicadores de enfoque mejorados",
+    "enhancedFocusIndicatorsDesc": "Muestra siempre un indicador de enfoque más claro. Los modos de alto contraste del sistema se refuerzan automáticamente.",
     "approvalNav": "Permisos",
     "approvalPanel": {
       "dangerousCommandsDesc": "Fuerza aprobación y no puede marcarse como Siempre permitir. El modo YOLO lo omite, pero sigue escribiendo registros de auditoría.",

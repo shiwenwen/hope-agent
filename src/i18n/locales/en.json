@@ -3422,6 +3422,8 @@
     "agentsDesc": "Define and manage AI Agents. Each Agent can have a different identity, capabilities, and behavior.",
     "appearance": "Appearance",
     "appearanceDesc": "Choose the theme appearance mode",
+    "enhancedFocusIndicators": "Enhanced focus indicators",
+    "enhancedFocusIndicatorsDesc": "Always show a clearer focus indicator. System high-contrast modes are enhanced automatically.",
     "approvalNav": "Permission",
     "approvalPanel": {
       "dangerousCommandsDesc": "Force approval and cannot be AllowAlways'd. YOLO mode bypasses but still writes audit logs.",

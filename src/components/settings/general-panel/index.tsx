@@ -12,6 +12,7 @@ import {
 import ShortcutSection from "./ShortcutSection"
 import ProxySection from "./ProxySection"
 import OnboardingResetSection from "./OnboardingResetSection"
+import FocusIndicatorSection from "./FocusIndicatorSection"
 
 export default function GeneralPanel() {
   const { t } = useTranslation()
@@ -31,6 +32,7 @@ export default function GeneralPanel() {
         <TabsContent value="appearance" className="flex-1 overflow-y-auto px-6 pb-6">
           <div className="w-full space-y-8 pt-4">
             <ThemeSection />
+            <FocusIndicatorSection />
             <LanguageSection />
             <div>
               <SidebarDisplayModeSelector />

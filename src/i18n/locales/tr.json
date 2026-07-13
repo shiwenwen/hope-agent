@@ -3422,6 +3422,8 @@
     "agentsDesc": "AI Ajanlarını tanımlayın ve yönetin. Her Ajan farklı kimlik, yetenek ve davranışa sahip olabilir.",
     "appearance": "Görünüm",
     "appearanceDesc": "Tema görünüm modunu seçin",
+    "enhancedFocusIndicators": "Gelişmiş odak göstergeleri",
+    "enhancedFocusIndicatorsDesc": "Her zaman daha belirgin bir odak göstergesi gösterir. Sistem yüksek kontrast modlarında otomatik olarak güçlendirilir.",
     "approvalNav": "İzinler",
     "approvalPanel": {
       "dangerousCommandsDesc": "Onayı zorunlu kılar ve Her zaman izin ver yapılamaz. YOLO modu bunu atlar ama denetim günlüklerini yine yazar.",

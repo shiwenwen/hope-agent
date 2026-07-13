@@ -3422,6 +3422,8 @@
     "agentsDesc": "AI 에이전트를 정의하고 관리합니다. 각 에이전트는 고유한 정체성, 능력, 행동을 가질 수 있습니다.",
     "appearance": "외관",
     "appearanceDesc": "테마 외관 모드 선택",
+    "enhancedFocusIndicators": "향상된 포커스 표시",
+    "enhancedFocusIndicatorsDesc": "항상 더 선명한 포커스 표시를 사용합니다. 시스템 고대비 모드에서는 자동으로 강화됩니다.",
     "approvalNav": "권한",
     "approvalPanel": {
       "dangerousCommandsDesc": "승인을 강제하며 항상 허용할 수 없습니다. YOLO 모드는 우회하지만 감사 로그는 계속 기록합니다.",

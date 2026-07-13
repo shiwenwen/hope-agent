@@ -143,7 +143,7 @@ export default function TaskProgressPanel({
               type="button"
               aria-label={String(t("workspace.openPanel", { defaultValue: "打开工作台" }))}
               className={cn(
-                "inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50",
+                "inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground focus:outline-none",
                 workspaceOpen && "bg-secondary text-foreground",
               )}
               onClick={onOpenWorkspace}

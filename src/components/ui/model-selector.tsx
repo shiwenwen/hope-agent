@@ -67,7 +67,7 @@ export function ModelSelector({
       <DropdownMenu.Trigger
         disabled={disabled}
         className={cn(
-          "flex h-9 w-full items-center justify-between whitespace-nowrap rounded-md border border-border bg-background px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground hover:bg-secondary/50 focus:outline-none focus:border-ring disabled:cursor-not-allowed disabled:opacity-50 [&>span]:line-clamp-1",
+          "flex h-9 w-full items-center justify-between whitespace-nowrap rounded-md border border-border bg-background px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground hover:bg-secondary/50 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50 [&>span]:line-clamp-1",
           className,
         )}
       >
