@@ -1,4 +1,5 @@
 import { Fragment, useRef, useEffect, useLayoutEffect, useCallback, useMemo, useState } from "react"
+import type { ReactNode } from "react"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
@@ -355,6 +356,8 @@ interface ChatInputProps {
   workspacePanelVisible?: boolean
   /** Larger centered presentation for a brand-new empty conversation. */
   hero?: boolean
+  /** Optional surface fused to the top of the input dock. */
+  topAccessory?: ReactNode
   /** Context-window fullness, rendered as a thin bar fused into the dock's
    *  bottom border (green → amber → red). Null hides the bar. */
   contextUsage?: ContextUsageInfo | null
@@ -545,6 +548,7 @@ export default function ChatInput({
   workflowProgressCount = 0,
   workspacePanelVisible = false,
   hero = false,
+  topAccessory,
   contextUsage,
 }: ChatInputProps) {
   const { t } = useTranslation()
@@ -1597,6 +1601,7 @@ export default function ChatInput({
   )?.id
   const hasPendingQueue = pendingQueueItems.length > 0
   const topStripBase =
+    !topAccessory &&
     !hasVisibleTaskProgress &&
     attachedFiles.length === 0 &&
     !pendingQuotes?.length &&
@@ -1837,6 +1842,8 @@ export default function ChatInput({
           ],
         )}
       >
+        {topAccessory}
+
         {/* Slash Command Menu */}
         <SlashCommandMenu
           open={slash.isOpen}
@@ -1902,6 +1909,7 @@ export default function ChatInput({
             snapshot={visibleTaskProgressSnapshot}
             executionState={taskExecutionState}
             variant="embedded"
+            className={topAccessory ? "rounded-t-none" : undefined}
             onOpenWorkspace={onOpenWorkspace}
             workspaceOpen={workspacePanelVisible}
           />

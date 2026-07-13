@@ -38,7 +38,7 @@ export function ProjectSessionDraftBar({
   onRetry,
   onUseLocal,
 }: {
-  project: ProjectMeta
+  project: ProjectMeta | null
   projects: ProjectMeta[]
   draft: ProjectRuntimeDraft
   disabled?: boolean
@@ -63,6 +63,7 @@ export function ProjectSessionDraftBar({
   const projectMenuRef = useRef<HTMLDivElement>(null)
   const launchMenuRef = useRef<HTMLDivElement>(null)
   const branchMenuRef = useRef<HTMLDivElement>(null)
+  const projectId = project?.id ?? null
 
   useClickOutside(projectMenuRef, useCallback(() => setProjectOpen(false), []))
   useClickOutside(launchMenuRef, useCallback(() => setLaunchOpen(false), []))
@@ -72,13 +73,18 @@ export function ProjectSessionDraftBar({
     let cancelled = false
     queueMicrotask(() => {
       if (cancelled) return
-      setGitLoading(true)
+      setGitLoading(!!projectId)
       setGitError(null)
       setGitNotice(null)
       setGitInfo(null)
     })
+    if (!projectId) {
+      return () => {
+        cancelled = true
+      }
+    }
     getTransport()
-      .call<GitInfo | null>("project_git_info", { scope: "project", scopeId: project.id })
+      .call<GitInfo | null>("project_git_info", { scope: "project", scopeId: projectId })
       .then((info) => {
         if (cancelled) return
         setGitInfo(info)
@@ -92,7 +98,7 @@ export function ProjectSessionDraftBar({
     return () => {
       cancelled = true
     }
-  }, [project.id])
+  }, [projectId])
 
   useEffect(() => {
     if (!gitInfo) return
@@ -196,7 +202,7 @@ export function ProjectSessionDraftBar({
     "relative inline-flex min-w-0 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm text-foreground transition-colors hover:bg-background/70 disabled:pointer-events-none disabled:opacity-50"
 
   return (
-    <div className="mb-2 rounded-xl border border-border/70 bg-muted/35 px-2 py-1.5">
+    <div className="rounded-t-input-dock border-b border-border-soft bg-surface-subtle/60 px-2 py-1.5">
       <div className="flex min-w-0 flex-wrap items-center gap-1">
         <div ref={projectMenuRef} className="relative min-w-0">
           <div className="flex min-w-0 items-center rounded-lg hover:bg-background/70">
@@ -207,19 +213,23 @@ export function ProjectSessionDraftBar({
               onClick={() => setProjectOpen((open) => !open)}
             >
               <Folder className="h-4 w-4 shrink-0" />
-              <span className="truncate">{project.name}</span>
+              <span className="truncate">
+                {project?.name ?? t("chat.projectRuntime.selectProject", "选择项目")}
+              </span>
               <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
             </button>
-            <button
-              type="button"
-              disabled={disabled}
-              aria-label={t("chat.projectRuntime.removeProject", "不在项目中工作")}
-              data-ha-title-tip={t("chat.projectRuntime.removeProject", "不在项目中工作")}
-              className="mr-1 rounded-full p-0.5 text-muted-foreground hover:bg-foreground hover:text-background disabled:pointer-events-none"
-              onClick={onRemoveProject}
-            >
-              <X className="h-3.5 w-3.5" />
-            </button>
+            {project ? (
+              <button
+                type="button"
+                disabled={disabled}
+                aria-label={t("chat.projectRuntime.removeProject", "不在项目中工作")}
+                data-ha-title-tip={t("chat.projectRuntime.removeProject", "不在项目中工作")}
+                className="mr-1 rounded-full p-0.5 text-muted-foreground hover:bg-foreground hover:text-background disabled:pointer-events-none"
+                onClick={onRemoveProject}
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            ) : null}
           </div>
           <FloatingMenu
             open={projectOpen}
@@ -241,11 +251,11 @@ export function ProjectSessionDraftBar({
               type="button"
               className={FLOATING_MENU_ITEM_CLASS}
               onClick={() => {
-                onRemoveProject()
+                if (project) onRemoveProject()
                 setProjectOpen(false)
               }}
             >
-              <X className="h-4 w-4" />
+              {project ? <X className="h-4 w-4" /> : <Check className="h-4 w-4" />}
               {t("chat.projectRuntime.noProject", "不在项目中")}
             </button>
             <div className="max-h-64 overflow-y-auto">
@@ -261,14 +271,14 @@ export function ProjectSessionDraftBar({
                 >
                   <Folder className="h-4 w-4 text-muted-foreground" />
                   <span className="min-w-0 flex-1 truncate">{candidate.name}</span>
-                  {candidate.id === project.id ? <Check className="h-4 w-4" /> : null}
+                  {candidate.id === project?.id ? <Check className="h-4 w-4" /> : null}
                 </button>
               ))}
             </div>
           </FloatingMenu>
         </div>
 
-        <div ref={launchMenuRef} className="relative">
+        <div ref={launchMenuRef} className={cn("relative", !project && "hidden")}>
           <button
             type="button"
             disabled={disabled}
@@ -317,7 +327,7 @@ export function ProjectSessionDraftBar({
           </FloatingMenu>
         </div>
 
-        {gitLoading || gitInfo ? (
+        {project && (gitLoading || gitInfo) ? (
           <div ref={branchMenuRef} className="relative min-w-0">
             <button
               type="button"
@@ -356,7 +366,7 @@ export function ProjectSessionDraftBar({
         ) : null}
       </div>
 
-      {selectedBranch ? (
+      {project && selectedBranch ? (
         <div className="px-2.5 pb-0.5 pt-1 text-[11px] text-muted-foreground">
           {draft.launchMode === "worktree"
             ? draft.includeLocalChanges && dirtyCount > 0
@@ -386,13 +396,13 @@ export function ProjectSessionDraftBar({
         </div>
       ) : null}
 
-      {gitNotice ? (
+      {project && gitNotice ? (
         <div className="px-2.5 pb-0.5 pt-1 text-[11px] text-amber-600 dark:text-amber-400">
           {gitNotice}
         </div>
       ) : null}
 
-      {progressStage ? (
+      {project && progressStage ? (
         <div
           className={cn(
             "flex items-center gap-2 px-2.5 pb-0.5 pt-1 text-xs",
