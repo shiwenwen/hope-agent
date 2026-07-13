@@ -171,7 +171,11 @@ pub fn active_layer_from_recall(recall: &ActiveMemoryRecall) -> RetrievalPlanner
         layer: "active_memory".to_string(),
         status: if used_summary { "used" } else { "empty" }.to_string(),
         ref_count: refs.len(),
-        injected_count: 0,
+        injected_count: if used_summary {
+            selected_count.max(1)
+        } else {
+            0
+        },
         selected_count,
         candidate_count: refs.iter().filter(|r| is_candidate_role(&r.role)).count(),
         dropped_count: 0,
@@ -1131,6 +1135,7 @@ mod tests {
         let recall = ActiveMemoryRecall {
             summary: "Use the user's concise-answer preference.".to_string(),
             selected: None,
+            selected_candidates: Vec::new(),
             candidates: vec![super::super::active_memory::ActiveMemoryCandidateRef {
                 kind: "memory".to_string(),
                 id: "1".to_string(),

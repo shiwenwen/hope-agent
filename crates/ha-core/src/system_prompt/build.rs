@@ -343,11 +343,22 @@ pub(crate) fn build_with_resolved_session(
     }
 
     // ⑧ Memory — layered budget negotiation (see `build_memory_section`).
-    let long_term_memory_enabled = crate::memory::load_extract_config().enabled;
+    let app_config = crate::config::cached_config();
+    let memory_runtime_enabled = !app_config.memory.rollout.enabled || app_config.memory.enabled;
+    let core_memory_enabled = !app_config.memory.rollout.enabled || app_config.memory.core.enabled;
+    let long_term_memory_enabled = app_config.memory_extract.enabled && memory_runtime_enabled;
     if long_term_memory_enabled && definition.config.memory.enabled && !incognito {
         let section = build_memory_section(
-            definition.memory_md.as_deref(),
-            definition.global_memory_md.as_deref(),
+            if core_memory_enabled {
+                definition.memory_md.as_deref()
+            } else {
+                None
+            },
+            if core_memory_enabled {
+                definition.global_memory_md.as_deref()
+            } else {
+                None
+            },
             memory_entries,
             memory_budget,
             profile_snapshot,

@@ -152,6 +152,10 @@ pub struct ActiveMemoryRecall {
     pub summary: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub selected: Option<ActiveMemoryCandidateRef>,
+    /// V2 fast recall can inject more than one bounded candidate. `selected`
+    /// remains the first item for wire/UI compatibility.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub selected_candidates: Vec<ActiveMemoryCandidateRef>,
     pub candidates: Vec<ActiveMemoryCandidateRef>,
     pub total_candidates: usize,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -161,20 +165,30 @@ pub struct ActiveMemoryRecall {
 
 impl ActiveMemoryRecall {
     pub fn used_memory_refs(&self) -> Vec<UsedMemoryRef> {
-        let selected_key = self
-            .selected
-            .as_ref()
-            .map(|candidate| (candidate.kind.as_str(), candidate.id.as_str()));
+        let mut selected_keys = std::collections::HashSet::new();
+        for candidate in &self.selected_candidates {
+            selected_keys.insert((candidate.kind.as_str(), candidate.id.as_str()));
+        }
+        if let Some(candidate) = self.selected.as_ref() {
+            selected_keys.insert((candidate.kind.as_str(), candidate.id.as_str()));
+        }
         let mut refs = Vec::new();
 
-        if let Some(selected) = self.selected.as_ref() {
-            refs.push(used_memory_ref_from_candidate(selected, "selected"));
+        if self.selected_candidates.is_empty() {
+            if let Some(selected) = self.selected.as_ref() {
+                refs.push(used_memory_ref_from_candidate(selected, "selected"));
+            }
+        } else {
+            refs.extend(
+                self.selected_candidates
+                    .iter()
+                    .map(|candidate| used_memory_ref_from_candidate(candidate, "selected")),
+            );
         }
 
         for candidate in &self.candidates {
-            let is_selected = selected_key
-                .map(|(kind, id)| kind == candidate.kind && id == candidate.id)
-                .unwrap_or(false);
+            let is_selected =
+                selected_keys.contains(&(candidate.kind.as_str(), candidate.id.as_str()));
             if is_selected {
                 continue;
             }
@@ -336,7 +350,7 @@ Candidate memories (top matches from local store):\n\
 User's latest message:\n\
 {user_msg}\n";
 
-fn scope_label(scope: &MemoryScope) -> String {
+pub(crate) fn scope_label(scope: &MemoryScope) -> String {
     match scope {
         MemoryScope::Global => "global".to_string(),
         MemoryScope::Agent { id } => format!("agent:{id}"),
@@ -344,7 +358,7 @@ fn scope_label(scope: &MemoryScope) -> String {
     }
 }
 
-fn preview_line(content: &str) -> String {
+pub(crate) fn preview_line(content: &str) -> String {
     crate::truncate_utf8(content.lines().next().unwrap_or(content).trim(), 180).to_string()
 }
 
@@ -689,6 +703,7 @@ mod tests {
         let recall = ActiveMemoryRecall {
             summary: "Use the concise-answer preference.".into(),
             selected: Some(selected.clone()),
+            selected_candidates: Vec::new(),
             candidates: vec![selected, fallback],
             total_candidates: 2,
             latency_ms: Some(12),

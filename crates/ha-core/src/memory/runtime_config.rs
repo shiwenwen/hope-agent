@@ -33,6 +33,14 @@ impl Default for MemoryRuntimeConfig {
     }
 }
 
+impl MemoryRuntimeConfig {
+    /// Legacy static injection stays on until the V2 runtime itself is active,
+    /// then follows the explicit rollback switch.
+    pub(crate) fn legacy_static_injection_enabled(&self) -> bool {
+        !self.rollout.enabled || self.compatibility.legacy_static_memory
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", default)]
 pub struct CoreMemoryRuntimeConfig {
@@ -188,6 +196,7 @@ mod tests {
         assert!(!config.deep_recall.enabled);
         assert_eq!(config.core.total_tokens, 1_600);
         assert_eq!(config.recall.max_tokens, 800);
+        assert!(config.legacy_static_injection_enabled());
     }
 
     #[test]
@@ -202,5 +211,16 @@ mod tests {
         assert_eq!(parsed.recall.max_selected, 3);
         assert!(parsed.recall.enabled);
         assert!(parsed.compatibility.legacy_static_memory);
+    }
+
+    #[test]
+    fn legacy_static_injection_can_only_turn_off_after_v2_is_active() {
+        let mut config = MemoryRuntimeConfig::default();
+        config.compatibility.legacy_static_memory = false;
+        assert!(config.legacy_static_injection_enabled());
+        config.rollout.enabled = true;
+        assert!(!config.legacy_static_injection_enabled());
+        config.compatibility.legacy_static_memory = true;
+        assert!(config.legacy_static_injection_enabled());
     }
 }

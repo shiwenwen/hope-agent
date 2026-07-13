@@ -17,7 +17,7 @@ pub mod preflight;
 mod providers;
 mod related_notes;
 pub mod resolver;
-mod retrieval_planner;
+pub(crate) mod retrieval_planner;
 pub(crate) mod runtime_ledger;
 mod side_query;
 mod streaming_adapter;
@@ -1357,6 +1357,13 @@ impl AssistantAgent {
     pub(crate) async fn refresh_active_memory_suffix(&self, user_text: &str) {
         use std::time::Duration;
 
+        let memory_runtime = crate::config::cached_config().memory.clone();
+        if memory_runtime.rollout.enabled && memory_runtime.rollout.dynamic_recall {
+            self.refresh_fast_memory_recall(user_text, &memory_runtime)
+                .await;
+            return;
+        }
+
         if self.session_is_incognito() {
             self.set_retrieval_planner_layer(retrieval_planner::disabled_layer(
                 "active_memory",
@@ -1575,6 +1582,7 @@ impl AssistantAgent {
             active_memory::ActiveMemoryRecall {
                 summary: parsed.summary,
                 selected,
+                selected_candidates: Vec::new(),
                 candidates: candidate_refs.clone(),
                 total_candidates,
                 latency_ms: Some(started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64),
@@ -1613,6 +1621,174 @@ impl AssistantAgent {
         }
 
         self.set_active_memory_recall(recalled);
+    }
+
+    async fn refresh_fast_memory_recall(
+        &self,
+        user_text: &str,
+        runtime: &crate::memory::MemoryRuntimeConfig,
+    ) {
+        use crate::memory::recall_planner::RecallGate;
+        use std::time::Duration;
+
+        let legacy_master_enabled = crate::config::cached_config().memory_extract.enabled;
+        let gate = crate::memory::recall_planner::recall_gate(
+            user_text,
+            self.session_is_incognito(),
+            runtime.enabled && legacy_master_enabled,
+            runtime.recall.enabled,
+        );
+        let intent = match gate {
+            RecallGate::Search { intent } => intent,
+            RecallGate::Skip(reason) => {
+                self.set_retrieval_planner_layer(retrieval_planner::skipped_layer(
+                    "active_memory",
+                    reason.as_str(),
+                    0,
+                    None,
+                ));
+                self.set_active_memory_recall(None);
+                return;
+            }
+        };
+
+        let Some(snapshot) = self.active_memory_state.current_agent_config() else {
+            self.set_retrieval_planner_layer(retrieval_planner::skipped_layer(
+                "active_memory",
+                "agent_config_unavailable",
+                0,
+                None,
+            ));
+            self.set_active_memory_recall(None);
+            return;
+        };
+        if !snapshot.memory_enabled {
+            self.set_retrieval_planner_layer(retrieval_planner::disabled_layer(
+                "active_memory",
+                "agent_memory_off",
+            ));
+            self.set_active_memory_recall(None);
+            return;
+        }
+        let Some(session_id) = self.session_id.clone() else {
+            self.set_retrieval_planner_layer(retrieval_planner::skipped_layer(
+                "active_memory",
+                "no_session",
+                0,
+                None,
+            ));
+            self.set_active_memory_recall(None);
+            return;
+        };
+
+        let query = user_text.trim().to_string();
+        let recall_config_fingerprint = serde_json::to_string(&runtime.recall).unwrap_or_default();
+        let hash = active_memory::hash_user_text(&format!(
+            "v2-fast:{session_id}:{}:{recall_config_fingerprint}:{query}",
+            self.agent_id
+        ));
+        let ttl = Duration::from_secs(runtime.deep_recall.cache_ttl_secs.max(1));
+        if let Some(cached) = self.active_memory_state.get_cached(hash, ttl) {
+            let recalled = cached.map(|mut recall| {
+                recall.cached = true;
+                recall.latency_ms = None;
+                recall
+            });
+            if let Some(ref recall) = recalled {
+                self.emit_active_memory_recall(&session_id, hash, recall);
+            } else {
+                self.set_retrieval_planner_layer(retrieval_planner::mark_cached(
+                    retrieval_planner::empty_layer("active_memory", "no_candidates", 0),
+                ));
+            }
+            self.set_active_memory_recall(recalled);
+            return;
+        }
+
+        let Some(retrieval_slot) = acquire_memory_retrieval_slot().await else {
+            self.set_retrieval_planner_layer(retrieval_planner::skipped_layer(
+                "active_memory",
+                "retrieval_busy",
+                0,
+                None,
+            ));
+            self.set_active_memory_recall(None);
+            return;
+        };
+
+        let started = std::time::Instant::now();
+        let agent_id = self.agent_id.clone();
+        let sid_for_search = session_id.clone();
+        let shared_global = snapshot.shared_global;
+        let config = runtime.recall.clone();
+        let timeout = Duration::from_millis(config.timeout_ms.max(1));
+        let search = tokio::time::timeout(
+            timeout,
+            tokio::task::spawn_blocking(move || {
+                let _retrieval_slot = retrieval_slot;
+                let scopes =
+                    active_memory::scopes_for_session(&sid_for_search, &agent_id, shared_global);
+                let memories =
+                    active_memory::shortlist_candidates(&query, &scopes, config.candidate_limit);
+                let claims = if config.include_claims {
+                    active_memory::shortlist_claim_candidates(
+                        &query,
+                        &scopes,
+                        config.candidate_limit,
+                    )
+                } else {
+                    Vec::new()
+                };
+                crate::memory::recall_planner::plan_fast_recall(&query, memories, claims, &config)
+            }),
+        )
+        .await;
+
+        let mut recall = match search {
+            Ok(Ok(Ok(recall))) => recall,
+            Ok(Ok(Err(reason))) => {
+                self.active_memory_state.put_cached(hash, None);
+                self.set_retrieval_planner_layer(retrieval_planner::empty_layer(
+                    "active_memory",
+                    reason.as_str(),
+                    0,
+                ));
+                self.set_active_memory_recall(None);
+                return;
+            }
+            Ok(Err(_join_error)) => {
+                self.set_retrieval_planner_layer(retrieval_planner::skipped_layer(
+                    "active_memory",
+                    "retrieval_error",
+                    0,
+                    Some(started.elapsed().as_millis() as u64),
+                ));
+                self.set_active_memory_recall(None);
+                return;
+            }
+            Err(_) => {
+                self.set_retrieval_planner_layer(retrieval_planner::skipped_layer(
+                    "active_memory",
+                    "retrieval_timeout",
+                    0,
+                    Some(timeout.as_millis() as u64),
+                ));
+                self.set_active_memory_recall(None);
+                return;
+            }
+        };
+        recall.latency_ms = Some(started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64);
+        recall.cached = false;
+        // Keep the existing intent-aware trace context aligned with the new
+        // deterministic gate even though the UI wire contract stays compatible.
+        self.retrieval_planner_context
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .intent = intent;
+        self.active_memory_state
+            .put_cached(hash, Some(recall.clone()));
+        self.emit_active_memory_recall(&session_id, hash, &recall);
+        self.set_active_memory_recall(Some(recall));
     }
 
     /// Refresh P5 Episode / Procedure context for the current turn. Episodes
