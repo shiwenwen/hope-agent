@@ -744,7 +744,7 @@ export default function DesignInspector({
         <TextRow
           label={t("design.insp.lineHeight", "行高")}
           prop="line-height"
-          value={s["line-height"] === "normal" ? "" : s["line-height"] || ""}
+          value={formatSizeDisplay(s["line-height"] || "")}
           placeholder="1.5 / 24px"
           onCommit={onCommitStyle}
           onLive={onLiveStyle}
@@ -752,7 +752,7 @@ export default function DesignInspector({
         <TextRow
           label={t("design.insp.letterSpacing", "字距")}
           prop="letter-spacing"
-          value={s["letter-spacing"] === "normal" ? "" : s["letter-spacing"] || ""}
+          value={formatSizeDisplay(s["letter-spacing"] || "")}
           placeholder="normal"
           onCommit={onCommitStyle}
           onLive={onLiveStyle}
