@@ -151,6 +151,33 @@ export function ProjectSessionDraftBar({
     ? t("chat.projectRuntime.noBranches", "Git 仓库中没有可用分支")
     : gitError || t("chat.projectRuntime.notGit", "项目工作目录不在 Git 仓库中")
   const dirtyCount = gitInfo?.dirty.changedFiles ?? 0
+  const selectedBranchSummary = selectedBranch
+    ? draft.launchMode === "worktree"
+      ? draft.includeLocalChanges && dirtyCount > 0
+        ? t("chat.projectRuntime.includeChanges", "将包含 {{count}} 个本地改动", {
+            count: dirtyCount,
+          })
+        : selectedBranch.isCurrent
+          ? t("chat.projectRuntime.cleanBranch", "当前分支没有未提交改动")
+          : t("chat.projectRuntime.excludeChanges", "不会包含当前工作区的未提交改动")
+      : selectedBranch.isCurrent
+        ? dirtyCount > 0
+          ? t("chat.projectRuntime.localKeepsChanges", "将在当前分支工作，保留 {{count}} 个本地改动", {
+              count: dirtyCount,
+            })
+          : t("chat.projectRuntime.localCurrentBranch", "将在当前分支工作")
+        : selectedBranch.kind === "remote"
+          ? t(
+              "chat.projectRuntime.localSwitchRemote",
+              "将从 {{branch}} 创建跟踪分支；当前工作区必须干净",
+              { branch: selectedBranch.name },
+            )
+          : t(
+              "chat.projectRuntime.localSwitchBranch",
+              "将把本地工作区切换到 {{branch}}；当前工作区必须干净",
+              { branch: selectedBranch.name },
+            )
+    : null
 
   const chooseLaunchMode = (mode: "local" | "worktree") => {
     if (mode === "worktree" && !canUseWorktree) return
@@ -332,6 +359,7 @@ export function ProjectSessionDraftBar({
             <button
               type="button"
               disabled={disabled || gitLoading}
+              data-ha-title-tip={selectedBranchSummary ?? undefined}
               className={cn(controlClass, "max-w-[300px]")}
               onClick={() => setBranchOpen((open) => !open)}
             >
@@ -365,36 +393,6 @@ export function ProjectSessionDraftBar({
           </div>
         ) : null}
       </div>
-
-      {project && selectedBranch ? (
-        <div className="px-2.5 pb-0.5 pt-1 text-[11px] text-muted-foreground">
-          {draft.launchMode === "worktree"
-            ? draft.includeLocalChanges && dirtyCount > 0
-              ? t("chat.projectRuntime.includeChanges", "将包含 {{count}} 个本地改动", {
-                  count: dirtyCount,
-                })
-              : selectedBranch.isCurrent
-                ? t("chat.projectRuntime.cleanBranch", "当前分支没有未提交改动")
-                : t("chat.projectRuntime.excludeChanges", "不会包含当前工作区的未提交改动")
-            : selectedBranch.isCurrent
-              ? dirtyCount > 0
-                ? t("chat.projectRuntime.localKeepsChanges", "将在当前分支工作，保留 {{count}} 个本地改动", {
-                    count: dirtyCount,
-                  })
-                : t("chat.projectRuntime.localCurrentBranch", "将在当前分支工作")
-              : selectedBranch.kind === "remote"
-                ? t(
-                    "chat.projectRuntime.localSwitchRemote",
-                    "将从 {{branch}} 创建跟踪分支；当前工作区必须干净",
-                    { branch: selectedBranch.name },
-                  )
-                : t(
-                    "chat.projectRuntime.localSwitchBranch",
-                    "将把本地工作区切换到 {{branch}}；当前工作区必须干净",
-                    { branch: selectedBranch.name },
-                  )}
-        </div>
-      ) : null}
 
       {project && gitNotice ? (
         <div className="px-2.5 pb-0.5 pt-1 text-[11px] text-amber-600 dark:text-amber-400">
