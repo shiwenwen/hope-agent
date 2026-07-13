@@ -179,12 +179,69 @@ pub struct MemoryContextPlan {
     commands.md
 ```
 
-兼容读取：
+`MEMORY.md` 是三个 scope 的最终 canonical 文件名。现有小写文件不能通过
+简单的 case-only rename 或“首次写入覆盖”迁移，必须由
+`CoreMemoryRepository` 统一解析：
 
-- 旧 `~/.hope-agent/memory.md` 映射为 Global `MEMORY.md`。
-- 旧 `~/.hope-agent/agents/{id}/memory.md` 映射为 Agent `MEMORY.md`。
-- 首次写入新结构时执行原子迁移；迁移前保留备份和 revision。
-- Project Auto Memory 当前路径保持不变，仅把实现移动到通用 repository。
+| Scope | Legacy 路径 | V2 canonical 路径 |
+|---|---|---|
+| Global | `~/.hope-agent/memory.md` | `~/.hope-agent/memory/MEMORY.md` |
+| Agent | `~/.hope-agent/agents/{id}/memory.md` | `~/.hope-agent/agents/{id}/memory/MEMORY.md` |
+| Project | 无已发布 legacy 路径 | `~/.hope-agent/projects/{id}/memory/MEMORY.md` |
+
+Project Auto Memory 当前大写路径保持不变，仅把实现移动到通用 repository。
+Global / Agent 按“先兼容、后收口”的迁移协议切换到大写；任何 Tauri、HTTP、
+Agent loader、tool、import、backup 或 restore 入口都不得自行拼接文件名。
+
+### 5.1.1 小写到大写的兼容迁移
+
+迁移由 ha-core 的 `CoreMemoryPathResolver` 和 `CoreMemoryMigrationManifest`
+单点负责。Resolver 必须枚举目录中的真实文件名，不能只依赖
+`Path::exists()` 判断大小写，因为 macOS 默认大小写不敏感，而 Linux / Server
+通常大小写敏感。
+
+每个 scope 的磁盘状态按以下矩阵处理：
+
+| 状态 | 读取 | 写入 | 处理 |
+|---|---|---|---|
+| 两者都不存在 | 空 | canonical 大写 | 创建新结构 |
+| 只有 legacy 小写 | 小写 | 进入迁移事务 | 备份、复制、校验、建立双写基线 |
+| 只有 canonical 大写 | 大写 | 大写 | 正常 V2 |
+| 两者都存在且 hash 相同 | 大写 | 双写兼容 | 记录同步 revision |
+| 两者都存在且仅小写相对 manifest 变化 | 小写 | 同步到大写后双写 | 兼容旧版本写入 |
+| 两者都存在且仅大写相对 manifest 变化 | 大写 | 同步到小写后双写 | 兼容新版本写入 |
+| 两者都变化且内容不同 | 最近一次已同步版本 | 暂停自动覆盖 | 标记 conflict，要求用户选择/合并 |
+
+迁移事务：
+
+1. 获取 scope 级跨进程 advisory lock。
+2. 重新读取 legacy / canonical / manifest，避免 TOCTOU。
+3. 为 legacy 创建带 timestamp 和 BLAKE3 hash 的迁移备份。
+4. 将内容原子写入 canonical 大写路径并 fsync。
+5. 回读 canonical，验证 raw BLAKE3 与源内容一致。
+6. 在兼容窗口内把 legacy 保留为同步镜像。
+7. 最后原子写入 migration manifest；manifest 是两份内容上次同步 hash 的真相源。
+8. 任一步失败都保留 legacy 和备份，不得删除唯一可读副本。
+
+兼容窗口至少持续一个 minor 版本：
+
+- V2 的所有 Core Memory 写入在同一锁内依次写 canonical、legacy mirror、manifest。
+- canonical 写成功但 mirror/manifest 失败时，以 canonical 为本次提交结果，Health 标记
+  `legacy_mirror_stale` 并在下次启动修复；不得反向覆盖已成功的新内容。
+- 用户降级到旧版本后，旧版本仍可读取和写入小写文件；重新升级时 resolver 根据
+  manifest 识别“仅 legacy 变化”并安全同步回大写。
+- 两边都在上次同步后发生变化时绝不按 mtime 猜测，也不静默合并；Memory Center
+  显示 diff/merge 入口，Agent runtime 暂用 manifest 对应的最后已同步版本。
+- 兼容窗口结束后停止双写，但小写只读 fallback 和迁移备份读取能力至少再保留一个
+  minor；最终写入真相源只剩大写 `MEMORY.md`。
+
+迁移 manifest 建议存放：
+
+```text
+~/.hope-agent/memory/migrations/core-memory-v2.json
+```
+
+只记录 scope、legacy/canonical path、hash、revision、同步时间和状态，不记录记忆原文。
 
 ### 5.2 `MEMORY.md` 内容契约
 
@@ -691,6 +748,11 @@ Agent override 只覆盖以下内容：
 
 - 幂等，重复启动不重复改写。
 - 迁移前备份原 config 和 memory files。
+- Global / Agent 小写 `memory.md` 按 §5.1.1 的 manifest 双写协议迁移到大写
+  `MEMORY.md`，不得直接删除或 case-only rename。
+- 所有读写入口先收敛到 `CoreMemoryPathResolver`，再开启物理迁移。
+- 兼容窗口内支持“旧版本只修改小写文件”后重新升级，不丢失该次修改。
+- 双文件都发生变化时进入显式冲突态，不按 mtime 自动选边。
 - UI 首次展示迁移摘要，不强迫用户理解旧字段。
 - 旧字段至少一个 minor 版本继续反序列化。
 - 回滚 legacy 时使用原字段快照，不从新字段反推覆盖用户旧值。
@@ -819,7 +881,10 @@ memory:policy_changed
 - 将 `project/memory.rs` 中通用逻辑迁移到 `memory/core_repository.rs`。
 - 保留 Project 薄适配器和现有 API。
 - 增加 Global / Agent `MEMORY.md + topics` 路径。
-- 实现 legacy single-file migration、revision、expected hash、atomic write。
+- 实现 `CoreMemoryPathResolver`，先将 loader、Tauri、HTTP、tools、import、backup、
+  restore 全部收敛到单一入口，禁止继续散落拼接 `memory.md` / `MEMORY.md`。
+- 实现 §5.1.1 的小写→大写 manifest 双写迁移、conflict state、revision、expected
+  hash、atomic write 和 downgrade 恢复。
 - 引入 token-aware aggregate budget。
 - 实现 `CoreMemorySnapshot` 和 session lifecycle。
 - 统一 `core_memory` 工具，保留旧工具别名。
@@ -829,6 +894,8 @@ memory:policy_changed
 - 三个 scope 使用同一校验、锁、原子写、分页读和 topic 限额。
 - 当前 Project 数据无需物理迁移即可继续读取。
 - Global / Agent 旧文件内容零丢失。
+- 兼容窗口内降级到旧版本写小写文件，再升级后能自动同步到大写。
+- 大小写敏感文件系统上的同名/双文件冲突可检测、可解释、不会静默覆盖。
 - 后台写入不改变进行中会话 stable fingerprint。
 - 显式 reload 后 snapshot 才更新。
 
@@ -1021,11 +1088,12 @@ memory:policy_changed
 
 缓解：
 
-- copy + fsync + rename；
-- 保留 legacy 文件和 migration manifest；
-- 幂等迁移；
-- 迁移前 autosave；
-- 验证 hash 后才切真相源。
+- 所有入口先接入 `CoreMemoryPathResolver`，再执行物理迁移；
+- copy + fsync + raw BLAKE3 回读校验，不做不可靠的 case-only rename；
+- 至少一个 minor 版本保留小写 mirror 双写和 migration manifest；
+- 通过 manifest 区分旧版本只改小写、新版本只改大写和双边冲突；
+- 双边冲突进入显式 merge，不按 mtime 静默选边；
+- 幂等迁移、迁移前 autosave、失败时永不删除唯一副本。
 
 ### 风险 3：召回链路过度复杂化
 
@@ -1056,6 +1124,8 @@ memory:policy_changed
 ## 17. 已锁定的默认决策
 
 - Core Memory 使用 Global / Agent / Project 三层 Markdown 渐进式结构。
+- 三个 scope 的最终 canonical 索引文件名统一为大写 `MEMORY.md`；Global / Agent
+  现有小写 `memory.md` 通过 manifest 双写兼容窗口迁移，禁止直接覆盖或删除。
 - 只有 Core index 固定进入 Prompt；topic 按需读取。
 - SQLite、Profile、自动 Claims 默认动态召回。
 - fast recall 默认开启且不调用额外 LLM。
@@ -1090,4 +1160,3 @@ memory:policy_changed
 - [Codex：Memories](https://learn.chatgpt.com/docs/customization/memories)
 - [Codex：Customization](https://learn.chatgpt.com/docs/customization/overview)
 - [Letta：Context Hierarchy](https://docs.letta.com/guides/core-concepts/memory/context-hierarchy)
-
