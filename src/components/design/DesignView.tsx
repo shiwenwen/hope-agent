@@ -114,6 +114,7 @@ import {
 } from "@/components/ui/select"
 import { IconTip } from "@/components/ui/tooltip"
 import { FloatingMenu } from "@/components/ui/floating-menu"
+import { useDragWidth } from "@/hooks/useDragWidth"
 import {
   Dialog,
   DialogContent,
@@ -542,38 +543,17 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
   useEffect(() => {
     localStorage.setItem("design_chat_width", String(chatWidth))
   }, [chatWidth])
-  const startChatResize = useCallback(
-    (e: React.PointerEvent) => {
-      e.preventDefault()
-      // setPointerCapture（W4）：把手捕获指针，拖到窗口外松手也能收到 pointerup 结束拖拽（捕获的
-      // 指针事件仍冒泡到 window，且在指针出窗后照常触发），杜绝甩不掉的粘滞拖拽。监听始终挂 window：
-      // capture 失败也退回原 window 语义（在窗内正常、出窗可能丢 up，但不再泄漏监听）。
-      const handle = e.currentTarget as HTMLElement
-      const pointerId = e.pointerId
-      try {
-        handle.setPointerCapture(pointerId)
-      } catch {
-        /* 不支持 → 退回纯 window 监听语义 */
-      }
-      const startX = e.clientX
-      const startW = chatWidth
-      const onMove = (ev: PointerEvent) => {
-        setChatWidth(Math.max(320, Math.min(640, startW + ev.clientX - startX)))
-      }
-      const onUp = () => {
-        try {
-          handle.releasePointerCapture(pointerId)
-        } catch {
-          /* noop */
-        }
-        window.removeEventListener("pointermove", onMove)
-        window.removeEventListener("pointerup", onUp)
-      }
-      window.addEventListener("pointermove", onMove)
-      window.addEventListener("pointerup", onUp)
-    },
-    [chatWidth],
-  )
+  // 统一 resize 把手（对齐主分支 #458）：共享 useDragWidth——拖拽期挂起全部 iframe 指针事件
+  //（预览 iframe 不再吃 mousemove，等效替代旧 setPointerCapture）、window blur 兜底收尾、
+  // min/max 钳制；isChatResizing 驱动分隔线拖拽态颜色（bg-primary/50）。
+  const [isChatResizing, setIsChatResizing] = useState(false)
+  const startChatResize = useDragWidth({
+    width: chatWidth,
+    min: 320,
+    max: 640,
+    onChange: setChatWidth,
+    onResizingChange: setIsChatResizing,
+  })
 
   // 可视化微调（D1）
   const [editMode, setEditMode] = useState(false)
@@ -4291,7 +4271,7 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
               折叠走 CSS 隐藏（hidden）**不卸载**（W2-I）：保留草稿 / 附件 / 圈选引用，且生成中折叠再
               展开不冻结消息流（此前 `{chatOpen && …}` 条件渲染整棵卸载 = 状态全丢 + 在途流无人消费）。 */}
           <div
-            className={cn("flex min-h-0 shrink-0 flex-col border-r", !chatOpen && "hidden")}
+            className={cn("flex min-h-0 shrink-0 flex-col", !chatOpen && "hidden")}
             style={{ width: chatWidth }}
           >
             {activeProject && (
@@ -4337,11 +4317,18 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
           </div>
           {chatOpen && (
             <div
-              onPointerDown={startChatResize}
-              className="w-1 shrink-0 cursor-col-resize bg-border/40 transition-colors hover:bg-primary/40"
+              className={cn(
+                "relative w-px shrink-0 cursor-col-resize transition-colors",
+                isChatResizing ? "bg-primary/50" : "bg-border hover:bg-primary/35",
+              )}
+              onMouseDown={startChatResize}
               role="separator"
               aria-orientation="vertical"
-            />
+              aria-label={t("design.chat.resize", "Resize chat panel")}
+            >
+              {/* Wider invisible hit area around the 1px divider. */}
+              <div className="absolute inset-y-0 -left-1 -right-1" />
+            </div>
           )}
 
           {/* Right: 顶部产物切换条 + 单产物预览 */}

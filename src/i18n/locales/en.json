@@ -9984,6 +9984,7 @@
       "history": "History",
       "hide": "Hide chat",
       "show": "Show chat",
+      "resize": "Resize chat panel",
       "startTitle": "Tell the AI what to design",
       "startSub": "Describe it in a sentence — the AI generates a ready-to-ship design.",
       "startTitleArtifact": "Tell the AI — edit this artifact directly",

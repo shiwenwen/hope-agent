@@ -9984,6 +9984,7 @@
       "history": "Historial",
       "hide": "Ocultar chat",
       "show": "Mostrar chat",
+      "resize": "Ajustar ancho del panel de chat",
       "startTitle": "Dile a la IA qué diseñar",
       "startSub": "Descríbelo en una frase: la IA genera un diseño listo para entregar.",
       "startTitleArtifact": "Dile a la IA: edita este artefacto directamente",
