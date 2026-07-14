@@ -9301,6 +9301,7 @@
       "noHistory": "Henüz sohbet yok.",
       "untitled": "Başlıksız sohbet",
       "noKb": "Sohbete başlamak için bir bilgi alanı açın.",
+      "welcome": "Bu bilgi alanıyla sorun, düzenleyin veya oluşturun",
       "messageCount": "{{count}} mesaj",
       "errors": {
         "loadAgents": "Sohbet agent'ları yüklenemedi",

@@ -9301,6 +9301,7 @@
       "noHistory": "아직 대화가 없습니다.",
       "untitled": "제목 없는 대화",
       "noKb": "지식 공간을 열어 대화를 시작하세요.",
+      "welcome": "이 지식 공간을 바탕으로 질문하고 정리하고 작성해 보세요",
       "messageCount": "메시지 {{count}}개",
       "errors": {
         "loadAgents": "채팅 Agent를 불러올 수 없음",

@@ -9301,6 +9301,7 @@
       "noHistory": "Aún no hay conversaciones.",
       "untitled": "Conversación sin título",
       "noKb": "Abre un espacio de conocimiento para empezar a chatear.",
+      "welcome": "Pregunta, organiza o crea con este espacio de conocimiento",
       "messageCount": "{{count}} mensajes",
       "errors": {
         "loadAgents": "No se pudieron cargar los agentes del chat",

@@ -9301,6 +9301,7 @@
       "noHistory": "No conversations yet.",
       "untitled": "Untitled conversation",
       "noKb": "Open a knowledge space to start chatting.",
+      "welcome": "Ask, organize, or create with this knowledge space",
       "messageCount": "{{count}} messages",
       "errors": {
         "loadAgents": "Couldn't load chat agents",

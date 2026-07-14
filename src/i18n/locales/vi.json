@@ -9301,6 +9301,7 @@
       "noHistory": "Chưa có cuộc trò chuyện nào.",
       "untitled": "Cuộc trò chuyện chưa đặt tên",
       "noKb": "Mở một không gian kiến thức để bắt đầu trò chuyện.",
+      "welcome": "Đặt câu hỏi, sắp xếp hoặc sáng tạo với không gian kiến thức này",
       "messageCount": "{{count}} tin nhắn",
       "errors": {
         "loadAgents": "Không thể tải Agent trò chuyện",

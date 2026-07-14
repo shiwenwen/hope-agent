@@ -423,6 +423,7 @@ export const KnowledgeChatPanel = forwardRef<KnowledgeChatPanelHandle, Props>(
             loadingMore={session.loadingMore}
             onLoadMore={session.handleLoadMore}
             sessionId={session.currentSessionId}
+            welcomeContext="knowledge"
             renderMessageActions={renderMessageActions}
             onAddMessageQuote={handleMessageQuote}
           />

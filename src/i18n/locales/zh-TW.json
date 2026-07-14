@@ -9301,6 +9301,7 @@
       "noHistory": "還沒有對話紀錄。",
       "untitled": "未命名對話",
       "noKb": "開啟一個知識空間以開始對話。",
+      "welcome": "基於目前知識空間，提問、整理或創作",
       "messageCount": "{{count}} 則訊息",
       "errors": {
         "loadAgents": "無法載入對話 Agent",
