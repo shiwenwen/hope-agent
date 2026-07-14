@@ -1,6 +1,6 @@
 use crate::commands::CmdError;
 use crate::session;
-use crate::session::ProjectFilter;
+use crate::session::{ParentSessionFilter, ProjectFilter};
 use crate::AppState;
 use tauri::State;
 
@@ -60,6 +60,7 @@ pub async fn list_sessions_cmd(
     agent_id: Option<String>,
     project_id: Option<String>,
     unassigned: Option<bool>,
+    parent_session: Option<bool>,
     limit: Option<u32>,
     offset: Option<u32>,
     active_session_id: Option<String>,
@@ -77,9 +78,15 @@ pub async fn list_sessions_cmd(
             } else {
                 ProjectFilter::All
             };
+            let parent_filter = match parent_session {
+                Some(true) => ParentSessionFilter::Child,
+                Some(false) => ParentSessionFilter::Root,
+                None => ParentSessionFilter::All,
+            };
             db.list_sessions_paged_for_sidebar(
                 agent_id.as_deref(),
                 project_filter,
+                parent_filter,
                 limit,
                 offset,
                 active_session_id.as_deref(),

@@ -30,10 +30,7 @@ export interface UseSessionPaginationReturn {
   hasMoreAfter: boolean
   setHasMoreAfter: React.Dispatch<React.SetStateAction<boolean>>
   loadingMoreAfter: boolean
-  hasMoreSessions: boolean
-  setHasMoreSessions: React.Dispatch<React.SetStateAction<boolean>>
   sessionsLoading: boolean
-  loadingMoreSessions: boolean
   handleLoadMore: () => Promise<void>
   handleLoadMoreAfter: () => Promise<void>
   /**
@@ -43,7 +40,6 @@ export interface UseSessionPaginationReturn {
    * return to the live tail.
    */
   resetToLatest: () => Promise<void>
-  handleLoadMoreSessions: () => Promise<void>
   reloadSessions: () => Promise<void>
 }
 
@@ -63,34 +59,25 @@ export function useSessionPagination({
   const [loadingMore, setLoadingMore] = useState(false)
   const [hasMoreAfter, setHasMoreAfter] = useState(false)
   const [loadingMoreAfter, setLoadingMoreAfter] = useState(false)
-  const [hasMoreSessions, setHasMoreSessions] = useState(false)
   const [sessionsLoading, setSessionsLoading] = useState(true)
-  const [loadingMoreSessions, setLoadingMoreSessions] = useState(false)
-  const loadedSessionRowsRef = useRef(0)
   const sessionsLoadedOnceRef = useRef(false)
 
   const reloadSessions = useCallback(async () => {
     const isInitialLoad = !sessionsLoadedOnceRef.current
     if (isInitialLoad) setSessionsLoading(true)
     try {
-      const [list, total] = await getTransport().call<[SessionMeta[], number]>("list_sessions_cmd", {
+      const [list] = await getTransport().call<[SessionMeta[], number]>("list_sessions_cmd", {
         limit: SESSION_PAGE_SIZE,
         offset: 0,
         activeSessionId: currentSessionIdRef.current ?? undefined,
       })
-      loadedSessionRowsRef.current = list.length
       const activeSessionId = currentSessionIdRef.current
-      const hasActiveExtra =
-        !!activeSessionId &&
-        !list.some((session) => session.id === activeSessionId) &&
-        sessionsRef.current.some((session) => session.id === activeSessionId)
       setSessions((prev) => {
         if (!activeSessionId || list.some((session) => session.id === activeSessionId)) return list
         // A deep project-row switch can land on a session outside the first global page.
         const activeSession = prev.find((session) => session.id === activeSessionId)
         return activeSession ? [activeSession, ...list] : list
       })
-      setHasMoreSessions(list.length + (hasActiveExtra ? 1 : 0) < total)
     } catch (e) {
       logger.error("ui", "ChatScreen::loadSessions", "Failed to load sessions", e)
     } finally {
@@ -100,35 +87,6 @@ export function useSessionPagination({
       }
     }
   }, [setSessions, currentSessionIdRef, sessionsRef])
-
-  const handleLoadMoreSessions = useCallback(async () => {
-    if (loadingMoreSessions || !hasMoreSessions) return
-    setLoadingMoreSessions(true)
-    try {
-      const offset = loadedSessionRowsRef.current
-      const [more, total] = await getTransport().call<[SessionMeta[], number]>("list_sessions_cmd", {
-        limit: SESSION_PAGE_SIZE,
-        offset,
-        activeSessionId: currentSessionIdRef.current ?? undefined,
-      })
-      loadedSessionRowsRef.current = offset + more.length
-      if (more.length === 0) {
-        setHasMoreSessions(false)
-        return
-      }
-      setSessions((prev) => {
-        const existingIds = new Set(prev.map((s) => s.id))
-        const newItems = more.filter((s) => !existingIds.has(s.id))
-        const merged = [...prev, ...newItems]
-        setHasMoreSessions(merged.length < total)
-        return merged
-      })
-    } catch (e) {
-      logger.error("ui", "ChatScreen::loadMoreSessions", "Failed to load more sessions", e)
-    } finally {
-      setLoadingMoreSessions(false)
-    }
-  }, [loadingMoreSessions, hasMoreSessions, setSessions, currentSessionIdRef])
 
   const handleLoadMore = useCallback(async () => {
     const curSid = currentSessionIdRef.current
@@ -309,14 +267,10 @@ export function useSessionPagination({
     hasMoreAfter,
     setHasMoreAfter,
     loadingMoreAfter,
-    hasMoreSessions,
-    setHasMoreSessions,
     sessionsLoading,
-    loadingMoreSessions,
     handleLoadMore,
     handleLoadMoreAfter,
     resetToLatest,
-    handleLoadMoreSessions,
     reloadSessions,
   }
 }

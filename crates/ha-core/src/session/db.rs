@@ -1912,6 +1912,7 @@ impl SessionDB {
         self.list_sessions_paged_inner(
             agent_id,
             project_filter,
+            ParentSessionFilter::All,
             limit,
             offset,
             active_session_id,
@@ -1928,6 +1929,7 @@ impl SessionDB {
         &self,
         agent_id: Option<&str>,
         project_filter: ProjectFilter<'_>,
+        parent_filter: ParentSessionFilter,
         limit: Option<u32>,
         offset: Option<u32>,
         active_session_id: Option<&str>,
@@ -1935,6 +1937,7 @@ impl SessionDB {
         self.list_sessions_paged_inner(
             agent_id,
             project_filter,
+            parent_filter,
             limit,
             offset,
             active_session_id,
@@ -1978,6 +1981,7 @@ impl SessionDB {
         &self,
         agent_id: Option<&str>,
         project_filter: ProjectFilter<'_>,
+        parent_filter: ParentSessionFilter,
         limit: Option<u32>,
         offset: Option<u32>,
         active_session_id: Option<&str>,
@@ -2014,6 +2018,16 @@ impl SessionDB {
                 let idx = params_vec.len() + 1;
                 where_clauses.push(format!("s.project_id = ?{}", idx));
                 params_vec.push(Box::new(pid.to_string()));
+            }
+        }
+
+        match parent_filter {
+            ParentSessionFilter::All => {}
+            ParentSessionFilter::Root => {
+                where_clauses.push("s.parent_session_id IS NULL".to_string());
+            }
+            ParentSessionFilter::Child => {
+                where_clauses.push("s.parent_session_id IS NOT NULL".to_string());
             }
         }
 
@@ -5716,12 +5730,65 @@ mod tests {
         );
 
         let (visible, _) = db
-            .list_sessions_paged_for_sidebar(None, super::ProjectFilter::All, None, None, None)
+            .list_sessions_paged_for_sidebar(
+                None,
+                super::ProjectFilter::All,
+                super::ParentSessionFilter::All,
+                None,
+                None,
+                None,
+            )
             .expect("list sessions");
         assert!(
             visible.iter().any(|session| session.id == forked.id),
             "forked session must remain a first-class sidebar session"
         );
+
+        let _ = std::fs::remove_file(&db_path);
+    }
+
+    #[test]
+    fn sidebar_pagination_filters_project_and_parent_before_limit() {
+        let db_path = temp_db_path("sidebar-filtered-pagination");
+        let db = SessionDB::open(&db_path).expect("open session db");
+        ensure_channel_conversations_table(&db);
+
+        let root = db.create_session("agent-a").expect("root session");
+        let child = db
+            .create_session_with_parent("agent-a", Some(&root.id))
+            .expect("child session");
+        for _ in 0..3 {
+            db.create_session_with_project("agent-a", Some("project-a"), None)
+                .expect("project session");
+        }
+
+        let (roots, root_total) = db
+            .list_sessions_paged_for_sidebar(
+                Some("agent-a"),
+                super::ProjectFilter::Unassigned,
+                super::ParentSessionFilter::Root,
+                Some(1),
+                Some(0),
+                None,
+            )
+            .expect("list root sidebar sessions");
+        assert_eq!(root_total, 1);
+        assert_eq!(roots.len(), 1);
+        assert_eq!(roots[0].id, root.id);
+
+        let (children, child_total) = db
+            .list_sessions_paged_for_sidebar(
+                Some("agent-a"),
+                super::ProjectFilter::Unassigned,
+                super::ParentSessionFilter::Child,
+                Some(1),
+                Some(0),
+                None,
+            )
+            .expect("list child sidebar sessions");
+        assert_eq!(child_total, 1);
+        assert_eq!(children.len(), 1);
+        assert_eq!(children[0].id, child.id);
 
         let _ = std::fs::remove_file(&db_path);
     }
@@ -6727,6 +6794,17 @@ pub enum ProjectFilter<'a> {
     Unassigned,
     /// Only sessions belonging to the given project id.
     InProject(&'a str),
+}
+
+/// Filter sessions by whether they are top-level or sub-agent child sessions.
+#[derive(Debug, Clone, Copy)]
+pub enum ParentSessionFilter {
+    /// Include both top-level and child sessions.
+    All,
+    /// Only top-level sessions (`parent_session_id IS NULL`).
+    Root,
+    /// Only sub-agent child sessions (`parent_session_id IS NOT NULL`).
+    Child,
 }
 
 /// Filter for `search_messages` by session type.

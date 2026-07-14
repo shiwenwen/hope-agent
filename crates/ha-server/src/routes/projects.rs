@@ -12,7 +12,7 @@ use ha_core::memory::{MemoryEntry, MemoryScope};
 use ha_core::project::{
     delete_project_cascade, CreateProjectInput, Project, ProjectMeta, UpdateProjectInput,
 };
-use ha_core::session::{ProjectFilter, SessionMeta};
+use ha_core::session::{ParentSessionFilter, ProjectFilter, SessionMeta};
 
 use crate::error::AppError;
 use crate::routes::sessions::PaginatedSessions;
@@ -228,6 +228,7 @@ pub async fn list_project_sessions(
                 db.list_sessions_paged_for_sidebar(
                     None,
                     ProjectFilter::InProject(&id),
+                    ParentSessionFilter::All,
                     limit,
                     offset,
                     active_session_id.as_deref(),
