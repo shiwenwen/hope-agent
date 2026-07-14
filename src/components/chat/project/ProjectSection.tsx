@@ -23,7 +23,8 @@ import { useTranslation } from "react-i18next"
 import {
   DndContext,
   closestCenter,
-  PointerSensor,
+  MouseSensor,
+  TouchSensor,
   useSensor,
   useSensors,
   type DragEndEvent,
@@ -154,7 +155,12 @@ export default function ProjectSection(props: ProjectSectionProps) {
     () => visibleProjects.map((project) => project.id),
     [visibleProjects],
   )
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
+  const sensors = useSensors(
+    useSensor(MouseSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(TouchSensor, {
+      activationConstraint: { delay: 250, tolerance: 5 },
+    }),
+  )
   const [archivedExpanded, setArchivedExpandedState] = useState(() =>
     readStoredBoolean(ARCHIVED_EXPANDED_STORAGE_KEY, false),
   )
@@ -496,7 +502,7 @@ function ProjectGroup({
                 "group/project relative flex min-h-10 items-center gap-2 overflow-hidden rounded-md bg-muted/20 py-1.5 pl-1 pr-2.5 text-left transition-colors hover:bg-accent/35",
                 displayMode === "compact" && "min-h-8 gap-1.5 py-1 pl-1 pr-2",
                 canReorder && !archivedView
-                  ? "cursor-grab touch-none active:cursor-grabbing"
+                  ? "cursor-grab touch-pan-y active:cursor-grabbing"
                   : "cursor-pointer",
               )}
               onClick={handleToggleExpanded}
