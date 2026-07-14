@@ -562,6 +562,27 @@ mod tests {
     }
 
     #[test]
+    fn memory_read_tools_remain_callable_when_automatic_recall_is_off() {
+        let mut f = Fixture::new();
+        f.app.memory.recall.enabled = false;
+
+        for name in [
+            crate::tools::TOOL_RECALL_MEMORY,
+            crate::tools::TOOL_MEMORY_GET,
+        ] {
+            let def = all_dispatchable_tools()
+                .iter()
+                .find(|def| def.name == name)
+                .unwrap_or_else(|| panic!("missing built-in memory tool: {name}"));
+            assert_eq!(
+                resolve_tool_fate(def, &f.ctx(DEFAULT_AGENT_ID)),
+                ToolFate::InjectEager,
+                "automatic recall consent must not hide model-invoked tool {name}"
+            );
+        }
+    }
+
+    #[test]
     fn session_read_and_contribution_policies_hide_only_their_tool_classes() {
         let mut no_read = Fixture::new();
         no_read.use_memories = false;

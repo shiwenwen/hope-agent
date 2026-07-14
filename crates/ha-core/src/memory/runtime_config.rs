@@ -2,10 +2,14 @@
 //!
 //! The legacy memory settings remain deserializable while the V2 rollout is in
 //! progress.  This module owns the new user-facing contract: using memory,
-//! fast recall, deep recall, learning, bounded Core Memory and compatibility
+//! opt-in automatic recall, deep recall, learning, bounded Core Memory and compatibility
 //! switches are independent decisions.
 
 use serde::{Deserialize, Serialize};
+
+/// Version of the persisted Memory UX contract. Version 1 was the unversioned
+/// V2 preview whose automatic-recall default was accidentally on.
+pub const MEMORY_RUNTIME_CONFIG_VERSION: u32 = 2;
 
 /// User-facing Core Memory budget bounds. The recommended range is a UX
 /// guideline, while the emergency guard only protects against malformed raw
@@ -80,6 +84,7 @@ pub fn active_core_memory_budget_status() -> CoreMemoryBudgetStatus {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", default)]
 pub struct MemoryRuntimeConfig {
+    pub config_version: u32,
     pub enabled: bool,
     pub core: CoreMemoryRuntimeConfig,
     pub recall: MemoryRecallRuntimeConfig,
@@ -92,6 +97,7 @@ pub struct MemoryRuntimeConfig {
 impl Default for MemoryRuntimeConfig {
     fn default() -> Self {
         Self {
+            config_version: MEMORY_RUNTIME_CONFIG_VERSION,
             enabled: true,
             core: CoreMemoryRuntimeConfig::default(),
             recall: MemoryRecallRuntimeConfig::default(),
@@ -104,6 +110,71 @@ impl Default for MemoryRuntimeConfig {
 }
 
 impl MemoryRuntimeConfig {
+    /// Upgrade an unversioned/older V2 object to the explicit-consent recall
+    /// contract. Returns true when the persisted representation changed.
+    ///
+    /// An old `recall.enabled=true` is ambiguous because the preview defaulted
+    /// it on. Preserve it only when another durable field proves that the user
+    /// opted into active/deep recall. A raw false always remains false.
+    pub(crate) fn migrate_recall_consent(
+        &mut self,
+        raw_memory: &serde_json::Value,
+        legacy_recall_consent: bool,
+    ) -> bool {
+        let stored_version = raw_memory
+            .get("configVersion")
+            .and_then(serde_json::Value::as_u64)
+            .and_then(|version| u32::try_from(version).ok())
+            .unwrap_or(1);
+        if stored_version >= MEMORY_RUNTIME_CONFIG_VERSION {
+            return false;
+        }
+
+        let raw_recall = raw_memory.get("recall");
+        let raw_enabled = raw_recall
+            .and_then(|recall| recall.get("enabled"))
+            .and_then(serde_json::Value::as_bool);
+        let explicitly_configured = raw_recall
+            .and_then(|recall| recall.get("userConfigured"))
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false);
+        let legacy_deep_enabled = raw_memory
+            .get("deepRecall")
+            .and_then(|deep| deep.get("enabled"))
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false)
+            || raw_recall
+                .and_then(|recall| recall.get("mode"))
+                .and_then(serde_json::Value::as_str)
+                .is_some_and(|mode| mode == "deep");
+
+        if explicitly_configured {
+            self.recall.enabled = raw_enabled.unwrap_or(false);
+            self.recall.user_configured = true;
+        } else if raw_enabled == Some(false) {
+            self.recall.enabled = false;
+            self.recall.user_configured = false;
+        } else if legacy_recall_consent || legacy_deep_enabled {
+            self.recall.enabled = true;
+            self.recall.user_configured = true;
+        } else {
+            self.recall.enabled = false;
+            self.recall.user_configured = false;
+        }
+        self.config_version = MEMORY_RUNTIME_CONFIG_VERSION;
+        true
+    }
+
+    /// Mark an explicit owner/API toggle as durable user consent while keeping
+    /// unrelated budget edits from changing the consent signal.
+    pub fn prepared_for_user_save(mut self, previous: &Self) -> Self {
+        self.recall.user_configured = self.recall.user_configured
+            || previous.recall.user_configured
+            || self.recall.enabled != previous.recall.enabled;
+        self.config_version = previous.config_version.max(MEMORY_RUNTIME_CONFIG_VERSION);
+        self.normalized()
+    }
+
     /// Resolve the product-level Memory master switch without mixing V2 and
     /// rollback semantics. Once V2 is active, legacy extraction settings must
     /// not silently disable Core, recall, tools, or Dreaming behind the GUI.
@@ -185,6 +256,12 @@ impl MemoryRuntimeConfig {
             MemoryLearningMode::Smart
         };
         migrated.deep_recall.enabled = selection.enabled;
+        // Legacy LLM selection was explicitly opt-in. Treat it as the only
+        // durable consent signal for automatic dynamic recall when upgrading a
+        // config that predates Memory UX v2. Ordinary legacy installs keep
+        // Core Memory and model-invoked memory tools without per-turn recall.
+        migrated.recall.enabled = selection.enabled;
+        migrated.recall.user_configured = selection.enabled;
         migrated.recall.max_selected = selection.max_selected;
 
         // Legacy prompt budgets are character based. Preserve their effective
@@ -222,6 +299,18 @@ impl MemoryRuntimeConfig {
     /// deletion.
     pub(crate) fn unified_dynamic_recall_enabled(&self) -> bool {
         self.rollout.enabled && self.rollout.dynamic_recall
+    }
+
+    /// Resolve automatic recall for one Agent. The global V2 switch is the
+    /// normal product control; an explicitly enabled legacy Agent Active
+    /// Memory setting remains a per-Agent opt-in for the one-minor
+    /// compatibility window. Keeping this override local avoids turning recall
+    /// on for every other Agent during config migration.
+    pub(crate) fn automatic_recall_enabled_for_agent(
+        &self,
+        legacy_agent_active_memory_enabled: bool,
+    ) -> bool {
+        self.recall.enabled || legacy_agent_active_memory_enabled
     }
 
     /// Normalize owner-supplied values before persistence. These are UX and
@@ -298,6 +387,9 @@ impl Default for CoreMemoryRuntimeConfig {
 #[serde(rename_all = "camelCase", default)]
 pub struct MemoryRecallRuntimeConfig {
     pub enabled: bool,
+    /// Durable proof that an owner explicitly changed automatic recall. This
+    /// prevents future migrations from inferring consent from a default value.
+    pub user_configured: bool,
     pub mode: MemoryRecallMode,
     pub max_tokens: u32,
     pub max_selected: usize,
@@ -312,7 +404,11 @@ pub struct MemoryRecallRuntimeConfig {
 impl Default for MemoryRecallRuntimeConfig {
     fn default() -> Self {
         Self {
-            enabled: true,
+            // Dynamic prompt injection is opt-in. Core MEMORY.md remains
+            // enabled, and recall_memory / memory_get stay available to the
+            // model for on-demand retrieval while this is false.
+            enabled: false,
+            user_configured: false,
             mode: MemoryRecallMode::Fast,
             max_tokens: 800,
             max_selected: 5,
@@ -527,14 +623,18 @@ mod tests {
     use super::*;
 
     #[test]
-    fn defaults_enable_v2_and_keep_legacy_reversible() {
+    fn defaults_enable_core_without_automatic_dynamic_recall() {
         let config = MemoryRuntimeConfig::default();
+        assert_eq!(config.config_version, MEMORY_RUNTIME_CONFIG_VERSION);
         assert!(config.enabled);
         assert!(config.rollout.enabled);
         assert!(config.rollout.dynamic_recall);
         assert!(config.rollout.core_repository);
+        assert!(config.core.enabled);
         assert!(!config.compatibility.legacy_static_memory);
         assert!(!config.deep_recall.enabled);
+        assert!(!config.recall.enabled);
+        assert!(!config.recall.user_configured);
         assert_eq!(config.core.total_tokens, 1_600);
         assert_eq!(config.recall.max_tokens, 800);
         assert!(!config.legacy_static_injection_enabled());
@@ -550,6 +650,16 @@ mod tests {
         config.rollout.dynamic_recall = true;
         config.rollout.enabled = false;
         assert!(!config.unified_dynamic_recall_enabled());
+    }
+
+    #[test]
+    fn legacy_agent_active_memory_remains_a_local_recall_opt_in() {
+        let mut config = MemoryRuntimeConfig::default();
+        assert!(!config.automatic_recall_enabled_for_agent(false));
+        assert!(config.automatic_recall_enabled_for_agent(true));
+
+        config.recall.enabled = true;
+        assert!(config.automatic_recall_enabled_for_agent(false));
     }
 
     #[test]
@@ -615,12 +725,12 @@ mod tests {
         assert!(parsed.rollout.shadow_plan);
         assert!(parsed.rollout.enabled);
         assert_eq!(parsed.recall.max_selected, 3);
-        assert!(parsed.recall.enabled);
+        assert!(!parsed.recall.enabled);
         assert!(!parsed.compatibility.legacy_static_memory);
     }
 
     #[test]
-    fn legacy_settings_migrate_without_reenabling_learning_or_deep_recall() {
+    fn legacy_explicit_recall_consent_is_preserved_without_reenabling_learning() {
         let mut extract = super::super::MemoryExtractConfig::default();
         extract.enabled = false;
         extract.auto_extract = false;
@@ -638,7 +748,104 @@ mod tests {
         assert!(!migrated.enabled);
         assert_eq!(migrated.learning.mode, MemoryLearningMode::Manual);
         assert!(migrated.deep_recall.enabled);
+        assert!(migrated.recall.enabled);
+        assert!(migrated.recall.user_configured);
         assert_eq!(migrated.recall.max_selected, 3);
+    }
+
+    #[test]
+    fn unversioned_preview_default_true_migrates_to_opt_in_off() {
+        let raw = serde_json::json!({
+            "enabled": true,
+            "recall": { "enabled": true, "mode": "fast" },
+            "deepRecall": { "enabled": false }
+        });
+        let mut config: MemoryRuntimeConfig = serde_json::from_value(raw.clone()).unwrap();
+
+        assert!(config.migrate_recall_consent(&raw, false));
+        assert_eq!(config.config_version, MEMORY_RUNTIME_CONFIG_VERSION);
+        assert!(!config.recall.enabled);
+        assert!(!config.recall.user_configured);
+        assert!(config.automatic_recall_enabled_for_agent(true));
+        assert!(config.core.enabled);
+        assert_eq!(config.learning.mode, MemoryLearningMode::Smart);
+    }
+
+    #[test]
+    fn unversioned_explicit_recall_evidence_is_preserved() {
+        for (raw, legacy_selection_enabled) in [
+            (
+                serde_json::json!({
+                    "recall": { "enabled": true, "mode": "fast" },
+                    "deepRecall": { "enabled": true }
+                }),
+                false,
+            ),
+            (
+                serde_json::json!({
+                    "recall": { "enabled": true, "mode": "fast" },
+                    "deepRecall": { "enabled": false }
+                }),
+                true,
+            ),
+            (
+                serde_json::json!({
+                    "recall": {
+                        "enabled": true,
+                        "mode": "fast",
+                        "userConfigured": true
+                    }
+                }),
+                false,
+            ),
+        ] {
+            let mut config: MemoryRuntimeConfig = serde_json::from_value(raw.clone()).unwrap();
+            assert!(config.migrate_recall_consent(&raw, legacy_selection_enabled));
+            assert!(config.recall.enabled);
+            assert!(config.recall.user_configured);
+        }
+    }
+
+    #[test]
+    fn unversioned_explicit_off_wins_over_legacy_deep_evidence() {
+        let raw = serde_json::json!({
+            "recall": { "enabled": false, "mode": "deep" },
+            "deepRecall": { "enabled": true }
+        });
+        let mut config: MemoryRuntimeConfig = serde_json::from_value(raw.clone()).unwrap();
+
+        assert!(config.migrate_recall_consent(&raw, true));
+        assert!(!config.recall.enabled);
+        assert!(!config.recall.user_configured);
+    }
+
+    #[test]
+    fn current_contract_is_idempotent_and_user_save_records_only_toggle_consent() {
+        let raw = serde_json::json!({
+            "configVersion": MEMORY_RUNTIME_CONFIG_VERSION,
+            "recall": { "enabled": true, "userConfigured": false }
+        });
+        let mut current: MemoryRuntimeConfig = serde_json::from_value(raw.clone()).unwrap();
+        assert!(!current.migrate_recall_consent(&raw, false));
+        assert!(current.recall.enabled);
+        assert!(!current.recall.user_configured);
+
+        let previous = MemoryRuntimeConfig::default();
+        let mut budget_edit = previous.clone();
+        budget_edit.recall.max_tokens = 600;
+        let budget_edit = budget_edit.prepared_for_user_save(&previous);
+        assert!(!budget_edit.recall.user_configured);
+
+        let mut toggle = previous.clone();
+        toggle.recall.enabled = true;
+        let toggle = toggle.prepared_for_user_save(&previous);
+        assert!(toggle.recall.enabled);
+        assert!(toggle.recall.user_configured);
+
+        let mut older_client_payload = toggle.clone();
+        older_client_payload.recall.user_configured = false;
+        let preserved = older_client_payload.prepared_for_user_save(&toggle);
+        assert!(preserved.recall.user_configured);
     }
 
     #[test]

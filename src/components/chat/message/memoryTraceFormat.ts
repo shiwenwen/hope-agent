@@ -17,7 +17,7 @@ export function retrievalLayerStatusLabel(status: string, t: TranslateFn): strin
     case "empty":
       return t("chat.memoryTrace.layerStatus.empty", "no hit")
     case "skipped":
-      return t("chat.memoryTrace.layerStatus.skipped", "degraded")
+      return t("chat.memoryTrace.layerStatus.skipped", "skipped")
     case "disabled":
       return t("chat.memoryTrace.layerStatus.disabled", "disabled")
     default:
@@ -277,7 +277,7 @@ export function retrievalLayerReasonLabel(
     case "non_contextual_turn":
       return t("chat.memoryTrace.layerReason.nonContextualTurn", "non-contextual turn")
     case "recall_off":
-      return t("chat.memoryTrace.layerReason.recallOff", "fast recall is off")
+      return t("chat.memoryTrace.layerReason.recallOff", "automatic dynamic recall is off")
     case "budget_empty":
       return t("chat.memoryTrace.layerReason.budgetEmpty", "recall budget is empty")
     case "no_graph_neighbors":

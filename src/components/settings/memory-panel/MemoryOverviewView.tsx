@@ -963,7 +963,7 @@ export default function MemoryOverviewView({
         case "recommended":
           return t(
             "settings.memoryUseInRepliesReadinessRecommended",
-            "Ready: low-latency recall includes structured memories and safe timeout fallback.",
+            "Agent compatibility recall is ready; it opts only this Agent into Fast and deep recall even when the global default is off.",
           )
         case "agentMemoryOff":
           return t(
@@ -1016,9 +1016,9 @@ export default function MemoryOverviewView({
     : !targetAgentMemoryEnabled
       ? t("settings.memoryUseInRepliesStatusAgentOff", "Agent memory off")
       : activeMemoryUsesRecommended
-      ? t("settings.memoryUseInRepliesStatusRecommended", "Recommended preset on")
+      ? t("settings.memoryUseInRepliesStatusRecommended", "Recommended deep reranking configured")
       : activeMemoryConfig.enabled
-        ? t("settings.memoryUseInRepliesStatusOn", "Custom recall on")
+        ? t("settings.memoryUseInRepliesStatusOn", "Custom deep reranking configured")
         : t("settings.memoryUseInRepliesStatusOff", "Off")
   const activeMemoryStatusClassName = activeMemoryLoading
     ? "border-border/60 bg-secondary text-muted-foreground"
@@ -1047,7 +1047,7 @@ export default function MemoryOverviewView({
       })
       setTargetAgentMemoryEnabled(updated.memory?.enabled ?? true)
       setTargetAgentActiveMemory(updated.memory?.activeMemory ?? DEFAULT_ACTIVE_MEMORY)
-      toast.success(t("settings.memoryUseInRepliesUpdated", "Recommended recall enabled"))
+      toast.success(t("settings.memoryUseInRepliesUpdated", "Legacy deep reranking configured"))
     } catch (e) {
       const message = formatMemoryUseInRepliesError(t, "update", e)
       setActiveMemoryError(message)
@@ -4774,7 +4774,7 @@ export default function MemoryOverviewView({
                 <p className="mt-1 max-w-3xl text-xs text-muted-foreground">
                   {t(
                     "settings.memoryUseInRepliesDesc",
-                    "Off by default. Enabling proactive recall runs an extra side query before each answer, increasing latency and token usage in exchange for more personalized responses. Timeouts safely skip the enhancement.",
+                    "Compatibility recall for the default Agent. Enabling it opts only this Agent into Fast and deep recall even when the global default above is off. Off by default, deep reranking adds a side query, latency, and token usage.",
                   )}
                 </p>
                 <p className="mt-1 text-[11px] text-muted-foreground/80">
@@ -4846,8 +4846,8 @@ export default function MemoryOverviewView({
                     <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
                   )}
                   {activeMemoryUsesRecommended
-                    ? t("settings.memoryUseInRepliesApplied", "Recommended on")
-                    : t("settings.memoryUseInRepliesAction", "Use recommended")}
+                    ? t("settings.memoryUseInRepliesApplied", "Recommended settings configured")
+                    : t("settings.memoryUseInRepliesAction", "Configure recommended")}
                 </Button>
               </div>
             </div>

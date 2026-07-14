@@ -928,16 +928,15 @@ pub async fn get_memory_core_budget_status() -> Result<memory::CoreMemoryBudgetS
 pub async fn save_memory_runtime_config(
     config: memory::MemoryRuntimeConfig,
 ) -> Result<memory::MemoryRuntimeConfig, CmdError> {
-    let config = config.normalized();
-    let saved = config.clone();
-    ha_core::config::mutate_config_async(("memory", "settings-ui"), move |store| {
+    let saved = ha_core::config::mutate_config_async(("memory", "settings-ui"), move |store| {
+        let config = config.prepared_for_user_save(&store.memory);
         config.mirror_to_legacy(
             &store.memory,
             &mut store.memory_extract,
             &mut store.memory_selection,
         );
-        store.memory = config;
-        Ok(())
+        store.memory = config.clone();
+        Ok(config)
     })
     .await?;
     Ok(saved)

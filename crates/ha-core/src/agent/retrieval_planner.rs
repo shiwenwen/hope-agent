@@ -859,12 +859,19 @@ fn scaled_metric(value: Option<f32>, weight: i64) -> i64 {
 
 fn summarize_status(refs: &[UsedMemoryRef], layers: &[RetrievalPlannerLayerTrace]) -> &'static str {
     let has_refs = !refs.is_empty();
-    let has_used_layer = layers.iter().any(|layer| layer.status == "used");
-    let has_skipped = layers.iter().any(|layer| layer.status == "skipped");
-    if has_used_layer {
-        return if has_skipped { "partial" } else { "used" };
+    let has_used_context = refs
+        .iter()
+        .any(|reference| !is_candidate_role(&reference.role))
+        || layers.iter().any(|layer| layer.status == "used");
+    let has_degraded_layer = layers.iter().any(is_degraded_layer);
+    if has_used_context {
+        return if has_degraded_layer {
+            "partial"
+        } else {
+            "used"
+        };
     }
-    if has_skipped {
+    if has_degraded_layer {
         return "degraded";
     }
     if has_refs || layers.iter().any(|layer| layer.status == "candidate") {
@@ -874,6 +881,16 @@ fn summarize_status(refs: &[UsedMemoryRef], layers: &[RetrievalPlannerLayerTrace
         return "disabled";
     }
     "no_context"
+}
+
+fn is_degraded_layer(layer: &RetrievalPlannerLayerTrace) -> bool {
+    if layer.status != "skipped" {
+        return false;
+    }
+    !matches!(
+        layer.skipped_reason.as_deref(),
+        Some("unified_dynamic_recall")
+    )
 }
 
 fn add_ref_layer<F>(

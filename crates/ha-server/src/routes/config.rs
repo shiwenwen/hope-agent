@@ -299,16 +299,15 @@ pub async fn get_memory_core_budget_status(
 pub async fn save_memory_runtime_config(
     Json(body): Json<ConfigBody<ha_core::memory::MemoryRuntimeConfig>>,
 ) -> Result<Json<ha_core::memory::MemoryRuntimeConfig>, AppError> {
-    let config = body.config.normalized();
-    let saved = config.clone();
-    ha_core::config::mutate_config_async(("memory", "http"), move |store| {
+    let saved = ha_core::config::mutate_config_async(("memory", "http"), move |store| {
+        let config = body.config.prepared_for_user_save(&store.memory);
         config.mirror_to_legacy(
             &store.memory,
             &mut store.memory_extract,
             &mut store.memory_selection,
         );
-        store.memory = config;
-        Ok(())
+        store.memory = config.clone();
+        Ok(config)
     })
     .await?;
     Ok(Json(saved))

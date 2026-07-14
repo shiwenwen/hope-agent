@@ -1,224 +1,224 @@
 {
-  "fixtureVersion": 1,
+  "fixtureVersion": 2,
   "cases": [
     {
-      "id": "skip_001",
+      "id": "general_001",
       "query": "hi",
       "incognito": false,
       "memoryEnabled": true,
       "recallEnabled": true,
       "expected": {
-        "decision": "skip",
-        "reason": "non_contextual_turn"
+        "decision": "recall",
+        "intent": "general"
       }
     },
     {
-      "id": "skip_002",
+      "id": "general_002",
       "query": "hello",
       "incognito": false,
       "memoryEnabled": true,
       "recallEnabled": true,
       "expected": {
-        "decision": "skip",
-        "reason": "non_contextual_turn"
+        "decision": "recall",
+        "intent": "general"
       }
     },
     {
-      "id": "skip_003",
+      "id": "general_003",
       "query": "hey",
       "incognito": false,
       "memoryEnabled": true,
       "recallEnabled": true,
       "expected": {
-        "decision": "skip",
-        "reason": "non_contextual_turn"
+        "decision": "recall",
+        "intent": "general"
       }
     },
     {
-      "id": "skip_004",
+      "id": "general_004",
       "query": "你好",
       "incognito": false,
       "memoryEnabled": true,
       "recallEnabled": true,
       "expected": {
-        "decision": "skip",
-        "reason": "non_contextual_turn"
+        "decision": "recall",
+        "intent": "general"
       }
     },
     {
-      "id": "skip_005",
+      "id": "general_005",
       "query": "您好",
       "incognito": false,
       "memoryEnabled": true,
       "recallEnabled": true,
       "expected": {
-        "decision": "skip",
-        "reason": "non_contextual_turn"
+        "decision": "recall",
+        "intent": "general"
       }
     },
     {
-      "id": "skip_006",
+      "id": "general_006",
       "query": "早上好",
       "incognito": false,
       "memoryEnabled": true,
       "recallEnabled": true,
       "expected": {
-        "decision": "skip",
-        "reason": "non_contextual_turn"
+        "decision": "recall",
+        "intent": "general"
       }
     },
     {
-      "id": "skip_007",
+      "id": "general_007",
       "query": "下午好",
       "incognito": false,
       "memoryEnabled": true,
       "recallEnabled": true,
       "expected": {
-        "decision": "skip",
-        "reason": "non_contextual_turn"
+        "decision": "recall",
+        "intent": "general"
       }
     },
     {
-      "id": "skip_008",
+      "id": "general_008",
       "query": "晚上好",
       "incognito": false,
       "memoryEnabled": true,
       "recallEnabled": true,
       "expected": {
-        "decision": "skip",
-        "reason": "non_contextual_turn"
+        "decision": "recall",
+        "intent": "general"
       }
     },
     {
-      "id": "skip_009",
+      "id": "general_009",
       "query": "ok",
       "incognito": false,
       "memoryEnabled": true,
       "recallEnabled": true,
       "expected": {
-        "decision": "skip",
-        "reason": "non_contextual_turn"
+        "decision": "recall",
+        "intent": "general"
       }
     },
     {
-      "id": "skip_010",
+      "id": "general_010",
       "query": "okay",
       "incognito": false,
       "memoryEnabled": true,
       "recallEnabled": true,
       "expected": {
-        "decision": "skip",
-        "reason": "non_contextual_turn"
+        "decision": "recall",
+        "intent": "general"
       }
     },
     {
-      "id": "skip_011",
+      "id": "general_011",
       "query": "好的",
       "incognito": false,
       "memoryEnabled": true,
       "recallEnabled": true,
       "expected": {
-        "decision": "skip",
-        "reason": "non_contextual_turn"
+        "decision": "recall",
+        "intent": "general"
       }
     },
     {
-      "id": "skip_012",
+      "id": "general_012",
       "query": "好",
       "incognito": false,
       "memoryEnabled": true,
       "recallEnabled": true,
       "expected": {
-        "decision": "skip",
-        "reason": "non_contextual_turn"
+        "decision": "recall",
+        "intent": "general"
       }
     },
     {
-      "id": "skip_013",
+      "id": "general_013",
       "query": "可以",
       "incognito": false,
       "memoryEnabled": true,
       "recallEnabled": true,
       "expected": {
-        "decision": "skip",
-        "reason": "non_contextual_turn"
+        "decision": "recall",
+        "intent": "general"
       }
     },
     {
-      "id": "skip_014",
+      "id": "general_014",
       "query": "继续",
       "incognito": false,
       "memoryEnabled": true,
       "recallEnabled": true,
       "expected": {
-        "decision": "skip",
-        "reason": "non_contextual_turn"
+        "decision": "recall",
+        "intent": "general"
       }
     },
     {
-      "id": "skip_015",
+      "id": "general_015",
       "query": "谢谢",
       "incognito": false,
       "memoryEnabled": true,
       "recallEnabled": true,
       "expected": {
-        "decision": "skip",
-        "reason": "non_contextual_turn"
+        "decision": "recall",
+        "intent": "general"
       }
     },
     {
-      "id": "skip_016",
+      "id": "general_016",
       "query": "感谢",
       "incognito": false,
       "memoryEnabled": true,
       "recallEnabled": true,
       "expected": {
-        "decision": "skip",
-        "reason": "non_contextual_turn"
+        "decision": "recall",
+        "intent": "general"
       }
     },
     {
-      "id": "skip_017",
+      "id": "general_017",
       "query": "thanks",
       "incognito": false,
       "memoryEnabled": true,
       "recallEnabled": true,
       "expected": {
-        "decision": "skip",
-        "reason": "non_contextual_turn"
+        "decision": "recall",
+        "intent": "general"
       }
     },
     {
-      "id": "skip_018",
+      "id": "general_018",
       "query": "thank you",
       "incognito": false,
       "memoryEnabled": true,
       "recallEnabled": true,
       "expected": {
-        "decision": "skip",
-        "reason": "non_contextual_turn"
+        "decision": "recall",
+        "intent": "general"
       }
     },
     {
-      "id": "skip_019",
+      "id": "general_019",
       "query": "再见",
       "incognito": false,
       "memoryEnabled": true,
       "recallEnabled": true,
       "expected": {
-        "decision": "skip",
-        "reason": "non_contextual_turn"
+        "decision": "recall",
+        "intent": "general"
       }
     },
     {
-      "id": "skip_020",
+      "id": "general_020",
       "query": "bye",
       "incognito": false,
       "memoryEnabled": true,
       "recallEnabled": true,
       "expected": {
-        "decision": "skip",
-        "reason": "non_contextual_turn"
+        "decision": "recall",
+        "intent": "general"
       }
     },
     {

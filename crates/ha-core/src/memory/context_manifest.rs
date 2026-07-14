@@ -399,7 +399,7 @@ mod tests {
             .filter_map(|case| case["id"].as_str())
             .collect::<std::collections::BTreeSet<_>>();
         for required in [
-            "greeting_skips_recall",
+            "greeting_uses_static_only_when_auto_recall_is_off",
             "explicit_personal_preference_recalls_agent_before_global",
             "project_fact_prefers_project_scope",
             "historical_reference_recalls_dynamic_store",

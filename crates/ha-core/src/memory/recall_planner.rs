@@ -1,7 +1,7 @@
 //! Deterministic fast recall for Memory UX v2.
 //!
 //! Retrieval remains in the existing SQLite/claim stores. This planner owns
-//! the product semantics after retrieval: trivial-turn gating, cross-source
+//! the product semantics after retrieval: explicit automatic-recall consent, cross-source
 //! scoring, canonical deduplication, Top-K/token budgets and untrusted prompt
 //! rendering. It never invokes an LLM.
 
@@ -28,7 +28,6 @@ const MIN_FAST_SEMANTIC_SIMILARITY: f32 = 0.50;
 #[serde(rename_all = "snake_case")]
 pub(crate) enum RecallSkipReason {
     EmptyQuery,
-    NonContextualTurn,
     Incognito,
     MemoryOff,
     RecallOff,
@@ -40,7 +39,6 @@ impl RecallSkipReason {
     pub(crate) fn as_str(self) -> &'static str {
         match self {
             Self::EmptyQuery => "empty_query",
-            Self::NonContextualTurn => "non_contextual_turn",
             Self::Incognito => "incognito",
             Self::MemoryOff => "memory_off",
             Self::RecallOff => "recall_off",
@@ -74,9 +72,6 @@ pub(crate) fn recall_gate(
     let normalized = normalize_turn(query);
     if normalized.is_empty() {
         return RecallGate::Skip(RecallSkipReason::EmptyQuery);
-    }
-    if is_non_contextual_turn(&normalized) {
-        return RecallGate::Skip(RecallSkipReason::NonContextualTurn);
     }
     RecallGate::Search {
         intent: classify_intent(query),
@@ -132,7 +127,7 @@ pub(crate) fn plan_fast_recall(
     let intent = classify_intent(query);
     let mut candidates = Vec::with_capacity(memories.len() + claims.len());
     for (rank, memory) in memories.into_iter().enumerate() {
-        if !retrieval_evidence_is_relevant(memory.retrieval_evidence.as_ref()) {
+        if !retrieval_evidence_is_relevant(query, memory.retrieval_evidence.as_ref()) {
             continue;
         }
         let reference = ActiveMemoryCandidateRef {
@@ -161,7 +156,7 @@ pub(crate) fn plan_fast_recall(
         if claim.status != "active" {
             continue;
         }
-        if !retrieval_evidence_is_relevant(claim.retrieval_evidence.as_ref()) {
+        if !retrieval_evidence_is_relevant(query, claim.retrieval_evidence.as_ref()) {
             continue;
         }
         let rank = memory_count + offset;
@@ -285,6 +280,7 @@ pub(crate) fn plan_fast_recall(
 }
 
 pub(crate) fn retrieval_evidence_is_relevant(
+    query: &str,
     evidence: Option<&super::MemoryRetrievalEvidence>,
 ) -> bool {
     let Some(evidence) = evidence else {
@@ -292,10 +288,26 @@ pub(crate) fn retrieval_evidence_is_relevant(
         // documented relevance_score contract remains unchanged.
         return true;
     };
-    evidence.lexical_match
+    // A boolean literal hit is not sufficient evidence for a very short
+    // query. SQLite intentionally falls back to bounded `%query%` LIKE below
+    // three characters, where acknowledgements such as `hi` or `好` can match
+    // arbitrary words/content. Keep the gate language-agnostic: lexical-only
+    // recall needs at least three alphanumeric information units, while a
+    // strong semantic match can still recall a genuinely relevant short name
+    // or identifier.
+    (evidence.lexical_match && has_material_lexical_signal(query))
         || evidence
             .semantic_similarity
             .is_some_and(|score| score.is_finite() && score >= MIN_FAST_SEMANTIC_SIMILARITY)
+}
+
+fn has_material_lexical_signal(query: &str) -> bool {
+    query
+        .chars()
+        .filter(|ch| ch.is_alphanumeric())
+        .take(3)
+        .count()
+        >= 3
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -616,130 +628,6 @@ fn normalize_turn(query: &str) -> String {
         .to_lowercase()
 }
 
-fn is_non_contextual_turn(normalized: &str) -> bool {
-    matches!(
-        normalized,
-        "hi" | "hello"
-            | "hey"
-            | "你好"
-            | "您好"
-            | "早上好"
-            | "下午好"
-            | "晚上好"
-            | "ok"
-            | "okay"
-            | "好的"
-            | "好"
-            | "可以"
-            | "继续"
-            | "繼續"
-            | "谢谢"
-            | "謝謝"
-            | "感谢"
-            | "感謝"
-            | "thanks"
-            | "thank you"
-            | "再见"
-            | "再見"
-            | "bye"
-            | "こんにちは"
-            | "やあ"
-            | "おはよう"
-            | "こんばんは"
-            | "はい"
-            | "了解"
-            | "続けて"
-            | "ありがとう"
-            | "ありがとうございます"
-            | "さようなら"
-            | "またね"
-            | "안녕"
-            | "안녕하세요"
-            | "좋은 아침"
-            | "좋은 저녁"
-            | "네"
-            | "알겠습니다"
-            | "계속"
-            | "고마워"
-            | "감사합니다"
-            | "안녕히 가세요"
-            | "hola"
-            | "buenos días"
-            | "buenas tardes"
-            | "buenas noches"
-            | "sí"
-            | "vale"
-            | "de acuerdo"
-            | "continúa"
-            | "gracias"
-            | "adiós"
-            | "hasta luego"
-            | "hai"
-            | "helo"
-            | "selamat pagi"
-            | "selamat petang"
-            | "selamat malam"
-            | "ya"
-            | "baik"
-            | "teruskan"
-            | "terima kasih"
-            | "selamat tinggal"
-            | "olá"
-            | "oi"
-            | "bom dia"
-            | "boa tarde"
-            | "boa noite"
-            | "sim"
-            | "está bem"
-            | "continue"
-            | "obrigado"
-            | "obrigada"
-            | "tchau"
-            | "adeus"
-            | "привет"
-            | "здравствуйте"
-            | "доброе утро"
-            | "добрый день"
-            | "добрый вечер"
-            | "да"
-            | "хорошо"
-            | "продолжай"
-            | "спасибо"
-            | "до свидания"
-            | "пока"
-            | "merhaba"
-            | "selam"
-            | "günaydın"
-            | "iyi günler"
-            | "iyi akşamlar"
-            | "evet"
-            | "tamam"
-            | "devam et"
-            | "teşekkürler"
-            | "teşekkür ederim"
-            | "hoşça kal"
-            | "xin chào"
-            | "chào"
-            | "chào buổi sáng"
-            | "chào buổi chiều"
-            | "chào buổi tối"
-            | "vâng"
-            | "được"
-            | "tiếp tục"
-            | "cảm ơn"
-            | "tạm biệt"
-            | "مرحبا"
-            | "أهلاً"
-            | "صباح الخير"
-            | "مساء الخير"
-            | "نعم"
-            | "حسنا"
-            | "تابع"
-            | "شكرا"
-            | "وداعا"
-    )
-}
-
 fn escape_xml_text(value: &str) -> String {
     value
         .replace('&', "&amp;")
@@ -797,30 +685,20 @@ mod tests {
     }
 
     #[test]
-    fn trivial_turns_skip_without_search() {
-        assert_eq!(
-            recall_gate("hi", false, true, true),
-            RecallGate::Skip(RecallSkipReason::NonContextualTurn)
-        );
-        assert_eq!(
-            recall_gate("谢谢！", false, true, true),
-            RecallGate::Skip(RecallSkipReason::NonContextualTurn)
-        );
+    fn automatic_recall_does_not_use_language_specific_short_phrase_gates() {
         for query in [
-            "謝謝！",
+            "hi",
+            "谢谢！",
+            "继续",
             "ありがとう",
             "감사합니다",
             "gracias",
-            "terima kasih",
-            "obrigado",
-            "спасибо",
-            "teşekkürler",
-            "cảm ơn",
-            "شكرا",
         ] {
             assert_eq!(
                 recall_gate(query, false, true, true),
-                RecallGate::Skip(RecallSkipReason::NonContextualTurn),
+                RecallGate::Search {
+                    intent: RetrievalIntent::General,
+                },
                 "query={query}"
             );
         }
@@ -852,9 +730,8 @@ mod tests {
         assert_eq!(cases.len(), 100);
         let mut ids = std::collections::HashSet::new();
         let mut expected_recalls = 0usize;
+        let mut ranked_recall_cases = 0usize;
         let mut recall_at_five_hits = 0usize;
-        let mut irrelevant_turns = 0usize;
-        let mut false_recalls = 0usize;
         for case in cases {
             let id = case["id"].as_str().unwrap();
             assert!(ids.insert(id), "duplicate fixture id {id}");
@@ -875,10 +752,6 @@ mod tests {
                         case["expected"]["reason"].as_str().unwrap(),
                         "fixture {id}"
                     );
-                    irrelevant_turns += 1;
-                    if !matches!(gate, RecallGate::Skip(_)) {
-                        false_recalls += 1;
-                    }
                 }
                 "recall" => {
                     let RecallGate::Search { intent } = gate else {
@@ -889,13 +762,21 @@ mod tests {
                     expected_recalls += 1;
 
                     let expected_kind = match intent {
-                        RetrievalIntent::Profile => "profile",
-                        RetrievalIntent::Procedure => "procedure",
-                        RetrievalIntent::Episode => "experience",
-                        RetrievalIntent::Knowledge => "knowledge",
-                        RetrievalIntent::Relationship => "graph",
-                        RetrievalIntent::General => unreachable!("fixture has no general recall"),
+                        RetrievalIntent::Profile => Some("profile"),
+                        RetrievalIntent::Procedure => Some("procedure"),
+                        RetrievalIntent::Episode => Some("experience"),
+                        RetrievalIntent::Knowledge => Some("knowledge"),
+                        RetrievalIntent::Relationship => Some("graph"),
+                        // Generic short messages now reach retrieval only when
+                        // the user explicitly enabled automatic recall. Their
+                        // no-injection behavior is enforced by retrieval
+                        // evidence thresholds, not a language phrase list.
+                        RetrievalIntent::General => None,
                     };
+                    let Some(expected_kind) = expected_kind else {
+                        continue;
+                    };
+                    ranked_recall_cases += 1;
                     let profile = ProfileRecallCandidate {
                         id: "profile-expected".into(),
                         scope: MemoryScope::Agent {
@@ -945,15 +826,11 @@ mod tests {
                 other => panic!("fixture {id} has invalid decision {other}"),
             }
         }
-        assert_eq!(expected_recalls, 80);
-        assert_eq!(irrelevant_turns, 20);
+        assert_eq!(expected_recalls, 100);
+        assert_eq!(ranked_recall_cases, 80);
         assert!(
-            recall_at_five_hits * 100 >= expected_recalls * 90,
-            "Recall@5 below 90%: {recall_at_five_hits}/{expected_recalls}"
-        );
-        assert!(
-            false_recalls * 100 <= irrelevant_turns * 5,
-            "false recall above 5%: {false_recalls}/{irrelevant_turns}"
+            recall_at_five_hits * 100 >= ranked_recall_cases * 90,
+            "Recall@5 below 90%: {recall_at_five_hits}/{ranked_recall_cases}"
         );
     }
 
@@ -981,6 +858,67 @@ mod tests {
             .unwrap_err(),
             RecallSkipReason::NoCandidates
         );
+    }
+
+    #[test]
+    fn short_general_turn_reaches_search_but_like_substrings_are_not_evidence() {
+        for (query, content) in [
+            ("hi", "This project once used a gardening database"),
+            ("好", "用户喜欢整理好项目发布说明"),
+        ] {
+            let mut unrelated = memory(1, MemoryScope::Global, content, 0.01);
+            unrelated.retrieval_evidence = Some(crate::memory::MemoryRetrievalEvidence {
+                // Models the bounded LIKE fallback used for queries shorter
+                // than three characters.
+                lexical_match: true,
+                semantic_similarity: Some(0.01),
+            });
+
+            assert_eq!(
+                recall_gate(query, false, true, true),
+                RecallGate::Search {
+                    intent: RetrievalIntent::General,
+                }
+            );
+            assert_eq!(
+                plan_fast_recall(
+                    query,
+                    vec![unrelated],
+                    vec![],
+                    vec![],
+                    vec![],
+                    &MemoryRecallRuntimeConfig::default(),
+                )
+                .unwrap_err(),
+                RecallSkipReason::NoCandidates,
+                "query={query}"
+            );
+        }
+    }
+
+    #[test]
+    fn material_semantic_evidence_can_recall_a_short_query() {
+        let mut relevant = memory(
+            1,
+            MemoryScope::Agent { id: "a1".into() },
+            "The user explicitly prefers the greeting hi",
+            0.01,
+        );
+        relevant.retrieval_evidence = Some(crate::memory::MemoryRetrievalEvidence {
+            lexical_match: true,
+            semantic_similarity: Some(MIN_FAST_SEMANTIC_SIMILARITY),
+        });
+
+        let recall = plan_fast_recall(
+            "hi",
+            vec![relevant],
+            vec![],
+            vec![],
+            vec![],
+            &MemoryRecallRuntimeConfig::default(),
+        )
+        .expect("strong semantic evidence should remain recallable");
+        assert_eq!(recall.selected_candidates.len(), 1);
     }
 
     #[test]

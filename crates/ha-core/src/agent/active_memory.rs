@@ -1,14 +1,19 @@
 //! Active Memory — query-dependent recall outside the stable prompt prefix.
 //!
-//! Memory UX v2 runs deterministic local Fast Recall by default and can add a
-//! bounded LLM Deep Recall pass when the user enables it. The result is exposed
-//! to the provider layer as an independent dynamic block, so recall churn does
-//! not rewrite Core Memory or invalidate the stable `MEMORY.md` prefix.
+//! Memory UX v2 keeps automatic dynamic recall opt-in. By default, sessions use
+//! only the stable Core Memory snapshot while the model can still call Memory
+//! tools on demand. When the user explicitly enables automatic recall, V2 runs
+//! deterministic local Fast Recall and can add a bounded LLM Deep Recall pass.
+//! The result is exposed to the provider layer as an independent dynamic block,
+//! so recall churn does not rewrite Core Memory or invalidate the stable
+//! `MEMORY.md` prefix.
 //!
 //! Design principles:
-//! - **Fast by default**: lexical/vector/claim/profile/procedure/graph sources
-//!   are fused locally with deterministic relevance and token gates. There is
-//!   no extra model call on the normal path.
+//! - **Core + tools by default**: automatic dynamic recall is off, Core remains
+//!   stable, and `recall_memory` / `memory_get` remain available to the model.
+//! - **Fast after explicit opt-in**: lexical/vector/claim/profile/procedure/graph
+//!   sources are fused locally with deterministic relevance and token gates.
+//!   There is no extra model call on the Fast path.
 //! - **Deep is opt-in**: `ActiveMemoryConfig.enabled` is retained as the legacy
 //!   compatibility switch for the bounded side-query reranker. V2's explicit
 //!   `deepRecall` setting controls this path and defaults off because it adds

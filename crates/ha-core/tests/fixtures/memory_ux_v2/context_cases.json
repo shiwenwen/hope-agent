@@ -2,12 +2,12 @@
   "fixtureVersion": 1,
   "cases": [
     {
-      "id": "greeting_skips_recall",
+      "id": "greeting_uses_static_only_when_auto_recall_is_off",
       "query": "hi",
       "session": { "agentId": "ha-main", "projectId": null, "incognito": false },
       "expected": {
         "recallDecision": "skip",
-        "skipReason": "non_contextual_turn",
+        "skipReason": "recall_off",
         "maxSelected": 0,
         "allowedScopes": ["agent:ha-main", "global"]
       }

@@ -60,6 +60,7 @@ export type MemoryLearningMode = "smart" | "review_first" | "manual"
 export type MemoryRecallMode = "fast" | "deep"
 
 export interface MemoryRuntimeConfig {
+  configVersion: number
   enabled: boolean
   core: {
     enabled: boolean
@@ -73,6 +74,7 @@ export interface MemoryRuntimeConfig {
   }
   recall: {
     enabled: boolean
+    userConfigured: boolean
     mode: MemoryRecallMode
     maxTokens: number
     maxSelected: number

@@ -193,7 +193,10 @@ export default function MemoryEssentials({ onManage }: MemoryEssentialsProps) {
                 checked={config.enabled && config.recall.enabled}
                 disabled={!config.enabled || saving}
                 aria-label={t("settings.memoryV2.recall.fast")}
-                onCheckedChange={(enabled) => update((draft) => { draft.recall.enabled = enabled })}
+                onCheckedChange={(enabled) => update((draft) => {
+                  draft.recall.enabled = enabled
+                  draft.recall.userConfigured = true
+                })}
               />
             </div>
             <div className="flex items-center justify-between gap-2">

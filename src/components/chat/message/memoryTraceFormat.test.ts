@@ -82,7 +82,7 @@ describe("memoryTraceFormat", () => {
       "no related entity relationships",
     )
     expect(retrievalLayerReasonLabel("agent_memory_off", t)).toBe("long-term memory is off")
-    expect(retrievalLayerReasonLabel("recall_off", t)).toBe("fast recall is off")
+    expect(retrievalLayerReasonLabel("recall_off", t)).toBe("automatic dynamic recall is off")
     expect(retrievalLayerReasonLabel("retrieval_busy", t)).toBe("retrieval is busy")
     expect(retrievalLayerReasonLabel("session_policy", t)).toBe(
       "disabled by memory or chat policy",

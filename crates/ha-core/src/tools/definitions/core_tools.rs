@@ -437,7 +437,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: TOOL_RECALL_MEMORY.into(),
-            description: "Search persistent memories by keyword or semantic query. Use this to recall previously stored information about the user, their preferences, project context, or reference materials. Set include_history=true to also search past conversation messages.".into(),
+            description: "Search persistent memories by keyword or semantic query. Use this when the current request plausibly depends on previously stored information about the user, their preferences, project context, or reference materials; do not call it routinely. Set include_history=true to also search past conversation messages.".into(),
             tier: ToolTier::Memory,
             internal: true,
             concurrent_safe: true,

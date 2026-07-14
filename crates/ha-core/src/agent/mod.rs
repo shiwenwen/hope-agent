@@ -1744,23 +1744,41 @@ impl AssistantAgent {
         use crate::memory::recall_planner::RecallGate;
         use std::time::Duration;
 
+        let legacy_agent_recall_enabled = self
+            .active_memory_state
+            .current_agent_config()
+            .is_some_and(|snapshot| snapshot.memory_enabled && snapshot.active_memory.enabled);
         let gate = crate::memory::recall_planner::recall_gate(
             user_text,
             self.session_is_incognito(),
             runtime.enabled,
-            runtime.recall.enabled,
+            runtime.automatic_recall_enabled_for_agent(legacy_agent_recall_enabled),
         );
         let intent = match gate {
             RecallGate::Search { intent } => intent,
             RecallGate::Skip(reason) => {
-                self.set_retrieval_planner_layer(retrieval_planner::skipped_layer(
-                    "active_memory",
-                    reason.as_str(),
-                    0,
-                    None,
-                ));
+                let layer = match reason {
+                    crate::memory::recall_planner::RecallSkipReason::Incognito
+                    | crate::memory::recall_planner::RecallSkipReason::MemoryOff
+                    | crate::memory::recall_planner::RecallSkipReason::RecallOff => {
+                        retrieval_planner::disabled_layer("active_memory", reason.as_str())
+                    }
+                    crate::memory::recall_planner::RecallSkipReason::EmptyQuery
+                    | crate::memory::recall_planner::RecallSkipReason::NoCandidates
+                    | crate::memory::recall_planner::RecallSkipReason::BudgetEmpty => {
+                        retrieval_planner::empty_layer("active_memory", reason.as_str(), 0)
+                    }
+                };
+                self.set_retrieval_planner_layer(layer);
                 self.set_active_memory_recall(None);
-                self.emit_empty_memory_recall(user_text, reason.as_str(), None);
+                if matches!(
+                    reason,
+                    crate::memory::recall_planner::RecallSkipReason::EmptyQuery
+                        | crate::memory::recall_planner::RecallSkipReason::NoCandidates
+                        | crate::memory::recall_planner::RecallSkipReason::BudgetEmpty
+                ) {
+                    self.emit_empty_memory_recall(user_text, reason.as_str(), None);
+                }
                 return;
             }
         };
@@ -1989,6 +2007,7 @@ impl AssistantAgent {
                         };
                         for center in centers {
                             if !crate::memory::recall_planner::retrieval_evidence_is_relevant(
+                                &query_for_search,
                                 center.retrieval_evidence.as_ref(),
                             ) {
                                 continue;

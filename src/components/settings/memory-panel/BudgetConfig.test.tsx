@@ -55,6 +55,7 @@ const transportMock = vi.hoisted(() => ({
 }))
 
 const runtimeConfig = {
+  configVersion: 2,
   enabled: true,
   core: {
     enabled: true,
@@ -68,6 +69,7 @@ const runtimeConfig = {
   },
   recall: {
     enabled: true,
+    userConfigured: true,
     mode: "fast",
     maxTokens: 800,
     maxSelected: 5,
