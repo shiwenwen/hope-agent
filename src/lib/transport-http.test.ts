@@ -164,6 +164,30 @@ test("HttpTransport unwraps the Git auto-merge input for the HTTP owner API", as
   )
 })
 
+test("HttpTransport maps the enhanced focus preference consistently", async () => {
+  const transport = new HttpTransport("http://localhost:8420")
+  fetchMock.mockImplementation(() =>
+    Promise.resolve(
+      new Response(JSON.stringify(true), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    ),
+  )
+
+  await expect(transport.call<boolean>("get_enhanced_focus_indicators")).resolves.toBe(true)
+  expect(fetchMock).toHaveBeenLastCalledWith(
+    "http://localhost:8420/api/config/enhanced-focus-indicators",
+    expect.objectContaining({ method: "GET", body: undefined }),
+  )
+
+  await transport.call("set_enhanced_focus_indicators", { enabled: true })
+  expect(fetchMock).toHaveBeenLastCalledWith(
+    "http://localhost:8420/api/config/enhanced-focus-indicators",
+    expect.objectContaining({ method: "POST", body: JSON.stringify({ enabled: true }) }),
+  )
+})
+
 test("HttpTransport maps execution mode and workflow owner commands", async () => {
   const transport = new HttpTransport("http://localhost:8420")
 

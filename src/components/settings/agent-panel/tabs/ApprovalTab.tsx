@@ -121,7 +121,7 @@ export default function ApprovalTab({ config, updateConfig }: ApprovalTabProps) 
                 onClick={() => setDefaultMode(opt.value)}
                 className={cn(
                   "flex items-start gap-2 rounded-lg border p-3 text-left transition-all",
-                  "focus:outline-none focus-visible:ring-2 focus-visible:ring-primary",
+                  "focus:outline-none",
                   isActive
                     ? "border-primary bg-primary/5"
                     : "border-border/50 hover:border-border",

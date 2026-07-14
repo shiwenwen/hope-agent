@@ -1,7 +1,7 @@
 import { useTranslation } from "react-i18next"
 import { Search } from "lucide-react"
 
-import { Input } from "@/components/ui/input"
+import { SearchInput } from "@/components/ui/search-input"
 import { FloatingMenu } from "@/components/ui/floating-menu"
 import { cn } from "@/lib/utils"
 import type { KbChatThread } from "@/types/knowledge"
@@ -56,7 +56,7 @@ export function KnowledgeConversationHistory({
     >
       <div className="relative mb-2">
         <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-        <Input
+        <SearchInput
           autoFocus
           value={query}
           onChange={(e) => {

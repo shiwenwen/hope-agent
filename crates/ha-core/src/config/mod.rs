@@ -1158,6 +1158,10 @@ pub struct AppConfig {
     /// UI theme preference: "auto" | "light" | "dark"
     #[serde(default = "default_theme")]
     pub theme: String,
+    /// Always show a stronger focus indicator, including for pointer focus.
+    /// System high-contrast modes enhance focus independently of this toggle.
+    #[serde(default)]
+    pub enhanced_focus_indicators: bool,
     /// UI language preference: "auto" means follow system, otherwise a locale code like "zh", "en"
     #[serde(default = "default_language")]
     pub language: String,
@@ -1459,6 +1463,7 @@ impl Default for AppConfig {
             timeout_policy: TimeoutPolicyConfig::default(),
             tool_result_disk_threshold: None,
             theme: default_theme(),
+            enhanced_focus_indicators: false,
             language: default_language(),
             ui_effects_enabled: false,
             prevent_sleep: false,

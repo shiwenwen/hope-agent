@@ -67,7 +67,7 @@ const SheetContent = forwardRef<ComponentRef<typeof Content>, SheetContentProps>
       <SheetOverlay />
       <Content ref={ref} className={cn(sheetVariants({ side }), className)} {...props}>
         {children}
-        <Close className="absolute right-4 top-4 rounded-sm opacity-70 transition-opacity hover:opacity-100 focus:outline-none focus:ring-1 focus:ring-ring/40 disabled:pointer-events-none">
+        <Close className="absolute right-4 top-4 rounded-sm opacity-70 transition-opacity hover:opacity-100 focus:outline-none disabled:pointer-events-none">
           <X className="h-4 w-4" />
           <span className="sr-only">Close</span>
         </Close>

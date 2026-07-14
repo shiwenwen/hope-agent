@@ -3,6 +3,7 @@ import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { NumberInput } from "@/components/ui/number-input"
 import { Textarea } from "@/components/ui/textarea"
 import {
   Select,
@@ -531,8 +532,7 @@ export default function CronJobForm({
                 <label className="text-xs font-medium text-muted-foreground mb-1 block">
                   {t("cron.interval")}
                 </label>
-                <Input
-                  type="number"
+                <NumberInput
                   min="1"
                   value={intervalValue}
                   onChange={(e) => setIntervalValue(e.target.value)}
@@ -735,8 +735,7 @@ export default function CronJobForm({
             <label className="text-xs font-medium text-muted-foreground mb-1 block">
               {t("cron.maxFailures")}
             </label>
-            <Input
-              type="number"
+            <NumberInput
               min="1"
               max="100"
               value={maxFailures}
@@ -749,8 +748,7 @@ export default function CronJobForm({
             <label className="text-xs font-medium text-muted-foreground mb-1 block">
               {t("cron.jobTimeoutOverride")}
             </label>
-            <Input
-              type="number"
+            <NumberInput
               min="0"
               max="7200"
               placeholder={t("cron.jobTimeoutOverrideHint")}

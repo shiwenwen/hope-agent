@@ -1,10 +1,10 @@
 import { useState, type ComponentProps } from "react"
-import { Input } from "@/components/ui/input"
+import { NumberInput } from "@/components/ui/number-input"
 
-type InputProps = ComponentProps<typeof Input>
+type InputProps = ComponentProps<typeof NumberInput>
 
 interface DeferredNumberInputProps
-  extends Omit<InputProps, "type" | "value" | "onChange"> {
+  extends Omit<InputProps, "value" | "onChange"> {
   value: number | null | undefined
   min?: number
   max?: number
@@ -63,9 +63,8 @@ export function DeferredNumberInput({
   }
 
   return (
-    <Input
+    <NumberInput
       {...props}
-      type="number"
       min={min}
       max={max}
       value={displayValue}

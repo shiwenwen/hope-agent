@@ -31,6 +31,7 @@ import type {
 import { getTransport } from "@/lib/transport-provider"
 import { PANEL_SCROLL_FADE } from "../right-panel/panelFade"
 import { Button } from "@/components/ui/button"
+import { SearchInput } from "@/components/ui/search-input"
 import { IconTip } from "@/components/ui/tooltip"
 import type { FileChangeMetadata } from "@/types/chat"
 import type { PreviewTarget } from "../files/useFilePreview"
@@ -824,11 +825,11 @@ export function DiffPanel({
         <div className="flex shrink-0 items-center gap-2 border-b border-border bg-muted/30 px-2 py-1.5">
           <div className="relative w-40 shrink-0">
             <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground/70" />
-            <input
+            <SearchInput
               value={fileQuery}
               onChange={(e) => setFileQuery(e.target.value)}
               placeholder={t("diffPanel.searchFiles", "搜索文件")}
-              className="h-7 w-full rounded-md border border-border/70 bg-background/60 pl-7 pr-2 text-xs outline-none transition-colors placeholder:text-muted-foreground/60 focus:border-ring"
+              className="h-7 w-full pl-7 pr-2 text-xs"
             />
           </div>
           <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">

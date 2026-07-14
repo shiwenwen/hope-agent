@@ -140,7 +140,7 @@ export default function PersonalInfoSection({
           value={config.timezone ?? ""}
           onValueChange={(v) => update({ timezone: v || null })}
         >
-          <SelectTrigger className="mt-1 bg-secondary/20 text-sm hover:bg-secondary/60">
+          <SelectTrigger className="mt-1 text-sm">
             <SelectValue placeholder={t("settings.profileTimezoneSystem")} />
           </SelectTrigger>
           <SelectContent>

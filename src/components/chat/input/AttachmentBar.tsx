@@ -251,7 +251,7 @@ export function AttachFilesMenuItem({ onAttachFiles, onPicked }: AttachFilesMenu
     <>
       <button
         type="button"
-        className="flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left text-[13px] text-foreground/80 outline-none transition-all duration-150 hover:bg-secondary/60 hover:text-foreground focus-visible:bg-secondary/60 focus-visible:text-foreground"
+        className="ha-focus-item flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left text-[13px] text-foreground/80 outline-none transition-all duration-150 hover:bg-secondary/60 hover:text-foreground focus-visible:bg-secondary/60 focus-visible:text-foreground"
         onClick={() => fileInputRef.current?.click()}
       >
         <Paperclip className="h-4 w-4 shrink-0 text-muted-foreground" />

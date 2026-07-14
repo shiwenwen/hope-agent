@@ -3,7 +3,7 @@ import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
+import { SearchInput } from "@/components/ui/search-input"
 import { IconTip } from "@/components/ui/tooltip"
 import {
   Select,
@@ -466,7 +466,7 @@ export default function CronCalendarView({
           <>
             <div className="relative w-56">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-              <Input
+              <SearchInput
                 className="pl-8 h-7 text-xs"
                 placeholder={t("cron.searchPlaceholder")}
                 value={search}
@@ -474,7 +474,7 @@ export default function CronCalendarView({
               />
             </div>
             <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="h-7 w-auto gap-1 border-border/60 bg-background px-2 text-xs">
+              <SelectTrigger className="h-7 w-auto gap-1 px-2 text-xs">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>

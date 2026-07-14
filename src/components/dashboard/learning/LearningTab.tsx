@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
+import { NumberInput } from "@/components/ui/number-input"
 import {
   Activity,
   Archive,
@@ -2507,9 +2508,8 @@ function BenchmarkCenterPanel({
               <div className="flex flex-wrap items-center gap-2">
                 <label className="flex items-center gap-1 text-[10px] text-muted-foreground">
                   <span>{t("dashboard.learning.tasksLabel")}</span>
-                  <input
-                    className="h-6 w-14 rounded border border-border bg-background px-1.5 text-xs tabular-nums"
-                    type="number"
+                  <NumberInput
+                    className="h-6 w-14 px-1.5 text-xs tabular-nums"
                     min={1}
                     max={20}
                     value={maxTasks}
@@ -2520,9 +2520,8 @@ function BenchmarkCenterPanel({
                 </label>
                 <label className="flex items-center gap-1 text-[10px] text-muted-foreground">
                   <span>{t("dashboard.learning.usdLabel")}</span>
-                  <input
-                    className="h-6 w-20 rounded border border-border bg-background px-1.5 text-xs tabular-nums"
-                    type="number"
+                  <NumberInput
+                    className="h-6 w-20 px-1.5 text-xs tabular-nums"
                     min={0}
                     step="0.01"
                     value={budgetUsd}
@@ -3864,9 +3863,8 @@ function DomainEvalCampaignPanel({
           <div className="flex flex-wrap items-center gap-2">
             <label className="flex items-center gap-1 text-[10px] text-muted-foreground">
               <span>{t("dashboard.learning.tasksLabel")}</span>
-              <input
-                className="h-6 w-14 rounded border border-border bg-background px-1.5 text-xs tabular-nums"
-                type="number"
+              <NumberInput
+                className="h-6 w-14 px-1.5 text-xs tabular-nums"
                 min={1}
                 max={15}
                 value={maxTasks}
@@ -3877,9 +3875,8 @@ function DomainEvalCampaignPanel({
             </label>
             <label className="flex items-center gap-1 text-[10px] text-muted-foreground">
               <span>{t("dashboard.learning.usdLabel")}</span>
-              <input
-                className="h-6 w-20 rounded border border-border bg-background px-1.5 text-xs tabular-nums"
-                type="number"
+              <NumberInput
+                className="h-6 w-20 px-1.5 text-xs tabular-nums"
                 min={0}
                 step="0.01"
                 value={budgetUsd}

@@ -9,7 +9,7 @@ import {
   TOOL_I18N_KEY,
 } from "@/types/tools"
 import { Switch } from "@/components/ui/switch"
-import { Input } from "@/components/ui/input"
+import { NumberInput } from "@/components/ui/number-input"
 import { Textarea } from "@/components/ui/textarea"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -267,12 +267,11 @@ export default function CapabilitiesTab({
             {t("settings.agentMaxToolRounds")}
           </div>
           <div className="flex items-center gap-3">
-            <Input
-              type="number"
+            <NumberInput
               min={0}
               max={100}
               disabled={config.capabilities.maxToolRounds === 0}
-              className="flex-1 bg-secondary/40 rounded-lg [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+              className="flex-1"
               value={
                 config.capabilities.maxToolRounds === 0 ? "" : config.capabilities.maxToolRounds
               }

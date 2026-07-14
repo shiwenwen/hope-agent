@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next"
 import { logger } from "@/lib/logger"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { NumberInput } from "@/components/ui/number-input"
 import { Switch } from "@/components/ui/switch"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { cn } from "@/lib/utils"
@@ -497,8 +498,7 @@ export default function ImageGeneratePanel() {
 
             <div className="space-y-1.5">
               <span className="text-sm font-medium">{t("settings.imageGenTimeout")}</span>
-              <Input
-                type="number"
+              <NumberInput
                 min={10}
                 max={300}
                 value={config.timeoutSeconds}

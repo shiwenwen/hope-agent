@@ -17,7 +17,7 @@ import {
 
 import { AnimatedCollapse } from "@/components/ui/animated-presence"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
+import { NumberInput } from "@/components/ui/number-input"
 import { DeferredNumberInput } from "@/components/ui/deferred-number-input"
 import { Progress } from "@/components/ui/progress"
 import { Switch } from "@/components/ui/switch"
@@ -1349,8 +1349,7 @@ function ChunkAdvancedSection() {
                   <span className="text-xs font-medium">
                     {t("settings.knowledgeChunk.maxChars", "Chunk size (chars)")}
                   </span>
-                  <Input
-                    type="number"
+                  <NumberInput
                     min={200}
                     max={8000}
                     value={maxChars}
@@ -1362,8 +1361,7 @@ function ChunkAdvancedSection() {
                   <span className="text-xs font-medium">
                     {t("settings.knowledgeChunk.overlap", "Overlap (chars)")}
                   </span>
-                  <Input
-                    type="number"
+                  <NumberInput
                     min={0}
                     value={overlapChars}
                     onChange={(e) => setOverlapChars(e.target.value)}
@@ -1518,8 +1516,7 @@ function SearchRankingSection() {
     opts: { min: number; max: number; step?: number },
   ) =>
     draft && (
-      <Input
-        type="number"
+      <NumberInput
         min={opts.min}
         max={opts.max}
         step={opts.step}

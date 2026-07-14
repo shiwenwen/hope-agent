@@ -12,6 +12,7 @@ import {
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { NumberInput } from "@/components/ui/number-input"
 import { Label } from "@/components/ui/label"
 import {
   AlertDialog,
@@ -597,8 +598,7 @@ export default function EmbeddingModelsPanel() {
                 )}
                 <div className="grid gap-1.5">
                   <Label>{t("settings.memoryDimensions")}</Label>
-                  <Input
-                    type="number"
+                  <NumberInput
                     value={editing.apiDimensions ?? ""}
                     onChange={(e) =>
                       setEditing({

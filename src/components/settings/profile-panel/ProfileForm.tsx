@@ -133,7 +133,7 @@ export default function ProfileForm({
           value={config.language ?? ""}
           onValueChange={(v) => update({ language: v || null })}
         >
-          <SelectTrigger className="mt-1 bg-secondary/20 text-sm hover:bg-secondary/60">
+          <SelectTrigger className="mt-1 text-sm">
             <SelectValue placeholder={t("settings.profileLanguageSystem")} />
           </SelectTrigger>
           <SelectContent>

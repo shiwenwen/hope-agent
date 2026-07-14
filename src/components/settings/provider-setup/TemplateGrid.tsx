@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
+import { SearchInput } from "@/components/ui/search-input"
 import ProviderIcon from "@/components/common/ProviderIcon"
 import LocalLlmAssistantCard from "@/components/settings/local-llm/LocalLlmAssistantCard"
 import {
@@ -197,11 +197,11 @@ export function TemplateGrid({
         <div className="px-6 pb-3 max-w-3xl mx-auto w-full">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-            <Input
+            <SearchInput
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder={t("provider.searchProviders")}
-              className="bg-card pl-9 h-9 text-xs"
+              className="pl-9 h-9 text-xs"
             />
           </div>
         </div>

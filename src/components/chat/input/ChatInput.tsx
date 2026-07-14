@@ -1,13 +1,5 @@
-import {
-  Fragment,
-  type ReactNode,
-  useRef,
-  useEffect,
-  useLayoutEffect,
-  useCallback,
-  useMemo,
-  useState,
-} from "react"
+import { Fragment, useRef, useEffect, useLayoutEffect, useCallback, useMemo, useState } from "react"
+import type { ReactNode } from "react"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
@@ -371,6 +363,8 @@ interface ChatInputProps {
    *  toolbar is not compact, so the items stay reachable at any width. Clicking
    *  any child closes the overflow menu. */
   overflowLeadingItems?: ReactNode
+  /** Optional surface fused to the top of the input dock. */
+  topAccessory?: ReactNode
   /** Context-window fullness, rendered as a thin bar fused into the dock's
    *  bottom border (green → amber → red). Null hides the bar. */
   contextUsage?: ContextUsageInfo | null
@@ -561,6 +555,7 @@ export default function ChatInput({
   workflowProgressCount = 0,
   workspacePanelVisible = false,
   hero = false,
+  topAccessory,
   contextUsage,
   overflowLeadingItems,
 }: ChatInputProps) {
@@ -1388,7 +1383,7 @@ export default function ChatInput({
   const planComposerBannerOpen = planState === "planning" && !goalComposerMode && !loopComposerMode
 
   const overflowMenuItemClass =
-    "flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left text-[13px] text-foreground/80 outline-none transition-all duration-150 hover:bg-secondary/60 hover:text-foreground focus-visible:bg-secondary/60 focus-visible:text-foreground disabled:pointer-events-none disabled:opacity-50"
+    "ha-focus-item flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left text-[13px] text-foreground/80 outline-none transition-all duration-150 hover:bg-secondary/60 hover:text-foreground focus-visible:bg-secondary/60 focus-visible:text-foreground disabled:pointer-events-none disabled:opacity-50"
 
   // Shared by the inline Plan toggle and its "+" overflow-menu counterpart.
   const handlePlanToggle = () => {
@@ -1614,6 +1609,7 @@ export default function ChatInput({
   )?.id
   const hasPendingQueue = pendingQueueItems.length > 0
   const topStripBase =
+    !topAccessory &&
     !hasVisibleTaskProgress &&
     attachedFiles.length === 0 &&
     !pendingQuotes?.length &&
@@ -1854,6 +1850,8 @@ export default function ChatInput({
           ],
         )}
       >
+        {topAccessory}
+
         {/* Slash Command Menu */}
         <SlashCommandMenu
           open={slash.isOpen}
@@ -1919,6 +1917,7 @@ export default function ChatInput({
             snapshot={visibleTaskProgressSnapshot}
             executionState={taskExecutionState}
             variant="embedded"
+            className={topAccessory ? "rounded-t-none" : undefined}
             onOpenWorkspace={onOpenWorkspace}
             workspaceOpen={workspacePanelVisible}
           />
@@ -2107,7 +2106,7 @@ export default function ChatInput({
                           autoFocus
                           value={pendingEditValue}
                           disabled={pendingEditSaving}
-                          className="h-7 min-w-0 flex-1 rounded border border-border bg-background px-2 text-sm outline-none focus:border-ring"
+                          className="h-7 min-w-0 flex-1 rounded border border-border bg-background px-2 text-sm outline-none"
                           onChange={(event) => setPendingEditValue(event.target.value)}
                           onKeyDown={(event) => {
                             if (event.key === "Enter" && !event.shiftKey) {
@@ -2404,13 +2403,13 @@ export default function ChatInput({
                   <input
                     value={goalEditObjective}
                     onChange={(event) => setGoalEditObjective(event.target.value)}
-                    className="h-8 w-full rounded-md border border-border/60 bg-background px-2 text-xs outline-none focus:border-emerald-500/50"
+                    className="h-8 w-full rounded-md border border-border/60 bg-background px-2 text-xs outline-none"
                     placeholder={t("chat.goalMode.objectivePlaceholder", "目标")}
                   />
                   <textarea
                     value={goalEditCriteria}
                     onChange={(event) => setGoalEditCriteria(event.target.value)}
-                    className="min-h-16 w-full resize-y rounded-md border border-border/60 bg-background px-2 py-1.5 text-xs outline-none focus:border-emerald-500/50"
+                    className="min-h-16 w-full resize-y rounded-md border border-border/60 bg-background px-2 py-1.5 text-xs outline-none"
                     placeholder={t(
                       "chat.goalMode.criteriaPlaceholder",
                       "完成标准；可用 [required] / [optional] / [follow-up]",
@@ -2795,7 +2794,7 @@ export default function ChatInput({
                         aria-expanded={showOverflowMenu}
                         aria-haspopup="menu"
                         onClick={() => setShowOverflowMenu((open) => !open)}
-                        className="h-8 w-8 rounded-lg bg-transparent text-muted-foreground hover:bg-transparent hover:text-foreground focus-visible:ring-0"
+                        className="h-8 w-8 rounded-lg bg-transparent text-muted-foreground hover:bg-transparent hover:text-foreground"
                       >
                         <Plus className="h-4 w-4" />
                       </Button>

@@ -543,7 +543,7 @@ export function OpenClawImportPanel({ onSkip, onImported, hideSkip }: OpenClawIm
                               [a.id]: { ...edit!, targetId: ev.target.value },
                             }))
                           }
-                          className="h-auto w-auto rounded-none border-0 border-b border-muted-foreground/30 bg-transparent px-1 py-0 shadow-none outline-none font-mono text-xs focus:border-primary focus-visible:border-primary"
+                          className="h-auto w-auto rounded-none border-0 border-b border-muted-foreground/30 bg-transparent px-1 py-0 shadow-none outline-none font-mono text-xs"
                         />
                       </div>
                       <div className="mt-1 flex flex-wrap gap-1">

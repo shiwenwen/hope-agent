@@ -110,7 +110,7 @@ export default function MemberRow({
             value={value.role}
             onValueChange={(v) => patch({ role: v as TeamTemplateMember["role"] })}
           >
-            <SelectTrigger className="h-8 mt-1 bg-background text-xs">
+            <SelectTrigger className="mt-1 h-8 text-xs">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>

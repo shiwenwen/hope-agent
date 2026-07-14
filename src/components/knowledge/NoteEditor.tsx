@@ -305,6 +305,7 @@ const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function NoteEd
           ...searchKeymap,
         ]),
         editorTheme,
+        EditorView.contentAttributes.of({ "data-focus-ring": "none" }),
         readOnlyComp.current.of([
           EditorState.readOnly.of(readOnly),
           EditorView.editable.of(!readOnly),
@@ -488,6 +489,7 @@ const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function NoteEd
       {showSource && (
         <div
           ref={hostRef}
+          data-focus-scope
           className={`h-full min-h-0 overflow-hidden ${splitActive ? "shrink-0" : "w-full"}`}
           style={splitActive ? { width: `${splitRatio * 100}%` } : undefined}
         />

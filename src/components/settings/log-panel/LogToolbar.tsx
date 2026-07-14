@@ -1,6 +1,6 @@
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
-import { Input } from "@/components/ui/input"
+import { SearchInput } from "@/components/ui/search-input"
 import { Button } from "@/components/ui/button"
 import { Search, X } from "lucide-react"
 import { LEVEL_COLORS, LEVELS, CATEGORIES } from "./constants"
@@ -67,7 +67,7 @@ export default function LogToolbar({
       {/* Keyword search */}
       <div className="relative flex-1 min-w-[160px] max-w-[300px]">
         <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-        <Input
+        <SearchInput
           value={keyword}
           onChange={(e) => onKeywordChange(e.target.value)}
           placeholder={t("settings.logsSearch")}

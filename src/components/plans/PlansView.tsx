@@ -175,7 +175,7 @@ export default function PlansView({
                 setStateFilter(v === ALL_FILTER ? "" : (v as PlanModeStateString))
               }
             >
-              <SelectTrigger className="h-7 w-auto gap-1 border-border/50 bg-secondary/40 px-2 text-xs">
+              <SelectTrigger className="h-7 w-auto gap-1 px-2 text-xs">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -195,7 +195,7 @@ export default function PlansView({
                 value={agentFilter || ALL_FILTER}
                 onValueChange={(v) => setAgentFilter(v === ALL_FILTER ? "" : v)}
               >
-                <SelectTrigger className="h-7 min-w-0 flex-1 gap-1 border-border/50 bg-secondary/40 px-2 text-xs">
+                <SelectTrigger className="h-7 min-w-0 flex-1 gap-1 px-2 text-xs">
                   {selectedAgentMeta ? (
                     <AgentSelectDisplay agent={selectedAgentMeta} size="xs" />
                   ) : (
@@ -409,7 +409,7 @@ function PlanReadOnlyDetail({
               value={String(selectedVersion)}
               onValueChange={(v) => void handleVersionChange(Number(v))}
             >
-              <SelectTrigger className="h-7 w-auto gap-1 border-border/50 bg-secondary/40 px-2 text-xs">
+              <SelectTrigger className="h-7 w-auto gap-1 px-2 text-xs">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>

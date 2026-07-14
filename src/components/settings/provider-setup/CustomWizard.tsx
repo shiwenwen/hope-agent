@@ -298,7 +298,7 @@ export function CustomWizard({
                   value={thinkingStyle}
                   onValueChange={(v) => setThinkingStyle(v as ThinkingStyleType)}
                 >
-                  <SelectTrigger className="bg-card text-xs font-medium">
+                  <SelectTrigger className="text-xs font-medium">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>

@@ -10,6 +10,11 @@ import { logger } from "./lib/logger"
 import { captureTokenFromUrl } from "./lib/api-key-storage"
 import { installDesktopContextMenuGuard } from "./lib/contextMenuGuard"
 import { installInvertedClickRecovery } from "./lib/inverted-click-recovery"
+import { installFocusVisibilityTracker } from "./lib/focus-visibility"
+import {
+  listenEnhancedFocusIndicators,
+  loadEnhancedFocusIndicators,
+} from "./lib/focus-indicator-preference"
 
 // Pull `?token=XXX` out of the URL into localStorage before the transport
 // singleton is constructed. Standalone Web GUI mode (Docker / reverse
@@ -18,6 +23,7 @@ import { installInvertedClickRecovery } from "./lib/inverted-click-recovery"
 captureTokenFromUrl()
 installDesktopContextMenuGuard()
 installInvertedClickRecovery()
+installFocusVisibilityTracker()
 
 // Flush buffered logs before page unload to prevent data loss
 window.addEventListener("beforeunload", () => {
@@ -30,6 +36,9 @@ const windowType = new URLSearchParams(window.location.search).get("window")
 // await 当前一种 locale，毫秒级本地资源）。i18nReady 内部已 try/catch，chunk 失败
 // 也会 resolve（回退 en），渲染绝不会被卡死。
 void i18nReady.finally(async () => {
+  await loadEnhancedFocusIndicators()
+  listenEnhancedFocusIndicators()
+
   const WorkflowSmokeWindow =
     windowType === "workflow-smoke" && import.meta.env.DEV
       ? (await import("./dev/WorkflowSmokeWindow.tsx")).default

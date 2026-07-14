@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
-import { Input } from "@/components/ui/input"
+import { NumberInput } from "@/components/ui/number-input"
 import { Loader2, Check } from "lucide-react"
 
 /**
@@ -181,8 +181,7 @@ export default function CronSettingsPanel() {
               <div className="text-sm font-medium">{row.label}</div>
               <p className="mt-1 text-xs text-muted-foreground">{row.hint}</p>
             </div>
-            <Input
-              type="number"
+            <NumberInput
               min={row.min}
               max={row.max}
               disabled={!loaded}

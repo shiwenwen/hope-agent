@@ -545,6 +545,7 @@ mod parse_tests {
     fn plain_json_parses() {
         let cfg = parse_config_str(r#"{"providers":[],"theme":"dark"}"#).expect("parse");
         assert_eq!(cfg.theme, "dark");
+        assert!(!cfg.enhanced_focus_indicators);
     }
 
     #[test]
@@ -560,12 +561,14 @@ mod parse_tests {
     fn pretty_printed_config_with_bom_roundtrips() {
         let original = AppConfig {
             theme: "dark".into(),
+            enhanced_focus_indicators: true,
             ..AppConfig::default()
         };
         let pretty = serde_json::to_string_pretty(&original).expect("serialize");
         let with_bom = format!("\u{feff}{pretty}");
         let parsed = parse_config_str(&with_bom).expect("parse pretty + BOM");
         assert_eq!(parsed.theme, "dark");
+        assert!(parsed.enhanced_focus_indicators);
     }
 
     #[test]

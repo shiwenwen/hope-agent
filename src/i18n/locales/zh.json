@@ -1079,6 +1079,7 @@
       }
     },
     "projectRuntime": {
+      "selectProject": "选择项目",
       "removeProject": "不在项目中工作",
       "searchProjects": "搜索项目",
       "noProject": "不在项目中",
@@ -3419,6 +3420,8 @@
     "agentsDesc": "定义和管理 AI Agent，每个 Agent 可以有不同的身份、能力和行为方式。",
     "appearance": "外观",
     "appearanceDesc": "选择主题外观模式",
+    "enhancedFocusIndicators": "增强焦点提示",
+    "enhancedFocusIndicatorsDesc": "始终显示更清晰的焦点提示；系统高对比度模式会自动增强。",
     "approvalNav": "权限",
     "approvalPanel": {
       "dangerousCommandsDesc": "命中即强制审批且不可 AllowAlways。YOLO 模式可绕过但仍会写审计日志。",

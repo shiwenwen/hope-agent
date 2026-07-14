@@ -72,7 +72,7 @@ export function ChatWelcomeHero({
             }}
           />
         </p>
-        <div className="mx-auto mt-7 grid w-full max-w-[1040px] grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="mx-auto mt-5 flex w-full max-w-[900px] flex-wrap justify-center gap-2">
           {PROJECT_WELCOME_SUGGESTIONS.map((suggestion) => {
             const Icon = suggestion.icon
             const title = t(`chat.projectWelcomeSuggestions.${suggestion.key}.title`)
@@ -85,15 +85,15 @@ export function ChatWelcomeHero({
                 type="button"
                 onClick={() => onProjectSuggestion?.(prompt)}
                 disabled={!onProjectSuggestion}
-                className="group flex min-h-28 cursor-pointer flex-col items-start justify-between rounded-2xl border border-border/70 bg-background/55 p-4 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-border hover:bg-muted/30 hover:shadow-md disabled:cursor-default disabled:hover:translate-y-0 disabled:hover:border-border/70 disabled:hover:bg-background/55 disabled:hover:shadow-sm"
+                className="group inline-flex h-9 cursor-pointer items-center gap-2 rounded-full border border-border/70 bg-background/55 px-3.5 text-left text-xs font-medium text-foreground shadow-sm transition-colors hover:border-border hover:bg-muted/40 disabled:cursor-default disabled:opacity-60 disabled:hover:border-border/70 disabled:hover:bg-background/55"
               >
                 <Icon
                   className={cn(
-                    "h-5 w-5 shrink-0 transition-transform group-hover:-translate-y-px",
+                    "h-4 w-4 shrink-0 transition-transform group-hover:scale-105",
                     suggestion.iconClassName,
                   )}
                 />
-                <span className="mt-5 text-sm font-medium leading-snug text-foreground">{title}</span>
+                <span className="whitespace-nowrap">{title}</span>
               </button>
             )
           })}

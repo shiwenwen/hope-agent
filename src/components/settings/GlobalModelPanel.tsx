@@ -22,6 +22,13 @@ import { ModelSelector } from "@/components/ui/model-selector"
 import { ModelChainEditor, type ModelChainRef } from "@/components/ui/model-chain-editor"
 import { Slider } from "@/components/ui/slider"
 import { Button } from "@/components/ui/button"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { IconTip } from "@/components/ui/tooltip"
 import type { AvailableModel, ActiveModelRef } from "./types"
 
@@ -332,11 +339,9 @@ export default function GlobalModelPanel() {
         <div className="text-xs font-medium text-muted-foreground mb-2 px-1">
           {t("settings.reasoningEffort", "Think")}
         </div>
-        <select
-          className="h-9 w-full rounded-md border border-border bg-background px-3 text-sm"
+        <Select
           value={globalReasoningEffort}
-          onChange={(event) => {
-            const effort = event.target.value
+          onValueChange={(effort) => {
             setGlobalReasoningEffort(effort)
             getTransport()
               .call("set_global_reasoning_effort", { effort })
@@ -350,14 +355,19 @@ export default function GlobalModelPanel() {
               )
           }}
         >
-          {(["none", "minimal", "low", "medium", "high", "xhigh"] as const).map(
-            (effort) => (
-              <option key={effort} value={effort}>
-                {effort}
-              </option>
-            ),
-          )}
-        </select>
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {(["none", "minimal", "low", "medium", "high", "xhigh"] as const).map(
+              (effort) => (
+                <SelectItem key={effort} value={effort}>
+                  {effort}
+                </SelectItem>
+              ),
+            )}
+          </SelectContent>
+        </Select>
       </div>
 
       <div className="border-t border-border/50 mb-6 mt-6" />

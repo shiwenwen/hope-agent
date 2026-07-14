@@ -605,6 +605,22 @@ pub async fn set_theme(theme: String) -> Result<(), CmdError> {
 }
 
 #[tauri::command]
+pub async fn get_enhanced_focus_indicators() -> Result<bool, CmdError> {
+    let store = ha_core::config::load_config()?;
+    Ok(store.enhanced_focus_indicators)
+}
+
+#[tauri::command]
+pub async fn set_enhanced_focus_indicators(enabled: bool) -> Result<(), CmdError> {
+    ha_core::config::mutate_config_async(("focus_indicator", "settings-ui"), move |store| {
+        store.enhanced_focus_indicators = enabled;
+        Ok(())
+    })
+    .await
+    .map_err(Into::into)
+}
+
+#[tauri::command]
 pub async fn get_language() -> Result<String, CmdError> {
     let store = ha_core::config::load_config()?;
     Ok(store.language)

@@ -28,7 +28,7 @@ import {
 import { cn } from "@/lib/utils"
 import { basename } from "@/lib/path"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
+import { SearchInput } from "@/components/ui/search-input"
 import { IconTip } from "@/components/ui/tooltip"
 import {
   Select,
@@ -456,7 +456,7 @@ export function FileBrowserView({
       {gitInfo.worktrees.length > 1 ? (
         <Select value={selectedWorktreePath} onValueChange={jumpToWorktree}>
           <SelectTrigger
-            className="h-7 min-w-0 flex-1 gap-1.5 rounded-md bg-background/70 px-2 py-0 text-xs shadow-sm"
+            className="h-7 min-w-0 flex-1 gap-1.5 px-2 py-0 text-xs"
             data-ha-title-tip={gitTitle}
           >
             {gitLabel}
@@ -475,7 +475,7 @@ export function FileBrowserView({
         </Select>
       ) : (
         <div
-          className="flex h-7 min-w-0 flex-1 items-center gap-1.5 rounded-md border border-input bg-background/70 px-2 text-xs text-foreground shadow-sm"
+          className="flex h-7 min-w-0 flex-1 items-center gap-1.5 rounded-lg border border-border/60 bg-background/40 px-2 text-xs text-foreground"
           data-ha-title-tip={gitTitle}
         >
           {gitLabel}
@@ -499,7 +499,7 @@ export function FileBrowserView({
     <div className="border-b bg-background/80 px-2 py-1.5">
       <div className="relative">
         <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-        <Input
+        <SearchInput
           value={searchQuery}
           onChange={(e) => onSearchQueryChange(e.target.value)}
           onKeyDown={onSearchKeyDown}

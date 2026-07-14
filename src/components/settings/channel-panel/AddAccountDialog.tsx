@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next"
 import { getTransport } from "@/lib/transport-provider"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { NumberInput } from "@/components/ui/number-input"
 import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
@@ -547,8 +548,7 @@ export default function AddAccountDialog({
                     </div>
                     <div className="space-y-2">
                       <Label>{t("channels.ircPort", "Port")}</Label>
-                      <Input
-                        type="number"
+                      <NumberInput
                         placeholder="6697"
                         value={ircPort}
                         onChange={(e) => { setIrcPort(e.target.value); setValidationResult(null); setValidationError(null) }}

@@ -5,6 +5,7 @@ import {
   FLOATING_MENU_RADIX_MOTION_CLASS,
   FLOATING_MENU_SURFACE_CLASS,
 } from "@/components/ui/floating-menu"
+import { FLAT_CONTROL_SURFACE_CLASS } from "@/components/ui/control-surface"
 import { cn } from "@/lib/utils"
 
 const Select = SelectPrimitive.Root
@@ -18,14 +19,15 @@ const SelectTrigger = React.forwardRef<
   <SelectPrimitive.Trigger
     ref={ref}
     className={cn(
-      "flex h-9 w-full items-center justify-between gap-2 rounded-md border border-input bg-transparent px-3 py-2 text-sm text-foreground shadow-sm transition-colors placeholder:text-muted-foreground hover:bg-secondary/50 focus:outline-none focus:border-ring disabled:cursor-not-allowed disabled:opacity-50 [&>span]:line-clamp-1",
+      FLAT_CONTROL_SURFACE_CLASS,
+      "flex h-9 w-full items-center justify-between gap-1.5 px-2.5 py-1.5 text-sm placeholder:text-muted-foreground [&>span]:line-clamp-1",
       className,
     )}
     {...props}
   >
     {children}
     <SelectPrimitive.Icon asChild>
-      <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-50" />
+      <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground/70" />
     </SelectPrimitive.Icon>
   </SelectPrimitive.Trigger>
 ))

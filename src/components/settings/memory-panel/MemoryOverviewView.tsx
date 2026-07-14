@@ -43,6 +43,15 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
+import { NumberInput } from "@/components/ui/number-input"
+import { SearchInput } from "@/components/ui/search-input"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
@@ -1251,31 +1260,35 @@ export default function MemoryOverviewView({
             </Button>
           </div>
           {draft.kind !== "global" && (
-            <select
-              id={`${idPrefix}-scope-target`}
-              value={selectedId}
-              onChange={(event) =>
+            <Select
+              value={
+                scopedOptions.some((option) => option.id === selectedId) ? selectedId : ""
+              }
+              onValueChange={(id) =>
                 setDraft((current) => ({
                   ...current,
-                  id: event.target.value,
+                  id,
                 }))
               }
-              className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+              disabled={scopedOptions.length === 0}
             >
-              {scopedOptions.length === 0 ? (
-                <option value="">
-                  {draft.kind === "agent"
-                    ? t("settings.memoryExperienceNoAgents", "No agents available")
-                    : t("settings.memoryExperienceNoProjects", "No projects available")}
-                </option>
-              ) : (
-                scopedOptions.map((option) => (
-                  <option key={option.id} value={option.id}>
+              <SelectTrigger id={`${idPrefix}-scope-target`}>
+                <SelectValue
+                  placeholder={
+                    draft.kind === "agent"
+                      ? t("settings.memoryExperienceNoAgents", "No agents available")
+                      : t("settings.memoryExperienceNoProjects", "No projects available")
+                  }
+                />
+              </SelectTrigger>
+              <SelectContent>
+                {scopedOptions.map((option) => (
+                  <SelectItem key={option.id} value={option.id}>
                     {option.name}
-                  </option>
-                ))
-              )}
-            </select>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           )}
         </div>
       )
@@ -5734,7 +5747,7 @@ export default function MemoryOverviewView({
             <div className="mt-3 flex flex-col gap-2 sm:flex-row">
               <div className="relative min-w-0 flex-1">
                 <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-                <Input
+                <SearchInput
                   value={experienceQuery}
                   onChange={(event) => setExperienceQuery(event.target.value)}
                   onKeyDown={(event) => {
@@ -5865,28 +5878,50 @@ export default function MemoryOverviewView({
               </Button>
               {experienceScopeFilter.kind !== "all" &&
                 experienceScopeFilter.kind !== "global" && (
-                  <select
-                    value={experienceScopeFilter.id}
-                    onChange={(event) =>
+                  <Select
+                    value={
+                      (experienceScopeFilter.kind === "agent"
+                        ? agentOptions
+                        : projectOptions
+                      ).some((option) => option.id === experienceScopeFilter.id)
+                        ? experienceScopeFilter.id
+                        : ""
+                    }
+                    onValueChange={(id) =>
                       void applyExperienceView({
                         scopeFilter: {
                           ...experienceScopeFilter,
-                          id: event.target.value,
+                          id,
                         },
                       })
                     }
-                    disabled={experienceSearchLoading}
-                    className="h-7 max-w-[240px] rounded-md border border-input bg-background px-2 text-[11px]"
+                    disabled={
+                      experienceSearchLoading ||
+                      (experienceScopeFilter.kind === "agent"
+                        ? agentOptions.length === 0
+                        : projectOptions.length === 0)
+                    }
                   >
-                    {(experienceScopeFilter.kind === "agent"
-                      ? agentOptions
-                      : projectOptions
-                    ).map((option) => (
-                      <option key={option.id} value={option.id}>
-                        {option.name}
-                      </option>
-                    ))}
-                  </select>
+                    <SelectTrigger className="h-7 max-w-[240px] text-[11px]">
+                      <SelectValue
+                        placeholder={
+                          experienceScopeFilter.kind === "agent"
+                            ? t("settings.memoryExperienceNoAgents", "No agents available")
+                            : t("settings.memoryExperienceNoProjects", "No projects available")
+                        }
+                      />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(experienceScopeFilter.kind === "agent"
+                        ? agentOptions
+                        : projectOptions
+                      ).map((option) => (
+                        <SelectItem key={option.id} value={option.id}>
+                          {option.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 )}
             </div>
             {experienceHasCustomView && (
@@ -6296,7 +6331,7 @@ export default function MemoryOverviewView({
                   <div className="flex flex-col gap-2 sm:flex-row">
                     <div className="relative min-w-0 flex-1">
                       <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-                      <Input
+                      <SearchInput
                         value={memoryAuditQuery}
                         onChange={(event) => setMemoryAuditQuery(event.target.value)}
                         onKeyDown={(event) => {
@@ -7235,9 +7270,8 @@ export default function MemoryOverviewView({
                   <label className="text-xs font-medium" htmlFor="memory-procedure-confidence">
                     {t("settings.memoryProcedureConfidence", "Confidence")}
                   </label>
-                  <Input
+                  <NumberInput
                     id="memory-procedure-confidence"
-                    type="number"
                     min={0}
                     max={100}
                     step={5}

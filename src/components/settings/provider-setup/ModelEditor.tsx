@@ -207,7 +207,7 @@ export function ModelEditor({
                 contextWindow: value,
               })
             }
-            className="bg-background text-xs h-8"
+            className="h-8 text-xs"
           />
         </div>
         <div className="space-y-1">
@@ -216,7 +216,7 @@ export function ModelEditor({
             value={model.maxTokens}
             min={0}
             onValueCommit={(value) => onChange({ ...model, maxTokens: value })}
-            className="bg-background text-xs h-8"
+            className="h-8 text-xs"
           />
         </div>
       </div>
@@ -245,7 +245,7 @@ export function ModelEditor({
             })
           }
         >
-          <SelectTrigger className="bg-background text-xs h-8">
+          <SelectTrigger className="h-8 text-xs">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -273,7 +273,7 @@ export function ModelEditor({
                 costInput: value,
               })
             }
-            className="bg-background text-xs h-8"
+            className="h-8 text-xs"
           />
         </div>
         <div className="space-y-1">
@@ -289,7 +289,7 @@ export function ModelEditor({
                 costOutput: value,
               })
             }
-            className="bg-background text-xs h-8"
+            className="h-8 text-xs"
           />
         </div>
       </div>

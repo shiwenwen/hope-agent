@@ -12,7 +12,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
+import { SearchInput } from "@/components/ui/search-input"
 import {
   Dialog,
   DialogContent,
@@ -4132,7 +4132,7 @@ export default function ClaimsBetaView({ focus }: ClaimsBetaViewProps) {
             <div className="flex min-w-0 items-center gap-1.5">
               <div className="relative min-w-[160px] flex-1">
                 <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-                <Input
+                <SearchInput
                   type="search"
                   value={claimSearchQuery}
                   onChange={(event) => {
@@ -4340,7 +4340,7 @@ export default function ClaimsBetaView({ focus }: ClaimsBetaViewProps) {
                     </Select>
                     <div className="relative min-w-[160px] flex-1">
                       <Search className="absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-muted-foreground" />
-                      <Input
+                      <SearchInput
                         type="search"
                         value={reviewHistoryQuery}
                         onChange={(event) => setReviewHistoryQuery(event.target.value)}

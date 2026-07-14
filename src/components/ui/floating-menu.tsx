@@ -42,7 +42,7 @@ export const FLOATING_MENU_SURFACE_CLASS =
 export const FLOATING_MENU_RADIX_MOTION_CLASS = "ha-radix-menu-motion"
 
 export const FLOATING_MENU_ITEM_CLASS =
-  "flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left text-[13px] outline-none transition-colors duration-150 hover:bg-secondary/60 hover:text-foreground focus-visible:bg-secondary/60 focus-visible:text-foreground"
+  "ha-focus-item flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left text-[13px] outline-none transition-colors duration-150 hover:bg-secondary/60 hover:text-foreground focus-visible:bg-secondary/60 focus-visible:text-foreground"
 
 export function FloatingMenu({
   open,

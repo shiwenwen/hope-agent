@@ -110,6 +110,22 @@ ha-core 主要领域：`agent/` `chat_engine/` `context_compact/` `memory/` `kno
 
 每个子系统的细节都在对应 `docs/architecture/<name>.md`；本节只列跨 PR 必守的契约和红线。
 
+### UI 表单控件与焦点
+
+详见 [`ui-interaction-system.md`](docs/architecture/ui-interaction-system.md)。
+
+- **组件入口唯一**：搜索用 `SearchInput`；普通下拉用 Radix `Select`；分组模型选择用
+  `ModelSelector` / `ModelChainEditor`；数字输入用 `NumberInput` / `DeferredNumberInput`。
+  业务组件禁止裸 `<select>`、裸 `<input type="number">`、`Input type="number"` 和 `NativeSelect`。
+- **扁平表面单一来源**：选择类控件和数字框必须复用 `FLAT_CONTROL_SURFACE_CLASS`；搜索框
+  使用 `SearchInput` 的无边框表面。业务侧只覆盖尺寸与布局，禁止恢复 `shadow-sm`、深色边框
+  或复制背景/边框/圆角整套 class。
+- **焦点与高对比度**：组件不得自行添加 `focus:ring-*` / `focus:border-*`；Pointer、Keyboard、
+  enhanced、`prefers-contrast` 和 `forced-colors` 全部服从全局焦点协议。强制色模式必须保留
+  系统边框，不能只靠半透明背景表达控件边界。
+- **工具栏例外**：聊天输入区的模型/权限入口属于 ghost action，可保持无边框紧凑按钮；
+  设置页全尺寸字段不得借此绕过表单控件标准。
+
 ### 分层 & 运行模式
 
 详见 [`process-model.md`](docs/architecture/process-model.md) / [`backend-separation.md`](docs/architecture/backend-separation.md) / [`transport-modes.md`](docs/architecture/transport-modes.md)。

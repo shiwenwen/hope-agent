@@ -67,6 +67,7 @@ import {
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { SearchInput } from "@/components/ui/search-input"
 import {
   Select,
   SelectContent,
@@ -3082,7 +3083,7 @@ function ContextRetrievalSection({
         >
           <div className="relative min-w-0 flex-1">
             <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground/70" />
-            <Input
+            <SearchInput
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               disabled={disabled}
@@ -17537,7 +17538,7 @@ function WorkflowCreateComposer({
                       saving || previewLoading || domainDraftLoading || domainTemplates.length === 0
                     }
                   >
-                    <SelectTrigger className="h-8 bg-background/60 text-xs">
+                    <SelectTrigger className="h-8 text-xs">
                       <SelectValue
                         placeholder={t("workspace.workflow.domainTemplatePlaceholder", "选择模板")}
                       />
@@ -17564,7 +17565,7 @@ function WorkflowCreateComposer({
                       selectedDomainTemplate.taskTypes.length <= 1
                     }
                   >
-                    <SelectTrigger className="h-8 bg-background/60 text-xs">
+                    <SelectTrigger className="h-8 text-xs">
                       <SelectValue
                         placeholder={t("workspace.workflow.domainTaskTypePlaceholder", "任务类型")}
                       />
@@ -18906,7 +18907,7 @@ function GoalDomainTemplatePicker({
           onValueChange={onTemplateChange}
           disabled={disabled || loading}
         >
-          <SelectTrigger className="h-8 bg-background/60 text-xs">
+          <SelectTrigger className="h-8 text-xs">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -18928,7 +18929,7 @@ function GoalDomainTemplatePicker({
           onValueChange={onTaskTypeChange}
           disabled={disabled || !selectedTemplate || selectedTemplate.taskTypes.length <= 1}
         >
-          <SelectTrigger className="h-8 bg-background/60 text-xs">
+          <SelectTrigger className="h-8 text-xs">
             <SelectValue placeholder={t("workspace.goal.domainTaskTypePlaceholder", "任务类型")} />
           </SelectTrigger>
           <SelectContent>

@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import { logger } from "@/lib/logger"
 import { Label } from "@/components/ui/label"
-import { Input } from "@/components/ui/input"
+import { SearchInput } from "@/components/ui/search-input"
 import { DeferredNumberInput } from "@/components/ui/deferred-number-input"
 import { Switch } from "@/components/ui/switch"
 import { Button } from "@/components/ui/button"
@@ -225,7 +225,7 @@ export function WeatherSection({ config, update }: WeatherSectionProps) {
               <Label className="text-xs">{t("settings.weatherCity")}</Label>
               <div className="relative flex gap-1.5">
                 <div className="relative flex-1">
-                  <Input
+                  <SearchInput
                     placeholder={t("settings.weatherCityPlaceholder")}
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}

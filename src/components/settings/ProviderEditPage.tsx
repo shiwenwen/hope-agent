@@ -253,7 +253,7 @@ export default function ProviderEditPage({
                   {t("provider.apiType")}
                 </label>
                 <Select value={editApiType} onValueChange={(v) => setEditApiType(v as ApiType)}>
-                  <SelectTrigger className="bg-background text-xs font-medium">
+                  <SelectTrigger className="text-xs font-medium">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -316,7 +316,7 @@ export default function ProviderEditPage({
                   value={editThinkingStyle}
                   onValueChange={(v) => setEditThinkingStyle(v as ThinkingStyleType)}
                 >
-                  <SelectTrigger className="bg-background text-xs font-medium">
+                  <SelectTrigger className="text-xs font-medium">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>

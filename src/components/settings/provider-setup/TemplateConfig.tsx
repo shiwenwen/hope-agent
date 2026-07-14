@@ -179,7 +179,7 @@ export function TemplateConfig({
               {t("provider.apiType")}
             </label>
             <Select value={apiType} onValueChange={(v) => setApiType(v as ApiType)}>
-              <SelectTrigger className="bg-background text-xs font-medium">
+              <SelectTrigger className="text-xs font-medium">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -249,7 +249,7 @@ export function TemplateConfig({
               value={thinkingStyle}
               onValueChange={(v) => setThinkingStyle(v as ThinkingStyleType)}
             >
-              <SelectTrigger className="bg-background text-xs font-medium">
+              <SelectTrigger className="text-xs font-medium">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>

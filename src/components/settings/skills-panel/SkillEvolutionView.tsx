@@ -13,6 +13,7 @@ import {
 import { Switch } from "@/components/ui/switch"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { NumberInput } from "@/components/ui/number-input"
 import { Textarea } from "@/components/ui/textarea"
 import { IconTip } from "@/components/ui/tooltip"
 import { getTransport } from "@/lib/transport-provider"
@@ -1129,8 +1130,7 @@ function NumField({
       disabled={disabled}
     >
       <div className="flex items-center gap-2">
-        <Input
-          type="number"
+        <NumberInput
           value={local}
           min={min}
           max={max}

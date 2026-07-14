@@ -29,6 +29,7 @@ import {
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { NumberInput } from "@/components/ui/number-input"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
@@ -657,8 +658,7 @@ function TimeoutInput({
   return (
     <div className="space-y-1">
       <Label className="text-xs">{label}</Label>
-      <Input
-        type="number"
+      <NumberInput
         value={value}
         onChange={(e) => onChange(e.target.value)}
         min={min}

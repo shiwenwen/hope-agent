@@ -1079,6 +1079,7 @@
       }
     },
     "projectRuntime": {
+      "selectProject": "Select project",
       "removeProject": "Work outside this project",
       "searchProjects": "Search projects",
       "noProject": "Not in a project",
@@ -3419,6 +3420,8 @@
     "agentsDesc": "Defina e gerencie Agentes de IA. Cada Agente pode ter identidade, capacidades e comportamento diferentes.",
     "appearance": "Aparência",
     "appearanceDesc": "Escolha o modo de aparência do tema",
+    "enhancedFocusIndicators": "Indicadores de foco aprimorados",
+    "enhancedFocusIndicatorsDesc": "Mostra sempre um indicador de foco mais claro. Os modos de alto contraste do sistema são reforçados automaticamente.",
     "approvalNav": "Permissões",
     "approvalPanel": {
       "dangerousCommandsDesc": "Força aprovação e não pode ser Permitir sempre. O modo YOLO ignora, mas ainda escreve logs de auditoria.",

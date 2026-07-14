@@ -5021,7 +5021,7 @@ describe("WorkspacePanel workflow section", () => {
 
     expect(await screen.findByText("运行摘要")).toBeTruthy()
     expect(screen.getByText("6m")).toBeTruthy()
-    expect(screen.getAllByText("1/1").length).toBeGreaterThan(0)
+    expect((await screen.findAllByText("1/1")).length).toBeGreaterThan(0)
     expect(screen.getByText("大")).toBeTruthy()
     expect(screen.getByText("3m · 24 步 · 10.0k Token")).toBeTruthy()
     expect(screen.getByText("Token/成本等待工作流运行归因接入；当前不估算。")).toBeTruthy()

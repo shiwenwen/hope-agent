@@ -58,6 +58,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
+import { SearchInput } from "@/components/ui/search-input"
 import { FloatingMenu } from "@/components/ui/floating-menu"
 import {
   Select,
@@ -1989,7 +1990,7 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
             (the input is a child, so clicking it still types). */}
         <div className="relative flex-1 min-w-0" data-tauri-drag-region>
           <Search className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-          <Input
+          <SearchInput
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => {
@@ -2384,7 +2385,7 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
                   onKeyDown={(e) => {
                     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) void saveDraft()
                   }}
-                  className="h-7 flex-1 border-0 bg-transparent px-1 text-sm font-medium shadow-none focus-visible:ring-0"
+                  className="h-7 flex-1 border-0 bg-transparent px-1 text-sm font-medium shadow-none"
                 />
                 <ModeSwitch mode={mode} onChange={handleModeChange} compact={compactToolbar} />
                 <Button variant="outline" size="sm" className="h-7" disabled={saving} onClick={saveDraft}>

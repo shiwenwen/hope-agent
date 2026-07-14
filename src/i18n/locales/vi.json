@@ -1079,6 +1079,7 @@
       }
     },
     "projectRuntime": {
+      "selectProject": "Select project",
       "removeProject": "Work outside this project",
       "searchProjects": "Search projects",
       "noProject": "Not in a project",
@@ -3419,6 +3420,8 @@
     "agentsDesc": "Định nghĩa và quản lý AI Agent. Mỗi Agent có thể có danh tính, khả năng và hành vi khác nhau.",
     "appearance": "Giao diện",
     "appearanceDesc": "Chọn chế độ giao diện chủ đề",
+    "enhancedFocusIndicators": "Chỉ báo tiêu điểm nâng cao",
+    "enhancedFocusIndicatorsDesc": "Luôn hiển thị chỉ báo tiêu điểm rõ hơn. Chế độ tương phản cao của hệ thống sẽ tự động tăng cường hiển thị.",
     "approvalNav": "Quyền",
     "approvalPanel": {
       "dangerousCommandsDesc": "Bắt buộc phê duyệt và không thể đặt Luôn cho phép. Chế độ YOLO bỏ qua nhưng vẫn ghi log kiểm toán.",

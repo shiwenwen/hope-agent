@@ -27,7 +27,7 @@ export default function AgentSelector({
 
   return (
     <Select value={value} onValueChange={onChange} disabled={disabled || loading}>
-      <SelectTrigger className="h-8 text-xs bg-secondary/40">
+      <SelectTrigger className="h-8 text-xs">
         {selectedAgent ? (
           <AgentSelectDisplay agent={selectedAgent} size="xs" />
         ) : (

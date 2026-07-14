@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/alert-dialog"
 import { IconTip } from "@/components/ui/tooltip"
 import { FloatingMenu } from "@/components/ui/floating-menu"
-import { Input } from "@/components/ui/input"
+import { SearchInput } from "@/components/ui/search-input"
 import { cn } from "@/lib/utils"
 import { Bot, ListCollapse, Loader2, MessageSquarePlus, PanelLeft, Rows3, Search, X } from "lucide-react"
 import { getTransport } from "@/lib/transport-provider"
@@ -587,14 +587,14 @@ export default function ChatSidebar({
             <div className="shrink-0 border-b border-border/40 px-3 pb-2 pt-1">
               <div className="relative" onMouseDown={handleSearchSurfaceMouseDown}>
                 <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground/60 pointer-events-none" />
-                <Input
+                <SearchInput
                   ref={searchInputRef}
                   aria-label={t("chat.searchPlaceholder") || ""}
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   onKeyDown={handleSearchKeyDown}
                   placeholder={t("chat.searchPlaceholder")}
-                  className="h-7 pl-7 pr-7 text-xs border-none shadow-none bg-muted/50 rounded-md focus-visible:ring-0 focus-visible:bg-muted/80 placeholder:text-muted-foreground/50"
+                  className="h-7 pl-7 pr-7 text-xs focus-visible:bg-muted/80 placeholder:text-muted-foreground/50"
                 />
                 {searchQuery && (
                   <button

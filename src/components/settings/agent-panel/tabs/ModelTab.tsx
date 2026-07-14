@@ -28,8 +28,17 @@ import {
 } from "@dnd-kit/sortable"
 import { CSS } from "@dnd-kit/utilities"
 import { Slider } from "@/components/ui/slider"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { IconTip } from "@/components/ui/tooltip"
 import type { AgentConfig, AvailableModel, ActiveModelRef } from "../types"
+
+const INHERIT_REASONING_EFFORT = "__inherit_reasoning_effort__"
 
 function SortableFallbackItem({
   id,
@@ -366,27 +375,33 @@ export default function ModelTab({ config, availableModels, updateConfig }: Mode
               {t("settings.reasoningEffort", "Think")}
             </div>
             <div className="flex items-center gap-3 px-1">
-              <select
-                className="h-8 flex-1 rounded-md border border-border bg-background px-2 text-sm"
-                value={config.model.reasoningEffort ?? ""}
-                onChange={(event) =>
+              <Select
+                value={config.model.reasoningEffort ?? INHERIT_REASONING_EFFORT}
+                onValueChange={(value) =>
                   updateConfig({
                     model: {
                       ...config.model,
-                      reasoningEffort: event.target.value || null,
+                      reasoningEffort: value === INHERIT_REASONING_EFFORT ? null : value,
                     },
                   })
                 }
               >
-                <option value="">{t("settings.inheritGlobal", "跟随全局")}</option>
-                {(["none", "minimal", "low", "medium", "high", "xhigh"] as const).map(
-                  (effort) => (
-                    <option key={effort} value={effort}>
-                      {effort}
-                    </option>
-                  ),
-                )}
-              </select>
+                <SelectTrigger className="h-8 flex-1">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={INHERIT_REASONING_EFFORT}>
+                    {t("settings.inheritGlobal", "跟随全局")}
+                  </SelectItem>
+                  {(["none", "minimal", "low", "medium", "high", "xhigh"] as const).map(
+                    (effort) => (
+                      <SelectItem key={effort} value={effort}>
+                        {effort}
+                      </SelectItem>
+                    ),
+                  )}
+                </SelectContent>
+              </Select>
               <IconTip label={t("settings.temperatureReset")}>
                 <Button
                   variant="ghost"

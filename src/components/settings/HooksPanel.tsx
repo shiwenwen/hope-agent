@@ -3,6 +3,7 @@ import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { Switch } from "@/components/ui/switch"
 import { Input } from "@/components/ui/input"
+import { NumberInput } from "@/components/ui/number-input"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import {
@@ -202,8 +203,7 @@ function FieldInput({
       return <Switch checked={value === true} onCheckedChange={(c) => onChange(c || undefined)} />
     case "number":
       return (
-        <Input
-          type="number"
+        <NumberInput
           value={value == null ? "" : String(value)}
           onChange={(e) => onChange(e.target.value === "" ? undefined : Number(e.target.value))}
           className="h-8"

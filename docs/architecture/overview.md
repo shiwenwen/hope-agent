@@ -260,6 +260,7 @@ graph LR
 | 本地模型加载（Ollama） | [本地模型加载](local-model-loading.md) |
 | 提示词 13 段组装 | [提示词系统](prompt-system.md) |
 | 工具定义/执行/权限 | [工具系统](tool-system.md) |
+| 表单控件 / 焦点 / 菜单 / Tooltip | [UI 交互与表面设计系统](ui-interaction-system.md) |
 | 上下文压缩 5 层 + mid-loop checkpoint | [上下文压缩](context-compact.md) |
 | 会话 & 消息持久化 | [Session 系统](session.md) |
 | 项目容器 & 默认工作目录 | [Project 系统](project.md) |

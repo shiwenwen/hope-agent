@@ -1362,6 +1362,14 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   // -- Theme / Language / UI --
   get_theme: { method: "GET", path: "/api/config/theme" },
   set_theme: { method: "POST", path: "/api/config/theme" },
+  get_enhanced_focus_indicators: {
+    method: "GET",
+    path: "/api/config/enhanced-focus-indicators",
+  },
+  set_enhanced_focus_indicators: {
+    method: "POST",
+    path: "/api/config/enhanced-focus-indicators",
+  },
   set_window_theme: { method: "POST", path: "/api/config/window-theme" },
   get_language: { method: "GET", path: "/api/config/language" },
   set_language: { method: "POST", path: "/api/config/language" },

@@ -1212,7 +1212,7 @@ function ActiveMemoryTrace({
                                     : current,
                                 )
                               }
-                              className="min-h-20 w-full resize-y rounded-md border border-border/70 bg-background px-2 py-1.5 text-[11px] leading-relaxed text-foreground outline-none focus:border-primary/40 disabled:opacity-70"
+                              className="min-h-20 w-full resize-y rounded-md border border-border/70 bg-background px-2 py-1.5 text-[11px] leading-relaxed text-foreground outline-none disabled:opacity-70"
                               placeholder={t(
                                 "chat.memoryTrace.quickEditPlaceholder",
                                 "Rewrite this memory...",
