@@ -6,12 +6,17 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import type { AvailableModel } from "@/types/chat"
 import ModelPicker from "./ModelPicker"
+import type { UnsupportedModelBehavior } from "@/components/chat/model-capabilities"
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
     t: (key: string, fallback?: string | { defaultValue?: string }) =>
       typeof fallback === "string" ? fallback : (fallback?.defaultValue ?? key),
   }),
+}))
+
+vi.mock("@/components/common/ProviderIcon", () => ({
+  default: () => <span data-testid="provider-icon" />,
 }))
 
 const models: AvailableModel[] = [
@@ -21,7 +26,7 @@ const models: AvailableModel[] = [
     apiType: "openai-chat",
     modelId: "gpt-test",
     modelName: "GPT Test",
-    inputTypes: ["text"],
+    inputTypes: ["text", "image", "video"],
     contextWindow: 128_000,
     maxTokens: 4_096,
     reasoning: true,
@@ -71,7 +76,10 @@ function mockGeometry({
   })
 }
 
-async function openModelSubmenu() {
+async function openModelSubmenu(options: {
+  requiredInputTypes?: string[]
+  unsupportedBehavior?: UnsupportedModelBehavior
+} = {}) {
   const onModelChange = vi.fn()
   render(
     <TooltipProvider>
@@ -83,6 +91,7 @@ async function openModelSubmenu() {
         onEffortChange={vi.fn()}
         currentModelInfo={models[0]}
         sessionTemperature={null}
+        {...options}
       />
     </TooltipProvider>,
   )
@@ -97,8 +106,8 @@ async function openModelSubmenu() {
   })
 
   fireEvent.mouseEnter(modelRow!)
-  await screen.findByRole("button", { name: "GPT Other" })
-  return { modelRow, onModelChange, submenu: screen.getByRole("menu") }
+  const submenu = await screen.findByRole("menu")
+  return { modelRow, onModelChange, submenu }
 }
 
 afterEach(() => {
@@ -107,6 +116,41 @@ afterEach(() => {
 })
 
 describe("ModelPicker", () => {
+  it("disables models missing required input types by default", async () => {
+    const { onModelChange } = await openModelSubmenu({ requiredInputTypes: ["image"] })
+    const unsupportedModel = screen.getByRole("button", { name: "GPT Other" })
+
+    expect((unsupportedModel as HTMLButtonElement).disabled).toBe(true)
+    fireEvent.click(unsupportedModel)
+    expect(onModelChange).not.toHaveBeenCalled()
+  })
+
+  it("can hide models missing required input types", async () => {
+    await openModelSubmenu({
+      requiredInputTypes: ["image"],
+      unsupportedBehavior: "hide",
+    })
+
+    expect(screen.queryByRole("button", { name: "GPT Other" })).toBeNull()
+  })
+
+  it("shows provider branding and model media capabilities", async () => {
+    mockGeometry({
+      viewportWidth: 1_200,
+      viewportHeight: 800,
+      left: 300,
+      right: 560,
+      top: 200,
+      bottom: 600,
+    })
+
+    await openModelSubmenu()
+
+    expect(screen.getAllByTestId("provider-icon").length).toBeGreaterThan(0)
+    expect(screen.getByLabelText("model.supportsImageMultimodal")).toBeTruthy()
+    expect(screen.getByLabelText("model.supportsVideoMultimodal")).toBeTruthy()
+  })
+
   it("keeps a top-positioned model submenu open while the pointer crosses root items", async () => {
     mockGeometry({
       viewportWidth: 400,

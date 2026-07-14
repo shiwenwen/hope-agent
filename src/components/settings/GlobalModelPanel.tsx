@@ -22,14 +22,8 @@ import { ModelSelector } from "@/components/ui/model-selector"
 import { ModelChainEditor, type ModelChainRef } from "@/components/ui/model-chain-editor"
 import { Slider } from "@/components/ui/slider"
 import { Button } from "@/components/ui/button"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 import { IconTip } from "@/components/ui/tooltip"
+import { ReasoningEffortSelect } from "@/components/ui/reasoning-effort-select"
 import type { AvailableModel, ActiveModelRef } from "./types"
 
 function SortableFallbackItem({
@@ -339,9 +333,10 @@ export default function GlobalModelPanel() {
         <div className="text-xs font-medium text-muted-foreground mb-2 px-1">
           {t("settings.reasoningEffort", "Think")}
         </div>
-        <Select
+        <ReasoningEffortSelect
           value={globalReasoningEffort}
-          onValueChange={(effort) => {
+          onChange={(effort) => {
+            if (!effort) return
             setGlobalReasoningEffort(effort)
             getTransport()
               .call("set_global_reasoning_effort", { effort })
@@ -354,20 +349,7 @@ export default function GlobalModelPanel() {
                 ),
               )
           }}
-        >
-          <SelectTrigger>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {(["none", "minimal", "low", "medium", "high", "xhigh"] as const).map(
-              (effort) => (
-                <SelectItem key={effort} value={effort}>
-                  {effort}
-                </SelectItem>
-              ),
-            )}
-          </SelectContent>
-        </Select>
+        />
       </div>
 
       <div className="border-t border-border/50 mb-6 mt-6" />

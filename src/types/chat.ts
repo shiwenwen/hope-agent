@@ -339,7 +339,13 @@ export interface Message {
   }
   /** Model picker data for rendering interactive model selection cards */
   modelPickerData?: {
-    models: { providerId: string; providerName: string; modelId: string; modelName: string }[]
+    models: {
+      providerId: string
+      providerName: string
+      modelId: string
+      modelName: string
+      inputTypes?: string[]
+    }[]
     activeProviderId?: string
     activeModelId?: string
   }

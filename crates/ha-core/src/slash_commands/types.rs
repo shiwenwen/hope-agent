@@ -261,6 +261,8 @@ pub struct ModelPickerItem {
     pub provider_name: String,
     pub model_id: String,
     pub model_name: String,
+    #[serde(default)]
+    pub input_types: Vec<String>,
 }
 
 /// A single project entry for the project picker card surfaced by `/project`.

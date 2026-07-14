@@ -89,6 +89,7 @@ export interface ModelPickerItem {
   providerName: string
   modelId: string
   modelName: string
+  inputTypes?: string[]
 }
 
 /** A project entry surfaced by the `/project` picker. Mirrors Rust
