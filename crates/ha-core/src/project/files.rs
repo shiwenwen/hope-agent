@@ -11,7 +11,7 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::fs::OpenOptions;
 use std::io::ErrorKind;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use super::db::ProjectDB;
 use super::types::{CreateProjectInput, Project, UpdateProjectInput};
@@ -41,6 +41,15 @@ pub struct ProjectInstructionsFile {
     pub content_hash: String,
     /// True when this call created a previously-missing file.
     pub created: bool,
+}
+
+/// AGENTS.md source submitted together with project metadata. This remains a
+/// filesystem draft only; it is never persisted in the project database row.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectInstructionsDraft {
+    pub content: String,
+    pub expected_file_hash: String,
 }
 
 /// Marker error for optimistic-concurrency failures while saving AGENTS.md.
@@ -76,15 +85,24 @@ pub fn resolve_project_dir(project_id: &str, db: &ProjectDB) -> Result<PathBuf> 
     Ok(PathBuf::from(crate::util::ensure_dir_canonical(&ws)?))
 }
 
-/// Create a project and immediately ensure its root `AGENTS.md` exists. The DB
-/// row is removed again when the filesystem operation fails, so callers never
-/// receive a project whose instruction file could not be established.
+/// Create a project, ensure its root `AGENTS.md` exists, and optionally replace
+/// it with a concurrency-checked draft. The DB row is removed again when the
+/// filesystem operation fails, so callers never receive a partially-created
+/// project.
 pub fn create_project_with_instructions_file(
     input: CreateProjectInput,
+    instructions: Option<ProjectInstructionsDraft>,
     db: &ProjectDB,
 ) -> Result<Project> {
     let project = db.create(input)?;
-    if let Err(error) = ensure_project_instructions(&project.id, db) {
+    let prepare_result = (|| -> Result<()> {
+        let created = ensure_project_instructions(&project.id, db)?;
+        if let Some(draft) = instructions {
+            save_project_instructions_draft(&project.id, draft, created, db)?;
+        }
+        Ok(())
+    })();
+    if let Err(error) = prepare_result {
         if let Err(rollback_error) = db.delete(&project.id) {
             anyhow::bail!(
                 "failed to create project AGENTS.md: {error}; project rollback also failed: {rollback_error}"
@@ -96,23 +114,28 @@ pub fn create_project_with_instructions_file(
     Ok(project)
 }
 
-/// Update a project and establish `AGENTS.md` in a newly-selected working
-/// directory before returning. If that filesystem step fails, restore the
-/// previous project record so the project keeps pointing at its usable root.
+/// Update a project, establish `AGENTS.md` in a newly-selected working
+/// directory, and optionally save a concurrency-checked draft. If any
+/// filesystem step fails, restore the previous project record.
 pub fn update_project_with_instructions_file(
     project_id: &str,
     patch: UpdateProjectInput,
+    instructions: Option<ProjectInstructionsDraft>,
     db: &ProjectDB,
 ) -> Result<Project> {
-    if patch.working_dir.is_none() {
-        return db.update(project_id, patch);
-    }
-
     let previous = db
         .get(project_id)?
         .ok_or_else(|| anyhow::anyhow!("project not found: {project_id}"))?;
+    let working_dir_changed = patch.working_dir.is_some();
     let updated = db.update(project_id, patch)?;
-    if let Err(error) = ensure_project_instructions(project_id, db) {
+    let prepare_result = (|| -> Result<()> {
+        let created = working_dir_changed && ensure_project_instructions(project_id, db)?;
+        if let Some(draft) = instructions {
+            save_project_instructions_draft(project_id, draft, created, db)?;
+        }
+        Ok(())
+    })();
+    if let Err(error) = prepare_result {
         let rollback = UpdateProjectInput {
             name: Some(previous.name),
             description: Some(previous.description.unwrap_or_default()),
@@ -133,6 +156,23 @@ pub fn update_project_with_instructions_file(
     Ok(updated)
 }
 
+fn save_project_instructions_draft(
+    project_id: &str,
+    draft: ProjectInstructionsDraft,
+    file_was_created: bool,
+    db: &ProjectDB,
+) -> Result<ProjectInstructionsFile> {
+    let expected_hash = if draft.expected_file_hash.is_empty() {
+        if !file_was_created {
+            return Err(StaleProjectInstructionsError.into());
+        }
+        blake3::hash(b"").to_hex().to_string()
+    } else {
+        draft.expected_file_hash
+    };
+    save_project_instructions(project_id, &draft.content, &expected_hash, db)
+}
+
 /// Ensure `<project-root>/AGENTS.md` exists without reading or rewriting an
 /// existing file. Returns `true` only when a new empty file was created.
 pub fn ensure_project_instructions(project_id: &str, db: &ProjectDB) -> Result<bool> {
@@ -149,7 +189,61 @@ pub fn read_project_instructions(
 ) -> Result<ProjectInstructionsFile> {
     let root = resolve_project_dir(project_id, db)?;
     let created = ensure_instructions_at_root(&root)?;
+    read_project_instructions_at_root(&root, created)
+}
+
+/// Inspect an existing working directory without creating AGENTS.md. Missing
+/// files are represented as an empty draft whose hash matches the empty file
+/// that project creation/update will establish before saving.
+pub fn inspect_project_instructions(working_dir: &str) -> Result<ProjectInstructionsFile> {
+    let canonical = crate::util::canonicalize_working_dir(Some(working_dir))?
+        .ok_or_else(|| anyhow::anyhow!("project working directory is required"))?;
+    let root = PathBuf::from(canonical);
+    inspect_project_instructions_at_root(&root)
+}
+
+/// Inspect the managed default workspace for an existing project. The
+/// workspace directory may be prepared, but a missing AGENTS.md is not created
+/// until the project update is committed.
+pub fn inspect_default_project_instructions(
+    project_id: &str,
+    db: &ProjectDB,
+) -> Result<ProjectInstructionsFile> {
+    if db.get(project_id)?.is_none() {
+        anyhow::bail!("project not found: {project_id}");
+    }
+    let workspace = crate::paths::project_workspace_dir(project_id)?;
+    let canonical = crate::util::ensure_dir_canonical(&workspace)?;
+    inspect_project_instructions_at_root(Path::new(&canonical))
+}
+
+fn inspect_project_instructions_at_root(root: &Path) -> Result<ProjectInstructionsFile> {
     let path = root.join(PROJECT_INSTRUCTIONS_FILE);
+    match std::fs::symlink_metadata(&path) {
+        Ok(_) => read_project_instructions_at_root(root, false),
+        Err(error) if error.kind() == ErrorKind::NotFound => Ok(ProjectInstructionsFile {
+            path: path.to_string_lossy().to_string(),
+            content: String::new(),
+            content_hash: blake3::hash(b"").to_hex().to_string(),
+            created: false,
+        }),
+        Err(error) => Err(error).with_context(|| format!("stat {}", path.display())),
+    }
+}
+
+fn read_project_instructions_at_root(
+    root: &Path,
+    created: bool,
+) -> Result<ProjectInstructionsFile> {
+    let path = root.join(PROJECT_INSTRUCTIONS_FILE);
+    let link_metadata =
+        std::fs::symlink_metadata(&path).with_context(|| format!("stat {}", path.display()))?;
+    if link_metadata.file_type().is_symlink() {
+        anyhow::bail!("project AGENTS.md must not be a symbolic link");
+    }
+    if !link_metadata.is_file() {
+        anyhow::bail!("project AGENTS.md is not a regular file");
+    }
     let metadata = std::fs::metadata(&path).with_context(|| format!("stat {}", path.display()))?;
     if metadata.len() > MAX_PROJECT_INSTRUCTIONS_BYTES {
         anyhow::bail!(
@@ -444,12 +538,38 @@ mod tests {
         let root = tempdir().unwrap();
         let db = project_db(db_dir.path());
 
-        let project = create_project_with_instructions_file(input("Docs", root.path()), &db)
+        let project = create_project_with_instructions_file(input("Docs", root.path()), None, &db)
             .expect("create project");
         let agents_md = root.path().join(PROJECT_INSTRUCTIONS_FILE);
         assert!(agents_md.is_file());
         assert_eq!(std::fs::read_to_string(agents_md).unwrap(), "");
         assert_eq!(project.working_dir.as_deref(), root.path().to_str());
+    }
+
+    #[test]
+    fn project_create_saves_inspected_agents_md_draft() {
+        let db_dir = tempdir().unwrap();
+        let root = tempdir().unwrap();
+        let db = project_db(db_dir.path());
+
+        let inspected = inspect_project_instructions(root.path().to_str().unwrap()).unwrap();
+        assert!(!root.path().join(PROJECT_INSTRUCTIONS_FILE).exists());
+
+        let markdown = "# Project rules\n\n- Keep this on disk.\n";
+        create_project_with_instructions_file(
+            input("Docs", root.path()),
+            Some(ProjectInstructionsDraft {
+                content: markdown.to_string(),
+                expected_file_hash: inspected.content_hash,
+            }),
+            &db,
+        )
+        .expect("create project with instructions");
+
+        assert_eq!(
+            std::fs::read_to_string(root.path().join(PROJECT_INSTRUCTIONS_FILE)).unwrap(),
+            markdown
+        );
     }
 
     #[test]
@@ -479,7 +599,7 @@ mod tests {
         let db_dir = tempdir().unwrap();
         let root = tempdir().unwrap();
         let db = project_db(db_dir.path());
-        let project = create_project_with_instructions_file(input("Docs", root.path()), &db)
+        let project = create_project_with_instructions_file(input("Docs", root.path()), None, &db)
             .expect("create project");
         let loaded = read_project_instructions(&project.id, &db).unwrap();
         let path = root.path().join(PROJECT_INSTRUCTIONS_FILE);
@@ -492,5 +612,35 @@ mod tests {
             .downcast_ref::<StaleProjectInstructionsError>()
             .is_some());
         assert_eq!(std::fs::read_to_string(path).unwrap(), "external edit");
+    }
+
+    #[test]
+    fn stale_draft_rolls_back_project_metadata_update() {
+        let db_dir = tempdir().unwrap();
+        let root = tempdir().unwrap();
+        let db = project_db(db_dir.path());
+        let project = create_project_with_instructions_file(input("Docs", root.path()), None, &db)
+            .expect("create project");
+        let loaded = read_project_instructions(&project.id, &db).unwrap();
+        std::fs::write(root.path().join(PROJECT_INSTRUCTIONS_FILE), "external edit").unwrap();
+
+        let error = update_project_with_instructions_file(
+            &project.id,
+            UpdateProjectInput {
+                name: Some("Renamed".to_string()),
+                ..UpdateProjectInput::default()
+            },
+            Some(ProjectInstructionsDraft {
+                content: "stale editor draft".to_string(),
+                expected_file_hash: loaded.content_hash,
+            }),
+            &db,
+        )
+        .unwrap_err();
+
+        assert!(error
+            .downcast_ref::<StaleProjectInstructionsError>()
+            .is_some());
+        assert_eq!(db.get(&project.id).unwrap().unwrap().name, "Docs");
     }
 }

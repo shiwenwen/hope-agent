@@ -3013,6 +3013,7 @@
     "projectInstructions": "Инструкции проекта",
     "projectInstructionsHint": "Редактирует файл AGENTS.md непосредственно в корне проекта. После сохранения он применяется ко всем сессиям проекта.",
     "projectInstructionsLineCount": "{{count}} строк",
+    "resizeSettingsSheet": "Перетащите, чтобы изменить ширину настроек проекта",
     "projectInstructionsEmptyPreview": "AGENTS.md пуст. Переключитесь в режим редактирования, чтобы добавить инструкции Markdown.",
     "projectInstructionsLoadFailed": "Не удалось прочитать AGENTS.md",
     "projectInstructionsPlaceholder": "напр. Всегда отвечай на русском; сохраняй ясный и дружелюбный тон; начинай с вывода",

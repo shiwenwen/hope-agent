@@ -144,7 +144,7 @@ CREATE INDEX IF NOT EXISTS idx_projects_archived
 | `list_all_ids()` → `Vec<String>` | 轻量 id 列表，reconciler 专用 |
 | `list(include_archived)` → `Vec<ProjectMeta>` | 带 `session_count` / `unread_count` 聚合子查询；`memory_count = 0` 待调用方补齐 |
 
-项目普通文件 CRUD 全在 [文件浏览器 API](#文件浏览器-api)。`files.rs` 另提供项目指令专用编排：`create_project_with_instructions_file` / `update_project_with_instructions_file`、`ensure_project_instructions`、`read_project_instructions`、`save_project_instructions`；它们固定操作根目录 `AGENTS.md`，保存走 `platform::write_atomic`，以读取时的 raw BLAKE3 作 stale-write guard，并将编辑器读写上限设为 5MB。
+项目普通文件 CRUD 全在 [文件浏览器 API](#文件浏览器-api)。`files.rs` 另提供项目指令专用编排：`create_project_with_instructions_file` / `update_project_with_instructions_file`、`inspect_project_instructions`、`ensure_project_instructions`、`read_project_instructions`、`save_project_instructions`；它们固定操作根目录 `AGENTS.md`，保存走 `platform::write_atomic`，以读取时的 raw BLAKE3 作 stale-write guard，并将编辑器读写上限设为 5MB。新增 / 编辑项目可把 `ProjectInstructionsDraft` 与元数据一并提交；文件步骤失败会回滚项目创建或元数据更新，指令内容仍不进入 SQLite。
 
 ### session ↔ project 绑定（[`session/db.rs`](../../crates/ha-core/src/session/db.rs)）
 
@@ -317,8 +317,9 @@ canonicalize `dir` + canonicalize `projects_root`，`starts_with(canonical_root)
 |---|---|
 | `list_projects_cmd(include_archived?)` | 列表 + 跨 DB 补齐 memory_count |
 | `get_project_cmd(id)` | 取单个 |
-| `create_project_cmd(input)` | emit `project:created` |
-| `update_project_cmd(id, patch)` | emit `project:updated` |
+| `create_project_cmd(input, instructions)` | 创建项目并原子落根 `AGENTS.md` 草稿；emit `project:created` |
+| `update_project_cmd(id, patch, instructions)` | 更新元数据并原子落根 `AGENTS.md` 草稿；任一文件步骤失败则回滚元数据；emit `project:updated` |
+| `inspect_project_instructions_cmd(working_dir?, project_id?)` | 在新增 / 编辑表单中只读检查目标根 `AGENTS.md`；缺失时返回空草稿但不建文件 |
 | `get_project_instructions_cmd(id)` | 读取根 `AGENTS.md`；缺失时创建空文件 |
 | `save_project_instructions_cmd(id, content)` | 原子保存 Markdown，并 emit `project:fs_changed` |
 | `delete_project_cmd(id)` | 走 `delete_project_cascade`，emit `project:deleted` |
@@ -341,6 +342,7 @@ canonicalize `dir` + canonicalize `projects_root`，`starts_with(canonical_root)
 |---|---|---|
 | `GET` | `/api/projects` | `list_projects` |
 | `POST` | `/api/projects` | `create_project` |
+| `POST` | `/api/projects/instructions/inspect` | `inspect_project_instructions_file` |
 | `GET` | `/api/projects/:id` | `get_project` |
 | `PATCH` | `/api/projects/:id` | `update_project` |
 | `DELETE` | `/api/projects/:id` | `delete_project` |
@@ -371,11 +373,13 @@ canonicalize `dir` + canonicalize `projects_root`，`starts_with(canonical_root)
 
 ### ProjectDialog（[`ProjectDialog.tsx`](../../src/components/chat/project/ProjectDialog.tsx)）
 
-`mode="create" | "edit"` 复用同一组件，字段：name / description / logo（data URL 上传）/ color / defaultAgentId / workingDir；项目指令不再出现在元数据表单里，统一进入设置 Sheet 的 Instructions Tab。`defaultModelId` 仅为旧数据兼容，不在 UI 暴露且不参与会话解析。保存按钮三态（idle → saving → saved/failed）。编辑态内嵌 [`ProjectKnowledgeSection`](../../src/components/chat/project/ProjectKnowledgeSection.tsx)（项目级知识空间绑定，详见 [knowledge-base.md](knowledge-base.md)）。
+`mode="create" | "edit"` 复用同一组件，字段：name / description / logo（data URL 上传）/ color / defaultAgentId / workingDir，并通过 [`ProjectInstructionsField`](../../src/components/chat/project/ProjectInstructionsField.tsx) 直接加载目标根 `AGENTS.md`，支持 Markdown 编辑 / 预览、行数与 UTF-8 大小。切换工作目录会先只读检查新目录下的文件；保存时草稿与元数据同请求提交，但仍只写文件、不进入项目表。`defaultModelId` 仅为旧数据兼容，不在 UI 暴露且不参与会话解析。保存按钮三态（idle → saving → saved/failed）。编辑态内嵌 [`ProjectKnowledgeSection`](../../src/components/chat/project/ProjectKnowledgeSection.tsx)（项目级知识空间绑定，详见 [knowledge-base.md](knowledge-base.md)）。
 
 ### ProjectOverviewDialog（右侧 Sheet，[`ProjectOverviewDialog.tsx`](../../src/components/chat/project/ProjectOverviewDialog.tsx)）
 
 文件名保留，UI 实为右侧 `Sheet`，4 Tab：
+
+Sheet 左边缘支持鼠标左右拖拽调整宽度（键盘 `←/→` 同样可调、双击恢复默认），宽度写入 `ha:project-settings-sheet-width`；小屏保持全宽且隐藏拖拽柄。
 
 | Tab | 作用 |
 |---|---|
@@ -470,6 +474,7 @@ canonicalize `dir` + canonicalize `projects_root`，`starts_with(canonical_root)
 | [`crates/ha-server/src/routes/project_fs.rs`](../../crates/ha-server/src/routes/project_fs.rs) | HTTP `/api/fs/*` 文件浏览器路由 |
 | [`src/components/chat/project/ProjectSection.tsx`](../../src/components/chat/project/ProjectSection.tsx) | 侧边栏项目树 |
 | [`src/components/chat/project/ProjectDialog.tsx`](../../src/components/chat/project/ProjectDialog.tsx) | create / edit 复用对话框（含 KB 绑定段） |
+| [`src/components/chat/project/ProjectInstructionsField.tsx`](../../src/components/chat/project/ProjectInstructionsField.tsx) | create / edit 表单内的受控 `AGENTS.md` Markdown 编辑 / 预览字段 |
 | [`src/components/chat/project/ProjectOverviewDialog.tsx`](../../src/components/chat/project/ProjectOverviewDialog.tsx) | 项目设置 Sheet（Overview / Files / Instructions / Auto Memory） |
 | [`src/components/chat/project/ProjectInstructionsEditor.tsx`](../../src/components/chat/project/ProjectInstructionsEditor.tsx) | 根 `AGENTS.md` Markdown 编辑 / 预览与保存反馈 |
 | [`src/components/chat/project/ProjectMemorySection.tsx`](../../src/components/chat/project/ProjectMemorySection.tsx) | 项目自动记忆 owner 管理页 |

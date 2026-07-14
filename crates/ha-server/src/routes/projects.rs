@@ -10,9 +10,11 @@ use std::sync::Arc;
 
 use ha_core::memory::{MemoryEntry, MemoryScope};
 use ha_core::project::{
-    create_project_with_instructions_file, delete_project_cascade, read_project_instructions,
+    create_project_with_instructions_file, delete_project_cascade,
+    inspect_default_project_instructions, inspect_project_instructions, read_project_instructions,
     save_project_instructions, update_project_with_instructions_file, CreateProjectInput, Project,
-    ProjectInstructionsFile, ProjectMeta, StaleProjectInstructionsError, UpdateProjectInput,
+    ProjectInstructionsDraft, ProjectInstructionsFile, ProjectMeta, StaleProjectInstructionsError,
+    UpdateProjectInput,
 };
 use ha_core::session::{ParentSessionFilter, ProjectFilter, SessionMeta};
 
@@ -44,6 +46,8 @@ pub struct ArchiveProjectBody {
 #[derive(Debug, Deserialize)]
 pub struct UpdateProjectBody {
     pub patch: UpdateProjectInput,
+    #[serde(default)]
+    pub instructions: Option<ProjectInstructionsDraft>,
 }
 
 /// Body wrapper for `create_project_cmd`. Frontend ships `{ input: CreateProjectInput }`
@@ -51,6 +55,17 @@ pub struct UpdateProjectBody {
 #[derive(Debug, Deserialize)]
 pub struct CreateProjectBody {
     pub input: CreateProjectInput,
+    #[serde(default)]
+    pub instructions: Option<ProjectInstructionsDraft>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InspectProjectInstructionsBody {
+    #[serde(default)]
+    pub working_dir: Option<String>,
+    #[serde(default)]
+    pub project_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -156,16 +171,24 @@ pub async fn create_project(
     State(ctx): State<Arc<AppContext>>,
     Json(body): Json<CreateProjectBody>,
 ) -> Result<Json<Project>, AppError> {
-    let project = {
+    let instructions_changed = body.instructions.is_some();
+    let result = {
         let project_db = ctx.project_db.clone();
         ha_core::blocking::run_blocking(move || {
-            create_project_with_instructions_file(body.input, &project_db)
+            create_project_with_instructions_file(body.input, body.instructions, &project_db)
         })
-        .await?
+        .await
     };
+    let project = project_instructions_result(result)?;
 
     ctx.event_bus
         .emit("project:created", json!({ "projectId": project.id }));
+    if instructions_changed {
+        ctx.event_bus.emit(
+            "project:fs_changed",
+            json!({ "scope": "project", "scopeId": project.id, "dir": "" }),
+        );
+    }
     Ok(Json(project))
 }
 
@@ -175,16 +198,61 @@ pub async fn update_project(
     Path(id): Path<String>,
     Json(body): Json<UpdateProjectBody>,
 ) -> Result<Json<Project>, AppError> {
-    let project = {
+    let instructions_changed = body.instructions.is_some();
+    let result = {
         let project_db = ctx.project_db.clone();
         ha_core::blocking::run_blocking(move || {
-            update_project_with_instructions_file(&id, body.patch, &project_db)
+            update_project_with_instructions_file(&id, body.patch, body.instructions, &project_db)
         })
-        .await?
+        .await
     };
+    let project = project_instructions_result(result)?;
     ctx.event_bus
         .emit("project:updated", json!({ "projectId": project.id }));
+    if instructions_changed {
+        ctx.event_bus.emit(
+            "project:fs_changed",
+            json!({ "scope": "project", "scopeId": project.id, "dir": "" }),
+        );
+    }
     Ok(Json(project))
+}
+
+fn project_instructions_result(result: anyhow::Result<Project>) -> Result<Project, AppError> {
+    match result {
+        Ok(project) => Ok(project),
+        Err(error)
+            if error
+                .downcast_ref::<StaleProjectInstructionsError>()
+                .is_some() =>
+        {
+            Err(AppError::conflict_with_code(
+                "project_instructions_stale",
+                error.to_string(),
+            ))
+        }
+        Err(error) => Err(error.into()),
+    }
+}
+
+/// `POST /api/projects/instructions/inspect` — inspect AGENTS.md in a selected
+/// working directory without creating a missing file.
+pub async fn inspect_project_instructions_file(
+    State(ctx): State<Arc<AppContext>>,
+    Json(body): Json<InspectProjectInstructionsBody>,
+) -> Result<Json<ProjectInstructionsFile>, AppError> {
+    let project_db = ctx.project_db.clone();
+    let file = ha_core::blocking::run_blocking(move || {
+        if let Some(path) = body.working_dir.filter(|path| !path.trim().is_empty()) {
+            inspect_project_instructions(&path)
+        } else if let Some(id) = body.project_id {
+            inspect_default_project_instructions(&id, &project_db)
+        } else {
+            anyhow::bail!("workingDir or projectId is required")
+        }
+    })
+    .await?;
+    Ok(Json(file))
 }
 
 /// `GET /api/projects/:id/instructions` — read (and lazily create) root AGENTS.md.

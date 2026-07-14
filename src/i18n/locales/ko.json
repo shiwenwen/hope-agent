@@ -3013,6 +3013,7 @@
     "projectInstructions": "프로젝트 지침",
     "projectInstructionsHint": "프로젝트 루트의 AGENTS.md를 직접 편집합니다. 저장하면 이 프로젝트의 모든 세션에 자동 적용됩니다.",
     "projectInstructionsLineCount": "{{count}}줄",
+    "resizeSettingsSheet": "드래그하여 프로젝트 설정 너비 조절",
     "projectInstructionsEmptyPreview": "AGENTS.md가 비어 있습니다. 편집 모드로 전환해 Markdown 지침을 추가하세요.",
     "projectInstructionsLoadFailed": "AGENTS.md를 읽을 수 없습니다",
     "projectInstructionsPlaceholder": "예: 항상 한국어로 응답; 명확하고 친근한 톤 유지; 결론부터 말하기",

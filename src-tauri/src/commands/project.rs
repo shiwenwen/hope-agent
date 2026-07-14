@@ -6,9 +6,10 @@
 
 use crate::commands::CmdError;
 use ha_core::project::{
-    create_project_with_instructions_file, delete_project_cascade, read_project_instructions,
+    create_project_with_instructions_file, delete_project_cascade,
+    inspect_default_project_instructions, inspect_project_instructions, read_project_instructions,
     save_project_instructions, update_project_with_instructions_file, CreateProjectInput, Project,
-    ProjectInstructionsFile, ProjectMeta, UpdateProjectInput,
+    ProjectInstructionsDraft, ProjectInstructionsFile, ProjectMeta, UpdateProjectInput,
 };
 use ha_core::session::SessionMeta;
 use tauri::State;
@@ -57,11 +58,13 @@ pub async fn get_project_cmd(
 #[tauri::command]
 pub async fn create_project_cmd(
     input: CreateProjectInput,
+    instructions: Option<ProjectInstructionsDraft>,
     state: State<'_, AppState>,
 ) -> Result<Project, CmdError> {
+    let instructions_changed = instructions.is_some();
     let project_db = state.project_db.clone();
     let project = ha_core::blocking::run_blocking(move || {
-        create_project_with_instructions_file(input, &project_db)
+        create_project_with_instructions_file(input, instructions, &project_db)
     })
     .await?;
 
@@ -70,6 +73,12 @@ pub async fn create_project_cmd(
             "project:created",
             serde_json::json!({ "projectId": project.id }),
         );
+        if instructions_changed {
+            let _ = bus.emit(
+                "project:fs_changed",
+                serde_json::json!({ "scope": "project", "scopeId": project.id, "dir": "" }),
+            );
+        }
     }
     Ok(project)
 }
@@ -78,11 +87,13 @@ pub async fn create_project_cmd(
 pub async fn update_project_cmd(
     id: String,
     patch: UpdateProjectInput,
+    instructions: Option<ProjectInstructionsDraft>,
     state: State<'_, AppState>,
 ) -> Result<Project, CmdError> {
+    let instructions_changed = instructions.is_some();
     let project_db = state.project_db.clone();
     let project = ha_core::blocking::run_blocking(move || {
-        update_project_with_instructions_file(&id, patch, &project_db)
+        update_project_with_instructions_file(&id, patch, instructions, &project_db)
     })
     .await?;
 
@@ -91,8 +102,35 @@ pub async fn update_project_cmd(
             "project:updated",
             serde_json::json!({ "projectId": project.id }),
         );
+        if instructions_changed {
+            let _ = bus.emit(
+                "project:fs_changed",
+                serde_json::json!({ "scope": "project", "scopeId": project.id, "dir": "" }),
+            );
+        }
     }
     Ok(project)
+}
+
+/// Inspect `<working-dir>/AGENTS.md` without creating a missing file.
+#[tauri::command]
+pub async fn inspect_project_instructions_cmd(
+    working_dir: Option<String>,
+    project_id: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<ProjectInstructionsFile, CmdError> {
+    let project_db = state.project_db.clone();
+    ha_core::blocking::run_blocking(move || {
+        if let Some(path) = working_dir.filter(|path| !path.trim().is_empty()) {
+            inspect_project_instructions(&path)
+        } else if let Some(id) = project_id {
+            inspect_default_project_instructions(&id, &project_db)
+        } else {
+            anyhow::bail!("workingDir or projectId is required")
+        }
+    })
+    .await
+    .map_err(Into::into)
 }
 
 /// Read `<project-root>/AGENTS.md`, creating an empty file when missing.

@@ -11,7 +11,7 @@
  * `ProjectSettingsSheet` is left as a follow-up.
  */
 
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from "react"
 import { useTranslation } from "react-i18next"
 import { Pencil, Trash2, Archive, ArchiveRestore } from "lucide-react"
 
@@ -47,6 +47,11 @@ interface ProjectOverviewDialogProps {
   onOpenSession?: (sessionId: string) => void
 }
 
+const DEFAULT_SHEET_WIDTH = 860
+const MIN_SHEET_WIDTH = 560
+const SHEET_VIEWPORT_GUTTER = 48
+const SHEET_WIDTH_STORAGE_KEY = "ha:project-settings-sheet-width"
+
 export default function ProjectOverviewDialog({
   open,
   project,
@@ -58,6 +63,65 @@ export default function ProjectOverviewDialog({
 }: ProjectOverviewDialogProps) {
   const { t } = useTranslation()
   const [tab, setTab] = useState("overview")
+  const [viewportWidth, setViewportWidth] = useState(getViewportWidth)
+  const [sheetWidth, setSheetWidth] = useState(readStoredSheetWidth)
+  const [resizing, setResizing] = useState(false)
+  const sheetWidthRef = useRef(sheetWidth)
+  const dragRef = useRef<{ pointerId: number; startX: number; startWidth: number } | null>(null)
+
+  const renderedSheetWidth =
+    viewportWidth < 640 ? viewportWidth : clampSheetWidth(sheetWidth, viewportWidth)
+
+  function applySheetWidth(nextWidth: number, persist = false) {
+    const next = clampSheetWidth(nextWidth, viewportWidth)
+    sheetWidthRef.current = next
+    setSheetWidth(next)
+    if (persist) storeSheetWidth(next)
+  }
+
+  function handleResizePointerDown(event: PointerEvent<HTMLDivElement>) {
+    if (viewportWidth < 640) return
+    event.preventDefault()
+    event.currentTarget.setPointerCapture(event.pointerId)
+    dragRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startWidth: renderedSheetWidth,
+    }
+    setResizing(true)
+    document.body.style.cursor = "col-resize"
+    document.body.style.userSelect = "none"
+  }
+
+  function handleResizePointerMove(event: PointerEvent<HTMLDivElement>) {
+    const drag = dragRef.current
+    if (!drag || drag.pointerId !== event.pointerId) return
+    applySheetWidth(drag.startWidth + drag.startX - event.clientX)
+  }
+
+  function finishResize(event: PointerEvent<HTMLDivElement>) {
+    const drag = dragRef.current
+    if (!drag || drag.pointerId !== event.pointerId) return
+    dragRef.current = null
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId)
+    }
+    setResizing(false)
+    document.body.style.cursor = ""
+    document.body.style.userSelect = ""
+    storeSheetWidth(sheetWidthRef.current)
+  }
+
+  function handleResizeKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    let next: number | null = null
+    if (event.key === "ArrowLeft") next = sheetWidthRef.current + 24
+    if (event.key === "ArrowRight") next = sheetWidthRef.current - 24
+    if (event.key === "Home") next = MIN_SHEET_WIDTH
+    if (event.key === "End") next = viewportWidth - SHEET_VIEWPORT_GUTTER
+    if (next === null) return
+    event.preventDefault()
+    applySheetWidth(next, true)
+  }
 
   useEffect(() => {
     if (!open || !project) return
@@ -65,15 +129,49 @@ export default function ProjectOverviewDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, project?.id])
 
+  useEffect(() => {
+    const handleResize = () => setViewportWidth(getViewportWidth())
+    window.addEventListener("resize", handleResize)
+    return () => window.removeEventListener("resize", handleResize)
+  }, [])
+
+  useEffect(
+    () => () => {
+      document.body.style.cursor = ""
+      document.body.style.userSelect = ""
+    },
+    [],
+  )
+
   if (!project) return null
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="right"
-        className="w-full sm:max-w-[860px] p-0 flex flex-col"
-        // Wider than the default 384px — Project files / instructions need room.
+        className={resizing ? "flex w-full select-none flex-col p-0" : "flex w-full flex-col p-0"}
+        style={{ width: renderedSheetWidth, maxWidth: "none" }}
       >
+        <div
+          role="separator"
+          aria-label={t("project.resizeSettingsSheet")}
+          aria-orientation="vertical"
+          aria-valuemin={MIN_SHEET_WIDTH}
+          aria-valuemax={Math.max(MIN_SHEET_WIDTH, viewportWidth - SHEET_VIEWPORT_GUTTER)}
+          aria-valuenow={Math.round(renderedSheetWidth)}
+          data-dragging={resizing || undefined}
+          tabIndex={0}
+          title={t("project.resizeSettingsSheet")}
+          onDoubleClick={() => applySheetWidth(DEFAULT_SHEET_WIDTH, true)}
+          onKeyDown={handleResizeKeyDown}
+          onPointerDown={handleResizePointerDown}
+          onPointerMove={handleResizePointerMove}
+          onPointerUp={finishResize}
+          onPointerCancel={finishResize}
+          className="group absolute inset-y-0 left-0 z-20 hidden w-3 -translate-x-1/2 cursor-col-resize touch-none items-center justify-center outline-none sm:flex"
+        >
+          <span className="h-full w-px bg-transparent transition-colors group-hover:bg-primary/50 group-focus-visible:bg-primary group-data-[dragging=true]:bg-primary" />
+        </div>
         <SheetHeader className="px-5 pt-5 pb-3 border-b border-border">
           <div className="flex items-start gap-3">
             <ProjectIcon project={project} size="lg" />
@@ -192,4 +290,31 @@ function StatCard({ label, value }: { label: string; value: number }) {
       <div className="text-xs text-muted-foreground">{label}</div>
     </div>
   )
+}
+
+function getViewportWidth(): number {
+  return typeof window === "undefined" ? DEFAULT_SHEET_WIDTH : window.innerWidth
+}
+
+function clampSheetWidth(width: number, viewportWidth: number): number {
+  const max = Math.max(MIN_SHEET_WIDTH, viewportWidth - SHEET_VIEWPORT_GUTTER)
+  return Math.min(Math.max(width, MIN_SHEET_WIDTH), max)
+}
+
+function readStoredSheetWidth(): number {
+  if (typeof window === "undefined") return DEFAULT_SHEET_WIDTH
+  try {
+    const stored = Number(window.localStorage.getItem(SHEET_WIDTH_STORAGE_KEY))
+    return Number.isFinite(stored) && stored > 0 ? stored : DEFAULT_SHEET_WIDTH
+  } catch {
+    return DEFAULT_SHEET_WIDTH
+  }
+}
+
+function storeSheetWidth(width: number) {
+  try {
+    window.localStorage.setItem(SHEET_WIDTH_STORAGE_KEY, String(Math.round(width)))
+  } catch {
+    // Storage may be disabled; resizing still works for the current mount.
+  }
 }

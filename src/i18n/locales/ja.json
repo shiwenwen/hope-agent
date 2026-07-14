@@ -3013,6 +3013,7 @@
     "projectInstructions": "プロジェクト指示",
     "projectInstructionsHint": "プロジェクトルートの AGENTS.md を直接編集します。保存後、このプロジェクトのすべてのセッションに自動適用されます。",
     "projectInstructionsLineCount": "{{count}} 行",
+    "resizeSettingsSheet": "ドラッグしてプロジェクト設定の幅を変更",
     "projectInstructionsEmptyPreview": "AGENTS.md は空です。編集モードに切り替えて Markdown の指示を追加できます。",
     "projectInstructionsLoadFailed": "AGENTS.md を読み込めませんでした",
     "projectInstructionsPlaceholder": "例：常に日本語で返答する。明るく親しみやすい口調にし、最初に結論を述べる",

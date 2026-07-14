@@ -32,12 +32,7 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-} from "@/components/ui/select"
+import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select"
 import {
   AgentSelectDisplay,
   INHERIT_AGENT_SENTINEL,
@@ -45,13 +40,17 @@ import {
 } from "@/components/common/AgentSelectDisplay"
 import { cn } from "@/lib/utils"
 import { formatBytes } from "@/lib/format"
+import { getTransport } from "@/lib/transport-provider"
 import ServerDirectoryBrowser from "@/components/chat/input/ServerDirectoryBrowser"
 import { useDirectoryPicker } from "@/components/chat/input/useDirectoryPicker"
+import ProjectInstructionsField from "./ProjectInstructionsField"
 import ProjectKnowledgeSection from "./ProjectKnowledgeSection"
 
 import type {
   CreateProjectInput,
   Project,
+  ProjectInstructionsDraft,
+  ProjectInstructionsFile,
   UpdateProjectInput,
 } from "@/types/project"
 import type { AgentSummaryForSidebar } from "@/types/chat"
@@ -62,8 +61,15 @@ export interface ProjectDialogProps {
   initialProject?: Project | null
   agents: AgentSummaryForSidebar[]
   onOpenChange: (open: boolean) => void
-  onCreate?: (input: CreateProjectInput) => Promise<Project | null>
-  onUpdate?: (id: string, patch: UpdateProjectInput) => Promise<Project | null>
+  onCreate?: (
+    input: CreateProjectInput,
+    instructions: ProjectInstructionsDraft,
+  ) => Promise<Project | null>
+  onUpdate?: (
+    id: string,
+    patch: UpdateProjectInput,
+    instructions: ProjectInstructionsDraft,
+  ) => Promise<Project | null>
 }
 
 const COLOR_CHOICES = [
@@ -128,15 +134,60 @@ export default function ProjectDialog({
   const [color, setColor] = useState<string>("")
   const [defaultAgentId, setDefaultAgentId] = useState<string>("")
   const [workingDir, setWorkingDir] = useState<string>("")
+  const [instructions, setInstructions] = useState("")
+  const [instructionsHash, setInstructionsHash] = useState("")
+  const [instructionsPath, setInstructionsPath] = useState("AGENTS.md")
+  const [instructionsLoading, setInstructionsLoading] = useState(false)
+  const [instructionsReady, setInstructionsReady] = useState(false)
+  const [instructionsError, setInstructionsError] = useState("")
+  const instructionsRequestSeq = useRef(0)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [logoError, setLogoError] = useState("")
 
   const [saving, setSaving] = useState(false)
-  const [saveStatus, setSaveStatus] = useState<"idle" | "saved" | "failed">(
-    "idle",
-  )
+  const [saveStatus, setSaveStatus] = useState<"idle" | "saved" | "failed">("idle")
   const [error, setError] = useState("")
   const selectedDefaultAgent = agents.find((agent) => agent.id === defaultAgentId)
+
+  const resetInstructionsForNewWorkspace = useCallback(() => {
+    instructionsRequestSeq.current += 1
+    setInstructions("")
+    setInstructionsHash("")
+    setInstructionsPath("AGENTS.md")
+    setInstructionsLoading(false)
+    setInstructionsReady(true)
+    setInstructionsError("")
+  }, [])
+
+  const loadInstructions = useCallback(
+    async (
+      command: "get_project_instructions_cmd" | "inspect_project_instructions_cmd",
+      args: Record<string, unknown>,
+      pendingPath: string,
+    ) => {
+      const seq = ++instructionsRequestSeq.current
+      setInstructionsLoading(true)
+      setInstructionsReady(false)
+      setInstructions("")
+      setInstructionsHash("")
+      setInstructionsError("")
+      setInstructionsPath(pendingPath)
+      try {
+        const file = await getTransport().call<ProjectInstructionsFile>(command, args)
+        if (seq !== instructionsRequestSeq.current) return
+        setInstructions(file.content)
+        setInstructionsHash(file.contentHash)
+        setInstructionsPath(file.path)
+        setInstructionsReady(true)
+      } catch (loadError) {
+        if (seq !== instructionsRequestSeq.current) return
+        setInstructionsError(loadError instanceof Error ? loadError.message : String(loadError))
+      } finally {
+        if (seq === instructionsRequestSeq.current) setInstructionsLoading(false)
+      }
+    },
+    [],
+  )
 
   useEffect(() => {
     if (!open) return
@@ -159,6 +210,21 @@ export default function ProjectDialog({
       setWorkingDir("")
     }
   }, [open, mode, initialProject])
+
+  useEffect(() => {
+    if (!open) {
+      instructionsRequestSeq.current += 1
+      return
+    }
+    if (mode === "edit" && initialProject?.id) {
+      void loadInstructions("get_project_instructions_cmd", { id: initialProject.id }, "AGENTS.md")
+    } else {
+      resetInstructionsForNewWorkspace()
+    }
+    return () => {
+      instructionsRequestSeq.current += 1
+    }
+  }, [initialProject?.id, loadInstructions, mode, open, resetInstructionsForNewWorkspace])
 
   const selectedColor = COLOR_CHOICES.find((choice) => choice.value === color)
 
@@ -184,6 +250,11 @@ export default function ProjectDialog({
   const handleWorkingDirPicked = useCallback(
     (path: string) => {
       setWorkingDir(path)
+      void loadInstructions(
+        "inspect_project_instructions_cmd",
+        { workingDir: path, projectId: null },
+        agentsFilePath(path),
+      )
       if (mode !== "create") return
 
       const inferredName = getDirectoryName(path)
@@ -191,7 +262,7 @@ export default function ProjectDialog({
 
       setName((currentName) => (currentName.trim() ? currentName : inferredName))
     },
-    [mode],
+    [loadInstructions, mode],
   )
 
   const {
@@ -217,6 +288,15 @@ export default function ProjectDialog({
 
   function clearWorkingDir() {
     setWorkingDir("")
+    if (mode === "edit" && initialProject?.id) {
+      void loadInstructions(
+        "inspect_project_instructions_cmd",
+        { workingDir: null, projectId: initialProject.id },
+        "AGENTS.md",
+      )
+    } else {
+      resetInstructionsForNewWorkspace()
+    }
   }
 
   async function handleSave() {
@@ -228,14 +308,17 @@ export default function ProjectDialog({
     setError("")
     try {
       if (mode === "create" && onCreate) {
-        const created = await onCreate({
-          name: name.trim(),
-          description: description.trim() || null,
-          logo: logo || null,
-          color: color || null,
-          defaultAgentId: defaultAgentId || null,
-          workingDir: workingDir.trim() || null,
-        })
+        const created = await onCreate(
+          {
+            name: name.trim(),
+            description: description.trim() || null,
+            logo: logo || null,
+            color: color || null,
+            defaultAgentId: defaultAgentId || null,
+            workingDir: workingDir.trim() || null,
+          },
+          { content: instructions, expectedFileHash: instructionsHash },
+        )
         if (created) {
           setSaveStatus("saved")
           setTimeout(() => onOpenChange(false), 400)
@@ -243,14 +326,18 @@ export default function ProjectDialog({
           setSaveStatus("failed")
         }
       } else if (mode === "edit" && initialProject && onUpdate) {
-        const updated = await onUpdate(initialProject.id, {
-          name: name.trim(),
-          description: description.trim(),
-          logo: logo,
-          color: color,
-          defaultAgentId: defaultAgentId,
-          workingDir: workingDir.trim(),
-        })
+        const updated = await onUpdate(
+          initialProject.id,
+          {
+            name: name.trim(),
+            description: description.trim(),
+            logo: logo,
+            color: color,
+            defaultAgentId: defaultAgentId,
+            workingDir: workingDir.trim(),
+          },
+          { content: instructions, expectedFileHash: instructionsHash },
+        )
         if (updated) {
           setSaveStatus("saved")
           setTimeout(() => onOpenChange(false), 400)
@@ -297,9 +384,7 @@ export default function ProjectDialog({
                 <FolderOpen className="h-4 w-4" />
               </span>
               <div className="min-w-0 flex-1">
-                <Label className="text-sm font-semibold">
-                  {t("project.workingDir.label")}
-                </Label>
+                <Label className="text-sm font-semibold">{t("project.workingDir.label")}</Label>
                 <p className="mt-1 text-xs leading-5 text-muted-foreground">
                   {t("project.workingDir.hint")}
                 </p>
@@ -413,9 +498,7 @@ export default function ProjectDialog({
                     </Button>
                   )}
                 </div>
-                {logoError && (
-                  <p className="text-xs text-destructive">{logoError}</p>
-                )}
+                {logoError && <p className="text-xs text-destructive">{logoError}</p>}
               </div>
 
               <div className="space-y-2">
@@ -470,9 +553,7 @@ export default function ProjectDialog({
               </div>
 
               <div className="space-y-1.5">
-                <Label htmlFor="project-description">
-                  {t("project.projectDescription")}
-                </Label>
+                <Label htmlFor="project-description">{t("project.projectDescription")}</Label>
                 <Textarea
                   id="project-description"
                   value={description}
@@ -490,9 +571,7 @@ export default function ProjectDialog({
                 </Label>
                 <Select
                   value={defaultAgentId || INHERIT_AGENT_SENTINEL}
-                  onValueChange={(v) =>
-                    setDefaultAgentId(v === INHERIT_AGENT_SENTINEL ? "" : v)
-                  }
+                  onValueChange={(v) => setDefaultAgentId(v === INHERIT_AGENT_SENTINEL ? "" : v)}
                 >
                   <SelectTrigger className="h-10">
                     {selectedDefaultAgent ? (
@@ -521,6 +600,15 @@ export default function ProjectDialog({
                 <ProjectKnowledgeSection projectId={initialProject.id} />
               )}
 
+              <ProjectInstructionsField
+                value={instructions}
+                path={instructionsPath}
+                loading={instructionsLoading}
+                error={instructionsError}
+                disabled={saving || !instructionsReady}
+                onChange={setInstructions}
+              />
+
               {error && (
                 <p className="rounded-md border border-destructive/20 bg-destructive/10 px-3 py-2 text-sm text-destructive">
                   {error}
@@ -539,16 +627,12 @@ export default function ProjectDialog({
         />
 
         <DialogFooter className="border-t border-border/70 bg-background px-6 py-4">
-          <Button
-            variant="outline"
-            onClick={() => onOpenChange(false)}
-            disabled={saving}
-          >
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
             {t("common.cancel")}
           </Button>
           <Button
             onClick={handleSave}
-            disabled={saving || !name.trim()}
+            disabled={saving || instructionsLoading || !instructionsReady || !name.trim()}
             className={
               saveStatus === "saved"
                 ? "bg-emerald-600 hover:bg-emerald-600"
@@ -582,11 +666,14 @@ function getDirectoryName(path: string): string {
   return segments[segments.length - 1] ?? ""
 }
 
-async function resizeImageToDataUrl(
-  file: File,
-  maxSize: number,
-  quality: number,
-): Promise<string> {
+function agentsFilePath(root: string): string {
+  const trimmed = root.trim().replace(/[\\/]+$/, "")
+  if (!trimmed) return "AGENTS.md"
+  const separator = trimmed.includes("\\") && !trimmed.includes("/") ? "\\" : "/"
+  return `${trimmed}${separator}AGENTS.md`
+}
+
+async function resizeImageToDataUrl(file: File, maxSize: number, quality: number): Promise<string> {
   if (file.size > MAX_LOGO_SOURCE_BYTES) {
     throw new Error(
       `Image too large (max ${formatBytes(MAX_LOGO_SOURCE_BYTES, {

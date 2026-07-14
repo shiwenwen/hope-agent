@@ -3013,6 +3013,7 @@
     "projectInstructions": "Proje talimatları",
     "projectInstructionsHint": "Proje kökündeki AGENTS.md dosyasını doğrudan düzenler. Kaydedildiğinde bu projedeki tüm oturumlara uygulanır.",
     "projectInstructionsLineCount": "{{count}} satır",
+    "resizeSettingsSheet": "Proje ayarlarının genişliğini değiştirmek için sürükleyin",
     "projectInstructionsEmptyPreview": "AGENTS.md boş. Markdown talimatları eklemek için Düzenle moduna geçin.",
     "projectInstructionsLoadFailed": "AGENTS.md okunamadı",
     "projectInstructionsPlaceholder": "örn. Her zaman Türkçe yanıtla; tonu açık ve samimi tut; sonuca önce başla",

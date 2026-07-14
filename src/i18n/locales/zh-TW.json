@@ -3013,6 +3013,7 @@
     "projectInstructions": "專案指令",
     "projectInstructionsHint": "直接讀寫專案根目錄下的 AGENTS.md；儲存後會自動套用到此專案的所有對話。",
     "projectInstructionsLineCount": "{{count}} 行",
+    "resizeSettingsSheet": "拖曳調整專案設定寬度",
     "projectInstructionsEmptyPreview": "AGENTS.md 是空的。切換到編輯模式即可加入 Markdown 指令。",
     "projectInstructionsLoadFailed": "無法讀取 AGENTS.md",
     "projectInstructionsPlaceholder": "例如：始終用繁體中文回覆；語氣清楚親切；先給結論再補充細節",

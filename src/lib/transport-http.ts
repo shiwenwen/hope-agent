@@ -53,6 +53,10 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   get_project_cmd: { method: "GET", path: "/api/projects/{id}" },
   create_project_cmd: { method: "POST", path: "/api/projects" },
   update_project_cmd: { method: "PATCH", path: "/api/projects/{id}" },
+  inspect_project_instructions_cmd: {
+    method: "POST",
+    path: "/api/projects/instructions/inspect",
+  },
   get_project_instructions_cmd: { method: "GET", path: "/api/projects/{id}/instructions" },
   save_project_instructions_cmd: { method: "PUT", path: "/api/projects/{id}/instructions" },
   delete_project_cmd: { method: "DELETE", path: "/api/projects/{id}" },

@@ -3013,6 +3013,7 @@
     "projectInstructions": "Arahan projek",
     "projectInstructionsHint": "Mengedit fail AGENTS.md di akar projek secara terus. Selepas disimpan, ia digunakan untuk semua sesi projek ini.",
     "projectInstructionsLineCount": "{{count}} baris",
+    "resizeSettingsSheet": "Seret untuk mengubah lebar tetapan projek",
     "projectInstructionsEmptyPreview": "AGENTS.md kosong. Tukar ke Edit untuk menambah arahan Markdown.",
     "projectInstructionsLoadFailed": "Tidak dapat membaca AGENTS.md",
     "projectInstructionsPlaceholder": "cth. Sentiasa balas dalam BM; gunakan nada jelas dan mesra; mulakan dengan kesimpulan",

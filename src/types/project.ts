@@ -34,6 +34,20 @@ export interface ProjectMeta extends Project {
   memoryCount: number
 }
 
+/** Snapshot returned by the root AGENTS.md owner endpoints. */
+export interface ProjectInstructionsFile {
+  path: string
+  content: string
+  contentHash: string
+  created: boolean
+}
+
+/** Concurrency-checked AGENTS.md draft submitted with project metadata. */
+export interface ProjectInstructionsDraft {
+  content: string
+  expectedFileHash: string
+}
+
 export interface CreateProjectInput {
   name: string
   description?: string | null

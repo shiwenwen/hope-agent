@@ -3013,6 +3013,7 @@
     "projectInstructions": "Instrucciones del proyecto",
     "projectInstructionsHint": "Edita directamente el archivo AGENTS.md en la raíz del proyecto. Al guardarlo, se aplica a todas las sesiones del proyecto.",
     "projectInstructionsLineCount": "{{count}} líneas",
+    "resizeSettingsSheet": "Arrastra para cambiar el ancho de la configuración",
     "projectInstructionsEmptyPreview": "AGENTS.md está vacío. Cambia a Editar para añadir instrucciones en Markdown.",
     "projectInstructionsLoadFailed": "No se pudo leer AGENTS.md",
     "projectInstructionsPlaceholder": "p. ej. Responde siempre en español; usa un tono claro y amable; empieza por la conclusión",

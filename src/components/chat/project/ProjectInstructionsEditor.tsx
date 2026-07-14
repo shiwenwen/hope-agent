@@ -8,13 +8,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { formatBytes } from "@/lib/format"
 import { getTransport } from "@/lib/transport-provider"
 import { cn } from "@/lib/utils"
-
-interface ProjectInstructionsFile {
-  path: string
-  content: string
-  contentHash: string
-  created: boolean
-}
+import type { ProjectInstructionsFile } from "@/types/project"
 
 type EditorMode = "edit" | "preview"
 
