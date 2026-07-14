@@ -191,14 +191,14 @@ for (const p of requiredPlatforms) {
 }
 
 // ─── Check 6 ─────────────────────────────────────────────────────────
-// Homebrew deprecated string-style macOS comparisons in casks. The
-// templates should use symbols such as `depends_on macos: :big_sur`
-// so the generated public tap does not warn during `brew install`.
+// Homebrew <= 5.1.10 interprets a bare macOS symbol as an exact-version
+// requirement, while >= 5.1.11 interprets it as a minimum. Keep the
+// explicit comparator so the public tap works across both semantics.
 for (const template of ["hope-agent.rb.tmpl", "hope-agent-arm-only.rb.tmpl"]) {
   const templatePath = path.join("homebrew", template)
   const cask = readFileSync(path.join(repoRoot, templatePath), "utf8")
-  if (/depends_on\s+macos:\s*["']/.test(cask)) {
-    errors.push(`${templatePath}: uses deprecated string-style depends_on macos syntax; use a symbol such as macos: :big_sur.`)
+  if (!/depends_on\s+macos:\s*["']>=\s*:big_sur["']/.test(cask)) {
+    errors.push(`${templatePath}: must use the backward-compatible minimum macOS requirement macos: ">= :big_sur".`)
   }
 }
 
