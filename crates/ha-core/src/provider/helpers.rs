@@ -224,7 +224,7 @@ fn default_codex_models() -> Vec<ModelConfig> {
         ModelConfig {
             id: "gpt-5.6-sol".into(),
             name: "GPT-5.6 Sol".into(),
-            input_types: vec!["text".into()],
+            input_types: vec!["text".into(), "image".into()],
             context_window: 200_000,
             max_tokens: 16384,
             reasoning: true,
@@ -235,7 +235,7 @@ fn default_codex_models() -> Vec<ModelConfig> {
         ModelConfig {
             id: "gpt-5.6-terra".into(),
             name: "GPT-5.6 Terra".into(),
-            input_types: vec!["text".into()],
+            input_types: vec!["text".into(), "image".into()],
             context_window: 200_000,
             max_tokens: 16384,
             reasoning: true,
@@ -246,7 +246,7 @@ fn default_codex_models() -> Vec<ModelConfig> {
         ModelConfig {
             id: "gpt-5.6-luna".into(),
             name: "GPT-5.6 Luna".into(),
-            input_types: vec!["text".into()],
+            input_types: vec!["text".into(), "image".into()],
             context_window: 200_000,
             max_tokens: 16384,
             reasoning: true,
@@ -356,6 +356,24 @@ fn default_codex_models() -> Vec<ModelConfig> {
     ]
 }
 
+/// Whether an existing Codex provider lacks capability metadata declared by
+/// the built-in catalog. Reconciliation is additive so user-added capabilities
+/// are preserved.
+pub(super) fn codex_provider_needs_metadata_refresh(provider: &ProviderConfig) -> bool {
+    default_codex_models().iter().any(|default| {
+        provider
+            .models
+            .iter()
+            .find(|model| model.id == default.id)
+            .is_some_and(|model| {
+                default
+                    .input_types
+                    .iter()
+                    .any(|input_type| !model.input_types.contains(input_type))
+            })
+    })
+}
+
 /// Create or update the built-in Codex provider with OAuth token info.
 /// Returns the provider ID.
 ///
@@ -371,8 +389,20 @@ pub fn ensure_codex_provider(config: &mut AppConfig) -> String {
         .find(|p| p.api_type == ApiType::Codex)
     {
         let mut added: Vec<String> = Vec::new();
+        let mut refreshed: Vec<String> = Vec::new();
         for m in &defaults {
-            if !existing.models.iter().any(|x| x.id == m.id) {
+            if let Some(current) = existing.models.iter_mut().find(|x| x.id == m.id) {
+                let mut changed = false;
+                for input_type in &m.input_types {
+                    if !current.input_types.contains(input_type) {
+                        current.input_types.push(input_type.clone());
+                        changed = true;
+                    }
+                }
+                if changed {
+                    refreshed.push(m.id.clone());
+                }
+            } else {
                 added.push(m.id.clone());
                 existing.models.push(m.clone());
             }
@@ -393,6 +423,14 @@ pub fn ensure_codex_provider(config: &mut AppConfig) -> String {
                 "ensure_codex",
                 "Backfilled missing Codex default models into existing provider: {}",
                 added.join(", ")
+            );
+        }
+        if !refreshed.is_empty() {
+            crate::app_info!(
+                "provider",
+                "ensure_codex",
+                "Refreshed Codex model capability metadata: {}",
+                refreshed.join(", ")
             );
         }
         return existing.id.clone();

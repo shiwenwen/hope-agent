@@ -6,6 +6,12 @@ import { Slider } from "@/components/ui/slider"
 import { FloatingMenu } from "@/components/ui/floating-menu"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { Switch } from "@/components/ui/switch"
+import ProviderIcon from "@/components/common/ProviderIcon"
+import ModelCapabilityBadges from "@/components/chat/ModelCapabilityBadges"
+import {
+  modelSupportsInputTypes,
+  type UnsupportedModelBehavior,
+} from "@/components/chat/model-capabilities"
 import type { AvailableModel, ActiveModel } from "@/types/chat"
 import { getEffortOptionsForModel, modelSupportsThinking } from "@/types/chat"
 
@@ -16,7 +22,7 @@ const VIEWPORT_MARGIN = 8
 
 type SubmenuPlacement = "right" | "left" | "top" | "bottom"
 
-interface ModelPickerProps {
+export interface ModelPickerProps {
   availableModels: AvailableModel[]
   activeModel: ActiveModel | null
   reasoningEffort: string
@@ -30,6 +36,10 @@ interface ModelPickerProps {
     temp: number | null,
     options?: { applyToAgentDefault?: boolean },
   ) => void
+  /** Every listed type must be supported for a model to remain selectable. */
+  requiredInputTypes?: string[]
+  /** Unsupported models are disabled by default, or can be removed entirely. */
+  unsupportedBehavior?: UnsupportedModelBehavior
 }
 
 export default function ModelPicker({
@@ -43,6 +53,8 @@ export default function ModelPicker({
   unavailablePreference,
   sessionTemperature,
   onSessionTemperatureChange,
+  requiredInputTypes,
+  unsupportedBehavior = "disable",
 }: ModelPickerProps) {
   const { t } = useTranslation()
   const [showMenu, setShowMenu] = useState(false)
@@ -179,8 +191,15 @@ export default function ModelPicker({
       ? displayedTemperature.toFixed(2)
       : t("settings.temperatureDefault")
 
+  const visibleModels =
+    unsupportedBehavior === "hide"
+      ? availableModels.filter((model) =>
+          modelSupportsInputTypes(model.inputTypes, requiredInputTypes),
+        )
+      : availableModels
+
   const modelGroups = Array.from(
-    availableModels.reduce((groups, model) => {
+    visibleModels.reduce((groups, model) => {
       const existing = groups.get(model.providerId)
       if (existing) {
         existing.models.push(model)
@@ -211,6 +230,15 @@ export default function ModelPicker({
             }}
             className="flex max-w-[220px] items-center gap-1 overflow-hidden bg-transparent px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground rounded-lg cursor-pointer"
           >
+            {currentModelInfo && (
+              <ProviderIcon
+                providerKey={currentModelInfo.providerId}
+                providerName={currentModelInfo.providerName}
+                size={14}
+                className="shrink-0"
+                color
+              />
+            )}
             <span className="min-w-0 truncate">{modelLabel}</span>
             {supportsThinking && (
               <span
@@ -304,7 +332,7 @@ export default function ModelPicker({
 
           <div className="-mx-1 my-1.5 h-px bg-border-soft" />
 
-          {availableModels.length > 0 && (
+          {visibleModels.length > 0 && (
             <button
               type="button"
               aria-haspopup="menu"
@@ -386,26 +414,37 @@ export default function ModelPicker({
           <div className="max-h-[min(360px,calc(100vh-112px))] overflow-y-auto overscroll-contain">
             {modelGroups.map(([providerId, group]) => (
               <div key={providerId} className="py-0.5">
-                {modelGroups.length > 1 && (
-                  <div className="px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/70">
-                    {group.providerName}
-                  </div>
-                )}
+                <div className="flex items-center gap-1.5 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/70">
+                  <ProviderIcon
+                    providerKey={providerId}
+                    providerName={group.providerName}
+                    size={13}
+                    color
+                  />
+                  <span className="truncate">{group.providerName}</span>
+                </div>
                 <div className="flex flex-col gap-0.5">
                   {group.models.map((model) => {
                     const selected =
                       activeModel?.providerId === model.providerId &&
                       activeModel?.modelId === model.modelId
+                    const unsupported = !modelSupportsInputTypes(
+                      model.inputTypes,
+                      requiredInputTypes,
+                    )
                     return (
                       <button
                         key={`${model.providerId}::${model.modelId}`}
                         type="button"
                         className={cn(
                           "flex w-full items-center justify-between gap-3 rounded-md px-2.5 py-1.5 text-left text-[13px] transition-all duration-150",
-                          selected
-                            ? "bg-secondary text-foreground font-medium shadow-sm"
-                            : "text-foreground/80 hover:bg-secondary/60 hover:text-foreground",
+                          unsupported
+                            ? "cursor-not-allowed bg-muted/30 text-muted-foreground/45 opacity-60"
+                            : selected
+                              ? "bg-secondary text-foreground font-medium shadow-sm"
+                              : "text-foreground/80 hover:bg-secondary/60 hover:text-foreground",
                         )}
+                        disabled={unsupported}
                         onClick={() => {
                           onModelChange(`${model.providerId}::${model.modelId}`, {
                             applyToAgentDefault,
@@ -414,7 +453,8 @@ export default function ModelPicker({
                           setNestedPanel(null)
                         }}
                       >
-                        <span className="truncate">{model.modelName}</span>
+                        <span className="min-w-0 flex-1 truncate">{model.modelName}</span>
+                        <ModelCapabilityBadges inputTypes={model.inputTypes} />
                         {selected && (
                           <Check className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                         )}

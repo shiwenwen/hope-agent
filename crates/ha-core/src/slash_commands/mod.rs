@@ -761,6 +761,7 @@ mod tests {
                     provider_name: "OpenAI".into(),
                     model_id: "gpt-test".into(),
                     model_name: "GPT Test".into(),
+                    input_types: vec!["text".into(), "image".into()],
                 }],
                 active_provider_id: Some("p1".into()),
                 active_model_id: Some("gpt-test".into()),

@@ -2511,6 +2511,8 @@
     "reasoning": "Penaakulan / Pemikiran",
     "reasoningHint": "Setelah didayakan, anda boleh memilih kedalaman penaakulan (rendah / sederhana / tinggi) daripada menu model di atas kotak input sembang; ia ditambah secara automatik pada setiap permintaan.",
     "supportedInputTypes": "Jenis Input Disokong",
+    "supportsImageMultimodal": "Menyokong multimodal imej",
+    "supportsVideoMultimodal": "Menyokong multimodal video",
     "text": "Teks",
     "video": "Video"
   },

@@ -2511,6 +2511,8 @@
     "reasoning": "Suy luận / Tư duy",
     "reasoningHint": "Sau khi bật, bạn có thể chọn độ sâu suy luận (thấp / trung bình / cao) trong menu mô hình phía trên ô nhập liệu trò chuyện; nó sẽ được tự động thêm vào mỗi yêu cầu.",
     "supportedInputTypes": "Loại đầu vào hỗ trợ",
+    "supportsImageMultimodal": "Hỗ trợ đa phương thức hình ảnh",
+    "supportsVideoMultimodal": "Hỗ trợ đa phương thức video",
     "text": "Văn bản",
     "video": "Video"
   },

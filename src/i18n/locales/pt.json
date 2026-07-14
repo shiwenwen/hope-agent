@@ -2511,6 +2511,8 @@
     "reasoning": "Raciocínio / Pensamento",
     "reasoningHint": "Depois de ativado, escolha a profundidade de raciocínio (baixa / média / alta) no menu de modelos acima da caixa de mensagem; ela é aplicada automaticamente em cada requisição.",
     "supportedInputTypes": "Tipos de Entrada Suportados",
+    "supportsImageMultimodal": "Suporta multimodalidade com imagens",
+    "supportsVideoMultimodal": "Suporta multimodalidade com vídeos",
     "text": "Texto",
     "video": "Vídeo"
   },

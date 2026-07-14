@@ -2511,6 +2511,8 @@
     "reasoning": "Reasoning / Thinking",
     "reasoningHint": "Once enabled, pick the reasoning depth (low / medium / high) from the model menu above the chat input; it is injected automatically on every request.",
     "supportedInputTypes": "Supported Input Types",
+    "supportsImageMultimodal": "Supports image multimodality",
+    "supportsVideoMultimodal": "Supports video multimodality",
     "text": "Text",
     "video": "Video"
   },

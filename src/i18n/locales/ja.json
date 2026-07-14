@@ -2511,6 +2511,8 @@
     "reasoning": "推論/思考",
     "reasoningHint": "有効にすると、チャット入力欄上部のモデルメニューから推論の深さ(低 / 中 / 高)を選択でき、リクエストごとに自動的に付与されます。",
     "supportedInputTypes": "対応入力タイプ",
+    "supportsImageMultimodal": "画像マルチモーダル対応",
+    "supportsVideoMultimodal": "動画マルチモーダル対応",
     "text": "テキスト",
     "video": "動画"
   },

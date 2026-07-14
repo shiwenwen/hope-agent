@@ -2511,6 +2511,8 @@
     "reasoning": "Razonamiento / Pensamiento",
     "reasoningHint": "Una vez activado, elige la profundidad de razonamiento (baja / media / alta) en el menú de modelos situado encima del cuadro de chat; se aplica automáticamente en cada solicitud.",
     "supportedInputTypes": "Tipos de Entrada Soportados",
+    "supportsImageMultimodal": "Admite multimodalidad con imágenes",
+    "supportsVideoMultimodal": "Admite multimodalidad con vídeo",
     "text": "Texto",
     "video": "Vídeo"
   },

@@ -2511,6 +2511,8 @@
     "reasoning": "추론/사고",
     "reasoningHint": "활성화하면 채팅 입력창 위의 모델 메뉴에서 추론 강도(낮음 / 중간 / 높음)를 선택할 수 있으며, 요청마다 자동으로 적용됩니다.",
     "supportedInputTypes": "지원 입력 유형",
+    "supportsImageMultimodal": "이미지 멀티모달 지원",
+    "supportsVideoMultimodal": "비디오 멀티모달 지원",
     "text": "텍스트",
     "video": "비디오"
   },

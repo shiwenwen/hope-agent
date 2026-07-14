@@ -2511,6 +2511,8 @@
     "reasoning": "支持推理/思考",
     "reasoningHint": "开启后,可在聊天界面输入框上方的模型菜单中选择推理深度(低 / 中 / 高),并在每次请求时自动注入。",
     "supportedInputTypes": "支持的输入类型",
+    "supportsImageMultimodal": "支持图片多模态",
+    "supportsVideoMultimodal": "支持视频多模态",
     "text": "文本",
     "video": "视频"
   },

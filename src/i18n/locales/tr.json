@@ -2511,6 +2511,8 @@
     "reasoning": "Muhakeme / Düşünme",
     "reasoningHint": "Etkinleştirdiğinizde, sohbet giriş kutusunun üzerindeki model menüsünden akıl yürütme derinliğini (düşük / orta / yüksek) seçebilirsiniz; her istekte otomatik olarak eklenir.",
     "supportedInputTypes": "Desteklenen Giriş Türleri",
+    "supportsImageMultimodal": "Görsel çoklu mod desteği",
+    "supportsVideoMultimodal": "Video çoklu mod desteği",
     "text": "Metin",
     "video": "video"
   },

@@ -10,8 +10,8 @@ use std::fmt;
 use crate::config::{cached_config, mutate_config, AppConfig};
 
 use super::helpers::{
-    ensure_codex_provider, first_available_model, is_masked_key, merge_profile_keys,
-    model_ref_exists, model_ref_is_available, parse_model_ref,
+    codex_provider_needs_metadata_refresh, ensure_codex_provider, first_available_model,
+    is_masked_key, merge_profile_keys, model_ref_exists, model_ref_is_available, parse_model_ref,
 };
 use super::types::{ActiveModel, ApiType, ModelConfig, ProviderConfig};
 
@@ -250,6 +250,9 @@ fn codex_provider_needs_backfill(provider: &ProviderConfig) -> bool {
         .iter()
         .any(|id| !provider.models.iter().any(|m| &m.id == id))
     {
+        return true;
+    }
+    if codex_provider_needs_metadata_refresh(provider) {
         return true;
     }
     // All defaults present but not in canonical order → needs reorder. Older
@@ -1004,6 +1007,32 @@ mod tests {
         let mut provider = codex_provider();
         provider.models.retain(|m| m.id != "gpt-5.5");
         assert!(codex_provider_needs_backfill(&provider));
+    }
+
+    #[test]
+    fn codex_backfill_refreshes_stale_model_capabilities() {
+        let mut provider = codex_provider();
+        let sol = provider
+            .models
+            .iter_mut()
+            .find(|model| model.id == "gpt-5.6-sol")
+            .unwrap();
+        sol.input_types.retain(|input_type| input_type != "image");
+
+        assert!(codex_provider_needs_backfill(&provider));
+
+        let mut config = AppConfig {
+            providers: vec![provider],
+            ..AppConfig::default()
+        };
+        ensure_codex_provider(&mut config);
+
+        let sol = config.providers[0]
+            .models
+            .iter()
+            .find(|model| model.id == "gpt-5.6-sol")
+            .unwrap();
+        assert_eq!(sol.input_types, ["text", "image"]);
     }
 
     #[test]
