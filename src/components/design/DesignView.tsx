@@ -117,6 +117,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { IconTip } from "@/components/ui/tooltip"
+import { useLightbox } from "@/components/common/ImageLightbox"
 import { FloatingMenu } from "@/components/ui/floating-menu"
 import { useDragWidth } from "@/hooks/useDragWidth"
 import {
@@ -436,6 +437,9 @@ async function compositeAnnotation(
   if (!blob) return null
   return new File([blob], "design-annotation.png", { type: "image/png" })
 }
+
+/** 首页参考图上限（与后端 MAX_REFERENCE_IMAGES 对齐：≤5 张视觉附件）。 */
+const MAX_HOME_REF_IMAGES = 5
 
 export default function DesignView({ onBack, onOpenSettings, onImplementToCode }: DesignViewProps) {
   const { t } = useTranslation()
@@ -1582,25 +1586,41 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
   )
 
   // ── 首页参考图（+ / 粘贴 / 拖拽收单张；无视觉模型时拦截并提示）──────────
-  const [homeRefImage, setHomeRefImage] = useState<{
-    b64: string
-    mime: string
-    url: string
-  } | null>(null)
-  const onPickHomeImage = useCallback(
-    (file: File | null) => {
-      if (file && visionModels.length === 0) {
+  const [homeRefImages, setHomeRefImages] = useState<
+    { b64: string; mime: string; url: string }[]
+  >([])
+  // 批量收图（+ 多选 / 多图拖入 / 粘贴各一张）：一次性过滤非图 + 按当前张数算可加名额，超限
+  // **只弹一次** max toast、只切一次视觉模型（此前逐文件 forEach 会 N 次弹「已切换模型」/ N 次
+  // 写配置 / 静默丢多余图，review #4/#5/#13）。setter 内仍守上限防 compress 异步竞态。
+  const onPickHomeImages = useCallback(
+    (files: File[]) => {
+      const images = files.filter((f) => f.type.startsWith("image/"))
+      if (images.length === 0) return
+      if (visionModels.length === 0) {
         toast.error(
           t("design.model.noVisionAvailable", "未配置支持图片的模型，请到 设置 → 模型 添加"),
         )
         return
       }
-      compressPickedImage(file, (img) => {
-        setHomeRefImage(img)
-        ensureVisionGenModel()
+      const available = MAX_HOME_REF_IMAGES - homeRefImages.length
+      if (available <= 0 || images.length > available) {
+        toast.error(t("design.refImage.max", "最多添加 {{n}} 张参考图", { n: MAX_HOME_REF_IMAGES }))
+        if (available <= 0) return
+      }
+      let switched = false
+      images.slice(0, available).forEach((file) => {
+        compressPickedImage(file, (img) => {
+          setHomeRefImages((prev) =>
+            prev.length >= MAX_HOME_REF_IMAGES ? prev : [...prev, img],
+          )
+          if (!switched) {
+            switched = true
+            ensureVisionGenModel()
+          }
+        })
       })
     },
-    [compressPickedImage, ensureVisionGenModel, visionModels, t],
+    [compressPickedImage, ensureVisionGenModel, visionModels, homeRefImages.length, t],
   )
 
   const createFromReferenceImage = useCallback(async () => {
@@ -1659,7 +1679,7 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
   const generateFromHome = useCallback(async () => {
     const base = homePrompt.trim()
     // 有图无文也可生成（后端固定「照图复刻」指令）。
-    if ((!base && !homeRefImage) || generatingHome) return
+    if ((!base && homeRefImages.length === 0) || generatingHome) return
     const prompt = base
     const systemId = homeSystemId ?? designConfig?.defaultSystemId ?? undefined
     let createdProjectId: string | null = null
@@ -1683,14 +1703,13 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
           prompt: prompt || undefined,
           systemId,
           recipeId: homeRecipeId ?? undefined,
-          referenceImageB64: homeRefImage?.b64,
-          referenceImageMime: homeRefImage?.mime,
+          referenceImages: homeRefImages.map((i) => ({ b64: i.b64, mime: i.mime })),
           modelOverride: genModel ?? undefined,
         },
       })
       setHomePrompt("")
       setHomeRecipeId(null)
-      setHomeRefImage(null)
+      setHomeRefImages([])
       openProject(project)
       if (artifact) void openArtifact(artifact)
     } catch (e) {
@@ -1713,7 +1732,7 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
     homeKind,
     homeSystemId,
     homeRecipeId,
-    homeRefImage,
+    homeRefImages,
     genModel,
     generatingHome,
     designConfig,
@@ -1727,7 +1746,7 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
   // 带参考图时每件产物都真看原图（N 件 = N 次带图视觉调用，用户主动选择）。
   const generateBrandPackFromHome = useCallback(async (kinds: ArtifactKind[]) => {
     const base = homePrompt.trim()
-    if ((!base && !homeRefImage) || generatingHome || kinds.length === 0) return
+    if ((!base && homeRefImages.length === 0) || generatingHome || kinds.length === 0) return
     const systemId = homeSystemId ?? designConfig?.defaultSystemId ?? undefined
     let createdProjectId: string | null = null
     setGeneratingHome(true)
@@ -1760,13 +1779,12 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
         brief: base,
         kinds,
         systemId,
-        referenceImageB64: homeRefImage?.b64,
-        referenceImageMime: homeRefImage?.mime,
+        referenceImages: homeRefImages.map((i) => ({ b64: i.b64, mime: i.mime })),
         modelOverride: genModel ?? undefined,
       })
       setHomePrompt("")
       setHomeRecipeId(null)
-      setHomeRefImage(null)
+      setHomeRefImages([])
       openProject(project)
       if (arts && arts.length > 0) void openArtifact(arts[0])
       toast.success(t("design.brandPack.done", "已生成 {{count}} 个产物", { count: arts?.length ?? 0 }), {
@@ -1790,7 +1808,7 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
     tx,
     homePrompt,
     homeSystemId,
-    homeRefImage,
+    homeRefImages,
     genModel,
     generatingHome,
     designConfig,
@@ -4338,9 +4356,9 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
           onGenerate={() => void generateFromHome()}
           onBrandPack={() => setBrandPackOpen(true)}
           kindLabel={kindLabel}
-          refImage={homeRefImage}
-          onPickImage={onPickHomeImage}
-          onClearImage={() => setHomeRefImage(null)}
+          refImages={homeRefImages}
+          onPickImages={onPickHomeImages}
+          onRemoveImage={(i) => setHomeRefImages((prev) => prev.filter((_, idx) => idx !== i))}
           genModel={genModel}
           models={homeModels}
           onModelChange={(providerId, modelId) => rememberGenModel({ providerId, modelId })}
@@ -6588,9 +6606,9 @@ function LaunchHome({
   onGenerate,
   onBrandPack,
   kindLabel,
-  refImage,
-  onPickImage,
-  onClearImage,
+  refImages,
+  onPickImages,
+  onRemoveImage,
   genModel,
   models,
   onModelChange,
@@ -6617,10 +6635,10 @@ function LaunchHome({
   onGenerate: () => void
   onBrandPack: () => void
   kindLabel: (k: ArtifactKind) => string
-  /** 首页参考图（+ / 粘贴 / 拖拽收单张；选中的视觉模型直接看原图生成）。 */
-  refImage: { url: string } | null
-  onPickImage: (f: File | null) => void
-  onClearImage: () => void
+  /** 首页参考图（+ / 粘贴 / 拖拽收 ≤5 张；选中的视觉模型同时看全部原图生成）。 */
+  refImages: { url: string }[]
+  onPickImages: (files: File[]) => void
+  onRemoveImage: (index: number) => void
   /** 生成模型（null = 跟随默认链）；传图态选择器只亮视觉模型。 */
   genModel: ActiveModel | null
   models: AvailableModel[]
@@ -6634,6 +6652,7 @@ function LaunchHome({
   onNewBlank: () => void
 }) {
   const { t } = useTranslation()
+  const { openLightbox } = useLightbox()
   const [pickerOpen, setPickerOpen] = useState(false)
   const systemName = systems.find((s) => s.id === systemId)?.name
   const imageInputRef = useRef<HTMLInputElement>(null)
@@ -6724,30 +6743,41 @@ function LaunchHome({
           onDrop={(e) => {
             e.preventDefault()
             setDragOver(false)
-            const file = Array.from(e.dataTransfer.files).find((f) => f.type.startsWith("image/"))
-            if (file) onPickImage(file)
+            // 可一次拖入多张（过滤 / 上限 / 单次 toast 都在 onPickImages 内）。
+            onPickImages(Array.from(e.dataTransfer.files))
           }}
         >
-          {/* 参考图缩略预览（单张；X 移除，删图不切回模型）。 */}
-          {refImage && (
-            <div className="mb-1.5 flex items-center gap-2 px-1.5">
-              <div className="group relative">
-                <img
-                  src={refImage.url}
-                  alt={t("design.refImage.alt", "参考图")}
-                  className="h-14 w-14 rounded-lg border border-border/60 object-cover"
-                />
-                <button
-                  type="button"
-                  aria-label={t("design.refImage.remove", "移除参考图")}
-                  onClick={onClearImage}
-                  className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-foreground/80 text-background opacity-0 transition-opacity group-hover:opacity-100"
-                >
-                  <X className="h-3 w-3" />
-                </button>
-              </div>
+          {/* 参考图缩略预览（≤5 张；点图放大预览，X 移除单张，删图不切回模型）。 */}
+          {refImages.length > 0 && (
+            <div className="mb-1.5 flex flex-wrap items-center gap-2 px-1.5">
+              {refImages.map((img, i) => (
+                // index key：缩略图无自身状态，且 data-URL 对同一张图会重复（review #3）。
+                <div key={i} className="group relative">
+                  <button
+                    type="button"
+                    onClick={() => openLightbox(img.url, t("design.refImage.alt", "参考图"))}
+                    className="block h-14 w-14 cursor-zoom-in overflow-hidden rounded-lg border border-border/60 transition-colors hover:border-primary/40"
+                  >
+                    <img
+                      src={img.url}
+                      alt={t("design.refImage.alt", "参考图")}
+                      className="h-full w-full object-cover"
+                    />
+                  </button>
+                  <button
+                    type="button"
+                    aria-label={t("design.refImage.remove", "移除参考图")}
+                    onClick={() => onRemoveImage(i)}
+                    className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-foreground/80 text-background opacity-0 transition-opacity group-hover:opacity-100"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </div>
+              ))}
               <span className="text-xs text-muted-foreground">
-                {t("design.refImage.hint", "将照着这张参考图生成")}
+                {refImages.length > 1
+                  ? t("design.refImage.hintMulti", "将照着这些参考图生成")
+                  : t("design.refImage.hint", "将照着这张参考图生成")}
               </span>
             </div>
           )}
@@ -6757,7 +6787,7 @@ function LaunchHome({
             prompt={prompt}
             setPrompt={setPrompt}
             onGenerate={onGenerate}
-            onPasteImage={(f) => onPickImage(f)}
+            onPasteImage={(f) => onPickImages([f])}
           />
           <div className="mt-1 flex items-center justify-between gap-2 border-t border-border/50 px-1 pt-2">
             <div className="flex min-w-0 items-center gap-1">
@@ -6765,9 +6795,11 @@ function LaunchHome({
                 ref={imageInputRef}
                 type="file"
                 accept="image/*"
+                multiple
                 className="hidden"
                 onChange={(e) => {
-                  onPickImage(e.target.files?.[0] ?? null)
+                  // 一次可多选（过滤 / 上限 / 单次 toast 都在 onPickImages 内）。
+                  onPickImages(Array.from(e.target.files ?? []))
                   e.target.value = "" // 允许再次选同一文件
                 }}
               />
@@ -6798,7 +6830,7 @@ function LaunchHome({
                   value={genModel ? `${genModel.providerId}::${genModel.modelId}` : ""}
                   onChange={onModelChange}
                   availableModels={models}
-                  requireVision={!!refImage}
+                  requireVision={refImages.length > 0}
                   placeholder={t("design.model.followDefault", "默认模型")}
                   clearLabel={t("design.model.followDefaultItem", "跟随默认模型")}
                   onClear={onModelClear}
@@ -6812,7 +6844,7 @@ function LaunchHome({
                   size="sm"
                   variant="outline"
                   className="h-9 rounded-lg px-4 font-medium gap-1.5"
-                  disabled={(!prompt.trim() && !refImage) || generating}
+                  disabled={(!prompt.trim() && refImages.length === 0) || generating}
                   onClick={onBrandPack}
                 >
                   <Layers className="h-4 w-4" />
@@ -6822,7 +6854,7 @@ function LaunchHome({
               <Button
                 size="sm"
                 className="h-9 rounded-lg px-5 font-medium gap-1.5"
-                disabled={(!prompt.trim() && !refImage) || generating}
+                disabled={(!prompt.trim() && refImages.length === 0) || generating}
                 onClick={onGenerate}
               >
                 {generating && <Loader2 className="h-4 w-4 animate-spin" />}

@@ -10474,7 +10474,9 @@
       "add": "Referans görsel ekle (yapıştırma / sürükleme de olur)",
       "alt": "Referans görsel",
       "hint": "Bu referans görsele göre üretilecek",
-      "remove": "Referans görseli kaldır"
+      "remove": "Referans görseli kaldır",
+      "hintMulti": "Bu referans görsellerine göre oluşturulacak",
+      "max": "En fazla {{n}} referans görsel ekleyin"
     }
   },
   "agentLifecycle": {

@@ -211,6 +211,23 @@ fn strip_trailing_partial_marker(buf: &str) -> &str {
     buf
 }
 
+/// 把参考图 `(b64, mime)` 列表构成视觉附件（`run_vision` 的 attachments）；选中的视觉模型
+/// 同时看全部原图生成。多图时按序命名，便于模型区分。
+fn reference_attachments(refs: &[(&str, &str)]) -> Vec<crate::agent::Attachment> {
+    refs.iter()
+        .enumerate()
+        .map(|(i, (b64, mime))| crate::agent::Attachment {
+            name: format!("reference-image-{}", i + 1),
+            mime_type: mime.to_string(),
+            source: None,
+            data: Some(b64.to_string()),
+            file_path: None,
+            quote_lines: None,
+            quote_role: None,
+        })
+        .collect()
+}
+
 /// 从 brief + kind + 设计系统生成自包含 HTML 产物（body_html / css / js）。非流式（品牌包
 /// 批量 / agent 工具面 / 无 runtime 退路）。带参考图时走 `run_vision`（真多模态，模型直接
 /// 看原图）；`model_override` 语义同 [`stream_design_parts`]（单模型、不降级）。
@@ -220,62 +237,50 @@ pub async fn generate_design_parts(
     system_md: &str,
     tokens: &BTreeMap<String, String>,
     recipe_id: Option<&str>,
-    reference_image: Option<(&str, &str)>,
+    reference_images: &[(&str, &str)],
     model_override: Option<crate::provider::ActiveModel>,
 ) -> Result<ArtifactParts> {
     let mut prompt = build_generation_prompt(brief, kind, system_md, tokens, recipe_id)?;
-    if reference_image.is_some() {
+    if !reference_images.is_empty() {
         prompt.push_str(REFERENCE_IMAGE_GUIDANCE);
     }
     // 16000：一个完整网页 / 多页 deck / dashboard 的 HTML+CSS 很占 token，预算不足会截断。
-    let text = match (reference_image, model_override) {
-        (Some((b64, mime)), model_override) => {
-            let config = crate::config::cached_config();
-            let chain = match model_override {
-                Some(m) => vec![m],
-                None => crate::automation::effective_chain(&config, None),
-            };
-            let attachments = [crate::agent::Attachment {
-                name: "reference-image".to_string(),
-                mime_type: mime.to_string(),
-                source: None,
-                data: Some(b64.to_string()),
-                file_path: None,
-                quote_lines: None,
-                quote_role: None,
-            }];
-            crate::automation::run_vision(crate::automation::VisionTaskSpec {
-                purpose: "design.generate",
-                chain,
-                session_key: "automation:design.generate",
-                system: super::extract::VISION_UNTRUSTED_SYSTEM,
-                instruction: &prompt,
-                attachments: &attachments,
-                max_tokens: 16000,
-            })
-            .await?
-            .text
-        }
-        (None, Some(m)) => {
-            crate::automation::run(crate::automation::ModelTaskSpec {
-                purpose: "design.generate",
-                chain: vec![m],
-                session_key: "automation:design.generate",
-                instruction: &prompt,
-                max_tokens: 16000,
-            })
-            .await?
-            .text
-        }
-        (None, None) => {
-            super::run_design_task(
-                "design.generate",
-                "automation:design.generate",
-                &prompt,
-                16000,
-            )
-            .await?
-        }
+    let text = if !reference_images.is_empty() {
+        let config = crate::config::cached_config();
+        let chain = match model_override {
+            Some(m) => vec![m],
+            None => crate::automation::effective_chain(&config, None),
+        };
+        let attachments = reference_attachments(reference_images);
+        crate::automation::run_vision(crate::automation::VisionTaskSpec {
+            purpose: "design.generate",
+            chain,
+            session_key: "automation:design.generate",
+            system: super::extract::VISION_UNTRUSTED_SYSTEM,
+            instruction: &prompt,
+            attachments: &attachments,
+            max_tokens: 16000,
+        })
+        .await?
+        .text
+    } else if let Some(m) = model_override {
+        crate::automation::run(crate::automation::ModelTaskSpec {
+            purpose: "design.generate",
+            chain: vec![m],
+            session_key: "automation:design.generate",
+            instruction: &prompt,
+            max_tokens: 16000,
+        })
+        .await?
+        .text
+    } else {
+        super::run_design_task(
+            "design.generate",
+            "automation:design.generate",
+            &prompt,
+            16000,
+        )
+        .await?
     };
     validate_not_truncated(&text, kind)
 }
@@ -359,13 +364,13 @@ pub async fn stream_design_parts(
     system_md: &str,
     tokens: &BTreeMap<String, String>,
     recipe_id: Option<&str>,
-    reference_image: Option<(&str, &str)>,
+    reference_images: &[(&str, &str)],
     model_override: Option<crate::provider::ActiveModel>,
     cancel: &Arc<AtomicBool>,
     on_snapshot: &(dyn Fn(&ArtifactParts) + Send + Sync),
 ) -> Result<ArtifactParts> {
     let mut prompt = build_generation_prompt(brief, kind, system_md, tokens, recipe_id)?;
-    if reference_image.is_some() {
+    if !reference_images.is_empty() {
         prompt.push_str(REFERENCE_IMAGE_GUIDANCE);
     }
     let config = crate::config::cached_config();
@@ -405,47 +410,36 @@ pub async fn stream_design_parts(
         on_snapshot(&parts);
     };
 
-    let out = match reference_image {
-        // 真多模态：原图作附件随请求上行，选中的视觉模型直接看图生成。
-        Some((b64, mime)) => {
-            let attachments = [crate::agent::Attachment {
-                name: "reference-image".to_string(),
-                mime_type: mime.to_string(),
-                source: None,
-                data: Some(b64.to_string()),
-                file_path: None,
-                quote_lines: None,
-                quote_role: None,
-            }];
-            crate::automation::run_vision_streaming(
-                crate::automation::VisionTaskSpec {
-                    purpose: "design.stream",
-                    chain,
-                    session_key: "automation:design.stream",
-                    system: super::extract::VISION_UNTRUSTED_SYSTEM,
-                    instruction: &prompt,
-                    attachments: &attachments,
-                    max_tokens: 16000,
-                },
-                cancel,
-                &on_text,
-            )
-            .await?
-        }
-        None => {
-            crate::automation::run_streaming(
-                crate::automation::ModelTaskSpec {
-                    purpose: "design.stream",
-                    chain,
-                    session_key: "automation:design.stream",
-                    instruction: &prompt,
-                    max_tokens: 16000,
-                },
-                cancel,
-                &on_text,
-            )
-            .await?
-        }
+    let out = if !reference_images.is_empty() {
+        // 真多模态：全部原图作附件随请求上行，选中的视觉模型直接看图生成。
+        let attachments = reference_attachments(reference_images);
+        crate::automation::run_vision_streaming(
+            crate::automation::VisionTaskSpec {
+                purpose: "design.stream",
+                chain,
+                session_key: "automation:design.stream",
+                system: super::extract::VISION_UNTRUSTED_SYSTEM,
+                instruction: &prompt,
+                attachments: &attachments,
+                max_tokens: 16000,
+            },
+            cancel,
+            &on_text,
+        )
+        .await?
+    } else {
+        crate::automation::run_streaming(
+            crate::automation::ModelTaskSpec {
+                purpose: "design.stream",
+                chain,
+                session_key: "automation:design.stream",
+                instruction: &prompt,
+                max_tokens: 16000,
+            },
+            cancel,
+            &on_text,
+        )
+        .await?
     };
     validate_not_truncated(&out.text, kind)
 }

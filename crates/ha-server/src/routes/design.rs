@@ -15,7 +15,8 @@ use tower_http::services::ServeFile;
 use ha_core::design::extract::Direction;
 use ha_core::design::service::{
     self, BindingSyncReport, CreateArtifactInput, CreateProjectInput, ElementPatch,
-    ExtractSystemInput, RemoveElementResult, SaveSystemInput, UpdateProjectInput,
+    ExtractSystemInput, ReferenceImageInput, RemoveElementResult, SaveSystemInput,
+    UpdateProjectInput,
 };
 use ha_core::design::{
     DesignArtifact, DesignArtifactVersion, DesignChatThread, DesignCodeBinding, DesignComment,
@@ -505,9 +506,7 @@ pub struct BrandPackBody {
     #[serde(default)]
     pub folder: Option<String>,
     #[serde(default)]
-    pub reference_image_b64: Option<String>,
-    #[serde(default)]
-    pub reference_image_mime: Option<String>,
+    pub reference_images: Vec<ReferenceImageInput>,
     #[serde(default)]
     pub model_override: Option<ha_core::provider::ActiveModel>,
 }
@@ -524,8 +523,7 @@ pub async fn generate_brand_pack(
         body.kinds,
         body.system_id,
         body.folder,
-        body.reference_image_b64,
-        body.reference_image_mime,
+        body.reference_images,
         body.model_override,
     )
     .await

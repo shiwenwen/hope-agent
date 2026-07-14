@@ -10474,7 +10474,9 @@
       "add": "Thêm ảnh tham khảo (dán / kéo thả cũng được)",
       "alt": "Ảnh tham khảo",
       "hint": "Sẽ tạo dựa trên ảnh tham khảo này",
-      "remove": "Xóa ảnh tham khảo"
+      "remove": "Xóa ảnh tham khảo",
+      "hintMulti": "Sẽ tạo dựa trên các ảnh tham chiếu này",
+      "max": "Thêm tối đa {{n}} ảnh tham chiếu"
     }
   },
   "agentLifecycle": {

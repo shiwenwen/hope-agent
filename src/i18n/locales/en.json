@@ -10474,7 +10474,9 @@
       "add": "Add reference image (paste / drag also works)",
       "alt": "Reference image",
       "hint": "Will generate based on this reference image",
-      "remove": "Remove reference image"
+      "remove": "Remove reference image",
+      "hintMulti": "Will generate based on these reference images",
+      "max": "Add up to {{n}} reference images"
     }
   },
   "agentLifecycle": {

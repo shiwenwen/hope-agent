@@ -305,6 +305,9 @@ export interface CreateArtifactInput {
    *  选中的视觉模型直接看原图（真多模态）。 */
   referenceImageB64?: string;
   referenceImageMime?: string;
+  /** 多张参考图（首页 composer：≤5 张视觉附件）。非空时后端优先于单张 referenceImageB64，
+   *  选中的视觉模型同时看全部原图生成。 */
+  referenceImages?: { b64: string; mime: string }[];
   /** 用户显式选的生成模型（单模型、失败即报错不降级）；涉图时须视觉合格。 */
   modelOverride?: ActiveModel;
 }

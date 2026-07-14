@@ -788,14 +788,14 @@ Loop owner API 管理 session-scoped recurring triggers。`create_loop_schedule`
 | `list_design_artifacts_cmd` | `GET /api/design/projects/{projectId}/artifacts` | ✅ |
 | `create_design_artifact_cmd` | `POST /api/design/artifacts` | ✅ |
 | `import_design_image_cmd` | `POST /api/design/artifacts/import-image`（拖入导入：base64 图片→image 产物） | ✅ |
-| `generate_design_brand_pack_cmd` | `POST /api/design/artifacts/brand-pack`（一 brief 批量生成一组共享系统的协调产物；可带 `referenceImageB64/Mime`（每件产物真看原图）+ `modelOverride`（单模型不降级）） | ✅ |
+| `generate_design_brand_pack_cmd` | `POST /api/design/artifacts/brand-pack`（一 brief 批量生成一组共享系统的协调产物；可带 `referenceImages`（每件产物真看参考图、逐件规整成功计数钳 ≤5 张）+ `modelOverride`（单模型不降级）） | ✅ |
 | `set_design_presenter_notes_cmd` | `PUT /api/design/artifacts/{artifactId}/presenter-notes`（deck 演讲者备注，存 metadata） | ✅ |
 | `set_design_artifact_dir_cmd` | `PUT /api/design/artifacts/{id}/dir`（RTL/LTR 文本方向，存 metadata.dir + 重渲染） | ✅ |
 | `patch_design_page_style_cmd` | `PUT /api/design/artifacts/{id}/page-style`（页面级 body 样式，CSS 标记块 + 落版本） | ✅ |
 | `inpaint_design_image_cmd` | `POST /api/design/artifacts/{id}/inpaint`（image 蒙版局部重绘，OpenAI `/images/edits`） | ✅ |
 | `export_design_pptx_outline_cmd` | `GET /api/design/artifacts/{id}/pptx-outline`（deck 结构化可编辑文本 PPTX，服务端抽大纲） | ✅ |
 | `review_design_artifact_cmd` | `GET /api/design/artifacts/{id}/quality-review`（确定性多镜头质量审查：a11y/内容/语义） | ✅ |
-| `generate_design_artifact_cmd` | `POST /api/design/artifacts/generate`（`referenceImageB64` 作视觉附件真多模态；`modelOverride` 单模型不降级） | ✅ |
+| `generate_design_artifact_cmd` | `POST /api/design/artifacts/generate`（`referenceImages`（≤5 张，优先于单张 `referenceImageB64`）作视觉附件真多模态；`modelOverride` 单模型不降级） | ✅ |
 | `design_ffmpeg_doctor_cmd` | `GET /api/design/ffmpeg/doctor` | ✅ |
 | `design_install_ffmpeg_cmd` | `POST /api/design/ffmpeg/install` | ✅ |
 | `design_browser_doctor_cmd` | `GET /api/design/browser/doctor` | ✅ |

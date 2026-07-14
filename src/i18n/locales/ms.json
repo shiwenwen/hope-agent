@@ -10474,7 +10474,9 @@
       "add": "Tambah imej rujukan (tampal / seret juga boleh)",
       "alt": "Imej rujukan",
       "hint": "Akan dijana berdasarkan imej rujukan ini",
-      "remove": "Buang imej rujukan"
+      "remove": "Buang imej rujukan",
+      "hintMulti": "Akan dijana berdasarkan imej rujukan ini",
+      "max": "Tambah sehingga {{n}} imej rujukan"
     }
   },
   "agentLifecycle": {

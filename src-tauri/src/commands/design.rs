@@ -10,7 +10,8 @@ use ha_core::design::extract::Direction;
 use ha_core::design::service::BindingSyncReport;
 use ha_core::design::service::{
     self, ArtifactView, CreateArtifactInput, CreateProjectInput, ElementPatch, ExportResult,
-    ExtractSystemInput, RemoveElementResult, SaveSystemInput, UpdateProjectInput,
+    ExtractSystemInput, ReferenceImageInput, RemoveElementResult, SaveSystemInput,
+    UpdateProjectInput,
 };
 use ha_core::design::token_export::TokenExport;
 use ha_core::design::{
@@ -174,8 +175,7 @@ pub async fn generate_design_brand_pack_cmd(
     kinds: Vec<String>,
     system_id: Option<String>,
     folder: Option<String>,
-    reference_image_b64: Option<String>,
-    reference_image_mime: Option<String>,
+    reference_images: Option<Vec<ReferenceImageInput>>,
     model_override: Option<ha_core::provider::ActiveModel>,
 ) -> Result<Vec<DesignArtifact>, CmdError> {
     service::generate_brand_pack(
@@ -184,8 +184,7 @@ pub async fn generate_design_brand_pack_cmd(
         kinds,
         system_id,
         folder,
-        reference_image_b64,
-        reference_image_mime,
+        reference_images.unwrap_or_default(),
         model_override,
     )
     .await

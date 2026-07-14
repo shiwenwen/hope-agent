@@ -1006,6 +1006,15 @@ pub fn delete_project(id: &str) -> Result<()> {
 
 // ── Artifacts ──────────────────────────────────────────────────────
 
+/// 单张参考图（首页 composer 多图上行的元素）。owner 平面 camelCase：`{ b64, mime }`。
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReferenceImageInput {
+    pub b64: String,
+    #[serde(default)]
+    pub mime: Option<String>,
+}
+
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateArtifactInput {
@@ -1034,6 +1043,10 @@ pub struct CreateArtifactInput {
     pub reference_image_b64: Option<String>,
     #[serde(default)]
     pub reference_image_mime: Option<String>,
+    /// 多张参考图（首页 composer：≤5 张视觉附件）。非空时取代单张 `reference_image_b64`——
+    /// 每张走 `prepare_reference_image` 规整、坏项跳过，选中的视觉模型**同时看全部原图**生成。
+    #[serde(default)]
+    pub reference_images: Option<Vec<ReferenceImageInput>>,
     /// 用户在 GUI 显式选的生成模型（单模型、失败即报错不降级）；涉图时须视觉合格。
     /// 缺省 = `effective_chain` 默认链。
     #[serde(default)]
@@ -1056,6 +1069,64 @@ pub struct CreateArtifactInput {
     /// 新页面落入的文件夹（页面分组）：斜杠路径，缺省 = 根。OD「新文件落 currentDir」的对应。
     #[serde(default)]
     pub folder: Option<String>,
+}
+
+/// 视觉参考图上限（首页多图 composer；防一次带太多附件打满视觉模型 token）。
+/// **前端 `MAX_HOME_REF_IMAGES`（DesignView.tsx）须与此对齐**——后端此值是权威硬上限，前端漂移
+/// 只会让 UI 接受更多、后端静默钳掉（review #11）。
+const MAX_REFERENCE_IMAGES: usize = 5;
+
+/// 从 input 收原始参考图 b64（多张优先、回退单张），不做规整、**不在此钳数量**——供 `has_ref`
+/// 廉价判定 + 移交后台规整。上限在 `prepare_reference_images` 按「规整成功」计数（坏图不占名额）。
+fn raw_reference_b64s(input: &CreateArtifactInput) -> Vec<String> {
+    let multi: Vec<String> = input
+        .reference_images
+        .as_deref()
+        .unwrap_or(&[])
+        .iter()
+        .map(|r| r.b64.clone())
+        .filter(|b| !b.trim().is_empty())
+        .collect();
+    if multi.is_empty() {
+        input
+            .reference_image_b64
+            .iter()
+            .filter(|b| !b.trim().is_empty())
+            .cloned()
+            .collect()
+    } else {
+        multi
+    }
+}
+
+/// 规整一组参考图 b64（大小闸 / 降采样 / 重编码）成 `(b64, mime)`，坏项跳过不阻断。
+/// **先过滤再计上限**：坏图不占 `MAX_REFERENCE_IMAGES` 名额，够 5 张成功即停（不再多解码）——
+/// 否则「前 5 张恰好损坏」会挤掉后面有效图（review #6）。
+fn prepare_reference_images(raw: &[String]) -> Vec<(String, String)> {
+    let mut out: Vec<(String, String)> = Vec::new();
+    for b64 in raw {
+        if out.len() >= MAX_REFERENCE_IMAGES {
+            break;
+        }
+        match super::extract::prepare_reference_image(b64) {
+            Ok((b64, mime)) => out.push((b64, mime.to_string())),
+            Err(e) => crate::app_warn!(
+                "design",
+                "generate",
+                "reference image prepare failed ({e}), skipping this image"
+            ),
+        }
+    }
+    out
+}
+
+/// 图-only 生成（无文本 brief）的固定复刻指令（单/多图措辞）。
+fn reference_recreate_brief(n: usize) -> String {
+    if n > 1 {
+        "Faithfully combine the attached reference images into this artifact.".to_string()
+    } else {
+        "Faithfully recreate the attached reference image as this artifact.".to_string()
+    }
 }
 
 /// 若 image 形态且无 body，用 prompt/title 调 image_generate 生成后再落库。
@@ -1089,6 +1160,35 @@ pub async fn create_artifact_generating(mut input: CreateArtifactInput) -> Resul
                     "image",
                     "reference image base64 decode failed, ignoring: {e}"
                 ),
+            }
+        }
+        // 首页多图 composer：`reference_images`（≤5）逐张解码为图生图输入，与单张 b64 / paths 叠加、
+        // 总量钳 ≤5。此前只读单张 `reference_image_b64`，而首页改造后只发 `reference_images`——
+        // image 形态图生图会静默丢参考图（review #1 回归修复）。
+        if let Some(refs) = input.reference_images.as_deref() {
+            for r in refs {
+                if input_images.len() >= 5 {
+                    break;
+                }
+                let b64 = r.b64.trim();
+                if b64.is_empty() {
+                    continue;
+                }
+                match base64::engine::general_purpose::STANDARD.decode(b64) {
+                    Ok(data) => input_images.push(crate::tools::image_generate::InputImage {
+                        data,
+                        mime: r
+                            .mime
+                            .clone()
+                            .filter(|m| !m.trim().is_empty())
+                            .unwrap_or_else(|| "image/png".to_string()),
+                    }),
+                    Err(e) => crate::app_warn!(
+                        "design",
+                        "image",
+                        "reference image base64 decode failed, ignoring: {e}"
+                    ),
+                }
             }
         }
         // agent 面：参考图路径 / URL → 加载（SSRF-gated、坏项跳过），叠加到 input_images（总量由
@@ -1153,40 +1253,27 @@ pub async fn create_artifact_generating(mut input: CreateArtifactInput) -> Resul
         // 走真多模态（选中的视觉模型直接看原图）。生成失败**不阻断**——降级为空壳产物
         // （用户可在对话里继续细化）。
         let text_brief = input.prompt.clone().filter(|p| !p.trim().is_empty());
-        let reference_image = input
-            .reference_image_b64
-            .as_deref()
-            .filter(|s| !s.trim().is_empty())
-            .and_then(|b64| match super::extract::prepare_reference_image(b64) {
-                Ok((b64, mime)) => Some((b64, mime.to_string())),
-                Err(e) => {
-                    crate::app_warn!(
-                        "design",
-                        "generate",
-                        "reference image prepare failed ({e}), falling back to text brief"
-                    );
-                    None
-                }
-            });
-        let brief = match (&text_brief, &reference_image) {
+        // 多张参考图（首页 ≤5）优先、回退单张；每张规整成视觉附件，模型同时看全部原图。
+        let reference_images = prepare_reference_images(&raw_reference_b64s(&input));
+        let brief = match (&text_brief, reference_images.is_empty()) {
             (Some(b), _) => Some(b.clone()),
-            (None, Some(_)) => {
-                Some("Faithfully recreate the attached reference image as this artifact.".into())
-            }
-            (None, None) => None,
+            (None, false) => Some(reference_recreate_brief(reference_images.len())),
+            (None, true) => None,
         };
         if let (Some(kind), Some(brief)) = (ArtifactKind::from_str(&input.kind), brief) {
             let (system_md, tokens) = resolve_system_for_generation(&input);
             let recipe_id = input.recipe_id.clone();
+            let refs: Vec<(&str, &str)> = reference_images
+                .iter()
+                .map(|(b64, mime)| (b64.as_str(), mime.as_str()))
+                .collect();
             match super::generate::generate_design_parts(
                 &brief,
                 kind,
                 &system_md,
                 &tokens,
                 recipe_id.as_deref(),
-                reference_image
-                    .as_ref()
-                    .map(|(b64, mime)| (b64.as_str(), mime.as_str())),
+                &refs,
                 input.model_override.clone(),
             )
             .await
@@ -1242,15 +1329,11 @@ pub async fn generate_brand_pack(
     kinds: Vec<String>,
     system_id: Option<String>,
     folder: Option<String>,
-    reference_image_b64: Option<String>,
-    reference_image_mime: Option<String>,
+    reference_images: Vec<ReferenceImageInput>,
     model_override: Option<crate::provider::ActiveModel>,
 ) -> Result<Vec<DesignArtifact>> {
     let brief = brief.trim();
-    let has_ref = reference_image_b64
-        .as_deref()
-        .map(|s| !s.trim().is_empty())
-        .unwrap_or(false);
+    let has_ref = reference_images.iter().any(|r| !r.b64.trim().is_empty());
     if brief.is_empty() && !has_ref {
         anyhow::bail!("品牌包需要一句设计 brief");
     }
@@ -1288,8 +1371,7 @@ pub async fn generate_brand_pack(
             system_id: system_id.clone(),
             prompt: Some(brief.to_string()).filter(|s| !s.trim().is_empty()),
             folder: folder.clone(),
-            reference_image_b64: reference_image_b64.clone(),
-            reference_image_mime: reference_image_mime.clone(),
+            reference_images: Some(reference_images.clone()),
             model_override: model_override.clone(),
             ..Default::default()
         };
@@ -2233,7 +2315,7 @@ pub async fn stream_generate_artifact(
     system_md: String,
     tokens: BTreeMap<String, String>,
     recipe_id: Option<String>,
-    reference_image: Option<(String, String)>,
+    reference_images: Vec<(String, String)>,
     model_override: Option<crate::provider::ActiveModel>,
     cancel: Arc<AtomicBool>,
 ) {
@@ -2259,15 +2341,17 @@ pub async fn stream_generate_artifact(
         );
     };
 
+    let refs: Vec<(&str, &str)> = reference_images
+        .iter()
+        .map(|(b64, mime)| (b64.as_str(), mime.as_str()))
+        .collect();
     let result = super::generate::stream_design_parts(
         &brief,
         kind,
         &system_md,
         &tokens,
         recipe_id.as_deref(),
-        reference_image
-            .as_ref()
-            .map(|(b64, mime)| (b64.as_str(), mime.as_str())),
+        &refs,
         model_override,
         &cancel,
         &on_snapshot,
@@ -2328,11 +2412,9 @@ pub async fn stream_generate_artifact(
 /// 兜底）。非流式路径完整保留作 agent 工具面 + 无 tokio runtime 时的退路。
 pub async fn generate_design_artifact(input: CreateArtifactInput) -> Result<DesignArtifact> {
     let text_brief = input.prompt.clone().unwrap_or_default();
-    let has_ref = input
-        .reference_image_b64
-        .as_deref()
-        .map(|s| !s.trim().is_empty())
-        .unwrap_or(false);
+    // 多张参考图（首页 ≤5）优先、回退单张；raw（未规整）供廉价 has_ref 判定 + 移交后台规整。
+    let raw_refs = raw_reference_b64s(&input);
+    let has_ref = !raw_refs.is_empty();
     let kind_opt = ArtifactKind::from_str(&input.kind);
     // 媒体 / 组件 / 未知 kind → 阻塞 / 空壳路径（图→产物只对 HTML 形态）。
     // 无任何生成信号（无 brief 且无参考图）→ 空壳。
@@ -2346,11 +2428,6 @@ pub async fn generate_design_artifact(input: CreateArtifactInput) -> Result<Desi
     }
     let kind = kind_opt.expect("checked above");
     let (system_md, tokens) = resolve_system_for_generation(&input);
-    let ref_b64 = if has_ref {
-        input.reference_image_b64.clone()
-    } else {
-        None
-    };
 
     // 建壳优先 + 立即返回（含参考图路径）：库里即出 generating 壳、cancel 覆盖整个生成期；
     // 参考图规整 + 带图流式生成都在后台任务里，命令不阻塞、模态可即时关闭（review #2/#4）。
@@ -2363,25 +2440,12 @@ pub async fn generate_design_artifact(input: CreateArtifactInput) -> Result<Desi
     tokio::spawn(async move {
         use futures_util::future::FutureExt;
         // 真多模态：参考图只做本地规整（大小闸 / 降采样 / 重编码）成附件，选中的视觉模型
-        // **直接看原图**生成——不再经「describe 成文字 brief」两阶段转述（细节丢失源）。
-        // 规整失败回退纯文本 brief（有 brief 时仍可生成）。
-        let reference_image = match ref_b64.as_deref() {
-            Some(b64) => match super::extract::prepare_reference_image(b64) {
-                Ok((b64, mime)) => Some((b64, mime.to_string())),
-                Err(e) => {
-                    crate::app_warn!(
-                        "design",
-                        "generate",
-                        "reference image prepare failed ({e}), falling back to text brief"
-                    );
-                    None
-                }
-            },
-            None => None,
-        };
-        let brief = if reference_image.is_some() && text_brief.trim().is_empty() {
+        // **直接看全部原图**生成——不再经「describe 成文字 brief」两阶段转述（细节丢失源）。
+        // 全部规整失败回退纯文本 brief（有 brief 时仍可生成）。
+        let reference_images = prepare_reference_images(&raw_refs);
+        let brief = if !reference_images.is_empty() && text_brief.trim().is_empty() {
             // 图-only 生成：固定复刻指令（详细指引在 generate 层的 REFERENCE_IMAGE_GUIDANCE）。
-            "Faithfully recreate the attached reference image as this artifact.".to_string()
+            reference_recreate_brief(reference_images.len())
         } else {
             text_brief.clone()
         };
@@ -2401,7 +2465,7 @@ pub async fn generate_design_artifact(input: CreateArtifactInput) -> Result<Desi
             system_md,
             tokens,
             recipe_id,
-            reference_image,
+            reference_images,
             model_override,
             cancel.clone(),
         ))
@@ -4618,6 +4682,7 @@ pub async fn refine_artifact_with_comment(
         prompt: None,
         reference_image_b64: None,
         reference_image_mime: None,
+        reference_images: None,
         model_override: None,
         reference_image_paths: None,
         recipe_id: None,

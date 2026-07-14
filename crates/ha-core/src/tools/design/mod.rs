@@ -280,6 +280,7 @@ async fn action_create_artifact(
             .map(str::to_string),
         reference_image_b64: None,
         reference_image_mime: None,
+        reference_images: None,
         // agent 工具面无模型选择器：走默认链。
         model_override: None,
         reference_image_paths: args.get("reference_image_paths").and_then(|v| {
