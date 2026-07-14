@@ -10477,6 +10477,16 @@
       "remove": "Remove reference image",
       "hintMulti": "Will generate based on these reference images",
       "max": "Add up to {{n}} reference images"
+    },
+    "tab": {
+      "close": "Close",
+      "closeOthers": "Close others",
+      "deletePermanent": "Delete permanently",
+      "reopen": "Open from library",
+      "openLibrary": "Open artifact library…",
+      "allOpen": "All open",
+      "noneOpenInline": "No open artifacts — click + on the right to open from the library",
+      "noneOpen": "No open artifacts"
     }
   },
   "agentLifecycle": {

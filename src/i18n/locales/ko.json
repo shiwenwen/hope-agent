@@ -10477,6 +10477,16 @@
       "remove": "참고 이미지 제거",
       "hintMulti": "이 참고 이미지들을 기반으로 생성합니다",
       "max": "참고 이미지는 최대 {{n}}장까지 추가할 수 있습니다"
+    },
+    "tab": {
+      "close": "닫기",
+      "closeOthers": "다른 탭 닫기",
+      "deletePermanent": "영구 삭제",
+      "reopen": "라이브러리에서 열기",
+      "openLibrary": "아트팩트 라이브러리 열기…",
+      "allOpen": "모두 열림",
+      "noneOpenInline": "열린 아트팩트 없음 — 오른쪽 + 로 라이브러리에서 열기",
+      "noneOpen": "열린 아트팩트가 없습니다"
     }
   },
   "agentLifecycle": {

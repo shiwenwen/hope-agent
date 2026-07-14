@@ -10477,6 +10477,16 @@
       "remove": "Remover imagem de referência",
       "hintMulti": "Será gerado com base nestas imagens de referência",
       "max": "Adicione até {{n}} imagens de referência"
+    },
+    "tab": {
+      "close": "Fechar",
+      "closeOthers": "Fechar as outras",
+      "deletePermanent": "Excluir permanentemente",
+      "reopen": "Abrir da biblioteca",
+      "openLibrary": "Abrir biblioteca de recursos…",
+      "allOpen": "Todas abertas",
+      "noneOpenInline": "Nenhum recurso aberto — toque em + à direita para abrir da biblioteca",
+      "noneOpen": "Nenhum recurso aberto"
     }
   },
   "agentLifecycle": {

@@ -10477,6 +10477,16 @@
       "remove": "移除參考圖",
       "hintMulti": "將照著這些參考圖生成",
       "max": "最多新增 {{n}} 張參考圖"
+    },
+    "tab": {
+      "close": "關閉",
+      "closeOthers": "關閉其他",
+      "deletePermanent": "刪除（永久）",
+      "reopen": "從產物庫開啟",
+      "openLibrary": "開啟產物庫…",
+      "allOpen": "全部已開啟",
+      "noneOpenInline": "沒有開啟的產物——點右側 + 從產物庫開啟",
+      "noneOpen": "沒有開啟的產物"
     }
   },
   "agentLifecycle": {

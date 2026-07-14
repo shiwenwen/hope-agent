@@ -10477,6 +10477,16 @@
       "remove": "Buang imej rujukan",
       "hintMulti": "Akan dijana berdasarkan imej rujukan ini",
       "max": "Tambah sehingga {{n}} imej rujukan"
+    },
+    "tab": {
+      "close": "Tutup",
+      "closeOthers": "Tutup yang lain",
+      "deletePermanent": "Padam secara kekal",
+      "reopen": "Buka dari pustaka",
+      "openLibrary": "Buka pustaka artifak…",
+      "allOpen": "Semua dibuka",
+      "noneOpenInline": "Tiada artifak dibuka — ketik + di kanan untuk buka dari pustaka",
+      "noneOpen": "Tiada artifak dibuka"
     }
   },
   "agentLifecycle": {

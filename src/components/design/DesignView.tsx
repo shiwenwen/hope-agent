@@ -18,7 +18,7 @@ import {
   Settings2,
   Palette,
   PanelLeft,
-  PanelLeftClose,
+  PanelLeftDashed,
   ShieldAlert,
   Loader2,
   Monitor,
@@ -87,7 +87,9 @@ import { toast } from "sonner"
 import { getTransport } from "@/lib/transport-provider"
 import { parsePayload } from "@/lib/transport"
 import DesignInspector from "@/components/design/DesignInspector"
-import DesignChatPanel, { type DesignChatPanelHandle } from "@/components/design/chat/DesignChatPanel"
+import DesignChatPanel, {
+  type DesignChatPanelHandle,
+} from "@/components/design/chat/DesignChatPanel"
 import type { PendingFileQuote } from "@/types/chat"
 import DesignCommentPanel from "@/components/design/DesignCommentPanel"
 import { DesignSystemPicker } from "@/components/design/DesignSystemPicker"
@@ -117,6 +119,8 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { IconTip } from "@/components/ui/tooltip"
+import { AnimatedPresenceBox } from "@/components/ui/animated-presence"
+import { UI_EASING, UI_MOTION } from "@/components/ui/motion"
 import { useLightbox } from "@/components/common/ImageLightbox"
 import { FloatingMenu } from "@/components/ui/floating-menu"
 import { useDragWidth } from "@/hooks/useDragWidth"
@@ -134,6 +138,13 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu"
+import {
+  ContextMenu,
+  ContextMenuTrigger,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+} from "@/components/ui/context-menu"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -233,6 +244,10 @@ const ZOOM_MAX = 4
 const ZOOM_WHEEL_SENSITIVITY = 0.0022
 const clampZoom = (z: number) => Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, z))
 
+// 右侧上下文面板（Inspector / Comment）固定宽度，px 值须与其根节点的 `w-72` 一致——
+// 开合走外层 width 动画（0 ↔ 该值）对齐首页右面板（RightPanelShell）需要显式像素而非 `auto`。
+const RIGHT_PANEL_WIDTH_PX = 288
+
 /** 归一化不同 deltaMode 的滚轮增量到像素并钳幅，避免行/页模式或一格大 delta 造成跳变。 */
 function normalizeWheelDelta(deltaY: number, deltaMode: number): number {
   const px = deltaMode === 1 ? deltaY * 16 : deltaMode === 2 ? deltaY * 400 : deltaY
@@ -264,7 +279,12 @@ type PatchPayload = {
   insert?: RemovedCtx
 }
 /** 后端 remove_design_element_cmd 回传的重建上下文（结构 undo）。 */
-type RemovedCtx = { parentOid: number | null; afterOid: number | null; insertOffset: number; html: string }
+type RemovedCtx = {
+  parentOid: number | null
+  afterOid: number | null
+  insertOffset: number
+  html: string
+}
 type EditOp = { oid: number; before: PatchPayload; after: PatchPayload }
 
 /** 平台修饰键符号（快捷键提示可发现性，P1-E）：mac 用 ⌘、其余 Ctrl+。 */
@@ -276,9 +296,7 @@ const MOD_KEY =
 function withCallTimeout<T>(p: Promise<T>, ms = 30000): Promise<T> {
   return Promise.race([
     p,
-    new Promise<T>((_, reject) =>
-      setTimeout(() => reject(new Error("design call timed out")), ms),
-    ),
+    new Promise<T>((_, reject) => setTimeout(() => reject(new Error("design call timed out")), ms)),
   ])
 }
 
@@ -441,6 +459,31 @@ async function compositeAnnotation(
 /** 首页参考图上限（与后端 MAX_REFERENCE_IMAGES 对齐：≤5 张视觉附件）。 */
 const MAX_HOME_REF_IMAGES = 5
 
+// ── 已打开标签（编辑器式）：顶部标签条=「打开的产物」，非「全部产物」。关闭≠删除——
+// 只把产物从标签条收起（不碰文件），从产物库墙可随时重新打开。每项目一份、纯视图状态、
+// 落 localStorage 记住上次工作区，无后端 / 无迁移（`design.db` 仍是全部产物的真相源）。
+const OPEN_TABS_LS_PREFIX = "ha.design.openTabs."
+// 返回 null = 无记录（首次进项目，调用方默认打开最近一个）；返回数组（含 []）= 有记录，
+// 精确恢复上次留下的标签——用户主动关到空则 [] 会被尊重、进来保持空态，不再擅自打开。
+function readOpenTabs(projectId: string): string[] | null {
+  try {
+    const raw = localStorage.getItem(OPEN_TABS_LS_PREFIX + projectId)
+    if (raw == null) return null
+    const arr: unknown = JSON.parse(raw)
+    if (!Array.isArray(arr)) return null
+    return arr.filter((x): x is string => typeof x === "string")
+  } catch {
+    return null
+  }
+}
+function writeOpenTabs(projectId: string, ids: string[]): void {
+  try {
+    localStorage.setItem(OPEN_TABS_LS_PREFIX + projectId, JSON.stringify(ids))
+  } catch {
+    /* 无痕 / 配额满：标签持久化尽力而为，失败退化为「本次会话内有效」 */
+  }
+}
+
 export default function DesignView({ onBack, onOpenSettings, onImplementToCode }: DesignViewProps) {
   const { t } = useTranslation()
   const tx = getTransport()
@@ -512,8 +555,7 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
       } catch (e) {
         logger.error("design", "DesignView::implementToCode", "implement failed", e)
         toast.error(
-          t("design.implement.err", "创建实现会话失败") +
-            `: ${e instanceof Error ? e.message : e}`,
+          t("design.implement.err", "创建实现会话失败") + `: ${e instanceof Error ? e.message : e}`,
         )
       }
     },
@@ -528,6 +570,8 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
   >(null)
   // 页面组织（本轮）：产物总览网格 / 就地改名（产物 + 项目）/ 拖动排序。
   const [showGrid, setShowGrid] = useState(false)
+  // 已打开标签的有序 id 列表（编辑器式工作区）。顶部标签条只渲染这些，非全部产物。
+  const [openTabIds, setOpenTabIds] = useState<string[]>([])
   const [folders, setFolders] = useState<string[]>([]) // 页面分组文件夹路径
   const [renamingArtifactId, setRenamingArtifactId] = useState<string | null>(null)
   const [renameDraft, setRenameDraft] = useState("")
@@ -653,6 +697,20 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
   activeProjectRef.current = activeProject
   const activeArtifactRef = useRef<DesignArtifactView | null>(null)
   activeArtifactRef.current = activeArtifact
+  const openTabIdsRef = useRef<string[]>([])
+  openTabIdsRef.current = openTabIds
+  // 顶部标签条渲染的产物（已打开、保序、滤掉已删）；产物库墙里未打开的 = 可重新打开的。
+  const openTabs = useMemo(
+    () =>
+      openTabIds
+        .map((id) => artifacts.find((a) => a.id === id))
+        .filter((a): a is DesignArtifact => !!a),
+    [openTabIds, artifacts],
+  )
+  const closedArtifacts = useMemo(
+    () => artifacts.filter((a) => !openTabIds.includes(a.id)),
+    [openTabIds, artifacts],
+  )
 
   // 提前声明（commit handlers 在历史块之前引用；实体在 undo/redo 块内赋值）。
   const pushHistoryRef = useRef<(op: EditOp) => void>(() => {})
@@ -665,7 +723,8 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
   const presentModeRef = useRef(false)
   presentModeRef.current = presentMode
   const deckNav = useCallback((type: string, index?: number) => {
-    const win = (presentModeRef.current ? presentIframeRef.current : iframeRef.current)?.contentWindow
+    const win = (presentModeRef.current ? presentIframeRef.current : iframeRef.current)
+      ?.contentWindow
     win?.postMessage(index != null ? { type, index } : { type }, "*")
   }, [])
   // Deck 宿主级键盘翻页（Wave 2-⑧）：无需先点 iframe 拿焦点。编辑/批注/画框态不劫持方向键；
@@ -675,7 +734,8 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
     if (!presentMode && (editMode || commentMode || drawMode)) return
     const onKey = (e: KeyboardEvent) => {
       const el = e.target as HTMLElement | null
-      if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable)) return
+      if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable))
+        return
       if (e.metaKey || e.ctrlKey || e.altKey) return
       // 收窄劫持范围（review LOW）：演示态全局生效；预览态仅当焦点在预览区内或无特定焦点时，
       // 避免抢走侧栏 / 对话面板等无关 UI 的方向键。
@@ -757,15 +817,30 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
       if (!win || cw <= 0 || ch <= 0) return Promise.resolve([])
       const regions: { x: number; y: number; w: number; h: number }[] = []
       for (const b of payload.boxes)
-        regions.push({ x: vp.scrollX + b.x * cw, y: vp.scrollY + b.y * ch, w: b.width * cw, h: b.height * ch })
+        regions.push({
+          x: vp.scrollX + b.x * cw,
+          y: vp.scrollY + b.y * ch,
+          w: b.width * cw,
+          h: b.height * ch,
+        })
       for (const pts of payload.strokes) {
         if (pts.length < 1) continue
-        let minx = Infinity, miny = Infinity, maxx = -Infinity, maxy = -Infinity
+        let minx = Infinity,
+          miny = Infinity,
+          maxx = -Infinity,
+          maxy = -Infinity
         for (const p of pts) {
-          minx = Math.min(minx, p.x); miny = Math.min(miny, p.y)
-          maxx = Math.max(maxx, p.x); maxy = Math.max(maxy, p.y)
+          minx = Math.min(minx, p.x)
+          miny = Math.min(miny, p.y)
+          maxx = Math.max(maxx, p.x)
+          maxy = Math.max(maxy, p.y)
         }
-        regions.push({ x: vp.scrollX + minx * cw, y: vp.scrollY + miny * ch, w: (maxx - minx) * cw, h: (maxy - miny) * ch })
+        regions.push({
+          x: vp.scrollX + minx * cw,
+          y: vp.scrollY + miny * ch,
+          w: (maxx - minx) * cw,
+          h: (maxy - miny) * ch,
+        })
       }
       if (regions.length === 0) return Promise.resolve([])
       const id = ++drawHitIdRef.current
@@ -808,18 +883,30 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
     [],
   )
   const describeMarks = useCallback(
-    (payload: DesignDrawSubmit, hasImage: boolean, title: string, members: DrawMember[]): string => {
+    (
+      payload: DesignDrawSubmit,
+      hasImage: boolean,
+      title: string,
+      members: DrawMember[],
+    ): string => {
       const lines: string[] = [
-        t("design.draw.scopeHeader", "【画框批注】用户在产物「{{title}}」的预览上标注了要修改的区域。", {
-          title,
-        }),
+        t(
+          "design.draw.scopeHeader",
+          "【画框批注】用户在产物「{{title}}」的预览上标注了要修改的区域。",
+          {
+            title,
+          },
+        ),
       ]
       if (hasImage) lines.push(t("design.draw.scopeImage", "随附截图中的红框 / 红线即标注区域。"))
       else {
         const n = payload.boxes.length + payload.strokes.length
-        lines.push(t("design.draw.scopeNoImage", "共 {{n}} 处标注（截图未生成，仅文字说明）。", { n }))
+        lines.push(
+          t("design.draw.scopeNoImage", "共 {{n}} 处标注（截图未生成，仅文字说明）。", { n }),
+        )
       }
-      if (payload.note) lines.push(t("design.draw.scopeNote", "用户说明：{{note}}", { note: payload.note }))
+      if (payload.note)
+        lines.push(t("design.draw.scopeNote", "用户说明：{{note}}", { note: payload.note }))
       // 涂画+元素身份合一：命中元素带上 oid，让模型对每个用 edit_element(oid) 就地精改（保留其它一切），
       // 而非靠位图/区域描述猜元素、改错相邻元素。
       if (members.length) {
@@ -895,7 +982,15 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
         setDrawBusy(false)
       }
     },
-    [tx, t, requestViewportMetrics, requestDrawHits, describeMarks, enqueueChatQuote, enqueueChatImage],
+    [
+      tx,
+      t,
+      requestViewportMetrics,
+      requestDrawHits,
+      describeMarks,
+      enqueueChatQuote,
+      enqueueChatImage,
+    ],
   )
 
   // 流式生成态：streamRef 追当前流（streamId 变化=新流重置、seq 丢乱序帧）；
@@ -905,10 +1000,7 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
     null,
   )
 
-  const kindLabel = useCallback(
-    (kind: ArtifactKind) => t(`design.kind.${kind}`, kind),
-    [t],
-  )
+  const kindLabel = useCallback((kind: ArtifactKind) => t(`design.kind.${kind}`, kind), [t])
 
   // ── Projects ─────────────────────────────────────────────────
 
@@ -992,10 +1084,7 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
     if (genModelInitRef.current || !designConfig || homeModels.length === 0) return
     genModelInitRef.current = true
     const lm = designConfig.lastModel
-    if (
-      lm &&
-      homeModels.some((m) => m.providerId === lm.providerId && m.modelId === lm.modelId)
-    ) {
+    if (lm && homeModels.some((m) => m.providerId === lm.providerId && m.modelId === lm.modelId)) {
       setGenModel(lm)
     }
   }, [designConfig, homeModels])
@@ -1028,9 +1117,7 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
       !!m &&
       homeModels.some(
         (am) =>
-          am.providerId === m.providerId &&
-          am.modelId === m.modelId &&
-          modelMaySupportVision(am),
+          am.providerId === m.providerId && am.modelId === m.modelId && modelMaySupportVision(am),
       ),
     [homeModels, modelMaySupportVision],
   )
@@ -1180,6 +1267,18 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
 
   // ── Artifacts ────────────────────────────────────────────────
 
+  // 把某产物纳入「已打开标签」集合（幂等 append，保序）并持久化。openArtifact / 生成 / 新建 /
+  // 复制 / 库墙点开都经此，故任何激活入口都天然把产物挂成一个标签。
+  const ensureTabOpen = useCallback((artifactId: string) => {
+    const pid = activeProjectRef.current?.id
+    setOpenTabIds((prev) => {
+      if (prev.includes(artifactId)) return prev
+      const next = [...prev, artifactId]
+      if (pid) writeOpenTabs(pid, next)
+      return next
+    })
+  }, [])
+
   const openArtifact = useCallback(
     async (artifact: DesignArtifact) => {
       try {
@@ -1189,18 +1288,19 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
         if (view) {
           setActiveArtifact(view)
           setPreviewKey((k) => k + 1)
+          ensureTabOpen(view.id)
         }
       } catch (e) {
         logger.error("design", "DesignView::openArtifact", "open artifact failed", e)
         toast.error(t("design.err.load", "加载失败"))
       }
     },
-    [tx, t],
+    [tx, t, ensureTabOpen],
   )
 
   const loadArtifacts = useCallback(
-    // `selectFirst`：打开项目时自动选中列表首项（后端按 position ASC 返回 = 第一个页面），
-    // 其余调用方（新建 / 刷新后重载）不传，保留当前选中不被顶掉。
+    // `selectFirst`：打开项目时恢复上次留下的标签（编辑器式工作区），无记录则默认打开最近一个；
+    // 其余调用方（新建 / 刷新后重载）不传，保留当前标签与选中不被顶掉（重载后的孤儿标签由 prune effect 清理）。
     async (projectId: string, selectFirst = false) => {
       setLoadingArtifacts(true)
       setArtifactsError(false)
@@ -1208,8 +1308,23 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
         const list = await tx.call<DesignArtifact[]>("list_design_artifacts_cmd", {
           projectId,
         })
-        setArtifacts(list ?? [])
-        if (selectFirst && list && list.length > 0) void openArtifact(list[0])
+        const all = list ?? []
+        setArtifacts(all)
+        if (selectFirst) {
+          // 有记录：精确恢复上次留下的标签（滤掉已删产物、保序，[] 保持空态）；
+          // 无记录（首次进）：默认打开最近一个产物。
+          const saved = readOpenTabs(projectId)
+          const restored =
+            saved === null
+              ? all.length > 0
+                ? [all[0].id]
+                : []
+              : saved.filter((id) => all.some((a) => a.id === id))
+          setOpenTabIds(restored)
+          writeOpenTabs(projectId, restored)
+          const first = restored[0] ? all.find((a) => a.id === restored[0]) : undefined
+          if (first) void openArtifact(first)
+        }
       } catch (e) {
         // Wave 2-⑨：置显式 error 态，让产物墙显示「加载失败 + 重试」而非误当空库。
         logger.error("design", "DesignView::loadArtifacts", "list artifacts failed", e)
@@ -1258,6 +1373,59 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
     },
     [tx, t, loadArtifacts, openArtifact],
   )
+
+  // 关闭标签（非破坏）：仅从标签条移除，产物文件与 design.db 行不动，可从产物库墙重新打开。
+  // 关闭的是当前激活产物时，把激活切到相邻标签（优先右侧、否则左侧）；关到空则回落库墙。
+  const closeTab = useCallback(
+    (id: string) => {
+      const pid = activeProjectRef.current?.id
+      const prev = openTabIdsRef.current
+      const idx = prev.indexOf(id)
+      const next = prev.filter((x) => x !== id)
+      setOpenTabIds(next)
+      if (pid) writeOpenTabs(pid, next)
+      if (activeArtifactRef.current?.id === id) {
+        const neighborId = idx >= 0 ? (prev[idx + 1] ?? prev[idx - 1]) : undefined
+        const neighbor = neighborId ? artifacts.find((a) => a.id === neighborId) : undefined
+        if (neighbor) void openArtifact(neighbor)
+        else {
+          setActiveArtifact(null) // 空标签态 → 预览区呈现「从产物库打开」空态
+          setShowGrid(false)
+        }
+      }
+    },
+    [artifacts, openArtifact],
+  )
+
+  // 关闭其他标签：只保留 id 一个，其余收进产物库；被关的若含当前激活产物则切到 id。
+  const closeOtherTabs = useCallback(
+    (id: string) => {
+      const pid = activeProjectRef.current?.id
+      const next = openTabIdsRef.current.includes(id) ? [id] : [...openTabIdsRef.current]
+      setOpenTabIds(next)
+      if (pid) writeOpenTabs(pid, next)
+      if (activeArtifactRef.current?.id !== id) {
+        const target = artifacts.find((a) => a.id === id)
+        if (target) void openArtifact(target)
+      }
+    },
+    [artifacts, openArtifact],
+  )
+
+  // 产物列表变化后修剪孤儿标签（删除 / 批量删 / 外部变更留下的已关闭 id）。读 ref 避免把
+  // openTabIds 放进 deps 造成循环；activeProject 经 ref 取（非响应式），故 deps 只跟 artifacts。
+  useEffect(() => {
+    const pid = activeProjectRef.current?.id
+    if (!pid) return
+    const cur = openTabIdsRef.current
+    const pruned = cur.filter((id) => artifacts.some((a) => a.id === id))
+    if (pruned.length !== cur.length) {
+      setOpenTabIds(pruned)
+      writeOpenTabs(pid, pruned)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [artifacts])
+
   const reorderArtifacts = useCallback(
     async (orderedIds: string[]) => {
       const pid = activeProjectRef.current?.id
@@ -1365,6 +1533,7 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
       setShowGrid(false)
       setRenamingProject(false)
       setRenamingArtifactId(null)
+      setOpenTabIds([]) // 清上一个项目的标签，随后 loadArtifacts(selectFirst) 恢复本项目的
       void loadArtifacts(project.id, true)
     },
     [loadArtifacts],
@@ -1472,7 +1641,9 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
       if (last) {
         setShowGrid(false)
         void openArtifact(last)
-        toast.success(t("design.dropImport.done", "已导入 {{count}} 张图片", { count: images.length }))
+        toast.success(
+          t("design.dropImport.done", "已导入 {{count}} 张图片", { count: images.length }),
+        )
       }
     },
     [tx, activeProject, loadArtifacts, openArtifact, t],
@@ -1586,9 +1757,9 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
   )
 
   // ── 首页参考图（+ / 粘贴 / 拖拽收单张；无视觉模型时拦截并提示）──────────
-  const [homeRefImages, setHomeRefImages] = useState<
-    { b64: string; mime: string; url: string }[]
-  >([])
+  const [homeRefImages, setHomeRefImages] = useState<{ b64: string; mime: string; url: string }[]>(
+    [],
+  )
   // 批量收图（+ 多选 / 多图拖入 / 粘贴各一张）：一次性过滤非图 + 按当前张数算可加名额，超限
   // **只弹一次** max toast、只切一次视觉模型（此前逐文件 forEach 会 N 次弹「已切换模型」/ N 次
   // 写配置 / 静默丢多余图，review #4/#5/#13）。setter 内仍守上限防 compress 异步竞态。
@@ -1610,9 +1781,7 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
       let switched = false
       images.slice(0, available).forEach((file) => {
         compressPickedImage(file, (img) => {
-          setHomeRefImages((prev) =>
-            prev.length >= MAX_HOME_REF_IMAGES ? prev : [...prev, img],
-          )
+          setHomeRefImages((prev) => (prev.length >= MAX_HOME_REF_IMAGES ? prev : [...prev, img]))
           if (!switched) {
             switched = true
             ensureVisionGenModel()
@@ -1645,7 +1814,12 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
       await loadArtifacts(activeProject.id)
       if (artifact) void openArtifact(artifact)
     } catch (e) {
-      logger.error("design", "DesignView::createFromReferenceImage", "generate from image failed", e)
+      logger.error(
+        "design",
+        "DesignView::createFromReferenceImage",
+        "generate from image failed",
+        e,
+      )
       toast.error(t("design.fromImageErr", "从参考图生成失败"))
     } finally {
       setRefGenerating(false)
@@ -1744,79 +1918,89 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
 
   // 品牌包：一句话 → 建项目 → 批量生成一组共享系统的协调产物（形态由弹窗自选）。
   // 带参考图时每件产物都真看原图（N 件 = N 次带图视觉调用，用户主动选择）。
-  const generateBrandPackFromHome = useCallback(async (kinds: ArtifactKind[]) => {
-    const base = homePrompt.trim()
-    if ((!base && homeRefImages.length === 0) || generatingHome || kinds.length === 0) return
-    const systemId = homeSystemId ?? designConfig?.defaultSystemId ?? undefined
-    let createdProjectId: string | null = null
-    setGeneratingHome(true)
-    const tid = toast.loading(t("design.brandPack.generating", "正在生成品牌包（多个产物，请稍候）…"))
-    // 逐件进度：后端每开始一件 emit 一次，把「一直转圈」换成「正在生成 演示（2/3）」。
-    const unlisten = tx.listen("design:brand_pack_progress", (raw) => {
-      const p = parsePayload<{ index?: number; total?: number; kind?: string; done?: boolean }>(raw)
-      if (!p || p.done) return
-      if (p.kind && p.index && p.total) {
-        toast.loading(
-          t("design.brandPack.progress", "正在生成 {{kind}}（{{index}}/{{total}}）…", {
-            kind: kindLabel(p.kind as ArtifactKind),
-            index: p.index,
-            total: p.total,
-          }),
-          { id: tid },
+  const generateBrandPackFromHome = useCallback(
+    async (kinds: ArtifactKind[]) => {
+      const base = homePrompt.trim()
+      if ((!base && homeRefImages.length === 0) || generatingHome || kinds.length === 0) return
+      const systemId = homeSystemId ?? designConfig?.defaultSystemId ?? undefined
+      let createdProjectId: string | null = null
+      setGeneratingHome(true)
+      const tid = toast.loading(
+        t("design.brandPack.generating", "正在生成品牌包（多个产物，请稍候）…"),
+      )
+      // 逐件进度：后端每开始一件 emit 一次，把「一直转圈」换成「正在生成 演示（2/3）」。
+      const unlisten = tx.listen("design:brand_pack_progress", (raw) => {
+        const p = parsePayload<{ index?: number; total?: number; kind?: string; done?: boolean }>(
+          raw,
         )
-      }
-    })
-    try {
-      const project = await tx.call<DesignProject>("create_design_project_cmd", {
-        input: {
-          title: base.slice(0, 40),
-          defaultModel: genModel ?? undefined,
-        },
-      })
-      createdProjectId = project.id
-      const arts = await tx.call<DesignArtifact[]>("generate_design_brand_pack_cmd", {
-        projectId: project.id,
-        brief: base,
-        kinds,
-        systemId,
-        referenceImages: homeRefImages.map((i) => ({ b64: i.b64, mime: i.mime })),
-        modelOverride: genModel ?? undefined,
-      })
-      setHomePrompt("")
-      setHomeRecipeId(null)
-      setHomeRefImages([])
-      openProject(project)
-      if (arts && arts.length > 0) void openArtifact(arts[0])
-      toast.success(t("design.brandPack.done", "已生成 {{count}} 个产物", { count: arts?.length ?? 0 }), {
-        id: tid,
-      })
-    } catch (e) {
-      logger.error("design", "DesignView::brandPack", "brand pack failed", e)
-      toast.error(t("design.err.create", "创建失败"), { id: tid })
-      if (createdProjectId) {
-        try {
-          await tx.call("delete_design_project_cmd", { id: createdProjectId })
-        } catch {
-          /* best effort */
+        if (!p || p.done) return
+        if (p.kind && p.index && p.total) {
+          toast.loading(
+            t("design.brandPack.progress", "正在生成 {{kind}}（{{index}}/{{total}}）…", {
+              kind: kindLabel(p.kind as ArtifactKind),
+              index: p.index,
+              total: p.total,
+            }),
+            { id: tid },
+          )
         }
+      })
+      try {
+        const project = await tx.call<DesignProject>("create_design_project_cmd", {
+          input: {
+            title: base.slice(0, 40),
+            defaultModel: genModel ?? undefined,
+          },
+        })
+        createdProjectId = project.id
+        const arts = await tx.call<DesignArtifact[]>("generate_design_brand_pack_cmd", {
+          projectId: project.id,
+          brief: base,
+          kinds,
+          systemId,
+          referenceImages: homeRefImages.map((i) => ({ b64: i.b64, mime: i.mime })),
+          modelOverride: genModel ?? undefined,
+        })
+        setHomePrompt("")
+        setHomeRecipeId(null)
+        setHomeRefImages([])
+        openProject(project)
+        if (arts && arts.length > 0) void openArtifact(arts[0])
+        toast.success(
+          t("design.brandPack.done", "已生成 {{count}} 个产物", { count: arts?.length ?? 0 }),
+          {
+            id: tid,
+          },
+        )
+      } catch (e) {
+        logger.error("design", "DesignView::brandPack", "brand pack failed", e)
+        toast.error(t("design.err.create", "创建失败"), { id: tid })
+        if (createdProjectId) {
+          try {
+            await tx.call("delete_design_project_cmd", { id: createdProjectId })
+          } catch {
+            /* best effort */
+          }
+        }
+      } finally {
+        unlisten()
+        setGeneratingHome(false)
       }
-    } finally {
-      unlisten()
-      setGeneratingHome(false)
-    }
-  }, [
-    tx,
-    homePrompt,
-    homeSystemId,
-    homeRefImages,
-    genModel,
-    generatingHome,
-    designConfig,
-    kindLabel,
-    openProject,
-    openArtifact,
-    t,
-  ])
+    },
+    [
+      tx,
+      homePrompt,
+      homeSystemId,
+      homeRefImages,
+      genModel,
+      generatingHome,
+      designConfig,
+      kindLabel,
+      openProject,
+      openArtifact,
+      t,
+    ],
+  )
 
   // ── Visual fine-tuning (D1) ──────────────────────────────────
 
@@ -1933,8 +2117,7 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
           await refreshView()
           return res.removed
         } catch (e) {
-          if (!emitted)
-            pendingSelfReloadRef.current = Math.max(0, pendingSelfReloadRef.current - 1)
+          if (!emitted) pendingSelfReloadRef.current = Math.max(0, pendingSelfReloadRef.current - 1)
           logger.error("design", "DesignView::commitRemoveOwner", "remove failed", e)
           toast.error(t("design.staleReselect", "源已更新，请重新选择元素后再试"))
           return null
@@ -1984,9 +2167,7 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
       const before = selectedRef.current?.styles?.[prop] ?? ""
       // 乐观刷新 selected.styles：让派生控件（isFlexish / display·align Select 值 / 不透明度）
       // 立即反映本次提交，不等重选（review #3）。
-      setSelected((prev) =>
-        prev ? { ...prev, styles: { ...prev.styles, [prop]: value } } : prev,
-      )
+      setSelected((prev) => (prev ? { ...prev, styles: { ...prev.styles, [prop]: value } } : prev))
       pushHistoryRef.current({
         oid: Number(oid),
         before: { styles: [[prop, before]] },
@@ -2036,7 +2217,9 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
 
   const applyPayloadLive = useCallback(
     (oid: number, p: PatchPayload) => {
-      if (p.styles) for (const [k, v] of p.styles) postToIframe({ type: "ds_preview_style", oid, props: [[k, v]] })
+      if (p.styles)
+        for (const [k, v] of p.styles)
+          postToIframe({ type: "ds_preview_style", oid, props: [[k, v]] })
       if (p.text != null) postToIframe({ type: "ds_set_text", oid, text: p.text })
       if (p.attrs) postToIframe({ type: "ds_preview_attr", oid, attrs: p.attrs })
     },
@@ -2146,8 +2329,9 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
         ae?.tagName === "INPUT" || ae?.tagName === "TEXTAREA" || !!ae?.isContentEditable
       // 焦点在弹窗 / 菜单里时不抢键（Radix Dialog/AlertDialog/Menu 自理 Escape，否则关弹窗顺带误退
       // 编辑态，review MEDIUM——删除确认框是 alertdialog）。
-      const inOverlay =
-        !!ae?.closest?.("[role='dialog'],[role='alertdialog'],[role='menu'],[role='listbox']")
+      const inOverlay = !!ae?.closest?.(
+        "[role='dialog'],[role='alertdialog'],[role='menu'],[role='listbox']",
+      )
       // Escape 分级：关右键菜单 → 取消待填批注钉 → 取消选中 → 退出编辑/批注/画框模式。演示态 Escape 交
       // 给专用处理器退出演示（review MEDIUM：否则退出演示同时误清选中/退编辑态）；就地文本编辑中
       // （焦点在 iframe / 输入框 / 弹窗）交给 bridge / 原生，宿主不抢。
@@ -2366,7 +2550,13 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
       const aid = activeArtifactRef.current?.id
       if (!aid) return
       try {
-        await tx.call("design_comment_relocate_cmd", { artifactId: aid, commentId: id, oid, relX, relY })
+        await tx.call("design_comment_relocate_cmd", {
+          artifactId: aid,
+          commentId: id,
+          oid,
+          relX,
+          relY,
+        })
         await loadComments()
       } catch (e) {
         logger.error("design", "DesignView::relocateComment", "relocate failed", e)
@@ -2389,7 +2579,9 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
       // 元素、保留其它一切，而不是整段重造（内容被抹空的根因）。脱锚（oid 空）则只带反馈文字。
       const anchored = c.oid != null
       // 增量（[8]）：带上该元素**当前 computedStyle** 富化 scope，省模型一次 get_artifact；跨源 round-trip。
-      const styleLine = anchored ? formatStyleLine((await requestElementStyles([c.oid as number]))[String(c.oid)]) : ""
+      const styleLine = anchored
+        ? formatStyleLine((await requestElementStyles([c.oid as number]))[String(c.oid)])
+        : ""
       const content = anchored
         ? `针对${context}（oid=${c.oid}）的反馈：${c.body}${styleLine}\n` +
           `请只改这一个元素：用 design 工具 edit_element(oid=${c.oid}, style/text/...) 就地精改，` +
@@ -2495,7 +2687,10 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
         )}\n${lines}\n` +
         `逐条用 design 工具 edit_element(oid, style/text/...) 就地精改，不确定当前样式先 get_artifact 读 source；别重造整个产物。`
       enqueueChatQuote({
-        path: `design-comments:${ids.slice().sort((a, b) => a - b).join("-")}`,
+        path: `design-comments:${ids
+          .slice()
+          .sort((a, b) => a - b)
+          .join("-")}`,
         name: t("design.comment.batchLabel", "{{count}} 条批注", { count: chosen.length }),
         startLine: 0,
         endLine: 0,
@@ -2619,7 +2814,9 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
       })
       await openArtifact(updated)
       toast.success(
-        next ? t("design.rtl.on", "已切换为从右到左（RTL）") : t("design.rtl.off", "已切换为从左到右（LTR）"),
+        next
+          ? t("design.rtl.on", "已切换为从右到左（RTL）")
+          : t("design.rtl.off", "已切换为从左到右（LTR）"),
       )
     } catch (e) {
       logger.error("design", "DesignView::toggleRtl", "set dir failed", e)
@@ -2734,14 +2931,14 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
       }
       // 涂画命中的 oid 成员回传（resolve 对应 requestDrawHits 的 promise）。
       if (d?.type === "ds_draw_hit_result" && typeof d.id === "number") {
-        drawHitReqRef.current.get(d.id)?.(Array.isArray(d.members) ? (d.members as DrawMember[]) : [])
+        drawHitReqRef.current.get(d.id)?.(
+          Array.isArray(d.members) ? (d.members as DrawMember[]) : [],
+        )
         return
       }
       // 批注 oid 的当前 computedStyle 回传（resolve 对应 requestElementStyles 的 promise）。
       if (d?.type === "ds_style_query_result" && typeof d.id === "number") {
-        styleReqRef.current.get(d.id)?.(
-          (d.styles as Record<string, Record<string, string>>) ?? {},
-        )
+        styleReqRef.current.get(d.id)?.((d.styles as Record<string, Record<string, string>>) ?? {})
         return
       }
       if (d?.type === "ds_selected" && d.payload) {
@@ -2828,7 +3025,13 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
       // 套选（Wave 2-⑪）：命中多个成员 → 一条批注锚到首成员、pin 落质心，snippet 汇总成员
       //（成员 tag/文本随批注带给 AI = 定向多元素范围约束）。
       else if (d?.type === "ds_lasso_place" && commentModeRef.current && Array.isArray(d.members)) {
-        const members = d.members as { oid: number; tag: string; snippet: string; relX: number; relY: number }[]
+        const members = d.members as {
+          oid: number
+          tag: string
+          snippet: string
+          relX: number
+          relY: number
+        }[]
         if (members.length === 0) return
         const first = members[0]
         // snippet 取首成员**真实文本**（保 resolveEl 文本软着陆，review LOW）；成员汇总在保存时
@@ -3002,7 +3205,10 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
             { id: activeArtifact.id, format: fmt },
           )
           if (!res) return
-          await save(new Blob([res.content], { type: res.mime }), res.filename || `${base}.${format}`)
+          await save(
+            new Blob([res.content], { type: res.mime }),
+            res.filename || `${base}.${format}`,
+          )
           return
         }
         // ZIP — backend assembles a source bundle (base64).
@@ -3059,19 +3265,17 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
         } else if (format === "png" || format === "pdf") {
           // PDF/PNG 强路 = 真实浏览器原生捕获（PDF 矢量可选文字 / PNG 全保真）。先预检浏览器
           // 引擎：未就绪则弹门让用户主动选（下载 Chromium runtime / 引导 / 用较低保真客户端）。
-          const doc = await tx
-            .call<DepStatus>("design_browser_doctor_cmd")
-            .catch(() => null)
+          const doc = await tx.call<DepStatus>("design_browser_doctor_cmd").catch(() => null)
           if (doc && !doc.ready) {
             setExportGate({ dep: "browser", status: doc, base, html: res.content, format })
             if (toastId !== undefined) toast.dismiss(toastId)
             return
           }
           try {
-            const nat = await tx.call<{ data: string; mime: string }>(
-              "export_design_native_cmd",
-              { id: activeArtifact.id, format },
-            )
+            const nat = await tx.call<{ data: string; mime: string }>("export_design_native_cmd", {
+              id: activeArtifact.id,
+              format,
+            })
             out = { blob: base64ToBlob(nat.data, nat.mime), name: `${base}.${format}` }
           } catch (e) {
             logger.error(
@@ -3114,21 +3318,33 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
             tx.call<DepStatus>("design_browser_doctor_cmd").catch(() => null),
           ])
           if (ffdoc && !ffdoc.ready) {
-            setExportGate({ dep: "ffmpeg", status: ffdoc, base, html: res.content, format: "video" })
+            setExportGate({
+              dep: "ffmpeg",
+              status: ffdoc,
+              base,
+              html: res.content,
+              format: "video",
+            })
             if (toastId !== undefined) toast.dismiss(toastId)
             return
           }
           if (brdoc && !brdoc.ready) {
-            setExportGate({ dep: "browser", status: brdoc, base, html: res.content, format: "video" })
+            setExportGate({
+              dep: "browser",
+              status: brdoc,
+              base,
+              html: res.content,
+              format: "video",
+            })
             if (toastId !== undefined) toast.dismiss(toastId)
             return
           }
           // 就绪（或探针不可用 → 乐观尝试强路）；强路失败仍回退客户端保证可导出。
           try {
-            const nat = await tx.call<{ data: string; mime: string }>(
-              "export_design_native_cmd",
-              { id: activeArtifact.id, format: "video" },
-            )
+            const nat = await tx.call<{ data: string; mime: string }>("export_design_native_cmd", {
+              id: activeArtifact.id,
+              format: "video",
+            })
             out = { blob: base64ToBlob(nat.data, nat.mime), name: `${base}.mp4` }
           } catch (e) {
             logger.error(
@@ -3149,7 +3365,10 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
         if (out) await save(out.blob, out.name)
       } catch (e) {
         logger.error("design", "DesignView::handleExport", `export ${format} failed`, e)
-        toast.error(t("design.err.export", "导出失败"), toastId !== undefined ? { id: toastId } : undefined)
+        toast.error(
+          t("design.err.export", "导出失败"),
+          toastId !== undefined ? { id: toastId } : undefined,
+        )
       } finally {
         setExporting(null)
       }
@@ -3222,9 +3441,15 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
           `${g.base}.mp4`,
         )
       } else if (g.format === "png") {
-        await save(await exportPng(g.html, activeArtifact.kind, activeArtifact.viewportW, opts), `${g.base}.png`)
+        await save(
+          await exportPng(g.html, activeArtifact.kind, activeArtifact.viewportW, opts),
+          `${g.base}.png`,
+        )
       } else if (g.format === "pdf") {
-        await save(await exportPdf(g.html, activeArtifact.kind, activeArtifact.viewportW, opts), `${g.base}.pdf`)
+        await save(
+          await exportPdf(g.html, activeArtifact.kind, activeArtifact.viewportW, opts),
+          `${g.base}.pdf`,
+        )
       }
     } catch (e) {
       logger.error("design", "DesignView::gateClient", "client export failed", e)
@@ -3289,7 +3514,10 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
         if (!res?.zip) return
         const base = activeProject ? safeFilename(activeProject.title) : "design"
         presentSaveResult(
-          await tx.saveFileAs(base64ToBlob(res.zip, "application/zip"), `${base}-${ids.length}.zip`),
+          await tx.saveFileAs(
+            base64ToBlob(res.zip, "application/zip"),
+            `${base}-${ids.length}.zip`,
+          ),
           tx,
           t,
           { toastId },
@@ -3584,9 +3812,7 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
         next[slideIndex] = text
         void tx
           .call("set_design_presenter_notes_cmd", { artifactId: aid, notes: next })
-          .catch((e) =>
-            logger.error("design", "DesignView::presenterNote", "save failed", e),
-          )
+          .catch((e) => logger.error("design", "DesignView::presenterNote", "save failed", e))
         return next
       })
     },
@@ -3761,7 +3987,9 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
             t("design.err.batchDeleteArtifactPartial", "{{n}} 个产物删除失败", { n: failed }),
           )
         } else {
-          toast.success(t("design.ok.batchDeletedArtifacts", "已删除 {{n}} 个产物", { n: ids.length }))
+          toast.success(
+            t("design.ok.batchDeletedArtifacts", "已删除 {{n}} 个产物", { n: ids.length }),
+          )
         }
       } else {
         await tx.call("delete_design_artifact_cmd", { id: deleteTarget.id })
@@ -3964,8 +4192,10 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
   // 适配、纵向内滚；fixed-height 整体 contain），与数值「缩放」**同一渲染路径** —— 故适应↔缩放切换
   // 零重排、零闪（此前 fit 走 width:100% 响应式填充、缩放走 transform 是两套模型，切换必重排=闪一下）。
   // 100% 仍是自然像素。frame.{w,h} 是 iframe 逻辑尺寸、frame.scale 是屏上缩放，footprint = w·scale × h·scale。
-  const naturalW = activeArtifact?.viewportW && activeArtifact.viewportW > 0 ? activeArtifact.viewportW : 1024
-  const naturalH = activeArtifact?.viewportH && activeArtifact.viewportH > 0 ? activeArtifact.viewportH : 768
+  const naturalW =
+    activeArtifact?.viewportW && activeArtifact.viewportW > 0 ? activeArtifact.viewportW : 1024
+  const naturalH =
+    activeArtifact?.viewportH && activeArtifact.viewportH > 0 ? activeArtifact.viewportH : 768
 
   const devicePreset = previewDevice === "auto" ? null : DEVICE_PRESETS[previewDevice]
   const frame = (() => {
@@ -4373,52 +4603,71 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
       ) : (
         <div className="flex flex-1 min-h-0">
           {/* Left: AI 对话栏（可拖宽 · 可折叠）——设计空间的对话改写主入口。
-              折叠走 CSS 隐藏（hidden）**不卸载**（W2-I）：保留草稿 / 附件 / 圈选引用，且生成中折叠再
-              展开不冻结消息流（此前 `{chatOpen && …}` 条件渲染整棵卸载 = 状态全丢 + 在途流无人消费）。 */}
+              折叠走「宽度动画到 0 + 内层滑出淡出」**不卸载**（W2-I）：保留草稿 / 附件 / 圈选引用，
+              且生成中折叠再展开不冻结消息流（条件渲染整棵卸载 = 状态全丢 + 在途流无人消费）。
+              开合动画与首页侧栏（ChatSidebar）逐字对齐：外层 width 过渡 + overflow 裁剪，
+              内层固定宽度做 translate/opacity 滑动；拖宽期间关掉 width 过渡免抖。 */}
           <div
-            className={cn("flex min-h-0 shrink-0 flex-col", !chatOpen && "hidden")}
-            style={{ width: chatWidth }}
-          >
-            {activeProject && (
-              <DesignChatPanel
-                ref={chatPanelRef}
-                projectId={activeProject.id}
-                projectDefaultModel={activeProject.defaultModel ?? null}
-                activeArtifact={
-                  activeArtifact
-                    ? {
-                        id: activeArtifact.id,
-                        title: activeArtifact.title,
-                        kind: activeArtifact.kind,
-                      }
-                    : null
-                }
-                systemName={
-                  systems.find(
-                    (s) =>
-                      s.id ===
-                      (activeArtifact ? activeArtifact.systemId : activeProject.defaultSystemId),
-                  )?.name ?? null
-                }
-                systemId={
-                  (activeArtifact ? activeArtifact.systemId : activeProject.defaultSystemId) ?? null
-                }
-                onJumpToQuote={(q) => {
-                  // 点选带到对话的批注 quote chip → 在预览里聚焦对应元素钉。
-                  const m = /^design-comment:(\d+)$/.exec(q.path)
-                  if (m) postToIframe({ type: "ds_comment_focus", id: Number(m[1]) })
-                }}
-                onFocusArtifact={(id) => {
-                  // 本轮产物 chip → 打开/聚焦该产物预览（列表里有则直接取，否则按 id 拉全视图）。
-                  const found = artifacts.find((a) => a.id === id)
-                  void openArtifact(found ?? ({ id } as DesignArtifact))
-                }}
-                resolveArtifactTitle={(id) => artifacts.find((a) => a.id === id)?.title ?? null}
-                recipes={recipes}
-                kindLabel={(k) => kindLabel(k as ArtifactKind)}
-                active
-              />
+            className={cn(
+              "relative h-full min-h-0 shrink-0 overflow-hidden",
+              !isChatResizing &&
+                "transition-[width] duration-[250ms] ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[width] motion-reduce:transition-none",
             )}
+            style={{ width: chatOpen ? chatWidth : 0 }}
+          >
+            <div
+              aria-hidden={!chatOpen}
+              inert={!chatOpen ? true : undefined}
+              className={cn(
+                "flex h-full min-h-0 flex-col transition-[opacity,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[opacity,transform] motion-reduce:transition-none",
+                chatOpen
+                  ? "translate-x-0 opacity-100"
+                  : "pointer-events-none -translate-x-4 opacity-0",
+              )}
+              style={{ width: chatWidth }}
+            >
+              {activeProject && (
+                <DesignChatPanel
+                  ref={chatPanelRef}
+                  projectId={activeProject.id}
+                  projectDefaultModel={activeProject.defaultModel ?? null}
+                  activeArtifact={
+                    activeArtifact
+                      ? {
+                          id: activeArtifact.id,
+                          title: activeArtifact.title,
+                          kind: activeArtifact.kind,
+                        }
+                      : null
+                  }
+                  systemName={
+                    systems.find(
+                      (s) =>
+                        s.id ===
+                        (activeArtifact ? activeArtifact.systemId : activeProject.defaultSystemId),
+                    )?.name ?? null
+                  }
+                  systemId={
+                    (activeArtifact ? activeArtifact.systemId : activeProject.defaultSystemId) ??
+                    null
+                  }
+                  onJumpToQuote={(q) => {
+                    // 点选带到对话的批注 quote chip → 在预览里聚焦对应元素钉。
+                    const m = /^design-comment:(\d+)$/.exec(q.path)
+                    if (m) postToIframe({ type: "ds_comment_focus", id: Number(m[1]) })
+                  }}
+                  onFocusArtifact={(id) => {
+                    // 本轮产物 chip → 打开/聚焦该产物预览（列表里有则直接取，否则按 id 拉全视图）。
+                    const found = artifacts.find((a) => a.id === id)
+                    void openArtifact(found ?? ({ id } as DesignArtifact))
+                  }}
+                  resolveArtifactTitle={(id) => artifacts.find((a) => a.id === id)?.title ?? null}
+                  recipes={recipes}
+                  kindLabel={(k) => kindLabel(k as ArtifactKind)}
+                  active
+                />
+              )}
+            </div>
           </div>
           {chatOpen && (
             <div
@@ -4470,7 +4719,9 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
             {/* 顶部：对话折叠钮 + 横向产物切换条（原左侧列表收窄成条） */}
             <div className="flex h-11 shrink-0 items-center gap-1.5 overflow-x-auto border-b bg-background/60 px-2">
               <IconTip
-                label={chatOpen ? t("design.chat.hide", "隐藏对话") : t("design.chat.show", "显示对话")}
+                label={
+                  chatOpen ? t("design.chat.hide", "隐藏对话") : t("design.chat.show", "显示对话")
+                }
                 side="bottom"
               >
                 <Button
@@ -4480,9 +4731,9 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
                   onClick={() => setChatOpen((v) => !v)}
                 >
                   {chatOpen ? (
-                    <PanelLeftClose className="h-4 w-4" />
-                  ) : (
                     <PanelLeft className="h-4 w-4" />
+                  ) : (
+                    <PanelLeftDashed className="h-4 w-4" />
                   )}
                 </Button>
               </IconTip>
@@ -4491,876 +4742,1039 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
                 <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
               ) : artifacts.length === 0 ? (
                 <span className="px-1 text-xs text-muted-foreground">
-                  {t("design.emptyArtifactsInline", "还没有产物——右上角「新建产物」，或直接让左侧 AI 生成。")}
+                  {t(
+                    "design.emptyArtifactsInline",
+                    "还没有产物——右上角「新建产物」，或直接让左侧 AI 生成。",
+                  )}
                 </span>
               ) : (
-                artifacts.map((a) => {
-                  const Icon = KIND_ICON[a.kind] ?? Monitor
-                  const active = activeArtifact?.id === a.id
-                  // 网格开启时改名在网格里进行（避免 chip 与网格卡同时渲染两个 input）。
-                  const renaming = renamingArtifactId === a.id && !showGrid
-                  return (
-                    <div
-                      key={a.id}
-                      // 激活 chip 挂稳定 ref，仅在**激活产物变化**时经 effect 滚一次（review LOW：内联
-                      // callback ref 每次 render 都跑、会抢占用户对 chip 条的手动横向滚动）。
-                      ref={active ? activeChipRef : undefined}
-                      className="group/chip relative shrink-0"
+                <>
+                  {openTabs.length === 0 ? (
+                    <span className="px-1 text-xs text-muted-foreground">
+                      {t("design.tab.noneOpenInline", "没有打开的产物——点右侧 + 从产物库打开")}
+                    </span>
+                  ) : (
+                    openTabs.map((a) => {
+                      const Icon = KIND_ICON[a.kind] ?? Monitor
+                      const active = activeArtifact?.id === a.id
+                      // 网格开启时改名在网格里进行（避免 chip 与网格卡同时渲染两个 input）。
+                      const renaming = renamingArtifactId === a.id && !showGrid
+                      return (
+                        <ContextMenu key={a.id}>
+                          <ContextMenuTrigger asChild>
+                            <div
+                              // 激活 chip 挂稳定 ref，仅在**激活产物变化**时经 effect 滚一次（review LOW：内联
+                              // callback ref 每次 render 都跑、会抢占用户对 chip 条的手动横向滚动）。
+                              ref={active ? activeChipRef : undefined}
+                              className="group/chip relative shrink-0"
+                            >
+                              {renaming ? (
+                                <input
+                                  autoFocus
+                                  value={renameDraft}
+                                  onChange={(e) => setRenameDraft(e.target.value)}
+                                  onBlur={() => {
+                                    void renameArtifact(a.id, renameDraft)
+                                    setRenamingArtifactId(null)
+                                  }}
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter") {
+                                      void renameArtifact(a.id, renameDraft)
+                                      setRenamingArtifactId(null)
+                                    } else if (e.key === "Escape") setRenamingArtifactId(null)
+                                  }}
+                                  className="w-[150px] rounded-lg border border-primary/50 bg-background px-2.5 py-1 text-xs outline-none"
+                                />
+                              ) : (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setShowGrid(false) // 从库墙点标签 → 收起库墙、露出该产物预览
+                                      void openArtifact(a)
+                                    }}
+                                    onDoubleClick={() => {
+                                      setRenamingArtifactId(a.id)
+                                      setRenameDraft(a.title)
+                                    }}
+                                    data-ha-title-tip={`${kindLabel(a.kind)} · ${t("design.dblClickRename", "双击改名")}`}
+                                    className={cn(
+                                      "flex max-w-[180px] items-center gap-1.5 rounded-lg py-1 pl-2.5 pr-7 text-xs transition-colors",
+                                      active
+                                        ? "bg-primary/10 text-primary"
+                                        : "text-foreground hover:bg-muted",
+                                    )}
+                                  >
+                                    <Icon className="h-3.5 w-3.5 shrink-0 opacity-70" />
+                                    <span className="truncate">{a.title}</span>
+                                    {a.status === "generating" && (
+                                      <Loader2 className="h-3 w-3 shrink-0 animate-spin text-muted-foreground" />
+                                    )}
+                                    {a.status === "failed" && (
+                                      <AlertCircle className="h-3.5 w-3.5 shrink-0 text-destructive" />
+                                    )}
+                                    {a.status === "needs_review" && (
+                                      <ShieldAlert className="h-3.5 w-3.5 shrink-0 text-amber-500" />
+                                    )}
+                                  </button>
+                                  {/* hover 只留「关闭」（非破坏，产物仍在库墙可重开）；删除移到右键菜单。 */}
+                                  <div className="absolute right-0.5 top-1/2 flex -translate-y-1/2 items-center opacity-0 transition-opacity group-hover/chip:opacity-100">
+                                    <IconTip label={t("design.tab.close", "关闭")}>
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation()
+                                          closeTab(a.id)
+                                        }}
+                                        className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
+                                      >
+                                        <X className="h-3 w-3" />
+                                      </button>
+                                    </IconTip>
+                                  </div>
+                                </>
+                              )}
+                            </div>
+                          </ContextMenuTrigger>
+                          <ContextMenuContent variant="floating" className="min-w-[10rem]">
+                            <ContextMenuItem
+                              variant="floating"
+                              onSelect={() => {
+                                setRenamingArtifactId(a.id)
+                                setRenameDraft(a.title)
+                              }}
+                            >
+                              <Pencil className="mr-2 h-3.5 w-3.5" />
+                              {t("common.rename", "改名")}
+                            </ContextMenuItem>
+                            <ContextMenuItem
+                              variant="floating"
+                              onSelect={() => void duplicateArtifact(a.id)}
+                            >
+                              <Copy className="mr-2 h-3.5 w-3.5" />
+                              {t("design.duplicatePage", "复制页面")}
+                            </ContextMenuItem>
+                            <ContextMenuItem variant="floating" onSelect={() => closeTab(a.id)}>
+                              <X className="mr-2 h-3.5 w-3.5" />
+                              {t("design.tab.close", "关闭")}
+                            </ContextMenuItem>
+                            <ContextMenuItem
+                              variant="floating"
+                              disabled={openTabs.length <= 1}
+                              onSelect={() => closeOtherTabs(a.id)}
+                            >
+                              <FolderOpen className="mr-2 h-3.5 w-3.5" />
+                              {t("design.tab.closeOthers", "关闭其他")}
+                            </ContextMenuItem>
+                            <ContextMenuSeparator />
+                            <ContextMenuItem
+                              variant="floating"
+                              className="text-destructive focus:text-destructive"
+                              onSelect={() =>
+                                setDeleteTarget({ type: "artifact", id: a.id, title: a.title })
+                              }
+                            >
+                              <Trash2 className="mr-2 h-3.5 w-3.5" />
+                              {t("design.tab.deletePermanent", "删除（永久）")}
+                            </ContextMenuItem>
+                          </ContextMenuContent>
+                        </ContextMenu>
+                      )
+                    })
+                  )}
+                  {/* 末尾：重新打开入口——「关闭」的对侧出口。快速重开已关闭的产物 / 进产物库墙。 */}
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <button
+                        type="button"
+                        data-ha-title-tip={t("design.tab.reopen", "从产物库打开")}
+                        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                      >
+                        <Plus className="h-4 w-4" />
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent
+                      variant="floating"
+                      align="start"
+                      className="max-h-[60vh] w-56 overflow-y-auto"
                     >
-                      {renaming ? (
-                        <input
-                          autoFocus
-                          value={renameDraft}
-                          onChange={(e) => setRenameDraft(e.target.value)}
-                          onBlur={() => {
-                            void renameArtifact(a.id, renameDraft)
-                            setRenamingArtifactId(null)
-                          }}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") {
-                              void renameArtifact(a.id, renameDraft)
-                              setRenamingArtifactId(null)
-                            } else if (e.key === "Escape") setRenamingArtifactId(null)
-                          }}
-                          className="w-[150px] rounded-lg border border-primary/50 bg-background px-2.5 py-1 text-xs outline-none"
-                        />
+                      {closedArtifacts.length === 0 ? (
+                        <div className="px-2.5 py-1.5 text-xs text-muted-foreground">
+                          {t("design.tab.allOpen", "全部已打开")}
+                        </div>
                       ) : (
-                        <>
-                          <button
-                            type="button"
-                            onClick={() => void openArtifact(a)}
-                            onDoubleClick={() => {
-                              setRenamingArtifactId(a.id)
-                              setRenameDraft(a.title)
-                            }}
-                            data-ha-title-tip={`${kindLabel(a.kind)} · ${t("design.dblClickRename", "双击改名")}`}
-                            className={cn(
-                              "flex max-w-[180px] items-center gap-1.5 rounded-lg py-1 pl-2.5 pr-11 text-xs transition-colors",
-                              active
-                                ? "bg-primary/10 text-primary"
-                                : "text-foreground hover:bg-muted",
-                            )}
-                          >
-                            <Icon className="h-3.5 w-3.5 shrink-0 opacity-70" />
-                            <span className="truncate">{a.title}</span>
-                            {a.status === "generating" && (
-                              <Loader2 className="h-3 w-3 shrink-0 animate-spin text-muted-foreground" />
-                            )}
-                            {a.status === "failed" && (
-                              <AlertCircle className="h-3.5 w-3.5 shrink-0 text-destructive" />
-                            )}
-                            {a.status === "needs_review" && (
-                              <ShieldAlert className="h-3.5 w-3.5 shrink-0 text-amber-500" />
-                            )}
-                          </button>
-                          <div className="absolute right-0.5 top-1/2 flex -translate-y-1/2 items-center opacity-0 transition-opacity group-hover/chip:opacity-100">
-                            <IconTip label={t("design.duplicatePage", "复制页面")}>
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  void duplicateArtifact(a.id)
-                                }}
-                                className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground"
-                              >
-                                <Copy className="h-3 w-3" />
-                              </button>
-                            </IconTip>
-                            <IconTip label={t("common.delete", "删除")}>
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  setDeleteTarget({ type: "artifact", id: a.id, title: a.title })
-                                }}
-                                className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-destructive"
-                              >
-                                <Trash2 className="h-3 w-3" />
-                              </button>
-                            </IconTip>
-                          </div>
-                        </>
+                        closedArtifacts.slice(0, 12).map((a) => {
+                          const Icon = KIND_ICON[a.kind] ?? Monitor
+                          return (
+                            <DropdownMenuItem
+                              key={a.id}
+                              onSelect={() => {
+                                setShowGrid(false)
+                                void openArtifact(a)
+                              }}
+                            >
+                              <Icon className="mr-2 h-3.5 w-3.5 shrink-0 opacity-70" />
+                              <span className="truncate">{a.title}</span>
+                            </DropdownMenuItem>
+                          )
+                        })
                       )}
-                    </div>
-                  )
-                })
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem onSelect={() => setShowGrid(true)}>
+                        <LayoutGrid className="mr-2 h-3.5 w-3.5" />
+                        {t("design.tab.openLibrary", "打开产物库…")}
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </>
               )}
             </div>
 
             {/* Single-artifact preview */}
             <main className="relative flex min-h-0 flex-1 min-w-0 flex-col bg-muted/30">
-            {showGrid && artifactsError && artifacts.length === 0 ? (
-              // Wave 2-⑨：库加载失败显式态（区别于空库），带重试。
-              <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center">
-                <TriangleAlert className="h-6 w-6 text-amber-500" />
-                <p className="text-sm text-muted-foreground">
-                  {t("design.err.loadLibrary", "产物库加载失败")}
-                </p>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="gap-1"
-                  onClick={() => activeProject && void loadArtifacts(activeProject.id)}
+              {showGrid && artifactsError && artifacts.length === 0 ? (
+                // Wave 2-⑨：库加载失败显式态（区别于空库），带重试。
+                <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center">
+                  <TriangleAlert className="h-6 w-6 text-amber-500" />
+                  <p className="text-sm text-muted-foreground">
+                    {t("design.err.loadLibrary", "产物库加载失败")}
+                  </p>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="gap-1"
+                    onClick={() => activeProject && void loadArtifacts(activeProject.id)}
+                  >
+                    <RotateCcw className="h-3.5 w-3.5" />
+                    {t("common.retry", "重试")}
+                  </Button>
+                </div>
+              ) : showGrid && loadingArtifacts && artifacts.length === 0 ? (
+                /* 骨架屏：加载中不闪「空库」文案，占位卡对齐真实网格列宽。 */
+                <div
+                  className="grid grid-cols-2 gap-2.5 p-3 sm:grid-cols-3 lg:grid-cols-4"
+                  aria-busy="true"
+                  aria-label={t("design.loadingLibrary", "正在加载产物库…")}
                 >
-                  <RotateCcw className="h-3.5 w-3.5" />
-                  {t("common.retry", "重试")}
-                </Button>
-              </div>
-            ) : showGrid && loadingArtifacts && artifacts.length === 0 ? (
-              /* 骨架屏：加载中不闪「空库」文案，占位卡对齐真实网格列宽。 */
-              <div
-                className="grid grid-cols-2 gap-2.5 p-3 sm:grid-cols-3 lg:grid-cols-4"
-                aria-busy="true"
-                aria-label={t("design.loadingLibrary", "正在加载产物库…")}
-              >
-                {Array.from({ length: 8 }).map((_, i) => (
-                  <div key={i} className="space-y-1.5">
-                    <div className="aspect-[4/3] animate-pulse rounded-lg bg-muted/60" />
-                    <div className="h-3 w-2/3 animate-pulse rounded bg-muted/50" />
-                  </div>
-                ))}
-              </div>
-            ) : showGrid ? (
-              /* 页面文件管理面（本轮·源码级复刻 OD DesignFilesPanel）：面包屑 + 文件夹 + 类型分组。 */
-              <DesignFilesPanel
-                artifacts={artifacts}
-                folders={folders}
-                activeArtifactId={activeArtifact?.id}
-                onOpen={(a) => {
-                  void openArtifact(a)
-                  setShowGrid(false)
-                }}
-                onRename={(id, title) => void renameArtifact(id, title)}
-                onDuplicate={(id) => void duplicateArtifact(id)}
-                onDelete={(a) => setDeleteTarget({ type: "artifact", id: a.id, title: a.title })}
-                onMove={(id, folder) => void moveArtifactToFolder(id, folder)}
-                onCreateFolder={(path) => void createFolder(path)}
-                onRenameFolder={(from, to) => void renameFolder(from, to)}
-                onDeleteFolder={(path) => void deleteFolder(path)}
-                onReorder={(ids) => void reorderArtifacts(ids)}
-                onBatchDelete={(ids) =>
-                  setDeleteTarget({
-                    type: "artifacts-batch",
-                    ids,
-                    title: t("design.files.selectedCount", "已选 {{n}} 项", { n: ids.length }),
-                  })
-                }
-                onBatchExport={(ids) => void batchExportArtifacts(ids)}
-              />
-            ) : activeArtifact ? (
-              <>
-                {/* 工具栏控件多（编辑模式 + 设备 + 缩放 + 演示 / 刷新 / 评审 / 历史 / 分享 / 导出），
+                  {Array.from({ length: 8 }).map((_, i) => (
+                    <div key={i} className="space-y-1.5">
+                      <div className="aspect-[4/3] animate-pulse rounded-lg bg-muted/60" />
+                      <div className="h-3 w-2/3 animate-pulse rounded bg-muted/50" />
+                    </div>
+                  ))}
+                </div>
+              ) : showGrid ? (
+                /* 页面文件管理面（本轮·源码级复刻 OD DesignFilesPanel）：面包屑 + 文件夹 + 类型分组。 */
+                <DesignFilesPanel
+                  artifacts={artifacts}
+                  folders={folders}
+                  activeArtifactId={activeArtifact?.id}
+                  onOpen={(a) => {
+                    void openArtifact(a)
+                    setShowGrid(false)
+                  }}
+                  onRename={(id, title) => void renameArtifact(id, title)}
+                  onDuplicate={(id) => void duplicateArtifact(id)}
+                  onDelete={(a) => setDeleteTarget({ type: "artifact", id: a.id, title: a.title })}
+                  onMove={(id, folder) => void moveArtifactToFolder(id, folder)}
+                  onCreateFolder={(path) => void createFolder(path)}
+                  onRenameFolder={(from, to) => void renameFolder(from, to)}
+                  onDeleteFolder={(path) => void deleteFolder(path)}
+                  onReorder={(ids) => void reorderArtifacts(ids)}
+                  onBatchDelete={(ids) =>
+                    setDeleteTarget({
+                      type: "artifacts-batch",
+                      ids,
+                      title: t("design.files.selectedCount", "已选 {{n}} 项", { n: ids.length }),
+                    })
+                  }
+                  onBatchExport={(ids) => void batchExportArtifacts(ids)}
+                />
+              ) : activeArtifact ? (
+                <>
+                  {/* 工具栏控件多（编辑模式 + 设备 + 缩放 + 演示 / 刷新 / 评审 / 历史 / 分享 / 导出），
                     窄窗口下必须能**换行**而非溢出裁切：外层 min-h + 允许纵向增高，标题 min-w-0 先截断
                     腾地方，控件组 flex-1 + flex-wrap + justify-end → 右对齐逐行回落、任何宽度都不丢按钮。 */}
-                <div className="flex min-h-9 shrink-0 items-center gap-2 border-b bg-background/60 px-3 py-1">
-                  <KindBadge
-                    kind={activeArtifact.kind}
-                    label={kindLabel(activeArtifact.kind)}
-                  />
-                  <span className="min-w-0 truncate text-xs font-medium text-muted-foreground">
-                    {activeArtifact.title}
-                  </span>
-                  <div className="flex flex-1 flex-wrap items-center justify-end gap-1">
-                    {/* 生成中：停止按钮（P0-C）——中断白流、降级占位，不必删产物重来。 */}
-                    {activeArtifact.status === "generating" && (
-                      <IconTip label={t("design.stopGeneration", "停止生成")} side="bottom">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-6 w-6 text-destructive hover:text-destructive"
-                          onClick={() => void handleStopGeneration()}
-                        >
-                          <Square className="h-3.5 w-3.5 fill-current" />
-                        </Button>
-                      </IconTip>
-                    )}
-                    {/* 生成中不挂编辑/批注/画框入口（点了画布无响应，P0-C 生成态锁定）。 */}
-                    {isEditableKind(activeArtifact.kind) && activeArtifact.status !== "generating" && (
-                      <>
-                        <IconTip
-                          label={`${t("design.editMode", "可视化微调：点选元素改属性")} · Delete / Esc · ${MOD_KEY}[ ]`}
-                          side="bottom"
-                        >
+                  <div className="flex min-h-9 shrink-0 items-center gap-2 border-b bg-background/60 px-3 py-1">
+                    <KindBadge kind={activeArtifact.kind} label={kindLabel(activeArtifact.kind)} />
+                    <span className="min-w-0 truncate text-xs font-medium text-muted-foreground">
+                      {activeArtifact.title}
+                    </span>
+                    <div className="flex flex-1 flex-wrap items-center justify-end gap-1">
+                      {/* 生成中：停止按钮（P0-C）——中断白流、降级占位，不必删产物重来。 */}
+                      {activeArtifact.status === "generating" && (
+                        <IconTip label={t("design.stopGeneration", "停止生成")} side="bottom">
                           <Button
-                            variant={editMode ? "default" : "ghost"}
+                            variant="ghost"
                             size="icon"
-                            className="h-6 w-6"
-                            onClick={() => {
-                              setEditMode((v) => !v)
-                              setCommentMode(false)
-                              setDrawMode(false)
-                            }}
+                            className="h-6 w-6 text-destructive hover:text-destructive"
+                            onClick={() => void handleStopGeneration()}
                           >
-                            <MousePointerClick className="h-3.5 w-3.5" />
+                            <Square className="h-3.5 w-3.5 fill-current" />
                           </Button>
                         </IconTip>
-                        <IconTip
-                          label={t("design.comment.mode", "批注：点选元素留反馈")}
-                          side="bottom"
-                        >
-                          <Button
-                            variant={commentMode ? "default" : "ghost"}
-                            size="icon"
-                            className="relative h-6 w-6"
-                            onClick={() => {
-                              setCommentMode((v) => !v)
-                              setEditMode(false)
-                              setDrawMode(false)
-                            }}
+                      )}
+                      {/* 生成中不挂编辑/批注/画框入口（点了画布无响应，P0-C 生成态锁定）。 */}
+                      {isEditableKind(activeArtifact.kind) &&
+                        activeArtifact.status !== "generating" && (
+                          <>
+                            <IconTip
+                              label={`${t("design.editMode", "可视化微调：点选元素改属性")} · Delete / Esc · ${MOD_KEY}[ ]`}
+                              side="bottom"
+                            >
+                              <Button
+                                variant={editMode ? "default" : "ghost"}
+                                size="icon"
+                                className="h-6 w-6"
+                                onClick={() => {
+                                  setEditMode((v) => !v)
+                                  setCommentMode(false)
+                                  setDrawMode(false)
+                                }}
+                              >
+                                <MousePointerClick className="h-3.5 w-3.5" />
+                              </Button>
+                            </IconTip>
+                            <IconTip
+                              label={t("design.comment.mode", "批注：点选元素留反馈")}
+                              side="bottom"
+                            >
+                              <Button
+                                variant={commentMode ? "default" : "ghost"}
+                                size="icon"
+                                className="relative h-6 w-6"
+                                onClick={() => {
+                                  setCommentMode((v) => !v)
+                                  setEditMode(false)
+                                  setDrawMode(false)
+                                }}
+                              >
+                                <MessageSquare className="h-3.5 w-3.5" />
+                                {(activeArtifact?.openCommentCount ?? 0) > 0 && (
+                                  <span className="absolute -right-1 -top-1 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-amber-500 px-0.5 text-[9px] font-semibold leading-none text-white">
+                                    {(activeArtifact?.openCommentCount ?? 0) > 99
+                                      ? "99+"
+                                      : activeArtifact?.openCommentCount}
+                                  </span>
+                                )}
+                              </Button>
+                            </IconTip>
+                            <IconTip
+                              label={t(
+                                "design.draw.mode",
+                                "画框批注：框选/画笔标注要改的区域，带截图到对话",
+                              )}
+                              side="bottom"
+                            >
+                              <Button
+                                variant={drawMode ? "default" : "ghost"}
+                                size="icon"
+                                className="h-6 w-6"
+                                onClick={() => {
+                                  setDrawMode((v) => !v)
+                                  setEditMode(false)
+                                  setCommentMode(false)
+                                }}
+                              >
+                                <Highlighter className="h-3.5 w-3.5" />
+                              </Button>
+                            </IconTip>
+                          </>
+                        )}
+                      {/* 撤销 / 重做可视化编辑（B5，Cmd/Ctrl+Z） */}
+                      {(undoStack.length > 0 || redoStack.length > 0) && (
+                        <div className="flex items-center rounded-md border border-border/60 p-0.5">
+                          <IconTip
+                            label={`${t("design.undo", "撤销")} (${MOD_KEY}Z)`}
+                            side="bottom"
                           >
-                            <MessageSquare className="h-3.5 w-3.5" />
-                            {(activeArtifact?.openCommentCount ?? 0) > 0 && (
-                              <span className="absolute -right-1 -top-1 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-amber-500 px-0.5 text-[9px] font-semibold leading-none text-white">
-                                {(activeArtifact?.openCommentCount ?? 0) > 99
-                                  ? "99+"
-                                  : activeArtifact?.openCommentCount}
-                              </span>
-                            )}
-                          </Button>
-                        </IconTip>
-                        <IconTip
-                          label={t("design.draw.mode", "画框批注：框选/画笔标注要改的区域，带截图到对话")}
-                          side="bottom"
-                        >
-                          <Button
-                            variant={drawMode ? "default" : "ghost"}
-                            size="icon"
-                            className="h-6 w-6"
-                            onClick={() => {
-                              setDrawMode((v) => !v)
-                              setEditMode(false)
-                              setCommentMode(false)
-                            }}
+                            <button
+                              type="button"
+                              onClick={undo}
+                              disabled={undoStack.length === 0}
+                              className="flex h-5 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40"
+                            >
+                              <Undo2 className="h-3.5 w-3.5" />
+                            </button>
+                          </IconTip>
+                          <IconTip
+                            label={`${t("design.redo", "重做")} (${MOD_KEY}⇧Z)`}
+                            side="bottom"
                           >
-                            <Highlighter className="h-3.5 w-3.5" />
-                          </Button>
-                        </IconTip>
-                      </>
-                    )}
-                    {/* 撤销 / 重做可视化编辑（B5，Cmd/Ctrl+Z） */}
-                    {(undoStack.length > 0 || redoStack.length > 0) && (
+                            <button
+                              type="button"
+                              onClick={redo}
+                              disabled={redoStack.length === 0}
+                              className="flex h-5 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40"
+                            >
+                              <Redo2 className="h-3.5 w-3.5" />
+                            </button>
+                          </IconTip>
+                        </div>
+                      )}
+                      {/* 设备视口切换（B4-3） */}
                       <div className="flex items-center rounded-md border border-border/60 p-0.5">
-                        <IconTip label={`${t("design.undo", "撤销")} (${MOD_KEY}Z)`} side="bottom">
-                          <button
-                            type="button"
-                            onClick={undo}
-                            disabled={undoStack.length === 0}
-                            className="flex h-5 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40"
-                          >
-                            <Undo2 className="h-3.5 w-3.5" />
-                          </button>
-                        </IconTip>
-                        <IconTip label={`${t("design.redo", "重做")} (${MOD_KEY}⇧Z)`} side="bottom">
-                          <button
-                            type="button"
-                            onClick={redo}
-                            disabled={redoStack.length === 0}
-                            className="flex h-5 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40"
-                          >
-                            <Redo2 className="h-3.5 w-3.5" />
-                          </button>
-                        </IconTip>
+                        {(
+                          [
+                            {
+                              id: "auto" as const,
+                              label: t("design.deviceAuto", "自动"),
+                              icon: null,
+                            },
+                            {
+                              id: "desktop" as const,
+                              label: t("design.deviceDesktop", "桌面"),
+                              icon: Monitor,
+                            },
+                            {
+                              id: "tablet" as const,
+                              label: t("design.deviceTablet", "平板"),
+                              icon: Tablet,
+                            },
+                            {
+                              id: "mobile" as const,
+                              label: t("design.deviceMobile", "手机"),
+                              icon: Smartphone,
+                            },
+                          ] as const
+                        ).map((d) => (
+                          <IconTip key={d.id} label={d.label} side="bottom">
+                            <button
+                              type="button"
+                              onClick={() => changeDevice(d.id)}
+                              className={cn(
+                                "flex h-5 items-center justify-center rounded px-1.5 text-[11px] transition-colors",
+                                previewDevice === d.id
+                                  ? "bg-secondary text-foreground"
+                                  : "text-muted-foreground hover:text-foreground",
+                              )}
+                            >
+                              {d.icon ? <d.icon className="h-3.5 w-3.5" /> : d.label}
+                            </button>
+                          </IconTip>
+                        ))}
                       </div>
-                    )}
-                    {/* 设备视口切换（B4-3） */}
-                    <div className="flex items-center rounded-md border border-border/60 p-0.5">
-                      {(
-                        [
-                          { id: "auto" as const, label: t("design.deviceAuto", "自动"), icon: null },
-                          { id: "desktop" as const, label: t("design.deviceDesktop", "桌面"), icon: Monitor },
-                          { id: "tablet" as const, label: t("design.deviceTablet", "平板"), icon: Tablet },
-                          { id: "mobile" as const, label: t("design.deviceMobile", "手机"), icon: Smartphone },
-                        ] as const
-                      ).map((d) => (
-                        <IconTip key={d.id} label={d.label} side="bottom">
-                          <button
-                            type="button"
-                            onClick={() => changeDevice(d.id)}
-                            className={cn(
-                              "flex h-5 items-center justify-center rounded px-1.5 text-[11px] transition-colors",
-                              previewDevice === d.id
-                                ? "bg-secondary text-foreground"
-                                : "text-muted-foreground hover:text-foreground",
-                            )}
-                          >
-                            {d.icon ? <d.icon className="h-3.5 w-3.5" /> : d.label}
-                          </button>
-                        </IconTip>
-                      ))}
-                    </div>
-                    {/* zoom 仅在自动视口下有意义（设备模式整体缩放适配） */}
-                    {previewDevice === "auto" && (
-                      <Select
-                        value={String(zoom)}
-                        onValueChange={(v) =>
-                          setZoom(v === "fit" ? "fit" : (Number(v) as ZoomMode))
-                        }
-                      >
-                        <SelectTrigger className="h-6 w-auto gap-1 px-1.5 text-xs">
-                          {/* 直接渲染当前值而非 SelectValue：手势缩放会产出非预设档位（如 137%），
+                      {/* zoom 仅在自动视口下有意义（设备模式整体缩放适配） */}
+                      {previewDevice === "auto" && (
+                        <Select
+                          value={String(zoom)}
+                          onValueChange={(v) =>
+                            setZoom(v === "fit" ? "fit" : (Number(v) as ZoomMode))
+                          }
+                        >
+                          <SelectTrigger className="h-6 w-auto gap-1 px-1.5 text-xs">
+                            {/* 直接渲染当前值而非 SelectValue：手势缩放会产出非预设档位（如 137%），
                               SelectValue 匹配不到选项会显示空。 */}
-                          <span className="tabular-nums">
-                            {zoom === "fit"
-                              ? t("design.zoomFit", "适应")
-                              : `${Math.round(zoom * 100)}%`}
+                            <span className="tabular-nums">
+                              {zoom === "fit"
+                                ? t("design.zoomFit", "适应")
+                                : `${Math.round(zoom * 100)}%`}
+                            </span>
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="fit">{t("design.zoomFit", "适应")}</SelectItem>
+                            {[0.5, 0.75, 1, 1.25, 1.5, 2].map((z) => (
+                              <SelectItem key={z} value={String(z)}>
+                                {Math.round(z * 100)}%
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
+                      {/* Deck 页码 + 翻页（Wave 2-⑧）：宿主级，缩放/设备模式下也不被一起缩小。 */}
+                      {activeArtifact.kind === "deck" && deckState && deckState.count > 1 && (
+                        <div className="flex items-center rounded-md border border-border/60 p-0.5">
+                          <IconTip label={t("design.deckPrev", "上一页")} side="bottom">
+                            <button
+                              type="button"
+                              onClick={() => deckNav("ds_slide_prev")}
+                              disabled={deckState.active <= 0}
+                              className="flex h-5 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40"
+                            >
+                              <ChevronLeft className="h-3.5 w-3.5" />
+                            </button>
+                          </IconTip>
+                          <span className="px-1 text-[11px] tabular-nums text-muted-foreground">
+                            {deckState.active + 1} / {deckState.count}
                           </span>
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="fit">{t("design.zoomFit", "适应")}</SelectItem>
-                          {[0.5, 0.75, 1, 1.25, 1.5, 2].map((z) => (
-                            <SelectItem key={z} value={String(z)}>
-                              {Math.round(z * 100)}%
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    )}
-                    {/* Deck 页码 + 翻页（Wave 2-⑧）：宿主级，缩放/设备模式下也不被一起缩小。 */}
-                    {activeArtifact.kind === "deck" && deckState && deckState.count > 1 && (
-                      <div className="flex items-center rounded-md border border-border/60 p-0.5">
-                        <IconTip label={t("design.deckPrev", "上一页")} side="bottom">
-                          <button
-                            type="button"
-                            onClick={() => deckNav("ds_slide_prev")}
-                            disabled={deckState.active <= 0}
-                            className="flex h-5 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40"
-                          >
-                            <ChevronLeft className="h-3.5 w-3.5" />
-                          </button>
+                          <IconTip label={t("design.deckNext", "下一页")} side="bottom">
+                            <button
+                              type="button"
+                              onClick={() => deckNav("ds_slide_next")}
+                              disabled={deckState.active >= deckState.count - 1}
+                              className="flex h-5 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40"
+                            >
+                              <ChevronRight className="h-3.5 w-3.5" />
+                            </button>
+                          </IconTip>
+                        </div>
+                      )}
+                      {/* Present 演示（B4-4） */}
+                      <DropdownMenu>
+                        <IconTip label={t("design.present", "演示")} side="bottom">
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon" className="h-6 w-6">
+                              <Presentation className="h-3.5 w-3.5" />
+                            </Button>
+                          </DropdownMenuTrigger>
                         </IconTip>
-                        <span className="px-1 text-[11px] tabular-nums text-muted-foreground">
-                          {deckState.active + 1} / {deckState.count}
-                        </span>
-                        <IconTip label={t("design.deckNext", "下一页")} side="bottom">
-                          <button
-                            type="button"
-                            onClick={() => deckNav("ds_slide_next")}
-                            disabled={deckState.active >= deckState.count - 1}
-                            className="flex h-5 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40"
-                          >
-                            <ChevronRight className="h-3.5 w-3.5" />
-                          </button>
-                        </IconTip>
-                      </div>
-                    )}
-                    {/* Present 演示（B4-4） */}
-                    <DropdownMenu>
-                      <IconTip label={t("design.present", "演示")} side="bottom">
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon" className="h-6 w-6">
-                            <Presentation className="h-3.5 w-3.5" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                      </IconTip>
-                      <DropdownMenuContent variant="floating" align="end">
-                        <DropdownMenuItem onSelect={() => setPresentMode(true)}>
-                          <Presentation className="mr-2 h-4 w-4" />
-                          {t("design.presentInTab", "本窗口演示")}
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onSelect={presentFullscreen}>
-                          <Maximize2 className="mr-2 h-4 w-4" />
-                          {t("design.presentFullscreen", "全屏演示")}
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                    <IconTip label={t("design.reload", "刷新")} side="bottom">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-6 w-6"
-                        onClick={() => setPreviewKey((k) => k + 1)}
-                      >
-                        <RefreshCw className="h-3.5 w-3.5" />
-                      </Button>
-                    </IconTip>
-                    {activeArtifact.kind === "image" && (
-                      <IconTip label={t("design.inpaint.button", "蒙版重绘")} side="bottom">
+                        <DropdownMenuContent variant="floating" align="end">
+                          <DropdownMenuItem onSelect={() => setPresentMode(true)}>
+                            <Presentation className="mr-2 h-4 w-4" />
+                            {t("design.presentInTab", "本窗口演示")}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onSelect={presentFullscreen}>
+                            <Maximize2 className="mr-2 h-4 w-4" />
+                            {t("design.presentFullscreen", "全屏演示")}
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                      <IconTip label={t("design.reload", "刷新")} side="bottom">
                         <Button
                           variant="ghost"
                           size="icon"
                           className="h-6 w-6"
-                          onClick={() => setInpaintOpen(true)}
+                          onClick={() => setPreviewKey((k) => k + 1)}
                         >
-                          <Brush className="h-3.5 w-3.5" />
+                          <RefreshCw className="h-3.5 w-3.5" />
                         </Button>
                       </IconTip>
-                    )}
-                    {activeArtifact.kind !== "image" && activeArtifact.kind !== "audio" && (
-                      <IconTip label={t("design.critique", "质量评审")} side="bottom">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-6 w-6"
-                          disabled={critiquing}
-                          onClick={() => void handleCritique()}
-                        >
-                          {critiquing ? (
-                            <Loader2Icon className="h-3.5 w-3.5 animate-spin" />
-                          ) : (
-                            <Gauge className="h-3.5 w-3.5" />
-                          )}
-                        </Button>
-                      </IconTip>
-                    )}
-                    {activeArtifact.kind !== "image" &&
-                      activeArtifact.kind !== "audio" &&
-                      activeArtifact.kind !== "component" && (
-                        <IconTip label={t("design.pageStyle.button", "页面样式")} side="bottom">
+                      {activeArtifact.kind === "image" && (
+                        <IconTip label={t("design.inpaint.button", "蒙版重绘")} side="bottom">
                           <Button
                             variant="ghost"
                             size="icon"
                             className="h-6 w-6"
-                            onClick={() => {
-                              setPsBackground("")
-                              setPsColor("")
-                              setPsMaxWidth("")
-                              setPageStyleOpen(true)
-                            }}
+                            onClick={() => setInpaintOpen(true)}
                           >
-                            <Paintbrush className="h-3.5 w-3.5" />
+                            <Brush className="h-3.5 w-3.5" />
                           </Button>
                         </IconTip>
                       )}
-                    {activeArtifact.kind !== "image" && activeArtifact.kind !== "audio" && (
-                      <IconTip
-                        label={
-                          parseIsRtl(activeArtifact.metadata)
-                            ? t("design.rtl.toLtr", "切换为从左到右")
-                            : t("design.rtl.toRtl", "切换为从右到左（RTL）")
-                        }
-                        side="bottom"
-                      >
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className={cn(
-                            "h-6 w-6",
-                            parseIsRtl(activeArtifact.metadata) && "text-primary",
-                          )}
-                          onClick={() => void toggleRtl()}
-                        >
-                          <span className="text-[13px] font-semibold leading-none">
-                            {parseIsRtl(activeArtifact.metadata) ? "‏RTL" : "LTR"}
-                          </span>
-                        </Button>
-                      </IconTip>
-                    )}
-                    {activeArtifact.kind !== "image" && activeArtifact.kind !== "audio" && (
-                      <IconTip label={t("design.review.qualityCheck", "质量审查（可访问性/内容）")} side="bottom">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-6 w-6"
-                          disabled={reviewing}
-                          onClick={() => void runQualityReview()}
-                        >
-                          {reviewing ? (
-                            <Loader2Icon className="h-3.5 w-3.5 animate-spin" />
-                          ) : (
-                            <ListChecks className="h-3.5 w-3.5" />
-                          )}
-                        </Button>
-                      </IconTip>
-                    )}
-                    <IconTip label={t("design.history", "版本历史")} side="bottom">
-                      <Button variant="ghost" size="icon" className="h-6 w-6" onClick={openHistory}>
-                        <History className="h-3.5 w-3.5" />
-                      </Button>
-                    </IconTip>
-                    {tx.supportsLocalFileOps() ? (
-                      // 桌面无公网服务器：分享 = 一键导出可分享 HTML（保持一键，不加弹层）。
-                      <IconTip label={t("design.share.button", "分享")} side="bottom">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-6 w-6"
-                          disabled={
-                            sharing ||
-                            (activeArtifact.status !== "ready" &&
-                              activeArtifact.status !== "needs_review")
+                      {activeArtifact.kind !== "image" && activeArtifact.kind !== "audio" && (
+                        <IconTip label={t("design.critique", "质量评审")} side="bottom">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6"
+                            disabled={critiquing}
+                            onClick={() => void handleCritique()}
+                          >
+                            {critiquing ? (
+                              <Loader2Icon className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <Gauge className="h-3.5 w-3.5" />
+                            )}
+                          </Button>
+                        </IconTip>
+                      )}
+                      {activeArtifact.kind !== "image" &&
+                        activeArtifact.kind !== "audio" &&
+                        activeArtifact.kind !== "component" && (
+                          <IconTip label={t("design.pageStyle.button", "页面样式")} side="bottom">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-6 w-6"
+                              onClick={() => {
+                                setPsBackground("")
+                                setPsColor("")
+                                setPsMaxWidth("")
+                                setPageStyleOpen(true)
+                              }}
+                            >
+                              <Paintbrush className="h-3.5 w-3.5" />
+                            </Button>
+                          </IconTip>
+                        )}
+                      {activeArtifact.kind !== "image" && activeArtifact.kind !== "audio" && (
+                        <IconTip
+                          label={
+                            parseIsRtl(activeArtifact.metadata)
+                              ? t("design.rtl.toLtr", "切换为从左到右")
+                              : t("design.rtl.toRtl", "切换为从右到左（RTL）")
                           }
-                          onClick={() => void handleShare()}
+                          side="bottom"
                         >
-                          {sharing ? (
-                            <Loader2Icon className="h-3.5 w-3.5 animate-spin" />
-                          ) : (
-                            <Share2 className="h-3.5 w-3.5" />
-                          )}
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className={cn(
+                              "h-6 w-6",
+                              parseIsRtl(activeArtifact.metadata) && "text-primary",
+                            )}
+                            onClick={() => void toggleRtl()}
+                          >
+                            <span className="text-[13px] font-semibold leading-none">
+                              {parseIsRtl(activeArtifact.metadata) ? "‏RTL" : "LTR"}
+                            </span>
+                          </Button>
+                        </IconTip>
+                      )}
+                      {activeArtifact.kind !== "image" && activeArtifact.kind !== "audio" && (
+                        <IconTip
+                          label={t("design.review.qualityCheck", "质量审查（可访问性/内容）")}
+                          side="bottom"
+                        >
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6"
+                            disabled={reviewing}
+                            onClick={() => void runQualityReview()}
+                          >
+                            {reviewing ? (
+                              <Loader2Icon className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <ListChecks className="h-3.5 w-3.5" />
+                            )}
+                          </Button>
+                        </IconTip>
+                      )}
+                      <IconTip label={t("design.history", "版本历史")} side="bottom">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6"
+                          onClick={openHistory}
+                        >
+                          <History className="h-3.5 w-3.5" />
                         </Button>
                       </IconTip>
-                    ) : (
-                      // server 模式：分享面板（显示/复制/打开/停止公开链接，Wave 1-②）。
-                      <div className="relative" ref={shareRef}>
+                      {tx.supportsLocalFileOps() ? (
+                        // 桌面无公网服务器：分享 = 一键导出可分享 HTML（保持一键，不加弹层）。
                         <IconTip label={t("design.share.button", "分享")} side="bottom">
                           <Button
                             variant="ghost"
                             size="icon"
-                            className={cn("h-6 w-6", shareOpen && "bg-secondary")}
-                            disabled={
-                              activeArtifact.status !== "ready" &&
-                              activeArtifact.status !== "needs_review"
-                            }
-                            onClick={() => setShareOpen((v) => !v)}
-                          >
-                            <Share2 className="h-3.5 w-3.5" />
-                          </Button>
-                        </IconTip>
-                        {activeArtifact && (
-                          <DesignSharePanel
-                            open={shareOpen}
-                            artifactId={activeArtifact.id}
-                            origin={window.location.origin}
-                          />
-                        )}
-                      </div>
-                    )}
-                    <DropdownMenu>
-                      <IconTip label={t("design.exportArtifact", "导出本页")} side="bottom">
-                        <DropdownMenuTrigger asChild>
-                          <Button
-                            variant="ghost"
-                            size="icon"
                             className="h-6 w-6"
                             disabled={
-                              !!exporting ||
+                              sharing ||
                               (activeArtifact.status !== "ready" &&
                                 activeArtifact.status !== "needs_review")
                             }
+                            onClick={() => void handleShare()}
                           >
-                            {exporting ? (
+                            {sharing ? (
                               <Loader2Icon className="h-3.5 w-3.5 animate-spin" />
                             ) : (
-                              <Download className="h-3.5 w-3.5" />
+                              <Share2 className="h-3.5 w-3.5" />
                             )}
                           </Button>
-                        </DropdownMenuTrigger>
-                      </IconTip>
-                      <DropdownMenuContent variant="floating" align="end">
-                        <DropdownMenuItem onSelect={() => void handleCopyImage()}>
-                          <ClipboardCopy className="mr-2 h-4 w-4" />
-                          {t("design.copyImage.menu", "复制图片到剪贴板")}
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem onSelect={() => void handleExport("html")}>
-                          <Code2 className="mr-2 h-4 w-4" />
-                          {t("design.exportHtml", "HTML")}
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onSelect={() => void handleExport("md")}>
-                          <FileText className="mr-2 h-4 w-4" />
-                          {t("design.exportMd", "Markdown")}
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onSelect={() => void handleExport("png")}>
-                          <FileImage className="mr-2 h-4 w-4" />
-                          {t("design.exportPng", "PNG 图片")}
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onSelect={() => setImgExportOpen(true)}>
-                          <SlidersHorizontal className="mr-2 h-4 w-4" />
-                          {t("design.exportImageOptions", "图片（格式 / 清晰度）…")}
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onSelect={() => void handleExport("pdf")}>
-                          <FileText className="mr-2 h-4 w-4" />
-                          {t("design.exportPdf", "PDF")}
-                        </DropdownMenuItem>
-                        {(activeArtifact.kind === "deck" ||
-                          activeArtifact.kind === "poster" ||
-                          activeArtifact.kind === "motion") && (
-                          <DropdownMenuItem onSelect={() => void handleExport("pptx")}>
-                            <FileType2 className="mr-2 h-4 w-4" />
-                            {t("design.exportPptx", "PPTX（整页图片）")}
-                          </DropdownMenuItem>
-                        )}
-                        {activeArtifact.kind === "deck" && (
-                          <DropdownMenuItem onSelect={() => void handleExport("pptx-outline")}>
-                            <FileType2 className="mr-2 h-4 w-4" />
-                            {t("design.exportPptxOutline", "PPTX（可编辑文本）")}
-                          </DropdownMenuItem>
-                        )}
-                        {activeArtifact.kind === "motion" && (
-                          // 原生强路（浏览器逐帧 + ffmpeg）不依赖 WebCodecs，故 motion 始终提供；
-                          // 原生不可用时回退客户端 WebCodecs（若也不支持则导出报错）。
-                          <DropdownMenuItem onSelect={() => void handleExport("video")}>
-                            <Film className="mr-2 h-4 w-4" />
-                            {t("design.exportVideo", "视频 (MP4)")}
-                          </DropdownMenuItem>
-                        )}
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem onSelect={() => void handleExport("zip")}>
-                          <FileArchive className="mr-2 h-4 w-4" />
-                          {t("design.exportZip", "本页源码 (ZIP)")}
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onSelect={() => void handleExport("handoff")}>
-                          <Braces className="mr-2 h-4 w-4" />
-                          {t("design.exportHandoff", "代码交付包 (ZIP)")}
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          onSelect={() => void implementToCode(activeArtifact.id)}
-                        >
-                          <Hammer className="mr-2 h-4 w-4" />
-                          {t("design.implement.menu", "实现到代码…")}
-                        </DropdownMenuItem>
-                        {tx.supportsLocalFileOps() && activeArtifact.artifactPath && (
-                          <>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem onSelect={() => void copyArtifactPath()}>
-                              <Link2 className="mr-2 h-4 w-4" />
-                              {t("design.copyPath", "复制路径")}
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onSelect={() => void revealArtifact()}>
-                              <FolderOpen className="mr-2 h-4 w-4" />
-                              {t("design.revealInFinder", "在文件夹中显示")}
-                            </DropdownMenuItem>
-                          </>
-                        )}
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem onSelect={() => setDeployOpen(true)}>
-                          <Cloud className="mr-2 h-4 w-4" />
-                          {t("design.deploy.menu", "部署到 Cloudflare Pages")}
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </div>
-                </div>
-                {activeArtifact.status === "needs_review" && (
-                  <div className="flex shrink-0 items-center gap-2 border-b border-amber-400/40 bg-amber-50/70 px-3 py-1.5 text-xs dark:bg-amber-950/25">
-                    <ShieldAlert className="h-3.5 w-3.5 shrink-0 text-amber-600 dark:text-amber-400" />
-                    <span className="min-w-0 flex-1 truncate text-amber-800 dark:text-amber-200">
-                      {parseSelfCheck(activeArtifact.metadata)?.detail ??
-                        t("design.review.flagged", "自查发现可能的质量问题，建议复查")}
-                    </span>
-                    <Button
-                      size="sm"
-                      className="h-6 shrink-0 gap-1 bg-amber-600 px-2 text-xs text-white hover:bg-amber-700 dark:bg-amber-600 dark:text-white dark:hover:bg-amber-500"
-                      onClick={handleFixWithAgent}
-                    >
-                      <Wand2 className="h-3 w-3" />
-                      {t("design.review.fixWithAgent", "让 AI 修复")}
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-6 shrink-0 px-2 text-xs text-amber-800 hover:bg-amber-100 dark:text-amber-200 dark:hover:bg-amber-900/40"
-                      onClick={() => void handleReviewArtifact("recheck")}
-                    >
-                      {t("design.review.recheck", "重新检查")}
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-6 shrink-0 px-2 text-xs text-amber-800 hover:bg-amber-100 dark:text-amber-200 dark:hover:bg-amber-900/40"
-                      onClick={() => void handleReviewArtifact("dismiss")}
-                    >
-                      {t("design.review.dismiss", "标记已复查")}
-                    </Button>
-                  </div>
-                )}
-                {(() => {
-                  const from = parseDerivedFrom(activeArtifact.metadata)
-                  if (!from) return null
-                  const target = artifacts.find((a) => a.id === from.id)
-                  return (
-                    <div className="flex shrink-0 items-center gap-1.5 border-b bg-muted/40 px-3 py-1 text-[11px] text-muted-foreground">
-                      <GitFork className="h-3 w-3 shrink-0" />
-                      <span className="shrink-0">{t("design.derivedFrom", "派生自")}</span>
-                      {target ? (
-                        <button
-                          type="button"
-                          onClick={() => void openArtifact(target)}
-                          className="min-w-0 truncate font-medium text-foreground hover:underline"
-                        >
-                          {from.title}
-                        </button>
+                        </IconTip>
                       ) : (
-                        <span className="min-w-0 truncate font-medium">{from.title}</span>
+                        // server 模式：分享面板（显示/复制/打开/停止公开链接，Wave 1-②）。
+                        <div className="relative" ref={shareRef}>
+                          <IconTip label={t("design.share.button", "分享")} side="bottom">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className={cn("h-6 w-6", shareOpen && "bg-secondary")}
+                              disabled={
+                                activeArtifact.status !== "ready" &&
+                                activeArtifact.status !== "needs_review"
+                              }
+                              onClick={() => setShareOpen((v) => !v)}
+                            >
+                              <Share2 className="h-3.5 w-3.5" />
+                            </Button>
+                          </IconTip>
+                          {activeArtifact && (
+                            <DesignSharePanel
+                              open={shareOpen}
+                              artifactId={activeArtifact.id}
+                              origin={window.location.origin}
+                            />
+                          )}
+                        </div>
                       )}
+                      <DropdownMenu>
+                        <IconTip label={t("design.exportArtifact", "导出本页")} side="bottom">
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-6 w-6"
+                              disabled={
+                                !!exporting ||
+                                (activeArtifact.status !== "ready" &&
+                                  activeArtifact.status !== "needs_review")
+                              }
+                            >
+                              {exporting ? (
+                                <Loader2Icon className="h-3.5 w-3.5 animate-spin" />
+                              ) : (
+                                <Download className="h-3.5 w-3.5" />
+                              )}
+                            </Button>
+                          </DropdownMenuTrigger>
+                        </IconTip>
+                        <DropdownMenuContent variant="floating" align="end">
+                          <DropdownMenuItem onSelect={() => void handleCopyImage()}>
+                            <ClipboardCopy className="mr-2 h-4 w-4" />
+                            {t("design.copyImage.menu", "复制图片到剪贴板")}
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem onSelect={() => void handleExport("html")}>
+                            <Code2 className="mr-2 h-4 w-4" />
+                            {t("design.exportHtml", "HTML")}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onSelect={() => void handleExport("md")}>
+                            <FileText className="mr-2 h-4 w-4" />
+                            {t("design.exportMd", "Markdown")}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onSelect={() => void handleExport("png")}>
+                            <FileImage className="mr-2 h-4 w-4" />
+                            {t("design.exportPng", "PNG 图片")}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onSelect={() => setImgExportOpen(true)}>
+                            <SlidersHorizontal className="mr-2 h-4 w-4" />
+                            {t("design.exportImageOptions", "图片（格式 / 清晰度）…")}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onSelect={() => void handleExport("pdf")}>
+                            <FileText className="mr-2 h-4 w-4" />
+                            {t("design.exportPdf", "PDF")}
+                          </DropdownMenuItem>
+                          {(activeArtifact.kind === "deck" ||
+                            activeArtifact.kind === "poster" ||
+                            activeArtifact.kind === "motion") && (
+                            <DropdownMenuItem onSelect={() => void handleExport("pptx")}>
+                              <FileType2 className="mr-2 h-4 w-4" />
+                              {t("design.exportPptx", "PPTX（整页图片）")}
+                            </DropdownMenuItem>
+                          )}
+                          {activeArtifact.kind === "deck" && (
+                            <DropdownMenuItem onSelect={() => void handleExport("pptx-outline")}>
+                              <FileType2 className="mr-2 h-4 w-4" />
+                              {t("design.exportPptxOutline", "PPTX（可编辑文本）")}
+                            </DropdownMenuItem>
+                          )}
+                          {activeArtifact.kind === "motion" && (
+                            // 原生强路（浏览器逐帧 + ffmpeg）不依赖 WebCodecs，故 motion 始终提供；
+                            // 原生不可用时回退客户端 WebCodecs（若也不支持则导出报错）。
+                            <DropdownMenuItem onSelect={() => void handleExport("video")}>
+                              <Film className="mr-2 h-4 w-4" />
+                              {t("design.exportVideo", "视频 (MP4)")}
+                            </DropdownMenuItem>
+                          )}
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem onSelect={() => void handleExport("zip")}>
+                            <FileArchive className="mr-2 h-4 w-4" />
+                            {t("design.exportZip", "本页源码 (ZIP)")}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onSelect={() => void handleExport("handoff")}>
+                            <Braces className="mr-2 h-4 w-4" />
+                            {t("design.exportHandoff", "代码交付包 (ZIP)")}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onSelect={() => void implementToCode(activeArtifact.id)}
+                          >
+                            <Hammer className="mr-2 h-4 w-4" />
+                            {t("design.implement.menu", "实现到代码…")}
+                          </DropdownMenuItem>
+                          {tx.supportsLocalFileOps() && activeArtifact.artifactPath && (
+                            <>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem onSelect={() => void copyArtifactPath()}>
+                                <Link2 className="mr-2 h-4 w-4" />
+                                {t("design.copyPath", "复制路径")}
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onSelect={() => void revealArtifact()}>
+                                <FolderOpen className="mr-2 h-4 w-4" />
+                                {t("design.revealInFinder", "在文件夹中显示")}
+                              </DropdownMenuItem>
+                            </>
+                          )}
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem onSelect={() => setDeployOpen(true)}>
+                            <Cloud className="mr-2 h-4 w-4" />
+                            {t("design.deploy.menu", "部署到 Cloudflare Pages")}
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     </div>
-                  )
-                })()}
-                {activeArtifact.status === "failed" && (
-                  <div className="flex shrink-0 items-center gap-2 border-b border-destructive/40 bg-destructive/5 px-3 py-1.5 text-xs">
-                    <AlertCircle className="h-3.5 w-3.5 shrink-0 text-destructive" />
-                    <span className="min-w-0 flex-1 truncate text-destructive">
-                      {t("design.gen.failedBar", "这个页面生成失败了。可在左侧对话里重新描述，或删除重来。")}
-                    </span>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-6 shrink-0 px-2 text-xs text-destructive hover:bg-destructive/10"
-                      onClick={() =>
-                        setDeleteTarget({
-                          type: "artifact",
-                          id: activeArtifact.id,
-                          title: activeArtifact.title,
-                        })
-                      }
-                    >
-                      {t("design.gen.deletePage", "删除此页")}
-                    </Button>
                   </div>
-                )}
-                <div
-                  ref={previewPaneRef}
-                  className={cn(
-                    "relative flex-1 overflow-auto p-4",
-                    devicePreset && "flex items-center justify-center",
-                  )}
-                >
-                  {editMode && !selected && (
-                    <div className="pointer-events-none absolute inset-x-0 top-3 z-10 flex justify-center">
-                      <span className="rounded-full bg-primary/90 px-3 py-1 text-xs text-primary-foreground shadow-md">
-                        {t("design.editHint", "点选元素改属性，双击文字改文案")}
+                  {activeArtifact.status === "needs_review" && (
+                    <div className="flex shrink-0 items-center gap-2 border-b border-amber-400/40 bg-amber-50/70 px-3 py-1.5 text-xs dark:bg-amber-950/25">
+                      <ShieldAlert className="h-3.5 w-3.5 shrink-0 text-amber-600 dark:text-amber-400" />
+                      <span className="min-w-0 flex-1 truncate text-amber-800 dark:text-amber-200">
+                        {parseSelfCheck(activeArtifact.metadata)?.detail ??
+                          t("design.review.flagged", "自查发现可能的质量问题，建议复查")}
                       </span>
+                      <Button
+                        size="sm"
+                        className="h-6 shrink-0 gap-1 bg-amber-600 px-2 text-xs text-white hover:bg-amber-700 dark:bg-amber-600 dark:text-white dark:hover:bg-amber-500"
+                        onClick={handleFixWithAgent}
+                      >
+                        <Wand2 className="h-3 w-3" />
+                        {t("design.review.fixWithAgent", "让 AI 修复")}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 shrink-0 px-2 text-xs text-amber-800 hover:bg-amber-100 dark:text-amber-200 dark:hover:bg-amber-900/40"
+                        onClick={() => void handleReviewArtifact("recheck")}
+                      >
+                        {t("design.review.recheck", "重新检查")}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 shrink-0 px-2 text-xs text-amber-800 hover:bg-amber-100 dark:text-amber-200 dark:hover:bg-amber-900/40"
+                        onClick={() => void handleReviewArtifact("dismiss")}
+                      >
+                        {t("design.review.dismiss", "标记已复查")}
+                      </Button>
+                    </div>
+                  )}
+                  {(() => {
+                    const from = parseDerivedFrom(activeArtifact.metadata)
+                    if (!from) return null
+                    const target = artifacts.find((a) => a.id === from.id)
+                    return (
+                      <div className="flex shrink-0 items-center gap-1.5 border-b bg-muted/40 px-3 py-1 text-[11px] text-muted-foreground">
+                        <GitFork className="h-3 w-3 shrink-0" />
+                        <span className="shrink-0">{t("design.derivedFrom", "派生自")}</span>
+                        {target ? (
+                          <button
+                            type="button"
+                            onClick={() => void openArtifact(target)}
+                            className="min-w-0 truncate font-medium text-foreground hover:underline"
+                          >
+                            {from.title}
+                          </button>
+                        ) : (
+                          <span className="min-w-0 truncate font-medium">{from.title}</span>
+                        )}
+                      </div>
+                    )
+                  })()}
+                  {activeArtifact.status === "failed" && (
+                    <div className="flex shrink-0 items-center gap-2 border-b border-destructive/40 bg-destructive/5 px-3 py-1.5 text-xs">
+                      <AlertCircle className="h-3.5 w-3.5 shrink-0 text-destructive" />
+                      <span className="min-w-0 flex-1 truncate text-destructive">
+                        {t(
+                          "design.gen.failedBar",
+                          "这个页面生成失败了。可在左侧对话里重新描述，或删除重来。",
+                        )}
+                      </span>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 shrink-0 px-2 text-xs text-destructive hover:bg-destructive/10"
+                        onClick={() =>
+                          setDeleteTarget({
+                            type: "artifact",
+                            id: activeArtifact.id,
+                            title: activeArtifact.title,
+                          })
+                        }
+                      >
+                        {t("design.gen.deletePage", "删除此页")}
+                      </Button>
                     </div>
                   )}
                   <div
+                    ref={previewPaneRef}
                     className={cn(
-                      "relative overflow-hidden bg-white",
-                      devicePreset
-                        ? "shrink-0 rounded-[1.5rem] border-[6px] border-neutral-800 shadow-xl dark:border-neutral-700"
-                        : // 统一渲染后「适应」也是固定 scaled footprint（非 width:100% 填充），恒 mx-auto
-                          "rounded-lg border shadow-sm mx-auto",
-                      editMode && "ring-2 ring-primary/40",
-                      drawMode && "ring-2 ring-primary/40",
+                      "relative flex-1 overflow-auto p-4",
+                      devicePreset && "flex items-center justify-center",
                     )}
-                    style={frameWrapStyle}
                   >
-                    {/* 常驻 iframe（Wave 2-⑥）：**不再按 key 重挂**——内容刷新只改 src 就地导航，
-                        旧帧垫底直到新帧首绘，消除 React 卸载重建的白闪。key 仅保留在下方 DrawOverlay
-                        （其坐标须随内容重排复位）。滚动保温 + spinner 见 handleIframeLoad / previewLoading。 */}
-                    <iframe
-                      ref={iframeRef}
-                      src={iframeSrc}
-                      sandbox="allow-scripts"
-                      title={activeArtifact.title}
-                      onLoad={handleIframeLoad}
-                      className="border-0"
-                      style={scaleStyle}
-                    />
-                    {/* 重载中 spinner 叠层（Wave 2-⑥）：src 变→显示，onLoad→撤。让改稿读作「更新中」。 */}
-                    {previewLoading && (
-                      <div
-                        role="status"
-                        aria-live="polite"
-                        className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center"
-                      >
-                        <div className="rounded-full bg-background/70 p-2 shadow-sm backdrop-blur-sm">
-                          <Loader2Icon className="h-5 w-5 animate-spin text-muted-foreground" />
-                        </div>
-                        <span className="sr-only">{t("common.loading", "加载中...")}</span>
+                    {editMode && !selected && (
+                      <div className="pointer-events-none absolute inset-x-0 top-3 z-10 flex justify-center">
+                        <span className="rounded-full bg-primary/90 px-3 py-1 text-xs text-primary-foreground shadow-md">
+                          {t("design.editHint", "点选元素改属性，双击文字改文案")}
+                        </span>
                       </div>
                     )}
-                    {/* B4-1 画框批注：父层 canvas 叠层（inset-0 = iframe 可视框），工具坞 portal 到未裁剪的
-                        pane。仅 drawMode 期条件挂载 —— 卸载即天然复位全部 marks/note，无需 setState 复位。 */}
-                    {drawMode && (
-                      // key 含 previewKey：内容刷新（agent 编辑 / 精修 / 手动刷新 → iframe 重挂、
-                      // 布局可能重排）时叠层随之重挂，天然弃掉旧的归一化 marks，不落到新内容错位处
-                      //（review MED：同产物 previewKey 变而叠层不重置会把 v1 marks 合成到 v2 布局）。
-                      <DesignDrawOverlay
-                        key={`${activeArtifact.id}-${previewKey}`}
-                        busy={drawBusy}
-                        onExit={() => setDrawMode(false)}
-                        onSubmit={handleDrawSubmit}
-                        onWheelScroll={forwardScrollToIframe}
-                        toolbarHost={previewPaneRef.current}
-                        frameStyle={overlayFrameStyle}
+                    <div
+                      className={cn(
+                        "relative overflow-hidden bg-white",
+                        devicePreset
+                          ? "shrink-0 rounded-[1.5rem] border-[6px] border-neutral-800 shadow-xl dark:border-neutral-700"
+                          : // 统一渲染后「适应」也是固定 scaled footprint（非 width:100% 填充），恒 mx-auto
+                            "rounded-lg border shadow-sm mx-auto",
+                        editMode && "ring-2 ring-primary/40",
+                        drawMode && "ring-2 ring-primary/40",
+                      )}
+                      style={frameWrapStyle}
+                    >
+                      {/* 常驻 iframe（Wave 2-⑥）：**不再按 key 重挂**——内容刷新只改 src 就地导航，
+                        旧帧垫底直到新帧首绘，消除 React 卸载重建的白闪。key 仅保留在下方 DrawOverlay
+                        （其坐标须随内容重排复位）。滚动保温 + spinner 见 handleIframeLoad / previewLoading。 */}
+                      <iframe
+                        ref={iframeRef}
+                        src={iframeSrc}
+                        sandbox="allow-scripts"
+                        title={activeArtifact.title}
+                        onLoad={handleIframeLoad}
+                        className="border-0"
+                        style={scaleStyle}
                       />
-                    )}
+                      {/* 重载中 spinner 叠层（Wave 2-⑥）：src 变→显示，onLoad→撤。让改稿读作「更新中」。 */}
+                      {previewLoading && (
+                        <div
+                          role="status"
+                          aria-live="polite"
+                          className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center"
+                        >
+                          <div className="rounded-full bg-background/70 p-2 shadow-sm backdrop-blur-sm">
+                            <Loader2Icon className="h-5 w-5 animate-spin text-muted-foreground" />
+                          </div>
+                          <span className="sr-only">{t("common.loading", "加载中...")}</span>
+                        </div>
+                      )}
+                      {/* B4-1 画框批注：父层 canvas 叠层（inset-0 = iframe 可视框），工具坞 portal 到未裁剪的
+                        pane。仅 drawMode 期条件挂载 —— 卸载即天然复位全部 marks/note，无需 setState 复位。 */}
+                      {drawMode && (
+                        // key 含 previewKey：内容刷新（agent 编辑 / 精修 / 手动刷新 → iframe 重挂、
+                        // 布局可能重排）时叠层随之重挂，天然弃掉旧的归一化 marks，不落到新内容错位处
+                        //（review MED：同产物 previewKey 变而叠层不重置会把 v1 marks 合成到 v2 布局）。
+                        <DesignDrawOverlay
+                          key={`${activeArtifact.id}-${previewKey}`}
+                          busy={drawBusy}
+                          onExit={() => setDrawMode(false)}
+                          onSubmit={handleDrawSubmit}
+                          onWheelScroll={forwardScrollToIframe}
+                          toolbarHost={previewPaneRef.current}
+                          frameStyle={overlayFrameStyle}
+                        />
+                      )}
+                    </div>
                   </div>
-                </div>
-                {/* Deck 缩略图轨（P0）：整套幻灯片缩略图并排、点选跳页、active 高亮，长 deck 一眼总览 +
+                  {/* Deck 缩略图轨（P0）：整套幻灯片缩略图并排、点选跳页、active 高亮，长 deck 一眼总览 +
                     秒跳任意页。无 JS 的 `#ds-slide-N` + `:target` 纯 CSS 点亮（DeckSlideThumb），复用
                     keep-alive 池。仅纯预览态显示（演示/编辑/批注/画框态让位）。 */}
-                {activeArtifact.kind === "deck" &&
-                  deckState &&
-                  deckState.count > 1 &&
-                  iframeSrc &&
-                  !presentMode &&
-                  !editMode &&
-                  !commentMode &&
-                  !drawMode && (
-                    <div className="flex shrink-0 items-center gap-2 overflow-x-auto border-t bg-muted/30 px-3 py-2">
-                      {Array.from({ length: deckState.count }, (_, n) => (
-                        <DeckSlideThumb
-                          key={n}
-                          poolKey={`deck-thumb:${activeArtifact.id}:${n}`}
-                          src={`${iframeSrc}#ds-slide-${n}`}
-                          index={n}
-                          active={n === deckState.active}
-                          onSelect={(i) => deckNav("ds_slide_go", i)}
-                        />
-                      ))}
-                    </div>
-                  )}
-              </>
-            ) : (
-              <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
-                {t("design.selectArtifact", "从左侧选择一个产物预览")}
-              </div>
-            )}
-
-            {/* Quality critique result card */}
-            {critique && (
-              <div className="absolute bottom-3 right-3 z-10 w-72 rounded-xl border bg-background/95 p-3 shadow-lg backdrop-blur">
-                <div className="mb-2 flex items-center gap-2">
-                  <Gauge className="h-4 w-4 text-primary" />
-                  <span className="text-sm font-semibold">
-                    {t("design.critiqueScore", "质量评分")} {critique.overall.toFixed(1)}
-                  </span>
+                  {activeArtifact.kind === "deck" &&
+                    deckState &&
+                    deckState.count > 1 &&
+                    iframeSrc &&
+                    !presentMode &&
+                    !editMode &&
+                    !commentMode &&
+                    !drawMode && (
+                      <div className="flex shrink-0 items-center gap-2 overflow-x-auto border-t bg-muted/30 px-3 py-2">
+                        {Array.from({ length: deckState.count }, (_, n) => (
+                          <DeckSlideThumb
+                            key={n}
+                            poolKey={`deck-thumb:${activeArtifact.id}:${n}`}
+                            src={`${iframeSrc}#ds-slide-${n}`}
+                            index={n}
+                            active={n === deckState.active}
+                            onSelect={(i) => deckNav("ds_slide_go", i)}
+                          />
+                        ))}
+                      </div>
+                    )}
+                </>
+              ) : artifacts.length > 0 ? (
+                /* 有产物但没打开任何标签（关到空）：引导去产物库墙重新打开——「关闭」的对侧出口。 */
+                <div className="flex flex-1 flex-col items-center justify-center gap-3 text-sm text-muted-foreground">
+                  <p>{t("design.tab.noneOpen", "没有打开的产物")}</p>
                   <Button
-                    variant="ghost"
-                    size="icon"
-                    className="ml-auto h-5 w-5"
-                    onClick={() => setCritique(null)}
+                    size="sm"
+                    variant="outline"
+                    className="gap-1.5"
+                    onClick={() => setShowGrid(true)}
                   >
-                    <X className="h-3 w-3" />
+                    <LayoutGrid className="h-3.5 w-3.5" />
+                    {t("design.tab.reopen", "从产物库打开")}
                   </Button>
                 </div>
-                <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-xs">
-                  {(
-                    [
-                      ["brand", critique.brand],
-                      ["accessibility", critique.accessibility],
-                      ["hierarchy", critique.hierarchy],
-                      ["usability", critique.usability],
-                      ["performance", critique.performance],
-                    ] as const
-                  ).map(([k, v]) => (
-                    <div key={k} className="flex justify-between">
-                      <span className="text-muted-foreground">{t(`design.dim.${k}`, k)}</span>
-                      <span className="font-mono">{v.toFixed(1)}</span>
-                    </div>
-                  ))}
+              ) : (
+                <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
+                  {t("design.selectArtifact", "从左侧选择一个产物预览")}
                 </div>
-                {critique.summary && (
-                  <p className="mt-2 text-xs text-muted-foreground">{critique.summary}</p>
-                )}
-                {critique.fixes.length > 0 && (
-                  <ul className="mt-2 list-disc space-y-0.5 pl-4 text-xs">
-                    {critique.fixes.slice(0, 5).map((f, i) => (
-                      <li key={i}>{f}</li>
+              )}
+
+              {/* Quality critique result card */}
+              {critique && (
+                <div className="absolute bottom-3 right-3 z-10 w-72 rounded-xl border bg-background/95 p-3 shadow-lg backdrop-blur">
+                  <div className="mb-2 flex items-center gap-2">
+                    <Gauge className="h-4 w-4 text-primary" />
+                    <span className="text-sm font-semibold">
+                      {t("design.critiqueScore", "质量评分")} {critique.overall.toFixed(1)}
+                    </span>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="ml-auto h-5 w-5"
+                      onClick={() => setCritique(null)}
+                    >
+                      <X className="h-3 w-3" />
+                    </Button>
+                  </div>
+                  <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-xs">
+                    {(
+                      [
+                        ["brand", critique.brand],
+                        ["accessibility", critique.accessibility],
+                        ["hierarchy", critique.hierarchy],
+                        ["usability", critique.usability],
+                        ["performance", critique.performance],
+                      ] as const
+                    ).map(([k, v]) => (
+                      <div key={k} className="flex justify-between">
+                        <span className="text-muted-foreground">{t(`design.dim.${k}`, k)}</span>
+                        <span className="font-mono">{v.toFixed(1)}</span>
+                      </div>
                     ))}
-                  </ul>
-                )}
-              </div>
-            )}
+                  </div>
+                  {critique.summary && (
+                    <p className="mt-2 text-xs text-muted-foreground">{critique.summary}</p>
+                  )}
+                  {critique.fixes.length > 0 && (
+                    <ul className="mt-2 list-disc space-y-0.5 pl-4 text-xs">
+                      {critique.fixes.slice(0, 5).map((f, i) => (
+                        <li key={i}>{f}</li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
             </main>
           </div>
 
-          {/* Inspector (right) — visual fine-tuning */}
-          {editMode && selected && activeArtifact && (
-            <DesignInspector
-              selected={selected}
-              onLiveStyle={handleLiveStyle}
-              onCommitStyle={handleCommitStyle}
-              onLiveText={handleLiveText}
-              onCommitText={handleCommitText}
-              onLiveAttr={handleLiveAttr}
-              onCommitAttr={handleCommitAttr}
-              onPickImage={handlePickImage}
-              onDelete={() => void handleDeleteElement()}
-              onAddToChat={handleAddSelectedToChat}
-              onClose={() => setSelected(null)}
-            />
-          )}
+          {/* Inspector (right) — visual fine-tuning。开合与首页右侧面板（RightPanelShell）同构：
+              外层 width 动画 0 ↔ w-72（消除面板瞬时占位造成的 72px 硬回流——正是它把进场淡入盖住的根因），
+              内层 AnimatedPresenceBox 负责内容进出场滑动 + 退场期 children 快照维持最后内容（selected 已置空仍可渲染）。 */}
+          <div
+            className={cn(
+              "relative h-full min-h-0 shrink-0 overflow-hidden",
+              "transition-[width] duration-[250ms] ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[width] motion-reduce:transition-none",
+            )}
+            style={{ width: editMode && selected && activeArtifact ? RIGHT_PANEL_WIDTH_PX : 0 }}
+            aria-hidden={!(editMode && selected && activeArtifact)}
+          >
+            <AnimatedPresenceBox
+              open={editMode && !!selected && !!activeArtifact}
+              className="flex h-full min-h-0 w-72"
+              enterFromClassName="translate-x-4 opacity-0"
+              enterClassName="translate-x-0 opacity-100"
+              exitClassName="translate-x-4 opacity-0 pointer-events-none"
+              enterDurationMs={UI_MOTION.panelSurface}
+              exitDurationMs={UI_MOTION.panelContentExit}
+              enterEasing={UI_EASING.emphasized}
+              exitEasing={UI_EASING.accelerate}
+            >
+              {selected && activeArtifact ? (
+                <DesignInspector
+                  selected={selected}
+                  onLiveStyle={handleLiveStyle}
+                  onCommitStyle={handleCommitStyle}
+                  onLiveText={handleLiveText}
+                  onCommitText={handleCommitText}
+                  onLiveAttr={handleLiveAttr}
+                  onCommitAttr={handleCommitAttr}
+                  onPickImage={handlePickImage}
+                  onDelete={() => void handleDeleteElement()}
+                  onAddToChat={handleAddSelectedToChat}
+                  onClose={() => setSelected(null)}
+                />
+              ) : null}
+            </AnimatedPresenceBox>
+          </div>
 
           {/* 编辑态预览右键菜单（bridge ds_context_menu；非编辑态原生右键不受影响）。统一浮层：
               FloatingMenu（strategy=fixed + portal + 常挂载，退场动画走冻结坐标/内容，故 style 的
@@ -5422,25 +5836,46 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
             </div>
           </FloatingMenu>
 
-          {/* Comment panel (right) — 批注钉（与 Inspector 互斥） */}
-          {commentMode && activeArtifact && (
-            <DesignCommentPanel
-              comments={comments}
-              pending={pendingPlacement}
-              onCreate={handleCreateComment}
-              onCancelPending={() => setPendingPlacement(null)}
-              onResolve={handleResolveComment}
-              onEdit={handleEditComment}
-              onDelete={handleDeleteComment}
-              onFocus={(id) => postToIframe({ type: "ds_comment_focus", id })}
-              onSendToChat={handleSendCommentToChat}
-              onAddToChat={handleAddCommentToChat}
-              onBatchToChat={handleBatchCommentsToChat}
-              focusCommentId={focusCommentId}
-              onFocusHandled={() => setFocusCommentId(null)}
-              onClose={() => setCommentMode(false)}
-            />
-          )}
+          {/* Comment panel (right) — 批注钉（与 Inspector 互斥）。开合结构同 Inspector：外层 width 动画 + 内层滑动。 */}
+          <div
+            className={cn(
+              "relative h-full min-h-0 shrink-0 overflow-hidden",
+              "transition-[width] duration-[250ms] ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[width] motion-reduce:transition-none",
+            )}
+            style={{ width: commentMode && activeArtifact ? RIGHT_PANEL_WIDTH_PX : 0 }}
+            aria-hidden={!(commentMode && activeArtifact)}
+          >
+            <AnimatedPresenceBox
+              open={commentMode && !!activeArtifact}
+              className="flex h-full min-h-0 w-72"
+              enterFromClassName="translate-x-4 opacity-0"
+              enterClassName="translate-x-0 opacity-100"
+              exitClassName="translate-x-4 opacity-0 pointer-events-none"
+              enterDurationMs={UI_MOTION.panelSurface}
+              exitDurationMs={UI_MOTION.panelContentExit}
+              enterEasing={UI_EASING.emphasized}
+              exitEasing={UI_EASING.accelerate}
+            >
+              {activeArtifact ? (
+                <DesignCommentPanel
+                  comments={comments}
+                  pending={pendingPlacement}
+                  onCreate={handleCreateComment}
+                  onCancelPending={() => setPendingPlacement(null)}
+                  onResolve={handleResolveComment}
+                  onEdit={handleEditComment}
+                  onDelete={handleDeleteComment}
+                  onFocus={(id) => postToIframe({ type: "ds_comment_focus", id })}
+                  onSendToChat={handleSendCommentToChat}
+                  onAddToChat={handleAddCommentToChat}
+                  onBatchToChat={handleBatchCommentsToChat}
+                  focusCommentId={focusCommentId}
+                  onFocusHandled={() => setFocusCommentId(null)}
+                  onClose={() => setCommentMode(false)}
+                />
+              ) : null}
+            </AnimatedPresenceBox>
+          </div>
         </div>
       )}
 
@@ -5462,7 +5897,10 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
             rows={3}
             placeholder={
               promptKind === "audio"
-                ? t("design.audioPromptPlaceholder", "旁白文本，或音乐/音效描述（可加 [music] / [sfx] 前缀）…")
+                ? t(
+                    "design.audioPromptPlaceholder",
+                    "旁白文本，或音乐/音效描述（可加 [music] / [sfx] 前缀）…",
+                  )
                 : t("design.imagePromptPlaceholder", "描述你想要的图像…")
             }
             className="resize-none"
@@ -5471,7 +5909,10 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
             <Button variant="ghost" onClick={() => setImagePromptOpen(false)}>
               {t("common.cancel", "取消")}
             </Button>
-            <Button onClick={() => void confirmImagePrompt()} disabled={creatingImage || !imagePrompt.trim()}>
+            <Button
+              onClick={() => void confirmImagePrompt()}
+              disabled={creatingImage || !imagePrompt.trim()}
+            >
               {creatingImage && <Loader2Icon className="mr-2 h-4 w-4 animate-spin" />}
               {t("design.generate", "生成")}
             </Button>
@@ -5575,13 +6016,13 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {ARTIFACT_KINDS.filter(
-                    (k) => !["image", "audio", "component"].includes(k),
-                  ).map((k) => (
-                    <SelectItem key={k} value={k}>
-                      {kindLabel(k)}
-                    </SelectItem>
-                  ))}
+                  {ARTIFACT_KINDS.filter((k) => !["image", "audio", "component"].includes(k)).map(
+                    (k) => (
+                      <SelectItem key={k} value={k}>
+                        {kindLabel(k)}
+                      </SelectItem>
+                    ),
+                  )}
                 </SelectContent>
               </Select>
             </div>
@@ -5642,7 +6083,11 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
             />
           </div>
           <DialogFooter>
-            <Button variant="ghost" onClick={() => setRefDialogOpen(false)} disabled={refGenerating}>
+            <Button
+              variant="ghost"
+              onClick={() => setRefDialogOpen(false)}
+              disabled={refGenerating}
+            >
               {t("common.cancel", "取消")}
             </Button>
             <Button
@@ -5758,8 +6203,14 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
             <div className="space-y-3 text-sm text-muted-foreground">
               <p>
                 {exportGate?.dep === "ffmpeg"
-                  ? t("design.dep.ffmpegManualDesc", "MP4 强路导出需要 ffmpeg。请安装后重试，或改用较低保真的浏览器编码。")
-                  : t("design.dep.browserManualDesc", "PDF/PNG 强路导出需要浏览器引擎。请安装 Chrome / Edge / Brave 后重试，或改用较低保真的客户端栅格化。")}
+                  ? t(
+                      "design.dep.ffmpegManualDesc",
+                      "MP4 强路导出需要 ffmpeg。请安装后重试，或改用较低保真的浏览器编码。",
+                    )
+                  : t(
+                      "design.dep.browserManualDesc",
+                      "PDF/PNG 强路导出需要浏览器引擎。请安装 Chrome / Edge / Brave 后重试，或改用较低保真的客户端栅格化。",
+                    )}
               </p>
               {exportGate?.dep === "ffmpeg" && (
                 <>
@@ -5873,7 +6324,9 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
                 void generateBrandPackFromHome([...brandPackKinds])
               }}
             >
-              {t("design.brandPack.pickGenerate", "生成 {{count}} 个", { count: brandPackKinds.size })}
+              {t("design.brandPack.pickGenerate", "生成 {{count}} 个", {
+                count: brandPackKinds.size,
+              })}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -5990,7 +6443,10 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
             </DialogTitle>
           </DialogHeader>
           <p className="text-xs text-muted-foreground">
-            {t("design.pageStyle.hint", "作用于整页（body）；留空表示不改该项。与逐元素微调互不影响。")}
+            {t(
+              "design.pageStyle.hint",
+              "作用于整页（body）；留空表示不改该项。与逐元素微调互不影响。",
+            )}
           </p>
           <div className="space-y-3">
             <div className="flex items-center gap-2">
@@ -6129,24 +6585,23 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
             placeholder={t("design.systemNamePlaceholder", "设计系统名称")}
           />
           {/* 路径模式（代码库 / 图片）文件选择器（W3-K）：桌面直接选，免手打绝对路径 */}
-          {(extractFrom === "codebase" || extractFrom === "image") &&
-            tx.supportsLocalFileOps() && (
-              <Button
-                variant="outline"
-                size="sm"
-                className="w-full justify-start gap-2"
-                onClick={() => void pickExtractPath()}
-              >
-                {extractFrom === "codebase" ? (
-                  <FolderOpen className="h-4 w-4" />
-                ) : (
-                  <ImageIcon className="h-4 w-4" />
-                )}
-                {extractFrom === "codebase"
-                  ? t("design.extractPickDir", "选择代码库目录…")
-                  : t("design.extractPickImage", "选择截图 / 图片…")}
-              </Button>
-            )}
+          {(extractFrom === "codebase" || extractFrom === "image") && tx.supportsLocalFileOps() && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-full justify-start gap-2"
+              onClick={() => void pickExtractPath()}
+            >
+              {extractFrom === "codebase" ? (
+                <FolderOpen className="h-4 w-4" />
+              ) : (
+                <ImageIcon className="h-4 w-4" />
+              )}
+              {extractFrom === "codebase"
+                ? t("design.extractPickDir", "选择代码库目录…")
+                : t("design.extractPickImage", "选择截图 / 图片…")}
+            </Button>
+          )}
           {/* 图片提取的视觉模型（仅图片 tab；只亮支持图片的模型，记住上次、与首页共享）。 */}
           {extractFrom === "image" && homeModels.length > 0 && (
             <div className="flex items-center gap-2">
@@ -6202,14 +6657,20 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
             value={importMdText}
             onChange={(e) => setImportMdText(e.target.value)}
             rows={10}
-            placeholder={t("design.importDesignMdPlaceholder", "粘贴 DESIGN.md 文本（9 段规范 + --ds-* Token 表；缺 token 时自动合成）…")}
+            placeholder={t(
+              "design.importDesignMdPlaceholder",
+              "粘贴 DESIGN.md 文本（9 段规范 + --ds-* Token 表；缺 token 时自动合成）…",
+            )}
             className="resize-none font-mono text-xs"
           />
           <DialogFooter>
             <Button variant="ghost" onClick={() => setImportMdOpen(false)}>
               {t("common.cancel", "取消")}
             </Button>
-            <Button onClick={() => void runImportDesignMd()} disabled={importingMd || !importMdText.trim()}>
+            <Button
+              onClick={() => void runImportDesignMd()}
+              disabled={importingMd || !importMdText.trim()}
+            >
               {importingMd && <Loader2Icon className="mr-2 h-4 w-4 animate-spin" />}
               {t("design.import", "导入")}
             </Button>
@@ -6235,7 +6696,10 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
                 if (e.key === "Enter" && !proposing && dirBrief.trim()) void runProposeDirections()
               }}
             />
-            <Button onClick={() => void runProposeDirections()} disabled={proposing || !dirBrief.trim()}>
+            <Button
+              onClick={() => void runProposeDirections()}
+              disabled={proposing || !dirBrief.trim()}
+            >
               {proposing && <Loader2Icon className="mr-2 h-4 w-4 animate-spin" />}
               {t("design.generate", "生成")}
             </Button>
@@ -6256,15 +6720,18 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
                     </div>
                   )}
                   <div className="flex gap-1.5">
-                    {["--ds-color-primary", "--ds-color-accent", "--ds-color-bg", "--ds-color-fg"].map(
-                      (k) => (
-                        <span
-                          key={k}
-                          className="h-6 w-6 rounded-full border"
-                          style={{ background: d.tokens[k] ?? "transparent" }}
-                        />
-                      ),
-                    )}
+                    {[
+                      "--ds-color-primary",
+                      "--ds-color-accent",
+                      "--ds-color-bg",
+                      "--ds-color-fg",
+                    ].map((k) => (
+                      <span
+                        key={k}
+                        className="h-6 w-6 rounded-full border"
+                        style={{ background: d.tokens[k] ?? "transparent" }}
+                      />
+                    ))}
                   </div>
                   <div className="text-sm font-medium">{d.name}</div>
                   <div className="text-xs text-muted-foreground">{d.summary}</div>
@@ -6340,7 +6807,6 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
     </div>
   )
 }
-
 
 /** 项目卡缩略图：懒取该项目最近一个产物 → 渲染其静态缩略图。 */
 function ProjectThumb({ projectId }: { projectId: string }) {
@@ -6565,7 +7031,8 @@ const SCENARIO_STARTERS: {
     titleKey: "design.starter.webTitle",
     titleFallback: "产品落地页",
     promptKey: "design.starter.webPrompt",
-    promptFallback: "为一款 AI 笔记应用做一个现代落地页：英雄区标题、三个核心卖点、定价卡、行动号召。",
+    promptFallback:
+      "为一款 AI 笔记应用做一个现代落地页：英雄区标题、三个核心卖点、定价卡、行动号召。",
   },
   {
     kind: "mobile",
@@ -6719,7 +7186,10 @@ function LaunchHome({
             {t("design.launchHeading", "你想设计什么？")}
           </h1>
           <p className="mx-auto mt-4 max-w-lg text-[15px] text-muted-foreground">
-            {t("design.launchSub", "一句话描述，直接生成可交付的设计——网页 / 演示 / 海报 / 文档 / 动效。")}
+            {t(
+              "design.launchSub",
+              "一句话描述，直接生成可交付的设计——网页 / 演示 / 海报 / 文档 / 动效。",
+            )}
           </p>
         </div>
 
@@ -6839,7 +7309,10 @@ function LaunchHome({
               )}
             </div>
             <div className="flex items-center gap-2">
-              <IconTip label={t("design.brandPack.hint", "一次生成落地页 + 演示 + 海报，共用同一设计系统")} side="top">
+              <IconTip
+                label={t("design.brandPack.hint", "一次生成落地页 + 演示 + 海报，共用同一设计系统")}
+                side="top"
+              >
                 <Button
                   size="sm"
                   variant="outline"
@@ -7282,9 +7755,13 @@ function LaunchHome({
           <AlertDialogHeader>
             <AlertDialogTitle>{t("design.deleteTitle", "确认删除？")}</AlertDialogTitle>
             <AlertDialogDescription>
-              {t("design.batchDeleteHint", "将删除选中的 {{count}} 个项目及其全部产物，不可撤销。", {
-                count: selected.size,
-              })}
+              {t(
+                "design.batchDeleteHint",
+                "将删除选中的 {{count}} 个项目及其全部产物，不可撤销。",
+                {
+                  count: selected.size,
+                },
+              )}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

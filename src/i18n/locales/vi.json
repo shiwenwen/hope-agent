@@ -10477,6 +10477,16 @@
       "remove": "Xóa ảnh tham khảo",
       "hintMulti": "Sẽ tạo dựa trên các ảnh tham chiếu này",
       "max": "Thêm tối đa {{n}} ảnh tham chiếu"
+    },
+    "tab": {
+      "close": "Đóng",
+      "closeOthers": "Đóng các tab khác",
+      "deletePermanent": "Xóa vĩnh viễn",
+      "reopen": "Mở từ thư viện",
+      "openLibrary": "Mở thư viện sản phẩm…",
+      "allOpen": "Đã mở tất cả",
+      "noneOpenInline": "Chưa mở sản phẩm nào — nhấn + bên phải để mở từ thư viện",
+      "noneOpen": "Chưa mở sản phẩm nào"
     }
   },
   "agentLifecycle": {

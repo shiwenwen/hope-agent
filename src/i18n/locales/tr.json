@@ -10477,6 +10477,16 @@
       "remove": "Referans görseli kaldır",
       "hintMulti": "Bu referans görsellerine göre oluşturulacak",
       "max": "En fazla {{n}} referans görsel ekleyin"
+    },
+    "tab": {
+      "close": "Kapat",
+      "closeOthers": "Diğerlerini kapat",
+      "deletePermanent": "Kalıcı olarak sil",
+      "reopen": "Kitaplıktan aç",
+      "openLibrary": "Çıktı kitaplığını aç…",
+      "allOpen": "Tümü açık",
+      "noneOpenInline": "Açık çıktı yok — kitaplıktan açmak için sağdaki + düğmesine dokunun",
+      "noneOpen": "Açık çıktı yok"
     }
   },
   "agentLifecycle": {

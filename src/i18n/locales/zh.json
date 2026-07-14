@@ -10477,6 +10477,16 @@
       "remove": "移除参考图",
       "hintMulti": "将照着这些参考图生成",
       "max": "最多添加 {{n}} 张参考图"
+    },
+    "tab": {
+      "close": "关闭",
+      "closeOthers": "关闭其他",
+      "deletePermanent": "删除（永久）",
+      "reopen": "从产物库打开",
+      "openLibrary": "打开产物库…",
+      "allOpen": "全部已打开",
+      "noneOpenInline": "没有打开的产物——点右侧 + 从产物库打开",
+      "noneOpen": "没有打开的产物"
     }
   },
   "agentLifecycle": {
