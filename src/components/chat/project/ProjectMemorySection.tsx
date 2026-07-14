@@ -15,6 +15,7 @@ import {
 import { Textarea } from "@/components/ui/textarea"
 import { IconTip } from "@/components/ui/tooltip"
 import { sanitizeDiagnosticText } from "@/lib/diagnosticRedaction"
+import { logger } from "@/lib/logger"
 import { getTransport } from "@/lib/transport-provider"
 import type {
   ProjectMemoryEntry,
@@ -43,7 +44,7 @@ const EMPTY_DRAFT: MemoryDraft = {
   content: "",
 }
 
-function errorDetail(cause: unknown): string {
+function diagnosticDetail(cause: unknown): string {
   const value = cause instanceof Error ? cause.message : String(cause)
   return sanitizeDiagnosticText(value, 420)
 }
@@ -67,11 +68,12 @@ export function ProjectMemorySection({ projectId }: ProjectMemorySectionProps) {
       setEntries(result)
       setError(null)
     } catch (cause) {
-      setError(errorDetail(cause))
+      logger.error("project", "ProjectMemorySection::loadEntries", diagnosticDetail(cause))
+      setError(t("settings.memoryV2.core.topicLoadFailed"))
     } finally {
       setLoading(false)
     }
-  }, [projectId])
+  }, [projectId, t])
 
   useEffect(() => {
     setDraft(EMPTY_DRAFT)
@@ -95,7 +97,8 @@ export function ProjectMemorySection({ projectId }: ProjectMemorySectionProps) {
       setDraft(file)
       setError(null)
     } catch (cause) {
-      setError(errorDetail(cause))
+      logger.error("project", "ProjectMemorySection::openEntry", diagnosticDetail(cause))
+      setError(t("settings.memoryV2.core.topicLoadFailed"))
     } finally {
       setLoadingFile(false)
     }
@@ -121,7 +124,8 @@ export function ProjectMemorySection({ projectId }: ProjectMemorySectionProps) {
       await loadEntries()
       setError(null)
     } catch (cause) {
-      setError(errorDetail(cause))
+      logger.error("project", "ProjectMemorySection::saveDraft", diagnosticDetail(cause))
+      setError(t("settings.memoryV2.core.topicSaveFailed"))
     } finally {
       setSaving(false)
     }
@@ -140,7 +144,8 @@ export function ProjectMemorySection({ projectId }: ProjectMemorySectionProps) {
       await loadEntries()
       setError(null)
     } catch (cause) {
-      setError(errorDetail(cause))
+      logger.error("project", "ProjectMemorySection::deleteDraft", diagnosticDetail(cause))
+      setError(t("settings.memoryV2.core.topicDeleteFailed"))
     }
   }
 
@@ -150,7 +155,8 @@ export function ProjectMemorySection({ projectId }: ProjectMemorySectionProps) {
       await loadEntries()
       setError(null)
     } catch (cause) {
-      setError(errorDetail(cause))
+      logger.error("project", "ProjectMemorySection::rebuildIndex", diagnosticDetail(cause))
+      setError(t("project.autoMemory.rebuildFailed"))
     }
   }
 
@@ -247,14 +253,14 @@ export function ProjectMemorySection({ projectId }: ProjectMemorySectionProps) {
           </div>
 
           <div className="space-y-1.5">
-            <Label>{t("project.autoMemory.type")}</Label>
+            <Label htmlFor="project-memory-type">{t("project.autoMemory.type")}</Label>
             <Select
               value={draft.memoryType}
               onValueChange={(memoryType: ProjectMemoryType) =>
                 setDraft((value) => ({ ...value, memoryType }))
               }
             >
-              <SelectTrigger className="w-52">
+              <SelectTrigger id="project-memory-type" className="w-52">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>

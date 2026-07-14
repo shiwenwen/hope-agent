@@ -8,6 +8,7 @@ import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import type {
   MemoryLearningMode,
+  MemoryRecallMode,
   MemoryRuntimeConfig,
   PendingMemoryCandidatePage,
 } from "./types"
@@ -25,7 +26,7 @@ export default function MemoryEssentials({ onManage }: MemoryEssentialsProps) {
     candidateCount: number
     selectedCount: number
     latencyMs?: number
-    mode: string
+    mode: MemoryRecallMode | "skip"
   } | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -74,7 +75,7 @@ export default function MemoryEssentials({ onManage }: MemoryEssentialsProps) {
         candidateCount: event.candidateCount ?? 0,
         selectedCount: event.selectedCount ?? 0,
         latencyMs: event.latencyMs,
-        mode: event.mode ?? "fast",
+        mode: event.mode === "deep" || event.mode === "skip" ? event.mode : "fast",
       })
     })
     return () => {
@@ -135,6 +136,7 @@ export default function MemoryEssentials({ onManage }: MemoryEssentialsProps) {
           <Switch
             checked={config.enabled}
             disabled={saving}
+            aria-label={t("settings.memoryV2.title")}
             onCheckedChange={(enabled) => update((draft) => { draft.enabled = enabled })}
           />
         </div>
@@ -155,6 +157,7 @@ export default function MemoryEssentials({ onManage }: MemoryEssentialsProps) {
             <Switch
               checked={config.enabled && config.core.enabled}
               disabled={!config.enabled || saving}
+              aria-label={t("settings.memoryV2.core.title")}
               onCheckedChange={(enabled) => update((draft) => { draft.core.enabled = enabled })}
             />
           </div>
@@ -182,6 +185,7 @@ export default function MemoryEssentials({ onManage }: MemoryEssentialsProps) {
               <Switch
                 checked={config.enabled && config.recall.enabled}
                 disabled={!config.enabled || saving}
+                aria-label={t("settings.memoryV2.recall.fast")}
                 onCheckedChange={(enabled) => update((draft) => { draft.recall.enabled = enabled })}
               />
             </div>
@@ -190,6 +194,7 @@ export default function MemoryEssentials({ onManage }: MemoryEssentialsProps) {
               <Switch
                 checked={config.enabled && config.deepRecall.enabled}
                 disabled={!config.enabled || !config.recall.enabled || saving}
+                aria-label={t("settings.memoryV2.recall.deep")}
                 onCheckedChange={(enabled) => update((draft) => { draft.deepRecall.enabled = enabled })}
               />
             </div>
@@ -202,7 +207,7 @@ export default function MemoryEssentials({ onManage }: MemoryEssentialsProps) {
                     selected: lastRecall.selectedCount,
                     candidates: lastRecall.candidateCount,
                     latency: lastRecall.latencyMs ?? 0,
-                    mode: lastRecall.mode,
+                    mode: t(`settings.memoryV2.recall.${lastRecall.mode}`),
                   })
                 : t("settings.memoryV2.recall.noRecent")}
             </p>

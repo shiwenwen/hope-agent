@@ -27,6 +27,7 @@ function NumberField({ label, value, min, max, disabled, onCommit }: NumberField
         max={max}
         disabled={disabled}
         value={value}
+        aria-label={label}
         onValueCommit={onCommit}
       />
     </div>

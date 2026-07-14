@@ -24,7 +24,7 @@
     "memory:smoke": "bash scripts/memory-smoke-test.sh",
     "memory:benchmark": "bash scripts/memory-scale-benchmark.sh",
     "format": "prettier --write 'src/**/*.{ts,tsx,js,jsx,json,css}'",
-    "i18n:check": "node scripts/sync-i18n.mjs --check",
+    "i18n:check": "node scripts/sync-i18n.mjs --check && node scripts/audit-i18n-quality.mjs --locales ar,es,ja,ko,ms,pt,ru,tr,vi,zh,zh-TW --source src/components/settings/memory-panel --fail-on-same && node scripts/audit-i18n-quality.mjs --locales ar,es,ja,ko,ms,pt,ru,tr,vi,zh,zh-TW --source src/components/chat/project --fail-on-same",
     "i18n:apply": "node scripts/sync-i18n.mjs --apply",
     "i18n:audit": "node scripts/audit-i18n-quality.mjs",
     "format:check": "prettier --check 'src/**/*.{ts,tsx,js,jsx,json,css}'",

@@ -967,6 +967,7 @@
       "quickEditSaved": "Memory updated.",
       "quickEditSaveFailed": "Couldn't save this memory.",
       "promoteToCore": "Always remember this",
+      "promoteToCoreFailed": "Couldn't add this to Core Memory.",
       "promotedToCore": "Always remembered",
       "promotedToCoreToast": "Added to always-remember Core Memory.",
       "kind": {
@@ -997,6 +998,7 @@
       },
       "layerReason": {
         "agentConfigError": "agent memory config unavailable",
+        "budgetEmpty": "recall budget is empty",
         "disabled": "configuration off",
         "emptyQuery": "empty query",
         "incognito": "incognito session",
@@ -1007,9 +1009,15 @@
         "noGraphNeighbors": "no related entity relationships",
         "noHits": "no hits",
         "noSession": "no session context",
+        "nonContextualTurn": "non-contextual turn",
+        "recallOff": "fast recall is off",
+        "retrievalBusy": "retrieval is busy",
         "retrievalError": "retrieval failed",
+        "sessionPolicy": "disabled by memory or chat policy",
         "sideQueryError": "recall failed",
-        "timeout": "timed out"
+        "timeout": "timed out",
+        "unifiedRecall": "handled by fast recall",
+        "unknown": "other reason"
       },
       "layerStatus": {
         "candidate": "candidate",
@@ -2942,6 +2950,7 @@
       "name": "Title",
       "newTopic": "New topic",
       "rebuildIndex": "Rebuild the MEMORY.md index",
+      "rebuildFailed": "Couldn't rebuild the MEMORY.md index.",
       "summary": "Index summary",
       "summaryHint": "This sentence enters the stable prompt for every project chat, so keep it concise.",
       "type": "Type",
@@ -5053,7 +5062,7 @@
       "conflictResolveFailed": "Failed to resolve the Core Memory conflict. Reload and try again.",
       "conflictResolved": "Core Memory conflict resolved",
       "actualTokens": "{{used}} / {{total}} tokens in this scope",
-      "stats": "{{entries}} index entries · {{topics}} topics",
+      "stats": "Index entries: {{entries}} · Topics: {{topics}}",
       "updatedAt": "Updated {{value}}",
       "neverUpdated": "Not written yet",
         "scope": "Memory scope",
@@ -5074,6 +5083,7 @@
         "desc": "Select only the long-term memories that matter to the current request. Fast recall makes no extra model call.",
         "fast": "Fast recall (recommended)",
         "deep": "Deep recall",
+        "skip": "Skipped",
         "deepCost": "Deep recall adds a model call, making replies slower and using more tokens. Enable it only when stronger personalization is worth the cost.",
         "last": "Last recall: {{selected}}/{{candidates}} selected · {{latency}} ms · {{mode}}",
         "noRecent": "No recall has run since the app opened."
@@ -5090,7 +5100,7 @@
       },
       "review": {
         "title": "Pending memory review",
-        "desc": "{{count}} candidates are not yet in long-term memory or the prompt.",
+        "desc": "Pending review: {{count}}. Items here are not yet in long-term memory or the prompt.",
         "empty": "Nothing is waiting for review",
         "chooseScope": "Choose where to save",
         "approve": "Save memory",
@@ -7048,6 +7058,13 @@
       "modelDefault": "Follow automation default"
     },
     "tabOverview": "Overview",
+    "memoryBackupExportSummary": "Memories: {{memories}} · Claims: {{claims}} · Profiles: {{profiles}} · Episodes: {{episodes}} · Workflows: {{procedures}}",
+    "memoryBackupOpenReviewInboxAfterRestore": "Restored items to review: {{count}}",
+    "memoryExperienceSearchActive": "Matches for “{{query}}”: {{total}}",
+    "memoryExperienceViewActive": "Experience items: {{total}}",
+    "memoryExternalProvidersActive": "Active providers: {{active}}/{{total}}",
+    "memoryExternalProvidersActiveSummary": "Active: {{active}} · Configured: {{total}}",
+    "memoryProcedureSourceEpisode": "Episode: {{id}}",
     "memoryExternalProviders": "External providers",
     "memoryExternalProvidersDesc": "Optional additive memory providers. Local memory remains the source of truth; connections are disabled until you explicitly configure and enable them.",
     "memoryExternalProvidersGlobal": "Enable provider sync",

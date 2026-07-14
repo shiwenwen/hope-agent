@@ -664,7 +664,7 @@ export default function ChatTitleBar({
                       <RefreshCw
                         className={cn("h-3 w-3", coreMemoryReloading && "animate-spin")}
                       />
-                      {t("chat.memoryPolicy.reloadCore", "Reload MEMORY.md for this session")}
+                      {t("chat.memoryPolicy.reloadCore")}
                     </button>
                   </div>
                   <div className="border-t border-border" />

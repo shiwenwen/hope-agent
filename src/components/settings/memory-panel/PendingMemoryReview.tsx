@@ -72,11 +72,17 @@ export default function PendingMemoryReview({ agents }: { agents: AgentInfo[] })
 
   const availableScopes = useMemo(
     () => [
-      { key: "global", label: "Global" },
-      ...agents.map((agent) => ({ key: `agent:${agent.id}`, label: `Agent · ${agent.name}` })),
-      ...projects.map((project) => ({ key: `project:${project.id}`, label: `Project · ${project.name}` })),
+      { key: "global", label: t("settings.memoryScopeGlobal") },
+      ...agents.map((agent) => ({
+        key: `agent:${agent.id}`,
+        label: `${t("settings.memoryScopeAgent")} · ${agent.name}`,
+      })),
+      ...projects.map((project) => ({
+        key: `project:${project.id}`,
+        label: `${t("settings.memoryScopeProject")} · ${project.name}`,
+      })),
     ],
-    [agents, projects],
+    [agents, projects, t],
   )
 
   const approve = async (item: PendingMemoryCandidate) => {
@@ -136,7 +142,8 @@ export default function PendingMemoryReview({ agents }: { agents: AgentInfo[] })
                   <div className="min-w-0">
                     <p className="text-sm leading-5">{item.content}</p>
                     <p className="mt-1 text-[11px] text-muted-foreground">
-                      {t(`settings.memoryV2.review.reason.${item.reason}`)} · {item.candidateKind}
+                      {t(`settings.memoryV2.review.reason.${item.reason}`)} ·{" "}
+                      {t(`chat.memoryTrace.kind.${item.candidateKind}`)}
                     </p>
                   </div>
                   <select
@@ -144,6 +151,7 @@ export default function PendingMemoryReview({ agents }: { agents: AgentInfo[] })
                     disabled={busy}
                     onChange={(event) => setScopes((current) => ({ ...current, [item.id]: event.target.value }))}
                     className="h-8 min-w-52 rounded-md border border-input bg-background px-2 text-xs"
+                    aria-label={t("settings.memoryV2.review.chooseScope")}
                   >
                     <option value="">{t("settings.memoryV2.review.chooseScope")}</option>
                     {availableScopes.map((scope) => (

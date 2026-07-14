@@ -632,12 +632,111 @@ fn is_non_contextual_turn(normalized: &str) -> bool {
             | "好"
             | "可以"
             | "继续"
+            | "繼續"
             | "谢谢"
+            | "謝謝"
             | "感谢"
+            | "感謝"
             | "thanks"
             | "thank you"
             | "再见"
+            | "再見"
             | "bye"
+            | "こんにちは"
+            | "やあ"
+            | "おはよう"
+            | "こんばんは"
+            | "はい"
+            | "了解"
+            | "続けて"
+            | "ありがとう"
+            | "ありがとうございます"
+            | "さようなら"
+            | "またね"
+            | "안녕"
+            | "안녕하세요"
+            | "좋은 아침"
+            | "좋은 저녁"
+            | "네"
+            | "알겠습니다"
+            | "계속"
+            | "고마워"
+            | "감사합니다"
+            | "안녕히 가세요"
+            | "hola"
+            | "buenos días"
+            | "buenas tardes"
+            | "buenas noches"
+            | "sí"
+            | "vale"
+            | "de acuerdo"
+            | "continúa"
+            | "gracias"
+            | "adiós"
+            | "hasta luego"
+            | "hai"
+            | "helo"
+            | "selamat pagi"
+            | "selamat petang"
+            | "selamat malam"
+            | "ya"
+            | "baik"
+            | "teruskan"
+            | "terima kasih"
+            | "selamat tinggal"
+            | "olá"
+            | "oi"
+            | "bom dia"
+            | "boa tarde"
+            | "boa noite"
+            | "sim"
+            | "está bem"
+            | "continue"
+            | "obrigado"
+            | "obrigada"
+            | "tchau"
+            | "adeus"
+            | "привет"
+            | "здравствуйте"
+            | "доброе утро"
+            | "добрый день"
+            | "добрый вечер"
+            | "да"
+            | "хорошо"
+            | "продолжай"
+            | "спасибо"
+            | "до свидания"
+            | "пока"
+            | "merhaba"
+            | "selam"
+            | "günaydın"
+            | "iyi günler"
+            | "iyi akşamlar"
+            | "evet"
+            | "tamam"
+            | "devam et"
+            | "teşekkürler"
+            | "teşekkür ederim"
+            | "hoşça kal"
+            | "xin chào"
+            | "chào"
+            | "chào buổi sáng"
+            | "chào buổi chiều"
+            | "chào buổi tối"
+            | "vâng"
+            | "được"
+            | "tiếp tục"
+            | "cảm ơn"
+            | "tạm biệt"
+            | "مرحبا"
+            | "أهلاً"
+            | "صباح الخير"
+            | "مساء الخير"
+            | "نعم"
+            | "حسنا"
+            | "تابع"
+            | "شكرا"
+            | "وداعا"
     )
 }
 
@@ -707,6 +806,24 @@ mod tests {
             recall_gate("谢谢！", false, true, true),
             RecallGate::Skip(RecallSkipReason::NonContextualTurn)
         );
+        for query in [
+            "謝謝！",
+            "ありがとう",
+            "감사합니다",
+            "gracias",
+            "terima kasih",
+            "obrigado",
+            "спасибо",
+            "teşekkürler",
+            "cảm ơn",
+            "شكرا",
+        ] {
+            assert_eq!(
+                recall_gate(query, false, true, true),
+                RecallGate::Skip(RecallSkipReason::NonContextualTurn),
+                "query={query}"
+            );
+        }
     }
 
     #[test]

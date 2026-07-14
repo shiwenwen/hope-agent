@@ -318,7 +318,6 @@ pub(crate) struct SystemPromptBuild {
 
 fn core_memory_ref(
     scope: &crate::memory::core_repository::CoreMemoryScope,
-    rendered_content: &str,
     canonical_repository: bool,
 ) -> super::active_memory::UsedMemoryRef {
     let scope_label = scope.key();
@@ -339,7 +338,9 @@ fn core_memory_ref(
         scope: scope_label,
         origin: "core_memory".to_string(),
         role: "injected".to_string(),
-        preview: format!("Core MEMORY.md ({} rendered bytes)", rendered_content.len()),
+        // Keep the wire preview language-neutral. The UI localizes the origin
+        // and source labels; exact byte/token counts live in the manifest.
+        preview: "MEMORY.md".to_string(),
         path,
         line: None,
         col: None,
@@ -706,17 +707,15 @@ pub(crate) fn build_system_prompt_bundle_with_session_db(
                 rendered_agent_core.as_deref(),
             ),
         ] {
-            if let Some(content) = content {
-                static_memory_refs.push(core_memory_ref(&scope, content, core_repository_enabled));
+            if content.is_some() {
+                static_memory_refs.push(core_memory_ref(&scope, core_repository_enabled));
             }
         }
-        if let (Some(project), Some(content)) = (project.as_ref(), rendered_project_core.as_deref())
-        {
+        if let (Some(project), Some(_)) = (project.as_ref(), rendered_project_core.as_deref()) {
             static_memory_refs.push(core_memory_ref(
                 &crate::memory::core_repository::CoreMemoryScope::Project {
                     id: project.id.clone(),
                 },
-                content,
                 true,
             ));
         }
@@ -741,7 +740,7 @@ pub(crate) fn build_system_prompt_bundle_with_session_db(
                         scope: format!("project:{}", project.id),
                         origin: "project_auto_memory".to_string(),
                         role: "injected".to_string(),
-                        preview: format!("{} project memory topic(s) indexed", topic_count),
+                        preview: "MEMORY.md".to_string(),
                         path: crate::project::memory::memory_dir(&project.id)
                             .ok()
                             .map(|dir| {

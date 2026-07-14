@@ -81,7 +81,16 @@ describe("memoryTraceFormat", () => {
     expect(retrievalLayerReasonLabel("no_graph_neighbors", t)).toBe(
       "no related entity relationships",
     )
-    expect(retrievalLayerReasonLabel("unknown_reason", t)).toBe("unknown_reason")
+    expect(retrievalLayerReasonLabel("agent_memory_off", t)).toBe("long-term memory is off")
+    expect(retrievalLayerReasonLabel("recall_off", t)).toBe("fast recall is off")
+    expect(retrievalLayerReasonLabel("retrieval_busy", t)).toBe("retrieval is busy")
+    expect(retrievalLayerReasonLabel("session_policy", t)).toBe(
+      "disabled by memory or chat policy",
+    )
+    expect(retrievalLayerReasonLabel("unified_dynamic_recall", t)).toBe(
+      "handled by fast recall",
+    )
+    expect(retrievalLayerReasonLabel("unknown_reason", t)).toBe("other reason")
   })
 
   it("labels memory kinds, origins, and trace layers with English fallbacks", () => {
@@ -90,6 +99,7 @@ describe("memoryTraceFormat", () => {
     expect(memoryOriginLabel("experience", t)).toBe("Experience memory")
     expect(memoryOriginLabel("graph", t)).toBe("Entity relationships")
     expect(memoryOriginLabel("project_auto_memory", t)).toBe("Auto Memory")
+    expect(memoryOriginLabel("core_memory", t)).toBe("Always remembered")
     expect(memoryRoleLabel("selected", t)).toBe("Selected")
     expect(memoryRoleLabel("candidate", t)).toBe("Candidate")
     expect(memoryRoleLabel("considered", t)).toBe("Candidate")
@@ -123,6 +133,9 @@ describe("memoryTraceFormat", () => {
     expect(
       memorySourceLabel({ sourceType: "project_auto_memory_index", scope: "project:p1" }, t),
     ).toBe("Auto Memory · Project: p1")
+    expect(memorySourceLabel({ sourceType: "core_memory_index", scope: "agent:planner" }, t)).toBe(
+      "MEMORY.md · Agent: planner",
+    )
     expect(memorySourceLabel({ sourceType: undefined, scope: "global" }, t)).toBe("Global")
     expect(memorySourceLabel({ sourceType: undefined, scope: "  " }, t)).toBe("")
   })

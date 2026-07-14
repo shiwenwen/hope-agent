@@ -5,6 +5,7 @@ import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
+import { IconTip } from "@/components/ui/tooltip"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import type { AgentInfo } from "@/types/chat"
@@ -61,7 +62,7 @@ const EMPTY_DRAFT: TopicDraft = {
 }
 
 export default function CoreMemoryManager({ agents }: { agents: AgentInfo[] }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const [scopeType, setScopeType] = useState<ScopeType>("global")
   const [scopeId, setScopeId] = useState("")
   const [projects, setProjects] = useState<ProjectMeta[]>([])
@@ -254,14 +255,16 @@ export default function CoreMemoryManager({ agents }: { agents: AgentInfo[] }) {
             }}
             className="mt-1 block h-8 rounded-md border border-input bg-background px-2 text-xs text-foreground"
           >
-            <option value="global">Global</option>
-            <option value="agent">Agent</option>
-            <option value="project">Project</option>
+            <option value="global">{t("settings.memoryScopeGlobal")}</option>
+            <option value="agent">{t("settings.memoryScopeAgent")}</option>
+            <option value="project">{t("settings.memoryScopeProject")}</option>
           </select>
         </label>
         {scopeType !== "global" && (
           <label className="min-w-56 flex-1 text-xs text-muted-foreground">
-            {scopeType === "agent" ? "Agent" : t("settings.memoryV2.core.projectLabel")}
+            {scopeType === "agent"
+              ? t("settings.memoryScopeAgent")
+              : t("settings.memoryV2.core.projectLabel")}
             <select
               value={scopeId}
               disabled={saving}
@@ -281,7 +284,13 @@ export default function CoreMemoryManager({ agents }: { agents: AgentInfo[] }) {
           <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-muted-foreground">
             <span>{t("settings.memoryV2.core.actualTokens", { used: stats.estimatedTokens, total: scopeBudget })}</span>
             <span>{t("settings.memoryV2.core.stats", { entries: stats.indexEntryCount, topics: stats.topicCount })}</span>
-            <span>{stats.updatedAt ? t("settings.memoryV2.core.updatedAt", { value: new Date(stats.updatedAt).toLocaleString() }) : t("settings.memoryV2.core.neverUpdated")}</span>
+            <span>
+              {stats.updatedAt
+                ? t("settings.memoryV2.core.updatedAt", {
+                    value: new Date(stats.updatedAt).toLocaleString(i18n.resolvedLanguage),
+                  })
+                : t("settings.memoryV2.core.neverUpdated")}
+            </span>
           </div>
           <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-secondary">
             <div
@@ -306,12 +315,32 @@ export default function CoreMemoryManager({ agents }: { agents: AgentInfo[] }) {
           <div className="flex items-center justify-between border-b border-border/60 px-3 py-2">
             <span className="text-xs font-medium">{t("settings.memoryV2.core.topics")}</span>
             <div className="flex items-center gap-1">
-              <Button type="button" size="icon" variant="ghost" className="h-7 w-7" onClick={() => void loadTopics()} disabled={topicsLoading || !scopeReady}>
-                {topicsLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
-              </Button>
-              <Button type="button" size="icon" variant="ghost" className="h-7 w-7" onClick={() => setDraft({ ...EMPTY_DRAFT })} disabled={!scopeReady}>
-                <FilePlus2 className="h-3.5 w-3.5" />
-              </Button>
+              <IconTip label={t("common.refresh")}>
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="ghost"
+                  className="h-7 w-7"
+                  onClick={() => void loadTopics()}
+                  disabled={topicsLoading || !scopeReady}
+                  aria-label={t("common.refresh")}
+                >
+                  {topicsLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+                </Button>
+              </IconTip>
+              <IconTip label={t("project.autoMemory.newTopic")}>
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="ghost"
+                  className="h-7 w-7"
+                  onClick={() => setDraft({ ...EMPTY_DRAFT })}
+                  disabled={!scopeReady}
+                  aria-label={t("project.autoMemory.newTopic")}
+                >
+                  <FilePlus2 className="h-3.5 w-3.5" />
+                </Button>
+              </IconTip>
             </div>
           </div>
           <div className="max-h-72 overflow-y-auto p-1.5">
