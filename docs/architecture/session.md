@@ -332,6 +332,7 @@ CREATE TABLE acp_runs (
 | `get_session(session_id)` | 获取单个会话元信息（含 Channel LEFT JOIN） |
 | `list_sessions(agent_id)` | 列出所有会话（按 updated_at DESC） |
 | `list_sessions_paged(agent_id, project_filter, limit, offset, active_session_id)` | 分页列表，返回 `(Vec<SessionMeta>, total_count)`。**5 参签名**：见下方 `ProjectFilter` 与 incognito 例外 |
+| `list_sessions_paged_for_sidebar(agent_id, project_filter, parent_filter, limit, offset, active_session_id)` | 侧边栏分页列表；在 SQL `LIMIT/OFFSET` 前同时应用项目归属、顶层/子会话与 Agent 过滤，避免项目会话或另一类会话占满页面后再被前端丢弃 |
 | `delete_session(session_id)` | 删除会话：① CASCADE 删消息 → ② 清理 `plans/{id}.md` 与 `attachments/{id}/` → ③ `cleanup_session_orphan_tables` 单独事务清四张无 FK 表（见下） |
 | `purge_session_if_incognito(session_id)` | 仅当会话是无痕态时硬删；前端切走当前无痕会话时调用，实现"关闭即焚" |
 | `purge_orphan_incognito_sessions()` | 启动期兜底清理：遍历 `incognito = 1` 且 `updated_at < (now - 60s)` 的会话调用 `delete_session`；防御 crash / SIGKILL / 物理断电后残留 |
@@ -343,6 +344,8 @@ CREATE TABLE acp_runs (
 | `All` | 不按项目过滤 |
 | `Unassigned` | 仅 `project_id IS NULL`（不属于任何项目） |
 | `InProject(&str)` | 仅属于指定项目的会话 |
+
+**`ParentSessionFilter` 枚举**：`All` 不过滤，`Root` 仅 `parent_session_id IS NULL`，`Child` 仅 `parent_session_id IS NOT NULL`。主侧边栏的「对话 / Subagent」分别使用 `Root / Child`，并与 `ProjectFilter::Unassigned` 组合后再分页。
 
 **`active_session_id` 例外参数**：默认情况下 `incognito = 0` 强制过滤无痕会话出列表（"无痕"语义）。但用户当前正在打开的那个无痕会话仍需出现在 sidebar，该参数提供例外：`Some(sid)` 时 WHERE 子句变为 `(s.incognito = 0 OR s.id = ?)`。`None` 时严格过滤。
 
@@ -431,7 +434,7 @@ pub fn search_messages(
 - **incognito 过滤的双路径语义**：
   - `session_id = None`（**全局 FTS** 路径，sidebar 搜索框）：强制 `s.incognito = 0`，无痕会话内容**不会**被全局搜索到
   - `session_id = Some(sid)`（**会话内 Cmd+F** 路径）：**不应用** incognito 过滤；用户既然已经在该无痕会话里，允许搜本会话内容
-- `SessionTypeFilter` 枚举：`Regular` / `Cron` / `Subagent` / `Channel`，用于 sidebar 类型 chips 筛选
+- `SessionTypeFilter` 枚举：`Regular` / `Cron` / `Subagent` / `Channel`。侧边栏浏览态只保留「对话 / Subagent」Tab，两类列表各自以 `unassigned + parent_session + agent_id` 独立分页；输入搜索词后隐藏浏览 Tab，并固定以 `Regular + Subagent + Channel` 做全局检索，因此项目会话、IM 渠道和 Subagent 都可被发现，Cron 仍由独立面板承载
 - snippet 用 STX/ETX（U+0002/U+0003）作为 mark 边界——不可能在用户文本里出现，前端按字符 split 后白名单包回 `<mark>...</mark>`，避免 HTML escape/unescape 攻击面（用户写 `<mark onclick=...>` 不会被反解出来）
 - 返回 `SessionSearchResult`：包含 `message_id` / `session_id` / `session_title` / `agent_id` / `message_role` / `content_snippet` / `timestamp` / `relevance_rank` / `is_cron` / `parent_session_id` / `channel_type` / `channel_chat_type`
 

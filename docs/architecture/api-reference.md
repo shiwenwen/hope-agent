@@ -412,7 +412,7 @@ KB 文件预览端点是**纯 owner 平面，无 session 参数、无 owner fall
 
 | Tauri Command | HTTP | 状态 |
 |---|---|---|
-| `list_sessions_cmd` | `GET /api/sessions` | ✅ |
+| `list_sessions_cmd` | `GET /api/sessions?agentId=&projectId=&unassigned=&parentSession=&limit=&offset=&activeSessionId=` | ✅（`parentSession=true/false` 分别只取子会话/顶层会话，过滤发生在分页前） |
 | `create_session_cmd` | `POST /api/sessions` | ✅ |
 | `get_session_cmd` | `GET /api/sessions/{id}` | ✅ |
 | `set_session_incognito` | `PATCH /api/sessions/{sessionId}/incognito` | ✅ |

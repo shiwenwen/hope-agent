@@ -3556,9 +3556,6 @@ export default function ChatScreen({
         onReorderAgents={session.handleReorderAgents}
         onMarkAllRead={refreshUnreadState}
         onRenameSession={handleRenameSession}
-        hasMoreSessions={session.hasMoreSessions}
-        loadingMoreSessions={session.loadingMoreSessions}
-        onLoadMoreSessions={session.handleLoadMoreSessions}
         onOpenProjectSettings={openProjectOverview}
         onAddProject={openCreateProject}
         onNewChatInProject={(projectId) => {

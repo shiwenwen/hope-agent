@@ -51,9 +51,7 @@ export interface UseChatSessionReturn {
   loadingMore: boolean
   hasMoreAfter: boolean
   loadingMoreAfter: boolean
-  hasMoreSessions: boolean
   sessionsLoading: boolean
-  loadingMoreSessions: boolean
   /**
    * Search-jump intent for MessageList: which message to scroll to + which
    * literal substrings to inline-highlight inside it. `null` between jumps.
@@ -99,7 +97,6 @@ export interface UseChatSessionReturn {
   handleLoadMoreAfter: () => Promise<void>
   /** Drop the partial around-window and reload the latest page. */
   resetToLatest: () => Promise<void>
-  handleLoadMoreSessions: () => Promise<void>
   updateSessionMessages: (sessionId: string, updater: (prev: Message[]) => Message[]) => void
   updateSessionMeta: (sessionId: string, updater: (prev: SessionMeta) => SessionMeta) => void
 }
@@ -199,14 +196,10 @@ export function useChatSession({
     hasMoreAfter,
     setHasMoreAfter,
     loadingMoreAfter,
-    hasMoreSessions,
-    // setHasMoreSessions not needed at this level
     sessionsLoading,
-    loadingMoreSessions,
     handleLoadMore,
     handleLoadMoreAfter,
     resetToLatest,
-    handleLoadMoreSessions,
     reloadSessions,
   } = useSessionPagination({
     currentSessionIdRef,
@@ -1013,9 +1006,7 @@ export function useChatSession({
     loadingMore,
     hasMoreAfter,
     loadingMoreAfter,
-    hasMoreSessions,
     sessionsLoading,
-    loadingMoreSessions,
     pendingScrollIntent,
     clearPendingScrollIntent,
     jumpToMessage,
@@ -1035,7 +1026,6 @@ export function useChatSession({
     handleLoadMore,
     handleLoadMoreAfter,
     resetToLatest,
-    handleLoadMoreSessions,
     updateSessionMessages,
     updateSessionMeta,
   }

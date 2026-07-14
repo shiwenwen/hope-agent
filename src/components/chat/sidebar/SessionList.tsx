@@ -11,33 +11,17 @@ import {
   ContextMenuItem,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu"
-import {
-  MessageSquare,
-  Loader2,
-  Search,
-} from "lucide-react"
-import type {
-  SessionMeta,
-  AgentSummaryForSidebar,
-  SessionSearchResult,
-} from "@/types/chat"
+import { MessageSquare, Loader2, Search } from "lucide-react"
+import type { SessionMeta, AgentSummaryForSidebar, SessionSearchResult } from "@/types/chat"
 import type { ProjectMeta } from "@/types/project"
 import type { SessionFilterType, SidebarDisplayMode } from "./types"
 import SessionItem from "./SessionItem"
 import SearchResultItem from "./SearchResultItem"
-
-// Classify a search result into one of the sidebar filter types. Channel
-// results fold into `session` — IM-driven conversations are still user
-// conversations, just sourced from a different surface.
-function classifyResult(r: SessionSearchResult): SessionFilterType {
-  // Cron results are filtered out before this runs (see nonCronResults); they
-  // live in the cron panel's history view, not the sidebar.
-  if (r.parentSessionId) return "subagent"
-  return "session"
-}
+import { filterGlobalSessionSearchResults } from "./sessionListModel"
 
 interface SessionListProps {
   sessions: SessionMeta[]
+  sessionsByFilter: Record<SessionFilterType, SessionMeta[]>
   filteredSessions: SessionMeta[]
   sessionFilter: SessionFilterType
   setSessionFilter: (filter: SessionFilterType) => void
@@ -80,6 +64,7 @@ interface SessionListProps {
 
 export default function SessionList({
   sessions,
+  sessionsByFilter,
   filteredSessions,
   sessionFilter,
   setSessionFilter,
@@ -116,129 +101,102 @@ export default function SessionList({
   const showInitialSessionLoading =
     !isSearching && sessionsLoading && sessions.length === 0 && filteredSessions.length === 0
 
-  // Cron sessions live in the cron panel's "conversations" timeline now, never
-  // the main sidebar — drop them from search results entirely. This is the base
-  // set for per-tab counts (independent of the active filter).
-  const nonCronResults = useMemo(
-    () => (searchResults ? searchResults.filter((r) => !r.isCron) : []),
+  // Search is deliberately global and independent of the browsing tab. This
+  // preserves discovery across regular, project, channel, and subagent chats
+  // after removing the redundant "All" browsing tab.
+  const visibleResults = useMemo(
+    () => filterGlobalSessionSearchResults(searchResults),
     [searchResults],
   )
 
-  // Client-side second-level filter by session type for the rendered list.
-  const visibleResults = useMemo(() => {
-    if (sessionFilter === "all") return nonCronResults
-    return nonCronResults.filter((r) => classifyResult(r) === sessionFilter)
-  }, [nonCronResults, sessionFilter])
-
-  const highlightTerms = useMemo(
-    () => parseHighlightTerms(searchQuery),
-    [searchQuery],
-  )
+  const highlightTerms = useMemo(() => parseHighlightTerms(searchQuery), [searchQuery])
   const projectsById = useMemo(() => new Map(projects.map((p) => [p.id, p])), [projects])
+  const sessionContext = useMemo(() => {
+    const byId = new Map(sessions.map((session) => [session.id, session]))
+    for (const session of [...sessionsByFilter.session, ...sessionsByFilter.subagent]) {
+      byId.set(session.id, session)
+    }
+    return [...byId.values()]
+  }, [sessions, sessionsByFilter])
 
   return (
     <>
-      {/* Session type filter tabs — sticky below the agent/project section
-          headers (each h-8 = 32px) when those are present, top-0 in search mode
-          where they're not rendered. */}
-      <div
-        className={cn(
-          "sticky z-20 flex items-center gap-0.5 px-3 py-1.5 border-b border-border/40 bg-surface-panel overflow-x-auto scrollbar-none",
-          isSearching ? "top-0" : "top-16",
-        )}
-      >
-        {(["all", "session", "subagent"] as const).map((filter) => {
-          const label = {
-            all: t("chat.filterAll"),
-            session: t("chat.filterSessions"),
-            subagent: t("chat.filterSubagent"),
-          }[filter]
-
-          // In search mode, show result counts per type instead of unread counts.
-          let count: number
-          if (isSearching && searchResults) {
-            if (filter === "all") {
-              count = nonCronResults.length
-            } else {
-              count = nonCronResults.filter((r) => classifyResult(r) === filter).length
-            }
-          } else {
-            const filterSessions = {
-              all: sessions,
-              // Channel-bound conversations land under the unified "session"
-              // tab — they're still user chats, just surfaced from IM.
-              session: sessions.filter((s) => !s.isCron && !s.parentSessionId),
-              subagent: sessions.filter((s) => !!s.parentSessionId),
+      {/* Browsing tabs are hidden during search because search always spans all
+          supported conversation types, regardless of the previously active tab. */}
+      {!isSearching && (
+        <div className="sticky top-16 z-20 flex items-center gap-0.5 px-3 py-1.5 border-b border-border/40 bg-surface-panel overflow-x-auto scrollbar-none">
+          {(["session", "subagent"] as const).map((filter) => {
+            const label = {
+              session: t("chat.filterSessions"),
+              subagent: t("chat.filterSubagent"),
             }[filter]
-            count = filterSessions.reduce(
-              (sum, s) => sum + desktopUnreadCount(s, currentSessionId),
+
+            const filterSessions = sessionsByFilter[filter]
+            const count = filterSessions.reduce(
+              (sum, session) => sum + desktopUnreadCount(session, currentSessionId),
               0,
             )
-          }
 
-          const isActive = sessionFilter === filter
-          const handleMarkAllRead = async () => {
-            if (isSearching) return
-            const filterSessions = {
-              all: sessions,
-              session: sessions.filter((s) => !s.isCron && !s.parentSessionId),
-              subagent: sessions.filter((s) => !!s.parentSessionId),
-            }[filter]
-            const unreadSessions = filterSessions.filter(
-              (s) => desktopUnreadCount(s, currentSessionId) > 0,
-            )
-            if (unreadSessions.length === 0) return
-            try {
-              await getTransport().call("mark_session_read_batch_cmd", {
-                sessionIds: unreadSessions.map((s) => s.id),
-              })
-              if (onMarkAllRead) onMarkAllRead()
-            } catch (err) {
-              logger.error("chat", "ChatSidebar::markSessionsRead", "Failed to mark sessions as read", err)
+            const isActive = sessionFilter === filter
+            const handleMarkAllRead = async () => {
+              const unreadSessions = filterSessions.filter(
+                (session) => desktopUnreadCount(session, currentSessionId) > 0,
+              )
+              if (unreadSessions.length === 0) return
+              try {
+                await getTransport().call("mark_session_read_batch_cmd", {
+                  sessionIds: unreadSessions.map((session) => session.id),
+                })
+                onMarkAllRead?.()
+              } catch (err) {
+                logger.error(
+                  "chat",
+                  "ChatSidebar::markSessionsRead",
+                  "Failed to mark sessions as read",
+                  err,
+                )
+              }
             }
-          }
 
-          return (
-            <ContextMenu key={filter}>
-              <ContextMenuTrigger asChild>
-                <button
-                  className={cn(
-                    "relative px-2 py-1 text-[11px] rounded-md whitespace-nowrap",
-                    isActive
-                      ? "text-foreground font-semibold"
-                      : "text-muted-foreground hover:text-foreground/70",
-                  )}
-                  onClick={() => setSessionFilter(filter)}
-                >
-                  {label}
-                  {count > 0 && (
-                    <span className="ml-0.5 text-[10px] text-muted-foreground/50">
-                      {count > 99 ? "99+" : count}
-                    </span>
-                  )}
-                  {isActive && (
-                    <span className="absolute bottom-0 left-1/2 -translate-x-1/2 w-3/5 h-[2px] rounded-full bg-primary" />
-                  )}
-                </button>
-              </ContextMenuTrigger>
-              <ContextMenuContent variant="floating">
-                <ContextMenuItem onClick={handleMarkAllRead} disabled={isSearching || count === 0}>
-                  {t("chat.markAllRead") || "全部已读"}
-                </ContextMenuItem>
-              </ContextMenuContent>
-            </ContextMenu>
-          )
-        })}
-      </div>
+            return (
+              <ContextMenu key={filter}>
+                <ContextMenuTrigger asChild>
+                  <button
+                    className={cn(
+                      "relative px-2 py-1 text-[11px] rounded-md whitespace-nowrap",
+                      isActive
+                        ? "text-foreground font-semibold"
+                        : "text-muted-foreground hover:text-foreground/70",
+                    )}
+                    onClick={() => setSessionFilter(filter)}
+                  >
+                    {label}
+                    {count > 0 && (
+                      <span className="ml-0.5 text-[10px] text-muted-foreground/50">
+                        {count > 99 ? "99+" : count}
+                      </span>
+                    )}
+                    {isActive && (
+                      <span className="absolute bottom-0 left-1/2 -translate-x-1/2 w-3/5 h-[2px] rounded-full bg-primary" />
+                    )}
+                  </button>
+                </ContextMenuTrigger>
+                <ContextMenuContent variant="floating">
+                  <ContextMenuItem onClick={handleMarkAllRead} disabled={count === 0}>
+                    {t("chat.markAllRead") || "全部已读"}
+                  </ContextMenuItem>
+                </ContextMenuContent>
+              </ContextMenu>
+            )
+          })}
+        </div>
+      )}
 
       {/* Search results or session list */}
       {isSearching ? (
         <div
-          key={`search-${sessionFilter}`}
-          className={cn(
-            "p-2",
-            displayMode === "compact" ? "space-y-1" : "space-y-0.5",
-          )}
+          key="search-global"
+          className={cn("p-2", displayMode === "compact" ? "space-y-1" : "space-y-0.5")}
         >
           {searching && visibleResults.length === 0 ? (
             <div className="flex justify-center py-6">
@@ -247,9 +205,7 @@ export default function SessionList({
           ) : visibleResults.length === 0 ? (
             <div className="text-center py-8">
               <Search className="h-8 w-8 text-muted-foreground/20 mx-auto mb-2" />
-              <p className="text-xs text-muted-foreground/60">
-                {t("chat.noSearchResults")}
-              </p>
+              <p className="text-xs text-muted-foreground/60">{t("chat.noSearchResults")}</p>
             </div>
           ) : (
             <>
@@ -292,10 +248,7 @@ export default function SessionList({
       ) : (
         <div
           key={`sessions-${sessionFilter}-${selectedAgentId ?? "all"}`}
-          className={cn(
-            "p-2",
-            displayMode === "compact" ? "space-y-1" : "space-y-0.5",
-          )}
+          className={cn("p-2", displayMode === "compact" ? "space-y-1" : "space-y-0.5")}
         >
           {showInitialSessionLoading ? (
             <div className="flex justify-center py-8">
@@ -319,7 +272,7 @@ export default function SessionList({
                 <SessionItem
                   key={session.id}
                   session={session}
-                  sessions={sessions}
+                  sessions={sessionContext}
                   agent={agent}
                   projects={projects}
                   isActive={isActive}

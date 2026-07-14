@@ -152,13 +152,14 @@ pub async fn list_project_sessions_cmd(
     active_session_id: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<(Vec<SessionMeta>, u32), CmdError> {
-    use ha_core::session::ProjectFilter;
+    use ha_core::session::{ParentSessionFilter, ProjectFilter};
     let (mut sessions, total) = state
         .session_db
         .run(move |db| {
             db.list_sessions_paged_for_sidebar(
                 None,
                 ProjectFilter::InProject(&id),
+                ParentSessionFilter::All,
                 limit,
                 offset,
                 active_session_id.as_deref(),
