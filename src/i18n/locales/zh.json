@@ -3012,6 +3012,7 @@
     "projectDescriptionPlaceholder": "这个项目是做什么的？",
     "projectInstructions": "项目指令",
     "projectInstructionsHint": "直接读写项目根目录下的 AGENTS.md；保存后会自动用于该项目的所有会话。",
+    "projectInstructionsLineCount": "{{count}} 行",
     "projectInstructionsEmptyPreview": "AGENTS.md 为空。切换到编辑模式即可添加 Markdown 指令。",
     "projectInstructionsLoadFailed": "无法读取 AGENTS.md",
     "projectInstructionsPlaceholder": "例如：始终用中文回复；语气清楚亲切；先给结论再补充细节",

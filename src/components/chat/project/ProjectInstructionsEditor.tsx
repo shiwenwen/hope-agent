@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react"
 import { useTranslation } from "react-i18next"
 import { Check, Eye, FileText, Loader2 } from "lucide-react"
 
 import MarkdownRenderer from "@/components/common/MarkdownRenderer"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
+import { formatBytes } from "@/lib/format"
 import { getTransport } from "@/lib/transport-provider"
 import { cn } from "@/lib/utils"
 
@@ -32,6 +33,14 @@ export default function ProjectInstructionsEditor({ projectId }: { projectId: st
   const [saveStatus, setSaveStatus] = useState<"idle" | "saved">("idle")
 
   const dirty = draft !== savedContent
+  const lineCount = useMemo(
+    () => (draft.length === 0 ? 0 : draft.split(/\r\n|\r|\n/).length),
+    [draft],
+  )
+  const sizeLabel = useMemo(
+    () => formatBytes(new TextEncoder().encode(draft).byteLength, { trimTrailingZeros: true }),
+    [draft],
+  )
 
   const load = useCallback(async () => {
     const seq = ++requestSeq.current
@@ -128,13 +137,25 @@ export default function ProjectInstructionsEditor({ projectId }: { projectId: st
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col gap-3">
       <div className="flex shrink-0 flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0 space-y-1">
+        <div className="min-w-0 flex-1 space-y-1">
           <p className="text-xs leading-5 text-muted-foreground">
             {t("project.projectInstructionsHint")}
           </p>
-          <p className="truncate font-mono text-[11px] text-muted-foreground/80" title={filePath}>
-            {filePath}
-          </p>
+          <div className="flex min-w-0 items-center gap-2 font-mono text-[11px] text-muted-foreground/80">
+            <span className="min-w-0 truncate" title={filePath}>
+              {filePath}
+            </span>
+            <span aria-hidden="true" className="shrink-0">
+              ·
+            </span>
+            <span className="shrink-0">
+              {t("project.projectInstructionsLineCount", { count: lineCount })}
+            </span>
+            <span aria-hidden="true" className="shrink-0">
+              ·
+            </span>
+            <span className="shrink-0">{sizeLabel}</span>
+          </div>
         </div>
         <div className="flex shrink-0 rounded-lg bg-muted p-1">
           <Button

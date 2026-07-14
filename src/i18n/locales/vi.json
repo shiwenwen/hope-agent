@@ -3012,6 +3012,7 @@
     "projectDescriptionPlaceholder": "Dự án này về việc gì?",
     "projectInstructions": "Chỉ dẫn dự án",
     "projectInstructionsHint": "Chỉnh sửa trực tiếp tệp AGENTS.md ở thư mục gốc của dự án. Sau khi lưu, tệp sẽ áp dụng cho mọi phiên trong dự án.",
+    "projectInstructionsLineCount": "{{count}} dòng",
     "projectInstructionsEmptyPreview": "AGENTS.md đang trống. Chuyển sang Chỉnh sửa để thêm chỉ dẫn Markdown.",
     "projectInstructionsLoadFailed": "Không thể đọc AGENTS.md",
     "projectInstructionsPlaceholder": "vd. Luôn trả lời bằng tiếng Việt; giữ giọng rõ ràng và thân thiện; bắt đầu bằng kết luận",

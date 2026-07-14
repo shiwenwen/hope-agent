@@ -381,7 +381,7 @@ canonicalize `dir` + canonicalize `projects_root`，`starts_with(canonical_root)
 |---|---|
 | **Overview** | 元数据 + 操作 |
 | **Files** | [`FileBrowserView`](../../src/components/chat/project/file-browser/)（可编辑文件浏览器：树 + 预览 + 上传 / 删除 / 重命名 / 新建目录） |
-| **Instructions** | [`ProjectInstructionsEditor`](../../src/components/chat/project/ProjectInstructionsEditor.tsx) 直接加载 / 保存根 `AGENTS.md`；支持 Markdown 源码编辑、渲染预览、`Cmd/Ctrl+S`、撤销未保存草稿、跨 Tab 保留草稿、并发修改保护、路径与失败反馈 |
+| **Instructions** | [`ProjectInstructionsEditor`](../../src/components/chat/project/ProjectInstructionsEditor.tsx) 直接加载 / 保存根 `AGENTS.md`；支持 Markdown 源码编辑、渲染预览、实时行数与 UTF-8 大小、`Cmd/Ctrl+S`、撤销未保存草稿、跨 Tab 保留草稿、并发修改保护、路径与失败反馈 |
 | **Auto Memory** | [`ProjectMemorySection`](../../src/components/chat/project/ProjectMemorySection.tsx)：主题列表、frontmatter 字段与 Markdown 正文编辑、删除、索引重建 |
 
 > 旧的「Sessions」Tab（会话已在侧边栏树可见）与「绑定 IM Channel」select（反向认领废弃）均已移除。

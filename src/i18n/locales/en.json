@@ -3012,6 +3012,7 @@
     "projectDescriptionPlaceholder": "What is this project about?",
     "projectInstructions": "Project Instructions",
     "projectInstructionsHint": "Edits the AGENTS.md file in the project root directly. Once saved, it applies to every session in this project.",
+    "projectInstructionsLineCount": "{{count}} lines",
     "projectInstructionsEmptyPreview": "AGENTS.md is empty. Switch to Edit to add Markdown instructions.",
     "projectInstructionsLoadFailed": "Could not read AGENTS.md",
     "projectInstructionsPlaceholder": "e.g. Always reply in English; keep the tone clear and friendly; start with the conclusion",

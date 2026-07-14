@@ -3012,6 +3012,7 @@
     "projectDescriptionPlaceholder": "ما الذي يدور حوله هذا المشروع؟",
     "projectInstructions": "تعليمات المشروع",
     "projectInstructionsHint": "يتم تعديل ملف AGENTS.md في جذر المشروع مباشرةً؛ وبعد الحفظ يُطبَّق تلقائيًا على جميع جلسات المشروع.",
+    "projectInstructionsLineCount": "{{count}} سطر",
     "projectInstructionsEmptyPreview": "ملف AGENTS.md فارغ. انتقل إلى وضع التحرير لإضافة تعليمات Markdown.",
     "projectInstructionsLoadFailed": "تعذرت قراءة AGENTS.md",
     "projectInstructionsPlaceholder": "مثال: الرد دائمًا بالعربية؛ اجعل النبرة واضحة ولطيفة؛ ابدأ بالخلاصة",

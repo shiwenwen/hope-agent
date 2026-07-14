@@ -170,7 +170,7 @@ export default function ProjectOverviewDialog({
           <TabsContent
             value="instructions"
             forceMount
-            className="min-h-0 flex-1 overflow-hidden px-5 py-3"
+            className="min-h-0 flex-1 overflow-hidden px-5 py-3 data-[state=inactive]:hidden"
           >
             <ProjectInstructionsEditor projectId={project.id} />
           </TabsContent>
