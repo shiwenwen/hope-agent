@@ -13,34 +13,28 @@ const TEXT_ENTRY_INPUT_TYPES = new Set([
 
 let uninstallCurrentTracker: (() => void) | null = null
 
-function isEditableTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof Element)) return false
+function editableTarget(target: EventTarget | null): Element | null {
+  if (!(target instanceof Element)) return null
   const editable = target.closest(
     'input, textarea, [contenteditable="true"], [contenteditable=""], [role="textbox"]',
   )
-  if (!editable) return false
-  return !(editable instanceof HTMLInputElement) || TEXT_ENTRY_INPUT_TYPES.has(editable.type)
-}
-
-function isTextEntryKeystroke(event: KeyboardEvent): boolean {
-  if (event.isComposing || event.key === "Process" || event.key === "Dead") return true
-  if (event.getModifierState("AltGraph")) return true
-  if (!event.metaKey && !event.ctrlKey && !event.altKey) return true
-  // macOS Option+character produces text rather than an application shortcut.
-  return event.altKey && !event.metaKey && !event.ctrlKey && event.key.length === 1
+  if (!editable) return null
+  if (editable instanceof HTMLInputElement && !TEXT_ENTRY_INPUT_TYPES.has(editable.type)) {
+    return null
+  }
+  return editable
 }
 
 /**
- * Text typed into a pointer-focused editor must not suddenly paint a focus
- * ring. Tab always means keyboard navigation; shortcuts and key interaction
- * on non-editable controls do too.
+ * Keyboard use inside a pointer-focused editor must not suddenly paint a focus
+ * ring: the caret already communicates focus, and editing shortcuts do not
+ * move it. Tab always means keyboard navigation; keyboard interaction on
+ * non-editable controls does too.
  */
 export function shouldEnterKeyboardModality(event: KeyboardEvent): boolean {
   if (MODIFIER_ONLY_KEYS.has(event.key)) return false
   if (event.key === "Tab") return true
-  if (isEditableTarget(event.target) && isTextEntryKeystroke(event)) {
-    return false
-  }
+  if (editableTarget(event.target)) return false
   return true
 }
 
