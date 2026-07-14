@@ -10,6 +10,34 @@ const transportMock = vi.hoisted(() => ({
   listen: vi.fn(() => () => {}),
 }))
 
+const translate = vi.hoisted(() => {
+  const messages: Record<string, string> = {
+    "common.delete": "删除",
+    "common.loading": "加载中",
+    "common.save": "保存",
+    "common.saving": "保存中",
+    "project.autoMemory.content": "详细内容",
+    "project.autoMemory.deleteConfirm": "确认删除？",
+    "project.autoMemory.description": "只注入索引",
+    "project.autoMemory.editorHint": "详情按需读取",
+    "project.autoMemory.editorTitle": "项目自动记忆",
+    "project.autoMemory.empty": "还没有主题",
+    "project.autoMemory.fileNameGenerated": "自动生成文件名",
+    "project.autoMemory.name": "标题",
+    "project.autoMemory.newTopic": "新建主题",
+    "project.autoMemory.rebuildIndex": "重建索引",
+    "project.autoMemory.summary": "索引摘要",
+    "project.autoMemory.summaryHint": "保持简短",
+    "project.autoMemory.type": "类型",
+    "project.autoMemory.types.project": "项目进展",
+    "project.autoMemory.types.feedback": "工作反馈",
+    "project.autoMemory.types.reference": "参考资料",
+    "project.autoMemory.types.user": "用户背景",
+    "settings.memoryV2.core.topicLoadFailed": "加载主题失败",
+  }
+  return (key: string) => messages[key] ?? key
+})
+
 vi.mock("@/lib/transport-provider", () => ({
   getTransport: () => transportMock,
 }))
@@ -17,30 +45,7 @@ vi.mock("@/lib/transport-provider", () => ({
 vi.mock("react-i18next", () => ({
   initReactI18next: { type: "3rdParty", init: () => {} },
   useTranslation: () => ({
-    t: (key: string) =>
-      ({
-        "common.delete": "删除",
-        "common.loading": "加载中",
-        "common.save": "保存",
-        "common.saving": "保存中",
-        "project.autoMemory.content": "详细内容",
-        "project.autoMemory.deleteConfirm": "确认删除？",
-        "project.autoMemory.description": "只注入索引",
-        "project.autoMemory.editorHint": "详情按需读取",
-        "project.autoMemory.editorTitle": "项目自动记忆",
-        "project.autoMemory.empty": "还没有主题",
-        "project.autoMemory.fileNameGenerated": "自动生成文件名",
-        "project.autoMemory.name": "标题",
-        "project.autoMemory.newTopic": "新建主题",
-        "project.autoMemory.rebuildIndex": "重建索引",
-        "project.autoMemory.summary": "索引摘要",
-        "project.autoMemory.summaryHint": "保持简短",
-        "project.autoMemory.type": "类型",
-        "project.autoMemory.types.project": "项目进展",
-        "project.autoMemory.types.feedback": "工作反馈",
-        "project.autoMemory.types.reference": "参考资料",
-        "project.autoMemory.types.user": "用户背景",
-      })[key] ?? key,
+    t: translate,
   }),
 }))
 

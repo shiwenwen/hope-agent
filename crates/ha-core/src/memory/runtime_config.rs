@@ -246,33 +246,50 @@ impl MemoryRuntimeConfig {
         selection: &super::MemorySelectionConfig,
         budget: &super::MemoryBudgetConfig,
     ) -> Self {
-        let mut migrated = Self::default();
-        migrated.enabled = extract.enabled;
-        migrated.learning.mode = if extract.review_first {
+        let learning_mode = if extract.review_first {
             MemoryLearningMode::ReviewFirst
         } else if !extract.auto_extract && !extract.flush_before_compact {
             MemoryLearningMode::Manual
         } else {
             MemoryLearningMode::Smart
         };
-        migrated.deep_recall.enabled = selection.enabled;
-        // Legacy LLM selection was explicitly opt-in. Treat it as the only
-        // durable consent signal for automatic dynamic recall when upgrading a
-        // config that predates Memory UX v2. Ordinary legacy installs keep
-        // Core Memory and model-invoked memory tools without per-turn recall.
-        migrated.recall.enabled = selection.enabled;
-        migrated.recall.user_configured = selection.enabled;
-        migrated.recall.max_selected = selection.max_selected;
 
         // Legacy prompt budgets are character based. Preserve their effective
         // size conservatively while respecting the new Core hard ceiling.
         let estimated_tokens = budget.total_chars.div_ceil(4) as u32;
+        let total_tokens =
+            estimated_tokens.clamp(CORE_MEMORY_MIN_TOKENS, CORE_MEMORY_RECOMMENDED_MAX_TOKENS);
+
+        // Legacy LLM selection was explicitly opt-in. Treat it as the only
+        // durable consent signal for automatic dynamic recall when upgrading a
+        // config that predates Memory UX v2. Ordinary legacy installs keep
+        // Core Memory and model-invoked memory tools without per-turn recall.
         // Preserve the old migration ceiling for predictability. Once the
         // user explicitly edits the V2 budget, `hardMaxTokens` no longer acts
         // as a second user-controlled limiter.
-        migrated.core.total_tokens =
-            estimated_tokens.clamp(CORE_MEMORY_MIN_TOKENS, CORE_MEMORY_RECOMMENDED_MAX_TOKENS);
-        migrated.normalized()
+        Self {
+            enabled: extract.enabled,
+            core: CoreMemoryRuntimeConfig {
+                total_tokens,
+                ..Default::default()
+            },
+            recall: MemoryRecallRuntimeConfig {
+                enabled: selection.enabled,
+                user_configured: selection.enabled,
+                max_selected: selection.max_selected,
+                ..Default::default()
+            },
+            deep_recall: DeepRecallRuntimeConfig {
+                enabled: selection.enabled,
+                ..Default::default()
+            },
+            learning: MemoryLearningRuntimeConfig {
+                mode: learning_mode,
+                ..Default::default()
+            },
+            ..Default::default()
+        }
+        .normalized()
     }
 
     /// Legacy static injection stays on until the V2 runtime itself is active,
@@ -499,20 +516,12 @@ impl Default for MemoryUxV2RolloutConfig {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "camelCase", default)]
 pub struct MemoryCompatibilityConfig {
     /// Preserve the old SQLite/Profile/Pinned static prompt injection while
     /// V2 is shadowed or when the user explicitly rolls back.
     pub legacy_static_memory: bool,
-}
-
-impl Default for MemoryCompatibilityConfig {
-    fn default() -> Self {
-        Self {
-            legacy_static_memory: false,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -665,7 +674,6 @@ mod tests {
     #[test]
     fn v2_and_legacy_master_switches_never_cross_control_each_other() {
         let mut config = MemoryRuntimeConfig::default();
-        config.enabled = true;
         assert!(config.effective_enabled(false));
         config.enabled = false;
         assert!(!config.effective_enabled(true));
@@ -677,11 +685,22 @@ mod tests {
 
     #[test]
     fn compatibility_mirror_keeps_simple_and_expert_controls_coherent() {
-        let mut config = MemoryRuntimeConfig::default();
-        config.enabled = false;
-        config.learning.mode = MemoryLearningMode::Manual;
-        config.deep_recall.enabled = true;
-        config.recall.max_selected = 3;
+        let mut config = MemoryRuntimeConfig {
+            enabled: false,
+            learning: MemoryLearningRuntimeConfig {
+                mode: MemoryLearningMode::Manual,
+                ..Default::default()
+            },
+            deep_recall: DeepRecallRuntimeConfig {
+                enabled: true,
+                ..Default::default()
+            },
+            recall: MemoryRecallRuntimeConfig {
+                max_selected: 3,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
         let mut extract = super::super::MemoryExtractConfig::default();
         let mut selection = super::super::MemorySelectionConfig::default();
         let previous = MemoryRuntimeConfig::default();
@@ -731,10 +750,12 @@ mod tests {
 
     #[test]
     fn legacy_explicit_recall_consent_is_preserved_without_reenabling_learning() {
-        let mut extract = super::super::MemoryExtractConfig::default();
-        extract.enabled = false;
-        extract.auto_extract = false;
-        extract.flush_before_compact = false;
+        let extract = super::super::MemoryExtractConfig {
+            enabled: false,
+            auto_extract: false,
+            flush_before_compact: false,
+            ..Default::default()
+        };
         let selection = super::super::MemorySelectionConfig {
             enabled: true,
             max_selected: 3,
@@ -904,8 +925,10 @@ mod tests {
 
     #[test]
     fn core_budget_is_capped_to_ten_percent_of_model_context() {
-        let mut config = CoreMemoryRuntimeConfig::default();
-        config.total_tokens = 8_000;
+        let config = CoreMemoryRuntimeConfig {
+            total_tokens: 8_000,
+            ..Default::default()
+        };
 
         let small = CoreMemoryBudgetStatus::resolve(&config, Some(16_000));
         assert_eq!(small.configured_tokens, 8_000);

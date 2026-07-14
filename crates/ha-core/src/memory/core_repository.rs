@@ -2168,8 +2168,7 @@ mod tests {
 
     #[test]
     fn canonical_index_enforces_the_documented_line_ceiling() {
-        let too_many_lines = std::iter::repeat("- one")
-            .take(CORE_INDEX_MAX_LINES + 1)
+        let too_many_lines = std::iter::repeat_n("- one", CORE_INDEX_MAX_LINES + 1)
             .collect::<Vec<_>>()
             .join("\n");
         assert!(validate_index_content(&too_many_lines).is_err());

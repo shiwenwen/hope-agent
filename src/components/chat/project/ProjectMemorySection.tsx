@@ -37,6 +37,11 @@ interface MemoryDraft {
   content: string
 }
 
+interface MemoryOperationError {
+  title: string
+  detail: string
+}
+
 const EMPTY_DRAFT: MemoryDraft = {
   name: "",
   description: "",
@@ -56,7 +61,7 @@ export function ProjectMemorySection({ projectId }: ProjectMemorySectionProps) {
   const [loading, setLoading] = useState(true)
   const [loadingFile, setLoadingFile] = useState(false)
   const [saving, setSaving] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<MemoryOperationError | null>(null)
 
   const loadEntries = useCallback(async () => {
     setLoading(true)
@@ -68,8 +73,9 @@ export function ProjectMemorySection({ projectId }: ProjectMemorySectionProps) {
       setEntries(result)
       setError(null)
     } catch (cause) {
-      logger.error("project", "ProjectMemorySection::loadEntries", diagnosticDetail(cause))
-      setError(t("settings.memoryV2.core.topicLoadFailed"))
+      const detail = diagnosticDetail(cause)
+      logger.error("project", "ProjectMemorySection::loadEntries", detail)
+      setError({ title: t("settings.memoryV2.core.topicLoadFailed"), detail })
     } finally {
       setLoading(false)
     }
@@ -97,8 +103,9 @@ export function ProjectMemorySection({ projectId }: ProjectMemorySectionProps) {
       setDraft(file)
       setError(null)
     } catch (cause) {
-      logger.error("project", "ProjectMemorySection::openEntry", diagnosticDetail(cause))
-      setError(t("settings.memoryV2.core.topicLoadFailed"))
+      const detail = diagnosticDetail(cause)
+      logger.error("project", "ProjectMemorySection::openEntry", detail)
+      setError({ title: t("settings.memoryV2.core.topicLoadFailed"), detail })
     } finally {
       setLoadingFile(false)
     }
@@ -124,8 +131,9 @@ export function ProjectMemorySection({ projectId }: ProjectMemorySectionProps) {
       await loadEntries()
       setError(null)
     } catch (cause) {
-      logger.error("project", "ProjectMemorySection::saveDraft", diagnosticDetail(cause))
-      setError(t("settings.memoryV2.core.topicSaveFailed"))
+      const detail = diagnosticDetail(cause)
+      logger.error("project", "ProjectMemorySection::saveDraft", detail)
+      setError({ title: t("settings.memoryV2.core.topicSaveFailed"), detail })
     } finally {
       setSaving(false)
     }
@@ -144,8 +152,9 @@ export function ProjectMemorySection({ projectId }: ProjectMemorySectionProps) {
       await loadEntries()
       setError(null)
     } catch (cause) {
-      logger.error("project", "ProjectMemorySection::deleteDraft", diagnosticDetail(cause))
-      setError(t("settings.memoryV2.core.topicDeleteFailed"))
+      const detail = diagnosticDetail(cause)
+      logger.error("project", "ProjectMemorySection::deleteDraft", detail)
+      setError({ title: t("settings.memoryV2.core.topicDeleteFailed"), detail })
     }
   }
 
@@ -155,8 +164,9 @@ export function ProjectMemorySection({ projectId }: ProjectMemorySectionProps) {
       await loadEntries()
       setError(null)
     } catch (cause) {
-      logger.error("project", "ProjectMemorySection::rebuildIndex", diagnosticDetail(cause))
-      setError(t("project.autoMemory.rebuildFailed"))
+      const detail = diagnosticDetail(cause)
+      logger.error("project", "ProjectMemorySection::rebuildIndex", detail)
+      setError({ title: t("project.autoMemory.rebuildFailed"), detail })
     }
   }
 
@@ -224,7 +234,10 @@ export function ProjectMemorySection({ projectId }: ProjectMemorySectionProps) {
           </div>
 
           {error && (
-            <p className="rounded-md bg-destructive/10 p-2 text-xs text-destructive">{error}</p>
+            <div className="rounded-md bg-destructive/10 p-2 text-xs text-destructive">
+              <p className="font-medium">{error.title}</p>
+              <p className="mt-1 break-words text-[11px] opacity-90">{error.detail}</p>
+            </div>
           )}
 
           <div className="space-y-1.5">
