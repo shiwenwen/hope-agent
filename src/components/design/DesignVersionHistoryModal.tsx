@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { Input } from "@/components/ui/input"
+import { SearchInput } from "@/components/ui/search-input"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import { cn } from "@/lib/utils"
@@ -265,7 +265,7 @@ export function DesignVersionHistoryModal({
             {showSearch && (
               <div className="relative border-b p-2">
                 <Search className="pointer-events-none absolute left-4 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-                <Input
+                <SearchInput
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
                   placeholder={t("design.ver.search", "搜索版本…")}

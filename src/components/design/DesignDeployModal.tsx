@@ -355,7 +355,7 @@ export function DesignDeployModal({ open, onClose, artifactId }: Props) {
                   aria-describedby={accountInvalid ? "design-deploy-account-err" : undefined}
                   className={cn(
                     "h-8 text-xs",
-                    accountInvalid && "border-destructive focus-visible:ring-destructive",
+                    accountInvalid && "border-destructive",
                   )}
                 />
                 {accountInvalid && (

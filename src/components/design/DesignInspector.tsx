@@ -11,6 +11,7 @@ import { useTranslation } from "react-i18next"
 import { X, AlignLeft, AlignCenter, AlignRight, Link2, Link, Unlink, Trash2, ImageUp, Loader2, MessagesSquare } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { NumberInput } from "@/components/ui/number-input"
 import { Textarea } from "@/components/ui/textarea"
 import { IconTip } from "@/components/ui/tooltip"
 import { Slider } from "@/components/ui/slider"
@@ -264,9 +265,8 @@ function QuadRow({
       </div>
       <div className="grid grid-cols-4 gap-1">
         {QUAD_SIDES.map((side, i) => (
-          <Input
+          <NumberInput
             key={side}
-            type="number"
             value={draft[i]}
             onChange={(e) => {
               const val = e.target.value
@@ -331,8 +331,7 @@ function NumberRow({
   return (
     <label className="flex items-center justify-between gap-2 text-sm">
       <span className="text-muted-foreground">{label}</span>
-      <Input
-        type="number"
+      <NumberInput
         value={v}
         onChange={(e) => {
           setV(e.target.value)

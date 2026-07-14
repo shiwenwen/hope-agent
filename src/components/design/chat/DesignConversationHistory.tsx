@@ -4,6 +4,7 @@ import { Search, Pencil, Trash2, Check, X } from "lucide-react"
 
 import { FloatingMenu } from "@/components/ui/floating-menu"
 import { Input } from "@/components/ui/input"
+import { SearchInput } from "@/components/ui/search-input"
 import { Button } from "@/components/ui/button"
 import { IconTip } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
@@ -84,7 +85,7 @@ export function DesignConversationHistory({
     >
       <div className="relative mb-2">
         <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-        <Input
+        <SearchInput
           ref={searchRef}
           value={query}
           onChange={(e) => {

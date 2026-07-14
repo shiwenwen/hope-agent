@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { Blocks, Loader2, Search } from "lucide-react"
 
-import { Input } from "@/components/ui/input"
+import { SearchInput } from "@/components/ui/search-input"
 import { Button } from "@/components/ui/button"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
@@ -103,7 +103,7 @@ export function DesignToolboxPopover({ recipes, onPick, kindLabel, systemId }: P
     <div className="min-w-0">
       <div className="relative mb-2">
         <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-        <Input
+        <SearchInput
           autoFocus
           value={query}
           onChange={(e) => setQuery(e.target.value)}

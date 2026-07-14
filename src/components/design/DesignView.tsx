@@ -7,7 +7,7 @@
  */
 
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
-import type { CSSProperties } from "react"
+import type { CSSProperties, ReactNode } from "react"
 import { useTranslation } from "react-i18next"
 import {
   ArrowLeft,
@@ -107,6 +107,7 @@ import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
 import { Input } from "@/components/ui/input"
+import { SearchInput } from "@/components/ui/search-input"
 import { Textarea } from "@/components/ui/textarea"
 import {
   Select,
@@ -4041,7 +4042,7 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
               if (e.key === "Enter") (e.target as HTMLInputElement).blur()
               else if (e.key === "Escape") setRenamingProject(false)
             }}
-            className="w-48 rounded border border-primary/50 bg-background px-2 py-0.5 text-sm font-semibold outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1"
+            className="w-48 rounded border border-primary/50 bg-background px-2 py-0.5 text-sm font-semibold outline-none"
           />
         ) : (
           <span
@@ -4503,7 +4504,7 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
                               setRenamingArtifactId(null)
                             } else if (e.key === "Escape") setRenamingArtifactId(null)
                           }}
-                          className="w-[150px] rounded-lg border border-primary/50 bg-background px-2.5 py-1 text-xs outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1"
+                          className="w-[150px] rounded-lg border border-primary/50 bg-background px-2.5 py-1 text-xs outline-none"
                         />
                       ) : (
                         <>
@@ -5934,7 +5935,7 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
                 value={presenterNotes[deckState.active] ?? ""}
                 onChange={(e) => savePresenterNote(deckState.active, e.target.value)}
                 placeholder={t("design.presenter.notePlaceholder", "本页演讲者备注（自动保存）")}
-                className="min-h-[64px] flex-1 resize-none rounded-md border border-white/10 bg-neutral-950 px-3 py-2 text-sm text-neutral-100 outline-none placeholder:text-neutral-500 focus-visible:ring-1 focus-visible:ring-primary/60"
+                className="min-h-[64px] flex-1 resize-none rounded-md border border-white/10 bg-neutral-950 px-3 py-2 text-sm text-neutral-100 outline-none placeholder:text-neutral-500"
               />
               <div className="flex shrink-0 flex-col justify-center gap-1">
                 <Button
@@ -6416,9 +6417,110 @@ const LaunchComposerTextarea = memo(function LaunchComposerTextarea({
         typed ||
         t("design.launchPlaceholder", "描述你想要的设计，例如「一个 SaaS 产品的定价页，三档套餐」…")
       }
-      className="min-h-[72px] resize-none border-0 bg-transparent px-2.5 py-1.5 text-base leading-relaxed shadow-none placeholder:text-muted-foreground/60 focus-visible:ring-0"
+      // 复合编辑器：焦点由外层 prompt 卡的 focus-within 单层表达，内部 textarea 标记
+      // data-focus-ring="none" 抑制全局焦点 outline，避免双层轮廓（对齐 ui-interaction-system）。
+      data-focus-ring="none"
+      className="min-h-[72px] resize-none border-0 bg-transparent px-2.5 py-1.5 text-base leading-relaxed shadow-none placeholder:text-muted-foreground/60"
     />
   )
+})
+
+/** 模板卡的形态示意线框——按 kind 画一张单色 mini 布局草图，让「从模板开始」像模板画廊而非
+ *  又一排形态标签（对齐反馈：模板需带实例预览 + 与形态标签区分）。纯 CSS、零网络、主题感知
+ *  （bg-foreground/xx 描边 + bg-muted 画布，明暗自适应）。 */
+const RecipeKindPreview = memo(function RecipeKindPreview({ kind }: { kind: ArtifactKind }) {
+  const bar = "rounded-[2px] bg-foreground/15"
+  const block = "rounded-[3px] bg-foreground/[0.08]"
+  let inner: ReactNode
+  switch (kind) {
+    case "web":
+      inner = (
+        <div className="flex h-full flex-col gap-1 p-2.5">
+          <div className={cn("h-1 w-full", bar)} />
+          <div className="h-[42%] w-full rounded bg-foreground/10" />
+          <div className="mt-auto flex gap-1">
+            <div className={cn("h-3.5 flex-1", block)} />
+            <div className={cn("h-3.5 flex-1", block)} />
+            <div className={cn("h-3.5 flex-1", block)} />
+          </div>
+        </div>
+      )
+      break
+    case "mobile":
+      inner = (
+        <div className="flex h-full items-center justify-center py-2">
+          <div className="flex h-full w-[38%] flex-col gap-1 rounded-md border border-foreground/15 p-1.5">
+            <div className={cn("h-1 w-3/4", bar)} />
+            <div className={cn("flex-1", block)} />
+            <div className="flex justify-center gap-1.5 pt-0.5">
+              <div className="h-1 w-1 rounded-full bg-foreground/20" />
+              <div className="h-1 w-1 rounded-full bg-foreground/20" />
+              <div className="h-1 w-1 rounded-full bg-foreground/20" />
+            </div>
+          </div>
+        </div>
+      )
+      break
+    case "deck":
+      inner = (
+        <div className="flex h-full flex-col gap-1.5 p-2.5">
+          <div className={cn("h-1.5 w-1/2", bar)} />
+          <div className="flex flex-1 gap-1.5">
+            <div className={cn("flex-1", block)} />
+            <div className={cn("flex-1", block)} />
+          </div>
+        </div>
+      )
+      break
+    case "dashboard":
+      inner = (
+        <div className="flex h-full gap-1.5 p-2.5">
+          <div className="w-1/5 rounded-[3px] bg-foreground/10" />
+          <div className="flex flex-1 flex-col gap-1.5">
+            <div className="grid grid-cols-3 gap-1">
+              <div className={cn("h-3", block)} />
+              <div className={cn("h-3", block)} />
+              <div className={cn("h-3", block)} />
+            </div>
+            <div className={cn("flex-1", block)} />
+          </div>
+        </div>
+      )
+      break
+    case "poster":
+      inner = (
+        <div className="flex h-full items-center justify-center p-2">
+          <div className="flex h-full w-1/2 flex-col items-center justify-center gap-1.5 rounded-[3px] bg-foreground/[0.08]">
+            <div className={cn("h-2 w-3/4", bar)} />
+            <div className="h-1 w-1/2 rounded-[2px] bg-foreground/10" />
+          </div>
+        </div>
+      )
+      break
+    case "document":
+    case "email":
+      inner = (
+        <div className="flex h-full items-center justify-center p-2">
+          <div className="flex h-full w-3/5 flex-col gap-1 rounded-[3px] bg-background/60 p-2">
+            <div className={cn("h-1 w-1/2", bar)} />
+            <div className="h-0.5 w-full rounded-full bg-foreground/12" />
+            <div className="h-0.5 w-full rounded-full bg-foreground/12" />
+            <div className="h-0.5 w-4/5 rounded-full bg-foreground/12" />
+            <div className="h-0.5 w-2/3 rounded-full bg-foreground/12" />
+          </div>
+        </div>
+      )
+      break
+    default: {
+      const Icon = KIND_ICON[kind] ?? Monitor
+      inner = (
+        <div className="flex h-full items-center justify-center">
+          <Icon className="h-6 w-6 text-foreground/20" />
+        </div>
+      )
+    }
+  }
+  return <div className="aspect-[16/10] w-full overflow-hidden rounded-lg bg-muted/50">{inner}</div>
 })
 
 /** 品牌包可选形态（对齐后端 `is_brand_pack_kind`：媒体/组件形态不进批量文案生成）。 */
@@ -6592,14 +6694,8 @@ function LaunchHome({
   return (
     <div className="flex-1 overflow-y-auto">
       <div className="mx-auto max-w-4xl px-6 pb-14 pt-16">
-        {/* Hero */}
+        {/* Hero（顶部已有标题栏，去掉冗余的「设计空间」徽标） */}
         <div className="mb-8 text-center">
-          <div className="mb-5 inline-flex items-center gap-2 text-muted-foreground">
-            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/10 ring-1 ring-inset ring-primary/15">
-              <Palette className="h-4 w-4 text-primary" />
-            </span>
-            <span className="text-sm font-medium tracking-wide">{t("design.title", "设计空间")}</span>
-          </div>
           <h1 className="font-serif text-4xl font-semibold tracking-tight text-foreground sm:text-[3.25rem] sm:leading-[1.1]">
             {t("design.launchHeading", "你想设计什么？")}
           </h1>
@@ -6608,11 +6704,15 @@ function LaunchHome({
           </p>
         </div>
 
-        {/* Prompt card（支持拖拽参考图；粘贴走 Textarea onPaste） */}
+        {/* Prompt card（对齐主对话输入 dock 的扁平浮层：border-soft + surface-floating +
+            subtle shadow-input-dock，无 ring/无重焦点抬升）。焦点走 data-focus-scope：内部
+            textarea 标 data-focus-ring="none"，键盘聚焦时全局只在 dock 外描一层轮廓（复合编辑器单层）。
+            支持拖拽参考图；粘贴走 Textarea onPaste。 */}
         <div
+          data-focus-scope
           className={cn(
-            "rounded-2xl border border-border/60 bg-card p-3 shadow-sm ring-1 ring-transparent transition-all duration-200 focus-within:border-primary/40 focus-within:shadow-lg focus-within:ring-primary/15",
-            dragOver && "border-primary/60 ring-primary/20",
+            "rounded-input-dock border border-border-soft bg-surface-floating p-3 shadow-input-dock transition-colors duration-200",
+            dragOver && "border-primary/50",
           )}
           onDragOver={(e) => {
             if (Array.from(e.dataTransfer.types).includes("Files")) {
@@ -6743,10 +6843,10 @@ function LaunchHome({
                 type="button"
                 onClick={() => setKind(k)}
                 className={cn(
-                  "flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm transition-all duration-150",
+                  "flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm transition-colors duration-150",
                   active
-                    ? "border-primary/60 bg-primary/10 font-medium text-primary shadow-sm"
-                    : "border-border/60 text-muted-foreground hover:border-primary/40 hover:bg-accent hover:text-foreground",
+                    ? "bg-primary font-medium text-primary-foreground"
+                    : "text-muted-foreground hover:bg-accent hover:text-foreground",
                 )}
               >
                 <Icon className="h-3.5 w-3.5" />
@@ -6771,15 +6871,20 @@ function LaunchHome({
                     type="button"
                     onClick={() => onPickRecipe(r)}
                     data-ha-title-tip={r.summary}
-                    className="group flex flex-col gap-1.5 rounded-xl border border-border/60 bg-card p-3.5 text-left transition-all duration-150 hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md"
+                    className="group flex flex-col overflow-hidden rounded-xl border border-border/60 bg-card text-left transition-colors duration-150 hover:border-primary/40 hover:bg-accent/40"
                   >
-                    <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-muted text-muted-foreground transition-colors group-hover:bg-primary/10 group-hover:text-primary">
-                      <Icon className="h-4 w-4" />
-                    </span>
-                    <span className="truncate text-sm font-medium">{r.name}</span>
-                    <span className="line-clamp-2 text-xs leading-snug text-muted-foreground">
-                      {r.summary}
-                    </span>
+                    <div className="border-b border-border/50 p-2 transition-colors group-hover:border-primary/20">
+                      <RecipeKindPreview kind={r.kind} />
+                    </div>
+                    <div className="flex flex-col gap-1 p-3">
+                      <div className="flex items-center gap-1.5">
+                        <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground transition-colors group-hover:text-primary" />
+                        <span className="truncate text-sm font-medium">{r.name}</span>
+                      </div>
+                      <span className="line-clamp-2 text-xs leading-snug text-muted-foreground">
+                        {r.summary}
+                      </span>
+                    </div>
                   </button>
                 )
               })}
@@ -6798,7 +6903,7 @@ function LaunchHome({
                 <>
                   <div className="relative">
                     <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-                    <Input
+                    <SearchInput
                       value={query}
                       onChange={(e) => setQuery(e.target.value)}
                       placeholder={t("design.searchProjects", "搜索项目…")}
