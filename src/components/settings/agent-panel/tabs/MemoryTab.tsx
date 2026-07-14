@@ -291,6 +291,7 @@ export default function MemoryTab({ agentId, openclawMode, config, updateConfig 
                   <Switch
                     checked={activeMemory.enabled}
                     onCheckedChange={(v) => updateActiveMemory({ enabled: v })}
+                    aria-label={t("settings.activeMemoryTitle")}
                   />
                 </div>
               </div>
@@ -357,6 +358,7 @@ export default function MemoryTab({ agentId, openclawMode, config, updateConfig 
                     <Switch
                       checked={activeMemory.includeClaims}
                       onCheckedChange={(v) => updateActiveMemory({ includeClaims: v })}
+                      aria-label={t("settings.activeMemoryIncludeClaims")}
                     />
                   </div>
                 </div>
@@ -384,6 +386,7 @@ export default function MemoryTab({ agentId, openclawMode, config, updateConfig 
                   <Switch
                     checked={retrievalPlanner.intentAware}
                     onCheckedChange={(value) => updateRetrievalPlanner({ intentAware: value })}
+                    aria-label={t("settings.retrievalPlannerIntentAware", "Task-aware")}
                   />
                 </div>
               </div>
@@ -434,6 +437,7 @@ export default function MemoryTab({ agentId, openclawMode, config, updateConfig 
                 <Switch
                   checked={graphMemory.enabled}
                   onCheckedChange={(v) => updateGraphMemory({ enabled: v })}
+                  aria-label={t("settings.graphMemoryTitle", "Entity relationship trace")}
                 />
               </div>
               {graphMemory.enabled && (
@@ -483,6 +487,7 @@ export default function MemoryTab({ agentId, openclawMode, config, updateConfig 
                 <Switch
                   checked={procedureMemory.enabled}
                   onCheckedChange={(v) => updateProcedureMemory({ enabled: v })}
+                  aria-label={t("settings.procedureMemoryTitle", "Saved workflows")}
                 />
               </div>
               {procedureMemory.enabled && (
@@ -555,6 +560,7 @@ export default function MemoryTab({ agentId, openclawMode, config, updateConfig 
                     onCheckedChange={(v) =>
                       updateMemoryBudget(v ? null : { ...DEFAULT_MEMORY_BUDGET })
                     }
+                    aria-label={t("settings.memoryBudget.useGlobalDefault")}
                   />
                 </div>
               </div>

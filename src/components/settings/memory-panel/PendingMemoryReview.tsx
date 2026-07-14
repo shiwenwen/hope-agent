@@ -3,6 +3,13 @@ import { useTranslation } from "react-i18next"
 import { Check, Inbox, Loader2, X } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import type { AgentInfo } from "@/types/chat"
@@ -146,18 +153,23 @@ export default function PendingMemoryReview({ agents }: { agents: AgentInfo[] })
                       {t(`chat.memoryTrace.kind.${item.candidateKind}`)}
                     </p>
                   </div>
-                  <select
+                  <Select
                     value={selectedScope}
-                    disabled={busy}
-                    onChange={(event) => setScopes((current) => ({ ...current, [item.id]: event.target.value }))}
-                    className="h-8 min-w-52 rounded-md border border-input bg-background px-2 text-xs"
-                    aria-label={t("settings.memoryV2.review.chooseScope")}
+                    disabled={busy || availableScopes.length === 0}
+                    onValueChange={(scope) => setScopes((current) => ({ ...current, [item.id]: scope }))}
                   >
-                    <option value="">{t("settings.memoryV2.review.chooseScope")}</option>
-                    {availableScopes.map((scope) => (
-                      <option key={scope.key} value={scope.key}>{scope.label}</option>
-                    ))}
-                  </select>
+                    <SelectTrigger
+                      className="h-8 min-w-52 text-xs"
+                      aria-label={t("settings.memoryV2.review.chooseScope")}
+                    >
+                      <SelectValue placeholder={t("settings.memoryV2.review.chooseScope")} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {availableScopes.map((scope) => (
+                        <SelectItem key={scope.key} value={scope.key}>{scope.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div className="flex justify-end gap-2">
                   <Button type="button" variant="ghost" size="sm" className="h-7" disabled={busy} onClick={() => void reject(item)}>

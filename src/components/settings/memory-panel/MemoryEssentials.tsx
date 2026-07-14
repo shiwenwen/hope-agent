@@ -3,6 +3,13 @@ import { useTranslation } from "react-i18next"
 import { Brain, FileText, Loader2, RefreshCw, Sparkles } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
@@ -224,22 +231,28 @@ export default function MemoryEssentials({ onManage }: MemoryEssentialsProps) {
               </p>
             </div>
           </div>
-          <label className="mt-3 block text-[11px] text-muted-foreground">
+          <div className="mt-3 text-[11px] text-muted-foreground">
+            <label htmlFor="memory-learning-mode">
             {t("settings.memoryV2.learning.mode")}
-            <select
+            </label>
+            <Select
               value={learningMode}
               disabled={!config.enabled || saving}
-              onChange={(event) => {
-                const mode = event.target.value as MemoryLearningMode
+              onValueChange={(value) => {
+                const mode = value as MemoryLearningMode
                 update((draft) => { draft.learning.mode = mode })
               }}
-              className="mt-1 h-8 w-full rounded-md border border-input bg-background px-2 text-xs text-foreground"
             >
-              <option value="smart">{t("settings.memoryV2.learning.smart")}</option>
-              <option value="review_first">{t("settings.memoryV2.learning.reviewFirst")}</option>
-              <option value="manual">{t("settings.memoryV2.learning.manual")}</option>
-            </select>
-          </label>
+              <SelectTrigger id="memory-learning-mode" className="mt-1 h-8 w-full text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="smart">{t("settings.memoryV2.learning.smart")}</SelectItem>
+                <SelectItem value="review_first">{t("settings.memoryV2.learning.reviewFirst")}</SelectItem>
+                <SelectItem value="manual">{t("settings.memoryV2.learning.manual")}</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
           <div className="mt-3 flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
             <span>
               {t("settings.memoryV2.learning.pending", { count: pendingCount })} ·{" "}

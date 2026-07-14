@@ -4,8 +4,25 @@ import { FilePlus2, Loader2, RefreshCw, Save, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import { IconTip } from "@/components/ui/tooltip"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import type { AgentInfo } from "@/types/chat"
@@ -70,6 +87,7 @@ export default function CoreMemoryManager({ agents }: { agents: AgentInfo[] }) {
   const [topicsLoading, setTopicsLoading] = useState(false)
   const [draft, setDraft] = useState<TopicDraft | null>(null)
   const [saving, setSaving] = useState(false)
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
   const [stats, setStats] = useState<CoreMemoryStats | null>(null)
   const [runtime, setRuntime] = useState<MemoryRuntimeConfig | null>(null)
 
@@ -221,7 +239,6 @@ export default function CoreMemoryManager({ agents }: { agents: AgentInfo[] }) {
 
   const deleteTopic = async () => {
     if (!draft?.fileName || !draft.fileHash) return
-    if (!window.confirm(t("settings.memoryV2.core.topicDeleteConfirm"))) return
     const requestedScope = scopeIdentity
     setSaving(true)
     try {
@@ -244,38 +261,54 @@ export default function CoreMemoryManager({ agents }: { agents: AgentInfo[] }) {
   return (
     <div className="mb-5 space-y-4 rounded-lg border border-border/60 bg-card p-4">
       <div className="flex flex-wrap items-end gap-3">
-        <label className="text-xs text-muted-foreground">
+        <div className="text-xs text-muted-foreground">
+          <label htmlFor="core-memory-scope-type">
           {t("settings.memoryV2.core.scope")}
-          <select
+          </label>
+          <Select
             value={scopeType}
             disabled={saving}
-            onChange={(event) => {
-              setScopeType(event.target.value as ScopeType)
+            onValueChange={(value) => {
+              setScopeType(value as ScopeType)
               setScopeId("")
             }}
-            className="mt-1 block h-8 rounded-md border border-input bg-background px-2 text-xs text-foreground"
           >
-            <option value="global">{t("settings.memoryScopeGlobal")}</option>
-            <option value="agent">{t("settings.memoryScopeAgent")}</option>
-            <option value="project">{t("settings.memoryScopeProject")}</option>
-          </select>
-        </label>
+            <SelectTrigger id="core-memory-scope-type" className="mt-1 h-8 text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="global">{t("settings.memoryScopeGlobal")}</SelectItem>
+              <SelectItem value="agent">{t("settings.memoryScopeAgent")}</SelectItem>
+              <SelectItem value="project">{t("settings.memoryScopeProject")}</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
         {scopeType !== "global" && (
-          <label className="min-w-56 flex-1 text-xs text-muted-foreground">
-            {scopeType === "agent"
-              ? t("settings.memoryScopeAgent")
-              : t("settings.memoryV2.core.projectLabel")}
-            <select
+          <div className="min-w-56 flex-1 text-xs text-muted-foreground">
+            <label htmlFor="core-memory-scope-id">
+              {scopeType === "agent"
+                ? t("settings.memoryScopeAgent")
+                : t("settings.memoryV2.core.projectLabel")}
+            </label>
+            <Select
               value={scopeId}
-              disabled={saving}
-              onChange={(event) => setScopeId(event.target.value)}
-              className="mt-1 block h-8 w-full rounded-md border border-input bg-background px-2 text-xs text-foreground"
+              disabled={saving || (scopeType === "agent" ? agents : projects).length === 0}
+              onValueChange={setScopeId}
             >
-              {(scopeType === "agent" ? agents : projects).map((item) => (
-                <option key={item.id} value={item.id}>{item.name}</option>
-              ))}
-            </select>
-          </label>
+              <SelectTrigger id="core-memory-scope-id" className="mt-1 h-8 w-full text-xs">
+                <SelectValue
+                  placeholder={scopeType === "agent"
+                    ? t("settings.memoryExperienceNoAgents", "No agents available")
+                    : t("settings.memoryExperienceNoProjects", "No projects available")}
+                />
+              </SelectTrigger>
+              <SelectContent>
+                {(scopeType === "agent" ? agents : projects).map((item) => (
+                  <SelectItem key={item.id} value={item.id}>{item.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
         )}
       </div>
 
@@ -371,19 +404,43 @@ export default function CoreMemoryManager({ agents }: { agents: AgentInfo[] }) {
           ) : (
             <div className="space-y-3">
               <div className="grid gap-3 sm:grid-cols-2">
-                <Input value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} placeholder={t("settings.memoryV2.core.topicName")} />
-                <select value={draft.memoryType} onChange={(event) => setDraft({ ...draft, memoryType: event.target.value })} className="h-9 rounded-md border border-input bg-background px-2 text-sm">
-                  <option value="user">{t("settings.memoryType_user")}</option>
-                  <option value="feedback">{t("settings.memoryType_feedback")}</option>
-                  <option value="project">{t("settings.memoryType_project")}</option>
-                  <option value="reference">{t("settings.memoryType_reference")}</option>
-                </select>
+                <Input
+                  value={draft.name}
+                  onChange={(event) => setDraft({ ...draft, name: event.target.value })}
+                  placeholder={t("settings.memoryV2.core.topicName")}
+                  aria-label={t("settings.memoryV2.core.topicName")}
+                />
+                <Select
+                  value={draft.memoryType}
+                  onValueChange={(memoryType) => setDraft({ ...draft, memoryType })}
+                >
+                  <SelectTrigger aria-label={t("settings.memoryType")}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="user">{t("settings.memoryType_user")}</SelectItem>
+                    <SelectItem value="feedback">{t("settings.memoryType_feedback")}</SelectItem>
+                    <SelectItem value="project">{t("settings.memoryType_project")}</SelectItem>
+                    <SelectItem value="reference">{t("settings.memoryType_reference")}</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
-              <Input value={draft.description} onChange={(event) => setDraft({ ...draft, description: event.target.value })} placeholder={t("settings.memoryV2.core.topicDesc")} />
-              <Textarea value={draft.content} onChange={(event) => setDraft({ ...draft, content: event.target.value })} placeholder={t("settings.memoryV2.core.topicContent")} className="min-h-40 font-mono text-xs" />
+              <Input
+                value={draft.description}
+                onChange={(event) => setDraft({ ...draft, description: event.target.value })}
+                placeholder={t("settings.memoryV2.core.topicDesc")}
+                aria-label={t("settings.memoryV2.core.topicDesc")}
+              />
+              <Textarea
+                value={draft.content}
+                onChange={(event) => setDraft({ ...draft, content: event.target.value })}
+                placeholder={t("settings.memoryV2.core.topicContent")}
+                aria-label={t("settings.memoryV2.core.topicContent")}
+                className="min-h-40 font-mono text-xs"
+              />
               <div className="flex justify-end gap-2">
                 {draft.fileName && (
-                  <Button type="button" variant="destructive" size="sm" onClick={() => void deleteTopic()} disabled={saving}>
+                  <Button type="button" variant="destructive" size="sm" onClick={() => setDeleteConfirmOpen(true)} disabled={saving}>
                     <Trash2 className="mr-1.5 h-3.5 w-3.5" />{t("common.delete")}
                   </Button>
                 )}
@@ -396,6 +453,31 @@ export default function CoreMemoryManager({ agents }: { agents: AgentInfo[] }) {
           )}
         </div>
       </div>
+
+      <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("common.delete")}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("settings.memoryV2.core.topicDeleteConfirm")}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={saving}>{t("common.cancel")}</AlertDialogCancel>
+            <AlertDialogAction asChild>
+              <Button
+                type="button"
+                variant="destructive"
+                disabled={saving}
+                onClick={() => void deleteTopic()}
+              >
+                {saving && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+                {t("common.delete")}
+              </Button>
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

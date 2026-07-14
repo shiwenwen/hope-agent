@@ -171,6 +171,7 @@ import MemoryEssentials from "./MemoryEssentials"
 
 type MemoryData = ReturnType<typeof useMemoryData>
 type MemoryCenterTab = "overview" | "settings" | "manage" | "dreaming" | "profile" | "claims"
+const DB_SNAPSHOT_RESTORE_CONFIRMATION = "RESTORE"
 
 function experienceDomId(kind: "episode" | "procedure", id: string): string {
   return `memory-experience-${kind}-${encodeURIComponent(id)}`
@@ -814,6 +815,8 @@ export default function MemoryOverviewView({
   const [repairingDbSnapshot, setRepairingDbSnapshot] = useState(false)
   const [checkingDbSnapshotRestore, setCheckingDbSnapshotRestore] = useState(false)
   const [restoringDbSnapshot, setRestoringDbSnapshot] = useState(false)
+  const [restoreConfirmOpen, setRestoreConfirmOpen] = useState(false)
+  const [restoreConfirmation, setRestoreConfirmation] = useState("")
   const [dbSnapshotRestorePreview, setDbSnapshotRestorePreview] =
     useState<MemoryDbSnapshotRestorePreview | null>(null)
   const [lastDbSnapshotPath, setLastDbSnapshotPath] = useState<string | null>(null)
@@ -1700,15 +1703,7 @@ export default function MemoryOverviewView({
       )
       return
     }
-    const expected = "RESTORE"
-    const entered = window.prompt(
-      t("settings.memoryRepairDbSnapshotRestoreConfirmPrompt", {
-        defaultValue:
-          "This will restore memory.db from the verified snapshot and create a rollback snapshot first. Type {{word}} to continue.",
-        word: expected,
-      }),
-    )
-    if (entered !== expected) return
+    if (restoreConfirmation !== DB_SNAPSHOT_RESTORE_CONFIRMATION) return
     setRestoringDbSnapshot(true)
     try {
       const report = await getTransport().call<MemoryDbSnapshotRestoreReport>(
@@ -1719,6 +1714,8 @@ export default function MemoryOverviewView({
       setLastDbSnapshotPath(report.rollbackSnapshotPath)
       setLastDbSnapshotFiles(report.rollbackSnapshotFiles ?? [])
       setDbSnapshotRestorePreview(null)
+      setRestoreConfirmOpen(false)
+      setRestoreConfirmation("")
       toast.success(
         t("settings.memoryRepairDbSnapshotRestoreDone", "Database snapshot restored"),
         {
@@ -1748,6 +1745,7 @@ export default function MemoryOverviewView({
     currentDbSnapshotPath,
     dbSnapshotRestorePreview,
     reloadMemories,
+    restoreConfirmation,
     restoringDbSnapshot,
     t,
   ])
@@ -5380,7 +5378,10 @@ export default function MemoryOverviewView({
                               size="sm"
                               variant="destructive"
                               className="mt-1 ml-1 h-6 px-1.5 text-[10px]"
-                              onClick={() => void restoreDbSnapshot()}
+                              onClick={() => {
+                                setRestoreConfirmation("")
+                                setRestoreConfirmOpen(true)
+                              }}
                               disabled={restoringDbSnapshot}
                             >
                               {restoringDbSnapshot ? (
@@ -7028,6 +7029,66 @@ export default function MemoryOverviewView({
                 </DialogFooter>
               </>
             )}
+          </DialogContent>
+        </Dialog>
+
+        <Dialog
+          open={restoreConfirmOpen}
+          onOpenChange={(open) => {
+            if (restoringDbSnapshot) return
+            setRestoreConfirmOpen(open)
+            if (!open) setRestoreConfirmation("")
+          }}
+        >
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>
+                {t("settings.memoryRepairDbSnapshotRestoreNow", "Restore snapshot")}
+              </DialogTitle>
+              <DialogDescription>
+                {t("settings.memoryRepairDbSnapshotRestoreConfirmPrompt", {
+                  defaultValue:
+                    "This will restore memory.db from the verified snapshot and create a rollback snapshot first. Type {{word}} to continue.",
+                  word: DB_SNAPSHOT_RESTORE_CONFIRMATION,
+                })}
+              </DialogDescription>
+            </DialogHeader>
+            <div className="grid gap-1.5">
+              <label className="text-xs font-medium" htmlFor="memory-db-restore-confirmation">
+                {t("common.confirm")} · <code>{DB_SNAPSHOT_RESTORE_CONFIRMATION}</code>
+              </label>
+              <Input
+                id="memory-db-restore-confirmation"
+                value={restoreConfirmation}
+                onChange={(event) => setRestoreConfirmation(event.target.value)}
+                autoComplete="off"
+                spellCheck={false}
+              />
+            </div>
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => setRestoreConfirmOpen(false)}
+                disabled={restoringDbSnapshot}
+              >
+                {t("common.cancel")}
+              </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                onClick={() => void restoreDbSnapshot()}
+                disabled={
+                  restoringDbSnapshot ||
+                  restoreConfirmation !== DB_SNAPSHOT_RESTORE_CONFIRMATION
+                }
+              >
+                {restoringDbSnapshot && (
+                  <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                )}
+                {t("settings.memoryRepairDbSnapshotRestoreNow", "Restore snapshot")}
+              </Button>
+            </DialogFooter>
           </DialogContent>
         </Dialog>
 

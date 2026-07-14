@@ -1,5 +1,6 @@
 import { useState } from "react"
 import { useTranslation } from "react-i18next"
+import { Check } from "lucide-react"
 import { Switch } from "@/components/ui/switch"
 import { DeferredNumberInput } from "@/components/ui/deferred-number-input"
 import { Button } from "@/components/ui/button"
@@ -76,47 +77,59 @@ export default function ExtractConfig({ data, isAgentMode }: ExtractConfigProps)
             </div>
           </div>
         </div>
-        <div className="flex flex-wrap items-center gap-1.5 border-t border-border/30 px-3 py-2">
+        <div
+          className="flex flex-wrap items-center gap-1.5 border-t border-border/30 px-3 py-2"
+          role="group"
+          aria-label={t("settings.memoryLearningMode")}
+        >
           <Button
             type="button"
-            variant={effectiveMemoryLearningMode === "automatic" ? "secondary" : "outline"}
+            variant={effectiveMemoryLearningMode === "automatic" ? "default" : "outline"}
             size="sm"
-            className="h-7 px-2 text-[11px]"
+            className="h-7 gap-1.5 px-2 text-[11px] shadow-none"
             onClick={() => applyMemoryLearningMode("automatic")}
+            aria-pressed={effectiveMemoryLearningMode === "automatic"}
           >
+            {effectiveMemoryLearningMode === "automatic" && <Check className="h-3 w-3" />}
             {t("settings.memoryLearningModeAutomatic")}
           </Button>
           {!isAgentMode && (
             <Button
               type="button"
-              variant={effectiveMemoryLearningMode === "review_first" ? "secondary" : "outline"}
+              variant={effectiveMemoryLearningMode === "review_first" ? "default" : "outline"}
               size="sm"
-              className="h-7 px-2 text-[11px]"
+              className="h-7 gap-1.5 px-2 text-[11px] shadow-none"
               onClick={() => applyMemoryLearningMode("review_first")}
+              aria-pressed={effectiveMemoryLearningMode === "review_first"}
             >
+              {effectiveMemoryLearningMode === "review_first" && <Check className="h-3 w-3" />}
               {t("settings.memoryLearningModeReviewFirst")}
             </Button>
           )}
           <Button
             type="button"
-            variant={effectiveMemoryLearningMode === "manual_only" ? "secondary" : "outline"}
+            variant={effectiveMemoryLearningMode === "manual_only" ? "default" : "outline"}
             size="sm"
-            className="h-7 px-2 text-[11px]"
+            className="h-7 gap-1.5 px-2 text-[11px] shadow-none"
             onClick={() => applyMemoryLearningMode("manual_only")}
+            aria-pressed={effectiveMemoryLearningMode === "manual_only"}
           >
+            {effectiveMemoryLearningMode === "manual_only" && <Check className="h-3 w-3" />}
             {t("settings.memoryLearningModeManualOnly")}
           </Button>
           {!isAgentMode && (
             <Button
               type="button"
-              variant={effectiveMemoryLearningMode === "off" ? "secondary" : "outline"}
+              variant={effectiveMemoryLearningMode === "off" ? "default" : "outline"}
               size="sm"
-              className="h-7 px-2 text-[11px]"
+              className="h-7 gap-1.5 px-2 text-[11px] shadow-none"
               onClick={() => {
                 if (effectiveMemoryLearningMode === "off") return
                 setOffConfirmOpen(true)
               }}
+              aria-pressed={effectiveMemoryLearningMode === "off"}
             >
+              {effectiveMemoryLearningMode === "off" && <Check className="h-3 w-3" />}
               {t("settings.memoryLearningModeOff")}
             </Button>
           )}
@@ -237,6 +250,7 @@ export default function ExtractConfig({ data, isAgentMode }: ExtractConfigProps)
               <Switch
                 checked={data.effectiveFlushBeforeCompact}
                 onCheckedChange={data.handleToggleFlushBeforeCompact}
+                aria-label={t("settings.memoryFlushDesc")}
               />
             </div>
             {/* Structured claim dual-write — global-only */}
@@ -256,6 +270,7 @@ export default function ExtractConfig({ data, isAgentMode }: ExtractConfigProps)
                 <Switch
                   checked={data.effectiveExtractClaims}
                   onCheckedChange={data.handleToggleExtractClaims}
+                  aria-label={t("settings.memoryExtractClaims")}
                 />
               </div>
             )}

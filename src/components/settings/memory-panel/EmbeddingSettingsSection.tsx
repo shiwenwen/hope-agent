@@ -93,6 +93,7 @@ export default function EmbeddingSettingsSection({ data }: EmbeddingSettingsSect
         <Switch
           checked={memoryEmbeddingState.selection.enabled}
           onCheckedChange={handleToggle}
+          aria-label={t("settings.memoryEmbeddingEnabled")}
         />
       </div>
 

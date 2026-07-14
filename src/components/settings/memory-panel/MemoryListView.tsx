@@ -683,14 +683,17 @@ export default function MemoryListView({
               className="pl-8 text-sm"
             />
             {searchQuery && (
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => setSearchQuery("")}
-                className="absolute right-1 top-1/2 -translate-y-1/2 h-6 w-6 text-muted-foreground hover:text-foreground"
-              >
-                <X className="h-3.5 w-3.5" />
-              </Button>
+              <IconTip label={t("common.clear")}>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setSearchQuery("")}
+                  className="absolute right-1 top-1/2 -translate-y-1/2 h-6 w-6 text-muted-foreground hover:text-foreground"
+                  aria-label={t("common.clear")}
+                >
+                  <X className="h-3.5 w-3.5" />
+                </Button>
+              </IconTip>
             )}
           </div>
           <div className="flex gap-1">
@@ -702,6 +705,8 @@ export default function MemoryListView({
                     variant="outline"
                     size="icon"
                     onClick={() => setFilterType(filterType === type ? null : type)}
+                    aria-label={t(`settings.memoryType_${type}`)}
+                    aria-pressed={filterType === type}
                     className={cn(
                       "h-9 w-9 rounded-lg",
                       filterType === type
@@ -865,18 +870,27 @@ export default function MemoryListView({
         <div className="flex items-center justify-between text-xs text-muted-foreground mb-3">
           <div className="flex items-center gap-2">
             {memories.length > 0 && (
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={toggleSelectAll}
-                className="h-5 w-5 hover:bg-transparent hover:text-foreground"
+              <IconTip
+                label={selectedIds.size === memories.length
+                  ? t("settings.memoryDeselectAll")
+                  : t("settings.memorySelectAll")}
               >
-                {selectedIds.size === memories.length ? (
-                  <CheckSquare className="h-3.5 w-3.5" />
-                ) : (
-                  <Square className="h-3.5 w-3.5" />
-                )}
-              </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={toggleSelectAll}
+                  className="h-5 w-5 hover:bg-transparent hover:text-foreground"
+                  aria-label={selectedIds.size === memories.length
+                    ? t("settings.memoryDeselectAll")
+                    : t("settings.memorySelectAll")}
+                >
+                  {selectedIds.size === memories.length ? (
+                    <CheckSquare className="h-3.5 w-3.5" />
+                  ) : (
+                    <Square className="h-3.5 w-3.5" />
+                  )}
+                </Button>
+              </IconTip>
             )}
             <span>{t("settings.memoryCount", { count: totalCount })}</span>
             {embeddingEnabled && (
@@ -944,21 +958,25 @@ export default function MemoryListView({
                   )}
                   onClick={() => startEdit(mem)}
                 >
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      toggleSelect(mem.id)
-                    }}
-                    className="h-5 w-5 mt-0.5 shrink-0 text-muted-foreground hover:bg-transparent hover:text-foreground"
-                  >
-                    {isSelected ? (
-                      <CheckSquare className="h-4 w-4 text-primary" />
-                    ) : (
-                      <Square className="h-4 w-4 opacity-0 group-hover:opacity-100 transition-opacity" />
-                    )}
-                  </Button>
+                  <IconTip label={t("common.select")}>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        toggleSelect(mem.id)
+                      }}
+                      className="h-5 w-5 mt-0.5 shrink-0 text-muted-foreground hover:bg-transparent hover:text-foreground"
+                      aria-label={t("common.select")}
+                      aria-pressed={isSelected}
+                    >
+                      {isSelected ? (
+                        <CheckSquare className="h-4 w-4 text-primary" />
+                      ) : (
+                        <Square className="h-4 w-4 opacity-0 group-hover:opacity-100 transition-opacity" />
+                      )}
+                    </Button>
+                  </IconTip>
                   <IconTip label={mem.pinned ? t("settings.memoryUnpin") : t("settings.memoryPin")}>
                     <Button
                       variant="ghost"
@@ -973,6 +991,8 @@ export default function MemoryListView({
                           ? "text-amber-500 hover:text-amber-500"
                           : "text-muted-foreground/30 opacity-0 group-hover:opacity-100 transition-opacity hover:text-amber-500",
                       )}
+                      aria-label={mem.pinned ? t("settings.memoryUnpin") : t("settings.memoryPin")}
+                      aria-pressed={mem.pinned}
                     >
                       <Pin className="h-3.5 w-3.5" />
                     </Button>
@@ -1017,17 +1037,20 @@ export default function MemoryListView({
                       </div>
                     )}
                   </div>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      handleDelete(mem.id)
-                    }}
-                    className="h-7 w-7 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-opacity"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </Button>
+                  <IconTip label={t("common.delete")}>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        handleDelete(mem.id)
+                      }}
+                      className="h-7 w-7 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-opacity"
+                      aria-label={t("common.delete")}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </IconTip>
                   <ChevronRight className="h-4 w-4 text-muted-foreground/30 mt-0.5 shrink-0" />
                 </div>
               )

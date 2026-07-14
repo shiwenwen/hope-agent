@@ -11,6 +11,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
+import { IconTip } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
@@ -416,6 +417,7 @@ export default function ExternalMemoryProvidersConfig() {
             <Switch
               checked={config.enabled}
               onCheckedChange={(enabled) => setConfig((prev) => ({ ...prev, enabled }))}
+              aria-label={t("settings.memoryExternalProvidersGlobal", "Enable provider sync")}
             />
           </div>
 
@@ -807,20 +809,23 @@ export default function ExternalMemoryProvidersConfig() {
                         >
                           {readinessLabel}
                         </span>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                          onClick={() =>
-                            setConfig((prev) => ({
-                              ...prev,
-                              providers: prev.providers.filter((item) => item.id !== provider.id),
-                            }))
-                          }
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </Button>
+                        <IconTip label={t("common.delete")}>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                            onClick={() =>
+                              setConfig((prev) => ({
+                                ...prev,
+                                providers: prev.providers.filter((item) => item.id !== provider.id),
+                              }))
+                            }
+                            aria-label={t("common.delete")}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </IconTip>
                       </div>
                     </div>
 
@@ -829,6 +834,10 @@ export default function ExternalMemoryProvidersConfig() {
                         <Switch
                           checked={provider.enabled}
                           onCheckedChange={(enabled) => patchProvider(provider.id, { enabled })}
+                          aria-label={t(
+                            "settings.memoryExternalProviderEnabled",
+                            "Provider enabled",
+                          )}
                         />
                         {t("settings.memoryExternalProviderEnabled", "Provider enabled")}
                       </label>
@@ -839,6 +848,10 @@ export default function ExternalMemoryProvidersConfig() {
                             onCheckedChange={(endpointConfigured) =>
                               patchProvider(provider.id, { endpointConfigured })
                             }
+                            aria-label={t(
+                              "settings.memoryExternalProviderEndpointConfigured",
+                              "Endpoint configured outside Hope Agent",
+                            )}
                           />
                           {t(
                             "settings.memoryExternalProviderEndpointConfigured",
