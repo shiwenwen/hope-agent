@@ -543,7 +543,8 @@ mod tests {
         let agents_md = root.path().join(PROJECT_INSTRUCTIONS_FILE);
         assert!(agents_md.is_file());
         assert_eq!(std::fs::read_to_string(agents_md).unwrap(), "");
-        assert_eq!(project.working_dir.as_deref(), root.path().to_str());
+        let canonical_root = std::fs::canonicalize(root.path()).unwrap();
+        assert_eq!(project.working_dir.as_deref(), canonical_root.to_str());
     }
 
     #[test]
