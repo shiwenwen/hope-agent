@@ -124,6 +124,7 @@ Workflow 顶层状态采用 durable snapshot 派生，不直接照搬 `workflow_
 - Domain Task Workbench 不因 Workflow Mode 开启而自动变红；它只反映真实 artifact / connector / quality guard 状态。
 - Goal / Workflow / Loop Watchdog 只表示“需要确认或恢复入口可见”，默认使用 amber，不自动等同失败；只有对应控制面明确 failed/blocked/danger 时才升级红色。
 - Incognito 下 durable 控制面 section 必须 fail closed 或只显示不可用说明，不落持久化数据。
+- Dashboard “目标与执行”的 attention 项可通过 `ChatFocusTarget.controlTarget` 深链到工作台：Goal 滚到 Goal section；Workflow 滚到 Workflow section 并展开目标 run；Loop 滚到 Loop section 并打开目标 schedule；Task 类回到 Progress。Plan review 不走 Workspace，直接打开既有 Plan 面板。深链只负责导航，不改变任何控制面状态。
 
 颜色语义：
 

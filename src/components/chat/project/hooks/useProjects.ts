@@ -15,6 +15,7 @@ import { logger } from "@/lib/logger"
 import type {
   CreateProjectInput,
   Project,
+  ProjectInstructionsDraft,
   ProjectMeta,
   UpdateProjectInput,
 } from "@/types/project"
@@ -26,8 +27,15 @@ export interface UseProjectsReturn {
   initialLoading: boolean
   error: string | null
   reloadProjects: () => Promise<void>
-  createProject: (input: CreateProjectInput) => Promise<Project | null>
-  updateProject: (id: string, patch: UpdateProjectInput) => Promise<Project | null>
+  createProject: (
+    input: CreateProjectInput,
+    instructions: ProjectInstructionsDraft,
+  ) => Promise<Project | null>
+  updateProject: (
+    id: string,
+    patch: UpdateProjectInput,
+    instructions?: ProjectInstructionsDraft,
+  ) => Promise<Project | null>
   deleteProject: (id: string) => Promise<boolean>
   archiveProject: (id: string, archived: boolean) => Promise<Project | null>
   reorderProjects: (projectIds: string[]) => Promise<void>
@@ -37,10 +45,10 @@ export interface UseProjectsReturn {
 export function useProjects(
   options: {
     includeArchived?: boolean
-    /** Currently-open session id, read at fetch time and forwarded to the
+    /** Actually-readable session id, read at fetch time and forwarded to the
      *  backend so its unread is excluded from the owning project's badge. The
-     *  caller is responsible for calling `reloadProjects` when it changes (the
-     *  ref avoids re-creating the hook's callbacks on every session switch). */
+     *  caller is responsible for reloading when readability changes (the ref
+     *  avoids re-creating callbacks on every focus/scroll transition). */
     activeSessionIdRef?: MutableRefObject<string | null>
   } = {},
 ): UseProjectsReturn {
@@ -116,33 +124,39 @@ export function useProjects(
   }, [reloadProjects])
 
   const createProject = useCallback(
-    async (input: CreateProjectInput): Promise<Project | null> => {
+    async (
+      input: CreateProjectInput,
+      instructions: ProjectInstructionsDraft,
+    ): Promise<Project | null> => {
       try {
         const created = await getTransport().call<Project>("create_project_cmd", {
           input,
+          instructions,
         })
         await reloadProjects()
         return created
       } catch (e) {
         logger.warn("chat", "useProjects", "createProject failed", e)
-        return null
+        throw e
       }
     },
     [reloadProjects],
   )
 
   const updateProject = useCallback(
-    async (id: string, patch: UpdateProjectInput): Promise<Project | null> => {
+    async (
+      id: string,
+      patch: UpdateProjectInput,
+      instructions?: ProjectInstructionsDraft,
+    ): Promise<Project | null> => {
       try {
-        const updated = await getTransport().call<Project>("update_project_cmd", {
-          id,
-          patch,
-        })
+        const args = instructions ? { id, patch, instructions } : { id, patch }
+        const updated = await getTransport().call<Project>("update_project_cmd", args)
         await reloadProjects()
         return updated
       } catch (e) {
         logger.warn("chat", "useProjects", "updateProject failed", e)
-        return null
+        throw e
       }
     },
     [reloadProjects],
@@ -155,8 +169,7 @@ export function useProjects(
           "delete_project_cmd",
           { id },
         )
-        const ok =
-          typeof result === "boolean" ? result : Boolean(result?.deleted ?? true)
+        const ok = typeof result === "boolean" ? result : Boolean(result?.deleted ?? true)
         await reloadProjects()
         return ok
       } catch (e) {

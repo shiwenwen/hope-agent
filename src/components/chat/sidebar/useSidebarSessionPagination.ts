@@ -22,6 +22,9 @@ interface UseSidebarSessionPaginationParams {
   enabled: boolean
   /** The global recent page is only a change signal; it is never rendered here. */
   refreshSignal: SessionMeta[]
+  /** Rare reveal path with the backend-computed position in sidebar order. */
+  ensureSessionId?: string | null
+  ensureSessionOffset?: number | null
 }
 
 export function useSidebarSessionPagination({
@@ -29,6 +32,8 @@ export function useSidebarSessionPagination({
   currentSessionId,
   enabled,
   refreshSignal,
+  ensureSessionId,
+  ensureSessionOffset,
 }: UseSidebarSessionPaginationParams) {
   const [sessionsByFilter, setSessionsByFilter] = useState<SessionsByFilter>(emptySessions)
   const [totalsByFilter, setTotalsByFilter] = useState<NumberByFilter>(emptyNumbers)
@@ -58,7 +63,7 @@ export function useSidebarSessionPagination({
     try {
       const pages = await Promise.all(
         FILTERS.map(async (filter) => {
-          const [rows, total] = await getTransport().call<[SessionMeta[], number]>(
+          let [rows, total] = await getTransport().call<[SessionMeta[], number]>(
             "list_sessions_cmd",
             sidebarSessionPageArgs(
               filter,
@@ -68,6 +73,33 @@ export function useSidebarSessionPagination({
               activeSessionIdRef.current,
             ),
           )
+
+          // A second click may target a row outside the first page. The backend
+          // returns its exact visual-order offset, so one prefix request replaces
+          // a sequential page-by-page scan while preserving a contiguous list.
+          if (
+            filter === "session" &&
+            ensureSessionId &&
+            !rows.some((session) => session.id === ensureSessionId) &&
+            rows.length < total
+          ) {
+            const requiredLimit = Math.min(
+              total,
+              Math.max(SESSION_PAGE_SIZE, Math.floor(ensureSessionOffset ?? 0) + 1),
+            )
+            if (requiredLimit > rows.length) {
+              ;[rows, total] = await getTransport().call<[SessionMeta[], number]>(
+                "list_sessions_cmd",
+                sidebarSessionPageArgs(
+                  filter,
+                  selectedAgentId,
+                  0,
+                  requiredLimit,
+                  activeSessionIdRef.current,
+                ),
+              )
+            }
+          }
           return {
             filter,
             rows: filterSessionsForSidebarTab(rows, filter, selectedAgentId),
@@ -101,7 +133,7 @@ export function useSidebarSessionPagination({
     } finally {
       if (generation === generationRef.current) setLoading(false)
     }
-  }, [enabled, selectedAgentId])
+  }, [enabled, ensureSessionId, ensureSessionOffset, selectedAgentId])
 
   useEffect(() => {
     void reload()

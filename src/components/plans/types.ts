@@ -22,6 +22,7 @@ export interface PlanIndexEntry {
   sessionUpdatedAt: string | null
   versionCount: number
   executingStartedAt: string | null
+  completedAt: string | null
   orphan: boolean
 }
 

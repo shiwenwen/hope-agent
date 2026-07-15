@@ -40,9 +40,15 @@ import {
   User,
   CheckCheck,
   ScrollText,
+  PackageOpen,
 } from "lucide-react"
 import { useTheme } from "@/hooks/useTheme"
-import { SUPPORTED_LANGUAGES, isFollowingSystem, setFollowSystemLanguage, setLanguage } from "@/i18n/i18n"
+import {
+  SUPPORTED_LANGUAGES,
+  isFollowingSystem,
+  setFollowSystemLanguage,
+  setLanguage,
+} from "@/i18n/i18n"
 
 interface IconSidebarProps {
   view:
@@ -59,6 +65,7 @@ interface IconSidebarProps {
     | "plans"
     | "knowledge"
     | "design"
+    | "artifacts"
   onOpenSettings: (section?: SettingsSection) => void
   onOpenChat: () => void
   onOpenAgents: () => void
@@ -72,6 +79,7 @@ interface IconSidebarProps {
   onOpenPlans: () => void
   onOpenKnowledge: () => void
   onOpenDesign: () => void
+  onOpenArtifacts: () => void
   userAvatar?: string | null
   totalUnreadCount?: number
   onMarkAllRead?: () => void
@@ -92,6 +100,7 @@ export default function IconSidebar({
   onOpenPlans,
   onOpenKnowledge,
   onOpenDesign,
+  onOpenArtifacts,
   userAvatar,
   totalUnreadCount,
   onMarkAllRead,
@@ -104,6 +113,14 @@ export default function IconSidebar({
   const skillDraftBadgeLabel = skillDraftCount > 99 ? "99+" : String(skillDraftCount)
   const { cronUnreadCount } = useCronUnreadStore()
   const cronUnreadBadgeLabel = cronUnreadCount > 99 ? "99+" : String(cronUnreadCount)
+  const regularUnreadBadgeLabel =
+    (totalUnreadCount ?? 0) > 99 ? "99+" : String(totalUnreadCount ?? 0)
+  const conversationsAriaLabel =
+    (totalUnreadCount ?? 0) > 0
+      ? `${t("chat.conversations")}: ${t("chat.unreadConversationCount", {
+          count: totalUnreadCount,
+        })}`
+      : t("chat.conversations")
 
   return (
     <div className="w-[76px] shrink-0 border-r border-border-soft bg-surface-sidebar flex flex-col items-center">
@@ -138,12 +155,18 @@ export default function IconSidebar({
                     : "text-muted-foreground hover:text-foreground",
                 )}
                 onClick={onOpenChat}
+                aria-label={conversationsAriaLabel}
               >
                 <MessageSquare className="h-4 w-4" />
               </Button>
             </IconTip>
             {!!totalUnreadCount && totalUnreadCount > 0 && (
-              <span className="absolute -top-0.5 -right-0.5 z-10 w-2.5 h-2.5 rounded-full bg-destructive border-2 border-background pointer-events-none animate-in zoom-in-0 duration-200" />
+              <span
+                aria-hidden="true"
+                className="pointer-events-none absolute -right-1.5 -top-1 z-10 inline-flex h-[15px] min-w-[15px] items-center justify-center rounded-full border border-background bg-destructive px-1 text-[9px] font-bold leading-none text-white tabular-nums animate-in zoom-in-0 duration-200"
+              >
+                {regularUnreadBadgeLabel}
+              </span>
             )}
           </div>
             </ContextMenuTrigger>
@@ -197,6 +220,24 @@ export default function IconSidebar({
                 onClick={onOpenDesign}
               >
                 <Palette className="h-4 w-4" />
+              </Button>
+            </IconTip>
+          </div>
+          {/* Artifacts entry — grouped directly under Knowledge Space */}
+          <div className="w-full flex justify-center">
+            <IconTip label={t("artifacts.title", "Artifacts")} side="right">
+              <Button
+                variant="ghost"
+                size="icon"
+                className={cn(
+                  "rounded-xl h-8 w-8",
+                  view === "artifacts"
+                    ? "bg-primary/10 text-primary hover:bg-primary/20"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+                onClick={onOpenArtifacts}
+              >
+                <PackageOpen className="h-4 w-4" />
               </Button>
             </IconTip>
           </div>

@@ -44,7 +44,9 @@ export function listenNotificationConfigChange(): () => void {
       if (payload?.category === "notification") {
         loadNotificationConfig().catch(() => {})
       }
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   })
 }
 
@@ -104,6 +106,30 @@ export function isAgentNotifyEnabled(agentNotify: boolean | null | undefined): b
 // checks don't pay an IPC roundtrip on every alert.
 let isWindowFocused = true
 let focusTrackingStarted = false
+const focusListeners = new Set<(focused: boolean) => void>()
+
+function updateWindowFocus(focused: boolean) {
+  if (isWindowFocused === focused) return
+  isWindowFocused = focused
+  focusListeners.forEach((listener) => listener(focused))
+}
+
+/** Synchronous snapshot shared by notifications and read-state decisions. */
+export function isAppWindowFocused(): boolean {
+  return isWindowFocused
+}
+
+/**
+ * Subscribe to the native/browser window focus signal. The listener receives
+ * the current snapshot immediately; document visibility remains a separate
+ * concern because a focused webview can still live under a hidden app view.
+ */
+export function subscribeAppWindowFocus(listener: (focused: boolean) => void): () => void {
+  focusListeners.add(listener)
+  listener(isWindowFocused)
+  void initFocusTracking().catch(() => {})
+  return () => focusListeners.delete(listener)
+}
 
 /**
  * Start tracking the main window focus state. App-level singleton: safe
@@ -120,23 +146,23 @@ let focusTrackingStarted = false
 export async function initFocusTracking(): Promise<void> {
   if (focusTrackingStarted) return
   focusTrackingStarted = true
-  isWindowFocused = typeof document !== "undefined" ? document.hasFocus() : true
+  updateWindowFocus(typeof document !== "undefined" ? document.hasFocus() : true)
 
   if (isTauriMode()) {
     const win = getCurrentWindow()
-    isWindowFocused = await win.isFocused()
+    updateWindowFocus(await win.isFocused())
     await win.onFocusChanged(({ payload }) => {
-      isWindowFocused = payload
+      updateWindowFocus(payload)
     })
     return
   }
 
   if (typeof window !== "undefined") {
     window.addEventListener("focus", () => {
-      isWindowFocused = true
+      updateWindowFocus(true)
     })
     window.addEventListener("blur", () => {
-      isWindowFocused = false
+      updateWindowFocus(false)
     })
   }
 }

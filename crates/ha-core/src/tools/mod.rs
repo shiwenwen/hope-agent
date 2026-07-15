@@ -5,6 +5,7 @@ mod agents;
 mod app_update;
 mod apply_patch;
 pub(crate) mod approval;
+mod artifact;
 pub(crate) mod ask_user_question;
 pub mod audio_generate;
 pub(crate) mod browser;
@@ -70,8 +71,8 @@ pub use approval::{
     ApprovalResolutionSource, ApprovalResponse, ApprovalSubmitError, EVENT_APPROVAL_RESOLVED,
 };
 pub use definitions::{
-    get_ask_user_question_tool, get_available_tools, get_canvas_tool, get_core_tools,
-    get_core_tools_for_provider, get_deferred_tools, get_enter_plan_mode_tool,
+    get_artifact_tool, get_ask_user_question_tool, get_available_tools, get_canvas_tool,
+    get_core_tools, get_core_tools_for_provider, get_deferred_tools, get_enter_plan_mode_tool,
     get_image_generate_tool_dynamic, get_notification_tool, get_subagent_tool,
     get_submit_plan_tool, get_tool_search_tool, get_tools_for_provider, get_web_search_tool,
     get_workflow_tool, is_async_capable, is_concurrent_safe, is_internal_tool, CoreSubclass,
@@ -182,6 +183,7 @@ pub const TOOL_IMAGE_GENERATE: &str = "image_generate";
 pub const TOOL_ISSUE_REPORT: &str = "issue_report";
 pub const TOOL_PDF: &str = "pdf";
 pub const TOOL_CANVAS: &str = "canvas";
+pub const TOOL_ARTIFACT: &str = "artifact";
 pub const TOOL_DESIGN: &str = "design";
 pub const TOOL_ACP_SPAWN: &str = "acp_spawn";
 pub const TOOL_GET_WEATHER: &str = "get_weather";

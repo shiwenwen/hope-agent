@@ -1,4 +1,16 @@
 {
+  "agentLifecycle": {
+    "activeWorkBlocked": "仍有 {{count}} 個 Agent 工作正在執行，暫時無法刪除。",
+    "deleteDescription": "路由引用會移轉到替代 Agent；歷史對話與結構化記憶會保留，Agent 檔案會移入可復原的回收站。",
+    "deleteTitle": "安全刪除 Agent",
+    "disabled": "已停用",
+    "enabled": "已啟用",
+    "history": "歷史對話",
+    "memories": "保留的記憶",
+    "replacement": "替代 Agent",
+    "retentionNotice": "操作前會建立設定備份。Agent 設定、Home 與 Plan 只會移入回收站，不會立即永久清除。",
+    "routes": "路由引用"
+  },
   "about": {
     "badge": "面向日常使用的桌面 AI 助手",
     "closing": "它不是為了堆功能清單而設計，而是為了在長時間使用裡依然順手、可靠、不過度打擾。",
@@ -111,6 +123,10 @@
         "title": "進階瀏覽器 CDP 命令",
         "body": "這次瀏覽器操作會向真實 Chrome 分頁傳送原始 Chrome DevTools Protocol 命令。它走正常工具審批流；始終允許、Smart 模式和 YOLO 都按目前會話策略生效。"
       },
+      "external_connector_action": {
+        "title": "外部連接器動作",
+        "body": "這次呼叫會修改外部系統中的郵件、日曆、文件、試算表或業務紀錄。必須逐次確認，不能使用始終允許。"
+      },
       "browser_download_action": {
         "title": "瀏覽器下載操作",
         "body": "這次瀏覽器操作會讀取或中斷 Chrome 下載活動。它走正常工具審批流；始終允許、Smart 模式和 YOLO 都按目前會話策略生效。"
@@ -126,10 +142,6 @@
       "browser_chrome_access": {
         "title": "真實 Chrome 存取",
         "body": "這次瀏覽器操作會透過擴充功能讀取或控制使用者真實 Chrome 狀態。它走正常工具審批流；始終允許、Smart 模式和 YOLO 都按目前會話策略生效。"
-      },
-      "external_connector_action": {
-        "title": "外部連接器動作",
-        "body": "這次呼叫會修改外部系統中的郵件、日曆、文件、試算表或業務紀錄。必須逐次確認，不能使用始終允許。"
       }
     },
     "title": "Command Approval Required",
@@ -157,17 +169,17 @@
     "maximize": "最大化",
     "minimize": "還原",
     "openPreview": "打開預覽",
-    "shareTo": "分享到",
     "popOut": "獨立窗口",
     "popOutActive": "已在獨立窗口中打開",
     "reattach": "收回到面板",
     "refresh": "刷新",
     "snapshot": "截圖",
     "versions": "版本歷史",
-    "panelTitle": "帆布",
+    "panelTitle": "畫布",
     "resizePanel": "調整畫布面板大小",
     "notReadyError": "畫布面板未開啟或 iframe 未載入",
-    "detachedWindowTitle": "畫布：{{title}}"
+    "detachedWindowTitle": "畫布：{{title}}",
+    "shareTo": "分享到"
   },
   "channels": {
     "accountLabel": "賬戶名稱",
@@ -324,6 +336,18 @@
   "chat": {
     "addWorkingDirectory": "添加工作目錄",
     "askAnything": "告訴我你的想法，@ 找檔案/筆記/技能，# 快捷輸入，/ 快捷指令...",
+    "goalCompletion": {
+      "completed": "已達成目標",
+      "completedWithDuration": "已在 {{time}} 內達成目標",
+      "tokens": "{{tokens}} tokens"
+    },
+    "fork": {
+      "continueInNewSession": "在新會話中繼續",
+      "continuedFrom": "接續自",
+      "created": "已在新會話中繼續",
+      "failed": "無法在新會話中繼續",
+      "sourceFallback": "原會話"
+    },
     "browserPanel": {
       "backendBadgeTooltip": "瀏覽器後端：{{backend}}",
       "captureFailed": "截圖失敗，等待下一幀",
@@ -402,6 +426,12 @@
     "sidebarDetailedMode": "切換到普通模式",
     "copied": "已複制",
     "copy": "複制",
+    "messageQuote": {
+      "addToChat": "新增至對話",
+      "assistantMessage": "助理訊息",
+      "remove": "移除引用",
+      "yourMessage": "你的訊息"
+    },
     "quickPrompts": {
       "addAction": "加入快捷輸入",
       "addFailed": "加入快捷輸入失敗",
@@ -413,6 +443,8 @@
     },
     "cronTaskStarted": "定時器觸發了一個任務",
     "cronTrigger": "定時任務",
+    "loopTriggered": "已觸發一次推進",
+    "loopTrigger": "持續推進",
     "wakeupResumed": "已喚醒繼續",
     "wakeupTrigger": "定時喚醒",
     "daysAgo": "{{count}}天前",
@@ -522,244 +554,6 @@
     "pendingInteractionHint": "等待您的回應",
     "pendingInteractionInline": "等待回應 · {{count}} 項",
     "pendingQueued": "消息已排隊，等待回複完成後發送...",
-    "permissionMode": {
-      "applyToAgentDefault": {
-        "desc": "開啟後，選擇模式會同時更新此 Agent 的新對話預設權限。",
-        "failed": "更新此 Agent 預設權限模式失敗",
-        "label": "同時更新 Agent 預設"
-      },
-      "default": {
-        "desc": "編輯類工具與高危命令需要審批，其餘直接放行",
-        "label": "預設權限"
-      },
-      "menuLabel": "權限模式",
-      "smart": {
-        "desc": "由模型自評或獨立判官模型決定是否需要審批",
-        "label": "智慧審批"
-      },
-      "yolo": {
-        "desc": "本會話內所有工具直接執行（保護路徑仍記稽核日誌）",
-        "label": "完全放行"
-      }
-    },
-    "sandboxMode": {
-      "isolated": {
-        "desc": "隔離副本試跑，編輯審批不放鬆",
-        "label": "Isolated Sandbox"
-      },
-      "menuLabel": "沙箱",
-      "off": {
-        "desc": "Run on the host; approval behavior is unchanged.",
-        "label": "Sandbox Off"
-      },
-      "setupTitle": "Configure Docker to enable sandbox",
-      "standard": {
-        "desc": "Run in Docker; approval behavior is unchanged.",
-        "label": "Standard Sandbox"
-      },
-      "trusted": {
-        "desc": "沙箱內 exec 最大自治，嚴格風險仍審批",
-        "label": "Trusted Sandbox"
-      },
-      "workspace": {
-        "desc": "掛載目前工作區，減少編輯命令審批",
-        "label": "Workspace Sandbox"
-      }
-    },
-    "pickSession": "選擇工作階段",
-    "profileRotationTitle": "設定切換",
-    "queueMessage": "排隊發送",
-    "reasonAuth": "認證失敗",
-    "reasonBilling": "賬戶余額不足",
-    "reasonContextOverflow": "上下文超限",
-    "reasonModelNotFound": "模型不存在",
-    "reasonOverloaded": "服務過載",
-    "reasonRateLimit": "請求頻率超限",
-    "reasonTimeout": "請求超時",
-    "reasonUnknown": "未知錯誤",
-    "renameSession": "重命名",
-    "renameSessionPlaceholder": "輸入新標題...",
-    "revealInFolder": "打開所在文件夾",
-    "roundLimitReachedBody": "本輪已用滿 {{count}} 輪工具調用，任務可能尚未完成。點擊下方按鈕發送「繼續」，我會接著當前進度繼續推進；也可以在 設定 → Agent → 能力 中調高 `max_tool_rounds`。",
-    "roundLimitReachedBodyNoCount": "本輪工具調用輪次已用滿。點擊下方按鈕發送「繼續」，我會接著當前進度繼續推進。",
-    "roundLimitReachedTitle": "已達工具調用上限",
-    "roundLimitResumeButton": "繼續",
-    "roundLimitResumeMessage": "繼續",
-    "scrollToBottom": "回到底部",
-    "searchPlaceholder": "搜索會話...",
-    "searchTruncatedHint": "已顯示前 {{count}} 條匹配，請細化關鍵詞查看更多。",
-    "searching": "搜索中...",
-    "selectModel": "選擇模型",
-    "send": "發送",
-    "sessionSearch": "在目前會話中搜尋",
-    "sessionSearchClose": "關閉",
-    "sessionSearchCount": "{{current}}/{{total}}",
-    "sessionSearchNext": "下一個",
-    "sessionSearchNoResults": "目前會話無符合項目",
-    "sessionSearchPlaceholder": "搜尋目前會話訊息…",
-    "sessionSearchPrev": "上一個",
-    "sessionStatus": "會話狀態",
-    "settings": "設置",
-    "startConversation": "開始對話",
-    "statusAgent": "Agent",
-    "statusAuth": "認證",
-    "statusCache": "緩存",
-    "statusCacheHit": "命中",
-    "statusCacheWrite": "寫入",
-    "statusContext": "上下文",
-    "statusCumulative": "累計",
-    "statusMessages": "{{count}} 條消息",
-    "statusModel": "模型",
-    "statusNewSession": "(新會話)",
-    "statusSession": "會話",
-    "statusSessionId": "會話 ID",
-    "statusThinking": "思考模式",
-    "statusUpdated": "更新時間",
-    "stopReply": "停止回複",
-    "subagentFrom": "由 {{agent}} 指派",
-    "subagentResultCompleted": "已完成",
-    "systemPrompt": "系統提示詞",
-    "taskActions": {
-      "cycleTo": {
-        "completed": "標記為已完成",
-        "in_progress": "標記為進行中",
-        "pending": "標記為待辦"
-      },
-      "delete": "刪除任務"
-    },
-    "taskNoneYet": "暫無任務",
-    "taskProgress": "已完成 {{completed}}/{{total}}",
-    "tasks": "任務",
-    "thinking": "執行中...",
-    "thinkingAutoDisabled": "{{provider}} / {{model}} 不支援目前的 Think 模式，已自動關閉思考並重試本次請求。",
-    "visionAutoDisabled": "{{provider}} / {{model}} 不支援圖片輸入，已忽略圖片繼續回覆。",
-    "toolCalling": "工具調用中...",
-    "totalTokens": "總計",
-    "unknownProvider": "未知 Provider",
-    "untitledSession": "未命名會話",
-    "viewContext": "查看上下文",
-    "viewModeBubble": "切換到氣泡視圖",
-    "viewModeTimeline": "切換到任務視圖",
-    "viewSystemPrompt": "查看系統提示詞",
-    "weeksAgo": "{{count}}周前",
-    "workingDir": {
-      "browserDescription": "路徑將在執行 Agent 的伺服器上解析。",
-      "browserTitle": "選擇伺服器上的目錄",
-      "change": "更換目錄",
-      "clear": "清除目錄",
-      "current": "工作目錄",
-      "empty": "此目錄為空",
-      "fileLabel": "檔案",
-      "invalid": "工作目錄無效",
-      "loadError": "無法列出目錄",
-      "loading": "載入中……",
-      "parent": "返回上一層",
-      "pathPlaceholder": "絕對路徑，例如 /srv/projects/app",
-      "select": "設定工作目錄",
-      "selectCurrent": "選擇此目錄",
-      "selectPreset": "開始對話後即可設定工作目錄",
-      "titleBarInherited": "繼承自專案",
-      "titleBarSession": "目前工作目錄",
-      "truncated": "僅顯示前若干條——該目錄條目過多，瀏覽器無法全部展示。",
-      "goToPath": "跳轉到路徑"
-    },
-    "taskProgressRunning": "正在執行 {{completed}}/{{total}}",
-    "taskProgressCancelling": "停止中 {{completed}}/{{total}}",
-    "taskProgressWaiting": "等待繼續 {{completed}}/{{total}}",
-    "taskProgressFailed": "執行失敗 {{completed}}/{{total}}",
-    "exportSession": {
-      "menuItem": "匯出對話",
-      "dialogTitle": "匯出對話",
-      "dialogHint": "選擇匯出格式,並勾選需要包含的內容。",
-      "formatLabel": "格式",
-      "formatMarkdown": "Markdown",
-      "formatJson": "JSON",
-      "formatHtml": "HTML",
-      "contentLabel": "包含內容",
-      "includeTools": "包含工具呼叫",
-      "includeToolsHint": "工具參數、執行結果與檔案變更。",
-      "includeThinking": "包含思考過程",
-      "includeThinkingHint": "模型在每輪回覆前的推理過程。",
-      "exportButton": "匯出",
-      "exporting": "匯出中…",
-      "exported": "已匯出",
-      "failedShort": "失敗",
-      "savedTo": "已匯出至 {{path}}",
-      "downloaded": "已下載 {{filename}}",
-      "failed": "匯出失敗。"
-    },
-    "skillMention": {
-      "heading": "技能",
-      "labels": {
-        "docx": "Word 文件",
-        "pptx": "PPT 簡報",
-        "xlsx": "Excel 試算表",
-        "browser": "瀏覽器控制",
-        "mac": "Mac 控制"
-      }
-    },
-    "reasoningDisabledHint": "此模型未啟用推理。如需調整推理深度,請在「設定 → 模型服務商」中編輯該模型並開啟「支援推理/思考」。",
-    "browserExtensionNudge": {
-      "installTitle": "讓 AI 操作你已登入的 Chrome",
-      "installBody": "安裝 Hope Agent 擴充功能即可操作你已登入的 Chrome;目前正使用隔離瀏覽器執行。",
-      "reloadTitle": "請重新載入 Chrome 擴充功能",
-      "reloadBody": "已安裝的擴充功能與宿主版本不符,重新載入即可恢復對真實 Chrome 的控制。",
-      "openSettings": "前往設定",
-      "dismiss": "不再顯示"
-    },
-    "browserExtensionRequired": {
-      "nextAction": "下一步行動：{{nextAction}}",
-      "openSettings": "開啟“設定”>“瀏覽器”以安裝或啟用擴充功能。",
-      "title": "需要 Chrome 擴充功能"
-    },
-    "conversationEmpty": "此對話中沒有消息",
-    "pendingCancelForceInsert": "取消本輪插入",
-    "pendingFallbackAfterReply": "回覆後發送",
-    "pendingFallbackAfterReplyTip": "尚未遇到工具完成點，將在當前回覆結束後發送。",
-    "pendingForceInsertTip": "它將等待正在執行的刀具完成，然後將其插入到模型中，而不中斷當前的刀具。",
-    "pendingInserted": "插入",
-    "pendingInsertedTip": "本輪加工完成後已將其插入模型中。",
-    "pendingQueuedShort": "排隊",
-    "pendingQueuedTip": "已加入等待佇列，當前回覆結束後發送。",
-    "pendingQueueTitle": "待發送",
-    "pendingWaitingToolBoundary": "等待工具完成點",
-    "pendingWaitingToolBoundaryTip": "等待最新的工具呼叫完成；如果本輪不再呼叫該工具，則會在回覆完成後發送。",
-    "processNotification": "行程結束",
-    "rightPanel": {
-      "collapse": "折疊右側面板",
-      "expand": "展開右側面板",
-      "switch": "切換右側面板",
-      "dock": "右側面板停駐列",
-      "openPanel": "開啟{{panel}}",
-      "switchToPanel": "切換至{{panel}}",
-      "collapsePanel": "收合{{panel}}",
-      "expandPanel": "展開{{panel}}",
-      "workflowActiveCount": "{{count}} 個作用中的工作流程",
-      "workflowAttentionCount": "{{count}} 個工作流程需要處理",
-      "backgroundRunningCount": "{{count}} 個背景任務正在執行"
-    },
-    "visionBridgeEngaged": "主模型不支援看圖，已用 {{model}} 轉述圖片內容。",
-    "visionBridgeUnavailable": "視覺模型轉述圖片失敗，已忽略該圖片。",
-    "goalCompletion": {
-      "completed": "已達成目標",
-      "completedWithDuration": "已在 {{time}} 內達成目標",
-      "tokens": "{{tokens}} tokens"
-    },
-    "fork": {
-      "continueInNewSession": "在新會話中繼續",
-      "continuedFrom": "接續自",
-      "created": "已在新會話中繼續",
-      "failed": "無法在新會話中繼續",
-      "sourceFallback": "原會話"
-    },
-    "messageQuote": {
-      "addToChat": "新增至對話",
-      "assistantMessage": "助理訊息",
-      "remove": "移除引用",
-      "yourMessage": "你的訊息"
-    },
-    "loopTriggered": "已觸發一次推進",
-    "loopTrigger": "持續推進",
     "goalMode": {
       "label": "目標",
       "enter": "目標模式：建立一個讓模型持續推進直到完成的目標",
@@ -880,12 +674,216 @@
       "title": "這則訊息看起來適合工作流",
       "ultracodeDescription": "開啟後模型會更偏向深度編排、交叉驗證和長任務恢復。"
     },
+    "permissionMode": {
+      "applyToAgentDefault": {
+        "desc": "開啟後，選擇模式會同時更新此 Agent 的新對話預設權限。",
+        "failed": "更新此 Agent 預設權限模式失敗",
+        "label": "同時更新 Agent 預設"
+      },
+      "default": {
+        "desc": "編輯類工具與高危命令需要審批，其餘直接放行",
+        "label": "預設權限"
+      },
+      "menuLabel": "權限模式",
+      "smart": {
+        "desc": "由模型自評或獨立判官模型決定是否需要審批",
+        "label": "智慧審批"
+      },
+      "yolo": {
+        "desc": "本會話內所有工具直接執行（保護路徑仍記稽核日誌）",
+        "label": "完全放行"
+      }
+    },
+    "sandboxMode": {
+      "isolated": {
+        "desc": "隔離副本試跑，編輯審批不放鬆",
+        "label": "Isolated Sandbox"
+      },
+      "menuLabel": "沙箱",
+      "off": {
+        "desc": "Run on the host; approval behavior is unchanged.",
+        "label": "Sandbox Off"
+      },
+      "setupTitle": "Configure Docker to enable sandbox",
+      "standard": {
+        "desc": "Run in Docker; approval behavior is unchanged.",
+        "label": "Standard Sandbox"
+      },
+      "trusted": {
+        "desc": "沙箱內 exec 最大自治，嚴格風險仍審批",
+        "label": "Trusted Sandbox"
+      },
+      "workspace": {
+        "desc": "掛載目前工作區，減少編輯命令審批",
+        "label": "Workspace Sandbox"
+      }
+    },
+    "pickSession": "選擇工作階段",
+    "profileRotationTitle": "設定切換",
+    "queueMessage": "排隊發送",
+    "reasonAuth": "認證失敗",
+    "reasonBilling": "賬戶余額不足",
+    "reasonContextOverflow": "上下文超限",
+    "reasonModelNotFound": "模型不存在",
+    "reasonOverloaded": "服務過載",
+    "reasonRateLimit": "請求頻率超限",
+    "reasonTimeout": "請求超時",
+    "reasonUnknown": "未知錯誤",
+    "renameSession": "重命名",
+    "renameSessionPlaceholder": "輸入新標題...",
+    "revealInFolder": "打開所在文件夾",
+    "roundLimitReachedBody": "本輪已用滿 {{count}} 輪工具調用，任務可能尚未完成。點擊下方按鈕發送「繼續」，我會接著當前進度繼續推進；也可以在 設定 → Agent → 能力 中調高 `max_tool_rounds`。",
+    "roundLimitReachedBodyNoCount": "本輪工具調用輪次已用滿。點擊下方按鈕發送「繼續」，我會接著當前進度繼續推進。",
+    "roundLimitReachedTitle": "已達工具調用上限",
+    "roundLimitResumeButton": "繼續",
+    "roundLimitResumeMessage": "繼續",
+    "scrollToBottom": "回到底部",
+    "searchPlaceholder": "搜索會話...",
+    "searchTruncatedHint": "已顯示前 {{count}} 條匹配，請細化關鍵詞查看更多。",
+    "searching": "搜索中...",
+    "selectModel": "選擇模型",
+    "send": "發送",
+    "sessionSearch": "在目前會話中搜尋",
+    "sessionSearchClose": "關閉",
+    "sessionSearchCount": "{{current}}/{{total}}",
+    "sessionSearchNext": "下一個",
+    "sessionSearchNoResults": "目前會話無符合項目",
+    "sessionSearchPlaceholder": "搜尋目前會話訊息…",
+    "sessionSearchPrev": "上一個",
+    "sessionStatus": "會話狀態",
+    "memoryPolicy": {
+      "title": "本對話記憶",
+      "use": "使用既有記憶",
+      "contribute": "從本對話學習",
+      "inherit": "跟隨全域",
+      "allow": "開啟",
+      "deny": "關閉",
+      "desc": "兩項互相獨立：可使用舊記憶，但不讓本對話產生新記憶。",
+      "incognito": "無痕對話永遠不讀取也不寫入長期記憶。",
+      "reloadCore": "為本對話重新載入 MEMORY.md"
+    },
+    "settings": "設置",
+    "startConversation": "開始對話",
+    "statusAgent": "Agent",
+    "statusAuth": "認證",
+    "statusCache": "緩存",
+    "statusCacheHit": "命中",
+    "statusCacheWrite": "寫入",
+    "statusContext": "上下文",
+    "statusCumulative": "累計",
+    "statusMessages": "{{count}} 條消息",
+    "statusModel": "模型",
+    "statusNewSession": "(新會話)",
+    "statusSession": "會話",
+    "statusSessionId": "會話 ID",
+    "statusThinking": "思考模式",
+    "statusUpdated": "更新時間",
+    "stopReply": "停止回複",
+    "subagentFrom": "由 {{agent}} 指派",
+    "subagentResultCompleted": "已完成",
     "workflowResultName": "工作流程",
     "workflowResultCheckpoint": "已收到階段結果",
     "workflowResultCompleted": "已完成",
     "workflowResultCancelled": "已取消",
     "workflowResultWaiting": "等待繼續",
     "workflowResultFailed": "需處理",
+    "systemPrompt": "系統提示詞",
+    "taskActions": {
+      "cycleTo": {
+        "completed": "標記為已完成",
+        "in_progress": "標記為進行中",
+        "pending": "標記為待辦"
+      },
+      "delete": "刪除任務"
+    },
+    "taskNoneYet": "暫無任務",
+    "taskProgress": "已完成 {{completed}}/{{total}}",
+    "tasks": "任務",
+    "thinking": "執行中...",
+    "thinkingAutoDisabled": "{{provider}} / {{model}} 不支援目前的 Think 模式，已自動關閉思考並重試本次請求。",
+    "visionAutoDisabled": "{{provider}} / {{model}} 不支援圖片輸入，已忽略圖片繼續回覆。",
+    "toolCalling": "工具調用中...",
+    "totalTokens": "總計",
+    "unknownProvider": "未知 Provider",
+    "untitledSession": "未命名會話",
+    "viewContext": "查看上下文",
+    "viewModeBubble": "切換到氣泡視圖",
+    "viewModeTimeline": "切換到任務視圖",
+    "viewSystemPrompt": "查看系統提示詞",
+    "weeksAgo": "{{count}}周前",
+    "workingDir": {
+      "browserDescription": "路徑將在執行 Agent 的伺服器上解析。",
+      "browserTitle": "選擇伺服器上的目錄",
+      "change": "更換目錄",
+      "clear": "清除目錄",
+      "current": "工作目錄",
+      "empty": "此目錄為空",
+      "fileLabel": "檔案",
+      "goToPath": "跳轉到路徑",
+      "invalid": "工作目錄無效",
+      "loadError": "無法列出目錄",
+      "loading": "載入中……",
+      "parent": "返回上一層",
+      "pathPlaceholder": "絕對路徑，例如 /srv/projects/app",
+      "select": "設定工作目錄",
+      "selectCurrent": "選擇此目錄",
+      "selectPreset": "開始對話後即可設定工作目錄",
+      "titleBarInherited": "繼承自專案",
+      "titleBarSession": "目前工作目錄",
+      "truncated": "僅顯示前若干條——該目錄條目過多，瀏覽器無法全部展示。"
+    },
+    "taskProgressRunning": "正在執行 {{completed}}/{{total}}",
+    "taskProgressCancelling": "停止中 {{completed}}/{{total}}",
+    "taskProgressWaiting": "等待繼續 {{completed}}/{{total}}",
+    "taskProgressFailed": "執行失敗 {{completed}}/{{total}}",
+    "exportSession": {
+      "menuItem": "匯出對話",
+      "dialogTitle": "匯出對話",
+      "dialogHint": "選擇匯出格式,並勾選需要包含的內容。",
+      "formatLabel": "格式",
+      "formatMarkdown": "Markdown",
+      "formatJson": "JSON",
+      "formatHtml": "HTML",
+      "contentLabel": "包含內容",
+      "includeTools": "包含工具呼叫",
+      "includeToolsHint": "工具參數、執行結果與檔案變更。",
+      "includeThinking": "包含思考過程",
+      "includeThinkingHint": "模型在每輪回覆前的推理過程。",
+      "exportButton": "匯出",
+      "exporting": "匯出中…",
+      "exported": "已匯出",
+      "failedShort": "失敗",
+      "savedTo": "已匯出至 {{path}}",
+      "downloaded": "已下載 {{filename}}",
+      "failed": "匯出失敗。"
+    },
+    "skillMention": {
+      "heading": "技能",
+      "labels": {
+        "docx": "Word 文件",
+        "pptx": "PPT 簡報",
+        "xlsx": "Excel 試算表",
+        "browser": "瀏覽器控制",
+        "mac": "Mac 控制",
+        "dataAnalytics": "資料分析"
+      }
+    },
+    "reasoningDisabledHint": "此模型未啟用推理。如需調整推理深度,請在「設定 → 模型服務商」中編輯該模型並開啟「支援推理/思考」。",
+    "browserExtensionNudge": {
+      "installTitle": "讓 AI 操作你已登入的 Chrome",
+      "installBody": "安裝 Hope Agent 擴充功能即可操作你已登入的 Chrome;目前正使用隔離瀏覽器執行。",
+      "reloadTitle": "請重新載入 Chrome 擴充功能",
+      "reloadBody": "已安裝的擴充功能與宿主版本不符,重新載入即可恢復對真實 Chrome 的控制。",
+      "openSettings": "前往設定",
+      "dismiss": "不再顯示"
+    },
+    "browserExtensionRequired": {
+      "nextAction": "下一步行動：{{nextAction}}",
+      "openSettings": "開啟“設定”>“瀏覽器”以安裝或啟用擴充功能。",
+      "title": "需要 Chrome 擴充功能"
+    },
+    "conversationEmpty": "此對話中沒有消息",
+    "pendingCancelForceInsert": "取消本輪插入",
     "pendingSaving": "正在儲存",
     "pendingSavingTip": "正在把訊息和附件儲存到可恢復佇列。",
     "pendingInserting": "正在插入",
@@ -893,6 +891,32 @@
     "pendingDispatching": "正在傳送",
     "pendingDispatchingTip": "正在從持久佇列建立新的對話回合。",
     "pendingSendNow": "立即傳送",
+    "pendingFallbackAfterReply": "回覆後發送",
+    "pendingFallbackAfterReplyTip": "尚未遇到工具完成點，將在當前回覆結束後發送。",
+    "pendingForceInsertTip": "它將等待正在執行的刀具完成，然後將其插入到模型中，而不中斷當前的刀具。",
+    "pendingInserted": "插入",
+    "pendingInsertedTip": "本輪加工完成後已將其插入模型中。",
+    "pendingQueuedShort": "排隊",
+    "pendingQueuedTip": "已加入等待佇列，當前回覆結束後發送。",
+    "pendingQueueTitle": "待發送",
+    "pendingWaitingToolBoundary": "等待工具完成點",
+    "pendingWaitingToolBoundaryTip": "等待最新的工具呼叫完成；如果本輪不再呼叫該工具，則會在回覆完成後發送。",
+    "processNotification": "行程結束",
+    "rightPanel": {
+      "collapse": "折疊右側面板",
+      "expand": "展開右側面板",
+      "switch": "切換右側面板",
+      "dock": "右側面板停駐列",
+      "openPanel": "開啟{{panel}}",
+      "switchToPanel": "切換至{{panel}}",
+      "collapsePanel": "收合{{panel}}",
+      "expandPanel": "展開{{panel}}",
+      "workflowActiveCount": "{{count}} 個作用中的工作流程",
+      "workflowAttentionCount": "{{count}} 個工作流程需要處理",
+      "backgroundRunningCount": "{{count}} 個背景任務正在執行"
+    },
+    "visionBridgeEngaged": "主模型不支援看圖，已用 {{model}} 轉述圖片內容。",
+    "visionBridgeUnavailable": "視覺模型轉述圖片失敗，已忽略該圖片。",
     "loadingSession": "正在載入會話…",
     "goalSlash": {
       "showActive": "查看目前目標",
@@ -944,6 +968,10 @@
       "quickEditEmpty": "記憶內容不能為空。",
       "quickEditSaved": "記憶已更新。",
       "quickEditSaveFailed": "無法儲存這條記憶。",
+      "promoteToCore": "永久記住這條",
+      "promoteToCoreFailed": "無法將這項內容加入核心記憶。",
+      "promotedToCore": "已永久記住",
+      "promotedToCoreToast": "已加入常駐核心記憶。",
       "kind": {
         "claim": "結構化記憶",
         "episode": "經驗",
@@ -972,6 +1000,7 @@
       },
       "layerReason": {
         "agentConfigError": "Agent 記憶設定不可用",
+        "budgetEmpty": "召回預算為空",
         "disabled": "設定關閉",
         "emptyQuery": "空查詢",
         "incognito": "無痕會話",
@@ -982,14 +1011,13 @@
         "noGraphNeighbors": "無相關實體關係",
         "noHits": "無命中",
         "noSession": "無會話上下文",
-        "retrievalError": "檢索失敗",
-        "sideQueryError": "召回失敗",
-        "timeout": "逾時",
-        "budgetEmpty": "召回預算為空",
         "nonContextualTurn": "不需要上下文的對話",
         "recallOff": "自動動態召回已關閉",
         "retrievalBusy": "召回服務忙碌中",
+        "retrievalError": "檢索失敗",
         "sessionPolicy": "已被記憶或對話政策關閉",
+        "sideQueryError": "召回失敗",
+        "timeout": "逾時",
         "unifiedRecall": "已由快速召回處理",
         "unknown": "其他原因"
       },
@@ -1064,11 +1092,7 @@
       "more": "還有 {{count}} 條長期上下文未展開顯示。",
       "sources": "記憶來源",
       "editMemory": "編輯這條記憶",
-      "copyTrace": "复制诊断",
-      "promoteToCore": "永久記住這條",
-      "promoteToCoreFailed": "無法將這項內容加入核心記憶。",
-      "promotedToCore": "已永久記住",
-      "promotedToCoreToast": "已加入常駐核心記憶。"
+      "copyTrace": "复制诊断"
     },
     "projectWelcomeTitle": "我們應該在 <project>{{project}}</project> 中建構什麼？說出你的想法",
     "projectWelcomeSuggestions": {
@@ -1141,17 +1165,9 @@
     "openSourceConversationMissingHint": "這條記憶來源指向的對話可能已被刪除，或目前找不到。",
     "openSourceMessageMissing": "來源訊息已不可用",
     "openSourceMessageMissingHint": "對話仍然存在，但找不到這條記憶來源對應的確切訊息。",
-    "memoryPolicy": {
-      "title": "本對話記憶",
-      "use": "使用既有記憶",
-      "contribute": "從本對話學習",
-      "inherit": "跟隨全域",
-      "allow": "開啟",
-      "deny": "關閉",
-      "desc": "兩項互相獨立：可使用舊記憶，但不讓本對話產生新記憶。",
-      "incognito": "無痕對話永遠不讀取也不寫入長期記憶。",
-      "reloadCore": "為本對話重新載入 MEMORY.md"
-    }
+    "unreadConversationCount": "{{count}} 個未讀會話",
+    "unreadStatus": "未讀",
+    "channelUnreadStatus": "IM 會話未讀"
   },
   "codexAuth": {
     "expiredDescription": "你的 Codex OAuth 認證令牌已失效，請重新登錄以繼續使用。",
@@ -1159,7 +1175,6 @@
     "reauth": "重新登錄"
   },
   "common": {
-    "download": "下載",
     "add": "添加",
     "back": "返回",
     "cancel": "取消",
@@ -1196,12 +1211,9 @@
     "expand": "展開",
     "retry": "重試",
     "unavailable": "不可用",
-    "duplicate": "建立副本",
-    "more": "更多",
     "copy": "複製",
-    "copied": "已複製",
-    "apply": "套用",
     "auto": "自動",
+    "copied": "已複製",
     "yes": "是",
     "no": "否",
     "none": "無",
@@ -1209,17 +1221,32 @@
     "off": "關閉",
     "error": "錯誤",
     "showLess": "折疊顯示",
-    "modelNoVision": "不支援圖片"
+    "download": "下載",
+    "duplicate": "建立副本",
+    "more": "更多",
+    "apply": "套用",
+    "modelNoVision": "不支援圖片",
+    "next": "下一页",
+    "previous": "上一页"
   },
   "context": {
     "ago": "前",
+    "cacheRead": "快取讀取",
     "cacheTtlProtection": "緩存 TTL 保護",
+    "cacheWindowNotice": "快取命中只會減少重複運算、成本與首 Token 延遲，不會減少上下文視窗占用。",
+    "cacheWrite": "快取寫入",
     "compactAllowedIn": "下次壓縮",
+    "coreMemoryBudget": "Core Memory 預算",
+    "coreMemoryModelLimited": "已針對目前模型暫時裁剪",
+    "dynamicPrompt": "動態提示",
+    "estimated": "估算",
     "estimateNote": "每輪結束後以 Provider 實際用量為準；此前顯示按真實請求形態計算的保守估算。",
     "freeSpace": "剩余空間",
+    "freshInput": "新增輸入",
     "lastCompact": "上次壓縮",
     "memory": "記憶",
     "messages": "消息",
+    "providerInput": "Provider 輸入",
     "reservedOutput": "預留輸出",
     "skills": "技能",
     "systemPrompt": "系統提示詞",
@@ -1227,16 +1254,7 @@
     "toolDescriptions": "工具說明",
     "toolSchemas": "工具 Schema",
     "used": "已用",
-    "viewSystemPrompt": "系統提示詞",
-    "cacheRead": "快取讀取",
-    "cacheWindowNotice": "快取命中只會減少重複運算、成本與首 Token 延遲，不會減少上下文視窗占用。",
-    "cacheWrite": "快取寫入",
-    "coreMemoryBudget": "Core Memory 預算",
-    "coreMemoryModelLimited": "已針對目前模型暫時裁剪",
-    "dynamicPrompt": "動態提示",
-    "estimated": "估算",
-    "freshInput": "新增輸入",
-    "providerInput": "Provider 輸入"
+    "viewSystemPrompt": "系統提示詞"
   },
   "cron": {
     "active": "運行中",
@@ -1426,8 +1444,8 @@
         "cron": "定時觸發",
         "idle": "閒置觸發",
         "manual": "手動觸發",
-        "user_correction": "糾錯",
-        "review_snapshot": "審核記錄"
+        "review_snapshot": "審核記錄",
+        "user_correction": "糾錯"
       },
       "runs": {
         "title": "運行歷史",
@@ -1449,9 +1467,46 @@
       "resolving": "整理中…",
       "resolverDone": "深度整理完成:{{expired}} 過期,{{merged}} 合併,{{review}} 待審核",
       "resolverFailed": "深度整理失敗",
+      "resolverPreflightTitle": "深度整理預檢",
+      "resolverPreflightSummary": "{{active}} 條 active 記憶 · {{expired}} 條過期候選 · {{groups}} 個衝突候選組",
+      "resolverPreflightBlocked": "深度整理已阻塞：{{reasons}}",
+      "resolverPreflightLlm": "{{count}}/{{total}} 個候選組將呼叫 LLM · 上限 {{cap}}",
+      "resolverPreflightNoLlm": "預計不會呼叫 LLM 分組。",
+      "resolverPreflightTruncated": "下一次執行會繼續處理。",
+      "resolverPreflightUnavailable": "預檢不可用。",
+      "resolverPreflightRefresh": "重新整理計畫",
+      "resolverPreflightReasons": {
+        "dreamingDisabled": "Dreaming 已關閉",
+        "longTermMemoryDisabled": "記憶學習已關閉",
+        "manualDisabled": "手動執行已關閉",
+        "claimLoadFailed": "結構化記憶不可用"
+      },
+      "errors": {
+        "loadDiaries": "載入 Dreaming 日記失敗",
+        "loadRuns": "載入 Dreaming 運行歷史失敗",
+        "loadRunDetail": "載入 Dreaming 運行詳情失敗",
+        "loadDiary": "開啟 Dreaming 日記失敗",
+        "loadEvidenceQuote": "載入證據摘錄失敗",
+        "runNow": "執行 Dreaming 失敗",
+        "runResolver": "深度整理失敗",
+        "resolverPreflight": "載入深度整理預檢失敗",
+        "detail": "詳細資訊：{{error}}"
+      },
       "review": {
         "queueTitle": "待審核",
         "queueEmpty": "沒有待審核的記憶斷言",
+        "errors": {
+          "loadQueue": "載入待審核佇列失敗",
+          "approve": "核准記憶失敗",
+          "markOutdated": "標記記憶過時失敗",
+          "pin": "釘選記憶失敗",
+          "unpin": "取消釘選記憶失敗",
+          "edit": "編輯記憶失敗",
+          "moveScope": "移動記憶作用域失敗",
+          "reject": "駁回記憶失敗",
+          "forget": "忘記記憶失敗",
+          "detail": "詳細資訊：{{error}}"
+        },
         "approve": "核准",
         "approveDone": "已核准",
         "markOutdated": "標記過時",
@@ -1490,44 +1545,7 @@
         "forgetNotePlaceholder": "可選原因",
         "forgetConfirm": "忘記",
         "forgetDone": "已忘記",
-        "failed": "操作失敗",
-        "errors": {
-          "loadQueue": "載入待審核佇列失敗",
-          "approve": "核准記憶失敗",
-          "markOutdated": "標記記憶過時失敗",
-          "pin": "釘選記憶失敗",
-          "unpin": "取消釘選記憶失敗",
-          "edit": "編輯記憶失敗",
-          "moveScope": "移動記憶作用域失敗",
-          "reject": "駁回記憶失敗",
-          "forget": "忘記記憶失敗",
-          "detail": "詳細資訊：{{error}}"
-        }
-      },
-      "resolverPreflightTitle": "深度整理預檢",
-      "resolverPreflightSummary": "{{active}} 條 active 記憶 · {{expired}} 條過期候選 · {{groups}} 個衝突候選組",
-      "resolverPreflightBlocked": "深度整理已阻塞：{{reasons}}",
-      "resolverPreflightLlm": "{{count}}/{{total}} 個候選組將呼叫 LLM · 上限 {{cap}}",
-      "resolverPreflightNoLlm": "預計不會呼叫 LLM 分組。",
-      "resolverPreflightTruncated": "下一次執行會繼續處理。",
-      "resolverPreflightUnavailable": "預檢不可用。",
-      "resolverPreflightRefresh": "重新整理計畫",
-      "resolverPreflightReasons": {
-        "dreamingDisabled": "Dreaming 已關閉",
-        "longTermMemoryDisabled": "記憶學習已關閉",
-        "manualDisabled": "手動執行已關閉",
-        "claimLoadFailed": "結構化記憶不可用"
-      },
-      "errors": {
-        "loadDiaries": "載入 Dreaming 日記失敗",
-        "loadRuns": "載入 Dreaming 運行歷史失敗",
-        "loadRunDetail": "載入 Dreaming 運行詳情失敗",
-        "loadDiary": "開啟 Dreaming 日記失敗",
-        "loadEvidenceQuote": "載入證據摘錄失敗",
-        "runNow": "執行 Dreaming 失敗",
-        "runResolver": "深度整理失敗",
-        "resolverPreflight": "載入深度整理預檢失敗",
-        "detail": "詳細資訊：{{error}}"
+        "failed": "操作失敗"
       }
     },
     "error": {
@@ -1886,17 +1904,17 @@
       "ttftTrend": "首 Token 耗時趨勢 (TTFT)",
       "inputTokens": "輸入令牌",
       "outputTokens": "輸出代幣",
-      "byDomain": "依用途分佈",
-      "byOperation": "依操作細分",
-      "operation": "操作",
-      "domain": "用途",
       "byType": "依類型統計",
       "type": "類型",
       "calls": "呼叫次數",
       "cacheWrite": "快取寫入",
       "cacheRead": "快取讀取",
       "avgDuration": "平均耗時",
-      "tokensUnit": "Token"
+      "tokensUnit": "Token",
+      "byDomain": "依用途分佈",
+      "byOperation": "依操作細分",
+      "operation": "操作",
+      "domain": "用途"
     },
     "tool": {
       "avgDuration": "平均耗時",
@@ -1994,6 +2012,106 @@
     },
     "columns": {
       "session": "會話"
+    },
+    "controlPlane": {
+      "title": "目標與執行",
+      "automationTab": "自動化",
+      "scopeHint": "時間窗指標看結果，目前快照看積壓與風險。",
+      "allProjects": "全部專案",
+      "unassignedProject": "未分配",
+      "archived": "已封存",
+      "empty": "所選範圍內暫無資料。",
+      "sections": {
+        "overview": "概覽",
+        "planTask": "Plan 與 Task"
+      },
+      "metrics": {
+        "goalAcceptance": "Goal 达成率",
+        "workflowCompletion": "Workflow 完成率",
+        "loopStrongProgress": "Loop 强推进率",
+        "taskCompletion": "Task cohort 完成率",
+        "attention": "当前需处理",
+        "requiredCriteria": "必要标准通过率",
+        "goalP50": "Goal 达成耗时 P50",
+        "opFailure": "Op 失败率",
+        "workflowP50": "Workflow 执行耗时 P50",
+        "goalBinding": "Goal 绑定率",
+        "approvalTrigger": "审批触发率",
+        "noProgress": "无进展率",
+        "blockedSchedules": "当前阻塞调度",
+        "loopP50": "Loop run 耗时 P50",
+        "currentBacklog": "当前 backlog",
+        "activePlans": "当前活跃",
+        "cohortCompletion": "Cohort 完成率"
+      },
+      "currentSnapshot": "目前快照",
+      "goalTrend": "Goal 結果趨勢",
+      "resolved": "已终局",
+      "accepted": "已接受",
+      "attentionTitle": "目前需處理項",
+      "noAttention": "目前沒有需處理項",
+      "auditSamples": "已稽核 {{count}} 個 Goal",
+      "currentStates": "目前狀態",
+      "closureOutcomes": "終局取捨",
+      "domains": "領域分佈",
+      "kinds": "類型分佈",
+      "origins": "來源分佈",
+      "workflowTrend": "已决 Workflow 趋势",
+      "decidedRuns": "已决 run",
+      "progressStates": "推进分类",
+      "triggerKinds": "觸發類型",
+      "strategies": "執行策略",
+      "loopTrend": "可评估 Loop 趋势",
+      "evaluatedRuns": "可评估 run",
+      "openPlanHistory": "查看 Plan 歷史",
+      "planByAgent": "Plan 的 Agent 分佈",
+      "planByProject": "Plan 的專案分佈",
+      "noFunnelHint": "Task 和 Plan 暫無可靠的 Goal / Workflow / Loop 歸因外鍵，因此本頁不會按工作階段關係推斷因果漏斗。",
+      "noExactSamples": "暫無精確耗時樣本",
+      "coverage": "精確樣本 {{samples}} / {{eligible}}（{{percent}}%）",
+      "coverageShort": "精確耗時覆蓋：{{samples}} / {{eligible}}",
+      "creationTrend": "建立趨勢",
+      "created": "新增",
+      "attentionKinds": {
+        "goal": "Goal",
+        "workflow": "Workflow",
+        "loop": "Loop",
+        "plan": "Plan"
+      },
+      "attentionReasons": {
+        "needs_strict_evidence": "需要嚴格證據",
+        "goal_awaiting_closure": "Goal 等待關閉",
+        "workflow_requires_attention": "Workflow 需要處理",
+        "consecutive_no_progress": "連續無進展",
+        "loop_requires_attention": "Loop 需要處理",
+        "plan_awaiting_review": "Plan 等待審核"
+      },
+      "states": {
+        "active": "进行中",
+        "paused": "已暂停",
+        "evaluating": "评估中",
+        "completed": "已完成",
+        "failed": "失败",
+        "cancelled": "已取消",
+        "blocked": "已阻塞",
+        "planning": "规划中",
+        "review": "待审核",
+        "executing": "执行中",
+        "off": "已归档",
+        "awaiting_approval": "等待审批",
+        "awaiting_user": "等待用户",
+        "running": "运行中",
+        "recovering": "恢复中",
+        "draft": "草稿",
+        "pending": "待处理",
+        "in_progress": "进行中",
+        "progressed": "有效推进",
+        "weak_progress": "弱推进",
+        "no_progress": "无进展",
+        "accepted_v1": "接受 V1",
+        "superseded": "已取代",
+        "unassigned": "未分配"
+      }
     }
   },
   "fileActions": {
@@ -2098,10 +2216,10 @@
       "staged": "Staged",
       "stagedScope": "Staged",
       "stale": "The repository changed. The diff was refreshed; review it again.",
-      "prReviewComments": "PR Review 評論 · {{count}}",
       "unstage": "Unstage",
       "unstaged": "Unstaged",
-      "unstagedScope": "Unstaged"
+      "unstagedScope": "Unstaged",
+      "prReviewComments": "PR Review 評論 · {{count}}"
     }
   },
   "effort": {
@@ -2537,10 +2655,10 @@
     "reasoning": "支持推理/思考",
     "reasoningHint": "開啟後,可在聊天介面輸入框上方的模型選單中選擇推理深度(低 / 中 / 高),並在每次請求時自動注入。",
     "supportedInputTypes": "支持的輸入類型",
-    "text": "文本",
-    "video": "視頻",
     "supportsImageMultimodal": "支援圖片多模態",
-    "supportsVideoMultimodal": "支援影片多模態"
+    "supportsVideoMultimodal": "支援影片多模態",
+    "text": "文本",
+    "video": "視頻"
   },
   "notification": {
     "cronCancelled": "定時任務已取消",
@@ -2939,6 +3057,29 @@
     "addProject": "新增專案",
     "archiveProject": "封存專案",
     "archivedProjects": "已封存專案",
+    "autoMemory": {
+      "content": "詳細內容（Markdown）",
+      "deleteConfirm": "確認刪除這條專案自動記憶？",
+      "description": "MEMORY.md 的簡短索引會穩定注入專案對話；具體主題只在相關時按需讀取。內容只保存在本機。",
+      "editorHint": "專案指令用於固定規則；這裡記錄模型工作時累積的專案經驗，不應視為權威指令。",
+      "editorTitle": "專案自動記憶",
+      "empty": "尚無自動記憶主題。",
+      "fileNameGenerated": "儲存時自動產生檔名",
+      "name": "標題",
+      "newTopic": "新增主題",
+      "rebuildIndex": "重新產生 MEMORY.md 索引",
+      "rebuildFailed": "無法重新產生 MEMORY.md 索引。",
+      "summary": "索引摘要",
+      "summaryHint": "這句話會進入每次專案對話的穩定提示詞，請保持簡短。",
+      "type": "類型",
+      "types": {
+        "feedback": "工作習慣回饋",
+        "project": "專案進展",
+        "reference": "參考資料",
+        "user": "使用者背景"
+      },
+      "emptyPreview": "暫無 Markdown 詳細內容。切換到編輯模式即可新增。"
+    },
     "createFirstProject": "建立第一個專案",
     "defaultAgent": "預設 Agent",
     "defaultModel": "預設模型",
@@ -2948,6 +3089,10 @@
     },
     "deleteProject": "刪除專案",
     "editProject": "編輯專案",
+    "openFromMemoryLoadFailed": "開啟專案來源失敗",
+    "openFromMemoryLoadFailedDetail": "詳細資訊：{{error}}",
+    "openFromMemoryMissing": "專案已不可用",
+    "openFromMemoryMissingHint": "這條記憶來源指向的專案可能已被刪除，或目前找不到。",
     "files": {
       "confirmDelete": "確定刪除此檔案？",
       "delete": "刪除",
@@ -2977,13 +3122,38 @@
       "recentSessions": "最近對話",
       "totalFiles": "檔案總數",
       "totalMemories": "記憶總數",
-      "totalSessions": "對話總數"
+      "totalSessions": "對話總數",
+      "activeClaims": "已整理記憶",
+      "agentsEmpty": "AGENTS.md 目前為空",
+      "agentsLines": "AGENTS.md",
+      "agentsRole": "專案的權威規則，會套用到每個專案會話。",
+      "agentsStats": "{{lines}} 行 · {{size}}",
+      "autoMemoryRole": "模型維護的本機經驗；索引穩定注入，主題按需讀取。",
+      "autoMemoryStats": "{{count}} 個主題",
+      "autoMemoryTopics": "自動記憶主題",
+      "awaitingResponse": "等待回覆",
+      "contextDescription": "了解模型在這個專案中會使用哪些上下文。",
+      "contextTitle": "專案上下文",
+      "defaultWorkspace": "預設專案工作目錄",
+      "homeDescription": "繼續最近的工作，或管理專案上下文。",
+      "homeTitle": "專案首頁",
+      "linesUnit": "行",
+      "loadFailed": "專案概覽暫時無法載入，請稍後再試。",
+      "messageCount": "{{count}} 則訊息",
+      "noRecentSessions": "還沒有專案會話",
+      "noRecentSessionsHint": "建立會話後，最近工作會顯示在這裡。",
+      "recentSessionsHint": "最近更新的使用者會話",
+      "structuredMemory": "專案記憶",
+      "structuredMemoryRole": "從專案對話中整理出的長期資訊；是否自動用於回答取決於記憶設定。",
+      "unavailable": "暫不可用",
+      "untitledSession": "未命名會話",
+      "workingDirectory": "工作目錄"
     },
     "projectColor": "主題色",
     "projectDescription": "描述",
     "projectDescriptionPlaceholder": "這個專案是做什麼的？",
     "projectInstructions": "專案指令",
-    "projectInstructionsHint": "這些指令會自動加入此專案所有對話的系統提示詞",
+    "projectInstructionsHint": "直接讀寫專案根目錄下的 AGENTS.md；儲存後會自動套用到此專案的所有對話。",
     "projectInstructionsPlaceholder": "例如：始終用繁體中文回覆；語氣清楚親切；先給結論再補充細節",
     "projectLogo": "Logo",
     "projectLogoHint": "可選。圖片會自動縮放為 256×256。",
@@ -2997,6 +3167,7 @@
     "showLess": "摺疊顯示",
     "showMore": "展開顯示",
     "tabFiles": "檔案",
+    "tabAutoMemory": "自動記憶",
     "tabInstructions": "指令",
     "tabMemories": "記憶",
     "tabOverview": "總覽",
@@ -3020,33 +3191,11 @@
       "errorDetail": "詳細資訊：{{error}}"
     },
     "projectEmojiPlaceholder": "可選",
-    "openFromMemoryLoadFailed": "開啟專案來源失敗",
-    "openFromMemoryLoadFailedDetail": "詳細資訊：{{error}}",
-    "openFromMemoryMissing": "專案已不可用",
-    "openFromMemoryMissingHint": "這條記憶來源指向的專案可能已被刪除，或目前找不到。",
-    "autoMemory": {
-      "content": "詳細內容（Markdown）",
-      "deleteConfirm": "確認刪除這條專案自動記憶？",
-      "description": "MEMORY.md 的簡短索引會穩定注入專案對話；具體主題只在相關時按需讀取。內容只保存在本機。",
-      "editorHint": "專案指令用於固定規則；這裡記錄模型工作時累積的專案經驗，不應視為權威指令。",
-      "editorTitle": "專案自動記憶",
-      "empty": "尚無自動記憶主題。",
-      "fileNameGenerated": "儲存時自動產生檔名",
-      "name": "標題",
-      "newTopic": "新增主題",
-      "rebuildIndex": "重新產生 MEMORY.md 索引",
-      "rebuildFailed": "無法重新產生 MEMORY.md 索引。",
-      "summary": "索引摘要",
-      "summaryHint": "這句話會進入每次專案對話的穩定提示詞，請保持簡短。",
-      "type": "類型",
-      "types": {
-        "feedback": "工作習慣回饋",
-        "project": "專案進展",
-        "reference": "參考資料",
-        "user": "使用者背景"
-      }
-    },
-    "tabAutoMemory": "自動記憶"
+    "projectInstructionsLineCount": "{{count}} 行",
+    "resizeSettingsSheet": "拖曳調整專案設定寬度",
+    "projectInstructionsEmptyPreview": "AGENTS.md 是空的。切換到編輯模式即可加入 Markdown 指令。",
+    "projectInstructionsLoadFailed": "無法讀取 AGENTS.md",
+    "projectInstructionsSaveFailed": "無法儲存 AGENTS.md"
   },
   "provider": {
     "addProvider": "添加服務商",
@@ -3496,6 +3645,7 @@
       "judgeExtraPromptPlaceholder": "可選：附加給判官的提示詞（白名單路徑、信任命令等）",
       "judgeModelPlaceholder": "選擇裁判模型",
       "judgeModelTitle": "判官模型設定",
+      "judgeProviderPlaceholder": "Provider ID（如 anthropic-1）",
       "protectedPathsDesc": "命中以下路徑模式時強制審批，不可 AllowAlways 跳過。支援 ~/ 展開、目錄前綴（結尾 /）、萬用字元（*.pem）。",
       "protectedPathsPlaceholder": "如：~/.ssh/、.env、*.pem",
       "protectedPathsTitle": "保護路徑",
@@ -3528,8 +3678,7 @@
       "yoloDesc": "開啟後所有工具直接執行，僅 Plan 模式仍能攔截。保護路徑 / 危險命令命中只記 warn 日誌不再彈審批。",
       "yoloDisabled": "已關閉全域 YOLO",
       "yoloEnabled": "已開啟全域 YOLO",
-      "yoloTitle": "全域 YOLO（跳過所有審批）",
-      "judgeProviderPlaceholder": "Provider ID（如 anthropic-1）"
+      "yoloTitle": "全域 YOLO（跳過所有審批）"
     },
     "approvalTimeout": "工具審批等待超時",
     "approvalTimeoutAction": "審批超時動作",
@@ -3578,6 +3727,8 @@
       "digestMaxChars": "摘要輸出預算（字元）",
       "dynamicEnabled": "每輪刷新 suffix",
       "enabledForSession": "此對話啟用",
+      "extractionAgent": "擷取 Agent ID（可選）",
+      "extractionAgentPlaceholder": "留空則繼承 recap.analysisAgent",
       "includeChannel": "納入 IM 頻道對話",
       "includeCron": "納入定時任務對話",
       "includeSubagents": "納入子 Agent 對話",
@@ -3603,9 +3754,7 @@
       "sessionOverride": "對話層級覆寫",
       "title": "行為感知",
       "extractionModel": "提取模型（選填）",
-      "extractionModelInherit": "複用目前對話 Agent（快取友善）",
-      "extractionAgent": "擷取 Agent ID（可選）",
-      "extractionAgentPlaceholder": "留空則繼承 recap.analysisAgent"
+      "extractionModelInherit": "複用目前對話 Agent（快取友善）"
     },
     "browser": {
       "activeBadge": "使用中",
@@ -3758,7 +3907,16 @@
         "title": "允許 raw CDP?",
         "body": "這會允許 AI 向你的真實 Chrome 傳送任意 DevTools 協定指令。每次呼叫仍需你逐次核准、危險方法仍會被封鎖,但請僅在確有需要時啟用。",
         "continue": "啟用"
-      }
+      },
+      "backupRuntimeHint": "系統 Chrome 目前可用。你也可以安裝 Hope 管理的 Chromium，作為瀏覽器自動化和 Artifact PDF 匯出的備用執行環境。",
+      "backupRuntimeTitle": "備用 Chromium 執行環境",
+      "installRuntimeRetry": "執行環境已就緒，請重試瀏覽器操作或 PDF 匯出。",
+      "openBrowserSettings": "開啟瀏覽器設定",
+      "runtimeInstallUnsupported": "Hope 暫不為目前的作業系統或架構提供受管 Chromium。請手動安裝 Chrome/Chromium，或設定瀏覽器執行檔路徑。",
+      "runtimeRequiredArtifactPdfDescription": "匯出 PDF 需要本機 Chrome 或 Chromium 執行環境，但目前未偵測到可用瀏覽器。",
+      "runtimeRequiredDescription": "此瀏覽器操作需要本機 Chrome 或 Chromium 執行環境，但目前未偵測到可用瀏覽器。",
+      "runtimeRequiredHint": "可以立即安裝 Hope 管理的執行環境（約 150 MB），完成後重新執行操作。",
+      "runtimeRequiredTitle": "需要 Chromium 執行環境"
     },
     "bytes": "位元組",
     "canvas": "畫布",
@@ -3800,39 +3958,6 @@
         "backfillDesc": "回填會把舊的普通記憶登記為記憶斷言，但不會立刻改變目前的記憶注入。置頂的個人資訊和偏好可能自動啟用，其餘會進入待審核。"
       },
       "list": "記憶斷言列表",
-      "empty": "尚無記憶斷言。",
-      "selectClaim": "選擇一條記憶斷言檢視其證據。",
-      "confidence": "信賴度",
-      "salience": "重要度",
-      "evidence": "證據",
-      "noEvidence": "尚無證據。",
-      "links": "關聯記憶",
-      "statusAll": "全部狀態",
-      "status": {
-        "active": "活躍",
-        "superseded": "已取代",
-        "expired": "已過期",
-        "archived": "已封存",
-        "needs_review": "待審核"
-      },
-      "backfill": {
-        "button": "回填歷史記憶",
-        "title": "回填歷史記憶",
-        "desc": "將現有記憶登記為記憶斷言。僅置頂的個人資訊與偏好（user/feedback）自動啟用，其餘進入待審核佇列；以獨立關聯方式登記，不改變目前的記憶注入。",
-        "summaryTotal": "記憶總數",
-        "summaryLinked": "已登記",
-        "summaryCandidates": "待回填",
-        "summaryActive": "自動啟用",
-        "summaryReview": "待審核",
-        "previewTruncated": "顯示 {{shown}} / {{total}} 條",
-        "apply": "回填 {{count}} 條",
-        "applying": "正在回填…",
-        "applied": "已回填 {{created}} 條記憶斷言：{{active}} 條啟用，{{review}} 條待審核",
-        "planFailed": "產生回填預覽失敗",
-        "applyFailed": "回填失敗",
-        "empty": "所有記憶均已納入記憶斷言層。",
-        "appliedPartial": "已回填 {{created}} 條,{{failed}} 條失敗,可重試剩餘項"
-      },
       "searchPlaceholder": "搜尋結構化記憶…",
       "searchMatchedBy": "命中",
       "searchMatch_content": "內容",
@@ -4012,6 +4137,11 @@
         "llm_adjusted": "AI 調整",
         "user_confirmed": "使用者確認"
       },
+      "empty": "尚無記憶斷言。",
+      "selectClaim": "選擇一條記憶斷言檢視其證據。",
+      "confidence": "信賴度",
+      "salience": "重要度",
+      "evidence": "證據",
       "evidenceAll": "全部證據",
       "evidenceSourceAll": "全部來源",
       "evidenceSources": {
@@ -4024,9 +4154,37 @@
         "recap_facet": "階段摘要",
         "manual": "手動糾錯"
       },
+      "noEvidence": "尚無證據。",
+      "links": "關聯記憶",
       "typeAll": "全部類型",
       "typeProfile": "使用者画像與偏好",
       "scopeAll": "全部作用域",
+      "statusAll": "全部狀態",
+      "status": {
+        "active": "活躍",
+        "superseded": "已取代",
+        "expired": "已過期",
+        "archived": "已封存",
+        "needs_review": "待審核"
+      },
+      "backfill": {
+        "button": "回填歷史記憶",
+        "title": "回填歷史記憶",
+        "desc": "將現有記憶登記為記憶斷言。僅置頂的個人資訊與偏好（user/feedback）自動啟用，其餘進入待審核佇列；以獨立關聯方式登記，不改變目前的記憶注入。",
+        "summaryTotal": "記憶總數",
+        "summaryLinked": "已登記",
+        "summaryCandidates": "待回填",
+        "summaryActive": "自動啟用",
+        "summaryReview": "待審核",
+        "previewTruncated": "顯示 {{shown}} / {{total}} 條",
+        "apply": "回填 {{count}} 條",
+        "applying": "正在回填…",
+        "applied": "已回填 {{created}} 條記憶斷言：{{active}} 條啟用，{{review}} 條待審核",
+        "planFailed": "產生回填預覽失敗",
+        "applyFailed": "回填失敗",
+        "empty": "所有記憶均已納入記憶斷言層。",
+        "appliedPartial": "已回填 {{created}} 條,{{failed}} 條失敗,可重試剩餘項"
+      },
       "reviewHistoryTitle": "審核歷史",
       "reviewHistoryDesc": "最近由 Lucid Review 和 Dreaming 記錄的記憶處理決策。",
       "reviewHistoryShow": "展開",
@@ -4201,6 +4359,14 @@
       "cronTriggerEnabledDesc": "按 cron 表達式觸發，與閒置觸發互不影響。",
       "cronTriggerTitle": "排程觸發",
       "desc": "定期掃描最近的記憶，把最有長期價值的條目自動置頂到核心記憶。背景執行，不會阻塞對話。",
+      "errors": {
+        "loadConfig": "載入 Dreaming 設定失敗",
+        "loadModels": "載入 Dreaming 模型列表失敗",
+        "loadStatus": "載入 Dreaming 狀態失敗",
+        "saveConfig": "儲存 Dreaming 設定失敗",
+        "reloadAfterSave": "儲存失敗後重新載入 Dreaming 設定失敗",
+        "detail": "詳細資訊：{{error}}"
+      },
       "idleCountdown": "約 {{minutes}} 分鐘後觸發閒置排程",
       "idleMinutes": "閒置門檻（分鐘）",
       "idleMinutesDesc": "持續多久沒有使用者活動後觸發。",
@@ -4238,14 +4404,6 @@
       "profileEnabledDesc": "從活躍的記憶斷言合成一份可讀的 Profile，依範圍分層。開啟後會取代系統提示詞中舊版的 Profile 區段；關閉則沿用舊版渲染。閒置／排程使用低成本的規則式處理，手動則以 LLM 改寫。",
       "profileMaxLines": "每範圍最大行數",
       "profileMaxLinesDesc": "限制每個範圍最多保留多少條 Profile 要點。",
-      "errors": {
-        "loadConfig": "載入 Dreaming 設定失敗",
-        "loadModels": "載入 Dreaming 模型列表失敗",
-        "loadStatus": "載入 Dreaming 狀態失敗",
-        "saveConfig": "儲存 Dreaming 設定失敗",
-        "reloadAfterSave": "儲存失敗後重新載入 Dreaming 設定失敗",
-        "detail": "詳細資訊：{{error}}"
-      },
       "deepResolverTitle": "深度記憶治理",
       "autoExpireOnLightCycle": "自動讓失效記憶過期",
       "autoExpireOnLightCycleDesc": "在一般 Dreaming 週期中依 valid-until 確定性過期，並寫入可稽核的 Resolver 決策。",
@@ -4317,6 +4475,14 @@
       "editTitle": "Edit embedding model",
       "empty": "No embedding model configs yet. Create one from a template above, or add a custom config.",
       "emptyMemory": "No embedding model config is available yet. Create one first, or use the local embedding quick card.",
+      "errors": {
+        "delete": "無法刪除 Embedding 模型設定",
+        "detail": "詳細資訊：{{error}}",
+        "load": "無法載入 Embedding 模型設定",
+        "save": "無法儲存 Embedding 模型設定",
+        "setDefault": "無法切換預設記憶模型",
+        "test": "Embedding 連線測試失敗"
+      },
       "goConfig": "Configure embedding models",
       "memoryActive": "Default memory model",
       "memoryDefault": "Default memory model",
@@ -4330,15 +4496,7 @@
       "setMemoryDefault": "Set as default memory model",
       "tab": "Embedding Models",
       "testOk": "Embedding connection test passed",
-      "title": "Embedding Model Configs",
-      "errors": {
-        "delete": "無法刪除 Embedding 模型設定",
-        "detail": "詳細資訊：{{error}}",
-        "load": "無法載入 Embedding 模型設定",
-        "save": "無法儲存 Embedding 模型設定",
-        "setDefault": "無法切換預設記憶模型",
-        "test": "Embedding 連線測試失敗"
-      }
+      "title": "Embedding Model Configs"
     },
     "fallbackModels": "降級模型",
     "fallbackModelsDesc": "當主模型不可用時，按順序嘗試以下模型",
@@ -4368,8 +4526,8 @@
       "addHandler": "新增處理器",
       "advanced": "進階",
       "slowHandlerWarning": "此處理器會內聯執行 LLM / 子 Agent，每次該阻斷事件觸發都會拖慢。建議這裡改用 command / http，或移至觀察型事件（如 PostToolUse）。",
-      "modelInheritDefault": "跟隨自動化預設鏈",
-      "invalidJson": "JSON 格式錯誤"
+      "invalidJson": "JSON 格式錯誤",
+      "modelInheritDefault": "跟隨自動化預設鏈"
     },
     "hours": "小時",
     "imageGenApiKey": "API Key",
@@ -4454,6 +4612,15 @@
       "enabledDesc": "為筆記產生向量以支援語義檢索。關閉時筆記檢索僅使用全文比對。",
       "changeModel": "更換模型",
       "activated": "知識空間 embedding 模型已啟用",
+      "errors": {
+        "loadEmbedding": "載入知識向量設定失敗",
+        "activateEmbedding": "啟用知識向量檢索失敗",
+        "disableEmbedding": "關閉知識向量檢索失敗",
+        "rebuildEmbedding": "啟動知識向量重建失敗",
+        "cancelReembed": "取消知識向量重建失敗",
+        "retryReembed": "重試知識向量重建失敗",
+        "detail": "詳細資訊：{{error}}"
+      },
       "reembed": {
         "title": "重建索引",
         "idle": "筆記向量已是最新。",
@@ -4463,15 +4630,6 @@
         "retry": "重試",
         "progress": "{{done}} / {{total}} 個知識空間",
         "phase": "正在重新向量化筆記"
-      },
-      "errors": {
-        "loadEmbedding": "載入知識向量設定失敗",
-        "activateEmbedding": "啟用知識向量檢索失敗",
-        "disableEmbedding": "關閉知識向量檢索失敗",
-        "rebuildEmbedding": "啟動知識向量重建失敗",
-        "cancelReembed": "取消知識向量重建失敗",
-        "retryReembed": "重試知識向量重建失敗",
-        "detail": "詳細資訊：{{error}}"
       }
     },
     "knowledgeMaintenance": {
@@ -4491,6 +4649,12 @@
       "cycleSkipped": "已略過：{{note}}",
       "cycleDone": "已產生 {{n}} 條建議",
       "runFailed": "維護執行失敗",
+      "errors": {
+        "load": "載入自主維護設定失敗",
+        "save": "儲存自主維護設定失敗",
+        "runNow": "執行自主維護失敗",
+        "detail": "詳細資訊：{{error}}"
+      },
       "task": {
         "autoLink": "自動建立連結",
         "orphanRescue": "孤島救援",
@@ -4507,13 +4671,7 @@
       },
       "model": "模型",
       "modelDesc": "4 個基於 LLM 的產生器（自動標籤、MOC 維護、記憶轉筆記、資料衝突）共用此設定。",
-      "modelDefault": "跟隨自動化預設鏈",
-      "errors": {
-        "load": "載入自主維護設定失敗",
-        "save": "儲存自主維護設定失敗",
-        "runNow": "執行自主維護失敗",
-        "detail": "詳細資訊：{{error}}"
-      }
+      "modelDefault": "跟隨自動化預設鏈"
     },
     "knowledgeMediaRetention": {
       "saved": "已儲存",
@@ -4903,33 +5061,13 @@
     "memoryAutoExtract": "自動提取記憶",
     "memoryAutoExtractDesc": "對話過程中當 Token / 時間 / 消息數達到閾值時自動提取記憶",
     "memoryBudget": {
+      "advancedAllocation": "進階作用域分配",
       "agentOverrideDesc": "預設繼承全域記憶預算。關閉下方開關以為當前 Agent 自訂獨立預算。",
+      "contextWindow": "目前預設模型上下文：{{count}} tokens",
+      "coreSimpleDesc": "只需選擇一個 Core Memory 總預算。各作用域可借用未使用額度，優先順序為 Project > Agent > Global。",
       "coreMemoryFileChars": "MEMORY.md 單層上限",
       "coreMemoryFileCharsDesc": "Global / Agent 每個 MEMORY.md 獨立上限。超出的部分截斷顯示,完整內容仍在磁碟。預設 8000。",
       "desc": "限制系統提示詞中記憶區塊(Global MEMORY.md / Agent MEMORY.md / SQLite 記憶 / 使用指南)的總字元數,以及內部各層獨立上限。降低 total 可以讓更多預算留給對話上下文。",
-      "resetToDefaults": "恢復預設值",
-      "sections": {
-        "aboutUser": "關於使用者",
-        "preferences": "偏好",
-        "projectContext": "專案上下文",
-        "references": "參考資料",
-        "userProfile": "使用者畫像"
-      },
-      "sqliteEntryMaxChars": "單條記憶字元上限",
-      "sqliteEntryMaxCharsDesc": "SQLite 記憶條目渲染時的首行字元上限,避免單條長記憶擠占同節其他條目。預設 500。",
-      "sqliteSectionsTitle": "SQLite 各節預算",
-      "title": "記憶預算",
-      "totalChars": "總字元上限",
-      "totalCharsDesc": "整段 Memory 的硬上限(字元)。Guidelines 優先保留,其餘層按優先級依次消費。預設 10000。",
-      "useGlobalDefault": "繼承全域預設",
-      "errors": {
-        "load": "載入記憶預算失敗",
-        "save": "儲存記憶預算失敗",
-        "detail": "詳細資訊：{{error}}"
-      },
-      "advancedAllocation": "進階作用域分配",
-      "contextWindow": "目前預設模型上下文：{{count}} tokens",
-      "coreSimpleDesc": "只需選擇一個 Core Memory 總預算。各作用域可借用未使用額度，優先順序為 Project > Agent > Global。",
       "engine": {
         "agentTokens": "Agent Token",
         "budgetTokens": "預算 Token",
@@ -4949,13 +5087,33 @@
       "legacyTitle": "舊版回滾預算",
       "legacyDesc": "這些字元預算只用於舊版靜態記憶路徑，並在相容期間繼續保留可編輯入口。",
       "effective": "設定 {{configured}} · 本輪有效 {{effective}} tokens",
+      "errors": {
+        "load": "載入記憶預算失敗",
+        "save": "儲存記憶預算失敗",
+        "detail": "詳細資訊：{{error}}"
+      },
+      "resetToDefaults": "恢復預設值",
       "highBudgetWarning": "已超過建議的 2400 tokens。系統允許儲存，但會增加每輪穩定上下文、快取寫入量和首字延遲。",
       "modelLimited": "已設定 {{configured}} tokens；目前模型安全使用 {{effective}}。儲存的偏好不會被改寫。",
       "presets": {
         "balanced": "平衡",
         "concise": "精簡",
         "rich": "豐富"
-      }
+      },
+      "sections": {
+        "aboutUser": "關於使用者",
+        "preferences": "偏好",
+        "projectContext": "專案上下文",
+        "references": "參考資料",
+        "userProfile": "使用者畫像"
+      },
+      "sqliteEntryMaxChars": "單條記憶字元上限",
+      "sqliteEntryMaxCharsDesc": "SQLite 記憶條目渲染時的首行字元上限,避免單條長記憶擠占同節其他條目。預設 500。",
+      "sqliteSectionsTitle": "SQLite 各節預算",
+      "title": "記憶預算",
+      "totalChars": "總字元上限",
+      "totalCharsDesc": "整段 Memory 的硬上限(字元)。Guidelines 優先保留,其餘層按優先級依次消費。預設 10000。",
+      "useGlobalDefault": "繼承全域預設"
     },
     "memoryContent": "內容",
     "memoryContentPlaceholder": "AI 應該記住什麼？",
@@ -5046,8 +5204,89 @@
     "memorySelectionThreshold": "觸發閾值",
     "memorySelectionThresholdDesc": "候選數達到此值才觸發，預設 8",
     "memorySimilarity": "相似度",
+    "agentMemoryEnabledTitle": "此 Agent 使用記憶",
+    "agentMemoryEnabledDesc": "控制此 Agent 的常駐記憶、按需回憶、自動學習與記憶工具；全域記憶設定仍是上層總開關。",
     "memoryStatsTotal": "共 {{count}} 條",
     "memoryStatsVec": "向量 {{pct}}%",
+    "memoryV2": {
+      "title": "記憶",
+      "subtitle": "只需決定長期記住什麼、何時按需回憶，以及是否自動學習。",
+      "loadFailed": "載入記憶設定失敗",
+      "saveFailed": "儲存記憶設定失敗",
+      "core": {
+        "title": "常駐記憶",
+        "desc": "Global、Agent 與專案的簡短 MEMORY.md 會穩定進入對話；主題詳情只在需要時載入。",
+        "budget": "總預算 {{count}} tokens",
+        "manage": "編輯 MEMORY.md",
+        "projectTitle": "專案 MEMORY.md",
+        "projectDesc": "只有目前專案對話會使用的簡短常駐記憶。",
+        "conflict": "規範的大寫檔案與舊版小寫相容檔案都已修改，請先選擇或合併內容。",
+        "conflictCanonical": "規範的大寫 MEMORY.md",
+        "conflictLegacy": "舊版小寫 memory.md",
+        "conflictMerged": "合併結果（以規範檔案為基礎）",
+        "conflictKeepCanonical": "保留 MEMORY.md",
+        "conflictKeepLegacy": "保留舊版檔案",
+        "conflictSaveMerged": "儲存合併結果",
+        "conflictLoadFailed": "無法載入發生衝突的核心記憶檔案",
+        "conflictResolveFailed": "無法解決核心記憶衝突，請重新載入後再試。",
+        "conflictResolved": "核心記憶衝突已解決",
+        "actualTokens": "目前範圍 {{used}} / {{total}} Token",
+        "stats": "{{entries}} 條索引 · {{topics}} 個主題",
+        "updatedAt": "更新於 {{value}}",
+        "neverUpdated": "尚未寫入",
+        "scope": "記憶範圍",
+        "projectLabel": "專案",
+        "topics": "按需主題",
+        "noTopics": "尚無主題檔案",
+        "selectTopic": "選擇主題或建立新主題",
+        "topicName": "主題名稱",
+        "topicDesc": "一句話說明何時讀取",
+        "topicContent": "主題詳情（僅在需要時載入）",
+        "topicLoadFailed": "載入記憶主題失敗",
+        "topicSaveFailed": "儲存記憶主題失敗",
+        "topicDeleteConfirm": "確定刪除這個記憶主題嗎？",
+        "topicDeleteFailed": "刪除記憶主題失敗"
+      },
+      "recall": {
+        "title": "動態記憶召回",
+        "desc": "預設關閉。關閉時，除非某個 Agent 明確啟用了相容召回，否則只會自動使用常駐核心記憶；模型仍可在任務需要時呼叫記憶工具檢索。開啟後，系統會在收到每條使用者訊息後、產生回覆前自動檢索相關動態記憶。",
+        "fast": "自動召回相關記憶",
+        "deep": "深度重排（可選）",
+        "skip": "已略過",
+        "deepCost": "深度重排會增加一次模型呼叫，回覆較慢並消耗更多 token；只在已開啟自動召回且確實需要時使用。",
+        "last": "最近回憶：命中 {{selected}}/{{candidates}} 條 · {{latency}} ms · {{mode}}",
+        "noRecent": "本次啟動後尚未執行自動動態召回。"
+      },
+      "learning": {
+        "title": "自動學習",
+        "desc": "控制對話中的新資訊是否自動保存；使用既有記憶不受此選項影響。",
+        "mode": "學習模式",
+        "smart": "智慧學習",
+        "reviewFirst": "先審核再儲存",
+        "manual": "僅手動儲存",
+        "pending": "待審核 {{count}} 條",
+        "unassigned": "未歸屬 {{count}} 條"
+      },
+      "review": {
+        "title": "待審核記憶",
+        "desc": "{{count}} 條候選尚未進入長期記憶或 Prompt。",
+        "empty": "沒有待審核內容",
+        "chooseScope": "選擇儲存範圍",
+        "approve": "確認儲存",
+        "reject": "不儲存",
+        "loadFailed": "載入待審核記憶失敗",
+        "approveFailed": "儲存待審核記憶失敗",
+        "rejectFailed": "忽略待審核記憶失敗",
+        "reason": {
+          "review_first": "學習模式要求先審核",
+          "project_scope_missing": "像專案記憶，但目前對話沒有專案",
+          "scope_uncertain": "無法確定儲存範圍",
+          "sensitive": "可能包含敏感資訊",
+          "conflict": "與現有記憶衝突",
+          "core_promotion": "建議提升為常駐記憶"
+        }
+      }
+    },
     "memoryTabs": {
       "dreaming": "夢境（Dreaming）",
       "manage": "記憶管理",
@@ -5313,11 +5552,11 @@
       "refreshFailed": "Profile 合成失敗",
       "empty": "尚無 Profile 快照",
       "emptyHint": "在夢境（Dreaming）分頁啟用 Profile 合成，然後重新整理。",
-      "version": "v{{version}}",
       "noSources": "這份舊 Profile 快照尚無可追溯來源。重新整理 Profile 後會產生可點擊的結構化記憶來源。",
       "scopeSources": "快照級來源",
       "sourceConfidence": "可信度 {{value}}",
       "sourceEvidence": "證據：{{quote}}",
+      "version": "v{{version}}",
       "operationErrors": {
         "openEvidenceSource": "開啟 Profile 證據來源失敗",
         "refresh": "Profile 合成失敗",
@@ -5701,8 +5940,8 @@
       "skillCount_one": "{{count}} 個 skill",
       "skillCount_other": "{{count}} 個 skill",
       "tooltip": {
-        "distinguishOnboarding": "若要遷移舊版 OpenClaw 使用者資料，請使用第 2 步『Import OpenClaw』。",
-        "distinguishUserDataImport": "若要遷移舊版 OpenClaw 使用者資料，請前往「設定 → Agents → 從 OpenClaw 匯入」。"
+        "distinguishUserDataImport": "若要遷移舊版 OpenClaw 使用者資料，請前往「設定 → Agents → 從 OpenClaw 匯入」。",
+        "distinguishOnboarding": "若要遷移舊版 OpenClaw 使用者資料，請使用第 2 步『Import OpenClaw』。"
       },
       "warning": {
         "openclaw": "OpenClaw 多數 skill 依賴外部 CLI（gh、1password、tmux 等），未安裝時呼叫會失敗。",
@@ -5755,15 +5994,15 @@
         "memory": "記憶召回",
         "awareness": "跨會話感知"
       },
-      "model": "模型",
-      "modelDesc": "精靈的建議呼叫是即發即棄——使用完整的降級鏈沒問題，不必只給單一模型。",
-      "modelDefault": "跟隨自動化預設鏈",
       "errors": {
         "load": "載入精靈設定失敗",
         "save": "儲存精靈設定失敗",
         "toggle": "更新精靈模式失敗",
         "detail": "詳細資訊：{{error}}"
-      }
+      },
+      "model": "模型",
+      "modelDesc": "精靈的建議呼叫是即發即棄——使用完整的降級鏈沒問題，不必只給單一模型。",
+      "modelDefault": "跟隨自動化預設鏈"
     },
     "ssrfBrowserPolicyDesc": "套用於 page.goto / new_page 的目標 URL。注意：browser.evaluate 中的 JS fetch() 不在此攔截範圍內。",
     "ssrfDefaultPolicy": "預設策略",
@@ -6125,49 +6364,10 @@
     "uiEffects": "背景動畫",
     "uiEffectsDesc": "啟用全天候背景和天氣效果連動",
     "uiEffectsToggle": "開啟效果",
-    "audioGenerate": "音訊生成",
-    "audioGenerateDesc": "設定音訊合成 Provider（BYOK），用於設計空間「音訊」形態：語音旁白 / 音樂 / 音效。依序 failover。",
-    "audioGenNoProvider": "尚未設定音訊 Provider — 啟用其一並填入 API Key。",
-    "audioGenApiKey": "API Key",
-    "audioGenModel": "模型",
-    "audioGenVoice": "語音 (TTS)",
-    "audioGenBaseUrl": "Base URL",
-    "audioGenTimeout": "請求逾時（秒）",
-    "audioGenFetchVoices": "取得語音",
-    "audioGenKnownModels": "已知模型",
-    "audioGenPickVoice": "從清單選擇…",
     "visionBridgeModel": "視覺橋模型",
     "visionBridgeModelDesc": "僅當主模型不支援看圖時生效。用一個單獨的模型把圖片轉成文字描述，讓對話繼續。",
     "visionBridgeModelClear": "關閉視覺橋",
     "selectVisionBridgeModel": "選擇視覺模型",
-    "modelChainRestoreInherit": "恢復為繼承的預設值",
-    "automationModelChain": "自動化預設模型",
-    "automationModelChainDesc": "用於 Recap、Dreaming、資料整理等後台一次性 AI 任務的預設模型鏈（含降級），與上方的聊天預設模型相互獨立；未設定時跟隨聊天預設模型。",
-    "automationModelChainInherit": "跟隨聊天預設模型",
-    "knowledgeVision": {
-      "model": "視覺模型",
-      "modelDesc": "匯入知識空間時用於為圖片做 OCR 的模型鏈。留空則跟隨自動化預設鏈。",
-      "modelDefault": "跟隨自動化預設鏈",
-      "ocrConcurrency": "掃描版 PDF OCR 並發數",
-      "maxOcrPages": "掃描版 PDF OCR 頁數上限"
-    },
-    "noteTools": {
-      "title": "筆記工具模型",
-      "desc": "筆記萃取、MOC 生成、會談轉筆記三個工具共用的模型。",
-      "modelDefault": "跟隨自動化預設鏈"
-    },
-    "recallSummary": {
-      "title": "召回摘要",
-      "desc": "當 recall_memory / session_search 回傳較多命中時，額外呼叫一次 LLM 把它們壓縮成一段簡潔摘要，而非回傳原始片段。預設關閉——每次符合條件的檢索都會多花一次呼叫。",
-      "enabled": "啟用摘要",
-      "minHits": "觸發所需最小命中數",
-      "contextCharBudget": "內容脈絡預算（字元）",
-      "timeoutSecs": "逾時時間（秒）",
-      "maxTokens": "最大輸出 token 數",
-      "includeHistory": "同時摘要對話歷史命中",
-      "model": "模型",
-      "modelDefault": "跟隨自動化預設鏈"
-    },
     "activeMemoryUseRecommended": "使用推薦設定",
     "procedureMemoryTitle": "已儲存流程",
     "procedureMemoryDesc": "在回覆前將相關已儲存流程作為有界軟指引使用。",
@@ -6999,7 +7199,42 @@
     "reasoningEffort": "思考強度",
     "memoryAuditScopeHintAll": "全部變更會同時搜尋長期記憶、流程歷史和結構化記憶決策。",
     "memoryAuditScopeHintMemoryOnly": "具體動作篩選只作用於長期記憶歷史；流程歷史和結構化記憶決策仍歸在全部變更裡。",
+    "modelChainRestoreInherit": "恢復為繼承的預設值",
+    "automationModelChain": "自動化預設模型",
+    "automationModelChainDesc": "用於 Recap、Dreaming、資料整理等後台一次性 AI 任務的預設模型鏈（含降級），與上方的聊天預設模型相互獨立；未設定時跟隨聊天預設模型。",
+    "automationModelChainInherit": "跟隨聊天預設模型",
+    "knowledgeVision": {
+      "model": "視覺模型",
+      "modelDesc": "匯入知識空間時用於為圖片做 OCR 的模型鏈。留空則跟隨自動化預設鏈。",
+      "modelDefault": "跟隨自動化預設鏈",
+      "ocrConcurrency": "掃描版 PDF OCR 並發數",
+      "maxOcrPages": "掃描版 PDF OCR 頁數上限"
+    },
+    "noteTools": {
+      "title": "筆記工具模型",
+      "desc": "筆記萃取、MOC 生成、會談轉筆記三個工具共用的模型。",
+      "modelDefault": "跟隨自動化預設鏈"
+    },
+    "recallSummary": {
+      "title": "召回摘要",
+      "desc": "當 recall_memory / session_search 回傳較多命中時，額外呼叫一次 LLM 把它們壓縮成一段簡潔摘要，而非回傳原始片段。預設關閉——每次符合條件的檢索都會多花一次呼叫。",
+      "enabled": "啟用摘要",
+      "minHits": "觸發所需最小命中數",
+      "contextCharBudget": "內容脈絡預算（字元）",
+      "timeoutSecs": "逾時時間（秒）",
+      "maxTokens": "最大輸出 token 數",
+      "includeHistory": "同時摘要對話歷史命中",
+      "model": "模型",
+      "modelDefault": "跟隨自動化預設鏈"
+    },
     "tabOverview": "總覽",
+    "memoryBackupExportSummary": "記憶：{{memories}} · 聲明：{{claims}} · 使用者設定檔：{{profiles}} · 經歷：{{episodes}} · 工作流程：{{procedures}}",
+    "memoryBackupOpenReviewInboxAfterRestore": "待審核的已還原內容：{{count}}",
+    "memoryExperienceSearchActive": "「{{query}}」的符合結果：{{total}}",
+    "memoryExperienceViewActive": "經歷項目：{{total}}",
+    "memoryExternalProvidersActive": "作用中的提供方：{{active}}/{{total}}",
+    "memoryExternalProvidersActiveSummary": "作用中：{{active}} · 已設定：{{total}}",
+    "memoryProcedureSourceEpisode": "經歷：{{id}}",
     "memoryExternalProviders": "外部記憶提供方",
     "memoryExternalProvidersDesc": "可選的加法式外部記憶提供方。本機記憶仍是真相來源；只有你明確設定並啟用後才會連線。",
     "memoryExternalProvidersGlobal": "啟用提供方同步",
@@ -7116,94 +7351,17 @@
     "memoryProcedureStepsPlaceholder": "- 檢查失敗的檢查項\n- 套用已知修復\n- 重新執行窄範圍驗證",
     "memoryProcedureConstraintsPlaceholder": "什麼時候不應使用此流程",
     "memoryProcedureConfidence": "可信度",
-    "agentMemoryEnabledTitle": "此 Agent 使用記憶",
-    "agentMemoryEnabledDesc": "控制此 Agent 的常駐記憶、按需回憶、自動學習與記憶工具；全域記憶設定仍是上層總開關。",
-    "memoryV2": {
-      "title": "記憶",
-      "subtitle": "只需決定長期記住什麼、何時按需回憶，以及是否自動學習。",
-      "loadFailed": "載入記憶設定失敗",
-      "saveFailed": "儲存記憶設定失敗",
-      "core": {
-        "title": "常駐記憶",
-        "desc": "Global、Agent 與專案的簡短 MEMORY.md 會穩定進入對話；主題詳情只在需要時載入。",
-        "budget": "總預算 {{count}} tokens",
-        "manage": "編輯 MEMORY.md",
-        "projectTitle": "專案 MEMORY.md",
-        "projectDesc": "只有目前專案對話會使用的簡短常駐記憶。",
-        "conflict": "規範的大寫檔案與舊版小寫相容檔案都已修改，請先選擇或合併內容。",
-        "conflictCanonical": "規範的大寫 MEMORY.md",
-        "conflictLegacy": "舊版小寫 memory.md",
-        "conflictMerged": "合併結果（以規範檔案為基礎）",
-        "conflictKeepCanonical": "保留 MEMORY.md",
-        "conflictKeepLegacy": "保留舊版檔案",
-        "conflictSaveMerged": "儲存合併結果",
-        "conflictLoadFailed": "無法載入發生衝突的核心記憶檔案",
-        "conflictResolveFailed": "無法解決核心記憶衝突，請重新載入後再試。",
-        "conflictResolved": "核心記憶衝突已解決",
-        "actualTokens": "目前範圍 {{used}} / {{total}} Token",
-        "stats": "{{entries}} 條索引 · {{topics}} 個主題",
-        "updatedAt": "更新於 {{value}}",
-        "neverUpdated": "尚未寫入",
-        "scope": "記憶範圍",
-        "projectLabel": "專案",
-        "topics": "按需主題",
-        "noTopics": "尚無主題檔案",
-        "selectTopic": "選擇主題或建立新主題",
-        "topicName": "主題名稱",
-        "topicDesc": "一句話說明何時讀取",
-        "topicContent": "主題詳情（僅在需要時載入）",
-        "topicLoadFailed": "載入記憶主題失敗",
-        "topicSaveFailed": "儲存記憶主題失敗",
-        "topicDeleteConfirm": "確定刪除這個記憶主題嗎？",
-        "topicDeleteFailed": "刪除記憶主題失敗"
-      },
-      "recall": {
-        "title": "動態記憶召回",
-        "desc": "預設關閉。關閉時，除非某個 Agent 明確啟用了相容召回，否則只會自動使用常駐核心記憶；模型仍可在任務需要時呼叫記憶工具檢索。開啟後，系統會在收到每條使用者訊息後、產生回覆前自動檢索相關動態記憶。",
-        "fast": "自動召回相關記憶",
-        "deep": "深度重排（可選）",
-        "skip": "已略過",
-        "deepCost": "深度重排會增加一次模型呼叫，回覆較慢並消耗更多 token；只在已開啟自動召回且確實需要時使用。",
-        "last": "最近回憶：命中 {{selected}}/{{candidates}} 條 · {{latency}} ms · {{mode}}",
-        "noRecent": "本次啟動後尚未執行自動動態召回。"
-      },
-      "learning": {
-        "title": "自動學習",
-        "desc": "控制對話中的新資訊是否自動保存；使用既有記憶不受此選項影響。",
-        "mode": "學習模式",
-        "smart": "智慧學習",
-        "reviewFirst": "先審核再儲存",
-        "manual": "僅手動儲存",
-        "pending": "待審核 {{count}} 條",
-        "unassigned": "未歸屬 {{count}} 條"
-      },
-      "review": {
-        "title": "待審核記憶",
-        "desc": "{{count}} 條候選尚未進入長期記憶或 Prompt。",
-        "empty": "沒有待審核內容",
-        "chooseScope": "選擇儲存範圍",
-        "approve": "確認儲存",
-        "reject": "不儲存",
-        "loadFailed": "載入待審核記憶失敗",
-        "approveFailed": "儲存待審核記憶失敗",
-        "rejectFailed": "忽略待審核記憶失敗",
-        "reason": {
-          "review_first": "學習模式要求先審核",
-          "project_scope_missing": "像專案記憶，但目前對話沒有專案",
-          "scope_uncertain": "無法確定儲存範圍",
-          "sensitive": "可能包含敏感資訊",
-          "conflict": "與現有記憶衝突",
-          "core_promotion": "建議提升為常駐記憶"
-        }
-      }
-    },
-    "memoryBackupExportSummary": "記憶：{{memories}} · 聲明：{{claims}} · 使用者設定檔：{{profiles}} · 經歷：{{episodes}} · 工作流程：{{procedures}}",
-    "memoryBackupOpenReviewInboxAfterRestore": "待審核的已還原內容：{{count}}",
-    "memoryExperienceSearchActive": "「{{query}}」的符合結果：{{total}}",
-    "memoryExperienceViewActive": "經歷項目：{{total}}",
-    "memoryExternalProvidersActive": "作用中的提供方：{{active}}/{{total}}",
-    "memoryExternalProvidersActiveSummary": "作用中：{{active}} · 已設定：{{total}}",
-    "memoryProcedureSourceEpisode": "經歷：{{id}}"
+    "audioGenerate": "音訊生成",
+    "audioGenerateDesc": "設定音訊合成 Provider（BYOK），用於設計空間「音訊」形態：語音旁白 / 音樂 / 音效。依序 failover。",
+    "audioGenNoProvider": "尚未設定音訊 Provider — 啟用其一並填入 API Key。",
+    "audioGenApiKey": "API Key",
+    "audioGenModel": "模型",
+    "audioGenVoice": "語音 (TTS)",
+    "audioGenBaseUrl": "Base URL",
+    "audioGenTimeout": "請求逾時（秒）",
+    "audioGenFetchVoices": "取得語音",
+    "audioGenKnownModels": "已知模型",
+    "audioGenPickVoice": "從清單選擇…"
   },
   "shortcuts": {
     "actionOpenSettings": "打開設置",
@@ -7264,6 +7422,21 @@
     },
     "context": {
       "description": "查看上下文占用明細"
+    },
+    "workflow": {
+      "description": "切換工作流模式並查看工作流運行"
+    },
+    "goal": {
+      "description": "設定並審計目前會話目標"
+    },
+    "loop": {
+      "description": "按固定間隔重複執行提示詞"
+    },
+    "review": {
+      "description": "審查本機程式碼改動"
+    },
+    "mode": {
+      "description": "設定執行模式"
     },
     "export": {
       "description": "導出為 Markdown"
@@ -7348,21 +7521,6 @@
     },
     "kb": {
       "description": "確認或撤銷目前群組聊天的知識空間存取權限"
-    },
-    "workflow": {
-      "description": "切換工作流模式並查看工作流運行"
-    },
-    "goal": {
-      "description": "設定並審計目前會話目標"
-    },
-    "loop": {
-      "description": "按固定間隔重複執行提示詞"
-    },
-    "review": {
-      "description": "審查本機程式碼改動"
-    },
-    "mode": {
-      "description": "設定執行模式"
     },
     "errors": {
       "noActiveSession": "沒有活動會話",
@@ -7709,6 +7867,11 @@
     "openPanel": "開啟工作台",
     "resizePanel": "調整工作台面板寬度",
     "sourceFromSearch": "搜尋",
+    "sourceFromUser": "使用者",
+    "sourceFromAttachment": "附件",
+    "advancedDiagnostics": {
+      "title": "進階診斷"
+    },
     "truncatedNote": "僅顯示最近 1000 條",
     "environment": {
       "archived": "Archived",
@@ -7814,8 +7977,6 @@
       "selectBranch": "Select branch",
       "stageAll": "Stage all changes",
       "viewPr": "View pull request",
-      "pullRequestPanelTitle": "提取要求",
-      "resizePullRequestPanel": "調整提取要求面板寬度",
       "worktree": "Worktree",
       "checkDetails": "檢查詳情",
       "checkFailed": "失敗",
@@ -7837,7 +7998,6 @@
       "openCheck": "開啟檢查",
       "openComment": "開啟評論",
       "prFeedbackUnavailable": "無法取得 PR 檢查與評論",
-      "prFeedbackStale": "提取要求狀態重新整理失敗，目前資料可能已過期",
       "reviewComments": "{{count}} 則評論",
       "reviewFeedback": "Review 回饋",
       "autoMergeEnabled": "已啟用自動合併",
@@ -7864,24 +8024,10 @@
       "reviewPending": "待處理",
       "reviewRequired": "需要審閱",
       "reviewStatus": "審閱狀態",
-      "reviewers": "審閱者"
-    },
-    "action": {
-      "create": "新建",
-      "edit": "修改",
-      "delete": "刪除",
-      "read": "讀取"
-    },
-    "sectionKnowledge": "知識空間",
-    "emptyKnowledge": "未掛載知識空間",
-    "kbViaProject": "專案",
-    "kbWrote": "寫入",
-    "kbRead": "讀取",
-    "kbSearchCount": "檢索 {{n}} 次",
-    "sourceFromUser": "使用者",
-    "sourceFromAttachment": "附件",
-    "advancedDiagnostics": {
-      "title": "進階診斷"
+      "reviewers": "審閱者",
+      "pullRequestPanelTitle": "提取要求",
+      "resizePullRequestPanel": "調整提取要求面板寬度",
+      "prFeedbackStale": "提取要求狀態重新整理失敗，目前資料可能已過期"
     },
     "goal": {
       "watchdogTitle": "有目標需要確認",
@@ -8022,6 +8168,18 @@
       "clean": "無本機變更",
       "changed": "{{count}} 個變更"
     },
+    "action": {
+      "create": "新建",
+      "edit": "修改",
+      "delete": "刪除",
+      "read": "讀取"
+    },
+    "sectionKnowledge": "知識空間",
+    "emptyKnowledge": "未掛載知識空間",
+    "kbViaProject": "專案",
+    "kbWrote": "寫入",
+    "kbRead": "讀取",
+    "kbSearchCount": "檢索 {{n}} 次",
     "loop": {
       "title": "持續推進",
       "stateActive": "執行中",
@@ -9407,6 +9565,9 @@
       "incognitoDisabled": "無痕工作階段無法附加知識空間",
       "needSession": "先傳送第一則訊息，才能附加知識空間",
       "empty": "還沒有知識空間，先到「知識空間」中建立。",
+      "loadFailed": "無法載入知識空間",
+      "attachmentsLoadFailed": "無法讀取此聊天的掛載狀態",
+      "errorDetail": "詳細資訊：{{error}}",
       "viaProject": "來自父專案",
       "noteCount": "{{count}} 篇筆記",
       "read": "讀",
@@ -9418,10 +9579,7 @@
       "accessWrite": "讀寫",
       "accessOffTip": "未掛載，助理無法存取此知識空間",
       "accessReadTip": "助理可搜尋及閱讀筆記",
-      "accessWriteTip": "助理可讀取並修改筆記",
-      "loadFailed": "無法載入知識空間",
-      "attachmentsLoadFailed": "無法讀取此聊天的掛載狀態",
-      "errorDetail": "詳細資訊：{{error}}"
+      "accessWriteTip": "助理可讀取並修改筆記"
     },
     "mention": {
       "heading": "知識筆記",
@@ -9482,6 +9640,7 @@
       "noHistory": "還沒有對話紀錄。",
       "untitled": "未命名對話",
       "noKb": "開啟一個知識空間以開始對話。",
+      "welcome": "基於目前知識空間，提問、整理或創作",
       "messageCount": "{{count}} 則訊息",
       "errors": {
         "loadAgents": "無法載入對話 Agent",
@@ -9493,8 +9652,7 @@
         "loadMoreThreads": "無法載入更多對話",
         "loadMoreMessages": "無法載入更早的訊息",
         "detail": "詳細資訊：{{error}}"
-      },
-      "welcome": "基於目前知識空間，提問、整理或創作"
+      }
     },
     "quickRewrite": {
       "title": "快速改寫",
@@ -9504,9 +9662,9 @@
       "regenerate": "重新生成",
       "apply": "套用",
       "failed": "改寫失敗",
-      "staleSelection": "改寫期間選區已變動 —— 請重新選擇後再試。",
       "modelLoadFailed": "無法載入改寫模型",
-      "errorDetail": "詳細資訊：{{error}}"
+      "errorDetail": "詳細資訊：{{error}}",
+      "staleSelection": "改寫期間選區已變動 —— 請重新選擇後再試。"
     },
     "sprite": {
       "toggle": "精靈模式",
@@ -9514,6 +9672,10 @@
       "toastOn": "精靈模式已開啟",
       "toastOnDesc": "停筆片刻時，它會輕聲給你一句建議。",
       "toastOff": "精靈模式已關閉",
+      "loadFailed": "無法載入精靈模式",
+      "toggleFailed": "無法更新精靈模式",
+      "observeFailed": "無法讓精靈產生建議",
+      "errorDetail": "詳細資訊：{{error}}",
       "respond": "回應",
       "dismiss": "關閉",
       "category": {
@@ -9522,11 +9684,7 @@
         "encourage": "鼓勵",
         "remind": "提醒",
         "connect": "關聯"
-      },
-      "loadFailed": "無法載入精靈模式",
-      "toggleFailed": "無法更新精靈模式",
-      "observeFailed": "無法讓精靈產生建議",
-      "errorDetail": "詳細資訊：{{error}}"
+      }
     },
     "deleteNoteTitle": "刪除筆記",
     "deleteNoteBody": "要刪除「{{name}}」嗎？Markdown 檔案會從磁碟移除。此操作無法復原。",
@@ -9552,6 +9710,32 @@
     "renameMoveFailed": "無法重新命名/移動「{{name}}」——可能已有同名筆記。",
     "linksRewritten": "已更新其他筆記中的 {{count}} 處連結引用。",
     "noteRemovedExternally": "此筆記已在應用程式外被移除或移動。",
+    "operationErrorDetail": "詳細資訊：{{error}}",
+    "errors": {
+      "loadSpaces": "無法載入知識空間",
+      "loadNotes": "無法載入筆記",
+      "loadFolders": "無法載入資料夾",
+      "loadTags": "無法載入標籤",
+      "searchNotes": "無法搜尋筆記",
+      "saveNote": "無法儲存筆記",
+      "createSpace": "無法建立知識空間",
+      "createNote": "無法建立筆記",
+      "createLinkedNote": "無法建立連結筆記",
+      "reindexSpace": "無法重建空間索引",
+      "reindexNote": "無法重建筆記索引",
+      "reindexFolder": "無法重建資料夾索引",
+      "deleteNote": "無法刪除筆記",
+      "deleteFolder": "無法刪除資料夾",
+      "revealNote": "無法在資料夾中顯示筆記",
+      "createFolder": "無法建立資料夾",
+      "updateSpace": "無法更新知識空間",
+      "archiveSpace": "無法更新封存狀態",
+      "deleteSpace": "無法刪除知識空間"
+    },
+    "focusKbUnavailable": "此知識空間已不可用。",
+    "focusNoteUnavailable": "無法開啟這則知識筆記，可能已被移動或存取權限發生變化。",
+    "focusUnavailableDetail": "詳細資訊：{{error}}",
+    "focusLocationUnavailable": "已開啟筆記，但找不到精確的來源位置。",
     "moveTo": "移動到…",
     "moveToTitle": "將「{{name}}」移動到…",
     "rootFolder": "根目錄",
@@ -9573,11 +9757,17 @@
       "tooltip": "知識空間活動",
       "title": "知識空間活動",
       "empty": "尚無活動",
+      "loadFailed": "無法載入重建任務",
+      "cancelFailed": "無法取消重建任務",
+      "retryFailed": "無法重試重建任務",
+      "clearFailed": "無法清除重建任務",
       "kindReindex": "重建索引（全文）",
       "kindReembed": "重新向量化",
       "fts": "全文索引",
+      "result": "已重建 {{notes}} 篇筆記 · {{kbs}} 個知識空間",
       "emptyHint": "綁定或重建某個空間，或匯入檔案，進度會顯示在這裡。",
       "model": "模型：{{name}}",
+      "errorDetail": "詳細資訊：{{error}}",
       "kindImport": "匯入資料",
       "space": "空間：{{name}}",
       "progressFiles": "{{done}} / {{total}} 個檔案",
@@ -9592,13 +9782,7 @@
         "failed": "失敗",
         "cancelled": "已取消",
         "timed_out": "已逾時"
-      },
-      "loadFailed": "無法載入重建任務",
-      "cancelFailed": "無法取消重建任務",
-      "retryFailed": "無法重試重建任務",
-      "clearFailed": "無法清除重建任務",
-      "result": "已重建 {{notes}} 篇筆記 · {{kbs}} 個知識空間",
-      "errorDetail": "詳細資訊：{{error}}"
+      }
     },
     "maintenance": {
       "tooltip": "維護",
@@ -9612,11 +9796,13 @@
       "runNow": "掃描",
       "runNowTip": "立即掃描以產生維護建議",
       "rejectAll": "全部忽略",
+      "rejectAllFailed": "無法忽略全部建議",
       "approve": "套用",
       "reject": "忽略",
       "cycleSkipped": "維護已略過：{{note}}",
       "cycleDone": "已產生 {{n}} 條建議",
       "runFailed": "維護執行失敗",
+      "errorDetail": "詳細資訊：{{error}}",
       "applyFailed": "套用建議失敗",
       "rejectFailed": "忽略建議失敗",
       "compileQueued": "已產生整理審閱，請到筆記建議面板查看 diff。",
@@ -9643,9 +9829,7 @@
       "needsReview": "需要審查",
       "rebuildEvidenceTip": "重建派生證據索引",
       "schemaIssues": "架構問題",
-      "staleRefs": "過時的參考文獻",
-      "rejectAllFailed": "無法忽略全部建議",
-      "errorDetail": "詳細資訊：{{error}}"
+      "staleRefs": "過時的參考文獻"
     },
     "graph": {
       "toggle": "圖譜檢視",
@@ -9672,6 +9856,9 @@
     "embeddingOff": "向量檢索未開啟",
     "embeddingModelTip": "向量模型：{{name}} · 點擊進入設定",
     "embeddingOffTip": "向量檢索未開啟 · 點擊進入設定",
+    "embeddingStatusUnavailable": "向量狀態不可用",
+    "embeddingStatusUnavailableTip": "向量檢索狀態不可用 · 點擊進入設定",
+    "embeddingStatusErrorDetail": "詳細資訊：{{error}}",
     "kbRootPick": "選擇…",
     "kbRootHint": "留空則建立內部空間。外部庫在第一階段為唯讀。",
     "kbRootInvalid": "無法選擇該資料夾",
@@ -9690,6 +9877,7 @@
       "description": "AI 會從所選資料產生筆記修改建議；寫入前你可以先審閱 diff。",
       "empty": "選擇一個建議進行審閱",
       "emptyHint": "產生的建議會保留在這裡，直到你套用或忽略。",
+      "errorDetail": "詳細資訊：{{error}}",
       "failed": "資料整理失敗",
       "loadFailed": "無法載入資料整理記錄",
       "noProposals": "本次執行沒有建議。",
@@ -9707,8 +9895,7 @@
       "startFailed": "無法把資料整理成筆記",
       "startSelected": "整理 {{count}} 個",
       "started": "已產生 {{n}} 條筆記建議",
-      "title": "整理資料為筆記",
-      "errorDetail": "詳細資訊：{{error}}"
+      "title": "整理資料為筆記"
     },
     "sources": {
       "archiveAttachment": "歸檔到知識空間",
@@ -9734,6 +9921,7 @@
       "diffTruncated": "預覽已截斷",
       "dismissSimilar": "忽略",
       "downloadOriginal": "下載原件",
+      "downloadOriginalFailed": "無法下載原件",
       "empty": "還沒有資料。",
       "evidenceSources": "資料來源",
       "externalRawPath": "外部快照",
@@ -9765,8 +9953,15 @@
       "noSimilarGroups": "沒有相似資料分組。",
       "open": "開啟",
       "openOriginal": "開啟原件",
+      "openOriginalFailed": "無法開啟原件",
       "otherKb": "其他空間 {{id}}",
       "readFailed": "無法開啟資料",
+      "sourceListFailed": "無法載入資料列表",
+      "sourceRefsFailed": "無法載入資料來源引用",
+      "sourceClaimsFailed": "無法載入資料結論引用",
+      "importRunsListFailed": "無法載入導入歷史",
+      "similarGroupsLoadFailed": "無法載入相似資料分組",
+      "sourceErrorDetail": "詳細資訊：{{error}}",
       "reextract": "重新擷取",
       "reextractFailed": "無法重新擷取資料",
       "reextracted": "資料已重新擷取",
@@ -9841,15 +10036,7 @@
       "ocrFailed": "OCR 失敗",
       "ocrRetry": "重試失敗頁面",
       "ocrRetryStarted": "正在重試失敗頁面…",
-      "ocrRetryFailed": "無法重試 OCR 頁面",
-      "downloadOriginalFailed": "無法下載原件",
-      "openOriginalFailed": "無法開啟原件",
-      "sourceListFailed": "無法載入資料列表",
-      "sourceRefsFailed": "無法載入資料來源引用",
-      "sourceClaimsFailed": "無法載入資料結論引用",
-      "importRunsListFailed": "無法載入導入歷史",
-      "similarGroupsLoadFailed": "無法載入相似資料分組",
-      "sourceErrorDetail": "詳細資訊：{{error}}"
+      "ocrRetryFailed": "無法重試 OCR 頁面"
     },
     "queryFile": {
       "action": "文件",
@@ -9858,6 +10045,7 @@
       "applyFailed": "無法申請備案",
       "description": "在寫作之前創建一個審查差異。",
       "empty": "選擇這個答案應該落在哪裡。",
+      "errorDetail": "詳細資訊：{{error}}",
       "generateFailed": "無法建立歸檔提案",
       "reject": "拒絕",
       "rejected": "歸檔被放棄",
@@ -9875,8 +10063,7 @@
       "currentNotePlaceholder": "目前筆記路徑",
       "openQuestionsPlaceholder": "帶開放問題的筆記",
       "mocPlaceholder": "MOCs/Conversation Filings.md",
-      "createNotePlaceholder": "Filed Conversations/example.md",
-      "errorDetail": "詳細資訊：{{error}}"
+      "createNotePlaceholder": "Filed Conversations/example.md"
     },
     "emptyState": {
       "scanning": "正在掃描這個空間…",
@@ -9884,36 +10071,7 @@
       "emptyExternal": "這個資料夾裡還沒有 Markdown 筆記。",
       "emptyInternal": "這個空間還是空的。",
       "importFiles": "匯入檔案"
-    },
-    "operationErrorDetail": "詳細資訊：{{error}}",
-    "errors": {
-      "loadSpaces": "無法載入知識空間",
-      "loadNotes": "無法載入筆記",
-      "loadFolders": "無法載入資料夾",
-      "loadTags": "無法載入標籤",
-      "searchNotes": "無法搜尋筆記",
-      "saveNote": "無法儲存筆記",
-      "createSpace": "無法建立知識空間",
-      "createNote": "無法建立筆記",
-      "createLinkedNote": "無法建立連結筆記",
-      "reindexSpace": "無法重建空間索引",
-      "reindexNote": "無法重建筆記索引",
-      "reindexFolder": "無法重建資料夾索引",
-      "deleteNote": "無法刪除筆記",
-      "deleteFolder": "無法刪除資料夾",
-      "revealNote": "無法在資料夾中顯示筆記",
-      "createFolder": "無法建立資料夾",
-      "updateSpace": "無法更新知識空間",
-      "archiveSpace": "無法更新封存狀態",
-      "deleteSpace": "無法刪除知識空間"
-    },
-    "focusKbUnavailable": "此知識空間已不可用。",
-    "focusNoteUnavailable": "無法開啟這則知識筆記，可能已被移動或存取權限發生變化。",
-    "focusUnavailableDetail": "詳細資訊：{{error}}",
-    "focusLocationUnavailable": "已開啟筆記，但找不到精確的來源位置。",
-    "embeddingStatusUnavailable": "向量狀態不可用",
-    "embeddingStatusUnavailableTip": "向量檢索狀態不可用 · 點擊進入設定",
-    "embeddingStatusErrorDetail": "詳細資訊：{{error}}"
+    }
   },
   "backgroundJobs": {
     "panelTitle": "背景任務",
@@ -9959,6 +10117,9 @@
   },
   "macControl": {
     "panelTitle": "蘋果電腦控制"
+  },
+  "memory": {
+    "activeRecallToastTitle": "已引用記憶"
   },
   "design": {
     "title": "設計空間",
@@ -10678,19 +10839,50 @@
       "chatPrompt": "實作程式碼相對設計稿已變化，請根據引用的程式碼變更更新目前設計稿，保持設計意圖與其餘內容不變。"
     }
   },
-  "agentLifecycle": {
-    "activeWorkBlocked": "仍有 {{count}} 個 Agent 工作正在執行，暫時無法刪除。",
-    "deleteDescription": "路由引用會移轉到替代 Agent；歷史對話與結構化記憶會保留，Agent 檔案會移入可復原的回收站。",
-    "deleteTitle": "安全刪除 Agent",
-    "disabled": "已停用",
-    "enabled": "已啟用",
-    "history": "歷史對話",
-    "memories": "保留的記憶",
-    "replacement": "替代 Agent",
-    "retentionNotice": "操作前會建立設定備份。Agent 設定、Home 與 Plan 只會移入回收站，不會立即永久清除。",
-    "routes": "路由引用"
-  },
-  "memory": {
-    "activeRecallToastTitle": "已引用記憶"
+  "artifacts": {
+    "title": "产物",
+    "subtitle": "版本化管理本地报告、仪表盘和解读",
+    "loadFailed": "加载产物失败",
+    "verifyPassed": "验证通过",
+    "verifyFailed": "验证发现阻塞项",
+    "exportUnavailable": "当前无法导出",
+    "exportReady": "产物已导出",
+    "restoreReady": "已恢复为新版本",
+    "archiveConfirm": "归档这个产物？",
+    "deleteConfirm": "永久删除这个产物及其全部版本？",
+    "search": "搜索标题、项目或智能体",
+    "allKinds": "全部类型",
+    "active": "使用中",
+    "archived": "已归档",
+    "allStates": "全部状态",
+    "empty": "没有找到产物",
+    "selectHint": "选择一个产物查看详情",
+    "sources": "个来源",
+    "verify": "验证",
+    "export": "导出",
+    "archive": "归档",
+    "delete": "删除",
+    "deliveryStatus": "交付状态",
+    "privacy": "隐私",
+    "analysisStatus": "分析",
+    "verification": "验证",
+    "sourceContext": "来源与质量",
+    "qualityChecks": "质量检查",
+    "noSources": "未记录规范来源",
+    "contentMode": "内容",
+    "executable": "可执行",
+    "static": "静态",
+    "versionHistory": "版本历史",
+    "current": "当前版本",
+    "restore": "恢复",
+    "exportReview": "导出复核",
+    "exportReviewHint": "可分享、敏感、私有来源或连接器来源的交付包必须先复核。",
+    "audiencePlaceholder": "预期接收者",
+    "audienceRequired": "请输入预期接收者",
+    "redactionConfirm": "确认已针对该接收者复核敏感字段和所含来源？",
+    "confirmRedaction": "确认脱敏并复核",
+    "exportReviewPassed": "导出复核已通过",
+    "exportReviewBlocked": "导出复核仍有阻塞项",
+    "guardStatus": "门禁"
   }
 }

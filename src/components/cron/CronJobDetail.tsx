@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
@@ -25,6 +25,8 @@ import {
   Square,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { logger } from "@/lib/logger"
+import { markCronSessionRead } from "@/hooks/useCronUnreadStore"
 import type { CronJob, CronRunLog } from "./CronJobForm.types"
 import {
   statusColor,
@@ -80,6 +82,46 @@ export default function CronJobDetail({
   const [loadingMoreLogs, setLoadingMoreLogs] = useState(false)
   const [detailsOpen, setDetailsOpen] = useState(false)
   const [loopState, setLoopState] = useState<LoopState | null>(null)
+  const pendingReadSessionIdRef = useRef<string | null>(null)
+  const markingSessionIdsRef = useRef(new Set<string>())
+
+  const markRunRead = useCallback((sessionId: string) => {
+    if (markingSessionIdsRef.current.has(sessionId)) return
+    markingSessionIdsRef.current.add(sessionId)
+    void markCronSessionRead(sessionId)
+      .catch((error) => {
+        logger.warn(
+          "cron",
+          "CronJobDetail::markRunRead",
+          "Failed to mark viewed cron run as read",
+          error,
+        )
+      })
+      .finally(() => markingSessionIdsRef.current.delete(sessionId))
+  }, [])
+
+  const handleRunSelect = useCallback(
+    (log: CronRunLog) => {
+      if (!log.sessionId) return
+      setSelectedLogId(log.id)
+      if (log.sessionId === selectedSessionId) {
+        markRunRead(log.sessionId)
+        return
+      }
+      pendingReadSessionIdRef.current = log.sessionId
+      setSelectedSessionId(log.sessionId)
+    },
+    [markRunRead, selectedSessionId],
+  )
+
+  const handleViewerLoaded = useCallback(
+    (sessionId: string) => {
+      if (pendingReadSessionIdRef.current !== sessionId) return
+      pendingReadSessionIdRef.current = null
+      markRunRead(sessionId)
+    },
+    [markRunRead],
+  )
 
   async function fetchData() {
     try {
@@ -117,6 +159,7 @@ export default function CronJobDetail({
   useEffect(() => {
     setSelectedSessionId(null)
     setSelectedLogId(null)
+    pendingReadSessionIdRef.current = null
     setDetailsOpen(false)
     setLoopState(null)
     fetchData()
@@ -530,11 +573,7 @@ export default function CronJobDetail({
                           ? "bg-sky-500/[0.075]"
                           : "hover:bg-sky-500/[0.04]",
                       )}
-                      onClick={() => {
-                        if (!log.sessionId) return
-                        setSelectedLogId(log.id)
-                        setSelectedSessionId(log.sessionId)
-                      }}
+                      onClick={() => handleRunSelect(log)}
                     >
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-1.5">
@@ -637,6 +676,7 @@ export default function CronJobDetail({
               key={selectedSessionId}
               sessionId={selectedSessionId}
               agents={agents}
+              onLoaded={handleViewerLoaded}
             />
           ) : (
             <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center text-muted-foreground">

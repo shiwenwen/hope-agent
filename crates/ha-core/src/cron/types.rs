@@ -239,7 +239,7 @@ pub struct CronTimelineRow {
     /// Session title from `SessionDB`; defaults to `job_name` when absent.
     #[serde(default)]
     pub title: Option<String>,
-    /// Unread assistant-message count for this run's session (from `SessionDB`).
+    /// Unread-session marker (`0` or `1`) for this run (from `SessionDB`).
     #[serde(default)]
     pub unread_count: i64,
 }

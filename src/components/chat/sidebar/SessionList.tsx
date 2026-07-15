@@ -4,7 +4,6 @@ import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
-import { desktopUnreadCount } from "@/lib/unread"
 import {
   ContextMenu,
   ContextMenuContent,
@@ -12,7 +11,12 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu"
 import { MessageSquare, Loader2, Search } from "lucide-react"
-import type { SessionMeta, AgentSummaryForSidebar, SessionSearchResult } from "@/types/chat"
+import type {
+  SessionMeta,
+  AgentSummaryForSidebar,
+  SessionSearchResult,
+  UnreadSessionTarget,
+} from "@/types/chat"
 import type { ProjectMeta } from "@/types/project"
 import type { SessionFilterType, SidebarDisplayMode } from "./types"
 import SessionItem from "./SessionItem"
@@ -27,8 +31,10 @@ interface SessionListProps {
   setSessionFilter: (filter: SessionFilterType) => void
   selectedAgentId: string | null
   currentSessionId: string | null
+  readableSessionId: string | null
   loadingSessionIds: Set<string>
   sessionsLoading?: boolean
+  totalUnreadCount: number
   loadingMoreSessions?: boolean
   onSwitchSession: (
     sessionId: string,
@@ -62,6 +68,7 @@ interface SessionListProps {
   displayMode: SidebarDisplayMode
   /** Number of visible 32px sticky section headers above the filter tabs. */
   stickyHeaderCount?: number
+  unreadFocusTarget?: (UnreadSessionTarget & { signal: number }) | null
 }
 
 export default function SessionList({
@@ -72,8 +79,10 @@ export default function SessionList({
   setSessionFilter,
   selectedAgentId,
   currentSessionId,
+  readableSessionId,
   loadingSessionIds,
   sessionsLoading = false,
+  totalUnreadCount,
   loadingMoreSessions,
   onSwitchSession,
   onDeleteClick,
@@ -97,6 +106,7 @@ export default function SessionList({
   onToggleSessionPinned,
   displayMode,
   stickyHeaderCount = 0,
+  unreadFocusTarget,
 }: SessionListProps) {
   const { t } = useTranslation()
 
@@ -130,11 +140,7 @@ export default function SessionList({
         <div
           className={cn(
             "sticky z-20 flex items-center gap-0.5 px-3 py-1.5 border-b border-border/40 bg-surface-panel overflow-x-auto scrollbar-none",
-            stickyHeaderCount === 0
-              ? "top-0"
-              : stickyHeaderCount === 1
-                ? "top-8"
-                : "top-16",
+            stickyHeaderCount === 0 ? "top-0" : stickyHeaderCount === 1 ? "top-8" : "top-16",
           )}
         >
           {(["session", "subagent"] as const).map((filter) => {
@@ -143,28 +149,17 @@ export default function SessionList({
               subagent: t("chat.filterSubagent"),
             }[filter]
 
-            const filterSessions = sessionsByFilter[filter]
-            const count = filterSessions.reduce(
-              (sum, session) => sum + desktopUnreadCount(session, currentSessionId),
-              0,
-            )
-
             const isActive = sessionFilter === filter
             const handleMarkAllRead = async () => {
-              const unreadSessions = filterSessions.filter(
-                (session) => desktopUnreadCount(session, currentSessionId) > 0,
-              )
-              if (unreadSessions.length === 0) return
+              if (filter !== "session") return
               try {
-                await getTransport().call("mark_session_read_batch_cmd", {
-                  sessionIds: unreadSessions.map((session) => session.id),
-                })
+                await getTransport().call("mark_all_sessions_read_cmd")
                 onMarkAllRead?.()
               } catch (err) {
                 logger.error(
                   "chat",
                   "ChatSidebar::markSessionsRead",
-                  "Failed to mark sessions as read",
+                  "Failed to mark all regular sessions as read",
                   err,
                 )
               }
@@ -183,18 +178,16 @@ export default function SessionList({
                     onClick={() => setSessionFilter(filter)}
                   >
                     {label}
-                    {count > 0 && (
-                      <span className="ml-0.5 text-[10px] text-muted-foreground/50">
-                        {count > 99 ? "99+" : count}
-                      </span>
-                    )}
                     {isActive && (
                       <span className="absolute bottom-0 left-1/2 -translate-x-1/2 w-3/5 h-[2px] rounded-full bg-primary" />
                     )}
                   </button>
                 </ContextMenuTrigger>
                 <ContextMenuContent variant="floating">
-                  <ContextMenuItem onClick={handleMarkAllRead} disabled={count === 0}>
+                  <ContextMenuItem
+                    onClick={handleMarkAllRead}
+                    disabled={filter !== "session" || totalUnreadCount === 0}
+                  >
                     {t("chat.markAllRead") || "全部已读"}
                   </ContextMenuItem>
                 </ContextMenuContent>
@@ -288,6 +281,7 @@ export default function SessionList({
                   agent={agent}
                   projects={projects}
                   isActive={isActive}
+                  isReadable={session.id === readableSessionId}
                   isLoading={isLoading}
                   renamingSessionId={renamingSessionId}
                   renameValue={renameValue}
@@ -304,6 +298,11 @@ export default function SessionList({
                   getAgentInfo={getAgentInfo}
                   formatRelativeTime={formatRelativeTime}
                   displayMode={displayMode}
+                  revealSignal={
+                    unreadFocusTarget?.sessionId === session.id
+                      ? unreadFocusTarget.signal
+                      : undefined
+                  }
                 />
               )
             })

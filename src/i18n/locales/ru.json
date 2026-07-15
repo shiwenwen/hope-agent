@@ -1,4 +1,16 @@
 {
+  "agentLifecycle": {
+    "activeWorkBlocked": "Deletion is blocked while {{count}} Agent task(s) are still active.",
+    "deleteDescription": "Routing references will move to the replacement Agent. Historical conversations and structured memories are retained, while Agent files are moved to the recoverable trash.",
+    "deleteTitle": "Delete Agent safely",
+    "disabled": "Disabled",
+    "enabled": "Enabled",
+    "history": "Historical conversations",
+    "memories": "Retained memories",
+    "replacement": "Replacement Agent",
+    "retentionNotice": "This operation creates a configuration backup. Agent configuration, Home, and Plans are moved to trash instead of being permanently erased.",
+    "routes": "Routing references"
+  },
   "about": {
     "badge": "Настольный ИИ для повседневной работы",
     "closing": "Он задуман не как чеклист функций, а как инструмент, который остается полезным, надежным и ненавязчивым при долгом использовании.",
@@ -111,6 +123,10 @@
         "title": "Advanced browser CDP command",
         "body": "This browser action will send a raw Chrome DevTools Protocol command to a real Chrome tab. It uses the normal tool approval flow; AllowAlways, Smart mode, and YOLO follow the active session policy."
       },
+      "external_connector_action": {
+        "title": "Действие внешнего коннектора",
+        "body": "Этот вызов изменит данные почты, календаря, документов, таблиц или бизнес-записей во внешней системе. Требуется подтверждение при каждом вызове; «Всегда разрешать» недоступно."
+      },
       "browser_download_action": {
         "title": "Browser download action",
         "body": "This browser action will read or interrupt Chrome download activity. It uses the normal tool approval flow; AllowAlways, Smart mode, and YOLO follow the active session policy."
@@ -126,10 +142,6 @@
       "browser_chrome_access": {
         "title": "Real Chrome access",
         "body": "This browser action will read or control the user's real Chrome state through the extension. It uses the normal tool approval flow; AllowAlways, Smart mode, and YOLO follow the active session policy."
-      },
-      "external_connector_action": {
-        "title": "Действие внешнего коннектора",
-        "body": "Этот вызов изменит данные почты, календаря, документов, таблиц или бизнес-записей во внешней системе. Требуется подтверждение при каждом вызове; «Всегда разрешать» недоступно."
       }
     },
     "title": "Command Approval Required",
@@ -157,7 +169,6 @@
     "maximize": "Развернуть",
     "minimize": "Свернуть",
     "openPreview": "Открыть предпросмотр",
-    "shareTo": "Поделиться в",
     "popOut": "Открыть в отдельном окне",
     "popOutActive": "Открыто в отдельном окне",
     "reattach": "Вернуть в панель",
@@ -167,7 +178,8 @@
     "panelTitle": "Холст",
     "resizePanel": "Изменение размера панели холста",
     "notReadyError": "Панель холста не открыта или iframe не загружен",
-    "detachedWindowTitle": "Холст: {{title}}"
+    "detachedWindowTitle": "Холст: {{title}}",
+    "shareTo": "Поделиться в"
   },
   "channels": {
     "accountLabel": "Имя аккаунта",
@@ -324,6 +336,18 @@
   "chat": {
     "addWorkingDirectory": "Добавить рабочий каталог",
     "askAnything": "Расскажите свою идею: @ ищет файлы/заметки/навыки, # — быстрые подсказки, / — быстрые команды...",
+    "goalCompletion": {
+      "completed": "Цель достигнута",
+      "completedWithDuration": "Цель достигнута за {{time}}",
+      "tokens": "{{tokens}} токенов"
+    },
+    "fork": {
+      "continueInNewSession": "Продолжить в новой сессии",
+      "continuedFrom": "Продолжено из",
+      "created": "Продолжено в новой сессии",
+      "failed": "Не удалось продолжить в новой сессии",
+      "sourceFallback": "исходная сессия"
+    },
     "browserPanel": {
       "backendBadgeTooltip": "Бэкенд браузера: {{backend}}",
       "captureFailed": "Не удалось получить кадр, ожидание следующего",
@@ -402,6 +426,12 @@
     "sidebarDetailedMode": "Переключить в обычный режим",
     "copied": "Скопировано",
     "copy": "Копировать",
+    "messageQuote": {
+      "addToChat": "Добавить в чат",
+      "assistantMessage": "Сообщение ассистента",
+      "remove": "Удалить цитату",
+      "yourMessage": "Ваше сообщение"
+    },
     "quickPrompts": {
       "addAction": "Добавить в быстрые подсказки",
       "addFailed": "Не удалось добавить быструю подсказку",
@@ -413,6 +443,8 @@
     },
     "cronTaskStarted": "Запущена запланированная задача",
     "cronTrigger": "Запланированная задача",
+    "loopTriggered": "Запущен один шаг цикла",
+    "loopTrigger": "Цикл",
     "wakeupResumed": "Возобновлено для продолжения",
     "wakeupTrigger": "Запланированное пробуждение",
     "daysAgo": "{{count}} дн назад",
@@ -522,244 +554,6 @@
     "pendingInteractionHint": "Ожидание вашего ответа",
     "pendingInteractionInline": "Ожидание ответа · {{count}}",
     "pendingQueued": "Сообщение в очереди, будет отправлено после ответа...",
-    "permissionMode": {
-      "applyToAgentDefault": {
-        "desc": "Если включено, выбор режима также обновит режим по умолчанию для новых чатов этого агента.",
-        "failed": "Не удалось обновить режим разрешений по умолчанию для этого агента.",
-        "label": "Обновлять умолчание агента"
-      },
-      "default": {
-        "desc": "Инструменты редактирования и опасные команды требуют одобрения, остальное выполняется.",
-        "label": "По умолчанию"
-      },
-      "menuLabel": "Режим разрешений",
-      "smart": {
-        "desc": "Решение об одобрении принимает модель-судья или само-оценка модели.",
-        "label": "Умное одобрение"
-      },
-      "yolo": {
-        "desc": "Все инструменты в этой сессии запускаются без одобрения (защищённые пути логируются).",
-        "label": "YOLO"
-      }
-    },
-    "sandboxMode": {
-      "isolated": {
-        "desc": "Run in an isolated copy; edit approvals are unchanged until apply-back is supported.",
-        "label": "Isolated Sandbox"
-      },
-      "menuLabel": "Песочница",
-      "off": {
-        "desc": "Run on the host; approval behavior is unchanged.",
-        "label": "Sandbox Off"
-      },
-      "setupTitle": "Configure Docker to enable sandbox",
-      "standard": {
-        "desc": "Run in Docker; approval behavior is unchanged.",
-        "label": "Standard Sandbox"
-      },
-      "trusted": {
-        "desc": "Max autonomy for sandboxed exec; strict risks still ask.",
-        "label": "Trusted Sandbox"
-      },
-      "workspace": {
-        "desc": "Mount this workspace and reduce edit-command approvals.",
-        "label": "Workspace Sandbox"
-      }
-    },
-    "pickSession": "Выбрать сессию",
-    "profileRotationTitle": "Смена профиля",
-    "queueMessage": "В очередь",
-    "reasonAuth": "Ошибка аутентификации",
-    "reasonBilling": "Биллинг / квота исчерпана",
-    "reasonContextOverflow": "Переполнение контекста",
-    "reasonModelNotFound": "Модель не найдена",
-    "reasonOverloaded": "Сервис перегружен",
-    "reasonRateLimit": "Превышен лимит запросов",
-    "reasonTimeout": "Тайм-аут запроса",
-    "reasonUnknown": "Неизвестная ошибка",
-    "renameSession": "Переименовать",
-    "renameSessionPlaceholder": "Введите новое название...",
-    "revealInFolder": "Показать в папке",
-    "roundLimitReachedBody": "В этом ходе израсходованы все {{count}} раундов вызовов инструментов, задача могла остаться незавершённой. Нажмите кнопку ниже, чтобы отправить «Продолжить», и я возобновлю работу с текущего места. Также можно увеличить `max_tool_rounds` в Настройки → Агент → Возможности.",
-    "roundLimitReachedBodyNoCount": "Лимит раундов вызовов инструментов в этом ходе исчерпан. Нажмите кнопку ниже, чтобы отправить «Продолжить», и я возобновлю работу с текущего места.",
-    "roundLimitReachedTitle": "Достигнут лимит вызовов инструментов",
-    "roundLimitResumeButton": "Продолжить",
-    "roundLimitResumeMessage": "Продолжить",
-    "scrollToBottom": "Прокрутить вниз",
-    "searchPlaceholder": "Поиск по разговорам...",
-    "searchTruncatedHint": "Показаны первые {{count}} совпадений — уточните запрос, чтобы увидеть больше.",
-    "searching": "Поиск...",
-    "selectModel": "Выбрать модель",
-    "send": "Отправить",
-    "sessionSearch": "Поиск в этом чате",
-    "sessionSearchClose": "Закрыть",
-    "sessionSearchCount": "{{current}}/{{total}}",
-    "sessionSearchNext": "Следующее",
-    "sessionSearchNoResults": "Нет совпадений в этом чате",
-    "sessionSearchPlaceholder": "Поиск сообщений в этом чате…",
-    "sessionSearchPrev": "Предыдущее",
-    "sessionStatus": "Статус сессии",
-    "settings": "Настройки",
-    "startConversation": "Начать разговор",
-    "statusAgent": "Агент",
-    "statusAuth": "Аутентификация",
-    "statusCache": "Кэш",
-    "statusCacheHit": "Попадание",
-    "statusCacheWrite": "Запись",
-    "statusContext": "Контекст",
-    "statusCumulative": "Итого",
-    "statusMessages": "{{count}} сообщений",
-    "statusModel": "Модель",
-    "statusNewSession": "(Новая сессия)",
-    "statusSession": "Сессия",
-    "statusSessionId": "ID сессии",
-    "statusThinking": "Мышление",
-    "statusUpdated": "Обновлено",
-    "stopReply": "Остановить ответ",
-    "subagentFrom": "Делегировано от {{agent}}",
-    "subagentResultCompleted": "Завершено",
-    "systemPrompt": "Системный промпт",
-    "taskActions": {
-      "cycleTo": {
-        "completed": "Пометить как выполненную",
-        "in_progress": "Пометить как в работе",
-        "pending": "Пометить как ожидающую"
-      },
-      "delete": "Удалить задачу"
-    },
-    "taskNoneYet": "Задач пока нет",
-    "taskProgress": "{{completed}}/{{total}} выполнено",
-    "tasks": "Задачи",
-    "thinking": "Думаю...",
-    "thinkingAutoDisabled": "{{provider}} / {{model}} does not support the current thinking mode. Thinking was disabled automatically and the request was retried.",
-    "visionAutoDisabled": "{{provider}} / {{model}} не поддерживает ввод изображений. Изображение проигнорировано, ответ продолжен.",
-    "toolCalling": "Вызов инструментов...",
-    "totalTokens": "Всего",
-    "unknownProvider": "Unknown provider",
-    "untitledSession": "Без названия",
-    "viewContext": "Просмотреть контекст",
-    "viewModeBubble": "Переключиться на вид пузырей",
-    "viewModeTimeline": "Переключиться на вид задач",
-    "viewSystemPrompt": "Просмотреть System Prompt",
-    "weeksAgo": "{{count}} нед назад",
-    "workingDir": {
-      "browserDescription": "Пути разрешаются на машине, где запущен агент.",
-      "browserTitle": "Выберите каталог на сервере",
-      "change": "Сменить каталог",
-      "clear": "Очистить каталог",
-      "current": "Рабочий каталог",
-      "empty": "Этот каталог пуст",
-      "fileLabel": "файл",
-      "invalid": "Недопустимый рабочий каталог",
-      "loadError": "Не удалось получить список каталога",
-      "loading": "Загрузка…",
-      "parent": "Вверх на уровень",
-      "pathPlaceholder": "Абсолютный путь, напр. /srv/projects/app",
-      "select": "Выбрать рабочий каталог",
-      "selectCurrent": "Выбрать этот каталог",
-      "selectPreset": "Рабочий каталог задаётся после начала чата",
-      "titleBarInherited": "Наследовано от проекта",
-      "titleBarSession": "Рабочий каталог",
-      "truncated": "Показаны только первые записи — каталог слишком велик для отображения целиком.",
-      "goToPath": "Перейти к пути"
-    },
-    "taskProgressRunning": "Выполняется {{completed}}/{{total}}",
-    "taskProgressCancelling": "Остановка {{completed}}/{{total}}",
-    "taskProgressWaiting": "Ожидает продолжения {{completed}}/{{total}}",
-    "taskProgressFailed": "Ошибка {{completed}}/{{total}}",
-    "exportSession": {
-      "menuItem": "Экспортировать беседу",
-      "dialogTitle": "Экспорт беседы",
-      "dialogHint": "Выберите формат и отметьте, что включить.",
-      "formatLabel": "Формат",
-      "formatMarkdown": "Markdown",
-      "formatJson": "JSON",
-      "formatHtml": "HTML",
-      "contentLabel": "Включить",
-      "includeTools": "Включить вызовы инструментов",
-      "includeToolsHint": "Аргументы, результаты и изменения файлов.",
-      "includeThinking": "Включить рассуждения",
-      "includeThinkingHint": "Блоки рассуждений модели (цепочка мыслей).",
-      "exportButton": "Экспорт",
-      "exporting": "Экспорт…",
-      "exported": "Готово",
-      "failedShort": "Ошибка",
-      "savedTo": "Сохранено в {{path}}",
-      "downloaded": "Скачано {{filename}}",
-      "failed": "Не удалось экспортировать беседу."
-    },
-    "skillMention": {
-      "heading": "Навыки",
-      "labels": {
-        "docx": "Документ Word",
-        "pptx": "Слайды PowerPoint",
-        "xlsx": "Таблица Excel",
-        "browser": "Управление браузером",
-        "mac": "Управление Mac"
-      }
-    },
-    "reasoningDisabledHint": "Для этой модели рассуждения не включены. Чтобы настроить глубину рассуждений, откройте «Настройки → Поставщики моделей», измените эту модель и включите «Поддержку рассуждений».",
-    "browserExtensionNudge": {
-      "installTitle": "Пусть ИИ управляет вашим реальным Chrome",
-      "installBody": "Установите расширение Hope Agent, чтобы управлять Chrome с выполненным входом. Пока что работа идёт в изолированном браузере.",
-      "reloadTitle": "Перезагрузите расширение Chrome",
-      "reloadBody": "Установленное расширение не соответствует хосту. Перезагрузите его, чтобы восстановить управление вашим реальным Chrome.",
-      "openSettings": "Открыть настройки",
-      "dismiss": "Больше не показывать"
-    },
-    "browserExtensionRequired": {
-      "nextAction": "Следующее действие: {{nextAction}}",
-      "openSettings": "Откройте «Настройки» > «Браузер», чтобы установить или включить расширение.",
-      "title": "Требуется расширение Chrome"
-    },
-    "conversationEmpty": "В этом разговоре нет сообщений",
-    "pendingCancelForceInsert": "Отменить вставку этого раунда",
-    "pendingFallbackAfterReply": "Отправить после ответа",
-    "pendingFallbackAfterReplyTip": "Точка завершения инструмента не обнаружена и будет отправлена после завершения текущего ответа.",
-    "pendingForceInsertTip": "Он будет ждать завершения выполнения выполняемого инструмента, а затем вставит его в модель, не прерывая работу текущего инструмента.",
-    "pendingInserted": "вставлен",
-    "pendingInsertedTip": "Он был вставлен в модель после завершения этого этапа оснастки.",
-    "pendingQueuedShort": "Очередь",
-    "pendingQueuedTip": "Оно добавлено в очередь ожидания и будет отправлено после завершения текущего ответа.",
-    "pendingQueueTitle": "Для отправки",
-    "pendingWaitingToolBoundary": "Дождитесь завершения работы инструмента",
-    "pendingWaitingToolBoundaryTip": "Дождитесь завершения последнего вызова инструмента; если инструмент больше не вызывается в этом раунде, он будет отправлен после завершения ответа.",
-    "processNotification": "процесс завершен",
-    "rightPanel": {
-      "collapse": "Свернуть правую панель",
-      "expand": "Развернуть правую панель",
-      "switch": "Переключить правую панель",
-      "dock": "Панель закрепления справа",
-      "openPanel": "Открыть {{panel}}",
-      "switchToPanel": "Переключиться на {{panel}}",
-      "collapsePanel": "Свернуть {{panel}}",
-      "expandPanel": "Развернуть {{panel}}",
-      "workflowActiveCount": "Активных процессов: {{count}}",
-      "workflowAttentionCount": "Требуют внимания: {{count}}",
-      "backgroundRunningCount": "Фоновых задач выполняется: {{count}}"
-    },
-    "visionBridgeEngaged": "Основная модель не поддерживает изображения, поэтому {{model}} описала их за неё.",
-    "visionBridgeUnavailable": "Модель зрения не смогла описать изображение, поэтому оно было пропущено.",
-    "goalCompletion": {
-      "completed": "Цель достигнута",
-      "completedWithDuration": "Цель достигнута за {{time}}",
-      "tokens": "{{tokens}} токенов"
-    },
-    "fork": {
-      "continueInNewSession": "Продолжить в новой сессии",
-      "continuedFrom": "Продолжено из",
-      "created": "Продолжено в новой сессии",
-      "failed": "Не удалось продолжить в новой сессии",
-      "sourceFallback": "исходная сессия"
-    },
-    "messageQuote": {
-      "addToChat": "Добавить в чат",
-      "assistantMessage": "Сообщение ассистента",
-      "remove": "Удалить цитату",
-      "yourMessage": "Ваше сообщение"
-    },
-    "loopTriggered": "Запущен один шаг цикла",
-    "loopTrigger": "Цикл",
     "goalMode": {
       "label": "Цель",
       "enter": "Режим цели: создать долгосрочную цель, к которой агент будет двигаться",
@@ -880,12 +674,216 @@
       "title": "Сообщение похоже на задачу для Workflow",
       "ultracodeDescription": "Включите, чтобы модель сильнее опиралась на глубокую оркестрацию, перекрестные проверки и восстановление долгих задач."
     },
+    "permissionMode": {
+      "applyToAgentDefault": {
+        "desc": "Если включено, выбор режима также обновит режим по умолчанию для новых чатов этого агента.",
+        "failed": "Не удалось обновить режим разрешений по умолчанию для этого агента.",
+        "label": "Обновлять умолчание агента"
+      },
+      "default": {
+        "desc": "Инструменты редактирования и опасные команды требуют одобрения, остальное выполняется.",
+        "label": "По умолчанию"
+      },
+      "menuLabel": "Режим разрешений",
+      "smart": {
+        "desc": "Решение об одобрении принимает модель-судья или само-оценка модели.",
+        "label": "Умное одобрение"
+      },
+      "yolo": {
+        "desc": "Все инструменты в этой сессии запускаются без одобрения (защищённые пути логируются).",
+        "label": "YOLO"
+      }
+    },
+    "sandboxMode": {
+      "isolated": {
+        "desc": "Run in an isolated copy; edit approvals are unchanged until apply-back is supported.",
+        "label": "Isolated Sandbox"
+      },
+      "menuLabel": "Песочница",
+      "off": {
+        "desc": "Run on the host; approval behavior is unchanged.",
+        "label": "Sandbox Off"
+      },
+      "setupTitle": "Configure Docker to enable sandbox",
+      "standard": {
+        "desc": "Run in Docker; approval behavior is unchanged.",
+        "label": "Standard Sandbox"
+      },
+      "trusted": {
+        "desc": "Max autonomy for sandboxed exec; strict risks still ask.",
+        "label": "Trusted Sandbox"
+      },
+      "workspace": {
+        "desc": "Mount this workspace and reduce edit-command approvals.",
+        "label": "Workspace Sandbox"
+      }
+    },
+    "pickSession": "Выбрать сессию",
+    "profileRotationTitle": "Смена профиля",
+    "queueMessage": "В очередь",
+    "reasonAuth": "Ошибка аутентификации",
+    "reasonBilling": "Биллинг / квота исчерпана",
+    "reasonContextOverflow": "Переполнение контекста",
+    "reasonModelNotFound": "Модель не найдена",
+    "reasonOverloaded": "Сервис перегружен",
+    "reasonRateLimit": "Превышен лимит запросов",
+    "reasonTimeout": "Тайм-аут запроса",
+    "reasonUnknown": "Неизвестная ошибка",
+    "renameSession": "Переименовать",
+    "renameSessionPlaceholder": "Введите новое название...",
+    "revealInFolder": "Показать в папке",
+    "roundLimitReachedBody": "В этом ходе израсходованы все {{count}} раундов вызовов инструментов, задача могла остаться незавершённой. Нажмите кнопку ниже, чтобы отправить «Продолжить», и я возобновлю работу с текущего места. Также можно увеличить `max_tool_rounds` в Настройки → Агент → Возможности.",
+    "roundLimitReachedBodyNoCount": "Лимит раундов вызовов инструментов в этом ходе исчерпан. Нажмите кнопку ниже, чтобы отправить «Продолжить», и я возобновлю работу с текущего места.",
+    "roundLimitReachedTitle": "Достигнут лимит вызовов инструментов",
+    "roundLimitResumeButton": "Продолжить",
+    "roundLimitResumeMessage": "Продолжить",
+    "scrollToBottom": "Прокрутить вниз",
+    "searchPlaceholder": "Поиск по разговорам...",
+    "searchTruncatedHint": "Показаны первые {{count}} совпадений — уточните запрос, чтобы увидеть больше.",
+    "searching": "Поиск...",
+    "selectModel": "Выбрать модель",
+    "send": "Отправить",
+    "sessionSearch": "Поиск в этом чате",
+    "sessionSearchClose": "Закрыть",
+    "sessionSearchCount": "{{current}}/{{total}}",
+    "sessionSearchNext": "Следующее",
+    "sessionSearchNoResults": "Нет совпадений в этом чате",
+    "sessionSearchPlaceholder": "Поиск сообщений в этом чате…",
+    "sessionSearchPrev": "Предыдущее",
+    "sessionStatus": "Статус сессии",
+    "memoryPolicy": {
+      "title": "Память этого чата",
+      "use": "Использовать сохранённую память",
+      "contribute": "Учиться из этого чата",
+      "inherit": "Следовать глобальным настройкам",
+      "allow": "Включено",
+      "deny": "Выключено",
+      "desc": "Настройки независимы: чат может использовать старую память, не создавая новую.",
+      "incognito": "Чаты инкогнито никогда не читают и не записывают долгосрочную память.",
+      "reloadCore": "Перезагрузить MEMORY.md для этого сеанса"
+    },
+    "settings": "Настройки",
+    "startConversation": "Начать разговор",
+    "statusAgent": "Агент",
+    "statusAuth": "Аутентификация",
+    "statusCache": "Кэш",
+    "statusCacheHit": "Попадание",
+    "statusCacheWrite": "Запись",
+    "statusContext": "Контекст",
+    "statusCumulative": "Итого",
+    "statusMessages": "{{count}} сообщений",
+    "statusModel": "Модель",
+    "statusNewSession": "(Новая сессия)",
+    "statusSession": "Сессия",
+    "statusSessionId": "ID сессии",
+    "statusThinking": "Мышление",
+    "statusUpdated": "Обновлено",
+    "stopReply": "Остановить ответ",
+    "subagentFrom": "Делегировано от {{agent}}",
+    "subagentResultCompleted": "Завершено",
     "workflowResultName": "Рабочий процесс",
     "workflowResultCheckpoint": "Получен результат этапа",
     "workflowResultCompleted": "Завершено",
     "workflowResultCancelled": "Отменено",
     "workflowResultWaiting": "Ожидание продолжения",
     "workflowResultFailed": "Требует внимания",
+    "systemPrompt": "Системный промпт",
+    "taskActions": {
+      "cycleTo": {
+        "completed": "Пометить как выполненную",
+        "in_progress": "Пометить как в работе",
+        "pending": "Пометить как ожидающую"
+      },
+      "delete": "Удалить задачу"
+    },
+    "taskNoneYet": "Задач пока нет",
+    "taskProgress": "{{completed}}/{{total}} выполнено",
+    "tasks": "Задачи",
+    "thinking": "Думаю...",
+    "thinkingAutoDisabled": "{{provider}} / {{model}} does not support the current thinking mode. Thinking was disabled automatically and the request was retried.",
+    "visionAutoDisabled": "{{provider}} / {{model}} не поддерживает ввод изображений. Изображение проигнорировано, ответ продолжен.",
+    "toolCalling": "Вызов инструментов...",
+    "totalTokens": "Всего",
+    "unknownProvider": "Unknown provider",
+    "untitledSession": "Без названия",
+    "viewContext": "Просмотреть контекст",
+    "viewModeBubble": "Переключиться на вид пузырей",
+    "viewModeTimeline": "Переключиться на вид задач",
+    "viewSystemPrompt": "Просмотреть System Prompt",
+    "weeksAgo": "{{count}} нед назад",
+    "workingDir": {
+      "browserDescription": "Пути разрешаются на машине, где запущен агент.",
+      "browserTitle": "Выберите каталог на сервере",
+      "change": "Сменить каталог",
+      "clear": "Очистить каталог",
+      "current": "Рабочий каталог",
+      "empty": "Этот каталог пуст",
+      "fileLabel": "файл",
+      "goToPath": "Перейти к пути",
+      "invalid": "Недопустимый рабочий каталог",
+      "loadError": "Не удалось получить список каталога",
+      "loading": "Загрузка…",
+      "parent": "Вверх на уровень",
+      "pathPlaceholder": "Абсолютный путь, напр. /srv/projects/app",
+      "select": "Выбрать рабочий каталог",
+      "selectCurrent": "Выбрать этот каталог",
+      "selectPreset": "Рабочий каталог задаётся после начала чата",
+      "titleBarInherited": "Наследовано от проекта",
+      "titleBarSession": "Рабочий каталог",
+      "truncated": "Показаны только первые записи — каталог слишком велик для отображения целиком."
+    },
+    "taskProgressRunning": "Выполняется {{completed}}/{{total}}",
+    "taskProgressCancelling": "Остановка {{completed}}/{{total}}",
+    "taskProgressWaiting": "Ожидает продолжения {{completed}}/{{total}}",
+    "taskProgressFailed": "Ошибка {{completed}}/{{total}}",
+    "exportSession": {
+      "menuItem": "Экспортировать беседу",
+      "dialogTitle": "Экспорт беседы",
+      "dialogHint": "Выберите формат и отметьте, что включить.",
+      "formatLabel": "Формат",
+      "formatMarkdown": "Markdown",
+      "formatJson": "JSON",
+      "formatHtml": "HTML",
+      "contentLabel": "Включить",
+      "includeTools": "Включить вызовы инструментов",
+      "includeToolsHint": "Аргументы, результаты и изменения файлов.",
+      "includeThinking": "Включить рассуждения",
+      "includeThinkingHint": "Блоки рассуждений модели (цепочка мыслей).",
+      "exportButton": "Экспорт",
+      "exporting": "Экспорт…",
+      "exported": "Готово",
+      "failedShort": "Ошибка",
+      "savedTo": "Сохранено в {{path}}",
+      "downloaded": "Скачано {{filename}}",
+      "failed": "Не удалось экспортировать беседу."
+    },
+    "skillMention": {
+      "heading": "Навыки",
+      "labels": {
+        "docx": "Документ Word",
+        "pptx": "Слайды PowerPoint",
+        "xlsx": "Таблица Excel",
+        "browser": "Управление браузером",
+        "mac": "Управление Mac",
+        "dataAnalytics": "Анализ данных"
+      }
+    },
+    "reasoningDisabledHint": "Для этой модели рассуждения не включены. Чтобы настроить глубину рассуждений, откройте «Настройки → Поставщики моделей», измените эту модель и включите «Поддержку рассуждений».",
+    "browserExtensionNudge": {
+      "installTitle": "Пусть ИИ управляет вашим реальным Chrome",
+      "installBody": "Установите расширение Hope Agent, чтобы управлять Chrome с выполненным входом. Пока что работа идёт в изолированном браузере.",
+      "reloadTitle": "Перезагрузите расширение Chrome",
+      "reloadBody": "Установленное расширение не соответствует хосту. Перезагрузите его, чтобы восстановить управление вашим реальным Chrome.",
+      "openSettings": "Открыть настройки",
+      "dismiss": "Больше не показывать"
+    },
+    "browserExtensionRequired": {
+      "nextAction": "Следующее действие: {{nextAction}}",
+      "openSettings": "Откройте «Настройки» > «Браузер», чтобы установить или включить расширение.",
+      "title": "Требуется расширение Chrome"
+    },
+    "conversationEmpty": "В этом разговоре нет сообщений",
+    "pendingCancelForceInsert": "Отменить вставку этого раунда",
     "pendingSaving": "Сохранение",
     "pendingSavingTip": "Сообщение и вложения сохраняются в восстанавливаемую очередь.",
     "pendingInserting": "Вставка",
@@ -893,6 +891,32 @@
     "pendingDispatching": "Отправка",
     "pendingDispatchingTip": "Создаётся новый ход из постоянной очереди.",
     "pendingSendNow": "Отправить сейчас",
+    "pendingFallbackAfterReply": "Отправить после ответа",
+    "pendingFallbackAfterReplyTip": "Точка завершения инструмента не обнаружена и будет отправлена после завершения текущего ответа.",
+    "pendingForceInsertTip": "Он будет ждать завершения выполнения выполняемого инструмента, а затем вставит его в модель, не прерывая работу текущего инструмента.",
+    "pendingInserted": "вставлен",
+    "pendingInsertedTip": "Он был вставлен в модель после завершения этого этапа оснастки.",
+    "pendingQueuedShort": "Очередь",
+    "pendingQueuedTip": "Оно добавлено в очередь ожидания и будет отправлено после завершения текущего ответа.",
+    "pendingQueueTitle": "Для отправки",
+    "pendingWaitingToolBoundary": "Дождитесь завершения работы инструмента",
+    "pendingWaitingToolBoundaryTip": "Дождитесь завершения последнего вызова инструмента; если инструмент больше не вызывается в этом раунде, он будет отправлен после завершения ответа.",
+    "processNotification": "процесс завершен",
+    "rightPanel": {
+      "collapse": "Свернуть правую панель",
+      "expand": "Развернуть правую панель",
+      "switch": "Переключить правую панель",
+      "dock": "Панель закрепления справа",
+      "openPanel": "Открыть {{panel}}",
+      "switchToPanel": "Переключиться на {{panel}}",
+      "collapsePanel": "Свернуть {{panel}}",
+      "expandPanel": "Развернуть {{panel}}",
+      "workflowActiveCount": "Активных процессов: {{count}}",
+      "workflowAttentionCount": "Требуют внимания: {{count}}",
+      "backgroundRunningCount": "Фоновых задач выполняется: {{count}}"
+    },
+    "visionBridgeEngaged": "Основная модель не поддерживает изображения, поэтому {{model}} описала их за неё.",
+    "visionBridgeUnavailable": "Модель зрения не смогла описать изображение, поэтому оно было пропущено.",
     "loadingSession": "Загрузка сеанса…",
     "goalSlash": {
       "showActive": "Показать текущую цель",
@@ -944,6 +968,10 @@
       "quickEditEmpty": "Содержимое памяти не может быть пустым.",
       "quickEditSaved": "Память обновлена.",
       "quickEditSaveFailed": "Не удалось сохранить это воспоминание.",
+      "promoteToCore": "Всегда помнить это",
+      "promoteToCoreFailed": "Не удалось добавить это в основную память.",
+      "promotedToCore": "Сохранено навсегда",
+      "promotedToCoreToast": "Добавлено в постоянную основную память.",
       "kind": {
         "claim": "Структурированная память",
         "episode": "Опыт",
@@ -972,6 +1000,7 @@
       },
       "layerReason": {
         "agentConfigError": "конфигурация памяти агента недоступна",
+        "budgetEmpty": "бюджет поиска пуст",
         "disabled": "конфигурация выключена",
         "emptyQuery": "пустой запрос",
         "incognito": "сеанс инкогнито",
@@ -982,14 +1011,13 @@
         "noGraphNeighbors": "нет связанных отношений сущностей",
         "noHits": "нет попаданий",
         "noSession": "нет контекста сеанса",
-        "retrievalError": "получение не удалось",
-        "sideQueryError": "отзыв не удался",
-        "timeout": "время ожидания истекло",
-        "budgetEmpty": "бюджет поиска пуст",
         "nonContextualTurn": "реплика не требует контекста",
         "recallOff": "автоматический динамический поиск отключён",
         "retrievalBusy": "служба поиска занята",
+        "retrievalError": "получение не удалось",
         "sessionPolicy": "отключено политикой памяти или диалога",
+        "sideQueryError": "отзыв не удался",
+        "timeout": "время ожидания истекло",
         "unifiedRecall": "обработано быстрым поиском",
         "unknown": "другая причина"
       },
@@ -1064,11 +1092,7 @@
       "more": "{{count}} более долгосрочные элементы контекста скрыты.",
       "sources": "Источники памяти",
       "editMemory": "Редактировать это воспоминание",
-      "copyTrace": "Копировать диагностику",
-      "promoteToCore": "Всегда помнить это",
-      "promoteToCoreFailed": "Не удалось добавить это в основную память.",
-      "promotedToCore": "Сохранено навсегда",
-      "promotedToCoreToast": "Добавлено в постоянную основную память."
+      "copyTrace": "Копировать диагностику"
     },
     "projectWelcomeTitle": "Что мы должны построить в <project>{{project}}</project>? Расскажите идею",
     "projectWelcomeSuggestions": {
@@ -1141,17 +1165,9 @@
     "openSourceConversationMissingHint": "Этот источник памяти указывает на беседу, которая была удалена или не найдена.",
     "openSourceMessageMissing": "Исходное сообщение больше недоступно",
     "openSourceMessageMissingHint": "Беседа все еще существует, но точное сообщение для этого источника памяти не найдено.",
-    "memoryPolicy": {
-      "title": "Память этого чата",
-      "use": "Использовать сохранённую память",
-      "contribute": "Учиться из этого чата",
-      "inherit": "Следовать глобальным настройкам",
-      "allow": "Включено",
-      "deny": "Выключено",
-      "desc": "Настройки независимы: чат может использовать старую память, не создавая новую.",
-      "incognito": "Чаты инкогнито никогда не читают и не записывают долгосрочную память.",
-      "reloadCore": "Перезагрузить MEMORY.md для этого сеанса"
-    }
+    "unreadConversationCount": "Непрочитанных чатов: {{count}}",
+    "unreadStatus": "Не прочитано",
+    "channelUnreadStatus": "Непрочитанный чат в мессенджере"
   },
   "codexAuth": {
     "expiredDescription": "Ваш OAuth-токен Codex больше не действителен. Войдите снова, чтобы продолжить.",
@@ -1159,7 +1175,6 @@
     "reauth": "Войти снова"
   },
   "common": {
-    "download": "Скачать",
     "add": "Добавить",
     "back": "Назад",
     "cancel": "Отмена",
@@ -1196,12 +1211,9 @@
     "expand": "Развернуть",
     "retry": "Повторить попытку",
     "unavailable": "Недоступно",
-    "duplicate": "Дублировать",
-    "more": "Ещё",
     "copy": "Копировать",
-    "copied": "Скопировано",
-    "apply": "Применить",
     "auto": "Авто",
+    "copied": "Скопировано",
     "yes": "да",
     "no": "нет",
     "none": "Нет",
@@ -1209,17 +1221,32 @@
     "off": "Выкл.",
     "error": "Error",
     "showLess": "Показать меньше",
-    "modelNoVision": "Не поддерживает изображения"
+    "download": "Скачать",
+    "duplicate": "Дублировать",
+    "more": "Ещё",
+    "apply": "Применить",
+    "modelNoVision": "Не поддерживает изображения",
+    "next": "Next",
+    "previous": "Previous"
   },
   "context": {
     "ago": "назад",
+    "cacheRead": "Чтение кэша",
     "cacheTtlProtection": "защита TTL кэша",
+    "cacheWindowNotice": "Попадания в кэш сокращают повторные вычисления, стоимость и TTFT, но не уменьшают использование окна контекста.",
+    "cacheWrite": "Запись кэша",
     "compactAllowedIn": "Следующее сжатие через",
+    "coreMemoryBudget": "Бюджет Core Memory",
+    "coreMemoryModelLimited": "временно ограничено для этой модели",
+    "dynamicPrompt": "Динамический промпт",
+    "estimated": "оценка",
     "estimateNote": "После каждого раунда приоритет имеют фактические данные провайдера; до этого показывается консервативная оценка по форме запроса.",
     "freeSpace": "Свободно",
+    "freshInput": "Новый ввод",
     "lastCompact": "Последнее сжатие",
     "memory": "Память",
     "messages": "Сообщения",
+    "providerInput": "Ввод Provider",
     "reservedOutput": "Зарезервированный вывод",
     "skills": "Навыки",
     "systemPrompt": "Системный промпт",
@@ -1227,16 +1254,7 @@
     "toolDescriptions": "Описания инструментов",
     "toolSchemas": "Схемы инструментов",
     "used": "Использовано",
-    "viewSystemPrompt": "Системный промпт",
-    "cacheRead": "Чтение кэша",
-    "cacheWindowNotice": "Попадания в кэш сокращают повторные вычисления, стоимость и TTFT, но не уменьшают использование окна контекста.",
-    "cacheWrite": "Запись кэша",
-    "coreMemoryBudget": "Бюджет Core Memory",
-    "coreMemoryModelLimited": "временно ограничено для этой модели",
-    "dynamicPrompt": "Динамический промпт",
-    "estimated": "оценка",
-    "freshInput": "Новый ввод",
-    "providerInput": "Ввод Provider"
+    "viewSystemPrompt": "Системный промпт"
   },
   "cron": {
     "active": "Активна",
@@ -1426,8 +1444,8 @@
         "cron": "cron",
         "idle": "простой",
         "manual": "вручную",
-        "user_correction": "исправление",
-        "review_snapshot": "review snapshot"
+        "review_snapshot": "review snapshot",
+        "user_correction": "исправление"
       },
       "runs": {
         "title": "История запусков",
@@ -1449,9 +1467,46 @@
       "resolving": "Обработка…",
       "resolverDone": "Готово: {{expired}} истекло, {{merged}} объединено, {{review}} на проверку",
       "resolverFailed": "Ошибка глубокой обработки",
+      "resolverPreflightTitle": "Deep Resolver предполетная подготовка",
+      "resolverPreflightSummary": "Активные заявки {{active}} · Кандидаты с истекшим сроком действия {{expired}} · Конфликтные группы {{groups}}",
+      "resolverPreflightBlocked": "Резолвер заблокирован: {{reasons}}",
+      "resolverPreflightLlm": "Группы {{count}}/{{total}} будут использовать LLM · ограничение {{cap}}",
+      "resolverPreflightNoLlm": "Групповой вызов LLM не ожидается.",
+      "resolverPreflightTruncated": "Продолжим следующий запуск.",
+      "resolverPreflightUnavailable": "Предполетная подготовка недоступна.",
+      "resolverPreflightRefresh": "Обновить план",
+      "resolverPreflightReasons": {
+        "dreamingDisabled": "Dreaming выключен",
+        "longTermMemoryDisabled": "Обучение памяти выключено",
+        "manualDisabled": "Руководство убегает",
+        "claimLoadFailed": "Претензии недоступны"
+      },
+      "errors": {
+        "loadDiaries": "Failed to load Dreaming diaries",
+        "loadRuns": "Failed to load Dreaming run history",
+        "loadRunDetail": "Failed to load Dreaming run details",
+        "loadDiary": "Failed to open Dreaming diary",
+        "loadEvidenceQuote": "Failed to load evidence quote",
+        "runNow": "Failed to run Dreaming",
+        "runResolver": "Deep resolve failed",
+        "resolverPreflight": "Failed to load Deep Resolver preflight",
+        "detail": "Подробности: {{error}}"
+      },
       "review": {
         "queueTitle": "На проверку",
         "queueEmpty": "Нет claim для проверки",
+        "errors": {
+          "loadQueue": "Failed to load review queue",
+          "approve": "Failed to approve memory",
+          "markOutdated": "Failed to mark memory outdated",
+          "pin": "Failed to pin memory",
+          "unpin": "Failed to unpin memory",
+          "edit": "Failed to edit memory",
+          "moveScope": "Failed to move memory scope",
+          "reject": "Failed to reject memory",
+          "forget": "Failed to forget memory",
+          "detail": "Подробности: {{error}}"
+        },
         "approve": "Одобрить",
         "approveDone": "Claim одобрен",
         "markOutdated": "Пометить устаревшим",
@@ -1490,44 +1545,7 @@
         "forgetNotePlaceholder": "Причина (необязательно)",
         "forgetConfirm": "Забыть",
         "forgetDone": "Воспоминание забыто",
-        "failed": "Не удалось выполнить",
-        "errors": {
-          "loadQueue": "Failed to load review queue",
-          "approve": "Failed to approve memory",
-          "markOutdated": "Failed to mark memory outdated",
-          "pin": "Failed to pin memory",
-          "unpin": "Failed to unpin memory",
-          "edit": "Failed to edit memory",
-          "moveScope": "Failed to move memory scope",
-          "reject": "Failed to reject memory",
-          "forget": "Failed to forget memory",
-          "detail": "Подробности: {{error}}"
-        }
-      },
-      "resolverPreflightTitle": "Deep Resolver предполетная подготовка",
-      "resolverPreflightSummary": "Активные заявки {{active}} · Кандидаты с истекшим сроком действия {{expired}} · Конфликтные группы {{groups}}",
-      "resolverPreflightBlocked": "Резолвер заблокирован: {{reasons}}",
-      "resolverPreflightLlm": "Группы {{count}}/{{total}} будут использовать LLM · ограничение {{cap}}",
-      "resolverPreflightNoLlm": "Групповой вызов LLM не ожидается.",
-      "resolverPreflightTruncated": "Продолжим следующий запуск.",
-      "resolverPreflightUnavailable": "Предполетная подготовка недоступна.",
-      "resolverPreflightRefresh": "Обновить план",
-      "resolverPreflightReasons": {
-        "dreamingDisabled": "Dreaming выключен",
-        "longTermMemoryDisabled": "Обучение памяти выключено",
-        "manualDisabled": "Руководство убегает",
-        "claimLoadFailed": "Претензии недоступны"
-      },
-      "errors": {
-        "loadDiaries": "Failed to load Dreaming diaries",
-        "loadRuns": "Failed to load Dreaming run history",
-        "loadRunDetail": "Failed to load Dreaming run details",
-        "loadDiary": "Failed to open Dreaming diary",
-        "loadEvidenceQuote": "Failed to load evidence quote",
-        "runNow": "Failed to run Dreaming",
-        "runResolver": "Deep resolve failed",
-        "resolverPreflight": "Failed to load Deep Resolver preflight",
-        "detail": "Подробности: {{error}}"
+        "failed": "Не удалось выполнить"
       }
     },
     "error": {
@@ -1886,17 +1904,17 @@
       "ttftTrend": "Время до первого токена (TTFT)",
       "inputTokens": "Входные токены",
       "outputTokens": "Выходные токены",
-      "byDomain": "Распределение по домену",
-      "byOperation": "По операциям",
-      "operation": "Операция",
-      "domain": "Домен",
       "byType": "Использование по типу",
       "type": "Тип",
       "calls": "Вызовы",
       "cacheWrite": "Запись в кэш",
       "cacheRead": "Чтение из кэша",
       "avgDuration": "Средняя длительность",
-      "tokensUnit": "токены"
+      "tokensUnit": "токены",
+      "byDomain": "Распределение по домену",
+      "byOperation": "По операциям",
+      "operation": "Операция",
+      "domain": "Домен"
     },
     "tool": {
       "avgDuration": "Среднее время",
@@ -1994,6 +2012,106 @@
     },
     "columns": {
       "session": "Сессия"
+    },
+    "controlPlane": {
+      "title": "Goals & Execution",
+      "automationTab": "Automation",
+      "scopeHint": "Window metrics show outcomes; current snapshots show backlog and risk.",
+      "allProjects": "All projects",
+      "unassignedProject": "Unassigned",
+      "archived": "Archived",
+      "empty": "No data for the selected scope.",
+      "sections": {
+        "overview": "Overview",
+        "planTask": "Plan & Task"
+      },
+      "metrics": {
+        "goalAcceptance": "Goal acceptance rate",
+        "workflowCompletion": "Workflow completion rate",
+        "loopStrongProgress": "Loop strong-progress rate",
+        "taskCompletion": "Task cohort completion",
+        "attention": "Needs attention",
+        "requiredCriteria": "Required criteria pass rate",
+        "goalP50": "Goal time-to-accept P50",
+        "opFailure": "Operation failure rate",
+        "workflowP50": "Workflow duration P50",
+        "goalBinding": "Goal binding rate",
+        "approvalTrigger": "Approval trigger rate",
+        "noProgress": "No-progress rate",
+        "blockedSchedules": "Blocked schedules",
+        "loopP50": "Loop run duration P50",
+        "currentBacklog": "Current backlog",
+        "activePlans": "Active now",
+        "cohortCompletion": "Cohort completion"
+      },
+      "currentSnapshot": "Current snapshot",
+      "goalTrend": "Goal outcomes",
+      "resolved": "Resolved",
+      "accepted": "Accepted",
+      "attentionTitle": "Current attention items",
+      "noAttention": "No current attention items",
+      "auditSamples": "{{count}} audited Goals",
+      "currentStates": "Current states",
+      "closureOutcomes": "Closure outcomes",
+      "domains": "Domains",
+      "kinds": "Kinds",
+      "origins": "Origins",
+      "workflowTrend": "Decided Workflow runs",
+      "decidedRuns": "Decided runs",
+      "progressStates": "Progress classification",
+      "triggerKinds": "Trigger kinds",
+      "strategies": "Execution strategies",
+      "loopTrend": "Evaluated Loop runs",
+      "evaluatedRuns": "Evaluated runs",
+      "openPlanHistory": "View Plan history",
+      "planByAgent": "Plan by Agent",
+      "planByProject": "Plan by project",
+      "noFunnelHint": "Task and Plan do not yet have reliable Goal / Workflow / Loop attribution keys, so this page does not infer a causal funnel from sessions.",
+      "noExactSamples": "No exact duration samples",
+      "coverage": "{{samples}} / {{eligible}} exact samples ({{percent}}%)",
+      "coverageShort": "Exact duration coverage: {{samples}} / {{eligible}}",
+      "creationTrend": "Creation trend",
+      "created": "Created",
+      "attentionKinds": {
+        "goal": "Цель",
+        "workflow": "Рабочий процесс",
+        "loop": "Цикл",
+        "plan": "План"
+      },
+      "attentionReasons": {
+        "needs_strict_evidence": "Требуются строгие доказательства",
+        "goal_awaiting_closure": "Цель ожидает закрытия",
+        "workflow_requires_attention": "Рабочий процесс требует внимания",
+        "consecutive_no_progress": "Нет прогресса подряд",
+        "loop_requires_attention": "Цикл требует внимания",
+        "plan_awaiting_review": "План ожидает проверки"
+      },
+      "states": {
+        "active": "Активно",
+        "paused": "Paused",
+        "evaluating": "Evaluating",
+        "completed": "Завершено",
+        "failed": "Failed",
+        "cancelled": "Cancelled",
+        "blocked": "Заблокировано",
+        "planning": "Planning",
+        "review": "Проверка",
+        "executing": "Executing",
+        "off": "Archived",
+        "awaiting_approval": "Ожидает одобрения",
+        "awaiting_user": "Ожидает пользователя",
+        "running": "Running",
+        "recovering": "Recovering",
+        "draft": "Draft",
+        "pending": "Pending",
+        "in_progress": "In progress",
+        "progressed": "Progressed",
+        "weak_progress": "Weak progress",
+        "no_progress": "No progress",
+        "accepted_v1": "Accepted v1",
+        "superseded": "Superseded",
+        "unassigned": "Unassigned"
+      }
     }
   },
   "fileActions": {
@@ -2098,10 +2216,10 @@
       "staged": "Staged",
       "stagedScope": "Staged",
       "stale": "The repository changed. The diff was refreshed; review it again.",
-      "prReviewComments": "Комментарии ревью PR · {{count}}",
       "unstage": "Unstage",
       "unstaged": "Unstaged",
-      "unstagedScope": "Unstaged"
+      "unstagedScope": "Unstaged",
+      "prReviewComments": "Комментарии ревью PR · {{count}}"
     }
   },
   "effort": {
@@ -2537,10 +2655,10 @@
     "reasoning": "Рассуждение / Мышление",
     "reasoningHint": "После включения вы сможете выбрать глубину рассуждений (низкая / средняя / высокая) в меню модели над полем ввода чата; она автоматически добавляется в каждый запрос.",
     "supportedInputTypes": "Поддерживаемые типы ввода",
-    "text": "Текст",
-    "video": "Видео",
     "supportsImageMultimodal": "Поддерживает мультимодальность с изображениями",
-    "supportsVideoMultimodal": "Поддерживает мультимодальность с видео"
+    "supportsVideoMultimodal": "Поддерживает мультимодальность с видео",
+    "text": "Текст",
+    "video": "Видео"
   },
   "notification": {
     "cronCancelled": "Запланированная задача отменена",
@@ -2939,6 +3057,29 @@
     "addProject": "Добавить проект",
     "archiveProject": "Архивировать проект",
     "archivedProjects": "Архивные проекты",
+    "autoMemory": {
+      "content": "Подробности (Markdown)",
+      "deleteConfirm": "Удалить эту тему автоматической памяти проекта?",
+      "description": "Краткий индекс MEMORY.md стабильно добавляется в чаты проекта; подробности читаются только при необходимости. Всё хранится на этом компьютере.",
+      "editorHint": "Инструкции проекта — фиксированные правила. Здесь хранятся накопленные в работе знания, а не обязательные инструкции.",
+      "editorTitle": "Автоматическая память проекта",
+      "empty": "Тем автоматической памяти пока нет.",
+      "fileNameGenerated": "Имя файла будет создано при сохранении",
+      "name": "Заголовок",
+      "newTopic": "Новая тема",
+      "rebuildIndex": "Пересобрать индекс MEMORY.md",
+      "rebuildFailed": "Не удалось пересобрать индекс MEMORY.md.",
+      "summary": "Краткое описание в индексе",
+      "summaryHint": "Эта фраза входит в стабильный промпт каждого чата проекта, поэтому пишите кратко.",
+      "type": "Тип",
+      "types": {
+        "feedback": "Рабочая обратная связь",
+        "project": "Работа над проектом",
+        "reference": "Справка",
+        "user": "Контекст пользователя"
+      },
+      "emptyPreview": "Подробностей в Markdown пока нет. Переключитесь в режим редактирования, чтобы добавить содержимое."
+    },
     "createFirstProject": "Создайте свой первый проект",
     "defaultAgent": "Agent по умолчанию",
     "defaultModel": "Модель по умолчанию",
@@ -2948,6 +3089,10 @@
     },
     "deleteProject": "Удалить проект",
     "editProject": "Редактировать проект",
+    "openFromMemoryLoadFailed": "Не удалось открыть источник проекта",
+    "openFromMemoryLoadFailedDetail": "Подробности: {{error}}",
+    "openFromMemoryMissing": "Проект больше недоступен",
+    "openFromMemoryMissingHint": "Источник памяти указывает на проект, который был удален или не найден.",
     "files": {
       "confirmDelete": "Удалить этот файл?",
       "delete": "Удалить",
@@ -2977,13 +3122,38 @@
       "recentSessions": "Недавние сессии",
       "totalFiles": "Файлы",
       "totalMemories": "Память",
-      "totalSessions": "Сессии"
+      "totalSessions": "Сессии",
+      "activeClaims": "Упорядоченные воспоминания",
+      "agentsEmpty": "Файл AGENTS.md пока пуст",
+      "agentsLines": "AGENTS.md",
+      "agentsRole": "Основные правила проекта, применяемые ко всем его сессиям.",
+      "agentsStats": "{{lines}} строк · {{size}}",
+      "autoMemoryRole": "Локальный опыт, который поддерживает модель; индекс остаётся стабильным, а темы читаются по мере необходимости.",
+      "autoMemoryStats": "Тем: {{count}}",
+      "autoMemoryTopics": "Темы автоматической памяти",
+      "awaitingResponse": "Ожидает вашего ответа",
+      "contextDescription": "Посмотрите, какой контекст модель может использовать в этом проекте.",
+      "contextTitle": "Контекст проекта",
+      "defaultWorkspace": "Рабочая папка проекта по умолчанию",
+      "homeDescription": "Продолжите недавнюю работу или настройте контекст проекта.",
+      "homeTitle": "Главная страница проекта",
+      "linesUnit": "строк",
+      "loadFailed": "Обзор проекта временно недоступен. Повторите попытку чуть позже.",
+      "messageCount": "Сообщений: {{count}}",
+      "noRecentSessions": "В проекте пока нет сессий",
+      "noRecentSessionsHint": "После создания сессии недавняя работа появится здесь.",
+      "recentSessionsHint": "Недавно обновлённые пользовательские сессии",
+      "structuredMemory": "Память проекта",
+      "structuredMemoryRole": "Долговременная информация, упорядоченная из диалогов проекта; её автоматическое использование в ответах зависит от настроек памяти.",
+      "unavailable": "Недоступно",
+      "untitledSession": "Сессия без названия",
+      "workingDirectory": "Рабочая папка"
     },
     "projectColor": "Цвет",
     "projectDescription": "Описание",
     "projectDescriptionPlaceholder": "О чём этот проект?",
     "projectInstructions": "Инструкции проекта",
-    "projectInstructionsHint": "Эти инструкции автоматически добавляются в системный промпт каждой сессии этого проекта.",
+    "projectInstructionsHint": "Редактирует файл AGENTS.md непосредственно в корне проекта. После сохранения он применяется ко всем сессиям проекта.",
     "projectInstructionsPlaceholder": "напр. Всегда отвечай на русском; сохраняй ясный и дружелюбный тон; начинай с вывода",
     "projectLogo": "Логотип",
     "projectLogoHint": "Необязательно. Изображения автоматически масштабируются до 256×256.",
@@ -2997,6 +3167,7 @@
     "showLess": "Свернуть",
     "showMore": "Показать ещё",
     "tabFiles": "Файлы",
+    "tabAutoMemory": "Автопамять",
     "tabInstructions": "Инструкции",
     "tabMemories": "Память",
     "tabOverview": "Обзор",
@@ -3020,33 +3191,11 @@
       "errorDetail": "Подробности: {{error}}"
     },
     "projectEmojiPlaceholder": "Необязательно",
-    "openFromMemoryLoadFailed": "Не удалось открыть источник проекта",
-    "openFromMemoryLoadFailedDetail": "Подробности: {{error}}",
-    "openFromMemoryMissing": "Проект больше недоступен",
-    "openFromMemoryMissingHint": "Источник памяти указывает на проект, который был удален или не найден.",
-    "autoMemory": {
-      "content": "Подробности (Markdown)",
-      "deleteConfirm": "Удалить эту тему автоматической памяти проекта?",
-      "description": "Краткий индекс MEMORY.md стабильно добавляется в чаты проекта; подробности читаются только при необходимости. Всё хранится на этом компьютере.",
-      "editorHint": "Инструкции проекта — фиксированные правила. Здесь хранятся накопленные в работе знания, а не обязательные инструкции.",
-      "editorTitle": "Автоматическая память проекта",
-      "empty": "Тем автоматической памяти пока нет.",
-      "fileNameGenerated": "Имя файла будет создано при сохранении",
-      "name": "Заголовок",
-      "newTopic": "Новая тема",
-      "rebuildIndex": "Пересобрать индекс MEMORY.md",
-      "rebuildFailed": "Не удалось пересобрать индекс MEMORY.md.",
-      "summary": "Краткое описание в индексе",
-      "summaryHint": "Эта фраза входит в стабильный промпт каждого чата проекта, поэтому пишите кратко.",
-      "type": "Тип",
-      "types": {
-        "feedback": "Рабочая обратная связь",
-        "project": "Работа над проектом",
-        "reference": "Справка",
-        "user": "Контекст пользователя"
-      }
-    },
-    "tabAutoMemory": "Автопамять"
+    "projectInstructionsLineCount": "{{count}} строк",
+    "resizeSettingsSheet": "Перетащите, чтобы изменить ширину настроек проекта",
+    "projectInstructionsEmptyPreview": "AGENTS.md пуст. Переключитесь в режим редактирования, чтобы добавить инструкции Markdown.",
+    "projectInstructionsLoadFailed": "Не удалось прочитать AGENTS.md",
+    "projectInstructionsSaveFailed": "Не удалось сохранить AGENTS.md"
   },
   "provider": {
     "addProvider": "Добавить провайдера",
@@ -3496,6 +3645,7 @@
       "judgeExtraPromptPlaceholder": "Необязательно: дополнительные инструкции для судьи (белые списки путей, доверенные команды...)",
       "judgeModelPlaceholder": "Выбрать модель судьи",
       "judgeModelTitle": "Настройка модели-судьи",
+      "judgeProviderPlaceholder": "ID провайдера (например, anthropic-1)",
       "protectedPathsDesc": "Вызовы инструментов, затрагивающие эти пути, принудительно требуют подтверждения и не могут быть «Всегда разрешать». Поддерживает раскрытие ~/, префикс каталога (с / на конце) и glob-шаблоны *.pattern.",
       "protectedPathsPlaceholder": "например: ~/.ssh/, .env, *.pem",
       "protectedPathsTitle": "Защищенные пути",
@@ -3528,8 +3678,7 @@
       "yoloDesc": "Когда включено, все инструменты запускаются без подтверждения; блокировать все еще может только Plan Mode. Совпадения защищенных путей / опасных команд пишут предупреждение, но выполняются.",
       "yoloDisabled": "Глобальный YOLO выключен",
       "yoloEnabled": "Глобальный YOLO включен",
-      "yoloTitle": "Глобальный YOLO (пропускать все подтверждения)",
-      "judgeProviderPlaceholder": "ID провайдера (например, anthropic-1)"
+      "yoloTitle": "Глобальный YOLO (пропускать все подтверждения)"
     },
     "approvalTimeout": "Таймаут ожидания одобрения",
     "approvalTimeoutAction": "Действие при таймауте одобрения",
@@ -3578,6 +3727,8 @@
       "digestMaxChars": "Бюджет вывода дайджеста (символы)",
       "dynamicEnabled": "Обновлять суффикс каждый ход",
       "enabledForSession": "Включено для этой сессии",
+      "extractionAgent": "ID Agent извлечения (необязательно)",
+      "extractionAgentPlaceholder": "Оставьте пустым, чтобы наследовать recap.analysisAgent",
       "includeChannel": "Включать сессии IM-каналов",
       "includeCron": "Включать сессии cron",
       "includeSubagents": "Включать сессии sub-agent",
@@ -3603,9 +3754,7 @@
       "sessionOverride": "Переопределение сессии",
       "title": "Отслеживание поведения",
       "extractionModel": "Модель извлечения (необязательно)",
-      "extractionModelInherit": "Использовать текущего агента чата (экономит кэш)",
-      "extractionAgent": "ID Agent извлечения (необязательно)",
-      "extractionAgentPlaceholder": "Оставьте пустым, чтобы наследовать recap.analysisAgent"
+      "extractionModelInherit": "Использовать текущего агента чата (экономит кэш)"
     },
     "browser": {
       "activeBadge": "активный",
@@ -3758,7 +3907,16 @@
         "title": "Разрешить raw CDP?",
         "body": "Это позволит ИИ отправлять произвольные команды DevTools Protocol в ваш реальный Chrome. Каждый вызов по-прежнему требует вашего отдельного подтверждения, а опасные методы остаются заблокированными, но включайте это только если вам это действительно нужно.",
         "continue": "Включить"
-      }
+      },
+      "backupRuntimeHint": "System Chrome is available. Install a Hope-managed Chromium runtime as a fallback for browser automation and Artifact PDF export.",
+      "backupRuntimeTitle": "Backup Chromium runtime",
+      "installRuntimeRetry": "The runtime is ready. Retry the browser action or PDF export.",
+      "openBrowserSettings": "Open browser settings",
+      "runtimeInstallUnsupported": "Hope does not provide a managed Chromium runtime for this operating system or architecture. Install Chrome/Chromium manually or configure an executable path.",
+      "runtimeRequiredArtifactPdfDescription": "PDF export needs a local Chrome or Chromium runtime, but none is currently available.",
+      "runtimeRequiredDescription": "This browser operation needs a local Chrome or Chromium runtime, but none is currently available.",
+      "runtimeRequiredHint": "You can install Hope's managed runtime now (about 150 MB), then retry the operation.",
+      "runtimeRequiredTitle": "Chromium runtime required"
     },
     "bytes": "байт",
     "canvas": "Холст",
@@ -3800,39 +3958,6 @@
         "backfillDesc": "Backfill регистрирует старые воспоминания как claims, не меняя текущую инъекцию памяти. Закреплённые профильные и preference-воспоминания могут стать активными автоматически; остальные ждут проверки."
       },
       "list": "Утверждения",
-      "empty": "Пока нет утверждений.",
-      "selectClaim": "Выберите утверждение, чтобы увидеть доказательства.",
-      "confidence": "Уверенность",
-      "salience": "Значимость",
-      "evidence": "Доказательства",
-      "noEvidence": "Нет доказательств.",
-      "links": "Связанная память",
-      "statusAll": "Все статусы",
-      "status": {
-        "active": "Активно",
-        "superseded": "Заменено",
-        "expired": "Истекло",
-        "archived": "Архивировано",
-        "needs_review": "Требует проверки"
-      },
-      "backfill": {
-        "button": "Заполнить",
-        "title": "Заполнение из существующих воспоминаний",
-        "desc": "Регистрирует существующие воспоминания как структурированные claim. Автоматически активируются только закреплённые воспоминания профиля и предпочтений (user/feedback), остальное попадает в очередь на проверку. Связь свободная, поэтому текущая вставка памяти не меняется.",
-        "summaryTotal": "Всего воспоминаний",
-        "summaryLinked": "Уже связаны",
-        "summaryCandidates": "К заполнению",
-        "summaryActive": "Авто-активные",
-        "summaryReview": "На проверку",
-        "previewTruncated": "Показано {{shown}} из {{total}}",
-        "apply": "Заполнить {{count}}",
-        "applying": "Заполнение…",
-        "applied": "Заполнено claim: {{created}} ({{active}} активных, {{review}} на проверку)",
-        "planFailed": "Не удалось рассчитать план заполнения",
-        "applyFailed": "Ошибка заполнения",
-        "empty": "Все воспоминания уже в слое claim.",
-        "appliedPartial": "Заполнено {{created}}, ошибок: {{failed}} — остальное можно повторить"
-      },
       "searchPlaceholder": "Поиск структурированной памяти…",
       "searchMatchedBy": "Соответствует",
       "searchMatch_content": "Content",
@@ -4012,6 +4137,11 @@
         "llm_adjusted": "AI adjusted",
         "user_confirmed": "Подтверждено пользователем"
       },
+      "empty": "Пока нет утверждений.",
+      "selectClaim": "Выберите утверждение, чтобы увидеть доказательства.",
+      "confidence": "Уверенность",
+      "salience": "Значимость",
+      "evidence": "Доказательства",
       "evidenceAll": "Все доказательства",
       "evidenceSourceAll": "Все источники",
       "evidenceSources": {
@@ -4024,9 +4154,37 @@
         "recap_facet": "Recap",
         "manual": "Ручная правка"
       },
+      "noEvidence": "Нет доказательств.",
+      "links": "Связанная память",
       "typeAll": "Все типы",
       "typeProfile": "Профиль и предпочтения",
       "scopeAll": "Все области",
+      "statusAll": "Все статусы",
+      "status": {
+        "active": "Активно",
+        "superseded": "Заменено",
+        "expired": "Истекло",
+        "archived": "Архивировано",
+        "needs_review": "Требует проверки"
+      },
+      "backfill": {
+        "button": "Заполнить",
+        "title": "Заполнение из существующих воспоминаний",
+        "desc": "Регистрирует существующие воспоминания как структурированные claim. Автоматически активируются только закреплённые воспоминания профиля и предпочтений (user/feedback), остальное попадает в очередь на проверку. Связь свободная, поэтому текущая вставка памяти не меняется.",
+        "summaryTotal": "Всего воспоминаний",
+        "summaryLinked": "Уже связаны",
+        "summaryCandidates": "К заполнению",
+        "summaryActive": "Авто-активные",
+        "summaryReview": "На проверку",
+        "previewTruncated": "Показано {{shown}} из {{total}}",
+        "apply": "Заполнить {{count}}",
+        "applying": "Заполнение…",
+        "applied": "Заполнено claim: {{created}} ({{active}} активных, {{review}} на проверку)",
+        "planFailed": "Не удалось рассчитать план заполнения",
+        "applyFailed": "Ошибка заполнения",
+        "empty": "Все воспоминания уже в слое claim.",
+        "appliedPartial": "Заполнено {{created}}, ошибок: {{failed}} — остальное можно повторить"
+      },
       "reviewHistoryTitle": "История просмотра",
       "reviewHistoryDesc": "Последние решения по проверке зафиксированы Lucid Review и Dreaming.",
       "reviewHistoryShow": "Показать",
@@ -4201,6 +4359,14 @@
       "cronTriggerEnabledDesc": "Fire on a cron expression in addition to (or instead of) the idle trigger.",
       "cronTriggerTitle": "Scheduled trigger",
       "desc": "Periodically scan recent memories and pin the most evergreen ones into core memory. Runs offline; never blocks chat.",
+      "errors": {
+        "loadConfig": "Не удалось загрузить настройки Dreaming.",
+        "loadModels": "Failed to load Dreaming model list",
+        "loadStatus": "Failed to load Dreaming status",
+        "saveConfig": "Failed to save Dreaming settings",
+        "reloadAfterSave": "Failed to reload Dreaming settings after save failed",
+        "detail": "Подробности: {{error}}"
+      },
       "idleCountdown": "Idle trigger fires in ~{{minutes}} min",
       "idleMinutes": "Idle threshold (minutes)",
       "idleMinutesDesc": "How long to wait without user activity before firing.",
@@ -4238,14 +4404,6 @@
       "profileEnabledDesc": "Построить читаемый профиль из активных claim с разбивкой по областям. Когда включено, заменяет устаревший раздел профиля в системном промпте; когда выключено, сохраняется прежний рендеринг. Простой/cron используют дешёвый проход по правилам; ручной запуск выполняет перезапись через LLM.",
       "profileMaxLines": "Макс. строк на область",
       "profileMaxLinesDesc": "Ограничение на количество пунктов профиля, сохраняемых для каждой области.",
-      "errors": {
-        "loadConfig": "Не удалось загрузить настройки Dreaming.",
-        "loadModels": "Failed to load Dreaming model list",
-        "loadStatus": "Failed to load Dreaming status",
-        "saveConfig": "Failed to save Dreaming settings",
-        "reloadAfterSave": "Failed to reload Dreaming settings after save failed",
-        "detail": "Подробности: {{error}}"
-      },
       "deepResolverTitle": "ХАИ18NTERM0X",
       "autoExpireOnLightCycle": "Автоматическое истечение срока действия устаревших заявок",
       "autoExpireOnLightCycleDesc": "Во время обычных циклов Dreaming сохраняйте детерминированное действие до истечения срока действия в качестве действия преобразователя, поддерживаемого аудитом.",
@@ -4317,6 +4475,14 @@
       "editTitle": "Edit embedding model",
       "empty": "No embedding model configs yet. Create one from a template above, or add a custom config.",
       "emptyMemory": "No embedding model config is available yet. Create one first, or use the local embedding quick card.",
+      "errors": {
+        "delete": "Failed to delete embedding model config",
+        "detail": "Подробности: {{error}}",
+        "load": "Failed to load embedding model configs",
+        "save": "Failed to save embedding model config",
+        "setDefault": "Failed to switch default memory model",
+        "test": "Embedding connection test failed"
+      },
       "goConfig": "Configure embedding models",
       "memoryActive": "Default memory model",
       "memoryDefault": "Default memory model",
@@ -4330,15 +4496,7 @@
       "setMemoryDefault": "Set as default memory model",
       "tab": "Embedding Models",
       "testOk": "Embedding connection test passed",
-      "title": "Embedding Model Configs",
-      "errors": {
-        "delete": "Failed to delete embedding model config",
-        "detail": "Подробности: {{error}}",
-        "load": "Failed to load embedding model configs",
-        "save": "Failed to save embedding model config",
-        "setDefault": "Failed to switch default memory model",
-        "test": "Embedding connection test failed"
-      }
+      "title": "Embedding Model Configs"
     },
     "fallbackModels": "Резервные модели",
     "fallbackModelsDesc": "Когда основная модель недоступна, пробовать эти модели по порядку",
@@ -4368,8 +4526,8 @@
       "addHandler": "Добавить обработчик",
       "advanced": "Дополнительно",
       "slowHandlerWarning": "Этот обработчик запускает LLM / субагента встроенно и будет замедлять каждый раз, когда срабатывает это блокирующее событие. Здесь предпочтите command / http или перенесите его на событие наблюдения (например, PostToolUse).",
-      "modelInheritDefault": "Использовать значение автоматизации по умолчанию",
-      "invalidJson": "Неверный JSON"
+      "invalidJson": "Неверный JSON",
+      "modelInheritDefault": "Использовать значение автоматизации по умолчанию"
     },
     "hours": "ч",
     "imageGenApiKey": "API Key",
@@ -4454,6 +4612,15 @@
       "enabledDesc": "Создаёт эмбеддинги заметок для семантического поиска. Когда выключено, поиск по заметкам использует только полнотекстовый режим.",
       "changeModel": "Сменить модель",
       "activated": "Модель эмбеддинга знаний активирована",
+      "errors": {
+        "loadEmbedding": "Failed to load knowledge vector search settings",
+        "activateEmbedding": "Failed to activate knowledge vector search",
+        "disableEmbedding": "Failed to disable knowledge vector search",
+        "rebuildEmbedding": "Failed to start knowledge vector rebuild",
+        "cancelReembed": "Failed to cancel knowledge vector rebuild",
+        "retryReembed": "Failed to retry knowledge vector rebuild",
+        "detail": "Подробности: {{error}}"
+      },
       "reembed": {
         "title": "Переиндексация",
         "idle": "Векторы заметок актуальны.",
@@ -4463,15 +4630,6 @@
         "retry": "Повторить",
         "progress": "{{done}} / {{total}} баз знаний",
         "phase": "Переэмбеддинг заметок"
-      },
-      "errors": {
-        "loadEmbedding": "Failed to load knowledge vector search settings",
-        "activateEmbedding": "Failed to activate knowledge vector search",
-        "disableEmbedding": "Failed to disable knowledge vector search",
-        "rebuildEmbedding": "Failed to start knowledge vector rebuild",
-        "cancelReembed": "Failed to cancel knowledge vector rebuild",
-        "retryReembed": "Failed to retry knowledge vector rebuild",
-        "detail": "Подробности: {{error}}"
       }
     },
     "knowledgeMaintenance": {
@@ -4491,6 +4649,12 @@
       "cycleSkipped": "Пропущено: {{note}}",
       "cycleDone": "Создано предложений: {{n}}",
       "runFailed": "Не удалось выполнить обслуживание",
+      "errors": {
+        "load": "Не удалось загрузить настройки автономного обслуживания",
+        "save": "Не удалось сохранить настройки автономного обслуживания",
+        "runNow": "Не удалось выполнить автономное обслуживание",
+        "detail": "Подробности: {{error}}"
+      },
       "task": {
         "autoLink": "Авто-связывание",
         "orphanRescue": "Спасение сирот",
@@ -4507,13 +4671,7 @@
       },
       "model": "Модель",
       "modelDesc": "Общая для всех 4 генераторов на основе LLM (авто-теги, обслуживание MOC, память→заметка, конфликт источников).",
-      "modelDefault": "Использовать значение автоматизации по умолчанию",
-      "errors": {
-        "load": "Не удалось загрузить настройки автономного обслуживания",
-        "save": "Не удалось сохранить настройки автономного обслуживания",
-        "runNow": "Не удалось выполнить автономное обслуживание",
-        "detail": "Подробности: {{error}}"
-      }
+      "modelDefault": "Использовать значение автоматизации по умолчанию"
     },
     "knowledgeMediaRetention": {
       "saved": "Сохранено",
@@ -4903,33 +5061,13 @@
     "memoryAutoExtract": "Автоизвлечение записей",
     "memoryAutoExtractDesc": "Автоматически извлекать записи при достижении порогов токенов, времени или сообщений",
     "memoryBudget": {
+      "advancedAllocation": "Расширенное распределение по областям",
       "agentOverrideDesc": "По умолчанию наследует глобальный Бюджет памяти. Отключите, чтобы использовать бюджет, специфичный для Agent.",
+      "contextWindow": "Контекст текущей модели по умолчанию: {{count}} tokens",
+      "coreSimpleDesc": "Выберите единый общий бюджет Core Memory. Неиспользованный объём распределяется с приоритетом Project > Agent > Global.",
       "coreMemoryFileChars": "Лимит на слой MEMORY.md",
       "coreMemoryFileCharsDesc": "Независимый лимит для каждого файла MEMORY.md (Global / Agent). Содержимое сверх лимита обрезается в подсказке, но сохраняется на диске. По умолчанию 8000.",
       "desc": "Ограничивает общее количество символов в разделе памяти (Global MEMORY.md / Agent MEMORY.md / память SQLite / Рекомендации) и лимиты по слоям внутри него. Снижение общего значения оставляет больше бюджета контексту активного диалога.",
-      "resetToDefaults": "Сбросить к значениям по умолчанию",
-      "sections": {
-        "aboutUser": "О пользователе",
-        "preferences": "Предпочтения",
-        "projectContext": "Контекст проекта",
-        "references": "Ссылки",
-        "userProfile": "Профиль пользователя"
-      },
-      "sqliteEntryMaxChars": "Лимит на запись",
-      "sqliteEntryMaxCharsDesc": "Верхний предел первой строки каждой отрисованной записи памяти SQLite, чтобы одна длинная запись не вытесняла соседние в той же секции. По умолчанию 500.",
-      "sqliteSectionsTitle": "Бюджеты по секциям SQLite",
-      "title": "Бюджет памяти",
-      "totalChars": "Лимит общего числа символов",
-      "totalCharsDesc": "Жёсткий верхний предел всего раздела памяти. Рекомендации резервируются первыми, остальные слои потребляют по приоритету. По умолчанию 10000.",
-      "useGlobalDefault": "Наследовать глобальные значения",
-      "errors": {
-        "load": "Failed to load memory budget",
-        "save": "Failed to save memory budget",
-        "detail": "Подробности: {{error}}"
-      },
-      "advancedAllocation": "Расширенное распределение по областям",
-      "contextWindow": "Контекст текущей модели по умолчанию: {{count}} tokens",
-      "coreSimpleDesc": "Выберите единый общий бюджет Core Memory. Неиспользованный объём распределяется с приоритетом Project > Agent > Global.",
       "engine": {
         "agentTokens": "Токены Agent",
         "budgetTokens": "Бюджет токенов",
@@ -4949,13 +5087,33 @@
       "legacyTitle": "Бюджеты отката к прежней версии",
       "legacyDesc": "Эти символьные бюджеты применяются только к прежнему пути статической памяти и остаются редактируемыми в период совместимости.",
       "effective": "Настроено {{configured}} · эффективно в этом раунде {{effective}} tokens",
+      "errors": {
+        "load": "Failed to load memory budget",
+        "save": "Failed to save memory budget",
+        "detail": "Подробности: {{error}}"
+      },
+      "resetToDefaults": "Сбросить к значениям по умолчанию",
       "highBudgetWarning": "Превышен рекомендуемый диапазон 2400 tokens. Сохранение разрешено, но увеличит стабильный контекст, запись кэша и задержку первого токена.",
       "modelLimited": "Настроено {{configured}} tokens; текущая модель безопасно использует {{effective}}. Сохранённая настройка не изменяется.",
       "presets": {
         "balanced": "Сбалансированный",
         "concise": "Компактный",
         "rich": "Расширенный"
-      }
+      },
+      "sections": {
+        "aboutUser": "О пользователе",
+        "preferences": "Предпочтения",
+        "projectContext": "Контекст проекта",
+        "references": "Ссылки",
+        "userProfile": "Профиль пользователя"
+      },
+      "sqliteEntryMaxChars": "Лимит на запись",
+      "sqliteEntryMaxCharsDesc": "Верхний предел первой строки каждой отрисованной записи памяти SQLite, чтобы одна длинная запись не вытесняла соседние в той же секции. По умолчанию 500.",
+      "sqliteSectionsTitle": "Бюджеты по секциям SQLite",
+      "title": "Бюджет памяти",
+      "totalChars": "Лимит общего числа символов",
+      "totalCharsDesc": "Жёсткий верхний предел всего раздела памяти. Рекомендации резервируются первыми, остальные слои потребляют по приоритету. По умолчанию 10000.",
+      "useGlobalDefault": "Наследовать глобальные значения"
     },
     "memoryContent": "Содержимое",
     "memoryContentPlaceholder": "Что должен помнить ИИ?",
@@ -5046,8 +5204,89 @@
     "memorySelectionThreshold": "Порог срабатывания",
     "memorySelectionThresholdDesc": "Срабатывает только при таком количестве кандидатов. По умолчанию 8.",
     "memorySimilarity": "Сходство",
+    "agentMemoryEnabledTitle": "Использовать память для этого Agent",
+    "agentMemoryEnabledDesc": "Управляет основной памятью, динамическим поиском, обучением и инструментами памяти этого Agent. Глобальные настройки остаются политикой верхнего уровня.",
     "memoryStatsTotal": "всего {{count}}",
     "memoryStatsVec": "Вектор {{pct}}%",
+    "memoryV2": {
+      "title": "Память",
+      "subtitle": "Выберите, что помнить постоянно, когда извлекать больше и должны ли разговоры обучать помощника.",
+      "loadFailed": "Не удалось загрузить настройки памяти",
+      "saveFailed": "Не удалось сохранить настройки памяти",
+      "core": {
+        "title": "Всегда в памяти",
+        "desc": "Краткие MEMORY.md уровней Global, Agent и Project стабильно входят в диалог; подробности загружаются только при необходимости.",
+        "budget": "Общий бюджет: {{count}} токенов",
+        "manage": "Изменить MEMORY.md",
+        "projectTitle": "MEMORY.md проекта",
+        "projectDesc": "Краткая постоянная память только для разговоров этого проекта.",
+        "conflict": "Изменились и основной файл в верхнем регистре, и старый совместимый файл в нижнем. Перед сохранением выберите или объедините содержимое.",
+        "conflictCanonical": "Канонический MEMORY.md в верхнем регистре",
+        "conflictLegacy": "Устаревший memory.md в нижнем регистре",
+        "conflictMerged": "Результат объединения (за основу взят канонический файл)",
+        "conflictKeepCanonical": "Оставить MEMORY.md",
+        "conflictKeepLegacy": "Оставить устаревший файл",
+        "conflictSaveMerged": "Сохранить результат объединения",
+        "conflictLoadFailed": "Не удалось загрузить конфликтующие файлы основной памяти",
+        "conflictResolveFailed": "Не удалось разрешить конфликт основной памяти. Перезагрузите и повторите попытку.",
+        "conflictResolved": "Конфликт основной памяти разрешён",
+        "actualTokens": "{{used}} / {{total}} токенов в этой области",
+        "stats": "Записей индекса: {{entries}} · Тем: {{topics}}",
+        "updatedAt": "Обновлено: {{value}}",
+        "neverUpdated": "Ещё не записано",
+        "scope": "Область памяти",
+        "projectLabel": "Проект",
+        "topics": "Темы по запросу",
+        "noTopics": "Файлов тем пока нет",
+        "selectTopic": "Выберите тему или создайте новую",
+        "topicName": "Название темы",
+        "topicDesc": "Одна строка о том, когда её читать",
+        "topicContent": "Подробности темы (загружаются только при необходимости)",
+        "topicLoadFailed": "Не удалось загрузить темы памяти",
+        "topicSaveFailed": "Не удалось сохранить тему памяти",
+        "topicDeleteConfirm": "Удалить эту тему памяти?",
+        "topicDeleteFailed": "Не удалось удалить тему памяти"
+      },
+      "recall": {
+        "title": "Автоматический поиск динамической памяти",
+        "desc": "По умолчанию выключен. Когда он выключен, автоматически используется только стабильная основная память, кроме случаев явного совместимого переопределения для отдельного Agent; модель по-прежнему может обращаться к инструментам памяти при необходимости. Когда он включён, связанные динамические воспоминания ищутся после каждого сообщения пользователя и перед ответом.",
+        "fast": "Автоматически искать связанные воспоминания",
+        "deep": "Глубокое ранжирование (необязательно)",
+        "skip": "Пропущено",
+        "deepCost": "Глубокое ранжирование добавляет вызов модели, замедляет ответ и расходует больше токенов. Используйте его только после включения автоматического поиска и при реальной необходимости.",
+        "last": "Последний поиск: выбрано {{selected}}/{{candidates}} · {{latency}} мс · {{mode}}",
+        "noRecent": "После открытия приложения автоматический поиск динамической памяти ещё не запускался."
+      },
+      "learning": {
+        "title": "Учиться из разговоров",
+        "desc": "Управляет сохранением новой информации из чатов. Не влияет на использование уже сохранённой памяти.",
+        "mode": "Режим обучения",
+        "smart": "Умное обучение",
+        "reviewFirst": "Проверять перед сохранением",
+        "manual": "Только вручную",
+        "pending": "Ожидают проверки: {{count}}",
+        "unassigned": "Без области: {{count}}"
+      },
+      "review": {
+        "title": "Память на проверке",
+        "desc": "{{count}} кандидатов ещё не добавлены в долгосрочную память или промпт.",
+        "empty": "Нет материалов для проверки",
+        "chooseScope": "Выберите место сохранения",
+        "approve": "Сохранить память",
+        "reject": "Не сохранять",
+        "loadFailed": "Не удалось загрузить ожидающие воспоминания",
+        "approveFailed": "Не удалось сохранить ожидающее воспоминание",
+        "rejectFailed": "Не удалось отклонить ожидающее воспоминание",
+        "reason": {
+          "review_first": "Режим обучения требует проверки",
+          "project_scope_missing": "Похоже на данные проекта, но у чата нет проекта",
+          "scope_uncertain": "Правильная область не определена",
+          "sensitive": "Может содержать конфиденциальные данные",
+          "conflict": "Конфликтует с существующей памятью",
+          "core_promotion": "Предложено для постоянной памяти"
+        }
+      }
+    },
     "memoryTabs": {
       "dreaming": "Dreaming",
       "manage": "Управление памятью",
@@ -5313,11 +5552,11 @@
       "refreshFailed": "Не удалось синтезировать профиль",
       "empty": "Снимка профиля пока нет",
       "emptyHint": "Включите синтез профиля на вкладке Dreaming, затем обновите.",
-      "version": "v{{version}}",
       "noSources": "В этом более старом снимке еще нет ссылок на источники заявок. Обновите профиль, чтобы создать отслеживаемые источники.",
       "scopeSources": "Источники на уровне моментальных снимков",
       "sourceConfidence": "уверенность {{value}}",
       "sourceEvidence": "Доказательства: {{quote}}",
+      "version": "v{{version}}",
       "operationErrors": {
         "openEvidenceSource": "Failed to open profile evidence source",
         "refresh": "Failed to synthesise profile",
@@ -5701,8 +5940,8 @@
       "skillCount_one": "{{count}} skill",
       "skillCount_other": "{{count}} skills",
       "tooltip": {
-        "distinguishOnboarding": "To migrate legacy OpenClaw user data, use the dedicated 'Import OpenClaw' step (step 2).",
-        "distinguishUserDataImport": "Чтобы перенести старые данные OpenClaw, откройте Настройки → Agents → Импорт из OpenClaw."
+        "distinguishUserDataImport": "Чтобы перенести старые данные OpenClaw, откройте Настройки → Agents → Импорт из OpenClaw.",
+        "distinguishOnboarding": "To migrate legacy OpenClaw user data, use the dedicated 'Import OpenClaw' step (step 2)."
       },
       "warning": {
         "openclaw": "OpenClaw skills often depend on external CLIs (gh, 1password, tmux); calls may fail until you install them.",
@@ -5755,15 +5994,15 @@
         "memory": "Воспоминание",
         "awareness": "Меж-сессионное восприятие"
       },
-      "model": "Модель",
-      "modelDesc": "Вызов предложения спрайта — по принципу «отправил и забыл», поэтому подходит полная резервная цепочка, а не только одна модель.",
-      "modelDefault": "Использовать значение автоматизации по умолчанию",
       "errors": {
         "load": "Не удалось загрузить настройки спрайта",
         "save": "Не удалось сохранить настройки спрайта",
         "toggle": "Не удалось обновить режим спрайта",
         "detail": "Подробности: {{error}}"
-      }
+      },
+      "model": "Модель",
+      "modelDesc": "Вызов предложения спрайта — по принципу «отправил и забыл», поэтому подходит полная резервная цепочка, а не только одна модель.",
+      "modelDefault": "Использовать значение автоматизации по умолчанию"
     },
     "ssrfBrowserPolicyDesc": "Применяется к целевому URL page.goto / new_page. Примечание: JS fetch() внутри browser.evaluate вне зоны.",
     "ssrfDefaultPolicy": "Политика по умолчанию",
@@ -6125,49 +6364,10 @@
     "uiEffects": "Фоновая анимация",
     "uiEffectsDesc": "Включить всепогодный фон и связь с погодными эффектами.",
     "uiEffectsToggle": "Включить эффект",
-    "audioGenerate": "Генерация аудио",
-    "audioGenerateDesc": "Настройте провайдеров синтеза аудио (BYOK) для аудиоформата дизайн-пространства: озвучка TTS / музыка / эффекты. Отказоустойчивость по порядку.",
-    "audioGenNoProvider": "Провайдер аудио не настроен — включите один и добавьте API-ключ.",
-    "audioGenApiKey": "API-ключ",
-    "audioGenModel": "Модель",
-    "audioGenVoice": "Голос (TTS)",
-    "audioGenBaseUrl": "Base URL",
-    "audioGenTimeout": "Тайм-аут запроса (с)",
-    "audioGenFetchVoices": "Загрузить голоса",
-    "audioGenKnownModels": "Известные модели",
-    "audioGenPickVoice": "Выбрать из списка…",
     "visionBridgeModel": "Модель зрительного моста",
     "visionBridgeModelDesc": "Используется только когда основная модель не поддерживает изображения. Отдельная модель преобразует изображения в текстовые описания, чтобы диалог мог продолжиться.",
     "visionBridgeModelClear": "Отключить зрительный мост",
     "selectVisionBridgeModel": "Выбрать модель зрения",
-    "modelChainRestoreInherit": "Сбросить к унаследованному значению",
-    "automationModelChain": "Модель автоматизации по умолчанию",
-    "automationModelChainDesc": "Цепочка моделей по умолчанию (с резервом) для фоновых одноразовых задач ИИ, таких как Recap, Dreaming и сборка базы знаний — независимо от модели чата по умолчанию выше. Оставьте пустым, чтобы использовать модель чата по умолчанию.",
-    "automationModelChainInherit": "Использовать модель чата по умолчанию",
-    "knowledgeVision": {
-      "model": "Модель для распознавания изображений",
-      "modelDesc": "Цепочка моделей для OCR изображений при импорте в базу знаний. Пусто — используется значение автоматизации по умолчанию.",
-      "modelDefault": "Использовать значение автоматизации по умолчанию",
-      "ocrConcurrency": "Параллелизм OCR для сканированных PDF",
-      "maxOcrPages": "Лимит страниц OCR для сканированных PDF"
-    },
-    "noteTools": {
-      "title": "Модель инструментов заметок",
-      "desc": "Модель, общая для инструментов извлечения заметок, генерации MOC и преобразования сессии в заметку.",
-      "modelDefault": "Использовать значение автоматизации по умолчанию"
-    },
-    "recallSummary": {
-      "title": "Суммаризация при вспоминании",
-      "desc": "Когда recall_memory / session_search возвращают много совпадений, они сжимаются в один краткий абзац дополнительным вызовом LLM вместо возврата необработанных фрагментов. По умолчанию выключено — стоит один дополнительный вызов на каждый подходящий поиск.",
-      "enabled": "Включить суммаризацию",
-      "minHits": "Минимум совпадений для срабатывания",
-      "contextCharBudget": "Бюджет контекста (символы)",
-      "timeoutSecs": "Тайм-аут (с)",
-      "maxTokens": "Макс. токенов на выходе",
-      "includeHistory": "Также суммировать совпадения из истории разговора",
-      "model": "Модель",
-      "modelDefault": "Использовать значение автоматизации по умолчанию"
-    },
     "activeMemoryUseRecommended": "Использовать рекомендованные",
     "procedureMemoryTitle": "Сохраненные процессы",
     "procedureMemoryDesc": "Использовать релевантные сохраненные процессы как ограниченную мягкую подсказку перед ответом.",
@@ -6999,7 +7199,42 @@
     "reasoningEffort": "Think",
     "memoryAuditScopeHintAll": "Все изменения касаются долговременной памяти, рабочих процессов и решений в структурированной памяти.",
     "memoryAuditScopeHintMemoryOnly": "Фильтры действий применяются к истории долговременной памяти; рабочие процессы и решения, связанные со структурированной памятью, остаются в разделе «Все изменения».",
+    "modelChainRestoreInherit": "Сбросить к унаследованному значению",
+    "automationModelChain": "Модель автоматизации по умолчанию",
+    "automationModelChainDesc": "Цепочка моделей по умолчанию (с резервом) для фоновых одноразовых задач ИИ, таких как Recap, Dreaming и сборка базы знаний — независимо от модели чата по умолчанию выше. Оставьте пустым, чтобы использовать модель чата по умолчанию.",
+    "automationModelChainInherit": "Использовать модель чата по умолчанию",
+    "knowledgeVision": {
+      "model": "Модель для распознавания изображений",
+      "modelDesc": "Цепочка моделей для OCR изображений при импорте в базу знаний. Пусто — используется значение автоматизации по умолчанию.",
+      "modelDefault": "Использовать значение автоматизации по умолчанию",
+      "ocrConcurrency": "Параллелизм OCR для сканированных PDF",
+      "maxOcrPages": "Лимит страниц OCR для сканированных PDF"
+    },
+    "noteTools": {
+      "title": "Модель инструментов заметок",
+      "desc": "Модель, общая для инструментов извлечения заметок, генерации MOC и преобразования сессии в заметку.",
+      "modelDefault": "Использовать значение автоматизации по умолчанию"
+    },
+    "recallSummary": {
+      "title": "Суммаризация при вспоминании",
+      "desc": "Когда recall_memory / session_search возвращают много совпадений, они сжимаются в один краткий абзац дополнительным вызовом LLM вместо возврата необработанных фрагментов. По умолчанию выключено — стоит один дополнительный вызов на каждый подходящий поиск.",
+      "enabled": "Включить суммаризацию",
+      "minHits": "Минимум совпадений для срабатывания",
+      "contextCharBudget": "Бюджет контекста (символы)",
+      "timeoutSecs": "Тайм-аут (с)",
+      "maxTokens": "Макс. токенов на выходе",
+      "includeHistory": "Также суммировать совпадения из истории разговора",
+      "model": "Модель",
+      "modelDefault": "Использовать значение автоматизации по умолчанию"
+    },
     "tabOverview": "Обзор",
+    "memoryBackupExportSummary": "Воспоминания: {{memories}} · Утверждения: {{claims}} · Профили: {{profiles}} · Эпизоды: {{episodes}} · Процессы: {{procedures}}",
+    "memoryBackupOpenReviewInboxAfterRestore": "Восстановлено для проверки: {{count}}",
+    "memoryExperienceSearchActive": "Совпадений для «{{query}}»: {{total}}",
+    "memoryExperienceViewActive": "Элементов опыта: {{total}}",
+    "memoryExternalProvidersActive": "Активных поставщиков: {{active}}/{{total}}",
+    "memoryExternalProvidersActiveSummary": "Активно: {{active}} · Настроено: {{total}}",
+    "memoryProcedureSourceEpisode": "Эпизод: {{id}}",
     "memoryExternalProviders": "Внешние поставщики",
     "memoryExternalProvidersDesc": "Дополнительные поставщики аддитивной памяти. Локальная память остается источником истины; соединения отключены до тех пор, пока вы явно не настроите и не включите их.",
     "memoryExternalProvidersGlobal": "Включить синхронизацию с поставщиком",
@@ -7116,94 +7351,17 @@
     "memoryProcedureStepsPlaceholder": "- Осмотрите неработающую проверку.\n- Применить известное исправление\n- Повторно запустите узкий верификатор",
     "memoryProcedureConstraintsPlaceholder": "Когда не следует использовать этот рабочий процесс",
     "memoryProcedureConfidence": "Уверенность",
-    "agentMemoryEnabledTitle": "Использовать память для этого Agent",
-    "agentMemoryEnabledDesc": "Управляет основной памятью, динамическим поиском, обучением и инструментами памяти этого Agent. Глобальные настройки остаются политикой верхнего уровня.",
-    "memoryV2": {
-      "title": "Память",
-      "subtitle": "Выберите, что помнить постоянно, когда извлекать больше и должны ли разговоры обучать помощника.",
-      "loadFailed": "Не удалось загрузить настройки памяти",
-      "saveFailed": "Не удалось сохранить настройки памяти",
-      "core": {
-        "title": "Всегда в памяти",
-        "desc": "Краткие MEMORY.md уровней Global, Agent и Project стабильно входят в диалог; подробности загружаются только при необходимости.",
-        "budget": "Общий бюджет: {{count}} токенов",
-        "manage": "Изменить MEMORY.md",
-        "projectTitle": "MEMORY.md проекта",
-        "projectDesc": "Краткая постоянная память только для разговоров этого проекта.",
-        "conflict": "Изменились и основной файл в верхнем регистре, и старый совместимый файл в нижнем. Перед сохранением выберите или объедините содержимое.",
-        "conflictCanonical": "Канонический MEMORY.md в верхнем регистре",
-        "conflictLegacy": "Устаревший memory.md в нижнем регистре",
-        "conflictMerged": "Результат объединения (за основу взят канонический файл)",
-        "conflictKeepCanonical": "Оставить MEMORY.md",
-        "conflictKeepLegacy": "Оставить устаревший файл",
-        "conflictSaveMerged": "Сохранить результат объединения",
-        "conflictLoadFailed": "Не удалось загрузить конфликтующие файлы основной памяти",
-        "conflictResolveFailed": "Не удалось разрешить конфликт основной памяти. Перезагрузите и повторите попытку.",
-        "conflictResolved": "Конфликт основной памяти разрешён",
-        "actualTokens": "{{used}} / {{total}} токенов в этой области",
-        "stats": "Записей индекса: {{entries}} · Тем: {{topics}}",
-        "updatedAt": "Обновлено: {{value}}",
-        "neverUpdated": "Ещё не записано",
-        "scope": "Область памяти",
-        "projectLabel": "Проект",
-        "topics": "Темы по запросу",
-        "noTopics": "Файлов тем пока нет",
-        "selectTopic": "Выберите тему или создайте новую",
-        "topicName": "Название темы",
-        "topicDesc": "Одна строка о том, когда её читать",
-        "topicContent": "Подробности темы (загружаются только при необходимости)",
-        "topicLoadFailed": "Не удалось загрузить темы памяти",
-        "topicSaveFailed": "Не удалось сохранить тему памяти",
-        "topicDeleteConfirm": "Удалить эту тему памяти?",
-        "topicDeleteFailed": "Не удалось удалить тему памяти"
-      },
-      "recall": {
-        "title": "Автоматический поиск динамической памяти",
-        "desc": "По умолчанию выключен. Когда он выключен, автоматически используется только стабильная основная память, кроме случаев явного совместимого переопределения для отдельного Agent; модель по-прежнему может обращаться к инструментам памяти при необходимости. Когда он включён, связанные динамические воспоминания ищутся после каждого сообщения пользователя и перед ответом.",
-        "fast": "Автоматически искать связанные воспоминания",
-        "deep": "Глубокое ранжирование (необязательно)",
-        "skip": "Пропущено",
-        "deepCost": "Глубокое ранжирование добавляет вызов модели, замедляет ответ и расходует больше токенов. Используйте его только после включения автоматического поиска и при реальной необходимости.",
-        "last": "Последний поиск: выбрано {{selected}}/{{candidates}} · {{latency}} мс · {{mode}}",
-        "noRecent": "После открытия приложения автоматический поиск динамической памяти ещё не запускался."
-      },
-      "learning": {
-        "title": "Учиться из разговоров",
-        "desc": "Управляет сохранением новой информации из чатов. Не влияет на использование уже сохранённой памяти.",
-        "mode": "Режим обучения",
-        "smart": "Умное обучение",
-        "reviewFirst": "Проверять перед сохранением",
-        "manual": "Только вручную",
-        "pending": "Ожидают проверки: {{count}}",
-        "unassigned": "Без области: {{count}}"
-      },
-      "review": {
-        "title": "Память на проверке",
-        "desc": "{{count}} кандидатов ещё не добавлены в долгосрочную память или промпт.",
-        "empty": "Нет материалов для проверки",
-        "chooseScope": "Выберите место сохранения",
-        "approve": "Сохранить память",
-        "reject": "Не сохранять",
-        "loadFailed": "Не удалось загрузить ожидающие воспоминания",
-        "approveFailed": "Не удалось сохранить ожидающее воспоминание",
-        "rejectFailed": "Не удалось отклонить ожидающее воспоминание",
-        "reason": {
-          "review_first": "Режим обучения требует проверки",
-          "project_scope_missing": "Похоже на данные проекта, но у чата нет проекта",
-          "scope_uncertain": "Правильная область не определена",
-          "sensitive": "Может содержать конфиденциальные данные",
-          "conflict": "Конфликтует с существующей памятью",
-          "core_promotion": "Предложено для постоянной памяти"
-        }
-      }
-    },
-    "memoryBackupExportSummary": "Воспоминания: {{memories}} · Утверждения: {{claims}} · Профили: {{profiles}} · Эпизоды: {{episodes}} · Процессы: {{procedures}}",
-    "memoryBackupOpenReviewInboxAfterRestore": "Восстановлено для проверки: {{count}}",
-    "memoryExperienceSearchActive": "Совпадений для «{{query}}»: {{total}}",
-    "memoryExperienceViewActive": "Элементов опыта: {{total}}",
-    "memoryExternalProvidersActive": "Активных поставщиков: {{active}}/{{total}}",
-    "memoryExternalProvidersActiveSummary": "Активно: {{active}} · Настроено: {{total}}",
-    "memoryProcedureSourceEpisode": "Эпизод: {{id}}"
+    "audioGenerate": "Генерация аудио",
+    "audioGenerateDesc": "Настройте провайдеров синтеза аудио (BYOK) для аудиоформата дизайн-пространства: озвучка TTS / музыка / эффекты. Отказоустойчивость по порядку.",
+    "audioGenNoProvider": "Провайдер аудио не настроен — включите один и добавьте API-ключ.",
+    "audioGenApiKey": "API-ключ",
+    "audioGenModel": "Модель",
+    "audioGenVoice": "Голос (TTS)",
+    "audioGenBaseUrl": "Base URL",
+    "audioGenTimeout": "Тайм-аут запроса (с)",
+    "audioGenFetchVoices": "Загрузить голоса",
+    "audioGenKnownModels": "Известные модели",
+    "audioGenPickVoice": "Выбрать из списка…"
   },
   "shortcuts": {
     "actionOpenSettings": "Открыть настройки",
@@ -7264,6 +7422,21 @@
     },
     "context": {
       "description": "Показать разбивку окна контекста"
+    },
+    "workflow": {
+      "description": "Переключить режим рабочего процесса и посмотреть его запуски"
+    },
+    "goal": {
+      "description": "Задать цель сессии и просмотреть её аудит"
+    },
+    "loop": {
+      "description": "Настроить повторяющиеся срабатывания для цели или запроса"
+    },
+    "review": {
+      "description": "Просмотреть локальные изменения кода"
+    },
+    "mode": {
+      "description": "Установить режим выполнения"
     },
     "export": {
       "description": "Экспорт в Markdown"
@@ -7348,21 +7521,6 @@
     },
     "kb": {
       "description": "Подтвердить или отозвать доступ к базе знаний для этого группового чата"
-    },
-    "workflow": {
-      "description": "Переключить режим рабочего процесса и посмотреть его запуски"
-    },
-    "goal": {
-      "description": "Задать цель сессии и просмотреть её аудит"
-    },
-    "loop": {
-      "description": "Настроить повторяющиеся срабатывания для цели или запроса"
-    },
-    "review": {
-      "description": "Просмотреть локальные изменения кода"
-    },
-    "mode": {
-      "description": "Установить режим выполнения"
     },
     "errors": {
       "noActiveSession": "Нет активной сессии",
@@ -7709,6 +7867,11 @@
     "openPanel": "Открыть рабочую область",
     "resizePanel": "Изменить размер панели рабочей области",
     "sourceFromSearch": "Поиск",
+    "sourceFromUser": "Пользователь",
+    "sourceFromAttachment": "Вложение",
+    "advancedDiagnostics": {
+      "title": "Расширенная диагностика"
+    },
     "truncatedNote": "Показаны последние 1000",
     "environment": {
       "archived": "Archived",
@@ -7814,8 +7977,6 @@
       "selectBranch": "Select branch",
       "stageAll": "Stage all changes",
       "viewPr": "View pull request",
-      "pullRequestPanelTitle": "Запрос на слияние",
-      "resizePullRequestPanel": "Изменить ширину панели запроса",
       "worktree": "Worktree",
       "checkDetails": "Сведения о проверках",
       "checkFailed": "Ошибка",
@@ -7837,7 +7998,6 @@
       "openCheck": "Открыть проверку",
       "openComment": "Открыть комментарий",
       "prFeedbackUnavailable": "Проверки и комментарии PR недоступны",
-      "prFeedbackStale": "Не удалось обновить статус запроса; текущие данные могут быть устаревшими",
       "reviewComments": "Комментариев: {{count}}",
       "reviewFeedback": "Отзывы ревью",
       "autoMergeEnabled": "Автоматическое слияние включено",
@@ -7864,24 +8024,10 @@
       "reviewPending": "Ожидает",
       "reviewRequired": "Требуется проверка",
       "reviewStatus": "Статус проверки",
-      "reviewers": "Рецензенты"
-    },
-    "action": {
-      "create": "Создать",
-      "edit": "Изменить",
-      "delete": "Удалить",
-      "read": "Чтение"
-    },
-    "sectionKnowledge": "Знания",
-    "emptyKnowledge": "Пространство знаний не подключено",
-    "kbViaProject": "Проект",
-    "kbWrote": "Запись",
-    "kbRead": "Чтение",
-    "kbSearchCount": "Поисков: {{n}}",
-    "sourceFromUser": "Пользователь",
-    "sourceFromAttachment": "Вложение",
-    "advancedDiagnostics": {
-      "title": "Расширенная диагностика"
+      "reviewers": "Рецензенты",
+      "pullRequestPanelTitle": "Запрос на слияние",
+      "resizePullRequestPanel": "Изменить ширину панели запроса",
+      "prFeedbackStale": "Не удалось обновить статус запроса; текущие данные могут быть устаревшими"
     },
     "goal": {
       "watchdogTitle": "Цель требует подтверждения",
@@ -8022,6 +8168,18 @@
       "clean": "Нет локальных изменений",
       "changed": "{{count}} изменений"
     },
+    "action": {
+      "create": "Создать",
+      "edit": "Изменить",
+      "delete": "Удалить",
+      "read": "Чтение"
+    },
+    "sectionKnowledge": "Знания",
+    "emptyKnowledge": "Пространство знаний не подключено",
+    "kbViaProject": "Проект",
+    "kbWrote": "Запись",
+    "kbRead": "Чтение",
+    "kbSearchCount": "Поисков: {{n}}",
     "loop": {
       "title": "Цикл",
       "stateActive": "Выполняется",
@@ -9407,6 +9565,9 @@
       "incognitoDisabled": "В приватных сеансах нельзя прикреплять пространства знаний",
       "needSession": "Отправьте первое сообщение, чтобы прикрепить пространство знаний",
       "empty": "Пространств знаний пока нет — создайте в разделе «Знания».",
+      "loadFailed": "Не удалось загрузить пространства знаний",
+      "attachmentsLoadFailed": "Не удалось прочитать подключения этого чата",
+      "errorDetail": "Подробности: {{error}}",
       "viaProject": "Из родительского проекта",
       "noteCount": "{{count}} заметок",
       "read": "Чтение",
@@ -9418,10 +9579,7 @@
       "accessWrite": "Чтение и запись",
       "accessOffTip": "Не подключено — ассистент не имеет доступа к этому пространству",
       "accessReadTip": "Ассистент может искать и читать заметки",
-      "accessWriteTip": "Ассистент может читать и редактировать заметки",
-      "loadFailed": "Не удалось загрузить пространства знаний",
-      "attachmentsLoadFailed": "Не удалось прочитать подключения этого чата",
-      "errorDetail": "Подробности: {{error}}"
+      "accessWriteTip": "Ассистент может читать и редактировать заметки"
     },
     "mention": {
       "heading": "Заметки знаний",
@@ -9482,6 +9640,7 @@
       "noHistory": "Разговоров пока нет.",
       "untitled": "Разговор без названия",
       "noKb": "Откройте пространство знаний, чтобы начать разговор.",
+      "welcome": "Спрашивайте, систематизируйте или создавайте на основе этого пространства знаний",
       "messageCount": "Сообщений: {{count}}",
       "errors": {
         "loadAgents": "Не удалось загрузить агентов чата",
@@ -9493,8 +9652,7 @@
         "loadMoreThreads": "Не удалось загрузить ещё разговоры",
         "loadMoreMessages": "Не удалось загрузить предыдущие сообщения",
         "detail": "Подробности: {{error}}"
-      },
-      "welcome": "Спрашивайте, систематизируйте или создавайте на основе этого пространства знаний"
+      }
     },
     "quickRewrite": {
       "title": "Быстрое переписывание",
@@ -9504,9 +9662,9 @@
       "regenerate": "Сгенерировать заново",
       "apply": "Применить",
       "failed": "Не удалось переписать",
-      "staleSelection": "Выделение сместилось во время переписывания — выделите заново и повторите.",
       "modelLoadFailed": "Не удалось загрузить модели переписывания",
-      "errorDetail": "Подробности: {{error}}"
+      "errorDetail": "Подробности: {{error}}",
+      "staleSelection": "Выделение сместилось во время переписывания — выделите заново и повторите."
     },
     "sprite": {
       "toggle": "Режим спрайта",
@@ -9514,6 +9672,10 @@
       "toastOn": "Режим спрайта включён",
       "toastOnDesc": "Он мягко подскажет, когда вы остановитесь.",
       "toastOff": "Режим спрайта выключен",
+      "loadFailed": "Не удалось загрузить режим спрайта",
+      "toggleFailed": "Не удалось обновить режим спрайта",
+      "observeFailed": "Не удалось запросить подсказку у спрайта",
+      "errorDetail": "Подробности: {{error}}",
       "respond": "Ответить",
       "dismiss": "Закрыть",
       "category": {
@@ -9522,11 +9684,7 @@
         "encourage": "Поддержка",
         "remind": "Напоминание",
         "connect": "Связь"
-      },
-      "loadFailed": "Не удалось загрузить режим спрайта",
-      "toggleFailed": "Не удалось обновить режим спрайта",
-      "observeFailed": "Не удалось запросить подсказку у спрайта",
-      "errorDetail": "Подробности: {{error}}"
+      }
     },
     "deleteNoteTitle": "Удалить заметку",
     "deleteNoteBody": "Удалить \"{{name}}\"? Markdown-файл будет удален с диска. Это действие нельзя отменить.",
@@ -9552,6 +9710,32 @@
     "renameMoveFailed": "Не удалось переименовать/переместить \"{{name}}\" — возможно, заметка с таким именем уже существует.",
     "linksRewritten": "Обновлено ссылок в других заметках: {{count}}.",
     "noteRemovedExternally": "Эта заметка была удалена или перемещена вне приложения.",
+    "operationErrorDetail": "Подробности: {{error}}",
+    "errors": {
+      "loadSpaces": "Не удалось загрузить пространства знаний",
+      "loadNotes": "Не удалось загрузить заметки",
+      "loadFolders": "Не удалось загрузить папки",
+      "loadTags": "Не удалось загрузить теги",
+      "searchNotes": "Не удалось выполнить поиск заметок",
+      "saveNote": "Не удалось сохранить заметку",
+      "createSpace": "Не удалось создать пространство знаний",
+      "createNote": "Не удалось создать заметку",
+      "createLinkedNote": "Не удалось создать связанную заметку",
+      "reindexSpace": "Не удалось перестроить индекс пространства",
+      "reindexNote": "Не удалось перестроить индекс заметки",
+      "reindexFolder": "Не удалось перестроить индекс папки",
+      "deleteNote": "Не удалось удалить заметку",
+      "deleteFolder": "Не удалось удалить папку",
+      "revealNote": "Не удалось показать заметку",
+      "createFolder": "Не удалось создать папку",
+      "updateSpace": "Не удалось обновить пространство знаний",
+      "archiveSpace": "Не удалось обновить статус архива",
+      "deleteSpace": "Не удалось удалить пространство знаний"
+    },
+    "focusKbUnavailable": "Это пространство знаний больше не доступно.",
+    "focusNoteUnavailable": "Не удалось открыть эту заметку. Возможно, он был перемещен или изменился доступ.",
+    "focusUnavailableDetail": "Подробности: {{error}}",
+    "focusLocationUnavailable": "Заметка открыта, но точное место источника не найдено.",
     "moveTo": "Переместить в…",
     "moveToTitle": "Переместить \"{{name}}\" в…",
     "rootFolder": "Корень",
@@ -9573,11 +9757,17 @@
       "tooltip": "Активность пространства знаний",
       "title": "Активность пространства знаний",
       "empty": "Пока нет активности.",
+      "loadFailed": "Не удалось загрузить задачи перестроения",
+      "cancelFailed": "Не удалось отменить задачу перестроения",
+      "retryFailed": "Не удалось повторить задачу перестроения",
+      "clearFailed": "Не удалось очистить задачу перестроения",
       "kindReindex": "Перестроить индекс",
       "kindReembed": "Перевекторизация",
       "fts": "Полнотекстовый индекс",
+      "result": "Перестроено: {{notes}} заметок · {{kbs}} пространств",
       "emptyHint": "Привяжите или переиндексируйте пространство, либо импортируйте файлы — прогресс появится здесь.",
       "model": "Модель: {{name}}",
+      "errorDetail": "Подробности: {{error}}",
       "kindImport": "Импорт источников",
       "space": "Пространство: {{name}}",
       "progressFiles": "{{done}} / {{total}} файлов",
@@ -9592,13 +9782,7 @@
         "failed": "Ошибка",
         "cancelled": "Отменено",
         "timed_out": "Истекло время ожидания"
-      },
-      "loadFailed": "Не удалось загрузить задачи перестроения",
-      "cancelFailed": "Не удалось отменить задачу перестроения",
-      "retryFailed": "Не удалось повторить задачу перестроения",
-      "clearFailed": "Не удалось очистить задачу перестроения",
-      "result": "Перестроено: {{notes}} заметок · {{kbs}} пространств",
-      "errorDetail": "Подробности: {{error}}"
+      }
     },
     "maintenance": {
       "tooltip": "Обслуживание",
@@ -9612,11 +9796,13 @@
       "runNow": "Сканировать",
       "runNowTip": "Сканировать сейчас для предложений по обслуживанию",
       "rejectAll": "Отклонить все",
+      "rejectAllFailed": "Не удалось отклонить все предложения",
       "approve": "Применить",
       "reject": "Отклонить",
       "cycleSkipped": "Обслуживание пропущено: {{note}}",
       "cycleDone": "Создано предложений: {{n}}",
       "runFailed": "Не удалось выполнить обслуживание",
+      "errorDetail": "Подробности: {{error}}",
       "applyFailed": "Не удалось применить предложение",
       "rejectFailed": "Не удалось отклонить предложение",
       "compileQueued": "Создан подробный обзор источника. Проверьте панель предложений заметок на наличие различий.",
@@ -9643,9 +9829,7 @@
       "needsReview": "Требуется проверка",
       "rebuildEvidenceTip": "Восстановить индекс производных доказательств",
       "schemaIssues": "Проблемы со схемой",
-      "staleRefs": "Устаревшие ссылки",
-      "rejectAllFailed": "Не удалось отклонить все предложения",
-      "errorDetail": "Подробности: {{error}}"
+      "staleRefs": "Устаревшие ссылки"
     },
     "graph": {
       "toggle": "Граф связей",
@@ -9672,6 +9856,9 @@
     "embeddingOff": "Векторный поиск выключен",
     "embeddingModelTip": "Модель эмбеддинга: {{name}} — открыть настройки",
     "embeddingOffTip": "Векторный поиск выключен — открыть настройки",
+    "embeddingStatusUnavailable": "Статус векторного поиска недоступен",
+    "embeddingStatusUnavailableTip": "Статус векторного поиска недоступен — открыть настройки",
+    "embeddingStatusErrorDetail": "Подробности: {{error}}",
     "kbRootPick": "Выбрать…",
     "kbRootHint": "Оставьте пустым для внутреннего пространства. Внешние хранилища доступны только для чтения на этапе 1.",
     "kbRootInvalid": "Не удалось выбрать эту папку",
@@ -9690,6 +9877,7 @@
       "description": "ИИ вносит изменения в черновики из выбранных источников. Просмотрите разницу, прежде чем что-либо писать.",
       "empty": "Выберите предложение для рассмотрения",
       "emptyHint": "Сгенерированные предложения остаются здесь до тех пор, пока вы их не примените или не отклоните.",
+      "errorDetail": "Подробности: {{error}}",
       "failed": "Не удалось выполнить переход от источника к примечанию.",
       "loadFailed": "Не удалось загрузить прогоны от источника к заметке.",
       "noProposals": "Нет предложений по данному запуску.",
@@ -9707,8 +9895,7 @@
       "startFailed": "Не удалось организовать источники в заметки.",
       "startSelected": "Организовать {{count}}",
       "started": "Сгенерированные предложения примечаний {{n}}",
-      "title": "Организовать в заметки",
-      "errorDetail": "Подробности: {{error}}"
+      "title": "Организовать в заметки"
     },
     "sources": {
       "archiveAttachment": "Архивировать к знаниям",
@@ -9734,6 +9921,7 @@
       "diffTruncated": "Предварительный просмотр усечен",
       "dismissSimilar": "игнорировать",
       "downloadOriginal": "Скачать оригинал",
+      "downloadOriginalFailed": "Не удалось скачать исходный файл",
       "empty": "Источников пока нет.",
       "evidenceSources": "Источники",
       "externalRawPath": "Внешний снимок",
@@ -9765,8 +9953,15 @@
       "noSimilarGroups": "Нет похожих групп источников.",
       "open": "Открыть",
       "openOriginal": "Открыть оригинал",
+      "openOriginalFailed": "Не удалось открыть исходный файл",
       "otherKb": "Другое пространство {{id}}",
       "readFailed": "Не удалось открыть исходный код",
+      "sourceListFailed": "Couldn't load sources",
+      "sourceRefsFailed": "Не удалось загрузить ссылки на источники.",
+      "sourceClaimsFailed": "Couldn't load source claim references",
+      "importRunsListFailed": "Couldn't load import history",
+      "similarGroupsLoadFailed": "Couldn't load similar source groups",
+      "sourceErrorDetail": "Подробности: {{error}}",
       "reextract": "Повторное извлечение",
       "reextractFailed": "Не удалось повторно извлечь исходный код",
       "reextracted": "Источник повторно извлечен",
@@ -9841,15 +10036,7 @@
       "ocrFailed": "Ошибка OCR",
       "ocrRetry": "Повторить неудавшиеся страницы",
       "ocrRetryStarted": "Повторная попытка для неудавшихся страниц…",
-      "ocrRetryFailed": "Не удалось повторить страницы OCR",
-      "downloadOriginalFailed": "Не удалось скачать исходный файл",
-      "openOriginalFailed": "Не удалось открыть исходный файл",
-      "sourceListFailed": "Couldn't load sources",
-      "sourceRefsFailed": "Не удалось загрузить ссылки на источники.",
-      "sourceClaimsFailed": "Couldn't load source claim references",
-      "importRunsListFailed": "Couldn't load import history",
-      "similarGroupsLoadFailed": "Couldn't load similar source groups",
-      "sourceErrorDetail": "Подробности: {{error}}"
+      "ocrRetryFailed": "Не удалось повторить страницы OCR"
     },
     "queryFile": {
       "action": "Файл",
@@ -9858,6 +10045,7 @@
       "applyFailed": "Не удалось подать заявку",
       "description": "Прежде чем писать, создайте обзор различий.",
       "empty": "Выберите, куда должен попасть этот ответ.",
+      "errorDetail": "Подробности: {{error}}",
       "generateFailed": "Не удалось создать предложение о подаче заявки.",
       "reject": "Отклонить",
       "rejected": "Заявка отклонена",
@@ -9875,8 +10063,7 @@
       "currentNotePlaceholder": "Текущий путь заметки",
       "openQuestionsPlaceholder": "Примечание с открытыми вопросами",
       "mocPlaceholder": "MOCs/Conversation Filings.md",
-      "createNotePlaceholder": "Filed Conversations/example.md",
-      "errorDetail": "Подробности: {{error}}"
+      "createNotePlaceholder": "Filed Conversations/example.md"
     },
     "emptyState": {
       "scanning": "Сканирование этого пространства…",
@@ -9884,36 +10071,7 @@
       "emptyExternal": "В этой папке пока нет заметок в формате markdown.",
       "emptyInternal": "Это пространство пусто.",
       "importFiles": "Импортировать файлы"
-    },
-    "operationErrorDetail": "Подробности: {{error}}",
-    "errors": {
-      "loadSpaces": "Не удалось загрузить пространства знаний",
-      "loadNotes": "Не удалось загрузить заметки",
-      "loadFolders": "Не удалось загрузить папки",
-      "loadTags": "Не удалось загрузить теги",
-      "searchNotes": "Не удалось выполнить поиск заметок",
-      "saveNote": "Не удалось сохранить заметку",
-      "createSpace": "Не удалось создать пространство знаний",
-      "createNote": "Не удалось создать заметку",
-      "createLinkedNote": "Не удалось создать связанную заметку",
-      "reindexSpace": "Не удалось перестроить индекс пространства",
-      "reindexNote": "Не удалось перестроить индекс заметки",
-      "reindexFolder": "Не удалось перестроить индекс папки",
-      "deleteNote": "Не удалось удалить заметку",
-      "deleteFolder": "Не удалось удалить папку",
-      "revealNote": "Не удалось показать заметку",
-      "createFolder": "Не удалось создать папку",
-      "updateSpace": "Не удалось обновить пространство знаний",
-      "archiveSpace": "Не удалось обновить статус архива",
-      "deleteSpace": "Не удалось удалить пространство знаний"
-    },
-    "focusKbUnavailable": "Это пространство знаний больше не доступно.",
-    "focusNoteUnavailable": "Не удалось открыть эту заметку. Возможно, он был перемещен или изменился доступ.",
-    "focusUnavailableDetail": "Подробности: {{error}}",
-    "focusLocationUnavailable": "Заметка открыта, но точное место источника не найдено.",
-    "embeddingStatusUnavailable": "Статус векторного поиска недоступен",
-    "embeddingStatusUnavailableTip": "Статус векторного поиска недоступен — открыть настройки",
-    "embeddingStatusErrorDetail": "Подробности: {{error}}"
+    }
   },
   "backgroundJobs": {
     "panelTitle": "Фоновые задачи",
@@ -9959,6 +10117,9 @@
   },
   "macControl": {
     "panelTitle": "Управление Mac"
+  },
+  "memory": {
+    "activeRecallToastTitle": "Ссылочная память"
   },
   "design": {
     "title": "Дизайн-пространство",
@@ -10678,19 +10839,50 @@
       "chatPrompt": "Реализованный код разошёлся с этим дизайном. Обновите текущий дизайн в соответствии с приведёнными изменениями кода, сохранив замысел дизайна и всё остальное без изменений."
     }
   },
-  "agentLifecycle": {
-    "activeWorkBlocked": "Deletion is blocked while {{count}} Agent task(s) are still active.",
-    "deleteDescription": "Routing references will move to the replacement Agent. Historical conversations and structured memories are retained, while Agent files are moved to the recoverable trash.",
-    "deleteTitle": "Delete Agent safely",
-    "disabled": "Disabled",
-    "enabled": "Enabled",
-    "history": "Historical conversations",
-    "memories": "Retained memories",
-    "replacement": "Replacement Agent",
-    "retentionNotice": "This operation creates a configuration backup. Agent configuration, Home, and Plans are moved to trash instead of being permanently erased.",
-    "routes": "Routing references"
-  },
-  "memory": {
-    "activeRecallToastTitle": "Ссылочная память"
+  "artifacts": {
+    "title": "Artifacts",
+    "subtitle": "Versioned local reports, dashboards, and explainers",
+    "loadFailed": "Failed to load Artifacts",
+    "verifyPassed": "Verification passed",
+    "verifyFailed": "Verification found blockers",
+    "exportUnavailable": "Export unavailable",
+    "exportReady": "Artifact exported",
+    "restoreReady": "Restored as a new version",
+    "archiveConfirm": "Archive this Artifact?",
+    "deleteConfirm": "Permanently delete this Artifact and all versions?",
+    "search": "Search title, project, or Agent",
+    "allKinds": "All kinds",
+    "active": "Active",
+    "archived": "Archived",
+    "allStates": "All states",
+    "empty": "No Artifacts found",
+    "selectHint": "Select an Artifact to inspect it",
+    "sources": "sources",
+    "verify": "Verify",
+    "export": "Export",
+    "archive": "Archive",
+    "delete": "Delete",
+    "deliveryStatus": "Delivery status",
+    "privacy": "Privacy",
+    "analysisStatus": "Analysis",
+    "verification": "Verification",
+    "sourceContext": "Sources & quality",
+    "qualityChecks": "Quality checks",
+    "noSources": "No canonical sources recorded",
+    "contentMode": "Content",
+    "executable": "executable",
+    "static": "static",
+    "versionHistory": "Version history",
+    "current": "Current",
+    "restore": "Restore",
+    "exportReview": "Export review",
+    "exportReviewHint": "Required for shareable, sensitive, private-source, or connector-backed packages.",
+    "audiencePlaceholder": "Intended audience",
+    "audienceRequired": "Enter the intended delivery audience",
+    "redactionConfirm": "Confirm that sensitive fields and included sources have been reviewed for this audience?",
+    "confirmRedaction": "Confirm redaction & review",
+    "exportReviewPassed": "Export review passed",
+    "exportReviewBlocked": "Export review still has blockers",
+    "guardStatus": "Guard"
   }
 }

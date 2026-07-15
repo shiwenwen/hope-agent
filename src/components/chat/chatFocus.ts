@@ -3,6 +3,10 @@ export const CHAT_FOCUS_EVENT = "hope:chat-focus"
 export interface ChatFocusTarget {
   sessionId: string
   targetMessageId?: number
+  controlTarget?: {
+    kind: string
+    itemId?: string
+  }
 }
 
 function normalizeTarget(value: unknown): ChatFocusTarget | null {
@@ -15,11 +19,25 @@ function normalizeTarget(value: unknown): ChatFocusTarget | null {
       : typeof raw.messageId === "number"
         ? raw.messageId
         : undefined
+  const rawControl =
+    raw.controlTarget && typeof raw.controlTarget === "object"
+      ? (raw.controlTarget as Record<string, unknown>)
+      : null
+  const controlTarget =
+    rawControl && typeof rawControl.kind === "string" && rawControl.kind.length > 0
+      ? {
+          kind: rawControl.kind,
+          ...(typeof rawControl.itemId === "string" && rawControl.itemId.length > 0
+            ? { itemId: rawControl.itemId }
+            : {}),
+        }
+      : undefined
   return {
     sessionId: raw.sessionId,
     ...(typeof messageId === "number" && Number.isSafeInteger(messageId) && messageId > 0
       ? { targetMessageId: messageId }
       : {}),
+    ...(controlTarget ? { controlTarget } : {}),
   }
 }
 

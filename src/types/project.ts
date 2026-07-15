@@ -8,8 +8,6 @@ export interface Project {
   id: string
   name: string
   description?: string | null
-  /** Custom instructions appended to the system prompt of every session in the project. */
-  instructions?: string | null
   /** Optional logo stored as a `data:image/...;base64,...` URL. */
   logo?: string | null
   /** Tailwind-ish color name (e.g. "amber", "violet"). */
@@ -33,13 +31,43 @@ export interface Project {
 export interface ProjectMeta extends Project {
   sessionCount: number
   unreadCount: number
-  memoryCount: number
+}
+
+export interface ProjectInstructionsStats {
+  path: string
+  lineCount: number
+  sizeBytes: number
+  empty: boolean
+}
+
+export interface ProjectOverviewSummary {
+  sessionCount: number
+  recentSessions: import("./chat").SessionMeta[]
+  /** null when the Core Memory repository could not be read. */
+  autoMemoryTopicCount?: number | null
+  /** Effective-active structured memories in this project scope; null when unavailable. */
+  activeClaimCount?: number | null
+  /** null when AGENTS.md could not be inspected or re-created. */
+  instructions?: ProjectInstructionsStats | null
+}
+
+/** Snapshot returned by the root AGENTS.md owner endpoints. */
+export interface ProjectInstructionsFile {
+  path: string
+  content: string
+  contentHash: string
+  created: boolean
+}
+
+/** Concurrency-checked AGENTS.md draft submitted with project metadata. */
+export interface ProjectInstructionsDraft {
+  content: string
+  expectedFileHash: string
 }
 
 export interface CreateProjectInput {
   name: string
   description?: string | null
-  instructions?: string | null
   /** Data URL (e.g. `data:image/webp;base64,...`). */
   logo?: string | null
   color?: string | null
@@ -56,7 +84,6 @@ export interface CreateProjectInput {
 export interface UpdateProjectInput {
   name?: string
   description?: string
-  instructions?: string
   /** Data URL, or empty string to clear the existing logo. */
   logo?: string
   color?: string

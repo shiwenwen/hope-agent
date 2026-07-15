@@ -1,9 +1,9 @@
 # Dashboard 数据大盘架构
-> 返回 [文档索引](../README.md) | 更新时间：2026-07-07
+> 返回 [文档索引](../README.md) | 更新时间：2026-07-15
 
 ## 概述
 
-Dashboard 模块提供跨三个 SQLite 数据库（SessionDB、LogDB、CronDB）的聚合分析查询，为前端 recharts 图表提供标准化 JSON 数据。模块拆分为 11 个文件，采用「筛选器 + 查询函数」的管道式架构。
+Dashboard 模块提供跨三个 SQLite 数据库（SessionDB、LogDB、CronDB）及 Plan 文件索引的聚合分析查询，为前端 recharts 图表提供标准化 JSON 数据。通用分析采用「筛选器 + 查询函数」管道；Goal / Workflow / Loop 控制面采用独立的只读聚合入口。
 
 核心设计原则：
 - **自动排除非用户数据**：所有 session 级查询自动注入 `is_cron = 0 AND parent_session_id IS NULL AND incognito = 0`，排除定时任务会话、子 Agent 会话和无痕会话；模型用量总账仅硬排无痕，会统计 cron / subagent / 后台维护等所有非无痕模型请求
@@ -26,6 +26,7 @@ Dashboard 模块提供跨三个 SQLite 数据库（SessionDB、LogDB、CronDB）
 | `learning.rs` | Learning Tracker 4 个查询 + 9 个事件常量（埋点写入 `session.db.learning_events`） |
 | `coding_improvement.rs` | Coding Improvement 全局 / 项目级学习聚合：workflow、eval、review、verification、proposal、retro 只读 rollup |
 | `plan_stats.rs` | Plan 统计聚合：Dashboard "Plans" tab 数据源（详见下文） |
+| `control_plane.rs` | “目标与执行”聚合：Goal / Workflow / Loop / Task / Plan 指标、P50、覆盖率和 attention 明细 |
 | `local_models.rs` | 本地模型 Tab 专属聚合：按 `provider::local::known_local_backends` 反查"本地"provider name 列表后对 sessions / messages 表做 token / 调用次数 / TTFT / 错误率统计；前端 `LocalModelsSection` 消费 |
 
 ## 数据源架构
@@ -201,11 +202,13 @@ fn build_session_filter(
 - `by_category: Vec<ErrorByCategory>` -- 仅 error 级别，按 category 分组降序
 - `total_errors: u64` / `total_warnings: u64`
 
-### 6. 任务统计
+### 6. 自动化（兼容命令名：任务统计）
 
 **函数**：`query_tasks(session_db, cron_db, filter) -> DashboardTaskData`
 
 **数据源**：SessionDB（subagent_runs 表）+ CronDB（cron_jobs + cron_run_logs 表）
+
+> 该旧接口从未读取 `tasks` 表。前端一级 Tab 已更名为“自动化”，但 `dashboard_tasks` 与 `/api/dashboard/tasks` 保留，避免破坏 Transport 和历史调用方。
 
 **Cron 统计** (`CronJobStats`)：
 
@@ -355,9 +358,27 @@ Learning Tracker 把 skill / memory / MCP 三类关键事件写入 `session.db` 
 - 无 domain eval 或 domain quality 历史时必须显示 `insufficient_data`，不能用 coding release gate 替代。
 - Dashboard 默认只读历史，不触发连接器动作；写动作仅限用户显式点击「Mark reviewed」记录 `domain_eval_calibrations` 人工复核，在「Domain campaigns」中创建 / 运行 / 取消 / retry synthetic trace campaign，或把 failed / cancelled / interrupted campaign item 生成 draft-only learning proposal。`evaluate_domain_readiness_gate` 本身只读，不自动生成 proposal 或 retry campaign。`trace_fixture` / `agent` fixture runner 不直接挂在质量门按钮上；合成样本通过 `SessionKind::EvalFixture`、`sourceType=fixture_*`、`domain_eval_fixture_runs` 与 `domain_eval_campaigns/items` 隔离展示，避免污染真实质量判断。
 
-## Plan 统计（plan_stats.rs）
+## 目标与执行（control_plane.rs）
+
+Tauri `dashboard_control_plane` 与 HTTP `POST /api/dashboard/control-plane` 接受独立的 `ControlPlaneDashboardFilter { startDate, endDate, agentId, projectId }`，一次返回 `summary / goals / workflows / loops / tasks / plans / attention`。Provider、Model、Usage Kind 不属于该控制面；项目筛选只影响本页，`__unassigned__` 是“未分配”的 Transport wire value。
+
+指标按“结果 → 驱动 → 风险”组织，不构造伪漏斗：
+
+- Goal 达成率：`accepted_v1 / accepted+cancelled+superseded+failed`；`needs_strict_evidence`、active、paused、blocked 不进分母，按 `COALESCE(closed_at, completed_at)` 落窗。
+- Workflow 完成率：`completed / (completed+failed+blocked)`；cancelled 排除，按 `completed_at` 落窗。
+- Loop 强推进率：`progressed / progressed+weak_progress+no_progress+blocked+failed`；weak progress 不算强推进，awaiting approval / 旧空分类排除。
+- Goal required criteria 只读当前 revision、且 `goalLinkedEventSeq` 未落后于最新 `goal_linked` event 的 final audit；过期 audit 不统计。
+- Task / Plan 使用 created-cohort 完成率，同时单列不受时间窗限制的 current backlog / activeNow。二者没有可靠 Goal / Workflow / Loop 外键，禁止按 session 猜测因果归因。
+- 所有比例零分母返回 `null`；所有耗时用 P50。Task `tasks.completed_at` 与 Plan `sessions.plan_completed_at` 只从本版本开始积累，返回 `sampleCount / eligibleCount` 供 UI 明示精确覆盖率，旧数据不从 `updated_at` 伪造。
+- `attention.total` 是当前全集去重数量，`items` 按更新时间倒序、severity 破同时间并截断 20；包含 Goal blocked/待关闭、Workflow awaiting approval/user/blocked、Loop blocked/连续无进展、Plan review。所有数据排除 incognito；Goal / Workflow / Loop / Task / attention 还统一排除 Cron 与 `parent_session_id` 子会话，避免后台自动化和子 Agent 膨胀用户主会话指标。无法确认所属 session 的 orphan Plan 仅留在 Plan 历史页，不进入大盘。
+
+前端一级 Tab 位于“综合概览”之后，内部为“概览 / Goal / Workflow / Loop / Plan 与 Task”。attention 深链先切回所属 session，再打开 Workspace 对应 section；Workflow / Loop 同时定位具体 run / schedule，Plan review 打开 Plan 面板。旧 `initialTab="plans"` 映射到该页的“Plan 与 Task”。
+
+## Plan 统计（plan_stats.rs，兼容）
 
 > 新增于 2026-05-11。Dashboard "Plans" tab 的数据源；Tauri `dashboard_plan_stats` / HTTP `POST /api/dashboard/plan-stats`。
+
+自 2026-07-15 起，前端不再把它作为独立一级 Tab；Plan 指标并入“目标与执行 → Plan 与 Task”。旧命令与 HTTP 路由继续兼容。独立 Plans 历史页仍负责正文、版本、`@plan` 引用和跳回会话，不与统计页合并。
 
 | 维度 | 来源 | 备注 |
 |---|---|---|
@@ -532,5 +553,6 @@ sequenceDiagram
 | `crates/ha-core/src/dashboard/insights.rs` | 8 个深度洞察查询（同环比 / 趋势 / 热力图 / 健康度 / orchestrator） |
 | `crates/ha-core/src/dashboard/learning.rs` | Learning Tracker 4 个查询 + 9 个事件常量（`EVT_SKILL_*` / `EVT_RECALL_*` / `EVT_MCP_*`） + `emit` 写入 `session.db.learning_events` |
 | `crates/ha-core/src/dashboard/coding_improvement.rs` | Coding Improvement 全局 / 项目级只读学习聚合 |
+| `crates/ha-core/src/dashboard/control_plane.rs` | Goal / Workflow / Loop / Task / Plan 统一推进指标与 attention 聚合 |
 | `src-tauri/src/commands/dashboard.rs` | - | Tauri 命令注册层（invoke 入口） |
 | `src/components/dashboard/` | - | 前端 recharts 图表组件 |

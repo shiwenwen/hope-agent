@@ -45,6 +45,21 @@ pub fn set_dock_badge_cmd(count: i64, app: tauri::AppHandle) -> Result<(), CmdEr
     Ok(())
 }
 
+/// Mirror whether there are any unread regular conversations onto the tray
+/// icon. The tray uses a boolean red dot; the Dock keeps the exact count.
+#[tauri::command]
+pub fn set_tray_unread_cmd(has_unread: bool, app: tauri::AppHandle) -> Result<(), CmdError> {
+    if let Some(tray) = app.tray_by_id(crate::tray::TRAY_ID) {
+        let icon = crate::tray::tray_icon_image(has_unread)
+            .map_err(|e| anyhow!("Failed to render tray unread icon: {e}"))?;
+        tray.set_icon(Some(icon))
+            .map_err(|e| anyhow!("Failed to set tray unread icon: {e}"))?;
+        tray.set_icon_as_template(!has_unread)
+            .map_err(|e| anyhow!("Failed to update tray icon template mode: {e}"))?;
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn reveal_in_folder(path: String) -> Result<(), CmdError> {
     let resolved = resolve_user_path(path);

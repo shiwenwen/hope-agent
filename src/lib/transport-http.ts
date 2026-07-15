@@ -21,6 +21,15 @@ import type {
   SaveResult,
   SessionArtifacts,
   WorkspaceEnvironmentSnapshot,
+  ArtifactRecord,
+  ArtifactVersionSummary,
+  ArtifactVerification,
+  ArtifactImportRequest,
+  ArtifactExportFormat,
+  ArtifactExportResult,
+  ArtifactListOptions,
+  ArtifactExportReceipt,
+  DomainArtifactExportGuardReport,
 } from "@/lib/transport"
 import { TRANSPORT_EVENT_RESYNC_REQUIRED } from "@/lib/transport"
 import type { FileChangesMetadata, MediaItem } from "@/types/chat"
@@ -52,9 +61,16 @@ interface EndpointDef {
 const COMMAND_MAP: Record<string, EndpointDef> = {
   // -- Projects --
   list_projects_cmd: { method: "GET", path: "/api/projects" },
+  get_project_overview_cmd: { method: "GET", path: "/api/projects/{id}/overview" },
   get_project_cmd: { method: "GET", path: "/api/projects/{id}" },
   create_project_cmd: { method: "POST", path: "/api/projects" },
   update_project_cmd: { method: "PATCH", path: "/api/projects/{id}" },
+  inspect_project_instructions_cmd: {
+    method: "POST",
+    path: "/api/projects/instructions/inspect",
+  },
+  get_project_instructions_cmd: { method: "GET", path: "/api/projects/{id}/instructions" },
+  save_project_instructions_cmd: { method: "PUT", path: "/api/projects/{id}/instructions" },
   delete_project_cmd: { method: "DELETE", path: "/api/projects/{id}" },
   archive_project_cmd: { method: "POST", path: "/api/projects/{id}/archive" },
   reorder_projects_cmd: { method: "POST", path: "/api/projects/reorder" },
@@ -335,6 +351,8 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   mark_session_read_cmd: { method: "POST", path: "/api/sessions/{sessionId}/read" },
   mark_session_read_batch_cmd: { method: "POST", path: "/api/sessions/read-batch" },
   mark_all_sessions_read_cmd: { method: "POST", path: "/api/sessions/read-all" },
+  regular_unread_total_cmd: { method: "GET", path: "/api/sessions/unread" },
+  next_unread_session_cmd: { method: "GET", path: "/api/sessions/unread/next" },
   compact_context_now: { method: "POST", path: "/api/sessions/{sessionId}/compact" },
   write_export_file: { method: "POST", path: "/api/misc/write-export-file" },
   get_dangerous_mode_status: { method: "GET", path: "/api/security/dangerous-status" },
@@ -392,6 +410,16 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   list_canvas_projects: { method: "GET", path: "/api/canvas/projects" },
   get_canvas_project: { method: "GET", path: "/api/canvas/projects/{projectId}" },
   delete_canvas_project: { method: "DELETE", path: "/api/canvas/projects/{projectId}" },
+  // -- Artifacts --
+  list_artifacts: { method: "GET", path: "/api/artifacts" },
+  get_artifact: { method: "GET", path: "/api/artifacts/{id}" },
+  list_artifact_versions: { method: "GET", path: "/api/artifacts/{id}/versions" },
+  import_artifact: { method: "POST", path: "/api/artifacts/import" },
+  restore_artifact: { method: "POST", path: "/api/artifacts/{id}/restore" },
+  verify_artifact: { method: "POST", path: "/api/artifacts/{id}/verify" },
+  review_artifact_export: { method: "POST", path: "/api/artifacts/{id}/export-review" },
+  archive_artifact: { method: "POST", path: "/api/artifacts/{id}/archive" },
+  delete_artifact: { method: "DELETE", path: "/api/artifacts/{id}" },
 
   // -- Design Space --
   list_design_projects_cmd: { method: "GET", path: "/api/design/projects" },
@@ -1106,6 +1134,7 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   dashboard_sessions: { method: "POST", path: "/api/dashboard/sessions" },
   dashboard_errors: { method: "POST", path: "/api/dashboard/errors" },
   dashboard_tasks: { method: "POST", path: "/api/dashboard/tasks" },
+  dashboard_control_plane: { method: "POST", path: "/api/dashboard/control-plane" },
   dashboard_system_metrics: { method: "GET", path: "/api/dashboard/system-metrics" },
   dashboard_session_list: { method: "POST", path: "/api/dashboard/session-list" },
   dashboard_message_list: { method: "POST", path: "/api/dashboard/message-list" },
@@ -1731,6 +1760,18 @@ function normalizeCommandResponse(command: string, value: unknown): unknown {
       case "try_restore_session":
         // HTTP returns `{ restored: bool }`; Tauri returns the boolean directly.
         return record.restored ?? false
+      case "list_artifacts":
+        return record.artifacts ?? []
+      case "get_artifact":
+      case "import_artifact":
+      case "restore_artifact":
+        return record.artifact
+      case "list_artifact_versions":
+        return record.versions ?? []
+      case "verify_artifact":
+        return record.verification
+      case "review_artifact_export":
+        return record.guard
     }
   }
   return value
@@ -1748,6 +1789,12 @@ function normalizeHttpCommandArgs(
   command: string,
   args: Record<string, unknown> | undefined,
 ): Record<string, unknown> | undefined {
+  if (command === "import_artifact") {
+    const request = args?.request
+    return request && typeof request === "object" && !Array.isArray(request)
+      ? (request as Record<string, unknown>)
+      : args
+  }
   if (command === "add_provider" || command === "test_provider") {
     return providerConfigFromArgs(args) ?? args
   }
@@ -2432,6 +2479,90 @@ export class HttpTransport implements Transport {
       parseDispositionFilename(disposition) ?? args.defaultFilename ?? `session.${args.format}`
     const blob = await res.blob()
     return { filename, blob }
+  }
+
+  async listArtifacts(options: ArtifactListOptions = {}): Promise<ArtifactRecord[]> {
+    return this.call<ArtifactRecord[]>("list_artifacts", {
+      limit: options.limit,
+      offset: options.offset,
+      kind: options.kind,
+      lifecycleState: options.lifecycleState,
+    })
+  }
+
+  async getArtifact(id: string): Promise<ArtifactRecord> {
+    return this.call<ArtifactRecord>("get_artifact", { id })
+  }
+
+  async listArtifactVersions(id: string): Promise<ArtifactVersionSummary[]> {
+    return this.call<ArtifactVersionSummary[]>("list_artifact_versions", { id })
+  }
+
+  async importArtifact(request: ArtifactImportRequest): Promise<ArtifactRecord> {
+    return this.call<ArtifactRecord>("import_artifact", { request })
+  }
+
+  async restoreArtifact(id: string, version: number): Promise<ArtifactRecord> {
+    return this.call<ArtifactRecord>("restore_artifact", { id, version })
+  }
+
+  async verifyArtifact(id: string): Promise<ArtifactVerification> {
+    return this.call<ArtifactVerification>("verify_artifact", { id })
+  }
+
+  async reviewArtifactExport(
+    id: string,
+    audience: string,
+  ): Promise<DomainArtifactExportGuardReport> {
+    return this.call<DomainArtifactExportGuardReport>("review_artifact_export", {
+      id,
+      audience,
+      redactionChecked: true,
+    })
+  }
+
+  async exportArtifact(
+    id: string,
+    format: ArtifactExportFormat,
+  ): Promise<ArtifactExportResult | null> {
+    const headers: Record<string, string> = { "Content-Type": "application/json" }
+    if (this.apiKey) headers.Authorization = `Bearer ${this.apiKey}`
+    const create = await fetch(
+      `${this.baseUrl}/api/artifacts/${encodeURIComponent(id)}/exports`,
+      { method: "POST", headers, body: JSON.stringify({ format }) },
+    )
+    if (!create.ok) {
+      const text = await create.text().catch(() => "")
+      this.handleAuthFailure(create.status)
+      throw new Error(text || `artifact export failed: ${create.status}`)
+    }
+    const payload = (await create.json()) as { receipt: ArtifactExportReceipt }
+    const receipt = payload.receipt
+    if (receipt.status !== "ready") {
+      return { filename: receipt.filename, receipt }
+    }
+    const downloadHeaders: Record<string, string> = {}
+    if (this.apiKey) downloadHeaders.Authorization = `Bearer ${this.apiKey}`
+    const response = await fetch(
+      `${this.baseUrl}/api/artifact-exports/${encodeURIComponent(receipt.id)}/download`,
+      { headers: downloadHeaders },
+    )
+    if (!response.ok) {
+      const text = await response.text().catch(() => "")
+      this.handleAuthFailure(response.status)
+      throw new Error(text || `artifact download failed: ${response.status}`)
+    }
+    const disposition = response.headers.get("content-disposition") ?? ""
+    const filename = parseDispositionFilename(disposition) ?? receipt.filename
+    return { filename, blob: await response.blob(), receipt }
+  }
+
+  async archiveArtifact(id: string): Promise<void> {
+    await this.call("archive_artifact", { id })
+  }
+
+  async deleteArtifact(id: string): Promise<void> {
+    await this.call("delete_artifact", { id })
   }
 
   async exportMemoryBackupArchive(

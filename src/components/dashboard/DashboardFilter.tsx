@@ -70,9 +70,14 @@ function computeDateRange(key: RangeKey): { start: string | null; end: string | 
 interface DashboardFilterProps {
   filter: DashboardFilterState
   onChange: (filter: DashboardFilterState) => void
+  controlPlane?: boolean
 }
 
-export default function DashboardFilter({ filter, onChange }: DashboardFilterProps) {
+export default function DashboardFilter({
+  filter,
+  onChange,
+  controlPlane = false,
+}: DashboardFilterProps) {
   const { t } = useTranslation()
   const [rangeKey, setRangeKey] = useState<RangeKey>("30d")
   const [agents, setAgents] = useState<Agent[]>([])
@@ -209,8 +214,8 @@ export default function DashboardFilter({ filter, onChange }: DashboardFilterPro
         </SelectContent>
       </Select>
 
-      {/* Provider filter */}
-      <Select
+      {/* Provider / usage filters do not apply to the control-plane page. */}
+      {!controlPlane && <Select
         value={filter.providerId ?? "__all__"}
         onValueChange={(v) =>
           onChange({ ...filter, providerId: v === "__all__" ? null : v })
@@ -227,9 +232,9 @@ export default function DashboardFilter({ filter, onChange }: DashboardFilterPro
             </SelectItem>
           ))}
         </SelectContent>
-      </Select>
+      </Select>}
 
-      <Select
+      {!controlPlane && <Select
         value={filter.usageKind ?? "__all__"}
         onValueChange={(v) =>
           onChange({ ...filter, usageKind: v === "__all__" ? null : v })
@@ -247,10 +252,10 @@ export default function DashboardFilter({ filter, onChange }: DashboardFilterPro
             </SelectItem>
           ))}
         </SelectContent>
-      </Select>
+      </Select>}
 
       {/* Active model filter indicator */}
-      {filter.modelId && (
+      {!controlPlane && filter.modelId && (
         <div className="flex items-center gap-1 rounded-md bg-secondary px-2 py-1 text-xs">
           <span className="text-muted-foreground">{t("dashboard.filter.model")}:</span>
           <span className="font-medium">{filter.modelId}</span>
@@ -266,7 +271,7 @@ export default function DashboardFilter({ filter, onChange }: DashboardFilterPro
       {/* Active operation (purpose tag) filter indicator — drill-down only,
           no dropdown; set by clicking a row in the Tokens tab's operation
           table. */}
-      {filter.operation && (
+      {!controlPlane && filter.operation && (
         <div className="flex items-center gap-1 rounded-md bg-secondary px-2 py-1 text-xs">
           <span className="text-muted-foreground">{t("dashboard.token.operation")}:</span>
           <span className="font-mono font-medium">{filter.operation}</span>

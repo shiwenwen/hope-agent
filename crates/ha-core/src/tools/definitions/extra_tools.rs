@@ -1,6 +1,8 @@
 use serde_json::json;
 
-use super::super::{TOOL_CANVAS, TOOL_DESIGN, TOOL_SEND_NOTIFICATION, TOOL_WEB_SEARCH};
+use super::super::{
+    TOOL_ARTIFACT, TOOL_CANVAS, TOOL_DESIGN, TOOL_SEND_NOTIFICATION, TOOL_WEB_SEARCH,
+};
 use super::types::{ToolDefinition, ToolTier};
 
 /// Returns the web_search tool definition (conditionally injected when enabled).
@@ -218,6 +220,67 @@ pub fn get_design_tool() -> ToolDefinition {
                 "version_id": { "type": "integer", "description": "Version number (for restore)" },
                 "version_message": { "type": "string", "description": "Optional message for update" },
                 "format": { "type": "string", "enum": ["css", "scss", "ts", "swift", "android", "dtcg"], "description": "Single export target for export_tokens (omit to return all six)." }
+            },
+            "required": ["action"],
+            "additionalProperties": false
+        }),
+    }
+}
+
+/// Returns the local-first Artifact control-plane tool definition.
+pub fn get_artifact_tool() -> ToolDefinition {
+    ToolDefinition {
+        name: TOOL_ARTIFACT.into(),
+        description: "Create and manage durable, versioned local Artifacts from files. Use create_from_file or update_from_file after writing a complete .html, .htm, .md, or AnalysisArtifactV1 artifact.json into the active workspace. Updates require expected_version and never overwrite history. Export, archive, delete, and publish are intentionally owner-only actions.".into(),
+        tier: ToolTier::Configured {
+            default_for_main: true,
+            default_for_others: true,
+            default_deferred: false,
+            config_hint: "Settings → Tools → Canvas",
+        },
+        internal: true,
+        concurrent_safe: false,
+        async_capable: false,
+        parameters: json!({
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": ["create_from_file", "update_from_file", "show", "list", "versions", "restore", "verify"],
+                    "description": "Artifact operation to perform"
+                },
+                "file_path": {
+                    "type": "string",
+                    "description": "Workspace/staging path to .html, .htm, .md, or AnalysisArtifactV1 artifact.json"
+                },
+                "artifact_id": {
+                    "type": "string",
+                    "description": "Artifact ID returned by create_from_file"
+                },
+                "expected_version": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "Required optimistic-concurrency version for update_from_file"
+                },
+                "version": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "Historical version to restore"
+                },
+                "title": { "type": "string" },
+                "kind": {
+                    "type": "string",
+                    "enum": ["report", "dashboard", "data_table", "explainer", "pr_walkthrough", "diagram", "slides", "custom"]
+                },
+                "privacy": {
+                    "type": "string",
+                    "enum": ["local_private", "shareable_snapshot", "sensitive"],
+                    "description": "Defaults to local_private"
+                },
+                "version_message": { "type": "string" },
+                "limit": { "type": "integer", "minimum": 1, "maximum": 200 },
+                "offset": { "type": "integer", "minimum": 0 },
+                "lifecycle_state": { "type": "string", "enum": ["active", "archived"] }
             },
             "required": ["action"],
             "additionalProperties": false

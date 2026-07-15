@@ -21,8 +21,12 @@ export interface ChatSidebarProps {
   projects?: ProjectMeta[]
   projectsLoading?: boolean
   currentSessionId: string | null
+  /** Session whose latest assistant output is actually inside the reading surface. */
+  readableSessionId: string | null
   loadingSessionIds: Set<string>
   sessionsLoading?: boolean
+  /** Authoritative whole-database regular unread-session aggregate. */
+  totalUnreadCount: number
   panelWidth: number
   sidebarCollapsed: boolean
   onPanelWidthChange: (width: number) => void
@@ -59,6 +63,8 @@ export interface ChatSidebarProps {
    * increment).
    */
   searchFocusSignal?: number
+  /** Reveal the first unread regular conversation in sidebar order. */
+  unreadFocusSignal?: number
 }
 
 export type SessionFilterType = "session" | "subagent"

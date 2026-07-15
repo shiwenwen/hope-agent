@@ -14,7 +14,7 @@ mod update_tools;
 
 pub use core_tools::get_available_tools;
 pub use extra_tools::{
-    get_canvas_tool, get_design_tool, get_notification_tool, get_web_search_tool,
+    get_artifact_tool, get_canvas_tool, get_design_tool, get_notification_tool, get_web_search_tool,
 };
 pub use metadata::{
     ToolApprovalHint, ToolEffect, ToolInputMetadata, ToolInterruptBehavior, ToolMetadata,

@@ -1,4 +1,16 @@
 {
+  "agentLifecycle": {
+    "activeWorkBlocked": "Deletion is blocked while {{count}} Agent task(s) are still active.",
+    "deleteDescription": "Routing references will move to the replacement Agent. Historical conversations and structured memories are retained, while Agent files are moved to the recoverable trash.",
+    "deleteTitle": "Delete Agent safely",
+    "disabled": "Disabled",
+    "enabled": "Enabled",
+    "history": "Historical conversations",
+    "memories": "Retained memories",
+    "replacement": "Replacement Agent",
+    "retentionNotice": "This operation creates a configuration backup. Agent configuration, Home, and Plans are moved to trash instead of being permanently erased.",
+    "routes": "Routing references"
+  },
   "about": {
     "badge": "ذكاء اصطناعي مكتبي للعمل اليومي",
     "closing": "لم يُصمم كقائمة ميزات. بل صُمم ليبقى مفيدًا وموثوقًا وغير مزعج مع الاستخدام الطويل.",
@@ -111,6 +123,10 @@
         "title": "Advanced browser CDP command",
         "body": "This browser action will send a raw Chrome DevTools Protocol command to a real Chrome tab. It uses the normal tool approval flow; AllowAlways, Smart mode, and YOLO follow the active session policy."
       },
+      "external_connector_action": {
+        "title": "إجراء موصل خارجي",
+        "body": "سيُجري هذا الاستدعاء تعديلًا على البريد أو التقويم أو المستندات أو جداول البيانات أو سجلات العمل في نظام خارجي. يلزم تأكيد لكل استدعاء؛ خيار السماح الدائم غير متاح."
+      },
       "browser_download_action": {
         "title": "Browser download action",
         "body": "This browser action will read or interrupt Chrome download activity. It uses the normal tool approval flow; AllowAlways, Smart mode, and YOLO follow the active session policy."
@@ -126,10 +142,6 @@
       "browser_chrome_access": {
         "title": "Real Chrome access",
         "body": "This browser action will read or control the user's real Chrome state through the extension. It uses the normal tool approval flow; AllowAlways, Smart mode, and YOLO follow the active session policy."
-      },
-      "external_connector_action": {
-        "title": "إجراء موصل خارجي",
-        "body": "سيُجري هذا الاستدعاء تعديلًا على البريد أو التقويم أو المستندات أو جداول البيانات أو سجلات العمل في نظام خارجي. يلزم تأكيد لكل استدعاء؛ خيار السماح الدائم غير متاح."
       }
     },
     "title": "Command Approval Required",
@@ -157,7 +169,6 @@
     "maximize": "تكبير",
     "minimize": "تصغير",
     "openPreview": "فتح المعاينة",
-    "shareTo": "مشاركة إلى",
     "popOut": "فتح في نافذة منفصلة",
     "popOutActive": "مفتوح في نافذة منفصلة",
     "reattach": "العودة إلى اللوحة",
@@ -167,7 +178,8 @@
     "panelTitle": "قماش",
     "resizePanel": "تغيير حجم لوحة قماش",
     "notReadyError": "لوحة الرسم غير مفتوحة أو لم يتم تحميل iframe",
-    "detachedWindowTitle": "اللوحة: {{title}}"
+    "detachedWindowTitle": "اللوحة: {{title}}",
+    "shareTo": "مشاركة إلى"
   },
   "channels": {
     "accountLabel": "اسم الحساب",
@@ -324,6 +336,18 @@
   "chat": {
     "addWorkingDirectory": "إضافة دليل العمل",
     "askAnything": "أخبرني بفكرتك، @ للملفات/الملاحظات/المهارات، # للإدخال السريع، / للأوامر السريعة...",
+    "goalCompletion": {
+      "completed": "تم تحقيق الهدف",
+      "completedWithDuration": "تم تحقيق الهدف خلال {{time}}",
+      "tokens": "{{tokens}} رمز"
+    },
+    "fork": {
+      "continueInNewSession": "المتابعة في جلسة جديدة",
+      "continuedFrom": "متابعة من",
+      "created": "تمت المتابعة في جلسة جديدة",
+      "failed": "تعذرت المتابعة في جلسة جديدة",
+      "sourceFallback": "الجلسة الأصلية"
+    },
     "browserPanel": {
       "backendBadgeTooltip": "خلفية المتصفح: {{backend}}",
       "captureFailed": "فشل التقاط الإطار، بانتظار التالي",
@@ -402,6 +426,12 @@
     "sidebarDetailedMode": "التبديل إلى الوضع العادي",
     "copied": "تم النسخ",
     "copy": "نسخ",
+    "messageQuote": {
+      "addToChat": "إضافة إلى المحادثة",
+      "assistantMessage": "رسالة المساعد",
+      "remove": "إزالة الاقتباس",
+      "yourMessage": "رسالتك"
+    },
     "quickPrompts": {
       "addAction": "إضافة إلى الإدخالات السريعة",
       "addFailed": "تعذرت إضافة الإدخال السريع",
@@ -413,6 +443,8 @@
     },
     "cronTaskStarted": "تم تشغيل مهمة مجدولة",
     "cronTrigger": "مهمة مجدولة",
+    "loopTriggered": "تم تشغيل خطوة تكرار واحدة",
+    "loopTrigger": "حلقة",
     "wakeupResumed": "استؤنف للمتابعة",
     "wakeupTrigger": "تنبيه مجدول",
     "daysAgo": "منذ {{count}} يوم",
@@ -522,244 +554,6 @@
     "pendingInteractionHint": "في انتظار ردك",
     "pendingInteractionInline": "في انتظار الرد · {{count}}",
     "pendingQueued": "تم وضع الرسالة في الطابور، سترسل بعد الرد...",
-    "permissionMode": {
-      "applyToAgentDefault": {
-        "desc": "عند التفعيل، يؤدي اختيار وضع إلى تحديث الوضع الافتراضي لهذا الوكيل للمحادثات الجديدة أيضًا.",
-        "failed": "تعذر تحديث وضع الأذونات الافتراضي لهذا الوكيل.",
-        "label": "تحديث افتراضي الوكيل أيضًا"
-      },
-      "default": {
-        "desc": "أدوات التحرير والأوامر عالية الخطورة تتطلب الموافقة، والباقي يُنفّذ.",
-        "label": "افتراضي"
-      },
-      "menuLabel": "وضع الأذونات",
-      "smart": {
-        "desc": "نموذج حكم أو علامة ثقة النموذج الذاتية تتخذ قرار الموافقة.",
-        "label": "موافقة ذكية"
-      },
-      "yolo": {
-        "desc": "جميع الأدوات في هذه الجلسة تعمل بدون موافقة (المسارات المحمية لا تزال تُسجّل).",
-        "label": "YOLO"
-      }
-    },
-    "sandboxMode": {
-      "isolated": {
-        "desc": "Run in an isolated copy; edit approvals are unchanged until apply-back is supported.",
-        "label": "Isolated Sandbox"
-      },
-      "menuLabel": "صندوق العزل",
-      "off": {
-        "desc": "Run on the host; approval behavior is unchanged.",
-        "label": "Sandbox Off"
-      },
-      "setupTitle": "Configure Docker to enable sandbox",
-      "standard": {
-        "desc": "Run in Docker; approval behavior is unchanged.",
-        "label": "Standard Sandbox"
-      },
-      "trusted": {
-        "desc": "Max autonomy for sandboxed exec; strict risks still ask.",
-        "label": "Trusted Sandbox"
-      },
-      "workspace": {
-        "desc": "Mount this workspace and reduce edit-command approvals.",
-        "label": "Workspace Sandbox"
-      }
-    },
-    "pickSession": "اختر جلسة",
-    "profileRotationTitle": "تغيير الملف الشخصي",
-    "queueMessage": "وضع في الطابور",
-    "reasonAuth": "فشل المصادقة",
-    "reasonBilling": "الفواتير / تم تجاوز الحصة",
-    "reasonContextOverflow": "تجاوز السياق",
-    "reasonModelNotFound": "النموذج غير موجود",
-    "reasonOverloaded": "الخدمة محملة بشكل زائد",
-    "reasonRateLimit": "تم تجاوز حد الطلبات",
-    "reasonTimeout": "انتهت مهلة الطلب",
-    "reasonUnknown": "خطأ غير معروف",
-    "renameSession": "إعادة تسمية",
-    "renameSessionPlaceholder": "أدخل عنواناً جديداً...",
-    "revealInFolder": "إظهار في المجلد",
-    "roundLimitReachedBody": "استنفدت هذه الجولة جميع جولات استدعاء الأدوات البالغ عددها {{count}} دون أن تكتمل المهمة. اضغط الزر أدناه لإرسال \"متابعة\" وسأكمل من النقطة الحالية، أو يمكنك زيادة `max_tool_rounds` من الإعدادات → الوكيل → القدرات.",
-    "roundLimitReachedBodyNoCount": "استنفدت جولات استدعاء الأدوات في هذه الجولة. اضغط الزر أدناه لإرسال \"متابعة\" وسأكمل من النقطة الحالية.",
-    "roundLimitReachedTitle": "تم بلوغ حدّ استدعاء الأدوات",
-    "roundLimitResumeButton": "متابعة",
-    "roundLimitResumeMessage": "متابعة",
-    "scrollToBottom": "التمرير إلى الأسفل",
-    "searchPlaceholder": "ابحث في المحادثات...",
-    "searchTruncatedHint": "يتم عرض أول {{count}} نتيجة — حسّن كلمات البحث لرؤية المزيد.",
-    "searching": "جاري البحث...",
-    "selectModel": "اختيار النموذج",
-    "send": "إرسال",
-    "sessionSearch": "ابحث في هذه المحادثة",
-    "sessionSearchClose": "إغلاق",
-    "sessionSearchCount": "{{current}}/{{total}}",
-    "sessionSearchNext": "التالي",
-    "sessionSearchNoResults": "لا توجد نتائج في هذه المحادثة",
-    "sessionSearchPlaceholder": "ابحث في رسائل هذه المحادثة…",
-    "sessionSearchPrev": "السابق",
-    "sessionStatus": "حالة الجلسة",
-    "settings": "الإعدادات",
-    "startConversation": "ابدأ محادثة",
-    "statusAgent": "الوكيل",
-    "statusAuth": "المصادقة",
-    "statusCache": "ذاكرة مؤقتة",
-    "statusCacheHit": "إصابة",
-    "statusCacheWrite": "كتابة",
-    "statusContext": "السياق",
-    "statusCumulative": "تراكمي",
-    "statusMessages": "{{count}} رسالة",
-    "statusModel": "النموذج",
-    "statusNewSession": "(جلسة جديدة)",
-    "statusSession": "الجلسة",
-    "statusSessionId": "معرّف الجلسة",
-    "statusThinking": "التفكير",
-    "statusUpdated": "آخر تحديث",
-    "stopReply": "إيقاف الرد",
-    "subagentFrom": "مفوّض من {{agent}}",
-    "subagentResultCompleted": "اكتملت",
-    "systemPrompt": "موجه النظام",
-    "taskActions": {
-      "cycleTo": {
-        "completed": "وضع علامة مكتملة",
-        "in_progress": "وضع علامة قيد التنفيذ",
-        "pending": "وضع علامة قيد الانتظار"
-      },
-      "delete": "حذف المهمة"
-    },
-    "taskNoneYet": "لا توجد مهام بعد",
-    "taskProgress": "{{completed}}/{{total}} مكتملة",
-    "tasks": "المهام",
-    "thinking": "جارٍ التفكير...",
-    "thinkingAutoDisabled": "{{provider}} / {{model}} does not support the current thinking mode. Thinking was disabled automatically and the request was retried.",
-    "visionAutoDisabled": "{{provider}} / {{model}} لا يدعم إدخال الصور. تم تجاهل الصورة ومتابعة الرد.",
-    "toolCalling": "جارٍ استدعاء الأدوات...",
-    "totalTokens": "الإجمالي",
-    "unknownProvider": "Unknown provider",
-    "untitledSession": "بدون عنوان",
-    "viewContext": "عرض السياق",
-    "viewModeBubble": "التبديل إلى عرض الفقاعات",
-    "viewModeTimeline": "التبديل إلى عرض المهام",
-    "viewSystemPrompt": "عرض System Prompt",
-    "weeksAgo": "منذ {{count}} أسبوع",
-    "workingDir": {
-      "browserDescription": "يُفسَّر المسار على الجهاز الذي يعمل عليه الوكيل.",
-      "browserTitle": "اختر دليلاً على الخادم",
-      "change": "تغيير الدليل",
-      "clear": "مسح الدليل",
-      "current": "دليل العمل",
-      "empty": "هذا الدليل فارغ",
-      "fileLabel": "ملف",
-      "invalid": "دليل العمل غير صالح",
-      "loadError": "تعذّر عرض الدليل",
-      "loading": "جارٍ التحميل…",
-      "parent": "مستوى أعلى",
-      "pathPlaceholder": "مسار مطلق، مثلاً /srv/projects/app",
-      "select": "تحديد دليل العمل",
-      "selectCurrent": "تحديد هذا الدليل",
-      "selectPreset": "حدد دليل العمل بعد بدء المحادثة",
-      "titleBarInherited": "موروث من المشروع",
-      "titleBarSession": "دليل العمل",
-      "truncated": "يتم عرض أول مجموعة من العناصر فقط — هذا الدليل أكبر من أن يعرضه المتصفح كاملاً.",
-      "goToPath": "الانتقال إلى المسار"
-    },
-    "taskProgressRunning": "قيد التنفيذ {{completed}}/{{total}}",
-    "taskProgressCancelling": "جارٍ الإيقاف {{completed}}/{{total}}",
-    "taskProgressWaiting": "بانتظار المتابعة {{completed}}/{{total}}",
-    "taskProgressFailed": "فشل {{completed}}/{{total}}",
-    "exportSession": {
-      "menuItem": "تصدير المحادثة",
-      "dialogTitle": "تصدير المحادثة",
-      "dialogHint": "اختر تنسيقًا وحدّد ما تريد تضمينه.",
-      "formatLabel": "التنسيق",
-      "formatMarkdown": "Markdown",
-      "formatJson": "JSON",
-      "formatHtml": "HTML",
-      "contentLabel": "المحتوى",
-      "includeTools": "تضمين استدعاءات الأدوات",
-      "includeToolsHint": "وسيطات الأدوات ونتائجها وتغييرات الملفات.",
-      "includeThinking": "تضمين التفكير",
-      "includeThinkingHint": "كتل تفكير النموذج (سلسلة الأفكار).",
-      "exportButton": "تصدير",
-      "exporting": "جارٍ التصدير…",
-      "exported": "تم التصدير",
-      "failedShort": "فشل",
-      "savedTo": "تم التصدير إلى {{path}}",
-      "downloaded": "تم تنزيل {{filename}}",
-      "failed": "تعذّر تصدير المحادثة."
-    },
-    "skillMention": {
-      "heading": "المهارات",
-      "labels": {
-        "docx": "مستند Word",
-        "pptx": "شرائح PowerPoint",
-        "xlsx": "جدول بيانات Excel",
-        "browser": "التحكم في المتصفح",
-        "mac": "التحكم في Mac"
-      }
-    },
-    "reasoningDisabledHint": "الاستدلال غير مُفعَّل لهذا النموذج. لضبط عمق الاستدلال، عدِّل هذا النموذج من «الإعدادات ← مزوّدو النماذج» وفعِّل خيار «دعم الاستدلال/التفكير».",
-    "browserExtensionNudge": {
-      "installTitle": "دع الذكاء الاصطناعي يتحكم في متصفح Chrome الحقيقي",
-      "installBody": "ثبّت إضافة Hope Agent لتشغيل متصفح Chrome الذي سجّلت الدخول إليه. حاليًا يعمل في متصفح معزول.",
-      "reloadTitle": "أعد تحميل إضافة Chrome",
-      "reloadBody": "الإضافة المثبّتة لا تطابق المضيف. أعد تحميلها لاستعادة التحكم في متصفح Chrome الحقيقي.",
-      "openSettings": "فتح الإعدادات",
-      "dismiss": "عدم الإظهار مرة أخرى"
-    },
-    "browserExtensionRequired": {
-      "nextAction": "الإجراء التالي: {{nextAction}}",
-      "openSettings": "افتح الإعدادات > المتصفح لتثبيت الامتداد أو تمكينه.",
-      "title": "ملحق كروم مطلوب"
-    },
-    "conversationEmpty": "لا توجد رسائل في هذه المحادثة",
-    "pendingCancelForceInsert": "إلغاء إدراج هذه الجولة",
-    "pendingFallbackAfterReply": "أرسل بعد الرد",
-    "pendingFallbackAfterReplyTip": "لم تتم مواجهة نقطة اكتمال الأداة وسيتم إرسالها بعد انتهاء الرد الحالي.",
-    "pendingForceInsertTip": "سوف ينتظر حتى اكتمال تنفيذ الأداة ثم يقوم بإدراجها في النموذج دون مقاطعة الأداة الحالية.",
-    "pendingInserted": "تم إدراجها",
-    "pendingInsertedTip": "وقد تم إدراجه في النموذج بعد اكتمال هذه الجولة من الأدوات.",
-    "pendingQueuedShort": "الطابور",
-    "pendingQueuedTip": "تمت إضافته إلى قائمة انتظار الانتظار وسيتم إرساله بعد انتهاء الرد الحالي.",
-    "pendingQueueTitle": "ليتم إرسالها",
-    "pendingWaitingToolBoundary": "انتظر حتى نقطة اكتمال الأداة",
-    "pendingWaitingToolBoundaryTip": "انتظر حتى يكتمل استدعاء الأداة الأخير؛ إذا لم تعد الأداة تسمى هذه الجولة، فسيتم إرسالها بعد اكتمال الرد.",
-    "processNotification": "انتهت العملية",
-    "rightPanel": {
-      "collapse": "طي اللوحة اليمنى",
-      "expand": "قم بتوسيع اللوحة اليمنى",
-      "switch": "تبديل اللوحة اليمنى",
-      "dock": "شريط اللوحات الجانبية",
-      "openPanel": "فتح {{panel}}",
-      "switchToPanel": "التبديل إلى {{panel}}",
-      "collapsePanel": "طي {{panel}}",
-      "expandPanel": "توسيع {{panel}}",
-      "workflowActiveCount": "{{count}} من مهام سير العمل النشطة",
-      "workflowAttentionCount": "{{count}} من مهام سير العمل تحتاج إلى الانتباه",
-      "backgroundRunningCount": "{{count}} من المهام في الخلفية قيد التشغيل"
-    },
-    "visionBridgeEngaged": "لا يمكن للنموذج الأساسي رؤية الصور، لذا قام {{model}} بوصفها نيابةً عنه.",
-    "visionBridgeUnavailable": "تعذّر على نموذج الرؤية وصف الصورة، لذا تم تجاهلها.",
-    "goalCompletion": {
-      "completed": "تم تحقيق الهدف",
-      "completedWithDuration": "تم تحقيق الهدف خلال {{time}}",
-      "tokens": "{{tokens}} رمز"
-    },
-    "fork": {
-      "continueInNewSession": "المتابعة في جلسة جديدة",
-      "continuedFrom": "متابعة من",
-      "created": "تمت المتابعة في جلسة جديدة",
-      "failed": "تعذرت المتابعة في جلسة جديدة",
-      "sourceFallback": "الجلسة الأصلية"
-    },
-    "messageQuote": {
-      "addToChat": "إضافة إلى المحادثة",
-      "assistantMessage": "رسالة المساعد",
-      "remove": "إزالة الاقتباس",
-      "yourMessage": "رسالتك"
-    },
-    "loopTriggered": "تم تشغيل خطوة تكرار واحدة",
-    "loopTrigger": "حلقة",
     "goalMode": {
       "label": "الهدف",
       "enter": "وضع الهدف: قم بإنشاء هدف دائم يستمر الوكيل في تحقيقه",
@@ -880,12 +674,216 @@
       "title": "تبدو هذه الرسالة مناسبة لسير العمل",
       "ultracodeDescription": "شغّله ليميل النموذج إلى تنسيق أعمق، وتحقق متقاطع، واستعادة المهام الطويلة."
     },
+    "permissionMode": {
+      "applyToAgentDefault": {
+        "desc": "عند التفعيل، يؤدي اختيار وضع إلى تحديث الوضع الافتراضي لهذا الوكيل للمحادثات الجديدة أيضًا.",
+        "failed": "تعذر تحديث وضع الأذونات الافتراضي لهذا الوكيل.",
+        "label": "تحديث افتراضي الوكيل أيضًا"
+      },
+      "default": {
+        "desc": "أدوات التحرير والأوامر عالية الخطورة تتطلب الموافقة، والباقي يُنفّذ.",
+        "label": "افتراضي"
+      },
+      "menuLabel": "وضع الأذونات",
+      "smart": {
+        "desc": "نموذج حكم أو علامة ثقة النموذج الذاتية تتخذ قرار الموافقة.",
+        "label": "موافقة ذكية"
+      },
+      "yolo": {
+        "desc": "جميع الأدوات في هذه الجلسة تعمل بدون موافقة (المسارات المحمية لا تزال تُسجّل).",
+        "label": "YOLO"
+      }
+    },
+    "sandboxMode": {
+      "isolated": {
+        "desc": "Run in an isolated copy; edit approvals are unchanged until apply-back is supported.",
+        "label": "Isolated Sandbox"
+      },
+      "menuLabel": "صندوق العزل",
+      "off": {
+        "desc": "Run on the host; approval behavior is unchanged.",
+        "label": "Sandbox Off"
+      },
+      "setupTitle": "Configure Docker to enable sandbox",
+      "standard": {
+        "desc": "Run in Docker; approval behavior is unchanged.",
+        "label": "Standard Sandbox"
+      },
+      "trusted": {
+        "desc": "Max autonomy for sandboxed exec; strict risks still ask.",
+        "label": "Trusted Sandbox"
+      },
+      "workspace": {
+        "desc": "Mount this workspace and reduce edit-command approvals.",
+        "label": "Workspace Sandbox"
+      }
+    },
+    "pickSession": "اختر جلسة",
+    "profileRotationTitle": "تغيير الملف الشخصي",
+    "queueMessage": "وضع في الطابور",
+    "reasonAuth": "فشل المصادقة",
+    "reasonBilling": "الفواتير / تم تجاوز الحصة",
+    "reasonContextOverflow": "تجاوز السياق",
+    "reasonModelNotFound": "النموذج غير موجود",
+    "reasonOverloaded": "الخدمة محملة بشكل زائد",
+    "reasonRateLimit": "تم تجاوز حد الطلبات",
+    "reasonTimeout": "انتهت مهلة الطلب",
+    "reasonUnknown": "خطأ غير معروف",
+    "renameSession": "إعادة تسمية",
+    "renameSessionPlaceholder": "أدخل عنواناً جديداً...",
+    "revealInFolder": "إظهار في المجلد",
+    "roundLimitReachedBody": "استنفدت هذه الجولة جميع جولات استدعاء الأدوات البالغ عددها {{count}} دون أن تكتمل المهمة. اضغط الزر أدناه لإرسال \"متابعة\" وسأكمل من النقطة الحالية، أو يمكنك زيادة `max_tool_rounds` من الإعدادات → الوكيل → القدرات.",
+    "roundLimitReachedBodyNoCount": "استنفدت جولات استدعاء الأدوات في هذه الجولة. اضغط الزر أدناه لإرسال \"متابعة\" وسأكمل من النقطة الحالية.",
+    "roundLimitReachedTitle": "تم بلوغ حدّ استدعاء الأدوات",
+    "roundLimitResumeButton": "متابعة",
+    "roundLimitResumeMessage": "متابعة",
+    "scrollToBottom": "التمرير إلى الأسفل",
+    "searchPlaceholder": "ابحث في المحادثات...",
+    "searchTruncatedHint": "يتم عرض أول {{count}} نتيجة — حسّن كلمات البحث لرؤية المزيد.",
+    "searching": "جاري البحث...",
+    "selectModel": "اختيار النموذج",
+    "send": "إرسال",
+    "sessionSearch": "ابحث في هذه المحادثة",
+    "sessionSearchClose": "إغلاق",
+    "sessionSearchCount": "{{current}}/{{total}}",
+    "sessionSearchNext": "التالي",
+    "sessionSearchNoResults": "لا توجد نتائج في هذه المحادثة",
+    "sessionSearchPlaceholder": "ابحث في رسائل هذه المحادثة…",
+    "sessionSearchPrev": "السابق",
+    "sessionStatus": "حالة الجلسة",
+    "memoryPolicy": {
+      "title": "ذاكرة هذه المحادثة",
+      "use": "استخدام الذكريات الموجودة",
+      "contribute": "التعلّم من هذه المحادثة",
+      "inherit": "اتباع الإعداد العام",
+      "allow": "تشغيل",
+      "deny": "إيقاف",
+      "desc": "الخياران مستقلان: يمكن للمحادثة استخدام الذكريات الموجودة دون إنشاء ذكريات جديدة.",
+      "incognito": "المحادثات الخفية لا تقرأ الذاكرة طويلة الأمد ولا تكتب فيها.",
+      "reloadCore": "إعادة تحميل MEMORY.md لهذه الجلسة"
+    },
+    "settings": "الإعدادات",
+    "startConversation": "ابدأ محادثة",
+    "statusAgent": "الوكيل",
+    "statusAuth": "المصادقة",
+    "statusCache": "ذاكرة مؤقتة",
+    "statusCacheHit": "إصابة",
+    "statusCacheWrite": "كتابة",
+    "statusContext": "السياق",
+    "statusCumulative": "تراكمي",
+    "statusMessages": "{{count}} رسالة",
+    "statusModel": "النموذج",
+    "statusNewSession": "(جلسة جديدة)",
+    "statusSession": "الجلسة",
+    "statusSessionId": "معرّف الجلسة",
+    "statusThinking": "التفكير",
+    "statusUpdated": "آخر تحديث",
+    "stopReply": "إيقاف الرد",
+    "subagentFrom": "مفوّض من {{agent}}",
+    "subagentResultCompleted": "اكتملت",
     "workflowResultName": "سير العمل",
     "workflowResultCheckpoint": "تم استلام نتيجة المرحلة",
     "workflowResultCompleted": "مكتمل",
     "workflowResultCancelled": "ملغى",
     "workflowResultWaiting": "في انتظار المتابعة",
     "workflowResultFailed": "يحتاج إلى معالجة",
+    "systemPrompt": "موجه النظام",
+    "taskActions": {
+      "cycleTo": {
+        "completed": "وضع علامة مكتملة",
+        "in_progress": "وضع علامة قيد التنفيذ",
+        "pending": "وضع علامة قيد الانتظار"
+      },
+      "delete": "حذف المهمة"
+    },
+    "taskNoneYet": "لا توجد مهام بعد",
+    "taskProgress": "{{completed}}/{{total}} مكتملة",
+    "tasks": "المهام",
+    "thinking": "جارٍ التفكير...",
+    "thinkingAutoDisabled": "{{provider}} / {{model}} does not support the current thinking mode. Thinking was disabled automatically and the request was retried.",
+    "visionAutoDisabled": "{{provider}} / {{model}} لا يدعم إدخال الصور. تم تجاهل الصورة ومتابعة الرد.",
+    "toolCalling": "جارٍ استدعاء الأدوات...",
+    "totalTokens": "الإجمالي",
+    "unknownProvider": "Unknown provider",
+    "untitledSession": "بدون عنوان",
+    "viewContext": "عرض السياق",
+    "viewModeBubble": "التبديل إلى عرض الفقاعات",
+    "viewModeTimeline": "التبديل إلى عرض المهام",
+    "viewSystemPrompt": "عرض System Prompt",
+    "weeksAgo": "منذ {{count}} أسبوع",
+    "workingDir": {
+      "browserDescription": "يُفسَّر المسار على الجهاز الذي يعمل عليه الوكيل.",
+      "browserTitle": "اختر دليلاً على الخادم",
+      "change": "تغيير الدليل",
+      "clear": "مسح الدليل",
+      "current": "دليل العمل",
+      "empty": "هذا الدليل فارغ",
+      "fileLabel": "ملف",
+      "goToPath": "الانتقال إلى المسار",
+      "invalid": "دليل العمل غير صالح",
+      "loadError": "تعذّر عرض الدليل",
+      "loading": "جارٍ التحميل…",
+      "parent": "مستوى أعلى",
+      "pathPlaceholder": "مسار مطلق، مثلاً /srv/projects/app",
+      "select": "تحديد دليل العمل",
+      "selectCurrent": "تحديد هذا الدليل",
+      "selectPreset": "حدد دليل العمل بعد بدء المحادثة",
+      "titleBarInherited": "موروث من المشروع",
+      "titleBarSession": "دليل العمل",
+      "truncated": "يتم عرض أول مجموعة من العناصر فقط — هذا الدليل أكبر من أن يعرضه المتصفح كاملاً."
+    },
+    "taskProgressRunning": "قيد التنفيذ {{completed}}/{{total}}",
+    "taskProgressCancelling": "جارٍ الإيقاف {{completed}}/{{total}}",
+    "taskProgressWaiting": "بانتظار المتابعة {{completed}}/{{total}}",
+    "taskProgressFailed": "فشل {{completed}}/{{total}}",
+    "exportSession": {
+      "menuItem": "تصدير المحادثة",
+      "dialogTitle": "تصدير المحادثة",
+      "dialogHint": "اختر تنسيقًا وحدّد ما تريد تضمينه.",
+      "formatLabel": "التنسيق",
+      "formatMarkdown": "Markdown",
+      "formatJson": "JSON",
+      "formatHtml": "HTML",
+      "contentLabel": "المحتوى",
+      "includeTools": "تضمين استدعاءات الأدوات",
+      "includeToolsHint": "وسيطات الأدوات ونتائجها وتغييرات الملفات.",
+      "includeThinking": "تضمين التفكير",
+      "includeThinkingHint": "كتل تفكير النموذج (سلسلة الأفكار).",
+      "exportButton": "تصدير",
+      "exporting": "جارٍ التصدير…",
+      "exported": "تم التصدير",
+      "failedShort": "فشل",
+      "savedTo": "تم التصدير إلى {{path}}",
+      "downloaded": "تم تنزيل {{filename}}",
+      "failed": "تعذّر تصدير المحادثة."
+    },
+    "skillMention": {
+      "heading": "المهارات",
+      "labels": {
+        "docx": "مستند Word",
+        "pptx": "شرائح PowerPoint",
+        "xlsx": "جدول بيانات Excel",
+        "browser": "التحكم في المتصفح",
+        "mac": "التحكم في Mac",
+        "dataAnalytics": "تحليل البيانات"
+      }
+    },
+    "reasoningDisabledHint": "الاستدلال غير مُفعَّل لهذا النموذج. لضبط عمق الاستدلال، عدِّل هذا النموذج من «الإعدادات ← مزوّدو النماذج» وفعِّل خيار «دعم الاستدلال/التفكير».",
+    "browserExtensionNudge": {
+      "installTitle": "دع الذكاء الاصطناعي يتحكم في متصفح Chrome الحقيقي",
+      "installBody": "ثبّت إضافة Hope Agent لتشغيل متصفح Chrome الذي سجّلت الدخول إليه. حاليًا يعمل في متصفح معزول.",
+      "reloadTitle": "أعد تحميل إضافة Chrome",
+      "reloadBody": "الإضافة المثبّتة لا تطابق المضيف. أعد تحميلها لاستعادة التحكم في متصفح Chrome الحقيقي.",
+      "openSettings": "فتح الإعدادات",
+      "dismiss": "عدم الإظهار مرة أخرى"
+    },
+    "browserExtensionRequired": {
+      "nextAction": "الإجراء التالي: {{nextAction}}",
+      "openSettings": "افتح الإعدادات > المتصفح لتثبيت الامتداد أو تمكينه.",
+      "title": "ملحق كروم مطلوب"
+    },
+    "conversationEmpty": "لا توجد رسائل في هذه المحادثة",
+    "pendingCancelForceInsert": "إلغاء إدراج هذه الجولة",
     "pendingSaving": "جارٍ الحفظ",
     "pendingSavingTip": "جارٍ حفظ الرسالة والمرفقات في قائمة انتظار قابلة للاستعادة.",
     "pendingInserting": "جارٍ الإدراج",
@@ -893,6 +891,32 @@
     "pendingDispatching": "جارٍ الإرسال",
     "pendingDispatchingTip": "جارٍ إنشاء دور جديد من قائمة الانتظار الدائمة.",
     "pendingSendNow": "إرسال الآن",
+    "pendingFallbackAfterReply": "أرسل بعد الرد",
+    "pendingFallbackAfterReplyTip": "لم تتم مواجهة نقطة اكتمال الأداة وسيتم إرسالها بعد انتهاء الرد الحالي.",
+    "pendingForceInsertTip": "سوف ينتظر حتى اكتمال تنفيذ الأداة ثم يقوم بإدراجها في النموذج دون مقاطعة الأداة الحالية.",
+    "pendingInserted": "تم إدراجها",
+    "pendingInsertedTip": "وقد تم إدراجه في النموذج بعد اكتمال هذه الجولة من الأدوات.",
+    "pendingQueuedShort": "الطابور",
+    "pendingQueuedTip": "تمت إضافته إلى قائمة انتظار الانتظار وسيتم إرساله بعد انتهاء الرد الحالي.",
+    "pendingQueueTitle": "ليتم إرسالها",
+    "pendingWaitingToolBoundary": "انتظر حتى نقطة اكتمال الأداة",
+    "pendingWaitingToolBoundaryTip": "انتظر حتى يكتمل استدعاء الأداة الأخير؛ إذا لم تعد الأداة تسمى هذه الجولة، فسيتم إرسالها بعد اكتمال الرد.",
+    "processNotification": "انتهت العملية",
+    "rightPanel": {
+      "collapse": "طي اللوحة اليمنى",
+      "expand": "قم بتوسيع اللوحة اليمنى",
+      "switch": "تبديل اللوحة اليمنى",
+      "dock": "شريط اللوحات الجانبية",
+      "openPanel": "فتح {{panel}}",
+      "switchToPanel": "التبديل إلى {{panel}}",
+      "collapsePanel": "طي {{panel}}",
+      "expandPanel": "توسيع {{panel}}",
+      "workflowActiveCount": "{{count}} من مهام سير العمل النشطة",
+      "workflowAttentionCount": "{{count}} من مهام سير العمل تحتاج إلى الانتباه",
+      "backgroundRunningCount": "{{count}} من المهام في الخلفية قيد التشغيل"
+    },
+    "visionBridgeEngaged": "لا يمكن للنموذج الأساسي رؤية الصور، لذا قام {{model}} بوصفها نيابةً عنه.",
+    "visionBridgeUnavailable": "تعذّر على نموذج الرؤية وصف الصورة، لذا تم تجاهلها.",
     "loadingSession": "جارٍ تحميل الجلسة…",
     "goalSlash": {
       "showActive": "عرض الهدف الحالي",
@@ -944,6 +968,10 @@
       "quickEditEmpty": "لا يمكن أن يكون محتوى الذاكرة فارغًا.",
       "quickEditSaved": "تم تحديث الذاكرة.",
       "quickEditSaveFailed": "تعذر حفظ هذه الذاكرة.",
+      "promoteToCore": "تذكّر هذا دائمًا",
+      "promoteToCoreFailed": "تعذرت إضافة هذا إلى الذاكرة الأساسية.",
+      "promotedToCore": "تم تذكّره دائمًا",
+      "promotedToCoreToast": "أُضيف إلى الذاكرة الأساسية الدائمة.",
       "kind": {
         "claim": "ذاكرة منظّمة",
         "episode": "الخبرة",
@@ -972,6 +1000,7 @@
       },
       "layerReason": {
         "agentConfigError": "تكوين ذاكرة الوكيل غير متاح",
+        "budgetEmpty": "ميزانية الاسترجاع فارغة",
         "disabled": "التكوين معطل",
         "emptyQuery": "استعلام فارغ",
         "incognito": "جلسة التخفي",
@@ -982,14 +1011,13 @@
         "noGraphNeighbors": "لا توجد علاقات كيان ذات صلة",
         "noHits": "لا يضرب",
         "noSession": "لا يوجد سياق الجلسة",
-        "retrievalError": "فشل الاسترجاع",
-        "sideQueryError": "فشل الاستدعاء",
-        "timeout": "انتهت المهلة",
-        "budgetEmpty": "ميزانية الاسترجاع فارغة",
         "nonContextualTurn": "رسالة لا تحتاج إلى سياق",
         "recallOff": "استرجاع الذاكرة الديناميكية التلقائي متوقف",
         "retrievalBusy": "خدمة الاسترجاع مشغولة",
+        "retrievalError": "فشل الاسترجاع",
         "sessionPolicy": "معطل وفق سياسة الذاكرة أو المحادثة",
+        "sideQueryError": "فشل الاستدعاء",
+        "timeout": "انتهت المهلة",
         "unifiedRecall": "تمت معالجته بواسطة الاسترجاع السريع",
         "unknown": "سبب آخر"
       },
@@ -1064,11 +1092,7 @@
       "more": "{{count}} يتم إخفاء المزيد من عناصر السياق طويلة المدى.",
       "sources": "مصادر الذاكرة",
       "editMemory": "تحرير هذه الذاكرة",
-      "copyTrace": "نسخ التشخيص",
-      "promoteToCore": "تذكّر هذا دائمًا",
-      "promoteToCoreFailed": "تعذرت إضافة هذا إلى الذاكرة الأساسية.",
-      "promotedToCore": "تم تذكّره دائمًا",
-      "promotedToCoreToast": "أُضيف إلى الذاكرة الأساسية الدائمة."
+      "copyTrace": "نسخ التشخيص"
     },
     "projectWelcomeTitle": "ماذا يجب أن نبني في <project>{{project}}</project>؟ أخبرني بفكرتك",
     "projectWelcomeSuggestions": {
@@ -1141,17 +1165,9 @@
     "openSourceConversationMissingHint": "يشير مصدر الذاكرة هذا إلى محادثة تم حذفها أو لا يمكن العثور عليها.",
     "openSourceMessageMissing": "لم تعد رسالة المصدر متاحة",
     "openSourceMessageMissingHint": "لا تزال المحادثة موجودة، ولكن تعذر العثور على الرسالة الدقيقة لمصدر الذاكرة هذا.",
-    "memoryPolicy": {
-      "title": "ذاكرة هذه المحادثة",
-      "use": "استخدام الذكريات الموجودة",
-      "contribute": "التعلّم من هذه المحادثة",
-      "inherit": "اتباع الإعداد العام",
-      "allow": "تشغيل",
-      "deny": "إيقاف",
-      "desc": "الخياران مستقلان: يمكن للمحادثة استخدام الذكريات الموجودة دون إنشاء ذكريات جديدة.",
-      "incognito": "المحادثات الخفية لا تقرأ الذاكرة طويلة الأمد ولا تكتب فيها.",
-      "reloadCore": "إعادة تحميل MEMORY.md لهذه الجلسة"
-    }
+    "unreadConversationCount": "{{count}} محادثة غير مقروءة",
+    "unreadStatus": "غير مقروء",
+    "channelUnreadStatus": "محادثة مراسلة فورية غير مقروءة"
   },
   "codexAuth": {
     "expiredDescription": "رمز OAuth لـ Codex لم يعد صالحاً. يرجى تسجيل الدخول مرة أخرى للمتابعة.",
@@ -1159,7 +1175,6 @@
     "reauth": "تسجيل الدخول مرة أخرى"
   },
   "common": {
-    "download": "تنزيل",
     "add": "إضافة",
     "back": "رجوع",
     "cancel": "إلغاء",
@@ -1196,12 +1211,9 @@
     "expand": "توسيع",
     "retry": "أعد المحاولة",
     "unavailable": "غير متاح",
-    "duplicate": "تكرار",
-    "more": "المزيد",
     "copy": "نسخ",
-    "copied": "تم النسخ",
-    "apply": "تطبيق",
     "auto": "تلقائي",
+    "copied": "تم النسخ",
     "yes": "نعم",
     "no": "لا",
     "none": "لا شيء",
@@ -1209,17 +1221,32 @@
     "off": "إيقاف",
     "error": "Error",
     "showLess": "عرض أقل",
-    "modelNoVision": "لا يدعم الصور"
+    "download": "تنزيل",
+    "duplicate": "تكرار",
+    "more": "المزيد",
+    "apply": "تطبيق",
+    "modelNoVision": "لا يدعم الصور",
+    "next": "Next",
+    "previous": "Previous"
   },
   "context": {
     "ago": "مضى",
+    "cacheRead": "قراءة التخزين المؤقت",
     "cacheTtlProtection": "حماية TTL للتخزين المؤقت",
+    "cacheWindowNotice": "تقلل إصابات التخزين المؤقت الحساب المتكرر والتكلفة وTTFT، لكنها لا تقلل استخدام نافذة السياق.",
+    "cacheWrite": "كتابة التخزين المؤقت",
     "compactAllowedIn": "الضغط التالي خلال",
+    "coreMemoryBudget": "ميزانية Core Memory",
+    "coreMemoryModelLimited": "محدودة مؤقتًا لهذا النموذج",
+    "dynamicPrompt": "الموجه الديناميكي",
+    "estimated": "تقديري",
     "estimateNote": "بعد كل جولة تكون بيانات الاستخدام الفعلية من المزوّد هي المرجع؛ وقبل ذلك يظهر تقدير محافظ بحسب شكل الطلب.",
     "freeSpace": "المساحة المتاحة",
+    "freshInput": "إدخال جديد",
     "lastCompact": "آخر ضغط",
     "memory": "الذاكرة",
     "messages": "الرسائل",
+    "providerInput": "إدخال Provider",
     "reservedOutput": "الإخراج المحجوز",
     "skills": "المهارات",
     "systemPrompt": "موجه النظام",
@@ -1227,16 +1254,7 @@
     "toolDescriptions": "أوصاف الأدوات",
     "toolSchemas": "مخططات الأدوات",
     "used": "المستخدم",
-    "viewSystemPrompt": "موجه النظام",
-    "cacheRead": "قراءة التخزين المؤقت",
-    "cacheWindowNotice": "تقلل إصابات التخزين المؤقت الحساب المتكرر والتكلفة وTTFT، لكنها لا تقلل استخدام نافذة السياق.",
-    "cacheWrite": "كتابة التخزين المؤقت",
-    "coreMemoryBudget": "ميزانية Core Memory",
-    "coreMemoryModelLimited": "محدودة مؤقتًا لهذا النموذج",
-    "dynamicPrompt": "الموجه الديناميكي",
-    "estimated": "تقديري",
-    "freshInput": "إدخال جديد",
-    "providerInput": "إدخال Provider"
+    "viewSystemPrompt": "موجه النظام"
   },
   "cron": {
     "active": "نشطة",
@@ -1426,8 +1444,8 @@
         "cron": "cron",
         "idle": "خامل",
         "manual": "يدوي",
-        "user_correction": "تصحيح",
-        "review_snapshot": "review snapshot"
+        "review_snapshot": "review snapshot",
+        "user_correction": "تصحيح"
       },
       "runs": {
         "title": "سجل التشغيل",
@@ -1449,9 +1467,46 @@
       "resolving": "جارٍ المعالجة…",
       "resolverDone": "تمت المعالجة: {{expired}} منتهية، {{merged}} مدمجة، {{review}} للمراجعة",
       "resolverFailed": "فشلت المعالجة العميقة",
+      "resolverPreflightTitle": "Deep Resolver الاختبار المبدئي",
+      "resolverPreflightSummary": "المطالبات النشطة {{active}} · المرشحين منتهية الصلاحية {{expired}} · مجموعات الصراع {{groups}}",
+      "resolverPreflightBlocked": "تم حظر المحلل: {{reasons}}",
+      "resolverPreflightLlm": "ستستخدم مجموعات {{count}}/{{total}} LLM · cap {{cap}}",
+      "resolverPreflightNoLlm": "لا يتوقع إجراء مكالمة جماعية لـ LLM.",
+      "resolverPreflightTruncated": "سوف تستمر في التشغيل التالي.",
+      "resolverPreflightUnavailable": "الاختبار المبدئي غير متاح.",
+      "resolverPreflightRefresh": "تحديث الخطة",
+      "resolverPreflightReasons": {
+        "dreamingDisabled": "Dreaming معطل",
+        "longTermMemoryDisabled": "تعلم الذاكرة معطلة",
+        "manualDisabled": "يتم تشغيل الدليل",
+        "claimLoadFailed": "المطالبات غير متوفرة"
+      },
+      "errors": {
+        "loadDiaries": "Failed to load Dreaming diaries",
+        "loadRuns": "Failed to load Dreaming run history",
+        "loadRunDetail": "Failed to load Dreaming run details",
+        "loadDiary": "Failed to open Dreaming diary",
+        "loadEvidenceQuote": "Failed to load evidence quote",
+        "runNow": "Failed to run Dreaming",
+        "runResolver": "Deep resolve failed",
+        "resolverPreflight": "Failed to load Deep Resolver preflight",
+        "detail": "التفاصيل: {{error}}"
+      },
       "review": {
         "queueTitle": "بحاجة لمراجعة",
         "queueEmpty": "لا توجد claims بحاجة للمراجعة",
+        "errors": {
+          "loadQueue": "Failed to load review queue",
+          "approve": "Failed to approve memory",
+          "markOutdated": "Failed to mark memory outdated",
+          "pin": "Failed to pin memory",
+          "unpin": "Failed to unpin memory",
+          "edit": "Failed to edit memory",
+          "moveScope": "Failed to move memory scope",
+          "reject": "Failed to reject memory",
+          "forget": "Failed to forget memory",
+          "detail": "التفاصيل: {{error}}"
+        },
         "approve": "اعتماد",
         "approveDone": "تم اعتماد الـ claim",
         "markOutdated": "وضع علامة قديم",
@@ -1490,44 +1545,7 @@
         "forgetNotePlaceholder": "سبب (اختياري)",
         "forgetConfirm": "نسيان",
         "forgetDone": "تم نسيان الذاكرة",
-        "failed": "فشل الإجراء",
-        "errors": {
-          "loadQueue": "Failed to load review queue",
-          "approve": "Failed to approve memory",
-          "markOutdated": "Failed to mark memory outdated",
-          "pin": "Failed to pin memory",
-          "unpin": "Failed to unpin memory",
-          "edit": "Failed to edit memory",
-          "moveScope": "Failed to move memory scope",
-          "reject": "Failed to reject memory",
-          "forget": "Failed to forget memory",
-          "detail": "التفاصيل: {{error}}"
-        }
-      },
-      "resolverPreflightTitle": "Deep Resolver الاختبار المبدئي",
-      "resolverPreflightSummary": "المطالبات النشطة {{active}} · المرشحين منتهية الصلاحية {{expired}} · مجموعات الصراع {{groups}}",
-      "resolverPreflightBlocked": "تم حظر المحلل: {{reasons}}",
-      "resolverPreflightLlm": "ستستخدم مجموعات {{count}}/{{total}} LLM · cap {{cap}}",
-      "resolverPreflightNoLlm": "لا يتوقع إجراء مكالمة جماعية لـ LLM.",
-      "resolverPreflightTruncated": "سوف تستمر في التشغيل التالي.",
-      "resolverPreflightUnavailable": "الاختبار المبدئي غير متاح.",
-      "resolverPreflightRefresh": "تحديث الخطة",
-      "resolverPreflightReasons": {
-        "dreamingDisabled": "Dreaming معطل",
-        "longTermMemoryDisabled": "تعلم الذاكرة معطلة",
-        "manualDisabled": "يتم تشغيل الدليل",
-        "claimLoadFailed": "المطالبات غير متوفرة"
-      },
-      "errors": {
-        "loadDiaries": "Failed to load Dreaming diaries",
-        "loadRuns": "Failed to load Dreaming run history",
-        "loadRunDetail": "Failed to load Dreaming run details",
-        "loadDiary": "Failed to open Dreaming diary",
-        "loadEvidenceQuote": "Failed to load evidence quote",
-        "runNow": "Failed to run Dreaming",
-        "runResolver": "Deep resolve failed",
-        "resolverPreflight": "Failed to load Deep Resolver preflight",
-        "detail": "التفاصيل: {{error}}"
+        "failed": "فشل الإجراء"
       }
     },
     "error": {
@@ -1886,17 +1904,17 @@
       "ttftTrend": "الوقت حتى أول رمز (TTFT)",
       "inputTokens": "رموز الإدخال",
       "outputTokens": "رموز الإخراج",
-      "byDomain": "التوزيع حسب النطاق",
-      "byOperation": "حسب العملية",
-      "operation": "العملية",
-      "domain": "النطاق",
       "byType": "الاستخدام حسب النوع",
       "type": "النوع",
       "calls": "عدد الاستدعاءات",
       "cacheWrite": "كتابة التخزين المؤقت",
       "cacheRead": "قراءة التخزين المؤقت",
       "avgDuration": "متوسط المدة",
-      "tokensUnit": "رموز"
+      "tokensUnit": "رموز",
+      "byDomain": "التوزيع حسب النطاق",
+      "byOperation": "حسب العملية",
+      "operation": "العملية",
+      "domain": "النطاق"
     },
     "tool": {
       "avgDuration": "متوسط المدة",
@@ -1994,6 +2012,106 @@
     },
     "columns": {
       "session": "جلسة"
+    },
+    "controlPlane": {
+      "title": "Goals & Execution",
+      "automationTab": "Automation",
+      "scopeHint": "Window metrics show outcomes; current snapshots show backlog and risk.",
+      "allProjects": "All projects",
+      "unassignedProject": "Unassigned",
+      "archived": "Archived",
+      "empty": "No data for the selected scope.",
+      "sections": {
+        "overview": "Overview",
+        "planTask": "Plan & Task"
+      },
+      "metrics": {
+        "goalAcceptance": "Goal acceptance rate",
+        "workflowCompletion": "Workflow completion rate",
+        "loopStrongProgress": "Loop strong-progress rate",
+        "taskCompletion": "Task cohort completion",
+        "attention": "Needs attention",
+        "requiredCriteria": "Required criteria pass rate",
+        "goalP50": "Goal time-to-accept P50",
+        "opFailure": "Operation failure rate",
+        "workflowP50": "Workflow duration P50",
+        "goalBinding": "Goal binding rate",
+        "approvalTrigger": "Approval trigger rate",
+        "noProgress": "No-progress rate",
+        "blockedSchedules": "Blocked schedules",
+        "loopP50": "Loop run duration P50",
+        "currentBacklog": "Current backlog",
+        "activePlans": "Active now",
+        "cohortCompletion": "Cohort completion"
+      },
+      "currentSnapshot": "Current snapshot",
+      "goalTrend": "Goal outcomes",
+      "resolved": "Resolved",
+      "accepted": "Accepted",
+      "attentionTitle": "Current attention items",
+      "noAttention": "No current attention items",
+      "auditSamples": "{{count}} audited Goals",
+      "currentStates": "Current states",
+      "closureOutcomes": "Closure outcomes",
+      "domains": "Domains",
+      "kinds": "Kinds",
+      "origins": "Origins",
+      "workflowTrend": "Decided Workflow runs",
+      "decidedRuns": "Decided runs",
+      "progressStates": "Progress classification",
+      "triggerKinds": "Trigger kinds",
+      "strategies": "Execution strategies",
+      "loopTrend": "Evaluated Loop runs",
+      "evaluatedRuns": "Evaluated runs",
+      "openPlanHistory": "View Plan history",
+      "planByAgent": "Plan by Agent",
+      "planByProject": "Plan by project",
+      "noFunnelHint": "Task and Plan do not yet have reliable Goal / Workflow / Loop attribution keys, so this page does not infer a causal funnel from sessions.",
+      "noExactSamples": "No exact duration samples",
+      "coverage": "{{samples}} / {{eligible}} exact samples ({{percent}}%)",
+      "coverageShort": "Exact duration coverage: {{samples}} / {{eligible}}",
+      "creationTrend": "Creation trend",
+      "created": "Created",
+      "attentionKinds": {
+        "goal": "الهدف",
+        "workflow": "سير العمل",
+        "loop": "الحلقة",
+        "plan": "الخطة"
+      },
+      "attentionReasons": {
+        "needs_strict_evidence": "يلزم دليل صارم",
+        "goal_awaiting_closure": "الهدف بانتظار الإغلاق",
+        "workflow_requires_attention": "سير العمل يحتاج إلى معالجة",
+        "consecutive_no_progress": "عدم تقدم متتالٍ",
+        "loop_requires_attention": "الحلقة تحتاج إلى معالجة",
+        "plan_awaiting_review": "الخطة بانتظار المراجعة"
+      },
+      "states": {
+        "active": "نشط",
+        "paused": "Paused",
+        "evaluating": "Evaluating",
+        "completed": "مكتمل",
+        "failed": "Failed",
+        "cancelled": "Cancelled",
+        "blocked": "محظور",
+        "planning": "Planning",
+        "review": "بانتظار المراجعة",
+        "executing": "Executing",
+        "off": "Archived",
+        "awaiting_approval": "بانتظار الموافقة",
+        "awaiting_user": "بانتظار المستخدم",
+        "running": "Running",
+        "recovering": "Recovering",
+        "draft": "Draft",
+        "pending": "Pending",
+        "in_progress": "In progress",
+        "progressed": "Progressed",
+        "weak_progress": "Weak progress",
+        "no_progress": "No progress",
+        "accepted_v1": "Accepted v1",
+        "superseded": "Superseded",
+        "unassigned": "Unassigned"
+      }
     }
   },
   "fileActions": {
@@ -2098,10 +2216,10 @@
       "staged": "Staged",
       "stagedScope": "Staged",
       "stale": "The repository changed. The diff was refreshed; review it again.",
-      "prReviewComments": "تعليقات مراجعة PR · {{count}}",
       "unstage": "Unstage",
       "unstaged": "Unstaged",
-      "unstagedScope": "Unstaged"
+      "unstagedScope": "Unstaged",
+      "prReviewComments": "تعليقات مراجعة PR · {{count}}"
     }
   },
   "effort": {
@@ -2537,10 +2655,10 @@
     "reasoning": "استدلال / تفكير",
     "reasoningHint": "بعد التفعيل، يمكنك اختيار عمق الاستدلال (منخفض / متوسط / مرتفع) من قائمة النماذج أعلى مربع إدخال المحادثة، ويُضاف تلقائيًا في كل طلب.",
     "supportedInputTypes": "أنواع الإدخال المدعومة",
-    "text": "نص",
-    "video": "فيديو",
     "supportsImageMultimodal": "يدعم تعدد الوسائط بالصور",
-    "supportsVideoMultimodal": "يدعم تعدد الوسائط بالفيديو"
+    "supportsVideoMultimodal": "يدعم تعدد الوسائط بالفيديو",
+    "text": "نص",
+    "video": "فيديو"
   },
   "notification": {
     "cronCancelled": "تم إلغاء المهمة المجدولة",
@@ -2939,6 +3057,29 @@
     "addProject": "إضافة مشروع",
     "archiveProject": "أرشفة المشروع",
     "archivedProjects": "المشاريع المؤرشفة",
+    "autoMemory": {
+      "content": "التفاصيل (Markdown)",
+      "deleteConfirm": "هل تريد حذف موضوع ذاكرة المشروع التلقائية؟",
+      "description": "يُضاف فهرس MEMORY.md موجز وثابت إلى محادثات المشروع، ولا تُقرأ تفاصيل المواضيع إلا عند الحاجة. تبقى البيانات على هذا الجهاز.",
+      "editorHint": "تعليمات المشروع قواعد ثابتة؛ أما هنا فتُحفظ الخبرات المتراكمة أثناء العمل وليست تعليمات مُلزمة.",
+      "editorTitle": "ذاكرة المشروع التلقائية",
+      "empty": "لا توجد مواضيع ذاكرة تلقائية بعد.",
+      "fileNameGenerated": "سيُنشأ اسم الملف عند الحفظ",
+      "name": "العنوان",
+      "newTopic": "موضوع جديد",
+      "rebuildIndex": "إعادة بناء فهرس MEMORY.md",
+      "rebuildFailed": "تعذرت إعادة بناء فهرس MEMORY.md.",
+      "summary": "ملخص الفهرس",
+      "summaryHint": "تدخل هذه الجملة في الموجّه الثابت لكل محادثة مشروع، فاجعلها موجزة.",
+      "type": "النوع",
+      "types": {
+        "feedback": "ملاحظات العمل",
+        "project": "عمل المشروع",
+        "reference": "مرجع",
+        "user": "سياق المستخدم"
+      },
+      "emptyPreview": "لا توجد تفاصيل Markdown بعد. انتقل إلى وضع التحرير لإضافة محتوى."
+    },
     "createFirstProject": "أنشئ مشروعك الأول",
     "defaultAgent": "الوكيل الافتراضي",
     "defaultModel": "النموذج الافتراضي",
@@ -2948,6 +3089,10 @@
     },
     "deleteProject": "حذف المشروع",
     "editProject": "تعديل المشروع",
+    "openFromMemoryLoadFailed": "تعذر فتح مصدر المشروع",
+    "openFromMemoryLoadFailedDetail": "التفاصيل: {{error}}",
+    "openFromMemoryMissing": "لم يعد المشروع متاحًا",
+    "openFromMemoryMissingHint": "يشير مصدر الذاكرة إلى مشروع تم حذفه أو لا يمكن العثور عليه.",
     "files": {
       "confirmDelete": "هل تريد حذف هذا الملف؟",
       "delete": "حذف",
@@ -2977,13 +3122,38 @@
       "recentSessions": "جلسات حديثة",
       "totalFiles": "الملفات",
       "totalMemories": "الذاكرة",
-      "totalSessions": "الجلسات"
+      "totalSessions": "الجلسات",
+      "activeClaims": "ذكريات منظّمة",
+      "agentsEmpty": "ملف AGENTS.md فارغ حاليًا",
+      "agentsLines": "AGENTS.md",
+      "agentsRole": "قواعد المشروع المعتمدة التي تُطبّق على كل جلسة في المشروع.",
+      "agentsStats": "{{lines}} سطر · {{size}}",
+      "autoMemoryRole": "خبرة محلية يحتفظ بها النموذج؛ يبقى الفهرس ثابتًا وتُقرأ الموضوعات عند الحاجة.",
+      "autoMemoryStats": "{{count}} موضوع",
+      "autoMemoryTopics": "موضوعات الذاكرة التلقائية",
+      "awaitingResponse": "بانتظار ردك",
+      "contextDescription": "تعرّف على السياق الذي يمكن للنموذج استخدامه في هذا المشروع.",
+      "contextTitle": "سياق المشروع",
+      "defaultWorkspace": "مجلد عمل المشروع الافتراضي",
+      "homeDescription": "تابع العمل الأخير أو أدر سياق المشروع.",
+      "homeTitle": "الصفحة الرئيسية للمشروع",
+      "linesUnit": "سطر",
+      "loadFailed": "تعذّر تحميل نظرة عامة على المشروع مؤقتًا. حاول مرة أخرى بعد قليل.",
+      "messageCount": "{{count}} رسالة",
+      "noRecentSessions": "لا توجد جلسات للمشروع بعد",
+      "noRecentSessionsHint": "سيظهر العمل الأخير هنا بعد إنشاء جلسة.",
+      "recentSessionsHint": "جلسات المستخدم المحدّثة مؤخرًا",
+      "structuredMemory": "ذاكرة المشروع",
+      "structuredMemoryRole": "معلومات طويلة الأمد جرى تنظيمها من محادثات المشروع؛ يعتمد استخدامها تلقائيًا في الإجابات على إعدادات الذاكرة.",
+      "unavailable": "غير متاح",
+      "untitledSession": "جلسة بلا عنوان",
+      "workingDirectory": "مجلد العمل"
     },
     "projectColor": "اللون",
     "projectDescription": "الوصف",
     "projectDescriptionPlaceholder": "ما الذي يدور حوله هذا المشروع؟",
     "projectInstructions": "تعليمات المشروع",
-    "projectInstructionsHint": "تُضاف هذه التعليمات تلقائيًا إلى مطالبة النظام لكل جلسة ضمن هذا المشروع.",
+    "projectInstructionsHint": "يتم تعديل ملف AGENTS.md في جذر المشروع مباشرةً؛ وبعد الحفظ يُطبَّق تلقائيًا على جميع جلسات المشروع.",
     "projectInstructionsPlaceholder": "مثال: الرد دائمًا بالعربية؛ اجعل النبرة واضحة ولطيفة؛ ابدأ بالخلاصة",
     "projectLogo": "الشعار",
     "projectLogoHint": "اختياري. يتم تغيير حجم الصور تلقائيًا إلى 256×256.",
@@ -2997,6 +3167,7 @@
     "showLess": "عرض أقل",
     "showMore": "عرض المزيد",
     "tabFiles": "الملفات",
+    "tabAutoMemory": "الذاكرة التلقائية",
     "tabInstructions": "التعليمات",
     "tabMemories": "الذاكرة",
     "tabOverview": "نظرة عامة",
@@ -3020,33 +3191,11 @@
       "errorDetail": "التفاصيل: {{error}}"
     },
     "projectEmojiPlaceholder": "اختياري",
-    "openFromMemoryLoadFailed": "تعذر فتح مصدر المشروع",
-    "openFromMemoryLoadFailedDetail": "التفاصيل: {{error}}",
-    "openFromMemoryMissing": "لم يعد المشروع متاحًا",
-    "openFromMemoryMissingHint": "يشير مصدر الذاكرة إلى مشروع تم حذفه أو لا يمكن العثور عليه.",
-    "autoMemory": {
-      "content": "التفاصيل (Markdown)",
-      "deleteConfirm": "هل تريد حذف موضوع ذاكرة المشروع التلقائية؟",
-      "description": "يُضاف فهرس MEMORY.md موجز وثابت إلى محادثات المشروع، ولا تُقرأ تفاصيل المواضيع إلا عند الحاجة. تبقى البيانات على هذا الجهاز.",
-      "editorHint": "تعليمات المشروع قواعد ثابتة؛ أما هنا فتُحفظ الخبرات المتراكمة أثناء العمل وليست تعليمات مُلزمة.",
-      "editorTitle": "ذاكرة المشروع التلقائية",
-      "empty": "لا توجد مواضيع ذاكرة تلقائية بعد.",
-      "fileNameGenerated": "سيُنشأ اسم الملف عند الحفظ",
-      "name": "العنوان",
-      "newTopic": "موضوع جديد",
-      "rebuildIndex": "إعادة بناء فهرس MEMORY.md",
-      "rebuildFailed": "تعذرت إعادة بناء فهرس MEMORY.md.",
-      "summary": "ملخص الفهرس",
-      "summaryHint": "تدخل هذه الجملة في الموجّه الثابت لكل محادثة مشروع، فاجعلها موجزة.",
-      "type": "النوع",
-      "types": {
-        "feedback": "ملاحظات العمل",
-        "project": "عمل المشروع",
-        "reference": "مرجع",
-        "user": "سياق المستخدم"
-      }
-    },
-    "tabAutoMemory": "الذاكرة التلقائية"
+    "projectInstructionsLineCount": "{{count}} سطر",
+    "resizeSettingsSheet": "اسحب لتغيير عرض إعدادات المشروع",
+    "projectInstructionsEmptyPreview": "ملف AGENTS.md فارغ. انتقل إلى وضع التحرير لإضافة تعليمات Markdown.",
+    "projectInstructionsLoadFailed": "تعذرت قراءة AGENTS.md",
+    "projectInstructionsSaveFailed": "تعذر حفظ AGENTS.md"
   },
   "provider": {
     "addProvider": "إضافة مزود",
@@ -3496,6 +3645,7 @@
       "judgeExtraPromptPlaceholder": "اختياري: تعليمات إضافية للحكم (قوائم مسارات موثوقة، أوامر موثوقة...)",
       "judgeModelPlaceholder": "اختر نموذج الحَكَم",
       "judgeModelTitle": "إعداد نموذج الحكم",
+      "judgeProviderPlaceholder": "معرّف المزوّد (مثلاً: anthropic-1)",
       "protectedPathsDesc": "استدعاءات الأدوات التي تمس هذه المسارات تفرض الموافقة ولا يمكن جعلها مسموحة دائمًا. يدعم توسيع ~/، وبادئة المجلد (شرطة مائلة في النهاية)، وأنماط glob مثل *.pattern.",
       "protectedPathsPlaceholder": "مثلاً: ~/.ssh/, .env, *.pem",
       "protectedPathsTitle": "مسارات محمية",
@@ -3528,8 +3678,7 @@
       "yoloDesc": "عند التفعيل، تعمل كل الأدوات بلا موافقة؛ Plan Mode فقط يمكنه الاستمرار في الحظر. تطابق المسار المحمي / الأمر الخطر يكتب تحذيرًا لكنه ينفذ.",
       "yoloDisabled": "YOLO العام معطّل",
       "yoloEnabled": "YOLO العام مفعّل",
-      "yoloTitle": "YOLO عام (تخطي كل الموافقات)",
-      "judgeProviderPlaceholder": "معرّف المزوّد (مثلاً: anthropic-1)"
+      "yoloTitle": "YOLO عام (تخطي كل الموافقات)"
     },
     "approvalTimeout": "مهلة انتظار موافقة الأداة",
     "approvalTimeoutAction": "إجراء انتهاء مهلة الموافقة",
@@ -3578,6 +3727,8 @@
       "digestMaxChars": "ميزانية إخراج الملخص (أحرف)",
       "dynamicEnabled": "تحديث اللاحقة في كل دور",
       "enabledForSession": "مُفعَّل لهذه الجلسة",
+      "extractionAgent": "معرف Agent الاستخراج (اختياري)",
+      "extractionAgentPlaceholder": "اتركه فارغًا لوراثة recap.analysisAgent",
       "includeChannel": "شمل جلسات قنوات IM",
       "includeCron": "شمل جلسات cron",
       "includeSubagents": "شمل جلسات sub-agent",
@@ -3603,9 +3754,7 @@
       "sessionOverride": "تجاوز الجلسة",
       "title": "وعي السلوك",
       "extractionModel": "نموذج الاستخراج (اختياري)",
-      "extractionModelInherit": "إعادة استخدام وكيل المحادثة الحالي (مناسب لذاكرة التخزين المؤقت)",
-      "extractionAgent": "معرف Agent الاستخراج (اختياري)",
-      "extractionAgentPlaceholder": "اتركه فارغًا لوراثة recap.analysisAgent"
+      "extractionModelInherit": "إعادة استخدام وكيل المحادثة الحالي (مناسب لذاكرة التخزين المؤقت)"
     },
     "browser": {
       "activeBadge": "نشط",
@@ -3758,7 +3907,16 @@
         "title": "السماح بـ raw CDP؟",
         "body": "يتيح هذا للذكاء الاصطناعي إرسال أوامر DevTools Protocol اعتباطية إلى متصفح Chrome الحقيقي. لا يزال كل استدعاء يتطلب موافقتك في كل مرة وتبقى الطرق الخطرة محظورة، لكن فعّله فقط إذا كنت بحاجة إليه تحديدًا.",
         "continue": "تفعيل"
-      }
+      },
+      "backupRuntimeHint": "System Chrome is available. Install a Hope-managed Chromium runtime as a fallback for browser automation and Artifact PDF export.",
+      "backupRuntimeTitle": "Backup Chromium runtime",
+      "installRuntimeRetry": "The runtime is ready. Retry the browser action or PDF export.",
+      "openBrowserSettings": "Open browser settings",
+      "runtimeInstallUnsupported": "Hope does not provide a managed Chromium runtime for this operating system or architecture. Install Chrome/Chromium manually or configure an executable path.",
+      "runtimeRequiredArtifactPdfDescription": "PDF export needs a local Chrome or Chromium runtime, but none is currently available.",
+      "runtimeRequiredDescription": "This browser operation needs a local Chrome or Chromium runtime, but none is currently available.",
+      "runtimeRequiredHint": "You can install Hope's managed runtime now (about 150 MB), then retry the operation.",
+      "runtimeRequiredTitle": "Chromium runtime required"
     },
     "bytes": "بايت",
     "canvas": "اللوحة",
@@ -3800,39 +3958,6 @@
         "backfillDesc": "يسجل backfill الذكريات القديمة كـ claims دون تغيير حقن الذاكرة الحالي. قد تصبح ذكريات الملف الشخصي والتفضيلات المثبتة نشطة تلقائياً؛ أما الباقي فينتظر المراجعة."
       },
       "list": "الادعاءات",
-      "empty": "لا توجد ادعاءات بعد.",
-      "selectClaim": "اختر ادعاءً لعرض أدلته.",
-      "confidence": "الثقة",
-      "salience": "الأهمية",
-      "evidence": "الأدلة",
-      "noEvidence": "لا توجد أدلة.",
-      "links": "الذكريات المرتبطة",
-      "statusAll": "كل الحالات",
-      "status": {
-        "active": "نشط",
-        "superseded": "مُستبدل",
-        "expired": "منتهٍ",
-        "archived": "مؤرشف",
-        "needs_review": "يحتاج مراجعة"
-      },
-      "backfill": {
-        "button": "ملء تلقائي",
-        "title": "ملء الذكريات الحالية",
-        "desc": "تسجيل الذكريات الحالية كـ claims منظَّمة. يتم تفعيل ذكريات الملف الشخصي والتفضيلات المثبَّتة فقط (user/feedback) تلقائيًا، ويذهب الباقي إلى قائمة المراجعة. يتم الربط بشكل مرن، لذا لا يتغيّر حقن الذاكرة الحالي.",
-        "summaryTotal": "إجمالي الذكريات",
-        "summaryLinked": "مرتبطة بالفعل",
-        "summaryCandidates": "للملء",
-        "summaryActive": "مُفعَّلة تلقائيًا",
-        "summaryReview": "بحاجة لمراجعة",
-        "previewTruncated": "عرض {{shown}} من {{total}}",
-        "apply": "ملء {{count}}",
-        "applying": "جارٍ الملء…",
-        "applied": "تم ملء {{created}} claim: {{active}} مُفعَّلة، {{review}} بانتظار المراجعة",
-        "planFailed": "فشل في حساب خطة الملء",
-        "applyFailed": "فشل الملء",
-        "empty": "جميع الذكريات موجودة بالفعل في طبقة claim.",
-        "appliedPartial": "تم ملء {{created}}، وفشل {{failed}} — يمكنك إعادة محاولة الباقي"
-      },
       "searchPlaceholder": "ابحث في الذاكرة المنظمة…",
       "searchMatchedBy": "متطابق",
       "searchMatch_content": "Content",
@@ -4012,6 +4137,11 @@
         "llm_adjusted": "AI adjusted",
         "user_confirmed": "أكده المستخدم"
       },
+      "empty": "لا توجد ادعاءات بعد.",
+      "selectClaim": "اختر ادعاءً لعرض أدلته.",
+      "confidence": "الثقة",
+      "salience": "الأهمية",
+      "evidence": "الأدلة",
       "evidenceAll": "كل الأدلة",
       "evidenceSourceAll": "كل المصادر",
       "evidenceSources": {
@@ -4024,9 +4154,37 @@
         "recap_facet": "Recap",
         "manual": "تصحيح يدوي"
       },
+      "noEvidence": "لا توجد أدلة.",
+      "links": "الذكريات المرتبطة",
       "typeAll": "كل الأنواع",
       "typeProfile": "الملف الشخصي والتفضيلات",
       "scopeAll": "كل النطاقات",
+      "statusAll": "كل الحالات",
+      "status": {
+        "active": "نشط",
+        "superseded": "مُستبدل",
+        "expired": "منتهٍ",
+        "archived": "مؤرشف",
+        "needs_review": "يحتاج مراجعة"
+      },
+      "backfill": {
+        "button": "ملء تلقائي",
+        "title": "ملء الذكريات الحالية",
+        "desc": "تسجيل الذكريات الحالية كـ claims منظَّمة. يتم تفعيل ذكريات الملف الشخصي والتفضيلات المثبَّتة فقط (user/feedback) تلقائيًا، ويذهب الباقي إلى قائمة المراجعة. يتم الربط بشكل مرن، لذا لا يتغيّر حقن الذاكرة الحالي.",
+        "summaryTotal": "إجمالي الذكريات",
+        "summaryLinked": "مرتبطة بالفعل",
+        "summaryCandidates": "للملء",
+        "summaryActive": "مُفعَّلة تلقائيًا",
+        "summaryReview": "بحاجة لمراجعة",
+        "previewTruncated": "عرض {{shown}} من {{total}}",
+        "apply": "ملء {{count}}",
+        "applying": "جارٍ الملء…",
+        "applied": "تم ملء {{created}} claim: {{active}} مُفعَّلة، {{review}} بانتظار المراجعة",
+        "planFailed": "فشل في حساب خطة الملء",
+        "applyFailed": "فشل الملء",
+        "empty": "جميع الذكريات موجودة بالفعل في طبقة claim.",
+        "appliedPartial": "تم ملء {{created}}، وفشل {{failed}} — يمكنك إعادة محاولة الباقي"
+      },
       "reviewHistoryTitle": "مراجعة التاريخ",
       "reviewHistoryDesc": "قرارات المراجعة الأخيرة المسجلة بواسطة Lucid Review وDreaming.",
       "reviewHistoryShow": "عرض",
@@ -4201,6 +4359,14 @@
       "cronTriggerEnabledDesc": "Fire on a cron expression in addition to (or instead of) the idle trigger.",
       "cronTriggerTitle": "Scheduled trigger",
       "desc": "Periodically scan recent memories and pin the most evergreen ones into core memory. Runs offline; never blocks chat.",
+      "errors": {
+        "loadConfig": "فشل تحميل إعدادات Dreaming",
+        "loadModels": "Failed to load Dreaming model list",
+        "loadStatus": "Failed to load Dreaming status",
+        "saveConfig": "Failed to save Dreaming settings",
+        "reloadAfterSave": "Failed to reload Dreaming settings after save failed",
+        "detail": "التفاصيل: {{error}}"
+      },
       "idleCountdown": "Idle trigger fires in ~{{minutes}} min",
       "idleMinutes": "Idle threshold (minutes)",
       "idleMinutesDesc": "How long to wait without user activity before firing.",
@@ -4238,14 +4404,6 @@
       "profileEnabledDesc": "بناء ملف شخصي قابل للقراءة من الادعاءات (claims) النشطة، مُرتَّب حسب النطاق. عند التفعيل يحل محل قسم الملف الشخصي القديم في موجّه النظام؛ وعند الإيقاف يبقى العرض القديم. يستخدم الوضع الخامل/المجدول معالجة رخيصة قائمة على القواعد، بينما يُجري التشغيل اليدوي إعادة صياغة عبر النموذج اللغوي.",
       "profileMaxLines": "أقصى عدد للأسطر لكل نطاق",
       "profileMaxLinesDesc": "حدّ لعدد نقاط الملف الشخصي المحفوظة لكل نطاق.",
-      "errors": {
-        "loadConfig": "فشل تحميل إعدادات Dreaming",
-        "loadModels": "Failed to load Dreaming model list",
-        "loadStatus": "Failed to load Dreaming status",
-        "saveConfig": "Failed to save Dreaming settings",
-        "reloadAfterSave": "Failed to reload Dreaming settings after save failed",
-        "detail": "التفاصيل: {{error}}"
-      },
       "deepResolverTitle": "Deep Resolver",
       "autoExpireOnLightCycle": "انتهاء الصلاحية تلقائيًا للمطالبات القديمة",
       "autoExpireOnLightCycleDesc": "خلال دورات Dreaming العادية، استمر في القطعية الصالحة حتى انتهاء الصلاحية كإجراء محلل مدعوم بالتدقيق.",
@@ -4317,6 +4475,14 @@
       "editTitle": "Edit embedding model",
       "empty": "No embedding model configs yet. Create one from a template above, or add a custom config.",
       "emptyMemory": "No embedding model config is available yet. Create one first, or use the local embedding quick card.",
+      "errors": {
+        "delete": "Failed to delete embedding model config",
+        "detail": "التفاصيل: {{error}}",
+        "load": "Failed to load embedding model configs",
+        "save": "Failed to save embedding model config",
+        "setDefault": "Failed to switch default memory model",
+        "test": "Embedding connection test failed"
+      },
       "goConfig": "Configure embedding models",
       "memoryActive": "Default memory model",
       "memoryDefault": "Default memory model",
@@ -4330,15 +4496,7 @@
       "setMemoryDefault": "Set as default memory model",
       "tab": "Embedding Models",
       "testOk": "Embedding connection test passed",
-      "title": "Embedding Model Configs",
-      "errors": {
-        "delete": "Failed to delete embedding model config",
-        "detail": "التفاصيل: {{error}}",
-        "load": "Failed to load embedding model configs",
-        "save": "Failed to save embedding model config",
-        "setDefault": "Failed to switch default memory model",
-        "test": "Embedding connection test failed"
-      }
+      "title": "Embedding Model Configs"
     },
     "fallbackModels": "النماذج الاحتياطية",
     "fallbackModelsDesc": "عند عدم توفر النموذج الرئيسي، جرب هذه النماذج بالترتيب",
@@ -4368,8 +4526,8 @@
       "addHandler": "إضافة معالج",
       "advanced": "متقدم",
       "slowHandlerWarning": "يشغّل هذا المعالج نموذج LLM / وكيلًا فرعيًا بشكل مضمّن وسيبطئ في كل مرة يُطلق فيها هذا الحدث الحاجب. يُفضّل استخدام command / http هنا، أو نقله إلى حدث مراقبة (مثل PostToolUse).",
-      "modelInheritDefault": "اتباع افتراضي الأتمتة",
-      "invalidJson": "JSON غير صالح"
+      "invalidJson": "JSON غير صالح",
+      "modelInheritDefault": "اتباع افتراضي الأتمتة"
     },
     "hours": "ساعة",
     "imageGenApiKey": "مفتاح API",
@@ -4454,6 +4612,15 @@
       "enabledDesc": "ينشئ تضمينات للملاحظات لدعم الاسترجاع الدلالي. عند الإيقاف، يقتصر بحث الملاحظات على النص الكامل فقط.",
       "changeModel": "تغيير النموذج",
       "activated": "تم تفعيل نموذج تضمين المعرفة",
+      "errors": {
+        "loadEmbedding": "Failed to load knowledge vector search settings",
+        "activateEmbedding": "Failed to activate knowledge vector search",
+        "disableEmbedding": "Failed to disable knowledge vector search",
+        "rebuildEmbedding": "Failed to start knowledge vector rebuild",
+        "cancelReembed": "Failed to cancel knowledge vector rebuild",
+        "retryReembed": "Failed to retry knowledge vector rebuild",
+        "detail": "التفاصيل: {{error}}"
+      },
       "reembed": {
         "title": "إعادة الفهرسة",
         "idle": "متجهات الملاحظات محدثة.",
@@ -4463,15 +4630,6 @@
         "retry": "إعادة المحاولة",
         "progress": "{{done}} / {{total}} قاعدة معرفية",
         "phase": "إعادة تضمين الملاحظات"
-      },
-      "errors": {
-        "loadEmbedding": "Failed to load knowledge vector search settings",
-        "activateEmbedding": "Failed to activate knowledge vector search",
-        "disableEmbedding": "Failed to disable knowledge vector search",
-        "rebuildEmbedding": "Failed to start knowledge vector rebuild",
-        "cancelReembed": "Failed to cancel knowledge vector rebuild",
-        "retryReembed": "Failed to retry knowledge vector rebuild",
-        "detail": "التفاصيل: {{error}}"
       }
     },
     "knowledgeMaintenance": {
@@ -4491,6 +4649,12 @@
       "cycleSkipped": "تم التخطّي: {{note}}",
       "cycleDone": "تم إنشاء {{n}} اقتراح",
       "runFailed": "تعذّر تشغيل الصيانة",
+      "errors": {
+        "load": "فشل تحميل إعدادات الصيانة الذاتية",
+        "save": "فشل حفظ إعدادات الصيانة الذاتية",
+        "runNow": "فشل تشغيل الصيانة الذاتية",
+        "detail": "التفاصيل: {{error}}"
+      },
       "task": {
         "autoLink": "ربط تلقائي",
         "orphanRescue": "إنقاذ اليتيمة",
@@ -4507,13 +4671,7 @@
       },
       "model": "النموذج",
       "modelDesc": "مشترك بين المولدات الأربعة المعتمدة على LLM (الوسم التلقائي، صيانة MOC، الذاكرة إلى ملاحظة، تعارض المصادر).",
-      "modelDefault": "اتباع افتراضي الأتمتة",
-      "errors": {
-        "load": "فشل تحميل إعدادات الصيانة الذاتية",
-        "save": "فشل حفظ إعدادات الصيانة الذاتية",
-        "runNow": "فشل تشغيل الصيانة الذاتية",
-        "detail": "التفاصيل: {{error}}"
-      }
+      "modelDefault": "اتباع افتراضي الأتمتة"
     },
     "knowledgeMediaRetention": {
       "saved": "تم الحفظ",
@@ -4903,33 +5061,13 @@
     "memoryAutoExtract": "استخراج الذاكرات تلقائياً",
     "memoryAutoExtractDesc": "استخراج الذاكرات تلقائياً عند استيفاء عتبات الرموز أو الوقت أو الرسائل",
     "memoryBudget": {
+      "advancedAllocation": "توزيع النطاقات المتقدم",
       "agentOverrideDesc": "يرث ميزانية الذاكرة العامة بشكل افتراضي. أوقف التشغيل لاستخدام ميزانية خاصة بـ Agent.",
+      "contextWindow": "سياق النموذج الافتراضي الحالي: {{count}} tokens",
+      "coreSimpleDesc": "اختر ميزانية إجمالية واحدة لـ Core Memory. تتشارك النطاقات السعة غير المستخدمة بالأولوية Project > Agent > Global.",
       "coreMemoryFileChars": "حد كل طبقة MEMORY.md",
       "coreMemoryFileCharsDesc": "حد مستقل لكل ملف MEMORY.md (Global / Agent). يُقطع المحتوى الزائد في المحث لكنه يُحفظ على القرص. الافتراضي 8000.",
       "desc": "يقيّد إجمالي عدد الأحرف في قسم الذاكرة (Global MEMORY.md / Agent MEMORY.md / ذاكرة SQLite / الإرشادات) وحدود كل طبقة داخله. خفض الإجمالي يترك مزيدًا من الميزانية لسياق المحادثة الحية.",
-      "resetToDefaults": "إعادة تعيين للقيم الافتراضية",
-      "sections": {
-        "aboutUser": "عن المستخدم",
-        "preferences": "التفضيلات",
-        "projectContext": "سياق المشروع",
-        "references": "المراجع",
-        "userProfile": "الملف الشخصي للمستخدم"
-      },
-      "sqliteEntryMaxChars": "حد كل سجل",
-      "sqliteEntryMaxCharsDesc": "الحد الأعلى للسطر الأول لكل سجل ذاكرة SQLite عند العرض، لمنع سجل طويل من إزاحة أقرانه في القسم نفسه. الافتراضي 500.",
-      "sqliteSectionsTitle": "ميزانيات أقسام SQLite",
-      "title": "ميزانية الذاكرة",
-      "totalChars": "حد إجمالي الأحرف",
-      "totalCharsDesc": "حد أعلى صارم لقسم الذاكرة بالكامل. تُحفظ الإرشادات أولًا؛ والطبقات الأخرى تُستهلك بترتيب الأولوية. الافتراضي 10000.",
-      "useGlobalDefault": "وراثة الإعداد العام",
-      "errors": {
-        "load": "Failed to load memory budget",
-        "save": "Failed to save memory budget",
-        "detail": "التفاصيل: {{error}}"
-      },
-      "advancedAllocation": "توزيع النطاقات المتقدم",
-      "contextWindow": "سياق النموذج الافتراضي الحالي: {{count}} tokens",
-      "coreSimpleDesc": "اختر ميزانية إجمالية واحدة لـ Core Memory. تتشارك النطاقات السعة غير المستخدمة بالأولوية Project > Agent > Global.",
       "engine": {
         "agentTokens": "رموز Agent",
         "budgetTokens": "رموز الميزانية",
@@ -4949,13 +5087,33 @@
       "legacyTitle": "ميزانيات الرجوع إلى الإصدار القديم",
       "legacyDesc": "تنطبق ميزانيات الأحرف هذه فقط على مسار الذاكرة الثابتة القديم، وتبقى قابلة للتعديل خلال فترة التوافق.",
       "effective": "المضبوط {{configured}} · الفعلي في هذه الجولة {{effective}} tokens",
+      "errors": {
+        "load": "Failed to load memory budget",
+        "save": "Failed to save memory budget",
+        "detail": "التفاصيل: {{error}}"
+      },
+      "resetToDefaults": "إعادة تعيين للقيم الافتراضية",
       "highBudgetWarning": "تجاوزت النطاق الموصى به وهو 2400 tokens. يمكن الحفظ، لكن ذلك يزيد السياق الثابت وكتابة التخزين المؤقت وزمن أول رمز.",
       "modelLimited": "تم الضبط على {{configured}} tokens؛ يستخدم النموذج الحالي {{effective}} بأمان. لن يتغير التفضيل المحفوظ.",
       "presets": {
         "balanced": "متوازن",
         "concise": "موجز",
         "rich": "موسع"
-      }
+      },
+      "sections": {
+        "aboutUser": "عن المستخدم",
+        "preferences": "التفضيلات",
+        "projectContext": "سياق المشروع",
+        "references": "المراجع",
+        "userProfile": "الملف الشخصي للمستخدم"
+      },
+      "sqliteEntryMaxChars": "حد كل سجل",
+      "sqliteEntryMaxCharsDesc": "الحد الأعلى للسطر الأول لكل سجل ذاكرة SQLite عند العرض، لمنع سجل طويل من إزاحة أقرانه في القسم نفسه. الافتراضي 500.",
+      "sqliteSectionsTitle": "ميزانيات أقسام SQLite",
+      "title": "ميزانية الذاكرة",
+      "totalChars": "حد إجمالي الأحرف",
+      "totalCharsDesc": "حد أعلى صارم لقسم الذاكرة بالكامل. تُحفظ الإرشادات أولًا؛ والطبقات الأخرى تُستهلك بترتيب الأولوية. الافتراضي 10000.",
+      "useGlobalDefault": "وراثة الإعداد العام"
     },
     "memoryContent": "المحتوى",
     "memoryContentPlaceholder": "ماذا يجب أن يتذكر الذكاء الاصطناعي؟",
@@ -5046,8 +5204,89 @@
     "memorySelectionThreshold": "عتبة التفعيل",
     "memorySelectionThresholdDesc": "يُفعَّل فقط عند بلوغ هذا العدد من المرشحين. الافتراضي 8.",
     "memorySimilarity": "التشابه",
+    "agentMemoryEnabledTitle": "استخدام الذاكرة لهذا الوكيل",
+    "agentMemoryEnabledDesc": "يتحكم في الذاكرة الأساسية والاسترجاع الديناميكي والتعلّم وأدوات الذاكرة لهذا الوكيل. تبقى إعدادات الذاكرة العامة هي السياسة العليا.",
     "memoryStatsTotal": "إجمالي {{count}}",
     "memoryStatsVec": "المتجه {{pct}}%",
+    "memoryV2": {
+      "title": "الذاكرة",
+      "subtitle": "اختر ما يبقى محفوظًا، ومتى يتم الاسترجاع، وما إذا كانت المحادثات تعلّم المساعد.",
+      "loadFailed": "تعذر تحميل إعدادات الذاكرة",
+      "saveFailed": "تعذر حفظ إعدادات الذاكرة",
+      "core": {
+        "title": "محفوظ دائمًا",
+        "desc": "تبقى ملفات MEMORY.md المختصرة لنطاقات Global وAgent وProject ثابتة في المحادثة، وتُحمّل التفاصيل عند الحاجة فقط.",
+        "budget": "ميزانية إجمالية {{count}} رمزًا",
+        "manage": "تحرير MEMORY.md",
+        "projectTitle": "MEMORY.md للمشروع",
+        "projectDesc": "سياق دائم ومختصر تستخدمه محادثات هذا المشروع فقط.",
+        "conflict": "تغيّر كل من الملف الأساسي ذي الأحرف الكبيرة وملف التوافق القديم ذي الأحرف الصغيرة. اختر المحتوى أو ادمجه قبل الحفظ.",
+        "conflictCanonical": "ملف MEMORY.md الأساسي بالأحرف الكبيرة",
+        "conflictLegacy": "ملف memory.md القديم بالأحرف الصغيرة",
+        "conflictMerged": "النتيجة المدمجة (بدءًا من الملف الأساسي)",
+        "conflictKeepCanonical": "الاحتفاظ بملف MEMORY.md",
+        "conflictKeepLegacy": "الاحتفاظ بالملف القديم",
+        "conflictSaveMerged": "حفظ النتيجة المدمجة",
+        "conflictLoadFailed": "تعذر تحميل ملفات الذاكرة الأساسية المتعارضة",
+        "conflictResolveFailed": "تعذر حل تعارض الذاكرة الأساسية. أعد التحميل وحاول مرة أخرى.",
+        "conflictResolved": "تم حل تعارض الذاكرة الأساسية",
+        "actualTokens": "{{used}} / {{total}} رمزًا في هذا النطاق",
+        "stats": "إدخالات الفهرس: {{entries}} · الموضوعات: {{topics}}",
+        "updatedAt": "تم التحديث في {{value}}",
+        "neverUpdated": "لم تتم الكتابة بعد",
+        "scope": "نطاق الذاكرة",
+        "projectLabel": "المشروع",
+        "topics": "موضوعات عند الطلب",
+        "noTopics": "لا توجد ملفات موضوعات بعد",
+        "selectTopic": "اختر موضوعًا أو أنشئ موضوعًا جديدًا",
+        "topicName": "اسم الموضوع",
+        "topicDesc": "سطر يوضح متى يجب قراءته",
+        "topicContent": "تفاصيل الموضوع (تُحمّل عند الحاجة فقط)",
+        "topicLoadFailed": "تعذر تحميل موضوعات الذاكرة",
+        "topicSaveFailed": "تعذر حفظ موضوع الذاكرة",
+        "topicDeleteConfirm": "هل تريد حذف موضوع الذاكرة هذا؟",
+        "topicDeleteFailed": "تعذر حذف موضوع الذاكرة"
+      },
+      "recall": {
+        "title": "استرجاع الذاكرة الديناميكية",
+        "desc": "متوقف افتراضيًا. عند إيقافه، تُستخدم الذاكرة الأساسية الثابتة تلقائيًا فقط ما لم يُفعّل تجاوز توافق خاص بأحد Agents؛ ويمكن للنموذج البحث بأدوات الذاكرة عند الحاجة. عند تشغيله، يُبحث عن الذكريات الديناميكية المرتبطة بعد كل رسالة من المستخدم وقبل إنشاء الرد.",
+        "fast": "استرجاع الذكريات المرتبطة تلقائيًا",
+        "deep": "إعادة ترتيب عميقة (اختيارية)",
+        "skip": "تم التخطي",
+        "deepCost": "تضيف إعادة الترتيب العميقة استدعاءً للنموذج، فتبطئ الرد وتستهلك رموزًا أكثر. استخدمها فقط بعد تشغيل الاسترجاع التلقائي وعند الحاجة الفعلية.",
+        "last": "آخر استرجاع: تم اختيار {{selected}}/{{candidates}} · {{latency}} مللي ثانية · {{mode}}",
+        "noRecent": "لم يُجرَ أي استرجاع تلقائي للذاكرة الديناميكية منذ فتح التطبيق."
+      },
+      "learning": {
+        "title": "التعلّم من المحادثات",
+        "desc": "يتحكم في حفظ المعلومات الجديدة من الدردشات، ولا يؤثر في استخدام الذكريات الموجودة.",
+        "mode": "وضع التعلّم",
+        "smart": "تعلّم ذكي",
+        "reviewFirst": "مراجعة قبل الحفظ",
+        "manual": "حفظ يدوي فقط",
+        "pending": "{{count}} بانتظار المراجعة",
+        "unassigned": "{{count}} دون نطاق"
+      },
+      "review": {
+        "title": "ذكريات بانتظار المراجعة",
+        "desc": "{{count}} من المرشحات لم تدخل بعد في الذاكرة طويلة الأمد أو الموجّه.",
+        "empty": "لا يوجد شيء بانتظار المراجعة",
+        "chooseScope": "اختر مكان الحفظ",
+        "approve": "حفظ الذاكرة",
+        "reject": "عدم الحفظ",
+        "loadFailed": "تعذر تحميل الذكريات المعلقة",
+        "approveFailed": "تعذر حفظ الذاكرة المعلقة",
+        "rejectFailed": "تعذر رفض الذاكرة المعلقة",
+        "reason": {
+          "review_first": "وضع التعلّم يتطلب المراجعة",
+          "project_scope_missing": "تبدو خاصة بمشروع لكن هذه المحادثة بلا مشروع",
+          "scope_uncertain": "النطاق الصحيح غير مؤكد",
+          "sensitive": "قد تحتوي على معلومات حساسة",
+          "conflict": "تتعارض مع ذاكرة موجودة",
+          "core_promotion": "مقترحة للذاكرة الدائمة"
+        }
+      }
+    },
     "memoryTabs": {
       "dreaming": "Dreaming",
       "manage": "إدارة الذاكرة",
@@ -5313,11 +5552,11 @@
       "refreshFailed": "فشل توليف الملف الشخصي",
       "empty": "لا توجد لقطة للملف الشخصي بعد",
       "emptyHint": "فعّل توليف الملف الشخصي في تبويب Dreaming، ثم حدّث.",
-      "version": "v{{version}}",
       "noSources": "لا تحتوي هذه اللقطة القديمة على روابط مصدر المطالبة حتى الآن. قم بتحديث ملف التعريف لإنشاء مصادر يمكن تتبعها.",
       "scopeSources": "مصادر على مستوى اللقطة",
       "sourceConfidence": "الثقة {{value}}",
       "sourceEvidence": "الأدلة: {{quote}}",
+      "version": "v{{version}}",
       "operationErrors": {
         "openEvidenceSource": "Failed to open profile evidence source",
         "refresh": "Failed to synthesise profile",
@@ -5701,8 +5940,8 @@
       "skillCount_one": "{{count}} skill",
       "skillCount_other": "{{count}} skills",
       "tooltip": {
-        "distinguishOnboarding": "To migrate legacy OpenClaw user data, use the dedicated 'Import OpenClaw' step (step 2).",
-        "distinguishUserDataImport": "لترحيل بيانات OpenClaw القديمة، انتقل إلى الإعدادات ← Agents ← الاستيراد من OpenClaw."
+        "distinguishUserDataImport": "لترحيل بيانات OpenClaw القديمة، انتقل إلى الإعدادات ← Agents ← الاستيراد من OpenClaw.",
+        "distinguishOnboarding": "To migrate legacy OpenClaw user data, use the dedicated 'Import OpenClaw' step (step 2)."
       },
       "warning": {
         "openclaw": "OpenClaw skills often depend on external CLIs (gh, 1password, tmux); calls may fail until you install them.",
@@ -5755,15 +5994,15 @@
         "memory": "استرجاع الذاكرة",
         "awareness": "الإدراك عبر الجلسات"
       },
-      "model": "النموذج",
-      "modelDesc": "استدعاء اقتراح السبرايت هو من نوع الإرسال دون انتظار — لذا تصلح سلسلة احتياطية كاملة وليس نموذجًا واحدًا فقط.",
-      "modelDefault": "اتباع افتراضي الأتمتة",
       "errors": {
         "load": "فشل تحميل إعدادات العفريت",
         "save": "فشل حفظ إعدادات العفريت",
         "toggle": "فشل تحديث وضع العفريت",
         "detail": "التفاصيل: {{error}}"
-      }
+      },
+      "model": "النموذج",
+      "modelDesc": "استدعاء اقتراح السبرايت هو من نوع الإرسال دون انتظار — لذا تصلح سلسلة احتياطية كاملة وليس نموذجًا واحدًا فقط.",
+      "modelDefault": "اتباع افتراضي الأتمتة"
     },
     "ssrfBrowserPolicyDesc": "يُطبَّق على عنوان URL الهدف لـ page.goto / new_page. ملاحظة: fetch() داخل browser.evaluate خارج النطاق.",
     "ssrfDefaultPolicy": "السياسة الافتراضية",
@@ -6125,49 +6364,10 @@
     "uiEffects": "الرسوم المتحركة الخلفية",
     "uiEffectsDesc": "تمكين ربط الخلفية وتأثيرات الطقس في جميع الأحوال الجوية",
     "uiEffectsToggle": "تفعيل التأثير",
-    "audioGenerate": "توليد الصوت",
-    "audioGenerateDesc": "اضبط مزوّدي تركيب الصوت (BYOK) لصيغة الصوت في مساحة التصميم: سرد TTS / موسيقى / مؤثرات. تجاوز الفشل بالترتيب.",
-    "audioGenNoProvider": "لا يوجد مزوّد صوت مُهيّأ — فعّل واحدًا وأضف مفتاح API.",
-    "audioGenApiKey": "مفتاح API",
-    "audioGenModel": "النموذج",
-    "audioGenVoice": "الصوت (TTS)",
-    "audioGenBaseUrl": "Base URL",
-    "audioGenTimeout": "مهلة الطلب (ث)",
-    "audioGenFetchVoices": "جلب الأصوات",
-    "audioGenKnownModels": "النماذج المعروفة",
-    "audioGenPickVoice": "اختر من القائمة…",
     "visionBridgeModel": "نموذج جسر الرؤية",
     "visionBridgeModelDesc": "يُستخدم فقط عندما لا يستطيع النموذج الأساسي رؤية الصور. يقوم نموذج منفصل بتحويل الصور إلى أوصاف نصية حتى تستمر المحادثة.",
     "visionBridgeModelClear": "إيقاف جسر الرؤية",
     "selectVisionBridgeModel": "اختر نموذج الرؤية",
-    "modelChainRestoreInherit": "إعادة التعيين إلى الافتراضي الموروث",
-    "automationModelChain": "النموذج الافتراضي للأتمتة",
-    "automationModelChainDesc": "سلسلة النموذج الافتراضية (مع نموذج احتياطي) لمهام الذكاء الاصطناعي الخلفية لمرة واحدة مثل Recap وDreaming وتجميع المعرفة، وهي مستقلة عن نموذج المحادثة الافتراضي أعلاه. اتركها فارغة للرجوع إلى نموذج المحادثة الافتراضي.",
-    "automationModelChainInherit": "اتباع نموذج المحادثة الافتراضي",
-    "knowledgeVision": {
-      "model": "نموذج الرؤية",
-      "modelDesc": "سلسلة النموذج المستخدمة للتعرف الضوئي على الصور عند استيرادها إلى مساحة معرفة. الفراغ يتبع افتراضي الأتمتة.",
-      "modelDefault": "اتباع افتراضي الأتمتة",
-      "ocrConcurrency": "تزامن OCR للملفات الممسوحة ضوئيًا",
-      "maxOcrPages": "حد صفحات OCR للملفات الممسوحة ضوئيًا"
-    },
-    "noteTools": {
-      "title": "نموذج أدوات الملاحظات",
-      "desc": "النموذج المشترك بين أدوات تلخيص الملاحظات وإنشاء MOC وتحويل الجلسة إلى ملاحظة.",
-      "modelDefault": "اتباع افتراضي الأتمتة"
-    },
-    "recallSummary": {
-      "title": "تلخيص الاسترجاع",
-      "desc": "عندما تُرجع recall_memory / session_search عددًا كبيرًا من النتائج، يتم ضغطها إلى فقرة موجزة واحدة عبر استدعاء LLM إضافي بدلاً من إرجاع المقتطفات الخام. معطّل افتراضيًا — يكلّف استدعاءً إضافيًا واحدًا لكل بحث مؤهل.",
-      "enabled": "تفعيل التلخيص",
-      "minHits": "الحد الأدنى من النتائج للتفعيل",
-      "contextCharBudget": "ميزانية السياق (حروف)",
-      "timeoutSecs": "المهلة (ث)",
-      "maxTokens": "الحد الأقصى لرموز الإخراج",
-      "includeHistory": "تلخيص نتائج سجل المحادثة أيضًا",
-      "model": "النموذج",
-      "modelDefault": "اتباع افتراضي الأتمتة"
-    },
     "activeMemoryUseRecommended": "استخدم الموصى به",
     "procedureMemoryTitle": "سير العمل المحفوظ",
     "procedureMemoryDesc": "استخدم سير العمل المحفوظ ذي الصلة كإرشاد مرن محدود قبل الرد.",
@@ -6999,7 +7199,42 @@
     "reasoningEffort": "Think",
     "memoryAuditScopeHintAll": "تبحث جميع التغييرات في الذكريات طويلة المدى، وسير العمل، وقرارات الذاكرة المنظمة.",
     "memoryAuditScopeHintMemoryOnly": "تنطبق مرشحات الإجراءات على سجل الذاكرة طويل المدى؛ تظل مهام سير العمل وقرارات الذاكرة المنظمة ضمن كافة التغييرات.",
+    "modelChainRestoreInherit": "إعادة التعيين إلى الافتراضي الموروث",
+    "automationModelChain": "النموذج الافتراضي للأتمتة",
+    "automationModelChainDesc": "سلسلة النموذج الافتراضية (مع نموذج احتياطي) لمهام الذكاء الاصطناعي الخلفية لمرة واحدة مثل Recap وDreaming وتجميع المعرفة، وهي مستقلة عن نموذج المحادثة الافتراضي أعلاه. اتركها فارغة للرجوع إلى نموذج المحادثة الافتراضي.",
+    "automationModelChainInherit": "اتباع نموذج المحادثة الافتراضي",
+    "knowledgeVision": {
+      "model": "نموذج الرؤية",
+      "modelDesc": "سلسلة النموذج المستخدمة للتعرف الضوئي على الصور عند استيرادها إلى مساحة معرفة. الفراغ يتبع افتراضي الأتمتة.",
+      "modelDefault": "اتباع افتراضي الأتمتة",
+      "ocrConcurrency": "تزامن OCR للملفات الممسوحة ضوئيًا",
+      "maxOcrPages": "حد صفحات OCR للملفات الممسوحة ضوئيًا"
+    },
+    "noteTools": {
+      "title": "نموذج أدوات الملاحظات",
+      "desc": "النموذج المشترك بين أدوات تلخيص الملاحظات وإنشاء MOC وتحويل الجلسة إلى ملاحظة.",
+      "modelDefault": "اتباع افتراضي الأتمتة"
+    },
+    "recallSummary": {
+      "title": "تلخيص الاسترجاع",
+      "desc": "عندما تُرجع recall_memory / session_search عددًا كبيرًا من النتائج، يتم ضغطها إلى فقرة موجزة واحدة عبر استدعاء LLM إضافي بدلاً من إرجاع المقتطفات الخام. معطّل افتراضيًا — يكلّف استدعاءً إضافيًا واحدًا لكل بحث مؤهل.",
+      "enabled": "تفعيل التلخيص",
+      "minHits": "الحد الأدنى من النتائج للتفعيل",
+      "contextCharBudget": "ميزانية السياق (حروف)",
+      "timeoutSecs": "المهلة (ث)",
+      "maxTokens": "الحد الأقصى لرموز الإخراج",
+      "includeHistory": "تلخيص نتائج سجل المحادثة أيضًا",
+      "model": "النموذج",
+      "modelDefault": "اتباع افتراضي الأتمتة"
+    },
     "tabOverview": "نظرة عامة",
+    "memoryBackupExportSummary": "الذكريات: {{memories}} · الادعاءات: {{claims}} · الملفات الشخصية: {{profiles}} · التجارب: {{episodes}} · مهام سير العمل: {{procedures}}",
+    "memoryBackupOpenReviewInboxAfterRestore": "عناصر مستعادة بانتظار المراجعة: {{count}}",
+    "memoryExperienceSearchActive": "نتائج مطابقة لـ «{{query}}»: {{total}}",
+    "memoryExperienceViewActive": "عناصر التجارب: {{total}}",
+    "memoryExternalProvidersActive": "الموفرون النشطون: {{active}}/{{total}}",
+    "memoryExternalProvidersActiveSummary": "نشط: {{active}} · مهيأ: {{total}}",
+    "memoryProcedureSourceEpisode": "تجربة: {{id}}",
     "memoryExternalProviders": "مقدمي الخدمات الخارجيين",
     "memoryExternalProvidersDesc": "موفري الذاكرة الإضافية الاختيارية. وتبقى الذاكرة المحلية مصدر الحقيقة؛ يتم تعطيل الاتصالات حتى تقوم بتكوينها وتمكينها بشكل صريح.",
     "memoryExternalProvidersGlobal": "تمكين مزامنة الموفر",
@@ -7116,94 +7351,17 @@
     "memoryProcedureStepsPlaceholder": "- فحص الشيك الفاشل\n- تطبيق الإصلاح المعروف\n- أعد تشغيل أداة التحقق الضيقة",
     "memoryProcedureConstraintsPlaceholder": "متى لا تستخدم سير العمل هذا",
     "memoryProcedureConfidence": "الثقة",
-    "agentMemoryEnabledTitle": "استخدام الذاكرة لهذا الوكيل",
-    "agentMemoryEnabledDesc": "يتحكم في الذاكرة الأساسية والاسترجاع الديناميكي والتعلّم وأدوات الذاكرة لهذا الوكيل. تبقى إعدادات الذاكرة العامة هي السياسة العليا.",
-    "memoryV2": {
-      "title": "الذاكرة",
-      "subtitle": "اختر ما يبقى محفوظًا، ومتى يتم الاسترجاع، وما إذا كانت المحادثات تعلّم المساعد.",
-      "loadFailed": "تعذر تحميل إعدادات الذاكرة",
-      "saveFailed": "تعذر حفظ إعدادات الذاكرة",
-      "core": {
-        "title": "محفوظ دائمًا",
-        "desc": "تبقى ملفات MEMORY.md المختصرة لنطاقات Global وAgent وProject ثابتة في المحادثة، وتُحمّل التفاصيل عند الحاجة فقط.",
-        "budget": "ميزانية إجمالية {{count}} رمزًا",
-        "manage": "تحرير MEMORY.md",
-        "projectTitle": "MEMORY.md للمشروع",
-        "projectDesc": "سياق دائم ومختصر تستخدمه محادثات هذا المشروع فقط.",
-        "conflict": "تغيّر كل من الملف الأساسي ذي الأحرف الكبيرة وملف التوافق القديم ذي الأحرف الصغيرة. اختر المحتوى أو ادمجه قبل الحفظ.",
-        "conflictCanonical": "ملف MEMORY.md الأساسي بالأحرف الكبيرة",
-        "conflictLegacy": "ملف memory.md القديم بالأحرف الصغيرة",
-        "conflictMerged": "النتيجة المدمجة (بدءًا من الملف الأساسي)",
-        "conflictKeepCanonical": "الاحتفاظ بملف MEMORY.md",
-        "conflictKeepLegacy": "الاحتفاظ بالملف القديم",
-        "conflictSaveMerged": "حفظ النتيجة المدمجة",
-        "conflictLoadFailed": "تعذر تحميل ملفات الذاكرة الأساسية المتعارضة",
-        "conflictResolveFailed": "تعذر حل تعارض الذاكرة الأساسية. أعد التحميل وحاول مرة أخرى.",
-        "conflictResolved": "تم حل تعارض الذاكرة الأساسية",
-        "actualTokens": "{{used}} / {{total}} رمزًا في هذا النطاق",
-        "stats": "إدخالات الفهرس: {{entries}} · الموضوعات: {{topics}}",
-        "updatedAt": "تم التحديث في {{value}}",
-        "neverUpdated": "لم تتم الكتابة بعد",
-        "scope": "نطاق الذاكرة",
-        "projectLabel": "المشروع",
-        "topics": "موضوعات عند الطلب",
-        "noTopics": "لا توجد ملفات موضوعات بعد",
-        "selectTopic": "اختر موضوعًا أو أنشئ موضوعًا جديدًا",
-        "topicName": "اسم الموضوع",
-        "topicDesc": "سطر يوضح متى يجب قراءته",
-        "topicContent": "تفاصيل الموضوع (تُحمّل عند الحاجة فقط)",
-        "topicLoadFailed": "تعذر تحميل موضوعات الذاكرة",
-        "topicSaveFailed": "تعذر حفظ موضوع الذاكرة",
-        "topicDeleteConfirm": "هل تريد حذف موضوع الذاكرة هذا؟",
-        "topicDeleteFailed": "تعذر حذف موضوع الذاكرة"
-      },
-      "recall": {
-        "title": "استرجاع الذاكرة الديناميكية",
-        "desc": "متوقف افتراضيًا. عند إيقافه، تُستخدم الذاكرة الأساسية الثابتة تلقائيًا فقط ما لم يُفعّل تجاوز توافق خاص بأحد Agents؛ ويمكن للنموذج البحث بأدوات الذاكرة عند الحاجة. عند تشغيله، يُبحث عن الذكريات الديناميكية المرتبطة بعد كل رسالة من المستخدم وقبل إنشاء الرد.",
-        "fast": "استرجاع الذكريات المرتبطة تلقائيًا",
-        "deep": "إعادة ترتيب عميقة (اختيارية)",
-        "skip": "تم التخطي",
-        "deepCost": "تضيف إعادة الترتيب العميقة استدعاءً للنموذج، فتبطئ الرد وتستهلك رموزًا أكثر. استخدمها فقط بعد تشغيل الاسترجاع التلقائي وعند الحاجة الفعلية.",
-        "last": "آخر استرجاع: تم اختيار {{selected}}/{{candidates}} · {{latency}} مللي ثانية · {{mode}}",
-        "noRecent": "لم يُجرَ أي استرجاع تلقائي للذاكرة الديناميكية منذ فتح التطبيق."
-      },
-      "learning": {
-        "title": "التعلّم من المحادثات",
-        "desc": "يتحكم في حفظ المعلومات الجديدة من الدردشات، ولا يؤثر في استخدام الذكريات الموجودة.",
-        "mode": "وضع التعلّم",
-        "smart": "تعلّم ذكي",
-        "reviewFirst": "مراجعة قبل الحفظ",
-        "manual": "حفظ يدوي فقط",
-        "pending": "{{count}} بانتظار المراجعة",
-        "unassigned": "{{count}} دون نطاق"
-      },
-      "review": {
-        "title": "ذكريات بانتظار المراجعة",
-        "desc": "{{count}} من المرشحات لم تدخل بعد في الذاكرة طويلة الأمد أو الموجّه.",
-        "empty": "لا يوجد شيء بانتظار المراجعة",
-        "chooseScope": "اختر مكان الحفظ",
-        "approve": "حفظ الذاكرة",
-        "reject": "عدم الحفظ",
-        "loadFailed": "تعذر تحميل الذكريات المعلقة",
-        "approveFailed": "تعذر حفظ الذاكرة المعلقة",
-        "rejectFailed": "تعذر رفض الذاكرة المعلقة",
-        "reason": {
-          "review_first": "وضع التعلّم يتطلب المراجعة",
-          "project_scope_missing": "تبدو خاصة بمشروع لكن هذه المحادثة بلا مشروع",
-          "scope_uncertain": "النطاق الصحيح غير مؤكد",
-          "sensitive": "قد تحتوي على معلومات حساسة",
-          "conflict": "تتعارض مع ذاكرة موجودة",
-          "core_promotion": "مقترحة للذاكرة الدائمة"
-        }
-      }
-    },
-    "memoryBackupExportSummary": "الذكريات: {{memories}} · الادعاءات: {{claims}} · الملفات الشخصية: {{profiles}} · التجارب: {{episodes}} · مهام سير العمل: {{procedures}}",
-    "memoryBackupOpenReviewInboxAfterRestore": "عناصر مستعادة بانتظار المراجعة: {{count}}",
-    "memoryExperienceSearchActive": "نتائج مطابقة لـ «{{query}}»: {{total}}",
-    "memoryExperienceViewActive": "عناصر التجارب: {{total}}",
-    "memoryExternalProvidersActive": "الموفرون النشطون: {{active}}/{{total}}",
-    "memoryExternalProvidersActiveSummary": "نشط: {{active}} · مهيأ: {{total}}",
-    "memoryProcedureSourceEpisode": "تجربة: {{id}}"
+    "audioGenerate": "توليد الصوت",
+    "audioGenerateDesc": "اضبط مزوّدي تركيب الصوت (BYOK) لصيغة الصوت في مساحة التصميم: سرد TTS / موسيقى / مؤثرات. تجاوز الفشل بالترتيب.",
+    "audioGenNoProvider": "لا يوجد مزوّد صوت مُهيّأ — فعّل واحدًا وأضف مفتاح API.",
+    "audioGenApiKey": "مفتاح API",
+    "audioGenModel": "النموذج",
+    "audioGenVoice": "الصوت (TTS)",
+    "audioGenBaseUrl": "Base URL",
+    "audioGenTimeout": "مهلة الطلب (ث)",
+    "audioGenFetchVoices": "جلب الأصوات",
+    "audioGenKnownModels": "النماذج المعروفة",
+    "audioGenPickVoice": "اختر من القائمة…"
   },
   "shortcuts": {
     "actionOpenSettings": "فتح الإعدادات",
@@ -7264,6 +7422,21 @@
     },
     "context": {
       "description": "عرض تفاصيل نافذة السياق"
+    },
+    "workflow": {
+      "description": "تبديل وضع سير العمل واستعراض عمليات تشغيله"
+    },
+    "goal": {
+      "description": "تحديد هدف الجلسة الحالية ومراجعته"
+    },
+    "loop": {
+      "description": "تشغيل مطالبة بشكل متكرر على فترات زمنية ثابتة"
+    },
+    "review": {
+      "description": "مراجعة تغييرات الشيفرة المحلية"
+    },
+    "mode": {
+      "description": "تحديد وضع التنفيذ"
     },
     "export": {
       "description": "تصدير كـ Markdown"
@@ -7348,21 +7521,6 @@
     },
     "kb": {
       "description": "تأكيد أو إلغاء وصول قاعدة المعرفة لهذه المحادثة الجماعية"
-    },
-    "workflow": {
-      "description": "تبديل وضع سير العمل واستعراض عمليات تشغيله"
-    },
-    "goal": {
-      "description": "تحديد هدف الجلسة الحالية ومراجعته"
-    },
-    "loop": {
-      "description": "تشغيل مطالبة بشكل متكرر على فترات زمنية ثابتة"
-    },
-    "review": {
-      "description": "مراجعة تغييرات الشيفرة المحلية"
-    },
-    "mode": {
-      "description": "تحديد وضع التنفيذ"
     },
     "errors": {
       "noActiveSession": "لا توجد جلسة نشطة",
@@ -7709,6 +7867,11 @@
     "openPanel": "فتح مساحة العمل",
     "resizePanel": "تغيير حجم لوحة مساحة العمل",
     "sourceFromSearch": "بحث",
+    "sourceFromUser": "المستخدم",
+    "sourceFromAttachment": "مرفق",
+    "advancedDiagnostics": {
+      "title": "التشخيصات المتقدمة"
+    },
     "truncatedNote": "عرض أحدث 1000",
     "environment": {
       "archived": "Archived",
@@ -7814,8 +7977,6 @@
       "selectBranch": "Select branch",
       "stageAll": "Stage all changes",
       "viewPr": "View pull request",
-      "pullRequestPanelTitle": "طلب السحب",
-      "resizePullRequestPanel": "تغيير عرض لوحة طلب السحب",
       "worktree": "Worktree",
       "checkDetails": "تفاصيل الفحوصات",
       "checkFailed": "فشل",
@@ -7837,7 +7998,6 @@
       "openCheck": "فتح الفحص",
       "openComment": "فتح التعليق",
       "prFeedbackUnavailable": "فحوصات PR وتعليقاته غير متاحة",
-      "prFeedbackStale": "فشل تحديث حالة طلب السحب؛ قد تكون البيانات الحالية قديمة",
       "reviewComments": "{{count}} من التعليقات",
       "reviewFeedback": "ملاحظات المراجعة",
       "autoMergeEnabled": "تم تفعيل الدمج التلقائي",
@@ -7864,24 +8024,10 @@
       "reviewPending": "قيد الانتظار",
       "reviewRequired": "المراجعة مطلوبة",
       "reviewStatus": "حالة المراجعة",
-      "reviewers": "المراجعون"
-    },
-    "action": {
-      "create": "جديد",
-      "edit": "تعديل",
-      "delete": "حذف",
-      "read": "قراءة"
-    },
-    "sectionKnowledge": "المعرفة",
-    "emptyKnowledge": "لا توجد مساحة معرفية مُرفَقة",
-    "kbViaProject": "مشروع",
-    "kbWrote": "كُتِب",
-    "kbRead": "قُرِئ",
-    "kbSearchCount": "{{n}} عمليات بحث",
-    "sourceFromUser": "المستخدم",
-    "sourceFromAttachment": "مرفق",
-    "advancedDiagnostics": {
-      "title": "التشخيصات المتقدمة"
+      "reviewers": "المراجعون",
+      "pullRequestPanelTitle": "طلب السحب",
+      "resizePullRequestPanel": "تغيير عرض لوحة طلب السحب",
+      "prFeedbackStale": "فشل تحديث حالة طلب السحب؛ قد تكون البيانات الحالية قديمة"
     },
     "goal": {
       "watchdogTitle": "الهدف يحتاج إلى تأكيد",
@@ -8022,6 +8168,18 @@
       "clean": "لا توجد تغييرات محلية",
       "changed": "{{count}} تغييرات"
     },
+    "action": {
+      "create": "جديد",
+      "edit": "تعديل",
+      "delete": "حذف",
+      "read": "قراءة"
+    },
+    "sectionKnowledge": "المعرفة",
+    "emptyKnowledge": "لا توجد مساحة معرفية مُرفَقة",
+    "kbViaProject": "مشروع",
+    "kbWrote": "كُتِب",
+    "kbRead": "قُرِئ",
+    "kbSearchCount": "{{n}} عمليات بحث",
     "loop": {
       "title": "حلقة",
       "stateActive": "قيد التشغيل",
@@ -9407,6 +9565,9 @@
       "incognitoDisabled": "لا يمكن للجلسات الخفية إرفاق مساحات معرفة",
       "needSession": "أرسل رسالتك الأولى لإرفاق مساحة معرفة",
       "empty": "لا توجد مساحات معرفة بعد — أنشئ واحدة من «المعرفة».",
+      "loadFailed": "فشل تحميل مساحات المعرفة",
+      "attachmentsLoadFailed": "تعذرت قراءة حالة المرفقات لهذه المحادثة",
+      "errorDetail": "التفاصيل: {{error}}",
       "viaProject": "من المشروع الأب",
       "noteCount": "{{count}} ملاحظة",
       "read": "قراءة",
@@ -9418,10 +9579,7 @@
       "accessWrite": "قراءة وكتابة",
       "accessOffTip": "غير مُرفَقة — لا يمكن للمساعد الوصول إلى هذه المساحة",
       "accessReadTip": "يمكن للمساعد البحث في الملاحظات وقراءتها",
-      "accessWriteTip": "يمكن للمساعد قراءة الملاحظات وتعديلها",
-      "loadFailed": "فشل تحميل مساحات المعرفة",
-      "attachmentsLoadFailed": "تعذرت قراءة حالة المرفقات لهذه المحادثة",
-      "errorDetail": "التفاصيل: {{error}}"
+      "accessWriteTip": "يمكن للمساعد قراءة الملاحظات وتعديلها"
     },
     "mention": {
       "heading": "ملاحظات المعرفة",
@@ -9482,6 +9640,7 @@
       "noHistory": "لا توجد محادثات بعد.",
       "untitled": "محادثة بلا عنوان",
       "noKb": "افتح مساحة معرفة لبدء المحادثة.",
+      "welcome": "اسأل أو نظّم أو أنشئ بالاعتماد على مساحة المعرفة هذه",
       "messageCount": "{{count}} رسالة",
       "errors": {
         "loadAgents": "تعذّر تحميل وكلاء المحادثة",
@@ -9493,8 +9652,7 @@
         "loadMoreThreads": "تعذّر تحميل المزيد من المحادثات",
         "loadMoreMessages": "تعذّر تحميل الرسائل الأقدم",
         "detail": "التفاصيل: {{error}}"
-      },
-      "welcome": "اسأل أو نظّم أو أنشئ بالاعتماد على مساحة المعرفة هذه"
+      }
     },
     "quickRewrite": {
       "title": "إعادة صياغة سريعة",
@@ -9504,9 +9662,9 @@
       "regenerate": "إعادة الإنشاء",
       "apply": "تطبيق",
       "failed": "فشلت إعادة الصياغة",
-      "staleSelection": "تغيّر التحديد أثناء إعادة الكتابة — يرجى إعادة التحديد والمحاولة مرة أخرى.",
       "modelLoadFailed": "تعذّر تحميل نماذج إعادة الصياغة",
-      "errorDetail": "التفاصيل: {{error}}"
+      "errorDetail": "التفاصيل: {{error}}",
+      "staleSelection": "تغيّر التحديد أثناء إعادة الكتابة — يرجى إعادة التحديد والمحاولة مرة أخرى."
     },
     "sprite": {
       "toggle": "وضع العفريت",
@@ -9514,6 +9672,10 @@
       "toastOn": "تم تشغيل وضع العفريت",
       "toastOnDesc": "سيتدخل باقتراح لطيف عندما تتوقف عن التحرير.",
       "toastOff": "تم إيقاف وضع العفريت",
+      "loadFailed": "تعذّر تحميل وضع العفريت",
+      "toggleFailed": "تعذّر تحديث وضع العفريت",
+      "observeFailed": "تعذّر طلب اقتراح من العفريت",
+      "errorDetail": "التفاصيل: {{error}}",
       "respond": "رد",
       "dismiss": "إغلاق",
       "category": {
@@ -9522,11 +9684,7 @@
         "encourage": "تشجيع",
         "remind": "تذكير",
         "connect": "ربط"
-      },
-      "loadFailed": "تعذّر تحميل وضع العفريت",
-      "toggleFailed": "تعذّر تحديث وضع العفريت",
-      "observeFailed": "تعذّر طلب اقتراح من العفريت",
-      "errorDetail": "التفاصيل: {{error}}"
+      }
     },
     "deleteNoteTitle": "حذف الملاحظة",
     "deleteNoteBody": "هل تريد حذف \"{{name}}\"؟ ستتم إزالة ملف Markdown من القرص. لا يمكن التراجع عن ذلك.",
@@ -9552,6 +9710,32 @@
     "renameMoveFailed": "تعذرت إعادة تسمية/نقل \"{{name}}\" — ربما توجد ملاحظة بهذا الاسم بالفعل.",
     "linksRewritten": "تم تحديث {{count}} مرجع رابط في ملاحظات أخرى.",
     "noteRemovedExternally": "تمت إزالة هذه الملاحظة أو نقلها خارج التطبيق.",
+    "operationErrorDetail": "التفاصيل: {{error}}",
+    "errors": {
+      "loadSpaces": "تعذّر تحميل مساحات المعرفة",
+      "loadNotes": "تعذّر تحميل الملاحظات",
+      "loadFolders": "تعذّر تحميل المجلدات",
+      "loadTags": "تعذّر تحميل الوسوم",
+      "searchNotes": "تعذّر البحث في الملاحظات",
+      "saveNote": "تعذّر حفظ الملاحظة",
+      "createSpace": "تعذّر إنشاء مساحة معرفة",
+      "createNote": "تعذّر إنشاء الملاحظة",
+      "createLinkedNote": "تعذّر إنشاء الملاحظة المرتبطة",
+      "reindexSpace": "تعذّر إعادة بناء فهرس المساحة",
+      "reindexNote": "تعذّر إعادة بناء فهرس الملاحظة",
+      "reindexFolder": "تعذّر إعادة بناء فهرس المجلد",
+      "deleteNote": "تعذّر حذف الملاحظة",
+      "deleteFolder": "تعذّر حذف المجلد",
+      "revealNote": "تعذّر إظهار الملاحظة",
+      "createFolder": "تعذّر إنشاء المجلد",
+      "updateSpace": "تعذّر تحديث مساحة المعرفة",
+      "archiveSpace": "تعذّر تحديث حالة الأرشفة",
+      "deleteSpace": "تعذّر حذف مساحة المعرفة"
+    },
+    "focusKbUnavailable": "تلك المساحة المعرفية لم تعد متاحة.",
+    "focusNoteUnavailable": "لا يمكن فتح تلك المذكرة المعرفية. ربما تم نقله أو تغيير الوصول.",
+    "focusUnavailableDetail": "التفاصيل: {{error}}",
+    "focusLocationUnavailable": "تم فتح الملاحظة، ولكن تعذر العثور على موقع المصدر الدقيق.",
     "moveTo": "نقل إلى…",
     "moveToTitle": "نقل \"{{name}}\" إلى…",
     "rootFolder": "الجذر",
@@ -9573,11 +9757,17 @@
       "tooltip": "نشاط مساحة المعرفة",
       "title": "نشاط مساحة المعرفة",
       "empty": "لا يوجد نشاط بعد.",
+      "loadFailed": "تعذر تحميل مهام إعادة البناء",
+      "cancelFailed": "تعذر إلغاء مهمة إعادة البناء",
+      "retryFailed": "تعذر إعادة محاولة مهمة إعادة البناء",
+      "clearFailed": "تعذر مسح مهمة إعادة البناء",
       "kindReindex": "إعادة بناء الفهرس",
       "kindReembed": "إعادة تضمين المتجهات",
       "fts": "فهرس النص الكامل",
+      "result": "تمت إعادة بناء {{notes}} ملاحظة · {{kbs}} مساحة",
       "emptyHint": "اربط مساحة أو أعد فهرستها، أو استورد ملفات، وسيظهر التقدم هنا.",
       "model": "النموذج: {{name}}",
+      "errorDetail": "التفاصيل: {{error}}",
       "kindImport": "استيراد المصادر",
       "space": "المساحة: {{name}}",
       "progressFiles": "{{done}} / {{total}} ملف",
@@ -9592,13 +9782,7 @@
         "failed": "فشل",
         "cancelled": "أُلغي",
         "timed_out": "انتهت المهلة"
-      },
-      "loadFailed": "تعذر تحميل مهام إعادة البناء",
-      "cancelFailed": "تعذر إلغاء مهمة إعادة البناء",
-      "retryFailed": "تعذر إعادة محاولة مهمة إعادة البناء",
-      "clearFailed": "تعذر مسح مهمة إعادة البناء",
-      "result": "تمت إعادة بناء {{notes}} ملاحظة · {{kbs}} مساحة",
-      "errorDetail": "التفاصيل: {{error}}"
+      }
     },
     "maintenance": {
       "tooltip": "الصيانة",
@@ -9612,11 +9796,13 @@
       "runNow": "فحص",
       "runNowTip": "افحص الآن بحثًا عن اقتراحات الصيانة",
       "rejectAll": "رفض الكل",
+      "rejectAllFailed": "تعذر تجاهل جميع الاقتراحات",
       "approve": "تطبيق",
       "reject": "تجاهل",
       "cycleSkipped": "تم تخطّي الصيانة: {{note}}",
       "cycleDone": "تم إنشاء {{n}} اقتراح",
       "runFailed": "تعذّر تشغيل الصيانة",
+      "errorDetail": "التفاصيل: {{error}}",
       "applyFailed": "تعذّر تطبيق الاقتراح",
       "rejectFailed": "تعذّر تجاهل الاقتراح",
       "compileQueued": "مراجعة المصدر إلى الملاحظة التي تم إنشاؤها. تحقق من لوحة اقتراحات الملاحظات لمعرفة الاختلافات.",
@@ -9643,9 +9829,7 @@
       "needsReview": "يحتاج إلى مراجعة",
       "rebuildEvidenceTip": "إعادة بناء فهرس الأدلة المشتقة",
       "schemaIssues": "قضايا المخطط",
-      "staleRefs": "المراجع التي لا معنى لها",
-      "rejectAllFailed": "تعذر تجاهل جميع الاقتراحات",
-      "errorDetail": "التفاصيل: {{error}}"
+      "staleRefs": "المراجع التي لا معنى لها"
     },
     "graph": {
       "toggle": "عرض الرسم البياني",
@@ -9672,6 +9856,9 @@
     "embeddingOff": "البحث المتجهي معطل",
     "embeddingModelTip": "نموذج التضمين: {{name}} — فتح الإعدادات",
     "embeddingOffTip": "البحث المتجهي معطل — فتح الإعدادات",
+    "embeddingStatusUnavailable": "حالة البحث المتجهي غير متاحة",
+    "embeddingStatusUnavailableTip": "حالة البحث المتجهي غير متاحة — فتح الإعدادات",
+    "embeddingStatusErrorDetail": "التفاصيل: {{error}}",
     "kbRootPick": "اختر…",
     "kbRootHint": "اتركه فارغًا لإنشاء مساحة داخلية. الخزائن الخارجية للقراءة فقط في المرحلة 1.",
     "kbRootInvalid": "تعذّر اختيار ذلك المجلد",
@@ -9690,6 +9877,7 @@
       "description": "تلاحظ مسودات الذكاء الاصطناعي التغييرات من المصادر المحددة. راجع الفرق قبل كتابة أي شيء.",
       "empty": "حدد اقتراحًا للمراجعة",
       "emptyHint": "تظل المقترحات التي تم إنشاؤها هنا حتى تقوم بتقديمها أو رفضها.",
+      "errorDetail": "التفاصيل: {{error}}",
       "failed": "فشل تشغيل المصدر إلى ملاحظة",
       "loadFailed": "تعذر تحميل عمليات التشغيل من المصدر إلى الملاحظة",
       "noProposals": "لا توجد مقترحات لهذا المدى.",
@@ -9707,8 +9895,7 @@
       "startFailed": "لا يمكن تنظيم المصادر في الملاحظات",
       "startSelected": "تنظيم {{count}}",
       "started": "اقتراح (اقتراحات) ملاحظة {{n}} التي تم إنشاؤها",
-      "title": "تنظيم في الملاحظات",
-      "errorDetail": "التفاصيل: {{error}}"
+      "title": "تنظيم في الملاحظات"
     },
     "sources": {
       "archiveAttachment": "الأرشيف للمعرفة",
@@ -9734,6 +9921,7 @@
       "diffTruncated": "تم اقتطاع المعاينة",
       "dismissSimilar": "تجاهل",
       "downloadOriginal": "تحميل الأصلي",
+      "downloadOriginalFailed": "تعذر تنزيل الملف الأصلي",
       "empty": "لا توجد مصادر حتى الآن.",
       "evidenceSources": "المصادر",
       "externalRawPath": "لقطة خارجية",
@@ -9765,8 +9953,15 @@
       "noSimilarGroups": "لا توجد مجموعات مصدر مماثلة.",
       "open": "مفتوح",
       "openOriginal": "فتح الأصلي",
+      "openOriginalFailed": "تعذر فتح الملف الأصلي",
       "otherKb": "مساحة أخرى {{id}}",
       "readFailed": "لا يمكن فتح المصدر",
+      "sourceListFailed": "Couldn't load sources",
+      "sourceRefsFailed": "تعذر تحميل مراجع المصدر",
+      "sourceClaimsFailed": "Couldn't load source claim references",
+      "importRunsListFailed": "Couldn't load import history",
+      "similarGroupsLoadFailed": "Couldn't load similar source groups",
+      "sourceErrorDetail": "التفاصيل: {{error}}",
       "reextract": "إعادة استخراج",
       "reextractFailed": "لا يمكن إعادة استخراج المصدر",
       "reextracted": "تم إعادة استخراج المصدر",
@@ -9841,15 +10036,7 @@
       "ocrFailed": "فشل التعرف الضوئي",
       "ocrRetry": "إعادة محاولة الصفحات الفاشلة",
       "ocrRetryStarted": "جارٍ إعادة محاولة الصفحات الفاشلة…",
-      "ocrRetryFailed": "تعذّرت إعادة محاولة صفحات OCR",
-      "downloadOriginalFailed": "تعذر تنزيل الملف الأصلي",
-      "openOriginalFailed": "تعذر فتح الملف الأصلي",
-      "sourceListFailed": "Couldn't load sources",
-      "sourceRefsFailed": "تعذر تحميل مراجع المصدر",
-      "sourceClaimsFailed": "Couldn't load source claim references",
-      "importRunsListFailed": "Couldn't load import history",
-      "similarGroupsLoadFailed": "Couldn't load similar source groups",
-      "sourceErrorDetail": "التفاصيل: {{error}}"
+      "ocrRetryFailed": "تعذّرت إعادة محاولة صفحات OCR"
     },
     "queryFile": {
       "action": "ملف",
@@ -9858,6 +10045,7 @@
       "applyFailed": "تعذر تطبيق التسجيل",
       "description": "إنشاء فرق المراجعة قبل الكتابة.",
       "empty": "اختر المكان الذي يجب أن تصل إليه هذه الإجابة.",
+      "errorDetail": "التفاصيل: {{error}}",
       "generateFailed": "تعذر إنشاء اقتراح حفظ",
       "reject": "رفض",
       "rejected": "تم تجاهل الإيداع",
@@ -9875,8 +10063,7 @@
       "currentNotePlaceholder": "مسار الملاحظة الحالية",
       "openQuestionsPlaceholder": "ملاحظة مع الأسئلة المفتوحة",
       "mocPlaceholder": "MOCs/Conversation Filings.md",
-      "createNotePlaceholder": "Filed Conversations/example.md",
-      "errorDetail": "التفاصيل: {{error}}"
+      "createNotePlaceholder": "Filed Conversations/example.md"
     },
     "emptyState": {
       "scanning": "جارٍ فحص هذه المساحة…",
@@ -9884,36 +10071,7 @@
       "emptyExternal": "لا توجد ملاحظات ماركداون في هذا المجلد بعد.",
       "emptyInternal": "هذه المساحة فارغة.",
       "importFiles": "استيراد ملفات"
-    },
-    "operationErrorDetail": "التفاصيل: {{error}}",
-    "errors": {
-      "loadSpaces": "تعذّر تحميل مساحات المعرفة",
-      "loadNotes": "تعذّر تحميل الملاحظات",
-      "loadFolders": "تعذّر تحميل المجلدات",
-      "loadTags": "تعذّر تحميل الوسوم",
-      "searchNotes": "تعذّر البحث في الملاحظات",
-      "saveNote": "تعذّر حفظ الملاحظة",
-      "createSpace": "تعذّر إنشاء مساحة معرفة",
-      "createNote": "تعذّر إنشاء الملاحظة",
-      "createLinkedNote": "تعذّر إنشاء الملاحظة المرتبطة",
-      "reindexSpace": "تعذّر إعادة بناء فهرس المساحة",
-      "reindexNote": "تعذّر إعادة بناء فهرس الملاحظة",
-      "reindexFolder": "تعذّر إعادة بناء فهرس المجلد",
-      "deleteNote": "تعذّر حذف الملاحظة",
-      "deleteFolder": "تعذّر حذف المجلد",
-      "revealNote": "تعذّر إظهار الملاحظة",
-      "createFolder": "تعذّر إنشاء المجلد",
-      "updateSpace": "تعذّر تحديث مساحة المعرفة",
-      "archiveSpace": "تعذّر تحديث حالة الأرشفة",
-      "deleteSpace": "تعذّر حذف مساحة المعرفة"
-    },
-    "focusKbUnavailable": "تلك المساحة المعرفية لم تعد متاحة.",
-    "focusNoteUnavailable": "لا يمكن فتح تلك المذكرة المعرفية. ربما تم نقله أو تغيير الوصول.",
-    "focusUnavailableDetail": "التفاصيل: {{error}}",
-    "focusLocationUnavailable": "تم فتح الملاحظة، ولكن تعذر العثور على موقع المصدر الدقيق.",
-    "embeddingStatusUnavailable": "حالة البحث المتجهي غير متاحة",
-    "embeddingStatusUnavailableTip": "حالة البحث المتجهي غير متاحة — فتح الإعدادات",
-    "embeddingStatusErrorDetail": "التفاصيل: {{error}}"
+    }
   },
   "backgroundJobs": {
     "panelTitle": "المهام الخلفية",
@@ -9959,6 +10117,9 @@
   },
   "macControl": {
     "panelTitle": "تحكم ماك"
+  },
+  "memory": {
+    "activeRecallToastTitle": "الذاكرة المرجعية"
   },
   "design": {
     "title": "مساحة التصميم",
@@ -10678,19 +10839,50 @@
       "chatPrompt": "لقد تباعد الكود المنفَّذ عن هذا التصميم. حدِّث التصميم الحالي ليعكس تغييرات الكود المشار إليها، مع الحفاظ على مقصد التصميم وكل شيء آخر دون تغيير."
     }
   },
-  "agentLifecycle": {
-    "activeWorkBlocked": "Deletion is blocked while {{count}} Agent task(s) are still active.",
-    "deleteDescription": "Routing references will move to the replacement Agent. Historical conversations and structured memories are retained, while Agent files are moved to the recoverable trash.",
-    "deleteTitle": "Delete Agent safely",
-    "disabled": "Disabled",
-    "enabled": "Enabled",
-    "history": "Historical conversations",
-    "memories": "Retained memories",
-    "replacement": "Replacement Agent",
-    "retentionNotice": "This operation creates a configuration backup. Agent configuration, Home, and Plans are moved to trash instead of being permanently erased.",
-    "routes": "Routing references"
-  },
-  "memory": {
-    "activeRecallToastTitle": "الذاكرة المرجعية"
+  "artifacts": {
+    "title": "Artifacts",
+    "subtitle": "Versioned local reports, dashboards, and explainers",
+    "loadFailed": "Failed to load Artifacts",
+    "verifyPassed": "Verification passed",
+    "verifyFailed": "Verification found blockers",
+    "exportUnavailable": "Export unavailable",
+    "exportReady": "Artifact exported",
+    "restoreReady": "Restored as a new version",
+    "archiveConfirm": "Archive this Artifact?",
+    "deleteConfirm": "Permanently delete this Artifact and all versions?",
+    "search": "Search title, project, or Agent",
+    "allKinds": "All kinds",
+    "active": "Active",
+    "archived": "Archived",
+    "allStates": "All states",
+    "empty": "No Artifacts found",
+    "selectHint": "Select an Artifact to inspect it",
+    "sources": "sources",
+    "verify": "Verify",
+    "export": "Export",
+    "archive": "Archive",
+    "delete": "Delete",
+    "deliveryStatus": "Delivery status",
+    "privacy": "Privacy",
+    "analysisStatus": "Analysis",
+    "verification": "Verification",
+    "sourceContext": "Sources & quality",
+    "qualityChecks": "Quality checks",
+    "noSources": "No canonical sources recorded",
+    "contentMode": "Content",
+    "executable": "executable",
+    "static": "static",
+    "versionHistory": "Version history",
+    "current": "Current",
+    "restore": "Restore",
+    "exportReview": "Export review",
+    "exportReviewHint": "Required for shareable, sensitive, private-source, or connector-backed packages.",
+    "audiencePlaceholder": "Intended audience",
+    "audienceRequired": "Enter the intended delivery audience",
+    "redactionConfirm": "Confirm that sensitive fields and included sources have been reviewed for this audience?",
+    "confirmRedaction": "Confirm redaction & review",
+    "exportReviewPassed": "Export review passed",
+    "exportReviewBlocked": "Export review still has blockers",
+    "guardStatus": "Guard"
   }
 }

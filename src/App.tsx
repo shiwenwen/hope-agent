@@ -49,6 +49,7 @@ import {
 import StarrySky from "@/components/common/StarrySky"
 import DangerousModeBanner from "@/components/common/DangerousModeBanner"
 import MissingModelDialog from "@/components/local-model/MissingModelDialog"
+import ChromiumRuntimeDialog from "@/components/common/ChromiumRuntimeDialog"
 import {
   LOCAL_MODEL_JOB_EVENTS,
   type LocalModelJobSnapshot,
@@ -60,6 +61,7 @@ const CronCalendarView = lazy(() => import("@/components/cron/CronCalendarView")
 const PlansView = lazy(() => import("@/components/plans/PlansView"))
 const KnowledgeView = lazy(() => import("@/components/knowledge/KnowledgeView"))
 const DesignView = lazy(() => import("@/components/design/DesignView"))
+const ArtifactsView = lazy(() => import("@/components/artifacts/ArtifactsView"))
 const SettingsView = lazy(() => import("@/components/settings/SettingsView"))
 
 type AppView =
@@ -80,6 +82,7 @@ type AppView =
   | "plans"
   | "knowledge"
   | "design"
+  | "artifacts"
 
 interface PendingChatFocus extends ChatFocusTarget {
   nonce: number
@@ -119,6 +122,7 @@ export default function App() {
   const [pendingChatFocus, setPendingChatFocus] = useState<PendingChatFocus | null>(null)
   const [pendingProjectFocus, setPendingProjectFocus] = useState<PendingProjectFocus | null>(null)
   const [totalUnreadCount, setTotalUnreadCount] = useState(0)
+  const [unreadFocusSignal, setUnreadFocusSignal] = useState(0)
   const [sessionsRefreshTrigger, setSessionsRefreshTrigger] = useState(0)
   const { pendingUpdate: globalPendingUpdate, downloadStatus } = useDesktopUpdateStore()
   const [dismissedVersion, setDismissedVersion] = useState<string | null>(null)
@@ -173,16 +177,16 @@ export default function App() {
     },
   })
 
-  // Mirror the global desktop unread total onto the app icon / Dock badge so
-  // it's visible even when the window is minimized / backgrounded. Desktop-only
-  // (no-op on HTTP/web). Mirrors `totalUnreadCount`, which already excludes the
-  // active session, IM, and sub-agents — so the badge matches the in-app
-  // global indicator.
+  // Mirror the authoritative regular unread-session total onto native surfaces:
+  // Dock shows the exact count while the compact tray icon uses a boolean dot.
+  // Desktop-only (no-op on HTTP/web). The total already excludes the active
+  // session, Cron, Knowledge, IM, incognito, and sub-agents.
   useEffect(() => {
     if (!isTauriMode()) return
-    void getTransport()
-      .call("set_dock_badge_cmd", { count: totalUnreadCount })
-      .catch(() => {})
+    void Promise.allSettled([
+      getTransport().call("set_dock_badge_cmd", { count: totalUnreadCount }),
+      getTransport().call("set_tray_unread_cmd", { hasUnread: totalUnreadCount > 0 }),
+    ])
   }, [totalUnreadCount])
 
   // Load user avatar
@@ -272,6 +276,14 @@ export default function App() {
     if (keepConfigRecoveryView()) return
     setView("knowledge")
   }, [keepConfigRecoveryView])
+
+  const handleOpenChat = useCallback(() => {
+    if (keepConfigRecoveryView()) return
+    if (view === "chat") {
+      setUnreadFocusSignal((value) => value + 1)
+    }
+    setView("chat")
+  }, [keepConfigRecoveryView, view])
 
   const handleChatFocus = useCallback(
     (target: ChatFocusTarget) => {
@@ -629,12 +641,13 @@ export default function App() {
             <Toaster />
             <DangerousModeBanner />
             <MissingModelDialog />
+            <ChromiumRuntimeDialog onOpenBrowserSettings={() => handleOpenSettings("browser")} />
             <AuthRequiredDialog />
             <div className="flex flex-1 min-h-0 overflow-hidden">
               <IconSidebar
                 view={view}
                 onOpenSettings={handleOpenSettings}
-                onOpenChat={() => setView("chat")}
+                onOpenChat={handleOpenChat}
                 onOpenAgents={() => {
                   setAgentIdForSettings(undefined)
                   setAgentTabForSettings(undefined)
@@ -652,6 +665,7 @@ export default function App() {
                 onOpenPlans={() => setView("plans")}
                 onOpenKnowledge={handleOpenKnowledge}
                 onOpenDesign={() => setView("design")}
+                onOpenArtifacts={() => setView("artifacts")}
                 userAvatar={userAvatar}
                 totalUnreadCount={totalUnreadCount}
                 onMarkAllRead={() => setSessionsRefreshTrigger((n) => n + 1)}
@@ -757,6 +771,16 @@ export default function App() {
                     onOpenSettings={handleOpenSettings}
                     initialTab={dashboardInitialTab}
                     initialRecapReportId={dashboardInitialReportId}
+                    onOpenPlanHistory={() => setView("plans")}
+                    onOpenControlItem={(item) => {
+                      handleChatFocus({
+                        sessionId: item.sessionId,
+                        controlTarget: {
+                          kind: item.kind,
+                          itemId: item.id,
+                        },
+                      })
+                    }}
                   />
                 </Suspense>
               )}
@@ -815,8 +839,20 @@ export default function App() {
                   />
                 </Suspense>
               )}
+              {view === "artifacts" && (
+                <Suspense
+                  fallback={
+                    <div className="flex-1 flex items-center justify-center">
+                      <div className="animate-spin h-6 w-6 border-2 border-foreground border-t-transparent rounded-full" />
+                    </div>
+                  }
+                >
+                  <ArtifactsView onBack={() => setView("chat")} />
+                </Suspense>
+              )}
               <div className={view === "chat" ? "flex-1 flex overflow-hidden" : "hidden"}>
                 <ChatScreen
+                  isViewVisible={view === "chat"}
                   onOpenAgentSettings={(agentId) => {
                     setAgentIdForSettings(agentId)
                     setAgentTabForSettings(undefined)
@@ -826,6 +862,7 @@ export default function App() {
                   initialSessionId={pendingSessionId}
                   onSessionNavigated={() => setPendingSessionId(undefined)}
                   onUnreadCountChange={setTotalUnreadCount}
+                  unreadFocusSignal={unreadFocusSignal}
                   onOpenDashboardTab={handleOpenDashboard}
                   sessionsRefreshTrigger={sessionsRefreshTrigger}
                   onCurrentProjectChange={setCurrentChatProjectId}

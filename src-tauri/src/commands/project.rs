@@ -6,7 +6,11 @@
 
 use crate::commands::CmdError;
 use ha_core::project::{
-    delete_project_cascade, CreateProjectInput, Project, ProjectMeta, UpdateProjectInput,
+    create_project_with_instructions_file, delete_project_cascade,
+    inspect_default_project_instructions, inspect_project_instructions, read_project_instructions,
+    save_project_instructions, update_project_with_instructions_file, CreateProjectInput, Project,
+    ProjectInstructionsDraft, ProjectInstructionsFile, ProjectMeta, ProjectOverviewSummary,
+    UpdateProjectInput,
 };
 use ha_core::session::SessionMeta;
 use tauri::State;
@@ -23,22 +27,29 @@ pub async fn list_projects_cmd(
 ) -> Result<Vec<ProjectMeta>, CmdError> {
     let include_archived = include_archived.unwrap_or(false);
     let project_db = state.project_db.clone();
-    let projects = ha_core::blocking::run_blocking(move || -> anyhow::Result<Vec<ProjectMeta>> {
-        let mut projects = project_db.list(include_archived, active_session_id.as_deref())?;
-
-        // Cross-DB enrichment: fetch project-scoped memory counts.
-        if let Some(backend) = ha_core::get_memory_backend() {
-            for meta in &mut projects {
-                if let Ok(n) = backend.count_by_project(&meta.project.id) {
-                    meta.memory_count = n as u32;
-                }
-            }
-        }
-        Ok(projects)
+    let projects = ha_core::blocking::run_blocking(move || {
+        project_db.list(include_archived, active_session_id.as_deref())
     })
     .await?;
 
     Ok(projects)
+}
+
+#[tauri::command]
+pub async fn get_project_overview_cmd(
+    id: String,
+    state: State<'_, AppState>,
+) -> Result<ProjectOverviewSummary, CmdError> {
+    let project_db = state.project_db.clone();
+    let session_db = state.session_db.clone();
+    let overview_session_db = session_db.clone();
+    let mut summary = ha_core::blocking::run_blocking(move || {
+        ha_core::project::build_project_overview(&id, &project_db, &overview_session_db)
+    })
+    .await?;
+    ha_core::session::enrich_pending_interactions(&mut summary.recent_sessions, &session_db)
+        .await?;
+    Ok(summary)
 }
 
 #[tauri::command]
@@ -55,16 +66,27 @@ pub async fn get_project_cmd(
 #[tauri::command]
 pub async fn create_project_cmd(
     input: CreateProjectInput,
+    instructions: Option<ProjectInstructionsDraft>,
     state: State<'_, AppState>,
 ) -> Result<Project, CmdError> {
+    let instructions_changed = instructions.is_some();
     let project_db = state.project_db.clone();
-    let project = ha_core::blocking::run_blocking(move || project_db.create(input)).await?;
+    let project = ha_core::blocking::run_blocking(move || {
+        create_project_with_instructions_file(input, instructions, &project_db)
+    })
+    .await?;
 
     if let Some(bus) = ha_core::get_event_bus() {
         let _ = bus.emit(
             "project:created",
             serde_json::json!({ "projectId": project.id }),
         );
+        if instructions_changed {
+            let _ = bus.emit(
+                "project:fs_changed",
+                serde_json::json!({ "scope": "project", "scopeId": project.id, "dir": "" }),
+            );
+        }
     }
     Ok(project)
 }
@@ -73,18 +95,86 @@ pub async fn create_project_cmd(
 pub async fn update_project_cmd(
     id: String,
     patch: UpdateProjectInput,
+    instructions: Option<ProjectInstructionsDraft>,
     state: State<'_, AppState>,
 ) -> Result<Project, CmdError> {
+    let instructions_changed = instructions.is_some();
     let project_db = state.project_db.clone();
-    let project = ha_core::blocking::run_blocking(move || project_db.update(&id, patch)).await?;
+    let project = ha_core::blocking::run_blocking(move || {
+        update_project_with_instructions_file(&id, patch, instructions, &project_db)
+    })
+    .await?;
 
     if let Some(bus) = ha_core::get_event_bus() {
         let _ = bus.emit(
             "project:updated",
             serde_json::json!({ "projectId": project.id }),
         );
+        if instructions_changed {
+            let _ = bus.emit(
+                "project:fs_changed",
+                serde_json::json!({ "scope": "project", "scopeId": project.id, "dir": "" }),
+            );
+        }
     }
     Ok(project)
+}
+
+/// Inspect `<working-dir>/AGENTS.md` without creating a missing file.
+#[tauri::command]
+pub async fn inspect_project_instructions_cmd(
+    working_dir: Option<String>,
+    project_id: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<ProjectInstructionsFile, CmdError> {
+    let project_db = state.project_db.clone();
+    ha_core::blocking::run_blocking(move || {
+        if let Some(path) = working_dir.filter(|path| !path.trim().is_empty()) {
+            inspect_project_instructions(&path)
+        } else if let Some(id) = project_id {
+            inspect_default_project_instructions(&id, &project_db)
+        } else {
+            anyhow::bail!("workingDir or projectId is required")
+        }
+    })
+    .await
+    .map_err(Into::into)
+}
+
+/// Read `<project-root>/AGENTS.md`, creating an empty file when missing.
+#[tauri::command]
+pub async fn get_project_instructions_cmd(
+    id: String,
+    state: State<'_, AppState>,
+) -> Result<ProjectInstructionsFile, CmdError> {
+    let project_db = state.project_db.clone();
+    ha_core::blocking::run_blocking(move || read_project_instructions(&id, &project_db))
+        .await
+        .map_err(Into::into)
+}
+
+/// Atomically replace `<project-root>/AGENTS.md` with Markdown source.
+#[tauri::command]
+pub async fn save_project_instructions_cmd(
+    id: String,
+    content: String,
+    expected_file_hash: String,
+    state: State<'_, AppState>,
+) -> Result<ProjectInstructionsFile, CmdError> {
+    let event_id = id.clone();
+    let project_db = state.project_db.clone();
+    let file = ha_core::blocking::run_blocking(move || {
+        save_project_instructions(&id, &content, &expected_file_hash, &project_db)
+    })
+    .await?;
+
+    if let Some(bus) = ha_core::get_event_bus() {
+        let _ = bus.emit(
+            "project:fs_changed",
+            serde_json::json!({ "scope": "project", "scopeId": event_id, "dir": "" }),
+        );
+    }
+    Ok(file)
 }
 
 #[tauri::command]

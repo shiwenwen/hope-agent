@@ -15,25 +15,26 @@ use super::{
     workflow_tool,
 };
 use super::{
-    agents, ask_user_question, canvas, design, enter_plan_mode, image, image_generate, job_status,
-    pdf, runtime_cancel, schedule_wakeup, sessions, submit_plan, task,
+    agents, artifact, ask_user_question, canvas, design, enter_plan_mode, image, image_generate,
+    job_status, pdf, runtime_cancel, schedule_wakeup, sessions, submit_plan, task,
 };
 use super::{apply_patch, edit, exec, find, grep, ls, lsp, process, read, write};
 use super::{
-    approval, TOOL_ACP_SPAWN, TOOL_AGENTS_LIST, TOOL_APPLY_PATCH, TOOL_ASK_USER_QUESTION,
-    TOOL_BROWSER, TOOL_CANVAS, TOOL_CORE_MEMORY, TOOL_DELETE_MEMORY, TOOL_DESIGN, TOOL_EDIT,
-    TOOL_ENTER_PLAN_MODE, TOOL_EXEC, TOOL_FIND, TOOL_GET_SETTINGS, TOOL_GET_WEATHER,
-    TOOL_GOAL_BLOCK_REQUEST, TOOL_GOAL_CHECKPOINT, TOOL_GOAL_EVALUATE, TOOL_GOAL_FINISH_REQUEST,
-    TOOL_GOAL_PREPARE_CONTRACT, TOOL_GOAL_RECORD_EVIDENCE, TOOL_GOAL_STATUS, TOOL_GREP, TOOL_IMAGE,
-    TOOL_IMAGE_GENERATE, TOOL_ISSUE_REPORT, TOOL_JOB_STATUS, TOOL_LIST_SETTINGS_BACKUPS,
-    TOOL_LOOP_RECORD_PROGRESS, TOOL_LOOP_RESCHEDULE, TOOL_LOOP_STATUS, TOOL_LOOP_STOP,
-    TOOL_LOOP_UNWATCH, TOOL_LOOP_WATCH, TOOL_LS, TOOL_LSP, TOOL_MAC_CONTROL, TOOL_MANAGE_CRON,
-    TOOL_MEMORY_GET, TOOL_PDF, TOOL_PROCESS, TOOL_PROJECT_MEMORY, TOOL_READ, TOOL_RECALL_MEMORY,
-    TOOL_RESTORE_SETTINGS_BACKUP, TOOL_RUNTIME_CANCEL, TOOL_SAVE_MEMORY, TOOL_SEND_ATTACHMENT,
-    TOOL_SEND_NOTIFICATION, TOOL_SESSIONS_HISTORY, TOOL_SESSIONS_LIST, TOOL_SESSIONS_SEARCH,
-    TOOL_SESSIONS_SEND, TOOL_SESSION_STATUS, TOOL_SUBAGENT, TOOL_SUBMIT_PLAN, TOOL_TASK_CREATE,
-    TOOL_TASK_LIST, TOOL_TASK_UPDATE, TOOL_TEAM, TOOL_UPDATE_CORE_MEMORY, TOOL_UPDATE_MEMORY,
-    TOOL_UPDATE_SETTINGS, TOOL_WEB_FETCH, TOOL_WEB_SEARCH, TOOL_WORKFLOW, TOOL_WRITE,
+    approval, TOOL_ACP_SPAWN, TOOL_AGENTS_LIST, TOOL_APPLY_PATCH, TOOL_ARTIFACT,
+    TOOL_ASK_USER_QUESTION, TOOL_BROWSER, TOOL_CANVAS, TOOL_CORE_MEMORY, TOOL_DELETE_MEMORY,
+    TOOL_DESIGN, TOOL_EDIT, TOOL_ENTER_PLAN_MODE, TOOL_EXEC, TOOL_FIND, TOOL_GET_SETTINGS,
+    TOOL_GET_WEATHER, TOOL_GOAL_BLOCK_REQUEST, TOOL_GOAL_CHECKPOINT, TOOL_GOAL_EVALUATE,
+    TOOL_GOAL_FINISH_REQUEST, TOOL_GOAL_PREPARE_CONTRACT, TOOL_GOAL_RECORD_EVIDENCE,
+    TOOL_GOAL_STATUS, TOOL_GREP, TOOL_IMAGE, TOOL_IMAGE_GENERATE, TOOL_ISSUE_REPORT,
+    TOOL_JOB_STATUS, TOOL_LIST_SETTINGS_BACKUPS, TOOL_LOOP_RECORD_PROGRESS, TOOL_LOOP_RESCHEDULE,
+    TOOL_LOOP_STATUS, TOOL_LOOP_STOP, TOOL_LOOP_UNWATCH, TOOL_LOOP_WATCH, TOOL_LS, TOOL_LSP,
+    TOOL_MAC_CONTROL, TOOL_MANAGE_CRON, TOOL_MEMORY_GET, TOOL_PDF, TOOL_PROCESS,
+    TOOL_PROJECT_MEMORY, TOOL_READ, TOOL_RECALL_MEMORY, TOOL_RESTORE_SETTINGS_BACKUP,
+    TOOL_RUNTIME_CANCEL, TOOL_SAVE_MEMORY, TOOL_SEND_ATTACHMENT, TOOL_SEND_NOTIFICATION,
+    TOOL_SESSIONS_HISTORY, TOOL_SESSIONS_LIST, TOOL_SESSIONS_SEARCH, TOOL_SESSIONS_SEND,
+    TOOL_SESSION_STATUS, TOOL_SUBAGENT, TOOL_SUBMIT_PLAN, TOOL_TASK_CREATE, TOOL_TASK_LIST,
+    TOOL_TASK_UPDATE, TOOL_TEAM, TOOL_UPDATE_CORE_MEMORY, TOOL_UPDATE_MEMORY, TOOL_UPDATE_SETTINGS,
+    TOOL_WEB_FETCH, TOOL_WEB_SEARCH, TOOL_WORKFLOW, TOOL_WRITE,
 };
 use super::{
     TOOL_KNOWLEDGE_RECALL, TOOL_NOTE_APPEND, TOOL_NOTE_ASSIGN_BLOCK, TOOL_NOTE_BACKLINKS,
@@ -760,7 +761,12 @@ impl ToolExecContext {
         let dir = rel.to_string_lossy().replace('\\', "/");
         bus.emit(
             "project:fs_changed",
-            serde_json::json!({ "scope": "session", "scopeId": sid, "dir": dir }),
+            serde_json::json!({
+                "scope": "session",
+                "scopeId": sid,
+                "projectId": self.project_id.as_deref(),
+                "dir": dir,
+            }),
         );
     }
 }
@@ -1887,6 +1893,7 @@ pub async fn execute_tool_with_context(
             TOOL_PDF => pdf::tool_pdf(args).await,
             TOOL_CANVAS => canvas::tool_canvas(args, dispatch_ctx).await,
             TOOL_DESIGN => design::tool_design(args, dispatch_ctx).await,
+            TOOL_ARTIFACT => artifact::tool_artifact(args, dispatch_ctx).await,
             TOOL_GET_WEATHER => weather::tool_get_weather(args).await,
             TOOL_ASK_USER_QUESTION => {
                 Ok(ask_user_question::execute(args, dispatch_ctx.session_id.as_deref()).await)

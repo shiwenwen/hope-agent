@@ -1,0 +1,4 @@
+interface:
+  display_name: "Hope Data Analytics"
+  short_description: "Local-first analytics and validated Artifact reports"
+  default_prompt: "Analyze the provided data with explicit sources and quality checks, then create a validated local Artifact."

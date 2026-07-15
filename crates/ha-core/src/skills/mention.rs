@@ -8,10 +8,10 @@
 //! tool (model-invoked) or `/skill-name` slash command, the `@skill` mention is
 //! a **user** gesture baked into the composer: the user picks one or more
 //! built-in skills from the `@` popper and they ride the next turn as activated
-//! skills. The set is intentionally fixed (office trio + browser + mac control)
-//! — `@skill` is NOT a general skill-injection vector; arbitrary / disabled /
-//! wrong-OS skill names are silently ignored at resolve time and stay in the
-//! message as plain text.
+//! skills. The set is intentionally fixed (office trio + local-first data
+//! analytics + browser + mac control) — `@skill` is NOT a general
+//! skill-injection vector; arbitrary / disabled / wrong-OS skill names are
+//! silently ignored at resolve time and stay in the message as plain text.
 //!
 //! Resolution mirrors the inline slash/tool activation path: read SKILL.md,
 //! substitute `$ARGUMENTS` (always empty for a mention), wrap with
@@ -32,6 +32,7 @@ pub const AT_MENTIONABLE_SKILLS: &[&str] = &[
     "office-docx",
     "office-pptx",
     "office-xlsx",
+    "ha-data-analytics",
     "ha-browser",
     "ha-mac-control",
 ];
@@ -203,6 +204,12 @@ mod tests {
     }
 
     #[test]
+    fn scans_data_analytics_mention() {
+        let names = scan_skill_mention_names("分析这个 CSV [@数据分析](#skill:ha-data-analytics)");
+        assert_eq!(names, vec!["ha-data-analytics"]);
+    }
+
+    #[test]
     fn bare_fragment_without_link_does_not_match() {
         // A stray `#skill:` (or email-like glob) without the `[@…](…)` link
         // wrapper must not trigger.
@@ -230,10 +237,11 @@ mod tests {
     }
 
     #[test]
-    fn allowlist_covers_office_browser_mac() {
+    fn allowlist_covers_office_analytics_browser_mac() {
         assert!(AT_MENTIONABLE_SKILLS.contains(&"office-docx"));
         assert!(AT_MENTIONABLE_SKILLS.contains(&"office-pptx"));
         assert!(AT_MENTIONABLE_SKILLS.contains(&"office-xlsx"));
+        assert!(AT_MENTIONABLE_SKILLS.contains(&"ha-data-analytics"));
         assert!(AT_MENTIONABLE_SKILLS.contains(&"ha-browser"));
         assert!(AT_MENTIONABLE_SKILLS.contains(&"ha-mac-control"));
     }

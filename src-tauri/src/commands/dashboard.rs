@@ -74,6 +74,17 @@ pub async fn dashboard_tasks(
 }
 
 #[tauri::command]
+pub async fn dashboard_control_plane(
+    filter: ControlPlaneDashboardFilter,
+    state: State<'_, AppState>,
+) -> Result<ControlPlaneDashboard, CmdError> {
+    let session_db = state.session_db.clone();
+    run_blocking(move || query_control_plane_dashboard(&session_db, &filter))
+        .await
+        .map_err(Into::into)
+}
+
+#[tauri::command]
 pub async fn dashboard_system_metrics() -> Result<dashboard::SystemMetrics, CmdError> {
     // Run on blocking thread since sysinfo does a brief sleep for CPU measurement
     tokio::task::spawn_blocking(|| dashboard::query_system_metrics())

@@ -21,6 +21,7 @@ pub use ha_core::acp_control;
 pub use ha_core::agent;
 pub use ha_core::agent_config;
 pub use ha_core::agent_loader;
+pub use ha_core::artifacts;
 pub use ha_core::backup;
 pub use ha_core::browser_state;
 pub use ha_core::browser_ui;
@@ -46,6 +47,7 @@ pub use ha_core::onboarding;
 pub use ha_core::paths;
 pub use ha_core::permissions;
 pub use ha_core::plan;
+pub use ha_core::platform;
 pub use ha_core::process_registry;
 pub use ha_core::provider;
 pub use ha_core::sandbox;
@@ -261,6 +263,7 @@ pub fn run() {
             commands::misc::open_url,
             commands::misc::write_export_file,
             commands::misc::set_dock_badge_cmd,
+            commands::misc::set_tray_unread_cmd,
             // Filesystem listing & search (chat-input @ mention popper, working-dir picker)
             commands::filesystem::fs_list_dir,
             commands::filesystem::fs_create_dir,
@@ -689,12 +692,18 @@ pub fn run() {
             commands::session::mark_session_read_cmd,
             commands::session::mark_session_read_batch_cmd,
             commands::session::mark_all_sessions_read_cmd,
+            commands::session::regular_unread_total_cmd,
+            commands::session::next_unread_session_cmd,
             commands::session::export_session_cmd,
             // Project management
             commands::project::list_projects_cmd,
+            commands::project::get_project_overview_cmd,
             commands::project::get_project_cmd,
             commands::project::create_project_cmd,
             commands::project::update_project_cmd,
+            commands::project::inspect_project_instructions_cmd,
+            commands::project::get_project_instructions_cmd,
+            commands::project::save_project_instructions_cmd,
             commands::project::delete_project_cmd,
             commands::project::archive_project_cmd,
             commands::project::reorder_projects_cmd,
@@ -1013,6 +1022,17 @@ pub fn run() {
             commands::design::get_design_system_kit_cmd,
             commands::design::design_chat_thread_get_cmd,
             commands::design::design_chat_threads_list_cmd,
+            // Artifacts (local-first control plane over Canvas storage)
+            tauri_wrappers::list_artifacts,
+            tauri_wrappers::get_artifact,
+            tauri_wrappers::list_artifact_versions,
+            tauri_wrappers::import_artifact,
+            tauri_wrappers::restore_artifact,
+            tauri_wrappers::verify_artifact,
+            tauri_wrappers::review_artifact_export,
+            tauri_wrappers::export_artifact,
+            tauri_wrappers::archive_artifact,
+            tauri_wrappers::delete_artifact,
             // Dashboard analytics
             commands::dashboard::dashboard_overview,
             commands::dashboard::dashboard_token_usage,
@@ -1020,6 +1040,7 @@ pub fn run() {
             commands::dashboard::dashboard_sessions,
             commands::dashboard::dashboard_errors,
             commands::dashboard::dashboard_tasks,
+            commands::dashboard::dashboard_control_plane,
             commands::dashboard::dashboard_system_metrics,
             commands::dashboard::dashboard_session_list,
             commands::dashboard::dashboard_message_list,

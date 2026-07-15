@@ -177,6 +177,120 @@ export interface DashboardTaskData {
   subagent: SubagentStats
 }
 
+// ── Goal / Workflow / Loop control-plane dashboard ────────────
+
+export interface ControlPlaneFilter {
+  startDate: string | null
+  endDate: string | null
+  agentId: string | null
+  projectId: string | null
+}
+
+export interface RatioMetric {
+  numerator: number
+  denominator: number
+  rate: number | null
+}
+
+export interface DurationMetric {
+  p50Secs: number | null
+  sampleCount: number
+  eligibleCount: number
+}
+
+export interface NamedCount {
+  key: string
+  count: number
+}
+
+export interface ControlPlaneTrendPoint {
+  date: string
+  created: number
+  completed: number
+  accepted: number
+  resolved: number
+}
+
+export interface GoalDashboardStats {
+  acceptance: RatioMetric
+  requiredCriteria: RatioMetric
+  auditedGoalCount: number
+  acceptedDuration: DurationMetric
+  currentStates: NamedCount[]
+  closureOutcomes: NamedCount[]
+  domains: NamedCount[]
+  trend: ControlPlaneTrendPoint[]
+}
+
+export interface WorkflowDashboardStats {
+  completion: RatioMetric
+  opFailure: RatioMetric
+  duration: DurationMetric
+  goalBinding: RatioMetric
+  approvalTrigger: RatioMetric
+  currentStates: NamedCount[]
+  kinds: NamedCount[]
+  origins: NamedCount[]
+  trend: ControlPlaneTrendPoint[]
+}
+
+export interface LoopDashboardStats {
+  strongProgress: RatioMetric
+  noProgress: RatioMetric
+  duration: DurationMetric
+  currentBlockedSchedules: number
+  progressStates: NamedCount[]
+  triggerKinds: NamedCount[]
+  strategies: NamedCount[]
+  currentStates: NamedCount[]
+  trend: ControlPlaneTrendPoint[]
+}
+
+export interface TaskDashboardStats {
+  cohortCompletion: RatioMetric
+  currentBacklog: number
+  duration: DurationMetric
+  currentStates: NamedCount[]
+  trend: ControlPlaneTrendPoint[]
+}
+
+export interface ControlPlanePlanStats {
+  cohortCompletion: RatioMetric
+  activeNow: number
+  duration: DurationMetric
+  currentStates: NamedCount[]
+  byAgent: NamedCount[]
+  byProject: NamedCount[]
+  trend: ControlPlaneTrendPoint[]
+}
+
+export interface AttentionItem {
+  kind: "goal" | "workflow" | "loop" | "plan" | string
+  id: string
+  sessionId: string
+  title: string
+  status: string
+  reason: string
+  severity: "critical" | "warning" | "info" | string
+  updatedAt: string
+}
+
+export interface ControlPlaneDashboard {
+  summary: {
+    goalAcceptance: RatioMetric
+    workflowCompletion: RatioMetric
+    loopStrongProgress: RatioMetric
+    taskCohortCompletion: RatioMetric
+    attentionCount: number
+  }
+  goals: GoalDashboardStats
+  workflows: WorkflowDashboardStats
+  loops: LoopDashboardStats
+  tasks: TaskDashboardStats
+  plans: ControlPlanePlanStats
+  attention: { total: number; items: AttentionItem[] }
+}
+
 export interface ProcessMemoryInfo {
   rssBytes: number
   virtualBytes: number

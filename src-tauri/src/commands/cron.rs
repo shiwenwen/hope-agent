@@ -137,7 +137,7 @@ pub async fn cron_run_timeline(
     .map_err(Into::into)
 }
 
-/// Total unread assistant messages across all cron sessions (sidebar badge).
+/// Total unread cron run conversations (each session contributes at most one).
 #[tauri::command]
 pub async fn cron_unread_total(state: State<'_, AppState>) -> Result<i64, CmdError> {
     state

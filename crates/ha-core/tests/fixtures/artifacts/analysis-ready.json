@@ -1,0 +1,154 @@
+{
+  "schemaVersion": "hope.analysis-artifact.v1",
+  "question": "What was the seven-day activation rate in the synthetic April cohort, and how did it differ by platform?",
+  "audience": "Product leadership",
+  "decision": "Choose which platform onboarding path to investigate first",
+  "status": "ready",
+  "metricDefinitions": [
+    {
+      "id": "activation_rate_7d",
+      "label": "Seven-day activation rate",
+      "formula": "activated_eligible_users / eligible_users",
+      "numerator": "activated_eligible_users",
+      "denominator": "eligible_users",
+      "unit": "percent",
+      "window": "within 7 days of signup"
+    }
+  ],
+  "timeRange": {
+    "start": "2026-04-01",
+    "end": "2026-04-18",
+    "timezone": "UTC"
+  },
+  "filters": [
+    {
+      "field": "eligible",
+      "operator": "equals",
+      "value": 1
+    }
+  ],
+  "grain": "platform",
+  "datasets": [
+    {
+      "id": "activation_by_platform",
+      "sourceIds": ["activation_csv"],
+      "columns": ["platform", "eligible", "activated", "activation_rate"],
+      "rowCount": 3,
+      "rows": [
+        {"platform": "web", "eligible": 5, "activated": 5, "activation_rate": 1.0},
+        {"platform": "ios", "eligible": 3, "activated": 2, "activation_rate": 0.6666666667},
+        {"platform": "android", "eligible": 3, "activated": 0, "activation_rate": 0.0}
+      ],
+      "truncated": false,
+      "calculationRef": "fixture_recompute.py"
+    }
+  ],
+  "findings": [
+    {
+      "id": "finding_overall",
+      "summary": "Seven of eleven eligible users activated within seven days, for an overall rate of 63.6%.",
+      "datasetIds": ["activation_by_platform"],
+      "sourceIds": ["activation_csv"],
+      "confidence": 1.0
+    },
+    {
+      "id": "finding_android",
+      "summary": "Android had the lowest observed activation rate at 0 of 3 eligible users.",
+      "datasetIds": ["activation_by_platform"],
+      "sourceIds": ["activation_csv"],
+      "confidence": 1.0
+    }
+  ],
+  "recommendations": [
+    {
+      "id": "recommend_android",
+      "summary": "Inspect Android onboarding instrumentation and friction before prioritizing an experiment.",
+      "findingIds": ["finding_android"]
+    }
+  ],
+  "caveats": [
+    {
+      "id": "caveat_sample",
+      "summary": "This is a deliberately small synthetic fixture and must not be generalized to production users."
+    }
+  ],
+  "blocks": [
+    {
+      "id": "answer",
+      "type": "narrative",
+      "title": "Answer",
+      "body": "The overall seven-day activation rate was **63.6% (7/11)**. Android was the weakest observed platform at **0.0% (0/3)**.",
+      "findingIds": ["finding_overall", "finding_android"]
+    }
+  ],
+  "charts": [
+    {
+      "id": "activation_platform_chart",
+      "type": "bar",
+      "title": "Seven-day activation rate by platform",
+      "dataset": "activation_by_platform",
+      "sourceId": "activation_csv",
+      "x": "platform",
+      "y": "activation_rate",
+      "unit": "percent",
+      "fallbackId": "activation_platform_table"
+    }
+  ],
+  "tables": [
+    {
+      "id": "activation_platform_table",
+      "title": "Activation by platform",
+      "datasetId": "activation_by_platform"
+    }
+  ],
+  "staticFallbacks": [
+    {
+      "id": "activation_platform_text",
+      "type": "text",
+      "text": "Web: 100.0% (5/5); iOS: 66.7% (2/3); Android: 0.0% (0/3)."
+    }
+  ],
+  "sources": [
+    {
+      "id": "activation_csv",
+      "label": "Synthetic activation cohort",
+      "type": "csv",
+      "path": "activation.csv",
+      "sha256": "750b3f0dcc6bd06cfd1b0968a0c63114909d2880cc88dd304c59dc0fc8118e49",
+      "retrievedAt": "2026-07-14T00:00:00Z",
+      "accessScope": "fixture",
+      "redistributable": true
+    }
+  ],
+  "dataQuality": [
+    {
+      "id": "dq_unique_signup",
+      "datasetId": "activation_by_platform",
+      "check": "duplicate_key",
+      "status": "passed",
+      "method": "count(rows) - count(distinct signup_id)",
+      "observed": 0,
+      "blocking": true
+    },
+    {
+      "id": "dq_denominator",
+      "datasetId": "activation_by_platform",
+      "check": "valid_denominator",
+      "status": "passed",
+      "method": "count(eligible = 1)",
+      "observed": 11,
+      "blocking": true
+    }
+  ],
+  "claimValidation": [
+    {
+      "claim": "The overall seven-day activation rate was 63.6% (7/11)",
+      "metric": "activation_rate_7d",
+      "denominator": "eligible_users",
+      "verdict": "supported",
+      "method": "Independent deterministic recomputation from activation.csv",
+      "sourceIds": ["activation_csv"],
+      "confidence": 1.0
+    }
+  ]
+}

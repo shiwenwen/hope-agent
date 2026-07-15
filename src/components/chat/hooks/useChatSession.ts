@@ -1,10 +1,9 @@
-import { useState, useRef, useEffect, useCallback, useMemo } from "react"
+import { useState, useRef, useEffect, useCallback } from "react"
 import { toast } from "sonner"
 import { getTransport } from "@/lib/transport-provider"
 import { TRANSPORT_EVENT_RESYNC_REQUIRED } from "@/lib/transport"
 import { useTranslation } from "react-i18next"
 import { logger } from "@/lib/logger"
-import { desktopUnreadCount } from "@/lib/unread"
 import { notify } from "@/lib/notifications"
 import {
   capMessagesAndSyncCursors,
@@ -36,7 +35,10 @@ export interface UseChatSessionReturn {
   currentSessionId: string | null
   setCurrentSessionId: React.Dispatch<React.SetStateAction<string | null>>
   currentSessionIdRef: React.MutableRefObject<string | null>
+  /** False while the selected transcript is loading or its load has failed. */
+  currentSessionContentReady: boolean
   sessions: SessionMeta[]
+  totalUnreadCount: number
   agents: AgentSummaryForSidebar[]
   currentAgentId: string
   setCurrentAgentId: React.Dispatch<React.SetStateAction<string>>
@@ -110,6 +112,10 @@ interface UseChatSessionOptions {
   onSessionNavigated?: () => void
   onUnreadCountChange?: (count: number) => void
   onSidebarAggregatesChanged?: () => void
+  /** Current chat is selected, focused, visible, and following its latest tail. */
+  activeSessionReadable: boolean
+  /** Ref form for transport callbacks that must avoid stale render closures. */
+  activeSessionReadableRef: React.MutableRefObject<boolean>
 }
 
 function sortSessionsForSidebar(sessions: SessionMeta[]): SessionMeta[] {
@@ -130,11 +136,14 @@ export function useChatSession({
   onSessionNavigated,
   onUnreadCountChange,
   onSidebarAggregatesChanged,
+  activeSessionReadable,
+  activeSessionReadableRef,
 }: UseChatSessionOptions): UseChatSessionReturn {
   const { t } = useTranslation()
   const [messages, setMessages] = useState<Message[]>([])
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null)
   const [sessions, setSessions] = useState<SessionMeta[]>([])
+  const [totalUnreadCount, setTotalUnreadCount] = useState(0)
   const [agents, setAgents] = useState<AgentSummaryForSidebar[]>([])
   const [currentAgentId, setCurrentAgentId] = useState<string>(DEFAULT_AGENT_ID)
   const [agentName, setAgentName] = useState("")
@@ -148,6 +157,8 @@ export function useChatSession({
   const clearPendingScrollIntent = useCallback(() => setPendingScrollIntent(null), [])
 
   const currentSessionIdRef = useRef<string | null>(null)
+  const historyLoadingRef = useRef(false)
+  const failedSessionLoadsRef = useRef(new Set<string>())
   const switchVersionRef = useRef(0)
   const sessionCacheRef = useRef<Map<string, Message[]>>(new Map())
   const loadingSessionsRef = useRef<Set<string>>(new Set())
@@ -156,9 +167,6 @@ export function useChatSession({
   const oldestDbIdRef = useRef<Map<string, number>>(new Map())
   const newestDbIdRef = useRef<Map<string, number>>(new Map())
   const userPaginatedDepthRef = useRef<Map<string, number>>(new Map())
-  // De-dupes background reload-and-merge calls so rapid A→B→A switches
-  // don't issue redundant DB reads for the same sid.
-  const inFlightReloadsRef = useRef<Set<string>>(new Set())
   // Mirror of `messages` so `jumpToMessage` can synchronously check whether
   // a target message is already loaded without stale-closure hazards.
   const messagesRef = useRef<Message[]>([])
@@ -170,6 +178,11 @@ export function useChatSession({
   // Tracks the previous `currentSessionId` so the effect below can fire
   // `purge_session_if_incognito` exactly once per swap.
   const previousSessionIdRef = useRef<string | null>(null)
+
+  const updateHistoryLoading = useCallback((value: boolean) => {
+    historyLoadingRef.current = value
+    setHistoryLoading(value)
+  }, [])
 
   // Keep ref in sync with state
   useEffect(() => {
@@ -200,7 +213,7 @@ export function useChatSession({
     handleLoadMore,
     handleLoadMoreAfter,
     resetToLatest,
-    reloadSessions,
+    reloadSessions: reloadSessionPage,
   } = useSessionPagination({
     currentSessionIdRef,
     sessionCacheRef,
@@ -214,6 +227,31 @@ export function useChatSession({
     setMessages,
   })
 
+  const reloadUnreadTotal = useCallback(async () => {
+    try {
+      const currentSessionId = currentSessionIdRef.current
+      const currentSessionCanRead =
+        activeSessionReadableRef.current &&
+        !historyLoadingRef.current &&
+        !!currentSessionId &&
+        !failedSessionLoadsRef.current.has(currentSessionId)
+      const count = await getTransport().call<number>("regular_unread_total_cmd", {
+        activeSessionId: currentSessionCanRead ? currentSessionId : undefined,
+      })
+      setTotalUnreadCount(Number.isFinite(count) && count > 0 ? Math.floor(count) : 0)
+    } catch (e) {
+      logger.warn("session", "ChatScreen::loadUnreadTotal", "Failed to load unread total", e)
+    }
+  }, [activeSessionReadableRef])
+
+  // Session rows remain paginated for rendering, while the badge aggregate is
+  // queried independently across the whole database. This prevents pinned or
+  // older conversations outside the first page from disappearing from Dock /
+  // global unread counts.
+  const reloadSessions = useCallback(async () => {
+    await Promise.all([reloadSessionPage(), reloadUnreadTotal()])
+  }, [reloadSessionPage, reloadUnreadTotal])
+
   // --- Channel streaming sub-hook ---
   useChannelStreaming({
     currentSessionIdRef,
@@ -223,6 +261,7 @@ export function useChatSession({
     setLoading,
     setLoadingSessionIds,
     reloadSessions,
+    activeSessionReadableRef,
   })
 
   /** Update messages for a specific session. If it's the current session, also update state. */
@@ -527,6 +566,35 @@ export function useChatSession({
     })
   }, [reloadAgents])
 
+  // Durable assistant appends and every read-state mutation emit this event.
+  // Debounce bursts from multi-round/background work and re-query instead of
+  // trusting an event payload that may already be stale.
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | null = null
+    let needsRegularAggregate = false
+    const schedule = (raw: unknown) => {
+      const payload =
+        raw && typeof raw === "object"
+          ? (raw as { domain?: "regular" | "channel" | "cron" | null })
+          : null
+      if (payload?.domain === "cron") return
+      if (payload?.domain !== "channel") needsRegularAggregate = true
+      if (timer) clearTimeout(timer)
+      timer = setTimeout(() => {
+        timer = null
+        const refreshRegular = needsRegularAggregate
+        needsRegularAggregate = false
+        void (refreshRegular ? reloadSessions() : reloadSessionPage())
+        if (refreshRegular) onSidebarAggregatesChanged?.()
+      }, 100)
+    }
+    const off = getTransport().listen("session:unread_changed", schedule)
+    return () => {
+      if (timer) clearTimeout(timer)
+      off()
+    }
+  }, [reloadSessionPage, reloadSessions, onSidebarAggregatesChanged])
+
   // Listen for cron job completions to refresh unread counts + send notification
   useEffect(() => {
     return getTransport().listen("cron:run_completed", (raw) => {
@@ -637,18 +705,91 @@ export function useChatSession({
   // `parent_agent_stream` done/error on lightweight screens). No extra listener
   // is needed here — the new unread surfaces once those fire.
 
-  // Compute total unread count — channel and sub-agent sessions don't surface
-  // global unread indicators in the primary chat entry, and the active session
-  // reads as 0. Shares the rule with the sidebar / tab / project badges via
-  // `desktopUnreadCount` so the surfaces can't drift.
-  const totalUnreadCount = useMemo(
-    () => sessions.reduce((sum, s) => sum + desktopUnreadCount(s, currentSessionId), 0),
-    [sessions, currentSessionId],
-  )
-
   useEffect(() => {
     onUnreadCountChange?.(totalUnreadCount)
   }, [totalUnreadCount, onUnreadCountChange])
+
+  const renderedThroughMessageId = messages.reduce<number | null>(
+    (latest, message) =>
+      typeof message.dbId === "number" && (latest === null || message.dbId > latest)
+        ? message.dbId
+        : latest,
+    null,
+  )
+
+  useEffect(() => {
+    const sessionId = currentSessionId
+    if (
+      !activeSessionReadable ||
+      !sessionId ||
+      renderedThroughMessageId === null ||
+      historyLoading ||
+      failedSessionLoadsRef.current.has(sessionId)
+    ) {
+      void reloadUnreadTotal()
+      return
+    }
+
+    let cancelled = false
+    let firstFrame = 0
+    let secondFrame = 0
+
+    // Wait for the transcript paint and its scroll effects to settle. This is
+    // especially important for search jumps: the shell can be selected before
+    // MessageList has scrolled to a historical hit, which must not clear newer
+    // unread output at the tail.
+    firstFrame = window.requestAnimationFrame(() => {
+      secondFrame = window.requestAnimationFrame(() => {
+        if (
+          cancelled ||
+          currentSessionIdRef.current !== sessionId ||
+          !activeSessionReadableRef.current ||
+          historyLoadingRef.current ||
+          failedSessionLoadsRef.current.has(sessionId)
+        ) {
+          void reloadUnreadTotal()
+          return
+        }
+
+        void getTransport()
+          .call("mark_session_read_cmd", {
+            sessionId,
+            throughMessageId: renderedThroughMessageId,
+          })
+          .then(async () => {
+            if (cancelled || currentSessionIdRef.current !== sessionId) return
+            // Re-read the row instead of optimistically forcing it to zero: a
+            // newer assistant row may have landed after the rendered watermark
+            // was captured and must remain unread.
+            await reloadSessions()
+            if (!cancelled) onSidebarAggregatesChanged?.()
+          })
+          .catch((error) => {
+            logger.warn(
+              "session",
+              "ChatScreen::readVisibleSession",
+              "Failed to mark the visible session as read",
+              error,
+            )
+          })
+      })
+    })
+
+    return () => {
+      cancelled = true
+      window.cancelAnimationFrame(firstFrame)
+      window.cancelAnimationFrame(secondFrame)
+    }
+  }, [
+    activeSessionReadable,
+    activeSessionReadableRef,
+    currentSessionId,
+    historyLoading,
+    onSidebarAggregatesChanged,
+    renderedThroughMessageId,
+    reloadSessions,
+    reloadUnreadTotal,
+  ])
 
   // Switch to an existing session
   const handleSwitchSession = useCallback(
@@ -670,7 +811,12 @@ export function useChatSession({
       // were away converge into the cached view within ~1 RTT.
       const cached = sessionCacheRef.current.get(sessionId)
       if (targetMessageId === undefined && cached) {
-        setHistoryLoading(false)
+        failedSessionLoadsRef.current.delete(sessionId)
+        const shouldRefreshCache = !loadingSessionsRef.current.has(sessionId)
+        // Cached rows may lag durable output. Keep the transcript readable on
+        // screen, but do not let unread state advance or active-session
+        // aggregates exclude it until the authoritative tail has converged.
+        updateHistoryLoading(shouldRefreshCache)
         currentSessionIdRef.current = sessionId
         setMessages(cached)
         setHasMore(hasMoreRef.current.get(sessionId) ?? false)
@@ -681,11 +827,7 @@ export function useChatSession({
         // Skip background reload while streaming — the helper's unconditional
         // cache write would drop the in-flight assistant placeholder (no DB
         // row yet), making the bubble vanish mid-stream.
-        if (
-          !inFlightReloadsRef.current.has(sessionId) &&
-          !loadingSessionsRef.current.has(sessionId)
-        ) {
-          inFlightReloadsRef.current.add(sessionId)
+        if (shouldRefreshCache) {
           void reloadAndMergeSessionMessages({
             sessionId,
             pageSize: PAGE_SIZE,
@@ -698,13 +840,24 @@ export function useChatSession({
                 setMessages(msgs)
               }
             },
-          }).finally(() => {
-            inFlightReloadsRef.current.delete(sessionId)
+          }).then((refreshed) => {
+            if (refreshed) {
+              failedSessionLoadsRef.current.delete(sessionId)
+            } else {
+              failedSessionLoadsRef.current.add(sessionId)
+            }
+            if (
+              switchVersionRef.current === version &&
+              currentSessionIdRef.current === sessionId
+            ) {
+              updateHistoryLoading(false)
+            }
           })
         }
       } else {
         const alreadyCurrent = sessionId === currentSessionIdRef.current
-        setHistoryLoading(true)
+        failedSessionLoadsRef.current.delete(sessionId)
+        updateHistoryLoading(true)
         if (!alreadyCurrent) {
           // Make the navigation visible immediately. The message window is filled
           // below when the DB/transport round-trip finishes.
@@ -740,7 +893,8 @@ export function useChatSession({
           }
           const displayMessages = await materializeMessages(sessionId, msgs, sessionsRef)
           if (switchVersionRef.current !== version) return // stale switch
-          setHistoryLoading(false)
+          failedSessionLoadsRef.current.delete(sessionId)
+          updateHistoryLoading(false)
           sessionCacheRef.current.set(sessionId, displayMessages)
           hasMoreRef.current.set(sessionId, hasMoreBefore)
           hasMoreAfterRef.current.set(sessionId, hasMoreAfterFlag)
@@ -758,8 +912,9 @@ export function useChatSession({
           setCurrentSessionId(sessionId)
           touchSessionCacheLru(sessionId)
         } catch (e) {
+          failedSessionLoadsRef.current.add(sessionId)
           if (switchVersionRef.current === version && currentSessionIdRef.current === sessionId) {
-            setHistoryLoading(false)
+            updateHistoryLoading(false)
           }
           logger.error("session", "ChatScreen::switchSession", "Failed to load session", {
             sessionId,
@@ -822,22 +977,11 @@ export function useChatSession({
         }
       }
 
-      // Mark session as read and refresh unread counts. Await so a failed write
-      // can't leave the session reading as unread after reload, and surface the
-      // error instead of swallowing it (#6 — was fire-and-forget + silent).
-      try {
-        await getTransport().call("mark_session_read_cmd", { sessionId })
-        if (switchVersionRef.current !== version) return // stale switch
-        updateSessionMeta(sessionId, (prev) =>
-          prev.unreadCount === 0 && prev.channelUnreadCount === 0
-            ? prev
-            : { ...prev, unreadCount: 0, channelUnreadCount: 0 },
-        )
-      } catch (e) {
-        logger.warn("session", "ChatScreen::switchSession", "Failed to mark session as read", e)
+      // Read-state is advanced by the visibility effect above only after this
+      // session is truly readable. Keep hidden/programmatic navigation unread.
+      if (!activeSessionReadableRef.current) {
+        void reloadSessions()
       }
-      reloadSessions()
-      onSidebarAggregatesChanged?.()
     },
     [
       availableModels,
@@ -845,13 +989,13 @@ export function useChatSession({
       globalActiveModelRef,
       setActiveModel,
       reloadSessions,
-      onSidebarAggregatesChanged,
+      activeSessionReadableRef,
       activateSessionShell,
       setHasMore,
       setHasMoreAfter,
       touchSessionCacheLru,
+      updateHistoryLoading,
       upsertSessionMeta,
-      updateSessionMeta,
     ],
   )
 
@@ -890,7 +1034,7 @@ export function useChatSession({
       // Save current session to cache
       // (cache is already maintained by updateSessionMessages)
       const cachedAgent = agents.find((a) => a.id === agentId)
-      setHistoryLoading(false)
+      updateHistoryLoading(false)
       setMessages([])
       setCurrentSessionId(null)
       setLoading(false)
@@ -937,6 +1081,7 @@ export function useChatSession({
       setHasMore,
       setHasMoreAfter,
       agents,
+      updateHistoryLoading,
     ],
   )
 
@@ -957,7 +1102,7 @@ export function useChatSession({
         if (currentSessionIdRef.current === sessionId) {
           setMessages([])
           setCurrentSessionId(null)
-          setHistoryLoading(false)
+          updateHistoryLoading(false)
           setLoading(false)
           setHasMore(false)
           setHasMoreAfter(false)
@@ -982,6 +1127,7 @@ export function useChatSession({
       sessions,
       t,
       onSidebarAggregatesChanged,
+      updateHistoryLoading,
     ],
   )
 
@@ -991,7 +1137,11 @@ export function useChatSession({
     currentSessionId,
     setCurrentSessionId,
     currentSessionIdRef,
+    currentSessionContentReady:
+      !historyLoading &&
+      (!currentSessionId || !failedSessionLoadsRef.current.has(currentSessionId)),
     sessions,
+    totalUnreadCount,
     agents,
     currentAgentId,
     setCurrentAgentId,

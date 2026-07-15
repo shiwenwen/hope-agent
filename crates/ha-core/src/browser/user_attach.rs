@@ -69,6 +69,10 @@ pub struct BrowserDoctorReport {
     /// `~/.hope-agent/browser/runtime/chromium-{rev}/` has a usable binary.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub runtime_chromium: Option<RuntimeChromiumReport>,
+    /// Whether Hope can download a pinned managed Chromium snapshot for this
+    /// OS/architecture. The UI uses this to avoid offering an install action
+    /// that can only fail on unsupported hosts.
+    pub runtime_install_supported: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -107,6 +111,7 @@ pub async fn browser_doctor() -> BrowserDoctorReport {
         chrome_already_running,
         system_chrome_path,
         runtime_chromium,
+        runtime_install_supported: crate::browser::runtime::spec_for_current_platform().is_some(),
     }
 }
 

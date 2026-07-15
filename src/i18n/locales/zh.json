@@ -1,4 +1,16 @@
 {
+  "agentLifecycle": {
+    "activeWorkBlocked": "仍有 {{count}} 个 Agent 任务在运行，暂时不能删除。",
+    "deleteDescription": "路由引用将迁移到替代 Agent；历史会话和结构化记忆会保留，Agent 文件会移入可恢复的回收站。",
+    "deleteTitle": "安全删除 Agent",
+    "disabled": "已禁用",
+    "enabled": "已启用",
+    "history": "历史会话",
+    "memories": "保留的记忆",
+    "replacement": "替代 Agent",
+    "retentionNotice": "操作前会创建配置备份。Agent 配置、Home 和 Plan 只会移入回收站，不会立即永久擦除。",
+    "routes": "路由引用"
+  },
   "about": {
     "badge": "面向日常使用的桌面 AI 助手",
     "closing": "它不是为了堆功能清单而设计，而是为了在长时间使用里依然顺手、可靠、不过度打扰。",
@@ -111,6 +123,10 @@
         "title": "高级浏览器 CDP 命令",
         "body": "这次浏览器操作会向真实 Chrome 标签页发送原始 Chrome DevTools Protocol 命令。它走正常工具审批流；始终允许、Smart 模式和 YOLO 都按当前会话策略生效。"
       },
+      "external_connector_action": {
+        "title": "外部连接器动作",
+        "body": "这次调用会修改外部系统中的邮件、日程、文档、表格或业务记录。必须逐次确认，不能使用始终允许。"
+      },
       "browser_download_action": {
         "title": "浏览器下载操作",
         "body": "这次浏览器操作会读取或中断 Chrome 下载活动。它走正常工具审批流；始终允许、Smart 模式和 YOLO 都按当前会话策略生效。"
@@ -126,10 +142,6 @@
       "browser_chrome_access": {
         "title": "真实 Chrome 访问",
         "body": "这次浏览器操作会通过扩展读取或控制用户真实 Chrome 状态。它走正常工具审批流；始终允许、Smart 模式和 YOLO 都按当前会话策略生效。"
-      },
-      "external_connector_action": {
-        "title": "外部连接器动作",
-        "body": "这次调用会修改外部系统中的邮件、日程、文档、表格或业务记录。必须逐次确认，不能使用始终允许。"
       }
     },
     "title": "命令执行确认",
@@ -157,17 +169,17 @@
     "maximize": "最大化",
     "minimize": "还原",
     "openPreview": "打开预览",
-    "shareTo": "分享到",
     "popOut": "独立窗口",
     "popOutActive": "已在独立窗口中打开",
     "reattach": "收回到面板",
     "refresh": "刷新",
     "snapshot": "截图",
     "versions": "版本历史",
-    "panelTitle": "帆布",
+    "panelTitle": "画布",
     "resizePanel": "调整画布面板大小",
     "notReadyError": "画布面板未打开或 iframe 未加载",
-    "detachedWindowTitle": "画布：{{title}}"
+    "detachedWindowTitle": "画布：{{title}}",
+    "shareTo": "分享到"
   },
   "channels": {
     "accountLabel": "账户名称",
@@ -324,6 +336,18 @@
   "chat": {
     "addWorkingDirectory": "添加工作目录",
     "askAnything": "告诉我你的想法，@ 找文件/笔记/技能，# 快捷输入，/ 快捷指令...",
+    "goalCompletion": {
+      "completed": "已达成目标",
+      "completedWithDuration": "已在 {{time}} 内达成目标",
+      "tokens": "{{tokens}} tokens"
+    },
+    "fork": {
+      "continueInNewSession": "在新会话中继续",
+      "continuedFrom": "接续自",
+      "created": "已在新会话中继续",
+      "failed": "无法在新会话中继续",
+      "sourceFallback": "原会话"
+    },
     "browserPanel": {
       "backendBadgeTooltip": "浏览器后端：{{backend}}",
       "captureFailed": "截图失败，等待下一帧",
@@ -402,6 +426,12 @@
     "sidebarDetailedMode": "切换到普通模式",
     "copied": "已复制",
     "copy": "复制",
+    "messageQuote": {
+      "addToChat": "添加到对话",
+      "assistantMessage": "助手消息",
+      "remove": "移除引用",
+      "yourMessage": "你的消息"
+    },
     "quickPrompts": {
       "addAction": "添加到快捷输入",
       "addFailed": "添加快捷输入失败",
@@ -413,6 +443,8 @@
     },
     "cronTaskStarted": "定时器触发了一个任务",
     "cronTrigger": "定时任务",
+    "loopTriggered": "已触发一次推进",
+    "loopTrigger": "持续推进",
     "wakeupResumed": "已唤醒继续",
     "wakeupTrigger": "定时唤醒",
     "daysAgo": "{{count}}天前",
@@ -522,244 +554,6 @@
     "pendingInteractionHint": "等待您的回应",
     "pendingInteractionInline": "等待回应 · {{count}} 项",
     "pendingQueued": "消息已排队，等待回复完成后发送...",
-    "permissionMode": {
-      "applyToAgentDefault": {
-        "desc": "开启后，选择模式会同时更新此 Agent 的新对话默认权限。",
-        "failed": "更新此 Agent 默认权限模式失败",
-        "label": "同时更新 Agent 默认"
-      },
-      "default": {
-        "desc": "编辑类工具与高危命令需要审批，其余直接放行",
-        "label": "默认权限"
-      },
-      "menuLabel": "权限模式",
-      "smart": {
-        "desc": "由模型自评或独立判官模型决定是否需要审批",
-        "label": "智能审批"
-      },
-      "yolo": {
-        "desc": "本会话内所有工具直接执行（保护路径仍记审计日志）",
-        "label": "完全放行"
-      }
-    },
-    "sandboxMode": {
-      "isolated": {
-        "desc": "隔离副本试跑，编辑审批不放松",
-        "label": "隔离沙箱"
-      },
-      "menuLabel": "沙箱",
-      "off": {
-        "desc": "在宿主机执行，审批逻辑不变",
-        "label": "关闭沙箱"
-      },
-      "setupTitle": "配置 Docker 后启用沙箱",
-      "standard": {
-        "desc": "在 Docker 沙箱执行，审批不放松",
-        "label": "标准沙箱"
-      },
-      "trusted": {
-        "desc": "沙箱内 exec 最大自治，严格风险仍审批",
-        "label": "信任沙箱"
-      },
-      "workspace": {
-        "desc": "挂载当前工作区，减少编辑命令审批",
-        "label": "工作区沙箱"
-      }
-    },
-    "pickSession": "选择会话",
-    "profileRotationTitle": "配置切换",
-    "queueMessage": "排队发送",
-    "reasonAuth": "认证失败",
-    "reasonBilling": "账户余额不足",
-    "reasonContextOverflow": "上下文超限",
-    "reasonModelNotFound": "模型不存在",
-    "reasonOverloaded": "服务过载",
-    "reasonRateLimit": "请求频率超限",
-    "reasonTimeout": "请求超时",
-    "reasonUnknown": "未知错误",
-    "renameSession": "重命名",
-    "renameSessionPlaceholder": "输入新标题...",
-    "revealInFolder": "打开所在文件夹",
-    "roundLimitReachedBody": "本轮已用满 {{count}} 轮工具调用，任务可能尚未完成。点击下方按钮发送「继续」，我会接着当前进度继续推进；也可以在 设置 → Agent → 能力 中调高 `max_tool_rounds`。",
-    "roundLimitReachedBodyNoCount": "本轮工具调用轮次已用满。点击下方按钮发送「继续」，我会接着当前进度继续推进。",
-    "roundLimitReachedTitle": "已达工具调用上限",
-    "roundLimitResumeButton": "继续",
-    "roundLimitResumeMessage": "继续",
-    "scrollToBottom": "回到底部",
-    "searchPlaceholder": "搜索会话...",
-    "searchTruncatedHint": "已显示前 {{count}} 条匹配，请细化关键词查看更多。",
-    "searching": "搜索中...",
-    "selectModel": "选择模型",
-    "send": "发送",
-    "sessionSearch": "在当前会话中搜索",
-    "sessionSearchClose": "关闭",
-    "sessionSearchCount": "{{current}}/{{total}}",
-    "sessionSearchNext": "下一个",
-    "sessionSearchNoResults": "当前会话无匹配",
-    "sessionSearchPlaceholder": "搜索当前会话消息…",
-    "sessionSearchPrev": "上一个",
-    "sessionStatus": "会话状态",
-    "settings": "设置",
-    "startConversation": "开始对话",
-    "statusAgent": "Agent",
-    "statusAuth": "认证",
-    "statusCache": "缓存",
-    "statusCacheHit": "命中",
-    "statusCacheWrite": "写入",
-    "statusContext": "上下文",
-    "statusCumulative": "累计",
-    "statusMessages": "{{count}} 条消息",
-    "statusModel": "模型",
-    "statusNewSession": "(新会话)",
-    "statusSession": "会话",
-    "statusSessionId": "会话 ID",
-    "statusThinking": "思考模式",
-    "statusUpdated": "更新时间",
-    "stopReply": "停止回复",
-    "subagentFrom": "由 {{agent}} 指派",
-    "subagentResultCompleted": "已完成",
-    "systemPrompt": "系统提示词",
-    "taskActions": {
-      "cycleTo": {
-        "completed": "标记为已完成",
-        "in_progress": "标记为进行中",
-        "pending": "标记为待办"
-      },
-      "delete": "删除任务"
-    },
-    "taskNoneYet": "暂无任务",
-    "taskProgress": "已完成 {{completed}}/{{total}}",
-    "tasks": "任务",
-    "thinking": "执行中...",
-    "thinkingAutoDisabled": "{{provider}} / {{model}} 不支持当前 Think 模式，已自动关闭思考并重试本次请求。",
-    "visionAutoDisabled": "{{provider}} / {{model}} 不支持图片输入，已忽略图片继续回答。",
-    "toolCalling": "工具调用中...",
-    "totalTokens": "总计",
-    "unknownProvider": "未知 Provider",
-    "untitledSession": "未命名会话",
-    "viewContext": "查看上下文",
-    "viewModeBubble": "切换到气泡视图",
-    "viewModeTimeline": "切换到任务视图",
-    "viewSystemPrompt": "查看系统提示词",
-    "weeksAgo": "{{count}}周前",
-    "workingDir": {
-      "browserDescription": "路径将在运行 Agent 的机器上解析。",
-      "browserTitle": "选择目录",
-      "change": "更换目录",
-      "clear": "清除目录",
-      "current": "工作目录",
-      "empty": "此目录为空",
-      "fileLabel": "文件",
-      "invalid": "工作目录无效",
-      "loadError": "无法列出目录",
-      "loading": "加载中……",
-      "parent": "返回上一级",
-      "pathPlaceholder": "绝对路径，例如 /srv/projects/app",
-      "select": "设置工作目录",
-      "selectCurrent": "选择此目录",
-      "selectPreset": "开始对话后即可设置工作目录",
-      "titleBarInherited": "继承自项目",
-      "titleBarSession": "当前工作目录",
-      "truncated": "仅显示前若干条——该目录条目过多，浏览器无法全部展示。",
-      "goToPath": "跳转到路径"
-    },
-    "taskProgressRunning": "正在执行 {{completed}}/{{total}}",
-    "taskProgressCancelling": "停止中 {{completed}}/{{total}}",
-    "taskProgressWaiting": "等待继续 {{completed}}/{{total}}",
-    "taskProgressFailed": "执行失败 {{completed}}/{{total}}",
-    "exportSession": {
-      "menuItem": "导出对话",
-      "dialogTitle": "导出对话",
-      "dialogHint": "选择导出格式,并勾选需要包含的内容。",
-      "formatLabel": "格式",
-      "formatMarkdown": "Markdown",
-      "formatJson": "JSON",
-      "formatHtml": "HTML",
-      "contentLabel": "包含内容",
-      "includeTools": "包含工具调用",
-      "includeToolsHint": "工具参数、执行结果与文件改动。",
-      "includeThinking": "包含思考过程",
-      "includeThinkingHint": "模型在每轮回答前的推理过程。",
-      "exportButton": "导出",
-      "exporting": "导出中…",
-      "exported": "已导出",
-      "failedShort": "失败",
-      "savedTo": "已导出至 {{path}}",
-      "downloaded": "已下载 {{filename}}",
-      "failed": "导出失败。"
-    },
-    "skillMention": {
-      "heading": "技能",
-      "labels": {
-        "docx": "Word 文档",
-        "pptx": "PPT 演示",
-        "xlsx": "Excel 表格",
-        "browser": "浏览器控制",
-        "mac": "Mac 控制"
-      }
-    },
-    "reasoningDisabledHint": "该模型未启用推理。如需调节推理深度,请在「设置 → 模型服务商」中编辑该模型并开启「支持推理/思考」。",
-    "browserExtensionNudge": {
-      "installTitle": "让 AI 操作你已登录的 Chrome",
-      "installBody": "安装 Hope Agent 扩展即可操作你已登录的 Chrome;当前正使用隔离浏览器运行。",
-      "reloadTitle": "请重载 Chrome 扩展",
-      "reloadBody": "已安装的扩展与宿主版本不匹配,重载扩展即可恢复对真实 Chrome 的控制。",
-      "openSettings": "去设置",
-      "dismiss": "不再提示"
-    },
-    "browserExtensionRequired": {
-      "nextAction": "下一步行动：{{nextAction}}",
-      "openSettings": "打开“设置”>“浏览器”以安装或启用扩展。",
-      "title": "需要 Chrome 扩展程序"
-    },
-    "conversationEmpty": "此对话中没有消息",
-    "pendingCancelForceInsert": "取消本轮插入",
-    "pendingFallbackAfterReply": "回复后发送",
-    "pendingFallbackAfterReplyTip": "尚未遇到工具完成点，将在当前回复结束后发送。",
-    "pendingForceInsertTip": "它将等待正在执行的刀具完成，然后将其插入到模型中，而不中断当前的刀具。",
-    "pendingInserted": "插入",
-    "pendingInsertedTip": "本轮加工完成后已将其插入模型中。",
-    "pendingQueuedShort": "排队",
-    "pendingQueuedTip": "已加入等待队列，当前回复结束后发送。",
-    "pendingQueueTitle": "待发送",
-    "pendingWaitingToolBoundary": "等待工具完成点",
-    "pendingWaitingToolBoundaryTip": "等待最新的工具调用完成；如果本轮不再调用该工具，则会在回复完成后发送。",
-    "processNotification": "进程结束",
-    "rightPanel": {
-      "collapse": "折叠右侧面板",
-      "expand": "展开右侧面板",
-      "switch": "切换右侧面板",
-      "dock": "右侧面板停靠栏",
-      "openPanel": "打开{{panel}}",
-      "switchToPanel": "切换到{{panel}}",
-      "collapsePanel": "收起{{panel}}",
-      "expandPanel": "展开{{panel}}",
-      "workflowActiveCount": "{{count}} 个活跃工作流",
-      "workflowAttentionCount": "{{count}} 个工作流需要处理",
-      "backgroundRunningCount": "{{count}} 个后台任务正在运行"
-    },
-    "visionBridgeEngaged": "主模型不支持看图，已用 {{model}} 转述图片内容。",
-    "visionBridgeUnavailable": "视觉模型转述图片失败，已忽略该图片。",
-    "goalCompletion": {
-      "completed": "已达成目标",
-      "completedWithDuration": "已在 {{time}} 内达成目标",
-      "tokens": "{{tokens}} tokens"
-    },
-    "fork": {
-      "continueInNewSession": "在新会话中继续",
-      "continuedFrom": "接续自",
-      "created": "已在新会话中继续",
-      "failed": "无法在新会话中继续",
-      "sourceFallback": "原会话"
-    },
-    "messageQuote": {
-      "addToChat": "添加到对话",
-      "assistantMessage": "助手消息",
-      "remove": "移除引用",
-      "yourMessage": "你的消息"
-    },
-    "loopTriggered": "已触发一次推进",
-    "loopTrigger": "持续推进",
     "goalMode": {
       "label": "目标",
       "enter": "目标模式：创建一个让模型持续推进直到完成的目标",
@@ -880,12 +674,219 @@
       "title": "这条消息看起来适合工作流",
       "ultracodeDescription": "开启后模型会更偏向深度编排、交叉验证和长任务恢复。"
     },
+    "permissionMode": {
+      "applyToAgentDefault": {
+        "desc": "开启后，选择模式会同时更新此 Agent 的新对话默认权限。",
+        "failed": "更新此 Agent 默认权限模式失败",
+        "label": "同时更新 Agent 默认"
+      },
+      "default": {
+        "desc": "编辑类工具与高危命令需要审批，其余直接放行",
+        "label": "默认权限"
+      },
+      "menuLabel": "权限模式",
+      "smart": {
+        "desc": "由模型自评或独立判官模型决定是否需要审批",
+        "label": "智能审批"
+      },
+      "yolo": {
+        "desc": "本会话内所有工具直接执行（保护路径仍记审计日志）",
+        "label": "完全放行"
+      }
+    },
+    "sandboxMode": {
+      "isolated": {
+        "desc": "隔离副本试跑，编辑审批不放松",
+        "label": "隔离沙箱"
+      },
+      "menuLabel": "沙箱",
+      "off": {
+        "desc": "在宿主机执行，审批逻辑不变",
+        "label": "关闭沙箱"
+      },
+      "setupTitle": "配置 Docker 后启用沙箱",
+      "standard": {
+        "desc": "在 Docker 沙箱执行，审批不放松",
+        "label": "标准沙箱"
+      },
+      "trusted": {
+        "desc": "沙箱内 exec 最大自治，严格风险仍审批",
+        "label": "信任沙箱"
+      },
+      "workspace": {
+        "desc": "挂载当前工作区，减少编辑命令审批",
+        "label": "工作区沙箱"
+      }
+    },
+    "pickSession": "选择会话",
+    "profileRotationTitle": "配置切换",
+    "queueMessage": "排队发送",
+    "reasonAuth": "认证失败",
+    "reasonBilling": "账户余额不足",
+    "reasonContextOverflow": "上下文超限",
+    "reasonModelNotFound": "模型不存在",
+    "reasonOverloaded": "服务过载",
+    "reasonRateLimit": "请求频率超限",
+    "reasonTimeout": "请求超时",
+    "reasonUnknown": "未知错误",
+    "renameSession": "重命名",
+    "renameSessionPlaceholder": "输入新标题...",
+    "revealInFolder": "打开所在文件夹",
+    "roundLimitReachedBody": "本轮已用满 {{count}} 轮工具调用，任务可能尚未完成。点击下方按钮发送「继续」，我会接着当前进度继续推进；也可以在 设置 → Agent → 能力 中调高 `max_tool_rounds`。",
+    "roundLimitReachedBodyNoCount": "本轮工具调用轮次已用满。点击下方按钮发送「继续」，我会接着当前进度继续推进。",
+    "roundLimitReachedTitle": "已达工具调用上限",
+    "roundLimitResumeButton": "继续",
+    "roundLimitResumeMessage": "继续",
+    "scrollToBottom": "回到底部",
+    "searchPlaceholder": "搜索会话...",
+    "searchTruncatedHint": "已显示前 {{count}} 条匹配，请细化关键词查看更多。",
+    "searching": "搜索中...",
+    "selectModel": "选择模型",
+    "send": "发送",
+    "sessionSearch": "在当前会话中搜索",
+    "sessionSearchClose": "关闭",
+    "sessionSearchCount": "{{current}}/{{total}}",
+    "sessionSearchNext": "下一个",
+    "sessionSearchNoResults": "当前会话无匹配",
+    "sessionSearchPlaceholder": "搜索当前会话消息…",
+    "sessionSearchPrev": "上一个",
+    "sessionStatus": "会话状态",
+    "memoryPolicy": {
+      "title": "本会话记忆",
+      "use": "使用已有记忆",
+      "contribute": "从本会话学习",
+      "inherit": "跟随全局",
+      "allow": "开启",
+      "deny": "关闭",
+      "desc": "两项相互独立：可以使用旧记忆但不让本会话产生新记忆。",
+      "incognito": "无痕会话始终不读取、也不写入长期记忆。",
+      "reloadCore": "为本会话重新加载 MEMORY.md"
+    },
+    "settings": "设置",
+    "startConversation": "开始对话",
+    "statusAgent": "Agent",
+    "statusAuth": "认证",
+    "statusCache": "缓存",
+    "statusCacheHit": "命中",
+    "statusCacheWrite": "写入",
+    "statusContext": "上下文",
+    "statusCumulative": "累计",
+    "statusMessages": "{{count}} 条消息",
+    "statusModel": "模型",
+    "statusNewSession": "(新会话)",
+    "statusSession": "会话",
+    "statusSessionId": "会话 ID",
+    "statusThinking": "思考模式",
+    "statusUpdated": "更新时间",
+    "stopReply": "停止回复",
+    "subagentFrom": "由 {{agent}} 指派",
+    "subagentResultCompleted": "已完成",
     "workflowResultName": "工作流",
     "workflowResultCheckpoint": "已收到阶段结果",
     "workflowResultCompleted": "已完成",
     "workflowResultCancelled": "已取消",
     "workflowResultWaiting": "等待继续",
     "workflowResultFailed": "需处理",
+    "systemPrompt": "系统提示词",
+    "taskActions": {
+      "cycleTo": {
+        "completed": "标记为已完成",
+        "in_progress": "标记为进行中",
+        "pending": "标记为待办"
+      },
+      "delete": "删除任务"
+    },
+    "taskNoneYet": "暂无任务",
+    "taskProgress": "已完成 {{completed}}/{{total}}",
+    "tasks": "任务",
+    "thinking": "执行中...",
+    "thinkingAutoDisabled": "{{provider}} / {{model}} 不支持当前 Think 模式，已自动关闭思考并重试本次请求。",
+    "visionAutoDisabled": "{{provider}} / {{model}} 不支持图片输入，已忽略图片继续回答。",
+    "toolCalling": "工具调用中...",
+    "totalTokens": "总计",
+    "unknownProvider": "未知 Provider",
+    "untitledSession": "未命名会话",
+    "viewContext": "查看上下文",
+    "viewModeBubble": "切换到气泡视图",
+    "viewModeTimeline": "切换到任务视图",
+    "viewSystemPrompt": "查看系统提示词",
+    "weeksAgo": "{{count}}周前",
+    "workingDir": {
+      "browserDescription": "路径将在运行 Agent 的机器上解析。",
+      "browserTitle": "选择目录",
+      "change": "更换目录",
+      "clear": "清除目录",
+      "current": "工作目录",
+      "empty": "此目录为空",
+      "fileLabel": "文件",
+      "goToPath": "跳转到路径",
+      "invalid": "工作目录无效",
+      "loadError": "无法列出目录",
+      "loading": "加载中……",
+      "parent": "返回上一级",
+      "pathPlaceholder": "绝对路径，例如 /srv/projects/app",
+      "select": "设置工作目录",
+      "selectCurrent": "选择此目录",
+      "selectPreset": "开始对话后即可设置工作目录",
+      "titleBarInherited": "继承自项目",
+      "titleBarSession": "当前工作目录",
+      "truncated": "仅显示前若干条——该目录条目过多，浏览器无法全部展示。"
+    },
+    "taskProgressRunning": "正在执行 {{completed}}/{{total}}",
+    "taskProgressCancelling": "停止中 {{completed}}/{{total}}",
+    "taskProgressWaiting": "等待继续 {{completed}}/{{total}}",
+    "taskProgressFailed": "执行失败 {{completed}}/{{total}}",
+    "exportSession": {
+      "menuItem": "导出对话",
+      "dialogTitle": "导出对话",
+      "dialogHint": "选择导出格式,并勾选需要包含的内容。",
+      "formatLabel": "格式",
+      "formatMarkdown": "Markdown",
+      "formatJson": "JSON",
+      "formatHtml": "HTML",
+      "contentLabel": "包含内容",
+      "includeTools": "包含工具调用",
+      "includeToolsHint": "工具参数、执行结果与文件改动。",
+      "includeThinking": "包含思考过程",
+      "includeThinkingHint": "模型在每轮回答前的推理过程。",
+      "exportButton": "导出",
+      "exporting": "导出中…",
+      "exported": "已导出",
+      "failedShort": "失败",
+      "savedTo": "已导出至 {{path}}",
+      "downloaded": "已下载 {{filename}}",
+      "failed": "导出失败。"
+    },
+    "skillMention": {
+      "heading": "技能",
+      "labels": {
+        "docx": "Word 文档",
+        "pptx": "PPT 演示",
+        "xlsx": "Excel 表格",
+        "browser": "浏览器控制",
+        "mac": "Mac 控制",
+        "dataAnalytics": "数据分析"
+      }
+    },
+    "reasoningDisabledHint": "该模型未启用推理。如需调节推理深度,请在「设置 → 模型服务商」中编辑该模型并开启「支持推理/思考」。",
+    "browserExtensionNudge": {
+      "installTitle": "让 AI 操作你已登录的 Chrome",
+      "installBody": "安装 Hope Agent 扩展即可操作你已登录的 Chrome;当前正使用隔离浏览器运行。",
+      "reloadTitle": "请重载 Chrome 扩展",
+      "reloadBody": "已安装的扩展与宿主版本不匹配,重载扩展即可恢复对真实 Chrome 的控制。",
+      "openSettings": "去设置",
+      "dismiss": "不再提示"
+    },
+    "browserExtensionRequired": {
+      "nextAction": "下一步行动：{{nextAction}}",
+      "openSettings": "打开“设置”>“浏览器”以安装或启用扩展。",
+      "title": "需要 Chrome 扩展程序"
+    },
+    "conversationEmpty": "此对话中没有消息",
+    "pendingCancelForceInsert": "取消本轮插入",
+    "pendingFallbackAfterReply": "回复后发送",
+    "pendingFallbackAfterReplyTip": "尚未遇到工具完成点，将在当前回复结束后发送。",
+    "pendingForceInsertTip": "它将等待正在执行的刀具完成，然后将其插入到模型中，而不中断当前的刀具。",
     "pendingSaving": "正在保存",
     "pendingSavingTip": "正在把消息和附件保存到可恢复队列。",
     "pendingInserting": "正在插入",
@@ -893,6 +894,29 @@
     "pendingDispatching": "正在发送",
     "pendingDispatchingTip": "正在从持久队列创建新的对话回合。",
     "pendingSendNow": "立即发送",
+    "pendingInserted": "插入",
+    "pendingInsertedTip": "本轮加工完成后已将其插入模型中。",
+    "pendingQueuedShort": "排队",
+    "pendingQueuedTip": "已加入等待队列，当前回复结束后发送。",
+    "pendingQueueTitle": "待发送",
+    "pendingWaitingToolBoundary": "等待工具完成点",
+    "pendingWaitingToolBoundaryTip": "等待最新的工具调用完成；如果本轮不再调用该工具，则会在回复完成后发送。",
+    "processNotification": "进程结束",
+    "rightPanel": {
+      "collapse": "折叠右侧面板",
+      "expand": "展开右侧面板",
+      "switch": "切换右侧面板",
+      "dock": "右侧面板停靠栏",
+      "openPanel": "打开{{panel}}",
+      "switchToPanel": "切换到{{panel}}",
+      "collapsePanel": "收起{{panel}}",
+      "expandPanel": "展开{{panel}}",
+      "workflowActiveCount": "{{count}} 个活跃工作流",
+      "workflowAttentionCount": "{{count}} 个工作流需要处理",
+      "backgroundRunningCount": "{{count}} 个后台任务正在运行"
+    },
+    "visionBridgeEngaged": "主模型不支持看图，已用 {{model}} 转述图片内容。",
+    "visionBridgeUnavailable": "视觉模型转述图片失败，已忽略该图片。",
     "loadingSession": "正在加载会话…",
     "goalSlash": {
       "showActive": "查看当前目标",
@@ -944,6 +968,10 @@
       "quickEditEmpty": "记忆内容不能为空。",
       "quickEditSaved": "记忆已更新。",
       "quickEditSaveFailed": "无法保存这条记忆。",
+      "promoteToCore": "永久记住这条",
+      "promoteToCoreFailed": "无法将这条内容加入核心记忆。",
+      "promotedToCore": "已永久记住",
+      "promotedToCoreToast": "已加入常驻核心记忆。",
       "kind": {
         "claim": "结构化记忆",
         "episode": "经验",
@@ -972,6 +1000,7 @@
       },
       "layerReason": {
         "agentConfigError": "Agent 记忆配置不可用",
+        "budgetEmpty": "召回预算为空",
         "disabled": "配置关闭",
         "emptyQuery": "空查询",
         "incognito": "无痕会话",
@@ -982,14 +1011,13 @@
         "noGraphNeighbors": "无相关实体关系",
         "noHits": "无命中",
         "noSession": "无会话上下文",
-        "retrievalError": "检索失败",
-        "sideQueryError": "召回失败",
-        "timeout": "超时",
-        "budgetEmpty": "召回预算为空",
         "nonContextualTurn": "不需要上下文的对话",
         "recallOff": "自动动态召回已关闭",
         "retrievalBusy": "召回服务繁忙",
+        "retrievalError": "检索失败",
         "sessionPolicy": "已被记忆或会话策略关闭",
+        "sideQueryError": "召回失败",
+        "timeout": "超时",
         "unifiedRecall": "已由快速召回处理",
         "unknown": "其他原因"
       },
@@ -1064,11 +1092,7 @@
       "more": "还有 {{count}} 条长期上下文未展开显示。",
       "sources": "记忆来源",
       "editMemory": "编辑这条记忆",
-      "copyTrace": "复制诊断",
-      "promoteToCore": "永久记住这条",
-      "promoteToCoreFailed": "无法将这条内容加入核心记忆。",
-      "promotedToCore": "已永久记住",
-      "promotedToCoreToast": "已加入常驻核心记忆。"
+      "copyTrace": "复制诊断"
     },
     "projectWelcomeTitle": "我们应该在 <project>{{project}}</project> 中构建什么？",
     "projectWelcomeSuggestions": {
@@ -1141,17 +1165,9 @@
     "openSourceConversationMissingHint": "这条记忆来源指向的会话可能已被删除，或当前无法找到。",
     "openSourceMessageMissing": "来源消息已不可用",
     "openSourceMessageMissingHint": "会话仍然存在，但无法找到这条记忆来源对应的具体消息。",
-    "memoryPolicy": {
-      "title": "本会话记忆",
-      "use": "使用已有记忆",
-      "contribute": "从本会话学习",
-      "inherit": "跟随全局",
-      "allow": "开启",
-      "deny": "关闭",
-      "desc": "两项相互独立：可以使用旧记忆但不让本会话产生新记忆。",
-      "incognito": "无痕会话始终不读取、也不写入长期记忆。",
-      "reloadCore": "为本会话重新加载 MEMORY.md"
-    }
+    "unreadConversationCount": "{{count}} 个未读会话",
+    "unreadStatus": "未读",
+    "channelUnreadStatus": "IM 会话未读"
   },
   "codexAuth": {
     "expiredDescription": "你的 Codex OAuth 认证令牌已失效，请重新登录以继续使用。",
@@ -1159,7 +1175,6 @@
     "reauth": "重新登录"
   },
   "common": {
-    "download": "下载",
     "add": "添加",
     "back": "返回",
     "cancel": "取消",
@@ -1196,12 +1211,9 @@
     "expand": "展开",
     "retry": "重试",
     "unavailable": "不可用",
-    "duplicate": "创建副本",
-    "more": "更多",
     "copy": "复制",
-    "copied": "已复制",
-    "apply": "应用",
     "auto": "自动",
+    "copied": "已复制",
     "yes": "是",
     "no": "否",
     "none": "无",
@@ -1209,17 +1221,32 @@
     "off": "关闭",
     "error": "错误",
     "showLess": "折叠显示",
-    "modelNoVision": "不支持图片"
+    "download": "下载",
+    "duplicate": "创建副本",
+    "more": "更多",
+    "apply": "应用",
+    "modelNoVision": "不支持图片",
+    "next": "下一页",
+    "previous": "上一页"
   },
   "context": {
     "ago": "前",
+    "cacheRead": "缓存读取",
     "cacheTtlProtection": "缓存 TTL 保护",
+    "cacheWindowNotice": "缓存命中只减少重复计算、成本和首 Token 延迟，不减少上下文窗口占用。",
+    "cacheWrite": "缓存写入",
     "compactAllowedIn": "下次压缩",
+    "coreMemoryBudget": "Core Memory 预算",
+    "coreMemoryModelLimited": "已按当前模型临时裁剪",
+    "dynamicPrompt": "动态提示",
+    "estimated": "估算",
     "estimateNote": "每轮结束后以 Provider 实际用量为准；此前显示按真实请求形态计算的保守估算。",
     "freeSpace": "剩余空间",
+    "freshInput": "新增输入",
     "lastCompact": "上次压缩",
     "memory": "记忆",
     "messages": "消息",
+    "providerInput": "Provider 输入",
     "reservedOutput": "预留输出",
     "skills": "技能",
     "systemPrompt": "系统提示词",
@@ -1227,16 +1254,7 @@
     "toolDescriptions": "工具说明",
     "toolSchemas": "工具 Schema",
     "used": "已用",
-    "viewSystemPrompt": "系统提示词",
-    "cacheRead": "缓存读取",
-    "cacheWindowNotice": "缓存命中只减少重复计算、成本和首 Token 延迟，不减少上下文窗口占用。",
-    "cacheWrite": "缓存写入",
-    "coreMemoryBudget": "Core Memory 预算",
-    "coreMemoryModelLimited": "已按当前模型临时裁剪",
-    "dynamicPrompt": "动态提示",
-    "estimated": "估算",
-    "freshInput": "新增输入",
-    "providerInput": "Provider 输入"
+    "viewSystemPrompt": "系统提示词"
   },
   "cron": {
     "active": "运行中",
@@ -1426,8 +1444,8 @@
         "cron": "定时触发",
         "idle": "空闲触发",
         "manual": "手动触发",
-        "user_correction": "纠错",
-        "review_snapshot": "审核记录"
+        "review_snapshot": "审核记录",
+        "user_correction": "纠错"
       },
       "runs": {
         "title": "运行历史",
@@ -1449,9 +1467,46 @@
       "resolving": "整理中…",
       "resolverDone": "深度整理完成:{{expired}} 过期,{{merged}} 合并,{{review}} 待审核",
       "resolverFailed": "深度整理失败",
+      "resolverPreflightTitle": "深度整理预检",
+      "resolverPreflightSummary": "{{active}} 条 active 记忆 · {{expired}} 条过期候选 · {{groups}} 个冲突候选组",
+      "resolverPreflightBlocked": "深度整理已阻塞：{{reasons}}",
+      "resolverPreflightLlm": "{{count}}/{{total}} 个候选组将调用 LLM · 上限 {{cap}}",
+      "resolverPreflightNoLlm": "预计不会调用 LLM 分组。",
+      "resolverPreflightTruncated": "下一次运行会继续处理。",
+      "resolverPreflightUnavailable": "预检不可用。",
+      "resolverPreflightRefresh": "刷新计划",
+      "resolverPreflightReasons": {
+        "dreamingDisabled": "Dreaming 已关闭",
+        "longTermMemoryDisabled": "记忆学习已关闭",
+        "manualDisabled": "手动运行已关闭",
+        "claimLoadFailed": "结构化记忆不可用"
+      },
+      "errors": {
+        "loadDiaries": "加载 Dreaming 日记失败",
+        "loadRuns": "加载 Dreaming 运行历史失败",
+        "loadRunDetail": "加载 Dreaming 运行详情失败",
+        "loadDiary": "打开 Dreaming 日记失败",
+        "loadEvidenceQuote": "加载证据摘录失败",
+        "runNow": "运行 Dreaming 失败",
+        "runResolver": "深度整理失败",
+        "resolverPreflight": "加载深度整理预检失败",
+        "detail": "详细信息：{{error}}"
+      },
       "review": {
         "queueTitle": "待审核",
         "queueEmpty": "没有待审核的记忆断言",
+        "errors": {
+          "loadQueue": "加载待审核队列失败",
+          "approve": "批准记忆失败",
+          "markOutdated": "标记记忆过时失败",
+          "pin": "钉住记忆失败",
+          "unpin": "取消钉住记忆失败",
+          "edit": "编辑记忆失败",
+          "moveScope": "移动记忆作用域失败",
+          "reject": "驳回记忆失败",
+          "forget": "忘记记忆失败",
+          "detail": "详细信息：{{error}}"
+        },
         "approve": "批准",
         "approveDone": "已批准",
         "markOutdated": "标记过时",
@@ -1490,44 +1545,7 @@
         "forgetNotePlaceholder": "可选原因",
         "forgetConfirm": "忘记",
         "forgetDone": "已忘记",
-        "failed": "操作失败",
-        "errors": {
-          "loadQueue": "加载待审核队列失败",
-          "approve": "批准记忆失败",
-          "markOutdated": "标记记忆过时失败",
-          "pin": "钉住记忆失败",
-          "unpin": "取消钉住记忆失败",
-          "edit": "编辑记忆失败",
-          "moveScope": "移动记忆作用域失败",
-          "reject": "驳回记忆失败",
-          "forget": "忘记记忆失败",
-          "detail": "详细信息：{{error}}"
-        }
-      },
-      "resolverPreflightTitle": "深度整理预检",
-      "resolverPreflightSummary": "{{active}} 条 active 记忆 · {{expired}} 条过期候选 · {{groups}} 个冲突候选组",
-      "resolverPreflightBlocked": "深度整理已阻塞：{{reasons}}",
-      "resolverPreflightLlm": "{{count}}/{{total}} 个候选组将调用 LLM · 上限 {{cap}}",
-      "resolverPreflightNoLlm": "预计不会调用 LLM 分组。",
-      "resolverPreflightTruncated": "下一次运行会继续处理。",
-      "resolverPreflightUnavailable": "预检不可用。",
-      "resolverPreflightRefresh": "刷新计划",
-      "resolverPreflightReasons": {
-        "dreamingDisabled": "Dreaming 已关闭",
-        "longTermMemoryDisabled": "记忆学习已关闭",
-        "manualDisabled": "手动运行已关闭",
-        "claimLoadFailed": "结构化记忆不可用"
-      },
-      "errors": {
-        "loadDiaries": "加载 Dreaming 日记失败",
-        "loadRuns": "加载 Dreaming 运行历史失败",
-        "loadRunDetail": "加载 Dreaming 运行详情失败",
-        "loadDiary": "打开 Dreaming 日记失败",
-        "loadEvidenceQuote": "加载证据摘录失败",
-        "runNow": "运行 Dreaming 失败",
-        "runResolver": "深度整理失败",
-        "resolverPreflight": "加载深度整理预检失败",
-        "detail": "详细信息：{{error}}"
+        "failed": "操作失败"
       }
     },
     "error": {
@@ -1886,17 +1904,17 @@
       "ttftTrend": "首 Token 耗时趋势 (TTFT)",
       "inputTokens": "输入令牌",
       "outputTokens": "输出代币",
-      "byDomain": "按用途分布",
-      "byOperation": "按操作细分",
-      "operation": "操作",
-      "domain": "用途",
       "byType": "按类型统计",
       "type": "类型",
       "calls": "调用次数",
       "cacheWrite": "缓存写入",
       "cacheRead": "缓存读取",
       "avgDuration": "平均耗时",
-      "tokensUnit": "Token"
+      "tokensUnit": "Token",
+      "byDomain": "按用途分布",
+      "byOperation": "按操作细分",
+      "operation": "操作",
+      "domain": "用途"
     },
     "tool": {
       "avgDuration": "平均耗时",
@@ -1994,6 +2012,146 @@
     },
     "columns": {
       "session": "会话"
+    },
+    "controlPlane": {
+      "title": "目标与执行",
+      "automationTab": "自动化",
+      "scopeHint": "时间窗指标看结果，当前快照看积压与风险。",
+      "allProjects": "全部项目",
+      "unassignedProject": "未分配",
+      "archived": "已归档",
+      "empty": "所选范围内暂无数据。",
+      "sections": {
+        "overview": "概览",
+        "planTask": "Plan 与 Task"
+      },
+      "metrics": {
+        "goalAcceptance": "Goal 达成率",
+        "workflowCompletion": "Workflow 完成率",
+        "loopStrongProgress": "Loop 强推进率",
+        "taskCompletion": "Task cohort 完成率",
+        "attention": "当前需处理",
+        "requiredCriteria": "必要标准通过率",
+        "goalP50": "Goal 达成耗时 P50",
+        "opFailure": "Op 失败率",
+        "workflowP50": "Workflow 执行耗时 P50",
+        "goalBinding": "Goal 绑定率",
+        "approvalTrigger": "审批触发率",
+        "noProgress": "无进展率",
+        "blockedSchedules": "当前阻塞调度",
+        "loopP50": "Loop run 耗时 P50",
+        "currentBacklog": "当前 backlog",
+        "activePlans": "当前活跃",
+        "cohortCompletion": "Cohort 完成率"
+      },
+      "currentSnapshot": "当前快照",
+      "goalTrend": "Goal 结果趋势",
+      "resolved": "已终局",
+      "accepted": "已接受",
+      "attentionTitle": "当前需处理项",
+      "noAttention": "当前没有需处理项",
+      "auditSamples": "已审计 {{count}} 个 Goal",
+      "currentStates": "当前状态",
+      "closureOutcomes": "终局取舍",
+      "domains": "领域分布",
+      "kinds": "类型分布",
+      "origins": "来源分布",
+      "workflowTrend": "已决 Workflow 趋势",
+      "decidedRuns": "已决 run",
+      "progressStates": "推进分类",
+      "triggerKinds": "触发类型",
+      "strategies": "执行策略",
+      "loopTrend": "可评估 Loop 趋势",
+      "evaluatedRuns": "可评估 run",
+      "openPlanHistory": "查看 Plan 历史",
+      "planByAgent": "Plan 的 Agent 分布",
+      "planByProject": "Plan 的项目分布",
+      "noFunnelHint": "Task 和 Plan 暂无可靠的 Goal / Workflow / Loop 归因外键，因此本页不会按会话关系推断因果漏斗。",
+      "noExactSamples": "暂无精确耗时样本",
+      "coverage": "精确样本 {{samples}} / {{eligible}}（{{percent}}%）",
+      "coverageShort": "精确耗时覆盖：{{samples}} / {{eligible}}",
+      "creationTrend": "创建趋势",
+      "created": "新建",
+      "attentionKinds": {
+        "goal": "Goal",
+        "workflow": "Workflow",
+        "loop": "Loop",
+        "plan": "Plan"
+      },
+      "attentionReasons": {
+        "needs_strict_evidence": "需要严格证据",
+        "goal_awaiting_closure": "Goal 等待关闭",
+        "workflow_requires_attention": "Workflow 需要处理",
+        "consecutive_no_progress": "连续无进展",
+        "loop_requires_attention": "Loop 需要处理",
+        "plan_awaiting_review": "Plan 等待审核"
+      },
+      "states": {
+        "active": "进行中",
+        "paused": "已暂停",
+        "evaluating": "评估中",
+        "completed": "已完成",
+        "failed": "失败",
+        "cancelled": "已取消",
+        "blocked": "已阻塞",
+        "planning": "规划中",
+        "review": "待审核",
+        "executing": "执行中",
+        "off": "已归档",
+        "awaiting_approval": "等待审批",
+        "awaiting_user": "等待用户",
+        "running": "运行中",
+        "recovering": "恢复中",
+        "draft": "草稿",
+        "pending": "待处理",
+        "in_progress": "进行中",
+        "progressed": "有效推进",
+        "weak_progress": "弱推进",
+        "no_progress": "无进展",
+        "accepted_v1": "接受 V1",
+        "superseded": "已取代",
+        "unassigned": "未分配"
+      }
+    }
+  },
+  "diffPanel": {
+    "fileTooLarge": "文件过大，仅渲染前 256KB",
+    "layoutSplit": "拆分",
+    "layoutUnified": "统一",
+    "noDiffData": "无 diff 数据",
+    "openDiff": "查看 diff",
+    "resizePanel": "调整 diff 面板宽度",
+    "title": "文件改动",
+    "actionCreate": "创造",
+    "actionDelete": "删除",
+    "actionEdit": "修改",
+    "copyLocation": "复制当前位置",
+    "expandHiddenLines": "展开{{count}}行，内容不变",
+    "ignoreWhitespace": "忽略空格变化",
+    "locationCopied": "定位已复制",
+    "locationCopyFailed": "复制定位失败",
+    "matchingFiles": "{{shown}} / {{total}} 文件",
+    "nextHunk": "下一步更改",
+    "noMatchingFiles": "没有匹配的文件",
+    "openLocation": "预览到当前行",
+    "prevHunk": "最后更改",
+    "renderMore": "显示剩余的 {{count}} 行",
+    "searchFiles": "搜索文件",
+    "toggleContext": "折叠未更改的上下文",
+    "git": {
+      "allScope": "全部",
+      "discard": "丢弃",
+      "discardConfirm": "确定要永久丢弃所选改动吗？未跟踪文件会被删除，此操作无法撤销。",
+      "discarded": "已丢弃改动",
+      "fileCount": "{{count}} 个文件",
+      "stage": "暂存",
+      "staged": "已暂存",
+      "stagedScope": "已暂存",
+      "stale": "仓库已发生变化，已刷新，请重新确认。",
+      "prReviewComments": "PR Review 评论 · {{count}}",
+      "unstage": "取消暂存",
+      "unstaged": "已取消暂存",
+      "unstagedScope": "未暂存"
     }
   },
   "fileActions": {
@@ -2063,46 +2221,6 @@
     "zoomIn": "放大",
     "fitWidth": "适应宽度",
     "officeNoContent": "无法从该文件提取内容"
-  },
-  "diffPanel": {
-    "fileTooLarge": "文件过大，仅渲染前 256KB",
-    "layoutSplit": "拆分",
-    "layoutUnified": "统一",
-    "noDiffData": "无 diff 数据",
-    "openDiff": "查看 diff",
-    "resizePanel": "调整 diff 面板宽度",
-    "title": "文件改动",
-    "actionCreate": "创造",
-    "actionDelete": "删除",
-    "actionEdit": "修改",
-    "copyLocation": "复制当前位置",
-    "expandHiddenLines": "展开{{count}}行，内容不变",
-    "ignoreWhitespace": "忽略空格变化",
-    "locationCopied": "定位已复制",
-    "locationCopyFailed": "复制定位失败",
-    "matchingFiles": "{{shown}} / {{total}} 文件",
-    "nextHunk": "下一步更改",
-    "noMatchingFiles": "没有匹配的文件",
-    "openLocation": "预览到当前行",
-    "prevHunk": "最后更改",
-    "renderMore": "显示剩余的 {{count}} 行",
-    "searchFiles": "搜索文件",
-    "toggleContext": "折叠未更改的上下文",
-    "git": {
-      "allScope": "全部",
-      "discard": "丢弃",
-      "discardConfirm": "确定要永久丢弃所选改动吗？未跟踪文件会被删除，此操作无法撤销。",
-      "discarded": "已丢弃改动",
-      "fileCount": "{{count}} 个文件",
-      "stage": "暂存",
-      "staged": "已暂存",
-      "stagedScope": "已暂存",
-      "stale": "仓库已发生变化，已刷新，请重新确认。",
-      "prReviewComments": "PR Review 评论 · {{count}}",
-      "unstage": "取消暂存",
-      "unstaged": "已取消暂存",
-      "unstagedScope": "未暂存"
-    }
   },
   "effort": {
     "high": "高",
@@ -2537,10 +2655,10 @@
     "reasoning": "支持推理/思考",
     "reasoningHint": "开启后,可在聊天界面输入框上方的模型菜单中选择推理深度(低 / 中 / 高),并在每次请求时自动注入。",
     "supportedInputTypes": "支持的输入类型",
-    "text": "文本",
-    "video": "视频",
     "supportsImageMultimodal": "支持图片多模态",
-    "supportsVideoMultimodal": "支持视频多模态"
+    "supportsVideoMultimodal": "支持视频多模态",
+    "text": "文本",
+    "video": "视频"
   },
   "notification": {
     "cronCancelled": "定时任务已取消",
@@ -2939,6 +3057,29 @@
     "addProject": "添加项目",
     "archiveProject": "归档项目",
     "archivedProjects": "已归档项目",
+    "autoMemory": {
+      "content": "详细内容（Markdown）",
+      "deleteConfirm": "确认删除这条项目自动记忆？",
+      "description": "MEMORY.md 的简短索引会稳定注入项目会话；具体主题只在相关时按需读取。内容仅保存在本机。",
+      "editorHint": "项目指令用于固定规则；这里记录模型在工作中积累的项目经验，不应作为权威指令。",
+      "editorTitle": "项目自动记忆",
+      "empty": "还没有自动记忆主题。",
+      "fileNameGenerated": "保存时自动生成文件名",
+      "name": "标题",
+      "newTopic": "新建主题",
+      "rebuildIndex": "重新生成 MEMORY.md 索引",
+      "rebuildFailed": "无法重新生成 MEMORY.md 索引。",
+      "summary": "索引摘要",
+      "summaryHint": "这句话会进入每次项目会话的稳定提示词，请保持简短。",
+      "type": "类型",
+      "types": {
+        "feedback": "工作习惯反馈",
+        "project": "项目进展",
+        "reference": "参考资料",
+        "user": "用户背景"
+      },
+      "emptyPreview": "暂无 Markdown 详细内容。切换到编辑模式即可添加。"
+    },
     "createFirstProject": "创建第一个项目",
     "defaultAgent": "默认助手",
     "defaultModel": "默认模型",
@@ -2948,6 +3089,10 @@
     },
     "deleteProject": "删除项目",
     "editProject": "编辑项目",
+    "openFromMemoryLoadFailed": "打开项目来源失败",
+    "openFromMemoryLoadFailedDetail": "详细信息：{{error}}",
+    "openFromMemoryMissing": "项目已不可用",
+    "openFromMemoryMissingHint": "这条记忆来源指向的项目可能已被删除，或当前无法找到。",
     "files": {
       "confirmDelete": "确认删除此文件？",
       "delete": "删除",
@@ -2977,13 +3122,38 @@
       "recentSessions": "最近会话",
       "totalFiles": "文件总数",
       "totalMemories": "记忆总数",
-      "totalSessions": "会话总数"
+      "totalSessions": "项目会话",
+      "activeClaims": "已整理记忆",
+      "agentsEmpty": "AGENTS.md 当前为空",
+      "agentsLines": "AGENTS.md",
+      "agentsRole": "项目的权威规则，会应用到每个项目会话。",
+      "agentsStats": "{{lines}} 行 · {{size}}",
+      "autoMemoryRole": "模型维护的本地经验；索引稳定注入，主题按需读取。",
+      "autoMemoryStats": "{{count}} 个主题",
+      "autoMemoryTopics": "自动记忆主题",
+      "awaitingResponse": "待你回复",
+      "contextDescription": "了解模型在这个项目中会使用哪些上下文。",
+      "contextTitle": "项目上下文",
+      "defaultWorkspace": "默认项目工作目录",
+      "homeDescription": "继续最近的工作，或管理项目上下文。",
+      "homeTitle": "项目首页",
+      "linesUnit": "行",
+      "loadFailed": "项目概览暂时无法加载，请稍后重试。",
+      "messageCount": "{{count}} 条消息",
+      "noRecentSessions": "还没有项目会话",
+      "noRecentSessionsHint": "创建会话后，最近工作会显示在这里。",
+      "recentSessionsHint": "最近更新的用户会话",
+      "structuredMemory": "项目记忆",
+      "structuredMemoryRole": "从项目对话中整理出的长期信息；是否自动用于回答取决于记忆设置。",
+      "unavailable": "暂不可用",
+      "untitledSession": "未命名会话",
+      "workingDirectory": "工作目录"
     },
     "projectColor": "主题色",
     "projectDescription": "项目描述",
     "projectDescriptionPlaceholder": "这个项目是做什么的？",
     "projectInstructions": "项目指令",
-    "projectInstructionsHint": "这些指令会自动加入该项目所有会话的系统提示词",
+    "projectInstructionsHint": "直接读写项目根目录下的 AGENTS.md；保存后会自动用于该项目的所有会话。",
     "projectInstructionsPlaceholder": "例如：始终用中文回复；语气清楚亲切；先给结论再补充细节",
     "projectLogo": "Logo",
     "projectLogoHint": "可选。图片会自动压缩到 256×256。",
@@ -2997,6 +3167,7 @@
     "showLess": "折叠显示",
     "showMore": "展开显示",
     "tabFiles": "文件",
+    "tabAutoMemory": "自动记忆",
     "tabInstructions": "指令",
     "tabMemories": "记忆",
     "tabOverview": "概览",
@@ -3020,33 +3191,11 @@
       "errorDetail": "详细信息：{{error}}"
     },
     "projectEmojiPlaceholder": "可选",
-    "openFromMemoryLoadFailed": "打开项目来源失败",
-    "openFromMemoryLoadFailedDetail": "详细信息：{{error}}",
-    "openFromMemoryMissing": "项目已不可用",
-    "openFromMemoryMissingHint": "这条记忆来源指向的项目可能已被删除，或当前无法找到。",
-    "autoMemory": {
-      "content": "详细内容（Markdown）",
-      "deleteConfirm": "确认删除这条项目自动记忆？",
-      "description": "MEMORY.md 的简短索引会稳定注入项目会话；具体主题只在相关时按需读取。内容仅保存在本机。",
-      "editorHint": "项目指令用于固定规则；这里记录模型在工作中积累的项目经验，不应作为权威指令。",
-      "editorTitle": "项目自动记忆",
-      "empty": "还没有自动记忆主题。",
-      "fileNameGenerated": "保存时自动生成文件名",
-      "name": "标题",
-      "newTopic": "新建主题",
-      "rebuildIndex": "重新生成 MEMORY.md 索引",
-      "rebuildFailed": "无法重新生成 MEMORY.md 索引。",
-      "summary": "索引摘要",
-      "summaryHint": "这句话会进入每次项目会话的稳定提示词，请保持简短。",
-      "type": "类型",
-      "types": {
-        "feedback": "工作习惯反馈",
-        "project": "项目进展",
-        "reference": "参考资料",
-        "user": "用户背景"
-      }
-    },
-    "tabAutoMemory": "自动记忆"
+    "projectInstructionsLineCount": "{{count}} 行",
+    "resizeSettingsSheet": "拖拽调整项目设置宽度",
+    "projectInstructionsEmptyPreview": "AGENTS.md 为空。切换到编辑模式即可添加 Markdown 指令。",
+    "projectInstructionsLoadFailed": "无法读取 AGENTS.md",
+    "projectInstructionsSaveFailed": "无法保存 AGENTS.md"
   },
   "provider": {
     "addProvider": "添加服务商",
@@ -3496,6 +3645,7 @@
       "judgeExtraPromptPlaceholder": "可选：附加给判官的提示词（白名单路径、信任命令等）",
       "judgeModelPlaceholder": "选择裁判模型",
       "judgeModelTitle": "判官模型配置",
+      "judgeProviderPlaceholder": "Provider ID（如 anthropic-1）",
       "protectedPathsDesc": "命中以下路径模式时强制审批，不可 AllowAlways 跳过。支持 ~/ 展开、目录前缀（结尾 /）、通配（*.pem）。",
       "protectedPathsPlaceholder": "如：~/.ssh/、.env、*.pem",
       "protectedPathsTitle": "保护路径",
@@ -3528,8 +3678,7 @@
       "yoloDesc": "开启后所有工具直接执行，仅 Plan 模式仍能拦截。保护路径 / 危险命令命中只落 warn 日志不再弹审批。",
       "yoloDisabled": "已关闭全局 YOLO",
       "yoloEnabled": "已开启全局 YOLO",
-      "yoloTitle": "全局 YOLO（跳过所有审批）",
-      "judgeProviderPlaceholder": "Provider ID（如 anthropic-1）"
+      "yoloTitle": "全局 YOLO（跳过所有审批）"
     },
     "approvalTimeout": "工具审批等待超时",
     "approvalTimeoutAction": "审批超时动作",
@@ -3578,6 +3727,8 @@
       "digestMaxChars": "摘要输出预算（字符）",
       "dynamicEnabled": "每轮刷新后缀",
       "enabledForSession": "本会话启用",
+      "extractionAgent": "抽取 Agent ID（可选）",
+      "extractionAgentPlaceholder": "留空则继承 recap.analysisAgent",
       "includeChannel": "包含 IM 渠道会话",
       "includeCron": "包含定时任务会话",
       "includeSubagents": "包含子 Agent 会话",
@@ -3603,9 +3754,7 @@
       "sessionOverride": "会话级覆盖",
       "title": "行为感知",
       "extractionModel": "提取模型（可选）",
-      "extractionModelInherit": "复用当前对话 Agent（缓存友好）",
-      "extractionAgent": "抽取 Agent ID（可选）",
-      "extractionAgentPlaceholder": "留空则继承 recap.analysisAgent"
+      "extractionModelInherit": "复用当前对话 Agent（缓存友好）"
     },
     "browser": {
       "activeBadge": "使用中",
@@ -3758,7 +3907,16 @@
         "title": "允许 raw CDP?",
         "body": "这会允许 AI 向你的真实 Chrome 发送任意 DevTools 协议命令。每次调用仍需你逐次审批、危险方法仍被拦截,但请仅在确有需要时开启。",
         "continue": "开启"
-      }
+      },
+      "backupRuntimeHint": "系统 Chrome 当前可用。你也可以安装 Hope 管理的 Chromium，作为浏览器自动化和 Artifact PDF 导出的备用运行时。",
+      "backupRuntimeTitle": "备用 Chromium 运行时",
+      "installRuntimeRetry": "运行时已就绪，请重试浏览器操作或 PDF 导出。",
+      "openBrowserSettings": "打开浏览器设置",
+      "runtimeInstallUnsupported": "Hope 暂不为当前操作系统或架构提供受管 Chromium。请手动安装 Chrome/Chromium，或配置浏览器可执行文件路径。",
+      "runtimeRequiredArtifactPdfDescription": "导出 PDF 需要本地 Chrome 或 Chromium 运行时，但当前未检测到可用浏览器。",
+      "runtimeRequiredDescription": "此浏览器操作需要本地 Chrome 或 Chromium 运行时，但当前未检测到可用浏览器。",
+      "runtimeRequiredHint": "可以立即安装 Hope 管理的运行时（约 150 MB），安装完成后重新执行操作。",
+      "runtimeRequiredTitle": "需要 Chromium 运行时"
     },
     "bytes": "字节",
     "canvas": "画布",
@@ -3800,39 +3958,6 @@
         "backfillDesc": "回填会把旧的普通记忆登记为记忆断言，但不会立刻改变当前记忆注入。置顶的个人信息和偏好可能自动启用，其余会进入待审核。"
       },
       "list": "记忆断言列表",
-      "empty": "暂无记忆断言。",
-      "selectClaim": "选择一条记忆断言查看其证据。",
-      "confidence": "置信度",
-      "salience": "重要度",
-      "evidence": "证据",
-      "noEvidence": "暂无证据。",
-      "links": "关联记忆",
-      "statusAll": "全部状态",
-      "status": {
-        "active": "活跃",
-        "superseded": "已替代",
-        "expired": "已过期",
-        "archived": "已归档",
-        "needs_review": "待审核"
-      },
-      "backfill": {
-        "button": "回填历史记忆",
-        "title": "回填历史记忆",
-        "desc": "将现有记忆登记为记忆断言。仅置顶的个人信息与偏好（user/feedback）自动启用，其余进入待审核队列；以独立关联方式登记，不改变当前的记忆注入。",
-        "summaryTotal": "记忆总数",
-        "summaryLinked": "已登记",
-        "summaryCandidates": "待回填",
-        "summaryActive": "自动启用",
-        "summaryReview": "待审核",
-        "previewTruncated": "显示 {{shown}} / {{total}} 条",
-        "apply": "回填 {{count}} 条",
-        "applying": "正在回填…",
-        "applied": "已回填 {{created}} 条记忆断言：{{active}} 条启用，{{review}} 条待审核",
-        "planFailed": "生成回填预览失败",
-        "applyFailed": "回填失败",
-        "empty": "所有记忆均已纳入记忆断言层。",
-        "appliedPartial": "已回填 {{created}} 条,{{failed}} 条失败,可重试剩余项"
-      },
       "searchPlaceholder": "搜索结构化记忆…",
       "searchMatchedBy": "命中",
       "searchMatch_content": "内容",
@@ -4012,6 +4137,11 @@
         "llm_adjusted": "AI 调整",
         "user_confirmed": "用户确认"
       },
+      "empty": "暂无记忆断言。",
+      "selectClaim": "选择一条记忆断言查看其证据。",
+      "confidence": "置信度",
+      "salience": "重要度",
+      "evidence": "证据",
       "evidenceAll": "全部证据",
       "evidenceSourceAll": "全部来源",
       "evidenceSources": {
@@ -4024,9 +4154,37 @@
         "recap_facet": "阶段摘要",
         "manual": "手动纠错"
       },
+      "noEvidence": "暂无证据。",
+      "links": "关联记忆",
       "typeAll": "全部类型",
       "typeProfile": "用户画像与偏好",
       "scopeAll": "全部作用域",
+      "statusAll": "全部状态",
+      "status": {
+        "active": "活跃",
+        "superseded": "已替代",
+        "expired": "已过期",
+        "archived": "已归档",
+        "needs_review": "待审核"
+      },
+      "backfill": {
+        "button": "回填历史记忆",
+        "title": "回填历史记忆",
+        "desc": "将现有记忆登记为记忆断言。仅置顶的个人信息与偏好（user/feedback）自动启用，其余进入待审核队列；以独立关联方式登记，不改变当前的记忆注入。",
+        "summaryTotal": "记忆总数",
+        "summaryLinked": "已登记",
+        "summaryCandidates": "待回填",
+        "summaryActive": "自动启用",
+        "summaryReview": "待审核",
+        "previewTruncated": "显示 {{shown}} / {{total}} 条",
+        "apply": "回填 {{count}} 条",
+        "applying": "正在回填…",
+        "applied": "已回填 {{created}} 条记忆断言：{{active}} 条启用，{{review}} 条待审核",
+        "planFailed": "生成回填预览失败",
+        "applyFailed": "回填失败",
+        "empty": "所有记忆均已纳入记忆断言层。",
+        "appliedPartial": "已回填 {{created}} 条,{{failed}} 条失败,可重试剩余项"
+      },
       "reviewHistoryTitle": "审核历史",
       "reviewHistoryDesc": "最近由 Lucid Review 和 Dreaming 记录的记忆处理决策。",
       "reviewHistoryShow": "展开",
@@ -4201,6 +4359,14 @@
       "cronTriggerEnabledDesc": "按 cron 表达式触发，与空闲触发互不影响。",
       "cronTriggerTitle": "定时触发",
       "desc": "定期扫描最近的记忆，把最有长期价值的条目自动置顶到核心记忆。后台运行，不阻塞对话。",
+      "errors": {
+        "loadConfig": "加载 Dreaming 设置失败",
+        "loadModels": "加载 Dreaming 模型列表失败",
+        "loadStatus": "加载 Dreaming 状态失败",
+        "saveConfig": "保存 Dreaming 设置失败",
+        "reloadAfterSave": "保存失败后重新加载 Dreaming 设置失败",
+        "detail": "详细信息：{{error}}"
+      },
       "idleCountdown": "约 {{minutes}} 分钟后触发空闲调度",
       "idleMinutes": "空闲阈值（分钟）",
       "idleMinutesDesc": "持续多久没有用户活动后触发。",
@@ -4238,14 +4404,6 @@
       "profileEnabledDesc": "从活跃的记忆断言构建一份可读画像，按作用域分层。开启后将替换系统提示中旧版画像部分；关闭则保留旧版渲染。空闲 / 定时触发使用低成本的规则合成；手动触发则用 LLM 重写。",
       "profileMaxLines": "每作用域最大行数",
       "profileMaxLinesDesc": "限制每个作用域保留的画像条目数量。",
-      "errors": {
-        "loadConfig": "加载 Dreaming 设置失败",
-        "loadModels": "加载 Dreaming 模型列表失败",
-        "loadStatus": "加载 Dreaming 状态失败",
-        "saveConfig": "保存 Dreaming 设置失败",
-        "reloadAfterSave": "保存失败后重新加载 Dreaming 设置失败",
-        "detail": "详细信息：{{error}}"
-      },
       "deepResolverTitle": "深度记忆治理",
       "autoExpireOnLightCycle": "自动过期失效记忆",
       "autoExpireOnLightCycleDesc": "在普通 Dreaming 周期中按 valid-until 确定性过期，并写入可审计的 Resolver 决策。",
@@ -4317,6 +4475,14 @@
       "editTitle": "编辑 Embedding 模型",
       "empty": "还没有 Embedding 模型配置。可以从上方模板创建，或添加自定义配置。",
       "emptyMemory": "还没有可用的 Embedding 模型配置。请先创建一个配置，或使用本地 Embedding 快捷卡。",
+      "errors": {
+        "delete": "无法删除 Embedding 模型配置",
+        "detail": "详细信息：{{error}}",
+        "load": "无法加载 Embedding 模型配置",
+        "save": "无法保存 Embedding 模型配置",
+        "setDefault": "无法切换默认记忆模型",
+        "test": "Embedding 连接测试失败"
+      },
       "goConfig": "去配置 Embedding 模型",
       "memoryActive": "默认记忆模型",
       "memoryDefault": "默认记忆模型",
@@ -4330,15 +4496,7 @@
       "setMemoryDefault": "设为默认记忆模型",
       "tab": "Embedding 模型",
       "testOk": "Embedding 连接测试通过",
-      "title": "Embedding 模型配置",
-      "errors": {
-        "delete": "无法删除 Embedding 模型配置",
-        "detail": "详细信息：{{error}}",
-        "load": "无法加载 Embedding 模型配置",
-        "save": "无法保存 Embedding 模型配置",
-        "setDefault": "无法切换默认记忆模型",
-        "test": "Embedding 连接测试失败"
-      }
+      "title": "Embedding 模型配置"
     },
     "fallbackModels": "降级模型",
     "fallbackModelsDesc": "当主模型不可用时，按顺序尝试以下模型",
@@ -4368,8 +4526,8 @@
       "addHandler": "添加处理器",
       "advanced": "高级",
       "slowHandlerWarning": "此处理器会内联运行 LLM / 子 Agent，每次该阻断事件触发都会拖慢。建议这里改用 command / http，或挪到观察型事件（如 PostToolUse）。",
-      "modelInheritDefault": "跟随自动化默认链",
-      "invalidJson": "JSON 格式有误"
+      "invalidJson": "JSON 格式有误",
+      "modelInheritDefault": "跟随自动化默认链"
     },
     "hours": "小时",
     "imageGenApiKey": "API Key",
@@ -4454,6 +4612,15 @@
       "enabledDesc": "为笔记生成向量以支持语义检索。关闭时笔记检索仅使用全文匹配。",
       "changeModel": "更换模型",
       "activated": "知识空间 embedding 模型已激活",
+      "errors": {
+        "loadEmbedding": "加载知识向量设置失败",
+        "activateEmbedding": "启用知识向量检索失败",
+        "disableEmbedding": "关闭知识向量检索失败",
+        "rebuildEmbedding": "启动知识向量重建失败",
+        "cancelReembed": "取消知识向量重建失败",
+        "retryReembed": "重试知识向量重建失败",
+        "detail": "详细信息：{{error}}"
+      },
       "reembed": {
         "title": "重建索引",
         "idle": "笔记向量已是最新。",
@@ -4463,15 +4630,6 @@
         "retry": "重试",
         "progress": "{{done}} / {{total}} 个知识空间",
         "phase": "正在重新向量化笔记"
-      },
-      "errors": {
-        "loadEmbedding": "加载知识向量设置失败",
-        "activateEmbedding": "启用知识向量检索失败",
-        "disableEmbedding": "关闭知识向量检索失败",
-        "rebuildEmbedding": "启动知识向量重建失败",
-        "cancelReembed": "取消知识向量重建失败",
-        "retryReembed": "重试知识向量重建失败",
-        "detail": "详细信息：{{error}}"
       }
     },
     "knowledgeMaintenance": {
@@ -4491,6 +4649,12 @@
       "cycleSkipped": "已跳过：{{note}}",
       "cycleDone": "生成了 {{n}} 条建议",
       "runFailed": "维护运行失败",
+      "errors": {
+        "load": "加载自主维护设置失败",
+        "save": "保存自主维护设置失败",
+        "runNow": "运行自主维护失败",
+        "detail": "详细信息：{{error}}"
+      },
       "task": {
         "autoLink": "自动建链",
         "orphanRescue": "孤岛救援",
@@ -4507,13 +4671,7 @@
       },
       "model": "模型",
       "modelDesc": "4 个基于 LLM 的生成器（自动标签、MOC 维护、记忆转笔记、资料冲突）共用此配置。",
-      "modelDefault": "跟随自动化默认链",
-      "errors": {
-        "load": "加载自主维护设置失败",
-        "save": "保存自主维护设置失败",
-        "runNow": "运行自主维护失败",
-        "detail": "详细信息：{{error}}"
-      }
+      "modelDefault": "跟随自动化默认链"
     },
     "knowledgeMediaRetention": {
       "saved": "已保存",
@@ -4903,33 +5061,13 @@
     "memoryAutoExtract": "自动提取记忆",
     "memoryAutoExtractDesc": "对话过程中当 Token / 时间 / 消息数达到阈值时自动提取记忆",
     "memoryBudget": {
+      "advancedAllocation": "高级作用域分配",
       "agentOverrideDesc": "默认继承全局记忆预算。关闭下方开关以为当前 Agent 定制独立预算。",
+      "contextWindow": "当前默认模型上下文：{{count}} tokens",
+      "coreSimpleDesc": "只需选择一个 Core Memory 总预算。各作用域可以借用未使用额度，优先级为 Project > Agent > Global。",
       "coreMemoryFileChars": "MEMORY.md 单层上限",
       "coreMemoryFileCharsDesc": "Global / Agent 每个 MEMORY.md 独立上限。超出的部分截断显示,完整内容仍在磁盘。默认 8000。",
       "desc": "限制系统提示词中记忆部分（Global MEMORY.md / Agent MEMORY.md / SQLite 记忆 / 使用指南）的总字符数,以及内部各层独立上限。降低 total 可以让更多预算留给对话上下文。",
-      "resetToDefaults": "恢复默认值",
-      "sections": {
-        "aboutUser": "关于用户",
-        "preferences": "偏好",
-        "projectContext": "项目上下文",
-        "references": "参考资料",
-        "userProfile": "用户画像"
-      },
-      "sqliteEntryMaxChars": "单条记忆字符上限",
-      "sqliteEntryMaxCharsDesc": "SQLite 记忆条目渲染时的首行字符上限,避免单条长记忆挤占同节其他条目。默认 500。",
-      "sqliteSectionsTitle": "SQLite 各节预算",
-      "title": "记忆预算",
-      "totalChars": "总字符上限",
-      "totalCharsDesc": "整段 Memory 的硬上限（字符）。Guidelines 优先保留,其余层按优先级依次消费。默认 10000。",
-      "useGlobalDefault": "继承全局默认",
-      "errors": {
-        "load": "加载记忆预算失败",
-        "save": "保存记忆预算失败",
-        "detail": "详细信息：{{error}}"
-      },
-      "advancedAllocation": "高级作用域分配",
-      "contextWindow": "当前默认模型上下文：{{count}} tokens",
-      "coreSimpleDesc": "只需选择一个 Core Memory 总预算。各作用域可以借用未使用额度，优先级为 Project > Agent > Global。",
       "engine": {
         "agentTokens": "Agent Token",
         "budgetTokens": "预算 Token",
@@ -4949,13 +5087,33 @@
       "legacyTitle": "旧版回滚预算",
       "legacyDesc": "这些字符预算只用于旧版静态记忆路径，并在兼容窗口内继续保留可编辑入口。",
       "effective": "配置 {{configured}} · 本轮有效 {{effective}} tokens",
+      "errors": {
+        "load": "加载记忆预算失败",
+        "save": "保存记忆预算失败",
+        "detail": "详细信息：{{error}}"
+      },
+      "resetToDefaults": "恢复默认值",
       "highBudgetWarning": "已超过推荐的 2400 tokens。系统允许保存，但会增加每轮稳定上下文、缓存写入量和首字延迟。",
       "modelLimited": "已配置 {{configured}} tokens；当前模型安全使用 {{effective}}。保存的偏好不会被改写。",
       "presets": {
         "balanced": "平衡",
         "concise": "精简",
         "rich": "丰富"
-      }
+      },
+      "sections": {
+        "aboutUser": "关于用户",
+        "preferences": "偏好",
+        "projectContext": "项目上下文",
+        "references": "参考资料",
+        "userProfile": "用户画像"
+      },
+      "sqliteEntryMaxChars": "单条记忆字符上限",
+      "sqliteEntryMaxCharsDesc": "SQLite 记忆条目渲染时的首行字符上限,避免单条长记忆挤占同节其他条目。默认 500。",
+      "sqliteSectionsTitle": "SQLite 各节预算",
+      "title": "记忆预算",
+      "totalChars": "总字符上限",
+      "totalCharsDesc": "整段 Memory 的硬上限（字符）。Guidelines 优先保留,其余层按优先级依次消费。默认 10000。",
+      "useGlobalDefault": "继承全局默认"
     },
     "memoryContent": "内容",
     "memoryContentPlaceholder": "AI 应该记住什么？",
@@ -5046,8 +5204,89 @@
     "memorySelectionThreshold": "触发阈值",
     "memorySelectionThresholdDesc": "候选数达到此值才触发，默认 8",
     "memorySimilarity": "相似度",
+    "agentMemoryEnabledTitle": "此 Agent 使用记忆",
+    "agentMemoryEnabledDesc": "控制此 Agent 的常驻记忆、按需回忆、自动学习和记忆工具；全局记忆设置仍是上层总开关。",
     "memoryStatsTotal": "共 {{count}} 条",
     "memoryStatsVec": "向量 {{pct}}%",
+    "memoryV2": {
+      "title": "记忆",
+      "subtitle": "只需决定长期记住什么、何时按需回忆，以及是否自动学习。",
+      "loadFailed": "加载记忆设置失败",
+      "saveFailed": "保存记忆设置失败",
+      "core": {
+        "title": "常驻记忆",
+        "desc": "Global、Agent 和项目的简短 MEMORY.md 会稳定进入会话；主题详情仅在需要时加载。",
+        "budget": "总预算 {{count}} tokens",
+        "manage": "编辑 MEMORY.md",
+        "projectTitle": "项目 MEMORY.md",
+        "projectDesc": "仅当前项目会话使用的简短常驻记忆。",
+        "conflict": "规范的大写文件与旧版小写兼容文件都发生了修改。请先在记忆中心选择或合并内容。",
+        "conflictCanonical": "规范的大写 MEMORY.md",
+        "conflictLegacy": "旧版小写 memory.md",
+        "conflictMerged": "合并结果（以规范文件为基础）",
+        "conflictKeepCanonical": "保留 MEMORY.md",
+        "conflictKeepLegacy": "保留旧版文件",
+        "conflictSaveMerged": "保存合并结果",
+        "conflictLoadFailed": "无法加载发生冲突的核心记忆文件",
+        "conflictResolveFailed": "无法解决核心记忆冲突，请重新加载后再试。",
+        "conflictResolved": "核心记忆冲突已解决",
+        "actualTokens": "当前范围 {{used}} / {{total}} Token",
+        "stats": "{{entries}} 条索引 · {{topics}} 个主题",
+        "updatedAt": "更新于 {{value}}",
+        "neverUpdated": "尚未写入",
+        "scope": "记忆范围",
+        "projectLabel": "项目",
+        "topics": "按需主题",
+        "noTopics": "还没有主题文件",
+        "selectTopic": "选择一个主题，或新建主题",
+        "topicName": "主题名称",
+        "topicDesc": "一句话说明何时读取",
+        "topicContent": "主题详情（仅在需要时加载）",
+        "topicLoadFailed": "加载记忆主题失败",
+        "topicSaveFailed": "保存记忆主题失败",
+        "topicDeleteConfirm": "确定删除这个记忆主题吗？",
+        "topicDeleteFailed": "删除记忆主题失败"
+      },
+      "recall": {
+        "title": "动态记忆召回",
+        "desc": "默认关闭。关闭时，除非某个 Agent 明确启用了兼容召回，否则只自动使用常驻核心记忆；模型仍可在任务需要时调用记忆工具检索。开启后，系统会在收到每条用户消息后、生成回答前自动检索相关动态记忆。",
+        "fast": "自动召回相关记忆",
+        "deep": "深度重排（可选）",
+        "skip": "已跳过",
+        "deepCost": "深度重排会增加一次模型调用，回复更慢并消耗更多 token；仅在已开启自动召回且确实需要时使用。",
+        "last": "最近回忆：命中 {{selected}}/{{candidates}} 条 · {{latency}} ms · {{mode}}",
+        "noRecent": "本次启动后还没有执行过自动动态召回。"
+      },
+      "learning": {
+        "title": "自动学习",
+        "desc": "控制对话中的新信息是否自动沉淀；使用已有记忆不受此选项影响。",
+        "mode": "学习模式",
+        "smart": "智能学习",
+        "reviewFirst": "先审核后保存",
+        "manual": "仅手动保存",
+        "pending": "待审核 {{count}} 条",
+        "unassigned": "未归属 {{count}} 条"
+      },
+      "review": {
+        "title": "待审核记忆",
+        "desc": "{{count}} 条候选尚未进入长期记忆或 Prompt。",
+        "empty": "没有待审核内容",
+        "chooseScope": "选择保存范围",
+        "approve": "确认保存",
+        "reject": "不保存",
+        "loadFailed": "加载待审核记忆失败",
+        "approveFailed": "保存待审核记忆失败",
+        "rejectFailed": "忽略待审核记忆失败",
+        "reason": {
+          "review_first": "学习模式要求先审核",
+          "project_scope_missing": "像项目记忆，但当前会话没有项目",
+          "scope_uncertain": "无法确定保存范围",
+          "sensitive": "可能包含敏感信息",
+          "conflict": "与现有记忆冲突",
+          "core_promotion": "建议提升为常驻记忆"
+        }
+      }
+    },
     "memoryTabs": {
       "dreaming": "梦境（Dreaming）",
       "manage": "记忆管理",
@@ -5313,11 +5552,11 @@
       "refreshFailed": "合成画像失败",
       "empty": "暂无画像快照",
       "emptyHint": "在「梦境」标签页开启画像合成，然后刷新。",
-      "version": "v{{version}}",
       "noSources": "这份旧画像快照还没有可追溯来源。刷新画像后会生成可点击的结构化记忆来源。",
       "scopeSources": "快照级来源",
       "sourceConfidence": "可信度 {{value}}",
       "sourceEvidence": "证据：{{quote}}",
+      "version": "v{{version}}",
       "operationErrors": {
         "openEvidenceSource": "打开画像证据来源失败",
         "refresh": "合成画像失败",
@@ -5701,8 +5940,8 @@
       "skillCount_one": "{{count}} 个 skill",
       "skillCount_other": "{{count}} 个 skill",
       "tooltip": {
-        "distinguishOnboarding": "如要迁移老 OpenClaw 用户数据，请使用第 2 步『Import OpenClaw』。",
-        "distinguishUserDataImport": "如要迁移旧版 OpenClaw 用户数据，请前往“设置 → Agents → 从 OpenClaw 导入”。"
+        "distinguishUserDataImport": "如要迁移旧版 OpenClaw 用户数据，请前往“设置 → Agents → 从 OpenClaw 导入”。",
+        "distinguishOnboarding": "如要迁移老 OpenClaw 用户数据，请使用第 2 步『Import OpenClaw』。"
       },
       "warning": {
         "openclaw": "OpenClaw 多数 skill 依赖外部 CLI（gh、1password、tmux 等），未安装时调用会失败。",
@@ -5755,15 +5994,15 @@
         "memory": "记忆召回",
         "awareness": "跨会话感知"
       },
-      "model": "模型",
-      "modelDesc": "精灵的建议调用是即发即弃——用完整的降级链没问题，不必只给单个模型。",
-      "modelDefault": "跟随自动化默认链",
       "errors": {
         "load": "加载精灵设置失败",
         "save": "保存精灵设置失败",
         "toggle": "更新精灵模式失败",
         "detail": "详细信息：{{error}}"
-      }
+      },
+      "model": "模型",
+      "modelDesc": "精灵的建议调用是即发即弃——用完整的降级链没问题，不必只给单个模型。",
+      "modelDefault": "跟随自动化默认链"
     },
     "ssrfBrowserPolicyDesc": "page.goto / new_page 的目标 URL 检查。注意：browser.evaluate 中 JS fetch 不在本拦截范围。",
     "ssrfDefaultPolicy": "默认策略",
@@ -6125,49 +6364,10 @@
     "uiEffects": "背景动画",
     "uiEffectsDesc": "启用全天候背景和天气效果联动",
     "uiEffectsToggle": "开启效果",
-    "audioGenerate": "音频生成",
-    "audioGenerateDesc": "配置音频合成 Provider（BYOK），用于设计空间「音频」形态：语音旁白 / 音乐 / 音效。按顺序 failover。",
-    "audioGenNoProvider": "尚未配置音频 Provider — 启用其一并填入 API Key。",
-    "audioGenApiKey": "API Key",
-    "audioGenModel": "模型",
-    "audioGenVoice": "语音 (TTS)",
-    "audioGenBaseUrl": "Base URL",
-    "audioGenTimeout": "请求超时（秒）",
-    "audioGenFetchVoices": "拉取语音",
-    "audioGenKnownModels": "已知模型",
-    "audioGenPickVoice": "从列表选择…",
     "visionBridgeModel": "视觉桥模型",
     "visionBridgeModelDesc": "仅当主模型不支持看图时生效。用一个单独的模型把图片转成文字描述，让对话继续。",
     "visionBridgeModelClear": "关闭视觉桥",
     "selectVisionBridgeModel": "选择视觉模型",
-    "modelChainRestoreInherit": "恢复为继承的默认值",
-    "automationModelChain": "自动化默认模型",
-    "automationModelChainDesc": "用于 Recap、Dreaming、资料整理等后台一次性 AI 任务的默认模型链（含降级），与上方的聊天默认模型相互独立；未设置时跟随聊天默认模型。",
-    "automationModelChainInherit": "跟随聊天默认模型",
-    "knowledgeVision": {
-      "model": "视觉模型",
-      "modelDesc": "导入知识空间时用于给图片做 OCR 的模型链。留空则跟随自动化默认链。",
-      "modelDefault": "跟随自动化默认链",
-      "ocrConcurrency": "扫描版 PDF OCR 并发数",
-      "maxOcrPages": "扫描版 PDF OCR 页数上限"
-    },
-    "noteTools": {
-      "title": "笔记工具模型",
-      "desc": "笔记提炼、MOC 生成、会话转笔记三个工具共用的模型。",
-      "modelDefault": "跟随自动化默认链"
-    },
-    "recallSummary": {
-      "title": "召回摘要",
-      "desc": "当 recall_memory / session_search 返回较多命中时，额外走一次 LLM 调用把它们压缩成一段简洁摘要，而不是返回原始片段。默认关闭——每次符合条件的检索会多花一次调用。",
-      "enabled": "启用摘要",
-      "minHits": "触发所需最小命中数",
-      "contextCharBudget": "上下文预算（字符）",
-      "timeoutSecs": "超时时间（秒）",
-      "maxTokens": "最大输出 token 数",
-      "includeHistory": "同时摘要对话历史命中",
-      "model": "模型",
-      "modelDefault": "跟随自动化默认链"
-    },
     "activeMemoryUseRecommended": "使用推荐档",
     "procedureMemoryTitle": "保存的流程",
     "procedureMemoryDesc": "在回复前将相关保存流程作为有界软指导使用。",
@@ -6355,13 +6555,13 @@
       "load": "加载外部记忆 提供方 失败",
       "save": "保存外部记忆 提供方 失败",
       "preflight": "加载外部记忆 提供方 预检失败",
+      "copyPreflightDiagnostics": "复制外部记忆 提供方 预检失败",
+      "detail": "详细信息：{{error}}",
       "sync": "运行外部记忆 提供方 同步失败",
       "loadCredentials": "加载外部记忆 提供方 连接失败",
       "saveCredentials": "保存外部记忆 提供方 连接失败",
       "clearCredentials": "清除外部记忆 提供方 连接失败",
-      "copyPreflightDiagnostics": "复制外部记忆 提供方 预检失败",
-      "copySyncDiagnostics": "复制外部记忆 提供方 同步报告失败",
-      "detail": "详细信息：{{error}}"
+      "copySyncDiagnostics": "复制外部记忆 提供方 同步报告失败"
     },
     "memoryExternalProviderPreflightTitle": "同步预检",
     "memoryExternalProviderPreflightSummary": "预检：{{ready}} 个将同步 / {{blocked}} 个阻塞 · {{total}} 条本地记忆",
@@ -6373,41 +6573,6 @@
     "memoryExternalProviderPreflightRefresh": "刷新",
     "memoryExternalProviderPreflightCopy": "复制报告",
     "memoryExternalProviderPreflightPlan": "预检：{{action}} · 计划 {{planned}} → 运行时 {{runtime}} · 本地候选 {{count}}",
-    "memoryExternalProviderSyncReportTitle": "同步报告",
-    "memoryExternalProviderSyncReportSummary": "上次运行：已执行 {{executed}} / 已阻塞 {{blocked}} · 外部 IO {{io}}",
-    "memoryExternalProviderSyncReportLoading": "正在同步…",
-    "memoryExternalProviderSyncReportEmpty": "运行同步后生成执行报告。",
-    "memoryExternalProviderSyncReportSaveHint": "请先保存更改，再按当前生效配置运行。",
-    "memoryExternalProviderSyncReportCopy": "复制报告",
-    "memoryExternalProviderSyncReportRun": "运行同步",
-    "memoryExternalProviderSyncReportNoIo": "未执行外部 IO。提供方可能被阻塞、已关闭，或没有变化的记录。",
-    "memoryExternalProviderSyncResult": "同步报告：{{status}} · 外部 IO {{io}} · 导入 {{imported}} / 导出 {{exported}} / 更新 {{updated}}",
-    "memoryExternalProviderSyncResultError": " · {{error}}",
-    "memoryExternalProviderConnection": "提供方连接",
-    "memoryExternalProviderConnectionReady": "已通过 {{source}} 配置 · {{origin}}",
-    "memoryExternalProviderConnectionEmpty": "凭据单独存储，并使用受限文件权限保护。",
-    "memoryExternalProviderConnectionSaved": "连接已保存",
-    "memoryExternalProviderConnectionCleared": "连接已清除",
-    "memoryExternalProviderEndpoint": "端点",
-    "memoryExternalProviderEndpointKeep": "已存储：{{origin}} · 留空则保持不变",
-    "memoryExternalProviderSubjectId": "远端作用域 ID",
-    "memoryExternalProviderSubjectHint": "{{scope}}，用于隔离这条连接的数据。",
-    "memoryExternalProviderScopeMem0": "用户 ID",
-    "memoryExternalProviderScopeZep": "Graphiti 分组 ID",
-    "memoryExternalProviderScopeSupermemory": "容器标签",
-    "memoryExternalProviderScopeHoncho": "工作区 ID",
-    "memoryExternalProviderScopeHindsight": "记忆库 ID",
-    "memoryExternalProviderScopeOpenViking": "同步会话前缀",
-    "memoryExternalProviderScopeCustom": "主体 ID",
-    "memoryExternalProviderProtocol": "协议",
-    "memoryExternalProviderApiKey": "API 密钥",
-    "memoryExternalProviderApiKeyKeep": "已存储 · 留空则保持不变",
-    "memoryExternalProviderApiKeyOptional": "Mem0 Platform 必填；本地 OSS 可选",
-    "memoryExternalProviderApiKeyRequired": "Supermemory Cloud 和自托管端点均必填",
-    "memoryExternalProviderApiKeyGeneric": "云端服务通常需要密钥；本地服务关闭鉴权时可以留空。",
-    "memoryExternalProviderConnectionSaveConfigFirst": "请先保存提供方配置，再修改连接。",
-    "memoryExternalProviderConnectionClear": "清除连接",
-    "memoryExternalProviderConnectionSave": "保存连接",
     "memoryExternalProviderMoreBlockReasons": "+{{count}} 个更多原因在健康报告中",
     "memoryExternalProviderLastSync": "上次同步：{{value}}",
     "memoryExternalProviderNeverSynced": "从未同步",
@@ -6999,7 +7164,77 @@
     "reasoningEffort": "思考强度",
     "memoryAuditScopeHintAll": "全部变更会同时搜索长期记忆、流程历史和结构化记忆决策。",
     "memoryAuditScopeHintMemoryOnly": "具体动作筛选只作用于长期记忆历史；流程历史和结构化记忆决策仍归在全部变更里。",
+    "memoryExternalProviderSyncReportTitle": "同步报告",
+    "memoryExternalProviderSyncReportSummary": "上次运行：已执行 {{executed}} / 已阻塞 {{blocked}} · 外部 IO {{io}}",
+    "memoryExternalProviderSyncReportLoading": "正在同步…",
+    "memoryExternalProviderSyncReportEmpty": "运行同步后生成执行报告。",
+    "memoryExternalProviderSyncReportSaveHint": "请先保存更改，再按当前生效配置运行。",
+    "memoryExternalProviderSyncReportCopy": "复制报告",
+    "memoryExternalProviderSyncReportRun": "运行同步",
+    "memoryExternalProviderSyncReportNoIo": "未执行外部 IO。提供方可能被阻塞、已关闭，或没有变化的记录。",
+    "memoryExternalProviderSyncResult": "同步报告：{{status}} · 外部 IO {{io}} · 导入 {{imported}} / 导出 {{exported}} / 更新 {{updated}}",
+    "memoryExternalProviderSyncResultError": " · {{error}}",
+    "memoryExternalProviderConnection": "提供方连接",
+    "memoryExternalProviderConnectionReady": "已通过 {{source}} 配置 · {{origin}}",
+    "memoryExternalProviderConnectionEmpty": "凭据单独存储，并使用受限文件权限保护。",
+    "memoryExternalProviderConnectionSaved": "连接已保存",
+    "memoryExternalProviderConnectionCleared": "连接已清除",
+    "memoryExternalProviderEndpoint": "端点",
+    "memoryExternalProviderEndpointKeep": "已存储：{{origin}} · 留空则保持不变",
+    "memoryExternalProviderSubjectId": "远端作用域 ID",
+    "memoryExternalProviderSubjectHint": "{{scope}}，用于隔离这条连接的数据。",
+    "memoryExternalProviderScopeMem0": "用户 ID",
+    "memoryExternalProviderScopeZep": "Graphiti 分组 ID",
+    "memoryExternalProviderScopeSupermemory": "容器标签",
+    "memoryExternalProviderScopeHoncho": "工作区 ID",
+    "memoryExternalProviderScopeHindsight": "记忆库 ID",
+    "memoryExternalProviderScopeOpenViking": "同步会话前缀",
+    "memoryExternalProviderScopeCustom": "主体 ID",
+    "memoryExternalProviderProtocol": "协议",
+    "memoryExternalProviderApiKey": "API 密钥",
+    "memoryExternalProviderApiKeyKeep": "已存储 · 留空则保持不变",
+    "memoryExternalProviderApiKeyOptional": "Mem0 Platform 必填；本地 OSS 可选",
+    "memoryExternalProviderConnectionSaveConfigFirst": "请先保存提供方配置，再修改连接。",
+    "memoryExternalProviderConnectionClear": "清除连接",
+    "memoryExternalProviderConnectionSave": "保存连接",
+    "memoryExternalProviderApiKeyRequired": "Supermemory Cloud 和自托管端点均必填",
+    "memoryExternalProviderApiKeyGeneric": "云端服务通常需要密钥；本地服务关闭鉴权时可以留空。",
+    "modelChainRestoreInherit": "恢复为继承的默认值",
+    "automationModelChain": "自动化默认模型",
+    "automationModelChainDesc": "用于 Recap、Dreaming、资料整理等后台一次性 AI 任务的默认模型链（含降级），与上方的聊天默认模型相互独立；未设置时跟随聊天默认模型。",
+    "automationModelChainInherit": "跟随聊天默认模型",
+    "knowledgeVision": {
+      "model": "视觉模型",
+      "modelDesc": "导入知识空间时用于给图片做 OCR 的模型链。留空则跟随自动化默认链。",
+      "modelDefault": "跟随自动化默认链",
+      "ocrConcurrency": "扫描版 PDF OCR 并发数",
+      "maxOcrPages": "扫描版 PDF OCR 页数上限"
+    },
+    "noteTools": {
+      "title": "笔记工具模型",
+      "desc": "笔记提炼、MOC 生成、会话转笔记三个工具共用的模型。",
+      "modelDefault": "跟随自动化默认链"
+    },
+    "recallSummary": {
+      "title": "召回摘要",
+      "desc": "当 recall_memory / session_search 返回较多命中时，额外走一次 LLM 调用把它们压缩成一段简洁摘要，而不是返回原始片段。默认关闭——每次符合条件的检索会多花一次调用。",
+      "enabled": "启用摘要",
+      "minHits": "触发所需最小命中数",
+      "contextCharBudget": "上下文预算（字符）",
+      "timeoutSecs": "超时时间（秒）",
+      "maxTokens": "最大输出 token 数",
+      "includeHistory": "同时摘要对话历史命中",
+      "model": "模型",
+      "modelDefault": "跟随自动化默认链"
+    },
     "tabOverview": "概览",
+    "memoryBackupExportSummary": "记忆：{{memories}} · 声明：{{claims}} · 用户画像：{{profiles}} · 经历：{{episodes}} · 工作流：{{procedures}}",
+    "memoryBackupOpenReviewInboxAfterRestore": "待审核的已恢复内容：{{count}}",
+    "memoryExperienceSearchActive": "“{{query}}”的匹配结果：{{total}}",
+    "memoryExperienceViewActive": "经历条目：{{total}}",
+    "memoryExternalProvidersActive": "活跃提供方：{{active}}/{{total}}",
+    "memoryExternalProvidersActiveSummary": "活跃：{{active}} · 已配置：{{total}}",
+    "memoryProcedureSourceEpisode": "经历：{{id}}",
     "memoryExternalProviders": "外部记忆提供方",
     "memoryExternalProvidersDesc": "可选的加法式外部记忆提供方。本地记忆仍是真相源；只有你明确配置并启用后才会连接。",
     "memoryExternalProvidersGlobal": "启用提供方同步",
@@ -7116,94 +7351,17 @@
     "memoryProcedureStepsPlaceholder": "- 检查失败的检查项\n- 套用已知修复\n- 重新运行窄范围验证",
     "memoryProcedureConstraintsPlaceholder": "什么时候不应使用此流程",
     "memoryProcedureConfidence": "可信度",
-    "agentMemoryEnabledTitle": "此 Agent 使用记忆",
-    "agentMemoryEnabledDesc": "控制此 Agent 的常驻记忆、按需回忆、自动学习和记忆工具；全局记忆设置仍是上层总开关。",
-    "memoryV2": {
-      "title": "记忆",
-      "subtitle": "只需决定长期记住什么、何时按需回忆，以及是否自动学习。",
-      "loadFailed": "加载记忆设置失败",
-      "saveFailed": "保存记忆设置失败",
-      "core": {
-        "title": "常驻记忆",
-        "desc": "Global、Agent 和项目的简短 MEMORY.md 会稳定进入会话；主题详情仅在需要时加载。",
-        "budget": "总预算 {{count}} tokens",
-        "manage": "编辑 MEMORY.md",
-        "projectTitle": "项目 MEMORY.md",
-        "projectDesc": "仅当前项目会话使用的简短常驻记忆。",
-        "conflict": "规范的大写文件与旧版小写兼容文件都发生了修改。请先在记忆中心选择或合并内容。",
-        "conflictCanonical": "规范的大写 MEMORY.md",
-        "conflictLegacy": "旧版小写 memory.md",
-        "conflictMerged": "合并结果（以规范文件为基础）",
-        "conflictKeepCanonical": "保留 MEMORY.md",
-        "conflictKeepLegacy": "保留旧版文件",
-        "conflictSaveMerged": "保存合并结果",
-        "conflictLoadFailed": "无法加载发生冲突的核心记忆文件",
-        "conflictResolveFailed": "无法解决核心记忆冲突，请重新加载后再试。",
-        "conflictResolved": "核心记忆冲突已解决",
-        "actualTokens": "当前范围 {{used}} / {{total}} Token",
-        "stats": "{{entries}} 条索引 · {{topics}} 个主题",
-        "updatedAt": "更新于 {{value}}",
-        "neverUpdated": "尚未写入",
-        "scope": "记忆范围",
-        "projectLabel": "项目",
-        "topics": "按需主题",
-        "noTopics": "还没有主题文件",
-        "selectTopic": "选择一个主题，或新建主题",
-        "topicName": "主题名称",
-        "topicDesc": "一句话说明何时读取",
-        "topicContent": "主题详情（仅在需要时加载）",
-        "topicLoadFailed": "加载记忆主题失败",
-        "topicSaveFailed": "保存记忆主题失败",
-        "topicDeleteConfirm": "确定删除这个记忆主题吗？",
-        "topicDeleteFailed": "删除记忆主题失败"
-      },
-      "recall": {
-        "title": "动态记忆召回",
-        "desc": "默认关闭。关闭时，除非某个 Agent 明确启用了兼容召回，否则只自动使用常驻核心记忆；模型仍可在任务需要时调用记忆工具检索。开启后，系统会在收到每条用户消息后、生成回答前自动检索相关动态记忆。",
-        "fast": "自动召回相关记忆",
-        "deep": "深度重排（可选）",
-        "skip": "已跳过",
-        "deepCost": "深度重排会增加一次模型调用，回复更慢并消耗更多 token；仅在已开启自动召回且确实需要时使用。",
-        "last": "最近回忆：命中 {{selected}}/{{candidates}} 条 · {{latency}} ms · {{mode}}",
-        "noRecent": "本次启动后还没有执行过自动动态召回。"
-      },
-      "learning": {
-        "title": "自动学习",
-        "desc": "控制对话中的新信息是否自动沉淀；使用已有记忆不受此选项影响。",
-        "mode": "学习模式",
-        "smart": "智能学习",
-        "reviewFirst": "先审核后保存",
-        "manual": "仅手动保存",
-        "pending": "待审核 {{count}} 条",
-        "unassigned": "未归属 {{count}} 条"
-      },
-      "review": {
-        "title": "待审核记忆",
-        "desc": "{{count}} 条候选尚未进入长期记忆或 Prompt。",
-        "empty": "没有待审核内容",
-        "chooseScope": "选择保存范围",
-        "approve": "确认保存",
-        "reject": "不保存",
-        "loadFailed": "加载待审核记忆失败",
-        "approveFailed": "保存待审核记忆失败",
-        "rejectFailed": "忽略待审核记忆失败",
-        "reason": {
-          "review_first": "学习模式要求先审核",
-          "project_scope_missing": "像项目记忆，但当前会话没有项目",
-          "scope_uncertain": "无法确定保存范围",
-          "sensitive": "可能包含敏感信息",
-          "conflict": "与现有记忆冲突",
-          "core_promotion": "建议提升为常驻记忆"
-        }
-      }
-    },
-    "memoryBackupExportSummary": "记忆：{{memories}} · 声明：{{claims}} · 用户画像：{{profiles}} · 经历：{{episodes}} · 工作流：{{procedures}}",
-    "memoryBackupOpenReviewInboxAfterRestore": "待审核的已恢复内容：{{count}}",
-    "memoryExperienceSearchActive": "“{{query}}”的匹配结果：{{total}}",
-    "memoryExperienceViewActive": "经历条目：{{total}}",
-    "memoryExternalProvidersActive": "活跃提供方：{{active}}/{{total}}",
-    "memoryExternalProvidersActiveSummary": "活跃：{{active}} · 已配置：{{total}}",
-    "memoryProcedureSourceEpisode": "经历：{{id}}"
+    "audioGenerate": "音频生成",
+    "audioGenerateDesc": "配置音频合成 Provider（BYOK），用于设计空间「音频」形态：语音旁白 / 音乐 / 音效。按顺序 failover。",
+    "audioGenNoProvider": "尚未配置音频 Provider — 启用其一并填入 API Key。",
+    "audioGenApiKey": "API Key",
+    "audioGenModel": "模型",
+    "audioGenVoice": "语音 (TTS)",
+    "audioGenBaseUrl": "Base URL",
+    "audioGenTimeout": "请求超时（秒）",
+    "audioGenFetchVoices": "拉取语音",
+    "audioGenKnownModels": "已知模型",
+    "audioGenPickVoice": "从列表选择…"
   },
   "shortcuts": {
     "actionOpenSettings": "打开设置",
@@ -7264,6 +7422,21 @@
     },
     "context": {
       "description": "查看上下文占用明细"
+    },
+    "workflow": {
+      "description": "开启工作流模式并查看工作流运行"
+    },
+    "goal": {
+      "description": "设置并审计当前会话目标"
+    },
+    "loop": {
+      "description": "按固定间隔重复运行提示词"
+    },
+    "review": {
+      "description": "审查本地代码改动"
+    },
+    "mode": {
+      "description": "设置执行模式"
     },
     "export": {
       "description": "导出为 Markdown"
@@ -7348,21 +7521,6 @@
     },
     "kb": {
       "description": "确认或撤销当前群聊的知识空间访问权限"
-    },
-    "workflow": {
-      "description": "开启工作流模式并查看工作流运行"
-    },
-    "goal": {
-      "description": "设置并审计当前会话目标"
-    },
-    "loop": {
-      "description": "按固定间隔重复运行提示词"
-    },
-    "review": {
-      "description": "审查本地代码改动"
-    },
-    "mode": {
-      "description": "设置执行模式"
     },
     "errors": {
       "noActiveSession": "没有活动会话",
@@ -7709,6 +7867,11 @@
     "openPanel": "打开工作台",
     "resizePanel": "调整工作台面板宽度",
     "sourceFromSearch": "搜索",
+    "sourceFromUser": "用户",
+    "sourceFromAttachment": "附件",
+    "advancedDiagnostics": {
+      "title": "高级诊断"
+    },
     "truncatedNote": "仅显示最近 1000 条",
     "environment": {
       "archived": "已归档",
@@ -7866,23 +8029,6 @@
       "reviewStatus": "审阅状态",
       "reviewers": "审阅者"
     },
-    "action": {
-      "create": "新建",
-      "edit": "修改",
-      "delete": "删除",
-      "read": "读取"
-    },
-    "sectionKnowledge": "知识空间",
-    "emptyKnowledge": "未挂载知识空间",
-    "kbViaProject": "项目",
-    "kbWrote": "写入",
-    "kbRead": "读取",
-    "kbSearchCount": "检索 {{n}} 次",
-    "sourceFromUser": "用户",
-    "sourceFromAttachment": "附件",
-    "advancedDiagnostics": {
-      "title": "高级诊断"
-    },
     "goal": {
       "watchdogTitle": "有目标需要确认",
       "watchdogStaleEvaluatingWithAge": "评估中但没有新进展，已等待 {{age}}",
@@ -8022,6 +8168,18 @@
       "clean": "无本地变更",
       "changed": "{{count}} 个变更"
     },
+    "action": {
+      "create": "新建",
+      "edit": "修改",
+      "delete": "删除",
+      "read": "读取"
+    },
+    "sectionKnowledge": "知识空间",
+    "emptyKnowledge": "未挂载知识空间",
+    "kbViaProject": "项目",
+    "kbWrote": "写入",
+    "kbRead": "读取",
+    "kbSearchCount": "检索 {{n}} 次",
     "loop": {
       "title": "持续推进",
       "stateActive": "运行中",
@@ -9407,6 +9565,9 @@
       "incognitoDisabled": "无痕会话不支持挂载知识空间",
       "needSession": "发送首条消息后即可挂载知识空间",
       "empty": "还没有知识空间，先到「知识空间」中创建。",
+      "loadFailed": "无法加载知识空间",
+      "attachmentsLoadFailed": "无法读取本会话挂载状态",
+      "errorDetail": "详细信息：{{error}}",
       "viaProject": "来自所属项目",
       "noteCount": "{{count}} 篇笔记",
       "read": "读",
@@ -9418,10 +9579,7 @@
       "accessWrite": "读写",
       "accessOffTip": "不挂载,助手无法访问此知识空间",
       "accessReadTip": "助手可搜索和阅读笔记",
-      "accessWriteTip": "助手可读取并修改笔记",
-      "loadFailed": "无法加载知识空间",
-      "attachmentsLoadFailed": "无法读取本会话挂载状态",
-      "errorDetail": "详细信息：{{error}}"
+      "accessWriteTip": "助手可读取并修改笔记"
     },
     "mention": {
       "heading": "知识空间笔记",
@@ -9482,6 +9640,7 @@
       "noHistory": "还没有对话记录。",
       "untitled": "未命名对话",
       "noKb": "打开一个知识空间以开始对话。",
+      "welcome": "基于当前知识空间，提问、整理或创作",
       "messageCount": "{{count}} 条消息",
       "errors": {
         "loadAgents": "无法加载对话 Agent",
@@ -9493,8 +9652,7 @@
         "loadMoreThreads": "无法加载更多对话",
         "loadMoreMessages": "无法加载更早的消息",
         "detail": "详细信息：{{error}}"
-      },
-      "welcome": "基于当前知识空间，提问、整理或创作"
+      }
     },
     "quickRewrite": {
       "title": "快捷改写",
@@ -9504,9 +9662,9 @@
       "regenerate": "重新生成",
       "apply": "应用",
       "failed": "改写失败",
-      "staleSelection": "改写期间选区已变动 —— 请重新选择后再试。",
       "modelLoadFailed": "无法加载改写模型",
-      "errorDetail": "详细信息：{{error}}"
+      "errorDetail": "详细信息：{{error}}",
+      "staleSelection": "改写期间选区已变动 —— 请重新选择后再试。"
     },
     "sprite": {
       "toggle": "精灵模式",
@@ -9514,6 +9672,10 @@
       "toastOn": "精灵模式已开启",
       "toastOnDesc": "停笔片刻时，它会轻声给你一句建议。",
       "toastOff": "精灵模式已关闭",
+      "loadFailed": "无法加载精灵模式",
+      "toggleFailed": "无法更新精灵模式",
+      "observeFailed": "无法让精灵生成建议",
+      "errorDetail": "详细信息：{{error}}",
       "respond": "回应",
       "dismiss": "关闭",
       "category": {
@@ -9522,11 +9684,7 @@
         "encourage": "鼓励",
         "remind": "提醒",
         "connect": "关联"
-      },
-      "loadFailed": "无法加载精灵模式",
-      "toggleFailed": "无法更新精灵模式",
-      "observeFailed": "无法让精灵生成建议",
-      "errorDetail": "详细信息：{{error}}"
+      }
     },
     "deleteNoteTitle": "删除笔记",
     "deleteNoteBody": "确定删除「{{name}}」？该 Markdown 文件将从磁盘移除，此操作不可撤销。",
@@ -9552,6 +9710,32 @@
     "renameMoveFailed": "无法重命名/移动「{{name}}」——可能已存在同名笔记。",
     "linksRewritten": "已更新其他笔记中的 {{count}} 处链接引用。",
     "noteRemovedExternally": "该笔记已在应用外被移除或移动。",
+    "operationErrorDetail": "详细信息：{{error}}",
+    "errors": {
+      "loadSpaces": "无法加载知识空间",
+      "loadNotes": "无法加载笔记",
+      "loadFolders": "无法加载文件夹",
+      "loadTags": "无法加载标签",
+      "searchNotes": "无法搜索笔记",
+      "saveNote": "无法保存笔记",
+      "createSpace": "无法创建知识空间",
+      "createNote": "无法创建笔记",
+      "createLinkedNote": "无法创建链接笔记",
+      "reindexSpace": "无法重建空间索引",
+      "reindexNote": "无法重建笔记索引",
+      "reindexFolder": "无法重建文件夹索引",
+      "deleteNote": "无法删除笔记",
+      "deleteFolder": "无法删除文件夹",
+      "revealNote": "无法在文件夹中显示笔记",
+      "createFolder": "无法创建文件夹",
+      "updateSpace": "无法更新知识空间",
+      "archiveSpace": "无法更新归档状态",
+      "deleteSpace": "无法删除知识空间"
+    },
+    "focusKbUnavailable": "该知识空间已不可用。",
+    "focusNoteUnavailable": "无法打开这条知识笔记，可能已被移动或访问权限发生变化。",
+    "focusUnavailableDetail": "详细信息：{{error}}",
+    "focusLocationUnavailable": "已打开笔记，但无法找到精确的来源位置。",
     "moveTo": "移动到…",
     "moveToTitle": "将「{{name}}」移动到…",
     "rootFolder": "根目录",
@@ -9573,11 +9757,17 @@
       "tooltip": "知识空间活动",
       "title": "知识空间活动",
       "empty": "暂无活动",
+      "loadFailed": "无法加载重建任务",
+      "cancelFailed": "无法取消重建任务",
+      "retryFailed": "无法重试重建任务",
+      "clearFailed": "无法清除重建任务",
       "kindReindex": "重建索引（全文）",
       "kindReembed": "重新向量化",
       "fts": "全文索引",
+      "result": "已重建 {{notes}} 篇笔记 · {{kbs}} 个知识空间",
       "emptyHint": "绑定或重建某个空间，或导入文件，进度会显示在这里。",
       "model": "模型：{{name}}",
+      "errorDetail": "详细信息：{{error}}",
       "kindImport": "导入资料",
       "space": "空间：{{name}}",
       "progressFiles": "{{done}} / {{total}} 个文件",
@@ -9592,13 +9782,7 @@
         "failed": "失败",
         "cancelled": "已取消",
         "timed_out": "已超时"
-      },
-      "loadFailed": "无法加载重建任务",
-      "cancelFailed": "无法取消重建任务",
-      "retryFailed": "无法重试重建任务",
-      "clearFailed": "无法清除重建任务",
-      "result": "已重建 {{notes}} 篇笔记 · {{kbs}} 个知识空间",
-      "errorDetail": "详细信息：{{error}}"
+      }
     },
     "maintenance": {
       "tooltip": "维护",
@@ -9612,11 +9796,13 @@
       "runNow": "扫描",
       "runNowTip": "立即扫描生成维护建议",
       "rejectAll": "全部忽略",
+      "rejectAllFailed": "无法忽略全部建议",
       "approve": "应用",
       "reject": "忽略",
       "cycleSkipped": "维护已跳过：{{note}}",
       "cycleDone": "生成了 {{n}} 条建议",
       "runFailed": "维护运行失败",
+      "errorDetail": "详细信息：{{error}}",
       "applyFailed": "应用建议失败",
       "rejectFailed": "忽略建议失败",
       "compileQueued": "已生成整理审阅，请到笔记建议面板查看 diff。",
@@ -9643,9 +9829,7 @@
       "needsReview": "需要审查",
       "rebuildEvidenceTip": "重建派生证据索引",
       "schemaIssues": "架构问题",
-      "staleRefs": "过时的参考文献",
-      "rejectAllFailed": "无法忽略全部建议",
-      "errorDetail": "详细信息：{{error}}"
+      "staleRefs": "过时的参考文献"
     },
     "graph": {
       "toggle": "图谱视图",
@@ -9672,6 +9856,9 @@
     "embeddingOff": "向量检索未开启",
     "embeddingModelTip": "向量模型：{{name}} · 点击进入设置",
     "embeddingOffTip": "向量检索未开启 · 点击进入设置",
+    "embeddingStatusUnavailable": "向量状态不可用",
+    "embeddingStatusUnavailableTip": "向量检索状态不可用 · 点击进入设置",
+    "embeddingStatusErrorDetail": "详细信息：{{error}}",
     "kbRootPick": "选择…",
     "kbRootHint": "留空则创建内部空间。外部库在第一阶段为只读。",
     "kbRootInvalid": "无法选择该文件夹",
@@ -9690,6 +9877,7 @@
       "description": "AI 会从所选资料生成笔记修改建议；写入前你可以先审阅 diff。",
       "empty": "选择一个建议进行审阅",
       "emptyHint": "生成的建议会保留在这里，直到你应用或忽略。",
+      "errorDetail": "详细信息：{{error}}",
       "failed": "资料整理失败",
       "loadFailed": "无法加载资料整理记录",
       "noProposals": "本次运行没有建议。",
@@ -9707,8 +9895,7 @@
       "startFailed": "无法把资料整理成笔记",
       "startSelected": "整理 {{count}} 个",
       "started": "已生成 {{n}} 条笔记建议",
-      "title": "整理资料为笔记",
-      "errorDetail": "详细信息：{{error}}"
+      "title": "整理资料为笔记"
     },
     "sources": {
       "archiveAttachment": "归档到知识空间",
@@ -9734,6 +9921,7 @@
       "diffTruncated": "预览已截断",
       "dismissSimilar": "忽略",
       "downloadOriginal": "下载原件",
+      "downloadOriginalFailed": "无法下载原件",
       "empty": "还没有资料。",
       "evidenceSources": "资料来源",
       "externalRawPath": "外部快照",
@@ -9765,8 +9953,15 @@
       "noSimilarGroups": "没有相似资料分组。",
       "open": "打开",
       "openOriginal": "打开原件",
+      "openOriginalFailed": "无法打开原件",
       "otherKb": "其他空间 {{id}}",
       "readFailed": "无法打开资料",
+      "sourceListFailed": "无法加载资料列表",
+      "sourceRefsFailed": "无法加载资料来源引用",
+      "sourceClaimsFailed": "无法加载资料结论引用",
+      "importRunsListFailed": "无法加载导入历史",
+      "similarGroupsLoadFailed": "无法加载相似资料分组",
+      "sourceErrorDetail": "详细信息：{{error}}",
       "reextract": "重新提取",
       "reextractFailed": "无法重新提取资料",
       "reextracted": "资料已重新提取",
@@ -9841,15 +10036,7 @@
       "ocrFailed": "OCR 失败",
       "ocrRetry": "重试失败页面",
       "ocrRetryStarted": "正在重试失败页面…",
-      "ocrRetryFailed": "无法重试 OCR 页面",
-      "downloadOriginalFailed": "无法下载原件",
-      "openOriginalFailed": "无法打开原件",
-      "sourceListFailed": "无法加载资料列表",
-      "sourceRefsFailed": "无法加载资料来源引用",
-      "sourceClaimsFailed": "无法加载资料结论引用",
-      "importRunsListFailed": "无法加载导入历史",
-      "similarGroupsLoadFailed": "无法加载相似资料分组",
-      "sourceErrorDetail": "详细信息：{{error}}"
+      "ocrRetryFailed": "无法重试 OCR 页面"
     },
     "queryFile": {
       "action": "文件",
@@ -9858,6 +10045,7 @@
       "applyFailed": "无法申请备案",
       "description": "在写作之前创建一个审查差异。",
       "empty": "选择这个答案应该落在哪里。",
+      "errorDetail": "详细信息：{{error}}",
       "generateFailed": "无法创建归档提案",
       "reject": "拒绝",
       "rejected": "归档被放弃",
@@ -9875,8 +10063,7 @@
       "currentNotePlaceholder": "当前笔记路径",
       "openQuestionsPlaceholder": "带开放问题的笔记",
       "mocPlaceholder": "MOCs/Conversation Filings.md",
-      "createNotePlaceholder": "Filed Conversations/example.md",
-      "errorDetail": "详细信息：{{error}}"
+      "createNotePlaceholder": "Filed Conversations/example.md"
     },
     "emptyState": {
       "scanning": "正在扫描这个空间…",
@@ -9884,36 +10071,7 @@
       "emptyExternal": "这个文件夹里还没有 Markdown 笔记。",
       "emptyInternal": "这个空间还是空的。",
       "importFiles": "导入文件"
-    },
-    "operationErrorDetail": "详细信息：{{error}}",
-    "errors": {
-      "loadSpaces": "无法加载知识空间",
-      "loadNotes": "无法加载笔记",
-      "loadFolders": "无法加载文件夹",
-      "loadTags": "无法加载标签",
-      "searchNotes": "无法搜索笔记",
-      "saveNote": "无法保存笔记",
-      "createSpace": "无法创建知识空间",
-      "createNote": "无法创建笔记",
-      "createLinkedNote": "无法创建链接笔记",
-      "reindexSpace": "无法重建空间索引",
-      "reindexNote": "无法重建笔记索引",
-      "reindexFolder": "无法重建文件夹索引",
-      "deleteNote": "无法删除笔记",
-      "deleteFolder": "无法删除文件夹",
-      "revealNote": "无法在文件夹中显示笔记",
-      "createFolder": "无法创建文件夹",
-      "updateSpace": "无法更新知识空间",
-      "archiveSpace": "无法更新归档状态",
-      "deleteSpace": "无法删除知识空间"
-    },
-    "focusKbUnavailable": "该知识空间已不可用。",
-    "focusNoteUnavailable": "无法打开这条知识笔记，可能已被移动或访问权限发生变化。",
-    "focusUnavailableDetail": "详细信息：{{error}}",
-    "focusLocationUnavailable": "已打开笔记，但无法找到精确的来源位置。",
-    "embeddingStatusUnavailable": "向量状态不可用",
-    "embeddingStatusUnavailableTip": "向量检索状态不可用 · 点击进入设置",
-    "embeddingStatusErrorDetail": "详细信息：{{error}}"
+    }
   },
   "backgroundJobs": {
     "panelTitle": "后台任务",
@@ -9959,6 +10117,9 @@
   },
   "macControl": {
     "panelTitle": "苹果电脑控制"
+  },
+  "memory": {
+    "activeRecallToastTitle": "已引用记忆"
   },
   "design": {
     "title": "设计空间",
@@ -10678,19 +10839,50 @@
       "chatPrompt": "实现代码相对设计稿已变化，请根据引用的代码变更更新当前设计稿，保持设计意图与其余内容不变。"
     }
   },
-  "agentLifecycle": {
-    "activeWorkBlocked": "仍有 {{count}} 个 Agent 任务在运行，暂时不能删除。",
-    "deleteDescription": "路由引用将迁移到替代 Agent；历史会话和结构化记忆会保留，Agent 文件会移入可恢复的回收站。",
-    "deleteTitle": "安全删除 Agent",
-    "disabled": "已禁用",
-    "enabled": "已启用",
-    "history": "历史会话",
-    "memories": "保留的记忆",
-    "replacement": "替代 Agent",
-    "retentionNotice": "操作前会创建配置备份。Agent 配置、Home 和 Plan 只会移入回收站，不会立即永久擦除。",
-    "routes": "路由引用"
-  },
-  "memory": {
-    "activeRecallToastTitle": "已引用记忆"
+  "artifacts": {
+    "title": "产物",
+    "subtitle": "版本化管理本地报告、仪表盘和解读",
+    "loadFailed": "加载产物失败",
+    "verifyPassed": "验证通过",
+    "verifyFailed": "验证发现阻塞项",
+    "exportUnavailable": "当前无法导出",
+    "exportReady": "产物已导出",
+    "restoreReady": "已恢复为新版本",
+    "archiveConfirm": "归档这个产物？",
+    "deleteConfirm": "永久删除这个产物及其全部版本？",
+    "search": "搜索标题、项目或智能体",
+    "allKinds": "全部类型",
+    "active": "使用中",
+    "archived": "已归档",
+    "allStates": "全部状态",
+    "empty": "没有找到产物",
+    "selectHint": "选择一个产物查看详情",
+    "sources": "个来源",
+    "verify": "验证",
+    "export": "导出",
+    "archive": "归档",
+    "delete": "删除",
+    "deliveryStatus": "交付状态",
+    "privacy": "隐私",
+    "analysisStatus": "分析",
+    "verification": "验证",
+    "sourceContext": "来源与质量",
+    "qualityChecks": "质量检查",
+    "noSources": "未记录规范来源",
+    "contentMode": "内容",
+    "executable": "可执行",
+    "static": "静态",
+    "versionHistory": "版本历史",
+    "current": "当前版本",
+    "restore": "恢复",
+    "exportReview": "导出复核",
+    "exportReviewHint": "可分享、敏感、私有来源或连接器来源的交付包必须先复核。",
+    "audiencePlaceholder": "预期接收者",
+    "audienceRequired": "请输入预期接收者",
+    "redactionConfirm": "确认已针对该接收者复核敏感字段和所含来源？",
+    "confirmRedaction": "确认脱敏并复核",
+    "exportReviewPassed": "导出复核已通过",
+    "exportReviewBlocked": "导出复核仍有阻塞项",
+    "guardStatus": "门禁"
   }
 }

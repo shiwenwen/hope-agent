@@ -6,8 +6,10 @@ import { save } from "@tauri-apps/plugin-dialog"
 import { useTranslation } from "react-i18next"
 import { logger } from "@/lib/logger"
 import type { SettingsSection } from "@/components/settings/types"
+import { requestMemoryFocus } from "@/components/settings/memory-panel/memoryFocus"
 import { BrowserExtensionNudge } from "./BrowserExtensionNudge"
 import { useViewportMediaQuery } from "@/hooks/useViewportMediaQuery"
+import { useReadableSurface } from "@/hooks/useReadableSurface"
 import { cn } from "@/lib/utils"
 import {
   Brain,
@@ -114,7 +116,7 @@ import { DiffPanel } from "./diff-panel/DiffPanel"
 import { useFilePreview } from "./files/useFilePreview"
 import FilePreviewPanel from "./files/FilePreviewPanel"
 import { FileActionsContext, type FileActionsContextValue } from "./files/fileActionsContext"
-import WorkspacePanel from "./workspace/WorkspacePanel"
+import WorkspacePanel, { type WorkspaceFocusRequest } from "./workspace/WorkspacePanel"
 import { PullRequestPanel } from "./workspace/PullRequestPanel"
 import BackgroundJobsPanel from "./background-jobs/BackgroundJobsPanel"
 import { decideBackgroundJobsAutoOpen } from "./background-jobs/autoOpenPolicy"
@@ -195,11 +197,15 @@ type IncognitoLeaveIntent =
   | { type: "newProjectChat"; projectId: string; defaultAgentId?: string | null }
 
 interface ChatScreenProps {
+  /** Chat stays mounted across App views; only a selected view can read messages. */
+  isViewVisible: boolean
   onOpenAgentSettings?: (agentId: string) => void
   onCodexReauth?: () => void
   initialSessionId?: string
   onSessionNavigated?: () => void
   onUnreadCountChange?: (count: number) => void
+  /** Incremented when the already-active Conversations icon is clicked. */
+  unreadFocusSignal?: number
   onOpenDashboardTab?: (tab: string, initialReportId?: string | null) => void
   sessionsRefreshTrigger?: number
   onCurrentProjectChange?: (projectId: string | null) => void
@@ -565,11 +571,13 @@ function upsertManualCompactNotice(
 }
 
 export default function ChatScreen({
+  isViewVisible,
   onOpenAgentSettings,
   onCodexReauth,
   initialSessionId,
   onSessionNavigated,
   onUnreadCountChange,
+  unreadFocusSignal,
   onOpenDashboardTab,
   sessionsRefreshTrigger,
   onCurrentProjectChange,
@@ -585,6 +593,10 @@ export default function ChatScreen({
   onOpenKnowledge,
 }: ChatScreenProps) {
   const { t } = useTranslation()
+  const [messageTailVisible, setMessageTailVisible] = useState(true)
+  const surfaceReadable = useReadableSurface(isViewVisible)
+  const transcriptSurfaceReadable = surfaceReadable && messageTailVisible
+  const activeSessionReadableRef = useRef(false)
 
   // ── Model State ─────────────────────────────────────────────
   const {
@@ -669,6 +681,15 @@ export default function ChatScreen({
   // Workspace 面板：聚合任务进度 / 碰到的文件 / 引用来源。首次有内容时自动
   // 展开一次，用户关闭后本会话不再自动弹（dismissedRef 跟踪，仿 browser 面板）。
   const [showWorkspacePanel, setShowWorkspacePanel] = useState(false)
+  const [workspaceFocusRequest, setWorkspaceFocusRequest] = useState<WorkspaceFocusRequest | null>(
+    null,
+  )
+  const [pendingControlFocus, setPendingControlFocus] = useState<{
+    sessionId: string
+    kind: string
+    itemId?: string
+    nonce: number
+  } | null>(null)
   const [showPullRequestPanel, setShowPullRequestPanel] = useState(false)
   const workspacePanelDismissedRef = useRef(false)
   const preserveWorkspaceOnSessionSwitchRef = useRef(false)
@@ -772,10 +793,10 @@ export default function ChatScreen({
   const manualModelOverrideRef = useRef<ActiveModel | null>(null)
 
   // ── Projects ────────────────────────────────────────────────
-  // Holds the currently-open session id for the project-unread rollup. Lives
+  // Holds the actually-readable session id for the project-unread rollup. Lives
   // above the session hook (which feeds this hook's reload callback), so the
   // value is delivered by ref and refreshed via the effect below on switch.
-  const activeSessionIdForProjectsRef = useRef<string | null>(initialSessionId ?? null)
+  const activeSessionIdForProjectsRef = useRef<string | null>(null)
   const {
     projects,
     loading: projectsLoading,
@@ -808,7 +829,11 @@ export default function ChatScreen({
     onSessionNavigated,
     onUnreadCountChange,
     onSidebarAggregatesChanged: refreshProjectAggregates,
+    activeSessionReadable: transcriptSurfaceReadable,
+    activeSessionReadableRef,
   })
+  const activeSessionReadable = transcriptSurfaceReadable && session.currentSessionContentReady
+  activeSessionReadableRef.current = activeSessionReadable
 
   // R4: live background-jobs subscription (see show-state above) — drives the
   // header badge count, the background-jobs panel, and the workspace section.
@@ -930,13 +955,15 @@ export default function ChatScreen({
     [incognitoEnabled, t],
   )
 
-  // Keep the project-unread rollup's active-session exclusion in sync: when the
-  // user switches sessions, refresh projects so the newly-active session drops
-  // out of its project's badge (and the previously-active one reappears).
+  // Keep the project rollup aligned with the same real-reading predicate used
+  // by the global badge. A mounted-but-hidden or background window must not
+  // suppress unread state for its current session.
   useEffect(() => {
-    activeSessionIdForProjectsRef.current = currentSessionId ?? null
+    activeSessionIdForProjectsRef.current = activeSessionReadable
+      ? (currentSessionId ?? null)
+      : null
     void reloadProjects()
-  }, [currentSessionId, reloadProjects])
+  }, [activeSessionReadable, currentSessionId, reloadProjects])
 
   useEffect(() => {
     const handleManualCompactUsage = (event: Event) => {
@@ -1137,6 +1164,14 @@ export default function ChatScreen({
         await handleSwitchSession(externalChatFocus.sessionId, {
           targetMessageId: externalChatFocus.targetMessageId,
         })
+        if (externalChatFocus.controlTarget) {
+          setPendingControlFocus({
+            sessionId: externalChatFocus.sessionId,
+            kind: externalChatFocus.controlTarget.kind,
+            itemId: externalChatFocus.controlTarget.itemId,
+            nonce: externalChatFocus.nonce,
+          })
+        }
         onExternalChatFocusHandled?.(externalChatFocus.nonce)
       } catch (error) {
         logger.warn("chat", "ChatScreen::externalChatFocus", "Failed to open source chat", error)
@@ -1968,6 +2003,7 @@ export default function ChatScreen({
     draftKbAttachments,
     onSandboxModeSynced: handleSandboxModeSynced,
     parentInjectionDeltasViaChatStream: true,
+    activeSessionReadableRef,
   })
 
   const setProjectWelcomeInput = stream.setInput
@@ -3031,6 +3067,35 @@ export default function ChatScreen({
     showRightPanelByUser("workspace")
   }, [showRightPanelByUser])
 
+  useEffect(() => {
+    if (!pendingControlFocus || session.currentSessionId !== pendingControlFocus.sessionId) return
+    if (pendingControlFocus.kind === "plan") {
+      planMode.openPlanPanel()
+      setPendingControlFocus(null)
+      return
+    }
+    const section: WorkspaceFocusRequest["section"] =
+      pendingControlFocus.kind === "goal"
+        ? "goal"
+        : pendingControlFocus.kind === "workflow"
+          ? "workflow"
+          : pendingControlFocus.kind === "loop"
+            ? "loop"
+            : "progress"
+    openWorkspacePanel()
+    setWorkspaceFocusRequest({
+      sessionId: pendingControlFocus.sessionId,
+      section,
+      itemId: pendingControlFocus.itemId,
+      nonce: pendingControlFocus.nonce,
+    })
+    setPendingControlFocus(null)
+  }, [openWorkspacePanel, pendingControlFocus, planMode, session.currentSessionId])
+
+  const handleWorkspaceFocusRequestHandled = useCallback((nonce: number) => {
+    setWorkspaceFocusRequest((current) => (current?.nonce === nonce ? null : current))
+  }, [])
+
   const openPullRequestPanel = useCallback(() => {
     setShowPullRequestPanel(true)
     showRightPanelByUser("pull-request")
@@ -3512,8 +3577,10 @@ export default function ChatScreen({
         projects={projects}
         projectsLoading={projectsInitialLoading}
         currentSessionId={session.currentSessionId}
+        readableSessionId={activeSessionReadable ? session.currentSessionId : null}
         loadingSessionIds={session.loadingSessionIds}
         sessionsLoading={session.sessionsLoading}
+        totalUnreadCount={session.totalUnreadCount}
         panelWidth={panelWidth}
         sidebarCollapsed={sidebarCollapsed}
         onPanelWidthChange={setPanelWidth}
@@ -3542,6 +3609,7 @@ export default function ChatScreen({
         }}
         onMoveSessionToProject={handleMoveSessionToProject}
         searchFocusSignal={globalSearchFocusSignal}
+        unreadFocusSignal={unreadFocusSignal}
       />
 
       {/* Project create/edit dialog */}
@@ -3574,7 +3642,19 @@ export default function ChatScreen({
           void handleNewChatInProject(projectId, defaultAgentId)
         }}
         onOpenSession={(sid) => void handleSwitchSession(sid)}
-        onUpdateProject={updateProject}
+        onOpenStructuredMemory={(projectId) => {
+          setProjectOverviewOpen(false)
+          requestMemoryFocus(
+            {
+              kind: "claims",
+              statusFilter: "active",
+              scopeType: "project",
+              scopeId: projectId,
+            },
+            { updateUrl: false },
+          )
+          onOpenSettings?.("memory")
+        }}
       />
 
       {/* Project delete confirmation */}
@@ -3816,6 +3896,7 @@ export default function ChatScreen({
                 onAddMessageQuote={handleMessageQuote}
                 displayMode={displayMode}
                 autoCollapseCompletedTurns={autoCollapseCompletedTurns}
+                onAtBottomChange={setMessageTailVisible}
               />
 
               {/* Memory extraction toast — absolute-positioned above ChatInput
@@ -4287,11 +4368,14 @@ export default function ChatScreen({
                 onOpenBackgroundJobs={openBackgroundJobsPanel}
                 onOpenBrowserPanel={openBrowserPanel}
                 onViewSubagentSession={setSubagentPreviewSessionId}
+                focusRequest={workspaceFocusRequest}
+                onFocusRequestHandled={handleWorkspaceFocusRequestHandled}
                 onEnsureSession={ensureWorkflowSession}
                 draftWorkflowMode={draftWorkflowMode}
                 onDraftWorkflowModeChange={setDraftWorkflowMode}
                 onClose={() => {
                   workspacePanelDismissedRef.current = true
+                  setWorkspaceFocusRequest(null)
                   setShowWorkspacePanel(false)
                 }}
               />

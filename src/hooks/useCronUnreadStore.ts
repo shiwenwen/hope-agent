@@ -3,10 +3,9 @@ import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 
 /**
- * Global store for the cron sidebar unread badge. The aggregate count comes from
- * the backend (`cron_unread_total`); it's refreshed whenever a cron run completes
- * (`cron:run_completed`) or the unread set changes (`cron:unread_changed`, e.g.
- * after a one-click "mark all read"). Mirrors `useDraftSkillsStore`'s shape.
+ * Global store for the Cron sidebar unread badge. The aggregate is the number
+ * of unread run sessions (not assistant messages) and stays independent from
+ * regular conversations. It refreshes on completion and explicit read changes.
  */
 type Listener = () => void
 
@@ -41,6 +40,15 @@ export function initCronUnreadStore() {
   try {
     _unlisten.push(getTransport().listen("cron:run_completed", () => void reload()))
     _unlisten.push(getTransport().listen("cron:unread_changed", () => void reload()))
+    _unlisten.push(
+      getTransport().listen("session:unread_changed", (raw) => {
+        const payload = raw && typeof raw === "object" ? (raw as { domain?: string | null }) : null
+        // `domain` is only an invalidation hint. Batch/legacy mutations emit no
+        // domain, so conservatively reconcile instead of leaving the Cron badge
+        // stale after a mixed-session mark-read request.
+        if (!payload?.domain || payload.domain === "cron") void reload()
+      }),
+    )
     // Only latch initialized once the subscriptions are actually attached, so a
     // throwing listen() leaves the store re-initializable on the next call
     // rather than permanently wedged with no listeners.
@@ -62,9 +70,15 @@ export function disposeCronUnreadStore() {
   _initialized = false
 }
 
-/** Refresh the badge from the backend (e.g. after viewing a cron conversation). */
+/** Refresh the authoritative unread run-session aggregate from the backend. */
 export function refreshCronUnread() {
   void reload()
+}
+
+/** Mark one explicitly viewed cron run as read, then reconcile the aggregate. */
+export async function markCronSessionRead(sessionId: string): Promise<void> {
+  await getTransport().call("mark_session_read_cmd", { sessionId })
+  await reload()
 }
 
 /** One-click clear: mark every cron session read, then zero the badge. */

@@ -1740,7 +1740,6 @@ mod tests {
             id: "project-1".into(),
             name: "Project One".into(),
             description: None,
-            instructions: None,
             logo: None,
             color: None,
             default_agent_id: agent_id.map(str::to_string),

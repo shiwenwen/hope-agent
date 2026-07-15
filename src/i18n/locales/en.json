@@ -1,4 +1,16 @@
 {
+  "agentLifecycle": {
+    "activeWorkBlocked": "Deletion is blocked while {{count}} Agent task(s) are still active.",
+    "deleteDescription": "Routing references will move to the replacement Agent. Historical conversations and structured memories are retained, while Agent files are moved to the recoverable trash.",
+    "deleteTitle": "Delete Agent safely",
+    "disabled": "Disabled",
+    "enabled": "Enabled",
+    "history": "Historical conversations",
+    "memories": "Retained memories",
+    "replacement": "Replacement Agent",
+    "retentionNotice": "This operation creates a configuration backup. Agent configuration, Home, and Plans are moved to trash instead of being permanently erased.",
+    "routes": "Routing references"
+  },
   "about": {
     "badge": "Desktop AI for everyday work",
     "closing": "It is not designed as a feature checklist. It is designed to stay useful, reliable, and unobtrusive over long-term use.",
@@ -111,6 +123,10 @@
         "title": "Advanced browser CDP command",
         "body": "This browser action will send a raw Chrome DevTools Protocol command to a real Chrome tab. It uses the normal tool approval flow; AllowAlways, Smart mode, and YOLO follow the active session policy."
       },
+      "external_connector_action": {
+        "title": "External connector action",
+        "body": "This call will mutate mail, calendar, document, spreadsheet, or business records in an external system. Per-call confirmation required; AllowAlways unavailable."
+      },
       "browser_download_action": {
         "title": "Browser download action",
         "body": "This browser action will read or interrupt Chrome download activity. It uses the normal tool approval flow; AllowAlways, Smart mode, and YOLO follow the active session policy."
@@ -126,10 +142,6 @@
       "browser_chrome_access": {
         "title": "Real Chrome access",
         "body": "This browser action will read or control the user's real Chrome state through the extension. It uses the normal tool approval flow; AllowAlways, Smart mode, and YOLO follow the active session policy."
-      },
-      "external_connector_action": {
-        "title": "External connector action",
-        "body": "This call will mutate mail, calendar, document, spreadsheet, or business records in an external system. Per-call confirmation required; AllowAlways unavailable."
       }
     },
     "title": "Command Approval Required",
@@ -157,7 +169,6 @@
     "maximize": "Maximize",
     "minimize": "Minimize",
     "openPreview": "Open Preview",
-    "shareTo": "Share to",
     "popOut": "Pop Out",
     "popOutActive": "Opened in separate window",
     "reattach": "Back to Panel",
@@ -167,7 +178,8 @@
     "panelTitle": "Canvas",
     "resizePanel": "Resize canvas panel",
     "notReadyError": "Canvas panel is not open or iframe not loaded",
-    "detachedWindowTitle": "Canvas: {{title}}"
+    "detachedWindowTitle": "Canvas: {{title}}",
+    "shareTo": "Share to"
   },
   "channels": {
     "accountLabel": "Account Name",
@@ -324,6 +336,18 @@
   "chat": {
     "addWorkingDirectory": "Add working directory",
     "askAnything": "Tell me your idea, @ finds files/notes/skills, # quick prompts, / quick commands...",
+    "goalCompletion": {
+      "completed": "Goal reached",
+      "completedWithDuration": "Goal reached in {{time}}",
+      "tokens": "{{tokens}} tokens"
+    },
+    "fork": {
+      "continueInNewSession": "Continue in new session",
+      "continuedFrom": "Continued from",
+      "created": "Continued in a new session",
+      "failed": "Couldn't continue in a new session",
+      "sourceFallback": "source session"
+    },
     "browserPanel": {
       "backendBadgeTooltip": "Browser backend: {{backend}}",
       "captureFailed": "Frame capture failed, waiting for next one",
@@ -402,6 +426,12 @@
     "sidebarDetailedMode": "Switch to normal mode",
     "copied": "Copied",
     "copy": "Copy",
+    "messageQuote": {
+      "addToChat": "Add to chat",
+      "assistantMessage": "Assistant message",
+      "remove": "Remove quote",
+      "yourMessage": "Your message"
+    },
     "quickPrompts": {
       "addAction": "Add to quick prompts",
       "addFailed": "Failed to add quick prompt",
@@ -413,6 +443,8 @@
     },
     "cronTaskStarted": "A scheduled task was triggered",
     "cronTrigger": "Scheduled Task",
+    "loopTriggered": "Triggered one loop step",
+    "loopTrigger": "Loop",
     "wakeupResumed": "Resumed to continue",
     "wakeupTrigger": "Scheduled Wakeup",
     "daysAgo": "{{count}}d ago",
@@ -522,244 +554,6 @@
     "pendingInteractionHint": "Waiting for your response",
     "pendingInteractionInline": "Waiting for response · {{count}}",
     "pendingQueued": "Message queued, will send after reply...",
-    "permissionMode": {
-      "applyToAgentDefault": {
-        "desc": "When enabled, choosing a mode also updates this agent's default for new chats.",
-        "failed": "Failed to update this agent's default permission mode.",
-        "label": "Also update agent default"
-      },
-      "default": {
-        "desc": "Edit-class tools and high-risk commands need approval; everything else runs.",
-        "label": "Default"
-      },
-      "menuLabel": "Permission mode",
-      "smart": {
-        "desc": "Defer approval decisions to a judge model or the model's self-confidence tag.",
-        "label": "Smart Approval"
-      },
-      "yolo": {
-        "desc": "All tools run without approval in this session (protected paths still audit-log).",
-        "label": "YOLO"
-      }
-    },
-    "sandboxMode": {
-      "isolated": {
-        "desc": "Run in an isolated copy; edit approvals are unchanged until apply-back is supported.",
-        "label": "Isolated Sandbox"
-      },
-      "menuLabel": "Sandbox",
-      "off": {
-        "desc": "Run on the host; approval behavior is unchanged.",
-        "label": "Sandbox Off"
-      },
-      "setupTitle": "Configure Docker to enable sandbox",
-      "standard": {
-        "desc": "Run in Docker; approval behavior is unchanged.",
-        "label": "Standard Sandbox"
-      },
-      "trusted": {
-        "desc": "Max autonomy for sandboxed exec; strict risks still ask.",
-        "label": "Trusted Sandbox"
-      },
-      "workspace": {
-        "desc": "Mount this workspace and reduce edit-command approvals.",
-        "label": "Workspace Sandbox"
-      }
-    },
-    "pickSession": "Pick a session",
-    "profileRotationTitle": "Profile rotation",
-    "queueMessage": "Queue message",
-    "reasonAuth": "Authentication failed",
-    "reasonBilling": "Billing / quota exceeded",
-    "reasonContextOverflow": "Context overflow",
-    "reasonModelNotFound": "Model not found",
-    "reasonOverloaded": "Service overloaded",
-    "reasonRateLimit": "Rate limit exceeded",
-    "reasonTimeout": "Request timeout",
-    "reasonUnknown": "Unknown error",
-    "renameSession": "Rename",
-    "renameSessionPlaceholder": "Enter new title...",
-    "revealInFolder": "Reveal in folder",
-    "roundLimitReachedBody": "This turn used all {{count}} tool-call rounds before finishing. Send \"Continue\" to resume from the current progress, or raise `max_tool_rounds` under Settings → Agent → Capabilities.",
-    "roundLimitReachedBodyNoCount": "Tool-call rounds were exhausted this turn. Send \"Continue\" to resume from the current progress.",
-    "roundLimitReachedTitle": "Tool-call limit reached",
-    "roundLimitResumeButton": "Continue",
-    "roundLimitResumeMessage": "Continue",
-    "scrollToBottom": "Scroll to bottom",
-    "searchPlaceholder": "Search conversations...",
-    "searchTruncatedHint": "Showing first {{count}} matches — refine the query for more.",
-    "searching": "Searching...",
-    "selectModel": "Select Model",
-    "send": "Send",
-    "sessionSearch": "Search in this chat",
-    "sessionSearchClose": "Close",
-    "sessionSearchCount": "{{current}}/{{total}}",
-    "sessionSearchNext": "Next match",
-    "sessionSearchNoResults": "No matches in this chat",
-    "sessionSearchPlaceholder": "Search messages in this chat…",
-    "sessionSearchPrev": "Previous match",
-    "sessionStatus": "Session Status",
-    "settings": "Settings",
-    "startConversation": "Start a conversation",
-    "statusAgent": "Agent",
-    "statusAuth": "Auth",
-    "statusCache": "Cache",
-    "statusCacheHit": "Hit",
-    "statusCacheWrite": "Write",
-    "statusContext": "Context",
-    "statusCumulative": "Cumulative",
-    "statusMessages": "{{count}} messages",
-    "statusModel": "Model",
-    "statusNewSession": "(New Session)",
-    "statusSession": "Session",
-    "statusSessionId": "Session ID",
-    "statusThinking": "Thinking",
-    "statusUpdated": "Updated",
-    "stopReply": "Stop reply",
-    "subagentFrom": "Invoked by {{agent}}",
-    "subagentResultCompleted": "Completed",
-    "systemPrompt": "System Prompt",
-    "taskActions": {
-      "cycleTo": {
-        "completed": "Mark as completed",
-        "in_progress": "Mark as in progress",
-        "pending": "Mark as pending"
-      },
-      "delete": "Remove task"
-    },
-    "taskNoneYet": "No tasks yet",
-    "taskProgress": "{{completed}}/{{total}} completed",
-    "tasks": "Tasks",
-    "thinking": "Running...",
-    "thinkingAutoDisabled": "{{provider}} / {{model}} does not support the current thinking mode. Thinking was disabled automatically and the request was retried.",
-    "visionAutoDisabled": "{{provider}} / {{model}} does not support image input. The image was ignored and the reply continued.",
-    "toolCalling": "Calling tools...",
-    "totalTokens": "Total",
-    "unknownProvider": "Unknown provider",
-    "untitledSession": "Untitled",
-    "viewContext": "View context",
-    "viewModeBubble": "Switch to bubble view",
-    "viewModeTimeline": "Switch to task view",
-    "viewSystemPrompt": "View System Prompt",
-    "weeksAgo": "{{count}}w ago",
-    "workingDir": {
-      "browserDescription": "Paths are resolved on the machine where the agent runs.",
-      "browserTitle": "Select a directory",
-      "change": "Change directory",
-      "clear": "Clear directory",
-      "current": "Working directory",
-      "empty": "This directory is empty",
-      "fileLabel": "file",
-      "invalid": "Invalid working directory",
-      "loadError": "Cannot list directory",
-      "loading": "Loading…",
-      "parent": "Up one level",
-      "pathPlaceholder": "Absolute path, e.g. /srv/projects/app",
-      "select": "Set working directory",
-      "selectCurrent": "Select this directory",
-      "selectPreset": "Working directory is set when you start the chat",
-      "titleBarInherited": "Inherited from project",
-      "titleBarSession": "Working directory",
-      "truncated": "Only the first entries are shown — this directory is larger than the browser can display.",
-      "goToPath": "Go to path"
-    },
-    "taskProgressRunning": "Running {{completed}}/{{total}}",
-    "taskProgressCancelling": "Stopping {{completed}}/{{total}}",
-    "taskProgressWaiting": "Waiting to continue {{completed}}/{{total}}",
-    "taskProgressFailed": "Failed {{completed}}/{{total}}",
-    "exportSession": {
-      "menuItem": "Export conversation",
-      "dialogTitle": "Export conversation",
-      "dialogHint": "Choose a format and select what to include.",
-      "formatLabel": "Format",
-      "formatMarkdown": "Markdown",
-      "formatJson": "JSON",
-      "formatHtml": "HTML",
-      "contentLabel": "Content",
-      "includeTools": "Include tool calls",
-      "includeToolsHint": "Tool arguments and results, with file diffs.",
-      "includeThinking": "Include thinking",
-      "includeThinkingHint": "The model's reasoning blocks (chain-of-thought).",
-      "exportButton": "Export",
-      "exporting": "Exporting…",
-      "exported": "Exported",
-      "failedShort": "Failed",
-      "savedTo": "Exported to {{path}}",
-      "downloaded": "Downloaded {{filename}}",
-      "failed": "Failed to export the conversation."
-    },
-    "skillMention": {
-      "heading": "Skills",
-      "labels": {
-        "docx": "Word document",
-        "pptx": "PowerPoint slides",
-        "xlsx": "Excel spreadsheet",
-        "browser": "Browser control",
-        "mac": "Mac control"
-      }
-    },
-    "reasoningDisabledHint": "Reasoning is not enabled for this model. To adjust the reasoning depth, edit the model under Settings → Model Providers and turn on \"Reasoning\".",
-    "browserExtensionNudge": {
-      "installTitle": "Let the AI drive your real Chrome",
-      "installBody": "Install the Hope Agent extension to operate your signed-in Chrome. For now it runs in an isolated browser.",
-      "reloadTitle": "Reload the Chrome extension",
-      "reloadBody": "The installed extension doesn’t match the host. Reload it to restore control of your real Chrome.",
-      "openSettings": "Open settings",
-      "dismiss": "Don’t show again"
-    },
-    "browserExtensionRequired": {
-      "nextAction": "Next action: {{nextAction}}",
-      "openSettings": "Open Settings > Browser to install or enable the extension.",
-      "title": "Chrome extension required"
-    },
-    "conversationEmpty": "No messages in this conversation",
-    "pendingCancelForceInsert": "Cancel insertion of this round",
-    "pendingFallbackAfterReply": "Send after reply",
-    "pendingFallbackAfterReplyTip": "The tool completion point has not been encountered and will be sent after the current reply ends.",
-    "pendingForceInsertTip": "It will wait until the tool being executed is completed and then insert it into the model without interrupting the current tool.",
-    "pendingInserted": "inserted",
-    "pendingInsertedTip": "It has been inserted into the model after this round of tooling is completed.",
-    "pendingQueuedShort": "Queuing",
-    "pendingQueuedTip": "It has been added to the waiting queue and will be sent after the current reply ends.",
-    "pendingQueueTitle": "To be sent",
-    "pendingWaitingToolBoundary": "Wait for tool completion point",
-    "pendingWaitingToolBoundaryTip": "Wait for the latest tool call to be completed; if the tool is no longer called this round, it will be sent after the reply is completed.",
-    "processNotification": "process ended",
-    "rightPanel": {
-      "collapse": "Collapse right panel",
-      "expand": "Expand right panel",
-      "switch": "Switch right panel",
-      "dock": "Right panel dock",
-      "openPanel": "Open {{panel}}",
-      "switchToPanel": "Switch to {{panel}}",
-      "collapsePanel": "Collapse {{panel}}",
-      "expandPanel": "Expand {{panel}}",
-      "workflowActiveCount": "{{count}} active workflows",
-      "workflowAttentionCount": "{{count}} workflows need attention",
-      "backgroundRunningCount": "{{count}} background tasks running"
-    },
-    "visionBridgeEngaged": "The primary model can't view images, so {{model}} described them for it.",
-    "visionBridgeUnavailable": "The vision model couldn't describe the image, so it was left out.",
-    "goalCompletion": {
-      "completed": "Goal reached",
-      "completedWithDuration": "Goal reached in {{time}}",
-      "tokens": "{{tokens}} tokens"
-    },
-    "fork": {
-      "continueInNewSession": "Continue in new session",
-      "continuedFrom": "Continued from",
-      "created": "Continued in a new session",
-      "failed": "Couldn't continue in a new session",
-      "sourceFallback": "source session"
-    },
-    "messageQuote": {
-      "addToChat": "Add to chat",
-      "assistantMessage": "Assistant message",
-      "remove": "Remove quote",
-      "yourMessage": "Your message"
-    },
-    "loopTriggered": "Triggered one loop step",
-    "loopTrigger": "Loop",
     "goalMode": {
       "label": "Goal",
       "enter": "Goal mode: create a durable objective the agent keeps pursuing",
@@ -880,12 +674,216 @@
       "title": "Looks like a good fit for Workflow",
       "ultracodeDescription": "Turn it on to bias the model toward deeper orchestration, cross-checks, and long-task recovery."
     },
+    "permissionMode": {
+      "applyToAgentDefault": {
+        "desc": "When enabled, choosing a mode also updates this agent's default for new chats.",
+        "failed": "Failed to update this agent's default permission mode.",
+        "label": "Also update agent default"
+      },
+      "default": {
+        "desc": "Edit-class tools and high-risk commands need approval; everything else runs.",
+        "label": "Default"
+      },
+      "menuLabel": "Permission mode",
+      "smart": {
+        "desc": "Defer approval decisions to a judge model or the model's self-confidence tag.",
+        "label": "Smart Approval"
+      },
+      "yolo": {
+        "desc": "All tools run without approval in this session (protected paths still audit-log).",
+        "label": "YOLO"
+      }
+    },
+    "sandboxMode": {
+      "isolated": {
+        "desc": "Run in an isolated copy; edit approvals are unchanged until apply-back is supported.",
+        "label": "Isolated Sandbox"
+      },
+      "menuLabel": "Sandbox",
+      "off": {
+        "desc": "Run on the host; approval behavior is unchanged.",
+        "label": "Sandbox Off"
+      },
+      "setupTitle": "Configure Docker to enable sandbox",
+      "standard": {
+        "desc": "Run in Docker; approval behavior is unchanged.",
+        "label": "Standard Sandbox"
+      },
+      "trusted": {
+        "desc": "Max autonomy for sandboxed exec; strict risks still ask.",
+        "label": "Trusted Sandbox"
+      },
+      "workspace": {
+        "desc": "Mount this workspace and reduce edit-command approvals.",
+        "label": "Workspace Sandbox"
+      }
+    },
+    "pickSession": "Pick a session",
+    "profileRotationTitle": "Profile rotation",
+    "queueMessage": "Queue message",
+    "reasonAuth": "Authentication failed",
+    "reasonBilling": "Billing / quota exceeded",
+    "reasonContextOverflow": "Context overflow",
+    "reasonModelNotFound": "Model not found",
+    "reasonOverloaded": "Service overloaded",
+    "reasonRateLimit": "Rate limit exceeded",
+    "reasonTimeout": "Request timeout",
+    "reasonUnknown": "Unknown error",
+    "renameSession": "Rename",
+    "renameSessionPlaceholder": "Enter new title...",
+    "revealInFolder": "Reveal in folder",
+    "roundLimitReachedBody": "This turn used all {{count}} tool-call rounds before finishing. Send \"Continue\" to resume from the current progress, or raise `max_tool_rounds` under Settings → Agent → Capabilities.",
+    "roundLimitReachedBodyNoCount": "Tool-call rounds were exhausted this turn. Send \"Continue\" to resume from the current progress.",
+    "roundLimitReachedTitle": "Tool-call limit reached",
+    "roundLimitResumeButton": "Continue",
+    "roundLimitResumeMessage": "Continue",
+    "scrollToBottom": "Scroll to bottom",
+    "searchPlaceholder": "Search conversations...",
+    "searchTruncatedHint": "Showing first {{count}} matches — refine the query for more.",
+    "searching": "Searching...",
+    "selectModel": "Select Model",
+    "send": "Send",
+    "sessionSearch": "Search in this chat",
+    "sessionSearchClose": "Close",
+    "sessionSearchCount": "{{current}}/{{total}}",
+    "sessionSearchNext": "Next match",
+    "sessionSearchNoResults": "No matches in this chat",
+    "sessionSearchPlaceholder": "Search messages in this chat…",
+    "sessionSearchPrev": "Previous match",
+    "sessionStatus": "Session Status",
+    "memoryPolicy": {
+      "title": "Memory for this chat",
+      "use": "Use existing memories",
+      "contribute": "Learn from this chat",
+      "inherit": "Follow global",
+      "allow": "On",
+      "deny": "Off",
+      "desc": "These are independent: a chat can use existing memories without creating new ones.",
+      "incognito": "Incognito chats never read or write long-term memory.",
+      "reloadCore": "Reload MEMORY.md for this session"
+    },
+    "settings": "Settings",
+    "startConversation": "Start a conversation",
+    "statusAgent": "Agent",
+    "statusAuth": "Auth",
+    "statusCache": "Cache",
+    "statusCacheHit": "Hit",
+    "statusCacheWrite": "Write",
+    "statusContext": "Context",
+    "statusCumulative": "Cumulative",
+    "statusMessages": "{{count}} messages",
+    "statusModel": "Model",
+    "statusNewSession": "(New Session)",
+    "statusSession": "Session",
+    "statusSessionId": "Session ID",
+    "statusThinking": "Thinking",
+    "statusUpdated": "Updated",
+    "stopReply": "Stop reply",
+    "subagentFrom": "Invoked by {{agent}}",
+    "subagentResultCompleted": "Completed",
     "workflowResultName": "Workflow",
     "workflowResultCheckpoint": "Stage result received",
     "workflowResultCompleted": "Completed",
     "workflowResultCancelled": "Cancelled",
     "workflowResultWaiting": "Waiting to continue",
     "workflowResultFailed": "Needs attention",
+    "systemPrompt": "System Prompt",
+    "taskActions": {
+      "cycleTo": {
+        "completed": "Mark as completed",
+        "in_progress": "Mark as in progress",
+        "pending": "Mark as pending"
+      },
+      "delete": "Remove task"
+    },
+    "taskNoneYet": "No tasks yet",
+    "taskProgress": "{{completed}}/{{total}} completed",
+    "tasks": "Tasks",
+    "thinking": "Running...",
+    "thinkingAutoDisabled": "{{provider}} / {{model}} does not support the current thinking mode. Thinking was disabled automatically and the request was retried.",
+    "visionAutoDisabled": "{{provider}} / {{model}} does not support image input. The image was ignored and the reply continued.",
+    "toolCalling": "Calling tools...",
+    "totalTokens": "Total",
+    "unknownProvider": "Unknown provider",
+    "untitledSession": "Untitled",
+    "viewContext": "View context",
+    "viewModeBubble": "Switch to bubble view",
+    "viewModeTimeline": "Switch to task view",
+    "viewSystemPrompt": "View System Prompt",
+    "weeksAgo": "{{count}}w ago",
+    "workingDir": {
+      "browserDescription": "Paths are resolved on the machine where the agent runs.",
+      "browserTitle": "Select a directory",
+      "change": "Change directory",
+      "clear": "Clear directory",
+      "current": "Working directory",
+      "empty": "This directory is empty",
+      "fileLabel": "file",
+      "goToPath": "Go to path",
+      "invalid": "Invalid working directory",
+      "loadError": "Cannot list directory",
+      "loading": "Loading…",
+      "parent": "Up one level",
+      "pathPlaceholder": "Absolute path, e.g. /srv/projects/app",
+      "select": "Set working directory",
+      "selectCurrent": "Select this directory",
+      "selectPreset": "Working directory is set when you start the chat",
+      "titleBarInherited": "Inherited from project",
+      "titleBarSession": "Working directory",
+      "truncated": "Only the first entries are shown — this directory is larger than the browser can display."
+    },
+    "taskProgressRunning": "Running {{completed}}/{{total}}",
+    "taskProgressCancelling": "Stopping {{completed}}/{{total}}",
+    "taskProgressWaiting": "Waiting to continue {{completed}}/{{total}}",
+    "taskProgressFailed": "Failed {{completed}}/{{total}}",
+    "exportSession": {
+      "menuItem": "Export conversation",
+      "dialogTitle": "Export conversation",
+      "dialogHint": "Choose a format and select what to include.",
+      "formatLabel": "Format",
+      "formatMarkdown": "Markdown",
+      "formatJson": "JSON",
+      "formatHtml": "HTML",
+      "contentLabel": "Content",
+      "includeTools": "Include tool calls",
+      "includeToolsHint": "Tool arguments and results, with file diffs.",
+      "includeThinking": "Include thinking",
+      "includeThinkingHint": "The model's reasoning blocks (chain-of-thought).",
+      "exportButton": "Export",
+      "exporting": "Exporting…",
+      "exported": "Exported",
+      "failedShort": "Failed",
+      "savedTo": "Exported to {{path}}",
+      "downloaded": "Downloaded {{filename}}",
+      "failed": "Failed to export the conversation."
+    },
+    "skillMention": {
+      "heading": "Skills",
+      "labels": {
+        "docx": "Word document",
+        "pptx": "PowerPoint slides",
+        "xlsx": "Excel spreadsheet",
+        "browser": "Browser control",
+        "mac": "Mac control",
+        "dataAnalytics": "Data analysis"
+      }
+    },
+    "reasoningDisabledHint": "Reasoning is not enabled for this model. To adjust the reasoning depth, edit the model under Settings → Model Providers and turn on \"Reasoning\".",
+    "browserExtensionNudge": {
+      "installTitle": "Let the AI drive your real Chrome",
+      "installBody": "Install the Hope Agent extension to operate your signed-in Chrome. For now it runs in an isolated browser.",
+      "reloadTitle": "Reload the Chrome extension",
+      "reloadBody": "The installed extension doesn’t match the host. Reload it to restore control of your real Chrome.",
+      "openSettings": "Open settings",
+      "dismiss": "Don’t show again"
+    },
+    "browserExtensionRequired": {
+      "nextAction": "Next action: {{nextAction}}",
+      "openSettings": "Open Settings > Browser to install or enable the extension.",
+      "title": "Chrome extension required"
+    },
+    "conversationEmpty": "No messages in this conversation",
+    "pendingCancelForceInsert": "Cancel insertion of this round",
     "pendingSaving": "Saving",
     "pendingSavingTip": "Saving the message and attachments to the recoverable queue.",
     "pendingInserting": "Inserting",
@@ -893,6 +891,32 @@
     "pendingDispatching": "Sending",
     "pendingDispatchingTip": "Creating a new turn from the persistent queue.",
     "pendingSendNow": "Send now",
+    "pendingFallbackAfterReply": "Send after reply",
+    "pendingFallbackAfterReplyTip": "The tool completion point has not been encountered and will be sent after the current reply ends.",
+    "pendingForceInsertTip": "It will wait until the tool being executed is completed and then insert it into the model without interrupting the current tool.",
+    "pendingInserted": "inserted",
+    "pendingInsertedTip": "It has been inserted into the model after this round of tooling is completed.",
+    "pendingQueuedShort": "Queuing",
+    "pendingQueuedTip": "It has been added to the waiting queue and will be sent after the current reply ends.",
+    "pendingQueueTitle": "To be sent",
+    "pendingWaitingToolBoundary": "Wait for tool completion point",
+    "pendingWaitingToolBoundaryTip": "Wait for the latest tool call to be completed; if the tool is no longer called this round, it will be sent after the reply is completed.",
+    "processNotification": "process ended",
+    "rightPanel": {
+      "collapse": "Collapse right panel",
+      "expand": "Expand right panel",
+      "switch": "Switch right panel",
+      "dock": "Right panel dock",
+      "openPanel": "Open {{panel}}",
+      "switchToPanel": "Switch to {{panel}}",
+      "collapsePanel": "Collapse {{panel}}",
+      "expandPanel": "Expand {{panel}}",
+      "workflowActiveCount": "{{count}} active workflows",
+      "workflowAttentionCount": "{{count}} workflows need attention",
+      "backgroundRunningCount": "{{count}} background tasks running"
+    },
+    "visionBridgeEngaged": "The primary model can't view images, so {{model}} described them for it.",
+    "visionBridgeUnavailable": "The vision model couldn't describe the image, so it was left out.",
     "loadingSession": "Loading session…",
     "goalSlash": {
       "showActive": "Show active goal",
@@ -944,6 +968,10 @@
       "quickEditEmpty": "Memory content cannot be empty.",
       "quickEditSaved": "Memory updated.",
       "quickEditSaveFailed": "Couldn't save this memory.",
+      "promoteToCore": "Always remember this",
+      "promoteToCoreFailed": "Couldn't add this to Core Memory.",
+      "promotedToCore": "Always remembered",
+      "promotedToCoreToast": "Added to always-remember Core Memory.",
       "kind": {
         "claim": "Structured memory",
         "episode": "Experience",
@@ -972,6 +1000,7 @@
       },
       "layerReason": {
         "agentConfigError": "agent memory config unavailable",
+        "budgetEmpty": "recall budget is empty",
         "disabled": "configuration off",
         "emptyQuery": "empty query",
         "incognito": "incognito session",
@@ -982,14 +1011,13 @@
         "noGraphNeighbors": "no related entity relationships",
         "noHits": "no hits",
         "noSession": "no session context",
-        "retrievalError": "retrieval failed",
-        "sideQueryError": "recall failed",
-        "timeout": "timed out",
-        "budgetEmpty": "recall budget is empty",
         "nonContextualTurn": "non-contextual turn",
         "recallOff": "automatic dynamic recall is off",
         "retrievalBusy": "retrieval is busy",
+        "retrievalError": "retrieval failed",
         "sessionPolicy": "disabled by memory or chat policy",
+        "sideQueryError": "recall failed",
+        "timeout": "timed out",
         "unifiedRecall": "handled by fast recall",
         "unknown": "other reason"
       },
@@ -1064,11 +1092,7 @@
       "more": "{{count}} more long-term context items are hidden.",
       "sources": "Memory sources",
       "editMemory": "Edit this memory",
-      "copyTrace": "Copy diagnostics",
-      "promoteToCore": "Always remember this",
-      "promoteToCoreFailed": "Couldn't add this to Core Memory.",
-      "promotedToCore": "Always remembered",
-      "promotedToCoreToast": "Added to always-remember Core Memory."
+      "copyTrace": "Copy diagnostics"
     },
     "projectWelcomeTitle": "What should we build in <project>{{project}}</project>?",
     "projectWelcomeSuggestions": {
@@ -1141,17 +1165,9 @@
     "openSourceConversationMissingHint": "This memory source points to a conversation that was deleted or cannot be found.",
     "openSourceMessageMissing": "Source message is no longer available",
     "openSourceMessageMissingHint": "The conversation still exists, but the exact message for this memory source could not be found.",
-    "memoryPolicy": {
-      "title": "Memory for this chat",
-      "use": "Use existing memories",
-      "contribute": "Learn from this chat",
-      "inherit": "Follow global",
-      "allow": "On",
-      "deny": "Off",
-      "desc": "These are independent: a chat can use existing memories without creating new ones.",
-      "incognito": "Incognito chats never read or write long-term memory.",
-      "reloadCore": "Reload MEMORY.md for this session"
-    }
+    "unreadConversationCount": "{{count}} unread chats",
+    "unreadStatus": "Unread",
+    "channelUnreadStatus": "Unread IM conversation"
   },
   "codexAuth": {
     "expiredDescription": "Your Codex OAuth token is no longer valid. Please sign in again to continue.",
@@ -1159,7 +1175,6 @@
     "reauth": "Sign In Again"
   },
   "common": {
-    "download": "Download",
     "add": "Add",
     "back": "Back",
     "cancel": "Cancel",
@@ -1196,12 +1211,9 @@
     "expand": "Expand",
     "retry": "Retry",
     "unavailable": "Unavailable",
-    "duplicate": "Duplicate",
-    "more": "More",
     "copy": "Copy",
-    "copied": "Copied",
-    "apply": "Apply",
     "auto": "Auto",
+    "copied": "Copied",
     "yes": "yes",
     "no": "no",
     "none": "None",
@@ -1209,17 +1221,32 @@
     "off": "Off",
     "error": "Error",
     "showLess": "Show less",
-    "modelNoVision": "No image support"
+    "download": "Download",
+    "duplicate": "Duplicate",
+    "more": "More",
+    "apply": "Apply",
+    "modelNoVision": "No image support",
+    "next": "Next",
+    "previous": "Previous"
   },
   "context": {
     "ago": "ago",
+    "cacheRead": "Cache read",
     "cacheTtlProtection": "cache TTL protection",
+    "cacheWindowNotice": "Cache hits reduce repeated computation, cost, and TTFT; they do not reduce context-window usage.",
+    "cacheWrite": "Cache write",
     "compactAllowedIn": "Next compact in",
+    "coreMemoryBudget": "Core Memory budget",
+    "coreMemoryModelLimited": "temporarily limited for this model",
+    "dynamicPrompt": "Dynamic prompt",
+    "estimated": "estimated",
     "estimateNote": "Provider usage is authoritative after each round; before that, a conservative request-shape estimate is shown.",
     "freeSpace": "Free space",
+    "freshInput": "Fresh input",
     "lastCompact": "Last compact",
     "memory": "Memory",
     "messages": "Messages",
+    "providerInput": "Provider input",
     "reservedOutput": "Reserved output",
     "skills": "Skills",
     "systemPrompt": "System prompt",
@@ -1227,16 +1254,7 @@
     "toolDescriptions": "Tool descriptions",
     "toolSchemas": "Tool schemas",
     "used": "Used",
-    "viewSystemPrompt": "System prompt",
-    "cacheRead": "Cache read",
-    "cacheWindowNotice": "Cache hits reduce repeated computation, cost, and TTFT; they do not reduce context-window usage.",
-    "cacheWrite": "Cache write",
-    "coreMemoryBudget": "Core Memory budget",
-    "coreMemoryModelLimited": "temporarily limited for this model",
-    "dynamicPrompt": "Dynamic prompt",
-    "estimated": "estimated",
-    "freshInput": "Fresh input",
-    "providerInput": "Provider input"
+    "viewSystemPrompt": "System prompt"
   },
   "cron": {
     "active": "Active",
@@ -1426,8 +1444,8 @@
         "cron": "cron",
         "idle": "idle",
         "manual": "manual",
-        "user_correction": "correction",
-        "review_snapshot": "review snapshot"
+        "review_snapshot": "review snapshot",
+        "user_correction": "correction"
       },
       "runs": {
         "title": "Run history",
@@ -1449,9 +1467,46 @@
       "resolving": "Resolving…",
       "resolverDone": "Resolved: {{expired}} expired, {{merged}} merged, {{review}} to review",
       "resolverFailed": "Deep resolve failed",
+      "resolverPreflightTitle": "Deep Resolver preflight",
+      "resolverPreflightSummary": "{{active}} active claims · {{expired}} expired candidates · {{groups}} conflict groups",
+      "resolverPreflightBlocked": "Resolver blocked: {{reasons}}",
+      "resolverPreflightLlm": "{{count}}/{{total}} groups would use LLM · cap {{cap}}",
+      "resolverPreflightNoLlm": "No LLM group call expected.",
+      "resolverPreflightTruncated": "Will continue next run.",
+      "resolverPreflightUnavailable": "Preflight unavailable.",
+      "resolverPreflightRefresh": "Refresh plan",
+      "resolverPreflightReasons": {
+        "dreamingDisabled": "Dreaming off",
+        "longTermMemoryDisabled": "Memory learning off",
+        "manualDisabled": "Manual runs off",
+        "claimLoadFailed": "Claims unavailable"
+      },
+      "errors": {
+        "loadDiaries": "Failed to load Dreaming diaries",
+        "loadRuns": "Failed to load Dreaming run history",
+        "loadRunDetail": "Failed to load Dreaming run details",
+        "loadDiary": "Failed to open Dreaming diary",
+        "loadEvidenceQuote": "Failed to load evidence quote",
+        "runNow": "Failed to run Dreaming",
+        "runResolver": "Deep resolve failed",
+        "resolverPreflight": "Failed to load Deep Resolver preflight",
+        "detail": "Details: {{error}}"
+      },
       "review": {
         "queueTitle": "Needs review",
         "queueEmpty": "No claims need review",
+        "errors": {
+          "loadQueue": "Failed to load review queue",
+          "approve": "Failed to approve memory",
+          "markOutdated": "Failed to mark memory outdated",
+          "pin": "Failed to pin memory",
+          "unpin": "Failed to unpin memory",
+          "edit": "Failed to edit memory",
+          "moveScope": "Failed to move memory scope",
+          "reject": "Failed to reject memory",
+          "forget": "Failed to forget memory",
+          "detail": "Details: {{error}}"
+        },
         "approve": "Approve",
         "approveDone": "Claim approved",
         "markOutdated": "Mark outdated",
@@ -1490,44 +1545,7 @@
         "forgetNotePlaceholder": "Optional reason",
         "forgetConfirm": "Forget",
         "forgetDone": "Memory forgotten",
-        "failed": "Action failed",
-        "errors": {
-          "loadQueue": "Failed to load review queue",
-          "approve": "Failed to approve memory",
-          "markOutdated": "Failed to mark memory outdated",
-          "pin": "Failed to pin memory",
-          "unpin": "Failed to unpin memory",
-          "edit": "Failed to edit memory",
-          "moveScope": "Failed to move memory scope",
-          "reject": "Failed to reject memory",
-          "forget": "Failed to forget memory",
-          "detail": "Details: {{error}}"
-        }
-      },
-      "resolverPreflightTitle": "Deep Resolver preflight",
-      "resolverPreflightSummary": "{{active}} active claims · {{expired}} expired candidates · {{groups}} conflict groups",
-      "resolverPreflightBlocked": "Resolver blocked: {{reasons}}",
-      "resolverPreflightLlm": "{{count}}/{{total}} groups would use LLM · cap {{cap}}",
-      "resolverPreflightNoLlm": "No LLM group call expected.",
-      "resolverPreflightTruncated": "Will continue next run.",
-      "resolverPreflightUnavailable": "Preflight unavailable.",
-      "resolverPreflightRefresh": "Refresh plan",
-      "resolverPreflightReasons": {
-        "dreamingDisabled": "Dreaming off",
-        "longTermMemoryDisabled": "Memory learning off",
-        "manualDisabled": "Manual runs off",
-        "claimLoadFailed": "Claims unavailable"
-      },
-      "errors": {
-        "loadDiaries": "Failed to load Dreaming diaries",
-        "loadRuns": "Failed to load Dreaming run history",
-        "loadRunDetail": "Failed to load Dreaming run details",
-        "loadDiary": "Failed to open Dreaming diary",
-        "loadEvidenceQuote": "Failed to load evidence quote",
-        "runNow": "Failed to run Dreaming",
-        "runResolver": "Deep resolve failed",
-        "resolverPreflight": "Failed to load Deep Resolver preflight",
-        "detail": "Details: {{error}}"
+        "failed": "Action failed"
       }
     },
     "error": {
@@ -1886,17 +1904,17 @@
       "ttftTrend": "Time to First Token (TTFT)",
       "inputTokens": "Input tokens",
       "outputTokens": "Output tokens",
-      "byDomain": "Distribution by Domain",
-      "byOperation": "By Operation",
-      "operation": "Operation",
-      "domain": "Domain",
       "byType": "Usage by type",
       "type": "Type",
       "calls": "Calls",
       "cacheWrite": "Cache write",
       "cacheRead": "Cache read",
       "avgDuration": "Avg duration",
-      "tokensUnit": "tokens"
+      "tokensUnit": "tokens",
+      "byDomain": "Distribution by Domain",
+      "byOperation": "By Operation",
+      "operation": "Operation",
+      "domain": "Domain"
     },
     "tool": {
       "avgDuration": "Avg Duration",
@@ -1994,6 +2012,106 @@
     },
     "columns": {
       "session": "Session"
+    },
+    "controlPlane": {
+      "title": "Goals & Execution",
+      "automationTab": "Automation",
+      "scopeHint": "Window metrics show outcomes; current snapshots show backlog and risk.",
+      "allProjects": "All projects",
+      "unassignedProject": "Unassigned",
+      "archived": "Archived",
+      "empty": "No data for the selected scope.",
+      "sections": {
+        "overview": "Overview",
+        "planTask": "Plan & Task"
+      },
+      "metrics": {
+        "goalAcceptance": "Goal acceptance rate",
+        "workflowCompletion": "Workflow completion rate",
+        "loopStrongProgress": "Loop strong-progress rate",
+        "taskCompletion": "Task cohort completion",
+        "attention": "Needs attention",
+        "requiredCriteria": "Required criteria pass rate",
+        "goalP50": "Goal time-to-accept P50",
+        "opFailure": "Operation failure rate",
+        "workflowP50": "Workflow duration P50",
+        "goalBinding": "Goal binding rate",
+        "approvalTrigger": "Approval trigger rate",
+        "noProgress": "No-progress rate",
+        "blockedSchedules": "Blocked schedules",
+        "loopP50": "Loop run duration P50",
+        "currentBacklog": "Current backlog",
+        "activePlans": "Active now",
+        "cohortCompletion": "Cohort completion"
+      },
+      "currentSnapshot": "Current snapshot",
+      "goalTrend": "Goal outcomes",
+      "resolved": "Resolved",
+      "accepted": "Accepted",
+      "attentionTitle": "Current attention items",
+      "noAttention": "No current attention items",
+      "auditSamples": "{{count}} audited Goals",
+      "currentStates": "Current states",
+      "closureOutcomes": "Closure outcomes",
+      "domains": "Domains",
+      "kinds": "Kinds",
+      "origins": "Origins",
+      "workflowTrend": "Decided Workflow runs",
+      "decidedRuns": "Decided runs",
+      "progressStates": "Progress classification",
+      "triggerKinds": "Trigger kinds",
+      "strategies": "Execution strategies",
+      "loopTrend": "Evaluated Loop runs",
+      "evaluatedRuns": "Evaluated runs",
+      "openPlanHistory": "View Plan history",
+      "planByAgent": "Plan by Agent",
+      "planByProject": "Plan by project",
+      "noFunnelHint": "Task and Plan do not yet have reliable Goal / Workflow / Loop attribution keys, so this page does not infer a causal funnel from sessions.",
+      "noExactSamples": "No exact duration samples",
+      "coverage": "{{samples}} / {{eligible}} exact samples ({{percent}}%)",
+      "coverageShort": "Exact duration coverage: {{samples}} / {{eligible}}",
+      "creationTrend": "Creation trend",
+      "created": "Created",
+      "attentionKinds": {
+        "goal": "Goal",
+        "workflow": "Workflow",
+        "loop": "Loop",
+        "plan": "Plan"
+      },
+      "attentionReasons": {
+        "needs_strict_evidence": "Strict evidence required",
+        "goal_awaiting_closure": "Goal awaiting closure",
+        "workflow_requires_attention": "Workflow requires attention",
+        "consecutive_no_progress": "Consecutive no progress",
+        "loop_requires_attention": "Loop requires attention",
+        "plan_awaiting_review": "Plan awaiting review"
+      },
+      "states": {
+        "active": "Active",
+        "paused": "Paused",
+        "evaluating": "Evaluating",
+        "completed": "Completed",
+        "failed": "Failed",
+        "cancelled": "Cancelled",
+        "blocked": "Blocked",
+        "planning": "Planning",
+        "review": "Review",
+        "executing": "Executing",
+        "off": "Archived",
+        "awaiting_approval": "Awaiting approval",
+        "awaiting_user": "Awaiting user",
+        "running": "Running",
+        "recovering": "Recovering",
+        "draft": "Draft",
+        "pending": "Pending",
+        "in_progress": "In progress",
+        "progressed": "Progressed",
+        "weak_progress": "Weak progress",
+        "no_progress": "No progress",
+        "accepted_v1": "Accepted v1",
+        "superseded": "Superseded",
+        "unassigned": "Unassigned"
+      }
     }
   },
   "fileActions": {
@@ -2537,10 +2655,10 @@
     "reasoning": "Reasoning / Thinking",
     "reasoningHint": "Once enabled, pick the reasoning depth (low / medium / high) from the model menu above the chat input; it is injected automatically on every request.",
     "supportedInputTypes": "Supported Input Types",
-    "text": "Text",
-    "video": "Video",
     "supportsImageMultimodal": "Supports image multimodality",
-    "supportsVideoMultimodal": "Supports video multimodality"
+    "supportsVideoMultimodal": "Supports video multimodality",
+    "text": "Text",
+    "video": "Video"
   },
   "notification": {
     "cronCancelled": "Scheduled task cancelled",
@@ -2939,6 +3057,29 @@
     "addProject": "Add project",
     "archiveProject": "Archive Project",
     "archivedProjects": "Archived Projects",
+    "autoMemory": {
+      "content": "Details (Markdown)",
+      "deleteConfirm": "Delete this project auto-memory topic?",
+      "description": "A concise MEMORY.md index is stably injected into project chats; topic details are read only when relevant. Everything stays on this machine.",
+      "editorHint": "Project instructions are fixed rules. This area stores project learnings accumulated while the model works, and is not authoritative instruction text.",
+      "editorTitle": "Project auto memory",
+      "empty": "No auto-memory topics yet.",
+      "fileNameGenerated": "A file name will be generated when saved",
+      "name": "Title",
+      "newTopic": "New topic",
+      "rebuildIndex": "Rebuild the MEMORY.md index",
+      "rebuildFailed": "Couldn't rebuild the MEMORY.md index.",
+      "summary": "Index summary",
+      "summaryHint": "This sentence enters the stable prompt for every project chat, so keep it concise.",
+      "type": "Type",
+      "types": {
+        "feedback": "Working feedback",
+        "project": "Project work",
+        "reference": "Reference",
+        "user": "User context"
+      },
+      "emptyPreview": "No Markdown details yet. Switch to Edit to add content."
+    },
     "createFirstProject": "Create your first project",
     "defaultAgent": "Default Agent",
     "defaultModel": "Default Model",
@@ -2948,6 +3089,10 @@
     },
     "deleteProject": "Delete Project",
     "editProject": "Edit Project",
+    "openFromMemoryLoadFailed": "Failed to open project source",
+    "openFromMemoryLoadFailedDetail": "Details: {{error}}",
+    "openFromMemoryMissing": "Project is no longer available",
+    "openFromMemoryMissingHint": "The memory source points to a project that was deleted or cannot be found.",
     "files": {
       "confirmDelete": "Delete this file?",
       "delete": "Delete",
@@ -2977,13 +3122,38 @@
       "recentSessions": "Recent sessions",
       "totalFiles": "Files",
       "totalMemories": "Memories",
-      "totalSessions": "Sessions"
+      "totalSessions": "Project sessions",
+      "activeClaims": "Learned memories",
+      "agentsEmpty": "AGENTS.md is currently empty",
+      "agentsLines": "AGENTS.md",
+      "agentsRole": "Authoritative project rules applied to every project session.",
+      "agentsStats": "{{lines}} lines · {{size}}",
+      "autoMemoryRole": "Model-maintained local experience; the index is stable and topics load on demand.",
+      "autoMemoryStats": "{{count}} topics",
+      "autoMemoryTopics": "Auto-memory topics",
+      "awaitingResponse": "Needs response",
+      "contextDescription": "See which context the model can use in this project.",
+      "contextTitle": "Project context",
+      "defaultWorkspace": "Default project workspace",
+      "homeDescription": "Continue recent work or manage project context.",
+      "homeTitle": "Project home",
+      "linesUnit": "lines",
+      "loadFailed": "The project overview is temporarily unavailable. Try again shortly.",
+      "messageCount": "{{count}} messages",
+      "noRecentSessions": "No project sessions yet",
+      "noRecentSessionsHint": "Recent work will appear here after you create a session.",
+      "recentSessionsHint": "Recently updated user sessions",
+      "structuredMemory": "Project memory",
+      "structuredMemoryRole": "Long-term information learned from project conversations. Whether it is used automatically depends on your memory settings.",
+      "unavailable": "Unavailable",
+      "untitledSession": "Untitled session",
+      "workingDirectory": "Working directory"
     },
     "projectColor": "Color",
     "projectDescription": "Description",
     "projectDescriptionPlaceholder": "What is this project about?",
     "projectInstructions": "Project Instructions",
-    "projectInstructionsHint": "These instructions are automatically added to the system prompt of every session in this project.",
+    "projectInstructionsHint": "Edits the AGENTS.md file in the project root directly. Once saved, it applies to every session in this project.",
     "projectInstructionsPlaceholder": "e.g. Always reply in English; keep the tone clear and friendly; start with the conclusion",
     "projectLogo": "Logo",
     "projectLogoHint": "Optional. Images are auto-resized to 256×256.",
@@ -2997,6 +3167,7 @@
     "showLess": "Show less",
     "showMore": "Show more",
     "tabFiles": "Files",
+    "tabAutoMemory": "Auto Memory",
     "tabInstructions": "Instructions",
     "tabMemories": "Memories",
     "tabOverview": "Overview",
@@ -3020,33 +3191,11 @@
       "errorDetail": "Details: {{error}}"
     },
     "projectEmojiPlaceholder": "Optional",
-    "openFromMemoryLoadFailed": "Failed to open project source",
-    "openFromMemoryLoadFailedDetail": "Details: {{error}}",
-    "openFromMemoryMissing": "Project is no longer available",
-    "openFromMemoryMissingHint": "The memory source points to a project that was deleted or cannot be found.",
-    "autoMemory": {
-      "content": "Details (Markdown)",
-      "deleteConfirm": "Delete this project auto-memory topic?",
-      "description": "A concise MEMORY.md index is stably injected into project chats; topic details are read only when relevant. Everything stays on this machine.",
-      "editorHint": "Project instructions are fixed rules. This area stores project learnings accumulated while the model works, and is not authoritative instruction text.",
-      "editorTitle": "Project auto memory",
-      "empty": "No auto-memory topics yet.",
-      "fileNameGenerated": "A file name will be generated when saved",
-      "name": "Title",
-      "newTopic": "New topic",
-      "rebuildIndex": "Rebuild the MEMORY.md index",
-      "rebuildFailed": "Couldn't rebuild the MEMORY.md index.",
-      "summary": "Index summary",
-      "summaryHint": "This sentence enters the stable prompt for every project chat, so keep it concise.",
-      "type": "Type",
-      "types": {
-        "feedback": "Working feedback",
-        "project": "Project work",
-        "reference": "Reference",
-        "user": "User context"
-      }
-    },
-    "tabAutoMemory": "Auto Memory"
+    "projectInstructionsLineCount": "{{count}} lines",
+    "resizeSettingsSheet": "Drag to resize project settings",
+    "projectInstructionsEmptyPreview": "AGENTS.md is empty. Switch to Edit to add Markdown instructions.",
+    "projectInstructionsLoadFailed": "Could not read AGENTS.md",
+    "projectInstructionsSaveFailed": "Could not save AGENTS.md"
   },
   "provider": {
     "addProvider": "Add Provider",
@@ -3496,6 +3645,7 @@
       "judgeExtraPromptPlaceholder": "Optional: extra instructions for the judge (path whitelists, trusted commands…)",
       "judgeModelPlaceholder": "Select judge model",
       "judgeModelTitle": "Judge Model Configuration",
+      "judgeProviderPlaceholder": "Provider ID (e.g. anthropic-1)",
       "protectedPathsDesc": "Tool calls hitting these paths force approval and cannot be AllowAlways'd. Supports ~/ expansion, directory prefix (trailing /), and *.pattern globs.",
       "protectedPathsPlaceholder": "e.g. ~/.ssh/, .env, *.pem",
       "protectedPathsTitle": "Protected Paths",
@@ -3528,8 +3678,7 @@
       "yoloDesc": "When on, all tools run without approval; only Plan Mode can still block. Protected-path / dangerous-command matches log a warning but execute.",
       "yoloDisabled": "Global YOLO disabled",
       "yoloEnabled": "Global YOLO enabled",
-      "yoloTitle": "Global YOLO (Skip All Approvals)",
-      "judgeProviderPlaceholder": "Provider ID (e.g. anthropic-1)"
+      "yoloTitle": "Global YOLO (Skip All Approvals)"
     },
     "approvalTimeout": "Tool approval wait timeout",
     "approvalTimeoutAction": "Approval timeout action",
@@ -3578,6 +3727,8 @@
       "digestMaxChars": "Digest output budget (chars)",
       "dynamicEnabled": "Refresh suffix every turn",
       "enabledForSession": "Enabled for this session",
+      "extractionAgent": "Extraction agent ID (optional)",
+      "extractionAgentPlaceholder": "Leave empty to inherit recap.analysisAgent",
       "includeChannel": "Include IM channel sessions",
       "includeCron": "Include cron sessions",
       "includeSubagents": "Include sub-agent sessions",
@@ -3603,9 +3754,7 @@
       "sessionOverride": "Session Override",
       "title": "Behavior Awareness",
       "extractionModel": "Extraction model (optional)",
-      "extractionModelInherit": "Reuse the current chat agent (cache-friendly)",
-      "extractionAgent": "Extraction agent ID (optional)",
-      "extractionAgentPlaceholder": "Leave empty to inherit recap.analysisAgent"
+      "extractionModelInherit": "Reuse the current chat agent (cache-friendly)"
     },
     "browser": {
       "activeBadge": "active",
@@ -3758,7 +3907,16 @@
         "title": "Allow raw CDP?",
         "body": "This lets the AI send arbitrary DevTools Protocol commands to your real Chrome. Every call still needs your per-use approval and dangerous methods stay blocked, but only enable it if you specifically need it.",
         "continue": "Enable"
-      }
+      },
+      "backupRuntimeHint": "System Chrome is available. Install a Hope-managed Chromium runtime as a fallback for browser automation and Artifact PDF export.",
+      "backupRuntimeTitle": "Backup Chromium runtime",
+      "installRuntimeRetry": "The runtime is ready. Retry the browser action or PDF export.",
+      "openBrowserSettings": "Open browser settings",
+      "runtimeInstallUnsupported": "Hope does not provide a managed Chromium runtime for this operating system or architecture. Install Chrome/Chromium manually or configure an executable path.",
+      "runtimeRequiredArtifactPdfDescription": "PDF export needs a local Chrome or Chromium runtime, but none is currently available.",
+      "runtimeRequiredDescription": "This browser operation needs a local Chrome or Chromium runtime, but none is currently available.",
+      "runtimeRequiredHint": "You can install Hope's managed runtime now (about 150 MB), then retry the operation.",
+      "runtimeRequiredTitle": "Chromium runtime required"
     },
     "bytes": "bytes",
     "canvas": "Canvas",
@@ -3800,39 +3958,6 @@
         "backfillDesc": "Backfill registers older memories as claims without changing current memory injection. Pinned profile and preference memories can become active automatically; the rest wait for review."
       },
       "list": "Claims",
-      "empty": "No claims yet.",
-      "selectClaim": "Select a claim to see its evidence.",
-      "confidence": "Confidence",
-      "salience": "Salience",
-      "evidence": "Evidence",
-      "noEvidence": "No evidence.",
-      "links": "Linked memories",
-      "statusAll": "All statuses",
-      "status": {
-        "active": "Active",
-        "superseded": "Superseded",
-        "expired": "Expired",
-        "archived": "Archived",
-        "needs_review": "Needs review"
-      },
-      "backfill": {
-        "button": "Backfill",
-        "title": "Backfill legacy memories",
-        "desc": "Register existing memories as structured claims. Only pinned profile & preference memories (user/feedback) are auto-activated; the rest enter the review queue. Memories are linked loosely, so current memory injection is unchanged.",
-        "summaryTotal": "Total memories",
-        "summaryLinked": "Already linked",
-        "summaryCandidates": "To backfill",
-        "summaryActive": "Auto-active",
-        "summaryReview": "Needs review",
-        "previewTruncated": "Showing {{shown}} of {{total}}",
-        "apply": "Backfill {{count}}",
-        "applying": "Backfilling…",
-        "applied": "Backfilled {{created}} claims: {{active}} active, {{review}} pending review",
-        "planFailed": "Failed to compute the backfill plan",
-        "applyFailed": "Backfill failed",
-        "empty": "All memories are already in the claim layer.",
-        "appliedPartial": "Backfilled {{created}}, {{failed}} failed — you can retry the rest"
-      },
       "searchPlaceholder": "Search structured memories…",
       "searchMatchedBy": "Matched",
       "searchMatch_content": "Content",
@@ -4012,6 +4137,11 @@
         "llm_adjusted": "AI adjusted",
         "user_confirmed": "User confirmed"
       },
+      "empty": "No claims yet.",
+      "selectClaim": "Select a claim to see its evidence.",
+      "confidence": "Confidence",
+      "salience": "Salience",
+      "evidence": "Evidence",
       "evidenceAll": "All evidence",
       "evidenceSourceAll": "All sources",
       "evidenceSources": {
@@ -4024,9 +4154,37 @@
         "recap_facet": "Recap",
         "manual": "Manual correction"
       },
+      "noEvidence": "No evidence.",
+      "links": "Linked memories",
       "typeAll": "All types",
       "typeProfile": "Profile & preferences",
       "scopeAll": "All scopes",
+      "statusAll": "All statuses",
+      "status": {
+        "active": "Active",
+        "superseded": "Superseded",
+        "expired": "Expired",
+        "archived": "Archived",
+        "needs_review": "Needs review"
+      },
+      "backfill": {
+        "button": "Backfill",
+        "title": "Backfill legacy memories",
+        "desc": "Register existing memories as structured claims. Only pinned profile & preference memories (user/feedback) are auto-activated; the rest enter the review queue. Memories are linked loosely, so current memory injection is unchanged.",
+        "summaryTotal": "Total memories",
+        "summaryLinked": "Already linked",
+        "summaryCandidates": "To backfill",
+        "summaryActive": "Auto-active",
+        "summaryReview": "Needs review",
+        "previewTruncated": "Showing {{shown}} of {{total}}",
+        "apply": "Backfill {{count}}",
+        "applying": "Backfilling…",
+        "applied": "Backfilled {{created}} claims: {{active}} active, {{review}} pending review",
+        "planFailed": "Failed to compute the backfill plan",
+        "applyFailed": "Backfill failed",
+        "empty": "All memories are already in the claim layer.",
+        "appliedPartial": "Backfilled {{created}}, {{failed}} failed — you can retry the rest"
+      },
       "reviewHistoryTitle": "Review history",
       "reviewHistoryDesc": "Recent review decisions recorded by Lucid Review and Dreaming.",
       "reviewHistoryShow": "Show",
@@ -4201,6 +4359,14 @@
       "cronTriggerEnabledDesc": "Fire on a cron expression in addition to (or instead of) the idle trigger.",
       "cronTriggerTitle": "Scheduled trigger",
       "desc": "Periodically scan recent memories and pin the most evergreen ones into core memory. Runs offline; never blocks chat.",
+      "errors": {
+        "loadConfig": "Failed to load Dreaming settings",
+        "loadModels": "Failed to load Dreaming model list",
+        "loadStatus": "Failed to load Dreaming status",
+        "saveConfig": "Failed to save Dreaming settings",
+        "reloadAfterSave": "Failed to reload Dreaming settings after save failed",
+        "detail": "Details: {{error}}"
+      },
       "idleCountdown": "Idle trigger fires in ~{{minutes}} min",
       "idleMinutes": "Idle threshold (minutes)",
       "idleMinutesDesc": "How long to wait without user activity before firing.",
@@ -4238,14 +4404,6 @@
       "profileEnabledDesc": "Build a readable profile from active claims, layered by scope. When on, it replaces the legacy profile section in the system prompt; off keeps the legacy rendering. Idle/cron use a cheap rule-based pass; manual runs an LLM rewrite.",
       "profileMaxLines": "Max lines per scope",
       "profileMaxLinesDesc": "Cap on how many profile bullets are kept per scope.",
-      "errors": {
-        "loadConfig": "Failed to load Dreaming settings",
-        "loadModels": "Failed to load Dreaming model list",
-        "loadStatus": "Failed to load Dreaming status",
-        "saveConfig": "Failed to save Dreaming settings",
-        "reloadAfterSave": "Failed to reload Dreaming settings after save failed",
-        "detail": "Details: {{error}}"
-      },
       "deepResolverTitle": "Deep Resolver",
       "autoExpireOnLightCycle": "Auto-expire outdated claims",
       "autoExpireOnLightCycleDesc": "During normal Dreaming cycles, persist deterministic valid-until expiry as an audit-backed resolver action.",
@@ -4317,6 +4475,14 @@
       "editTitle": "Edit embedding model",
       "empty": "No embedding model configs yet. Create one from a template above, or add a custom config.",
       "emptyMemory": "No embedding model config is available yet. Create one first, or use the local embedding quick card.",
+      "errors": {
+        "delete": "Failed to delete embedding model config",
+        "detail": "Details: {{error}}",
+        "load": "Failed to load embedding model configs",
+        "save": "Failed to save embedding model config",
+        "setDefault": "Failed to switch default memory model",
+        "test": "Embedding connection test failed"
+      },
       "goConfig": "Configure embedding models",
       "memoryActive": "Default memory model",
       "memoryDefault": "Default memory model",
@@ -4330,15 +4496,7 @@
       "setMemoryDefault": "Set as default memory model",
       "tab": "Embedding Models",
       "testOk": "Embedding connection test passed",
-      "title": "Embedding Model Configs",
-      "errors": {
-        "delete": "Failed to delete embedding model config",
-        "detail": "Details: {{error}}",
-        "load": "Failed to load embedding model configs",
-        "save": "Failed to save embedding model config",
-        "setDefault": "Failed to switch default memory model",
-        "test": "Embedding connection test failed"
-      }
+      "title": "Embedding Model Configs"
     },
     "fallbackModels": "Fallback Models",
     "fallbackModelsDesc": "When the primary model is unavailable, try these models in order",
@@ -4368,8 +4526,8 @@
       "addHandler": "Add handler",
       "advanced": "Advanced",
       "slowHandlerWarning": "This handler runs an LLM / sub-agent inline and will delay every time this blocking event fires. Prefer command / http here, or move it to an observation event (e.g. PostToolUse).",
-      "modelInheritDefault": "Follow automation default",
-      "invalidJson": "Invalid JSON"
+      "invalidJson": "Invalid JSON",
+      "modelInheritDefault": "Follow automation default"
     },
     "hours": "hr",
     "imageGenApiKey": "API Key",
@@ -4454,6 +4612,15 @@
       "enabledDesc": "Embed notes for semantic retrieval. When off, note search falls back to full-text only.",
       "changeModel": "Change model",
       "activated": "Knowledge embedding model activated",
+      "errors": {
+        "loadEmbedding": "Failed to load knowledge vector search settings",
+        "activateEmbedding": "Failed to activate knowledge vector search",
+        "disableEmbedding": "Failed to disable knowledge vector search",
+        "rebuildEmbedding": "Failed to start knowledge vector rebuild",
+        "cancelReembed": "Failed to cancel knowledge vector rebuild",
+        "retryReembed": "Failed to retry knowledge vector rebuild",
+        "detail": "Details: {{error}}"
+      },
       "reembed": {
         "title": "Reindex",
         "idle": "Note vectors are up to date.",
@@ -4463,15 +4630,6 @@
         "retry": "Retry",
         "progress": "{{done}} / {{total}} knowledge bases",
         "phase": "Re-embedding notes"
-      },
-      "errors": {
-        "loadEmbedding": "Failed to load knowledge vector search settings",
-        "activateEmbedding": "Failed to activate knowledge vector search",
-        "disableEmbedding": "Failed to disable knowledge vector search",
-        "rebuildEmbedding": "Failed to start knowledge vector rebuild",
-        "cancelReembed": "Failed to cancel knowledge vector rebuild",
-        "retryReembed": "Failed to retry knowledge vector rebuild",
-        "detail": "Details: {{error}}"
       }
     },
     "knowledgeMaintenance": {
@@ -4491,6 +4649,12 @@
       "cycleSkipped": "Skipped: {{note}}",
       "cycleDone": "Generated {{n}} suggestion(s)",
       "runFailed": "Couldn't run maintenance",
+      "errors": {
+        "load": "Failed to load autonomous maintenance settings",
+        "save": "Failed to save autonomous maintenance settings",
+        "runNow": "Failed to run autonomous maintenance",
+        "detail": "Details: {{error}}"
+      },
       "task": {
         "autoLink": "Auto-link",
         "orphanRescue": "Orphan rescue",
@@ -4507,13 +4671,7 @@
       },
       "model": "Model",
       "modelDesc": "Shared by all 4 LLM-backed generators (auto-tag, MOC upkeep, memory-to-note, source conflict).",
-      "modelDefault": "Follow automation default",
-      "errors": {
-        "load": "Failed to load autonomous maintenance settings",
-        "save": "Failed to save autonomous maintenance settings",
-        "runNow": "Failed to run autonomous maintenance",
-        "detail": "Details: {{error}}"
-      }
+      "modelDefault": "Follow automation default"
     },
     "knowledgeMediaRetention": {
       "saved": "Saved",
@@ -4903,33 +5061,13 @@
     "memoryAutoExtract": "Auto-extract memories",
     "memoryAutoExtractDesc": "Automatically extract memories when token, time, or message thresholds are met",
     "memoryBudget": {
+      "advancedAllocation": "Advanced scope allocation",
       "agentOverrideDesc": "Inherits the global Memory Budget by default. Toggle off to use an agent-specific budget.",
+      "contextWindow": "Current default model context: {{count}} tokens",
+      "coreSimpleDesc": "Choose one Core Memory budget. Scope allocations can borrow unused capacity, with Project > Agent > Global priority.",
       "coreMemoryFileChars": "MEMORY.md per-layer cap",
       "coreMemoryFileCharsDesc": "Independent cap for each MEMORY.md file (Global / Agent). Content beyond the cap is truncated in the prompt but preserved on disk. Default 8000.",
       "desc": "Caps the total character count of the Memory section (Global MEMORY.md / Agent MEMORY.md / SQLite memories / Guidelines) and the per-layer limits inside it. Lowering the total frees budget for the live conversation context.",
-      "resetToDefaults": "Reset to defaults",
-      "sections": {
-        "aboutUser": "About the User",
-        "preferences": "Preferences",
-        "projectContext": "Project Context",
-        "references": "References",
-        "userProfile": "User Profile"
-      },
-      "sqliteEntryMaxChars": "Per-entry cap",
-      "sqliteEntryMaxCharsDesc": "Upper bound on the first line of each rendered SQLite memory bullet, preventing one long entry from crowding out same-section peers. Default 500.",
-      "sqliteSectionsTitle": "SQLite per-section budgets",
-      "title": "Memory Budget",
-      "totalChars": "Total chars cap",
-      "totalCharsDesc": "Hard upper bound for the entire Memory section. Guidelines are reserved first; remaining layers drop in priority order. Default 10000.",
-      "useGlobalDefault": "Inherit global default",
-      "errors": {
-        "load": "Failed to load memory budget",
-        "save": "Failed to save memory budget",
-        "detail": "Details: {{error}}"
-      },
-      "advancedAllocation": "Advanced scope allocation",
-      "contextWindow": "Current default model context: {{count}} tokens",
-      "coreSimpleDesc": "Choose one Core Memory budget. Scope allocations can borrow unused capacity, with Project > Agent > Global priority.",
       "engine": {
         "agentTokens": "Agent tokens",
         "budgetTokens": "Budget tokens",
@@ -4949,13 +5087,33 @@
       "legacyTitle": "Legacy rollback budgets",
       "legacyDesc": "These character budgets only apply to the legacy static-memory path and remain editable during the compatibility window.",
       "effective": "Configured {{configured}} · effective {{effective}} tokens",
+      "errors": {
+        "load": "Failed to load memory budget",
+        "save": "Failed to save memory budget",
+        "detail": "Details: {{error}}"
+      },
+      "resetToDefaults": "Reset to defaults",
       "highBudgetWarning": "Above the recommended 2400-token range. This is allowed, but increases every request's stable context, cache writes, and first-token latency.",
       "modelLimited": "Configured {{configured}} tokens; the current model safely uses {{effective}}. Your saved preference is unchanged.",
       "presets": {
         "balanced": "Balanced",
         "concise": "Concise",
         "rich": "Rich"
-      }
+      },
+      "sections": {
+        "aboutUser": "About the User",
+        "preferences": "Preferences",
+        "projectContext": "Project Context",
+        "references": "References",
+        "userProfile": "User Profile"
+      },
+      "sqliteEntryMaxChars": "Per-entry cap",
+      "sqliteEntryMaxCharsDesc": "Upper bound on the first line of each rendered SQLite memory bullet, preventing one long entry from crowding out same-section peers. Default 500.",
+      "sqliteSectionsTitle": "SQLite per-section budgets",
+      "title": "Memory Budget",
+      "totalChars": "Total chars cap",
+      "totalCharsDesc": "Hard upper bound for the entire Memory section. Guidelines are reserved first; remaining layers drop in priority order. Default 10000.",
+      "useGlobalDefault": "Inherit global default"
     },
     "memoryContent": "Content",
     "memoryContentPlaceholder": "What should the AI remember?",
@@ -5046,8 +5204,89 @@
     "memorySelectionThreshold": "Trigger threshold",
     "memorySelectionThresholdDesc": "Kick in only when this many candidates are retrieved. Default 8.",
     "memorySimilarity": "Similarity",
+    "agentMemoryEnabledTitle": "Use memory for this Agent",
+    "agentMemoryEnabledDesc": "Controls this Agent's Core Memory, dynamic recall, learning, and memory tools. Global memory settings still apply as the upper-level policy.",
     "memoryStatsTotal": "{{count}} total",
     "memoryStatsVec": "Vector {{pct}}%",
+    "memoryV2": {
+      "title": "Memory",
+      "subtitle": "Choose what stays with you, when to recall more, and whether conversations teach the assistant.",
+      "loadFailed": "Failed to load memory settings",
+      "saveFailed": "Failed to save memory settings",
+      "core": {
+        "title": "Always remembered",
+        "desc": "Short Global, Agent, and Project MEMORY.md files stay stable in the conversation. Topic details load only when needed.",
+        "budget": "{{count}} token total budget",
+        "manage": "Edit MEMORY.md",
+        "projectTitle": "Project MEMORY.md",
+        "projectDesc": "Short always-remembered context used only by conversations in this project.",
+        "conflict": "Both the uppercase canonical file and the legacy lowercase compatibility file changed. Choose or merge their contents before saving.",
+        "conflictCanonical": "Uppercase canonical MEMORY.md",
+        "conflictLegacy": "Legacy lowercase memory.md",
+        "conflictMerged": "Merged result (starts from canonical)",
+        "conflictKeepCanonical": "Keep MEMORY.md",
+        "conflictKeepLegacy": "Keep legacy file",
+        "conflictSaveMerged": "Save merged result",
+        "conflictLoadFailed": "Failed to load the conflicting Core Memory files",
+        "conflictResolveFailed": "Failed to resolve the Core Memory conflict. Reload and try again.",
+        "conflictResolved": "Core Memory conflict resolved",
+        "actualTokens": "{{used}} / {{total}} tokens in this scope",
+        "stats": "Index entries: {{entries}} · Topics: {{topics}}",
+        "updatedAt": "Updated {{value}}",
+        "neverUpdated": "Not written yet",
+        "scope": "Memory scope",
+        "projectLabel": "Project",
+        "topics": "On-demand topics",
+        "noTopics": "No topic files yet",
+        "selectTopic": "Select a topic or create a new one",
+        "topicName": "Topic name",
+        "topicDesc": "One line describing when to read it",
+        "topicContent": "Topic details (loaded only when needed)",
+        "topicLoadFailed": "Failed to load memory topics",
+        "topicSaveFailed": "Failed to save memory topic",
+        "topicDeleteConfirm": "Delete this memory topic?",
+        "topicDeleteFailed": "Failed to delete memory topic"
+      },
+      "recall": {
+        "title": "Dynamic memory recall",
+        "desc": "Off by default. When off, only stable Core Memory is automatic unless an Agent-specific compatibility override is enabled; the model can still search memory tools when a task needs them. When on, related dynamic memories are searched after each user message and before the reply.",
+        "fast": "Automatically recall related memories",
+        "deep": "Deep reranking (optional)",
+        "skip": "Skipped",
+        "deepCost": "Deep reranking adds a model call, making replies slower and using more tokens. Use it only after automatic recall is enabled and the extra personalization is worthwhile.",
+        "last": "Last recall: {{selected}}/{{candidates}} selected · {{latency}} ms · {{mode}}",
+        "noRecent": "No automatic dynamic recall has run since the app opened."
+      },
+      "learning": {
+        "title": "Learn from conversations",
+        "desc": "Control whether new information is saved from chats. This does not affect using memories you already have.",
+        "mode": "Learning mode",
+        "smart": "Smart learning",
+        "reviewFirst": "Review before saving",
+        "manual": "Manual saves only",
+        "pending": "{{count}} pending review",
+        "unassigned": "{{count}} unassigned"
+      },
+      "review": {
+        "title": "Pending memory review",
+        "desc": "Pending review: {{count}}. Items here are not yet in long-term memory or the prompt.",
+        "empty": "Nothing is waiting for review",
+        "chooseScope": "Choose where to save",
+        "approve": "Save memory",
+        "reject": "Do not save",
+        "loadFailed": "Failed to load pending memories",
+        "approveFailed": "Failed to save pending memory",
+        "rejectFailed": "Failed to dismiss pending memory",
+        "reason": {
+          "review_first": "Learning mode requires review",
+          "project_scope_missing": "Looks project-specific, but this chat has no project",
+          "scope_uncertain": "The correct scope is uncertain",
+          "sensitive": "May contain sensitive information",
+          "conflict": "Conflicts with an existing memory",
+          "core_promotion": "Suggested for always-remembered Core Memory"
+        }
+      }
+    },
     "memoryTabs": {
       "dreaming": "Dreaming",
       "manage": "Memory Management",
@@ -5313,11 +5552,11 @@
       "refreshFailed": "Failed to synthesise profile",
       "empty": "No profile snapshot yet",
       "emptyHint": "Enable profile synthesis under the Dreaming tab, then refresh.",
-      "version": "v{{version}}",
       "noSources": "This older snapshot has no claim source links yet. Refresh the profile to generate traceable sources.",
       "scopeSources": "Snapshot-level sources",
       "sourceConfidence": "confidence {{value}}",
       "sourceEvidence": "Evidence: {{quote}}",
+      "version": "v{{version}}",
       "operationErrors": {
         "openEvidenceSource": "Failed to open profile evidence source",
         "refresh": "Failed to synthesise profile",
@@ -5701,8 +5940,8 @@
       "skillCount_one": "{{count}} skill",
       "skillCount_other": "{{count}} skills",
       "tooltip": {
-        "distinguishOnboarding": "To migrate legacy OpenClaw user data, use the dedicated 'Import OpenClaw' step (step 2).",
-        "distinguishUserDataImport": "To migrate legacy OpenClaw user data, go to Settings → Agents → Import from OpenClaw."
+        "distinguishUserDataImport": "To migrate legacy OpenClaw user data, go to Settings → Agents → Import from OpenClaw.",
+        "distinguishOnboarding": "To migrate legacy OpenClaw user data, use the dedicated 'Import OpenClaw' step (step 2)."
       },
       "warning": {
         "openclaw": "OpenClaw skills often depend on external CLIs (gh, 1password, tmux); calls may fail until you install them.",
@@ -5755,15 +5994,15 @@
         "memory": "Memory recall",
         "awareness": "Cross-session awareness"
       },
-      "model": "Model",
-      "modelDesc": "Sprite's suggestion call is fire-and-forget — a full fallback chain is fine, not just a single model.",
-      "modelDefault": "Follow automation default",
       "errors": {
         "load": "Failed to load sprite settings",
         "save": "Failed to save sprite settings",
         "toggle": "Failed to update sprite mode",
         "detail": "Details: {{error}}"
-      }
+      },
+      "model": "Model",
+      "modelDesc": "Sprite's suggestion call is fire-and-forget — a full fallback chain is fine, not just a single model.",
+      "modelDefault": "Follow automation default"
     },
     "ssrfBrowserPolicyDesc": "Applied to page.goto / new_page target URL. Note: JS fetch() inside browser.evaluate is out of scope.",
     "ssrfDefaultPolicy": "Default policy",
@@ -6125,49 +6364,10 @@
     "uiEffects": "Background animation",
     "uiEffectsDesc": "Enable all-weather background and weather effects linkage",
     "uiEffectsToggle": "Turn on effect",
-    "audioGenerate": "Audio Generation",
-    "audioGenerateDesc": "Configure audio-synthesis providers (BYOK) for the design space audio form: TTS narration / music / SFX. Failover in order.",
-    "audioGenNoProvider": "No audio provider configured — enable one and add its API key.",
-    "audioGenApiKey": "API Key",
-    "audioGenModel": "Model",
-    "audioGenVoice": "Voice (TTS)",
-    "audioGenBaseUrl": "Base URL",
-    "audioGenTimeout": "Request timeout (s)",
-    "audioGenFetchVoices": "Fetch voices",
-    "audioGenKnownModels": "Known models",
-    "audioGenPickVoice": "Pick from list…",
     "visionBridgeModel": "Vision Bridge Model",
     "visionBridgeModelDesc": "Only used when the primary model can't view images. A separate model turns images into text descriptions so the conversation can continue.",
     "visionBridgeModelClear": "Turn off vision bridge",
     "selectVisionBridgeModel": "Select vision model",
-    "modelChainRestoreInherit": "Reset to inherited default",
-    "automationModelChain": "Automation default model",
-    "automationModelChainDesc": "Default model chain (with fallback) for background one-shot AI tasks like Recap, Dreaming, and Knowledge Compile — independent of the chat default model above. Leave unset to fall back to the chat default model.",
-    "automationModelChainInherit": "Follow chat default model",
-    "knowledgeVision": {
-      "model": "Vision model",
-      "modelDesc": "Model chain used to OCR images when importing them into a knowledge space. Empty follows the automation default.",
-      "modelDefault": "Follow automation default",
-      "ocrConcurrency": "Scanned-PDF OCR concurrency",
-      "maxOcrPages": "Scanned-PDF OCR page limit"
-    },
-    "noteTools": {
-      "title": "Note tools model",
-      "desc": "Model used by note distillation, MOC generation, and session-to-note tools.",
-      "modelDefault": "Follow automation default"
-    },
-    "recallSummary": {
-      "title": "Recall summarization",
-      "desc": "When recall_memory / session_search return many hits, compress them into one concise paragraph via an extra LLM call instead of returning raw snippets. Off by default — costs one call per qualifying search.",
-      "enabled": "Enable summarization",
-      "minHits": "Minimum hits to trigger",
-      "contextCharBudget": "Context budget (chars)",
-      "timeoutSecs": "Timeout (s)",
-      "maxTokens": "Max output tokens",
-      "includeHistory": "Also summarize conversation history hits",
-      "model": "Model",
-      "modelDefault": "Follow automation default"
-    },
     "activeMemoryUseRecommended": "Use recommended",
     "procedureMemoryTitle": "Saved workflows",
     "procedureMemoryDesc": "Use relevant saved workflows as bounded soft guidance before the reply.",
@@ -6999,7 +7199,42 @@
     "reasoningEffort": "Think",
     "memoryAuditScopeHintAll": "All changes searches long-term memories, workflows, and structured-memory decisions.",
     "memoryAuditScopeHintMemoryOnly": "Action filters apply to long-term memory history; workflows and structured-memory decisions stay under All changes.",
+    "modelChainRestoreInherit": "Reset to inherited default",
+    "automationModelChain": "Automation default model",
+    "automationModelChainDesc": "Default model chain (with fallback) for background one-shot AI tasks like Recap, Dreaming, and Knowledge Compile — independent of the chat default model above. Leave unset to fall back to the chat default model.",
+    "automationModelChainInherit": "Follow chat default model",
+    "knowledgeVision": {
+      "model": "Vision model",
+      "modelDesc": "Model chain used to OCR images when importing them into a knowledge space. Empty follows the automation default.",
+      "modelDefault": "Follow automation default",
+      "ocrConcurrency": "Scanned-PDF OCR concurrency",
+      "maxOcrPages": "Scanned-PDF OCR page limit"
+    },
+    "noteTools": {
+      "title": "Note tools model",
+      "desc": "Model used by note distillation, MOC generation, and session-to-note tools.",
+      "modelDefault": "Follow automation default"
+    },
+    "recallSummary": {
+      "title": "Recall summarization",
+      "desc": "When recall_memory / session_search return many hits, compress them into one concise paragraph via an extra LLM call instead of returning raw snippets. Off by default — costs one call per qualifying search.",
+      "enabled": "Enable summarization",
+      "minHits": "Minimum hits to trigger",
+      "contextCharBudget": "Context budget (chars)",
+      "timeoutSecs": "Timeout (s)",
+      "maxTokens": "Max output tokens",
+      "includeHistory": "Also summarize conversation history hits",
+      "model": "Model",
+      "modelDefault": "Follow automation default"
+    },
     "tabOverview": "Overview",
+    "memoryBackupExportSummary": "Memories: {{memories}} · Claims: {{claims}} · Profiles: {{profiles}} · Episodes: {{episodes}} · Workflows: {{procedures}}",
+    "memoryBackupOpenReviewInboxAfterRestore": "Restored items to review: {{count}}",
+    "memoryExperienceSearchActive": "Matches for “{{query}}”: {{total}}",
+    "memoryExperienceViewActive": "Experience items: {{total}}",
+    "memoryExternalProvidersActive": "Active providers: {{active}}/{{total}}",
+    "memoryExternalProvidersActiveSummary": "Active: {{active}} · Configured: {{total}}",
+    "memoryProcedureSourceEpisode": "Episode: {{id}}",
     "memoryExternalProviders": "External providers",
     "memoryExternalProvidersDesc": "Optional additive memory providers. Local memory remains the source of truth; connections are disabled until you explicitly configure and enable them.",
     "memoryExternalProvidersGlobal": "Enable provider sync",
@@ -7116,94 +7351,17 @@
     "memoryProcedureStepsPlaceholder": "- Inspect the failing check\n- Apply the known fix\n- Re-run the narrow verifier",
     "memoryProcedureConstraintsPlaceholder": "When not to use this workflow",
     "memoryProcedureConfidence": "Confidence",
-    "agentMemoryEnabledTitle": "Use memory for this Agent",
-    "agentMemoryEnabledDesc": "Controls this Agent's Core Memory, dynamic recall, learning, and memory tools. Global memory settings still apply as the upper-level policy.",
-    "memoryV2": {
-      "title": "Memory",
-      "subtitle": "Choose what stays with you, when to recall more, and whether conversations teach the assistant.",
-      "loadFailed": "Failed to load memory settings",
-      "saveFailed": "Failed to save memory settings",
-      "core": {
-        "title": "Always remembered",
-        "desc": "Short Global, Agent, and Project MEMORY.md files stay stable in the conversation. Topic details load only when needed.",
-        "budget": "{{count}} token total budget",
-        "manage": "Edit MEMORY.md",
-        "projectTitle": "Project MEMORY.md",
-        "projectDesc": "Short always-remembered context used only by conversations in this project.",
-        "conflict": "Both the uppercase canonical file and the legacy lowercase compatibility file changed. Choose or merge their contents before saving.",
-        "conflictCanonical": "Uppercase canonical MEMORY.md",
-        "conflictLegacy": "Legacy lowercase memory.md",
-        "conflictMerged": "Merged result (starts from canonical)",
-        "conflictKeepCanonical": "Keep MEMORY.md",
-        "conflictKeepLegacy": "Keep legacy file",
-        "conflictSaveMerged": "Save merged result",
-        "conflictLoadFailed": "Failed to load the conflicting Core Memory files",
-        "conflictResolveFailed": "Failed to resolve the Core Memory conflict. Reload and try again.",
-        "conflictResolved": "Core Memory conflict resolved",
-        "actualTokens": "{{used}} / {{total}} tokens in this scope",
-        "stats": "Index entries: {{entries}} · Topics: {{topics}}",
-        "updatedAt": "Updated {{value}}",
-        "neverUpdated": "Not written yet",
-        "scope": "Memory scope",
-        "projectLabel": "Project",
-        "topics": "On-demand topics",
-        "noTopics": "No topic files yet",
-        "selectTopic": "Select a topic or create a new one",
-        "topicName": "Topic name",
-        "topicDesc": "One line describing when to read it",
-        "topicContent": "Topic details (loaded only when needed)",
-        "topicLoadFailed": "Failed to load memory topics",
-        "topicSaveFailed": "Failed to save memory topic",
-        "topicDeleteConfirm": "Delete this memory topic?",
-        "topicDeleteFailed": "Failed to delete memory topic"
-      },
-      "recall": {
-        "title": "Dynamic memory recall",
-        "desc": "Off by default. When off, only stable Core Memory is automatic unless an Agent-specific compatibility override is enabled; the model can still search memory tools when a task needs them. When on, related dynamic memories are searched after each user message and before the reply.",
-        "fast": "Automatically recall related memories",
-        "deep": "Deep reranking (optional)",
-        "skip": "Skipped",
-        "deepCost": "Deep reranking adds a model call, making replies slower and using more tokens. Use it only after automatic recall is enabled and the extra personalization is worthwhile.",
-        "last": "Last recall: {{selected}}/{{candidates}} selected · {{latency}} ms · {{mode}}",
-        "noRecent": "No automatic dynamic recall has run since the app opened."
-      },
-      "learning": {
-        "title": "Learn from conversations",
-        "desc": "Control whether new information is saved from chats. This does not affect using memories you already have.",
-        "mode": "Learning mode",
-        "smart": "Smart learning",
-        "reviewFirst": "Review before saving",
-        "manual": "Manual saves only",
-        "pending": "{{count}} pending review",
-        "unassigned": "{{count}} unassigned"
-      },
-      "review": {
-        "title": "Pending memory review",
-        "desc": "Pending review: {{count}}. Items here are not yet in long-term memory or the prompt.",
-        "empty": "Nothing is waiting for review",
-        "chooseScope": "Choose where to save",
-        "approve": "Save memory",
-        "reject": "Do not save",
-        "loadFailed": "Failed to load pending memories",
-        "approveFailed": "Failed to save pending memory",
-        "rejectFailed": "Failed to dismiss pending memory",
-        "reason": {
-          "review_first": "Learning mode requires review",
-          "project_scope_missing": "Looks project-specific, but this chat has no project",
-          "scope_uncertain": "The correct scope is uncertain",
-          "sensitive": "May contain sensitive information",
-          "conflict": "Conflicts with an existing memory",
-          "core_promotion": "Suggested for always-remembered Core Memory"
-        }
-      }
-    },
-    "memoryBackupExportSummary": "Memories: {{memories}} · Claims: {{claims}} · Profiles: {{profiles}} · Episodes: {{episodes}} · Workflows: {{procedures}}",
-    "memoryBackupOpenReviewInboxAfterRestore": "Restored items to review: {{count}}",
-    "memoryExperienceSearchActive": "Matches for “{{query}}”: {{total}}",
-    "memoryExperienceViewActive": "Experience items: {{total}}",
-    "memoryExternalProvidersActive": "Active providers: {{active}}/{{total}}",
-    "memoryExternalProvidersActiveSummary": "Active: {{active}} · Configured: {{total}}",
-    "memoryProcedureSourceEpisode": "Episode: {{id}}"
+    "audioGenerate": "Audio Generation",
+    "audioGenerateDesc": "Configure audio-synthesis providers (BYOK) for the design space audio form: TTS narration / music / SFX. Failover in order.",
+    "audioGenNoProvider": "No audio provider configured — enable one and add its API key.",
+    "audioGenApiKey": "API Key",
+    "audioGenModel": "Model",
+    "audioGenVoice": "Voice (TTS)",
+    "audioGenBaseUrl": "Base URL",
+    "audioGenTimeout": "Request timeout (s)",
+    "audioGenFetchVoices": "Fetch voices",
+    "audioGenKnownModels": "Known models",
+    "audioGenPickVoice": "Pick from list…"
   },
   "shortcuts": {
     "actionOpenSettings": "Open Settings",
@@ -7264,6 +7422,21 @@
     },
     "context": {
       "description": "Show context window breakdown"
+    },
+    "workflow": {
+      "description": "Toggle Workflow Mode and inspect workflow runs"
+    },
+    "goal": {
+      "description": "Set and audit the session goal"
+    },
+    "loop": {
+      "description": "Run a prompt repeatedly on a fixed interval"
+    },
+    "review": {
+      "description": "Review local code changes"
+    },
+    "mode": {
+      "description": "Set execution mode"
     },
     "export": {
       "description": "Export as Markdown"
@@ -7348,21 +7521,6 @@
     },
     "kb": {
       "description": "Confirm or revoke this group chat's knowledge-base access"
-    },
-    "workflow": {
-      "description": "Toggle Workflow Mode and inspect workflow runs"
-    },
-    "goal": {
-      "description": "Set and audit the session goal"
-    },
-    "loop": {
-      "description": "Run a prompt repeatedly on a fixed interval"
-    },
-    "review": {
-      "description": "Review local code changes"
-    },
-    "mode": {
-      "description": "Set execution mode"
     },
     "errors": {
       "noActiveSession": "No active session",
@@ -7709,6 +7867,11 @@
     "openPanel": "Open workspace",
     "resizePanel": "Resize workspace panel",
     "sourceFromSearch": "Search",
+    "sourceFromUser": "User",
+    "sourceFromAttachment": "Attachment",
+    "advancedDiagnostics": {
+      "title": "Advanced diagnostics"
+    },
     "truncatedNote": "Showing the most recent 1000",
     "environment": {
       "archived": "Archived",
@@ -7866,23 +8029,6 @@
       "reviewStatus": "Review status",
       "reviewers": "Reviewers"
     },
-    "action": {
-      "create": "New",
-      "edit": "Edit",
-      "delete": "Delete",
-      "read": "Read"
-    },
-    "sectionKnowledge": "Knowledge",
-    "emptyKnowledge": "No knowledge space attached",
-    "kbViaProject": "Project",
-    "kbWrote": "Wrote",
-    "kbRead": "Read",
-    "kbSearchCount": "{{n}} searches",
-    "sourceFromUser": "User",
-    "sourceFromAttachment": "Attachment",
-    "advancedDiagnostics": {
-      "title": "Advanced diagnostics"
-    },
     "goal": {
       "watchdogTitle": "Goal needs confirmation",
       "watchdogStaleEvaluatingWithAge": "Evaluating with no new progress for {{age}}",
@@ -8022,6 +8168,18 @@
       "clean": "No local changes",
       "changed": "{{count}} changes"
     },
+    "action": {
+      "create": "New",
+      "edit": "Edit",
+      "delete": "Delete",
+      "read": "Read"
+    },
+    "sectionKnowledge": "Knowledge",
+    "emptyKnowledge": "No knowledge space attached",
+    "kbViaProject": "Project",
+    "kbWrote": "Wrote",
+    "kbRead": "Read",
+    "kbSearchCount": "{{n}} searches",
     "loop": {
       "title": "Loop",
       "stateActive": "Running",
@@ -9407,6 +9565,9 @@
       "incognitoDisabled": "Incognito sessions can't attach knowledge spaces",
       "needSession": "Send your first message to attach a knowledge space",
       "empty": "No knowledge spaces yet — create one under Knowledge.",
+      "loadFailed": "Failed to load knowledge spaces",
+      "attachmentsLoadFailed": "Could not read this chat's attached spaces",
+      "errorDetail": "Details: {{error}}",
       "viaProject": "From the parent project",
       "noteCount": "{{count}} notes",
       "read": "Read",
@@ -9418,10 +9579,7 @@
       "accessWrite": "Read+Write",
       "accessOffTip": "Not attached — the assistant can't access this space",
       "accessReadTip": "The assistant can search and read notes",
-      "accessWriteTip": "The assistant can read and edit notes",
-      "loadFailed": "Failed to load knowledge spaces",
-      "attachmentsLoadFailed": "Could not read this chat's attached spaces",
-      "errorDetail": "Details: {{error}}"
+      "accessWriteTip": "The assistant can read and edit notes"
     },
     "mention": {
       "heading": "Knowledge notes",
@@ -9482,6 +9640,7 @@
       "noHistory": "No conversations yet.",
       "untitled": "Untitled conversation",
       "noKb": "Open a knowledge space to start chatting.",
+      "welcome": "Ask, organize, or create with this knowledge space",
       "messageCount": "{{count}} messages",
       "errors": {
         "loadAgents": "Couldn't load chat agents",
@@ -9493,8 +9652,7 @@
         "loadMoreThreads": "Couldn't load more conversations",
         "loadMoreMessages": "Couldn't load earlier messages",
         "detail": "Details: {{error}}"
-      },
-      "welcome": "Ask, organize, or create with this knowledge space"
+      }
     },
     "quickRewrite": {
       "title": "Quick rewrite",
@@ -9504,9 +9662,9 @@
       "regenerate": "Regenerate",
       "apply": "Apply",
       "failed": "Rewrite failed",
-      "staleSelection": "The selection moved while rewriting — please reselect and try again.",
       "modelLoadFailed": "Couldn't load rewrite models",
-      "errorDetail": "Details: {{error}}"
+      "errorDetail": "Details: {{error}}",
+      "staleSelection": "The selection moved while rewriting — please reselect and try again."
     },
     "sprite": {
       "toggle": "Sprite mode",
@@ -9514,6 +9672,10 @@
       "toastOn": "Sprite mode on",
       "toastOnDesc": "It'll chime in with a gentle suggestion when you pause editing.",
       "toastOff": "Sprite mode off",
+      "loadFailed": "Couldn't load sprite mode",
+      "toggleFailed": "Couldn't update sprite mode",
+      "observeFailed": "Couldn't ask the sprite for a suggestion",
+      "errorDetail": "Details: {{error}}",
       "respond": "Respond",
       "dismiss": "Dismiss",
       "category": {
@@ -9522,11 +9684,7 @@
         "encourage": "Encouragement",
         "remind": "Reminder",
         "connect": "Connection"
-      },
-      "loadFailed": "Couldn't load sprite mode",
-      "toggleFailed": "Couldn't update sprite mode",
-      "observeFailed": "Couldn't ask the sprite for a suggestion",
-      "errorDetail": "Details: {{error}}"
+      }
     },
     "deleteNoteTitle": "Delete note",
     "deleteNoteBody": "Delete \"{{name}}\"? The Markdown file will be removed from disk. This cannot be undone.",
@@ -9552,6 +9710,32 @@
     "renameMoveFailed": "Couldn't rename/move \"{{name}}\" — a note with that name may already exist.",
     "linksRewritten": "Updated {{count}} link reference(s) in other notes.",
     "noteRemovedExternally": "This note was removed or moved outside the app.",
+    "operationErrorDetail": "Details: {{error}}",
+    "errors": {
+      "loadSpaces": "Couldn't load knowledge spaces",
+      "loadNotes": "Couldn't load notes",
+      "loadFolders": "Couldn't load folders",
+      "loadTags": "Couldn't load tags",
+      "searchNotes": "Couldn't search notes",
+      "saveNote": "Couldn't save note",
+      "createSpace": "Couldn't create knowledge space",
+      "createNote": "Couldn't create note",
+      "createLinkedNote": "Couldn't create linked note",
+      "reindexSpace": "Couldn't rebuild space index",
+      "reindexNote": "Couldn't rebuild note index",
+      "reindexFolder": "Couldn't rebuild folder index",
+      "deleteNote": "Couldn't delete note",
+      "deleteFolder": "Couldn't delete folder",
+      "revealNote": "Couldn't reveal note",
+      "createFolder": "Couldn't create folder",
+      "updateSpace": "Couldn't update knowledge space",
+      "archiveSpace": "Couldn't update archive status",
+      "deleteSpace": "Couldn't delete knowledge space"
+    },
+    "focusKbUnavailable": "That knowledge space is no longer available.",
+    "focusNoteUnavailable": "Couldn't open that knowledge note. It may have moved or access changed.",
+    "focusUnavailableDetail": "Details: {{error}}",
+    "focusLocationUnavailable": "Opened the note, but the exact source location could not be found.",
     "moveTo": "Move to…",
     "moveToTitle": "Move \"{{name}}\" to…",
     "rootFolder": "Root",
@@ -9573,11 +9757,17 @@
       "tooltip": "Knowledge activity",
       "title": "Knowledge activity",
       "empty": "No activity yet.",
+      "loadFailed": "Couldn't load rebuild tasks",
+      "cancelFailed": "Couldn't cancel rebuild task",
+      "retryFailed": "Couldn't retry rebuild task",
+      "clearFailed": "Couldn't clear rebuild task",
       "kindReindex": "Rebuild index",
       "kindReembed": "Re-embed vectors",
       "fts": "Full-text index",
+      "result": "Rebuilt {{notes}} notes · {{kbs}} spaces",
       "emptyHint": "Bind or reindex a space, or import files, and progress shows up here.",
       "model": "Model: {{name}}",
+      "errorDetail": "Details: {{error}}",
       "kindImport": "Import sources",
       "space": "Space: {{name}}",
       "progressFiles": "{{done}} / {{total}} files",
@@ -9592,13 +9782,7 @@
         "failed": "Failed",
         "cancelled": "Cancelled",
         "timed_out": "Timed out"
-      },
-      "loadFailed": "Couldn't load rebuild tasks",
-      "cancelFailed": "Couldn't cancel rebuild task",
-      "retryFailed": "Couldn't retry rebuild task",
-      "clearFailed": "Couldn't clear rebuild task",
-      "result": "Rebuilt {{notes}} notes · {{kbs}} spaces",
-      "errorDetail": "Details: {{error}}"
+      }
     },
     "maintenance": {
       "tooltip": "Maintenance",
@@ -9612,11 +9796,13 @@
       "runNow": "Scan",
       "runNowTip": "Scan now for maintenance suggestions",
       "rejectAll": "Reject all",
+      "rejectAllFailed": "Couldn't dismiss all suggestions",
       "approve": "Apply",
       "reject": "Dismiss",
       "cycleSkipped": "Maintenance skipped: {{note}}",
       "cycleDone": "Generated {{n}} suggestion(s)",
       "runFailed": "Couldn't run maintenance",
+      "errorDetail": "Details: {{error}}",
       "applyFailed": "Couldn't apply suggestion",
       "rejectFailed": "Couldn't dismiss suggestion",
       "compileQueued": "Generated source-to-note review. Check the note suggestions panel for diffs.",
@@ -9643,9 +9829,7 @@
       "needsReview": "Needs review",
       "rebuildEvidenceTip": "Rebuild the derived evidence index",
       "schemaIssues": "Schema issues",
-      "staleRefs": "Stale refs",
-      "rejectAllFailed": "Couldn't dismiss all suggestions",
-      "errorDetail": "Details: {{error}}"
+      "staleRefs": "Stale refs"
     },
     "graph": {
       "toggle": "Graph view",
@@ -9672,6 +9856,9 @@
     "embeddingOff": "Vector search off",
     "embeddingModelTip": "Embedding model: {{name}} — open settings",
     "embeddingOffTip": "Vector search is off — open settings",
+    "embeddingStatusUnavailable": "Vector status unavailable",
+    "embeddingStatusUnavailableTip": "Vector search status is unavailable — open settings",
+    "embeddingStatusErrorDetail": "Details: {{error}}",
     "kbRootPick": "Choose…",
     "kbRootHint": "Leave empty for an internal space. External vaults are read-only in Phase 1.",
     "kbRootInvalid": "Could not select that folder",
@@ -9690,6 +9877,7 @@
       "description": "AI drafts note changes from selected sources. Review the diff before anything is written.",
       "empty": "Select a proposal to review",
       "emptyHint": "Generated proposals stay here until you apply or reject them.",
+      "errorDetail": "Details: {{error}}",
       "failed": "Source-to-note run failed",
       "loadFailed": "Couldn't load source-to-note runs",
       "noProposals": "No proposals for this run.",
@@ -9707,8 +9895,7 @@
       "startFailed": "Couldn't organize sources into notes",
       "startSelected": "Organize {{count}}",
       "started": "Generated {{n}} note suggestion(s)",
-      "title": "Organize into notes",
-      "errorDetail": "Details: {{error}}"
+      "title": "Organize into notes"
     },
     "sources": {
       "archiveAttachment": "Archive to knowledge",
@@ -9734,6 +9921,7 @@
       "diffTruncated": "Preview truncated",
       "dismissSimilar": "Ignore",
       "downloadOriginal": "Download original",
+      "downloadOriginalFailed": "Couldn't download original file",
       "empty": "No sources yet.",
       "evidenceSources": "Sources",
       "externalRawPath": "External snapshot",
@@ -9765,8 +9953,15 @@
       "noSimilarGroups": "No similar source groups.",
       "open": "Open",
       "openOriginal": "Open original",
+      "openOriginalFailed": "Couldn't open original file",
       "otherKb": "Other space {{id}}",
       "readFailed": "Couldn't open source",
+      "sourceListFailed": "Couldn't load sources",
+      "sourceRefsFailed": "Couldn't load source references",
+      "sourceClaimsFailed": "Couldn't load source claim references",
+      "importRunsListFailed": "Couldn't load import history",
+      "similarGroupsLoadFailed": "Couldn't load similar source groups",
+      "sourceErrorDetail": "Details: {{error}}",
       "reextract": "Re-extract",
       "reextractFailed": "Couldn't re-extract source",
       "reextracted": "Source re-extracted",
@@ -9841,15 +10036,7 @@
       "ocrFailed": "OCR failed",
       "ocrRetry": "Retry failed OCR pages",
       "ocrRetryStarted": "Retrying failed pages…",
-      "ocrRetryFailed": "Couldn't retry OCR pages",
-      "downloadOriginalFailed": "Couldn't download original file",
-      "openOriginalFailed": "Couldn't open original file",
-      "sourceListFailed": "Couldn't load sources",
-      "sourceRefsFailed": "Couldn't load source references",
-      "sourceClaimsFailed": "Couldn't load source claim references",
-      "importRunsListFailed": "Couldn't load import history",
-      "similarGroupsLoadFailed": "Couldn't load similar source groups",
-      "sourceErrorDetail": "Details: {{error}}"
+      "ocrRetryFailed": "Couldn't retry OCR pages"
     },
     "queryFile": {
       "action": "File",
@@ -9858,6 +10045,7 @@
       "applyFailed": "Couldn't apply filing",
       "description": "Create a review diff before writing.",
       "empty": "Choose where this answer should land.",
+      "errorDetail": "Details: {{error}}",
       "generateFailed": "Couldn't create filing proposal",
       "reject": "Reject",
       "rejected": "Filing discarded",
@@ -9875,8 +10063,7 @@
       "currentNotePlaceholder": "Current note path",
       "openQuestionsPlaceholder": "Note with Open Questions",
       "mocPlaceholder": "MOCs/Conversation Filings.md",
-      "createNotePlaceholder": "Filed Conversations/example.md",
-      "errorDetail": "Details: {{error}}"
+      "createNotePlaceholder": "Filed Conversations/example.md"
     },
     "emptyState": {
       "scanning": "Scanning this space…",
@@ -9884,36 +10071,7 @@
       "emptyExternal": "No markdown notes found in this folder yet.",
       "emptyInternal": "This space is empty.",
       "importFiles": "Import files"
-    },
-    "operationErrorDetail": "Details: {{error}}",
-    "errors": {
-      "loadSpaces": "Couldn't load knowledge spaces",
-      "loadNotes": "Couldn't load notes",
-      "loadFolders": "Couldn't load folders",
-      "loadTags": "Couldn't load tags",
-      "searchNotes": "Couldn't search notes",
-      "saveNote": "Couldn't save note",
-      "createSpace": "Couldn't create knowledge space",
-      "createNote": "Couldn't create note",
-      "createLinkedNote": "Couldn't create linked note",
-      "reindexSpace": "Couldn't rebuild space index",
-      "reindexNote": "Couldn't rebuild note index",
-      "reindexFolder": "Couldn't rebuild folder index",
-      "deleteNote": "Couldn't delete note",
-      "deleteFolder": "Couldn't delete folder",
-      "revealNote": "Couldn't reveal note",
-      "createFolder": "Couldn't create folder",
-      "updateSpace": "Couldn't update knowledge space",
-      "archiveSpace": "Couldn't update archive status",
-      "deleteSpace": "Couldn't delete knowledge space"
-    },
-    "focusKbUnavailable": "That knowledge space is no longer available.",
-    "focusNoteUnavailable": "Couldn't open that knowledge note. It may have moved or access changed.",
-    "focusUnavailableDetail": "Details: {{error}}",
-    "focusLocationUnavailable": "Opened the note, but the exact source location could not be found.",
-    "embeddingStatusUnavailable": "Vector status unavailable",
-    "embeddingStatusUnavailableTip": "Vector search status is unavailable — open settings",
-    "embeddingStatusErrorDetail": "Details: {{error}}"
+    }
   },
   "backgroundJobs": {
     "panelTitle": "Background Tasks",
@@ -9959,6 +10117,9 @@
   },
   "macControl": {
     "panelTitle": "Mac Control"
+  },
+  "memory": {
+    "activeRecallToastTitle": "Referenced memory"
   },
   "design": {
     "title": "Design Space",
@@ -10678,19 +10839,50 @@
       "chatPrompt": "The implemented code has diverged from this design. Update the current design to reflect the referenced code changes, keeping the design intent and everything else unchanged."
     }
   },
-  "agentLifecycle": {
-    "activeWorkBlocked": "Deletion is blocked while {{count}} Agent task(s) are still active.",
-    "deleteDescription": "Routing references will move to the replacement Agent. Historical conversations and structured memories are retained, while Agent files are moved to the recoverable trash.",
-    "deleteTitle": "Delete Agent safely",
-    "disabled": "Disabled",
-    "enabled": "Enabled",
-    "history": "Historical conversations",
-    "memories": "Retained memories",
-    "replacement": "Replacement Agent",
-    "retentionNotice": "This operation creates a configuration backup. Agent configuration, Home, and Plans are moved to trash instead of being permanently erased.",
-    "routes": "Routing references"
-  },
-  "memory": {
-    "activeRecallToastTitle": "Referenced memory"
+  "artifacts": {
+    "title": "Artifacts",
+    "subtitle": "Versioned local reports, dashboards, and explainers",
+    "loadFailed": "Failed to load Artifacts",
+    "verifyPassed": "Verification passed",
+    "verifyFailed": "Verification found blockers",
+    "exportUnavailable": "Export unavailable",
+    "exportReady": "Artifact exported",
+    "restoreReady": "Restored as a new version",
+    "archiveConfirm": "Archive this Artifact?",
+    "deleteConfirm": "Permanently delete this Artifact and all versions?",
+    "search": "Search title, project, or Agent",
+    "allKinds": "All kinds",
+    "active": "Active",
+    "archived": "Archived",
+    "allStates": "All states",
+    "empty": "No Artifacts found",
+    "selectHint": "Select an Artifact to inspect it",
+    "sources": "sources",
+    "verify": "Verify",
+    "export": "Export",
+    "archive": "Archive",
+    "delete": "Delete",
+    "deliveryStatus": "Delivery status",
+    "privacy": "Privacy",
+    "analysisStatus": "Analysis",
+    "verification": "Verification",
+    "sourceContext": "Sources & quality",
+    "qualityChecks": "Quality checks",
+    "noSources": "No canonical sources recorded",
+    "contentMode": "Content",
+    "executable": "executable",
+    "static": "static",
+    "versionHistory": "Version history",
+    "current": "Current",
+    "restore": "Restore",
+    "exportReview": "Export review",
+    "exportReviewHint": "Required for shareable, sensitive, private-source, or connector-backed packages.",
+    "audiencePlaceholder": "Intended audience",
+    "audienceRequired": "Enter the intended delivery audience",
+    "redactionConfirm": "Confirm that sensitive fields and included sources have been reviewed for this audience?",
+    "confirmRedaction": "Confirm redaction & review",
+    "exportReviewPassed": "Export review passed",
+    "exportReviewBlocked": "Export review still has blockers",
+    "guardStatus": "Guard"
   }
 }

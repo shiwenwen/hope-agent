@@ -180,6 +180,14 @@ fn build_router_with_cors(
             post(routes::sessions::mark_session_read),
         )
         .route(
+            "/sessions/unread",
+            get(routes::sessions::regular_unread_total),
+        )
+        .route(
+            "/sessions/unread/next",
+            get(routes::sessions::next_unread_session),
+        )
+        .route(
             "/sessions/read-batch",
             post(routes::sessions::mark_session_read_batch),
         )
@@ -268,9 +276,22 @@ fn build_router_with_cors(
             "/projects/reorder",
             post(routes::projects::reorder_projects),
         )
+        .route(
+            "/projects/instructions/inspect",
+            post(routes::projects::inspect_project_instructions_file),
+        )
         .route("/projects/{id}", get(routes::projects::get_project))
+        .route(
+            "/projects/{id}/overview",
+            get(routes::projects::get_project_overview),
+        )
         .route("/projects/{id}", patch(routes::projects::update_project))
         .route("/projects/{id}", delete(routes::projects::delete_project))
+        .route(
+            "/projects/{id}/instructions",
+            get(routes::projects::get_project_instructions)
+                .put(routes::projects::save_project_instructions_file),
+        )
         .route(
             "/projects/{id}/archive",
             post(routes::projects::archive_project),
@@ -1778,6 +1799,10 @@ fn build_router_with_cors(
         .route("/dashboard/errors", post(routes::dashboard::errors))
         .route("/dashboard/tasks", post(routes::dashboard::tasks))
         .route(
+            "/dashboard/control-plane",
+            post(routes::dashboard::control_plane),
+        )
+        .route(
             "/dashboard/system-metrics",
             get(routes::dashboard::system_metrics),
         )
@@ -2991,6 +3016,45 @@ fn build_router_with_cors(
         .route(
             "/design/projects/{project_id}/artifacts/{artifact_id}/{*rest}",
             get(routes::design::serve_artifact_file),
+        )
+        // Local-first Artifacts control plane. Canvas routes remain as the
+        // compatibility rendering surface for at least one minor release.
+        .route("/artifacts", get(routes::artifacts::list_artifacts))
+        .route(
+            "/artifacts/import",
+            post(routes::artifacts::import_artifact),
+        )
+        .route(
+            "/artifacts/{id}",
+            get(routes::artifacts::get_artifact).delete(routes::artifacts::delete_artifact),
+        )
+        .route(
+            "/artifacts/{id}/versions",
+            get(routes::artifacts::list_versions),
+        )
+        .route(
+            "/artifacts/{id}/restore",
+            post(routes::artifacts::restore_artifact),
+        )
+        .route(
+            "/artifacts/{id}/verify",
+            post(routes::artifacts::verify_artifact),
+        )
+        .route(
+            "/artifacts/{id}/exports",
+            post(routes::artifacts::create_export),
+        )
+        .route(
+            "/artifacts/{id}/export-review",
+            post(routes::artifacts::review_export),
+        )
+        .route(
+            "/artifacts/{id}/archive",
+            post(routes::artifacts::archive_artifact),
+        )
+        .route(
+            "/artifact-exports/{export_id}/download",
+            get(routes::artifacts::download_export),
         )
         // Providers extras
         .route(

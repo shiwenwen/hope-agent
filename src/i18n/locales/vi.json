@@ -1,4 +1,16 @@
 {
+  "agentLifecycle": {
+    "activeWorkBlocked": "Deletion is blocked while {{count}} Agent task(s) are still active.",
+    "deleteDescription": "Routing references will move to the replacement Agent. Historical conversations and structured memories are retained, while Agent files are moved to the recoverable trash.",
+    "deleteTitle": "Delete Agent safely",
+    "disabled": "Disabled",
+    "enabled": "Enabled",
+    "history": "Historical conversations",
+    "memories": "Retained memories",
+    "replacement": "Replacement Agent",
+    "retentionNotice": "This operation creates a configuration backup. Agent configuration, Home, and Plans are moved to trash instead of being permanently erased.",
+    "routes": "Routing references"
+  },
   "about": {
     "badge": "AI desktop cho công việc hằng ngày",
     "closing": "Nó không được thiết kế như một danh sách tính năng. Nó được thiết kế để luôn hữu ích, đáng tin và không gây phiền trong quá trình sử dụng lâu dài.",
@@ -111,6 +123,10 @@
         "title": "Advanced browser CDP command",
         "body": "This browser action will send a raw Chrome DevTools Protocol command to a real Chrome tab. It uses the normal tool approval flow; AllowAlways, Smart mode, and YOLO follow the active session policy."
       },
+      "external_connector_action": {
+        "title": "Thao tác trình kết nối bên ngoài",
+        "body": "Lệnh gọi này sẽ thay đổi email, lịch, tài liệu, bảng tính hoặc dữ liệu nghiệp vụ trong hệ thống bên ngoài. Cần xác nhận từng lần gọi; không thể dùng Luôn cho phép."
+      },
       "browser_download_action": {
         "title": "Browser download action",
         "body": "This browser action will read or interrupt Chrome download activity. It uses the normal tool approval flow; AllowAlways, Smart mode, and YOLO follow the active session policy."
@@ -126,10 +142,6 @@
       "browser_chrome_access": {
         "title": "Real Chrome access",
         "body": "This browser action will read or control the user's real Chrome state through the extension. It uses the normal tool approval flow; AllowAlways, Smart mode, and YOLO follow the active session policy."
-      },
-      "external_connector_action": {
-        "title": "Thao tác trình kết nối bên ngoài",
-        "body": "Lệnh gọi này sẽ thay đổi email, lịch, tài liệu, bảng tính hoặc dữ liệu nghiệp vụ trong hệ thống bên ngoài. Cần xác nhận từng lần gọi; không thể dùng Luôn cho phép."
       }
     },
     "title": "Command Approval Required",
@@ -157,7 +169,6 @@
     "maximize": "Phóng to",
     "minimize": "Thu nhỏ",
     "openPreview": "Mở xem trước",
-    "shareTo": "Chia sẻ tới",
     "popOut": "Mở cửa sổ riêng",
     "popOutActive": "Đã mở trong cửa sổ riêng",
     "reattach": "Quay lại bảng điều khiển",
@@ -167,7 +178,8 @@
     "panelTitle": "Vải bạt",
     "resizePanel": "Thay đổi kích thước bảng canvas",
     "notReadyError": "Bảng canvas chưa mở hoặc iframe chưa tải",
-    "detachedWindowTitle": "Canvas: {{title}}"
+    "detachedWindowTitle": "Canvas: {{title}}",
+    "shareTo": "Chia sẻ tới"
   },
   "channels": {
     "accountLabel": "Tên tài khoản",
@@ -324,6 +336,18 @@
   "chat": {
     "addWorkingDirectory": "Thêm thư mục làm việc",
     "askAnything": "Hãy cho tôi biết ý tưởng của bạn, @ tìm tệp/ghi chú/kỹ năng, # nhập nhanh, / lệnh nhanh...",
+    "goalCompletion": {
+      "completed": "Đã đạt mục tiêu",
+      "completedWithDuration": "Đã đạt mục tiêu trong {{time}}",
+      "tokens": "{{tokens}} token"
+    },
+    "fork": {
+      "continueInNewSession": "Tiếp tục trong phiên mới",
+      "continuedFrom": "Tiếp nối từ",
+      "created": "Đã tiếp tục trong phiên mới",
+      "failed": "Không thể tiếp tục trong phiên mới",
+      "sourceFallback": "phiên gốc"
+    },
     "browserPanel": {
       "backendBadgeTooltip": "Phụ trợ trình duyệt: {{backend}}",
       "captureFailed": "Chụp khung hình thất bại, đang chờ khung tiếp theo",
@@ -402,6 +426,12 @@
     "sidebarDetailedMode": "Chuyển sang chế độ thường",
     "copied": "Đã sao chép",
     "copy": "Sao chép",
+    "messageQuote": {
+      "addToChat": "Thêm vào cuộc trò chuyện",
+      "assistantMessage": "Tin nhắn của trợ lý",
+      "remove": "Xóa trích dẫn",
+      "yourMessage": "Tin nhắn của bạn"
+    },
     "quickPrompts": {
       "addAction": "Thêm vào nhập nhanh",
       "addFailed": "Không thể thêm nhập nhanh",
@@ -413,6 +443,8 @@
     },
     "cronTaskStarted": "Một tác vụ định kỳ đã được kích hoạt",
     "cronTrigger": "Tác vụ định kỳ",
+    "loopTriggered": "Đã kích hoạt một bước vòng lặp",
+    "loopTrigger": "Vòng lặp",
     "wakeupResumed": "Tiếp tục lại",
     "wakeupTrigger": "Đánh thức theo lịch",
     "daysAgo": "{{count}} ngày trước",
@@ -522,244 +554,6 @@
     "pendingInteractionHint": "Đang chờ phản hồi của bạn",
     "pendingInteractionInline": "Đang chờ phản hồi · {{count}}",
     "pendingQueued": "Tin nhắn đã xếp hàng, sẽ gửi sau khi trả lời xong...",
-    "permissionMode": {
-      "applyToAgentDefault": {
-        "desc": "Khi bật, chọn một chế độ cũng cập nhật mặc định của Agent này cho cuộc trò chuyện mới.",
-        "failed": "Không thể cập nhật chế độ quyền mặc định của Agent này.",
-        "label": "Cập nhật mặc định Agent"
-      },
-      "default": {
-        "desc": "Các công cụ chỉnh sửa và lệnh nguy hiểm cần phê duyệt, các công cụ khác chạy ngay.",
-        "label": "Mặc định"
-      },
-      "menuLabel": "Chế độ quyền",
-      "smart": {
-        "desc": "Mô hình giám định hoặc tự đánh giá tin cậy quyết định việc phê duyệt.",
-        "label": "Phê duyệt thông minh"
-      },
-      "yolo": {
-        "desc": "Mọi công cụ trong phiên này chạy không cần phê duyệt (đường dẫn bảo vệ vẫn ghi log).",
-        "label": "YOLO"
-      }
-    },
-    "sandboxMode": {
-      "isolated": {
-        "desc": "Run in an isolated copy; edit approvals are unchanged until apply-back is supported.",
-        "label": "Isolated Sandbox"
-      },
-      "menuLabel": "Hộp cát",
-      "off": {
-        "desc": "Run on the host; approval behavior is unchanged.",
-        "label": "Sandbox Off"
-      },
-      "setupTitle": "Configure Docker to enable sandbox",
-      "standard": {
-        "desc": "Run in Docker; approval behavior is unchanged.",
-        "label": "Standard Sandbox"
-      },
-      "trusted": {
-        "desc": "Max autonomy for sandboxed exec; strict risks still ask.",
-        "label": "Trusted Sandbox"
-      },
-      "workspace": {
-        "desc": "Mount this workspace and reduce edit-command approvals.",
-        "label": "Workspace Sandbox"
-      }
-    },
-    "pickSession": "Chọn phiên",
-    "profileRotationTitle": "Đổi profile",
-    "queueMessage": "Xếp hàng gửi",
-    "reasonAuth": "Xác thực thất bại",
-    "reasonBilling": "Thanh toán / hạn mức vượt quá",
-    "reasonContextOverflow": "Ngữ cảnh vượt giới hạn",
-    "reasonModelNotFound": "Không tìm thấy mô hình",
-    "reasonOverloaded": "Dịch vụ quá tải",
-    "reasonRateLimit": "Vượt giới hạn tần suất",
-    "reasonTimeout": "Yêu cầu hết thời gian",
-    "reasonUnknown": "Lỗi không xác định",
-    "renameSession": "Đổi tên",
-    "renameSessionPlaceholder": "Nhập tiêu đề mới...",
-    "revealInFolder": "Hiện trong thư mục",
-    "roundLimitReachedBody": "Lượt này đã dùng hết {{count}} vòng gọi công cụ nhưng tác vụ có thể chưa hoàn tất. Nhấn nút bên dưới để gửi \"Tiếp tục\" và tôi sẽ tiếp tục từ tiến độ hiện tại; bạn cũng có thể tăng `max_tool_rounds` ở Cài đặt → Agent → Khả năng.",
-    "roundLimitReachedBodyNoCount": "Số vòng gọi công cụ trong lượt này đã cạn. Nhấn nút bên dưới để gửi \"Tiếp tục\" và tôi sẽ tiếp tục từ tiến độ hiện tại.",
-    "roundLimitReachedTitle": "Đã đạt giới hạn gọi công cụ",
-    "roundLimitResumeButton": "Tiếp tục",
-    "roundLimitResumeMessage": "Tiếp tục",
-    "scrollToBottom": "Cuộn xuống dưới",
-    "searchPlaceholder": "Tìm kiếm cuộc trò chuyện...",
-    "searchTruncatedHint": "Đang hiển thị {{count}} kết quả đầu tiên — thu hẹp truy vấn để xem thêm.",
-    "searching": "Đang tìm kiếm...",
-    "selectModel": "Chọn mô hình",
-    "send": "Gửi",
-    "sessionSearch": "Tìm trong cuộc trò chuyện này",
-    "sessionSearchClose": "Đóng",
-    "sessionSearchCount": "{{current}}/{{total}}",
-    "sessionSearchNext": "Tiếp theo",
-    "sessionSearchNoResults": "Không có kết quả trong cuộc trò chuyện này",
-    "sessionSearchPlaceholder": "Tìm tin nhắn trong cuộc trò chuyện này…",
-    "sessionSearchPrev": "Trước",
-    "sessionStatus": "Trạng thái phiên",
-    "settings": "Cài đặt",
-    "startConversation": "Bắt đầu hội thoại",
-    "statusAgent": "Agent",
-    "statusAuth": "Xác thực",
-    "statusCache": "Bộ nhớ đệm",
-    "statusCacheHit": "Trúng",
-    "statusCacheWrite": "Ghi",
-    "statusContext": "Ngữ cảnh",
-    "statusCumulative": "Tích lũy",
-    "statusMessages": "{{count}} tin nhắn",
-    "statusModel": "Mô hình",
-    "statusNewSession": "(Phiên mới)",
-    "statusSession": "Phiên",
-    "statusSessionId": "ID phiên",
-    "statusThinking": "Suy nghĩ",
-    "statusUpdated": "Cập nhật",
-    "stopReply": "Dừng trả lời",
-    "subagentFrom": "Được ủy quyền bởi {{agent}}",
-    "subagentResultCompleted": "Đã hoàn tất",
-    "systemPrompt": "System Prompt",
-    "taskActions": {
-      "cycleTo": {
-        "completed": "Đánh dấu là hoàn thành",
-        "in_progress": "Đánh dấu là đang thực hiện",
-        "pending": "Đánh dấu là đang chờ"
-      },
-      "delete": "Xóa tác vụ"
-    },
-    "taskNoneYet": "Chưa có tác vụ nào",
-    "taskProgress": "{{completed}}/{{total}} hoàn thành",
-    "tasks": "Tác vụ",
-    "thinking": "Đang suy nghĩ...",
-    "thinkingAutoDisabled": "{{provider}} / {{model}} does not support the current thinking mode. Thinking was disabled automatically and the request was retried.",
-    "visionAutoDisabled": "{{provider}} / {{model}} không hỗ trợ đầu vào hình ảnh. Đã bỏ qua hình ảnh và tiếp tục trả lời.",
-    "toolCalling": "Đang gọi công cụ...",
-    "totalTokens": "Tổng",
-    "unknownProvider": "Unknown provider",
-    "untitledSession": "Không có tiêu đề",
-    "viewContext": "Xem ngữ cảnh",
-    "viewModeBubble": "Chuyển sang dạng bong bóng",
-    "viewModeTimeline": "Chuyển sang dạng nhiệm vụ",
-    "viewSystemPrompt": "Xem System Prompt",
-    "weeksAgo": "{{count}} tuần trước",
-    "workingDir": {
-      "browserDescription": "Đường dẫn được phân giải trên máy chủ đang chạy agent.",
-      "browserTitle": "Chọn thư mục trên máy chủ",
-      "change": "Đổi thư mục",
-      "clear": "Xoá thư mục",
-      "current": "Thư mục làm việc",
-      "empty": "Thư mục này trống",
-      "fileLabel": "tệp",
-      "invalid": "Thư mục làm việc không hợp lệ",
-      "loadError": "Không thể liệt kê thư mục",
-      "loading": "Đang tải…",
-      "parent": "Lên một cấp",
-      "pathPlaceholder": "Đường dẫn tuyệt đối, ví dụ /srv/projects/app",
-      "select": "Chọn thư mục làm việc",
-      "selectCurrent": "Chọn thư mục này",
-      "selectPreset": "Thư mục làm việc được đặt sau khi bắt đầu trò chuyện",
-      "titleBarInherited": "Kế thừa từ dự án",
-      "titleBarSession": "Thư mục làm việc",
-      "truncated": "Chỉ hiển thị các mục đầu tiên — thư mục này quá lớn để trình duyệt hiển thị hết.",
-      "goToPath": "Đi tới đường dẫn"
-    },
-    "taskProgressRunning": "Đang thực hiện {{completed}}/{{total}}",
-    "taskProgressCancelling": "Đang dừng {{completed}}/{{total}}",
-    "taskProgressWaiting": "Đang chờ tiếp tục {{completed}}/{{total}}",
-    "taskProgressFailed": "Thất bại {{completed}}/{{total}}",
-    "exportSession": {
-      "menuItem": "Xuất cuộc trò chuyện",
-      "dialogTitle": "Xuất cuộc trò chuyện",
-      "dialogHint": "Chọn định dạng và tích chọn nội dung cần đưa vào.",
-      "formatLabel": "Định dạng",
-      "formatMarkdown": "Markdown",
-      "formatJson": "JSON",
-      "formatHtml": "HTML",
-      "contentLabel": "Nội dung",
-      "includeTools": "Bao gồm lệnh gọi công cụ",
-      "includeToolsHint": "Tham số, kết quả công cụ và thay đổi tệp.",
-      "includeThinking": "Bao gồm quá trình suy luận",
-      "includeThinkingHint": "Khối suy luận của mô hình (chuỗi suy nghĩ).",
-      "exportButton": "Xuất",
-      "exporting": "Đang xuất…",
-      "exported": "Đã xuất",
-      "failedShort": "Lỗi",
-      "savedTo": "Đã xuất tới {{path}}",
-      "downloaded": "Đã tải {{filename}}",
-      "failed": "Không thể xuất cuộc trò chuyện."
-    },
-    "skillMention": {
-      "heading": "Kỹ năng",
-      "labels": {
-        "docx": "Tài liệu Word",
-        "pptx": "Trang chiếu PowerPoint",
-        "xlsx": "Bảng tính Excel",
-        "browser": "Điều khiển trình duyệt",
-        "mac": "Điều khiển Mac"
-      }
-    },
-    "reasoningDisabledHint": "Mô hình này chưa bật suy luận. Để điều chỉnh độ sâu suy luận, hãy chỉnh sửa mô hình trong \"Cài đặt → Nhà cung cấp mô hình\" và bật \"Hỗ trợ suy luận/tư duy\".",
-    "browserExtensionNudge": {
-      "installTitle": "Để AI điều khiển Chrome thật của bạn",
-      "installBody": "Cài tiện ích Hope Agent để vận hành Chrome đã đăng nhập của bạn. Hiện đang chạy trong trình duyệt cách ly.",
-      "reloadTitle": "Tải lại tiện ích Chrome",
-      "reloadBody": "Tiện ích đã cài không khớp với host. Tải lại để khôi phục quyền điều khiển Chrome thật của bạn.",
-      "openSettings": "Mở cài đặt",
-      "dismiss": "Không hiển thị lại"
-    },
-    "browserExtensionRequired": {
-      "nextAction": "Hành động tiếp theo: {{nextAction}}",
-      "openSettings": "Mở Cài đặt > Trình duyệt để cài đặt hoặc bật tiện ích mở rộng.",
-      "title": "Cần có tiện ích mở rộng của Chrome"
-    },
-    "conversationEmpty": "Không có tin nhắn trong cuộc trò chuyện này",
-    "pendingCancelForceInsert": "Hủy chèn vòng này",
-    "pendingFallbackAfterReply": "Gửi sau khi trả lời",
-    "pendingFallbackAfterReplyTip": "Chưa gặp điểm hoàn thành công cụ và sẽ được gửi sau khi phản hồi hiện tại kết thúc.",
-    "pendingForceInsertTip": "Nó sẽ đợi cho đến khi công cụ đang được thực thi hoàn tất rồi chèn nó vào mô hình mà không làm gián đoạn công cụ hiện tại.",
-    "pendingInserted": "chèn vào",
-    "pendingInsertedTip": "Nó đã được chèn vào mô hình sau khi hoàn thành vòng công cụ này.",
-    "pendingQueuedShort": "Xếp hàng",
-    "pendingQueuedTip": "Nó đã được thêm vào hàng đợi và sẽ được gửi sau khi trả lời hiện tại kết thúc.",
-    "pendingQueueTitle": "Sẽ được gửi",
-    "pendingWaitingToolBoundary": "Chờ điểm hoàn thành công cụ",
-    "pendingWaitingToolBoundaryTip": "Đợi lệnh gọi công cụ mới nhất hoàn tất; nếu công cụ này không còn được gọi ở vòng này nữa, nó sẽ được gửi sau khi phản hồi hoàn tất.",
-    "processNotification": "quá trình kết thúc",
-    "rightPanel": {
-      "collapse": "Thu gọn bảng bên phải",
-      "expand": "Mở rộng bảng bên phải",
-      "switch": "Chuyển bảng bên phải",
-      "dock": "Thanh panel bên phải",
-      "openPanel": "Mở {{panel}}",
-      "switchToPanel": "Chuyển sang {{panel}}",
-      "collapsePanel": "Thu gọn {{panel}}",
-      "expandPanel": "Mở rộng {{panel}}",
-      "workflowActiveCount": "{{count}} quy trình đang hoạt động",
-      "workflowAttentionCount": "{{count}} quy trình cần chú ý",
-      "backgroundRunningCount": "{{count}} tác vụ nền đang chạy"
-    },
-    "visionBridgeEngaged": "Mô hình chính không xem được hình ảnh, nên {{model}} đã mô tả chúng thay cho nó.",
-    "visionBridgeUnavailable": "Mô hình thị giác không mô tả được hình ảnh, nên hình ảnh đã bị bỏ qua.",
-    "goalCompletion": {
-      "completed": "Đã đạt mục tiêu",
-      "completedWithDuration": "Đã đạt mục tiêu trong {{time}}",
-      "tokens": "{{tokens}} token"
-    },
-    "fork": {
-      "continueInNewSession": "Tiếp tục trong phiên mới",
-      "continuedFrom": "Tiếp nối từ",
-      "created": "Đã tiếp tục trong phiên mới",
-      "failed": "Không thể tiếp tục trong phiên mới",
-      "sourceFallback": "phiên gốc"
-    },
-    "messageQuote": {
-      "addToChat": "Thêm vào cuộc trò chuyện",
-      "assistantMessage": "Tin nhắn của trợ lý",
-      "remove": "Xóa trích dẫn",
-      "yourMessage": "Tin nhắn của bạn"
-    },
-    "loopTriggered": "Đã kích hoạt một bước vòng lặp",
-    "loopTrigger": "Vòng lặp",
     "goalMode": {
       "label": "Mục tiêu",
       "enter": "Chế độ mục tiêu: tạo một mục tiêu bền vững để agent tiếp tục theo đuổi",
@@ -880,12 +674,216 @@
       "title": "Tin nhắn này có vẻ phù hợp với quy trình",
       "ultracodeDescription": "Bật để ưu tiên điều phối sâu hơn, kiểm tra chéo và khôi phục tác vụ dài."
     },
+    "permissionMode": {
+      "applyToAgentDefault": {
+        "desc": "Khi bật, chọn một chế độ cũng cập nhật mặc định của Agent này cho cuộc trò chuyện mới.",
+        "failed": "Không thể cập nhật chế độ quyền mặc định của Agent này.",
+        "label": "Cập nhật mặc định Agent"
+      },
+      "default": {
+        "desc": "Các công cụ chỉnh sửa và lệnh nguy hiểm cần phê duyệt, các công cụ khác chạy ngay.",
+        "label": "Mặc định"
+      },
+      "menuLabel": "Chế độ quyền",
+      "smart": {
+        "desc": "Mô hình giám định hoặc tự đánh giá tin cậy quyết định việc phê duyệt.",
+        "label": "Phê duyệt thông minh"
+      },
+      "yolo": {
+        "desc": "Mọi công cụ trong phiên này chạy không cần phê duyệt (đường dẫn bảo vệ vẫn ghi log).",
+        "label": "YOLO"
+      }
+    },
+    "sandboxMode": {
+      "isolated": {
+        "desc": "Run in an isolated copy; edit approvals are unchanged until apply-back is supported.",
+        "label": "Isolated Sandbox"
+      },
+      "menuLabel": "Hộp cát",
+      "off": {
+        "desc": "Run on the host; approval behavior is unchanged.",
+        "label": "Sandbox Off"
+      },
+      "setupTitle": "Configure Docker to enable sandbox",
+      "standard": {
+        "desc": "Run in Docker; approval behavior is unchanged.",
+        "label": "Standard Sandbox"
+      },
+      "trusted": {
+        "desc": "Max autonomy for sandboxed exec; strict risks still ask.",
+        "label": "Trusted Sandbox"
+      },
+      "workspace": {
+        "desc": "Mount this workspace and reduce edit-command approvals.",
+        "label": "Workspace Sandbox"
+      }
+    },
+    "pickSession": "Chọn phiên",
+    "profileRotationTitle": "Đổi profile",
+    "queueMessage": "Xếp hàng gửi",
+    "reasonAuth": "Xác thực thất bại",
+    "reasonBilling": "Thanh toán / hạn mức vượt quá",
+    "reasonContextOverflow": "Ngữ cảnh vượt giới hạn",
+    "reasonModelNotFound": "Không tìm thấy mô hình",
+    "reasonOverloaded": "Dịch vụ quá tải",
+    "reasonRateLimit": "Vượt giới hạn tần suất",
+    "reasonTimeout": "Yêu cầu hết thời gian",
+    "reasonUnknown": "Lỗi không xác định",
+    "renameSession": "Đổi tên",
+    "renameSessionPlaceholder": "Nhập tiêu đề mới...",
+    "revealInFolder": "Hiện trong thư mục",
+    "roundLimitReachedBody": "Lượt này đã dùng hết {{count}} vòng gọi công cụ nhưng tác vụ có thể chưa hoàn tất. Nhấn nút bên dưới để gửi \"Tiếp tục\" và tôi sẽ tiếp tục từ tiến độ hiện tại; bạn cũng có thể tăng `max_tool_rounds` ở Cài đặt → Agent → Khả năng.",
+    "roundLimitReachedBodyNoCount": "Số vòng gọi công cụ trong lượt này đã cạn. Nhấn nút bên dưới để gửi \"Tiếp tục\" và tôi sẽ tiếp tục từ tiến độ hiện tại.",
+    "roundLimitReachedTitle": "Đã đạt giới hạn gọi công cụ",
+    "roundLimitResumeButton": "Tiếp tục",
+    "roundLimitResumeMessage": "Tiếp tục",
+    "scrollToBottom": "Cuộn xuống dưới",
+    "searchPlaceholder": "Tìm kiếm cuộc trò chuyện...",
+    "searchTruncatedHint": "Đang hiển thị {{count}} kết quả đầu tiên — thu hẹp truy vấn để xem thêm.",
+    "searching": "Đang tìm kiếm...",
+    "selectModel": "Chọn mô hình",
+    "send": "Gửi",
+    "sessionSearch": "Tìm trong cuộc trò chuyện này",
+    "sessionSearchClose": "Đóng",
+    "sessionSearchCount": "{{current}}/{{total}}",
+    "sessionSearchNext": "Tiếp theo",
+    "sessionSearchNoResults": "Không có kết quả trong cuộc trò chuyện này",
+    "sessionSearchPlaceholder": "Tìm tin nhắn trong cuộc trò chuyện này…",
+    "sessionSearchPrev": "Trước",
+    "sessionStatus": "Trạng thái phiên",
+    "memoryPolicy": {
+      "title": "Bộ nhớ cho cuộc trò chuyện này",
+      "use": "Dùng bộ nhớ hiện có",
+      "contribute": "Học từ cuộc trò chuyện này",
+      "inherit": "Theo cài đặt toàn cục",
+      "allow": "Bật",
+      "deny": "Tắt",
+      "desc": "Hai tùy chọn độc lập: có thể dùng ký ức cũ mà không tạo ký ức mới.",
+      "incognito": "Trò chuyện ẩn danh không bao giờ đọc hoặc ghi bộ nhớ dài hạn.",
+      "reloadCore": "Tải lại MEMORY.md cho phiên này"
+    },
+    "settings": "Cài đặt",
+    "startConversation": "Bắt đầu hội thoại",
+    "statusAgent": "Agent",
+    "statusAuth": "Xác thực",
+    "statusCache": "Bộ nhớ đệm",
+    "statusCacheHit": "Trúng",
+    "statusCacheWrite": "Ghi",
+    "statusContext": "Ngữ cảnh",
+    "statusCumulative": "Tích lũy",
+    "statusMessages": "{{count}} tin nhắn",
+    "statusModel": "Mô hình",
+    "statusNewSession": "(Phiên mới)",
+    "statusSession": "Phiên",
+    "statusSessionId": "ID phiên",
+    "statusThinking": "Suy nghĩ",
+    "statusUpdated": "Cập nhật",
+    "stopReply": "Dừng trả lời",
+    "subagentFrom": "Được ủy quyền bởi {{agent}}",
+    "subagentResultCompleted": "Đã hoàn tất",
     "workflowResultName": "Quy trình làm việc",
     "workflowResultCheckpoint": "Đã nhận kết quả giai đoạn",
     "workflowResultCompleted": "Đã hoàn tất",
     "workflowResultCancelled": "Đã hủy",
     "workflowResultWaiting": "Đang chờ tiếp tục",
     "workflowResultFailed": "Cần xử lý",
+    "systemPrompt": "System Prompt",
+    "taskActions": {
+      "cycleTo": {
+        "completed": "Đánh dấu là hoàn thành",
+        "in_progress": "Đánh dấu là đang thực hiện",
+        "pending": "Đánh dấu là đang chờ"
+      },
+      "delete": "Xóa tác vụ"
+    },
+    "taskNoneYet": "Chưa có tác vụ nào",
+    "taskProgress": "{{completed}}/{{total}} hoàn thành",
+    "tasks": "Tác vụ",
+    "thinking": "Đang suy nghĩ...",
+    "thinkingAutoDisabled": "{{provider}} / {{model}} does not support the current thinking mode. Thinking was disabled automatically and the request was retried.",
+    "visionAutoDisabled": "{{provider}} / {{model}} không hỗ trợ đầu vào hình ảnh. Đã bỏ qua hình ảnh và tiếp tục trả lời.",
+    "toolCalling": "Đang gọi công cụ...",
+    "totalTokens": "Tổng",
+    "unknownProvider": "Unknown provider",
+    "untitledSession": "Không có tiêu đề",
+    "viewContext": "Xem ngữ cảnh",
+    "viewModeBubble": "Chuyển sang dạng bong bóng",
+    "viewModeTimeline": "Chuyển sang dạng nhiệm vụ",
+    "viewSystemPrompt": "Xem System Prompt",
+    "weeksAgo": "{{count}} tuần trước",
+    "workingDir": {
+      "browserDescription": "Đường dẫn được phân giải trên máy chủ đang chạy agent.",
+      "browserTitle": "Chọn thư mục trên máy chủ",
+      "change": "Đổi thư mục",
+      "clear": "Xoá thư mục",
+      "current": "Thư mục làm việc",
+      "empty": "Thư mục này trống",
+      "fileLabel": "tệp",
+      "goToPath": "Đi tới đường dẫn",
+      "invalid": "Thư mục làm việc không hợp lệ",
+      "loadError": "Không thể liệt kê thư mục",
+      "loading": "Đang tải…",
+      "parent": "Lên một cấp",
+      "pathPlaceholder": "Đường dẫn tuyệt đối, ví dụ /srv/projects/app",
+      "select": "Chọn thư mục làm việc",
+      "selectCurrent": "Chọn thư mục này",
+      "selectPreset": "Thư mục làm việc được đặt sau khi bắt đầu trò chuyện",
+      "titleBarInherited": "Kế thừa từ dự án",
+      "titleBarSession": "Thư mục làm việc",
+      "truncated": "Chỉ hiển thị các mục đầu tiên — thư mục này quá lớn để trình duyệt hiển thị hết."
+    },
+    "taskProgressRunning": "Đang thực hiện {{completed}}/{{total}}",
+    "taskProgressCancelling": "Đang dừng {{completed}}/{{total}}",
+    "taskProgressWaiting": "Đang chờ tiếp tục {{completed}}/{{total}}",
+    "taskProgressFailed": "Thất bại {{completed}}/{{total}}",
+    "exportSession": {
+      "menuItem": "Xuất cuộc trò chuyện",
+      "dialogTitle": "Xuất cuộc trò chuyện",
+      "dialogHint": "Chọn định dạng và tích chọn nội dung cần đưa vào.",
+      "formatLabel": "Định dạng",
+      "formatMarkdown": "Markdown",
+      "formatJson": "JSON",
+      "formatHtml": "HTML",
+      "contentLabel": "Nội dung",
+      "includeTools": "Bao gồm lệnh gọi công cụ",
+      "includeToolsHint": "Tham số, kết quả công cụ và thay đổi tệp.",
+      "includeThinking": "Bao gồm quá trình suy luận",
+      "includeThinkingHint": "Khối suy luận của mô hình (chuỗi suy nghĩ).",
+      "exportButton": "Xuất",
+      "exporting": "Đang xuất…",
+      "exported": "Đã xuất",
+      "failedShort": "Lỗi",
+      "savedTo": "Đã xuất tới {{path}}",
+      "downloaded": "Đã tải {{filename}}",
+      "failed": "Không thể xuất cuộc trò chuyện."
+    },
+    "skillMention": {
+      "heading": "Kỹ năng",
+      "labels": {
+        "docx": "Tài liệu Word",
+        "pptx": "Trang chiếu PowerPoint",
+        "xlsx": "Bảng tính Excel",
+        "browser": "Điều khiển trình duyệt",
+        "mac": "Điều khiển Mac",
+        "dataAnalytics": "Phân tích dữ liệu"
+      }
+    },
+    "reasoningDisabledHint": "Mô hình này chưa bật suy luận. Để điều chỉnh độ sâu suy luận, hãy chỉnh sửa mô hình trong \"Cài đặt → Nhà cung cấp mô hình\" và bật \"Hỗ trợ suy luận/tư duy\".",
+    "browserExtensionNudge": {
+      "installTitle": "Để AI điều khiển Chrome thật của bạn",
+      "installBody": "Cài tiện ích Hope Agent để vận hành Chrome đã đăng nhập của bạn. Hiện đang chạy trong trình duyệt cách ly.",
+      "reloadTitle": "Tải lại tiện ích Chrome",
+      "reloadBody": "Tiện ích đã cài không khớp với host. Tải lại để khôi phục quyền điều khiển Chrome thật của bạn.",
+      "openSettings": "Mở cài đặt",
+      "dismiss": "Không hiển thị lại"
+    },
+    "browserExtensionRequired": {
+      "nextAction": "Hành động tiếp theo: {{nextAction}}",
+      "openSettings": "Mở Cài đặt > Trình duyệt để cài đặt hoặc bật tiện ích mở rộng.",
+      "title": "Cần có tiện ích mở rộng của Chrome"
+    },
+    "conversationEmpty": "Không có tin nhắn trong cuộc trò chuyện này",
+    "pendingCancelForceInsert": "Hủy chèn vòng này",
     "pendingSaving": "Đang lưu",
     "pendingSavingTip": "Đang lưu tin nhắn và tệp đính kèm vào hàng đợi có thể khôi phục.",
     "pendingInserting": "Đang chèn",
@@ -893,6 +891,32 @@
     "pendingDispatching": "Đang gửi",
     "pendingDispatchingTip": "Đang tạo lượt mới từ hàng đợi bền vững.",
     "pendingSendNow": "Gửi ngay",
+    "pendingFallbackAfterReply": "Gửi sau khi trả lời",
+    "pendingFallbackAfterReplyTip": "Chưa gặp điểm hoàn thành công cụ và sẽ được gửi sau khi phản hồi hiện tại kết thúc.",
+    "pendingForceInsertTip": "Nó sẽ đợi cho đến khi công cụ đang được thực thi hoàn tất rồi chèn nó vào mô hình mà không làm gián đoạn công cụ hiện tại.",
+    "pendingInserted": "chèn vào",
+    "pendingInsertedTip": "Nó đã được chèn vào mô hình sau khi hoàn thành vòng công cụ này.",
+    "pendingQueuedShort": "Xếp hàng",
+    "pendingQueuedTip": "Nó đã được thêm vào hàng đợi và sẽ được gửi sau khi trả lời hiện tại kết thúc.",
+    "pendingQueueTitle": "Sẽ được gửi",
+    "pendingWaitingToolBoundary": "Chờ điểm hoàn thành công cụ",
+    "pendingWaitingToolBoundaryTip": "Đợi lệnh gọi công cụ mới nhất hoàn tất; nếu công cụ này không còn được gọi ở vòng này nữa, nó sẽ được gửi sau khi phản hồi hoàn tất.",
+    "processNotification": "quá trình kết thúc",
+    "rightPanel": {
+      "collapse": "Thu gọn bảng bên phải",
+      "expand": "Mở rộng bảng bên phải",
+      "switch": "Chuyển bảng bên phải",
+      "dock": "Thanh panel bên phải",
+      "openPanel": "Mở {{panel}}",
+      "switchToPanel": "Chuyển sang {{panel}}",
+      "collapsePanel": "Thu gọn {{panel}}",
+      "expandPanel": "Mở rộng {{panel}}",
+      "workflowActiveCount": "{{count}} quy trình đang hoạt động",
+      "workflowAttentionCount": "{{count}} quy trình cần chú ý",
+      "backgroundRunningCount": "{{count}} tác vụ nền đang chạy"
+    },
+    "visionBridgeEngaged": "Mô hình chính không xem được hình ảnh, nên {{model}} đã mô tả chúng thay cho nó.",
+    "visionBridgeUnavailable": "Mô hình thị giác không mô tả được hình ảnh, nên hình ảnh đã bị bỏ qua.",
     "loadingSession": "Đang tải phiên…",
     "goalSlash": {
       "showActive": "Xem mục tiêu hiện tại",
@@ -944,6 +968,10 @@
       "quickEditEmpty": "Nội dung bộ nhớ không thể trống.",
       "quickEditSaved": "Đã cập nhật bộ nhớ.",
       "quickEditSaveFailed": "Không thể lưu kỷ niệm này.",
+      "promoteToCore": "Luôn ghi nhớ điều này",
+      "promoteToCoreFailed": "Không thể thêm nội dung này vào Bộ nhớ Cốt lõi.",
+      "promotedToCore": "Đã ghi nhớ vĩnh viễn",
+      "promotedToCoreToast": "Đã thêm vào Bộ nhớ Cốt lõi thường trực.",
       "kind": {
         "claim": "Ký ức có cấu trúc",
         "episode": "Kinh nghiệm",
@@ -972,6 +1000,7 @@
       },
       "layerReason": {
         "agentConfigError": "cấu hình bộ nhớ tác nhân không có sẵn",
+        "budgetEmpty": "ngân sách gợi nhớ đang trống",
         "disabled": "tắt cấu hình",
         "emptyQuery": "truy vấn trống",
         "incognito": "phiên ẩn danh",
@@ -982,14 +1011,13 @@
         "noGraphNeighbors": "không có mối quan hệ thực thể liên quan",
         "noHits": "không có lượt truy cập",
         "noSession": "không có bối cảnh phiên",
-        "retrievalError": "truy xuất không thành công",
-        "sideQueryError": "thu hồi không thành công",
-        "timeout": "hết thời gian",
-        "budgetEmpty": "ngân sách gợi nhớ đang trống",
         "nonContextualTurn": "lượt trò chuyện không cần ngữ cảnh",
         "recallOff": "gợi nhớ động tự động đang tắt",
         "retrievalBusy": "dịch vụ gợi nhớ đang bận",
+        "retrievalError": "truy xuất không thành công",
         "sessionPolicy": "đã tắt theo chính sách bộ nhớ hoặc cuộc trò chuyện",
+        "sideQueryError": "thu hồi không thành công",
+        "timeout": "hết thời gian",
         "unifiedRecall": "đã được xử lý bằng gợi nhớ nhanh",
         "unknown": "lý do khác"
       },
@@ -1064,11 +1092,7 @@
       "more": "{{count}} nhiều mục ngữ cảnh dài hạn hơn bị ẩn.",
       "sources": "Nguồn bộ nhớ",
       "editMemory": "Chỉnh sửa bộ nhớ này",
-      "copyTrace": "Sao chép chẩn đoán",
-      "promoteToCore": "Luôn ghi nhớ điều này",
-      "promoteToCoreFailed": "Không thể thêm nội dung này vào Bộ nhớ Cốt lõi.",
-      "promotedToCore": "Đã ghi nhớ vĩnh viễn",
-      "promotedToCoreToast": "Đã thêm vào Bộ nhớ Cốt lõi thường trực."
+      "copyTrace": "Sao chép chẩn đoán"
     },
     "projectWelcomeTitle": "Chúng ta nên xây dựng gì trong <project>{{project}}</project>? Hãy nói ý tưởng của bạn",
     "projectWelcomeSuggestions": {
@@ -1141,17 +1165,9 @@
     "openSourceConversationMissingHint": "Nguồn bộ nhớ này trỏ tới một cuộc trò chuyện đã bị xóa hoặc không thể tìm thấy.",
     "openSourceMessageMissing": "Tin nhắn nguồn không còn khả dụng",
     "openSourceMessageMissingHint": "Cuộc trò chuyện vẫn tồn tại, nhưng không thể tìm thấy tin nhắn chính xác cho nguồn bộ nhớ này.",
-    "memoryPolicy": {
-      "title": "Bộ nhớ cho cuộc trò chuyện này",
-      "use": "Dùng bộ nhớ hiện có",
-      "contribute": "Học từ cuộc trò chuyện này",
-      "inherit": "Theo cài đặt toàn cục",
-      "allow": "Bật",
-      "deny": "Tắt",
-      "desc": "Hai tùy chọn độc lập: có thể dùng ký ức cũ mà không tạo ký ức mới.",
-      "incognito": "Trò chuyện ẩn danh không bao giờ đọc hoặc ghi bộ nhớ dài hạn.",
-      "reloadCore": "Tải lại MEMORY.md cho phiên này"
-    }
+    "unreadConversationCount": "{{count}} cuộc trò chuyện chưa đọc",
+    "unreadStatus": "Chưa đọc",
+    "channelUnreadStatus": "Cuộc trò chuyện IM chưa đọc"
   },
   "codexAuth": {
     "expiredDescription": "Token OAuth của Codex không còn hợp lệ. Vui lòng đăng nhập lại để tiếp tục.",
@@ -1159,7 +1175,6 @@
     "reauth": "Đăng nhập lại"
   },
   "common": {
-    "download": "Tải xuống",
     "add": "Thêm",
     "back": "Quay lại",
     "cancel": "Hủy",
@@ -1196,12 +1211,9 @@
     "expand": "Mở rộng",
     "retry": "Thử lại",
     "unavailable": "Không có sẵn",
-    "duplicate": "Nhân bản",
-    "more": "Thêm",
     "copy": "Sao chép",
-    "copied": "Đã sao chép",
-    "apply": "Áp dụng",
     "auto": "Tự động",
+    "copied": "Đã sao chép",
     "yes": "vâng",
     "no": "không",
     "none": "không có",
@@ -1209,17 +1221,32 @@
     "off": "Tắt",
     "error": "Error",
     "showLess": "Hiển thị ít hơn",
-    "modelNoVision": "Không hỗ trợ hình ảnh"
+    "download": "Tải xuống",
+    "duplicate": "Nhân bản",
+    "more": "Thêm",
+    "apply": "Áp dụng",
+    "modelNoVision": "Không hỗ trợ hình ảnh",
+    "next": "Next",
+    "previous": "Previous"
   },
   "context": {
     "ago": "trước",
+    "cacheRead": "Đọc bộ nhớ đệm",
     "cacheTtlProtection": "bảo vệ TTL bộ nhớ đệm",
+    "cacheWindowNotice": "Lượt trúng bộ nhớ đệm giảm tính toán lặp lại, chi phí và TTFT; không giảm mức sử dụng cửa sổ ngữ cảnh.",
+    "cacheWrite": "Ghi bộ nhớ đệm",
     "compactAllowedIn": "Lần nén tiếp theo trong",
+    "coreMemoryBudget": "Ngân sách Core Memory",
+    "coreMemoryModelLimited": "tạm thời giới hạn cho mô hình này",
+    "dynamicPrompt": "Lời nhắc động",
+    "estimated": "ước tính",
     "estimateNote": "Sau mỗi lượt, số liệu sử dụng thực tế của Provider là chuẩn; trước đó hiển thị ước tính thận trọng theo dạng yêu cầu.",
     "freeSpace": "Không gian trống",
+    "freshInput": "Đầu vào mới",
     "lastCompact": "Lần nén cuối",
     "memory": "Bộ nhớ",
     "messages": "Tin nhắn",
+    "providerInput": "Đầu vào Provider",
     "reservedOutput": "Đầu ra dự trữ",
     "skills": "Kỹ năng",
     "systemPrompt": "System prompt",
@@ -1227,16 +1254,7 @@
     "toolDescriptions": "Mô tả công cụ",
     "toolSchemas": "Lược đồ công cụ",
     "used": "Đã dùng",
-    "viewSystemPrompt": "System prompt",
-    "cacheRead": "Đọc bộ nhớ đệm",
-    "cacheWindowNotice": "Lượt trúng bộ nhớ đệm giảm tính toán lặp lại, chi phí và TTFT; không giảm mức sử dụng cửa sổ ngữ cảnh.",
-    "cacheWrite": "Ghi bộ nhớ đệm",
-    "coreMemoryBudget": "Ngân sách Core Memory",
-    "coreMemoryModelLimited": "tạm thời giới hạn cho mô hình này",
-    "dynamicPrompt": "Lời nhắc động",
-    "estimated": "ước tính",
-    "freshInput": "Đầu vào mới",
-    "providerInput": "Đầu vào Provider"
+    "viewSystemPrompt": "System prompt"
   },
   "cron": {
     "active": "Hoạt động",
@@ -1426,8 +1444,8 @@
         "cron": "cron",
         "idle": "nhàn rỗi",
         "manual": "thủ công",
-        "user_correction": "sửa lỗi",
-        "review_snapshot": "review snapshot"
+        "review_snapshot": "review snapshot",
+        "user_correction": "sửa lỗi"
       },
       "runs": {
         "title": "Lịch sử chạy",
@@ -1449,9 +1467,46 @@
       "resolving": "Đang xử lý…",
       "resolverDone": "Hoàn tất: {{expired}} hết hạn, {{merged}} hợp nhất, {{review}} cần xem xét",
       "resolverFailed": "Xử lý sâu thất bại",
+      "resolverPreflightTitle": "Ánh sáng trước Deep Resolver",
+      "resolverPreflightSummary": "{{active}} xác nhận quyền sở hữu đang hoạt động · {{expired}} ứng viên đã hết hạn · Nhóm xung đột {{groups}}",
+      "resolverPreflightBlocked": "Trình phân giải bị chặn: {{reasons}}",
+      "resolverPreflightLlm": "Nhóm {{count}}/{{total}} sẽ sử dụng LLM · giới hạn {{cap}}",
+      "resolverPreflightNoLlm": "Không có cuộc gọi nhóm LLM nào được mong đợi.",
+      "resolverPreflightTruncated": "Sẽ tiếp tục chạy tiếp theo.",
+      "resolverPreflightUnavailable": "Chuyến bay trước không có sẵn.",
+      "resolverPreflightRefresh": "Làm mới kế hoạch",
+      "resolverPreflightReasons": {
+        "dreamingDisabled": "Dreaming tắt",
+        "longTermMemoryDisabled": "Tắt trí nhớ học tập",
+        "manualDisabled": "Hướng dẫn sử dụng tắt",
+        "claimLoadFailed": "Khiếu nại không có sẵn"
+      },
+      "errors": {
+        "loadDiaries": "Failed to load Dreaming diaries",
+        "loadRuns": "Failed to load Dreaming run history",
+        "loadRunDetail": "Failed to load Dreaming run details",
+        "loadDiary": "Failed to open Dreaming diary",
+        "loadEvidenceQuote": "Failed to load evidence quote",
+        "runNow": "Failed to run Dreaming",
+        "runResolver": "Deep resolve failed",
+        "resolverPreflight": "Failed to load Deep Resolver preflight",
+        "detail": "Chi tiết: {{error}}"
+      },
       "review": {
         "queueTitle": "Cần xem xét",
         "queueEmpty": "Không có claim nào cần xem xét",
+        "errors": {
+          "loadQueue": "Failed to load review queue",
+          "approve": "Failed to approve memory",
+          "markOutdated": "Failed to mark memory outdated",
+          "pin": "Failed to pin memory",
+          "unpin": "Failed to unpin memory",
+          "edit": "Failed to edit memory",
+          "moveScope": "Failed to move memory scope",
+          "reject": "Failed to reject memory",
+          "forget": "Failed to forget memory",
+          "detail": "Chi tiết: {{error}}"
+        },
         "approve": "Duyệt",
         "approveDone": "Đã duyệt claim",
         "markOutdated": "Đánh dấu lỗi thời",
@@ -1490,44 +1545,7 @@
         "forgetNotePlaceholder": "Lý do (tùy chọn)",
         "forgetConfirm": "Quên",
         "forgetDone": "Đã quên ký ức",
-        "failed": "Thao tác thất bại",
-        "errors": {
-          "loadQueue": "Failed to load review queue",
-          "approve": "Failed to approve memory",
-          "markOutdated": "Failed to mark memory outdated",
-          "pin": "Failed to pin memory",
-          "unpin": "Failed to unpin memory",
-          "edit": "Failed to edit memory",
-          "moveScope": "Failed to move memory scope",
-          "reject": "Failed to reject memory",
-          "forget": "Failed to forget memory",
-          "detail": "Chi tiết: {{error}}"
-        }
-      },
-      "resolverPreflightTitle": "Ánh sáng trước Deep Resolver",
-      "resolverPreflightSummary": "{{active}} xác nhận quyền sở hữu đang hoạt động · {{expired}} ứng viên đã hết hạn · Nhóm xung đột {{groups}}",
-      "resolverPreflightBlocked": "Trình phân giải bị chặn: {{reasons}}",
-      "resolverPreflightLlm": "Nhóm {{count}}/{{total}} sẽ sử dụng LLM · giới hạn {{cap}}",
-      "resolverPreflightNoLlm": "Không có cuộc gọi nhóm LLM nào được mong đợi.",
-      "resolverPreflightTruncated": "Sẽ tiếp tục chạy tiếp theo.",
-      "resolverPreflightUnavailable": "Chuyến bay trước không có sẵn.",
-      "resolverPreflightRefresh": "Làm mới kế hoạch",
-      "resolverPreflightReasons": {
-        "dreamingDisabled": "Dreaming tắt",
-        "longTermMemoryDisabled": "Tắt trí nhớ học tập",
-        "manualDisabled": "Hướng dẫn sử dụng tắt",
-        "claimLoadFailed": "Khiếu nại không có sẵn"
-      },
-      "errors": {
-        "loadDiaries": "Failed to load Dreaming diaries",
-        "loadRuns": "Failed to load Dreaming run history",
-        "loadRunDetail": "Failed to load Dreaming run details",
-        "loadDiary": "Failed to open Dreaming diary",
-        "loadEvidenceQuote": "Failed to load evidence quote",
-        "runNow": "Failed to run Dreaming",
-        "runResolver": "Deep resolve failed",
-        "resolverPreflight": "Failed to load Deep Resolver preflight",
-        "detail": "Chi tiết: {{error}}"
+        "failed": "Thao tác thất bại"
       }
     },
     "error": {
@@ -1886,17 +1904,17 @@
       "ttftTrend": "Thời gian đến token đầu tiên (TTFT)",
       "inputTokens": "Mã thông báo đầu vào",
       "outputTokens": "Mã thông báo đầu ra",
-      "byDomain": "Phân bố theo miền",
-      "byOperation": "Theo thao tác",
-      "operation": "Thao tác",
-      "domain": "Miền",
       "byType": "Sử dụng theo loại",
       "type": "Loại",
       "calls": "Số lượt gọi",
       "cacheWrite": "Ghi cache",
       "cacheRead": "Đọc cache",
       "avgDuration": "Thời gian trung bình",
-      "tokensUnit": "token"
+      "tokensUnit": "token",
+      "byDomain": "Phân bố theo miền",
+      "byOperation": "Theo thao tác",
+      "operation": "Thao tác",
+      "domain": "Miền"
     },
     "tool": {
       "avgDuration": "Thời lượng trung bình",
@@ -1994,6 +2012,106 @@
     },
     "columns": {
       "session": "Phiên"
+    },
+    "controlPlane": {
+      "title": "Goals & Execution",
+      "automationTab": "Automation",
+      "scopeHint": "Window metrics show outcomes; current snapshots show backlog and risk.",
+      "allProjects": "All projects",
+      "unassignedProject": "Unassigned",
+      "archived": "Archived",
+      "empty": "No data for the selected scope.",
+      "sections": {
+        "overview": "Overview",
+        "planTask": "Plan & Task"
+      },
+      "metrics": {
+        "goalAcceptance": "Goal acceptance rate",
+        "workflowCompletion": "Workflow completion rate",
+        "loopStrongProgress": "Loop strong-progress rate",
+        "taskCompletion": "Task cohort completion",
+        "attention": "Needs attention",
+        "requiredCriteria": "Required criteria pass rate",
+        "goalP50": "Goal time-to-accept P50",
+        "opFailure": "Operation failure rate",
+        "workflowP50": "Workflow duration P50",
+        "goalBinding": "Goal binding rate",
+        "approvalTrigger": "Approval trigger rate",
+        "noProgress": "No-progress rate",
+        "blockedSchedules": "Blocked schedules",
+        "loopP50": "Loop run duration P50",
+        "currentBacklog": "Current backlog",
+        "activePlans": "Active now",
+        "cohortCompletion": "Cohort completion"
+      },
+      "currentSnapshot": "Current snapshot",
+      "goalTrend": "Goal outcomes",
+      "resolved": "Resolved",
+      "accepted": "Accepted",
+      "attentionTitle": "Current attention items",
+      "noAttention": "No current attention items",
+      "auditSamples": "{{count}} audited Goals",
+      "currentStates": "Current states",
+      "closureOutcomes": "Closure outcomes",
+      "domains": "Domains",
+      "kinds": "Kinds",
+      "origins": "Origins",
+      "workflowTrend": "Decided Workflow runs",
+      "decidedRuns": "Decided runs",
+      "progressStates": "Progress classification",
+      "triggerKinds": "Trigger kinds",
+      "strategies": "Execution strategies",
+      "loopTrend": "Evaluated Loop runs",
+      "evaluatedRuns": "Evaluated runs",
+      "openPlanHistory": "View Plan history",
+      "planByAgent": "Plan by Agent",
+      "planByProject": "Plan by project",
+      "noFunnelHint": "Task and Plan do not yet have reliable Goal / Workflow / Loop attribution keys, so this page does not infer a causal funnel from sessions.",
+      "noExactSamples": "No exact duration samples",
+      "coverage": "{{samples}} / {{eligible}} exact samples ({{percent}}%)",
+      "coverageShort": "Exact duration coverage: {{samples}} / {{eligible}}",
+      "creationTrend": "Creation trend",
+      "created": "Created",
+      "attentionKinds": {
+        "goal": "Mục tiêu",
+        "workflow": "Quy trình",
+        "loop": "Vòng lặp",
+        "plan": "Kế hoạch"
+      },
+      "attentionReasons": {
+        "needs_strict_evidence": "Cần bằng chứng nghiêm ngặt",
+        "goal_awaiting_closure": "Mục tiêu đang chờ đóng",
+        "workflow_requires_attention": "Quy trình cần xử lý",
+        "consecutive_no_progress": "Liên tiếp không có tiến triển",
+        "loop_requires_attention": "Vòng lặp cần xử lý",
+        "plan_awaiting_review": "Kế hoạch đang chờ xem xét"
+      },
+      "states": {
+        "active": "Đang hoạt động",
+        "paused": "Paused",
+        "evaluating": "Evaluating",
+        "completed": "Hoàn tất",
+        "failed": "Failed",
+        "cancelled": "Cancelled",
+        "blocked": "Bị chặn",
+        "planning": "Planning",
+        "review": "Xem xét",
+        "executing": "Executing",
+        "off": "Archived",
+        "awaiting_approval": "Đang chờ phê duyệt",
+        "awaiting_user": "Đang chờ người dùng",
+        "running": "Running",
+        "recovering": "Recovering",
+        "draft": "Draft",
+        "pending": "Pending",
+        "in_progress": "In progress",
+        "progressed": "Progressed",
+        "weak_progress": "Weak progress",
+        "no_progress": "No progress",
+        "accepted_v1": "Accepted v1",
+        "superseded": "Superseded",
+        "unassigned": "Unassigned"
+      }
     }
   },
   "fileActions": {
@@ -2098,10 +2216,10 @@
       "staged": "Staged",
       "stagedScope": "Staged",
       "stale": "The repository changed. The diff was refreshed; review it again.",
-      "prReviewComments": "Bình luận review PR · {{count}}",
       "unstage": "Unstage",
       "unstaged": "Unstaged",
-      "unstagedScope": "Unstaged"
+      "unstagedScope": "Unstaged",
+      "prReviewComments": "Bình luận review PR · {{count}}"
     }
   },
   "effort": {
@@ -2537,10 +2655,10 @@
     "reasoning": "Suy luận / Tư duy",
     "reasoningHint": "Sau khi bật, bạn có thể chọn độ sâu suy luận (thấp / trung bình / cao) trong menu mô hình phía trên ô nhập liệu trò chuyện; nó sẽ được tự động thêm vào mỗi yêu cầu.",
     "supportedInputTypes": "Loại đầu vào hỗ trợ",
-    "text": "Văn bản",
-    "video": "Video",
     "supportsImageMultimodal": "Hỗ trợ đa phương thức hình ảnh",
-    "supportsVideoMultimodal": "Hỗ trợ đa phương thức video"
+    "supportsVideoMultimodal": "Hỗ trợ đa phương thức video",
+    "text": "Văn bản",
+    "video": "Video"
   },
   "notification": {
     "cronCancelled": "Đã hủy tác vụ theo lịch",
@@ -2939,6 +3057,29 @@
     "addProject": "Thêm dự án",
     "archiveProject": "Lưu trữ dự án",
     "archivedProjects": "Dự án đã lưu trữ",
+    "autoMemory": {
+      "content": "Chi tiết (Markdown)",
+      "deleteConfirm": "Xóa chủ đề bộ nhớ tự động của dự án này?",
+      "description": "Một chỉ mục MEMORY.md ngắn gọn được đưa ổn định vào các cuộc trò chuyện dự án; chi tiết chỉ được đọc khi liên quan. Mọi dữ liệu đều ở trên máy này.",
+      "editorHint": "Chỉ dẫn dự án là quy tắc cố định. Khu vực này lưu kinh nghiệm tích lũy trong khi làm việc, không phải chỉ dẫn có thẩm quyền.",
+      "editorTitle": "Bộ nhớ tự động của dự án",
+      "empty": "Chưa có chủ đề bộ nhớ tự động.",
+      "fileNameGenerated": "Tên tệp sẽ được tạo khi lưu",
+      "name": "Tiêu đề",
+      "newTopic": "Chủ đề mới",
+      "rebuildIndex": "Tạo lại chỉ mục MEMORY.md",
+      "rebuildFailed": "Không thể tạo lại chỉ mục MEMORY.md.",
+      "summary": "Tóm tắt chỉ mục",
+      "summaryHint": "Câu này đi vào prompt ổn định của mọi cuộc trò chuyện dự án, vì vậy hãy viết ngắn gọn.",
+      "type": "Loại",
+      "types": {
+        "feedback": "Phản hồi công việc",
+        "project": "Công việc dự án",
+        "reference": "Tham khảo",
+        "user": "Ngữ cảnh người dùng"
+      },
+      "emptyPreview": "Chưa có nội dung chi tiết Markdown. Chuyển sang chế độ Chỉnh sửa để thêm nội dung."
+    },
     "createFirstProject": "Tạo dự án đầu tiên",
     "defaultAgent": "Agent mặc định",
     "defaultModel": "Model mặc định",
@@ -2948,6 +3089,10 @@
     },
     "deleteProject": "Xóa dự án",
     "editProject": "Chỉnh sửa dự án",
+    "openFromMemoryLoadFailed": "Không thể mở nguồn dự án",
+    "openFromMemoryLoadFailedDetail": "Chi tiết: {{error}}",
+    "openFromMemoryMissing": "Dự án không còn khả dụng",
+    "openFromMemoryMissingHint": "Nguồn bộ nhớ trỏ tới một dự án đã bị xóa hoặc không thể tìm thấy.",
     "files": {
       "confirmDelete": "Xóa tập tin này?",
       "delete": "Xóa",
@@ -2977,13 +3122,38 @@
       "recentSessions": "Phiên gần đây",
       "totalFiles": "Tập tin",
       "totalMemories": "Bộ nhớ",
-      "totalSessions": "Phiên"
+      "totalSessions": "Phiên",
+      "activeClaims": "Ký ức đã sắp xếp",
+      "agentsEmpty": "AGENTS.md hiện đang trống",
+      "agentsLines": "AGENTS.md",
+      "agentsRole": "Các quy tắc chính thức của dự án, được áp dụng cho mọi phiên trong dự án.",
+      "agentsStats": "{{lines}} dòng · {{size}}",
+      "autoMemoryRole": "Kinh nghiệm cục bộ do mô hình duy trì; chỉ mục được giữ ổn định và các chủ đề được đọc khi cần.",
+      "autoMemoryStats": "{{count}} chủ đề",
+      "autoMemoryTopics": "Chủ đề bộ nhớ tự động",
+      "awaitingResponse": "Đang chờ bạn trả lời",
+      "contextDescription": "Xem ngữ cảnh mà mô hình có thể sử dụng trong dự án này.",
+      "contextTitle": "Ngữ cảnh dự án",
+      "defaultWorkspace": "Thư mục làm việc mặc định của dự án",
+      "homeDescription": "Tiếp tục công việc gần đây hoặc quản lý ngữ cảnh dự án.",
+      "homeTitle": "Trang chủ dự án",
+      "linesUnit": "dòng",
+      "loadFailed": "Tổng quan dự án tạm thời không khả dụng. Hãy thử lại sau ít phút.",
+      "messageCount": "{{count}} tin nhắn",
+      "noRecentSessions": "Chưa có phiên dự án",
+      "noRecentSessionsHint": "Công việc gần đây sẽ xuất hiện ở đây sau khi bạn tạo phiên.",
+      "recentSessionsHint": "Các phiên người dùng được cập nhật gần đây",
+      "structuredMemory": "Bộ nhớ dự án",
+      "structuredMemoryRole": "Thông tin dài hạn được sắp xếp từ các cuộc trò chuyện trong dự án; việc tự động dùng thông tin này khi trả lời phụ thuộc vào cài đặt bộ nhớ.",
+      "unavailable": "Không khả dụng",
+      "untitledSession": "Phiên chưa đặt tên",
+      "workingDirectory": "Thư mục làm việc"
     },
     "projectColor": "Màu",
     "projectDescription": "Mô tả",
     "projectDescriptionPlaceholder": "Dự án này về việc gì?",
     "projectInstructions": "Chỉ dẫn dự án",
-    "projectInstructionsHint": "Các chỉ dẫn này tự động được thêm vào system prompt của mọi phiên trong dự án này.",
+    "projectInstructionsHint": "Chỉnh sửa trực tiếp tệp AGENTS.md ở thư mục gốc của dự án. Sau khi lưu, tệp sẽ áp dụng cho mọi phiên trong dự án.",
     "projectInstructionsPlaceholder": "vd. Luôn trả lời bằng tiếng Việt; giữ giọng rõ ràng và thân thiện; bắt đầu bằng kết luận",
     "projectLogo": "Logo",
     "projectLogoHint": "Tùy chọn. Ảnh tự động được thu về 256×256.",
@@ -2997,6 +3167,7 @@
     "showLess": "Thu gọn",
     "showMore": "Hiển thị thêm",
     "tabFiles": "Tập tin",
+    "tabAutoMemory": "Bộ nhớ tự động",
     "tabInstructions": "Chỉ dẫn",
     "tabMemories": "Bộ nhớ",
     "tabOverview": "Tổng quan",
@@ -3020,33 +3191,11 @@
       "errorDetail": "Chi tiết: {{error}}"
     },
     "projectEmojiPlaceholder": "Tùy chọn",
-    "openFromMemoryLoadFailed": "Không thể mở nguồn dự án",
-    "openFromMemoryLoadFailedDetail": "Chi tiết: {{error}}",
-    "openFromMemoryMissing": "Dự án không còn khả dụng",
-    "openFromMemoryMissingHint": "Nguồn bộ nhớ trỏ tới một dự án đã bị xóa hoặc không thể tìm thấy.",
-    "autoMemory": {
-      "content": "Chi tiết (Markdown)",
-      "deleteConfirm": "Xóa chủ đề bộ nhớ tự động của dự án này?",
-      "description": "Một chỉ mục MEMORY.md ngắn gọn được đưa ổn định vào các cuộc trò chuyện dự án; chi tiết chỉ được đọc khi liên quan. Mọi dữ liệu đều ở trên máy này.",
-      "editorHint": "Chỉ dẫn dự án là quy tắc cố định. Khu vực này lưu kinh nghiệm tích lũy trong khi làm việc, không phải chỉ dẫn có thẩm quyền.",
-      "editorTitle": "Bộ nhớ tự động của dự án",
-      "empty": "Chưa có chủ đề bộ nhớ tự động.",
-      "fileNameGenerated": "Tên tệp sẽ được tạo khi lưu",
-      "name": "Tiêu đề",
-      "newTopic": "Chủ đề mới",
-      "rebuildIndex": "Tạo lại chỉ mục MEMORY.md",
-      "rebuildFailed": "Không thể tạo lại chỉ mục MEMORY.md.",
-      "summary": "Tóm tắt chỉ mục",
-      "summaryHint": "Câu này đi vào prompt ổn định của mọi cuộc trò chuyện dự án, vì vậy hãy viết ngắn gọn.",
-      "type": "Loại",
-      "types": {
-        "feedback": "Phản hồi công việc",
-        "project": "Công việc dự án",
-        "reference": "Tham khảo",
-        "user": "Ngữ cảnh người dùng"
-      }
-    },
-    "tabAutoMemory": "Bộ nhớ tự động"
+    "projectInstructionsLineCount": "{{count}} dòng",
+    "resizeSettingsSheet": "Kéo để thay đổi chiều rộng cài đặt dự án",
+    "projectInstructionsEmptyPreview": "AGENTS.md đang trống. Chuyển sang Chỉnh sửa để thêm chỉ dẫn Markdown.",
+    "projectInstructionsLoadFailed": "Không thể đọc AGENTS.md",
+    "projectInstructionsSaveFailed": "Không thể lưu AGENTS.md"
   },
   "provider": {
     "addProvider": "Thêm nhà cung cấp",
@@ -3496,6 +3645,7 @@
       "judgeExtraPromptPlaceholder": "Tùy chọn: hướng dẫn thêm cho giám khảo (danh sách đường dẫn cho phép, lệnh tin cậy...)",
       "judgeModelPlaceholder": "Chọn mô hình giám khảo",
       "judgeModelTitle": "Cấu hình mô hình giám khảo",
+      "judgeProviderPlaceholder": "ID provider (vd: anthropic-1)",
       "protectedPathsDesc": "Lần gọi công cụ chạm tới các đường dẫn này sẽ bắt buộc phê duyệt và không thể Luôn cho phép. Hỗ trợ mở rộng ~/, tiền tố thư mục (kết thúc bằng /) và glob *.pattern.",
       "protectedPathsPlaceholder": "vd: ~/.ssh/, .env, *.pem",
       "protectedPathsTitle": "Đường dẫn được bảo vệ",
@@ -3528,8 +3678,7 @@
       "yoloDesc": "Khi bật, mọi công cụ chạy không cần phê duyệt; chỉ Plan Mode vẫn có thể chặn. Khớp đường dẫn bảo vệ / lệnh nguy hiểm sẽ ghi cảnh báo nhưng vẫn thực thi.",
       "yoloDisabled": "YOLO toàn cục đã tắt",
       "yoloEnabled": "YOLO toàn cục đã bật",
-      "yoloTitle": "YOLO toàn cục (bỏ qua mọi phê duyệt)",
-      "judgeProviderPlaceholder": "ID provider (vd: anthropic-1)"
+      "yoloTitle": "YOLO toàn cục (bỏ qua mọi phê duyệt)"
     },
     "approvalTimeout": "Hết thời gian chờ phê duyệt công cụ",
     "approvalTimeoutAction": "Hành động khi hết thời gian phê duyệt",
@@ -3578,6 +3727,8 @@
       "digestMaxChars": "Ngân sách đầu ra tóm tắt (ký tự)",
       "dynamicEnabled": "Làm mới hậu tố mỗi lượt",
       "enabledForSession": "Bật cho phiên này",
+      "extractionAgent": "Agent ID trích xuất (tùy chọn)",
+      "extractionAgentPlaceholder": "Để trống để kế thừa recap.analysisAgent",
       "includeChannel": "Bao gồm phiên kênh IM",
       "includeCron": "Bao gồm phiên cron",
       "includeSubagents": "Bao gồm phiên sub-agent",
@@ -3603,9 +3754,7 @@
       "sessionOverride": "Ghi đè phiên",
       "title": "Nhận biết hành vi",
       "extractionModel": "Mô hình trích xuất (tùy chọn)",
-      "extractionModelInherit": "Dùng lại agent trò chuyện hiện tại (thân thiện với bộ nhớ đệm)",
-      "extractionAgent": "Agent ID trích xuất (tùy chọn)",
-      "extractionAgentPlaceholder": "Để trống để kế thừa recap.analysisAgent"
+      "extractionModelInherit": "Dùng lại agent trò chuyện hiện tại (thân thiện với bộ nhớ đệm)"
     },
     "browser": {
       "activeBadge": "đang dùng",
@@ -3758,7 +3907,16 @@
         "title": "Cho phép raw CDP?",
         "body": "Việc này cho phép AI gửi các lệnh DevTools Protocol tùy ý tới Chrome thật của bạn. Mỗi lần gọi vẫn cần bạn phê duyệt riêng và các phương thức nguy hiểm vẫn bị chặn, nhưng chỉ bật khi bạn thực sự cần.",
         "continue": "Bật"
-      }
+      },
+      "backupRuntimeHint": "System Chrome is available. Install a Hope-managed Chromium runtime as a fallback for browser automation and Artifact PDF export.",
+      "backupRuntimeTitle": "Backup Chromium runtime",
+      "installRuntimeRetry": "The runtime is ready. Retry the browser action or PDF export.",
+      "openBrowserSettings": "Open browser settings",
+      "runtimeInstallUnsupported": "Hope does not provide a managed Chromium runtime for this operating system or architecture. Install Chrome/Chromium manually or configure an executable path.",
+      "runtimeRequiredArtifactPdfDescription": "PDF export needs a local Chrome or Chromium runtime, but none is currently available.",
+      "runtimeRequiredDescription": "This browser operation needs a local Chrome or Chromium runtime, but none is currently available.",
+      "runtimeRequiredHint": "You can install Hope's managed runtime now (about 150 MB), then retry the operation.",
+      "runtimeRequiredTitle": "Chromium runtime required"
     },
     "bytes": "byte",
     "canvas": "Canvas",
@@ -3800,39 +3958,6 @@
         "backfillDesc": "Backfill đăng ký các bộ nhớ cũ thành claims mà không đổi phần chèn bộ nhớ hiện tại. Bộ nhớ hồ sơ và sở thích đã ghim có thể tự động hoạt động; phần còn lại chờ duyệt."
       },
       "list": "Danh sách claim",
-      "empty": "Chưa có claim.",
-      "selectClaim": "Chọn một claim để xem bằng chứng.",
-      "confidence": "Độ tin cậy",
-      "salience": "Mức quan trọng",
-      "evidence": "Bằng chứng",
-      "noEvidence": "Không có bằng chứng.",
-      "links": "Bộ nhớ liên kết",
-      "statusAll": "Mọi trạng thái",
-      "status": {
-        "active": "Hoạt động",
-        "superseded": "Đã thay thế",
-        "expired": "Đã hết hạn",
-        "archived": "Đã lưu trữ",
-        "needs_review": "Cần xem xét"
-      },
-      "backfill": {
-        "button": "Lấp đầy",
-        "title": "Lấp đầy từ bộ nhớ hiện có",
-        "desc": "Đăng ký các bộ nhớ hiện có thành claim có cấu trúc. Chỉ các bộ nhớ hồ sơ và tùy chọn được ghim (user/feedback) mới tự động kích hoạt; phần còn lại vào hàng đợi xem xét. Liên kết lỏng lẻo nên việc chèn bộ nhớ hiện tại không thay đổi.",
-        "summaryTotal": "Tổng số bộ nhớ",
-        "summaryLinked": "Đã liên kết",
-        "summaryCandidates": "Cần lấp đầy",
-        "summaryActive": "Tự động kích hoạt",
-        "summaryReview": "Cần xem xét",
-        "previewTruncated": "Hiển thị {{shown}} trong {{total}}",
-        "apply": "Lấp đầy {{count}}",
-        "applying": "Đang lấp đầy…",
-        "applied": "Đã lấp đầy {{created}} claim: {{active}} kích hoạt, {{review}} chờ xem xét",
-        "planFailed": "Không thể tính toán kế hoạch lấp đầy",
-        "applyFailed": "Lấp đầy thất bại",
-        "empty": "Tất cả bộ nhớ đã nằm trong lớp claim.",
-        "appliedPartial": "Đã lấp đầy {{created}}, {{failed}} thất bại — bạn có thể thử lại phần còn lại"
-      },
       "searchPlaceholder": "Tìm bộ nhớ có cấu trúc…",
       "searchMatchedBy": "Đã khớp",
       "searchMatch_content": "Content",
@@ -4012,6 +4137,11 @@
         "llm_adjusted": "AI adjusted",
         "user_confirmed": "Người dùng xác nhận"
       },
+      "empty": "Chưa có claim.",
+      "selectClaim": "Chọn một claim để xem bằng chứng.",
+      "confidence": "Độ tin cậy",
+      "salience": "Mức quan trọng",
+      "evidence": "Bằng chứng",
       "evidenceAll": "Tất cả bằng chứng",
       "evidenceSourceAll": "Tất cả nguồn",
       "evidenceSources": {
@@ -4024,9 +4154,37 @@
         "recap_facet": "Recap",
         "manual": "Sửa thủ công"
       },
+      "noEvidence": "Không có bằng chứng.",
+      "links": "Bộ nhớ liên kết",
       "typeAll": "Tất cả loại",
       "typeProfile": "Hồ sơ & sở thích",
       "scopeAll": "Tất cả phạm vi",
+      "statusAll": "Mọi trạng thái",
+      "status": {
+        "active": "Hoạt động",
+        "superseded": "Đã thay thế",
+        "expired": "Đã hết hạn",
+        "archived": "Đã lưu trữ",
+        "needs_review": "Cần xem xét"
+      },
+      "backfill": {
+        "button": "Lấp đầy",
+        "title": "Lấp đầy từ bộ nhớ hiện có",
+        "desc": "Đăng ký các bộ nhớ hiện có thành claim có cấu trúc. Chỉ các bộ nhớ hồ sơ và tùy chọn được ghim (user/feedback) mới tự động kích hoạt; phần còn lại vào hàng đợi xem xét. Liên kết lỏng lẻo nên việc chèn bộ nhớ hiện tại không thay đổi.",
+        "summaryTotal": "Tổng số bộ nhớ",
+        "summaryLinked": "Đã liên kết",
+        "summaryCandidates": "Cần lấp đầy",
+        "summaryActive": "Tự động kích hoạt",
+        "summaryReview": "Cần xem xét",
+        "previewTruncated": "Hiển thị {{shown}} trong {{total}}",
+        "apply": "Lấp đầy {{count}}",
+        "applying": "Đang lấp đầy…",
+        "applied": "Đã lấp đầy {{created}} claim: {{active}} kích hoạt, {{review}} chờ xem xét",
+        "planFailed": "Không thể tính toán kế hoạch lấp đầy",
+        "applyFailed": "Lấp đầy thất bại",
+        "empty": "Tất cả bộ nhớ đã nằm trong lớp claim.",
+        "appliedPartial": "Đã lấp đầy {{created}}, {{failed}} thất bại — bạn có thể thử lại phần còn lại"
+      },
       "reviewHistoryTitle": "Xem lại lịch sử",
       "reviewHistoryDesc": "Các quyết định xem xét gần đây được Lucid Review và Dreaming ghi lại.",
       "reviewHistoryShow": "Hiển thị",
@@ -4201,6 +4359,14 @@
       "cronTriggerEnabledDesc": "Fire on a cron expression in addition to (or instead of) the idle trigger.",
       "cronTriggerTitle": "Scheduled trigger",
       "desc": "Periodically scan recent memories and pin the most evergreen ones into core memory. Runs offline; never blocks chat.",
+      "errors": {
+        "loadConfig": "Không tải được cài đặt Dreaming",
+        "loadModels": "Failed to load Dreaming model list",
+        "loadStatus": "Failed to load Dreaming status",
+        "saveConfig": "Failed to save Dreaming settings",
+        "reloadAfterSave": "Failed to reload Dreaming settings after save failed",
+        "detail": "Chi tiết: {{error}}"
+      },
       "idleCountdown": "Idle trigger fires in ~{{minutes}} min",
       "idleMinutes": "Idle threshold (minutes)",
       "idleMinutesDesc": "How long to wait without user activity before firing.",
@@ -4238,14 +4404,6 @@
       "profileEnabledDesc": "Xây dựng hồ sơ dễ đọc từ các claim đang hoạt động, phân lớp theo phạm vi. Khi bật, nó thay thế phần hồ sơ cũ trong system prompt; khi tắt sẽ giữ cách hiển thị cũ. Trigger nhàn rỗi/cron dùng lượt xử lý theo luật ít tốn kém; chạy thủ công sẽ dùng LLM để viết lại.",
       "profileMaxLines": "Số dòng tối đa mỗi phạm vi",
       "profileMaxLinesDesc": "Giới hạn số gạch đầu dòng hồ sơ được giữ cho mỗi phạm vi.",
-      "errors": {
-        "loadConfig": "Không tải được cài đặt Dreaming",
-        "loadModels": "Failed to load Dreaming model list",
-        "loadStatus": "Failed to load Dreaming status",
-        "saveConfig": "Failed to save Dreaming settings",
-        "reloadAfterSave": "Failed to reload Dreaming settings after save failed",
-        "detail": "Chi tiết: {{error}}"
-      },
       "deepResolverTitle": "Deep Resolver",
       "autoExpireOnLightCycle": "Tự động hết hạn các xác nhận quyền sở hữu đã lỗi thời",
       "autoExpireOnLightCycleDesc": "Trong các chu kỳ Dreaming thông thường, hãy duy trì giá trị xác định cho đến khi hết hạn dưới dạng hành động giải quyết được hỗ trợ kiểm tra.",
@@ -4317,6 +4475,14 @@
       "editTitle": "Edit embedding model",
       "empty": "No embedding model configs yet. Create one from a template above, or add a custom config.",
       "emptyMemory": "No embedding model config is available yet. Create one first, or use the local embedding quick card.",
+      "errors": {
+        "delete": "Failed to delete embedding model config",
+        "detail": "Chi tiết: {{error}}",
+        "load": "Failed to load embedding model configs",
+        "save": "Failed to save embedding model config",
+        "setDefault": "Failed to switch default memory model",
+        "test": "Embedding connection test failed"
+      },
       "goConfig": "Configure embedding models",
       "memoryActive": "Default memory model",
       "memoryDefault": "Default memory model",
@@ -4330,15 +4496,7 @@
       "setMemoryDefault": "Set as default memory model",
       "tab": "Embedding Models",
       "testOk": "Embedding connection test passed",
-      "title": "Embedding Model Configs",
-      "errors": {
-        "delete": "Failed to delete embedding model config",
-        "detail": "Chi tiết: {{error}}",
-        "load": "Failed to load embedding model configs",
-        "save": "Failed to save embedding model config",
-        "setDefault": "Failed to switch default memory model",
-        "test": "Embedding connection test failed"
-      }
+      "title": "Embedding Model Configs"
     },
     "fallbackModels": "Mô hình dự phòng",
     "fallbackModelsDesc": "Khi mô hình chính không khả dụng, thử các mô hình sau theo thứ tự",
@@ -4368,8 +4526,8 @@
       "addHandler": "Thêm trình xử lý",
       "advanced": "Nâng cao",
       "slowHandlerWarning": "Trình xử lý này chạy LLM / sub-agent nội tuyến và sẽ làm chậm mỗi lần sự kiện chặn này kích hoạt. Hãy ưu tiên command / http ở đây, hoặc chuyển sang sự kiện quan sát (vd. PostToolUse).",
-      "modelInheritDefault": "Theo mặc định tự động hóa",
-      "invalidJson": "JSON không hợp lệ"
+      "invalidJson": "JSON không hợp lệ",
+      "modelInheritDefault": "Theo mặc định tự động hóa"
     },
     "hours": "giờ",
     "imageGenApiKey": "API Key",
@@ -4454,6 +4612,15 @@
       "enabledDesc": "Tạo embedding cho ghi chú để truy xuất ngữ nghĩa. Khi tắt, tìm kiếm ghi chú chỉ dùng toàn văn.",
       "changeModel": "Đổi mô hình",
       "activated": "Đã kích hoạt mô hình embedding kiến thức",
+      "errors": {
+        "loadEmbedding": "Failed to load knowledge vector search settings",
+        "activateEmbedding": "Failed to activate knowledge vector search",
+        "disableEmbedding": "Failed to disable knowledge vector search",
+        "rebuildEmbedding": "Failed to start knowledge vector rebuild",
+        "cancelReembed": "Failed to cancel knowledge vector rebuild",
+        "retryReembed": "Failed to retry knowledge vector rebuild",
+        "detail": "Chi tiết: {{error}}"
+      },
       "reembed": {
         "title": "Lập chỉ mục lại",
         "idle": "Vector ghi chú đã cập nhật.",
@@ -4463,15 +4630,6 @@
         "retry": "Thử lại",
         "progress": "{{done}} / {{total}} kho kiến thức",
         "phase": "Đang embedding lại ghi chú"
-      },
-      "errors": {
-        "loadEmbedding": "Failed to load knowledge vector search settings",
-        "activateEmbedding": "Failed to activate knowledge vector search",
-        "disableEmbedding": "Failed to disable knowledge vector search",
-        "rebuildEmbedding": "Failed to start knowledge vector rebuild",
-        "cancelReembed": "Failed to cancel knowledge vector rebuild",
-        "retryReembed": "Failed to retry knowledge vector rebuild",
-        "detail": "Chi tiết: {{error}}"
       }
     },
     "knowledgeMaintenance": {
@@ -4491,6 +4649,12 @@
       "cycleSkipped": "Đã bỏ qua: {{note}}",
       "cycleDone": "Đã tạo {{n}} gợi ý",
       "runFailed": "Không chạy được bảo trì",
+      "errors": {
+        "load": "Không thể tải cài đặt bảo trì tự động",
+        "save": "Không thể lưu cài đặt bảo trì tự động",
+        "runNow": "Không thể chạy bảo trì tự động",
+        "detail": "Chi tiết: {{error}}"
+      },
       "task": {
         "autoLink": "Tự liên kết",
         "orphanRescue": "Cứu ghi chú mồ côi",
@@ -4507,13 +4671,7 @@
       },
       "model": "Mô hình",
       "modelDesc": "Dùng chung cho cả 4 bộ tạo dựa trên LLM (gắn thẻ tự động, bảo trì MOC, bộ nhớ→ghi chú, xung đột nguồn).",
-      "modelDefault": "Theo mặc định tự động hóa",
-      "errors": {
-        "load": "Không thể tải cài đặt bảo trì tự động",
-        "save": "Không thể lưu cài đặt bảo trì tự động",
-        "runNow": "Không thể chạy bảo trì tự động",
-        "detail": "Chi tiết: {{error}}"
-      }
+      "modelDefault": "Theo mặc định tự động hóa"
     },
     "knowledgeMediaRetention": {
       "saved": "Đã lưu",
@@ -4903,33 +5061,13 @@
     "memoryAutoExtract": "Tự động trích xuất bộ nhớ",
     "memoryAutoExtractDesc": "Tự động trích xuất bộ nhớ khi đáp ứng ngưỡng token, thời gian hoặc tin nhắn",
     "memoryBudget": {
+      "advancedAllocation": "Phân bổ phạm vi nâng cao",
       "agentOverrideDesc": "Mặc định kế thừa Ngân sách bộ nhớ chung. Tắt để dùng ngân sách riêng cho Agent.",
+      "contextWindow": "Ngữ cảnh mô hình mặc định hiện tại: {{count}} tokens",
+      "coreSimpleDesc": "Chọn một ngân sách tổng cho Core Memory. Dung lượng chưa dùng được chia sẻ theo ưu tiên Project > Agent > Global.",
       "coreMemoryFileChars": "Giới hạn từng MEMORY.md",
       "coreMemoryFileCharsDesc": "Giới hạn độc lập cho mỗi tệp MEMORY.md (Global / Agent). Nội dung vượt quá sẽ bị cắt trong lời nhắc nhưng vẫn giữ nguyên trên đĩa. Mặc định 8000.",
       "desc": "Giới hạn tổng số ký tự của phần bộ nhớ (Global MEMORY.md / Agent MEMORY.md / bộ nhớ SQLite / Hướng dẫn) và giới hạn từng lớp bên trong. Giảm tổng sẽ dành thêm ngân sách cho ngữ cảnh hội thoại trực tiếp.",
-      "resetToDefaults": "Khôi phục mặc định",
-      "sections": {
-        "aboutUser": "Về người dùng",
-        "preferences": "Sở thích",
-        "projectContext": "Ngữ cảnh dự án",
-        "references": "Tham chiếu",
-        "userProfile": "Hồ sơ người dùng"
-      },
-      "sqliteEntryMaxChars": "Giới hạn mỗi mục",
-      "sqliteEntryMaxCharsDesc": "Giới hạn trên cho dòng đầu của mỗi mục bộ nhớ SQLite khi hiển thị, tránh một mục dài chiếm chỗ của các mục khác cùng phần. Mặc định 500.",
-      "sqliteSectionsTitle": "Ngân sách theo phần SQLite",
-      "title": "Ngân sách bộ nhớ",
-      "totalChars": "Giới hạn tổng ký tự",
-      "totalCharsDesc": "Giới hạn trên cứng cho toàn bộ phần bộ nhớ. Hướng dẫn được giữ trước; các lớp còn lại tiêu thụ theo thứ tự ưu tiên. Mặc định 10000.",
-      "useGlobalDefault": "Kế thừa mặc định chung",
-      "errors": {
-        "load": "Failed to load memory budget",
-        "save": "Failed to save memory budget",
-        "detail": "Chi tiết: {{error}}"
-      },
-      "advancedAllocation": "Phân bổ phạm vi nâng cao",
-      "contextWindow": "Ngữ cảnh mô hình mặc định hiện tại: {{count}} tokens",
-      "coreSimpleDesc": "Chọn một ngân sách tổng cho Core Memory. Dung lượng chưa dùng được chia sẻ theo ưu tiên Project > Agent > Global.",
       "engine": {
         "agentTokens": "Token Agent",
         "budgetTokens": "Token ngân sách",
@@ -4949,13 +5087,33 @@
       "legacyTitle": "Ngân sách quay lui phiên bản cũ",
       "legacyDesc": "Các ngân sách ký tự này chỉ áp dụng cho luồng bộ nhớ tĩnh cũ và vẫn có thể chỉnh sửa trong thời gian tương thích.",
       "effective": "Đã đặt {{configured}} · hiệu lực ở lượt này {{effective}} tokens",
+      "errors": {
+        "load": "Failed to load memory budget",
+        "save": "Failed to save memory budget",
+        "detail": "Chi tiết: {{error}}"
+      },
+      "resetToDefaults": "Khôi phục mặc định",
       "highBudgetWarning": "Vượt phạm vi khuyến nghị 2400 tokens. Vẫn có thể lưu, nhưng sẽ tăng ngữ cảnh ổn định, lượng ghi bộ nhớ đệm và độ trễ token đầu tiên.",
       "modelLimited": "Đã đặt {{configured}} tokens; mô hình hiện tại dùng an toàn {{effective}}. Tùy chọn đã lưu không bị thay đổi.",
       "presets": {
         "balanced": "Cân bằng",
         "concise": "Gọn",
         "rich": "Phong phú"
-      }
+      },
+      "sections": {
+        "aboutUser": "Về người dùng",
+        "preferences": "Sở thích",
+        "projectContext": "Ngữ cảnh dự án",
+        "references": "Tham chiếu",
+        "userProfile": "Hồ sơ người dùng"
+      },
+      "sqliteEntryMaxChars": "Giới hạn mỗi mục",
+      "sqliteEntryMaxCharsDesc": "Giới hạn trên cho dòng đầu của mỗi mục bộ nhớ SQLite khi hiển thị, tránh một mục dài chiếm chỗ của các mục khác cùng phần. Mặc định 500.",
+      "sqliteSectionsTitle": "Ngân sách theo phần SQLite",
+      "title": "Ngân sách bộ nhớ",
+      "totalChars": "Giới hạn tổng ký tự",
+      "totalCharsDesc": "Giới hạn trên cứng cho toàn bộ phần bộ nhớ. Hướng dẫn được giữ trước; các lớp còn lại tiêu thụ theo thứ tự ưu tiên. Mặc định 10000.",
+      "useGlobalDefault": "Kế thừa mặc định chung"
     },
     "memoryContent": "Nội dung",
     "memoryContentPlaceholder": "AI nên ghi nhớ điều gì?",
@@ -5046,8 +5204,89 @@
     "memorySelectionThreshold": "Ngưỡng kích hoạt",
     "memorySelectionThresholdDesc": "Chỉ kích hoạt khi có đủ số ứng viên này. Mặc định 8.",
     "memorySimilarity": "Độ tương tự",
+    "agentMemoryEnabledTitle": "Dùng bộ nhớ cho Agent này",
+    "agentMemoryEnabledDesc": "Kiểm soát Bộ nhớ Cốt lõi, gợi nhớ động, học tập và công cụ bộ nhớ của Agent này. Cài đặt bộ nhớ toàn cục vẫn là chính sách cấp trên.",
     "memoryStatsTotal": "tổng {{count}}",
     "memoryStatsVec": "Vector {{pct}}%",
+    "memoryV2": {
+      "title": "Bộ nhớ",
+      "subtitle": "Chọn điều cần nhớ lâu dài, khi nào cần gợi nhớ thêm và liệu hội thoại có dạy trợ lý hay không.",
+      "loadFailed": "Không thể tải cài đặt bộ nhớ",
+      "saveFailed": "Không thể lưu cài đặt bộ nhớ",
+      "core": {
+        "title": "Luôn ghi nhớ",
+        "desc": "MEMORY.md ngắn của Global, Agent và Project được giữ ổn định trong hội thoại; chi tiết chỉ tải khi cần.",
+        "budget": "Tổng ngân sách {{count}} token",
+        "manage": "Sửa MEMORY.md",
+        "projectTitle": "MEMORY.md của dự án",
+        "projectDesc": "Ngữ cảnh thường trực ngắn chỉ dùng cho các cuộc trò chuyện trong dự án này.",
+        "conflict": "Cả tệp chuẩn viết hoa và tệp tương thích cũ viết thường đều đã thay đổi. Hãy chọn hoặc hợp nhất nội dung trước khi lưu.",
+        "conflictCanonical": "MEMORY.md chuẩn viết hoa",
+        "conflictLegacy": "memory.md cũ viết thường",
+        "conflictMerged": "Kết quả hợp nhất (bắt đầu từ bản chuẩn)",
+        "conflictKeepCanonical": "Giữ MEMORY.md",
+        "conflictKeepLegacy": "Giữ tệp cũ",
+        "conflictSaveMerged": "Lưu kết quả hợp nhất",
+        "conflictLoadFailed": "Không thể tải các tệp Bộ nhớ Cốt lõi đang xung đột",
+        "conflictResolveFailed": "Không thể giải quyết xung đột Bộ nhớ Cốt lõi. Hãy tải lại và thử lại.",
+        "conflictResolved": "Đã giải quyết xung đột Bộ nhớ Cốt lõi",
+        "actualTokens": "{{used}} / {{total}} token trong phạm vi này",
+        "stats": "Mục chỉ mục: {{entries}} · Chủ đề: {{topics}}",
+        "updatedAt": "Đã cập nhật {{value}}",
+        "neverUpdated": "Chưa được ghi",
+        "scope": "Phạm vi bộ nhớ",
+        "projectLabel": "Dự án",
+        "topics": "Chủ đề theo nhu cầu",
+        "noTopics": "Chưa có tệp chủ đề",
+        "selectTopic": "Chọn một chủ đề hoặc tạo chủ đề mới",
+        "topicName": "Tên chủ đề",
+        "topicDesc": "Một dòng mô tả khi nào cần đọc",
+        "topicContent": "Chi tiết chủ đề (chỉ tải khi cần)",
+        "topicLoadFailed": "Không thể tải các chủ đề bộ nhớ",
+        "topicSaveFailed": "Không thể lưu chủ đề bộ nhớ",
+        "topicDeleteConfirm": "Xóa chủ đề bộ nhớ này?",
+        "topicDeleteFailed": "Không thể xóa chủ đề bộ nhớ"
+      },
+      "recall": {
+        "title": "Gợi nhớ động",
+        "desc": "Mặc định tắt. Khi tắt, chỉ Bộ nhớ cốt lõi ổn định được tự động sử dụng, trừ khi một Agent đã bật ghi đè tương thích riêng; mô hình vẫn có thể tìm kiếm bằng công cụ bộ nhớ khi cần. Khi bật, các ký ức động liên quan được tìm sau mỗi tin nhắn của người dùng và trước khi tạo câu trả lời.",
+        "fast": "Tự động gợi nhớ ký ức liên quan",
+        "deep": "Xếp hạng sâu (tùy chọn)",
+        "skip": "Đã bỏ qua",
+        "deepCost": "Xếp hạng sâu thêm một lần gọi mô hình, làm phản hồi chậm hơn và dùng nhiều token hơn. Chỉ dùng sau khi bật gợi nhớ tự động và khi thực sự cần.",
+        "last": "Lần gợi nhớ gần nhất: đã chọn {{selected}}/{{candidates}} · {{latency}} ms · {{mode}}",
+        "noRecent": "Chưa có lần gợi nhớ động tự động nào kể từ khi mở ứng dụng."
+      },
+      "learning": {
+        "title": "Học từ hội thoại",
+        "desc": "Kiểm soát việc lưu thông tin mới từ cuộc trò chuyện. Không ảnh hưởng đến việc dùng ký ức hiện có.",
+        "mode": "Chế độ học",
+        "smart": "Học thông minh",
+        "reviewFirst": "Duyệt trước khi lưu",
+        "manual": "Chỉ lưu thủ công",
+        "pending": "{{count}} mục chờ duyệt",
+        "unassigned": "{{count}} mục chưa gán"
+      },
+      "review": {
+        "title": "Bộ nhớ chờ duyệt",
+        "desc": "{{count}} ứng viên chưa được đưa vào bộ nhớ dài hạn hoặc prompt.",
+        "empty": "Không có nội dung chờ duyệt",
+        "chooseScope": "Chọn nơi lưu",
+        "approve": "Lưu bộ nhớ",
+        "reject": "Không lưu",
+        "loadFailed": "Không thể tải bộ nhớ chờ duyệt",
+        "approveFailed": "Không thể lưu bộ nhớ chờ duyệt",
+        "rejectFailed": "Không thể bỏ qua bộ nhớ chờ duyệt",
+        "reason": {
+          "review_first": "Chế độ học yêu cầu duyệt",
+          "project_scope_missing": "Có vẻ thuộc dự án nhưng cuộc trò chuyện này không có dự án",
+          "scope_uncertain": "Chưa rõ phạm vi phù hợp",
+          "sensitive": "Có thể chứa thông tin nhạy cảm",
+          "conflict": "Xung đột với bộ nhớ hiện có",
+          "core_promotion": "Được đề xuất làm bộ nhớ thường trực"
+        }
+      }
+    },
     "memoryTabs": {
       "dreaming": "Dreaming",
       "manage": "Quản lý bộ nhớ",
@@ -5313,11 +5552,11 @@
       "refreshFailed": "Không thể tổng hợp hồ sơ",
       "empty": "Chưa có ảnh chụp hồ sơ",
       "emptyHint": "Bật tổng hợp hồ sơ trong tab Dreaming, rồi làm mới.",
-      "version": "v{{version}}",
       "noSources": "Ảnh chụp nhanh cũ hơn này chưa có liên kết nguồn xác nhận quyền sở hữu. Làm mới hồ sơ để tạo các nguồn có thể theo dõi.",
       "scopeSources": "Nguồn cấp ảnh chụp nhanh",
       "sourceConfidence": "sự tự tin {{value}}",
       "sourceEvidence": "Bằng chứng: {{quote}}",
+      "version": "v{{version}}",
       "operationErrors": {
         "openEvidenceSource": "Failed to open profile evidence source",
         "refresh": "Failed to synthesise profile",
@@ -5701,8 +5940,8 @@
       "skillCount_one": "{{count}} skill",
       "skillCount_other": "{{count}} skills",
       "tooltip": {
-        "distinguishOnboarding": "To migrate legacy OpenClaw user data, use the dedicated 'Import OpenClaw' step (step 2).",
-        "distinguishUserDataImport": "Để di chuyển dữ liệu OpenClaw cũ, hãy vào Cài đặt → Agents → Nhập từ OpenClaw."
+        "distinguishUserDataImport": "Để di chuyển dữ liệu OpenClaw cũ, hãy vào Cài đặt → Agents → Nhập từ OpenClaw.",
+        "distinguishOnboarding": "To migrate legacy OpenClaw user data, use the dedicated 'Import OpenClaw' step (step 2)."
       },
       "warning": {
         "openclaw": "OpenClaw skills often depend on external CLIs (gh, 1password, tmux); calls may fail until you install them.",
@@ -5755,15 +5994,15 @@
         "memory": "Gợi nhớ ký ức",
         "awareness": "Nhận thức xuyên phiên"
       },
-      "model": "Mô hình",
-      "modelDesc": "Lệnh gợi ý của Sprite là gửi-rồi-quên — dùng cả chuỗi dự phòng đầy đủ cũng không sao, không cần chỉ một mô hình.",
-      "modelDefault": "Theo mặc định tự động hóa",
       "errors": {
         "load": "Không thể tải cài đặt tinh linh",
         "save": "Không thể lưu cài đặt tinh linh",
         "toggle": "Không thể cập nhật chế độ tinh linh",
         "detail": "Chi tiết: {{error}}"
-      }
+      },
+      "model": "Mô hình",
+      "modelDesc": "Lệnh gợi ý của Sprite là gửi-rồi-quên — dùng cả chuỗi dự phòng đầy đủ cũng không sao, không cần chỉ một mô hình.",
+      "modelDefault": "Theo mặc định tự động hóa"
     },
     "ssrfBrowserPolicyDesc": "Áp dụng cho URL đích của page.goto / new_page. Lưu ý: JS fetch() bên trong browser.evaluate không nằm trong phạm vi.",
     "ssrfDefaultPolicy": "Chính sách mặc định",
@@ -6125,49 +6364,10 @@
     "uiEffects": "Hoạt hình nền",
     "uiEffectsDesc": "Cho phép liên kết nền mọi thời tiết và hiệu ứng thời tiết",
     "uiEffectsToggle": "Bật hiệu ứng",
-    "audioGenerate": "Tạo âm thanh",
-    "audioGenerateDesc": "Cấu hình nhà cung cấp tổng hợp âm thanh (BYOK) cho dạng âm thanh của không gian thiết kế: lời kể TTS / nhạc / hiệu ứng. Chuyển đổi dự phòng theo thứ tự.",
-    "audioGenNoProvider": "Chưa cấu hình nhà cung cấp âm thanh — bật một cái và thêm khóa API.",
-    "audioGenApiKey": "Khóa API",
-    "audioGenModel": "Mô hình",
-    "audioGenVoice": "Giọng (TTS)",
-    "audioGenBaseUrl": "Base URL",
-    "audioGenTimeout": "Thời gian chờ (giây)",
-    "audioGenFetchVoices": "Lấy giọng nói",
-    "audioGenKnownModels": "Mô hình đã biết",
-    "audioGenPickVoice": "Chọn từ danh sách…",
     "visionBridgeModel": "Mô hình cầu nối thị giác",
     "visionBridgeModelDesc": "Chỉ dùng khi mô hình chính không xem được hình ảnh. Một mô hình riêng chuyển hình ảnh thành mô tả văn bản để cuộc trò chuyện tiếp tục.",
     "visionBridgeModelClear": "Tắt cầu nối thị giác",
     "selectVisionBridgeModel": "Chọn mô hình thị giác",
-    "modelChainRestoreInherit": "Đặt lại về mặc định kế thừa",
-    "automationModelChain": "Mô hình mặc định tự động hóa",
-    "automationModelChainDesc": "Chuỗi mô hình mặc định (có dự phòng) cho các tác vụ AI nền một lần như Recap, Dreaming và Biên soạn tri thức — độc lập với mô hình trò chuyện mặc định ở trên. Để trống sẽ dùng mô hình trò chuyện mặc định.",
-    "automationModelChainInherit": "Theo mô hình trò chuyện mặc định",
-    "knowledgeVision": {
-      "model": "Mô hình thị giác",
-      "modelDesc": "Chuỗi mô hình dùng để OCR hình ảnh khi nhập vào không gian tri thức. Để trống sẽ theo mặc định tự động hóa.",
-      "modelDefault": "Theo mặc định tự động hóa",
-      "ocrConcurrency": "Số luồng OCR đồng thời cho PDF quét",
-      "maxOcrPages": "Giới hạn số trang OCR cho PDF quét"
-    },
-    "noteTools": {
-      "title": "Mô hình công cụ ghi chú",
-      "desc": "Mô hình dùng chung cho công cụ chắt lọc ghi chú, tạo MOC và chuyển phiên thành ghi chú.",
-      "modelDefault": "Theo mặc định tự động hóa"
-    },
-    "recallSummary": {
-      "title": "Tóm tắt khi gợi nhớ",
-      "desc": "Khi recall_memory / session_search trả về nhiều kết quả, nén chúng thành một đoạn tóm tắt ngắn gọn bằng một lệnh gọi LLM bổ sung thay vì trả về đoạn trích thô. Mặc định tắt — tốn thêm một lệnh gọi cho mỗi lần tìm kiếm đủ điều kiện.",
-      "enabled": "Bật tóm tắt",
-      "minHits": "Số kết quả tối thiểu để kích hoạt",
-      "contextCharBudget": "Ngân sách ngữ cảnh (ký tự)",
-      "timeoutSecs": "Thời gian chờ (giây)",
-      "maxTokens": "Số token đầu ra tối đa",
-      "includeHistory": "Cũng tóm tắt các kết quả trong lịch sử trò chuyện",
-      "model": "Mô hình",
-      "modelDefault": "Theo mặc định tự động hóa"
-    },
     "activeMemoryUseRecommended": "Dùng đề xuất",
     "procedureMemoryTitle": "Quy trình đã lưu",
     "procedureMemoryDesc": "Dùng các quy trình đã lưu liên quan làm hướng dẫn mềm có giới hạn trước khi trả lời.",
@@ -6999,7 +7199,42 @@
     "reasoningEffort": "Think",
     "memoryAuditScopeHintAll": "Tất cả các thay đổi đều tìm kiếm ký ức dài hạn, quy trình làm việc và các quyết định về bộ nhớ có cấu trúc.",
     "memoryAuditScopeHintMemoryOnly": "Bộ lọc hành động áp dụng cho lịch sử bộ nhớ dài hạn; quy trình làm việc và các quyết định về bộ nhớ có cấu trúc vẫn ở trong Tất cả thay đổi.",
+    "modelChainRestoreInherit": "Đặt lại về mặc định kế thừa",
+    "automationModelChain": "Mô hình mặc định tự động hóa",
+    "automationModelChainDesc": "Chuỗi mô hình mặc định (có dự phòng) cho các tác vụ AI nền một lần như Recap, Dreaming và Biên soạn tri thức — độc lập với mô hình trò chuyện mặc định ở trên. Để trống sẽ dùng mô hình trò chuyện mặc định.",
+    "automationModelChainInherit": "Theo mô hình trò chuyện mặc định",
+    "knowledgeVision": {
+      "model": "Mô hình thị giác",
+      "modelDesc": "Chuỗi mô hình dùng để OCR hình ảnh khi nhập vào không gian tri thức. Để trống sẽ theo mặc định tự động hóa.",
+      "modelDefault": "Theo mặc định tự động hóa",
+      "ocrConcurrency": "Số luồng OCR đồng thời cho PDF quét",
+      "maxOcrPages": "Giới hạn số trang OCR cho PDF quét"
+    },
+    "noteTools": {
+      "title": "Mô hình công cụ ghi chú",
+      "desc": "Mô hình dùng chung cho công cụ chắt lọc ghi chú, tạo MOC và chuyển phiên thành ghi chú.",
+      "modelDefault": "Theo mặc định tự động hóa"
+    },
+    "recallSummary": {
+      "title": "Tóm tắt khi gợi nhớ",
+      "desc": "Khi recall_memory / session_search trả về nhiều kết quả, nén chúng thành một đoạn tóm tắt ngắn gọn bằng một lệnh gọi LLM bổ sung thay vì trả về đoạn trích thô. Mặc định tắt — tốn thêm một lệnh gọi cho mỗi lần tìm kiếm đủ điều kiện.",
+      "enabled": "Bật tóm tắt",
+      "minHits": "Số kết quả tối thiểu để kích hoạt",
+      "contextCharBudget": "Ngân sách ngữ cảnh (ký tự)",
+      "timeoutSecs": "Thời gian chờ (giây)",
+      "maxTokens": "Số token đầu ra tối đa",
+      "includeHistory": "Cũng tóm tắt các kết quả trong lịch sử trò chuyện",
+      "model": "Mô hình",
+      "modelDefault": "Theo mặc định tự động hóa"
+    },
     "tabOverview": "Tổng quan",
+    "memoryBackupExportSummary": "Bộ nhớ: {{memories}} · Khẳng định: {{claims}} · Hồ sơ: {{profiles}} · Trải nghiệm: {{episodes}} · Quy trình: {{procedures}}",
+    "memoryBackupOpenReviewInboxAfterRestore": "Nội dung đã khôi phục cần xem xét: {{count}}",
+    "memoryExperienceSearchActive": "Kết quả khớp với “{{query}}”: {{total}}",
+    "memoryExperienceViewActive": "Mục trải nghiệm: {{total}}",
+    "memoryExternalProvidersActive": "Nhà cung cấp đang hoạt động: {{active}}/{{total}}",
+    "memoryExternalProvidersActiveSummary": "Đang hoạt động: {{active}} · Đã cấu hình: {{total}}",
+    "memoryProcedureSourceEpisode": "Trải nghiệm: {{id}}",
     "memoryExternalProviders": "Nhà cung cấp bên ngoài",
     "memoryExternalProvidersDesc": "Nhà cung cấp bộ nhớ phụ gia tùy chọn. Ký ức cục bộ vẫn là nguồn gốc của sự thật; các kết nối bị vô hiệu hóa cho đến khi bạn định cấu hình và kích hoạt chúng một cách rõ ràng.",
     "memoryExternalProvidersGlobal": "Bật đồng bộ hóa nhà cung cấp",
@@ -7116,94 +7351,17 @@
     "memoryProcedureStepsPlaceholder": "- Kiểm tra việc kiểm tra sai\n- Áp dụng bản sửa lỗi đã biết\n- Chạy lại trình xác minh hẹp",
     "memoryProcedureConstraintsPlaceholder": "Khi nào không sử dụng quy trình làm việc này",
     "memoryProcedureConfidence": "sự tự tin",
-    "agentMemoryEnabledTitle": "Dùng bộ nhớ cho Agent này",
-    "agentMemoryEnabledDesc": "Kiểm soát Bộ nhớ Cốt lõi, gợi nhớ động, học tập và công cụ bộ nhớ của Agent này. Cài đặt bộ nhớ toàn cục vẫn là chính sách cấp trên.",
-    "memoryV2": {
-      "title": "Bộ nhớ",
-      "subtitle": "Chọn điều cần nhớ lâu dài, khi nào cần gợi nhớ thêm và liệu hội thoại có dạy trợ lý hay không.",
-      "loadFailed": "Không thể tải cài đặt bộ nhớ",
-      "saveFailed": "Không thể lưu cài đặt bộ nhớ",
-      "core": {
-        "title": "Luôn ghi nhớ",
-        "desc": "MEMORY.md ngắn của Global, Agent và Project được giữ ổn định trong hội thoại; chi tiết chỉ tải khi cần.",
-        "budget": "Tổng ngân sách {{count}} token",
-        "manage": "Sửa MEMORY.md",
-        "projectTitle": "MEMORY.md của dự án",
-        "projectDesc": "Ngữ cảnh thường trực ngắn chỉ dùng cho các cuộc trò chuyện trong dự án này.",
-        "conflict": "Cả tệp chuẩn viết hoa và tệp tương thích cũ viết thường đều đã thay đổi. Hãy chọn hoặc hợp nhất nội dung trước khi lưu.",
-        "conflictCanonical": "MEMORY.md chuẩn viết hoa",
-        "conflictLegacy": "memory.md cũ viết thường",
-        "conflictMerged": "Kết quả hợp nhất (bắt đầu từ bản chuẩn)",
-        "conflictKeepCanonical": "Giữ MEMORY.md",
-        "conflictKeepLegacy": "Giữ tệp cũ",
-        "conflictSaveMerged": "Lưu kết quả hợp nhất",
-        "conflictLoadFailed": "Không thể tải các tệp Bộ nhớ Cốt lõi đang xung đột",
-        "conflictResolveFailed": "Không thể giải quyết xung đột Bộ nhớ Cốt lõi. Hãy tải lại và thử lại.",
-        "conflictResolved": "Đã giải quyết xung đột Bộ nhớ Cốt lõi",
-        "actualTokens": "{{used}} / {{total}} token trong phạm vi này",
-        "stats": "Mục chỉ mục: {{entries}} · Chủ đề: {{topics}}",
-        "updatedAt": "Đã cập nhật {{value}}",
-        "neverUpdated": "Chưa được ghi",
-        "scope": "Phạm vi bộ nhớ",
-        "projectLabel": "Dự án",
-        "topics": "Chủ đề theo nhu cầu",
-        "noTopics": "Chưa có tệp chủ đề",
-        "selectTopic": "Chọn một chủ đề hoặc tạo chủ đề mới",
-        "topicName": "Tên chủ đề",
-        "topicDesc": "Một dòng mô tả khi nào cần đọc",
-        "topicContent": "Chi tiết chủ đề (chỉ tải khi cần)",
-        "topicLoadFailed": "Không thể tải các chủ đề bộ nhớ",
-        "topicSaveFailed": "Không thể lưu chủ đề bộ nhớ",
-        "topicDeleteConfirm": "Xóa chủ đề bộ nhớ này?",
-        "topicDeleteFailed": "Không thể xóa chủ đề bộ nhớ"
-      },
-      "recall": {
-        "title": "Gợi nhớ động",
-        "desc": "Mặc định tắt. Khi tắt, chỉ Bộ nhớ cốt lõi ổn định được tự động sử dụng, trừ khi một Agent đã bật ghi đè tương thích riêng; mô hình vẫn có thể tìm kiếm bằng công cụ bộ nhớ khi cần. Khi bật, các ký ức động liên quan được tìm sau mỗi tin nhắn của người dùng và trước khi tạo câu trả lời.",
-        "fast": "Tự động gợi nhớ ký ức liên quan",
-        "deep": "Xếp hạng sâu (tùy chọn)",
-        "skip": "Đã bỏ qua",
-        "deepCost": "Xếp hạng sâu thêm một lần gọi mô hình, làm phản hồi chậm hơn và dùng nhiều token hơn. Chỉ dùng sau khi bật gợi nhớ tự động và khi thực sự cần.",
-        "last": "Lần gợi nhớ gần nhất: đã chọn {{selected}}/{{candidates}} · {{latency}} ms · {{mode}}",
-        "noRecent": "Chưa có lần gợi nhớ động tự động nào kể từ khi mở ứng dụng."
-      },
-      "learning": {
-        "title": "Học từ hội thoại",
-        "desc": "Kiểm soát việc lưu thông tin mới từ cuộc trò chuyện. Không ảnh hưởng đến việc dùng ký ức hiện có.",
-        "mode": "Chế độ học",
-        "smart": "Học thông minh",
-        "reviewFirst": "Duyệt trước khi lưu",
-        "manual": "Chỉ lưu thủ công",
-        "pending": "{{count}} mục chờ duyệt",
-        "unassigned": "{{count}} mục chưa gán"
-      },
-      "review": {
-        "title": "Bộ nhớ chờ duyệt",
-        "desc": "{{count}} ứng viên chưa được đưa vào bộ nhớ dài hạn hoặc prompt.",
-        "empty": "Không có nội dung chờ duyệt",
-        "chooseScope": "Chọn nơi lưu",
-        "approve": "Lưu bộ nhớ",
-        "reject": "Không lưu",
-        "loadFailed": "Không thể tải bộ nhớ chờ duyệt",
-        "approveFailed": "Không thể lưu bộ nhớ chờ duyệt",
-        "rejectFailed": "Không thể bỏ qua bộ nhớ chờ duyệt",
-        "reason": {
-          "review_first": "Chế độ học yêu cầu duyệt",
-          "project_scope_missing": "Có vẻ thuộc dự án nhưng cuộc trò chuyện này không có dự án",
-          "scope_uncertain": "Chưa rõ phạm vi phù hợp",
-          "sensitive": "Có thể chứa thông tin nhạy cảm",
-          "conflict": "Xung đột với bộ nhớ hiện có",
-          "core_promotion": "Được đề xuất làm bộ nhớ thường trực"
-        }
-      }
-    },
-    "memoryBackupExportSummary": "Bộ nhớ: {{memories}} · Khẳng định: {{claims}} · Hồ sơ: {{profiles}} · Trải nghiệm: {{episodes}} · Quy trình: {{procedures}}",
-    "memoryBackupOpenReviewInboxAfterRestore": "Nội dung đã khôi phục cần xem xét: {{count}}",
-    "memoryExperienceSearchActive": "Kết quả khớp với “{{query}}”: {{total}}",
-    "memoryExperienceViewActive": "Mục trải nghiệm: {{total}}",
-    "memoryExternalProvidersActive": "Nhà cung cấp đang hoạt động: {{active}}/{{total}}",
-    "memoryExternalProvidersActiveSummary": "Đang hoạt động: {{active}} · Đã cấu hình: {{total}}",
-    "memoryProcedureSourceEpisode": "Trải nghiệm: {{id}}"
+    "audioGenerate": "Tạo âm thanh",
+    "audioGenerateDesc": "Cấu hình nhà cung cấp tổng hợp âm thanh (BYOK) cho dạng âm thanh của không gian thiết kế: lời kể TTS / nhạc / hiệu ứng. Chuyển đổi dự phòng theo thứ tự.",
+    "audioGenNoProvider": "Chưa cấu hình nhà cung cấp âm thanh — bật một cái và thêm khóa API.",
+    "audioGenApiKey": "Khóa API",
+    "audioGenModel": "Mô hình",
+    "audioGenVoice": "Giọng (TTS)",
+    "audioGenBaseUrl": "Base URL",
+    "audioGenTimeout": "Thời gian chờ (giây)",
+    "audioGenFetchVoices": "Lấy giọng nói",
+    "audioGenKnownModels": "Mô hình đã biết",
+    "audioGenPickVoice": "Chọn từ danh sách…"
   },
   "shortcuts": {
     "actionOpenSettings": "Mở cài đặt",
@@ -7264,6 +7422,21 @@
     },
     "context": {
       "description": "Hiển thị phân tích cửa sổ ngữ cảnh"
+    },
+    "workflow": {
+      "description": "Bật/tắt Chế độ Quy trình và xem các lượt chạy quy trình"
+    },
+    "goal": {
+      "description": "Đặt và theo dõi mục tiêu của phiên"
+    },
+    "loop": {
+      "description": "Chạy lặp lại một lời nhắc theo chu kỳ cố định"
+    },
+    "review": {
+      "description": "Xem lại các thay đổi mã cục bộ"
+    },
+    "mode": {
+      "description": "Đặt chế độ thực thi"
     },
     "export": {
       "description": "Xuất ra Markdown"
@@ -7348,21 +7521,6 @@
     },
     "kb": {
       "description": "Xác nhận hoặc thu hồi quyền truy cập kho tri thức cho nhóm chat này"
-    },
-    "workflow": {
-      "description": "Bật/tắt Chế độ Quy trình và xem các lượt chạy quy trình"
-    },
-    "goal": {
-      "description": "Đặt và theo dõi mục tiêu của phiên"
-    },
-    "loop": {
-      "description": "Chạy lặp lại một lời nhắc theo chu kỳ cố định"
-    },
-    "review": {
-      "description": "Xem lại các thay đổi mã cục bộ"
-    },
-    "mode": {
-      "description": "Đặt chế độ thực thi"
     },
     "errors": {
       "noActiveSession": "Không có phiên hoạt động",
@@ -7709,6 +7867,11 @@
     "openPanel": "Mở không gian làm việc",
     "resizePanel": "Đổi kích thước bảng không gian làm việc",
     "sourceFromSearch": "Tìm kiếm",
+    "sourceFromUser": "Người dùng",
+    "sourceFromAttachment": "Tệp đính kèm",
+    "advancedDiagnostics": {
+      "title": "Chẩn đoán nâng cao"
+    },
     "truncatedNote": "Hiển thị 1000 mục gần nhất",
     "environment": {
       "archived": "Archived",
@@ -7814,8 +7977,6 @@
       "selectBranch": "Select branch",
       "stageAll": "Stage all changes",
       "viewPr": "View pull request",
-      "pullRequestPanelTitle": "Yêu cầu kéo",
-      "resizePullRequestPanel": "Thay đổi chiều rộng bảng yêu cầu kéo",
       "worktree": "Worktree",
       "checkDetails": "Chi tiết kiểm tra",
       "checkFailed": "Thất bại",
@@ -7837,7 +7998,6 @@
       "openCheck": "Mở kiểm tra",
       "openComment": "Mở bình luận",
       "prFeedbackUnavailable": "Không thể tải kiểm tra và bình luận PR",
-      "prFeedbackStale": "Không thể làm mới trạng thái yêu cầu kéo; dữ liệu hiện tại có thể đã cũ",
       "reviewComments": "{{count}} bình luận",
       "reviewFeedback": "Phản hồi review",
       "autoMergeEnabled": "Đã bật tự động hợp nhất",
@@ -7864,24 +8024,10 @@
       "reviewPending": "Đang chờ",
       "reviewRequired": "Cần đánh giá",
       "reviewStatus": "Trạng thái đánh giá",
-      "reviewers": "Người đánh giá"
-    },
-    "action": {
-      "create": "Mới",
-      "edit": "Sửa",
-      "delete": "Xóa",
-      "read": "Đọc"
-    },
-    "sectionKnowledge": "Tri thức",
-    "emptyKnowledge": "Chưa gắn không gian tri thức",
-    "kbViaProject": "Dự án",
-    "kbWrote": "Đã ghi",
-    "kbRead": "Đã đọc",
-    "kbSearchCount": "{{n}} lượt tìm",
-    "sourceFromUser": "Người dùng",
-    "sourceFromAttachment": "Tệp đính kèm",
-    "advancedDiagnostics": {
-      "title": "Chẩn đoán nâng cao"
+      "reviewers": "Người đánh giá",
+      "pullRequestPanelTitle": "Yêu cầu kéo",
+      "resizePullRequestPanel": "Thay đổi chiều rộng bảng yêu cầu kéo",
+      "prFeedbackStale": "Không thể làm mới trạng thái yêu cầu kéo; dữ liệu hiện tại có thể đã cũ"
     },
     "goal": {
       "watchdogTitle": "Mục tiêu cần xác nhận",
@@ -8022,6 +8168,18 @@
       "clean": "Không có thay đổi cục bộ",
       "changed": "{{count}} thay đổi"
     },
+    "action": {
+      "create": "Mới",
+      "edit": "Sửa",
+      "delete": "Xóa",
+      "read": "Đọc"
+    },
+    "sectionKnowledge": "Tri thức",
+    "emptyKnowledge": "Chưa gắn không gian tri thức",
+    "kbViaProject": "Dự án",
+    "kbWrote": "Đã ghi",
+    "kbRead": "Đã đọc",
+    "kbSearchCount": "{{n}} lượt tìm",
     "loop": {
       "title": "Vòng lặp",
       "stateActive": "Đang chạy",
@@ -9407,6 +9565,9 @@
       "incognitoDisabled": "Phiên ẩn danh không thể đính kèm không gian tri thức",
       "needSession": "Gửi tin nhắn đầu tiên để đính kèm không gian tri thức",
       "empty": "Chưa có không gian kiến thức — tạo một cái trong Kiến thức.",
+      "loadFailed": "Không thể tải không gian tri thức",
+      "attachmentsLoadFailed": "Không thể đọc trạng thái đính kèm của cuộc trò chuyện này",
+      "errorDetail": "Chi tiết: {{error}}",
       "viaProject": "Từ dự án cha",
       "noteCount": "{{count}} ghi chú",
       "read": "Đọc",
@@ -9418,10 +9579,7 @@
       "accessWrite": "Đọc+Ghi",
       "accessOffTip": "Chưa gắn — trợ lý không thể truy cập không gian này",
       "accessReadTip": "Trợ lý có thể tìm kiếm và đọc ghi chú",
-      "accessWriteTip": "Trợ lý có thể đọc và chỉnh sửa ghi chú",
-      "loadFailed": "Không thể tải không gian tri thức",
-      "attachmentsLoadFailed": "Không thể đọc trạng thái đính kèm của cuộc trò chuyện này",
-      "errorDetail": "Chi tiết: {{error}}"
+      "accessWriteTip": "Trợ lý có thể đọc và chỉnh sửa ghi chú"
     },
     "mention": {
       "heading": "Ghi chú tri thức",
@@ -9482,6 +9640,7 @@
       "noHistory": "Chưa có cuộc trò chuyện nào.",
       "untitled": "Cuộc trò chuyện chưa đặt tên",
       "noKb": "Mở một không gian kiến thức để bắt đầu trò chuyện.",
+      "welcome": "Đặt câu hỏi, sắp xếp hoặc sáng tạo với không gian kiến thức này",
       "messageCount": "{{count}} tin nhắn",
       "errors": {
         "loadAgents": "Không thể tải Agent trò chuyện",
@@ -9493,8 +9652,7 @@
         "loadMoreThreads": "Không thể tải thêm cuộc trò chuyện",
         "loadMoreMessages": "Không thể tải tin nhắn cũ hơn",
         "detail": "Chi tiết: {{error}}"
-      },
-      "welcome": "Đặt câu hỏi, sắp xếp hoặc sáng tạo với không gian kiến thức này"
+      }
     },
     "quickRewrite": {
       "title": "Viết lại nhanh",
@@ -9504,9 +9662,9 @@
       "regenerate": "Tạo lại",
       "apply": "Áp dụng",
       "failed": "Viết lại thất bại",
-      "staleSelection": "Vùng chọn đã thay đổi khi đang viết lại — vui lòng chọn lại và thử lại.",
       "modelLoadFailed": "Không thể tải mô hình viết lại",
-      "errorDetail": "Chi tiết: {{error}}"
+      "errorDetail": "Chi tiết: {{error}}",
+      "staleSelection": "Vùng chọn đã thay đổi khi đang viết lại — vui lòng chọn lại và thử lại."
     },
     "sprite": {
       "toggle": "Chế độ tinh linh",
@@ -9514,6 +9672,10 @@
       "toastOn": "Đã bật chế độ tinh linh",
       "toastOnDesc": "Nó sẽ nhẹ nhàng gợi ý khi bạn tạm dừng soạn thảo.",
       "toastOff": "Đã tắt chế độ tinh linh",
+      "loadFailed": "Không thể tải chế độ tinh linh",
+      "toggleFailed": "Không thể cập nhật chế độ tinh linh",
+      "observeFailed": "Không thể yêu cầu tinh linh gợi ý",
+      "errorDetail": "Chi tiết: {{error}}",
       "respond": "Phản hồi",
       "dismiss": "Bỏ qua",
       "category": {
@@ -9522,11 +9684,7 @@
         "encourage": "Động viên",
         "remind": "Nhắc nhở",
         "connect": "Liên kết"
-      },
-      "loadFailed": "Không thể tải chế độ tinh linh",
-      "toggleFailed": "Không thể cập nhật chế độ tinh linh",
-      "observeFailed": "Không thể yêu cầu tinh linh gợi ý",
-      "errorDetail": "Chi tiết: {{error}}"
+      }
     },
     "deleteNoteTitle": "Xóa ghi chú",
     "deleteNoteBody": "Xóa \"{{name}}\"? Tệp Markdown sẽ bị xóa khỏi đĩa. Không thể hoàn tác.",
@@ -9552,6 +9710,32 @@
     "renameMoveFailed": "Không thể đổi tên/di chuyển \"{{name}}\" — có thể đã có ghi chú cùng tên.",
     "linksRewritten": "Đã cập nhật {{count}} tham chiếu liên kết trong các ghi chú khác.",
     "noteRemovedExternally": "Ghi chú này đã bị xóa hoặc di chuyển bên ngoài ứng dụng.",
+    "operationErrorDetail": "Chi tiết: {{error}}",
+    "errors": {
+      "loadSpaces": "Không thể tải không gian tri thức",
+      "loadNotes": "Không thể tải ghi chú",
+      "loadFolders": "Không thể tải thư mục",
+      "loadTags": "Không thể tải thẻ",
+      "searchNotes": "Không thể tìm kiếm ghi chú",
+      "saveNote": "Không thể lưu ghi chú",
+      "createSpace": "Không thể tạo không gian tri thức",
+      "createNote": "Không thể tạo ghi chú",
+      "createLinkedNote": "Không thể tạo ghi chú được liên kết",
+      "reindexSpace": "Không thể xây lại chỉ mục không gian",
+      "reindexNote": "Không thể xây lại chỉ mục ghi chú",
+      "reindexFolder": "Không thể xây lại chỉ mục thư mục",
+      "deleteNote": "Không thể xóa ghi chú",
+      "deleteFolder": "Không thể xóa thư mục",
+      "revealNote": "Không thể hiển thị ghi chú",
+      "createFolder": "Không thể tạo thư mục",
+      "updateSpace": "Không thể cập nhật không gian tri thức",
+      "archiveSpace": "Không thể cập nhật trạng thái lưu trữ",
+      "deleteSpace": "Không thể xóa không gian tri thức"
+    },
+    "focusKbUnavailable": "Không gian kiến thức đó không còn nữa.",
+    "focusNoteUnavailable": "Không thể mở ghi chú kiến thức đó. Nó có thể đã được di chuyển hoặc quyền truy cập đã thay đổi.",
+    "focusUnavailableDetail": "Chi tiết: {{error}}",
+    "focusLocationUnavailable": "Đã mở ghi chú, nhưng không tìm thấy vị trí nguồn chính xác.",
     "moveTo": "Di chuyển đến…",
     "moveToTitle": "Di chuyển \"{{name}}\" đến…",
     "rootFolder": "Gốc",
@@ -9573,11 +9757,17 @@
       "tooltip": "Hoạt động không gian tri thức",
       "title": "Hoạt động không gian tri thức",
       "empty": "Chưa có hoạt động nào.",
+      "loadFailed": "Không thể tải tác vụ xây dựng lại",
+      "cancelFailed": "Không thể hủy tác vụ xây dựng lại",
+      "retryFailed": "Không thể thử lại tác vụ xây dựng lại",
+      "clearFailed": "Không thể xóa tác vụ xây dựng lại",
       "kindReindex": "Dựng lại chỉ mục",
       "kindReembed": "Nhúng lại vector",
       "fts": "Chỉ mục toàn văn",
+      "result": "Đã dựng lại {{notes}} ghi chú · {{kbs}} không gian",
       "emptyHint": "Liên kết hoặc lập chỉ mục lại một không gian, hoặc nhập tệp, tiến trình sẽ hiện ở đây.",
       "model": "Mô hình: {{name}}",
+      "errorDetail": "Chi tiết: {{error}}",
       "kindImport": "Nhập nguồn",
       "space": "Không gian: {{name}}",
       "progressFiles": "{{done}} / {{total}} tệp",
@@ -9592,13 +9782,7 @@
         "failed": "Thất bại",
         "cancelled": "Đã hủy",
         "timed_out": "Hết thời gian"
-      },
-      "loadFailed": "Không thể tải tác vụ xây dựng lại",
-      "cancelFailed": "Không thể hủy tác vụ xây dựng lại",
-      "retryFailed": "Không thể thử lại tác vụ xây dựng lại",
-      "clearFailed": "Không thể xóa tác vụ xây dựng lại",
-      "result": "Đã dựng lại {{notes}} ghi chú · {{kbs}} không gian",
-      "errorDetail": "Chi tiết: {{error}}"
+      }
     },
     "maintenance": {
       "tooltip": "Bảo trì",
@@ -9612,11 +9796,13 @@
       "runNow": "Quét",
       "runNowTip": "Quét ngay để tạo gợi ý bảo trì",
       "rejectAll": "Bỏ tất cả",
+      "rejectAllFailed": "Không thể bỏ qua tất cả gợi ý",
       "approve": "Áp dụng",
       "reject": "Bỏ qua",
       "cycleSkipped": "Đã bỏ qua bảo trì: {{note}}",
       "cycleDone": "Đã tạo {{n}} gợi ý",
       "runFailed": "Không chạy được bảo trì",
+      "errorDetail": "Chi tiết: {{error}}",
       "applyFailed": "Không áp dụng được gợi ý",
       "rejectFailed": "Không bỏ được gợi ý",
       "compileQueued": "Đã tạo đánh giá từ nguồn đến ghi chú. Kiểm tra bảng gợi ý ghi chú để biết những khác biệt.",
@@ -9643,9 +9829,7 @@
       "needsReview": "Cần xem xét",
       "rebuildEvidenceTip": "Xây dựng lại chỉ số bằng chứng dẫn xuất",
       "schemaIssues": "Các vấn đề về lược đồ",
-      "staleRefs": "Giới thiệu cũ",
-      "rejectAllFailed": "Không thể bỏ qua tất cả gợi ý",
-      "errorDetail": "Chi tiết: {{error}}"
+      "staleRefs": "Giới thiệu cũ"
     },
     "graph": {
       "toggle": "Xem dạng đồ thị",
@@ -9672,6 +9856,9 @@
     "embeddingOff": "Tìm kiếm vector đang tắt",
     "embeddingModelTip": "Mô hình nhúng: {{name}} — mở cài đặt",
     "embeddingOffTip": "Tìm kiếm vector đang tắt — mở cài đặt",
+    "embeddingStatusUnavailable": "Không có trạng thái vector",
+    "embeddingStatusUnavailableTip": "Không thể tải trạng thái tìm kiếm vector — mở cài đặt",
+    "embeddingStatusErrorDetail": "Chi tiết: {{error}}",
     "kbRootPick": "Chọn…",
     "kbRootHint": "Để trống để tạo không gian nội bộ. Kho ngoài chỉ đọc ở Giai đoạn 1.",
     "kbRootInvalid": "Không thể chọn thư mục đó",
@@ -9690,6 +9877,7 @@
       "description": "Bản nháp AI ghi chú những thay đổi từ các nguồn được chọn. Xem lại sự khác biệt trước khi viết bất cứ điều gì.",
       "empty": "Chọn một đề xuất để xem xét",
       "emptyHint": "Các đề xuất đã tạo vẫn ở đây cho đến khi bạn áp dụng hoặc từ chối chúng.",
+      "errorDetail": "Chi tiết: {{error}}",
       "failed": "Chạy từ nguồn tới ghi chú không thành công",
       "loadFailed": "Không thể tải các lần chạy từ nguồn đến ghi chú",
       "noProposals": "Không có đề xuất nào cho lần chạy này.",
@@ -9707,8 +9895,7 @@
       "startFailed": "Không thể sắp xếp các nguồn thành ghi chú",
       "startSelected": "Tổ chức {{count}}",
       "started": "Đã tạo (các) đề xuất ghi chú {{n}}",
-      "title": "Sắp xếp thành ghi chú",
-      "errorDetail": "Chi tiết: {{error}}"
+      "title": "Sắp xếp thành ghi chú"
     },
     "sources": {
       "archiveAttachment": "Lưu trữ kiến thức",
@@ -9734,6 +9921,7 @@
       "diffTruncated": "Bản xem trước bị cắt bớt",
       "dismissSimilar": "Bỏ qua",
       "downloadOriginal": "Tải xuống bản gốc",
+      "downloadOriginalFailed": "Không thể tải xuống tệp gốc",
       "empty": "Chưa có nguồn.",
       "evidenceSources": "Nguồn",
       "externalRawPath": "Ảnh chụp nhanh bên ngoài",
@@ -9765,8 +9953,15 @@
       "noSimilarGroups": "Không có nhóm nguồn tương tự.",
       "open": "Mở",
       "openOriginal": "Mở bản gốc",
+      "openOriginalFailed": "Không thể mở tệp gốc",
       "otherKb": "Không gian khác {{id}}",
       "readFailed": "Không thể mở nguồn",
+      "sourceListFailed": "Couldn't load sources",
+      "sourceRefsFailed": "Không thể tải tài liệu tham khảo nguồn",
+      "sourceClaimsFailed": "Couldn't load source claim references",
+      "importRunsListFailed": "Couldn't load import history",
+      "similarGroupsLoadFailed": "Couldn't load similar source groups",
+      "sourceErrorDetail": "Chi tiết: {{error}}",
       "reextract": "Giải nén lại",
       "reextractFailed": "Không thể trích xuất lại nguồn",
       "reextracted": "Đã trích xuất lại nguồn",
@@ -9841,15 +10036,7 @@
       "ocrFailed": "OCR thất bại",
       "ocrRetry": "Thử lại các trang bị lỗi",
       "ocrRetryStarted": "Đang thử lại các trang bị lỗi…",
-      "ocrRetryFailed": "Không thể thử lại các trang OCR",
-      "downloadOriginalFailed": "Không thể tải xuống tệp gốc",
-      "openOriginalFailed": "Không thể mở tệp gốc",
-      "sourceListFailed": "Couldn't load sources",
-      "sourceRefsFailed": "Không thể tải tài liệu tham khảo nguồn",
-      "sourceClaimsFailed": "Couldn't load source claim references",
-      "importRunsListFailed": "Couldn't load import history",
-      "similarGroupsLoadFailed": "Couldn't load similar source groups",
-      "sourceErrorDetail": "Chi tiết: {{error}}"
+      "ocrRetryFailed": "Không thể thử lại các trang OCR"
     },
     "queryFile": {
       "action": "Tập tin",
@@ -9858,6 +10045,7 @@
       "applyFailed": "Không thể nộp hồ sơ",
       "description": "Tạo một đánh giá khác biệt trước khi viết.",
       "empty": "Chọn nơi câu trả lời này sẽ hạ cánh.",
+      "errorDetail": "Chi tiết: {{error}}",
       "generateFailed": "Không thể tạo đề xuất nộp hồ sơ",
       "reject": "Từ chối",
       "rejected": "Đã hủy hồ sơ",
@@ -9875,8 +10063,7 @@
       "currentNotePlaceholder": "Đường dẫn ghi chú hiện tại",
       "openQuestionsPlaceholder": "Lưu ý với câu hỏi mở",
       "mocPlaceholder": "MOCs/Conversation Filings.md",
-      "createNotePlaceholder": "Filed Conversations/example.md",
-      "errorDetail": "Chi tiết: {{error}}"
+      "createNotePlaceholder": "Filed Conversations/example.md"
     },
     "emptyState": {
       "scanning": "Đang quét không gian này…",
@@ -9884,36 +10071,7 @@
       "emptyExternal": "Chưa tìm thấy ghi chú markdown nào trong thư mục này.",
       "emptyInternal": "Không gian này đang trống.",
       "importFiles": "Nhập tệp"
-    },
-    "operationErrorDetail": "Chi tiết: {{error}}",
-    "errors": {
-      "loadSpaces": "Không thể tải không gian tri thức",
-      "loadNotes": "Không thể tải ghi chú",
-      "loadFolders": "Không thể tải thư mục",
-      "loadTags": "Không thể tải thẻ",
-      "searchNotes": "Không thể tìm kiếm ghi chú",
-      "saveNote": "Không thể lưu ghi chú",
-      "createSpace": "Không thể tạo không gian tri thức",
-      "createNote": "Không thể tạo ghi chú",
-      "createLinkedNote": "Không thể tạo ghi chú được liên kết",
-      "reindexSpace": "Không thể xây lại chỉ mục không gian",
-      "reindexNote": "Không thể xây lại chỉ mục ghi chú",
-      "reindexFolder": "Không thể xây lại chỉ mục thư mục",
-      "deleteNote": "Không thể xóa ghi chú",
-      "deleteFolder": "Không thể xóa thư mục",
-      "revealNote": "Không thể hiển thị ghi chú",
-      "createFolder": "Không thể tạo thư mục",
-      "updateSpace": "Không thể cập nhật không gian tri thức",
-      "archiveSpace": "Không thể cập nhật trạng thái lưu trữ",
-      "deleteSpace": "Không thể xóa không gian tri thức"
-    },
-    "focusKbUnavailable": "Không gian kiến thức đó không còn nữa.",
-    "focusNoteUnavailable": "Không thể mở ghi chú kiến thức đó. Nó có thể đã được di chuyển hoặc quyền truy cập đã thay đổi.",
-    "focusUnavailableDetail": "Chi tiết: {{error}}",
-    "focusLocationUnavailable": "Đã mở ghi chú, nhưng không tìm thấy vị trí nguồn chính xác.",
-    "embeddingStatusUnavailable": "Không có trạng thái vector",
-    "embeddingStatusUnavailableTip": "Không thể tải trạng thái tìm kiếm vector — mở cài đặt",
-    "embeddingStatusErrorDetail": "Chi tiết: {{error}}"
+    }
   },
   "backgroundJobs": {
     "panelTitle": "Tác vụ nền",
@@ -9959,6 +10117,9 @@
   },
   "macControl": {
     "panelTitle": "Điều khiển máy Mac"
+  },
+  "memory": {
+    "activeRecallToastTitle": "Bộ nhớ tham chiếu"
   },
   "design": {
     "title": "Không gian Thiết kế",
@@ -10678,19 +10839,50 @@
       "chatPrompt": "Mã đã triển khai đã khác với thiết kế này. Hãy cập nhật thiết kế hiện tại để phản ánh các thay đổi mã được tham chiếu, giữ nguyên ý đồ thiết kế và mọi thứ còn lại."
     }
   },
-  "agentLifecycle": {
-    "activeWorkBlocked": "Deletion is blocked while {{count}} Agent task(s) are still active.",
-    "deleteDescription": "Routing references will move to the replacement Agent. Historical conversations and structured memories are retained, while Agent files are moved to the recoverable trash.",
-    "deleteTitle": "Delete Agent safely",
-    "disabled": "Disabled",
-    "enabled": "Enabled",
-    "history": "Historical conversations",
-    "memories": "Retained memories",
-    "replacement": "Replacement Agent",
-    "retentionNotice": "This operation creates a configuration backup. Agent configuration, Home, and Plans are moved to trash instead of being permanently erased.",
-    "routes": "Routing references"
-  },
-  "memory": {
-    "activeRecallToastTitle": "Bộ nhớ tham chiếu"
+  "artifacts": {
+    "title": "Artifacts",
+    "subtitle": "Versioned local reports, dashboards, and explainers",
+    "loadFailed": "Failed to load Artifacts",
+    "verifyPassed": "Verification passed",
+    "verifyFailed": "Verification found blockers",
+    "exportUnavailable": "Export unavailable",
+    "exportReady": "Artifact exported",
+    "restoreReady": "Restored as a new version",
+    "archiveConfirm": "Archive this Artifact?",
+    "deleteConfirm": "Permanently delete this Artifact and all versions?",
+    "search": "Search title, project, or Agent",
+    "allKinds": "All kinds",
+    "active": "Active",
+    "archived": "Archived",
+    "allStates": "All states",
+    "empty": "No Artifacts found",
+    "selectHint": "Select an Artifact to inspect it",
+    "sources": "sources",
+    "verify": "Verify",
+    "export": "Export",
+    "archive": "Archive",
+    "delete": "Delete",
+    "deliveryStatus": "Delivery status",
+    "privacy": "Privacy",
+    "analysisStatus": "Analysis",
+    "verification": "Verification",
+    "sourceContext": "Sources & quality",
+    "qualityChecks": "Quality checks",
+    "noSources": "No canonical sources recorded",
+    "contentMode": "Content",
+    "executable": "executable",
+    "static": "static",
+    "versionHistory": "Version history",
+    "current": "Current",
+    "restore": "Restore",
+    "exportReview": "Export review",
+    "exportReviewHint": "Required for shareable, sensitive, private-source, or connector-backed packages.",
+    "audiencePlaceholder": "Intended audience",
+    "audienceRequired": "Enter the intended delivery audience",
+    "redactionConfirm": "Confirm that sensitive fields and included sources have been reviewed for this audience?",
+    "confirmRedaction": "Confirm redaction & review",
+    "exportReviewPassed": "Export review passed",
+    "exportReviewBlocked": "Export review still has blockers",
+    "guardStatus": "Guard"
   }
 }

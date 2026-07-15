@@ -1,4 +1,16 @@
 {
+  "agentLifecycle": {
+    "activeWorkBlocked": "Deletion is blocked while {{count}} Agent task(s) are still active.",
+    "deleteDescription": "Routing references will move to the replacement Agent. Historical conversations and structured memories are retained, while Agent files are moved to the recoverable trash.",
+    "deleteTitle": "Delete Agent safely",
+    "disabled": "Disabled",
+    "enabled": "Enabled",
+    "history": "Historical conversations",
+    "memories": "Retained memories",
+    "replacement": "Replacement Agent",
+    "retentionNotice": "This operation creates a configuration backup. Agent configuration, Home, and Plans are moved to trash instead of being permanently erased.",
+    "routes": "Routing references"
+  },
   "about": {
     "badge": "일상 업무를 위한 데스크톱 AI",
     "closing": "기능 체크리스트로 만든 것이 아닙니다. 오래 써도 유용하고, 믿을 수 있고, 과하게 방해하지 않도록 설계했습니다.",
@@ -111,6 +123,10 @@
         "title": "Advanced browser CDP command",
         "body": "This browser action will send a raw Chrome DevTools Protocol command to a real Chrome tab. It uses the normal tool approval flow; AllowAlways, Smart mode, and YOLO follow the active session policy."
       },
+      "external_connector_action": {
+        "title": "외부 커넥터 작업",
+        "body": "이 호출은 외부 시스템의 메일, 캘린더, 문서, 스프레드시트 또는 비즈니스 기록을 변경합니다. 호출마다 확인이 필요하며 항상 허용은 사용할 수 없습니다."
+      },
       "browser_download_action": {
         "title": "Browser download action",
         "body": "This browser action will read or interrupt Chrome download activity. It uses the normal tool approval flow; AllowAlways, Smart mode, and YOLO follow the active session policy."
@@ -126,10 +142,6 @@
       "browser_chrome_access": {
         "title": "Real Chrome access",
         "body": "This browser action will read or control the user's real Chrome state through the extension. It uses the normal tool approval flow; AllowAlways, Smart mode, and YOLO follow the active session policy."
-      },
-      "external_connector_action": {
-        "title": "외부 커넥터 작업",
-        "body": "이 호출은 외부 시스템의 메일, 캘린더, 문서, 스프레드시트 또는 비즈니스 기록을 변경합니다. 호출마다 확인이 필요하며 항상 허용은 사용할 수 없습니다."
       }
     },
     "title": "Command Approval Required",
@@ -157,7 +169,6 @@
     "maximize": "최대화",
     "minimize": "최소화",
     "openPreview": "미리보기 열기",
-    "shareTo": "공유",
     "popOut": "별도 창으로 열기",
     "popOutActive": "별도 창에서 열림",
     "reattach": "패널로 되돌리기",
@@ -167,7 +178,8 @@
     "panelTitle": "캔버스",
     "resizePanel": "캔버스 패널 크기 조정",
     "notReadyError": "캔버스 패널이 열려 있지 않거나 iframe이 로드되지 않았습니다",
-    "detachedWindowTitle": "캔버스: {{title}}"
+    "detachedWindowTitle": "캔버스: {{title}}",
+    "shareTo": "공유"
   },
   "channels": {
     "accountLabel": "계정 이름",
@@ -324,6 +336,18 @@
   "chat": {
     "addWorkingDirectory": "작업 디렉터리 추가",
     "askAnything": "아이디어를 말씀해 주세요. @로 파일/노트/스킬, #로 빠른 입력, /로 빠른 명령...",
+    "goalCompletion": {
+      "completed": "목표 달성",
+      "completedWithDuration": "{{time}} 만에 목표 달성",
+      "tokens": "{{tokens}} tokens"
+    },
+    "fork": {
+      "continueInNewSession": "새 세션에서 계속",
+      "continuedFrom": "이어받음",
+      "created": "새 세션에서 계속합니다",
+      "failed": "새 세션에서 계속할 수 없습니다",
+      "sourceFallback": "원본 세션"
+    },
     "browserPanel": {
       "backendBadgeTooltip": "브라우저 백엔드: {{backend}}",
       "captureFailed": "프레임 캡처 실패, 다음 프레임 대기 중",
@@ -402,6 +426,12 @@
     "sidebarDetailedMode": "일반 모드로 전환",
     "copied": "복사됨",
     "copy": "복사",
+    "messageQuote": {
+      "addToChat": "채팅에 추가",
+      "assistantMessage": "어시스턴트 메시지",
+      "remove": "인용 삭제",
+      "yourMessage": "내 메시지"
+    },
     "quickPrompts": {
       "addAction": "빠른 입력에 추가",
       "addFailed": "빠른 입력 추가 실패",
@@ -413,6 +443,8 @@
     },
     "cronTaskStarted": "예약 작업이 트리거되었습니다",
     "cronTrigger": "예약 작업",
+    "loopTriggered": "루프 단계가 한 번 트리거됨",
+    "loopTrigger": "루프",
     "wakeupResumed": "다시 시작하여 계속",
     "wakeupTrigger": "예약 깨우기",
     "daysAgo": "{{count}}일 전",
@@ -522,244 +554,6 @@
     "pendingInteractionHint": "응답을 기다리는 중",
     "pendingInteractionInline": "응답 대기 중 · {{count}}",
     "pendingQueued": "메시지가 대기열에 추가되었습니다. 응답 완료 후 전송됩니다...",
-    "permissionMode": {
-      "applyToAgentDefault": {
-        "desc": "켜면 모드를 선택할 때 이 Agent의 새 대화 기본값도 업데이트합니다.",
-        "failed": "이 Agent의 기본 권한 모드를 업데이트하지 못했습니다.",
-        "label": "Agent 기본값도 업데이트"
-      },
-      "default": {
-        "desc": "편집 도구와 고위험 명령은 승인 필요, 나머지는 바로 실행",
-        "label": "기본"
-      },
-      "menuLabel": "권한 모드",
-      "smart": {
-        "desc": "판정 모델이나 모델 자체 평가가 승인 여부 결정",
-        "label": "스마트 승인"
-      },
-      "yolo": {
-        "desc": "이 세션의 모든 도구는 승인 없이 실행 (보호 경로는 감사 로그)",
-        "label": "YOLO"
-      }
-    },
-    "sandboxMode": {
-      "isolated": {
-        "desc": "Run in an isolated copy; edit approvals are unchanged until apply-back is supported.",
-        "label": "Isolated Sandbox"
-      },
-      "menuLabel": "샌드박스",
-      "off": {
-        "desc": "Run on the host; approval behavior is unchanged.",
-        "label": "Sandbox Off"
-      },
-      "setupTitle": "Configure Docker to enable sandbox",
-      "standard": {
-        "desc": "Run in Docker; approval behavior is unchanged.",
-        "label": "Standard Sandbox"
-      },
-      "trusted": {
-        "desc": "Max autonomy for sandboxed exec; strict risks still ask.",
-        "label": "Trusted Sandbox"
-      },
-      "workspace": {
-        "desc": "Mount this workspace and reduce edit-command approvals.",
-        "label": "Workspace Sandbox"
-      }
-    },
-    "pickSession": "세션 선택",
-    "profileRotationTitle": "프로필 전환",
-    "queueMessage": "대기열에 추가",
-    "reasonAuth": "인증 실패",
-    "reasonBilling": "결제 / 할당량 초과",
-    "reasonContextOverflow": "컨텍스트 초과",
-    "reasonModelNotFound": "모델을 찾을 수 없음",
-    "reasonOverloaded": "서비스 과부하",
-    "reasonRateLimit": "요청 빈도 초과",
-    "reasonTimeout": "요청 시간 초과",
-    "reasonUnknown": "알 수 없는 오류",
-    "renameSession": "이름 변경",
-    "renameSessionPlaceholder": "새 제목 입력...",
-    "revealInFolder": "폴더에서 표시",
-    "roundLimitReachedBody": "이번 턴에서 도구 호출 {{count}}회를 모두 사용했지만 작업이 끝나지 않았을 수 있습니다. 아래 버튼으로 \"계속\"을 보내면 현재 진행 상황에서 이어서 진행합니다. 설정 → 에이전트 → 기능에서 `max_tool_rounds`를 늘릴 수도 있습니다.",
-    "roundLimitReachedBodyNoCount": "이번 턴의 도구 호출 한도가 모두 소진되었습니다. 아래 버튼으로 \"계속\"을 보내면 현재 진행 상황에서 이어서 진행합니다.",
-    "roundLimitReachedTitle": "도구 호출 한도 도달",
-    "roundLimitResumeButton": "계속",
-    "roundLimitResumeMessage": "계속",
-    "scrollToBottom": "맨 아래로 스크롤",
-    "searchPlaceholder": "대화 검색...",
-    "searchTruncatedHint": "상위 {{count}}개 결과만 표시 중 — 더 보려면 검색어를 좁혀주세요.",
-    "searching": "검색 중...",
-    "selectModel": "모델 선택",
-    "send": "보내기",
-    "sessionSearch": "이 대화에서 검색",
-    "sessionSearchClose": "닫기",
-    "sessionSearchCount": "{{current}}/{{total}}",
-    "sessionSearchNext": "다음 일치",
-    "sessionSearchNoResults": "이 대화에서 일치 항목 없음",
-    "sessionSearchPlaceholder": "이 대화의 메시지 검색…",
-    "sessionSearchPrev": "이전 일치",
-    "sessionStatus": "세션 상태",
-    "settings": "설정",
-    "startConversation": "대화 시작",
-    "statusAgent": "Agent",
-    "statusAuth": "인증",
-    "statusCache": "캐시",
-    "statusCacheHit": "히트",
-    "statusCacheWrite": "쓰기",
-    "statusContext": "컨텍스트",
-    "statusCumulative": "누적",
-    "statusMessages": "{{count}}개 메시지",
-    "statusModel": "모델",
-    "statusNewSession": "(새 세션)",
-    "statusSession": "세션",
-    "statusSessionId": "세션 ID",
-    "statusThinking": "사고 모드",
-    "statusUpdated": "업데이트",
-    "stopReply": "응답 중지",
-    "subagentFrom": "{{agent}} 에서 위임",
-    "subagentResultCompleted": "완료됨",
-    "systemPrompt": "시스템 프롬프트",
-    "taskActions": {
-      "cycleTo": {
-        "completed": "완료로 표시",
-        "in_progress": "진행 중으로 표시",
-        "pending": "대기 중으로 표시"
-      },
-      "delete": "작업 삭제"
-    },
-    "taskNoneYet": "아직 작업이 없습니다",
-    "taskProgress": "{{completed}}/{{total}} 완료",
-    "tasks": "작업",
-    "thinking": "생각 중...",
-    "thinkingAutoDisabled": "{{provider}} / {{model}} does not support the current thinking mode. Thinking was disabled automatically and the request was retried.",
-    "visionAutoDisabled": "{{provider}} / {{model}}은(는) 이미지 입력을 지원하지 않습니다. 이미지를 무시하고 답변을 계속했습니다.",
-    "toolCalling": "도구 호출 중...",
-    "totalTokens": "합계",
-    "unknownProvider": "Unknown provider",
-    "untitledSession": "제목 없음",
-    "viewContext": "컨텍스트 보기",
-    "viewModeBubble": "말풍선 보기로 전환",
-    "viewModeTimeline": "작업 보기로 전환",
-    "viewSystemPrompt": "시스템 프롬프트 보기",
-    "weeksAgo": "{{count}}주 전",
-    "workingDir": {
-      "browserDescription": "경로는 에이전트가 실행되는 서버에서 확인됩니다.",
-      "browserTitle": "서버의 디렉터리 선택",
-      "change": "디렉터리 변경",
-      "clear": "디렉터리 지우기",
-      "current": "작업 디렉터리",
-      "empty": "이 디렉터리는 비어 있습니다",
-      "fileLabel": "파일",
-      "invalid": "잘못된 작업 디렉터리",
-      "loadError": "디렉터리를 읽을 수 없습니다",
-      "loading": "불러오는 중…",
-      "parent": "상위 폴더",
-      "pathPlaceholder": "절대 경로, 예: /srv/projects/app",
-      "select": "작업 디렉터리 선택",
-      "selectCurrent": "이 디렉터리 선택",
-      "selectPreset": "대화를 시작한 뒤 작업 디렉터리를 설정합니다",
-      "titleBarInherited": "프로젝트에서 상속됨",
-      "titleBarSession": "작업 디렉터리",
-      "truncated": "첫 항목만 표시합니다 — 이 디렉터리는 브라우저에 모두 표시하기에 너무 큽니다.",
-      "goToPath": "경로로 이동"
-    },
-    "taskProgressRunning": "실행 중 {{completed}}/{{total}}",
-    "taskProgressCancelling": "중지 중 {{completed}}/{{total}}",
-    "taskProgressWaiting": "계속 대기 {{completed}}/{{total}}",
-    "taskProgressFailed": "실패 {{completed}}/{{total}}",
-    "exportSession": {
-      "menuItem": "대화 내보내기",
-      "dialogTitle": "대화 내보내기",
-      "dialogHint": "형식을 선택하고 포함할 항목을 체크하세요.",
-      "formatLabel": "형식",
-      "formatMarkdown": "Markdown",
-      "formatJson": "JSON",
-      "formatHtml": "HTML",
-      "contentLabel": "포함 항목",
-      "includeTools": "도구 호출 포함",
-      "includeToolsHint": "도구 인수·결과 및 파일 변경 사항.",
-      "includeThinking": "사고 과정 포함",
-      "includeThinkingHint": "모델의 추론 단계(생각의 흐름).",
-      "exportButton": "내보내기",
-      "exporting": "내보내는 중…",
-      "exported": "완료",
-      "failedShort": "실패",
-      "savedTo": "{{path}} 에 내보냈습니다",
-      "downloaded": "{{filename}} 을(를) 다운로드했습니다",
-      "failed": "대화 내보내기에 실패했습니다."
-    },
-    "skillMention": {
-      "heading": "스킬",
-      "labels": {
-        "docx": "Word 문서",
-        "pptx": "PowerPoint 슬라이드",
-        "xlsx": "Excel 스프레드시트",
-        "browser": "브라우저 제어",
-        "mac": "Mac 제어"
-      }
-    },
-    "reasoningDisabledHint": "이 모델은 추론이 활성화되어 있지 않습니다. 추론 강도를 조정하려면 「설정 → 모델 제공자」에서 이 모델을 편집하고 「추론/사고 지원」을 켜세요.",
-    "browserExtensionNudge": {
-      "installTitle": "AI가 실제 Chrome을 제어하도록 하기",
-      "installBody": "Hope Agent 확장 프로그램을 설치하면 로그인된 Chrome을 조작할 수 있습니다. 현재는 격리된 브라우저에서 실행 중입니다.",
-      "reloadTitle": "Chrome 확장 프로그램 다시 로드",
-      "reloadBody": "설치된 확장 프로그램이 호스트와 일치하지 않습니다. 다시 로드하면 실제 Chrome 제어가 복원됩니다.",
-      "openSettings": "설정 열기",
-      "dismiss": "다시 표시 안 함"
-    },
-    "browserExtensionRequired": {
-      "nextAction": "다음 작업: {{nextAction}}",
-      "openSettings": "설정 > 브라우저를 열어 확장 기능을 설치하거나 활성화하세요.",
-      "title": "Chrome 확장 프로그램이 필요합니다."
-    },
-    "conversationEmpty": "이 대화에는 메시지가 없습니다.",
-    "pendingCancelForceInsert": "이 라운드 삽입 취소",
-    "pendingFallbackAfterReply": "답장 후 보내기",
-    "pendingFallbackAfterReplyTip": "도구 완료 지점이 발견되지 않았으며 현재 응답이 끝난 후에 전송됩니다.",
-    "pendingForceInsertTip": "실행 중인 도구가 완료될 때까지 기다렸다가 현재 도구를 중단하지 않고 모델에 삽입합니다.",
-    "pendingInserted": "삽입됨",
-    "pendingInsertedTip": "이 툴링 라운드가 완료된 후 모델에 삽입되었습니다.",
-    "pendingQueuedShort": "대기열",
-    "pendingQueuedTip": "대기 대기열에 추가되었으며 현재 응답이 끝난 후 전송됩니다.",
-    "pendingQueueTitle": "발송 예정",
-    "pendingWaitingToolBoundary": "도구 완료 지점을 기다립니다.",
-    "pendingWaitingToolBoundaryTip": "최신 도구 호출이 완료될 때까지 기다리십시오. 이번 라운드에서 도구가 더 이상 호출되지 않으면 응답이 완료된 후 전송됩니다.",
-    "processNotification": "프로세스가 종료되었습니다",
-    "rightPanel": {
-      "collapse": "오른쪽 패널 접기",
-      "expand": "오른쪽 패널 펼치기",
-      "switch": "오른쪽 패널 전환",
-      "dock": "오른쪽 패널 도크",
-      "openPanel": "{{panel}} 열기",
-      "switchToPanel": "{{panel}} 패널로 전환",
-      "collapsePanel": "{{panel}} 접기",
-      "expandPanel": "{{panel}} 펼치기",
-      "workflowActiveCount": "활성 워크플로 {{count}}개",
-      "workflowAttentionCount": "주의가 필요한 워크플로 {{count}}개",
-      "backgroundRunningCount": "백그라운드 작업 {{count}}개 실행 중"
-    },
-    "visionBridgeEngaged": "기본 모델이 이미지를 볼 수 없어 {{model}}이(가) 이미지 내용을 설명했습니다.",
-    "visionBridgeUnavailable": "비전 모델이 이미지를 설명하지 못해 해당 이미지는 제외되었습니다.",
-    "goalCompletion": {
-      "completed": "목표 달성",
-      "completedWithDuration": "{{time}} 만에 목표 달성",
-      "tokens": "{{tokens}} tokens"
-    },
-    "fork": {
-      "continueInNewSession": "새 세션에서 계속",
-      "continuedFrom": "이어받음",
-      "created": "새 세션에서 계속합니다",
-      "failed": "새 세션에서 계속할 수 없습니다",
-      "sourceFallback": "원본 세션"
-    },
-    "messageQuote": {
-      "addToChat": "채팅에 추가",
-      "assistantMessage": "어시스턴트 메시지",
-      "remove": "인용 삭제",
-      "yourMessage": "내 메시지"
-    },
-    "loopTriggered": "루프 단계가 한 번 트리거됨",
-    "loopTrigger": "루프",
     "goalMode": {
       "label": "목표",
       "enter": "목표 모드: 에이전트가 완료까지 계속 추진할 목표를 만듭니다",
@@ -880,12 +674,216 @@
       "title": "이 메시지는 워크플로에 잘 맞아 보입니다",
       "ultracodeDescription": "켜면 더 깊은 오케스트레이션, 교차 검증, 장기 작업 복구를 우선합니다."
     },
+    "permissionMode": {
+      "applyToAgentDefault": {
+        "desc": "켜면 모드를 선택할 때 이 Agent의 새 대화 기본값도 업데이트합니다.",
+        "failed": "이 Agent의 기본 권한 모드를 업데이트하지 못했습니다.",
+        "label": "Agent 기본값도 업데이트"
+      },
+      "default": {
+        "desc": "편집 도구와 고위험 명령은 승인 필요, 나머지는 바로 실행",
+        "label": "기본"
+      },
+      "menuLabel": "권한 모드",
+      "smart": {
+        "desc": "판정 모델이나 모델 자체 평가가 승인 여부 결정",
+        "label": "스마트 승인"
+      },
+      "yolo": {
+        "desc": "이 세션의 모든 도구는 승인 없이 실행 (보호 경로는 감사 로그)",
+        "label": "YOLO"
+      }
+    },
+    "sandboxMode": {
+      "isolated": {
+        "desc": "Run in an isolated copy; edit approvals are unchanged until apply-back is supported.",
+        "label": "Isolated Sandbox"
+      },
+      "menuLabel": "샌드박스",
+      "off": {
+        "desc": "Run on the host; approval behavior is unchanged.",
+        "label": "Sandbox Off"
+      },
+      "setupTitle": "Configure Docker to enable sandbox",
+      "standard": {
+        "desc": "Run in Docker; approval behavior is unchanged.",
+        "label": "Standard Sandbox"
+      },
+      "trusted": {
+        "desc": "Max autonomy for sandboxed exec; strict risks still ask.",
+        "label": "Trusted Sandbox"
+      },
+      "workspace": {
+        "desc": "Mount this workspace and reduce edit-command approvals.",
+        "label": "Workspace Sandbox"
+      }
+    },
+    "pickSession": "세션 선택",
+    "profileRotationTitle": "프로필 전환",
+    "queueMessage": "대기열에 추가",
+    "reasonAuth": "인증 실패",
+    "reasonBilling": "결제 / 할당량 초과",
+    "reasonContextOverflow": "컨텍스트 초과",
+    "reasonModelNotFound": "모델을 찾을 수 없음",
+    "reasonOverloaded": "서비스 과부하",
+    "reasonRateLimit": "요청 빈도 초과",
+    "reasonTimeout": "요청 시간 초과",
+    "reasonUnknown": "알 수 없는 오류",
+    "renameSession": "이름 변경",
+    "renameSessionPlaceholder": "새 제목 입력...",
+    "revealInFolder": "폴더에서 표시",
+    "roundLimitReachedBody": "이번 턴에서 도구 호출 {{count}}회를 모두 사용했지만 작업이 끝나지 않았을 수 있습니다. 아래 버튼으로 \"계속\"을 보내면 현재 진행 상황에서 이어서 진행합니다. 설정 → 에이전트 → 기능에서 `max_tool_rounds`를 늘릴 수도 있습니다.",
+    "roundLimitReachedBodyNoCount": "이번 턴의 도구 호출 한도가 모두 소진되었습니다. 아래 버튼으로 \"계속\"을 보내면 현재 진행 상황에서 이어서 진행합니다.",
+    "roundLimitReachedTitle": "도구 호출 한도 도달",
+    "roundLimitResumeButton": "계속",
+    "roundLimitResumeMessage": "계속",
+    "scrollToBottom": "맨 아래로 스크롤",
+    "searchPlaceholder": "대화 검색...",
+    "searchTruncatedHint": "상위 {{count}}개 결과만 표시 중 — 더 보려면 검색어를 좁혀주세요.",
+    "searching": "검색 중...",
+    "selectModel": "모델 선택",
+    "send": "보내기",
+    "sessionSearch": "이 대화에서 검색",
+    "sessionSearchClose": "닫기",
+    "sessionSearchCount": "{{current}}/{{total}}",
+    "sessionSearchNext": "다음 일치",
+    "sessionSearchNoResults": "이 대화에서 일치 항목 없음",
+    "sessionSearchPlaceholder": "이 대화의 메시지 검색…",
+    "sessionSearchPrev": "이전 일치",
+    "sessionStatus": "세션 상태",
+    "memoryPolicy": {
+      "title": "이 대화의 기억",
+      "use": "기존 기억 사용",
+      "contribute": "이 대화에서 학습",
+      "inherit": "전역 설정 따르기",
+      "allow": "켜기",
+      "deny": "끄기",
+      "desc": "두 항목은 독립적입니다. 기존 기억은 사용하면서 새 기억은 만들지 않을 수 있습니다.",
+      "incognito": "시크릿 대화는 장기 기억을 읽거나 쓰지 않습니다.",
+      "reloadCore": "이 세션의 MEMORY.md 다시 불러오기"
+    },
+    "settings": "설정",
+    "startConversation": "대화 시작",
+    "statusAgent": "Agent",
+    "statusAuth": "인증",
+    "statusCache": "캐시",
+    "statusCacheHit": "히트",
+    "statusCacheWrite": "쓰기",
+    "statusContext": "컨텍스트",
+    "statusCumulative": "누적",
+    "statusMessages": "{{count}}개 메시지",
+    "statusModel": "모델",
+    "statusNewSession": "(새 세션)",
+    "statusSession": "세션",
+    "statusSessionId": "세션 ID",
+    "statusThinking": "사고 모드",
+    "statusUpdated": "업데이트",
+    "stopReply": "응답 중지",
+    "subagentFrom": "{{agent}} 에서 위임",
+    "subagentResultCompleted": "완료됨",
     "workflowResultName": "워크플로",
     "workflowResultCheckpoint": "단계 결과 수신됨",
     "workflowResultCompleted": "완료됨",
     "workflowResultCancelled": "취소됨",
     "workflowResultWaiting": "계속 대기 중",
     "workflowResultFailed": "처리 필요",
+    "systemPrompt": "시스템 프롬프트",
+    "taskActions": {
+      "cycleTo": {
+        "completed": "완료로 표시",
+        "in_progress": "진행 중으로 표시",
+        "pending": "대기 중으로 표시"
+      },
+      "delete": "작업 삭제"
+    },
+    "taskNoneYet": "아직 작업이 없습니다",
+    "taskProgress": "{{completed}}/{{total}} 완료",
+    "tasks": "작업",
+    "thinking": "생각 중...",
+    "thinkingAutoDisabled": "{{provider}} / {{model}} does not support the current thinking mode. Thinking was disabled automatically and the request was retried.",
+    "visionAutoDisabled": "{{provider}} / {{model}}은(는) 이미지 입력을 지원하지 않습니다. 이미지를 무시하고 답변을 계속했습니다.",
+    "toolCalling": "도구 호출 중...",
+    "totalTokens": "합계",
+    "unknownProvider": "Unknown provider",
+    "untitledSession": "제목 없음",
+    "viewContext": "컨텍스트 보기",
+    "viewModeBubble": "말풍선 보기로 전환",
+    "viewModeTimeline": "작업 보기로 전환",
+    "viewSystemPrompt": "시스템 프롬프트 보기",
+    "weeksAgo": "{{count}}주 전",
+    "workingDir": {
+      "browserDescription": "경로는 에이전트가 실행되는 서버에서 확인됩니다.",
+      "browserTitle": "서버의 디렉터리 선택",
+      "change": "디렉터리 변경",
+      "clear": "디렉터리 지우기",
+      "current": "작업 디렉터리",
+      "empty": "이 디렉터리는 비어 있습니다",
+      "fileLabel": "파일",
+      "goToPath": "경로로 이동",
+      "invalid": "잘못된 작업 디렉터리",
+      "loadError": "디렉터리를 읽을 수 없습니다",
+      "loading": "불러오는 중…",
+      "parent": "상위 폴더",
+      "pathPlaceholder": "절대 경로, 예: /srv/projects/app",
+      "select": "작업 디렉터리 선택",
+      "selectCurrent": "이 디렉터리 선택",
+      "selectPreset": "대화를 시작한 뒤 작업 디렉터리를 설정합니다",
+      "titleBarInherited": "프로젝트에서 상속됨",
+      "titleBarSession": "작업 디렉터리",
+      "truncated": "첫 항목만 표시합니다 — 이 디렉터리는 브라우저에 모두 표시하기에 너무 큽니다."
+    },
+    "taskProgressRunning": "실행 중 {{completed}}/{{total}}",
+    "taskProgressCancelling": "중지 중 {{completed}}/{{total}}",
+    "taskProgressWaiting": "계속 대기 {{completed}}/{{total}}",
+    "taskProgressFailed": "실패 {{completed}}/{{total}}",
+    "exportSession": {
+      "menuItem": "대화 내보내기",
+      "dialogTitle": "대화 내보내기",
+      "dialogHint": "형식을 선택하고 포함할 항목을 체크하세요.",
+      "formatLabel": "형식",
+      "formatMarkdown": "Markdown",
+      "formatJson": "JSON",
+      "formatHtml": "HTML",
+      "contentLabel": "포함 항목",
+      "includeTools": "도구 호출 포함",
+      "includeToolsHint": "도구 인수·결과 및 파일 변경 사항.",
+      "includeThinking": "사고 과정 포함",
+      "includeThinkingHint": "모델의 추론 단계(생각의 흐름).",
+      "exportButton": "내보내기",
+      "exporting": "내보내는 중…",
+      "exported": "완료",
+      "failedShort": "실패",
+      "savedTo": "{{path}} 에 내보냈습니다",
+      "downloaded": "{{filename}} 을(를) 다운로드했습니다",
+      "failed": "대화 내보내기에 실패했습니다."
+    },
+    "skillMention": {
+      "heading": "스킬",
+      "labels": {
+        "docx": "Word 문서",
+        "pptx": "PowerPoint 슬라이드",
+        "xlsx": "Excel 스프레드시트",
+        "browser": "브라우저 제어",
+        "mac": "Mac 제어",
+        "dataAnalytics": "데이터 분석"
+      }
+    },
+    "reasoningDisabledHint": "이 모델은 추론이 활성화되어 있지 않습니다. 추론 강도를 조정하려면 「설정 → 모델 제공자」에서 이 모델을 편집하고 「추론/사고 지원」을 켜세요.",
+    "browserExtensionNudge": {
+      "installTitle": "AI가 실제 Chrome을 제어하도록 하기",
+      "installBody": "Hope Agent 확장 프로그램을 설치하면 로그인된 Chrome을 조작할 수 있습니다. 현재는 격리된 브라우저에서 실행 중입니다.",
+      "reloadTitle": "Chrome 확장 프로그램 다시 로드",
+      "reloadBody": "설치된 확장 프로그램이 호스트와 일치하지 않습니다. 다시 로드하면 실제 Chrome 제어가 복원됩니다.",
+      "openSettings": "설정 열기",
+      "dismiss": "다시 표시 안 함"
+    },
+    "browserExtensionRequired": {
+      "nextAction": "다음 작업: {{nextAction}}",
+      "openSettings": "설정 > 브라우저를 열어 확장 기능을 설치하거나 활성화하세요.",
+      "title": "Chrome 확장 프로그램이 필요합니다."
+    },
+    "conversationEmpty": "이 대화에는 메시지가 없습니다.",
+    "pendingCancelForceInsert": "이 라운드 삽입 취소",
     "pendingSaving": "저장 중",
     "pendingSavingTip": "메시지와 첨부 파일을 복구 가능한 대기열에 저장하고 있습니다.",
     "pendingInserting": "삽입 중",
@@ -893,6 +891,32 @@
     "pendingDispatching": "전송 중",
     "pendingDispatchingTip": "영구 대기열에서 새 턴을 만들고 있습니다.",
     "pendingSendNow": "지금 보내기",
+    "pendingFallbackAfterReply": "답장 후 보내기",
+    "pendingFallbackAfterReplyTip": "도구 완료 지점이 발견되지 않았으며 현재 응답이 끝난 후에 전송됩니다.",
+    "pendingForceInsertTip": "실행 중인 도구가 완료될 때까지 기다렸다가 현재 도구를 중단하지 않고 모델에 삽입합니다.",
+    "pendingInserted": "삽입됨",
+    "pendingInsertedTip": "이 툴링 라운드가 완료된 후 모델에 삽입되었습니다.",
+    "pendingQueuedShort": "대기열",
+    "pendingQueuedTip": "대기 대기열에 추가되었으며 현재 응답이 끝난 후 전송됩니다.",
+    "pendingQueueTitle": "발송 예정",
+    "pendingWaitingToolBoundary": "도구 완료 지점을 기다립니다.",
+    "pendingWaitingToolBoundaryTip": "최신 도구 호출이 완료될 때까지 기다리십시오. 이번 라운드에서 도구가 더 이상 호출되지 않으면 응답이 완료된 후 전송됩니다.",
+    "processNotification": "프로세스가 종료되었습니다",
+    "rightPanel": {
+      "collapse": "오른쪽 패널 접기",
+      "expand": "오른쪽 패널 펼치기",
+      "switch": "오른쪽 패널 전환",
+      "dock": "오른쪽 패널 도크",
+      "openPanel": "{{panel}} 열기",
+      "switchToPanel": "{{panel}} 패널로 전환",
+      "collapsePanel": "{{panel}} 접기",
+      "expandPanel": "{{panel}} 펼치기",
+      "workflowActiveCount": "활성 워크플로 {{count}}개",
+      "workflowAttentionCount": "주의가 필요한 워크플로 {{count}}개",
+      "backgroundRunningCount": "백그라운드 작업 {{count}}개 실행 중"
+    },
+    "visionBridgeEngaged": "기본 모델이 이미지를 볼 수 없어 {{model}}이(가) 이미지 내용을 설명했습니다.",
+    "visionBridgeUnavailable": "비전 모델이 이미지를 설명하지 못해 해당 이미지는 제외되었습니다.",
     "loadingSession": "세션 로딩 중…",
     "goalSlash": {
       "showActive": "현재 목표 보기",
@@ -944,6 +968,10 @@
       "quickEditEmpty": "메모리 내용은 비워둘 수 없습니다.",
       "quickEditSaved": "메모리가 업데이트되었습니다.",
       "quickEditSaveFailed": "이 메모리를 저장할 수 없습니다.",
+      "promoteToCore": "항상 기억하기",
+      "promoteToCoreFailed": "코어 메모리에 추가하지 못했습니다.",
+      "promotedToCore": "항상 기억됨",
+      "promotedToCoreToast": "상시 코어 메모리에 추가했습니다.",
       "kind": {
         "claim": "구조화 기억",
         "episode": "경험",
@@ -972,6 +1000,7 @@
       },
       "layerReason": {
         "agentConfigError": "에이전트 메모리 구성을 사용할 수 없습니다.",
+        "budgetEmpty": "회상 예산이 비어 있습니다",
         "disabled": "구성 꺼짐",
         "emptyQuery": "빈 쿼리",
         "incognito": "시크릿 세션",
@@ -982,14 +1011,13 @@
         "noGraphNeighbors": "관련 엔터티 관계 없음",
         "noHits": "안타 없음",
         "noSession": "세션 컨텍스트 없음",
-        "retrievalError": "검색 실패",
-        "sideQueryError": "리콜 실패",
-        "timeout": "시간 초과",
-        "budgetEmpty": "회상 예산이 비어 있습니다",
         "nonContextualTurn": "컨텍스트가 필요 없는 대화",
         "recallOff": "자동 동적 회상이 꺼져 있습니다",
         "retrievalBusy": "회상 처리가 혼잡합니다",
+        "retrievalError": "검색 실패",
         "sessionPolicy": "메모리 또는 대화 정책으로 비활성화됨",
+        "sideQueryError": "리콜 실패",
+        "timeout": "시간 초과",
         "unifiedRecall": "빠른 회상에서 처리됨",
         "unknown": "기타 사유"
       },
@@ -1064,11 +1092,7 @@
       "more": "{{count}} 더 장기적인 컨텍스트 항목이 숨겨집니다.",
       "sources": "메모리 소스",
       "editMemory": "이 추억을 편집하세요",
-      "copyTrace": "진단 복사",
-      "promoteToCore": "항상 기억하기",
-      "promoteToCoreFailed": "코어 메모리에 추가하지 못했습니다.",
-      "promotedToCore": "항상 기억됨",
-      "promotedToCoreToast": "상시 코어 메모리에 추가했습니다."
+      "copyTrace": "진단 복사"
     },
     "projectWelcomeTitle": "<project>{{project}}</project> 에서 무엇을 만들까요? 생각을 들려주세요",
     "projectWelcomeSuggestions": {
@@ -1141,17 +1165,9 @@
     "openSourceConversationMissingHint": "이 메모리 출처가 가리키는 대화가 삭제되었거나 찾을 수 없습니다.",
     "openSourceMessageMissing": "출처 메시지를 더 이상 사용할 수 없습니다",
     "openSourceMessageMissingHint": "대화는 아직 있지만 이 메모리 출처의 정확한 메시지를 찾을 수 없습니다.",
-    "memoryPolicy": {
-      "title": "이 대화의 기억",
-      "use": "기존 기억 사용",
-      "contribute": "이 대화에서 학습",
-      "inherit": "전역 설정 따르기",
-      "allow": "켜기",
-      "deny": "끄기",
-      "desc": "두 항목은 독립적입니다. 기존 기억은 사용하면서 새 기억은 만들지 않을 수 있습니다.",
-      "incognito": "시크릿 대화는 장기 기억을 읽거나 쓰지 않습니다.",
-      "reloadCore": "이 세션의 MEMORY.md 다시 불러오기"
-    }
+    "unreadConversationCount": "읽지 않은 대화 {{count}}개",
+    "unreadStatus": "읽지 않음",
+    "channelUnreadStatus": "읽지 않은 IM 대화"
   },
   "codexAuth": {
     "expiredDescription": "Codex OAuth 토큰이 더 이상 유효하지 않습니다. 계속하려면 다시 로그인하세요.",
@@ -1159,7 +1175,6 @@
     "reauth": "다시 로그인"
   },
   "common": {
-    "download": "다운로드",
     "add": "추가",
     "back": "뒤로",
     "cancel": "취소",
@@ -1196,12 +1211,9 @@
     "expand": "펼치기",
     "retry": "재시도",
     "unavailable": "이용 불가",
-    "duplicate": "복제",
-    "more": "더 보기",
     "copy": "복사",
-    "copied": "복사됨",
-    "apply": "적용",
     "auto": "자동",
+    "copied": "복사됨",
     "yes": "응",
     "no": "아니",
     "none": "없음",
@@ -1209,17 +1221,32 @@
     "off": "끄기",
     "error": "Error",
     "showLess": "간략히 보기",
-    "modelNoVision": "이미지 미지원"
+    "download": "다운로드",
+    "duplicate": "복제",
+    "more": "더 보기",
+    "apply": "적용",
+    "modelNoVision": "이미지 미지원",
+    "next": "Next",
+    "previous": "Previous"
   },
   "context": {
     "ago": "전",
+    "cacheRead": "캐시 읽기",
     "cacheTtlProtection": "캐시 TTL 보호",
+    "cacheWindowNotice": "캐시 적중은 반복 계산, 비용, TTFT를 줄이지만 컨텍스트 창 사용량은 줄이지 않습니다.",
+    "cacheWrite": "캐시 쓰기",
     "compactAllowedIn": "다음 압축까지",
+    "coreMemoryBudget": "Core Memory 예산",
+    "coreMemoryModelLimited": "현재 모델에 맞게 일시적으로 제한됨",
+    "dynamicPrompt": "동적 프롬프트",
+    "estimated": "추정",
     "estimateNote": "각 라운드 후에는 Provider 실제 사용량이 기준이며, 그전에는 실제 요청 형식에 따른 보수적 추정치를 표시합니다.",
     "freeSpace": "여유 공간",
+    "freshInput": "새 입력",
     "lastCompact": "마지막 압축",
     "memory": "기억",
     "messages": "메시지",
+    "providerInput": "Provider 입력",
     "reservedOutput": "예약된 출력",
     "skills": "스킬",
     "systemPrompt": "시스템 프롬프트",
@@ -1227,16 +1254,7 @@
     "toolDescriptions": "도구 설명",
     "toolSchemas": "도구 Schema",
     "used": "사용됨",
-    "viewSystemPrompt": "시스템 프롬프트",
-    "cacheRead": "캐시 읽기",
-    "cacheWindowNotice": "캐시 적중은 반복 계산, 비용, TTFT를 줄이지만 컨텍스트 창 사용량은 줄이지 않습니다.",
-    "cacheWrite": "캐시 쓰기",
-    "coreMemoryBudget": "Core Memory 예산",
-    "coreMemoryModelLimited": "현재 모델에 맞게 일시적으로 제한됨",
-    "dynamicPrompt": "동적 프롬프트",
-    "estimated": "추정",
-    "freshInput": "새 입력",
-    "providerInput": "Provider 입력"
+    "viewSystemPrompt": "시스템 프롬프트"
   },
   "cron": {
     "active": "활성",
@@ -1426,8 +1444,8 @@
         "cron": "cron",
         "idle": "유휴",
         "manual": "수동",
-        "user_correction": "교정",
-        "review_snapshot": "review snapshot"
+        "review_snapshot": "review snapshot",
+        "user_correction": "교정"
       },
       "runs": {
         "title": "실행 기록",
@@ -1449,9 +1467,46 @@
       "resolving": "정리 중…",
       "resolverDone": "정리 완료: 만료 {{expired}}, 병합 {{merged}}, 검토 대기 {{review}}",
       "resolverFailed": "심층 정리 실패",
+      "resolverPreflightTitle": "Deep Resolver 비행 전",
+      "resolverPreflightSummary": "{{active}} 활성 소유권 주장 · {{expired}} 만료된 후보 · {{groups}} 충돌 그룹",
+      "resolverPreflightBlocked": "리졸버 차단됨: {{reasons}}",
+      "resolverPreflightLlm": "{{count}}/{{total}} 그룹은 LLM · 캡 {{cap}}를 사용합니다.",
+      "resolverPreflightNoLlm": "LLM 그룹 호출이 예상되지 않습니다.",
+      "resolverPreflightTruncated": "다음 실행을 계속합니다.",
+      "resolverPreflightUnavailable": "프리플라이트를 이용할 수 없습니다.",
+      "resolverPreflightRefresh": "계획 새로 고침",
+      "resolverPreflightReasons": {
+        "dreamingDisabled": "Dreaming 꺼짐",
+        "longTermMemoryDisabled": "기억학습 꺼짐",
+        "manualDisabled": "수동이 실행됩니다.",
+        "claimLoadFailed": "청구할 수 없음"
+      },
+      "errors": {
+        "loadDiaries": "Failed to load Dreaming diaries",
+        "loadRuns": "Failed to load Dreaming run history",
+        "loadRunDetail": "Failed to load Dreaming run details",
+        "loadDiary": "Failed to open Dreaming diary",
+        "loadEvidenceQuote": "Failed to load evidence quote",
+        "runNow": "Failed to run Dreaming",
+        "runResolver": "Deep resolve failed",
+        "resolverPreflight": "Failed to load Deep Resolver preflight",
+        "detail": "세부정보: {{error}}"
+      },
       "review": {
         "queueTitle": "검토 필요",
         "queueEmpty": "검토가 필요한 claim이 없습니다",
+        "errors": {
+          "loadQueue": "Failed to load review queue",
+          "approve": "Failed to approve memory",
+          "markOutdated": "Failed to mark memory outdated",
+          "pin": "Failed to pin memory",
+          "unpin": "Failed to unpin memory",
+          "edit": "Failed to edit memory",
+          "moveScope": "Failed to move memory scope",
+          "reject": "Failed to reject memory",
+          "forget": "Failed to forget memory",
+          "detail": "세부정보: {{error}}"
+        },
         "approve": "승인",
         "approveDone": "승인됨",
         "markOutdated": "오래됨 표시",
@@ -1490,44 +1545,7 @@
         "forgetNotePlaceholder": "사유(선택)",
         "forgetConfirm": "잊기",
         "forgetDone": "기억을 잊음",
-        "failed": "작업 실패",
-        "errors": {
-          "loadQueue": "Failed to load review queue",
-          "approve": "Failed to approve memory",
-          "markOutdated": "Failed to mark memory outdated",
-          "pin": "Failed to pin memory",
-          "unpin": "Failed to unpin memory",
-          "edit": "Failed to edit memory",
-          "moveScope": "Failed to move memory scope",
-          "reject": "Failed to reject memory",
-          "forget": "Failed to forget memory",
-          "detail": "세부정보: {{error}}"
-        }
-      },
-      "resolverPreflightTitle": "Deep Resolver 비행 전",
-      "resolverPreflightSummary": "{{active}} 활성 소유권 주장 · {{expired}} 만료된 후보 · {{groups}} 충돌 그룹",
-      "resolverPreflightBlocked": "리졸버 차단됨: {{reasons}}",
-      "resolverPreflightLlm": "{{count}}/{{total}} 그룹은 LLM · 캡 {{cap}}를 사용합니다.",
-      "resolverPreflightNoLlm": "LLM 그룹 호출이 예상되지 않습니다.",
-      "resolverPreflightTruncated": "다음 실행을 계속합니다.",
-      "resolverPreflightUnavailable": "프리플라이트를 이용할 수 없습니다.",
-      "resolverPreflightRefresh": "계획 새로 고침",
-      "resolverPreflightReasons": {
-        "dreamingDisabled": "Dreaming 꺼짐",
-        "longTermMemoryDisabled": "기억학습 꺼짐",
-        "manualDisabled": "수동이 실행됩니다.",
-        "claimLoadFailed": "청구할 수 없음"
-      },
-      "errors": {
-        "loadDiaries": "Failed to load Dreaming diaries",
-        "loadRuns": "Failed to load Dreaming run history",
-        "loadRunDetail": "Failed to load Dreaming run details",
-        "loadDiary": "Failed to open Dreaming diary",
-        "loadEvidenceQuote": "Failed to load evidence quote",
-        "runNow": "Failed to run Dreaming",
-        "runResolver": "Deep resolve failed",
-        "resolverPreflight": "Failed to load Deep Resolver preflight",
-        "detail": "세부정보: {{error}}"
+        "failed": "작업 실패"
       }
     },
     "error": {
@@ -1886,17 +1904,17 @@
       "ttftTrend": "첫 토큰 도달 시간 (TTFT)",
       "inputTokens": "입력 토큰",
       "outputTokens": "출력 토큰",
-      "byDomain": "도메인별 분포",
-      "byOperation": "작업별 세부 내역",
-      "operation": "작업",
-      "domain": "도메인",
       "byType": "유형별 사용량",
       "type": "유형",
       "calls": "호출 횟수",
       "cacheWrite": "캐시 쓰기",
       "cacheRead": "캐시 읽기",
       "avgDuration": "평균 소요 시간",
-      "tokensUnit": "토큰"
+      "tokensUnit": "토큰",
+      "byDomain": "도메인별 분포",
+      "byOperation": "작업별 세부 내역",
+      "operation": "작업",
+      "domain": "도메인"
     },
     "tool": {
       "avgDuration": "평균 소요",
@@ -1994,6 +2012,106 @@
     },
     "columns": {
       "session": "세션"
+    },
+    "controlPlane": {
+      "title": "Goals & Execution",
+      "automationTab": "Automation",
+      "scopeHint": "Window metrics show outcomes; current snapshots show backlog and risk.",
+      "allProjects": "All projects",
+      "unassignedProject": "Unassigned",
+      "archived": "Archived",
+      "empty": "No data for the selected scope.",
+      "sections": {
+        "overview": "Overview",
+        "planTask": "Plan & Task"
+      },
+      "metrics": {
+        "goalAcceptance": "Goal acceptance rate",
+        "workflowCompletion": "Workflow completion rate",
+        "loopStrongProgress": "Loop strong-progress rate",
+        "taskCompletion": "Task cohort completion",
+        "attention": "Needs attention",
+        "requiredCriteria": "Required criteria pass rate",
+        "goalP50": "Goal time-to-accept P50",
+        "opFailure": "Operation failure rate",
+        "workflowP50": "Workflow duration P50",
+        "goalBinding": "Goal binding rate",
+        "approvalTrigger": "Approval trigger rate",
+        "noProgress": "No-progress rate",
+        "blockedSchedules": "Blocked schedules",
+        "loopP50": "Loop run duration P50",
+        "currentBacklog": "Current backlog",
+        "activePlans": "Active now",
+        "cohortCompletion": "Cohort completion"
+      },
+      "currentSnapshot": "Current snapshot",
+      "goalTrend": "Goal outcomes",
+      "resolved": "Resolved",
+      "accepted": "Accepted",
+      "attentionTitle": "Current attention items",
+      "noAttention": "No current attention items",
+      "auditSamples": "{{count}} audited Goals",
+      "currentStates": "Current states",
+      "closureOutcomes": "Closure outcomes",
+      "domains": "Domains",
+      "kinds": "Kinds",
+      "origins": "Origins",
+      "workflowTrend": "Decided Workflow runs",
+      "decidedRuns": "Decided runs",
+      "progressStates": "Progress classification",
+      "triggerKinds": "Trigger kinds",
+      "strategies": "Execution strategies",
+      "loopTrend": "Evaluated Loop runs",
+      "evaluatedRuns": "Evaluated runs",
+      "openPlanHistory": "View Plan history",
+      "planByAgent": "Plan by Agent",
+      "planByProject": "Plan by project",
+      "noFunnelHint": "Task and Plan do not yet have reliable Goal / Workflow / Loop attribution keys, so this page does not infer a causal funnel from sessions.",
+      "noExactSamples": "No exact duration samples",
+      "coverage": "{{samples}} / {{eligible}} exact samples ({{percent}}%)",
+      "coverageShort": "Exact duration coverage: {{samples}} / {{eligible}}",
+      "creationTrend": "Creation trend",
+      "created": "Created",
+      "attentionKinds": {
+        "goal": "목표",
+        "workflow": "워크플로",
+        "loop": "루프",
+        "plan": "플랜"
+      },
+      "attentionReasons": {
+        "needs_strict_evidence": "엄격한 증거 필요",
+        "goal_awaiting_closure": "목표 종료 대기",
+        "workflow_requires_attention": "워크플로 확인 필요",
+        "consecutive_no_progress": "연속 진행 없음",
+        "loop_requires_attention": "루프 확인 필요",
+        "plan_awaiting_review": "플랜 검토 대기"
+      },
+      "states": {
+        "active": "활성",
+        "paused": "Paused",
+        "evaluating": "Evaluating",
+        "completed": "완료",
+        "failed": "Failed",
+        "cancelled": "Cancelled",
+        "blocked": "차단됨",
+        "planning": "Planning",
+        "review": "검토",
+        "executing": "Executing",
+        "off": "Archived",
+        "awaiting_approval": "승인 대기",
+        "awaiting_user": "사용자 대기",
+        "running": "Running",
+        "recovering": "Recovering",
+        "draft": "Draft",
+        "pending": "Pending",
+        "in_progress": "In progress",
+        "progressed": "Progressed",
+        "weak_progress": "Weak progress",
+        "no_progress": "No progress",
+        "accepted_v1": "Accepted v1",
+        "superseded": "Superseded",
+        "unassigned": "Unassigned"
+      }
     }
   },
   "fileActions": {
@@ -2098,10 +2216,10 @@
       "staged": "Staged",
       "stagedScope": "Staged",
       "stale": "The repository changed. The diff was refreshed; review it again.",
-      "prReviewComments": "PR 리뷰 댓글 · {{count}}",
       "unstage": "Unstage",
       "unstaged": "Unstaged",
-      "unstagedScope": "Unstaged"
+      "unstagedScope": "Unstaged",
+      "prReviewComments": "PR 리뷰 댓글 · {{count}}"
     }
   },
   "effort": {
@@ -2537,10 +2655,10 @@
     "reasoning": "추론/사고",
     "reasoningHint": "활성화하면 채팅 입력창 위의 모델 메뉴에서 추론 강도(낮음 / 중간 / 높음)를 선택할 수 있으며, 요청마다 자동으로 적용됩니다.",
     "supportedInputTypes": "지원 입력 유형",
-    "text": "텍스트",
-    "video": "비디오",
     "supportsImageMultimodal": "이미지 멀티모달 지원",
-    "supportsVideoMultimodal": "비디오 멀티모달 지원"
+    "supportsVideoMultimodal": "비디오 멀티모달 지원",
+    "text": "텍스트",
+    "video": "비디오"
   },
   "notification": {
     "cronCancelled": "예약 작업이 취소되었습니다",
@@ -2939,6 +3057,29 @@
     "addProject": "프로젝트 추가",
     "archiveProject": "프로젝트 아카이브",
     "archivedProjects": "보관된 프로젝트",
+    "autoMemory": {
+      "content": "상세 내용(Markdown)",
+      "deleteConfirm": "이 프로젝트 자동 메모리 주제를 삭제할까요?",
+      "description": "간결한 MEMORY.md 인덱스만 프로젝트 대화에 안정적으로 주입하고, 주제 상세 내용은 관련될 때만 읽습니다. 데이터는 이 기기에만 저장됩니다.",
+      "editorHint": "프로젝트 지침은 고정 규칙입니다. 여기에는 작업 중 축적된 프로젝트 학습을 저장하며 권위 있는 지침으로 취급하지 않습니다.",
+      "editorTitle": "프로젝트 자동 메모리",
+      "empty": "아직 자동 메모리 주제가 없습니다.",
+      "fileNameGenerated": "저장할 때 파일 이름이 생성됩니다",
+      "name": "제목",
+      "newTopic": "새 주제",
+      "rebuildIndex": "MEMORY.md 인덱스 다시 만들기",
+      "rebuildFailed": "MEMORY.md 인덱스를 다시 만들지 못했습니다.",
+      "summary": "인덱스 요약",
+      "summaryHint": "이 문장은 모든 프로젝트 대화의 안정 프롬프트에 들어가므로 간결하게 작성하세요.",
+      "type": "유형",
+      "types": {
+        "feedback": "작업 피드백",
+        "project": "프로젝트 작업",
+        "reference": "참고 자료",
+        "user": "사용자 맥락"
+      },
+      "emptyPreview": "아직 Markdown 상세 내용이 없습니다. 편집 모드로 전환해 내용을 추가하세요."
+    },
     "createFirstProject": "첫 프로젝트 만들기",
     "defaultAgent": "기본 Agent",
     "defaultModel": "기본 모델",
@@ -2948,6 +3089,10 @@
     },
     "deleteProject": "프로젝트 삭제",
     "editProject": "프로젝트 편집",
+    "openFromMemoryLoadFailed": "프로젝트 출처를 열지 못했습니다",
+    "openFromMemoryLoadFailedDetail": "세부 정보: {{error}}",
+    "openFromMemoryMissing": "프로젝트를 더 이상 사용할 수 없습니다",
+    "openFromMemoryMissingHint": "이 메모리 출처가 가리키는 프로젝트가 삭제되었거나 찾을 수 없습니다.",
     "files": {
       "confirmDelete": "이 파일을 삭제하시겠습니까?",
       "delete": "삭제",
@@ -2977,13 +3122,38 @@
       "recentSessions": "최근 세션",
       "totalFiles": "파일",
       "totalMemories": "메모리",
-      "totalSessions": "세션"
+      "totalSessions": "세션",
+      "activeClaims": "정리된 메모리",
+      "agentsEmpty": "AGENTS.md가 비어 있습니다",
+      "agentsLines": "AGENTS.md",
+      "agentsRole": "모든 프로젝트 세션에 적용되는 공식 프로젝트 규칙입니다.",
+      "agentsStats": "{{lines}}줄 · {{size}}",
+      "autoMemoryRole": "모델이 관리하는 로컬 경험입니다. 인덱스는 안정적으로 유지되고 주제는 필요할 때 읽습니다.",
+      "autoMemoryStats": "주제 {{count}}개",
+      "autoMemoryTopics": "자동 메모리 주제",
+      "awaitingResponse": "답변 대기 중",
+      "contextDescription": "이 프로젝트에서 모델이 사용할 수 있는 컨텍스트를 확인합니다.",
+      "contextTitle": "프로젝트 컨텍스트",
+      "defaultWorkspace": "기본 프로젝트 작업 폴더",
+      "homeDescription": "최근 작업을 계속하거나 프로젝트 컨텍스트를 관리합니다.",
+      "homeTitle": "프로젝트 홈",
+      "linesUnit": "줄",
+      "loadFailed": "프로젝트 개요를 일시적으로 불러올 수 없습니다. 잠시 후 다시 시도하세요.",
+      "messageCount": "메시지 {{count}}개",
+      "noRecentSessions": "아직 프로젝트 세션이 없습니다",
+      "noRecentSessionsHint": "세션을 만들면 최근 작업이 여기에 표시됩니다.",
+      "recentSessionsHint": "최근 업데이트된 사용자 세션",
+      "structuredMemory": "프로젝트 메모리",
+      "structuredMemoryRole": "프로젝트 대화에서 정리한 장기 정보입니다. 답변에 자동으로 사용할지는 메모리 설정에 따라 결정됩니다.",
+      "unavailable": "사용할 수 없음",
+      "untitledSession": "제목 없는 세션",
+      "workingDirectory": "작업 폴더"
     },
     "projectColor": "색상",
     "projectDescription": "설명",
     "projectDescriptionPlaceholder": "이 프로젝트는 무엇에 관한 것인가요?",
     "projectInstructions": "프로젝트 지침",
-    "projectInstructionsHint": "이 지침은 이 프로젝트의 모든 세션 시스템 프롬프트에 자동으로 추가됩니다.",
+    "projectInstructionsHint": "프로젝트 루트의 AGENTS.md를 직접 편집합니다. 저장하면 이 프로젝트의 모든 세션에 자동 적용됩니다.",
     "projectInstructionsPlaceholder": "예: 항상 한국어로 응답; 명확하고 친근한 톤 유지; 결론부터 말하기",
     "projectLogo": "로고",
     "projectLogoHint": "선택. 이미지는 자동으로 256×256으로 조정됩니다.",
@@ -2997,6 +3167,7 @@
     "showLess": "접기",
     "showMore": "더 보기",
     "tabFiles": "파일",
+    "tabAutoMemory": "자동 메모리",
     "tabInstructions": "지침",
     "tabMemories": "메모리",
     "tabOverview": "개요",
@@ -3020,33 +3191,11 @@
       "errorDetail": "세부 정보: {{error}}"
     },
     "projectEmojiPlaceholder": "선택사항",
-    "openFromMemoryLoadFailed": "프로젝트 출처를 열지 못했습니다",
-    "openFromMemoryLoadFailedDetail": "세부 정보: {{error}}",
-    "openFromMemoryMissing": "프로젝트를 더 이상 사용할 수 없습니다",
-    "openFromMemoryMissingHint": "이 메모리 출처가 가리키는 프로젝트가 삭제되었거나 찾을 수 없습니다.",
-    "autoMemory": {
-      "content": "상세 내용(Markdown)",
-      "deleteConfirm": "이 프로젝트 자동 메모리 주제를 삭제할까요?",
-      "description": "간결한 MEMORY.md 인덱스만 프로젝트 대화에 안정적으로 주입하고, 주제 상세 내용은 관련될 때만 읽습니다. 데이터는 이 기기에만 저장됩니다.",
-      "editorHint": "프로젝트 지침은 고정 규칙입니다. 여기에는 작업 중 축적된 프로젝트 학습을 저장하며 권위 있는 지침으로 취급하지 않습니다.",
-      "editorTitle": "프로젝트 자동 메모리",
-      "empty": "아직 자동 메모리 주제가 없습니다.",
-      "fileNameGenerated": "저장할 때 파일 이름이 생성됩니다",
-      "name": "제목",
-      "newTopic": "새 주제",
-      "rebuildIndex": "MEMORY.md 인덱스 다시 만들기",
-      "rebuildFailed": "MEMORY.md 인덱스를 다시 만들지 못했습니다.",
-      "summary": "인덱스 요약",
-      "summaryHint": "이 문장은 모든 프로젝트 대화의 안정 프롬프트에 들어가므로 간결하게 작성하세요.",
-      "type": "유형",
-      "types": {
-        "feedback": "작업 피드백",
-        "project": "프로젝트 작업",
-        "reference": "참고 자료",
-        "user": "사용자 맥락"
-      }
-    },
-    "tabAutoMemory": "자동 메모리"
+    "projectInstructionsLineCount": "{{count}}줄",
+    "resizeSettingsSheet": "드래그하여 프로젝트 설정 너비 조절",
+    "projectInstructionsEmptyPreview": "AGENTS.md가 비어 있습니다. 편집 모드로 전환해 Markdown 지침을 추가하세요.",
+    "projectInstructionsLoadFailed": "AGENTS.md를 읽을 수 없습니다",
+    "projectInstructionsSaveFailed": "AGENTS.md를 저장할 수 없습니다"
   },
   "provider": {
     "addProvider": "공급자 추가",
@@ -3496,6 +3645,7 @@
       "judgeExtraPromptPlaceholder": "선택 사항: 판정 모델에 전달할 추가 지침(경로 허용 목록, 신뢰할 명령 등)",
       "judgeModelPlaceholder": "심사 모델 선택",
       "judgeModelTitle": "판정 모델 설정",
+      "judgeProviderPlaceholder": "Provider ID(예: anthropic-1)",
       "protectedPathsDesc": "이 경로에 닿는 도구 호출은 승인이 강제되며 항상 허용할 수 없습니다. ~/ 확장, 디렉터리 접두사(끝 /), *.pattern glob을 지원합니다.",
       "protectedPathsPlaceholder": "예: ~/.ssh/, .env, *.pem",
       "protectedPathsTitle": "보호 경로",
@@ -3528,8 +3678,7 @@
       "yoloDesc": "켜면 모든 도구가 승인 없이 실행됩니다. Plan Mode만 계속 차단할 수 있습니다. 보호 경로 / 위험 명령 일치는 경고 로그를 남기고 실행됩니다.",
       "yoloDisabled": "전역 YOLO 비활성화됨",
       "yoloEnabled": "전역 YOLO 활성화됨",
-      "yoloTitle": "전역 YOLO(모든 승인 건너뛰기)",
-      "judgeProviderPlaceholder": "Provider ID(예: anthropic-1)"
+      "yoloTitle": "전역 YOLO(모든 승인 건너뛰기)"
     },
     "approvalTimeout": "도구 승인 대기 시간 초과",
     "approvalTimeoutAction": "승인 시간 초과 동작",
@@ -3578,6 +3727,8 @@
       "digestMaxChars": "다이제스트 출력 예산 (문자)",
       "dynamicEnabled": "매 턴 suffix 새로고침",
       "enabledForSession": "이 세션에서 활성화",
+      "extractionAgent": "추출 Agent ID (선택)",
+      "extractionAgentPlaceholder": "비워두면 recap.analysisAgent 상속",
       "includeChannel": "IM 채널 세션 포함",
       "includeCron": "cron 세션 포함",
       "includeSubagents": "서브 Agent 세션 포함",
@@ -3603,9 +3754,7 @@
       "sessionOverride": "세션 오버라이드",
       "title": "행동 인식",
       "extractionModel": "추출 모델(선택 사항)",
-      "extractionModelInherit": "현재 채팅 에이전트 재사용(캐시 친화적)",
-      "extractionAgent": "추출 Agent ID (선택)",
-      "extractionAgentPlaceholder": "비워두면 recap.analysisAgent 상속"
+      "extractionModelInherit": "현재 채팅 에이전트 재사용(캐시 친화적)"
     },
     "browser": {
       "activeBadge": "사용 중",
@@ -3758,7 +3907,16 @@
         "title": "raw CDP를 허용하시겠습니까?",
         "body": "AI가 실제 Chrome에 임의의 DevTools Protocol 명령을 보낼 수 있게 됩니다. 모든 호출은 여전히 매번 승인이 필요하고 위험한 메서드는 차단되지만, 꼭 필요한 경우에만 활성화하세요.",
         "continue": "활성화"
-      }
+      },
+      "backupRuntimeHint": "System Chrome is available. Install a Hope-managed Chromium runtime as a fallback for browser automation and Artifact PDF export.",
+      "backupRuntimeTitle": "Backup Chromium runtime",
+      "installRuntimeRetry": "The runtime is ready. Retry the browser action or PDF export.",
+      "openBrowserSettings": "Open browser settings",
+      "runtimeInstallUnsupported": "Hope does not provide a managed Chromium runtime for this operating system or architecture. Install Chrome/Chromium manually or configure an executable path.",
+      "runtimeRequiredArtifactPdfDescription": "PDF export needs a local Chrome or Chromium runtime, but none is currently available.",
+      "runtimeRequiredDescription": "This browser operation needs a local Chrome or Chromium runtime, but none is currently available.",
+      "runtimeRequiredHint": "You can install Hope's managed runtime now (about 150 MB), then retry the operation.",
+      "runtimeRequiredTitle": "Chromium runtime required"
     },
     "bytes": "바이트",
     "canvas": "캔버스",
@@ -3800,39 +3958,6 @@
         "backfillDesc": "백필은 오래된 일반 메모리를 claim으로 등록하지만 현재 메모리 주입은 즉시 바꾸지 않습니다. 고정된 프로필과 선호 메모리는 자동 활성화될 수 있고 나머지는 검토 대기로 들어갑니다."
       },
       "list": "클레임 목록",
-      "empty": "아직 클레임이 없습니다.",
-      "selectClaim": "클레임을 선택하면 근거가 표시됩니다.",
-      "confidence": "신뢰도",
-      "salience": "중요도",
-      "evidence": "근거",
-      "noEvidence": "근거 없음.",
-      "links": "연결된 메모리",
-      "statusAll": "모든 상태",
-      "status": {
-        "active": "활성",
-        "superseded": "대체됨",
-        "expired": "만료됨",
-        "archived": "보관됨",
-        "needs_review": "검토 필요"
-      },
-      "backfill": {
-        "button": "백필",
-        "title": "기존 메모리 백필",
-        "desc": "기존 메모리를 구조화된 claim으로 등록합니다. 고정된 프로필 및 선호 항목(user/feedback)만 자동 활성화되고 나머지는 검토 대기열로 들어갑니다. 느슨하게 연결되므로 현재 메모리 주입은 변경되지 않습니다.",
-        "summaryTotal": "전체 메모리",
-        "summaryLinked": "등록됨",
-        "summaryCandidates": "백필 대상",
-        "summaryActive": "자동 활성화",
-        "summaryReview": "검토 필요",
-        "previewTruncated": "{{total}}개 중 {{shown}}개 표시",
-        "apply": "{{count}}개 백필",
-        "applying": "백필 중…",
-        "applied": "claim {{created}}개 백필됨: {{active}}개 활성, {{review}}개 검토 대기",
-        "planFailed": "백필 계획 생성 실패",
-        "applyFailed": "백필 실패",
-        "empty": "모든 메모리가 이미 claim 계층에 있습니다.",
-        "appliedPartial": "{{created}}개 백필됨, {{failed}}개 실패 — 나머지를 다시 시도할 수 있습니다"
-      },
       "searchPlaceholder": "구조화된 메모리 검색…",
       "searchMatchedBy": "일치함",
       "searchMatch_content": "Content",
@@ -4012,6 +4137,11 @@
         "llm_adjusted": "AI adjusted",
         "user_confirmed": "사용자 확인"
       },
+      "empty": "아직 클레임이 없습니다.",
+      "selectClaim": "클레임을 선택하면 근거가 표시됩니다.",
+      "confidence": "신뢰도",
+      "salience": "중요도",
+      "evidence": "근거",
       "evidenceAll": "모든 근거",
       "evidenceSourceAll": "모든 출처",
       "evidenceSources": {
@@ -4024,9 +4154,37 @@
         "recap_facet": "Recap",
         "manual": "수동 수정"
       },
+      "noEvidence": "근거 없음.",
+      "links": "연결된 메모리",
       "typeAll": "모든 유형",
       "typeProfile": "프로필 및 선호",
       "scopeAll": "모든 범위",
+      "statusAll": "모든 상태",
+      "status": {
+        "active": "활성",
+        "superseded": "대체됨",
+        "expired": "만료됨",
+        "archived": "보관됨",
+        "needs_review": "검토 필요"
+      },
+      "backfill": {
+        "button": "백필",
+        "title": "기존 메모리 백필",
+        "desc": "기존 메모리를 구조화된 claim으로 등록합니다. 고정된 프로필 및 선호 항목(user/feedback)만 자동 활성화되고 나머지는 검토 대기열로 들어갑니다. 느슨하게 연결되므로 현재 메모리 주입은 변경되지 않습니다.",
+        "summaryTotal": "전체 메모리",
+        "summaryLinked": "등록됨",
+        "summaryCandidates": "백필 대상",
+        "summaryActive": "자동 활성화",
+        "summaryReview": "검토 필요",
+        "previewTruncated": "{{total}}개 중 {{shown}}개 표시",
+        "apply": "{{count}}개 백필",
+        "applying": "백필 중…",
+        "applied": "claim {{created}}개 백필됨: {{active}}개 활성, {{review}}개 검토 대기",
+        "planFailed": "백필 계획 생성 실패",
+        "applyFailed": "백필 실패",
+        "empty": "모든 메모리가 이미 claim 계층에 있습니다.",
+        "appliedPartial": "{{created}}개 백필됨, {{failed}}개 실패 — 나머지를 다시 시도할 수 있습니다"
+      },
       "reviewHistoryTitle": "리뷰 내역",
       "reviewHistoryDesc": "Lucid Review 및 Dreaming에 의해 기록된 최근 검토 결정입니다.",
       "reviewHistoryShow": "쇼",
@@ -4201,6 +4359,14 @@
       "cronTriggerEnabledDesc": "Fire on a cron expression in addition to (or instead of) the idle trigger.",
       "cronTriggerTitle": "Scheduled trigger",
       "desc": "Periodically scan recent memories and pin the most evergreen ones into core memory. Runs offline; never blocks chat.",
+      "errors": {
+        "loadConfig": "Dreaming 설정을 로드하지 못했습니다.",
+        "loadModels": "Failed to load Dreaming model list",
+        "loadStatus": "Failed to load Dreaming status",
+        "saveConfig": "Failed to save Dreaming settings",
+        "reloadAfterSave": "Failed to reload Dreaming settings after save failed",
+        "detail": "세부정보: {{error}}"
+      },
       "idleCountdown": "Idle trigger fires in ~{{minutes}} min",
       "idleMinutes": "Idle threshold (minutes)",
       "idleMinutesDesc": "How long to wait without user activity before firing.",
@@ -4238,14 +4404,6 @@
       "profileEnabledDesc": "활성 claim을 기반으로 범위별 계층화된 읽기 쉬운 프로필을 만듭니다. 켜면 시스템 프롬프트의 기존 프로필 섹션을 대체하고, 끄면 기존 렌더링을 유지합니다. 유휴/예약 실행은 저비용 규칙 기반 처리를 사용하고, 수동 실행은 LLM 재작성을 수행합니다.",
       "profileMaxLines": "범위별 최대 줄 수",
       "profileMaxLinesDesc": "범위별로 유지할 프로필 항목 수의 상한입니다.",
-      "errors": {
-        "loadConfig": "Dreaming 설정을 로드하지 못했습니다.",
-        "loadModels": "Failed to load Dreaming model list",
-        "loadStatus": "Failed to load Dreaming status",
-        "saveConfig": "Failed to save Dreaming settings",
-        "reloadAfterSave": "Failed to reload Dreaming settings after save failed",
-        "detail": "세부정보: {{error}}"
-      },
       "deepResolverTitle": "Deep Resolver",
       "autoExpireOnLightCycle": "오래된 소유권 주장 자동 만료",
       "autoExpireOnLightCycleDesc": "일반적인 Dreaming 주기 동안 감사 지원 확인자 작업으로 만료될 때까지 결정적 유효 기간을 유지합니다.",
@@ -4317,6 +4475,14 @@
       "editTitle": "Edit embedding model",
       "empty": "No embedding model configs yet. Create one from a template above, or add a custom config.",
       "emptyMemory": "No embedding model config is available yet. Create one first, or use the local embedding quick card.",
+      "errors": {
+        "delete": "Failed to delete embedding model config",
+        "detail": "세부정보: {{error}}",
+        "load": "Failed to load embedding model configs",
+        "save": "Failed to save embedding model config",
+        "setDefault": "Failed to switch default memory model",
+        "test": "Embedding connection test failed"
+      },
       "goConfig": "Configure embedding models",
       "memoryActive": "Default memory model",
       "memoryDefault": "Default memory model",
@@ -4330,15 +4496,7 @@
       "setMemoryDefault": "Set as default memory model",
       "tab": "Embedding Models",
       "testOk": "Embedding connection test passed",
-      "title": "Embedding Model Configs",
-      "errors": {
-        "delete": "Failed to delete embedding model config",
-        "detail": "세부정보: {{error}}",
-        "load": "Failed to load embedding model configs",
-        "save": "Failed to save embedding model config",
-        "setDefault": "Failed to switch default memory model",
-        "test": "Embedding connection test failed"
-      }
+      "title": "Embedding Model Configs"
     },
     "fallbackModels": "폴백 모델",
     "fallbackModelsDesc": "메인 모델 사용 불가 시 순서대로 시도할 모델",
@@ -4368,8 +4526,8 @@
       "addHandler": "핸들러 추가",
       "advanced": "고급",
       "slowHandlerWarning": "이 핸들러는 LLM / 서브에이전트를 인라인으로 실행하므로 이 차단 이벤트가 발생할 때마다 지연됩니다. 여기서는 command / http를 권장하거나 관찰 이벤트(PostToolUse 등)로 옮기세요.",
-      "modelInheritDefault": "자동화 기본값 따르기",
-      "invalidJson": "잘못된 JSON입니다"
+      "invalidJson": "잘못된 JSON입니다",
+      "modelInheritDefault": "자동화 기본값 따르기"
     },
     "hours": "시간",
     "imageGenApiKey": "API 키",
@@ -4454,6 +4612,15 @@
       "enabledDesc": "노트를 임베딩하여 시맨틱 검색을 지원합니다. 끄면 노트 검색은 전문 검색만 사용합니다.",
       "changeModel": "모델 변경",
       "activated": "지식 임베딩 모델이 활성화되었습니다",
+      "errors": {
+        "loadEmbedding": "Failed to load knowledge vector search settings",
+        "activateEmbedding": "Failed to activate knowledge vector search",
+        "disableEmbedding": "Failed to disable knowledge vector search",
+        "rebuildEmbedding": "Failed to start knowledge vector rebuild",
+        "cancelReembed": "Failed to cancel knowledge vector rebuild",
+        "retryReembed": "Failed to retry knowledge vector rebuild",
+        "detail": "세부정보: {{error}}"
+      },
       "reembed": {
         "title": "재색인",
         "idle": "노트 벡터가 최신 상태입니다.",
@@ -4463,15 +4630,6 @@
         "retry": "재시도",
         "progress": "{{done}} / {{total}}개 지식 공간",
         "phase": "노트 재임베딩 중"
-      },
-      "errors": {
-        "loadEmbedding": "Failed to load knowledge vector search settings",
-        "activateEmbedding": "Failed to activate knowledge vector search",
-        "disableEmbedding": "Failed to disable knowledge vector search",
-        "rebuildEmbedding": "Failed to start knowledge vector rebuild",
-        "cancelReembed": "Failed to cancel knowledge vector rebuild",
-        "retryReembed": "Failed to retry knowledge vector rebuild",
-        "detail": "세부정보: {{error}}"
       }
     },
     "knowledgeMaintenance": {
@@ -4491,6 +4649,12 @@
       "cycleSkipped": "건너뜀: {{note}}",
       "cycleDone": "제안 {{n}}건 생성",
       "runFailed": "유지보수를 실행하지 못했습니다",
+      "errors": {
+        "load": "자율 유지보수 설정을 불러오지 못했습니다",
+        "save": "자율 유지보수 설정을 저장하지 못했습니다",
+        "runNow": "자율 유지보수를 실행하지 못했습니다",
+        "detail": "세부 정보: {{error}}"
+      },
       "task": {
         "autoLink": "자동 링크",
         "orphanRescue": "고아 노트 구조",
@@ -4507,13 +4671,7 @@
       },
       "model": "모델",
       "modelDesc": "LLM 기반 생성기 4개(자동 태그, MOC 정비, 메모리→노트, 소스 충돌)가 공유합니다.",
-      "modelDefault": "자동화 기본값 따르기",
-      "errors": {
-        "load": "자율 유지보수 설정을 불러오지 못했습니다",
-        "save": "자율 유지보수 설정을 저장하지 못했습니다",
-        "runNow": "자율 유지보수를 실행하지 못했습니다",
-        "detail": "세부 정보: {{error}}"
-      }
+      "modelDefault": "자동화 기본값 따르기"
     },
     "knowledgeMediaRetention": {
       "saved": "저장됨",
@@ -4903,33 +5061,13 @@
     "memoryAutoExtract": "기억 자동 추출",
     "memoryAutoExtractDesc": "토큰, 시간 또는 메시지 임계값을 충족하면 자동으로 기억 추출",
     "memoryBudget": {
+      "advancedAllocation": "고급 범위 할당",
       "agentOverrideDesc": "기본적으로 전역 메모리 예산을 상속합니다. 끄면 Agent 전용 예산을 사용합니다.",
+      "contextWindow": "현재 기본 모델 컨텍스트: {{count}} tokens",
+      "coreSimpleDesc": "Core Memory 총예산 하나만 선택하세요. 사용하지 않은 용량은 Project > Agent > Global 우선순위로 공유됩니다.",
       "coreMemoryFileChars": "MEMORY.md 계층별 상한",
       "coreMemoryFileCharsDesc": "각 MEMORY.md 파일(Global / Agent)의 독립 상한. 상한을 초과한 내용은 프롬프트에서 잘리지만 디스크에는 그대로 보존됩니다. 기본값 8000.",
       "desc": "메모리 섹션(Global MEMORY.md / Agent MEMORY.md / SQLite 메모리 / 가이드라인)의 총 문자 수와 내부 각 계층의 개별 상한을 제한합니다. 총량을 줄이면 대화 컨텍스트에 더 많은 예산을 남길 수 있습니다.",
-      "resetToDefaults": "기본값으로 복원",
-      "sections": {
-        "aboutUser": "사용자에 대해",
-        "preferences": "선호도",
-        "projectContext": "프로젝트 컨텍스트",
-        "references": "참조",
-        "userProfile": "사용자 프로필"
-      },
-      "sqliteEntryMaxChars": "항목당 문자 수 상한",
-      "sqliteEntryMaxCharsDesc": "SQLite 메모리 항목 렌더링 시 첫 줄의 문자 수 상한. 긴 항목 하나가 같은 섹션의 다른 항목을 밀어내지 못하도록 합니다. 기본값 500.",
-      "sqliteSectionsTitle": "SQLite 섹션별 예산",
-      "title": "메모리 예산",
-      "totalChars": "총 문자 수 상한",
-      "totalCharsDesc": "메모리 섹션 전체의 하드 상한(문자). 가이드라인이 우선 예약되고, 나머지 계층은 우선순위 순으로 소비됩니다. 기본값 10000.",
-      "useGlobalDefault": "전역 기본값 상속",
-      "errors": {
-        "load": "Failed to load memory budget",
-        "save": "Failed to save memory budget",
-        "detail": "세부정보: {{error}}"
-      },
-      "advancedAllocation": "고급 범위 할당",
-      "contextWindow": "현재 기본 모델 컨텍스트: {{count}} tokens",
-      "coreSimpleDesc": "Core Memory 총예산 하나만 선택하세요. 사용하지 않은 용량은 Project > Agent > Global 우선순위로 공유됩니다.",
       "engine": {
         "agentTokens": "Agent 토큰",
         "budgetTokens": "예산 토큰",
@@ -4949,13 +5087,33 @@
       "legacyTitle": "레거시 롤백 예산",
       "legacyDesc": "이 문자 예산은 기존 정적 메모리 경로에만 적용되며 호환 기간 동안 계속 편집할 수 있습니다.",
       "effective": "설정 {{configured}} · 이번 요청 유효값 {{effective}} tokens",
+      "errors": {
+        "load": "Failed to load memory budget",
+        "save": "Failed to save memory budget",
+        "detail": "세부정보: {{error}}"
+      },
+      "resetToDefaults": "기본값으로 복원",
       "highBudgetWarning": "권장 범위인 2400 tokens를 초과했습니다. 저장할 수 있지만 매 요청의 안정 컨텍스트, 캐시 쓰기 및 첫 토큰 지연이 증가합니다.",
       "modelLimited": "{{configured}} tokens로 설정했지만 현재 모델은 안전하게 {{effective}}를 사용합니다. 저장된 설정은 변경되지 않습니다.",
       "presets": {
         "balanced": "균형",
         "concise": "간결",
         "rich": "풍부"
-      }
+      },
+      "sections": {
+        "aboutUser": "사용자에 대해",
+        "preferences": "선호도",
+        "projectContext": "프로젝트 컨텍스트",
+        "references": "참조",
+        "userProfile": "사용자 프로필"
+      },
+      "sqliteEntryMaxChars": "항목당 문자 수 상한",
+      "sqliteEntryMaxCharsDesc": "SQLite 메모리 항목 렌더링 시 첫 줄의 문자 수 상한. 긴 항목 하나가 같은 섹션의 다른 항목을 밀어내지 못하도록 합니다. 기본값 500.",
+      "sqliteSectionsTitle": "SQLite 섹션별 예산",
+      "title": "메모리 예산",
+      "totalChars": "총 문자 수 상한",
+      "totalCharsDesc": "메모리 섹션 전체의 하드 상한(문자). 가이드라인이 우선 예약되고, 나머지 계층은 우선순위 순으로 소비됩니다. 기본값 10000.",
+      "useGlobalDefault": "전역 기본값 상속"
     },
     "memoryContent": "내용",
     "memoryContentPlaceholder": "AI 가 무엇을 기억해야 하나요？",
@@ -5046,8 +5204,89 @@
     "memorySelectionThreshold": "트리거 임계값",
     "memorySelectionThresholdDesc": "이 숫자만큼 후보가 있을 때만 작동합니다. 기본값 8.",
     "memorySimilarity": "유사도",
+    "agentMemoryEnabledTitle": "이 Agent에서 기억 사용",
+    "agentMemoryEnabledDesc": "이 Agent의 코어 메모리, 동적 회상, 학습 및 기억 도구를 제어합니다. 전역 기억 설정은 상위 정책으로 계속 적용됩니다.",
     "memoryStatsTotal": "총 {{count}} 개",
     "memoryStatsVec": "벡터 {{pct}}%",
+    "memoryV2": {
+      "title": "기억",
+      "subtitle": "장기 기억, 필요할 때의 회상, 자동 학습 여부를 간단히 선택합니다.",
+      "loadFailed": "기억 설정을 불러오지 못했습니다",
+      "saveFailed": "기억 설정을 저장하지 못했습니다",
+      "core": {
+        "title": "항상 기억",
+        "desc": "Global, Agent, Project의 짧은 MEMORY.md는 대화에 안정적으로 포함되고 세부 주제는 필요할 때만 불러옵니다.",
+        "budget": "총 {{count}} 토큰 예산",
+        "manage": "MEMORY.md 편집",
+        "projectTitle": "프로젝트 MEMORY.md",
+        "projectDesc": "이 프로젝트의 대화에서만 사용하는 짧은 상주 기억입니다.",
+        "conflict": "대문자 정식 파일과 기존 소문자 호환 파일이 모두 변경되었습니다. 저장하기 전에 내용을 선택하거나 병합하세요.",
+        "conflictCanonical": "정식 대문자 MEMORY.md",
+        "conflictLegacy": "이전 소문자 memory.md",
+        "conflictMerged": "병합 결과(정식 파일 기준)",
+        "conflictKeepCanonical": "MEMORY.md 유지",
+        "conflictKeepLegacy": "이전 파일 유지",
+        "conflictSaveMerged": "병합 결과 저장",
+        "conflictLoadFailed": "충돌하는 코어 메모리 파일을 불러오지 못했습니다",
+        "conflictResolveFailed": "코어 메모리 충돌을 해결하지 못했습니다. 새로고침한 후 다시 시도하세요.",
+        "conflictResolved": "코어 메모리 충돌이 해결되었습니다",
+        "actualTokens": "이 범위의 토큰: {{used}} / {{total}}",
+        "stats": "인덱스 항목: {{entries}}개 · 주제: {{topics}}개",
+        "updatedAt": "업데이트: {{value}}",
+        "neverUpdated": "아직 작성되지 않음",
+        "scope": "기억 범위",
+        "projectLabel": "프로젝트",
+        "topics": "필요할 때 불러오는 주제",
+        "noTopics": "아직 주제 파일이 없습니다",
+        "selectTopic": "주제를 선택하거나 새로 만드세요",
+        "topicName": "주제 이름",
+        "topicDesc": "언제 읽을지 한 줄로 설명",
+        "topicContent": "주제 세부 정보(필요할 때만 불러옴)",
+        "topicLoadFailed": "기억 주제를 불러오지 못했습니다",
+        "topicSaveFailed": "기억 주제를 저장하지 못했습니다",
+        "topicDeleteConfirm": "이 기억 주제를 삭제할까요?",
+        "topicDeleteFailed": "기억 주제를 삭제하지 못했습니다"
+      },
+      "recall": {
+        "title": "동적 메모리 회상",
+        "desc": "기본값은 꺼짐입니다. 꺼져 있으면 Agent별 호환 회상이 명시적으로 켜진 경우를 제외하고 안정적인 핵심 메모리만 자동으로 사용되며, 모델은 필요할 때 메모리 도구를 검색할 수 있습니다. 켜면 각 사용자 메시지를 받은 뒤 답변을 생성하기 전에 관련 동적 메모리를 검색합니다.",
+        "fast": "관련 메모리 자동 회상",
+        "deep": "심층 재정렬(선택 사항)",
+        "skip": "건너뜀",
+        "deepCost": "심층 재정렬은 모델 호출이 한 번 추가되어 응답이 느려지고 토큰을 더 사용합니다. 자동 회상을 켠 뒤 정말 필요할 때만 사용하세요.",
+        "last": "최근 회상: {{selected}}/{{candidates}}개 선택 · {{latency}}ms · {{mode}}",
+        "noRecent": "앱을 연 뒤 자동 동적 메모리 회상이 실행되지 않았습니다."
+      },
+      "learning": {
+        "title": "대화에서 학습",
+        "desc": "대화의 새 정보를 저장할지 제어합니다. 기존 기억 사용에는 영향을 주지 않습니다.",
+        "mode": "학습 모드",
+        "smart": "스마트 학습",
+        "reviewFirst": "검토 후 저장",
+        "manual": "수동 저장만",
+        "pending": "검토 대기 {{count}}개",
+        "unassigned": "미할당 {{count}}개"
+      },
+      "review": {
+        "title": "기억 검토 대기",
+        "desc": "후보 {{count}}개는 아직 장기 기억이나 프롬프트에 포함되지 않습니다.",
+        "empty": "검토할 내용이 없습니다",
+        "chooseScope": "저장 범위 선택",
+        "approve": "기억 저장",
+        "reject": "저장하지 않음",
+        "loadFailed": "검토 대기 기억을 불러오지 못했습니다",
+        "approveFailed": "검토 대기 기억을 저장하지 못했습니다",
+        "rejectFailed": "검토 대기 기억을 무시하지 못했습니다",
+        "reason": {
+          "review_first": "학습 모드에서 검토가 필요합니다",
+          "project_scope_missing": "프로젝트 관련 내용이지만 이 대화에 프로젝트가 없습니다",
+          "scope_uncertain": "올바른 저장 범위가 불확실합니다",
+          "sensitive": "민감한 정보가 포함될 수 있습니다",
+          "conflict": "기존 기억과 충돌합니다",
+          "core_promotion": "상주 기억으로 승격할 후보입니다"
+        }
+      }
+    },
     "memoryTabs": {
       "dreaming": "Dreaming",
       "manage": "기억 관리",
@@ -5313,11 +5552,11 @@
       "refreshFailed": "프로필 합성 실패",
       "empty": "아직 프로필 스냅샷이 없습니다",
       "emptyHint": "Dreaming 탭에서 프로필 합성을 켠 다음 새로고침하세요.",
-      "version": "v{{version}}",
       "noSources": "이 이전 스냅샷에는 아직 소유권 주장 소스 링크가 없습니다. 추적 가능한 소스를 생성하려면 프로필을 새로 고치세요.",
       "scopeSources": "스냅샷 수준 소스",
       "sourceConfidence": "자신감 {{value}}",
       "sourceEvidence": "증거: {{quote}}",
+      "version": "v{{version}}",
       "operationErrors": {
         "openEvidenceSource": "Failed to open profile evidence source",
         "refresh": "Failed to synthesise profile",
@@ -5701,8 +5940,8 @@
       "skillCount_one": "{{count}}개 skill",
       "skillCount_other": "{{count}}개 skill",
       "tooltip": {
-        "distinguishOnboarding": "이전 OpenClaw 사용자 데이터 마이그레이션은 2단계의 'Import OpenClaw'를 사용하세요.",
-        "distinguishUserDataImport": "이전 OpenClaw 사용자 데이터를 이전하려면 설정 → Agents → OpenClaw에서 가져오기로 이동하세요."
+        "distinguishUserDataImport": "이전 OpenClaw 사용자 데이터를 이전하려면 설정 → Agents → OpenClaw에서 가져오기로 이동하세요.",
+        "distinguishOnboarding": "이전 OpenClaw 사용자 데이터 마이그레이션은 2단계의 'Import OpenClaw'를 사용하세요."
       },
       "warning": {
         "openclaw": "OpenClaw skill은 외부 CLI(gh, 1password, tmux 등)에 의존하는 경우가 많아 설치 전에는 호출이 실패할 수 있습니다.",
@@ -5755,15 +5994,15 @@
         "memory": "기억 회상",
         "awareness": "세션 간 인식"
       },
-      "model": "모델",
-      "modelDesc": "스프라이트의 제안 호출은 결과를 기다리지 않으므로, 단일 모델이 아니라 전체 폴백 체인을 사용해도 됩니다.",
-      "modelDefault": "자동화 기본값 따르기",
       "errors": {
         "load": "스프라이트 설정을 불러오지 못했습니다",
         "save": "스프라이트 설정을 저장하지 못했습니다",
         "toggle": "스프라이트 모드를 업데이트하지 못했습니다",
         "detail": "세부 정보: {{error}}"
-      }
+      },
+      "model": "모델",
+      "modelDesc": "스프라이트의 제안 호출은 결과를 기다리지 않으므로, 단일 모델이 아니라 전체 폴백 체인을 사용해도 됩니다.",
+      "modelDefault": "자동화 기본값 따르기"
     },
     "ssrfBrowserPolicyDesc": "page.goto / new_page의 대상 URL에 적용. 참고: browser.evaluate 내부의 JS fetch()는 범위 밖입니다.",
     "ssrfDefaultPolicy": "기본 정책",
@@ -6125,49 +6364,10 @@
     "uiEffects": "배경 애니메이션",
     "uiEffectsDesc": "전천후 배경 및 날씨 효과 연동 활성화",
     "uiEffectsToggle": "효과 켜기",
-    "audioGenerate": "오디오 생성",
-    "audioGenerateDesc": "디자인 스페이스 오디오 형태(TTS 내레이션/음악/효과음)를 위한 오디오 합성 제공자(BYOK)를 설정합니다. 순서대로 페일오버.",
-    "audioGenNoProvider": "오디오 제공자가 없습니다 — 하나를 켜고 API 키를 입력하세요.",
-    "audioGenApiKey": "API Key",
-    "audioGenModel": "모델",
-    "audioGenVoice": "음성 (TTS)",
-    "audioGenBaseUrl": "Base URL",
-    "audioGenTimeout": "요청 시간 초과(초)",
-    "audioGenFetchVoices": "음성 가져오기",
-    "audioGenKnownModels": "알려진 모델",
-    "audioGenPickVoice": "목록에서 선택…",
     "visionBridgeModel": "비전 브리지 모델",
     "visionBridgeModelDesc": "기본 모델이 이미지를 볼 수 없을 때만 사용됩니다. 별도의 모델이 이미지를 텍스트 설명으로 변환해 대화를 이어갑니다.",
     "visionBridgeModelClear": "비전 브리지 끄기",
     "selectVisionBridgeModel": "비전 모델 선택",
-    "modelChainRestoreInherit": "상속된 기본값으로 재설정",
-    "automationModelChain": "자동화 기본 모델",
-    "automationModelChainDesc": "Recap, Dreaming, 지식 정리 등 백그라운드 일회성 AI 작업에 쓰이는 기본 모델 체인(대체 모델 포함)입니다. 위의 채팅 기본 모델과는 독립적입니다. 설정하지 않으면 채팅 기본 모델을 따릅니다.",
-    "automationModelChainInherit": "채팅 기본 모델 따르기",
-    "knowledgeVision": {
-      "model": "비전 모델",
-      "modelDesc": "지식 공간으로 이미지를 가져올 때 OCR에 사용하는 모델 체인입니다. 비워두면 자동화 기본값을 따릅니다.",
-      "modelDefault": "자동화 기본값 따르기",
-      "ocrConcurrency": "스캔 PDF OCR 동시 실행 수",
-      "maxOcrPages": "스캔 PDF OCR 페이지 제한"
-    },
-    "noteTools": {
-      "title": "노트 도구 모델",
-      "desc": "노트 추출, MOC 생성, 세션→노트 변환 도구가 공유하는 모델입니다.",
-      "modelDefault": "자동화 기본값 따르기"
-    },
-    "recallSummary": {
-      "title": "회상 요약",
-      "desc": "recall_memory / session_search가 히트를 많이 반환할 때, 원본 스니펫 대신 추가 LLM 호출로 한 문단의 간결한 요약으로 압축합니다. 기본값은 꺼짐 — 조건을 만족하는 검색마다 호출이 한 번 더 발생합니다.",
-      "enabled": "요약 활성화",
-      "minHits": "발동에 필요한 최소 히트 수",
-      "contextCharBudget": "컨텍스트 예산(문자)",
-      "timeoutSecs": "제한 시간(초)",
-      "maxTokens": "최대 출력 토큰 수",
-      "includeHistory": "대화 기록 히트도 요약",
-      "model": "모델",
-      "modelDefault": "자동화 기본값 따르기"
-    },
     "activeMemoryUseRecommended": "권장값 사용",
     "procedureMemoryTitle": "저장된 워크플로",
     "procedureMemoryDesc": "응답 전에 관련 저장 워크플로를 제한된 소프트 가이드로 사용합니다.",
@@ -6999,7 +7199,42 @@
     "reasoningEffort": "사고 강도",
     "memoryAuditScopeHintAll": "모든 변경 사항은 장기 기억, 작업 흐름 및 구조화된 기억 결정을 검색합니다.",
     "memoryAuditScopeHintMemoryOnly": "동작 필터는 장기 기억 기록에 적용됩니다. 워크플로 및 구조화된 메모리 결정은 모든 변경 사항 아래에 있습니다.",
+    "modelChainRestoreInherit": "상속된 기본값으로 재설정",
+    "automationModelChain": "자동화 기본 모델",
+    "automationModelChainDesc": "Recap, Dreaming, 지식 정리 등 백그라운드 일회성 AI 작업에 쓰이는 기본 모델 체인(대체 모델 포함)입니다. 위의 채팅 기본 모델과는 독립적입니다. 설정하지 않으면 채팅 기본 모델을 따릅니다.",
+    "automationModelChainInherit": "채팅 기본 모델 따르기",
+    "knowledgeVision": {
+      "model": "비전 모델",
+      "modelDesc": "지식 공간으로 이미지를 가져올 때 OCR에 사용하는 모델 체인입니다. 비워두면 자동화 기본값을 따릅니다.",
+      "modelDefault": "자동화 기본값 따르기",
+      "ocrConcurrency": "스캔 PDF OCR 동시 실행 수",
+      "maxOcrPages": "스캔 PDF OCR 페이지 제한"
+    },
+    "noteTools": {
+      "title": "노트 도구 모델",
+      "desc": "노트 추출, MOC 생성, 세션→노트 변환 도구가 공유하는 모델입니다.",
+      "modelDefault": "자동화 기본값 따르기"
+    },
+    "recallSummary": {
+      "title": "회상 요약",
+      "desc": "recall_memory / session_search가 히트를 많이 반환할 때, 원본 스니펫 대신 추가 LLM 호출로 한 문단의 간결한 요약으로 압축합니다. 기본값은 꺼짐 — 조건을 만족하는 검색마다 호출이 한 번 더 발생합니다.",
+      "enabled": "요약 활성화",
+      "minHits": "발동에 필요한 최소 히트 수",
+      "contextCharBudget": "컨텍스트 예산(문자)",
+      "timeoutSecs": "제한 시간(초)",
+      "maxTokens": "최대 출력 토큰 수",
+      "includeHistory": "대화 기록 히트도 요약",
+      "model": "모델",
+      "modelDefault": "자동화 기본값 따르기"
+    },
     "tabOverview": "개요",
+    "memoryBackupExportSummary": "기억: {{memories}} · 주장: {{claims}} · 프로필: {{profiles}} · 에피소드: {{episodes}} · 워크플로: {{procedures}}",
+    "memoryBackupOpenReviewInboxAfterRestore": "복원 후 검토 대기: {{count}}개",
+    "memoryExperienceSearchActive": "“{{query}}” 검색 결과: {{total}}개",
+    "memoryExperienceViewActive": "경험 항목: {{total}}개",
+    "memoryExternalProvidersActive": "활성 공급자: {{active}}/{{total}}",
+    "memoryExternalProvidersActiveSummary": "활성: {{active}} · 구성됨: {{total}}",
+    "memoryProcedureSourceEpisode": "에피소드: {{id}}",
     "memoryExternalProviders": "외부 공급자",
     "memoryExternalProvidersDesc": "선택적 추가 메모리 공급자. 로컬 메모리는 여전히 진실의 원천입니다. 연결은 명시적으로 구성하고 활성화할 때까지 비활성화됩니다.",
     "memoryExternalProvidersGlobal": "공급자 동기화 활성화",
@@ -7116,94 +7351,17 @@
     "memoryProcedureStepsPlaceholder": "- 실패한 수표를 검사하십시오.\n- 알려진 수정 사항을 적용합니다.\n- Narrow 검증기를 다시 실행",
     "memoryProcedureConstraintsPlaceholder": "이 워크플로를 사용하지 말아야 할 경우",
     "memoryProcedureConfidence": "자신감",
-    "agentMemoryEnabledTitle": "이 Agent에서 기억 사용",
-    "agentMemoryEnabledDesc": "이 Agent의 코어 메모리, 동적 회상, 학습 및 기억 도구를 제어합니다. 전역 기억 설정은 상위 정책으로 계속 적용됩니다.",
-    "memoryV2": {
-      "title": "기억",
-      "subtitle": "장기 기억, 필요할 때의 회상, 자동 학습 여부를 간단히 선택합니다.",
-      "loadFailed": "기억 설정을 불러오지 못했습니다",
-      "saveFailed": "기억 설정을 저장하지 못했습니다",
-      "core": {
-        "title": "항상 기억",
-        "desc": "Global, Agent, Project의 짧은 MEMORY.md는 대화에 안정적으로 포함되고 세부 주제는 필요할 때만 불러옵니다.",
-        "budget": "총 {{count}} 토큰 예산",
-        "manage": "MEMORY.md 편집",
-        "projectTitle": "프로젝트 MEMORY.md",
-        "projectDesc": "이 프로젝트의 대화에서만 사용하는 짧은 상주 기억입니다.",
-        "conflict": "대문자 정식 파일과 기존 소문자 호환 파일이 모두 변경되었습니다. 저장하기 전에 내용을 선택하거나 병합하세요.",
-        "conflictCanonical": "정식 대문자 MEMORY.md",
-        "conflictLegacy": "이전 소문자 memory.md",
-        "conflictMerged": "병합 결과(정식 파일 기준)",
-        "conflictKeepCanonical": "MEMORY.md 유지",
-        "conflictKeepLegacy": "이전 파일 유지",
-        "conflictSaveMerged": "병합 결과 저장",
-        "conflictLoadFailed": "충돌하는 코어 메모리 파일을 불러오지 못했습니다",
-        "conflictResolveFailed": "코어 메모리 충돌을 해결하지 못했습니다. 새로고침한 후 다시 시도하세요.",
-        "conflictResolved": "코어 메모리 충돌이 해결되었습니다",
-        "actualTokens": "이 범위의 토큰: {{used}} / {{total}}",
-        "stats": "인덱스 항목: {{entries}}개 · 주제: {{topics}}개",
-        "updatedAt": "업데이트: {{value}}",
-        "neverUpdated": "아직 작성되지 않음",
-        "scope": "기억 범위",
-        "projectLabel": "프로젝트",
-        "topics": "필요할 때 불러오는 주제",
-        "noTopics": "아직 주제 파일이 없습니다",
-        "selectTopic": "주제를 선택하거나 새로 만드세요",
-        "topicName": "주제 이름",
-        "topicDesc": "언제 읽을지 한 줄로 설명",
-        "topicContent": "주제 세부 정보(필요할 때만 불러옴)",
-        "topicLoadFailed": "기억 주제를 불러오지 못했습니다",
-        "topicSaveFailed": "기억 주제를 저장하지 못했습니다",
-        "topicDeleteConfirm": "이 기억 주제를 삭제할까요?",
-        "topicDeleteFailed": "기억 주제를 삭제하지 못했습니다"
-      },
-      "recall": {
-        "title": "동적 메모리 회상",
-        "desc": "기본값은 꺼짐입니다. 꺼져 있으면 Agent별 호환 회상이 명시적으로 켜진 경우를 제외하고 안정적인 핵심 메모리만 자동으로 사용되며, 모델은 필요할 때 메모리 도구를 검색할 수 있습니다. 켜면 각 사용자 메시지를 받은 뒤 답변을 생성하기 전에 관련 동적 메모리를 검색합니다.",
-        "fast": "관련 메모리 자동 회상",
-        "deep": "심층 재정렬(선택 사항)",
-        "skip": "건너뜀",
-        "deepCost": "심층 재정렬은 모델 호출이 한 번 추가되어 응답이 느려지고 토큰을 더 사용합니다. 자동 회상을 켠 뒤 정말 필요할 때만 사용하세요.",
-        "last": "최근 회상: {{selected}}/{{candidates}}개 선택 · {{latency}}ms · {{mode}}",
-        "noRecent": "앱을 연 뒤 자동 동적 메모리 회상이 실행되지 않았습니다."
-      },
-      "learning": {
-        "title": "대화에서 학습",
-        "desc": "대화의 새 정보를 저장할지 제어합니다. 기존 기억 사용에는 영향을 주지 않습니다.",
-        "mode": "학습 모드",
-        "smart": "스마트 학습",
-        "reviewFirst": "검토 후 저장",
-        "manual": "수동 저장만",
-        "pending": "검토 대기 {{count}}개",
-        "unassigned": "미할당 {{count}}개"
-      },
-      "review": {
-        "title": "기억 검토 대기",
-        "desc": "후보 {{count}}개는 아직 장기 기억이나 프롬프트에 포함되지 않습니다.",
-        "empty": "검토할 내용이 없습니다",
-        "chooseScope": "저장 범위 선택",
-        "approve": "기억 저장",
-        "reject": "저장하지 않음",
-        "loadFailed": "검토 대기 기억을 불러오지 못했습니다",
-        "approveFailed": "검토 대기 기억을 저장하지 못했습니다",
-        "rejectFailed": "검토 대기 기억을 무시하지 못했습니다",
-        "reason": {
-          "review_first": "학습 모드에서 검토가 필요합니다",
-          "project_scope_missing": "프로젝트 관련 내용이지만 이 대화에 프로젝트가 없습니다",
-          "scope_uncertain": "올바른 저장 범위가 불확실합니다",
-          "sensitive": "민감한 정보가 포함될 수 있습니다",
-          "conflict": "기존 기억과 충돌합니다",
-          "core_promotion": "상주 기억으로 승격할 후보입니다"
-        }
-      }
-    },
-    "memoryBackupExportSummary": "기억: {{memories}} · 주장: {{claims}} · 프로필: {{profiles}} · 에피소드: {{episodes}} · 워크플로: {{procedures}}",
-    "memoryBackupOpenReviewInboxAfterRestore": "복원 후 검토 대기: {{count}}개",
-    "memoryExperienceSearchActive": "“{{query}}” 검색 결과: {{total}}개",
-    "memoryExperienceViewActive": "경험 항목: {{total}}개",
-    "memoryExternalProvidersActive": "활성 공급자: {{active}}/{{total}}",
-    "memoryExternalProvidersActiveSummary": "활성: {{active}} · 구성됨: {{total}}",
-    "memoryProcedureSourceEpisode": "에피소드: {{id}}"
+    "audioGenerate": "오디오 생성",
+    "audioGenerateDesc": "디자인 스페이스 오디오 형태(TTS 내레이션/음악/효과음)를 위한 오디오 합성 제공자(BYOK)를 설정합니다. 순서대로 페일오버.",
+    "audioGenNoProvider": "오디오 제공자가 없습니다 — 하나를 켜고 API 키를 입력하세요.",
+    "audioGenApiKey": "API Key",
+    "audioGenModel": "모델",
+    "audioGenVoice": "음성 (TTS)",
+    "audioGenBaseUrl": "Base URL",
+    "audioGenTimeout": "요청 시간 초과(초)",
+    "audioGenFetchVoices": "음성 가져오기",
+    "audioGenKnownModels": "알려진 모델",
+    "audioGenPickVoice": "목록에서 선택…"
   },
   "shortcuts": {
     "actionOpenSettings": "설정 열기",
@@ -7264,6 +7422,21 @@
     },
     "context": {
       "description": "컨텍스트 윈도우 내역 표시"
+    },
+    "workflow": {
+      "description": "워크플로 모드를 전환하고 워크플로 실행을 확인합니다"
+    },
+    "goal": {
+      "description": "세션 목표를 설정하고 점검합니다"
+    },
+    "loop": {
+      "description": "목표 또는 프롬프트의 반복 트리거 예약"
+    },
+    "review": {
+      "description": "로컬 코드 변경 사항을 검토합니다"
+    },
+    "mode": {
+      "description": "실행 모드를 설정합니다"
     },
     "export": {
       "description": "Markdown 으로 내보내기"
@@ -7348,21 +7521,6 @@
     },
     "kb": {
       "description": "이 그룹 채팅의 지식 베이스 접근을 확인하거나 취소합니다"
-    },
-    "workflow": {
-      "description": "워크플로 모드를 전환하고 워크플로 실행을 확인합니다"
-    },
-    "goal": {
-      "description": "세션 목표를 설정하고 점검합니다"
-    },
-    "loop": {
-      "description": "목표 또는 프롬프트의 반복 트리거 예약"
-    },
-    "review": {
-      "description": "로컬 코드 변경 사항을 검토합니다"
-    },
-    "mode": {
-      "description": "실행 모드를 설정합니다"
     },
     "errors": {
       "noActiveSession": "활성 세션이 없습니다",
@@ -7709,6 +7867,11 @@
     "openPanel": "워크스페이스 열기",
     "resizePanel": "워크스페이스 패널 크기 조정",
     "sourceFromSearch": "검색",
+    "sourceFromUser": "사용자",
+    "sourceFromAttachment": "첨부",
+    "advancedDiagnostics": {
+      "title": "고급 진단"
+    },
     "truncatedNote": "최근 1000개 표시 중",
     "environment": {
       "archived": "Archived",
@@ -7814,8 +7977,6 @@
       "selectBranch": "Select branch",
       "stageAll": "Stage all changes",
       "viewPr": "View pull request",
-      "pullRequestPanelTitle": "풀 리퀘스트",
-      "resizePullRequestPanel": "풀 리퀘스트 패널 너비 조절",
       "worktree": "Worktree",
       "checkDetails": "검사 세부 정보",
       "checkFailed": "실패",
@@ -7837,7 +7998,6 @@
       "openCheck": "검사 열기",
       "openComment": "댓글 열기",
       "prFeedbackUnavailable": "PR 검사 및 댓글을 사용할 수 없음",
-      "prFeedbackStale": "PR 상태를 새로 고치지 못했습니다. 현재 데이터가 오래되었을 수 있습니다",
       "reviewComments": "댓글 {{count}}개",
       "reviewFeedback": "리뷰 피드백",
       "autoMergeEnabled": "자동 병합이 활성화됨",
@@ -7864,24 +8024,10 @@
       "reviewPending": "대기 중",
       "reviewRequired": "리뷰 필요",
       "reviewStatus": "리뷰 상태",
-      "reviewers": "리뷰어"
-    },
-    "action": {
-      "create": "생성",
-      "edit": "편집",
-      "delete": "삭제",
-      "read": "읽기"
-    },
-    "sectionKnowledge": "지식 공간",
-    "emptyKnowledge": "연결된 지식 공간 없음",
-    "kbViaProject": "프로젝트",
-    "kbWrote": "쓰기",
-    "kbRead": "읽기",
-    "kbSearchCount": "검색 {{n}}회",
-    "sourceFromUser": "사용자",
-    "sourceFromAttachment": "첨부",
-    "advancedDiagnostics": {
-      "title": "고급 진단"
+      "reviewers": "리뷰어",
+      "pullRequestPanelTitle": "풀 리퀘스트",
+      "resizePullRequestPanel": "풀 리퀘스트 패널 너비 조절",
+      "prFeedbackStale": "PR 상태를 새로 고치지 못했습니다. 현재 데이터가 오래되었을 수 있습니다"
     },
     "goal": {
       "watchdogTitle": "목표 확인 필요",
@@ -8022,6 +8168,18 @@
       "clean": "로컬 변경 없음",
       "changed": "{{count}}개 변경"
     },
+    "action": {
+      "create": "생성",
+      "edit": "편집",
+      "delete": "삭제",
+      "read": "읽기"
+    },
+    "sectionKnowledge": "지식 공간",
+    "emptyKnowledge": "연결된 지식 공간 없음",
+    "kbViaProject": "프로젝트",
+    "kbWrote": "쓰기",
+    "kbRead": "읽기",
+    "kbSearchCount": "검색 {{n}}회",
     "loop": {
       "title": "루프",
       "stateActive": "실행 중",
@@ -9407,6 +9565,9 @@
       "incognitoDisabled": "시크릿 세션에서는 지식 공간을 첨부할 수 없습니다",
       "needSession": "지식 공간을 첨부하려면 먼저 첫 메시지를 보내세요",
       "empty": "아직 지식 공간이 없습니다. 「지식 공간」에서 만드세요.",
+      "loadFailed": "지식 공간을 불러오지 못했습니다",
+      "attachmentsLoadFailed": "이 채팅의 연결 상태를 읽을 수 없습니다",
+      "errorDetail": "세부 정보: {{error}}",
       "viaProject": "상위 프로젝트에서",
       "noteCount": "노트 {{count}}개",
       "read": "읽기",
@@ -9418,10 +9579,7 @@
       "accessWrite": "읽기+쓰기",
       "accessOffTip": "연결 안 됨 — 어시스턴트가 이 공간에 접근할 수 없습니다",
       "accessReadTip": "어시스턴트가 노트를 검색하고 읽을 수 있습니다",
-      "accessWriteTip": "어시스턴트가 노트를 읽고 편집할 수 있습니다",
-      "loadFailed": "지식 공간을 불러오지 못했습니다",
-      "attachmentsLoadFailed": "이 채팅의 연결 상태를 읽을 수 없습니다",
-      "errorDetail": "세부 정보: {{error}}"
+      "accessWriteTip": "어시스턴트가 노트를 읽고 편집할 수 있습니다"
     },
     "mention": {
       "heading": "지식 노트",
@@ -9482,6 +9640,7 @@
       "noHistory": "아직 대화가 없습니다.",
       "untitled": "제목 없는 대화",
       "noKb": "지식 공간을 열어 대화를 시작하세요.",
+      "welcome": "이 지식 공간을 바탕으로 질문하고 정리하고 작성해 보세요",
       "messageCount": "메시지 {{count}}개",
       "errors": {
         "loadAgents": "채팅 Agent를 불러올 수 없음",
@@ -9493,8 +9652,7 @@
         "loadMoreThreads": "대화를 더 불러올 수 없음",
         "loadMoreMessages": "이전 메시지를 불러올 수 없음",
         "detail": "세부 정보: {{error}}"
-      },
-      "welcome": "이 지식 공간을 바탕으로 질문하고 정리하고 작성해 보세요"
+      }
     },
     "quickRewrite": {
       "title": "빠른 다시 쓰기",
@@ -9504,9 +9662,9 @@
       "regenerate": "다시 생성",
       "apply": "적용",
       "failed": "다시 쓰기 실패",
-      "staleSelection": "다시 쓰는 동안 선택 영역이 바뀌었습니다 — 다시 선택한 후 시도하세요.",
       "modelLoadFailed": "다시 쓰기 모델을 불러올 수 없음",
-      "errorDetail": "세부 정보: {{error}}"
+      "errorDetail": "세부 정보: {{error}}",
+      "staleSelection": "다시 쓰는 동안 선택 영역이 바뀌었습니다 — 다시 선택한 후 시도하세요."
     },
     "sprite": {
       "toggle": "스프라이트 모드",
@@ -9514,6 +9672,10 @@
       "toastOn": "스프라이트 모드 켜짐",
       "toastOnDesc": "편집을 잠시 멈추면 살며시 제안해 드려요.",
       "toastOff": "스프라이트 모드 꺼짐",
+      "loadFailed": "스프라이트 모드를 불러올 수 없음",
+      "toggleFailed": "스프라이트 모드를 업데이트할 수 없음",
+      "observeFailed": "스프라이트에게 제안을 요청할 수 없음",
+      "errorDetail": "세부 정보: {{error}}",
       "respond": "응답",
       "dismiss": "닫기",
       "category": {
@@ -9522,11 +9684,7 @@
         "encourage": "격려",
         "remind": "알림",
         "connect": "연결"
-      },
-      "loadFailed": "스프라이트 모드를 불러올 수 없음",
-      "toggleFailed": "스프라이트 모드를 업데이트할 수 없음",
-      "observeFailed": "스프라이트에게 제안을 요청할 수 없음",
-      "errorDetail": "세부 정보: {{error}}"
+      }
     },
     "deleteNoteTitle": "노트 삭제",
     "deleteNoteBody": "\"{{name}}\"을(를) 삭제할까요? Markdown 파일이 디스크에서 제거됩니다. 이 작업은 되돌릴 수 없습니다.",
@@ -9552,6 +9710,32 @@
     "renameMoveFailed": "\"{{name}}\"의 이름 변경/이동에 실패했습니다 — 같은 이름의 노트가 이미 있을 수 있습니다.",
     "linksRewritten": "다른 노트의 링크 참조 {{count}}개를 업데이트했습니다.",
     "noteRemovedExternally": "이 노트는 앱 밖에서 제거되었거나 이동되었습니다.",
+    "operationErrorDetail": "세부 정보: {{error}}",
+    "errors": {
+      "loadSpaces": "지식 공간을 불러올 수 없음",
+      "loadNotes": "노트를 불러올 수 없음",
+      "loadFolders": "폴더를 불러올 수 없음",
+      "loadTags": "태그를 불러올 수 없음",
+      "searchNotes": "노트를 검색할 수 없음",
+      "saveNote": "노트를 저장할 수 없음",
+      "createSpace": "지식 공간을 만들 수 없음",
+      "createNote": "노트를 만들 수 없음",
+      "createLinkedNote": "연결된 노트를 만들 수 없음",
+      "reindexSpace": "공간 인덱스를 다시 만들 수 없음",
+      "reindexNote": "노트 인덱스를 다시 만들 수 없음",
+      "reindexFolder": "폴더 인덱스를 다시 만들 수 없음",
+      "deleteNote": "노트를 삭제할 수 없음",
+      "deleteFolder": "폴더를 삭제할 수 없음",
+      "revealNote": "노트를 표시할 수 없음",
+      "createFolder": "폴더를 만들 수 없음",
+      "updateSpace": "지식 공간을 업데이트할 수 없음",
+      "archiveSpace": "보관 상태를 업데이트할 수 없음",
+      "deleteSpace": "지식 공간을 삭제할 수 없음"
+    },
+    "focusKbUnavailable": "해당 지식 공간은 더 이상 사용할 수 없습니다.",
+    "focusNoteUnavailable": "지식 노트를 열 수 없습니다. 이동되었거나 액세스 권한이 변경되었을 수 있습니다.",
+    "focusUnavailableDetail": "세부 정보: {{error}}",
+    "focusLocationUnavailable": "노트는 열렸지만 정확한 출처 위치를 찾을 수 없습니다.",
     "moveTo": "이동 위치…",
     "moveToTitle": "\"{{name}}\" 이동 위치…",
     "rootFolder": "루트",
@@ -9573,11 +9757,17 @@
       "tooltip": "지식 공간 활동",
       "title": "지식 공간 활동",
       "empty": "아직 활동이 없습니다",
+      "loadFailed": "재색인 작업을 불러올 수 없습니다",
+      "cancelFailed": "재색인 작업을 취소할 수 없습니다",
+      "retryFailed": "재색인 작업을 다시 시도할 수 없습니다",
+      "clearFailed": "재색인 작업을 지울 수 없습니다",
       "kindReindex": "색인 재구축",
       "kindReembed": "벡터 재생성",
       "fts": "전문 색인",
+      "result": "노트 {{notes}}개 · 공간 {{kbs}}개 재구축",
       "emptyHint": "공간을 바인딩하거나 재색인하거나 파일을 가져오면 여기에 진행 상황이 표시됩니다.",
       "model": "모델: {{name}}",
+      "errorDetail": "세부 정보: {{error}}",
       "kindImport": "소스 가져오기",
       "space": "공간: {{name}}",
       "progressFiles": "파일 {{done}} / {{total}}개",
@@ -9592,13 +9782,7 @@
         "failed": "실패",
         "cancelled": "취소됨",
         "timed_out": "시간 초과"
-      },
-      "loadFailed": "재색인 작업을 불러올 수 없습니다",
-      "cancelFailed": "재색인 작업을 취소할 수 없습니다",
-      "retryFailed": "재색인 작업을 다시 시도할 수 없습니다",
-      "clearFailed": "재색인 작업을 지울 수 없습니다",
-      "result": "노트 {{notes}}개 · 공간 {{kbs}}개 재구축",
-      "errorDetail": "세부 정보: {{error}}"
+      }
     },
     "maintenance": {
       "tooltip": "유지 관리",
@@ -9612,11 +9796,13 @@
       "runNow": "스캔",
       "runNowTip": "지금 스캔하여 제안 생성",
       "rejectAll": "모두 거부",
+      "rejectAllFailed": "모든 제안을 무시할 수 없습니다",
       "approve": "적용",
       "reject": "무시",
       "cycleSkipped": "유지보수 건너뜀: {{note}}",
       "cycleDone": "제안 {{n}}건 생성",
       "runFailed": "유지보수를 실행하지 못했습니다",
+      "errorDetail": "세부 정보: {{error}}",
       "applyFailed": "제안을 적용하지 못했습니다",
       "rejectFailed": "제안을 무시하지 못했습니다",
       "compileQueued": "소스-노트 리뷰가 생성되었습니다. 메모 제안 패널에서 차이점을 확인하세요.",
@@ -9643,9 +9829,7 @@
       "needsReview": "검토 필요",
       "rebuildEvidenceTip": "파생 증거 인덱스 다시 작성",
       "schemaIssues": "스키마 문제",
-      "staleRefs": "오래된 심판",
-      "rejectAllFailed": "모든 제안을 무시할 수 없습니다",
-      "errorDetail": "세부 정보: {{error}}"
+      "staleRefs": "오래된 심판"
     },
     "graph": {
       "toggle": "그래프 보기",
@@ -9672,6 +9856,9 @@
     "embeddingOff": "벡터 검색 꺼짐",
     "embeddingModelTip": "임베딩 모델: {{name}} · 설정 열기",
     "embeddingOffTip": "벡터 검색이 꺼져 있습니다 · 설정 열기",
+    "embeddingStatusUnavailable": "벡터 상태를 사용할 수 없음",
+    "embeddingStatusUnavailableTip": "벡터 검색 상태를 사용할 수 없습니다 · 설정 열기",
+    "embeddingStatusErrorDetail": "세부 정보: {{error}}",
     "kbRootPick": "선택…",
     "kbRootHint": "비워 두면 내부 공간을 만듭니다. 외부 보관소는 1단계에서 읽기 전용입니다.",
     "kbRootInvalid": "해당 폴더를 선택할 수 없습니다",
@@ -9690,6 +9877,7 @@
       "description": "AI는 선택한 소스의 변경 사항을 초안으로 작성합니다. 무엇이든 작성하기 전에 차이점을 검토하세요.",
       "empty": "검토할 제안을 선택하세요.",
       "emptyHint": "생성된 제안은 적용하거나 거부할 때까지 여기에 유지됩니다.",
+      "errorDetail": "세부 정보: {{error}}",
       "failed": "소스-노트 실행 실패",
       "loadFailed": "소스-노트 실행을 로드할 수 없습니다.",
       "noProposals": "이번 실행에 대한 제안이 없습니다.",
@@ -9707,8 +9895,7 @@
       "startFailed": "소스를 메모로 정리할 수 없습니다.",
       "startSelected": "{{count}} 구성",
       "started": "{{n}} 메모 제안이 생성되었습니다.",
-      "title": "메모로 정리",
-      "errorDetail": "세부 정보: {{error}}"
+      "title": "메모로 정리"
     },
     "sources": {
       "archiveAttachment": "지식으로 아카이브",
@@ -9734,6 +9921,7 @@
       "diffTruncated": "잘린 미리보기",
       "dismissSimilar": "무시",
       "downloadOriginal": "원본 다운로드",
+      "downloadOriginalFailed": "원본 파일을 다운로드할 수 없습니다",
       "empty": "아직 소스가 없습니다.",
       "evidenceSources": "출처",
       "externalRawPath": "외부 스냅샷",
@@ -9765,8 +9953,15 @@
       "noSimilarGroups": "유사한 소스 그룹이 없습니다.",
       "open": "열기",
       "openOriginal": "원본 열기",
+      "openOriginalFailed": "원본 파일을 열 수 없습니다",
       "otherKb": "다른 공간 {{id}}",
       "readFailed": "소스를 오픈할 수 없습니다",
+      "sourceListFailed": "Couldn't load sources",
+      "sourceRefsFailed": "소스 참조를 로드할 수 없습니다.",
+      "sourceClaimsFailed": "Couldn't load source claim references",
+      "importRunsListFailed": "Couldn't load import history",
+      "similarGroupsLoadFailed": "Couldn't load similar source groups",
+      "sourceErrorDetail": "세부정보: {{error}}",
       "reextract": "재추출",
       "reextractFailed": "소스를 다시 추출할 수 없습니다.",
       "reextracted": "소스를 다시 추출했습니다.",
@@ -9841,15 +10036,7 @@
       "ocrFailed": "OCR 실패",
       "ocrRetry": "실패한 페이지 재시도",
       "ocrRetryStarted": "실패한 페이지를 재시도하는 중…",
-      "ocrRetryFailed": "OCR 페이지를 재시도할 수 없습니다",
-      "downloadOriginalFailed": "원본 파일을 다운로드할 수 없습니다",
-      "openOriginalFailed": "원본 파일을 열 수 없습니다",
-      "sourceListFailed": "Couldn't load sources",
-      "sourceRefsFailed": "소스 참조를 로드할 수 없습니다.",
-      "sourceClaimsFailed": "Couldn't load source claim references",
-      "importRunsListFailed": "Couldn't load import history",
-      "similarGroupsLoadFailed": "Couldn't load similar source groups",
-      "sourceErrorDetail": "세부정보: {{error}}"
+      "ocrRetryFailed": "OCR 페이지를 재시도할 수 없습니다"
     },
     "queryFile": {
       "action": "파일",
@@ -9858,6 +10045,7 @@
       "applyFailed": "파일링을 적용할 수 없습니다.",
       "description": "글을 쓰기 전에 리뷰 차이점을 만드세요.",
       "empty": "이 답변이 어디에 도착해야 하는지 선택하세요.",
+      "errorDetail": "세부 정보: {{error}}",
       "generateFailed": "제출 제안서를 생성할 수 없습니다.",
       "reject": "거부",
       "rejected": "제출이 삭제되었습니다.",
@@ -9875,8 +10063,7 @@
       "currentNotePlaceholder": "현재 노트 경로",
       "openQuestionsPlaceholder": "공개 질문이 있는 메모",
       "mocPlaceholder": "MOCs/Conversation Filings.md",
-      "createNotePlaceholder": "Filed Conversations/example.md",
-      "errorDetail": "세부 정보: {{error}}"
+      "createNotePlaceholder": "Filed Conversations/example.md"
     },
     "emptyState": {
       "scanning": "이 공간을 스캔하는 중…",
@@ -9884,36 +10071,7 @@
       "emptyExternal": "이 폴더에 아직 마크다운 노트가 없습니다.",
       "emptyInternal": "이 공간은 비어 있습니다.",
       "importFiles": "파일 가져오기"
-    },
-    "operationErrorDetail": "세부 정보: {{error}}",
-    "errors": {
-      "loadSpaces": "지식 공간을 불러올 수 없음",
-      "loadNotes": "노트를 불러올 수 없음",
-      "loadFolders": "폴더를 불러올 수 없음",
-      "loadTags": "태그를 불러올 수 없음",
-      "searchNotes": "노트를 검색할 수 없음",
-      "saveNote": "노트를 저장할 수 없음",
-      "createSpace": "지식 공간을 만들 수 없음",
-      "createNote": "노트를 만들 수 없음",
-      "createLinkedNote": "연결된 노트를 만들 수 없음",
-      "reindexSpace": "공간 인덱스를 다시 만들 수 없음",
-      "reindexNote": "노트 인덱스를 다시 만들 수 없음",
-      "reindexFolder": "폴더 인덱스를 다시 만들 수 없음",
-      "deleteNote": "노트를 삭제할 수 없음",
-      "deleteFolder": "폴더를 삭제할 수 없음",
-      "revealNote": "노트를 표시할 수 없음",
-      "createFolder": "폴더를 만들 수 없음",
-      "updateSpace": "지식 공간을 업데이트할 수 없음",
-      "archiveSpace": "보관 상태를 업데이트할 수 없음",
-      "deleteSpace": "지식 공간을 삭제할 수 없음"
-    },
-    "focusKbUnavailable": "해당 지식 공간은 더 이상 사용할 수 없습니다.",
-    "focusNoteUnavailable": "지식 노트를 열 수 없습니다. 이동되었거나 액세스 권한이 변경되었을 수 있습니다.",
-    "focusUnavailableDetail": "세부 정보: {{error}}",
-    "focusLocationUnavailable": "노트는 열렸지만 정확한 출처 위치를 찾을 수 없습니다.",
-    "embeddingStatusUnavailable": "벡터 상태를 사용할 수 없음",
-    "embeddingStatusUnavailableTip": "벡터 검색 상태를 사용할 수 없습니다 · 설정 열기",
-    "embeddingStatusErrorDetail": "세부 정보: {{error}}"
+    }
   },
   "backgroundJobs": {
     "panelTitle": "백그라운드 작업",
@@ -9959,6 +10117,9 @@
   },
   "macControl": {
     "panelTitle": "맥 컨트롤"
+  },
+  "memory": {
+    "activeRecallToastTitle": "참조된 메모리"
   },
   "design": {
     "title": "디자인 스페이스",
@@ -10678,19 +10839,50 @@
       "chatPrompt": "구현된 코드가 이 디자인과 달라졌습니다. 참조된 코드 변경에 맞춰 현재 디자인을 업데이트하되, 디자인 의도와 나머지 내용은 그대로 유지하세요."
     }
   },
-  "agentLifecycle": {
-    "activeWorkBlocked": "Deletion is blocked while {{count}} Agent task(s) are still active.",
-    "deleteDescription": "Routing references will move to the replacement Agent. Historical conversations and structured memories are retained, while Agent files are moved to the recoverable trash.",
-    "deleteTitle": "Delete Agent safely",
-    "disabled": "Disabled",
-    "enabled": "Enabled",
-    "history": "Historical conversations",
-    "memories": "Retained memories",
-    "replacement": "Replacement Agent",
-    "retentionNotice": "This operation creates a configuration backup. Agent configuration, Home, and Plans are moved to trash instead of being permanently erased.",
-    "routes": "Routing references"
-  },
-  "memory": {
-    "activeRecallToastTitle": "참조된 메모리"
+  "artifacts": {
+    "title": "Artifacts",
+    "subtitle": "Versioned local reports, dashboards, and explainers",
+    "loadFailed": "Failed to load Artifacts",
+    "verifyPassed": "Verification passed",
+    "verifyFailed": "Verification found blockers",
+    "exportUnavailable": "Export unavailable",
+    "exportReady": "Artifact exported",
+    "restoreReady": "Restored as a new version",
+    "archiveConfirm": "Archive this Artifact?",
+    "deleteConfirm": "Permanently delete this Artifact and all versions?",
+    "search": "Search title, project, or Agent",
+    "allKinds": "All kinds",
+    "active": "Active",
+    "archived": "Archived",
+    "allStates": "All states",
+    "empty": "No Artifacts found",
+    "selectHint": "Select an Artifact to inspect it",
+    "sources": "sources",
+    "verify": "Verify",
+    "export": "Export",
+    "archive": "Archive",
+    "delete": "Delete",
+    "deliveryStatus": "Delivery status",
+    "privacy": "Privacy",
+    "analysisStatus": "Analysis",
+    "verification": "Verification",
+    "sourceContext": "Sources & quality",
+    "qualityChecks": "Quality checks",
+    "noSources": "No canonical sources recorded",
+    "contentMode": "Content",
+    "executable": "executable",
+    "static": "static",
+    "versionHistory": "Version history",
+    "current": "Current",
+    "restore": "Restore",
+    "exportReview": "Export review",
+    "exportReviewHint": "Required for shareable, sensitive, private-source, or connector-backed packages.",
+    "audiencePlaceholder": "Intended audience",
+    "audienceRequired": "Enter the intended delivery audience",
+    "redactionConfirm": "Confirm that sensitive fields and included sources have been reviewed for this audience?",
+    "confirmRedaction": "Confirm redaction & review",
+    "exportReviewPassed": "Export review passed",
+    "exportReviewBlocked": "Export review still has blockers",
+    "guardStatus": "Guard"
   }
 }

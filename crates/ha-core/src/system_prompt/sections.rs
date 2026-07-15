@@ -582,7 +582,9 @@ pub(super) fn build_acp_section() -> String {
 // ── Project sections ────────────────────────────────────────────
 
 /// Build a "Current Project" section describing the project this session
-/// belongs to: name, optional description, and optional custom instructions.
+/// belongs to: name and optional description. Project instructions are loaded
+/// exclusively from the working directory's `AGENTS.md` by
+/// `build_session_working_dir_section`.
 ///
 /// Injected into the system prompt right before the Memory section so the
 /// LLM is primed with project context before reading project memories.
@@ -601,17 +603,6 @@ pub(super) fn build_project_context_section(project: &Project) -> String {
         .filter(|s| !s.is_empty())
     {
         out.push_str(&format!("\nDescription: {}\n", desc));
-    }
-
-    if let Some(instr) = project
-        .instructions
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-    {
-        out.push_str("\n## Project Instructions\n\n");
-        out.push_str(&super::helpers::truncate(instr, MAX_FILE_CHARS));
-        out.push('\n');
     }
 
     let app_config = crate::config::cached_config();

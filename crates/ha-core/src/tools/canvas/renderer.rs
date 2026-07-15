@@ -1,5 +1,10 @@
 use anyhow::Result;
+use pulldown_cmark::{html as markdown_html, Event, Options, Parser};
+use serde_json::Value;
 use std::path::Path;
+
+const OFFLINE_CSP_INTERACTIVE: &str = "default-src 'none'; img-src data: blob:; style-src 'unsafe-inline'; script-src 'unsafe-inline' 'unsafe-eval'; font-src data:; connect-src 'none'; frame-src 'none'; object-src 'none'; form-action 'none'; base-uri 'none'";
+const OFFLINE_CSP_STATIC: &str = "default-src 'none'; img-src data: blob:; style-src 'unsafe-inline'; script-src 'none'; font-src data:; connect-src 'none'; frame-src 'none'; object-src 'none'; form-action 'none'; base-uri 'none'";
 
 /// Build the complete index.html file for a canvas project.
 /// Wraps user HTML/CSS/JS in a safe template with live-reload support.
@@ -14,6 +19,7 @@ pub fn build_html_page(html: Option<&str>, css: Option<&str>, js: Option<&str>) 
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Content-Security-Policy" content="{csp}">
 <style>
 *, *::before, *::after {{ box-sizing: border-box; }}
 body {{ margin: 0; padding: 16px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }}
@@ -34,15 +40,7 @@ window.addEventListener('message', function(event) {{
     }}
   }}
   if (event.data && event.data.type === 'canvas_snapshot') {{
-    import('https://html2canvas.hertzen.com/dist/html2canvas.min.js').then(function() {{
-      html2canvas(document.body).then(function(canvas) {{
-        var dataUrl = canvas.toDataURL('image/png');
-        parent.postMessage({{ type: 'canvas_snapshot_result', requestId: event.data.requestId, dataUrl: dataUrl }}, '*');
-      }});
-    }}).catch(function() {{
-      // Fallback: use a simple serialized HTML representation
-      parent.postMessage({{ type: 'canvas_snapshot_result', requestId: event.data.requestId, error: 'html2canvas not available' }}, '*');
-    }});
+    parent.postMessage({{ type: 'canvas_snapshot_result', requestId: event.data.requestId, error: 'Offline snapshot runtime unavailable; use the app-owned browser capture path.' }}, '*');
   }}
 }});
 </script>
@@ -54,19 +52,32 @@ window.addEventListener('message', function(event) {{
         user_css = user_css,
         user_html = user_html,
         user_js = user_js,
+        csp = OFFLINE_CSP_INTERACTIVE,
     )
 }
 
 /// Build a Markdown preview page.
 pub fn build_markdown_page(content: &str) -> String {
-    let escaped = content.replace('`', "\\`").replace("${", "\\${");
+    let parser = Parser::new_ext(
+        content,
+        Options::ENABLE_TABLES
+            | Options::ENABLE_STRIKETHROUGH
+            | Options::ENABLE_TASKLISTS
+            | Options::ENABLE_FOOTNOTES,
+    );
+    let parser = parser.map(|event| match event {
+        Event::Html(value) | Event::InlineHtml(value) => Event::Text(value),
+        other => other,
+    });
+    let mut rendered = String::new();
+    markdown_html::push_html(&mut rendered, parser);
     format!(
         r#"<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<meta http-equiv="Content-Security-Policy" content="{csp}">
 <style>
 *, *::before, *::after {{ box-sizing: border-box; }}
 body {{ margin: 0; padding: 24px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #1a1a1a; max-width: 800px; }}
@@ -81,13 +92,11 @@ blockquote {{ border-left: 4px solid #ddd; margin-left: 0; padding-left: 16px; c
 </style>
 </head>
 <body>
-<div id="content"></div>
-<script>
-document.getElementById('content').innerHTML = marked.parse(`{escaped}`);
-</script>
+<main>{rendered}</main>
 </body>
 </html>"#,
-        escaped = escaped,
+        csp = OFFLINE_CSP_STATIC,
+        rendered = rendered,
     )
 }
 
@@ -105,8 +114,7 @@ pub fn build_code_page(content: &str, language: Option<&str>) -> String {
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11/styles/github.min.css">
-<script src="https://cdn.jsdelivr.net/npm/highlight.js@11/highlight.min.js"></script>
+<meta http-equiv="Content-Security-Policy" content="{csp}">
 <style>
 *, *::before, *::after {{ box-sizing: border-box; }}
 body {{ margin: 0; padding: 0; }}
@@ -116,9 +124,9 @@ code {{ font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace; }}
 </head>
 <body>
 <pre><code class="language-{lang}">{escaped_content}</code></pre>
-<script>hljs.highlightAll();</script>
 </body>
 </html>"#,
+        csp = OFFLINE_CSP_STATIC,
         lang = lang,
         escaped_content = escaped_content,
     )
@@ -132,6 +140,7 @@ pub fn build_svg_page(content: &str) -> String {
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Content-Security-Policy" content="{csp}">
 <style>
 body {{ margin: 0; padding: 16px; display: flex; justify-content: center; align-items: center; min-height: 100vh; background: #fafafa; }}
 svg {{ max-width: 100%; height: auto; }}
@@ -142,64 +151,109 @@ svg {{ max-width: 100%; height: auto; }}
 </body>
 </html>"#,
         content = content,
+        csp = OFFLINE_CSP_STATIC,
     )
 }
 
 /// Build a Mermaid diagram page.
 pub fn build_mermaid_page(content: &str) -> String {
-    let escaped = content.replace('`', "\\`").replace("${", "\\${");
+    let escaped = escape_html(content);
     format!(
         r#"<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+<meta http-equiv="Content-Security-Policy" content="{csp}">
 <style>
-body {{ margin: 0; padding: 24px; display: flex; justify-content: center; background: #fff; }}
-.mermaid {{ max-width: 100%; }}
+body {{ margin: 0; padding: 24px; background: #fff; color: #1a1a1a; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }}
+.notice {{ margin-bottom: 12px; color: #666; font-size: 13px; }}
+pre {{ max-width: 100%; overflow: auto; border-radius: 8px; background: #f5f5f5; padding: 16px; line-height: 1.5; }}
 </style>
 </head>
 <body>
-<div class="mermaid">
-{escaped}
-</div>
-<script>mermaid.initialize({{ startOnLoad: true, theme: 'default' }});</script>
+<p class="notice">Mermaid source (offline semantic fallback)</p>
+<pre><code>{escaped}</code></pre>
 </body>
 </html>"#,
         escaped = escaped,
+        csp = OFFLINE_CSP_STATIC,
     )
 }
 
 /// Build a Chart.js visualization page.
 pub fn build_chart_page(content: &str) -> String {
+    let config = serde_json::from_str::<Value>(content).unwrap_or(Value::Null);
+    let title = config
+        .pointer("/options/plugins/title/text")
+        .and_then(Value::as_str)
+        .unwrap_or("Chart");
+    let labels = config
+        .pointer("/data/labels")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let datasets = config
+        .pointer("/data/datasets")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let mut header = String::from("<th>Category</th>");
+    for dataset in &datasets {
+        header.push_str(&format!(
+            "<th>{}</th>",
+            escape_html(
+                dataset
+                    .get("label")
+                    .and_then(Value::as_str)
+                    .unwrap_or("Value")
+            )
+        ));
+    }
+    let mut rows = String::new();
+    for (index, label) in labels.iter().enumerate() {
+        rows.push_str(&format!(
+            "<tr><th>{}</th>",
+            escape_html(&display_value(label))
+        ));
+        for dataset in &datasets {
+            let value = dataset
+                .get("data")
+                .and_then(Value::as_array)
+                .and_then(|values| values.get(index))
+                .map(display_value)
+                .unwrap_or_else(|| "—".to_string());
+            rows.push_str(&format!("<td>{}</td>", escape_html(&value)));
+        }
+        rows.push_str("</tr>");
+    }
+    if rows.is_empty() {
+        rows.push_str(&format!(
+            "<tr><td><pre>{}</pre></td></tr>",
+            escape_html(content)
+        ));
+    }
     format!(
         r#"<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<meta http-equiv="Content-Security-Policy" content="{csp}">
 <style>
 body {{ margin: 0; padding: 24px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }}
-.chart-container {{ position: relative; width: 100%; max-width: 800px; margin: 0 auto; }}
+main {{ width: 100%; max-width: 900px; margin: 0 auto; }}
+table {{ border-collapse: collapse; width: 100%; }} th,td {{ border: 1px solid #ddd; padding: 8px; text-align: right; }} th:first-child {{ text-align: left; }}
 </style>
 </head>
 <body>
-<div class="chart-container">
-  <canvas id="chart"></canvas>
-</div>
-<script>
-try {{
-  var config = {content};
-  new Chart(document.getElementById('chart'), config);
-}} catch(e) {{
-  document.body.innerHTML = '<pre style="color:red">Chart config error: ' + e.message + '</pre>';
-}}
-</script>
+<main><h1>{title}</h1><p>Offline semantic chart fallback</p><table><thead><tr>{header}</tr></thead><tbody>{rows}</tbody></table></main>
 </body>
 </html>"#,
-        content = content,
+        csp = OFFLINE_CSP_STATIC,
+        title = escape_html(title),
+        header = header,
+        rows = rows,
     )
 }
 
@@ -214,6 +268,7 @@ pub fn build_slides_page(html: Option<&str>, css: Option<&str>) -> String {
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Content-Security-Policy" content="{csp}">
 <style>
 *, *::before, *::after {{ box-sizing: border-box; }}
 body {{ margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; overflow: hidden; background: #1a1a2e; color: #eee; }}
@@ -260,6 +315,7 @@ section ul, section ol {{ text-align: left; font-size: 1.1em; line-height: 1.8; 
 </html>"#,
         user_css = user_css,
         user_html = user_html,
+        csp = OFFLINE_CSP_INTERACTIVE,
     )
 }
 
@@ -275,24 +331,16 @@ pub fn write_project_files(
 ) -> Result<()> {
     std::fs::create_dir_all(project_dir)?;
 
-    let index_html = match content_type {
-        "markdown" => build_markdown_page(content.unwrap_or("")),
-        "code" => build_code_page(content.unwrap_or(""), language),
-        "svg" => build_svg_page(content.unwrap_or("")),
-        "mermaid" => build_mermaid_page(content.unwrap_or("")),
-        "chart" => build_chart_page(content.unwrap_or("{}")),
-        "slides" => build_slides_page(html, css),
-        _ => build_html_page(html, css, js), // "html" and default
-    };
+    let index_html = render_project_page(content_type, html, css, js, content, language);
 
-    std::fs::write(project_dir.join("index.html"), &index_html)?;
+    crate::platform::write_atomic(&project_dir.join("index.html"), index_html.as_bytes())?;
 
     // Also save raw source files for reference / version tracking
     if let Some(css_content) = css {
-        std::fs::write(project_dir.join("style.css"), css_content)?;
+        crate::platform::write_atomic(&project_dir.join("style.css"), css_content.as_bytes())?;
     }
     if let Some(js_content) = js {
-        std::fs::write(project_dir.join("script.js"), js_content)?;
+        crate::platform::write_atomic(&project_dir.join("script.js"), js_content.as_bytes())?;
     }
     if let Some(text_content) = content {
         let ext = match content_type {
@@ -303,8 +351,48 @@ pub fn write_project_files(
             "code" => language.unwrap_or("txt"),
             _ => "txt",
         };
-        std::fs::write(project_dir.join(format!("content.{}", ext)), text_content)?;
+        crate::platform::write_atomic(
+            &project_dir.join(format!("content.{}", ext)),
+            text_content.as_bytes(),
+        )?;
     }
 
     Ok(())
+}
+
+/// Render a complete Canvas page without touching disk. Artifact migration
+/// uses this for legacy versions whose HTML/CSS/JS were stored separately.
+pub(crate) fn render_project_page(
+    content_type: &str,
+    html: Option<&str>,
+    css: Option<&str>,
+    js: Option<&str>,
+    content: Option<&str>,
+    language: Option<&str>,
+) -> String {
+    match content_type {
+        "markdown" => build_markdown_page(content.unwrap_or("")),
+        "code" => build_code_page(content.unwrap_or(""), language),
+        "svg" => build_svg_page(content.unwrap_or("")),
+        "mermaid" => build_mermaid_page(content.unwrap_or("")),
+        "chart" => build_chart_page(content.unwrap_or("{}")),
+        "slides" => build_slides_page(html, css),
+        _ => build_html_page(html, css, js),
+    }
+}
+
+fn escape_html(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&#39;")
+}
+
+fn display_value(value: &Value) -> String {
+    value
+        .as_str()
+        .map(ToOwned::to_owned)
+        .unwrap_or_else(|| value.to_string())
 }

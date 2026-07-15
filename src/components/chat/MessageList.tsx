@@ -111,6 +111,8 @@ interface MessageListProps {
   renderMessageActions?: (msg: Message, index: number) => ReactNode
   displayMode?: ChatDisplayMode
   autoCollapseCompletedTurns?: boolean
+  /** Reports whether the latest transcript tail is inside the reading window. */
+  onAtBottomChange?: (atBottom: boolean) => void
 }
 
 const AT_BOTTOM_THRESHOLD_PX = 48
@@ -686,6 +688,7 @@ export default function MessageList({
   renderMessageActions,
   displayMode = "bubble",
   autoCollapseCompletedTurns = true,
+  onAtBottomChange,
 }: MessageListProps) {
   const { t } = useTranslation()
   const rootRef = useRef<HTMLDivElement | null>(null)
@@ -1040,6 +1043,7 @@ export default function MessageList({
     if (lastSessionKeyRef.current !== sessionKey) {
       lastSessionKeyRef.current = sessionKey
       atBottomRef.current = true
+      setAtBottom(true)
       userScrollLockRef.current = false
     }
     const el = containerRef.current
@@ -1053,6 +1057,10 @@ export default function MessageList({
     if (!atBottomRef.current || userScrollLockRef.current) return
     el.scrollTop = el.scrollHeight
   }, [messages, sessionKey])
+
+  useEffect(() => {
+    onAtBottomChange?.(atBottom)
+  }, [atBottom, onAtBottomChange])
 
   // ask_user_question renders in the footer, not as a new message row. When
   // the card appears, `messages` may be unchanged, so the regular follow-bottom
@@ -1348,6 +1356,13 @@ export default function MessageList({
         return
       }
       handledScrollTargetRef.current = targetId
+      // A search jump is historical navigation, even before smooth scrolling
+      // emits its first scroll event. Drop the readable-tail signal
+      // synchronously so the parent cannot advance the unread watermark during
+      // the animation; reaching the real bottom clears this lock normally.
+      userScrollLockRef.current = true
+      atBottomRef.current = false
+      setAtBottom(false)
       target.scrollIntoView({ block: "center", behavior: preferredScrollBehavior() })
       setHighlightMessageId(targetId)
       if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current)

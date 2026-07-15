@@ -376,15 +376,15 @@ fn render_project_section(meta: &crate::session::SessionMeta) -> Option<Vec<Stri
     if let Some(working_dir) = project.working_dir.as_deref() {
         lines.push(format!("- **Working Directory**: `{}`", working_dir));
     }
-    if let Some(instructions) = project
-        .instructions
-        .as_deref()
-        .filter(|s| !s.trim().is_empty())
-    {
-        lines.push(format!(
-            "- **Instructions**: {}",
-            truncate_description(instructions, 200)
-        ));
+    lines.push("- **Instructions File**: `AGENTS.md`".to_string());
+    if let Ok(file) = crate::project::read_project_instructions(project_id, &project_db) {
+        let instructions = file.content.trim();
+        if !instructions.is_empty() {
+            lines.push(format!(
+                "- **Instructions Preview**: {}",
+                truncate_description(instructions, 200)
+            ));
+        }
     }
 
     let cfg = crate::config::cached_config();

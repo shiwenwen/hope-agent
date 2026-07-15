@@ -69,7 +69,7 @@ pub fn is_canvas_enabled() -> bool {
 
 // ── Helper: get or init canvas DB ──────────────────────────────────
 
-fn get_canvas_db() -> Result<CanvasDB> {
+pub(crate) fn get_canvas_db() -> Result<CanvasDB> {
     let db_path = paths::canvas_db_path()?;
     // Ensure parent directory exists
     if let Some(parent) = db_path.parent() {
@@ -80,7 +80,7 @@ fn get_canvas_db() -> Result<CanvasDB> {
 
 // ── Helper: emit canvas events ─────────────────────────────────────
 
-fn emit_canvas_event(event_name: &str, payload: &Value) {
+pub(crate) fn emit_canvas_event(event_name: &str, payload: &Value) {
     if let Some(bus) = crate::globals::get_event_bus() {
         bus.emit(event_name, payload.clone());
     }
@@ -120,6 +120,16 @@ pub(crate) async fn tool_canvas(
         .get("action")
         .and_then(|v| v.as_str())
         .ok_or_else(|| anyhow::anyhow!("Missing 'action' parameter"))?;
+    if ctx.incognito
+        && matches!(
+            action,
+            "create" | "update" | "delete" | "restore" | "export"
+        )
+    {
+        anyhow::bail!(
+            "canvas write and export actions are unavailable in incognito sessions because Canvas projects are durable"
+        );
+    }
 
     match action {
         "create" => action_create(args, ctx).await,
@@ -699,6 +709,17 @@ pub async fn delete_canvas_project(project_id: String) -> Result<(), String> {
 }
 
 pub async fn show_canvas_panel(project_id: String) -> Result<(), String> {
+    if let Ok(service) = crate::artifacts::ArtifactService::open() {
+        if let Err(error) = service.refresh_analysis_projection(&project_id) {
+            app_warn!(
+                "artifact",
+                "refresh_show_projection",
+                "failed to refresh analysis preview for {}: {}",
+                project_id,
+                error
+            );
+        }
+    }
     let db = get_canvas_db().map_err(|e| e.to_string())?;
     let project = db
         .get_project(&project_id)

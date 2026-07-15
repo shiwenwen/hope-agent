@@ -1,4 +1,16 @@
 {
+  "agentLifecycle": {
+    "activeWorkBlocked": "Deletion is blocked while {{count}} Agent task(s) are still active.",
+    "deleteDescription": "Routing references will move to the replacement Agent. Historical conversations and structured memories are retained, while Agent files are moved to the recoverable trash.",
+    "deleteTitle": "Delete Agent safely",
+    "disabled": "Disabled",
+    "enabled": "Enabled",
+    "history": "Historical conversations",
+    "memories": "Retained memories",
+    "replacement": "Replacement Agent",
+    "retentionNotice": "This operation creates a configuration backup. Agent configuration, Home, and Plans are moved to trash instead of being permanently erased.",
+    "routes": "Routing references"
+  },
   "about": {
     "badge": "AI desktop untuk kerja harian",
     "closing": "Ia bukan direka sebagai senarai semak ciri. Ia direka untuk kekal berguna, boleh dipercayai dan tidak mengganggu dalam penggunaan jangka panjang.",
@@ -111,6 +123,10 @@
         "title": "Advanced browser CDP command",
         "body": "This browser action will send a raw Chrome DevTools Protocol command to a real Chrome tab. It uses the normal tool approval flow; AllowAlways, Smart mode, and YOLO follow the active session policy."
       },
+      "external_connector_action": {
+        "title": "Tindakan penyambung luaran",
+        "body": "Panggilan ini akan mengubah mel, kalendar, dokumen, hamparan atau rekod perniagaan dalam sistem luaran. Pengesahan setiap panggilan diperlukan; Sentiasa Benarkan tidak tersedia."
+      },
       "browser_download_action": {
         "title": "Browser download action",
         "body": "This browser action will read or interrupt Chrome download activity. It uses the normal tool approval flow; AllowAlways, Smart mode, and YOLO follow the active session policy."
@@ -126,10 +142,6 @@
       "browser_chrome_access": {
         "title": "Real Chrome access",
         "body": "This browser action will read or control the user's real Chrome state through the extension. It uses the normal tool approval flow; AllowAlways, Smart mode, and YOLO follow the active session policy."
-      },
-      "external_connector_action": {
-        "title": "Tindakan penyambung luaran",
-        "body": "Panggilan ini akan mengubah mel, kalendar, dokumen, hamparan atau rekod perniagaan dalam sistem luaran. Pengesahan setiap panggilan diperlukan; Sentiasa Benarkan tidak tersedia."
       }
     },
     "title": "Command Approval Required",
@@ -157,7 +169,6 @@
     "maximize": "Maksimumkan",
     "minimize": "Minimumkan",
     "openPreview": "Buka pratonton",
-    "shareTo": "Kongsi ke",
     "popOut": "Buka dalam tetingkap berasingan",
     "popOutActive": "Dibuka dalam tetingkap berasingan",
     "reattach": "Kembali ke panel",
@@ -167,7 +178,8 @@
     "panelTitle": "Kanvas",
     "resizePanel": "Ubah saiz panel kanvas",
     "notReadyError": "Panel kanvas tidak dibuka atau iframe tidak dimuatkan",
-    "detachedWindowTitle": "Kanvas: {{title}}"
+    "detachedWindowTitle": "Kanvas: {{title}}",
+    "shareTo": "Kongsi ke"
   },
   "channels": {
     "accountLabel": "Nama akaun",
@@ -324,6 +336,18 @@
   "chat": {
     "addWorkingDirectory": "Tambah direktori kerja",
     "askAnything": "Beritahu idea anda, @ cari fail/nota/kemahiran, # input pantas, / arahan pantas...",
+    "goalCompletion": {
+      "completed": "Matlamat dicapai",
+      "completedWithDuration": "Matlamat dicapai dalam {{time}}",
+      "tokens": "{{tokens}} token"
+    },
+    "fork": {
+      "continueInNewSession": "Teruskan dalam sesi baharu",
+      "continuedFrom": "Disambung daripada",
+      "created": "Diteruskan dalam sesi baharu",
+      "failed": "Tidak dapat meneruskan dalam sesi baharu",
+      "sourceFallback": "sesi asal"
+    },
     "browserPanel": {
       "backendBadgeTooltip": "Backend pelayar: {{backend}}",
       "captureFailed": "Gagal menangkap bingkai, menunggu yang seterusnya",
@@ -402,6 +426,12 @@
     "sidebarDetailedMode": "Tukar ke mod biasa",
     "copied": "Disalin",
     "copy": "Salin",
+    "messageQuote": {
+      "addToChat": "Tambah ke sembang",
+      "assistantMessage": "Mesej pembantu",
+      "remove": "Buang petikan",
+      "yourMessage": "Mesej anda"
+    },
     "quickPrompts": {
       "addAction": "Tambah ke input pantas",
       "addFailed": "Gagal menambah input pantas",
@@ -413,6 +443,8 @@
     },
     "cronTaskStarted": "Satu tugasan berjadual telah dicetuskan",
     "cronTrigger": "Tugasan berjadual",
+    "loopTriggered": "Satu langkah gelung dicetuskan",
+    "loopTrigger": "Gelung",
     "wakeupResumed": "Disambung untuk teruskan",
     "wakeupTrigger": "Jaga berjadual",
     "daysAgo": "{{count}} hari lalu",
@@ -522,244 +554,6 @@
     "pendingInteractionHint": "Menunggu respons anda",
     "pendingInteractionInline": "Menunggu respons · {{count}}",
     "pendingQueued": "Mesej dalam barisan, akan dihantar selepas balasan...",
-    "permissionMode": {
-      "applyToAgentDefault": {
-        "desc": "Apabila dihidupkan, memilih mod juga mengemas kini lalai Agent ini untuk chat baharu.",
-        "failed": "Gagal mengemas kini mod kebenaran lalai Agent ini.",
-        "label": "Kemas kini lalai Agent"
-      },
-      "default": {
-        "desc": "Alat suntingan dan arahan berbahaya perlu kelulusan; selainnya dijalankan.",
-        "label": "Lalai"
-      },
-      "menuLabel": "Mod kebenaran",
-      "smart": {
-        "desc": "Model hakim atau penanda keyakinan model membuat keputusan kelulusan.",
-        "label": "Kelulusan pintar"
-      },
-      "yolo": {
-        "desc": "Semua alat dalam sesi ini berjalan tanpa kelulusan (laluan dilindungi tetap diaudit).",
-        "label": "YOLO"
-      }
-    },
-    "sandboxMode": {
-      "isolated": {
-        "desc": "Run in an isolated copy; edit approvals are unchanged until apply-back is supported.",
-        "label": "Isolated Sandbox"
-      },
-      "menuLabel": "Kotak pasir",
-      "off": {
-        "desc": "Run on the host; approval behavior is unchanged.",
-        "label": "Sandbox Off"
-      },
-      "setupTitle": "Configure Docker to enable sandbox",
-      "standard": {
-        "desc": "Run in Docker; approval behavior is unchanged.",
-        "label": "Standard Sandbox"
-      },
-      "trusted": {
-        "desc": "Max autonomy for sandboxed exec; strict risks still ask.",
-        "label": "Trusted Sandbox"
-      },
-      "workspace": {
-        "desc": "Mount this workspace and reduce edit-command approvals.",
-        "label": "Workspace Sandbox"
-      }
-    },
-    "pickSession": "Pilih sesi",
-    "profileRotationTitle": "Tukar profil",
-    "queueMessage": "Beratur mesej",
-    "reasonAuth": "Pengesahan gagal",
-    "reasonBilling": "Bil / kuota melebihi",
-    "reasonContextOverflow": "Konteks melebihi had",
-    "reasonModelNotFound": "Model tidak dijumpai",
-    "reasonOverloaded": "Perkhidmatan terlebih beban",
-    "reasonRateLimit": "Had kadar permintaan melebihi",
-    "reasonTimeout": "Permintaan tamat masa",
-    "reasonUnknown": "Ralat tidak diketahui",
-    "renameSession": "Namakan semula",
-    "renameSessionPlaceholder": "Masukkan tajuk baharu...",
-    "revealInFolder": "Tunjuk dalam folder",
-    "roundLimitReachedBody": "Pusingan ini menggunakan kesemua {{count}} pusingan panggilan alat tetapi tugas mungkin belum selesai. Tekan butang di bawah untuk hantar \"Teruskan\" dan saya akan sambung dari kemajuan semasa; anda juga boleh naikkan `max_tool_rounds` di Tetapan → Agen → Keupayaan.",
-    "roundLimitReachedBodyNoCount": "Pusingan panggilan alat untuk giliran ini telah habis. Tekan butang di bawah untuk hantar \"Teruskan\" dan saya akan sambung dari kemajuan semasa.",
-    "roundLimitReachedTitle": "Had panggilan alat dicapai",
-    "roundLimitResumeButton": "Teruskan",
-    "roundLimitResumeMessage": "Teruskan",
-    "scrollToBottom": "Skrol ke bawah",
-    "searchPlaceholder": "Cari perbualan...",
-    "searchTruncatedHint": "Menunjukkan {{count}} padanan pertama — perhalusi pertanyaan untuk melihat lebih banyak.",
-    "searching": "Mencari...",
-    "selectModel": "Pilih Model",
-    "send": "Hantar",
-    "sessionSearch": "Cari dalam sembang ini",
-    "sessionSearchClose": "Tutup",
-    "sessionSearchCount": "{{current}}/{{total}}",
-    "sessionSearchNext": "Seterusnya",
-    "sessionSearchNoResults": "Tiada padanan dalam sembang ini",
-    "sessionSearchPlaceholder": "Cari mesej dalam sembang ini…",
-    "sessionSearchPrev": "Sebelumnya",
-    "sessionStatus": "Status Sesi",
-    "settings": "Tetapan",
-    "startConversation": "Mulakan perbualan",
-    "statusAgent": "Ejen",
-    "statusAuth": "Pengesahan",
-    "statusCache": "Cache",
-    "statusCacheHit": "Kena",
-    "statusCacheWrite": "Tulis",
-    "statusContext": "Konteks",
-    "statusCumulative": "Terkumpul",
-    "statusMessages": "{{count}} mesej",
-    "statusModel": "Model",
-    "statusNewSession": "(Sesi Baru)",
-    "statusSession": "Sesi",
-    "statusSessionId": "ID sesi",
-    "statusThinking": "Pemikiran",
-    "statusUpdated": "Dikemas kini",
-    "stopReply": "Hentikan balasan",
-    "subagentFrom": "Diberikan kuasa oleh {{agent}}",
-    "subagentResultCompleted": "Siap",
-    "systemPrompt": "System Prompt",
-    "taskActions": {
-      "cycleTo": {
-        "completed": "Tandakan sebagai selesai",
-        "in_progress": "Tandakan sebagai sedang dijalankan",
-        "pending": "Tandakan sebagai tertunda"
-      },
-      "delete": "Buang tugasan"
-    },
-    "taskNoneYet": "Belum ada tugasan",
-    "taskProgress": "{{completed}}/{{total}} selesai",
-    "tasks": "Tugasan",
-    "thinking": "Sedang berfikir...",
-    "thinkingAutoDisabled": "{{provider}} / {{model}} does not support the current thinking mode. Thinking was disabled automatically and the request was retried.",
-    "visionAutoDisabled": "{{provider}} / {{model}} tidak menyokong input imej. Imej diabaikan dan jawapan diteruskan.",
-    "toolCalling": "Memanggil alat...",
-    "totalTokens": "Jumlah",
-    "unknownProvider": "Unknown provider",
-    "untitledSession": "Tiada tajuk",
-    "viewContext": "Lihat konteks",
-    "viewModeBubble": "Tukar kepada paparan gelembung",
-    "viewModeTimeline": "Tukar kepada paparan tugasan",
-    "viewSystemPrompt": "Lihat System Prompt",
-    "weeksAgo": "{{count}} minggu lalu",
-    "workingDir": {
-      "browserDescription": "Laluan diselesaikan pada mesin pelayan tempat ejen berjalan.",
-      "browserTitle": "Pilih direktori pada pelayan",
-      "change": "Tukar direktori",
-      "clear": "Kosongkan direktori",
-      "current": "Direktori kerja",
-      "empty": "Direktori ini kosong",
-      "fileLabel": "fail",
-      "invalid": "Direktori kerja tidak sah",
-      "loadError": "Tidak dapat menyenaraikan direktori",
-      "loading": "Memuatkan…",
-      "parent": "Naik satu tahap",
-      "pathPlaceholder": "Laluan mutlak, mis. /srv/projects/app",
-      "select": "Pilih direktori kerja",
-      "selectCurrent": "Pilih direktori ini",
-      "selectPreset": "Direktori ditetapkan selepas sembang bermula",
-      "titleBarInherited": "Diwarisi daripada projek",
-      "titleBarSession": "Direktori kerja",
-      "truncated": "Hanya entri pertama dipaparkan — direktori ini terlalu besar untuk pelayar memaparkan keseluruhannya.",
-      "goToPath": "Pergi ke laluan"
-    },
-    "taskProgressRunning": "Sedang berjalan {{completed}}/{{total}}",
-    "taskProgressCancelling": "Sedang berhenti {{completed}}/{{total}}",
-    "taskProgressWaiting": "Menunggu sambung {{completed}}/{{total}}",
-    "taskProgressFailed": "Gagal {{completed}}/{{total}}",
-    "exportSession": {
-      "menuItem": "Eksport perbualan",
-      "dialogTitle": "Eksport perbualan",
-      "dialogHint": "Pilih format dan tetapkan apa yang hendak disertakan.",
-      "formatLabel": "Format",
-      "formatMarkdown": "Markdown",
-      "formatJson": "JSON",
-      "formatHtml": "HTML",
-      "contentLabel": "Kandungan",
-      "includeTools": "Sertakan panggilan alat",
-      "includeToolsHint": "Argumen, hasil dan perubahan fail.",
-      "includeThinking": "Sertakan proses pemikiran",
-      "includeThinkingHint": "Blok penaakulan model (rantaian pemikiran).",
-      "exportButton": "Eksport",
-      "exporting": "Mengeksport…",
-      "exported": "Selesai",
-      "failedShort": "Gagal",
-      "savedTo": "Dieksport ke {{path}}",
-      "downloaded": "Dimuat turun {{filename}}",
-      "failed": "Gagal mengeksport perbualan."
-    },
-    "skillMention": {
-      "heading": "Kemahiran",
-      "labels": {
-        "docx": "Dokumen Word",
-        "pptx": "Slaid PowerPoint",
-        "xlsx": "Hamparan Excel",
-        "browser": "Kawalan pelayar",
-        "mac": "Kawalan Mac"
-      }
-    },
-    "reasoningDisabledHint": "Penaakulan tidak didayakan untuk model ini. Untuk melaraskan kedalaman penaakulan, edit model ini di \"Tetapan → Penyedia Model\" dan hidupkan \"Sokongan penaakulan/pemikiran\".",
-    "browserExtensionNudge": {
-      "installTitle": "Biar AI mengawal Chrome sebenar anda",
-      "installBody": "Pasang sambungan Hope Agent untuk mengendalikan Chrome yang telah anda log masuk. Buat masa ini ia berjalan dalam pelayar terpencil.",
-      "reloadTitle": "Muat semula sambungan Chrome",
-      "reloadBody": "Sambungan yang dipasang tidak sepadan dengan hos. Muat semula untuk memulihkan kawalan Chrome sebenar anda.",
-      "openSettings": "Buka tetapan",
-      "dismiss": "Jangan tunjuk lagi"
-    },
-    "browserExtensionRequired": {
-      "nextAction": "Tindakan seterusnya: {{nextAction}}",
-      "openSettings": "Buka Tetapan > Penyemak Imbas untuk memasang atau mendayakan sambungan.",
-      "title": "Sambungan Chrome diperlukan"
-    },
-    "conversationEmpty": "Tiada mesej dalam perbualan ini",
-    "pendingCancelForceInsert": "Batalkan sisipan pusingan ini",
-    "pendingFallbackAfterReply": "Hantar selepas balasan",
-    "pendingFallbackAfterReplyTip": "Titik penyelesaian alat belum ditemui dan akan dihantar selepas balasan semasa tamat.",
-    "pendingForceInsertTip": "Ia akan menunggu sehingga alat yang sedang dilaksanakan selesai dan kemudian memasukkannya ke dalam model tanpa mengganggu alat semasa.",
-    "pendingInserted": "dimasukkan",
-    "pendingInsertedTip": "Ia telah dimasukkan ke dalam model selepas pusingan alatan ini selesai.",
-    "pendingQueuedShort": "Beratur",
-    "pendingQueuedTip": "Ia telah ditambahkan pada baris gilir menunggu dan akan dihantar selepas balasan semasa tamat.",
-    "pendingQueueTitle": "Untuk dihantar",
-    "pendingWaitingToolBoundary": "Tunggu titik penyiapan alat",
-    "pendingWaitingToolBoundaryTip": "Tunggu panggilan alat terkini selesai; jika alat itu tidak lagi dipanggil pusingan ini, ia akan dihantar selepas balasan selesai.",
-    "processNotification": "proses tamat",
-    "rightPanel": {
-      "collapse": "Runtuhkan panel kanan",
-      "expand": "Kembangkan panel kanan",
-      "switch": "Tukar panel kanan",
-      "dock": "Dok panel kanan",
-      "openPanel": "Buka {{panel}}",
-      "switchToPanel": "Tukar kepada {{panel}}",
-      "collapsePanel": "Runtuhkan {{panel}}",
-      "expandPanel": "Kembangkan {{panel}}",
-      "workflowActiveCount": "{{count}} aliran kerja aktif",
-      "workflowAttentionCount": "{{count}} aliran kerja memerlukan perhatian",
-      "backgroundRunningCount": "{{count}} tugasan latar belakang sedang berjalan"
-    },
-    "visionBridgeEngaged": "Model utama tidak dapat melihat imej, jadi {{model}} menerangkannya bagi pihaknya.",
-    "visionBridgeUnavailable": "Model penglihatan tidak dapat menerangkan imej itu, jadi ia diabaikan.",
-    "goalCompletion": {
-      "completed": "Matlamat dicapai",
-      "completedWithDuration": "Matlamat dicapai dalam {{time}}",
-      "tokens": "{{tokens}} token"
-    },
-    "fork": {
-      "continueInNewSession": "Teruskan dalam sesi baharu",
-      "continuedFrom": "Disambung daripada",
-      "created": "Diteruskan dalam sesi baharu",
-      "failed": "Tidak dapat meneruskan dalam sesi baharu",
-      "sourceFallback": "sesi asal"
-    },
-    "messageQuote": {
-      "addToChat": "Tambah ke sembang",
-      "assistantMessage": "Mesej pembantu",
-      "remove": "Buang petikan",
-      "yourMessage": "Mesej anda"
-    },
-    "loopTriggered": "Satu langkah gelung dicetuskan",
-    "loopTrigger": "Gelung",
     "goalMode": {
       "label": "Matlamat",
       "enter": "Mod matlamat: cipta objektif tahan lama yang terus dikejar oleh ejen",
@@ -880,12 +674,216 @@
       "title": "Mesej ini nampak sesuai untuk aliran kerja",
       "ultracodeDescription": "Hidupkan untuk mengutamakan orkestrasi lebih mendalam, semakan silang, dan pemulihan tugas panjang."
     },
+    "permissionMode": {
+      "applyToAgentDefault": {
+        "desc": "Apabila dihidupkan, memilih mod juga mengemas kini lalai Agent ini untuk chat baharu.",
+        "failed": "Gagal mengemas kini mod kebenaran lalai Agent ini.",
+        "label": "Kemas kini lalai Agent"
+      },
+      "default": {
+        "desc": "Alat suntingan dan arahan berbahaya perlu kelulusan; selainnya dijalankan.",
+        "label": "Lalai"
+      },
+      "menuLabel": "Mod kebenaran",
+      "smart": {
+        "desc": "Model hakim atau penanda keyakinan model membuat keputusan kelulusan.",
+        "label": "Kelulusan pintar"
+      },
+      "yolo": {
+        "desc": "Semua alat dalam sesi ini berjalan tanpa kelulusan (laluan dilindungi tetap diaudit).",
+        "label": "YOLO"
+      }
+    },
+    "sandboxMode": {
+      "isolated": {
+        "desc": "Run in an isolated copy; edit approvals are unchanged until apply-back is supported.",
+        "label": "Isolated Sandbox"
+      },
+      "menuLabel": "Kotak pasir",
+      "off": {
+        "desc": "Run on the host; approval behavior is unchanged.",
+        "label": "Sandbox Off"
+      },
+      "setupTitle": "Configure Docker to enable sandbox",
+      "standard": {
+        "desc": "Run in Docker; approval behavior is unchanged.",
+        "label": "Standard Sandbox"
+      },
+      "trusted": {
+        "desc": "Max autonomy for sandboxed exec; strict risks still ask.",
+        "label": "Trusted Sandbox"
+      },
+      "workspace": {
+        "desc": "Mount this workspace and reduce edit-command approvals.",
+        "label": "Workspace Sandbox"
+      }
+    },
+    "pickSession": "Pilih sesi",
+    "profileRotationTitle": "Tukar profil",
+    "queueMessage": "Beratur mesej",
+    "reasonAuth": "Pengesahan gagal",
+    "reasonBilling": "Bil / kuota melebihi",
+    "reasonContextOverflow": "Konteks melebihi had",
+    "reasonModelNotFound": "Model tidak dijumpai",
+    "reasonOverloaded": "Perkhidmatan terlebih beban",
+    "reasonRateLimit": "Had kadar permintaan melebihi",
+    "reasonTimeout": "Permintaan tamat masa",
+    "reasonUnknown": "Ralat tidak diketahui",
+    "renameSession": "Namakan semula",
+    "renameSessionPlaceholder": "Masukkan tajuk baharu...",
+    "revealInFolder": "Tunjuk dalam folder",
+    "roundLimitReachedBody": "Pusingan ini menggunakan kesemua {{count}} pusingan panggilan alat tetapi tugas mungkin belum selesai. Tekan butang di bawah untuk hantar \"Teruskan\" dan saya akan sambung dari kemajuan semasa; anda juga boleh naikkan `max_tool_rounds` di Tetapan → Agen → Keupayaan.",
+    "roundLimitReachedBodyNoCount": "Pusingan panggilan alat untuk giliran ini telah habis. Tekan butang di bawah untuk hantar \"Teruskan\" dan saya akan sambung dari kemajuan semasa.",
+    "roundLimitReachedTitle": "Had panggilan alat dicapai",
+    "roundLimitResumeButton": "Teruskan",
+    "roundLimitResumeMessage": "Teruskan",
+    "scrollToBottom": "Skrol ke bawah",
+    "searchPlaceholder": "Cari perbualan...",
+    "searchTruncatedHint": "Menunjukkan {{count}} padanan pertama — perhalusi pertanyaan untuk melihat lebih banyak.",
+    "searching": "Mencari...",
+    "selectModel": "Pilih Model",
+    "send": "Hantar",
+    "sessionSearch": "Cari dalam sembang ini",
+    "sessionSearchClose": "Tutup",
+    "sessionSearchCount": "{{current}}/{{total}}",
+    "sessionSearchNext": "Seterusnya",
+    "sessionSearchNoResults": "Tiada padanan dalam sembang ini",
+    "sessionSearchPlaceholder": "Cari mesej dalam sembang ini…",
+    "sessionSearchPrev": "Sebelumnya",
+    "sessionStatus": "Status Sesi",
+    "memoryPolicy": {
+      "title": "Ingatan untuk sembang ini",
+      "use": "Gunakan ingatan sedia ada",
+      "contribute": "Belajar daripada sembang ini",
+      "inherit": "Ikut tetapan global",
+      "allow": "Hidup",
+      "deny": "Mati",
+      "desc": "Kedua-duanya bebas: sembang boleh menggunakan ingatan lama tanpa mencipta ingatan baharu.",
+      "incognito": "Sembang inkognito tidak pernah membaca atau menulis ingatan jangka panjang.",
+      "reloadCore": "Muat semula MEMORY.md untuk sesi ini"
+    },
+    "settings": "Tetapan",
+    "startConversation": "Mulakan perbualan",
+    "statusAgent": "Ejen",
+    "statusAuth": "Pengesahan",
+    "statusCache": "Cache",
+    "statusCacheHit": "Kena",
+    "statusCacheWrite": "Tulis",
+    "statusContext": "Konteks",
+    "statusCumulative": "Terkumpul",
+    "statusMessages": "{{count}} mesej",
+    "statusModel": "Model",
+    "statusNewSession": "(Sesi Baru)",
+    "statusSession": "Sesi",
+    "statusSessionId": "ID sesi",
+    "statusThinking": "Pemikiran",
+    "statusUpdated": "Dikemas kini",
+    "stopReply": "Hentikan balasan",
+    "subagentFrom": "Diberikan kuasa oleh {{agent}}",
+    "subagentResultCompleted": "Siap",
     "workflowResultName": "Aliran kerja",
     "workflowResultCheckpoint": "Hasil peringkat diterima",
     "workflowResultCompleted": "Selesai",
     "workflowResultCancelled": "Dibatalkan",
     "workflowResultWaiting": "Menunggu untuk diteruskan",
     "workflowResultFailed": "Perlu perhatian",
+    "systemPrompt": "System Prompt",
+    "taskActions": {
+      "cycleTo": {
+        "completed": "Tandakan sebagai selesai",
+        "in_progress": "Tandakan sebagai sedang dijalankan",
+        "pending": "Tandakan sebagai tertunda"
+      },
+      "delete": "Buang tugasan"
+    },
+    "taskNoneYet": "Belum ada tugasan",
+    "taskProgress": "{{completed}}/{{total}} selesai",
+    "tasks": "Tugasan",
+    "thinking": "Sedang berfikir...",
+    "thinkingAutoDisabled": "{{provider}} / {{model}} does not support the current thinking mode. Thinking was disabled automatically and the request was retried.",
+    "visionAutoDisabled": "{{provider}} / {{model}} tidak menyokong input imej. Imej diabaikan dan jawapan diteruskan.",
+    "toolCalling": "Memanggil alat...",
+    "totalTokens": "Jumlah",
+    "unknownProvider": "Unknown provider",
+    "untitledSession": "Tiada tajuk",
+    "viewContext": "Lihat konteks",
+    "viewModeBubble": "Tukar kepada paparan gelembung",
+    "viewModeTimeline": "Tukar kepada paparan tugasan",
+    "viewSystemPrompt": "Lihat System Prompt",
+    "weeksAgo": "{{count}} minggu lalu",
+    "workingDir": {
+      "browserDescription": "Laluan diselesaikan pada mesin pelayan tempat ejen berjalan.",
+      "browserTitle": "Pilih direktori pada pelayan",
+      "change": "Tukar direktori",
+      "clear": "Kosongkan direktori",
+      "current": "Direktori kerja",
+      "empty": "Direktori ini kosong",
+      "fileLabel": "fail",
+      "goToPath": "Pergi ke laluan",
+      "invalid": "Direktori kerja tidak sah",
+      "loadError": "Tidak dapat menyenaraikan direktori",
+      "loading": "Memuatkan…",
+      "parent": "Naik satu tahap",
+      "pathPlaceholder": "Laluan mutlak, mis. /srv/projects/app",
+      "select": "Pilih direktori kerja",
+      "selectCurrent": "Pilih direktori ini",
+      "selectPreset": "Direktori ditetapkan selepas sembang bermula",
+      "titleBarInherited": "Diwarisi daripada projek",
+      "titleBarSession": "Direktori kerja",
+      "truncated": "Hanya entri pertama dipaparkan — direktori ini terlalu besar untuk pelayar memaparkan keseluruhannya."
+    },
+    "taskProgressRunning": "Sedang berjalan {{completed}}/{{total}}",
+    "taskProgressCancelling": "Sedang berhenti {{completed}}/{{total}}",
+    "taskProgressWaiting": "Menunggu sambung {{completed}}/{{total}}",
+    "taskProgressFailed": "Gagal {{completed}}/{{total}}",
+    "exportSession": {
+      "menuItem": "Eksport perbualan",
+      "dialogTitle": "Eksport perbualan",
+      "dialogHint": "Pilih format dan tetapkan apa yang hendak disertakan.",
+      "formatLabel": "Format",
+      "formatMarkdown": "Markdown",
+      "formatJson": "JSON",
+      "formatHtml": "HTML",
+      "contentLabel": "Kandungan",
+      "includeTools": "Sertakan panggilan alat",
+      "includeToolsHint": "Argumen, hasil dan perubahan fail.",
+      "includeThinking": "Sertakan proses pemikiran",
+      "includeThinkingHint": "Blok penaakulan model (rantaian pemikiran).",
+      "exportButton": "Eksport",
+      "exporting": "Mengeksport…",
+      "exported": "Selesai",
+      "failedShort": "Gagal",
+      "savedTo": "Dieksport ke {{path}}",
+      "downloaded": "Dimuat turun {{filename}}",
+      "failed": "Gagal mengeksport perbualan."
+    },
+    "skillMention": {
+      "heading": "Kemahiran",
+      "labels": {
+        "docx": "Dokumen Word",
+        "pptx": "Slaid PowerPoint",
+        "xlsx": "Hamparan Excel",
+        "browser": "Kawalan pelayar",
+        "mac": "Kawalan Mac",
+        "dataAnalytics": "Analisis data"
+      }
+    },
+    "reasoningDisabledHint": "Penaakulan tidak didayakan untuk model ini. Untuk melaraskan kedalaman penaakulan, edit model ini di \"Tetapan → Penyedia Model\" dan hidupkan \"Sokongan penaakulan/pemikiran\".",
+    "browserExtensionNudge": {
+      "installTitle": "Biar AI mengawal Chrome sebenar anda",
+      "installBody": "Pasang sambungan Hope Agent untuk mengendalikan Chrome yang telah anda log masuk. Buat masa ini ia berjalan dalam pelayar terpencil.",
+      "reloadTitle": "Muat semula sambungan Chrome",
+      "reloadBody": "Sambungan yang dipasang tidak sepadan dengan hos. Muat semula untuk memulihkan kawalan Chrome sebenar anda.",
+      "openSettings": "Buka tetapan",
+      "dismiss": "Jangan tunjuk lagi"
+    },
+    "browserExtensionRequired": {
+      "nextAction": "Tindakan seterusnya: {{nextAction}}",
+      "openSettings": "Buka Tetapan > Penyemak Imbas untuk memasang atau mendayakan sambungan.",
+      "title": "Sambungan Chrome diperlukan"
+    },
+    "conversationEmpty": "Tiada mesej dalam perbualan ini",
+    "pendingCancelForceInsert": "Batalkan sisipan pusingan ini",
     "pendingSaving": "Menyimpan",
     "pendingSavingTip": "Menyimpan mesej dan lampiran ke baris gilir yang boleh dipulihkan.",
     "pendingInserting": "Menyisip",
@@ -893,6 +891,32 @@
     "pendingDispatching": "Menghantar",
     "pendingDispatchingTip": "Mencipta pusingan baharu daripada baris gilir kekal.",
     "pendingSendNow": "Hantar sekarang",
+    "pendingFallbackAfterReply": "Hantar selepas balasan",
+    "pendingFallbackAfterReplyTip": "Titik penyelesaian alat belum ditemui dan akan dihantar selepas balasan semasa tamat.",
+    "pendingForceInsertTip": "Ia akan menunggu sehingga alat yang sedang dilaksanakan selesai dan kemudian memasukkannya ke dalam model tanpa mengganggu alat semasa.",
+    "pendingInserted": "dimasukkan",
+    "pendingInsertedTip": "Ia telah dimasukkan ke dalam model selepas pusingan alatan ini selesai.",
+    "pendingQueuedShort": "Beratur",
+    "pendingQueuedTip": "Ia telah ditambahkan pada baris gilir menunggu dan akan dihantar selepas balasan semasa tamat.",
+    "pendingQueueTitle": "Untuk dihantar",
+    "pendingWaitingToolBoundary": "Tunggu titik penyiapan alat",
+    "pendingWaitingToolBoundaryTip": "Tunggu panggilan alat terkini selesai; jika alat itu tidak lagi dipanggil pusingan ini, ia akan dihantar selepas balasan selesai.",
+    "processNotification": "proses tamat",
+    "rightPanel": {
+      "collapse": "Runtuhkan panel kanan",
+      "expand": "Kembangkan panel kanan",
+      "switch": "Tukar panel kanan",
+      "dock": "Dok panel kanan",
+      "openPanel": "Buka {{panel}}",
+      "switchToPanel": "Tukar kepada {{panel}}",
+      "collapsePanel": "Runtuhkan {{panel}}",
+      "expandPanel": "Kembangkan {{panel}}",
+      "workflowActiveCount": "{{count}} aliran kerja aktif",
+      "workflowAttentionCount": "{{count}} aliran kerja memerlukan perhatian",
+      "backgroundRunningCount": "{{count}} tugasan latar belakang sedang berjalan"
+    },
+    "visionBridgeEngaged": "Model utama tidak dapat melihat imej, jadi {{model}} menerangkannya bagi pihaknya.",
+    "visionBridgeUnavailable": "Model penglihatan tidak dapat menerangkan imej itu, jadi ia diabaikan.",
     "loadingSession": "Memuatkan sesi…",
     "goalSlash": {
       "showActive": "Papar matlamat aktif",
@@ -944,6 +968,10 @@
       "quickEditEmpty": "Kandungan memori tidak boleh kosong.",
       "quickEditSaved": "Memori dikemas kini.",
       "quickEditSaveFailed": "Tidak dapat menyimpan memori ini.",
+      "promoteToCore": "Sentiasa ingat ini",
+      "promoteToCoreFailed": "Tidak dapat menambah ini pada Ingatan Teras.",
+      "promotedToCore": "Sentiasa diingati",
+      "promotedToCoreToast": "Ditambah pada Ingatan Teras yang sentiasa diingati.",
       "kind": {
         "claim": "Memori berstruktur",
         "episode": "Pengalaman",
@@ -972,6 +1000,7 @@
       },
       "layerReason": {
         "agentConfigError": "konfigurasi memori ejen tidak tersedia",
+        "budgetEmpty": "bajet ingatan semula kosong",
         "disabled": "konfigurasi dimatikan",
         "emptyQuery": "pertanyaan kosong",
         "incognito": "sesi inkognito",
@@ -982,14 +1011,13 @@
         "noGraphNeighbors": "tiada perhubungan entiti yang berkaitan",
         "noHits": "tiada hits",
         "noSession": "tiada konteks sesi",
-        "retrievalError": "pencarian gagal",
-        "sideQueryError": "ingat gagal",
-        "timeout": "tamat masa",
-        "budgetEmpty": "bajet ingatan semula kosong",
         "nonContextualTurn": "mesej yang tidak memerlukan konteks",
         "recallOff": "panggilan ingatan dinamik automatik dimatikan",
         "retrievalBusy": "perkhidmatan ingatan semula sedang sibuk",
+        "retrievalError": "pencarian gagal",
         "sessionPolicy": "dimatikan oleh dasar ingatan atau perbualan",
+        "sideQueryError": "ingat gagal",
+        "timeout": "tamat masa",
         "unifiedRecall": "dikendalikan oleh ingatan semula pantas",
         "unknown": "sebab lain"
       },
@@ -1064,11 +1092,7 @@
       "more": "{{count}} lebih banyak item konteks jangka panjang disembunyikan.",
       "sources": "Sumber ingatan",
       "editMemory": "Edit ingatan ini",
-      "copyTrace": "Salin diagnostik",
-      "promoteToCore": "Sentiasa ingat ini",
-      "promoteToCoreFailed": "Tidak dapat menambah ini pada Ingatan Teras.",
-      "promotedToCore": "Sentiasa diingati",
-      "promotedToCoreToast": "Ditambah pada Ingatan Teras yang sentiasa diingati."
+      "copyTrace": "Salin diagnostik"
     },
     "projectWelcomeTitle": "Apa yang patut kita bina dalam <project>{{project}}</project>? Ceritakan idea anda",
     "projectWelcomeSuggestions": {
@@ -1141,17 +1165,9 @@
     "openSourceConversationMissingHint": "Sumber memori ini menunjuk kepada perbualan yang telah dipadam atau tidak dapat ditemui.",
     "openSourceMessageMissing": "Mesej sumber tidak lagi tersedia",
     "openSourceMessageMissingHint": "Perbualan masih wujud, tetapi mesej tepat untuk sumber memori ini tidak dapat ditemui.",
-    "memoryPolicy": {
-      "title": "Ingatan untuk sembang ini",
-      "use": "Gunakan ingatan sedia ada",
-      "contribute": "Belajar daripada sembang ini",
-      "inherit": "Ikut tetapan global",
-      "allow": "Hidup",
-      "deny": "Mati",
-      "desc": "Kedua-duanya bebas: sembang boleh menggunakan ingatan lama tanpa mencipta ingatan baharu.",
-      "incognito": "Sembang inkognito tidak pernah membaca atau menulis ingatan jangka panjang.",
-      "reloadCore": "Muat semula MEMORY.md untuk sesi ini"
-    }
+    "unreadConversationCount": "{{count}} perbualan belum dibaca",
+    "unreadStatus": "Belum dibaca",
+    "channelUnreadStatus": "Perbualan IM belum dibaca"
   },
   "codexAuth": {
     "expiredDescription": "Token OAuth Codex anda tidak lagi sah. Sila log masuk semula untuk meneruskan.",
@@ -1159,7 +1175,6 @@
     "reauth": "Log masuk semula"
   },
   "common": {
-    "download": "Muat turun",
     "add": "Tambah",
     "back": "Kembali",
     "cancel": "Batal",
@@ -1196,12 +1211,9 @@
     "expand": "Kembangkan",
     "retry": "Cuba semula",
     "unavailable": "Tidak tersedia",
-    "duplicate": "Salin",
-    "more": "Lagi",
     "copy": "Salin",
-    "copied": "Disalin",
-    "apply": "Guna",
     "auto": "Auto",
+    "copied": "Disalin",
     "yes": "ya",
     "no": "tidak",
     "none": "tiada",
@@ -1209,17 +1221,32 @@
     "off": "Mati",
     "error": "Error",
     "showLess": "Tunjukkan lebih sedikit",
-    "modelNoVision": "Tidak menyokong imej"
+    "download": "Muat turun",
+    "duplicate": "Salin",
+    "more": "Lagi",
+    "apply": "Guna",
+    "modelNoVision": "Tidak menyokong imej",
+    "next": "Next",
+    "previous": "Previous"
   },
   "context": {
     "ago": "yang lalu",
+    "cacheRead": "Bacaan cache",
     "cacheTtlProtection": "perlindungan TTL cache",
+    "cacheWindowNotice": "Cache hit mengurangkan pengiraan berulang, kos dan TTFT; ia tidak mengurangkan penggunaan tetingkap konteks.",
+    "cacheWrite": "Tulisan cache",
     "compactAllowedIn": "Mampatan seterusnya dalam",
+    "coreMemoryBudget": "Bajet Core Memory",
+    "coreMemoryModelLimited": "dihadkan sementara untuk model ini",
+    "dynamicPrompt": "Gesaan dinamik",
+    "estimated": "anggaran",
     "estimateNote": "Selepas setiap pusingan, penggunaan sebenar Provider menjadi rujukan; sebelumnya anggaran konservatif berdasarkan bentuk permintaan dipaparkan.",
     "freeSpace": "Ruang kosong",
+    "freshInput": "Input baharu",
     "lastCompact": "Mampatan terakhir",
     "memory": "Ingatan",
     "messages": "Mesej",
+    "providerInput": "Input Provider",
     "reservedOutput": "Output tersimpan",
     "skills": "Skills",
     "systemPrompt": "System prompt",
@@ -1227,16 +1254,7 @@
     "toolDescriptions": "Penerangan alat",
     "toolSchemas": "Skema alat",
     "used": "Digunakan",
-    "viewSystemPrompt": "System prompt",
-    "cacheRead": "Bacaan cache",
-    "cacheWindowNotice": "Cache hit mengurangkan pengiraan berulang, kos dan TTFT; ia tidak mengurangkan penggunaan tetingkap konteks.",
-    "cacheWrite": "Tulisan cache",
-    "coreMemoryBudget": "Bajet Core Memory",
-    "coreMemoryModelLimited": "dihadkan sementara untuk model ini",
-    "dynamicPrompt": "Gesaan dinamik",
-    "estimated": "anggaran",
-    "freshInput": "Input baharu",
-    "providerInput": "Input Provider"
+    "viewSystemPrompt": "System prompt"
   },
   "cron": {
     "active": "Aktif",
@@ -1426,8 +1444,8 @@
         "cron": "cron",
         "idle": "terbiar",
         "manual": "manual",
-        "user_correction": "pembetulan",
-        "review_snapshot": "review snapshot"
+        "review_snapshot": "review snapshot",
+        "user_correction": "pembetulan"
       },
       "runs": {
         "title": "Sejarah larian",
@@ -1449,9 +1467,46 @@
       "resolving": "Menyelesaikan…",
       "resolverDone": "Selesai: {{expired}} luput, {{merged}} digabung, {{review}} untuk semakan",
       "resolverFailed": "Penyelesaian mendalam gagal",
+      "resolverPreflightTitle": "Deep Resolver prapenerbangan",
+      "resolverPreflightSummary": "{{active}} tuntutan aktif · {{expired}} calon tamat tempoh · {{groups}} kumpulan konflik",
+      "resolverPreflightBlocked": "Penyelesai disekat: {{reasons}}",
+      "resolverPreflightLlm": "Kumpulan {{count}}/{{total}} akan menggunakan LLM · penutup {{cap}}",
+      "resolverPreflightNoLlm": "Tiada panggilan kumpulan LLM dijangka.",
+      "resolverPreflightTruncated": "Akan meneruskan larian seterusnya.",
+      "resolverPreflightUnavailable": "Prapenerbangan tidak tersedia.",
+      "resolverPreflightRefresh": "Muat semula pelan",
+      "resolverPreflightReasons": {
+        "dreamingDisabled": "Dreaming diskaun",
+        "longTermMemoryDisabled": "Pembelajaran ingatan terputus",
+        "manualDisabled": "Manual habis",
+        "claimLoadFailed": "Tuntutan tidak tersedia"
+      },
+      "errors": {
+        "loadDiaries": "Failed to load Dreaming diaries",
+        "loadRuns": "Failed to load Dreaming run history",
+        "loadRunDetail": "Failed to load Dreaming run details",
+        "loadDiary": "Failed to open Dreaming diary",
+        "loadEvidenceQuote": "Failed to load evidence quote",
+        "runNow": "Failed to run Dreaming",
+        "runResolver": "Deep resolve failed",
+        "resolverPreflight": "Failed to load Deep Resolver preflight",
+        "detail": "Butiran: {{error}}"
+      },
       "review": {
         "queueTitle": "Perlu disemak",
         "queueEmpty": "Tiada claim yang perlu disemak",
+        "errors": {
+          "loadQueue": "Failed to load review queue",
+          "approve": "Failed to approve memory",
+          "markOutdated": "Failed to mark memory outdated",
+          "pin": "Failed to pin memory",
+          "unpin": "Failed to unpin memory",
+          "edit": "Failed to edit memory",
+          "moveScope": "Failed to move memory scope",
+          "reject": "Failed to reject memory",
+          "forget": "Failed to forget memory",
+          "detail": "Butiran: {{error}}"
+        },
         "approve": "Luluskan",
         "approveDone": "Claim diluluskan",
         "markOutdated": "Tanda lapuk",
@@ -1490,44 +1545,7 @@
         "forgetNotePlaceholder": "Sebab (pilihan)",
         "forgetConfirm": "Lupakan",
         "forgetDone": "Memori dilupakan",
-        "failed": "Tindakan gagal",
-        "errors": {
-          "loadQueue": "Failed to load review queue",
-          "approve": "Failed to approve memory",
-          "markOutdated": "Failed to mark memory outdated",
-          "pin": "Failed to pin memory",
-          "unpin": "Failed to unpin memory",
-          "edit": "Failed to edit memory",
-          "moveScope": "Failed to move memory scope",
-          "reject": "Failed to reject memory",
-          "forget": "Failed to forget memory",
-          "detail": "Butiran: {{error}}"
-        }
-      },
-      "resolverPreflightTitle": "Deep Resolver prapenerbangan",
-      "resolverPreflightSummary": "{{active}} tuntutan aktif · {{expired}} calon tamat tempoh · {{groups}} kumpulan konflik",
-      "resolverPreflightBlocked": "Penyelesai disekat: {{reasons}}",
-      "resolverPreflightLlm": "Kumpulan {{count}}/{{total}} akan menggunakan LLM · penutup {{cap}}",
-      "resolverPreflightNoLlm": "Tiada panggilan kumpulan LLM dijangka.",
-      "resolverPreflightTruncated": "Akan meneruskan larian seterusnya.",
-      "resolverPreflightUnavailable": "Prapenerbangan tidak tersedia.",
-      "resolverPreflightRefresh": "Muat semula pelan",
-      "resolverPreflightReasons": {
-        "dreamingDisabled": "Dreaming diskaun",
-        "longTermMemoryDisabled": "Pembelajaran ingatan terputus",
-        "manualDisabled": "Manual habis",
-        "claimLoadFailed": "Tuntutan tidak tersedia"
-      },
-      "errors": {
-        "loadDiaries": "Failed to load Dreaming diaries",
-        "loadRuns": "Failed to load Dreaming run history",
-        "loadRunDetail": "Failed to load Dreaming run details",
-        "loadDiary": "Failed to open Dreaming diary",
-        "loadEvidenceQuote": "Failed to load evidence quote",
-        "runNow": "Failed to run Dreaming",
-        "runResolver": "Deep resolve failed",
-        "resolverPreflight": "Failed to load Deep Resolver preflight",
-        "detail": "Butiran: {{error}}"
+        "failed": "Tindakan gagal"
       }
     },
     "error": {
@@ -1886,17 +1904,17 @@
       "ttftTrend": "Masa ke Token Pertama (TTFT)",
       "inputTokens": "Token input",
       "outputTokens": "Token keluaran",
-      "byDomain": "Taburan mengikut domain",
-      "byOperation": "Mengikut operasi",
-      "operation": "Operasi",
-      "domain": "Domain",
       "byType": "Penggunaan mengikut jenis",
       "type": "Jenis",
       "calls": "Bilangan panggilan",
       "cacheWrite": "Tulis cache",
       "cacheRead": "Baca cache",
       "avgDuration": "Tempoh purata",
-      "tokensUnit": "token"
+      "tokensUnit": "token",
+      "byDomain": "Taburan mengikut domain",
+      "byOperation": "Mengikut operasi",
+      "operation": "Operasi",
+      "domain": "Domain"
     },
     "tool": {
       "avgDuration": "Tempoh purata",
@@ -1994,6 +2012,106 @@
     },
     "columns": {
       "session": "Sesi"
+    },
+    "controlPlane": {
+      "title": "Goals & Execution",
+      "automationTab": "Automation",
+      "scopeHint": "Window metrics show outcomes; current snapshots show backlog and risk.",
+      "allProjects": "All projects",
+      "unassignedProject": "Unassigned",
+      "archived": "Archived",
+      "empty": "No data for the selected scope.",
+      "sections": {
+        "overview": "Overview",
+        "planTask": "Plan & Task"
+      },
+      "metrics": {
+        "goalAcceptance": "Goal acceptance rate",
+        "workflowCompletion": "Workflow completion rate",
+        "loopStrongProgress": "Loop strong-progress rate",
+        "taskCompletion": "Task cohort completion",
+        "attention": "Needs attention",
+        "requiredCriteria": "Required criteria pass rate",
+        "goalP50": "Goal time-to-accept P50",
+        "opFailure": "Operation failure rate",
+        "workflowP50": "Workflow duration P50",
+        "goalBinding": "Goal binding rate",
+        "approvalTrigger": "Approval trigger rate",
+        "noProgress": "No-progress rate",
+        "blockedSchedules": "Blocked schedules",
+        "loopP50": "Loop run duration P50",
+        "currentBacklog": "Current backlog",
+        "activePlans": "Active now",
+        "cohortCompletion": "Cohort completion"
+      },
+      "currentSnapshot": "Current snapshot",
+      "goalTrend": "Goal outcomes",
+      "resolved": "Resolved",
+      "accepted": "Accepted",
+      "attentionTitle": "Current attention items",
+      "noAttention": "No current attention items",
+      "auditSamples": "{{count}} audited Goals",
+      "currentStates": "Current states",
+      "closureOutcomes": "Closure outcomes",
+      "domains": "Domains",
+      "kinds": "Kinds",
+      "origins": "Origins",
+      "workflowTrend": "Decided Workflow runs",
+      "decidedRuns": "Decided runs",
+      "progressStates": "Progress classification",
+      "triggerKinds": "Trigger kinds",
+      "strategies": "Execution strategies",
+      "loopTrend": "Evaluated Loop runs",
+      "evaluatedRuns": "Evaluated runs",
+      "openPlanHistory": "View Plan history",
+      "planByAgent": "Plan by Agent",
+      "planByProject": "Plan by project",
+      "noFunnelHint": "Task and Plan do not yet have reliable Goal / Workflow / Loop attribution keys, so this page does not infer a causal funnel from sessions.",
+      "noExactSamples": "No exact duration samples",
+      "coverage": "{{samples}} / {{eligible}} exact samples ({{percent}}%)",
+      "coverageShort": "Exact duration coverage: {{samples}} / {{eligible}}",
+      "creationTrend": "Creation trend",
+      "created": "Created",
+      "attentionKinds": {
+        "goal": "Matlamat",
+        "workflow": "Aliran kerja",
+        "loop": "Gelung",
+        "plan": "Pelan"
+      },
+      "attentionReasons": {
+        "needs_strict_evidence": "Bukti ketat diperlukan",
+        "goal_awaiting_closure": "Matlamat menunggu penutupan",
+        "workflow_requires_attention": "Aliran kerja memerlukan perhatian",
+        "consecutive_no_progress": "Tiada kemajuan berturut-turut",
+        "loop_requires_attention": "Gelung memerlukan perhatian",
+        "plan_awaiting_review": "Pelan menunggu semakan"
+      },
+      "states": {
+        "active": "Aktif",
+        "paused": "Paused",
+        "evaluating": "Evaluating",
+        "completed": "Selesai",
+        "failed": "Failed",
+        "cancelled": "Cancelled",
+        "blocked": "Disekat",
+        "planning": "Planning",
+        "review": "Semakan",
+        "executing": "Executing",
+        "off": "Archived",
+        "awaiting_approval": "Menunggu kelulusan",
+        "awaiting_user": "Menunggu pengguna",
+        "running": "Running",
+        "recovering": "Recovering",
+        "draft": "Draft",
+        "pending": "Pending",
+        "in_progress": "In progress",
+        "progressed": "Progressed",
+        "weak_progress": "Weak progress",
+        "no_progress": "No progress",
+        "accepted_v1": "Accepted v1",
+        "superseded": "Superseded",
+        "unassigned": "Unassigned"
+      }
     }
   },
   "fileActions": {
@@ -2098,10 +2216,10 @@
       "staged": "Staged",
       "stagedScope": "Staged",
       "stale": "The repository changed. The diff was refreshed; review it again.",
-      "prReviewComments": "Komen semakan PR · {{count}}",
       "unstage": "Unstage",
       "unstaged": "Unstaged",
-      "unstagedScope": "Unstaged"
+      "unstagedScope": "Unstaged",
+      "prReviewComments": "Komen semakan PR · {{count}}"
     }
   },
   "effort": {
@@ -2537,10 +2655,10 @@
     "reasoning": "Penaakulan / Pemikiran",
     "reasoningHint": "Setelah didayakan, anda boleh memilih kedalaman penaakulan (rendah / sederhana / tinggi) daripada menu model di atas kotak input sembang; ia ditambah secara automatik pada setiap permintaan.",
     "supportedInputTypes": "Jenis Input Disokong",
-    "text": "Teks",
-    "video": "Video",
     "supportsImageMultimodal": "Menyokong multimodal imej",
-    "supportsVideoMultimodal": "Menyokong multimodal video"
+    "supportsVideoMultimodal": "Menyokong multimodal video",
+    "text": "Teks",
+    "video": "Video"
   },
   "notification": {
     "cronCancelled": "Tugas berjadual dibatalkan",
@@ -2939,6 +3057,29 @@
     "addProject": "Tambah projek",
     "archiveProject": "Arkib projek",
     "archivedProjects": "Projek diarkibkan",
+    "autoMemory": {
+      "content": "Butiran (Markdown)",
+      "deleteConfirm": "Padam topik memori automatik projek ini?",
+      "description": "Indeks MEMORY.md yang ringkas disuntik secara stabil ke dalam sembang projek; butiran topik hanya dibaca apabila berkaitan. Semuanya kekal pada mesin ini.",
+      "editorHint": "Arahan projek ialah peraturan tetap. Ruang ini menyimpan pembelajaran projek semasa bekerja dan bukan arahan berautoriti.",
+      "editorTitle": "Memori automatik projek",
+      "empty": "Belum ada topik memori automatik.",
+      "fileNameGenerated": "Nama fail akan dijana semasa disimpan",
+      "name": "Tajuk",
+      "newTopic": "Topik baharu",
+      "rebuildIndex": "Bina semula indeks MEMORY.md",
+      "rebuildFailed": "Tidak dapat membina semula indeks MEMORY.md.",
+      "summary": "Ringkasan indeks",
+      "summaryHint": "Ayat ini memasuki prompt stabil setiap sembang projek, jadi pastikan ia ringkas.",
+      "type": "Jenis",
+      "types": {
+        "feedback": "Maklum balas kerja",
+        "project": "Kerja projek",
+        "reference": "Rujukan",
+        "user": "Konteks pengguna"
+      },
+      "emptyPreview": "Belum ada butiran Markdown. Tukar ke mod Edit untuk menambah kandungan."
+    },
     "createFirstProject": "Cipta projek pertama anda",
     "defaultAgent": "Agent lalai",
     "defaultModel": "Model lalai",
@@ -2948,6 +3089,10 @@
     },
     "deleteProject": "Padam projek",
     "editProject": "Edit projek",
+    "openFromMemoryLoadFailed": "Gagal membuka sumber projek",
+    "openFromMemoryLoadFailedDetail": "Butiran: {{error}}",
+    "openFromMemoryMissing": "Projek tidak lagi tersedia",
+    "openFromMemoryMissingHint": "Sumber memori menunjuk kepada projek yang telah dipadam atau tidak dapat ditemui.",
     "files": {
       "confirmDelete": "Padam fail ini?",
       "delete": "Padam",
@@ -2977,13 +3122,38 @@
       "recentSessions": "Sesi terkini",
       "totalFiles": "Fail",
       "totalMemories": "Memori",
-      "totalSessions": "Sesi"
+      "totalSessions": "Sesi",
+      "activeClaims": "Memori tersusun",
+      "agentsEmpty": "AGENTS.md kosong pada masa ini",
+      "agentsLines": "AGENTS.md",
+      "agentsRole": "Peraturan rasmi projek yang digunakan pada setiap sesi projek.",
+      "agentsStats": "{{lines}} baris · {{size}}",
+      "autoMemoryRole": "Pengalaman setempat yang diselenggara oleh model; indeks kekal stabil dan topik dibaca apabila diperlukan.",
+      "autoMemoryStats": "{{count}} topik",
+      "autoMemoryTopics": "Topik memori automatik",
+      "awaitingResponse": "Menunggu respons anda",
+      "contextDescription": "Lihat konteks yang boleh digunakan oleh model dalam projek ini.",
+      "contextTitle": "Konteks projek",
+      "defaultWorkspace": "Folder kerja projek lalai",
+      "homeDescription": "Teruskan kerja terkini atau urus konteks projek.",
+      "homeTitle": "Laman utama projek",
+      "linesUnit": "baris",
+      "loadFailed": "Gambaran keseluruhan projek tidak tersedia buat sementara waktu. Cuba lagi sebentar lagi.",
+      "messageCount": "{{count}} mesej",
+      "noRecentSessions": "Belum ada sesi projek",
+      "noRecentSessionsHint": "Kerja terkini akan dipaparkan di sini selepas anda mencipta sesi.",
+      "recentSessionsHint": "Sesi pengguna yang dikemas kini baru-baru ini",
+      "structuredMemory": "Memori projek",
+      "structuredMemoryRole": "Maklumat jangka panjang yang disusun daripada perbualan projek; penggunaan automatik dalam jawapan bergantung pada tetapan memori anda.",
+      "unavailable": "Tidak tersedia",
+      "untitledSession": "Sesi tanpa tajuk",
+      "workingDirectory": "Folder kerja"
     },
     "projectColor": "Warna",
     "projectDescription": "Penerangan",
     "projectDescriptionPlaceholder": "Projek ini mengenai apa?",
     "projectInstructions": "Arahan projek",
-    "projectInstructionsHint": "Arahan ini akan ditambah automatik ke prompt sistem setiap sesi projek ini.",
+    "projectInstructionsHint": "Mengedit fail AGENTS.md di akar projek secara terus. Selepas disimpan, ia digunakan untuk semua sesi projek ini.",
     "projectInstructionsPlaceholder": "cth. Sentiasa balas dalam BM; gunakan nada jelas dan mesra; mulakan dengan kesimpulan",
     "projectLogo": "Logo",
     "projectLogoHint": "Pilihan. Imej akan diubah saiz secara automatik kepada 256×256.",
@@ -2997,6 +3167,7 @@
     "showLess": "Tunjuk kurang",
     "showMore": "Tunjuk lagi",
     "tabFiles": "Fail",
+    "tabAutoMemory": "Memori automatik",
     "tabInstructions": "Arahan",
     "tabMemories": "Memori",
     "tabOverview": "Ringkasan",
@@ -3020,33 +3191,11 @@
       "errorDetail": "Butiran: {{error}}"
     },
     "projectEmojiPlaceholder": "Pilihan",
-    "openFromMemoryLoadFailed": "Gagal membuka sumber projek",
-    "openFromMemoryLoadFailedDetail": "Butiran: {{error}}",
-    "openFromMemoryMissing": "Projek tidak lagi tersedia",
-    "openFromMemoryMissingHint": "Sumber memori menunjuk kepada projek yang telah dipadam atau tidak dapat ditemui.",
-    "autoMemory": {
-      "content": "Butiran (Markdown)",
-      "deleteConfirm": "Padam topik memori automatik projek ini?",
-      "description": "Indeks MEMORY.md yang ringkas disuntik secara stabil ke dalam sembang projek; butiran topik hanya dibaca apabila berkaitan. Semuanya kekal pada mesin ini.",
-      "editorHint": "Arahan projek ialah peraturan tetap. Ruang ini menyimpan pembelajaran projek semasa bekerja dan bukan arahan berautoriti.",
-      "editorTitle": "Memori automatik projek",
-      "empty": "Belum ada topik memori automatik.",
-      "fileNameGenerated": "Nama fail akan dijana semasa disimpan",
-      "name": "Tajuk",
-      "newTopic": "Topik baharu",
-      "rebuildIndex": "Bina semula indeks MEMORY.md",
-      "rebuildFailed": "Tidak dapat membina semula indeks MEMORY.md.",
-      "summary": "Ringkasan indeks",
-      "summaryHint": "Ayat ini memasuki prompt stabil setiap sembang projek, jadi pastikan ia ringkas.",
-      "type": "Jenis",
-      "types": {
-        "feedback": "Maklum balas kerja",
-        "project": "Kerja projek",
-        "reference": "Rujukan",
-        "user": "Konteks pengguna"
-      }
-    },
-    "tabAutoMemory": "Memori automatik"
+    "projectInstructionsLineCount": "{{count}} baris",
+    "resizeSettingsSheet": "Seret untuk mengubah lebar tetapan projek",
+    "projectInstructionsEmptyPreview": "AGENTS.md kosong. Tukar ke Edit untuk menambah arahan Markdown.",
+    "projectInstructionsLoadFailed": "Tidak dapat membaca AGENTS.md",
+    "projectInstructionsSaveFailed": "Tidak dapat menyimpan AGENTS.md"
   },
   "provider": {
     "addProvider": "Tambah Pembekal",
@@ -3496,6 +3645,7 @@
       "judgeExtraPromptPlaceholder": "Pilihan: arahan tambahan untuk hakim (senarai putih laluan, arahan dipercayai...)",
       "judgeModelPlaceholder": "Pilih model hakim",
       "judgeModelTitle": "Konfigurasi Model Hakim",
+      "judgeProviderPlaceholder": "ID Provider (cth. anthropic-1)",
       "protectedPathsDesc": "Panggilan alat yang mengenai laluan ini memaksa kelulusan dan tidak boleh dijadikan Sentiasa Benarkan. Menyokong pengembangan ~/, awalan direktori (diakhiri /), dan glob *.pattern.",
       "protectedPathsPlaceholder": "cth. ~/.ssh/, .env, *.pem",
       "protectedPathsTitle": "Laluan Dilindungi",
@@ -3528,8 +3678,7 @@
       "yoloDesc": "Apabila dihidupkan, semua alat berjalan tanpa kelulusan; hanya Plan Mode masih boleh menyekat. Padanan laluan dilindungi / arahan berbahaya menulis amaran tetapi tetap dijalankan.",
       "yoloDisabled": "YOLO global dimatikan",
       "yoloEnabled": "YOLO global dihidupkan",
-      "yoloTitle": "YOLO Global (langkau semua kelulusan)",
-      "judgeProviderPlaceholder": "ID Provider (cth. anthropic-1)"
+      "yoloTitle": "YOLO Global (langkau semua kelulusan)"
     },
     "approvalTimeout": "Tamat masa menunggu kelulusan alat",
     "approvalTimeoutAction": "Tindakan tamat masa kelulusan",
@@ -3578,6 +3727,8 @@
       "digestMaxChars": "Bajet output digest (aksara)",
       "dynamicEnabled": "Segarkan suffix setiap giliran",
       "enabledForSession": "Aktif untuk sesi ini",
+      "extractionAgent": "ID Agent ekstraksi (pilihan)",
+      "extractionAgentPlaceholder": "Biar kosong untuk warisi recap.analysisAgent",
       "includeChannel": "Sertakan sesi saluran IM",
       "includeCron": "Sertakan sesi cron",
       "includeSubagents": "Sertakan sesi sub-agent",
@@ -3603,9 +3754,7 @@
       "sessionOverride": "Tulis ganti sesi",
       "title": "Behavior Awareness",
       "extractionModel": "Model pengekstrakan (pilihan)",
-      "extractionModelInherit": "Guna semula ejen sembang semasa (mesra cache)",
-      "extractionAgent": "ID Agent ekstraksi (pilihan)",
-      "extractionAgentPlaceholder": "Biar kosong untuk warisi recap.analysisAgent"
+      "extractionModelInherit": "Guna semula ejen sembang semasa (mesra cache)"
     },
     "browser": {
       "activeBadge": "aktif",
@@ -3758,7 +3907,16 @@
         "title": "Benarkan raw CDP?",
         "body": "Ini membenarkan AI menghantar perintah DevTools Protocol sewenang-wenangnya ke Chrome sebenar anda. Setiap panggilan masih memerlukan kelulusan anda setiap kali dan kaedah berbahaya kekal disekat, tetapi dayakan hanya jika anda benar-benar memerlukannya.",
         "continue": "Dayakan"
-      }
+      },
+      "backupRuntimeHint": "System Chrome is available. Install a Hope-managed Chromium runtime as a fallback for browser automation and Artifact PDF export.",
+      "backupRuntimeTitle": "Backup Chromium runtime",
+      "installRuntimeRetry": "The runtime is ready. Retry the browser action or PDF export.",
+      "openBrowserSettings": "Open browser settings",
+      "runtimeInstallUnsupported": "Hope does not provide a managed Chromium runtime for this operating system or architecture. Install Chrome/Chromium manually or configure an executable path.",
+      "runtimeRequiredArtifactPdfDescription": "PDF export needs a local Chrome or Chromium runtime, but none is currently available.",
+      "runtimeRequiredDescription": "This browser operation needs a local Chrome or Chromium runtime, but none is currently available.",
+      "runtimeRequiredHint": "You can install Hope's managed runtime now (about 150 MB), then retry the operation.",
+      "runtimeRequiredTitle": "Chromium runtime required"
     },
     "bytes": "bait",
     "canvas": "Canvas",
@@ -3800,39 +3958,6 @@
         "backfillDesc": "Backfill mendaftarkan memori lama sebagai claims tanpa mengubah suntikan memori semasa. Memori profil dan pilihan yang dipin boleh menjadi aktif automatik; selebihnya menunggu semakan."
       },
       "list": "Senarai claim",
-      "empty": "Tiada claim lagi.",
-      "selectClaim": "Pilih satu claim untuk melihat buktinya.",
-      "confidence": "Keyakinan",
-      "salience": "Kepentingan",
-      "evidence": "Bukti",
-      "noEvidence": "Tiada bukti.",
-      "links": "Ingatan berkait",
-      "statusAll": "Semua status",
-      "status": {
-        "active": "Aktif",
-        "superseded": "Diganti",
-        "expired": "Tamat tempoh",
-        "archived": "Diarkibkan",
-        "needs_review": "Perlu semakan"
-      },
-      "backfill": {
-        "button": "Isi semula",
-        "title": "Isi semula memori sedia ada",
-        "desc": "Daftarkan memori sedia ada sebagai claim berstruktur. Hanya memori profil dan keutamaan yang disemat (user/feedback) diaktifkan secara automatik; selebihnya masuk ke baris gilir semakan. Dipaut secara longgar, jadi suntikan memori semasa tidak berubah.",
-        "summaryTotal": "Jumlah memori",
-        "summaryLinked": "Sudah dipaut",
-        "summaryCandidates": "Untuk diisi",
-        "summaryActive": "Auto-aktif",
-        "summaryReview": "Perlu semakan",
-        "previewTruncated": "Memaparkan {{shown}} daripada {{total}}",
-        "apply": "Isi semula {{count}}",
-        "applying": "Mengisi semula…",
-        "applied": "{{created}} claim diisi semula: {{active}} aktif, {{review}} menunggu semakan",
-        "planFailed": "Gagal mengira pelan pengisian",
-        "applyFailed": "Pengisian semula gagal",
-        "empty": "Semua memori sudah berada dalam lapisan claim.",
-        "appliedPartial": "{{created}} diisi, {{failed}} gagal — anda boleh cuba semula yang selebihnya"
-      },
       "searchPlaceholder": "Cari memori berstruktur…",
       "searchMatchedBy": "dipadankan",
       "searchMatch_content": "Content",
@@ -4012,6 +4137,11 @@
         "llm_adjusted": "AI adjusted",
         "user_confirmed": "Disahkan pengguna"
       },
+      "empty": "Tiada claim lagi.",
+      "selectClaim": "Pilih satu claim untuk melihat buktinya.",
+      "confidence": "Keyakinan",
+      "salience": "Kepentingan",
+      "evidence": "Bukti",
       "evidenceAll": "Semua bukti",
       "evidenceSourceAll": "Semua sumber",
       "evidenceSources": {
@@ -4024,9 +4154,37 @@
         "recap_facet": "Recap",
         "manual": "Pembetulan manual"
       },
+      "noEvidence": "Tiada bukti.",
+      "links": "Ingatan berkait",
       "typeAll": "Semua jenis",
       "typeProfile": "Profil & keutamaan",
       "scopeAll": "Semua skop",
+      "statusAll": "Semua status",
+      "status": {
+        "active": "Aktif",
+        "superseded": "Diganti",
+        "expired": "Tamat tempoh",
+        "archived": "Diarkibkan",
+        "needs_review": "Perlu semakan"
+      },
+      "backfill": {
+        "button": "Isi semula",
+        "title": "Isi semula memori sedia ada",
+        "desc": "Daftarkan memori sedia ada sebagai claim berstruktur. Hanya memori profil dan keutamaan yang disemat (user/feedback) diaktifkan secara automatik; selebihnya masuk ke baris gilir semakan. Dipaut secara longgar, jadi suntikan memori semasa tidak berubah.",
+        "summaryTotal": "Jumlah memori",
+        "summaryLinked": "Sudah dipaut",
+        "summaryCandidates": "Untuk diisi",
+        "summaryActive": "Auto-aktif",
+        "summaryReview": "Perlu semakan",
+        "previewTruncated": "Memaparkan {{shown}} daripada {{total}}",
+        "apply": "Isi semula {{count}}",
+        "applying": "Mengisi semula…",
+        "applied": "{{created}} claim diisi semula: {{active}} aktif, {{review}} menunggu semakan",
+        "planFailed": "Gagal mengira pelan pengisian",
+        "applyFailed": "Pengisian semula gagal",
+        "empty": "Semua memori sudah berada dalam lapisan claim.",
+        "appliedPartial": "{{created}} diisi, {{failed}} gagal — anda boleh cuba semula yang selebihnya"
+      },
       "reviewHistoryTitle": "Semak sejarah",
       "reviewHistoryDesc": "Keputusan semakan terbaharu direkodkan oleh Lucid Review dan Dreaming.",
       "reviewHistoryShow": "Tunjukkan",
@@ -4201,6 +4359,14 @@
       "cronTriggerEnabledDesc": "Fire on a cron expression in addition to (or instead of) the idle trigger.",
       "cronTriggerTitle": "Scheduled trigger",
       "desc": "Periodically scan recent memories and pin the most evergreen ones into core memory. Runs offline; never blocks chat.",
+      "errors": {
+        "loadConfig": "Gagal memuatkan tetapan Dreaming",
+        "loadModels": "Failed to load Dreaming model list",
+        "loadStatus": "Failed to load Dreaming status",
+        "saveConfig": "Failed to save Dreaming settings",
+        "reloadAfterSave": "Failed to reload Dreaming settings after save failed",
+        "detail": "Butiran: {{error}}"
+      },
       "idleCountdown": "Idle trigger fires in ~{{minutes}} min",
       "idleMinutes": "Idle threshold (minutes)",
       "idleMinutesDesc": "How long to wait without user activity before firing.",
@@ -4238,14 +4404,6 @@
       "profileEnabledDesc": "Bina profil yang mudah dibaca daripada claim aktif, berlapis mengikut skop. Apabila dihidupkan, ia menggantikan bahagian profil lama dalam system prompt; jika dimatikan, paparan lama dikekalkan. Larian terbiar/cron menggunakan laluan berasaskan peraturan yang murah; larian manual menjalankan tulis semula LLM.",
       "profileMaxLines": "Baris maksimum setiap skop",
       "profileMaxLinesDesc": "Had bilangan poin profil yang disimpan bagi setiap skop.",
-      "errors": {
-        "loadConfig": "Gagal memuatkan tetapan Dreaming",
-        "loadModels": "Failed to load Dreaming model list",
-        "loadStatus": "Failed to load Dreaming status",
-        "saveConfig": "Failed to save Dreaming settings",
-        "reloadAfterSave": "Failed to reload Dreaming settings after save failed",
-        "detail": "Butiran: {{error}}"
-      },
       "deepResolverTitle": "Deep Resolver",
       "autoExpireOnLightCycle": "Auto luput tuntutan lapuk",
       "autoExpireOnLightCycleDesc": "Semasa kitaran Dreaming biasa, kekalkan sah deterministik sehingga tamat tempoh sebagai tindakan penyelesai yang disokong audit.",
@@ -4317,6 +4475,14 @@
       "editTitle": "Edit embedding model",
       "empty": "No embedding model configs yet. Create one from a template above, or add a custom config.",
       "emptyMemory": "No embedding model config is available yet. Create one first, or use the local embedding quick card.",
+      "errors": {
+        "delete": "Failed to delete embedding model config",
+        "detail": "Butiran: {{error}}",
+        "load": "Failed to load embedding model configs",
+        "save": "Failed to save embedding model config",
+        "setDefault": "Failed to switch default memory model",
+        "test": "Embedding connection test failed"
+      },
       "goConfig": "Configure embedding models",
       "memoryActive": "Default memory model",
       "memoryDefault": "Default memory model",
@@ -4330,15 +4496,7 @@
       "setMemoryDefault": "Set as default memory model",
       "tab": "Embedding Models",
       "testOk": "Embedding connection test passed",
-      "title": "Embedding Model Configs",
-      "errors": {
-        "delete": "Failed to delete embedding model config",
-        "detail": "Butiran: {{error}}",
-        "load": "Failed to load embedding model configs",
-        "save": "Failed to save embedding model config",
-        "setDefault": "Failed to switch default memory model",
-        "test": "Embedding connection test failed"
-      }
+      "title": "Embedding Model Configs"
     },
     "fallbackModels": "Model Sandaran",
     "fallbackModelsDesc": "Apabila model utama tidak tersedia, cuba model-model ini mengikut urutan",
@@ -4368,8 +4526,8 @@
       "addHandler": "Tambah pengendali",
       "advanced": "Lanjutan",
       "slowHandlerWarning": "Pengendali ini menjalankan LLM / sub-ejen secara inline dan akan melambatkan setiap kali peristiwa menyekat ini dipicu. Utamakan command / http di sini, atau alihkan ke peristiwa pemerhatian (cth. PostToolUse).",
-      "modelInheritDefault": "Ikut lalai automasi",
-      "invalidJson": "JSON tidak sah"
+      "invalidJson": "JSON tidak sah",
+      "modelInheritDefault": "Ikut lalai automasi"
     },
     "hours": "jam",
     "imageGenApiKey": "API Key",
@@ -4454,6 +4612,15 @@
       "enabledDesc": "Menjana embedding nota untuk perolehan semantik. Apabila dimatikan, carian nota hanya menggunakan teks penuh.",
       "changeModel": "Tukar model",
       "activated": "Model embedding pengetahuan diaktifkan",
+      "errors": {
+        "loadEmbedding": "Failed to load knowledge vector search settings",
+        "activateEmbedding": "Failed to activate knowledge vector search",
+        "disableEmbedding": "Failed to disable knowledge vector search",
+        "rebuildEmbedding": "Failed to start knowledge vector rebuild",
+        "cancelReembed": "Failed to cancel knowledge vector rebuild",
+        "retryReembed": "Failed to retry knowledge vector rebuild",
+        "detail": "Butiran: {{error}}"
+      },
       "reembed": {
         "title": "Indeks semula",
         "idle": "Vektor nota adalah terkini.",
@@ -4463,15 +4630,6 @@
         "retry": "Cuba semula",
         "progress": "{{done}} / {{total}} pangkalan pengetahuan",
         "phase": "Meng-embed semula nota"
-      },
-      "errors": {
-        "loadEmbedding": "Failed to load knowledge vector search settings",
-        "activateEmbedding": "Failed to activate knowledge vector search",
-        "disableEmbedding": "Failed to disable knowledge vector search",
-        "rebuildEmbedding": "Failed to start knowledge vector rebuild",
-        "cancelReembed": "Failed to cancel knowledge vector rebuild",
-        "retryReembed": "Failed to retry knowledge vector rebuild",
-        "detail": "Butiran: {{error}}"
       }
     },
     "knowledgeMaintenance": {
@@ -4491,6 +4649,12 @@
       "cycleSkipped": "Dilangkau: {{note}}",
       "cycleDone": "{{n}} cadangan dijana",
       "runFailed": "Tidak dapat menjalankan penyelenggaraan",
+      "errors": {
+        "load": "Gagal memuatkan tetapan penyelenggaraan autonomi",
+        "save": "Gagal menyimpan tetapan penyelenggaraan autonomi",
+        "runNow": "Gagal menjalankan penyelenggaraan autonomi",
+        "detail": "Butiran: {{error}}"
+      },
       "task": {
         "autoLink": "Auto-paut",
         "orphanRescue": "Selamat nota yatim",
@@ -4507,13 +4671,7 @@
       },
       "model": "Model",
       "modelDesc": "Dikongsi oleh keempat-empat penjana berasaskan LLM (auto-tag, penyelenggaraan MOC, memori→nota, konflik sumber).",
-      "modelDefault": "Ikut lalai automasi",
-      "errors": {
-        "load": "Gagal memuatkan tetapan penyelenggaraan autonomi",
-        "save": "Gagal menyimpan tetapan penyelenggaraan autonomi",
-        "runNow": "Gagal menjalankan penyelenggaraan autonomi",
-        "detail": "Butiran: {{error}}"
-      }
+      "modelDefault": "Ikut lalai automasi"
     },
     "knowledgeMediaRetention": {
       "saved": "Disimpan",
@@ -4903,33 +5061,13 @@
     "memoryAutoExtract": "Ekstrak ingatan automatik",
     "memoryAutoExtractDesc": "Ekstrak ingatan secara automatik apabila ambang token, masa atau mesej dipenuhi",
     "memoryBudget": {
+      "advancedAllocation": "Peruntukan skop lanjutan",
       "agentOverrideDesc": "Secara lalai mewarisi Bajet Memori global. Tutup untuk menggunakan bajet khusus Agent.",
+      "contextWindow": "Konteks model lalai semasa: {{count}} tokens",
+      "coreSimpleDesc": "Pilih satu jumlah bajet Core Memory. Kapasiti yang tidak digunakan dikongsi mengikut keutamaan Project > Agent > Global.",
       "coreMemoryFileChars": "Had setiap MEMORY.md",
       "coreMemoryFileCharsDesc": "Had bebas bagi setiap fail MEMORY.md (Global / Agent). Kandungan yang melebihi had dipotong dalam prom tetapi kekal pada cakera. Lalai 8000.",
       "desc": "Mengehadkan jumlah aksara bahagian memori (Global MEMORY.md / Agent MEMORY.md / memori SQLite / Garis Panduan) dan had setiap lapisan dalamnya. Mengurangkan jumlah membebaskan bajet untuk konteks perbualan aktif.",
-      "resetToDefaults": "Set semula kepada lalai",
-      "sections": {
-        "aboutUser": "Tentang pengguna",
-        "preferences": "Keutamaan",
-        "projectContext": "Konteks projek",
-        "references": "Rujukan",
-        "userProfile": "Profil pengguna"
-      },
-      "sqliteEntryMaxChars": "Had setiap entri",
-      "sqliteEntryMaxCharsDesc": "Had atas untuk baris pertama setiap entri memori SQLite yang dipaparkan, supaya satu entri panjang tidak menyesakkan entri lain dalam bahagian sama. Lalai 500.",
-      "sqliteSectionsTitle": "Bajet mengikut bahagian SQLite",
-      "title": "Bajet Memori",
-      "totalChars": "Had jumlah aksara",
-      "totalCharsDesc": "Had atas keras untuk keseluruhan bahagian memori. Garis Panduan dikekalkan dahulu; lapisan lain digunakan mengikut susunan keutamaan. Lalai 10000.",
-      "useGlobalDefault": "Warisi nilai lalai global",
-      "errors": {
-        "load": "Failed to load memory budget",
-        "save": "Failed to save memory budget",
-        "detail": "Butiran: {{error}}"
-      },
-      "advancedAllocation": "Peruntukan skop lanjutan",
-      "contextWindow": "Konteks model lalai semasa: {{count}} tokens",
-      "coreSimpleDesc": "Pilih satu jumlah bajet Core Memory. Kapasiti yang tidak digunakan dikongsi mengikut keutamaan Project > Agent > Global.",
       "engine": {
         "agentTokens": "Token Agent",
         "budgetTokens": "Token bajet",
@@ -4949,13 +5087,33 @@
       "legacyTitle": "Bajet undur versi lama",
       "legacyDesc": "Bajet aksara ini hanya digunakan pada laluan memori statik lama dan kekal boleh diedit sepanjang tempoh keserasian.",
       "effective": "Dikonfigurasi {{configured}} · berkesan pusingan ini {{effective}} tokens",
+      "errors": {
+        "load": "Failed to load memory budget",
+        "save": "Failed to save memory budget",
+        "detail": "Butiran: {{error}}"
+      },
+      "resetToDefaults": "Set semula kepada lalai",
       "highBudgetWarning": "Melebihi julat disyorkan 2400 tokens. Ia boleh disimpan, tetapi meningkatkan konteks stabil, penulisan cache dan kependaman token pertama.",
       "modelLimited": "Dikonfigurasi {{configured}} tokens; model semasa menggunakan {{effective}} dengan selamat. Keutamaan tersimpan tidak berubah.",
       "presets": {
         "balanced": "Seimbang",
         "concise": "Ringkas",
         "rich": "Kaya"
-      }
+      },
+      "sections": {
+        "aboutUser": "Tentang pengguna",
+        "preferences": "Keutamaan",
+        "projectContext": "Konteks projek",
+        "references": "Rujukan",
+        "userProfile": "Profil pengguna"
+      },
+      "sqliteEntryMaxChars": "Had setiap entri",
+      "sqliteEntryMaxCharsDesc": "Had atas untuk baris pertama setiap entri memori SQLite yang dipaparkan, supaya satu entri panjang tidak menyesakkan entri lain dalam bahagian sama. Lalai 500.",
+      "sqliteSectionsTitle": "Bajet mengikut bahagian SQLite",
+      "title": "Bajet Memori",
+      "totalChars": "Had jumlah aksara",
+      "totalCharsDesc": "Had atas keras untuk keseluruhan bahagian memori. Garis Panduan dikekalkan dahulu; lapisan lain digunakan mengikut susunan keutamaan. Lalai 10000.",
+      "useGlobalDefault": "Warisi nilai lalai global"
     },
     "memoryContent": "Kandungan",
     "memoryContentPlaceholder": "Apa yang AI patut ingat?",
@@ -5046,8 +5204,89 @@
     "memorySelectionThreshold": "Ambang pencetus",
     "memorySelectionThresholdDesc": "Hanya diaktifkan apabila bilangan calon ini dicapai. Lalai 8.",
     "memorySimilarity": "Persamaan",
+    "agentMemoryEnabledTitle": "Gunakan ingatan untuk Agent ini",
+    "agentMemoryEnabledDesc": "Mengawal Ingatan Teras, ingatan dinamik, pembelajaran dan alat ingatan Agent ini. Tetapan ingatan global kekal sebagai dasar peringkat atas.",
     "memoryStatsTotal": "{{count}} jumlah",
     "memoryStatsVec": "Vektor {{pct}}%",
+    "memoryV2": {
+      "title": "Ingatan",
+      "subtitle": "Pilih perkara yang kekal diingati, bila hendak mengingat semula dan sama ada perbualan mengajar pembantu.",
+      "loadFailed": "Gagal memuatkan tetapan ingatan",
+      "saveFailed": "Gagal menyimpan tetapan ingatan",
+      "core": {
+        "title": "Sentiasa diingati",
+        "desc": "MEMORY.md ringkas untuk Global, Agent dan Project kekal stabil dalam perbualan; butiran hanya dimuatkan apabila diperlukan.",
+        "budget": "Jumlah bajet {{count}} token",
+        "manage": "Sunting MEMORY.md",
+        "projectTitle": "MEMORY.md projek",
+        "projectDesc": "Konteks kekal ringkas yang hanya digunakan oleh perbualan dalam projek ini.",
+        "conflict": "Fail kanonik huruf besar dan fail keserasian lama huruf kecil kedua-duanya berubah. Pilih atau gabungkan kandungan sebelum menyimpan.",
+        "conflictCanonical": "MEMORY.md kanonik huruf besar",
+        "conflictLegacy": "memory.md legasi huruf kecil",
+        "conflictMerged": "Hasil gabungan (bermula daripada fail kanonik)",
+        "conflictKeepCanonical": "Kekalkan MEMORY.md",
+        "conflictKeepLegacy": "Kekalkan fail legasi",
+        "conflictSaveMerged": "Simpan hasil gabungan",
+        "conflictLoadFailed": "Gagal memuatkan fail Ingatan Teras yang bercanggah",
+        "conflictResolveFailed": "Gagal menyelesaikan konflik Ingatan Teras. Muat semula dan cuba lagi.",
+        "conflictResolved": "Konflik Ingatan Teras diselesaikan",
+        "actualTokens": "{{used}} / {{total}} token dalam skop ini",
+        "stats": "Entri indeks: {{entries}} · Topik: {{topics}}",
+        "updatedAt": "Dikemas kini {{value}}",
+        "neverUpdated": "Belum ditulis",
+        "scope": "Skop ingatan",
+        "projectLabel": "Projek",
+        "topics": "Topik atas permintaan",
+        "noTopics": "Belum ada fail topik",
+        "selectTopic": "Pilih topik atau cipta yang baharu",
+        "topicName": "Nama topik",
+        "topicDesc": "Satu baris tentang bila ia perlu dibaca",
+        "topicContent": "Butiran topik (dimuatkan hanya apabila perlu)",
+        "topicLoadFailed": "Gagal memuatkan topik ingatan",
+        "topicSaveFailed": "Gagal menyimpan topik ingatan",
+        "topicDeleteConfirm": "Padam topik ingatan ini?",
+        "topicDeleteFailed": "Gagal memadam topik ingatan"
+      },
+      "recall": {
+        "title": "Panggilan ingatan dinamik",
+        "desc": "Dimatikan secara lalai. Apabila dimatikan, hanya Ingatan Teras yang stabil digunakan secara automatik melainkan override keserasian khusus Agent dihidupkan; model masih boleh mencari melalui alat ingatan apabila diperlukan. Apabila dihidupkan, ingatan dinamik berkaitan dicari selepas setiap mesej pengguna dan sebelum jawapan dijana.",
+        "fast": "Panggil ingatan berkaitan secara automatik",
+        "deep": "Penyusunan semula mendalam (pilihan)",
+        "skip": "Dilangkau",
+        "deepCost": "Penyusunan semula mendalam menambah satu panggilan model, melambatkan respons dan menggunakan lebih banyak token. Gunakan hanya selepas panggilan automatik dihidupkan dan apabila benar-benar perlu.",
+        "last": "Ingatan terakhir: {{selected}}/{{candidates}} dipilih · {{latency}} ms · {{mode}}",
+        "noRecent": "Tiada panggilan ingatan dinamik automatik dijalankan sejak aplikasi dibuka."
+      },
+      "learning": {
+        "title": "Belajar daripada perbualan",
+        "desc": "Kawal sama ada maklumat baharu daripada sembang disimpan. Ini tidak menjejaskan penggunaan ingatan sedia ada.",
+        "mode": "Mod pembelajaran",
+        "smart": "Pembelajaran pintar",
+        "reviewFirst": "Semak sebelum simpan",
+        "manual": "Simpan manual sahaja",
+        "pending": "{{count}} menunggu semakan",
+        "unassigned": "{{count}} belum ditetapkan"
+      },
+      "review": {
+        "title": "Ingatan menunggu semakan",
+        "desc": "{{count}} calon belum dimasukkan ke ingatan jangka panjang atau prompt.",
+        "empty": "Tiada apa-apa menunggu semakan",
+        "chooseScope": "Pilih tempat menyimpan",
+        "approve": "Simpan ingatan",
+        "reject": "Jangan simpan",
+        "loadFailed": "Gagal memuatkan ingatan tertunda",
+        "approveFailed": "Gagal menyimpan ingatan tertunda",
+        "rejectFailed": "Gagal menolak ingatan tertunda",
+        "reason": {
+          "review_first": "Mod pembelajaran memerlukan semakan",
+          "project_scope_missing": "Kelihatan khusus projek tetapi sembang ini tiada projek",
+          "scope_uncertain": "Skop yang betul tidak pasti",
+          "sensitive": "Mungkin mengandungi maklumat sensitif",
+          "conflict": "Bercanggah dengan ingatan sedia ada",
+          "core_promotion": "Dicadangkan sebagai ingatan kekal"
+        }
+      }
+    },
     "memoryTabs": {
       "dreaming": "Dreaming",
       "manage": "Pengurusan ingatan",
@@ -5313,11 +5552,11 @@
       "refreshFailed": "Gagal mensintesis profil",
       "empty": "Belum ada snapshot profil",
       "emptyHint": "Dayakan sintesis profil di bawah tab Dreaming, kemudian muat semula.",
-      "version": "v{{version}}",
       "noSources": "Gambar lama ini belum mempunyai pautan sumber tuntutan lagi. Muat semula profil untuk menjana sumber yang boleh dikesan.",
       "scopeSources": "Sumber peringkat syot kilat",
       "sourceConfidence": "keyakinan {{value}}",
       "sourceEvidence": "Bukti: {{quote}}",
+      "version": "v{{version}}",
       "operationErrors": {
         "openEvidenceSource": "Failed to open profile evidence source",
         "refresh": "Failed to synthesise profile",
@@ -5701,8 +5940,8 @@
       "skillCount_one": "{{count}} skill",
       "skillCount_other": "{{count}} skills",
       "tooltip": {
-        "distinguishOnboarding": "To migrate legacy OpenClaw user data, use the dedicated 'Import OpenClaw' step (step 2).",
-        "distinguishUserDataImport": "Untuk memindahkan data OpenClaw lama, pergi ke Tetapan → Agents → Import dari OpenClaw."
+        "distinguishUserDataImport": "Untuk memindahkan data OpenClaw lama, pergi ke Tetapan → Agents → Import dari OpenClaw.",
+        "distinguishOnboarding": "To migrate legacy OpenClaw user data, use the dedicated 'Import OpenClaw' step (step 2)."
       },
       "warning": {
         "openclaw": "OpenClaw skills often depend on external CLIs (gh, 1password, tmux); calls may fail until you install them.",
@@ -5755,15 +5994,15 @@
         "memory": "Imbasan memori",
         "awareness": "Kesedaran merentas sesi"
       },
-      "model": "Model",
-      "modelDesc": "Panggilan cadangan Sprite adalah hantar-dan-lupa — rantaian sandaran penuh tidak menjadi masalah, bukan hanya satu model sahaja.",
-      "modelDefault": "Ikut lalai automasi",
       "errors": {
         "load": "Gagal memuatkan tetapan sprite",
         "save": "Gagal menyimpan tetapan sprite",
         "toggle": "Gagal mengemas kini mod sprite",
         "detail": "Butiran: {{error}}"
-      }
+      },
+      "model": "Model",
+      "modelDesc": "Panggilan cadangan Sprite adalah hantar-dan-lupa — rantaian sandaran penuh tidak menjadi masalah, bukan hanya satu model sahaja.",
+      "modelDefault": "Ikut lalai automasi"
     },
     "ssrfBrowserPolicyDesc": "Terpakai pada URL sasaran page.goto / new_page. Nota: fetch() JS di dalam browser.evaluate tidak dicakupi.",
     "ssrfDefaultPolicy": "Dasar lalai",
@@ -6125,49 +6364,10 @@
     "uiEffects": "Animasi latar belakang",
     "uiEffectsDesc": "Dayakan pautan latar belakang semua cuaca dan kesan cuaca",
     "uiEffectsToggle": "Hidupkan kesan",
-    "audioGenerate": "Penjanaan audio",
-    "audioGenerateDesc": "Konfigurasi penyedia sintesis audio (BYOK) untuk bentuk audio ruang reka bentuk: naratif TTS / muzik / SFX. Failover mengikut urutan.",
-    "audioGenNoProvider": "Tiada penyedia audio dikonfigurasikan — dayakan satu dan tambah kunci API.",
-    "audioGenApiKey": "Kunci API",
-    "audioGenModel": "Model",
-    "audioGenVoice": "Suara (TTS)",
-    "audioGenBaseUrl": "Base URL",
-    "audioGenTimeout": "Had masa permintaan (s)",
-    "audioGenFetchVoices": "Dapatkan suara",
-    "audioGenKnownModels": "Model diketahui",
-    "audioGenPickVoice": "Pilih dari senarai…",
     "visionBridgeModel": "Model jambatan penglihatan",
     "visionBridgeModelDesc": "Hanya digunakan apabila model utama tidak dapat melihat imej. Model berasingan menukar imej menjadi penerangan teks supaya perbualan boleh diteruskan.",
     "visionBridgeModelClear": "Matikan jambatan penglihatan",
     "selectVisionBridgeModel": "Pilih model penglihatan",
-    "modelChainRestoreInherit": "Tetapkan semula ke lalai yang diwarisi",
-    "automationModelChain": "Model lalai automasi",
-    "automationModelChainDesc": "Rantaian model lalai (dengan model sandaran) untuk tugas AI latar belakang sekali sahaja seperti Recap, Dreaming dan Penyusunan Pengetahuan — bebas daripada model sembang lalai di atas. Biarkan kosong untuk kembali kepada model sembang lalai.",
-    "automationModelChainInherit": "Ikut model sembang lalai",
-    "knowledgeVision": {
-      "model": "Model penglihatan",
-      "modelDesc": "Rantaian model yang digunakan untuk OCR imej semasa mengimportnya ke ruang pengetahuan. Kosong akan ikut lalai automasi.",
-      "modelDefault": "Ikut lalai automasi",
-      "ocrConcurrency": "Kesegerakan OCR PDF imbasan",
-      "maxOcrPages": "Had halaman OCR PDF imbasan"
-    },
-    "noteTools": {
-      "title": "Model alatan nota",
-      "desc": "Model yang dikongsi oleh alatan penyulingan nota, penjanaan MOC, dan sesi-ke-nota.",
-      "modelDefault": "Ikut lalai automasi"
-    },
-    "recallSummary": {
-      "title": "Ringkasan panggilan semula",
-      "desc": "Apabila recall_memory / session_search memulangkan banyak padanan, ia dimampatkan menjadi satu perenggan ringkas melalui panggilan LLM tambahan dan bukannya memulangkan cebisan mentah. Dimatikan secara lalai — mengenakan satu panggilan tambahan bagi setiap carian yang layak.",
-      "enabled": "Dayakan ringkasan",
-      "minHits": "Padanan minimum untuk mencetuskan",
-      "contextCharBudget": "Bajet konteks (aksara)",
-      "timeoutSecs": "Had masa (saat)",
-      "maxTokens": "Token output maksimum",
-      "includeHistory": "Ringkaskan padanan sejarah perbualan juga",
-      "model": "Model",
-      "modelDefault": "Ikut lalai automasi"
-    },
     "activeMemoryUseRecommended": "Guna disyorkan",
     "procedureMemoryTitle": "Aliran kerja tersimpan",
     "procedureMemoryDesc": "Gunakan aliran kerja tersimpan yang berkaitan sebagai panduan lembut terhad sebelum menjawab.",
@@ -6999,7 +7199,42 @@
     "reasoningEffort": "Think",
     "memoryAuditScopeHintAll": "Semua perubahan mencari ingatan jangka panjang, aliran kerja dan keputusan memori berstruktur.",
     "memoryAuditScopeHintMemoryOnly": "Penapis tindakan digunakan pada sejarah ingatan jangka panjang; aliran kerja dan keputusan memori berstruktur kekal di bawah Semua perubahan.",
+    "modelChainRestoreInherit": "Tetapkan semula ke lalai yang diwarisi",
+    "automationModelChain": "Model lalai automasi",
+    "automationModelChainDesc": "Rantaian model lalai (dengan model sandaran) untuk tugas AI latar belakang sekali sahaja seperti Recap, Dreaming dan Penyusunan Pengetahuan — bebas daripada model sembang lalai di atas. Biarkan kosong untuk kembali kepada model sembang lalai.",
+    "automationModelChainInherit": "Ikut model sembang lalai",
+    "knowledgeVision": {
+      "model": "Model penglihatan",
+      "modelDesc": "Rantaian model yang digunakan untuk OCR imej semasa mengimportnya ke ruang pengetahuan. Kosong akan ikut lalai automasi.",
+      "modelDefault": "Ikut lalai automasi",
+      "ocrConcurrency": "Kesegerakan OCR PDF imbasan",
+      "maxOcrPages": "Had halaman OCR PDF imbasan"
+    },
+    "noteTools": {
+      "title": "Model alatan nota",
+      "desc": "Model yang dikongsi oleh alatan penyulingan nota, penjanaan MOC, dan sesi-ke-nota.",
+      "modelDefault": "Ikut lalai automasi"
+    },
+    "recallSummary": {
+      "title": "Ringkasan panggilan semula",
+      "desc": "Apabila recall_memory / session_search memulangkan banyak padanan, ia dimampatkan menjadi satu perenggan ringkas melalui panggilan LLM tambahan dan bukannya memulangkan cebisan mentah. Dimatikan secara lalai — mengenakan satu panggilan tambahan bagi setiap carian yang layak.",
+      "enabled": "Dayakan ringkasan",
+      "minHits": "Padanan minimum untuk mencetuskan",
+      "contextCharBudget": "Bajet konteks (aksara)",
+      "timeoutSecs": "Had masa (saat)",
+      "maxTokens": "Token output maksimum",
+      "includeHistory": "Ringkaskan padanan sejarah perbualan juga",
+      "model": "Model",
+      "modelDefault": "Ikut lalai automasi"
+    },
     "tabOverview": "Ringkasan",
+    "memoryBackupExportSummary": "Ingatan: {{memories}} · Dakwaan: {{claims}} · Profil: {{profiles}} · Episod: {{episodes}} · Aliran kerja: {{procedures}}",
+    "memoryBackupOpenReviewInboxAfterRestore": "Item dipulihkan untuk disemak: {{count}}",
+    "memoryExperienceSearchActive": "Padanan untuk “{{query}}”: {{total}}",
+    "memoryExperienceViewActive": "Item pengalaman: {{total}}",
+    "memoryExternalProvidersActive": "Pembekal aktif: {{active}}/{{total}}",
+    "memoryExternalProvidersActiveSummary": "Aktif: {{active}} · Dikonfigurasi: {{total}}",
+    "memoryProcedureSourceEpisode": "Episod: {{id}}",
     "memoryExternalProviders": "Pembekal luar",
     "memoryExternalProvidersDesc": "Pembekal memori tambahan pilihan. Memori tempatan kekal sebagai sumber kebenaran; sambungan dilumpuhkan sehingga anda mengkonfigurasi dan mendayakannya secara eksplisit.",
     "memoryExternalProvidersGlobal": "Dayakan penyegerakan pembekal",
@@ -7116,94 +7351,17 @@
     "memoryProcedureStepsPlaceholder": "- Periksa cek yang gagal\n- Gunakan pembetulan yang diketahui\n- Jalankan semula pengesah sempit",
     "memoryProcedureConstraintsPlaceholder": "Bila tidak menggunakan aliran kerja ini",
     "memoryProcedureConfidence": "Keyakinan",
-    "agentMemoryEnabledTitle": "Gunakan ingatan untuk Agent ini",
-    "agentMemoryEnabledDesc": "Mengawal Ingatan Teras, ingatan dinamik, pembelajaran dan alat ingatan Agent ini. Tetapan ingatan global kekal sebagai dasar peringkat atas.",
-    "memoryV2": {
-      "title": "Ingatan",
-      "subtitle": "Pilih perkara yang kekal diingati, bila hendak mengingat semula dan sama ada perbualan mengajar pembantu.",
-      "loadFailed": "Gagal memuatkan tetapan ingatan",
-      "saveFailed": "Gagal menyimpan tetapan ingatan",
-      "core": {
-        "title": "Sentiasa diingati",
-        "desc": "MEMORY.md ringkas untuk Global, Agent dan Project kekal stabil dalam perbualan; butiran hanya dimuatkan apabila diperlukan.",
-        "budget": "Jumlah bajet {{count}} token",
-        "manage": "Sunting MEMORY.md",
-        "projectTitle": "MEMORY.md projek",
-        "projectDesc": "Konteks kekal ringkas yang hanya digunakan oleh perbualan dalam projek ini.",
-        "conflict": "Fail kanonik huruf besar dan fail keserasian lama huruf kecil kedua-duanya berubah. Pilih atau gabungkan kandungan sebelum menyimpan.",
-        "conflictCanonical": "MEMORY.md kanonik huruf besar",
-        "conflictLegacy": "memory.md legasi huruf kecil",
-        "conflictMerged": "Hasil gabungan (bermula daripada fail kanonik)",
-        "conflictKeepCanonical": "Kekalkan MEMORY.md",
-        "conflictKeepLegacy": "Kekalkan fail legasi",
-        "conflictSaveMerged": "Simpan hasil gabungan",
-        "conflictLoadFailed": "Gagal memuatkan fail Ingatan Teras yang bercanggah",
-        "conflictResolveFailed": "Gagal menyelesaikan konflik Ingatan Teras. Muat semula dan cuba lagi.",
-        "conflictResolved": "Konflik Ingatan Teras diselesaikan",
-        "actualTokens": "{{used}} / {{total}} token dalam skop ini",
-        "stats": "Entri indeks: {{entries}} · Topik: {{topics}}",
-        "updatedAt": "Dikemas kini {{value}}",
-        "neverUpdated": "Belum ditulis",
-        "scope": "Skop ingatan",
-        "projectLabel": "Projek",
-        "topics": "Topik atas permintaan",
-        "noTopics": "Belum ada fail topik",
-        "selectTopic": "Pilih topik atau cipta yang baharu",
-        "topicName": "Nama topik",
-        "topicDesc": "Satu baris tentang bila ia perlu dibaca",
-        "topicContent": "Butiran topik (dimuatkan hanya apabila perlu)",
-        "topicLoadFailed": "Gagal memuatkan topik ingatan",
-        "topicSaveFailed": "Gagal menyimpan topik ingatan",
-        "topicDeleteConfirm": "Padam topik ingatan ini?",
-        "topicDeleteFailed": "Gagal memadam topik ingatan"
-      },
-      "recall": {
-        "title": "Panggilan ingatan dinamik",
-        "desc": "Dimatikan secara lalai. Apabila dimatikan, hanya Ingatan Teras yang stabil digunakan secara automatik melainkan override keserasian khusus Agent dihidupkan; model masih boleh mencari melalui alat ingatan apabila diperlukan. Apabila dihidupkan, ingatan dinamik berkaitan dicari selepas setiap mesej pengguna dan sebelum jawapan dijana.",
-        "fast": "Panggil ingatan berkaitan secara automatik",
-        "deep": "Penyusunan semula mendalam (pilihan)",
-        "skip": "Dilangkau",
-        "deepCost": "Penyusunan semula mendalam menambah satu panggilan model, melambatkan respons dan menggunakan lebih banyak token. Gunakan hanya selepas panggilan automatik dihidupkan dan apabila benar-benar perlu.",
-        "last": "Ingatan terakhir: {{selected}}/{{candidates}} dipilih · {{latency}} ms · {{mode}}",
-        "noRecent": "Tiada panggilan ingatan dinamik automatik dijalankan sejak aplikasi dibuka."
-      },
-      "learning": {
-        "title": "Belajar daripada perbualan",
-        "desc": "Kawal sama ada maklumat baharu daripada sembang disimpan. Ini tidak menjejaskan penggunaan ingatan sedia ada.",
-        "mode": "Mod pembelajaran",
-        "smart": "Pembelajaran pintar",
-        "reviewFirst": "Semak sebelum simpan",
-        "manual": "Simpan manual sahaja",
-        "pending": "{{count}} menunggu semakan",
-        "unassigned": "{{count}} belum ditetapkan"
-      },
-      "review": {
-        "title": "Ingatan menunggu semakan",
-        "desc": "{{count}} calon belum dimasukkan ke ingatan jangka panjang atau prompt.",
-        "empty": "Tiada apa-apa menunggu semakan",
-        "chooseScope": "Pilih tempat menyimpan",
-        "approve": "Simpan ingatan",
-        "reject": "Jangan simpan",
-        "loadFailed": "Gagal memuatkan ingatan tertunda",
-        "approveFailed": "Gagal menyimpan ingatan tertunda",
-        "rejectFailed": "Gagal menolak ingatan tertunda",
-        "reason": {
-          "review_first": "Mod pembelajaran memerlukan semakan",
-          "project_scope_missing": "Kelihatan khusus projek tetapi sembang ini tiada projek",
-          "scope_uncertain": "Skop yang betul tidak pasti",
-          "sensitive": "Mungkin mengandungi maklumat sensitif",
-          "conflict": "Bercanggah dengan ingatan sedia ada",
-          "core_promotion": "Dicadangkan sebagai ingatan kekal"
-        }
-      }
-    },
-    "memoryBackupExportSummary": "Ingatan: {{memories}} · Dakwaan: {{claims}} · Profil: {{profiles}} · Episod: {{episodes}} · Aliran kerja: {{procedures}}",
-    "memoryBackupOpenReviewInboxAfterRestore": "Item dipulihkan untuk disemak: {{count}}",
-    "memoryExperienceSearchActive": "Padanan untuk “{{query}}”: {{total}}",
-    "memoryExperienceViewActive": "Item pengalaman: {{total}}",
-    "memoryExternalProvidersActive": "Pembekal aktif: {{active}}/{{total}}",
-    "memoryExternalProvidersActiveSummary": "Aktif: {{active}} · Dikonfigurasi: {{total}}",
-    "memoryProcedureSourceEpisode": "Episod: {{id}}"
+    "audioGenerate": "Penjanaan audio",
+    "audioGenerateDesc": "Konfigurasi penyedia sintesis audio (BYOK) untuk bentuk audio ruang reka bentuk: naratif TTS / muzik / SFX. Failover mengikut urutan.",
+    "audioGenNoProvider": "Tiada penyedia audio dikonfigurasikan — dayakan satu dan tambah kunci API.",
+    "audioGenApiKey": "Kunci API",
+    "audioGenModel": "Model",
+    "audioGenVoice": "Suara (TTS)",
+    "audioGenBaseUrl": "Base URL",
+    "audioGenTimeout": "Had masa permintaan (s)",
+    "audioGenFetchVoices": "Dapatkan suara",
+    "audioGenKnownModels": "Model diketahui",
+    "audioGenPickVoice": "Pilih dari senarai…"
   },
   "shortcuts": {
     "actionOpenSettings": "Buka tetapan",
@@ -7264,6 +7422,21 @@
     },
     "context": {
       "description": "Tunjukkan pecahan tetingkap konteks"
+    },
+    "workflow": {
+      "description": "Togol Mod Aliran Kerja dan semak larian aliran kerja"
+    },
+    "goal": {
+      "description": "Tetapkan dan audit matlamat sesi"
+    },
+    "loop": {
+      "description": "Jalankan gesaan secara berulang pada selang masa tetap"
+    },
+    "review": {
+      "description": "Semak perubahan kod tempatan"
+    },
+    "mode": {
+      "description": "Tetapkan mod pelaksanaan"
     },
     "export": {
       "description": "Eksport sebagai Markdown"
@@ -7348,21 +7521,6 @@
     },
     "kb": {
       "description": "Sahkan atau batalkan akses pangkalan pengetahuan untuk sembang kumpulan ini"
-    },
-    "workflow": {
-      "description": "Togol Mod Aliran Kerja dan semak larian aliran kerja"
-    },
-    "goal": {
-      "description": "Tetapkan dan audit matlamat sesi"
-    },
-    "loop": {
-      "description": "Jalankan gesaan secara berulang pada selang masa tetap"
-    },
-    "review": {
-      "description": "Semak perubahan kod tempatan"
-    },
-    "mode": {
-      "description": "Tetapkan mod pelaksanaan"
     },
     "errors": {
       "noActiveSession": "Tiada sesi aktif",
@@ -7709,6 +7867,11 @@
     "openPanel": "Buka ruang kerja",
     "resizePanel": "Ubah saiz panel ruang kerja",
     "sourceFromSearch": "Carian",
+    "sourceFromUser": "Pengguna",
+    "sourceFromAttachment": "Lampiran",
+    "advancedDiagnostics": {
+      "title": "Diagnostik lanjutan"
+    },
     "truncatedNote": "Memaparkan 1000 terkini",
     "environment": {
       "archived": "Archived",
@@ -7814,8 +7977,6 @@
       "selectBranch": "Select branch",
       "stageAll": "Stage all changes",
       "viewPr": "View pull request",
-      "pullRequestPanelTitle": "Permintaan tarik",
-      "resizePullRequestPanel": "Ubah lebar panel permintaan tarik",
       "worktree": "Worktree",
       "checkDetails": "Butiran semakan",
       "checkFailed": "Gagal",
@@ -7837,7 +7998,6 @@
       "openCheck": "Buka semakan",
       "openComment": "Buka komen",
       "prFeedbackUnavailable": "Semakan dan komen PR tidak tersedia",
-      "prFeedbackStale": "Gagal memuat semula status permintaan tarik; data semasa mungkin sudah lapuk",
       "reviewComments": "{{count}} komen",
       "reviewFeedback": "Maklum balas semakan",
       "autoMergeEnabled": "Gabung automatik didayakan",
@@ -7864,24 +8024,10 @@
       "reviewPending": "Menunggu",
       "reviewRequired": "Semakan diperlukan",
       "reviewStatus": "Status semakan",
-      "reviewers": "Penyemak"
-    },
-    "action": {
-      "create": "Baharu",
-      "edit": "Sunting",
-      "delete": "Padam",
-      "read": "Baca"
-    },
-    "sectionKnowledge": "Pengetahuan",
-    "emptyKnowledge": "Tiada ruang pengetahuan dilampirkan",
-    "kbViaProject": "Projek",
-    "kbWrote": "Ditulis",
-    "kbRead": "Dibaca",
-    "kbSearchCount": "{{n}} carian",
-    "sourceFromUser": "Pengguna",
-    "sourceFromAttachment": "Lampiran",
-    "advancedDiagnostics": {
-      "title": "Diagnostik lanjutan"
+      "reviewers": "Penyemak",
+      "pullRequestPanelTitle": "Permintaan tarik",
+      "resizePullRequestPanel": "Ubah lebar panel permintaan tarik",
+      "prFeedbackStale": "Gagal memuat semula status permintaan tarik; data semasa mungkin sudah lapuk"
     },
     "goal": {
       "watchdogTitle": "Matlamat memerlukan pengesahan",
@@ -8022,6 +8168,18 @@
       "clean": "Tiada perubahan setempat",
       "changed": "{{count}} perubahan"
     },
+    "action": {
+      "create": "Baharu",
+      "edit": "Sunting",
+      "delete": "Padam",
+      "read": "Baca"
+    },
+    "sectionKnowledge": "Pengetahuan",
+    "emptyKnowledge": "Tiada ruang pengetahuan dilampirkan",
+    "kbViaProject": "Projek",
+    "kbWrote": "Ditulis",
+    "kbRead": "Dibaca",
+    "kbSearchCount": "{{n}} carian",
     "loop": {
       "title": "Gelung",
       "stateActive": "Berjalan",
@@ -9407,6 +9565,9 @@
       "incognitoDisabled": "Sesi inkognito tidak boleh melampirkan ruang pengetahuan",
       "needSession": "Hantar mesej pertama anda untuk melampirkan ruang pengetahuan",
       "empty": "Belum ada ruang pengetahuan — cipta satu di Pengetahuan.",
+      "loadFailed": "Gagal memuatkan ruang pengetahuan",
+      "attachmentsLoadFailed": "Tidak dapat membaca status lampiran sembang ini",
+      "errorDetail": "Butiran: {{error}}",
       "viaProject": "Daripada projek induk",
       "noteCount": "{{count}} nota",
       "read": "Baca",
@@ -9418,10 +9579,7 @@
       "accessWrite": "Baca+Tulis",
       "accessOffTip": "Tidak dilampirkan — pembantu tidak boleh akses ruang ini",
       "accessReadTip": "Pembantu boleh cari dan baca nota",
-      "accessWriteTip": "Pembantu boleh baca dan sunting nota",
-      "loadFailed": "Gagal memuatkan ruang pengetahuan",
-      "attachmentsLoadFailed": "Tidak dapat membaca status lampiran sembang ini",
-      "errorDetail": "Butiran: {{error}}"
+      "accessWriteTip": "Pembantu boleh baca dan sunting nota"
     },
     "mention": {
       "heading": "Nota pengetahuan",
@@ -9482,6 +9640,7 @@
       "noHistory": "Belum ada perbualan.",
       "untitled": "Perbualan tanpa tajuk",
       "noKb": "Buka ruang pengetahuan untuk mula bersembang.",
+      "welcome": "Tanya, susun atau cipta dengan ruang pengetahuan ini",
       "messageCount": "{{count}} mesej",
       "errors": {
         "loadAgents": "Tidak dapat memuatkan ejen sembang",
@@ -9493,8 +9652,7 @@
         "loadMoreThreads": "Tidak dapat memuatkan lagi perbualan",
         "loadMoreMessages": "Tidak dapat memuatkan mesej terdahulu",
         "detail": "Butiran: {{error}}"
-      },
-      "welcome": "Tanya, susun atau cipta dengan ruang pengetahuan ini"
+      }
     },
     "quickRewrite": {
       "title": "Tulis semula pantas",
@@ -9504,9 +9662,9 @@
       "regenerate": "Jana semula",
       "apply": "Guna",
       "failed": "Gagal menulis semula",
-      "staleSelection": "Pilihan berubah semasa menulis semula — sila pilih semula dan cuba lagi.",
       "modelLoadFailed": "Tidak dapat memuatkan model tulis semula",
-      "errorDetail": "Butiran: {{error}}"
+      "errorDetail": "Butiran: {{error}}",
+      "staleSelection": "Pilihan berubah semasa menulis semula — sila pilih semula dan cuba lagi."
     },
     "sprite": {
       "toggle": "Mod sprite",
@@ -9514,6 +9672,10 @@
       "toastOn": "Mod sprite dihidupkan",
       "toastOnDesc": "Ia akan mencelah dengan cadangan lembut apabila anda berhenti seketika.",
       "toastOff": "Mod sprite dimatikan",
+      "loadFailed": "Tidak dapat memuatkan mod sprite",
+      "toggleFailed": "Tidak dapat mengemas kini mod sprite",
+      "observeFailed": "Tidak dapat meminta cadangan daripada sprite",
+      "errorDetail": "Butiran: {{error}}",
       "respond": "Balas",
       "dismiss": "Tolak",
       "category": {
@@ -9522,11 +9684,7 @@
         "encourage": "Galakan",
         "remind": "Peringatan",
         "connect": "Sambungan"
-      },
-      "loadFailed": "Tidak dapat memuatkan mod sprite",
-      "toggleFailed": "Tidak dapat mengemas kini mod sprite",
-      "observeFailed": "Tidak dapat meminta cadangan daripada sprite",
-      "errorDetail": "Butiran: {{error}}"
+      }
     },
     "deleteNoteTitle": "Padam nota",
     "deleteNoteBody": "Padam \"{{name}}\"? Fail Markdown akan dibuang daripada cakera. Tindakan ini tidak boleh dibuat asal.",
@@ -9552,6 +9710,32 @@
     "renameMoveFailed": "Tidak dapat menamakan semula/memindahkan \"{{name}}\" — nota dengan nama itu mungkin sudah wujud.",
     "linksRewritten": "Mengemas kini {{count}} rujukan pautan dalam nota lain.",
     "noteRemovedExternally": "Nota ini telah dibuang atau dipindahkan di luar aplikasi.",
+    "operationErrorDetail": "Butiran: {{error}}",
+    "errors": {
+      "loadSpaces": "Tidak dapat memuatkan ruang pengetahuan",
+      "loadNotes": "Tidak dapat memuatkan nota",
+      "loadFolders": "Tidak dapat memuatkan folder",
+      "loadTags": "Tidak dapat memuatkan tag",
+      "searchNotes": "Tidak dapat mencari nota",
+      "saveNote": "Tidak dapat menyimpan nota",
+      "createSpace": "Tidak dapat mencipta ruang pengetahuan",
+      "createNote": "Tidak dapat mencipta nota",
+      "createLinkedNote": "Tidak dapat mencipta nota terpaut",
+      "reindexSpace": "Tidak dapat membina semula indeks ruang",
+      "reindexNote": "Tidak dapat membina semula indeks nota",
+      "reindexFolder": "Tidak dapat membina semula indeks folder",
+      "deleteNote": "Tidak dapat memadam nota",
+      "deleteFolder": "Tidak dapat memadam folder",
+      "revealNote": "Tidak dapat mendedahkan nota",
+      "createFolder": "Tidak dapat mencipta folder",
+      "updateSpace": "Tidak dapat mengemas kini ruang pengetahuan",
+      "archiveSpace": "Tidak dapat mengemas kini status arkib",
+      "deleteSpace": "Tidak dapat memadam ruang pengetahuan"
+    },
+    "focusKbUnavailable": "Ruang pengetahuan itu tidak lagi tersedia.",
+    "focusNoteUnavailable": "Tidak dapat membuka nota pengetahuan itu. Ia mungkin telah berpindah atau akses berubah.",
+    "focusUnavailableDetail": "Butiran: {{error}}",
+    "focusLocationUnavailable": "Nota dibuka, tetapi lokasi sumber yang tepat tidak dapat ditemui.",
     "moveTo": "Pindah ke…",
     "moveToTitle": "Pindahkan \"{{name}}\" ke…",
     "rootFolder": "Akar",
@@ -9573,11 +9757,17 @@
       "tooltip": "Aktiviti ruang pengetahuan",
       "title": "Aktiviti ruang pengetahuan",
       "empty": "Belum ada aktiviti.",
+      "loadFailed": "Tidak dapat memuatkan tugas bina semula",
+      "cancelFailed": "Tidak dapat membatalkan tugas bina semula",
+      "retryFailed": "Tidak dapat mencuba semula tugas bina semula",
+      "clearFailed": "Tidak dapat mengosongkan tugas bina semula",
       "kindReindex": "Bina semula indeks",
       "kindReembed": "Benam semula vektor",
       "fts": "Indeks teks penuh",
+      "result": "{{notes}} nota · {{kbs}} ruang dibina semula",
       "emptyHint": "Ikat atau indeks semula sesuatu ruang, atau import fail, dan kemajuan akan muncul di sini.",
       "model": "Model: {{name}}",
+      "errorDetail": "Butiran: {{error}}",
       "kindImport": "Import sumber",
       "space": "Ruang: {{name}}",
       "progressFiles": "{{done}} / {{total}} fail",
@@ -9592,13 +9782,7 @@
         "failed": "Gagal",
         "cancelled": "Dibatalkan",
         "timed_out": "Tamat masa"
-      },
-      "loadFailed": "Tidak dapat memuatkan tugas bina semula",
-      "cancelFailed": "Tidak dapat membatalkan tugas bina semula",
-      "retryFailed": "Tidak dapat mencuba semula tugas bina semula",
-      "clearFailed": "Tidak dapat mengosongkan tugas bina semula",
-      "result": "{{notes}} nota · {{kbs}} ruang dibina semula",
-      "errorDetail": "Butiran: {{error}}"
+      }
     },
     "maintenance": {
       "tooltip": "Penyelenggaraan",
@@ -9612,11 +9796,13 @@
       "runNow": "Imbas",
       "runNowTip": "Imbas sekarang untuk cadangan penyelenggaraan",
       "rejectAll": "Tolak semua",
+      "rejectAllFailed": "Tidak dapat mengetepikan semua cadangan",
       "approve": "Guna",
       "reject": "Ketepikan",
       "cycleSkipped": "Penyelenggaraan dilangkau: {{note}}",
       "cycleDone": "{{n}} cadangan dijana",
       "runFailed": "Tidak dapat menjalankan penyelenggaraan",
+      "errorDetail": "Butiran: {{error}}",
       "applyFailed": "Tidak dapat menggunakan cadangan",
       "rejectFailed": "Tidak dapat mengetepikan cadangan",
       "compileQueued": "Kajian sumber-ke-nota yang dijana. Semak panel cadangan nota untuk perbezaan.",
@@ -9643,9 +9829,7 @@
       "needsReview": "Perlu semakan",
       "rebuildEvidenceTip": "Bina semula indeks bukti terbitan",
       "schemaIssues": "Isu skema",
-      "staleRefs": "Rujukan basi",
-      "rejectAllFailed": "Tidak dapat mengetepikan semua cadangan",
-      "errorDetail": "Butiran: {{error}}"
+      "staleRefs": "Rujukan basi"
     },
     "graph": {
       "toggle": "Paparan graf",
@@ -9672,6 +9856,9 @@
     "embeddingOff": "Carian vektor dimatikan",
     "embeddingModelTip": "Model benaman: {{name}} — buka tetapan",
     "embeddingOffTip": "Carian vektor dimatikan — buka tetapan",
+    "embeddingStatusUnavailable": "Status vektor tidak tersedia",
+    "embeddingStatusUnavailableTip": "Status carian vektor tidak tersedia — buka tetapan",
+    "embeddingStatusErrorDetail": "Butiran: {{error}}",
     "kbRootPick": "Pilih…",
     "kbRootHint": "Biarkan kosong untuk ruang dalaman. Bilik kebal luaran hanya-baca pada Fasa 1.",
     "kbRootInvalid": "Tidak dapat memilih folder itu",
@@ -9690,6 +9877,7 @@
       "description": "Draf AI mencatatkan perubahan daripada sumber terpilih. Semak perbezaan sebelum apa-apa ditulis.",
       "empty": "Pilih cadangan untuk disemak",
       "emptyHint": "Cadangan yang dijana kekal di sini sehingga anda memohon atau menolaknya.",
+      "errorDetail": "Butiran: {{error}}",
       "failed": "Larian sumber-ke-nota gagal",
       "loadFailed": "Tidak dapat memuatkan larian sumber-ke-nota",
       "noProposals": "Tiada cadangan untuk larian ini.",
@@ -9707,8 +9895,7 @@
       "startFailed": "Tidak dapat menyusun sumber menjadi nota",
       "startSelected": "Susun {{count}}",
       "started": "Cadangan nota {{n}} yang dijana",
-      "title": "Susun ke dalam nota",
-      "errorDetail": "Butiran: {{error}}"
+      "title": "Susun ke dalam nota"
     },
     "sources": {
       "archiveAttachment": "Arkibkan kepada pengetahuan",
@@ -9734,6 +9921,7 @@
       "diffTruncated": "Pratonton dipenggal",
       "dismissSimilar": "abaikan",
       "downloadOriginal": "Muat turun asal",
+      "downloadOriginalFailed": "Tidak dapat memuat turun fail asal",
       "empty": "Tiada sumber lagi.",
       "evidenceSources": "Sumber",
       "externalRawPath": "Gambar luaran",
@@ -9765,8 +9953,15 @@
       "noSimilarGroups": "Tiada kumpulan sumber yang serupa.",
       "open": "Buka",
       "openOriginal": "Buka asal",
+      "openOriginalFailed": "Tidak dapat membuka fail asal",
       "otherKb": "Ruang lain {{id}}",
       "readFailed": "Tidak dapat membuka sumber",
+      "sourceListFailed": "Couldn't load sources",
+      "sourceRefsFailed": "Tidak dapat memuatkan rujukan sumber",
+      "sourceClaimsFailed": "Couldn't load source claim references",
+      "importRunsListFailed": "Couldn't load import history",
+      "similarGroupsLoadFailed": "Couldn't load similar source groups",
+      "sourceErrorDetail": "Butiran: {{error}}",
       "reextract": "Ekstrak semula",
       "reextractFailed": "Tidak dapat mengekstrak semula sumber",
       "reextracted": "Sumber diekstrak semula",
@@ -9841,15 +10036,7 @@
       "ocrFailed": "OCR gagal",
       "ocrRetry": "Cuba semula halaman yang gagal",
       "ocrRetryStarted": "Mencuba semula halaman yang gagal…",
-      "ocrRetryFailed": "Tidak dapat mencuba semula halaman OCR",
-      "downloadOriginalFailed": "Tidak dapat memuat turun fail asal",
-      "openOriginalFailed": "Tidak dapat membuka fail asal",
-      "sourceListFailed": "Couldn't load sources",
-      "sourceRefsFailed": "Tidak dapat memuatkan rujukan sumber",
-      "sourceClaimsFailed": "Couldn't load source claim references",
-      "importRunsListFailed": "Couldn't load import history",
-      "similarGroupsLoadFailed": "Couldn't load similar source groups",
-      "sourceErrorDetail": "Butiran: {{error}}"
+      "ocrRetryFailed": "Tidak dapat mencuba semula halaman OCR"
     },
     "queryFile": {
       "action": "Fail",
@@ -9858,6 +10045,7 @@
       "applyFailed": "Tidak dapat memohon pemfailan",
       "description": "Buat perbezaan ulasan sebelum menulis.",
       "empty": "Pilih di mana jawapan ini harus mendarat.",
+      "errorDetail": "Butiran: {{error}}",
       "generateFailed": "Tidak dapat membuat cadangan pemfailan",
       "reject": "Tolak",
       "rejected": "Pemfailan dibuang",
@@ -9875,8 +10063,7 @@
       "currentNotePlaceholder": "Laluan nota semasa",
       "openQuestionsPlaceholder": "Nota dengan Soalan Terbuka",
       "mocPlaceholder": "MOCs/Conversation Filings.md",
-      "createNotePlaceholder": "Filed Conversations/example.md",
-      "errorDetail": "Butiran: {{error}}"
+      "createNotePlaceholder": "Filed Conversations/example.md"
     },
     "emptyState": {
       "scanning": "Mengimbas ruang ini…",
@@ -9884,36 +10071,7 @@
       "emptyExternal": "Belum ada nota markdown ditemui dalam folder ini.",
       "emptyInternal": "Ruang ini kosong.",
       "importFiles": "Import fail"
-    },
-    "operationErrorDetail": "Butiran: {{error}}",
-    "errors": {
-      "loadSpaces": "Tidak dapat memuatkan ruang pengetahuan",
-      "loadNotes": "Tidak dapat memuatkan nota",
-      "loadFolders": "Tidak dapat memuatkan folder",
-      "loadTags": "Tidak dapat memuatkan tag",
-      "searchNotes": "Tidak dapat mencari nota",
-      "saveNote": "Tidak dapat menyimpan nota",
-      "createSpace": "Tidak dapat mencipta ruang pengetahuan",
-      "createNote": "Tidak dapat mencipta nota",
-      "createLinkedNote": "Tidak dapat mencipta nota terpaut",
-      "reindexSpace": "Tidak dapat membina semula indeks ruang",
-      "reindexNote": "Tidak dapat membina semula indeks nota",
-      "reindexFolder": "Tidak dapat membina semula indeks folder",
-      "deleteNote": "Tidak dapat memadam nota",
-      "deleteFolder": "Tidak dapat memadam folder",
-      "revealNote": "Tidak dapat mendedahkan nota",
-      "createFolder": "Tidak dapat mencipta folder",
-      "updateSpace": "Tidak dapat mengemas kini ruang pengetahuan",
-      "archiveSpace": "Tidak dapat mengemas kini status arkib",
-      "deleteSpace": "Tidak dapat memadam ruang pengetahuan"
-    },
-    "focusKbUnavailable": "Ruang pengetahuan itu tidak lagi tersedia.",
-    "focusNoteUnavailable": "Tidak dapat membuka nota pengetahuan itu. Ia mungkin telah berpindah atau akses berubah.",
-    "focusUnavailableDetail": "Butiran: {{error}}",
-    "focusLocationUnavailable": "Nota dibuka, tetapi lokasi sumber yang tepat tidak dapat ditemui.",
-    "embeddingStatusUnavailable": "Status vektor tidak tersedia",
-    "embeddingStatusUnavailableTip": "Status carian vektor tidak tersedia — buka tetapan",
-    "embeddingStatusErrorDetail": "Butiran: {{error}}"
+    }
   },
   "backgroundJobs": {
     "panelTitle": "Tugas Latar Belakang",
@@ -9959,6 +10117,9 @@
   },
   "macControl": {
     "panelTitle": "Kawalan Mac"
+  },
+  "memory": {
+    "activeRecallToastTitle": "Memori yang dirujuk"
   },
   "design": {
     "title": "Ruang Reka Bentuk",
@@ -10678,19 +10839,50 @@
       "chatPrompt": "Kod yang dilaksanakan telah menyimpang daripada reka bentuk ini. Kemas kini reka bentuk semasa untuk mencerminkan perubahan kod yang dirujuk, sambil mengekalkan niat reka bentuk dan segala yang lain tidak berubah."
     }
   },
-  "agentLifecycle": {
-    "activeWorkBlocked": "Deletion is blocked while {{count}} Agent task(s) are still active.",
-    "deleteDescription": "Routing references will move to the replacement Agent. Historical conversations and structured memories are retained, while Agent files are moved to the recoverable trash.",
-    "deleteTitle": "Delete Agent safely",
-    "disabled": "Disabled",
-    "enabled": "Enabled",
-    "history": "Historical conversations",
-    "memories": "Retained memories",
-    "replacement": "Replacement Agent",
-    "retentionNotice": "This operation creates a configuration backup. Agent configuration, Home, and Plans are moved to trash instead of being permanently erased.",
-    "routes": "Routing references"
-  },
-  "memory": {
-    "activeRecallToastTitle": "Memori yang dirujuk"
+  "artifacts": {
+    "title": "Artifacts",
+    "subtitle": "Versioned local reports, dashboards, and explainers",
+    "loadFailed": "Failed to load Artifacts",
+    "verifyPassed": "Verification passed",
+    "verifyFailed": "Verification found blockers",
+    "exportUnavailable": "Export unavailable",
+    "exportReady": "Artifact exported",
+    "restoreReady": "Restored as a new version",
+    "archiveConfirm": "Archive this Artifact?",
+    "deleteConfirm": "Permanently delete this Artifact and all versions?",
+    "search": "Search title, project, or Agent",
+    "allKinds": "All kinds",
+    "active": "Active",
+    "archived": "Archived",
+    "allStates": "All states",
+    "empty": "No Artifacts found",
+    "selectHint": "Select an Artifact to inspect it",
+    "sources": "sources",
+    "verify": "Verify",
+    "export": "Export",
+    "archive": "Archive",
+    "delete": "Delete",
+    "deliveryStatus": "Delivery status",
+    "privacy": "Privacy",
+    "analysisStatus": "Analysis",
+    "verification": "Verification",
+    "sourceContext": "Sources & quality",
+    "qualityChecks": "Quality checks",
+    "noSources": "No canonical sources recorded",
+    "contentMode": "Content",
+    "executable": "executable",
+    "static": "static",
+    "versionHistory": "Version history",
+    "current": "Current",
+    "restore": "Restore",
+    "exportReview": "Export review",
+    "exportReviewHint": "Required for shareable, sensitive, private-source, or connector-backed packages.",
+    "audiencePlaceholder": "Intended audience",
+    "audienceRequired": "Enter the intended delivery audience",
+    "redactionConfirm": "Confirm that sensitive fields and included sources have been reviewed for this audience?",
+    "confirmRedaction": "Confirm redaction & review",
+    "exportReviewPassed": "Export review passed",
+    "exportReviewBlocked": "Export review still has blockers",
+    "guardStatus": "Guard"
   }
 }

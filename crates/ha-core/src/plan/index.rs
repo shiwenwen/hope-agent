@@ -56,6 +56,9 @@ pub struct PlanIndexEntry {
     /// Includes the current file plus all `-v{N}.md` backups.
     pub version_count: u32,
     pub executing_started_at: Option<String>,
+    /// Exact completion time of the latest lifecycle. Preserved after the
+    /// user archives the Plan by transitioning to Off.
+    pub completed_at: Option<String>,
     /// True iff this plan file has no live session (session row deleted).
     pub orphan: bool,
 }
@@ -143,6 +146,9 @@ pub fn list_all_plans(filter: &PlanIndexFilter) -> Result<Vec<PlanIndexEntry>> {
                     .ok()
                     .flatten()
             });
+            let completed_at = session_db
+                .as_ref()
+                .and_then(|db| db.get_session_plan_completed_at(&session_id).ok().flatten());
             let (session_title, project_id, db_state, session_updated_at, orphan) =
                 match &session_meta {
                     Some(m) => (
@@ -192,6 +198,7 @@ pub fn list_all_plans(filter: &PlanIndexFilter) -> Result<Vec<PlanIndexEntry>> {
                 session_updated_at,
                 version_count,
                 executing_started_at,
+                completed_at,
                 orphan,
             });
         }

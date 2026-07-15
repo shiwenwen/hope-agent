@@ -15,6 +15,15 @@ use crate::paths;
 
 const READY_MARKER: &str = ".hope-agent-ready";
 
+/// Frontend event emitted when a user-triggered feature needs a local
+/// Chrome/Chromium binary but neither a system browser nor the managed Hope
+/// runtime can be resolved. The app owns the install prompt; core only reports
+/// the missing capability and whether this platform supports the managed
+/// runtime.
+pub const REQUIRED_EVENT: &str = "browser:runtime_required";
+
+static INSTALL_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 /// Per-platform descriptor for fetching + unpacking the Chromium archive.
 #[derive(Debug, Clone)]
 pub struct RuntimeSpec {
@@ -97,6 +106,26 @@ pub fn spec_for_current_platform() -> Option<RuntimeSpec> {
 /// stay consistent.
 pub const PROGRESS_EVENT: &str = "browser:chromium_download_progress";
 
+/// Notify owner UIs that the current operation needs a Chromium runtime.
+///
+/// `context` is deliberately a small stable identifier instead of display
+/// copy so each frontend can explain why Chromium is needed in the user's
+/// language. Emitting is best-effort: headless/CLI callers still receive the
+/// original error from the operation.
+pub fn emit_runtime_required(context: &str, reason: &str) {
+    if let Some(bus) = crate::globals::EVENT_BUS.get() {
+        bus.emit(
+            REQUIRED_EVENT,
+            serde_json::json!({
+                "context": context,
+                "reason": reason,
+                "installSupported": spec_for_current_platform().is_some(),
+                "approxDownloadBytes": 150_u64 * 1024 * 1024,
+            }),
+        );
+    }
+}
+
 /// One-percent–throttled wrapper around [`ensure_chromium`] that also
 /// emits structured progress events on the global EventBus. Returns the
 /// cached binary path on completion (same as `ensure_chromium`).
@@ -108,6 +137,11 @@ pub const PROGRESS_EVENT: &str = "browser:chromium_download_progress";
 pub async fn install_with_event_bus_progress() -> Result<PathBuf> {
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::sync::Arc;
+
+    // Tauri, HTTP, the browser tool and the global missing-runtime dialog can
+    // all request installation. Serialize them so two explicit user actions
+    // cannot race while promoting the same staging directory.
+    let _install_guard = INSTALL_LOCK.lock().await;
     let last_percent = Arc::new(AtomicU64::new(u64::MAX));
     let progress_last_percent = Arc::clone(&last_percent);
     let progress = move |downloaded: u64, total: Option<u64>| {
