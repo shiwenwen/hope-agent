@@ -50,7 +50,7 @@ graph TD
         S6c --> S6d["⑥c¹½ Execution Mode (session, conditional)"]
         S6d --> S6e["⑥c² Tool Budget (conditional)"]
         S6e --> S6f["⑥d Human-in-the-loop (hardcoded)"]
-        S6f --> S7["⑦ Skills (filtered)"] --> S7d["⑦d Working Directory (session, conditional)"] --> S7e["⑦e IM Attachment (conditional)"] --> S8["⑧ Memory"]
+        S6f --> S7["⑦ Skills (filtered)"] --> S7d["⑦d Working Directory (session, conditional)"] --> S7e["⑦e IM Attachment (conditional)"] --> S8["⑧ Memory"] --> S8p["⑧p Project Auto Memory Index"]
         S9["⑨ Runtime Info (Agent home)"] --> S10["⑩ SubAgent Delegation"] --> S11["⑪ Sandbox Mode"]
         S12["⑫ reserved"] --> S13["⑬ ACP Ext Agents"]
     end
@@ -108,8 +108,10 @@ graph LR
     S7e --> S8["⑧ Memory"]
     S8 --> S8a["8a: Core Memory (Global)"]
     S8 --> S8b["8b: Core Memory (Agent)"]
-    S8 --> S8c["8c: SQLite Memories"]
-    S8 --> S8d["8d: Memory Guidelines"]
+    S8 --> S8p["8c: Core Memory (Project, conditional)"]
+    S8 --> S8c["8d: Legacy SQLite/Profile/Pinned (rollback only)"]
+    S8 --> S8d["8e: Memory Guidelines"]
+    S8d --> SD["Dynamic suffix: Fast/Deep Recall (per turn)"]
     AD --> S9["⑨ Runtime Info (Agent home)"]
     AD --> S10["⑩ SubAgent (conditional)"]
     AD --> S11["⑪ Sandbox (conditional)"]
@@ -272,7 +274,7 @@ The following project context files have been loaded:
 |              | recall_memory      | `TOOL_DESC_RECALL_MEMORY`      | 关键词/语义搜索；include_history                         |
 |              | update_memory      | `TOOL_DESC_UPDATE_MEMORY`      | 更新已有记忆                                             |
 |              | delete_memory      | `TOOL_DESC_DELETE_MEMORY`      | 删除过期记忆                                             |
-|              | update_core_memory | `TOOL_DESC_UPDATE_CORE_MEMORY` | 持久指令写入 memory.md                                   |
+|              | update_core_memory | `TOOL_DESC_UPDATE_CORE_MEMORY` | 持久指令写入 `MEMORY.md`（兼容别名）                     |
 |              | memory_get         | `TOOL_DESC_MEMORY_GET`         | 按 ID 获取完整记忆                                       |
 | **委托**     | subagent           | `TOOL_DESC_SUBAGENT`           | spawn/check/steer/kill；异步执行                         |
 |              | agents_list        | `TOOL_DESC_AGENTS_LIST`        | 列出可委托 Agent                                         |
@@ -428,20 +430,22 @@ Phase 5: Review & Refinement   → 用户审核，inline comment 修订
 
 ## Memory Guidelines（记忆指导）
 
-**位置**：`system_prompt/sections.rs`（⑧ Memory 段的 8d 子段）
+**位置**：`system_prompt/sections.rs`（⑧ Memory 段的 guidelines 子段）
 
-仅在 `config.memory.enabled = true` 时注入。指导 Agent 正确使用 4 个记忆工具：
+仅在有效 Memory policy 允许时注入，指导 Agent 区分 Core 与动态记忆工具：
 
 | 工具                                  | 使用场景                                      |
 | ------------------------------------- | --------------------------------------------- |
-| `update_core_memory`                  | 长期指令：「always」「never」「from now on」  |
+| `core_memory`                         | 三层 Core 索引 / topic 的读取、写入、提升与 reload |
+| `update_core_memory`                  | 旧长期指令写入兼容入口，内部映射到 Core       |
+| `project_memory`                      | Project Core topic 的兼容入口，仅项目会话可用 |
 | `save_memory`                         | 事实、截止日期、临时上下文、值得备注的发现    |
 | `recall_memory`                       | 查找先前偏好/约束/上下文                      |
 | `recall_memory(include_history=true)` | 搜索历史对话（「last time」「we discussed」） |
 
 **禁止保存**：临时任务细节、代码片段、调试步骤、可从代码库推导的信息。
 
-记忆段还包括 Core Memory 注入（8a 全局、8b Agent 级别）和 SQLite 记忆检索结果（8c）。
+Memory UX v2 默认只把会话冻结的 Global / Agent / Project `CoreMemorySnapshot` 与紧凑工具协议放进稳定 Memory 段。SQLite memories、Profile Snapshot、Pinned Claims、Episode、Procedure 和 Graph 均走当前 turn 的 Dynamic Recall 后缀，不再默认常驻 system prompt；只有完整 V1 rollback 或显式 `compatibility.legacyStaticMemory=true` 才恢复旧静态块。Prompt 每轮可以重新构造，但同一 session 的 Core snapshot 在 reload、Tier 3 compact、资格变化或进程重启前保持字节稳定；动态召回必须追加在 stable fingerprint 之后，不能反向改写静态前缀。完整预算、迁移、会话 policy 和 fail-closed 契约见 [记忆系统架构](memory.md#memory-ux-v2-最终运行时契约)。
 
 ---
 
@@ -575,6 +579,14 @@ including UUIDs, hashes, IDs, tokens, hostnames, IPs, ports, URLs, and file name
 ---
 
 ## Prompt 缓存优化
+
+当前请求诊断由 `agent::token_manifest` 生成 content-free `RoundTokenManifest`：只记录各 prompt/tool/history 段的字节数、估算 token、BLAKE3 指纹、工具计数和 transport body 大小，不记录正文。稳定 system + eager tools 位于前缀，awareness/active recall/task 等动态段位于其后；deferred 工具通过 Provider 原生 reference 或客户端下一轮追加，不得重排稳定 eager 集合。
+
+Provider 返回后以同一 `provider/model/round` 记录实际 `contextInputTokens`、`freshInputTokens`、cache read/write、output 与 TTFT。Prompt Cache 只改变 fresh prefill、费用和 TTFT；`contextInputTokens` 始终表示模型本轮实际占用的完整上下文，不因 cache hit 减少。
+
+OpenAI 官方端点使用包含 provider、model、prompt contract version、agent/session scope hash 与稳定 prompt fingerprint 的 `prompt_cache_key`。GPT-5.6+ Responses 将稳定 PromptEnvelope 放在首个 developer `input_text` block，并设置显式 `prompt_cache_breakpoint` 与 `prompt_cache_options.mode=explicit`；5.4/5.5 保持自动缓存，Codex和未知兼容端不假设支持这些字段。
+
+工具详细描述只为 eager 工具注入；deferred 目录使用紧凑名称索引，完整 schema 只在激活后出现。Skills 首轮只保留名称和有界触发语句，完整 SKILL.md 继续由 `skill` 工具加载。Subagent/Team/ACP 的长指南在工具 eager 时进入静态 prompt；deferred 时随完整 schema 组成 activation package，因此客户端激活和 Provider 原生 tool reference 都能加载，而不会改变稳定缓存前缀。
 
 为最大化 LLM prompt 缓存命中率，系统采取以下策略：
 

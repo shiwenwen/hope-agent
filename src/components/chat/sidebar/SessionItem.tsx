@@ -140,7 +140,7 @@ export default function SessionItem({
             "relative flex items-center gap-2.5 w-full px-2.5 py-2 rounded-lg text-left group cursor-pointer",
             isCompact && "gap-1.5 px-2 py-[7px] rounded-md",
             isActive
-              ? "bg-secondary/70 border border-border/50"
+              ? "bg-secondary/70"
               : hasPending
                 ? "bg-amber-500/10 hover:bg-amber-500/15 border-l-2 border-l-amber-500 pl-[8px]"
                 : "hover:bg-secondary/40",

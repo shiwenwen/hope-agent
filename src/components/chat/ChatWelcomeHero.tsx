@@ -27,10 +27,12 @@ const PROJECT_WELCOME_SUGGESTIONS: ProjectWelcomeSuggestion[] = [
  */
 export function ChatWelcomeHero({
   incognito = false,
+  context = "chat",
   projectName,
   onProjectSuggestion,
 }: {
   incognito?: boolean
+  context?: "chat" | "knowledge"
   projectName?: string | null
   onProjectSuggestion?: (prompt: string) => void
 }) {
@@ -110,7 +112,9 @@ export function ChatWelcomeHero({
         className="mx-auto mb-5 h-[72px] w-[72px] object-contain opacity-95"
         draggable={false}
       />
-      <p className="text-sm text-muted-foreground">{t("chat.howCanIHelp")}</p>
+      <p className="text-sm text-muted-foreground">
+        {t(context === "knowledge" ? "knowledge.chatPanel.welcome" : "chat.howCanIHelp")}
+      </p>
     </div>
   )
 }

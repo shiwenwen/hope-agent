@@ -357,7 +357,7 @@ function MarkdownWebLink({
     <a
       {...rest}
       href={href}
-      className={cn("wrap-anywhere markdown-link font-medium", className)}
+      className={cn("wrap-anywhere markdown-link", className)}
       data-incomplete={isIncomplete || undefined}
       data-link-kind={linkIcon.kind}
       data-streamdown="link"
@@ -457,7 +457,7 @@ export function MarkdownLink({
     <a
       {...rest}
       href={href}
-      className={cn("wrap-anywhere markdown-link font-medium", className)}
+      className={cn("wrap-anywhere markdown-link", className)}
       data-incomplete={isIncomplete || undefined}
       data-link-kind={linkIcon?.kind}
       data-streamdown="link"
@@ -496,7 +496,7 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
       <a
         {...rest}
         href={href}
-        className={cn("wrap-anywhere markdown-link font-medium", className)}
+        className={cn("wrap-anywhere markdown-link", className)}
         data-link-kind={linkIcon?.kind}
         data-streamdown="link"
         onClick={(event) => {

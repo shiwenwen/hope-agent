@@ -26,6 +26,9 @@ export type CronPayload =
       goalId?: string | null
     }
 
+export type CronPayloadType = CronPayload["type"]
+export type CronLoopState = "active" | "paused" | "completed" | "cancelled" | "blocked"
+
 export interface CronAgentPayload {
   type: "agentTurn" | "sessionLoop"
   prompt: string
@@ -50,6 +53,8 @@ export interface CronJob {
   schedule: CronSchedule
   payload: CronPayload
   status: "active" | "paused" | "disabled" | "completed" | "missed"
+  /** Authoritative Loop control state; present only for sessionLoop list items. */
+  loopState?: CronLoopState | null
   nextRunAt?: string | null
   lastRunAt?: string | null
   runningAt?: string | null
@@ -85,9 +90,12 @@ export interface CronRunLog {
 
 /** One row of the cross-job cron run timeline (cron panel "conversations" view). */
 export interface CronTimelineRow {
+  runLogId: number
   sessionId: string
   jobId: string
   jobName: string
+  /** Structured discriminator from the owning job; absent only for orphaned legacy rows. */
+  payloadType?: CronPayloadType | null
   status: string
   startedAt: string
   finishedAt?: string | null
@@ -108,6 +116,7 @@ export interface CronAccountRef {
 export interface CalendarEvent {
   jobId: string
   jobName: string
+  payloadType: CronPayloadType
   projectId?: string | null
   scheduledAt: string
   status: "active" | "paused" | "disabled" | "completed" | "missed"

@@ -97,12 +97,20 @@ function activeMemoryCandidateToUsedRef(
   candidate: ActiveMemoryCandidateRef,
   role: UsedMemoryRef["role"],
 ): UsedMemoryRef {
+  const origin =
+    candidate.kind === "profile"
+      ? "profile"
+      : candidate.kind === "procedure" || candidate.kind === "episode"
+        ? "experience"
+        : candidate.kind === "graph"
+          ? "graph"
+          : "active_memory"
   return {
     kind: candidate.kind,
     id: candidate.id,
     sourceType: candidate.sourceType,
     scope: candidate.scope,
-    origin: "active_memory",
+    origin,
     role,
     preview: candidate.preview,
     score: candidate.score,
@@ -112,18 +120,23 @@ function activeMemoryCandidateToUsedRef(
 }
 
 export function activeMemoryRecallToUsedRefs(recall: ActiveMemoryRecall): UsedMemoryRef[] {
-  const selectedKey = recall.selected
-    ? `${recall.selected.kind}:${recall.selected.id}`
-    : null
+  const selectedCandidates = recall.selectedCandidates?.length
+    ? recall.selectedCandidates
+    : recall.selected
+      ? [recall.selected]
+      : []
+  const selectedKeys = new Set(
+    selectedCandidates.map((candidate) => `${candidate.kind}:${candidate.id}`),
+  )
   const refs: UsedMemoryRef[] = []
 
-  if (recall.selected) {
-    refs.push(activeMemoryCandidateToUsedRef(recall.selected, "selected"))
+  for (const candidate of selectedCandidates) {
+    refs.push(activeMemoryCandidateToUsedRef(candidate, "selected"))
   }
 
   for (const candidate of recall.candidates) {
     const candidateKey = `${candidate.kind}:${candidate.id}`
-    if (candidateKey === selectedKey) continue
+    if (selectedKeys.has(candidateKey)) continue
     refs.push(activeMemoryCandidateToUsedRef(candidate, "candidate"))
   }
 
@@ -1140,7 +1153,9 @@ function activeMemoryFingerprint(memory: Message["activeMemory"]): string {
     : ""
   return [
     memory.summary,
+    memory.mode ?? "",
     selected,
+    ...(memory.selectedCandidates ?? []).map(activeMemoryCandidateFingerprint),
     memory.totalCandidates,
     memory.cached ? "cached" : "fresh",
     ...memory.candidates.map(activeMemoryCandidateFingerprint),

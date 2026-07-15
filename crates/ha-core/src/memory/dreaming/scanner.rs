@@ -33,6 +33,17 @@ pub fn collect_candidates(scope_days: u32, limit: usize) -> Result<Vec<MemoryEnt
         .into_iter()
         .filter(|e| !e.pinned)
         .filter(|e| e.created_at.as_str() >= cutoff_str.as_str())
+        .filter(|e| match &e.scope {
+            MemoryScope::Agent { id } => crate::agent_loader::load_agent(id)
+                .map(|definition| definition.config.memory.enabled)
+                .unwrap_or(false),
+            _ => true,
+        })
+        .filter(|e| {
+            e.source_session_id
+                .as_deref()
+                .is_none_or(crate::memory::session_contribution_source_allowed)
+        })
         .take(limit)
         .collect();
 

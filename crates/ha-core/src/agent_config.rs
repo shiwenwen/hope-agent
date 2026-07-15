@@ -441,7 +441,8 @@ pub fn effective_memory_budget(
 
 /// Active Memory configuration — controls the pre-reply recall injection
 /// (Phase B1). Default is disabled because the side query can add visible
-/// latency; when enabled, failures and timeouts degrade silently to the passive
+/// latency and extra token usage. Users can opt in when they prefer more
+/// personalized answers; failures and timeouts degrade silently to the passive
 /// memory recall path.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -868,10 +869,10 @@ pub struct AgentDefinition {
     /// soul.md content — personality/values/tone
     pub soul_md: Option<String>,
 
-    /// Global memory.md content — shared core memory across all agents
+    /// Global MEMORY.md content — shared core memory across all agents
     pub global_memory_md: Option<String>,
 
-    /// Agent-level memory.md content — core memory specific to this agent
+    /// Agent-level MEMORY.md content — core memory specific to this agent
     pub memory_md: Option<String>,
 }
 
@@ -946,6 +947,9 @@ mod tests {
         }))
         .expect("legacy memory config");
 
+        // Missing `activeMemory` must stay opt-in. Deserializing an older
+        // agent.json must never silently add a pre-reply side query.
+        assert!(!config.active_memory.enabled);
         assert!(config.retrieval_planner.intent_aware);
         assert_eq!(config.retrieval_planner.max_trace_refs, 24);
         assert_eq!(config.retrieval_planner.max_candidates_per_origin, 4);

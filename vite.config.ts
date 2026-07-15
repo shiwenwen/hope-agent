@@ -13,6 +13,12 @@ const packageJson = JSON.parse(
 
 // https://vite.dev/config/
 export default defineConfig({
+  // Codex / git worktrees may share node_modules through a symlink. Vite's
+  // default node_modules/.vite cache would then be shared as well, allowing
+  // another worktree or dev server to invalidate optimized-dependency hashes
+  // and cause 504 "Outdated Optimize Dep" responses. Keep the cache local to
+  // the current worktree instead.
+  cacheDir: path.resolve(__dirname, ".vite-cache"),
   define: {
     __APP_VERSION__: JSON.stringify(packageJson.version),
   },

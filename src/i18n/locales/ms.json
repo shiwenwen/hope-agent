@@ -984,13 +984,20 @@
         "noSession": "tiada konteks sesi",
         "retrievalError": "pencarian gagal",
         "sideQueryError": "ingat gagal",
-        "timeout": "tamat masa"
+        "timeout": "tamat masa",
+        "budgetEmpty": "bajet ingatan semula kosong",
+        "nonContextualTurn": "mesej yang tidak memerlukan konteks",
+        "recallOff": "panggilan ingatan dinamik automatik dimatikan",
+        "retrievalBusy": "perkhidmatan ingatan semula sedang sibuk",
+        "sessionPolicy": "dimatikan oleh dasar ingatan atau perbualan",
+        "unifiedRecall": "dikendalikan oleh ingatan semula pantas",
+        "unknown": "sebab lain"
       },
       "layerStatus": {
         "candidate": "calon",
         "disabled": "kurang upaya",
         "empty": "tiada pukulan",
-        "skipped": "terhina",
+        "skipped": "dilangkau",
         "unknown": "tidak diketahui",
         "used": "digunakan"
       },
@@ -1057,7 +1064,11 @@
       "more": "{{count}} lebih banyak item konteks jangka panjang disembunyikan.",
       "sources": "Sumber ingatan",
       "editMemory": "Edit ingatan ini",
-      "copyTrace": "Salin diagnostik"
+      "copyTrace": "Salin diagnostik",
+      "promoteToCore": "Sentiasa ingat ini",
+      "promoteToCoreFailed": "Tidak dapat menambah ini pada Ingatan Teras.",
+      "promotedToCore": "Sentiasa diingati",
+      "promotedToCoreToast": "Ditambah pada Ingatan Teras yang sentiasa diingati."
     },
     "projectWelcomeTitle": "Apa yang patut kita bina dalam <project>{{project}}</project>? Ceritakan idea anda",
     "projectWelcomeSuggestions": {
@@ -1129,7 +1140,18 @@
     "openSourceConversationMissing": "Perbualan sumber tidak lagi tersedia",
     "openSourceConversationMissingHint": "Sumber memori ini menunjuk kepada perbualan yang telah dipadam atau tidak dapat ditemui.",
     "openSourceMessageMissing": "Mesej sumber tidak lagi tersedia",
-    "openSourceMessageMissingHint": "Perbualan masih wujud, tetapi mesej tepat untuk sumber memori ini tidak dapat ditemui."
+    "openSourceMessageMissingHint": "Perbualan masih wujud, tetapi mesej tepat untuk sumber memori ini tidak dapat ditemui.",
+    "memoryPolicy": {
+      "title": "Ingatan untuk sembang ini",
+      "use": "Gunakan ingatan sedia ada",
+      "contribute": "Belajar daripada sembang ini",
+      "inherit": "Ikut tetapan global",
+      "allow": "Hidup",
+      "deny": "Mati",
+      "desc": "Kedua-duanya bebas: sembang boleh menggunakan ingatan lama tanpa mencipta ingatan baharu.",
+      "incognito": "Sembang inkognito tidak pernah membaca atau menulis ingatan jangka panjang.",
+      "reloadCore": "Muat semula MEMORY.md untuk sesi ini"
+    }
   },
   "codexAuth": {
     "expiredDescription": "Token OAuth Codex anda tidak lagi sah. Sila log masuk semula untuk meneruskan.",
@@ -1193,7 +1215,7 @@
     "ago": "yang lalu",
     "cacheTtlProtection": "perlindungan TTL cache",
     "compactAllowedIn": "Mampatan seterusnya dalam",
-    "estimateNote": "Anggaran (aksara÷4); mungkin berbeza dari penggunaan sebenar 10–20%.",
+    "estimateNote": "Selepas setiap pusingan, penggunaan sebenar Provider menjadi rujukan; sebelumnya anggaran konservatif berdasarkan bentuk permintaan dipaparkan.",
     "freeSpace": "Ruang kosong",
     "lastCompact": "Mampatan terakhir",
     "memory": "Ingatan",
@@ -1205,7 +1227,16 @@
     "toolDescriptions": "Penerangan alat",
     "toolSchemas": "Skema alat",
     "used": "Digunakan",
-    "viewSystemPrompt": "System prompt"
+    "viewSystemPrompt": "System prompt",
+    "cacheRead": "Bacaan cache",
+    "cacheWindowNotice": "Cache hit mengurangkan pengiraan berulang, kos dan TTFT; ia tidak mengurangkan penggunaan tetingkap konteks.",
+    "cacheWrite": "Tulisan cache",
+    "coreMemoryBudget": "Bajet Core Memory",
+    "coreMemoryModelLimited": "dihadkan sementara untuk model ini",
+    "dynamicPrompt": "Gesaan dinamik",
+    "estimated": "anggaran",
+    "freshInput": "Input baharu",
+    "providerInput": "Input Provider"
   },
   "cron": {
     "active": "Aktif",
@@ -2067,10 +2098,10 @@
       "staged": "Staged",
       "stagedScope": "Staged",
       "stale": "The repository changed. The diff was refreshed; review it again.",
+      "prReviewComments": "Komen semakan PR · {{count}}",
       "unstage": "Unstage",
       "unstaged": "Unstaged",
-      "unstagedScope": "Unstaged",
-      "prReviewComments": "Komen semakan PR · {{count}}"
+      "unstagedScope": "Unstaged"
     }
   },
   "effort": {
@@ -2507,7 +2538,9 @@
     "reasoningHint": "Setelah didayakan, anda boleh memilih kedalaman penaakulan (rendah / sederhana / tinggi) daripada menu model di atas kotak input sembang; ia ditambah secara automatik pada setiap permintaan.",
     "supportedInputTypes": "Jenis Input Disokong",
     "text": "Teks",
-    "video": "Video"
+    "video": "Video",
+    "supportsImageMultimodal": "Menyokong multimodal imej",
+    "supportsVideoMultimodal": "Menyokong multimodal video"
   },
   "notification": {
     "cronCancelled": "Tugas berjadual dibatalkan",
@@ -2990,7 +3023,30 @@
     "openFromMemoryLoadFailed": "Gagal membuka sumber projek",
     "openFromMemoryLoadFailedDetail": "Butiran: {{error}}",
     "openFromMemoryMissing": "Projek tidak lagi tersedia",
-    "openFromMemoryMissingHint": "Sumber memori menunjuk kepada projek yang telah dipadam atau tidak dapat ditemui."
+    "openFromMemoryMissingHint": "Sumber memori menunjuk kepada projek yang telah dipadam atau tidak dapat ditemui.",
+    "autoMemory": {
+      "content": "Butiran (Markdown)",
+      "deleteConfirm": "Padam topik memori automatik projek ini?",
+      "description": "Indeks MEMORY.md yang ringkas disuntik secara stabil ke dalam sembang projek; butiran topik hanya dibaca apabila berkaitan. Semuanya kekal pada mesin ini.",
+      "editorHint": "Arahan projek ialah peraturan tetap. Ruang ini menyimpan pembelajaran projek semasa bekerja dan bukan arahan berautoriti.",
+      "editorTitle": "Memori automatik projek",
+      "empty": "Belum ada topik memori automatik.",
+      "fileNameGenerated": "Nama fail akan dijana semasa disimpan",
+      "name": "Tajuk",
+      "newTopic": "Topik baharu",
+      "rebuildIndex": "Bina semula indeks MEMORY.md",
+      "rebuildFailed": "Tidak dapat membina semula indeks MEMORY.md.",
+      "summary": "Ringkasan indeks",
+      "summaryHint": "Ayat ini memasuki prompt stabil setiap sembang projek, jadi pastikan ia ringkas.",
+      "type": "Jenis",
+      "types": {
+        "feedback": "Maklum balas kerja",
+        "project": "Kerja projek",
+        "reference": "Rujukan",
+        "user": "Konteks pengguna"
+      }
+    },
+    "tabAutoMemory": "Memori automatik"
   },
   "provider": {
     "addProvider": "Tambah Pembekal",
@@ -3202,12 +3258,12 @@
     "acpTimeout": "Tamat masa (saat)",
     "activeMemoryCacheTtl": "TTL Cache (saat)",
     "activeMemoryCandidateLimit": "Had calon",
-    "activeMemoryDesc": "Pada permulaan setiap giliran pengguna, jalankan side query bertimbang untuk merumuskan memori paling relevan dalam satu ayat dan suntikkannya bersama prompt sistem. Timeout dan kegagalan akan senyap jatuh ke recall pasif — tidak pernah menghalang sembang.",
+    "activeMemoryDesc": "Recall keserasian per Agent. Apabila dihidupkan, hanya Agent ini menggunakan recall Fast dan penyusunan semula mendalam walaupun recall automatik global dimatikan. Dimatikan secara lalai; penyusunan semula mendalam menambah side query, kependaman serta penggunaan Token.",
     "activeMemoryIncludeClaims": "Sertakan dakwaan berstruktur",
     "activeMemoryIncludeClaimsDesc": "Turut pendekkan senarai dakwaan berstruktur Dreaming (bukan hanya memori lama) sebagai calon imbasan. Dimatikan secara lalai.",
     "activeMemoryMaxChars": "Had aksara recall",
     "activeMemoryTimeout": "Timeout (ms)",
-    "activeMemoryTitle": "Recall memori aktif",
+    "activeMemoryTitle": "Recall mendalam Agent",
     "addFallback": "Tambah Model Sandaran",
     "addFallbackModel": "Tambah Model Sandaran",
     "agentAgentsMd": "AGENTS.md",
@@ -4848,9 +4904,9 @@
     "memoryAutoExtractDesc": "Ekstrak ingatan secara automatik apabila ambang token, masa atau mesej dipenuhi",
     "memoryBudget": {
       "agentOverrideDesc": "Secara lalai mewarisi Bajet Memori global. Tutup untuk menggunakan bajet khusus Agent.",
-      "coreMemoryFileChars": "Had setiap memory.md",
-      "coreMemoryFileCharsDesc": "Had bebas bagi setiap fail memory.md (Global / Agent). Kandungan yang melebihi had dipotong dalam prom tetapi kekal pada cakera. Lalai 8000.",
-      "desc": "Mengehadkan jumlah aksara bahagian memori (Global memory.md / Agent memory.md / memori SQLite / Garis Panduan) dan had setiap lapisan dalamnya. Mengurangkan jumlah membebaskan bajet untuk konteks perbualan aktif.",
+      "coreMemoryFileChars": "Had setiap MEMORY.md",
+      "coreMemoryFileCharsDesc": "Had bebas bagi setiap fail MEMORY.md (Global / Agent). Kandungan yang melebihi had dipotong dalam prom tetapi kekal pada cakera. Lalai 8000.",
+      "desc": "Mengehadkan jumlah aksara bahagian memori (Global MEMORY.md / Agent MEMORY.md / memori SQLite / Garis Panduan) dan had setiap lapisan dalamnya. Mengurangkan jumlah membebaskan bajet untuk konteks perbualan aktif.",
       "resetToDefaults": "Set semula kepada lalai",
       "sections": {
         "aboutUser": "Tentang pengguna",
@@ -4870,6 +4926,35 @@
         "load": "Failed to load memory budget",
         "save": "Failed to save memory budget",
         "detail": "Butiran: {{error}}"
+      },
+      "advancedAllocation": "Peruntukan skop lanjutan",
+      "contextWindow": "Konteks model lalai semasa: {{count}} tokens",
+      "coreSimpleDesc": "Pilih satu jumlah bajet Core Memory. Kapasiti yang tidak digunakan dikongsi mengikut keutamaan Project > Agent > Global.",
+      "engine": {
+        "agentTokens": "Token Agent",
+        "budgetTokens": "Token bajet",
+        "cacheTtlSecs": "TTL cache (s)",
+        "candidateLimit": "Had calon",
+        "globalTokens": "Token global",
+        "hardMaxTokens": "Had keras token",
+        "maxSelected": "Maksimum dipilih",
+        "maxTokens": "Token maksimum",
+        "projectTokens": "Token projek",
+        "protocolTokens": "Token protokol",
+        "summaryChars": "Aksara ringkasan",
+        "timeoutMs": "Tamat masa (ms)",
+        "topicReadTokens": "Token bacaan topik",
+        "totalTokens": "Jumlah token"
+      },
+      "legacyTitle": "Bajet undur versi lama",
+      "legacyDesc": "Bajet aksara ini hanya digunakan pada laluan memori statik lama dan kekal boleh diedit sepanjang tempoh keserasian.",
+      "effective": "Dikonfigurasi {{configured}} · berkesan pusingan ini {{effective}} tokens",
+      "highBudgetWarning": "Melebihi julat disyorkan 2400 tokens. Ia boleh disimpan, tetapi meningkatkan konteks stabil, penulisan cache dan kependaman token pertama.",
+      "modelLimited": "Dikonfigurasi {{configured}} tokens; model semasa menggunakan {{effective}} dengan selamat. Keutamaan tersimpan tidak berubah.",
+      "presets": {
+        "balanced": "Seimbang",
+        "concise": "Ringkas",
+        "rich": "Kaya"
       }
     },
     "memoryContent": "Kandungan",
@@ -5911,7 +5996,7 @@
     "timeoutPolicyWarn": "Hormati dan log (lalai)",
     "toolTimeout": "Tamat masa alat segerak",
     "toolTimeoutDesc": "Tamat masa sandaran global untuk panggilan alat latar depan/segerak. Lalai 0 melumpuhkan tamat masa global ini; tetapkan nilai positif untuk membatalkan panggilan selepas bilangan saat tersebut. Kerja async latar menggunakan tempoh kerja maksimum alat async; alat individu masih mungkin mempunyai tamat masa dalaman sendiri.",
-    "toolUpdateCoreMemoryDesc": "Kemas kini fail memory.md yang disuntik ke dalam system prompt",
+    "toolUpdateCoreMemoryDesc": "Kemas kini fail MEMORY.md yang disuntik ke dalam system prompt",
     "toolUpdateCoreMemoryName": "Kemas Kini Memori Teras",
     "toolUpdateMemoryDesc": "Kemas kini kandungan ingatan sedia ada",
     "toolUpdateMemoryName": "Kemas kini ingatan",
@@ -6143,8 +6228,8 @@
     "memoryLearningPausedDesc": "Ejen tidak menggunakan atau mempelajari ingatan jangka panjang sekarang. Data sedia ada kekal pada peranti ini dan anda masih boleh mengurus, mengeksport, memadam atau menyambung semula dalam mod manual sahaja.",
     "memoryLearningResumeManual": "Manual resume sahaja",
     "memoryLearningOpenSettings": "Buka tetapan",
-    "memoryUseInRepliesTitle": "Gunakan kenangan dalam balasan",
-    "memoryUseInRepliesDesc": "Dayakan pratetap ingat kependaman rendah yang disyorkan untuk ejen lalai. Kenangan yang berkaitan boleh dibawa ke dalam jawapan, dan ingatan masih melangkau dengan selamat apabila tamat masa.",
+    "memoryUseInRepliesTitle": "Ganti aturan recall mendalam Agent lama",
+    "memoryUseInRepliesDesc": "Recall keserasian untuk Agent lalai. Apabila dihidupkan, hanya Agent ini menggunakan recall Fast dan penyusunan semula mendalam walaupun lalai global di atas dimatikan. Dimatikan secara lalai; penyusunan semula mendalam menambah side query, kependaman serta penggunaan Token.",
     "memoryUseInRepliesTarget": "Ejen lalai: {{agent}}",
     "memoryUseInRepliesSummaryTimeout": "tamat masa",
     "memoryUseInRepliesSummaryCache": "Cache",
@@ -6165,9 +6250,9 @@
     "memoryUseInRepliesUpdateFailed": "Tidak dapat mengemas kini ingatan aktif",
     "memoryUseInRepliesError": "Tidak dapat mengemas kini ingatan aktif: {{error}}",
     "memoryUseInRepliesErrorDetail": "Butiran: {{error}}",
-    "memoryUseInRepliesReadinessRecommended": "Sedia: ingatan kependaman rendah termasuk ingatan berstruktur dan sandaran tamat masa yang selamat.",
+    "memoryUseInRepliesReadinessRecommended": "Recall keserasian Agent sedia; hanya Agent ini akan menggunakan recall Fast dan penyusunan semula mendalam.",
     "memoryUseInRepliesReadinessAgentOff": "Memori Agent dimatikan. Penggunaan ingat semula yang disyorkan akan menghidupkannya semula untuk ejen lalai.",
-    "memoryUseInRepliesReadinessDisabled": "Mati: ejen lalai tidak akan mencari kenangan secara proaktif sebelum menjawab.",
+    "memoryUseInRepliesReadinessDisabled": "Dimatikan secara lalai: ejen lalai tidak akan mencari memori secara proaktif sebelum menjawab.",
     "memoryUseInRepliesReadinessClaimsOff": "Kenangan berstruktur dikecualikan daripada ingatan proaktif.",
     "memoryUseInRepliesReadinessSlowTimeout": "Tamat masa melebihi pratetap kependaman rendah yang disyorkan.",
     "memoryUseInRepliesReadinessTightBudget": "Belanjawan ingat adalah lebih rendah daripada pratetap yang disyorkan.",
@@ -7030,7 +7115,95 @@
     "memoryProcedureTriggerPlaceholder": "Bila aliran kerja ini perlu dipertimbangkan",
     "memoryProcedureStepsPlaceholder": "- Periksa cek yang gagal\n- Gunakan pembetulan yang diketahui\n- Jalankan semula pengesah sempit",
     "memoryProcedureConstraintsPlaceholder": "Bila tidak menggunakan aliran kerja ini",
-    "memoryProcedureConfidence": "Keyakinan"
+    "memoryProcedureConfidence": "Keyakinan",
+    "agentMemoryEnabledTitle": "Gunakan ingatan untuk Agent ini",
+    "agentMemoryEnabledDesc": "Mengawal Ingatan Teras, ingatan dinamik, pembelajaran dan alat ingatan Agent ini. Tetapan ingatan global kekal sebagai dasar peringkat atas.",
+    "memoryV2": {
+      "title": "Ingatan",
+      "subtitle": "Pilih perkara yang kekal diingati, bila hendak mengingat semula dan sama ada perbualan mengajar pembantu.",
+      "loadFailed": "Gagal memuatkan tetapan ingatan",
+      "saveFailed": "Gagal menyimpan tetapan ingatan",
+      "core": {
+        "title": "Sentiasa diingati",
+        "desc": "MEMORY.md ringkas untuk Global, Agent dan Project kekal stabil dalam perbualan; butiran hanya dimuatkan apabila diperlukan.",
+        "budget": "Jumlah bajet {{count}} token",
+        "manage": "Sunting MEMORY.md",
+        "projectTitle": "MEMORY.md projek",
+        "projectDesc": "Konteks kekal ringkas yang hanya digunakan oleh perbualan dalam projek ini.",
+        "conflict": "Fail kanonik huruf besar dan fail keserasian lama huruf kecil kedua-duanya berubah. Pilih atau gabungkan kandungan sebelum menyimpan.",
+        "conflictCanonical": "MEMORY.md kanonik huruf besar",
+        "conflictLegacy": "memory.md legasi huruf kecil",
+        "conflictMerged": "Hasil gabungan (bermula daripada fail kanonik)",
+        "conflictKeepCanonical": "Kekalkan MEMORY.md",
+        "conflictKeepLegacy": "Kekalkan fail legasi",
+        "conflictSaveMerged": "Simpan hasil gabungan",
+        "conflictLoadFailed": "Gagal memuatkan fail Ingatan Teras yang bercanggah",
+        "conflictResolveFailed": "Gagal menyelesaikan konflik Ingatan Teras. Muat semula dan cuba lagi.",
+        "conflictResolved": "Konflik Ingatan Teras diselesaikan",
+        "actualTokens": "{{used}} / {{total}} token dalam skop ini",
+        "stats": "Entri indeks: {{entries}} · Topik: {{topics}}",
+        "updatedAt": "Dikemas kini {{value}}",
+        "neverUpdated": "Belum ditulis",
+        "scope": "Skop ingatan",
+        "projectLabel": "Projek",
+        "topics": "Topik atas permintaan",
+        "noTopics": "Belum ada fail topik",
+        "selectTopic": "Pilih topik atau cipta yang baharu",
+        "topicName": "Nama topik",
+        "topicDesc": "Satu baris tentang bila ia perlu dibaca",
+        "topicContent": "Butiran topik (dimuatkan hanya apabila perlu)",
+        "topicLoadFailed": "Gagal memuatkan topik ingatan",
+        "topicSaveFailed": "Gagal menyimpan topik ingatan",
+        "topicDeleteConfirm": "Padam topik ingatan ini?",
+        "topicDeleteFailed": "Gagal memadam topik ingatan"
+      },
+      "recall": {
+        "title": "Panggilan ingatan dinamik",
+        "desc": "Dimatikan secara lalai. Apabila dimatikan, hanya Ingatan Teras yang stabil digunakan secara automatik melainkan override keserasian khusus Agent dihidupkan; model masih boleh mencari melalui alat ingatan apabila diperlukan. Apabila dihidupkan, ingatan dinamik berkaitan dicari selepas setiap mesej pengguna dan sebelum jawapan dijana.",
+        "fast": "Panggil ingatan berkaitan secara automatik",
+        "deep": "Penyusunan semula mendalam (pilihan)",
+        "skip": "Dilangkau",
+        "deepCost": "Penyusunan semula mendalam menambah satu panggilan model, melambatkan respons dan menggunakan lebih banyak token. Gunakan hanya selepas panggilan automatik dihidupkan dan apabila benar-benar perlu.",
+        "last": "Ingatan terakhir: {{selected}}/{{candidates}} dipilih · {{latency}} ms · {{mode}}",
+        "noRecent": "Tiada panggilan ingatan dinamik automatik dijalankan sejak aplikasi dibuka."
+      },
+      "learning": {
+        "title": "Belajar daripada perbualan",
+        "desc": "Kawal sama ada maklumat baharu daripada sembang disimpan. Ini tidak menjejaskan penggunaan ingatan sedia ada.",
+        "mode": "Mod pembelajaran",
+        "smart": "Pembelajaran pintar",
+        "reviewFirst": "Semak sebelum simpan",
+        "manual": "Simpan manual sahaja",
+        "pending": "{{count}} menunggu semakan",
+        "unassigned": "{{count}} belum ditetapkan"
+      },
+      "review": {
+        "title": "Ingatan menunggu semakan",
+        "desc": "{{count}} calon belum dimasukkan ke ingatan jangka panjang atau prompt.",
+        "empty": "Tiada apa-apa menunggu semakan",
+        "chooseScope": "Pilih tempat menyimpan",
+        "approve": "Simpan ingatan",
+        "reject": "Jangan simpan",
+        "loadFailed": "Gagal memuatkan ingatan tertunda",
+        "approveFailed": "Gagal menyimpan ingatan tertunda",
+        "rejectFailed": "Gagal menolak ingatan tertunda",
+        "reason": {
+          "review_first": "Mod pembelajaran memerlukan semakan",
+          "project_scope_missing": "Kelihatan khusus projek tetapi sembang ini tiada projek",
+          "scope_uncertain": "Skop yang betul tidak pasti",
+          "sensitive": "Mungkin mengandungi maklumat sensitif",
+          "conflict": "Bercanggah dengan ingatan sedia ada",
+          "core_promotion": "Dicadangkan sebagai ingatan kekal"
+        }
+      }
+    },
+    "memoryBackupExportSummary": "Ingatan: {{memories}} · Dakwaan: {{claims}} · Profil: {{profiles}} · Episod: {{episodes}} · Aliran kerja: {{procedures}}",
+    "memoryBackupOpenReviewInboxAfterRestore": "Item dipulihkan untuk disemak: {{count}}",
+    "memoryExperienceSearchActive": "Padanan untuk “{{query}}”: {{total}}",
+    "memoryExperienceViewActive": "Item pengalaman: {{total}}",
+    "memoryExternalProvidersActive": "Pembekal aktif: {{active}}/{{total}}",
+    "memoryExternalProvidersActiveSummary": "Aktif: {{active}} · Dikonfigurasi: {{total}}",
+    "memoryProcedureSourceEpisode": "Episod: {{id}}"
   },
   "shortcuts": {
     "actionOpenSettings": "Buka tetapan",
@@ -7641,6 +7814,8 @@
       "selectBranch": "Select branch",
       "stageAll": "Stage all changes",
       "viewPr": "View pull request",
+      "pullRequestPanelTitle": "Permintaan tarik",
+      "resizePullRequestPanel": "Ubah lebar panel permintaan tarik",
       "worktree": "Worktree",
       "checkDetails": "Butiran semakan",
       "checkFailed": "Gagal",
@@ -7662,6 +7837,7 @@
       "openCheck": "Buka semakan",
       "openComment": "Buka komen",
       "prFeedbackUnavailable": "Semakan dan komen PR tidak tersedia",
+      "prFeedbackStale": "Gagal memuat semula status permintaan tarik; data semasa mungkin sudah lapuk",
       "reviewComments": "{{count}} komen",
       "reviewFeedback": "Maklum balas semakan",
       "autoMergeEnabled": "Gabung automatik didayakan",
@@ -7688,10 +7864,7 @@
       "reviewPending": "Menunggu",
       "reviewRequired": "Semakan diperlukan",
       "reviewStatus": "Status semakan",
-      "reviewers": "Penyemak",
-      "pullRequestPanelTitle": "Permintaan tarik",
-      "resizePullRequestPanel": "Ubah lebar panel permintaan tarik",
-      "prFeedbackStale": "Gagal memuat semula status permintaan tarik; data semasa mungkin sudah lapuk"
+      "reviewers": "Penyemak"
     },
     "action": {
       "create": "Baharu",
@@ -9320,7 +9493,8 @@
         "loadMoreThreads": "Tidak dapat memuatkan lagi perbualan",
         "loadMoreMessages": "Tidak dapat memuatkan mesej terdahulu",
         "detail": "Butiran: {{error}}"
-      }
+      },
+      "welcome": "Tanya, susun atau cipta dengan ruang pengetahuan ini"
     },
     "quickRewrite": {
       "title": "Tulis semula pantas",

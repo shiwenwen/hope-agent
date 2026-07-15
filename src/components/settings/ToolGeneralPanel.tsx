@@ -30,6 +30,7 @@ interface ToolLimitsConfig {
 
 interface DeferredToolsConfig {
   enabled: boolean
+  mode?: "recommended" | "custom" | "disabled"
   toolNames?: string[]
 }
 
@@ -59,6 +60,22 @@ const DEFAULT_TIMEOUT_POLICY: TimeoutPolicyConfig = {
   modelRuntimeOverrides: "warn",
 }
 
+const RECOMMENDED_EAGER_TOOLS = new Set([
+  "tool_search",
+  "ask_user_question",
+  "runtime_cancel",
+  "skill",
+  "read",
+  "grep",
+  "exec",
+  "apply_patch",
+  "job_status",
+  "note_read",
+  "note_search",
+  "note_create",
+  "note_patch",
+])
+
 export default function ToolGeneralPanel() {
   const { t, i18n } = useTranslation()
   const [toolTimeout, setToolTimeout] = useState(0)
@@ -78,6 +95,7 @@ export default function ToolGeneralPanel() {
   const [diskThreshold, setDiskThreshold] = useState(50)
   const [savedDiskThreshold, setSavedDiskThreshold] = useState(50)
   const [deferredToolsEnabled, setDeferredToolsEnabled] = useState(false)
+  const [deferredToolsMode, setDeferredToolsMode] = useState<DeferredToolsConfig["mode"]>("disabled")
   const [deferredToolNames, setDeferredToolNames] = useState<string[]>([])
   const [builtinTools, setBuiltinTools] = useState<BuiltinTool[]>([])
 
@@ -92,6 +110,15 @@ export default function ToolGeneralPanel() {
   const isConfigDirty = JSON.stringify(config) !== savedConfigSnapshot
   const isLimitsDirty = JSON.stringify(limits) !== savedLimitsSnapshot
   const isDirty = isConfigDirty || isLimitsDirty
+
+  useEffect(() => {
+    if (deferredToolsMode !== "recommended" || builtinTools.length === 0) return
+    setDeferredToolNames(
+      builtinTools
+        .filter((tool) => tool.defer_capable && !RECOMMENDED_EAGER_TOOLS.has(tool.name))
+        .map((tool) => tool.name),
+    )
+  }, [builtinTools, deferredToolsMode])
 
   useEffect(() => {
     let cancelled = false
@@ -135,7 +162,9 @@ export default function ToolGeneralPanel() {
     getTransport().call<DeferredToolsConfig>("get_deferred_tools_config")
       .then((cfg) => {
         if (!cancelled) {
-          setDeferredToolsEnabled(cfg?.enabled ?? false)
+          const mode = cfg?.mode ?? ((cfg?.enabled ?? false) ? "custom" : "disabled")
+          setDeferredToolsEnabled(mode !== "disabled")
+          setDeferredToolsMode(mode)
           setDeferredToolNames(cfg?.toolNames ?? [])
         }
       })
@@ -232,12 +261,16 @@ export default function ToolGeneralPanel() {
 
   const handleDeferredToolsChange = useCallback(async (enabled: boolean) => {
     setDeferredToolsEnabled(enabled)
+    const previousMode = deferredToolsMode
+    const mode: DeferredToolsConfig["mode"] = enabled ? "recommended" : "disabled"
+    setDeferredToolsMode(mode)
     try {
       await getTransport().call("save_deferred_tools_config", {
-        config: { enabled, toolNames: deferredToolNames },
+        config: { mode, enabled, toolNames: deferredToolNames },
       })
     } catch (e) {
       setDeferredToolsEnabled(!enabled)
+      setDeferredToolsMode(previousMode)
       logger.error(
         "settings",
         "ToolGeneralPanel::save",
@@ -245,7 +278,7 @@ export default function ToolGeneralPanel() {
         e,
       )
     }
-  }, [deferredToolNames])
+  }, [deferredToolNames, deferredToolsMode])
 
   const handleDeferredToolToggle = useCallback(async (name: string, enabled: boolean) => {
     const previous = deferredToolNames
@@ -253,12 +286,15 @@ export default function ToolGeneralPanel() {
       ? [...previous.filter((n) => n !== name), name]
       : previous.filter((n) => n !== name)
     setDeferredToolNames(next)
+    const previousMode = deferredToolsMode
+    setDeferredToolsMode("custom")
     try {
       await getTransport().call("save_deferred_tools_config", {
-        config: { enabled: deferredToolsEnabled, toolNames: next },
+        config: { mode: "custom", enabled: deferredToolsEnabled, toolNames: next },
       })
     } catch (e) {
       setDeferredToolNames(previous)
+      setDeferredToolsMode(previousMode)
       logger.error(
         "settings",
         "ToolGeneralPanel::save",
@@ -266,7 +302,7 @@ export default function ToolGeneralPanel() {
         e,
       )
     }
-  }, [deferredToolNames, deferredToolsEnabled])
+  }, [deferredToolNames, deferredToolsEnabled, deferredToolsMode])
 
   const saveDiskThreshold = useCallback(async (kb: number) => {
     try {

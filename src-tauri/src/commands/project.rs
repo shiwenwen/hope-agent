@@ -152,13 +152,14 @@ pub async fn list_project_sessions_cmd(
     active_session_id: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<(Vec<SessionMeta>, u32), CmdError> {
-    use ha_core::session::ProjectFilter;
+    use ha_core::session::{ParentSessionFilter, ProjectFilter};
     let (mut sessions, total) = state
         .session_db
         .run(move |db| {
             db.list_sessions_paged_for_sidebar(
                 None,
                 ProjectFilter::InProject(&id),
+                ParentSessionFilter::All,
                 limit,
                 offset,
                 active_session_id.as_deref(),
@@ -226,4 +227,104 @@ pub async fn list_project_memories_cmd(
     })
     .await
     .map_err(Into::into)
+}
+
+// ── Project Auto Memory ─────────────────────────────────────────
+
+#[tauri::command]
+pub async fn list_project_memory_files_cmd(
+    id: String,
+    state: State<'_, AppState>,
+) -> Result<Vec<ha_core::project::memory::ProjectMemoryEntry>, CmdError> {
+    let project_db = state.project_db.clone();
+    ha_core::blocking::run_blocking(move || {
+        ensure_project_exists(&project_db, &id)?;
+        ha_core::project::memory::list(&id)
+    })
+    .await
+    .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn read_project_memory_file_cmd(
+    id: String,
+    file_name: String,
+    state: State<'_, AppState>,
+) -> Result<ha_core::project::memory::ProjectMemoryFile, CmdError> {
+    let project_db = state.project_db.clone();
+    ha_core::blocking::run_blocking(move || {
+        ensure_project_exists(&project_db, &id)?;
+        ha_core::project::memory::read(&id, &file_name)
+    })
+    .await
+    .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn write_project_memory_file_cmd(
+    id: String,
+    input: ha_core::project::memory::ProjectMemoryWriteInput,
+    state: State<'_, AppState>,
+) -> Result<ha_core::project::memory::ProjectMemoryFile, CmdError> {
+    let project_db = state.project_db.clone();
+    let event_project_id = id.clone();
+    let file = ha_core::blocking::run_blocking(move || {
+        ensure_project_exists(&project_db, &id)?;
+        ha_core::project::memory::write(&id, input)
+    })
+    .await?;
+    emit_project_memory_changed(&event_project_id, "write");
+    Ok(file)
+}
+
+#[tauri::command]
+pub async fn delete_project_memory_file_cmd(
+    id: String,
+    file_name: String,
+    expected_file_hash: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<bool, CmdError> {
+    let project_db = state.project_db.clone();
+    let event_project_id = id.clone();
+    let deleted = ha_core::blocking::run_blocking(move || {
+        ensure_project_exists(&project_db, &id)?;
+        ha_core::project::memory::delete(&id, &file_name, expected_file_hash.as_deref())
+    })
+    .await?;
+    if deleted {
+        emit_project_memory_changed(&event_project_id, "delete");
+    }
+    Ok(deleted)
+}
+
+#[tauri::command]
+pub async fn rebuild_project_memory_index_cmd(
+    id: String,
+    state: State<'_, AppState>,
+) -> Result<String, CmdError> {
+    let project_db = state.project_db.clone();
+    let event_project_id = id.clone();
+    let index = ha_core::blocking::run_blocking(move || {
+        ensure_project_exists(&project_db, &id)?;
+        ha_core::project::memory::rebuild_index(&id)
+    })
+    .await?;
+    emit_project_memory_changed(&event_project_id, "rebuild_index");
+    Ok(index)
+}
+
+fn ensure_project_exists(project_db: &ha_core::project::ProjectDB, id: &str) -> anyhow::Result<()> {
+    if project_db.get(id)?.is_none() {
+        anyhow::bail!("project not found: {}", id);
+    }
+    Ok(())
+}
+
+fn emit_project_memory_changed(project_id: &str, action: &str) {
+    if let Some(bus) = ha_core::get_event_bus() {
+        let _ = bus.emit(
+            "project_memory:changed",
+            serde_json::json!({ "projectId": project_id, "action": action }),
+        );
+    }
 }

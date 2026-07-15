@@ -154,7 +154,9 @@ pub struct ResolverPreflightReport {
 pub fn resolver_preflight() -> ResolverPreflightReport {
     let app_cfg = crate::config::cached_config();
     let cfg = app_cfg.dreaming.clone();
-    let memory_enabled = app_cfg.memory_extract.enabled;
+    let memory_enabled = app_cfg
+        .memory
+        .effective_enabled(app_cfg.memory_extract.enabled);
     let now = now_rfc3339();
     let load_result = if cfg.enabled && memory_enabled && cfg.manual_enabled {
         claims::list_active_claims_for_resolve().map_err(|e| e.to_string())
@@ -906,7 +908,10 @@ pub async fn run_resolver_cycle(trigger: DreamTrigger) -> ResolverReport {
     if !cfg.enabled {
         return ResolverReport::skipped("dreaming disabled in config", started);
     }
-    if !app_cfg.memory_extract.enabled {
+    if !app_cfg
+        .memory
+        .effective_enabled(app_cfg.memory_extract.enabled)
+    {
         return ResolverReport::skipped("long-term memory disabled in config", started);
     }
     // Honour the manual-trigger switch on the backend too — hiding the UI button
@@ -1093,7 +1098,10 @@ pub(super) async fn run_auto_resolver_sweep(trigger: DreamTrigger) -> ResolverRe
     if !cfg.enabled {
         return ResolverReport::skipped("dreaming disabled in config", started);
     }
-    if !app_cfg.memory_extract.enabled {
+    if !app_cfg
+        .memory
+        .effective_enabled(app_cfg.memory_extract.enabled)
+    {
         return ResolverReport::skipped("long-term memory disabled in config", started);
     }
     if !cfg.deep_resolver.auto_expire_on_light_cycle

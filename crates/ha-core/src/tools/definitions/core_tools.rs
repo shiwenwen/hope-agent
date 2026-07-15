@@ -1,19 +1,20 @@
 use serde_json::json;
 
 use super::super::{
-    TOOL_AGENTS_LIST, TOOL_APPLY_PATCH, TOOL_BROWSER, TOOL_DELETE_MEMORY, TOOL_EDIT, TOOL_EXEC,
-    TOOL_FIND, TOOL_GET_SETTINGS, TOOL_GET_WEATHER, TOOL_GREP, TOOL_IMAGE, TOOL_ISSUE_REPORT,
-    TOOL_KNOWLEDGE_RECALL, TOOL_LIST_SETTINGS_BACKUPS, TOOL_LS, TOOL_LSP, TOOL_MAC_CONTROL,
-    TOOL_MANAGE_CRON, TOOL_MEMORY_GET, TOOL_NOTE_APPEND, TOOL_NOTE_ASSIGN_BLOCK,
+    TOOL_AGENTS_LIST, TOOL_APPLY_PATCH, TOOL_BROWSER, TOOL_CORE_MEMORY, TOOL_DELETE_MEMORY,
+    TOOL_EDIT, TOOL_EXEC, TOOL_FIND, TOOL_GET_SETTINGS, TOOL_GET_WEATHER, TOOL_GREP, TOOL_IMAGE,
+    TOOL_ISSUE_REPORT, TOOL_KNOWLEDGE_RECALL, TOOL_LIST_SETTINGS_BACKUPS, TOOL_LS, TOOL_LSP,
+    TOOL_MAC_CONTROL, TOOL_MANAGE_CRON, TOOL_MEMORY_GET, TOOL_NOTE_APPEND, TOOL_NOTE_ASSIGN_BLOCK,
     TOOL_NOTE_BACKLINKS, TOOL_NOTE_BROKEN_LINKS, TOOL_NOTE_BY_TAG, TOOL_NOTE_CREATE,
     TOOL_NOTE_DELETE, TOOL_NOTE_DISTILL, TOOL_NOTE_GRAPH, TOOL_NOTE_LINK, TOOL_NOTE_MOC,
     TOOL_NOTE_MOVE, TOOL_NOTE_ORPHANS, TOOL_NOTE_PATCH, TOOL_NOTE_READ, TOOL_NOTE_RELATED,
     TOOL_NOTE_RENAME, TOOL_NOTE_SEARCH, TOOL_NOTE_SET_FRONTMATTER, TOOL_NOTE_SIMILAR,
-    TOOL_NOTE_SUGGEST_LINKS, TOOL_NOTE_TAGS, TOOL_NOTE_UPDATE, TOOL_PDF, TOOL_PROCESS, TOOL_READ,
-    TOOL_RECALL_MEMORY, TOOL_RESTORE_SETTINGS_BACKUP, TOOL_RUNTIME_CANCEL, TOOL_SAVE_MEMORY,
-    TOOL_SEND_ATTACHMENT, TOOL_SESSIONS_HISTORY, TOOL_SESSIONS_LIST, TOOL_SESSIONS_SEARCH,
-    TOOL_SESSIONS_SEND, TOOL_SESSION_STATUS, TOOL_SESSION_TO_NOTE, TOOL_SKILL,
-    TOOL_UPDATE_CORE_MEMORY, TOOL_UPDATE_MEMORY, TOOL_UPDATE_SETTINGS, TOOL_WEB_FETCH, TOOL_WRITE,
+    TOOL_NOTE_SUGGEST_LINKS, TOOL_NOTE_TAGS, TOOL_NOTE_UPDATE, TOOL_PDF, TOOL_PROCESS,
+    TOOL_PROJECT_MEMORY, TOOL_READ, TOOL_RECALL_MEMORY, TOOL_RESTORE_SETTINGS_BACKUP,
+    TOOL_RUNTIME_CANCEL, TOOL_SAVE_MEMORY, TOOL_SEND_ATTACHMENT, TOOL_SESSIONS_HISTORY,
+    TOOL_SESSIONS_LIST, TOOL_SESSIONS_SEARCH, TOOL_SESSIONS_SEND, TOOL_SESSION_STATUS,
+    TOOL_SESSION_TO_NOTE, TOOL_SKILL, TOOL_UPDATE_CORE_MEMORY, TOOL_UPDATE_MEMORY,
+    TOOL_UPDATE_SETTINGS, TOOL_WEB_FETCH, TOOL_WRITE,
 };
 use super::types::{CoreSubclass, ToolDefinition, ToolTier};
 
@@ -436,7 +437,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: TOOL_RECALL_MEMORY.into(),
-            description: "Search persistent memories by keyword or semantic query. Use this to recall previously stored information about the user, their preferences, project context, or reference materials. Set include_history=true to also search past conversation messages.".into(),
+            description: "Search persistent memories by keyword or semantic query. Use this when the current request plausibly depends on previously stored information about the user, their preferences, project context, or reference materials; do not call it routinely. Set include_history=true to also search past conversation messages.".into(),
             tier: ToolTier::Memory,
             internal: true,
             concurrent_safe: true,
@@ -1226,8 +1227,48 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         },
         // ── Update Core Memory ─────────────────────────────────
         ToolDefinition {
+            name: TOOL_CORE_MEMORY.into(),
+            description: "Read and maintain bounded Core Memory across Global, current Agent, and current Project scopes. MEMORY.md is the concise always-loaded index; topic bodies under topics/ are loaded only through this tool. Prefer topics for detail. Project scope is limited to the project bound to this session.".into(),
+            tier: ToolTier::Memory,
+            internal: true,
+            concurrent_safe: false,
+            async_capable: false,
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": ["get_index", "append_index", "replace_index", "list", "read", "search", "write", "delete", "rebuild_index", "promote", "reload"]
+                    },
+                    "scope": {
+                        "type": "string",
+                        "enum": ["global", "agent", "project"],
+                        "description": "Defaults to agent. Project means the current session's bound project."
+                    },
+                    "fileName": { "type": "string" },
+                    "expectedFileHash": { "type": "string" },
+                    "name": { "type": "string" },
+                    "description": { "type": "string" },
+                    "memoryType": {
+                        "type": "string",
+                        "enum": ["feedback", "project", "reference", "user"]
+                    },
+                    "content": { "type": "string" },
+                    "query": { "type": "string" },
+                    "offset": { "type": "integer", "minimum": 0 },
+                    "limit": { "type": "integer", "minimum": 1, "maximum": 100 },
+                    "maxChars": { "type": "integer", "minimum": 100, "maximum": 20000 }
+                    ,"sourceKind": { "type": "string", "enum": ["memory", "claim"] }
+                    ,"sourceId": { "type": "string" }
+                    ,"topicName": { "type": "string" }
+                },
+                "required": ["action"],
+                "additionalProperties": false
+            }),
+        },
+        ToolDefinition {
             name: TOOL_UPDATE_CORE_MEMORY.into(),
-            description: "Update the core memory file (memory.md) that is always visible in the system prompt. Use for persistent rules, preferences, and standing instructions that the user wants you to always follow.".into(),
+            description: "Compatibility alias: append or replace the Global/current-Agent Core MEMORY.md index. Prefer core_memory for scoped indexes and progressively loaded topics.".into(),
             tier: ToolTier::Memory,
             internal: true,
             concurrent_safe: false,
@@ -1251,6 +1292,55 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                     }
                 },
                 "required": ["action", "content"],
+                "additionalProperties": false
+            }),
+        },
+        // ── Project Auto Memory ────────────────────────────────
+        ToolDefinition {
+            name: TOOL_PROJECT_MEMORY.into(),
+            description: "Manage machine-local project auto memory with progressive disclosure. MEMORY.md is a concise index loaded every project turn; topic files are not loaded until this tool reads them. Use search/read before relying on a topic, and write only durable learnings useful in future sessions.".into(),
+            tier: ToolTier::Memory,
+            internal: true,
+            concurrent_safe: false,
+            async_capable: false,
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": ["list", "read", "search", "write", "delete", "rebuild_index"]
+                    },
+                    "fileName": {
+                        "type": "string",
+                        "description": "Safe topic filename such as project_architecture.md. Required for read/delete; optional for write."
+                    },
+                    "expectedFileHash": {
+                        "type": "string",
+                        "description": "BLAKE3 returned by read. Required when updating or deleting an existing topic; the operation fails if the disk file changed."
+                    },
+                    "query": { "type": "string", "description": "Case-insensitive search query." },
+                    "limit": { "type": "integer", "minimum": 1, "maximum": 50 },
+                    "offset": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "description": "Character offset for chunked read. Default 0."
+                    },
+                    "maxChars": {
+                        "type": "integer",
+                        "minimum": 1000,
+                        "maximum": 20000,
+                        "description": "Maximum characters returned by read. Default 12000."
+                    },
+                    "name": { "type": "string", "description": "Short topic title for write." },
+                    "description": { "type": "string", "description": "One-line summary shown in MEMORY.md." },
+                    "memoryType": {
+                        "type": "string",
+                        "enum": ["feedback", "project", "reference", "user"],
+                        "description": "Topic category. Default project."
+                    },
+                    "content": { "type": "string", "description": "Detailed Markdown body for write." }
+                },
+                "required": ["action"],
                 "additionalProperties": false
             }),
         },

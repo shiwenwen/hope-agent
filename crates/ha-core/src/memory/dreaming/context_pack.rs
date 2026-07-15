@@ -237,6 +237,7 @@ mod tests {
                 source_run_id: None,
                 created_at: "2026-01-01T00:00:00.000Z".into(),
                 updated_at: "2026-01-01T00:00:00.000Z".into(),
+                retrieval_evidence: None,
             },
             ClaimRecord {
                 id: "c2".into(),
@@ -259,6 +260,7 @@ mod tests {
                 source_run_id: None,
                 created_at: "2026-01-01T00:00:00.000Z".into(),
                 updated_at: "2026-01-01T00:00:00.000Z".into(),
+                retrieval_evidence: None,
             },
         ];
         let body = render_claims_block(&claims, 300, "pinned", &mut digest);

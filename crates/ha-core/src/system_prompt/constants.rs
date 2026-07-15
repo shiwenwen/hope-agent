@@ -5,7 +5,7 @@ pub(super) const MAX_FILE_CHARS: usize = 20_000;
 
 /// Memory usage guidance appended after the Core/SQLite memory blocks.
 /// Extracted as a named constant so `build.rs` can **pre-reserve** its length
-/// from the memory-section budget — otherwise a sufficiently large `memory.md`
+/// from the memory-section budget — otherwise a sufficiently large `MEMORY.md`
 /// could crowd out this block entirely and leave the model without guidance
 /// on how to use the memory tools. Always emitted verbatim.
 pub(super) const MEMORY_GUIDELINES: &str =
@@ -159,7 +159,7 @@ const TOOL_DESC_DELETE_MEMORY: &str = "\
   - Params: id (required)";
 
 const TOOL_DESC_UPDATE_CORE_MEMORY: &str = "\
-- update_core_memory: Update the agent's core memory (persistent instructions in memory.md).\n\
+- update_core_memory: Update the agent's core memory (persistent instructions in MEMORY.md).\n\
   - Use for standing instructions, persistent preferences, and recurring corrections\n\
   - Params: content (required), section (optional)";
 
@@ -291,15 +291,7 @@ currently forced to true by the runtime so a free-form input is always rendered)
 /// users see a short natural-language preview before each tool call.
 pub(super) const TOOL_CALL_NARRATION_GUIDANCE: &str = "# Text output (does not apply to tool calls)
 
-Assume users cannot see tool calls or internal reasoning — only your text output. Before your first tool call, state in one sentence what you're about to do. While working, give short updates at key moments: when you find something, when you change direction, when you hit a blocker, or before spawning a sub-agent / team / ACP external agent. Brief is good — silent is not. One sentence per update is almost always enough.
-
-Do NOT restate the same intent across consecutive tool calls. If the next tool is an obvious continuation of what you just announced (e.g. you said \"I'll generate the file\" and the next 3 calls are all steps toward generating that file), stay silent — only speak again when you have a genuinely new update: a finding, a change of direction, a blocker, or task completion. Paraphrasing the same intent twice in a row is noise, not communication.
-
-Do not narrate internal deliberation (\"let me think…\", \"I'll now consider…\"). State results and decisions directly. User-facing text should be relevant communication to the user, not a running commentary on your thought process.
-
-When you do write updates, write so the reader can pick up cold: complete sentences, no unexplained jargon or shorthand from earlier in the turn. A clear sentence beats a clear paragraph.
-
-End-of-turn summary: one or two sentences — what changed and what's next. Nothing else.";
+Before the first tool call, state the intended action in one sentence. Update only for a new finding, changed direction, blocker, delegation, or completion; do not repeat the same intent between consecutive calls. Never narrate private deliberation. Use complete, concise sentences and end with what changed and what comes next.";
 
 /// File path formatting guidance — only injected in desktop runtime so users
 /// can click paths to open them with the OS default app. Server / ACP modes
@@ -312,21 +304,7 @@ End-of-turn summary: one or two sentences — what changed and what's next. Noth
 /// target.
 pub(super) const MARKDOWN_PATH_LINKS_GUIDANCE: &str = "# File Path Formatting
 
-When you mention file paths in your responses, format them as markdown links so the user can click to open them. Use `[display_name](absolute_path)` syntax.
-
-- **Display name**: just the filename (e.g. `MarkdownRenderer.tsx`) or filename with a line number (e.g. `MarkdownRenderer.tsx:42`).
-- **Link target**: a Unix-style **absolute path starting with `/`** (e.g. `/Users/foo/repo/src/...`). Append `#L<line>` for a specific line (e.g. `#L42`) so future IDE integration can jump straight to it. Plain absolute paths without `#L` are also fine. Do not use `file://` URLs or Windows-style `C:\\...` paths — both have href stripped by the markdown sanitizer and become unclickable. Do not use relative paths (`src/foo.ts`) — they will not open.
-- **Paths with spaces**: wrap the destination in angle brackets so the markdown parser keeps it intact: `[display_name](</absolute path with spaces/file.ts>)`. Without the angle brackets, the link will not be parsed.
-- **Avoid** wrapping paths in inline code (`` `/Users/.../foo.ts` ``) or pasting them as plain text — long paths blow up the line and become unclickable noise.
-
-Examples:
-- Good: see [MarkdownRenderer.tsx:42](/Users/foo/repo/src/components/common/MarkdownRenderer.tsx#L42)
-- Good: edit [build.rs](/Users/foo/repo/crates/ha-core/src/system_prompt/build.rs)
-- Good: open [notes.md](</Users/foo/My Notes/notes.md>) — angle brackets needed because the path has a space
-- Bad: see `/Users/foo/repo/src/components/common/MarkdownRenderer.tsx:42`
-- Bad: see /Users/foo/repo/src/components/common/MarkdownRenderer.tsx
-
-This rule applies to file paths only. Keep wrapping shell commands, code identifiers, and short snippets in inline code — those are not paths.";
+Mention local files as clickable markdown links: `[file.ext](/absolute/path/file.ext)` or `[file.ext:42](/absolute/path/file.ext#L42)`. Wrap destinations containing spaces in angle brackets. Do not use relative paths, `file://`, plain absolute paths, or inline-code paths. This rule does not apply to commands or identifiers.";
 
 /// Current per-session permission-mode guidance. This is intentionally short:
 /// the permission engine remains the source of truth, while the prompt gives

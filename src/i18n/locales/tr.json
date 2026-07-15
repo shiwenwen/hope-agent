@@ -984,13 +984,20 @@
         "noSession": "oturum bağlamı yok",
         "retrievalError": "alma başarısız oldu",
         "sideQueryError": "geri çağırma başarısız oldu",
-        "timeout": "zaman aşımına uğradı"
+        "timeout": "zaman aşımına uğradı",
+        "budgetEmpty": "hatırlama bütçesi boş",
+        "nonContextualTurn": "bağlam gerektirmeyen ileti",
+        "recallOff": "otomatik dinamik hatırlama kapalı",
+        "retrievalBusy": "hatırlama hizmeti meşgul",
+        "sessionPolicy": "bellek veya sohbet ilkesi tarafından kapatıldı",
+        "unifiedRecall": "hızlı hatırlama tarafından işlendi",
+        "unknown": "diğer neden"
       },
       "layerStatus": {
         "candidate": "aday",
         "disabled": "devre dışı",
         "empty": "isabet yok",
-        "skipped": "bozulmuş",
+        "skipped": "atlandı",
         "unknown": "bilinmiyor",
         "used": "kullanılmış"
       },
@@ -1057,7 +1064,11 @@
       "more": "{{count}} daha uzun vadeli bağlam öğeleri gizlenir.",
       "sources": "Bellek kaynakları",
       "editMemory": "Bu hafızayı düzenle",
-      "copyTrace": "Tanılamayı kopyala"
+      "copyTrace": "Tanılamayı kopyala",
+      "promoteToCore": "Bunu her zaman hatırla",
+      "promoteToCoreFailed": "Bu öğe Çekirdek Belleğe eklenemedi.",
+      "promotedToCore": "Her zaman hatırlanıyor",
+      "promotedToCoreToast": "Kalıcı Çekirdek Belleğe eklendi."
     },
     "projectWelcomeTitle": "<project>{{project}}</project> içinde ne inşa edelim? Aklındakini söyle",
     "projectWelcomeSuggestions": {
@@ -1129,7 +1140,18 @@
     "openSourceConversationMissing": "Kaynak konuşma artık kullanılamıyor",
     "openSourceConversationMissingHint": "Bu bellek kaynağı silinmiş veya bulunamayan bir konuşmaya işaret ediyor.",
     "openSourceMessageMissing": "Kaynak mesaj artık kullanılamıyor",
-    "openSourceMessageMissingHint": "Konuşma hâlâ var, ancak bu bellek kaynağının tam mesajı bulunamadı."
+    "openSourceMessageMissingHint": "Konuşma hâlâ var, ancak bu bellek kaynağının tam mesajı bulunamadı.",
+    "memoryPolicy": {
+      "title": "Bu sohbetin belleği",
+      "use": "Mevcut bellekleri kullan",
+      "contribute": "Bu sohbetten öğren",
+      "inherit": "Genel ayarı izle",
+      "allow": "Açık",
+      "deny": "Kapalı",
+      "desc": "İki ayar bağımsızdır: sohbet mevcut bellekleri kullanırken yeni bellek oluşturmayabilir.",
+      "incognito": "Gizli sohbetler uzun süreli belleği asla okumaz veya yazmaz.",
+      "reloadCore": "Bu oturum için MEMORY.md dosyasını yeniden yükle"
+    }
   },
   "codexAuth": {
     "expiredDescription": "Codex OAuth tokenınız artık geçerli değil. Devam etmek için tekrar oturum açın.",
@@ -1193,7 +1215,7 @@
     "ago": "önce",
     "cacheTtlProtection": "önbellek TTL koruması",
     "compactAllowedIn": "Sonraki sıkıştırma",
-    "estimateNote": "Tahmini (karakter÷4); faturalandırılan kullanımdan %10–20 farklı olabilir.",
+    "estimateNote": "Her turdan sonra Provider'ın gerçek kullanımı esas alınır; öncesinde istek biçimine göre ihtiyatlı bir tahmin gösterilir.",
     "freeSpace": "Boş alan",
     "lastCompact": "Son sıkıştırma",
     "memory": "Hafıza",
@@ -1205,7 +1227,16 @@
     "toolDescriptions": "Araç açıklamaları",
     "toolSchemas": "Araç şemaları",
     "used": "Kullanılan",
-    "viewSystemPrompt": "System prompt"
+    "viewSystemPrompt": "System prompt",
+    "cacheRead": "Önbellek okuma",
+    "cacheWindowNotice": "Önbellek isabetleri yinelenen hesaplamayı, maliyeti ve TTFT'yi azaltır; bağlam penceresi kullanımını azaltmaz.",
+    "cacheWrite": "Önbellek yazma",
+    "coreMemoryBudget": "Core Memory bütçesi",
+    "coreMemoryModelLimited": "bu model için geçici olarak sınırlandı",
+    "dynamicPrompt": "Dinamik istem",
+    "estimated": "tahmini",
+    "freshInput": "Yeni girdi",
+    "providerInput": "Provider girdisi"
   },
   "cron": {
     "active": "Aktif",
@@ -2067,10 +2098,10 @@
       "staged": "Staged",
       "stagedScope": "Staged",
       "stale": "The repository changed. The diff was refreshed; review it again.",
+      "prReviewComments": "PR inceleme yorumları · {{count}}",
       "unstage": "Unstage",
       "unstaged": "Unstaged",
-      "unstagedScope": "Unstaged",
-      "prReviewComments": "PR inceleme yorumları · {{count}}"
+      "unstagedScope": "Unstaged"
     }
   },
   "effort": {
@@ -2507,7 +2538,9 @@
     "reasoningHint": "Etkinleştirdiğinizde, sohbet giriş kutusunun üzerindeki model menüsünden akıl yürütme derinliğini (düşük / orta / yüksek) seçebilirsiniz; her istekte otomatik olarak eklenir.",
     "supportedInputTypes": "Desteklenen Giriş Türleri",
     "text": "Metin",
-    "video": "Video"
+    "video": "Video",
+    "supportsImageMultimodal": "Görsel çoklu mod desteği",
+    "supportsVideoMultimodal": "Video çoklu mod desteği"
   },
   "notification": {
     "cronCancelled": "Zamanlanmış görev iptal edildi",
@@ -2990,7 +3023,30 @@
     "openFromMemoryLoadFailed": "Proje kaynağı açılamadı",
     "openFromMemoryLoadFailedDetail": "Ayrıntılar: {{error}}",
     "openFromMemoryMissing": "Proje artık kullanılamıyor",
-    "openFromMemoryMissingHint": "Bellek kaynağı silinmiş veya bulunamayan bir projeye işaret ediyor."
+    "openFromMemoryMissingHint": "Bellek kaynağı silinmiş veya bulunamayan bir projeye işaret ediyor.",
+    "autoMemory": {
+      "content": "Ayrıntılar (Markdown)",
+      "deleteConfirm": "Bu proje otomatik bellek konusu silinsin mi?",
+      "description": "Kısa bir MEMORY.md dizini proje sohbetlerine kararlı biçimde eklenir; konu ayrıntıları yalnızca ilgili olduğunda okunur. Her şey bu cihazda kalır.",
+      "editorHint": "Proje talimatları sabit kurallardır. Bu alan çalışma sırasında biriken proje öğrenimlerini saklar, bağlayıcı talimat değildir.",
+      "editorTitle": "Proje otomatik belleği",
+      "empty": "Henüz otomatik bellek konusu yok.",
+      "fileNameGenerated": "Dosya adı kaydederken oluşturulacak",
+      "name": "Başlık",
+      "newTopic": "Yeni konu",
+      "rebuildIndex": "MEMORY.md dizinini yeniden oluştur",
+      "rebuildFailed": "MEMORY.md dizini yeniden oluşturulamadı.",
+      "summary": "Dizin özeti",
+      "summaryHint": "Bu cümle her proje sohbetinin kararlı istemine girer; kısa tutun.",
+      "type": "Tür",
+      "types": {
+        "feedback": "Çalışma geri bildirimi",
+        "project": "Proje çalışması",
+        "reference": "Referans",
+        "user": "Kullanıcı bağlamı"
+      }
+    },
+    "tabAutoMemory": "Otomatik bellek"
   },
   "provider": {
     "addProvider": "Sağlayıcı Ekle",
@@ -3202,12 +3258,12 @@
     "acpTimeout": "Zaman aşımı (sn)",
     "activeMemoryCacheTtl": "Önbellek TTL (saniye)",
     "activeMemoryCandidateLimit": "Aday sınırı",
-    "activeMemoryDesc": "Her kullanıcı turunun başında, en alakalı belleği tek bir cümleye dönüştürmek ve sistem istemiyle birlikte enjekte etmek için sınırlı bir side query çalıştırır. Zaman aşımı ve hatalar sessizce pasif hatırlatmaya döner — sohbeti asla engellemez.",
+    "activeMemoryDesc": "Agent başına uyumluluk çağrısı. Etkinleştirildiğinde genel otomatik çağrı kapalı olsa bile yalnızca bu Agent Fast çağrı ve derin yeniden sıralama kullanır. Varsayılan olarak kapalıdır; derin yeniden sıralama side query, gecikme ve Token kullanımı ekler.",
     "activeMemoryIncludeClaims": "Yapılandırılmış iddiaları dahil et",
     "activeMemoryIncludeClaimsDesc": "Anımsama adayları olarak yalnızca eski anıları değil, Dreaming'in yapılandırılmış iddialarını da kısa listeye alır. Varsayılan olarak kapalı.",
     "activeMemoryMaxChars": "Hatırlatma maks. karakter",
     "activeMemoryTimeout": "Zaman aşımı (ms)",
-    "activeMemoryTitle": "Aktif bellek hatırlatma",
+    "activeMemoryTitle": "Agent derin hatırlama",
     "addFallback": "Yedek Model Ekle",
     "addFallbackModel": "Yedek Model Ekle",
     "agentAgentsMd": "AGENTS.md",
@@ -4848,9 +4904,9 @@
     "memoryAutoExtractDesc": "Token, zaman veya mesaj eşikleri karşılandığında hafızaları otomatik olarak çıkar",
     "memoryBudget": {
       "agentOverrideDesc": "Varsayılan olarak küresel Bellek Bütçesini devralır. Agent'e özgü bir bütçe kullanmak için kapatın.",
-      "coreMemoryFileChars": "memory.md katman başı sınır",
-      "coreMemoryFileCharsDesc": "Her memory.md dosyası (Global / Agent) için bağımsız sınır. Sınırı aşan içerik istemde kesilir ancak diskte korunur. Varsayılan 8000.",
-      "desc": "Bellek bölümünün (Global memory.md / Agent memory.md / SQLite bellekleri / Yönergeler) toplam karakter sayısını ve içindeki katman başı sınırları sınırlar. Toplamı düşürmek canlı konuşma bağlamına daha fazla bütçe bırakır.",
+      "coreMemoryFileChars": "MEMORY.md katman başı sınır",
+      "coreMemoryFileCharsDesc": "Her MEMORY.md dosyası (Global / Agent) için bağımsız sınır. Sınırı aşan içerik istemde kesilir ancak diskte korunur. Varsayılan 8000.",
+      "desc": "Bellek bölümünün (Global MEMORY.md / Agent MEMORY.md / SQLite bellekleri / Yönergeler) toplam karakter sayısını ve içindeki katman başı sınırları sınırlar. Toplamı düşürmek canlı konuşma bağlamına daha fazla bütçe bırakır.",
       "resetToDefaults": "Varsayılanlara sıfırla",
       "sections": {
         "aboutUser": "Kullanıcı hakkında",
@@ -4870,6 +4926,35 @@
         "load": "Failed to load memory budget",
         "save": "Failed to save memory budget",
         "detail": "Ayrıntılar: {{error}}"
+      },
+      "advancedAllocation": "Gelişmiş kapsam dağılımı",
+      "contextWindow": "Geçerli varsayılan model bağlamı: {{count}} tokens",
+      "coreSimpleDesc": "Core Memory için tek bir toplam bütçe seçin. Kullanılmayan kapasite Project > Agent > Global önceliğiyle paylaşılır.",
+      "engine": {
+        "agentTokens": "Agent tokenları",
+        "budgetTokens": "Bütçe tokenları",
+        "cacheTtlSecs": "Önbellek TTL (sn)",
+        "candidateLimit": "Aday sınırı",
+        "globalTokens": "Global tokenlar",
+        "hardMaxTokens": "Kesin token üst sınırı",
+        "maxSelected": "Maksimum seçilen",
+        "maxTokens": "Maksimum token",
+        "projectTokens": "Proje tokenları",
+        "protocolTokens": "Protokol tokenları",
+        "summaryChars": "Özet karakterleri",
+        "timeoutMs": "Zaman aşımı (ms)",
+        "topicReadTokens": "Konu okuma tokenları",
+        "totalTokens": "Toplam token"
+      },
+      "legacyTitle": "Eski sürüm geri alma bütçeleri",
+      "legacyDesc": "Bu karakter bütçeleri yalnızca eski statik bellek yoluna uygulanır ve uyumluluk süresince düzenlenebilir kalır.",
+      "effective": "Yapılandırılan {{configured}} · bu turda etkin {{effective}} tokens",
+      "highBudgetWarning": "Önerilen 2400 tokens aralığının üzerinde. Kaydedilebilir; ancak her istekte kararlı bağlamı, önbellek yazımını ve ilk token gecikmesini artırır.",
+      "modelLimited": "{{configured}} tokens yapılandırıldı; geçerli model güvenli olarak {{effective}} kullanıyor. Kayıtlı tercihiniz değişmez.",
+      "presets": {
+        "balanced": "Dengeli",
+        "concise": "Kısa",
+        "rich": "Zengin"
       }
     },
     "memoryContent": "İçerik",
@@ -5911,7 +5996,7 @@
     "timeoutPolicyWarn": "Uygula ve günlüğe yaz (varsayılan)",
     "toolTimeout": "Senkron araç zaman aşımı",
     "toolTimeoutDesc": "Ön plan/senkron araç çağrıları için genel fallback zaman aşımı. Varsayılan 0 bu genel zaman aşımını devre dışı bırakır; pozitif değer çağrıları bu kadar saniye sonra iptal eder. Arka plan async job'ları async araçlardaki maksimum iş süresini kullanır; tekil araçların kendi dahili zaman aşımları olabilir.",
-    "toolUpdateCoreMemoryDesc": "Sistem istemine enjekte edilen memory.md dosyasını güncelle",
+    "toolUpdateCoreMemoryDesc": "Sistem istemine enjekte edilen MEMORY.md dosyasını güncelle",
     "toolUpdateCoreMemoryName": "Çekirdek Belleği Güncelle",
     "toolUpdateMemoryDesc": "Mevcut bir hafızanın içeriğini güncelle",
     "toolUpdateMemoryName": "Hafızayı güncelle",
@@ -6143,8 +6228,8 @@
     "memoryLearningPausedDesc": "Ajan şu anda uzun süreli hafızayı kullanmıyor veya öğrenmiyor. Mevcut veriler bu cihazda kalır ve yalnızca manuel modda yönetmeye, dışa aktarmaya, silmeye veya devam ettirmeye devam edebilirsiniz.",
     "memoryLearningResumeManual": "Yalnızca manuel devam ettir",
     "memoryLearningOpenSettings": "Ayarları aç",
-    "memoryUseInRepliesTitle": "Yanıtlarda anıları kullan",
-    "memoryUseInRepliesDesc": "Varsayılan aracı için önerilen düşük gecikmeli geri çağırma ön ayarını etkinleştirin. İlgili anılar yanıtlara dahil edilebilir ve geri çağırma, zaman aşımında yine de güvenli bir şekilde atlanır.",
+    "memoryUseInRepliesTitle": "Eski Agent derin hatırlama geçersiz kılması",
+    "memoryUseInRepliesDesc": "Varsayılan Agent için uyumluluk çağrısıdır. Etkinleştirildiğinde yukarıdaki genel varsayılan kapalı olsa bile yalnızca bu Agent Fast çağrı ve derin yeniden sıralama kullanır. Varsayılan olarak kapalıdır; derin yeniden sıralama side query, gecikme ve Token kullanımı ekler.",
     "memoryUseInRepliesTarget": "Varsayılan aracı: {{agent}}",
     "memoryUseInRepliesSummaryTimeout": "Zaman aşımı",
     "memoryUseInRepliesSummaryCache": "Önbellek",
@@ -6165,9 +6250,9 @@
     "memoryUseInRepliesUpdateFailed": "Aktif geri çağırma güncellenemedi",
     "memoryUseInRepliesError": "Aktif geri çağırma güncellenemedi: {{error}}",
     "memoryUseInRepliesErrorDetail": "Ayrıntılar: {{error}}",
-    "memoryUseInRepliesReadinessRecommended": "Hazır: Düşük gecikmeli geri çağırma, yapılandırılmış hafızaları ve güvenli zaman aşımı geri dönüşünü içerir.",
+    "memoryUseInRepliesReadinessRecommended": "Agent uyumluluk çağrısı hazır; yalnızca bu Agent Fast çağrı ve derin yeniden sıralama kullanacak.",
     "memoryUseInRepliesReadinessAgentOff": "Agent belleği kapalı. Önerilen geri çağırmayı kullanın, varsayılan aracı için tekrar açılacaktır.",
-    "memoryUseInRepliesReadinessDisabled": "Kapalı: Varsayılan temsilci yanıt vermeden önce proaktif olarak anılara bakmaz.",
+    "memoryUseInRepliesReadinessDisabled": "Varsayılan olarak kapalı: varsayılan aracı yanıt vermeden önce anıları proaktif olarak aramaz.",
     "memoryUseInRepliesReadinessClaimsOff": "Yapılandırılmış anılar proaktif hatırlamanın dışındadır.",
     "memoryUseInRepliesReadinessSlowTimeout": "Zaman aşımı önerilen düşük gecikme ön ayarının üzerinde.",
     "memoryUseInRepliesReadinessTightBudget": "Geri çağırma bütçesi önerilen ön ayardan daha düşük.",
@@ -7030,7 +7115,95 @@
     "memoryProcedureTriggerPlaceholder": "Bu iş akışının ne zaman dikkate alınması gerektiği",
     "memoryProcedureStepsPlaceholder": "- Başarısız kontrolü inceleyin\n- Bilinen düzeltmeyi uygulayın\n- Dar doğrulayıcıyı yeniden çalıştırın",
     "memoryProcedureConstraintsPlaceholder": "Bu iş akışı ne zaman kullanılmamalıdır?",
-    "memoryProcedureConfidence": "Güven"
+    "memoryProcedureConfidence": "Güven",
+    "agentMemoryEnabledTitle": "Bu Agent için belleği kullan",
+    "agentMemoryEnabledDesc": "Bu Agent'ın Çekirdek Belleğini, dinamik hatırlamasını, öğrenmesini ve bellek araçlarını denetler. Genel bellek ayarları üst düzey politika olmaya devam eder.",
+    "memoryV2": {
+      "title": "Bellek",
+      "subtitle": "Nelerin kalıcı tutulacağını, ne zaman hatırlanacağını ve konuşmaların asistanı eğitip eğitmeyeceğini seçin.",
+      "loadFailed": "Bellek ayarları yüklenemedi",
+      "saveFailed": "Bellek ayarları kaydedilemedi",
+      "core": {
+        "title": "Her zaman hatırla",
+        "desc": "Global, Agent ve Project için kısa MEMORY.md dosyaları konuşmada sabit kalır; ayrıntılar yalnız gerektiğinde yüklenir.",
+        "budget": "Toplam {{count}} token bütçesi",
+        "manage": "MEMORY.md düzenle",
+        "projectTitle": "Proje MEMORY.md",
+        "projectDesc": "Yalnızca bu projedeki konuşmalarda kullanılan kısa kalıcı bağlam.",
+        "conflict": "Hem büyük harfli asıl dosya hem de eski küçük harfli uyumluluk dosyası değişti. Kaydetmeden önce içerikleri seçin veya birleştirin.",
+        "conflictCanonical": "Büyük harfli standart MEMORY.md",
+        "conflictLegacy": "Eski küçük harfli memory.md",
+        "conflictMerged": "Birleştirilmiş sonuç (standart dosya temel alınır)",
+        "conflictKeepCanonical": "MEMORY.md dosyasını koru",
+        "conflictKeepLegacy": "Eski dosyayı koru",
+        "conflictSaveMerged": "Birleştirilmiş sonucu kaydet",
+        "conflictLoadFailed": "Çakışan Çekirdek Bellek dosyaları yüklenemedi",
+        "conflictResolveFailed": "Çekirdek Bellek çakışması çözülemedi. Yenileyip tekrar deneyin.",
+        "conflictResolved": "Çekirdek Bellek çakışması çözüldü",
+        "actualTokens": "Bu kapsamda {{used}} / {{total}} token",
+        "stats": "Dizin girdileri: {{entries}} · Konular: {{topics}}",
+        "updatedAt": "Güncellendi: {{value}}",
+        "neverUpdated": "Henüz yazılmadı",
+        "scope": "Bellek kapsamı",
+        "projectLabel": "Proje",
+        "topics": "İsteğe bağlı konular",
+        "noTopics": "Henüz konu dosyası yok",
+        "selectTopic": "Bir konu seçin veya yenisini oluşturun",
+        "topicName": "Konu adı",
+        "topicDesc": "Ne zaman okunacağını açıklayan tek satır",
+        "topicContent": "Konu ayrıntıları (yalnızca gerektiğinde yüklenir)",
+        "topicLoadFailed": "Bellek konuları yüklenemedi",
+        "topicSaveFailed": "Bellek konusu kaydedilemedi",
+        "topicDeleteConfirm": "Bu bellek konusu silinsin mi?",
+        "topicDeleteFailed": "Bellek konusu silinemedi"
+      },
+      "recall": {
+        "title": "Dinamik bellek çağrısı",
+        "desc": "Varsayılan olarak kapalıdır. Kapalıyken Agent'a özel bir uyumluluk geçersiz kılması açık değilse yalnızca kararlı Çekirdek Bellek otomatik kullanılır; model gerektiğinde bellek araçlarıyla arama yapabilir. Açıldığında ilgili dinamik anılar her kullanıcı mesajından sonra ve yanıt oluşturulmadan önce aranır.",
+        "fast": "İlgili anıları otomatik çağır",
+        "deep": "Derin yeniden sıralama (isteğe bağlı)",
+        "skip": "Atlandı",
+        "deepCost": "Derin yeniden sıralama bir model çağrısı ekler, yanıtı yavaşlatır ve daha fazla token kullanır. Yalnızca otomatik çağrı açıldıktan sonra gerçekten gerektiğinde kullanın.",
+        "last": "Son hatırlama: {{selected}}/{{candidates}} seçildi · {{latency}} ms · {{mode}}",
+        "noRecent": "Uygulama açıldığından beri otomatik dinamik bellek çağrısı çalışmadı."
+      },
+      "learning": {
+        "title": "Konuşmalardan öğren",
+        "desc": "Sohbetlerdeki yeni bilgilerin kaydedilip kaydedilmeyeceğini belirler. Mevcut anıların kullanımını etkilemez.",
+        "mode": "Öğrenme modu",
+        "smart": "Akıllı öğrenme",
+        "reviewFirst": "Kaydetmeden önce incele",
+        "manual": "Yalnızca elle kaydet",
+        "pending": "İnceleme bekleyen: {{count}}",
+        "unassigned": "Atanmamış: {{count}}"
+      },
+      "review": {
+        "title": "İnceleme bekleyen bellek",
+        "desc": "{{count}} aday henüz uzun süreli belleğe veya isteme eklenmedi.",
+        "empty": "İncelenecek bir şey yok",
+        "chooseScope": "Kaydedilecek yeri seçin",
+        "approve": "Belleği kaydet",
+        "reject": "Kaydetme",
+        "loadFailed": "Bekleyen bellekler yüklenemedi",
+        "approveFailed": "Bekleyen bellek kaydedilemedi",
+        "rejectFailed": "Bekleyen bellek reddedilemedi",
+        "reason": {
+          "review_first": "Öğrenme modu inceleme gerektiriyor",
+          "project_scope_missing": "Projeye özgü görünüyor ancak bu sohbetin projesi yok",
+          "scope_uncertain": "Doğru kapsam belirsiz",
+          "sensitive": "Hassas bilgi içerebilir",
+          "conflict": "Mevcut bir bellekle çakışıyor",
+          "core_promotion": "Kalıcı belleğe yükseltilmesi önerildi"
+        }
+      }
+    },
+    "memoryBackupExportSummary": "Anılar: {{memories}} · İddialar: {{claims}} · Profiller: {{profiles}} · Bölümler: {{episodes}} · İş akışları: {{procedures}}",
+    "memoryBackupOpenReviewInboxAfterRestore": "İncelenecek geri yüklenen öğeler: {{count}}",
+    "memoryExperienceSearchActive": "“{{query}}” için eşleşmeler: {{total}}",
+    "memoryExperienceViewActive": "Deneyim öğeleri: {{total}}",
+    "memoryExternalProvidersActive": "Etkin sağlayıcılar: {{active}}/{{total}}",
+    "memoryExternalProvidersActiveSummary": "Etkin: {{active}} · Yapılandırılmış: {{total}}",
+    "memoryProcedureSourceEpisode": "Bölüm: {{id}}"
   },
   "shortcuts": {
     "actionOpenSettings": "Ayarları aç",
@@ -7641,6 +7814,8 @@
       "selectBranch": "Select branch",
       "stageAll": "Stage all changes",
       "viewPr": "View pull request",
+      "pullRequestPanelTitle": "Çekme isteği",
+      "resizePullRequestPanel": "Çekme isteği panelini yeniden boyutlandır",
       "worktree": "Worktree",
       "checkDetails": "Kontrol ayrıntıları",
       "checkFailed": "Başarısız",
@@ -7662,6 +7837,7 @@
       "openCheck": "Kontrolü aç",
       "openComment": "Yorumu aç",
       "prFeedbackUnavailable": "PR kontrolleri ve yorumları kullanılamıyor",
+      "prFeedbackStale": "Çekme isteği durumu yenilenemedi; mevcut veriler eski olabilir",
       "reviewComments": "{{count}} yorum",
       "reviewFeedback": "İnceleme geri bildirimi",
       "autoMergeEnabled": "Otomatik birleştirme etkin",
@@ -7688,10 +7864,7 @@
       "reviewPending": "Bekliyor",
       "reviewRequired": "İnceleme gerekli",
       "reviewStatus": "İnceleme durumu",
-      "reviewers": "İnceleyenler",
-      "pullRequestPanelTitle": "Çekme isteği",
-      "resizePullRequestPanel": "Çekme isteği panelini yeniden boyutlandır",
-      "prFeedbackStale": "Çekme isteği durumu yenilenemedi; mevcut veriler eski olabilir"
+      "reviewers": "İnceleyenler"
     },
     "action": {
       "create": "Yeni",
@@ -9320,7 +9493,8 @@
         "loadMoreThreads": "Daha fazla sohbet yüklenemedi",
         "loadMoreMessages": "Önceki mesajlar yüklenemedi",
         "detail": "Ayrıntılar: {{error}}"
-      }
+      },
+      "welcome": "Bu bilgi alanıyla sorun, düzenleyin veya oluşturun"
     },
     "quickRewrite": {
       "title": "Hızlı yeniden yazma",

@@ -168,7 +168,7 @@ fn side_effect_note(category: &str) -> Option<&'static str> {
              discoverable by the model via team(action=\"list_templates\")."
         ),
         "memory_budget" => Some(
-            "Reducing totalChars may hide parts of memory.md from the system prompt. \
+            "Reducing totalChars may hide parts of MEMORY.md from the system prompt. \
              Full content is still retrievable via recall_memory / memory_get tools."
         ),
         "security" => Some(
@@ -713,7 +713,8 @@ fn get_all_overview() -> Result<String> {
             "hasToken": crate::issue_reporting::has_token(),
         },
         "deferredTools": {
-            "enabled": cfg.deferred_tools.enabled,
+            "enabled": cfg.deferred_tools.is_enabled(),
+            "mode": cfg.deferred_tools.effective_mode(),
             "toolNames": cfg.deferred_tools.tool_names,
         },
         "awareness": { "enabled": cfg.awareness.enabled },

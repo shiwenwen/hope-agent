@@ -623,7 +623,7 @@ impl StreamPersister {
         let u = lock_or_poisoned(&self.captured_usage);
         msg.tokens_in = u.input_tokens;
         msg.tokens_out = u.output_tokens;
-        msg.tokens_in_last = u.last_input_tokens;
+        msg.tokens_in_last = u.last_context_input_tokens.or(u.last_input_tokens);
         msg.model = u.model.clone();
         msg.ttft_ms = u.ttft_ms;
         msg.tokens_cache_creation = u

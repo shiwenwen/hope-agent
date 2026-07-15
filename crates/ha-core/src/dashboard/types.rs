@@ -73,6 +73,8 @@ pub struct TokenByKind {
     pub output_tokens: u64,
     pub cache_creation_input_tokens: u64,
     pub cache_read_input_tokens: u64,
+    pub context_input_tokens: u64,
+    pub fresh_input_tokens: u64,
     pub estimated_cost_usd: f64,
     pub avg_duration_ms: Option<f64>,
     pub avg_ttft_ms: Option<f64>,

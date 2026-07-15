@@ -119,11 +119,13 @@ value + `SelectValue` placeholder，并禁用 Trigger。
 ### 状态模型
 
 - `html[data-input-modality="pointer"]`：鼠标或触摸是最近输入方式，不画焦点轮廓。
-- `html[data-input-modality="keyboard"]`：Tab、快捷键或非文本控件键盘交互，画轻量焦点轮廓。
+- `html[data-input-modality="keyboard"]`：Tab 或非文本控件键盘交互，画轻量焦点轮廓。
 - `html[data-focus-indicators="enhanced"]`：用户手动开启增强提示，所有输入方式都画增强轮廓。
 - `prefers-contrast: more` / `forced-colors: active`：系统偏好优先，自动增强。
 
-鼠标聚焦文本框后输入文字不会切换到 Keyboard；Tab 和带修饰键的快捷键仍会切换。
+鼠标聚焦文本框后输入文字、移动光标或使用编辑快捷键（包括打开搜索）不会切换到 Keyboard；
+文本框内的 Tab 和非文本控件上的键盘交互仍会切换。键盘用户通过 Tab 进入文本框时已经处于
+Keyboard，因此编辑期间会持续保留焦点提示。
 运行时只在 `src/main.tsx` 安装一次，因此主窗口、Quick Chat 和分离窗口行为一致。首屏偏好
 读取有 2 秒上限；后端无响应时回退普通自动模式，不阻塞窗口挂载。
 

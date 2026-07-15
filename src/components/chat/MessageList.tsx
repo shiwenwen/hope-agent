@@ -71,6 +71,7 @@ interface MessageListProps {
    * render its own empty greeting (the two would overlap). See {@link ChatWelcomeHero}.
    */
   heroComposer?: boolean
+  welcomeContext?: "chat" | "knowledge"
   projectName?: string | null
   onProjectSuggestion?: (prompt: string) => void
   /** Search-jump target + literal substrings to inline-highlight inside
@@ -655,6 +656,7 @@ export default function MessageList({
   sessionId,
   incognito = false,
   heroComposer = false,
+  welcomeContext = "chat",
   projectName,
   onProjectSuggestion,
   pendingScrollIntent,
@@ -1703,6 +1705,7 @@ export default function MessageList({
                 <div className="flex min-h-[50vh] items-center justify-center animate-in fade-in-0 duration-300">
                   <ChatWelcomeHero
                     incognito={incognito}
+                    context={welcomeContext}
                     projectName={projectName}
                     onProjectSuggestion={onProjectSuggestion}
                   />

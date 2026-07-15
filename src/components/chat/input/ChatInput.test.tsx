@@ -20,6 +20,10 @@ vi.mock("react-i18next", () => ({
   }),
 }))
 
+vi.mock("@/components/common/ProviderIcon", () => ({
+  default: () => <span data-testid="provider-icon" />,
+}))
+
 // MentionComposerInput is a heavy CodeMirror 6 editor (Phase 1 composer refactor)
 // that doesn't drive its updateListener reliably under jsdom. Stub it with a
 // plain contenteditable so these ChatInput-wiring tests can fire onChange without

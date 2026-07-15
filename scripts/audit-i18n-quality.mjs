@@ -45,6 +45,7 @@ const ALLOW_SAME_AS_EN = [
   /^Audio$/,
   /^Auto$/,
   /^Manual$/,
+  /^Feedback$/,
   /^Model$/,
   /^Model: \{\{name\}\}$/,
   /^Status$/,

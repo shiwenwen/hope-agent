@@ -1,0 +1,1105 @@
+{
+  "fixtureVersion": 2,
+  "cases": [
+    {
+      "id": "general_001",
+      "query": "hi",
+      "incognito": false,
+      "memoryEnabled": true,
+      "recallEnabled": true,
+      "expected": {
+        "decision": "recall",
+        "intent": "general"
+      }
+    },
+    {
+      "id": "general_002",
+      "query": "hello",
+      "incognito": false,
+      "memoryEnabled": true,
+      "recallEnabled": true,
+      "expected": {
+        "decision": "recall",
+        "intent": "general"
+      }
+    },
+    {
+      "id": "general_003",
+      "query": "hey",
+      "incognito": false,
+      "memoryEnabled": true,
+      "recallEnabled": true,
+      "expected": {
+        "decision": "recall",
+        "intent": "general"
+      }
+    },
+    {
+      "id": "general_004",
+      "query": "你好",
+      "incognito": false,
+      "memoryEnabled": true,
+      "recallEnabled": true,
+      "expected": {
+        "decision": "recall",
+        "intent": "general"
+      }
+    },
+    {
+      "id": "general_005",
+      "query": "您好",
+      "incognito": false,
+      "memoryEnabled": true,
+      "recallEnabled": true,
+      "expected": {
+        "decision": "recall",
+        "intent": "general"
+      }
+    },
+    {
+      "id": "general_006",
+      "query": "早上好",
+      "incognito": false,
+      "memoryEnabled": true,
+      "recallEnabled": true,
+      "expected": {
+        "decision": "recall",
+        "intent": "general"
+      }
+    },
+    {
+      "id": "general_007",
+      "query": "下午好",
+      "incognito": false,
+      "memoryEnabled": true,
+      "recallEnabled": true,
+      "expected": {
+        "decision": "recall",
+        "intent": "general"
+      }
+    },
+    {
+      "id": "general_008",
+      "query": "晚上好",
+      "incognito": false,
+      "memoryEnabled": true,
+      "recallEnabled": true,
+      "expected": {
+        "decision": "recall",
+        "intent": "general"
+      }
+    },
+    {
+      "id": "general_009",
+      "query": "ok",
+      "incognito": false,
+      "memoryEnabled": true,
+      "recallEnabled": true,
+      "expected": {
+        "decision": "recall",
+        "intent": "general"
+      }
+    },
+    {
+      "id": "general_010",
+      "query": "okay",
+      "incognito": false,
+      "memoryEnabled": true,
+      "recallEnabled": true,
+      "expected": {
+        "decision": "recall",
+        "intent": "general"
+      }
+    },
+    {
+      "id": "general_011",
+      "query": "好的",
+      "incognito": false,
+      "memoryEnabled": true,
+      "recallEnabled": true,
+      "expected": {
+        "decision": "recall",
+        "intent": "general"
+      }
+    },
+    {
+      "id": "general_012",
+      "query": "好",
+      "incognito": false,
+      "memoryEnabled": true,
+      "recallEnabled": true,
+      "expected": {
+        "decision": "recall",
+        "intent": "general"
+      }
+    },
+    {
+      "id": "general_013",
+      "query": "可以",
+      "incognito": false,
+      "memoryEnabled": true,
+      "recallEnabled": true,
+      "expected": {
+        "decision": "recall",
+        "intent": "general"
+      }
+    },
+    {
+      "id": "general_014",
+      "query": "继续",
+      "incognito": false,
+      "memoryEnabled": true,
+      "recallEnabled": true,
+      "expected": {
+        "decision": "recall",
+        "intent": "general"
+      }
+    },
+    {
+      "id": "general_015",
+      "query": "谢谢",
+      "incognito": false,
+      "memoryEnabled": true,
+      "recallEnabled": true,
+      "expected": {
+        "decision": "recall",
+        "intent": "general"
+      }
+    },
+    {
+      "id": "general_016",
+      "query": "感谢",
+      "incognito": false,
+      "memoryEnabled": true,
+      "recallEnabled": true,
+      "expected": {
+        "decision": "recall",
+        "intent": "general"
+      }
+    },
+    {
+      "id": "general_017",
+      "query": "thanks",
+      "incognito": false,
+      "memoryEnabled": true,
+      "recallEnabled": true,
+      "expected": {
+        "decision": "recall",
+        "intent": "general"
+      }
+    },
+    {
+      "id": "general_018",
+      "query": "thank you",
+      "incognito": false,
+      "memoryEnabled": true,
+      "recallEnabled": true,
+      "expected": {
+        "decision": "recall",
+        "intent": "general"
+      }
+    },
+    {
+      "id": "general_019",
+      "query": "再见",
+      "incognito": false,
+      "memoryEnabled": true,
+      "recallEnabled": true,
+      "expected": {
+        "decision": "recall",
+        "intent": "general"
+      }
+    },
+    {
+      "id": "general_020",
+      "query": "bye",
+      "incognito": false,
+      "memoryEnabled": true,
+      "recallEnabled": true,
+      "expected": {
+        "decision": "recall",
+        "intent": "general"
+      }
+    },
+    {
+      "id": "profile_001",
+      "query": "按我的偏好回答",
+      "incognito": false,
+      "memoryEnabled": true,
+      "recallEnabled": true,
+      "expected": {
+        "decision": "recall",
+        "intent": "profile"
+      }
+    },
+    {
+      "id": "profile_002",
+      "query": "我平时喜欢先看结论",
+      "incognito": false,
+      "memoryEnabled": true,
+      "recallEnabled": true,
+      "expected": {
+        "decision": "recall",
+        "intent": "profile"
+      }
+    },
+    {
+      "id": "profile_003",
+      "query": "照我的习惯解释",
+      "incognito": false,
+      "memoryEnabled": true,
+      "recallEnabled": true,
+      "expected": {
+        "decision": "recall",
+        "intent": "profile"
+      }
+    },
+    {
+      "id": "profile_004",
+      "query": "你记得我的偏好吗",
+      "incognito": false,
+      "memoryEnabled": true,
+      "recallEnabled": true,
+      "expected": {
+        "decision": "recall",
+        "intent": "profile"
+      }
+    },
+    {
+      "id": "profile_005",
+      "query": "about me and my work",
+      "incognito": false,
+      "memoryEnabled": true,
+      "recallEnabled": true,
+      "expected": {
+        "decision": "recall",
+        "intent": "profile"
+      }
+    },
+    {
+      "id": "profile_006",
+      "query": "use my usual response style",
+      "incognito": false,
+      "memoryEnabled": true,
+      "recallEnabled": true,
+      "expected": {
+        "decision": "recall",
+        "intent": "profile"
+      }
+    },
+    {
+      "id": "profile_007",
+      "query": "i prefer concise answers",
+      "incognito": false,
+      "memoryEnabled": true,
+      "recallEnabled": true,
+      "expected": {
+        "decision": "recall",
+        "intent": "profile"
+      }
+    },
+    {
+      "id": "profile_008",
+      "query": "i like examples",
+      "incognito": false,
+      "memoryEnabled": true,
+      "recallEnabled": true,
+      "expected": {
+        "decision": "recall",
+        "intent": "profile"
+      }
+    },
+    {
+      "id": "profile_009",
+      "query": "remember me when replying",
+      "incognito": false,
+      "memoryEnabled": true,
+      "recallEnabled": true,
+      "expected": {
+        "decision": "recall",
+        "intent": "profile"
+      }
+    },
+    {
+      "id": "profile_010",
+      "query": "我的回答偏好是什么",
+      "incognito": false,
+      "memoryEnabled": true,
+      "recallEnabled": true,
+      "expected": {
+        "decision": "recall",
+        "intent": "profile"
+      }
+    },
+    {
+      "id": "profile_011",
+      "query": "我喜欢怎样的表达",
+      "incognito": false,
+      "memoryEnabled": true,
+      "recallEnabled": true,
+      "expected": {
+        "decision": "recall",
+        "intent": "profile"
+      }
+    },
+    {
+      "id": "profile_012",
+      "query": "按我平时的方式来",
+      "incognito": false,
+      "memoryEnabled": true,
+      "recallEnabled": true,
+      "expected": {
+        "decision": "recall",
+        "intent": "profile"
+      }
+    },
+    {
+      "id": "profile_013",
+      "query": "我的习惯有哪些",
+      "incognito": false,
+      "memoryEnabled": true,
+      "recallEnabled": true,
+      "expected": {
+        "decision": "recall",
+        "intent": "profile"
+      }
+    },
+    {
+      "id": "profile_014",
+      "query": "用我的偏好写",
+      "incognito": false,
+      "memoryEnabled": true,
+      "recallEnabled": true,
+      "expected": {
+        "decision": "recall",
+        "intent": "profile"
+      }
+    },
+    {
+      "id": "profile_015",
+      "query": "as usual, answer briefly",
+      "incognito": false,
+      "memoryEnabled": true,
+      "recallEnabled": true,
+      "expected": {
+        "decision": "recall",
+        "intent": "profile"
+      }
+    },
+    {
+      "id": "profile_016",
+      "query": "my preference for code reviews",
+      "incognito": false,
+      "memoryEnabled": true,
+      "recallEnabled": true,
+      "expected": {
+        "decision": "recall",
+        "intent": "profile"
+      }
+    },
+    {
+      "id": "procedure_001",
+      "query": "这个发布流程怎么做",
+      "incognito": false,
+      "memoryEnabled": true,
+      "recallEnabled": true,
+      "expected": {
+        "decision": "recall",
+        "intent": "procedure"
+      }
+    },
+    {
+      "id": "procedure_002",
+      "query": "请给我部署步骤",
+      "incognito": false,
+      "memoryEnabled": true,
+      "recallEnabled": true,
+      "expected": {
+        "decision": "recall",
+        "intent": "procedure"
+      }
+    },
+    {
+      "id": "procedure_003",
+      "query": "如何执行回滚",
+      "incognito": false,
+      "memoryEnabled": true,
+      "recallEnabled": true,
+      "expected": {
+        "decision": "recall",
+        "intent": "procedure"
+      }
+    },
+    {
+      "id": "procedure_004",
+      "query": "what is the workflow",
+      "incognito": false,
+      "memoryEnabled": true,
+      "recallEnabled": true,
+      "expected": {
+        "decision": "recall",
+        "intent": "procedure"
+      }
+    },
+    {
+      "id": "procedure_005",
+      "query": "how to publish this project",
+      "incognito": false,
+      "memoryEnabled": true,
+      "recallEnabled": true,
+      "expected": {
+        "decision": "recall",
+        "intent": "procedure"
+      }
+    },
+    {
+      "id": "procedure_006",
+      "query": "show the procedure",
+      "incognito": false,
+      "memoryEnabled": true,
+      "recallEnabled": true,
+      "expected": {
+        "decision": "recall",
+        "intent": "procedure"
+      }
+    },
+    {
+      "id": "procedure_007",
+      "query": "give me the steps",
+      "incognito": false,
+      "memoryEnabled": true,
+      "recallEnabled": true,
+      "expected": {
+        "decision": "recall",
+        "intent": "procedure"
+      }
+    },
+    {
+      "id": "procedure_008",
+      "query": "what is the release process",
+      "incognito": false,
+      "memoryEnabled": true,
+      "recallEnabled": true,
+      "expected": {
+        "decision": "recall",
+        "intent": "procedure"
+      }
+    },
+    {
+      "id": "procedure_009",
+      "query": "这个任务的做法",
+      "incognito": false,
+      "memoryEnabled": true,
+      "recallEnabled": true,
+      "expected": {
+        "decision": "recall",
+        "intent": "procedure"
+      }
+    },
+    {
+      "id": "procedure_010",
+      "query": "怎么做数据库迁移",
+      "incognito": false,
+      "memoryEnabled": true,
+      "recallEnabled": true,
+      "expected": {
+        "decision": "recall",
+        "intent": "procedure"
+      }
+    },
+    {
+      "id": "procedure_011",
+      "query": "构建流程是什么",
+      "incognito": false,
+      "memoryEnabled": true,
+      "recallEnabled": true,
+      "expected": {
+        "decision": "recall",
+        "intent": "procedure"
+      }
+    },
+    {
+      "id": "procedure_012",
+      "query": "如何运行测试",
+      "incognito": false,
+      "memoryEnabled": true,
+      "recallEnabled": true,
+      "expected": {
+        "decision": "recall",
+        "intent": "procedure"
+      }
+    },
+    {
+      "id": "procedure_013",
+      "query": "deploy recipe please",
+      "incognito": false,
+      "memoryEnabled": true,
+      "recallEnabled": true,
+      "expected": {
+        "decision": "recall",
+        "intent": "procedure"
+      }
+    },
+    {
+      "id": "procedure_014",
+      "query": "how do we rotate keys",
+      "incognito": false,
+      "memoryEnabled": true,
+      "recallEnabled": true,
+      "expected": {
+        "decision": "recall",
+        "intent": "procedure"
+      }
+    },
+    {
+      "id": "procedure_015",
+      "query": "故障恢复步骤",
+      "incognito": false,
+      "memoryEnabled": true,
+      "recallEnabled": true,
+      "expected": {
+        "decision": "recall",
+        "intent": "procedure"
+      }
+    },
+    {
+      "id": "procedure_016",
+      "query": "代码审查流程",
+      "incognito": false,
+      "memoryEnabled": true,
+      "recallEnabled": true,
+      "expected": {
+        "decision": "recall",
+        "intent": "procedure"
+      }
+    },
+    {
+      "id": "episode_001",
+      "query": "上次怎么修复的",
+      "incognito": false,
+      "memoryEnabled": true,
+      "recallEnabled": true,
+      "expected": {
+        "decision": "recall",
+        "intent": "episode"
+      }
+    },
+    {
+      "id": "episode_002",
+      "query": "之前发生了什么",
+      "incognito": false,
+      "memoryEnabled": true,
+      "recallEnabled": true,
+      "expected": {
+        "decision": "recall",
+        "intent": "episode"
+      }
+    },
+    {
+      "id": "episode_003",
+      "query": "我们曾经怎么决定",
+      "incognito": false,
+      "memoryEnabled": true,
+      "recallEnabled": true,
+      "expected": {
+        "decision": "recall",
+        "intent": "episode"
+      }
+    },
+    {
+      "id": "episode_004",
+      "query": "回顾那次经历",
+      "incognito": false,
+      "memoryEnabled": true,
+      "recallEnabled": true,
+      "expected": {
+        "decision": "recall",
+        "intent": "episode"
+      }
+    },
+    {
+      "id": "episode_005",
+      "query": "what happened last time",
+      "incognito": false,
+      "memoryEnabled": true,
+      "recallEnabled": true,
+      "expected": {
+        "decision": "recall",
+        "intent": "episode"
+      }
+    },
+    {
+      "id": "episode_006",
+      "query": "previously we discussed caching",
+      "incognito": false,
+      "memoryEnabled": true,
+      "recallEnabled": true,
+      "expected": {
+        "decision": "recall",
+        "intent": "episode"
+      }
+    },
+    {
+      "id": "episode_007",
+      "query": "when did this change",
+      "incognito": false,
+      "memoryEnabled": true,
+      "recallEnabled": true,
+      "expected": {
+        "decision": "recall",
+        "intent": "episode"
+      }
+    },
+    {
+      "id": "episode_008",
+      "query": "上次的结论是什么",
+      "incognito": false,
+      "memoryEnabled": true,
+      "recallEnabled": true,
+      "expected": {
+        "decision": "recall",
+        "intent": "episode"
+      }
+    },
+    {
+      "id": "episode_009",
+      "query": "之前的故障原因",
+      "incognito": false,
+      "memoryEnabled": true,
+      "recallEnabled": true,
+      "expected": {
+        "decision": "recall",
+        "intent": "episode"
+      }
+    },
+    {
+      "id": "episode_010",
+      "query": "曾经用过哪个方案",
+      "incognito": false,
+      "memoryEnabled": true,
+      "recallEnabled": true,
+      "expected": {
+        "decision": "recall",
+        "intent": "episode"
+      }
+    },
+    {
+      "id": "episode_011",
+      "query": "那次发生过什么",
+      "incognito": false,
+      "memoryEnabled": true,
+      "recallEnabled": true,
+      "expected": {
+        "decision": "recall",
+        "intent": "episode"
+      }
+    },
+    {
+      "id": "episode_012",
+      "query": "last time we deployed",
+      "incognito": false,
+      "memoryEnabled": true,
+      "recallEnabled": true,
+      "expected": {
+        "decision": "recall",
+        "intent": "episode"
+      }
+    },
+    {
+      "id": "episode_013",
+      "query": "what happened during migration",
+      "incognito": false,
+      "memoryEnabled": true,
+      "recallEnabled": true,
+      "expected": {
+        "decision": "recall",
+        "intent": "episode"
+      }
+    },
+    {
+      "id": "episode_014",
+      "query": "previously chosen model",
+      "incognito": false,
+      "memoryEnabled": true,
+      "recallEnabled": true,
+      "expected": {
+        "decision": "recall",
+        "intent": "episode"
+      }
+    },
+    {
+      "id": "episode_015",
+      "query": "上次测试结果",
+      "incognito": false,
+      "memoryEnabled": true,
+      "recallEnabled": true,
+      "expected": {
+        "decision": "recall",
+        "intent": "episode"
+      }
+    },
+    {
+      "id": "episode_016",
+      "query": "之前如何处理冲突",
+      "incognito": false,
+      "memoryEnabled": true,
+      "recallEnabled": true,
+      "expected": {
+        "decision": "recall",
+        "intent": "episode"
+      }
+    },
+    {
+      "id": "knowledge_001",
+      "query": "查一下相关笔记",
+      "incognito": false,
+      "memoryEnabled": true,
+      "recallEnabled": true,
+      "expected": {
+        "decision": "recall",
+        "intent": "knowledge"
+      }
+    },
+    {
+      "id": "knowledge_002",
+      "query": "项目文档说了什么",
+      "incognito": false,
+      "memoryEnabled": true,
+      "recallEnabled": true,
+      "expected": {
+        "decision": "recall",
+        "intent": "knowledge"
+      }
+    },
+    {
+      "id": "knowledge_003",
+      "query": "资料里有什么",
+      "incognito": false,
+      "memoryEnabled": true,
+      "recallEnabled": true,
+      "expected": {
+        "decision": "recall",
+        "intent": "knowledge"
+      }
+    },
+    {
+      "id": "knowledge_004",
+      "query": "知识库中的约定",
+      "incognito": false,
+      "memoryEnabled": true,
+      "recallEnabled": true,
+      "expected": {
+        "decision": "recall",
+        "intent": "knowledge"
+      }
+    },
+    {
+      "id": "knowledge_005",
+      "query": "find the note",
+      "incognito": false,
+      "memoryEnabled": true,
+      "recallEnabled": true,
+      "expected": {
+        "decision": "recall",
+        "intent": "knowledge"
+      }
+    },
+    {
+      "id": "knowledge_006",
+      "query": "search the docs",
+      "incognito": false,
+      "memoryEnabled": true,
+      "recallEnabled": true,
+      "expected": {
+        "decision": "recall",
+        "intent": "knowledge"
+      }
+    },
+    {
+      "id": "knowledge_007",
+      "query": "open the document context",
+      "incognito": false,
+      "memoryEnabled": true,
+      "recallEnabled": true,
+      "expected": {
+        "decision": "recall",
+        "intent": "knowledge"
+      }
+    },
+    {
+      "id": "knowledge_008",
+      "query": "knowledge about releases",
+      "incognito": false,
+      "memoryEnabled": true,
+      "recallEnabled": true,
+      "expected": {
+        "decision": "recall",
+        "intent": "knowledge"
+      }
+    },
+    {
+      "id": "knowledge_009",
+      "query": "哪个文件记录了这个",
+      "incognito": false,
+      "memoryEnabled": true,
+      "recallEnabled": true,
+      "expected": {
+        "decision": "recall",
+        "intent": "knowledge"
+      }
+    },
+    {
+      "id": "knowledge_010",
+      "query": "参考笔记回答",
+      "incognito": false,
+      "memoryEnabled": true,
+      "recallEnabled": true,
+      "expected": {
+        "decision": "recall",
+        "intent": "knowledge"
+      }
+    },
+    {
+      "id": "knowledge_011",
+      "query": "文档中的命令",
+      "incognito": false,
+      "memoryEnabled": true,
+      "recallEnabled": true,
+      "expected": {
+        "decision": "recall",
+        "intent": "knowledge"
+      }
+    },
+    {
+      "id": "knowledge_012",
+      "query": "资料里的架构",
+      "incognito": false,
+      "memoryEnabled": true,
+      "recallEnabled": true,
+      "expected": {
+        "decision": "recall",
+        "intent": "knowledge"
+      }
+    },
+    {
+      "id": "knowledge_013",
+      "query": "find supporting notes",
+      "incognito": false,
+      "memoryEnabled": true,
+      "recallEnabled": true,
+      "expected": {
+        "decision": "recall",
+        "intent": "knowledge"
+      }
+    },
+    {
+      "id": "knowledge_014",
+      "query": "check the project file",
+      "incognito": false,
+      "memoryEnabled": true,
+      "recallEnabled": true,
+      "expected": {
+        "decision": "recall",
+        "intent": "knowledge"
+      }
+    },
+    {
+      "id": "knowledge_015",
+      "query": "知识库有答案吗",
+      "incognito": false,
+      "memoryEnabled": true,
+      "recallEnabled": true,
+      "expected": {
+        "decision": "recall",
+        "intent": "knowledge"
+      }
+    },
+    {
+      "id": "knowledge_016",
+      "query": "read the relevant docs",
+      "incognito": false,
+      "memoryEnabled": true,
+      "recallEnabled": true,
+      "expected": {
+        "decision": "recall",
+        "intent": "knowledge"
+      }
+    },
+    {
+      "id": "relationship_001",
+      "query": "这些模块有什么关系",
+      "incognito": false,
+      "memoryEnabled": true,
+      "recallEnabled": true,
+      "expected": {
+        "decision": "recall",
+        "intent": "relationship"
+      }
+    },
+    {
+      "id": "relationship_002",
+      "query": "A 依赖什么",
+      "incognito": false,
+      "memoryEnabled": true,
+      "recallEnabled": true,
+      "expected": {
+        "decision": "recall",
+        "intent": "relationship"
+      }
+    },
+    {
+      "id": "relationship_003",
+      "query": "找相关的决定",
+      "incognito": false,
+      "memoryEnabled": true,
+      "recallEnabled": true,
+      "expected": {
+        "decision": "recall",
+        "intent": "relationship"
+      }
+    },
+    {
+      "id": "relationship_004",
+      "query": "实体之间的关联",
+      "incognito": false,
+      "memoryEnabled": true,
+      "recallEnabled": true,
+      "expected": {
+        "decision": "recall",
+        "intent": "relationship"
+      }
+    },
+    {
+      "id": "relationship_005",
+      "query": "how are these related",
+      "incognito": false,
+      "memoryEnabled": true,
+      "recallEnabled": true,
+      "expected": {
+        "decision": "recall",
+        "intent": "relationship"
+      }
+    },
+    {
+      "id": "relationship_006",
+      "query": "what depends on this",
+      "incognito": false,
+      "memoryEnabled": true,
+      "recallEnabled": true,
+      "expected": {
+        "decision": "recall",
+        "intent": "relationship"
+      }
+    },
+    {
+      "id": "relationship_007",
+      "query": "show the relationship",
+      "incognito": false,
+      "memoryEnabled": true,
+      "recallEnabled": true,
+      "expected": {
+        "decision": "recall",
+        "intent": "relationship"
+      }
+    },
+    {
+      "id": "relationship_008",
+      "query": "which items are connected",
+      "incognito": false,
+      "memoryEnabled": true,
+      "recallEnabled": true,
+      "expected": {
+        "decision": "recall",
+        "intent": "relationship"
+      }
+    },
+    {
+      "id": "relationship_009",
+      "query": "这个 claim 关联什么",
+      "incognito": false,
+      "memoryEnabled": true,
+      "recallEnabled": true,
+      "expected": {
+        "decision": "recall",
+        "intent": "relationship"
+      }
+    },
+    {
+      "id": "relationship_010",
+      "query": "依赖链是什么",
+      "incognito": false,
+      "memoryEnabled": true,
+      "recallEnabled": true,
+      "expected": {
+        "decision": "recall",
+        "intent": "relationship"
+      }
+    },
+    {
+      "id": "relationship_011",
+      "query": "相关事实有哪些",
+      "incognito": false,
+      "memoryEnabled": true,
+      "recallEnabled": true,
+      "expected": {
+        "decision": "recall",
+        "intent": "relationship"
+      }
+    },
+    {
+      "id": "relationship_012",
+      "query": "模块关系图",
+      "incognito": false,
+      "memoryEnabled": true,
+      "recallEnabled": true,
+      "expected": {
+        "decision": "recall",
+        "intent": "relationship"
+      }
+    },
+    {
+      "id": "relationship_013",
+      "query": "connected decisions",
+      "incognito": false,
+      "memoryEnabled": true,
+      "recallEnabled": true,
+      "expected": {
+        "decision": "recall",
+        "intent": "relationship"
+      }
+    },
+    {
+      "id": "relationship_014",
+      "query": "relationship between services",
+      "incognito": false,
+      "memoryEnabled": true,
+      "recallEnabled": true,
+      "expected": {
+        "decision": "recall",
+        "intent": "relationship"
+      }
+    },
+    {
+      "id": "relationship_015",
+      "query": "哪些内容相关",
+      "incognito": false,
+      "memoryEnabled": true,
+      "recallEnabled": true,
+      "expected": {
+        "decision": "recall",
+        "intent": "relationship"
+      }
+    },
+    {
+      "id": "relationship_016",
+      "query": "A 与 B 的关联",
+      "incognito": false,
+      "memoryEnabled": true,
+      "recallEnabled": true,
+      "expected": {
+        "decision": "recall",
+        "intent": "relationship"
+      }
+    }
+  ]
+}

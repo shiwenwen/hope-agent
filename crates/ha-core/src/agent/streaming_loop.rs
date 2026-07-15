@@ -523,6 +523,51 @@ fn invalid_tool_arguments_result(
     )
 }
 
+fn collect_tool_search_activations(
+    side: &super::streaming_adapter::ToolDispatchSideOutput,
+    out: &mut Vec<String>,
+) {
+    let Some(metadata) = side.metadata.as_ref() else {
+        return;
+    };
+    if metadata.get("kind").and_then(|v| v.as_str()) != Some("tool_search_activation") {
+        return;
+    }
+    let Some(names) = metadata
+        .get("activatedToolNames")
+        .and_then(|value| value.as_array())
+    else {
+        return;
+    };
+    for name in names.iter().filter_map(|value| value.as_str()) {
+        if !out.iter().any(|existing| existing == name) {
+            out.push(name.to_string());
+        }
+    }
+}
+
+fn prompt_cache_key(
+    agent: &AssistantAgent,
+    provider: super::types::ProviderFormat,
+    model: &str,
+    stable_prompt: &str,
+) -> String {
+    const PROMPT_CONTRACT_VERSION: &str = "v2";
+    let prompt_hash = blake3::hash(stable_prompt.as_bytes()).to_hex();
+    let scope = if agent.session_is_incognito() {
+        agent.session_id.as_deref().unwrap_or("incognito")
+    } else {
+        agent.agent_id.as_str()
+    };
+    let scope_hash = blake3::hash(scope.as_bytes()).to_hex();
+    format!(
+        "ha:{}:{model}:{PROMPT_CONTRACT_VERSION}:{}:{}",
+        provider.label(),
+        &scope_hash[..12],
+        &prompt_hash[..16]
+    )
+}
+
 impl AssistantAgent {
     /// Provider-agnostic streaming chat with tool loop.
     ///
@@ -584,7 +629,14 @@ impl AssistantAgent {
                 .build()
                 .map_err(|e| anyhow::anyhow!("HTTP client error: {}", e))?;
 
-        let mut tool_schemas = self.build_tool_schemas(adapter.tool_provider());
+        let mut activated_tool_names = self.load_activated_tool_names();
+        let mut tool_inventory =
+            self.build_tool_inventory(adapter.tool_provider(), &activated_tool_names);
+        activated_tool_names = tool_inventory.activated_names.clone();
+        let mut eager_tool_count = tool_inventory.eager_count;
+        let mut deferred_tool_count = tool_inventory.deferred_count;
+        let mut deferred_tool_schemas = tool_inventory.deferred_schemas;
+        let mut tool_schemas = tool_inventory.schemas;
 
         // Normalize prior history (it may have been persisted from a different
         // provider during failover / model switch). Then append the new user
@@ -612,15 +664,30 @@ impl AssistantAgent {
         let mut system_prompt_for_budget =
             self.merge_dynamic_system_prompt(system_prompt.clone(), model, provider_label);
 
-        self.run_compaction(
-            &mut messages,
-            &system_prompt_for_budget,
-            model,
-            MAX_OUTPUT_TOKENS,
-            Some(cancel.clone()),
-            on_delta,
-        )
-        .await;
+        let compaction = self
+            .run_compaction(
+                &mut messages,
+                &system_prompt_for_budget,
+                &tool_schemas,
+                model,
+                MAX_OUTPUT_TOKENS,
+                Some(cancel.clone()),
+                on_delta,
+            )
+            .await;
+        if compaction.summary_applied && compaction.tier_applied >= 3 {
+            // Tier 3 intentionally severs detailed history references. Drop
+            // the session's activation ledger so large, now-unreferenced
+            // schemas do not remain pinned forever; every capability stays in
+            // deferred inventory and can be rediscovered immediately.
+            self.clear_tool_activations_after_summary();
+            activated_tool_names.clear();
+            tool_inventory = self.build_tool_inventory(adapter.tool_provider(), &[]);
+            eager_tool_count = tool_inventory.eager_count;
+            deferred_tool_count = tool_inventory.deferred_count;
+            deferred_tool_schemas = tool_inventory.deferred_schemas;
+            tool_schemas = tool_inventory.schemas;
+        }
 
         let mut system_prompt = system_prompt;
         self.select_memories_if_needed(&mut system_prompt, message)
@@ -651,6 +718,7 @@ impl AssistantAgent {
         // already persisted by append_round_to_history so replaying it as the
         // final assistant message would make the model see duplicate narration.
         let mut final_assistant_text = String::new();
+        let mut terminal_round_persisted = false;
         // Text from the latest round that has not yet been committed to provider
         // history. If the user stops before the round reaches a normal exit or
         // tool-history append, this becomes the model-visible partial assistant.
@@ -684,7 +752,10 @@ impl AssistantAgent {
         };
         let mut vision_notice_sent = false;
 
-        for round in 0..max_rounds {
+        let mut round: u32 = 0;
+        let mut effective_max_rounds = max_rounds;
+        let mut activation_grace_used = false;
+        while round < effective_max_rounds {
             if cancel.load(Ordering::SeqCst) {
                 break;
             }
@@ -709,7 +780,13 @@ impl AssistantAgent {
             // Honors the externally-locked flag: spawn-supplied PlanAgent
             // child sessions (plan_subagent) skip the probe entirely.
             if self.maybe_resync_plan_mode_from_backend().await {
-                tool_schemas = self.build_tool_schemas(adapter.tool_provider());
+                tool_inventory =
+                    self.build_tool_inventory(adapter.tool_provider(), &activated_tool_names);
+                activated_tool_names = tool_inventory.activated_names.clone();
+                eager_tool_count = tool_inventory.eager_count;
+                deferred_tool_count = tool_inventory.deferred_count;
+                deferred_tool_schemas = tool_inventory.deferred_schemas;
+                tool_schemas = tool_inventory.schemas;
                 system_prompt = self.prepare_full_system_prompt(model, provider_label).await;
                 system_prompt_for_budget =
                     self.merge_dynamic_system_prompt(system_prompt.clone(), model, provider_label);
@@ -728,7 +805,7 @@ impl AssistantAgent {
                 }
             }
 
-            let is_final_round = round + 1 == max_rounds;
+            let is_final_round = round + 1 == effective_max_rounds;
             let final_round_system_prompt;
             let round_system_prompt = if round_limit_enabled && is_final_round {
                 final_round_system_prompt = format!(
@@ -793,8 +870,11 @@ impl AssistantAgent {
                 (None, Some(h)) => Some(h),
                 (other, None) => other,
             };
+            let round_prompt_cache_key =
+                prompt_cache_key(self, adapter.provider_format(), model, round_system_prompt);
 
             let req = RoundRequest {
+                session_id: self.session_id.as_deref(),
                 system_prompt: round_system_prompt,
                 awareness_suffix: awareness_suffix.as_deref().map(|s| s.as_str()),
                 active_memory_suffix: active_suffix.as_deref().map(|s| s.as_str()),
@@ -803,6 +883,11 @@ impl AssistantAgent {
                 related_notes_suffix: related_notes_suffix.as_deref().map(|s| s.as_str()),
                 task_reminder_suffix: task_reminder.as_deref(),
                 tool_schemas: &tool_schemas,
+                deferred_tool_schemas: &deferred_tool_schemas,
+                eager_tool_count,
+                deferred_tool_count,
+                activated_tool_count: activated_tool_names.len(),
+                prompt_cache_key: Some(round_prompt_cache_key.as_str()),
                 history_for_api: &api_messages,
                 reasoning_effort: effort_live.as_deref(),
                 temperature: self.temperature,
@@ -811,9 +896,54 @@ impl AssistantAgent {
                 round,
             };
 
-            let outcome = adapter
+            self.log_memory_context_manifest(
+                adapter.provider_format().label(),
+                model,
+                round,
+                round_system_prompt,
+            );
+
+            let mut outcome = adapter
                 .chat_round(&client, req, cancel, on_delta_dyn)
                 .await?;
+
+            // Compact callVariants are a model-facing schema optimization
+            // only. Canonicalize before concurrency classification, live
+            // visibility, permission, hooks, audit, history, or dispatch.
+            for tool_call in &mut outcome.tool_calls {
+                let Some((canonical, _)) = tools::split_call_variant_name(&tool_call.name) else {
+                    continue;
+                };
+                let canonical = canonical.to_string();
+                if let Ok(arguments) =
+                    serde_json::from_str::<serde_json::Value>(&tool_call.arguments)
+                {
+                    if let Some((_, normalized)) =
+                        tools::normalize_call_variant(&tool_call.name, &arguments)
+                    {
+                        tool_call.arguments = normalized.to_string();
+                    }
+                }
+                tool_call.name = canonical;
+            }
+
+            let raw_round_estimate = crate::context_compact::estimate_request_tokens_with_tools(
+                &system_prompt_for_budget,
+                &api_messages,
+                &tool_schemas,
+                0,
+            );
+            let calibrator_key = format!("{}:{model}", adapter.provider_format().label());
+            if outcome.usage.context_input_tokens > 0 {
+                self.token_calibrator
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .update(
+                        &calibrator_key,
+                        raw_round_estimate,
+                        outcome.usage.context_input_tokens.min(u64::from(u32::MAX)) as u32,
+                    );
+            }
 
             if first_ttft_ms.is_none() {
                 first_ttft_ms = outcome.ttft_ms;
@@ -825,12 +955,21 @@ impl AssistantAgent {
             total_usage.accumulate_round(&outcome.usage);
 
             if cancel.load(Ordering::SeqCst) {
+                if outcome.tool_calls.is_empty() && !outcome.provider_history_items.is_empty() {
+                    adapter.append_round_to_history(&mut messages, round, &outcome, &[]);
+                    terminal_round_persisted = true;
+                    pending_terminal_text.clear();
+                }
                 break;
             }
 
             if adapter.loop_should_exit(&outcome) {
                 natural_exit = true;
                 final_assistant_text = std::mem::take(&mut pending_terminal_text);
+                if !outcome.provider_history_items.is_empty() {
+                    adapter.append_round_to_history(&mut messages, round, &outcome, &[]);
+                    terminal_round_persisted = true;
+                }
                 break;
             }
 
@@ -845,11 +984,21 @@ impl AssistantAgent {
             emit_usage(on_delta, &total_usage, model, None, false);
 
             // Estimate current token usage for adaptive tool output sizing.
-            let estimated_used = crate::context_compact::estimate_request_tokens(
+            let raw_estimated_prompt = crate::context_compact::estimate_request_tokens_with_tools(
                 &system_prompt,
                 &messages,
-                MAX_OUTPUT_TOKENS,
+                &tool_schemas,
+                0,
             );
+            let estimated_used = self
+                .token_calibrator
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .calibrated_estimate(&calibrator_key, raw_estimated_prompt)
+                // Compaction/tool-output sizing must fail safe when the
+                // heuristic is slightly optimistic.
+                .saturating_add(raw_estimated_prompt / 10)
+                .saturating_add(MAX_OUTPUT_TOKENS);
 
             // Partition tool calls by concurrent-safety:
             //   Phase 1: parallel concurrent-safe tools (read-only)
@@ -860,6 +1009,7 @@ impl AssistantAgent {
                 .partition(|tc| tools::is_concurrent_safe(&tc.name));
 
             let mut executed: Vec<ExecutedTool> = Vec::new();
+            let mut pending_tool_activations: Vec<String> = Vec::new();
             // A provider response can stream for minutes. Refresh agent-level
             // tool filters and approval policy immediately before execution so
             // a user revocation made while the model was responding takes
@@ -918,6 +1068,7 @@ impl AssistantAgent {
                 let results = run_bounded_in_order(MAX_CONCURRENT_SAFE_TOOLS, futures).await;
 
                 for (call_id, name, arguments, result, elapsed_ms, side) in results {
+                    collect_tool_search_activations(&side, &mut pending_tool_activations);
                     log_tool_output(&call_id, &name, &result, elapsed_ms, round);
                     let is_error = result.starts_with("Tool error:");
                     let (mut clean_result, media_items) = extract_media_items(&result);
@@ -1014,6 +1165,7 @@ impl AssistantAgent {
                         Default::default(),
                     ),
                 };
+                collect_tool_search_activations(&side, &mut pending_tool_activations);
 
                 // If a `PreToolUse` hook rewrote the tool input via
                 // `updatedInput`, surface the effective args through the rest
@@ -1068,6 +1220,41 @@ impl AssistantAgent {
                 });
             }
 
+            // A discovery result becomes callable only after its provider
+            // schema is present. Rebuild from the live-gated inventory now so
+            // the very next API round can call it. Persist only names that
+            // survived all current gates.
+            if !pending_tool_activations.is_empty() {
+                let mut requested = activated_tool_names.clone();
+                for name in pending_tool_activations {
+                    if !requested.contains(&name) {
+                        requested.push(name);
+                    }
+                }
+                tool_inventory = self.build_tool_inventory(adapter.tool_provider(), &requested);
+                let valid_new: Vec<String> = tool_inventory
+                    .activated_names
+                    .iter()
+                    .filter(|name| !activated_tool_names.contains(name))
+                    .cloned()
+                    .collect();
+                if !valid_new.is_empty() {
+                    self.record_tool_activations(&valid_new);
+                    activated_tool_names = tool_inventory.activated_names.clone();
+                    eager_tool_count = tool_inventory.eager_count;
+                    deferred_tool_count = tool_inventory.deferred_count;
+                    deferred_tool_schemas = tool_inventory.deferred_schemas;
+                    tool_schemas = tool_inventory.schemas;
+                    // Successful discovery on the penultimate configured
+                    // round must still leave one tool-capable round. This is
+                    // bounded to one extension per turn.
+                    if round_limit_enabled && !activation_grace_used {
+                        effective_max_rounds = effective_max_rounds.saturating_add(1);
+                        activation_grace_used = true;
+                    }
+                }
+            }
+
             // PostToolBatch (observation): fires once per API round after every
             // tool call in the round settles, before the round lands in
             // history. Skipped for pure-text rounds (no tools). Any
@@ -1118,10 +1305,12 @@ impl AssistantAgent {
                 on_delta,
             )
             .await;
+            round = round.saturating_add(1);
         }
 
         let cancelled = cancel.load(Ordering::SeqCst);
-        let hit_round_limit = round_limit_enabled && !cancelled && round_count == max_rounds;
+        let hit_round_limit =
+            round_limit_enabled && !cancelled && round_count >= effective_max_rounds;
         let rounds_exhausted = hit_round_limit && !natural_exit;
         if rounds_exhausted {
             let notice = emit_max_rounds_notice(on_delta, max_rounds);
@@ -1143,7 +1332,9 @@ impl AssistantAgent {
             &final_assistant_text,
             &pending_terminal_text,
         );
-        adapter.append_final_assistant(&mut messages, terminal_text, &last_round_thinking);
+        if !terminal_round_persisted {
+            adapter.append_final_assistant(&mut messages, terminal_text, &last_round_thinking);
+        }
 
         *self
             .conversation_history

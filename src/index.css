@@ -52,6 +52,8 @@
   --cm-active-line: rgba(0, 0, 0, 0.015);
   --ha-focus-color: #006fd6;
   --ha-focus-halo: rgb(0 111 214 / 0.16);
+  --ha-markdown-link: #339cff;
+  --ha-markdown-link-hover: #168af7;
 }
 
 /* Dark theme overrides */
@@ -59,6 +61,8 @@
   --cm-active-line: rgba(255, 255, 255, 0.05);
   --ha-focus-color: #70b6ff;
   --ha-focus-halo: rgb(112 182 255 / 0.2);
+  --ha-markdown-link: #339cff;
+  --ha-markdown-link-hover: #66b5ff;
   --color-background: hsl(0 0% 7%);
   --color-foreground: hsl(0 0% 90%);
   --color-card: hsl(0 0% 13%);
@@ -723,31 +727,16 @@ html[data-focus-indicators="enhanced"]
 }
 
 .markdown-content [data-streamdown="link"] {
-  color: hsl(210 100% 32%);
-  border-radius: 0.25rem;
-  margin-inline: -0.08em;
-  padding-inline: 0.08em;
-  background: linear-gradient(
-      color-mix(in srgb, hsl(210 100% 50%) 12%, transparent),
-      color-mix(in srgb, hsl(210 100% 50%) 12%, transparent)
-    )
-    left 85% / 100% 0.38em no-repeat;
-  text-decoration-line: underline;
-  text-decoration-color: color-mix(in srgb, currentColor 42%, transparent);
-  text-decoration-thickness: 1px;
-  text-underline-offset: 0.2em;
-  -webkit-box-decoration-break: clone;
-  box-decoration-break: clone;
-  transition:
-    color 140ms ease,
-    background-color 140ms ease,
-    text-decoration-color 140ms ease;
+  color: var(--ha-markdown-link);
+  background: none;
+  text-decoration: none;
+  transition: color 140ms ease;
 }
 
 .markdown-content [data-streamdown="link"]:hover {
-  color: hsl(210 100% 26%);
-  background-color: color-mix(in srgb, hsl(210 100% 50%) 12%, transparent);
-  text-decoration-color: currentColor;
+  color: var(--ha-markdown-link-hover);
+  background: none;
+  text-decoration: none;
 }
 
 .markdown-content [data-streamdown="link"]:focus-visible {
@@ -830,21 +819,6 @@ html[data-focus-indicators="enhanced"]
 
 .markdown-content [data-streamdown="link"] .markdown-link-label {
   display: inline;
-}
-
-.dark .markdown-content [data-streamdown="link"] {
-  color: hsl(199 100% 72%);
-  background: linear-gradient(
-      color-mix(in srgb, hsl(199 100% 72%) 16%, transparent),
-      color-mix(in srgb, hsl(199 100% 72%) 16%, transparent)
-    )
-    left 85% / 100% 0.38em no-repeat;
-  text-decoration-color: color-mix(in srgb, currentColor 48%, transparent);
-}
-
-.dark .markdown-content [data-streamdown="link"]:hover {
-  color: hsl(199 100% 82%);
-  background-color: color-mix(in srgb, hsl(199 100% 72%) 14%, transparent);
 }
 
 .dark .markdown-content [data-link-kind="image"] .markdown-link-icon {

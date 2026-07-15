@@ -1248,6 +1248,14 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                                     usage.output_tokens.unwrap_or(0) as u64,
                                     usage.cache_creation_input_tokens.unwrap_or(0) as u64,
                                     usage.cache_read_input_tokens.unwrap_or(0) as u64,
+                                )
+                                .with_context_usage(
+                                    usage
+                                        .context_input_tokens
+                                        .or(usage.input_tokens)
+                                        .unwrap_or(0) as u64,
+                                    usage.fresh_input_tokens.or(usage.input_tokens).unwrap_or(0)
+                                        as u64,
                                 );
                         event.request_key = Some(format!("message:{message_id}"));
                         event.timestamp = Some(chrono::Utc::now().to_rfc3339());

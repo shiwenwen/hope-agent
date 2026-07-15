@@ -47,6 +47,24 @@ pub enum CronPayload {
     },
 }
 
+/// Stable discriminator exposed by cron summary DTOs that do not need the
+/// payload's full prompt/session data.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum CronPayloadType {
+    AgentTurn,
+    SessionLoop,
+}
+
+impl From<&CronPayload> for CronPayloadType {
+    fn from(payload: &CronPayload) -> Self {
+        match payload {
+            CronPayload::AgentTurn { .. } => Self::AgentTurn,
+            CronPayload::SessionLoop { .. } => Self::SessionLoop,
+        }
+    }
+}
+
 /// Job status.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -204,9 +222,16 @@ pub struct CronRunLog {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CronTimelineRow {
+    /// Stable identity of this run row. Loop runs share their parent session,
+    /// so `session_id` cannot be used as the list key or selection identity.
+    pub run_log_id: i64,
     pub session_id: String,
     pub job_id: String,
     pub job_name: String,
+    /// Payload discriminator from the owning job. `None` is reserved for
+    /// orphaned legacy run rows whose job record no longer exists.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub payload_type: Option<CronPayloadType>,
     pub status: String,
     pub started_at: String,
     pub finished_at: Option<String>,
@@ -268,6 +293,7 @@ pub struct CronAccountRef {
 pub struct CalendarEvent {
     pub job_id: String,
     pub job_name: String,
+    pub payload_type: CronPayloadType,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub project_id: Option<String>,
     pub scheduled_at: String,

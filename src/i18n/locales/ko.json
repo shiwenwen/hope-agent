@@ -984,13 +984,20 @@
         "noSession": "세션 컨텍스트 없음",
         "retrievalError": "검색 실패",
         "sideQueryError": "리콜 실패",
-        "timeout": "시간 초과"
+        "timeout": "시간 초과",
+        "budgetEmpty": "회상 예산이 비어 있습니다",
+        "nonContextualTurn": "컨텍스트가 필요 없는 대화",
+        "recallOff": "자동 동적 회상이 꺼져 있습니다",
+        "retrievalBusy": "회상 처리가 혼잡합니다",
+        "sessionPolicy": "메모리 또는 대화 정책으로 비활성화됨",
+        "unifiedRecall": "빠른 회상에서 처리됨",
+        "unknown": "기타 사유"
       },
       "layerStatus": {
         "candidate": "후보자",
         "disabled": "장애인",
         "empty": "안타",
-        "skipped": "저하된",
+        "skipped": "건너뜀",
         "unknown": "알 수 없음",
         "used": "사용됨"
       },
@@ -1057,7 +1064,11 @@
       "more": "{{count}} 더 장기적인 컨텍스트 항목이 숨겨집니다.",
       "sources": "메모리 소스",
       "editMemory": "이 추억을 편집하세요",
-      "copyTrace": "진단 복사"
+      "copyTrace": "진단 복사",
+      "promoteToCore": "항상 기억하기",
+      "promoteToCoreFailed": "코어 메모리에 추가하지 못했습니다.",
+      "promotedToCore": "항상 기억됨",
+      "promotedToCoreToast": "상시 코어 메모리에 추가했습니다."
     },
     "projectWelcomeTitle": "<project>{{project}}</project> 에서 무엇을 만들까요? 생각을 들려주세요",
     "projectWelcomeSuggestions": {
@@ -1129,7 +1140,18 @@
     "openSourceConversationMissing": "출처 대화를 더 이상 사용할 수 없습니다",
     "openSourceConversationMissingHint": "이 메모리 출처가 가리키는 대화가 삭제되었거나 찾을 수 없습니다.",
     "openSourceMessageMissing": "출처 메시지를 더 이상 사용할 수 없습니다",
-    "openSourceMessageMissingHint": "대화는 아직 있지만 이 메모리 출처의 정확한 메시지를 찾을 수 없습니다."
+    "openSourceMessageMissingHint": "대화는 아직 있지만 이 메모리 출처의 정확한 메시지를 찾을 수 없습니다.",
+    "memoryPolicy": {
+      "title": "이 대화의 기억",
+      "use": "기존 기억 사용",
+      "contribute": "이 대화에서 학습",
+      "inherit": "전역 설정 따르기",
+      "allow": "켜기",
+      "deny": "끄기",
+      "desc": "두 항목은 독립적입니다. 기존 기억은 사용하면서 새 기억은 만들지 않을 수 있습니다.",
+      "incognito": "시크릿 대화는 장기 기억을 읽거나 쓰지 않습니다.",
+      "reloadCore": "이 세션의 MEMORY.md 다시 불러오기"
+    }
   },
   "codexAuth": {
     "expiredDescription": "Codex OAuth 토큰이 더 이상 유효하지 않습니다. 계속하려면 다시 로그인하세요.",
@@ -1193,7 +1215,7 @@
     "ago": "전",
     "cacheTtlProtection": "캐시 TTL 보호",
     "compactAllowedIn": "다음 압축까지",
-    "estimateNote": "추정값 (문자수÷4). 실제 청구량과 10〜20% 차이가 있을 수 있습니다.",
+    "estimateNote": "각 라운드 후에는 Provider 실제 사용량이 기준이며, 그전에는 실제 요청 형식에 따른 보수적 추정치를 표시합니다.",
     "freeSpace": "여유 공간",
     "lastCompact": "마지막 압축",
     "memory": "기억",
@@ -1205,7 +1227,16 @@
     "toolDescriptions": "도구 설명",
     "toolSchemas": "도구 Schema",
     "used": "사용됨",
-    "viewSystemPrompt": "시스템 프롬프트"
+    "viewSystemPrompt": "시스템 프롬프트",
+    "cacheRead": "캐시 읽기",
+    "cacheWindowNotice": "캐시 적중은 반복 계산, 비용, TTFT를 줄이지만 컨텍스트 창 사용량은 줄이지 않습니다.",
+    "cacheWrite": "캐시 쓰기",
+    "coreMemoryBudget": "Core Memory 예산",
+    "coreMemoryModelLimited": "현재 모델에 맞게 일시적으로 제한됨",
+    "dynamicPrompt": "동적 프롬프트",
+    "estimated": "추정",
+    "freshInput": "새 입력",
+    "providerInput": "Provider 입력"
   },
   "cron": {
     "active": "활성",
@@ -2067,10 +2098,10 @@
       "staged": "Staged",
       "stagedScope": "Staged",
       "stale": "The repository changed. The diff was refreshed; review it again.",
+      "prReviewComments": "PR 리뷰 댓글 · {{count}}",
       "unstage": "Unstage",
       "unstaged": "Unstaged",
-      "unstagedScope": "Unstaged",
-      "prReviewComments": "PR 리뷰 댓글 · {{count}}"
+      "unstagedScope": "Unstaged"
     }
   },
   "effort": {
@@ -2507,7 +2538,9 @@
     "reasoningHint": "활성화하면 채팅 입력창 위의 모델 메뉴에서 추론 강도(낮음 / 중간 / 높음)를 선택할 수 있으며, 요청마다 자동으로 적용됩니다.",
     "supportedInputTypes": "지원 입력 유형",
     "text": "텍스트",
-    "video": "비디오"
+    "video": "비디오",
+    "supportsImageMultimodal": "이미지 멀티모달 지원",
+    "supportsVideoMultimodal": "비디오 멀티모달 지원"
   },
   "notification": {
     "cronCancelled": "예약 작업이 취소되었습니다",
@@ -2990,7 +3023,30 @@
     "openFromMemoryLoadFailed": "프로젝트 출처를 열지 못했습니다",
     "openFromMemoryLoadFailedDetail": "세부 정보: {{error}}",
     "openFromMemoryMissing": "프로젝트를 더 이상 사용할 수 없습니다",
-    "openFromMemoryMissingHint": "이 메모리 출처가 가리키는 프로젝트가 삭제되었거나 찾을 수 없습니다."
+    "openFromMemoryMissingHint": "이 메모리 출처가 가리키는 프로젝트가 삭제되었거나 찾을 수 없습니다.",
+    "autoMemory": {
+      "content": "상세 내용(Markdown)",
+      "deleteConfirm": "이 프로젝트 자동 메모리 주제를 삭제할까요?",
+      "description": "간결한 MEMORY.md 인덱스만 프로젝트 대화에 안정적으로 주입하고, 주제 상세 내용은 관련될 때만 읽습니다. 데이터는 이 기기에만 저장됩니다.",
+      "editorHint": "프로젝트 지침은 고정 규칙입니다. 여기에는 작업 중 축적된 프로젝트 학습을 저장하며 권위 있는 지침으로 취급하지 않습니다.",
+      "editorTitle": "프로젝트 자동 메모리",
+      "empty": "아직 자동 메모리 주제가 없습니다.",
+      "fileNameGenerated": "저장할 때 파일 이름이 생성됩니다",
+      "name": "제목",
+      "newTopic": "새 주제",
+      "rebuildIndex": "MEMORY.md 인덱스 다시 만들기",
+      "rebuildFailed": "MEMORY.md 인덱스를 다시 만들지 못했습니다.",
+      "summary": "인덱스 요약",
+      "summaryHint": "이 문장은 모든 프로젝트 대화의 안정 프롬프트에 들어가므로 간결하게 작성하세요.",
+      "type": "유형",
+      "types": {
+        "feedback": "작업 피드백",
+        "project": "프로젝트 작업",
+        "reference": "참고 자료",
+        "user": "사용자 맥락"
+      }
+    },
+    "tabAutoMemory": "자동 메모리"
   },
   "provider": {
     "addProvider": "공급자 추가",
@@ -3202,12 +3258,12 @@
     "acpTimeout": "시간 초과 (초)",
     "activeMemoryCacheTtl": "캐시 TTL (초)",
     "activeMemoryCandidateLimit": "후보 한도",
-    "activeMemoryDesc": "사용자 턴이 시작될 때마다 제한된 side query를 실행하여 가장 관련된 메모리를 한 문장으로 추출해 시스템 프롬프트에 주입합니다. 타임아웃과 실패는 조용히 수동 리콜로 폴백되며 대화를 막지 않습니다.",
+    "activeMemoryDesc": "Agent별 호환 회상입니다. 켜면 전역 자동 회상이 꺼져 있어도 이 Agent만 Fast 회상과 심층 재정렬을 사용합니다. 기본값은 꺼짐이며 심층 재정렬은 side query, 대기 시간, Token 사용량을 추가합니다.",
     "activeMemoryIncludeClaims": "구조화된 클레임 포함",
     "activeMemoryIncludeClaimsDesc": "회상 후보로 레거시 메모리뿐 아니라 Dreaming이 정리한 구조화된 클레임도 검색합니다. 기본값은 꺼짐.",
     "activeMemoryMaxChars": "리콜 최대 문자 수",
     "activeMemoryTimeout": "시간 초과 (ms)",
-    "activeMemoryTitle": "능동 메모리 리콜",
+    "activeMemoryTitle": "Agent 심층 회상",
     "addFallback": "폴백 모델 추가",
     "addFallbackModel": "폴백 모델 추가",
     "agentAgentsMd": "AGENTS.md",
@@ -4848,9 +4904,9 @@
     "memoryAutoExtractDesc": "토큰, 시간 또는 메시지 임계값을 충족하면 자동으로 기억 추출",
     "memoryBudget": {
       "agentOverrideDesc": "기본적으로 전역 메모리 예산을 상속합니다. 끄면 Agent 전용 예산을 사용합니다.",
-      "coreMemoryFileChars": "memory.md 계층별 상한",
-      "coreMemoryFileCharsDesc": "각 memory.md 파일(Global / Agent)의 독립 상한. 상한을 초과한 내용은 프롬프트에서 잘리지만 디스크에는 그대로 보존됩니다. 기본값 8000.",
-      "desc": "메모리 섹션(Global memory.md / Agent memory.md / SQLite 메모리 / 가이드라인)의 총 문자 수와 내부 각 계층의 개별 상한을 제한합니다. 총량을 줄이면 대화 컨텍스트에 더 많은 예산을 남길 수 있습니다.",
+      "coreMemoryFileChars": "MEMORY.md 계층별 상한",
+      "coreMemoryFileCharsDesc": "각 MEMORY.md 파일(Global / Agent)의 독립 상한. 상한을 초과한 내용은 프롬프트에서 잘리지만 디스크에는 그대로 보존됩니다. 기본값 8000.",
+      "desc": "메모리 섹션(Global MEMORY.md / Agent MEMORY.md / SQLite 메모리 / 가이드라인)의 총 문자 수와 내부 각 계층의 개별 상한을 제한합니다. 총량을 줄이면 대화 컨텍스트에 더 많은 예산을 남길 수 있습니다.",
       "resetToDefaults": "기본값으로 복원",
       "sections": {
         "aboutUser": "사용자에 대해",
@@ -4870,6 +4926,35 @@
         "load": "Failed to load memory budget",
         "save": "Failed to save memory budget",
         "detail": "세부정보: {{error}}"
+      },
+      "advancedAllocation": "고급 범위 할당",
+      "contextWindow": "현재 기본 모델 컨텍스트: {{count}} tokens",
+      "coreSimpleDesc": "Core Memory 총예산 하나만 선택하세요. 사용하지 않은 용량은 Project > Agent > Global 우선순위로 공유됩니다.",
+      "engine": {
+        "agentTokens": "Agent 토큰",
+        "budgetTokens": "예산 토큰",
+        "cacheTtlSecs": "캐시 TTL(초)",
+        "candidateLimit": "후보 수 상한",
+        "globalTokens": "전역 토큰",
+        "hardMaxTokens": "하드 상한 토큰",
+        "maxSelected": "최대 선택 수",
+        "maxTokens": "최대 토큰",
+        "projectTokens": "프로젝트 토큰",
+        "protocolTokens": "프로토콜 토큰",
+        "summaryChars": "요약 문자 수",
+        "timeoutMs": "시간 제한(ms)",
+        "topicReadTokens": "주제 읽기 토큰",
+        "totalTokens": "총 토큰"
+      },
+      "legacyTitle": "레거시 롤백 예산",
+      "legacyDesc": "이 문자 예산은 기존 정적 메모리 경로에만 적용되며 호환 기간 동안 계속 편집할 수 있습니다.",
+      "effective": "설정 {{configured}} · 이번 요청 유효값 {{effective}} tokens",
+      "highBudgetWarning": "권장 범위인 2400 tokens를 초과했습니다. 저장할 수 있지만 매 요청의 안정 컨텍스트, 캐시 쓰기 및 첫 토큰 지연이 증가합니다.",
+      "modelLimited": "{{configured}} tokens로 설정했지만 현재 모델은 안전하게 {{effective}}를 사용합니다. 저장된 설정은 변경되지 않습니다.",
+      "presets": {
+        "balanced": "균형",
+        "concise": "간결",
+        "rich": "풍부"
       }
     },
     "memoryContent": "내용",
@@ -5911,7 +5996,7 @@
     "timeoutPolicyWarn": "적용하고 로그 기록(기본)",
     "toolTimeout": "동기 도구 시간 초과",
     "toolTimeoutDesc": "포그라운드/동기 도구 호출에 적용되는 전역 fallback 시간 제한입니다. 기본값 0은 이 전역 시간 제한을 끕니다. 양수로 설정하면 해당 초를 넘긴 호출을 취소합니다. 백그라운드 async job은 비동기 도구의 작업 최대 시간을 사용하며, 개별 도구에는 자체 내부 시간 제한이 있을 수 있습니다.",
-    "toolUpdateCoreMemoryDesc": "시스템 프롬프트에 상주하는 memory.md 파일 업데이트",
+    "toolUpdateCoreMemoryDesc": "시스템 프롬프트에 상주하는 MEMORY.md 파일 업데이트",
     "toolUpdateCoreMemoryName": "핵심 기억 업데이트",
     "toolUpdateMemoryDesc": "기존 기억의 내용 업데이트",
     "toolUpdateMemoryName": "기억 업데이트",
@@ -6143,8 +6228,8 @@
     "memoryLearningPausedDesc": "에이전트는 현재 장기 기억을 사용하거나 학습하고 있지 않습니다. 기존 데이터는 이 기기에 남아 있으며 수동 전용 모드에서도 계속 관리, 내보내기, 삭제 또는 재개할 수 있습니다.",
     "memoryLearningResumeManual": "수동으로만 이력서 작성",
     "memoryLearningOpenSettings": "설정 열기",
-    "memoryUseInRepliesTitle": "답글에 추억을 사용하세요",
-    "memoryUseInRepliesDesc": "기본 에이전트에 대해 권장되는 짧은 지연 시간 리콜 사전 설정을 활성화합니다. 관련 기억을 답변으로 가져올 수 있으며, 타임아웃 시 회상은 여전히 ​​안전하게 건너뜁니다.",
+    "memoryUseInRepliesTitle": "레거시 Agent 심층 회상 재정의",
+    "memoryUseInRepliesDesc": "기본 Agent용 호환 회상 설정입니다. 켜면 위의 전역 기본값이 꺼져 있어도 이 Agent만 Fast 회상과 심층 재정렬을 사용합니다. 기본값은 꺼짐이며 심층 재정렬은 side query, 대기 시간, Token 사용량을 추가합니다.",
     "memoryUseInRepliesTarget": "기본 에이전트: {{agent}}",
     "memoryUseInRepliesSummaryTimeout": "시간 초과",
     "memoryUseInRepliesSummaryCache": "캐시",
@@ -6165,9 +6250,9 @@
     "memoryUseInRepliesUpdateFailed": "활성 회수를 업데이트할 수 없습니다.",
     "memoryUseInRepliesError": "활성 리콜을 업데이트할 수 없습니다: {{error}}",
     "memoryUseInRepliesErrorDetail": "세부정보: {{error}}",
-    "memoryUseInRepliesReadinessRecommended": "준비: 지연 시간이 짧은 리콜에는 구조화된 메모리와 안전한 시간 초과 대체가 포함됩니다.",
+    "memoryUseInRepliesReadinessRecommended": "Agent 호환 회상이 준비되었습니다. 이 Agent만 Fast 회상과 심층 재정렬을 사용합니다.",
     "memoryUseInRepliesReadinessAgentOff": "Agent 메모리가 꺼져 있습니다. 권장 회수를 사용하면 기본 에이전트에 대해 다시 활성화됩니다.",
-    "memoryUseInRepliesReadinessDisabled": "끄기: 기본 상담원이 응답하기 전에 사전에 추억을 조회하지 않습니다.",
+    "memoryUseInRepliesReadinessDisabled": "기본값 꺼짐: 기본 에이전트는 답변 전에 기억을 능동적으로 조회하지 않습니다.",
     "memoryUseInRepliesReadinessClaimsOff": "구조화된 기억은 능동적 회상에서 제외됩니다.",
     "memoryUseInRepliesReadinessSlowTimeout": "시간 초과가 권장되는 낮은 지연 시간 사전 설정보다 높습니다.",
     "memoryUseInRepliesReadinessTightBudget": "리콜 예산이 권장 사전 설정보다 낮습니다.",
@@ -7030,7 +7115,95 @@
     "memoryProcedureTriggerPlaceholder": "이 워크플로를 고려해야 하는 경우",
     "memoryProcedureStepsPlaceholder": "- 실패한 수표를 검사하십시오.\n- 알려진 수정 사항을 적용합니다.\n- Narrow 검증기를 다시 실행",
     "memoryProcedureConstraintsPlaceholder": "이 워크플로를 사용하지 말아야 할 경우",
-    "memoryProcedureConfidence": "자신감"
+    "memoryProcedureConfidence": "자신감",
+    "agentMemoryEnabledTitle": "이 Agent에서 기억 사용",
+    "agentMemoryEnabledDesc": "이 Agent의 코어 메모리, 동적 회상, 학습 및 기억 도구를 제어합니다. 전역 기억 설정은 상위 정책으로 계속 적용됩니다.",
+    "memoryV2": {
+      "title": "기억",
+      "subtitle": "장기 기억, 필요할 때의 회상, 자동 학습 여부를 간단히 선택합니다.",
+      "loadFailed": "기억 설정을 불러오지 못했습니다",
+      "saveFailed": "기억 설정을 저장하지 못했습니다",
+      "core": {
+        "title": "항상 기억",
+        "desc": "Global, Agent, Project의 짧은 MEMORY.md는 대화에 안정적으로 포함되고 세부 주제는 필요할 때만 불러옵니다.",
+        "budget": "총 {{count}} 토큰 예산",
+        "manage": "MEMORY.md 편집",
+        "projectTitle": "프로젝트 MEMORY.md",
+        "projectDesc": "이 프로젝트의 대화에서만 사용하는 짧은 상주 기억입니다.",
+        "conflict": "대문자 정식 파일과 기존 소문자 호환 파일이 모두 변경되었습니다. 저장하기 전에 내용을 선택하거나 병합하세요.",
+        "conflictCanonical": "정식 대문자 MEMORY.md",
+        "conflictLegacy": "이전 소문자 memory.md",
+        "conflictMerged": "병합 결과(정식 파일 기준)",
+        "conflictKeepCanonical": "MEMORY.md 유지",
+        "conflictKeepLegacy": "이전 파일 유지",
+        "conflictSaveMerged": "병합 결과 저장",
+        "conflictLoadFailed": "충돌하는 코어 메모리 파일을 불러오지 못했습니다",
+        "conflictResolveFailed": "코어 메모리 충돌을 해결하지 못했습니다. 새로고침한 후 다시 시도하세요.",
+        "conflictResolved": "코어 메모리 충돌이 해결되었습니다",
+        "actualTokens": "이 범위의 토큰: {{used}} / {{total}}",
+        "stats": "인덱스 항목: {{entries}}개 · 주제: {{topics}}개",
+        "updatedAt": "업데이트: {{value}}",
+        "neverUpdated": "아직 작성되지 않음",
+        "scope": "기억 범위",
+        "projectLabel": "프로젝트",
+        "topics": "필요할 때 불러오는 주제",
+        "noTopics": "아직 주제 파일이 없습니다",
+        "selectTopic": "주제를 선택하거나 새로 만드세요",
+        "topicName": "주제 이름",
+        "topicDesc": "언제 읽을지 한 줄로 설명",
+        "topicContent": "주제 세부 정보(필요할 때만 불러옴)",
+        "topicLoadFailed": "기억 주제를 불러오지 못했습니다",
+        "topicSaveFailed": "기억 주제를 저장하지 못했습니다",
+        "topicDeleteConfirm": "이 기억 주제를 삭제할까요?",
+        "topicDeleteFailed": "기억 주제를 삭제하지 못했습니다"
+      },
+      "recall": {
+        "title": "동적 메모리 회상",
+        "desc": "기본값은 꺼짐입니다. 꺼져 있으면 Agent별 호환 회상이 명시적으로 켜진 경우를 제외하고 안정적인 핵심 메모리만 자동으로 사용되며, 모델은 필요할 때 메모리 도구를 검색할 수 있습니다. 켜면 각 사용자 메시지를 받은 뒤 답변을 생성하기 전에 관련 동적 메모리를 검색합니다.",
+        "fast": "관련 메모리 자동 회상",
+        "deep": "심층 재정렬(선택 사항)",
+        "skip": "건너뜀",
+        "deepCost": "심층 재정렬은 모델 호출이 한 번 추가되어 응답이 느려지고 토큰을 더 사용합니다. 자동 회상을 켠 뒤 정말 필요할 때만 사용하세요.",
+        "last": "최근 회상: {{selected}}/{{candidates}}개 선택 · {{latency}}ms · {{mode}}",
+        "noRecent": "앱을 연 뒤 자동 동적 메모리 회상이 실행되지 않았습니다."
+      },
+      "learning": {
+        "title": "대화에서 학습",
+        "desc": "대화의 새 정보를 저장할지 제어합니다. 기존 기억 사용에는 영향을 주지 않습니다.",
+        "mode": "학습 모드",
+        "smart": "스마트 학습",
+        "reviewFirst": "검토 후 저장",
+        "manual": "수동 저장만",
+        "pending": "검토 대기 {{count}}개",
+        "unassigned": "미할당 {{count}}개"
+      },
+      "review": {
+        "title": "기억 검토 대기",
+        "desc": "후보 {{count}}개는 아직 장기 기억이나 프롬프트에 포함되지 않습니다.",
+        "empty": "검토할 내용이 없습니다",
+        "chooseScope": "저장 범위 선택",
+        "approve": "기억 저장",
+        "reject": "저장하지 않음",
+        "loadFailed": "검토 대기 기억을 불러오지 못했습니다",
+        "approveFailed": "검토 대기 기억을 저장하지 못했습니다",
+        "rejectFailed": "검토 대기 기억을 무시하지 못했습니다",
+        "reason": {
+          "review_first": "학습 모드에서 검토가 필요합니다",
+          "project_scope_missing": "프로젝트 관련 내용이지만 이 대화에 프로젝트가 없습니다",
+          "scope_uncertain": "올바른 저장 범위가 불확실합니다",
+          "sensitive": "민감한 정보가 포함될 수 있습니다",
+          "conflict": "기존 기억과 충돌합니다",
+          "core_promotion": "상주 기억으로 승격할 후보입니다"
+        }
+      }
+    },
+    "memoryBackupExportSummary": "기억: {{memories}} · 주장: {{claims}} · 프로필: {{profiles}} · 에피소드: {{episodes}} · 워크플로: {{procedures}}",
+    "memoryBackupOpenReviewInboxAfterRestore": "복원 후 검토 대기: {{count}}개",
+    "memoryExperienceSearchActive": "“{{query}}” 검색 결과: {{total}}개",
+    "memoryExperienceViewActive": "경험 항목: {{total}}개",
+    "memoryExternalProvidersActive": "활성 공급자: {{active}}/{{total}}",
+    "memoryExternalProvidersActiveSummary": "활성: {{active}} · 구성됨: {{total}}",
+    "memoryProcedureSourceEpisode": "에피소드: {{id}}"
   },
   "shortcuts": {
     "actionOpenSettings": "설정 열기",
@@ -7641,6 +7814,8 @@
       "selectBranch": "Select branch",
       "stageAll": "Stage all changes",
       "viewPr": "View pull request",
+      "pullRequestPanelTitle": "풀 리퀘스트",
+      "resizePullRequestPanel": "풀 리퀘스트 패널 너비 조절",
       "worktree": "Worktree",
       "checkDetails": "검사 세부 정보",
       "checkFailed": "실패",
@@ -7662,6 +7837,7 @@
       "openCheck": "검사 열기",
       "openComment": "댓글 열기",
       "prFeedbackUnavailable": "PR 검사 및 댓글을 사용할 수 없음",
+      "prFeedbackStale": "PR 상태를 새로 고치지 못했습니다. 현재 데이터가 오래되었을 수 있습니다",
       "reviewComments": "댓글 {{count}}개",
       "reviewFeedback": "리뷰 피드백",
       "autoMergeEnabled": "자동 병합이 활성화됨",
@@ -7688,10 +7864,7 @@
       "reviewPending": "대기 중",
       "reviewRequired": "리뷰 필요",
       "reviewStatus": "리뷰 상태",
-      "reviewers": "리뷰어",
-      "pullRequestPanelTitle": "풀 리퀘스트",
-      "resizePullRequestPanel": "풀 리퀘스트 패널 너비 조절",
-      "prFeedbackStale": "PR 상태를 새로 고치지 못했습니다. 현재 데이터가 오래되었을 수 있습니다"
+      "reviewers": "리뷰어"
     },
     "action": {
       "create": "생성",
@@ -9320,7 +9493,8 @@
         "loadMoreThreads": "대화를 더 불러올 수 없음",
         "loadMoreMessages": "이전 메시지를 불러올 수 없음",
         "detail": "세부 정보: {{error}}"
-      }
+      },
+      "welcome": "이 지식 공간을 바탕으로 질문하고 정리하고 작성해 보세요"
     },
     "quickRewrite": {
       "title": "빠른 다시 쓰기",

@@ -826,12 +826,13 @@ impl CronDB {
         }
     }
 
-    /// §11 review fix: terminalize a cancelled one-shot `At` job as `completed`.
-    /// Its `next_run_at` was advanced to NULL at claim, so leaving it `active`
-    /// strands an un-fireable zombie until the next restart's `mark_missed_at_jobs`.
-    /// It ran (then was cancelled) and won't fire again, so `completed` is the
-    /// right terminal. Recurring jobs are never passed here (they keep firing).
-    pub fn terminalize_one_shot_completed(&self, id: &str) -> Result<()> {
+    /// Put a job into its successful terminal state.
+    ///
+    /// Used by one-shot jobs after their only run and by the Loop control plane
+    /// when a recurring schedule has reached a Loop-level completion condition.
+    /// This is deliberately distinct from `toggle_job(id, false)`: disabling
+    /// future triggers because work is finished is not a user pause.
+    pub fn mark_job_completed(&self, id: &str) -> Result<()> {
         let now = Utc::now().to_rfc3339();
         let conn = self
             .conn
@@ -1017,8 +1018,9 @@ impl CronDB {
             .lock()
             .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
         let mut stmt = conn.prepare(
-            "SELECT l.session_id, l.job_id,
+            "SELECT l.id, l.session_id, l.job_id,
                     COALESCE(j.name, '(deleted job)') AS job_name,
+                    j.payload_json,
                     l.status, l.started_at, l.finished_at, l.result_preview
              FROM cron_run_logs l
              LEFT JOIN cron_jobs j ON j.id = l.job_id
@@ -1026,14 +1028,22 @@ impl CronDB {
              LIMIT ?1 OFFSET ?2",
         )?;
         let rows = stmt.query_map(params![limit as i64, offset as i64], |row| {
+            let payload_json: Option<String> = row.get(4)?;
+            let payload_type = payload_json
+                .as_deref()
+                .and_then(|json| serde_json::from_str::<CronPayload>(json).ok())
+                .as_ref()
+                .map(CronPayloadType::from);
             Ok(CronTimelineRow {
-                session_id: row.get(0)?,
-                job_id: row.get(1)?,
-                job_name: row.get(2)?,
-                status: row.get(3)?,
-                started_at: row.get(4)?,
-                finished_at: row.get(5)?,
-                result_preview: row.get(6)?,
+                run_log_id: row.get(0)?,
+                session_id: row.get(1)?,
+                job_id: row.get(2)?,
+                job_name: row.get(3)?,
+                payload_type,
+                status: row.get(5)?,
+                started_at: row.get(6)?,
+                finished_at: row.get(7)?,
+                result_preview: row.get(8)?,
                 title: None,
                 unread_count: 0,
             })
@@ -1077,6 +1087,7 @@ impl CronDB {
                 events.push(CalendarEvent {
                     job_id: job.id.clone(),
                     job_name: job.name.clone(),
+                    payload_type: CronPayloadType::from(&job.payload),
                     project_id: job.project_id.clone(),
                     scheduled_at: occ_str,
                     status: job.status.clone(),

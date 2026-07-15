@@ -227,7 +227,7 @@ impl<'a> LlmApiAdapter for AnthropicAdapter<'a> {
             return Err(stream_error(resp).await);
         }
         let fwd = unwrap_text_delta(on_delta);
-        let (text, _tool_calls, _stop, mut usage, _thinking, _ttft) =
+        let (text, _tool_calls, _provider_items, _stop, mut usage, _thinking, _ttft) =
             parse_anthropic_sse(resp, request_start, cancel, &fwd).await?;
         usage.last_input_tokens = usage.input_tokens;
         usage.last_cache_creation_input_tokens = usage.cache_creation_input_tokens;
@@ -431,7 +431,7 @@ impl<'a> LlmApiAdapter for OpenAIResponsesAdapter<'a> {
             return Err(stream_error(resp).await);
         }
         let fwd = unwrap_text_delta(on_delta);
-        let (text, _tool_calls, mut usage, _thinking, _ttft) =
+        let (text, _tool_calls, _provider_items, mut usage, _thinking, _ttft) =
             parse_openai_sse(resp, request_start, cancel.as_ref(), &fwd).await?;
         usage.last_input_tokens = usage.input_tokens;
         usage.last_cache_read_input_tokens = usage.cache_read_input_tokens;
@@ -577,17 +577,13 @@ impl<'a> CodexAdapter<'a> {
             return Err(anyhow::anyhow!("{}", friendly));
         }
 
-        let (text, _tool_calls, mut usage, _thinking, _ttft) = match parse_openai_sse(
-            resp,
-            request_start,
-            cancel,
-            on_delta,
-        )
-        .await
-        {
-            Ok(parsed) => parsed,
-            Err(e) => {
-                app_warn!(
+        // 合并语义：设计流式要求 cancel / on_delta 真透传（HEAD），SSE 解析随 main 升级为
+        // 6 元组（多出 provider_items，一次性调用不消费）。
+        let (text, _tool_calls, _provider_items, mut usage, _thinking, _ttft) =
+            match parse_openai_sse(resp, request_start, cancel, on_delta).await {
+                Ok(parsed) => parsed,
+                Err(e) => {
+                    app_warn!(
                     "agent",
                     "codex_one_shot",
                     "Codex one-shot SSE parse failed: model={} has_token={} has_account_id={} instructions_present={} input_count={} tool_count={} body={}B err={}",
@@ -600,9 +596,9 @@ impl<'a> CodexAdapter<'a> {
                     body_size,
                     e
                 );
-                return Err(e);
-            }
-        };
+                    return Err(e);
+                }
+            };
         // One-shot is single-round: last == only round.
         usage.last_input_tokens = usage.input_tokens;
         usage.last_cache_creation_input_tokens = usage.cache_creation_input_tokens;
@@ -788,7 +784,17 @@ pub(super) fn extract_anthropic_usage(result: &Value) -> ChatUsage {
             .unwrap_or(0),
         cache_creation_input_tokens: cache_creation,
         cache_read_input_tokens: cache_read,
-        last_input_tokens: input_tokens,
+        context_input_tokens: input_tokens
+            .saturating_add(cache_creation)
+            .saturating_add(cache_read),
+        fresh_input_tokens: input_tokens.saturating_add(cache_creation),
+        last_input_tokens: input_tokens
+            .saturating_add(cache_creation)
+            .saturating_add(cache_read),
+        last_context_input_tokens: input_tokens
+            .saturating_add(cache_creation)
+            .saturating_add(cache_read),
+        last_fresh_input_tokens: input_tokens.saturating_add(cache_creation),
         last_cache_creation_input_tokens: cache_creation,
         last_cache_read_input_tokens: cache_read,
     }
@@ -817,8 +823,12 @@ pub(super) fn extract_openai_usage(result: &Value) -> ChatUsage {
             .unwrap_or(0),
         cache_creation_input_tokens: 0,
         cache_read_input_tokens: cached,
+        context_input_tokens: input_tokens,
+        fresh_input_tokens: input_tokens.saturating_sub(cached),
         // One-shot calls are single-round: last == only == total.
         last_input_tokens: input_tokens,
+        last_context_input_tokens: input_tokens,
+        last_fresh_input_tokens: input_tokens.saturating_sub(cached),
         last_cache_creation_input_tokens: 0,
         last_cache_read_input_tokens: cached,
     }

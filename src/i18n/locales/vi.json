@@ -984,13 +984,20 @@
         "noSession": "không có bối cảnh phiên",
         "retrievalError": "truy xuất không thành công",
         "sideQueryError": "thu hồi không thành công",
-        "timeout": "hết thời gian"
+        "timeout": "hết thời gian",
+        "budgetEmpty": "ngân sách gợi nhớ đang trống",
+        "nonContextualTurn": "lượt trò chuyện không cần ngữ cảnh",
+        "recallOff": "gợi nhớ động tự động đang tắt",
+        "retrievalBusy": "dịch vụ gợi nhớ đang bận",
+        "sessionPolicy": "đã tắt theo chính sách bộ nhớ hoặc cuộc trò chuyện",
+        "unifiedRecall": "đã được xử lý bằng gợi nhớ nhanh",
+        "unknown": "lý do khác"
       },
       "layerStatus": {
         "candidate": "ứng cử viên",
         "disabled": "bị vô hiệu hóa",
         "empty": "không trúng",
-        "skipped": "xuống cấp",
+        "skipped": "đã bỏ qua",
         "unknown": "không rõ",
         "used": "đã sử dụng"
       },
@@ -1057,7 +1064,11 @@
       "more": "{{count}} nhiều mục ngữ cảnh dài hạn hơn bị ẩn.",
       "sources": "Nguồn bộ nhớ",
       "editMemory": "Chỉnh sửa bộ nhớ này",
-      "copyTrace": "Sao chép chẩn đoán"
+      "copyTrace": "Sao chép chẩn đoán",
+      "promoteToCore": "Luôn ghi nhớ điều này",
+      "promoteToCoreFailed": "Không thể thêm nội dung này vào Bộ nhớ Cốt lõi.",
+      "promotedToCore": "Đã ghi nhớ vĩnh viễn",
+      "promotedToCoreToast": "Đã thêm vào Bộ nhớ Cốt lõi thường trực."
     },
     "projectWelcomeTitle": "Chúng ta nên xây dựng gì trong <project>{{project}}</project>? Hãy nói ý tưởng của bạn",
     "projectWelcomeSuggestions": {
@@ -1129,7 +1140,18 @@
     "openSourceConversationMissing": "Cuộc trò chuyện nguồn không còn khả dụng",
     "openSourceConversationMissingHint": "Nguồn bộ nhớ này trỏ tới một cuộc trò chuyện đã bị xóa hoặc không thể tìm thấy.",
     "openSourceMessageMissing": "Tin nhắn nguồn không còn khả dụng",
-    "openSourceMessageMissingHint": "Cuộc trò chuyện vẫn tồn tại, nhưng không thể tìm thấy tin nhắn chính xác cho nguồn bộ nhớ này."
+    "openSourceMessageMissingHint": "Cuộc trò chuyện vẫn tồn tại, nhưng không thể tìm thấy tin nhắn chính xác cho nguồn bộ nhớ này.",
+    "memoryPolicy": {
+      "title": "Bộ nhớ cho cuộc trò chuyện này",
+      "use": "Dùng bộ nhớ hiện có",
+      "contribute": "Học từ cuộc trò chuyện này",
+      "inherit": "Theo cài đặt toàn cục",
+      "allow": "Bật",
+      "deny": "Tắt",
+      "desc": "Hai tùy chọn độc lập: có thể dùng ký ức cũ mà không tạo ký ức mới.",
+      "incognito": "Trò chuyện ẩn danh không bao giờ đọc hoặc ghi bộ nhớ dài hạn.",
+      "reloadCore": "Tải lại MEMORY.md cho phiên này"
+    }
   },
   "codexAuth": {
     "expiredDescription": "Token OAuth của Codex không còn hợp lệ. Vui lòng đăng nhập lại để tiếp tục.",
@@ -1193,7 +1215,7 @@
     "ago": "trước",
     "cacheTtlProtection": "bảo vệ TTL bộ nhớ đệm",
     "compactAllowedIn": "Lần nén tiếp theo trong",
-    "estimateNote": "Ước tính (ký tự÷4); có thể chênh lệch 10–20% so với mức sử dụng thực tế.",
+    "estimateNote": "Sau mỗi lượt, số liệu sử dụng thực tế của Provider là chuẩn; trước đó hiển thị ước tính thận trọng theo dạng yêu cầu.",
     "freeSpace": "Không gian trống",
     "lastCompact": "Lần nén cuối",
     "memory": "Bộ nhớ",
@@ -1205,7 +1227,16 @@
     "toolDescriptions": "Mô tả công cụ",
     "toolSchemas": "Lược đồ công cụ",
     "used": "Đã dùng",
-    "viewSystemPrompt": "System prompt"
+    "viewSystemPrompt": "System prompt",
+    "cacheRead": "Đọc bộ nhớ đệm",
+    "cacheWindowNotice": "Lượt trúng bộ nhớ đệm giảm tính toán lặp lại, chi phí và TTFT; không giảm mức sử dụng cửa sổ ngữ cảnh.",
+    "cacheWrite": "Ghi bộ nhớ đệm",
+    "coreMemoryBudget": "Ngân sách Core Memory",
+    "coreMemoryModelLimited": "tạm thời giới hạn cho mô hình này",
+    "dynamicPrompt": "Lời nhắc động",
+    "estimated": "ước tính",
+    "freshInput": "Đầu vào mới",
+    "providerInput": "Đầu vào Provider"
   },
   "cron": {
     "active": "Hoạt động",
@@ -2067,10 +2098,10 @@
       "staged": "Staged",
       "stagedScope": "Staged",
       "stale": "The repository changed. The diff was refreshed; review it again.",
+      "prReviewComments": "Bình luận review PR · {{count}}",
       "unstage": "Unstage",
       "unstaged": "Unstaged",
-      "unstagedScope": "Unstaged",
-      "prReviewComments": "Bình luận review PR · {{count}}"
+      "unstagedScope": "Unstaged"
     }
   },
   "effort": {
@@ -2507,7 +2538,9 @@
     "reasoningHint": "Sau khi bật, bạn có thể chọn độ sâu suy luận (thấp / trung bình / cao) trong menu mô hình phía trên ô nhập liệu trò chuyện; nó sẽ được tự động thêm vào mỗi yêu cầu.",
     "supportedInputTypes": "Loại đầu vào hỗ trợ",
     "text": "Văn bản",
-    "video": "Video"
+    "video": "Video",
+    "supportsImageMultimodal": "Hỗ trợ đa phương thức hình ảnh",
+    "supportsVideoMultimodal": "Hỗ trợ đa phương thức video"
   },
   "notification": {
     "cronCancelled": "Đã hủy tác vụ theo lịch",
@@ -2990,7 +3023,30 @@
     "openFromMemoryLoadFailed": "Không thể mở nguồn dự án",
     "openFromMemoryLoadFailedDetail": "Chi tiết: {{error}}",
     "openFromMemoryMissing": "Dự án không còn khả dụng",
-    "openFromMemoryMissingHint": "Nguồn bộ nhớ trỏ tới một dự án đã bị xóa hoặc không thể tìm thấy."
+    "openFromMemoryMissingHint": "Nguồn bộ nhớ trỏ tới một dự án đã bị xóa hoặc không thể tìm thấy.",
+    "autoMemory": {
+      "content": "Chi tiết (Markdown)",
+      "deleteConfirm": "Xóa chủ đề bộ nhớ tự động của dự án này?",
+      "description": "Một chỉ mục MEMORY.md ngắn gọn được đưa ổn định vào các cuộc trò chuyện dự án; chi tiết chỉ được đọc khi liên quan. Mọi dữ liệu đều ở trên máy này.",
+      "editorHint": "Chỉ dẫn dự án là quy tắc cố định. Khu vực này lưu kinh nghiệm tích lũy trong khi làm việc, không phải chỉ dẫn có thẩm quyền.",
+      "editorTitle": "Bộ nhớ tự động của dự án",
+      "empty": "Chưa có chủ đề bộ nhớ tự động.",
+      "fileNameGenerated": "Tên tệp sẽ được tạo khi lưu",
+      "name": "Tiêu đề",
+      "newTopic": "Chủ đề mới",
+      "rebuildIndex": "Tạo lại chỉ mục MEMORY.md",
+      "rebuildFailed": "Không thể tạo lại chỉ mục MEMORY.md.",
+      "summary": "Tóm tắt chỉ mục",
+      "summaryHint": "Câu này đi vào prompt ổn định của mọi cuộc trò chuyện dự án, vì vậy hãy viết ngắn gọn.",
+      "type": "Loại",
+      "types": {
+        "feedback": "Phản hồi công việc",
+        "project": "Công việc dự án",
+        "reference": "Tham khảo",
+        "user": "Ngữ cảnh người dùng"
+      }
+    },
+    "tabAutoMemory": "Bộ nhớ tự động"
   },
   "provider": {
     "addProvider": "Thêm nhà cung cấp",
@@ -3202,12 +3258,12 @@
     "acpTimeout": "Hết thời gian (giây)",
     "activeMemoryCacheTtl": "TTL cache (giây)",
     "activeMemoryCandidateLimit": "Giới hạn ứng viên",
-    "activeMemoryDesc": "Đầu mỗi lượt người dùng, chạy một side query có giới hạn để cô đọng ký ức liên quan nhất thành một câu và đưa vào cùng system prompt. Hết thời gian và lỗi sẽ lặng lẽ quay lại recall bị động — không bao giờ chặn cuộc trò chuyện.",
+    "activeMemoryDesc": "Gợi nhớ tương thích theo Agent. Khi bật, chỉ Agent này dùng gợi nhớ Fast và xếp hạng sâu ngay cả khi gợi nhớ tự động toàn cục đang tắt. Mặc định tắt; xếp hạng sâu sẽ thêm side query, độ trễ cùng lượng Token.",
     "activeMemoryIncludeClaims": "Bao gồm các khẳng định có cấu trúc",
     "activeMemoryIncludeClaimsDesc": "Cũng đưa các khẳng định có cấu trúc của Dreaming (không chỉ ký ức cũ) vào danh sách ứng viên gợi nhớ. Mặc định tắt.",
     "activeMemoryMaxChars": "Số ký tự tối đa khi recall",
     "activeMemoryTimeout": "Hết hạn (ms)",
-    "activeMemoryTitle": "Truy hồi bộ nhớ chủ động",
+    "activeMemoryTitle": "Truy hồi sâu theo Agent",
     "addFallback": "Thêm mô hình dự phòng",
     "addFallbackModel": "Thêm mô hình dự phòng",
     "agentAgentsMd": "AGENTS.md",
@@ -4848,9 +4904,9 @@
     "memoryAutoExtractDesc": "Tự động trích xuất bộ nhớ khi đáp ứng ngưỡng token, thời gian hoặc tin nhắn",
     "memoryBudget": {
       "agentOverrideDesc": "Mặc định kế thừa Ngân sách bộ nhớ chung. Tắt để dùng ngân sách riêng cho Agent.",
-      "coreMemoryFileChars": "Giới hạn từng memory.md",
-      "coreMemoryFileCharsDesc": "Giới hạn độc lập cho mỗi tệp memory.md (Global / Agent). Nội dung vượt quá sẽ bị cắt trong lời nhắc nhưng vẫn giữ nguyên trên đĩa. Mặc định 8000.",
-      "desc": "Giới hạn tổng số ký tự của phần bộ nhớ (Global memory.md / Agent memory.md / bộ nhớ SQLite / Hướng dẫn) và giới hạn từng lớp bên trong. Giảm tổng sẽ dành thêm ngân sách cho ngữ cảnh hội thoại trực tiếp.",
+      "coreMemoryFileChars": "Giới hạn từng MEMORY.md",
+      "coreMemoryFileCharsDesc": "Giới hạn độc lập cho mỗi tệp MEMORY.md (Global / Agent). Nội dung vượt quá sẽ bị cắt trong lời nhắc nhưng vẫn giữ nguyên trên đĩa. Mặc định 8000.",
+      "desc": "Giới hạn tổng số ký tự của phần bộ nhớ (Global MEMORY.md / Agent MEMORY.md / bộ nhớ SQLite / Hướng dẫn) và giới hạn từng lớp bên trong. Giảm tổng sẽ dành thêm ngân sách cho ngữ cảnh hội thoại trực tiếp.",
       "resetToDefaults": "Khôi phục mặc định",
       "sections": {
         "aboutUser": "Về người dùng",
@@ -4870,6 +4926,35 @@
         "load": "Failed to load memory budget",
         "save": "Failed to save memory budget",
         "detail": "Chi tiết: {{error}}"
+      },
+      "advancedAllocation": "Phân bổ phạm vi nâng cao",
+      "contextWindow": "Ngữ cảnh mô hình mặc định hiện tại: {{count}} tokens",
+      "coreSimpleDesc": "Chọn một ngân sách tổng cho Core Memory. Dung lượng chưa dùng được chia sẻ theo ưu tiên Project > Agent > Global.",
+      "engine": {
+        "agentTokens": "Token Agent",
+        "budgetTokens": "Token ngân sách",
+        "cacheTtlSecs": "TTL bộ đệm (giây)",
+        "candidateLimit": "Giới hạn ứng viên",
+        "globalTokens": "Token toàn cục",
+        "hardMaxTokens": "Giới hạn cứng token",
+        "maxSelected": "Số lượng chọn tối đa",
+        "maxTokens": "Token tối đa",
+        "projectTokens": "Token dự án",
+        "protocolTokens": "Token giao thức",
+        "summaryChars": "Ký tự tóm tắt",
+        "timeoutMs": "Hết thời gian (ms)",
+        "topicReadTokens": "Token đọc chủ đề",
+        "totalTokens": "Tổng token"
+      },
+      "legacyTitle": "Ngân sách quay lui phiên bản cũ",
+      "legacyDesc": "Các ngân sách ký tự này chỉ áp dụng cho luồng bộ nhớ tĩnh cũ và vẫn có thể chỉnh sửa trong thời gian tương thích.",
+      "effective": "Đã đặt {{configured}} · hiệu lực ở lượt này {{effective}} tokens",
+      "highBudgetWarning": "Vượt phạm vi khuyến nghị 2400 tokens. Vẫn có thể lưu, nhưng sẽ tăng ngữ cảnh ổn định, lượng ghi bộ nhớ đệm và độ trễ token đầu tiên.",
+      "modelLimited": "Đã đặt {{configured}} tokens; mô hình hiện tại dùng an toàn {{effective}}. Tùy chọn đã lưu không bị thay đổi.",
+      "presets": {
+        "balanced": "Cân bằng",
+        "concise": "Gọn",
+        "rich": "Phong phú"
       }
     },
     "memoryContent": "Nội dung",
@@ -5911,7 +5996,7 @@
     "timeoutPolicyWarn": "Áp dụng và ghi log (mặc định)",
     "toolTimeout": "Timeout công cụ đồng bộ",
     "toolTimeoutDesc": "Timeout dự phòng toàn cục cho các lệnh gọi công cụ foreground/đồng bộ. Mặc định 0 tắt timeout toàn cục này; đặt giá trị dương để hủy lệnh gọi sau số giây đó. Các async job nền dùng thời lượng job tối đa trong công cụ async; từng công cụ vẫn có thể có timeout nội bộ riêng.",
-    "toolUpdateCoreMemoryDesc": "Cập nhật file memory.md được nạp vào system prompt",
+    "toolUpdateCoreMemoryDesc": "Cập nhật file MEMORY.md được nạp vào system prompt",
     "toolUpdateCoreMemoryName": "Cập Nhật Bộ Nhớ Lõi",
     "toolUpdateMemoryDesc": "Cập nhật nội dung của bộ nhớ hiện có",
     "toolUpdateMemoryName": "Cập nhật bộ nhớ",
@@ -6143,8 +6228,8 @@
     "memoryLearningPausedDesc": "Tác nhân hiện không sử dụng hoặc học trí nhớ dài hạn. Dữ liệu hiện có vẫn còn trên thiết bị này và bạn vẫn có thể quản lý, xuất, xóa hoặc tiếp tục ở chế độ chỉ thủ công.",
     "memoryLearningResumeManual": "Chỉ tiếp tục thủ công",
     "memoryLearningOpenSettings": "Mở cài đặt",
-    "memoryUseInRepliesTitle": "Sử dụng kỷ niệm trong câu trả lời",
-    "memoryUseInRepliesDesc": "Bật cài đặt trước thu hồi có độ trễ thấp được đề xuất cho tác nhân mặc định. Những ký ức liên quan có thể được đưa vào câu trả lời và việc thu hồi vẫn bỏ qua một cách an toàn khi hết thời gian chờ.",
+    "memoryUseInRepliesTitle": "Ghi đè truy hồi sâu Agent kiểu cũ",
+    "memoryUseInRepliesDesc": "Gợi nhớ tương thích cho Agent mặc định. Khi bật, chỉ Agent này dùng gợi nhớ Fast và xếp hạng sâu ngay cả khi mặc định toàn cục phía trên đang tắt. Mặc định tắt; xếp hạng sâu sẽ thêm side query, độ trễ cùng lượng Token.",
     "memoryUseInRepliesTarget": "Tác nhân mặc định: {{agent}}",
     "memoryUseInRepliesSummaryTimeout": "Hết giờ",
     "memoryUseInRepliesSummaryCache": "Bộ nhớ đệm",
@@ -6165,9 +6250,9 @@
     "memoryUseInRepliesUpdateFailed": "Không thể cập nhật thu hồi hiện hoạt",
     "memoryUseInRepliesError": "Không thể cập nhật thu hồi đang hoạt động: {{error}}",
     "memoryUseInRepliesErrorDetail": "Chi tiết: {{error}}",
-    "memoryUseInRepliesReadinessRecommended": "Sẵn sàng: thu hồi có độ trễ thấp bao gồm các bộ nhớ có cấu trúc và dự phòng thời gian chờ an toàn.",
+    "memoryUseInRepliesReadinessRecommended": "Gợi nhớ tương thích của Agent đã sẵn sàng; chỉ Agent này dùng gợi nhớ Fast và xếp hạng sâu.",
     "memoryUseInRepliesReadinessAgentOff": "Bộ nhớ Agent bị tắt. Việc sử dụng tính năng thu hồi được đề xuất sẽ bật lại tính năng này cho tác nhân mặc định.",
-    "memoryUseInRepliesReadinessDisabled": "Tắt: tác nhân mặc định sẽ không chủ động tra cứu ký ức trước khi trả lời.",
+    "memoryUseInRepliesReadinessDisabled": "Tắt theo mặc định: tác nhân mặc định sẽ không chủ động tra cứu ký ức trước khi trả lời.",
     "memoryUseInRepliesReadinessClaimsOff": "Ký ức có cấu trúc được loại trừ khỏi khả năng chủ động nhớ lại.",
     "memoryUseInRepliesReadinessSlowTimeout": "Thời gian chờ cao hơn giá trị đặt trước có độ trễ thấp được đề xuất.",
     "memoryUseInRepliesReadinessTightBudget": "Ngân sách thu hồi thấp hơn mức đặt trước được đề xuất.",
@@ -7030,7 +7115,95 @@
     "memoryProcedureTriggerPlaceholder": "Khi nào quy trình công việc này nên được xem xét",
     "memoryProcedureStepsPlaceholder": "- Kiểm tra việc kiểm tra sai\n- Áp dụng bản sửa lỗi đã biết\n- Chạy lại trình xác minh hẹp",
     "memoryProcedureConstraintsPlaceholder": "Khi nào không sử dụng quy trình làm việc này",
-    "memoryProcedureConfidence": "sự tự tin"
+    "memoryProcedureConfidence": "sự tự tin",
+    "agentMemoryEnabledTitle": "Dùng bộ nhớ cho Agent này",
+    "agentMemoryEnabledDesc": "Kiểm soát Bộ nhớ Cốt lõi, gợi nhớ động, học tập và công cụ bộ nhớ của Agent này. Cài đặt bộ nhớ toàn cục vẫn là chính sách cấp trên.",
+    "memoryV2": {
+      "title": "Bộ nhớ",
+      "subtitle": "Chọn điều cần nhớ lâu dài, khi nào cần gợi nhớ thêm và liệu hội thoại có dạy trợ lý hay không.",
+      "loadFailed": "Không thể tải cài đặt bộ nhớ",
+      "saveFailed": "Không thể lưu cài đặt bộ nhớ",
+      "core": {
+        "title": "Luôn ghi nhớ",
+        "desc": "MEMORY.md ngắn của Global, Agent và Project được giữ ổn định trong hội thoại; chi tiết chỉ tải khi cần.",
+        "budget": "Tổng ngân sách {{count}} token",
+        "manage": "Sửa MEMORY.md",
+        "projectTitle": "MEMORY.md của dự án",
+        "projectDesc": "Ngữ cảnh thường trực ngắn chỉ dùng cho các cuộc trò chuyện trong dự án này.",
+        "conflict": "Cả tệp chuẩn viết hoa và tệp tương thích cũ viết thường đều đã thay đổi. Hãy chọn hoặc hợp nhất nội dung trước khi lưu.",
+        "conflictCanonical": "MEMORY.md chuẩn viết hoa",
+        "conflictLegacy": "memory.md cũ viết thường",
+        "conflictMerged": "Kết quả hợp nhất (bắt đầu từ bản chuẩn)",
+        "conflictKeepCanonical": "Giữ MEMORY.md",
+        "conflictKeepLegacy": "Giữ tệp cũ",
+        "conflictSaveMerged": "Lưu kết quả hợp nhất",
+        "conflictLoadFailed": "Không thể tải các tệp Bộ nhớ Cốt lõi đang xung đột",
+        "conflictResolveFailed": "Không thể giải quyết xung đột Bộ nhớ Cốt lõi. Hãy tải lại và thử lại.",
+        "conflictResolved": "Đã giải quyết xung đột Bộ nhớ Cốt lõi",
+        "actualTokens": "{{used}} / {{total}} token trong phạm vi này",
+        "stats": "Mục chỉ mục: {{entries}} · Chủ đề: {{topics}}",
+        "updatedAt": "Đã cập nhật {{value}}",
+        "neverUpdated": "Chưa được ghi",
+        "scope": "Phạm vi bộ nhớ",
+        "projectLabel": "Dự án",
+        "topics": "Chủ đề theo nhu cầu",
+        "noTopics": "Chưa có tệp chủ đề",
+        "selectTopic": "Chọn một chủ đề hoặc tạo chủ đề mới",
+        "topicName": "Tên chủ đề",
+        "topicDesc": "Một dòng mô tả khi nào cần đọc",
+        "topicContent": "Chi tiết chủ đề (chỉ tải khi cần)",
+        "topicLoadFailed": "Không thể tải các chủ đề bộ nhớ",
+        "topicSaveFailed": "Không thể lưu chủ đề bộ nhớ",
+        "topicDeleteConfirm": "Xóa chủ đề bộ nhớ này?",
+        "topicDeleteFailed": "Không thể xóa chủ đề bộ nhớ"
+      },
+      "recall": {
+        "title": "Gợi nhớ động",
+        "desc": "Mặc định tắt. Khi tắt, chỉ Bộ nhớ cốt lõi ổn định được tự động sử dụng, trừ khi một Agent đã bật ghi đè tương thích riêng; mô hình vẫn có thể tìm kiếm bằng công cụ bộ nhớ khi cần. Khi bật, các ký ức động liên quan được tìm sau mỗi tin nhắn của người dùng và trước khi tạo câu trả lời.",
+        "fast": "Tự động gợi nhớ ký ức liên quan",
+        "deep": "Xếp hạng sâu (tùy chọn)",
+        "skip": "Đã bỏ qua",
+        "deepCost": "Xếp hạng sâu thêm một lần gọi mô hình, làm phản hồi chậm hơn và dùng nhiều token hơn. Chỉ dùng sau khi bật gợi nhớ tự động và khi thực sự cần.",
+        "last": "Lần gợi nhớ gần nhất: đã chọn {{selected}}/{{candidates}} · {{latency}} ms · {{mode}}",
+        "noRecent": "Chưa có lần gợi nhớ động tự động nào kể từ khi mở ứng dụng."
+      },
+      "learning": {
+        "title": "Học từ hội thoại",
+        "desc": "Kiểm soát việc lưu thông tin mới từ cuộc trò chuyện. Không ảnh hưởng đến việc dùng ký ức hiện có.",
+        "mode": "Chế độ học",
+        "smart": "Học thông minh",
+        "reviewFirst": "Duyệt trước khi lưu",
+        "manual": "Chỉ lưu thủ công",
+        "pending": "{{count}} mục chờ duyệt",
+        "unassigned": "{{count}} mục chưa gán"
+      },
+      "review": {
+        "title": "Bộ nhớ chờ duyệt",
+        "desc": "{{count}} ứng viên chưa được đưa vào bộ nhớ dài hạn hoặc prompt.",
+        "empty": "Không có nội dung chờ duyệt",
+        "chooseScope": "Chọn nơi lưu",
+        "approve": "Lưu bộ nhớ",
+        "reject": "Không lưu",
+        "loadFailed": "Không thể tải bộ nhớ chờ duyệt",
+        "approveFailed": "Không thể lưu bộ nhớ chờ duyệt",
+        "rejectFailed": "Không thể bỏ qua bộ nhớ chờ duyệt",
+        "reason": {
+          "review_first": "Chế độ học yêu cầu duyệt",
+          "project_scope_missing": "Có vẻ thuộc dự án nhưng cuộc trò chuyện này không có dự án",
+          "scope_uncertain": "Chưa rõ phạm vi phù hợp",
+          "sensitive": "Có thể chứa thông tin nhạy cảm",
+          "conflict": "Xung đột với bộ nhớ hiện có",
+          "core_promotion": "Được đề xuất làm bộ nhớ thường trực"
+        }
+      }
+    },
+    "memoryBackupExportSummary": "Bộ nhớ: {{memories}} · Khẳng định: {{claims}} · Hồ sơ: {{profiles}} · Trải nghiệm: {{episodes}} · Quy trình: {{procedures}}",
+    "memoryBackupOpenReviewInboxAfterRestore": "Nội dung đã khôi phục cần xem xét: {{count}}",
+    "memoryExperienceSearchActive": "Kết quả khớp với “{{query}}”: {{total}}",
+    "memoryExperienceViewActive": "Mục trải nghiệm: {{total}}",
+    "memoryExternalProvidersActive": "Nhà cung cấp đang hoạt động: {{active}}/{{total}}",
+    "memoryExternalProvidersActiveSummary": "Đang hoạt động: {{active}} · Đã cấu hình: {{total}}",
+    "memoryProcedureSourceEpisode": "Trải nghiệm: {{id}}"
   },
   "shortcuts": {
     "actionOpenSettings": "Mở cài đặt",
@@ -7641,6 +7814,8 @@
       "selectBranch": "Select branch",
       "stageAll": "Stage all changes",
       "viewPr": "View pull request",
+      "pullRequestPanelTitle": "Yêu cầu kéo",
+      "resizePullRequestPanel": "Thay đổi chiều rộng bảng yêu cầu kéo",
       "worktree": "Worktree",
       "checkDetails": "Chi tiết kiểm tra",
       "checkFailed": "Thất bại",
@@ -7662,6 +7837,7 @@
       "openCheck": "Mở kiểm tra",
       "openComment": "Mở bình luận",
       "prFeedbackUnavailable": "Không thể tải kiểm tra và bình luận PR",
+      "prFeedbackStale": "Không thể làm mới trạng thái yêu cầu kéo; dữ liệu hiện tại có thể đã cũ",
       "reviewComments": "{{count}} bình luận",
       "reviewFeedback": "Phản hồi review",
       "autoMergeEnabled": "Đã bật tự động hợp nhất",
@@ -7688,10 +7864,7 @@
       "reviewPending": "Đang chờ",
       "reviewRequired": "Cần đánh giá",
       "reviewStatus": "Trạng thái đánh giá",
-      "reviewers": "Người đánh giá",
-      "pullRequestPanelTitle": "Yêu cầu kéo",
-      "resizePullRequestPanel": "Thay đổi chiều rộng bảng yêu cầu kéo",
-      "prFeedbackStale": "Không thể làm mới trạng thái yêu cầu kéo; dữ liệu hiện tại có thể đã cũ"
+      "reviewers": "Người đánh giá"
     },
     "action": {
       "create": "Mới",
@@ -9320,7 +9493,8 @@
         "loadMoreThreads": "Không thể tải thêm cuộc trò chuyện",
         "loadMoreMessages": "Không thể tải tin nhắn cũ hơn",
         "detail": "Chi tiết: {{error}}"
-      }
+      },
+      "welcome": "Đặt câu hỏi, sắp xếp hoặc sáng tạo với không gian kiến thức này"
     },
     "quickRewrite": {
       "title": "Viết lại nhanh",

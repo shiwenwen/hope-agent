@@ -23,6 +23,7 @@ pub fn handle_model(store: &AppConfig, args: &str) -> Result<CommandResult, Stri
                 provider_name: m.provider_name.clone(),
                 model_id: m.model_id.clone(),
                 model_name: m.model_name.clone(),
+                input_types: m.input_types.clone(),
             })
             .collect();
 

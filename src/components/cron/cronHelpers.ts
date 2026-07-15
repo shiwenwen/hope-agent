@@ -1,4 +1,38 @@
-import type { CronSchedule, CronFrequency, CronDeliveryTarget } from "./CronJobForm.types"
+import type {
+  CronSchedule,
+  CronFrequency,
+  CronDeliveryTarget,
+  CronPayloadType,
+  CronJob,
+} from "./CronJobForm.types"
+
+const LOOP_TITLE_PREFIX = /^\s*\[Loop\]\s*/i
+
+/**
+ * Remove the legacy internal title prefix only after the structured payload
+ * discriminator has established that this really is a Loop. Ordinary jobs
+ * named `[Loop] ...` remain untouched and never receive a Loop badge.
+ */
+export function cronDisplayTitle(title: string, payloadType?: CronPayloadType | null): string {
+  if (payloadType !== "sessionLoop") return title
+  return title.replace(LOOP_TITLE_PREFIX, "") || title
+}
+
+/** User-visible state follows the Loop control plane when one owns the job. */
+export function cronDisplayStatus(job: CronJob): CronJob["status"] {
+  if (job.payload.type !== "sessionLoop" || !job.loopState) return job.status
+  switch (job.loopState) {
+    case "active":
+      return "active"
+    case "paused":
+      return "paused"
+    case "blocked":
+      return "disabled"
+    case "completed":
+    case "cancelled":
+      return "completed"
+  }
+}
 
 /**
  * Human-readable label for a delivery target. Uses the cached `label` computed

@@ -312,6 +312,44 @@ pub fn build_system_prompt(agent_id: &str, model: &str, provider: &str) -> Strin
 pub(crate) struct SystemPromptBuild {
     pub prompt: String,
     pub static_memory_refs: Vec<super::active_memory::UsedMemoryRef>,
+    pub static_memory_manifest: crate::memory::context_manifest::StaticMemoryContextManifest,
+    pub core_memory_snapshot: Option<crate::memory::core_repository::CoreMemorySnapshot>,
+}
+
+fn core_memory_ref(
+    scope: &crate::memory::core_repository::CoreMemoryScope,
+    canonical_repository: bool,
+) -> super::active_memory::UsedMemoryRef {
+    let scope_label = scope.key();
+    let path = crate::memory::core_repository::paths(scope)
+        .ok()
+        .map(|paths| {
+            if canonical_repository {
+                paths.canonical
+            } else {
+                paths.legacy.unwrap_or(paths.canonical)
+            }
+        })
+        .map(|path| path.display().to_string());
+    super::active_memory::UsedMemoryRef {
+        kind: "memory".to_string(),
+        id: format!("core-memory:{scope_label}"),
+        source_type: "core_memory_index".to_string(),
+        scope: scope_label,
+        origin: "core_memory".to_string(),
+        role: "injected".to_string(),
+        // Keep the wire preview language-neutral. The UI localizes the origin
+        // and source labels; exact byte/token counts live in the manifest.
+        preview: "MEMORY.md".to_string(),
+        path,
+        line: None,
+        col: None,
+        heading_path: None,
+        block_id: None,
+        score: None,
+        confidence: None,
+        salience: None,
+    }
 }
 
 /// Project-aware variant of [`build_system_prompt`]. When `session_id` is
@@ -342,6 +380,7 @@ pub(crate) fn build_system_prompt_bundle_with_session(
         provider,
         session_id,
         crate::get_session_db().map(std::sync::Arc::as_ref),
+        None,
     )
 }
 
@@ -355,6 +394,7 @@ pub(crate) fn build_system_prompt_bundle_with_session_db(
     provider: &str,
     session_id: Option<&str>,
     session_db: Option<&crate::session::SessionDB>,
+    existing_core_snapshot: Option<&crate::memory::core_repository::CoreMemorySnapshot>,
 ) -> SystemPromptBuild {
     let (session_meta, active_goal) = resolve_prompt_session_state(session_id, session_db);
     let incognito = session_meta
@@ -372,26 +412,120 @@ pub(crate) fn build_system_prompt_bundle_with_session_db(
 
         // Load candidate memory entries (unscoped raw list). Budget-based
         // filtering and per-section sub-budgets are applied downstream by
-        // `system_prompt::build` so that Layer 1/2 (core memory.md files) can
+        // `system_prompt::build` so that Layer 1/2 (Core MEMORY.md files) can
         // consume the total budget first and Layer 3 picks up only the residual.
         let app_cfg = crate::config::cached_config();
-        let long_term_memory_enabled = app_cfg.memory_extract.enabled;
-
-        let memory_entries: Vec<crate::memory::MemoryEntry> =
-            if long_term_memory_enabled && definition.config.memory.enabled && !incognito {
-                crate::get_memory_backend()
-                    .and_then(|b| {
-                        b.load_prompt_candidates_with_project(
+        let memory_runtime_enabled = app_cfg
+            .memory
+            .effective_enabled(app_cfg.memory_extract.enabled);
+        let session_memory_access =
+            crate::memory::effective_session_memory_access(session_id, session_db);
+        let memory_use_enabled = memory_runtime_enabled && session_memory_access.use_memories;
+        let core_memory_enabled = !app_cfg.memory.rollout.enabled || app_cfg.memory.core.enabled;
+        let core_repository_enabled = app_cfg.memory.core_repository_enabled();
+        let long_term_memory_enabled = memory_use_enabled;
+        let legacy_static_memory = app_cfg.memory.legacy_static_injection_enabled();
+        let core_prompt_enabled = memory_use_enabled
+            && core_memory_enabled
+            && definition.config.memory.enabled
+            && !incognito;
+        let project_id = project.as_ref().map(|project| project.id.as_str());
+        let core_memory_snapshot = if core_repository_enabled && core_prompt_enabled {
+            let shared_global = definition.config.memory.shared;
+            if let Some(session_id) = session_id {
+                // The repository map is the session-level authority. Owner
+                // reload, policy changes, compaction and backup restore all
+                // invalidate it; preferring the Agent object's local copy here
+                // would make those explicit refresh boundaries ineffective.
+                crate::memory::core_repository::session_snapshot(
+                    session_id,
+                    agent_id,
+                    project_id,
+                    shared_global,
+                )
+                .ok()
+            } else {
+                existing_core_snapshot
+                    .filter(|snapshot| {
+                        snapshot.matches_context(agent_id, project_id, shared_global)
+                    })
+                    .cloned()
+                    .or_else(|| {
+                        crate::memory::core_repository::CoreMemorySnapshot::capture(
                             agent_id,
-                            project.as_ref().map(|p| p.id.as_str()),
-                            definition.config.memory.shared,
+                            project_id,
+                            shared_global,
                         )
                         .ok()
                     })
+            }
+        } else {
+            None
+        };
+        let agent_core_memory = if core_repository_enabled {
+            core_memory_snapshot
+                .as_ref()
+                .and_then(|snapshot| snapshot.agent.as_ref())
+                .map(|layer| layer.content.as_str())
+        } else {
+            core_prompt_enabled
+                .then_some(definition.memory_md.as_deref())
+                .flatten()
+        };
+        let global_core_memory = if core_repository_enabled {
+            core_memory_snapshot
+                .as_ref()
+                .and_then(|snapshot| snapshot.global.as_ref())
+                .map(|layer| layer.content.as_str())
+        } else {
+            core_prompt_enabled
+                .then_some(definition.global_memory_md.as_deref())
+                .flatten()
+        };
+
+        // Project Auto Memory mirrors the progressive-disclosure contract used
+        // by modern coding agents: only the bounded MEMORY.md index enters the
+        // stable prompt; topic files remain on disk until `project_memory`
+        // explicitly reads one. Load it in this same blocking snapshot so the
+        // prompt and `used_memory_refs` cannot disagree.
+        let project_auto_memory_index = if core_repository_enabled {
+            core_memory_snapshot
+                .as_ref()
+                .and_then(|snapshot| snapshot.project.as_ref())
+                .map(|layer| layer.content.clone())
+        } else if long_term_memory_enabled
+            && core_memory_enabled
+            && definition.config.memory.enabled
+            && !incognito
+        {
+            project.as_ref().map(|project| {
+                crate::project::memory::load_index(&project.id)
+                    .ok()
+                    .flatten()
                     .unwrap_or_default()
-            } else {
-                Vec::new()
-            };
+            })
+        } else {
+            None
+        };
+
+        let memory_entries: Vec<crate::memory::MemoryEntry> = if long_term_memory_enabled
+            && definition.config.memory.enabled
+            && !incognito
+            && legacy_static_memory
+        {
+            crate::get_memory_backend()
+                .and_then(|b| {
+                    b.load_prompt_candidates_with_project(
+                        agent_id,
+                        project.as_ref().map(|p| p.id.as_str()),
+                        definition.config.memory.shared,
+                    )
+                    .ok()
+                })
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
 
         // Resolve the effective memory budget (agent override wins over global).
         let memory_budget = crate::agent_config::effective_memory_budget(
@@ -410,6 +544,7 @@ pub(crate) fn build_system_prompt_bundle_with_session_db(
         let profile_snapshot: Option<String> = if long_term_memory_enabled
             && definition.config.memory.enabled
             && !incognito
+            && legacy_static_memory
             && app_cfg.dreaming.profile_synthesis.enabled
         {
             let mut parts: Vec<String> = Vec::new();
@@ -439,34 +574,37 @@ pub(crate) fn build_system_prompt_bundle_with_session_db(
         // gate as the profile snapshot: memory on + not incognito. Empty on the
         // dual-track default (no claims yet) → None → no injection. Dynamic
         // per-turn claim recall is served separately by Active Memory v2.
-        let context_pack =
-            if long_term_memory_enabled && definition.config.memory.enabled && !incognito {
-                let mut scopes = vec![
-                    crate::memory::MemoryScope::Global,
-                    crate::memory::MemoryScope::Agent {
-                        id: agent_id.to_string(),
-                    },
-                ];
-                if let Some(p) = project.as_ref() {
-                    scopes.push(crate::memory::MemoryScope::Project { id: p.id.clone() });
-                }
-                let pack = crate::memory::dreaming::build_context_pack(
-                    &scopes,
-                    &crate::memory::dreaming::ContextPackOptions::default(),
+        let context_pack = if long_term_memory_enabled
+            && definition.config.memory.enabled
+            && !incognito
+            && legacy_static_memory
+        {
+            let mut scopes = vec![
+                crate::memory::MemoryScope::Global,
+                crate::memory::MemoryScope::Agent {
+                    id: agent_id.to_string(),
+                },
+            ];
+            if let Some(p) = project.as_ref() {
+                scopes.push(crate::memory::MemoryScope::Project { id: p.id.clone() });
+            }
+            let pack = crate::memory::dreaming::build_context_pack(
+                &scopes,
+                &crate::memory::dreaming::ContextPackOptions::default(),
+            );
+            if !pack.source_digest.is_empty() {
+                crate::app_debug!(
+                    "memory",
+                    "context_pack",
+                    "context pack: {} pinned claim(s) for agent {}",
+                    pack.source_digest.len(),
+                    agent_id
                 );
-                if !pack.source_digest.is_empty() {
-                    crate::app_debug!(
-                        "memory",
-                        "context_pack",
-                        "context pack: {} pinned claim(s) for agent {}",
-                        pack.source_digest.len(),
-                        agent_id
-                    );
-                }
-                (!pack.is_empty()).then_some(pack)
-            } else {
-                None
-            };
+            }
+            (!pack.is_empty()).then_some(pack)
+        } else {
+            None
+        };
 
         // Resolve agent home directory
         let agent_home = crate::paths::agent_home_dir(agent_id)
@@ -491,12 +629,48 @@ pub(crate) fn build_system_prompt_bundle_with_session_db(
             .map(|m| m.workflow_mode)
             .unwrap_or_default();
         let channel_info = session_meta.as_ref().and_then(|m| m.channel_info.as_ref());
+        let model_context_window =
+            crate::provider::model_context_window(&app_cfg.providers, provider, model);
+        let core_budget_status = crate::memory::CoreMemoryBudgetStatus::resolve(
+            &app_cfg.memory.core,
+            model_context_window,
+        );
+        let rendered_v2_core = core_repository_enabled.then(|| {
+            crate::system_prompt::render_core_memory_v2_for_context(
+                global_core_memory,
+                agent_core_memory,
+                project_auto_memory_index.as_deref(),
+                &app_cfg.memory.core,
+                model_context_window,
+            )
+        });
+        let (rendered_agent_core, rendered_global_core, rendered_project_core) =
+            if let Some(rendered) = rendered_v2_core.as_ref() {
+                (
+                    rendered.agent.clone(),
+                    rendered.global.clone(),
+                    rendered.project.clone(),
+                )
+            } else {
+                let (agent, global) = crate::system_prompt::rendered_core_memory_bodies(
+                    agent_core_memory,
+                    global_core_memory,
+                    &memory_budget,
+                );
+                (agent, global, project_auto_memory_index.clone())
+            };
+        let legacy_core_agent = (!core_repository_enabled)
+            .then_some(agent_core_memory)
+            .flatten();
+        let legacy_core_global = (!core_repository_enabled)
+            .then_some(global_core_memory)
+            .flatten();
         let mut static_memory_refs = context_pack
             .as_ref()
             .map(|pack| {
                 crate::system_prompt::rendered_pinned_memory_sources(
-                    definition.memory_md.as_deref(),
-                    definition.global_memory_md.as_deref(),
+                    legacy_core_agent,
+                    legacy_core_global,
                     &memory_budget,
                     pack,
                 )
@@ -528,13 +702,79 @@ pub(crate) fn build_system_prompt_bundle_with_session_db(
             })
             .unwrap_or_default();
 
+        for (scope, content) in [
+            (
+                crate::memory::core_repository::CoreMemoryScope::Global,
+                rendered_global_core.as_deref(),
+            ),
+            (
+                crate::memory::core_repository::CoreMemoryScope::Agent {
+                    id: agent_id.to_string(),
+                },
+                rendered_agent_core.as_deref(),
+            ),
+        ] {
+            if content.is_some() {
+                static_memory_refs.push(core_memory_ref(&scope, core_repository_enabled));
+            }
+        }
+        if let (Some(project), Some(_)) = (project.as_ref(), rendered_project_core.as_deref()) {
+            static_memory_refs.push(core_memory_ref(
+                &crate::memory::core_repository::CoreMemoryScope::Project {
+                    id: project.id.clone(),
+                },
+                true,
+            ));
+        }
+
+        // Legacy project-auto-memory trace only. Under the V2 Core repository
+        // the same canonical MEMORY.md content is already represented by the
+        // project Core ref above; adding both would double-count one prompt
+        // source in chips, manifests, and diagnostics.
+        if !core_repository_enabled {
+            if let (Some(project), Some(index)) =
+                (project.as_ref(), rendered_project_core.as_deref())
+            {
+                let topic_count = index
+                    .lines()
+                    .filter(|line| line.trim_start().starts_with("- ["))
+                    .count();
+                if topic_count > 0 {
+                    static_memory_refs.push(super::active_memory::UsedMemoryRef {
+                        kind: "memory".to_string(),
+                        id: format!("project-auto-memory-index:{}", project.id),
+                        source_type: "project_auto_memory_index".to_string(),
+                        scope: format!("project:{}", project.id),
+                        origin: "project_auto_memory".to_string(),
+                        role: "injected".to_string(),
+                        preview: "MEMORY.md".to_string(),
+                        path: crate::project::memory::memory_dir(&project.id)
+                            .ok()
+                            .map(|dir| {
+                                dir.join(crate::project::memory::INDEX_FILE)
+                                    .display()
+                                    .to_string()
+                            }),
+                        line: None,
+                        col: None,
+                        heading_path: None,
+                        block_id: None,
+                        score: None,
+                        confidence: None,
+                        salience: None,
+                    });
+                }
+            }
+        }
+
+        let mut rendered_legacy_static_block: Option<String> = None;
         let has_profile_snapshot = profile_snapshot
             .as_deref()
             .map(str::trim)
             .is_some_and(|s| !s.is_empty());
         let sqlite_cap = crate::system_prompt::sqlite_memory_budget_after_static_layers(
-            definition.memory_md.as_deref(),
-            definition.global_memory_md.as_deref(),
+            legacy_core_agent,
+            legacy_core_global,
             &memory_budget,
             context_pack.as_ref(),
         );
@@ -547,6 +787,9 @@ pub(crate) fn build_system_prompt_bundle_with_session_db(
                 memory_budget.sqlite_entry_max_chars,
                 profile_snapshot.as_deref(),
             );
+            if !summary.text.is_empty() {
+                rendered_legacy_static_block = Some(summary.text.clone());
+            }
             if !profile_refs.is_empty() && summary.text.contains("## User Profile") {
                 static_memory_refs.extend(profile_refs);
             }
@@ -571,14 +814,46 @@ pub(crate) fn build_system_prompt_bundle_with_session_db(
             }));
         }
 
+        let static_memory_manifest =
+            crate::memory::context_manifest::StaticMemoryContextManifest::from_sources(
+                memory_use_enabled && definition.config.memory.enabled,
+                incognito,
+                legacy_static_memory,
+                core_memory_snapshot.as_ref(),
+                rendered_agent_core.as_deref(),
+                rendered_global_core.as_deref(),
+                rendered_project_core.as_deref(),
+                profile_snapshot.as_deref(),
+                rendered_legacy_static_block.as_deref(),
+                memory_entries.len(),
+                context_pack
+                    .as_ref()
+                    .map_or(0, |pack| pack.source_digest.len()),
+                &static_memory_refs,
+                core_repository_enabled.then_some(&core_budget_status),
+            );
+
+        // A CoreMemorySnapshot is immutable for the session. Override the
+        // freshly loaded AgentDefinition with that snapshot before rendering,
+        // otherwise an on-disk edit could silently churn the stable prefix on
+        // the next round even though diagnostics still report the old hash.
+        let mut prompt_definition = definition.clone();
+        if !memory_use_enabled {
+            prompt_definition.config.memory.enabled = false;
+        }
+        if core_repository_enabled {
+            prompt_definition.memory_md = agent_core_memory.map(str::to_owned);
+            prompt_definition.global_memory_md = global_core_memory.map(str::to_owned);
+        }
         let prompt = crate::system_prompt::build_with_resolved_session(
-            &definition,
+            &prompt_definition,
             Some(model),
             Some(provider),
             &memory_entries,
             &memory_budget,
             profile_snapshot.as_deref(),
             context_pack.as_ref(),
+            project_auto_memory_index.as_deref(),
             agent_home.as_deref(),
             project.as_ref(),
             session_id,
@@ -594,12 +869,17 @@ pub(crate) fn build_system_prompt_bundle_with_session_db(
         return SystemPromptBuild {
             prompt,
             static_memory_refs,
+            static_memory_manifest,
+            core_memory_snapshot,
         };
     }
     // Fallback: legacy prompt
     SystemPromptBuild {
         prompt: crate::system_prompt::build_legacy(Some(model), Some(provider), incognito),
         static_memory_refs: Vec::new(),
+        static_memory_manifest:
+            crate::memory::context_manifest::StaticMemoryContextManifest::default(),
+        core_memory_snapshot: None,
     }
 }
 

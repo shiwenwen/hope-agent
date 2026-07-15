@@ -10,8 +10,8 @@ mod types;
 
 // Re-export all public types
 pub use types::{
-    CalendarEvent, ClaimedCronJob, CronAccountRef, CronDeliveryTarget, CronJob, CronPayload,
-    CronRunLog, CronSchedule, CronTimelineRow, NewCronJob,
+    CalendarEvent, ClaimedCronJob, CronAccountRef, CronDeliveryTarget, CronJob, CronJobStatus,
+    CronPayload, CronPayloadType, CronRunLog, CronSchedule, CronTimelineRow, NewCronJob,
 };
 
 // Re-export timeline assembly + cross-DB job deletion

@@ -431,6 +431,7 @@ export default function DreamingPanel() {
           <Switch
             checked={cfg.enabled}
             onCheckedChange={(v) => save({ ...cfg, enabled: v })}
+            aria-label={t("settings.dreaming.title")}
           />
         </div>
       </div>
@@ -463,6 +464,7 @@ export default function DreamingPanel() {
             control={
               <Switch
                 checked={cfg.idleTrigger.enabled}
+                aria-label={t("settings.dreaming.idleTriggerEnabled")}
                 onCheckedChange={(v) =>
                   save({ ...cfg, idleTrigger: { ...cfg.idleTrigger, enabled: v } })
                 }
@@ -487,6 +489,7 @@ export default function DreamingPanel() {
             control={
               <Switch
                 checked={cfg.cronTrigger.enabled}
+                aria-label={t("settings.dreaming.cronTriggerEnabled")}
                 onCheckedChange={(v) =>
                   save({ ...cfg, cronTrigger: { ...cfg.cronTrigger, enabled: v } })
                 }
@@ -527,6 +530,7 @@ export default function DreamingPanel() {
               <Switch
                 checked={cfg.manualEnabled}
                 onCheckedChange={(v) => save({ ...cfg, manualEnabled: v })}
+                aria-label={t("settings.dreaming.manualEnabled")}
               />
             }
           />
@@ -621,6 +625,7 @@ export default function DreamingPanel() {
             control={
               <Switch
                 checked={cfg.profileSynthesis.enabled}
+                aria-label={t("settings.dreaming.profileEnabled")}
                 onCheckedChange={(v) =>
                   save({
                     ...cfg,
@@ -659,6 +664,10 @@ export default function DreamingPanel() {
             control={
               <Switch
                 checked={deepResolver.autoExpireOnLightCycle}
+                aria-label={t(
+                  "settings.dreaming.autoExpireOnLightCycle",
+                  "Auto-expire outdated claims",
+                )}
                 onCheckedChange={(v) =>
                   save({
                     ...cfg,
@@ -683,6 +692,10 @@ export default function DreamingPanel() {
             control={
               <Switch
                 checked={deepResolver.autoResolveOnLightCycle}
+                aria-label={t(
+                  "settings.dreaming.autoResolveOnLightCycle",
+                  "Automatically review memory conflicts",
+                )}
                 onCheckedChange={(v) =>
                   save({
                     ...cfg,
@@ -745,6 +758,10 @@ export default function DreamingPanel() {
                 control={
                   <Switch
                     checked={deepResolver.autoMergeNearDuplicates}
+                    aria-label={t(
+                      "settings.dreaming.autoMergeNearDuplicates",
+                      "Merge corroborated near-duplicates",
+                    )}
                     onCheckedChange={(v) =>
                       save({
                         ...cfg,

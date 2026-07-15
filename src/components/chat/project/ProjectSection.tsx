@@ -18,13 +18,13 @@
  * see [src/components/chat/sidebar/ChatSidebar.tsx](sidebar/ChatSidebar.tsx).
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react"
-import { flushSync } from "react-dom"
+import { useCallback, useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
 import {
   DndContext,
   closestCenter,
-  PointerSensor,
+  MouseSensor,
+  TouchSensor,
   useSensor,
   useSensors,
   type DragEndEvent,
@@ -51,7 +51,6 @@ import {
   Archive,
   ArchiveRestore,
   CheckCheck,
-  GripVertical,
 } from "lucide-react"
 
 import { IconTip } from "@/components/ui/tooltip"
@@ -112,6 +111,8 @@ interface ProjectSectionProps {
   formatRelativeTime: (dateStr: string) => string
   displayMode: SidebarDisplayMode
   motionDisabled?: boolean
+  /** Whether the sticky Agent header occupies the 32px row above Projects. */
+  hasAgentHeader?: boolean
 }
 
 const EXPANDED_STORAGE_KEY = "ha:project-expanded"
@@ -146,6 +147,7 @@ export default function ProjectSection(props: ProjectSectionProps) {
     onAddProject,
     onReorderProjects,
     motionDisabled = false,
+    hasAgentHeader = false,
   } = props
   const visibleProjects = useMemo(() => projects.filter((p) => !p.archived), [projects])
   const archivedProjects = useMemo(() => projects.filter((p) => p.archived), [projects])
@@ -153,7 +155,12 @@ export default function ProjectSection(props: ProjectSectionProps) {
     () => visibleProjects.map((project) => project.id),
     [visibleProjects],
   )
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
+  const sensors = useSensors(
+    useSensor(MouseSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(TouchSensor, {
+      activationConstraint: { delay: 250, tolerance: 5 },
+    }),
+  )
   const [archivedExpanded, setArchivedExpandedState] = useState(() =>
     readStoredBoolean(ARCHIVED_EXPANDED_STORAGE_KEY, false),
   )
@@ -200,26 +207,9 @@ export default function ProjectSection(props: ProjectSectionProps) {
     })
   }, [])
 
-  const prepareProjectSorting = useCallback(() => {
-    flushSync(() => {
-      setProjectSorting(true)
-      collapseAllProjects()
-    })
-  }, [collapseAllProjects])
-
   const finishProjectSorting = useCallback(() => {
     setProjectSorting(false)
   }, [])
-
-  useEffect(() => {
-    if (!projectSorting) return
-    window.addEventListener("pointerup", finishProjectSorting, { capture: true, once: true })
-    window.addEventListener("pointercancel", finishProjectSorting, { capture: true, once: true })
-    return () => {
-      window.removeEventListener("pointerup", finishProjectSorting, { capture: true })
-      window.removeEventListener("pointercancel", finishProjectSorting, { capture: true })
-    }
-  }, [finishProjectSorting, projectSorting])
 
   const handleProjectDragEnd = useCallback(
     (event: DragEndEvent) => {
@@ -260,7 +250,10 @@ export default function ProjectSection(props: ProjectSectionProps) {
         count={visibleProjects.length > 0 ? visibleProjects.length : undefined}
         expanded={expanded}
         onToggle={() => setExpanded(!expanded)}
-        className="sticky top-8 z-20 mb-0 flex h-8 items-center border-b border-border/50 bg-surface-panel px-3"
+        className={cn(
+          "sticky z-20 mb-0 flex h-8 items-center border-b border-border/50 bg-surface-panel px-3",
+          hasAgentHeader ? "top-8" : "top-0",
+        )}
         action={
           <IconTip label={t("project.newProject")}>
             <button
@@ -304,7 +297,6 @@ export default function ProjectSection(props: ProjectSectionProps) {
                     onToggleExpanded={() => toggleProjectExpanded(project.id)}
                     canReorder
                     suppressChildren={projectSorting}
-                    onPrepareReorder={prepareProjectSorting}
                   />
                 ))}
               </SortableContext>
@@ -377,7 +369,6 @@ interface ProjectGroupProps extends Omit<ProjectSectionProps, "expanded" | "setE
   sortableStyle?: React.CSSProperties
   isDragging?: boolean
   suppressChildren?: boolean
-  onPrepareReorder?: () => void
 }
 
 function SortableProjectGroup(props: ProjectGroupProps) {
@@ -439,7 +430,6 @@ function ProjectGroup({
   sortableStyle,
   isDragging = false,
   suppressChildren = false,
-  onPrepareReorder,
   motionDisabled = false,
 }: ProjectGroupProps) {
   const { t } = useTranslation()
@@ -506,12 +496,14 @@ function ProjectGroup({
         <ContextMenu>
           <ContextMenuTrigger asChild>
             <div
+              {...dragAttributes}
+              {...dragListeners}
               className={cn(
-                "group/project relative flex min-h-10 items-center gap-2 overflow-hidden rounded-md bg-muted/20 px-2.5 py-1.5 text-left transition-colors hover:bg-accent/35",
-                "cursor-pointer",
-                displayMode === "compact" && "min-h-8 gap-1.5 px-2 py-1",
-                canReorder && !archivedView && "gap-0.5 pl-0 pr-2.5",
-                canReorder && !archivedView && displayMode === "compact" && "pl-0 pr-2",
+                "group/project relative flex min-h-10 items-center gap-2 overflow-hidden rounded-md bg-muted/20 py-1.5 pl-1 pr-2.5 text-left transition-colors hover:bg-accent/35",
+                displayMode === "compact" && "min-h-8 gap-1.5 py-1 pl-1 pr-2",
+                canReorder && !archivedView
+                  ? "cursor-grab touch-pan-y active:cursor-grabbing"
+                  : "cursor-pointer",
               )}
               onClick={handleToggleExpanded}
               role="button"
@@ -523,25 +515,6 @@ function ProjectGroup({
                 }
               }}
             >
-              {canReorder && !archivedView && (
-                <IconTip label={t("common.dragToSort")}>
-                  <button
-                    type="button"
-                    aria-label={t("common.dragToSort")}
-                    className="flex h-4 w-3 shrink-0 cursor-grab touch-none items-center justify-center rounded p-0 text-muted-foreground/0 opacity-0 transition-[color,opacity] hover:!text-muted-foreground/80 active:cursor-grabbing focus-visible:text-muted-foreground/70 focus-visible:opacity-100 group-hover/project:text-muted-foreground/70 group-hover/project:opacity-100"
-                    onPointerDownCapture={(e) => {
-                      if (e.pointerType === "mouse" && e.button !== 0) return
-                      onPrepareReorder?.()
-                    }}
-                    onClick={(e) => e.stopPropagation()}
-                    onKeyDown={(e) => e.stopPropagation()}
-                    {...dragAttributes}
-                    {...dragListeners}
-                  >
-                    <GripVertical className="h-3.5 w-3.5" />
-                  </button>
-                </IconTip>
-              )}
               <span className="relative shrink-0">
                 <ProjectToggleIcon
                   className={cn(
@@ -581,7 +554,11 @@ function ProjectGroup({
               </div>
               {/* Hover-only action buttons. Match `AgentSection.tsx` styling so
                   the two sections feel consistent. */}
-              <div className="absolute right-2 top-1/2 z-10 flex -translate-y-1/2 items-center gap-1 opacity-0 pointer-events-none transition-opacity group-hover/project:pointer-events-auto group-hover/project:opacity-100 group-focus-within/project:pointer-events-auto group-focus-within/project:opacity-100">
+              <div
+                className="absolute right-2 top-1/2 z-10 flex -translate-y-1/2 items-center gap-1 opacity-0 pointer-events-none transition-opacity group-hover/project:pointer-events-auto group-hover/project:opacity-100 group-focus-within/project:pointer-events-auto group-focus-within/project:opacity-100"
+                onPointerDown={(e) => e.stopPropagation()}
+                onKeyDown={(e) => e.stopPropagation()}
+              >
                 {!archivedView && (
                   <IconTip label={t("project.newChatInProject")}>
                     <button

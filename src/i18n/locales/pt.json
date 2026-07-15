@@ -984,13 +984,20 @@
         "noSession": "sem contexto de sessão",
         "retrievalError": "falha na recuperação",
         "sideQueryError": "falha no recall",
-        "timeout": "expirou"
+        "timeout": "expirou",
+        "budgetEmpty": "o orçamento de recuperação está vazio",
+        "nonContextualTurn": "turno que não precisa de contexto",
+        "recallOff": "a recuperação dinâmica automática está desativada",
+        "retrievalBusy": "a recuperação está ocupada",
+        "sessionPolicy": "desativado pela política de memória ou da conversa",
+        "unifiedRecall": "tratado pela recuperação rápida",
+        "unknown": "outro motivo"
       },
       "layerStatus": {
         "candidate": "candidato",
         "disabled": "desativado",
         "empty": "nenhum acerto",
-        "skipped": "degradado",
+        "skipped": "ignorado",
         "unknown": "desconhecido",
         "used": "usado"
       },
@@ -1057,7 +1064,11 @@
       "more": "{{count}} mais itens de contexto de longo prazo estão ocultos.",
       "sources": "Fontes de memória",
       "editMemory": "Edite esta memória",
-      "copyTrace": "Copiar diagnóstico"
+      "copyTrace": "Copiar diagnóstico",
+      "promoteToCore": "Lembrar sempre disto",
+      "promoteToCoreFailed": "Não foi possível adicionar isto à Memória Central.",
+      "promotedToCore": "Sempre lembrado",
+      "promotedToCoreToast": "Adicionado à Memória Central permanente."
     },
     "projectWelcomeTitle": "O que devemos construir em <project>{{project}}</project>? Conte sua ideia",
     "projectWelcomeSuggestions": {
@@ -1129,7 +1140,18 @@
     "openSourceConversationMissing": "A conversa de origem não está mais disponível",
     "openSourceConversationMissingHint": "Esta fonte de memória aponta para uma conversa que foi excluída ou não pode ser encontrada.",
     "openSourceMessageMissing": "A mensagem de origem não está mais disponível",
-    "openSourceMessageMissingHint": "A conversa ainda existe, mas a mensagem exata desta fonte de memória não foi encontrada."
+    "openSourceMessageMissingHint": "A conversa ainda existe, mas a mensagem exata desta fonte de memória não foi encontrada.",
+    "memoryPolicy": {
+      "title": "Memória deste chat",
+      "use": "Usar memórias existentes",
+      "contribute": "Aprender com este chat",
+      "inherit": "Seguir configuração global",
+      "allow": "Ativado",
+      "deny": "Desativado",
+      "desc": "São independentes: o chat pode usar memórias existentes sem criar novas.",
+      "incognito": "Chats anônimos nunca leem nem gravam memória de longo prazo.",
+      "reloadCore": "Recarregar MEMORY.md para esta sessão"
+    }
   },
   "codexAuth": {
     "expiredDescription": "Seu token OAuth do Codex não é mais válido. Faça login novamente para continuar.",
@@ -1193,7 +1215,7 @@
     "ago": "atrás",
     "cacheTtlProtection": "proteção TTL de cache",
     "compactAllowedIn": "Próxima compactação em",
-    "estimateNote": "Estimado (caracteres÷4); pode diferir do uso cobrado em 10–20%.",
+    "estimateNote": "Após cada rodada, vale o uso real do provedor; antes disso, é exibida uma estimativa conservadora baseada no formato da solicitação.",
     "freeSpace": "Espaço livre",
     "lastCompact": "Última compactação",
     "memory": "Memória",
@@ -1205,7 +1227,16 @@
     "toolDescriptions": "Descrições de ferramentas",
     "toolSchemas": "Esquemas de ferramentas",
     "used": "Usado",
-    "viewSystemPrompt": "System prompt"
+    "viewSystemPrompt": "System prompt",
+    "cacheRead": "Leitura de cache",
+    "cacheWindowNotice": "Acertos de cache reduzem computação repetida, custo e TTFT; não reduzem o uso da janela de contexto.",
+    "cacheWrite": "Gravação de cache",
+    "coreMemoryBudget": "Orçamento da Core Memory",
+    "coreMemoryModelLimited": "limitado temporariamente para este modelo",
+    "dynamicPrompt": "Prompt dinâmico",
+    "estimated": "estimado",
+    "freshInput": "Nova entrada",
+    "providerInput": "Entrada do Provider"
   },
   "cron": {
     "active": "Ativa",
@@ -2067,10 +2098,10 @@
       "staged": "Staged",
       "stagedScope": "Staged",
       "stale": "The repository changed. The diff was refreshed; review it again.",
+      "prReviewComments": "Comentários de revisão do PR · {{count}}",
       "unstage": "Unstage",
       "unstaged": "Unstaged",
-      "unstagedScope": "Unstaged",
-      "prReviewComments": "Comentários de revisão do PR · {{count}}"
+      "unstagedScope": "Unstaged"
     }
   },
   "effort": {
@@ -2507,7 +2538,9 @@
     "reasoningHint": "Depois de ativado, escolha a profundidade de raciocínio (baixa / média / alta) no menu de modelos acima da caixa de mensagem; ela é aplicada automaticamente em cada requisição.",
     "supportedInputTypes": "Tipos de Entrada Suportados",
     "text": "Texto",
-    "video": "Vídeo"
+    "video": "Vídeo",
+    "supportsImageMultimodal": "Suporta multimodalidade com imagens",
+    "supportsVideoMultimodal": "Suporta multimodalidade com vídeos"
   },
   "notification": {
     "cronCancelled": "Tarefa agendada cancelada",
@@ -2990,7 +3023,30 @@
     "openFromMemoryLoadFailed": "Falha ao abrir a fonte do projeto",
     "openFromMemoryLoadFailedDetail": "Detalhes: {{error}}",
     "openFromMemoryMissing": "O projeto não está mais disponível",
-    "openFromMemoryMissingHint": "A fonte de memória aponta para um projeto que foi excluído ou não pode ser encontrado."
+    "openFromMemoryMissingHint": "A fonte de memória aponta para um projeto que foi excluído ou não pode ser encontrado.",
+    "autoMemory": {
+      "content": "Detalhes (Markdown)",
+      "deleteConfirm": "Excluir este tópico de memória automática do projeto?",
+      "description": "Um índice MEMORY.md conciso é inserido de forma estável nos chats do projeto; os detalhes são lidos apenas quando relevantes. Tudo permanece nesta máquina.",
+      "editorHint": "As instruções do projeto são regras fixas. Esta área guarda aprendizados acumulados durante o trabalho, não instruções autoritativas.",
+      "editorTitle": "Memória automática do projeto",
+      "empty": "Ainda não há tópicos de memória automática.",
+      "fileNameGenerated": "O nome do arquivo será gerado ao salvar",
+      "name": "Título",
+      "newTopic": "Novo tópico",
+      "rebuildIndex": "Reconstruir o índice MEMORY.md",
+      "rebuildFailed": "Não foi possível reconstruir o índice MEMORY.md.",
+      "summary": "Resumo do índice",
+      "summaryHint": "Esta frase entra no prompt estável de cada chat do projeto; mantenha-a breve.",
+      "type": "Tipo",
+      "types": {
+        "feedback": "Feedback de trabalho",
+        "project": "Trabalho do projeto",
+        "reference": "Referência",
+        "user": "Contexto do usuário"
+      }
+    },
+    "tabAutoMemory": "Memória automática"
   },
   "provider": {
     "addProvider": "Adicionar Provedor",
@@ -3202,12 +3258,12 @@
     "acpTimeout": "Tempo limite (s)",
     "activeMemoryCacheTtl": "TTL de cache (segundos)",
     "activeMemoryCandidateLimit": "Limite de candidatos",
-    "activeMemoryDesc": "No início de cada turno do usuário, execute uma side query limitada para destilar a memória mais relevante em uma frase e injetá-la junto ao prompt do sistema. Timeouts e falhas caem silenciosamente no recall passivo — nunca bloqueiam a conversa.",
+    "activeMemoryDesc": "Recuperação de compatibilidade por Agent. Quando ativada, somente este Agent usa recuperação Fast e reordenação profunda, mesmo com a recuperação automática global desativada. Fica desativada por padrão; a reordenação profunda adiciona uma side query, latência e uso de Token.",
     "activeMemoryIncludeClaims": "Incluir afirmações estruturadas",
     "activeMemoryIncludeClaimsDesc": "Pré-seleciona também as afirmações estruturadas do Dreaming (não apenas memórias legadas) como candidatas de recuperação. Desativado por padrão.",
     "activeMemoryMaxChars": "Máx. caracteres do recall",
     "activeMemoryTimeout": "Timeout (ms)",
-    "activeMemoryTitle": "Recall de memória ativo",
+    "activeMemoryTitle": "Recordação profunda do Agent",
     "addFallback": "Adicionar Modelo de Fallback",
     "addFallbackModel": "Adicionar Modelo de Fallback",
     "agentAgentsMd": "AGENTS.md",
@@ -4848,9 +4904,9 @@
     "memoryAutoExtractDesc": "Extrair memórias automaticamente quando os limites de tokens, tempo ou mensagens forem atingidos",
     "memoryBudget": {
       "agentOverrideDesc": "Por padrão, herda o Orçamento de memória global. Desative para usar um orçamento específico do Agent.",
-      "coreMemoryFileChars": "Limite por memory.md",
-      "coreMemoryFileCharsDesc": "Limite independente para cada arquivo memory.md (Global / Agent). O conteúdo além do limite é truncado no prompt, mas preservado em disco. Padrão 8000.",
-      "desc": "Limita o total de caracteres da seção de memória (Global memory.md / Agent memory.md / memórias SQLite / Diretrizes) e os limites por camada dentro dela. Reduzir o total libera orçamento para o contexto da conversa ativa.",
+      "coreMemoryFileChars": "Limite por MEMORY.md",
+      "coreMemoryFileCharsDesc": "Limite independente para cada arquivo MEMORY.md (Global / Agent). O conteúdo além do limite é truncado no prompt, mas preservado em disco. Padrão 8000.",
+      "desc": "Limita o total de caracteres da seção de memória (Global MEMORY.md / Agent MEMORY.md / memórias SQLite / Diretrizes) e os limites por camada dentro dela. Reduzir o total libera orçamento para o contexto da conversa ativa.",
       "resetToDefaults": "Restaurar padrões",
       "sections": {
         "aboutUser": "Sobre o usuário",
@@ -4870,6 +4926,35 @@
         "load": "Failed to load memory budget",
         "save": "Failed to save memory budget",
         "detail": "Detalhes: {{error}}"
+      },
+      "advancedAllocation": "Alocação avançada por escopo",
+      "contextWindow": "Contexto do modelo padrão atual: {{count}} tokens",
+      "coreSimpleDesc": "Escolha um único orçamento total para a Core Memory. Os escopos compartilham a capacidade livre na prioridade Project > Agent > Global.",
+      "engine": {
+        "agentTokens": "Tokens do Agent",
+        "budgetTokens": "Tokens de orçamento",
+        "cacheTtlSecs": "TTL do cache (s)",
+        "candidateLimit": "Limite de candidatos",
+        "globalTokens": "Tokens globais",
+        "hardMaxTokens": "Limite rígido de tokens",
+        "maxSelected": "Máximo selecionado",
+        "maxTokens": "Máximo de tokens",
+        "projectTokens": "Tokens do projeto",
+        "protocolTokens": "Tokens de protocolo",
+        "summaryChars": "Caracteres do resumo",
+        "timeoutMs": "Tempo limite (ms)",
+        "topicReadTokens": "Tokens de leitura do tópico",
+        "totalTokens": "Total de tokens"
+      },
+      "legacyTitle": "Orçamentos de reversão legados",
+      "legacyDesc": "Esses orçamentos de caracteres se aplicam apenas ao caminho legado de memória estática e continuam editáveis durante o período de compatibilidade.",
+      "effective": "Configurado {{configured}} · efetivo nesta rodada {{effective}} tokens",
+      "highBudgetWarning": "Acima da faixa recomendada de 2400 tokens. É permitido salvar, mas isso aumenta o contexto estável, as gravações de cache e a latência do primeiro token.",
+      "modelLimited": "Configurado em {{configured}} tokens; o modelo atual usa {{effective}} com segurança. A preferência salva não será alterada.",
+      "presets": {
+        "balanced": "Equilibrado",
+        "concise": "Conciso",
+        "rich": "Completo"
       }
     },
     "memoryContent": "Conteúdo",
@@ -5911,7 +5996,7 @@
     "timeoutPolicyWarn": "Respeitar e registrar (padrão)",
     "toolTimeout": "Timeout de ferramentas síncronas",
     "toolTimeoutDesc": "Timeout global de fallback para chamadas de ferramentas em primeiro plano/síncronas. O padrão 0 desativa este timeout global; use um valor positivo para cancelar chamadas após esse número de segundos. Jobs async em segundo plano usam a duração máxima das ferramentas async; ferramentas individuais ainda podem ter seus próprios timeouts internos.",
-    "toolUpdateCoreMemoryDesc": "Atualizar o arquivo memory.md injetado no system prompt",
+    "toolUpdateCoreMemoryDesc": "Atualizar o arquivo MEMORY.md injetado no system prompt",
     "toolUpdateCoreMemoryName": "Atualizar Memória Central",
     "toolUpdateMemoryDesc": "Atualizar o conteúdo de uma memória existente",
     "toolUpdateMemoryName": "Atualizar memória",
@@ -6143,8 +6228,8 @@
     "memoryLearningPausedDesc": "O agente não está usando ou aprendendo memória de longo prazo no momento. Os dados existentes permanecem neste dispositivo e você ainda pode gerenciar, exportar, excluir ou retomar no modo somente manual.",
     "memoryLearningResumeManual": "Retomar apenas manual",
     "memoryLearningOpenSettings": "Abrir configurações",
-    "memoryUseInRepliesTitle": "Use memórias nas respostas",
-    "memoryUseInRepliesDesc": "Ative a predefinição de recall de baixa latência recomendada para o agente padrão. Memórias relevantes podem ser trazidas para respostas, e a recordação ainda salta com segurança no tempo limite.",
+    "memoryUseInRepliesTitle": "Substituição legada da recordação profunda do Agent",
+    "memoryUseInRepliesDesc": "Recuperação de compatibilidade para o Agent padrão. Quando ativada, somente este Agent usa recuperação Fast e reordenação profunda, mesmo com o padrão global acima desativado. Fica desativada por padrão; a reordenação profunda adiciona uma side query, latência e uso de Token.",
     "memoryUseInRepliesTarget": "Agente padrão: {{agent}}",
     "memoryUseInRepliesSummaryTimeout": "Tempo limite",
     "memoryUseInRepliesSummaryCache": "Cache",
@@ -6165,9 +6250,9 @@
     "memoryUseInRepliesUpdateFailed": "Não foi possível atualizar o recall ativo",
     "memoryUseInRepliesError": "Não foi possível atualizar o recall ativo: {{error}}",
     "memoryUseInRepliesErrorDetail": "Detalhes: {{error}}",
-    "memoryUseInRepliesReadinessRecommended": "Pronto: recall de baixa latência inclui memórias estruturadas e fallback de tempo limite seguro.",
+    "memoryUseInRepliesReadinessRecommended": "A recuperação de compatibilidade do Agent está pronta; somente este Agent usará recuperação Fast e reordenação profunda.",
     "memoryUseInRepliesReadinessAgentOff": "A memória Agent está desligada. Usar o recall recomendado irá ativá-lo novamente para o agente padrão.",
-    "memoryUseInRepliesReadinessDisabled": "Desativado: o agente padrão não procurará proativamente as memórias antes de responder.",
+    "memoryUseInRepliesReadinessDisabled": "Desativado por padrão: o agente padrão não procurará memórias proativamente antes de responder.",
     "memoryUseInRepliesReadinessClaimsOff": "As memórias estruturadas são excluídas da recordação proativa.",
     "memoryUseInRepliesReadinessSlowTimeout": "O tempo limite está acima da predefinição recomendada de baixa latência.",
     "memoryUseInRepliesReadinessTightBudget": "O orçamento de recall é inferior à predefinição recomendada.",
@@ -7030,7 +7115,95 @@
     "memoryProcedureTriggerPlaceholder": "Quando este fluxo de trabalho deve ser considerado",
     "memoryProcedureStepsPlaceholder": "- Inspecione a verificação com falha\n- Aplique a correção conhecida\n- Execute novamente o verificador estreito",
     "memoryProcedureConstraintsPlaceholder": "Quando não usar este fluxo de trabalho",
-    "memoryProcedureConfidence": "Confiança"
+    "memoryProcedureConfidence": "Confiança",
+    "agentMemoryEnabledTitle": "Usar memória para este Agent",
+    "agentMemoryEnabledDesc": "Controla a Memória Central, a recuperação dinâmica, o aprendizado e as ferramentas de memória deste Agent. As configurações globais continuam sendo a política superior.",
+    "memoryV2": {
+      "title": "Memória",
+      "subtitle": "Escolha o que lembrar a longo prazo, quando recuperar mais e se as conversas ensinam o assistente.",
+      "loadFailed": "Falha ao carregar as configurações de memória",
+      "saveFailed": "Falha ao salvar as configurações de memória",
+      "core": {
+        "title": "Sempre lembrado",
+        "desc": "MEMORY.md curtos de Global, Agent e Project permanecem estáveis na conversa; detalhes são carregados apenas quando necessários.",
+        "budget": "Orçamento total de {{count}} tokens",
+        "manage": "Editar MEMORY.md",
+        "projectTitle": "MEMORY.md do projeto",
+        "projectDesc": "Contexto curto e permanente usado apenas nas conversas deste projeto.",
+        "conflict": "O arquivo canônico em maiúsculas e o arquivo legado de compatibilidade em minúsculas foram alterados. Escolha ou mescle o conteúdo antes de salvar.",
+        "conflictCanonical": "MEMORY.md canônico em maiúsculas",
+        "conflictLegacy": "memory.md legado em minúsculas",
+        "conflictMerged": "Resultado mesclado (parte do canônico)",
+        "conflictKeepCanonical": "Manter MEMORY.md",
+        "conflictKeepLegacy": "Manter o arquivo legado",
+        "conflictSaveMerged": "Salvar o resultado mesclado",
+        "conflictLoadFailed": "Falha ao carregar os arquivos de Memória Central em conflito",
+        "conflictResolveFailed": "Falha ao resolver o conflito da Memória Central. Recarregue e tente novamente.",
+        "conflictResolved": "Conflito da Memória Central resolvido",
+        "actualTokens": "{{used}} / {{total}} tokens neste escopo",
+        "stats": "Entradas no índice: {{entries}} · Tópicos: {{topics}}",
+        "updatedAt": "Atualizado em {{value}}",
+        "neverUpdated": "Ainda não gravado",
+        "scope": "Escopo da memória",
+        "projectLabel": "Projeto",
+        "topics": "Tópicos sob demanda",
+        "noTopics": "Ainda não há arquivos de tópicos",
+        "selectTopic": "Selecione um tópico ou crie um novo",
+        "topicName": "Nome do tópico",
+        "topicDesc": "Uma linha descrevendo quando lê-lo",
+        "topicContent": "Detalhes do tópico (carregados apenas quando necessário)",
+        "topicLoadFailed": "Falha ao carregar tópicos de memória",
+        "topicSaveFailed": "Falha ao salvar o tópico de memória",
+        "topicDeleteConfirm": "Excluir este tópico de memória?",
+        "topicDeleteFailed": "Falha ao excluir o tópico de memória"
+      },
+      "recall": {
+        "title": "Recuperação de memória dinâmica",
+        "desc": "Desativada por padrão. Quando desativada, apenas a memória principal estável é usada automaticamente, salvo se uma substituição de compatibilidade específica de Agent estiver ativa; o modelo ainda pode pesquisar pelas ferramentas de memória quando necessário. Quando ativada, memórias dinâmicas relacionadas são pesquisadas após cada mensagem do usuário e antes da resposta.",
+        "fast": "Recuperar memórias relacionadas automaticamente",
+        "deep": "Reordenação profunda (opcional)",
+        "skip": "Ignorado",
+        "deepCost": "A reordenação profunda adiciona uma chamada ao modelo, deixa a resposta mais lenta e usa mais tokens. Use apenas depois de ativar a recuperação automática e quando necessário.",
+        "last": "Última recuperação: {{selected}}/{{candidates}} selecionadas · {{latency}} ms · {{mode}}",
+        "noRecent": "Nenhuma recuperação dinâmica automática foi executada desde que o aplicativo foi aberto."
+      },
+      "learning": {
+        "title": "Aprender com conversas",
+        "desc": "Controla se novas informações dos chats são salvas. Não afeta o uso das memórias existentes.",
+        "mode": "Modo de aprendizagem",
+        "smart": "Aprendizagem inteligente",
+        "reviewFirst": "Revisar antes de salvar",
+        "manual": "Somente salvamento manual",
+        "pending": "{{count}} aguardando revisão",
+        "unassigned": "{{count}} sem atribuição"
+      },
+      "review": {
+        "title": "Memórias aguardando revisão",
+        "desc": "{{count}} candidatos ainda não fazem parte da memória de longo prazo nem do prompt.",
+        "empty": "Nada aguardando revisão",
+        "chooseScope": "Escolha onde salvar",
+        "approve": "Salvar memória",
+        "reject": "Não salvar",
+        "loadFailed": "Falha ao carregar memórias pendentes",
+        "approveFailed": "Falha ao salvar memória pendente",
+        "rejectFailed": "Falha ao descartar memória pendente",
+        "reason": {
+          "review_first": "O modo de aprendizagem exige revisão",
+          "project_scope_missing": "Parece específico do projeto, mas este chat não tem projeto",
+          "scope_uncertain": "O escopo correto é incerto",
+          "sensitive": "Pode conter informação sensível",
+          "conflict": "Conflita com uma memória existente",
+          "core_promotion": "Sugerido para a memória sempre ativa"
+        }
+      }
+    },
+    "memoryBackupExportSummary": "Memórias: {{memories}} · Alegações: {{claims}} · Perfis: {{profiles}} · Episódios: {{episodes}} · Fluxos de trabalho: {{procedures}}",
+    "memoryBackupOpenReviewInboxAfterRestore": "Itens restaurados para rever: {{count}}",
+    "memoryExperienceSearchActive": "Correspondências para «{{query}}»: {{total}}",
+    "memoryExperienceViewActive": "Itens de experiência: {{total}}",
+    "memoryExternalProvidersActive": "Provedores ativos: {{active}}/{{total}}",
+    "memoryExternalProvidersActiveSummary": "Ativos: {{active}} · Configurados: {{total}}",
+    "memoryProcedureSourceEpisode": "Episódio: {{id}}"
   },
   "shortcuts": {
     "actionOpenSettings": "Abrir configurações",
@@ -7641,6 +7814,8 @@
       "selectBranch": "Select branch",
       "stageAll": "Stage all changes",
       "viewPr": "View pull request",
+      "pullRequestPanelTitle": "Solicitação de pull",
+      "resizePullRequestPanel": "Redimensionar painel da solicitação",
       "worktree": "Worktree",
       "checkDetails": "Detalhes das verificações",
       "checkFailed": "Falhou",
@@ -7662,6 +7837,7 @@
       "openCheck": "Abrir verificação",
       "openComment": "Abrir comentário",
       "prFeedbackUnavailable": "Verificações e comentários do PR indisponíveis",
+      "prFeedbackStale": "Falha ao atualizar o status; os dados atuais podem estar desatualizados",
       "reviewComments": "{{count}} comentários",
       "reviewFeedback": "Feedback da revisão",
       "autoMergeEnabled": "Mesclagem automática ativada",
@@ -7688,10 +7864,7 @@
       "reviewPending": "Pendente",
       "reviewRequired": "Revisão necessária",
       "reviewStatus": "Status da revisão",
-      "reviewers": "Revisores",
-      "pullRequestPanelTitle": "Solicitação de pull",
-      "resizePullRequestPanel": "Redimensionar painel da solicitação",
-      "prFeedbackStale": "Falha ao atualizar o status; os dados atuais podem estar desatualizados"
+      "reviewers": "Revisores"
     },
     "action": {
       "create": "Novo",
@@ -9320,7 +9493,8 @@
         "loadMoreThreads": "Não foi possível carregar mais conversas",
         "loadMoreMessages": "Não foi possível carregar mensagens anteriores",
         "detail": "Detalhes: {{error}}"
-      }
+      },
+      "welcome": "Pergunte, organize ou crie com este espaço de conhecimento"
     },
     "quickRewrite": {
       "title": "Reescrita rápida",

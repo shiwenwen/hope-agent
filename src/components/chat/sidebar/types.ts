@@ -11,9 +11,7 @@ export type SidebarDisplayMode = "compact" | "detailed"
 export const DEFAULT_SIDEBAR_DISPLAY_MODE: SidebarDisplayMode = "compact"
 
 export function normalizeSidebarDisplayMode(value: unknown): SidebarDisplayMode {
-  return value === "compact" || value === "detailed"
-    ? value
-    : DEFAULT_SIDEBAR_DISPLAY_MODE
+  return value === "compact" || value === "detailed" ? value : DEFAULT_SIDEBAR_DISPLAY_MODE
 }
 
 export interface ChatSidebarProps {
@@ -34,16 +32,13 @@ export interface ChatSidebarProps {
     opts?: { targetMessageId?: number; highlightTerms?: string[] },
   ) => void
   onNewChat: (agentId: string, opts?: { incognito?: boolean }) => void
-  onDeleteSession: (sessionId: string) => void
+  onDeleteSession: (sessionId: string) => void | Promise<void>
   onEditAgent?: (agentId: string) => void
   onToggleSessionPinned?: (sessionId: string, pinned: boolean) => void
   onReorderAgents?: (agentIds: string[]) => void
   onReorderProjects?: (projectIds: string[]) => void
   onMarkAllRead?: () => void
   onRenameSession?: (sessionId: string, title: string) => void
-  hasMoreSessions?: boolean
-  loadingMoreSessions?: boolean
-  onLoadMoreSessions?: () => void
   /** Triggered by the gear button / right-click → "Settings" entry on a project row. */
   onOpenProjectSettings?: (project: ProjectMeta) => void
   /** Triggered by the "+ New Project" sidebar button. */
@@ -56,7 +51,7 @@ export interface ChatSidebarProps {
    * Triggered by the per-session "Move to project" context-menu entry.
    * Passing `projectId=null` removes the session from its current project.
    */
-  onMoveSessionToProject?: (sessionId: string, projectId: string | null) => void
+  onMoveSessionToProject?: (sessionId: string, projectId: string | null) => void | Promise<void>
   /**
    * Incremented by the parent (e.g. via `Cmd+Shift+F`) to focus the sidebar
    * search input. Each new value triggers a focus-and-select on the input,
@@ -66,4 +61,4 @@ export interface ChatSidebarProps {
   searchFocusSignal?: number
 }
 
-export type SessionFilterType = "all" | "session" | "subagent" | "channel"
+export type SessionFilterType = "session" | "subagent"

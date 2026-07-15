@@ -171,7 +171,11 @@ pub fn active_layer_from_recall(recall: &ActiveMemoryRecall) -> RetrievalPlanner
         layer: "active_memory".to_string(),
         status: if used_summary { "used" } else { "empty" }.to_string(),
         ref_count: refs.len(),
-        injected_count: 0,
+        injected_count: if used_summary {
+            selected_count.max(1)
+        } else {
+            0
+        },
         selected_count,
         candidate_count: refs.iter().filter(|r| is_candidate_role(&r.role)).count(),
         dropped_count: 0,
@@ -487,7 +491,63 @@ pub fn classify_intent(query: &str) -> RetrievalIntent {
     if normalized.is_empty() {
         return RetrievalIntent::General;
     }
+    // Temporal markers win when a query also contains a procedural phrase.
+    // “之前如何处理冲突” asks for what happened in the prior episode, not a
+    // generic how-to. Keeping this overlap deterministic prevents procedure
+    // memories from displacing the user's actual historical context.
     if contains_any(
+        &normalized,
+        &[
+            "last time",
+            "previously",
+            "what happened",
+            "when did",
+            "上次",
+            "之前",
+            "曾经",
+            "曾經",
+            "经历",
+            "經歷",
+            "发生过",
+            "發生過",
+            "前回",
+            "以前",
+            "何が起きた",
+            "いつだった",
+            "지난번",
+            "이전에",
+            "무슨 일이",
+            "언제",
+            "última vez",
+            "anteriormente",
+            "qué pasó",
+            "cuándo",
+            "kali terakhir",
+            "sebelum ini",
+            "apa yang berlaku",
+            "bila",
+            "o que aconteceu",
+            "quando",
+            "в прошлый раз",
+            "ранее",
+            "что произошло",
+            "когда",
+            "geçen sefer",
+            "daha önce",
+            "ne oldu",
+            "ne zaman",
+            "lần trước",
+            "trước đây",
+            "chuyện gì đã xảy ra",
+            "khi nào",
+            "المرة الماضية",
+            "سابقًا",
+            "ماذا حدث",
+            "متى",
+        ],
+    ) {
+        RetrievalIntent::Episode
+    } else if contains_any(
         &normalized,
         &[
             "how do",
@@ -500,26 +560,55 @@ pub fn classify_intent(query: &str) -> RetrievalIntent {
             "怎么做",
             "如何",
             "步骤",
+            "步驟",
             "流程",
             "做法",
+            "どうやって",
+            "手順",
+            "方法",
+            "ワークフロー",
+            "プロセス",
+            "어떻게",
+            "단계",
+            "절차",
+            "워크플로",
+            "과정",
+            "cómo",
+            "pasos",
+            "flujo de trabajo",
+            "procedimiento",
+            "proceso",
+            "receta",
+            "bagaimana",
+            "langkah",
+            "aliran kerja",
+            "prosedur",
+            "proses",
+            "etapas",
+            "fluxo de trabalho",
+            "procedimento",
+            "как",
+            "шаги",
+            "рабочий процесс",
+            "процедура",
+            "процесс",
+            "nasıl",
+            "adımlar",
+            "iş akışı",
+            "prosedür",
+            "süreç",
+            "làm thế nào",
+            "các bước",
+            "quy trình",
+            "thủ tục",
+            "كيف",
+            "خطوات",
+            "سير العمل",
+            "إجراء",
+            "عملية",
         ],
     ) {
         RetrievalIntent::Procedure
-    } else if contains_any(
-        &normalized,
-        &[
-            "last time",
-            "previously",
-            "what happened",
-            "when did",
-            "上次",
-            "之前",
-            "曾经",
-            "经历",
-            "发生过",
-        ],
-    ) {
-        RetrievalIntent::Episode
     } else if contains_any(
         &normalized,
         &[
@@ -530,9 +619,59 @@ pub fn classify_intent(query: &str) -> RetrievalIntent {
             "knowledge",
             "file",
             "笔记",
+            "筆記",
             "文档",
+            "文檔",
+            "文件",
             "资料",
+            "資料",
             "知识库",
+            "知識庫",
+            "ノート",
+            "メモ",
+            "文書",
+            "ドキュメント",
+            "ナレッジ",
+            "ファイル",
+            "노트",
+            "문서",
+            "자료",
+            "지식",
+            "파일",
+            "nota",
+            "notas",
+            "documento",
+            "documentación",
+            "conocimiento",
+            "archivo",
+            "dokumen",
+            "pengetahuan",
+            "fail dokumen",
+            "documentação",
+            "conhecimento",
+            "arquivo",
+            "заметка",
+            "заметки",
+            "документ",
+            "документация",
+            "знание",
+            "файл",
+            "notlar",
+            "not defteri",
+            "belge",
+            "doküman",
+            "bilgi",
+            "dosya",
+            "ghi chú",
+            "tài liệu",
+            "kiến thức",
+            "tệp",
+            "ملاحظة",
+            "ملاحظات",
+            "مستند",
+            "وثيقة",
+            "معرفة",
+            "ملف",
         ],
     ) {
         RetrievalIntent::Knowledge
@@ -544,9 +683,44 @@ pub fn classify_intent(query: &str) -> RetrievalIntent {
             "depends on",
             "connected",
             "关联",
+            "關聯",
             "关系",
+            "關係",
             "依赖",
+            "依賴",
             "相关",
+            "相關",
+            "接続",
+            "연관",
+            "관련",
+            "관계",
+            "의존",
+            "연결",
+            "relacionado",
+            "relación",
+            "depende de",
+            "conectado",
+            "berkaitan",
+            "hubungan",
+            "bergantung pada",
+            "tersambung",
+            "relação",
+            "связан",
+            "отношение",
+            "зависит от",
+            "соединён",
+            "ilgili",
+            "ilişki",
+            "bağlı",
+            "bağlantılı",
+            "liên quan",
+            "mối quan hệ",
+            "phụ thuộc",
+            "kết nối",
+            "مرتبط",
+            "علاقة",
+            "يعتمد على",
+            "متصل",
         ],
     ) {
         RetrievalIntent::Relationship
@@ -554,14 +728,84 @@ pub fn classify_intent(query: &str) -> RetrievalIntent {
         &normalized,
         &[
             "my preference",
+            "my profile",
             "i prefer",
             "i like",
             "about me",
             "remember me",
+            "my usual",
+            "as usual",
             "我的",
             "偏好",
             "喜欢",
+            "喜歡",
             "我叫",
+            "平时",
+            "平時",
+            "习惯",
+            "習慣",
+            "私の好み",
+            "好き",
+            "私について",
+            "覚えて",
+            "いつもの",
+            "普段",
+            "習慣",
+            "내 취향",
+            "선호",
+            "좋아",
+            "나에 대해",
+            "기억해",
+            "평소",
+            "습관",
+            "mi preferencia",
+            "prefiero",
+            "me gusta",
+            "sobre mí",
+            "recuérdame",
+            "suelo",
+            "como siempre",
+            "pilihan saya",
+            "saya lebih suka",
+            "saya suka",
+            "tentang saya",
+            "ingat saya",
+            "kebiasaan saya",
+            "seperti biasa",
+            "minha preferência",
+            "eu prefiro",
+            "eu gosto",
+            "sobre mim",
+            "lembre de mim",
+            "costumo",
+            "meus hábitos",
+            "мои предпочтения",
+            "я предпочитаю",
+            "мне нравится",
+            "обо мне",
+            "запомни меня",
+            "обычно",
+            "привычка",
+            "tercihim",
+            "tercih ederim",
+            "severim",
+            "hakkımda",
+            "beni hatırla",
+            "genelde",
+            "alışkanlığım",
+            "sở thích của tôi",
+            "tôi thích",
+            "về tôi",
+            "nhớ tôi",
+            "thường lệ",
+            "thói quen",
+            "تفضيلاتي",
+            "أفضل",
+            "أحب",
+            "عني",
+            "تذكرني",
+            "عادتي",
+            "كالعادة",
         ],
     ) {
         RetrievalIntent::Profile
@@ -571,7 +815,36 @@ pub fn classify_intent(query: &str) -> RetrievalIntent {
 }
 
 fn contains_any(value: &str, needles: &[&str]) -> bool {
-    needles.iter().any(|needle| value.contains(needle))
+    needles.iter().any(|needle| contains_marker(value, needle))
+}
+
+fn contains_marker(value: &str, marker: &str) -> bool {
+    // CJK, Kana and Hangul are commonly written without spaces, so substring
+    // matching is intentional for those scripts. Space-delimited scripts use
+    // Unicode alphanumeric boundaries to avoid collisions such as the Turkish
+    // word "not" matching English "nothing", or "file" matching "profile".
+    if marker.chars().any(is_compact_script_char) {
+        return value.contains(marker);
+    }
+    value.match_indices(marker).any(|(start, matched)| {
+        let before_ok = value[..start]
+            .chars()
+            .next_back()
+            .is_none_or(|ch| !ch.is_alphanumeric());
+        let end = start + matched.len();
+        let after_ok = value[end..]
+            .chars()
+            .next()
+            .is_none_or(|ch| !ch.is_alphanumeric());
+        before_ok && after_ok
+    })
+}
+
+fn is_compact_script_char(ch: char) -> bool {
+    matches!(
+        ch,
+        '\u{3040}'..='\u{30ff}' | '\u{3400}'..='\u{9fff}' | '\u{ac00}'..='\u{d7af}'
+    )
 }
 
 fn scaled_metric(value: Option<f32>, weight: i64) -> i64 {
@@ -586,12 +859,19 @@ fn scaled_metric(value: Option<f32>, weight: i64) -> i64 {
 
 fn summarize_status(refs: &[UsedMemoryRef], layers: &[RetrievalPlannerLayerTrace]) -> &'static str {
     let has_refs = !refs.is_empty();
-    let has_used_layer = layers.iter().any(|layer| layer.status == "used");
-    let has_skipped = layers.iter().any(|layer| layer.status == "skipped");
-    if has_used_layer {
-        return if has_skipped { "partial" } else { "used" };
+    let has_used_context = refs
+        .iter()
+        .any(|reference| !is_candidate_role(&reference.role))
+        || layers.iter().any(|layer| layer.status == "used");
+    let has_degraded_layer = layers.iter().any(is_degraded_layer);
+    if has_used_context {
+        return if has_degraded_layer {
+            "partial"
+        } else {
+            "used"
+        };
     }
-    if has_skipped {
+    if has_degraded_layer {
         return "degraded";
     }
     if has_refs || layers.iter().any(|layer| layer.status == "candidate") {
@@ -601,6 +881,16 @@ fn summarize_status(refs: &[UsedMemoryRef], layers: &[RetrievalPlannerLayerTrace
         return "disabled";
     }
     "no_context"
+}
+
+fn is_degraded_layer(layer: &RetrievalPlannerLayerTrace) -> bool {
+    if layer.status != "skipped" {
+        return false;
+    }
+    !matches!(
+        layer.skipped_reason.as_deref(),
+        Some("unified_dynamic_recall")
+    )
 }
 
 fn add_ref_layer<F>(
@@ -991,6 +1281,10 @@ mod tests {
             RetrievalIntent::Episode
         );
         assert_eq!(
+            classify_intent("之前如何处理冲突？"),
+            RetrievalIntent::Episode
+        );
+        assert_eq!(
             classify_intent("打开相关设计文档"),
             RetrievalIntent::Knowledge
         );
@@ -1003,6 +1297,42 @@ mod tests {
             RetrievalIntent::Profile
         );
         assert_eq!(classify_intent("summarize this"), RetrievalIntent::General);
+    }
+
+    #[test]
+    fn intent_classifier_covers_every_supported_ui_language() {
+        let cases = [
+            ("前回のリリースで何が起きた？", RetrievalIntent::Episode),
+            ("이 작업은 어떻게 배포해?", RetrievalIntent::Procedure),
+            ("abre el documento de diseño", RetrievalIntent::Knowledge),
+            (
+                "qual é a relação entre estes módulos?",
+                RetrievalIntent::Relationship,
+            ),
+            ("учти мои предпочтения", RetrievalIntent::Profile),
+            ("geçen sefer ne oldu?", RetrievalIntent::Episode),
+            ("các bước triển khai là gì?", RetrievalIntent::Procedure),
+            ("buka dokumen reka bentuk", RetrievalIntent::Knowledge),
+            ("ما تفضيلاتي في الإجابة؟", RetrievalIntent::Profile),
+            ("依照我的習慣回答", RetrievalIntent::Profile),
+        ];
+        for (query, expected) in cases {
+            assert_eq!(classify_intent(query), expected, "query={query}");
+        }
+    }
+
+    #[test]
+    fn intent_markers_do_not_match_inside_unrelated_words() {
+        assert_eq!(classify_intent("show my profile"), RetrievalIntent::Profile);
+        assert_eq!(classify_intent("nothing special"), RetrievalIntent::General);
+        assert_eq!(
+            classify_intent("this is not relevant"),
+            RetrievalIntent::General
+        );
+        assert_eq!(
+            classify_intent("the build may fail"),
+            RetrievalIntent::General
+        );
     }
 
     #[test]
@@ -1130,7 +1460,9 @@ mod tests {
     fn active_layer_legacy_summary_counts_as_used_without_selected_ref() {
         let recall = ActiveMemoryRecall {
             summary: "Use the user's concise-answer preference.".to_string(),
+            mode: "legacy".to_string(),
             selected: None,
+            selected_candidates: Vec::new(),
             candidates: vec![super::super::active_memory::ActiveMemoryCandidateRef {
                 kind: "memory".to_string(),
                 id: "1".to_string(),

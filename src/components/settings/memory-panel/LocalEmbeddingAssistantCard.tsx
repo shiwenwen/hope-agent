@@ -461,6 +461,7 @@ export default function LocalEmbeddingAssistantCard({
               className="h-7 w-7 shrink-0"
               onClick={() => void refresh()}
               disabled={refreshing}
+              aria-label={t("common.refresh")}
             >
               <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} />
             </Button>

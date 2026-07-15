@@ -56,6 +56,96 @@ export type MemoryScope =
   | { kind: "agent"; id: string }
   | { kind: "project"; id: string }
 
+export type MemoryLearningMode = "smart" | "review_first" | "manual"
+export type MemoryRecallMode = "fast" | "deep"
+
+export interface MemoryRuntimeConfig {
+  configVersion: number
+  enabled: boolean
+  core: {
+    enabled: boolean
+    totalTokens: number
+    hardMaxTokens: number
+    globalTokens: number
+    agentTokens: number
+    projectTokens: number
+    protocolTokens: number
+    topicReadMaxTokens: number
+  }
+  recall: {
+    enabled: boolean
+    userConfigured: boolean
+    mode: MemoryRecallMode
+    maxTokens: number
+    maxSelected: number
+    candidateLimit: number
+    timeoutMs: number
+    includeClaims: boolean
+    includeProfile: boolean
+    includeProcedures: boolean
+    includeGraph: boolean
+  }
+  deepRecall: {
+    enabled: boolean
+    timeoutMs: number
+    cacheTtlSecs: number
+    maxChars: number
+    budgetTokens: number
+  }
+  learning: {
+    mode: MemoryLearningMode
+    promoteCoreAutomatically: boolean
+  }
+  rollout: {
+    enabled: boolean
+    dynamicRecall: boolean
+    coreRepository: boolean
+    shadowPlan: boolean
+  }
+  compatibility: {
+    legacyStaticMemory: boolean
+  }
+}
+
+export interface CoreMemoryBudgetStatus {
+  configuredTokens: number
+  effectiveTokens: number
+  contextWindowTokens?: number | null
+  modelSafetyLimitTokens?: number | null
+  emergencyLimitTokens: number
+  limitedBy?: "context_window" | "emergency_guard" | null
+}
+
+export interface PendingMemoryCandidate {
+  id: string
+  content: string
+  memoryType: MemoryEntry["memoryType"]
+  tags: string[]
+  sourceSessionId: string
+  agentId: string
+  reason:
+    | "review_first"
+    | "project_scope_missing"
+    | "scope_uncertain"
+    | "sensitive"
+    | "conflict"
+    | "core_promotion"
+  suggestedScope?: MemoryScope | null
+  candidateKind: "memory" | "claim"
+  payloadJson?: string | null
+  status: "pending" | "approved" | "rejected"
+  createdAt: string
+  updatedAt: string
+}
+
+export interface PendingMemoryCandidatePage {
+  items: PendingMemoryCandidate[]
+  total: number
+  offset: number
+  limit: number
+  reasonCounts?: Record<string, number>
+}
+
 export interface MemoryEpisodeRecord {
   id: string
   scope: MemoryScope

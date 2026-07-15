@@ -52,6 +52,8 @@ export interface TokenByKind {
   outputTokens: number
   cacheCreationInputTokens: number
   cacheReadInputTokens: number
+  contextInputTokens: number
+  freshInputTokens: number
   estimatedCostUsd: number
   avgDurationMs: number | null
   avgTtftMs: number | null

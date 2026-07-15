@@ -6,7 +6,8 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::Mutex;
 
 use super::types::{
-    ChannelSessionInfo, MessageRole, NewMessage, SessionKind, SessionMessage, SessionMeta,
+    ChannelSessionInfo, MessageRole, NewMessage, SessionKind, SessionMemoryPolicy,
+    SessionMemoryPolicyValue, SessionMessage, SessionMeta,
 };
 
 /// Token snapshot for the latest persisted assistant row of a session.
@@ -928,7 +929,29 @@ impl SessionDB {
                 PRIMARY KEY (session_id, skill_name)
             );
             CREATE INDEX IF NOT EXISTS idx_session_skill_activation_session
-                ON session_skill_activation(session_id);",
+                ON session_skill_activation(session_id);
+
+            -- Deferred-tool V2: tools loaded through tool_search remain
+            -- callable on later turns and after an app restart. Incognito
+            -- sessions deliberately never write this table.
+            CREATE TABLE IF NOT EXISTS session_tool_activation (
+                session_id TEXT NOT NULL,
+                tool_name TEXT NOT NULL,
+                activated_at TEXT NOT NULL,
+                PRIMARY KEY (session_id, tool_name)
+            );
+            CREATE INDEX IF NOT EXISTS idx_session_tool_activation_session
+                ON session_tool_activation(session_id);
+
+            CREATE TABLE IF NOT EXISTS session_memory_policy (
+                session_id TEXT PRIMARY KEY,
+                use_memories TEXT NOT NULL DEFAULT 'inherit'
+                    CHECK (use_memories IN ('inherit', 'allow', 'deny')),
+                contribute_to_memories TEXT NOT NULL DEFAULT 'inherit'
+                    CHECK (contribute_to_memories IN ('inherit', 'allow', 'deny')),
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+            );",
         )?;
 
         // ── Idempotent migrations for team_* tables ─────────────────
@@ -2040,6 +2063,7 @@ impl SessionDB {
         self.list_sessions_paged_inner(
             agent_id,
             project_filter,
+            ParentSessionFilter::All,
             limit,
             offset,
             active_session_id,
@@ -2056,6 +2080,7 @@ impl SessionDB {
         &self,
         agent_id: Option<&str>,
         project_filter: ProjectFilter<'_>,
+        parent_filter: ParentSessionFilter,
         limit: Option<u32>,
         offset: Option<u32>,
         active_session_id: Option<&str>,
@@ -2063,6 +2088,7 @@ impl SessionDB {
         self.list_sessions_paged_inner(
             agent_id,
             project_filter,
+            parent_filter,
             limit,
             offset,
             active_session_id,
@@ -2106,6 +2132,7 @@ impl SessionDB {
         &self,
         agent_id: Option<&str>,
         project_filter: ProjectFilter<'_>,
+        parent_filter: ParentSessionFilter,
         limit: Option<u32>,
         offset: Option<u32>,
         active_session_id: Option<&str>,
@@ -2142,6 +2169,16 @@ impl SessionDB {
                 let idx = params_vec.len() + 1;
                 where_clauses.push(format!("s.project_id = ?{}", idx));
                 params_vec.push(Box::new(pid.to_string()));
+            }
+        }
+
+        match parent_filter {
+            ParentSessionFilter::All => {}
+            ParentSessionFilter::Root => {
+                where_clauses.push("s.parent_session_id IS NULL".to_string());
+            }
+            ParentSessionFilter::Child => {
+                where_clauses.push("s.parent_session_id IS NOT NULL".to_string());
             }
         }
 
@@ -3981,7 +4018,7 @@ impl SessionDB {
     }
 
     /// Drain rows that reference `session_id` in tables without FK cascade
-    /// (`session_skill_activation`, `learning_events`, `subagent_runs`,
+    /// (`session_skill_activation`, `session_tool_activation`, `learning_events`, `subagent_runs`,
     /// `acp_runs`). Bundled in a single transaction to amortize fsync.
     /// Best-effort: failures are logged via `app_warn!` so a corrupted side
     /// table never blocks the primary delete.
@@ -3993,6 +4030,7 @@ impl SessionDB {
             conn.execute_batch("BEGIN")?;
             for sql in [
                 "DELETE FROM session_skill_activation WHERE session_id = ?1",
+                "DELETE FROM session_tool_activation WHERE session_id = ?1",
                 "DELETE FROM learning_events WHERE session_id = ?1",
                 "DELETE FROM subagent_runs WHERE parent_session_id = ?1",
                 "DELETE FROM acp_runs WHERE parent_session_id = ?1",
@@ -4201,6 +4239,124 @@ impl SessionDB {
             out.push(row?);
         }
         Ok(out)
+    }
+
+    /// Persist deferred tools activated through `tool_search`. This is not an
+    /// authorization grant: every request and execution re-applies the live
+    /// dispatcher/permission filters before exposing or calling the tool.
+    pub fn insert_tool_activations(
+        &self,
+        session_id: &str,
+        tool_names: &[String],
+    ) -> Result<Vec<String>> {
+        if tool_names.is_empty() {
+            return Ok(Vec::new());
+        }
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let now = chrono::Utc::now().to_rfc3339();
+        let mut added = Vec::new();
+        for name in tool_names {
+            let changed = conn.execute(
+                "INSERT OR IGNORE INTO session_tool_activation (session_id, tool_name, activated_at)
+                 VALUES (?1, ?2, ?3)",
+                params![session_id, name, now],
+            )?;
+            if changed > 0 {
+                added.push(name.clone());
+            }
+        }
+        Ok(added)
+    }
+
+    pub fn load_tool_activations(&self, session_id: &str) -> Result<Vec<String>> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let mut stmt = conn.prepare(
+            "SELECT tool_name FROM session_tool_activation
+             WHERE session_id = ?1 ORDER BY activated_at, tool_name",
+        )?;
+        let rows = stmt.query_map(params![session_id], |row| row.get::<_, String>(0))?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row?);
+        }
+        Ok(out)
+    }
+
+    pub fn clear_tool_activations(&self, session_id: &str) -> Result<usize> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        Ok(conn.execute(
+            "DELETE FROM session_tool_activation WHERE session_id = ?1",
+            params![session_id],
+        )?)
+    }
+
+    pub fn get_memory_policy(&self, session_id: &str) -> Result<SessionMemoryPolicy> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let session_exists = conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM sessions WHERE id = ?1)",
+            params![session_id],
+            |row| row.get::<_, bool>(0),
+        )?;
+        if !session_exists {
+            anyhow::bail!("session not found: {session_id}");
+        }
+        let row = conn
+            .query_row(
+                "SELECT use_memories, contribute_to_memories
+                 FROM session_memory_policy WHERE session_id = ?1",
+                params![session_id],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+            )
+            .optional()?;
+        Ok(row.map_or_else(
+            SessionMemoryPolicy::default,
+            |(use_memories, contribute)| SessionMemoryPolicy {
+                use_memories: SessionMemoryPolicyValue::parse(&use_memories),
+                contribute_to_memories: SessionMemoryPolicyValue::parse(&contribute),
+            },
+        ))
+    }
+
+    pub fn set_memory_policy(
+        &self,
+        session_id: &str,
+        policy: SessionMemoryPolicy,
+    ) -> Result<SessionMemoryPolicy> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let changed = conn.execute(
+            "INSERT INTO session_memory_policy (
+                session_id, use_memories, contribute_to_memories, updated_at
+             ) VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT(session_id) DO UPDATE SET
+                use_memories = excluded.use_memories,
+                contribute_to_memories = excluded.contribute_to_memories,
+                updated_at = excluded.updated_at",
+            params![
+                session_id,
+                policy.use_memories.as_str(),
+                policy.contribute_to_memories.as_str(),
+                chrono::Utc::now().to_rfc3339(),
+            ],
+        )?;
+        if changed == 0 {
+            anyhow::bail!("session not found: {session_id}");
+        }
+        Ok(policy)
     }
 
     /// Save the agent's conversation_history JSON for a session.
@@ -5845,12 +6001,65 @@ mod tests {
         );
 
         let (visible, _) = db
-            .list_sessions_paged_for_sidebar(None, super::ProjectFilter::All, None, None, None)
+            .list_sessions_paged_for_sidebar(
+                None,
+                super::ProjectFilter::All,
+                super::ParentSessionFilter::All,
+                None,
+                None,
+                None,
+            )
             .expect("list sessions");
         assert!(
             visible.iter().any(|session| session.id == forked.id),
             "forked session must remain a first-class sidebar session"
         );
+
+        let _ = std::fs::remove_file(&db_path);
+    }
+
+    #[test]
+    fn sidebar_pagination_filters_project_and_parent_before_limit() {
+        let db_path = temp_db_path("sidebar-filtered-pagination");
+        let db = SessionDB::open(&db_path).expect("open session db");
+        ensure_channel_conversations_table(&db);
+
+        let root = db.create_session("agent-a").expect("root session");
+        let child = db
+            .create_session_with_parent("agent-a", Some(&root.id))
+            .expect("child session");
+        for _ in 0..3 {
+            db.create_session_with_project("agent-a", Some("project-a"), None)
+                .expect("project session");
+        }
+
+        let (roots, root_total) = db
+            .list_sessions_paged_for_sidebar(
+                Some("agent-a"),
+                super::ProjectFilter::Unassigned,
+                super::ParentSessionFilter::Root,
+                Some(1),
+                Some(0),
+                None,
+            )
+            .expect("list root sidebar sessions");
+        assert_eq!(root_total, 1);
+        assert_eq!(roots.len(), 1);
+        assert_eq!(roots[0].id, root.id);
+
+        let (children, child_total) = db
+            .list_sessions_paged_for_sidebar(
+                Some("agent-a"),
+                super::ProjectFilter::Unassigned,
+                super::ParentSessionFilter::Child,
+                Some(1),
+                Some(0),
+                None,
+            )
+            .expect("list child sidebar sessions");
+        assert_eq!(child_total, 1);
+        assert_eq!(children.len(), 1);
+        assert_eq!(children[0].id, child.id);
 
         let _ = std::fs::remove_file(&db_path);
     }
@@ -6810,6 +7019,53 @@ mod tests {
 
         let _ = std::fs::remove_file(&db_path);
     }
+
+    #[test]
+    fn session_memory_policy_defaults_to_inherit_and_is_session_scoped() {
+        let db_path = temp_db_path("session-memory-policy");
+        let db = SessionDB::open(&db_path).expect("open session db");
+        let first = db
+            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .expect("create first session");
+        let second = db
+            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .expect("create second session");
+
+        assert_eq!(
+            db.get_memory_policy(&first.id).expect("default policy"),
+            crate::session::SessionMemoryPolicy::default()
+        );
+        let saved = crate::session::SessionMemoryPolicy {
+            use_memories: crate::session::SessionMemoryPolicyValue::Deny,
+            contribute_to_memories: crate::session::SessionMemoryPolicyValue::Allow,
+        };
+        db.set_memory_policy(&first.id, saved)
+            .expect("save memory policy");
+        assert_eq!(db.get_memory_policy(&first.id).unwrap(), saved);
+        assert_eq!(
+            db.get_memory_policy(&second.id).unwrap(),
+            crate::session::SessionMemoryPolicy::default()
+        );
+        assert!(db.get_memory_policy("missing-session").is_err());
+
+        let conn = db.conn.lock().expect("lock connection");
+        conn.execute(
+            "DELETE FROM sessions WHERE id = ?1",
+            rusqlite::params![first.id],
+        )
+        .expect("delete session row");
+        let remaining: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM session_memory_policy WHERE session_id = ?1",
+                rusqlite::params![first.id],
+                |row| row.get(0),
+            )
+            .expect("count memory policy rows");
+        assert_eq!(remaining, 0);
+        drop(conn);
+
+        let _ = std::fs::remove_file(&db_path);
+    }
 }
 
 const SEARCH_MATCH_KIND_MESSAGE: &str = "message";
@@ -6961,6 +7217,17 @@ pub enum ProjectFilter<'a> {
     Unassigned,
     /// Only sessions belonging to the given project id.
     InProject(&'a str),
+}
+
+/// Filter sessions by whether they are top-level or sub-agent child sessions.
+#[derive(Debug, Clone, Copy)]
+pub enum ParentSessionFilter {
+    /// Include both top-level and child sessions.
+    All,
+    /// Only top-level sessions (`parent_session_id IS NULL`).
+    Root,
+    /// Only sub-agent child sessions (`parent_session_id IS NOT NULL`).
+    Child,
 }
 
 /// Filter for `search_messages` by session type.

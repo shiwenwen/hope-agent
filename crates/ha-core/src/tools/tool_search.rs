@@ -9,7 +9,13 @@ use super::{
     ToolExecContext,
 };
 
-/// Handle the tool_search meta-tool: find tools by query and return their full schemas.
+/// Handle the tool_search meta-tool: find tools and activate deferred matches.
+///
+/// Full parameter schemas are intentionally not copied into the tool result.
+/// The orchestrator consumes the structured activation metadata and injects
+/// those schemas into the next provider round, where they are actually
+/// callable. This avoids paying for the same schema in both a tool result and
+/// the provider `tools` array.
 ///
 /// Supports two query forms:
 /// - `"select:name1,name2"` — exact match by tool name or alias
@@ -46,12 +52,18 @@ pub(crate) async fn tool_search(args: &Value, ctx: &ToolExecContext) -> Result<S
         .as_ref()
         .map(|d| &d.config)
         .unwrap_or(&default_cfg);
+    let session_access = crate::memory::effective_session_memory_access(
+        ctx.session_id.as_deref(),
+        ctx.session_db.as_ref().map(|handle| handle.0.as_ref()),
+    );
 
     let dispatch_ctx = DispatchContext {
         agent_id,
         incognito: ctx.incognito,
         mcp_enabled: agent_cfg.capabilities.mcp_enabled,
         memory_enabled: agent_cfg.memory.enabled,
+        use_memories: session_access.use_memories,
+        contribute_to_memories: session_access.contribute_to_memories,
         tools_filter: &agent_cfg.capabilities.tools,
         app_config: &app_config,
     };
@@ -59,11 +71,13 @@ pub(crate) async fn tool_search(args: &Value, ctx: &ToolExecContext) -> Result<S
     // Single-pass over the static catalog: collect candidates and count
     // deferred ones in one walk so `resolve_tool_fate` runs once per tool.
     let mut candidates: Vec<ToolDefinition> = Vec::new();
+    let mut deferred_names: HashSet<String> = HashSet::new();
     let mut total_deferred = 0usize;
     for t in all_dispatchable_tools() {
         match resolve_tool_fate(t, &dispatch_ctx) {
             ToolFate::InjectDeferred => {
                 total_deferred += 1;
+                deferred_names.insert(t.name.clone());
                 candidates.push(t.clone());
             }
             ToolFate::InjectEager => candidates.push(t.clone()),
@@ -77,11 +91,9 @@ pub(crate) async fn tool_search(args: &Value, ctx: &ToolExecContext) -> Result<S
         if let Some(mcp) = crate::mcp::McpManager::global() {
             for def in mcp.mcp_tool_definitions().iter() {
                 if !candidates.iter().any(|c| c.name == def.name) {
-                    if crate::mcp::catalog::tool_belongs_to_deferred_server(
-                        &def.name,
-                        &app_config.mcp_servers,
-                    ) {
+                    if super::dispatch::should_defer_dynamic_mcp_tool(&def.name, &app_config) {
                         total_deferred += 1;
+                        deferred_names.insert(def.name.clone());
                     }
                     candidates.push(def.clone());
                 }
@@ -102,28 +114,69 @@ pub(crate) async fn tool_search(args: &Value, ctx: &ToolExecContext) -> Result<S
         candidates.retain(|t| !super::is_kb_scoped_tool(&t.name));
     }
 
+    // Project auto memory must follow the same live eligibility contract as
+    // Agent::finalize_tool_schemas. Otherwise tool_search could claim it was
+    // activated in a non-project session while the next-round inventory quite
+    // correctly refuses to make it callable.
+    let has_live_project = ctx.project_id.as_deref().is_some_and(|project_id| {
+        if let Some(session_db) = ctx.session_db.as_ref() {
+            crate::project::ProjectDB::new(session_db.0.clone())
+                .get(project_id)
+                .ok()
+                .flatten()
+                .is_some()
+        } else {
+            crate::get_project_db()
+                .and_then(|db| db.get(project_id).ok().flatten())
+                .is_some()
+        }
+    });
+    if !has_live_project {
+        candidates.retain(|tool| tool.name != super::TOOL_PROJECT_MEMORY);
+        if deferred_names.remove(super::TOOL_PROJECT_MEMORY) {
+            total_deferred = total_deferred.saturating_sub(1);
+        }
+    }
+
     // Select mode: "select:name1,name2" for exact matching by name or alias.
     // The prefix and selected names are case/space/hyphen insensitive.
     if let Some(names_str) = select_payload(query) {
-        let names: Vec<String> = names_str
-            .split(',')
+        let raw_names: Vec<&str> = names_str.split(',').map(str::trim).collect();
+        let names: Vec<String> = raw_names
+            .iter()
+            .copied()
             .map(normalize_selector)
             .filter(|s| !s.is_empty())
             .collect();
         let matched: Vec<&ToolDefinition> = candidates
             .iter()
-            .filter(|t| names.iter().any(|n| selector_matches(t, n)))
+            .filter(|t| {
+                names.iter().any(|n| selector_matches(t, n))
+                    || explicit_variant_selection(t, &raw_names).is_some()
+            })
             .collect();
+
+        let activated_tools: Vec<String> = matched
+            .iter()
+            .filter(|t| deferred_names.contains(&t.name))
+            .map(|t| explicit_variant_selection(t, &raw_names).unwrap_or_else(|| t.name.clone()))
+            .collect();
+        ctx.emit_metadata(serde_json::json!({
+            "kind": "tool_search_activation",
+            "activatedToolNames": activated_tools,
+        }))
+        .await;
 
         let results: Vec<Value> = matched
             .iter()
-            .map(|t| tool_to_schema(t, None, &app_config))
+            .map(|t| tool_to_summary(t, None, &app_config))
             .collect();
 
         return Ok(serde_json::to_string_pretty(&serde_json::json!({
             "query": query,
             "mode": "select",
             "matched_tools": results.len(),
+            "activated_tools": activated_tools,
             "total_deferred_tools": total_deferred,
             "total_candidates": candidates.len(),
             "truncated": false,
@@ -186,15 +239,50 @@ pub(crate) async fn tool_search(args: &Value, ctx: &ToolExecContext) -> Result<S
     let total_matches = scored.len();
     scored.truncate(max_results);
 
+    // Fuzzy search auto-activates deferred matches, bounded by a schema budget
+    // so one broad query cannot suddenly append several giant schemas. Exact
+    // `select:` requests are user/model-explicit and are not budget-trimmed.
+    const AUTO_ACTIVATION_SCHEMA_BUDGET: u32 = 6_000;
+    let mut activated_tools = Vec::new();
+    let mut activation_tokens = 0u32;
+    for (_, tool) in &scored {
+        if !deferred_names.contains(&tool.name) {
+            continue;
+        }
+        let tool_tokens = crate::context_compact::estimate_tokens(&tool.parameters);
+        let activation_name =
+            best_call_variant_for_query(tool, query).unwrap_or_else(|| tool.name.clone());
+        let tool_tokens = crate::tools::split_call_variant_name(&activation_name)
+            .and_then(|(_, action)| {
+                tool.to_compact_call_variant(action, super::ToolProvider::OpenAI)
+            })
+            .map(|schema| crate::context_compact::estimate_tokens(&schema))
+            .unwrap_or(tool_tokens);
+        if !activated_tools.is_empty()
+            && activation_tokens.saturating_add(tool_tokens) > AUTO_ACTIVATION_SCHEMA_BUDGET
+        {
+            continue;
+        }
+        activation_tokens = activation_tokens.saturating_add(tool_tokens);
+        activated_tools.push(activation_name);
+    }
+    ctx.emit_metadata(serde_json::json!({
+        "kind": "tool_search_activation",
+        "activatedToolNames": activated_tools,
+    }))
+    .await;
+
     let results: Vec<Value> = scored
         .iter()
-        .map(|(score, t)| tool_to_schema(t, Some(*score), &app_config))
+        .map(|(score, t)| tool_to_summary(t, Some(*score), &app_config))
         .collect();
 
     Ok(serde_json::to_string_pretty(&serde_json::json!({
         "query": query,
         "mode": "search",
         "matched_tools": results.len(),
+        "activated_tools": activated_tools,
+        "activation_schema_tokens_estimate": activation_tokens,
         "total_matches": total_matches,
         "total_deferred_tools": total_deferred,
         "total_candidates": candidates.len(),
@@ -203,15 +291,23 @@ pub(crate) async fn tool_search(args: &Value, ctx: &ToolExecContext) -> Result<S
     }))?)
 }
 
-/// Convert a ToolDefinition to its full schema for the response.
-fn tool_to_schema(
+/// Convert a definition to compact discovery metadata. The full parameters
+/// arrive through the next round's actual tool schema, not through text.
+fn tool_to_summary(
     t: &ToolDefinition,
     score: Option<f64>,
     app_config: &crate::config::AppConfig,
 ) -> Value {
     let mut obj = t.to_api_metadata(app_config);
     if let Some(map) = obj.as_object_mut() {
-        map.insert("parameters".to_string(), t.parameters.clone());
+        let variants = t
+            .call_variant_actions()
+            .iter()
+            .map(|action| format!("{}__{}", t.name, action))
+            .collect::<Vec<_>>();
+        if !variants.is_empty() {
+            map.insert("callVariants".to_string(), serde_json::json!(variants));
+        }
         if let Some(score) = score {
             map.insert(
                 "score".to_string(),
@@ -220,6 +316,86 @@ fn tool_to_schema(
         }
     }
     obj
+}
+
+fn explicit_variant_selection(t: &ToolDefinition, raw_names: &[&str]) -> Option<String> {
+    for action in t.call_variant_actions() {
+        let candidate = format!("{}__{}", t.name, action);
+        if raw_names
+            .iter()
+            .any(|raw| normalize_selector(raw) == normalize_selector(&candidate))
+        {
+            return Some(candidate);
+        }
+    }
+    None
+}
+
+fn best_call_variant_for_query(t: &ToolDefinition, query: &str) -> Option<String> {
+    let normalized = normalize_text(query);
+    let words: HashSet<&str> = normalized.split_whitespace().collect();
+    for action in t.call_variant_actions() {
+        let normalized_action = normalize_text(action);
+        if !normalized_action.is_empty() && normalized.contains(&normalized_action) {
+            return Some(format!("{}__{}", t.name, action));
+        }
+    }
+    let aliases: &[(&str, &[&str])] = match t.name.as_str() {
+        crate::tools::TOOL_BROWSER => &[
+            ("snapshot", &["snapshot", "screenshot", "pdf", "role tree"]),
+            (
+                "act",
+                &[
+                    "click", "fill", "hover", "drag", "select", "press", "upload",
+                ],
+            ),
+            (
+                "observe",
+                &["console", "network", "page errors", "downloads"],
+            ),
+            ("navigate", &["navigate", "reload", "forward", "back"]),
+            ("tabs", &["tab", "tabs"]),
+            ("profile", &["profile", "chromium"]),
+            (
+                "control",
+                &["evaluate", "cdp", "dialog", "resize", "scroll"],
+            ),
+            ("status", &["status"]),
+        ],
+        crate::tools::TOOL_MAC_CONTROL => &[
+            ("visual", &["visual", "ocr", "find text", "screen point"]),
+            ("elements", &["element", "elements", "accessibility"]),
+            ("windows", &["window", "windows"]),
+            ("apps", &["app", "apps", "launch app", "quit app"]),
+            ("clipboard", &["clipboard", "pasteboard"]),
+            ("dialog", &["dialog", "file picker"]),
+            ("menu", &["menu", "menu bar"]),
+            ("dock", &["dock"]),
+            ("spaces", &["space", "spaces", "desktop"]),
+            ("snapshot", &["snapshot", "screenshot"]),
+            ("wait", &["wait"]),
+            ("diagnostics", &["diagnostics", "diagnose"]),
+            ("permissions", &["permissions", "permission"]),
+            (
+                "act",
+                &["click", "type", "hotkey", "scroll", "drag", "swipe"],
+            ),
+            ("status", &["status"]),
+        ],
+        _ => return None,
+    };
+    for (action, hints) in aliases {
+        if hints.iter().any(|hint| {
+            let normalized_hint = normalize_text(hint);
+            normalized.contains(&normalized_hint)
+                || normalized_hint
+                    .split_whitespace()
+                    .all(|word| words.contains(word))
+        }) {
+            return Some(format!("{}__{}", t.name, action));
+        }
+    }
+    None
 }
 
 struct SearchDoc<'a> {
@@ -374,6 +550,29 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn select_emits_activation_metadata_without_duplicating_schema() {
+        let sink = std::sync::Arc::new(tokio::sync::Mutex::new(None));
+        let ctx = ToolExecContext {
+            metadata_sink: Some(sink.clone()),
+            ..ToolExecContext::default()
+        };
+        let result = tool_search(&json!({ "query": "select:browser" }), &ctx)
+            .await
+            .unwrap();
+        let parsed: Value = serde_json::from_str(&result).unwrap();
+        let first = &parsed["tools"].as_array().unwrap()[0];
+        assert!(first.get("parameters").is_none());
+
+        let metadata = sink.lock().await.clone().unwrap();
+        assert_eq!(metadata["kind"], "tool_search_activation");
+        assert!(metadata["activatedToolNames"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|name| name == "browser"));
+    }
+
+    #[tokio::test]
     async fn workflow_is_not_discoverable_via_tool_search() {
         let args = json!({ "query": "select:workflow" });
         let result = tool_search(&args, &ToolExecContext::default())
@@ -383,6 +582,81 @@ mod tests {
 
         assert_eq!(parsed["matched_tools"].as_u64().unwrap(), 0);
         assert!(parsed["tools"].as_array().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn project_memory_is_not_discoverable_without_a_live_project() {
+        let result = tool_search(
+            &json!({ "query": "select:project_memory" }),
+            &ToolExecContext::default(),
+        )
+        .await
+        .unwrap();
+        let parsed: Value = serde_json::from_str(&result).unwrap();
+
+        assert_eq!(parsed["matched_tools"].as_u64().unwrap(), 0);
+        assert!(parsed["tools"].as_array().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn project_memory_is_discoverable_with_a_bound_live_project() {
+        let dir = tempfile::tempdir().unwrap();
+        let session_db = std::sync::Arc::new(
+            crate::session::SessionDB::open(&dir.path().join("sessions.db")).unwrap(),
+        );
+        let project_db = crate::project::ProjectDB::new(session_db.clone());
+        project_db.migrate().unwrap();
+        let project = project_db
+            .create(crate::project::CreateProjectInput {
+                name: "Memory test".into(),
+                description: None,
+                instructions: None,
+                logo: None,
+                color: None,
+                default_agent_id: None,
+                default_model_id: None,
+                working_dir: None,
+            })
+            .unwrap();
+        let ctx = ToolExecContext {
+            project_id: Some(project.id),
+            session_db: Some(crate::tools::execution::SessionDbHandle(session_db)),
+            ..ToolExecContext::default()
+        };
+
+        let result = tool_search(&json!({ "query": "select:project_memory" }), &ctx)
+            .await
+            .unwrap();
+        let parsed: Value = serde_json::from_str(&result).unwrap();
+
+        assert_eq!(parsed["matched_tools"].as_u64().unwrap(), 1);
+        assert_eq!(parsed["tools"][0]["name"], "project_memory");
+    }
+
+    #[tokio::test]
+    async fn exact_call_variant_activation_stays_compact_and_structured() {
+        let sink = std::sync::Arc::new(tokio::sync::Mutex::new(None));
+        let ctx = ToolExecContext {
+            metadata_sink: Some(sink.clone()),
+            ..ToolExecContext::default()
+        };
+        let result = tool_search(&json!({ "query": "select:browser__snapshot" }), &ctx)
+            .await
+            .unwrap();
+        let parsed: Value = serde_json::from_str(&result).unwrap();
+        let tool = &parsed["tools"][0];
+        assert_eq!(tool["name"], "browser");
+        assert!(tool["callVariants"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|name| name == "browser__snapshot"));
+        let metadata = sink.lock().await.clone().unwrap();
+        assert!(metadata["activatedToolNames"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|name| name == "browser__snapshot"));
     }
 
     #[tokio::test]

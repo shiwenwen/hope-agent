@@ -1386,6 +1386,7 @@ pub(crate) fn row_to_entry(row: &rusqlite::Row) -> rusqlite::Result<MemoryEntry>
         created_at: row.get("created_at")?,
         updated_at: row.get("updated_at")?,
         relevance_score: None,
+        retrieval_evidence: None,
         attachment_path: row.get("attachment_path").ok().flatten(),
         attachment_mime: row.get("attachment_mime").ok().flatten(),
     })

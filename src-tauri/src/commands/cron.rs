@@ -5,9 +5,12 @@ use anyhow::Context;
 use tauri::State;
 
 #[tauri::command]
-pub async fn cron_list_jobs(state: State<'_, AppState>) -> Result<Vec<cron::CronJob>, CmdError> {
+pub async fn cron_list_jobs(
+    state: State<'_, AppState>,
+) -> Result<Vec<ha_core::loop_control::CronJobView>, CmdError> {
     let cron_db = state.cron_db.clone();
-    ha_core::blocking::run_blocking(move || cron_db.list_jobs())
+    let session_db = state.session_db.clone();
+    ha_core::blocking::run_blocking(move || session_db.list_cron_job_views(&cron_db))
         .await
         .map_err(Into::into)
 }

@@ -6,22 +6,13 @@ import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import { cn } from "@/lib/utils"
 import { markAllCronRead, refreshCronUnread } from "@/hooks/useCronUnreadStore"
-import { runLogDotColor, runStatusDisplay } from "./cronHelpers"
+import { cronDisplayTitle, runLogDotColor, runStatusDisplay } from "./cronHelpers"
 import type { CronTimelineRow } from "./CronJobForm.types"
 import type { AgentSummaryForSidebar } from "@/types/chat"
 import CronSessionViewer from "./CronSessionViewer"
+import CronLoopBadge from "./CronLoopBadge"
 
 const PAGE_SIZE = 50
-const LOOP_TITLE_PREFIX = /^\s*\[Loop\]\s*/i
-
-function timelineTitleParts(row: CronTimelineRow): { isLoop: boolean; title: string } {
-  const title = row.title || row.jobName
-  const isLoop = LOOP_TITLE_PREFIX.test(title)
-  return {
-    isLoop,
-    title: isLoop ? title.replace(LOOP_TITLE_PREFIX, "") || row.jobName : title,
-  }
-}
 
 function useRelativeTime() {
   const { t } = useTranslation()
@@ -58,6 +49,7 @@ export default function CronConversationsPanel() {
   const [loading, setLoading] = useState(true)
   const [loadingMore, setLoadingMore] = useState(false)
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
+  const [selectedRunLogId, setSelectedRunLogId] = useState<number | null>(null)
   const [agents, setAgents] = useState<AgentSummaryForSidebar[]>([])
   const [markingRead, setMarkingRead] = useState(false)
   const [markStatus, setMarkStatus] = useState<"idle" | "saved" | "failed">("idle")
@@ -87,6 +79,10 @@ export default function CronConversationsPanel() {
         setOffset(page.length)
         setHasMore(page.length === PAGE_SIZE)
         setAgents(Array.isArray(agentList) ? agentList : [])
+        // The history view is a reader, so open the newest run immediately
+        // instead of presenting an avoidable empty pane on every visit.
+        setSelectedSessionId((current) => current ?? page[0]?.sessionId ?? null)
+        setSelectedRunLogId((current) => current ?? page[0]?.runLogId ?? null)
       })
       .catch((e) => {
         if (cancelled) return
@@ -157,21 +153,24 @@ export default function CronConversationsPanel() {
 
   const handleSelect = useCallback((row: CronTimelineRow) => {
     setSelectedSessionId(row.sessionId)
+    setSelectedRunLogId(row.runLogId)
     // Opening a run does not auto-mark it read (clearing is explicit via
     // "mark all read"), but pull a fresh badge count so it stays in sync.
     refreshCronUnread()
   }, [])
 
   return (
-    <div className="flex flex-1 min-h-0">
+    <div className="flex min-h-0 flex-1 px-3 pb-3">
       {/* Left — timeline list */}
-      <div className="flex w-80 shrink-0 flex-col border-r border-border/60 bg-muted/20">
-        <div className="flex items-center justify-between px-4 py-2.5 border-b border-border/60 shrink-0">
-          <span className="text-sm font-medium">{t("cron.conversationsTitle")}</span>
+      <div className="flex w-[19.5rem] shrink-0 flex-col pr-3">
+        <div className="flex shrink-0 items-center justify-between px-2 pb-2 pt-1">
+          <span className="text-xs font-medium text-muted-foreground">
+            {t("cron.conversationsTitle")}
+          </span>
           <Button
             variant="ghost"
             size="sm"
-            className="h-7 gap-1.5 px-2 text-xs"
+            className="h-7 gap-1.5 rounded-lg px-2 text-xs text-muted-foreground"
             disabled={markingRead || rows.length === 0}
             onClick={() => void handleMarkAllRead()}
           >
@@ -196,21 +195,20 @@ export default function CronConversationsPanel() {
               {t("cron.noConversations")}
             </p>
           ) : (
-            <div className="grid auto-rows-max divide-y divide-border/40">
+            <div className="grid auto-rows-max gap-1">
               {rows.map((row) => {
                 const display = runStatusDisplay(row.status)
-                const isActive = row.sessionId === selectedSessionId
-                const title = timelineTitleParts(row)
+                const isActive = row.runLogId === selectedRunLogId
+                const isLoop = row.payloadType === "sessionLoop"
+                const title = cronDisplayTitle(row.title || row.jobName, row.payloadType)
                 return (
                   <button
                     type="button"
-                    key={row.sessionId}
+                    key={row.runLogId}
                     onClick={() => handleSelect(row)}
                     className={cn(
-                      "h-auto min-h-0 w-full border-l-2 px-3 py-2 text-left transition-colors",
-                      isActive
-                        ? "bg-primary/10 border-l-primary"
-                        : "border-l-transparent hover:bg-secondary/50",
+                      "h-auto min-h-0 w-full rounded-xl px-3 py-3 text-left transition-colors",
+                      isActive ? "bg-primary/10" : "hover:bg-muted/45",
                     )}
                   >
                     <div className="flex items-center gap-2">
@@ -221,12 +219,8 @@ export default function CronConversationsPanel() {
                         )}
                       />
                       <span className="flex min-w-0 flex-1 items-center gap-1.5 text-xs font-medium">
-                        {title.isLoop && (
-                          <span className="inline-flex shrink-0 items-center rounded-md bg-sky-500/10 px-1.5 py-0.5 text-[9px] font-semibold leading-none text-sky-700 ring-1 ring-inset ring-sky-500/20 dark:text-sky-300">
-                            Loop
-                          </span>
-                        )}
-                        <span className="truncate">{title.title}</span>
+                        {isLoop && <CronLoopBadge />}
+                        <span className="truncate">{title}</span>
                       </span>
                       {row.unreadCount > 0 && (
                         <span className="flex h-[16px] min-w-[16px] items-center justify-center rounded-full bg-destructive px-1 text-[9px] font-semibold leading-none text-white tabular-nums">
@@ -254,9 +248,9 @@ export default function CronConversationsPanel() {
               {hasMore && (
                 <div className="px-3 py-2">
                   <Button
-                    variant="outline"
+                    variant="ghost"
                     size="sm"
-                    className="h-7 w-full text-xs"
+                    className="h-8 w-full rounded-lg text-xs text-muted-foreground"
                     disabled={loadingMore}
                     onClick={() => void loadMore()}
                   >
@@ -274,9 +268,13 @@ export default function CronConversationsPanel() {
       </div>
 
       {/* Right — read-only conversation */}
-      <div className="flex flex-1 min-w-0 flex-col">
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-2xl bg-muted/[0.14]">
         {selectedSessionId ? (
-          <CronSessionViewer key={selectedSessionId} sessionId={selectedSessionId} agents={agents} />
+          <CronSessionViewer
+            key={selectedSessionId}
+            sessionId={selectedSessionId}
+            agents={agents}
+          />
         ) : (
           <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center text-muted-foreground">
             <MessagesSquare className="h-10 w-10 opacity-40" />

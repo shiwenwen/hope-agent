@@ -1,0 +1,80 @@
+{
+  "fixtureVersion": 1,
+  "cases": [
+    {
+      "id": "greeting_uses_static_only_when_auto_recall_is_off",
+      "query": "hi",
+      "session": { "agentId": "ha-main", "projectId": null, "incognito": false },
+      "expected": {
+        "recallDecision": "skip",
+        "skipReason": "recall_off",
+        "maxSelected": 0,
+        "allowedScopes": ["agent:ha-main", "global"]
+      }
+    },
+    {
+      "id": "explicit_personal_preference_recalls_agent_before_global",
+      "query": "按我平时喜欢的回答方式解释",
+      "session": { "agentId": "ha-main", "projectId": null, "incognito": false },
+      "candidates": [
+        { "id": "agent-pref", "scope": "agent:ha-main", "text": "回答先给结论" },
+        { "id": "global-pref", "scope": "global", "text": "回答可以包含示例" }
+      ],
+      "expected": {
+        "recallDecision": "recall",
+        "selectedFirst": "agent-pref",
+        "maxSelected": 5,
+        "allowedScopes": ["agent:ha-main", "global"]
+      }
+    },
+    {
+      "id": "project_fact_prefers_project_scope",
+      "query": "这个项目的发布流程是什么",
+      "session": { "agentId": "ha-main", "projectId": "project-a", "incognito": false },
+      "candidates": [
+        { "id": "project-flow", "scope": "project:project-a", "text": "使用 release 分支" },
+        { "id": "agent-flow", "scope": "agent:ha-main", "text": "一般使用 main 分支" },
+        { "id": "other-project", "scope": "project:project-b", "text": "使用 trunk" }
+      ],
+      "expected": {
+        "recallDecision": "recall",
+        "selectedFirst": "project-flow",
+        "excluded": ["other-project"],
+        "allowedScopes": ["project:project-a", "agent:ha-main", "global"]
+      }
+    },
+    {
+      "id": "historical_reference_recalls_dynamic_store",
+      "query": "上次我们怎么解决缓存失效的",
+      "session": { "agentId": "ha-main", "projectId": "project-a", "incognito": false },
+      "expected": {
+        "recallDecision": "recall",
+        "intent": "historical_reference",
+        "maxSelected": 5,
+        "maxTokens": 800
+      }
+    },
+    {
+      "id": "project_like_fact_without_project_is_unassigned",
+      "query": "记住这个项目只能用 pnpm",
+      "session": { "agentId": "ha-main", "projectId": null, "incognito": false },
+      "learningCandidate": { "type": "project", "text": "项目只能使用 pnpm" },
+      "expected": {
+        "learningDestination": "unassigned",
+        "mustNotWriteScopes": ["agent:ha-main", "global"]
+      }
+    },
+    {
+      "id": "incognito_is_zero_memory",
+      "query": "按我的偏好回答",
+      "session": { "agentId": "ha-main", "projectId": null, "incognito": true },
+      "expected": {
+        "recallDecision": "skip",
+        "skipReason": "incognito",
+        "maxSelected": 0,
+        "coreLayers": 0,
+        "learningDestination": "disabled"
+      }
+    }
+  ]
+}

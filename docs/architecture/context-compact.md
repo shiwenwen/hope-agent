@@ -365,6 +365,10 @@ Anthropic、OpenAI、Google 的 API 均支持 prompt cache（约 5 分钟 TTL）
 
 ## Token 估算
 
+主聊天路径使用 `estimate_request_tokens_with_tools`，把当前 Provider 已实际加载的 tool schema 纳入 prompt 预算；自动化/摘要等无工具路径仍可使用基础估算。每轮 API usage 会校准 `TokenEstimateCalibrator`，工具输出预算在校准结果上再保留 10% 上界余量。
+
+usage 口径分开记录：`input_tokens` 保留 Provider 原始/计费语义；`context_input_tokens` 表示模型实际占用的总上下文；`fresh_input_tokens = context_input_tokens - cache_read`。Anthropic 的 context 总量为 uncached input + cache creation + cache read，OpenAI 的 input 已含 cache 子集。GUI 上下文条和 `/context` 使用 context 口径，不能用 cache 命中量抵扣窗口占用。
+
 ### chars/4 启发式
 
 基础估算规则：

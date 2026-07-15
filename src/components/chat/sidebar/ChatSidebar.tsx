@@ -15,7 +15,16 @@ import { IconTip } from "@/components/ui/tooltip"
 import { FloatingMenu } from "@/components/ui/floating-menu"
 import { SearchInput } from "@/components/ui/search-input"
 import { cn } from "@/lib/utils"
-import { Bot, ListCollapse, Loader2, MessageSquarePlus, PanelLeft, Rows3, Search, X } from "lucide-react"
+import {
+  Bot,
+  ListCollapse,
+  Loader2,
+  MessageSquarePlus,
+  PanelLeft,
+  Rows3,
+  Search,
+  X,
+} from "lucide-react"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import type { SessionSearchResult } from "@/types/chat"
@@ -33,6 +42,8 @@ import { SEARCH_LIMIT } from "../hooks/constants"
 import AgentSection from "./AgentSection"
 import SessionList from "./SessionList"
 import ProjectSection from "../project/ProjectSection"
+import { GLOBAL_SESSION_SEARCH_TYPES } from "./sessionListModel"
+import { useSidebarSessionPagination } from "./useSidebarSessionPagination"
 
 const AGENTS_EXPANDED_STORAGE_KEY = "hope.chatSidebarAgentsExpanded"
 const PROJECTS_EXPANDED_STORAGE_KEY = "hope.chatSidebarProjectsExpanded"
@@ -77,9 +88,6 @@ export default function ChatSidebar({
   onReorderProjects,
   onMarkAllRead,
   onRenameSession,
-  hasMoreSessions,
-  loadingMoreSessions,
-  onLoadMoreSessions,
   onOpenProjectSettings,
   onAddProject,
   onNewChatInProject,
@@ -198,7 +206,9 @@ export default function ChatSidebar({
     const next: SidebarDisplayMode = sidebarDisplayMode === "compact" ? "detailed" : "compact"
     const previous = sidebarDisplayMode
     setSidebarDisplayMode(next)
-    window.dispatchEvent(new CustomEvent("sidebar-display-mode-changed", { detail: { mode: next } }))
+    window.dispatchEvent(
+      new CustomEvent("sidebar-display-mode-changed", { detail: { mode: next } }),
+    )
     try {
       await getTransport().call("set_sidebar_display_mode", { mode: next })
     } catch (err) {
@@ -227,7 +237,7 @@ export default function ChatSidebar({
           // by hidden cron hits (they live in the cron panel's history view, not
           // the sidebar) — otherwise a regular match ranked just below a burst of
           // cron matches could fall outside the limit and never render.
-          types: ["regular", "subagent", "channel"],
+          types: GLOBAL_SESSION_SEARCH_TYPES,
         })
         setSearchResults(sortSessionSearchResults(results ?? []))
       } catch (err) {
@@ -240,22 +250,23 @@ export default function ChatSidebar({
     return () => clearTimeout(timer)
   }, [searchQuery])
 
-  const filteredSessions = (() => {
-    const list =
-      selectedAgentId === null ? sessions : sessions.filter((s) => s.agentId === selectedAgentId)
-    switch (sessionFilter) {
-      case "session":
-        // Project-bound sessions render under their project group above —
-        // exclude them here to avoid duplicate rows. IM-channel sessions
-        // are surfaced inline (the row already shows a channel icon)
-        // since the dedicated "channel" tab was retired in Phase B3.
-        return list.filter((s) => !s.isCron && !s.parentSessionId && !s.projectId)
-      case "subagent":
-        return list.filter((s) => !!s.parentSessionId)
-      default:
-        return list
-    }
-  })()
+  // Browsing pages must apply their ownership/type filters before LIMIT/OFFSET.
+  // The global recent page remains a project-tree change signal and search
+  // metadata cache; it is deliberately not the flat list's rendering source.
+  const {
+    sessionsByFilter,
+    loading: sidebarSessionsLoading,
+    loadingMoreByFilter,
+    hasMoreByFilter,
+    loadMore: loadMoreSidebarSessions,
+    reload: reloadSidebarSessions,
+  } = useSidebarSessionPagination({
+    selectedAgentId,
+    currentSessionId,
+    enabled: !sessionsLoading,
+    refreshSignal: sessions,
+  })
+  const filteredSessions = sessionsByFilter[sessionFilter]
 
   const toggleAgentFilter = useCallback(
     (agentId: string) => {
@@ -368,9 +379,25 @@ export default function ChatSidebar({
 
   function confirmDelete() {
     if (!deleteConfirmSessionId) return
-    onDeleteSession(deleteConfirmSessionId)
+    const sessionId = deleteConfirmSessionId
     setDeleteConfirmSessionId(null)
+    void Promise.resolve(onDeleteSession(sessionId)).finally(() => reloadSidebarSessions())
   }
+
+  const handleSidebarUnreadChanged = useCallback(() => {
+    onMarkAllRead?.()
+    void reloadSidebarSessions()
+  }, [onMarkAllRead, reloadSidebarSessions])
+
+  const handleSidebarMoveSession = useCallback(
+    (sessionId: string, projectId: string | null) => {
+      if (!onMoveSessionToProject) return
+      void Promise.resolve(onMoveSessionToProject(sessionId, projectId)).finally(() =>
+        reloadSidebarSessions(),
+      )
+    },
+    [onMoveSessionToProject, reloadSidebarSessions],
+  )
 
   const focusSearchInput = useCallback(() => {
     searchInputRef.current?.focus({ preventScroll: true })
@@ -417,20 +444,25 @@ export default function ChatSidebar({
     [searchQuery],
   )
 
+  const showAgentSection = agents.length > 1
+  const showProjectSection = projects.length > 0 || !!onAddProject
+  const stickySidebarHeaderCount = Number(showAgentSection) + Number(showProjectSection)
+
   const sessionListNode = (
     <SessionList
       sessions={sessions}
+      sessionsByFilter={sessionsByFilter}
       filteredSessions={filteredSessions}
       sessionFilter={sessionFilter}
       setSessionFilter={setSessionFilter}
       selectedAgentId={selectedAgentId}
       currentSessionId={currentSessionId}
       loadingSessionIds={loadingSessionIds}
-      sessionsLoading={sessionsLoading}
-      loadingMoreSessions={loadingMoreSessions}
+      sessionsLoading={sessionsLoading || sidebarSessionsLoading}
+      loadingMoreSessions={loadingMoreByFilter[sessionFilter]}
       onSwitchSession={onSwitchSession}
       onDeleteClick={handleDeleteClick}
-      onMarkAllRead={onMarkAllRead}
+      onMarkAllRead={handleSidebarUnreadChanged}
       renamingSessionId={renamingSessionId}
       renameValue={renameValue}
       renameInputRef={renameInputRef}
@@ -446,9 +478,10 @@ export default function ChatSidebar({
       searching={searching}
       agents={agents}
       projects={projects}
-      onMoveToProject={onMoveSessionToProject}
+      onMoveToProject={handleSidebarMoveSession}
       onToggleSessionPinned={onToggleSessionPinned}
       displayMode={sidebarDisplayMode}
+      stickyHeaderCount={stickySidebarHeaderCount}
     />
   )
 
@@ -615,11 +648,13 @@ export default function ChatSidebar({
               )}
               onScroll={(e) => {
                 if (isHistorySearching) return
-                if (!hasMoreSessions || loadingMoreSessions || !onLoadMoreSessions) return
+                if (!hasMoreByFilter[sessionFilter] || loadingMoreByFilter[sessionFilter]) {
+                  return
+                }
                 const el = e.currentTarget
                 // Trigger when scrolled within 100px of the bottom
                 if (el.scrollHeight - el.scrollTop - el.clientHeight < 100) {
-                  onLoadMoreSessions()
+                  void loadMoreSidebarSessions(sessionFilter)
                 }
               }}
             >
@@ -632,7 +667,7 @@ export default function ChatSidebar({
               ) : (
                 <>
                   {/* Collapsible Agents section */}
-                  {agents.length > 1 && (
+                  {showAgentSection && (
                     <AgentSection
                       agents={agents}
                       agentsExpanded={agentsExpanded}
@@ -650,7 +685,7 @@ export default function ChatSidebar({
 
                   {/* Projects section — shown below agents. Falls back silently
                       when no handler is wired (backwards-compat). */}
-                  {(projects.length > 0 || onAddProject) && (
+                  {showProjectSection && (
                     <ProjectSection
                       projects={projects}
                       sessions={sessions}
@@ -680,6 +715,7 @@ export default function ChatSidebar({
                       formatRelativeTime={formatRelativeTime}
                       displayMode={sidebarDisplayMode}
                       motionDisabled={sidebarMotionDisabled}
+                      hasAgentHeader={showAgentSection}
                     />
                   )}
 

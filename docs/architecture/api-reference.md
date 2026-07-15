@@ -288,6 +288,11 @@ Tauri ↔ COMMAND_MAP 差集为 14 条合法非 REST 命令（5 条 Desktop-only
 | `list_project_sessions_cmd` | `GET /api/projects/{id}/sessions` | ✅ |
 | `move_session_to_project_cmd` | `PATCH /api/sessions/{sessionId}/project` | ✅ |
 | `list_project_memories_cmd` | `GET /api/projects/{id}/memories` | ✅ |
+| `list_project_memory_files_cmd` | `GET /api/projects/{id}/memory-files` | ✅ |
+| `read_project_memory_file_cmd` | `GET /api/projects/{id}/memory-files/{fileName}` | ✅ |
+| `write_project_memory_file_cmd` | `PUT /api/projects/{id}/memory-files` | ✅ |
+| `delete_project_memory_file_cmd` | `DELETE /api/projects/{id}/memory-files/{fileName}?expectedFileHash=` | ✅（stale-write guard） |
+| `rebuild_project_memory_index_cmd` | `POST /api/projects/{id}/memory-files/rebuild-index` | ✅ |
 
 `list_projects_cmd` / `GET /api/projects` 接受可选 `active_session_id`（HTTP query `activeSessionId`）：正在打开的那个会话会从其所属项目的未读聚合里排除（在 SQL 里按已读处理），使项目徽标与“当前会话读作 0”一致，无需前端跨数据源相减。
 
@@ -417,7 +422,7 @@ KB 文件预览端点是**纯 owner 平面，无 session 参数、无 owner fall
 
 | Tauri Command | HTTP | 状态 |
 |---|---|---|
-| `list_sessions_cmd` | `GET /api/sessions` | ✅ |
+| `list_sessions_cmd` | `GET /api/sessions?agentId=&projectId=&unassigned=&parentSession=&limit=&offset=&activeSessionId=` | ✅（`parentSession=true/false` 分别只取子会话/顶层会话，过滤发生在分页前） |
 | `create_session_cmd` | `POST /api/sessions` | ✅ |
 | `get_session_cmd` | `GET /api/sessions/{id}` | ✅ |
 | `set_session_incognito` | `PATCH /api/sessions/{sessionId}/incognito` | ✅ |

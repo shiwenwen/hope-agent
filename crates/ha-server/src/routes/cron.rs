@@ -10,9 +10,11 @@ use crate::error::AppError;
 use crate::routes::helpers::{cron_db as db, session_db};
 
 /// `GET /api/cron/jobs`
-pub async fn list_jobs() -> Result<Json<Vec<cron::CronJob>>, AppError> {
-    let db = db()?;
-    Ok(Json(run_blocking(move || db.list_jobs()).await?))
+pub async fn list_jobs() -> Result<Json<Vec<ha_core::loop_control::CronJobView>>, AppError> {
+    let (cdb, sdb) = (db()?, session_db()?);
+    Ok(Json(
+        run_blocking(move || sdb.list_cron_job_views(cdb)).await?,
+    ))
 }
 
 /// `GET /api/cron/jobs/{id}`

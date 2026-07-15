@@ -647,6 +647,24 @@ describe("MessageList", () => {
     expect(screen.queryByText("chat.incognitoEmptyBody")).toBeNull()
   })
 
+  test("uses the knowledge empty state for knowledge conversations", () => {
+    render(
+      <MessageList
+        messages={[]}
+        loading={false}
+        agents={[]}
+        hasMore={false}
+        loadingMore={false}
+        onLoadMore={vi.fn()}
+        sessionId="s1"
+        welcomeContext="knowledge"
+      />,
+    )
+
+    expect(screen.getByText("knowledge.chatPanel.welcome")).toBeTruthy()
+    expect(screen.queryByText("chat.howCanIHelp")).toBeNull()
+  })
+
   test("renders ask-user, plan-card and plan-running blocks in the footer", () => {
     const askUserGroup: AskUserQuestionGroup = {
       requestId: "ask-1",

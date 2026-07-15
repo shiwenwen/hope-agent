@@ -834,8 +834,14 @@ async fn execute_session_loop_payload(
                 None,
             );
             let _ = cron_db.clear_running(&job.id);
-            if rejection.pause_cron_job {
-                let _ = cron_db.toggle_job(&job.id, false);
+            match rejection.cron_job_disposition {
+                crate::loop_control::LoopCronJobDisposition::Keep => {}
+                crate::loop_control::LoopCronJobDisposition::Pause => {
+                    let _ = cron_db.toggle_job(&job.id, false);
+                }
+                crate::loop_control::LoopCronJobDisposition::Complete => {
+                    let _ = cron_db.mark_job_completed(&job.id);
+                }
             }
             let _ = session_db.finish_loop_cron_run(
                 &job.id,
@@ -1045,19 +1051,26 @@ async fn execute_session_loop_payload(
         )
         .unwrap_or(crate::loop_control::LoopAfterRunAction {
             loop_id: Some(admission.loop_id.clone()),
-            pause_cron_job: false,
+            cron_job_disposition: crate::loop_control::LoopCronJobDisposition::Keep,
             backoff_secs: None,
         });
     if let Some(delay) = action.backoff_secs {
         let _ = cron_db.delay_next_run(&job.id, delay);
     }
-    if action.pause_cron_job {
-        let _ = cron_db.toggle_job(&job.id, false);
+    match action.cron_job_disposition {
+        crate::loop_control::LoopCronJobDisposition::Keep => {}
+        crate::loop_control::LoopCronJobDisposition::Pause => {
+            let _ = cron_db.toggle_job(&job.id, false);
+        }
+        crate::loop_control::LoopCronJobDisposition::Complete => {
+            let _ = cron_db.mark_job_completed(&job.id);
+        }
     }
     let drain_next_event = matches!(
         admission.trigger_kind,
         crate::loop_control::LoopTriggerKind::Event | crate::loop_control::LoopTriggerKind::Dynamic
-    ) && !action.pause_cron_job
+    ) && action.cron_job_disposition
+        == crate::loop_control::LoopCronJobDisposition::Keep
         && session_db
             .loop_has_pending_event_ticks(&admission.loop_id)
             .unwrap_or(false);
@@ -1549,7 +1562,7 @@ fn record_cancelled(
     // C12a: a run-now cancel must NOT terminalize the real schedule
     // (claim_immediate leaves next_run_at intact); only a scheduled At does.
     if !immediate && matches!(job.schedule, CronSchedule::At { .. }) {
-        let _ = cron_db.terminalize_one_shot_completed(&job.id);
+        let _ = cron_db.mark_job_completed(&job.id);
     }
     emit_cron_event(
         &job.id,

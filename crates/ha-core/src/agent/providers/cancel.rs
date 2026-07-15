@@ -107,6 +107,7 @@ pub(super) fn cancelled_round_outcome() -> RoundOutcome {
         text: String::new(),
         thinking: String::new(),
         tool_calls: Vec::new(),
+        provider_history_items: Vec::new(),
         usage: Default::default(),
         ttft_ms: None,
         stop_reason: Some("cancelled".to_string()),

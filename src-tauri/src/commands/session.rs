@@ -1,6 +1,6 @@
 use crate::commands::CmdError;
 use crate::session;
-use crate::session::ProjectFilter;
+use crate::session::{ParentSessionFilter, ProjectFilter};
 use crate::AppState;
 use tauri::State;
 
@@ -60,6 +60,7 @@ pub async fn list_sessions_cmd(
     agent_id: Option<String>,
     project_id: Option<String>,
     unassigned: Option<bool>,
+    parent_session: Option<bool>,
     limit: Option<u32>,
     offset: Option<u32>,
     active_session_id: Option<String>,
@@ -77,9 +78,15 @@ pub async fn list_sessions_cmd(
             } else {
                 ProjectFilter::All
             };
+            let parent_filter = match parent_session {
+                Some(true) => ParentSessionFilter::Child,
+                Some(false) => ParentSessionFilter::Root,
+                None => ParentSessionFilter::All,
+            };
             db.list_sessions_paged_for_sidebar(
                 agent_id.as_deref(),
                 project_filter,
+                parent_filter,
                 limit,
                 offset,
                 active_session_id.as_deref(),
@@ -199,6 +206,38 @@ pub async fn set_session_incognito(
         .run(move |db| db.update_session_incognito(&session_id, enabled))
         .await
         .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn get_session_memory_policy_cmd(
+    session_id: String,
+    state: State<'_, AppState>,
+) -> Result<session::SessionMemoryPolicy, CmdError> {
+    state
+        .session_db
+        .run(move |db| db.get_memory_policy(&session_id))
+        .await
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn set_session_memory_policy_cmd(
+    session_id: String,
+    policy: session::SessionMemoryPolicy,
+    state: State<'_, AppState>,
+) -> Result<session::SessionMemoryPolicy, CmdError> {
+    let id = session_id.clone();
+    let saved = state
+        .session_db
+        .run(move |db| db.set_memory_policy(&session_id, policy))
+        .await?;
+    ha_core::memory::core_repository::invalidate_session_snapshot(&id);
+    if let Some(bus) = ha_core::get_event_bus() {
+        let payload = serde_json::json!({ "sessionId": id, "policy": saved });
+        bus.emit("memory:session_policy_changed", payload.clone());
+        bus.emit("memory:policy_changed", payload);
+    }
+    Ok(saved)
 }
 
 /// Persist the user-selected working directory for a chat session. The core

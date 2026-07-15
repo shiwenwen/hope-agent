@@ -31,6 +31,8 @@ pub struct ListSessionsQuery {
     pub project_id: Option<String>,
     /// When `true`, only return sessions not assigned to any project. Overrides `project_id`.
     pub unassigned: Option<bool>,
+    /// `true` selects sub-agent child sessions; `false` selects top-level sessions.
+    pub parent_session: Option<bool>,
     pub limit: Option<u32>,
     pub offset: Option<u32>,
     /// Currently-open session id; allowed to appear in results even if it is
@@ -657,6 +659,7 @@ pub async fn list_sessions(
         let unassigned = q.unassigned.unwrap_or(false);
         let project_id = q.project_id.clone();
         let agent_id = q.agent_id.clone();
+        let parent_session = q.parent_session;
         let limit = q.limit;
         let offset = q.offset;
         let active_session_id = q.active_session_id.clone();
@@ -669,9 +672,15 @@ pub async fn list_sessions(
                 } else {
                     ha_core::session::ProjectFilter::All
                 };
+                let parent_filter = match parent_session {
+                    Some(true) => ha_core::session::ParentSessionFilter::Child,
+                    Some(false) => ha_core::session::ParentSessionFilter::Root,
+                    None => ha_core::session::ParentSessionFilter::All,
+                };
                 db.list_sessions_paged_for_sidebar(
                     agent_id.as_deref(),
                     project_filter,
+                    parent_filter,
                     limit,
                     offset,
                     active_session_id.as_deref(),
@@ -744,6 +753,40 @@ pub async fn set_session_incognito(
         .await
         .map_err(map_session_incognito_error)?;
     Ok(Json(json!({ "updated": true })))
+}
+
+/// `GET /api/sessions/:id/memory-policy` — read the per-session memory use and
+/// contribution overrides. Both values default to `inherit`.
+pub async fn get_session_memory_policy(
+    State(ctx): State<Arc<AppContext>>,
+    Path(id): Path<String>,
+) -> Result<Json<ha_core::session::SessionMemoryPolicy>, AppError> {
+    let policy = ctx
+        .session_db
+        .run(move |db| db.get_memory_policy(&id))
+        .await?;
+    Ok(Json(policy))
+}
+
+/// `PUT /api/sessions/:id/memory-policy` — update per-session memory use and
+/// contribution overrides and invalidate the frozen Core snapshot.
+pub async fn set_session_memory_policy(
+    State(ctx): State<Arc<AppContext>>,
+    Path(id): Path<String>,
+    Json(policy): Json<ha_core::session::SessionMemoryPolicy>,
+) -> Result<Json<ha_core::session::SessionMemoryPolicy>, AppError> {
+    let session_id = id.clone();
+    let saved = ctx
+        .session_db
+        .run(move |db| db.set_memory_policy(&id, policy))
+        .await?;
+    ha_core::memory::core_repository::invalidate_session_snapshot(&session_id);
+    if let Some(bus) = ha_core::get_event_bus() {
+        let payload = json!({ "sessionId": session_id, "policy": saved });
+        bus.emit("memory:session_policy_changed", payload.clone());
+        bus.emit("memory:policy_changed", payload);
+    }
+    Ok(Json(saved))
 }
 
 fn map_session_incognito_error(err: anyhow::Error) -> AppError {

@@ -192,6 +192,36 @@ fn load_profile_evidence_summaries(
     out
 }
 
+fn claim_is_allowed_profile_source(claim_id: &str) -> bool {
+    let Some(detail) = claims::get_claim(claim_id).ok().flatten() else {
+        return false;
+    };
+    // Old/restored claims without detailed evidence remain eligible. When
+    // evidence exists, one explicitly non-session/manual source or one
+    // contribution-enabled session is required. Claims backed only by denied,
+    // incognito, deleted, or unreadable sessions cannot shape a profile.
+    detail.evidence.is_empty()
+        || detail.evidence.iter().any(|evidence| {
+            evidence
+                .session_id
+                .as_deref()
+                .map(crate::memory::session_contribution_source_allowed)
+                .unwrap_or(true)
+        })
+}
+
+fn claim_scope_memory_enabled(claim: &ResolveClaim) -> bool {
+    if claim.scope_type != "agent" {
+        return true;
+    }
+    let Some(agent_id) = claim.scope_id.as_deref() else {
+        return false;
+    };
+    crate::agent_loader::load_agent(agent_id)
+        .map(|definition| definition.config.memory.enabled)
+        .unwrap_or(false)
+}
+
 fn enrich_profile_sources(
     sources: &mut [ProfileSnapshotSourceRecord],
     evidence_by_claim: &HashMap<String, ProfileEvidenceSummary>,
@@ -343,7 +373,12 @@ pub async fn run_profile_synthesis_cycle(trigger: DreamTrigger) -> ProfileReport
 
     // 1. Load every active claim off the async runtime.
     let claims_all = tokio::task::spawn_blocking(|| {
-        claims::list_active_claims_for_resolve().unwrap_or_default()
+        claims::list_active_claims_for_resolve()
+            .unwrap_or_default()
+            .into_iter()
+            .filter(claim_scope_memory_enabled)
+            .filter(|claim| claim_is_allowed_profile_source(&claim.id))
+            .collect::<Vec<_>>()
     })
     .await
     .unwrap_or_default();

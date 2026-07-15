@@ -22,7 +22,7 @@ use std::{
 use tokio::sync::broadcast::error::RecvError;
 use tokio_util::sync::CancellationToken;
 
-use crate::cron::{CronDB, CronPayload, CronSchedule, NewCronJob};
+use crate::cron::{CronDB, CronJob, CronJobStatus, CronPayload, CronSchedule, NewCronJob};
 use crate::event_bus::AppEvent;
 use crate::goal::GoalState;
 use crate::session::{MessageRole, SessionDB};
@@ -510,6 +510,18 @@ pub struct LoopSchedule {
     pub blocked_reason: Option<String>,
 }
 
+/// Cron owner-plane list item. The flattened job remains wire-compatible with
+/// `CronJob`, while Loop state is exposed separately because the Loop control
+/// plane—not the backing Cron trigger—is authoritative for user-visible state.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CronJobView {
+    #[serde(flatten)]
+    pub job: CronJob,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub loop_state: Option<LoopState>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LoopRun {
@@ -668,7 +680,7 @@ pub struct LoopWorkflowLaunch {
 pub struct LoopRunRejection {
     pub loop_id: Option<String>,
     pub reason: String,
-    pub pause_cron_job: bool,
+    pub cron_job_disposition: LoopCronJobDisposition,
 }
 
 #[derive(Debug, Clone)]
@@ -681,8 +693,18 @@ pub enum LoopRunDecision {
 #[derive(Debug, Clone)]
 pub struct LoopAfterRunAction {
     pub loop_id: Option<String>,
-    pub pause_cron_job: bool,
+    pub cron_job_disposition: LoopCronJobDisposition,
     pub backoff_secs: Option<i64>,
+}
+
+/// How the Cron executor should persist the owning job after a Loop decision.
+/// Keeping completion separate from pause prevents terminal Loops from being
+/// surfaced as resumable, amber "paused" scheduled tasks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LoopCronJobDisposition {
+    Keep,
+    Pause,
+    Complete,
 }
 
 #[derive(Debug, Clone)]
@@ -1200,6 +1222,65 @@ impl SessionDB {
         Ok(schedules)
     }
 
+    /// Repair the legacy state split where terminal Loops disabled their Cron
+    /// trigger through `toggle_job(false)` and therefore appeared as paused.
+    /// Loop state is the authority: both completed and cancelled Loops own a
+    /// terminal Cron job and must never be presented as resumable schedules.
+    pub fn reconcile_terminal_loop_cron_jobs(&self, cron_db: &CronDB) -> Result<usize> {
+        let cron_job_ids = {
+            let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
+            let mut stmt = conn.prepare(
+                "SELECT cron_job_id FROM loop_schedules
+                 WHERE state IN ('completed', 'cancelled')",
+            )?;
+            let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
+            rows.collect::<rusqlite::Result<Vec<_>>>()?
+        };
+
+        let mut repaired = 0;
+        for cron_job_id in cron_job_ids {
+            let Some(job) = cron_db.get_job(&cron_job_id)? else {
+                continue;
+            };
+            if job.status != CronJobStatus::Completed {
+                cron_db.mark_job_completed(&cron_job_id)?;
+                repaired += 1;
+            }
+        }
+        Ok(repaired)
+    }
+
+    /// List Cron jobs with Loop control state hydrated in one sessions-db
+    /// query. Event-backed Loops deliberately keep their Cron trigger paused,
+    /// so exposing only `CronJob.status` would mislabel an active Loop.
+    pub fn list_cron_job_views(&self, cron_db: &CronDB) -> Result<Vec<CronJobView>> {
+        let jobs = cron_db.list_jobs()?;
+        let loop_states = {
+            let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
+            let mut stmt = conn.prepare("SELECT id, state FROM loop_schedules")?;
+            let rows = stmt.query_map([], |row| {
+                let id: String = row.get(0)?;
+                let state: String = row.get(1)?;
+                Ok((id, LoopState::from_str(&state)))
+            })?;
+            rows.collect::<rusqlite::Result<Vec<_>>>()?
+                .into_iter()
+                .filter_map(|(id, state)| state.map(|state| (id, state)))
+                .collect::<HashMap<_, _>>()
+        };
+
+        Ok(jobs
+            .into_iter()
+            .map(|job| {
+                let loop_state = match &job.payload {
+                    CronPayload::SessionLoop { loop_id, .. } => loop_states.get(loop_id).copied(),
+                    CronPayload::AgentTurn { .. } => None,
+                };
+                CronJobView { job, loop_state }
+            })
+            .collect())
+    }
+
     pub fn list_loop_watchdog_findings(
         &self,
         cron_db: &CronDB,
@@ -1681,7 +1762,7 @@ impl SessionDB {
 
     pub fn stop_loop_schedule(&self, cron_db: &CronDB, loop_id: &str) -> Result<LoopSchedule> {
         let mut schedule = self.transition_loop_schedule(loop_id, LoopState::Cancelled, None)?;
-        cron_db.toggle_job(&schedule.cron_job_id, false)?;
+        cron_db.mark_job_completed(&schedule.cron_job_id)?;
         hydrate_loop_schedule_from_cron(cron_db, &mut schedule)?;
         Ok(schedule)
     }
@@ -1860,7 +1941,11 @@ impl SessionDB {
                 ],
             )?;
         }
-        cron_db.toggle_job(&schedule.cron_job_id, false)?;
+        if completed {
+            cron_db.mark_job_completed(&schedule.cron_job_id)?;
+        } else {
+            cron_db.toggle_job(&schedule.cron_job_id, false)?;
+        }
         if schedule.trigger_kind == LoopTriggerKind::Dynamic {
             self.set_dynamic_loop_fallback_used(&schedule.id, &schedule.trigger_spec, false)?;
         }
@@ -1931,14 +2016,19 @@ impl SessionDB {
             return Ok(LoopRunDecision::Reject(LoopRunRejection {
                 loop_id: Some(schedule.id),
                 reason: "loop parent session mismatch".to_string(),
-                pause_cron_job: true,
+                cron_job_disposition: LoopCronJobDisposition::Pause,
             }));
         }
         if schedule.state != LoopState::Active {
+            let cron_job_disposition = if schedule.state.is_terminal() {
+                LoopCronJobDisposition::Complete
+            } else {
+                LoopCronJobDisposition::Pause
+            };
             return Ok(LoopRunDecision::Reject(LoopRunRejection {
                 loop_id: Some(schedule.id),
                 reason: format!("loop is {}", schedule.state.as_str()),
-                pause_cron_job: true,
+                cron_job_disposition,
             }));
         }
         if let Some(limit) = schedule.max_runs {
@@ -1947,7 +2037,7 @@ impl SessionDB {
                 return Ok(LoopRunDecision::Reject(LoopRunRejection {
                     loop_id: Some(schedule.id),
                     reason: "max runs reached".to_string(),
-                    pause_cron_job: true,
+                    cron_job_disposition: LoopCronJobDisposition::Complete,
                 }));
             }
         }
@@ -1957,7 +2047,7 @@ impl SessionDB {
                 return Ok(LoopRunDecision::Reject(LoopRunRejection {
                     loop_id: Some(schedule.id),
                     reason: "max runtime reached".to_string(),
-                    pause_cron_job: true,
+                    cron_job_disposition: LoopCronJobDisposition::Complete,
                 }));
             }
         }
@@ -1969,7 +2059,7 @@ impl SessionDB {
                 return Ok(LoopRunDecision::Reject(LoopRunRejection {
                     loop_id: Some(schedule.id),
                     reason,
-                    pause_cron_job: true,
+                    cron_job_disposition: LoopCronJobDisposition::Pause,
                 }));
             }
         }
@@ -1983,7 +2073,7 @@ impl SessionDB {
                     return Ok(LoopRunDecision::Reject(LoopRunRejection {
                         loop_id: Some(schedule.id),
                         reason: "goal already completed".to_string(),
-                        pause_cron_job: true,
+                        cron_job_disposition: LoopCronJobDisposition::Complete,
                     }));
                 }
                 GoalState::Failed | GoalState::Cancelled => {
@@ -1992,7 +2082,7 @@ impl SessionDB {
                     return Ok(LoopRunDecision::Reject(LoopRunRejection {
                         loop_id: Some(schedule.id),
                         reason,
-                        pause_cron_job: true,
+                        cron_job_disposition: LoopCronJobDisposition::Pause,
                     }));
                 }
                 GoalState::Paused => {
@@ -2001,7 +2091,7 @@ impl SessionDB {
                     return Ok(LoopRunDecision::Reject(LoopRunRejection {
                         loop_id: Some(schedule.id),
                         reason,
-                        pause_cron_job: true,
+                        cron_job_disposition: LoopCronJobDisposition::Pause,
                     }));
                 }
                 GoalState::Active | GoalState::Evaluating | GoalState::Blocked => {}
@@ -2019,7 +2109,7 @@ impl SessionDB {
                         return Ok(LoopRunDecision::Reject(LoopRunRejection {
                             loop_id: Some(schedule.id),
                             reason,
-                            pause_cron_job: true,
+                            cron_job_disposition: LoopCronJobDisposition::Pause,
                         }));
                     }
                     Err(err) => {
@@ -2028,7 +2118,7 @@ impl SessionDB {
                         return Ok(LoopRunDecision::Reject(LoopRunRejection {
                             loop_id: Some(schedule.id),
                             reason,
-                            pause_cron_job: true,
+                            cron_job_disposition: LoopCronJobDisposition::Pause,
                         }));
                     }
                 };
@@ -2044,7 +2134,7 @@ impl SessionDB {
                     return Ok(LoopRunDecision::Reject(LoopRunRejection {
                         loop_id: Some(schedule.id),
                         reason,
-                        pause_cron_job: true,
+                        cron_job_disposition: LoopCronJobDisposition::Pause,
                     }));
                 }
             }
@@ -2053,7 +2143,7 @@ impl SessionDB {
                 return Ok(LoopRunDecision::Reject(LoopRunRejection {
                     loop_id: Some(schedule.id),
                     reason: err.to_string(),
-                    pause_cron_job: true,
+                    cron_job_disposition: LoopCronJobDisposition::Pause,
                 }));
             }
         }
@@ -2176,7 +2266,7 @@ impl SessionDB {
         let Some(schedule) = self.loop_schedule_for_cron_job(cron_job_id)? else {
             return Ok(LoopAfterRunAction {
                 loop_id: None,
-                pause_cron_job: false,
+                cron_job_disposition: LoopCronJobDisposition::Keep,
                 backoff_secs: None,
             });
         };
@@ -2497,9 +2587,16 @@ impl SessionDB {
                 }),
             );
         }
+        let cron_job_disposition = if next_state.is_terminal() {
+            LoopCronJobDisposition::Complete
+        } else if pause {
+            LoopCronJobDisposition::Pause
+        } else {
+            LoopCronJobDisposition::Keep
+        };
         Ok(LoopAfterRunAction {
             loop_id: Some(schedule.id),
-            pause_cron_job: pause || next_state.is_terminal(),
+            cron_job_disposition,
             backoff_secs,
         })
     }
@@ -6630,7 +6727,10 @@ mod tests {
         match decision {
             LoopRunDecision::Reject(rejection) => {
                 assert!(rejection.reason.contains("token budget exhausted"));
-                assert!(rejection.pause_cron_job);
+                assert_eq!(
+                    rejection.cron_job_disposition,
+                    LoopCronJobDisposition::Pause
+                );
             }
             other => panic!("expected rejection, got {other:?}"),
         }
@@ -7252,7 +7352,10 @@ mod tests {
                 &finished_at,
             )
             .expect("finish run");
-        assert!(action.pause_cron_job);
+        assert_eq!(
+            action.cron_job_disposition,
+            LoopCronJobDisposition::Complete
+        );
         let updated = session_db
             .get_loop_schedule(&schedule.id)
             .expect("load schedule")
@@ -7306,7 +7409,7 @@ mod tests {
             )
             .expect("finish dynamic loop");
         assert_eq!(action.backoff_secs, Some(300));
-        assert!(!action.pause_cron_job);
+        assert_eq!(action.cron_job_disposition, LoopCronJobDisposition::Keep);
         let updated = session_db
             .get_loop_schedule(&schedule.id)
             .expect("load schedule")
@@ -7383,7 +7486,7 @@ mod tests {
             )
             .expect("finish dynamic loop");
         assert_eq!(action.backoff_secs, Some(600));
-        assert!(!action.pause_cron_job);
+        assert_eq!(action.cron_job_disposition, LoopCronJobDisposition::Keep);
         let updated = session_db
             .get_loop_schedule(&schedule.id)
             .expect("load schedule")
@@ -7486,7 +7589,7 @@ mod tests {
     }
 
     #[test]
-    fn dynamic_loop_tool_stop_completes_and_pauses_cron() {
+    fn dynamic_loop_tool_stop_completes_cron_and_repairs_legacy_pause() {
         let (_dir, session_db, cron_db) = temp_dbs();
         let session = session_db.create_session("ha-main").expect("session");
         let schedule = session_db
@@ -7536,7 +7639,23 @@ mod tests {
             .get_job(&schedule.cron_job_id)
             .expect("read cron job")
             .expect("cron job exists");
-        assert_eq!(job.status.as_str(), "paused");
+        assert_eq!(job.status, CronJobStatus::Completed);
+
+        // Rows written by older versions used paused for a terminal Loop.
+        cron_db
+            .toggle_job(&schedule.cron_job_id, false)
+            .expect("simulate legacy paused terminal");
+        assert_eq!(
+            session_db
+                .reconcile_terminal_loop_cron_jobs(&cron_db)
+                .expect("reconcile terminal loop"),
+            1
+        );
+        let repaired = cron_db
+            .get_job(&schedule.cron_job_id)
+            .expect("read repaired cron job")
+            .expect("cron job exists");
+        assert_eq!(repaired.status, CronJobStatus::Completed);
     }
 
     #[test]
@@ -7584,7 +7703,10 @@ mod tests {
             )
             .expect("finish first");
         assert_eq!(first_action.backoff_secs, Some(1200));
-        assert!(!first_action.pause_cron_job);
+        assert_eq!(
+            first_action.cron_job_disposition,
+            LoopCronJobDisposition::Keep
+        );
         let after_first = session_db
             .get_loop_schedule(&schedule.id)
             .expect("load first")
@@ -7615,7 +7737,10 @@ mod tests {
                 &now_rfc3339(),
             )
             .expect("finish second");
-        assert!(second_action.pause_cron_job);
+        assert_eq!(
+            second_action.cron_job_disposition,
+            LoopCronJobDisposition::Pause
+        );
         let after_second = session_db
             .get_loop_schedule(&schedule.id)
             .expect("load second")
@@ -7703,7 +7828,10 @@ mod tests {
                 &now_rfc3339(),
             )
             .expect("finish second");
-        assert!(second_action.pause_cron_job);
+        assert_eq!(
+            second_action.cron_job_disposition,
+            LoopCronJobDisposition::Pause
+        );
         let after_second = session_db
             .get_loop_schedule(&schedule.id)
             .expect("load second")

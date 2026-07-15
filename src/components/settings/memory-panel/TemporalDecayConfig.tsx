@@ -86,6 +86,7 @@ export default function TemporalDecayConfig() {
         <label className="text-xs font-medium">{t("settings.memoryTemporalDecay")}</label>
         <Switch
           checked={decayConfig.enabled}
+          aria-label={t("settings.memoryTemporalDecay")}
           onCheckedChange={(v) => {
             const previous = decayConfig
             const updated = { ...decayConfig, enabled: v }

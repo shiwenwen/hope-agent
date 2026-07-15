@@ -43,6 +43,8 @@ pub(crate) fn subagent_capability_enabled(agent_id: &str, agent_config: &AgentCo
         incognito: false,
         mcp_enabled: agent_config.capabilities.mcp_enabled,
         memory_enabled: agent_config.memory.enabled,
+        use_memories: true,
+        contribute_to_memories: true,
         tools_filter: &agent_config.capabilities.tools,
         app_config: &app_config,
     };

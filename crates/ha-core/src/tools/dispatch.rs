@@ -38,6 +38,11 @@ pub struct DispatchContext<'a> {
     pub mcp_enabled: bool,
     /// `agent.json` `memory.enabled`
     pub memory_enabled: bool,
+    /// Effective per-session read policy. This is separate from learning so a
+    /// user can consume existing memories without contributing new ones.
+    pub use_memories: bool,
+    /// Effective per-session contribution policy.
+    pub contribute_to_memories: bool,
     /// `agent.json` `capabilities.tools` (non-Core tool switch overrides)
     pub tools_filter: &'a FilterConfig,
     pub app_config: &'a AppConfig,
@@ -137,27 +142,78 @@ fn user_enables_tool(name: &str, tier: &ToolTier, ctx: &DispatchContext) -> bool
 
 /// Whether any built-in tool is configured for deferred loading.
 pub fn has_deferred_builtin_tools(app_config: &AppConfig) -> bool {
-    app_config.deferred_tools.enabled && !app_config.deferred_tools.tool_names.is_empty()
+    match app_config.deferred_tools.effective_mode() {
+        crate::config::DeferredToolsMode::Recommended => true,
+        crate::config::DeferredToolsMode::Custom => {
+            !app_config.deferred_tools.tool_names.is_empty()
+        }
+        crate::config::DeferredToolsMode::Disabled => false,
+    }
+}
+
+/// Recommended V2 treats dynamic MCP tools like every other non-bootstrap
+/// capability: discoverable by default, but not eager. Custom/disabled
+/// built-in policy keeps the existing per-server MCP opt-in semantics.
+pub fn should_defer_dynamic_mcp_tool(name: &str, app_config: &AppConfig) -> bool {
+    matches!(
+        app_config.deferred_tools.effective_mode(),
+        crate::config::DeferredToolsMode::Recommended
+    ) || crate::mcp::catalog::tool_belongs_to_deferred_server(name, &app_config.mcp_servers)
+}
+
+/// Small deterministic first-round set. Everything else remains eligible but
+/// moves behind tool_search in recommended mode.
+fn is_recommended_eager(name: &str) -> bool {
+    use crate::tools::*;
+    matches!(
+        name,
+        TOOL_ASK_USER_QUESTION
+            | TOOL_RUNTIME_CANCEL
+            | TOOL_SKILL
+            | TOOL_READ
+            | TOOL_GREP
+            | TOOL_EXEC
+            | TOOL_APPLY_PATCH
+            | TOOL_NOTE_READ
+            | TOOL_NOTE_SEARCH
+            | TOOL_NOTE_CREATE
+            | TOOL_NOTE_PATCH
+    )
 }
 
 /// Decide whether the tool should be deferred (schema not eagerly sent).
-/// Individual built-in tools move to the deferred pool only when they both
-/// opt in structurally (`default_deferred`) and their name appears in
-/// `deferredTools.toolNames`. The config default pre-populates that list with
-/// low-frequency / large-schema tools, while still letting users opt tools
-/// back into eager loading by removing a name.
+/// Recommended mode keeps a small fixed eager set and moves every other
+/// eligible built-in behind discovery. Custom mode uses `toolNames`; V2 lets
+/// users place any non-bootstrap Standard/Configured tool there, while the
+/// legacy `default_deferred` field remains serialization-compatible metadata.
 fn is_deferred(name: &str, tier: &ToolTier, app_config: &AppConfig) -> bool {
-    if !app_config.deferred_tools.enabled {
-        return false;
+    match app_config.deferred_tools.effective_mode() {
+        crate::config::DeferredToolsMode::Disabled => return false,
+        crate::config::DeferredToolsMode::Recommended => {
+            return !is_recommended_eager(name)
+                && !matches!(
+                    tier,
+                    ToolTier::Core {
+                        subclass: CoreSubclass::PlanMode
+                    }
+                );
+        }
+        crate::config::DeferredToolsMode::Custom => {}
     }
     let supports_deferred = match tier {
-        ToolTier::Standard {
-            default_deferred, ..
+        ToolTier::Core { subclass } => {
+            !matches!(subclass, CoreSubclass::PlanMode)
+                && !matches!(
+                    name,
+                    crate::tools::TOOL_TOOL_SEARCH
+                        | crate::tools::TOOL_ASK_USER_QUESTION
+                        | crate::tools::TOOL_RUNTIME_CANCEL
+                        | crate::tools::TOOL_SKILL
+                )
         }
-        | ToolTier::Configured {
-            default_deferred, ..
-        } => *default_deferred,
-        // Tier 1 / Memory / Mcp ignore the deferred switch entirely.
+        ToolTier::Memory => true,
+        ToolTier::Standard { .. } | ToolTier::Configured { .. } => true,
+        // Dynamic MCP servers have their own per-server deferred switch.
         _ => false,
     };
     supports_deferred
@@ -180,7 +236,8 @@ pub fn resolve_tool_fate(def: &ToolDefinition, ctx: &DispatchContext) -> ToolFat
             CoreSubclass::PlanMode => ToolFate::Hidden,
             // Meta tools include framework primitives (skill, runtime_cancel)
             // plus opt-in feature gates (tool_search, job_status). The latter
-            // two only appear when their corresponding global switch is on.
+            // two are eligible only when their corresponding global switch is
+            // on; the Agent may promote job_status for a live session job.
             CoreSubclass::Meta => match def.name.as_str() {
                 crate::tools::TOOL_TOOL_SEARCH => {
                     if has_deferred_builtin_tools(app_config)
@@ -197,19 +254,72 @@ pub fn resolve_tool_fate(def: &ToolDefinition, ctx: &DispatchContext) -> ToolFat
                 }
                 crate::tools::TOOL_JOB_STATUS => {
                     if app_config.async_tools.enabled {
-                        ToolFate::InjectEager
+                        if matches!(
+                            app_config.deferred_tools.effective_mode(),
+                            crate::config::DeferredToolsMode::Recommended
+                        ) {
+                            ToolFate::InjectDeferred
+                        } else {
+                            ToolFate::InjectEager
+                        }
                     } else {
                         ToolFate::Hidden
                     }
                 }
-                _ => ToolFate::InjectEager,
+                _ => {
+                    if is_deferred(&def.name, &def.tier, app_config) {
+                        ToolFate::InjectDeferred
+                    } else {
+                        ToolFate::InjectEager
+                    }
+                }
             },
-            // FileSystem / Interaction / SessionAware — always eager.
-            _ => ToolFate::InjectEager,
+            // In recommended V2 mode only the compact bootstrap/hot set stays
+            // eager. Core remains non-disableable, but its schema may be loaded
+            // on demand; this changes token placement, not capability.
+            _ => {
+                if is_deferred(&def.name, &def.tier, app_config) {
+                    ToolFate::InjectDeferred
+                } else {
+                    ToolFate::InjectEager
+                }
+            }
         },
         ToolTier::Memory => {
-            if !ctx.incognito && ctx.memory_enabled && ctx.app_config.memory_extract.enabled {
-                ToolFate::InjectEager
+            let runtime = &ctx.app_config.memory;
+            let global_memory_enabled =
+                runtime.effective_enabled(ctx.app_config.memory_extract.enabled);
+            let is_core_memory_tool = matches!(
+                def.name.as_str(),
+                crate::tools::TOOL_CORE_MEMORY
+                    | crate::tools::TOOL_UPDATE_CORE_MEMORY
+                    | crate::tools::TOOL_PROJECT_MEMORY
+            );
+            let core_enabled = !runtime.rollout.enabled || runtime.core.enabled;
+            let session_policy_allows = match def.name.as_str() {
+                crate::tools::TOOL_SAVE_MEMORY
+                | crate::tools::TOOL_UPDATE_MEMORY
+                | crate::tools::TOOL_DELETE_MEMORY
+                | crate::tools::TOOL_UPDATE_CORE_MEMORY => ctx.contribute_to_memories,
+                crate::tools::TOOL_RECALL_MEMORY | crate::tools::TOOL_MEMORY_GET => {
+                    ctx.use_memories
+                }
+                crate::tools::TOOL_CORE_MEMORY | crate::tools::TOOL_PROJECT_MEMORY => {
+                    ctx.use_memories || ctx.contribute_to_memories
+                }
+                _ => true,
+            };
+            if !ctx.incognito
+                && ctx.memory_enabled
+                && global_memory_enabled
+                && session_policy_allows
+                && (!is_core_memory_tool || core_enabled)
+            {
+                if is_deferred(&def.name, &def.tier, app_config) {
+                    ToolFate::InjectDeferred
+                } else {
+                    ToolFate::InjectEager
+                }
             } else {
                 ToolFate::Hidden
             }
@@ -305,16 +415,24 @@ mod tests {
         incognito: bool,
         mcp_enabled: bool,
         memory_enabled: bool,
+        use_memories: bool,
+        contribute_to_memories: bool,
     }
 
     impl Fixture {
         fn new() -> Self {
+            let mut app = AppConfig::default();
+            // Most dispatcher fixtures exercise the legacy/custom name-list
+            // semantics. Recommended-V2 behavior has dedicated tests below.
+            app.deferred_tools.mode = Some(crate::config::DeferredToolsMode::Custom);
             Self {
                 filter: FilterConfig::default(),
-                app: AppConfig::default(),
+                app,
                 incognito: false,
                 mcp_enabled: true,
                 memory_enabled: true,
+                use_memories: true,
+                contribute_to_memories: true,
             }
         }
 
@@ -324,6 +442,8 @@ mod tests {
                 incognito: self.incognito,
                 mcp_enabled: self.mcp_enabled,
                 memory_enabled: self.memory_enabled,
+                use_memories: self.use_memories,
+                contribute_to_memories: self.contribute_to_memories,
                 tools_filter: &self.filter,
                 app_config: &self.app,
             }
@@ -380,7 +500,7 @@ mod tests {
     #[test]
     fn tier_memory_hidden_when_global_memory_off() {
         let mut f = Fixture::new();
-        f.app.memory_extract.enabled = false;
+        f.app.memory.enabled = false;
         let def = def_with_tier("save_memory", ToolTier::Memory);
         let fate = resolve_tool_fate(&def, &f.ctx(DEFAULT_AGENT_ID));
         assert_eq!(fate, ToolFate::Hidden);
@@ -403,13 +523,15 @@ mod tests {
             crate::tools::TOOL_UPDATE_MEMORY,
             crate::tools::TOOL_DELETE_MEMORY,
             crate::tools::TOOL_UPDATE_CORE_MEMORY,
+            crate::tools::TOOL_CORE_MEMORY,
+            crate::tools::TOOL_PROJECT_MEMORY,
             crate::tools::TOOL_MEMORY_GET,
         ];
 
         let mut incognito = Fixture::new();
         incognito.incognito = true;
         let mut memory_off = Fixture::new();
-        memory_off.app.memory_extract.enabled = false;
+        memory_off.app.memory.enabled = false;
 
         for name in memory_tool_names {
             let def = all_dispatchable_tools()
@@ -439,6 +561,60 @@ mod tests {
         let def = def_with_tier("save_memory", ToolTier::Memory);
         let fate = resolve_tool_fate(&def, &f.ctx(DEFAULT_AGENT_ID));
         assert_eq!(fate, ToolFate::InjectEager);
+    }
+
+    #[test]
+    fn memory_read_tools_remain_callable_when_automatic_recall_is_off() {
+        let mut f = Fixture::new();
+        f.app.memory.recall.enabled = false;
+
+        for name in [
+            crate::tools::TOOL_RECALL_MEMORY,
+            crate::tools::TOOL_MEMORY_GET,
+        ] {
+            let def = all_dispatchable_tools()
+                .iter()
+                .find(|def| def.name == name)
+                .unwrap_or_else(|| panic!("missing built-in memory tool: {name}"));
+            assert_eq!(
+                resolve_tool_fate(def, &f.ctx(DEFAULT_AGENT_ID)),
+                ToolFate::InjectEager,
+                "automatic recall consent must not hide model-invoked tool {name}"
+            );
+        }
+    }
+
+    #[test]
+    fn session_read_and_contribution_policies_hide_only_their_tool_classes() {
+        let mut no_read = Fixture::new();
+        no_read.use_memories = false;
+        let recall = all_dispatchable_tools()
+            .iter()
+            .find(|def| def.name == crate::tools::TOOL_RECALL_MEMORY)
+            .expect("recall_memory definition");
+        let save = all_dispatchable_tools()
+            .iter()
+            .find(|def| def.name == crate::tools::TOOL_SAVE_MEMORY)
+            .expect("save_memory definition");
+        assert_eq!(
+            resolve_tool_fate(recall, &no_read.ctx(DEFAULT_AGENT_ID)),
+            ToolFate::Hidden
+        );
+        assert_ne!(
+            resolve_tool_fate(save, &no_read.ctx(DEFAULT_AGENT_ID)),
+            ToolFate::Hidden
+        );
+
+        let mut no_contribution = Fixture::new();
+        no_contribution.contribute_to_memories = false;
+        assert_eq!(
+            resolve_tool_fate(save, &no_contribution.ctx(DEFAULT_AGENT_ID)),
+            ToolFate::Hidden
+        );
+        assert_ne!(
+            resolve_tool_fate(recall, &no_contribution.ctx(DEFAULT_AGENT_ID)),
+            ToolFate::Hidden
+        );
     }
 
     #[test]
@@ -514,6 +690,7 @@ mod tests {
     fn deferred_tools_can_be_disabled_globally() {
         let mut f = Fixture::new();
         f.app.deferred_tools.enabled = false;
+        f.app.deferred_tools.mode = Some(crate::config::DeferredToolsMode::Disabled);
         let def = def_with_tier(
             crate::tools::TOOL_BROWSER,
             ToolTier::Standard {
@@ -525,6 +702,100 @@ mod tests {
         assert_eq!(
             resolve_tool_fate(&def, &f.ctx(DEFAULT_AGENT_ID)),
             ToolFate::InjectEager
+        );
+    }
+
+    #[test]
+    fn recommended_mode_defers_non_bootstrap_core_without_hiding_it() {
+        let mut f = Fixture::new();
+        f.app.deferred_tools.mode = Some(crate::config::DeferredToolsMode::Recommended);
+        let def = def_with_tier(
+            crate::tools::TOOL_SESSIONS_HISTORY,
+            ToolTier::Core {
+                subclass: CoreSubclass::SessionAware,
+            },
+        );
+        assert_eq!(
+            resolve_tool_fate(&def, &f.ctx(DEFAULT_AGENT_ID)),
+            ToolFate::InjectDeferred
+        );
+    }
+
+    #[test]
+    fn recommended_mode_defers_job_status_until_a_session_has_live_work() {
+        let mut f = Fixture::new();
+        f.app.async_tools.enabled = true;
+        f.app.deferred_tools.mode = Some(crate::config::DeferredToolsMode::Recommended);
+        let def = all_dispatchable_tools()
+            .iter()
+            .find(|def| def.name == crate::tools::TOOL_JOB_STATUS)
+            .expect("job_status definition");
+        assert_eq!(
+            resolve_tool_fate(def, &f.ctx(DEFAULT_AGENT_ID)),
+            ToolFate::InjectDeferred
+        );
+
+        f.app.deferred_tools.mode = Some(crate::config::DeferredToolsMode::Disabled);
+        assert_eq!(
+            resolve_tool_fate(def, &f.ctx(DEFAULT_AGENT_ID)),
+            ToolFate::InjectEager
+        );
+    }
+
+    #[test]
+    fn recommended_mode_defers_dynamic_mcp_without_per_server_opt_in() {
+        let mut app = AppConfig::default();
+        app.deferred_tools.mode = Some(crate::config::DeferredToolsMode::Recommended);
+        assert!(should_defer_dynamic_mcp_tool(
+            "mcp__example__large_tool",
+            &app
+        ));
+
+        app.deferred_tools.mode = Some(crate::config::DeferredToolsMode::Disabled);
+        assert!(!should_defer_dynamic_mcp_tool(
+            "mcp__example__large_tool",
+            &app
+        ));
+    }
+
+    #[test]
+    fn recommended_eager_schema_budget_and_capability_partition() {
+        let mut f = Fixture::new();
+        f.app.deferred_tools.mode = Some(crate::config::DeferredToolsMode::Recommended);
+        let ctx = f.ctx(DEFAULT_AGENT_ID);
+        let mut schema_bytes = 0usize;
+        for def in all_dispatchable_tools() {
+            match resolve_tool_fate(def, &ctx) {
+                ToolFate::InjectEager => {
+                    // Canonical empty-session fixture has no attached KB, so
+                    // the final live gate removes note_* schemas before the
+                    // request is built.
+                    if !crate::tools::is_kb_scoped_tool(&def.name) {
+                        schema_bytes += serde_json::to_vec(
+                            &def.to_provider_schema(crate::tools::ToolProvider::OpenAI),
+                        )
+                        .unwrap()
+                        .len();
+                    }
+                }
+                ToolFate::InjectDeferred | ToolFate::HintOnly { .. } | ToolFate::Hidden => {}
+            }
+            if matches!(def.tier, ToolTier::Core { subclass } if subclass != CoreSubclass::PlanMode)
+            {
+                assert!(
+                    matches!(
+                        resolve_tool_fate(def, &ctx),
+                        ToolFate::InjectEager | ToolFate::InjectDeferred
+                    ),
+                    "enabled core capability {} was hidden",
+                    def.name
+                );
+            }
+        }
+        assert!(
+            schema_bytes / crate::context_compact::CHARS_PER_TOKEN <= 4_000,
+            "recommended eager schemas exceed 4k token heuristic: {} bytes",
+            schema_bytes
         );
     }
 
@@ -682,6 +953,7 @@ mod tests {
     fn tier_standard_allow_enables_default_off() {
         let mut f = Fixture::new();
         f.filter.allow.push("get_weather".into());
+        f.app.deferred_tools.mode = Some(crate::config::DeferredToolsMode::Disabled);
         let def = def_with_tier(
             "get_weather",
             ToolTier::Standard {

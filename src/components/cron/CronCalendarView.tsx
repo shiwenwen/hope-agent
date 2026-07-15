@@ -38,6 +38,7 @@ import { cn } from "@/lib/utils"
 import CronJobForm from "./CronJobForm"
 import CronJobDetail from "./CronJobDetail"
 import CronConversationsPanel from "./CronConversationsPanel"
+import CronLoopBadge from "./CronLoopBadge"
 import type { CronJob, CalendarEvent } from "./CronJobForm.types"
 import {
   statusColor,
@@ -46,6 +47,8 @@ import {
   runStatusDisplay,
   formatSchedule,
   deliveryStatusColor,
+  cronDisplayTitle,
+  cronDisplayStatus,
 } from "./cronHelpers"
 import type { ProjectMeta } from "@/types/project"
 import type { AgentSummaryForSidebar } from "@/types/chat"
@@ -250,7 +253,7 @@ export default function CronCalendarView({
     () =>
       jobs.filter((job) => {
         if (search && !job.name.toLowerCase().includes(search.toLowerCase())) return false
-        if (statusFilter !== "all" && job.status !== statusFilter) return false
+        if (statusFilter !== "all" && cronDisplayStatus(job) !== statusFilter) return false
         return true
       }),
     [jobs, search, statusFilter],
@@ -396,21 +399,23 @@ export default function CronCalendarView({
   return (
     <div className="flex flex-col flex-1 min-w-0 h-full bg-background">
       {/* Top Bar */}
-      <div
-        className="flex items-center gap-3 px-5 py-3 border-b border-border/60 shrink-0"
-        data-tauri-drag-region
-      >
-        <CalendarDays className="h-5 w-5 text-primary" />
-        <h2 className="text-sm font-semibold">{t("cron.title")}</h2>
+      <div className="flex shrink-0 items-center gap-3 px-5 pb-3 pt-4" data-tauri-drag-region>
+        <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-primary/10 text-primary">
+          <CalendarDays className="h-4 w-4" />
+        </span>
+        <h2 className="text-[15px] font-semibold tracking-tight">{t("cron.title")}</h2>
 
         {/* View mode switcher */}
-        <div className="flex items-center rounded-md border border-border/60 p-0.5 bg-secondary/30">
+        <div className="flex items-center rounded-xl bg-muted/50 p-1">
           <Button
             variant="ghost"
             size="sm"
+            aria-pressed={mode === "calendar"}
             className={cn(
-              "h-6 text-xs gap-1 px-2",
-              mode === "calendar" ? "bg-background shadow-sm" : "text-muted-foreground",
+              "h-7 gap-1.5 rounded-lg px-2.5 text-xs",
+              mode === "calendar"
+                ? "bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary"
+                : "text-muted-foreground",
             )}
             onClick={() => setMode("calendar")}
           >
@@ -420,9 +425,12 @@ export default function CronCalendarView({
           <Button
             variant="ghost"
             size="sm"
+            aria-pressed={mode === "list"}
             className={cn(
-              "h-6 text-xs gap-1 px-2",
-              mode === "list" ? "bg-background shadow-sm" : "text-muted-foreground",
+              "h-7 gap-1.5 rounded-lg px-2.5 text-xs",
+              mode === "list"
+                ? "bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary"
+                : "text-muted-foreground",
             )}
             onClick={() => setMode("list")}
           >
@@ -432,9 +440,12 @@ export default function CronCalendarView({
           <Button
             variant="ghost"
             size="sm"
+            aria-pressed={mode === "conversations"}
             className={cn(
-              "h-6 text-xs gap-1 px-2",
-              mode === "conversations" ? "bg-background shadow-sm" : "text-muted-foreground",
+              "h-7 gap-1.5 rounded-lg px-2.5 text-xs",
+              mode === "conversations"
+                ? "bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary"
+                : "text-muted-foreground",
             )}
             onClick={() => setMode("conversations")}
           >
@@ -445,56 +456,32 @@ export default function CronCalendarView({
 
         <div className="flex-1" />
 
-        {mode === "conversations" ? null : mode === "calendar" ? (
+        {mode === "calendar" && (
           <>
-            <div className="flex items-center gap-1">
-              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={goPrevMonth}>
+            <div className="flex items-center gap-0.5 rounded-xl bg-muted/35 p-0.5">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7 rounded-lg"
+                onClick={goPrevMonth}
+              >
                 <ChevronLeft className="h-4 w-4" />
               </Button>
-              <Button variant="ghost" size="sm" className="text-xs px-2 h-7" onClick={goToday}>
+              <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={goToday}>
                 {t("cron.today")}
               </Button>
-              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={goNextMonth}>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7 rounded-lg"
+                onClick={goNextMonth}
+              >
                 <ChevronRight className="h-4 w-4" />
               </Button>
             </div>
-            <span className="text-sm font-medium min-w-[120px] text-center">
+            <span className="min-w-[120px] text-center text-sm font-medium">
               {currentDate.toLocaleString(undefined, { year: "numeric", month: "long" })}
             </span>
-          </>
-        ) : (
-          <>
-            <div className="relative w-56">
-              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-              <SearchInput
-                className="pl-8 h-7 text-xs"
-                placeholder={t("cron.searchPlaceholder")}
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-              />
-            </div>
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="h-7 w-auto gap-1 px-2 text-xs">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all" className="text-xs">
-                  {t("cron.filterAll")}
-                </SelectItem>
-                <SelectItem value="active" className="text-xs">
-                  {t("cron.active")}
-                </SelectItem>
-                <SelectItem value="paused" className="text-xs">
-                  {t("cron.paused")}
-                </SelectItem>
-                <SelectItem value="disabled" className="text-xs">
-                  {t("cron.disabled")}
-                </SelectItem>
-                <SelectItem value="completed" className="text-xs">
-                  {t("cron.completed")}
-                </SelectItem>
-              </SelectContent>
-            </Select>
           </>
         )}
 
@@ -511,7 +498,7 @@ export default function CronCalendarView({
           </IconTip>
         )}
 
-        <Button variant="outline" size="sm" className="h-7 text-xs gap-1" onClick={handleNewJob}>
+        <Button size="sm" className="h-8 gap-1.5 rounded-lg px-3 text-xs" onClick={handleNewJob}>
           <Plus className="h-3.5 w-3.5" />
           {t("cron.newJob")}
         </Button>
@@ -523,7 +510,7 @@ export default function CronCalendarView({
       ) : mode === "calendar" ? (
         <div className="flex flex-1 min-h-0 overflow-hidden">
           {/* Calendar Grid */}
-          <div className="flex-1 flex flex-col min-w-0 p-4">
+          <div className="flex min-w-0 flex-1 flex-col px-5 pb-5 pt-2">
             {/* Week header */}
             <div className="grid grid-cols-7 shrink-0 mb-1">
               {weekDays.map((d, i) => (
@@ -534,15 +521,17 @@ export default function CronCalendarView({
             </div>
 
             {/* Days grid — 6 rows stretch to fill remaining height */}
-            <div className="grid grid-cols-7 grid-rows-6 flex-1 min-h-0 gap-px bg-border/30 rounded-lg overflow-hidden">
+            <div className="grid min-h-0 flex-1 grid-cols-7 grid-rows-6 gap-1.5">
               {cells.map((day, i) => (
                 <button
                   key={i}
-                  className={`
-                    p-1.5 text-left bg-card transition-colors overflow-hidden
-                    ${day ? "hover:bg-secondary/50 cursor-pointer" : "bg-secondary/10 cursor-default"}
-                    ${day && selectedDate?.getDate() === day ? "ring-2 ring-primary ring-inset" : ""}
-                  `}
+                  className={cn(
+                    "overflow-hidden rounded-xl p-2 text-left transition-colors",
+                    day
+                      ? "cursor-pointer bg-muted/20 hover:bg-muted/45"
+                      : "cursor-default bg-transparent",
+                    day && selectedDate?.getDate() === day && "bg-primary/10 hover:bg-primary/15",
+                  )}
                   onClick={() => day && handleDayClick(day)}
                   disabled={!day}
                 >
@@ -564,8 +553,9 @@ export default function CronCalendarView({
                             .slice(0, 4)
                             .map((evt, j) => {
                               const dotColor = runLogDotColor(evt.runLog?.status, evt.status)
+                              const eventTitle = cronDisplayTitle(evt.jobName, evt.payloadType)
                               return (
-                                <IconTip key={j} label={evt.jobName}>
+                                <IconTip key={j} label={eventTitle}>
                                   <span
                                     className={`inline-block w-1.5 h-1.5 rounded-full ${dotColor}`}
                                   />
@@ -588,8 +578,8 @@ export default function CronCalendarView({
 
           {/* Day Detail Sidebar */}
           {selectedDate && (
-            <div className="w-72 border-l border-border/60 flex flex-col bg-muted/20 shrink-0">
-              <div className="px-4 py-3 border-b border-border/60 shrink-0">
+            <div className="m-3 ml-0 flex w-72 shrink-0 flex-col overflow-hidden rounded-2xl bg-muted/25">
+              <div className="shrink-0 px-4 pb-2 pt-4">
                 <h3 className="text-sm font-medium">
                   {selectedDate.toLocaleDateString(undefined, {
                     weekday: "long",
@@ -601,7 +591,7 @@ export default function CronCalendarView({
                   {selectedDayEvents.length} {t("cron.tasks")}
                 </p>
               </div>
-              <div className="flex-1 min-h-0 overflow-y-auto px-3 py-2">
+              <div className="min-h-0 flex-1 overflow-y-auto px-2.5 pb-2.5">
                 {selectedDayEvents.length === 0 ? (
                   <p className="text-xs text-muted-foreground py-6 text-center">
                     {t("cron.noTasksThisDay")}
@@ -615,10 +605,12 @@ export default function CronCalendarView({
                       })
                       const runStatus = evt.runLog?.status
                       const runDisp = runStatus ? runStatusDisplay(runStatus) : null
+                      const eventTitle = cronDisplayTitle(evt.jobName, evt.payloadType)
+                      const isLoop = evt.payloadType === "sessionLoop"
                       return (
                         <button
                           key={`${evt.jobId}-${i}`}
-                          className="w-full text-left rounded-lg bg-card p-2.5 hover:bg-secondary/60 transition-colors"
+                          className="w-full rounded-xl bg-background/70 p-3 text-left transition-colors hover:bg-background"
                           onClick={() => setDetailJobId(evt.jobId)}
                         >
                           <div className="flex items-center gap-2">
@@ -628,7 +620,8 @@ export default function CronCalendarView({
                                 evt.status,
                               )}`}
                             />
-                            <span className="text-xs font-medium truncate">{evt.jobName}</span>
+                            {isLoop && <CronLoopBadge />}
+                            <span className="truncate text-xs font-medium">{eventTitle}</span>
                             <span className="text-[10px] text-muted-foreground ml-auto shrink-0">
                               {time}
                             </span>
@@ -675,9 +668,42 @@ export default function CronCalendarView({
         </div>
       ) : (
         /* List View — master-detail: left job list · right embedded detail */
-        <div className="flex flex-1 min-h-0">
+        <div className="flex min-h-0 flex-1 px-3 pb-3">
           {/* Left — job list */}
-          <div className="flex w-80 shrink-0 flex-col border-r border-border/60 bg-muted/20">
+          <div className="flex w-[19.5rem] shrink-0 flex-col pr-3">
+            <div className="flex shrink-0 items-center gap-2 px-1 pb-2 pt-1">
+              <div className="relative min-w-0 flex-1">
+                <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                <SearchInput
+                  className="h-8 rounded-lg pl-8 text-xs"
+                  placeholder={t("cron.searchPlaceholder")}
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                />
+              </div>
+              <Select value={statusFilter} onValueChange={setStatusFilter}>
+                <SelectTrigger className="h-8 w-auto min-w-[6.5rem] max-w-[10rem] shrink-0 px-2 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all" className="text-xs">
+                    {t("cron.filterAll")}
+                  </SelectItem>
+                  <SelectItem value="active" className="text-xs">
+                    {t("cron.active")}
+                  </SelectItem>
+                  <SelectItem value="paused" className="text-xs">
+                    {t("cron.paused")}
+                  </SelectItem>
+                  <SelectItem value="disabled" className="text-xs">
+                    {t("cron.disabled")}
+                  </SelectItem>
+                  <SelectItem value="completed" className="text-xs">
+                    {t("cron.completed")}
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
             <div className="flex-1 overflow-y-auto">
               {listLoading && !jobsLoaded ? (
                 <div className="flex items-center justify-center py-10 text-muted-foreground">
@@ -688,32 +714,36 @@ export default function CronCalendarView({
                   {jobs.length === 0 ? t("cron.noJobs") : t("cron.noResults")}
                 </div>
               ) : (
-                <div className="py-1">
+                <div className="space-y-1">
                   {visibleJobs.map((job) => {
                     const isActive = job.id === selectedListJobId
+                    const isLoop = job.payload.type === "sessionLoop"
+                    const title = cronDisplayTitle(job.name, job.payload.type)
+                    const displayStatus = cronDisplayStatus(job)
                     return (
                       <button
                         key={job.id}
                         onClick={() => setSelectedListJobId(job.id)}
                         className={cn(
-                          "w-full px-3 py-2.5 text-left transition-colors border-l-2",
-                          isActive
-                            ? "bg-primary/10 border-l-primary"
-                            : "border-l-transparent hover:bg-secondary/50",
+                          "w-full rounded-xl px-3 py-3 text-left transition-colors",
+                          isActive ? "bg-sky-500/[0.075]" : "hover:bg-sky-500/[0.04]",
                         )}
                       >
                         <div className="flex items-center gap-2">
-                          <IconTip label={statusLabel(job.status, t)}>
+                          <IconTip label={statusLabel(displayStatus, t)}>
                             <span
                               className={cn(
                                 "inline-block h-2 w-2 shrink-0 rounded-full",
-                                statusColor(job.status),
+                                statusColor(displayStatus),
                               )}
                             />
                           </IconTip>
-                          <span className="flex-1 truncate text-xs font-medium">{job.name}</span>
+                          <span className="flex min-w-0 flex-1 items-center gap-1.5 text-xs font-medium">
+                            {isLoop && <CronLoopBadge />}
+                            <span className="truncate">{title}</span>
+                          </span>
                         </div>
-                        <div className="mt-1 truncate pl-4 text-[10px] text-muted-foreground">
+                        <div className="mt-1.5 truncate pl-4 text-[10px] text-muted-foreground">
                           {formatSchedule(job.schedule, t)}
                           {` · ${projectLabel(job.projectId)}`}
                         </div>
@@ -764,7 +794,7 @@ export default function CronCalendarView({
           </div>
 
           {/* Right — embedded detail of the selected job */}
-          <div className="flex flex-1 min-w-0 flex-col">
+          <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-2xl bg-background">
             {selectedListJobId ? (
               <CronJobDetail
                 key={selectedListJobId}
@@ -783,7 +813,9 @@ export default function CronCalendarView({
             ) : (
               <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center text-muted-foreground">
                 <ListIcon className="h-10 w-10 opacity-40" />
-                <p className="text-sm">{jobs.length === 0 ? t("cron.noJobs") : t("cron.noResults")}</p>
+                <p className="text-sm">
+                  {jobs.length === 0 ? t("cron.noJobs") : t("cron.noResults")}
+                </p>
               </div>
             )}
           </div>

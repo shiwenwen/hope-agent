@@ -184,14 +184,16 @@ pub struct AssistantAgent {
     pub(super) compaction_provider:
         Option<std::sync::Arc<dyn crate::context_compact::CompactionProvider>>,
     /// Token estimate calibrator (updated with actual API usage)
-    #[allow(dead_code)]
-    pub(super) token_calibrator: std::sync::Mutex<crate::context_compact::TokenEstimateCalibrator>,
+    pub(super) token_calibrator: std::sync::Mutex<crate::context_compact::TokenEstimateCalibrators>,
+    /// Session-scoped deferred tools already discovered by `tool_search`.
+    /// Persisted for regular sessions and kept memory-only for incognito.
+    pub(super) activated_tool_names: std::sync::Mutex<Vec<String>>,
     /// Current session ID (for sub-agent context)
     pub(super) session_id: Option<String>,
     /// Session database backing the current chat-engine turn. Most runtime
     /// paths use the global DB, but deterministic/eval runners can provide an
     /// isolated DB; agent-side session lookups must honor that source first.
-    pub(super) session_db: Option<std::sync::Arc<crate::session::SessionDB>>,
+    pub(crate) session_db: Option<std::sync::Arc<crate::session::SessionDB>>,
     /// Cached `sessions.incognito` flag for the current session. Refreshed at
     /// each turn boundary (`reset_chat_flags`) and on `set_session_id`; allows
     /// hot-path guards to avoid a SQLite round-trip per call.
@@ -322,6 +324,15 @@ pub struct AssistantAgent {
     /// are persisted with the assistant row as `used_memory_refs` so the UI can
     /// explain long-term context even when Active Memory is disabled or empty.
     pub(crate) static_memory_refs: std::sync::Mutex<Vec<super::active_memory::UsedMemoryRef>>,
+    /// Content-free metrics for the exact static memory snapshot used to build
+    /// this turn's base prompt. Dynamic recall metrics are joined per round.
+    pub(crate) static_memory_manifest:
+        std::sync::Mutex<crate::memory::context_manifest::StaticMemoryContextManifest>,
+    /// Session-stable Core Memory contents. File changes do not replace this
+    /// snapshot until explicit reload/compaction or context identity changes.
+    pub(crate) core_memory_snapshot: std::sync::Mutex<
+        Option<std::sync::Arc<crate::memory::core_repository::CoreMemorySnapshot>>,
+    >,
     /// Episode / Procedure candidates considered for this turn. These are not
     /// all injected into the model; high-confidence procedures may additionally
     /// enter `procedure_memory_suffix` as bounded soft workflow guidance.
@@ -535,16 +546,48 @@ impl ThinkTagFilter {
 /// recent API round for status UIs where cumulative sums are misleading.
 #[derive(Debug, Clone, Default)]
 pub struct ChatUsage {
+    /// Provider-reported input tokens. For Anthropic this excludes cache
+    /// creation/read tokens; for OpenAI-style providers it is already the
+    /// complete input count. Keep this raw field for billing compatibility.
     pub input_tokens: u64,
     pub output_tokens: u64,
     pub cache_creation_input_tokens: u64,
     pub cache_read_input_tokens: u64,
+    /// Normalized number of input tokens that occupied the model context.
+    /// Unlike `input_tokens`, this has identical semantics across providers.
+    pub context_input_tokens: u64,
+    /// Context input that was not served by a cache read. Cache writes are
+    /// intentionally included: they still require fresh prompt processing.
+    pub fresh_input_tokens: u64,
     pub last_input_tokens: u64,
+    pub last_context_input_tokens: u64,
+    pub last_fresh_input_tokens: u64,
     pub last_cache_creation_input_tokens: u64,
     pub last_cache_read_input_tokens: u64,
 }
 
 impl ChatUsage {
+    /// Normalize a single Anthropic round. Anthropic reports uncached input,
+    /// cache creation, and cache reads as disjoint counters.
+    pub fn normalize_anthropic_round(&mut self) {
+        self.context_input_tokens = self
+            .input_tokens
+            .saturating_add(self.cache_creation_input_tokens)
+            .saturating_add(self.cache_read_input_tokens);
+        self.fresh_input_tokens = self
+            .context_input_tokens
+            .saturating_sub(self.cache_read_input_tokens);
+    }
+
+    /// Normalize a single OpenAI-compatible round. OpenAI input tokens already
+    /// include cached tokens; cached tokens are a subset of the total.
+    pub fn normalize_openai_round(&mut self) {
+        self.context_input_tokens = self.input_tokens;
+        self.fresh_input_tokens = self
+            .context_input_tokens
+            .saturating_sub(self.cache_read_input_tokens);
+    }
+
     /// Fold one round's usage into the running turn total. Cumulative
     /// fields accumulate; `last_*` fields are overwritten so callers can
     /// render the most recent round without summing over a tool loop.
@@ -553,7 +596,23 @@ impl ChatUsage {
         self.output_tokens += round.output_tokens;
         self.cache_creation_input_tokens += round.cache_creation_input_tokens;
         self.cache_read_input_tokens += round.cache_read_input_tokens;
-        self.last_input_tokens = round.input_tokens;
+        let round_context = if round.context_input_tokens > 0 {
+            round.context_input_tokens
+        } else {
+            round.input_tokens
+        };
+        let round_fresh = if round.fresh_input_tokens > 0 {
+            round.fresh_input_tokens
+        } else {
+            round_context.saturating_sub(round.cache_read_input_tokens)
+        };
+        self.context_input_tokens += round_context;
+        self.fresh_input_tokens += round_fresh;
+        // Backward-compatible event/DB field: `last_input_tokens` has always
+        // powered the context gauge, so make it the normalized context count.
+        self.last_input_tokens = round_context;
+        self.last_context_input_tokens = round_context;
+        self.last_fresh_input_tokens = round_fresh;
         self.last_cache_creation_input_tokens = round.cache_creation_input_tokens;
         self.last_cache_read_input_tokens = round.cache_read_input_tokens;
     }
@@ -562,6 +621,36 @@ impl ChatUsage {
 #[cfg(test)]
 mod chat_usage_tests {
     use super::ChatUsage;
+
+    #[test]
+    fn anthropic_round_counts_disjoint_cache_counters_in_context() {
+        let mut usage = ChatUsage {
+            input_tokens: 10,
+            cache_creation_input_tokens: 5,
+            cache_read_input_tokens: 20,
+            ..Default::default()
+        };
+
+        usage.normalize_anthropic_round();
+
+        assert_eq!(usage.context_input_tokens, 35);
+        assert_eq!(usage.fresh_input_tokens, 15);
+    }
+
+    #[test]
+    fn openai_round_treats_cached_tokens_as_subset_of_total_input() {
+        let mut usage = ChatUsage {
+            input_tokens: 100,
+            cache_creation_input_tokens: 5,
+            cache_read_input_tokens: 80,
+            ..Default::default()
+        };
+
+        usage.normalize_openai_round();
+
+        assert_eq!(usage.context_input_tokens, 100);
+        assert_eq!(usage.fresh_input_tokens, 20);
+    }
 
     #[test]
     fn accumulate_round_keeps_cache_totals_and_last_round_cache() {

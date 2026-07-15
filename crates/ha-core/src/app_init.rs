@@ -256,6 +256,14 @@ pub fn init_runtime(role: &'static str) {
         cron::CronDB::open(&cron_db_path),
         "Cannot open cron database",
     ));
+    if let Err(e) = session_db.reconcile_terminal_loop_cron_jobs(&cron_db) {
+        crate::app_warn!(
+            "loop",
+            "cron_status_reconcile",
+            "Failed to reconcile terminal Loop cron statuses: {}",
+            e
+        );
+    }
     let _ = CRON_DB.set(cron_db);
 
     // R1: the background-jobs cache moved from `async_jobs.db` → `background_jobs.db`.

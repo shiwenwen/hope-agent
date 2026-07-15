@@ -33,7 +33,7 @@ describe("focus visibility input modality", () => {
     expect(document.documentElement.dataset.inputModality).toBe("pointer")
   })
 
-  test("typing in a pointer-focused editor does not paint a focus ring", () => {
+  test("editing a pointer-focused editor does not paint a focus ring", () => {
     install()
     const input = document.createElement("input")
     document.body.append(input)
@@ -58,7 +58,27 @@ describe("focus visibility input modality", () => {
     expect(document.documentElement.dataset.inputModality).toBe("pointer")
 
     input.dispatchEvent(new KeyboardEvent("keydown", { key: "f", ctrlKey: true, bubbles: true }))
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "a", metaKey: true, bubbles: true }))
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true }))
+    expect(document.documentElement.dataset.inputModality).toBe("pointer")
+
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true }))
     expect(document.documentElement.dataset.inputModality).toBe("keyboard")
+  })
+
+  test("an editor shortcut that opens another editor remains quiet", () => {
+    install()
+    const input = document.createElement("input")
+    const search = document.createElement("input")
+    document.body.append(input, search)
+
+    input.dispatchEvent(new Event("pointerdown", { bubbles: true }))
+    input.focus()
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "f", metaKey: true, bubbles: true }))
+    expect(document.documentElement.dataset.inputModality).toBe("pointer")
+
+    search.focus()
+    expect(document.documentElement.dataset.inputModality).toBe("pointer")
   })
 
   test("keyboard interaction on non-editable controls enables the indicator", () => {

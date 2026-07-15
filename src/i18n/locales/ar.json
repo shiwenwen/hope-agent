@@ -984,13 +984,20 @@
         "noSession": "لا يوجد سياق الجلسة",
         "retrievalError": "فشل الاسترجاع",
         "sideQueryError": "فشل الاستدعاء",
-        "timeout": "انتهت المهلة"
+        "timeout": "انتهت المهلة",
+        "budgetEmpty": "ميزانية الاسترجاع فارغة",
+        "nonContextualTurn": "رسالة لا تحتاج إلى سياق",
+        "recallOff": "استرجاع الذاكرة الديناميكية التلقائي متوقف",
+        "retrievalBusy": "خدمة الاسترجاع مشغولة",
+        "sessionPolicy": "معطل وفق سياسة الذاكرة أو المحادثة",
+        "unifiedRecall": "تمت معالجته بواسطة الاسترجاع السريع",
+        "unknown": "سبب آخر"
       },
       "layerStatus": {
         "candidate": "مرشح",
         "disabled": "معطل",
         "empty": "لا ضربة",
-        "skipped": "متدهورة",
+        "skipped": "تم التخطي",
         "unknown": "غير معروف",
         "used": "تستخدم"
       },
@@ -1057,7 +1064,11 @@
       "more": "{{count}} يتم إخفاء المزيد من عناصر السياق طويلة المدى.",
       "sources": "مصادر الذاكرة",
       "editMemory": "تحرير هذه الذاكرة",
-      "copyTrace": "نسخ التشخيص"
+      "copyTrace": "نسخ التشخيص",
+      "promoteToCore": "تذكّر هذا دائمًا",
+      "promoteToCoreFailed": "تعذرت إضافة هذا إلى الذاكرة الأساسية.",
+      "promotedToCore": "تم تذكّره دائمًا",
+      "promotedToCoreToast": "أُضيف إلى الذاكرة الأساسية الدائمة."
     },
     "projectWelcomeTitle": "ماذا يجب أن نبني في <project>{{project}}</project>؟ أخبرني بفكرتك",
     "projectWelcomeSuggestions": {
@@ -1129,7 +1140,18 @@
     "openSourceConversationMissing": "لم تعد محادثة المصدر متاحة",
     "openSourceConversationMissingHint": "يشير مصدر الذاكرة هذا إلى محادثة تم حذفها أو لا يمكن العثور عليها.",
     "openSourceMessageMissing": "لم تعد رسالة المصدر متاحة",
-    "openSourceMessageMissingHint": "لا تزال المحادثة موجودة، ولكن تعذر العثور على الرسالة الدقيقة لمصدر الذاكرة هذا."
+    "openSourceMessageMissingHint": "لا تزال المحادثة موجودة، ولكن تعذر العثور على الرسالة الدقيقة لمصدر الذاكرة هذا.",
+    "memoryPolicy": {
+      "title": "ذاكرة هذه المحادثة",
+      "use": "استخدام الذكريات الموجودة",
+      "contribute": "التعلّم من هذه المحادثة",
+      "inherit": "اتباع الإعداد العام",
+      "allow": "تشغيل",
+      "deny": "إيقاف",
+      "desc": "الخياران مستقلان: يمكن للمحادثة استخدام الذكريات الموجودة دون إنشاء ذكريات جديدة.",
+      "incognito": "المحادثات الخفية لا تقرأ الذاكرة طويلة الأمد ولا تكتب فيها.",
+      "reloadCore": "إعادة تحميل MEMORY.md لهذه الجلسة"
+    }
   },
   "codexAuth": {
     "expiredDescription": "رمز OAuth لـ Codex لم يعد صالحاً. يرجى تسجيل الدخول مرة أخرى للمتابعة.",
@@ -1193,7 +1215,7 @@
     "ago": "مضى",
     "cacheTtlProtection": "حماية TTL للتخزين المؤقت",
     "compactAllowedIn": "الضغط التالي خلال",
-    "estimateNote": "تقديري (الأحرف÷4)؛ قد يختلف عن الاستخدام المحاسبي بنسبة 10–20%.",
+    "estimateNote": "بعد كل جولة تكون بيانات الاستخدام الفعلية من المزوّد هي المرجع؛ وقبل ذلك يظهر تقدير محافظ بحسب شكل الطلب.",
     "freeSpace": "المساحة المتاحة",
     "lastCompact": "آخر ضغط",
     "memory": "الذاكرة",
@@ -1205,7 +1227,16 @@
     "toolDescriptions": "أوصاف الأدوات",
     "toolSchemas": "مخططات الأدوات",
     "used": "المستخدم",
-    "viewSystemPrompt": "موجه النظام"
+    "viewSystemPrompt": "موجه النظام",
+    "cacheRead": "قراءة التخزين المؤقت",
+    "cacheWindowNotice": "تقلل إصابات التخزين المؤقت الحساب المتكرر والتكلفة وTTFT، لكنها لا تقلل استخدام نافذة السياق.",
+    "cacheWrite": "كتابة التخزين المؤقت",
+    "coreMemoryBudget": "ميزانية Core Memory",
+    "coreMemoryModelLimited": "محدودة مؤقتًا لهذا النموذج",
+    "dynamicPrompt": "الموجه الديناميكي",
+    "estimated": "تقديري",
+    "freshInput": "إدخال جديد",
+    "providerInput": "إدخال Provider"
   },
   "cron": {
     "active": "نشطة",
@@ -2067,10 +2098,10 @@
       "staged": "Staged",
       "stagedScope": "Staged",
       "stale": "The repository changed. The diff was refreshed; review it again.",
+      "prReviewComments": "تعليقات مراجعة PR · {{count}}",
       "unstage": "Unstage",
       "unstaged": "Unstaged",
-      "unstagedScope": "Unstaged",
-      "prReviewComments": "تعليقات مراجعة PR · {{count}}"
+      "unstagedScope": "Unstaged"
     }
   },
   "effort": {
@@ -2507,7 +2538,9 @@
     "reasoningHint": "بعد التفعيل، يمكنك اختيار عمق الاستدلال (منخفض / متوسط / مرتفع) من قائمة النماذج أعلى مربع إدخال المحادثة، ويُضاف تلقائيًا في كل طلب.",
     "supportedInputTypes": "أنواع الإدخال المدعومة",
     "text": "نص",
-    "video": "فيديو"
+    "video": "فيديو",
+    "supportsImageMultimodal": "يدعم تعدد الوسائط بالصور",
+    "supportsVideoMultimodal": "يدعم تعدد الوسائط بالفيديو"
   },
   "notification": {
     "cronCancelled": "تم إلغاء المهمة المجدولة",
@@ -2990,7 +3023,30 @@
     "openFromMemoryLoadFailed": "تعذر فتح مصدر المشروع",
     "openFromMemoryLoadFailedDetail": "التفاصيل: {{error}}",
     "openFromMemoryMissing": "لم يعد المشروع متاحًا",
-    "openFromMemoryMissingHint": "يشير مصدر الذاكرة إلى مشروع تم حذفه أو لا يمكن العثور عليه."
+    "openFromMemoryMissingHint": "يشير مصدر الذاكرة إلى مشروع تم حذفه أو لا يمكن العثور عليه.",
+    "autoMemory": {
+      "content": "التفاصيل (Markdown)",
+      "deleteConfirm": "هل تريد حذف موضوع ذاكرة المشروع التلقائية؟",
+      "description": "يُضاف فهرس MEMORY.md موجز وثابت إلى محادثات المشروع، ولا تُقرأ تفاصيل المواضيع إلا عند الحاجة. تبقى البيانات على هذا الجهاز.",
+      "editorHint": "تعليمات المشروع قواعد ثابتة؛ أما هنا فتُحفظ الخبرات المتراكمة أثناء العمل وليست تعليمات مُلزمة.",
+      "editorTitle": "ذاكرة المشروع التلقائية",
+      "empty": "لا توجد مواضيع ذاكرة تلقائية بعد.",
+      "fileNameGenerated": "سيُنشأ اسم الملف عند الحفظ",
+      "name": "العنوان",
+      "newTopic": "موضوع جديد",
+      "rebuildIndex": "إعادة بناء فهرس MEMORY.md",
+      "rebuildFailed": "تعذرت إعادة بناء فهرس MEMORY.md.",
+      "summary": "ملخص الفهرس",
+      "summaryHint": "تدخل هذه الجملة في الموجّه الثابت لكل محادثة مشروع، فاجعلها موجزة.",
+      "type": "النوع",
+      "types": {
+        "feedback": "ملاحظات العمل",
+        "project": "عمل المشروع",
+        "reference": "مرجع",
+        "user": "سياق المستخدم"
+      }
+    },
+    "tabAutoMemory": "الذاكرة التلقائية"
   },
   "provider": {
     "addProvider": "إضافة مزود",
@@ -3202,12 +3258,12 @@
     "acpTimeout": "المهلة (ثانية)",
     "activeMemoryCacheTtl": "TTL التخزين المؤقت (ثوانٍ)",
     "activeMemoryCandidateLimit": "حد المرشحين",
-    "activeMemoryDesc": "في بداية كل دور من أدوار المستخدم، نفّذ استعلامًا جانبيًا محدودًا لاستخلاص أكثر ذكرى ذات صلة وحقنها ضمن مطالبة النظام. الأخطاء والمهلات تتراجع بصمت إلى الاستدعاء السلبي ولا تعرقل المحادثة أبدًا.",
+    "activeMemoryDesc": "استدعاء توافق على مستوى Agent. عند تشغيله يستخدم هذا الـ Agent وحده استدعاء Fast وإعادة الترتيب العميقة حتى إذا كان الاستدعاء التلقائي العام متوقفًا. وهو متوقف افتراضيًا؛ وتضيف إعادة الترتيب العميقة side query وزمن انتظار واستخدام Token.",
     "activeMemoryIncludeClaims": "تضمين المطالبات المنظمة",
     "activeMemoryIncludeClaimsDesc": "إدراج مطالبات Dreaming المنظمة أيضًا (وليس الذكريات القديمة فقط) كمرشحات للاستدعاء. معطّل افتراضيًا.",
     "activeMemoryMaxChars": "الحد الأقصى لأحرف الاستدعاء",
     "activeMemoryTimeout": "المهلة (مللي ثانية)",
-    "activeMemoryTitle": "استدعاء الذاكرة النشطة",
+    "activeMemoryTitle": "الاستدعاء العميق لـ Agent",
     "addFallback": "إضافة نموذج احتياطي",
     "addFallbackModel": "إضافة نموذج احتياطي",
     "agentAgentsMd": "AGENTS.md",
@@ -4848,9 +4904,9 @@
     "memoryAutoExtractDesc": "استخراج الذاكرات تلقائياً عند استيفاء عتبات الرموز أو الوقت أو الرسائل",
     "memoryBudget": {
       "agentOverrideDesc": "يرث ميزانية الذاكرة العامة بشكل افتراضي. أوقف التشغيل لاستخدام ميزانية خاصة بـ Agent.",
-      "coreMemoryFileChars": "حد كل طبقة memory.md",
-      "coreMemoryFileCharsDesc": "حد مستقل لكل ملف memory.md (Global / Agent). يُقطع المحتوى الزائد في المحث لكنه يُحفظ على القرص. الافتراضي 8000.",
-      "desc": "يقيّد إجمالي عدد الأحرف في قسم الذاكرة (Global memory.md / Agent memory.md / ذاكرة SQLite / الإرشادات) وحدود كل طبقة داخله. خفض الإجمالي يترك مزيدًا من الميزانية لسياق المحادثة الحية.",
+      "coreMemoryFileChars": "حد كل طبقة MEMORY.md",
+      "coreMemoryFileCharsDesc": "حد مستقل لكل ملف MEMORY.md (Global / Agent). يُقطع المحتوى الزائد في المحث لكنه يُحفظ على القرص. الافتراضي 8000.",
+      "desc": "يقيّد إجمالي عدد الأحرف في قسم الذاكرة (Global MEMORY.md / Agent MEMORY.md / ذاكرة SQLite / الإرشادات) وحدود كل طبقة داخله. خفض الإجمالي يترك مزيدًا من الميزانية لسياق المحادثة الحية.",
       "resetToDefaults": "إعادة تعيين للقيم الافتراضية",
       "sections": {
         "aboutUser": "عن المستخدم",
@@ -4870,6 +4926,35 @@
         "load": "Failed to load memory budget",
         "save": "Failed to save memory budget",
         "detail": "التفاصيل: {{error}}"
+      },
+      "advancedAllocation": "توزيع النطاقات المتقدم",
+      "contextWindow": "سياق النموذج الافتراضي الحالي: {{count}} tokens",
+      "coreSimpleDesc": "اختر ميزانية إجمالية واحدة لـ Core Memory. تتشارك النطاقات السعة غير المستخدمة بالأولوية Project > Agent > Global.",
+      "engine": {
+        "agentTokens": "رموز Agent",
+        "budgetTokens": "رموز الميزانية",
+        "cacheTtlSecs": "مدة ذاكرة التخزين المؤقت (ث)",
+        "candidateLimit": "حد المرشحين",
+        "globalTokens": "الرموز العامة",
+        "hardMaxTokens": "الحد الصارم للرموز",
+        "maxSelected": "الحد الأقصى للاختيار",
+        "maxTokens": "الحد الأقصى للرموز",
+        "projectTokens": "رموز المشروع",
+        "protocolTokens": "رموز البروتوكول",
+        "summaryChars": "أحرف الملخص",
+        "timeoutMs": "المهلة (مللي ثانية)",
+        "topicReadTokens": "رموز قراءة الموضوع",
+        "totalTokens": "إجمالي الرموز"
+      },
+      "legacyTitle": "ميزانيات الرجوع إلى الإصدار القديم",
+      "legacyDesc": "تنطبق ميزانيات الأحرف هذه فقط على مسار الذاكرة الثابتة القديم، وتبقى قابلة للتعديل خلال فترة التوافق.",
+      "effective": "المضبوط {{configured}} · الفعلي في هذه الجولة {{effective}} tokens",
+      "highBudgetWarning": "تجاوزت النطاق الموصى به وهو 2400 tokens. يمكن الحفظ، لكن ذلك يزيد السياق الثابت وكتابة التخزين المؤقت وزمن أول رمز.",
+      "modelLimited": "تم الضبط على {{configured}} tokens؛ يستخدم النموذج الحالي {{effective}} بأمان. لن يتغير التفضيل المحفوظ.",
+      "presets": {
+        "balanced": "متوازن",
+        "concise": "موجز",
+        "rich": "موسع"
       }
     },
     "memoryContent": "المحتوى",
@@ -5911,7 +5996,7 @@
     "timeoutPolicyWarn": "التطبيق مع التسجيل (افتراضي)",
     "toolTimeout": "مهلة الأدوات المتزامنة",
     "toolTimeoutDesc": "مهلة احتياطية عامة لاستدعاءات الأدوات الأمامية/المتزامنة. الافتراضي 0 يعطل هذه المهلة العامة؛ اضبط قيمة موجبة لإلغاء الاستدعاءات بعد هذا العدد من الثواني. تستخدم مهام async الخلفية مدة المهمة القصوى في إعدادات الأدوات غير المتزامنة؛ وقد تظل لبعض الأدوات مهل داخلية خاصة بها.",
-    "toolUpdateCoreMemoryDesc": "تحديث ملف memory.md الذي يُحقن في موجّه النظام",
+    "toolUpdateCoreMemoryDesc": "تحديث ملف MEMORY.md الذي يُحقن في موجّه النظام",
     "toolUpdateCoreMemoryName": "تحديث الذاكرة الأساسية",
     "toolUpdateMemoryDesc": "تحديث محتوى ذاكرة موجودة",
     "toolUpdateMemoryName": "تحديث ذاكرة",
@@ -6143,8 +6228,8 @@
     "memoryLearningPausedDesc": "العميل لا يستخدم أو يتعلم الذاكرة طويلة المدى في الوقت الحالي. تظل البيانات الموجودة على هذا الجهاز، ولا يزال بإمكانك الإدارة أو التصدير أو الحذف أو الاستئناف في الوضع اليدوي فقط.",
     "memoryLearningResumeManual": "استئناف الدليل فقط",
     "memoryLearningOpenSettings": "افتح الإعدادات",
-    "memoryUseInRepliesTitle": "استخدم الذكريات في الردود",
-    "memoryUseInRepliesDesc": "تمكين الإعداد المسبق للاستدعاء ذي زمن الاستجابة المنخفض الموصى به للوكيل الافتراضي. يمكن إدراج الذكريات ذات الصلة في الإجابات، ولا يزال التذكير يتخطى بأمان عند انتهاء المهلة.",
+    "memoryUseInRepliesTitle": "تجاوز الاستدعاء العميق القديم لـ Agent",
+    "memoryUseInRepliesDesc": "استدعاء توافق للـ Agent الافتراضي. عند تشغيله يستخدم هذا الـ Agent وحده استدعاء Fast وإعادة الترتيب العميقة حتى إذا كان الإعداد العام أعلاه متوقفًا. وهو متوقف افتراضيًا؛ وتضيف إعادة الترتيب العميقة side query وزمن انتظار واستخدام Token.",
     "memoryUseInRepliesTarget": "الوكيل الافتراضي: {{agent}}",
     "memoryUseInRepliesSummaryTimeout": "المهلة",
     "memoryUseInRepliesSummaryCache": "ذاكرة التخزين المؤقت",
@@ -6165,9 +6250,9 @@
     "memoryUseInRepliesUpdateFailed": "تعذر تحديث الاستدعاء النشط",
     "memoryUseInRepliesError": "تعذر تحديث الاستدعاء النشط: {{error}}",
     "memoryUseInRepliesErrorDetail": "التفاصيل: {{error}}",
-    "memoryUseInRepliesReadinessRecommended": "جاهز: يتضمن الاستدعاء ذو زمن الوصول المنخفض ذكريات منظمة ومهلة احتياطية آمنة.",
+    "memoryUseInRepliesReadinessRecommended": "استدعاء توافق Agent جاهز؛ هذا الـ Agent وحده سيستخدم استدعاء Fast وإعادة الترتيب العميقة.",
     "memoryUseInRepliesReadinessAgentOff": "ذاكرة Agent معطلة. سيؤدي استخدام الاستدعاء الموصى به إلى إعادة تشغيله للوكيل الافتراضي.",
-    "memoryUseInRepliesReadinessDisabled": "إيقاف: لن يقوم الوكيل الافتراضي بالبحث بشكل استباقي عن الذكريات قبل الإجابة.",
+    "memoryUseInRepliesReadinessDisabled": "متوقف افتراضيًا: لن يبحث الوكيل الافتراضي عن الذكريات استباقيًا قبل الإجابة.",
     "memoryUseInRepliesReadinessClaimsOff": "يتم استبعاد الذكريات المنظمة من الاستدعاء الاستباقي.",
     "memoryUseInRepliesReadinessSlowTimeout": "المهلة أعلى من الإعداد المسبق لوقت الاستجابة المنخفض الموصى به.",
     "memoryUseInRepliesReadinessTightBudget": "ميزانية الاستدعاء أقل من الإعداد المسبق الموصى به.",
@@ -7030,7 +7115,95 @@
     "memoryProcedureTriggerPlaceholder": "عندما ينبغي النظر في سير العمل هذا",
     "memoryProcedureStepsPlaceholder": "- فحص الشيك الفاشل\n- تطبيق الإصلاح المعروف\n- أعد تشغيل أداة التحقق الضيقة",
     "memoryProcedureConstraintsPlaceholder": "متى لا تستخدم سير العمل هذا",
-    "memoryProcedureConfidence": "الثقة"
+    "memoryProcedureConfidence": "الثقة",
+    "agentMemoryEnabledTitle": "استخدام الذاكرة لهذا الوكيل",
+    "agentMemoryEnabledDesc": "يتحكم في الذاكرة الأساسية والاسترجاع الديناميكي والتعلّم وأدوات الذاكرة لهذا الوكيل. تبقى إعدادات الذاكرة العامة هي السياسة العليا.",
+    "memoryV2": {
+      "title": "الذاكرة",
+      "subtitle": "اختر ما يبقى محفوظًا، ومتى يتم الاسترجاع، وما إذا كانت المحادثات تعلّم المساعد.",
+      "loadFailed": "تعذر تحميل إعدادات الذاكرة",
+      "saveFailed": "تعذر حفظ إعدادات الذاكرة",
+      "core": {
+        "title": "محفوظ دائمًا",
+        "desc": "تبقى ملفات MEMORY.md المختصرة لنطاقات Global وAgent وProject ثابتة في المحادثة، وتُحمّل التفاصيل عند الحاجة فقط.",
+        "budget": "ميزانية إجمالية {{count}} رمزًا",
+        "manage": "تحرير MEMORY.md",
+        "projectTitle": "MEMORY.md للمشروع",
+        "projectDesc": "سياق دائم ومختصر تستخدمه محادثات هذا المشروع فقط.",
+        "conflict": "تغيّر كل من الملف الأساسي ذي الأحرف الكبيرة وملف التوافق القديم ذي الأحرف الصغيرة. اختر المحتوى أو ادمجه قبل الحفظ.",
+        "conflictCanonical": "ملف MEMORY.md الأساسي بالأحرف الكبيرة",
+        "conflictLegacy": "ملف memory.md القديم بالأحرف الصغيرة",
+        "conflictMerged": "النتيجة المدمجة (بدءًا من الملف الأساسي)",
+        "conflictKeepCanonical": "الاحتفاظ بملف MEMORY.md",
+        "conflictKeepLegacy": "الاحتفاظ بالملف القديم",
+        "conflictSaveMerged": "حفظ النتيجة المدمجة",
+        "conflictLoadFailed": "تعذر تحميل ملفات الذاكرة الأساسية المتعارضة",
+        "conflictResolveFailed": "تعذر حل تعارض الذاكرة الأساسية. أعد التحميل وحاول مرة أخرى.",
+        "conflictResolved": "تم حل تعارض الذاكرة الأساسية",
+        "actualTokens": "{{used}} / {{total}} رمزًا في هذا النطاق",
+        "stats": "إدخالات الفهرس: {{entries}} · الموضوعات: {{topics}}",
+        "updatedAt": "تم التحديث في {{value}}",
+        "neverUpdated": "لم تتم الكتابة بعد",
+        "scope": "نطاق الذاكرة",
+        "projectLabel": "المشروع",
+        "topics": "موضوعات عند الطلب",
+        "noTopics": "لا توجد ملفات موضوعات بعد",
+        "selectTopic": "اختر موضوعًا أو أنشئ موضوعًا جديدًا",
+        "topicName": "اسم الموضوع",
+        "topicDesc": "سطر يوضح متى يجب قراءته",
+        "topicContent": "تفاصيل الموضوع (تُحمّل عند الحاجة فقط)",
+        "topicLoadFailed": "تعذر تحميل موضوعات الذاكرة",
+        "topicSaveFailed": "تعذر حفظ موضوع الذاكرة",
+        "topicDeleteConfirm": "هل تريد حذف موضوع الذاكرة هذا؟",
+        "topicDeleteFailed": "تعذر حذف موضوع الذاكرة"
+      },
+      "recall": {
+        "title": "استرجاع الذاكرة الديناميكية",
+        "desc": "متوقف افتراضيًا. عند إيقافه، تُستخدم الذاكرة الأساسية الثابتة تلقائيًا فقط ما لم يُفعّل تجاوز توافق خاص بأحد Agents؛ ويمكن للنموذج البحث بأدوات الذاكرة عند الحاجة. عند تشغيله، يُبحث عن الذكريات الديناميكية المرتبطة بعد كل رسالة من المستخدم وقبل إنشاء الرد.",
+        "fast": "استرجاع الذكريات المرتبطة تلقائيًا",
+        "deep": "إعادة ترتيب عميقة (اختيارية)",
+        "skip": "تم التخطي",
+        "deepCost": "تضيف إعادة الترتيب العميقة استدعاءً للنموذج، فتبطئ الرد وتستهلك رموزًا أكثر. استخدمها فقط بعد تشغيل الاسترجاع التلقائي وعند الحاجة الفعلية.",
+        "last": "آخر استرجاع: تم اختيار {{selected}}/{{candidates}} · {{latency}} مللي ثانية · {{mode}}",
+        "noRecent": "لم يُجرَ أي استرجاع تلقائي للذاكرة الديناميكية منذ فتح التطبيق."
+      },
+      "learning": {
+        "title": "التعلّم من المحادثات",
+        "desc": "يتحكم في حفظ المعلومات الجديدة من الدردشات، ولا يؤثر في استخدام الذكريات الموجودة.",
+        "mode": "وضع التعلّم",
+        "smart": "تعلّم ذكي",
+        "reviewFirst": "مراجعة قبل الحفظ",
+        "manual": "حفظ يدوي فقط",
+        "pending": "{{count}} بانتظار المراجعة",
+        "unassigned": "{{count}} دون نطاق"
+      },
+      "review": {
+        "title": "ذكريات بانتظار المراجعة",
+        "desc": "{{count}} من المرشحات لم تدخل بعد في الذاكرة طويلة الأمد أو الموجّه.",
+        "empty": "لا يوجد شيء بانتظار المراجعة",
+        "chooseScope": "اختر مكان الحفظ",
+        "approve": "حفظ الذاكرة",
+        "reject": "عدم الحفظ",
+        "loadFailed": "تعذر تحميل الذكريات المعلقة",
+        "approveFailed": "تعذر حفظ الذاكرة المعلقة",
+        "rejectFailed": "تعذر رفض الذاكرة المعلقة",
+        "reason": {
+          "review_first": "وضع التعلّم يتطلب المراجعة",
+          "project_scope_missing": "تبدو خاصة بمشروع لكن هذه المحادثة بلا مشروع",
+          "scope_uncertain": "النطاق الصحيح غير مؤكد",
+          "sensitive": "قد تحتوي على معلومات حساسة",
+          "conflict": "تتعارض مع ذاكرة موجودة",
+          "core_promotion": "مقترحة للذاكرة الدائمة"
+        }
+      }
+    },
+    "memoryBackupExportSummary": "الذكريات: {{memories}} · الادعاءات: {{claims}} · الملفات الشخصية: {{profiles}} · التجارب: {{episodes}} · مهام سير العمل: {{procedures}}",
+    "memoryBackupOpenReviewInboxAfterRestore": "عناصر مستعادة بانتظار المراجعة: {{count}}",
+    "memoryExperienceSearchActive": "نتائج مطابقة لـ «{{query}}»: {{total}}",
+    "memoryExperienceViewActive": "عناصر التجارب: {{total}}",
+    "memoryExternalProvidersActive": "الموفرون النشطون: {{active}}/{{total}}",
+    "memoryExternalProvidersActiveSummary": "نشط: {{active}} · مهيأ: {{total}}",
+    "memoryProcedureSourceEpisode": "تجربة: {{id}}"
   },
   "shortcuts": {
     "actionOpenSettings": "فتح الإعدادات",
@@ -7641,6 +7814,8 @@
       "selectBranch": "Select branch",
       "stageAll": "Stage all changes",
       "viewPr": "View pull request",
+      "pullRequestPanelTitle": "طلب السحب",
+      "resizePullRequestPanel": "تغيير عرض لوحة طلب السحب",
       "worktree": "Worktree",
       "checkDetails": "تفاصيل الفحوصات",
       "checkFailed": "فشل",
@@ -7662,6 +7837,7 @@
       "openCheck": "فتح الفحص",
       "openComment": "فتح التعليق",
       "prFeedbackUnavailable": "فحوصات PR وتعليقاته غير متاحة",
+      "prFeedbackStale": "فشل تحديث حالة طلب السحب؛ قد تكون البيانات الحالية قديمة",
       "reviewComments": "{{count}} من التعليقات",
       "reviewFeedback": "ملاحظات المراجعة",
       "autoMergeEnabled": "تم تفعيل الدمج التلقائي",
@@ -7688,10 +7864,7 @@
       "reviewPending": "قيد الانتظار",
       "reviewRequired": "المراجعة مطلوبة",
       "reviewStatus": "حالة المراجعة",
-      "reviewers": "المراجعون",
-      "pullRequestPanelTitle": "طلب السحب",
-      "resizePullRequestPanel": "تغيير عرض لوحة طلب السحب",
-      "prFeedbackStale": "فشل تحديث حالة طلب السحب؛ قد تكون البيانات الحالية قديمة"
+      "reviewers": "المراجعون"
     },
     "action": {
       "create": "جديد",
@@ -9320,7 +9493,8 @@
         "loadMoreThreads": "تعذّر تحميل المزيد من المحادثات",
         "loadMoreMessages": "تعذّر تحميل الرسائل الأقدم",
         "detail": "التفاصيل: {{error}}"
-      }
+      },
+      "welcome": "اسأل أو نظّم أو أنشئ بالاعتماد على مساحة المعرفة هذه"
     },
     "quickRewrite": {
       "title": "إعادة صياغة سريعة",

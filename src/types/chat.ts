@@ -198,7 +198,9 @@ export interface ActiveMemoryCandidateRef {
 
 export interface ActiveMemoryRecall {
   summary: string
+  mode?: "legacy" | "fast" | "deep" | string
   selected?: ActiveMemoryCandidateRef | null
+  selectedCandidates?: ActiveMemoryCandidateRef[]
   candidates: ActiveMemoryCandidateRef[]
   totalCandidates: number
   latencyMs?: number
@@ -343,7 +345,13 @@ export interface Message {
   }
   /** Model picker data for rendering interactive model selection cards */
   modelPickerData?: {
-    models: { providerId: string; providerName: string; modelId: string; modelName: string }[]
+    models: {
+      providerId: string
+      providerName: string
+      modelId: string
+      modelName: string
+      inputTypes?: string[]
+    }[]
     activeProviderId?: string
     activeModelId?: string
   }

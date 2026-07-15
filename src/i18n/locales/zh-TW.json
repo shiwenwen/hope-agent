@@ -984,13 +984,20 @@
         "noSession": "無會話上下文",
         "retrievalError": "檢索失敗",
         "sideQueryError": "召回失敗",
-        "timeout": "逾時"
+        "timeout": "逾時",
+        "budgetEmpty": "召回預算為空",
+        "nonContextualTurn": "不需要上下文的對話",
+        "recallOff": "自動動態召回已關閉",
+        "retrievalBusy": "召回服務忙碌中",
+        "sessionPolicy": "已被記憶或對話政策關閉",
+        "unifiedRecall": "已由快速召回處理",
+        "unknown": "其他原因"
       },
       "layerStatus": {
         "candidate": "候選",
         "disabled": "未啟用",
         "empty": "無命中",
-        "skipped": "已降級",
+        "skipped": "已跳過",
         "unknown": "未知",
         "used": "已使用"
       },
@@ -1057,7 +1064,11 @@
       "more": "還有 {{count}} 條長期上下文未展開顯示。",
       "sources": "記憶來源",
       "editMemory": "編輯這條記憶",
-      "copyTrace": "复制诊断"
+      "copyTrace": "复制诊断",
+      "promoteToCore": "永久記住這條",
+      "promoteToCoreFailed": "無法將這項內容加入核心記憶。",
+      "promotedToCore": "已永久記住",
+      "promotedToCoreToast": "已加入常駐核心記憶。"
     },
     "projectWelcomeTitle": "我們應該在 <project>{{project}}</project> 中建構什麼？說出你的想法",
     "projectWelcomeSuggestions": {
@@ -1129,7 +1140,18 @@
     "openSourceConversationMissing": "來源對話已不可用",
     "openSourceConversationMissingHint": "這條記憶來源指向的對話可能已被刪除，或目前找不到。",
     "openSourceMessageMissing": "來源訊息已不可用",
-    "openSourceMessageMissingHint": "對話仍然存在，但找不到這條記憶來源對應的確切訊息。"
+    "openSourceMessageMissingHint": "對話仍然存在，但找不到這條記憶來源對應的確切訊息。",
+    "memoryPolicy": {
+      "title": "本對話記憶",
+      "use": "使用既有記憶",
+      "contribute": "從本對話學習",
+      "inherit": "跟隨全域",
+      "allow": "開啟",
+      "deny": "關閉",
+      "desc": "兩項互相獨立：可使用舊記憶，但不讓本對話產生新記憶。",
+      "incognito": "無痕對話永遠不讀取也不寫入長期記憶。",
+      "reloadCore": "為本對話重新載入 MEMORY.md"
+    }
   },
   "codexAuth": {
     "expiredDescription": "你的 Codex OAuth 認證令牌已失效，請重新登錄以繼續使用。",
@@ -1193,7 +1215,7 @@
     "ago": "前",
     "cacheTtlProtection": "緩存 TTL 保護",
     "compactAllowedIn": "下次壓縮",
-    "estimateNote": "估算值（按字符數÷4），可能與實際計費相差 10%–20%。",
+    "estimateNote": "每輪結束後以 Provider 實際用量為準；此前顯示按真實請求形態計算的保守估算。",
     "freeSpace": "剩余空間",
     "lastCompact": "上次壓縮",
     "memory": "記憶",
@@ -1205,7 +1227,16 @@
     "toolDescriptions": "工具說明",
     "toolSchemas": "工具 Schema",
     "used": "已用",
-    "viewSystemPrompt": "系統提示詞"
+    "viewSystemPrompt": "系統提示詞",
+    "cacheRead": "快取讀取",
+    "cacheWindowNotice": "快取命中只會減少重複運算、成本與首 Token 延遲，不會減少上下文視窗占用。",
+    "cacheWrite": "快取寫入",
+    "coreMemoryBudget": "Core Memory 預算",
+    "coreMemoryModelLimited": "已針對目前模型暫時裁剪",
+    "dynamicPrompt": "動態提示",
+    "estimated": "估算",
+    "freshInput": "新增輸入",
+    "providerInput": "Provider 輸入"
   },
   "cron": {
     "active": "運行中",
@@ -2067,10 +2098,10 @@
       "staged": "Staged",
       "stagedScope": "Staged",
       "stale": "The repository changed. The diff was refreshed; review it again.",
+      "prReviewComments": "PR Review 評論 · {{count}}",
       "unstage": "Unstage",
       "unstaged": "Unstaged",
-      "unstagedScope": "Unstaged",
-      "prReviewComments": "PR Review 評論 · {{count}}"
+      "unstagedScope": "Unstaged"
     }
   },
   "effort": {
@@ -2507,7 +2538,9 @@
     "reasoningHint": "開啟後,可在聊天介面輸入框上方的模型選單中選擇推理深度(低 / 中 / 高),並在每次請求時自動注入。",
     "supportedInputTypes": "支持的輸入類型",
     "text": "文本",
-    "video": "視頻"
+    "video": "視頻",
+    "supportsImageMultimodal": "支援圖片多模態",
+    "supportsVideoMultimodal": "支援影片多模態"
   },
   "notification": {
     "cronCancelled": "定時任務已取消",
@@ -2990,7 +3023,30 @@
     "openFromMemoryLoadFailed": "開啟專案來源失敗",
     "openFromMemoryLoadFailedDetail": "詳細資訊：{{error}}",
     "openFromMemoryMissing": "專案已不可用",
-    "openFromMemoryMissingHint": "這條記憶來源指向的專案可能已被刪除，或目前找不到。"
+    "openFromMemoryMissingHint": "這條記憶來源指向的專案可能已被刪除，或目前找不到。",
+    "autoMemory": {
+      "content": "詳細內容（Markdown）",
+      "deleteConfirm": "確認刪除這條專案自動記憶？",
+      "description": "MEMORY.md 的簡短索引會穩定注入專案對話；具體主題只在相關時按需讀取。內容只保存在本機。",
+      "editorHint": "專案指令用於固定規則；這裡記錄模型工作時累積的專案經驗，不應視為權威指令。",
+      "editorTitle": "專案自動記憶",
+      "empty": "尚無自動記憶主題。",
+      "fileNameGenerated": "儲存時自動產生檔名",
+      "name": "標題",
+      "newTopic": "新增主題",
+      "rebuildIndex": "重新產生 MEMORY.md 索引",
+      "rebuildFailed": "無法重新產生 MEMORY.md 索引。",
+      "summary": "索引摘要",
+      "summaryHint": "這句話會進入每次專案對話的穩定提示詞，請保持簡短。",
+      "type": "類型",
+      "types": {
+        "feedback": "工作習慣回饋",
+        "project": "專案進展",
+        "reference": "參考資料",
+        "user": "使用者背景"
+      }
+    },
+    "tabAutoMemory": "自動記憶"
   },
   "provider": {
     "addProvider": "添加服務商",
@@ -3202,12 +3258,12 @@
     "acpTimeout": "超時（秒）",
     "activeMemoryCacheTtl": "快取 TTL（秒）",
     "activeMemoryCandidateLimit": "候選數量上限",
-    "activeMemoryDesc": "每輪提問前主動搜尋相關記憶，用 side query 壓成一句話注入。超時或失敗會自動回退到被動召回，不會阻塞對話。",
+    "activeMemoryDesc": "Agent 層級的相容召回。開啟後即使全域自動召回關閉，也只為目前 Agent 啟用 Fast 召回與深度重排；預設關閉，深度重排會增加一次 side query、等待時間與 Token 用量。",
     "activeMemoryIncludeClaims": "納入記憶斷言",
     "activeMemoryIncludeClaimsDesc": "召回候選除歷史記憶外，同時檢索 Dreaming 整理出的記憶斷言（預設關閉）",
     "activeMemoryMaxChars": "召回句長上限",
     "activeMemoryTimeout": "逾時 (ms)",
-    "activeMemoryTitle": "主動記憶召回",
+    "activeMemoryTitle": "Agent 深度召回",
     "addFallback": "添加降級模型",
     "addFallbackModel": "添加降級模型",
     "agentAgentsMd": "AGENTS.md",
@@ -4848,9 +4904,9 @@
     "memoryAutoExtractDesc": "對話過程中當 Token / 時間 / 消息數達到閾值時自動提取記憶",
     "memoryBudget": {
       "agentOverrideDesc": "預設繼承全域記憶預算。關閉下方開關以為當前 Agent 自訂獨立預算。",
-      "coreMemoryFileChars": "memory.md 單層上限",
-      "coreMemoryFileCharsDesc": "Global / Agent 每個 memory.md 獨立上限。超出的部分截斷顯示,完整內容仍在磁碟。預設 8000。",
-      "desc": "限制系統提示詞中記憶區塊(Global memory.md / Agent memory.md / SQLite 記憶 / 使用指南)的總字元數,以及內部各層獨立上限。降低 total 可以讓更多預算留給對話上下文。",
+      "coreMemoryFileChars": "MEMORY.md 單層上限",
+      "coreMemoryFileCharsDesc": "Global / Agent 每個 MEMORY.md 獨立上限。超出的部分截斷顯示,完整內容仍在磁碟。預設 8000。",
+      "desc": "限制系統提示詞中記憶區塊(Global MEMORY.md / Agent MEMORY.md / SQLite 記憶 / 使用指南)的總字元數,以及內部各層獨立上限。降低 total 可以讓更多預算留給對話上下文。",
       "resetToDefaults": "恢復預設值",
       "sections": {
         "aboutUser": "關於使用者",
@@ -4870,6 +4926,35 @@
         "load": "載入記憶預算失敗",
         "save": "儲存記憶預算失敗",
         "detail": "詳細資訊：{{error}}"
+      },
+      "advancedAllocation": "進階作用域分配",
+      "contextWindow": "目前預設模型上下文：{{count}} tokens",
+      "coreSimpleDesc": "只需選擇一個 Core Memory 總預算。各作用域可借用未使用額度，優先順序為 Project > Agent > Global。",
+      "engine": {
+        "agentTokens": "Agent Token",
+        "budgetTokens": "預算 Token",
+        "cacheTtlSecs": "快取 TTL（秒）",
+        "candidateLimit": "候選數量上限",
+        "globalTokens": "全域 Token",
+        "hardMaxTokens": "硬上限 Token",
+        "maxSelected": "最多選中數",
+        "maxTokens": "最大 Token",
+        "projectTokens": "專案 Token",
+        "protocolTokens": "協定 Token",
+        "summaryChars": "摘要字元數",
+        "timeoutMs": "逾時（毫秒）",
+        "topicReadTokens": "主題讀取 Token",
+        "totalTokens": "總 Token"
+      },
+      "legacyTitle": "舊版回滾預算",
+      "legacyDesc": "這些字元預算只用於舊版靜態記憶路徑，並在相容期間繼續保留可編輯入口。",
+      "effective": "設定 {{configured}} · 本輪有效 {{effective}} tokens",
+      "highBudgetWarning": "已超過建議的 2400 tokens。系統允許儲存，但會增加每輪穩定上下文、快取寫入量和首字延遲。",
+      "modelLimited": "已設定 {{configured}} tokens；目前模型安全使用 {{effective}}。儲存的偏好不會被改寫。",
+      "presets": {
+        "balanced": "平衡",
+        "concise": "精簡",
+        "rich": "豐富"
       }
     },
     "memoryContent": "內容",
@@ -5911,7 +5996,7 @@
     "timeoutPolicyWarn": "採用並記錄（預設）",
     "toolTimeout": "同步工具執行超時",
     "toolTimeoutDesc": "前台/同步工具調用的全域兜底超時。預設 0，表示關閉這層全域超時；設為正數後，超過該秒數會取消調用。背景 async job 使用非同步工具裡的單 job 最大時長；單個工具仍可能有自己的內部超時。",
-    "toolUpdateCoreMemoryDesc": "更新常駐系統提示詞的 memory.md 檔案",
+    "toolUpdateCoreMemoryDesc": "更新常駐系統提示詞的 MEMORY.md 檔案",
     "toolUpdateCoreMemoryName": "更新核心記憶",
     "toolUpdateMemoryDesc": "更新已有記憶的內容",
     "toolUpdateMemoryName": "更新記憶",
@@ -6143,31 +6228,31 @@
     "memoryLearningPausedDesc": "Agent 目前不會使用或學習長期記憶。既有資料仍保留在本機，你可以繼續管理、匯出、刪除，或恢復為僅手動模式。",
     "memoryLearningResumeManual": "恢復為僅手動",
     "memoryLearningOpenSettings": "開啟設定",
-    "memoryUseInRepliesTitle": "回答時使用記憶",
-    "memoryUseInRepliesDesc": "為預設 Agent 啟用推薦的低延遲主動召回預設。相關記憶可以進入回答；如果逾時，會安全略過，不阻塞對話。",
+    "memoryUseInRepliesTitle": "舊版 Agent 深度召回覆寫",
+    "memoryUseInRepliesDesc": "預設 Agent 的相容召回控制。開啟後即使上方全域預設關閉，也只為該 Agent 啟用 Fast 召回與深度重排；預設關閉，深度重排會增加一次 side query、等待時間與 Token 用量。",
     "memoryUseInRepliesTarget": "預設 Agent：{{agent}}",
     "memoryUseInRepliesSummaryTimeout": "逾時",
     "memoryUseInRepliesSummaryCache": "快取",
     "memoryUseInRepliesSummaryCandidates": "候選",
     "memoryUseInRepliesSummaryMaxChars": "字數",
     "memoryUseInRepliesSummaryClaims": "斷言",
-    "memoryUseInRepliesStatusRecommended": "推薦預設已開啟",
-    "memoryUseInRepliesStatusOn": "自訂召回已開啟",
+    "memoryUseInRepliesStatusRecommended": "推薦深度重排已設定",
+    "memoryUseInRepliesStatusOn": "自訂深度重排已設定",
     "memoryUseInRepliesStatusAgentOff": "Agent 記憶已關閉",
     "memoryUseInRepliesStatusOff": "已關閉",
     "memoryUseInRepliesStatusLoading": "正在檢查...",
-    "memoryUseInRepliesAction": "使用推薦預設",
+    "memoryUseInRepliesAction": "設定推薦參數",
     "memoryUseInRepliesTune": "調整參數",
-    "memoryUseInRepliesApplied": "推薦已開啟",
-    "memoryUseInRepliesUpdated": "已啟用推薦召回",
+    "memoryUseInRepliesApplied": "推薦參數已設定",
+    "memoryUseInRepliesUpdated": "已設定相容深度重排",
     "memoryUseInRepliesLoadFailed": "無法檢查主動召回",
     "memoryUseInRepliesLoadError": "無法檢查主動召回：{{error}}",
     "memoryUseInRepliesUpdateFailed": "無法更新主動召回",
     "memoryUseInRepliesError": "無法更新主動召回：{{error}}",
     "memoryUseInRepliesErrorDetail": "詳細資訊：{{error}}",
-    "memoryUseInRepliesReadinessRecommended": "已就緒：低延遲召回會包含結構化記憶，並在逾時時安全降級。",
+    "memoryUseInRepliesReadinessRecommended": "Agent 相容召回已就緒；只有該 Agent 會啟用 Fast 召回與深度重排。",
     "memoryUseInRepliesReadinessAgentOff": "Agent 記憶已關閉；使用推薦召回會為預設 Agent 重新開啟。",
-    "memoryUseInRepliesReadinessDisabled": "已關閉：預設 Agent 回答前不會主動查找長期記憶。",
+    "memoryUseInRepliesReadinessDisabled": "預設關閉：預設 Agent 回答前不會主動查找長期記憶。",
     "memoryUseInRepliesReadinessClaimsOff": "結構化記憶不會進入主動召回候選。",
     "memoryUseInRepliesReadinessSlowTimeout": "逾時時間高於推薦的低延遲預設。",
     "memoryUseInRepliesReadinessTightBudget": "召回預算低於推薦預設。",
@@ -7030,7 +7115,95 @@
     "memoryProcedureTriggerPlaceholder": "什麼時候應考慮使用此流程",
     "memoryProcedureStepsPlaceholder": "- 檢查失敗的檢查項\n- 套用已知修復\n- 重新執行窄範圍驗證",
     "memoryProcedureConstraintsPlaceholder": "什麼時候不應使用此流程",
-    "memoryProcedureConfidence": "可信度"
+    "memoryProcedureConfidence": "可信度",
+    "agentMemoryEnabledTitle": "此 Agent 使用記憶",
+    "agentMemoryEnabledDesc": "控制此 Agent 的常駐記憶、按需回憶、自動學習與記憶工具；全域記憶設定仍是上層總開關。",
+    "memoryV2": {
+      "title": "記憶",
+      "subtitle": "只需決定長期記住什麼、何時按需回憶，以及是否自動學習。",
+      "loadFailed": "載入記憶設定失敗",
+      "saveFailed": "儲存記憶設定失敗",
+      "core": {
+        "title": "常駐記憶",
+        "desc": "Global、Agent 與專案的簡短 MEMORY.md 會穩定進入對話；主題詳情只在需要時載入。",
+        "budget": "總預算 {{count}} tokens",
+        "manage": "編輯 MEMORY.md",
+        "projectTitle": "專案 MEMORY.md",
+        "projectDesc": "只有目前專案對話會使用的簡短常駐記憶。",
+        "conflict": "規範的大寫檔案與舊版小寫相容檔案都已修改，請先選擇或合併內容。",
+        "conflictCanonical": "規範的大寫 MEMORY.md",
+        "conflictLegacy": "舊版小寫 memory.md",
+        "conflictMerged": "合併結果（以規範檔案為基礎）",
+        "conflictKeepCanonical": "保留 MEMORY.md",
+        "conflictKeepLegacy": "保留舊版檔案",
+        "conflictSaveMerged": "儲存合併結果",
+        "conflictLoadFailed": "無法載入發生衝突的核心記憶檔案",
+        "conflictResolveFailed": "無法解決核心記憶衝突，請重新載入後再試。",
+        "conflictResolved": "核心記憶衝突已解決",
+        "actualTokens": "目前範圍 {{used}} / {{total}} Token",
+        "stats": "{{entries}} 條索引 · {{topics}} 個主題",
+        "updatedAt": "更新於 {{value}}",
+        "neverUpdated": "尚未寫入",
+        "scope": "記憶範圍",
+        "projectLabel": "專案",
+        "topics": "按需主題",
+        "noTopics": "尚無主題檔案",
+        "selectTopic": "選擇主題或建立新主題",
+        "topicName": "主題名稱",
+        "topicDesc": "一句話說明何時讀取",
+        "topicContent": "主題詳情（僅在需要時載入）",
+        "topicLoadFailed": "載入記憶主題失敗",
+        "topicSaveFailed": "儲存記憶主題失敗",
+        "topicDeleteConfirm": "確定刪除這個記憶主題嗎？",
+        "topicDeleteFailed": "刪除記憶主題失敗"
+      },
+      "recall": {
+        "title": "動態記憶召回",
+        "desc": "預設關閉。關閉時，除非某個 Agent 明確啟用了相容召回，否則只會自動使用常駐核心記憶；模型仍可在任務需要時呼叫記憶工具檢索。開啟後，系統會在收到每條使用者訊息後、產生回覆前自動檢索相關動態記憶。",
+        "fast": "自動召回相關記憶",
+        "deep": "深度重排（可選）",
+        "skip": "已略過",
+        "deepCost": "深度重排會增加一次模型呼叫，回覆較慢並消耗更多 token；只在已開啟自動召回且確實需要時使用。",
+        "last": "最近回憶：命中 {{selected}}/{{candidates}} 條 · {{latency}} ms · {{mode}}",
+        "noRecent": "本次啟動後尚未執行自動動態召回。"
+      },
+      "learning": {
+        "title": "自動學習",
+        "desc": "控制對話中的新資訊是否自動保存；使用既有記憶不受此選項影響。",
+        "mode": "學習模式",
+        "smart": "智慧學習",
+        "reviewFirst": "先審核再儲存",
+        "manual": "僅手動儲存",
+        "pending": "待審核 {{count}} 條",
+        "unassigned": "未歸屬 {{count}} 條"
+      },
+      "review": {
+        "title": "待審核記憶",
+        "desc": "{{count}} 條候選尚未進入長期記憶或 Prompt。",
+        "empty": "沒有待審核內容",
+        "chooseScope": "選擇儲存範圍",
+        "approve": "確認儲存",
+        "reject": "不儲存",
+        "loadFailed": "載入待審核記憶失敗",
+        "approveFailed": "儲存待審核記憶失敗",
+        "rejectFailed": "忽略待審核記憶失敗",
+        "reason": {
+          "review_first": "學習模式要求先審核",
+          "project_scope_missing": "像專案記憶，但目前對話沒有專案",
+          "scope_uncertain": "無法確定儲存範圍",
+          "sensitive": "可能包含敏感資訊",
+          "conflict": "與現有記憶衝突",
+          "core_promotion": "建議提升為常駐記憶"
+        }
+      }
+    },
+    "memoryBackupExportSummary": "記憶：{{memories}} · 聲明：{{claims}} · 使用者設定檔：{{profiles}} · 經歷：{{episodes}} · 工作流程：{{procedures}}",
+    "memoryBackupOpenReviewInboxAfterRestore": "待審核的已還原內容：{{count}}",
+    "memoryExperienceSearchActive": "「{{query}}」的符合結果：{{total}}",
+    "memoryExperienceViewActive": "經歷項目：{{total}}",
+    "memoryExternalProvidersActive": "作用中的提供方：{{active}}/{{total}}",
+    "memoryExternalProvidersActiveSummary": "作用中：{{active}} · 已設定：{{total}}",
+    "memoryProcedureSourceEpisode": "經歷：{{id}}"
   },
   "shortcuts": {
     "actionOpenSettings": "打開設置",
@@ -7641,6 +7814,8 @@
       "selectBranch": "Select branch",
       "stageAll": "Stage all changes",
       "viewPr": "View pull request",
+      "pullRequestPanelTitle": "提取要求",
+      "resizePullRequestPanel": "調整提取要求面板寬度",
       "worktree": "Worktree",
       "checkDetails": "檢查詳情",
       "checkFailed": "失敗",
@@ -7662,6 +7837,7 @@
       "openCheck": "開啟檢查",
       "openComment": "開啟評論",
       "prFeedbackUnavailable": "無法取得 PR 檢查與評論",
+      "prFeedbackStale": "提取要求狀態重新整理失敗，目前資料可能已過期",
       "reviewComments": "{{count}} 則評論",
       "reviewFeedback": "Review 回饋",
       "autoMergeEnabled": "已啟用自動合併",
@@ -7688,10 +7864,7 @@
       "reviewPending": "待處理",
       "reviewRequired": "需要審閱",
       "reviewStatus": "審閱狀態",
-      "reviewers": "審閱者",
-      "pullRequestPanelTitle": "提取要求",
-      "resizePullRequestPanel": "調整提取要求面板寬度",
-      "prFeedbackStale": "提取要求狀態重新整理失敗，目前資料可能已過期"
+      "reviewers": "審閱者"
     },
     "action": {
       "create": "新建",
@@ -9320,7 +9493,8 @@
         "loadMoreThreads": "無法載入更多對話",
         "loadMoreMessages": "無法載入更早的訊息",
         "detail": "詳細資訊：{{error}}"
-      }
+      },
+      "welcome": "基於目前知識空間，提問、整理或創作"
     },
     "quickRewrite": {
       "title": "快速改寫",

@@ -9,6 +9,7 @@ pub(crate) mod ask_user_question;
 pub mod audio_generate;
 pub(crate) mod browser;
 pub mod canvas;
+mod core_memory;
 mod cron;
 mod definitions;
 pub mod design;
@@ -36,6 +37,7 @@ pub(crate) mod note;
 mod notification;
 pub(crate) mod pdf;
 mod process;
+mod project_memory;
 pub(crate) mod read;
 pub(crate) mod rejection;
 mod runtime_cancel;
@@ -102,6 +104,8 @@ pub const TOOL_RECALL_MEMORY: &str = "recall_memory";
 pub const TOOL_UPDATE_MEMORY: &str = "update_memory";
 pub const TOOL_DELETE_MEMORY: &str = "delete_memory";
 pub const TOOL_UPDATE_CORE_MEMORY: &str = "update_core_memory";
+pub const TOOL_CORE_MEMORY: &str = "core_memory";
+pub const TOOL_PROJECT_MEMORY: &str = "project_memory";
 pub const TOOL_MANAGE_CRON: &str = "manage_cron";
 pub const TOOL_BROWSER: &str = "browser";
 pub const TOOL_MAC_CONTROL: &str = "mac_control";
@@ -109,6 +113,38 @@ pub const TOOL_SEND_NOTIFICATION: &str = "send_notification";
 pub const TOOL_SUBAGENT: &str = "subagent";
 pub const TOOL_MEMORY_GET: &str = "memory_get";
 pub const TOOL_AGENTS_LIST: &str = "agents_list";
+
+/// Parse a model-facing compact call variant such as `browser__snapshot`.
+/// Only explicitly registered composite tools are accepted, so arbitrary
+/// tool names containing `__` (notably MCP names) are never rewritten.
+pub(crate) fn split_call_variant_name(name: &str) -> Option<(&str, &str)> {
+    let (canonical, action) = name.rsplit_once("__")?;
+    let supported = matches!(
+        canonical,
+        TOOL_BROWSER | TOOL_MAC_CONTROL | TOOL_MANAGE_CRON | TOOL_APP_UPDATE
+    ) && dispatch::all_dispatchable_tools()
+        .iter()
+        .find(|definition| definition.name == canonical)
+        .is_some_and(|definition| definition.call_variant_actions().contains(&action));
+    supported.then_some((canonical, action))
+}
+
+pub(crate) fn canonical_tool_schema_name(name: &str) -> &str {
+    split_call_variant_name(name)
+        .map(|(canonical, _)| canonical)
+        .unwrap_or(name)
+}
+
+/// Convert a compact model-facing variant back into the canonical call before
+/// permission, hooks, audit, persistence, and execution. The fixed action
+/// always wins over a model-supplied conflicting value.
+pub(crate) fn normalize_call_variant(name: &str, args: &Value) -> Option<(String, Value)> {
+    let (canonical, action) = split_call_variant_name(name)?;
+    let mut normalized = args.clone();
+    let object = normalized.as_object_mut()?;
+    object.insert("action".to_string(), Value::String(action.to_string()));
+    Some((canonical.to_string(), normalized))
+}
 
 // Knowledge base (note_*) tools.
 pub const TOOL_NOTE_CREATE: &str = "note_create";
@@ -291,7 +327,7 @@ pub(crate) async fn emit_model_runtime_timeout_metadata(
 // ── Shared Helpers ────────────────────────────────────────────────
 
 /// True for built-in long-term memory tools. These tools are governed by the
-/// Memory tier gate (`memoryExtract.enabled`, agent memory switch, incognito)
+/// Memory tier gate (effective product master, agent memory switch, incognito)
 /// and must stay aligned across schema generation, tool_search, prompt text,
 /// and execution-layer defense in depth.
 pub fn is_memory_tool(name: &str) -> bool {
@@ -303,6 +339,8 @@ pub fn is_memory_tool(name: &str) -> bool {
             | TOOL_DELETE_MEMORY
             | TOOL_MEMORY_GET
             | TOOL_UPDATE_CORE_MEMORY
+            | TOOL_CORE_MEMORY
+            | TOOL_PROJECT_MEMORY
     )
 }
 
