@@ -761,6 +761,7 @@ impl ArtifactService {
 
     pub fn create_from_file(&mut self, input: CreateArtifactInput) -> Result<ArtifactRecord> {
         let _privacy_guard = lock_privacy_transition()?;
+        let privacy = normalize_durable_privacy(&input.privacy)?.to_string();
         if request_is_incognito(input.incognito, input.session_id.as_deref())? {
             bail!("incognito artifacts are memory-only; durable artifact creation is disabled");
         }
@@ -801,7 +802,7 @@ impl ArtifactService {
                 input.kind.as_str(),
                 input.project_id,
                 input.goal_id,
-                normalize_privacy(&input.privacy),
+                privacy,
                 hash,
                 input.producer.to_string(),
                 prepared.capabilities.to_string(),
@@ -852,7 +853,7 @@ impl ArtifactService {
             &id,
             &title,
             input.kind.as_str(),
-            normalize_privacy(&input.privacy),
+            &privacy,
             &project_dir,
             &prepared,
             1,
@@ -1618,6 +1619,10 @@ impl ArtifactService {
     }
 
     pub fn export(&mut self, artifact_id: &str, format: &str) -> Result<ArtifactExportReceipt> {
+        // Artifact and legacy Canvas mutations share this lock. Keep it for
+        // the complete synchronous export so the verified version, managed
+        // projection, package bytes, and receipt all describe one snapshot.
+        let _artifact_guard = lock_privacy_transition()?;
         let artifact = self
             .get(artifact_id)?
             .ok_or_else(|| anyhow!("artifact '{}' not found", artifact_id))?;
@@ -1651,12 +1656,10 @@ impl ArtifactService {
         let expires = now + Duration::days(7);
         let version = artifact.current_version;
         let base_name = safe_filename(&artifact.title);
+        let html_bytes = fs::read(paths::canvas_project_dir(artifact_id)?.join("index.html"))?;
+        self.ensure_export_snapshot_current(&artifact)?;
         let (extension, mime, bytes) = match format {
-            "html" => (
-                "html",
-                "text/html; charset=utf-8",
-                fs::read(paths::canvas_project_dir(artifact_id)?.join("index.html"))?,
-            ),
+            "html" => ("html", "text/html; charset=utf-8", html_bytes.clone()),
             "markdown" | "md" => (
                 "md",
                 "text/markdown; charset=utf-8",
@@ -1666,7 +1669,7 @@ impl ArtifactService {
             "zip" => (
                 "zip",
                 "application/zip",
-                self.build_zip_export(&artifact, &verification)?,
+                self.build_zip_export(&artifact, &verification, &html_bytes)?,
             ),
             "pdf" => {
                 return self.persist_failed_export(
@@ -1737,40 +1740,48 @@ impl ArtifactService {
             return self.export(artifact_id, format);
         }
 
-        let artifact = self
-            .get(artifact_id)?
-            .ok_or_else(|| anyhow!("artifact '{}' not found", artifact_id))?;
-        emit_artifact_event(
-            "artifact:export_running",
-            artifact_id,
-            artifact.current_version,
-            Some(format),
-        );
-        if let Err(error) = self.enforce_export_guard(&artifact) {
+        let (artifact, artifact_verification, index_html) = {
+            // Do not hold a std::sync mutex across the Chromium await. Take a
+            // verified byte snapshot while all Artifact/Canvas writers are
+            // excluded, then render that immutable copy after releasing it.
+            let _artifact_guard = lock_privacy_transition()?;
+            let artifact = self
+                .get(artifact_id)?
+                .ok_or_else(|| anyhow!("artifact '{}' not found", artifact_id))?;
             emit_artifact_event(
-                "artifact:export_failed",
+                "artifact:export_running",
                 artifact_id,
                 artifact.current_version,
-                Some(&error.to_string()),
+                Some(format),
             );
-            return Err(error);
-        }
-        let artifact_verification = self.verify(artifact_id)?;
-        if artifact_verification.status != "passed" {
-            emit_artifact_event(
-                "artifact:export_failed",
-                artifact_id,
-                artifact.current_version,
-                Some("artifact verification failed"),
-            );
-            bail!("artifact verification failed; fix blockers before export");
-        }
+            if let Err(error) = self.enforce_export_guard(&artifact) {
+                emit_artifact_event(
+                    "artifact:export_failed",
+                    artifact_id,
+                    artifact.current_version,
+                    Some(&error.to_string()),
+                );
+                return Err(error);
+            }
+            let artifact_verification = self.verify(artifact_id)?;
+            if artifact_verification.status != "passed" {
+                emit_artifact_event(
+                    "artifact:export_failed",
+                    artifact_id,
+                    artifact.current_version,
+                    Some("artifact verification failed"),
+                );
+                bail!("artifact verification failed; fix blockers before export");
+            }
+            let index_html = fs::read(paths::canvas_project_dir(artifact_id)?.join("index.html"))?;
+            self.ensure_export_snapshot_current(&artifact)?;
+            (artifact, artifact_verification, index_html)
+        };
 
         let export_id = Uuid::new_v4().to_string();
         let now = Utc::now();
         let expires = now + Duration::days(7);
-        let index_path = paths::canvas_project_dir(artifact_id)?.join("index.html");
-        let bytes = match render_pdf_with_isolated_chromium(&index_path, &export_id).await {
+        let bytes = match render_pdf_with_isolated_chromium(&index_html, &export_id).await {
             Ok(bytes) => bytes,
             Err(error) => {
                 return self.persist_failed_export(
@@ -2019,8 +2030,8 @@ impl ArtifactService {
         &self,
         artifact: &ArtifactRecord,
         verification: &VerificationReport,
+        html_bytes: &[u8],
     ) -> Result<Vec<u8>> {
-        let html_bytes = fs::read(paths::canvas_project_dir(&artifact.id)?.join("index.html"))?;
         let payload_json: String = self.conn.query_row(
             "SELECT payload_json FROM artifact_version_meta
               WHERE artifact_id = ?1 AND version_number = ?2",
@@ -2043,7 +2054,7 @@ impl ArtifactService {
                 }),
             );
         };
-        describe("index.html", "text/html; charset=utf-8", &html_bytes);
+        describe("index.html", "text/html; charset=utf-8", html_bytes);
         describe("artifact.json", "application/json", payload_json.as_bytes());
         describe("verification.json", "application/json", &verification_bytes);
         describe(
@@ -2073,7 +2084,7 @@ impl ArtifactService {
             let mut writer = zip::ZipWriter::new(&mut cursor);
             let options =
                 SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
-            add_zip_file(&mut writer, "index.html", &html_bytes, options)?;
+            add_zip_file(&mut writer, "index.html", html_bytes, options)?;
             add_zip_file(
                 &mut writer,
                 "artifact.json",
@@ -2104,6 +2115,24 @@ impl ArtifactService {
             writer.finish()?;
         }
         Ok(cursor.into_inner())
+    }
+
+    fn ensure_export_snapshot_current(&self, snapshot: &ArtifactRecord) -> Result<()> {
+        let current = self
+            .get(&snapshot.id)?
+            .ok_or_else(|| anyhow!("artifact '{}' disappeared during export", snapshot.id))?;
+        if current.current_version != snapshot.current_version
+            || current.current_hash != snapshot.current_hash
+        {
+            bail!(
+                "artifact changed during export: snapshot version {} ({}), current version {} ({})",
+                snapshot.current_version,
+                snapshot.current_hash,
+                current.current_version,
+                current.current_hash
+            );
+        }
+        Ok(())
     }
 
     fn sources_readme(&self, artifact: &ArtifactRecord) -> Result<String> {
@@ -3381,12 +3410,20 @@ fn normalize_privacy(value: &str) -> &str {
     }
 }
 
+fn normalize_durable_privacy(value: &str) -> Result<&str> {
+    let privacy = normalize_privacy(value);
+    if privacy == "incognito" {
+        bail!("incognito artifacts are memory-only; durable artifact creation is disabled");
+    }
+    Ok(privacy)
+}
+
 fn sha256_hex(bytes: &[u8]) -> String {
     let digest = Sha256::digest(bytes);
     digest.iter().map(|b| format!("{b:02x}")).collect()
 }
 
-async fn render_pdf_with_isolated_chromium(index_path: &Path, export_id: &str) -> Result<Vec<u8>> {
+async fn render_pdf_with_isolated_chromium(index_html: &[u8], export_id: &str) -> Result<Vec<u8>> {
     use chromiumoxide::cdp::browser_protocol::page::PrintToPdfParams;
 
     let resolved =
@@ -3399,6 +3436,12 @@ async fn render_pdf_with_isolated_chromium(index_path: &Path, export_id: &str) -
     fs::create_dir_all(&runtime_root)?;
     let user_data_dir = runtime_root.join(export_id);
     let port = crate::browser::spawn::pick_managed_port().await?;
+    fs::create_dir_all(&user_data_dir)?;
+    let index_path = user_data_dir.join("artifact.html");
+    if let Err(error) = crate::platform::write_atomic(&index_path, index_html) {
+        let _ = fs::remove_dir_all(&user_data_dir);
+        return Err(error.into());
+    }
     let extra_args = resolved
         .extra_args
         .iter()
@@ -3428,7 +3471,7 @@ async fn render_pdf_with_isolated_chromium(index_path: &Path, export_id: &str) -
             .as_ref()
             .cloned()
             .ok_or_else(|| anyhow!("isolated Chromium connected without a browser handle"))?;
-        let file_url = url::Url::from_file_path(index_path)
+        let file_url = url::Url::from_file_path(&index_path)
             .map_err(|_| anyhow!("cannot convert Artifact path to file URL"))?;
         let page = browser
             .new_page(file_url.as_str())
@@ -3752,6 +3795,19 @@ mod tests {
             safe_filename("Quarterly report: Q2 / APAC"),
             "Quarterly-report-Q2-APAC"
         );
+    }
+
+    #[test]
+    fn durable_privacy_rejects_incognito_label() {
+        assert_eq!(
+            normalize_durable_privacy("local_private").expect("local privacy"),
+            "local_private"
+        );
+        assert_eq!(
+            normalize_durable_privacy("unknown").expect("unknown privacy fallback"),
+            "local_private"
+        );
+        assert!(normalize_durable_privacy("incognito").is_err());
     }
 
     #[test]
