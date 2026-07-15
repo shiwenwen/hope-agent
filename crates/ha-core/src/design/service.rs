@@ -982,9 +982,10 @@ pub fn get_active_context() -> Result<ActiveDesignContext> {
             latest_thread_session_id: None,
         });
     };
-    let artifact = list_artifacts(&project.id)?
-        .into_iter()
-        .next()
+    // 「最新产物」= 最近更新（`updated_at DESC`），非产物墙 `position ASC` 的第一个——外部 agent
+    // 拿的是「用户此刻多半在改的那个」而非「墙上排第一/最早创建的」。
+    let artifact = db
+        .latest_artifact_for_project(&project.id)?
         .and_then(|a| get_artifact_view(&a.id).ok().flatten());
     Ok(build_active_context(
         "recent", None, false, project, artifact,
@@ -1032,8 +1033,10 @@ pub fn set_project_code_binding(
     ha_project_id: Option<String>,
 ) -> Result<DesignProject> {
     let db = open_db()?;
-    db.get_project(project_id)?
+    let old = db
+        .get_project(project_id)?
         .with_context(|| format!("project not found: {project_id}"))?;
+    let (old_code_dir, old_ha) = (old.code_dir.clone(), old.ha_project_id.clone());
 
     let code_dir = code_dir.filter(|s| !s.trim().is_empty());
     let ha_project_id = ha_project_id.filter(|s| !s.trim().is_empty());
@@ -1092,7 +1095,19 @@ pub fn set_project_code_binding(
         project.ha_project_id
     );
     emit("design:project_changed", json!({ "projectId": project.id }));
-    // 绑定源变更 → 重建代码目录 watcher（旧目录可能不再关联、新目录纳入）。
+    // 绑定源真变（解绑 / 换绑）→ 清掉锚定旧目录的回执 + links（否则 watcher 与 check_code_drift
+    // 仍按旧 links 去读已撤销授权的目录，授权撤销形同虚设），再重建 watcher。幂等重设同目录不清。
+    if old_code_dir != project.code_dir || old_ha != project.ha_project_id {
+        if let Err(e) = db.delete_receipts_for_project(project_id) {
+            crate::app_warn!(
+                "design",
+                "code_binding",
+                "failed to clear implement receipts on rebind for {}: {}",
+                project_id,
+                e
+            );
+        }
+    }
     super::code_sync::refresh_watchers();
     Ok(project)
 }
@@ -4116,10 +4131,21 @@ pub fn implement_to_code(artifact_id: &str) -> Result<ImplementToCodeResult> {
         meta.id,
         code_dir
     );
-    // 落地回执（code→design 回灌锚点）：hard-require——回执缺失则整条 stale 检测链失效，宁可
-    // 整体失败（与「working_dir 必须落成功」同一哲学）。随后重建 watcher（新目录纳入监听）。
-    super::code_sync::create_receipt_for_implement(artifact_id, &meta.id, &code_dir)
-        .context("failed to record implement receipt")?;
+    // 落地回执（code→design 回灌锚点）：**best-effort**——会话此刻已建好且完全可用（回执写的是
+    // 独立的 design.db，与会话不同库），失败只损失回灌 stale 检测这一增益，绝不能因此让整个
+    // implement 返回 Err：否则前端只弹「失败」不跳转，却已在 sessions.db 留下 working_dir 指向用户
+    // 代码仓库的孤儿会话，每次重试再多一个。失败落 warn 可诊断；用户重跑 implement 会补建回执。
+    if let Err(e) = super::code_sync::create_receipt_for_implement(artifact_id, &meta.id, &code_dir)
+    {
+        crate::app_warn!(
+            "design",
+            "implement",
+            "failed to record implement receipt for artifact {} session {}: {}",
+            artifact_id,
+            meta.id,
+            e
+        );
+    }
     super::code_sync::refresh_watchers();
     Ok(ImplementToCodeResult {
         session_id: meta.id,

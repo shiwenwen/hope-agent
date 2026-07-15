@@ -882,6 +882,17 @@ impl DesignDb {
         rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
     }
 
+    /// 项目内**最近更新**的产物（active-context 回退用；走 `(project_id, updated_at DESC)` 索引）。
+    /// 注意与 `list_artifacts` 的 `position ASC`（用户拖排序）语义不同——此处要「最近在看/在改」。
+    pub fn latest_artifact_for_project(&self, project_id: &str) -> Result<Option<DesignArtifact>> {
+        let conn = self.lock()?;
+        let mut stmt = conn.prepare(&format!(
+            "{ARTIFACT_COLUMNS} WHERE project_id = ?1 ORDER BY updated_at DESC LIMIT 1"
+        ))?;
+        let mut rows = stmt.query_map(rusqlite::params![project_id], map_artifact_row)?;
+        rows.next().transpose().map_err(Into::into)
+    }
+
     /// 轻量改名：仅更新 `title` + `updated_at`（不重渲染、不新增版本、不碰 source）。
     pub fn rename_artifact(&self, id: &str, title: &str, updated_at: &str) -> Result<()> {
         let conn = self.lock()?;
@@ -999,6 +1010,29 @@ impl DesignDb {
             "UPDATE design_artifacts SET metadata = ?2 WHERE id = ?1",
             rusqlite::params![id, metadata],
         )?;
+        Ok(())
+    }
+
+    /// 原子写 `metadata.codeDrift` 键（SQL 级 `json_set` / `json_remove`），**不动其它键、不 bump
+    /// `updated_at`**。消除 code_sync 后台 watcher 线程与前台整列 metadata 写之间的读-改-写竞态
+    /// （旧实现读快照 → 内存 merge → 整列覆写会互相丢 `selfCheck` / `codeDrift` 键）。`drift_json`
+    /// = 序列化的 `CodeDriftFlag`（`Some` 写入 / `None` 清除，清空后回落 SQL NULL）。
+    pub fn set_artifact_code_drift(&self, id: &str, drift_json: Option<&str>) -> Result<()> {
+        let conn = self.lock()?;
+        match drift_json {
+            Some(j) => conn.execute(
+                "UPDATE design_artifacts
+                   SET metadata = json_set(coalesce(metadata, '{}'), '$.codeDrift', json(?2))
+                 WHERE id = ?1",
+                rusqlite::params![id, j],
+            )?,
+            None => conn.execute(
+                "UPDATE design_artifacts
+                   SET metadata = nullif(json_remove(coalesce(metadata, '{}'), '$.codeDrift'), '{}')
+                 WHERE id = ?1",
+                rusqlite::params![id],
+            )?,
+        };
         Ok(())
     }
 
@@ -1591,6 +1625,20 @@ impl DesignDb {
             rusqlite::params![id],
         )?;
         Ok(())
+    }
+
+    /// 删除某项目下全部产物的回执（links 经 `ON DELETE CASCADE` 随之清空）。返回删除的回执数。
+    /// 解绑 / 换绑代码仓库时调用——旧回执锚定的是已撤销授权的目录，必须整体清理，否则 watcher
+    /// 与 `check_code_drift` 仍按 links 派生去读旧目录（授权撤销形同虚设）。
+    pub fn delete_receipts_for_project(&self, project_id: &str) -> Result<usize> {
+        let conn = self.lock()?;
+        let n = conn.execute(
+            "DELETE FROM design_implement_receipts WHERE artifact_id IN (
+                 SELECT id FROM design_artifacts WHERE project_id = ?1
+             )",
+            rusqlite::params![project_id],
+        )?;
+        Ok(n)
     }
 
     /// upsert 一个 link 基线（收割命中即刷新 hash/快照/synced_at；`linked_at` 保留首见值）。

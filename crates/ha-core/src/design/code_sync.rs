@@ -20,7 +20,7 @@ use anyhow::{Context, Result};
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use super::db::{DesignArtifact, DesignDb, DesignImplementReceipt};
 use super::service::get_design_db;
@@ -62,32 +62,6 @@ pub struct CodeDriftFile {
     pub path: String,
     /// `"modified"` | `"deleted"`.
     pub state: String,
-}
-
-/// 照 [`selfcheck::merge_into_metadata`]：只动 `codeDrift` 键、保留其它键；空对象回 None。
-pub fn merge_code_drift_into_metadata(
-    existing: Option<&str>,
-    flag: Option<&CodeDriftFlag>,
-) -> Option<String> {
-    let mut obj = existing
-        .and_then(|s| serde_json::from_str::<Value>(s).ok())
-        .and_then(|v| v.as_object().cloned())
-        .unwrap_or_default();
-    match flag {
-        Some(f) => {
-            if let Ok(v) = serde_json::to_value(f) {
-                obj.insert("codeDrift".to_string(), v);
-            }
-        }
-        None => {
-            obj.remove("codeDrift");
-        }
-    }
-    if obj.is_empty() {
-        None
-    } else {
-        serde_json::to_string(&Value::Object(obj)).ok()
-    }
 }
 
 pub fn parse_code_drift(metadata: Option<&str>) -> Option<CodeDriftFlag> {
@@ -215,18 +189,98 @@ fn gunzip(gz: &[u8]) -> std::io::Result<Vec<u8>> {
     Ok(out)
 }
 
-/// 读文件 → (BLAKE3 hex, size, gzip 快照 or None)。文件不存在返回 None。
-fn read_and_snapshot(abs: &Path) -> Option<(String, i64, Option<Vec<u8>>)> {
-    let bytes = std::fs::read(abs).ok()?;
-    let size = bytes.len() as i64;
-    let hash = blake3::hash(&bytes).to_hex().to_string();
-    let is_binary = bytes.iter().take(8192).any(|&b| b == 0);
-    let gz = if !is_binary && bytes.len() <= SNAPSHOT_MAX {
-        gzip(&bytes).ok()
+/// 已登记 link 的安全解析结果。
+enum LinkPath {
+    /// 非 symlink 本体、canonicalize 后仍在 root 内，可安全读。
+    Readable(PathBuf),
+    /// 文件确实不存在（可判 deleted）。
+    Missing,
+    /// symlink 本体 / 中间目录逃逸 → **安全拒读**（不读内容、不判 drift、不建 link）。
+    Rejected,
+}
+
+/// 解析 `code_dir/rel` 为可安全读的绝对路径。**红线：绝不跟随 symlink**——已登记路径被替换成
+/// 指向绑定目录外（如 `~/.ssh/id_rsa`）的 symlink 时（git checkout 恶意分支 / npm postinstall 均
+/// 可植入），会经 drift diff / quote / 基线快照把任意文件内容外泄。`symlink_metadata` 判本体非
+/// symlink + `canonicalize` 复验仍在 root 内（挡中间目录 symlink 逃逸）。`Err` 仅保留给瞬时 IO
+/// 错（权限 / 锁），供上层区分「暂时读不到」（保守跳过 / 不推进游标）与「确实不存在」。
+fn resolve_linked_path(code_dir: &str, rel: &str) -> std::io::Result<LinkPath> {
+    use std::io::ErrorKind;
+    let root = match Path::new(code_dir).canonicalize() {
+        Ok(r) => r,
+        Err(e) if e.kind() == ErrorKind::NotFound => return Ok(LinkPath::Missing),
+        Err(e) => return Err(e),
+    };
+    let abs = root.join(rel);
+    match std::fs::symlink_metadata(&abs) {
+        Ok(m) if m.file_type().is_symlink() => Ok(LinkPath::Rejected),
+        Ok(_) => match abs.canonicalize() {
+            Ok(canon) if canon.starts_with(&root) => Ok(LinkPath::Readable(canon)),
+            Ok(_) => Ok(LinkPath::Rejected),
+            Err(e) if e.kind() == ErrorKind::NotFound => Ok(LinkPath::Missing),
+            Err(e) => Err(e),
+        },
+        Err(e) if e.kind() == ErrorKind::NotFound => Ok(LinkPath::Missing),
+        Err(e) => Err(e),
+    }
+}
+
+/// 流式 BLAKE3 + 字节数（有界内存，不整读大文件）——防已收割路径后被写成 GB 级构建产物时整读
+/// 进内存 OOM。
+fn hash_file_streaming(path: &Path) -> std::io::Result<(String, u64)> {
+    use std::io::Read;
+    let f = std::fs::File::open(path)?;
+    let mut reader = std::io::BufReader::new(f);
+    let mut hasher = blake3::Hasher::new();
+    let mut buf = [0u8; 64 * 1024];
+    let mut total: u64 = 0;
+    loop {
+        let n = reader.read(&mut buf)?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+        total += n as u64;
+    }
+    Ok((hasher.finalize().to_hex().to_string(), total))
+}
+
+/// 有界读（至多 `max` 字节 + 是否被截断）——防超大文件整读进内存做 diff 展示时 OOM。
+fn read_capped(path: &Path, max: usize) -> std::io::Result<(Vec<u8>, bool)> {
+    use std::io::Read;
+    let f = std::fs::File::open(path)?;
+    let mut reader = std::io::BufReader::new(f).take(max as u64 + 1);
+    let mut buf = Vec::new();
+    reader.read_to_end(&mut buf)?;
+    let truncated = buf.len() > max;
+    if truncated {
+        buf.truncate(max);
+    }
+    Ok((buf, truncated))
+}
+
+/// 读文件 → (BLAKE3 hex, size, gzip 快照 or None)。`Ok(Some(..))` 读到；`Ok(None)` 文件不存在 /
+/// 被安全拒读（symlink 越界）；`Err` 瞬时 IO 错（权限 / 锁——上层据此**不推进游标**，下次重试，
+/// 避免永久漏建 link）。BLAKE3 流式（不整读大文件）；仅 ≤ `SNAPSHOT_MAX` 且非二进制才整读做 gzip
+/// 快照。
+fn read_and_snapshot(
+    code_dir: &str,
+    rel: &str,
+) -> std::io::Result<Option<(String, i64, Option<Vec<u8>>)>> {
+    let path = match resolve_linked_path(code_dir, rel)? {
+        LinkPath::Readable(p) => p,
+        LinkPath::Missing | LinkPath::Rejected => return Ok(None),
+    };
+    let (hash, size) = hash_file_streaming(&path)?;
+    let gz = if size as usize <= SNAPSHOT_MAX {
+        match std::fs::read(&path) {
+            Ok(bytes) if !bytes.iter().take(8192).any(|&b| b == 0) => gzip(&bytes).ok(),
+            _ => None,
+        }
     } else {
         None
     };
-    Some((hash, size, gz))
+    Ok(Some((hash, size as i64, gz)))
 }
 
 /// 增量收割一条回执。游标幂等；会话已删且无 links → 删回执。返回是否有新/刷新 link。
@@ -252,35 +306,59 @@ fn harvest_receipt(db: &DesignDb, sdb: &SessionDB, r: &DesignImplementReceipt) -
 
     let mut cursor = r.harvest_cursor;
     let mut any_new = false;
-    loop {
+    'outer: loop {
         let (batch, more) = sdb.load_session_messages_after(&r.session_id, cursor, 500)?;
         if batch.is_empty() {
             break;
         }
-        let max_id = batch.iter().map(|m| m.id).max().unwrap_or(cursor);
-        for p in extract_written_paths(&batch) {
-            let abs = Path::new(&p);
-            let Some(rel) = rel_within(&code_dir_canon, abs) else {
-                // 落地路径不在绑定目录内——不入库（防越界；实现会话本可能改仓库外文件）。
-                continue;
-            };
-            if let Some((hash, size, gz)) = read_and_snapshot(abs) {
-                db.upsert_code_link(&r.id, &rel, &hash, size, gz.as_deref(), &now())?;
-                // 「新回执赢」：删同产物其它回执下同 rel_path 的旧 link。
-                db.delete_links_same_path_in_other_receipts(&r.artifact_id, &r.id, &rel)?;
-                any_new = true;
+        for m in &batch {
+            // 工具行两阶段落库（先 INSERT `stream_status='streaming'` 占位、完成才 UPDATE 回填
+            // tool_metadata）。遇到仍在流式的行就停在它之前、游标不越过——否则回填后 `id ≤ cursor`
+            // 永不再扫，该文件永不建 link、其后代码漂移永不触发（会话进行中收割即会踩到）。
+            if m.stream_status.as_deref() == Some("streaming") {
+                break 'outer;
             }
-            // 文件此刻不存在（转瞬文件 / 会话删了它）→ 跳过不建 link。
+            for p in extract_written_paths(std::slice::from_ref(m)) {
+                let Some(rel) = rel_within(&code_dir_canon, Path::new(&p)) else {
+                    // 落地路径不在绑定目录内——不入库（防越界；实现会话本可能改仓库外文件）。
+                    continue;
+                };
+                match read_and_snapshot(&r.code_dir, &rel) {
+                    Ok(Some((hash, size, gz))) => {
+                        db.upsert_code_link(&r.id, &rel, &hash, size, gz.as_deref(), &now())?;
+                        // 「新回执赢」：删同产物其它回执下同 rel_path 的旧 link。
+                        db.delete_links_same_path_in_other_receipts(&r.artifact_id, &r.id, &rel)?;
+                        any_new = true;
+                    }
+                    // 文件此刻不存在（转瞬文件 / 会话删了它）/ 被拒（symlink 越界）→ 跳过不建 link。
+                    Ok(None) => {}
+                    Err(e) => {
+                        // 瞬时读失败（权限 / 锁）——不推进游标越过本行，下次收割重试，避免把「读失败」
+                        // 误当「文件不存在」而永久漏建 link。代价：极少数**永久**不可读的中段文件会
+                        // 把本回执后续收割卡住（有 warn 可诊断），远好于静默丢追踪。
+                        crate::app_warn!(
+                            "design",
+                            "code_sync",
+                            "harvest read failed for {} in receipt {}: {}; holding cursor",
+                            rel,
+                            r.id,
+                            e
+                        );
+                        break 'outer;
+                    }
+                }
+            }
+            cursor = m.id; // 仅在本行完全处理后推进。
         }
-        cursor = max_id;
         if !more {
             break;
         }
     }
 
     if cursor != r.harvest_cursor || any_new || r.harvested_at.is_none() {
-        let rev = crate::git_control::repository_revision(&code_dir_canon).ok();
-        db.update_receipt_harvest(&r.id, cursor, rev.as_deref(), &now())?;
+        // `harvest_revision` 不再被任何读路径消费（drift 判定逐文件重算 BLAKE3），故不再为它起 git
+        // 子进程算指纹（省 ~5 个 git 进程/次收割，含两遍全量 binary diff）；列保留兼容、恒 None。
+        db.update_receipt_harvest(&r.id, cursor, None, &now())?;
     }
     Ok(any_new)
 }
@@ -315,28 +393,38 @@ fn compute_drift_for_artifact(
     };
     let links = db.list_links_for_artifact(artifact_id)?; // (receipt, link)，无 content_gz
                                                           // 同 rel_path 去重：created_at ASC 排列，后者（更新回执）赢。
-    let mut by_path: BTreeMap<String, (String, String)> = BTreeMap::new(); // rel → (code_dir, baseline hash)
+    let mut by_path: BTreeMap<String, (String, String, i64)> = BTreeMap::new(); // rel → (code_dir, baseline hash, size)
     for (r, l) in &links {
-        by_path.insert(l.rel_path.clone(), (r.code_dir.clone(), l.blake3.clone()));
+        by_path.insert(
+            l.rel_path.clone(),
+            (r.code_dir.clone(), l.blake3.clone(), l.size_bytes),
+        );
     }
     let mut files = Vec::new();
-    for (rel, (code_dir, baseline)) in &by_path {
+    for (rel, (code_dir, baseline, baseline_size)) in &by_path {
         if files.len() >= DRIFT_FILES_MAX {
             break;
         }
-        let abs = Path::new(code_dir).join(rel);
-        match std::fs::read(&abs) {
-            Ok(bytes) => {
-                let cur = blake3::hash(&bytes).to_hex().to_string();
-                if &cur != baseline {
-                    files.push(CodeDriftFile {
+        match resolve_linked_path(code_dir, rel) {
+            Ok(LinkPath::Readable(path)) => match std::fs::metadata(&path) {
+                // size 已变 → 直接判 modified，免读免哈希（大多数漂移文件在此短路）。
+                Ok(m) if m.len() as i64 != *baseline_size => files.push(CodeDriftFile {
+                    path: rel.clone(),
+                    state: "modified".to_string(),
+                }),
+                // size 相同 → 流式哈希确认内容（有界内存，不整读大文件）。
+                Ok(_) => match hash_file_streaming(&path) {
+                    Ok((cur, _)) if &cur != baseline => files.push(CodeDriftFile {
                         path: rel.clone(),
                         state: "modified".to_string(),
-                    });
-                }
-            }
-            Err(_) => {
-                // 目录整体失效（外置盘未挂载 / 仓库删）→ 不假 stale（绑定级 stale 另标红）。
+                    }),
+                    Ok(_) => {}  // 未变。
+                    Err(_) => {} // 瞬时读失败 → 保守不判 drift。
+                },
+                Err(_) => {} // 瞬时 stat 失败 → 保守不判 drift。
+            },
+            Ok(LinkPath::Missing) => {
+                // 文件不存在。目录整体失效（外置盘未挂载 / 仓库删）→ 不假 stale（绑定级 stale 另标红）。
                 if Path::new(code_dir).is_dir() {
                     files.push(CodeDriftFile {
                         path: rel.clone(),
@@ -344,6 +432,9 @@ fn compute_drift_for_artifact(
                     });
                 }
             }
+            // symlink 越界 → 安全拒读、不判 drift（红线：绝不跟随 symlink 读内容）。
+            Ok(LinkPath::Rejected) => {}
+            Err(_) => {} // 瞬时路径 IO 错 → 跳过。
         }
     }
 
@@ -355,8 +446,16 @@ fn compute_drift_for_artifact(
     });
     let old_flag = parse_code_drift(artifact.metadata.as_deref());
     if !flags_equal(&old_flag, &flag) {
-        let new_meta = merge_code_drift_into_metadata(artifact.metadata.as_deref(), flag.as_ref());
-        db.set_artifact_metadata_quiet(artifact_id, new_meta.as_deref())?;
+        // 原子写 `metadata.codeDrift` 单键（`json_set`/`json_remove`），不读-改-写整列——消除
+        // watcher 后台线程与前台 metadata 写互相丢键的竞态。
+        match &flag {
+            Some(f) => {
+                if let Ok(j) = serde_json::to_string(f) {
+                    db.set_artifact_code_drift(artifact_id, Some(&j))?;
+                }
+            }
+            None => db.set_artifact_code_drift(artifact_id, None)?,
+        }
         emit(
             "design:code_drift",
             json!({ "projectId": artifact.project_id, "artifactId": artifact_id, "stale": stale }),
@@ -424,7 +523,10 @@ pub fn check_code_drift(
     Ok(out)
 }
 
-/// watcher debounce 回调：某 code_dir 下全部关联产物重算 drift（外部改动，不涉会话故不收割）。
+/// watcher debounce 回调：某 code_dir 下全部关联产物**先收割后比对**。收割是幂等游标增量、且停
+/// 在在途流式行之前，故会把「实现会话自己刚落盘的改动」吸收为基线——否则实现会话仍在写代码时
+/// watcher 无法区分改动来源，会把会话自身改动误报为外部漂移（弹「代码实现有更新」横幅、误导用户
+/// 点「带到对话」把自己刚写的代码当外部变更回灌）。与 `check_code_drift` 同一收割入口。
 pub(crate) fn check_drift_for_dir(code_dir: &str) -> Result<()> {
     let db = get_design_db()?;
     let artifacts: BTreeSet<String> = db
@@ -432,6 +534,21 @@ pub(crate) fn check_drift_for_dir(code_dir: &str) -> Result<()> {
         .into_iter()
         .map(|(_proj, art, _rel)| art)
         .collect();
+    if let Some(sdb) = crate::globals::get_session_db() {
+        for aid in &artifacts {
+            for r in &db.list_receipts_for_artifact(aid)? {
+                if let Err(e) = harvest_receipt(db, sdb, r) {
+                    crate::app_warn!(
+                        "design",
+                        "code_sync",
+                        "watcher harvest receipt {} failed: {}",
+                        r.id,
+                        e
+                    );
+                }
+            }
+        }
+    }
     for aid in &artifacts {
         let _ = compute_drift_for_artifact(db, aid);
     }
@@ -500,17 +617,28 @@ pub fn drift_changes(artifact_id: &str) -> Result<CodeDriftChanges> {
     let mut total = quote.len();
 
     for (rel, (link_id, code_dir, baseline)) in &by_path {
-        let abs = Path::new(code_dir).join(rel);
-        let before = db
-            .get_link_snapshot(*link_id)?
-            .and_then(|gz| gunzip(&gz).ok())
-            .map(|b| String::from_utf8_lossy(&b).into_owned());
-        match std::fs::read(&abs) {
-            Ok(bytes) => {
-                let cur_hash = blake3::hash(&bytes).to_hex().to_string();
+        if files.len() >= DRIFT_FILES_MAX {
+            break; // 单次响应文件数上限（防 git 切分支致全部 link 漂移时无界膨胀）。
+        }
+        match resolve_linked_path(code_dir, rel) {
+            Ok(LinkPath::Readable(path)) => {
+                // 先流式哈希判是否漂移（有界内存）；未漂移则不解压基线快照、不整读——避免对每个未漂移
+                // link 白读白解压，也防已收割路径后被写成 GB 级文件时整读 OOM。
+                let cur_hash = match hash_file_streaming(&path) {
+                    Ok((h, _)) => h,
+                    Err(_) => continue,
+                };
                 if &cur_hash == baseline {
-                    continue; // 未漂移
+                    continue; // 未漂移。
                 }
+                let (bytes, read_trunc) = match read_capped(&path, SNAPSHOT_MAX) {
+                    Ok(v) => v,
+                    Err(_) => continue,
+                };
+                let before = db
+                    .get_link_snapshot(*link_id)?
+                    .and_then(|gz| gunzip(&gz).ok())
+                    .map(|b| String::from_utf8_lossy(&b).into_owned());
                 let after_raw = String::from_utf8_lossy(&bytes).into_owned();
                 let before_str = before.clone().unwrap_or_default();
                 let (added, removed) = compute_line_delta(&before_str, &after_raw);
@@ -525,7 +653,7 @@ pub fn drift_changes(artifact_id: &str) -> Result<CodeDriftChanges> {
                     before: before.as_ref().map(|_| before_t),
                     after: Some(after_t),
                     language: detect_language(rel).to_string(),
-                    truncated: bt || at,
+                    truncated: bt || at || read_trunc,
                 });
                 if total < DRIFT_QUOTE_TOTAL_MAX {
                     let snippet = crate::util::truncate_utf8(&after_raw, DRIFT_QUOTE_FILE_MAX);
@@ -534,10 +662,14 @@ pub fn drift_changes(artifact_id: &str) -> Result<CodeDriftChanges> {
                     quote.push_str(&block);
                 }
             }
-            Err(_) => {
+            Ok(LinkPath::Missing) => {
                 if !Path::new(code_dir).is_dir() {
-                    continue; // 目录失效，非文件删除
+                    continue; // 目录失效，非文件删除。
                 }
+                let before = db
+                    .get_link_snapshot(*link_id)?
+                    .and_then(|gz| gunzip(&gz).ok())
+                    .map(|b| String::from_utf8_lossy(&b).into_owned());
                 files.push(DriftFileChange {
                     kind: "file_change".to_string(),
                     path: rel.clone(),
@@ -558,6 +690,9 @@ pub fn drift_changes(artifact_id: &str) -> Result<CodeDriftChanges> {
                     quote.push_str(&block);
                 }
             }
+            // symlink 越界 → 安全跳过（红线：不读内容、不入 diff / quote）。
+            Ok(LinkPath::Rejected) => continue,
+            Err(_) => continue,
         }
     }
     quote.push_str("</code_drift>");
@@ -574,25 +709,29 @@ pub fn mark_synced(artifact_id: &str) -> Result<DesignArtifact> {
     let db = get_design_db()?;
     let links = db.list_links_for_artifact(artifact_id)?;
     for (r, l) in &links {
-        let abs = Path::new(&r.code_dir).join(&l.rel_path);
-        match read_and_snapshot(&abs) {
-            Some((hash, size, gz)) => {
+        match read_and_snapshot(&r.code_dir, &l.rel_path) {
+            Ok(Some((hash, size, gz))) => {
+                if hash == l.blake3 {
+                    continue; // 未变则不重写等值 BLOB（省 gzip 压缩 + WAL 写放大）。
+                }
                 db.update_link_baseline(l.id, &hash, size, gz.as_deref(), &now())?;
             }
-            None => {
-                // 文件确实删了 → 丢弃该 link（不再追踪）；目录失效则保留（转瞬态）。
+            Ok(None) => {
+                // 文件确实删了 / 被拒（symlink 越界）→ 丢弃该 link（不再追踪）；目录失效则保留（转瞬态）。
                 if Path::new(&r.code_dir).is_dir() {
                     db.delete_link(l.id)?;
                 }
             }
+            // 瞬时读失败（权限 / 锁）→ 保留 link 不动，下次同步再试。
+            Err(_) => {}
         }
     }
     let artifact = db
         .get_artifact(artifact_id)?
         .with_context(|| format!("artifact not found: {artifact_id}"))?;
-    let new_meta = merge_code_drift_into_metadata(artifact.metadata.as_deref(), None);
-    if new_meta != artifact.metadata {
-        db.set_artifact_metadata_quiet(artifact_id, new_meta.as_deref())?;
+    // 原子清 `codeDrift` 单键（不读-改-写整列，避免与前台 metadata 写竞态丢键）。
+    if parse_code_drift(artifact.metadata.as_deref()).is_some() {
+        db.set_artifact_code_drift(artifact_id, None)?;
     }
     emit(
         "design:code_drift",
@@ -692,7 +831,7 @@ mod tests {
     }
 
     #[test]
-    fn merge_parse_and_flags_equal() {
+    fn parse_and_flags_equal() {
         let flag = CodeDriftFlag {
             files: vec![CodeDriftFile {
                 path: "a.ts".into(),
@@ -701,25 +840,14 @@ mod tests {
             checked_at: "t".into(),
             session_id: Some("s".into()),
         };
-        // 合并进已有 metadata：保留其它键。
-        let meta =
-            merge_code_drift_into_metadata(Some(r#"{"selfCheck":{"flag":"ok"}}"#), Some(&flag));
-        let meta = meta.unwrap();
-        assert!(meta.contains("selfCheck"));
-        assert!(meta.contains("codeDrift"));
-        // 解析回来。
+        // 序列化 → 解析回来（外部 agent / 前端读的 metadata.codeDrift 形状）。
+        let j = serde_json::to_string(&flag).unwrap();
+        let meta = format!(r#"{{"selfCheck":{{"flag":"ok"}},"codeDrift":{j}}}"#);
         let parsed = parse_code_drift(Some(&meta)).unwrap();
         assert_eq!(parsed.files.len(), 1);
         assert_eq!(parsed.files[0].state, "modified");
-        // 清标：只删 codeDrift，selfCheck 留存。
-        let cleared = merge_code_drift_into_metadata(Some(&meta), None).unwrap();
-        assert!(cleared.contains("selfCheck"));
-        assert!(!cleared.contains("codeDrift"));
-        // 清标后仅剩 codeDrift → 回 None（空对象）。
-        assert_eq!(
-            merge_code_drift_into_metadata(Some(r#"{"codeDrift":{}}"#), None),
-            None
-        );
+        // 无 codeDrift 键 → None。
+        assert_eq!(parse_code_drift(Some(r#"{"selfCheck":{}}"#)), None);
 
         // flags_equal 忽略 checked_at，只看 (path,state) 集。
         let mut f2 = flag.clone();
@@ -736,21 +864,52 @@ mod tests {
         assert_eq!(gunzip(&gz).unwrap(), data);
 
         let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().to_string_lossy().into_owned();
         // 文本文件：有快照。
-        let txt = dir.path().join("a.ts");
-        std::fs::write(&txt, data).unwrap();
-        let (hash, size, gzo) = read_and_snapshot(&txt).unwrap();
+        std::fs::write(dir.path().join("a.ts"), data).unwrap();
+        let (hash, size, gzo) = read_and_snapshot(&root, "a.ts").unwrap().unwrap();
         assert_eq!(size, data.len() as i64);
         assert_eq!(hash, blake3::hash(data).to_hex().to_string());
         assert_eq!(gunzip(gzo.as_deref().unwrap()).unwrap(), data);
 
         // 二进制文件（含 NUL）：hash 有、快照 None。
-        let bin = dir.path().join("b.bin");
-        std::fs::write(&bin, b"a\0b\0c").unwrap();
-        let (_h, _s, gzb) = read_and_snapshot(&bin).unwrap();
+        std::fs::write(dir.path().join("b.bin"), b"a\0b\0c").unwrap();
+        let (_h, _s, gzb) = read_and_snapshot(&root, "b.bin").unwrap().unwrap();
         assert!(gzb.is_none());
 
-        // 不存在的文件 → None。
-        assert!(read_and_snapshot(&dir.path().join("nope")).is_none());
+        // 不存在的文件 → Ok(None)。
+        assert!(read_and_snapshot(&root, "nope").unwrap().is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn resolve_linked_path_rejects_symlink_escape() {
+        use std::os::unix::fs::symlink;
+        let root_dir = tempfile::tempdir().unwrap();
+        let root = root_dir.path().to_string_lossy().into_owned();
+        // 目录外的敏感文件。
+        let secret_dir = tempfile::tempdir().unwrap();
+        let secret = secret_dir.path().join("id_rsa");
+        std::fs::write(&secret, b"PRIVATE KEY").unwrap();
+
+        // 普通文件 → Readable。
+        std::fs::write(root_dir.path().join("real.ts"), b"x").unwrap();
+        assert!(matches!(
+            resolve_linked_path(&root, "real.ts"),
+            Ok(LinkPath::Readable(_))
+        ));
+        // 指向目录外的 symlink → Rejected（红线：绝不跟随读到 secret）。
+        symlink(&secret, root_dir.path().join("leak.ts")).unwrap();
+        assert!(matches!(
+            resolve_linked_path(&root, "leak.ts"),
+            Ok(LinkPath::Rejected)
+        ));
+        // read_and_snapshot 对 symlink 越界回 Ok(None)（不读内容）。
+        assert!(read_and_snapshot(&root, "leak.ts").unwrap().is_none());
+        // 不存在 → Missing。
+        assert!(matches!(
+            resolve_linked_path(&root, "nope.ts"),
+            Ok(LinkPath::Missing)
+        ));
     }
 }
