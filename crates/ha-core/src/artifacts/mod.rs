@@ -2799,13 +2799,17 @@ fn prepare_payload(path: &Path) -> Result<PreparedPayload> {
             analysis.validate()?;
             let canonical = serde_json::to_vec(&analysis)?;
             let markdown = render_analysis_markdown(&analysis);
+            let index_html = render_analysis_html(&analysis);
+            if contains_external_navigation(&index_html) {
+                bail!("AnalysisArtifactV1 may not contain external navigation links");
+            }
             Ok(PreparedPayload {
                 payload_kind: "analysis".to_string(),
                 analysis_status: Some(analysis.status.clone()),
                 source_json: serde_json::to_string(&analysis.sources)?,
                 payload_json: String::from_utf8(canonical.clone())?,
                 canonical_bytes: canonical,
-                index_html: render_analysis_html(&analysis),
+                index_html,
                 markdown: Some(markdown),
                 suggested_title: Some(analysis.question.clone()),
                 capabilities: default_capabilities(),
@@ -3779,6 +3783,29 @@ mod tests {
         .expect("parse blocked fixture");
         blocked.validate().expect("validate blocked fixture");
         assert_eq!(blocked.status, "blocked");
+    }
+
+    #[test]
+    fn analysis_import_rejects_external_navigation() {
+        let mut analysis: AnalysisArtifactV1 = serde_json::from_str(include_str!(
+            "../../tests/fixtures/artifacts/analysis-ready.json"
+        ))
+        .expect("parse ready fixture");
+        analysis.blocks[0]["body"] =
+            Value::String("See [remote details](https://example.com/report)".to_string());
+        let temp = tempfile::tempdir().expect("create tempdir");
+        let path = temp.path().join("artifact.json");
+        std::fs::write(
+            &path,
+            serde_json::to_vec(&analysis).expect("serialize analysis"),
+        )
+        .expect("write analysis fixture");
+
+        let error = match prepare_payload(&path) {
+            Ok(_) => panic!("external navigation must be rejected"),
+            Err(error) => error,
+        };
+        assert!(error.to_string().contains("external navigation"));
     }
 
     #[test]

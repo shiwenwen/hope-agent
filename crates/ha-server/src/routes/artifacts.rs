@@ -11,6 +11,7 @@ use tower_http::services::ServeFile;
 use ha_core::artifacts::{
     ArtifactKind, ArtifactService, CreateArtifactInput, ListArtifactsInput, UpdateArtifactInput,
 };
+use ha_core::blocking::run_blocking;
 
 use crate::error::AppError;
 use crate::routes::file_serve::{apply_inline_media_headers, contained_canonical, HeaderOpts};
@@ -63,93 +64,108 @@ pub struct ExportReviewBody {
 pub async fn list_artifacts(
     Query(query): Query<ArtifactListQuery>,
 ) -> Result<Json<Value>, AppError> {
-    let artifacts = ArtifactService::open()
-        .and_then(|service| {
-            service.list(ListArtifactsInput {
-                limit: query.limit.unwrap_or(50),
-                offset: query.offset.unwrap_or(0),
-                kind: query.kind,
-                lifecycle_state: query.lifecycle_state,
+    let artifacts = run_blocking(move || {
+        ArtifactService::open()
+            .and_then(|service| {
+                service.list(ListArtifactsInput {
+                    limit: query.limit.unwrap_or(50),
+                    offset: query.offset.unwrap_or(0),
+                    kind: query.kind,
+                    lifecycle_state: query.lifecycle_state,
+                })
             })
-        })
-        .map_err(artifact_error)?;
+            .map_err(artifact_error)
+    })
+    .await?;
     Ok(Json(json!({ "artifacts": artifacts })))
 }
 
 pub async fn get_artifact(Path(id): Path<String>) -> Result<Json<Value>, AppError> {
     validate_id(&id)?;
-    let artifact = ArtifactService::open()
-        .and_then(|service| service.get(&id))
-        .map_err(artifact_error)?
-        .ok_or_else(|| AppError::not_found("artifact not found"))?;
+    let artifact = run_blocking(move || {
+        ArtifactService::open()
+            .and_then(|service| service.get(&id))
+            .map_err(artifact_error)?
+            .ok_or_else(|| AppError::not_found("artifact not found"))
+    })
+    .await?;
     Ok(Json(json!({ "artifact": artifact })))
 }
 
 pub async fn list_versions(Path(id): Path<String>) -> Result<Json<Value>, AppError> {
     validate_id(&id)?;
-    let versions = ArtifactService::open()
-        .and_then(|service| service.versions(&id))
-        .map_err(artifact_error)?;
-    Ok(Json(json!({ "artifactId": id, "versions": versions })))
+    let response_id = id.clone();
+    let versions = run_blocking(move || {
+        ArtifactService::open()
+            .and_then(|service| service.versions(&id))
+            .map_err(artifact_error)
+    })
+    .await?;
+    Ok(Json(
+        json!({ "artifactId": response_id, "versions": versions }),
+    ))
 }
 
 pub async fn import_artifact(
     Json(body): Json<ArtifactImportBody>,
 ) -> Result<Json<Value>, AppError> {
-    let source = resolve_import_path(&body.file_path);
-    let roots = import_roots();
-    let producer = body
-        .producer
-        .unwrap_or_else(|| json!({ "type": "owner_import", "surface": "http" }));
-    let mut service = ArtifactService::open().map_err(artifact_error)?;
+    let artifact = run_blocking(move || -> Result<_, AppError> {
+        let source = resolve_import_path(&body.file_path);
+        let roots = import_roots();
+        let producer = body
+            .producer
+            .unwrap_or_else(|| json!({ "type": "owner_import", "surface": "http" }));
+        let mut service = ArtifactService::open().map_err(artifact_error)?;
 
-    let artifact = if let Some(artifact_id) = body.artifact_id {
-        validate_id(&artifact_id)?;
-        let current = service
-            .get(&artifact_id)
-            .map_err(artifact_error)?
-            .ok_or_else(|| AppError::not_found("artifact not found"))?;
-        let expected = body.expected_version.ok_or_else(|| {
-            AppError::bad_request("expectedVersion is required when artifactId is provided")
-        })?;
-        if current.current_version != expected {
-            return Err(AppError::conflict_with_code(
-                "artifact_version_conflict",
-                format!(
-                    "expected version {}, current version {} ({})",
-                    expected, current.current_version, current.current_hash
-                ),
-            ));
+        if let Some(artifact_id) = body.artifact_id {
+            validate_id(&artifact_id)?;
+            let current = service
+                .get(&artifact_id)
+                .map_err(artifact_error)?
+                .ok_or_else(|| AppError::not_found("artifact not found"))?;
+            let expected = body.expected_version.ok_or_else(|| {
+                AppError::bad_request("expectedVersion is required when artifactId is provided")
+            })?;
+            if current.current_version != expected {
+                return Err(AppError::conflict_with_code(
+                    "artifact_version_conflict",
+                    format!(
+                        "expected version {}, current version {} ({})",
+                        expected, current.current_version, current.current_hash
+                    ),
+                ));
+            }
+            service
+                .update_from_file(UpdateArtifactInput {
+                    artifact_id,
+                    file_path: source,
+                    expected_version: expected,
+                    title: body.title,
+                    message: body.version_message,
+                    producer,
+                    allowed_roots: Some(roots),
+                    incognito: false,
+                })
+                .map_err(artifact_error)
+        } else {
+            service
+                .create_from_file(CreateArtifactInput {
+                    file_path: source,
+                    title: body.title,
+                    kind: ArtifactKind::parse(body.kind.as_deref()),
+                    privacy: body.privacy.unwrap_or_else(|| "local_private".to_string()),
+                    session_id: body.session_id,
+                    project_id: body.project_id,
+                    agent_id: body.agent_id,
+                    goal_id: body.goal_id,
+                    producer,
+                    allowed_roots: Some(roots),
+                    incognito: false,
+                })
+                .map_err(artifact_error)
         }
-        service
-            .update_from_file(UpdateArtifactInput {
-                artifact_id,
-                file_path: source,
-                expected_version: expected,
-                title: body.title,
-                message: body.version_message,
-                producer,
-                allowed_roots: Some(roots),
-                incognito: false,
-            })
-            .map_err(artifact_error)?
-    } else {
-        service
-            .create_from_file(CreateArtifactInput {
-                file_path: source,
-                title: body.title,
-                kind: ArtifactKind::parse(body.kind.as_deref()),
-                privacy: body.privacy.unwrap_or_else(|| "local_private".to_string()),
-                session_id: body.session_id,
-                project_id: body.project_id,
-                agent_id: body.agent_id,
-                goal_id: body.goal_id,
-                producer,
-                allowed_roots: Some(roots),
-                incognito: false,
-            })
-            .map_err(artifact_error)?
-    };
+    })
+    .await?;
     Ok(Json(json!({ "artifact": artifact })))
 }
 
@@ -158,17 +174,23 @@ pub async fn restore_artifact(
     Json(body): Json<RestoreBody>,
 ) -> Result<Json<Value>, AppError> {
     validate_id(&id)?;
-    let artifact = ArtifactService::open()
-        .and_then(|mut service| service.restore(&id, body.version))
-        .map_err(artifact_error)?;
+    let artifact = run_blocking(move || {
+        ArtifactService::open()
+            .and_then(|mut service| service.restore(&id, body.version))
+            .map_err(artifact_error)
+    })
+    .await?;
     Ok(Json(json!({ "artifact": artifact })))
 }
 
 pub async fn verify_artifact(Path(id): Path<String>) -> Result<Json<Value>, AppError> {
     validate_id(&id)?;
-    let verification = ArtifactService::open()
-        .and_then(|service| service.verify(&id))
-        .map_err(artifact_error)?;
+    let verification = run_blocking(move || {
+        ArtifactService::open()
+            .and_then(|service| service.verify(&id))
+            .map_err(artifact_error)
+    })
+    .await?;
     Ok(Json(json!({ "verification": verification })))
 }
 
@@ -177,11 +199,14 @@ pub async fn create_export(
     Json(body): Json<ExportBody>,
 ) -> Result<Json<Value>, AppError> {
     validate_id(&id)?;
-    let mut service = ArtifactService::open().map_err(artifact_error)?;
-    let receipt = service
-        .export_async(&id, &body.format)
-        .await
-        .map_err(artifact_error)?;
+    let runtime = tokio::runtime::Handle::current();
+    let receipt = run_blocking(move || {
+        let mut service = ArtifactService::open().map_err(artifact_error)?;
+        runtime
+            .block_on(service.export_async(&id, &body.format))
+            .map_err(artifact_error)
+    })
+    .await?;
     Ok(Json(json!({ "receipt": receipt })))
 }
 
@@ -190,9 +215,14 @@ pub async fn review_export(
     Json(body): Json<ExportReviewBody>,
 ) -> Result<Json<Value>, AppError> {
     validate_id(&id)?;
-    let guard = ArtifactService::open()
-        .and_then(|service| service.review_for_export(&id, &body.audience, body.redaction_checked))
-        .map_err(artifact_error)?;
+    let guard = run_blocking(move || {
+        ArtifactService::open()
+            .and_then(|service| {
+                service.review_for_export(&id, &body.audience, body.redaction_checked)
+            })
+            .map_err(artifact_error)
+    })
+    .await?;
     Ok(Json(json!({ "guard": guard })))
 }
 
@@ -201,10 +231,17 @@ pub async fn download_export(
     request: Request,
 ) -> Result<Response, AppError> {
     validate_id(&export_id)?;
-    let receipt = ArtifactService::open()
-        .and_then(|service| service.get_export(&export_id))
-        .map_err(artifact_error)?
-        .ok_or_else(|| AppError::not_found("artifact export not found"))?;
+    let (receipt, base) = run_blocking(move || -> Result<_, AppError> {
+        let receipt = ArtifactService::open()
+            .and_then(|service| service.get_export(&export_id))
+            .map_err(artifact_error)?
+            .ok_or_else(|| AppError::not_found("artifact export not found"))?;
+        let base = ha_core::paths::canvas_dir()
+            .map_err(|error| AppError::internal(error.to_string()))?
+            .join("exports");
+        Ok((receipt, base))
+    })
+    .await?;
     if receipt.status != "ready" {
         return Err(AppError::conflict_with_code(
             "artifact_export_not_ready",
@@ -217,9 +254,6 @@ pub async fn download_export(
         .internal_path
         .map(PathBuf::from)
         .ok_or_else(|| AppError::not_found("artifact export file not found"))?;
-    let base = ha_core::paths::canvas_dir()
-        .map_err(|error| AppError::internal(error.to_string()))?
-        .join("exports");
     let canonical = contained_canonical(&base, &internal).await?;
     let mut response = ServeFile::new(&canonical)
         .oneshot(request)
@@ -244,17 +278,23 @@ pub async fn download_export(
 
 pub async fn archive_artifact(Path(id): Path<String>) -> Result<Json<Value>, AppError> {
     validate_id(&id)?;
-    ArtifactService::open()
-        .and_then(|service| service.archive(&id))
-        .map_err(artifact_error)?;
+    run_blocking(move || {
+        ArtifactService::open()
+            .and_then(|service| service.archive(&id))
+            .map_err(artifact_error)
+    })
+    .await?;
     Ok(Json(json!({ "ok": true })))
 }
 
 pub async fn delete_artifact(Path(id): Path<String>) -> Result<Json<Value>, AppError> {
     validate_id(&id)?;
-    ArtifactService::open()
-        .and_then(|service| service.delete(&id))
-        .map_err(artifact_error)?;
+    run_blocking(move || {
+        ArtifactService::open()
+            .and_then(|service| service.delete(&id))
+            .map_err(artifact_error)
+    })
+    .await?;
     Ok(Json(json!({ "ok": true })))
 }
 

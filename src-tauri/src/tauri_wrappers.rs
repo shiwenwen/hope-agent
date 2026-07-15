@@ -187,96 +187,106 @@ pub async fn list_artifacts(
     kind: Option<String>,
     lifecycle_state: Option<String>,
 ) -> Result<Vec<crate::artifacts::ArtifactRecord>, String> {
-    crate::artifacts::ArtifactService::open()
-        .and_then(|service| {
-            service.list(crate::artifacts::ListArtifactsInput {
-                limit: limit.unwrap_or(50),
-                offset: offset.unwrap_or(0),
-                kind,
-                lifecycle_state,
+    ha_core::blocking::run_blocking(move || {
+        crate::artifacts::ArtifactService::open()
+            .and_then(|service| {
+                service.list(crate::artifacts::ListArtifactsInput {
+                    limit: limit.unwrap_or(50),
+                    offset: offset.unwrap_or(0),
+                    kind,
+                    lifecycle_state,
+                })
             })
-        })
-        .map_err(|error| error.to_string())
+            .map_err(|error| error.to_string())
+    })
+    .await
 }
 
 #[tauri::command]
 pub async fn get_artifact(id: String) -> Result<crate::artifacts::ArtifactRecord, String> {
-    crate::artifacts::ArtifactService::open()
-        .and_then(|service| service.get(&id))
-        .map_err(|error| error.to_string())?
-        .ok_or_else(|| "artifact not found".to_string())
+    ha_core::blocking::run_blocking(move || {
+        crate::artifacts::ArtifactService::open()
+            .and_then(|service| service.get(&id))
+            .map_err(|error| error.to_string())?
+            .ok_or_else(|| "artifact not found".to_string())
+    })
+    .await
 }
 
 #[tauri::command]
 pub async fn list_artifact_versions(
     id: String,
 ) -> Result<Vec<crate::artifacts::ArtifactVersionSummary>, String> {
-    crate::artifacts::ArtifactService::open()
-        .and_then(|service| service.versions(&id))
-        .map_err(|error| error.to_string())
+    ha_core::blocking::run_blocking(move || {
+        crate::artifacts::ArtifactService::open()
+            .and_then(|service| service.versions(&id))
+            .map_err(|error| error.to_string())
+    })
+    .await
 }
 
 #[tauri::command]
 pub async fn import_artifact(
     request: ArtifactImportRequest,
 ) -> Result<crate::artifacts::ArtifactRecord, String> {
-    use std::path::PathBuf;
-
-    let source = PathBuf::from(&request.file_path);
-    let allowed_root = source
-        .canonicalize()
-        .ok()
-        .and_then(|path| path.parent().map(ToOwned::to_owned))
-        .into_iter()
-        .collect::<Vec<_>>();
-    let producer = serde_json::json!({ "type": "owner_import", "surface": "tauri" });
-    let mut service =
-        crate::artifacts::ArtifactService::open().map_err(|error| error.to_string())?;
-    if let Some(artifact_id) = request.artifact_id {
-        let expected_version = request
-            .expected_version
-            .ok_or_else(|| "expectedVersion is required when artifactId is provided".to_string())?;
-        let current = service
-            .get(&artifact_id)
-            .map_err(|error| error.to_string())?
-            .ok_or_else(|| "artifact not found".to_string())?;
-        if current.current_version != expected_version {
-            return Err(format!(
-                "artifact version conflict: expected {}, current {} ({})",
-                expected_version, current.current_version, current.current_hash
-            ));
+    ha_core::blocking::run_blocking(move || {
+        let source = std::path::PathBuf::from(&request.file_path);
+        let allowed_root = source
+            .canonicalize()
+            .ok()
+            .and_then(|path| path.parent().map(ToOwned::to_owned))
+            .into_iter()
+            .collect::<Vec<_>>();
+        let producer = serde_json::json!({ "type": "owner_import", "surface": "tauri" });
+        let mut service =
+            crate::artifacts::ArtifactService::open().map_err(|error| error.to_string())?;
+        if let Some(artifact_id) = request.artifact_id {
+            let expected_version = request.expected_version.ok_or_else(|| {
+                "expectedVersion is required when artifactId is provided".to_string()
+            })?;
+            let current = service
+                .get(&artifact_id)
+                .map_err(|error| error.to_string())?
+                .ok_or_else(|| "artifact not found".to_string())?;
+            if current.current_version != expected_version {
+                return Err(format!(
+                    "artifact version conflict: expected {}, current {} ({})",
+                    expected_version, current.current_version, current.current_hash
+                ));
+            }
+            service
+                .update_from_file(crate::artifacts::UpdateArtifactInput {
+                    artifact_id,
+                    file_path: source,
+                    expected_version,
+                    title: request.title,
+                    message: request.version_message,
+                    producer,
+                    allowed_roots: Some(allowed_root),
+                    incognito: false,
+                })
+                .map_err(|error| error.to_string())
+        } else {
+            service
+                .create_from_file(crate::artifacts::CreateArtifactInput {
+                    file_path: source,
+                    title: request.title,
+                    kind: crate::artifacts::ArtifactKind::parse(request.kind.as_deref()),
+                    privacy: request
+                        .privacy
+                        .unwrap_or_else(|| "local_private".to_string()),
+                    session_id: request.session_id,
+                    project_id: request.project_id,
+                    agent_id: request.agent_id,
+                    goal_id: request.goal_id,
+                    producer,
+                    allowed_roots: Some(allowed_root),
+                    incognito: false,
+                })
+                .map_err(|error| error.to_string())
         }
-        service
-            .update_from_file(crate::artifacts::UpdateArtifactInput {
-                artifact_id,
-                file_path: source,
-                expected_version,
-                title: request.title,
-                message: request.version_message,
-                producer,
-                allowed_roots: Some(allowed_root),
-                incognito: false,
-            })
-            .map_err(|error| error.to_string())
-    } else {
-        service
-            .create_from_file(crate::artifacts::CreateArtifactInput {
-                file_path: source,
-                title: request.title,
-                kind: crate::artifacts::ArtifactKind::parse(request.kind.as_deref()),
-                privacy: request
-                    .privacy
-                    .unwrap_or_else(|| "local_private".to_string()),
-                session_id: request.session_id,
-                project_id: request.project_id,
-                agent_id: request.agent_id,
-                goal_id: request.goal_id,
-                producer,
-                allowed_roots: Some(allowed_root),
-                incognito: false,
-            })
-            .map_err(|error| error.to_string())
-    }
+    })
+    .await
 }
 
 #[tauri::command]
@@ -284,16 +294,22 @@ pub async fn restore_artifact(
     id: String,
     version: i64,
 ) -> Result<crate::artifacts::ArtifactRecord, String> {
-    crate::artifacts::ArtifactService::open()
-        .and_then(|mut service| service.restore(&id, version))
-        .map_err(|error| error.to_string())
+    ha_core::blocking::run_blocking(move || {
+        crate::artifacts::ArtifactService::open()
+            .and_then(|mut service| service.restore(&id, version))
+            .map_err(|error| error.to_string())
+    })
+    .await
 }
 
 #[tauri::command]
 pub async fn verify_artifact(id: String) -> Result<crate::artifacts::VerificationReport, String> {
-    crate::artifacts::ArtifactService::open()
-        .and_then(|service| service.verify(&id))
-        .map_err(|error| error.to_string())
+    ha_core::blocking::run_blocking(move || {
+        crate::artifacts::ArtifactService::open()
+            .and_then(|service| service.verify(&id))
+            .map_err(|error| error.to_string())
+    })
+    .await
 }
 
 #[tauri::command]
@@ -302,9 +318,12 @@ pub async fn review_artifact_export(
     audience: String,
     redaction_checked: bool,
 ) -> Result<ha_core::domain_workflow::DomainArtifactExportGuardReport, String> {
-    crate::artifacts::ArtifactService::open()
-        .and_then(|service| service.review_for_export(&id, &audience, redaction_checked))
-        .map_err(|error| error.to_string())
+    ha_core::blocking::run_blocking(move || {
+        crate::artifacts::ArtifactService::open()
+            .and_then(|service| service.review_for_export(&id, &audience, redaction_checked))
+            .map_err(|error| error.to_string())
+    })
+    .await
 }
 
 #[tauri::command]
@@ -313,37 +332,46 @@ pub async fn export_artifact(
     format: String,
     output_path: String,
 ) -> Result<crate::artifacts::ArtifactExportReceipt, String> {
-    let mut service =
-        crate::artifacts::ArtifactService::open().map_err(|error| error.to_string())?;
-    let receipt = service
-        .export_async(&id, &format)
-        .await
-        .map_err(|error| error.to_string())?;
-    if receipt.status != "ready" {
-        return Ok(receipt);
-    }
-    let source_path = receipt
-        .internal_path
-        .as_deref()
-        .ok_or_else(|| "artifact export file is missing".to_string())?;
-    let bytes = std::fs::read(source_path).map_err(|error| error.to_string())?;
-    crate::platform::write_atomic(std::path::Path::new(&output_path), &bytes)
-        .map_err(|error| error.to_string())?;
-    Ok(receipt)
+    let runtime = tokio::runtime::Handle::current();
+    ha_core::blocking::run_blocking(move || {
+        let mut service =
+            crate::artifacts::ArtifactService::open().map_err(|error| error.to_string())?;
+        let receipt = runtime
+            .block_on(service.export_async(&id, &format))
+            .map_err(|error| error.to_string())?;
+        if receipt.status != "ready" {
+            return Ok(receipt);
+        }
+        let source_path = receipt
+            .internal_path
+            .as_deref()
+            .ok_or_else(|| "artifact export file is missing".to_string())?;
+        let bytes = std::fs::read(source_path).map_err(|error| error.to_string())?;
+        crate::platform::write_atomic(std::path::Path::new(&output_path), &bytes)
+            .map_err(|error| error.to_string())?;
+        Ok(receipt)
+    })
+    .await
 }
 
 #[tauri::command]
 pub async fn archive_artifact(id: String) -> Result<(), String> {
-    crate::artifacts::ArtifactService::open()
-        .and_then(|service| service.archive(&id))
-        .map_err(|error| error.to_string())
+    ha_core::blocking::run_blocking(move || {
+        crate::artifacts::ArtifactService::open()
+            .and_then(|service| service.archive(&id))
+            .map_err(|error| error.to_string())
+    })
+    .await
 }
 
 #[tauri::command]
 pub async fn delete_artifact(id: String) -> Result<(), String> {
-    crate::artifacts::ArtifactService::open()
-        .and_then(|service| service.delete(&id))
-        .map_err(|error| error.to_string())
+    ha_core::blocking::run_blocking(move || {
+        crate::artifacts::ArtifactService::open()
+            .and_then(|service| service.delete(&id))
+            .map_err(|error| error.to_string())
+    })
+    .await
 }
 
 // ── Developer Tools ──────────────────────────────────────────────
