@@ -709,6 +709,17 @@ pub async fn delete_canvas_project(project_id: String) -> Result<(), String> {
 }
 
 pub async fn show_canvas_panel(project_id: String) -> Result<(), String> {
+    if let Ok(service) = crate::artifacts::ArtifactService::open() {
+        if let Err(error) = service.refresh_analysis_projection(&project_id) {
+            app_warn!(
+                "artifact",
+                "refresh_show_projection",
+                "failed to refresh analysis preview for {}: {}",
+                project_id,
+                error
+            );
+        }
+    }
     let db = get_canvas_db().map_err(|e| e.to_string())?;
     let project = db
         .get_project(&project_id)

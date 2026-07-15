@@ -4,6 +4,8 @@
 //! durable Artifact identity, immutable version metadata, optimistic
 //! concurrency, verification, and portable exports.
 
+mod analysis_renderer;
+
 use anyhow::{anyhow, bail, Context, Result};
 use chrono::{Duration, Utc};
 use pulldown_cmark::{html, Event, Options, Parser};
@@ -619,7 +621,7 @@ impl ArtifactService {
     pub fn get(&self, id: &str) -> Result<Option<ArtifactRecord>> {
         sync_one_legacy_canvas_record(&self.conn, id)?;
         backfill_legacy_current_version(&self.conn, id)?;
-        let record = self
+        let mut record = self
             .conn
             .query_row(
                 "SELECT cp.id, cp.title, ar.kind, cp.content_type, cp.session_id,
@@ -636,10 +638,91 @@ impl ArtifactService {
             )
             .optional()
             .map_err(anyhow::Error::from)?;
+        if record
+            .as_ref()
+            .is_some_and(|record| record.payload_kind == "analysis")
+        {
+            match self.refresh_analysis_projection(id) {
+                Ok(true) => {
+                    if let Some(record) = record.as_mut() {
+                        record.verification = None;
+                    }
+                }
+                Ok(false) => {}
+                Err(error) => {
+                    // The refresh may already have invalidated verification
+                    // before a filesystem failure. Return fail-closed even
+                    // when this in-memory record was loaded beforehand.
+                    if let Some(record) = record.as_mut() {
+                        record.verification = None;
+                    }
+                    app_warn!(
+                        "artifact",
+                        "refresh_analysis_projection",
+                        "failed to refresh derived analysis preview for {}: {}",
+                        id,
+                        error
+                    );
+                }
+            }
+        }
         match record {
             Some(record) if request_is_incognito(false, record.session_id.as_deref())? => Ok(None),
             other => Ok(other),
         }
+    }
+
+    /// Rebuild the current reading surface from the immutable analysis payload.
+    /// `index.html` is a derived projection: refreshing it must never change the
+    /// Artifact version, canonical hash, evidence, or source snapshot.
+    pub fn refresh_analysis_projection(&self, id: &str) -> Result<bool> {
+        let payload: Option<(String, String)> = self
+            .conn
+            .query_row(
+                "SELECT av.payload_kind, av.payload_json
+                   FROM artifact_records ar
+                   JOIN canvas_projects cp ON cp.id = ar.id
+                   JOIN artifact_version_meta av
+                     ON av.artifact_id = ar.id
+                    AND av.version_number = cp.version_count
+                  WHERE ar.id = ?1",
+                [id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()?;
+        let Some((payload_kind, payload_json)) = payload else {
+            return Ok(false);
+        };
+        if payload_kind != "analysis" {
+            return Ok(false);
+        }
+        let analysis: AnalysisArtifactV1 = serde_json::from_str(&payload_json)
+            .context("parsing managed AnalysisArtifactV1 projection")?;
+        analysis.validate()?;
+        let html = render_analysis_html(&analysis);
+        let path = paths::canvas_project_dir(id)?.join("index.html");
+        if fs::read(&path).ok().as_deref() == Some(html.as_bytes()) {
+            return Ok(false);
+        }
+        // Verification describes the rendered bytes, not only the immutable
+        // payload. Clear it before replacing the projection so a failed write
+        // leaves the artifact safely unverified rather than falsely passed.
+        let tx = self.conn.unchecked_transaction()?;
+        tx.execute(
+            "UPDATE artifact_records SET verification_json = NULL WHERE id = ?1",
+            [id],
+        )?;
+        tx.execute(
+            "UPDATE artifact_version_meta SET verification_json = NULL
+              WHERE artifact_id = ?1
+                AND version_number = (
+                    SELECT version_count FROM canvas_projects WHERE id = ?1
+                )",
+            [id],
+        )?;
+        tx.commit()?;
+        crate::platform::write_atomic(&path, html.as_bytes())?;
+        Ok(true)
     }
 
     pub fn versions(&self, id: &str) -> Result<Vec<ArtifactVersionSummary>> {
@@ -2915,9 +2998,7 @@ fn remove_managed_export_file(raw: &str) -> Result<()> {
 }
 
 fn render_analysis_html(analysis: &AnalysisArtifactV1) -> String {
-    let markdown = render_analysis_markdown(analysis);
-    let body = markdown_to_html(&markdown);
-    wrap_offline_document(&analysis.question, &body)
+    analysis_renderer::render(analysis)
 }
 
 fn render_analysis_markdown(analysis: &AnalysisArtifactV1) -> String {
@@ -3260,10 +3341,11 @@ fn insert_after_opening_tag(source: &str, tag: &str, insertion: &str) -> Option<
 
 const OFFLINE_CSS: &str = r#"
 :root{color-scheme:light dark;font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+*{box-sizing:border-box}html,body{max-width:100%;overflow-x:hidden}
 body{margin:0;background:#f5f5f7;color:#1d1d1f;line-height:1.6}
-main{max-width:960px;margin:0 auto;padding:48px 28px;background:#fff;min-height:100vh}
+main{width:100%;max-width:960px;min-width:0;margin:0 auto;padding:48px 28px;background:#fff;min-height:100vh}
 h1{font-size:2.25rem;line-height:1.15}h2{margin-top:2.2rem;border-top:1px solid #e5e5e7;padding-top:1rem}
-table{border-collapse:collapse;width:100%;overflow:auto}th,td{border:1px solid #ddd;padding:.55rem;text-align:left}
+table{display:block;max-width:100%;overflow-x:auto;border-collapse:collapse;width:100%}th,td{border:1px solid #ddd;padding:.55rem;text-align:left;overflow-wrap:anywhere}
 pre{overflow:auto;background:#f3f3f5;padding:1rem;border-radius:.6rem}code{font-family:ui-monospace,SFMono-Regular,monospace}
 blockquote{border-left:4px solid #999;margin-left:0;padding-left:1rem;color:#555}
 img,svg{max-width:100%;height:auto}@media(max-width:640px){main{padding:24px 16px}h1{font-size:1.7rem}}
@@ -3680,6 +3762,14 @@ mod tests {
         assert!(
             markdown.contains("750b3f0dcc6bd06cfd1b0968a0c63114909d2880cc88dd304c59dc0fc8118e49")
         );
+        let rendered_html = render_analysis_html(&ready);
+        assert!(rendered_html.contains("class=\"report-hero\""));
+        assert!(rendered_html.contains("class=\"bar-plot\""));
+        assert!(rendered_html.contains("class=\"quality-summary\""));
+        assert!(rendered_html.contains("class=\"table-scroll\""));
+        assert!(rendered_html.contains("overflow-x:hidden"));
+        assert!(!rendered_html.contains("visualization backed by dataset"));
+        assert!(!contains_remote_dependency(&rendered_html));
 
         let blocked: AnalysisArtifactV1 = serde_json::from_str(include_str!(
             "../../tests/fixtures/artifacts/analysis-blocked.json"

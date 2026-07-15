@@ -527,7 +527,7 @@ export default function CanvasPanel({
       {/* iframe preview — no scroll-fade mask: the iframe scrolls internally,
           so a mask on this non-scrolling wrapper would permanently dim the live
           canvas's top/bottom edge. */}
-      <div className="flex-1 overflow-hidden bg-white dark:bg-surface-app">
+      <div className="min-w-0 flex-1 overflow-hidden bg-white dark:bg-surface-app">
         <ArtifactViewer
           ref={iframeRef}
           projectPath={canvas.projectPath}

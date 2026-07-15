@@ -135,6 +135,36 @@ Chart:
 }
 ```
 
+Presentation table (preferred for reports):
+
+```json
+{
+  "id": "activation_platform_table",
+  "title": "Activation by platform",
+  "datasetId": "activation_weekly",
+  "columns": ["platform", "eligible_users", "activated_users", "activation_rate_percent"],
+  "columnFormats": {
+    "activation_rate_percent": {"unit": "percent", "scale": "points"}
+  },
+  "rows": [
+    {
+      "platform": "web",
+      "eligible_users": 50,
+      "activated_users": 32,
+      "activation_rate_percent": 64.0
+    }
+  ]
+}
+```
+
+Use table-level `columns` and bounded `rows` when the reader should see a
+curated view rather than every calculation column in the bound dataset. Values
+must remain reconcilable to the dataset; this is a presentation projection,
+not a second calculation path. Use `columnFormats` for semantic formatting;
+`unit: percent` with `scale: fraction` converts `0.64` to `64%`, while
+`scale: points` renders `64` as `64%`. Without explicit semantic metadata the
+renderer preserves numeric values and does not infer units from column names.
+
 Fallbacks may be a table ID, an accessible textual description, or a local
 image/SVG asset. They must preserve the conclusion when scripts are disabled.
 

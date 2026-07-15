@@ -17,6 +17,17 @@ Use for a durable answer to one decision question.
 
 Prefer 1–4 charts and bounded supporting tables.
 
+The payload should support three reading depths rather than a flat list:
+
+- 30-second layer: answer block, ranked findings, decision and top caveat;
+- evidence layer: actual chart bindings, explicit display table columns/rows
+  and `columnFormats`, metric definitions and prioritized recommendations;
+- audit layer: methods block, quality checks, claim validation and sources.
+
+Do not repeat the same prose across blocks, findings and recommendations. Use
+blocks for synthesis, findings for atomic evidence-backed claims, and
+recommendations for concrete next actions.
+
 ## dashboard
 
 Use for a repeatable monitoring or driver-exploration view.

@@ -103,6 +103,18 @@ Each chart entry in `artifact.json` must include `dataset` or `datasetId`, a
 `sourceId`, units, and a fallback reference. Preserve the underlying bounded
 dataset in a table or dataset block.
 
+Treat the visual as an explanation, not a schema demo:
+
+- write a conclusion-oriented title ("Android activation is the clear gap"),
+  not only a metric name;
+- provide the exact presentation rows and columns in each `tables[]` entry so
+  the report does not expose redundant calculation columns, and add
+  `columnFormats` whenever a numeric unit or scale must be transformed;
+- use a chart `filter` when totals or helper rows belong in the dataset but not
+  in the comparison visual;
+- keep units and labels readable in a narrow side panel as well as a
+  full-window export.
+
 ### 6. Report
 
 Read [analysis-artifact-v1.md](references/analysis-artifact-v1.md) and choose a
@@ -110,6 +122,22 @@ structure from [artifact-templates.md](references/artifact-templates.md), then
 write a complete `artifact.json`. Lead with the answer, then evidence,
 implications, recommendations, caveats, methods, and sources. Use `report`,
 `dashboard`, `data_table`, or `explainer` as the Artifact kind.
+
+Design every report at three reading depths:
+
+1. **30-second decision layer:** one answer block, 2–5 ranked findings, the
+   decision implication, and the most important caveat.
+2. **Evidence layer:** 1–4 useful charts, presentation-ready tables, metric
+   definitions, and prioritized actions. Never substitute a chart placeholder
+   or raw dataset dump for this layer.
+3. **Audit layer:** methods, data-quality details, claim validation, source
+   lineage, filters, grain, and reproducible calculation references.
+
+For a normal `report`, include at least an answer block and a separate methods
+or interpretation block. Findings and recommendations must add decision value
+instead of repeating the same sentence with different headings. The Core
+renderer owns typography, cards, responsive layout, and offline charts; do not
+generate model-authored page chrome or executable HTML inside report blocks.
 
 Validate before registration:
 
