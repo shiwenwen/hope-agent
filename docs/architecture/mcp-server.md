@@ -12,6 +12,7 @@
 ## 1. 形态与红线
 
 - **入口**：`hope-agent mcp`（双 bin 都接线：`src-tauri/src/main.rs` + `crates/ha-server/src/bin/hope-agent.rs`）。stdio、本机信任、无 token（进程由本机 owner 直接 spawn，等同 owner 平面）。
+- **runtime 角色红线：被动 Secondary**——`mcp` 经 `runtime_lock::acquire_or_secondary_for` **永不争 Primary**。IDE 注册的 `hope-agent mcp` 会长驻数小时、跨若干次桌面重启，若它抢到 `runtime_lock`（tier 进程期只定一次）会一直是 Primary 却从不跑任何 Primary-only 工作，令桌面 App 卡成 Secondary、cron / wakeup / watchers / 孤儿恢复全线静默停摆。被动 Secondary 严格更安全：桌面在场即恒 Primary，mcp-only 部署也不损失（它本就不起后台服务）。
 - **不做子系统专属 server（红线）**：把 Hope Agent 暴露成 MCP server 是**平台议题**；design 只是 host 上的一个 provider，**不自起 server**。`knowledge-mcp` 是更早的独立子命令，保持原样不动（内部归并进共享循环记 P+1，届时 serverInfo/CLI 不变）。
 - **写门双保险**：默认只读；`--allow-writes` 才暴露写工具。host 在 `tools/call` 层再拦一次——即使 provider 忘了在 `tools()` 里裁剪写工具，只读模式调用写工具一律拒。
 - **runtime 红线**：`run_stdio` 建 **multi_thread**（2 worker）runtime。provider 写工具（如 design 生成）内部 `tokio::spawn` 后台任务，current_thread runtime 在 `block_on` 返回后不再驱动 spawned task 会让后台生成僵死。**切勿「优化」回 current_thread**（模块文档 + 单测钉死）。

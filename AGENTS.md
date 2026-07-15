@@ -306,6 +306,10 @@ ha-core 主要领域：`agent/` `chat_engine/` `context_compact/` `memory/` `kno
 - **配置读写 contract**：读 `cached_config().mcp_servers`；写 `mutate_config(("mcp.<op>", source), ...)`，`op ∈ add|update|remove|reorder|global|import`
 - handshake 401/403 → `ServerState::NeedsAuth`（避免 watchdog 死循环）
 
+### 平台 MCP 服务器（`hope-agent mcp`）
+
+详见 [`mcp-server.md`](docs/architecture/mcp-server.md)。**红线**：共享 host 在 `ha-core/src/mcp_server/`（`ToolProvider` 注册表），design 经 `design/mcp_provider.rs` 挂为首个 provider（**不做 provider 专属 host**）；默认只读、`--allow-writes` 才注册写集且 host 层 `!read_only && !allow_writes` 双保险拒；**恒不暴露** implement_to_code / 代码绑定写 / deploy / share / delete / export——外部 agent 不得经 MCP 写用户代码仓库、对外发布或删除；`mcp` 等 stdio interop 角色走 `acquire_or_secondary_for` **被动 Secondary**（永不争 runtime_lock Primary）；`knowledge-mcp` 已发布接口保持原样。
+
 ### Subagent / Team / Cron
 
 详见 [`subagent.md`](docs/architecture/subagent.md) / [`agent-team.md`](docs/architecture/agent-team.md) / [`cron.md`](docs/architecture/cron.md)。
