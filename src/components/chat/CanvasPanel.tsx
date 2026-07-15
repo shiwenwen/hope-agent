@@ -55,6 +55,8 @@ interface CanvasPanelProps {
   visible?: boolean
   collapsed?: boolean
   overlay?: boolean
+  /** Kept for the shared panel call site; iframe panels intentionally ignore
+   * zero-width mount animation so WebView hit testing is valid immediately. */
   animateOnMount?: boolean
 }
 
@@ -69,7 +71,6 @@ export default function CanvasPanel({
   visible = true,
   collapsed = false,
   overlay = false,
-  animateOnMount = false,
 }: CanvasPanelProps) {
   const { t } = useTranslation()
   const [canvas, setCanvas] = useState<CanvasInfo | null>(null)
@@ -418,7 +419,6 @@ export default function CanvasPanel({
         reservedMainWidth={reservedMainWidth}
         collapsed={collapsed}
         overlay={overlay}
-        animateOnMount={animateOnMount}
         contentKey="canvas-detached"
       >
         {/* Title Bar */}
@@ -462,7 +462,6 @@ export default function CanvasPanel({
       reservedMainWidth={reservedMainWidth}
       collapsed={collapsed}
       overlay={overlay}
-      animateOnMount={animateOnMount}
       contentKey="canvas"
     >
       {/* Title Bar */}
@@ -527,7 +526,7 @@ export default function CanvasPanel({
       {/* iframe preview — no scroll-fade mask: the iframe scrolls internally,
           so a mask on this non-scrolling wrapper would permanently dim the live
           canvas's top/bottom edge. */}
-      <div className="min-w-0 flex-1 overflow-hidden bg-white dark:bg-surface-app">
+      <div className="min-h-0 min-w-0 flex-1 overflow-hidden bg-white dark:bg-surface-app">
         <ArtifactViewer
           ref={iframeRef}
           projectPath={canvas.projectPath}

@@ -5891,7 +5891,7 @@
       "panelTitle": "瀏覽器"
     },
     "canvas": {
-      "panelTitle": "帆布",
+      "panelTitle": "畫布",
       "resizePanel": "調整畫布面板大小"
     },
     "error": {
@@ -20529,7 +20529,7 @@
       "panelTitle": "浏览器"
     },
     "canvas": {
-      "panelTitle": "帆布",
+      "panelTitle": "画布",
       "resizePanel": "调整画布面板大小"
     },
     "dashboard": {

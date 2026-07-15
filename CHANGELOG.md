@@ -12,6 +12,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **记忆系统升级为 Memory UX v2**：全局 / Agent / Project 三层 Core Memory 统一使用大写 `MEMORY.md`，以会话级固定快照和联合 token 预算进入稳定 Prompt；详细主题与 SQLite 长期记忆留在动态存储中按需读取。新增统一 `CoreMemoryRepository`、Memory Center 核心记忆管理、待确认记忆审核与四档学习模式；旧小写文件和旧配置通过带备份、冲突保护与原子写的版本化迁移自动兼容，升级不会静默覆盖用户内容或扩大记忆授权。
 - **上下文计量与延迟工具加载统一为 Provider-aware 契约**：Anthropic、OpenAI Chat、OpenAI Responses 与 Codex 的每轮请求新增不保存正文的 Token Manifest，`/context`、压缩判断、缓存读写和 Dashboard 使用同一实际请求口径。工具目录统一拆分为 eager / deferred / activated，`tool_search` 发现后会真正激活工具并在下一轮可调用；支持的 Provider 使用原生 deferred / cache breakpoint，不支持的端点自动回退客户端激活，权限、Plan、Skill、知识空间、无痕与 MCP 在线状态仍在执行前实时裁决。
 - **项目自动记忆支持渐进式披露**：每个项目新增本机 `memory/` 目录；只有有界的 `MEMORY.md` 索引进入稳定 System Prompt，具体主题文件由 `project_memory` 工具按需搜索 / 读取，避免把全部项目经验重复塞入上下文。项目设置新增独立“自动记忆”页，可查看、编辑、删除主题并重建索引；与项目指令、SQLite 项目范围长期记忆保持独立。
+- **新增本地优先 Artifacts 产物平台**：在现有 Canvas 运行层之上加入统一 Artifact 身份、不可变版本、SHA-256 内容寻址、乐观并发更新、版本恢复、来源/证据摘要、离线验证、归档与 Gallery；旧 Canvas ID 和历史项目原样兼容并惰性登记。Tauri 与 HTTP/server 共用 `ha-core` 服务和 Transport 契约，可从受控 workspace 导入 HTML、Markdown 或结构化 `AnalysisArtifactV1`，复核后导出自包含 HTML、ZIP、Markdown 和 PDF，无需公网部署。
+- **新增 Hope 原生数据分析能力与结构化分析报告**：`@数据分析` 与 Office 能力并列出现在能力菜单，按 context、sources、quality、analysis、visualization、report、validation、register 八阶段处理 CSV/XLSX、项目文件、知识空间和现有连接器；关键数字必须可重算，缺数据时明确输出 `partial/blocked`。`AnalysisArtifactV1` 将指标口径、bounded datasets、发现、建议、图表、表格、来源、数据质量和结论校验注册为 Artifact，并映射到现有 Domain Evidence / Export Guard，不复制外部插件内部实现。
+- **浏览器设置新增始终可见的备用 Chromium runtime**：即使系统 Chrome 已可用，也可主动安装 Hope 管理的备用运行时；受管浏览器启动或 Artifact PDF 导出发现系统 Chrome 与备用 runtime 都不可用时，会弹出统一安装提示、显示下载进度，并允许跳转浏览器设置。PDF 使用隔离 profile 的 `Page.printToPDF`，通过签名、页数和文本可提取性校验后才交付。
 - **对话消息支持选中引用到输入框**：在普通用户消息或助手回复中选中文字后右键，可复制选区或「添加到对话」；引用会以可删除卡片暂存，支持连续添加、仅发送引用、流式回复期间排队与恢复编辑。发送后历史消息保留引用卡片，主对话、快速对话和知识空间对话均可使用。
 - **聊天消息排队改为持久、可恢复队列**：回复生成期间继续发送的消息会立即连同附件写入 SQLite，并在输入框上方同步展示真实队列状态；支持编辑、删除、立即发送，以及在安全工具边界插入当前回合。队列按会话严格 FIFO，停止或失败后仍会继续处理下一条，应用重启、页面刷新、会话切换和多客户端并发时可恢复且不会重复发送；附件-only / 引用-only 消息同样支持恢复续发，废弃队列项会清理专属附件文件。Desktop 与 HTTP Server 模式保持一致。
 - **新建代码项目会话支持运行位置与起始分支控制**：项目草稿可在首条消息发送前切换项目、本地处理或 Managed Worktree，并从本地 / 远端跟踪分支启动；从当前分支创建 Worktree 时可安全携带 staged、unstaged 与非忽略 untracked 改动。Worktree 统一落在 Hope Agent 管理目录，准备过程支持幂等、进度反馈、取消、失败清理与重启恢复，Tauri 和 HTTP/server 共用同一套核心编排。
@@ -19,6 +22,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Canvas 升级为 Artifacts 的离线预览兼容层**：Canvas renderer 移除 marked、highlight、Mermaid、Chart.js 和动态 html2canvas CDN；Markdown 在 Rust 中渲染，Mermaid/Chart 提供语义 fallback，所有模板使用离线 CSP 和原子写。Gallery 与右侧 Canvas 共用 `ArtifactViewer`，受管 Artifact 只能通过带 `expected_version` 的新控制面更新，避免旧 Canvas mutation 绕过 hash、证据和并发保护。
+- **数据分析阅读器升级为决策导向的丰富报告**：结构化 Analysis Artifact 不再退化为普通 Markdown，而是确定性生成结论摘要、关键发现卡片、静态 bar/SVG line 图、建议与限制、精选数据表、指标口径、质量/claim 校验和来源审计；支持窄屏、深色、打印与无脚本阅读，数值单位只按显式语义格式化，宽表只在局部横向滚动。
 - **全局焦点反馈与表单控件视觉统一**：鼠标或触摸操作不再出现突兀的深色焦点框，键盘导航保留轻量系统蓝提示，并新增可手动开启的增强焦点模式（也可通过对话式设置读取和修改）；系统高对比度与强制色模式会自动优先。搜索框、普通 / 模型选择器和数字输入同步改为更扁平克制的统一表面，菜单、悬浮弹层与 Tooltip 共用同一套视觉、动效和无障碍规范。
 - **自动动态记忆召回改为明确 opt-in**：默认会话只自动使用有界 Core Memory，不查询 SQLite / Claims / Profile / Procedure / Graph，但模型仍可按任务需要调用记忆工具。用户显式开启后先运行零额外 LLM 的确定性 Fast Recall；会增加延迟与 token 的 Deep Recall 独立默认关闭，只对 Fast shortlist 做有界 rerank，失败回退 Fast 结果。召回不再维护“寒暄 / 感谢 / 继续”等语言短句门控，无检索证据时注入 0 条；旧 Agent 已开启配置仅在兼容期为该 Agent 保留，不迁移成全局同意。设置页同步简化预算与开关说明，明确学习、Core、自动召回和 Deep Recall 彼此独立。
 - **对话输入区浮层交互统一**：「+」菜单、权限与沙箱设置统一采用模型选择器的浮层样式、背景和出入动画；沙箱设置整合进权限弹层并默认折叠。二级菜单优先显示在右侧，空间不足时切到左侧，最后才回退到上方或下方；图标与截断文本的悬停提示也统一使用同一套 Tooltip。
@@ -26,6 +31,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **Worktree 开发不再互相污染 Vite 依赖缓存**：当多个 git / Codex worktree 通过软链接共享 `node_modules` 时，Vite 预构建缓存改为存放在各自工作树内，避免依赖 hash 被其它开发服务器改写后出现 `504 Outdated Optimize Dep`。
+- **Canvas 自动展开后内容可立即滚动**：iframe 面板不再以 zero-width、`aria-hidden`、`inert` 状态完成首次挂载，并补齐 flex 高度链的 `min-height: 0`，修复 Agent 自动打开画布后正文无法滚动、必须关闭再展开才恢复的问题；同时避免调整面板宽度后报告根级横向滚动导致左侧内容裁切。
+- **数据分析能力引用和中文 Canvas 术语正确显示**：用户消息中的 `[@数据分析](#skill:ha-data-analytics)` 现在与悬浮吸顶气泡一致渲染为能力标签；简体中文统一使用“画布”，繁体中文统一使用“畫布”，并同步翻译源避免后续 i18n 补齐重新生成“帆布”。
 - **macOS 点击交互更可靠**：非活动窗口中的主窗口、快捷对话、Plan、文件浏览和 Canvas 面板可直接响应首次点击；同时兼容触控板轻点配合部分中文 / 日文输入法时 WebKit 偶发颠倒 `pointerup` / `pointerdown` 顺序的问题，避免发送按钮、`ask_user` 选项等控件需要点击两次。悬停提示不再进入交互控件的点击链路，也不会与原生 `title` 重复显示。
 - **Git Handoff 与提交失败恢复更安全**：Worktree 目标现在严格限制为当前会话或其子会话所有，失败回滚只撤销快照中的改动并保留无关文件；嵌套项目按 canonical checkout root 正确识别 Managed Worktree 和运行位置；任务分支移入 Worktree 后，本地检出优先回到目标释放的安全分支；工作台移除绕过安全编排的旧 Handoff 快捷入口。commit 成功但可选 push 失败时会保留提交并返回明确警告，不再误报整次操作失败；HTTP/server 的 PR 自动合并请求与 Tauri 使用相同 DTO，不再因嵌套 `input` 返回 422。
 

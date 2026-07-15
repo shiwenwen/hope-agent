@@ -22,7 +22,7 @@ const ArtifactViewer = forwardRef<HTMLIFrameElement, ArtifactViewerProps>(
         sandbox="allow-scripts"
         referrerPolicy="no-referrer"
         className={cn(
-          "block h-full w-full min-w-0 max-w-full border-0 bg-white dark:bg-surface-app",
+          "block h-full min-h-0 w-full min-w-0 max-w-full border-0 bg-white dark:bg-surface-app",
           className,
         )}
         title={title}

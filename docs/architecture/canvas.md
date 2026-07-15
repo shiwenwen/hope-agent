@@ -2,9 +2,9 @@
 
 > 返回 [文档索引](../README.md)
 >
-> 更新时间：2026-04-29
+> 更新时间：2026-07-15
 
-> **演进说明（2026-07-14）**：Canvas 现在是 [Artifacts 平台](artifacts.md) 的运行与预览兼容层。新增长期管理、分析报告、验证或导出能力必须进入 `ha-core::artifacts`，不得继续扩张 Canvas 控制面。renderer 已移除 CDN 和动态 html2canvas；Mermaid/Chart 在离线环境提供语义 fallback。本文下方的 CDN 与旧 export 描述仅用于解释历史记录，新的单一真相源以 Artifacts 文档和当前代码为准。
+> **演进说明**：Canvas 现在是 [Artifacts 平台](artifacts.md) 的项目存储、运行与预览兼容层。新增长期管理、分析报告、验证或导出能力必须进入 `ha-core::artifacts`，不得继续扩张 Canvas 控制面。本文描述当前兼容实现；Artifact 身份、不可变版本、证据、Gallery 和交付契约以 Artifacts 文档为单一真相源。
 
 ## 目录
 
@@ -26,14 +26,15 @@
 
 ## 概述
 
-Canvas 是 Hope Agent 的**交互式可视化沙盒**：模型通过 `canvas` 工具创建/更新一个独立的 HTML 项目，前端在右侧面板用 `<iframe sandbox="allow-scripts">` 实时预览。整个子系统围绕「**项目 + 版本快照 + 沙盒 iframe + 双向 postMessage 通道**」四件套展开，覆盖 7 种内容类型（HTML / Markdown / Code / SVG / Mermaid / Chart.js / Slides），并提供版本历史、可视化截图、JS 远程求值、单独窗口分离等高级能力。
+Canvas 是 Hope Agent 的**交互式可视化沙盒和 Artifact runtime**：模型可通过兼容 `canvas` 工具创建/更新独立项目，新 `artifact` 工具则把文件注册成受管 Artifact；两者最终都在右侧面板通过 `<iframe sandbox="allow-scripts">` 预览。子系统围绕「**项目 + 版本快照 + 沙盒 iframe + EventBus/postMessage 通道**」展开，兼容 7 种 Canvas 内容类型（HTML / Markdown / Code / SVG / Mermaid / Chart / Slides）。
 
 设计原则：
 
-1. **后端是文件生成器，前端是渲染器**：所有 7 种内容类型在 Rust 端被 `renderer` 模块编译为完整的 `index.html`（含必要的 CDN 脚本与 messaging bridge），前端只负责 `<iframe>` 加载与事件桥接，不参与模板拼装
+1. **后端是文件生成器，前端是阅读容器**：所有 7 种兼容内容类型都在 Rust 端生成完整 `index.html`；renderer 无 CDN。Markdown 由 Rust 渲染，Mermaid/Chart 在没有前端 runtime 时生成语义 fallback，前端不拼接模板
 2. **session-aware 事件**：`canvas_show` 事件 payload 带 `sessionId`，前端只接受当前会话的事件，避免 cron / 子 Agent / IM 渠道触发的画布跨会话乱跳
 3. **沙盒强制**：iframe 只开 `allow-scripts`，无法访问父窗口；HTTP 服务静态文件路径走 `contained_canonical()` 双重校验
-4. **零 Tauri 依赖**：`tools/canvas/` 与 `canvas_db.rs` 全在 `ha-core`，桌面壳与 server 各自做薄壳适配；分离窗口（detach）走 `WebviewWindow` 是 Tauri-only 的能力，HTTP 模式自动隐藏按钮
+4. **零 Tauri 业务依赖**：`tools/canvas/`、`canvas_db.rs` 与 `artifacts` 全在 `ha-core`，桌面壳与 server 各自做薄壳适配；分离窗口（detach）走 `WebviewWindow`，仅 Tauri 显示
+5. **Canvas mutation 只服务兼容记录**：旧 Canvas 更新后同步 Artifact façade；一旦记录由 Artifact control plane 管理，旧 update/restore/delete 被拒绝，必须使用带 `expected_version` 的 Artifact API
 
 ```mermaid
 graph TD
@@ -73,8 +74,9 @@ graph TD
 
 每个 project 都和**会话 / Agent** 弱绑定：
 
-- `session_id` / `agent_id` 在 `create` 时从 `ToolExecContext` 取，写入 `canvas_projects` 表，但不是外键也不会级联——会话被删除后画布仍然孤立保留（设计选择，便于跨会话复用）
+- `session_id` / `agent_id` 在 `create` 时从 `ToolExecContext` 取，写入 `canvas_projects` 表但不设外键；session cleanup watcher 负责普通删除时 detach、purge 时删除
 - 前端 `list_canvas_projects_by_session` 在切会话时查这张表，自动恢复"该会话最近一次画布"
+- `ArtifactService` 惰性登记旧项目并补齐 façade；受管 Artifact 的详细归属和隐私字段不写回旧 Canvas 表
 
 ---
 
@@ -137,7 +139,7 @@ CREATE INDEX idx_canvas_projects_session    ON canvas_projects(session_id, updat
 
 - **快照式版本**：每次 update 把当前的 html/css/js/content 全量复制到一行 `canvas_versions`，restore 直接从该行重写文件——无 diff 也无引用计数，存储换简单
 - **`version_count` 是逻辑游标**：等于该项目最大的 `version_number`，新版本号 = `version_count + 1`，prune 旧版本时不影响这个值（保证 restore 能命中已经被剪掉的历史 ID 也只是返回 `Version not found` 而不是错位）
-- **`session_id` 弱引用**：会话删除时不会级联到画布（`delete_session` 在 `session/db.rs` 里只 cascade 学习事件 / subagent_runs / acp_runs 三张表），因此画布会孤立保留，需要用户手动 delete
+- **`session_id` 弱引用 + owner cleanup**：数据库没有 FK cascade。普通会话删除时 cleanup watcher 清空关联，Artifact 继续留在 Gallery；purge 路径调用 `ArtifactService::purge_for_session`
 - **`ON DELETE CASCADE`** 仅作用于 `versions` → `projects`：删项目自动清版本表，避免脏行
 
 ### 数据库 Mutex
@@ -197,19 +199,19 @@ flowchart TD
 
 ## 内容类型与渲染管线
 
-`renderer::write_project_files()` 是分发入口（[`tools/canvas/renderer.rs:267-310`](../../crates/ha-core/src/tools/canvas/renderer.rs#L267-L310)），按 `content_type` 字符串分发到 7 个 `build_*_page` 函数，全部产出**自包含**的完整 HTML 字符串，写入 `index.html`。
+`renderer::write_project_files()` 是分发入口，按 `content_type` 字符串分发到 7 个 `build_*_page` 函数，全部产出无远程依赖的完整 HTML 并通过 `platform::write_atomic` 写入 `index.html`。
 
-| content_type | 渲染策略 | 外部依赖（CDN） | 用户提供字段 |
+| content_type | 当前渲染策略 | CSP / 脚本 | 用户提供字段 |
 | --- | --- | --- | --- |
-| `html` | 用户 HTML/CSS/JS 包裹在最小骨架 + messaging bridge | 无（messaging bridge 用 dynamic `import()` 拉 html2canvas，仅 snapshot 时用） | `html` / `css` / `js` |
-| `markdown` | `marked.min.js` 解析后注入 `#content`；反引号与 `${` 转义 | `cdn.jsdelivr.net/npm/marked` | `content` |
-| `code` | `highlight.js` 自动高亮，HTML 实体编码源码 | `cdn.jsdelivr.net/npm/highlight.js@11`（含 github.min.css） | `content`, `language` |
-| `svg` | 直接内嵌（**不转义**——假设来源可信） | 无 | `content`（完整 SVG 文档） |
-| `mermaid` | `mermaid.initialize({startOnLoad: true})`，反引号转义 | `cdn.jsdelivr.net/npm/mermaid` | `content`（mermaid 源码） |
-| `chart` | `Chart.js`，`new Chart(canvas, {content})`；解析失败兜底渲染红色错误信息 | `cdn.jsdelivr.net/npm/chart.js` | `content`（Chart.js config JSON） |
-| `slides` | 自带 SPA 演示框架：`<section>` 列表，`←/→/Space` 切换，鼠标点击左右半屏切换，右下角页码 | 无 | `html`（多个 `<section>`）, `css` |
+| `html` | 用户 HTML/CSS/JS 包裹在最小骨架与 messaging bridge 中 | 允许 inline script/eval，禁止网络 | `html` / `css` / `js` |
+| `markdown` | `pulldown-cmark` 在 Rust 中生成语义 HTML；raw HTML 降为文本 | 静态，无脚本 | `content` |
+| `code` | HTML 实体编码后放入 `<pre><code>`；当前不加载高亮 runtime | 静态，无脚本 | `content`, `language` |
+| `svg` | 直接内嵌 SVG；静态 CSP 阻止脚本执行与网络请求 | 静态，无脚本 | `content`（完整 SVG） |
+| `mermaid` | 展示转义后的 Mermaid source，作为离线语义 fallback | 静态，无脚本 | `content`（Mermaid source） |
+| `chart` | 解析 Chart config 的 title/labels/datasets，确定性生成 HTML table fallback | 静态，无脚本 | `content`（Chart config JSON） |
+| `slides` | 内联 SPA：`<section>` 列表，键盘/点击切页，右下角页码 | 允许内联脚本，禁止网络 | `html`（多个 `<section>`）、`css` |
 
-### 共用 messaging bridge（仅 `html` / `slides` 注入）
+### messaging bridge（仅 `html` 注入）
 
 [`tools/canvas/renderer.rs:25-47`](../../crates/ha-core/src/tools/canvas/renderer.rs#L25-L47)：
 
@@ -221,20 +223,13 @@ window.addEventListener('message', function(event) {
     } catch(e) { parent.postMessage({type:'canvas_eval_result', requestId, error: e.message}, '*'); }
   }
   if (event.data.type === 'canvas_snapshot') {
-    import('https://html2canvas.hertzen.com/dist/html2canvas.min.js').then(function() {
-      html2canvas(document.body).then(function(canvas) {
-        parent.postMessage({type:'canvas_snapshot_result', requestId,
-                            dataUrl: canvas.toDataURL('image/png')}, '*');
-      });
-    }).catch(function() {
-      parent.postMessage({type:'canvas_snapshot_result', requestId,
-                          error: 'html2canvas not available'}, '*');
-    });
+    parent.postMessage({type:'canvas_snapshot_result', requestId,
+                        error:'Offline snapshot runtime unavailable; use the app-owned browser capture path.'}, '*');
   }
 });
 ```
 
-**注意**：`markdown` / `code` / `svg` / `mermaid` / `chart` 五个模板**没有**注入这段桥接代码——这意味着对它们调 `eval_js` / `snapshot` 会因 iframe 不响应消息而 10s/15s 超时。这是当前实现的**已知边界**，文末会再列出。
+**注意**：`markdown` / `code` / `svg` / `mermaid` / `chart` / `slides` 没有注入这段桥接。`html` 的 `eval_js` 仍可用，但 snapshot 会立即返回明确的离线错误；其他类型调用 eval/snapshot 会因没有响应而超时。新的 Artifact PDF/验证/导出不依赖这条旧 snapshot 通道。
 
 ### 源文件保留策略
 
@@ -401,8 +396,8 @@ sequenceDiagram
     Tool->>Bus: emit canvas_snapshot_request {requestId}
     Bus->>Panel: 监听到事件
     Panel->>IF: postMessage({type:'canvas_snapshot', requestId})
-    IF->>IF: import html2canvas → toDataURL
-    IF->>Panel: postMessage({type:'canvas_snapshot_result', requestId, dataUrl})
+    IF->>IF: HTML bridge 返回 app-owned capture 提示<br/>或兼容页面自行生成 dataUrl
+    IF->>Panel: postMessage({type:'canvas_snapshot_result', requestId, dataUrl/error})
     Panel->>Tool: transport.call("canvas_submit_snapshot", {requestId, dataUrl})
     Tool->>Tool: PENDING_SNAPSHOTS.remove(requestId).send(data)
     Tool->>Tool: rx.await → 解析 data URL → 落盘 PNG
@@ -410,7 +405,7 @@ sequenceDiagram
     Note over Tool: 15s 内未收到响应则超时清理并返回错误
 ```
 
-**超时常数**：snapshot 15s（要等 html2canvas 拉 CDN），eval_js 10s（纯 JS 没有外部 IO）。
+**超时常数**：snapshot 15s、eval_js 10s。HTML snapshot 现在会由 bridge 立即返回“请使用 app-owned capture path”；超时主要用于兼容没有 bridge 的历史内容类型。
 
 ---
 
@@ -436,7 +431,7 @@ const detachedWindowRef  = useRef<WebviewWindow | null>(null)
 const currentSessionIdRef = useRef<string | null>(currentSessionId)
 ```
 
-`canvas == null` 时整个组件直接返回 `null`（不占位），布局由 `flex shrink-0` + `width: panelWidth` 控制；可见时是 380~960px 范围内可拖拽宽度，max 不超过窗口 55%。
+`canvas == null` 或 `visible=false` 时整个组件直接返回 `null`（不占位）。可见时复用共享 `RightPanelShell`，宽度由 `panelWidth`、主区保留宽度和 55% viewport 上限共同约束。真正的 iframe 由 `ArtifactViewer` 提供，Gallery 与 Canvas 不再各维护一套 sandbox/URL 解析。
 
 ### 三种视图状态
 
@@ -468,12 +463,28 @@ const iframeSrc = indexPath ? (getTransport().resolveAssetUrl(indexPath) ?? "") 
   key={`${canvas.projectId}-${refreshKey}`}
   src={iframeSrc}
   sandbox="allow-scripts"
-  className="w-full h-full border-0"
+  referrerPolicy="no-referrer"
+  className="block h-full min-h-0 w-full min-w-0 max-w-full border-0"
 />
 ```
 
 - `sandbox="allow-scripts"`：允许 JS 执行，但默认不允许同源访问父窗口、表单提交、弹窗、cookie——画布脚本如果想跟主应用通信，**只能**通过 postMessage
 - `key={projectId-refreshKey}`：`canvas_reload` 事件递增 `refreshKey` 触发 React 完全 remount iframe（而非只换 src），确保任何缓存的 JS 状态被清掉
+- `referrerPolicy="no-referrer"`：HTTP token 或本地项目 URL 不通过 Referer 外发
+
+### 自动展开与滚动不变量
+
+Canvas 既可能由用户从标题栏切换，也可能由 `canvas_show`、会话恢复或 Artifact 创建自动展开。WebKit/WebView 在 iframe 初次挂载于 `width:0`、`aria-hidden`、`inert` 的祖先中时，可能保留无效 hit-testing/wheel-routing 状态，表现为正文不能滚动，关闭再打开后才恢复。
+
+因此 Canvas 的实现遵守以下契约：
+
+- `ChatScreen` 可以继续传共享的 `animateOnMount` 意图，但 `CanvasPanel` 不把它转发给 `RightPanelShell`，iframe 不经历 zero-width entry frame；
+- `RightPanelShell`、内部 body、iframe wrapper 和 `ArtifactViewer` 整条 flex 高度链必须保留 `min-h-0`；
+- wrapper 使用 `overflow-hidden`，纵向滚动由 iframe document 管理；不能在 wrapper 上放永久 scroll fade；
+- Analysis 文档根禁止横向溢出，只有宽表自己的 `.table-scroll` 可横向滚动；
+- 自动展开、手动切换、最大化和 detached reattach 必须具有相同的可交互状态。
+
+回归测试在 `internalRightPanelOverlay.test.tsx` 中模拟共享 dock 请求 mount animation，并断言 Canvas shell 首帧不是 `width:0`，也没有 `aria-hidden` / `inert`。
 
 ### Tauri 窗口尺寸联动
 
@@ -501,14 +512,11 @@ useEffect(() => {
 
 副作用清理：[`CanvasPanel.tsx:287-293`](../../src/components/chat/CanvasPanel.tsx#L287-L293) 在 `canvas` 变 null 时（包括会话切换 / `canvas_deleted` 事件 / 手动关闭）自动 close 独立窗口。
 
-### 与 PlanPanel / DiffPanel 的关系
+### 与其他右侧面板的关系
 
-[`ChatScreen.tsx:1018-1025`](../../src/components/chat/ChatScreen.tsx#L1018-L1025) 的注释说明三个右侧面板"在视觉层面互斥"，但代码层并不严格隔离：
+`ChatScreen` 使用 `renderedExclusiveRightPanel` 选择 diff、pull-request、plan、files、canvas、browser、mac-control、team、workspace、background-jobs 或 preview，同一时刻只渲染一个可见右侧内容。`CanvasPanel` 为保留会话恢复和 detached window 生命周期而长期挂载组件实例，但只有 selector 选择 `canvas` 时 `visible=true`。
 
-- **DiffPanel** 打开时强制 `planMode.setShowPanel(false)` 关闭 PlanPanel（写在 effect 里）
-- **CanvasPanel** 不与任何面板互斥——它由 LLM 主动调工具触发，与 Plan / Diff 走完全不同的事件流
-
-实践中三者并存的概率低（LLM 一次只在一个模态里工作），布局上 `flex shrink-0` 加上各自 `max-w-[55%]` 也保证了不会挤爆主对话区。
+Canvas 仍监听 `hope-agent:close-canvas`，供自动打开 Browser 等互斥场景关闭其持久状态；标题栏可在仍然 open 的 transient panel 之间切换。所有 panel 共用宽度、collapse、overlay 和主区保留宽度，但 iframe panel 对 mount animation 有上述例外。
 
 ---
 
@@ -571,7 +579,7 @@ pub async fn serve_canvas_project_file(
 
 - `Cache-Control: public, max-age=60`（让浏览器短期缓存，减轻 reload 风暴）
 - `Content-Disposition: inline`（直接 iframe 渲染而非下载）
-- `Referrer-Policy: no-referrer`（防止 CDN 脚本拿到内部 URL）
+- `Referrer-Policy: no-referrer`（防止内部项目 URL或 token 经 Referer 外发）
 
 ---
 
@@ -601,19 +609,21 @@ pub async fn serve_canvas_project_file(
 
 | 风险 | 缓解 |
 | --- | --- |
-| **画布脚本访问主应用 DOM / cookie** | iframe `sandbox="allow-scripts"`，没有 `allow-same-origin`——画布即便加载第三方 CDN 脚本也碰不到 `localStorage` / 主域 cookie / 父窗口 |
+| **画布脚本访问主应用 DOM / cookie** | iframe `sandbox="allow-scripts"`，没有 `allow-same-origin`；脚本碰不到主应用 `localStorage`、cookie 或父窗口 DOM |
 | **路径穿越读到 `~/.hope-agent/credentials/auth.json`** | `validate_canvas_project_id` 白名单 + `validate_safe_rest_path` 拒 `..` + `contained_canonical` canonicalize 后再次断言子树包含 |
-| **HTTP 模式 token 泄漏给 CDN** | 静态资源响应附 `Referrer-Policy: no-referrer`；token 走 query 参数而非 fragment，但 CDN 也只看到 referer，不会拿到 URL |
+| **HTTP 模式 token 泄漏** | 静态资源响应和 `ArtifactViewer` 都使用 `Referrer-Policy: no-referrer`；renderer 不加载 CDN |
 | **`eval_js` 任意代码执行** | 仅在 sandbox iframe 内 `eval`，触不到主应用与 Tauri runtime；返回值 `String(result)` 强转字符串，避免 LLM 通过返回值 prototype 注入 |
-| **SVG XSS（`<script>` / `onerror=`）** | `build_svg_page` 不转义 SVG 内容（接受了模型可信前提）。SVG 即便包含脚本也只在 sandbox iframe 内执行，不影响主应用 |
-| **markdown 注入 `${...}` / 反引号** | `build_markdown_page` 显式转义反引号与 `${`，避免插入到模板字符串里时逃逸 |
+| **SVG XSS（`<script>` / `onerror=`）** | `build_svg_page` 仍内嵌 SVG source，但静态 CSP `script-src 'none'`、`connect-src 'none'`；外层 iframe 继续 sandbox |
+| **Markdown raw HTML** | `pulldown-cmark` 的 `Html` / `InlineHtml` event 被转换为文本，不允许从 Markdown 注入可执行 DOM |
 | **iframe 加载到非项目目录的资源** | iframe 同源是 `asset://localhost` 或 server 域，相对路径请求只能命中 `/api/canvas/projects/{id}/...`，路由层再验证一遍 |
 | **OAuth / API key 泄漏到 canvas content** | 由 LLM 自身的输入约束 + 主应用日志脱敏（`logging::redact_sensitive`）防御；canvas 模板本身不会主动写入凭据 |
 
-**未做的安全检查**（设计选择，不在 canvas 范围内）：
+此外，Canvas renderer 的 CSP 默认 `connect-src 'none'`、`frame-src 'none'`、`object-src 'none'`、`form-action 'none'`、`base-uri 'none'`。Artifact import/verify 还会扫描远程资源、外部导航和禁止元素；完整规则见 [Artifacts 安全与验证](artifacts.md#verification)。
 
-- 画布脚本对**外网**的 fetch 不受 SSRF policy 约束——iframe 是浏览器侧出站，与 Rust 端 reqwest 走的 `security::ssrf` 完全不在一条链上；这是浏览器/WebView 自身的网络栈
-- `eval_js` 不限制执行时长（除了 10s 整体超时）——画布里可以写死循环消耗 CPU，但不影响主对话
+**仍然存在的执行边界**：
+
+- legacy `eval_js` 不限制 iframe 内代码的同步执行时长；10 秒只是后端等待结果的超时，死循环仍可能占用 WebView CPU；
+- Freeform HTML 即使通过离线 verifier 仍是可执行内容。Hope iframe sandbox 与接收者在普通浏览器直接打开导出 HTML 不是同一个安全边界。
 
 ---
 
@@ -621,19 +631,19 @@ pub async fn serve_canvas_project_file(
 
 ### 1. 非 HTML 模板缺 messaging bridge
 
-`markdown` / `code` / `svg` / `mermaid` / `chart` 这 5 个 `build_*_page` 函数没有注入 [renderer.rs:25-47](../../crates/ha-core/src/tools/canvas/renderer.rs#L25-L47) 那段消息桥代码。结果：
+`markdown` / `code` / `svg` / `mermaid` / `chart` / `slides` 没有注入 HTML messaging bridge。结果：
 
 - 对它们调用 `eval_js` 会 10s 超时返回 `"Eval timed out"`
 - 对它们调用 `snapshot` 会 15s 超时返回 `"Snapshot timed out"`
 
-实际能稳定 snapshot / eval 的只有 `html` 与 `slides`（这俩共用 `build_html_page` / `build_slides_page` 但只 `build_html_page` 注入了桥；`slides` 也是空缺）——事实上**只有 `html` 一种**。这是潜在改进方向：把桥代码抽成共享模板片段，所有 builder 拼上。
+`html` 可以稳定 eval；其 snapshot bridge 会立即提示改用 app-owned browser capture，不再动态下载 html2canvas。Artifact PDF 和离线导出不依赖此兼容通道。
 
 ### 2. 配置字段未消费
 
 - `max_projects: 100` 在 `CanvasConfig` 里定义但**没有任何代码消费**——project 表理论上无限增长。需要后续接 `cleanup_old_projects(keep)` 类似 versions 的剪枝
 - `default_content_type: "html"` 同样未消费——`action_create` 直接 hard-code `unwrap_or("html")`
 
-### 3. `export` 的 PNG 格式未实现
+### 3. 旧 `canvas.export` 的 PNG 格式未实现
 
 工具 schema `enum: ["html", "markdown", "png"]`，但 `action_export` 只 match `"html"` / `"markdown"`，传 `"png"` 报错 `Unsupported export format`。要支持 PNG 需复用 snapshot 的链路。
 
@@ -641,9 +651,9 @@ pub async fn serve_canvas_project_file(
 
 [`tools/canvas/mod.rs:651-655`](../../crates/ha-core/src/tools/canvas/mod.rs#L651-L655) 仍是 `load_config()` + 改字段 + `save_config()` 模式，与 [配置系统](config-system.md) 强制约定不符，存在 lost-update 风险。已登记为后续清理。
 
-### 5. session 删除不级联画布
+### 5. session 生命周期由 Artifact façade 接管
 
-`canvas_projects.session_id` 是弱引用（无 FK，无 cascade），删除会话不会清理对应画布。这是设计选择（保留跨会话引用价值），但意味着用户需要手动 `delete` 才能清盘。Project 级删除当前也未触达画布。
+`canvas_projects.session_id` 仍是弱引用，但 cleanup watcher 会区分语义：普通删除会解除 session 关联并让 Artifact 继续留在 Gallery；purge 会删除该会话关联的 durable Artifact。incognito 写入从 Canvas/Artifact 两条入口都 fail closed，已有 durable Artifact 的会话不能直接切换为 incognito。
 
 ### 6. 内嵌 web GUI 模式下分离窗口不可用
 
@@ -680,14 +690,18 @@ pub async fn serve_canvas_project_file(
 
 | 文件 | 角色 |
 | --- | --- |
-| [`src/components/chat/CanvasPanel.tsx`](../../src/components/chat/CanvasPanel.tsx) | 主面板组件（iframe + maximize / detach / refresh / close） |
+| [`src/components/chat/CanvasPanel.tsx`](../../src/components/chat/CanvasPanel.tsx) | Canvas 状态、事件、maximize / detach / refresh / close 与 iframe wrapper |
+| [`src/components/artifacts/ArtifactViewer.tsx`](../../src/components/artifacts/ArtifactViewer.tsx) | Canvas/Gallery 共用的 sandbox iframe、URL 解析和 `min-h-0` 布局契约 |
+| [`src/components/chat/right-panel/RightPanelShell.tsx`](../../src/components/chat/right-panel/RightPanelShell.tsx) | 共享宽度、collapse、overlay、resize 与非 iframe 面板入场动画 |
 | [`src/components/settings/CanvasSettingsPanel.tsx`](../../src/components/settings/CanvasSettingsPanel.tsx) | 设置 GUI（开关 + 限制 + 默认类型） |
-| [`src/components/chat/ChatScreen.tsx`](../../src/components/chat/ChatScreen.tsx)（1018-1024、1376-1380 行） | 与 PlanPanel / DiffPanel 的视觉互斥规则、面板挂载 |
+| [`src/components/chat/ChatScreen.tsx`](../../src/components/chat/ChatScreen.tsx) | `renderedExclusiveRightPanel` 选择器、共享宽度和面板挂载 |
+| [`src/components/chat/internalRightPanelOverlay.test.tsx`](../../src/components/chat/internalRightPanelOverlay.test.tsx) | overlay 与 Canvas 自动展开首帧可交互回归测试 |
 | [`src/lib/transport-http.ts`](../../src/lib/transport-http.ts) | HTTP 模式下的命令路径映射 + iframe URL 重写正则 |
 
 ### 相关参考文档
 
 - [工具系统](tool-system.md)：四维权限模型与 internal tool 概念
+- [Artifacts 本地优先产物平台](artifacts.md)：身份、不可变版本、Data Analytics、Gallery、验证和导出
 - [配置系统](config-system.md)：`cached_config` / `mutate_config` contract（canvas 当前未遵守）
 - [API 参考](api-reference.md)：Canvas 段（127-132 行事件、278-280 行 CRUD、528-537 行 IPC↔HTTP 对照）
 - [Transport 运行模式](transport-modes.md)：`resolveAssetUrl` 在 Tauri / HTTP 下的差异

@@ -144,4 +144,20 @@ describe("internal right-panel overlay contract", () => {
     await waitFor(() => expect(screen.getByText("Canvas Preview")).toBeTruthy())
     expectOverlay(container)
   })
+
+  test("CanvasPanel is interactive immediately when the shared dock requests mount animation", async () => {
+    const requestFrame = vi
+      .spyOn(window, "requestAnimationFrame")
+      .mockImplementation(() => 1)
+    const { container } = renderPanel(
+      <CanvasPanel currentSessionId="s1" visible animateOnMount />,
+    )
+
+    await waitFor(() => expect(screen.getByText("Canvas Preview")).toBeTruthy())
+    const shell = container.firstElementChild as HTMLElement
+    expect(shell.style.width).not.toBe("0px")
+    expect(shell.getAttribute("aria-hidden")).toBeNull()
+    expect(shell.hasAttribute("inert")).toBe(false)
+    requestFrame.mockRestore()
+  })
 })

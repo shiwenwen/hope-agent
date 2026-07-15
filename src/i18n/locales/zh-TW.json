@@ -175,7 +175,7 @@
     "refresh": "刷新",
     "snapshot": "截圖",
     "versions": "版本歷史",
-    "panelTitle": "帆布",
+    "panelTitle": "畫布",
     "resizePanel": "調整畫布面板大小",
     "notReadyError": "畫布面板未開啟或 iframe 未載入",
     "detachedWindowTitle": "畫布：{{title}}"
