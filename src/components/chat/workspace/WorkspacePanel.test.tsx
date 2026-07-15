@@ -3935,6 +3935,11 @@ describe("WorkspacePanel workflow section", () => {
       })
     })
 
+    await waitFor(() =>
+      expect(
+        (screen.getAllByRole("button", { name: "编辑策略" })[0] as HTMLButtonElement).disabled,
+      ).toBe(false),
+    )
     fireEvent.click(screen.getAllByRole("button", { name: "编辑策略" })[0])
     fireEvent.change(await screen.findByLabelText("无进展上限"), { target: { value: "4" } })
     fireEvent.change(await screen.findByLabelText("失败上限"), { target: { value: "5" } })
