@@ -212,14 +212,6 @@ pub trait MemoryBackend: Send + Sync {
         self.load_prompt_candidates(agent_id, shared)
     }
 
-    /// Count memories assigned to a specific project scope. Used by the
-    /// project list endpoint to display per-project memory counts.
-    fn count_by_project(&self, project_id: &str) -> Result<usize> {
-        self.count(Some(&MemoryScope::Project {
-            id: project_id.to_string(),
-        }))
-    }
-
     /// Export all memories as markdown
     fn export_markdown(&self, scope: Option<&MemoryScope>) -> Result<String>;
 

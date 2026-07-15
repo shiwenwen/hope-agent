@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { FileText, Plus, RefreshCw, Trash2 } from "lucide-react"
+import { Eye, FileText, Plus, RefreshCw, Trash2 } from "lucide-react"
 
+import MarkdownRenderer from "@/components/common/MarkdownRenderer"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -17,6 +18,7 @@ import { IconTip } from "@/components/ui/tooltip"
 import { sanitizeDiagnosticText } from "@/lib/diagnosticRedaction"
 import { logger } from "@/lib/logger"
 import { getTransport } from "@/lib/transport-provider"
+import { cn } from "@/lib/utils"
 import type {
   ProjectMemoryEntry,
   ProjectMemoryFile,
@@ -26,6 +28,7 @@ import type {
 
 interface ProjectMemorySectionProps {
   projectId: string
+  readOnly?: boolean
 }
 
 interface MemoryDraft {
@@ -42,6 +45,8 @@ interface MemoryOperationError {
   detail: string
 }
 
+type EditorMode = "edit" | "preview"
+
 const EMPTY_DRAFT: MemoryDraft = {
   name: "",
   description: "",
@@ -54,7 +59,7 @@ function diagnosticDetail(cause: unknown): string {
   return sanitizeDiagnosticText(value, 420)
 }
 
-export function ProjectMemorySection({ projectId }: ProjectMemorySectionProps) {
+export function ProjectMemorySection({ projectId, readOnly = false }: ProjectMemorySectionProps) {
   const { t } = useTranslation()
   const [entries, setEntries] = useState<ProjectMemoryEntry[]>([])
   const [draft, setDraft] = useState<MemoryDraft>(EMPTY_DRAFT)
@@ -62,6 +67,7 @@ export function ProjectMemorySection({ projectId }: ProjectMemorySectionProps) {
   const [loadingFile, setLoadingFile] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<MemoryOperationError | null>(null)
+  const [editorMode, setEditorMode] = useState<EditorMode>("edit")
 
   const loadEntries = useCallback(async () => {
     setLoading(true)
@@ -83,6 +89,7 @@ export function ProjectMemorySection({ projectId }: ProjectMemorySectionProps) {
 
   useEffect(() => {
     setDraft(EMPTY_DRAFT)
+    setEditorMode("edit")
     void loadEntries()
   }, [loadEntries])
 
@@ -94,6 +101,7 @@ export function ProjectMemorySection({ projectId }: ProjectMemorySectionProps) {
   }, [loadEntries, projectId])
 
   async function openEntry(entry: ProjectMemoryEntry) {
+    setEditorMode("edit")
     setLoadingFile(true)
     try {
       const file = await getTransport().call<ProjectMemoryFile>("read_project_memory_file_cmd", {
@@ -112,7 +120,7 @@ export function ProjectMemorySection({ projectId }: ProjectMemorySectionProps) {
   }
 
   async function saveDraft() {
-    if (!draft.name.trim() || !draft.description.trim()) return
+    if (readOnly || !draft.name.trim() || !draft.description.trim()) return
     setSaving(true)
     try {
       const input: ProjectMemoryWriteInput = {
@@ -140,7 +148,7 @@ export function ProjectMemorySection({ projectId }: ProjectMemorySectionProps) {
   }
 
   async function deleteDraft() {
-    if (!draft.fileName) return
+    if (readOnly || !draft.fileName) return
     if (!window.confirm(t("project.autoMemory.deleteConfirm"))) return
     try {
       await getTransport().call<boolean>("delete_project_memory_file_cmd", {
@@ -149,6 +157,7 @@ export function ProjectMemorySection({ projectId }: ProjectMemorySectionProps) {
         expectedFileHash: draft.fileHash,
       })
       setDraft(EMPTY_DRAFT)
+      setEditorMode("edit")
       await loadEntries()
       setError(null)
     } catch (cause) {
@@ -158,7 +167,13 @@ export function ProjectMemorySection({ projectId }: ProjectMemorySectionProps) {
     }
   }
 
+  function startNewTopic() {
+    setDraft(EMPTY_DRAFT)
+    setEditorMode("edit")
+  }
+
   async function rebuildIndex() {
+    if (readOnly) return
     try {
       await getTransport().call<string>("rebuild_project_memory_index_cmd", { id: projectId })
       await loadEntries()
@@ -177,22 +192,24 @@ export function ProjectMemorySection({ projectId }: ProjectMemorySectionProps) {
           <p className="text-xs leading-relaxed text-muted-foreground">
             {t("project.autoMemory.description")}
           </p>
-          <div className="flex gap-2">
-            <Button size="sm" className="flex-1" onClick={() => setDraft(EMPTY_DRAFT)}>
-              <Plus className="mr-1.5 h-3.5 w-3.5" />
-              {t("project.autoMemory.newTopic")}
-            </Button>
-            <IconTip label={t("project.autoMemory.rebuildIndex")}>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={rebuildIndex}
-                aria-label={t("project.autoMemory.rebuildIndex")}
-              >
-                <RefreshCw className="h-3.5 w-3.5" />
+          {!readOnly && (
+            <div className="flex gap-2">
+              <Button size="sm" className="flex-1" onClick={startNewTopic}>
+                <Plus className="mr-1.5 h-3.5 w-3.5" />
+                {t("project.autoMemory.newTopic")}
               </Button>
-            </IconTip>
-          </div>
+              <IconTip label={t("project.autoMemory.rebuildIndex")}>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={rebuildIndex}
+                  aria-label={t("project.autoMemory.rebuildIndex")}
+                >
+                  <RefreshCw className="h-3.5 w-3.5" />
+                </Button>
+              </IconTip>
+            </div>
+          )}
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto p-2">
           {loading ? (
@@ -245,6 +262,7 @@ export function ProjectMemorySection({ projectId }: ProjectMemorySectionProps) {
             <Input
               id="project-memory-name"
               value={draft.name}
+              readOnly={readOnly}
               disabled={loadingFile}
               onChange={(event) => setDraft((value) => ({ ...value, name: event.target.value }))}
             />
@@ -255,6 +273,7 @@ export function ProjectMemorySection({ projectId }: ProjectMemorySectionProps) {
             <Input
               id="project-memory-description"
               value={draft.description}
+              readOnly={readOnly}
               disabled={loadingFile}
               onChange={(event) =>
                 setDraft((value) => ({ ...value, description: event.target.value }))
@@ -269,6 +288,7 @@ export function ProjectMemorySection({ projectId }: ProjectMemorySectionProps) {
             <Label htmlFor="project-memory-type">{t("project.autoMemory.type")}</Label>
             <Select
               value={draft.memoryType}
+              disabled={readOnly || loadingFile}
               onValueChange={(memoryType: ProjectMemoryType) =>
                 setDraft((value) => ({ ...value, memoryType }))
               }
@@ -286,36 +306,91 @@ export function ProjectMemorySection({ projectId }: ProjectMemorySectionProps) {
             </Select>
           </div>
 
-          <div className="space-y-1.5">
-            <Label htmlFor="project-memory-content">{t("project.autoMemory.content")}</Label>
-            <Textarea
-              id="project-memory-content"
-              value={draft.content}
-              disabled={loadingFile}
-              rows={16}
-              className="font-mono text-sm"
-              onChange={(event) => setDraft((value) => ({ ...value, content: event.target.value }))}
-            />
+          <div className="space-y-2">
+            <div className="flex items-center justify-between gap-3">
+              <Label htmlFor="project-memory-content">{t("project.autoMemory.content")}</Label>
+              <div className="flex shrink-0 rounded-lg bg-muted p-1">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  disabled={loadingFile}
+                  onClick={() => setEditorMode("edit")}
+                  className={cn(
+                    "h-7 gap-1.5 px-2.5 text-xs shadow-none",
+                    editorMode === "edit" &&
+                      "bg-background text-foreground shadow-sm hover:bg-background",
+                  )}
+                >
+                  <FileText className="h-3.5 w-3.5" />
+                  {t("common.edit")}
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  disabled={loadingFile}
+                  onClick={() => setEditorMode("preview")}
+                  className={cn(
+                    "h-7 gap-1.5 px-2.5 text-xs shadow-none",
+                    editorMode === "preview" &&
+                      "bg-background text-foreground shadow-sm hover:bg-background",
+                  )}
+                >
+                  <Eye className="h-3.5 w-3.5" />
+                  {t("knowledge.mode.preview")}
+                </Button>
+              </div>
+            </div>
+            <div className="min-h-[22rem] overflow-hidden rounded-lg border border-border/70 bg-background">
+              {editorMode === "edit" ? (
+                <Textarea
+                  id="project-memory-content"
+                  value={draft.content}
+                  disabled={loadingFile}
+                  readOnly={readOnly}
+                  spellCheck={false}
+                  className="min-h-[22rem] resize-y rounded-none border-0 px-4 py-3 font-mono text-sm shadow-none"
+                  onChange={(event) =>
+                    setDraft((value) => ({ ...value, content: event.target.value }))
+                  }
+                />
+              ) : (
+                <div className="min-h-[22rem] max-h-[32rem] overflow-y-auto px-5 py-4">
+                  {draft.content.trim() ? (
+                    <MarkdownRenderer content={draft.content} />
+                  ) : (
+                    <p className="text-sm text-muted-foreground">
+                      {t("project.autoMemory.emptyPreview")}
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
 
           <div className="flex items-center justify-between">
             <div className="text-[11px] text-muted-foreground">
               {draft.fileName ?? t("project.autoMemory.fileNameGenerated")}
             </div>
-            <div className="flex gap-2">
-              {draft.fileName && (
-                <Button variant="outline" onClick={() => void deleteDraft()}>
-                  <Trash2 className="mr-1.5 h-3.5 w-3.5" />
-                  {t("common.delete")}
+            {!readOnly && (
+              <div className="flex gap-2">
+                {draft.fileName && (
+                  <Button variant="outline" onClick={() => void deleteDraft()}>
+                    <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+                    {t("common.delete")}
+                  </Button>
+                )}
+                <Button
+                  onClick={() => void saveDraft()}
+                  disabled={
+                    saving || loadingFile || !draft.name.trim() || !draft.description.trim()
+                  }
+                >
+                  {saving ? t("common.saving") : t("common.save")}
                 </Button>
-              )}
-              <Button
-                onClick={() => void saveDraft()}
-                disabled={saving || loadingFile || !draft.name.trim() || !draft.description.trim()}
-              >
-                {saving ? t("common.saving") : t("common.save")}
-              </Button>
-            </div>
+              </div>
+            )}
           </div>
         </div>
       </section>

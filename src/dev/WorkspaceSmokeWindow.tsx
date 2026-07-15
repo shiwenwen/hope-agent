@@ -902,7 +902,6 @@ const smokeProject: ProjectMeta = {
   archived: false,
   sessionCount: 1,
   unreadCount: 0,
-  memoryCount: 0,
 }
 
 export default function WorkspaceSmokeWindow() {

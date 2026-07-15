@@ -12,7 +12,13 @@ import type { ProjectInstructionsFile } from "@/types/project"
 
 type EditorMode = "edit" | "preview"
 
-export default function ProjectInstructionsEditor({ projectId }: { projectId: string }) {
+export default function ProjectInstructionsEditor({
+  projectId,
+  readOnly = false,
+}: {
+  projectId: string
+  readOnly?: boolean
+}) {
   const { t } = useTranslation()
   const requestSeq = useRef(0)
   const [mode, setMode] = useState<EditorMode>("edit")
@@ -74,7 +80,7 @@ export default function ProjectInstructionsEditor({ projectId }: { projectId: st
   }, [load])
 
   const save = useCallback(async () => {
-    if (saving || !dirty) return
+    if (readOnly || saving || !dirty) return
     const seq = requestSeq.current
     setSaving(true)
     setSaveError("")
@@ -96,10 +102,10 @@ export default function ProjectInstructionsEditor({ projectId }: { projectId: st
     } finally {
       if (seq === requestSeq.current) setSaving(false)
     }
-  }, [contentHash, dirty, draft, projectId, saving])
+  }, [contentHash, dirty, draft, projectId, readOnly, saving])
 
   function handleEditorKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
-    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") {
+    if (!readOnly && (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") {
       event.preventDefault()
       void save()
     }
@@ -185,6 +191,7 @@ export default function ProjectInstructionsEditor({ projectId }: { projectId: st
         {mode === "edit" ? (
           <Textarea
             value={draft}
+            readOnly={readOnly}
             onChange={(event) => {
               setDraft(event.target.value)
               setSaveStatus("idle")
@@ -223,32 +230,34 @@ export default function ProjectInstructionsEditor({ projectId }: { projectId: st
         </div>
       )}
 
-      <div className="flex shrink-0 justify-end gap-2">
-        <Button
-          variant="outline"
-          onClick={() => {
-            setDraft(savedContent)
-            setSaveError("")
-            setSaveStatus("idle")
-          }}
-          disabled={saving || !dirty}
-        >
-          {t("common.cancel")}
-        </Button>
-        <Button
-          onClick={() => void save()}
-          disabled={saving || !dirty}
-          className={saveStatus === "saved" ? "bg-emerald-600 hover:bg-emerald-600" : ""}
-        >
-          {saving && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
-          {saveStatus === "saved" && <Check className="mr-1 h-4 w-4" />}
-          {saving
-            ? t("common.saving")
-            : saveStatus === "saved"
-              ? t("common.saved")
-              : t("common.save")}
-        </Button>
-      </div>
+      {!readOnly && (
+        <div className="flex shrink-0 justify-end gap-2">
+          <Button
+            variant="outline"
+            onClick={() => {
+              setDraft(savedContent)
+              setSaveError("")
+              setSaveStatus("idle")
+            }}
+            disabled={saving || !dirty}
+          >
+            {t("common.cancel")}
+          </Button>
+          <Button
+            onClick={() => void save()}
+            disabled={saving || !dirty}
+            className={saveStatus === "saved" ? "bg-emerald-600 hover:bg-emerald-600" : ""}
+          >
+            {saving && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
+            {saveStatus === "saved" && <Check className="mr-1 h-4 w-4" />}
+            {saving
+              ? t("common.saving")
+              : saveStatus === "saved"
+                ? t("common.saved")
+                : t("common.save")}
+          </Button>
+        </div>
+      )}
     </div>
   )
 }

@@ -8,6 +8,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::session::SessionMeta;
+
 // ── Project ─────────────────────────────────────────────────────
 
 /// Persisted project record.
@@ -60,7 +62,28 @@ pub struct ProjectMeta {
     pub project: Project,
     pub session_count: u32,
     pub unread_count: u32,
-    pub memory_count: u32,
+}
+
+/// Read-only AGENTS.md status shown on the project overview dashboard.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectInstructionsStats {
+    pub path: String,
+    pub line_count: u32,
+    pub size_bytes: u64,
+    pub empty: bool,
+}
+
+/// Aggregated, user-facing project overview. Optional filesystem / memory
+/// metrics fail independently so one unavailable store never blanks the page.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectOverviewSummary {
+    pub session_count: u32,
+    pub recent_sessions: Vec<SessionMeta>,
+    pub auto_memory_topic_count: Option<u32>,
+    pub active_claim_count: Option<u32>,
+    pub instructions: Option<ProjectInstructionsStats>,
 }
 
 // ── Input DTOs ──────────────────────────────────────────────────

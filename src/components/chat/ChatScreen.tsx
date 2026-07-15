@@ -6,6 +6,7 @@ import { save } from "@tauri-apps/plugin-dialog"
 import { useTranslation } from "react-i18next"
 import { logger } from "@/lib/logger"
 import type { SettingsSection } from "@/components/settings/types"
+import { requestMemoryFocus } from "@/components/settings/memory-panel/memoryFocus"
 import { BrowserExtensionNudge } from "./BrowserExtensionNudge"
 import { useViewportMediaQuery } from "@/hooks/useViewportMediaQuery"
 import { cn } from "@/lib/utils"
@@ -3604,6 +3605,19 @@ export default function ChatScreen({
           void handleNewChatInProject(projectId, defaultAgentId)
         }}
         onOpenSession={(sid) => void handleSwitchSession(sid)}
+        onOpenStructuredMemory={(projectId) => {
+          setProjectOverviewOpen(false)
+          requestMemoryFocus(
+            {
+              kind: "claims",
+              statusFilter: "active",
+              scopeType: "project",
+              scopeId: projectId,
+            },
+            { updateUrl: false },
+          )
+          onOpenSettings?.("memory")
+        }}
       />
 
       {/* Project delete confirmation */}

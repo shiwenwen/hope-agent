@@ -760,7 +760,12 @@ impl ToolExecContext {
         let dir = rel.to_string_lossy().replace('\\', "/");
         bus.emit(
             "project:fs_changed",
-            serde_json::json!({ "scope": "session", "scopeId": sid, "dir": dir }),
+            serde_json::json!({
+                "scope": "session",
+                "scopeId": sid,
+                "projectId": self.project_id.as_deref(),
+                "dir": dir,
+            }),
         );
     }
 }

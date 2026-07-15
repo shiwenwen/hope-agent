@@ -9,7 +9,8 @@ use ha_core::project::{
     create_project_with_instructions_file, delete_project_cascade,
     inspect_default_project_instructions, inspect_project_instructions, read_project_instructions,
     save_project_instructions, update_project_with_instructions_file, CreateProjectInput, Project,
-    ProjectInstructionsDraft, ProjectInstructionsFile, ProjectMeta, UpdateProjectInput,
+    ProjectInstructionsDraft, ProjectInstructionsFile, ProjectMeta, ProjectOverviewSummary,
+    UpdateProjectInput,
 };
 use ha_core::session::SessionMeta;
 use tauri::State;
@@ -26,22 +27,29 @@ pub async fn list_projects_cmd(
 ) -> Result<Vec<ProjectMeta>, CmdError> {
     let include_archived = include_archived.unwrap_or(false);
     let project_db = state.project_db.clone();
-    let projects = ha_core::blocking::run_blocking(move || -> anyhow::Result<Vec<ProjectMeta>> {
-        let mut projects = project_db.list(include_archived, active_session_id.as_deref())?;
-
-        // Cross-DB enrichment: fetch project-scoped memory counts.
-        if let Some(backend) = ha_core::get_memory_backend() {
-            for meta in &mut projects {
-                if let Ok(n) = backend.count_by_project(&meta.project.id) {
-                    meta.memory_count = n as u32;
-                }
-            }
-        }
-        Ok(projects)
+    let projects = ha_core::blocking::run_blocking(move || {
+        project_db.list(include_archived, active_session_id.as_deref())
     })
     .await?;
 
     Ok(projects)
+}
+
+#[tauri::command]
+pub async fn get_project_overview_cmd(
+    id: String,
+    state: State<'_, AppState>,
+) -> Result<ProjectOverviewSummary, CmdError> {
+    let project_db = state.project_db.clone();
+    let session_db = state.session_db.clone();
+    let overview_session_db = session_db.clone();
+    let mut summary = ha_core::blocking::run_blocking(move || {
+        ha_core::project::build_project_overview(&id, &project_db, &overview_session_db)
+    })
+    .await?;
+    ha_core::session::enrich_pending_interactions(&mut summary.recent_sessions, &session_db)
+        .await?;
+    Ok(summary)
 }
 
 #[tauri::command]

@@ -520,7 +520,6 @@ impl ProjectDB {
                 project,
                 session_count: row.get::<_, i64>(12).unwrap_or(0) as u32,
                 unread_count: row.get::<_, i64>(13).unwrap_or(0) as u32,
-                memory_count: 0,
             })
         })?;
 

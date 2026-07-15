@@ -50,6 +50,7 @@ interface EndpointDef {
 const COMMAND_MAP: Record<string, EndpointDef> = {
   // -- Projects --
   list_projects_cmd: { method: "GET", path: "/api/projects" },
+  get_project_overview_cmd: { method: "GET", path: "/api/projects/{id}/overview" },
   get_project_cmd: { method: "GET", path: "/api/projects/{id}" },
   create_project_cmd: { method: "POST", path: "/api/projects" },
   update_project_cmd: { method: "PATCH", path: "/api/projects/{id}" },

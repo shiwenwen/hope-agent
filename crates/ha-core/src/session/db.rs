@@ -2000,6 +2000,39 @@ impl SessionDB {
         Ok((sessions, total))
     }
 
+    /// Recent top-level, user-facing chats for one project. Internal session
+    /// kinds are filtered before LIMIT so overview cards and rows share a
+    /// stable, user-understandable count.
+    pub fn list_recent_regular_chats_for_project(
+        &self,
+        project_id: &str,
+        limit: u32,
+    ) -> Result<(Vec<SessionMeta>, u32)> {
+        let conn = self.read_conn()?;
+        let regular_where = " WHERE s.project_id = ?1
+            AND s.is_cron = 0
+            AND s.parent_session_id IS NULL
+            AND s.incognito = 0
+            AND s.kind = 'regular'
+            AND NOT EXISTS (
+                SELECT 1 FROM channel_conversations cc_filter
+                WHERE cc_filter.session_id = s.id
+            )";
+        let count_sql = format!("SELECT COUNT(*) FROM sessions s{regular_where}");
+        let total: u32 = conn.query_row(&count_sql, params![project_id], |r| r.get(0))?;
+        let sql =
+            format!("{SESSION_META_SELECT}{regular_where} ORDER BY s.updated_at DESC LIMIT ?2");
+
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(params![project_id, limit], Self::row_to_session_meta)?;
+        let mut sessions = Vec::new();
+        for row in rows {
+            sessions.push(row?);
+        }
+
+        Ok((sessions, total))
+    }
+
     fn list_sessions_paged_inner(
         &self,
         agent_id: Option<&str>,
@@ -5499,6 +5532,48 @@ mod tests {
         assert_eq!(
             sessions.iter().map(|s| s.id.as_str()).collect::<Vec<_>>(),
             vec![regular_new.id.as_str(), regular_old.id.as_str()]
+        );
+
+        let _ = std::fs::remove_file(&db_path);
+    }
+
+    #[test]
+    fn list_recent_regular_chats_for_project_is_scoped_and_user_facing() {
+        let db_path = temp_db_path("session-recent-project-regular");
+        let db = SessionDB::open(&db_path).expect("open session db");
+        ensure_channel_conversations_table(&db);
+
+        let older = db.create_session("ha-main").expect("older project chat");
+        let newer = db.create_session("ha-main").expect("newer project chat");
+        let other_project = db.create_session("ha-main").expect("other project chat");
+        let subagent = db
+            .create_session_full("ha-main", Some(&newer.id), None, false)
+            .expect("project subagent");
+        let incognito = db
+            .create_session_full("ha-main", None, None, true)
+            .expect("project incognito");
+
+        for session_id in [&older.id, &newer.id, &subagent.id, &incognito.id] {
+            db.set_session_project(session_id, Some("project-a"))
+                .expect("bind project-a");
+        }
+        db.set_session_project(&other_project.id, Some("project-b"))
+            .expect("bind project-b");
+
+        set_session_updated_at(&db, &older.id, "2026-05-01T00:00:00Z");
+        set_session_updated_at(&db, &newer.id, "2026-05-02T00:00:00Z");
+        set_session_updated_at(&db, &other_project.id, "2026-05-03T00:00:00Z");
+        set_session_updated_at(&db, &subagent.id, "2026-05-04T00:00:00Z");
+        set_session_updated_at(&db, &incognito.id, "2026-05-05T00:00:00Z");
+
+        let (sessions, total) = db
+            .list_recent_regular_chats_for_project("project-a", 5)
+            .expect("list project chats");
+
+        assert_eq!(total, 2);
+        assert_eq!(
+            sessions.iter().map(|s| s.id.as_str()).collect::<Vec<_>>(),
+            vec![newer.id.as_str(), older.id.as_str()]
         );
 
         let _ = std::fs::remove_file(&db_path);

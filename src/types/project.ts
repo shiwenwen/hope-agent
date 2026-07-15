@@ -31,7 +31,24 @@ export interface Project {
 export interface ProjectMeta extends Project {
   sessionCount: number
   unreadCount: number
-  memoryCount: number
+}
+
+export interface ProjectInstructionsStats {
+  path: string
+  lineCount: number
+  sizeBytes: number
+  empty: boolean
+}
+
+export interface ProjectOverviewSummary {
+  sessionCount: number
+  recentSessions: import("./chat").SessionMeta[]
+  /** null when the Core Memory repository could not be read. */
+  autoMemoryTopicCount?: number | null
+  /** Effective-active structured memories in this project scope; null when unavailable. */
+  activeClaimCount?: number | null
+  /** null when AGENTS.md could not be inspected or re-created. */
+  instructions?: ProjectInstructionsStats | null
 }
 
 /** Snapshot returned by the root AGENTS.md owner endpoints. */

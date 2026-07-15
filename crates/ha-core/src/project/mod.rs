@@ -7,6 +7,7 @@
 mod db;
 mod files;
 pub mod memory;
+mod overview;
 pub mod reconcile;
 mod types;
 
@@ -18,4 +19,8 @@ pub use files::{
     update_project_with_instructions_file, ProjectInstructionsDraft, ProjectInstructionsFile,
     StaleProjectInstructionsError, MAX_PROJECT_FILE_BYTES,
 };
-pub use types::{CreateProjectInput, Project, ProjectMeta, UpdateProjectInput};
+pub use overview::build_project_overview;
+pub use types::{
+    CreateProjectInput, Project, ProjectInstructionsStats, ProjectMeta, ProjectOverviewSummary,
+    UpdateProjectInput,
+};

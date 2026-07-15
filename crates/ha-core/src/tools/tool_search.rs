@@ -610,7 +610,6 @@ mod tests {
             .create(crate::project::CreateProjectInput {
                 name: "Memory test".into(),
                 description: None,
-                instructions: None,
                 logo: None,
                 color: None,
                 default_agent_id: None,

@@ -355,7 +355,6 @@ CREATE TABLE embedding_cache (
 **MemoryBackend trait 扩展**（`memory/traits.rs`）：
 - `load_prompt_candidates_with_project(agent_id, project_id, shared)` — 加载候选时按 Project → Agent → Global 优先级排序
 - `build_prompt_summary_with_project(agent_id, project_id, shared, budget)` — 格式化 prompt 时项目记忆最先保留
-- `count_by_project(project_id)` — 统计项目记忆数
 - `health()` — owner-only 只读健康诊断，覆盖 SQLite quick_check、索引缺口、embedding 覆盖、claim graph 孤儿行和 Dreaming stale state
 - `repair(action)` — owner-only 保守修复入口；实现必须显式 opt-in，且不得让 agent 工具面直接调用
 

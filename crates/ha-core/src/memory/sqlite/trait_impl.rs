@@ -1901,12 +1901,6 @@ impl MemoryBackend for SqliteMemoryBackend {
         Ok(all_memories)
     }
 
-    fn count_by_project(&self, project_id: &str) -> Result<usize> {
-        self.count(Some(&MemoryScope::Project {
-            id: project_id.to_string(),
-        }))
-    }
-
     fn export_markdown(&self, scope: Option<&MemoryScope>) -> Result<String> {
         let entries = self.list(scope, None, 10000, 0)?;
 

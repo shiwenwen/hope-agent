@@ -13,6 +13,7 @@ const transportMock = vi.hoisted(() => ({
 const translate = vi.hoisted(() => {
   const messages: Record<string, string> = {
     "common.delete": "删除",
+    "common.edit": "编辑",
     "common.loading": "加载中",
     "common.save": "保存",
     "common.saving": "保存中",
@@ -22,6 +23,7 @@ const translate = vi.hoisted(() => {
     "project.autoMemory.editorHint": "详情按需读取",
     "project.autoMemory.editorTitle": "项目自动记忆",
     "project.autoMemory.empty": "还没有主题",
+    "project.autoMemory.emptyPreview": "暂无 Markdown 详细内容",
     "project.autoMemory.fileNameGenerated": "自动生成文件名",
     "project.autoMemory.name": "标题",
     "project.autoMemory.newTopic": "新建主题",
@@ -34,6 +36,7 @@ const translate = vi.hoisted(() => {
     "project.autoMemory.types.reference": "参考资料",
     "project.autoMemory.types.user": "用户背景",
     "settings.memoryV2.core.topicLoadFailed": "加载主题失败",
+    "knowledge.mode.preview": "预览",
   }
   return (key: string) => messages[key] ?? key
 })
@@ -47,6 +50,12 @@ vi.mock("react-i18next", () => ({
   useTranslation: () => ({
     t: translate,
   }),
+}))
+
+vi.mock("@/components/common/MarkdownRenderer", () => ({
+  default: ({ content }: { content: string }) => (
+    <div data-testid="markdown-preview">{content}</div>
+  ),
 }))
 
 afterEach(() => {
@@ -86,6 +95,9 @@ describe("ProjectMemorySection", () => {
 
     const name = await screen.findByLabelText("标题")
     expect((name as HTMLInputElement).value).toBe("架构")
+    fireEvent.click(screen.getByRole("button", { name: "预览" }))
+    expect(screen.getByTestId("markdown-preview").textContent).toBe("详细架构")
+    fireEvent.click(screen.getByRole("button", { name: "编辑" }))
     fireEvent.change(name, { target: { value: "新架构" } })
     fireEvent.click(screen.getByRole("button", { name: "保存" }))
 

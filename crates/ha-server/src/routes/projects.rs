@@ -13,8 +13,8 @@ use ha_core::project::{
     create_project_with_instructions_file, delete_project_cascade,
     inspect_default_project_instructions, inspect_project_instructions, read_project_instructions,
     save_project_instructions, update_project_with_instructions_file, CreateProjectInput, Project,
-    ProjectInstructionsDraft, ProjectInstructionsFile, ProjectMeta, StaleProjectInstructionsError,
-    UpdateProjectInput,
+    ProjectInstructionsDraft, ProjectInstructionsFile, ProjectMeta, ProjectOverviewSummary,
+    StaleProjectInstructionsError, UpdateProjectInput,
 };
 use ha_core::session::{ParentSessionFilter, ProjectFilter, SessionMeta};
 
@@ -134,22 +134,29 @@ pub async fn list_projects(
         let include_archived = q.include_archived.unwrap_or(false);
         let active_session_id = q.active_session_id.clone();
         ha_core::blocking::run_blocking(move || -> anyhow::Result<_> {
-            let mut projects = project_db.list(include_archived, active_session_id.as_deref())?;
-
-            // Enrich with cross-DB memory counts (memory.db is separate).
-            if let Some(backend) = ha_core::get_memory_backend() {
-                for meta in &mut projects {
-                    if let Ok(n) = backend.count_by_project(&meta.project.id) {
-                        meta.memory_count = n as u32;
-                    }
-                }
-            }
-            Ok(projects)
+            project_db.list(include_archived, active_session_id.as_deref())
         })
         .await?
     };
 
     Ok(Json(projects))
+}
+
+/// `GET /api/projects/:id/overview`
+pub async fn get_project_overview(
+    State(ctx): State<Arc<AppContext>>,
+    Path(id): Path<String>,
+) -> Result<Json<ProjectOverviewSummary>, AppError> {
+    let project_db = ctx.project_db.clone();
+    let session_db = ctx.session_db.clone();
+    let overview_session_db = session_db.clone();
+    let mut summary = ha_core::blocking::run_blocking(move || {
+        ha_core::project::build_project_overview(&id, &project_db, &overview_session_db)
+    })
+    .await?;
+    ha_core::session::enrich_pending_interactions(&mut summary.recent_sessions, &session_db)
+        .await?;
+    Ok(Json(summary))
 }
 
 /// `GET /api/projects/:id`

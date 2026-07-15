@@ -267,6 +267,10 @@ fn build_router_with_cors(
             post(routes::projects::inspect_project_instructions_file),
         )
         .route("/projects/{id}", get(routes::projects::get_project))
+        .route(
+            "/projects/{id}/overview",
+            get(routes::projects::get_project_overview),
+        )
         .route("/projects/{id}", patch(routes::projects::update_project))
         .route("/projects/{id}", delete(routes::projects::delete_project))
         .route(

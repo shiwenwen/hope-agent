@@ -276,6 +276,7 @@ Tauri ↔ COMMAND_MAP 差集为 14 条合法非 REST 命令（5 条 Desktop-only
 |---|---|---|
 | `list_projects_cmd` | `GET /api/projects` | ✅ |
 | `get_project_cmd` | `GET /api/projects/{id}` | ✅ |
+| `get_project_overview_cmd` | `GET /api/projects/{id}/overview` | ✅（用户会话 + 自动记忆主题 + 有效结构化记忆 + `AGENTS.md` 状态） |
 | `create_project_cmd` | `POST /api/projects` | ✅ |
 | `update_project_cmd` | `PATCH /api/projects/{id}` | ✅ |
 | `inspect_project_instructions_cmd` | `POST /api/projects/instructions/inspect` | ✅（表单切换工作目录时只读检查，不创建缺失文件） |
@@ -292,7 +293,7 @@ Tauri ↔ COMMAND_MAP 差集为 14 条合法非 REST 命令（5 条 Desktop-only
 | `delete_project_memory_file_cmd` | `DELETE /api/projects/{id}/memory-files/{fileName}?expectedFileHash=` | ✅（stale-write guard） |
 | `rebuild_project_memory_index_cmd` | `POST /api/projects/{id}/memory-files/rebuild-index` | ✅ |
 
-`list_projects_cmd` / `GET /api/projects` 接受可选 `active_session_id`（HTTP query `activeSessionId`）：正在打开的那个会话会从其所属项目的未读聚合里排除（在 SQL 里按已读处理），使项目徽标与“当前会话读作 0”一致，无需前端跨数据源相减。
+`list_projects_cmd` / `GET /api/projects` 接受可选 `active_session_id`（HTTP query `activeSessionId`）：正在打开的那个会话会从其所属项目的未读聚合里排除（在 SQL 里按已读处理），使项目徽标与“当前会话读作 0”一致，无需前端跨数据源相减。项目列表不再返回旧 `memoryCount`，也不再逐项目查询记忆库；概览口径统一由 `get_project_overview_cmd` / `GET /api/projects/{id}/overview` 提供。
 
 项目指令以项目工作目录根 `AGENTS.md` 为唯一真相源，`Project` / `CreateProjectInput` / `UpdateProjectInput` 均不再携带 `instructions`。新增 / 编辑表单通过独立 `instructions: { content, expectedFileHash }` 请求字段把文件草稿与项目元数据一起提交；文件步骤失败会回滚项目创建 / 元数据更新，内容仍不进 SQLite。切换目录前可用 inspect 接口只读取得目标文件，缺失时返回空内容与空文件 hash，但不提前建文件。创建项目、切换 `workingDir` 和启动迁移会确保文件存在；GET 返回 `{ path, content, contentHash, created }`，PUT body 为 `{ content, expectedFileHash }` 并原样保留 Markdown 空白。保存前以磁盘 raw BLAKE3 校验 `expectedFileHash`，不一致返回冲突，防止覆盖 Agent / 外部编辑器的并发修改。
 

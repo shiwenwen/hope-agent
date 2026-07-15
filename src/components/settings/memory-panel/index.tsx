@@ -59,7 +59,7 @@ export default function MemoryPanel({ agentId, compact }: { agentId?: string; co
   const [overviewFocus, setOverviewFocus] = useState<OverviewFocus | null>(null)
 
   const data = useMemoryData({ agentId, isAgentMode })
-  const { effectiveExtractClaims, setView } = data
+  const { setView } = data
 
   const openClaims = useCallback((focus?: Omit<ClaimFocus, "nonce">) => {
     setClaimFocus((prev) => buildClaimFocusState(focus, prev?.nonce ?? 0))
@@ -80,14 +80,14 @@ export default function MemoryPanel({ agentId, compact }: { agentId?: string; co
         return
       }
       if (target.kind === "claim") {
-        if (!isAgentMode && effectiveExtractClaims) {
+        if (!isAgentMode) {
           setView("list")
           openClaims({ ...target, selectedId: target.id })
         }
         return
       }
       if (target.kind === "claims") {
-        if (!isAgentMode && effectiveExtractClaims) {
+        if (!isAgentMode) {
           setView("list")
           openClaims(target)
         }
@@ -119,7 +119,7 @@ export default function MemoryPanel({ agentId, compact }: { agentId?: string; co
         }
       }
     },
-    [effectiveExtractClaims, isAgentMode, openClaims, setView],
+    [isAgentMode, openClaims, setView],
   )
 
   useEffect(() => {
@@ -137,12 +137,6 @@ export default function MemoryPanel({ agentId, compact }: { agentId?: string; co
     }
   }, [applyFocus])
 
-  // If the structured-memory tab was selected and the flag is then turned off
-  // elsewhere (ha-settings skill / another window), fall back to settings so
-  // the panel never renders a blank body for a tab with no content. Derived
-  // during render (no setState-in-effect).
-  const activeTab = tab === "claims" && !data.effectiveExtractClaims ? "settings" : tab
-
   // ── Embedding Config View ──
   if (data.view === "embedding") {
     return <EmbeddingView data={data} />
@@ -155,7 +149,7 @@ export default function MemoryPanel({ agentId, compact }: { agentId?: string; co
 
   return (
     <Tabs
-      value={activeTab}
+      value={tab}
       onValueChange={(value) => setTab(value as MemoryPanelTab)}
       className="flex-1 flex flex-col min-h-0"
     >
@@ -170,7 +164,7 @@ export default function MemoryPanel({ agentId, compact }: { agentId?: string; co
           {!isAgentMode && (
             <TabsTrigger value="profile">{t("settings.memoryTabs.profile")}</TabsTrigger>
           )}
-          {!isAgentMode && data.effectiveExtractClaims && (
+          {!isAgentMode && (
             <TabsTrigger value="claims">{t("settings.memoryTabs.claims")}</TabsTrigger>
           )}
         </TabsList>
@@ -202,7 +196,7 @@ export default function MemoryPanel({ agentId, compact }: { agentId?: string; co
               compact={compact}
               embedded
               focus={memoryFocus}
-              onOpenClaims={!isAgentMode && data.effectiveExtractClaims ? openClaims : undefined}
+              onOpenClaims={!isAgentMode ? openClaims : undefined}
             />
           </div>
         </div>
@@ -220,7 +214,7 @@ export default function MemoryPanel({ agentId, compact }: { agentId?: string; co
         </TabsContent>
       )}
 
-      {!isAgentMode && data.effectiveExtractClaims && (
+      {!isAgentMode && (
         <TabsContent value="claims" className="flex-1 min-h-0 outline-none">
           <ClaimsBetaView focus={claimFocus} />
         </TabsContent>
