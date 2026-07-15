@@ -193,7 +193,7 @@ pub async fn create_project(
     if instructions_changed {
         ctx.event_bus.emit(
             "project:fs_changed",
-            json!({ "scope": "project", "scopeId": project.id, "dir": "" }),
+            json!({ "scope": "project", "scopeId": project.id, "dir": "", "path": "AGENTS.md" }),
         );
     }
     Ok(Json(project))
@@ -219,7 +219,7 @@ pub async fn update_project(
     if instructions_changed {
         ctx.event_bus.emit(
             "project:fs_changed",
-            json!({ "scope": "project", "scopeId": project.id, "dir": "" }),
+            json!({ "scope": "project", "scopeId": project.id, "dir": "", "path": "AGENTS.md" }),
         );
     }
     Ok(Json(project))
@@ -303,7 +303,7 @@ pub async fn save_project_instructions_file(
     };
     ctx.event_bus.emit(
         "project:fs_changed",
-        json!({ "scope": "project", "scopeId": event_id, "dir": "" }),
+        json!({ "scope": "project", "scopeId": event_id, "dir": "", "path": "AGENTS.md" }),
     );
     Ok(Json(file))
 }

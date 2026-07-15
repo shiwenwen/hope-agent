@@ -1441,6 +1441,20 @@ pub async fn knowledge_media_retention_config_set(
     )?))
 }
 
+pub async fn knowledge_source_limits_config_get(
+) -> Result<Json<knowledge::KnowledgeSourceLimitsConfig>, AppError> {
+    Ok(Json(service::get_source_limits_config()))
+}
+
+pub async fn knowledge_source_limits_config_set(
+    Json(body): Json<crate::routes::config::ConfigBody<knowledge::KnowledgeSourceLimitsConfig>>,
+) -> Result<Json<knowledge::KnowledgeSourceLimitsConfig>, AppError> {
+    Ok(Json(service::set_source_limits_config(
+        body.config,
+        "http",
+    )?))
+}
+
 /// `GET /api/knowledge/compile/config`
 pub async fn knowledge_compile_config_get() -> Result<Json<KnowledgeCompileConfig>, AppError> {
     Ok(Json(service::get_compile_config()))

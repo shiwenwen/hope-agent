@@ -76,8 +76,34 @@ pub async fn save_attachment(
     _mime_type: String,
     data: Vec<u8>,
 ) -> Result<String, CmdError> {
-    ha_core::attachments::save_attachment_bytes(session_id.as_deref(), &file_name, &data)
-        .map_err(Into::into)
+    ha_core::blocking::run_blocking(move || {
+        ha_core::attachments::ensure_legacy_chat_attachment_size(data.len())?;
+        ha_core::attachments::save_attachment_bytes(session_id.as_deref(), &file_name, &data)
+    })
+    .await
+    .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn stage_chat_attachment(
+    file_name: String,
+    mime_type: String,
+    data: Vec<u8>,
+) -> Result<ha_core::attachments::AttachmentUploadLease, CmdError> {
+    ha_core::blocking::run_blocking(move || {
+        ha_core::attachments::stage_chat_attachment(&file_name, &mime_type, &data)
+    })
+    .await
+    .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn discard_chat_attachment_upload(upload_id: String) -> Result<(), CmdError> {
+    ha_core::blocking::run_blocking(move || {
+        ha_core::attachments::discard_chat_attachment_upload(&upload_id)
+    })
+    .await
+    .map_err(Into::into)
 }
 
 #[tauri::command]

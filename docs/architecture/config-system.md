@@ -37,7 +37,7 @@ mutate_config(("hooks", "settings-ui"), |cfg| {
 `mutate_config` 的 FnOnce 闭包返回 `anyhow::Result<T>`，错误从闭包透传出来（校验失败可以在闭包内直接 `Err(...)`，不落盘）。返回的 `T` 可以把 mutation 过程中算出的派生数据（比如新建的 ID）传回调用方。
 
 `reason: (&str, &str)` 是 `(category, source)` 的二元组：
-- `category` ——改的是哪个子系统（"image_generate" / "memory_budget" / "shortcuts" / "security.ssrf" / "hooks" / "filesystem"（文件浏览器远程写闸门 `FilesystemConfig.allowRemoteWrites`，默认 false，HIGH 风险）/ ...）
+- `category` ——改的是哪个子系统（"image_generate" / "memory_budget" / "shortcuts" / "security.ssrf" / "hooks" / "filesystem"（只含远程写闸门 `allowRemoteWrites`，HIGH）/ `file_limits`（五项文件 MiB 限制，MEDIUM）/ `knowledge_source_limits`（三项资料导入 MiB 限制，MEDIUM）/ ...）。完整字段、默认值、范围和硬上限见 [file-operations.md](file-operations.md#大小配置与硬上限)。
 - `source` ——从哪触发的（"settings-ui" / "http" / "oauth-finalize" / "cron" / ...）
 
 两个字段会：

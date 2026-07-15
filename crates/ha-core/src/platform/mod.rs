@@ -203,6 +203,23 @@ pub fn write_atomic(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()>
     imp::write_atomic(path, bytes)
 }
 
+/// Atomically create `path` with `bytes`, failing with `AlreadyExists` if a
+/// competing writer published the destination first.
+pub fn write_atomic_create_new(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
+    imp::write_atomic_create_new(path, bytes)
+}
+
+/// Publish a fully-written sibling staging file at `target` without buffering
+/// it again. `overwrite=false` fails with `AlreadyExists`; `overwrite=true`
+/// atomically replaces the existing directory entry when the OS supports it.
+pub fn publish_atomic_file(
+    source: &std::path::Path,
+    target: &std::path::Path,
+    overwrite: bool,
+) -> std::io::Result<()> {
+    imp::publish_atomic_file(source, target, overwrite)
+}
+
 /// Best-effort search for a Chrome / Chromium / Edge executable when the
 /// user has not configured an explicit path. Mostly used as a safety net
 /// in front of `chromiumoxide`'s own lookup, which is good but can miss

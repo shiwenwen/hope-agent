@@ -34,10 +34,34 @@ export interface ChatAttachment {
   source?: "upload" | "mention" | "plan_mention" | "quote" | "message_quote" | "pasted_text";
   data?: string;
   file_path?: string;
+  /** Pending backend upload lease. Mutually exclusive with `data` / `file_path`. */
+  upload_id?: string;
   /** For `source: "quote"`: 1-based line range of the quoted snippet ("12-20"). */
   quote_lines?: string;
   /** For `source: "message_quote"`: role of the selected conversation message. */
   quote_role?: "user" | "assistant";
+}
+
+export interface AttachmentUploadLease {
+  uploadId: string;
+  name: string;
+  mimeType: string;
+  sizeBytes: number;
+}
+
+export type FileUploadPurpose = "chat_attachment" | "workspace_upload" | "knowledge_source";
+export type FileUploadState = "uploading" | "complete";
+
+export interface FileUploadLease {
+  uploadId: string;
+  purpose: FileUploadPurpose;
+  fileName: string;
+  mimeType: string;
+  sizeBytes: number;
+  receivedBytes: number;
+  state: FileUploadState;
+  expiresAt: string;
+  contentHash?: string;
 }
 
 /**
@@ -170,6 +194,23 @@ export interface Transport {
    */
   prepareFileData(buffer: ArrayBuffer, mimeType: string): Blob | number[];
 
+  /** Stream a client-local file into an opaque backend upload lease. */
+  uploadFile(
+    file: File,
+    purpose: FileUploadPurpose,
+    progress?: (receivedBytes: number, sizeBytes: number) => void,
+    signal?: AbortSignal,
+  ): Promise<FileUploadLease>;
+
+  /** Discard an unclaimed generic upload lease. */
+  discardFileUpload(uploadId: string): Promise<void>;
+
+  /** Stage a client file as an opaque, expiring upload lease. */
+  stageChatAttachment(file: File): Promise<AttachmentUploadLease>;
+
+  /** Release an upload lease that was never claimed by a persisted message. */
+  discardChatAttachmentUpload(uploadId: string): Promise<void>;
+
   /**
    * Run a chat turn and stream its events. Resolves with the final
    * assistant response text once the turn completes.
@@ -199,6 +240,12 @@ export interface Transport {
    * of a broken `<img src="">`.
    */
   resolveMediaUrl(item: MediaItem): string | null;
+
+  /** Extract a persisted media document without exposing its backend path. */
+  extractMediaDocument(
+    item: MediaItem,
+    opts?: { sessionId?: string | null },
+  ): Promise<ExtractedContent>;
 
   /**
    * Resolve a persisted image reference (avatar path, project-logo data URL,
@@ -256,6 +303,21 @@ export interface Transport {
    * False in HTTP/Web mode — UIs should hide the "Reveal" action.
    */
   supportsLocalFileOps(): boolean;
+
+  /** Describe where workspace paths live and how file actions are performed. */
+  fileRuntime(): FileRuntime;
+
+  /** Read the backend's final workspace access decision for this scope. */
+  getWorkspaceAccess(scope: ProjectFsScope): Promise<WorkspaceAccess>;
+
+  /** Open a workspace file using the mode-appropriate handler. */
+  openWorkspaceFile(args: WorkspaceFileArgs): Promise<void>;
+
+  /** Download a workspace file (or open it locally when download is not distinct). */
+  downloadWorkspaceFile(args: WorkspaceFileArgs): Promise<void>;
+
+  /** Reveal a workspace file in the runtime file manager when supported. */
+  revealWorkspaceFile(args: WorkspaceFileArgs): Promise<void>;
 
   /**
    * Prompt the user to pick a local image and return a {@link PickedImage}
@@ -354,10 +416,7 @@ export interface Transport {
    * raw request body so large sidecar packages do not get JSON/base64 wrapped.
    */
   previewMemoryBackupArchive(file: File): Promise<unknown>;
-  restoreMemoryBackupLegacyArchive(
-    file: File,
-    options?: { dedup?: boolean },
-  ): Promise<unknown>;
+  restoreMemoryBackupLegacyArchive(file: File, options?: { dedup?: boolean }): Promise<unknown>;
   restoreMemoryBackupStructuredArchive(
     file: File,
     options?: {
@@ -393,19 +452,13 @@ export interface Transport {
    * - HTTP: `GET /api/sessions/{id}/files/read`, gated by session reference +
    *   working-dir containment. Requires `sessionId`; throws without one.
    */
-  previewReadText(
-    path: string,
-    opts?: { sessionId?: string | null },
-  ): Promise<FileTextContent>;
+  previewReadText(path: string, opts?: { sessionId?: string | null }): Promise<FileTextContent>;
 
   /**
    * Extract a PDF / Office document for the in-app preview panel, by absolute
    * path. Same modes / authorization as {@link previewReadText}.
    */
-  previewExtractDoc(
-    path: string,
-    opts?: { sessionId?: string | null },
-  ): Promise<ExtractedContent>;
+  previewExtractDoc(path: string, opts?: { sessionId?: string | null }): Promise<ExtractedContent>;
 
   /**
    * Resolve a raw URL for an absolute file path, for `<img>` / `<iframe>` /
@@ -638,6 +691,29 @@ export interface ProjectFsScope {
   scopeId: string;
 }
 
+export interface WorkspaceFileArgs extends ProjectFsScope {
+  path: string;
+  name?: string;
+}
+
+export interface FileRuntime {
+  /** `local` only for the embedded desktop transport. */
+  workspaceHost: "local" | "remote";
+  openMode: "system" | "browser";
+  canReveal: boolean;
+}
+
+export type WorkspaceWriteState =
+  | "enabled"
+  | "remote_writes_disabled"
+  | "scope_read_only"
+  | "project_archived";
+
+export interface WorkspaceAccess {
+  readable: boolean;
+  writeState: WorkspaceWriteState;
+}
+
 /** One entry in a workspace directory listing. Paths are relative to the
  *  workspace root (`/`-separated). */
 export interface WorkspaceEntry {
@@ -666,7 +742,20 @@ export interface FileTextContent {
   totalLines: number;
   sizeBytes: number;
   truncated: boolean;
+  /** BLAKE3 of the raw bytes; null when the backend intentionally skipped reading them. */
+  contentHash: string | null;
+  isUtf8: boolean;
+  lineEnding: "lf" | "crlf" | "cr" | "mixed";
+  hasUtf8Bom: boolean;
 }
+
+export type FileWriteOutcome =
+  | { status: "saved"; relPath: string; sizeBytes: number; contentHash: string }
+  | {
+      status: "conflict";
+      reason: "changed" | "deleted";
+      currentContentHash?: string;
+    };
 
 /** One rendered page (PDF) or embedded image (Office), base64-encoded. */
 export interface ExtractedImageDto {
@@ -727,15 +816,7 @@ export interface LegacyUrlSourceDto {
 
 /** Backend-aggregated browser activity (mirror of `BrowserActivityMetadata`). */
 export interface BrowserActivityDto {
-  action:
-    | "status"
-    | "profile"
-    | "tabs"
-    | "navigate"
-    | "snapshot"
-    | "act"
-    | "observe"
-    | "control";
+  action: "status" | "profile" | "tabs" | "navigate" | "snapshot" | "act" | "observe" | "control";
   op?: string | null;
   targetId?: string | null;
   url?: string | null;
@@ -1119,7 +1200,13 @@ export interface ReviewRunSnapshot {
 }
 
 export type VerificationRunState = "planned" | "running" | "completed" | "failed" | "cancelled";
-export type VerificationStepState = "pending" | "running" | "passed" | "failed" | "skipped" | "timed_out";
+export type VerificationStepState =
+  | "pending"
+  | "running"
+  | "passed"
+  | "failed"
+  | "skipped"
+  | "timed_out";
 export type VerificationRisk = "low" | "medium" | "high";
 
 export interface VerificationRun {
@@ -1181,12 +1268,7 @@ export type DomainQualityRunState =
   | "needs_user"
   | "cancelled";
 export type DomainQualitySeverity = "p0" | "p1" | "p2" | "p3";
-export type DomainQualityCheckStatus =
-  | "passed"
-  | "failed"
-  | "blocked"
-  | "needs_user"
-  | "advisory";
+export type DomainQualityCheckStatus = "passed" | "failed" | "blocked" | "needs_user" | "advisory";
 
 export interface DomainQualityRun {
   id: string;

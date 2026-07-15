@@ -1174,6 +1174,7 @@
     "reauth": "Log masuk semula"
   },
   "common": {
+    "restoreDefaults": "Pulihkan lalai",
     "add": "Tambah",
     "back": "Kembali",
     "cancel": "Batal",
@@ -2112,7 +2113,47 @@
     "open": "Buka",
     "download": "Muat turun",
     "revealInFolder": "Tunjuk dalam folder",
-    "more": "Tindakan lain"
+    "more": "Tindakan lain",
+    "edit": "Edit",
+    "remove": "Alih keluar",
+    "rename": "Namakan semula",
+    "delete": "Padam",
+    "createFile": "Fail baharu",
+    "createFolder": "Folder baharu",
+    "upload": "Muat naik",
+    "saveAs": "Simpan sebagai",
+    "downloadFailed": "Gagal memuat turun fail"
+  },
+  "fileEditor": {
+    "notUtf8": "Fail bukan teks UTF-8 yang sah",
+    "notEditable": "Fail ini tidak boleh diedit sebagai teks UTF-8",
+    "tooLarge": "Fail melebihi had edit {{limit}} MiB",
+    "saved": "Disimpan",
+    "showPreview": "Tunjukkan pratonton",
+    "showSource": "Tunjukkan sumber",
+    "saveAsExists": "Fail sudah wujud di laluan itu",
+    "mixedLineEndings": "Akhir baris bercampur dan akan dinormalkan kepada gaya dominan apabila disimpan.",
+    "externalChanged": "Fail berubah di luar editor ini.",
+    "reload": "Muat semula",
+    "conflictTitle": "Konflik simpanan",
+    "conflictDeleted": "Fail telah dipadam di luar editor ini.",
+    "conflictChanged": "Fail telah diubah di luar editor ini.",
+    "saveAsScope": "Simpan fail baharu dalam ruang kerja semasa.",
+    "unsavedTitle": "Perubahan belum disimpan",
+    "unsavedBody": "Buang suntingan semasa sebelum meninggalkan fail ini?",
+    "discard": "Buang perubahan",
+    "remoteWritesTitle": "Penulisan fail jauh dimatikan",
+    "remoteWritesBody": "Ruang kerja ini berada pada mesin Server. Dayakan penulisan jauh dalam tetapan Server hanya jika anda mempercayai klien yang disambungkan.",
+    "goToServerSettings": "Pergi ke tetapan Server",
+    "transportSwitchUnsaved": "Terdapat perubahan fail yang belum disimpan. Tukar sambungan dan buang perubahan tersebut?"
+  },
+  "attachments": {
+    "uploading": "Memuat naik…",
+    "uploadFailedShort": "Muat naik gagal",
+    "uploadFailed": "Fail tidak dihantar. {{error}}",
+    "tooMany": "Satu mesej boleh mengandungi paling banyak 64 fail",
+    "tooLarge": "{{name}} melebihi had {{limit}} MB",
+    "someTooLarge": "Sesetengah fail melebihi had {{limit}} MB"
   },
   "filePreview": {
     "panelTitle": "Pratonton",
@@ -2209,10 +2250,10 @@
       "staged": "Staged",
       "stagedScope": "Staged",
       "stale": "The repository changed. The diff was refreshed; review it again.",
+      "prReviewComments": "Komen semakan PR · {{count}}",
       "unstage": "Unstage",
       "unstaged": "Unstaged",
-      "unstagedScope": "Unstaged",
-      "prReviewComments": "Komen semakan PR · {{count}}"
+      "unstagedScope": "Unstaged"
     }
   },
   "effort": {
@@ -3107,12 +3148,6 @@
     "openProject": "Buka projek",
     "openProjectSettings": "Tetapan projek",
     "overview": {
-      "openHome": "Buka laman projek",
-      "recentFiles": "Fail terkini",
-      "recentSessions": "Sesi terkini",
-      "totalFiles": "Fail",
-      "totalMemories": "Memori",
-      "totalSessions": "Sesi",
       "activeClaims": "Memori tersusun",
       "agentsEmpty": "AGENTS.md kosong pada masa ini",
       "agentsLines": "AGENTS.md",
@@ -3132,9 +3167,15 @@
       "messageCount": "{{count}} mesej",
       "noRecentSessions": "Belum ada sesi projek",
       "noRecentSessionsHint": "Kerja terkini akan dipaparkan di sini selepas anda mencipta sesi.",
+      "openHome": "Buka laman projek",
+      "recentFiles": "Fail terkini",
+      "recentSessions": "Sesi terkini",
       "recentSessionsHint": "Sesi pengguna yang dikemas kini baru-baru ini",
       "structuredMemory": "Memori projek",
       "structuredMemoryRole": "Maklumat jangka panjang yang disusun daripada perbualan projek; penggunaan automatik dalam jawapan bergantung pada tetapan memori anda.",
+      "totalFiles": "Fail",
+      "totalMemories": "Memori",
+      "totalSessions": "Sesi",
       "unavailable": "Tidak tersedia",
       "untitledSession": "Sesi tanpa tajuk",
       "workingDirectory": "Folder kerja"
@@ -3381,6 +3422,32 @@
     }
   },
   "settings": {
+    "files": {
+      "title": "Fail",
+      "description": "Konfigurasikan had fail untuk sembang, ruang kerja, pratonton dan penyuntingan.",
+      "runtimeLocal": "Fail desktop setempat",
+      "runtimeServer": "Fail pelayan",
+      "runtimeLocalDesc": "Operasi fail menggunakan sistem fail komputer ini.",
+      "runtimeServerDesc": "Operasi fail menggunakan sistem fail hos Server jauh.",
+      "maxChatAttachment": "Had lampiran sembang",
+      "maxChatAttachmentDesc": "Saiz maksimum bagi setiap lampiran sembang ({{min}}–{{max}} MiB).",
+      "maxWorkspaceUpload": "Had muat naik ruang kerja",
+      "maxWorkspaceUploadDesc": "Saiz maksimum bagi setiap fail yang dimuat naik ke ruang kerja ({{min}}–{{max}} MiB).",
+      "maxTextPreview": "Had pratonton teks",
+      "maxTextPreviewDesc": "Saiz maksimum fail teks yang dimuatkan untuk pratonton ({{min}}–{{max}} MiB).",
+      "maxTextEdit": "Had penyuntingan teks",
+      "maxTextEditDesc": "Saiz maksimum fail teks UTF-8 yang boleh disunting ({{min}}–{{max}} MiB).",
+      "maxDocumentPreview": "Had pratonton dokumen",
+      "maxDocumentPreviewDesc": "Saiz maksimum fail PDF atau Office yang diproses untuk pratonton ({{min}}–{{max}} MiB).",
+      "largeUploadWarning": "Had muat naik yang besar meningkatkan penggunaan cakera, rangkaian dan pemprosesan. Naikkan hanya jika Server mempunyai sumber mencukupi."
+    },
+    "knowledgeSourceLimits": {
+      "title": "Had sumber pengetahuan",
+      "description": "Saiz maksimum yang diterima bagi setiap jenis sumber ruang pengetahuan.",
+      "text": "Sumber teks (MiB)",
+      "binary": "Sumber binari (MiB)",
+      "url": "Respons URL (MiB)"
+    },
     "about": "Tentang",
     "acpAutoDiscover": "Auto-temui backend",
     "acpAutoDiscoverDesc": "Imbas $PATH untuk binari agent ACP yang diketahui semasa permulaan",
@@ -4492,6 +4559,8 @@
     "fallbackModelsDesc": "Apabila model utama tidak tersedia, cuba model-model ini mengikut urutan",
     "fsRemoteWrites": "Benarkan tulisan fail jarak jauh",
     "fsRemoteWritesDesc": "Benarkan pelanggan HTTP mencipta, menyunting, memadam dan memuat naik fail dalam direktori kerja projek. Dimatikan secara lalai — aplikasi desktop sentiasa boleh menulis secara setempat tanpa mengira tetapan ini.",
+    "fsMaxChatAttachmentMb": "Saiz maksimum lampiran sembang",
+    "fsMaxChatAttachmentMbDesc": "Saiz maksimum satu fail yang dimuat naik daripada penggubah sembang. Desktop setempat menggunakan tetapan setempat; desktop jauh dan Web menggunakan tetapan Server.",
     "general": "Umum",
     "generalDesc": "Rupa, bahasa dan tetapan sistem",
     "globalModel": "Tetapan Model Global",
@@ -7955,6 +8024,8 @@
       "selectBranch": "Select branch",
       "stageAll": "Stage all changes",
       "viewPr": "View pull request",
+      "pullRequestPanelTitle": "Permintaan tarik",
+      "resizePullRequestPanel": "Ubah lebar panel permintaan tarik",
       "worktree": "Worktree",
       "checkDetails": "Butiran semakan",
       "checkFailed": "Gagal",
@@ -7976,6 +8047,7 @@
       "openCheck": "Buka semakan",
       "openComment": "Buka komen",
       "prFeedbackUnavailable": "Semakan dan komen PR tidak tersedia",
+      "prFeedbackStale": "Gagal memuat semula status permintaan tarik; data semasa mungkin sudah lapuk",
       "reviewComments": "{{count}} komen",
       "reviewFeedback": "Maklum balas semakan",
       "autoMergeEnabled": "Gabung automatik didayakan",
@@ -8002,10 +8074,7 @@
       "reviewPending": "Menunggu",
       "reviewRequired": "Semakan diperlukan",
       "reviewStatus": "Status semakan",
-      "reviewers": "Penyemak",
-      "pullRequestPanelTitle": "Permintaan tarik",
-      "resizePullRequestPanel": "Ubah lebar panel permintaan tarik",
-      "prFeedbackStale": "Gagal memuat semula status permintaan tarik; data semasa mungkin sudah lapuk"
+      "reviewers": "Penyemak"
     },
     "goal": {
       "watchdogTitle": "Matlamat memerlukan pengesahan",
@@ -9876,6 +9945,8 @@
       "title": "Susun ke dalam nota"
     },
     "sources": {
+      "textTooLarge": "Sumber teks melebihi had {{limit}} MiB",
+      "fileTooLarge": "{{name}} melebihi had {{limit}} MiB",
       "archiveAttachment": "Arkibkan kepada pengetahuan",
       "archiveAttachmentFailed": "Gagal mengarkibkan lampiran",
       "archivedAttachment": "Diarkibkan kepada sumber pengetahuan",

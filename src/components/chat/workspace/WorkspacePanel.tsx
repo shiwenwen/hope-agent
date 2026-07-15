@@ -95,7 +95,7 @@ import { logger } from "@/lib/logger"
 import { useAppVersion } from "@/lib/appMeta"
 import { openExternalUrl } from "@/lib/openExternalUrl"
 import { useSafeFavicon } from "@/hooks/useSafeFavicon"
-import { getTransport } from "@/lib/transport-provider"
+import { getTransport, useTransport } from "@/lib/transport-provider"
 import { useDangerousModeStatus } from "@/hooks/useDangerousModeStatus"
 import { type BackgroundJobSnapshot, isBackgroundJobActive } from "@/types/background-jobs"
 import { SessionBackgroundJobsList } from "../background-jobs/SessionBackgroundJobsList"
@@ -181,7 +181,7 @@ import type { ProjectMeta } from "@/types/project"
 import { FileMimeIcon } from "@/components/chat/message/FileCard"
 import { FileDeltaCounter } from "@/components/chat/message/FileDeltaCounter"
 import { FileContextMenu, FileActionsMoreButton } from "@/components/chat/files/FileActionMenu"
-import { useFileActions } from "@/components/chat/files/useFileActions"
+import { useFileResource } from "@/components/chat/files/useFileResource"
 import type { PreviewTarget } from "@/components/chat/files/useFilePreview"
 import TaskProgressPanel from "@/components/chat/tasks/TaskProgressPanel"
 import type { TaskProgressSnapshot } from "@/components/chat/tasks/taskProgress"
@@ -465,15 +465,16 @@ function FileRow({
   const showDelta = entry.kind === "modified" && (entry.linesAdded > 0 || entry.linesRemoved > 0)
   const target = useMemo<PreviewTarget>(
     () => ({
-      kind: "path",
+      kind: "sessionPath",
+      sessionId,
       path: entry.path,
       name,
       language: entry.language ?? diff?.language ?? null,
     }),
-    [diff?.language, entry.language, entry.path, name],
+    [diff?.language, entry.language, entry.path, name, sessionId],
   )
   const overrides = useMemo(() => ({ sessionId, onPreviewFile }), [sessionId, onPreviewFile])
-  const { primary, run } = useFileActions(target, overrides)
+  const { primary, run } = useFileResource(target, overrides)
   const btnClass =
     "p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
 
@@ -580,13 +581,15 @@ function sourceMediaItem(source: Extract<SessionUrlSource, { kind: "attachment" 
 
 function attachmentSourceTarget(
   source: Extract<SessionUrlSource, { kind: "attachment" }>,
+  sessionId?: string | null,
 ): PreviewTarget | null {
   if (source.attachmentKind === "quote") {
     return null
   }
   if (source.localPath) {
     return {
-      kind: "path",
+      kind: "sessionPath",
+      sessionId,
       path: source.localPath,
       name: source.name,
       mime: source.mimeType,
@@ -608,9 +611,9 @@ function AttachmentSourceRow({
   onPreviewFile?: (target: PreviewTarget) => void
 }) {
   const { t } = useTranslation()
-  const target = useMemo(() => attachmentSourceTarget(source), [source])
+  const target = useMemo(() => attachmentSourceTarget(source, sessionId), [source, sessionId])
   const overrides = useMemo(() => ({ sessionId, onPreviewFile }), [sessionId, onPreviewFile])
-  const { primary, run } = useFileActions(target, overrides)
+  const { primary, run } = useFileResource(target, overrides)
   const label = source.quoteLines ? `${source.name} L${source.quoteLines}` : source.name
 
   return (
@@ -1476,7 +1479,8 @@ function EnvironmentSection({
   )
   const env = useWorkspaceEnvironment(sessionId, { turnActive, refreshKey: environmentRefreshKey })
   const dangerous = useDangerousModeStatus()
-  const isLocalRuntime = useMemo(() => getTransport().supportsLocalFileOps(), [])
+  const transport = useTransport()
+  const isLocalRuntime = transport.fileRuntime().canReveal
   const status = resolveWorkspaceEnvironmentStatus(env.snapshot, effectiveWorkingDir, !!env.error)
   const statusLabel = t(status.labelKey, status.fallback)
   const workingDir = env.snapshot?.workingDir.path ?? effectiveWorkingDir ?? null
@@ -1664,7 +1668,9 @@ function EnvironmentSection({
             icon={GitPullRequest}
             label={t("workspace.environment.plan", "计划")}
             value={planStateLabel(t, planState)}
-            tone={planState === "executing" ? "info" : planState === "completed" ? "good" : "muted"}
+              tone={
+                planState === "executing" ? "info" : planState === "completed" ? "good" : "muted"
+              }
           />
         ) : null}
 
@@ -2692,11 +2698,11 @@ function ContextFileCandidateRow({
   const Icon = contextKindIcons[candidate.kind]
   const path = candidate.path ?? ""
   const target = useMemo<PreviewTarget>(
-    () => ({ kind: "path", path, name: basename(path) || candidate.title }),
-    [candidate.title, path],
+    () => ({ kind: "sessionPath", sessionId, path, name: basename(path) || candidate.title }),
+    [candidate.title, path, sessionId],
   )
   const overrides = useMemo(() => ({ sessionId, onPreviewFile }), [sessionId, onPreviewFile])
-  const { primary, run } = useFileActions(target, overrides)
+  const { primary, run } = useFileResource(target, overrides)
   return (
     <div className="flex w-full min-w-0 items-stretch rounded-md border border-border/50 bg-secondary/25 transition-colors hover:bg-secondary/40">
       <IconTip label={path}>

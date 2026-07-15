@@ -12,6 +12,7 @@ import IncognitoToggle from "./IncognitoToggle"
 import PermissionModeSwitcher from "./PermissionModeSwitcher"
 import SandboxModeSwitcher from "./SandboxModeSwitcher"
 import { getPastedTextFileMeta } from "./pastedTextAttachment"
+import { createDraftAttachment, type DraftAttachment } from "@/components/chat/files/types"
 
 vi.mock("react-i18next", () => ({
   initReactI18next: { type: "3rdParty", init: () => {} },
@@ -104,6 +105,7 @@ const transportMock = vi.hoisted(() => {
       Promise.resolve({ root: "", matches: [], truncated: false }),
     ),
     supportsLocalFileOps: () => false,
+    fileRuntime: () => ({ workspaceHost: "remote", openMode: "browser", canReveal: false }),
     listen: vi.fn(() => () => {}),
     listServerDirectory: vi.fn<() => Promise<MockDirectoryResult>>(() =>
       Promise.resolve({ path: "/tmp", entries: [], truncated: false }),
@@ -113,6 +115,7 @@ const transportMock = vi.hoisted(() => {
 
 vi.mock("@/lib/transport-provider", () => ({
   getTransport: () => transportMock,
+  useTransport: () => transportMock,
 }))
 
 if (!Element.prototype.scrollIntoView) {
@@ -389,7 +392,7 @@ describe("ChatInput", () => {
   test("allows sending when only attachments are present", () => {
     const onSend = vi.fn()
     const file = new File(["image"], "photo.png", { type: "image/png" })
-    renderChatInput({ attachedFiles: [file], onSend })
+    renderChatInput({ attachedFiles: [createDraftAttachment(file, "picker")], onSend })
 
     const sendButton = screen.getByRole("button", { name: "chat.send" }) as HTMLButtonElement
     expect(sendButton.disabled).toBe(false)
@@ -437,11 +440,26 @@ describe("ChatInput", () => {
 
     expect(onInputChange).not.toHaveBeenCalled()
     expect(onAttachFiles).toHaveBeenCalledTimes(1)
-    const files = onAttachFiles.mock.calls[0]?.[0] as File[]
+    const files = onAttachFiles.mock.calls[0]?.[0] as DraftAttachment[]
     expect(files).toHaveLength(1)
-    expect(files[0].type).toBe("text/plain")
-    expect(await files[0].text()).toBe(longText)
-    expect(getPastedTextFileMeta(files[0])?.source).toBe("pasted_text")
+    expect(files[0].file.type).toBe("text/plain")
+    expect(await files[0].file.text()).toBe(longText)
+    expect(getPastedTextFileMeta(files[0].file)?.source).toBe("pasted_text")
+  })
+
+  test("uses the configured attachment byte limit for pasted files", () => {
+    const onAttachFiles = vi.fn()
+    const file = new File([new Uint8Array([1, 2])], "two-bytes.bin")
+    renderChatInput({ onAttachFiles, maxAttachmentBytes: 1 })
+
+    fireEvent.paste(screen.getByRole("textbox"), {
+      clipboardData: {
+        items: [{ kind: "file", getAsFile: () => file }],
+        getData: () => "",
+      },
+    })
+
+    expect(onAttachFiles).not.toHaveBeenCalled()
   })
 
   test("keeps the input dock from clipping upward toolbar menus", () => {

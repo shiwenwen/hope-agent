@@ -13,7 +13,15 @@ import { OfficeLoading } from "./OfficeLoading"
  * runs the backend's `extractDoc()` (text + embedded images) only when actually
  * needed, so a successful rich render never pays for extraction.
  */
-export function OfficeTextFallback({ source }: { source: PreviewSource }) {
+export function OfficeTextFallback({
+  source,
+  onOpen,
+  onDownload,
+}: {
+  source: PreviewSource
+  onOpen?: () => void
+  onDownload?: () => void
+}) {
   const { t } = useTranslation()
   const [data, setData] = useState<ExtractedContent | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -42,8 +50,8 @@ export function OfficeTextFallback({ source }: { source: PreviewSource }) {
         name={source.name}
         sizeBytes={source.sizeBytes ?? 0}
         note={error}
-        onOpen={() => void source.rawUrl(false).then((u) => u && window.open(u, "_blank"))}
-        onDownload={() => void source.rawUrl(true).then((u) => u && window.open(u, "_blank"))}
+        onOpen={onOpen}
+        onDownload={onDownload}
       />
     )
   if (!data) return <OfficeLoading />

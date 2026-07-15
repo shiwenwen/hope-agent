@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react"
-import type { MediaItem } from "@/types/chat"
+import { createDraftAttachment, type DraftAttachment, type FileTarget } from "./types"
 
 /**
  * What the right-side preview panel is currently showing. A `path` target is an
@@ -7,18 +7,20 @@ import type { MediaItem } from "@/types/chat"
  * a `media` target is a chat attachment `MediaItem`. The panel turns either into
  * a `PreviewSource` (see `previewSource.ts`).
  */
-export type PreviewTarget =
-  | {
-      kind: "path"
-      path: string
-      name: string
-      mime?: string
-      /** Optional Shiki language id from tool metadata / diff metadata. */
-      language?: string | null
-      /** Optional line reveal requested by callers such as the diff panel. */
-      revealLines?: { start: number; end: number; nonce: number }
-    }
-  | { kind: "media"; item: MediaItem }
+export type PreviewTarget = FileTarget
+
+let stagedPreviewId = 0
+
+export function stagedFilePreviewTarget(fileOrDraft: File | DraftAttachment): PreviewTarget {
+  stagedPreviewId += 1
+  const draft =
+    fileOrDraft instanceof File ? createDraftAttachment(fileOrDraft, "picker") : fileOrDraft
+  return {
+    kind: "clientDraft",
+    draft,
+    previewId: `staged-${stagedPreviewId}`,
+  }
+}
 
 export interface UseFilePreview {
   showPanel: boolean

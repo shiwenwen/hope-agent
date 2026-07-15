@@ -17,7 +17,7 @@ pub use files::{
     inspect_default_project_instructions, inspect_project_instructions, purge_project_dir,
     read_project_instructions, resolve_project_dir, save_project_instructions,
     update_project_with_instructions_file, ProjectInstructionsDraft, ProjectInstructionsFile,
-    StaleProjectInstructionsError, MAX_PROJECT_FILE_BYTES,
+    StaleProjectInstructionsError,
 };
 pub use overview::build_project_overview;
 pub use types::{

@@ -1174,6 +1174,7 @@
     "reauth": "Đăng nhập lại"
   },
   "common": {
+    "restoreDefaults": "Khôi phục mặc định",
     "add": "Thêm",
     "back": "Quay lại",
     "cancel": "Hủy",
@@ -2112,7 +2113,47 @@
     "open": "Mở",
     "download": "Tải xuống",
     "revealInFolder": "Hiện trong thư mục",
-    "more": "Thao tác khác"
+    "more": "Thao tác khác",
+    "edit": "Chỉnh sửa",
+    "remove": "Gỡ bỏ",
+    "rename": "Đổi tên",
+    "delete": "Xóa",
+    "createFile": "Tệp mới",
+    "createFolder": "Thư mục mới",
+    "upload": "Tải lên",
+    "saveAs": "Lưu thành",
+    "downloadFailed": "Không thể tải tệp xuống"
+  },
+  "fileEditor": {
+    "notUtf8": "Tệp không phải văn bản UTF-8 hợp lệ",
+    "notEditable": "Không thể chỉnh sửa tệp này dưới dạng văn bản UTF-8",
+    "tooLarge": "Tệp vượt quá giới hạn chỉnh sửa {{limit}} MiB",
+    "saved": "Đã lưu",
+    "showPreview": "Hiện bản xem trước",
+    "showSource": "Hiện mã nguồn",
+    "saveAsExists": "Đã có tệp tại đường dẫn đó",
+    "mixedLineEndings": "Kiểu xuống dòng bị trộn lẫn và sẽ được chuẩn hóa theo kiểu phổ biến nhất khi lưu.",
+    "externalChanged": "Tệp đã thay đổi bên ngoài trình chỉnh sửa.",
+    "reload": "Tải lại",
+    "conflictTitle": "Xung đột khi lưu",
+    "conflictDeleted": "Tệp đã bị xóa bên ngoài trình chỉnh sửa.",
+    "conflictChanged": "Tệp đã bị thay đổi bên ngoài trình chỉnh sửa.",
+    "saveAsScope": "Lưu tệp mới bên trong không gian làm việc hiện tại.",
+    "unsavedTitle": "Thay đổi chưa lưu",
+    "unsavedBody": "Bỏ các chỉnh sửa hiện tại trước khi rời khỏi tệp này?",
+    "discard": "Bỏ thay đổi",
+    "remoteWritesTitle": "Ghi tệp từ xa đang tắt",
+    "remoteWritesBody": "Không gian làm việc này nằm trên máy Server. Chỉ bật ghi từ xa trong cài đặt Server khi bạn tin cậy các máy khách đã kết nối.",
+    "goToServerSettings": "Đi tới cài đặt Server",
+    "transportSwitchUnsaved": "Bạn có thay đổi tệp chưa lưu. Chuyển kết nối và bỏ các thay đổi này?"
+  },
+  "attachments": {
+    "uploading": "Đang tải lên…",
+    "uploadFailedShort": "Tải lên thất bại",
+    "uploadFailed": "Các tệp chưa được gửi. {{error}}",
+    "tooMany": "Mỗi tin nhắn có thể chứa tối đa 64 tệp",
+    "tooLarge": "{{name}} vượt quá giới hạn {{limit}} MB",
+    "someTooLarge": "Một số tệp vượt quá giới hạn {{limit}} MB"
   },
   "filePreview": {
     "panelTitle": "Xem trước",
@@ -2209,10 +2250,10 @@
       "staged": "Staged",
       "stagedScope": "Staged",
       "stale": "The repository changed. The diff was refreshed; review it again.",
+      "prReviewComments": "Bình luận review PR · {{count}}",
       "unstage": "Unstage",
       "unstaged": "Unstaged",
-      "unstagedScope": "Unstaged",
-      "prReviewComments": "Bình luận review PR · {{count}}"
+      "unstagedScope": "Unstaged"
     }
   },
   "effort": {
@@ -3107,12 +3148,6 @@
     "openProject": "Mở dự án",
     "openProjectSettings": "Cài đặt dự án",
     "overview": {
-      "openHome": "Mở trang chủ dự án",
-      "recentFiles": "Tập tin gần đây",
-      "recentSessions": "Phiên gần đây",
-      "totalFiles": "Tập tin",
-      "totalMemories": "Bộ nhớ",
-      "totalSessions": "Phiên",
       "activeClaims": "Ký ức đã sắp xếp",
       "agentsEmpty": "AGENTS.md hiện đang trống",
       "agentsLines": "AGENTS.md",
@@ -3132,9 +3167,15 @@
       "messageCount": "{{count}} tin nhắn",
       "noRecentSessions": "Chưa có phiên dự án",
       "noRecentSessionsHint": "Công việc gần đây sẽ xuất hiện ở đây sau khi bạn tạo phiên.",
+      "openHome": "Mở trang chủ dự án",
+      "recentFiles": "Tập tin gần đây",
+      "recentSessions": "Phiên gần đây",
       "recentSessionsHint": "Các phiên người dùng được cập nhật gần đây",
       "structuredMemory": "Bộ nhớ dự án",
       "structuredMemoryRole": "Thông tin dài hạn được sắp xếp từ các cuộc trò chuyện trong dự án; việc tự động dùng thông tin này khi trả lời phụ thuộc vào cài đặt bộ nhớ.",
+      "totalFiles": "Tập tin",
+      "totalMemories": "Bộ nhớ",
+      "totalSessions": "Phiên",
       "unavailable": "Không khả dụng",
       "untitledSession": "Phiên chưa đặt tên",
       "workingDirectory": "Thư mục làm việc"
@@ -3381,6 +3422,32 @@
     }
   },
   "settings": {
+    "files": {
+      "title": "Tệp",
+      "description": "Cấu hình giới hạn tệp cho trò chuyện, không gian làm việc, xem trước và chỉnh sửa.",
+      "runtimeLocal": "Tệp trên máy tính cục bộ",
+      "runtimeServer": "Tệp trên máy chủ",
+      "runtimeLocalDesc": "Các thao tác tệp sử dụng hệ thống tệp của máy tính này.",
+      "runtimeServerDesc": "Các thao tác tệp sử dụng hệ thống tệp của máy chủ Server từ xa.",
+      "maxChatAttachment": "Giới hạn tệp đính kèm trò chuyện",
+      "maxChatAttachmentDesc": "Kích thước tối đa cho mỗi tệp đính kèm ({{min}}–{{max}} MiB).",
+      "maxWorkspaceUpload": "Giới hạn tải lên không gian làm việc",
+      "maxWorkspaceUploadDesc": "Kích thước tối đa cho mỗi tệp tải lên không gian làm việc ({{min}}–{{max}} MiB).",
+      "maxTextPreview": "Giới hạn xem trước văn bản",
+      "maxTextPreviewDesc": "Kích thước tệp văn bản tối đa được tải để xem trước ({{min}}–{{max}} MiB).",
+      "maxTextEdit": "Giới hạn chỉnh sửa văn bản",
+      "maxTextEditDesc": "Kích thước tệp văn bản UTF-8 tối đa có thể chỉnh sửa ({{min}}–{{max}} MiB).",
+      "maxDocumentPreview": "Giới hạn xem trước tài liệu",
+      "maxDocumentPreviewDesc": "Kích thước tệp PDF hoặc Office tối đa được xử lý để xem trước ({{min}}–{{max}} MiB).",
+      "largeUploadWarning": "Giới hạn tải lên lớn làm tăng mức dùng đĩa, mạng và xử lý. Chỉ tăng khi Server có đủ tài nguyên."
+    },
+    "knowledgeSourceLimits": {
+      "title": "Giới hạn nguồn tri thức",
+      "description": "Kích thước tối đa được chấp nhận cho từng loại nguồn trong không gian tri thức.",
+      "text": "Nguồn văn bản (MiB)",
+      "binary": "Nguồn nhị phân (MiB)",
+      "url": "Phản hồi URL (MiB)"
+    },
     "about": "Giới thiệu",
     "acpAutoDiscover": "Tự động phát hiện backend",
     "acpAutoDiscoverDesc": "Quét $PATH để tìm các binary agent ACP đã biết khi khởi động",
@@ -4492,6 +4559,8 @@
     "fallbackModelsDesc": "Khi mô hình chính không khả dụng, thử các mô hình sau theo thứ tự",
     "fsRemoteWrites": "Cho phép ghi tệp từ xa",
     "fsRemoteWritesDesc": "Cho phép máy khách HTTP tạo, chỉnh sửa, xóa và tải tệp lên trong thư mục làm việc của dự án. Tắt theo mặc định — ứng dụng máy tính luôn có thể ghi cục bộ bất kể cài đặt này.",
+    "fsMaxChatAttachmentMb": "Kích thước tệp đính kèm trò chuyện tối đa",
+    "fsMaxChatAttachmentMbDesc": "Kích thước tối đa của một tệp tải lên từ ô soạn thảo trò chuyện. Máy tính cục bộ dùng cài đặt cục bộ; máy tính từ xa và Web dùng cài đặt Server.",
     "general": "Chung",
     "generalDesc": "Giao diện, ngôn ngữ và cài đặt hệ thống",
     "globalModel": "Cài đặt mô hình toàn cục",
@@ -7955,6 +8024,8 @@
       "selectBranch": "Select branch",
       "stageAll": "Stage all changes",
       "viewPr": "View pull request",
+      "pullRequestPanelTitle": "Yêu cầu kéo",
+      "resizePullRequestPanel": "Thay đổi chiều rộng bảng yêu cầu kéo",
       "worktree": "Worktree",
       "checkDetails": "Chi tiết kiểm tra",
       "checkFailed": "Thất bại",
@@ -7976,6 +8047,7 @@
       "openCheck": "Mở kiểm tra",
       "openComment": "Mở bình luận",
       "prFeedbackUnavailable": "Không thể tải kiểm tra và bình luận PR",
+      "prFeedbackStale": "Không thể làm mới trạng thái yêu cầu kéo; dữ liệu hiện tại có thể đã cũ",
       "reviewComments": "{{count}} bình luận",
       "reviewFeedback": "Phản hồi review",
       "autoMergeEnabled": "Đã bật tự động hợp nhất",
@@ -8002,10 +8074,7 @@
       "reviewPending": "Đang chờ",
       "reviewRequired": "Cần đánh giá",
       "reviewStatus": "Trạng thái đánh giá",
-      "reviewers": "Người đánh giá",
-      "pullRequestPanelTitle": "Yêu cầu kéo",
-      "resizePullRequestPanel": "Thay đổi chiều rộng bảng yêu cầu kéo",
-      "prFeedbackStale": "Không thể làm mới trạng thái yêu cầu kéo; dữ liệu hiện tại có thể đã cũ"
+      "reviewers": "Người đánh giá"
     },
     "goal": {
       "watchdogTitle": "Mục tiêu cần xác nhận",
@@ -9876,6 +9945,8 @@
       "title": "Sắp xếp thành ghi chú"
     },
     "sources": {
+      "textTooLarge": "Nguồn văn bản vượt quá giới hạn {{limit}} MiB",
+      "fileTooLarge": "{{name}} vượt quá giới hạn {{limit}} MiB",
       "archiveAttachment": "Lưu trữ kiến thức",
       "archiveAttachmentFailed": "Không thể lưu trữ tệp đính kèm",
       "archivedAttachment": "Đã lưu trữ vào các nguồn kiến thức",

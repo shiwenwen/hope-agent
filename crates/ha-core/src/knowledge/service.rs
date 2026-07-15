@@ -1059,6 +1059,28 @@ pub fn set_media_retention_config(
     Ok(clamped)
 }
 
+// ── Source import limits (owner plane GUI + ha-settings, MEDIUM) ────────
+
+pub fn get_source_limits_config() -> super::KnowledgeSourceLimitsConfig {
+    crate::config::cached_config()
+        .knowledge_source_limits
+        .clone()
+        .clamped()
+}
+
+pub fn set_source_limits_config(
+    cfg: super::KnowledgeSourceLimitsConfig,
+    source: &str,
+) -> Result<super::KnowledgeSourceLimitsConfig> {
+    let clamped = cfg.clamped();
+    let to_save = clamped.clone();
+    crate::config::mutate_config(("knowledge_source_limits", source), move |store| {
+        store.knowledge_source_limits = to_save.clone();
+        Ok(())
+    })?;
+    Ok(clamped)
+}
+
 /// Strip a ```markdown … ``` wrapper the model may add around its reply. Only unwraps
 /// when it's confidently a *markdown wrapper* of the whole reply: opening fence whose
 /// info string is empty / `markdown` / `md`, + a closing ``` at the very end. A reply

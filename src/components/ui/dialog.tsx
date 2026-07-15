@@ -1,4 +1,9 @@
-import { forwardRef, type ComponentRef, type ComponentPropsWithoutRef, type HTMLAttributes } from "react"
+import {
+  forwardRef,
+  type ComponentRef,
+  type ComponentPropsWithoutRef,
+  type HTMLAttributes,
+} from "react"
 import {
   Root,
   Trigger,
@@ -32,10 +37,12 @@ const DialogOverlay = forwardRef<
 ))
 DialogOverlay.displayName = "DialogOverlay"
 
-const DialogContent = forwardRef<
-  ComponentRef<typeof Content>,
-  ComponentPropsWithoutRef<typeof Content>
->(({ className, children, ...props }, ref) => (
+interface DialogContentProps extends ComponentPropsWithoutRef<typeof Content> {
+  showCloseButton?: boolean
+}
+
+const DialogContent = forwardRef<ComponentRef<typeof Content>, DialogContentProps>(
+  ({ className, children, showCloseButton = true, ...props }, ref) => (
   <DialogPortal>
     <DialogOverlay />
     <Content
@@ -47,13 +54,16 @@ const DialogContent = forwardRef<
       {...props}
     >
       {children}
+        {showCloseButton ? (
       <Close className="absolute right-4 top-4 rounded-sm opacity-70 transition-opacity hover:opacity-100 focus:outline-none disabled:pointer-events-none data-[state=open]:bg-accent data-[state=open]:text-muted-foreground">
         <X className="h-4 w-4" />
         <span className="sr-only">Close</span>
       </Close>
+        ) : null}
     </Content>
   </DialogPortal>
-))
+  ),
+)
 DialogContent.displayName = "DialogContent"
 
 const DialogHeader = ({ className, ...props }: HTMLAttributes<HTMLDivElement>) => (
@@ -69,27 +79,22 @@ const DialogFooter = ({ className, ...props }: HTMLAttributes<HTMLDivElement>) =
 )
 DialogFooter.displayName = "DialogFooter"
 
-const DialogTitle = forwardRef<
-  ComponentRef<typeof Title>,
-  ComponentPropsWithoutRef<typeof Title>
->(({ className, ...props }, ref) => (
+const DialogTitle = forwardRef<ComponentRef<typeof Title>, ComponentPropsWithoutRef<typeof Title>>(
+  ({ className, ...props }, ref) => (
   <Title
     ref={ref}
     className={cn("text-lg font-semibold leading-none tracking-tight", className)}
     {...props}
   />
-))
+  ),
+)
 DialogTitle.displayName = "DialogTitle"
 
 const DialogDescription = forwardRef<
   ComponentRef<typeof Description>,
   ComponentPropsWithoutRef<typeof Description>
 >(({ className, ...props }, ref) => (
-  <Description
-    ref={ref}
-    className={cn("text-sm text-muted-foreground", className)}
-    {...props}
-  />
+  <Description ref={ref} className={cn("text-sm text-muted-foreground", className)} {...props} />
 ))
 DialogDescription.displayName = "DialogDescription"
 

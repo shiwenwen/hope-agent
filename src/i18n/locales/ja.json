@@ -1174,6 +1174,7 @@
     "reauth": "再度ログイン"
   },
   "common": {
+    "restoreDefaults": "デフォルトに戻す",
     "add": "追加",
     "back": "戻る",
     "cancel": "キャンセル",
@@ -2112,7 +2113,47 @@
     "open": "開く",
     "download": "ダウンロード",
     "revealInFolder": "フォルダーで表示",
-    "more": "その他の操作"
+    "more": "その他の操作",
+    "edit": "編集",
+    "remove": "削除",
+    "rename": "名前を変更",
+    "delete": "削除",
+    "createFile": "新規ファイル",
+    "createFolder": "新規フォルダー",
+    "upload": "アップロード",
+    "saveAs": "名前を付けて保存",
+    "downloadFailed": "ファイルのダウンロードに失敗しました"
+  },
+  "fileEditor": {
+    "notUtf8": "有効な UTF-8 テキストではありません",
+    "notEditable": "このファイルは UTF-8 テキストとして編集できません",
+    "tooLarge": "ファイルは {{limit}} MiB の編集上限を超えています",
+    "saved": "保存しました",
+    "showPreview": "プレビューを表示",
+    "showSource": "ソースを表示",
+    "saveAsExists": "そのパスには既にファイルがあります",
+    "mixedLineEndings": "改行コードが混在しています。保存時に最も多い形式へ統一されます。",
+    "externalChanged": "このファイルは外部で変更されました。",
+    "reload": "再読み込み",
+    "conflictTitle": "保存の競合",
+    "conflictDeleted": "このファイルは外部で削除されました。",
+    "conflictChanged": "このファイルは外部で変更されました。",
+    "saveAsScope": "現在のワークスペース内に新しいファイルを保存します。",
+    "unsavedTitle": "未保存の変更",
+    "unsavedBody": "このファイルを離れる前に現在の編集を破棄しますか？",
+    "discard": "変更を破棄",
+    "remoteWritesTitle": "リモートファイル書き込みはオフです",
+    "remoteWritesBody": "このワークスペースは Server マシン上にあります。接続済みクライアントを信頼できる場合にのみ Server 設定でリモート書き込みを有効にしてください。",
+    "goToServerSettings": "Server 設定へ",
+    "transportSwitchUnsaved": "未保存のファイル変更があります。接続を切り替えて変更を破棄しますか？"
+  },
+  "attachments": {
+    "uploading": "アップロード中…",
+    "uploadFailedShort": "アップロード失敗",
+    "uploadFailed": "ファイルは送信されませんでした。{{error}}",
+    "tooMany": "1 件のメッセージに添付できるファイルは最大 64 個です",
+    "tooLarge": "{{name}} は {{limit}} MB の上限を超えています",
+    "someTooLarge": "{{limit}} MB の上限を超えるファイルがあります"
   },
   "filePreview": {
     "panelTitle": "プレビュー",
@@ -2209,10 +2250,10 @@
       "staged": "Staged",
       "stagedScope": "Staged",
       "stale": "The repository changed. The diff was refreshed; review it again.",
+      "prReviewComments": "PR レビューコメント · {{count}}",
       "unstage": "Unstage",
       "unstaged": "Unstaged",
-      "unstagedScope": "Unstaged",
-      "prReviewComments": "PR レビューコメント · {{count}}"
+      "unstagedScope": "Unstaged"
     }
   },
   "effort": {
@@ -3107,12 +3148,6 @@
     "openProject": "プロジェクトを開く",
     "openProjectSettings": "プロジェクト設定",
     "overview": {
-      "openHome": "プロジェクトホームを開く",
-      "recentFiles": "最近のファイル",
-      "recentSessions": "最近のセッション",
-      "totalFiles": "ファイル",
-      "totalMemories": "メモリ",
-      "totalSessions": "セッション",
       "activeClaims": "整理済みメモリ",
       "agentsEmpty": "AGENTS.md は現在空です",
       "agentsLines": "AGENTS.md",
@@ -3132,9 +3167,15 @@
       "messageCount": "{{count}} 件のメッセージ",
       "noRecentSessions": "プロジェクトセッションはまだありません",
       "noRecentSessionsHint": "セッションを作成すると、最近の作業がここに表示されます。",
+      "openHome": "プロジェクトホームを開く",
+      "recentFiles": "最近のファイル",
+      "recentSessions": "最近のセッション",
       "recentSessionsHint": "最近更新されたユーザーセッション",
       "structuredMemory": "プロジェクトメモリ",
       "structuredMemoryRole": "プロジェクトの会話から整理された長期的な情報です。回答に自動で使用されるかどうかはメモリ設定によって決まります。",
+      "totalFiles": "ファイル",
+      "totalMemories": "メモリ",
+      "totalSessions": "セッション",
       "unavailable": "利用できません",
       "untitledSession": "無題のセッション",
       "workingDirectory": "作業フォルダー"
@@ -3381,6 +3422,32 @@
     }
   },
   "settings": {
+    "files": {
+      "title": "ファイル",
+      "description": "チャット、ワークスペース、プレビュー、編集で使用するファイル上限を設定します。",
+      "runtimeLocal": "ローカルデスクトップのファイル",
+      "runtimeServer": "サーバーのファイル",
+      "runtimeLocalDesc": "ファイル操作はこのコンピューターのファイルシステムを使用します。",
+      "runtimeServerDesc": "ファイル操作はリモート Server ホストのファイルシステムを使用します。",
+      "maxChatAttachment": "チャット添付の上限",
+      "maxChatAttachmentDesc": "チャット添付1件あたりの最大サイズ（{{min}}～{{max}} MiB）。",
+      "maxWorkspaceUpload": "ワークスペースアップロードの上限",
+      "maxWorkspaceUploadDesc": "ワークスペースへアップロードする1ファイルの最大サイズ（{{min}}～{{max}} MiB）。",
+      "maxTextPreview": "テキストプレビューの上限",
+      "maxTextPreviewDesc": "プレビューで読み込むテキストファイルの最大サイズ（{{min}}～{{max}} MiB）。",
+      "maxTextEdit": "テキスト編集の上限",
+      "maxTextEditDesc": "編集できる UTF-8 テキストファイルの最大サイズ（{{min}}～{{max}} MiB）。",
+      "maxDocumentPreview": "文書プレビューの上限",
+      "maxDocumentPreviewDesc": "プレビュー処理する PDF / Office ファイルの最大サイズ（{{min}}～{{max}} MiB）。",
+      "largeUploadWarning": "大きなアップロード上限はディスク、ネットワーク、処理負荷を増やします。Server に十分なリソースがある場合のみ引き上げてください。"
+    },
+    "knowledgeSourceLimits": {
+      "title": "知識ソースの上限",
+      "description": "知識スペースへ取り込むソース種別ごとの最大サイズです。",
+      "text": "テキストソース（MiB）",
+      "binary": "バイナリソース（MiB）",
+      "url": "URL 応答（MiB）"
+    },
     "about": "概要",
     "acpAutoDiscover": "バックエンドを自動検出",
     "acpAutoDiscoverDesc": "起動時に既知の ACP Agent バイナリを $PATH からスキャン",
@@ -4492,6 +4559,8 @@
     "fallbackModelsDesc": "メインモデルが利用不可の場合、順番に試行するモデル",
     "fsRemoteWrites": "リモートからのファイル書き込みを許可",
     "fsRemoteWritesDesc": "HTTP クライアントがプロジェクト作業ディレクトリ内でファイルの作成・編集・削除・アップロードを行えるようにします。既定はオフ — デスクトップアプリはこの設定に関係なく常にローカルへ書き込めます。",
+    "fsMaxChatAttachmentMb": "チャット添付ファイルの最大サイズ",
+    "fsMaxChatAttachmentMbDesc": "チャット入力欄からアップロードするファイル 1 件の最大サイズです。ローカルデスクトップはローカル設定、リモートデスクトップと Web は Server 設定を使用します。",
     "general": "一般",
     "generalDesc": "外観、言語、システム設定",
     "globalModel": "グローバルモデル設定",
@@ -7955,6 +8024,8 @@
       "selectBranch": "Select branch",
       "stageAll": "Stage all changes",
       "viewPr": "View pull request",
+      "pullRequestPanelTitle": "プルリクエスト",
+      "resizePullRequestPanel": "プルリクエストパネルの幅を変更",
       "worktree": "Worktree",
       "checkDetails": "チェックの詳細",
       "checkFailed": "失敗",
@@ -7976,6 +8047,7 @@
       "openCheck": "チェックを開く",
       "openComment": "コメントを開く",
       "prFeedbackUnavailable": "PR のチェックとコメントを取得できません",
+      "prFeedbackStale": "PR ステータスの更新に失敗しました。現在のデータは古い可能性があります",
       "reviewComments": "{{count}} 件のコメント",
       "reviewFeedback": "レビューのフィードバック",
       "autoMergeEnabled": "自動マージが有効です",
@@ -8002,10 +8074,7 @@
       "reviewPending": "保留中",
       "reviewRequired": "レビューが必要",
       "reviewStatus": "レビュー状態",
-      "reviewers": "レビュアー",
-      "pullRequestPanelTitle": "プルリクエスト",
-      "resizePullRequestPanel": "プルリクエストパネルの幅を変更",
-      "prFeedbackStale": "PR ステータスの更新に失敗しました。現在のデータは古い可能性があります"
+      "reviewers": "レビュアー"
     },
     "goal": {
       "watchdogTitle": "目標の確認が必要です",
@@ -9876,6 +9945,8 @@
       "title": "メモに整理する"
     },
     "sources": {
+      "textTooLarge": "テキストソースが {{limit}} MiB の上限を超えています",
+      "fileTooLarge": "{{name}} は {{limit}} MiB の上限を超えています",
       "archiveAttachment": "知識へのアーカイブ",
       "archiveAttachmentFailed": "添付ファイルのアーカイブに失敗しました",
       "archivedAttachment": "ナレッジソースにアーカイブされる",

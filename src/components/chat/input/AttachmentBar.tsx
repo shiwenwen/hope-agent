@@ -1,4 +1,4 @@
-import { useCallback, useRef, useMemo, useEffect, useState } from "react"
+import { useCallback, useRef, useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
@@ -14,12 +14,24 @@ import {
 } from "@/components/ui/dialog"
 import { AnimatedCollapse } from "@/components/ui/animated-presence"
 import { IconTip } from "@/components/ui/tooltip"
-import { Copy, FileText, Paperclip, X } from "lucide-react"
+import { Copy, Paperclip, X } from "lucide-react"
 import { useLightbox } from "@/components/common/ImageLightbox"
+import { FileTypeIcon } from "@/components/icons/FileTypeIcon"
+import { FileContextMenu } from "@/components/chat/files/FileActionMenu"
+import { useFileResource } from "@/components/chat/files/useFileResource"
+import { useFileActionsContext } from "@/components/chat/files/fileActionsContext"
+import { StagedFilePreviewPane } from "@/components/chat/files/StagedFilePreviewPane"
+import { stagedFilePreviewTarget, type PreviewTarget } from "@/components/chat/files/useFilePreview"
+import { formatBytes } from "@/lib/format"
+import type { DraftAttachment } from "@/components/chat/files/types"
+import { useObjectUrlLease } from "@/components/chat/files/useObjectUrlLease"
 import { getPastedTextFileMeta, updatePastedTextAttachment } from "./pastedTextAttachment"
+import { MEBIBYTE_BYTES, useFilesystemConfig } from "@/lib/filesystemConfig"
+
+type StagedPreviewTarget = Extract<PreviewTarget, { kind: "clientDraft" }>
 
 interface AttachmentPreviewProps {
-  attachedFiles: File[]
+  attachedFiles: DraftAttachment[]
   onRemoveFile: (index: number) => void
   onUpdateFile: (index: number, file: File) => void
 }
@@ -30,35 +42,47 @@ export function AttachmentPreview({
   onUpdateFile,
 }: AttachmentPreviewProps) {
   const { t } = useTranslation()
+  const { config: filesystemConfig } = useFilesystemConfig()
   const { openLightbox } = useLightbox()
+  const fileActionsContext = useFileActionsContext()
+  const ambientPreviewFile = fileActionsContext.onPreviewFile
   const [pastedTextPreview, setPastedTextPreview] = useState<{
     index: number
     fileName: string
     text: string
   } | null>(null)
+  const [localFilePreview, setLocalFilePreview] = useState<StagedPreviewTarget | null>(null)
 
-  // Stable blob URLs with cleanup to prevent memory leaks
-  const blobUrls = useMemo(
-    () => attachedFiles.map((f) => (f.type.startsWith("image/") ? URL.createObjectURL(f) : "")),
-    [attachedFiles],
-  )
-  useEffect(
-    () => () => {
-      blobUrls.forEach((u) => {
-        if (u) URL.revokeObjectURL(u)
-      })
+  const openFilePreview = useCallback(
+    (target: PreviewTarget) => {
+      if (ambientPreviewFile) {
+        ambientPreviewFile(target)
+      } else if (target.kind === "clientDraft") {
+        setLocalFilePreview(target)
+      }
     },
-    [blobUrls],
+    [ambientPreviewFile],
   )
 
-  const openPastedTextPreview = useCallback(async (file: File, index: number) => {
-    const text = await file.text()
-    setPastedTextPreview({
-      index,
-      fileName: file.name,
-      text,
-    })
-  }, [])
+  const openPastedTextPreview = useCallback(
+    async (file: File, index: number) => {
+      if (file.size > filesystemConfig.maxTextEditMb * MEBIBYTE_BYTES) {
+        toast.error(
+          t("fileEditor.tooLarge", "File exceeds the {{limit}} MiB edit limit", {
+            limit: filesystemConfig.maxTextEditMb,
+          }),
+        )
+        return
+      }
+      try {
+        const text = new TextDecoder("utf-8", { fatal: true }).decode(await file.arrayBuffer())
+        setPastedTextPreview({ index, fileName: file.name, text })
+      } catch {
+        toast.error(t("fileEditor.notUtf8", "File is not valid UTF-8 text"))
+      }
+    },
+    [filesystemConfig.maxTextEditMb, t],
+  )
 
   const previewStats = pastedTextPreview
     ? {
@@ -75,26 +99,40 @@ export function AttachmentPreview({
 
   const savePreviewText = useCallback(() => {
     if (!pastedTextPreview) return
-    const file = attachedFiles[pastedTextPreview.index]
-    if (!file) return
-    onUpdateFile(pastedTextPreview.index, updatePastedTextAttachment(file, pastedTextPreview.text))
+    const draft = attachedFiles[pastedTextPreview.index]
+    if (!draft) return
+    const nextFile = getPastedTextFileMeta(draft.file)
+      ? updatePastedTextAttachment(draft.file, pastedTextPreview.text)
+      : new File([pastedTextPreview.text], draft.file.name, {
+          type: draft.file.type || "text/plain",
+          lastModified: Date.now(),
+        })
+    if (nextFile.size > filesystemConfig.maxTextEditMb * MEBIBYTE_BYTES) {
+      toast.error(
+        t("fileEditor.tooLarge", "File exceeds the {{limit}} MiB edit limit", {
+          limit: filesystemConfig.maxTextEditMb,
+        }),
+      )
+      return
+    }
+    onUpdateFile(pastedTextPreview.index, nextFile)
     setPastedTextPreview(null)
     toast.success(t("common.saved"))
-  }, [attachedFiles, onUpdateFile, pastedTextPreview, t])
+  }, [attachedFiles, filesystemConfig.maxTextEditMb, onUpdateFile, pastedTextPreview, t])
 
   return (
     <>
       <AnimatedCollapse open={attachedFiles.length > 0}>
         <div className="flex gap-2 px-3 pt-3 pb-1 flex-wrap">
-          {attachedFiles.map((file, index) => (
+          {attachedFiles.map((draft, index) => (
             <AttachmentPreviewItem
-              key={`${file.name}-${index}`}
-              file={file}
+              key={draft.id}
+              draft={draft}
               index={index}
-              blobUrl={blobUrls[index] || ""}
               onRemoveFile={onRemoveFile}
               openLightbox={openLightbox}
               onOpenPastedText={openPastedTextPreview}
+              onPreviewFile={openFilePreview}
             />
           ))}
         </div>
@@ -153,6 +191,33 @@ export function AttachmentPreview({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <Dialog
+        open={!!localFilePreview}
+        onOpenChange={(open) => {
+          if (!open) setLocalFilePreview(null)
+        }}
+      >
+        <DialogContent
+          showCloseButton={false}
+          className="h-[min(86vh,42rem)] max-h-[86vh] w-[calc(100vw-2rem)] max-w-4xl gap-0 overflow-hidden p-0 sm:w-[calc(100vw-4rem)]"
+        >
+          <DialogTitle className="sr-only">{localFilePreview?.draft.file.name}</DialogTitle>
+          {localFilePreview ? (
+            <StagedFilePreviewPane
+              key={localFilePreview.previewId}
+              target={localFilePreview}
+              onReplaceFile={(file) => {
+                const index = attachedFiles.findIndex(
+                  (draft) => draft.id === localFilePreview.draft.id,
+                )
+                if (index >= 0) onUpdateFile(index, file)
+              }}
+              onClose={() => setLocalFilePreview(null)}
+              className="h-full min-h-0"
+            />
+          ) : null}
+        </DialogContent>
+      </Dialog>
     </>
   )
 }
@@ -162,64 +227,90 @@ function countLines(text: string): number {
 }
 
 function AttachmentPreviewItem({
-  file,
+  draft,
   index,
-  blobUrl,
   onRemoveFile,
   openLightbox,
   onOpenPastedText,
+  onPreviewFile,
 }: {
-  file: File
+  draft: DraftAttachment
   index: number
-  blobUrl: string
   onRemoveFile: (index: number) => void
   openLightbox: (src: string, alt?: string) => void
   onOpenPastedText: (file: File, index: number) => void
+  onPreviewFile: (target: PreviewTarget) => void
 }) {
   const { t } = useTranslation()
+  const file = draft.file
+  const blobUrl = useObjectUrlLease(file.type.startsWith("image/") ? file : null) ?? ""
   const pastedTextMeta = getPastedTextFileMeta(file)
   const canPreviewPastedText = !!pastedTextMeta
+  const target = useMemo(() => stagedFilePreviewTarget(draft), [draft])
+  const actionOverrides = useMemo(
+    () => ({
+      onPreviewFile: () => {
+        if (blobUrl) openLightbox(blobUrl, file.name)
+        else if (canPreviewPastedText) void onOpenPastedText(file, index)
+        else onPreviewFile(target)
+      },
+      onEditFile: () => void onOpenPastedText(file, index),
+      onRemoveFile: () => onRemoveFile(index),
+    }),
+    [
+      blobUrl,
+      canPreviewPastedText,
+      file,
+      index,
+      onOpenPastedText,
+      onPreviewFile,
+      onRemoveFile,
+      openLightbox,
+      target,
+    ],
+  )
+  const { primary, run } = useFileResource(target, actionOverrides)
+  const sizeLabel = formatBytes(file.size, { fractionDigits: 1 })
   return (
-    <div
-      className="group relative flex items-center gap-1.5 bg-secondary rounded-lg px-2 py-1 text-xs text-foreground/80 border border-border/50 animate-in fade-in-0 slide-in-from-bottom-1 duration-150"
-      style={{ animationDelay: `${index * 50}ms`, animationFillMode: "both" }}
-    >
-      <button
-        type="button"
-        className="flex min-w-0 flex-1 items-center gap-1.5 text-left disabled:cursor-default"
-        disabled={!blobUrl && !canPreviewPastedText}
-        aria-label={canPreviewPastedText ? t("chat.pastedTextPreviewOpen") : file.name}
-        onClick={() => {
-          if (blobUrl) {
-            openLightbox(blobUrl, file.name)
-          } else if (canPreviewPastedText) {
-            void onOpenPastedText(file, index)
-          }
-        }}
+    <FileContextMenu target={target} overrides={actionOverrides}>
+      <div
+        className="group relative flex items-center gap-1.5 rounded-lg border border-border/50 bg-secondary px-2 py-1 text-xs text-foreground/80 transition-colors animate-in fade-in-0 slide-in-from-bottom-1 duration-150 hover:border-primary/30 hover:bg-secondary/80"
+        style={{ animationDelay: `${index * 50}ms`, animationFillMode: "both" }}
       >
-        {blobUrl ? (
-          <img src={blobUrl} alt={file.name} className="h-8 w-8 rounded object-cover" />
-        ) : pastedTextMeta ? (
-          <FileText className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-        ) : (
-          <Paperclip className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-        )}
-        <span className="min-w-0 max-w-[160px]">
-          <span className="block truncate">{file.name}</span>
-          {pastedTextMeta ? (
+        <button
+          type="button"
+          className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-left"
+          aria-label={canPreviewPastedText ? t("chat.pastedTextPreviewOpen") : file.name}
+          onClick={() => void run(primary)}
+        >
+          {blobUrl ? (
+            <img src={blobUrl} alt={file.name} className="h-8 w-8 rounded object-cover" />
+          ) : (
+            <FileTypeIcon name={file.name} mime={file.type} className="h-5 w-5 shrink-0" />
+          )}
+          <span className="min-w-0 max-w-[180px]">
+            <span className="block truncate font-medium text-foreground/90">{file.name}</span>
             <span className="block truncate text-[11px] leading-3 text-muted-foreground">
-              {t("chat.pastedTextAttachment")}
+              {draft.status === "uploading"
+                ? t("attachments.uploading", "Uploading…")
+                : draft.status === "error"
+                  ? draft.error || t("attachments.uploadFailedShort", "Upload failed")
+                  : pastedTextMeta
+                    ? `${t("chat.pastedTextAttachment")} · ${sizeLabel}`
+                    : sizeLabel}
             </span>
-          ) : null}
-        </span>
-      </button>
-      <button
-        className="ml-0.5 text-muted-foreground hover:text-foreground transition-colors"
-        onClick={() => onRemoveFile(index)}
-      >
-        <X className="h-3.5 w-3.5" />
-      </button>
-    </div>
+          </span>
+        </button>
+        <button
+          type="button"
+          aria-label={t("fileActions.remove")}
+          className="ml-0.5 rounded p-0.5 text-muted-foreground transition-colors hover:bg-background/60 hover:text-foreground"
+          onClick={() => void run("remove")}
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
+      </div>
+    </FileContextMenu>
   )
 }
 

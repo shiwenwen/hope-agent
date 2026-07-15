@@ -25,6 +25,7 @@ import type {
   SubagentEvent,
 } from "@/types/chat"
 import type { AgentConfig } from "@/components/settings/types"
+import { confirmDiscardDirtyFileEditors } from "../files/fileDirtyRegistry"
 
 export { PAGE_SIZE, SESSION_PAGE_SIZE } from "./constants"
 
@@ -802,6 +803,14 @@ export function useChatSession({
       if (targetMessageId === undefined && sessionId === currentSessionIdRef.current) {
         return
       }
+      if (
+        sessionId !== currentSessionIdRef.current &&
+        !confirmDiscardDirtyFileEditors(
+          t("fileEditor.unsavedBody", "Discard the current edits before leaving this file?"),
+        )
+      ) {
+        return
+      }
 
       const version = ++switchVersionRef.current
 
@@ -996,6 +1005,7 @@ export function useChatSession({
       touchSessionCacheLru,
       updateHistoryLoading,
       upsertSessionMeta,
+      t,
     ],
   )
 

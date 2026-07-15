@@ -53,6 +53,7 @@ import {
 import EmbeddingActivationDialog from "./memory-panel/EmbeddingActivationDialog"
 import KnowledgeMaintenanceSection from "./KnowledgeMaintenanceSection"
 import SpriteSection from "./SpriteSection"
+import KnowledgeSourceLimitsSection from "./KnowledgeSourceLimitsSection"
 import {
   knowledgeChunkOperationErrorToast,
   knowledgeCompileAgentOperationErrorToast,
@@ -284,6 +285,8 @@ export default function KnowledgePanel() {
       <SearchRankingSection />
 
       <PassiveRecallSection />
+
+      <KnowledgeSourceLimitsSection />
 
       <MediaRetentionSection />
 

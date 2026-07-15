@@ -1174,6 +1174,7 @@
     "reauth": "다시 로그인"
   },
   "common": {
+    "restoreDefaults": "기본값 복원",
     "add": "추가",
     "back": "뒤로",
     "cancel": "취소",
@@ -2112,7 +2113,47 @@
     "open": "열기",
     "download": "다운로드",
     "revealInFolder": "폴더에서 표시",
-    "more": "추가 작업"
+    "more": "추가 작업",
+    "edit": "편집",
+    "remove": "제거",
+    "rename": "이름 바꾸기",
+    "delete": "삭제",
+    "createFile": "새 파일",
+    "createFolder": "새 폴더",
+    "upload": "업로드",
+    "saveAs": "다른 이름으로 저장",
+    "downloadFailed": "파일을 다운로드하지 못했습니다"
+  },
+  "fileEditor": {
+    "notUtf8": "올바른 UTF-8 텍스트 파일이 아닙니다",
+    "notEditable": "이 파일은 UTF-8 텍스트로 편집할 수 없습니다",
+    "tooLarge": "파일이 {{limit}} MiB 편집 제한을 초과합니다",
+    "saved": "저장됨",
+    "showPreview": "미리 보기",
+    "showSource": "소스 보기",
+    "saveAsExists": "해당 경로에 파일이 이미 있습니다",
+    "mixedLineEndings": "줄바꿈 형식이 섞여 있습니다. 저장할 때 가장 많이 사용된 형식으로 통일됩니다.",
+    "externalChanged": "이 파일이 외부에서 변경되었습니다.",
+    "reload": "다시 불러오기",
+    "conflictTitle": "저장 충돌",
+    "conflictDeleted": "이 파일이 외부에서 삭제되었습니다.",
+    "conflictChanged": "이 파일이 외부에서 변경되었습니다.",
+    "saveAsScope": "현재 워크스페이스 안에 새 파일로 저장합니다.",
+    "unsavedTitle": "저장하지 않은 변경 사항",
+    "unsavedBody": "이 파일을 떠나기 전에 현재 편집 내용을 버릴까요?",
+    "discard": "변경 사항 버리기",
+    "remoteWritesTitle": "원격 파일 쓰기가 꺼져 있습니다",
+    "remoteWritesBody": "이 워크스페이스는 Server 머신에 있습니다. 연결된 클라이언트를 신뢰할 때만 Server 설정에서 원격 파일 쓰기를 켜세요.",
+    "goToServerSettings": "Server 설정으로 이동",
+    "transportSwitchUnsaved": "저장하지 않은 파일 변경 사항이 있습니다. 연결을 전환하고 변경 사항을 버릴까요?"
+  },
+  "attachments": {
+    "uploading": "업로드 중…",
+    "uploadFailedShort": "업로드 실패",
+    "uploadFailed": "파일이 전송되지 않았습니다. {{error}}",
+    "tooMany": "메시지 하나에 최대 64개의 파일을 첨부할 수 있습니다",
+    "tooLarge": "{{name}}이(가) {{limit}}MB 제한을 초과합니다",
+    "someTooLarge": "일부 파일이 {{limit}}MB 제한을 초과합니다"
   },
   "filePreview": {
     "panelTitle": "미리보기",
@@ -2209,10 +2250,10 @@
       "staged": "Staged",
       "stagedScope": "Staged",
       "stale": "The repository changed. The diff was refreshed; review it again.",
+      "prReviewComments": "PR 리뷰 댓글 · {{count}}",
       "unstage": "Unstage",
       "unstaged": "Unstaged",
-      "unstagedScope": "Unstaged",
-      "prReviewComments": "PR 리뷰 댓글 · {{count}}"
+      "unstagedScope": "Unstaged"
     }
   },
   "effort": {
@@ -3107,12 +3148,6 @@
     "openProject": "프로젝트 열기",
     "openProjectSettings": "프로젝트 설정",
     "overview": {
-      "openHome": "프로젝트 홈 열기",
-      "recentFiles": "최근 파일",
-      "recentSessions": "최근 세션",
-      "totalFiles": "파일",
-      "totalMemories": "메모리",
-      "totalSessions": "세션",
       "activeClaims": "정리된 메모리",
       "agentsEmpty": "AGENTS.md가 비어 있습니다",
       "agentsLines": "AGENTS.md",
@@ -3132,9 +3167,15 @@
       "messageCount": "메시지 {{count}}개",
       "noRecentSessions": "아직 프로젝트 세션이 없습니다",
       "noRecentSessionsHint": "세션을 만들면 최근 작업이 여기에 표시됩니다.",
+      "openHome": "프로젝트 홈 열기",
+      "recentFiles": "최근 파일",
+      "recentSessions": "최근 세션",
       "recentSessionsHint": "최근 업데이트된 사용자 세션",
       "structuredMemory": "프로젝트 메모리",
       "structuredMemoryRole": "프로젝트 대화에서 정리한 장기 정보입니다. 답변에 자동으로 사용할지는 메모리 설정에 따라 결정됩니다.",
+      "totalFiles": "파일",
+      "totalMemories": "메모리",
+      "totalSessions": "세션",
       "unavailable": "사용할 수 없음",
       "untitledSession": "제목 없는 세션",
       "workingDirectory": "작업 폴더"
@@ -3381,6 +3422,32 @@
     }
   },
   "settings": {
+    "files": {
+      "title": "파일",
+      "description": "채팅, 작업 공간, 미리보기 및 편집에 사용할 파일 제한을 설정합니다.",
+      "runtimeLocal": "로컬 데스크톱 파일",
+      "runtimeServer": "서버 파일",
+      "runtimeLocalDesc": "파일 작업은 이 컴퓨터의 파일 시스템을 사용합니다.",
+      "runtimeServerDesc": "파일 작업은 원격 Server 호스트의 파일 시스템을 사용합니다.",
+      "maxChatAttachment": "채팅 첨부 제한",
+      "maxChatAttachmentDesc": "채팅 첨부 파일당 최대 크기({{min}}~{{max}} MiB).",
+      "maxWorkspaceUpload": "작업 공간 업로드 제한",
+      "maxWorkspaceUploadDesc": "작업 공간에 업로드하는 파일당 최대 크기({{min}}~{{max}} MiB).",
+      "maxTextPreview": "텍스트 미리보기 제한",
+      "maxTextPreviewDesc": "미리보기로 불러올 텍스트 파일의 최대 크기({{min}}~{{max}} MiB).",
+      "maxTextEdit": "텍스트 편집 제한",
+      "maxTextEditDesc": "편집 가능한 UTF-8 텍스트 파일의 최대 크기({{min}}~{{max}} MiB).",
+      "maxDocumentPreview": "문서 미리보기 제한",
+      "maxDocumentPreviewDesc": "미리보기로 처리할 PDF 또는 Office 파일의 최대 크기({{min}}~{{max}} MiB).",
+      "largeUploadWarning": "큰 업로드 제한은 디스크, 네트워크 및 처리량을 늘립니다. Server에 충분한 리소스가 있을 때만 높이세요."
+    },
+    "knowledgeSourceLimits": {
+      "title": "지식 소스 제한",
+      "description": "지식 공간에서 허용하는 소스 유형별 최대 크기입니다.",
+      "text": "텍스트 소스(MiB)",
+      "binary": "바이너리 소스(MiB)",
+      "url": "URL 응답(MiB)"
+    },
     "about": "정보",
     "acpAutoDiscover": "백엔드 자동 검색",
     "acpAutoDiscoverDesc": "시작 시 알려진 ACP Agent 바이너리를 $PATH 에서 검색",
@@ -4492,6 +4559,8 @@
     "fallbackModelsDesc": "메인 모델 사용 불가 시 순서대로 시도할 모델",
     "fsRemoteWrites": "원격 파일 쓰기 허용",
     "fsRemoteWritesDesc": "HTTP 클라이언트가 프로젝트 작업 디렉터리에서 파일을 만들고 편집·삭제·업로드할 수 있도록 합니다. 기본값은 꺼짐 — 데스크톱 앱은 이 설정과 관계없이 항상 로컬에 쓸 수 있습니다.",
+    "fsMaxChatAttachmentMb": "채팅 첨부 파일 최대 크기",
+    "fsMaxChatAttachmentMbDesc": "채팅 입력창에서 업로드하는 파일 하나의 최대 크기입니다. 로컬 데스크톱은 로컬 설정을, 원격 데스크톱과 Web은 Server 설정을 사용합니다.",
     "general": "일반",
     "generalDesc": "외관, 언어 및 시스템 설정",
     "globalModel": "글로벌 모델 설정",
@@ -7955,6 +8024,8 @@
       "selectBranch": "Select branch",
       "stageAll": "Stage all changes",
       "viewPr": "View pull request",
+      "pullRequestPanelTitle": "풀 리퀘스트",
+      "resizePullRequestPanel": "풀 리퀘스트 패널 너비 조절",
       "worktree": "Worktree",
       "checkDetails": "검사 세부 정보",
       "checkFailed": "실패",
@@ -7976,6 +8047,7 @@
       "openCheck": "검사 열기",
       "openComment": "댓글 열기",
       "prFeedbackUnavailable": "PR 검사 및 댓글을 사용할 수 없음",
+      "prFeedbackStale": "PR 상태를 새로 고치지 못했습니다. 현재 데이터가 오래되었을 수 있습니다",
       "reviewComments": "댓글 {{count}}개",
       "reviewFeedback": "리뷰 피드백",
       "autoMergeEnabled": "자동 병합이 활성화됨",
@@ -8002,10 +8074,7 @@
       "reviewPending": "대기 중",
       "reviewRequired": "리뷰 필요",
       "reviewStatus": "리뷰 상태",
-      "reviewers": "리뷰어",
-      "pullRequestPanelTitle": "풀 리퀘스트",
-      "resizePullRequestPanel": "풀 리퀘스트 패널 너비 조절",
-      "prFeedbackStale": "PR 상태를 새로 고치지 못했습니다. 현재 데이터가 오래되었을 수 있습니다"
+      "reviewers": "리뷰어"
     },
     "goal": {
       "watchdogTitle": "목표 확인 필요",
@@ -9876,6 +9945,8 @@
       "title": "메모로 정리"
     },
     "sources": {
+      "textTooLarge": "텍스트 소스가 {{limit}} MiB 제한을 초과합니다",
+      "fileTooLarge": "{{name}}이(가) {{limit}} MiB 제한을 초과합니다",
       "archiveAttachment": "지식으로 아카이브",
       "archiveAttachmentFailed": "첨부파일을 보관하지 못했습니다.",
       "archivedAttachment": "지식 소스에 보관됨",

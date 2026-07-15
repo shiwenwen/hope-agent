@@ -7,7 +7,7 @@ import { basename } from "@/lib/path"
 import { FileMimeIcon } from "./FileCard"
 import type { MessageFileAttachment } from "../chatUtils"
 import { FileContextMenu, FileActionsMoreButton } from "@/components/chat/files/FileActionMenu"
-import { useFileActions } from "@/components/chat/files/useFileActions"
+import { useFileResource } from "@/components/chat/files/useFileResource"
 import type { PreviewTarget } from "@/components/chat/files/useFilePreview"
 
 const DEFAULT_VISIBLE_FILE_ATTACHMENTS = 6
@@ -31,10 +31,16 @@ function attachmentMime(file: MessageFileAttachment): string {
   return file.kind === "media" ? file.item.mimeType : ""
 }
 
-function targetFor(file: MessageFileAttachment): PreviewTarget {
+function targetFor(file: MessageFileAttachment, sessionId?: string | null): PreviewTarget {
   return file.kind === "media"
     ? { kind: "media", item: file.item }
-    : { kind: "path", path: file.path, name: basename(file.path), language: file.language ?? null }
+    : {
+        kind: "sessionPath",
+        sessionId,
+        path: file.path,
+        name: basename(file.path),
+        language: file.language ?? null,
+      }
 }
 
 /** A single modified-file chip: primary click = preview/open/download by kind ×
@@ -46,9 +52,9 @@ function AttachmentRow({
   file: MessageFileAttachment
   sessionId?: string | null
 }) {
-  const target = useMemo(() => targetFor(file), [file])
+  const target = useMemo(() => targetFor(file, sessionId), [file, sessionId])
   const overrides = useMemo(() => ({ sessionId }), [sessionId])
-  const { primary, run } = useFileActions(target, overrides)
+  const { primary, run } = useFileResource(target, overrides)
 
   return (
     <FileContextMenu target={target} overrides={overrides}>

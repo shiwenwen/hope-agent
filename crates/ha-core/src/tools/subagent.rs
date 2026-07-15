@@ -239,6 +239,7 @@ fn parse_subagent_files(args: &Value) -> Result<Vec<crate::agent::Attachment>> {
                 source: None,
                 data: Some(content.to_string()),
                 file_path: None,
+                upload_id: None,
                 quote_lines: None,
                 quote_role: None,
             },
@@ -261,6 +262,7 @@ fn parse_subagent_files(args: &Value) -> Result<Vec<crate::agent::Attachment>> {
                     source: None,
                     data: None,
                     file_path: Some(tmp_path.to_string_lossy().to_string()),
+                    upload_id: None,
                     quote_lines: None,
                     quote_role: None,
                 }

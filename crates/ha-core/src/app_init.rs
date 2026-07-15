@@ -898,6 +898,27 @@ pub async fn start_background_tasks() {
     // Per-process in-memory state, tier-agnostic.
     spawn_embedding_init();
 
+    // Pending upload leases are opaque client staging, not durable files.
+    // Sweep legacy chat leases and generic leases once at startup and every
+    // 15 minutes thereafter.
+    crate::blocking::run_blocking(|| {
+        let _ = crate::attachments::cleanup_expired_chat_attachment_uploads();
+        let _ = crate::file_upload::cleanup_expired_uploads();
+    })
+    .await;
+    tokio::spawn(async {
+        let mut ticker = tokio::time::interval(std::time::Duration::from_secs(15 * 60));
+        ticker.tick().await;
+        loop {
+            ticker.tick().await;
+            crate::blocking::run_blocking(|| {
+                let _ = crate::attachments::cleanup_expired_chat_attachment_uploads();
+                let _ = crate::file_upload::cleanup_expired_uploads();
+            })
+            .await;
+        }
+    });
+
     // Background weather cache refresh — desktop UI only. Moved here from
     // src-tauri setup.rs so it shares the ambient runtime instead of spawning
     // its own OS thread + tokio Runtime. Gated on desktop to skip the loop

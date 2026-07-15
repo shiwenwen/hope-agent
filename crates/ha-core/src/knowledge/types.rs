@@ -488,10 +488,89 @@ impl KnowledgeMediaRetentionConfig {
     }
 }
 
-/// Import request for Phase 1 raw sources. Exactly one of `content` or `url`
-/// must be supplied. File imports are intentionally text-over-JSON so desktop
-/// and HTTP/server mode behave the same and no endpoint reads arbitrary host
-/// paths.
+pub const DEFAULT_MAX_TEXT_SOURCE_MB: u32 = 5;
+pub const MIN_MAX_TEXT_SOURCE_MB: u32 = 1;
+pub const MAX_MAX_TEXT_SOURCE_MB: u32 = 20;
+pub const DEFAULT_MAX_BINARY_SOURCE_MB: u32 = 24;
+pub const MIN_MAX_BINARY_SOURCE_MB: u32 = 1;
+pub const MAX_MAX_BINARY_SOURCE_MB: u32 = 100;
+pub const DEFAULT_MAX_URL_RESPONSE_MB: u32 = 2;
+pub const MIN_MAX_URL_RESPONSE_MB: u32 = 1;
+pub const MAX_MAX_URL_RESPONSE_MB: u32 = 20;
+
+fn default_max_text_source_mb() -> u32 {
+    DEFAULT_MAX_TEXT_SOURCE_MB
+}
+
+fn default_max_binary_source_mb() -> u32 {
+    DEFAULT_MAX_BINARY_SOURCE_MB
+}
+
+fn default_max_url_response_mb() -> u32 {
+    DEFAULT_MAX_URL_RESPONSE_MB
+}
+
+/// User-configurable source-ingestion limits. Values are stored as MiB.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KnowledgeSourceLimitsConfig {
+    #[serde(default = "default_max_text_source_mb")]
+    pub max_text_source_mb: u32,
+    #[serde(default = "default_max_binary_source_mb")]
+    pub max_binary_source_mb: u32,
+    #[serde(default = "default_max_url_response_mb")]
+    pub max_url_response_mb: u32,
+}
+
+impl Default for KnowledgeSourceLimitsConfig {
+    fn default() -> Self {
+        Self {
+            max_text_source_mb: DEFAULT_MAX_TEXT_SOURCE_MB,
+            max_binary_source_mb: DEFAULT_MAX_BINARY_SOURCE_MB,
+            max_url_response_mb: DEFAULT_MAX_URL_RESPONSE_MB,
+        }
+    }
+}
+
+impl KnowledgeSourceLimitsConfig {
+    pub fn clamped(mut self) -> Self {
+        self.max_text_source_mb = self
+            .max_text_source_mb
+            .clamp(MIN_MAX_TEXT_SOURCE_MB, MAX_MAX_TEXT_SOURCE_MB);
+        self.max_binary_source_mb = self
+            .max_binary_source_mb
+            .clamp(MIN_MAX_BINARY_SOURCE_MB, MAX_MAX_BINARY_SOURCE_MB);
+        self.max_url_response_mb = self
+            .max_url_response_mb
+            .clamp(MIN_MAX_URL_RESPONSE_MB, MAX_MAX_URL_RESPONSE_MB);
+        self
+    }
+
+    pub fn max_text_source_bytes(&self) -> u64 {
+        self.max_text_source_mb
+            .clamp(MIN_MAX_TEXT_SOURCE_MB, MAX_MAX_TEXT_SOURCE_MB) as u64
+            * 1024
+            * 1024
+    }
+
+    pub fn max_binary_source_bytes(&self) -> u64 {
+        self.max_binary_source_mb
+            .clamp(MIN_MAX_BINARY_SOURCE_MB, MAX_MAX_BINARY_SOURCE_MB) as u64
+            * 1024
+            * 1024
+    }
+
+    pub fn max_url_response_bytes(&self) -> u64 {
+        self.max_url_response_mb
+            .clamp(MIN_MAX_URL_RESPONSE_MB, MAX_MAX_URL_RESPONSE_MB) as u64
+            * 1024
+            * 1024
+    }
+}
+
+/// Import request for Phase 1 raw sources. Exactly one of `content`,
+/// `dataBase64`, `uploadId`, or `url` must be supplied. New local-file imports
+/// use opaque upload leases; legacy JSON/base64 remains compatibility-only.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct KnowledgeSourceImportInput {
@@ -507,6 +586,8 @@ pub struct KnowledgeSourceImportInput {
     pub content: Option<String>,
     #[serde(default)]
     pub data_base64: Option<String>,
+    #[serde(default)]
+    pub upload_id: Option<String>,
     #[serde(default)]
     pub url: Option<String>,
 }
@@ -2019,5 +2100,24 @@ mod tests {
         assert_eq!(cfg.max_chars, default_passive_max_chars());
         assert_eq!(cfg.cache_ttl_secs, default_passive_cache_ttl_secs());
         assert!(!cfg.show_snippet);
+    }
+
+    #[test]
+    fn source_limit_defaults_and_clamps_are_backward_compatible() {
+        let defaults: KnowledgeSourceLimitsConfig =
+            serde_json::from_value(serde_json::json!({})).expect("deserialize defaults");
+        assert_eq!(defaults.max_text_source_mb, DEFAULT_MAX_TEXT_SOURCE_MB);
+        assert_eq!(defaults.max_binary_source_mb, DEFAULT_MAX_BINARY_SOURCE_MB);
+        assert_eq!(defaults.max_url_response_mb, DEFAULT_MAX_URL_RESPONSE_MB);
+
+        let clamped = KnowledgeSourceLimitsConfig {
+            max_text_source_mb: 0,
+            max_binary_source_mb: 999,
+            max_url_response_mb: 0,
+        }
+        .clamped();
+        assert_eq!(clamped.max_text_source_mb, MIN_MAX_TEXT_SOURCE_MB);
+        assert_eq!(clamped.max_binary_source_mb, MAX_MAX_BINARY_SOURCE_MB);
+        assert_eq!(clamped.max_url_response_mb, MIN_MAX_URL_RESPONSE_MB);
     }
 }

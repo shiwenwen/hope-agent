@@ -54,8 +54,6 @@ mime_guess = "2"
 # Used by the `/api/server/local-ips` endpoint and the CLI launch banner to
 # substitute a LAN-reachable IP when the server binds to 0.0.0.0.
 local-ip-address = "0.6"
-
-[dev-dependencies]
 tempfile = "3"
 
 [lints]

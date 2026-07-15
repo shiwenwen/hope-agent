@@ -39,17 +39,14 @@ use super::types::{
 
 type QueuedSourceImport = (KnowledgeSourceImportItem, KnowledgeSourceImportInput);
 
-const MAX_DIRECT_SOURCE_BYTES: usize = 5 * 1024 * 1024;
-/// Decoded bytes accepted for uploaded PDF/DOCX source imports. HTTP routes
-/// add a larger JSON body cap for base64 expansion, but this is the real
-/// product limit.
+/// Compatibility ceiling for the legacy JSON/base64 import path. New clients
+/// use upload leases and the configurable source limits.
 pub const MAX_BINARY_SOURCE_BYTES: usize = 24 * 1024 * 1024;
 const MAX_BROWSER_CAPTURE_CHARS: usize = 200_000;
 const MAX_SOURCE_IMPORT_BATCH_ITEMS: usize = 50;
 const MAX_SOURCE_SIMILARITY_SCAN: usize = 200;
 const MAX_SOURCE_SIMILARITY_GROUPS: usize = 25;
 const SOURCE_SIMILARITY_THRESHOLD: f32 = 0.84;
-const MAX_URL_RESPONSE_BYTES: usize = 2 * 1024 * 1024;
 const SOURCE_CHUNK_CHARS: usize = 4_000;
 const MAX_SOURCE_DIFF_LINES: usize = 240;
 const USER_AGENT: &str =
@@ -235,11 +232,12 @@ pub async fn import_session_attachment(
     if metadata.len() == 0 {
         bail!("session attachment file is empty");
     }
-    if metadata.len() > MAX_BINARY_SOURCE_BYTES as u64 {
+    let max_binary_bytes = source_limits().max_binary_source_bytes();
+    if metadata.len() > max_binary_bytes {
         bail!(
             "session attachment is too large ({} bytes, max {})",
             metadata.len(),
-            MAX_BINARY_SOURCE_BYTES
+            max_binary_bytes
         );
     }
 
@@ -320,7 +318,17 @@ async fn import_source_with_outcome(
             file_name,
             mime_type,
             bytes,
-        } => import_file_snapshot(kb_id, kind, title, file_name, mime_type, bytes).await?,
+            upload_id,
+        } => {
+            let outcome =
+                import_file_snapshot(kb_id, kind, title, file_name, mime_type, bytes).await?;
+            if let Some(upload_id) = upload_id {
+                // Import is durable at this point. Leave cleanup to the expiry
+                // sweeper if immediate lease removal fails.
+                let _ = crate::file_upload::discard_upload(&upload_id);
+            }
+            outcome
+        }
     })
 }
 
@@ -1106,11 +1114,12 @@ fn import_text_snapshot(
     file_name: Option<String>,
     content: String,
 ) -> Result<ImportedSourceOutcome> {
-    if content.len() > MAX_DIRECT_SOURCE_BYTES {
+    let max_bytes = source_limits().max_text_source_bytes() as usize;
+    if content.len() > max_bytes {
         bail!(
             "source is too large ({} bytes, max {})",
             content.len(),
-            MAX_DIRECT_SOURCE_BYTES
+            max_bytes
         );
     }
     let title = choose_title(title, file_name.as_deref(), None);
@@ -1143,11 +1152,20 @@ async fn import_file_snapshot(
     mime_type: Option<String>,
     bytes: Vec<u8>,
 ) -> Result<ImportedSourceOutcome> {
-    if bytes.len() > MAX_BINARY_SOURCE_BYTES {
+    let limits = source_limits();
+    let max_bytes = if matches!(
+        kind,
+        KnowledgeSourceKind::Markdown | KnowledgeSourceKind::Text
+    ) {
+        limits.max_text_source_bytes()
+    } else {
+        limits.max_binary_source_bytes()
+    };
+    if bytes.len() as u64 > max_bytes {
         bail!(
             "source file is too large ({} bytes, max {})",
             bytes.len(),
-            MAX_BINARY_SOURCE_BYTES
+            max_bytes
         );
     }
 
@@ -1220,6 +1238,7 @@ enum NormalizedImport {
         file_name: Option<String>,
         mime_type: Option<String>,
         bytes: Vec<u8>,
+        upload_id: Option<String>,
     },
 }
 
@@ -1330,9 +1349,13 @@ fn normalize_import_input(input: KnowledgeSourceImportInput) -> Result<Normalize
     let url = normalize_optional_owned(input.url);
     let content = normalize_content_owned(input.content);
     let data_base64 = normalize_optional_owned(input.data_base64);
-    let supplied = url.is_some() as u8 + content.is_some() as u8 + data_base64.is_some() as u8;
+    let upload_id = normalize_optional_owned(input.upload_id);
+    let supplied = url.is_some() as u8
+        + content.is_some() as u8
+        + data_base64.is_some() as u8
+        + upload_id.is_some() as u8;
     if supplied != 1 {
-        bail!("source import accepts exactly one of content, dataBase64, or url");
+        bail!("source import accepts exactly one of content, dataBase64, uploadId, or url");
     }
 
     if let Some(url) = url {
@@ -1384,6 +1407,46 @@ fn normalize_import_input(input: KnowledgeSourceImportInput) -> Result<Normalize
         });
     }
 
+    if let Some(upload_id) = upload_id {
+        let lease = crate::file_upload::upload_status(&upload_id)?;
+        if lease.purpose != crate::file_upload::FileUploadPurpose::KnowledgeSource {
+            bail!("file upload purpose mismatch");
+        }
+        let file_name =
+            normalize_optional_owned(input.file_name).or_else(|| Some(lease.file_name.clone()));
+        let mime_type = normalize_optional_owned(input.mime_type)
+            .or_else(|| normalize_optional_owned(Some(lease.mime_type.clone())));
+        let kind = input.kind.unwrap_or_else(|| infer_kind(&file_name));
+        if matches!(kind, KnowledgeSourceKind::UrlSnapshot) {
+            bail!("url_snapshot source imports require url");
+        }
+        if matches!(kind, KnowledgeSourceKind::BrowserSnapshot) {
+            bail!("browser_snapshot source imports require browser capture");
+        }
+        let limits = source_limits();
+        let max_bytes = if matches!(
+            kind,
+            KnowledgeSourceKind::Markdown | KnowledgeSourceKind::Text
+        ) {
+            limits.max_text_source_bytes()
+        } else {
+            limits.max_binary_source_bytes()
+        };
+        let (_, bytes) = crate::file_upload::read_completed_upload_with_limit(
+            &upload_id,
+            crate::file_upload::FileUploadPurpose::KnowledgeSource,
+            max_bytes,
+        )?;
+        return Ok(NormalizedImport::File {
+            kind,
+            title: input.title,
+            file_name,
+            mime_type,
+            bytes,
+            upload_id: Some(upload_id),
+        });
+    }
+
     let data_base64 = data_base64.expect("checked exactly one import payload");
     let kind = input.kind.unwrap_or_else(|| infer_kind(&input.file_name));
     if matches!(kind, KnowledgeSourceKind::UrlSnapshot) {
@@ -1399,6 +1462,7 @@ fn normalize_import_input(input: KnowledgeSourceImportInput) -> Result<Normalize
         file_name: input.file_name,
         mime_type: normalize_optional_owned(input.mime_type),
         bytes,
+        upload_id: None,
     })
 }
 
@@ -1415,14 +1479,23 @@ fn decode_base64_source(raw: &str) -> Result<Vec<u8>> {
     if bytes.is_empty() {
         bail!("source file is empty");
     }
-    if bytes.len() > MAX_BINARY_SOURCE_BYTES {
+    let max_bytes =
+        (source_limits().max_binary_source_bytes() as usize).min(MAX_BINARY_SOURCE_BYTES);
+    if bytes.len() > max_bytes {
         bail!(
             "source file is too large ({} bytes, max {})",
             bytes.len(),
-            MAX_BINARY_SOURCE_BYTES
+            max_bytes
         );
     }
     Ok(bytes)
+}
+
+fn source_limits() -> super::KnowledgeSourceLimitsConfig {
+    crate::config::cached_config()
+        .knowledge_source_limits
+        .clone()
+        .clamped()
 }
 
 async fn transcribe_uploaded_media(
@@ -1588,6 +1661,7 @@ async fn ocr_image_bytes(
         source: Some("knowledge_source_ocr".to_string()),
         data: Some(general_purpose::STANDARD.encode(&bytes)),
         file_path: None,
+        upload_id: None,
         quote_lines: None,
         quote_role: None,
     };
@@ -1838,6 +1912,7 @@ async fn ocr_one_pdf_page(
         source: Some("knowledge_source_ocr".to_string()),
         data: Some(image_b64),
         file_path: None,
+        upload_id: None,
         quote_lines: None,
         quote_role: None,
     };
@@ -2765,11 +2840,12 @@ async fn download_remote_media_source(
     while let Some(chunk) = stream.next().await {
         let chunk = chunk.map_err(|e| anyhow!("remote media stream read failed: {e}"))?;
         bytes.extend_from_slice(&chunk);
-        if bytes.len() > MAX_BINARY_SOURCE_BYTES {
+        let max_bytes = source_limits().max_binary_source_bytes() as usize;
+        if bytes.len() > max_bytes {
             bail!(
                 "remote media is too large (>{} bytes, max {})",
-                MAX_BINARY_SOURCE_BYTES,
-                MAX_BINARY_SOURCE_BYTES
+                max_bytes,
+                max_bytes
             );
         }
     }
@@ -2858,8 +2934,9 @@ async fn fetch_url_snapshot(
     while let Some(chunk) = stream.next().await {
         let chunk = chunk.map_err(|e| anyhow!("source URL stream read failed: {e}"))?;
         body_bytes.extend_from_slice(&chunk);
-        if body_bytes.len() > MAX_URL_RESPONSE_BYTES {
-            body_bytes.truncate(MAX_URL_RESPONSE_BYTES);
+        let max_bytes = source_limits().max_url_response_bytes() as usize;
+        if body_bytes.len() > max_bytes {
+            body_bytes.truncate(max_bytes);
             truncated = true;
             break;
         }
@@ -4080,6 +4157,7 @@ mod tests {
             mime_type: None,
             content: None,
             data_base64: None,
+            upload_id: None,
             url: None,
         }
     }
@@ -4107,6 +4185,41 @@ mod tests {
 
         assert_eq!(kind, KnowledgeSourceKind::Markdown);
         assert_eq!(content, "\n  body  \n");
+    }
+
+    #[test]
+    fn normalize_import_accepts_completed_knowledge_upload_lease() {
+        let root = tempfile::tempdir().expect("tempdir");
+        crate::test_support::with_env_vars(&[("HA_DATA_DIR", root.path())], || {
+            let lease =
+                crate::file_upload::start_upload(crate::file_upload::FileUploadStartInput {
+                    purpose: crate::file_upload::FileUploadPurpose::KnowledgeSource,
+                    file_name: "source.md".to_string(),
+                    mime_type: "text/markdown".to_string(),
+                    size_bytes: 6,
+                })
+                .unwrap();
+            crate::file_upload::upload_chunk(&lease.upload_id, 0, b"source").unwrap();
+            crate::file_upload::complete_upload(&lease.upload_id).unwrap();
+
+            let mut request = input();
+            request.upload_id = Some(lease.upload_id.clone());
+            let NormalizedImport::File {
+                kind,
+                file_name,
+                bytes,
+                upload_id,
+                ..
+            } = normalize_import_input(request).expect("normalize lease")
+            else {
+                panic!("expected file import");
+            };
+            assert_eq!(kind, KnowledgeSourceKind::Markdown);
+            assert_eq!(file_name.as_deref(), Some("source.md"));
+            assert_eq!(bytes, b"source");
+            assert_eq!(upload_id.as_deref(), Some(lease.upload_id.as_str()));
+            assert!(crate::file_upload::upload_status(&lease.upload_id).is_ok());
+        });
     }
 
     #[test]

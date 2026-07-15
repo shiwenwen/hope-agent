@@ -126,6 +126,12 @@ export interface KnowledgeMediaRetentionConfig {
   pruneWhenOverQuota: boolean
 }
 
+export interface KnowledgeSourceLimitsConfig {
+  maxTextSourceMb: number
+  maxBinarySourceMb: number
+  maxUrlResponseMb: number
+}
+
 export interface KnowledgeSourceImportInput {
   kind?: KnowledgeSourceKind | null
   title?: string | null
@@ -133,6 +139,7 @@ export interface KnowledgeSourceImportInput {
   mimeType?: string | null
   content?: string | null
   dataBase64?: string | null
+  uploadId?: string | null
   url?: string | null
 }
 

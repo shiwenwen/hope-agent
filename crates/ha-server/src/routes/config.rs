@@ -1147,7 +1147,7 @@ pub async fn save_ssrf_config(
 /// `GET /api/config/filesystem` -- get filesystem (file-browser) policy.
 pub async fn get_filesystem_config() -> Result<Json<ha_core::config::FilesystemConfig>, AppError> {
     let store = load_config()?;
-    Ok(Json(store.filesystem))
+    Ok(Json(store.filesystem.clamped()))
 }
 
 /// `PUT /api/config/filesystem` -- save filesystem (file-browser) policy.
@@ -1155,11 +1155,28 @@ pub async fn save_filesystem_config(
     Json(body): Json<ConfigBody<ha_core::config::FilesystemConfig>>,
 ) -> Result<Json<Value>, AppError> {
     ha_core::config::mutate_config_async(("filesystem", "http"), move |store| {
-        store.filesystem = body.config;
+        store.filesystem = body.config.clamped();
         Ok(())
     })
     .await?;
     Ok(Json(json!({ "saved": true })))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct FilesystemPatchBody {
+    pub patch: ha_core::config::FilesystemConfigPatch,
+}
+
+/// `PATCH /api/config/filesystem` -- update only explicitly-owned fields.
+pub async fn patch_filesystem_config(
+    Json(body): Json<FilesystemPatchBody>,
+) -> Result<Json<ha_core::config::FilesystemConfig>, AppError> {
+    let next = ha_core::config::mutate_config_async(("filesystem", "http"), move |store| {
+        store.filesystem.apply_patch(body.patch);
+        Ok(store.filesystem.clone())
+    })
+    .await?;
+    Ok(Json(next))
 }
 
 /// `GET /api/config/image-generate` -- get image generation config.
