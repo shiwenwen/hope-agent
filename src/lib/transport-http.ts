@@ -511,6 +511,10 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
     method: "POST",
     path: "/api/design/artifacts/{artifactId}/code-drift/sync",
   },
+  mark_design_artifact_opened_cmd: {
+    method: "POST",
+    path: "/api/design/artifacts/{id}/opened",
+  },
   export_design_pptx_cmd: { method: "POST", path: "/api/design/pptx" },
   export_design_pptx_outline_cmd: {
     method: "GET",

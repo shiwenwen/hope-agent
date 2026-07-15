@@ -2889,6 +2889,10 @@ fn build_router_with_cors(
             post(routes::design::code_drift_sync),
         )
         .route(
+            "/design/artifacts/{id}/opened",
+            post(routes::design::mark_artifact_opened),
+        )
+        .route(
             "/design/artifacts/{id}/restore",
             post(routes::design::restore_version),
         )

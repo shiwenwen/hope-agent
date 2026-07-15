@@ -44,6 +44,14 @@ fn main() {
         return;
     }
 
+    // Platform MCP subcommand: `hope-agent mcp` — exposes Hope Agent subsystems
+    // (design first) as a stdio MCP server. Read-only by default; --allow-writes
+    // enables the write tools.
+    if args.len() >= 2 && args[1] == "mcp" {
+        run_mcp(&args[2..]);
+        return;
+    }
+
     // ACP subcommand: `hope-agent acp` — runs the ACP stdio server
     if args.len() >= 2 && args[1] == "acp" {
         run_acp_server(&args[2..]);
@@ -153,6 +161,63 @@ fn print_knowledge_mcp_help() {
     println!("  --allow-proposals  Also expose knowledge_compile_propose (review proposal only)");
     println!("  --version          Print version and exit");
     println!("  --help, -h         Print help and exit");
+}
+
+// ── Platform MCP Server Mode ─────────────────────────────────────────
+
+fn run_mcp(args: &[String]) {
+    let Some(options) = parse_mcp_args(args) else {
+        print_mcp_help();
+        return;
+    };
+    if let Err(e) = ha_core::paths::ensure_dirs() {
+        eprintln!("[mcp] Failed to initialize data directories: {}", e);
+        std::process::exit(1);
+    }
+    ha_core::set_app_version(env!("CARGO_PKG_VERSION"));
+    ha_core::init_runtime("mcp");
+
+    let providers: Vec<Box<dyn ha_core::mcp_server::ToolProvider>> =
+        vec![Box::new(ha_core::design::mcp_provider::DesignToolProvider)];
+    if let Err(e) = ha_core::mcp_server::run_stdio(options, providers) {
+        eprintln!("[mcp] Server error: {}", e);
+        std::process::exit(1);
+    }
+}
+
+fn parse_mcp_args(args: &[String]) -> Option<ha_core::mcp_server::McpServerOptions> {
+    let mut options = ha_core::mcp_server::McpServerOptions::default();
+    for arg in args {
+        match arg.as_str() {
+            "--allow-writes" => options.allow_writes = true,
+            "--version" => {
+                println!("hope-agent-mcp {}", env!("CARGO_PKG_VERSION"));
+                std::process::exit(0);
+            }
+            "--help" | "-h" => return None,
+            other => {
+                eprintln!("[mcp] Unknown argument: {}", other);
+                return None;
+            }
+        }
+    }
+    Some(options)
+}
+
+fn print_mcp_help() {
+    println!("Hope Agent MCP Server (platform)");
+    println!();
+    println!("Usage: hope-agent mcp [OPTIONS]");
+    println!();
+    println!("Exposes Hope Agent subsystems (Design Space) over stdio MCP. Read-only by default.");
+    println!("(Knowledge Space tools remain under `hope-agent knowledge-mcp`.)");
+    println!();
+    println!("Options:");
+    println!(
+        "  --allow-writes  Expose write tools (generate / edit / comment); default is read-only"
+    );
+    println!("  --version       Print version and exit");
+    println!("  --help, -h      Print help and exit");
 }
 
 // ── Guardian Mode ──────────────────────────────────────────────────

@@ -974,6 +974,7 @@ pub fn run() {
             commands::design::design_check_code_drift_cmd,
             commands::design::design_code_drift_changes_cmd,
             commands::design::design_code_drift_sync_cmd,
+            commands::design::mark_design_artifact_opened_cmd,
             commands::design::critique_design_artifact_cmd,
             commands::design::restyle_design_artifact_cmd,
             commands::design::list_design_systems_cmd,

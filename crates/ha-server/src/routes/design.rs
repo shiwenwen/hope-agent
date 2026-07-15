@@ -725,6 +725,15 @@ pub async fn code_drift_sync(
     Ok(Json(out))
 }
 
+/// `POST /api/design/artifacts/{id}/opened` — 上报「最近查看的产物」（MCP active-context 事实源）。
+pub async fn mark_artifact_opened(Path(id): Path<String>) -> Result<Json<Value>, AppError> {
+    validate_id(&id)?;
+    ha_core::blocking::run_blocking(move || service::mark_artifact_opened(&id))
+        .await
+        .map_err(|e| AppError::internal(e.to_string()))?;
+    Ok(Json(json!({ "ok": true })))
+}
+
 // ── Code bindings (工程轴 D) ────────────────────────────────────
 
 /// 外部写盘门：HTTP 侧默认禁写外部工程，需 `filesystem.allowRemoteWrites`（桌面 Tauri 不受限）。

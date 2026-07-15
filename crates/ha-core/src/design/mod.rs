@@ -20,6 +20,7 @@ pub mod extract;
 pub mod generate;
 pub mod image;
 pub mod kit;
+pub mod mcp_provider;
 pub mod patch;
 pub mod recipe;
 pub mod recipe_demo;

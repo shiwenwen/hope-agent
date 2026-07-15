@@ -463,6 +463,16 @@ impl DesignDb {
         // 代码仓库绑定（本机目录源）：canonical 绝对路径；与 ha_project_id（HA 项目源）
         // 互斥，互斥由 service::set_project_code_binding 单点保证。旧 dev DB 幂等补列。
         let _ = conn.execute("ALTER TABLE design_projects ADD COLUMN code_dir TEXT", []);
+        // MCP `design_get_active_context` 的事实源：GUI 打开产物时上报「最近查看」。不进
+        // PROJECT_COLUMNS/DTO/mapper（可丢 UI 痕迹，reindex 丢了走 fallback）。
+        let _ = conn.execute(
+            "ALTER TABLE design_projects ADD COLUMN last_opened_artifact_id TEXT",
+            [],
+        );
+        let _ = conn.execute(
+            "ALTER TABLE design_projects ADD COLUMN last_opened_at TEXT",
+            [],
+        );
         // B3 版本溯源（origin: ai/manual/restore + 生成 prompt 摘要）——分支内 dev DB 幂等补列。
         let _ = conn.execute(
             "ALTER TABLE design_artifact_versions ADD COLUMN origin TEXT",
@@ -1447,6 +1457,40 @@ impl DesignDb {
         Ok(n > 0)
     }
 
+    // ── active context（MCP get_active_context 事实源）─────────────────
+
+    /// 上报「最近查看的产物」（GUI 打开产物时）。**不动 updated_at**（浏览≠编辑，不得扰动
+    /// 最近项目排序——由 service::mark_artifact_opened 保证只调本方法）。
+    pub fn set_last_opened(&self, project_id: &str, artifact_id: &str, at: &str) -> Result<()> {
+        let conn = self.lock()?;
+        conn.execute(
+            "UPDATE design_projects SET last_opened_artifact_id = ?2, last_opened_at = ?3 WHERE id = ?1",
+            rusqlite::params![project_id, artifact_id, at],
+        )?;
+        Ok(())
+    }
+
+    /// 全局最近查看记录：(project_id, artifact_id, opened_at)。无记录 = None。
+    pub fn last_opened(&self) -> Result<Option<(String, String, String)>> {
+        let conn = self.lock()?;
+        let row = conn
+            .query_row(
+                "SELECT id, last_opened_artifact_id, last_opened_at FROM design_projects
+                 WHERE last_opened_at IS NOT NULL AND last_opened_artifact_id IS NOT NULL
+                 ORDER BY last_opened_at DESC LIMIT 1",
+                [],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                    ))
+                },
+            )
+            .optional()?;
+        Ok(row)
+    }
+
     // ── code→design 回灌回执 / 链接（design::code_sync）─────────────────
 
     pub fn create_implement_receipt(&self, r: &DesignImplementReceipt) -> Result<()> {
@@ -1572,19 +1616,6 @@ impl DesignDb {
             rusqlite::params![receipt_id, rel_path, blake3, size_bytes, content_gz, now],
         )?;
         Ok(())
-    }
-
-    fn map_link(row: &rusqlite::Row<'_>) -> rusqlite::Result<DesignCodeLink> {
-        Ok(DesignCodeLink {
-            id: row.get(0)?,
-            receipt_id: row.get(1)?,
-            rel_path: row.get(2)?,
-            blake3: row.get(3)?,
-            size_bytes: row.get(4)?,
-            content_gz: row.get(5)?,
-            linked_at: row.get(6)?,
-            synced_at: row.get(7)?,
-        })
     }
 
     /// 某产物全部回执的 links（JOIN，**不背 content_gz**——列表/比对用轻量态；快照单独取）。
@@ -2118,6 +2149,22 @@ mod tests {
         assert_eq!(removed, 1);
         assert_eq!(db.count_links_for_receipt("r1").unwrap(), 0);
         assert_eq!(db.count_links_for_receipt("r2").unwrap(), 1);
+    }
+
+    #[test]
+    fn last_opened_roundtrip_and_ordering() {
+        let (_d, db) = open_temp();
+        seed_artifact(&db); // p1 / a1
+        assert!(db.last_opened().unwrap().is_none());
+        db.set_last_opened("p1", "a1", "2026-07-15T10:00:00Z")
+            .unwrap();
+        let got = db.last_opened().unwrap().unwrap();
+        assert_eq!(
+            got,
+            ("p1".into(), "a1".into(), "2026-07-15T10:00:00Z".into())
+        );
+        // set_last_opened 不动 updated_at（浏览≠编辑）。
+        assert_eq!(db.get_project("p1").unwrap().unwrap().updated_at, "t");
     }
 
     #[test]

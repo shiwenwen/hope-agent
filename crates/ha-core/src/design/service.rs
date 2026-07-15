@@ -905,6 +905,121 @@ pub fn get_project_code_binding(project_id: &str) -> Result<CodeBindingInfo> {
     })
 }
 
+// ── Active context（MCP `design_get_active_context` 的事实源）──────────
+
+/// 「最近查看视为过期」阈值（30 分钟）：超此仍返回但标 `stale`，供 MCP client 判断新鲜度。
+const ACTIVE_CONTEXT_TTL_SECS: i64 = 30 * 60;
+
+/// GUI 打开产物时上报「最近查看」。**不调 `touch_project`**（浏览≠编辑，不得抬 `updated_at`
+/// 扰动「最近项目」排序——现有 15 处 touch 全是 mutation，保持该不变量）。
+pub fn mark_artifact_opened(artifact_id: &str) -> Result<()> {
+    let db = get_design_db()?;
+    let Some(a) = db.get_artifact(artifact_id)? else {
+        return Ok(()); // 已删产物：静默
+    };
+    db.set_last_opened(&a.project_id, artifact_id, &now())
+}
+
+/// MCP `design_get_active_context` 载荷：外部 agent「用户此刻在设计空间看什么」。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ActiveDesignContext {
+    /// `"last_opened"` | `"recent"`（回退到最近更新项目）| `"none"`（无任何项目）。
+    pub source: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub opened_at: Option<String>,
+    /// last_opened 记录超 TTL（仍返回，供 client 判断新鲜度）。
+    pub stale: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub project: Option<DesignProject>,
+    /// 产物摘要（含 body_hash / open_comment_count）；**不内联源码**（大件，另调 get_artifact）。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub artifact: Option<ArtifactView>,
+    /// 当前产物的未解决批注正文。
+    pub open_comments: Vec<DesignComment>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub code_binding: Option<CodeBindingInfo>,
+    /// 该项目最近的设计对话会话 id（外部 agent 定位对话线程）。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub latest_thread_session_id: Option<String>,
+}
+
+/// 解析「用户此刻在看什么」：last_opened（TTL 内新鲜 / 超 TTL 标 stale）→ 回退最近更新项目
+/// 及其最新产物 → 无项目返 `source="none"`。产物 / 项目已删则回退。
+pub fn get_active_context() -> Result<ActiveDesignContext> {
+    let db = get_design_db()?;
+
+    // 1) last_opened 记录（产物 / 项目仍存在才采纳）。
+    if let Some((pid, aid, opened_at)) = db.last_opened()? {
+        if let (Some(project), Some(artifact)) = (db.get_project(&pid)?, get_artifact_view(&aid)?) {
+            let stale = chrono::DateTime::parse_from_rfc3339(&opened_at)
+                .map(|t| {
+                    (chrono::Utc::now() - t.with_timezone(&chrono::Utc)).num_seconds()
+                        > ACTIVE_CONTEXT_TTL_SECS
+                })
+                .unwrap_or(false);
+            return Ok(build_active_context(
+                "last_opened",
+                Some(opened_at),
+                stale,
+                project,
+                Some(artifact),
+            ));
+        }
+    }
+
+    // 2) 回退：最近更新的项目 + 其最新产物。
+    let projects = list_projects()?;
+    let Some(project) = projects.into_iter().next() else {
+        return Ok(ActiveDesignContext {
+            source: "none".to_string(),
+            opened_at: None,
+            stale: false,
+            project: None,
+            artifact: None,
+            open_comments: Vec::new(),
+            code_binding: None,
+            latest_thread_session_id: None,
+        });
+    };
+    let artifact = list_artifacts(&project.id)?
+        .into_iter()
+        .next()
+        .and_then(|a| get_artifact_view(&a.id).ok().flatten());
+    Ok(build_active_context(
+        "recent", None, false, project, artifact,
+    ))
+}
+
+fn build_active_context(
+    source: &str,
+    opened_at: Option<String>,
+    stale: bool,
+    project: DesignProject,
+    artifact: Option<ArtifactView>,
+) -> ActiveDesignContext {
+    let open_comments = artifact
+        .as_ref()
+        .and_then(|v| list_comments(&v.artifact.id).ok())
+        .map(|cs| cs.into_iter().filter(|c| !c.resolved).collect())
+        .unwrap_or_default();
+    let code_binding = get_project_code_binding(&project.id).ok();
+    let latest_thread_session_id = design_chat_thread_latest(&project.id)
+        .ok()
+        .flatten()
+        .map(|m| m.id);
+    ActiveDesignContext {
+        source: source.to_string(),
+        opened_at,
+        stale,
+        project: Some(project),
+        artifact,
+        open_comments,
+        code_binding,
+        latest_thread_session_id,
+    }
+}
+
 /// 设置 / 清除设计项目的代码仓库绑定（owner 平面专属；agent `design` 工具**无**
 /// 此动作——绑定 = 用户显式授权读取该目录，模型不能自授权，红线见 design-space.md）。
 ///

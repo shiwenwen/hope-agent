@@ -34,6 +34,10 @@ fn main() {
         return run_knowledge_mcp(&args[2..]);
     }
 
+    if args.len() >= 2 && args[1] == "mcp" {
+        return run_mcp(&args[2..]);
+    }
+
     // `hope-agent server [sub] [opts...]`
     if args.len() >= 2 && args[1] == "server" {
         // Flag detection lives inside the `server` branch so plain
@@ -117,13 +121,14 @@ fn apply_server_process_flags(args: &[String]) {
 fn print_top_help() {
     println!("Hope Agent — headless HTTP/WebSocket server");
     println!();
-    println!("This binary ships in the official Docker image. Only the");
-    println!("headless `server` and `knowledge-mcp` subcommands are wired up;");
-    println!("the desktop GUI, ACP stdio, and `auth` flows live in the Tauri-built binary.");
+    println!("This binary ships in the official Docker image. Only the headless");
+    println!("`server`, `knowledge-mcp` and `mcp` subcommands are wired up; the");
+    println!("desktop GUI, ACP stdio, and `auth` flows live in the Tauri-built binary.");
     println!();
     println!("Usage:");
     println!("  hope-agent server start [OPTIONS]");
     println!("  hope-agent knowledge-mcp [OPTIONS]");
+    println!("  hope-agent mcp [OPTIONS]");
     println!();
     println!("Server options:");
     println!("  --bind, -b ADDR                   Bind address (default: 127.0.0.1:8420)");
@@ -153,6 +158,44 @@ fn run_knowledge_mcp(args: &[String]) {
 
     if let Err(e) = ha_core::knowledge::agent_mcp::run_stdio(options) {
         eprintln!("[knowledge-mcp] Server error: {e}");
+        std::process::exit(1);
+    }
+}
+
+fn run_mcp(args: &[String]) {
+    let mut options = ha_core::mcp_server::McpServerOptions::default();
+    for arg in args {
+        match arg.as_str() {
+            "--allow-writes" => options.allow_writes = true,
+            "--version" => {
+                println!("hope-agent-mcp {}", env!("CARGO_PKG_VERSION"));
+                return;
+            }
+            "--help" | "-h" => {
+                println!("Hope Agent MCP Server (platform) — Design Space over stdio MCP.");
+                println!();
+                println!("Usage: hope-agent mcp [--allow-writes]");
+                println!("  --allow-writes  Expose write tools (generate / edit / comment); default read-only");
+                println!("(Knowledge Space tools remain under `hope-agent knowledge-mcp`.)");
+                return;
+            }
+            other => {
+                eprintln!("[mcp] Unknown argument: {other}");
+                return;
+            }
+        }
+    }
+    if let Err(e) = ha_core::paths::ensure_dirs() {
+        eprintln!("[mcp] Failed to initialize data directories: {e}");
+        std::process::exit(1);
+    }
+    ha_core::set_app_version(env!("CARGO_PKG_VERSION"));
+    ha_core::init_runtime("mcp");
+
+    let providers: Vec<Box<dyn ha_core::mcp_server::ToolProvider>> =
+        vec![Box::new(ha_core::design::mcp_provider::DesignToolProvider)];
+    if let Err(e) = ha_core::mcp_server::run_stdio(options, providers) {
+        eprintln!("[mcp] Server error: {e}");
         std::process::exit(1);
     }
 }

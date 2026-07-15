@@ -626,6 +626,14 @@ pub async fn design_code_drift_sync_cmd(
         .map_err(Into::into)
 }
 
+/// 上报「最近查看的产物」（MCP `design_get_active_context` 的事实源）。fire-and-forget。
+#[tauri::command]
+pub async fn mark_design_artifact_opened_cmd(id: String) -> Result<(), CmdError> {
+    ha_core::blocking::run_blocking(move || service::mark_artifact_opened(&id))
+        .await
+        .map_err(Into::into)
+}
+
 // ── Code bindings (工程轴 D) ────────────────────────────────────
 
 /// 绑定设计系统到代码工程目录（owner 平面）。

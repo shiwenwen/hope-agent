@@ -1297,6 +1297,8 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
           setActiveArtifact(view)
           setPreviewKey((k) => k + 1)
           ensureTabOpen(view.id)
+          // 上报「最近查看」（MCP active-context 事实源）：fire-and-forget，失败静默、零阻塞。
+          void tx.call("mark_design_artifact_opened_cmd", { id: view.id }).catch(() => {})
         }
       } catch (e) {
         logger.error("design", "DesignView::openArtifact", "open artifact failed", e)
