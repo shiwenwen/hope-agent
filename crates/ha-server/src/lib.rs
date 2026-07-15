@@ -2877,6 +2877,18 @@ fn build_router_with_cors(
             post(routes::design::implement_to_code),
         )
         .route(
+            "/design/projects/{id}/code-drift/check",
+            post(routes::design::check_code_drift),
+        )
+        .route(
+            "/design/artifacts/{id}/code-drift",
+            get(routes::design::code_drift_changes),
+        )
+        .route(
+            "/design/artifacts/{id}/code-drift/sync",
+            post(routes::design::code_drift_sync),
+        )
+        .route(
             "/design/artifacts/{id}/restore",
             post(routes::design::restore_version),
         )

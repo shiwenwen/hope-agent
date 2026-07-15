@@ -10661,6 +10661,21 @@
       "allOpen": "Todas abiertas",
       "noneOpenInline": "No hay recursos abiertos — pulsa + a la derecha para abrir desde la biblioteca",
       "noneOpen": "No hay recursos abiertos"
+    },
+    "drift": {
+      "banner": "La implementación de código cambió ({{count}} archivos)",
+      "viewChanges": "Ver cambios de código",
+      "bringToChat": "Actualizar por chat",
+      "markSynced": "Marcar como sincronizado",
+      "checkNow": "Buscar cambios de código",
+      "modalTitle": "Cambios de código (desde que se implementó el diseño)",
+      "quoteName": "Cambios de código",
+      "syncedToast": "Marcado como sincronizado con el código",
+      "err": "No se pudieron cargar los cambios de código",
+      "checkClean": "El código implementado coincide con el diseño: sin cambios",
+      "checkCleanAll": "Todos los recursos coinciden con su código",
+      "checkStale": "{{n}} recurso(s) tienen actualizaciones de código",
+      "chatPrompt": "El código implementado se ha desviado de este diseño. Actualiza el diseño actual para reflejar los cambios de código referenciados, manteniendo la intención del diseño y todo lo demás sin cambios."
     }
   },
   "agentLifecycle": {

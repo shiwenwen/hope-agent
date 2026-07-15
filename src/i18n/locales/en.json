@@ -10661,6 +10661,21 @@
       "allOpen": "All open",
       "noneOpenInline": "No open artifacts — click + on the right to open from the library",
       "noneOpen": "No open artifacts"
+    },
+    "drift": {
+      "banner": "Code implementation changed ({{count}} files)",
+      "viewChanges": "View code changes",
+      "bringToChat": "Update via chat",
+      "markSynced": "Mark as synced",
+      "checkNow": "Check for code updates",
+      "modalTitle": "Code changes (since design was implemented)",
+      "quoteName": "Code changes",
+      "syncedToast": "Marked as in sync with code",
+      "err": "Failed to load code changes",
+      "checkClean": "Implemented code matches the design — no changes",
+      "checkCleanAll": "All artifacts match their code",
+      "checkStale": "{{n}} artifact(s) have code updates",
+      "chatPrompt": "The implemented code has diverged from this design. Update the current design to reflect the referenced code changes, keeping the design intent and everything else unchanged."
     }
   },
   "agentLifecycle": {

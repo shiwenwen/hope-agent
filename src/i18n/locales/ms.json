@@ -10661,6 +10661,21 @@
       "allOpen": "Semua dibuka",
       "noneOpenInline": "Tiada artifak dibuka — ketik + di kanan untuk buka dari pustaka",
       "noneOpen": "Tiada artifak dibuka"
+    },
+    "drift": {
+      "banner": "Pelaksanaan kod berubah ({{count}} fail)",
+      "viewChanges": "Lihat perubahan kod",
+      "bringToChat": "Kemas kini melalui sembang",
+      "markSynced": "Tanda sebagai disegerakkan",
+      "checkNow": "Semak kemas kini kod",
+      "modalTitle": "Perubahan kod (sejak reka bentuk dilaksanakan)",
+      "quoteName": "Perubahan kod",
+      "syncedToast": "Ditanda sebagai segerak dengan kod",
+      "err": "Gagal memuatkan perubahan kod",
+      "checkClean": "Kod yang dilaksanakan sepadan dengan reka bentuk — tiada perubahan",
+      "checkCleanAll": "Semua artifak sepadan dengan kodnya",
+      "checkStale": "{{n}} artifak mempunyai kemas kini kod",
+      "chatPrompt": "Kod yang dilaksanakan telah menyimpang daripada reka bentuk ini. Kemas kini reka bentuk semasa untuk mencerminkan perubahan kod yang dirujuk, sambil mengekalkan niat reka bentuk dan segala yang lain tidak berubah."
     }
   },
   "agentLifecycle": {

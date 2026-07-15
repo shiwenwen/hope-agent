@@ -10661,6 +10661,21 @@
       "allOpen": "Tümü açık",
       "noneOpenInline": "Açık çıktı yok — kitaplıktan açmak için sağdaki + düğmesine dokunun",
       "noneOpen": "Açık çıktı yok"
+    },
+    "drift": {
+      "banner": "Kod uygulaması değişti ({{count}} dosya)",
+      "viewChanges": "Kod değişikliklerini gör",
+      "bringToChat": "Sohbetle güncelle",
+      "markSynced": "Eşitlenmiş olarak işaretle",
+      "checkNow": "Kod güncellemelerini denetle",
+      "modalTitle": "Kod değişiklikleri (tasarım uygulandıktan sonra)",
+      "quoteName": "Kod değişiklikleri",
+      "syncedToast": "Kodla eşitlenmiş olarak işaretlendi",
+      "err": "Kod değişiklikleri yüklenemedi",
+      "checkClean": "Uygulanan kod tasarımla eşleşiyor — değişiklik yok",
+      "checkCleanAll": "Tüm çıktılar koduyla eşleşiyor",
+      "checkStale": "{{n}} çıktıda kod güncellemesi var",
+      "chatPrompt": "Uygulanan kod bu tasarımdan ayrıştı. Referans alınan kod değişikliklerini yansıtacak şekilde mevcut tasarımı güncelleyin; tasarım amacını ve diğer her şeyi değiştirmeyin."
     }
   },
   "agentLifecycle": {

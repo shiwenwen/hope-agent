@@ -10661,6 +10661,21 @@
       "allOpen": "全部已開啟",
       "noneOpenInline": "沒有開啟的產物——點右側 + 從產物庫開啟",
       "noneOpen": "沒有開啟的產物"
+    },
+    "drift": {
+      "banner": "程式碼實作有更新（{{count}} 個檔案）",
+      "viewChanges": "檢視程式碼變更",
+      "bringToChat": "帶到對話更新",
+      "markSynced": "標記為已同步",
+      "checkNow": "檢查程式碼更新",
+      "modalTitle": "程式碼變更（設計稿落地後）",
+      "quoteName": "程式碼變更",
+      "syncedToast": "已標記為與程式碼同步",
+      "err": "讀取程式碼變更失敗",
+      "checkClean": "落地程式碼與設計稿一致，無變更",
+      "checkCleanAll": "所有產物與程式碼一致",
+      "checkStale": "{{n}} 個產物的程式碼有更新",
+      "chatPrompt": "實作程式碼相對設計稿已變化，請根據引用的程式碼變更更新目前設計稿，保持設計意圖與其餘內容不變。"
     }
   },
   "agentLifecycle": {

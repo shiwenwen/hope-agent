@@ -10661,6 +10661,21 @@
       "allOpen": "Đã mở tất cả",
       "noneOpenInline": "Chưa mở sản phẩm nào — nhấn + bên phải để mở từ thư viện",
       "noneOpen": "Chưa mở sản phẩm nào"
+    },
+    "drift": {
+      "banner": "Mã triển khai đã thay đổi ({{count}} tệp)",
+      "viewChanges": "Xem thay đổi mã",
+      "bringToChat": "Cập nhật qua trò chuyện",
+      "markSynced": "Đánh dấu đã đồng bộ",
+      "checkNow": "Kiểm tra cập nhật mã",
+      "modalTitle": "Thay đổi mã (kể từ khi thiết kế được triển khai)",
+      "quoteName": "Thay đổi mã",
+      "syncedToast": "Đã đánh dấu đồng bộ với mã",
+      "err": "Không tải được thay đổi mã",
+      "checkClean": "Mã đã triển khai khớp với thiết kế — không có thay đổi",
+      "checkCleanAll": "Tất cả sản phẩm khớp với mã của chúng",
+      "checkStale": "{{n}} sản phẩm có cập nhật mã",
+      "chatPrompt": "Mã đã triển khai đã khác với thiết kế này. Hãy cập nhật thiết kế hiện tại để phản ánh các thay đổi mã được tham chiếu, giữ nguyên ý đồ thiết kế và mọi thứ còn lại."
     }
   },
   "agentLifecycle": {

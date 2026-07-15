@@ -592,6 +592,40 @@ pub async fn design_implement_to_code_cmd(
         .map_err(Into::into)
 }
 
+/// code→design 回灌：收割承接会话写盘 + 逐文件比对绑定仓库，标 stale。`artifact_id=None`
+/// 检查整个项目，`Some` 只检该产物。
+#[tauri::command]
+pub async fn design_check_code_drift_cmd(
+    project_id: String,
+    artifact_id: Option<String>,
+) -> Result<Vec<ha_core::design::code_sync::ArtifactDriftStatus>, CmdError> {
+    ha_core::blocking::run_blocking(move || {
+        ha_core::design::code_sync::check_code_drift(&project_id, artifact_id.as_deref())
+    })
+    .await
+    .map_err(Into::into)
+}
+
+/// 查看代码变更（喂 DiffPanel）+ 带到设计对话的 quote pack。
+#[tauri::command]
+pub async fn design_code_drift_changes_cmd(
+    artifact_id: String,
+) -> Result<ha_core::design::code_sync::CodeDriftChanges, CmdError> {
+    ha_core::blocking::run_blocking(move || ha_core::design::code_sync::drift_changes(&artifact_id))
+        .await
+        .map_err(Into::into)
+}
+
+/// 标为已同步：重置基线为当前磁盘态 + 清 drift 标记。
+#[tauri::command]
+pub async fn design_code_drift_sync_cmd(
+    artifact_id: String,
+) -> Result<ha_core::design::DesignArtifact, CmdError> {
+    ha_core::blocking::run_blocking(move || ha_core::design::code_sync::mark_synced(&artifact_id))
+        .await
+        .map_err(Into::into)
+}
+
 // ── Code bindings (工程轴 D) ────────────────────────────────────
 
 /// 绑定设计系统到代码工程目录（owner 平面）。

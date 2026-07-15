@@ -10661,6 +10661,21 @@
       "allOpen": "全部已打开",
       "noneOpenInline": "没有打开的产物——点右侧 + 从产物库打开",
       "noneOpen": "没有打开的产物"
+    },
+    "drift": {
+      "banner": "代码实现有更新（{{count}} 个文件）",
+      "viewChanges": "查看代码变更",
+      "bringToChat": "带到对话更新",
+      "markSynced": "标为已同步",
+      "checkNow": "检查代码更新",
+      "modalTitle": "代码变更（设计稿落地后）",
+      "quoteName": "代码变更",
+      "syncedToast": "已标记为与代码同步",
+      "err": "读取代码变更失败",
+      "checkClean": "落地代码与设计稿一致，无变更",
+      "checkCleanAll": "所有产物与代码一致",
+      "checkStale": "{{n}} 个产物的代码有更新",
+      "chatPrompt": "实现代码相对设计稿已变化，请根据引用的代码变更更新当前设计稿，保持设计意图与其余内容不变。"
     }
   },
   "agentLifecycle": {

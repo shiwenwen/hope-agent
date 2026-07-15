@@ -394,101 +394,170 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   delete_canvas_project: { method: "DELETE", path: "/api/canvas/projects/{projectId}" },
 
   // -- Design Space --
-  list_design_projects_cmd:          { method: "GET",    path: "/api/design/projects" },
-  create_design_project_cmd:         { method: "POST",   path: "/api/design/projects" },
-  update_design_project_cmd:         { method: "PUT",    path: "/api/design/projects" },
-  get_design_project_cmd:            { method: "GET",    path: "/api/design/projects/{id}" },
-  delete_design_project_cmd:         { method: "DELETE", path: "/api/design/projects/{id}" },
-  duplicate_design_project_cmd:      { method: "POST",   path: "/api/design/projects/{id}/duplicate" },
-  list_design_artifacts_cmd:         { method: "GET",    path: "/api/design/projects/{projectId}/artifacts" },
-  design_review_artifact_cmd:        { method: "POST",   path: "/api/design/artifacts/{artifactId}/review" },
-  get_design_system_kit_cmd:         { method: "GET",    path: "/api/design/systems/{id}/kit" },
-  design_chat_thread_get_cmd:        { method: "GET",    path: "/api/design/projects/{projectId}/chat/thread" },
-  design_chat_threads_list_cmd:      { method: "GET",    path: "/api/design/projects/{projectId}/chat/threads" },
-  create_design_artifact_cmd:        { method: "POST",   path: "/api/design/artifacts" },
-  import_design_image_cmd:           { method: "POST",   path: "/api/design/artifacts/import-image" },
-  generate_design_brand_pack_cmd:    { method: "POST",   path: "/api/design/artifacts/brand-pack" },
-  set_design_presenter_notes_cmd:    { method: "PUT",    path: "/api/design/artifacts/{artifactId}/presenter-notes" },
-  set_design_artifact_dir_cmd:       { method: "PUT",    path: "/api/design/artifacts/{id}/dir" },
-  patch_design_page_style_cmd:       { method: "PUT",    path: "/api/design/artifacts/{id}/page-style" },
-  inpaint_design_image_cmd:          { method: "POST",   path: "/api/design/artifacts/{id}/inpaint" },
-  review_design_artifact_cmd:        { method: "GET",    path: "/api/design/artifacts/{id}/quality-review" },
-  generate_design_artifact_cmd:      { method: "POST",   path: "/api/design/artifacts/generate" },
-  design_ffmpeg_doctor_cmd:          { method: "GET",    path: "/api/design/ffmpeg/doctor" },
-  design_install_ffmpeg_cmd:         { method: "POST",   path: "/api/design/ffmpeg/install" },
-  design_browser_doctor_cmd:         { method: "GET",    path: "/api/design/browser/doctor" },
-  design_install_browser_cmd:        { method: "POST",   path: "/api/design/browser/install" },
-  list_all_design_artifacts_cmd:     { method: "GET",    path: "/api/design/artifacts" },
-  get_design_artifact_cmd:           { method: "GET",    path: "/api/design/artifacts/{id}" },
-  ensure_design_artifact_fresh_cmd:  { method: "POST",   path: "/api/design/artifacts/{id}/ensure-fresh" },
-  delete_design_artifact_cmd:        { method: "DELETE", path: "/api/design/artifacts/{id}" },
-  rename_design_artifact_cmd:        { method: "PUT",    path: "/api/design/artifacts/{id}/title" },
-  duplicate_design_artifact_cmd:     { method: "POST",   path: "/api/design/artifacts/{id}/duplicate" },
-  reorder_design_artifacts_cmd:      { method: "POST",   path: "/api/design/projects/{projectId}/artifacts/reorder" },
-  list_design_folders_cmd:           { method: "GET",    path: "/api/design/projects/{projectId}/folders" },
-  create_design_folder_cmd:          { method: "POST",   path: "/api/design/projects/{projectId}/folders" },
-  rename_design_folder_cmd:          { method: "PUT",    path: "/api/design/projects/{projectId}/folders" },
-  delete_design_folder_cmd:          { method: "DELETE", path: "/api/design/projects/{projectId}/folders" },
-  move_design_artifact_cmd:          { method: "PUT",    path: "/api/design/artifacts/{id}/folder" },
-  list_design_artifact_versions_cmd: { method: "GET",    path: "/api/design/artifacts/{id}/versions" },
-  get_design_artifact_version_html_cmd: { method: "GET", path: "/api/design/artifacts/{artifactId}/versions/{versionNumber}/html" },
-  create_design_share_cmd:           { method: "POST",   path: "/api/design/artifacts/{artifactId}/share" },
-  get_design_share_cmd:              { method: "GET",    path: "/api/design/artifacts/{artifactId}/share" },
-  revoke_design_share_cmd:           { method: "DELETE", path: "/api/design/artifacts/{artifactId}/share" },
-  save_cf_deploy_config_cmd:         { method: "PUT",    path: "/api/design/deploy/config" },
-  get_cf_deploy_config_cmd:          { method: "GET",    path: "/api/design/deploy/config" },
-  deploy_design_artifact_cmd:        { method: "POST",   path: "/api/design/artifacts/{artifactId}/deploy" },
-  probe_design_deploy_cmd:           { method: "POST",   path: "/api/design/deploy/probe" },
-  bind_design_domain_cmd:            { method: "POST",   path: "/api/design/artifacts/{artifactId}/domains" },
-  list_design_domains_cmd:           { method: "GET",    path: "/api/design/artifacts/{artifactId}/domains" },
-  preflight_design_deploy_cmd:       { method: "GET",    path: "/api/design/artifacts/{artifactId}/deploy/preflight" },
-  list_design_deployments_cmd:       { method: "GET",    path: "/api/design/artifacts/{artifactId}/deployments" },
-  save_vercel_deploy_config_cmd:     { method: "PUT",    path: "/api/design/deploy/vercel/config" },
-  get_vercel_deploy_config_cmd:      { method: "GET",    path: "/api/design/deploy/vercel/config" },
-  deploy_design_artifact_vercel_cmd: { method: "POST",   path: "/api/design/artifacts/{artifactId}/deploy/vercel" },
-  restore_design_version_cmd:        { method: "POST",   path: "/api/design/artifacts/{artifactId}/restore" },
-  patch_design_element_cmd:          { method: "POST",   path: "/api/design/patch" },
-  remove_design_element_cmd:         { method: "POST",   path: "/api/design/artifacts/{id}/remove-element" },
-  insert_design_element_cmd:         { method: "POST",   path: "/api/design/artifacts/{id}/insert-element" },
-  cancel_design_generation_cmd:      { method: "POST",   path: "/api/design/artifacts/{id}/cancel" },
-  export_design_artifact_cmd:        { method: "GET",    path: "/api/design/artifacts/{id}/export" },
-  export_design_handoff_cmd:         { method: "GET",    path: "/api/design/artifacts/{id}/handoff" },
-  bind_design_code_project_cmd:      { method: "POST",   path: "/api/design/bindings" },
-  sync_design_code_binding_cmd:      { method: "POST",   path: "/api/design/bindings/{id}/sync" },
-  list_design_code_bindings_cmd:     { method: "GET",    path: "/api/design/bindings" },
-  unbind_design_code_project_cmd:    { method: "DELETE", path: "/api/design/bindings/{id}" },
-  get_design_project_code_binding_cmd: { method: "GET",  path: "/api/design/projects/{projectId}/code-binding" },
-  set_design_project_code_binding_cmd: { method: "PUT",  path: "/api/design/projects/{projectId}/code-binding" },
-  design_implement_to_code_cmd:      { method: "POST",   path: "/api/design/artifacts/{artifactId}/implement" },
-  export_design_pptx_cmd:            { method: "POST",   path: "/api/design/pptx" },
-  export_design_pptx_outline_cmd:    { method: "GET",    path: "/api/design/artifacts/{artifactId}/pptx-outline" },
-  export_design_zip_cmd:             { method: "POST",   path: "/api/design/zip" },
-  export_design_selected_zip_cmd:    { method: "POST",   path: "/api/design/zip/selected" },
-  import_design_md_cmd:              { method: "POST",   path: "/api/design/systems/import" },
-  import_figma_system_cmd:           { method: "POST",   path: "/api/design/systems/figma" },
-  export_design_md_cmd:              { method: "GET",    path: "/api/design/systems/{systemId}/design-md" },
-  export_design_tokens_cmd:          { method: "GET",    path: "/api/design/systems/{systemId}/tokens/export" },
-  critique_design_artifact_cmd:      { method: "POST",   path: "/api/design/artifacts/{id}/critique" },
-  restyle_design_artifact_cmd:       { method: "POST",   path: "/api/design/artifacts/{id}/restyle" },
-  list_design_systems_cmd:           { method: "GET",    path: "/api/design/systems" },
-  get_design_system_cmd:             { method: "GET",    path: "/api/design/systems/{id}" },
-  save_design_system_cmd:            { method: "POST",   path: "/api/design/systems" },
-  extract_design_system_cmd:         { method: "POST",   path: "/api/design/systems/extract" },
-  propose_design_directions_cmd:     { method: "POST",   path: "/api/design/directions" },
-  list_design_recipes_cmd:           { method: "GET",    path: "/api/design/recipes" },
-  get_design_recipe_demo_cmd:        { method: "GET",    path: "/api/design/recipes/{id}/demo" },
-  export_design_native_cmd:          { method: "GET",    path: "/api/design/artifacts/{id}/native" },
-  delete_design_system_cmd:          { method: "DELETE", path: "/api/design/systems/{id}" },
-  rename_design_system_cmd:          { method: "PATCH",  path: "/api/design/systems/{id}" },
-  get_design_config_cmd:             { method: "GET",    path: "/api/config/design" },
-  save_design_config_cmd:            { method: "PUT",    path: "/api/config/design" },
-  design_comment_add_cmd:            { method: "POST",   path: "/api/design/artifacts/{artifactId}/comments" },
-  design_comment_list_cmd:           { method: "GET",    path: "/api/design/artifacts/{artifactId}/comments" },
-  design_comment_relocate_cmd:       { method: "POST",   path: "/api/design/artifacts/{artifactId}/comments/{commentId}/relocate" },
-  design_comment_update_cmd:         { method: "PUT",    path: "/api/design/artifacts/{artifactId}/comments/{commentId}" },
-  design_comment_resolve_cmd:        { method: "POST",   path: "/api/design/artifacts/{artifactId}/comments/{commentId}/resolve" },
-  design_comment_delete_cmd:         { method: "DELETE", path: "/api/design/artifacts/{artifactId}/comments/{commentId}" },
-  design_comment_refine_cmd:         { method: "POST",   path: "/api/design/artifacts/{artifactId}/comments/{commentId}/refine" },
+  list_design_projects_cmd: { method: "GET", path: "/api/design/projects" },
+  create_design_project_cmd: { method: "POST", path: "/api/design/projects" },
+  update_design_project_cmd: { method: "PUT", path: "/api/design/projects" },
+  get_design_project_cmd: { method: "GET", path: "/api/design/projects/{id}" },
+  delete_design_project_cmd: { method: "DELETE", path: "/api/design/projects/{id}" },
+  duplicate_design_project_cmd: { method: "POST", path: "/api/design/projects/{id}/duplicate" },
+  list_design_artifacts_cmd: { method: "GET", path: "/api/design/projects/{projectId}/artifacts" },
+  design_review_artifact_cmd: { method: "POST", path: "/api/design/artifacts/{artifactId}/review" },
+  get_design_system_kit_cmd: { method: "GET", path: "/api/design/systems/{id}/kit" },
+  design_chat_thread_get_cmd: {
+    method: "GET",
+    path: "/api/design/projects/{projectId}/chat/thread",
+  },
+  design_chat_threads_list_cmd: {
+    method: "GET",
+    path: "/api/design/projects/{projectId}/chat/threads",
+  },
+  create_design_artifact_cmd: { method: "POST", path: "/api/design/artifacts" },
+  import_design_image_cmd: { method: "POST", path: "/api/design/artifacts/import-image" },
+  generate_design_brand_pack_cmd: { method: "POST", path: "/api/design/artifacts/brand-pack" },
+  set_design_presenter_notes_cmd: {
+    method: "PUT",
+    path: "/api/design/artifacts/{artifactId}/presenter-notes",
+  },
+  set_design_artifact_dir_cmd: { method: "PUT", path: "/api/design/artifacts/{id}/dir" },
+  patch_design_page_style_cmd: { method: "PUT", path: "/api/design/artifacts/{id}/page-style" },
+  inpaint_design_image_cmd: { method: "POST", path: "/api/design/artifacts/{id}/inpaint" },
+  review_design_artifact_cmd: { method: "GET", path: "/api/design/artifacts/{id}/quality-review" },
+  generate_design_artifact_cmd: { method: "POST", path: "/api/design/artifacts/generate" },
+  design_ffmpeg_doctor_cmd: { method: "GET", path: "/api/design/ffmpeg/doctor" },
+  design_install_ffmpeg_cmd: { method: "POST", path: "/api/design/ffmpeg/install" },
+  design_browser_doctor_cmd: { method: "GET", path: "/api/design/browser/doctor" },
+  design_install_browser_cmd: { method: "POST", path: "/api/design/browser/install" },
+  list_all_design_artifacts_cmd: { method: "GET", path: "/api/design/artifacts" },
+  get_design_artifact_cmd: { method: "GET", path: "/api/design/artifacts/{id}" },
+  ensure_design_artifact_fresh_cmd: {
+    method: "POST",
+    path: "/api/design/artifacts/{id}/ensure-fresh",
+  },
+  delete_design_artifact_cmd: { method: "DELETE", path: "/api/design/artifacts/{id}" },
+  rename_design_artifact_cmd: { method: "PUT", path: "/api/design/artifacts/{id}/title" },
+  duplicate_design_artifact_cmd: { method: "POST", path: "/api/design/artifacts/{id}/duplicate" },
+  reorder_design_artifacts_cmd: {
+    method: "POST",
+    path: "/api/design/projects/{projectId}/artifacts/reorder",
+  },
+  list_design_folders_cmd: { method: "GET", path: "/api/design/projects/{projectId}/folders" },
+  create_design_folder_cmd: { method: "POST", path: "/api/design/projects/{projectId}/folders" },
+  rename_design_folder_cmd: { method: "PUT", path: "/api/design/projects/{projectId}/folders" },
+  delete_design_folder_cmd: { method: "DELETE", path: "/api/design/projects/{projectId}/folders" },
+  move_design_artifact_cmd: { method: "PUT", path: "/api/design/artifacts/{id}/folder" },
+  list_design_artifact_versions_cmd: { method: "GET", path: "/api/design/artifacts/{id}/versions" },
+  get_design_artifact_version_html_cmd: {
+    method: "GET",
+    path: "/api/design/artifacts/{artifactId}/versions/{versionNumber}/html",
+  },
+  create_design_share_cmd: { method: "POST", path: "/api/design/artifacts/{artifactId}/share" },
+  get_design_share_cmd: { method: "GET", path: "/api/design/artifacts/{artifactId}/share" },
+  revoke_design_share_cmd: { method: "DELETE", path: "/api/design/artifacts/{artifactId}/share" },
+  save_cf_deploy_config_cmd: { method: "PUT", path: "/api/design/deploy/config" },
+  get_cf_deploy_config_cmd: { method: "GET", path: "/api/design/deploy/config" },
+  deploy_design_artifact_cmd: { method: "POST", path: "/api/design/artifacts/{artifactId}/deploy" },
+  probe_design_deploy_cmd: { method: "POST", path: "/api/design/deploy/probe" },
+  bind_design_domain_cmd: { method: "POST", path: "/api/design/artifacts/{artifactId}/domains" },
+  list_design_domains_cmd: { method: "GET", path: "/api/design/artifacts/{artifactId}/domains" },
+  preflight_design_deploy_cmd: {
+    method: "GET",
+    path: "/api/design/artifacts/{artifactId}/deploy/preflight",
+  },
+  list_design_deployments_cmd: {
+    method: "GET",
+    path: "/api/design/artifacts/{artifactId}/deployments",
+  },
+  save_vercel_deploy_config_cmd: { method: "PUT", path: "/api/design/deploy/vercel/config" },
+  get_vercel_deploy_config_cmd: { method: "GET", path: "/api/design/deploy/vercel/config" },
+  deploy_design_artifact_vercel_cmd: {
+    method: "POST",
+    path: "/api/design/artifacts/{artifactId}/deploy/vercel",
+  },
+  restore_design_version_cmd: {
+    method: "POST",
+    path: "/api/design/artifacts/{artifactId}/restore",
+  },
+  patch_design_element_cmd: { method: "POST", path: "/api/design/patch" },
+  remove_design_element_cmd: { method: "POST", path: "/api/design/artifacts/{id}/remove-element" },
+  insert_design_element_cmd: { method: "POST", path: "/api/design/artifacts/{id}/insert-element" },
+  cancel_design_generation_cmd: { method: "POST", path: "/api/design/artifacts/{id}/cancel" },
+  export_design_artifact_cmd: { method: "GET", path: "/api/design/artifacts/{id}/export" },
+  export_design_handoff_cmd: { method: "GET", path: "/api/design/artifacts/{id}/handoff" },
+  bind_design_code_project_cmd: { method: "POST", path: "/api/design/bindings" },
+  sync_design_code_binding_cmd: { method: "POST", path: "/api/design/bindings/{id}/sync" },
+  list_design_code_bindings_cmd: { method: "GET", path: "/api/design/bindings" },
+  unbind_design_code_project_cmd: { method: "DELETE", path: "/api/design/bindings/{id}" },
+  get_design_project_code_binding_cmd: {
+    method: "GET",
+    path: "/api/design/projects/{projectId}/code-binding",
+  },
+  set_design_project_code_binding_cmd: {
+    method: "PUT",
+    path: "/api/design/projects/{projectId}/code-binding",
+  },
+  design_implement_to_code_cmd: {
+    method: "POST",
+    path: "/api/design/artifacts/{artifactId}/implement",
+  },
+  design_check_code_drift_cmd: {
+    method: "POST",
+    path: "/api/design/projects/{projectId}/code-drift/check",
+  },
+  design_code_drift_changes_cmd: {
+    method: "GET",
+    path: "/api/design/artifacts/{artifactId}/code-drift",
+  },
+  design_code_drift_sync_cmd: {
+    method: "POST",
+    path: "/api/design/artifacts/{artifactId}/code-drift/sync",
+  },
+  export_design_pptx_cmd: { method: "POST", path: "/api/design/pptx" },
+  export_design_pptx_outline_cmd: {
+    method: "GET",
+    path: "/api/design/artifacts/{artifactId}/pptx-outline",
+  },
+  export_design_zip_cmd: { method: "POST", path: "/api/design/zip" },
+  export_design_selected_zip_cmd: { method: "POST", path: "/api/design/zip/selected" },
+  import_design_md_cmd: { method: "POST", path: "/api/design/systems/import" },
+  import_figma_system_cmd: { method: "POST", path: "/api/design/systems/figma" },
+  export_design_md_cmd: { method: "GET", path: "/api/design/systems/{systemId}/design-md" },
+  export_design_tokens_cmd: { method: "GET", path: "/api/design/systems/{systemId}/tokens/export" },
+  critique_design_artifact_cmd: { method: "POST", path: "/api/design/artifacts/{id}/critique" },
+  restyle_design_artifact_cmd: { method: "POST", path: "/api/design/artifacts/{id}/restyle" },
+  list_design_systems_cmd: { method: "GET", path: "/api/design/systems" },
+  get_design_system_cmd: { method: "GET", path: "/api/design/systems/{id}" },
+  save_design_system_cmd: { method: "POST", path: "/api/design/systems" },
+  extract_design_system_cmd: { method: "POST", path: "/api/design/systems/extract" },
+  propose_design_directions_cmd: { method: "POST", path: "/api/design/directions" },
+  list_design_recipes_cmd: { method: "GET", path: "/api/design/recipes" },
+  get_design_recipe_demo_cmd: { method: "GET", path: "/api/design/recipes/{id}/demo" },
+  export_design_native_cmd: { method: "GET", path: "/api/design/artifacts/{id}/native" },
+  delete_design_system_cmd: { method: "DELETE", path: "/api/design/systems/{id}" },
+  rename_design_system_cmd: { method: "PATCH", path: "/api/design/systems/{id}" },
+  get_design_config_cmd: { method: "GET", path: "/api/config/design" },
+  save_design_config_cmd: { method: "PUT", path: "/api/config/design" },
+  design_comment_add_cmd: { method: "POST", path: "/api/design/artifacts/{artifactId}/comments" },
+  design_comment_list_cmd: { method: "GET", path: "/api/design/artifacts/{artifactId}/comments" },
+  design_comment_relocate_cmd: {
+    method: "POST",
+    path: "/api/design/artifacts/{artifactId}/comments/{commentId}/relocate",
+  },
+  design_comment_update_cmd: {
+    method: "PUT",
+    path: "/api/design/artifacts/{artifactId}/comments/{commentId}",
+  },
+  design_comment_resolve_cmd: {
+    method: "POST",
+    path: "/api/design/artifacts/{artifactId}/comments/{commentId}/resolve",
+  },
+  design_comment_delete_cmd: {
+    method: "DELETE",
+    path: "/api/design/artifacts/{artifactId}/comments/{commentId}",
+  },
+  design_comment_refine_cmd: {
+    method: "POST",
+    path: "/api/design/artifacts/{artifactId}/comments/{commentId}/refine",
+  },
 
   // -- MCP servers --
   mcp_list_servers: { method: "GET", path: "/api/mcp/servers" },
@@ -1152,12 +1221,12 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   list_canvas_projects_by_session: { method: "GET", path: "/api/canvas/by-session/{sessionId}" },
 
   // -- Image generation --
-  get_image_generate_config:       { method: "GET",    path: "/api/config/image-generate" },
-  save_image_generate_config:      { method: "PUT",    path: "/api/config/image-generate" },
-  get_audio_generate_config:       { method: "GET",    path: "/api/config/audio-generate" },
-  save_audio_generate_config:      { method: "PUT",    path: "/api/config/audio-generate" },
-  get_audio_model_catalog_cmd:     { method: "GET",    path: "/api/config/audio-model-catalog" },
-  list_elevenlabs_voices_cmd:      { method: "GET",    path: "/api/config/elevenlabs-voices" },
+  get_image_generate_config: { method: "GET", path: "/api/config/image-generate" },
+  save_image_generate_config: { method: "PUT", path: "/api/config/image-generate" },
+  get_audio_generate_config: { method: "GET", path: "/api/config/audio-generate" },
+  save_audio_generate_config: { method: "PUT", path: "/api/config/audio-generate" },
+  get_audio_model_catalog_cmd: { method: "GET", path: "/api/config/audio-model-catalog" },
+  list_elevenlabs_voices_cmd: { method: "GET", path: "/api/config/elevenlabs-voices" },
 
   // -- Web search --
   get_web_search_config: { method: "GET", path: "/api/config/web-search" },
@@ -2133,17 +2202,15 @@ export class HttpTransport implements Transport {
     // sub-paths so the preview iframe loads index.html plus relative assets.
     const designMatch = path.match(
       /[\\/]design[\\/]projects[\\/]([^\\/]+)[\\/]artifacts[\\/]([^\\/]+)[\\/](.+)$/,
-    );
+    )
     if (designMatch) {
-      const pid = encodeURIComponent(designMatch[1]);
-      const aid = encodeURIComponent(designMatch[2]);
+      const pid = encodeURIComponent(designMatch[1])
+      const aid = encodeURIComponent(designMatch[2])
       const rest = designMatch[3]
         .split("/")
         .map((seg) => encodeURIComponent(seg))
-        .join("/");
-      return stamped(
-        `${this.baseUrl}/api/design/projects/${pid}/artifacts/${aid}/${rest}`,
-      );
+        .join("/")
+      return stamped(`${this.baseUrl}/api/design/projects/${pid}/artifacts/${aid}/${rest}`)
     }
 
     return null
@@ -2195,34 +2262,32 @@ export class HttpTransport implements Transport {
     // the server's disk (that would be a remote-write / exfil surface).
     const picker = (
       window as unknown as {
-        showSaveFilePicker?: (opts: {
-          suggestedName?: string;
-        }) => Promise<{
+        showSaveFilePicker?: (opts: { suggestedName?: string }) => Promise<{
           createWritable: () => Promise<{
-            write: (data: Blob) => Promise<void>;
-            close: () => Promise<void>;
-          }>;
-        }>;
+            write: (data: Blob) => Promise<void>
+            close: () => Promise<void>
+          }>
+        }>
       }
-    ).showSaveFilePicker;
+    ).showSaveFilePicker
     if (typeof picker === "function" && window.isSecureContext) {
       try {
-        const handle = await picker({ suggestedName: filename });
-        const writable = await handle.createWritable();
-        await writable.write(blob);
-        await writable.close();
-        return { status: "saved", path: null };
+        const handle = await picker({ suggestedName: filename })
+        const writable = await handle.createWritable()
+        await writable.write(blob)
+        await writable.close()
+        return { status: "saved", path: null }
       } catch (e) {
         // AbortError = the user dismissed the picker → treat as cancel, don't
         // silently dump a download they didn't ask for.
         if (e instanceof DOMException && e.name === "AbortError") {
-          return { status: "canceled" };
+          return { status: "canceled" }
         }
         // Any other failure (NotAllowedError, etc.) → fall through to download.
       }
     }
-    downloadBlob(blob, filename);
-    return { status: "downloaded" };
+    downloadBlob(blob, filename)
+    return { status: "downloaded" }
   }
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars

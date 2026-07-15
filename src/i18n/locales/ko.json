@@ -10661,6 +10661,21 @@
       "allOpen": "모두 열림",
       "noneOpenInline": "열린 아트팩트 없음 — 오른쪽 + 로 라이브러리에서 열기",
       "noneOpen": "열린 아트팩트가 없습니다"
+    },
+    "drift": {
+      "banner": "코드 구현이 변경됨({{count}}개 파일)",
+      "viewChanges": "코드 변경 보기",
+      "bringToChat": "대화로 업데이트",
+      "markSynced": "동기화됨으로 표시",
+      "checkNow": "코드 업데이트 확인",
+      "modalTitle": "코드 변경(디자인 구현 이후)",
+      "quoteName": "코드 변경",
+      "syncedToast": "코드와 동기화됨으로 표시했습니다",
+      "err": "코드 변경을 불러오지 못했습니다",
+      "checkClean": "구현된 코드가 디자인과 일치합니다(변경 없음)",
+      "checkCleanAll": "모든 아트팩트가 코드와 일치합니다",
+      "checkStale": "{{n}}개 아트팩트에 코드 업데이트가 있습니다",
+      "chatPrompt": "구현된 코드가 이 디자인과 달라졌습니다. 참조된 코드 변경에 맞춰 현재 디자인을 업데이트하되, 디자인 의도와 나머지 내용은 그대로 유지하세요."
     }
   },
   "agentLifecycle": {

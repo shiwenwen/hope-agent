@@ -679,6 +679,52 @@ pub async fn implement_to_code(
     Ok(Json(res))
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CheckDriftBody {
+    #[serde(default)]
+    pub artifact_id: Option<String>,
+}
+
+/// `POST /api/design/projects/{id}/code-drift/check` — 收割承接会话写盘 + 逐文件比对绑定
+/// 仓库，写产物 `metadata.codeDrift`。只读已授权绑定目录 + 写 design.db，不落外部文件，故不过
+/// `filesystem.allowRemoteWrites` 门（同 set_code_binding 理由）。
+pub async fn check_code_drift(
+    Path(id): Path<String>,
+    Json(body): Json<CheckDriftBody>,
+) -> Result<Json<Vec<ha_core::design::code_sync::ArtifactDriftStatus>>, AppError> {
+    validate_id(&id)?;
+    let out = ha_core::blocking::run_blocking(move || {
+        ha_core::design::code_sync::check_code_drift(&id, body.artifact_id.as_deref())
+    })
+    .await
+    .map_err(|e| AppError::internal(e.to_string()))?;
+    Ok(Json(out))
+}
+
+/// `GET /api/design/artifacts/{id}/code-drift` — 逐 stale 文件的 diff（喂 DiffPanel）+ 带到对话 quote。
+pub async fn code_drift_changes(
+    Path(id): Path<String>,
+) -> Result<Json<ha_core::design::code_sync::CodeDriftChanges>, AppError> {
+    validate_id(&id)?;
+    let out =
+        ha_core::blocking::run_blocking(move || ha_core::design::code_sync::drift_changes(&id))
+            .await
+            .map_err(|e| AppError::internal(e.to_string()))?;
+    Ok(Json(out))
+}
+
+/// `POST /api/design/artifacts/{id}/code-drift/sync` — 重置基线为当前磁盘态 + 清 drift 标记。
+pub async fn code_drift_sync(
+    Path(id): Path<String>,
+) -> Result<Json<ha_core::design::DesignArtifact>, AppError> {
+    validate_id(&id)?;
+    let out = ha_core::blocking::run_blocking(move || ha_core::design::code_sync::mark_synced(&id))
+        .await
+        .map_err(|e| AppError::internal(e.to_string()))?;
+    Ok(Json(out))
+}
+
 // ── Code bindings (工程轴 D) ────────────────────────────────────
 
 /// 外部写盘门：HTTP 侧默认禁写外部工程，需 `filesystem.allowRemoteWrites`（桌面 Tauri 不受限）。

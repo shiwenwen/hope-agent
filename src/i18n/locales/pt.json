@@ -10661,6 +10661,21 @@
       "allOpen": "Todas abertas",
       "noneOpenInline": "Nenhum recurso aberto — toque em + à direita para abrir da biblioteca",
       "noneOpen": "Nenhum recurso aberto"
+    },
+    "drift": {
+      "banner": "A implementação do código mudou ({{count}} arquivos)",
+      "viewChanges": "Ver alterações de código",
+      "bringToChat": "Atualizar pelo chat",
+      "markSynced": "Marcar como sincronizado",
+      "checkNow": "Verificar atualizações de código",
+      "modalTitle": "Alterações de código (desde que o design foi implementado)",
+      "quoteName": "Alterações de código",
+      "syncedToast": "Marcado como sincronizado com o código",
+      "err": "Falha ao carregar as alterações de código",
+      "checkClean": "O código implementado corresponde ao design — sem alterações",
+      "checkCleanAll": "Todos os recursos correspondem ao seu código",
+      "checkStale": "{{n}} recurso(s) têm atualizações de código",
+      "chatPrompt": "O código implementado divergiu deste design. Atualize o design atual para refletir as alterações de código referenciadas, mantendo a intenção do design e todo o resto inalterado."
     }
   },
   "agentLifecycle": {

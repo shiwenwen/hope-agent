@@ -20,6 +20,7 @@ import {
   PanelLeft,
   PanelLeftDashed,
   ShieldAlert,
+  GitCompareArrows,
   Loader2,
   Monitor,
   ChevronLeft,
@@ -174,10 +175,13 @@ import type {
 import {
   ARTIFACT_KINDS,
   parseSelfCheck,
+  parseCodeDrift,
   parsePresenterNotes,
   parseDerivedFrom,
   parseIsRtl,
 } from "@/types/design"
+import type { ArtifactDriftStatus, CodeDriftChanges } from "@/types/design"
+import { DesignCodeDriftModal } from "@/components/design/DesignCodeDriftModal"
 import {
   exportPng,
   exportPdf,
@@ -561,6 +565,10 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
     },
     [boundRepoDir, onImplementToCode, t, tx],
   )
+
+  // code→design 回灌状态（handlers 在 refreshView / enqueueChatQuote 定义之后声明，避免 TDZ）。
+  const [driftModalOpen, setDriftModalOpen] = useState(false)
+  const [driftChecking, setDriftChecking] = useState(false)
 
   const [deleteTarget, setDeleteTarget] = useState<
     | { type: "project"; id: string; title: string }
@@ -2026,6 +2034,98 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
       /* non-fatal */
     }
   }, [tx])
+
+  // ── code→design 回灌 handlers（在 enqueueChatQuote / loadArtifacts / refreshView 之后声明）──
+  /** 打开项目/产物时后台收割 + 比对（有回执才有开销，无回执后端 O(1) 空返；fire-and-forget）。 */
+  const checkCodeDrift = useCallback(
+    (projectId: string, artifactId?: string) => {
+      void tx
+        .call<ArtifactDriftStatus[]>("design_check_code_drift_cmd", {
+          projectId,
+          ...(artifactId ? { artifactId } : {}),
+        })
+        .catch(() => {})
+    },
+    [tx],
+  )
+
+  /** 带到设计对话：逐文件变更 quote 塞进 composer + 预填默认指令（不自动发，对齐批注先例）。 */
+  const handleBringDriftToChat = useCallback(
+    async (artifactId: string) => {
+      try {
+        const c = await tx.call<CodeDriftChanges>("design_code_drift_changes_cmd", { artifactId })
+        setChatOpen(true)
+        enqueueChatQuote({
+          path: `code-drift:${artifactId}`,
+          name: t("design.drift.quoteName", "代码变更"),
+          startLine: 1,
+          endLine: 1,
+          content: c.quote,
+        })
+        chatPanelRef.current?.insertToken(
+          t(
+            "design.drift.chatPrompt",
+            "实现代码相对设计稿已变化，请根据引用的代码变更更新当前设计稿，保持设计意图与其余内容不变。",
+          ),
+        )
+      } catch (e) {
+        logger.error("design", "DesignView::bringDriftToChat", "load drift changes failed", e)
+        toast.error(t("design.drift.err", "读取代码变更失败"))
+      }
+    },
+    [enqueueChatQuote, t, tx],
+  )
+
+  /** 标为已同步：重置基线 + 清 drift 标记，刷新产物库与当前预览。 */
+  const handleMarkDriftSynced = useCallback(
+    async (artifactId: string) => {
+      try {
+        await tx.call("design_code_drift_sync_cmd", { artifactId })
+        toast.success(t("design.drift.syncedToast", "已标记为与代码同步"))
+        const pid = activeProjectRef.current?.id
+        if (pid) void loadArtifacts(pid)
+        if (activeArtifactRef.current?.id === artifactId) void refreshView()
+      } catch (e) {
+        logger.error("design", "DesignView::markDriftSynced", "mark synced failed", e)
+        toast.error(t("design.drift.err", "读取代码变更失败"))
+      }
+    },
+    [loadArtifacts, refreshView, t, tx],
+  )
+
+  /** 系统选择器 footer「检查代码更新」手动按钮。 */
+  const handleManualDriftCheck = useCallback(async () => {
+    const pid = activeProjectRef.current?.id
+    if (!pid) return
+    setDriftChecking(true)
+    try {
+      const res = await tx.call<ArtifactDriftStatus[]>("design_check_code_drift_cmd", {
+        projectId: pid,
+      })
+      const stale = res.filter((r) => r.stale).length
+      toast.success(
+        stale > 0
+          ? t("design.drift.checkStale", "{{n}} 个产物的代码有更新", { n: stale })
+          : t("design.drift.checkCleanAll", "所有产物与代码一致"),
+      )
+    } catch (e) {
+      logger.error("design", "DesignView::manualDriftCheck", "check failed", e)
+      toast.error(t("design.drift.err", "读取代码变更失败"))
+    } finally {
+      setDriftChecking(false)
+    }
+  }, [t, tx])
+
+  // 打开项目 → 后台检查全部产物代码漂移；切换产物 → 针对性再查一次（覆盖「项目久开、会话后到」）。
+  useEffect(() => {
+    if (activeProject?.id) checkCodeDrift(activeProject.id)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeProject?.id])
+  useEffect(() => {
+    const pid = activeProjectRef.current?.id
+    if (pid && activeArtifactId) checkCodeDrift(pid, activeArtifactId)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeArtifactId])
 
   // 提交串行化队列（P0-D）：背靠背两次微调（改完 top 立刻改 right / 字号→字重）不再撞 stale-write。
   // 每条提交排在前一条之后跑，读 activeArtifactRef.current.bodyHash 时前一条的 refreshView 已把新
@@ -4136,6 +4236,14 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
         const proj = activeProjectRef.current
         if (proj) void loadArtifacts(proj.id)
       }),
+      // code→design 回灌：某产物的 codeDrift 标记翻转 → 刷新库（徽标）+ 命中当前产物刷预览（横幅）。
+      tx.listen("design:code_drift", (raw) => {
+        const p = parsePayload<{ projectId?: string; artifactId?: string }>(raw)
+        const pid = activeProjectRef.current?.id
+        if (!p?.projectId || p.projectId !== pid) return
+        void loadArtifacts(pid)
+        if (p.artifactId && p.artifactId === activeArtifactRef.current?.id) void refreshView()
+      }),
       // Agent called design(action=show): focus that artifact (auto-enter project).
       tx.listen("design:show", (raw) => {
         const p = parsePayload<{ projectId?: string; artifactId?: string }>(raw)
@@ -4488,6 +4596,22 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
                         </span>
                       )}
                     </Button>
+                    {boundRepoDir && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 gap-1.5"
+                        disabled={driftChecking}
+                        onClick={() => void handleManualDriftCheck()}
+                      >
+                        {driftChecking ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <GitCompareArrows className="h-3.5 w-3.5" />
+                        )}
+                        {t("design.drift.checkNow", "检查代码更新")}
+                      </Button>
+                    )}
                   </div>
                 }
               />
@@ -4815,6 +4939,9 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
                                     )}
                                     {a.status === "needs_review" && (
                                       <ShieldAlert className="h-3.5 w-3.5 shrink-0 text-amber-500" />
+                                    )}
+                                    {parseCodeDrift(a.metadata) && (
+                                      <GitCompareArrows className="h-3.5 w-3.5 shrink-0 text-sky-500" />
                                     )}
                                   </button>
                                   {/* hover 只留「关闭」（非破坏，产物仍在库墙可重开）；删除移到右键菜单。 */}
@@ -5527,6 +5654,46 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
                       </Button>
                     </div>
                   )}
+                  {(() => {
+                    // code→design 回灌横幅：绑定仓库落地代码相对设计稿实现基线已变（sky 区分 amber 自查）。
+                    const drift = parseCodeDrift(activeArtifact.metadata)
+                    if (!drift) return null
+                    const aid = activeArtifact.id
+                    return (
+                      <div className="flex shrink-0 items-center gap-2 border-b border-sky-400/40 bg-sky-50/70 px-3 py-1.5 text-xs dark:bg-sky-950/25">
+                        <GitCompareArrows className="h-3.5 w-3.5 shrink-0 text-sky-600 dark:text-sky-400" />
+                        <span className="min-w-0 flex-1 truncate text-sky-800 dark:text-sky-200">
+                          {t("design.drift.banner", "代码实现有更新（{{count}} 个文件）", {
+                            count: drift.files.length,
+                          })}
+                        </span>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 shrink-0 px-2 text-xs text-sky-800 hover:bg-sky-100 dark:text-sky-200 dark:hover:bg-sky-900/40"
+                          onClick={() => setDriftModalOpen(true)}
+                        >
+                          {t("design.drift.viewChanges", "查看代码变更")}
+                        </Button>
+                        <Button
+                          size="sm"
+                          className="h-6 shrink-0 gap-1 bg-sky-600 px-2 text-xs text-white hover:bg-sky-700 dark:bg-sky-600 dark:text-white dark:hover:bg-sky-500"
+                          onClick={() => void handleBringDriftToChat(aid)}
+                        >
+                          <Wand2 className="h-3 w-3" />
+                          {t("design.drift.bringToChat", "带到对话更新")}
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 shrink-0 px-2 text-xs text-sky-800 hover:bg-sky-100 dark:text-sky-200 dark:hover:bg-sky-900/40"
+                          onClick={() => void handleMarkDriftSynced(aid)}
+                        >
+                          {t("design.drift.markSynced", "标为已同步")}
+                        </Button>
+                      </div>
+                    )
+                  })()}
                   {(() => {
                     const from = parseDerivedFrom(activeArtifact.metadata)
                     if (!from) return null
@@ -6258,6 +6425,12 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
       <DesignDeployModal
         open={deployOpen}
         onClose={() => setDeployOpen(false)}
+        artifactId={activeArtifact?.id ?? null}
+      />
+
+      <DesignCodeDriftModal
+        open={driftModalOpen}
+        onClose={() => setDriftModalOpen(false)}
         artifactId={activeArtifact?.id ?? null}
       />
 
@@ -7565,6 +7738,12 @@ function LaunchHome({
                               {p.needsReviewCount}
                             </span>
                           )}
+                          {(p.codeDriftCount ?? 0) > 0 && (
+                            <span className="inline-flex items-center gap-0.5 rounded-full bg-sky-500/10 px-1.5 py-px text-[10px] font-medium text-sky-600 ring-1 ring-inset ring-sky-500/20 dark:text-sky-400">
+                              <GitCompareArrows className="h-2.5 w-2.5" />
+                              {p.codeDriftCount}
+                            </span>
+                          )}
                         </div>
                       </div>
                     </button>
@@ -7666,6 +7845,12 @@ function LaunchHome({
                         <span className="inline-flex items-center gap-0.5 rounded-full bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-600 ring-1 ring-inset ring-amber-500/20 dark:text-amber-400">
                           <ShieldAlert className="h-2.5 w-2.5" />
                           {p.needsReviewCount}
+                        </span>
+                      )}
+                      {(p.codeDriftCount ?? 0) > 0 && (
+                        <span className="inline-flex items-center gap-0.5 rounded-full bg-sky-500/10 px-1.5 py-0.5 text-[10px] font-medium text-sky-600 ring-1 ring-inset ring-sky-500/20 dark:text-sky-400">
+                          <GitCompareArrows className="h-2.5 w-2.5" />
+                          {p.codeDriftCount}
                         </span>
                       )}
                       <span className="shrink-0 text-xs text-muted-foreground">
