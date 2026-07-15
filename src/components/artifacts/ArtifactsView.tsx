@@ -28,6 +28,7 @@ import { getTransport } from "@/lib/transport-provider"
 import { Button } from "@/components/ui/button"
 import { SearchInput } from "@/components/ui/search-input"
 import { Input } from "@/components/ui/input"
+import { IconTip } from "@/components/ui/tooltip"
 import {
   Select,
   SelectContent,
@@ -361,12 +362,28 @@ export default function ArtifactsView({ onBack }: ArtifactsViewProps) {
                 {busy === "export" ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Download className="mr-1.5 h-4 w-4" />}
                 {t("artifacts.export", "Export")}
               </Button>
-              <Button variant="ghost" size="icon" disabled={busy !== null} onClick={() => void runArchive()} title={t("artifacts.archive", "Archive")}>
-                <Archive className="h-4 w-4" />
-              </Button>
-              <Button variant="ghost" size="icon" disabled={busy !== null} onClick={() => void runDelete()} title={t("artifacts.delete", "Delete")}>
-                <Trash2 className="h-4 w-4 text-destructive" />
-              </Button>
+              <IconTip label={t("artifacts.archive", "Archive")}>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  disabled={busy !== null}
+                  onClick={() => void runArchive()}
+                  aria-label={t("artifacts.archive", "Archive")}
+                >
+                  <Archive className="h-4 w-4" />
+                </Button>
+              </IconTip>
+              <IconTip label={t("artifacts.delete", "Delete")}>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  disabled={busy !== null}
+                  onClick={() => void runDelete()}
+                  aria-label={t("artifacts.delete", "Delete")}
+                >
+                  <Trash2 className="h-4 w-4 text-destructive" />
+                </Button>
+              </IconTip>
             </div>
 
             <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_280px]">
@@ -381,7 +398,7 @@ export default function ArtifactsView({ onBack }: ArtifactsViewProps) {
                     <div className="flex justify-between gap-3"><dt>{t("artifacts.analysisStatus", "Analysis")}</dt><dd className="text-right text-foreground">{selected.analysisStatus ?? "—"}</dd></div>
                     <div className="flex justify-between gap-3"><dt>{t("artifacts.verification", "Verification")}</dt><dd className="text-right text-foreground">{selected.verification?.status ?? "not run"}</dd></div>
                     <div className="flex justify-between gap-3"><dt>{t("artifacts.contentMode", "Content")}</dt><dd className="text-right text-foreground">{selected.capabilities?.executableContent === true ? t("artifacts.executable", "executable") : t("artifacts.static", "static")}</dd></div>
-                    <div className="flex justify-between gap-3"><dt>SHA-256</dt><dd className="max-w-[130px] truncate text-right font-mono text-foreground" title={selected.currentHash}>{selected.currentHash || "legacy / pending"}</dd></div>
+                    <div className="flex justify-between gap-3"><dt>SHA-256</dt><dd className="max-w-[130px] truncate text-right font-mono text-foreground" data-ha-title-tip={selected.currentHash}>{selected.currentHash || "legacy / pending"}</dd></div>
                   </dl>
                 </div>
 
@@ -396,9 +413,9 @@ export default function ArtifactsView({ onBack }: ArtifactsViewProps) {
                     <div className="space-y-2">
                       {selected.sourceSummaries.map((source, index) => (
                         <div key={source.id || `${source.label}-${index}`} className="rounded-lg bg-muted/40 p-2">
-                          <p className="truncate font-medium" title={source.label}>{source.label}</p>
+                          <p className="truncate font-medium" data-ha-title-tip={source.label}>{source.label}</p>
                           <p className="mt-0.5 text-[10px] text-muted-foreground">{source.sourceType} · {source.accessScope}</p>
-                          {source.sha256 && <p className="mt-0.5 truncate font-mono text-[9px] text-muted-foreground" title={source.sha256}>{source.sha256}</p>}
+                          {source.sha256 && <p className="mt-0.5 truncate font-mono text-[9px] text-muted-foreground" data-ha-title-tip={source.sha256}>{source.sha256}</p>}
                         </div>
                       ))}
                     </div>
