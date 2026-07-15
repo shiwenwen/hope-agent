@@ -11,6 +11,7 @@ pub mod event_bus;
 
 // ── Initialization ────────────────────────────────────────────────
 pub mod app_init;
+pub mod artifacts;
 pub mod async_jobs;
 pub mod attachments;
 pub mod blocking;

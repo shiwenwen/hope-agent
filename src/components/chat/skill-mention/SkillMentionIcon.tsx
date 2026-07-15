@@ -10,6 +10,7 @@
 
 import { FileTypeIcon } from "@/components/icons/FileTypeIcon"
 import IconChrome from "~icons/logos/chrome"
+import IconBarChart from "~icons/fluent-emoji-flat/bar-chart"
 import IconMacbook from "~icons/fluent-emoji-flat/laptop"
 import type { SkillIconKind } from "./skillTokens"
 
@@ -27,6 +28,8 @@ export function SkillMentionIcon({
       return <FileTypeIcon name="a.pptx" className={className} />
     case "xlsx":
       return <FileTypeIcon name="a.xlsx" className={className} />
+    case "analytics":
+      return <IconBarChart className={className} />
     case "browser":
       return <IconChrome className={className} />
     case "mac":

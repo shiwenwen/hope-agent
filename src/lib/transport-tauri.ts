@@ -21,6 +21,15 @@ import type {
   UploadResult,
   SessionArtifacts,
   WorkspaceEnvironmentSnapshot,
+  ArtifactRecord,
+  ArtifactVersionSummary,
+  ArtifactVerification,
+  ArtifactImportRequest,
+  ArtifactExportFormat,
+  ArtifactExportResult,
+  ArtifactListOptions,
+  ArtifactExportReceipt,
+  DomainArtifactExportGuardReport,
 } from "@/lib/transport";
 import type { FileChangesMetadata, MediaItem } from "@/types/chat";
 
@@ -237,6 +246,78 @@ export class TauriTransport implements Transport {
     });
     const filename = savedPath.split(/[\\/]/).pop() ?? defaultName;
     return { filename, savedPath };
+  }
+
+  async listArtifacts(options: ArtifactListOptions = {}): Promise<ArtifactRecord[]> {
+    return invoke<ArtifactRecord[]>("list_artifacts", {
+      limit: options.limit ?? null,
+      offset: options.offset ?? null,
+      kind: options.kind ?? null,
+      lifecycleState: options.lifecycleState ?? null,
+    });
+  }
+
+  async getArtifact(id: string): Promise<ArtifactRecord> {
+    return invoke<ArtifactRecord>("get_artifact", { id });
+  }
+
+  async listArtifactVersions(id: string): Promise<ArtifactVersionSummary[]> {
+    return invoke<ArtifactVersionSummary[]>("list_artifact_versions", { id });
+  }
+
+  async importArtifact(request: ArtifactImportRequest): Promise<ArtifactRecord> {
+    return invoke<ArtifactRecord>("import_artifact", { request });
+  }
+
+  async restoreArtifact(id: string, version: number): Promise<ArtifactRecord> {
+    return invoke<ArtifactRecord>("restore_artifact", { id, version });
+  }
+
+  async verifyArtifact(id: string): Promise<ArtifactVerification> {
+    return invoke<ArtifactVerification>("verify_artifact", { id });
+  }
+
+  async reviewArtifactExport(
+    id: string,
+    audience: string,
+  ): Promise<DomainArtifactExportGuardReport> {
+    return invoke<DomainArtifactExportGuardReport>("review_artifact_export", {
+      id,
+      audience,
+      redactionChecked: true,
+    });
+  }
+
+  async exportArtifact(
+    id: string,
+    format: ArtifactExportFormat,
+  ): Promise<ArtifactExportResult | null> {
+    const artifact = await this.getArtifact(id);
+    const extension = format === "markdown" ? "md" : format;
+    const { save } = await import("@tauri-apps/plugin-dialog");
+    const savedPath = await save({
+      defaultPath: `${artifact.title}-v${artifact.currentVersion}.${extension}`,
+      filters: [{ name: extension.toUpperCase(), extensions: [extension] }],
+    });
+    if (!savedPath) return null;
+    const receipt = await invoke<ArtifactExportReceipt>("export_artifact", {
+      id,
+      format,
+      outputPath: savedPath,
+    });
+    return {
+      filename: receipt.filename,
+      savedPath: receipt.status === "ready" ? savedPath : undefined,
+      receipt,
+    };
+  }
+
+  async archiveArtifact(id: string): Promise<void> {
+    await invoke("archive_artifact", { id });
+  }
+
+  async deleteArtifact(id: string): Promise<void> {
+    await invoke("delete_artifact", { id });
   }
 
   async exportMemoryBackupArchive(

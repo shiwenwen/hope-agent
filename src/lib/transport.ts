@@ -321,6 +321,21 @@ export interface Transport {
    */
   exportSession(args: ExportSessionArgs): Promise<ExportSessionResult | null>;
 
+  /** Durable local-first Artifacts control plane (Canvas remains the viewer). */
+  listArtifacts(options?: ArtifactListOptions): Promise<ArtifactRecord[]>;
+  getArtifact(id: string): Promise<ArtifactRecord>;
+  listArtifactVersions(id: string): Promise<ArtifactVersionSummary[]>;
+  importArtifact(request: ArtifactImportRequest): Promise<ArtifactRecord>;
+  restoreArtifact(id: string, version: number): Promise<ArtifactRecord>;
+  verifyArtifact(id: string): Promise<ArtifactVerification>;
+  reviewArtifactExport(id: string, audience: string): Promise<DomainArtifactExportGuardReport>;
+  exportArtifact(
+    id: string,
+    format: ArtifactExportFormat,
+  ): Promise<ArtifactExportResult | null>;
+  archiveArtifact(id: string): Promise<void>;
+  deleteArtifact(id: string): Promise<void>;
+
   /**
    * Export the memory system as a ZIP package. The package contains the normal
    * `memory-backup.json` plus large attachment sidecar files.
@@ -463,6 +478,105 @@ export interface ExportSessionResult {
   filename: string;
   savedPath?: string;
   blob?: Blob;
+}
+
+export type ArtifactExportFormat = "html" | "zip" | "markdown" | "pdf";
+
+export interface ArtifactVerificationCheck {
+  name: string;
+  status: "passed" | "failed" | string;
+  detail: string;
+}
+
+export interface ArtifactVerification {
+  status: "passed" | "failed" | string;
+  checks: ArtifactVerificationCheck[];
+  verifiedAt: string;
+}
+
+export interface ArtifactRecord {
+  id: string;
+  title: string;
+  kind: string;
+  contentType: string;
+  sessionId?: string | null;
+  projectId?: string | null;
+  agentId?: string | null;
+  goalId?: string | null;
+  lifecycleState: "active" | "archived" | string;
+  privacy: "local_private" | "shareable_snapshot" | "sensitive" | string;
+  currentVersion: number;
+  currentHash: string;
+  payloadKind: "freeform" | "analysis" | string;
+  analysisStatus?: "ready" | "partial" | "blocked" | string | null;
+  sourceCount: number;
+  sourceSummaries: ArtifactSourceSummary[];
+  evidenceSummary: Record<string, number>;
+  capabilities: Record<string, unknown>;
+  verification?: ArtifactVerification | null;
+  projectPath: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ArtifactSourceSummary {
+  id: string;
+  label: string;
+  sourceType: string;
+  sha256: string;
+  accessScope: string;
+}
+
+export interface ArtifactVersionSummary {
+  versionNumber: number;
+  parentVersion?: number | null;
+  contentHash: string;
+  payloadKind: string;
+  message?: string | null;
+  producer: Record<string, unknown>;
+  verification?: ArtifactVerification | null;
+  createdAt: string;
+}
+
+export interface ArtifactExportReceipt {
+  id: string;
+  artifactId: string;
+  versionNumber: number;
+  format: string;
+  status: "queued" | "running" | "ready" | "failed" | "expired" | string;
+  filename: string;
+  mimeType: string;
+  sizeBytes: number;
+  sha256: string;
+  verification?: ArtifactVerification | null;
+  error?: string | null;
+  createdAt: string;
+  expiresAt: string;
+}
+
+export interface ArtifactExportResult extends ExportSessionResult {
+  receipt: ArtifactExportReceipt;
+}
+
+export interface ArtifactListOptions {
+  limit?: number;
+  offset?: number;
+  kind?: string;
+  lifecycleState?: string;
+}
+
+export interface ArtifactImportRequest {
+  filePath: string;
+  artifactId?: string;
+  expectedVersion?: number;
+  title?: string;
+  kind?: string;
+  privacy?: string;
+  sessionId?: string;
+  projectId?: string;
+  agentId?: string;
+  goalId?: string;
+  versionMessage?: string;
 }
 
 /**

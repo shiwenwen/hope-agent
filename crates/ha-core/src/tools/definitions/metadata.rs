@@ -407,6 +407,15 @@ impl ToolMetadata {
                 render.result_kind = ToolResultKind::Canvas;
                 render.primary_resource = Some("project_id".to_string());
             }
+            crate::tools::TOOL_ARTIFACT => {
+                push_all(
+                    &mut aliases,
+                    &["artifact", "report", "dashboard", "deliverable"],
+                );
+                push_unique(&mut effects, ToolEffect::MediaWrite);
+                render.result_kind = ToolResultKind::Canvas;
+                render.primary_resource = Some("artifact_id".to_string());
+            }
             crate::tools::TOOL_ASK_USER_QUESTION => {
                 push_all(&mut aliases, &["ask user", "clarify", "question"]);
                 push_unique(&mut effects, ToolEffect::UserInteraction);

@@ -1,0 +1,13 @@
+signup_id,signup_date,platform,eligible,activated_7d,country,acquisition_channel
+u001,2026-04-01,web,1,1,CN,organic
+u002,2026-04-02,web,1,1,CN,paid
+u003,2026-04-03,ios,1,1,US,organic
+u004,2026-04-04,android,1,0,CN,paid
+u005,2026-04-08,web,1,1,US,referral
+u006,2026-04-09,ios,1,0,CN,organic
+u007,2026-04-10,android,1,0,US,paid
+u008,2026-04-11,web,0,0,CN,internal
+u009,2026-04-15,web,1,1,CN,organic
+u010,2026-04-16,ios,1,1,US,referral
+u011,2026-04-17,android,1,0,CN,paid
+u012,2026-04-18,web,1,1,US,organic

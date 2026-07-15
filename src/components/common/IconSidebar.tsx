@@ -39,6 +39,7 @@ import {
   User,
   CheckCheck,
   ScrollText,
+  PackageOpen,
 } from "lucide-react"
 import { useTheme } from "@/hooks/useTheme"
 import { SUPPORTED_LANGUAGES, isFollowingSystem, setFollowSystemLanguage, setLanguage } from "@/i18n/i18n"
@@ -57,6 +58,7 @@ interface IconSidebarProps {
     | "dashboard"
     | "plans"
     | "knowledge"
+    | "artifacts"
   onOpenSettings: (section?: SettingsSection) => void
   onOpenChat: () => void
   onOpenAgents: () => void
@@ -69,6 +71,7 @@ interface IconSidebarProps {
   onOpenDashboard: () => void
   onOpenPlans: () => void
   onOpenKnowledge: () => void
+  onOpenArtifacts: () => void
   userAvatar?: string | null
   totalUnreadCount?: number
   onMarkAllRead?: () => void
@@ -88,6 +91,7 @@ export default function IconSidebar({
   onOpenDashboard,
   onOpenPlans,
   onOpenKnowledge,
+  onOpenArtifacts,
   userAvatar,
   totalUnreadCount,
   onMarkAllRead,
@@ -175,6 +179,23 @@ export default function IconSidebar({
                 onClick={onOpenKnowledge}
               >
                 <Library className="h-4 w-4" />
+              </Button>
+            </IconTip>
+          </div>
+          <div className="w-full flex justify-center">
+            <IconTip label={t("artifacts.title", "Artifacts")} side="right">
+              <Button
+                variant="ghost"
+                size="icon"
+                className={cn(
+                  "rounded-xl h-8 w-8",
+                  view === "artifacts"
+                    ? "bg-primary/10 text-primary hover:bg-primary/20"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+                onClick={onOpenArtifacts}
+              >
+                <PackageOpen className="h-4 w-4" />
               </Button>
             </IconTip>
           </div>
