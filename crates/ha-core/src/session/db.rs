@@ -3638,11 +3638,6 @@ impl SessionDB {
                     "Cannot enable incognito while Workflow Mode is enabled"
                 ));
             }
-            if crate::artifacts::ArtifactService::open()?.has_for_session(session_id)? {
-                return Err(anyhow::anyhow!(
-                    "Cannot enable incognito while session has durable Artifacts"
-                ));
-            }
             let conn = self
                 .conn
                 .lock()
@@ -3677,6 +3672,12 @@ impl SessionDB {
                 return Err(anyhow::anyhow!(
                     "Cannot enable incognito after workflow run {} was created",
                     run_id
+                ));
+            }
+            drop(conn);
+            if crate::artifacts::ArtifactService::open()?.has_for_session(session_id)? {
+                return Err(anyhow::anyhow!(
+                    "Cannot enable incognito while session has durable Artifacts"
                 ));
             }
         }
