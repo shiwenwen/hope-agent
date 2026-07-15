@@ -3442,11 +3442,13 @@ async fn render_pdf_with_isolated_chromium(index_path: &Path, export_id: &str) -
             }
             tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         }
-        let mut params = PrintToPdfParams::default();
-        params.paper_width = Some(8.27);
-        params.paper_height = Some(11.69);
-        params.landscape = Some(false);
-        params.print_background = Some(true);
+        let params = PrintToPdfParams {
+            paper_width: Some(8.27),
+            paper_height: Some(11.69),
+            landscape: Some(false),
+            print_background: Some(true),
+            ..Default::default()
+        };
         let bytes = page
             .pdf(params)
             .await
