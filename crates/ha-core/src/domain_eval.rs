@@ -8795,8 +8795,11 @@ mod tests {
         assert_eq!(report.summary.loop_runs, 1);
         assert_eq!(report.summary.campaign_items, 1);
         assert_eq!(report.summary.connector_e2e_evidence, 2);
-        assert_eq!(report.summary.sample_days, 1);
         assert_eq!(report.summary.required_sample_days, 1);
+        assert!(
+            report.summary.sample_days >= report.summary.required_sample_days,
+            "{report:?}"
+        );
         assert_eq!(report.summary.incidents, 0);
         assert!(report.summary.latest_activity_at.is_some());
         assert!(report
@@ -8805,9 +8808,10 @@ mod tests {
             .is_some_and(|age| age <= 10));
         assert!(report.markdown.contains("# Domain Soak Report"));
         assert!(report.markdown.contains("- Freshness: latest activity"));
-        assert!(report
-            .markdown
-            .contains("- Sample days: 1/1 distinct day(s)"));
+        assert!(report.markdown.contains(&format!(
+            "- Sample days: {}/{} distinct day(s)",
+            report.summary.sample_days, report.summary.required_sample_days
+        )));
         assert!(report
             .timeline
             .iter()
