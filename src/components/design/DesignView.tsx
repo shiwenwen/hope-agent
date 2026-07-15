@@ -1318,6 +1318,9 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
         const list = await tx.call<DesignArtifact[]>("list_design_artifacts_cmd", {
           projectId,
         })
+        // 防竞态：await 期间用户可能已切走项目（尤其 HTTP transport 高延迟），晚到的响应不得把
+        // 产物 / 标签 / 选中覆盖成已离开项目的内容。
+        if (activeProjectRef.current?.id !== projectId) return
         const all = list ?? []
         setArtifacts(all)
         if (selectFirst) {
@@ -2089,7 +2092,8 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
         if (activeArtifactRef.current?.id === artifactId) void refreshView()
       } catch (e) {
         logger.error("design", "DesignView::markDriftSynced", "mark synced failed", e)
-        toast.error(t("design.drift.err", "读取代码变更失败"))
+        // 「标为已同步」是写操作，失败不该复用「读取代码变更失败」文案（误导用户去点「查看变更」）。
+        toast.error(t("design.err.save", "保存失败"))
       }
     },
     [loadArtifacts, refreshView, t, tx],

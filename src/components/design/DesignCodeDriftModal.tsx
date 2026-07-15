@@ -51,7 +51,11 @@ export function DesignCodeDriftModal({ open, onClose, artifactId }: Props) {
     return () => {
       cancelled = true
     }
-  }, [open, artifactId, t, onClose])
+    // 只依赖 open / artifactId：父组件每次重渲染都新建内联 onClose（且 t 引用可能变），若纳入依赖会
+    // 令弹窗打开期间父的任何 setState（如 design:code_drift 事件触发 loadArtifacts）都清理并重跑本
+    // effect——弹回第 1 个文件、闪 spinner、重复请求，甚至重拉瞬时失败经 catch 关掉用户正看的弹窗。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, artifactId])
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
