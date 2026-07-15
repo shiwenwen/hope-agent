@@ -410,6 +410,7 @@ mod tests {
             created_at: "2026-04-18T00:00:00Z".into(),
             updated_at: "2026-04-18T00:00:00Z".into(),
             relevance_score: None,
+            retrieval_evidence: None,
             attachment_path: None,
             attachment_mime: None,
         }

@@ -190,16 +190,18 @@ pub async fn render_persona_to_soul_md(Path(id): Path<String>) -> Result<Json<Va
     Ok(Json(json!({ "content": content })))
 }
 
-// ── Agent-scoped memory.md ─────────────────────────────────────
+// ── Agent-scoped MEMORY.md ─────────────────────────────────────
 
-/// `GET /api/agents/{id}/memory-md` — read an agent's `memory.md`.
+/// `GET /api/agents/{id}/memory-md` — compatibility alias for the agent's
+/// canonical `MEMORY.md`.
 pub async fn get_agent_memory_md(Path(id): Path<String>) -> Result<Json<Value>, AppError> {
-    let path = ha_core::paths::agent_dir(&id)?.join("memory.md");
-    let content = if path.exists() {
-        Some(std::fs::read_to_string(&path).map_err(|e| AppError::internal(e.to_string()))?)
-    } else {
-        None
-    };
+    let content = ha_core::blocking::run_blocking(move || {
+        ha_core::memory::core_repository::load_index(
+            &ha_core::memory::core_repository::CoreMemoryScope::Agent { id },
+        )
+        .map(|index| index.content)
+    })
+    .await?;
     Ok(Json(json!({ "content": content })))
 }
 
@@ -208,7 +210,8 @@ pub struct MemoryMdBody {
     pub content: String,
 }
 
-/// `PUT /api/agents/{id}/memory-md` — write an agent's `memory.md`.
+/// `PUT /api/agents/{id}/memory-md` — compatibility alias that writes the
+/// agent's canonical `MEMORY.md` through `CoreMemoryRepository`.
 pub async fn save_agent_memory_md(
     Path(id): Path<String>,
     Json(body): Json<MemoryMdBody>,

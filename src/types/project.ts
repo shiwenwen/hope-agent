@@ -66,3 +66,32 @@ export interface UpdateProjectInput {
   workingDir?: string
   archived?: boolean
 }
+
+export type ProjectMemoryType = "feedback" | "project" | "reference" | "user"
+
+/** One topic from the machine-local project auto-memory directory. */
+export interface ProjectMemoryEntry {
+  fileName: string
+  name: string
+  description: string
+  memoryType: ProjectMemoryType
+  sizeBytes: number
+}
+
+export interface ProjectMemoryFile extends ProjectMemoryEntry {
+  /** Markdown body only; frontmatter is represented by the fields above. */
+  content: string
+  /** BLAKE3 of the raw on-disk Markdown file, used for stale-write protection. */
+  fileHash: string
+}
+
+export interface ProjectMemoryWriteInput {
+  /** Present when updating an existing topic; omitted when creating one. */
+  fileName?: string
+  /** Required with fileName when overwriting an existing topic. */
+  expectedFileHash?: string
+  name: string
+  description: string
+  memoryType: ProjectMemoryType
+  content: string
+}

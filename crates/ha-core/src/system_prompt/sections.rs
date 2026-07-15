@@ -27,6 +27,8 @@ pub(super) fn build_tools_section(
         incognito,
         mcp_enabled: agent_config.capabilities.mcp_enabled,
         memory_enabled: agent_config.memory.enabled,
+        use_memories: true,
+        contribute_to_memories: true,
         tools_filter: &agent_config.capabilities.tools,
         app_config: &app_config,
     };
@@ -50,9 +52,35 @@ pub(super) fn build_tools_section(
     format!("# Available Tools\n\n{}", descs.join("\n\n"))
 }
 
+pub(super) fn tool_is_eager(
+    agent_id: &str,
+    agent_config: &AgentConfig,
+    incognito: bool,
+    name: &str,
+) -> bool {
+    let app_config = crate::config::cached_config();
+    let ctx = DispatchContext {
+        agent_id,
+        incognito,
+        mcp_enabled: agent_config.capabilities.mcp_enabled,
+        memory_enabled: agent_config.memory.enabled,
+        use_memories: true,
+        contribute_to_memories: true,
+        tools_filter: &agent_config.capabilities.tools,
+        app_config: &app_config,
+    };
+    all_dispatchable_tools()
+        .iter()
+        .find(|tool| tool.name == name)
+        .is_some_and(|tool| matches!(resolve_tool_fate(tool, &ctx), ToolFate::InjectEager))
+}
+
 /// Build a flat tool descriptions string for legacy mode.
 pub(super) fn build_all_tools_description(incognito: bool) -> String {
-    let memory_enabled = crate::config::cached_config().memory_extract.enabled;
+    let app_config = crate::config::cached_config();
+    let memory_enabled = app_config
+        .memory
+        .effective_enabled(app_config.memory_extract.enabled);
     let descs: Vec<&str> = TOOL_DESCRIPTIONS
         .iter()
         .filter(|(name, _)| memory_enabled && !incognito || !crate::tools::is_memory_tool(name))
@@ -80,7 +108,7 @@ pub(super) fn build_deferred_tools_section(
     } else {
         Vec::new()
     };
-    if !app_config.deferred_tools.enabled && mcp_deferred_servers.is_empty() {
+    if !app_config.deferred_tools.is_enabled() && mcp_deferred_servers.is_empty() {
         return None;
     }
     let ctx = DispatchContext {
@@ -88,11 +116,13 @@ pub(super) fn build_deferred_tools_section(
         incognito,
         mcp_enabled: agent_config.capabilities.mcp_enabled,
         memory_enabled: agent_config.memory.enabled,
+        use_memories: true,
+        contribute_to_memories: true,
         tools_filter: &agent_config.capabilities.tools,
         app_config: &app_config,
     };
 
-    let deferred: Vec<&ToolDefinition> = if app_config.deferred_tools.enabled {
+    let deferred: Vec<&ToolDefinition> = if app_config.deferred_tools.is_enabled() {
         all_dispatchable_tools()
             .iter()
             .filter(|t| matches!(resolve_tool_fate(t, &ctx), ToolFate::InjectDeferred))
@@ -107,18 +137,23 @@ pub(super) fn build_deferred_tools_section(
 
     let mut lines = vec![
         "# Additional Tools (use tool_search to discover)".to_string(),
-        "The following tools are available but their schemas are not loaded by default. \
-         Use `tool_search(query=\"keyword\")` to get the full schema before calling them."
+        "These capabilities remain available, but their schemas load on demand. \
+         Call `tool_search(query=\"keyword\")`; matched tools become callable on the next round."
             .to_string(),
         String::new(),
     ];
-    for tool in &deferred {
-        let short_desc = tool
-            .description
-            .split('.')
-            .next()
-            .unwrap_or(&tool.description);
-        lines.push(format!("- **{}**: {}", tool.name, short_desc));
+    // Names are enough for exact selection; keyword ranking uses the complete
+    // server-side catalog. Avoid duplicating every full tool description in
+    // both the prompt and tool_search index.
+    for chunk in deferred.chunks(8) {
+        lines.push(format!(
+            "- {}",
+            chunk
+                .iter()
+                .map(|tool| format!("`{}`", tool.name))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
     }
     for server in mcp_deferred_servers {
         lines.push(format!(
@@ -138,49 +173,14 @@ pub(super) fn build_async_tools_section() -> Option<String> {
         return None;
     }
     let auto_bg = store.async_tools.auto_background_secs;
-    let auto_bg_line = if auto_bg == 0 {
-        "Auto-backgrounding is disabled in this environment.".to_string()
-    } else {
-        format!(
-            "Sync calls to async-capable tools that exceed {auto_bg}s are auto-detached into background \
-             jobs (status `auto_backgrounded`)."
-        )
-    };
     Some(format!(
         "# Async Tool Execution\n\n\
-         Some tools (`exec`, `web_search`, `image_generate`) are **async-capable**: they accept an \
-         optional `run_in_background: true` parameter that detaches the call into a background job \
-         and returns immediately with a synthetic `{{job_id, status: \"started\"}}` response. The \
-         conversation can continue while the job runs, and the real result is auto-injected back \
-         into the chat as a `<task-notification>` user message when the session is idle.\n\n\
-         Async-capable tools also accept optional `job_timeout_secs`. Omit it by default so the \
-         user/system timeout policy applies. Use a positive value only when the user requested a \
-         per-job deadline or this specific background job should be shorter than the configured \
-         default. If `asyncTools.maxJobSecs` is positive, `job_timeout_secs` can only shorten that \
-         hard limit. Individual tools may still have their own internal timeouts.\n\n\
-         **Use `run_in_background: true` when:**\n\
-         - The task is expected to take more than a few seconds (long builds, slow web searches, \
-           image generation, network-heavy operations), AND\n\
-         - You can make progress on other things while it runs, OR\n\
-         - The user explicitly asked you to continue working in parallel.\n\n\
-         **Keep the call synchronous (default) when:** you need the result to decide your very next step. \
-         Do not background a tool and then immediately poll it just to recreate synchronous waiting.\n\n\
-         **After a background job starts:** continue independent work if any exists. If no independent \
-         work is available, tell the user the job is running and stop the turn; the completion \
-         notification will resume the conversation.\n\n\
-         **Polling:** use `job_status(job_id)` only for a quick non-blocking snapshot after meaningful \
-         elapsed time or when the user explicitly asks for status. Do not call it immediately after a \
-         `started` response, and do not repeatedly poll in the same chat turn; rely on the completion \
-         notification instead.\n\n\
-         **Result injection:** when the job finishes, you'll see a `<task-notification>` user message. \
-         Match `task-id` against the original synthetic `job_id`; when `output-file` is present, use \
-         `read` only if you need the detailed output.\n\n\
-         **Exec convergence:** for ordinary long-running shell commands, use `exec` with \
-         `run_in_background: true`. Do not use exec-native `background`/`yield_ms` just to wait \
-         on a long command; those legacy process-session flags are reserved for cases that truly \
-         need the `process` session surface. If an existing process session finishes, you may see \
-         a `<process-notification>` message; use `process(log)` only when you need more detail.\n\n\
-         {auto_bg_line}"
+         Async-capable tools accept `run_in_background` and optional `job_timeout_secs`. Background \
+         work returns a `job_id`; continue independent work and rely on the later \
+         `<task-notification>`. Keep calls synchronous when their result determines the next step. \
+         Do not immediately or repeatedly poll; use `job_status` only after meaningful elapsed time \
+         or when the user asks. Omit per-job timeout unless a shorter explicit deadline is required. \
+         Foreground calls exceeding {auto_bg}s may be auto-detached when this value is nonzero."
     ))
 }
 
@@ -614,7 +614,11 @@ pub(super) fn build_project_context_section(project: &Project) -> String {
         out.push('\n');
     }
 
-    if crate::config::cached_config().memory_extract.enabled {
+    let app_config = crate::config::cached_config();
+    if app_config
+        .memory
+        .effective_enabled(app_config.memory_extract.enabled)
+    {
         out.push_str(
             "\nAll memories, files, and context below that live inside this project are \
              shared across every session in it. When you call `save_memory` from this \

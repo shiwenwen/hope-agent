@@ -108,7 +108,9 @@ pub use engine::{
     CompactionContext, CompactionProvider, ContextEngine, DefaultContextEngine,
     EmergencyCompactionContext,
 };
-pub use estimation::estimate_request_tokens;
+pub use estimation::{
+    estimate_request_tokens, estimate_request_tokens_with_tools, estimate_tokens,
+};
 pub use ledger::{
     build_runtime_ledger_message, render_runtime_ledger, JobLedgerItem, RuntimeLedgerSnapshot,
     SubagentLedgerItem,
@@ -133,4 +135,4 @@ pub use summarization::{
     apply_summary, build_summarization_prompt, peel_previous_summary, split_for_summarization,
 };
 pub use truncation::truncate_tool_results;
-pub use types::{CompactResult, TokenEstimateCalibrator};
+pub use types::{CompactResult, TokenEstimateCalibrator, TokenEstimateCalibrators};

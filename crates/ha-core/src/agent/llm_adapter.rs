@@ -398,17 +398,11 @@ impl<'a> LlmApiAdapter for CodexAdapter<'a> {
 
         let cancel = AtomicBool::new(false);
         let noop = |_: &str| {};
-        let (text, _tool_calls, mut usage, _thinking, _ttft) = match parse_openai_sse(
-            resp,
-            request_start,
-            &cancel,
-            &noop,
-        )
-        .await
-        {
-            Ok(parsed) => parsed,
-            Err(e) => {
-                app_warn!(
+        let (text, _tool_calls, _provider_items, mut usage, _thinking, _ttft) =
+            match parse_openai_sse(resp, request_start, &cancel, &noop).await {
+                Ok(parsed) => parsed,
+                Err(e) => {
+                    app_warn!(
                     "agent",
                     "codex_one_shot",
                     "Codex one-shot SSE parse failed: model={} has_token={} has_account_id={} instructions_present={} input_count={} tool_count={} body={}B err={}",
@@ -421,9 +415,9 @@ impl<'a> LlmApiAdapter for CodexAdapter<'a> {
                     body_size,
                     e
                 );
-                return Err(e);
-            }
-        };
+                    return Err(e);
+                }
+            };
         // One-shot is single-round: last == only round.
         usage.last_input_tokens = usage.input_tokens;
         usage.last_cache_creation_input_tokens = usage.cache_creation_input_tokens;
@@ -609,7 +603,17 @@ pub(super) fn extract_anthropic_usage(result: &Value) -> ChatUsage {
             .unwrap_or(0),
         cache_creation_input_tokens: cache_creation,
         cache_read_input_tokens: cache_read,
-        last_input_tokens: input_tokens,
+        context_input_tokens: input_tokens
+            .saturating_add(cache_creation)
+            .saturating_add(cache_read),
+        fresh_input_tokens: input_tokens.saturating_add(cache_creation),
+        last_input_tokens: input_tokens
+            .saturating_add(cache_creation)
+            .saturating_add(cache_read),
+        last_context_input_tokens: input_tokens
+            .saturating_add(cache_creation)
+            .saturating_add(cache_read),
+        last_fresh_input_tokens: input_tokens.saturating_add(cache_creation),
         last_cache_creation_input_tokens: cache_creation,
         last_cache_read_input_tokens: cache_read,
     }
@@ -638,8 +642,12 @@ pub(super) fn extract_openai_usage(result: &Value) -> ChatUsage {
             .unwrap_or(0),
         cache_creation_input_tokens: 0,
         cache_read_input_tokens: cached,
+        context_input_tokens: input_tokens,
+        fresh_input_tokens: input_tokens.saturating_sub(cached),
         // One-shot calls are single-round: last == only == total.
         last_input_tokens: input_tokens,
+        last_context_input_tokens: input_tokens,
+        last_fresh_input_tokens: input_tokens.saturating_sub(cached),
         last_cache_creation_input_tokens: 0,
         last_cache_read_input_tokens: cached,
     }

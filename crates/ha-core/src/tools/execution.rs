@@ -10,8 +10,9 @@ use super::issue_report;
 use super::send_attachment;
 use super::skill;
 use super::{
-    acp_spawn, browser, cron, goal, loop_tool, mac_control, memory, note, notification, settings,
-    subagent, team, weather, web_fetch, web_search, workflow_tool,
+    acp_spawn, browser, core_memory, cron, goal, loop_tool, mac_control, memory, note,
+    notification, project_memory, settings, subagent, team, weather, web_fetch, web_search,
+    workflow_tool,
 };
 use super::{
     agents, ask_user_question, canvas, enter_plan_mode, image, image_generate, job_status, pdf,
@@ -20,19 +21,19 @@ use super::{
 use super::{apply_patch, edit, exec, find, grep, ls, lsp, process, read, write};
 use super::{
     approval, TOOL_ACP_SPAWN, TOOL_AGENTS_LIST, TOOL_APPLY_PATCH, TOOL_ASK_USER_QUESTION,
-    TOOL_BROWSER, TOOL_CANVAS, TOOL_DELETE_MEMORY, TOOL_EDIT, TOOL_ENTER_PLAN_MODE, TOOL_EXEC,
-    TOOL_FIND, TOOL_GET_SETTINGS, TOOL_GET_WEATHER, TOOL_GOAL_BLOCK_REQUEST, TOOL_GOAL_CHECKPOINT,
-    TOOL_GOAL_EVALUATE, TOOL_GOAL_FINISH_REQUEST, TOOL_GOAL_PREPARE_CONTRACT,
-    TOOL_GOAL_RECORD_EVIDENCE, TOOL_GOAL_STATUS, TOOL_GREP, TOOL_IMAGE, TOOL_IMAGE_GENERATE,
-    TOOL_ISSUE_REPORT, TOOL_JOB_STATUS, TOOL_LIST_SETTINGS_BACKUPS, TOOL_LOOP_RECORD_PROGRESS,
-    TOOL_LOOP_RESCHEDULE, TOOL_LOOP_STATUS, TOOL_LOOP_STOP, TOOL_LOOP_UNWATCH, TOOL_LOOP_WATCH,
-    TOOL_LS, TOOL_LSP, TOOL_MAC_CONTROL, TOOL_MANAGE_CRON, TOOL_MEMORY_GET, TOOL_PDF, TOOL_PROCESS,
-    TOOL_READ, TOOL_RECALL_MEMORY, TOOL_RESTORE_SETTINGS_BACKUP, TOOL_RUNTIME_CANCEL,
-    TOOL_SAVE_MEMORY, TOOL_SEND_ATTACHMENT, TOOL_SEND_NOTIFICATION, TOOL_SESSIONS_HISTORY,
-    TOOL_SESSIONS_LIST, TOOL_SESSIONS_SEARCH, TOOL_SESSIONS_SEND, TOOL_SESSION_STATUS,
-    TOOL_SUBAGENT, TOOL_SUBMIT_PLAN, TOOL_TASK_CREATE, TOOL_TASK_LIST, TOOL_TASK_UPDATE, TOOL_TEAM,
-    TOOL_UPDATE_CORE_MEMORY, TOOL_UPDATE_MEMORY, TOOL_UPDATE_SETTINGS, TOOL_WEB_FETCH,
-    TOOL_WEB_SEARCH, TOOL_WORKFLOW, TOOL_WRITE,
+    TOOL_BROWSER, TOOL_CANVAS, TOOL_CORE_MEMORY, TOOL_DELETE_MEMORY, TOOL_EDIT,
+    TOOL_ENTER_PLAN_MODE, TOOL_EXEC, TOOL_FIND, TOOL_GET_SETTINGS, TOOL_GET_WEATHER,
+    TOOL_GOAL_BLOCK_REQUEST, TOOL_GOAL_CHECKPOINT, TOOL_GOAL_EVALUATE, TOOL_GOAL_FINISH_REQUEST,
+    TOOL_GOAL_PREPARE_CONTRACT, TOOL_GOAL_RECORD_EVIDENCE, TOOL_GOAL_STATUS, TOOL_GREP, TOOL_IMAGE,
+    TOOL_IMAGE_GENERATE, TOOL_ISSUE_REPORT, TOOL_JOB_STATUS, TOOL_LIST_SETTINGS_BACKUPS,
+    TOOL_LOOP_RECORD_PROGRESS, TOOL_LOOP_RESCHEDULE, TOOL_LOOP_STATUS, TOOL_LOOP_STOP,
+    TOOL_LOOP_UNWATCH, TOOL_LOOP_WATCH, TOOL_LS, TOOL_LSP, TOOL_MAC_CONTROL, TOOL_MANAGE_CRON,
+    TOOL_MEMORY_GET, TOOL_PDF, TOOL_PROCESS, TOOL_PROJECT_MEMORY, TOOL_READ, TOOL_RECALL_MEMORY,
+    TOOL_RESTORE_SETTINGS_BACKUP, TOOL_RUNTIME_CANCEL, TOOL_SAVE_MEMORY, TOOL_SEND_ATTACHMENT,
+    TOOL_SEND_NOTIFICATION, TOOL_SESSIONS_HISTORY, TOOL_SESSIONS_LIST, TOOL_SESSIONS_SEARCH,
+    TOOL_SESSIONS_SEND, TOOL_SESSION_STATUS, TOOL_SUBAGENT, TOOL_SUBMIT_PLAN, TOOL_TASK_CREATE,
+    TOOL_TASK_LIST, TOOL_TASK_UPDATE, TOOL_TEAM, TOOL_UPDATE_CORE_MEMORY, TOOL_UPDATE_MEMORY,
+    TOOL_UPDATE_SETTINGS, TOOL_WEB_FETCH, TOOL_WEB_SEARCH, TOOL_WORKFLOW, TOOL_WRITE,
 };
 use super::{
     TOOL_KNOWLEDGE_RECALL, TOOL_NOTE_APPEND, TOOL_NOTE_ASSIGN_BLOCK, TOOL_NOTE_BACKLINKS,
@@ -582,11 +583,17 @@ impl ToolExecContext {
         }
 
         let app_config = crate::config::cached_config();
+        let session_access = crate::memory::effective_session_memory_access(
+            self.session_id.as_deref(),
+            self.session_db.as_ref().map(|handle| handle.0.as_ref()),
+        );
         let dispatch_ctx = super::dispatch::DispatchContext {
             agent_id,
             incognito: self.incognito,
             mcp_enabled: agent_cfg.capabilities.mcp_enabled,
             memory_enabled: agent_cfg.memory.enabled,
+            use_memories: session_access.use_memories,
+            contribute_to_memories: session_access.contribute_to_memories,
             tools_filter: &agent_cfg.capabilities.tools,
             app_config: &app_config,
         };
@@ -1826,10 +1833,12 @@ pub async fn execute_tool_with_context(
             TOOL_WEB_SEARCH => web_search::tool_web_search(args, dispatch_ctx).await,
             TOOL_WEB_FETCH => web_fetch::tool_web_fetch(args).await,
             TOOL_SAVE_MEMORY => memory::tool_save_memory(args, dispatch_ctx).await,
-            TOOL_RECALL_MEMORY => memory::tool_recall_memory(args).await,
-            TOOL_UPDATE_MEMORY => memory::tool_update_memory(args).await,
-            TOOL_DELETE_MEMORY => memory::tool_delete_memory(args).await,
+            TOOL_RECALL_MEMORY => memory::tool_recall_memory(args, dispatch_ctx).await,
+            TOOL_UPDATE_MEMORY => memory::tool_update_memory(args, dispatch_ctx).await,
+            TOOL_DELETE_MEMORY => memory::tool_delete_memory(args, dispatch_ctx).await,
             TOOL_UPDATE_CORE_MEMORY => memory::tool_update_core_memory(args, dispatch_ctx).await,
+            TOOL_CORE_MEMORY => core_memory::tool_core_memory(args, dispatch_ctx).await,
+            TOOL_PROJECT_MEMORY => project_memory::tool_project_memory(args, dispatch_ctx).await,
             TOOL_MANAGE_CRON => cron::tool_manage_cron(args, dispatch_ctx).await,
             TOOL_BROWSER => browser::tool_browser(args, dispatch_ctx).await,
             TOOL_MAC_CONTROL => mac_control::tool_mac_control(args).await,
@@ -1840,7 +1849,7 @@ pub async fn execute_tool_with_context(
             TOOL_TEAM => team::tool_team(args, dispatch_ctx).await,
             TOOL_ACP_SPAWN => acp_spawn::tool_acp_spawn(args, dispatch_ctx).await,
             TOOL_WORKFLOW => workflow_tool::tool_workflow(args, dispatch_ctx).await,
-            TOOL_MEMORY_GET => memory::tool_memory_get(args).await,
+            TOOL_MEMORY_GET => memory::tool_memory_get(args, dispatch_ctx).await,
             // Knowledge base (note_*) tools.
             TOOL_NOTE_CREATE => note::tool_note_create(args, dispatch_ctx).await,
             TOOL_NOTE_READ => note::tool_note_read(args, dispatch_ctx).await,

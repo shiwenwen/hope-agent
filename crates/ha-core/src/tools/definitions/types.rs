@@ -25,7 +25,8 @@ pub enum ToolTier {
         default_for_main: bool,
         /// 其他新建 agent 的默认开关状态
         default_for_others: bool,
-        /// true 表示该工具支持被用户放入延迟加载池。
+        /// Legacy recommendation hint retained for config compatibility. V2
+        /// permits every Standard tool to move into the deferred pool.
         default_deferred: bool,
     },
 
@@ -34,7 +35,8 @@ pub enum ToolTier {
     Configured {
         default_for_main: bool,
         default_for_others: bool,
-        /// true 表示该工具支持被用户放入延迟加载池。
+        /// Legacy recommendation hint retained for config compatibility. V2
+        /// permits every Configured tool to move into the deferred pool.
         default_deferred: bool,
         /// 配置入口提示文案（用于 system prompt 的 # Unconfigured Capabilities 段）。
         /// `&'static str` 因为所有提示都是定义时的字面量。
@@ -109,6 +111,103 @@ pub struct ToolDefinition {
 }
 
 impl ToolDefinition {
+    /// Actions that can be exposed as compact call variants when this large
+    /// composite tool is activated through the client-side deferred path.
+    /// The canonical execution entry remains unchanged.
+    pub fn call_variant_actions(&self) -> &'static [&'static str] {
+        match self.name.as_str() {
+            crate::tools::TOOL_BROWSER => &[
+                "status", "profile", "tabs", "navigate", "snapshot", "act", "observe", "control",
+            ],
+            crate::tools::TOOL_MAC_CONTROL => &[
+                "status",
+                "permissions",
+                "diagnostics",
+                "snapshot",
+                "visual",
+                "elements",
+                "wait",
+                "apps",
+                "dock",
+                "spaces",
+                "windows",
+                "act",
+                "menu",
+                "clipboard",
+                "dialog",
+            ],
+            crate::tools::TOOL_MANAGE_CRON => &[
+                "create",
+                "update",
+                "list",
+                "get",
+                "delete",
+                "pause",
+                "resume",
+                "run_now",
+                "list_channel_targets",
+                "list_projects",
+            ],
+            crate::tools::TOOL_APP_UPDATE => &["check", "install", "status", "rollback"],
+            _ => &[],
+        }
+    }
+
+    /// Render one action-scoped schema. Only model-facing schema names change;
+    /// [`crate::tools::normalize_call_variant`] maps the call back to the
+    /// canonical tool before visibility, permissions, hooks, audit, or dispatch.
+    pub fn to_compact_call_variant(&self, action: &str, provider: ToolProvider) -> Option<Value> {
+        if !self.call_variant_actions().contains(&action) {
+            return None;
+        }
+        let fields = variant_fields(&self.name, action)?;
+        let augmented = self.augmented_parameters();
+        let all_properties = augmented.get("properties")?.as_object()?;
+        let mut properties = serde_json::Map::new();
+        for field in fields {
+            if let Some(schema) = all_properties.get(*field) {
+                properties.insert((*field).to_string(), schema.clone());
+            }
+        }
+        let required = augmented
+            .get("required")
+            .and_then(Value::as_array)
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .filter(|name| *name != "action" && properties.contains_key(*name))
+                    .map(|name| Value::String(name.to_string()))
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        let parameters = json!({
+            "type": "object",
+            "properties": properties,
+            "required": required,
+            "additionalProperties": false,
+        });
+        let name = format!("{}__{}", self.name, action);
+        let summary = crate::truncate_utf8(&self.description, 220);
+        let description = format!(
+            "{} Fixed action: `{}`. Executes and audits as `{}`.",
+            summary, action, self.name
+        );
+        Some(match provider {
+            ToolProvider::Anthropic => json!({
+                "name": name,
+                "description": description,
+                "input_schema": parameters,
+            }),
+            ToolProvider::OpenAI => json!({
+                "type": "function",
+                "name": name,
+                "description": description,
+                "parameters": parameters,
+            }),
+        })
+    }
+
     /// Internal capability tools never require user approval.
     pub fn is_internal(&self) -> bool {
         self.internal
@@ -117,19 +216,24 @@ impl ToolDefinition {
     /// Whether this built-in tool supports being moved into the deferred pool.
     pub fn supports_deferred(&self) -> bool {
         match &self.tier {
-            ToolTier::Standard {
-                default_deferred, ..
+            ToolTier::Core { subclass } => {
+                !matches!(subclass, CoreSubclass::PlanMode)
+                    && !matches!(
+                        self.name.as_str(),
+                        crate::tools::TOOL_TOOL_SEARCH
+                            | crate::tools::TOOL_ASK_USER_QUESTION
+                            | crate::tools::TOOL_RUNTIME_CANCEL
+                            | crate::tools::TOOL_SKILL
+                    )
             }
-            | ToolTier::Configured {
-                default_deferred, ..
-            } => *default_deferred,
+            ToolTier::Memory => true,
+            ToolTier::Standard { .. } | ToolTier::Configured { .. } => true,
             _ => false,
         }
     }
 
     /// 工具是否在 deferred 模式下也强制发送 schema（即"不延迟"）。
-    /// Core / Memory / Mcp 永远 always_load；
-    /// Standard / Configured 只有支持 deferred 的工具才可能不 always_load。
+    /// Bootstrap / PlanMode / MCP 永远 always_load；其余由加载策略决定。
     pub fn is_always_load(&self) -> bool {
         !self.supports_deferred()
     }
@@ -281,5 +385,277 @@ impl ToolDefinition {
             ToolProvider::Anthropic => self.to_anthropic_schema(),
             ToolProvider::OpenAI => self.to_openai_schema(),
         }
+    }
+}
+
+fn variant_fields(tool: &str, action: &str) -> Option<&'static [&'static str]> {
+    match (tool, action) {
+        (crate::tools::TOOL_BROWSER, "status") => Some(&[]),
+        (crate::tools::TOOL_BROWSER, "profile") => Some(&[
+            "op",
+            "url",
+            "executable_path",
+            "headless",
+            "profile",
+            "run_in_background",
+            "job_timeout_secs",
+        ]),
+        (crate::tools::TOOL_BROWSER, "tabs") => Some(&["op", "target_id", "url", "steal", "keep"]),
+        (crate::tools::TOOL_BROWSER, "navigate") => Some(&["op", "url", "target_id"]),
+        (crate::tools::TOOL_BROWSER, "snapshot") => Some(&[
+            "format",
+            "ref",
+            "target_id",
+            "full_page",
+            "image_format",
+            "annotate",
+            "output_path",
+            "paper_format",
+            "landscape",
+            "print_background",
+        ]),
+        (crate::tools::TOOL_BROWSER, "act") => Some(&[
+            "kind",
+            "ref",
+            "target_ref",
+            "text",
+            "key",
+            "file_path",
+            "values",
+            "target_id",
+        ]),
+        (crate::tools::TOOL_BROWSER, "observe") => Some(&["kind", "target_id", "since"]),
+        (crate::tools::TOOL_BROWSER, "control") => Some(&[
+            "op",
+            "target_id",
+            "text",
+            "expression",
+            "method",
+            "params",
+            "download_id",
+            "width",
+            "height",
+            "direction",
+            "amount",
+            "timeout",
+            "accept",
+            "dialog_text",
+        ]),
+        (crate::tools::TOOL_MAC_CONTROL, "status")
+        | (crate::tools::TOOL_MAC_CONTROL, "permissions") => Some(&[]),
+        (crate::tools::TOOL_MAC_CONTROL, "diagnostics") => Some(&["op", "limit", "path"]),
+        (crate::tools::TOOL_MAC_CONTROL, "snapshot") => Some(&[
+            "windowId",
+            "includeScreenshot",
+            "screenshotTarget",
+            "displayId",
+            "maxElements",
+            "maxDepth",
+        ]),
+        (crate::tools::TOOL_MAC_CONTROL, "visual") => Some(&[
+            "op",
+            "snapshotId",
+            "coordinateSpace",
+            "x",
+            "y",
+            "text",
+            "textMatch",
+            "languages",
+            "minConfidence",
+            "recognitionLevel",
+            "includeOcr",
+            "annotate",
+            "uiMapLimit",
+            "screenshotTarget",
+            "displayId",
+            "windowId",
+            "limit",
+            "maxElements",
+            "maxDepth",
+        ]),
+        (crate::tools::TOOL_MAC_CONTROL, "elements") => Some(&["op", "target", "limit"]),
+        (crate::tools::TOOL_MAC_CONTROL, "wait") => Some(&["op", "target", "timeoutMs", "pollMs"]),
+        (crate::tools::TOOL_MAC_CONTROL, "apps") => Some(&[
+            "op",
+            "appName",
+            "appNameMatch",
+            "bundleId",
+            "pid",
+            "limit",
+            "force",
+        ]),
+        (crate::tools::TOOL_MAC_CONTROL, "dock") => Some(&[
+            "op",
+            "appName",
+            "appNameMatch",
+            "bundleId",
+            "dockItemId",
+            "itemPath",
+            "menuIndex",
+            "menuItem",
+        ]),
+        (crate::tools::TOOL_MAC_CONTROL, "spaces") => {
+            Some(&["op", "spaceId", "spaceIndex", "direction", "windowId"])
+        }
+        (crate::tools::TOOL_MAC_CONTROL, "windows") => {
+            Some(&["op", "windowScope", "windowId", "x", "y", "width", "height"])
+        }
+        (crate::tools::TOOL_MAC_CONTROL, "act") => Some(&[
+            "op",
+            "target",
+            "x",
+            "y",
+            "fromX",
+            "fromY",
+            "toX",
+            "toY",
+            "toTarget",
+            "text",
+            "typingProfile",
+            "dryRunOp",
+            "explain",
+            "typingDelayMs",
+            "value",
+            "axAction",
+            "key",
+            "keys",
+            "modifiers",
+            "repeat",
+            "holdMs",
+            "intervalMs",
+            "deltaX",
+            "deltaY",
+            "durationMs",
+            "steps",
+            "motionProfile",
+            "verify",
+        ]),
+        (crate::tools::TOOL_MAC_CONTROL, "menu") => Some(&[
+            "op",
+            "scope",
+            "path",
+            "menuIndex",
+            "appHint",
+            "includeOcr",
+            "languages",
+            "minConfidence",
+            "recognitionLevel",
+            "limit",
+        ]),
+        (crate::tools::TOOL_MAC_CONTROL, "clipboard") => Some(&["op", "text", "maxChars"]),
+        (crate::tools::TOOL_MAC_CONTROL, "dialog") => Some(&[
+            "op",
+            "path",
+            "buttonText",
+            "field",
+            "fieldIndex",
+            "text",
+            "clear",
+            "filePath",
+            "fileName",
+            "selectButton",
+            "ensureExpanded",
+            "force",
+        ]),
+        (crate::tools::TOOL_MANAGE_CRON, "create") => Some(&[
+            "name",
+            "description",
+            "schedule_type",
+            "timestamp",
+            "interval_ms",
+            "start_at",
+            "cron_expression",
+            "timezone",
+            "prompt",
+            "agent_id",
+            "project_id",
+            "max_failures",
+            "job_timeout_secs",
+            "notify_on_complete",
+            "prefix_delivery_with_name",
+            "delivery_targets",
+        ]),
+        (crate::tools::TOOL_MANAGE_CRON, "update") => Some(&[
+            "id",
+            "name",
+            "description",
+            "schedule_type",
+            "timestamp",
+            "interval_ms",
+            "start_at",
+            "cron_expression",
+            "timezone",
+            "prompt",
+            "agent_id",
+            "project_id",
+            "max_failures",
+            "job_timeout_secs",
+            "notify_on_complete",
+            "prefix_delivery_with_name",
+            "delivery_targets",
+        ]),
+        (crate::tools::TOOL_MANAGE_CRON, "list")
+        | (crate::tools::TOOL_MANAGE_CRON, "list_channel_targets") => Some(&[]),
+        (crate::tools::TOOL_MANAGE_CRON, "list_projects") => Some(&["include_archived"]),
+        (crate::tools::TOOL_MANAGE_CRON, "get")
+        | (crate::tools::TOOL_MANAGE_CRON, "delete")
+        | (crate::tools::TOOL_MANAGE_CRON, "pause")
+        | (crate::tools::TOOL_MANAGE_CRON, "resume")
+        | (crate::tools::TOOL_MANAGE_CRON, "run_now") => Some(&["id"]),
+        (crate::tools::TOOL_APP_UPDATE, "check") | (crate::tools::TOOL_APP_UPDATE, "rollback") => {
+            Some(&[])
+        }
+        (crate::tools::TOOL_APP_UPDATE, "install") => Some(&[
+            "target_version",
+            "prefer_path",
+            "run_in_background",
+            "job_timeout_secs",
+        ]),
+        (crate::tools::TOOL_APP_UPDATE, "status") => Some(&["job_id"]),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod call_variant_tests {
+    use super::*;
+
+    #[test]
+    fn large_tool_variant_is_bounded_and_omits_action() {
+        for definition in crate::tools::dispatch::all_dispatchable_tools()
+            .iter()
+            .filter(|definition| !definition.call_variant_actions().is_empty())
+        {
+            let full_bytes = serde_json::to_vec(&definition.to_openai_schema())
+                .unwrap()
+                .len();
+            for action in definition.call_variant_actions() {
+                let variant = definition
+                    .to_compact_call_variant(action, ToolProvider::OpenAI)
+                    .expect("registered variant");
+                let variant_bytes = serde_json::to_vec(&variant).unwrap().len();
+                assert!(variant_bytes < full_bytes || full_bytes < 1_500 * 4);
+                assert!(
+                    variant_bytes / crate::context_compact::CHARS_PER_TOKEN <= 3_000,
+                    "{}__{} exceeds 3k token heuristic: {variant_bytes} bytes",
+                    definition.name,
+                    action
+                );
+                assert_eq!(variant["name"], format!("{}__{}", definition.name, action));
+                assert!(variant["parameters"]["properties"].get("action").is_none());
+            }
+        }
+    }
+
+    #[test]
+    fn variant_normalizes_to_canonical_and_fixed_action_wins() {
+        let (name, args) = crate::tools::normalize_call_variant(
+            "browser__snapshot",
+            &serde_json::json!({ "action": "act", "format": "role" }),
+        )
+        .expect("known variant");
+        assert_eq!(name, crate::tools::TOOL_BROWSER);
+        assert_eq!(args["action"], "snapshot");
+        assert_eq!(args["format"], "role");
     }
 }

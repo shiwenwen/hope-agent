@@ -1,25 +1,32 @@
-//! Active Memory — pre-reply recall injection (Phase B1).
+//! Active Memory — query-dependent recall outside the stable prompt prefix.
 //!
-//! Each user turn, before the main chat request, the agent asks a bounded
-//! side_query to distill the single most relevant memory for the current
-//! message. The resulting sentence is exposed to the provider layer as an
-//! independent cache block (alongside the static system prompt and the
-//! awareness suffix), so its churn does not invalidate the prefix cache.
+//! Memory UX v2 keeps automatic dynamic recall opt-in. By default, sessions use
+//! only the stable Core Memory snapshot while the model can still call Memory
+//! tools on demand. When the user explicitly enables automatic recall, V2 runs
+//! deterministic local Fast Recall and can add a bounded LLM Deep Recall pass.
+//! The result is exposed to the provider layer as an independent dynamic block,
+//! so recall churn does not rewrite Core Memory or invalidate the stable
+//! `MEMORY.md` prefix.
 //!
 //! Design principles:
-//! - **Opt-in**: disabled by default — every user turn pays the side_query
-//!   latency, so the feature waits for the user to flip the toggle in the
-//!   Memory tab. When off, the static memory section in the system prompt
-//!   still injects relevant entries (passive recall path).
-//! - **Bounded**: hard timeout from `ActiveMemoryConfig.timeout_ms` (default 8s).
-//!   On timeout we silently skip injection and fall back to the passive memory
-//!   section already baked into the system prompt.
+//! - **Core + tools by default**: automatic dynamic recall is off, Core remains
+//!   stable, and `recall_memory` / `memory_get` remain available to the model.
+//! - **Fast after explicit opt-in**: lexical/vector/claim/profile/procedure/graph
+//!   sources are fused locally with deterministic relevance and token gates.
+//!   There is no extra model call on the Fast path.
+//! - **Deep is opt-in**: `ActiveMemoryConfig.enabled` is retained as the legacy
+//!   compatibility switch for the bounded side-query reranker. V2's explicit
+//!   `deepRecall` setting controls this path and defaults off because it adds
+//!   latency and tokens.
+//! - **Core stays static**: short Global / Agent / Project `MEMORY.md` snapshots
+//!   are built once per session and never replaced by dynamic database recall.
+//! - **Bounded**: the optional Deep pass has a hard timeout from
+//!   `ActiveMemoryConfig.timeout_ms` (default 8s). Timeout falls back to the
+//!   already selected Fast Recall candidates.
 //! - **Cache-friendly**: `side_query` reuses the main conversation's prompt
 //!   prefix, so the incremental cost is a short suffix + short output.
-//! - **Shortlist first**: a cheap FTS/vector search on the local memory
-//!   backend produces up to `candidate_limit` candidates; only then do we
-//!   ask the LLM to pick one. If the shortlist is empty we skip the LLM
-//!   call entirely.
+//! - **Shortlist first**: local retrieval produces up to `candidate_limit`
+//!   candidates; Deep Recall, when enabled, only reranks that bounded set.
 //! - **TTL cache**: repeating the same user message within `cache_ttl_secs`
 //!   reuses the last recall without another LLM call.
 //!
@@ -149,8 +156,14 @@ pub struct UsedMemoryRef {
 #[serde(rename_all = "camelCase")]
 pub struct ActiveMemoryRecall {
     pub summary: String,
+    #[serde(default = "default_recall_mode")]
+    pub mode: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub selected: Option<ActiveMemoryCandidateRef>,
+    /// V2 fast recall can inject more than one bounded candidate. `selected`
+    /// remains the first item for wire/UI compatibility.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub selected_candidates: Vec<ActiveMemoryCandidateRef>,
     pub candidates: Vec<ActiveMemoryCandidateRef>,
     pub total_candidates: usize,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -158,22 +171,36 @@ pub struct ActiveMemoryRecall {
     pub cached: bool,
 }
 
+fn default_recall_mode() -> String {
+    "legacy".to_string()
+}
+
 impl ActiveMemoryRecall {
     pub fn used_memory_refs(&self) -> Vec<UsedMemoryRef> {
-        let selected_key = self
-            .selected
-            .as_ref()
-            .map(|candidate| (candidate.kind.as_str(), candidate.id.as_str()));
+        let mut selected_keys = std::collections::HashSet::new();
+        for candidate in &self.selected_candidates {
+            selected_keys.insert((candidate.kind.as_str(), candidate.id.as_str()));
+        }
+        if let Some(candidate) = self.selected.as_ref() {
+            selected_keys.insert((candidate.kind.as_str(), candidate.id.as_str()));
+        }
         let mut refs = Vec::new();
 
-        if let Some(selected) = self.selected.as_ref() {
-            refs.push(used_memory_ref_from_candidate(selected, "selected"));
+        if self.selected_candidates.is_empty() {
+            if let Some(selected) = self.selected.as_ref() {
+                refs.push(used_memory_ref_from_candidate(selected, "selected"));
+            }
+        } else {
+            refs.extend(
+                self.selected_candidates
+                    .iter()
+                    .map(|candidate| used_memory_ref_from_candidate(candidate, "selected")),
+            );
         }
 
         for candidate in &self.candidates {
-            let is_selected = selected_key
-                .map(|(kind, id)| kind == candidate.kind && id == candidate.id)
-                .unwrap_or(false);
+            let is_selected =
+                selected_keys.contains(&(candidate.kind.as_str(), candidate.id.as_str()));
             if is_selected {
                 continue;
             }
@@ -188,12 +215,18 @@ fn used_memory_ref_from_candidate(
     candidate: &ActiveMemoryCandidateRef,
     role: &str,
 ) -> UsedMemoryRef {
+    let origin = match candidate.kind.as_str() {
+        "profile" => "profile",
+        "procedure" | "episode" => "experience",
+        "graph" => "graph",
+        _ => "active_memory",
+    };
     UsedMemoryRef {
         kind: candidate.kind.clone(),
         id: candidate.id.clone(),
         source_type: candidate.source_type.clone(),
         scope: candidate.scope.clone(),
-        origin: "active_memory".to_string(),
+        origin: origin.to_string(),
         role: role.to_string(),
         preview: candidate.preview.clone(),
         path: None,
@@ -335,7 +368,7 @@ Candidate memories (top matches from local store):\n\
 User's latest message:\n\
 {user_msg}\n";
 
-fn scope_label(scope: &MemoryScope) -> String {
+pub(crate) fn scope_label(scope: &MemoryScope) -> String {
     match scope {
         MemoryScope::Global => "global".to_string(),
         MemoryScope::Agent { id } => format!("agent:{id}"),
@@ -343,7 +376,7 @@ fn scope_label(scope: &MemoryScope) -> String {
     }
 }
 
-fn preview_line(content: &str) -> String {
+pub(crate) fn preview_line(content: &str) -> String {
     crate::truncate_utf8(content.lines().next().unwrap_or(content).trim(), 180).to_string()
 }
 
@@ -502,11 +535,13 @@ pub fn scopes_for_session(
     session_id: &str,
     agent_id: &str,
     shared_global: bool,
+    bound_db: Option<&crate::session::SessionDB>,
 ) -> Vec<MemoryScope> {
     let mut scopes = Vec::new();
 
     // Project scope (if session belongs to one).
-    if let Some(db) = crate::get_session_db() {
+    let global_db = crate::get_session_db();
+    if let Some(db) = bound_db.or_else(|| global_db.map(|db| db.as_ref())) {
         if let Ok(Some(session)) = db.get_session(session_id) {
             if let Some(pid) = session.project_id {
                 scopes.push(MemoryScope::Project { id: pid });
@@ -633,6 +668,7 @@ mod tests {
             source_run_id: None,
             created_at: "2026-01-01T00:00:00.000Z".into(),
             updated_at: "2026-01-01T00:00:00.000Z".into(),
+            retrieval_evidence: None,
         }
     }
 
@@ -687,7 +723,9 @@ mod tests {
         };
         let recall = ActiveMemoryRecall {
             summary: "Use the concise-answer preference.".into(),
+            mode: "legacy".into(),
             selected: Some(selected.clone()),
+            selected_candidates: Vec::new(),
             candidates: vec![selected, fallback],
             total_candidates: 2,
             latency_ms: Some(12),

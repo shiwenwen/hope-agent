@@ -52,7 +52,8 @@ pub use turn_queue::{
 pub use turns::{ChatTurn, ChatTurnInterruptReason, ChatTurnStatus};
 pub use types::{
     build_chat_user_attachments_meta, build_tool_media_items_attachments_meta, ChannelSessionInfo,
-    MessageRole, NewMessage, SessionDefaultsInput, SessionKind, SessionMessage, SessionMeta,
-    ATTACHMENT_META_KEY_ACTIVE_MEMORY, ATTACHMENT_META_KEY_RETRIEVAL_PLANNER,
-    ATTACHMENT_META_KEY_TOOL_MEDIA_ITEMS, ATTACHMENT_META_KEY_USED_MEMORY_REFS,
+    MessageRole, NewMessage, SessionDefaultsInput, SessionKind, SessionMemoryPolicy,
+    SessionMemoryPolicyValue, SessionMessage, SessionMeta, ATTACHMENT_META_KEY_ACTIVE_MEMORY,
+    ATTACHMENT_META_KEY_RETRIEVAL_PLANNER, ATTACHMENT_META_KEY_TOOL_MEDIA_ITEMS,
+    ATTACHMENT_META_KEY_USED_MEMORY_REFS,
 };

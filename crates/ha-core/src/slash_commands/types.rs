@@ -155,9 +155,9 @@ pub enum CommandAction {
     },
 }
 
-/// Structured per-category context window usage snapshot.
-/// All token counts use the char/4 heuristic consistent with
-/// `context_compact::estimate_tokens`.
+/// Structured per-category context window usage snapshot. Request categories
+/// come from the same Provider-aware `RoundTokenManifest` that adapters emit;
+/// `context_input_tokens` is authoritative when the Provider returned usage.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ContextBreakdown {
@@ -173,10 +173,24 @@ pub struct ContextBreakdown {
     pub tool_descriptions_tokens: u32,
     /// Memory section injected into the system prompt (core + SQLite + guidelines).
     pub memory_tokens: u32,
+    /// User-configured and model-safe effective Core Memory budgets. These are
+    /// limits, not actual usage (`memory_tokens` remains the measured value).
+    #[serde(default)]
+    pub core_memory_configured_tokens: Option<u32>,
+    #[serde(default)]
+    pub core_memory_effective_tokens: Option<u32>,
+    #[serde(default)]
+    pub core_memory_model_safety_limit_tokens: Option<u32>,
+    #[serde(default)]
+    pub core_memory_budget_limited_by: Option<crate::memory::CoreMemoryBudgetLimit>,
     /// Skill descriptions injected into the system prompt.
     pub skill_tokens: u32,
     /// Conversation history (user/assistant messages + tool results).
     pub messages_tokens: u32,
+    /// Per-turn system suffixes (memory recall, awareness, procedure, notes,
+    /// coding profile and task reminder) appended after the stable prefix.
+    #[serde(default)]
+    pub dynamic_prompt_tokens: u32,
     /// Total used (sum of the categories above + reserved output).
     pub used_total: u32,
     /// Free space (context_window - used_total). Saturates at 0.
@@ -198,6 +212,43 @@ pub struct ContextBreakdown {
     pub active_agent: String,
     /// Number of messages in the active conversation history.
     pub message_count: u32,
+    /// Provider-reported input for the latest API round. `None` until a round
+    /// completes or when the backend does not expose usage.
+    #[serde(default)]
+    pub context_input_tokens: Option<u64>,
+    #[serde(default)]
+    pub fresh_input_tokens: Option<u64>,
+    #[serde(default)]
+    pub cache_read_tokens: Option<u64>,
+    #[serde(default)]
+    pub cache_write_tokens: Option<u64>,
+    #[serde(default)]
+    pub output_tokens: Option<u64>,
+    #[serde(default)]
+    pub ttft_ms: Option<u64>,
+    /// Content-free cache/deferred diagnostics for the latest exact request.
+    #[serde(default)]
+    pub request_input_tokens_estimate: Option<u32>,
+    #[serde(default)]
+    pub cacheable_stable_tokens_estimate: Option<u32>,
+    #[serde(default)]
+    pub eager_tool_schema_tokens: Option<u32>,
+    #[serde(default)]
+    pub activated_tool_schema_tokens: Option<u32>,
+    #[serde(default)]
+    pub deferred_tool_schema_tokens: Option<u32>,
+    #[serde(default)]
+    pub eager_tool_count: Option<u32>,
+    #[serde(default)]
+    pub deferred_tool_count: Option<u32>,
+    #[serde(default)]
+    pub activated_tool_count: Option<u32>,
+    #[serde(default)]
+    pub native_deferred: Option<bool>,
+    #[serde(default)]
+    pub stable_prompt_fingerprint: Option<String>,
+    #[serde(default)]
+    pub dynamic_prompt_fingerprint: Option<String>,
 }
 
 impl SlashCommandDef {

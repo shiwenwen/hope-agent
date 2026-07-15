@@ -1,6 +1,6 @@
 //! OpenClaw memory import helpers.
 //!
-//! OpenClaw `MEMORY.md` maps to Hope Agent's core `memory.md` files. OpenClaw's
+//! OpenClaw `MEMORY.md` maps to Hope Agent's canonical Core `MEMORY.md` files. OpenClaw's
 //! SQLite vector store at `~/.openclaw/memory/{agentId}.sqlite` maps to Hope
 //! Agent's memory database by importing chunk text only; embeddings are not
 //! reused because model/dimension/signature contracts differ.

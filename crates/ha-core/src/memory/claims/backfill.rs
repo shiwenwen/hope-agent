@@ -312,6 +312,7 @@ mod tests {
             created_at: "2026-01-01T00:00:00.000Z".to_string(),
             updated_at: "2026-01-01T00:00:00.000Z".to_string(),
             relevance_score: None,
+            retrieval_evidence: None,
             attachment_path: None,
             attachment_mime: None,
         }

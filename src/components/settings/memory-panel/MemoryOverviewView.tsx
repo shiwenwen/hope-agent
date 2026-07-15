@@ -167,9 +167,11 @@ import {
   type MemoryOverviewLoadIssue,
   type MemoryOverviewOperationErrorToast,
 } from "./memoryOverviewOperationFeedback"
+import MemoryEssentials from "./MemoryEssentials"
 
 type MemoryData = ReturnType<typeof useMemoryData>
 type MemoryCenterTab = "overview" | "settings" | "manage" | "dreaming" | "profile" | "claims"
+const DB_SNAPSHOT_RESTORE_CONFIRMATION = "RESTORE"
 
 function experienceDomId(kind: "episode" | "procedure", id: string): string {
   return `memory-experience-${kind}-${encodeURIComponent(id)}`
@@ -813,6 +815,8 @@ export default function MemoryOverviewView({
   const [repairingDbSnapshot, setRepairingDbSnapshot] = useState(false)
   const [checkingDbSnapshotRestore, setCheckingDbSnapshotRestore] = useState(false)
   const [restoringDbSnapshot, setRestoringDbSnapshot] = useState(false)
+  const [restoreConfirmOpen, setRestoreConfirmOpen] = useState(false)
+  const [restoreConfirmation, setRestoreConfirmation] = useState("")
   const [dbSnapshotRestorePreview, setDbSnapshotRestorePreview] =
     useState<MemoryDbSnapshotRestorePreview | null>(null)
   const [lastDbSnapshotPath, setLastDbSnapshotPath] = useState<string | null>(null)
@@ -959,7 +963,7 @@ export default function MemoryOverviewView({
         case "recommended":
           return t(
             "settings.memoryUseInRepliesReadinessRecommended",
-            "Ready: low-latency recall includes structured memories and safe timeout fallback.",
+            "Agent compatibility recall is ready; it opts only this Agent into Fast and deep recall even when the global default is off.",
           )
         case "agentMemoryOff":
           return t(
@@ -969,7 +973,7 @@ export default function MemoryOverviewView({
         case "disabled":
           return t(
             "settings.memoryUseInRepliesReadinessDisabled",
-            "Off: the default agent will not proactively look up memories before answering.",
+            "Off by default: the default agent will not proactively look up memories before answering.",
           )
         case "claimsOff":
           return t(
@@ -1012,9 +1016,9 @@ export default function MemoryOverviewView({
     : !targetAgentMemoryEnabled
       ? t("settings.memoryUseInRepliesStatusAgentOff", "Agent memory off")
       : activeMemoryUsesRecommended
-      ? t("settings.memoryUseInRepliesStatusRecommended", "Recommended preset on")
+      ? t("settings.memoryUseInRepliesStatusRecommended", "Recommended deep reranking configured")
       : activeMemoryConfig.enabled
-        ? t("settings.memoryUseInRepliesStatusOn", "Custom recall on")
+        ? t("settings.memoryUseInRepliesStatusOn", "Custom deep reranking configured")
         : t("settings.memoryUseInRepliesStatusOff", "Off")
   const activeMemoryStatusClassName = activeMemoryLoading
     ? "border-border/60 bg-secondary text-muted-foreground"
@@ -1043,7 +1047,7 @@ export default function MemoryOverviewView({
       })
       setTargetAgentMemoryEnabled(updated.memory?.enabled ?? true)
       setTargetAgentActiveMemory(updated.memory?.activeMemory ?? DEFAULT_ACTIVE_MEMORY)
-      toast.success(t("settings.memoryUseInRepliesUpdated", "Recommended recall enabled"))
+      toast.success(t("settings.memoryUseInRepliesUpdated", "Legacy deep reranking configured"))
     } catch (e) {
       const message = formatMemoryUseInRepliesError(t, "update", e)
       setActiveMemoryError(message)
@@ -1699,15 +1703,7 @@ export default function MemoryOverviewView({
       )
       return
     }
-    const expected = "RESTORE"
-    const entered = window.prompt(
-      t("settings.memoryRepairDbSnapshotRestoreConfirmPrompt", {
-        defaultValue:
-          "This will restore memory.db from the verified snapshot and create a rollback snapshot first. Type {{word}} to continue.",
-        word: expected,
-      }),
-    )
-    if (entered !== expected) return
+    if (restoreConfirmation !== DB_SNAPSHOT_RESTORE_CONFIRMATION) return
     setRestoringDbSnapshot(true)
     try {
       const report = await getTransport().call<MemoryDbSnapshotRestoreReport>(
@@ -1718,6 +1714,8 @@ export default function MemoryOverviewView({
       setLastDbSnapshotPath(report.rollbackSnapshotPath)
       setLastDbSnapshotFiles(report.rollbackSnapshotFiles ?? [])
       setDbSnapshotRestorePreview(null)
+      setRestoreConfirmOpen(false)
+      setRestoreConfirmation("")
       toast.success(
         t("settings.memoryRepairDbSnapshotRestoreDone", "Database snapshot restored"),
         {
@@ -1747,6 +1745,7 @@ export default function MemoryOverviewView({
     currentDbSnapshotPath,
     dbSnapshotRestorePreview,
     reloadMemories,
+    restoreConfirmation,
     restoringDbSnapshot,
     t,
   ])
@@ -4631,6 +4630,21 @@ export default function MemoryOverviewView({
           <p className="mt-1 text-xs text-muted-foreground">{t("settings.memoryDesc")}</p>
         </div>
 
+        {!isAgentMode && <MemoryEssentials onManage={() => onSelectTab("manage")} />}
+
+        <details open={isAgentMode || undefined} className="group">
+          <summary
+            className={isAgentMode
+              ? "hidden"
+              : "cursor-pointer list-none rounded-lg border border-border/60 bg-card px-3 py-3 text-sm font-medium [&::-webkit-details-marker]:hidden"}
+          >
+            {t("settings.hooks.advanced")} · {t("settings.memoryV2.title")}
+            <span className="ml-2 text-xs font-normal text-muted-foreground">
+              {t("settings.memoryV2.subtitle")}
+            </span>
+          </summary>
+          <div className="mt-4 space-y-5">
+
         {!isAgentMode && !memoryEnabled && (
           <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-3">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -4760,7 +4774,7 @@ export default function MemoryOverviewView({
                 <p className="mt-1 max-w-3xl text-xs text-muted-foreground">
                   {t(
                     "settings.memoryUseInRepliesDesc",
-                    "Enable the recommended low-latency recall preset for the default agent. Relevant memories can be brought into answers, and recall still skips safely on timeout.",
+                    "Compatibility recall for the default Agent. Enabling it opts only this Agent into Fast and deep recall even when the global default above is off. Off by default, deep reranking adds a side query, latency, and token usage.",
                   )}
                 </p>
                 <p className="mt-1 text-[11px] text-muted-foreground/80">
@@ -4832,8 +4846,8 @@ export default function MemoryOverviewView({
                     <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
                   )}
                   {activeMemoryUsesRecommended
-                    ? t("settings.memoryUseInRepliesApplied", "Recommended on")
-                    : t("settings.memoryUseInRepliesAction", "Use recommended")}
+                    ? t("settings.memoryUseInRepliesApplied", "Recommended settings configured")
+                    : t("settings.memoryUseInRepliesAction", "Configure recommended")}
                 </Button>
               </div>
             </div>
@@ -5364,7 +5378,10 @@ export default function MemoryOverviewView({
                               size="sm"
                               variant="destructive"
                               className="mt-1 ml-1 h-6 px-1.5 text-[10px]"
-                              onClick={() => void restoreDbSnapshot()}
+                              onClick={() => {
+                                setRestoreConfirmation("")
+                                setRestoreConfirmOpen(true)
+                              }}
                               disabled={restoringDbSnapshot}
                             >
                               {restoringDbSnapshot ? (
@@ -7016,6 +7033,66 @@ export default function MemoryOverviewView({
         </Dialog>
 
         <Dialog
+          open={restoreConfirmOpen}
+          onOpenChange={(open) => {
+            if (restoringDbSnapshot) return
+            setRestoreConfirmOpen(open)
+            if (!open) setRestoreConfirmation("")
+          }}
+        >
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>
+                {t("settings.memoryRepairDbSnapshotRestoreNow", "Restore snapshot")}
+              </DialogTitle>
+              <DialogDescription>
+                {t("settings.memoryRepairDbSnapshotRestoreConfirmPrompt", {
+                  defaultValue:
+                    "This will restore memory.db from the verified snapshot and create a rollback snapshot first. Type {{word}} to continue.",
+                  word: DB_SNAPSHOT_RESTORE_CONFIRMATION,
+                })}
+              </DialogDescription>
+            </DialogHeader>
+            <div className="grid gap-1.5">
+              <label className="text-xs font-medium" htmlFor="memory-db-restore-confirmation">
+                {t("common.confirm")} · <code>{DB_SNAPSHOT_RESTORE_CONFIRMATION}</code>
+              </label>
+              <Input
+                id="memory-db-restore-confirmation"
+                value={restoreConfirmation}
+                onChange={(event) => setRestoreConfirmation(event.target.value)}
+                autoComplete="off"
+                spellCheck={false}
+              />
+            </div>
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => setRestoreConfirmOpen(false)}
+                disabled={restoringDbSnapshot}
+              >
+                {t("common.cancel")}
+              </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                onClick={() => void restoreDbSnapshot()}
+                disabled={
+                  restoringDbSnapshot ||
+                  restoreConfirmation !== DB_SNAPSHOT_RESTORE_CONFIRMATION
+                }
+              >
+                {restoringDbSnapshot && (
+                  <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                )}
+                {t("settings.memoryRepairDbSnapshotRestoreNow", "Restore snapshot")}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog
           open={episodeDialogOpen}
           onOpenChange={(open) => {
             setEpisodeDialogOpen(open)
@@ -7319,6 +7396,8 @@ export default function MemoryOverviewView({
             </DialogFooter>
           </DialogContent>
         </Dialog>
+          </div>
+        </details>
       </div>
     </div>
   )

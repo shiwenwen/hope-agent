@@ -64,24 +64,19 @@ pub fn build_skills_prompt(
     let active = &active[..max_count];
 
     // Header
-    let header = "\n\nThe following skills provide specialized instructions for specific tasks.\n\
-        Use the `skill` tool to activate a skill by name — e.g. `skill({ name: \"<skill-name>\", args: \"<optional>\" })`.\n\
-        Do NOT `read` SKILL.md files to activate a skill; the `skill` tool handles loading, \
-        argument substitution, and (for `context: fork` skills) sub-agent isolation.\n\
-        Only activate the skill most relevant to the current task — do not activate more than one up front.";
+    let header = "\n\n# Skills\nUse `skill({ name, args? })` to load the single most relevant skill. Do not read SKILL.md directly; the tool handles arguments and fork isolation.";
 
-    // Render `- name: <desc> — when: <trigger>` when the author split
-    // the two fields; fall back to `- name: <trigger_text>` otherwise.
+    // A bounded trigger line preserves discoverability without embedding a
+    // second copy of each skill's full prose in every request.
     let full_lines: Vec<String> = active
         .iter()
         .map(|s| {
-            let when = s.when_to_use.as_deref().filter(|w| !w.is_empty());
-            match when {
-                Some(w) if !s.description.is_empty() => {
-                    format!("- {}: {} — when: {}", s.name, s.description, w)
-                }
-                _ => format!("- {}: {}", s.name, s.trigger_text()),
-            }
+            let trigger = s
+                .when_to_use
+                .as_deref()
+                .filter(|value| !value.is_empty())
+                .unwrap_or_else(|| s.trigger_text());
+            format!("- {} — {}", s.name, crate::truncate_utf8(trigger, 140))
         })
         .collect();
 

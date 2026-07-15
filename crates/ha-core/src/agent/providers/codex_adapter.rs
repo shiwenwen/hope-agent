@@ -61,6 +61,37 @@ pub(in crate::agent) fn apply_codex_headers(
         .header("accept", "text/event-stream")
 }
 
+fn build_codex_request(
+    model: &str,
+    reasoning: Option<super::super::api_types::ReasoningConfig>,
+    req: &RoundRequest<'_>,
+) -> (ResponsesRequest, Vec<Value>) {
+    let mut api_input: Vec<Value> = Vec::new();
+    for content in super::super::streaming_adapter::leading_dynamic_suffixes(req) {
+        api_input.push(json!({ "role": "system", "content": content }));
+    }
+    api_input.extend(expand_responses_image_markers_for_api(req.history_for_api));
+    for content in super::super::streaming_adapter::trailing_dynamic_suffixes(req) {
+        api_input.push(json!({ "role": "system", "content": content }));
+    }
+    let request = ResponsesRequest {
+        model: model.to_string(),
+        store: false,
+        stream: true,
+        instructions: Some(req.system_prompt.to_string()),
+        input: api_input.clone(),
+        reasoning,
+        include: None,
+        tools: (!req.is_final_round).then(|| req.tool_schemas.to_vec()),
+        temperature: req.temperature,
+        // A Responses-shaped wire format is not evidence that Codex supports
+        // hosted tool search or OpenAI prompt-cache routing fields.
+        prompt_cache_key: None,
+        prompt_cache_options: None,
+    };
+    (request, api_input)
+}
+
 pub(crate) struct CodexStreamingAdapter<'a> {
     pub access_token: &'a str,
     pub account_id: &'a str,
@@ -89,64 +120,20 @@ impl<'a> StreamingChatAdapter for CodexStreamingAdapter<'a> {
         cancel: &Arc<AtomicBool>,
         on_delta: &(dyn for<'s> Fn(&'s str) + Send + Sync),
     ) -> Result<RoundOutcome> {
-        // Inject awareness + active memory as leading system items (same as
-        // openai_responses_adapter — keeps `instructions` cache-friendly).
-        let mut api_input: Vec<Value> = expand_responses_image_markers_for_api(req.history_for_api);
-        if let Some(procedure_suffix) = req.procedure_memory_suffix {
-            if !procedure_suffix.is_empty() {
-                api_input.insert(0, json!({ "role": "system", "content": procedure_suffix }));
-            }
-        }
-        if let Some(active_suffix) = req.active_memory_suffix {
-            if !active_suffix.is_empty() {
-                api_input.insert(0, json!({ "role": "system", "content": active_suffix }));
-            }
-        }
-        if let Some(suffix) = req.awareness_suffix {
-            if !suffix.is_empty() {
-                api_input.insert(0, json!({ "role": "system", "content": suffix }));
-            }
-        }
-        if let Some(profile_suffix) = req.coding_profile_suffix {
-            if !profile_suffix.is_empty() {
-                api_input.insert(0, json!({ "role": "system", "content": profile_suffix }));
-            }
-        }
-        if let Some(related_suffix) = req.related_notes_suffix {
-            if !related_suffix.is_empty() {
-                api_input.push(json!({ "role": "system", "content": related_suffix }));
-            }
-        }
-        if let Some(task_suffix) = req.task_reminder_suffix {
-            if !task_suffix.is_empty() {
-                api_input.push(json!({ "role": "system", "content": task_suffix }));
-            }
-        }
-
-        let request = ResponsesRequest {
-            model: self.model.to_string(),
-            store: false,
-            stream: true,
-            instructions: req.system_prompt.to_string(),
-            input: api_input.clone(),
-            reasoning: self.reasoning.clone(),
-            // `reasoning.encrypted_content` is not requested: with
-            // `store: false` we don't replay reasoning items into the next
-            // round, so the encrypted payload would just inflate the SSE
-            // response with no consumer.
-            include: None,
-            tools: if req.is_final_round {
-                None
-            } else {
-                Some(req.tool_schemas.to_vec())
-            },
-            temperature: req.temperature,
-        };
+        let (request, api_input) = build_codex_request(self.model, self.reasoning.clone(), &req);
 
         let body_json = serde_json::to_string(&request)?;
+        let body_size = body_json.len();
+        super::super::token_manifest::log_round_manifest(
+            "Codex",
+            self.model,
+            "codex_responses",
+            &req,
+            body_size,
+            false,
+        );
 
         if let Some(logger) = crate::get_logger() {
-            let body_size = body_json.len();
             let raw_body = if body_size > 32768 {
                 format!(
                     "{}...(truncated, total {}B)",
@@ -347,13 +334,14 @@ impl<'a> StreamingChatAdapter for CodexStreamingAdapter<'a> {
                 text: String::new(),
                 thinking: String::new(),
                 tool_calls: Vec::new(),
+                provider_history_items: Vec::new(),
                 usage: Default::default(),
                 ttft_ms: None,
                 stop_reason: None,
             });
         }
 
-        let (text, tool_calls, usage, thinking_text, ttft_ms) =
+        let (text, tool_calls, provider_history_items, mut usage, thinking_text, ttft_ms) =
             parse_openai_sse(resp, request_start, cancel.as_ref(), on_delta).await?;
 
         if let Some(logger) = crate::get_logger() {
@@ -383,10 +371,20 @@ impl<'a> StreamingChatAdapter for CodexStreamingAdapter<'a> {
             }
         }
 
+        usage.normalize_openai_round();
+        super::super::token_manifest::log_round_usage(
+            "Codex",
+            self.model,
+            req.round,
+            req.session_id,
+            &usage,
+            ttft_ms,
+        );
         Ok(RoundOutcome {
             text,
             thinking: thinking_text,
             tool_calls,
+            provider_history_items,
             usage,
             ttft_ms,
             stop_reason: None,
@@ -400,7 +398,17 @@ impl<'a> StreamingChatAdapter for CodexStreamingAdapter<'a> {
         outcome: &RoundOutcome,
         executed: &[ExecutedTool],
     ) {
-        push_responses_assistant_message(history, Some(round), &outcome.text);
+        if !outcome
+            .provider_history_items
+            .iter()
+            .any(|item| item.get("type").and_then(Value::as_str) == Some("message"))
+        {
+            push_responses_assistant_message(history, Some(round), &outcome.text);
+        }
+
+        for item in &outcome.provider_history_items {
+            crate::context_compact::push_and_stamp(history, item.clone(), round);
+        }
 
         for et in executed {
             crate::context_compact::push_and_stamp(
@@ -437,5 +445,64 @@ impl<'a> StreamingChatAdapter for CodexStreamingAdapter<'a> {
 
     fn loop_should_exit(&self, outcome: &RoundOutcome) -> bool {
         outcome.tool_calls.is_empty()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::build_codex_request;
+    use crate::agent::streaming_adapter::RoundRequest;
+
+    #[test]
+    fn codex_request_golden_uses_client_deferred_and_no_cache_assumptions() {
+        let tools = vec![serde_json::json!({ "type": "function", "name": "read" })];
+        let deferred = vec![serde_json::json!({ "type": "function", "name": "browser" })];
+        let history = vec![serde_json::json!({ "role": "user", "content": "question" })];
+        let req = RoundRequest {
+            session_id: Some("session"),
+            system_prompt: "stable",
+            awareness_suffix: Some("awareness"),
+            active_memory_suffix: Some("memory"),
+            coding_profile_suffix: Some("coding"),
+            procedure_memory_suffix: Some("procedure"),
+            related_notes_suffix: Some("notes"),
+            task_reminder_suffix: Some("task"),
+            tool_schemas: &tools,
+            deferred_tool_schemas: &deferred,
+            eager_tool_count: 1,
+            deferred_tool_count: 1,
+            activated_tool_count: 0,
+            prompt_cache_key: Some("must-not-be-sent"),
+            history_for_api: &history,
+            reasoning_effort: None,
+            temperature: None,
+            max_tokens: 100,
+            is_final_round: false,
+            round: 0,
+        };
+        let (request, input) = build_codex_request("gpt-5.4-codex", None, &req);
+        let body = serde_json::to_value(request).unwrap();
+        assert_eq!(body["instructions"], "stable");
+        assert!(body.get("prompt_cache_key").is_none());
+        assert!(body.get("prompt_cache_options").is_none());
+        assert_eq!(body["tools"].as_array().unwrap().len(), 1);
+        assert_eq!(body["tools"][0]["name"], "read");
+        assert!(body.to_string().find("browser").is_none());
+        let contents = input
+            .iter()
+            .map(|item| item["content"].as_str().unwrap_or_default())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            contents,
+            vec![
+                "awareness",
+                "memory",
+                "coding",
+                "procedure",
+                "question",
+                "notes",
+                "task"
+            ]
+        );
     }
 }

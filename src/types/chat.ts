@@ -198,7 +198,9 @@ export interface ActiveMemoryCandidateRef {
 
 export interface ActiveMemoryRecall {
   summary: string
+  mode?: "legacy" | "fast" | "deep" | string
   selected?: ActiveMemoryCandidateRef | null
+  selectedCandidates?: ActiveMemoryCandidateRef[]
   candidates: ActiveMemoryCandidateRef[]
   totalCandidates: number
   latencyMs?: number

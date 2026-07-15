@@ -14,7 +14,8 @@ pub(super) struct ResponsesRequest {
     pub model: String,
     pub store: bool,
     pub stream: bool,
-    pub instructions: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub instructions: Option<String>,
     pub input: Vec<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reasoning: Option<ReasoningConfig>,
@@ -24,6 +25,10 @@ pub(super) struct ResponsesRequest {
     pub tools: Option<Vec<serde_json::Value>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub temperature: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prompt_cache_key: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prompt_cache_options: Option<serde_json::Value>,
 }
 
 /// Tracks a function_call being accumulated from SSE events
@@ -69,6 +74,8 @@ pub(super) struct SseResponseObj {
 pub(super) struct SseTokenDetails {
     #[serde(default)]
     pub cached_tokens: Option<u64>,
+    #[serde(default)]
+    pub cache_write_tokens: Option<u64>,
 }
 
 #[derive(Deserialize, Debug, Default)]
@@ -111,7 +118,7 @@ pub(super) struct SseOutputItem {
     #[serde(default)]
     pub name: Option<String>,
     #[serde(default)]
-    pub arguments: Option<String>,
+    pub arguments: Option<serde_json::Value>,
     #[serde(default)]
     pub content: Option<Vec<ContentPart>>,
 }

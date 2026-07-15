@@ -327,15 +327,39 @@ fn preserve_unreadable_config(path: &std::path::Path) {
 
 fn read_from_disk() -> Result<AppConfig> {
     let path = config_path()?;
-    read_from_path(&path)
+    read_from_path_and_persist_migrations(&path)
+}
+
+fn read_from_path_and_persist_migrations(path: &Path) -> Result<AppConfig> {
+    let (config, migrations) = read_from_path_with_migrations(path)?;
+    if migrations.changed() {
+        persist_config_migrations(path, &config, migrations);
+    }
+    Ok(config)
 }
 
 fn read_from_path(path: &Path) -> Result<AppConfig> {
+    read_from_path_with_migrations(path).map(|(config, _)| config)
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct ConfigMigrationReport {
+    memory_runtime_contract: bool,
+    recall_default_reset: bool,
+}
+
+impl ConfigMigrationReport {
+    fn changed(self) -> bool {
+        self.memory_runtime_contract
+    }
+}
+
+fn read_from_path_with_migrations(path: &Path) -> Result<(AppConfig, ConfigMigrationReport)> {
     if !path.exists() {
-        return Ok(AppConfig::default());
+        return Ok((AppConfig::default(), ConfigMigrationReport::default()));
     }
     let data = std::fs::read_to_string(path)?;
-    parse_config_str(&data)
+    parse_config_str_with_migrations(&data)
 }
 
 /// Parse `config.json` text into [`AppConfig`].
@@ -344,10 +368,74 @@ fn read_from_path(path: &Path) -> Result<AppConfig> {
 /// prepend one when a user hand-edits the file, and `serde_json` otherwise
 /// rejects it as an invalid leading character — which used to nuke the whole
 /// config (issue #326).
+#[cfg(test)]
 fn parse_config_str(data: &str) -> Result<AppConfig> {
+    parse_config_str_with_migrations(data).map(|(config, _)| config)
+}
+
+fn parse_config_str_with_migrations(data: &str) -> Result<(AppConfig, ConfigMigrationReport)> {
     let trimmed = data.strip_prefix('\u{feff}').unwrap_or(data);
-    let config: AppConfig = serde_json::from_str(trimmed)?;
-    Ok(config)
+    let raw: serde_json::Value = serde_json::from_str(trimmed)?;
+    let raw_memory = raw.get("memory").cloned();
+    let has_memory_v2 = raw_memory.is_some();
+    let mut config: AppConfig = serde_json::from_value(raw)?;
+    let mut migrations = ConfigMigrationReport::default();
+    if !has_memory_v2 {
+        config.memory = crate::memory::MemoryRuntimeConfig::from_legacy(
+            &config.memory_extract,
+            &config.memory_selection,
+            &config.memory_budget,
+        );
+        migrations.memory_runtime_contract = true;
+    } else {
+        let raw_memory = raw_memory.expect("checked above");
+        let old_implicit_recall = raw_memory
+            .get("recall")
+            .and_then(|recall| recall.get("enabled"))
+            .and_then(serde_json::Value::as_bool)
+            == Some(true);
+        if config
+            .memory
+            .migrate_recall_consent(&raw_memory, config.memory_selection.enabled)
+        {
+            migrations.memory_runtime_contract = true;
+            migrations.recall_default_reset = old_implicit_recall && !config.memory.recall.enabled;
+        }
+        // Config files are user-editable and may also come from an older
+        // preview build that did not clamp V2 budgets. Apply the same bounds
+        // on load as the owner save endpoints so a raw file cannot inflate the
+        // stable prompt or turn a bounded recall into an unbounded query.
+        config.memory = config.memory.normalized();
+    }
+    Ok((config, migrations))
+}
+
+/// Persist successful, deterministic config migrations once at startup. A
+/// write failure never discards the already parsed user config: the migrated
+/// in-memory view remains active and the next startup retries persistence.
+fn persist_config_migrations(path: &Path, config: &AppConfig, migrations: ConfigMigrationReport) {
+    let _reason_guard =
+        crate::backup::scope_save_reason("memory-recall-opt-in", "startup-migration");
+    crate::backup::snapshot_before_write(path, "config");
+    let result = serde_json::to_string_pretty(config)
+        .map_err(std::io::Error::other)
+        .and_then(|data| crate::platform::write_secure_file(path, data.as_bytes()));
+    match result {
+        Ok(()) => app_info!(
+            "config",
+            "migration",
+            "Persisted Memory config contract v{} (implicit recall reset: {})",
+            crate::memory::MEMORY_RUNTIME_CONFIG_VERSION,
+            migrations.recall_default_reset
+        ),
+        Err(error) => app_warn!(
+            "config",
+            "migration",
+            "Could not persist Memory config contract v{}; using the migrated in-memory view and retrying next startup: {}",
+            crate::memory::MEMORY_RUNTIME_CONFIG_VERSION,
+            error
+        ),
+    }
 }
 
 /// Shared read-only snapshot of the app config. **Lock-free, zero data
@@ -543,9 +631,199 @@ mod parse_tests {
 
     #[test]
     fn plain_json_parses() {
-        let cfg = parse_config_str(r#"{"providers":[],"theme":"dark"}"#).expect("parse");
+        let (cfg, migrations) =
+            parse_config_str_with_migrations(r#"{"providers":[],"theme":"dark"}"#).expect("parse");
         assert_eq!(cfg.theme, "dark");
         assert!(!cfg.enhanced_focus_indicators);
+        assert!(!cfg.memory.recall.enabled);
+        assert_eq!(
+            cfg.memory.config_version,
+            crate::memory::MEMORY_RUNTIME_CONFIG_VERSION
+        );
+        assert!(migrations.memory_runtime_contract);
+    }
+
+    #[test]
+    fn config_without_memory_v2_preserves_legacy_memory_choices() {
+        let cfg = parse_config_str(
+            r#"{
+                "providers": [],
+                "memoryExtract": {
+                    "enabled": true,
+                    "autoExtract": false,
+                    "flushBeforeCompact": false,
+                    "reviewFirst": false
+                },
+                "memorySelection": { "enabled": true, "maxSelected": 4 }
+            }"#,
+        )
+        .expect("parse legacy memory config");
+        assert_eq!(
+            cfg.memory.learning.mode,
+            crate::memory::MemoryLearningMode::Manual
+        );
+        assert!(cfg.memory.deep_recall.enabled);
+        assert!(cfg.memory.recall.enabled);
+        assert!(cfg.memory.recall.user_configured);
+        assert_eq!(cfg.memory.recall.max_selected, 4);
+    }
+
+    #[test]
+    fn unversioned_v2_implicit_recall_default_is_reset_and_reported() {
+        let (cfg, migrations) = parse_config_str_with_migrations(
+            r#"{
+                "providers": [],
+                "memory": {
+                    "enabled": true,
+                    "recall": { "enabled": true, "mode": "fast" },
+                    "deepRecall": { "enabled": false },
+                    "learning": { "mode": "smart" }
+                }
+            }"#,
+        )
+        .expect("parse old V2 config");
+
+        assert!(migrations.memory_runtime_contract);
+        assert!(migrations.recall_default_reset);
+        assert!(!cfg.memory.recall.enabled);
+        assert!(!cfg.memory.recall.user_configured);
+        assert!(cfg.memory.core.enabled);
+        assert_eq!(
+            cfg.memory.learning.mode,
+            crate::memory::MemoryLearningMode::Smart
+        );
+    }
+
+    #[test]
+    fn unversioned_v2_preserves_reliable_legacy_recall_consent() {
+        let (cfg, migrations) = parse_config_str_with_migrations(
+            r#"{
+                "providers": [],
+                "memorySelection": { "enabled": true },
+                "memory": {
+                    "recall": { "enabled": true, "mode": "fast" },
+                    "deepRecall": { "enabled": false }
+                }
+            }"#,
+        )
+        .expect("parse old V2 config");
+
+        assert!(migrations.memory_runtime_contract);
+        assert!(!migrations.recall_default_reset);
+        assert!(cfg.memory.recall.enabled);
+        assert!(cfg.memory.recall.user_configured);
+    }
+
+    #[test]
+    fn current_memory_contract_does_not_repeat_migration() {
+        let input = format!(
+            r#"{{
+                "providers": [],
+                "memory": {{
+                    "configVersion": {},
+                    "recall": {{ "enabled": true, "userConfigured": true }}
+                }}
+            }}"#,
+            crate::memory::MEMORY_RUNTIME_CONFIG_VERSION
+        );
+        let (cfg, migrations) = parse_config_str_with_migrations(&input).expect("parse current");
+
+        assert!(!migrations.changed());
+        assert!(cfg.memory.recall.enabled);
+        assert!(cfg.memory.recall.user_configured);
+    }
+
+    #[test]
+    fn startup_migration_is_backed_up_and_persisted_once() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        crate::test_support::with_env_vars(&[("HA_DATA_DIR", tmp.path())], || {
+            let path = tmp.path().join("config.json");
+            let original = r#"{
+                "providers": [],
+                "theme": "dark",
+                "memory": {
+                    "recall": { "enabled": true, "mode": "fast" },
+                    "deepRecall": { "enabled": false }
+                }
+            }"#;
+            std::fs::write(&path, original).expect("write old config");
+
+            let loaded =
+                read_from_path_and_persist_migrations(&path).expect("migrate startup config");
+            assert_eq!(loaded.theme, "dark");
+            assert!(!loaded.memory.recall.enabled);
+
+            let persisted: serde_json::Value = serde_json::from_str(
+                &std::fs::read_to_string(&path).expect("read migrated config"),
+            )
+            .expect("parse migrated config");
+            assert_eq!(
+                persisted["memory"]["configVersion"],
+                crate::memory::MEMORY_RUNTIME_CONFIG_VERSION
+            );
+            assert_eq!(persisted["memory"]["recall"]["enabled"], false);
+            assert_eq!(persisted["memory"]["recall"]["userConfigured"], false);
+
+            let autosave_dir = tmp.path().join("backups").join("autosave");
+            let autosaves = std::fs::read_dir(autosave_dir)
+                .expect("autosave directory")
+                .collect::<Result<Vec<_>, _>>()
+                .expect("autosave entries");
+            assert_eq!(autosaves.len(), 1);
+            assert_eq!(
+                std::fs::read_to_string(autosaves[0].path()).expect("read autosave"),
+                original
+            );
+
+            let (_, second_report) =
+                read_from_path_with_migrations(&path).expect("read current config");
+            assert!(!second_report.changed());
+
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let mode = std::fs::metadata(&path)
+                    .expect("config metadata")
+                    .permissions()
+                    .mode()
+                    & 0o777;
+                assert_eq!(mode, 0o600);
+            }
+        });
+    }
+
+    #[test]
+    fn explicit_memory_v2_is_not_overwritten_by_legacy_fields() {
+        let cfg = parse_config_str(
+            r#"{
+                "providers": [],
+                "memoryExtract": { "autoExtract": false, "flushBeforeCompact": false },
+                "memory": { "learning": { "mode": "smart" } }
+            }"#,
+        )
+        .expect("parse V2 memory config");
+        assert_eq!(
+            cfg.memory.learning.mode,
+            crate::memory::MemoryLearningMode::Smart
+        );
+    }
+
+    #[test]
+    fn explicit_memory_v2_is_normalized_while_loading() {
+        let cfg = parse_config_str(
+            r#"{
+                "providers": [],
+                "memory": {
+                    "core": { "hardMaxTokens": 999999, "totalTokens": 999999 },
+                    "recall": { "candidateLimit": 999999, "timeoutMs": 999999 }
+                }
+            }"#,
+        )
+        .expect("parse bounded V2 memory config");
+        assert_eq!(cfg.memory.core.hard_max_tokens, 16_384);
+        assert_eq!(cfg.memory.core.total_tokens, 16_384);
+        assert_eq!(cfg.memory.recall.candidate_limit, 100);
+        assert_eq!(cfg.memory.recall.timeout_ms, 2000);
     }
 
     #[test]

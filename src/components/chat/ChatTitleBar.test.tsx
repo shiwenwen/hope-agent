@@ -10,6 +10,7 @@ import type { SessionMeta } from "@/types/chat"
 
 const transportMock = vi.hoisted(() => ({
   call: vi.fn(() => Promise.resolve("full")),
+  listen: vi.fn(() => () => {}),
 }))
 
 vi.mock("@/lib/transport-provider", () => ({
@@ -99,6 +100,7 @@ afterEach(() => {
   cleanup()
   vi.clearAllMocks()
   transportMock.call.mockImplementation(() => Promise.resolve("full"))
+  transportMock.listen.mockImplementation(() => () => {})
 })
 
 describe("ChatTitleBar right-panel dock", () => {

@@ -2846,6 +2846,7 @@ fn memory_config_manifest() -> serde_json::Value {
     let cfg = crate::config::cached_config();
     json!({
         "memoryExtract": cfg.memory_extract,
+        "memory": cfg.memory,
         "memorySelection": cfg.memory_selection,
         "memoryBudget": cfg.memory_budget,
         "memoryEmbedding": cfg.memory_embedding,

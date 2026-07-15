@@ -113,6 +113,21 @@ impl<K: Eq + Hash + Clone, V: Clone> TtlCache<K, V> {
         self.inner.lock().unwrap_or_else(|e| e.into_inner()).clear();
     }
 
+    /// Remove one entry explicitly. Session-scoped caches use this from their
+    /// lifecycle purge hook so sensitive in-memory state is burned promptly
+    /// instead of waiting for TTL or capacity eviction.
+    pub fn remove<Q>(&self, key: &Q) -> Option<V>
+    where
+        K: Borrow<Q>,
+        Q: Eq + Hash + ?Sized,
+    {
+        self.inner
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(key)
+            .map(|entry| entry.value)
+    }
+
     /// Current entry count. Includes expired entries that haven't been
     /// swept yet — callers shouldn't rely on this for correctness, only
     /// as a soft observability signal (metrics, debug logs, tests).
@@ -178,5 +193,15 @@ mod tests {
         c.clear();
         assert_eq!(c.len(), 0);
         assert!(c.get(&1, Duration::from_secs(60)).is_none());
+    }
+
+    #[test]
+    fn remove_drops_only_requested_entry() {
+        let c: TtlCache<String, &'static str> = TtlCache::new(4);
+        c.put("a".into(), "first");
+        c.put("b".into(), "second");
+        assert_eq!(c.remove("a"), Some("first"));
+        assert!(c.get("a", Duration::from_secs(60)).is_none());
+        assert_eq!(c.get("b", Duration::from_secs(60)), Some("second"));
     }
 }

@@ -133,6 +133,11 @@ fn build_router_with_cors(
             patch(routes::sessions::set_session_incognito),
         )
         .route(
+            "/sessions/{id}/memory-policy",
+            get(routes::sessions::get_session_memory_policy)
+                .put(routes::sessions::set_session_memory_policy),
+        )
+        .route(
             "/sessions/{id}/working-dir",
             patch(routes::sessions::set_session_working_dir),
         )
@@ -275,6 +280,20 @@ fn build_router_with_cors(
         .route(
             "/projects/{id}/memories",
             get(routes::projects::list_project_memories),
+        )
+        .route(
+            "/projects/{id}/memory-files",
+            get(routes::projects::list_project_memory_files)
+                .put(routes::projects::write_project_memory_file),
+        )
+        .route(
+            "/projects/{id}/memory-files/rebuild-index",
+            post(routes::projects::rebuild_project_memory_index),
+        )
+        .route(
+            "/projects/{id}/memory-files/{file_name}",
+            get(routes::projects::read_project_memory_file)
+                .delete(routes::projects::delete_project_memory_file),
         )
         // ── Knowledge Base ──
         .route(
@@ -1038,6 +1057,51 @@ fn build_router_with_cors(
             put(routes::memory::save_global_memory_md),
         )
         .route(
+            "/memory/core",
+            get(routes::memory::core_memory_get).put(routes::memory::core_memory_save),
+        )
+        .route("/memory/core/stats", get(routes::memory::core_memory_stats))
+        .route(
+            "/memory/core/conflict",
+            get(routes::memory::core_memory_conflict_get)
+                .post(routes::memory::core_memory_conflict_resolve),
+        )
+        .route(
+            "/memory/core/topics",
+            get(routes::memory::core_memory_topic_list),
+        )
+        .route(
+            "/memory/core/topic",
+            get(routes::memory::core_memory_topic_read)
+                .put(routes::memory::core_memory_topic_write)
+                .delete(routes::memory::core_memory_topic_delete),
+        )
+        .route(
+            "/memory/core/topics/search",
+            post(routes::memory::core_memory_topic_search),
+        )
+        .route(
+            "/memory/core/topics/rebuild",
+            post(routes::memory::core_memory_rebuild_index),
+        )
+        .route(
+            "/memory/core/reload-session",
+            post(routes::memory::core_memory_reload_session),
+        )
+        .route(
+            "/memory/core/promote",
+            post(routes::memory::core_memory_promote),
+        )
+        .route("/memory/pending", get(routes::memory::pending_memory_list))
+        .route(
+            "/memory/pending/approve",
+            post(routes::memory::pending_memory_approve),
+        )
+        .route(
+            "/memory/pending/reject",
+            post(routes::memory::pending_memory_reject),
+        )
+        .route(
             "/memory/local-embedding-models",
             get(routes::memory::list_local_embedding_models),
         )
@@ -1202,6 +1266,15 @@ fn build_router_with_cors(
         .route(
             "/config/deferred-tools",
             put(routes::config::save_deferred_tools_config),
+        )
+        .route(
+            "/config/memory-runtime",
+            get(routes::config::get_memory_runtime_config)
+                .put(routes::config::save_memory_runtime_config),
+        )
+        .route(
+            "/config/memory-core-budget-status",
+            get(routes::config::get_memory_core_budget_status),
         )
         .route(
             "/config/memory-selection",

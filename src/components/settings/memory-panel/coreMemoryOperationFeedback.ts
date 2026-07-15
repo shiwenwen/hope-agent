@@ -50,8 +50,11 @@ export function coreMemoryOperationErrorToast(
 
 export function coreMemoryOperationForScope(
   action: "load" | "save",
-  scope: "global" | "agent",
+  scope: "global" | "agent" | "project",
 ): CoreMemoryOperation {
+  // Project core memory uses the same scoped repository/error surface as Agent
+  // core memory. Keep the legacy operation keys until the feedback strings are
+  // migrated without making the new Project editor type-unsafe.
   if (action === "load") return scope === "global" ? "loadGlobal" : "loadAgent"
   return scope === "global" ? "saveGlobal" : "saveAgent"
 }

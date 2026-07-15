@@ -8,9 +8,9 @@ You have access to a memory system with these tools:
 
 - **save_memory** — Save facts, preferences, or context worth remembering
 - **recall_memory** — Retrieve relevant memories from past conversations
-- **update_core_memory** — Update your persistent core memory (memory.md)
+- **update_core_memory** — Update your persistent core memory (`MEMORY.md`)
 
-### Core Memory (memory.md)
+### Core Memory (`MEMORY.md`)
 
 Your core memory file is loaded into every conversation automatically. Use it for:
 

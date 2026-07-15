@@ -42,6 +42,8 @@ pub struct ModelUsageEvent {
     pub output_tokens: Option<u64>,
     pub cache_creation_input_tokens: Option<u64>,
     pub cache_read_input_tokens: Option<u64>,
+    pub context_input_tokens: Option<u64>,
+    pub fresh_input_tokens: Option<u64>,
     pub duration_ms: Option<u64>,
     pub ttft_ms: Option<u64>,
     pub success: bool,
@@ -69,6 +71,16 @@ impl ModelUsageEvent {
         self.output_tokens = Some(output_tokens);
         self.cache_creation_input_tokens = Some(cache_creation_input_tokens);
         self.cache_read_input_tokens = Some(cache_read_input_tokens);
+        self
+    }
+
+    pub fn with_context_usage(
+        mut self,
+        context_input_tokens: u64,
+        fresh_input_tokens: u64,
+    ) -> Self {
+        self.context_input_tokens = Some(context_input_tokens);
+        self.fresh_input_tokens = Some(fresh_input_tokens);
         self
     }
 }
@@ -114,6 +126,8 @@ impl SessionDB {
                 output_tokens INTEGER,
                 cache_creation_input_tokens INTEGER,
                 cache_read_input_tokens INTEGER,
+                context_input_tokens INTEGER,
+                fresh_input_tokens INTEGER,
                 duration_ms INTEGER,
                 ttft_ms INTEGER,
                 success INTEGER NOT NULL DEFAULT 1,
@@ -126,6 +140,15 @@ impl SessionDB {
              CREATE INDEX IF NOT EXISTS idx_model_usage_session ON model_usage_events(session_id);
              CREATE INDEX IF NOT EXISTS idx_model_usage_provider_model ON model_usage_events(provider_id, model_id);",
         )?;
+        if conn
+            .prepare("SELECT context_input_tokens FROM model_usage_events LIMIT 1")
+            .is_err()
+        {
+            conn.execute_batch(
+                "ALTER TABLE model_usage_events ADD COLUMN context_input_tokens INTEGER;
+                 ALTER TABLE model_usage_events ADD COLUMN fresh_input_tokens INTEGER;",
+            )?;
+        }
         Ok(())
     }
 
@@ -230,8 +253,9 @@ impl SessionDB {
                 request_key, timestamp, kind, operation, source,
                 provider_id, provider_name, model_id, session_id, agent_id,
                 input_tokens, output_tokens, cache_creation_input_tokens, cache_read_input_tokens,
+                context_input_tokens, fresh_input_tokens,
                 duration_ms, ttft_ms, success, error, metadata
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)",
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)",
             params![
                 event.request_key.as_deref(),
                 timestamp.as_str(),
@@ -247,6 +271,8 @@ impl SessionDB {
                 opt_i64(event.output_tokens),
                 opt_i64(event.cache_creation_input_tokens),
                 opt_i64(event.cache_read_input_tokens),
+                opt_i64(event.context_input_tokens),
+                opt_i64(event.fresh_input_tokens),
                 opt_i64(event.duration_ms),
                 opt_i64(event.ttft_ms),
                 if event.success { 1 } else { 0 },

@@ -60,6 +60,20 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   mark_project_sessions_read_cmd: { method: "POST", path: "/api/projects/{projectId}/read" },
   move_session_to_project_cmd: { method: "PATCH", path: "/api/sessions/{sessionId}/project" },
   list_project_memories_cmd: { method: "GET", path: "/api/projects/{id}/memories" },
+  list_project_memory_files_cmd: { method: "GET", path: "/api/projects/{id}/memory-files" },
+  read_project_memory_file_cmd: {
+    method: "GET",
+    path: "/api/projects/{id}/memory-files/{fileName}",
+  },
+  write_project_memory_file_cmd: { method: "PUT", path: "/api/projects/{id}/memory-files" },
+  delete_project_memory_file_cmd: {
+    method: "DELETE",
+    path: "/api/projects/{id}/memory-files/{fileName}",
+  },
+  rebuild_project_memory_index_cmd: {
+    method: "POST",
+    path: "/api/projects/{id}/memory-files/rebuild-index",
+  },
 
   // -- Knowledge Base (Knowledge Space) --
   list_kbs_cmd: { method: "GET", path: "/api/knowledge" },
@@ -272,6 +286,14 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   get_session_cmd: { method: "GET", path: "/api/sessions/{sessionId}" },
   set_session_pinned_cmd: { method: "PATCH", path: "/api/sessions/{sessionId}/pinned" },
   set_session_incognito: { method: "PATCH", path: "/api/sessions/{sessionId}/incognito" },
+  get_session_memory_policy_cmd: {
+    method: "GET",
+    path: "/api/sessions/{sessionId}/memory-policy",
+  },
+  set_session_memory_policy_cmd: {
+    method: "PUT",
+    path: "/api/sessions/{sessionId}/memory-policy",
+  },
   set_session_working_dir: { method: "PATCH", path: "/api/sessions/{sessionId}/working-dir" },
   update_session_agent_cmd: { method: "PATCH", path: "/api/sessions/{sessionId}/agent" },
   set_session_model: { method: "PATCH", path: "/api/sessions/{sessionId}/model" },
@@ -521,6 +543,22 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   memory_get_import_from_ai_prompt: { method: "GET", path: "/api/memory/import-from-ai-prompt" },
   get_global_memory_md: { method: "GET", path: "/api/memory/global-md" },
   save_global_memory_md: { method: "PUT", path: "/api/memory/global-md" },
+  core_memory_get_cmd: { method: "GET", path: "/api/memory/core" },
+  core_memory_stats_cmd: { method: "GET", path: "/api/memory/core/stats" },
+  core_memory_save_cmd: { method: "PUT", path: "/api/memory/core" },
+  core_memory_conflict_get_cmd: { method: "GET", path: "/api/memory/core/conflict" },
+  core_memory_conflict_resolve_cmd: { method: "POST", path: "/api/memory/core/conflict" },
+  core_memory_topic_list_cmd: { method: "GET", path: "/api/memory/core/topics" },
+  core_memory_topic_read_cmd: { method: "GET", path: "/api/memory/core/topic" },
+  core_memory_topic_write_cmd: { method: "PUT", path: "/api/memory/core/topic" },
+  core_memory_topic_delete_cmd: { method: "DELETE", path: "/api/memory/core/topic" },
+  core_memory_topic_search_cmd: { method: "POST", path: "/api/memory/core/topics/search" },
+  core_memory_rebuild_index_cmd: { method: "POST", path: "/api/memory/core/topics/rebuild" },
+  core_memory_reload_session_cmd: { method: "POST", path: "/api/memory/core/reload-session" },
+  core_memory_promote_cmd: { method: "POST", path: "/api/memory/core/promote" },
+  pending_memory_list_cmd: { method: "GET", path: "/api/memory/pending" },
+  pending_memory_approve_cmd: { method: "POST", path: "/api/memory/pending/approve" },
+  pending_memory_reject_cmd: { method: "POST", path: "/api/memory/pending/reject" },
 
   // -- Memory config --
   get_embedding_config: { method: "GET", path: "/api/config/embedding" },
@@ -912,6 +950,12 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   save_cron_config: { method: "PUT", path: "/api/config/cron" },
   get_deferred_tools_config: { method: "GET", path: "/api/config/deferred-tools" },
   save_deferred_tools_config: { method: "PUT", path: "/api/config/deferred-tools" },
+  get_memory_runtime_config: { method: "GET", path: "/api/config/memory-runtime" },
+  get_memory_core_budget_status: {
+    method: "GET",
+    path: "/api/config/memory-core-budget-status",
+  },
+  save_memory_runtime_config: { method: "PUT", path: "/api/config/memory-runtime" },
   get_memory_selection_config: { method: "GET", path: "/api/config/memory-selection" },
   save_memory_selection_config: { method: "PUT", path: "/api/config/memory-selection" },
   get_memory_budget_config: { method: "GET", path: "/api/config/memory-budget" },
@@ -1501,6 +1545,10 @@ function normalizeCommandResponse(command: string, value: unknown): unknown {
         return record.temperature ?? null
       case "set_session_reasoning_effort":
         return record.reasoningEffort ?? "medium"
+      case "pending_memory_approve_cmd":
+        return record.memoryId
+      case "pending_memory_reject_cmd":
+        return undefined
       case "get_local_llm_auto_maintenance_enabled":
         // axum 路由返回 `{ enabled: bool }`；Tauri 命令直接返回 bool。
         return record.enabled ?? false
@@ -1548,6 +1596,17 @@ function normalizeHttpCommandArgs(
     const input = args?.input
     if (input && typeof input === "object" && !Array.isArray(input)) {
       return { ...(input as Record<string, unknown>), sessionId: args?.sessionId }
+    }
+  }
+  if (
+    command === "set_session_memory_policy_cmd" &&
+    args?.policy &&
+    typeof args.policy === "object" &&
+    !Array.isArray(args.policy)
+  ) {
+    return {
+      sessionId: args.sessionId,
+      ...(args.policy as Record<string, unknown>),
     }
   }
   return args

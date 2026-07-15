@@ -22,6 +22,10 @@ pub struct CapturedUsage {
     pub input_tokens: Option<i64>,
     pub output_tokens: Option<i64>,
     pub last_input_tokens: Option<i64>,
+    pub context_input_tokens: Option<i64>,
+    pub fresh_input_tokens: Option<i64>,
+    pub last_context_input_tokens: Option<i64>,
+    pub last_fresh_input_tokens: Option<i64>,
     pub model: Option<String>,
     pub ttft_ms: Option<i64>,
     /// Cache-creation input tokens (Anthropic prompt cache write).
@@ -48,6 +52,24 @@ impl CapturedUsage {
         }
         if let Some(v) = event.get("last_input_tokens").and_then(|v| v.as_i64()) {
             self.last_input_tokens = Some(v);
+        }
+        if let Some(v) = event.get("context_input_tokens").and_then(|v| v.as_i64()) {
+            self.context_input_tokens = Some(v);
+        }
+        if let Some(v) = event.get("fresh_input_tokens").and_then(|v| v.as_i64()) {
+            self.fresh_input_tokens = Some(v);
+        }
+        if let Some(v) = event
+            .get("last_context_input_tokens")
+            .and_then(|v| v.as_i64())
+        {
+            self.last_context_input_tokens = Some(v);
+        }
+        if let Some(v) = event
+            .get("last_fresh_input_tokens")
+            .and_then(|v| v.as_i64())
+        {
+            self.last_fresh_input_tokens = Some(v);
         }
         if let Some(v) = event.get("model").and_then(|v| v.as_str()) {
             self.model = Some(v.to_string());

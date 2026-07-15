@@ -1,0 +1,22 @@
+{
+  "fixtureVersion": 1,
+  "sourceSessionId": "997b3547-255d-4340-bb73-d65eca13de7f",
+  "provider": "Codex",
+  "model": "gpt-5.5",
+  "input": "hi",
+  "historyMessagesBeforeTurn": 0,
+  "attachments": 0,
+  "observedUsage": {
+    "inputTokens": 32738,
+    "cacheReadTokens": 0,
+    "cacheWriteTokens": 0,
+    "outputTokens": 8
+  },
+  "legacyComponentBreakdown": null,
+  "legacyComponentBreakdownNote": "The legacy request path did not emit content-free component manifests. V2 locks system/tool/history independently through manifest and budget tests.",
+  "v2Acceptance": {
+    "contextInputTokensMax": 10000,
+    "eagerToolSchemaTokensMax": 4000,
+    "staticPromptTokensMax": 6000
+  }
+}

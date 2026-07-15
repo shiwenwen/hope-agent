@@ -203,6 +203,7 @@ export default function HybridSearchConfigSection({ data }: HybridSearchConfigPr
                 </span>
               </div>
               <Slider
+                aria-label={t("settings.memoryVectorWeight")}
                 value={[hybridConfig.vectorWeight]}
                 min={0} max={1} step={0.1}
                 onValueChange={([v]) => {
@@ -225,6 +226,7 @@ export default function HybridSearchConfigSection({ data }: HybridSearchConfigPr
                 <label className="text-xs font-medium">{t("settings.memoryMmr")}</label>
                 <Switch
                   checked={mmrConfig.enabled}
+                  aria-label={t("settings.memoryMmr")}
                   onCheckedChange={(v) => {
                     const previous = mmrConfig
                     const updated = { ...mmrConfig, enabled: v }
@@ -243,6 +245,7 @@ export default function HybridSearchConfigSection({ data }: HybridSearchConfigPr
                     <span className="text-xs text-muted-foreground tabular-nums">{mmrConfig.lambda.toFixed(1)}</span>
                   </div>
                   <Slider
+                    aria-label={t("settings.memoryMmrLambda")}
                     value={[mmrConfig.lambda]}
                     min={0} max={1} step={0.1}
                     onValueChange={([v]) => {
@@ -268,6 +271,7 @@ export default function HybridSearchConfigSection({ data }: HybridSearchConfigPr
                 <label className="text-xs font-medium">{t("settings.memoryEmbeddingCache")}</label>
                 <Switch
                   checked={cacheConfig.enabled}
+                  aria-label={t("settings.memoryEmbeddingCache")}
                   onCheckedChange={(v) => {
                     const previous = cacheConfig
                     const updated = { ...cacheConfig, enabled: v }
@@ -287,6 +291,7 @@ export default function HybridSearchConfigSection({ data }: HybridSearchConfigPr
                 <label className="text-xs font-medium">{t("settings.memoryMultimodal")}</label>
                 <Switch
                   checked={multimodalConfig.enabled}
+                  aria-label={t("settings.memoryMultimodal")}
                   onCheckedChange={(v) => {
                     const previous = multimodalConfig
                     const updated = { ...multimodalConfig, enabled: v }
@@ -308,6 +313,7 @@ export default function HybridSearchConfigSection({ data }: HybridSearchConfigPr
                     <label className="flex items-center gap-1.5 text-xs">
                       <Switch
                         checked={multimodalConfig.modalities.includes("image")}
+                        aria-label={t("settings.memoryMultimodalImage")}
                         onCheckedChange={(checked) => {
                           const previous = multimodalConfig
                           const mods = checked
@@ -328,6 +334,7 @@ export default function HybridSearchConfigSection({ data }: HybridSearchConfigPr
                     <label className="flex items-center gap-1.5 text-xs">
                       <Switch
                         checked={multimodalConfig.modalities.includes("audio")}
+                        aria-label={t("settings.memoryMultimodalAudio")}
                         onCheckedChange={(checked) => {
                           const previous = multimodalConfig
                           const mods = checked
@@ -379,6 +386,7 @@ export default function HybridSearchConfigSection({ data }: HybridSearchConfigPr
                 <label className="text-xs font-medium">{t("settings.memorySelection")}</label>
                 <Switch
                   checked={selectionConfig.enabled}
+                  aria-label={t("settings.memorySelection")}
                   onCheckedChange={(v) => {
                     const previous = selectionConfig
                     const updated = { ...selectionConfig, enabled: v }

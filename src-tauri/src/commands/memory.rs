@@ -906,11 +906,40 @@ pub async fn get_extract_config() -> Result<memory::MemoryExtractConfig, CmdErro
 #[tauri::command]
 pub async fn save_extract_config(config: memory::MemoryExtractConfig) -> Result<(), CmdError> {
     ha_core::config::mutate_config_async(("memory_extract", "settings-ui"), move |store| {
+        store.memory.apply_legacy_extract_controls(&config);
         store.memory_extract = config;
         Ok(())
     })
     .await
     .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn get_memory_runtime_config() -> Result<memory::MemoryRuntimeConfig, CmdError> {
+    Ok(ha_core::config::cached_config().memory.clone())
+}
+
+#[tauri::command]
+pub async fn get_memory_core_budget_status() -> Result<memory::CoreMemoryBudgetStatus, CmdError> {
+    Ok(memory::active_core_memory_budget_status())
+}
+
+#[tauri::command]
+pub async fn save_memory_runtime_config(
+    config: memory::MemoryRuntimeConfig,
+) -> Result<memory::MemoryRuntimeConfig, CmdError> {
+    let saved = ha_core::config::mutate_config_async(("memory", "settings-ui"), move |store| {
+        let config = config.prepared_for_user_save(&store.memory);
+        config.mirror_to_legacy(
+            &store.memory,
+            &mut store.memory_extract,
+            &mut store.memory_selection,
+        );
+        store.memory = config.clone();
+        Ok(config)
+    })
+    .await?;
+    Ok(saved)
 }
 
 #[tauri::command]
@@ -923,6 +952,7 @@ pub async fn save_memory_selection_config(
     config: memory::MemorySelectionConfig,
 ) -> Result<(), CmdError> {
     ha_core::config::mutate_config_async(("memory_selection", "settings-ui"), move |store| {
+        store.memory.apply_legacy_selection_controls(&config);
         store.memory_selection = config;
         Ok(())
     })
@@ -1221,39 +1251,41 @@ pub async fn memory_embedding_disable() -> Result<memory::EmbeddingSelectionStat
         .map_err(Into::into)
 }
 
-// ── Core Memory (memory.md) commands ────────────────────────────
+// ── Core Memory (MEMORY.md) compatibility commands ─────────────
 
 #[tauri::command]
 pub async fn get_global_memory_md() -> Result<Option<String>, CmdError> {
-    let path = crate::paths::root_dir()?.join("memory.md");
     ha_core::blocking::run_blocking(move || {
-        if path.exists() {
-            std::fs::read_to_string(&path).map(Some).map_err(Into::into)
-        } else {
-            Ok(None)
-        }
+        ha_core::memory::core_repository::load_index(
+            &ha_core::memory::core_repository::CoreMemoryScope::Global,
+        )
+        .map(|index| index.content)
+        .map_err(Into::into)
     })
     .await
 }
 
 #[tauri::command]
 pub async fn save_global_memory_md(content: String) -> Result<(), CmdError> {
-    let path = crate::paths::root_dir()?.join("memory.md");
     ha_core::blocking::run_blocking(move || {
-        ha_core::platform::write_atomic(&path, content.as_bytes()).map_err(Into::into)
+        ha_core::memory::core_repository::save_index_owner(
+            &ha_core::memory::core_repository::CoreMemoryScope::Global,
+            &content,
+        )
+        .map(|_| ())
+        .map_err(Into::into)
     })
     .await
 }
 
 #[tauri::command]
 pub async fn get_agent_memory_md(id: String) -> Result<Option<String>, CmdError> {
-    let path = crate::paths::agent_dir(&id)?.join("memory.md");
     ha_core::blocking::run_blocking(move || {
-        if path.exists() {
-            std::fs::read_to_string(&path).map(Some).map_err(Into::into)
-        } else {
-            Ok(None)
-        }
+        ha_core::memory::core_repository::load_index(
+            &ha_core::memory::core_repository::CoreMemoryScope::Agent { id },
+        )
+        .map(|index| index.content)
+        .map_err(Into::into)
     })
     .await
 }
@@ -1264,4 +1296,227 @@ pub async fn save_agent_memory_md(id: String, content: String) -> Result<(), Cmd
         ha_core::agent_lifecycle::save_agent_memory_md(&id, &content).map_err(Into::into)
     })
     .await
+}
+
+// ── Core Memory V2 owner plane ─────────────────────────────────
+
+#[tauri::command]
+pub async fn core_memory_get_cmd(
+    scope_type: String,
+    scope_id: Option<String>,
+) -> Result<memory::core_repository::CoreMemoryIndex, CmdError> {
+    ha_core::blocking::run_blocking(move || {
+        let scope = memory::core_repository::parse_scope(&scope_type, scope_id.as_deref())?;
+        memory::core_repository::load_index(&scope)
+    })
+    .await
+    .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn core_memory_stats_cmd(
+    scope_type: String,
+    scope_id: Option<String>,
+) -> Result<memory::core_repository::CoreMemoryStats, CmdError> {
+    ha_core::blocking::run_blocking(move || {
+        let scope = memory::core_repository::parse_scope(&scope_type, scope_id.as_deref())?;
+        memory::core_repository::load_stats(&scope)
+    })
+    .await
+    .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn core_memory_save_cmd(
+    scope_type: String,
+    scope_id: Option<String>,
+    content: String,
+    expected_file_hash: Option<String>,
+) -> Result<memory::core_repository::CoreMemoryIndex, CmdError> {
+    ha_core::blocking::run_blocking(move || {
+        let scope = memory::core_repository::parse_scope(&scope_type, scope_id.as_deref())?;
+        memory::core_repository::save_index(&scope, &content, expected_file_hash.as_deref())
+    })
+    .await
+    .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn core_memory_conflict_get_cmd(
+    scope_type: String,
+    scope_id: Option<String>,
+) -> Result<Option<memory::core_repository::CoreMemoryConflict>, CmdError> {
+    ha_core::blocking::run_blocking(move || {
+        let scope = memory::core_repository::parse_scope(&scope_type, scope_id.as_deref())?;
+        memory::core_repository::load_conflict(&scope)
+    })
+    .await
+    .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn core_memory_conflict_resolve_cmd(
+    scope_type: String,
+    scope_id: Option<String>,
+    resolution: memory::core_repository::CoreMemoryConflictResolution,
+) -> Result<memory::core_repository::CoreMemoryIndex, CmdError> {
+    ha_core::blocking::run_blocking(move || {
+        let scope = memory::core_repository::parse_scope(&scope_type, scope_id.as_deref())?;
+        memory::core_repository::resolve_conflict(&scope, resolution)
+    })
+    .await
+    .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn core_memory_topic_list_cmd(
+    scope_type: String,
+    scope_id: Option<String>,
+    offset: Option<usize>,
+    limit: Option<usize>,
+) -> Result<memory::core_repository::CoreMemoryTopicPage, CmdError> {
+    ha_core::blocking::run_blocking(move || {
+        let scope = memory::core_repository::parse_scope(&scope_type, scope_id.as_deref())?;
+        memory::core_repository::list_topics_page(&scope, offset.unwrap_or(0), limit.unwrap_or(50))
+    })
+    .await
+    .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn core_memory_topic_read_cmd(
+    scope_type: String,
+    scope_id: Option<String>,
+    file_name: String,
+) -> Result<memory::core_repository::CoreMemoryTopicFile, CmdError> {
+    ha_core::blocking::run_blocking(move || {
+        let scope = memory::core_repository::parse_scope(&scope_type, scope_id.as_deref())?;
+        memory::core_repository::read_topic(&scope, &file_name)
+    })
+    .await
+    .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn core_memory_topic_write_cmd(
+    scope_type: String,
+    scope_id: Option<String>,
+    input: memory::core_repository::CoreMemoryTopicWriteInput,
+) -> Result<memory::core_repository::CoreMemoryTopicFile, CmdError> {
+    ha_core::blocking::run_blocking(move || {
+        let scope = memory::core_repository::parse_scope(&scope_type, scope_id.as_deref())?;
+        memory::core_repository::write_topic(&scope, input)
+    })
+    .await
+    .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn core_memory_topic_delete_cmd(
+    scope_type: String,
+    scope_id: Option<String>,
+    file_name: String,
+    expected_file_hash: Option<String>,
+) -> Result<bool, CmdError> {
+    ha_core::blocking::run_blocking(move || {
+        let scope = memory::core_repository::parse_scope(&scope_type, scope_id.as_deref())?;
+        memory::core_repository::delete_topic(&scope, &file_name, expected_file_hash.as_deref())
+    })
+    .await
+    .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn core_memory_topic_search_cmd(
+    scope_type: String,
+    scope_id: Option<String>,
+    query: String,
+    limit: Option<usize>,
+) -> Result<Vec<memory::core_repository::CoreMemoryTopicSearchHit>, CmdError> {
+    ha_core::blocking::run_blocking(move || {
+        let scope = memory::core_repository::parse_scope(&scope_type, scope_id.as_deref())?;
+        memory::core_repository::search_topics(&scope, &query, limit.unwrap_or(20))
+    })
+    .await
+    .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn core_memory_rebuild_index_cmd(
+    scope_type: String,
+    scope_id: Option<String>,
+) -> Result<String, CmdError> {
+    ha_core::blocking::run_blocking(move || {
+        let scope = memory::core_repository::parse_scope(&scope_type, scope_id.as_deref())?;
+        memory::core_repository::rebuild_topic_index(&scope)
+    })
+    .await
+    .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn core_memory_reload_session_cmd(session_id: String) -> Result<(), CmdError> {
+    if session_id.trim().is_empty() {
+        return Err(CmdError::msg("sessionId is required"));
+    }
+    memory::core_repository::invalidate_session_snapshot(&session_id);
+    if let Some(bus) = ha_core::get_event_bus() {
+        let _ = bus.emit(
+            "memory:core_snapshot_reloaded",
+            serde_json::json!({ "sessionId": session_id }),
+        );
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn core_memory_promote_cmd(
+    input: memory::core_repository::CoreMemoryPromotionInput,
+) -> Result<memory::core_repository::CoreMemoryPromotionResult, CmdError> {
+    ha_core::blocking::run_blocking(move || memory::core_repository::promote(input))
+        .await
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn pending_memory_list_cmd(
+    status: Option<String>,
+    offset: Option<usize>,
+    limit: Option<usize>,
+) -> Result<memory::pending::PendingMemoryCandidatePage, CmdError> {
+    ha_core::blocking::run_blocking(move || {
+        memory::pending::list(status.as_deref(), offset.unwrap_or(0), limit.unwrap_or(50))
+    })
+    .await
+    .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn pending_memory_approve_cmd(
+    id: String,
+    scope: memory::MemoryScope,
+) -> Result<i64, CmdError> {
+    let memory_id =
+        ha_core::blocking::run_blocking(move || memory::pending::approve(&id, scope)).await?;
+    memory::emit_memory_changed("pending_approved", Some(memory_id), Some(1));
+    if let Some(bus) = ha_core::get_event_bus() {
+        bus.emit(
+            "memory:pending_changed",
+            serde_json::json!({ "action": "approved", "memoryId": memory_id }),
+        );
+    }
+    Ok(memory_id)
+}
+
+#[tauri::command]
+pub async fn pending_memory_reject_cmd(id: String) -> Result<(), CmdError> {
+    let event_id = id.clone();
+    ha_core::blocking::run_blocking(move || memory::pending::reject(&id)).await?;
+    if let Some(bus) = ha_core::get_event_bus() {
+        bus.emit(
+            "memory:pending_changed",
+            serde_json::json!({ "action": "rejected", "id": event_id }),
+        );
+    }
+    Ok(())
 }

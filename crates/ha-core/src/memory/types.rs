@@ -94,12 +94,29 @@ pub struct MemoryEntry {
     /// Populated during search, not stored in DB
     #[serde(skip_serializing_if = "Option::is_none")]
     pub relevance_score: Option<f32>,
+    /// Search-time evidence used by Memory UX v2 to distinguish exact lexical
+    /// hits from arbitrary nearest neighbours. It is never persisted and is
+    /// absent from ordinary owner list/get responses.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retrieval_evidence: Option<MemoryRetrievalEvidence>,
     /// Absolute path to attached file (image/audio), stored in ~/.hope-agent/memory_attachments/
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub attachment_path: Option<String>,
     /// MIME type of the attachment (e.g. "image/jpeg", "audio/mpeg")
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub attachment_mime: Option<String>,
+}
+
+/// Absolute search evidence. A reciprocal-rank-fusion score is only relative
+/// to one result set, so it cannot prove that the best vector neighbour is
+/// materially related to the query.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct MemoryRetrievalEvidence {
+    #[serde(default)]
+    pub lexical_match: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub semantic_similarity: Option<f32>,
 }
 
 /// Durable owner-visible audit action for legacy memory rows.
@@ -2080,7 +2097,7 @@ impl SqliteSectionBudgets {
 pub struct MemoryBudgetConfig {
     /// Hard upper bound on the entire memory section (Layer 1 + 2 + 3 + 4).
     pub total_chars: usize,
-    /// Upper bound on each `memory.md` file (Global / Agent) individually.
+    /// Upper bound on each legacy `MEMORY.md` layer (Global / Agent) individually.
     /// Actual injection is `min(core_memory_file_chars, remaining_total)`.
     pub core_memory_file_chars: usize,
     /// Per-entry truncation for rendered SQLite memory bullets (Layer 3).

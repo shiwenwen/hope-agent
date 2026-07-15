@@ -43,6 +43,7 @@ pub(super) struct CompactionRunOptions {
     pub allow_summarization: bool,
     pub force_summary: bool,
     pub cancel: Option<Arc<AtomicBool>>,
+    pub tool_schema_tokens: u32,
 }
 
 impl CompactionRunOptions {
@@ -55,6 +56,7 @@ impl CompactionRunOptions {
             allow_summarization: true,
             force_summary: false,
             cancel,
+            tool_schema_tokens: 0,
         }
     }
 
@@ -67,7 +69,16 @@ impl CompactionRunOptions {
             allow_summarization: true,
             force_summary: true,
             cancel: None,
+            tool_schema_tokens: 0,
         }
+    }
+
+    fn with_tool_schemas(mut self, tool_schemas: &[serde_json::Value]) -> Self {
+        self.tool_schema_tokens = tool_schemas
+            .iter()
+            .map(crate::context_compact::estimate_tokens)
+            .sum();
+        self
     }
 }
 
@@ -374,21 +385,21 @@ impl AssistantAgent {
         &self,
         messages: &mut Vec<serde_json::Value>,
         system_prompt: &str,
+        tool_schemas: &[serde_json::Value],
         model: &str,
         max_tokens: u32,
         cancel: Option<Arc<AtomicBool>>,
         on_delta: &(impl Fn(&str) + Send),
-    ) {
-        let _ = self
-            .run_compaction_with_options(
-                messages,
-                system_prompt,
-                model,
-                max_tokens,
-                on_delta,
-                CompactionRunOptions::turn_start(cancel),
-            )
-            .await;
+    ) -> CompactionRunOutcome {
+        self.run_compaction_with_options(
+            messages,
+            system_prompt,
+            model,
+            max_tokens,
+            on_delta,
+            CompactionRunOptions::turn_start(cancel).with_tool_schemas(tool_schemas),
+        )
+        .await
     }
 
     pub(super) async fn run_compaction_with_options(
@@ -434,7 +445,8 @@ impl AssistantAgent {
             };
             if within_ttl {
                 let tokens_now =
-                    context_compact::estimate_request_tokens(system_prompt, messages, max_tokens);
+                    context_compact::estimate_request_tokens(system_prompt, messages, max_tokens)
+                        .saturating_add(options.tool_schema_tokens);
                 let usage_now = tokens_now as f64 / self.context_window as f64;
                 let emergency = usage_now >= CACHE_TTL_EMERGENCY_RATIO;
                 if emergency {
@@ -471,7 +483,8 @@ impl AssistantAgent {
             precompact_wd.as_deref().map(std::path::Path::new),
         ) {
             let tokens_now =
-                context_compact::estimate_request_tokens(system_prompt, messages, max_tokens);
+                context_compact::estimate_request_tokens(system_prompt, messages, max_tokens)
+                    .saturating_add(options.tool_schema_tokens);
             let usage_now = tokens_now as f64 / self.context_window.max(1) as f64;
             // `run_compaction` runs every turn but is a no-op far below the
             // reactive trigger — only consult the PreCompact hook when a
@@ -678,7 +691,17 @@ impl AssistantAgent {
                         let agent_flush = crate::agent_loader::load_agent(&self.agent_id)
                             .ok()
                             .and_then(|d| d.config.memory.flush_before_compact);
-                        global.enabled && agent_flush.unwrap_or(global.flush_before_compact)
+                        let runtime = &crate::config::cached_config().memory;
+                        if runtime.rollout.enabled {
+                            runtime.enabled
+                                && !matches!(
+                                    runtime.learning.mode,
+                                    crate::memory::MemoryLearningMode::Manual
+                                )
+                                && agent_flush.unwrap_or(global.flush_before_compact)
+                        } else {
+                            global.enabled && agent_flush.unwrap_or(global.flush_before_compact)
+                        }
                     } && !is_incognito
                         && options.allow_memory_flush;
 
@@ -693,6 +716,7 @@ impl AssistantAgent {
                                 let session_id = self.session_id.clone().unwrap_or_default();
                                 let msgs = split.summarizable.clone();
                                 let model_id = model.id.clone();
+                                let session_db = self.session_db.clone();
 
                                 // Use a new tokio runtime on a background thread to avoid
                                 // Send bounds issues with the parent async context.
@@ -710,6 +734,7 @@ impl AssistantAgent {
                                                     &session_id,
                                                     &prov,
                                                     &model_id,
+                                                    session_db,
                                                 ),
                                             )
                                             .await
@@ -787,7 +812,8 @@ impl AssistantAgent {
                                 system_prompt,
                                 messages,
                                 max_tokens,
-                            );
+                            )
+                            .saturating_add(options.tool_schema_tokens);
                             if let Some(manifest) = compact_result.manifest.as_mut() {
                                 manifest.warnings.push("tier3_summary_cancelled".to_string());
                             }
@@ -844,6 +870,10 @@ impl AssistantAgent {
                         run_outcome.changed_history = true;
                         // Update cache-TTL timer after successful Tier 3 summarization
                         self.touch_compaction_timer();
+                        // Core Memory is session-stable between refresh points.
+                        // A successful Tier 3 summary is an explicit refresh
+                        // boundary, so the next turn captures current files.
+                        self.invalidate_core_memory_snapshot();
                         // Record the summarized range in the manifest ONLY after the
                         // summary actually applied — on failure/timeout (arms below)
                         // the messages are untouched, so the manifest must not claim
@@ -876,7 +906,8 @@ impl AssistantAgent {
                             system_prompt,
                             messages,
                             max_tokens,
-                        );
+                        )
+                        .saturating_add(options.tool_schema_tokens);
                         let tokens_freed = compact_result
                             .tokens_before
                             .saturating_sub(tokens_after_summary);
@@ -1081,7 +1112,8 @@ impl AssistantAgent {
             run_outcome.changed_history = sync_tier > 0 && compact_result.messages_affected > 0;
             if sync_tier == 0 {
                 run_outcome.tokens_after =
-                    context_compact::estimate_request_tokens(system_prompt, messages, max_tokens);
+                    context_compact::estimate_request_tokens(system_prompt, messages, max_tokens)
+                        .saturating_add(options.tool_schema_tokens);
                 compact_result.tokens_after = run_outcome.tokens_after;
                 run_outcome.compact_result = Some(compact_result);
                 return run_outcome;
@@ -1090,7 +1122,8 @@ impl AssistantAgent {
 
         // Emit compaction event to frontend
         let tokens_after =
-            context_compact::estimate_request_tokens(system_prompt, messages, max_tokens);
+            context_compact::estimate_request_tokens(system_prompt, messages, max_tokens)
+                .saturating_add(options.tool_schema_tokens);
         if let Some(manifest) = compact_result.manifest.as_mut() {
             manifest.tokens_after = tokens_after;
         }
@@ -1205,9 +1238,10 @@ impl AssistantAgent {
             &self.compact_config,
         ) > 0;
 
-        let used_after_t1 = crate::context_compact::estimate_request_tokens(
+        let used_after_t1 = crate::context_compact::estimate_request_tokens_with_tools(
             system_prompt_for_budget,
             messages,
+            tool_schemas,
             max_tokens,
         );
         let ratio_after_t1 = if self.context_window > 0 {
@@ -1233,11 +1267,13 @@ impl AssistantAgent {
                     ratio_after_t1,
                     self.compact_config.reactive_trigger_ratio
                 );
-                tokens_after_cheap_cleanup = crate::context_compact::estimate_request_tokens(
-                    system_prompt_for_budget,
-                    messages,
-                    max_tokens,
-                );
+                tokens_after_cheap_cleanup =
+                    crate::context_compact::estimate_request_tokens_with_tools(
+                        system_prompt_for_budget,
+                        messages,
+                        tool_schemas,
+                        max_tokens,
+                    );
             }
         }
 
@@ -1289,6 +1325,10 @@ impl AssistantAgent {
                     allow_summarization,
                     force_summary: false,
                     cancel: Some(cancel),
+                    tool_schema_tokens: tool_schemas
+                        .iter()
+                        .map(crate::context_compact::estimate_tokens)
+                        .sum(),
                 },
             )
             .await;
@@ -1574,7 +1614,11 @@ impl AssistantAgent {
                 // Skip OpenAI Responses reasoning items (encrypted, Anthropic can't use them)
                 "reasoning" => continue,
                 // Skip Responses API tool items (Anthropic uses tool_use/tool_result)
-                "function_call" | "function_call_output" => continue,
+                "function_call"
+                | "function_call_output"
+                | "tool_search_call"
+                | "tool_search_output"
+                | "additional_tools" => continue,
                 // Convert Responses API message format to Anthropic format
                 "message" => {
                     let role = item
@@ -1682,7 +1726,11 @@ impl AssistantAgent {
                 // Skip OpenAI Responses reasoning items
                 "reasoning" => continue,
                 // Skip Responses API tool items (Chat uses tool_calls array)
-                "function_call" | "function_call_output" => continue,
+                "function_call"
+                | "function_call_output"
+                | "tool_search_call"
+                | "tool_search_output"
+                | "additional_tools" => continue,
                 // Convert Responses API message format to Chat format
                 "message" => {
                     let role = item
@@ -1781,7 +1829,12 @@ impl AssistantAgent {
                 // never persists into history.
                 "reasoning" => continue,
                 // Native Responses API items — pass through
-                "message" | "function_call" | "function_call_output" => {
+                "message"
+                | "function_call"
+                | "function_call_output"
+                | "tool_search_call"
+                | "tool_search_output"
+                | "additional_tools" => {
                     result.push(item.clone());
                 }
                 _ => {
@@ -2448,6 +2501,20 @@ mod responses_history_tests {
         );
         // user + assistant survive; both reasoning items dropped.
         assert_eq!(normalized.len(), 2);
+    }
+
+    #[test]
+    fn native_tool_search_items_only_survive_responses_normalization() {
+        let history = vec![
+            json!({ "type": "tool_search_call", "execution": "server", "status": "completed" }),
+            json!({ "type": "tool_search_output", "execution": "server", "status": "completed", "tools": [] }),
+        ];
+        assert_eq!(
+            AssistantAgent::normalize_history_for_responses(&history).len(),
+            2
+        );
+        assert!(AssistantAgent::normalize_history_for_chat(&history).is_empty());
+        assert!(AssistantAgent::normalize_history_for_anthropic(&history).is_empty());
     }
 
     #[test]

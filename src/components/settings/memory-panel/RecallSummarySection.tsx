@@ -142,6 +142,7 @@ export default function RecallSummarySection() {
             <Switch
               checked={config.enabled}
               onCheckedChange={(v) => setConfig((c) => ({ ...c, enabled: v }))}
+              aria-label={t("settings.recallSummary.enabled", "Enable summarization")}
             />
           </div>
 
@@ -213,6 +214,10 @@ export default function RecallSummarySection() {
             <Switch
               checked={config.includeHistory}
               onCheckedChange={(v) => setConfig((c) => ({ ...c, includeHistory: v }))}
+              aria-label={t(
+                "settings.recallSummary.includeHistory",
+                "Also summarize conversation history hits",
+              )}
             />
           </div>
 

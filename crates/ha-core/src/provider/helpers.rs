@@ -180,6 +180,18 @@ pub fn find_provider<'a>(
     providers.iter().find(|p| p.id == provider_id && p.enabled)
 }
 
+/// Resolve the configured context window for an enabled provider/model pair.
+/// Prompt budgeting uses this instead of guessing from an API wire shape.
+pub fn model_context_window(
+    providers: &[ProviderConfig],
+    provider_id: &str,
+    model_id: &str,
+) -> Option<u32> {
+    find_provider(providers, provider_id)
+        .and_then(|provider| provider.model_config(model_id))
+        .map(|model| model.context_window)
+}
+
 // ── Helper: Create built-in Codex provider ────────────────────────
 
 // ── Auth Profile Key Merge ────────────────────────────────────────

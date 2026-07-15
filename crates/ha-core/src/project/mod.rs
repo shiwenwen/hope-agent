@@ -5,6 +5,7 @@
 
 mod db;
 mod files;
+pub mod memory;
 pub mod reconcile;
 mod types;
 

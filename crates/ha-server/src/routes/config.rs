@@ -281,6 +281,38 @@ pub async fn save_deferred_tools_config(
 
 // ── Memory Selection Config ─────────────────────────────────────
 
+/// `GET /api/config/memory-runtime` -- get the simple Memory UX v2 contract.
+pub async fn get_memory_runtime_config(
+) -> Result<Json<ha_core::memory::MemoryRuntimeConfig>, AppError> {
+    Ok(Json(ha_core::config::cached_config().memory.clone()))
+}
+
+/// `GET /api/config/memory-core-budget-status` -- resolve the configured Core
+/// budget against the global active model's context window.
+pub async fn get_memory_core_budget_status(
+) -> Result<Json<ha_core::memory::CoreMemoryBudgetStatus>, AppError> {
+    Ok(Json(ha_core::memory::active_core_memory_budget_status()))
+}
+
+/// `PUT /api/config/memory-runtime` -- save the normalized Memory UX v2
+/// contract. Legacy expert settings remain available during rollout.
+pub async fn save_memory_runtime_config(
+    Json(body): Json<ConfigBody<ha_core::memory::MemoryRuntimeConfig>>,
+) -> Result<Json<ha_core::memory::MemoryRuntimeConfig>, AppError> {
+    let saved = ha_core::config::mutate_config_async(("memory", "http"), move |store| {
+        let config = body.config.prepared_for_user_save(&store.memory);
+        config.mirror_to_legacy(
+            &store.memory,
+            &mut store.memory_extract,
+            &mut store.memory_selection,
+        );
+        store.memory = config.clone();
+        Ok(config)
+    })
+    .await?;
+    Ok(Json(saved))
+}
+
 /// `GET /api/config/memory-selection` -- get LLM memory selection config.
 pub async fn get_memory_selection_config(
 ) -> Result<Json<ha_core::memory::MemorySelectionConfig>, AppError> {
@@ -293,6 +325,7 @@ pub async fn save_memory_selection_config(
     Json(body): Json<ConfigBody<ha_core::memory::MemorySelectionConfig>>,
 ) -> Result<Json<Value>, AppError> {
     ha_core::config::mutate_config_async(("memory_selection", "http"), move |store| {
+        store.memory.apply_legacy_selection_controls(&body.config);
         store.memory_selection = body.config;
         Ok(())
     })
@@ -1064,6 +1097,7 @@ pub async fn save_extract_config(
     Json(body): Json<ConfigBody<ha_core::memory::MemoryExtractConfig>>,
 ) -> Result<Json<Value>, AppError> {
     ha_core::config::mutate_config_async(("memory_extract", "http"), move |store| {
+        store.memory.apply_legacy_extract_controls(&body.config);
         store.memory_extract = body.config;
         Ok(())
     })

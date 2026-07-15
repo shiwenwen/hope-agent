@@ -17,7 +17,7 @@ export function retrievalLayerStatusLabel(status: string, t: TranslateFn): strin
     case "empty":
       return t("chat.memoryTrace.layerStatus.empty", "no hit")
     case "skipped":
-      return t("chat.memoryTrace.layerStatus.skipped", "degraded")
+      return t("chat.memoryTrace.layerStatus.skipped", "skipped")
     case "disabled":
       return t("chat.memoryTrace.layerStatus.disabled", "disabled")
     default:
@@ -98,6 +98,10 @@ export function memoryOriginLabel(origin: UsedMemoryRef["origin"], t: TranslateF
       return t("chat.memoryTrace.origin.experience", "Experience memory")
     case "graph":
       return t("chat.memoryTrace.origin.graph", "Entity relationships")
+    case "project_auto_memory":
+      return t("project.tabAutoMemory", "Auto Memory")
+    case "core_memory":
+      return t("settings.memoryV2.core.title", "Always remembered")
     default:
       return origin || t("chat.memoryTrace.origin.unknown", "Long-term context")
   }
@@ -141,7 +145,13 @@ export function memorySourceLabel(
   ref: Pick<UsedMemoryRef, "sourceType" | "scope">,
   t: TranslateFn,
 ): string {
-  return [ref.sourceType, memoryScopeLabel(ref.scope, t)].filter(Boolean).join(" · ")
+  const sourceType =
+    ref.sourceType === "project_auto_memory_index"
+      ? t("project.tabAutoMemory", "Auto Memory")
+      : ref.sourceType === "core_memory_index"
+        ? "MEMORY.md"
+        : ref.sourceType
+  return [sourceType, memoryScopeLabel(ref.scope, t)].filter(Boolean).join(" · ")
 }
 
 export function retrievalLayerLabel(layer: string, t: TranslateFn): string {
@@ -255,13 +265,21 @@ export function retrievalLayerReasonLabel(
     case "disabled":
       return t("chat.memoryTrace.layerReason.disabled", "configuration off")
     case "memory_off":
+    case "agent_memory_off":
       return t("chat.memoryTrace.layerReason.memoryOff", "long-term memory is off")
     case "agent_config_error":
+    case "agent_config_unavailable":
       return t("chat.memoryTrace.layerReason.agentConfigError", "agent memory config unavailable")
     case "empty_query":
       return t("chat.memoryTrace.layerReason.emptyQuery", "empty query")
     case "no_candidates":
       return t("chat.memoryTrace.layerReason.noCandidates", "no candidates")
+    case "non_contextual_turn":
+      return t("chat.memoryTrace.layerReason.nonContextualTurn", "non-contextual turn")
+    case "recall_off":
+      return t("chat.memoryTrace.layerReason.recallOff", "automatic dynamic recall is off")
+    case "budget_empty":
+      return t("chat.memoryTrace.layerReason.budgetEmpty", "recall budget is empty")
     case "no_graph_neighbors":
       return t("chat.memoryTrace.layerReason.noGraphNeighbors", "no related entity relationships")
     case "no_access":
@@ -269,17 +287,26 @@ export function retrievalLayerReasonLabel(
     case "no_hits":
       return t("chat.memoryTrace.layerReason.noHits", "no hits")
     case "llm_none":
+    case "deep_none":
       return t("chat.memoryTrace.layerReason.llmNone", "model selected none")
     case "timeout":
+    case "retrieval_timeout":
       return t("chat.memoryTrace.layerReason.timeout", "timed out")
+    case "retrieval_busy":
+      return t("chat.memoryTrace.layerReason.retrievalBusy", "retrieval is busy")
     case "side_query_error":
       return t("chat.memoryTrace.layerReason.sideQueryError", "recall failed")
     case "retrieval_error":
       return t("chat.memoryTrace.layerReason.retrievalError", "retrieval failed")
     case "no_session":
       return t("chat.memoryTrace.layerReason.noSession", "no session context")
+    case "session_policy":
+    case "memory_off_or_session_policy":
+      return t("chat.memoryTrace.layerReason.sessionPolicy", "disabled by memory or chat policy")
+    case "unified_dynamic_recall":
+      return t("chat.memoryTrace.layerReason.unifiedRecall", "handled by fast recall")
     default:
-      return reason
+      return t("chat.memoryTrace.layerReason.unknown", "other reason")
   }
 }
 
@@ -346,7 +373,10 @@ export function memoryTraceErrorDescription(error: unknown, t: TranslateFn): str
 
 export function memoryReasonText(ref: UsedMemoryRef, t: TranslateFn): string {
   if (ref.origin === "active_memory" && ref.role === "selected") {
-    return t("chat.memoryTrace.reason.activeSelected", "Active recall selected it for the current question.")
+    return t(
+      "chat.memoryTrace.reason.activeSelected",
+      "Active recall selected it for the current question.",
+    )
   }
   if (ref.origin === "active_memory" && isMemoryCandidateRole(ref.role)) {
     return t(
@@ -355,7 +385,10 @@ export function memoryReasonText(ref: UsedMemoryRef, t: TranslateFn): string {
     )
   }
   if (ref.origin === "pinned_memory") {
-    return t("chat.memoryTrace.reason.pinned", "A high-salience pinned memory entered this turn's context.")
+    return t(
+      "chat.memoryTrace.reason.pinned",
+      "A high-salience pinned memory entered this turn's context.",
+    )
   }
   if (ref.origin === "static_memory") {
     return t(
@@ -364,10 +397,16 @@ export function memoryReasonText(ref: UsedMemoryRef, t: TranslateFn): string {
     )
   }
   if (ref.origin === "profile") {
-    return t("chat.memoryTrace.reason.profile", "The user profile summary entered this turn's context.")
+    return t(
+      "chat.memoryTrace.reason.profile",
+      "The user profile summary entered this turn's context.",
+    )
   }
   if (ref.origin === "knowledge") {
-    return t("chat.memoryTrace.reason.knowledge", "A related knowledge note entered this turn's context.")
+    return t(
+      "chat.memoryTrace.reason.knowledge",
+      "A related knowledge note entered this turn's context.",
+    )
   }
   if (ref.origin === "experience" && ref.kind === "procedure" && ref.role === "injected") {
     return t(

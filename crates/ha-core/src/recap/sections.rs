@@ -261,7 +261,7 @@ fn section_prompt(key: &str, title: &str, context_json: &str, locale: &str) -> S
         "suggestions" =>
             "Suggest 2-3 Hope Agent features the user should try next based on observed patterns: \
              skills, plan mode, sub-agents, ask_user_question tool, MCP servers, side_query, etc. \
-             Also list any AGENTS.md / memory.md additions that would prevent repeated instructions. \
+             Also list any AGENTS.md / MEMORY.md additions that would prevent repeated instructions. \
              Use bullets.",
         "on_the_horizon" =>
             "Suggest 2-3 ambitious workflows the user could try as models improve: \

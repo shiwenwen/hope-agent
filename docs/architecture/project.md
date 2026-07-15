@@ -28,11 +28,12 @@
 
 ## 概述
 
-Project 是 Hope Agent 的**可选会话容器**，把多个会话聚成一个工作空间共享三样东西：
+Project 是 Hope Agent 的**可选会话容器**，把多个会话聚成一个工作空间共享四样东西：
 
-1. **项目记忆**（`MemoryScope::Project { id }`）—— 项目内可见、跨项目隔离，注入优先级最高
-2. **项目指令**（`instructions`）—— 装配进每个项目内会话的 System Prompt
-3. **统一工作目录** —— 每个项目有一个真实工作目录（用户显式选的目录，或默认 `~/.hope-agent/projects/{id}/workspace/`）；上传、agent 产出、文件浏览都围绕它
+1. **项目范围长期记忆**（`MemoryScope::Project { id }`）—— SQLite 中可检索、可召回的长期事实，项目内可见、跨项目隔离
+2. **项目自动记忆**（`projects/{id}/memory/`）—— `MEMORY.md` 有界索引稳定注入、主题 Markdown 按需读取的本机项目经验
+3. **项目指令**（`instructions`）—— 装配进每个项目内会话的固定规则，语义等同显式项目指令而非自动学习
+4. **统一工作目录** —— 每个项目有一个真实工作目录（用户显式选的目录，或默认 `~/.hope-agent/projects/{id}/workspace/`）；上传、agent 产出、文件浏览都围绕它
 
 **项目文件 = 工作目录里的真实文件**——这是核心哲学（对齐 [Project 的「文件即真实文件」](file-operations.md)）：上传文件直接落工作目录，模型靠 System Prompt `# Working Directory` 段的顶层文件清单 + `read` 工具感知，**没有** `project_files` 表、独立 `files/`/`extracted/` 目录、文本提取注入或 `project_read_file` 工具。文件读写统一走 [文件浏览器 API](#文件浏览器-api)（`WorkspaceScope` 作用域闭合）。
 
@@ -119,6 +120,9 @@ CREATE INDEX IF NOT EXISTS idx_projects_archived
 ├── memory.db                          # 项目记忆（独立 DB，MemoryScope::Project）
 └── projects/
     └── {project_id}/
+        ├── memory/                    # 项目自动记忆；始终留在内部数据目录
+        │   ├── MEMORY.md              # 生成的简短索引；最多注入 200 行 / 25KB
+        │   └── *.md                   # 带 frontmatter 的主题详情；按需读取
         └── workspace/                 # 默认工作目录（未显式选目录时）；上传/产出/浏览都在此
             └── <用户与 agent 的真实文件>
 ```
@@ -241,10 +245,20 @@ session.working_dir 非空？      → 用之（会话级）
 - **`# Current Project`**（[`system_prompt/sections.rs`](../../crates/ha-core/src/system_prompt/sections.rs)）：`Description` + `## Project Instructions`（truncate 到上限），并尾随一句「本会话 `save_memory` 默认为 project scope」提示。
 - **`# Working Directory`**（[`prompt-system.md`](prompt-system.md)）：路径声明 + `## Working Directory Instructions` 子节（工作目录里的 AGENTS.md / CLAUDE.md 指令）。位置在 Project 段之后、Memory 段之前。
 - **`# Files in Working Directory`**（**独立顶层段，emit 在最末**——在 Memory / weather 等所有静态段之后，见 [`system_prompt/build.rs`](../../crates/ha-core/src/system_prompt/build.rs)）：顶层文件清单（非递归、只列名、名称排序、跳过隐藏与 `.git`/`node_modules`、cap ~100）。刻意拆成尾段——文件增删只 bust 这一尾块、不波及静态前缀缓存（同一目录状态产出 byte-identical 文本）。模型靠普通 `read` 工具按需读文件。
+- **`# Project Core Memory`**（[`memory/core_repository.rs`](../../crates/ha-core/src/memory/core_repository.rs)）：仅在长期记忆总开关、Core、Agent Memory、session use policy 都允许且会话非无痕时，把 `MEMORY.md` 纳入会话级 `CoreMemorySnapshot`。200 行 / 25KB 是文件读取安全上限，实际注入量受 V2 Core token budget 约束；主题正文不随轮次注入。
 
 > 早期的「`# Project Files` 三层注入（目录清单 / 小文件内联 / `project_read_file`）」已整体废弃，由上面的 `# Files in Working Directory` 尾段清单 + `read` 工具取代。
 
 ## 记忆系统接入
+
+项目内有两套互补、但物理分离的记忆：
+
+| 层 | 真相源 | 进入 prompt 的方式 | 适合内容 |
+|---|---|---|---|
+| 项目范围动态记忆 | `memory.db` / `MemoryScope::Project` | V2 Fast Recall 按 turn 选择，可选 Deep Recall；legacy static 仅回滚时启用 | 可检索事实、用户偏好、跨会话语义召回 |
+| Project Core Memory | `projects/{id}/memory/MEMORY.md` + `topics/*.md` | 会话快照固定注入有界索引，详情由 `core_memory` / `project_memory` 按需读 | 稳定架构约定、长期工作流、踩坑与参考索引 |
+
+项目指令 `projects.instructions` 不属于上述两者：它是用户明确维护的固定规则，始终按指令语义处理。
 
 **MemoryScope 第三变种**（[`memory/types.rs`](../../crates/ha-core/src/memory/types.rs)）：
 
@@ -256,9 +270,19 @@ pub enum MemoryScope {
 }
 ```
 
-- **注入优先级**（[`memory/sqlite/trait_impl.rs`](../../crates/ha-core/src/memory/sqlite/trait_impl.rs)）：`Project（最高）→ Agent → Global（最低，shared=true 时）`。Memory Budget 裁剪时越靠前越不易被丢弃，确保项目上下文优先保留。
-- **自动提取作用域**（[`memory_extract.rs`](../../crates/ha-core/src/memory_extract.rs)）：项目内会话 `save_memory` 不传 scope 时默认写 `Project`；可显式 `scope='global'` / `'agent'` 打破项目边界。
+- **召回 / Core 优先级**：动态候选排序和 Core 共享预算都按 `Project（最高）→ Agent → Global（最低，shared=true 时）`；V2 默认不把 SQLite 项目记忆批量静态注入。
+- **自动提取作用域**（[`memory_extract.rs`](../../crates/ha-core/src/memory_extract.rs)）：项目事实在项目会话写 `Project`；非项目会话提取出的 project-like 内容进入 `pending_memory_candidates`，不得回退成 Agent scope。用户显式保存仍受 live scope / session policy 裁决。
 - **计数跨 DB**：`ProjectDB::list` 置 `memory_count = 0`，调用方遍历 `backend.count_by_project(&id)` 补齐。
+
+### Project Core Memory 的渐进式披露
+
+- Global / Agent / Project 三层现在共用 `CoreMemoryRepository`；Project 的旧 `project/memory.rs` 只保留兼容薄适配。`MEMORY.md` 可由后端根据主题 frontmatter 确定性重建，按 `feedback / project / reference / user` 分组，只保存文件名与一句摘要。
+- 单个主题最大 128KB、每项目最多 256 个主题；安全文件名仅允许 ASCII 字母、数字、`_`、`-` 与 `.md`。每次入口都校验 project 祖先与 memory 目录不是 symlink，并用 canonical parent containment 拒绝路径逃逸；topic / index / mutation lock 也必须是常规文件。
+- 主题正文变化但 `name / description / type` 不变时，`MEMORY.md` 字节不变，因此稳定 prompt fingerprint 与 Provider cache 前缀不变；新增、删除或修改摘要时才合理失效一次。
+- `core_memory(scope=project)` 是 canonical 工具；`project_memory` 是兼容别名。二者都属于 Memory tier，遵守全局长期记忆、Core、Agent memory、session use/contribute policy、incognito、Plan / Skill / deny 等实时 gate；Project id 只能从 live session 解析。owner UI 在记忆关闭时仍可管理本机文件，但 agent 不会注入或调用。
+- `list / search / read` 提供发现与按需读取；`read` 默认最多返回 12,000 字符并支持 `offset / maxChars` 分块，同时返回磁盘原文 BLAKE3 `fileHash`。已有主题的 `write / delete` 必须把它作为 `expectedFileHash` 带回，文件被修改 / 删除或缺少 hash 时 fail closed，防止 owner / agent / 多客户端陈旧草稿覆盖。
+- `write / delete / rebuild_index` 经 repository 的 OS 独占锁串行化，覆盖跨会话、owner 请求乃至多进程竞争；锁内完成文件名选择、topic 原子写与索引重建，所以同名创建不会互相覆盖，不同文件的并发写也不会用旧快照覆盖 `MEMORY.md`。完成后发送 `memory:core_changed`，兼容入口可继续发送旧事件供 UI 过渡。
+- 索引进入 Prompt 前先做 prompt-injection pattern 过滤和 XML text escape，持久化摘要不能闭合信封。它随 session Core snapshot 固定，后台 topic/index 更新不改变当前会话 stable fingerprint；显式 reload、Tier 3 compact 或新会话才生效。项目删除时既有 `purge_project_dir` 会连同 Core 文件与锁文件一起清理；显式外部 working dir 永不承载自动记忆。
 
 ## 级联删除与孤儿清理
 
@@ -301,6 +325,11 @@ canonicalize `dir` + canonicalize `projects_root`，`starts_with(canonical_root)
 | `move_session_to_project_cmd(session_id, project_id?)` | `project_id=None` 即 unassign |
 | `mark_project_sessions_read_cmd(id)` | 清零项目 `unread_count` |
 | `list_project_memories_cmd(id, limit?, offset?)` | Project scope 记忆列表 |
+| `list_project_memory_files_cmd(id)` | 项目自动记忆主题列表 |
+| `read_project_memory_file_cmd(id, file_name)` | 读取一个主题正文 |
+| `write_project_memory_file_cmd(id, input)` | 原子创建 / 更新主题并重建索引 |
+| `delete_project_memory_file_cmd(id, file_name, expected_file_hash)` | 校验磁盘 hash 后删除主题并重建索引 |
+| `rebuild_project_memory_index_cmd(id)` | 从主题 frontmatter 确定性重建 `MEMORY.md` |
 
 文件读写见 [文件浏览器 API](#文件浏览器-api) 的 `project_fs_*` 命令；会话级工作目录 / agent 切换见 [Session 系统](session.md) 的 `update_session_working_dir` / `update_session_agent`。
 
@@ -317,6 +346,9 @@ canonicalize `dir` + canonicalize `projects_root`，`starts_with(canonical_root)
 | `GET` | `/api/projects/:id/sessions` | `list_project_sessions` |
 | `POST` | `/api/projects/:id/read` | `mark_project_sessions_read` |
 | `GET` | `/api/projects/:id/memories` | `list_project_memories` |
+| `GET` / `PUT` | `/api/projects/:id/memory-files` | 列表 / 写入项目自动记忆 |
+| `GET` / `DELETE` | `/api/projects/:id/memory-files/:file_name` | 读取 / 删除主题 |
+| `POST` | `/api/projects/:id/memory-files/rebuild-index` | 重建 `MEMORY.md` |
 | `PATCH` | `/api/sessions/:id/project` | `move_session_to_project` |
 
 文件 CRUD 走 `/api/fs/*`（见 [文件浏览器 API](#文件浏览器-api)），不再有 `/api/projects/:id/files*` 路由。详见 [api-reference.md](api-reference.md)。
@@ -339,13 +371,14 @@ canonicalize `dir` + canonicalize `projects_root`，`starts_with(canonical_root)
 
 ### ProjectOverviewDialog（右侧 Sheet，[`ProjectOverviewDialog.tsx`](../../src/components/chat/project/ProjectOverviewDialog.tsx)）
 
-文件名保留，UI 实为右侧 `Sheet`，3 Tab：
+文件名保留，UI 实为右侧 `Sheet`，4 Tab：
 
 | Tab | 作用 |
 |---|---|
 | **Overview** | 元数据 + 操作 |
 | **Files** | [`FileBrowserView`](../../src/components/chat/project/file-browser/)（可编辑文件浏览器：树 + 预览 + 上传 / 删除 / 重命名 / 新建目录） |
 | **Instructions** | Textarea 编辑 `instructions` |
+| **Auto Memory** | [`ProjectMemorySection`](../../src/components/chat/project/ProjectMemorySection.tsx)：主题列表、frontmatter 字段与 Markdown 正文编辑、删除、索引重建 |
 
 > 旧的「Sessions」Tab（会话已在侧边栏树可见）与「绑定 IM Channel」select（反向认领废弃）均已移除。
 
@@ -373,6 +406,7 @@ canonicalize `dir` + canonicalize `projects_root`，`starts_with(canonical_root)
 | `project:updated` | `{projectId}` | 更新 / 归档 / `working_dir` patch 成功后 |
 | `project:deleted` | `{projectId}` | `delete_project_cascade` 成功后 |
 | `project:fs_changed` | `{...}` | 文件浏览器 CRUD 后，跨视图同步 |
+| `project_memory:changed` | `{projectId, action}` | owner API 或 agent 工具写入 / 删除 / 重建索引后 |
 
 前端 [`useProjects`](../../src/components/chat/project/hooks/useProjects.ts) 订阅前 3 个触发 `reloadProjects()`，`useProjectFs` 订阅 `project:fs_changed`。
 
@@ -391,6 +425,8 @@ canonicalize `dir` + canonicalize `projects_root`，`starts_with(canonical_root)
 - **preview-by-path 鉴权**：HTTP 三端点共用 `authorized_canonical_file_path`（会话引用 ∪ 工作目录内），主机任意路径 403；桌面信任本机
 - **删除前防逃逸**：`purge_project_dir` canonicalize 比对 `projects_root`，拒绝对其外目录 `remove_dir_all`
 - **上传上限**：`MAX_PROJECT_FILE_BYTES = 20 MB`，HTTP 层前置校验 + 管道入口 bail 双重把关
+- **自动记忆路径闭合**：project id 必须是 UUID；主题文件名为严格 basename；项目目录祖先与 `memory/` 做 symlink + canonical containment 校验，主题、索引与锁文件拒绝 symlink / 非常规文件，写入统一走 `platform::write_atomic`
+- **并发与陈旧写**：mutation 全程持有项目级 OS 独占锁；更新 / 删除按 raw-file BLAKE3 做 compare-before-write，不能用陈旧 owner 草稿或 agent 读取覆盖新版本
 - **事务边界**：`ProjectDB::delete` 单 TX 内 unassign + delete；跨 DB 的 memory 删除放 TX 外，失败走 reconciler 兜底
 - **logo 校验**（[`db.rs::validate_logo`](../../crates/ha-core/src/project/db.rs)）：长度上限 512KB；必须 `data:image/...;base64,` 前缀，**拒绝任何 http(s):// URL**（避免 SSRF / 第三方追踪）+ 拒绝 `javascript:` / `file:` 等 schema；失败 `bail!` 不静默裁剪
 
@@ -412,6 +448,8 @@ canonicalize `dir` + canonicalize `projects_root`，`starts_with(canonical_root)
 | [`crates/ha-core/src/project/types.rs`](../../crates/ha-core/src/project/types.rs) | `Project` / `ProjectMeta` + 两个 Input DTO |
 | [`crates/ha-core/src/project/db.rs`](../../crates/ha-core/src/project/db.rs) | `ProjectDB`（复用 `SessionDB` 连接）+ migrate + `validate_logo` |
 | [`crates/ha-core/src/project/files.rs`](../../crates/ha-core/src/project/files.rs) | `resolve_project_dir` / `delete_project_cascade` / `purge_project_dir` 防逃逸 |
+| [`crates/ha-core/src/memory/core_repository.rs`](../../crates/ha-core/src/memory/core_repository.rs) | 三层 Core Memory 的目录、frontmatter、索引、CRUD / 搜索、snapshot、迁移与并发真相源 |
+| [`crates/ha-core/src/project/memory.rs`](../../crates/ha-core/src/project/memory.rs) | Project Core Memory 兼容薄适配与旧 API 映射 |
 | [`crates/ha-core/src/project/reconcile.rs`](../../crates/ha-core/src/project/reconcile.rs) | 启动期跨 DB 孤儿记忆清理 |
 | [`crates/ha-core/src/paths.rs`](../../crates/ha-core/src/paths.rs) | `projects_dir` / `project_dir` / `project_workspace_dir` |
 | [`crates/ha-core/src/session/db.rs`](../../crates/ha-core/src/session/db.rs) | `sessions.project_id` 迁移 + `ProjectFilter` + 绑定 API |
@@ -427,7 +465,8 @@ canonicalize `dir` + canonicalize `projects_root`，`starts_with(canonical_root)
 | [`crates/ha-server/src/routes/project_fs.rs`](../../crates/ha-server/src/routes/project_fs.rs) | HTTP `/api/fs/*` 文件浏览器路由 |
 | [`src/components/chat/project/ProjectSection.tsx`](../../src/components/chat/project/ProjectSection.tsx) | 侧边栏项目树 |
 | [`src/components/chat/project/ProjectDialog.tsx`](../../src/components/chat/project/ProjectDialog.tsx) | create / edit 复用对话框（含 KB 绑定段） |
-| [`src/components/chat/project/ProjectOverviewDialog.tsx`](../../src/components/chat/project/ProjectOverviewDialog.tsx) | 项目设置 Sheet（Overview / Files / Instructions 三 Tab） |
+| [`src/components/chat/project/ProjectOverviewDialog.tsx`](../../src/components/chat/project/ProjectOverviewDialog.tsx) | 项目设置 Sheet（Overview / Files / Instructions / Auto Memory） |
+| [`src/components/chat/project/ProjectMemorySection.tsx`](../../src/components/chat/project/ProjectMemorySection.tsx) | 项目自动记忆 owner 管理页 |
 | [`src/components/chat/project/file-browser/`](../../src/components/chat/project/file-browser/) | 文件浏览器（树 / 预览 / 拖宽） |
 | [`src/components/chat/project/hooks/`](../../src/components/chat/project/hooks/) | `useProjects` / `useProjectFs` / `useFileBrowserSplit` / `useTreeExpansion` |
 | [`src/components/chat/input/WorkingDirectoryButton.tsx`](../../src/components/chat/input/WorkingDirectoryButton.tsx) | 工作目录按钮（区分会话级 / 继承自项目） |

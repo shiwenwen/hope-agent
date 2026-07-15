@@ -187,10 +187,10 @@ describe("Agent MemoryTab core memory editor", () => {
   it("shows redacted load failures without rendering an empty editor, then retries", async () => {
     let loadCalls = 0
     transportMock.call.mockImplementation(async (command: string) => {
-      if (command === "get_agent_memory_md") {
+      if (command === "core_memory_get_cmd") {
         loadCalls += 1
         if (loadCalls === 1) throw new Error("agent core read failed token=agent-core-secret")
-        return "Prefer concise answers."
+        return { content: "Prefer concise answers.", fileHash: "hash-1" }
       }
       return null
     })
@@ -215,9 +215,13 @@ describe("Agent MemoryTab core memory editor", () => {
   })
 
   it("shows redacted save failures for agent core memory edits", async () => {
-    transportMock.call.mockImplementation(async (command: string) => {
-      if (command === "get_agent_memory_md") return "Prefer concise answers."
-      if (command === "save_agent_memory_md") {
+    let saveArgs: Record<string, unknown> | undefined
+    transportMock.call.mockImplementation(async (command: string, args?: Record<string, unknown>) => {
+      if (command === "core_memory_get_cmd") {
+        return { content: "Prefer concise answers.", fileHash: "hash-1" }
+      }
+      if (command === "core_memory_save_cmd") {
+        saveArgs = args
         throw new Error("agent core write failed api_key=agent-save-secret")
       }
       return null
@@ -238,5 +242,10 @@ describe("Agent MemoryTab core memory editor", () => {
       }),
     )
     expect(screen.queryByText(/agent-save-secret/)).toBeNull()
+    expect(saveArgs).toMatchObject({
+      scopeType: "agent",
+      scopeId: "agent-1",
+      expectedFileHash: "hash-1",
+    })
   })
 })

@@ -272,7 +272,18 @@ const TokenUsageSection = React.memo(function TokenUsageSection({
                 <div className="text-right">{formatNumber(row.inputTokens)}</div>
                 <div className="text-right">{formatNumber(row.outputTokens)}</div>
                 <div className="text-right">{formatNumber(row.cacheCreationInputTokens)}</div>
-                <div className="text-right">{formatNumber(row.cacheReadInputTokens)}</div>
+                <div className="text-right">
+                  {formatNumber(row.cacheReadInputTokens)}
+                  {(() => {
+                    const contextInput = row.contextInputTokens
+                    if (contextInput <= 0) return null
+                    return (
+                      <span className="ml-1 text-muted-foreground">
+                        ({Math.round((row.cacheReadInputTokens / contextInput) * 100)}%)
+                      </span>
+                    )
+                  })()}
+                </div>
                 <div className="text-right">{formatCost(row.estimatedCostUsd)}</div>
                 <div className="text-right">
                   {row.avgDurationMs != null ? formatDuration(row.avgDurationMs) : "-"}

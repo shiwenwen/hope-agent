@@ -886,8 +886,8 @@ Body."#;
         );
         // Catalog entries no longer expose file paths — the `skill` tool looks
         // skills up by name instead of instructing the model to `read` SKILL.md.
-        assert!(prompt.contains("- github: GitHub ops"));
-        assert!(prompt.contains("skill` tool"));
+        assert!(prompt.contains("- github — GitHub ops"));
+        assert!(prompt.contains("Use `skill({ name, args? })`"));
         // The list line for this skill must be free of any path reference;
         // the instructional header still mentions SKILL.md as a don't-do-this.
         let list_line = prompt
@@ -962,7 +962,7 @@ Body."#;
         // materially (allowing the 120-char warning headroom).
         assert!(prompt.len() <= budget.max_chars + 200);
         if !prompt.is_empty() {
-            assert!(prompt.contains("skill` tool"));
+            assert!(prompt.contains("Use `skill({ name, args? })`"));
         }
     }
 

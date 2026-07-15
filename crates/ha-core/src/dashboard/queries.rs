@@ -262,6 +262,8 @@ pub fn query_token_usage(
                 COALESCE(SUM(u.output_tokens), 0),
                 COALESCE(SUM(u.cache_creation_input_tokens), 0),
                 COALESCE(SUM(u.cache_read_input_tokens), 0),
+                COALESCE(SUM(COALESCE(u.context_input_tokens, u.input_tokens)), 0),
+                COALESCE(SUM(COALESCE(u.fresh_input_tokens, u.input_tokens)), 0),
                 AVG(u.duration_ms),
                 AVG(u.ttft_ms)
          FROM model_usage_events u
@@ -280,8 +282,10 @@ pub fn query_token_usage(
             crate::sql_u64(r, 4)?,
             crate::sql_u64(r, 5)?,
             crate::sql_u64(r, 6)?,
-            r.get::<_, Option<f64>>(7)?,
-            r.get::<_, Option<f64>>(8)?,
+            crate::sql_u64(r, 7)?,
+            crate::sql_u64(r, 8)?,
+            r.get::<_, Option<f64>>(9)?,
+            r.get::<_, Option<f64>>(10)?,
         ))
     })?;
     let mut by_kind_map: std::collections::BTreeMap<String, TokenByKind> =
@@ -295,6 +299,8 @@ pub fn query_token_usage(
             output_tokens,
             cache_creation_input_tokens,
             cache_read_input_tokens,
+            context_input_tokens,
+            fresh_input_tokens,
             avg_duration_ms,
             avg_ttft_ms,
         ) = row?;
@@ -305,6 +311,8 @@ pub fn query_token_usage(
             output_tokens: 0,
             cache_creation_input_tokens: 0,
             cache_read_input_tokens: 0,
+            context_input_tokens: 0,
+            fresh_input_tokens: 0,
             estimated_cost_usd: 0.0,
             avg_duration_ms: None,
             avg_ttft_ms: None,
@@ -315,6 +323,8 @@ pub fn query_token_usage(
         entry.output_tokens += output_tokens;
         entry.cache_creation_input_tokens += cache_creation_input_tokens;
         entry.cache_read_input_tokens += cache_read_input_tokens;
+        entry.context_input_tokens += context_input_tokens;
+        entry.fresh_input_tokens += fresh_input_tokens;
         entry.estimated_cost_usd += estimate_cost(&model_id, input_tokens, output_tokens);
         entry.avg_duration_ms = merge_weighted_avg(
             entry.avg_duration_ms,

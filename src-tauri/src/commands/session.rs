@@ -208,6 +208,38 @@ pub async fn set_session_incognito(
         .map_err(Into::into)
 }
 
+#[tauri::command]
+pub async fn get_session_memory_policy_cmd(
+    session_id: String,
+    state: State<'_, AppState>,
+) -> Result<session::SessionMemoryPolicy, CmdError> {
+    state
+        .session_db
+        .run(move |db| db.get_memory_policy(&session_id))
+        .await
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn set_session_memory_policy_cmd(
+    session_id: String,
+    policy: session::SessionMemoryPolicy,
+    state: State<'_, AppState>,
+) -> Result<session::SessionMemoryPolicy, CmdError> {
+    let id = session_id.clone();
+    let saved = state
+        .session_db
+        .run(move |db| db.set_memory_policy(&session_id, policy))
+        .await?;
+    ha_core::memory::core_repository::invalidate_session_snapshot(&id);
+    if let Some(bus) = ha_core::get_event_bus() {
+        let payload = serde_json::json!({ "sessionId": id, "policy": saved });
+        bus.emit("memory:session_policy_changed", payload.clone());
+        bus.emit("memory:policy_changed", payload);
+    }
+    Ok(saved)
+}
+
 /// Persist the user-selected working directory for a chat session. The core
 /// layer canonicalizes the path and validates that it resolves to an existing
 /// directory; `None` clears the selection.

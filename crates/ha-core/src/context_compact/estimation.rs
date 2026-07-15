@@ -72,6 +72,19 @@ pub fn estimate_request_tokens(
     system_tokens + message_tokens + max_output_tokens
 }
 
+/// Provider-shape request estimate including callable tool schemas. The old
+/// estimator is retained for callers that genuinely have no tools (manual
+/// summaries and one-shot automation).
+pub fn estimate_request_tokens_with_tools(
+    system_prompt: &str,
+    messages: &[Value],
+    tool_schemas: &[Value],
+    max_output_tokens: u32,
+) -> u32 {
+    estimate_request_tokens(system_prompt, messages, max_output_tokens)
+        .saturating_add(tool_schemas.iter().map(estimate_tokens).sum::<u32>())
+}
+
 // ── Tool Result Detection (format-agnostic) ──
 
 pub(super) fn message_type(msg: &Value) -> Option<&str> {
