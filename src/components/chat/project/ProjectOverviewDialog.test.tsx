@@ -8,7 +8,11 @@ import ProjectOverviewDialog from "./ProjectOverviewDialog"
 
 const transportMock = vi.hoisted(() => ({
   call: vi.fn(),
-  listen: vi.fn((_event: string, _handler: (payload: unknown) => void) => () => {}),
+  listen: vi.fn((event: string, handler: (payload: unknown) => void) => {
+    void event
+    void handler
+    return () => {}
+  }),
 }))
 
 vi.mock("@/lib/transport-provider", () => ({

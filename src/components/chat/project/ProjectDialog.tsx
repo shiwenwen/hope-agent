@@ -601,6 +601,7 @@ export default function ProjectDialog({
               )}
 
               <ProjectInstructionsField
+                key={instructionsPath}
                 value={instructions}
                 path={instructionsPath}
                 loading={instructionsLoading}

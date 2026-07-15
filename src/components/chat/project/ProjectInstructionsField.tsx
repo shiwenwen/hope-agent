@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react"
+import { useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { Eye, FileText, Loader2 } from "lucide-react"
 
@@ -38,10 +38,6 @@ export default function ProjectInstructionsField({
     () => formatBytes(new TextEncoder().encode(value).byteLength, { trimTrailingZeros: true }),
     [value],
   )
-
-  useEffect(() => {
-    setMode("edit")
-  }, [path])
 
   return (
     <div className="space-y-2">
