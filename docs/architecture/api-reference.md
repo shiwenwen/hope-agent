@@ -209,7 +209,7 @@ Tauri ↔ COMMAND_MAP 差集为 14 条合法非 REST 命令（5 条 Desktop-only
 |---|---|
 | `canvas_show` / `canvas_hide` / `canvas_reload` / `canvas_deleted` | 画布面板 |
 | `canvas_snapshot_request` / `canvas_eval_request` | 画布工具流 |
-| `design:show` / `design:reload` / `design:artifact_ready` / `design:artifact_deleted` / `design:project_changed` / `design:system_changed` / `design:critiqued` | 设计空间（产物生成 / 预览刷新 / 系统变更 / 质量评审） |
+| `design:show` / `design:reload` / `design:artifact_ready` / `design:artifact_deleted` / `design:project_changed` / `design:system_changed` / `design:critiqued` / `design:code_drift` | 设计空间（产物生成 / 预览刷新 / 系统变更 / 质量评审 / code→design 回灌 stale 翻转） |
 | `design:artifact_generating` / `design:generate_delta` / `design:generate_done` / `design:generate_error` | 设计空间真流式生成（建 generating 壳 / 逐帧回填预览 / 定稿受控 swap / 失败降级）。`generate_delta` payload `{ projectId, artifactId, streamId, seq, css, bodyHtml, done }` |
 | `design:ffmpeg_download_progress` | MP4 导出编码器（ffmpeg）按需下载进度。Payload `{ stage: "downloading"\|"ready", percent?, downloadedBytes?, totalBytes?, binaryPath? }` |
 | `browser:frame` | 浏览器活动 tab 的实时 JPEG 帧。Payload `{ sessionId?, targetId?, url?, title?, jpegBase64, capturedAt, backend }`。在 `act` / `navigate` / `tabs.new|select|claim` 后由后端自动 emit；BrowserPanel 同时以 1Hz 轮询 `browser_capture_frame` 兜底并按当前会话过滤 |
@@ -849,6 +849,10 @@ Loop owner API 管理 session-scoped recurring triggers。`create_loop_schedule`
 | `get_design_project_code_binding_cmd` | `GET /api/design/projects/{id}/code-binding`（项目级代码仓库绑定状态：来源/生效目录/stale） | ✅ |
 | `set_design_project_code_binding_cmd` | `PUT /api/design/projects/{id}/code-binding`（设置/清除双源绑定，`codeDir` 与 `haProjectId` 互斥；owner 平面专属） | ✅ |
 | `design_implement_to_code_cmd` | `POST /api/design/artifacts/{id}/implement`（组 handoff pack + 建实现会话，返回 `{sessionId, prompt, codeDir}`） | ✅ |
+| `design_check_code_drift_cmd` | `POST /api/design/projects/{id}/code-drift/check`（code→design 回灌：收割承接会话写盘 + 逐文件比对，标 `metadata.codeDrift`；body `{artifactId?}`） | ✅ |
+| `design_code_drift_changes_cmd` | `GET /api/design/artifacts/{id}/code-drift`（逐 stale 文件 diff 喂 DiffPanel + 带到对话 quote） | ✅ |
+| `design_code_drift_sync_cmd` | `POST /api/design/artifacts/{id}/code-drift/sync`（重置基线为当前磁盘态 + 清 drift 标记） | ✅ |
+| `mark_design_artifact_opened_cmd` | `POST /api/design/artifacts/{id}/opened`（上报「最近查看」，MCP `design_get_active_context` 事实源；不动 updated_at） | ✅ |
 | `export_design_pptx_cmd` | `POST /api/design/pptx`（前端整页 PNG → OOXML 组装） | ✅ |
 | `export_design_zip_cmd` | `POST /api/design/zip`（artifactId=单产物源码包 / projectId=项目级全产物包） | ✅ |
 | `export_design_selected_zip_cmd` | `POST /api/design/zip/selected`（body `artifactIds` → 选中产物打成一个 ZIP + 画廊，文件面批量导出） | ✅ |
