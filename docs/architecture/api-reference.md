@@ -287,7 +287,7 @@ Artifact 创建或 show 仍复用 `canvas_show`，当前投影变化复用 `canv
 | `project_fs_upload` | `POST /api/fs/upload`（仅旧客户端兼容，静态 20 MiB） |
 | `save_avatar` | `POST /api/avatars`（服务端返 `{path}`，前端解包为 `string` 匹配 Tauri `-> String` 契约） |
 
-新版聊天、Workspace 与知识来源统一使用上传租约：`file_upload_start/status/chunk/complete/discard` ↔ `POST /api/file-uploads`、`GET|DELETE /api/file-uploads/{id}`、`PUT /api/file-uploads/{id}/chunk?offset=`、`POST /api/file-uploads/{id}/complete`。固定 4 MiB 顺序 chunk，lease 1 小时过期；最终由聊天消息 claim、`project_fs_claim_upload` 或知识来源 `uploadId` 消费。
+新版聊天、Workspace、知识来源与客户端本地 Artifact 来源统一使用上传租约：`file_upload_start/status/chunk/complete/discard` ↔ `POST /api/file-uploads`、`GET|DELETE /api/file-uploads/{id}`、`PUT /api/file-uploads/{id}/chunk?offset=`、`POST /api/file-uploads/{id}/complete`。purpose 分别为 `chat_attachment`、`workspace_upload`、`knowledge_source`、`artifact_source`；固定 4 MiB 顺序 chunk，lease 1 小时过期，最终由对应业务 claim 消费。
 
 ## 命令对照表（按功能域分组）
 
@@ -821,7 +821,7 @@ Loop owner API 管理 session-scoped recurring triggers。`create_loop_schedule`
 | `list_artifacts` | `GET /api/artifacts?limit=&offset=&kind=&lifecycleState=` | ✅ |
 | `get_artifact` | `GET /api/artifacts/{id}` | ✅ |
 | `list_artifact_versions` | `GET /api/artifacts/{id}/versions` | ✅ |
-| `import_artifact` | `POST /api/artifacts/import` | ✅（同一路径同时承载 create/update；update 必须带 `artifactId+expectedVersion`） |
+| `import_artifact` | `POST /api/artifacts/import` | ✅（`filePath` 与 `artifact_source uploadId` 互斥；同一路径同时承载 create/update，update 必须带 `artifactId+expectedVersion`） |
 | `restore_artifact` | `POST /api/artifacts/{id}/restore` | ✅ |
 | `verify_artifact` | `POST /api/artifacts/{id}/verify` | ✅ |
 | `review_artifact_export` | `POST /api/artifacts/{id}/export-review` | ✅ |

@@ -35,6 +35,7 @@ import {
 } from "@/components/chat/files/fileDirtyRegistry"
 import { useFileResource } from "@/components/chat/files/useFileResource"
 import type { PreviewTarget } from "@/components/chat/files/useFilePreview"
+import { dominantLineEnding, editorText, serializeText } from "./workspaceTextFormat"
 
 const editorTheme = EditorView.theme({
   "&": { height: "100%", backgroundColor: "transparent" },
@@ -43,29 +44,6 @@ const editorTheme = EditorView.theme({
   ".cm-gutters": { backgroundColor: "transparent", borderRight: "1px solid var(--border)" },
   "&.cm-focused": { outline: "none" },
 })
-
-export function editorText(content: string): string {
-  return content.replace(/\r\n/g, "\n").replace(/\r/g, "\n")
-}
-
-export function dominantLineEnding(
-  content: string,
-): Exclude<FileTextContent["lineEnding"], "mixed"> {
-  const crlf = content.match(/\r\n/g)?.length ?? 0
-  const rest = content.replace(/\r\n/g, "")
-  const lf = rest.match(/\n/g)?.length ?? 0
-  const cr = rest.match(/\r/g)?.length ?? 0
-  if (crlf >= lf && crlf >= cr && crlf > 0) return "crlf"
-  if (cr > lf && cr > 0) return "cr"
-  return "lf"
-}
-
-export function serializeText(value: string, data: FileTextContent): string {
-  const ending = data.lineEnding === "mixed" ? dominantLineEnding(data.content) : data.lineEnding
-  const separator = ending === "crlf" ? "\r\n" : ending === "cr" ? "\r" : "\n"
-  const normalized = value.replace(/\r\n/g, "\n").replace(/\r/g, "\n").replace(/\n/g, separator)
-  return data.hasUtf8Bom ? `\uFEFF${normalized}` : normalized
-}
 
 function suggestedCopyPath(path: string): string {
   const slash = path.lastIndexOf("/")

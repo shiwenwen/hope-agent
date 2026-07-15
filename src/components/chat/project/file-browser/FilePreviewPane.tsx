@@ -34,7 +34,7 @@ export interface QuotePayload {
 
 type Loaded =
   | { kind: "code" | "text" | "markdown" | "binary"; data: FileTextContent }
-  | { kind: "image" | "pdf" | "audio" | "video"; url: string | null }
+  | { kind: "image" | "pdf" | "audio" | "video" | "managed_html"; url: string | null }
   | { kind: "office" }
 
 export interface FilePreviewPaneProps {
@@ -86,7 +86,10 @@ export function FilePreviewPane({
     const kind = fileKindOf(source.name, source.mime, source.language)
     void (async () => {
       try {
-        if (kind === "image" || kind === "pdf" || kind === "audio" || kind === "video") {
+        if (source.presentation === "managed_html") {
+          const url = await source.rawUrl(false)
+          if (!cancelled) setLoaded({ kind: "managed_html", url })
+        } else if (kind === "image" || kind === "pdf" || kind === "audio" || kind === "video") {
           const url = await source.rawUrl(false)
           if (!cancelled) setLoaded({ kind, url })
         } else if (kind === "office") {
@@ -339,6 +342,20 @@ function PreviewBody({
           <track kind="captions" />
         </video>
       </div>
+    ) : (
+      <BinaryPlaceholder name={source.name} sizeBytes={source.sizeBytes ?? 0} />
+    )
+  }
+
+  if (loaded.kind === "managed_html") {
+    return loaded.url ? (
+      <iframe
+        title={source.name}
+        src={loaded.url}
+        sandbox="allow-scripts"
+        referrerPolicy="no-referrer"
+        className="h-full w-full border-0 bg-white dark:bg-surface-app"
+      />
     ) : (
       <BinaryPlaceholder name={source.name} sizeBytes={source.sizeBytes ?? 0} />
     )

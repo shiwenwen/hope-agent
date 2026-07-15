@@ -3439,6 +3439,8 @@
       "maxTextEditDesc": "Maximum UTF-8 text file size that can be edited ({{min}}–{{max}} MiB).",
       "maxDocumentPreview": "Document preview limit",
       "maxDocumentPreviewDesc": "Maximum PDF or Office file size processed for preview ({{min}}–{{max}} MiB).",
+      "maxArtifactImport": "Artifact import limit",
+      "maxArtifactImportDesc": "Maximum HTML, Markdown, or Analysis JSON source size imported into Artifacts ({{min}}–{{max}} MiB).",
       "largeUploadWarning": "Large upload limits increase disk, network, and processing usage. Only raise them when the Server has enough resources."
     },
     "knowledgeSourceLimits": {

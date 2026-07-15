@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { DeferredNumberInput } from "@/components/ui/deferred-number-input"
 import {
   DEFAULT_FILESYSTEM_CONFIG,
+  MAX_MAX_ARTIFACT_IMPORT_MB,
   MAX_MAX_CHAT_ATTACHMENT_MB,
   MAX_MAX_DOCUMENT_PREVIEW_MB,
   MAX_MAX_TEXT_EDIT_MB,
@@ -17,6 +18,7 @@ import {
   MIN_MAX_TEXT_EDIT_MB,
   MIN_MAX_TEXT_PREVIEW_MB,
   MIN_MAX_WORKSPACE_UPLOAD_MB,
+  MIN_MAX_ARTIFACT_IMPORT_MB,
   normalizeFilesystemConfig,
   patchFilesystemConfig,
   useFilesystemConfig,
@@ -68,6 +70,13 @@ const LIMITS: Array<{
     min: MIN_MAX_DOCUMENT_PREVIEW_MB,
     max: MAX_MAX_DOCUMENT_PREVIEW_MB,
   },
+  {
+    key: "maxArtifactImportMb",
+    label: "settings.files.maxArtifactImport",
+    description: "settings.files.maxArtifactImportDesc",
+    min: MIN_MAX_ARTIFACT_IMPORT_MB,
+    max: MAX_MAX_ARTIFACT_IMPORT_MB,
+  },
 ]
 
 export default function FileSettingsPanel() {
@@ -94,6 +103,7 @@ export default function FileSettingsPanel() {
         maxTextPreviewMb: normalized.maxTextPreviewMb,
         maxTextEditMb: normalized.maxTextEditMb,
         maxDocumentPreviewMb: normalized.maxDocumentPreviewMb,
+        maxArtifactImportMb: normalized.maxArtifactImportMb,
       })
       setDraft(next)
       setSaved(true)

@@ -857,7 +857,9 @@
         "maxTextEditDesc": "編集できる UTF-8 テキストファイルの最大サイズ（{{min}}～{{max}} MiB）。",
         "maxDocumentPreview": "文書プレビューの上限",
         "maxDocumentPreviewDesc": "プレビュー処理する PDF / Office ファイルの最大サイズ（{{min}}～{{max}} MiB）。",
-        "largeUploadWarning": "大きなアップロード上限はディスク、ネットワーク、処理負荷を増やします。Server に十分なリソースがある場合のみ引き上げてください。"
+        "largeUploadWarning": "大きなアップロード上限はディスク、ネットワーク、処理負荷を増やします。Server に十分なリソースがある場合のみ引き上げてください。",
+        "maxArtifactImport": "Artifact インポート上限",
+        "maxArtifactImportDesc": "Artifacts にインポートする HTML、Markdown、分析 JSON ソースの最大サイズ（{{min}}～{{max}} MiB）。"
       },
       "knowledgeSourceLimits": {
         "title": "知識ソースの上限",
@@ -2926,7 +2928,9 @@
         "maxTextEditDesc": "편집 가능한 UTF-8 텍스트 파일의 최대 크기({{min}}~{{max}} MiB).",
         "maxDocumentPreview": "문서 미리보기 제한",
         "maxDocumentPreviewDesc": "미리보기로 처리할 PDF 또는 Office 파일의 최대 크기({{min}}~{{max}} MiB).",
-        "largeUploadWarning": "큰 업로드 제한은 디스크, 네트워크 및 처리량을 늘립니다. Server에 충분한 리소스가 있을 때만 높이세요."
+        "largeUploadWarning": "큰 업로드 제한은 디스크, 네트워크 및 처리량을 늘립니다. Server에 충분한 리소스가 있을 때만 높이세요.",
+        "maxArtifactImport": "Artifact 가져오기 제한",
+        "maxArtifactImportDesc": "Artifacts로 가져오는 HTML, Markdown 또는 분석 JSON 소스의 최대 크기({{min}}~{{max}} MiB)."
       },
       "knowledgeSourceLimits": {
         "title": "지식 소스 제한",
@@ -4995,7 +4999,9 @@
         "maxTextEditDesc": "可編輯的 UTF-8 文字檔最大大小（{{min}}–{{max}} MiB）。",
         "maxDocumentPreview": "文件預覽限制",
         "maxDocumentPreviewDesc": "處理預覽的 PDF 或 Office 檔案最大大小（{{min}}–{{max}} MiB）。",
-        "largeUploadWarning": "較大的上傳限制會增加磁碟、網路與處理資源用量。僅在 Server 資源充足時提高。"
+        "largeUploadWarning": "較大的上傳限制會增加磁碟、網路與處理資源用量。僅在 Server 資源充足時提高。",
+        "maxArtifactImport": "Artifact 匯入限制",
+        "maxArtifactImportDesc": "匯入 Artifacts 的 HTML、Markdown 或分析 JSON 來源大小上限（{{min}}–{{max}} MiB）。"
       },
       "knowledgeSourceLimits": {
         "title": "知識來源限制",
@@ -7047,7 +7053,9 @@
         "maxTextEditDesc": "Düzenlenebilen UTF-8 metin dosyasının en büyük boyutu ({{min}}–{{max}} MiB).",
         "maxDocumentPreview": "Belge önizleme sınırı",
         "maxDocumentPreviewDesc": "Önizleme için işlenen PDF veya Office dosyasının en büyük boyutu ({{min}}–{{max}} MiB).",
-        "largeUploadWarning": "Büyük yükleme sınırları disk, ağ ve işlem kullanımını artırır. Yalnızca Server yeterli kaynağa sahipse yükseltin."
+        "largeUploadWarning": "Büyük yükleme sınırları disk, ağ ve işlem kullanımını artırır. Yalnızca Server yeterli kaynağa sahipse yükseltin.",
+        "maxArtifactImport": "Artifact içe aktarma sınırı",
+        "maxArtifactImportDesc": "Artifacts içine aktarılan HTML, Markdown veya analiz JSON kaynağının en büyük boyutu ({{min}}–{{max}} MiB)."
       },
       "knowledgeSourceLimits": {
         "title": "Bilgi kaynağı sınırları",
@@ -9116,7 +9124,9 @@
         "maxTextEditDesc": "Kích thước tệp văn bản UTF-8 tối đa có thể chỉnh sửa ({{min}}–{{max}} MiB).",
         "maxDocumentPreview": "Giới hạn xem trước tài liệu",
         "maxDocumentPreviewDesc": "Kích thước tệp PDF hoặc Office tối đa được xử lý để xem trước ({{min}}–{{max}} MiB).",
-        "largeUploadWarning": "Giới hạn tải lên lớn làm tăng mức dùng đĩa, mạng và xử lý. Chỉ tăng khi Server có đủ tài nguyên."
+        "largeUploadWarning": "Giới hạn tải lên lớn làm tăng mức dùng đĩa, mạng và xử lý. Chỉ tăng khi Server có đủ tài nguyên.",
+        "maxArtifactImport": "Giới hạn nhập Artifact",
+        "maxArtifactImportDesc": "Kích thước tối đa của nguồn HTML, Markdown hoặc JSON phân tích được nhập vào Artifacts ({{min}}–{{max}} MiB)."
       },
       "knowledgeSourceLimits": {
         "title": "Giới hạn nguồn tri thức",
@@ -11185,7 +11195,9 @@
         "maxTextEditDesc": "Tamanho máximo do arquivo de texto UTF-8 que pode ser editado ({{min}}–{{max}} MiB).",
         "maxDocumentPreview": "Limite de visualização de documentos",
         "maxDocumentPreviewDesc": "Tamanho máximo de PDF ou Office processado para visualização ({{min}}–{{max}} MiB).",
-        "largeUploadWarning": "Limites altos aumentam o uso de disco, rede e processamento. Aumente apenas se o Server tiver recursos suficientes."
+        "largeUploadWarning": "Limites altos aumentam o uso de disco, rede e processamento. Aumente apenas se o Server tiver recursos suficientes.",
+        "maxArtifactImport": "Limite de importação de Artifact",
+        "maxArtifactImportDesc": "Tamanho máximo da fonte HTML, Markdown ou JSON de análise importada para Artifacts ({{min}}–{{max}} MiB)."
       },
       "knowledgeSourceLimits": {
         "title": "Limites de fontes de conhecimento",
@@ -13254,7 +13266,9 @@
         "maxTextEditDesc": "Максимальный размер редактируемого UTF-8 файла ({{min}}–{{max}} МиБ).",
         "maxDocumentPreview": "Лимит предпросмотра документов",
         "maxDocumentPreviewDesc": "Максимальный размер PDF или Office для предпросмотра ({{min}}–{{max}} МиБ).",
-        "largeUploadWarning": "Большие лимиты повышают нагрузку на диск, сеть и обработку. Увеличивайте их только при достаточных ресурсах Server."
+        "largeUploadWarning": "Большие лимиты повышают нагрузку на диск, сеть и обработку. Увеличивайте их только при достаточных ресурсах Server.",
+        "maxArtifactImport": "Лимит импорта Artifact",
+        "maxArtifactImportDesc": "Максимальный размер источника HTML, Markdown или аналитического JSON, импортируемого в Artifacts ({{min}}–{{max}} МиБ)."
       },
       "knowledgeSourceLimits": {
         "title": "Лимиты источников знаний",
@@ -15323,7 +15337,9 @@
         "maxTextEditDesc": "الحجم الأقصى لملف نص UTF-8 القابل للتحرير ({{min}}–{{max}} MiB).",
         "maxDocumentPreview": "حد معاينة المستند",
         "maxDocumentPreviewDesc": "الحجم الأقصى لملف PDF أو Office الذي تتم معالجته للمعاينة ({{min}}–{{max}} MiB).",
-        "largeUploadWarning": "تزيد حدود الرفع الكبيرة استخدام القرص والشبكة والمعالجة. ارفعها فقط عندما تتوفر لدى Server موارد كافية."
+        "largeUploadWarning": "تزيد حدود الرفع الكبيرة استخدام القرص والشبكة والمعالجة. ارفعها فقط عندما تتوفر لدى Server موارد كافية.",
+        "maxArtifactImport": "حد استيراد Artifact",
+        "maxArtifactImportDesc": "الحجم الأقصى لمصدر HTML أو Markdown أو JSON تحليلي يتم استيراده إلى Artifacts ({{min}}–{{max}} MiB)."
       },
       "knowledgeSourceLimits": {
         "title": "حدود مصادر المعرفة",
@@ -17392,7 +17408,9 @@
         "maxTextEditDesc": "Tamaño máximo del archivo de texto UTF-8 que puede editarse ({{min}}–{{max}} MiB).",
         "maxDocumentPreview": "Límite de vista previa de documentos",
         "maxDocumentPreviewDesc": "Tamaño máximo de PDF u Office procesado para vista previa ({{min}}–{{max}} MiB).",
-        "largeUploadWarning": "Los límites altos aumentan el uso de disco, red y procesamiento. Súbelos solo si el Server tiene recursos suficientes."
+        "largeUploadWarning": "Los límites altos aumentan el uso de disco, red y procesamiento. Súbelos solo si el Server tiene recursos suficientes.",
+        "maxArtifactImport": "Límite de importación de Artifact",
+        "maxArtifactImportDesc": "Tamaño máximo de la fuente HTML, Markdown o JSON de análisis importada en Artifacts ({{min}}–{{max}} MiB)."
       },
       "knowledgeSourceLimits": {
         "title": "Límites de fuentes de conocimiento",
@@ -19461,7 +19479,9 @@
         "maxTextEditDesc": "Saiz maksimum fail teks UTF-8 yang boleh disunting ({{min}}–{{max}} MiB).",
         "maxDocumentPreview": "Had pratonton dokumen",
         "maxDocumentPreviewDesc": "Saiz maksimum fail PDF atau Office yang diproses untuk pratonton ({{min}}–{{max}} MiB).",
-        "largeUploadWarning": "Had muat naik yang besar meningkatkan penggunaan cakera, rangkaian dan pemprosesan. Naikkan hanya jika Server mempunyai sumber mencukupi."
+        "largeUploadWarning": "Had muat naik yang besar meningkatkan penggunaan cakera, rangkaian dan pemprosesan. Naikkan hanya jika Server mempunyai sumber mencukupi.",
+        "maxArtifactImport": "Had import Artifact",
+        "maxArtifactImportDesc": "Saiz maksimum sumber HTML, Markdown atau JSON analisis yang diimport ke Artifacts ({{min}}–{{max}} MiB)."
       },
       "knowledgeSourceLimits": {
         "title": "Had sumber pengetahuan",
@@ -20849,7 +20869,9 @@
         "maxTextEditDesc": "允许编辑的 UTF-8 文本文件最大大小（{{min}}–{{max}} MiB）。",
         "maxDocumentPreview": "文档预览限制",
         "maxDocumentPreviewDesc": "处理用于预览的 PDF 或 Office 文件最大大小（{{min}}–{{max}} MiB）。",
-        "largeUploadWarning": "较大的上传限制会增加磁盘、网络和处理资源占用。仅在 Server 资源充足时调高。"
+        "largeUploadWarning": "较大的上传限制会增加磁盘、网络和处理资源占用。仅在 Server 资源充足时调高。",
+        "maxArtifactImport": "Artifact 导入限制",
+        "maxArtifactImportDesc": "导入 Artifacts 的 HTML、Markdown 或分析 JSON 来源最大大小（{{min}}–{{max}} MiB）。"
       },
       "knowledgeSourceLimits": {
         "title": "知识来源限制",

@@ -44,6 +44,8 @@ export function fileTargetName(target: FileTarget): string {
       return target.item.name
     case "knowledgeNote":
       return target.path.split("/").pop() || target.path
+    case "artifact":
+      return target.name
   }
 }
 
@@ -58,6 +60,8 @@ export function fileTargetKind(target: FileTarget) {
       return fileKindOf(target.item.name, target.item.mimeType)
     case "knowledgeNote":
       return fileKindOf(target.path, "text/markdown")
+    case "artifact":
+      return fileKindOf(target.name, "text/html")
   }
 }
 
@@ -133,6 +137,11 @@ export function resolveFileCapabilities(
     result.edit = ENABLED
     result.saveAs = ENABLED
     result.reveal = runtime.canReveal ? ENABLED : disabled("reveal_unavailable")
+  }
+
+  if (target.kind === "artifact") {
+    result.preview = ENABLED
+    result.edit = disabled("not_supported")
   }
 
   return result

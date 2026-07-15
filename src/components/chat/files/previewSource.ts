@@ -40,6 +40,8 @@ export interface PreviewSource {
   /** Path/identifier shown under the title and embedded in quote payloads. */
   displayPath?: string
   sizeBytes?: number
+  /** Opt into a renderer that intentionally executes a managed, sandboxed HTML projection. */
+  presentation?: "managed_html"
   /** Read text content (binary/oversized → `isBinary: true`). */
   readText: () => Promise<FileTextContent>
   /** Extract a PDF / Office document (text + images). */
@@ -102,6 +104,28 @@ export function workspacePreviewSource(
         path: target.relPath,
       }),
     rawUrl: (download) => transport.projectFsRawUrl({ ...args, path: target.relPath, download }),
+  }
+}
+
+/** Adapter: a managed Canvas/Artifact HTML projection identified by opaque id. */
+export function artifactPreviewSource(
+  target: Extract<FileTarget, { kind: "artifact" }>,
+  transport: Transport = getTransport(),
+): PreviewSource {
+  return {
+    name: target.name,
+    mime: "text/html",
+    displayPath: target.name,
+    presentation: "managed_html",
+    async readText() {
+      throw new Error("Artifact previews use the managed HTML viewer")
+    },
+    async extractDoc() {
+      throw new Error("Artifact previews are not document extraction sources")
+    },
+    async rawUrl() {
+      return transport.artifactPreviewUrl(target.artifactId, target.projectPath)
+    },
   }
 }
 

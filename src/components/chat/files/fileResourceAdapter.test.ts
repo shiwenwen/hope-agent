@@ -55,3 +55,33 @@ describe("workspace file resource adapter", () => {
     expect(operations.saveAs).toHaveBeenCalledWith("copy.md", "copy")
   })
 })
+
+describe("Artifact file resource adapter", () => {
+  it("routes open and formatted downloads through the transport abstraction", async () => {
+    const artifact: Extract<FileTarget, { kind: "artifact" }> = {
+      kind: "artifact",
+      artifactId: "artifact-a",
+      name: "Report.html",
+      projectPath: "/managed/artifact-a",
+    }
+    const transport = {
+      openArtifact: vi.fn(async () => undefined),
+      revealArtifact: vi.fn(async () => undefined),
+      downloadArtifact: vi.fn(async () => ({
+        filename: "report.pdf",
+        receipt: { status: "ready" },
+      })),
+    } as unknown as Transport
+    const adapter = fileResourceAdapterFor(artifact)
+
+    await expect(adapter.run(artifact, "open", { transport })).resolves.toBe(true)
+    await expect(adapter.run(artifact, "reveal", { transport })).resolves.toBe(true)
+    await expect(
+      adapter.run(artifact, "download", { transport }, { artifactFormat: "pdf" }),
+    ).resolves.toBe(true)
+
+    expect(transport.openArtifact).toHaveBeenCalledWith("artifact-a", "/managed/artifact-a")
+    expect(transport.revealArtifact).toHaveBeenCalledWith("artifact-a", "/managed/artifact-a")
+    expect(transport.downloadArtifact).toHaveBeenCalledWith("artifact-a", "pdf")
+  })
+})

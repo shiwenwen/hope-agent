@@ -1,4 +1,5 @@
 import type { MediaItem } from "@/types/chat"
+import type { ArtifactExportFormat } from "@/lib/transport"
 
 export interface DraftAttachment {
   id: string
@@ -61,6 +62,12 @@ export type FileTarget =
     }
   | { kind: "media"; item: MediaItem }
   | { kind: "knowledgeNote"; kbId: string; path: string; contentHash?: string }
+  | {
+      kind: "artifact"
+      artifactId: string
+      name: string
+      projectPath?: string | null
+    }
 
 export type FileAction =
   | "preview"
@@ -106,6 +113,7 @@ export interface FileActionInput {
   recursive?: boolean
   path?: string
   content?: string
+  artifactFormat?: ArtifactExportFormat
 }
 
 export type FileActionRunResult = "executed" | "guided" | "disabled" | "failed"

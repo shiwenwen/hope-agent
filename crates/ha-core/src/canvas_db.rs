@@ -66,44 +66,48 @@ pub struct CanvasDB {
     conn: Mutex<Connection>,
 }
 
+pub(crate) fn ensure_schema(conn: &Connection) -> Result<()> {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS canvas_projects (
+            id TEXT PRIMARY KEY,
+            title TEXT NOT NULL,
+            content_type TEXT NOT NULL DEFAULT 'html',
+            session_id TEXT,
+            agent_id TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            version_count INTEGER DEFAULT 1,
+            metadata TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS canvas_versions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            project_id TEXT NOT NULL REFERENCES canvas_projects(id) ON DELETE CASCADE,
+            version_number INTEGER NOT NULL,
+            message TEXT,
+            html TEXT,
+            css TEXT,
+            js TEXT,
+            content TEXT,
+            created_at TEXT NOT NULL,
+            UNIQUE(project_id, version_number)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_canvas_versions_project
+            ON canvas_versions(project_id, version_number DESC);
+
+        CREATE INDEX IF NOT EXISTS idx_canvas_projects_session
+            ON canvas_projects(session_id, updated_at DESC);",
+    )?;
+    Ok(())
+}
+
 impl CanvasDB {
     pub fn open(path: &Path) -> Result<Self> {
         let conn = Connection::open(path)?;
         conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;")?;
         conn.busy_timeout(std::time::Duration::from_secs(5))?;
-
-        conn.execute_batch(
-            "CREATE TABLE IF NOT EXISTS canvas_projects (
-                id TEXT PRIMARY KEY,
-                title TEXT NOT NULL,
-                content_type TEXT NOT NULL DEFAULT 'html',
-                session_id TEXT,
-                agent_id TEXT,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
-                version_count INTEGER DEFAULT 1,
-                metadata TEXT
-            );
-
-            CREATE TABLE IF NOT EXISTS canvas_versions (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                project_id TEXT NOT NULL REFERENCES canvas_projects(id) ON DELETE CASCADE,
-                version_number INTEGER NOT NULL,
-                message TEXT,
-                html TEXT,
-                css TEXT,
-                js TEXT,
-                content TEXT,
-                created_at TEXT NOT NULL,
-                UNIQUE(project_id, version_number)
-            );
-
-            CREATE INDEX IF NOT EXISTS idx_canvas_versions_project
-                ON canvas_versions(project_id, version_number DESC);
-
-            CREATE INDEX IF NOT EXISTS idx_canvas_projects_session
-                ON canvas_projects(session_id, updated_at DESC);",
-        )?;
+        ensure_schema(&conn)?;
 
         Ok(Self {
             conn: Mutex::new(conn),

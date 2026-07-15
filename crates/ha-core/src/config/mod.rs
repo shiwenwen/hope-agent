@@ -997,6 +997,9 @@ pub const MAX_MAX_TEXT_EDIT_MB: u32 = 20;
 pub const DEFAULT_MAX_DOCUMENT_PREVIEW_MB: u32 = 50;
 pub const MIN_MAX_DOCUMENT_PREVIEW_MB: u32 = 5;
 pub const MAX_MAX_DOCUMENT_PREVIEW_MB: u32 = 100;
+pub const DEFAULT_MAX_ARTIFACT_IMPORT_MB: u32 = 25;
+pub const MIN_MAX_ARTIFACT_IMPORT_MB: u32 = 1;
+pub const MAX_MAX_ARTIFACT_IMPORT_MB: u32 = 100;
 
 fn default_max_chat_attachment_mb() -> u32 {
     DEFAULT_MAX_CHAT_ATTACHMENT_MB
@@ -1016,6 +1019,10 @@ fn default_max_text_edit_mb() -> u32 {
 
 fn default_max_document_preview_mb() -> u32 {
     DEFAULT_MAX_DOCUMENT_PREVIEW_MB
+}
+
+fn default_max_artifact_import_mb() -> u32 {
+    DEFAULT_MAX_ARTIFACT_IMPORT_MB
 }
 
 /// Filesystem / file-browser policy.
@@ -1045,6 +1052,9 @@ pub struct FilesystemConfig {
     /// Maximum size accepted by PDF/Office extraction previews, in MiB.
     #[serde(default = "default_max_document_preview_mb")]
     pub max_document_preview_mb: u32,
+    /// Maximum size of one HTML/Markdown/Analysis JSON source imported into Artifacts, in MiB.
+    #[serde(default = "default_max_artifact_import_mb")]
+    pub max_artifact_import_mb: u32,
 }
 
 /// Partial filesystem update used by UI panels that own disjoint risk domains.
@@ -1063,6 +1073,8 @@ pub struct FilesystemConfigPatch {
     pub max_text_edit_mb: Option<u32>,
     #[serde(default)]
     pub max_document_preview_mb: Option<u32>,
+    #[serde(default)]
+    pub max_artifact_import_mb: Option<u32>,
 }
 
 impl Default for FilesystemConfig {
@@ -1074,6 +1086,7 @@ impl Default for FilesystemConfig {
             max_text_preview_mb: DEFAULT_MAX_TEXT_PREVIEW_MB,
             max_text_edit_mb: DEFAULT_MAX_TEXT_EDIT_MB,
             max_document_preview_mb: DEFAULT_MAX_DOCUMENT_PREVIEW_MB,
+            max_artifact_import_mb: DEFAULT_MAX_ARTIFACT_IMPORT_MB,
         }
     }
 }
@@ -1098,6 +1111,9 @@ impl FilesystemConfig {
         if let Some(value) = patch.max_document_preview_mb {
             self.max_document_preview_mb = value;
         }
+        if let Some(value) = patch.max_artifact_import_mb {
+            self.max_artifact_import_mb = value;
+        }
         *self = self.clone().clamped();
     }
 
@@ -1118,6 +1134,9 @@ impl FilesystemConfig {
         self.max_document_preview_mb = self
             .max_document_preview_mb
             .clamp(MIN_MAX_DOCUMENT_PREVIEW_MB, MAX_MAX_DOCUMENT_PREVIEW_MB);
+        self.max_artifact_import_mb = self
+            .max_artifact_import_mb
+            .clamp(MIN_MAX_ARTIFACT_IMPORT_MB, MAX_MAX_ARTIFACT_IMPORT_MB);
         self
     }
 
@@ -1165,6 +1184,15 @@ impl FilesystemConfig {
 
     pub fn max_document_preview_bytes(&self) -> u64 {
         self.max_document_preview_mb() as u64 * 1024 * 1024
+    }
+
+    pub fn max_artifact_import_mb(&self) -> u32 {
+        self.max_artifact_import_mb
+            .clamp(MIN_MAX_ARTIFACT_IMPORT_MB, MAX_MAX_ARTIFACT_IMPORT_MB)
+    }
+
+    pub fn max_artifact_import_bytes(&self) -> u64 {
+        self.max_artifact_import_mb() as u64 * 1024 * 1024
     }
 }
 
@@ -1948,6 +1976,10 @@ mod filesystem_config_defaults_tests {
             defaults.max_document_preview_mb,
             DEFAULT_MAX_DOCUMENT_PREVIEW_MB
         );
+        assert_eq!(
+            defaults.max_artifact_import_mb,
+            DEFAULT_MAX_ARTIFACT_IMPORT_MB
+        );
 
         let config: FilesystemConfig =
             serde_json::from_value(serde_json::json!({ "allowRemoteWrites": true })).unwrap();
@@ -1964,6 +1996,10 @@ mod filesystem_config_defaults_tests {
         assert_eq!(
             config.max_document_preview_mb,
             DEFAULT_MAX_DOCUMENT_PREVIEW_MB
+        );
+        assert_eq!(
+            config.max_artifact_import_mb,
+            DEFAULT_MAX_ARTIFACT_IMPORT_MB
         );
     }
 
@@ -1992,6 +2028,7 @@ mod filesystem_config_defaults_tests {
             max_text_preview_mb: 2,
             max_text_edit_mb: 20,
             max_document_preview_mb: 1,
+            max_artifact_import_mb: 999,
             ..FilesystemConfig::default()
         }
         .clamped();
@@ -1999,6 +2036,7 @@ mod filesystem_config_defaults_tests {
         assert_eq!(config.max_text_preview_mb, 2);
         assert_eq!(config.max_text_edit_mb, 2);
         assert_eq!(config.max_document_preview_mb, MIN_MAX_DOCUMENT_PREVIEW_MB);
+        assert_eq!(config.max_artifact_import_mb, MAX_MAX_ARTIFACT_IMPORT_MB);
     }
 
     #[test]
@@ -2019,6 +2057,10 @@ mod filesystem_config_defaults_tests {
         assert_eq!(config.max_workspace_upload_mb, 32);
         assert_eq!(config.max_text_preview_mb, 3);
         assert_eq!(config.max_text_edit_mb, 3);
+        assert_eq!(
+            config.max_artifact_import_mb,
+            DEFAULT_MAX_ARTIFACT_IMPORT_MB
+        );
     }
 }
 

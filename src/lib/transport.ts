@@ -49,7 +49,11 @@ export interface AttachmentUploadLease {
   sizeBytes: number;
 }
 
-export type FileUploadPurpose = "chat_attachment" | "workspace_upload" | "knowledge_source";
+export type FileUploadPurpose =
+  | "chat_attachment"
+  | "workspace_upload"
+  | "knowledge_source"
+  | "artifact_source";
 export type FileUploadState = "uploading" | "complete";
 
 export interface FileUploadLease {
@@ -388,10 +392,21 @@ export interface Transport {
   getArtifact(id: string): Promise<ArtifactRecord>;
   listArtifactVersions(id: string): Promise<ArtifactVersionSummary[]>;
   importArtifact(request: ArtifactImportRequest): Promise<ArtifactRecord>;
+  /** Resolve the managed Artifact HTML preview without exposing HTTP clients to raw paths. */
+  artifactPreviewUrl(id: string, projectPath?: string | null): string | null;
+  /** Open the managed Artifact using the runtime-appropriate system/browser handler. */
+  openArtifact(id: string, projectPath?: string | null): Promise<void>;
+  /** Reveal the managed Artifact on runtimes that expose a local file manager. */
+  revealArtifact(id: string, projectPath?: string | null): Promise<void>;
   restoreArtifact(id: string, version: number): Promise<ArtifactRecord>;
   verifyArtifact(id: string): Promise<ArtifactVerification>;
   reviewArtifactExport(id: string, audience: string): Promise<DomainArtifactExportGuardReport>;
   exportArtifact(
+    id: string,
+    format: ArtifactExportFormat,
+  ): Promise<ArtifactExportResult | null>;
+  /** Complete an Artifact export and perform its user-facing save/download action. */
+  downloadArtifact(
     id: string,
     format: ArtifactExportFormat,
   ): Promise<ArtifactExportResult | null>;
@@ -619,7 +634,10 @@ export interface ArtifactListOptions {
 }
 
 export interface ArtifactImportRequest {
-  filePath: string;
+  /** Path on the active runtime host (local desktop or remote Server). */
+  filePath?: string;
+  /** Opaque completed `artifact_source` lease for a client-local file. */
+  uploadId?: string;
   artifactId?: string;
   expectedVersion?: number;
   title?: string;

@@ -63,6 +63,12 @@ function targets(): FileTarget[] {
       },
     },
     { kind: "knowledgeNote", kbId: "kb-a", path: "notes/idea.md" },
+    {
+      kind: "artifact",
+      artifactId: "artifact-a",
+      name: "Quarterly report.html",
+      projectPath: "/tmp/artifact-a",
+    },
   ]
 }
 
@@ -71,7 +77,7 @@ describe("resolveFileCapabilities", () => {
     ["local desktop", LOCAL_DESKTOP],
     ["remote desktop", REMOTE_DESKTOP],
     ["web", WEB],
-  ] as const)("keeps all five targets previewable in %s", (_label, runtime) => {
+  ] as const)("keeps all six targets previewable in %s", (_label, runtime) => {
     for (const target of targets()) {
       const capabilities = resolveFileCapabilities(target, runtime, ACCESS.enabled)
       expect(capabilities.preview.state, target.kind).toBe("enabled")

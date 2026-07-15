@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen } from "@testing-library/react"
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { afterEach, describe, expect, test, vi } from "vitest"
 
 import { TooltipProvider } from "@/components/ui/tooltip"
@@ -51,5 +51,32 @@ describe("FilePreviewPane", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "fileActions.open" }))
     expect(onOpen).toHaveBeenCalledTimes(1)
+  })
+
+  test("renders managed Artifact HTML from its raw URL without reading it as code", async () => {
+    const readText = vi.fn()
+    const rawUrl = vi.fn(async () => "https://server.test/api/canvas/projects/a/index.html")
+    const source = {
+      name: "Report.html",
+      mime: "text/html",
+      presentation: "managed_html" as const,
+      readText,
+      extractDoc: vi.fn(),
+      rawUrl,
+    } satisfies PreviewSource
+
+    render(
+      <TooltipProvider>
+        <FilePreviewPane source={source} />
+      </TooltipProvider>,
+    )
+
+    await waitFor(() => expect(rawUrl).toHaveBeenCalledWith(false))
+    const frame = screen.getByTitle("Report.html")
+    expect(frame.getAttribute("src")).toBe(
+      "https://server.test/api/canvas/projects/a/index.html",
+    )
+    expect(frame.getAttribute("sandbox")).toBe("allow-scripts")
+    expect(readText).not.toHaveBeenCalled()
   })
 })

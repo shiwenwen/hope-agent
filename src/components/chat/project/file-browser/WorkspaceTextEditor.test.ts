@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest"
 
 import type { FileTextContent } from "@/lib/transport"
-import { dominantLineEnding, editorText, serializeText } from "./WorkspaceTextEditor"
+import { dominantLineEnding, editorText, serializeText } from "./workspaceTextFormat"
 
 function content(
   value: string,

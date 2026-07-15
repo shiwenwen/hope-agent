@@ -17,6 +17,9 @@ export const MAX_MAX_TEXT_EDIT_MB = 20
 export const DEFAULT_MAX_DOCUMENT_PREVIEW_MB = 50
 export const MIN_MAX_DOCUMENT_PREVIEW_MB = 5
 export const MAX_MAX_DOCUMENT_PREVIEW_MB = 100
+export const DEFAULT_MAX_ARTIFACT_IMPORT_MB = 25
+export const MIN_MAX_ARTIFACT_IMPORT_MB = 1
+export const MAX_MAX_ARTIFACT_IMPORT_MB = 100
 export const MEBIBYTE_BYTES = 1024 * 1024
 
 export interface FilesystemConfig {
@@ -26,6 +29,7 @@ export interface FilesystemConfig {
   maxTextPreviewMb: number
   maxTextEditMb: number
   maxDocumentPreviewMb: number
+  maxArtifactImportMb: number
 }
 
 export const DEFAULT_FILESYSTEM_CONFIG: FilesystemConfig = {
@@ -35,6 +39,7 @@ export const DEFAULT_FILESYSTEM_CONFIG: FilesystemConfig = {
   maxTextPreviewMb: DEFAULT_MAX_TEXT_PREVIEW_MB,
   maxTextEditMb: DEFAULT_MAX_TEXT_EDIT_MB,
   maxDocumentPreviewMb: DEFAULT_MAX_DOCUMENT_PREVIEW_MB,
+  maxArtifactImportMb: DEFAULT_MAX_ARTIFACT_IMPORT_MB,
 }
 
 function normalizedLimit(value: unknown, fallback: number, min: number, max: number): number {
@@ -81,6 +86,12 @@ export function normalizeFilesystemConfig(
       DEFAULT_MAX_DOCUMENT_PREVIEW_MB,
       MIN_MAX_DOCUMENT_PREVIEW_MB,
       MAX_MAX_DOCUMENT_PREVIEW_MB,
+    ),
+    maxArtifactImportMb: normalizedLimit(
+      value?.maxArtifactImportMb,
+      DEFAULT_MAX_ARTIFACT_IMPORT_MB,
+      MIN_MAX_ARTIFACT_IMPORT_MB,
+      MAX_MAX_ARTIFACT_IMPORT_MB,
     ),
   }
 }

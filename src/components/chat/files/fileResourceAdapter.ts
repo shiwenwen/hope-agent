@@ -1,6 +1,7 @@
 import type { Transport, WorkspaceAccess } from "@/lib/transport"
 import type { PreviewSource } from "./previewSource"
 import {
+  artifactPreviewSource,
   mediaPreviewSource,
   pathPreviewSource,
   stagedFilePreviewSource,
@@ -256,12 +257,33 @@ const knowledgeNoteAdapter: FileResourceAdapter<TargetOf<"knowledgeNote">> = {
   },
 }
 
+const artifactAdapter: FileResourceAdapter<TargetOf<"artifact">> = {
+  capabilities: commonCapabilities,
+  previewSource: (target, context) => artifactPreviewSource(target, context.transport),
+  async run(target, action, context, input) {
+    if (action === "preview") context.onPreview?.(target)
+    else if (action === "open") {
+      await context.transport.openArtifact(target.artifactId, target.projectPath)
+    } else if (action === "download") {
+      const result = await context.transport.downloadArtifact(
+        target.artifactId,
+        input?.artifactFormat ?? "html",
+      )
+      return result !== null
+    } else if (action === "reveal") {
+      await context.transport.revealArtifact(target.artifactId, target.projectPath)
+    } else return false
+    return true
+  },
+}
+
 export const fileResourceAdapters = {
   clientDraft: clientDraftAdapter,
   workspace: workspaceAdapter,
   sessionPath: sessionPathAdapter,
   media: mediaAdapter,
   knowledgeNote: knowledgeNoteAdapter,
+  artifact: artifactAdapter,
 }
 
 export function fileResourceAdapterFor<T extends FileTarget>(target: T): FileResourceAdapter<T> {

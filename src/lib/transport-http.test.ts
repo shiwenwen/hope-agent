@@ -14,6 +14,14 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
+test("HttpTransport builds Artifact previews from opaque ids", () => {
+  const transport = new HttpTransport("http://localhost:8420", "secret token")
+
+  expect(transport.artifactPreviewUrl("artifact/report 1", "/srv/private/artifact")).toBe(
+    "http://localhost:8420/api/canvas/projects/artifact%2Freport%201/index.html?token=secret%20token",
+  )
+})
+
 test("HttpTransport requests durable-state resync on connect and EventBus lag", () => {
   class MockWebSocket {
     static instances: MockWebSocket[] = []

@@ -359,6 +359,22 @@ export class TauriTransport implements Transport {
     return invoke<ArtifactRecord>("import_artifact", { request });
   }
 
+  artifactPreviewUrl(_id: string, projectPath?: string | null): string | null {
+    return projectPath ? this.resolveAssetUrl(`${projectPath}/index.html`) : null;
+  }
+
+  async openArtifact(id: string, projectPath?: string | null): Promise<void> {
+    const path = projectPath ?? (await this.getArtifact(id)).projectPath;
+    if (!path) return;
+    await this.openFilePath(`${path}/index.html`);
+  }
+
+  async revealArtifact(id: string, projectPath?: string | null): Promise<void> {
+    const path = projectPath ?? (await this.getArtifact(id)).projectPath;
+    if (!path) return;
+    await invoke("reveal_in_folder", { path: `${path}/index.html` });
+  }
+
   async restoreArtifact(id: string, version: number): Promise<ArtifactRecord> {
     return invoke<ArtifactRecord>("restore_artifact", { id, version });
   }
@@ -400,6 +416,17 @@ export class TauriTransport implements Transport {
       savedPath: receipt.status === "ready" ? savedPath : undefined,
       receipt,
     };
+  }
+
+  async downloadArtifact(
+    id: string,
+    format: ArtifactExportFormat,
+  ): Promise<ArtifactExportResult | null> {
+    const result = await this.exportArtifact(id, format);
+    if (result && result.receipt.status !== "ready") {
+      throw new Error(result.receipt.error ?? "Artifact export is not ready");
+    }
+    return result;
   }
 
   async archiveArtifact(id: string): Promise<void> {

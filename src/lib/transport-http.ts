@@ -2061,6 +2061,12 @@ export class HttpTransport implements Transport {
     document.body.removeChild(a)
   }
 
+  private clickBlob(blob: Blob, filename: string): void {
+    const href = URL.createObjectURL(blob)
+    this.clickHref(href, filename)
+    window.setTimeout(() => URL.revokeObjectURL(href), 0)
+  }
+
   async projectFsRawUrl(
     args: ProjectFsScope & { path: string; download?: boolean },
   ): Promise<string | null> {
@@ -2445,6 +2451,25 @@ export class HttpTransport implements Transport {
     return this.call<ArtifactRecord>("import_artifact", { request })
   }
 
+  artifactPreviewUrl(id: string, projectPath?: string | null): string | null {
+    void projectPath
+    if (!id) return null
+    return this.appendToken(
+      `${this.baseUrl}/api/canvas/projects/${encodeURIComponent(id)}/index.html`,
+    )
+  }
+
+  async openArtifact(id: string): Promise<void> {
+    const href = this.artifactPreviewUrl(id)
+    if (href) this.clickHref(href)
+  }
+
+  async revealArtifact(id: string, projectPath?: string | null): Promise<void> {
+    void id
+    void projectPath
+    // Browser/remote runtimes never expose the Server's file manager.
+  }
+
   async restoreArtifact(id: string, version: number): Promise<ArtifactRecord> {
     return this.call<ArtifactRecord>("restore_artifact", { id, version })
   }
@@ -2498,6 +2523,19 @@ export class HttpTransport implements Transport {
     const disposition = response.headers.get("content-disposition") ?? ""
     const filename = parseDispositionFilename(disposition) ?? receipt.filename
     return { filename, blob: await response.blob(), receipt }
+  }
+
+  async downloadArtifact(
+    id: string,
+    format: ArtifactExportFormat,
+  ): Promise<ArtifactExportResult | null> {
+    const result = await this.exportArtifact(id, format)
+    if (!result) return null
+    if (result.receipt.status !== "ready") {
+      throw new Error(result.receipt.error ?? "Artifact export is not ready")
+    }
+    if (result.blob) this.clickBlob(result.blob, result.filename)
+    return result
   }
 
   async archiveArtifact(id: string): Promise<void> {

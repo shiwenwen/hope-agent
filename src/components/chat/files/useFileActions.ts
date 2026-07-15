@@ -70,18 +70,28 @@ export function useFileActions(
   const runtime = transport.fileRuntime()
   const isLocal = runtime.workspaceHost === "local"
   const canPreview = !!onPreviewFile
-  const [workspaceAccess, setWorkspaceAccess] = useState<WorkspaceAccess | undefined>()
+  const workspaceScope = target?.kind === "workspace" ? target.scope : undefined
+  const workspaceScopeId = target?.kind === "workspace" ? target.scopeId : undefined
+  const workspaceAccessKey =
+    workspaceScope && workspaceScopeId ? `${workspaceScope}:${workspaceScopeId}` : undefined
+  const [resolvedWorkspaceAccess, setResolvedWorkspaceAccess] = useState<
+    { key: string; access: WorkspaceAccess } | undefined
+  >()
 
   useEffect(() => {
-    if (target?.kind !== "workspace" || overrides?.workspaceAccess) {
+    if (
+      !workspaceAccessKey ||
+      !workspaceScope ||
+      !workspaceScopeId ||
+      overrides?.workspaceAccess
+    ) {
       return
     }
     let cancelled = false
-    setWorkspaceAccess(undefined)
     void transport
-      .getWorkspaceAccess({ scope: target.scope, scopeId: target.scopeId })
+      .getWorkspaceAccess({ scope: workspaceScope, scopeId: workspaceScopeId })
       .then((access) => {
-        if (!cancelled) setWorkspaceAccess(access)
+        if (!cancelled) setResolvedWorkspaceAccess({ key: workspaceAccessKey, access })
       })
       .catch((error) => {
         if (!cancelled) logFail("capabilities", error)
@@ -89,8 +99,18 @@ export function useFileActions(
     return () => {
       cancelled = true
     }
-  }, [target, transport, overrides?.workspaceAccess])
+  }, [
+    workspaceAccessKey,
+    workspaceScope,
+    workspaceScopeId,
+    transport,
+    overrides?.workspaceAccess,
+  ])
 
+  const workspaceAccess =
+    resolvedWorkspaceAccess && resolvedWorkspaceAccess.key === workspaceAccessKey
+      ? resolvedWorkspaceAccess.access
+      : undefined
   const effectiveWorkspaceAccess = overrides?.workspaceAccess ?? workspaceAccess
 
   const kind = useMemo<FileKind>(() => {
@@ -152,6 +172,8 @@ export function useFileActions(
       actions.push("edit", "open", ...(isLocal ? (["reveal"] as const) : (["download"] as const)))
     } else if (target.kind === "knowledgeNote") {
       actions.push("edit", "open", "download")
+    } else if (target.kind === "artifact") {
+      actions.push("open", "download", ...(isLocal ? (["reveal"] as const) : []))
     } else if (isLocal) {
       actions.push("open", "reveal")
     } else {

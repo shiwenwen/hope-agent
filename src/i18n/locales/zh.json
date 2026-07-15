@@ -3439,6 +3439,8 @@
       "maxTextEditDesc": "允许编辑的 UTF-8 文本文件最大大小（{{min}}–{{max}} MiB）。",
       "maxDocumentPreview": "文档预览限制",
       "maxDocumentPreviewDesc": "处理用于预览的 PDF 或 Office 文件最大大小（{{min}}–{{max}} MiB）。",
+      "maxArtifactImport": "Artifact 导入限制",
+      "maxArtifactImportDesc": "导入 Artifacts 的 HTML、Markdown 或分析 JSON 来源最大大小（{{min}}–{{max}} MiB）。",
       "largeUploadWarning": "较大的上传限制会增加磁盘、网络和处理资源占用。仅在 Server 资源充足时调高。"
     },
     "knowledgeSourceLimits": {

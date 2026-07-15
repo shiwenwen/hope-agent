@@ -32,6 +32,7 @@ pub enum FileUploadPurpose {
     ChatAttachment,
     WorkspaceUpload,
     KnowledgeSource,
+    ArtifactSource,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -71,6 +72,16 @@ pub struct FileUploadStartInput {
 struct LeaseMetadata {
     lease: FileUploadLease,
     created_at: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    claim_token: Option<String>,
+}
+
+/// Opaque reservation proving that one domain operation exclusively owns a
+/// completed upload until it either releases or consumes the lease.
+#[derive(Debug)]
+pub struct FileUploadClaim {
+    upload_id: String,
+    token: String,
 }
 
 fn pending_dir() -> Result<PathBuf> {
@@ -158,6 +169,7 @@ pub fn purpose_limit_bytes(purpose: FileUploadPurpose) -> u64 {
             .knowledge_source_limits
             .max_binary_source_bytes()
             .max(config.knowledge_source_limits.max_text_source_bytes()),
+        FileUploadPurpose::ArtifactSource => config.filesystem.max_artifact_import_bytes(),
     }
 }
 
@@ -171,6 +183,7 @@ pub fn ensure_purpose_size(purpose: FileUploadPurpose, size_bytes: u64) -> Resul
                 FileUploadPurpose::ChatAttachment => "chat attachments",
                 FileUploadPurpose::WorkspaceUpload => "workspace uploads",
                 FileUploadPurpose::KnowledgeSource => "knowledge sources",
+                FileUploadPurpose::ArtifactSource => "Artifact sources",
             }
         );
     }
@@ -242,6 +255,7 @@ pub fn start_upload(input: FileUploadStartInput) -> Result<FileUploadLease> {
     let metadata = LeaseMetadata {
         lease: lease.clone(),
         created_at: now.to_rfc3339(),
+        claim_token: None,
     };
     if let Err(error) = write_metadata(&metadata_path(&upload_id)?, &metadata) {
         let _ = std::fs::remove_file(part);
@@ -337,6 +351,9 @@ fn validate_completed_locked(
     {
         bail!("file upload is not complete");
     }
+    if metadata.claim_token.is_some() {
+        bail!("file upload is already claimed");
+    }
     ensure_purpose_size(purpose, metadata.lease.size_bytes)?;
     Ok((metadata, part_path(upload_id)?))
 }
@@ -403,7 +420,16 @@ pub fn copy_completed_upload_create_new(
     let lock = required_lease_lock(upload_id)?;
     let _guard = lock.lock().unwrap_or_else(|error| error.into_inner());
     let (metadata, source) = validate_completed_locked(upload_id, purpose)?;
-    let mut source_file = File::open(&source)
+    copy_completed_to_new_locked(&metadata, &source, destination)?;
+    Ok(metadata.lease)
+}
+
+fn copy_completed_to_new_locked(
+    metadata: &LeaseMetadata,
+    source: &Path,
+    destination: &Path,
+) -> Result<()> {
+    let mut source_file = File::open(source)
         .with_context(|| format!("open completed upload {}", source.display()))?;
     let mut destination_file = OpenOptions::new()
         .write(true)
@@ -435,7 +461,63 @@ pub fn copy_completed_upload_create_new(
         let _ = std::fs::remove_file(destination);
         return Err(error);
     }
-    Ok(metadata.lease)
+    Ok(())
+}
+
+/// Reserve and stage one completed upload for an exclusive domain claim.
+/// The persisted token closes the gap between staging and the domain commit:
+/// other readers/claimers fail until the owner releases or consumes it.
+pub fn claim_completed_upload_create_new(
+    upload_id: &str,
+    purpose: FileUploadPurpose,
+    destination: &Path,
+) -> Result<FileUploadClaim> {
+    let lock = required_lease_lock(upload_id)?;
+    let _guard = lock.lock().unwrap_or_else(|error| error.into_inner());
+    let (mut metadata, source) = validate_completed_locked(upload_id, purpose)?;
+    let token = uuid::Uuid::new_v4().to_string();
+    metadata.claim_token = Some(token.clone());
+    write_metadata(&metadata_path(upload_id)?, &metadata)?;
+    if let Err(copy_error) = copy_completed_to_new_locked(&metadata, &source, destination) {
+        metadata.claim_token = None;
+        if let Err(release_error) = write_metadata(&metadata_path(upload_id)?, &metadata) {
+            crate::app_warn!(
+                "file_upload",
+                "claim_release",
+                "failed to release upload claim after staging error: {}",
+                release_error
+            );
+        }
+        return Err(copy_error);
+    }
+    Ok(FileUploadClaim {
+        upload_id: upload_id.to_string(),
+        token,
+    })
+}
+
+/// Release a failed domain claim so the completed lease can be retried.
+pub fn release_upload_claim(claim: &FileUploadClaim) -> Result<()> {
+    let lock = required_lease_lock(&claim.upload_id)?;
+    let _guard = lock.lock().unwrap_or_else(|error| error.into_inner());
+    let mut metadata = read_metadata(&claim.upload_id)?;
+    if metadata.claim_token.as_deref() != Some(claim.token.as_str()) {
+        bail!("file upload claim token mismatch");
+    }
+    metadata.claim_token = None;
+    write_metadata(&metadata_path(&claim.upload_id)?, &metadata)
+}
+
+/// Consume a successful domain claim. Only the current reservation token may
+/// remove the lease, so a stale claimant cannot discard another retry.
+pub fn consume_upload_claim(claim: &FileUploadClaim) -> Result<()> {
+    let lock = required_lease_lock(&claim.upload_id)?;
+    let _guard = lock.lock().unwrap_or_else(|error| error.into_inner());
+    let metadata = read_metadata(&claim.upload_id)?;
+    if metadata.claim_token.as_deref() != Some(claim.token.as_str()) {
+        bail!("file upload claim token mismatch");
+    }
+    discard_locked(&claim.upload_id)
 }
 
 pub fn discard_upload(upload_id: &str) -> Result<()> {
@@ -443,6 +525,9 @@ pub fn discard_upload(upload_id: &str) -> Result<()> {
         return Ok(());
     };
     let _guard = lock.lock().unwrap_or_else(|error| error.into_inner());
+    if metadata_path(upload_id)?.exists() && read_metadata(upload_id)?.claim_token.is_some() {
+        bail!("file upload is already claimed");
+    }
     discard_locked(upload_id)
 }
 
@@ -543,6 +628,10 @@ mod tests {
         assert_eq!(
             serde_json::to_string(&FileUploadPurpose::ChatAttachment).unwrap(),
             "\"chat_attachment\""
+        );
+        assert_eq!(
+            serde_json::to_string(&FileUploadPurpose::ArtifactSource).unwrap(),
+            "\"artifact_source\""
         );
     }
 
@@ -659,6 +748,47 @@ mod tests {
                 .unwrap()
                 .file_type()
                 .is_symlink());
+        });
+    }
+
+    #[test]
+    fn exclusive_claim_blocks_replay_and_can_be_released_or_consumed() {
+        with_upload_root(|root| {
+            let lease = start_upload(FileUploadStartInput {
+                purpose: FileUploadPurpose::ArtifactSource,
+                file_name: "report.md".to_string(),
+                mime_type: "text/markdown".to_string(),
+                size_bytes: 6,
+            })
+            .expect("start");
+            upload_chunk(&lease.upload_id, 0, b"report").expect("chunk");
+            complete_upload(&lease.upload_id).expect("complete");
+
+            let first_path = root.join("first.md");
+            let first = claim_completed_upload_create_new(
+                &lease.upload_id,
+                FileUploadPurpose::ArtifactSource,
+                &first_path,
+            )
+            .expect("first claim");
+            let replay_error = claim_completed_upload_create_new(
+                &lease.upload_id,
+                FileUploadPurpose::ArtifactSource,
+                &root.join("replay.md"),
+            )
+            .expect_err("concurrent claim must fail");
+            assert!(replay_error.to_string().contains("already claimed"));
+            assert!(discard_upload(&lease.upload_id).is_err());
+
+            release_upload_claim(&first).expect("release failed domain claim");
+            let second = claim_completed_upload_create_new(
+                &lease.upload_id,
+                FileUploadPurpose::ArtifactSource,
+                &root.join("second.md"),
+            )
+            .expect("retry claim");
+            consume_upload_claim(&second).expect("consume successful claim");
+            assert!(upload_status(&lease.upload_id).is_err());
         });
     }
 

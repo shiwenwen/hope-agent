@@ -608,6 +608,7 @@ fn read_category(category: &str) -> Result<Value> {
             "maxTextPreviewMb": cfg.filesystem.max_text_preview_mb(),
             "maxTextEditMb": cfg.filesystem.max_text_edit_mb(),
             "maxDocumentPreviewMb": cfg.filesystem.max_document_preview_mb(),
+            "maxArtifactImportMb": cfg.filesystem.max_artifact_import_mb(),
         })),
         "knowledge_source_limits" => Ok(serde_json::to_value(
             cfg.knowledge_source_limits.clone().clamped(),

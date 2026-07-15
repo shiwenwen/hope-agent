@@ -346,7 +346,8 @@ export default function CanvasPanel({
     // the Detach button is hidden, but guard defensively anyway.
     if (!isTauriMode()) return
 
-    const url = getTransport().resolveAssetUrl(`${canvas.projectPath}/index.html`) ?? ""
+    const url =
+      getTransport().artifactPreviewUrl(canvas.projectId, canvas.projectPath) ?? ""
     if (!url) return
 
     try {
@@ -529,6 +530,7 @@ export default function CanvasPanel({
       <div className="min-h-0 min-w-0 flex-1 overflow-hidden bg-white dark:bg-surface-app">
         <ArtifactViewer
           ref={iframeRef}
+          artifactId={canvas.projectId}
           projectPath={canvas.projectPath}
           refreshKey={`${canvas.projectId}-${refreshKey}`}
           title={canvas.title}

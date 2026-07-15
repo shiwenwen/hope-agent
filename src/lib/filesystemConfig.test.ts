@@ -18,6 +18,7 @@ describe("filesystemConfig", () => {
       maxTextPreviewMb: 5,
       maxTextEditMb: 5,
       maxDocumentPreviewMb: 50,
+      maxArtifactImportMb: 25,
     })
     expect(maxChatAttachmentBytes(config)).toBe(20 * MEBIBYTE_BYTES)
   })
@@ -36,5 +37,11 @@ describe("filesystemConfig", () => {
     const config = normalizeFilesystemConfig({ maxTextPreviewMb: 2, maxTextEditMb: 20 })
     expect(config.maxTextPreviewMb).toBe(2)
     expect(config.maxTextEditMb).toBe(2)
+  })
+
+  it("defaults and clamps the Artifact import limit independently", () => {
+    expect(normalizeFilesystemConfig({}).maxArtifactImportMb).toBe(25)
+    expect(normalizeFilesystemConfig({ maxArtifactImportMb: 0 }).maxArtifactImportMb).toBe(1)
+    expect(normalizeFilesystemConfig({ maxArtifactImportMb: 999 }).maxArtifactImportMb).toBe(100)
   })
 })
