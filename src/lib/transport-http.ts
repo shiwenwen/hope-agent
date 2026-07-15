@@ -962,6 +962,7 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   dashboard_sessions: { method: "POST", path: "/api/dashboard/sessions" },
   dashboard_errors: { method: "POST", path: "/api/dashboard/errors" },
   dashboard_tasks: { method: "POST", path: "/api/dashboard/tasks" },
+  dashboard_control_plane: { method: "POST", path: "/api/dashboard/control-plane" },
   dashboard_system_metrics: { method: "GET", path: "/api/dashboard/system-metrics" },
   dashboard_session_list: { method: "POST", path: "/api/dashboard/session-list" },
   dashboard_message_list: { method: "POST", path: "/api/dashboard/message-list" },

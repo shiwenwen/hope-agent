@@ -116,6 +116,10 @@ pub struct Task {
     pub status: String,
     pub created_at: String,
     pub updated_at: String,
+    /// Exact timestamp for the current completed state. Cleared when the task
+    /// is reopened; legacy completed rows intentionally remain None.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub completed_at: Option<String>,
 }
 
 impl SessionDB {
@@ -154,6 +158,7 @@ impl SessionDB {
             status: TaskStatus::Pending.as_str().to_string(),
             created_at: now.clone(),
             updated_at: now,
+            completed_at: None,
         })
     }
 
@@ -174,12 +179,17 @@ impl SessionDB {
                 SET status = COALESCE(?1, status),
                     content = COALESCE(?2, content),
                     active_form = COALESCE(?3, active_form),
-                    updated_at = ?4
+                    updated_at = ?4,
+                    completed_at = CASE
+                        WHEN ?1 = 'completed' AND status != 'completed' THEN ?4
+                        WHEN ?1 IS NOT NULL AND ?1 != 'completed' THEN NULL
+                        ELSE completed_at
+                    END
                 WHERE id = ?5",
             params![status.map(|s| s.as_str()), content, active_form, now, id],
         )?;
         let mut stmt = conn.prepare(
-            "SELECT id, session_id, content, active_form, batch_id, status, created_at, updated_at
+            "SELECT id, session_id, content, active_form, batch_id, status, created_at, updated_at, completed_at
              FROM tasks WHERE id = ?1",
         )?;
         let mut rows = stmt.query_map(params![id], Self::row_to_task)?;
@@ -230,7 +240,7 @@ impl SessionDB {
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         let mut stmt = conn.prepare(
-            "SELECT id, session_id, content, active_form, batch_id, status, created_at, updated_at
+            "SELECT id, session_id, content, active_form, batch_id, status, created_at, updated_at, completed_at
              FROM tasks WHERE session_id = ?1 ORDER BY id ASC",
         )?;
         let rows = stmt.query_map(params![session_id], Self::row_to_task)?;
@@ -251,6 +261,7 @@ impl SessionDB {
             status: row.get(5)?,
             created_at: row.get(6)?,
             updated_at: row.get(7)?,
+            completed_at: row.get(8)?,
         })
     }
 }

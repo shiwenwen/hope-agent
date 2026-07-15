@@ -256,10 +256,18 @@ import {
 } from "./workspaceMemoryDiagnostics"
 import { workspaceSourceOpenErrorToast } from "./workspaceSourceFeedback"
 import { PANEL_SCROLL_FADE } from "../right-panel/panelFade"
+import { shouldConsumeWorkspaceFocus } from "./workspaceFocus"
 import {
   resolveWorkspaceEnvironmentStatus,
   workingDirSourceLabelKey,
 } from "./workspaceEnvironment"
+
+export interface WorkspaceFocusRequest {
+  sessionId: string
+  section: "goal" | "workflow" | "loop" | "progress"
+  itemId?: string
+  nonce: number
+}
 
 interface WorkspacePanelProps {
   taskSnapshot: TaskProgressSnapshot | null
@@ -323,6 +331,12 @@ interface WorkspacePanelProps {
   onViewSubagentSession?: (sessionId: string) => void
   /** 从输入框或其它全局入口请求打开「持续推进」创建器。 */
   openLoopCreateRequest?: number
+  /** Dashboard attention deep-link: scroll to the relevant control section
+   * and, where supported, open the exact Workflow run / Loop schedule. */
+  focusRequest?: WorkspaceFocusRequest | null
+  /** Confirms that an external focus signal was consumed so it cannot replay
+   * after this panel is unmounted and later opened for another session. */
+  onFocusRequestHandled?: (nonce: number) => void
   /** 草稿态新对话里创建 workflow 前,由 ChatScreen 物化一个真实会话并切过去。 */
   onEnsureSession?: () => Promise<string | null>
   /** 无 session 草稿态工作流模式:不提前创建会话。 */
@@ -22098,6 +22112,8 @@ export default function WorkspacePanel({
   onOpenBrowserPanel,
   onViewSubagentSession,
   openLoopCreateRequest = 0,
+  focusRequest,
+  onFocusRequestHandled,
   onEnsureSession,
   draftWorkflowMode = "off",
   onDraftWorkflowModeChange,
@@ -22116,7 +22132,14 @@ export default function WorkspacePanel({
   const goalState = useGoal(sessionId, { incognito })
   const [loopCreateRequest, setLoopCreateRequest] = useState(0)
   const loopSectionRef = useRef<HTMLDivElement | null>(null)
+  const goalSectionRef = useRef<HTMLDivElement | null>(null)
+  const progressSectionRef = useRef<HTMLDivElement | null>(null)
   const lastExternalLoopCreateRequestRef = useRef(0)
+  const lastFocusRequestRef = useRef(0)
+  const [loopInspectRequest, setLoopInspectRequest] = useState<{
+    loopId: string
+    nonce: number
+  } | null>(null)
   const reviewRunsState = useReviewRuns(sessionId, { incognito, turnActive })
   const verificationRunsState = useVerificationRuns(sessionId, { incognito, turnActive })
   const domainQualityRunsState = useDomainQualityRuns(sessionId, { incognito, turnActive })
@@ -22146,6 +22169,30 @@ export default function WorkspacePanel({
       workflowSectionRef.current?.scrollIntoView?.({ block: "start", behavior: "smooth" })
     }, 0)
   }, [])
+  /* eslint-disable react-hooks/set-state-in-effect -- an external Dashboard deep-link intentionally focuses local panel state */
+  useEffect(() => {
+    if (!shouldConsumeWorkspaceFocus(focusRequest, sessionId, lastFocusRequestRef.current)) {
+      return
+    }
+    lastFocusRequestRef.current = focusRequest.nonce
+    const scroll = (target: HTMLDivElement | null) =>
+      window.setTimeout(() => target?.scrollIntoView?.({ block: "start", behavior: "smooth" }), 0)
+    if (focusRequest.section === "goal") {
+      scroll(goalSectionRef.current)
+    } else if (focusRequest.section === "workflow") {
+      if (focusRequest.itemId) focusWorkflowRun(focusRequest.itemId)
+      else scroll(workflowSectionRef.current)
+    } else if (focusRequest.section === "loop") {
+      if (focusRequest.itemId) {
+        setLoopInspectRequest({ loopId: focusRequest.itemId, nonce: focusRequest.nonce })
+      }
+      scroll(loopSectionRef.current)
+    } else {
+      scroll(progressSectionRef.current)
+    }
+    onFocusRequestHandled?.(focusRequest.nonce)
+  }, [focusRequest, focusWorkflowRun, onFocusRequestHandled, sessionId])
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   const {
     visible: visibleFiles,
@@ -22197,12 +22244,14 @@ export default function WorkspacePanel({
           onOpenPullRequest={onOpenPullRequest}
         />
 
-        <GoalWorkspaceSection
-          sessionId={sessionId}
-          incognito={incognito}
-          onEnsureSession={onEnsureSession}
-          goalState={goalState}
-        />
+        <div ref={goalSectionRef}>
+          <GoalWorkspaceSection
+            sessionId={sessionId}
+            incognito={incognito}
+            onEnsureSession={onEnsureSession}
+            goalState={goalState}
+          />
+        </div>
 
         <SessionSection
           sessionId={sessionId}
@@ -22223,21 +22272,23 @@ export default function WorkspacePanel({
         />
 
         <MemoryDiagnosticsSection messages={messages} incognito={incognito} />
-        {taskSnapshot && taskSnapshot.total > 0 ? (
-          <TaskProgressPanel
-            snapshot={taskSnapshot}
-            variant="card"
-            executionState={taskExecutionState}
-          />
-        ) : (
-          <WorkspaceSection
-            title={t("workspace.sectionProgress", "进度")}
-            count={0}
-            icon={LayoutDashboard}
-          >
-            <EmptyHint>{t("workspace.emptyProgress", "暂无任务")}</EmptyHint>
-          </WorkspaceSection>
-        )}
+        <div ref={progressSectionRef}>
+          {taskSnapshot && taskSnapshot.total > 0 ? (
+            <TaskProgressPanel
+              snapshot={taskSnapshot}
+              variant="card"
+              executionState={taskExecutionState}
+            />
+          ) : (
+            <WorkspaceSection
+              title={t("workspace.sectionProgress", "进度")}
+              count={0}
+              icon={LayoutDashboard}
+            >
+              <EmptyHint>{t("workspace.emptyProgress", "暂无任务")}</EmptyHint>
+            </WorkspaceSection>
+          )}
+        </div>
 
         <div ref={workflowSectionRef}>
           <WorkflowRunsSection
@@ -22266,6 +22317,7 @@ export default function WorkspacePanel({
             loopSchedulesState={loopSchedulesState}
             goalState={goalState}
             createRequest={loopCreateRequest}
+            inspectRequest={loopInspectRequest}
           />
         </div>
 

@@ -935,6 +935,7 @@ pub fn run() {
             commands::dashboard::dashboard_sessions,
             commands::dashboard::dashboard_errors,
             commands::dashboard::dashboard_tasks,
+            commands::dashboard::dashboard_control_plane,
             commands::dashboard::dashboard_system_metrics,
             commands::dashboard::dashboard_session_list,
             commands::dashboard::dashboard_message_list,

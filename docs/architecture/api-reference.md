@@ -1018,6 +1018,7 @@ Agent 执行准入采用两层 guard：Desktop / HTTP / Channel / Cron 等调用
 | `dashboard_sessions` | `POST /api/dashboard/sessions` | ✅ |
 | `dashboard_errors` | `POST /api/dashboard/errors` | ✅ |
 | `dashboard_tasks` | `POST /api/dashboard/tasks` | ✅ |
+| `dashboard_control_plane` | `POST /api/dashboard/control-plane` | ✅（Goal / Workflow / Loop / Task / Plan 聚合；独立 Agent/项目筛选） |
 | `dashboard_system_metrics` | `GET /api/dashboard/system-metrics` | ✅ |
 | `dashboard_session_list` | `POST /api/dashboard/session-list` | ✅ |
 | `dashboard_message_list` | `POST /api/dashboard/message-list` | ✅ |
@@ -1025,6 +1026,8 @@ Agent 执行准入采用两层 guard：Desktop / HTTP / Channel / Cron 等调用
 | `dashboard_error_list` | `POST /api/dashboard/error-list` | ✅ |
 | `dashboard_agent_list` | `POST /api/dashboard/agent-list` | ✅ |
 | `dashboard_local_model_usage` | `POST /api/dashboard/local-model-usage` | ✅ |
+
+`dashboard_control_plane` 请求体为 `{ "filter": { "startDate": ISO8601|null, "endDate": ISO8601|null, "agentId": string|null, "projectId": string|null } }`；返回 `{ summary, goals, workflows, loops, tasks, plans, attention }`。`projectId="__unassigned__"` 表示未分配项目。比例零分母序列化为 `null`；`attention.items` 最多 20 条、`attention.total` 保留未截断总数。旧 `dashboard_tasks` 只统计 Cron / Subagent（前端名“自动化”），`dashboard_plan_stats` 保持兼容。
 
 #### Dashboard Learning
 

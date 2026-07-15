@@ -2,9 +2,11 @@
 //
 // Provides SQL aggregation queries for the dashboard, accessing
 // SessionDB (sessions + messages + subagent_runs), LogDB (logs),
-// and CronDB (cron_jobs + cron_run_logs).
+// and CronDB (cron_jobs + cron_run_logs). Control-plane rollups additionally
+// scan the durable Plan index after releasing the SessionDB lock.
 
 mod coding_improvement;
+mod control_plane;
 mod cost;
 mod detail_queries;
 mod filters;
@@ -20,6 +22,12 @@ pub use coding_improvement::{
     CodingImprovementDashboardOverview, CodingImprovementFailureBucket,
     CodingImprovementProjectBucket, CodingImprovementRetroItem, CodingImprovementStatusBucket,
     CodingImprovementStrategyEffectItem, CodingImprovementTimelinePoint,
+};
+pub use control_plane::{
+    query_control_plane_dashboard, AttentionDashboard, AttentionItem, ControlPlaneDashboard,
+    ControlPlaneDashboardFilter, ControlPlaneSummary, DurationMetric, GoalDashboardStats,
+    LoopDashboardStats, NamedCount, PlanDashboardStats, RatioMetric, TaskDashboardStats,
+    TrendPoint, WorkflowDashboardStats, CONTROL_PLANE_UNASSIGNED_PROJECT,
 };
 pub use detail_queries::*;
 pub use insights::*;

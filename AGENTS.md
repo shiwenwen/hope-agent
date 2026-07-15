@@ -340,6 +340,7 @@ ha-core 主要领域：`agent/` `chat_engine/` `context_compact/` `memory/` `kno
 详见 [`dashboard.md`](docs/architecture/dashboard.md) / [`recap.md`](docs/architecture/recap.md)。
 
 - `dashboard/insights.rs`：overview delta / cost trend / heatmap / health score / `query_insights` orchestrator
+- **目标与执行大盘**：`dashboard/control_plane.rs` 是 Goal / Workflow / Loop / Task / Plan 全局只读聚合单一入口；结果、驱动、进度和风险必须分层，Task/Plan 在新增可靠外键前禁止按 session 伪造因果漏斗。窗口比例零分母返回 `null`，当前状态不受起始时间限制；Goal / Workflow / Loop / Task / attention 仅统计非无痕的用户主会话，排除 Cron 与 `parent_session_id` 子会话。旧 `dashboard_tasks`（Cron/Subagent，UI 名“自动化”）与 `dashboard_plan_stats` 只作兼容。
 - **模型用量总账**：所有会触发模型推理 / one-shot / side_query / summarize / embedding / STT / judge / web_search / image_generation / provider_test / vision（视觉桥图片转述）的新调用入口，必须通过 [`model_usage.rs`](crates/ha-core/src/model_usage.rs) 写入 `session.db.model_usage_events`；Dashboard token / cost 总量以该表为准。Provider 原始 usage 返回多少就记录多少，未返回 token 的本地模型 / STT / embedding / 生图只记录调用次数与耗时，**禁止用字符估算冒充准确 token**。无痕会话不得入账。
 - Learning Tracker 落 `session.db.learning_events`，目前埋点：`skills::author` CRUD + `tool_recall_memory` 命中 + MCP tool 调用
 - `/recap` 独立 `~/.hope-agent/recap/recap.db` 缓存按 `last_message_ts` 失效；facet/section 提取模型经 `recap.modelOverride`（`ModelChain`，deprecated `analysisAgent` 仍惰性兼容旧值）解析、拿不到再落 `function_models.automation` 全局默认链，与主对话 Agent 解耦

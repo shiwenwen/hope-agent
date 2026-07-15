@@ -16,6 +16,11 @@ pub struct FilterBody {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct ControlPlaneFilterBody {
+    pub filter: ControlPlaneDashboardFilter,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct FilterLimitBody {
     pub filter: DashboardFilter,
     #[serde(default = "default_limit")]
@@ -67,6 +72,15 @@ pub async fn tasks(Json(body): Json<FilterBody>) -> Result<Json<DashboardTaskDat
     let (session_db, cron_db) = (session_db()?, cron_db()?);
     Ok(Json(
         run_blocking(move || query_tasks(session_db, cron_db, &body.filter)).await?,
+    ))
+}
+
+pub async fn control_plane(
+    Json(body): Json<ControlPlaneFilterBody>,
+) -> Result<Json<ControlPlaneDashboard>, AppError> {
+    let session_db = session_db()?;
+    Ok(Json(
+        run_blocking(move || query_control_plane_dashboard(session_db, &body.filter)).await?,
     ))
 }
 

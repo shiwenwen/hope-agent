@@ -29,7 +29,8 @@ import LocalModelsSection from "./LocalModelsSection"
 import RecapTab from "./recap/RecapTab"
 import DreamingTab from "./dreaming/DreamingTab"
 import LearningTab from "./learning/LearningTab"
-import PlanStatsSection from "./PlanStatsSection"
+import ControlPlaneSection from "./ControlPlaneSection"
+import { normalizeInitialTab, showsGlobalOverview } from "./dashboardTabs"
 import type {
   DashboardFilter as DashboardFilterState,
   OverviewStatsWithDelta,
@@ -43,15 +44,12 @@ import type {
   Granularity,
   DetailListType,
   AutoRefreshInterval,
-  PlanStats,
   DashboardLocalModelUsage,
+  ControlPlaneDashboard,
+  AttentionItem,
 } from "./types"
 import { autoRefreshMs } from "./types"
-import type {
-  HardwareInfo,
-  LocalOllamaModel,
-  OllamaStatus,
-} from "@/types/local-llm"
+import type { HardwareInfo, LocalOllamaModel, OllamaStatus } from "@/types/local-llm"
 import type { LocalModelJobSnapshot } from "@/types/local-model-jobs"
 import type { SettingsSection } from "@/components/settings/types"
 
@@ -122,25 +120,8 @@ interface DashboardViewProps {
   onOpenSettings?: (section?: SettingsSection) => void
   initialTab?: string
   initialRecapReportId?: string | null
-}
-
-const DASHBOARD_TAB_VALUES = new Set([
-  "insights",
-  "tokens",
-  "tools",
-  "sessions",
-  "errors",
-  "tasks",
-  "plans",
-  "system",
-  "local-models",
-  "recap",
-  "learning",
-  "dreaming",
-])
-
-function normalizeInitialTab(tab?: string): string {
-  return tab && DASHBOARD_TAB_VALUES.has(tab) ? tab : "insights"
+  onOpenPlanHistory?: () => void
+  onOpenControlItem?: (item: AttentionItem) => void
 }
 
 export default function DashboardView({
@@ -148,6 +129,8 @@ export default function DashboardView({
   onOpenSettings,
   initialTab,
   initialRecapReportId,
+  onOpenPlanHistory,
+  onOpenControlItem,
 }: DashboardViewProps) {
   const { t } = useTranslation()
   const [filter, setFilter] = useState<DashboardFilterState>(defaultFilter)
@@ -163,7 +146,8 @@ export default function DashboardView({
   const [taskData, setTaskData] = useState<DashboardTaskData | null>(null)
   const [systemMetrics, setSystemMetrics] = useState<SystemMetrics | null>(null)
   const [systemHistory, setSystemHistory] = useState<SystemHistoryPoint[]>([])
-  const [planStats, setPlanStats] = useState<PlanStats | null>(null)
+  const [controlPlaneData, setControlPlaneData] = useState<ControlPlaneDashboard | null>(null)
+  const [controlProjectId, setControlProjectId] = useState<string | null>(null)
   const [localModelsData, setLocalModelsData] = useState<LocalModelsTabData>({
     ollama: null,
     ollamaVersion: null,
@@ -245,9 +229,18 @@ export default function DashboardView({
             setTaskData(tkd)
             break
           }
-          case "plans": {
-            const ps = await getTransport().call<PlanStats>("dashboard_plan_stats", { filter })
-            setPlanStats(ps)
+          case "control-plane": {
+            const controlFilter = {
+              startDate: filter.startDate,
+              endDate: filter.endDate,
+              agentId: filter.agentId,
+              projectId: controlProjectId,
+            }
+            const result = await getTransport().call<ControlPlaneDashboard>(
+              "dashboard_control_plane",
+              { filter: controlFilter },
+            )
+            setControlPlaneData(result)
             break
           }
           case "system": {
@@ -278,10 +271,9 @@ export default function DashboardView({
                 "local_llm_detect_ollama_version",
               ),
               getTransport().call<LocalOllamaModel[]>("local_llm_list_models"),
-              getTransport().call<DashboardLocalModelUsage>(
-                "dashboard_local_model_usage",
-                { filter },
-              ),
+              getTransport().call<DashboardLocalModelUsage>("dashboard_local_model_usage", {
+                filter,
+              }),
               getTransport().call<LocalModelJobSnapshot[]>("local_model_job_list"),
             ])
             const pick = <T,>(r: PromiseSettledResult<T>): T | null =>
@@ -308,14 +300,15 @@ export default function DashboardView({
         logger.error("dashboard", "loadTabData", `Failed loading ${tab}: ${e}`)
       }
     },
-    [filter],
+    [filter, controlProjectId],
   )
 
   // Initial load & filter change reload
   useEffect(() => {
     const timer = setTimeout(() => {
       setLoading(true)
-      Promise.all([loadOverview(), loadTabData(activeTab)]).finally(() => {
+      const overviewRequest = showsGlobalOverview(activeTab) ? loadOverview() : Promise.resolve()
+      Promise.all([overviewRequest, loadTabData(activeTab)]).finally(() => {
         setLoading(false)
         setLastRefreshAt(new Date())
       })
@@ -336,7 +329,8 @@ export default function DashboardView({
     const ms = autoRefreshMs(autoRefresh)
     if (ms <= 0) return
     const id = window.setInterval(() => {
-      Promise.all([loadOverview(), loadTabData(activeTab)]).finally(() => {
+      const overviewRequest = showsGlobalOverview(activeTab) ? loadOverview() : Promise.resolve()
+      Promise.all([overviewRequest, loadTabData(activeTab)]).finally(() => {
         setLastRefreshAt(new Date())
       })
     }, ms)
@@ -355,10 +349,16 @@ export default function DashboardView({
     }
   }, [])
 
+  const handleTabChange = useCallback((tab: string) => {
+    setActiveList(null)
+    setActiveTab(tab)
+  }, [])
+
   const handleRefresh = useCallback(() => {
     setLoading(true)
     setActiveList(null)
-    Promise.all([loadOverview(), loadTabData(activeTab)]).finally(() => {
+    const overviewRequest = showsGlobalOverview(activeTab) ? loadOverview() : Promise.resolve()
+    Promise.all([overviewRequest, loadTabData(activeTab)]).finally(() => {
       setLoading(false)
       setLastRefreshAt(new Date())
     })
@@ -516,43 +516,49 @@ export default function DashboardView({
       </div>
 
       {/* Filter bar */}
-      <DashboardFilter filter={filter} onChange={setFilter} />
+      <DashboardFilter
+        filter={filter}
+        onChange={setFilter}
+        controlPlane={activeTab === "control-plane"}
+      />
 
       {/* Scrollable content */}
       <div className="flex-1 overflow-y-auto p-6 space-y-6">
         {/* Overview cards with delta */}
-        <OverviewCards
-          data={overview}
-          loading={loading}
-          activeList={activeList}
-          onCardClick={handleCardClick}
-        />
+        {showsGlobalOverview(activeTab) && (
+          <>
+            <OverviewCards
+              data={overview}
+              loading={loading}
+              activeList={activeList}
+              onCardClick={handleCardClick}
+            />
 
-        {/* Detail list panel (between cards and tabs) */}
-        {activeList && (
-          <DetailListPanel
-            listType={activeList}
-            filter={filter}
-            agentNameMap={agentNameMap}
-            onClose={() => setActiveList(null)}
-          />
+            {/* Detail list panel (between cards and tabs) */}
+            {activeList && (
+              <DetailListPanel
+                listType={activeList}
+                filter={filter}
+                agentNameMap={agentNameMap}
+                onClose={() => setActiveList(null)}
+              />
+            )}
+          </>
         )}
 
         {/* Tabs */}
-        <Tabs ref={tabsRef} value={activeTab} onValueChange={setActiveTab}>
+        <Tabs ref={tabsRef} value={activeTab} onValueChange={handleTabChange}>
           <div className="flex items-center gap-3 flex-wrap">
             <TabsList>
               <TabsTrigger value="insights">{t("dashboard.tabs.insights")}</TabsTrigger>
+              <TabsTrigger value="control-plane">{t("dashboard.controlPlane.title")}</TabsTrigger>
               <TabsTrigger value="tokens">{t("dashboard.tabs.tokens")}</TabsTrigger>
               <TabsTrigger value="tools">{t("dashboard.tabs.tools")}</TabsTrigger>
               <TabsTrigger value="sessions">{t("dashboard.tabs.sessions")}</TabsTrigger>
               <TabsTrigger value="errors">{t("dashboard.tabs.errors")}</TabsTrigger>
-              <TabsTrigger value="tasks">{t("dashboard.tabs.tasks")}</TabsTrigger>
-              <TabsTrigger value="plans">{t("dashboard.tabs.plans")}</TabsTrigger>
+              <TabsTrigger value="tasks">{t("dashboard.controlPlane.automationTab")}</TabsTrigger>
               <TabsTrigger value="system">{t("dashboard.tabs.system")}</TabsTrigger>
-              <TabsTrigger value="local-models">
-                {t("dashboard.tabs.localModels")}
-              </TabsTrigger>
+              <TabsTrigger value="local-models">{t("dashboard.tabs.localModels")}</TabsTrigger>
               <TabsTrigger value="recap">{t("dashboard.tabs.recap")}</TabsTrigger>
               <TabsTrigger value="learning">{t("dashboard.tabs.learning")}</TabsTrigger>
               <TabsTrigger value="dreaming">{t("dashboard.tabs.dreaming")}</TabsTrigger>
@@ -581,6 +587,17 @@ export default function DashboardView({
               onDrillDownModel={(modelId) => setFilter((f) => ({ ...f, modelId }))}
             />
           </TabsContent>
+          <TabsContent value="control-plane">
+            <ControlPlaneSection
+              data={controlPlaneData}
+              loading={loading}
+              projectId={controlProjectId}
+              onProjectChange={setControlProjectId}
+              onOpenPlanHistory={onOpenPlanHistory}
+              onOpenAttention={onOpenControlItem}
+              initialSection={initialTab === "plans" ? "progress" : "overview"}
+            />
+          </TabsContent>
           <TabsContent value="tokens">
             <TokenUsageSection
               data={tokenData}
@@ -605,14 +622,6 @@ export default function DashboardView({
           </TabsContent>
           <TabsContent value="tasks">
             <TaskSection data={taskData} loading={loading} />
-          </TabsContent>
-          <TabsContent value="plans">
-            <PlanStatsSection
-              data={planStats}
-              loading={loading}
-              agentNameMap={agentNameMap}
-              onDrillDownAgent={(agentId) => setFilter((f) => ({ ...f, agentId }))}
-            />
           </TabsContent>
           <TabsContent value="system">
             <SystemMetricsSection data={systemMetrics} history={systemHistory} loading={loading} />

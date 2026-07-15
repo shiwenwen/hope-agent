@@ -701,6 +701,17 @@ impl SessionDB {
             conn.execute_batch("ALTER TABLE sessions ADD COLUMN plan_executing_started_at TEXT;")?;
         }
 
+        // Migration: exact Plan completion timestamp for Dashboard duration
+        // metrics. Existing rows intentionally stay NULL: deriving historical
+        // completion from sessions.updated_at would turn an activity proxy into
+        // fake precision.
+        let has_plan_completed_at = conn
+            .prepare("SELECT plan_completed_at FROM sessions LIMIT 1")
+            .is_ok();
+        if !has_plan_completed_at {
+            conn.execute_batch("ALTER TABLE sessions ADD COLUMN plan_completed_at TEXT;")?;
+        }
+
         // Migration: per-session tool_permission_mode so the chat input's
         // toggle (auto / ask_every_time / full_approve) is restored when the
         // user switches back to a historical session. See `SessionMeta`.
@@ -922,6 +933,15 @@ impl SessionDB {
         let has_batch_id = conn.prepare("SELECT batch_id FROM tasks LIMIT 1").is_ok();
         if !has_batch_id {
             conn.execute_batch("ALTER TABLE tasks ADD COLUMN batch_id TEXT;")?;
+        }
+        // Exact Task completion time. Do not backfill old completed rows from
+        // updated_at; coverage is reported separately by the control-plane
+        // dashboard so legacy data cannot masquerade as exact history.
+        let has_task_completed_at = conn
+            .prepare("SELECT completed_at FROM tasks LIMIT 1")
+            .is_ok();
+        if !has_task_completed_at {
+            conn.execute_batch("ALTER TABLE tasks ADD COLUMN completed_at TEXT;")?;
         }
 
         // Migration: latest IDE / ACP context envelope for a session. This is
@@ -3504,10 +3524,10 @@ impl SessionDB {
 
     /// Update the plan mode state for a session.
     ///
-    /// Also bumps `updated_at` so Dashboard's plan-stats execution-duration
-    /// query can use `session.updated_at` as a proxy for "when did this plan
-    /// reach `completed`?" — the plan markdown file mtime stops moving once
-    /// the model approves the plan, so it's an unreliable signal.
+    /// Also owns the exact completion timestamp lifecycle:
+    /// - entering Completed stamps it;
+    /// - entering Planning clears it for a new lifecycle;
+    /// - entering Off preserves it so archiving does not erase completion.
     pub fn update_session_plan_mode(
         &self,
         session_id: &str,
@@ -3519,7 +3539,15 @@ impl SessionDB {
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         conn.execute(
-            "UPDATE sessions SET plan_mode = ?1, updated_at = ?2 WHERE id = ?3",
+            "UPDATE sessions
+             SET plan_mode = ?1,
+                 updated_at = ?2,
+                 plan_completed_at = CASE
+                     WHEN ?1 = 'completed' AND plan_mode != 'completed' THEN ?2
+                     WHEN ?1 = 'planning' THEN NULL
+                     ELSE plan_completed_at
+                 END
+             WHERE id = ?3",
             params![plan_mode.as_str(), now, session_id],
         )?;
         Ok(())
@@ -3554,6 +3582,22 @@ impl SessionDB {
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         let mut stmt =
             conn.prepare("SELECT plan_executing_started_at FROM sessions WHERE id = ?1")?;
+        let mut rows = stmt.query(params![session_id])?;
+        match rows.next()? {
+            Some(row) => Ok(row.get(0)?),
+            None => Ok(None),
+        }
+    }
+
+    /// Exact completion timestamp of the latest completed Plan lifecycle.
+    /// Preserved while archived (Off), cleared when a new Planning lifecycle
+    /// starts. Legacy rows remain NULL until they complete after migration.
+    pub fn get_session_plan_completed_at(&self, session_id: &str) -> Result<Option<String>> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let mut stmt = conn.prepare("SELECT plan_completed_at FROM sessions WHERE id = ?1")?;
         let mut rows = stmt.query(params![session_id])?;
         match rows.next()? {
             Some(row) => Ok(row.get(0)?),

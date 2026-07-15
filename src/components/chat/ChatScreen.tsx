@@ -116,7 +116,7 @@ import { DiffPanel } from "./diff-panel/DiffPanel"
 import { useFilePreview } from "./files/useFilePreview"
 import FilePreviewPanel from "./files/FilePreviewPanel"
 import { FileActionsContext, type FileActionsContextValue } from "./files/fileActionsContext"
-import WorkspacePanel from "./workspace/WorkspacePanel"
+import WorkspacePanel, { type WorkspaceFocusRequest } from "./workspace/WorkspacePanel"
 import { PullRequestPanel } from "./workspace/PullRequestPanel"
 import BackgroundJobsPanel from "./background-jobs/BackgroundJobsPanel"
 import { decideBackgroundJobsAutoOpen } from "./background-jobs/autoOpenPolicy"
@@ -727,6 +727,15 @@ export default function ChatScreen({
   // Workspace 面板：聚合任务进度 / 碰到的文件 / 引用来源。首次有内容时自动
   // 展开一次，用户关闭后本会话不再自动弹（dismissedRef 跟踪，仿 browser 面板）。
   const [showWorkspacePanel, setShowWorkspacePanel] = useState(false)
+  const [workspaceFocusRequest, setWorkspaceFocusRequest] = useState<WorkspaceFocusRequest | null>(
+    null,
+  )
+  const [pendingControlFocus, setPendingControlFocus] = useState<{
+    sessionId: string
+    kind: string
+    itemId?: string
+    nonce: number
+  } | null>(null)
   const [showPullRequestPanel, setShowPullRequestPanel] = useState(false)
   const workspacePanelDismissedRef = useRef(false)
   const preserveWorkspaceOnSessionSwitchRef = useRef(false)
@@ -1201,6 +1210,14 @@ export default function ChatScreen({
         await handleSwitchSession(externalChatFocus.sessionId, {
           targetMessageId: externalChatFocus.targetMessageId,
         })
+        if (externalChatFocus.controlTarget) {
+          setPendingControlFocus({
+            sessionId: externalChatFocus.sessionId,
+            kind: externalChatFocus.controlTarget.kind,
+            itemId: externalChatFocus.controlTarget.itemId,
+            nonce: externalChatFocus.nonce,
+          })
+        }
         onExternalChatFocusHandled?.(externalChatFocus.nonce)
       } catch (error) {
         logger.warn("chat", "ChatScreen::externalChatFocus", "Failed to open source chat", error)
@@ -3080,6 +3097,35 @@ export default function ChatScreen({
     showRightPanelByUser("workspace")
   }, [showRightPanelByUser])
 
+  useEffect(() => {
+    if (!pendingControlFocus || session.currentSessionId !== pendingControlFocus.sessionId) return
+    if (pendingControlFocus.kind === "plan") {
+      planMode.openPlanPanel()
+      setPendingControlFocus(null)
+      return
+    }
+    const section: WorkspaceFocusRequest["section"] =
+      pendingControlFocus.kind === "goal"
+        ? "goal"
+        : pendingControlFocus.kind === "workflow"
+          ? "workflow"
+          : pendingControlFocus.kind === "loop"
+            ? "loop"
+            : "progress"
+    openWorkspacePanel()
+    setWorkspaceFocusRequest({
+      sessionId: pendingControlFocus.sessionId,
+      section,
+      itemId: pendingControlFocus.itemId,
+      nonce: pendingControlFocus.nonce,
+    })
+    setPendingControlFocus(null)
+  }, [openWorkspacePanel, pendingControlFocus, planMode, session.currentSessionId])
+
+  const handleWorkspaceFocusRequestHandled = useCallback((nonce: number) => {
+    setWorkspaceFocusRequest((current) => (current?.nonce === nonce ? null : current))
+  }, [])
+
   const openPullRequestPanel = useCallback(() => {
     setShowPullRequestPanel(true)
     showRightPanelByUser("pull-request")
@@ -4352,11 +4398,14 @@ export default function ChatScreen({
                 onOpenBackgroundJobs={openBackgroundJobsPanel}
                 onOpenBrowserPanel={openBrowserPanel}
                 onViewSubagentSession={setSubagentPreviewSessionId}
+                focusRequest={workspaceFocusRequest}
+                onFocusRequestHandled={handleWorkspaceFocusRequestHandled}
                 onEnsureSession={ensureWorkflowSession}
                 draftWorkflowMode={draftWorkflowMode}
                 onDraftWorkflowModeChange={setDraftWorkflowMode}
                 onClose={() => {
                   workspacePanelDismissedRef.current = true
+                  setWorkspaceFocusRequest(null)
                   setShowWorkspacePanel(false)
                 }}
               />

@@ -1778,6 +1778,10 @@ fn build_router_with_cors(
         .route("/dashboard/errors", post(routes::dashboard::errors))
         .route("/dashboard/tasks", post(routes::dashboard::tasks))
         .route(
+            "/dashboard/control-plane",
+            post(routes::dashboard::control_plane),
+        )
+        .route(
             "/dashboard/system-metrics",
             get(routes::dashboard::system_metrics),
         )
