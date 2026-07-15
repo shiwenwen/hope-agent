@@ -138,7 +138,7 @@ pub fn init_runtime(role: &'static str) {
     // here but logged via `app_info!` further down once APP_LOGGER is
     // initialised; commit C8 wires the cleanup + single-owner loop
     // gating against `runtime_lock::is_primary()`.
-    let tier = crate::runtime_lock::acquire_or_secondary(role);
+    let tier = crate::runtime_lock::acquire_or_secondary_for(role);
 
     // Bootstrap a default EventBus if no caller pre-installed one. Tauri
     // shell installs its own bridged bus before `.manage(...)`; the HTTP

@@ -80,6 +80,31 @@ fn lock_path() -> Option<PathBuf> {
         .map(|d| d.join("runtime.lock"))
 }
 
+/// Roles that are short-lived stdio interop surfaces (platform `mcp`): they
+/// MUST NOT contend for Primary. An IDE-spawned `hope-agent mcp` process can
+/// outlive several desktop restarts; if it grabbed the lock first it would be
+/// Primary forever (tier is decided once per process) while never running any
+/// Primary-only work — leaving the desktop app stuck as Secondary with cron,
+/// wakeup replay, watchers and orphan recovery all silently stalled. Making
+/// these roles passively Secondary is strictly safer: the desktop always wins
+/// the lock when present, and an mcp-only deployment loses nothing it was ever
+/// going to run (mcp never starts background services either way).
+const PASSIVE_SECONDARY_ROLES: &[&str] = &["mcp"];
+
+/// Elect Primary/Secondary for `role`, except that passive interop roles
+/// ([`PASSIVE_SECONDARY_ROLES`]) never contend and settle as Secondary. This
+/// is the entry point `init_runtime` should use.
+pub fn acquire_or_secondary_for(role: &str) -> Tier {
+    if let Some(t) = TIER.get() {
+        return *t;
+    }
+    if PASSIVE_SECONDARY_ROLES.contains(&role) {
+        let _ = TIER.set(Tier::Secondary);
+        return *TIER.get().unwrap_or(&Tier::Secondary);
+    }
+    acquire_or_secondary(role)
+}
+
 /// Acquire the runtime lock or fall back to Secondary. Idempotent —
 /// safe to call from each entry point (desktop / server / acp). The
 /// first call decides the tier for the whole process.

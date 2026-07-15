@@ -353,8 +353,8 @@ fn action_edit_element(args: &Value) -> Result<String> {
     let oid = args
         .get("oid")
         .and_then(|v| v.as_u64())
-        .context("Missing 'oid' (number). Read it from get_artifact's data-ds-oid attributes or a pinned comment.")?
-        as u32;
+        .and_then(|n| u32::try_from(n).ok())
+        .context("Missing or out-of-range 'oid' (number). Read it from get_artifact's data-ds-oid attributes or a pinned comment.")?;
     let text = str_arg(args, "text").map(str::to_string);
     let styles = parse_kv_object(args, "style");
     let attrs = parse_kv_object(args, "attrs");

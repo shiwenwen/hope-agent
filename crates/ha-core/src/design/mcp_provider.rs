@@ -435,9 +435,13 @@ fn call_update(args: &Value) -> Result<Value> {
 
 fn call_edit_element(args: &Value) -> Result<Value> {
     let id = req_str(args, "artifactId")?;
-    let oid = args.get("oid").and_then(Value::as_u64).ok_or_else(|| {
-        anyhow!("missing required integer arg: oid (from design_get_artifact source)")
-    })? as u32;
+    let oid = args
+        .get("oid")
+        .and_then(Value::as_u64)
+        .and_then(|n| u32::try_from(n).ok())
+        .ok_or_else(|| {
+            anyhow!("missing or out-of-range integer arg: oid (from design_get_artifact source)")
+        })?;
     // 跨进程无共享 artifact_lock → schema 层强制 expectedBodyHash（主动收紧）。
     let expected_hash = req_str(args, "expectedBodyHash")?.to_string();
     let text = opt_str(args, "text").map(str::to_string);
