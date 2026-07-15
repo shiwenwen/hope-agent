@@ -862,6 +862,7 @@
         "docx": "Word 文档",
         "pptx": "PPT 演示",
         "xlsx": "Excel 表格",
+        "dataAnalytics": "数据分析",
         "browser": "浏览器控制",
         "mac": "Mac 控制"
       }

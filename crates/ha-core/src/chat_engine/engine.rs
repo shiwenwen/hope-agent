@@ -713,8 +713,8 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
 
     // Built-in skill activation via the composer's `@skill` mention. Mirrors the
     // note bridge above: deterministic, user-controlled, injected into this
-    // turn's system context. The fixed allowlist (office trio + browser + mac
-    // control) and the OS gate are enforced inside the resolver, so arbitrary
+    // turn's system context. The fixed allowlist (office trio + data analytics
+    // + browser + mac control) and the OS gate are enforced inside the resolver, so arbitrary
     // skill names in the message can't ride here — they stay as plain text.
     //
     // Gate on `fires_user_lifecycle_hooks()` (Desktop / HTTP / IM): only a real

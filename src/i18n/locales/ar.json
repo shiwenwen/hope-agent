@@ -862,6 +862,7 @@
         "docx": "مستند Word",
         "pptx": "شرائح PowerPoint",
         "xlsx": "جدول بيانات Excel",
+        "dataAnalytics": "تحليل البيانات",
         "browser": "التحكم في المتصفح",
         "mac": "التحكم في Mac"
       }

@@ -862,6 +862,7 @@
         "docx": "Documento de Word",
         "pptx": "Diapositivas de PowerPoint",
         "xlsx": "Hoja de cálculo de Excel",
+        "dataAnalytics": "Análisis de datos",
         "browser": "Control del navegador",
         "mac": "Control de Mac"
       }

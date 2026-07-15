@@ -862,6 +862,7 @@
         "docx": "Tài liệu Word",
         "pptx": "Trang chiếu PowerPoint",
         "xlsx": "Bảng tính Excel",
+        "dataAnalytics": "Phân tích dữ liệu",
         "browser": "Điều khiển trình duyệt",
         "mac": "Điều khiển Mac"
       }

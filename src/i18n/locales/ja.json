@@ -862,6 +862,7 @@
         "docx": "Word 文書",
         "pptx": "PowerPoint スライド",
         "xlsx": "Excel スプレッドシート",
+        "dataAnalytics": "データ分析",
         "browser": "ブラウザ操作",
         "mac": "Mac 操作"
       }

@@ -1,8 +1,8 @@
 /**
  * Pure helpers for the chat composer's `@skill` mention — a curated, fixed
  * allowlist of built-in skills the user can activate from the `@` menu (office
- * trio + browser + mac control). Parallel to {@link parseMentions} (files) and
- * the `[[note]]` picker, but the resolvable set is closed: the backend
+ * trio + data analytics + browser + mac control). Parallel to
+ * {@link parseMentions} (files) and the `[[note]]` picker, but the resolvable set is closed: the backend
  * (`skills::mention::resolve_inline_skill_mentions`) only activates the same
  * allowlist, so an arbitrary `#skill:foo` never injects anything.
  *
@@ -22,14 +22,14 @@ export interface MentionableSkill {
 }
 
 /** Which glyph `SkillMentionIcon` renders for a catalog entry. */
-export type SkillIconKind = "docx" | "pptx" | "xlsx" | "browser" | "mac"
+export type SkillIconKind = "docx" | "pptx" | "xlsx" | "analytics" | "browser" | "mac"
 
 export interface SkillMentionMeta {
   /** Full i18n key for the chip / menu label. */
   labelKey: string
   iconKind: SkillIconKind
   /** Menu grouping. */
-  group: "office" | "control"
+  group: "office" | "analysis" | "control"
   /**
    * Lowercase match terms for the `@` filter, so typing `@excel` / `@word` /
    * `@浏览器` narrows to the right skill even though the canonical id doesn't
@@ -63,6 +63,25 @@ export const SKILL_MENTION_CATALOG: Record<string, SkillMentionMeta> = {
     iconKind: "xlsx",
     group: "office",
     keywords: ["xlsx", "excel", "spreadsheet", "sheet", "csv", "表格"],
+  },
+  "ha-data-analytics": {
+    labelKey: "chat.skillMention.labels.dataAnalytics",
+    iconKind: "analytics",
+    group: "analysis",
+    keywords: [
+      "data",
+      "analytics",
+      "analysis",
+      "metric",
+      "kpi",
+      "dashboard",
+      "report",
+      "数据",
+      "分析",
+      "指标",
+      "报告",
+      "仪表盘",
+    ],
   },
   "ha-browser": {
     labelKey: "chat.skillMention.labels.browser",
