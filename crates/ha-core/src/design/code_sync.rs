@@ -274,7 +274,9 @@ fn read_and_snapshot(
     let (hash, size) = hash_file_streaming(&path)?;
     let gz = if size as usize <= SNAPSHOT_MAX {
         match std::fs::read(&path) {
-            Ok(bytes) if !bytes.iter().take(8192).any(|&b| b == 0) => gzip(&bytes).ok(),
+            // 与文件浏览器同口径判二进制（NUL 或非 UTF-8）——非 UTF-8（如 GBK/Latin-1 源码）不存
+            // 快照，否则 diff 回放 `from_utf8_lossy` 会出 U+FFFD 乱码。
+            Ok(bytes) if !crate::filesystem::looks_binary_bytes(&bytes) => gzip(&bytes).ok(),
             _ => None,
         }
     } else {
@@ -635,6 +637,28 @@ pub fn drift_changes(artifact_id: &str) -> Result<CodeDriftChanges> {
                     Ok(v) => v,
                     Err(_) => continue,
                 };
+                // 非文本（二进制 / 非 UTF-8 如 GBK）：不做 lossy 文本 diff（会出 U+FFFD 乱码），出
+                // before/after 皆空的占位——DiffPanel 与写工具二进制约定同款渲染。
+                if crate::filesystem::looks_binary_bytes(&bytes) {
+                    files.push(DriftFileChange {
+                        kind: "file_change".to_string(),
+                        path: rel.clone(),
+                        action: "edit".to_string(),
+                        lines_added: 0,
+                        lines_removed: 0,
+                        before: None,
+                        after: None,
+                        language: detect_language(rel).to_string(),
+                        truncated: false,
+                    });
+                    if total < DRIFT_QUOTE_TOTAL_MAX {
+                        let block =
+                            format!("## {rel} [modified]\n（二进制 / 非文本文件，已变更）\n\n");
+                        total += block.len();
+                        quote.push_str(&block);
+                    }
+                    continue;
+                }
                 let before = db
                     .get_link_snapshot(*link_id)?
                     .and_then(|gz| gunzip(&gz).ok())
@@ -876,6 +900,11 @@ mod tests {
         std::fs::write(dir.path().join("b.bin"), b"a\0b\0c").unwrap();
         let (_h, _s, gzb) = read_and_snapshot(&root, "b.bin").unwrap().unwrap();
         assert!(gzb.is_none());
+
+        // 非 UTF-8（GBK「你好」，无 NUL）：也判二进制、不存快照——否则 diff 回放出 U+FFFD 乱码。
+        std::fs::write(dir.path().join("gbk.txt"), b"\xC4\xE3\xBA\xC3").unwrap();
+        let (_h, _s, gzk) = read_and_snapshot(&root, "gbk.txt").unwrap().unwrap();
+        assert!(gzk.is_none());
 
         // 不存在的文件 → Ok(None)。
         assert!(read_and_snapshot(&root, "nope").unwrap().is_none());

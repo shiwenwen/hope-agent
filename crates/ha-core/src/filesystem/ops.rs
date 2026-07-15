@@ -411,7 +411,16 @@ fn looks_binary(path: &Path) -> bool {
     };
     let mut head = [0u8; 8192];
     let n = f.read(&mut head).unwrap_or(0);
-    let slice = &head[..n];
+    looks_binary_bytes(&head[..n])
+}
+
+/// Same NUL-or-invalid-UTF-8 sniff on bytes already in hand (checks the first
+/// 8 KiB). Shared so callers that hold the content (e.g. design code-drift
+/// snapshots) sniff binaries identically to path-based reads, instead of a
+/// weaker NUL-only check that misdetects GBK/Latin-1 source as text and then
+/// renders `from_utf8_lossy` garble.
+pub(crate) fn looks_binary_bytes(bytes: &[u8]) -> bool {
+    let slice = &bytes[..bytes.len().min(8192)];
     slice.contains(&0) || std::str::from_utf8(slice).is_err() && !is_valid_utf8_prefix(slice)
 }
 
