@@ -177,6 +177,7 @@ Tauri ↔ COMMAND_MAP 差集为 19 条合法非通用映射命令：5 条 Deskto
 | `dreaming:cycle_started` / `dreaming:cycle_complete` | dreaming 固化周期开始 / 结束（payload 含 `runId`） |
 | `cron:run_completed` | cron/executor.rs |
 | `cron:unread_changed` | cron 未读聚合数变化（`cron_mark_all_read` 清除时发 `{ total: 0 }`）；前端 cron 未读 store 收到后刷新侧边栏角标 |
+| `session:unread_changed` | assistant 消息落库或任一会话水位线更新；payload `{ sessionId?: string, domain?: "regular"\|"channel"\|"cron" }` 只作精准失效提示，消费者必须重查各域权威值 |
 | `job:created` / `job:updated` / `job:progress` / `job:completed` / `job:mark_injected_failed` | **统一后台任务事件（R3，替代旧 `async_tool_job:*`）**。`async_jobs::events` 发射；kind-tagged（payload `{ job_id, kind: "tool"\|"group", tool, status, session_id }`），覆盖后台**工具 + Group** 生命周期。`created`=新任务出现（running/queued）；`updated`=非终态变化（如 cancelling）；`progress`=`{ job_id, kind, session_id, current, total }`（目前 Group 报 N/M 子完成）；`completed`=终态；`mark_injected_failed`=结果注入主对话失败告警 `{ job_id, error }`。**`subagent` kind 沿用 `subagent:*` 流**（不双发），R4 面板合并两路 + `job_status list`。 |
 | `app_update:progress` / `app_update:completed` | 自升级 (`app_update` 工具) 进度上报。`progress` payload `{ job_id, label, phase, percent?, written?, total? }`（每 5% / 1s 节流）；`completed` payload `{ job_id, status: "done"|"failed", outcome?, error? }`，详见 [`self-update.md`](self-update.md) |
 
@@ -304,7 +305,7 @@ Artifact 创建或 show 仍复用 `canvas_show`，当前投影变化复用 `canv
 | `delete_project_memory_file_cmd` | `DELETE /api/projects/{id}/memory-files/{fileName}?expectedFileHash=` | ✅（stale-write guard） |
 | `rebuild_project_memory_index_cmd` | `POST /api/projects/{id}/memory-files/rebuild-index` | ✅ |
 
-`list_projects_cmd` / `GET /api/projects` 接受可选 `active_session_id`（HTTP query `activeSessionId`）：正在打开的那个会话会从其所属项目的未读聚合里排除（在 SQL 里按已读处理），使项目徽标与“当前会话读作 0”一致，无需前端跨数据源相减。项目列表不再返回旧 `memoryCount`，也不再逐项目查询记忆库；概览口径统一由 `get_project_overview_cmd` / `GET /api/projects/{id}/overview` 提供。
+`list_projects_cmd` / `GET /api/projects` 接受可选 `active_session_id`（HTTP query `activeSessionId`）：前端仅在该会话满足“聊天主视图已选中 + 窗口聚焦 + document 可见 + 消息列表在最新位置”的可读条件时传入，使项目徽标与会话行口径一致，无需前端跨数据源相减。项目列表不再返回旧 `memoryCount`，也不再逐项目查询记忆库；概览口径统一由 `get_project_overview_cmd` / `GET /api/projects/{id}/overview` 提供。
 
 项目指令以项目工作目录根 `AGENTS.md` 为唯一真相源，`Project` / `CreateProjectInput` / `UpdateProjectInput` 均不再携带 `instructions`。新增 / 编辑表单通过独立 `instructions: { content, expectedFileHash }` 请求字段把文件草稿与项目元数据一起提交；文件步骤失败会回滚项目创建 / 元数据更新，内容仍不进 SQLite。切换目录前可用 inspect 接口只读取得目标文件，缺失时返回空内容与空文件 hash，但不提前建文件。创建项目、切换 `workingDir` 和启动迁移会确保文件存在；GET 返回 `{ path, content, contentHash, created }`，PUT body 为 `{ content, expectedFileHash }` 并原样保留 Markdown 空白。保存前以磁盘 raw BLAKE3 校验 `expectedFileHash`，不一致返回冲突，防止覆盖 Agent / 外部编辑器的并发修改。
 
@@ -456,9 +457,11 @@ KB 文件预览端点是**纯 owner 平面，无 session 参数、无 owner fall
 | `get_session_stream_state` | `GET /api/sessions/{sessionId}/stream-state` | ✅ |
 | `delete_session_cmd` | `DELETE /api/sessions/{sessionId}` | ✅ |
 | `rename_session_cmd` | `PATCH /api/sessions/{sessionId}` | ✅ |
-| `mark_session_read_cmd` | `POST /api/sessions/{sessionId}/read` | ✅ |
+| `mark_session_read_cmd` | `POST /api/sessions/{sessionId}/read` | ✅ 可选 body `{throughMessageId}`；阅读面按已渲染上限推进，省略表示显式全部已读 |
 | `mark_session_read_batch_cmd` | `POST /api/sessions/read-batch` | ✅ |
-| `mark_all_sessions_read_cmd` | `POST /api/sessions/read-all` | ✅ |
+| `mark_all_sessions_read_cmd` | `POST /api/sessions/read-all` | ✅（仅普通顶层会话，不清 Cron / IM / Knowledge / Subagent / incognito） |
+| `regular_unread_total_cmd` | `GET /api/sessions/unread?activeSessionId=` | ✅（全库普通未读 session 数） |
+| `next_unread_session_cmd` | `GET /api/sessions/unread/next?activeSessionId=` | ✅（侧边栏视觉顺序中的首个普通未读 session + projectId + listOffset） |
 | `compact_context_now` | `POST /api/sessions/{sessionId}/compact` | ✅ |
 | `export_session_cmd` | `GET /api/sessions/{sessionId}/export` | ✅ |
 | `write_export_file` | `POST /api/misc/write-export-file` | ✅ |
@@ -466,6 +469,8 @@ KB 文件预览端点是**纯 owner 平面，无 session 参数、无 owner fall
 | `set_dangerous_skip_all_approvals` | `POST /api/security/dangerous-skip-all-approvals` | ✅ |
 
 `create_session_cmd` 与 `chat` 在自动创建新会话时都支持可选 `incognito: boolean`，返回的 `SessionMeta` 也会包含 `incognito` 字段；主聊天 UI 将 incognito 视为“新会话预设”，只在尚未 materialize session 的草稿态提供入口，已有会话不再暴露切换按钮。`set_session_incognito` 保留给兼容调用和非主 UI 适配，但不应作为常规会话内开关使用。当请求同时带了 `project_id` 时 `incognito` 被强制为 `false`（互斥）。`list_sessions_cmd` / `search_sessions_cmd` / `list_project_sessions_cmd` 接受可选 `active_session_id` 参数：默认会过滤掉所有 incognito 会话，`active_session_id` 让正在打开的那个无痕会话仍出现在 sidebar / 搜索结果里。`purge_session_if_incognito` 在前端 `handleSwitchSession / handleNewChat / handleNewChatInProject` 切走当前 session 之前调用，仅当目标 session 当前为 incognito 时硬删，否则 no-op。
+
+未读产品口径为 session 数：普通域仅包含 `kind=regular`、顶层、非 Cron、非 incognito、无 IM 绑定的会话（项目会话包含）。只有聊天主视图已选中、应用窗口聚焦、document 可见且消息列表停在最新位置时，当前 session 才按已读显示并推进水位线；组件仍挂载或仅持有 `currentSessionId` 不代表用户正在阅读。`regular_unread_total_cmd` 是对话入口、Dock 和状态栏的单一聚合来源，不得用当前分页列表求和；再次点击已经激活的“对话”入口时，用 `next_unread_session_cmd` 定位侧边栏视觉顺序中的首个未读会话，按返回的 `projectId + listOffset` 一次加载足够的前缀并滚动到目标行。会话行只显示点，项目与全局入口显示数量。
 
 `update_session_agent_cmd` 接受 `{ agentId: string }`，后端在 SQL 层校验 `messages` 表中该 session 没有 `role IN ('user','assistant')` 的记录，否则返回 400。前端 `ChatTitleBar` 的 `AgentSwitcher` dropdown 在 `messages.length > 0` 时会把触发器降级为只读 `<span>`，作为 UX 防御层。
 
@@ -998,7 +1003,7 @@ Agent 执行准入采用两层 guard：Desktop / HTTP / Channel / Cron 等调用
 | `cron_get_run_logs` | `GET /api/cron/jobs/{jobId}/logs` | ✅ |
 | `cron_get_calendar_events` | `GET /api/cron/calendar` | ✅ |
 | `cron_run_timeline` | `GET /api/cron/timeline?limit=&offset=` | ✅ (跨 job 运行时间线，cron 面板「对话」视图) |
-| `cron_unread_total` | `GET /api/cron/unread` | ✅ (cron 未读聚合数，侧边栏角标) |
+| `cron_unread_total` | `GET /api/cron/unread` | ✅（未读 Cron 运行 session 数，侧边栏独立角标） |
 | `cron_mark_all_read` | `POST /api/cron/read-all` | ✅ (一键清除 cron 未读，emit `cron:unread_changed`) |
 
 ### Dashboard
@@ -1486,6 +1491,7 @@ Context / Cache 共用单 SQL `get_session_last_assistant_token_row`，避免渲
 | `open_directory` | `POST /api/desktop/open-directory` | 同上 |
 | `reveal_in_folder` | `POST /api/desktop/reveal-in-folder` | 同上 |
 | `set_dock_badge_cmd` | — | 仅桌面：把全局未读总数写到 app icon / Dock 角标（`count=0` 清除）；前端按 `isTauriMode()` 门控，Web 端不调用，无 HTTP 端点 |
+| `set_tray_unread_cmd` | — | 仅桌面：状态栏 / tray 图标按普通未读会话是否大于 0 显示红点；紧凑图标不绘制数字 |
 | `get_system_prompt` | `POST /api/system-prompt` | 调试端点 |
 
 ### Filesystem
@@ -1551,7 +1557,7 @@ Context / Cache 共用单 SQL `get_session_last_assistant_token_row`，避免渲
 | `memory_backup_restore_legacy_archive` | `POST /api/memory/backup/restore-legacy-archive` | HTTP body 为 ZIP bytes，走 `restoreMemoryBackupLegacyArchive` |
 | `memory_backup_restore_structured_archive` | `POST /api/memory/backup/restore-structured-archive` | HTTP body 为 ZIP bytes，走 `restoreMemoryBackupStructuredArchive` |
 
-这 11 条都是 HTTP 端有路由且前端两侧都能调用，只是不通过通用的 `COMMAND_MAP` JSON 路径。另有 `project_fs_resolve` / `kb_file_resolve_cmd`（Tauri-only `convertFileSrc`）与 `set_dock_badge_cmd`（Desktop-only Dock 角标）属 Tauri 专属、无 HTTP 对应。
+这 11 条都是 HTTP 端有路由且前端两侧都能调用，只是不通过通用的 `COMMAND_MAP` JSON 路径。另有 `project_fs_resolve` / `kb_file_resolve_cmd`（Tauri-only `convertFileSrc`）、`set_dock_badge_cmd`（Desktop-only Dock 数字角标）与 `set_tray_unread_cmd`（Desktop-only tray 红点）属 Tauri 专属、无 HTTP 对应。
 
 ### §7.4 命名/返回值语义差异
 

@@ -45,10 +45,10 @@ export interface UseProjectsReturn {
 export function useProjects(
   options: {
     includeArchived?: boolean
-    /** Currently-open session id, read at fetch time and forwarded to the
+    /** Actually-readable session id, read at fetch time and forwarded to the
      *  backend so its unread is excluded from the owning project's badge. The
-     *  caller is responsible for calling `reloadProjects` when it changes (the
-     *  ref avoids re-creating the hook's callbacks on every session switch). */
+     *  caller is responsible for reloading when readability changes (the ref
+     *  avoids re-creating callbacks on every focus/scroll transition). */
     activeSessionIdRef?: MutableRefObject<string | null>
   } = {},
 ): UseProjectsReturn {

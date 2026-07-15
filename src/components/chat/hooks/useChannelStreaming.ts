@@ -18,6 +18,7 @@ interface UseChannelStreamingParams {
   setLoading: React.Dispatch<React.SetStateAction<boolean>>
   setLoadingSessionIds: React.Dispatch<React.SetStateAction<Set<string>>>
   reloadSessions: () => Promise<void>
+  activeSessionReadableRef: React.MutableRefObject<boolean>
 }
 
 export function useChannelStreaming({
@@ -28,6 +29,7 @@ export function useChannelStreaming({
   setLoading,
   setLoadingSessionIds,
   reloadSessions,
+  activeSessionReadableRef,
 }: UseChannelStreamingParams): void {
   const deltaBuffersRef = useRef(createStreamDeltaBuffers())
   const preparingStreamRef = useRef<Set<string>>(new Set())
@@ -86,7 +88,8 @@ export function useChannelStreaming({
     const queuedEvents = queuedEventsRef.current
     const streamGenerations = streamGenerationRef.current
 
-    unlisteners.push(getTransport().listen("channel:stream_start", (raw) => {
+    unlisteners.push(
+      getTransport().listen("channel:stream_start", (raw) => {
       const payload = raw as { sessionId: string }
       if (!payload.sessionId) return
       const sessionId = payload.sessionId
@@ -111,10 +114,12 @@ export function useChannelStreaming({
         if (!isActive) {
           sessionCacheRef.current.delete(sessionId)
         }
-        getTransport().call<[SessionMessage[], number, boolean]>("load_session_messages_latest_cmd", {
+          getTransport()
+            .call<[SessionMessage[], number, boolean]>("load_session_messages_latest_cmd", {
           sessionId,
           limit: PAGE_SIZE,
-        }).then(([msgs]) => {
+            })
+            .then(([msgs]) => {
           if (streamGenerationRef.current.get(sessionId) !== generation) return
           const withPlaceholder = appendStreamingPlaceholder(parseSessionMessages(msgs))
           preparingStreamRef.current.delete(sessionId)
@@ -124,7 +129,8 @@ export function useChannelStreaming({
             setMessages(withPlaceholder)
           }
           replayQueuedEvents(sessionId)
-        }).catch(() => {
+            })
+            .catch(() => {
           if (streamGenerationRef.current.get(sessionId) !== generation) return
           preparingStreamRef.current.delete(sessionId)
           preparedStreamRef.current.delete(sessionId)
@@ -156,12 +162,15 @@ export function useChannelStreaming({
       if (isActive) {
         setLoading(true)
       }
-    }))
+      }),
+    )
 
-    unlisteners.push(getTransport().listen("channel:stream_end", (raw) => {
+    unlisteners.push(
+      getTransport().listen("channel:stream_end", (raw) => {
       const payload = raw as { sessionId: string }
       if (!payload.sessionId) return
       const sessionId = payload.sessionId
+        const isActive = sessionId === currentSessionIdRef.current
       streamGenerationRef.current.delete(sessionId)
       preparingStreamRef.current.delete(sessionId)
       preparedStreamRef.current.delete(sessionId)
@@ -172,7 +181,7 @@ export function useChannelStreaming({
 
       discardPendingStreamDeltas(sessionId, deltaBuffersRef)
 
-      if (sessionId === currentSessionIdRef.current) {
+        if (isActive) {
         setLoading(false)
         reloadAndMergeSessionMessages({
           sessionId,
@@ -183,7 +192,22 @@ export function useChannelStreaming({
       } else {
         sessionCacheRef.current.delete(sessionId)
       }
-    }))
+
+        // Keep IM read-state semantics aligned with regular streams: if the user
+        // watched this channel reply in the currently-open desktop conversation,
+        // advance the shared watermark at completion. Background IM activity
+        // stays unread. Always refresh session metadata after persistence so the
+        // independent blue indicator never lags one turn behind.
+        void (async () => {
+          if (isActive && activeSessionReadableRef.current) {
+            await getTransport()
+              .call("mark_session_read_cmd", { sessionId })
+              .catch(() => undefined)
+          }
+          await reloadSessions()
+        })()
+      }),
+    )
 
     return () => {
       unlisteners.forEach((fn) => fn())
@@ -195,6 +219,7 @@ export function useChannelStreaming({
     }
   }, [
     appendStreamingPlaceholder,
+    activeSessionReadableRef,
     currentSessionIdRef,
     loadingSessionsRef,
     reloadSessions,
@@ -251,7 +276,13 @@ export function useChannelStreaming({
       })
     })
     return unlisten
-  }, [appendStreamingPlaceholder, currentSessionIdRef, sessionCacheRef, setMessages, updateSessionMessages])
+  }, [
+    appendStreamingPlaceholder,
+    currentSessionIdRef,
+    sessionCacheRef,
+    setMessages,
+    updateSessionMessages,
+  ])
 
   // Listen for channel message updates — refresh sessions + reload current session messages
   // (but SKIP DB reload if the session is currently streaming to avoid overwriting stream state)
@@ -265,14 +296,17 @@ export function useChannelStreaming({
       }
       // If the updated session is currently active, reload its messages from DB
       if (payload.sessionId && payload.sessionId === currentSessionIdRef.current) {
-        getTransport().call<[SessionMessage[], number, boolean]>("load_session_messages_latest_cmd", {
+        getTransport()
+          .call<[SessionMessage[], number, boolean]>("load_session_messages_latest_cmd", {
           sessionId: payload.sessionId,
           limit: PAGE_SIZE,
-        }).then(([msgs]) => {
+          })
+          .then(([msgs]) => {
           const parsed = parseSessionMessages(msgs)
           setMessages(parsed)
           sessionCacheRef.current.set(payload.sessionId, parsed)
-        }).catch(() => {})
+          })
+          .catch(() => {})
       }
     })
     return unlisten

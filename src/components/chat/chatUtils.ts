@@ -1031,7 +1031,7 @@ export async function reloadAndMergeSessionMessages(params: {
   pageSize: number
   sessionCacheRef: React.MutableRefObject<Map<string, Message[]>>
   setMessages: (msgs: Message[]) => void
-}): Promise<void> {
+}): Promise<boolean> {
   const { sessionId, pageSize, sessionCacheRef, setMessages } = params
   const existingAtRequestStart = sessionCacheRef.current.get(sessionId) ?? []
   const limit = Math.max(pageSize, existingAtRequestStart.length)
@@ -1049,10 +1049,12 @@ export async function reloadAndMergeSessionMessages(params: {
     )
     sessionCacheRef.current.set(sessionId, merged)
     setMessages(merged)
+    return true
   } catch {
     // Stream has already ended and placeholders will eventually resolve via
     // the next session switch — swallowing here matches the pre-refactor
     // behavior on each of the three call sites.
+    return false
   }
 }
 

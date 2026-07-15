@@ -12,6 +12,8 @@ const PAGE_SIZE = 50
 interface CronSessionViewerProps {
   sessionId: string
   agents: AgentSummaryForSidebar[]
+  /** Fires only after the transcript request succeeds (an empty transcript still counts). */
+  onLoaded?: (sessionId: string) => void
 }
 
 /**
@@ -24,7 +26,7 @@ interface CronSessionViewerProps {
  * reachable from the main chat list, so a tool-heavy run with > PAGE_SIZE stored
  * messages would otherwise have its earlier prompt/tool context inaccessible.
  */
-export default function CronSessionViewer({ sessionId, agents }: CronSessionViewerProps) {
+export default function CronSessionViewer({ sessionId, agents, onLoaded }: CronSessionViewerProps) {
   const { t } = useTranslation()
   const [messages, setMessages] = useState<Message[]>([])
   // Mounted with key={sessionId} by both call sites, so each session starts
@@ -47,6 +49,7 @@ export default function CronSessionViewer({ sessionId, agents }: CronSessionView
         setMessages(parseSessionMessages(rawMsgs))
         oldestDbId.current = rawMsgs.length > 0 ? rawMsgs[0].id : null
         setHasMore(!!hasMoreBefore)
+        onLoaded?.(sessionId)
       })
       .catch((e) => {
         if (cancelled) return
@@ -59,7 +62,7 @@ export default function CronSessionViewer({ sessionId, agents }: CronSessionView
     return () => {
       cancelled = true
     }
-  }, [sessionId])
+  }, [onLoaded, sessionId])
 
   const handleLoadMore = useCallback(async () => {
     if (loadingMore || !hasMore || oldestDbId.current === null) return

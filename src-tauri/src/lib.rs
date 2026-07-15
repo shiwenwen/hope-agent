@@ -262,6 +262,7 @@ pub fn run() {
             commands::misc::open_url,
             commands::misc::write_export_file,
             commands::misc::set_dock_badge_cmd,
+            commands::misc::set_tray_unread_cmd,
             // Filesystem listing & search (chat-input @ mention popper, working-dir picker)
             commands::filesystem::fs_list_dir,
             commands::filesystem::fs_create_dir,
@@ -686,6 +687,8 @@ pub fn run() {
             commands::session::mark_session_read_cmd,
             commands::session::mark_session_read_batch_cmd,
             commands::session::mark_all_sessions_read_cmd,
+            commands::session::regular_unread_total_cmd,
+            commands::session::next_unread_session_cmd,
             commands::session::export_session_cmd,
             // Project management
             commands::project::list_projects_cmd,

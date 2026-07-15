@@ -42,6 +42,12 @@ pub struct ListSessionsQuery {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct UnreadQuery {
+    pub active_session_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SearchSessionsQuery {
     pub query: String,
     pub agent_id: Option<String>,
@@ -694,6 +700,32 @@ pub async fn list_sessions(
     Ok(Json(PaginatedSessions { sessions, total }))
 }
 
+/// `GET /api/sessions/unread` — authoritative unread regular-conversation
+/// count. Counts sessions rather than assistant message rows.
+pub async fn regular_unread_total(
+    State(ctx): State<Arc<AppContext>>,
+    Query(q): Query<UnreadQuery>,
+) -> Result<Json<i64>, AppError> {
+    Ok(Json(
+        ctx.session_db
+            .run(move |db| db.regular_unread_total(q.active_session_id.as_deref()))
+            .await?,
+    ))
+}
+
+/// `GET /api/sessions/unread/next` — first unread regular conversation in the
+/// sidebar's visual order, including its exact list offset for one-shot reveal.
+pub async fn next_unread_session(
+    State(ctx): State<Arc<AppContext>>,
+    Query(q): Query<UnreadQuery>,
+) -> Result<Json<Option<ha_core::session::UnreadSessionTarget>>, AppError> {
+    Ok(Json(
+        ctx.session_db
+            .run(move |db| db.next_regular_unread_session(q.active_session_id.as_deref()))
+            .await?,
+    ))
+}
+
 /// `GET /api/sessions/:id` — get a single session.
 pub async fn get_session(
     State(ctx): State<Arc<AppContext>>,
@@ -1287,13 +1319,22 @@ pub struct ReadBatchBody {
     pub session_ids: Vec<String>,
 }
 
-/// `POST /api/sessions/:id/read` — mark a single session as read.
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MarkSessionReadBody {
+    pub through_message_id: Option<i64>,
+}
+
+/// `POST /api/sessions/:id/read` — mark a single session as read. An optional
+/// body watermark limits the update to messages the client actually rendered.
 pub async fn mark_session_read(
     State(ctx): State<Arc<AppContext>>,
     Path(id): Path<String>,
+    body: Option<Json<MarkSessionReadBody>>,
 ) -> Result<Json<Value>, AppError> {
+    let through_message_id = body.and_then(|Json(body)| body.through_message_id);
     ctx.session_db
-        .run(move |db| db.mark_session_read(&id))
+        .run(move |db| db.mark_session_read_through(&id, through_message_id))
         .await?;
     Ok(Json(json!({ "ok": true })))
 }

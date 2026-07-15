@@ -102,7 +102,7 @@ export interface CronTimelineRow {
   resultPreview?: string | null
   /** Session title (defaults to jobName when the session row is gone). */
   title?: string | null
-  /** Unread assistant-message count for this run's session. */
+  /** Whether this run session has unread assistant output (0 or 1). */
   unreadCount: number
 }
 

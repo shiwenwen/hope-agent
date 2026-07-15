@@ -349,6 +349,8 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   mark_session_read_cmd: { method: "POST", path: "/api/sessions/{sessionId}/read" },
   mark_session_read_batch_cmd: { method: "POST", path: "/api/sessions/read-batch" },
   mark_all_sessions_read_cmd: { method: "POST", path: "/api/sessions/read-all" },
+  regular_unread_total_cmd: { method: "GET", path: "/api/sessions/unread" },
+  next_unread_session_cmd: { method: "GET", path: "/api/sessions/unread/next" },
   compact_context_now: { method: "POST", path: "/api/sessions/{sessionId}/compact" },
   write_export_file: { method: "POST", path: "/api/misc/write-export-file" },
   get_dangerous_mode_status: { method: "GET", path: "/api/security/dangerous-status" },
