@@ -7,6 +7,8 @@
 
 pub mod audio;
 mod brands;
+pub mod code_sync;
+pub mod code_watcher;
 pub mod compile;
 pub mod critique;
 pub mod db;

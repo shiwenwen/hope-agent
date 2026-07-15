@@ -2018,7 +2018,7 @@ fn is_session_busy(session_id: &str) -> bool {
         > 0
 }
 
-fn repository_revision(root: &Path) -> Result<String> {
+pub(crate) fn repository_revision(root: &Path) -> Result<String> {
     let mut hasher = blake3::Hasher::new();
     for args in [
         vec!["rev-parse", "HEAD"],

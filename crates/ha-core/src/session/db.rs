@@ -1679,8 +1679,8 @@ impl SessionDB {
             // Regular top-level chats and design-space threads are forkable; the
             // latter产物仍是设计线程（补建 design_chat_threads 锚点见下）。cron / 子会话 /
             // 其它隐藏 kind（knowledge / eval_fixture）与 incognito 仍拒。
-            let is_forkable_kind = kind == SessionKind::Regular.as_str()
-                || kind == SessionKind::Design.as_str();
+            let is_forkable_kind =
+                kind == SessionKind::Regular.as_str() || kind == SessionKind::Design.as_str();
             if is_cron != 0 || parent_session_id.is_some() || !is_forkable_kind {
                 anyhow::bail!("only regular top-level sessions can be forked");
             }

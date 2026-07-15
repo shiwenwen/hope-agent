@@ -5,7 +5,7 @@
 //! "索引可重建" 红线，见 `docs/architecture/design-space.md` §4）。
 
 use anyhow::Result;
-use rusqlite::Connection;
+use rusqlite::{Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::sync::Mutex;
@@ -41,6 +41,10 @@ pub struct DesignProject {
     /// 待复查（`status='needs_review'`）产物数（列表页状态徽标用，读取时聚合）。
     #[serde(default)]
     pub needs_review_count: i64,
+    /// 代码漂移（`metadata.codeDrift` 非空）产物数——绑定仓库落地后代码侧变更、
+    /// 设计稿待更新（列表页 stale 徽标用，读取时聚合）。见 `design::code_sync`。
+    #[serde(default)]
+    pub code_drift_count: i64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<String>,
     /// 项目对话的初始模型（首页生成时由所选模型写入）。弱引用：provider / 模型
@@ -177,6 +181,42 @@ pub struct DeploymentRecord {
     pub created_at: String,
 }
 
+/// 「实现到代码」一次落地的回执（`design::code_sync`）。锚定「产物 → 会话 → 落地目录」并记
+/// 收割进度（`harvest_cursor` = 已扫到的最大会话 message id，增量幂等）与基线 revision。
+#[derive(Debug, Clone)]
+pub struct DesignImplementReceipt {
+    pub id: String,
+    pub artifact_id: String,
+    /// 承接实现的普通 chat 会话（sessions.db 弱引用，无跨库 FK）。
+    pub session_id: String,
+    /// implement 时的 canonical 代码目录快照。
+    pub code_dir: String,
+    /// implement 时的 git 指纹（非 git 目录 = None）。
+    pub base_revision: Option<String>,
+    /// 最近一次收割/同步时的 git 指纹（drift 检查短路用，可 None）。
+    pub harvest_revision: Option<String>,
+    /// 已收割到的最大会话 message id（增量游标）。
+    pub harvest_cursor: i64,
+    pub created_at: String,
+    pub harvested_at: Option<String>,
+}
+
+/// 回执下的一个「产物落地文件」链接及其基线（内容 hash + gzip 快照供 diff 回放）。
+#[derive(Debug, Clone)]
+pub struct DesignCodeLink {
+    pub id: i64,
+    pub receipt_id: String,
+    /// 相对 `receipt.code_dir` 的路径（正斜杠）。
+    pub rel_path: String,
+    /// 基线内容 BLAKE3（收割/同步时的磁盘态）。
+    pub blake3: String,
+    pub size_bytes: i64,
+    /// gzip 基线快照（≤512KB 原文且非二进制才存；否则 None → UI 降级不出内嵌 diff）。
+    pub content_gz: Option<Vec<u8>>,
+    pub linked_at: String,
+    pub synced_at: String,
+}
+
 // ── Column lists / row mappers ─────────────────────────────────────
 
 fn row_to_code_binding(row: &rusqlite::Row) -> rusqlite::Result<DesignCodeBinding> {
@@ -196,6 +236,9 @@ const PROJECT_COLUMNS: &str = "SELECT p.id, p.title, p.description, p.color, p.d
      p.ha_project_id, p.session_id, p.agent_id, p.created_at, p.updated_at, \
      (SELECT COUNT(*) FROM design_artifacts a WHERE a.project_id = p.id) AS artifact_count, \
      (SELECT COUNT(*) FROM design_artifacts a WHERE a.project_id = p.id AND a.status = 'needs_review') AS needs_review_count, \
+     (SELECT COUNT(*) FROM design_artifacts a WHERE a.project_id = p.id \
+        AND a.metadata IS NOT NULL AND json_valid(a.metadata) \
+        AND json_extract(a.metadata, '$.codeDrift') IS NOT NULL) AS code_drift_count, \
      p.metadata, p.default_model, p.code_dir \
      FROM design_projects p";
 
@@ -213,12 +256,13 @@ fn map_project_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<DesignProject> {
         updated_at: row.get(9)?,
         artifact_count: row.get(10)?,
         needs_review_count: row.get(11)?,
-        metadata: row.get(12)?,
+        code_drift_count: row.get(12)?,
+        metadata: row.get(13)?,
         // TEXT JSON 列;损坏 / 旧行 NULL 一律回 None(弱引用,消费端自兜底)。
         default_model: row
-            .get::<_, Option<String>>(13)?
+            .get::<_, Option<String>>(14)?
             .and_then(|s| serde_json::from_str(&s).ok()),
-        code_dir: row.get(14)?,
+        code_dir: row.get(15)?,
     })
 }
 
@@ -473,6 +517,44 @@ impl DesignDb {
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_design_deployments_artifact
                 ON design_deployments(artifact_id, id DESC)",
+            [],
+        )?;
+
+        // ── code→design 回灌（stale 检测）：implement_to_code 落地回执 + 产物↔落地文件关联 ──
+        // 回执 = 一次「实现到代码」的锚点（哪个产物 / 哪个会话 / 落到哪个目录 / 基线 revision +
+        // 已收割到的会话消息游标）。links = 从会话 write/edit 元数据收割出的「产物落地文件」及其
+        // 基线内容 hash + gzip 快照（供 diff 回放）。两级 CASCADE，会话侧是弱引用（无跨库 FK）。
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS design_implement_receipts (
+                id TEXT PRIMARY KEY,
+                artifact_id TEXT NOT NULL REFERENCES design_artifacts(id) ON DELETE CASCADE,
+                session_id TEXT NOT NULL,
+                code_dir TEXT NOT NULL,
+                base_revision TEXT,
+                harvest_revision TEXT,
+                harvest_cursor INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                harvested_at TEXT
+            )",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_design_receipts_artifact
+                ON design_implement_receipts(artifact_id, created_at DESC)",
+            [],
+        )?;
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS design_code_links (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                receipt_id TEXT NOT NULL REFERENCES design_implement_receipts(id) ON DELETE CASCADE,
+                rel_path TEXT NOT NULL,
+                blake3 TEXT NOT NULL,
+                size_bytes INTEGER NOT NULL DEFAULT 0,
+                content_gz BLOB,
+                linked_at TEXT NOT NULL,
+                synced_at TEXT NOT NULL,
+                UNIQUE(receipt_id, rel_path)
+            )",
             [],
         )?;
 
@@ -895,6 +977,17 @@ impl DesignDb {
         conn.execute(
             "UPDATE design_artifacts SET metadata = ?2, updated_at = ?3 WHERE id = ?1",
             rusqlite::params![id, metadata, updated_at],
+        )?;
+        Ok(())
+    }
+
+    /// 写 metadata 但**不动 `updated_at`**（code_sync 的 drift 检查/清标专用）——浏览态的
+    /// 后台检查不得抬 `updated_at`，否则产物墙 `ORDER BY updated_at DESC` 每次检查都重排。
+    pub fn set_artifact_metadata_quiet(&self, id: &str, metadata: Option<&str>) -> Result<()> {
+        let conn = self.lock()?;
+        conn.execute(
+            "UPDATE design_artifacts SET metadata = ?2 WHERE id = ?1",
+            rusqlite::params![id, metadata],
         )?;
         Ok(())
     }
@@ -1353,6 +1446,283 @@ impl DesignDb {
         )?;
         Ok(n > 0)
     }
+
+    // ── code→design 回灌回执 / 链接（design::code_sync）─────────────────
+
+    pub fn create_implement_receipt(&self, r: &DesignImplementReceipt) -> Result<()> {
+        let conn = self.lock()?;
+        conn.execute(
+            "INSERT INTO design_implement_receipts
+                (id, artifact_id, session_id, code_dir, base_revision, harvest_revision,
+                 harvest_cursor, created_at, harvested_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            rusqlite::params![
+                r.id,
+                r.artifact_id,
+                r.session_id,
+                r.code_dir,
+                r.base_revision,
+                r.harvest_revision,
+                r.harvest_cursor,
+                r.created_at,
+                r.harvested_at,
+            ],
+        )?;
+        Ok(())
+    }
+
+    fn map_receipt(row: &rusqlite::Row<'_>) -> rusqlite::Result<DesignImplementReceipt> {
+        Ok(DesignImplementReceipt {
+            id: row.get(0)?,
+            artifact_id: row.get(1)?,
+            session_id: row.get(2)?,
+            code_dir: row.get(3)?,
+            base_revision: row.get(4)?,
+            harvest_revision: row.get(5)?,
+            harvest_cursor: row.get(6)?,
+            created_at: row.get(7)?,
+            harvested_at: row.get(8)?,
+        })
+    }
+
+    const RECEIPT_COLUMNS: &'static str =
+        "id, artifact_id, session_id, code_dir, base_revision, harvest_revision, \
+         harvest_cursor, created_at, harvested_at";
+
+    pub fn list_receipts_for_artifact(
+        &self,
+        artifact_id: &str,
+    ) -> Result<Vec<DesignImplementReceipt>> {
+        let conn = self.lock()?;
+        let sql = format!(
+            "SELECT {} FROM design_implement_receipts WHERE artifact_id = ?1 ORDER BY created_at ASC",
+            Self::RECEIPT_COLUMNS
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(rusqlite::params![artifact_id], Self::map_receipt)?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
+    /// 某项目下全部产物的回执（JOIN design_artifacts 过滤 project）。
+    pub fn list_receipts_for_project(
+        &self,
+        project_id: &str,
+    ) -> Result<Vec<DesignImplementReceipt>> {
+        let conn = self.lock()?;
+        let sql = format!(
+            "SELECT {} FROM design_implement_receipts r \
+             JOIN design_artifacts a ON a.id = r.artifact_id \
+             WHERE a.project_id = ?1 ORDER BY r.created_at ASC",
+            Self::RECEIPT_COLUMNS
+                .split(", ")
+                .map(|c| format!("r.{c}"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(rusqlite::params![project_id], Self::map_receipt)?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
+    pub fn update_receipt_harvest(
+        &self,
+        id: &str,
+        cursor: i64,
+        harvest_revision: Option<&str>,
+        harvested_at: &str,
+    ) -> Result<()> {
+        let conn = self.lock()?;
+        conn.execute(
+            "UPDATE design_implement_receipts
+             SET harvest_cursor = ?2, harvest_revision = ?3, harvested_at = ?4 WHERE id = ?1",
+            rusqlite::params![id, cursor, harvest_revision, harvested_at],
+        )?;
+        Ok(())
+    }
+
+    pub fn delete_receipt(&self, id: &str) -> Result<()> {
+        let conn = self.lock()?;
+        conn.execute(
+            "DELETE FROM design_implement_receipts WHERE id = ?1",
+            rusqlite::params![id],
+        )?;
+        Ok(())
+    }
+
+    /// upsert 一个 link 基线（收割命中即刷新 hash/快照/synced_at；`linked_at` 保留首见值）。
+    pub fn upsert_code_link(
+        &self,
+        receipt_id: &str,
+        rel_path: &str,
+        blake3: &str,
+        size_bytes: i64,
+        content_gz: Option<&[u8]>,
+        now: &str,
+    ) -> Result<()> {
+        let conn = self.lock()?;
+        conn.execute(
+            "INSERT INTO design_code_links
+                (receipt_id, rel_path, blake3, size_bytes, content_gz, linked_at, synced_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)
+             ON CONFLICT(receipt_id, rel_path) DO UPDATE SET
+                blake3 = excluded.blake3,
+                size_bytes = excluded.size_bytes,
+                content_gz = excluded.content_gz,
+                synced_at = excluded.synced_at",
+            rusqlite::params![receipt_id, rel_path, blake3, size_bytes, content_gz, now],
+        )?;
+        Ok(())
+    }
+
+    fn map_link(row: &rusqlite::Row<'_>) -> rusqlite::Result<DesignCodeLink> {
+        Ok(DesignCodeLink {
+            id: row.get(0)?,
+            receipt_id: row.get(1)?,
+            rel_path: row.get(2)?,
+            blake3: row.get(3)?,
+            size_bytes: row.get(4)?,
+            content_gz: row.get(5)?,
+            linked_at: row.get(6)?,
+            synced_at: row.get(7)?,
+        })
+    }
+
+    /// 某产物全部回执的 links（JOIN，**不背 content_gz**——列表/比对用轻量态；快照单独取）。
+    pub fn list_links_for_artifact(
+        &self,
+        artifact_id: &str,
+    ) -> Result<Vec<(DesignImplementReceipt, DesignCodeLink)>> {
+        let conn = self.lock()?;
+        let mut stmt = conn.prepare(
+            "SELECT r.id, r.artifact_id, r.session_id, r.code_dir, r.base_revision, \
+                    r.harvest_revision, r.harvest_cursor, r.created_at, r.harvested_at, \
+                    l.id, l.receipt_id, l.rel_path, l.blake3, l.size_bytes, NULL, l.linked_at, l.synced_at \
+             FROM design_code_links l \
+             JOIN design_implement_receipts r ON r.id = l.receipt_id \
+             WHERE r.artifact_id = ?1 ORDER BY r.created_at ASC, l.rel_path ASC",
+        )?;
+        let rows = stmt.query_map(rusqlite::params![artifact_id], |row| {
+            let receipt = DesignImplementReceipt {
+                id: row.get(0)?,
+                artifact_id: row.get(1)?,
+                session_id: row.get(2)?,
+                code_dir: row.get(3)?,
+                base_revision: row.get(4)?,
+                harvest_revision: row.get(5)?,
+                harvest_cursor: row.get(6)?,
+                created_at: row.get(7)?,
+                harvested_at: row.get(8)?,
+            };
+            let link = DesignCodeLink {
+                id: row.get(9)?,
+                receipt_id: row.get(10)?,
+                rel_path: row.get(11)?,
+                blake3: row.get(12)?,
+                size_bytes: row.get(13)?,
+                content_gz: row.get(14)?,
+                linked_at: row.get(15)?,
+                synced_at: row.get(16)?,
+            };
+            Ok((receipt, link))
+        })?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
+    /// 单独取一个 link 的 gzip 基线快照（列表查询不背 BLOB，diff 回放时按需取）。
+    pub fn get_link_snapshot(&self, link_id: i64) -> Result<Option<Vec<u8>>> {
+        let conn = self.lock()?;
+        let gz: Option<Vec<u8>> = conn
+            .query_row(
+                "SELECT content_gz FROM design_code_links WHERE id = ?1",
+                rusqlite::params![link_id],
+                |row| row.get(0),
+            )
+            .optional()?
+            .flatten();
+        Ok(gz)
+    }
+
+    pub fn delete_link(&self, id: i64) -> Result<()> {
+        let conn = self.lock()?;
+        conn.execute(
+            "DELETE FROM design_code_links WHERE id = ?1",
+            rusqlite::params![id],
+        )?;
+        Ok(())
+    }
+
+    /// 「新回执赢」去重：删同产物**其它**回执下同 `rel_path` 的旧 link。返回删除数。
+    pub fn delete_links_same_path_in_other_receipts(
+        &self,
+        artifact_id: &str,
+        keep_receipt_id: &str,
+        rel_path: &str,
+    ) -> Result<usize> {
+        let conn = self.lock()?;
+        let n = conn.execute(
+            "DELETE FROM design_code_links WHERE rel_path = ?3 AND receipt_id IN (
+                 SELECT id FROM design_implement_receipts
+                 WHERE artifact_id = ?1 AND id != ?2
+             )",
+            rusqlite::params![artifact_id, keep_receipt_id, rel_path],
+        )?;
+        Ok(n)
+    }
+
+    /// 某回执下 link 数（去重后 prune 已收割空回执用）。
+    pub fn count_links_for_receipt(&self, receipt_id: &str) -> Result<i64> {
+        let conn = self.lock()?;
+        let n: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM design_code_links WHERE receipt_id = ?1",
+            rusqlite::params![receipt_id],
+            |row| row.get(0),
+        )?;
+        Ok(n)
+    }
+
+    pub fn update_link_baseline(
+        &self,
+        id: i64,
+        blake3: &str,
+        size_bytes: i64,
+        content_gz: Option<&[u8]>,
+        synced_at: &str,
+    ) -> Result<()> {
+        let conn = self.lock()?;
+        conn.execute(
+            "UPDATE design_code_links
+             SET blake3 = ?2, size_bytes = ?3, content_gz = ?4, synced_at = ?5 WHERE id = ?1",
+            rusqlite::params![id, blake3, size_bytes, content_gz, synced_at],
+        )?;
+        Ok(())
+    }
+
+    /// 有 link 的回执涉及的 DISTINCT code_dir（watcher 建监听目标用）。
+    pub fn list_linked_dirs(&self) -> Result<Vec<String>> {
+        let conn = self.lock()?;
+        let mut stmt = conn.prepare(
+            "SELECT DISTINCT r.code_dir FROM design_implement_receipts r
+             WHERE EXISTS (SELECT 1 FROM design_code_links l WHERE l.receipt_id = r.id)",
+        )?;
+        let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
+    /// 某 code_dir 下全部 (project_id, artifact_id, rel_path)（watcher 事件路径过滤 + drift 定位）。
+    pub fn links_index_for_dir(&self, code_dir: &str) -> Result<Vec<(String, String, String)>> {
+        let conn = self.lock()?;
+        let mut stmt = conn.prepare(
+            "SELECT a.project_id, r.artifact_id, l.rel_path
+             FROM design_code_links l
+             JOIN design_implement_receipts r ON r.id = l.receipt_id
+             JOIN design_artifacts a ON a.id = r.artifact_id
+             WHERE r.code_dir = ?1",
+        )?;
+        let rows = stmt.query_map(rusqlite::params![code_dir], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+        })?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
 }
 
 #[cfg(test)]
@@ -1380,6 +1750,7 @@ mod tests {
             updated_at: "t".into(),
             artifact_count: 0,
             needs_review_count: 0,
+            code_drift_count: 0,
             metadata: None,
             default_model: None,
             code_dir: None,
@@ -1651,5 +2022,148 @@ mod tests {
         let p = db.get_project("p1").unwrap().unwrap();
         assert_eq!(p.artifact_count, 4);
         assert_eq!(p.needs_review_count, 2);
+    }
+
+    fn seed_receipt(db: &DesignDb, id: &str, artifact_id: &str, session_id: &str) {
+        db.create_implement_receipt(&DesignImplementReceipt {
+            id: id.into(),
+            artifact_id: artifact_id.into(),
+            session_id: session_id.into(),
+            code_dir: "/repo".into(),
+            base_revision: None,
+            harvest_revision: None,
+            harvest_cursor: 0,
+            created_at: id.into(), // 用 id 作 created_at 保证排序确定性
+            harvested_at: None,
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn receipt_and_link_crud_roundtrip() {
+        let (_d, db) = open_temp();
+        let aid = seed_artifact(&db);
+        seed_receipt(&db, "r1", &aid, "sess1");
+        assert_eq!(db.list_receipts_for_artifact(&aid).unwrap().len(), 1);
+        assert_eq!(db.list_receipts_for_project("p1").unwrap().len(), 1);
+
+        // upsert link（含 content_gz BLOB）。
+        db.upsert_code_link("r1", "src/Button.tsx", "hashA", 42, Some(b"gzblob"), "t1")
+            .unwrap();
+        assert_eq!(db.count_links_for_receipt("r1").unwrap(), 1);
+        let links = db.list_links_for_artifact(&aid).unwrap();
+        assert_eq!(links.len(), 1);
+        // list_links 刻意不背 content_gz（轻量态）。
+        assert!(links[0].1.content_gz.is_none());
+        assert_eq!(links[0].1.blake3, "hashA");
+        // 快照单独取。
+        assert_eq!(
+            db.get_link_snapshot(links[0].1.id).unwrap().as_deref(),
+            Some(&b"gzblob"[..])
+        );
+
+        // upsert 冲突刷新 hash + linked_at 保留首见。
+        db.upsert_code_link("r1", "src/Button.tsx", "hashB", 50, None, "t2")
+            .unwrap();
+        let links = db.list_links_for_artifact(&aid).unwrap();
+        assert_eq!(links.len(), 1);
+        assert_eq!(links[0].1.blake3, "hashB");
+        assert_eq!(links[0].1.linked_at, "t1"); // 首见保留
+        assert_eq!(links[0].1.synced_at, "t2"); // 刷新
+
+        // 游标推进。
+        db.update_receipt_harvest("r1", 99, Some("rev1"), "t3")
+            .unwrap();
+        let r = &db.list_receipts_for_artifact(&aid).unwrap()[0];
+        assert_eq!(r.harvest_cursor, 99);
+        assert_eq!(r.harvest_revision.as_deref(), Some("rev1"));
+
+        // linked dirs / index。
+        assert_eq!(db.list_linked_dirs().unwrap(), vec!["/repo".to_string()]);
+        let idx = db.links_index_for_dir("/repo").unwrap();
+        assert_eq!(
+            idx,
+            vec![("p1".into(), aid.clone(), "src/Button.tsx".into())]
+        );
+    }
+
+    #[test]
+    fn receipt_link_cascade_on_artifact_and_project_delete() {
+        let (_d, db) = open_temp();
+        let aid = seed_artifact(&db);
+        seed_receipt(&db, "r1", &aid, "sess1");
+        db.upsert_code_link("r1", "a.ts", "h", 1, None, "t")
+            .unwrap();
+        // 删产物 → 回执 + link 级联消失。
+        db.delete_artifact(&aid).unwrap();
+        assert_eq!(db.list_receipts_for_artifact(&aid).unwrap().len(), 0);
+        assert_eq!(db.count_links_for_receipt("r1").unwrap(), 0);
+        assert!(db.list_linked_dirs().unwrap().is_empty());
+    }
+
+    #[test]
+    fn new_receipt_wins_dedup_same_path() {
+        let (_d, db) = open_temp();
+        let aid = seed_artifact(&db);
+        seed_receipt(&db, "r1", &aid, "sess1");
+        seed_receipt(&db, "r2", &aid, "sess2");
+        db.upsert_code_link("r1", "shared.ts", "old", 1, None, "t")
+            .unwrap();
+        db.upsert_code_link("r2", "shared.ts", "new", 2, None, "t")
+            .unwrap();
+        // 新回执赢：删 r1（其它回执）下同路径旧 link。
+        let removed = db
+            .delete_links_same_path_in_other_receipts(&aid, "r2", "shared.ts")
+            .unwrap();
+        assert_eq!(removed, 1);
+        assert_eq!(db.count_links_for_receipt("r1").unwrap(), 0);
+        assert_eq!(db.count_links_for_receipt("r2").unwrap(), 1);
+    }
+
+    #[test]
+    fn set_artifact_metadata_quiet_does_not_bump_updated_at() {
+        let (_d, db) = open_temp();
+        let aid = seed_artifact(&db); // updated_at = "t"
+        db.set_artifact_metadata_quiet(&aid, Some(r#"{"codeDrift":{"files":[]}}"#))
+            .unwrap();
+        let a = db.get_artifact(&aid).unwrap().unwrap();
+        assert_eq!(a.updated_at, "t"); // 不动
+        assert!(a.metadata.as_deref().unwrap().contains("codeDrift"));
+    }
+
+    #[test]
+    fn project_code_drift_count_aggregates() {
+        let (_d, db) = open_temp();
+        seed_artifact(&db); // a1，无 drift
+                            // a2 带 codeDrift；a3 metadata 非法 JSON（json_valid 兜底不炸）。
+        for (id, meta) in [
+            (
+                "a2",
+                Some(r#"{"codeDrift":{"files":[{"path":"x","state":"modified"}]}}"#),
+            ),
+            ("a3", Some("not json{{")),
+        ] {
+            db.create_artifact(&DesignArtifact {
+                id: id.into(),
+                project_id: "p1".into(),
+                title: id.into(),
+                kind: "web".into(),
+                system_id: None,
+                status: "ready".into(),
+                viewport_w: None,
+                viewport_h: None,
+                current_version: 1,
+                critique_score: None,
+                thumbnail_path: None,
+                created_at: "t".into(),
+                updated_at: "t".into(),
+                metadata: meta.map(str::to_string),
+                folder: String::new(),
+            })
+            .unwrap();
+        }
+        let p = db.get_project("p1").unwrap().unwrap();
+        assert_eq!(p.code_drift_count, 1); // 仅 a2
+        assert_eq!(p.artifact_count, 3);
     }
 }

@@ -1208,6 +1208,9 @@ pub async fn start_background_tasks() {
         crate::knowledge::index::spawn_startup_reconcile();
         crate::knowledge::watcher::start_all_watchers();
 
+        // 设计空间「关联代码仓库」落地文件监听：外部改动 → 产物标 stale（code→design 回灌）。
+        crate::design::code_watcher::start_all_watchers();
+
         // One-shot reconciler for orphan project-scoped memory rows. The
         // delete_project cascade touches both `session.db` and `memory.db` and
         // cannot wrap them in a single transaction, so a crash between the two

@@ -296,6 +296,7 @@ pub fn create_project(input: CreateProjectInput) -> Result<DesignProject> {
         updated_at: ts,
         artifact_count: 0,
         needs_review_count: 0,
+        code_drift_count: 0,
         metadata: None,
         default_model: input.default_model,
         code_dir: None,
@@ -360,6 +361,7 @@ pub fn duplicate_project(id: &str) -> Result<DesignProject> {
         updated_at: ts.clone(),
         artifact_count: 0,
         needs_review_count: 0,
+        code_drift_count: 0,
         metadata: src.metadata.clone(),
         // 副本继承源项目的对话模型偏好（弱引用，随时可换）。
         default_model: src.default_model.clone(),
@@ -975,6 +977,8 @@ pub fn set_project_code_binding(
         project.ha_project_id
     );
     emit("design:project_changed", json!({ "projectId": project.id }));
+    // 绑定源变更 → 重建代码目录 watcher（旧目录可能不再关联、新目录纳入）。
+    super::code_sync::refresh_watchers();
     Ok(project)
 }
 
@@ -1001,6 +1005,8 @@ pub fn delete_project(id: &str) -> Result<()> {
     }
     crate::app_info!("design", "service", "delete project {}", id);
     emit("design:project_changed", json!({ "projectId": id }));
+    // 回执/links 随产物级联删除；重建 watcher 撤销该项目目录的监听。
+    super::code_sync::refresh_watchers();
     Ok(())
 }
 
@@ -3865,7 +3871,8 @@ fn build_implement_pack(
 1. 先侦察仓库：读 README / 包清单 / 现有组件与样式约定，确定技术栈与组件规范后再动手。\n\
 2. 用仓库现有技术栈实现（组件框架 / 样式方案跟随现状；确有必要新增依赖须先说明理由）。\n\
 3. 设计变量对照表见下：仓库已有设计变量体系则把 `--ds-*` 值映射过去，没有则按团队约定落新变量。\n\
-4. 落成真实组件文件（含必要的导入 / 导出接线），完成后列出改动清单。\n\n",
+4. 落成真实组件文件（含必要的导入 / 导出接线），完成后列出改动清单。\n\
+5. 所有文件改动务必逐笔真实调用 `write` / `edit` / `apply_patch` 工具落盘（不要用 `exec` 里的 heredoc / 重定向绕过）——设计空间靠这些工具的改动记录追踪「设计稿 ↔ 落地文件」的关联，用其它方式写盘会导致后续代码变更无法回灌提示。\n\n",
     );
     s.push_str("## 设计稿信息\n\n");
     s.push_str(&format!(
@@ -3994,6 +4001,11 @@ pub fn implement_to_code(artifact_id: &str) -> Result<ImplementToCodeResult> {
         meta.id,
         code_dir
     );
+    // 落地回执（code→design 回灌锚点）：hard-require——回执缺失则整条 stale 检测链失效，宁可
+    // 整体失败（与「working_dir 必须落成功」同一哲学）。随后重建 watcher（新目录纳入监听）。
+    super::code_sync::create_receipt_for_implement(artifact_id, &meta.id, &code_dir)
+        .context("failed to record implement receipt")?;
+    super::code_sync::refresh_watchers();
     Ok(ImplementToCodeResult {
         session_id: meta.id,
         prompt,
@@ -5052,6 +5064,7 @@ mod code_binding_tests {
             updated_at: "2026-01-01T00:00:00Z".into(),
             artifact_count: 0,
             needs_review_count: 0,
+            code_drift_count: 0,
             metadata: None,
             default_model: None,
             code_dir,
