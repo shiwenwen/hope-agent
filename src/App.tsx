@@ -111,6 +111,7 @@ export default function App() {
   const [pendingChatFocus, setPendingChatFocus] = useState<PendingChatFocus | null>(null)
   const [pendingProjectFocus, setPendingProjectFocus] = useState<PendingProjectFocus | null>(null)
   const [totalUnreadCount, setTotalUnreadCount] = useState(0)
+  const [unreadFocusSignal, setUnreadFocusSignal] = useState(0)
   const [sessionsRefreshTrigger, setSessionsRefreshTrigger] = useState(0)
   const { pendingUpdate: globalPendingUpdate, downloadStatus } = useDesktopUpdateStore()
   const [dismissedVersion, setDismissedVersion] = useState<string | null>(null)
@@ -165,16 +166,16 @@ export default function App() {
     },
   })
 
-  // Mirror the global desktop unread total onto the app icon / Dock badge so
-  // it's visible even when the window is minimized / backgrounded. Desktop-only
-  // (no-op on HTTP/web). Mirrors `totalUnreadCount`, which already excludes the
-  // active session, IM, and sub-agents — so the badge matches the in-app
-  // global indicator.
+  // Mirror the authoritative regular unread-session total onto native surfaces:
+  // Dock shows the exact count while the compact tray icon uses a boolean dot.
+  // Desktop-only (no-op on HTTP/web). The total already excludes the active
+  // session, Cron, Knowledge, IM, incognito, and sub-agents.
   useEffect(() => {
     if (!isTauriMode()) return
-    void getTransport()
-      .call("set_dock_badge_cmd", { count: totalUnreadCount })
-      .catch(() => {})
+    void Promise.allSettled([
+      getTransport().call("set_dock_badge_cmd", { count: totalUnreadCount }),
+      getTransport().call("set_tray_unread_cmd", { hasUnread: totalUnreadCount > 0 }),
+    ])
   }, [totalUnreadCount])
 
   // Load user avatar
@@ -262,6 +263,14 @@ export default function App() {
     if (keepConfigRecoveryView()) return
     setView("knowledge")
   }, [keepConfigRecoveryView])
+
+  const handleOpenChat = useCallback(() => {
+    if (keepConfigRecoveryView()) return
+    if (view === "chat") {
+      setUnreadFocusSignal((value) => value + 1)
+    }
+    setView("chat")
+  }, [keepConfigRecoveryView, view])
 
   const handleChatFocus = useCallback(
     (target: ChatFocusTarget) => {
@@ -625,7 +634,7 @@ export default function App() {
               <IconSidebar
                 view={view}
                 onOpenSettings={handleOpenSettings}
-                onOpenChat={() => setView("chat")}
+                onOpenChat={handleOpenChat}
                 onOpenAgents={() => {
                   setAgentIdForSettings(undefined)
                   setAgentTabForSettings(undefined)
@@ -799,6 +808,7 @@ export default function App() {
               )}
               <div className={view === "chat" ? "flex-1 flex overflow-hidden" : "hidden"}>
                 <ChatScreen
+                  isViewVisible={view === "chat"}
                   onOpenAgentSettings={(agentId) => {
                     setAgentIdForSettings(agentId)
                     setAgentTabForSettings(undefined)
@@ -808,6 +818,7 @@ export default function App() {
                   initialSessionId={pendingSessionId}
                   onSessionNavigated={() => setPendingSessionId(undefined)}
                   onUnreadCountChange={setTotalUnreadCount}
+                  unreadFocusSignal={unreadFocusSignal}
                   onOpenDashboardTab={handleOpenDashboard}
                   sessionsRefreshTrigger={sessionsRefreshTrigger}
                   onCurrentProjectChange={setCurrentChatProjectId}

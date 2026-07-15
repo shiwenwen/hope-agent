@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import { useTranslation } from "react-i18next"
@@ -48,6 +48,7 @@ interface SessionItemProps {
   /** Projects visible in the sidebar — used by the "Move to project" submenu. */
   projects?: ProjectMeta[]
   isActive: boolean
+  isReadable: boolean
   isLoading: boolean
   renamingSessionId: string | null
   renameValue: string
@@ -68,6 +69,8 @@ interface SessionItemProps {
   getAgentInfo: (agentId: string) => AgentSummaryForSidebar | undefined
   formatRelativeTime: (dateStr: string) => string
   displayMode: SidebarDisplayMode
+  /** Monotonic signal that reveals and briefly highlights this row. */
+  revealSignal?: number
 }
 
 export default function SessionItem({
@@ -76,6 +79,7 @@ export default function SessionItem({
   agent,
   projects = [],
   isActive,
+  isReadable,
   isLoading,
   renamingSessionId,
   renameValue,
@@ -92,9 +96,12 @@ export default function SessionItem({
   getAgentInfo,
   formatRelativeTime,
   displayMode,
+  revealSignal,
 }: SessionItemProps) {
   const { t } = useTranslation()
   const [exportOpen, setExportOpen] = useState(false)
+  const [revealHighlight, setRevealHighlight] = useState(false)
+  const rowRef = useRef<HTMLDivElement>(null)
   // Rename launches from the context menu below. Radix restores focus to the
   // trigger when the menu closes, which would immediately blur the freshly
   // opened rename input → onBlur commits → the box vanishes. This flag lets the
@@ -104,19 +111,34 @@ export default function SessionItem({
   const isCompact = displayMode === "compact"
 
   const pendingInteractionCount = session.pendingInteractionCount ?? 0
-  const hasPending =
-    !isActive && !session.channelInfo && pendingInteractionCount > 0
+  const hasPending = !isActive && !session.channelInfo && pendingInteractionCount > 0
   // Both counts share the single-source rules in `@/lib/unread`. Passing the
   // session's own id as the active id when `isActive` makes them read as 0 for
   // the open session (so the badges and the "mark as read" menu agree without a
   // separate `!isActive` gate). They're mutually exclusive — a session is
   // either channel-attached (sky IM badge) or not (red desktop badge).
-  const activeId = isActive ? session.id : null
+  const activeId = isReadable ? session.id : null
   const displayUnreadCount = desktopUnreadCount(session, activeId)
   const displayChannelUnreadCount = channelUnreadCount(session, activeId)
   const channelLabel = session.channelInfo
     ? `${session.channelInfo.channelId} · ${session.channelInfo.senderName || session.channelInfo.chatId}`
     : null
+
+  useEffect(() => {
+    if (!revealSignal) return
+    const frame = window.requestAnimationFrame(() => {
+      rowRef.current?.scrollIntoView({
+        block: "center",
+        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+      })
+      setRevealHighlight(true)
+    })
+    const timer = window.setTimeout(() => setRevealHighlight(false), 1600)
+    return () => {
+      window.cancelAnimationFrame(frame)
+      window.clearTimeout(timer)
+    }
+  }, [revealSignal])
 
   const handleMarkAsRead = useCallback(async () => {
     if (displayUnreadCount === 0 && displayChannelUnreadCount === 0) return
@@ -134,11 +156,14 @@ export default function SessionItem({
     <ContextMenu>
       <ContextMenuTrigger asChild>
         <div
+          ref={rowRef}
+          data-session-id={session.id}
           role="button"
           tabIndex={0}
           className={cn(
             "relative flex items-center gap-2.5 w-full px-2.5 py-2 rounded-lg text-left group cursor-pointer",
             isCompact && "gap-1.5 px-2 py-[7px] rounded-md",
+            revealHighlight && "bg-destructive/10 ring-1 ring-inset ring-destructive/40",
             isActive
               ? "bg-secondary/70"
               : hasPending
@@ -173,25 +198,22 @@ export default function SessionItem({
               </div>
               {displayUnreadCount > 0 && (
                 <span
-                  className="absolute -top-1 -right-1.5 z-10 flex h-[16px] min-w-[16px] items-center justify-center rounded-full border border-background bg-destructive px-0.5 text-[9px] font-semibold leading-none text-destructive-foreground tabular-nums pointer-events-none"
-                >
-                  {displayUnreadCount > 99 ? "99+" : displayUnreadCount}
-                </span>
+                  aria-hidden="true"
+                  className="absolute -right-0.5 -top-0.5 z-10 h-2.5 w-2.5 rounded-full border-2 border-background bg-destructive pointer-events-none"
+                />
               )}
               {displayChannelUnreadCount > 0 && (
                 <span
-                  className="absolute -top-1 -right-1.5 z-10 flex h-[16px] min-w-[16px] items-center justify-center rounded-full border border-background bg-sky-500 px-0.5 text-[9px] font-semibold leading-none text-white tabular-nums pointer-events-none"
-                >
-                  {displayChannelUnreadCount > 99 ? "99+" : displayChannelUnreadCount}
-                </span>
+                  aria-hidden="true"
+                  className="absolute -right-0.5 -top-0.5 z-10 h-2.5 w-2.5 rounded-full border-2 border-background bg-sky-500 pointer-events-none"
+                />
               )}
               {hasPending && (
                 <IconTip label={t("chat.pendingInteractionHint")}>
                   <span
                     className="absolute -bottom-1 -left-1.5 z-10 min-w-[16px] h-[16px] px-0.5 rounded-full text-white text-[9px] font-bold flex items-center justify-center border border-background leading-none animate-pulse cursor-pointer"
                     style={{
-                      background:
-                        "linear-gradient(135deg, #fbbf24 0%, #f59e0b 50%, #d97706 100%)",
+                      background: "linear-gradient(135deg, #fbbf24 0%, #f59e0b 50%, #d97706 100%)",
                       boxShadow:
                         "0 2px 6px rgba(217, 119, 6, 0.5), inset 0 1px 1px rgba(255, 255, 255, 0.3)",
                     }}
@@ -221,9 +243,7 @@ export default function SessionItem({
               )}
               {session.parentSessionId &&
                 (() => {
-                  const parentSession = sessions.find(
-                    (s) => s.id === session.parentSessionId,
-                  )
+                  const parentSession = sessions.find((s) => s.id === session.parentSessionId)
                   const parentAgent = parentSession
                     ? getAgentInfo(parentSession.agentId)
                     : undefined
@@ -242,7 +262,10 @@ export default function SessionItem({
               {!isCompact && session.channelInfo && channelLabel && (
                 <IconTip label={channelLabel}>
                   <span className="inline-flex items-center justify-center shrink-0 w-4 h-4 rounded bg-blue-500/15 text-blue-500">
-                    <ChannelIcon channelId={session.channelInfo.channelId} className="w-2.5 h-2.5" />
+                    <ChannelIcon
+                      channelId={session.channelInfo.channelId}
+                      className="w-2.5 h-2.5"
+                    />
                   </span>
                 </IconTip>
               )}
@@ -294,14 +317,16 @@ export default function SessionItem({
               {isCompact && renamingSessionId !== session.id && (
                 <span className="ml-auto flex shrink-0 items-center justify-end gap-1 pl-2 group-hover:pr-5">
                   {displayUnreadCount > 0 && (
-                    <span className="inline-flex h-[15px] min-w-[15px] items-center justify-center rounded-full bg-destructive px-1 text-[9px] font-semibold leading-none text-destructive-foreground tabular-nums">
-                      {displayUnreadCount > 99 ? "99+" : displayUnreadCount}
-                    </span>
+                    <span
+                      aria-hidden="true"
+                      className="inline-flex h-2.5 w-2.5 rounded-full bg-destructive"
+                    />
                   )}
                   {displayChannelUnreadCount > 0 && (
-                    <span className="inline-flex h-[15px] min-w-[15px] items-center justify-center rounded-full bg-sky-500 px-1 text-[9px] font-semibold leading-none text-white tabular-nums">
-                      {displayChannelUnreadCount > 99 ? "99+" : displayChannelUnreadCount}
-                    </span>
+                    <span
+                      aria-hidden="true"
+                      className="inline-flex h-2.5 w-2.5 rounded-full bg-sky-500"
+                    />
                   )}
                   {hasPending && (
                     <IconTip
@@ -351,6 +376,10 @@ export default function SessionItem({
                     </>
                   )}
                 </span>
+              )}
+              {displayUnreadCount > 0 && <span className="sr-only">{t("chat.unreadStatus")}</span>}
+              {displayChannelUnreadCount > 0 && (
+                <span className="sr-only">{t("chat.channelUnreadStatus")}</span>
               )}
             </div>
             {!isCompact && (
@@ -409,9 +438,7 @@ export default function SessionItem({
         }}
       >
         {onTogglePinned && (
-          <ContextMenuItem
-            onClick={() => onTogglePinned(session.id, !session.pinnedAt)}
-          >
+          <ContextMenuItem onClick={() => onTogglePinned(session.id, !session.pinnedAt)}>
             {session.pinnedAt ? (
               <PinOff className="h-4 w-4 mr-2" />
             ) : (
@@ -444,10 +471,7 @@ export default function SessionItem({
             a regular chat (not a sub-agent / cron / channel session, which
             shouldn't be arbitrarily relocated). Channel sessions are filtered
             here because their lifecycle is tied to the IM conversation. */}
-        {onMoveToProject &&
-          !session.channelInfo &&
-          !session.parentSessionId &&
-          !session.isCron && (
+        {onMoveToProject && !session.channelInfo && !session.parentSessionId && !session.isCron && (
             <>
               <ContextMenuSeparator />
               <ContextMenuSub>
@@ -457,9 +481,7 @@ export default function SessionItem({
                 </ContextMenuSubTrigger>
                 <ContextMenuSubContent>
                   {projects.filter((p) => !p.archived).length === 0 ? (
-                    <ContextMenuItem disabled>
-                      {t("project.noProjects")}
-                    </ContextMenuItem>
+                  <ContextMenuItem disabled>{t("project.noProjects")}</ContextMenuItem>
                   ) : (
                     projects
                       .filter((p) => !p.archived)
@@ -479,9 +501,7 @@ export default function SessionItem({
                   {session.projectId && (
                     <>
                       <ContextMenuSeparator />
-                      <ContextMenuItem
-                        onClick={() => onMoveToProject(session.id, null)}
-                      >
+                    <ContextMenuItem onClick={() => onMoveToProject(session.id, null)}>
                         <FolderMinus className="h-4 w-4 mr-2" />
                         {t("project.removeFromProject")}
                       </ContextMenuItem>

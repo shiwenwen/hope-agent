@@ -603,9 +603,10 @@ function RecentSessions({
               </span>
             )}
             {session.unreadCount > 0 && (
-              <span className="flex min-w-5 items-center justify-center rounded-full bg-primary px-1.5 py-0.5 text-[10px] text-primary-foreground">
-                {session.unreadCount}
-              </span>
+              <>
+                <span aria-hidden="true" className="h-2.5 w-2.5 rounded-full bg-destructive" />
+                <span className="sr-only">{t("chat.unreadStatus")}</span>
+              </>
             )}
             <ArrowRight className="h-3.5 w-3.5 text-muted-foreground/60 group-hover:text-primary" />
           </span>

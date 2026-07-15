@@ -66,10 +66,7 @@ import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import { cn } from "@/lib/utils"
 import type { ProjectMeta } from "@/types/project"
-import type {
-  AgentSummaryForSidebar,
-  SessionMeta,
-} from "@/types/chat"
+import type { AgentSummaryForSidebar, SessionMeta, UnreadSessionTarget } from "@/types/chat"
 import type { SidebarDisplayMode } from "../sidebar/types"
 import SessionItem from "../sidebar/SessionItem"
 import SidebarSectionHeader from "../sidebar/SidebarSectionHeader"
@@ -87,6 +84,7 @@ interface ProjectSectionProps {
   sessions: SessionMeta[]
   agents: AgentSummaryForSidebar[]
   currentSessionId: string | null
+  readableSessionId: string | null
   loadingSessionIds: Set<string>
   expanded: boolean
   setExpanded: (v: boolean) => void
@@ -113,6 +111,7 @@ interface ProjectSectionProps {
   motionDisabled?: boolean
   /** Whether the sticky Agent header occupies the 32px row above Projects. */
   hasAgentHeader?: boolean
+  unreadFocusTarget?: (UnreadSessionTarget & { signal: number }) | null
 }
 
 const EXPANDED_STORAGE_KEY = "ha:project-expanded"
@@ -148,6 +147,7 @@ export default function ProjectSection(props: ProjectSectionProps) {
     onReorderProjects,
     motionDisabled = false,
     hasAgentHeader = false,
+    unreadFocusTarget,
   } = props
   const visibleProjects = useMemo(() => projects.filter((p) => !p.archived), [projects])
   const archivedProjects = useMemo(() => projects.filter((p) => p.archived), [projects])
@@ -182,6 +182,19 @@ export default function ProjectSection(props: ProjectSectionProps) {
       return {}
     }
   })
+
+  // A reveal target temporarily forces its containing tree path open without
+  // mutating the user's persisted expansion preferences from an effect.
+  const unreadProjectId = unreadFocusTarget?.projectId ?? null
+  const projectsExpanded = expanded || unreadProjectId !== null
+  const archivedProjectsExpanded =
+    archivedExpanded ||
+    (unreadProjectId !== null &&
+      archivedProjects.some((project) => project.id === unreadProjectId))
+  const projectIsExpanded = useCallback(
+    (projectId: string) => (expandedMap[projectId] ?? false) || projectId === unreadProjectId,
+    [expandedMap, unreadProjectId],
+  )
 
   const toggleProjectExpanded = useCallback((projectId: string) => {
     setExpandedMap((prev) => {
@@ -266,7 +279,7 @@ export default function ProjectSection(props: ProjectSectionProps) {
         }
       />
 
-      <AnimatedCollapse open={expanded} durationMs={motionDisabled ? 0 : undefined}>
+      <AnimatedCollapse open={projectsExpanded} durationMs={motionDisabled ? 0 : undefined}>
         <div className="space-y-0.5 px-3 pb-1 pt-1">
           {visibleProjects.length === 0 && (
             <button
@@ -293,7 +306,7 @@ export default function ProjectSection(props: ProjectSectionProps) {
                     {...props}
                     project={project}
                     projectSessions={sessionsByProject.get(project.id) ?? []}
-                    expanded={expandedMap[project.id] ?? false}
+                    expanded={projectIsExpanded(project.id)}
                     onToggleExpanded={() => toggleProjectExpanded(project.id)}
                     canReorder
                     suppressChildren={projectSorting}
@@ -308,7 +321,7 @@ export default function ProjectSection(props: ProjectSectionProps) {
                 {...props}
                 project={project}
                 projectSessions={sessionsByProject.get(project.id) ?? []}
-                expanded={expandedMap[project.id] ?? false}
+                expanded={projectIsExpanded(project.id)}
                 onToggleExpanded={() => toggleProjectExpanded(project.id)}
               />
             ))
@@ -322,16 +335,17 @@ export default function ProjectSection(props: ProjectSectionProps) {
                 <ChevronRight
                   className={cn(
                     "h-3 w-3 transition-transform duration-200",
-                    archivedExpanded && "rotate-90",
+                    archivedProjectsExpanded && "rotate-90",
                   )}
                 />
                 <Archive className="h-3 w-3" />
                 <span className="truncate">{t("project.archivedProjects")}</span>
-                <span className="ml-auto text-muted-foreground/60">
-                  {archivedProjects.length}
-                </span>
+                <span className="ml-auto text-muted-foreground/60">{archivedProjects.length}</span>
               </button>
-              <AnimatedCollapse open={archivedExpanded} durationMs={motionDisabled ? 0 : undefined}>
+              <AnimatedCollapse
+                open={archivedProjectsExpanded}
+                durationMs={motionDisabled ? 0 : undefined}
+              >
                 <div className="mt-0.5 space-y-0.5">
                   {archivedProjects.map((project) => (
                     <ProjectGroup
@@ -339,7 +353,7 @@ export default function ProjectSection(props: ProjectSectionProps) {
                       {...props}
                       project={project}
                       projectSessions={sessionsByProject.get(project.id) ?? []}
-                      expanded={expandedMap[project.id] ?? false}
+                      expanded={projectIsExpanded(project.id)}
                       onToggleExpanded={() => toggleProjectExpanded(project.id)}
                       archivedView
                     />
@@ -402,6 +416,7 @@ function ProjectGroup({
   onToggleExpanded: handleToggleExpanded,
   sessions,
   currentSessionId,
+  readableSessionId,
   loadingSessionIds,
   onOpenProjectSettings,
   onNewChatInProject,
@@ -431,10 +446,11 @@ function ProjectGroup({
   isDragging = false,
   suppressChildren = false,
   motionDisabled = false,
+  unreadFocusTarget,
 }: ProjectGroupProps) {
   const { t } = useTranslation()
-  // The active session is already excluded from `project.unreadCount` by the
-  // backend rollup (it reads as 0 while open), so the badge uses the value
+  // The actually-readable session is already excluded from
+  // `project.unreadCount` by the backend rollup, so the badge uses the value
   // directly — no cross-source subtraction that could transiently go negative
   // / flicker as the two fetches settle.
   const projectUnreadCount = project.unreadCount
@@ -467,6 +483,10 @@ function ProjectGroup({
     expanded: groupExpanded,
     changeSignal,
     sessionCount: project.sessionCount,
+    ensureSessionId:
+      unreadFocusTarget?.projectId === project.id ? unreadFocusTarget.sessionId : null,
+    ensureSessionOffset:
+      unreadFocusTarget?.projectId === project.id ? unreadFocusTarget.listOffset : null,
   })
   const showPaginationFooter = childTotal > PROJECT_SESSION_PAGE_SIZE
   const ProjectToggleIcon = groupExpanded ? FolderOpen : Folder
@@ -523,7 +543,10 @@ function ProjectGroup({
                   )}
                 />
                 {displayMode === "detailed" && !project.logo && projectUnreadCount > 0 && (
-                  <span className="absolute -top-1 -right-1.5 z-10 flex h-[16px] min-w-[16px] items-center justify-center rounded-full border border-background bg-destructive px-0.5 text-[9px] font-semibold leading-none text-destructive-foreground tabular-nums pointer-events-none">
+                  <span
+                    aria-hidden="true"
+                    className="absolute -top-1 -right-1.5 z-10 flex h-[16px] min-w-[16px] items-center justify-center rounded-full border border-background bg-destructive px-0.5 text-[9px] font-semibold leading-none text-destructive-foreground tabular-nums pointer-events-none"
+                  >
                     {projectUnreadCount > 99 ? "99+" : projectUnreadCount}
                   </span>
                 )}
@@ -533,6 +556,7 @@ function ProjectGroup({
                   <ProjectIcon project={project} size="sm" />
                   {projectUnreadCount > 0 && (
                     <span
+                      aria-hidden="true"
                       className="absolute -top-1 -right-1.5 z-10 flex h-[16px] min-w-[16px] items-center justify-center rounded-full border border-background bg-destructive px-0.5 text-[9px] font-semibold leading-none text-destructive-foreground tabular-nums pointer-events-none"
                     >
                       {projectUnreadCount > 99 ? "99+" : projectUnreadCount}
@@ -550,6 +574,12 @@ function ProjectGroup({
                   )}
                 >
                   {project.name}
+                  {projectUnreadCount > 0 && (
+                    <span className="sr-only">
+                      {" — "}
+                      {t("chat.unreadConversationCount", { count: projectUnreadCount })}
+                    </span>
+                  )}
                 </div>
               </div>
               {/* Hover-only action buttons. Match `AgentSection.tsx` styling so
@@ -626,10 +656,7 @@ function ProjectGroup({
               <Settings className="h-3 w-3 mr-2" />
               {t("project.openProjectSettings")}
             </ContextMenuItem>
-            <ContextMenuItem
-              onClick={handleMarkProjectRead}
-              disabled={project.unreadCount === 0}
-            >
+            <ContextMenuItem onClick={handleMarkProjectRead} disabled={project.unreadCount === 0}>
               <CheckCheck className="h-3 w-3 mr-2" />
               {t("chat.markAllRead")}
             </ContextMenuItem>
@@ -683,6 +710,7 @@ function ProjectGroup({
                     agent={getAgentInfo(session.agentId)}
                     projects={projects}
                     isActive={session.id === currentSessionId}
+                    isReadable={session.id === readableSessionId}
                     isLoading={loadingSessionIds.has(session.id)}
                     renamingSessionId={renamingSessionId}
                     renameValue={renameValue}
@@ -699,6 +727,11 @@ function ProjectGroup({
                     getAgentInfo={getAgentInfo}
                     formatRelativeTime={formatRelativeTime}
                     displayMode={displayMode}
+                    revealSignal={
+                      unreadFocusTarget?.sessionId === session.id
+                        ? unreadFocusTarget.signal
+                        : undefined
+                    }
                   />
                 ))}
                 {showPaginationFooter && (

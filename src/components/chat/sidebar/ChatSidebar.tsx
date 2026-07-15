@@ -27,7 +27,7 @@ import {
 } from "lucide-react"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
-import type { SessionSearchResult } from "@/types/chat"
+import type { SessionSearchResult, UnreadSessionTarget } from "@/types/chat"
 import {
   CHAT_SIDEBAR_MAX_WIDTH,
   CHAT_SIDEBAR_MIN_WIDTH,
@@ -73,8 +73,10 @@ export default function ChatSidebar({
   projects = [],
   projectsLoading = false,
   currentSessionId,
+  readableSessionId,
   loadingSessionIds,
   sessionsLoading = false,
+  totalUnreadCount,
   panelWidth,
   sidebarCollapsed,
   onPanelWidthChange,
@@ -94,6 +96,7 @@ export default function ChatSidebar({
   onArchiveProject,
   onMoveSessionToProject,
   searchFocusSignal,
+  unreadFocusSignal,
 }: ChatSidebarProps) {
   const { t } = useTranslation()
   const [agentsExpanded, setAgentsExpandedState] = useState(() =>
@@ -155,6 +158,9 @@ export default function ChatSidebar({
   const [searchQuery, setSearchQuery] = useState("")
   const [searchResults, setSearchResults] = useState<SessionSearchResult[] | null>(null)
   const [searching, setSearching] = useState(false)
+  const [unreadRevealTarget, setUnreadRevealTarget] = useState<
+    (UnreadSessionTarget & { signal: number }) | null
+  >(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
   const searchTruncated = (searchResults?.length ?? 0) >= SEARCH_LIMIT
   const isHistorySearching = searchQuery.trim().length > 0
@@ -174,6 +180,49 @@ export default function ChatSidebar({
     })
     return () => window.cancelAnimationFrame(frame)
   }, [searchFocusSignal, sidebarCollapsed])
+
+  useEffect(() => {
+    if (unreadFocusSignal === undefined || unreadFocusSignal === 0) return
+    let cancelled = false
+
+    onSidebarCollapsedChange(false)
+    setSearchQuery("")
+    setSessionFilter("session")
+    setSelectedAgentId(null)
+
+    void getTransport()
+      .call<UnreadSessionTarget | null>("next_unread_session_cmd", {
+        activeSessionId: readableSessionId ?? undefined,
+      })
+      .then((target) => {
+        if (cancelled) return
+        if (!target) {
+          setUnreadRevealTarget(null)
+          return
+        }
+        if (target.projectId) setProjectsExpanded(true)
+        setUnreadRevealTarget({ ...target, signal: unreadFocusSignal })
+      })
+      .catch((error) => {
+        logger.warn("chat", "ChatSidebar::revealUnread", "Failed to locate unread session", error)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [onSidebarCollapsedChange, readableSessionId, setProjectsExpanded, unreadFocusSignal])
+
+  // The target only exists to drive one reveal. Dropping it after the row has
+  // had time to load/scroll prevents unrelated realtime refreshes from paging
+  // deeply through history again.
+  useEffect(() => {
+    if (!unreadRevealTarget) return
+    const signal = unreadRevealTarget.signal
+    const timer = window.setTimeout(() => {
+      setUnreadRevealTarget((current) => (current?.signal === signal ? null : current))
+    }, 10_000)
+    return () => window.clearTimeout(timer)
+  }, [unreadRevealTarget])
 
   useEffect(() => {
     let cancelled = false
@@ -265,6 +314,10 @@ export default function ChatSidebar({
     currentSessionId,
     enabled: !sessionsLoading,
     refreshSignal: sessions,
+    ensureSessionId: unreadRevealTarget?.projectId ? null : (unreadRevealTarget?.sessionId ?? null),
+    ensureSessionOffset: unreadRevealTarget?.projectId
+      ? null
+      : (unreadRevealTarget?.listOffset ?? null),
   })
   const filteredSessions = sessionsByFilter[sessionFilter]
 
@@ -457,8 +510,10 @@ export default function ChatSidebar({
       setSessionFilter={setSessionFilter}
       selectedAgentId={selectedAgentId}
       currentSessionId={currentSessionId}
+      readableSessionId={readableSessionId}
       loadingSessionIds={loadingSessionIds}
       sessionsLoading={sessionsLoading || sidebarSessionsLoading}
+      totalUnreadCount={totalUnreadCount}
       loadingMoreSessions={loadingMoreByFilter[sessionFilter]}
       onSwitchSession={onSwitchSession}
       onDeleteClick={handleDeleteClick}
@@ -482,6 +537,7 @@ export default function ChatSidebar({
       onToggleSessionPinned={onToggleSessionPinned}
       displayMode={sidebarDisplayMode}
       stickyHeaderCount={stickySidebarHeaderCount}
+      unreadFocusTarget={unreadRevealTarget}
     />
   )
 
@@ -691,6 +747,7 @@ export default function ChatSidebar({
                       sessions={sessions}
                       agents={agents}
                       currentSessionId={currentSessionId}
+                      readableSessionId={readableSessionId}
                       loadingSessionIds={loadingSessionIds}
                       expanded={projectsExpanded}
                       setExpanded={setProjectsExpanded}
@@ -716,6 +773,7 @@ export default function ChatSidebar({
                       displayMode={sidebarDisplayMode}
                       motionDisabled={sidebarMotionDisabled}
                       hasAgentHeader={showAgentSection}
+                      unreadFocusTarget={unreadRevealTarget}
                     />
                   )}
 
@@ -732,8 +790,7 @@ export default function ChatSidebar({
         <div
           className={cn(
             "absolute inset-y-0 right-0 z-20 translate-x-full cursor-col-resize",
-            !sidebarMotionDisabled &&
-              "transition-[width,opacity] duration-200 ease-out",
+            !sidebarMotionDisabled && "transition-[width,opacity] duration-200 ease-out",
             sidebarCollapsed ? "w-0 pointer-events-none opacity-0" : "w-3 opacity-100",
           )}
           onMouseDown={handleDragStart}

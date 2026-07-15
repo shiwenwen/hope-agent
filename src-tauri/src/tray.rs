@@ -14,6 +14,7 @@ use tauri::{AppHandle, Emitter, Manager, Runtime};
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 
 const TRAY_STATUS_LINE_COUNT: usize = 5;
+pub const TRAY_ID: &str = "hope-agent-status";
 const TRAY_STATUS_UPTIME_LINE_INDEX: usize = 2;
 const TRAY_SESSION_PREFIX: &str = "tray_session:";
 const TRAY_SESSION_DETAIL_PREFIX: &str = "tray_session_detail:";
@@ -34,6 +35,46 @@ const TRAY_MODEL_BYTES: usize = 36;
 /// the user opens the tray menu, defer structural menu refreshes briefly so
 /// session metadata changes do not close the menu while it is being read.
 const TRAY_MENU_REFRESH_HOLD_MS: u64 = 5 * 60_000;
+
+/// Build the status-bar icon. The regular icon remains a macOS template so it
+/// follows the system appearance. When regular conversations are unread we
+/// switch to a colour icon and paint a small red dot; a number is intentionally
+/// avoided because tray icons render at roughly 16–22 px.
+pub fn tray_icon_image(
+    has_unread: bool,
+) -> Result<tauri::image::Image<'static>, image::ImageError> {
+    let mut rgba = image::load_from_memory(include_bytes!("../icons/menu.png"))?.into_rgba8();
+    let (width, height) = rgba.dimensions();
+
+    if has_unread {
+        let center_x = (width * 4 / 5) as i32;
+        let center_y = (height / 5) as i32;
+        let outer_radius = (width.min(height) * 11 / 64).max(2) as i32;
+        let inner_radius = (width.min(height) * 8 / 64).max(1) as i32;
+
+        for y in 0..height {
+            for x in 0..width {
+                let dx = x as i32 - center_x;
+                let dy = y as i32 - center_y;
+                let distance_squared = dx * dx + dy * dy;
+                if distance_squared <= outer_radius * outer_radius {
+                    let pixel = if distance_squared <= inner_radius * inner_radius {
+                        image::Rgba([239, 68, 68, 255])
+                    } else {
+                        image::Rgba([255, 255, 255, 255])
+                    };
+                    rgba.put_pixel(x, y, pixel);
+                }
+            }
+        }
+    }
+
+    Ok(tauri::image::Image::new_owned(
+        rgba.into_raw(),
+        width,
+        height,
+    ))
+}
 
 /// Show and focus the main window if it already exists.
 fn show_main_window(app_handle: &AppHandle) {
@@ -73,7 +114,7 @@ pub fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let initial_menu =
         build_tray_menu(&app_handle, &labels, &status_labels, &status_lines, &[], 0)?;
 
-    let icon = tauri::image::Image::from_bytes(include_bytes!("../icons/menu.png")).unwrap();
+    let icon = tray_icon_image(false)?;
     let icon_as_template = true;
     let show_menu_on_left_click = true;
     let initial_tooltip = build_tray_tooltip(&status_lines);
@@ -82,7 +123,7 @@ pub fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
 
     let menu_event_refresh_hold = Arc::clone(&menu_refresh_hold_until_ms);
     let tray_click_refresh_hold = Arc::clone(&menu_refresh_hold_until_ms);
-    let tray = TrayIconBuilder::new()
+    let tray = TrayIconBuilder::with_id(TRAY_ID)
         .tooltip(&initial_tooltip)
         .icon(icon)
         .icon_as_template(icon_as_template)

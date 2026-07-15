@@ -174,6 +174,14 @@ fn build_router_with_cors(
             post(routes::sessions::mark_session_read),
         )
         .route(
+            "/sessions/unread",
+            get(routes::sessions::regular_unread_total),
+        )
+        .route(
+            "/sessions/unread/next",
+            get(routes::sessions::next_unread_session),
+        )
+        .route(
             "/sessions/read-batch",
             post(routes::sessions::mark_session_read_batch),
         )

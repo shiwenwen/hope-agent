@@ -11,6 +11,7 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use super::types::{CreateProjectInput, Project, ProjectMeta, UpdateProjectInput};
+use crate::session::db::regular_unread_predicate_sql;
 use crate::session::SessionDB;
 
 /// Project persistence manager. Wraps `Arc<SessionDB>` to reuse its
@@ -461,11 +462,10 @@ impl ProjectDB {
     /// List all projects with aggregated counts.
     /// `include_archived = false` hides archived projects.
     ///
-    /// `active_session_id` is the session the user is currently viewing (if
-    /// any). It is excluded from the unread rollup in SQL so the project badge
-    /// matches the per-session "active session reads as 0" rule without the
-    /// frontend having to subtract it from a separately-fetched count (which
-    /// could transiently disagree and flicker).
+    /// `active_session_id` is supplied only when the frontend has confirmed
+    /// the session is actually readable. It is excluded in SQL so the project
+    /// badge matches the per-session rule without a flickery frontend
+    /// subtraction.
     pub fn list(
         &self,
         include_archived: bool,
@@ -496,20 +496,14 @@ impl ProjectDB {
                     p.logo, p.working_dir, p.sort_order,
                     (SELECT COUNT(*) FROM sessions s WHERE s.project_id = p.id) AS session_count,
                     (SELECT COUNT(*)
-                       FROM messages m
-                       JOIN sessions s ON s.id = m.session_id
-                       LEFT JOIN channel_conversations cc ON cc.session_id = s.id
+                       FROM sessions s
                       WHERE s.project_id = p.id
-                        AND s.parent_session_id IS NULL
-                        AND s.is_cron = 0
-                        AND cc.session_id IS NULL
                         AND s.id != ?1
-                        AND m.id > COALESCE(s.last_read_message_id, 0)
-                        AND m.role = 'assistant'
-                        AND COALESCE(m.source, 'desktop') != 'channel') AS unread_count
+                        AND {}) AS unread_count
              FROM projects p
              {}
              ORDER BY p.sort_order ASC, p.updated_at DESC",
+            regular_unread_predicate_sql("s"),
             where_sql
         );
 
@@ -810,6 +804,12 @@ mod tests {
                 &NewMessage::assistant("regular reply").with_source(ChatSource::Desktop),
             )
             .expect("append regular");
+        session_db
+            .append_message(
+                &regular.id,
+                &NewMessage::assistant("regular follow-up").with_source(ChatSource::Desktop),
+            )
+            .expect("append second regular reply");
 
         // Project-bound cron session output → must NOT count toward unread.
         let cron = session_db
@@ -831,13 +831,13 @@ mod tests {
             .expect("project present");
         assert_eq!(
             meta.unread_count, 1,
-            "project unread counts the regular reply but must exclude cron output"
+            "project unread counts the regular conversation once and excludes cron output"
         );
     }
 
     /// §3/§4 regression: the project unread rollup must exclude sub-agent child
     /// sessions (`parent_session_id IS NULL`), channel-attached sessions
-    /// (`cc.session_id IS NULL`), and the currently-active session
+    /// (`cc.session_id IS NULL`), and the caller-confirmed readable session
     /// (`s.id != ?active`). The sub-agent and channel sessions use a *desktop*
     /// source so the only thing keeping them out is their dedicated WHERE clause
     /// — not the `!= 'channel'` proxy — pinning down those exact branches, which

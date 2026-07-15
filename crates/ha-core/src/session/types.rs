@@ -198,14 +198,12 @@ pub struct SessionMeta {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pinned_at: Option<String>,
     pub message_count: i64,
-    /// Unread desktop assistant messages (cron / subagent / IM-source rows
-    /// excluded). Drives the regular sidebar / project / tray / global badges.
+    /// Whether this regular desktop conversation is unread, encoded as `0` or
+    /// `1` for transport compatibility. Any number of assistant messages after
+    /// the read watermark still contributes exactly one unread conversation.
     pub unread_count: i64,
-    /// Unread IM (`source = 'channel'`) assistant messages for a
-    /// channel-attached session. Kept separate from `unread_count` so IM
-    /// conversations surface an *independent* desktop indicator without
-    /// inflating the regular desktop unread total. Always `0` for non-channel
-    /// sessions.
+    /// Whether a channel-attached conversation has unread IM activity, encoded
+    /// as `0` or `1`. Kept separate from regular desktop unread.
     #[serde(default)]
     pub channel_unread_count: i64,
     /// Whether the latest persisted message is marked as an error.
@@ -283,6 +281,17 @@ pub struct SessionMeta {
     /// sidebar / picker).
     #[serde(default)]
     pub kind: SessionKind,
+}
+
+/// The next regular unread conversation that the sidebar should reveal.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct UnreadSessionTarget {
+    pub session_id: String,
+    pub project_id: Option<String>,
+    /// Zero-based position inside the target's sidebar session group using the
+    /// same pin/update ordering as the list endpoint.
+    pub list_offset: u32,
 }
 
 fn default_title_source() -> String {

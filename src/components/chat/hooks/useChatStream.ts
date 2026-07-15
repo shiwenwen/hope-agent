@@ -326,6 +326,11 @@ export interface UseChatStreamOptions {
   /** Called after a persisted session sandbox-mode update succeeds. */
   onSandboxModeSynced?: (sessionId: string, mode: SandboxMode) => void
   /**
+   * Main-chat reading predicate. Omitted by transient surfaces whose own mount
+   * lifecycle already guarantees visibility (for example Quick Chat).
+   */
+  activeSessionReadableRef?: React.MutableRefObject<boolean>
+  /**
    * When true, this surface has `useChatStreamReattach` mounted and should let
    * ParentInjection deltas arrive through `chat:stream_delta` instead of the
    * legacy `parent_agent_stream` delta side channel.
@@ -413,6 +418,7 @@ export function useChatStream({
   getExtraAttachments,
   onSandboxModeSynced,
   parentInjectionDeltasViaChatStream = false,
+  activeSessionReadableRef,
 }: UseChatStreamOptions): UseChatStreamReturn {
   // Latest draft attaches, snapshotted into the startChat payload at send time
   // (mirrors how draftWorkingDir is baked into the create call) so a later
@@ -1765,7 +1771,11 @@ export function useChatStream({
       // unread so the sidebar surfaces it; otherwise the completion is silently
       // swallowed and the badge never appears. The lazy-create ref lag is
       // bridged eagerly in handleSessionCreated, so this comparison is accurate.
-      if (targetSessionId && targetSessionId === currentSessionIdRef.current) {
+      if (
+        targetSessionId &&
+        targetSessionId === currentSessionIdRef.current &&
+        (activeSessionReadableRef?.current ?? true)
+      ) {
         await getTransport()
           .call("mark_session_read_cmd", { sessionId: targetSessionId })
           .catch(() => {})

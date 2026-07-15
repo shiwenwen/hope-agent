@@ -7,7 +7,7 @@ use std::sync::Mutex;
 
 use super::types::{
     ChannelSessionInfo, MessageRole, NewMessage, SessionKind, SessionMemoryPolicy,
-    SessionMemoryPolicyValue, SessionMessage, SessionMeta,
+    SessionMemoryPolicyValue, SessionMessage, SessionMeta, UnreadSessionTarget,
 };
 
 /// Token snapshot for the latest persisted assistant row of a session.
@@ -53,21 +53,131 @@ pub struct SessionDB {
 /// deciding when virtual scrolling becomes necessary.
 const LARGE_TURN_EXTENSION_LOG_THRESHOLD: usize = 200;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum UnreadDomain {
+    Regular,
+    Channel,
+    Cron,
+}
+
+impl UnreadDomain {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Regular => "regular",
+            Self::Channel => "channel",
+            Self::Cron => "cron",
+        }
+    }
+}
+
+fn unread_domain_for_session(conn: &Connection, session_id: &str) -> Result<Option<UnreadDomain>> {
+    let session = conn
+        .query_row(
+            "SELECT is_cron, parent_session_id, incognito, kind
+               FROM sessions WHERE id = ?1",
+            params![session_id],
+            |row| {
+                Ok((
+                    row.get::<_, i64>(0)? != 0,
+                    row.get::<_, Option<String>>(1)?,
+                    row.get::<_, i64>(2)? != 0,
+                    row.get::<_, String>(3)?,
+                ))
+            },
+        )
+        .optional()?;
+    let Some((is_cron, parent_session_id, incognito, kind)) = session else {
+        return Ok(None);
+    };
+    if is_cron {
+        return Ok(Some(UnreadDomain::Cron));
+    }
+    if parent_session_id.is_some() || incognito || kind != SessionKind::Regular.as_str() {
+        return Ok(None);
+    }
+
+    // ChannelDB owns this table and a few isolated SessionDB tests do not
+    // migrate it. In that narrow case the session is safely treated as regular.
+    let is_channel = conn
+        .query_row(
+            "SELECT EXISTS(
+                 SELECT 1 FROM channel_conversations WHERE session_id = ?1
+             )",
+            params![session_id],
+            |row| row.get::<_, i64>(0),
+        )
+        .map(|value| value != 0)
+        .unwrap_or(false);
+    Ok(Some(if is_channel {
+        UnreadDomain::Channel
+    } else {
+        UnreadDomain::Regular
+    }))
+}
+
+/// Notify every connected UI that the durable read state may have changed.
+/// `domain` is an invalidation hint only; consumers still re-query their own
+/// authoritative aggregate instead of trusting an event count.
+fn emit_unread_changed(session_id: Option<&str>, domain: Option<UnreadDomain>) {
+    if let Some(bus) = crate::get_event_bus() {
+        bus.emit(
+            "session:unread_changed",
+            serde_json::json!({
+                "sessionId": session_id,
+                "domain": domain.map(UnreadDomain::as_str),
+            }),
+        );
+    }
+}
+
+/// Strict SQL whitelist for one user-facing regular conversation. Every
+/// aggregate, list flag, project rollup, reveal target, and bulk-read mutation
+/// must compose this helper rather than spelling the scope again.
+pub(crate) fn regular_session_scope_sql(session_alias: &str) -> String {
+    format!(
+        "{session_alias}.is_cron = 0
+         AND {session_alias}.parent_session_id IS NULL
+         AND {session_alias}.incognito = 0
+         AND {session_alias}.kind = 'regular'
+         AND NOT EXISTS (
+             SELECT 1 FROM channel_conversations cc_regular_scope
+              WHERE cc_regular_scope.session_id = {session_alias}.id
+         )"
+    )
+}
+
+/// Session-level unread flag: one or many unread assistant rows both yield 1.
+pub(crate) fn regular_unread_exists_sql(session_alias: &str) -> String {
+    format!(
+        "EXISTS (
+             SELECT 1 FROM messages m_regular_unread
+              WHERE m_regular_unread.session_id = {session_alias}.id
+                AND m_regular_unread.id > COALESCE({session_alias}.last_read_message_id, 0)
+                AND m_regular_unread.role = 'assistant'
+                AND COALESCE(m_regular_unread.source, 'desktop') != 'channel'
+         )"
+    )
+}
+
+pub(crate) fn regular_unread_predicate_sql(session_alias: &str) -> String {
+    format!(
+        "{} AND {}",
+        regular_session_scope_sql(session_alias),
+        regular_unread_exists_sql(session_alias)
+    )
+}
+
 /// Shared SELECT for every query that hydrates a full `SessionMeta`. Column
 /// positions are locked to the parser in `SessionDB::row_to_session_meta`;
 /// when adding a column, append it and update both the mapper and tests.
-///
-/// The `unread_count` / `channel_unread_count` predicate stacks below are
-/// mirrored by the project-level rollup in `project::db::ProjectDB::list`
-/// (cron / subagent / source exclusions). Keep the two in sync — a divergence
-/// silently desyncs the per-session badge from the project badge. The
-/// `parent_session_id IS NULL` clause in the channel subquery is defensive
-/// (a sub-agent session never carries `source='channel'` rows, but it must
-/// never surface either count — asserted by the db tests).
-const SESSION_META_SELECT: &str = "SELECT s.id, s.title, s.agent_id, s.provider_id, s.provider_name, s.model_id,
+fn session_meta_select() -> String {
+    let regular_scope = regular_session_scope_sql("s");
+    let regular_unread = regular_unread_exists_sql("s");
+    format!(
+        "SELECT s.id, s.title, s.agent_id, s.provider_id, s.provider_name, s.model_id,
            s.created_at, s.updated_at,
            (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id) as msg_count,
-           (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id AND s.is_cron = 0 AND s.parent_session_id IS NULL AND m.id > COALESCE(s.last_read_message_id, 0) AND m.role = 'assistant' AND COALESCE(m.source, 'desktop') != 'channel') as unread_count,
+           CASE WHEN {regular_scope} THEN {regular_unread} ELSE 0 END as unread_count,
            EXISTS(
              SELECT 1 FROM messages m
              WHERE m.session_id = s.id
@@ -77,13 +187,26 @@ const SESSION_META_SELECT: &str = "SELECT s.id, s.title, s.agent_id, s.provider_
            s.is_cron, s.parent_session_id, s.plan_mode, s.project_id, s.permission_mode, s.incognito,
            cc.channel_id, cc.account_id, cc.chat_id, cc.chat_type, cc.sender_name,
            s.working_dir, s.title_source, s.reasoning_effort, s.pinned_at, s.kind,
-           (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id AND s.is_cron = 0 AND s.parent_session_id IS NULL AND m.id > COALESCE(s.last_read_message_id, 0) AND m.role = 'assistant' AND COALESCE(m.source, 'desktop') = 'channel') as channel_unread_count,
+           CASE WHEN s.is_cron = 0
+                  AND s.parent_session_id IS NULL
+                  AND s.incognito = 0
+                  AND s.kind = 'regular'
+                  AND EXISTS (SELECT 1 FROM channel_conversations cc_unread WHERE cc_unread.session_id = s.id)
+                THEN EXISTS(
+                  SELECT 1 FROM messages m
+                   WHERE m.session_id = s.id
+                     AND m.id > COALESCE(s.last_read_message_id, 0)
+                     AND m.role = 'assistant'
+                     AND COALESCE(m.source, 'desktop') = 'channel'
+                ) ELSE 0 END as channel_unread_count,
            s.sandbox_mode, s.temperature, s.runtime_defaults_initialized,
            s.execution_mode, s.workflow_mode,
            s.forked_from_session_id, s.forked_from_message_id,
            (SELECT p.title FROM sessions p WHERE p.id = s.forked_from_session_id) as forked_from_session_title
      FROM sessions s
-     LEFT JOIN channel_conversations cc ON cc.session_id = s.id";
+     LEFT JOIN channel_conversations cc ON cc.session_id = s.id"
+    )
+}
 
 impl SessionDB {
     /// Open (or create) the database at the given path, enable WAL mode,
@@ -1964,7 +2087,7 @@ impl SessionDB {
             limit,
             offset,
             active_session_id,
-            "s.pinned_at IS NULL ASC, s.pinned_at DESC, s.updated_at DESC",
+            "s.pinned_at IS NULL ASC, s.pinned_at DESC, s.updated_at DESC, s.id ASC",
             // Cron run sessions are surfaced in the cron panel's "conversations"
             // timeline, never the main sidebar list.
             true,
@@ -1977,18 +2100,13 @@ impl SessionDB {
     /// sessions before the caller gets a chance to filter them.
     pub fn list_recent_regular_chats(&self, limit: u32) -> Result<(Vec<SessionMeta>, u32)> {
         let conn = self.read_conn()?;
-        let regular_where = " WHERE s.is_cron = 0
-            AND s.parent_session_id IS NULL
-            AND s.incognito = 0
-            AND s.kind = 'regular'
-            AND NOT EXISTS (
-                SELECT 1 FROM channel_conversations cc_filter
-                WHERE cc_filter.session_id = s.id
-            )";
+        let regular_where = format!(" WHERE {}", regular_session_scope_sql("s"));
         let count_sql = format!("SELECT COUNT(*) FROM sessions s{regular_where}");
         let total: u32 = conn.query_row(&count_sql, [], |r| r.get::<_, u32>(0))?;
-        let sql =
-            format!("{SESSION_META_SELECT}{regular_where} ORDER BY s.updated_at DESC LIMIT ?1");
+        let sql = format!(
+            "{}{regular_where} ORDER BY s.updated_at DESC LIMIT ?1",
+            session_meta_select()
+        );
 
         let mut stmt = conn.prepare(&sql)?;
         let rows = stmt.query_map(params![limit], Self::row_to_session_meta)?;
@@ -2009,19 +2127,16 @@ impl SessionDB {
         limit: u32,
     ) -> Result<(Vec<SessionMeta>, u32)> {
         let conn = self.read_conn()?;
-        let regular_where = " WHERE s.project_id = ?1
-            AND s.is_cron = 0
-            AND s.parent_session_id IS NULL
-            AND s.incognito = 0
-            AND s.kind = 'regular'
-            AND NOT EXISTS (
-                SELECT 1 FROM channel_conversations cc_filter
-                WHERE cc_filter.session_id = s.id
-            )";
+        let regular_where = format!(
+            " WHERE s.project_id = ?1 AND {}",
+            regular_session_scope_sql("s")
+        );
         let count_sql = format!("SELECT COUNT(*) FROM sessions s{regular_where}");
         let total: u32 = conn.query_row(&count_sql, params![project_id], |r| r.get(0))?;
-        let sql =
-            format!("{SESSION_META_SELECT}{regular_where} ORDER BY s.updated_at DESC LIMIT ?2");
+        let sql = format!(
+            "{}{regular_where} ORDER BY s.updated_at DESC LIMIT ?2",
+            session_meta_select()
+        );
 
         let mut stmt = conn.prepare(&sql)?;
         let rows = stmt.query_map(params![project_id, limit], Self::row_to_session_meta)?;
@@ -2051,7 +2166,7 @@ impl SessionDB {
         // Unread only counts final `assistant` rows — tool / text_block /
         // thinking_block / event rows are artifacts of the same turn and would
         // inflate the badge (one question with N tool calls would read as 2N+).
-        let base_sql = SESSION_META_SELECT;
+        let base_sql = session_meta_select();
         let count_base = "SELECT COUNT(*) FROM sessions s";
         let row_mapper = Self::row_to_session_meta;
 
@@ -2518,7 +2633,7 @@ impl SessionDB {
         .unwrap_or(false)
     }
 
-    /// Parse a row produced by `SESSION_META_SELECT` (or that SELECT +
+    /// Parse a row produced by `session_meta_select()` (or that SELECT +
     /// `WHERE ...`) into a `SessionMeta`. Column indices are tied to the
     /// column order declared in the constant — keep them in sync.
     fn row_to_session_meta(row: &rusqlite::Row) -> rusqlite::Result<SessionMeta> {
@@ -2677,7 +2792,16 @@ impl SessionDB {
             params![now, session_id],
         )?;
         let resolved_ts = timestamp.to_string();
+        let unread_domain = if msg.role == MessageRole::Assistant {
+            unread_domain_for_session(&conn, session_id).unwrap_or(None)
+        } else {
+            None
+        };
         drop(conn);
+
+        if let Some(domain) = unread_domain {
+            emit_unread_changed(Some(session_id), Some(domain));
+        }
 
         // Live transcript mirror for hook scripts (design §10): mirror when ANY
         // scope has handlers — the global user/managed registry OR the session
@@ -4356,7 +4480,7 @@ impl SessionDB {
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
-        let sql = format!("{} WHERE s.id = ?1", SESSION_META_SELECT);
+        let sql = format!("{} WHERE s.id = ?1", session_meta_select());
         let mut stmt = conn.prepare(&sql)?;
         let mut rows = stmt.query_map(params![session_id], Self::row_to_session_meta)?;
 
@@ -4367,17 +4491,123 @@ impl SessionDB {
         }
     }
 
+    /// Count unread regular conversations across the whole database.
+    ///
+    /// This is the authoritative aggregate used by the conversation entry and
+    /// the app/Dock badge. It counts sessions, never message rows, and excludes
+    /// only the conversation the frontend confirms is actually being read.
+    pub fn regular_unread_total(&self, active_session_id: Option<&str>) -> Result<i64> {
+        let conn = self.read_conn()?;
+        let active_session_id = active_session_id.unwrap_or("");
+        let sql = format!(
+            "SELECT COUNT(*) FROM sessions s
+              WHERE s.id != ?1 AND {}",
+            regular_unread_predicate_sql("s")
+        );
+        let total = conn.query_row(&sql, params![active_session_id], |row| row.get(0))?;
+        Ok(total)
+    }
+
+    /// Return the first unread regular conversation in the sidebar's visual
+    /// order, plus its position inside that session group. Projects render
+    /// before unassigned sessions; active projects precede archived projects;
+    /// each group shares the pin/update ordering used by the list endpoint.
+    pub fn next_regular_unread_session(
+        &self,
+        active_session_id: Option<&str>,
+    ) -> Result<Option<UnreadSessionTarget>> {
+        let conn = self.read_conn()?;
+        let active_session_id = active_session_id.unwrap_or("");
+        let sql = format!(
+            "WITH sidebar_sessions AS (
+                 SELECT s.id, s.project_id, s.pinned_at, s.updated_at,
+                        {} AS is_unread
+                   FROM sessions s
+                  WHERE s.is_cron = 0
+                    AND s.kind NOT IN ('knowledge', 'eval_fixture')
+                    AND (
+                        (s.project_id IS NULL
+                         AND s.parent_session_id IS NULL
+                         AND (s.incognito = 0 OR s.id = ?1))
+                        OR
+                        (s.project_id IS NOT NULL AND s.incognito = 0)
+                    )
+             ), ranked AS (
+                 SELECT id, project_id, is_unread,
+                        ROW_NUMBER() OVER (
+                            PARTITION BY project_id
+                            ORDER BY pinned_at IS NULL ASC,
+                                     pinned_at DESC,
+                                     updated_at DESC,
+                                     id ASC
+                        ) - 1 AS list_offset
+                   FROM sidebar_sessions
+             )
+             SELECT r.id, r.project_id, r.list_offset
+               FROM ranked r
+               LEFT JOIN projects p ON p.id = r.project_id
+              WHERE r.id != ?1 AND r.is_unread = 1
+              ORDER BY CASE
+                           WHEN r.project_id IS NULL THEN 2
+                           WHEN COALESCE(p.archived, 0) = 0 THEN 0
+                           ELSE 1
+                       END ASC,
+                       p.sort_order ASC,
+                       p.updated_at DESC,
+                       r.list_offset ASC,
+                       r.id ASC
+              LIMIT 1",
+            regular_unread_predicate_sql("s")
+        );
+        conn.query_row(&sql, params![active_session_id], |row| {
+            Ok(UnreadSessionTarget {
+                session_id: row.get(0)?,
+                project_id: row.get(1)?,
+                list_offset: row.get(2)?,
+            })
+        })
+        .optional()
+        .map_err(Into::into)
+    }
+
     /// Mark all messages in a session as read by updating last_read_message_id
     /// to the current maximum message id.
     pub fn mark_session_read(&self, session_id: &str) -> Result<()> {
+        self.mark_session_read_through(session_id, None)
+    }
+
+    /// Advance a session's read watermark through the last message the caller
+    /// actually rendered. `None` preserves the explicit "mark all" behavior.
+    /// The session-local MAX guard rejects unrelated/global message ids and the
+    /// outer MAX prevents stale clients from moving the watermark backwards.
+    pub fn mark_session_read_through(
+        &self,
+        session_id: &str,
+        through_message_id: Option<i64>,
+    ) -> Result<()> {
         let conn = self
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let unread_domain = unread_domain_for_session(&conn, session_id)?;
         conn.execute(
-            "UPDATE sessions SET last_read_message_id = (SELECT COALESCE(MAX(id), 0) FROM messages WHERE session_id = ?1) WHERE id = ?1",
-            params![session_id],
+            "UPDATE sessions
+                SET last_read_message_id = MAX(
+                    COALESCE(last_read_message_id, 0),
+                    (
+                        SELECT COALESCE(MAX(id), 0)
+                        FROM messages
+                        WHERE session_id = ?1
+                          AND (?2 IS NULL OR id <= ?2)
+                    )
+                )
+              WHERE id = ?1",
+            params![session_id, through_message_id],
         )?;
+        drop(conn);
+        if let Some(domain) = unread_domain {
+            emit_unread_changed(Some(session_id), Some(domain));
+        }
         Ok(())
     }
 
@@ -4396,6 +4626,9 @@ impl SessionDB {
         for id in session_ids {
             stmt.execute(params![id])?;
         }
+        drop(stmt);
+        drop(conn);
+        emit_unread_changed(None, None);
         Ok(())
     }
 
@@ -4405,46 +4638,54 @@ impl SessionDB {
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
-        conn.execute(
-            "UPDATE sessions
+        let sql = format!(
+            "UPDATE sessions AS s
                 SET last_read_message_id = (
                     SELECT COALESCE(MAX(id), 0)
                     FROM messages
-                    WHERE messages.session_id = sessions.id
+                    WHERE messages.session_id = s.id
                 )
-              WHERE project_id = ?1
-                AND parent_session_id IS NULL
-                AND NOT EXISTS (
-                    SELECT 1
-                    FROM channel_conversations cc
-                    WHERE cc.session_id = sessions.id
-                )",
-            params![project_id],
-        )?;
+              WHERE s.project_id = ?1 AND {}",
+            regular_session_scope_sql("s")
+        );
+        conn.execute(&sql, params![project_id])?;
+        drop(conn);
+        emit_unread_changed(None, Some(UnreadDomain::Regular));
         Ok(())
     }
 
-    /// Mark all sessions as read.
+    /// Mark all regular desktop conversations as read. Channel, cron,
+    /// sub-agent, incognito, knowledge-space, and other dedicated kinds retain
+    /// their independent read state.
     pub fn mark_all_sessions_read(&self) -> Result<()> {
         let conn = self
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
-        conn.execute_batch(
-            "UPDATE sessions SET last_read_message_id = (SELECT COALESCE(MAX(id), 0) FROM messages WHERE messages.session_id = sessions.id)"
-        )?;
+        let sql = format!(
+            "UPDATE sessions AS s
+                SET last_read_message_id = (
+                    SELECT COALESCE(MAX(id), 0) FROM messages
+                     WHERE messages.session_id = s.id
+                )
+              WHERE {}",
+            regular_session_scope_sql("s")
+        );
+        conn.execute(&sql, [])?;
+        drop(conn);
+        emit_unread_changed(None, Some(UnreadDomain::Regular));
         Ok(())
     }
 
     // ── Cron timeline / unread (cron panel "conversations" view) ─────────────
 
-    /// Batch-fetch `(title, unread_assistant_count)` for the given cron session
+    /// Batch-fetch `(title, unread_flag)` for the given cron session
     /// ids — used to hydrate the cross-job run timeline (`cron_run_timeline`).
     /// Returns a map `session_id -> (title, unread)`; ids whose session row is
     /// missing (purged) are simply absent, and the caller falls back to the job
     /// name / 0. The unread predicate mirrors `SESSION_META_SELECT` *minus* the
-    /// `is_cron = 0` clause (cron sessions are never sub-sessions and their
-    /// `source` is always desktop, so those predicates are unnecessary here).
+    /// `is_cron = 0` clause. Cron owns a separate unread domain, so message
+    /// source does not affect whether a run transcript has been read.
     pub fn cron_session_read_state(
         &self,
         session_ids: &[String],
@@ -4462,7 +4703,7 @@ impl SessionDB {
         let placeholders: Vec<String> = (1..=session_ids.len()).map(|i| format!("?{i}")).collect();
         let sql = format!(
             "SELECT s.id, s.title,
-                    (SELECT COUNT(*) FROM messages m
+                    EXISTS(SELECT 1 FROM messages m
                       WHERE m.session_id = s.id
                         AND m.id > COALESCE(s.last_read_message_id, 0)
                         AND m.role = 'assistant') AS unread
@@ -4486,10 +4727,8 @@ impl SessionDB {
         Ok(map)
     }
 
-    /// Total unread assistant messages across ALL cron sessions (the cron
-    /// sidebar badge count). The backend does NOT exclude the currently-open
-    /// cron session — that's a pure aggregate; the frontend handles any
-    /// "currently viewing" subtraction.
+    /// Total unread cron run conversations. Each run session contributes at
+    /// most one regardless of how many assistant rows it contains.
     pub fn cron_unread_total(&self) -> Result<i64> {
         let conn = self
             .conn
@@ -4497,11 +4736,14 @@ impl SessionDB {
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         let total: i64 = conn.query_row(
             "SELECT COUNT(*)
-               FROM messages m
-               JOIN sessions s ON s.id = m.session_id
+               FROM sessions s
               WHERE s.is_cron = 1
-                AND m.role = 'assistant'
-                AND m.id > COALESCE(s.last_read_message_id, 0)",
+                AND EXISTS (
+                    SELECT 1 FROM messages m
+                     WHERE m.session_id = s.id
+                       AND m.role = 'assistant'
+                       AND m.id > COALESCE(s.last_read_message_id, 0)
+                )",
             [],
             |row| row.get(0),
         )?;
@@ -4525,6 +4767,8 @@ impl SessionDB {
               WHERE is_cron = 1",
             [],
         )?;
+        drop(conn);
+        emit_unread_changed(None, Some(UnreadDomain::Cron));
         Ok(n)
     }
 
@@ -5323,6 +5567,19 @@ mod tests {
         .expect("create channel conversations table");
     }
 
+    fn ensure_projects_table(db: &SessionDB) {
+        let conn = db.conn.lock().expect("lock connection");
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS projects (
+                id TEXT PRIMARY KEY,
+                updated_at INTEGER NOT NULL DEFAULT 0,
+                archived INTEGER NOT NULL DEFAULT 0,
+                sort_order INTEGER NOT NULL DEFAULT 0
+            );",
+        )
+        .expect("create projects table");
+    }
+
     fn temp_db_path(name: &str) -> std::path::PathBuf {
         let unique = format!(
             "{}-{}-{}.sqlite3",
@@ -5791,6 +6048,12 @@ mod tests {
                 .with_source(crate::chat_engine::ChatSource::Desktop),
         )
         .expect("append regular assistant");
+        db.append_message(
+            &regular.id,
+            &NewMessage::assistant("regular follow-up")
+                .with_source(crate::chat_engine::ChatSource::Desktop),
+        )
+        .expect("append second regular assistant");
 
         let cron = db.create_session("ha-main").expect("cron session");
         db.mark_session_cron(&cron.id).expect("mark cron");
@@ -5811,7 +6074,7 @@ mod tests {
 
         assert_eq!(
             regular_meta.unread_count, 1,
-            "regular assistant reply should count as unread"
+            "multiple assistant replies still represent one unread conversation"
         );
         assert_eq!(
             cron_meta.unread_count, 0,
@@ -5850,6 +6113,16 @@ mod tests {
             &NewMessage::assistant("im reply").with_source(ChatSource::Channel),
         )
         .expect("append channel");
+        {
+            let conn = db.conn.lock().expect("lock channel attach");
+            conn.execute(
+                "INSERT INTO channel_conversations (
+                    channel_id, account_id, chat_id, session_id, created_at, updated_at
+                 ) VALUES ('telegram', 'account', 'chat', ?1, '', '')",
+                rusqlite::params![channel.id],
+            )
+            .expect("attach channel session");
+        }
 
         // Sub-agent child session (desktop source) → excluded from BOTH counts.
         let sub = db
@@ -5894,6 +6167,378 @@ mod tests {
         assert_eq!(
             sub_meta.channel_unread_count, 0,
             "sub-agent session is excluded from IM unread too"
+        );
+
+        let _ = std::fs::remove_file(&db_path);
+    }
+
+    #[test]
+    fn regular_unread_aggregate_and_mark_all_share_the_same_scope() {
+        use crate::chat_engine::ChatSource;
+
+        let db_path = temp_db_path("regular-unread-scope");
+        let db = SessionDB::open(&db_path).expect("open session db");
+        ensure_channel_conversations_table(&db);
+        ensure_projects_table(&db);
+        {
+            let conn = db.conn.lock().expect("lock projects");
+            conn.execute(
+                "INSERT INTO projects (id, updated_at, archived, sort_order)
+                 VALUES ('project-a', 0, 0, 10)",
+                [],
+            )
+            .expect("insert project");
+        }
+
+        let regular = db.create_session("ha-main").expect("regular session");
+        db.append_message(
+            &regular.id,
+            &NewMessage::assistant("first reply").with_source(ChatSource::Desktop),
+        )
+        .expect("append first regular reply");
+        db.append_message(
+            &regular.id,
+            &NewMessage::assistant("second reply").with_source(ChatSource::Desktop),
+        )
+        .expect("append second regular reply");
+
+        let project = db
+            .create_session_with_project("ha-main", Some("project-a"), None)
+            .expect("project session");
+        db.append_message(
+            &project.id,
+            &NewMessage::assistant("project reply").with_source(ChatSource::Desktop),
+        )
+        .expect("append project reply");
+        set_session_updated_at(&db, &regular.id, "2026-01-01T00:00:00Z");
+        set_session_updated_at(&db, &project.id, "2026-01-02T00:00:00Z");
+
+        let cron = db.create_session("ha-main").expect("cron session");
+        db.mark_session_cron(&cron.id).expect("mark cron");
+        db.append_message(
+            &cron.id,
+            &NewMessage::assistant("cron reply").with_source(ChatSource::Cron),
+        )
+        .expect("append cron reply");
+        db.append_message(
+            &cron.id,
+            &NewMessage::assistant("cron follow-up").with_source(ChatSource::Cron),
+        )
+        .expect("append second cron reply");
+
+        let knowledge = db.create_session("ha-main").expect("knowledge session");
+        db.set_session_kind(&knowledge.id, SessionKind::Knowledge)
+            .expect("set knowledge kind");
+        db.append_message(
+            &knowledge.id,
+            &NewMessage::assistant("knowledge reply").with_source(ChatSource::Desktop),
+        )
+        .expect("append knowledge reply");
+
+        let child = db
+            .create_session_with_parent("ha-main", Some(&regular.id))
+            .expect("subagent session");
+        db.append_message(
+            &child.id,
+            &NewMessage::assistant("subagent reply").with_source(ChatSource::Desktop),
+        )
+        .expect("append subagent reply");
+
+        let incognito = db
+            .create_session_with_project("ha-main", None, Some(true))
+            .expect("incognito session");
+        db.append_message(
+            &incognito.id,
+            &NewMessage::assistant("private reply").with_source(ChatSource::Desktop),
+        )
+        .expect("append incognito reply");
+
+        let channel = db.create_session("ha-main").expect("channel session");
+        db.append_message(
+            &channel.id,
+            &NewMessage::assistant("channel reply").with_source(ChatSource::Channel),
+        )
+        .expect("append channel reply");
+        {
+            let conn = db.conn.lock().expect("lock channel attach");
+            conn.execute(
+                "INSERT INTO channel_conversations (
+                    channel_id, account_id, chat_id, session_id, created_at, updated_at
+                 ) VALUES ('telegram', 'account', 'chat', ?1, '', '')",
+                rusqlite::params![channel.id],
+            )
+            .expect("attach channel session");
+        }
+
+        assert_eq!(
+            db.regular_unread_total(None).expect("regular unread total"),
+            2,
+            "only the two top-level regular conversations count"
+        );
+        assert_eq!(
+            db.regular_unread_total(Some(&project.id))
+                .expect("active-excluded total"),
+            1,
+            "the active conversation is excluded from every display aggregate"
+        );
+        let target = db
+            .next_regular_unread_session(None)
+            .expect("next unread query")
+            .expect("unread target");
+        assert_eq!(target.session_id, project.id);
+        assert_eq!(target.project_id.as_deref(), Some("project-a"));
+        assert_eq!(target.list_offset, 0);
+        assert_eq!(
+            db.cron_unread_total().expect("cron unread total"),
+            1,
+            "multiple outputs in one cron run session count once"
+        );
+
+        db.mark_all_sessions_read().expect("mark regular all read");
+        assert_eq!(db.regular_unread_total(None).unwrap(), 0);
+        assert_eq!(
+            db.cron_unread_total().unwrap(),
+            1,
+            "regular mark-all must not clear cron"
+        );
+        let channel_meta = db
+            .get_session(&channel.id)
+            .unwrap()
+            .expect("channel session exists");
+        assert_eq!(
+            channel_meta.channel_unread_count, 1,
+            "regular mark-all must not clear IM"
+        );
+
+        let _ = std::fs::remove_file(&db_path);
+    }
+
+    #[test]
+    fn unread_target_matches_sidebar_group_order_and_reports_exact_offset() {
+        use crate::chat_engine::ChatSource;
+
+        let db_path = temp_db_path("unread-sidebar-order");
+        let db = SessionDB::open(&db_path).expect("open session db");
+        ensure_channel_conversations_table(&db);
+        ensure_projects_table(&db);
+        {
+            let conn = db.conn.lock().expect("lock projects");
+            conn.execute_batch(
+                "INSERT INTO projects (id, updated_at, archived, sort_order)
+                     VALUES ('project-first', 20, 0, 10);
+                 INSERT INTO projects (id, updated_at, archived, sort_order)
+                     VALUES ('project-second', 10, 0, 20);",
+            )
+            .expect("insert projects");
+        }
+
+        let read_pin = db
+            .create_session_with_project("ha-main", Some("project-first"), None)
+            .expect("read pinned project session");
+        db.set_session_pinned(&read_pin.id, true)
+            .expect("pin read session");
+
+        // Project groups render every visible row, not only rows eligible for
+        // the regular unread aggregate. Both of these rows must therefore
+        // occupy positions in the reveal target's list offset.
+        let channel_pin = db
+            .create_session_with_project("ha-main", Some("project-first"), None)
+            .expect("pinned project channel");
+        db.set_session_pinned(&channel_pin.id, true)
+            .expect("pin channel session");
+        {
+            let conn = db.conn.lock().expect("attach project channel");
+            conn.execute(
+                "INSERT INTO channel_conversations (
+                    channel_id, account_id, chat_id, session_id, created_at, updated_at
+                 ) VALUES ('telegram', 'account', 'project-chat', ?1, '', '')",
+                rusqlite::params![channel_pin.id],
+            )
+            .expect("attach project channel session");
+        }
+
+        let child_pin = db
+            .create_session_with_parent("ha-main", Some(&read_pin.id))
+            .expect("pinned project child");
+        {
+            let conn = db.conn.lock().expect("assign child project");
+            conn.execute(
+                "UPDATE sessions SET project_id = 'project-first' WHERE id = ?1",
+                rusqlite::params![child_pin.id],
+            )
+            .expect("assign child to project");
+        }
+        db.set_session_pinned(&child_pin.id, true)
+            .expect("pin child session");
+
+        let first_project_unread = db
+            .create_session_with_project("ha-main", Some("project-first"), None)
+            .expect("first project unread");
+        db.append_message(
+            &first_project_unread.id,
+            &NewMessage::assistant("first project reply").with_source(ChatSource::Desktop),
+        )
+        .expect("append first project reply");
+
+        let second_project_unread = db
+            .create_session_with_project("ha-main", Some("project-second"), None)
+            .expect("second project unread");
+        db.append_message(
+            &second_project_unread.id,
+            &NewMessage::assistant("second project reply").with_source(ChatSource::Desktop),
+        )
+        .expect("append second project reply");
+
+        let unassigned_unread = db.create_session("ha-main").expect("unassigned unread");
+        db.set_session_pinned(&unassigned_unread.id, true)
+            .expect("pin unassigned");
+        db.append_message(
+            &unassigned_unread.id,
+            &NewMessage::assistant("unassigned reply").with_source(ChatSource::Desktop),
+        )
+        .expect("append unassigned reply");
+
+        let target = db
+            .next_regular_unread_session(None)
+            .expect("locate unread")
+            .expect("target");
+        assert_eq!(target.session_id, first_project_unread.id);
+        assert_eq!(target.project_id.as_deref(), Some("project-first"));
+        let (visible_project_rows, _) = db
+            .list_sessions_paged_for_sidebar(
+                None,
+                super::ProjectFilter::InProject("project-first"),
+                super::ParentSessionFilter::All,
+                None,
+                None,
+                None,
+            )
+            .expect("list project sidebar rows");
+        let visual_position = visible_project_rows
+            .iter()
+            .position(|session| session.id == target.session_id)
+            .expect("target visible in project list") as u32;
+        assert_eq!(
+            target.list_offset, visual_position,
+            "every visible project row must occupy the same offset as the list endpoint"
+        );
+        assert_eq!(target.list_offset, 3);
+
+        let _ = std::fs::remove_file(&db_path);
+    }
+
+    #[test]
+    fn unread_target_offset_counts_visible_unassigned_channel_rows() {
+        use crate::chat_engine::ChatSource;
+
+        let db_path = temp_db_path("unread-unassigned-channel-offset");
+        let db = SessionDB::open(&db_path).expect("open session db");
+        ensure_channel_conversations_table(&db);
+        ensure_projects_table(&db);
+
+        let channel_pin = db.create_session("ha-main").expect("channel session");
+        db.set_session_pinned(&channel_pin.id, true)
+            .expect("pin channel session");
+        {
+            let conn = db.conn.lock().expect("attach channel");
+            conn.execute(
+                "INSERT INTO channel_conversations (
+                    channel_id, account_id, chat_id, session_id, created_at, updated_at
+                 ) VALUES ('telegram', 'account', 'chat', ?1, '', '')",
+                rusqlite::params![channel_pin.id],
+            )
+            .expect("attach channel session");
+        }
+
+        let unread = db.create_session("ha-main").expect("unread session");
+        db.append_message(
+            &unread.id,
+            &NewMessage::assistant("reply").with_source(ChatSource::Desktop),
+        )
+        .expect("append unread reply");
+
+        let target = db
+            .next_regular_unread_session(None)
+            .expect("locate unread")
+            .expect("target");
+        let (visible_rows, _) = db
+            .list_sessions_paged_for_sidebar(
+                None,
+                super::ProjectFilter::Unassigned,
+                super::ParentSessionFilter::Root,
+                None,
+                None,
+                None,
+            )
+            .expect("list unassigned sidebar rows");
+        let visual_position = visible_rows
+            .iter()
+            .position(|session| session.id == target.session_id)
+            .expect("target visible in flat list") as u32;
+
+        assert_eq!(target.session_id, unread.id);
+        assert_eq!(target.list_offset, visual_position);
+        assert_eq!(target.list_offset, 1);
+
+        let _ = std::fs::remove_file(&db_path);
+    }
+
+    #[test]
+    fn mark_session_read_through_never_clears_unrendered_messages() {
+        use crate::chat_engine::ChatSource;
+
+        let db_path = temp_db_path("session-read-through");
+        let db = SessionDB::open(&db_path).expect("open session db");
+        ensure_channel_conversations_table(&db);
+
+        let session = db.create_session("ha-main").expect("regular session");
+        let first = db
+            .append_message(
+                &session.id,
+                &NewMessage::assistant("rendered reply").with_source(ChatSource::Desktop),
+            )
+            .expect("append rendered reply");
+        db.append_message(
+            &session.id,
+            &NewMessage::assistant("not rendered yet").with_source(ChatSource::Desktop),
+        )
+        .expect("append unseen reply");
+
+        db.mark_session_read_through(&session.id, Some(first))
+            .expect("mark rendered prefix read");
+        assert_eq!(
+            db.get_session(&session.id)
+                .unwrap()
+                .expect("session exists")
+                .unread_count,
+            1,
+            "a newer unrendered assistant row must remain unread"
+        );
+
+        db.mark_session_read_through(&session.id, Some(first.saturating_sub(1)))
+            .expect("ignore stale watermark");
+        let watermark: i64 = db
+            .conn
+            .lock()
+            .expect("lock session")
+            .query_row(
+                "SELECT last_read_message_id FROM sessions WHERE id = ?1",
+                rusqlite::params![session.id],
+                |row| row.get(0),
+            )
+            .expect("read watermark");
+        assert_eq!(
+            watermark, first,
+            "stale clients must not move the watermark backwards"
+        );
+
+        db.mark_session_read(&session.id).expect("mark all read");
+        assert_eq!(
+            db.get_session(&session.id)
+                .unwrap()
+                .expect("session exists")
+                .unread_count,
+            0
         );
 
         let _ = std::fs::remove_file(&db_path);

@@ -511,13 +511,11 @@ export interface SessionMeta {
   updatedAt: string
   pinnedAt?: string | null
   messageCount: number
-  /** Unread desktop assistant messages (IM / sub-agent / cron excluded). */
+  /** Regular-conversation unread flag encoded as 0 or 1. */
   unreadCount: number
   /**
-   * Unread IM (`source = 'channel'`) assistant messages for a channel-attached
-   * session. Surfaced as an independent indicator on the session row; always 0
-   * for non-channel sessions. Kept separate from `unreadCount` so IM activity
-   * never inflates the regular desktop unread total.
+   * Channel-conversation unread flag encoded as 0 or 1. Surfaced independently
+   * and never folded into regular desktop unread.
    */
   channelUnreadCount: number
   hasError: boolean
@@ -568,6 +566,15 @@ export interface SessionMeta {
     chatType: string
     senderName?: string | null
   } | null
+  /** Dedicated spaces use non-regular kinds and never enter regular unread. */
+  kind?: "regular" | "knowledge" | "eval_fixture" | string
+}
+
+export interface UnreadSessionTarget {
+  sessionId: string
+  projectId?: string | null
+  /** Zero-based position within its project or the unassigned session list. */
+  listOffset: number
 }
 
 export interface SessionMessage {

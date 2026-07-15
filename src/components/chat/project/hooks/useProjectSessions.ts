@@ -36,6 +36,9 @@ export interface UseProjectSessionsParams {
   /** Live total from `ProjectMeta`; backstop trigger for membership changes
    *  outside the global window. */
   sessionCount: number
+  /** Target and exact sidebar-order position returned by the unread locator. */
+  ensureSessionId?: string | null
+  ensureSessionOffset?: number | null
 }
 
 export interface UseProjectSessionsReturn {
@@ -58,6 +61,8 @@ export function useProjectSessions({
   expanded,
   changeSignal,
   sessionCount,
+  ensureSessionId,
+  ensureSessionOffset,
 }: UseProjectSessionsParams): UseProjectSessionsReturn {
   const [sessions, setSessions] = useState<SessionMeta[]>([])
   const [total, setTotal] = useState(0)
@@ -94,24 +99,26 @@ export function useProjectSessions({
     // fetch immediately. Only changeSignal / sessionCount churn (streaming unread
     // / updated_at updates) is debounced, to coalesce storms into one refetch.
     const immediate =
-      !loadedOnceRef.current ||
-      !prevExpandedRef.current ||
-      windowSize !== prevWindowSizeRef.current
+      !loadedOnceRef.current || !prevExpandedRef.current || windowSize !== prevWindowSizeRef.current
     prevWindowSizeRef.current = windowSize
     prevExpandedRef.current = true
 
     const timer = setTimeout(
       async () => {
         try {
+          const requestedLimit = ensureSessionId
+            ? Math.max(windowSize, Math.floor(ensureSessionOffset ?? 0) + 1)
+            : windowSize
           const [list, totalCount] = await getTransport().call<[SessionMeta[], number]>(
             "list_project_sessions_cmd",
             {
               id: projectId,
-              limit: windowSize,
+              limit: requestedLimit,
               offset: 0,
             },
           )
           if (cancelled || seq !== reqSeqRef.current) return
+          if (requestedLimit !== windowSize) setWindowSize(requestedLimit)
           setSessions(list)
           setTotal(totalCount)
           loadedOnceRef.current = true
@@ -133,7 +140,15 @@ export function useProjectSessions({
       cancelled = true
       clearTimeout(timer)
     }
-  }, [expanded, projectId, windowSize, changeSignal, sessionCount])
+  }, [
+    expanded,
+    projectId,
+    windowSize,
+    changeSignal,
+    sessionCount,
+    ensureSessionId,
+    ensureSessionOffset,
+  ])
 
   // Renaming a session that lives only in this per-project window (older than
   // the global session page) never flips `changeSignal` — the renamed row isn't

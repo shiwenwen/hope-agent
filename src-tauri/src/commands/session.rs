@@ -99,6 +99,33 @@ pub async fn list_sessions_cmd(
     Ok((sessions, total))
 }
 
+/// Authoritative count of unread regular conversations. The active session is
+/// treated as read for display purposes without mutating its durable watermark.
+#[tauri::command]
+pub async fn regular_unread_total_cmd(
+    active_session_id: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<i64, CmdError> {
+    state
+        .session_db
+        .run(move |db| db.regular_unread_total(active_session_id.as_deref()))
+        .await
+        .map_err(Into::into)
+}
+
+/// First unread regular conversation in sidebar visual order, with list offset.
+#[tauri::command]
+pub async fn next_unread_session_cmd(
+    active_session_id: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<Option<session::UnreadSessionTarget>, CmdError> {
+    state
+        .session_db
+        .run(move |db| db.next_regular_unread_session(active_session_id.as_deref()))
+        .await
+        .map_err(Into::into)
+}
+
 #[tauri::command]
 pub async fn load_session_messages_latest_cmd(
     session_id: String,
@@ -435,15 +462,17 @@ pub async fn set_session_pinned_cmd(
         .map_err(Into::into)
 }
 
-/// Mark all messages in a session as read.
+/// Mark a session read through the last message the UI actually rendered.
+/// Omitting `through_message_id` preserves the explicit "mark all" behavior.
 #[tauri::command]
 pub async fn mark_session_read_cmd(
     session_id: String,
+    through_message_id: Option<i64>,
     state: State<'_, AppState>,
 ) -> Result<(), CmdError> {
     state
         .session_db
-        .run(move |db| db.mark_session_read(&session_id))
+        .run(move |db| db.mark_session_read_through(&session_id, through_message_id))
         .await
         .map_err(Into::into)
 }

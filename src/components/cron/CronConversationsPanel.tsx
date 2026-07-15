@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import { cn } from "@/lib/utils"
-import { markAllCronRead, refreshCronUnread } from "@/hooks/useCronUnreadStore"
+import { markAllCronRead, markCronSessionRead } from "@/hooks/useCronUnreadStore"
 import { cronDisplayTitle, runLogDotColor, runStatusDisplay } from "./cronHelpers"
 import type { CronTimelineRow } from "./CronJobForm.types"
 import type { AgentSummaryForSidebar } from "@/types/chat"
@@ -54,6 +54,8 @@ export default function CronConversationsPanel() {
   const [markingRead, setMarkingRead] = useState(false)
   const [markStatus, setMarkStatus] = useState<"idle" | "saved" | "failed">("idle")
   const markResetRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const markingSessionIdsRef = useRef(new Set<string>())
+  const pendingReadSessionIdRef = useRef<string | null>(null)
 
   const fetchPage = useCallback(async (pageOffset: number) => {
     const page = await getTransport().call<CronTimelineRow[]>("cron_run_timeline", {
@@ -120,6 +122,26 @@ export default function CronConversationsPanel() {
     }
   }, [])
 
+  const markRunRead = useCallback((sessionId: string) => {
+    if (markingSessionIdsRef.current.has(sessionId)) return
+    markingSessionIdsRef.current.add(sessionId)
+    void markCronSessionRead(sessionId)
+      .then(() => {
+        setRows((prev) =>
+          prev.map((row) => (row.sessionId === sessionId ? { ...row, unreadCount: 0 } : row)),
+        )
+      })
+      .catch((error) => {
+        logger.warn(
+          "cron",
+          "CronConversationsPanel::markRunRead",
+          "Failed to mark viewed cron run as read",
+          error,
+        )
+      })
+      .finally(() => markingSessionIdsRef.current.delete(sessionId))
+  }, [])
+
   const loadMore = useCallback(async () => {
     if (loadingMore || !hasMore) return
     setLoadingMore(true)
@@ -151,13 +173,29 @@ export default function CronConversationsPanel() {
     }
   }, [])
 
-  const handleSelect = useCallback((row: CronTimelineRow) => {
-    setSelectedSessionId(row.sessionId)
-    setSelectedRunLogId(row.runLogId)
-    // Opening a run does not auto-mark it read (clearing is explicit via
-    // "mark all read"), but pull a fresh badge count so it stays in sync.
-    refreshCronUnread()
-  }, [])
+  const handleSelect = useCallback(
+    (row: CronTimelineRow) => {
+      setSelectedRunLogId(row.runLogId)
+      if (row.sessionId === selectedSessionId) {
+        // The default-selected transcript may already be loaded; an explicit row
+        // click is sufficient user intent even when no remount will occur.
+        markRunRead(row.sessionId)
+        return
+      }
+      pendingReadSessionIdRef.current = row.sessionId
+      setSelectedSessionId(row.sessionId)
+    },
+    [markRunRead, selectedSessionId],
+  )
+
+  const handleViewerLoaded = useCallback(
+    (sessionId: string) => {
+      if (pendingReadSessionIdRef.current !== sessionId) return
+      pendingReadSessionIdRef.current = null
+      markRunRead(sessionId)
+    },
+    [markRunRead],
+  )
 
   return (
     <div className="flex min-h-0 flex-1 px-3 pb-3">
@@ -223,9 +261,13 @@ export default function CronConversationsPanel() {
                         <span className="truncate">{title}</span>
                       </span>
                       {row.unreadCount > 0 && (
-                        <span className="flex h-[16px] min-w-[16px] items-center justify-center rounded-full bg-destructive px-1 text-[9px] font-semibold leading-none text-white tabular-nums">
-                          {row.unreadCount > 99 ? "99+" : row.unreadCount}
-                        </span>
+                        <>
+                          <span
+                            aria-hidden="true"
+                            className="h-2.5 w-2.5 shrink-0 rounded-full bg-destructive"
+                          />
+                          <span className="sr-only">{t("chat.unreadStatus")}</span>
+                        </>
                       )}
                     </div>
                     <div className="mt-1 flex items-center justify-between gap-2 pl-4">
@@ -274,6 +316,7 @@ export default function CronConversationsPanel() {
             key={selectedSessionId}
             sessionId={selectedSessionId}
             agents={agents}
+            onLoaded={handleViewerLoaded}
           />
         ) : (
           <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center text-muted-foreground">
