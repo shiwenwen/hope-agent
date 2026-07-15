@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **数据大盘新增“目标与执行”统一推进页**：在综合概览后集中展示 Goal 达成与必要标准、Workflow 完成/失败/审批、Loop 强推进与无进展守卫、Task/Plan cohort 进度、P50 耗时和当前需处理项；支持时间、Agent、含归档/未分配在内的项目筛选，风险项可跳回会话并定位具体控制面。Task 与 Plan 从本版本开始记录精确完成时间并显示历史覆盖率；原“任务统计”更名为“自动化”，旧接口和独立 Plan 历史页继续保留。
+- **数据大盘新增“目标与执行”统一推进页**：在综合概览后集中展示 Goal 达成与必要标准、Workflow 完成/失败/审批、Loop 强推进与无进展守卫、Task/Plan cohort 进度、P50 耗时和当前需处理项；支持时间、Agent、含归档/未分配在内的项目筛选，风险项可跳回会话并定位具体控制面。Task 与 Plan 从本版本开始记录精确完成时间并显示历史覆盖率；原“任务统计”更名为“自动化”，旧接口和独立 Plan 历史页继续保留。 (#474)
 
 - **记忆系统升级为 Memory UX v2**：全局 / Agent / Project 三层 Core Memory 统一使用大写 `MEMORY.md`，以会话级固定快照和联合 token 预算进入稳定 Prompt；详细主题与 SQLite 长期记忆留在动态存储中按需读取。新增统一 `CoreMemoryRepository`、Memory Center 核心记忆管理、待确认记忆审核与四档学习模式；旧小写文件和旧配置通过带备份、冲突保护与原子写的版本化迁移自动兼容，升级不会静默覆盖用户内容或扩大记忆授权。
 - **上下文计量与延迟工具加载统一为 Provider-aware 契约**：Anthropic、OpenAI Chat、OpenAI Responses 与 Codex 的每轮请求新增不保存正文的 Token Manifest，`/context`、压缩判断、缓存读写和 Dashboard 使用同一实际请求口径。工具目录统一拆分为 eager / deferred / activated，`tool_search` 发现后会真正激活工具并在下一轮可调用；支持的 Provider 使用原生 deferred / cache breakpoint，不支持的端点自动回退客户端激活，权限、Plan、Skill、知识空间、无痕与 MCP 在线状态仍在执行前实时裁决。
