@@ -21,6 +21,7 @@ pub use ha_core::acp_control;
 pub use ha_core::agent;
 pub use ha_core::agent_config;
 pub use ha_core::agent_loader;
+pub use ha_core::artifacts;
 pub use ha_core::backup;
 pub use ha_core::browser_state;
 pub use ha_core::browser_ui;
@@ -46,6 +47,7 @@ pub use ha_core::onboarding;
 pub use ha_core::paths;
 pub use ha_core::permissions;
 pub use ha_core::plan;
+pub use ha_core::platform;
 pub use ha_core::process_registry;
 pub use ha_core::provider;
 pub use ha_core::sandbox;
@@ -912,6 +914,17 @@ pub fn run() {
             tauri_wrappers::get_canvas_project,
             tauri_wrappers::delete_canvas_project,
             tauri_wrappers::show_canvas_panel,
+            // Artifacts (local-first control plane over Canvas storage)
+            tauri_wrappers::list_artifacts,
+            tauri_wrappers::get_artifact,
+            tauri_wrappers::list_artifact_versions,
+            tauri_wrappers::import_artifact,
+            tauri_wrappers::restore_artifact,
+            tauri_wrappers::verify_artifact,
+            tauri_wrappers::review_artifact_export,
+            tauri_wrappers::export_artifact,
+            tauri_wrappers::archive_artifact,
+            tauri_wrappers::delete_artifact,
             // Dashboard analytics
             commands::dashboard::dashboard_overview,
             commands::dashboard::dashboard_token_usage,

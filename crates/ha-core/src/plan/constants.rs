@@ -2,7 +2,7 @@ use super::file_io::plans_dir;
 
 /// Tools denied in Plan Mode — kept for sub-agent inheritance compatibility.
 /// Derived from PlanAgentConfig: tools NOT in the allow-list.
-pub const PLAN_MODE_DENIED_TOOLS: &[&str] = &["write", "edit", "apply_patch", "canvas"];
+pub const PLAN_MODE_DENIED_TOOLS: &[&str] = &["write", "edit", "apply_patch", "canvas", "artifact"];
 
 #[allow(dead_code)]
 pub const PLAN_MODE_ASK_TOOLS: &[&str] = &["exec"];

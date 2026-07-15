@@ -2678,6 +2678,45 @@ fn build_router_with_cors(
             "/canvas/projects/{project_id}/{*rest}",
             get(routes::canvas::serve_canvas_project_file),
         )
+        // Local-first Artifacts control plane. Canvas routes remain as the
+        // compatibility rendering surface for at least one minor release.
+        .route("/artifacts", get(routes::artifacts::list_artifacts))
+        .route(
+            "/artifacts/import",
+            post(routes::artifacts::import_artifact),
+        )
+        .route(
+            "/artifacts/{id}",
+            get(routes::artifacts::get_artifact).delete(routes::artifacts::delete_artifact),
+        )
+        .route(
+            "/artifacts/{id}/versions",
+            get(routes::artifacts::list_versions),
+        )
+        .route(
+            "/artifacts/{id}/restore",
+            post(routes::artifacts::restore_artifact),
+        )
+        .route(
+            "/artifacts/{id}/verify",
+            post(routes::artifacts::verify_artifact),
+        )
+        .route(
+            "/artifacts/{id}/exports",
+            post(routes::artifacts::create_export),
+        )
+        .route(
+            "/artifacts/{id}/export-review",
+            post(routes::artifacts::review_export),
+        )
+        .route(
+            "/artifacts/{id}/archive",
+            post(routes::artifacts::archive_artifact),
+        )
+        .route(
+            "/artifact-exports/{export_id}/download",
+            get(routes::artifacts::download_export),
+        )
         // Providers extras
         .route(
             "/providers/available-models",

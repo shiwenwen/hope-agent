@@ -48,6 +48,12 @@ const MANAGED_BROWSER_WINDOW_HEIGHT: u32 = 960;
 ///
 /// Returns a friendly error with remediation when none of the three hits.
 pub fn resolve_chrome_executable(override_path: Option<&str>) -> Result<String> {
+    resolve_chrome_executable_for(override_path, "browser")
+}
+
+/// Resolve a Chrome / Chromium binary and identify the feature that requested
+/// it when owner UI remediation is needed.
+pub fn resolve_chrome_executable_for(override_path: Option<&str>, context: &str) -> Result<String> {
     if let Some(p) = override_path {
         let trimmed = p.trim();
         if !trimmed.is_empty() {
@@ -72,12 +78,12 @@ pub fn resolve_chrome_executable(override_path: Option<&str>) -> Result<String> 
         );
         return Ok(cached.to_string_lossy().into_owned());
     }
-    anyhow::bail!(
-        "No Chrome / Chromium found on this system. Options:\n\
+    let message = "No Chrome / Chromium found on this system. Options:\n\
          1. Install Google Chrome from https://www.google.com/chrome/\n\
          2. Run `profile.op=install_runtime` to download a Chromium runtime (~150 MB)\n\
-         3. Pass `executable_path` to override with a custom Chrome binary"
-    );
+         3. Pass `executable_path` to override with a custom Chrome binary";
+    crate::browser::runtime::emit_runtime_required(context, message);
+    anyhow::bail!(message);
 }
 
 /// Open a browser-internal URL (e.g. `chrome://extensions/`) in the user's

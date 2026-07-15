@@ -4,6 +4,8 @@
 >
 > 更新时间：2026-04-29
 
+> **演进说明（2026-07-14）**：Canvas 现在是 [Artifacts 平台](artifacts.md) 的运行与预览兼容层。新增长期管理、分析报告、验证或导出能力必须进入 `ha-core::artifacts`，不得继续扩张 Canvas 控制面。renderer 已移除 CDN 和动态 html2canvas；Mermaid/Chart 在离线环境提供语义 fallback。本文下方的 CDN 与旧 export 描述仅用于解释历史记录，新的单一真相源以 Artifacts 文档和当前代码为准。
+
 ## 目录
 
 - [概述](#概述)（含系统架构总览图）

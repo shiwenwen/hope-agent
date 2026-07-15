@@ -15,13 +15,14 @@ use super::{
     workflow_tool,
 };
 use super::{
-    agents, ask_user_question, canvas, enter_plan_mode, image, image_generate, job_status, pdf,
-    runtime_cancel, schedule_wakeup, sessions, submit_plan, task,
+    agents, artifact, ask_user_question, canvas, enter_plan_mode, image, image_generate,
+    job_status, pdf, runtime_cancel, schedule_wakeup, sessions, submit_plan, task,
 };
 use super::{apply_patch, edit, exec, find, grep, ls, lsp, process, read, write};
 use super::{
-    approval, TOOL_ACP_SPAWN, TOOL_AGENTS_LIST, TOOL_APPLY_PATCH, TOOL_ASK_USER_QUESTION,
-    TOOL_BROWSER, TOOL_CANVAS, TOOL_CORE_MEMORY, TOOL_DELETE_MEMORY, TOOL_EDIT,
+    approval, TOOL_ACP_SPAWN, TOOL_AGENTS_LIST, TOOL_APPLY_PATCH, TOOL_ARTIFACT,
+    TOOL_ASK_USER_QUESTION, TOOL_BROWSER, TOOL_CANVAS, TOOL_CORE_MEMORY, TOOL_DELETE_MEMORY,
+    TOOL_EDIT,
     TOOL_ENTER_PLAN_MODE, TOOL_EXEC, TOOL_FIND, TOOL_GET_SETTINGS, TOOL_GET_WEATHER,
     TOOL_GOAL_BLOCK_REQUEST, TOOL_GOAL_CHECKPOINT, TOOL_GOAL_EVALUATE, TOOL_GOAL_FINISH_REQUEST,
     TOOL_GOAL_PREPARE_CONTRACT, TOOL_GOAL_RECORD_EVIDENCE, TOOL_GOAL_STATUS, TOOL_GREP, TOOL_IMAGE,
@@ -1891,6 +1892,7 @@ pub async fn execute_tool_with_context(
             TOOL_ISSUE_REPORT => issue_report::tool_issue_report(args, dispatch_ctx).await,
             TOOL_PDF => pdf::tool_pdf(args).await,
             TOOL_CANVAS => canvas::tool_canvas(args, dispatch_ctx).await,
+            TOOL_ARTIFACT => artifact::tool_artifact(args, dispatch_ctx).await,
             TOOL_GET_WEATHER => weather::tool_get_weather(args).await,
             TOOL_ASK_USER_QUESTION => {
                 Ok(ask_user_question::execute(args, dispatch_ctx.session_id.as_deref()).await)

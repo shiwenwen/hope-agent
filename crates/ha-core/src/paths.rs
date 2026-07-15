@@ -560,6 +560,14 @@ pub fn canvas_projects_dir() -> Result<PathBuf> {
 
 /// Specific canvas project directory: ~/.hope-agent/canvas/projects/{id}/
 pub fn canvas_project_dir(project_id: &str) -> Result<PathBuf> {
+    if project_id.is_empty()
+        || project_id.len() > 128
+        || !project_id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
+    {
+        anyhow::bail!("invalid canvas project id");
+    }
     Ok(canvas_projects_dir()?.join(project_id))
 }
 

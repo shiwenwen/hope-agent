@@ -20,6 +20,8 @@ pub fn create_project(
     session_id: Option<&str>,
     agent_id: Option<&str>,
 ) -> Result<CanvasProject> {
+    let _privacy_guard = crate::artifacts::lock_privacy_transition()?;
+    crate::artifacts::ensure_durable_session_allowed(session_id)?;
     let project_id = Uuid::new_v4().to_string();
     let now = Local::now().to_rfc3339();
     let title = title.unwrap_or("Untitled Canvas");
@@ -56,6 +58,16 @@ pub fn create_project(
     };
     db.create_version(&version)?;
 
+    if let Err(error) = crate::artifacts::sync_legacy_canvas_current_version(&project_id) {
+        app_warn!(
+            "canvas",
+            "artifact_sync",
+            "failed to register legacy Canvas {} as an Artifact: {}",
+            project_id,
+            error
+        );
+    }
+
     Ok(project)
 }
 
@@ -72,9 +84,12 @@ pub fn update_project(
     version_message: Option<&str>,
     max_versions: i64,
 ) -> Result<CanvasProject> {
+    let _privacy_guard = crate::artifacts::lock_privacy_transition()?;
+    crate::artifacts::ensure_legacy_canvas_mutation_allowed(project_id)?;
     let project = db
         .get_project(project_id)?
         .ok_or_else(|| anyhow::anyhow!("Canvas project '{}' not found", project_id))?;
+    crate::artifacts::ensure_durable_session_allowed(project.session_id.as_deref())?;
 
     let now = Local::now().to_rfc3339();
     let new_version_number = project.version_count + 1;
@@ -113,12 +128,23 @@ pub fn update_project(
         let _ = db.cleanup_old_versions(project_id, max_versions);
     }
 
+    if let Err(error) = crate::artifacts::sync_legacy_canvas_current_version(project_id) {
+        app_warn!(
+            "canvas",
+            "artifact_sync",
+            "failed to refresh legacy Canvas Artifact {}: {}",
+            project_id,
+            error
+        );
+    }
+
     db.get_project(project_id)?
         .ok_or_else(|| anyhow::anyhow!("Project disappeared after update"))
 }
 
 /// Delete a canvas project: remove files and DB records.
 pub fn delete_project(db: &CanvasDB, project_id: &str) -> Result<()> {
+    crate::artifacts::ensure_legacy_canvas_mutation_allowed(project_id)?;
     // Remove files
     let project_dir = paths::canvas_project_dir(project_id)?;
     if project_dir.exists() {
@@ -136,6 +162,8 @@ pub fn restore_version(
     project_id: &str,
     version_number: i64,
 ) -> Result<CanvasProject> {
+    let _privacy_guard = crate::artifacts::lock_privacy_transition()?;
+    crate::artifacts::ensure_legacy_canvas_mutation_allowed(project_id)?;
     let version = db.get_version(project_id, version_number)?.ok_or_else(|| {
         anyhow::anyhow!(
             "Version {} not found for project '{}'",
@@ -147,6 +175,7 @@ pub fn restore_version(
     let project = db
         .get_project(project_id)?
         .ok_or_else(|| anyhow::anyhow!("Canvas project '{}' not found", project_id))?;
+    crate::artifacts::ensure_durable_session_allowed(project.session_id.as_deref())?;
 
     // Re-write files from version snapshot
     let project_dir = paths::canvas_project_dir(project_id)?;
@@ -176,6 +205,16 @@ pub fn restore_version(
     };
     db.create_version(&restore_version)?;
     db.update_project_meta(project_id, None, &now, new_version_number)?;
+
+    if let Err(error) = crate::artifacts::sync_legacy_canvas_current_version(project_id) {
+        app_warn!(
+            "canvas",
+            "artifact_sync",
+            "failed to refresh restored legacy Canvas Artifact {}: {}",
+            project_id,
+            error
+        );
+    }
 
     db.get_project(project_id)?
         .ok_or_else(|| anyhow::anyhow!("Project disappeared after restore"))

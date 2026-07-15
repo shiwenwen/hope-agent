@@ -255,6 +255,35 @@ async fn cleanup_session(
         crate::tools::purge_tool_results_for_session(session_id);
         crate::async_jobs::JobManager::purge_for_session(session_id);
     }
+    let artifact_session_id = session_id.to_string();
+    let artifact_result = crate::blocking::run_blocking(move || {
+        let service = crate::artifacts::ArtifactService::open()?;
+        if is_purge {
+            service.purge_for_session(&artifact_session_id)
+        } else {
+            service.detach_from_session(&artifact_session_id)
+        }
+    })
+    .await;
+    match artifact_result {
+        Ok(count) if count > 0 => app_debug!(
+            "session",
+            "cleanup_watcher",
+            "{} {} durable Artifact(s) for {}",
+            if is_purge { "purged" } else { "detached" },
+            count,
+            session_id
+        ),
+        Ok(_) => {}
+        Err(error) => app_warn!(
+            "session",
+            "cleanup_watcher",
+            "failed to {} durable Artifacts for {}: {}",
+            if is_purge { "purge" } else { "detach" },
+            session_id,
+            error
+        ),
+    }
 
     if cancelled_jobs > 0 || cancelled_processes > 0 || denied > 0 {
         app_debug!(

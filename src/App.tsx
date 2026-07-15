@@ -49,6 +49,7 @@ import {
 import StarrySky from "@/components/common/StarrySky"
 import DangerousModeBanner from "@/components/common/DangerousModeBanner"
 import MissingModelDialog from "@/components/local-model/MissingModelDialog"
+import ChromiumRuntimeDialog from "@/components/common/ChromiumRuntimeDialog"
 import {
   LOCAL_MODEL_JOB_EVENTS,
   type LocalModelJobSnapshot,
@@ -59,6 +60,7 @@ const DashboardView = lazy(() => import("@/components/dashboard/DashboardView"))
 const CronCalendarView = lazy(() => import("@/components/cron/CronCalendarView"))
 const PlansView = lazy(() => import("@/components/plans/PlansView"))
 const KnowledgeView = lazy(() => import("@/components/knowledge/KnowledgeView"))
+const ArtifactsView = lazy(() => import("@/components/artifacts/ArtifactsView"))
 const SettingsView = lazy(() => import("@/components/settings/SettingsView"))
 
 interface PendingChatFocus extends ChatFocusTarget {
@@ -89,6 +91,7 @@ export default function App() {
     | "dashboard"
     | "plans"
     | "knowledge"
+    | "artifacts"
   >("loading")
   const [agentIdForSettings, setAgentIdForSettings] = useState<string | undefined>(undefined)
   const [agentTabForSettings, setAgentTabForSettings] = useState<AgentTab | undefined>(undefined)
@@ -616,6 +619,7 @@ export default function App() {
             <Toaster />
             <DangerousModeBanner />
             <MissingModelDialog />
+            <ChromiumRuntimeDialog onOpenBrowserSettings={() => handleOpenSettings("browser")} />
             <AuthRequiredDialog />
             <div className="flex flex-1 min-h-0 overflow-hidden">
               <IconSidebar
@@ -638,6 +642,7 @@ export default function App() {
                 onOpenDashboard={() => handleOpenDashboard()}
                 onOpenPlans={() => setView("plans")}
                 onOpenKnowledge={handleOpenKnowledge}
+                onOpenArtifacts={() => setView("artifacts")}
                 userAvatar={userAvatar}
                 totalUnreadCount={totalUnreadCount}
                 onMarkAllRead={() => setSessionsRefreshTrigger((n) => n + 1)}
@@ -779,6 +784,17 @@ export default function App() {
                     onBack={() => setView("chat")}
                     onOpenSettings={() => handleOpenSettings("knowledge")}
                   />
+                </Suspense>
+              )}
+              {view === "artifacts" && (
+                <Suspense
+                  fallback={
+                    <div className="flex-1 flex items-center justify-center">
+                      <div className="animate-spin h-6 w-6 border-2 border-foreground border-t-transparent rounded-full" />
+                    </div>
+                  }
+                >
+                  <ArtifactsView onBack={() => setView("chat")} />
                 </Suspense>
               )}
               <div className={view === "chat" ? "flex-1 flex overflow-hidden" : "hidden"}>

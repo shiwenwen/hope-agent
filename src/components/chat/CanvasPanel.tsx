@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils"
 import { X, RefreshCw, Maximize2, Minimize2, ExternalLink, PanelLeftClose } from "lucide-react"
 import { IconTip } from "@/components/ui/tooltip"
 import { RightPanelShell } from "./right-panel/RightPanelShell"
+import ArtifactViewer from "@/components/artifacts/ArtifactViewer"
 
 interface CanvasInfo {
   projectId: string
@@ -407,11 +408,6 @@ export default function CanvasPanel({
 
   if (!canvas || !visible) return null
 
-  // Build the iframe URL via the transport — `asset://` scheme in Tauri,
-  // `/api/canvas/projects/{id}/index.html?token=...` in HTTP mode.
-  const indexPath = canvas.projectPath ? `${canvas.projectPath}/index.html` : "" // fallback, shouldn't happen
-  const iframeSrc = indexPath ? (getTransport().resolveAssetUrl(indexPath) ?? "") : ""
-
   // When detached, show a compact placeholder panel
   if (detached) {
     return (
@@ -532,12 +528,10 @@ export default function CanvasPanel({
           so a mask on this non-scrolling wrapper would permanently dim the live
           canvas's top/bottom edge. */}
       <div className="flex-1 overflow-hidden bg-white dark:bg-surface-app">
-        <iframe
+        <ArtifactViewer
           ref={iframeRef}
-          key={`${canvas.projectId}-${refreshKey}`}
-          src={iframeSrc}
-          sandbox="allow-scripts"
-          className="w-full h-full border-0"
+          projectPath={canvas.projectPath}
+          refreshKey={`${canvas.projectId}-${refreshKey}`}
           title={canvas.title}
         />
       </div>

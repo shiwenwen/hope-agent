@@ -110,7 +110,7 @@ pub enum BrowserReadyMode {
 }
 
 impl BrowserState {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             browser: None,
             handler_task: None,

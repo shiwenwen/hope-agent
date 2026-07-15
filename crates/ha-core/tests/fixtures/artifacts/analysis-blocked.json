@@ -1,0 +1,96 @@
+{
+  "schemaVersion": "hope.analysis-artifact.v1",
+  "question": "What activation rate should be reported for the intentionally invalid fixture rows?",
+  "audience": "Data quality reviewers",
+  "decision": "Determine whether the analysis is safe to publish",
+  "status": "blocked",
+  "metricDefinitions": [
+    {
+      "id": "activation_rate_7d",
+      "label": "Seven-day activation rate",
+      "formula": "activated_eligible_users / eligible_users",
+      "denominator": "eligible_users",
+      "unit": "percent"
+    }
+  ],
+  "timeRange": null,
+  "filters": [],
+  "grain": "signup_id",
+  "datasets": [
+    {
+      "id": "invalid_quality_cases",
+      "sourceIds": ["activation_xlsx"],
+      "columns": ["signup_id", "platform", "eligible", "activated_7d"],
+      "rowCount": 4,
+      "rows": [],
+      "truncated": false,
+      "calculationRef": "activation.xlsx#Quality Cases"
+    }
+  ],
+  "findings": [],
+  "recommendations": [
+    {
+      "id": "recommend_repair",
+      "summary": "Resolve duplicate signup IDs, fill the missing platform, and reconcile activated-but-ineligible rows before calculating the metric."
+    }
+  ],
+  "caveats": [
+    {
+      "id": "caveat_blocked",
+      "summary": "No activation rate is reported because blocking quality checks failed."
+    }
+  ],
+  "blocks": [
+    {
+      "id": "blocked",
+      "type": "callout",
+      "title": "Analysis blocked",
+      "body": "The fixture contains duplicate keys, a missing dimension, and an invalid numerator/denominator relationship."
+    }
+  ],
+  "charts": [],
+  "tables": [],
+  "staticFallbacks": [],
+  "sources": [
+    {
+      "id": "activation_xlsx",
+      "label": "Synthetic activation quality cases",
+      "type": "xlsx",
+      "path": "activation.xlsx#Quality Cases",
+      "sha256": "d06595200289ae468786dee698323baaa23a66f62320da9fde22cdb39a75b915",
+      "retrievedAt": "2026-07-14T00:00:00Z",
+      "accessScope": "fixture",
+      "redistributable": true
+    }
+  ],
+  "dataQuality": [
+    {
+      "id": "dq_duplicate_signup",
+      "datasetId": "invalid_quality_cases",
+      "check": "duplicate_key",
+      "status": "failed",
+      "method": "count(rows) - count(distinct signup_id)",
+      "observed": 1,
+      "blocking": true
+    },
+    {
+      "id": "dq_missing_platform",
+      "datasetId": "invalid_quality_cases",
+      "check": "missing_dimension",
+      "status": "failed",
+      "method": "count(platform is null)",
+      "observed": 1,
+      "blocking": true
+    },
+    {
+      "id": "dq_invalid_denominator",
+      "datasetId": "invalid_quality_cases",
+      "check": "numerator_without_denominator",
+      "status": "failed",
+      "method": "count(activated_7d = 1 and eligible = 0)",
+      "observed": 1,
+      "blocking": true
+    }
+  ],
+  "claimValidation": []
+}

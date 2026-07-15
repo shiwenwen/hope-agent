@@ -169,6 +169,7 @@ interface BrowserDoctorReport {
   chromeAlreadyRunning: boolean
   systemChromePath?: string
   runtimeChromium?: RuntimeChromiumReport
+  runtimeInstallSupported?: boolean
 }
 
 interface SpawnUserChromeResult {
@@ -1183,31 +1184,51 @@ export default function BrowserPanel() {
                   )}
                 </div>
 
-                {/* Runtime status — does a future managed launch have a Chrome binary?
-                    Hidden once connected: it's about future launches, not what's running. */}
-                {doctor && !connected && (
+                {/* Runtime status stays visible even when a system Chrome is available or
+                    currently connected. The managed runtime is an optional offline reserve
+                    for browser automation and Artifact PDF export. */}
+                {doctor && (
                   <div className="space-y-2 border-t border-border pt-4">
                     <h3 className="text-sm font-medium">{t("settings.browser.runtimeStatusLabel")}</h3>
-                    {doctor.systemChromePath ? (
+                    {doctor.systemChromePath && (
                       <RuntimeOk
                         title={t("settings.browser.doctorSystemChrome")}
                         detail={doctor.systemChromePath}
                       />
-                    ) : doctor.runtimeChromium ? (
+                    )}
+                    {doctor.runtimeChromium && (
                       <RuntimeOk
                         title={t("settings.browser.doctorRuntimeChromium", {
                           rev: doctor.runtimeChromium.revision,
                         })}
                         detail={doctor.runtimeChromium.binaryPath}
                       />
-                    ) : (
-                      <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2.5 flex items-start gap-3 text-sm">
-                        <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
+                    )}
+                    {!doctor.runtimeChromium && (
+                      <div
+                        className={cn(
+                          "rounded-md border px-3 py-2.5 flex items-start gap-3 text-sm",
+                          doctor.systemChromePath
+                            ? "border-border bg-muted/20"
+                            : "border-amber-500/40 bg-amber-500/10",
+                        )}
+                      >
+                        {doctor.systemChromePath ? (
+                          <Download className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
+                        ) : (
+                          <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
+                        )}
                         <div className="flex-1 min-w-0 space-y-2">
                           <div>
-                            <div className="font-medium">{t("settings.browser.doctorNoBinary")}</div>
+                            <div className="font-medium">
+                              {doctor.systemChromePath
+                                ? t("settings.browser.backupRuntimeTitle")
+                                : t("settings.browser.doctorNoBinary")}
+                            </div>
                             <div className="text-xs text-muted-foreground">
-                              {t("settings.browser.doctorNoBinaryHint")}
+                              {doctor.systemChromePath
+                                ? t("settings.browser.backupRuntimeHint")
+                                : t("settings.browser.doctorNoBinaryHint")}
                             </div>
                           </div>
                           {installing && (
@@ -1230,20 +1251,27 @@ export default function BrowserPanel() {
                           {installError && (
                             <div className="text-xs text-destructive">{installError}</div>
                           )}
-                        </div>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => void onInstallRuntime()}
-                          disabled={installing}
-                        >
-                          {installing ? (
-                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          ) : (
-                            <Download className="h-3.5 w-3.5" />
+                          {doctor.runtimeInstallSupported === false && (
+                            <div className="text-xs text-muted-foreground">
+                              {t("settings.browser.runtimeInstallUnsupported")}
+                            </div>
                           )}
-                          <span className="ml-1.5">{t("settings.browser.installRuntime")}</span>
-                        </Button>
+                        </div>
+                        {doctor.runtimeInstallSupported !== false && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => void onInstallRuntime()}
+                            disabled={installing}
+                          >
+                            {installing ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <Download className="h-3.5 w-3.5" />
+                            )}
+                            <span className="ml-1.5">{t("settings.browser.installRuntime")}</span>
+                          </Button>
+                        )}
                       </div>
                     )}
                   </div>
