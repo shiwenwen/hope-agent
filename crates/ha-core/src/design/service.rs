@@ -3366,7 +3366,29 @@ pub fn restyle_artifact(artifact_id: &str, system_id: Option<&str>) -> Result<De
 
 // ── Knowledge integration (D4) ─────────────────────────────────────
 
+/// Resolve which knowledge base an artifact save targets: the explicit `kb_id`
+/// when non-empty, otherwise the default KB (created on demand). Shared so the
+/// agent-plane write gate ([`crate::tools::note::require_write`]) and the actual
+/// save agree on exactly which KB is written.
+pub fn resolve_save_kb(kb_id: Option<&str>) -> Result<String> {
+    match kb_id.map(str::trim).filter(|s| !s.is_empty()) {
+        Some(k) => Ok(k.to_string()),
+        None => {
+            crate::knowledge::service::ensure_default_knowledge_base();
+            crate::knowledge::service::list_kb_meta(false)?
+                .into_iter()
+                .next()
+                .map(|m| m.kb.id)
+                .context("no knowledge base available")
+        }
+    }
+}
+
 /// 把产物沉淀为知识空间笔记（进第二大脑可检索）。`kb_id` 缺省用默认 KB。
+///
+/// 这是 owner 平面写入（本机 / API key 信任，不经会话访问裁决）。agent 平面
+/// (`design` 工具 `save_to_knowledge`) 必须先经 [`resolve_save_kb`] +
+/// `crate::tools::note::require_write` 门控 `effective_kb_access` 才可到达这里。
 pub fn save_to_knowledge(artifact_id: &str, kb_id: Option<&str>) -> Result<String> {
     let db = open_db()?;
     let a = db
@@ -3375,17 +3397,7 @@ pub fn save_to_knowledge(artifact_id: &str, kb_id: Option<&str>) -> Result<Strin
     let dir = paths::design_artifact_dir(&a.project_id, &a.id)?;
     let parts = read_source(&dir)?;
 
-    let kb = match kb_id.map(str::trim).filter(|s| !s.is_empty()) {
-        Some(k) => k.to_string(),
-        None => {
-            crate::knowledge::service::ensure_default_knowledge_base();
-            crate::knowledge::service::list_kb_meta(false)?
-                .into_iter()
-                .next()
-                .map(|m| m.kb.id)
-                .context("no knowledge base available")?
-        }
-    };
+    let kb = resolve_save_kb(kb_id)?;
 
     // Disambiguate by artifact id so two artifacts with colliding safe-filenames
     // (or empty titles → "design") don't silently overwrite each other's KB note.

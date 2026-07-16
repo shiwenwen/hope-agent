@@ -50,7 +50,7 @@ pub(crate) async fn tool_design(
         "versions" => action_versions(args),
         "restore" => action_restore(args),
         "critique" => action_critique(args).await,
-        "save_to_knowledge" => action_save_to_knowledge(args),
+        "save_to_knowledge" => action_save_to_knowledge(args, ctx),
         "show" => action_show(args, session_id),
         other => Err(anyhow::anyhow!("Unknown design action: '{}'", other)),
     }
@@ -217,6 +217,54 @@ fn scoped_local_path(session_id: Option<&str>, raw: &str) -> Result<std::path::P
     Ok(canon)
 }
 
+/// Agent-plane guard for `create_artifact kind=image` reference images. Remote
+/// (`http(s)://`) and inline (`data:`) sources pass through to the loader, which
+/// SSRF-checks URLs and decodes data URIs. Local file paths are normalized the
+/// same way `image_generate::helpers::load_input_images` will (`~` expansion,
+/// `file://` stripping) and then scoped via [`scoped_local_path`]; any entry that
+/// resolves outside the session working directory / attachments / bound repo (or
+/// can't be resolved) is dropped fail-closed. Without this, the approval-exempt
+/// `design` tool would let a prompt-injected model read and exfiltrate arbitrary
+/// local files (`~/.ssh/id_rsa`, `file:///etc/passwd`, …) to the image provider.
+fn scoped_reference_image_paths(session_id: Option<&str>, raw: Vec<String>) -> Vec<String> {
+    raw.into_iter()
+        .filter_map(|entry| {
+            let trimmed = entry.trim();
+            if trimmed.is_empty() {
+                return None;
+            }
+            let lower = trimmed.to_ascii_lowercase();
+            if lower.starts_with("data:")
+                || lower.starts_with("http://")
+                || lower.starts_with("https://")
+            {
+                return Some(entry);
+            }
+            let normalized = if trimmed.starts_with("~/") || trimmed.starts_with("~\\") {
+                match dirs::home_dir() {
+                    Some(home) => home.join(&trimmed[2..]).to_string_lossy().into_owned(),
+                    None => trimmed.to_string(),
+                }
+            } else if let Some(rest) = trimmed.strip_prefix("file://") {
+                rest.to_string()
+            } else {
+                trimmed.to_string()
+            };
+            match scoped_local_path(session_id, &normalized) {
+                Ok(canon) => Some(canon.to_string_lossy().into_owned()),
+                Err(e) => {
+                    crate::app_warn!(
+                        "design",
+                        "reference_image",
+                        "dropping out-of-scope reference image path: {e}"
+                    );
+                    None
+                }
+            }
+        })
+        .collect()
+}
+
 // ── Projects / artifacts ───────────────────────────────────────────
 
 fn action_list_projects() -> Result<String> {
@@ -285,9 +333,12 @@ async fn action_create_artifact(
         model_override: None,
         reference_image_paths: args.get("reference_image_paths").and_then(|v| {
             v.as_array().map(|a| {
-                a.iter()
-                    .filter_map(|x| x.as_str().map(str::to_string))
-                    .collect::<Vec<_>>()
+                scoped_reference_image_paths(
+                    session_id,
+                    a.iter()
+                        .filter_map(|x| x.as_str().map(str::to_string))
+                        .collect::<Vec<_>>(),
+                )
             })
         }),
         recipe_id: str_arg(args, "recipe_id").map(str::to_string),
@@ -434,9 +485,18 @@ async fn action_critique(args: &Value) -> Result<String> {
     ok(serde_json::to_value(result)?)
 }
 
-fn action_save_to_knowledge(args: &Value) -> Result<String> {
+fn action_save_to_knowledge(
+    args: &Value,
+    ctx: &super::execution::ToolExecContext,
+) -> Result<String> {
     let id = require_str(args, "artifact_id")?;
-    let path = service::save_to_knowledge(id, str_arg(args, "kb_id"))?;
+    // Agent-plane KB write gate (D10): resolve the target KB (explicit arg or the
+    // default) and require write access for THIS session before touching the
+    // owner-plane save path, so a prompt-injected model cannot write an artifact
+    // note into a KB that was never attached / opted in for the session.
+    let kb = service::resolve_save_kb(str_arg(args, "kb_id"))?;
+    super::note::require_write(ctx, &kb)?;
+    let path = service::save_to_knowledge(id, Some(&kb))?;
     ok(json!({ "status": "saved", "artifactId": id, "note": path }))
 }
 

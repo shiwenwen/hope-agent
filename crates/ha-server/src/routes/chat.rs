@@ -187,6 +187,17 @@ pub struct ChatResponse {
     /// no stream was opened).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub blocked_reason: Option<String>,
+    /// True when a blocked first message caused the freshly auto-created session
+    /// (design / knowledge lazy-create) to be deleted before returning. The HTTP
+    /// transport reads this to SUPPRESS the synthesized `session_created` event,
+    /// so the UI does not switch to a session id that no longer exists (which
+    /// would break subsequent sends / history loads).
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub session_deleted: bool,
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 struct ChatCancelRegistrationGuard {
@@ -888,6 +899,8 @@ pub async fn chat(
                     response: notice.clone(),
                     turn_id,
                     blocked_reason: Some(notice),
+                    // Session was just deleted — tell the transport not to adopt it.
+                    session_deleted: true,
                 }));
             }
             let _ = {
@@ -907,6 +920,7 @@ pub async fn chat(
                 response: notice.clone(),
                 turn_id,
                 blocked_reason: Some(notice),
+                session_deleted: false,
             }));
         }
     };
@@ -1273,6 +1287,7 @@ pub async fn chat(
         response: result.response,
         turn_id,
         blocked_reason: None,
+        session_deleted: false,
     }))
 }
 

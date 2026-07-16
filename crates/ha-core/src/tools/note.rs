@@ -73,7 +73,7 @@ pub(crate) fn im_kb_context_from_session(
     })
 }
 
-fn require_write(ctx: &ToolExecContext, kb_id: &str) -> Result<()> {
+pub(crate) fn require_write(ctx: &ToolExecContext, kb_id: &str) -> Result<()> {
     match access_map(ctx).get(kb_id) {
         Some(KbAccess::Write) => Ok(()),
         Some(KbAccess::Read) => bail!(

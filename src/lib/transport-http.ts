@@ -2149,8 +2149,13 @@ export class HttpTransport implements Transport {
       response: string
       turnId?: string
       blockedReason?: string
+      sessionDeleted?: boolean
     }>("chat", args)
-    if (!args.sessionId) {
+    // `sessionDeleted` is set when a blocked first message on a design/knowledge
+    // lazy-created session dropped that session before returning. Suppress the
+    // synthesized `session_created` so the UI does not switch to a session id
+    // that no longer exists (subsequent sends / history loads would fail).
+    if (!args.sessionId && !resp.sessionDeleted) {
       onEvent(
         JSON.stringify({
           type: "session_created",
