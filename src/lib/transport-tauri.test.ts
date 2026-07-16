@@ -33,6 +33,23 @@ afterEach(() => {
   warnSpy.mockRestore()
 })
 
+test("TauriTransport builds Artifact previews from the local project path", () => {
+  const transport = new TauriTransport()
+
+  expect(transport.artifactPreviewUrl("artifact-1", "/tmp/artifact-1")).toBe(
+    "asset:///tmp/artifact-1/index.html",
+  )
+  expect(mocks.convertFileSrc).toHaveBeenCalledWith("/tmp/artifact-1/index.html")
+})
+
+test("TauriTransport reveals the managed Artifact entry point", async () => {
+  await new TauriTransport().revealArtifact("artifact-1", "/tmp/artifact-1")
+
+  expect(mocks.invoke).toHaveBeenCalledWith("reveal_in_folder", {
+    path: "/tmp/artifact-1/index.html",
+  })
+})
+
 test("TauriTransport listen cleanup is idempotent after registration", async () => {
   const rawUnlisten = vi.fn()
   mocks.listen.mockResolvedValue(rawUnlisten)

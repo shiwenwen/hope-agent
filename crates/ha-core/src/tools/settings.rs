@@ -104,7 +104,9 @@ fn risk_level(category: &str) -> &'static str {
         | "sprite"
         | "knowledge_vision"
         | "note_tools"
-        | "design" => "medium",
+        | "design"
+        | "file_limits"
+        | "knowledge_source_limits" => "medium",
 
         // ── HIGH ───────────────────────────────────────────────
         "proxy" | "shortcuts" | "skills" | "server" | "acp_control" | "skill_env"
@@ -604,7 +606,20 @@ fn read_category(category: &str) -> Result<Value> {
         // Vision bridge model reference — plain provider/model id, no credentials
         // (the API key lives in the referenced ProviderConfig), so no redact.
         "function_models" => Ok(serde_json::to_value(&cfg.function_models)?),
-        "filesystem" => Ok(serde_json::to_value(&cfg.filesystem)?),
+        "filesystem" => Ok(json!({
+            "allowRemoteWrites": cfg.filesystem.allow_remote_writes,
+        })),
+        "file_limits" => Ok(json!({
+            "maxChatAttachmentMb": cfg.filesystem.max_chat_attachment_mb(),
+            "maxWorkspaceUploadMb": cfg.filesystem.max_workspace_upload_mb(),
+            "maxTextPreviewMb": cfg.filesystem.max_text_preview_mb(),
+            "maxTextEditMb": cfg.filesystem.max_text_edit_mb(),
+            "maxDocumentPreviewMb": cfg.filesystem.max_document_preview_mb(),
+            "maxArtifactImportMb": cfg.filesystem.max_artifact_import_mb(),
+        })),
+        "knowledge_source_limits" => Ok(serde_json::to_value(
+            cfg.knowledge_source_limits.clone().clamped(),
+        )?),
         "multimodal" => Ok(serde_json::to_value(&cfg.multimodal)?),
         "dreaming" => Ok(serde_json::to_value(&cfg.dreaming)?),
         "knowledge_maintenance" => Ok(serde_json::to_value(&cfg.knowledge_maintenance)?),
@@ -776,7 +791,7 @@ fn get_all_overview() -> Result<String> {
             "tool_result_disk_threshold", "ask_user_question_timeout", "plan",
             "issue_reporting", "skills_auto_review", "recall_summary", "tool_call_narration",
             "teams", "im_auto_transcribe", "knowledge_passive_recall", "knowledge_search", "sprite",
-            "knowledge_vision", "note_tools", "design"
+            "knowledge_vision", "note_tools", "design", "file_limits", "knowledge_source_limits"
         ],
         "high": [
             "proxy", "shortcuts", "skills", "server",
@@ -1155,7 +1170,29 @@ async fn update_app_config(category: &str, values: &Value) -> Result<String> {
         "issue_reporting" => merge_field(&mut store.issue_reporting, values)?,
         "smart_mode" => merge_field(&mut store.permission.smart, values)?,
         "function_models" => merge_field(&mut store.function_models, values)?,
-        "filesystem" => merge_field(&mut store.filesystem, values)?,
+        "filesystem" => {
+            let object = values
+                .as_object()
+                .ok_or_else(|| anyhow::anyhow!("filesystem values must be an object"))?;
+            if object.keys().any(|key| key != "allowRemoteWrites") {
+                bail!("filesystem only accepts allowRemoteWrites; use file_limits for sizes");
+            }
+            if let Some(value) = object.get("allowRemoteWrites") {
+                store.filesystem.allow_remote_writes = value
+                    .as_bool()
+                    .ok_or_else(|| anyhow::anyhow!("allowRemoteWrites must be boolean"))?;
+            }
+        }
+        "file_limits" => {
+            let mut patch: crate::config::FilesystemConfigPatch =
+                serde_json::from_value(values.clone())?;
+            patch.allow_remote_writes = None;
+            store.filesystem.apply_patch(patch);
+        }
+        "knowledge_source_limits" => {
+            merge_field(&mut store.knowledge_source_limits, values)?;
+            store.knowledge_source_limits = store.knowledge_source_limits.clone().clamped();
+        }
         "multimodal" => merge_field(&mut store.multimodal, values)?,
         "dreaming" => merge_field(&mut store.dreaming, values)?,
         "knowledge_maintenance" => {

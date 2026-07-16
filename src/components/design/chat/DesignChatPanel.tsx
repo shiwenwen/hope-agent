@@ -41,6 +41,7 @@ import { useClickOutside } from "@/hooks/useClickOutside"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import type { ChatAttachment } from "@/lib/transport"
+import { createDraftAttachment } from "@/components/chat/files/types"
 import type { ActiveModel, Message, PendingFileQuote } from "@/types/chat"
 import type { DesignRecipe } from "@/types/design"
 import { useDesignChat } from "./useDesignChat"
@@ -372,7 +373,8 @@ export const DesignChatPanel = forwardRef<DesignChatPanelHandle, Props>(function
         ),
       insertToken: (token) =>
         stream.setInput((prev) => (prev.trim() ? `${prev} ${token}` : token)),
-      addImageAttachment: (file) => stream.setAttachedFiles((prev) => [...prev, file]),
+      addImageAttachment: (file) =>
+        stream.setAttachedFiles((prev) => [...prev, createDraftAttachment(file, "picker")]),
       submitPrompt: (text) => {
         if (loadingRef.current) return false
         void stream.handleSend(text)
@@ -526,7 +528,10 @@ export const DesignChatPanel = forwardRef<DesignChatPanelHandle, Props>(function
         const files = Array.from(e.dataTransfer.files)
         if (files.length) {
           e.preventDefault()
-          stream.setAttachedFiles((prev) => [...prev, ...files])
+          stream.setAttachedFiles((prev) => [
+            ...prev,
+            ...files.map((f) => createDraftAttachment(f, "drop")),
+          ])
         }
         setDragOver(false)
       }}
@@ -738,13 +743,15 @@ export const DesignChatPanel = forwardRef<DesignChatPanelHandle, Props>(function
           onModelChange={session.handleModelChange}
           onEffortChange={session.handleEffortChange}
           attachedFiles={stream.attachedFiles}
-          onAttachFiles={stream.setAttachedFiles}
+          onAttachFiles={(files) => stream.setAttachedFiles((prev) => [...prev, ...files])}
           onRemoveFile={(i) =>
             stream.setAttachedFiles((prev) => prev.filter((_, idx) => idx !== i))
           }
           onUpdateFile={(index, file) =>
             stream.setAttachedFiles((prev) =>
-              prev.map((existing, idx) => (idx === index ? file : existing)),
+              prev.map((existing, idx) =>
+                idx === index ? { ...existing, file, status: "ready", error: undefined } : existing,
+              ),
             )
           }
           pendingQuotes={stream.pendingQuotes}

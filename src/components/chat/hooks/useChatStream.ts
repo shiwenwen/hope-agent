@@ -1,6 +1,17 @@
 import { useState, useRef, useEffect, useCallback, useLayoutEffect } from "react"
 import { getTransport } from "@/lib/transport-provider"
-import type { ChatAttachment, ProjectSessionBootstrapInput } from "@/lib/transport"
+import {
+  type ChatAttachment,
+  type ProjectSessionBootstrapInput,
+  type Transport,
+} from "@/lib/transport"
+import {
+  maxChatAttachmentBytes as attachmentBytesForConfig,
+  readFilesystemConfig,
+  useFilesystemConfig,
+} from "@/lib/filesystemConfig"
+import { toast } from "sonner"
+import type { DraftAttachment } from "@/components/chat/files/types"
 import type { KbDraftAttachment } from "@/types/knowledge"
 import { useTranslation } from "react-i18next"
 import { logger } from "@/lib/logger"
@@ -39,10 +50,6 @@ import { useApprovals } from "./useApprovals"
 import { generateClientId } from "@/components/chat/chatScrollKeys"
 import { expandMentionsToAttachments } from "@/components/chat/file-mention/expandMentions"
 import { expandPlanMentionsToAttachments } from "@/components/chat/plan-mention/expandPlanMentions"
-import {
-  getPastedTextFileMeta,
-  PASTED_TEXT_ATTACHMENT_SOURCE,
-} from "@/components/chat/input/pastedTextAttachment"
 import { useNotificationListeners } from "./useNotificationListeners"
 import type { SessionStreamState } from "./useChatStreamReattach"
 import { modelOverrideFromManualSelection } from "../modelSelection"
@@ -180,7 +187,7 @@ interface PendingSend {
     | "dispatching"
     | "fallback_after_reply"
   options?: SendOptions
-  attachedFiles?: File[]
+  attachedFiles?: DraftAttachment[]
   quotes?: PendingFileQuote[]
   messageQuotes?: PendingMessageQuote[]
   attachmentCount?: number
@@ -224,7 +231,7 @@ interface CancelQueuedTurnUserMessageResult {
 
 interface InputDraft {
   input: string
-  attachedFiles: File[]
+  attachedFiles: DraftAttachment[]
   pendingQuotes: PendingFileQuote[]
   pendingMessageQuotes: PendingMessageQuote[]
 }
@@ -349,8 +356,9 @@ export interface UseChatStreamOptions {
 export interface UseChatStreamReturn {
   input: string
   setInput: React.Dispatch<React.SetStateAction<string>>
-  attachedFiles: File[]
-  setAttachedFiles: React.Dispatch<React.SetStateAction<File[]>>
+  attachedFiles: DraftAttachment[]
+  setAttachedFiles: React.Dispatch<React.SetStateAction<DraftAttachment[]>>
+  maxChatAttachmentBytes: number
   pendingQuotes: PendingFileQuote[]
   setPendingQuotes: React.Dispatch<React.SetStateAction<PendingFileQuote[]>>
   pendingMessageQuotes: PendingMessageQuote[]
@@ -439,8 +447,10 @@ export function useChatStream({
   draftProjectIdRef.current = draftProjectId
   draftKbAttachmentsRef.current = draftKbAttachments
   const { t } = useTranslation()
+  const { config: filesystemConfig } = useFilesystemConfig()
   const [input, setInputState] = useState("")
-  const [attachedFiles, setAttachedFilesState] = useState<File[]>([])
+  const [attachedFiles, setAttachedFilesState] = useState<DraftAttachment[]>([])
+  const maxChatAttachmentBytes = attachmentBytesForConfig(filesystemConfig)
   const [pendingQuotes, setPendingQuotesState] = useState<PendingFileQuote[]>([])
   const [pendingMessageQuotes, setPendingMessageQuotesState] = useState<PendingMessageQuote[]>([])
   const inputRef = useRef(input)
@@ -480,10 +490,13 @@ export function useChatStream({
     [saveInputDraft],
   )
 
-  const setAttachedFiles = useCallback<React.Dispatch<React.SetStateAction<File[]>>>(
+  const setAttachedFiles = useCallback<React.Dispatch<React.SetStateAction<DraftAttachment[]>>>(
     (value) => {
       setAttachedFilesState((prev) => {
-        const next = typeof value === "function" ? (value as (p: File[]) => File[])(prev) : value
+        const next =
+          typeof value === "function"
+            ? (value as (p: DraftAttachment[]) => DraftAttachment[])(prev)
+            : value
         attachedFilesRef.current = next
         saveInputDraft(activeInputDraftKeyRef.current, {
           input: inputRef.current,
@@ -669,9 +682,7 @@ export function useChatStream({
     canForceInsert: canForceInsertPending(pending),
     attachmentCount: pending.attachmentCount ?? pending.attachedFiles?.length ?? 0,
     quoteCount:
-      pending.quoteCount ??
-      (pending.quotes?.length ?? 0) +
-        (pending.messageQuotes?.length ?? 0),
+      pending.quoteCount ?? (pending.quotes?.length ?? 0) + (pending.messageQuotes?.length ?? 0),
     sessionId: pending.sessionId,
     isPlanTrigger: pending.isPlanTrigger,
     goalTrigger: pending.goalTrigger,
@@ -1086,13 +1097,28 @@ export function useChatStream({
     [],
   )
 
+  const ensureAttachmentCount = useCallback(
+    async (attachments: ChatAttachment[], transport: Transport) => {
+      if (attachments.length <= 64) return
+      await Promise.allSettled(
+        attachments
+          .map((attachment) => attachment.upload_id)
+          .filter((id): id is string => !!id)
+          .map((id) => transport.discardChatAttachmentUpload(id)),
+      )
+      throw new Error(t("attachments.tooMany", "A message can contain at most 64 files"))
+    },
+    [t],
+  )
+
   const buildChatAttachments = useCallback(
     async (
       text: string,
-      filesToSend: File[],
+      filesToSend: DraftAttachment[],
       quotesToSend: PendingFileQuote[],
       messageQuotesToSend: PendingMessageQuote[],
       targetSessionId: string | null,
+      transport: Transport,
     ): Promise<ChatAttachment[]> => {
       const attachments: ChatAttachment[] = []
 
@@ -1108,46 +1134,60 @@ export function useChatStream({
         attachments.push(p)
       }
 
-      for (const file of filesToSend) {
-        try {
-          const mimeType = file.type || "application/octet-stream"
-          const source = getPastedTextFileMeta(file) ? PASTED_TEXT_ATTACHMENT_SOURCE : "upload"
-          const arrayBuffer = await file.arrayBuffer()
-
-          if (mimeType.startsWith("image/")) {
-            const bytes = new Uint8Array(arrayBuffer)
-            let binary = ""
-            const chunkSize = 8192
-            for (let i = 0; i < bytes.length; i += chunkSize) {
-              binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize))
-            }
-            attachments.push({
-              name: file.name,
-              mime_type: mimeType,
-              source,
-              data: btoa(binary),
-            })
-          } else {
-            const data = getTransport().prepareFileData(arrayBuffer, mimeType)
-            const filePath = await getTransport().call<string>("save_attachment", {
-              sessionId: targetSessionId,
-              fileName: file.name,
-              mimeType,
-              data,
-            })
-            attachments.push({
-              name: file.name,
-              mime_type: mimeType,
-              source,
-              file_path: filePath,
-            })
+      if (filesToSend.length > 64)
+        throw new Error(t("attachments.tooMany", "A message can contain at most 64 files"))
+      if (filesToSend.length > 0) {
+        const filesystemConfig = await readFilesystemConfig(transport).catch(() => null)
+        if (filesystemConfig) {
+          const configuredMaxBytes = attachmentBytesForConfig(filesystemConfig)
+          const oversized = filesToSend.find((draft) => draft.file.size > configuredMaxBytes)
+          if (oversized) {
+            throw new Error(
+              t("attachments.tooLarge", "{{name}} exceeds the {{limit}} MB limit", {
+                name: oversized.file.name,
+                limit: filesystemConfig.maxChatAttachmentMb,
+              }),
+            )
           }
-        } catch (err) {
-          logger.error("ui", "ChatScreen::attachment", "Failed to process attachment", {
-            fileName: file.name,
-            error: err,
-          })
         }
+      }
+
+      const leases: Array<Awaited<ReturnType<Transport["stageChatAttachment"]>> | undefined> =
+        new Array(filesToSend.length)
+      let cursor = 0
+      let failure: unknown = null
+      const worker = async () => {
+        while (!failure) {
+          const index = cursor
+          cursor += 1
+          if (index >= filesToSend.length) return
+          try {
+            leases[index] = await transport.stageChatAttachment(filesToSend[index].file)
+          } catch (error) {
+            failure = error
+          }
+        }
+      }
+      await Promise.all(Array.from({ length: Math.min(3, filesToSend.length) }, () => worker()))
+      if (failure) {
+        await Promise.allSettled(
+          leases
+            .filter((lease): lease is NonNullable<typeof lease> => !!lease)
+            .map((lease) => transport.discardChatAttachmentUpload(lease.uploadId)),
+        )
+        throw failure
+      }
+      for (let index = 0; index < filesToSend.length; index += 1) {
+        const draft = filesToSend[index]
+        const file = draft.file
+        const lease = leases[index]
+        if (!lease) throw new Error(`attachment upload missing: ${file.name}`)
+        attachments.push({
+          name: file.name,
+          mime_type: file.type || "application/octet-stream",
+          source: draft.semanticSource,
+          upload_id: lease.uploadId,
+        })
       }
 
       for (const q of quotesToSend) {
@@ -1171,9 +1211,10 @@ export function useChatStream({
         })
       }
 
+      await ensureAttachmentCount(attachments, transport)
       return attachments
     },
-    [draftWorkingDir, quoteLineLabel, sessions],
+    [draftWorkingDir, ensureAttachmentCount, quoteLineLabel, sessions, t],
   )
 
   /**
@@ -1211,6 +1252,8 @@ export function useChatStream({
       const queuedFiles = directText ? [] : [...attachedFiles]
       const queuedQuotes = directText ? [] : [...pendingQuotes]
       const queuedMessageQuotes = directText ? [] : [...pendingMessageQuotes]
+      const queueTransport = getTransport()
+      let durableAttachments: ChatAttachment[] = []
       const requestId = generateClientId()
       updatePendingSends((prev) => [
         ...prev,
@@ -1234,17 +1277,19 @@ export function useChatStream({
         setPendingMessageQuotes([])
       }
       try {
-        const durableAttachments = await buildChatAttachments(
+        durableAttachments = await buildChatAttachments(
           rawText.trim(),
           queuedFiles,
           queuedQuotes,
           queuedMessageQuotes,
           queueSessionId,
+          queueTransport,
         )
         if (getExtraAttachments) {
           durableAttachments.push(...getExtraAttachments())
         }
-        await getTransport().call<QueueTurnUserMessageResult>("queue_turn_user_message", {
+        await ensureAttachmentCount(durableAttachments, queueTransport)
+        await queueTransport.call<QueueTurnUserMessageResult>("queue_turn_user_message", {
           requestId,
           sessionId: queueSessionId,
           message: rawText.trim(),
@@ -1258,9 +1303,20 @@ export function useChatStream({
         })
         await syncPendingSends(queueSessionId)
       } catch (error) {
+        await Promise.allSettled(
+          durableAttachments
+            .map((attachment) => attachment.upload_id)
+            .filter((id): id is string => !!id)
+            .map((id) => queueTransport.discardChatAttachmentUpload(id)),
+        )
         logger.error("chat", "useChatStream::queue", "Failed to persist pending message", error)
         updatePendingSends((prev) => prev.filter((item) => item.id !== requestId))
         if (!directText) {
+          const failedQueuedFiles = queuedFiles.map((draft) => ({
+            ...draft,
+            status: "error" as const,
+            error: error instanceof Error ? error.message : String(error),
+          }))
           const restoreText = (existing: string) =>
             existing.trim() ? `${rawText}\n${existing}` : rawText
           if (currentSessionIdRef.current === queueSessionId) {
@@ -1268,7 +1324,7 @@ export function useChatStream({
             // save was in flight. Put the failed send back ahead of the newer
             // draft so nothing silently disappears.
             setInput(restoreText)
-            setAttachedFiles((existing) => [...queuedFiles, ...existing])
+            setAttachedFiles((existing) => [...failedQueuedFiles, ...existing])
             setPendingQuotes((existing) => [...queuedQuotes, ...existing])
             setPendingMessageQuotes((existing) => [...queuedMessageQuotes, ...existing])
           } else {
@@ -1284,12 +1340,9 @@ export function useChatStream({
             }
             saveInputDraft(key, {
               input: restoreText(existing.input),
-              attachedFiles: [...queuedFiles, ...existing.attachedFiles],
+              attachedFiles: [...failedQueuedFiles, ...existing.attachedFiles],
               pendingQuotes: [...queuedQuotes, ...existing.pendingQuotes],
-              pendingMessageQuotes: [
-                ...queuedMessageQuotes,
-                ...existing.pendingMessageQuotes,
-              ],
+              pendingMessageQuotes: [...queuedMessageQuotes, ...existing.pendingMessageQuotes],
             })
           }
         }
@@ -1309,6 +1362,53 @@ export function useChatStream({
       currentSessionIdRef.current = options.sessionIdOverride
       setCurrentSessionId(options.sessionIdOverride)
     }
+    const sendTransport = getTransport()
+    let attachments: ChatAttachment[]
+    const sendingDraftIds = new Set(filesToSend.map((draft) => draft.id))
+    if (sendingDraftIds.size > 0) {
+      setAttachedFiles((existing) =>
+        existing.map((draft) =>
+          sendingDraftIds.has(draft.id)
+            ? { ...draft, status: "uploading", error: undefined }
+            : draft,
+        ),
+      )
+    }
+    try {
+      attachments = options?.queuedRequestId
+        ? []
+        : await buildChatAttachments(
+            text,
+            filesToSend,
+            quotesToSend,
+            messageQuotesToSend,
+            sendSessionId,
+            sendTransport,
+          )
+      if (getExtraAttachments && !options?.queuedRequestId) {
+        attachments.push(...getExtraAttachments())
+      }
+      await ensureAttachmentCount(attachments, sendTransport)
+    } catch (error) {
+      logger.error("ui", "useChatStream::attachment", "Attachment upload failed", error)
+      toast.error(
+        t("attachments.uploadFailed", "Files were not sent. {{error}}", {
+          error: error instanceof Error ? error.message : String(error),
+        }),
+      )
+      setAttachedFiles((existing) =>
+        existing.map((draft) =>
+          sendingDraftIds.has(draft.id)
+            ? {
+                ...draft,
+                status: "error",
+                error: error instanceof Error ? error.message : String(error),
+              }
+            : draft,
+        ),
+      )
+      return
+    }
     const optimisticQuoteAttachments: MessageAttachment[] = quotesToSend.map((q) => ({
       name: q.name,
       mimeType: "text/plain",
@@ -1327,7 +1427,7 @@ export function useChatStream({
       messageQuoteRole: q.role,
     }))
     const optimisticAttachments = [
-      ...filesToSend.map(optimisticAttachmentForFile),
+      ...filesToSend.map((draft) => optimisticAttachmentForFile(draft.file)),
       ...optimisticQuoteAttachments,
       ...optimisticMessageQuoteAttachments,
     ]
@@ -1335,6 +1435,56 @@ export function useChatStream({
     setAttachedFiles([])
     setPendingQuotes([])
     setPendingMessageQuotes([])
+    const restoreUnsentDraft = () => {
+      if (directText) return
+      const restoredFiles = filesToSend.map((draft) => ({
+        ...draft,
+        status: "ready" as const,
+        error: undefined,
+      }))
+      const merge = (current: InputDraft): InputDraft => {
+        const restoredIds = new Set(restoredFiles.map((draft) => draft.id))
+        return {
+          input: current.input
+            ? rawText
+              ? `${rawText}${rawText.endsWith("\n") ? "" : "\n"}${current.input}`
+              : current.input
+            : rawText,
+          attachedFiles: [
+            ...restoredFiles,
+            ...current.attachedFiles.filter((draft) => !restoredIds.has(draft.id)),
+          ],
+          pendingQuotes: [...quotesToSend, ...current.pendingQuotes],
+          pendingMessageQuotes: [...messageQuotesToSend, ...current.pendingMessageQuotes],
+        }
+      }
+      const draftKey = inputDraftKey(sendSessionId)
+      if (activeInputDraftKeyRef.current !== draftKey) {
+        saveInputDraft(
+          draftKey,
+          merge(
+            inputDraftsRef.current.get(draftKey) ?? {
+              input: "",
+              attachedFiles: [],
+              pendingQuotes: [],
+              pendingMessageQuotes: [],
+            },
+          ),
+        )
+        return
+      }
+      setInput((current) => {
+        if (!current) return rawText
+        if (!rawText) return current
+        return `${rawText}${rawText.endsWith("\n") ? "" : "\n"}${current}`
+      })
+      setAttachedFiles((current) => {
+        const restoredIds = new Set(restoredFiles.map((draft) => draft.id))
+        return [...restoredFiles, ...current.filter((draft) => !restoredIds.has(draft.id))]
+      })
+      setPendingQuotes((current) => [...quotesToSend, ...current])
+      setPendingMessageQuotes((current) => [...messageQuotesToSend, ...current])
+    }
     const now = new Date().toISOString()
     // Both placeholders get a `_clientId` up front so `mergeMessagesByDbId`
     // can transfer them to the DB-finalized rows after stream_end. Without
@@ -1359,20 +1509,6 @@ export function useChatStream({
       return sidForCap && capMessagesForSession ? capMessagesForSession(sidForCap, next) : next
     })
     setLoading(true)
-
-    const attachments = options?.queuedRequestId
-      ? []
-      : await buildChatAttachments(
-          text,
-          filesToSend,
-          quotesToSend,
-          messageQuotesToSend,
-          sendSessionId,
-        )
-    // Per-turn invisible context is already snapshotted into durable queue rows.
-    if (getExtraAttachments && !options?.queuedRequestId) {
-      for (const extra of getExtraAttachments()) attachments.push(extra)
-    }
 
     // Empty assistant placeholder we'll stream into. `_clientId` was generated
     // alongside the user-side one above and survives the placeholder→DB
@@ -1537,7 +1673,7 @@ export function useChatStream({
 
       const modelOverride = modelOverrideFromManualSelection(manualModelOverrideRef?.current)
       const effectivePlanMode = options?.planMode ?? planMode
-      await getTransport().startChat(
+      await sendTransport.startChat(
         {
           message: text,
           attachments,
@@ -1603,11 +1739,15 @@ export function useChatStream({
       )
       chatResolved = true
     } catch (e) {
+      await Promise.allSettled(
+        attachments
+          .map((attachment) => attachment.upload_id)
+          .filter((id): id is string => !!id)
+          .map((id) => sendTransport.discardChatAttachmentUpload(id)),
+      )
       const sid = targetSessionId || "__pending__"
       const bootstrapFailedBeforeSession =
-        !sendSessionId &&
-        sid === "__pending__" &&
-        !!draftProjectBootstrap
+        !sendSessionId && sid === "__pending__" && !!draftProjectBootstrap
       if (bootstrapFailedBeforeSession) {
         onProjectBootstrapFailure?.(e instanceof Error ? e.message : String(e))
         updateSessionMessages(sid, (prev) => {
@@ -1624,11 +1764,7 @@ export function useChatStream({
           }
           return updated
         })
-        if (!directText) {
-          setInput(rawText)
-          setAttachedFiles(filesToSend)
-          setPendingQuotes(quotesToSend)
-        }
+        restoreUnsentDraft()
       } else if (
         (isActiveStreamError(e) || isQueuedMessageUnavailableError(e)) &&
         sid !== "__pending__"
@@ -1660,6 +1796,7 @@ export function useChatStream({
           }
           return updated
         })
+        restoreUnsentDraft()
         try {
           const state = await getTransport().call<SessionStreamState>("get_session_stream_state", {
             sessionId: sid,
@@ -1952,6 +2089,7 @@ export function useChatStream({
     setInput,
     attachedFiles,
     setAttachedFiles,
+    maxChatAttachmentBytes,
     pendingQuotes,
     setPendingQuotes,
     pendingMessageQuotes,

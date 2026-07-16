@@ -250,6 +250,76 @@ pub(super) fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
     write_replace(path, bytes)
 }
 
+/// Atomically create a user document without replacing an existing path.
+/// `hard_link` is the Windows no-clobber publication primitive: it either adds
+/// the destination name for the fully fsynced temp file or fails because that
+/// name already exists. `std::fs::rename` cannot be used here because Rust's
+/// Windows implementation replaces an existing destination.
+pub(super) fn write_atomic_create_new(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let tmp = path.with_extension(format!(
+        "tmp.{}.{}",
+        std::process::id(),
+        chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
+    ));
+    {
+        let mut file = fs::OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .open(&tmp)?;
+        file.write_all(bytes)?;
+        file.sync_all()?;
+    }
+    let published = fs::hard_link(&tmp, path).map_err(|error| {
+        // Windows can surface either ERROR_FILE_EXISTS (80) or
+        // ERROR_ALREADY_EXISTS (183), depending on the filesystem. Normalize
+        // both so the cross-platform create-only contract stays stable.
+        if matches!(error.raw_os_error(), Some(80) | Some(183)) {
+            io::Error::new(io::ErrorKind::AlreadyExists, error)
+        } else {
+            error
+        }
+    });
+    let _ = fs::remove_file(&tmp);
+    published
+}
+
+pub(super) fn publish_atomic_file(source: &Path, target: &Path, overwrite: bool) -> io::Result<()> {
+    if !overwrite {
+        fs::hard_link(source, target)?;
+        return fs::remove_file(source);
+    }
+
+    use std::os::windows::ffi::OsStrExt;
+    fn to_wide(path: &Path) -> Vec<u16> {
+        path.as_os_str()
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect()
+    }
+    const MOVEFILE_REPLACE_EXISTING: u32 = 0x1;
+    const MOVEFILE_WRITE_THROUGH: u32 = 0x8;
+    extern "system" {
+        fn MoveFileExW(source: *const u16, target: *const u16, flags: u32) -> i32;
+    }
+    let source = to_wide(source);
+    let target = to_wide(target);
+    let result = unsafe {
+        MoveFileExW(
+            source.as_ptr(),
+            target.as_ptr(),
+            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
+        )
+    };
+    if result == 0 {
+        Err(io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
+}
+
 pub(super) fn run_hidden(cmd: &str, args: &[&str]) -> Option<std::process::Output> {
     Command::new(cmd)
         .args(args)

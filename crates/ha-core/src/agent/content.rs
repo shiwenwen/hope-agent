@@ -338,6 +338,7 @@ mod tests {
             source: Some(crate::attachments::PASTED_TEXT_SOURCE.to_string()),
             data: Some("this body should stay on disk".to_string()),
             file_path: Some("/tmp/paste <secret>.txt".to_string()),
+            upload_id: None,
             quote_lines: None,
             quote_role: None,
         }];
@@ -360,6 +361,7 @@ mod tests {
             source: Some(crate::attachments::MESSAGE_QUOTE_SOURCE.to_string()),
             data: Some("Keep <this> & never </message_quote>".to_string()),
             file_path: None,
+            upload_id: None,
             quote_lines: None,
             quote_role: Some("assistant".to_string()),
         }];

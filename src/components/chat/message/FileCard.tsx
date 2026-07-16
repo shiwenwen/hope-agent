@@ -3,7 +3,7 @@ import { formatBytes } from "@/lib/format"
 import type { MediaItem } from "@/types/chat"
 import { FileTypeIcon } from "@/components/icons/FileTypeIcon"
 import { FileContextMenu, FileActionsMoreButton } from "@/components/chat/files/FileActionMenu"
-import { useFileActions } from "@/components/chat/files/useFileActions"
+import { useFileResource } from "@/components/chat/files/useFileResource"
 import type { PreviewTarget } from "@/components/chat/files/useFilePreview"
 
 /**
@@ -30,7 +30,7 @@ export function FileMimeIcon({
  *  mode); right-click and the ⋯ button expose the full action menu. */
 function FileCard({ item }: { item: MediaItem }) {
   const target = useMemo<PreviewTarget>(() => ({ kind: "media", item }), [item])
-  const { primary, run } = useFileActions(target)
+  const { primary, run } = useFileResource(target)
 
   return (
     <FileContextMenu target={target}>
@@ -41,9 +41,7 @@ function FileCard({ item }: { item: MediaItem }) {
           onClick={() => run(primary)}
           className="flex flex-col items-start min-w-0 flex-1 text-left hover:text-foreground transition-colors"
         >
-          <span className="truncate max-w-[240px] font-medium text-foreground/90">
-            {item.name}
-          </span>
+          <span className="truncate max-w-[240px] font-medium text-foreground/90">{item.name}</span>
           <span className="text-[10px] text-muted-foreground/70 tabular-nums">
             {formatBytes(item.sizeBytes)}
           </span>

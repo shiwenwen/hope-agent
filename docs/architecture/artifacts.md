@@ -6,7 +6,7 @@
 
 Artifacts 是 Canvas 之上的持久化控制面。Canvas 继续负责项目目录、兼容工具、事件和右侧 iframe 预览；Artifacts 负责身份、不可变版本、来源、证据、验证、导出、归档和 Gallery。旧 Canvas ID 原样成为 Artifact ID，不移动 `canvas.db` 或历史项目目录。
 
-本系统的“本地优先”指交付无需公网部署：用户可以保存 HTML、ZIP、Markdown 或 PDF。分析过程仍可能按当前 Provider、知识空间和连接器配置访问远端服务；Artifact 会保存来源范围与 producer 摘要，但本地交付不等于全程本地计算。
+本系统的“本地优先”指交付无需公网部署：用户可以保存 HTML、ZIP、Markdown 或 PDF。Artifact 与工作文件始终位于当前 runtime host——本地桌面是当前电脑，桌面远程/Web 是 Server 所在机器；分析过程仍可能按当前 Provider、知识空间和连接器配置访问远端服务。本地交付不等于全程本地计算。
 
 ## 系统边界
 
@@ -70,7 +70,7 @@ Artifact 生命周期统一，但内容不强制经过同一种 IR。
 
 `privacy` 当前持久化值为：
 
-- `local_private`：默认，仅本机管理；
+- `local_private`：默认，仅当前运行位置管理；本地桌面是当前电脑，Web/桌面远程是 Server；
 - `shareable_snapshot`：计划交付给指定受众，导出前必须通过 Export Guard；
 - `sensitive`：敏感产物，导出前必须通过 Export Guard；
 - `incognito`：schema 预留值，但 durable create/update 会拒绝，不能进入 DB、Gallery 或导出历史。
@@ -124,7 +124,7 @@ Artifact 生命周期统一，但内容不强制经过同一种 IR。
 
 - 只接受 `.html`、`.htm`、`.md`、`.json`；JSON 必须是有效的 `AnalysisArtifactV1`；
 - 文件必须位于调用方允许的 workspace、agent home 或 owner 选择范围内；canonical path 必须仍处于允许根目录；
-- 最大 25 MiB，且必须是 UTF-8 文本；
+- 最大值由 `filesystem.maxArtifactImportMb` 控制（默认 25 MiB，范围 1–100），且必须是 UTF-8 文本；读取前先检查 metadata，并以 `limit + 1` 受限读取再次防止竞态超限；
 - 导入 HTML 拒绝 iframe/object/embed/form、外部导航与 redirect；
 - Markdown 的 raw HTML 作为文本处理，并拒绝外部导航链接；
 - 导入后强制注入离线 CSP，不信任源文件自己的 CSP。
@@ -135,6 +135,8 @@ Artifact 生命周期统一，但内容不强制经过同一种 IR。
 | --- | --- | --- |
 | `create_from_file` | `file_path`、可选 title/kind/privacy | 复制、校验、创建 v1、打开 Canvas 预览 |
 | `update_from_file` | `artifact_id`、`file_path`、`expected_version` | 乐观并发更新，成功后创建新版本 |
+
+Agent 工具中的 `file_path` 始终解析为 runtime workspace 路径。Owner 导入同时接受 runtime-host `filePath` 或客户端通过通用分块协议上传的 `artifact_source` `uploadId`，两者严格互斥；start、complete、导入 claim 都重读 `maxArtifactImportMb`。成功导入消费 lease，失败保留至一小时过期以便重试。
 | `show` | `artifact_id` | 重建必要投影并触发 `canvas_show` |
 | `list` | limit/offset/kind/lifecycle_state | 返回轻量 Artifact 记录 |
 | `versions` | `artifact_id` | 返回版本谱系、hash、producer 与验证摘要 |
@@ -338,7 +340,7 @@ Gallery 的 owner review 必须提供 intended audience 并显式确认 redactio
 | export/download | `POST .../{id}/exports`、`GET /api/artifact-exports/{exportId}/download` | `export_artifact` + native save dialog |
 | archive/delete | `POST .../{id}/archive`、`DELETE .../{id}` | `archive_artifact`、`delete_artifact` |
 
-HTTP 与 Tauri 前端只经 `Transport` 抽象访问。HTTP ID 经过字母数字/`-`/`_` 白名单；导出下载通过 canonical containment 限制在 managed exports 目录，并使用 attachment/no-referrer headers。
+HTTP 与 Tauri 前端只经 `Transport` 和 `FileResourceAdapter` 抽象访问。`ArtifactViewer` 使用 opaque Artifact ID 解析 HTML 投影，不在业务组件拼 managed path；打开在本地桌面交给系统默认应用，在桌面远程/Web 使用受保护的浏览器 URL。HTTP ID 经过字母数字/`-`/`_` 白名单；导出下载通过 canonical containment 限制在 managed exports 目录，并使用 attachment/no-referrer headers。
 
 EventBus 当前发出：
 

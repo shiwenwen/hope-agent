@@ -3,7 +3,8 @@ use serde_json::{json, Value};
 use std::path::PathBuf;
 
 use crate::artifacts::{
-    ArtifactKind, ArtifactService, CreateArtifactInput, ListArtifactsInput, UpdateArtifactInput,
+    ArtifactImportSource, ArtifactKind, ArtifactService, CreateArtifactInput, ListArtifactsInput,
+    UpdateArtifactInput,
 };
 
 use super::execution::ToolExecContext;
@@ -34,8 +35,11 @@ pub(crate) async fn tool_artifact(args: &Value, ctx: &ToolExecContext) -> Result
 fn create_from_file(args: &Value, ctx: &ToolExecContext) -> Result<String> {
     let raw_path = required_str(args, "file_path")?;
     let mut service = ArtifactService::open()?;
-    let artifact = service.create_from_file(CreateArtifactInput {
-        file_path: PathBuf::from(ctx.resolve_path(raw_path)),
+    let artifact = service.create_from_source(CreateArtifactInput {
+        source: ArtifactImportSource::Path {
+            file_path: PathBuf::from(ctx.resolve_path(raw_path)),
+            allowed_roots: Some(allowed_roots(ctx)),
+        },
         title: optional_string(args, "title"),
         kind: ArtifactKind::parse(args.get("kind").and_then(Value::as_str)),
         privacy: args
@@ -48,7 +52,6 @@ fn create_from_file(args: &Value, ctx: &ToolExecContext) -> Result<String> {
         agent_id: ctx.agent_id.clone(),
         goal_id: None,
         producer: producer(ctx),
-        allowed_roots: Some(allowed_roots(ctx)),
         incognito: ctx.incognito,
     })?;
     emit_show(&artifact);
@@ -82,14 +85,16 @@ fn update_from_file(args: &Value, ctx: &ToolExecContext) -> Result<String> {
         })
         .to_string());
     }
-    let update = service.update_from_file(UpdateArtifactInput {
+    let update = service.update_from_source(UpdateArtifactInput {
         artifact_id: artifact_id.to_string(),
-        file_path: PathBuf::from(ctx.resolve_path(raw_path)),
+        source: ArtifactImportSource::Path {
+            file_path: PathBuf::from(ctx.resolve_path(raw_path)),
+            allowed_roots: Some(allowed_roots(ctx)),
+        },
         expected_version,
         title: optional_string(args, "title"),
         message: optional_string(args, "version_message"),
         producer: producer(ctx),
-        allowed_roots: Some(allowed_roots(ctx)),
         incognito: ctx.incognito,
     });
     let artifact = match update {

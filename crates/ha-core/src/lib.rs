@@ -58,6 +58,7 @@ pub mod execution_mode;
 pub mod failover;
 pub mod ffmpeg;
 pub mod file_extract;
+pub mod file_upload;
 pub mod filesystem;
 pub mod git_control;
 pub mod goal;

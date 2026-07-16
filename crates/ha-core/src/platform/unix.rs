@@ -405,6 +405,44 @@ pub(super) fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
     write_replace(path, bytes, mode)
 }
 
+/// Atomically create a user document without replacing an existing path.
+/// `hard_link` is the Unix no-clobber publication primitive: it either adds the
+/// destination name for the fully fsynced temp inode or fails with AlreadyExists.
+pub(super) fn write_atomic_create_new(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let mode = 0o644;
+    let tmp = path.with_extension(format!(
+        "tmp.{}.{}",
+        std::process::id(),
+        chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
+    ));
+    {
+        use std::io::Write;
+        let mut file = fs::OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .mode(mode)
+            .open(&tmp)?;
+        file.write_all(bytes)?;
+        file.sync_all()?;
+    }
+    fs::set_permissions(&tmp, fs::Permissions::from_mode(mode))?;
+    let published = fs::hard_link(&tmp, path);
+    let _ = fs::remove_file(&tmp);
+    published
+}
+
+pub(super) fn publish_atomic_file(source: &Path, target: &Path, overwrite: bool) -> io::Result<()> {
+    if overwrite {
+        fs::rename(source, target)
+    } else {
+        fs::hard_link(source, target)?;
+        fs::remove_file(source)
+    }
+}
+
 pub(super) fn run_hidden(cmd: &str, args: &[&str]) -> Option<std::process::Output> {
     Command::new(cmd).args(args).output().ok()
 }

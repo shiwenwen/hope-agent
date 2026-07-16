@@ -17,7 +17,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { FILE_ACTION_META, type FileAction } from "@/lib/fileActions"
-import { useFileActions, type FileActionsOverrides } from "./useFileActions"
+import type { FileActionsOverrides } from "./useFileActions"
+import { useFileResource } from "./useFileResource"
 import type { PreviewTarget } from "./useFilePreview"
 
 function actionLabel(t: ReturnType<typeof useTranslation>["t"], action: FileAction): string {
@@ -40,7 +41,7 @@ export function FileContextMenu({
   children: ReactNode
 }) {
   const { t } = useTranslation()
-  const { menu, run } = useFileActions(target, overrides)
+  const { menu, run } = useFileResource(target, overrides)
   if (!target || menu.length === 0) return <>{children}</>
   return (
     <ContextMenu>
@@ -75,7 +76,7 @@ export function FileActionsMoreButton({
   className?: string
 }) {
   const { t } = useTranslation()
-  const { menu, run } = useFileActions(target, overrides)
+  const { menu, run } = useFileResource(target, overrides)
   if (!target || menu.length === 0) return null
   return (
     <DropdownMenu>

@@ -145,7 +145,7 @@ CREATE INDEX IF NOT EXISTS idx_projects_archived
 | `list_all_ids()` → `Vec<String>` | 轻量 id 列表，reconciler 专用 |
 | `list(include_archived)` → `Vec<ProjectMeta>` | 带 `session_count` / `unread_count` 聚合子查询 |
 
-项目普通文件 CRUD 全在 [文件浏览器 API](#文件浏览器-api)。`files.rs` 另提供项目指令专用编排：`create_project_with_instructions_file` / `update_project_with_instructions_file`、`inspect_project_instructions`、`ensure_project_instructions`、`read_project_instructions`、`save_project_instructions`；它们固定操作根目录 `AGENTS.md`，保存走 `platform::write_atomic`，以读取时的 raw BLAKE3 作 stale-write guard，并将编辑器读写上限设为 5MB。新增 / 编辑项目可把 `ProjectInstructionsDraft` 与元数据一并提交；文件步骤失败会回滚项目创建或元数据更新，指令内容仍不进入 SQLite。
+项目普通文件 CRUD 全在 [文件浏览器 API](#文件浏览器-api)。`files.rs` 另提供项目指令专用编排：`create_project_with_instructions_file` / `update_project_with_instructions_file`、`inspect_project_instructions`、`ensure_project_instructions`、`read_project_instructions`、`save_project_instructions`；它们固定操作根目录 `AGENTS.md`，保存走 `platform::write_atomic`，以读取时的 raw BLAKE3 作 stale-write guard，并共用 `filesystem.maxTextEditMb` 动态读写上限。新增 / 编辑项目可把 `ProjectInstructionsDraft` 与元数据一并提交；文件步骤失败会回滚项目创建或元数据更新，指令内容仍不进入 SQLite。
 
 ### session ↔ project 绑定（[`session/db.rs`](../../crates/ha-core/src/session/db.rs)）
 
@@ -161,9 +161,9 @@ CREATE INDEX IF NOT EXISTS idx_projects_archived
 
 ## 文件浏览器 API
 
-项目文件由 workspace-scoped 文件管理 API 读写，全部经 [`filesystem::WorkspaceScope`](../../crates/ha-core/src/filesystem/workspace.rs)（`for_session` / `for_project` / `for_path` 三入口 → canonicalize 根 → 每次操作 canonicalize 目标 + `starts_with` 校验，失败闭合；`for_path` 是只读 worktree 跳转，写操作经 `resolve_writable` 一律拒绝）。核心 ops 在 [`filesystem/ops.rs`](../../crates/ha-core/src/filesystem/ops.rs)：list / read_text / extract（PDF 逐页 PNG、Office 文本+图片，复用 `file_extract`）/ write_text / delete / rename / mkdir / upload。
+项目文件由 workspace-scoped 文件管理 API 读写，全部经 [`filesystem::WorkspaceScope`](../../crates/ha-core/src/filesystem/workspace.rs)（`for_session` / `for_project` / `for_path` 三入口 → canonicalize 根 → 每次操作 canonicalize 目标 + `starts_with` 校验，失败闭合；`for_path` 是只读 worktree 跳转，归档项目固定只读；mutation 统一走 `resolve_effective_writable` 叠加远程写闸门）。核心 ops 在 [`filesystem/ops.rs`](../../crates/ha-core/src/filesystem/ops.rs)：list / read_text / extract / CAS write_text / delete / rename / mkdir / atomic upload。
 
-接入：Tauri 命令 `project_fs_*`（[`commands/project_fs.rs`](../../src-tauri/src/commands/project_fs.rs)：`list` / `read_text` / `extract` / `resolve` / `write_text` / `delete` / `rename` / `mkdir` / `upload` + `project_git_info`）+ HTTP `/api/fs/*`（[`routes/project_fs.rs`](../../crates/ha-server/src/routes/project_fs.rs)）+ Transport 双适配。`project_git_info` 是只读接口，统一返回当前分支、local/remote-tracking 分支（排除 remote HEAD 符号引用）、dirty summary 和 worktree checkout 信息，不 fetch/checkout。HTTP **写**端点（write / delete / rename / mkdir / upload）受 `filesystem.allow_remote_writes`（默认 false）闸门，桌面 Tauri 不受限。单文件上限 `MAX_PROJECT_FILE_BYTES = 20 MB`。
+接入：Tauri 命令 `project_fs_*`（含 `capabilities` / `list` / `read_text` / `extract` / `resolve` / `write_text` / `delete` / `rename` / `mkdir` / `upload`）+ HTTP `/api/fs/*` + Transport 双适配。`project_fs_capabilities` 与 mutation 共用最终判定；已有文本保存必须携带 raw-byte BLAKE3 `expectedFileHash`，新建/另存为使用 `createOnly`，冲突返回结构化 outcome 且禁止强制覆盖。完整交互与上传生命周期只在 [file-operations.md](file-operations.md) 维护。
 
 **preview-by-path**（按绝对路径读取 / 提取）：Tauri `preview_read_text` / `preview_extract` + 客户端 `convertFileSrc`；HTTP `GET /api/sessions/{id}/files/{read,extract,by-path}` 共用 `authorized_canonical_file_path`（被会话 tool 消息引用 ∪ 落在会话工作目录内），二者皆非的主机任意路径一律 403——远端严禁放行任意主机路径；桌面信任本机。详见 [file-operations.md](file-operations.md)。
 
@@ -432,11 +432,11 @@ Sheet 左边缘支持鼠标左右拖拽调整宽度（键盘 `←/→` 同样可
 ## 安全约束
 
 - **工作目录写入校验**：所有写路径走 `util::canonicalize_working_dir`，`canonicalize` + `is_dir` 不通过 `Err`
-- **项目指令文件闭合**：文件名固定为根 `AGENTS.md`；拒绝 symlink / 非普通文件，读取要求 UTF-8 且 ≤5MB，保存使用 `platform::write_atomic`，并比较读取时 raw BLAKE3 与保存时磁盘 hash，冲突拒绝覆盖；HTTP 专用端点属于 API key 保护的 owner 设置面，不受通用文件浏览器写闸门影响
+- **项目指令文件闭合**：文件名固定为根 `AGENTS.md`；拒绝 symlink / 非普通文件，读取要求 UTF-8 且不超过 `filesystem.maxTextEditMb`，保存使用 `platform::write_atomic`，并比较读取时 raw BLAKE3 与保存时磁盘 hash，冲突拒绝覆盖；HTTP 专用端点属于 API key 保护的 owner 设置面，不受通用文件浏览器写闸门影响
 - **文件浏览器作用域闭合**：`WorkspaceScope` canonicalize + `starts_with`，失败即拒；`for_path` 只读跳转写操作一律拒；HTTP 写端点叠加 `filesystem.allow_remote_writes`（默认 false）闸门
 - **preview-by-path 鉴权**：HTTP 三端点共用 `authorized_canonical_file_path`（会话引用 ∪ 工作目录内），主机任意路径 403；桌面信任本机
 - **删除前防逃逸**：`purge_project_dir` canonicalize 比对 `projects_root`，拒绝对其外目录 `remove_dir_all`
-- **上传上限**：`MAX_PROJECT_FILE_BYTES = 20 MB`，HTTP 层前置校验 + 管道入口 bail 双重把关
+- **上传上限**：新版租约使用 `filesystem.maxWorkspaceUploadMb`（默认 20 MiB，1–512）并在 start/complete/claim 三处复检；旧 multipart/whole-body 入口固定 20 MiB 兼容上限
 - **自动记忆路径闭合**：project id 必须是 UUID；主题文件名为严格 basename；项目目录祖先与 `memory/` 做 symlink + canonical containment 校验，主题、索引与锁文件拒绝 symlink / 非常规文件，写入统一走 `platform::write_atomic`
 - **并发与陈旧写**：mutation 全程持有项目级 OS 独占锁；更新 / 删除按 raw-file BLAKE3 做 compare-before-write，不能用陈旧 owner 草稿或 agent 读取覆盖新版本
 - **事务边界**：`ProjectDB::delete` 单 TX 内 unassign + delete；跨 DB 的 memory 删除放 TX 外，失败走 reconciler 兜底

@@ -5,23 +5,31 @@
 //! escaping path. DTOs serialize as camelCase to match the transport layer.
 
 use serde::Serialize;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 use std::time::UNIX_EPOCH;
 
 use super::workspace::WorkspaceScope;
 use super::{FilesystemError, Result};
 
-/// Files larger than this are not inlined as text — the browser falls back to
-/// the raw/preview endpoint or a binary placeholder.
-const MAX_TEXT_PREVIEW_BYTES: u64 = 5 * 1024 * 1024;
-
-/// Documents are fully buffered + parsed (and PDFs rasterized) by
-/// `file_extract`, so cap the input to keep a single preview from blowing up
-/// memory.
-const MAX_EXTRACT_BYTES: u64 = 50 * 1024 * 1024;
+/// Static compatibility ceiling for the legacy whole-body workspace upload.
+/// New clients use resumable leases and may opt into a higher configured cap.
+pub const LEGACY_MAX_WORKSPACE_UPLOAD_BYTES: u64 = 20 * 1024 * 1024;
 
 /// Per-directory entry cap (same intent as `MAX_LIST_ENTRIES` in `mod.rs`).
 const MAX_LIST_ENTRIES: usize = 5000;
+
+/// Serializes owner-plane workspace mutations inside this process. In
+/// particular, the editor's hash comparison and atomic publish must be one
+/// critical section relative to HTTP/Tauri writes, uploads, renames and deletes.
+static WORKSPACE_MUTATION_LOCK: Mutex<()> = Mutex::new(());
+
+fn lock_workspace_mutations() -> std::sync::MutexGuard<'static, ()> {
+    WORKSPACE_MUTATION_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
 
 // ---- DTOs ------------------------------------------------------------------
 
@@ -55,6 +63,19 @@ pub struct FileTextContent {
     pub total_lines: usize,
     pub size_bytes: u64,
     pub truncated: bool,
+    pub content_hash: Option<String>,
+    pub is_utf8: bool,
+    pub line_ending: LineEnding,
+    pub has_utf8_bom: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LineEnding {
+    Lf,
+    Crlf,
+    Cr,
+    Mixed,
 }
 
 #[derive(Debug, Serialize)]
@@ -80,6 +101,31 @@ pub struct ExtractedContent {
 pub struct WriteResult {
     pub rel_path: String,
     pub size_bytes: u64,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub enum FileWriteOutcome {
+    Saved {
+        #[serde(rename = "relPath")]
+        rel_path: String,
+        #[serde(rename = "sizeBytes")]
+        size_bytes: u64,
+        #[serde(rename = "contentHash")]
+        content_hash: String,
+    },
+    Conflict {
+        reason: FileWriteConflictReason,
+        #[serde(rename = "currentContentHash", skip_serializing_if = "Option::is_none")]
+        current_content_hash: Option<String>,
+    },
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FileWriteConflictReason {
+    Changed,
+    Deleted,
 }
 
 #[derive(Debug, Serialize)]
@@ -188,7 +234,10 @@ fn read_text_at(abs: &Path, rel_path: String) -> Result<FileTextContent> {
     let size_bytes = meta.len();
     let mime = mime_for_path(abs);
 
-    if size_bytes > MAX_TEXT_PREVIEW_BYTES || looks_binary(abs) {
+    let max_preview_bytes = crate::config::cached_config()
+        .filesystem
+        .max_text_preview_bytes();
+    if size_bytes > max_preview_bytes || looks_binary(abs) {
         return Ok(FileTextContent {
             rel_path,
             content: String::new(),
@@ -196,14 +245,43 @@ fn read_text_at(abs: &Path, rel_path: String) -> Result<FileTextContent> {
             mime,
             total_lines: 0,
             size_bytes,
-            truncated: size_bytes > MAX_TEXT_PREVIEW_BYTES,
+            truncated: size_bytes > max_preview_bytes,
+            content_hash: None,
+            is_utf8: false,
+            line_ending: LineEnding::Lf,
+            has_utf8_bom: false,
         });
     }
 
-    let bytes =
-        std::fs::read(abs).map_err(|e| FilesystemError::internal(format!("read: {}", e)))?;
-    let content = String::from_utf8_lossy(&bytes).to_string();
+    let mut file =
+        std::fs::File::open(abs).map_err(|e| FilesystemError::internal(format!("open: {}", e)))?;
+    let mut bytes = Vec::with_capacity(size_bytes.min(max_preview_bytes) as usize);
+    Read::by_ref(&mut file)
+        .take(max_preview_bytes.saturating_add(1))
+        .read_to_end(&mut bytes)
+        .map_err(|e| FilesystemError::internal(format!("read: {}", e)))?;
+    if bytes.len() as u64 > max_preview_bytes {
+        return Ok(FileTextContent {
+            rel_path,
+            content: String::new(),
+            is_binary: true,
+            mime,
+            total_lines: 0,
+            size_bytes: size_bytes.max(bytes.len() as u64),
+            truncated: true,
+            content_hash: None,
+            is_utf8: false,
+            line_ending: LineEnding::Lf,
+            has_utf8_bom: false,
+        });
+    }
+    let content_hash = blake3::hash(&bytes).to_hex().to_string();
+    let has_utf8_bom = bytes.starts_with(&[0xef, 0xbb, 0xbf]);
+    let text_bytes = if has_utf8_bom { &bytes[3..] } else { &bytes };
+    let is_utf8 = std::str::from_utf8(text_bytes).is_ok();
+    let content = String::from_utf8_lossy(text_bytes).to_string();
     let total_lines = content.lines().count();
+    let line_ending = detect_line_ending(&content);
     Ok(FileTextContent {
         rel_path,
         content,
@@ -212,7 +290,46 @@ fn read_text_at(abs: &Path, rel_path: String) -> Result<FileTextContent> {
         total_lines,
         size_bytes,
         truncated: false,
+        content_hash: Some(content_hash),
+        is_utf8,
+        line_ending,
+        has_utf8_bom,
     })
+}
+
+fn detect_line_ending(content: &str) -> LineEnding {
+    let bytes = content.as_bytes();
+    let mut lf = 0usize;
+    let mut crlf = 0usize;
+    let mut cr = 0usize;
+    let mut i = 0usize;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'\r' if bytes.get(i + 1) == Some(&b'\n') => {
+                crlf += 1;
+                i += 2;
+            }
+            b'\r' => {
+                cr += 1;
+                i += 1;
+            }
+            b'\n' => {
+                lf += 1;
+                i += 1;
+            }
+            _ => i += 1,
+        }
+    }
+    let kinds = usize::from(lf > 0) + usize::from(crlf > 0) + usize::from(cr > 0);
+    if kinds > 1 {
+        LineEnding::Mixed
+    } else if crlf > 0 {
+        LineEnding::Crlf
+    } else if cr > 0 {
+        LineEnding::Cr
+    } else {
+        LineEnding::Lf
+    }
 }
 
 /// Extract content from a PDF / Office document for preview, reusing
@@ -234,11 +351,14 @@ pub fn extract_abs(abs: &Path) -> Result<ExtractedContent> {
 fn extract_at(abs: &Path, rel_path: String) -> Result<ExtractedContent> {
     let meta =
         std::fs::metadata(abs).map_err(|e| FilesystemError::internal(format!("stat: {}", e)))?;
-    if meta.len() > MAX_EXTRACT_BYTES {
+    let max_extract_bytes = crate::config::cached_config()
+        .filesystem
+        .max_document_preview_bytes();
+    if meta.len() > max_extract_bytes {
         return Err(FilesystemError::bad_input(format!(
             "file too large to preview: {} bytes (max {} bytes)",
             meta.len(),
-            MAX_EXTRACT_BYTES
+            max_extract_bytes
         )));
     }
     let path_str = abs.to_string_lossy().to_string();
@@ -282,17 +402,148 @@ pub fn project_write_text(
     content: &str,
     create_only: bool,
 ) -> Result<WriteResult> {
-    let abs = scope.resolve_new(rel)?;
-    if create_only && abs.exists() {
-        return Err(FilesystemError::bad_input("file already exists"));
+    let max_bytes = crate::config::cached_config()
+        .filesystem
+        .max_text_edit_bytes();
+    if content.len() as u64 > max_bytes {
+        return Err(FilesystemError::bad_input(format!(
+            "text is too large to edit: {} bytes (max {} bytes)",
+            content.len(),
+            max_bytes
+        )));
     }
+    let abs = scope.resolve_new(rel)?;
+    let _guard = lock_workspace_mutations();
     // Atomic temp+rename lives in `platform/` (cross-platform rename / permission
     // handling in one place); it creates parent dirs itself.
-    crate::platform::write_atomic(&abs, content.as_bytes())
-        .map_err(|e| FilesystemError::internal(format!("write: {}", e)))?;
+    let write = if create_only {
+        crate::platform::write_atomic_create_new(&abs, content.as_bytes())
+    } else {
+        crate::platform::write_atomic(&abs, content.as_bytes())
+    };
+    write.map_err(|e| {
+        if create_only && e.kind() == std::io::ErrorKind::AlreadyExists {
+            FilesystemError::bad_input("file already exists")
+        } else {
+            FilesystemError::internal(format!("write: {e}"))
+        }
+    })?;
     Ok(WriteResult {
         rel_path: scope.rel_of(&abs),
         size_bytes: content.len() as u64,
+    })
+}
+
+/// Compare-and-swap text write used by the interactive workspace editor.
+/// Existing files require the raw-byte BLAKE3 returned by `project_read_text`;
+/// new files use `create_only` and never overwrite an existing path.
+pub fn project_write_text_checked(
+    scope: &WorkspaceScope,
+    rel: &str,
+    content: &str,
+    create_only: bool,
+    expected_file_hash: Option<&str>,
+) -> Result<FileWriteOutcome> {
+    let max_bytes = crate::config::cached_config()
+        .filesystem
+        .max_text_edit_bytes();
+    if content.len() as u64 > max_bytes {
+        return Err(FilesystemError::bad_input(format!(
+            "text is too large to edit: {} bytes (max {} bytes)",
+            content.len(),
+            max_bytes
+        )));
+    }
+    let abs = scope.resolve_new(rel)?;
+    let _guard = lock_workspace_mutations();
+    let bytes = content.as_bytes();
+    if create_only {
+        match crate::platform::write_atomic_create_new(&abs, bytes) {
+            Ok(()) => {
+                return Ok(FileWriteOutcome::Saved {
+                    rel_path: scope.rel_of(&abs),
+                    size_bytes: bytes.len() as u64,
+                    content_hash: blake3::hash(bytes).to_hex().to_string(),
+                });
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                let current = std::fs::read(&abs)
+                    .map_err(|e| FilesystemError::internal(format!("read existing file: {e}")))?;
+                return Ok(FileWriteOutcome::Conflict {
+                    reason: FileWriteConflictReason::Changed,
+                    current_content_hash: Some(blake3::hash(&current).to_hex().to_string()),
+                });
+            }
+            Err(error) => {
+                return Err(FilesystemError::internal(format!("write: {error}")));
+            }
+        }
+    }
+    let expected = expected_file_hash
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| FilesystemError::bad_input("expectedFileHash is required"))?;
+    if !abs.exists() {
+        return Ok(FileWriteOutcome::Conflict {
+            reason: FileWriteConflictReason::Deleted,
+            current_content_hash: None,
+        });
+    }
+    let current = std::fs::read(&abs)
+        .map_err(|e| FilesystemError::internal(format!("read before write: {e}")))?;
+    let current_hash = blake3::hash(&current).to_hex().to_string();
+    if current_hash != expected {
+        return Ok(FileWriteOutcome::Conflict {
+            reason: FileWriteConflictReason::Changed,
+            current_content_hash: Some(current_hash),
+        });
+    }
+
+    // Fully prepare and fsync the replacement before the final comparison.
+    // This keeps the unavoidable external-writer race window down to the
+    // atomic publish itself instead of including temp creation + disk I/O.
+    let parent = abs
+        .parent()
+        .ok_or_else(|| FilesystemError::internal("file has no parent directory"))?;
+    let mut staged = tempfile::NamedTempFile::new_in(parent)
+        .map_err(|e| FilesystemError::internal(format!("create staged write: {e}")))?;
+    staged
+        .write_all(bytes)
+        .and_then(|()| staged.flush())
+        .and_then(|()| staged.as_file().sync_all())
+        .map_err(|e| FilesystemError::internal(format!("stage write: {e}")))?;
+    if let Ok(metadata) = std::fs::metadata(&abs) {
+        std::fs::set_permissions(staged.path(), metadata.permissions())
+            .map_err(|e| FilesystemError::internal(format!("preserve permissions: {e}")))?;
+    }
+
+    let latest = match std::fs::read(&abs) {
+        Ok(latest) => latest,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(FileWriteOutcome::Conflict {
+                reason: FileWriteConflictReason::Deleted,
+                current_content_hash: None,
+            });
+        }
+        Err(error) => {
+            return Err(FilesystemError::internal(format!(
+                "re-read before publish: {error}"
+            )));
+        }
+    };
+    let latest_hash = blake3::hash(&latest).to_hex().to_string();
+    if latest_hash != expected {
+        return Ok(FileWriteOutcome::Conflict {
+            reason: FileWriteConflictReason::Changed,
+            current_content_hash: Some(latest_hash),
+        });
+    }
+    let staged_path = staged.into_temp_path();
+    crate::platform::publish_atomic_file(staged_path.as_ref(), &abs, true)
+        .map_err(|e| FilesystemError::internal(format!("publish write: {e}")))?;
+    Ok(FileWriteOutcome::Saved {
+        rel_path: scope.rel_of(&abs),
+        size_bytes: bytes.len() as u64,
+        content_hash: blake3::hash(bytes).to_hex().to_string(),
     })
 }
 
@@ -304,6 +555,7 @@ pub fn project_delete(scope: &WorkspaceScope, rel: &str, recursive: bool) -> Res
         ));
     }
     let abs = scope.resolve_existing(rel)?;
+    let _guard = lock_workspace_mutations();
     let meta = std::fs::symlink_metadata(&abs)
         .map_err(|e| FilesystemError::internal(format!("stat: {}", e)))?;
     if meta.is_dir() {
@@ -332,6 +584,7 @@ pub fn project_rename(
 ) -> Result<RenameResult> {
     let from = scope.resolve_existing(from_rel)?;
     let to = scope.resolve_new(to_rel)?;
+    let _guard = lock_workspace_mutations();
     if to.exists() && !overwrite {
         return Err(FilesystemError::bad_input("destination already exists"));
     }
@@ -351,6 +604,7 @@ pub fn project_mkdir(scope: &WorkspaceScope, rel: &str) -> Result<WriteResult> {
         return Err(FilesystemError::bad_input("directory name is empty"));
     }
     let abs = scope.resolve_new(rel)?;
+    let _guard = lock_workspace_mutations();
     std::fs::create_dir_all(&abs)
         .map_err(|e| FilesystemError::internal(format!("mkdir: {}", e)))?;
     Ok(WriteResult {
@@ -368,11 +622,15 @@ pub fn project_upload(
     data: &[u8],
     overwrite: bool,
 ) -> Result<UploadResult> {
-    if data.len() > crate::project::MAX_PROJECT_FILE_BYTES {
+    let max_bytes = crate::config::cached_config()
+        .filesystem
+        .max_workspace_upload_bytes()
+        .min(LEGACY_MAX_WORKSPACE_UPLOAD_BYTES);
+    if data.len() as u64 > max_bytes {
         return Err(FilesystemError::bad_input(format!(
             "file too large: {} bytes (max {} bytes)",
             data.len(),
-            crate::project::MAX_PROJECT_FILE_BYTES
+            max_bytes
         )));
     }
     let safe = sanitize_name(file_name);
@@ -381,6 +639,7 @@ pub fn project_upload(
     }
 
     let dir_abs = scope.resolve_new(dir_rel)?;
+    let _guard = lock_workspace_mutations();
     std::fs::create_dir_all(&dir_abs)
         .map_err(|e| FilesystemError::internal(format!("create dir: {}", e)))?;
 
@@ -394,10 +653,179 @@ pub fn project_upload(
     if abs.exists() && !overwrite {
         abs = dedupe_path(&abs);
     }
-    std::fs::write(&abs, data).map_err(|e| FilesystemError::internal(format!("write: {}", e)))?;
+    crate::platform::write_atomic(&abs, data)
+        .map_err(|e| FilesystemError::internal(format!("write: {e}")))?;
     Ok(UploadResult {
         rel_path: scope.rel_of(&abs),
         size_bytes: data.len() as u64,
+    })
+}
+
+/// Upload an existing local file without buffering it in memory. The source is
+/// copied into a workspace-local staging file and then published atomically.
+pub fn project_upload_file(
+    scope: &WorkspaceScope,
+    dir_rel: &str,
+    file_name: &str,
+    source_path: &Path,
+    overwrite: bool,
+) -> Result<UploadResult> {
+    let source_metadata = std::fs::symlink_metadata(source_path)
+        .map_err(|e| FilesystemError::bad_input(format!("stat upload source: {e}")))?;
+    if !source_metadata.is_file() || source_metadata.file_type().is_symlink() {
+        return Err(FilesystemError::bad_input(
+            "upload source must be a regular file",
+        ));
+    }
+    let max_bytes = crate::config::cached_config()
+        .filesystem
+        .max_workspace_upload_bytes()
+        .min(LEGACY_MAX_WORKSPACE_UPLOAD_BYTES);
+    if source_metadata.len() > max_bytes {
+        return Err(FilesystemError::bad_input(format!(
+            "file too large: {} bytes (max {} bytes)",
+            source_metadata.len(),
+            max_bytes
+        )));
+    }
+    let safe = sanitize_name(file_name);
+    if safe.is_empty() {
+        return Err(FilesystemError::bad_input("invalid file name"));
+    }
+
+    let dir_abs = scope.resolve_new(dir_rel)?;
+    let _guard = lock_workspace_mutations();
+    std::fs::create_dir_all(&dir_abs)
+        .map_err(|e| FilesystemError::internal(format!("create dir: {e}")))?;
+    let dir_clean = dir_rel.trim().trim_start_matches('/').trim_end_matches('/');
+    let target_rel = if dir_clean.is_empty() {
+        safe.clone()
+    } else {
+        format!("{dir_clean}/{safe}")
+    };
+    let mut target = scope.resolve_new(&target_rel)?;
+    if target.exists() && !overwrite {
+        target = dedupe_path(&target);
+    }
+    let staging = dir_abs.join(format!(".{safe}.upload-{}.tmp", uuid::Uuid::new_v4()));
+    let publish = (|| -> Result<u64> {
+        let source = std::fs::File::open(source_path)
+            .map_err(|e| FilesystemError::bad_input(format!("open upload source: {e}")))?;
+        let mut limited = source.take(max_bytes.saturating_add(1));
+        let mut staged = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&staging)
+            .map_err(|e| FilesystemError::internal(format!("create upload staging file: {e}")))?;
+        let copied = std::io::copy(&mut limited, &mut staged)
+            .map_err(|e| FilesystemError::internal(format!("copy upload: {e}")))?;
+        if copied > max_bytes || copied != source_metadata.len() {
+            return Err(FilesystemError::bad_input(
+                "upload source changed or exceeded the configured limit",
+            ));
+        }
+        staged
+            .flush()
+            .and_then(|_| staged.sync_all())
+            .map_err(|e| FilesystemError::internal(format!("sync upload: {e}")))?;
+        drop(staged);
+        crate::platform::publish_atomic_file(&staging, &target, overwrite)
+            .map_err(|e| FilesystemError::internal(format!("publish upload: {e}")))?;
+        Ok(copied)
+    })();
+    if publish.is_err() {
+        let _ = std::fs::remove_file(&staging);
+    }
+    let size_bytes = publish?;
+    Ok(UploadResult {
+        rel_path: scope.rel_of(&target),
+        size_bytes,
+    })
+}
+
+/// Claim a completed `workspace_upload` lease into this scope. The bytes are
+/// copied into a sibling staging file, fsynced, then published atomically.
+pub fn project_claim_upload(
+    scope: &WorkspaceScope,
+    dir_rel: &str,
+    upload_id: &str,
+    file_name: Option<&str>,
+    overwrite: bool,
+) -> Result<UploadResult> {
+    let max_bytes = crate::config::cached_config()
+        .filesystem
+        .max_workspace_upload_bytes();
+    let initial = crate::file_upload::upload_status(upload_id)
+        .map_err(|error| FilesystemError::bad_input(error.to_string()))?;
+    if initial.purpose != crate::file_upload::FileUploadPurpose::WorkspaceUpload {
+        return Err(FilesystemError::bad_input("file upload purpose mismatch"));
+    }
+    if initial.size_bytes > max_bytes {
+        return Err(FilesystemError::bad_input(format!(
+            "file too large: {} bytes (max {} bytes)",
+            initial.size_bytes, max_bytes
+        )));
+    }
+    let safe = sanitize_name(file_name.unwrap_or(&initial.file_name));
+    if safe.is_empty() {
+        return Err(FilesystemError::bad_input("invalid file name"));
+    }
+
+    let dir_abs = scope.resolve_new(dir_rel)?;
+    let _guard = lock_workspace_mutations();
+    std::fs::create_dir_all(&dir_abs)
+        .map_err(|error| FilesystemError::internal(format!("create dir: {error}")))?;
+    let dir_clean = dir_rel.trim().trim_start_matches('/').trim_end_matches('/');
+    let target_rel = if dir_clean.is_empty() {
+        safe.clone()
+    } else {
+        format!("{dir_clean}/{safe}")
+    };
+    let mut target = scope.resolve_new(&target_rel)?;
+    if target.exists() && !overwrite {
+        target = dedupe_path(&target);
+    }
+    let staging = dir_abs.join(format!(".{safe}.upload-{}.tmp", uuid::Uuid::new_v4()));
+    let lease = crate::file_upload::copy_completed_upload_create_new(
+        upload_id,
+        crate::file_upload::FileUploadPurpose::WorkspaceUpload,
+        &staging,
+    )
+    .map_err(|error| FilesystemError::bad_input(error.to_string()))?;
+    let publish = (|| -> Result<()> {
+        let metadata = std::fs::symlink_metadata(&staging)
+            .map_err(|error| FilesystemError::internal(format!("stat upload: {error}")))?;
+        let current_max = crate::config::cached_config()
+            .filesystem
+            .max_workspace_upload_bytes();
+        if !metadata.is_file()
+            || metadata.file_type().is_symlink()
+            || metadata.len() != lease.size_bytes
+            || metadata.len() > current_max
+        {
+            return Err(FilesystemError::bad_input(
+                "workspace upload no longer satisfies the configured limit",
+            ));
+        }
+        // `copy_completed_upload_create_new` flushes and fsyncs the staging
+        // file through its writable handle. Reopening it read-only and calling
+        // `sync_all` fails with ERROR_ACCESS_DENIED on Windows and adds no
+        // durability here.
+        crate::platform::publish_atomic_file(&staging, &target, overwrite)
+            .map_err(|error| FilesystemError::internal(format!("publish upload: {error}")))?;
+        Ok(())
+    })();
+    if let Err(error) = publish {
+        let _ = std::fs::remove_file(&staging);
+        return Err(error);
+    }
+    // The workspace file is already atomically published. A cleanup failure
+    // must not report the domain operation as failed; the expiry sweeper will
+    // remove the retained lease later.
+    let _ = crate::file_upload::discard_upload(upload_id);
+    Ok(UploadResult {
+        rel_path: scope.rel_of(&target),
+        size_bytes: lease.size_bytes,
     })
 }
 
@@ -494,4 +922,139 @@ fn mime_for_path(path: &Path) -> Option<String> {
         _ => return None,
     };
     Some(m.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn read_text_reports_raw_hash_bom_and_mixed_line_endings() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let bytes = b"\xef\xbb\xbfalpha\r\nbeta\ngamma\rdelta";
+        std::fs::write(root.path().join("mixed.txt"), bytes).expect("write fixture");
+        let scope = WorkspaceScope::from_test_root(root.path());
+
+        let content = project_read_text(&scope, "mixed.txt").expect("read text");
+
+        assert_eq!(content.content, "alpha\r\nbeta\ngamma\rdelta");
+        assert_eq!(
+            content.content_hash,
+            Some(blake3::hash(bytes).to_hex().to_string())
+        );
+        assert!(content.is_utf8);
+        assert!(content.has_utf8_bom);
+        assert_eq!(content.line_ending, LineEnding::Mixed);
+    }
+
+    #[test]
+    fn checked_write_saves_matching_hash_and_rejects_stale_hash() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let path = root.path().join("note.md");
+        std::fs::write(&path, b"first\r\n").expect("write fixture");
+        let scope = WorkspaceScope::from_test_root(root.path());
+        let initial = project_read_text(&scope, "note.md").expect("read initial");
+
+        let saved = project_write_text_checked(
+            &scope,
+            "note.md",
+            "second\r\n",
+            false,
+            initial.content_hash.as_deref(),
+        )
+        .expect("save matching version");
+        let saved_hash = match saved {
+            FileWriteOutcome::Saved { content_hash, .. } => content_hash,
+            FileWriteOutcome::Conflict { .. } => panic!("unexpected conflict"),
+        };
+        assert_eq!(saved_hash, blake3::hash(b"second\r\n").to_hex().to_string());
+        assert_eq!(std::fs::read(&path).expect("read saved"), b"second\r\n");
+
+        std::fs::write(&path, b"external change").expect("external update");
+        let conflict = project_write_text_checked(
+            &scope,
+            "note.md",
+            "would overwrite",
+            false,
+            Some(&saved_hash),
+        )
+        .expect("structured conflict");
+        match conflict {
+            FileWriteOutcome::Conflict {
+                reason: FileWriteConflictReason::Changed,
+                current_content_hash: Some(current),
+            } => assert_eq!(
+                current,
+                blake3::hash(b"external change").to_hex().to_string()
+            ),
+            _ => panic!("expected changed conflict"),
+        }
+        assert_eq!(
+            std::fs::read(&path).expect("read current"),
+            b"external change"
+        );
+    }
+
+    #[test]
+    fn create_only_never_overwrites_and_missing_existing_file_conflicts() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let scope = WorkspaceScope::from_test_root(root.path());
+
+        let created =
+            project_write_text_checked(&scope, "new.txt", "new", true, None).expect("create file");
+        assert!(matches!(created, FileWriteOutcome::Saved { .. }));
+        let exists = project_write_text_checked(&scope, "new.txt", "replace", true, None)
+            .expect("existing createOnly result");
+        assert!(matches!(
+            exists,
+            FileWriteOutcome::Conflict {
+                reason: FileWriteConflictReason::Changed,
+                ..
+            }
+        ));
+        assert_eq!(
+            std::fs::read(root.path().join("new.txt")).expect("read"),
+            b"new"
+        );
+
+        let deleted =
+            project_write_text_checked(&scope, "missing.txt", "replace", false, Some("known-hash"))
+                .expect("deleted conflict");
+        assert!(matches!(
+            deleted,
+            FileWriteOutcome::Conflict {
+                reason: FileWriteConflictReason::Deleted,
+                current_content_hash: None,
+            }
+        ));
+    }
+
+    #[test]
+    fn workspace_upload_lease_claims_atomically_and_is_consumed() {
+        let root = tempfile::tempdir().expect("tempdir");
+        crate::test_support::with_env_vars(&[("HA_DATA_DIR", root.path())], || {
+            let workspace = root.path().join("workspace");
+            std::fs::create_dir_all(&workspace).unwrap();
+            let scope = WorkspaceScope::from_test_root(&workspace);
+            let lease =
+                crate::file_upload::start_upload(crate::file_upload::FileUploadStartInput {
+                    purpose: crate::file_upload::FileUploadPurpose::WorkspaceUpload,
+                    file_name: "report.txt".to_string(),
+                    mime_type: "text/plain".to_string(),
+                    size_bytes: 6,
+                })
+                .unwrap();
+            crate::file_upload::upload_chunk(&lease.upload_id, 0, b"report").unwrap();
+            crate::file_upload::complete_upload(&lease.upload_id).unwrap();
+
+            let result = project_claim_upload(&scope, "docs", &lease.upload_id, None, false)
+                .expect("claim workspace upload");
+            assert_eq!(result.rel_path, "docs/report.txt");
+            assert_eq!(
+                std::fs::read(workspace.join(&result.rel_path)).unwrap(),
+                b"report"
+            );
+            assert!(crate::file_upload::upload_status(&lease.upload_id).is_err());
+        });
+    }
 }

@@ -644,6 +644,7 @@ async fn transcribe_one(agent: &AssistantAgent, id: &ImageIdentity) -> Option<St
         source: Some("vision_bridge".to_string()),
         data: Some(base64),
         file_path: None,
+        upload_id: None,
         quote_lines: None,
         quote_role: None,
     };

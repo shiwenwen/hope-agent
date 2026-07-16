@@ -375,7 +375,8 @@ fn build_router_with_cors(
             get(routes::knowledge::kb_source_list)
                 .post(routes::knowledge::kb_source_import)
                 .layer(DefaultBodyLimit::max(
-                    (ha_core::knowledge::source::MAX_BINARY_SOURCE_BYTES * 4 / 3) + 2 * 1024 * 1024,
+                    (ha_core::knowledge::MAX_MAX_BINARY_SOURCE_MB as usize * 1024 * 1024 * 4 / 3)
+                        + 2 * 1024 * 1024,
                 )),
         )
         .route(
@@ -389,7 +390,8 @@ fn build_router_with_cors(
         .route(
             "/knowledge/{kb_id}/sources/batch",
             post(routes::knowledge::kb_source_import_batch).layer(DefaultBodyLimit::max(
-                (ha_core::knowledge::source::MAX_BINARY_SOURCE_BYTES * 4 / 3 * 3) + 4 * 1024 * 1024,
+                (ha_core::knowledge::MAX_MAX_BINARY_SOURCE_MB as usize * 1024 * 1024 * 4 / 3 * 3)
+                    + 4 * 1024 * 1024,
             )),
         )
         .route(
@@ -633,6 +635,11 @@ fn build_router_with_cors(
                 .post(routes::knowledge::knowledge_media_retention_config_set),
         )
         .route(
+            "/knowledge/source-limits/config",
+            get(routes::knowledge::knowledge_source_limits_config_get)
+                .post(routes::knowledge::knowledge_source_limits_config_set),
+        )
+        .route(
             "/knowledge/sprite/observe",
             post(routes::knowledge::kb_sprite_observe),
         )
@@ -782,7 +789,34 @@ fn build_router_with_cors(
         )
         .route(
             "/chat/attachment",
-            post(routes::chat::save_attachment).layer(DefaultBodyLimit::max(25 * 1024 * 1024)),
+            post(routes::chat::save_attachment).layer(DefaultBodyLimit::max(
+                ha_core::attachments::LEGACY_MAX_CHAT_ATTACHMENT_BYTES + 1024 * 1024,
+            )),
+        )
+        .route(
+            "/chat/attachment-stage",
+            post(routes::chat::stage_chat_attachment).layer(DefaultBodyLimit::max(
+                ha_core::attachments::LEGACY_MAX_CHAT_ATTACHMENT_BYTES + 1024 * 1024,
+            )),
+        )
+        .route(
+            "/chat/attachment-stage/{upload_id}",
+            delete(routes::chat::discard_chat_attachment_upload),
+        )
+        .route("/file-uploads", post(routes::file_upload::start))
+        .route(
+            "/file-uploads/{upload_id}",
+            get(routes::file_upload::status).delete(routes::file_upload::discard),
+        )
+        .route(
+            "/file-uploads/{upload_id}/chunk",
+            axum::routing::put(routes::file_upload::chunk).layer(DefaultBodyLimit::max(
+                ha_core::file_upload::FILE_UPLOAD_CHUNK_BYTES,
+            )),
+        )
+        .route(
+            "/file-uploads/{upload_id}/complete",
+            post(routes::file_upload::complete),
         )
         // Attachment download (serves session-scoped files under
         // ~/.hope-agent/attachments/{session_id}/) — the logical URL
@@ -791,6 +825,10 @@ fn build_router_with_cors(
             "/attachments/{session_id}/{filename}",
             get(routes::attachments::download),
         )
+        .route(
+            "/attachments/{session_id}/{filename}/extract",
+            get(routes::attachments::extract),
+        )
         // Avatar download + upload — serves and persists files under
         // `~/.hope-agent/avatars/{filename}`. Used by agent / user-profile
         // avatar UI in HTTP mode where Tauri's `convertFileSrc` /
@@ -798,7 +836,7 @@ fn build_router_with_cors(
         .route("/avatars/{filename}", get(routes::avatars::download))
         .route(
             "/avatars",
-            post(routes::avatars::upload).layer(DefaultBodyLimit::max(10 * 1024 * 1024)),
+            post(routes::avatars::upload).layer(DefaultBodyLimit::max(11 * 1024 * 1024)),
         )
         // Generated-image download — serves historic `~/.hope-agent/image_generate/*.png`
         // referenced by legacy `mediaUrls` absolute-path rows. Used by
@@ -1542,7 +1580,9 @@ fn build_router_with_cors(
         .route("/config/ssrf", put(routes::config::save_ssrf_config))
         .route(
             "/config/filesystem",
-            get(routes::config::get_filesystem_config).put(routes::config::save_filesystem_config),
+            get(routes::config::get_filesystem_config)
+                .put(routes::config::save_filesystem_config)
+                .patch(routes::config::patch_filesystem_config),
         )
         .route(
             "/config/image-generate",
@@ -3223,24 +3263,33 @@ fn build_router_with_cors(
         )
         // Project file browser (workspace-scoped). Reads are always available;
         // writes are gated by `filesystem.allow_remote_writes` in the handlers.
+        .route("/fs/capabilities", get(routes::project_fs::fs_capabilities))
         .route("/fs/list", get(routes::project_fs::fs_list))
         .route("/fs/read", get(routes::project_fs::fs_read))
         .route("/fs/extract", get(routes::project_fs::fs_extract))
         .route("/fs/search", get(routes::project_fs::fs_search))
         .route("/fs/raw", get(routes::project_fs::fs_raw))
         .route("/fs/git", get(routes::project_fs::fs_git_info))
-        // Raise the body cap above axum's 2MB default so saving a file as large
-        // as the read-preview ceiling (5MB) isn't rejected before the handler.
+        // Static envelope for the largest configurable UTF-8 edit payload;
+        // the handler still applies the current dynamic MiB limit.
         .route(
             "/fs/file",
-            put(routes::project_fs::fs_write).layer(DefaultBodyLimit::max(8 * 1024 * 1024)),
+            put(routes::project_fs::fs_write).layer(DefaultBodyLimit::max(
+                (ha_core::config::MAX_MAX_TEXT_EDIT_MB as usize * 6 + 1) * 1024 * 1024,
+            )),
         )
         .route("/fs/entry", delete(routes::project_fs::fs_delete))
         .route("/fs/rename", post(routes::project_fs::fs_rename))
         .route("/fs/mkdir", post(routes::project_fs::fs_mkdir))
         .route(
             "/fs/upload",
-            post(routes::project_fs::fs_upload).layer(DefaultBodyLimit::max(25 * 1024 * 1024)),
+            post(routes::project_fs::fs_upload).layer(DefaultBodyLimit::max(
+                ha_core::filesystem::LEGACY_MAX_WORKSPACE_UPLOAD_BYTES as usize + 1024 * 1024,
+            )),
+        )
+        .route(
+            "/fs/upload-claim",
+            post(routes::project_fs::fs_claim_upload),
         )
         // Dev tools
         .route("/dev/clear-sessions", post(routes::dev::clear_sessions))

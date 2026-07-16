@@ -222,6 +222,7 @@ fn reference_attachments(refs: &[(&str, &str)]) -> Vec<crate::agent::Attachment>
             source: None,
             data: Some(b64.to_string()),
             file_path: None,
+            upload_id: None,
             quote_lines: None,
             quote_role: None,
         })

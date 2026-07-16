@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **文件与附件能力统一覆盖本地桌面、远程桌面和 Web**：文件树、消息附件、输入框草稿、工具媒体、Workspace 产物与 Artifact 统一使用同一套文件类型、预览、打开、下载、编辑和右键动作能力；本地桌面操作当前电脑，远程桌面与 Web 操作 Server 文件系统，未发送附件始终留在客户端并可离线预览或编辑副本。Workspace 文本编辑新增显式保存、外部变更提示、BOM/行尾保留、hash 冲突保护和只读/远程写引导，避免静默覆盖其他客户端或 Agent 的更新。
+- **文件大小限制可配置并统一使用分块上传租约**：设置新增聊天附件、Workspace 上传、文本预览/编辑、文档预览、Artifact 导入及知识来源限制，旧配置自动采用安全默认值；用户聊天附件与 Agent `send_attachment` 共用同一限制。聊天、Workspace、知识来源与 Artifact 的客户端文件改为 4 MiB 分块、可续传的临时租约，支持并发上限、失败回收、过期清理、purpose 隔离和完成时 BLAKE3 校验，Web、远程桌面与本地桌面不再一次性缓冲完整文件。
 - **数据大盘新增“目标与执行”统一推进页**：在综合概览后集中展示 Goal 达成与必要标准、Workflow 完成/失败/审批、Loop 强推进与无进展守卫、Task/Plan cohort 进度、P50 耗时和当前需处理项；支持时间、Agent、含归档/未分配在内的项目筛选，风险项可跳回会话并定位具体控制面。Task 与 Plan 从本版本开始记录精确完成时间并显示历史覆盖率；原“任务统计”更名为“自动化”，旧接口和独立 Plan 历史页继续保留。 (#474)
 
 - **设计空间：关联代码仓库 + 一键「实现到代码」**：设计项目现在可以关联一个真实代码仓库（直接选本机目录，或指向某个 Hope Agent 项目、自动跟随其工作目录）——关联后「从代码库提取品牌」自动指向该仓库、设计对话里的 AI 能直接查看仓库代码，产物菜单新增「实现到代码…」：一键把设计稿（源码 + 设计变量对照 + 画布批注）连同实现要求交给主对话，在你的仓库里用现有技术栈落成真实组件代码，每一步文件改动都走正常审批与 Diff 面板。
@@ -34,6 +36,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Artifacts 跟随统一文件资源与上传契约**：Gallery、右侧预览面板和 Canvas 入口现在共用标准文件动作层，受管 HTML 在无公网依赖的沙箱中直接预览，并保留打开与下载操作；浏览器/远程客户端导入 Artifact 改走 `artifact_source` 分块租约，服务端在导入期间持久化独占 claim，成功后消费、失败后释放，避免同一上传被并发重放。Artifact 导入上限纳入文件设置，Tauri 与 HTTP 使用一致的能力、错误码和安全检查。
 - **Canvas 升级为 Artifacts 的离线预览兼容层**：Canvas renderer 移除 marked、highlight、Mermaid、Chart.js 和动态 html2canvas CDN；Markdown 在 Rust 中渲染，Mermaid/Chart 提供语义 fallback，所有模板使用离线 CSP 和原子写。Gallery 与右侧 Canvas 共用 `ArtifactViewer`，受管 Artifact 只能通过带 `expected_version` 的新控制面更新，避免旧 Canvas mutation 绕过 hash、证据和并发保护。
 - **数据分析阅读器升级为决策导向的丰富报告**：结构化 Analysis Artifact 不再退化为普通 Markdown，而是确定性生成结论摘要、关键发现卡片、静态 bar/SVG line 图、建议与限制、精选数据表、指标口径、质量/claim 校验和来源审计；支持窄屏、深色、打印与无脚本阅读，数值单位只按显式语义格式化，宽表只在局部横向滚动。
 - **全局焦点反馈与表单控件视觉统一**：鼠标或触摸操作不再出现突兀的深色焦点框，键盘导航保留轻量系统蓝提示，并新增可手动开启的增强焦点模式（也可通过对话式设置读取和修改）；系统高对比度与强制色模式会自动优先。搜索框、普通 / 模型选择器和数字输入同步改为更扁平克制的统一表面，菜单、悬浮弹层与 Tooltip 共用同一套视觉、动效和无障碍规范。

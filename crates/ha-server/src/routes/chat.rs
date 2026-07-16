@@ -1,7 +1,7 @@
 use axum::extract::{Multipart, Path, State};
 use axum::Json;
 
-use super::helpers::parse_file_upload;
+use super::helpers::parse_file_upload_to_temp;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -330,20 +330,80 @@ fn validate_http_chat_attachments(
     session_id: &str,
     attachments: &[Attachment],
 ) -> Result<(), AppError> {
+    if attachments.len() > ha_core::attachments::MAX_CHAT_ATTACHMENTS {
+        return Err(AppError::bad_request(format!(
+            "a message can contain at most {} attachments",
+            ha_core::attachments::MAX_CHAT_ATTACHMENTS
+        )));
+    }
     for att in attachments {
+        if att.upload_id.is_some() {
+            if att.data.is_some() || att.file_path.is_some() {
+                return Err(AppError::bad_request(
+                    "uploadId is mutually exclusive with data and filePath",
+                ));
+            }
+            if !matches!(
+                att.source.as_deref(),
+                Some("upload") | Some(ha_core::attachments::PASTED_TEXT_SOURCE)
+            ) {
+                return Err(AppError::bad_request(
+                    "uploadId is only valid for uploaded attachments",
+                ));
+            }
+            continue;
+        }
         // "quote" attachments carry the snippet in `data`; their `file_path` is
         // only a reference label (never read from disk), so it's safe.
         match (att.source.as_deref(), att.file_path.as_deref()) {
             (_, None) => {}
-            (Some("upload") | Some("quote"), Some(_)) => {}
-            (Some(source), Some(_)) if source == ha_core::attachments::PASTED_TEXT_SOURCE => {}
+            (Some("quote"), Some(_)) => {}
+            (Some("upload"), Some(path)) => {
+                validate_http_uploaded_attachment_path(session_id, path)?
+            }
+            (Some(source), Some(path)) if source == ha_core::attachments::PASTED_TEXT_SOURCE => {
+                validate_http_uploaded_attachment_path(session_id, path)?
+            }
             (Some("mention"), Some(path)) => validate_http_mention_attachment(session_id, path)?,
             _ => {
                 return Err(AppError::bad_request(
-                    "HTTP chat attachments must be uploaded through /api/chat/attachment",
+                    "HTTP chat attachments must be staged through /api/chat/attachment-stage",
                 ));
             }
         }
+    }
+    Ok(())
+}
+
+fn validate_http_uploaded_attachment_path(session_id: &str, path: &str) -> Result<(), AppError> {
+    let requested = std::path::Path::new(path);
+    if !requested.is_absolute() {
+        return Err(AppError::forbidden("invalid uploaded attachment path"));
+    }
+    let canonical = requested
+        .canonicalize()
+        .map_err(|_| AppError::forbidden("invalid uploaded attachment path"))?;
+    let root = ha_core::paths::root_dir()
+        .map_err(|error| AppError::internal(error.to_string()))?
+        .join("attachments");
+    let temp = root.join(ha_core::attachments::TEMP_SESSION_ID);
+    let session = root.join(session_id);
+    let allowed = [temp, session].into_iter().any(|dir| {
+        dir.canonicalize()
+            .map(|canonical_dir| canonical.starts_with(canonical_dir))
+            .unwrap_or(false)
+    });
+    if !allowed {
+        return Err(AppError::forbidden("invalid uploaded attachment path"));
+    }
+    let size = std::fs::metadata(&canonical)
+        .map_err(|_| AppError::forbidden("invalid uploaded attachment path"))?
+        .len();
+    if size > ha_core::attachments::max_chat_attachment_bytes() as u64 {
+        return Err(AppError::bad_request(format!(
+            "attachment exceeds the configured {} MB limit",
+            ha_core::attachments::max_chat_attachment_mb()
+        )));
     }
     Ok(())
 }
@@ -1663,17 +1723,59 @@ pub async fn list_pending_approvals() -> Result<Json<Vec<tools::ApprovalRequest>
 ///
 /// Multipart fields: `file` (required), `sessionId` / `fileName` / `mimeType` (optional text).
 pub async fn save_attachment(multipart: Multipart) -> Result<Json<Value>, AppError> {
-    let upload = parse_file_upload(multipart).await?;
-    let session_id = upload.extra_fields.get("sessionId").map(|s| s.as_str());
-
-    let path = ha_core::attachments::save_attachment_bytes(
-        session_id,
-        &upload.file_name,
-        &upload.file_data,
+    let upload = parse_file_upload_to_temp(
+        multipart,
+        ha_core::attachments::legacy_chat_attachment_bytes(),
     )
-    .map_err(|e| AppError::internal(e.to_string()))?;
+    .await?;
+    let session_id = upload.extra_fields.get("sessionId").cloned();
+    let file_name = upload.file_name;
+    let file_path = upload.file_path;
+    let path = ha_core::blocking::run_blocking(move || {
+        ha_core::attachments::save_attachment_file(
+            session_id.as_deref(),
+            &file_name,
+            file_path.as_ref(),
+        )
+    })
+    .await
+    .map_err(|e| AppError::bad_request(e.to_string()))?;
 
     Ok(Json(json!({ "path": path })))
+}
+
+/// `POST /api/chat/attachment-stage` — create an opaque one-hour upload lease.
+pub async fn stage_chat_attachment(
+    multipart: Multipart,
+) -> Result<Json<ha_core::attachments::AttachmentUploadLease>, AppError> {
+    let upload = parse_file_upload_to_temp(
+        multipart,
+        ha_core::attachments::legacy_chat_attachment_bytes(),
+    )
+    .await?;
+    let file_name = upload.file_name;
+    let mime_type = upload
+        .mime_type
+        .unwrap_or_else(|| "application/octet-stream".to_string());
+    let file_path = upload.file_path;
+    let lease = ha_core::blocking::run_blocking(move || {
+        ha_core::attachments::stage_chat_attachment_file(&file_name, &mime_type, file_path.as_ref())
+    })
+    .await
+    .map_err(|error| AppError::bad_request(error.to_string()))?;
+    Ok(Json(lease))
+}
+
+/// `DELETE /api/chat/attachment-stage/{upload_id}` — release an unclaimed lease.
+pub async fn discard_chat_attachment_upload(
+    Path(upload_id): Path<String>,
+) -> Result<Json<Value>, AppError> {
+    ha_core::blocking::run_blocking(move || {
+        ha_core::attachments::discard_chat_attachment_upload(&upload_id)
+    })
+    .await
+    .map_err(|error| AppError::bad_request(error.to_string()))?;
+    Ok(Json(json!({ "ok": true })))
 }
 
 /// `POST /api/system-prompt` — body-based alias of `get_system_prompt`.
@@ -1733,6 +1835,7 @@ mod tests {
             source: Some("mention".to_string()),
             data: None,
             file_path: Some("/tmp/secret.txt".to_string()),
+            upload_id: None,
             quote_lines: None,
             quote_role: None,
         }];
@@ -1741,13 +1844,46 @@ mod tests {
     }
 
     #[test]
-    fn http_chat_allows_uploaded_file_path_attachments() {
+    fn http_chat_rejects_forged_uploaded_file_path_attachments() {
         let attachments = vec![Attachment {
             name: "upload.txt".to_string(),
             mime_type: "text/plain".to_string(),
             source: Some("upload".to_string()),
             data: None,
             file_path: Some("/tmp/upload.txt".to_string()),
+            upload_id: None,
+            quote_lines: None,
+            quote_role: None,
+        }];
+
+        assert!(validate_http_chat_attachments("missing-session", &attachments).is_err());
+    }
+
+    #[test]
+    fn http_chat_rejects_forged_pasted_text_file_path_attachments() {
+        let attachments = vec![Attachment {
+            name: "pasted-text.txt".to_string(),
+            mime_type: "text/plain".to_string(),
+            source: Some(ha_core::attachments::PASTED_TEXT_SOURCE.to_string()),
+            data: None,
+            file_path: Some("/tmp/pasted-text.txt".to_string()),
+            upload_id: None,
+            quote_lines: None,
+            quote_role: None,
+        }];
+
+        assert!(validate_http_chat_attachments("missing-session", &attachments).is_err());
+    }
+
+    #[test]
+    fn http_chat_accepts_opaque_upload_lease() {
+        let attachments = vec![Attachment {
+            name: "upload.txt".to_string(),
+            mime_type: "text/plain".to_string(),
+            source: Some("upload".to_string()),
+            data: None,
+            file_path: None,
+            upload_id: Some(uuid::Uuid::new_v4().to_string()),
             quote_lines: None,
             quote_role: None,
         }];
@@ -1756,18 +1892,19 @@ mod tests {
     }
 
     #[test]
-    fn http_chat_allows_pasted_text_file_path_attachments() {
+    fn http_chat_rejects_mixed_upload_lease_and_path() {
         let attachments = vec![Attachment {
-            name: "pasted-text.txt".to_string(),
+            name: "upload.txt".to_string(),
             mime_type: "text/plain".to_string(),
-            source: Some(ha_core::attachments::PASTED_TEXT_SOURCE.to_string()),
+            source: Some("upload".to_string()),
             data: None,
-            file_path: Some("/tmp/pasted-text.txt".to_string()),
+            file_path: Some("/tmp/upload.txt".to_string()),
+            upload_id: Some(uuid::Uuid::new_v4().to_string()),
             quote_lines: None,
             quote_role: None,
         }];
 
-        assert!(validate_http_chat_attachments("missing-session", &attachments).is_ok());
+        assert!(validate_http_chat_attachments("missing-session", &attachments).is_err());
     }
 
     #[test]

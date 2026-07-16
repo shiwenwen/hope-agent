@@ -4,7 +4,11 @@ import { Globe, Laptop, Loader2, Wifi } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { getTransport, switchToRemote } from "@/lib/transport-provider"
+import {
+  confirmTransportChange,
+  getTransport,
+  switchToRemote,
+} from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 
 interface ModeStepProps {
@@ -80,6 +84,7 @@ export function ModeStep({
         setResult(probed)
         return
       }
+      if (!confirmTransportChange()) return
       const finalKey = remoteApiKey.trim() || null
       const full = await getTransport().call<Record<string, unknown>>("get_user_config")
       await getTransport().call("save_user_config", {
@@ -90,7 +95,7 @@ export function ModeStep({
           remoteApiKey: finalKey,
         },
       })
-      switchToRemote(trimmedUrl, finalKey)
+      switchToRemote(trimmedUrl, finalKey, { dirtyConfirmed: true })
       onRemoteConnected()
     } catch (e) {
       logger.error("onboarding", "ModeStep::connect", "remote connect failed", e)

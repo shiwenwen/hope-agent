@@ -8,6 +8,8 @@ import { OfficeLoading } from "./OfficeLoading"
 import { OfficeTextFallback } from "./OfficeTextFallback"
 import { PptxView } from "./PptxView"
 import { XlsxView } from "./XlsxView"
+import { MEBIBYTE_BYTES, useFilesystemConfig } from "@/lib/filesystemConfig"
+import { readResponseArrayBufferWithLimit } from "../readResponseWithLimit"
 
 /** Above this, skip rich rendering (parse/DOM cost) and fall back to text. */
 const MAX_RICH_BYTES = 30 * 1024 * 1024
@@ -24,9 +26,22 @@ const MAX_RICH_BYTES = 30 * 1024 * 1024
  * Mount with a `key` tied to the file (the caller does) so a new file resets
  * state via remount — the effect only fetches, it never resets synchronously.
  */
-export function OfficeRichPreview({ source }: { source: PreviewSource }) {
+export function OfficeRichPreview({
+  source,
+  onOpen,
+  onDownload,
+}: {
+  source: PreviewSource
+  onOpen?: () => void
+  onDownload?: () => void
+}) {
+  const { config: filesystemConfig } = useFilesystemConfig()
   const format = officeFormatOf(source.name, source.mime)
-  const tooBig = source.sizeBytes != null && source.sizeBytes > MAX_RICH_BYTES
+  const effectiveLimit = Math.min(
+    MAX_RICH_BYTES,
+    filesystemConfig.maxDocumentPreviewMb * MEBIBYTE_BYTES,
+  )
+  const tooBig = source.sizeBytes != null && source.sizeBytes > effectiveLimit
   const eligible = format !== null && !tooBig
 
   const [data, setData] = useState<ArrayBuffer | null>(null)
@@ -46,18 +61,18 @@ export function OfficeRichPreview({ source }: { source: PreviewSource }) {
         setFailed(false)
         setData(null)
         if (!url) {
-          logger.warn("ui", "OfficeRichPreview::fetch", "no preview URL for source — falling back to text")
+          logger.warn(
+            "ui",
+            "OfficeRichPreview::fetch",
+            "no preview URL for source — falling back to text",
+          )
           setFailed(true)
           return
         }
         const res = await fetch(url)
         if (!res.ok) throw new Error(`fetch failed: ${res.status}`)
-        const buf = await res.arrayBuffer()
+        const buf = await readResponseArrayBufferWithLimit(res, effectiveLimit)
         if (cancelled) return
-        if (buf.byteLength > MAX_RICH_BYTES) {
-          setFailed(true)
-          return
-        }
         setData(buf)
       } catch (e) {
         if (!cancelled) {
@@ -73,11 +88,13 @@ export function OfficeRichPreview({ source }: { source: PreviewSource }) {
     return () => {
       cancelled = true
     }
-  }, [source, eligible])
+  }, [source, eligible, effectiveLimit])
 
   const onError = useCallback(() => setFailed(true), [])
 
-  if (!eligible || failed) return <OfficeTextFallback source={source} />
+  if (!eligible || failed) {
+    return <OfficeTextFallback source={source} onOpen={onOpen} onDownload={onDownload} />
+  }
   if (!data) return <OfficeLoading />
   if (format === "docx") return <DocxView data={data} onError={onError} />
   if (format === "xlsx") return <XlsxView data={data} onError={onError} />

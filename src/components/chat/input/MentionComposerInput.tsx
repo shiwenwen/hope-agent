@@ -27,7 +27,7 @@ import { useTranslation } from "react-i18next"
 
 import { AgentAvatarBadge } from "@/components/common/AgentSelectDisplay"
 import { FileTypeIcon } from "@/components/icons/FileTypeIcon"
-import { useFileActions } from "@/components/chat/files/useFileActions"
+import { useFileResource } from "@/components/chat/files/useFileResource"
 import type { PreviewTarget } from "@/components/chat/files/useFilePreview"
 import { basename } from "@/lib/path"
 import { cn } from "@/lib/utils"
@@ -597,7 +597,7 @@ const MentionComposerInput = forwardRef<ComposerInputHandle, MentionComposerInpu
       agentById,
     }
 
-    const { primary: pendingFilePrimary, run: runPendingFileAction } = useFileActions(
+    const { primary: pendingFilePrimary, run: runPendingFileAction } = useFileResource(
       pendingFileAction?.target ?? null,
     )
 
@@ -775,7 +775,11 @@ const MentionComposerInput = forwardRef<ComposerInputHandle, MentionComposerInpu
         const name = basename(normalizedRel || relPath)
         setPendingFileAction({
           id: ++nextFileActionIdRef.current,
-          target: { kind: "path", path: joinAbs(workingDir, normalizedRel || relPath), name },
+          target: {
+            kind: "sessionPath",
+            path: joinAbs(workingDir, normalizedRel || relPath),
+            name,
+          },
         })
       },
       [fileChipFromEvent, onSelectionChange, workingDir],

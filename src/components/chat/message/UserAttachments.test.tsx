@@ -31,15 +31,18 @@ vi.mock("@/lib/logger", () => ({
 
 const transportMock = vi.hoisted(() => ({
   supportsLocalFileOps: vi.fn(() => true),
+  fileRuntime: vi.fn(() => ({ workspaceHost: "local", openMode: "system", canReveal: true })),
   resolveMediaUrl: vi.fn(() => null),
   openMedia: vi.fn(),
   downloadMedia: vi.fn(),
   revealMedia: vi.fn(),
+  listen: vi.fn(() => () => {}),
   call: vi.fn(),
 }))
 
 vi.mock("@/lib/transport-provider", () => ({
   getTransport: () => transportMock,
+  useTransport: () => transportMock,
 }))
 
 afterEach(() => {

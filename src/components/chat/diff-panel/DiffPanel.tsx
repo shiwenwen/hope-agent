@@ -178,8 +178,7 @@ export function DiffPanel({
   const stackedDiffResetKey = `${openNonce}:stacked-diff:${changesKey}:${layout}:${ignoreWhitespace}:${collapseContext}`
   const expandedFoldIds =
     expandedFoldState.key === resetKey ? expandedFoldState.ids : EMPTY_FOLD_IDS
-  const renderAllRows =
-    renderAllRowsState.key === resetKey ? renderAllRowsState.value : false
+  const renderAllRows = renderAllRowsState.key === resetKey ? renderAllRowsState.value : false
   const activeHunkIndex = activeHunkState.key === resetKey ? activeHunkState.value : 0
   const collapsedFileIds =
     collapsedFileState.key === stackedFileResetKey ? collapsedFileState.ids : EMPTY_FOLD_IDS
@@ -329,9 +328,7 @@ export function DiffPanel({
         const message = error instanceof Error ? error.message : String(error)
         if (message.includes("stale_snapshot")) {
           await refreshGitScope(gitContext.scope)
-          toast.info(
-            t("diffPanel.git.stale", "仓库已发生变化，已刷新，请重新确认。"),
-          )
+          toast.info(t("diffPanel.git.stale", "仓库已发生变化，已刷新，请重新确认。"))
         } else {
           toast.error(message)
         }
@@ -347,7 +344,10 @@ export function DiffPanel({
       if (!gitContext || gitContext.scope === "all") return null
       const sizeClass = compact ? "h-6 px-1.5 text-[10px]" : "h-7 px-2 text-[11px]"
       return (
-        <span className="inline-flex shrink-0 items-center gap-1" onClick={(event) => event.stopPropagation()}>
+        <span
+          className="inline-flex shrink-0 items-center gap-1"
+          onClick={(event) => event.stopPropagation()}
+        >
           {gitContext.scope === "unstaged" ? (
             <>
               <button
@@ -361,7 +361,11 @@ export function DiffPanel({
               </button>
               <button
                 type="button"
-                className={cn(gitActionButtonClass, sizeClass, "text-destructive hover:text-destructive")}
+                className={cn(
+                  gitActionButtonClass,
+                  sizeClass,
+                  "text-destructive hover:text-destructive",
+                )}
                 disabled={Boolean(gitBusy)}
                 onClick={() => void runGitMutation("discard", target)}
               >
@@ -399,10 +403,7 @@ export function DiffPanel({
     const containerRect = container.getBoundingClientRect()
     const rowRect = element.getBoundingClientRect()
     const targetTop =
-      container.scrollTop +
-      rowRect.top -
-      containerRect.top -
-      FIRST_DIFF_SCROLL_PADDING_PX
+      container.scrollTop + rowRect.top - containerRect.top - FIRST_DIFF_SCROLL_PADDING_PX
     container.scrollTo({ top: Math.max(0, targetTop) })
   }, [])
 
@@ -502,25 +503,32 @@ export function DiffPanel({
     updateActiveHunkFromScroll(container, setActiveHunkIndex)
   }, [change, scrollKey, setActiveHunkIndex, stackedMode])
 
-  const toggleFold = useCallback((id: string) => {
+  const toggleFold = useCallback(
+    (id: string) => {
     setExpandedFoldState((prev) => {
       const next = new Set(prev.key === resetKey ? prev.ids : EMPTY_FOLD_IDS)
       if (next.has(id)) next.delete(id)
       else next.add(id)
       return { key: resetKey, ids: next }
     })
-  }, [resetKey])
+    },
+    [resetKey],
+  )
 
-  const toggleStackedFile = useCallback((id: string) => {
+  const toggleStackedFile = useCallback(
+    (id: string) => {
     setCollapsedFileState((prev) => {
       const next = new Set(prev.key === stackedFileResetKey ? prev.ids : EMPTY_FOLD_IDS)
       if (next.has(id)) next.delete(id)
       else next.add(id)
       return { key: stackedFileResetKey, ids: next }
     })
-  }, [stackedFileResetKey])
+    },
+    [stackedFileResetKey],
+  )
 
-  const toggleStackedFold = useCallback((fileKey: string, foldId: string) => {
+  const toggleStackedFold = useCallback(
+    (fileKey: string, foldId: string) => {
     const id = `${fileKey}\u001f${foldId}`
     setStackedExpandedFoldState((prev) => {
       const next = new Set(prev.key === stackedDiffResetKey ? prev.ids : EMPTY_FOLD_IDS)
@@ -528,15 +536,20 @@ export function DiffPanel({
       else next.add(id)
       return { key: stackedDiffResetKey, ids: next }
     })
-  }, [stackedDiffResetKey])
+    },
+    [stackedDiffResetKey],
+  )
 
-  const setStackedRenderAll = useCallback((fileKey: string) => {
+  const setStackedRenderAll = useCallback(
+    (fileKey: string) => {
     setStackedRenderAllState((prev) => {
       const next = new Set(prev.key === stackedDiffResetKey ? prev.ids : EMPTY_FOLD_IDS)
       next.add(fileKey)
       return { key: stackedDiffResetKey, ids: next }
     })
-  }, [stackedDiffResetKey])
+    },
+    [stackedDiffResetKey],
+  )
 
   const copyLocationForChange = useCallback(
     (target: FileChangeMetadata, line: number) => {
@@ -556,7 +569,7 @@ export function DiffPanel({
         return
       }
       onPreviewFile({
-        kind: "path",
+        kind: "sessionPath",
         path: target.path,
         name: basename(target.path),
         language: target.language,
@@ -798,10 +811,13 @@ export function DiffPanel({
                 key={comment.threadId || comment.commentId}
                 className="rounded-lg border border-border/60 bg-background/75 p-2.5"
               >
-                <div className="whitespace-pre-wrap break-words text-xs leading-5">{comment.body}</div>
+                <div className="whitespace-pre-wrap break-words text-xs leading-5">
+                  {comment.body}
+                </div>
                 <div className="mt-1.5 flex items-center gap-2 text-[11px] text-muted-foreground">
                   <span className="min-w-0 flex-1 truncate font-mono">
-                    {comment.path}{comment.line ? `:${comment.line}` : ""}
+                    {comment.path}
+                    {comment.line ? `:${comment.line}` : ""}
                   </span>
                   <span className="shrink-0">{comment.author}</span>
                   {comment.url ? (
@@ -864,7 +880,10 @@ export function DiffPanel({
                         )}
                       />
                       <ActionBadge action={c.action} />
-                      <span className="min-w-0 flex-1 truncate font-mono text-xs text-foreground/90" data-ha-title-tip={c.path}>
+                      <span
+                        className="min-w-0 flex-1 truncate font-mono text-xs text-foreground/90"
+                        data-ha-title-tip={c.path}
+                      >
                         {c.path}
                       </span>
                       <FileDeltaCounter
@@ -877,10 +896,7 @@ export function DiffPanel({
                       <div>
                         {gitContext && gitContext.scope !== "all" ? (
                           <div className="flex justify-end border-b border-border/40 bg-muted/15 px-2 py-1">
-                            {renderGitMutationButtons(
-                              { kind: "file", path: c.path },
-                              true,
-                            )}
+                            {renderGitMutationButtons({ kind: "file", path: c.path }, true)}
                           </div>
                         ) : null}
                         {c.truncated && (
@@ -936,12 +952,16 @@ export function DiffPanel({
                       <Copy className="h-3.5 w-3.5" />
                     </button>
                   </IconTip>
-                  {activeHunkLocation.side === "new" && change.action !== "delete" && onPreviewFile ? (
+                  {activeHunkLocation.side === "new" &&
+                  change.action !== "delete" &&
+                  onPreviewFile ? (
                     <IconTip label={t("diffPanel.openLocation", "预览到当前行")}>
                       <button
                         type="button"
                         className={iconButtonClass}
-                        onClick={() => openLocation(activeHunkLocation.line, activeHunkLocation.side)}
+                        onClick={() =>
+                          openLocation(activeHunkLocation.line, activeHunkLocation.side)
+                        }
                       >
                         <ExternalLink className="h-3.5 w-3.5" />
                       </button>
@@ -1059,8 +1079,7 @@ function ActionBadge({ action }: { action: FileChangeMetadata["action"] }) {
         "inline-flex shrink-0 items-center rounded border px-1.5 py-0.5 text-[10px] leading-none",
         action === "create" &&
           "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
-        action === "delete" &&
-          "border-rose-500/30 bg-rose-500/10 text-rose-700 dark:text-rose-300",
+        action === "delete" && "border-rose-500/30 bg-rose-500/10 text-rose-700 dark:text-rose-300",
         action === "edit" && "border-blue-500/30 bg-blue-500/10 text-blue-700 dark:text-blue-300",
       )}
     >

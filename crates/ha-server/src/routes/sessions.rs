@@ -1632,6 +1632,7 @@ mod tests {
                 source: Some("upload".to_string()),
                 data: None,
                 file_path: Some(saved),
+                upload_id: None,
                 quote_lines: None,
                 quote_role: None,
             }];

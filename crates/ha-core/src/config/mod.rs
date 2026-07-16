@@ -982,8 +982,51 @@ pub struct OnboardingState {
     pub ever_completed: bool,
 }
 
+pub const DEFAULT_MAX_CHAT_ATTACHMENT_MB: u32 = 20;
+pub const MIN_MAX_CHAT_ATTACHMENT_MB: u32 = 1;
+pub const MAX_MAX_CHAT_ATTACHMENT_MB: u32 = 512;
+pub const DEFAULT_MAX_WORKSPACE_UPLOAD_MB: u32 = 20;
+pub const MIN_MAX_WORKSPACE_UPLOAD_MB: u32 = 1;
+pub const MAX_MAX_WORKSPACE_UPLOAD_MB: u32 = 512;
+pub const DEFAULT_MAX_TEXT_PREVIEW_MB: u32 = 5;
+pub const MIN_MAX_TEXT_PREVIEW_MB: u32 = 1;
+pub const MAX_MAX_TEXT_PREVIEW_MB: u32 = 50;
+pub const DEFAULT_MAX_TEXT_EDIT_MB: u32 = 5;
+pub const MIN_MAX_TEXT_EDIT_MB: u32 = 1;
+pub const MAX_MAX_TEXT_EDIT_MB: u32 = 20;
+pub const DEFAULT_MAX_DOCUMENT_PREVIEW_MB: u32 = 50;
+pub const MIN_MAX_DOCUMENT_PREVIEW_MB: u32 = 5;
+pub const MAX_MAX_DOCUMENT_PREVIEW_MB: u32 = 100;
+pub const DEFAULT_MAX_ARTIFACT_IMPORT_MB: u32 = 25;
+pub const MIN_MAX_ARTIFACT_IMPORT_MB: u32 = 1;
+pub const MAX_MAX_ARTIFACT_IMPORT_MB: u32 = 100;
+
+fn default_max_chat_attachment_mb() -> u32 {
+    DEFAULT_MAX_CHAT_ATTACHMENT_MB
+}
+
+fn default_max_workspace_upload_mb() -> u32 {
+    DEFAULT_MAX_WORKSPACE_UPLOAD_MB
+}
+
+fn default_max_text_preview_mb() -> u32 {
+    DEFAULT_MAX_TEXT_PREVIEW_MB
+}
+
+fn default_max_text_edit_mb() -> u32 {
+    DEFAULT_MAX_TEXT_EDIT_MB
+}
+
+fn default_max_document_preview_mb() -> u32 {
+    DEFAULT_MAX_DOCUMENT_PREVIEW_MB
+}
+
+fn default_max_artifact_import_mb() -> u32 {
+    DEFAULT_MAX_ARTIFACT_IMPORT_MB
+}
+
 /// Filesystem / file-browser policy.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FilesystemConfig {
     /// Allow file-browser **write** operations (create / delete / rename /
@@ -993,6 +1036,164 @@ pub struct FilesystemConfig {
     /// in the project working directory on the server host.
     #[serde(default)]
     pub allow_remote_writes: bool,
+    /// Maximum size of one file staged from the chat composer, in MiB.
+    /// The same backend-owned value applies to desktop IPC and HTTP clients.
+    #[serde(default = "default_max_chat_attachment_mb")]
+    pub max_chat_attachment_mb: u32,
+    /// Maximum size of one client file uploaded into a workspace, in MiB.
+    #[serde(default = "default_max_workspace_upload_mb")]
+    pub max_workspace_upload_mb: u32,
+    /// Maximum size of text content loaded for preview, in MiB.
+    #[serde(default = "default_max_text_preview_mb")]
+    pub max_text_preview_mb: u32,
+    /// Maximum size of editable text content, in MiB. Clamped to the preview limit.
+    #[serde(default = "default_max_text_edit_mb")]
+    pub max_text_edit_mb: u32,
+    /// Maximum size accepted by PDF/Office extraction previews, in MiB.
+    #[serde(default = "default_max_document_preview_mb")]
+    pub max_document_preview_mb: u32,
+    /// Maximum size of one HTML/Markdown/Analysis JSON source imported into Artifacts, in MiB.
+    #[serde(default = "default_max_artifact_import_mb")]
+    pub max_artifact_import_mb: u32,
+}
+
+/// Partial filesystem update used by UI panels that own disjoint risk domains.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FilesystemConfigPatch {
+    #[serde(default)]
+    pub allow_remote_writes: Option<bool>,
+    #[serde(default)]
+    pub max_chat_attachment_mb: Option<u32>,
+    #[serde(default)]
+    pub max_workspace_upload_mb: Option<u32>,
+    #[serde(default)]
+    pub max_text_preview_mb: Option<u32>,
+    #[serde(default)]
+    pub max_text_edit_mb: Option<u32>,
+    #[serde(default)]
+    pub max_document_preview_mb: Option<u32>,
+    #[serde(default)]
+    pub max_artifact_import_mb: Option<u32>,
+}
+
+impl Default for FilesystemConfig {
+    fn default() -> Self {
+        Self {
+            allow_remote_writes: false,
+            max_chat_attachment_mb: DEFAULT_MAX_CHAT_ATTACHMENT_MB,
+            max_workspace_upload_mb: DEFAULT_MAX_WORKSPACE_UPLOAD_MB,
+            max_text_preview_mb: DEFAULT_MAX_TEXT_PREVIEW_MB,
+            max_text_edit_mb: DEFAULT_MAX_TEXT_EDIT_MB,
+            max_document_preview_mb: DEFAULT_MAX_DOCUMENT_PREVIEW_MB,
+            max_artifact_import_mb: DEFAULT_MAX_ARTIFACT_IMPORT_MB,
+        }
+    }
+}
+
+impl FilesystemConfig {
+    pub fn apply_patch(&mut self, patch: FilesystemConfigPatch) {
+        if let Some(value) = patch.allow_remote_writes {
+            self.allow_remote_writes = value;
+        }
+        if let Some(value) = patch.max_chat_attachment_mb {
+            self.max_chat_attachment_mb = value;
+        }
+        if let Some(value) = patch.max_workspace_upload_mb {
+            self.max_workspace_upload_mb = value;
+        }
+        if let Some(value) = patch.max_text_preview_mb {
+            self.max_text_preview_mb = value;
+        }
+        if let Some(value) = patch.max_text_edit_mb {
+            self.max_text_edit_mb = value;
+        }
+        if let Some(value) = patch.max_document_preview_mb {
+            self.max_document_preview_mb = value;
+        }
+        if let Some(value) = patch.max_artifact_import_mb {
+            self.max_artifact_import_mb = value;
+        }
+        *self = self.clone().clamped();
+    }
+
+    pub fn clamped(mut self) -> Self {
+        self.max_chat_attachment_mb = self
+            .max_chat_attachment_mb
+            .clamp(MIN_MAX_CHAT_ATTACHMENT_MB, MAX_MAX_CHAT_ATTACHMENT_MB);
+        self.max_workspace_upload_mb = self
+            .max_workspace_upload_mb
+            .clamp(MIN_MAX_WORKSPACE_UPLOAD_MB, MAX_MAX_WORKSPACE_UPLOAD_MB);
+        self.max_text_preview_mb = self
+            .max_text_preview_mb
+            .clamp(MIN_MAX_TEXT_PREVIEW_MB, MAX_MAX_TEXT_PREVIEW_MB);
+        self.max_text_edit_mb = self
+            .max_text_edit_mb
+            .clamp(MIN_MAX_TEXT_EDIT_MB, MAX_MAX_TEXT_EDIT_MB)
+            .min(self.max_text_preview_mb);
+        self.max_document_preview_mb = self
+            .max_document_preview_mb
+            .clamp(MIN_MAX_DOCUMENT_PREVIEW_MB, MAX_MAX_DOCUMENT_PREVIEW_MB);
+        self.max_artifact_import_mb = self
+            .max_artifact_import_mb
+            .clamp(MIN_MAX_ARTIFACT_IMPORT_MB, MAX_MAX_ARTIFACT_IMPORT_MB);
+        self
+    }
+
+    pub fn max_chat_attachment_mb(&self) -> u32 {
+        self.max_chat_attachment_mb
+            .clamp(MIN_MAX_CHAT_ATTACHMENT_MB, MAX_MAX_CHAT_ATTACHMENT_MB)
+    }
+
+    pub fn max_chat_attachment_bytes(&self) -> usize {
+        self.max_chat_attachment_mb() as usize * 1024 * 1024
+    }
+
+    pub fn max_workspace_upload_mb(&self) -> u32 {
+        self.max_workspace_upload_mb
+            .clamp(MIN_MAX_WORKSPACE_UPLOAD_MB, MAX_MAX_WORKSPACE_UPLOAD_MB)
+    }
+
+    pub fn max_workspace_upload_bytes(&self) -> u64 {
+        self.max_workspace_upload_mb() as u64 * 1024 * 1024
+    }
+
+    pub fn max_text_preview_mb(&self) -> u32 {
+        self.max_text_preview_mb
+            .clamp(MIN_MAX_TEXT_PREVIEW_MB, MAX_MAX_TEXT_PREVIEW_MB)
+    }
+
+    pub fn max_text_preview_bytes(&self) -> u64 {
+        self.max_text_preview_mb() as u64 * 1024 * 1024
+    }
+
+    pub fn max_text_edit_mb(&self) -> u32 {
+        self.max_text_edit_mb
+            .clamp(MIN_MAX_TEXT_EDIT_MB, MAX_MAX_TEXT_EDIT_MB)
+            .min(self.max_text_preview_mb())
+    }
+
+    pub fn max_text_edit_bytes(&self) -> u64 {
+        self.max_text_edit_mb() as u64 * 1024 * 1024
+    }
+
+    pub fn max_document_preview_mb(&self) -> u32 {
+        self.max_document_preview_mb
+            .clamp(MIN_MAX_DOCUMENT_PREVIEW_MB, MAX_MAX_DOCUMENT_PREVIEW_MB)
+    }
+
+    pub fn max_document_preview_bytes(&self) -> u64 {
+        self.max_document_preview_mb() as u64 * 1024 * 1024
+    }
+
+    pub fn max_artifact_import_mb(&self) -> u32 {
+        self.max_artifact_import_mb
+            .clamp(MIN_MAX_ARTIFACT_IMPORT_MB, MAX_MAX_ARTIFACT_IMPORT_MB)
+    }
+
+    pub fn max_artifact_import_bytes(&self) -> u64 {
+        self.max_artifact_import_mb() as u64 * 1024 * 1024
+    }
 }
 
 // ── App Config ──────────────────────────────────────────────────
@@ -1085,6 +1286,9 @@ pub struct AppConfig {
     /// owner-plane settings only.
     #[serde(default)]
     pub knowledge_media_retention: crate::knowledge::KnowledgeMediaRetentionConfig,
+    /// Size limits for direct knowledge-source imports.
+    #[serde(default)]
+    pub knowledge_source_limits: crate::knowledge::KnowledgeSourceLimitsConfig,
     /// Deprecated legacy embedding config. Kept as a deserialization sink only;
     /// user-facing embedding config lives in `embedding_models` +
     /// `memory_embedding`.
@@ -1475,6 +1679,7 @@ impl Default for AppConfig {
             note_tools: crate::knowledge::NoteToolsConfig::default(),
             knowledge_passive_recall: crate::knowledge::PassiveRecallConfig::default(),
             knowledge_media_retention: crate::knowledge::KnowledgeMediaRetentionConfig::default(),
+            knowledge_source_limits: crate::knowledge::KnowledgeSourceLimitsConfig::default(),
             embedding: crate::memory::EmbeddingConfig::default(),
             memory_extract: crate::memory::MemoryExtractConfig::default(),
             memory: crate::memory::MemoryRuntimeConfig::default(),
@@ -1754,6 +1959,115 @@ mod quick_prompt_config_tests {
             QuickPromptError::TooLong {
                 max_chars: MAX_QUICK_PROMPT_CONTENT_CHARS
             }
+        );
+    }
+}
+
+#[cfg(test)]
+mod filesystem_config_defaults_tests {
+    use super::*;
+
+    #[test]
+    fn defaults_chat_attachment_limit_to_twenty_mib() {
+        let defaults = FilesystemConfig::default();
+        assert_eq!(
+            defaults.max_chat_attachment_mb,
+            DEFAULT_MAX_CHAT_ATTACHMENT_MB
+        );
+        assert_eq!(
+            defaults.max_workspace_upload_mb,
+            DEFAULT_MAX_WORKSPACE_UPLOAD_MB
+        );
+        assert_eq!(defaults.max_text_preview_mb, DEFAULT_MAX_TEXT_PREVIEW_MB);
+        assert_eq!(defaults.max_text_edit_mb, DEFAULT_MAX_TEXT_EDIT_MB);
+        assert_eq!(
+            defaults.max_document_preview_mb,
+            DEFAULT_MAX_DOCUMENT_PREVIEW_MB
+        );
+        assert_eq!(
+            defaults.max_artifact_import_mb,
+            DEFAULT_MAX_ARTIFACT_IMPORT_MB
+        );
+
+        let config: FilesystemConfig =
+            serde_json::from_value(serde_json::json!({ "allowRemoteWrites": true })).unwrap();
+        assert_eq!(
+            config.max_chat_attachment_mb,
+            DEFAULT_MAX_CHAT_ATTACHMENT_MB
+        );
+        assert_eq!(
+            config.max_workspace_upload_mb,
+            DEFAULT_MAX_WORKSPACE_UPLOAD_MB
+        );
+        assert_eq!(config.max_text_preview_mb, DEFAULT_MAX_TEXT_PREVIEW_MB);
+        assert_eq!(config.max_text_edit_mb, DEFAULT_MAX_TEXT_EDIT_MB);
+        assert_eq!(
+            config.max_document_preview_mb,
+            DEFAULT_MAX_DOCUMENT_PREVIEW_MB
+        );
+        assert_eq!(
+            config.max_artifact_import_mb,
+            DEFAULT_MAX_ARTIFACT_IMPORT_MB
+        );
+    }
+
+    #[test]
+    fn clamps_chat_attachment_limit_to_supported_range() {
+        let mut config = FilesystemConfig {
+            max_chat_attachment_mb: 0,
+            ..FilesystemConfig::default()
+        };
+        assert_eq!(
+            config.clone().clamped().max_chat_attachment_mb,
+            MIN_MAX_CHAT_ATTACHMENT_MB
+        );
+
+        config.max_chat_attachment_mb = MAX_MAX_CHAT_ATTACHMENT_MB + 1;
+        assert_eq!(
+            config.clamped().max_chat_attachment_mb,
+            MAX_MAX_CHAT_ATTACHMENT_MB
+        );
+    }
+
+    #[test]
+    fn clamps_all_file_limits_and_edit_never_exceeds_preview() {
+        let config = FilesystemConfig {
+            max_workspace_upload_mb: 999,
+            max_text_preview_mb: 2,
+            max_text_edit_mb: 20,
+            max_document_preview_mb: 1,
+            max_artifact_import_mb: 999,
+            ..FilesystemConfig::default()
+        }
+        .clamped();
+        assert_eq!(config.max_workspace_upload_mb, MAX_MAX_WORKSPACE_UPLOAD_MB);
+        assert_eq!(config.max_text_preview_mb, 2);
+        assert_eq!(config.max_text_edit_mb, 2);
+        assert_eq!(config.max_document_preview_mb, MIN_MAX_DOCUMENT_PREVIEW_MB);
+        assert_eq!(config.max_artifact_import_mb, MAX_MAX_ARTIFACT_IMPORT_MB);
+    }
+
+    #[test]
+    fn filesystem_patch_preserves_fields_owned_by_other_panels() {
+        let mut config = FilesystemConfig {
+            allow_remote_writes: true,
+            max_chat_attachment_mb: 64,
+            max_workspace_upload_mb: 32,
+            ..FilesystemConfig::default()
+        };
+        config.apply_patch(FilesystemConfigPatch {
+            max_text_preview_mb: Some(3),
+            max_text_edit_mb: Some(9),
+            ..FilesystemConfigPatch::default()
+        });
+        assert!(config.allow_remote_writes);
+        assert_eq!(config.max_chat_attachment_mb, 64);
+        assert_eq!(config.max_workspace_upload_mb, 32);
+        assert_eq!(config.max_text_preview_mb, 3);
+        assert_eq!(config.max_text_edit_mb, 3);
+        assert_eq!(
+            config.max_artifact_import_mb,
+            DEFAULT_MAX_ARTIFACT_IMPORT_MB
         );
     }
 }

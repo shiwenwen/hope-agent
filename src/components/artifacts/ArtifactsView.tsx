@@ -6,6 +6,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Download,
+  ExternalLink,
   FileCheck2,
   History,
   Loader2,
@@ -37,6 +38,9 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import ArtifactViewer from "./ArtifactViewer"
+import { useFileResource } from "@/components/chat/files/useFileResource"
+import type { FileTarget } from "@/components/chat/files/types"
+import { FileContextMenu } from "@/components/chat/files/FileActionMenu"
 
 interface ArtifactsViewProps {
   onBack: () => void
@@ -62,6 +66,51 @@ function Badge({ children, className = "" }: { children: ReactNode; className?: 
   )
 }
 
+function ArtifactListRow({
+  artifact,
+  selected,
+  onSelect,
+}: {
+  artifact: ArtifactRecord
+  selected: boolean
+  onSelect: () => void
+}) {
+  const { t } = useTranslation()
+  const target: Extract<FileTarget, { kind: "artifact" }> = {
+    kind: "artifact",
+    artifactId: artifact.id,
+    name: `${artifact.title}.html`,
+    projectPath: artifact.projectPath,
+  }
+  const resource = useFileResource(target, { onPreviewFile: onSelect })
+  return (
+    <FileContextMenu target={target} overrides={{ onPreviewFile: onSelect }}>
+      <button
+        className={`mb-1.5 w-full rounded-xl p-3 text-left transition-colors ${selected ? "bg-primary/10" : "hover:bg-muted/60"}`}
+        onClick={() => void resource.run(resource.primary)}
+      >
+        <div className="flex items-start justify-between gap-2">
+          <span className="line-clamp-2 text-sm font-medium">{artifact.title}</span>
+          <Badge className="shrink-0">v{artifact.currentVersion}</Badge>
+        </div>
+        <div className="mt-2 flex flex-wrap gap-1.5 text-[11px] text-muted-foreground">
+          <span>{artifact.kind.replaceAll("_", " ")}</span>
+          <span>·</span>
+          <span>{artifact.privacy.replaceAll("_", " ")}</span>
+          {artifact.capabilities?.executableContent === true && (
+            <>
+              <span>·</span>
+              <span>{t("artifacts.executable", "executable")}</span>
+            </>
+          )}
+          <span>·</span>
+          <span>{new Date(artifact.updatedAt).toLocaleDateString()}</span>
+        </div>
+      </button>
+    </FileContextMenu>
+  )
+}
+
 export default function ArtifactsView({ onBack }: ArtifactsViewProps) {
   const { t } = useTranslation()
   const [artifacts, setArtifacts] = useState<ArtifactRecord[]>([])
@@ -78,6 +127,19 @@ export default function ArtifactsView({ onBack }: ArtifactsViewProps) {
   const [exportFormat, setExportFormat] = useState<ArtifactExportFormat>("html")
   const [exportAudience, setExportAudience] = useState("")
   const [exportGuard, setExportGuard] = useState<DomainArtifactExportGuardReport | null>(null)
+  const selectedTarget = useMemo<Extract<FileTarget, { kind: "artifact" }> | null>(
+    () =>
+      selected
+        ? {
+            kind: "artifact",
+            artifactId: selected.id,
+            name: `${selected.title}.html`,
+            projectPath: selected.projectPath,
+          }
+        : null,
+    [selected],
+  )
+  const artifactResource = useFileResource(selectedTarget)
 
   const loadList = useCallback(async () => {
     setLoading(true)
@@ -158,26 +220,13 @@ export default function ArtifactsView({ onBack }: ArtifactsViewProps) {
   }
 
   const runExport = async () => {
-    if (!selected) return
+    if (!selectedTarget) return
     setBusy("export")
     try {
-      const result = await getTransport().exportArtifact(selected.id, exportFormat)
-      if (!result) return
-      if (result.receipt.status !== "ready") {
-        toast.error(result.receipt.error ?? t("artifacts.exportUnavailable", "Export unavailable"))
-        return
+      const outcome = await artifactResource.run("download", { artifactFormat: exportFormat })
+      if (outcome === "executed") {
+        toast.success(t("artifacts.exportReady", "Artifact exported"))
       }
-      if (result.blob) {
-        const url = URL.createObjectURL(result.blob)
-        const anchor = document.createElement("a")
-        anchor.href = url
-        anchor.download = result.filename
-        anchor.click()
-        URL.revokeObjectURL(url)
-      }
-      toast.success(t("artifacts.exportReady", "Artifact exported"))
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : String(error))
     } finally {
       setBusy(null)
     }
@@ -301,24 +350,12 @@ export default function ArtifactsView({ onBack }: ArtifactsViewProps) {
                 <p className="text-sm">{t("artifacts.empty", "No Artifacts found")}</p>
               </div>
             ) : filtered.map((artifact) => (
-              <button
+              <ArtifactListRow
                 key={artifact.id}
-                className={`mb-1.5 w-full rounded-xl p-3 text-left transition-colors ${selectedId === artifact.id ? "bg-primary/10" : "hover:bg-muted/60"}`}
-                onClick={() => setSelectedId(artifact.id)}
-              >
-                <div className="flex items-start justify-between gap-2">
-                  <span className="line-clamp-2 text-sm font-medium">{artifact.title}</span>
-                  <Badge className="shrink-0">v{artifact.currentVersion}</Badge>
-                </div>
-                <div className="mt-2 flex flex-wrap gap-1.5 text-[11px] text-muted-foreground">
-                  <span>{artifact.kind.replaceAll("_", " ")}</span>
-                  <span>·</span>
-                  <span>{artifact.privacy.replaceAll("_", " ")}</span>
-                  {artifact.capabilities?.executableContent === true && <><span>·</span><span>{t("artifacts.executable", "executable")}</span></>}
-                  <span>·</span>
-                  <span>{new Date(artifact.updatedAt).toLocaleDateString()}</span>
-                </div>
-              </button>
+                artifact={artifact}
+                selected={selectedId === artifact.id}
+                onSelect={() => setSelectedId(artifact.id)}
+              />
             ))}
           </div>
           <div className="flex items-center justify-between border-t border-border-soft p-2">
@@ -348,6 +385,15 @@ export default function ArtifactsView({ onBack }: ArtifactsViewProps) {
               <Button variant="outline" size="sm" disabled={busy !== null} onClick={() => void runVerify()}>
                 {busy === "verify" ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <ShieldCheck className="mr-1.5 h-4 w-4" />}
                 {t("artifacts.verify", "Verify")}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={busy !== null}
+                onClick={() => void artifactResource.run("open")}
+              >
+                <ExternalLink className="mr-1.5 h-4 w-4" />
+                {t("fileActions.open", "Open")}
               </Button>
               <Select value={exportFormat} onValueChange={(value) => setExportFormat(value as ArtifactExportFormat)}>
                 <SelectTrigger className="h-8 w-[112px]"><SelectValue /></SelectTrigger>
@@ -388,7 +434,12 @@ export default function ArtifactsView({ onBack }: ArtifactsViewProps) {
 
             <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_280px]">
               <div className="min-h-0 bg-white dark:bg-surface-app">
-                <ArtifactViewer projectPath={selected.projectPath} title={selected.title} refreshKey={refreshKey} />
+                <ArtifactViewer
+                  artifactId={selected.id}
+                  projectPath={selected.projectPath}
+                  title={selected.title}
+                  refreshKey={refreshKey}
+                />
               </div>
               <aside className="min-h-0 overflow-y-auto border-l border-border-soft p-3">
                 <div className="mb-4 rounded-xl bg-muted/40 p-3 text-xs">

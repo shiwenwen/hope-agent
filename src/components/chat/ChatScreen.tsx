@@ -117,6 +117,7 @@ import { useFilePreview } from "./files/useFilePreview"
 import FilePreviewPanel from "./files/FilePreviewPanel"
 import { FileActionsContext, type FileActionsContextValue } from "./files/fileActionsContext"
 import WorkspacePanel, { type WorkspaceFocusRequest } from "./workspace/WorkspacePanel"
+import { confirmDiscardDirtyFileEditors } from "./files/fileDirtyRegistry"
 import { PullRequestPanel } from "./workspace/PullRequestPanel"
 import BackgroundJobsPanel from "./background-jobs/BackgroundJobsPanel"
 import { decideBackgroundJobsAutoOpen } from "./background-jobs/autoOpenPolicy"
@@ -983,12 +984,6 @@ export default function ChatScreen({
     return () => window.removeEventListener(COMPACT_CONTEXT_UPDATED_EVENT, handleManualCompactUsage)
   }, [])
 
-  // Ambient file-action wiring for the message tree (preview opener + session).
-  const fileActionsValue = useMemo<FileActionsContextValue>(
-    () => ({ sessionId: currentSessionId, onPreviewFile: filePreview.openPreview }),
-    [currentSessionId, filePreview.openPreview],
-  )
-
   const handleSessionEffortChange = useCallback(
     async (effort: string, options?: { applyToAgentDefault?: boolean }) => {
       const sid = session.currentSessionId
@@ -1047,6 +1042,13 @@ export default function ChatScreen({
   // incognito is forced off here (and coerced server-side).
   const startNewChatInProjectNow = useCallback(
     async (projectId: string, defaultAgentId?: string | null) => {
+      if (
+        !confirmDiscardDirtyFileEditors(
+          t("fileEditor.unsavedBody", "Discard the current edits before leaving this file?"),
+        )
+      ) {
+        return
+      }
       const project = projects.find((p) => p.id === projectId)
       let agentId = (defaultAgentId && defaultAgentId.trim()) || project?.defaultAgentId || null
       if (!agentId) {
@@ -1063,11 +1065,18 @@ export default function ChatScreen({
       setProjectBootstrapProgress(null)
       await handleNewChat(agentId)
     },
-    [projects, handleNewChat],
+    [projects, handleNewChat, t],
   )
 
   const startNewChatNow = useCallback(
     async (agentId: string, opts?: { incognito?: boolean }) => {
+      if (
+        !confirmDiscardDirtyFileEditors(
+          t("fileEditor.unsavedBody", "Discard the current edits before leaving this file?"),
+        )
+      ) {
+        return
+      }
       setDraftIncognito(opts?.incognito ?? false)
       setDraftKbAttachments([])
       // Leaving any project draft → drop the project / working-dir binding so it
@@ -1079,7 +1088,7 @@ export default function ChatScreen({
       setProjectBootstrapProgress(null)
       await handleNewChat(agentId)
     },
-    [handleNewChat],
+    [handleNewChat, t],
   )
 
   const runIncognitoLeaveIntent = useCallback(
@@ -1222,20 +1231,13 @@ export default function ChatScreen({
   const handleProjectRuntimeDraftChange = useCallback((next: ProjectRuntimeDraft) => {
     setDraftProjectRuntime((previous) => ({
       ...next,
-      requestId:
-        next.baseRef
-          ? next.requestId || previous.requestId || generateClientId()
-          : "",
+      requestId: next.baseRef ? next.requestId || previous.requestId || generateClientId() : "",
     }))
     setProjectBootstrapProgress(null)
   }, [])
 
   const draftProjectBootstrap = useMemo<ProjectSessionBootstrapInput | null>(() => {
-    if (
-      !draftProjectId ||
-      !draftProjectRuntime.baseRef ||
-      !draftProjectRuntime.requestId
-    ) {
+    if (!draftProjectId || !draftProjectRuntime.baseRef || !draftProjectRuntime.requestId) {
       return null
     }
     return {
@@ -1253,20 +1255,18 @@ export default function ChatScreen({
     const applyProgress = (event: ProjectBootstrapProgressEvent) => {
       if (event.requestId !== requestId) return
       const failed =
-        event.status === "failed" ||
-        event.status === "cancelled" ||
-        event.status === "interrupted"
+        event.status === "failed" || event.status === "cancelled" || event.status === "interrupted"
       setProjectBootstrapProgress({
         stage: event.stage,
-        error: failed ? event.message || t("chat.projectRuntime.prepareFailed", "工作树准备失败") : null,
+        error: failed
+          ? event.message || t("chat.projectRuntime.prepareFailed", "工作树准备失败")
+          : null,
       })
       if (failed) {
         // A failed request id is durable and cannot be replayed. Keep the
         // selected branch but mint a fresh id for the user's next Send.
         setDraftProjectRuntime((current) =>
-          current.requestId === requestId
-            ? { ...current, requestId: generateClientId() }
-            : current,
+          current.requestId === requestId ? { ...current, requestId: generateClientId() } : current,
         )
       }
     }
@@ -1995,9 +1995,7 @@ export default function ChatScreen({
     onProjectBootstrapFailure: (message) => {
       setProjectBootstrapProgress({ stage: "failed", error: message })
       setDraftProjectRuntime((current) =>
-        current.baseRef
-          ? { ...current, requestId: generateClientId() }
-          : current,
+        current.baseRef ? { ...current, requestId: generateClientId() } : current,
       )
     },
     draftKbAttachments,
@@ -2005,6 +2003,26 @@ export default function ChatScreen({
     parentInjectionDeltasViaChatStream: true,
     activeSessionReadableRef,
   })
+
+  // Ambient file-action wiring for persisted resources and renderer-only drafts.
+  const replaceDraftAttachment = useCallback(
+    (draftId: string, file: File) =>
+      stream.setAttachedFiles((drafts) =>
+        drafts.map((draft) =>
+          draft.id === draftId ? { ...draft, file, status: "ready", error: undefined } : draft,
+        ),
+      ),
+    [stream.setAttachedFiles],
+  )
+
+  const fileActionsValue = useMemo<FileActionsContextValue>(
+    () => ({
+      sessionId: currentSessionId,
+      onPreviewFile: filePreview.openPreview,
+      onReplaceDraft: replaceDraftAttachment,
+    }),
+    [currentSessionId, filePreview.openPreview, replaceDraftAttachment],
+  )
 
   const setProjectWelcomeInput = stream.setInput
   const handleProjectWelcomeSuggestion = useCallback(
@@ -4044,6 +4062,7 @@ export default function ChatScreen({
                       onEffortChange={handleSessionEffortChange}
                       onEffortReset={handleSessionEffortReset}
                       attachedFiles={stream.attachedFiles}
+                      maxAttachmentBytes={stream.maxChatAttachmentBytes}
                       onAttachFiles={(files) =>
                         stream.setAttachedFiles((prev) => [...prev, ...files])
                       }
@@ -4052,7 +4071,11 @@ export default function ChatScreen({
                       }
                       onUpdateFile={(index, file) =>
                         stream.setAttachedFiles((prev) =>
-                          prev.map((existing, i) => (i === index ? file : existing)),
+                          prev.map((existing, i) =>
+                            i === index
+                              ? { ...existing, file, status: "ready", error: undefined }
+                              : existing,
+                          ),
                         )
                       }
                       pendingQuotes={stream.pendingQuotes}
@@ -4175,9 +4198,9 @@ export default function ChatScreen({
             </RightPanelShell>
           )}
 
-          {shouldRenderRightPanelContent
-            && renderedExclusiveRightPanel === "pull-request"
-            && session.currentSessionId && (
+          {shouldRenderRightPanelContent &&
+            renderedExclusiveRightPanel === "pull-request" &&
+            session.currentSessionId && (
               <RightPanelShell
                 width={rightPanelWidth}
                 onWidthChange={setRightPanelWidth}
@@ -4425,6 +4448,7 @@ export default function ChatScreen({
               <FilePreviewPanel
                 target={filePreview.target}
                 sessionId={session.currentSessionId}
+                onReplaceDraft={replaceDraftAttachment}
                 maximized={filePreviewMaximized}
                 onToggleMaximize={() => setFilePreviewMaximized((v) => !v)}
                 onClose={() => {

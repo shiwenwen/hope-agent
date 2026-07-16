@@ -10,7 +10,11 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog"
-import { getTransport, switchToRemote } from "@/lib/transport-provider"
+import {
+  confirmTransportChange,
+  getTransport,
+  switchToRemote,
+} from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import { Globe, Loader2, Wifi } from "lucide-react"
 
@@ -73,6 +77,7 @@ export function RemoteConnectDialog({
         setResult(probed)
         return
       }
+      if (!confirmTransportChange()) return
       const finalUrl = normalizedUrl()
       const finalKey = apiKey.trim() || null
       const full = await getTransport().call<Record<string, unknown>>("get_user_config")
@@ -84,7 +89,7 @@ export function RemoteConnectDialog({
           remoteApiKey: finalKey,
         },
       })
-      switchToRemote(finalUrl, finalKey)
+      switchToRemote(finalUrl, finalKey, { dirtyConfirmed: true })
       onOpenChange(false)
       onConnected()
     } catch (e) {

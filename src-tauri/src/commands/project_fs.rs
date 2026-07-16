@@ -10,8 +10,8 @@
 
 use crate::commands::CmdError;
 use ha_core::filesystem::{
-    self, ExtractedContent, FileSearchResponse, FileTextContent, GitInfo, RenameResult,
-    UploadResult, WorkspaceListing, WorkspaceScope, WriteResult,
+    self, ExtractedContent, FileSearchResponse, FileTextContent, FileWriteOutcome, GitInfo,
+    RenameResult, UploadResult, WorkspaceAccess, WorkspaceListing, WorkspaceScope, WriteResult,
 };
 
 /// Run a blocking filesystem closure off the async runtime, mapping
@@ -28,12 +28,13 @@ where
 }
 
 /// Emit `project:fs_changed` so every open file-browser view refreshes the
-/// affected directory. `dir` is the `/`-relative parent of the changed path.
-fn emit_fs_changed(scope: &str, scope_id: &str, dir: &str) {
+/// affected directory. `dir` is the `/`-relative parent and `path` is the
+/// concrete changed path, allowing open editors to ignore sibling changes.
+fn emit_fs_changed(scope: &str, scope_id: &str, dir: &str, path: &str) {
     if let Some(bus) = ha_core::get_event_bus() {
         let _ = bus.emit(
             "project:fs_changed",
-            serde_json::json!({ "scope": scope, "scopeId": scope_id, "dir": dir }),
+            serde_json::json!({ "scope": scope, "scopeId": scope_id, "dir": dir, "path": path }),
         );
     }
 }
@@ -59,6 +60,14 @@ pub async fn project_fs_list(
         filesystem::project_list_dir(&s, path.as_deref().unwrap_or(""))
     })
     .await
+}
+
+#[tauri::command]
+pub async fn project_fs_capabilities(
+    scope: String,
+    scope_id: String,
+) -> Result<WorkspaceAccess, CmdError> {
+    blocking(move || WorkspaceScope::access(&scope, &scope_id)).await
 }
 
 #[tauri::command]
@@ -164,14 +173,23 @@ pub async fn project_fs_write_text(
     path: String,
     content: String,
     create_only: Option<bool>,
-) -> Result<WriteResult, CmdError> {
+    expected_file_hash: Option<String>,
+) -> Result<FileWriteOutcome, CmdError> {
     let (s_scope, s_id) = (scope.clone(), scope_id.clone());
     let res = blocking(move || {
-        let s = WorkspaceScope::resolve_writable(&scope, &scope_id)?;
-        filesystem::project_write_text(&s, &path, &content, create_only.unwrap_or(false))
+        let s = WorkspaceScope::resolve_effective_writable(&scope, &scope_id)?;
+        filesystem::project_write_text_checked(
+            &s,
+            &path,
+            &content,
+            create_only.unwrap_or(false),
+            expected_file_hash.as_deref(),
+        )
     })
     .await?;
-    emit_fs_changed(&s_scope, &s_id, &parent_rel(&res.rel_path));
+    if let FileWriteOutcome::Saved { ref rel_path, .. } = res {
+        emit_fs_changed(&s_scope, &s_id, &parent_rel(rel_path), rel_path);
+    }
     Ok(res)
 }
 
@@ -184,12 +202,13 @@ pub async fn project_fs_delete(
 ) -> Result<(), CmdError> {
     let (s_scope, s_id) = (scope.clone(), scope_id.clone());
     let dir = parent_rel(&path);
+    let changed_path = path.clone();
     blocking(move || {
-        let s = WorkspaceScope::resolve_writable(&scope, &scope_id)?;
+        let s = WorkspaceScope::resolve_effective_writable(&scope, &scope_id)?;
         filesystem::project_delete(&s, &path, recursive.unwrap_or(false))
     })
     .await?;
-    emit_fs_changed(&s_scope, &s_id, &dir);
+    emit_fs_changed(&s_scope, &s_id, &dir, &changed_path);
     Ok(())
 }
 
@@ -203,14 +222,15 @@ pub async fn project_fs_rename(
 ) -> Result<RenameResult, CmdError> {
     let (s_scope, s_id) = (scope.clone(), scope_id.clone());
     let from_dir = parent_rel(&from_path);
+    let changed_from_path = from_path.clone();
     let res = blocking(move || {
-        let s = WorkspaceScope::resolve_writable(&scope, &scope_id)?;
+        let s = WorkspaceScope::resolve_effective_writable(&scope, &scope_id)?;
         filesystem::project_rename(&s, &from_path, &to_path, overwrite.unwrap_or(false))
     })
     .await?;
     // Both source and destination directories may have changed.
-    emit_fs_changed(&s_scope, &s_id, &from_dir);
-    emit_fs_changed(&s_scope, &s_id, &parent_rel(&res.rel_path));
+    emit_fs_changed(&s_scope, &s_id, &from_dir, &changed_from_path);
+    emit_fs_changed(&s_scope, &s_id, &parent_rel(&res.rel_path), &res.rel_path);
     Ok(res)
 }
 
@@ -222,11 +242,11 @@ pub async fn project_fs_mkdir(
 ) -> Result<WriteResult, CmdError> {
     let (s_scope, s_id) = (scope.clone(), scope_id.clone());
     let res = blocking(move || {
-        let s = WorkspaceScope::resolve_writable(&scope, &scope_id)?;
+        let s = WorkspaceScope::resolve_effective_writable(&scope, &scope_id)?;
         filesystem::project_mkdir(&s, &path)
     })
     .await?;
-    emit_fs_changed(&s_scope, &s_id, &parent_rel(&res.rel_path));
+    emit_fs_changed(&s_scope, &s_id, &parent_rel(&res.rel_path), &res.rel_path);
     Ok(res)
 }
 
@@ -241,10 +261,35 @@ pub async fn project_fs_upload(
 ) -> Result<UploadResult, CmdError> {
     let (s_scope, s_id) = (scope.clone(), scope_id.clone());
     let res = blocking(move || {
-        let s = WorkspaceScope::resolve_writable(&scope, &scope_id)?;
+        let s = WorkspaceScope::resolve_effective_writable(&scope, &scope_id)?;
         filesystem::project_upload(&s, &dir_path, &file_name, &data, overwrite.unwrap_or(false))
     })
     .await?;
-    emit_fs_changed(&s_scope, &s_id, &parent_rel(&res.rel_path));
+    emit_fs_changed(&s_scope, &s_id, &parent_rel(&res.rel_path), &res.rel_path);
+    Ok(res)
+}
+
+#[tauri::command]
+pub async fn project_fs_claim_upload(
+    scope: String,
+    scope_id: String,
+    dir_path: String,
+    upload_id: String,
+    file_name: Option<String>,
+    overwrite: Option<bool>,
+) -> Result<UploadResult, CmdError> {
+    let (s_scope, s_id) = (scope.clone(), scope_id.clone());
+    let res = blocking(move || {
+        let s = WorkspaceScope::resolve_effective_writable(&scope, &scope_id)?;
+        filesystem::project_claim_upload(
+            &s,
+            &dir_path,
+            &upload_id,
+            file_name.as_deref(),
+            overwrite.unwrap_or(false),
+        )
+    })
+    .await?;
+    emit_fs_changed(&s_scope, &s_id, &parent_rel(&res.rel_path), &res.rel_path);
     Ok(res)
 }

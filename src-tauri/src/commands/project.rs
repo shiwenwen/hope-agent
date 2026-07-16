@@ -84,7 +84,7 @@ pub async fn create_project_cmd(
         if instructions_changed {
             let _ = bus.emit(
                 "project:fs_changed",
-                serde_json::json!({ "scope": "project", "scopeId": project.id, "dir": "" }),
+                serde_json::json!({ "scope": "project", "scopeId": project.id, "dir": "", "path": "AGENTS.md" }),
             );
         }
     }
@@ -113,7 +113,7 @@ pub async fn update_project_cmd(
         if instructions_changed {
             let _ = bus.emit(
                 "project:fs_changed",
-                serde_json::json!({ "scope": "project", "scopeId": project.id, "dir": "" }),
+                serde_json::json!({ "scope": "project", "scopeId": project.id, "dir": "", "path": "AGENTS.md" }),
             );
         }
     }
@@ -171,7 +171,7 @@ pub async fn save_project_instructions_cmd(
     if let Some(bus) = ha_core::get_event_bus() {
         let _ = bus.emit(
             "project:fs_changed",
-            serde_json::json!({ "scope": "project", "scopeId": event_id, "dir": "" }),
+            serde_json::json!({ "scope": "project", "scopeId": event_id, "dir": "", "path": "AGENTS.md" }),
         );
     }
     Ok(file)

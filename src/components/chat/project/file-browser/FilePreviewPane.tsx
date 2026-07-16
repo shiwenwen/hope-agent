@@ -10,7 +10,7 @@
 
 import { useCallback, useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { Loader2, Maximize2, Minimize2, X } from "lucide-react"
+import { Download, ExternalLink, Loader2, Maximize2, Minimize2, Pencil, X } from "lucide-react"
 import { toast } from "sonner"
 
 import MarkdownRenderer from "@/components/common/MarkdownRenderer"
@@ -34,13 +34,17 @@ export interface QuotePayload {
 
 type Loaded =
   | { kind: "code" | "text" | "markdown" | "binary"; data: FileTextContent }
-  | { kind: "image" | "pdf" | "audio" | "video"; url: string | null }
+  | { kind: "image" | "pdf" | "audio" | "video" | "managed_html"; url: string | null }
   | { kind: "office" }
 
 export interface FilePreviewPaneProps {
   /** The file to preview (memoize this — it drives the load effect), or `null`. */
   source: PreviewSource | null
   onClose?: () => void
+  /** Open the current file with the system/browser default handler. */
+  onOpen?: () => void
+  onDownload?: () => void
+  onEdit?: () => void
   onQuote?: (payload: QuotePayload) => void
   /** Quoted line range to highlight + scroll to in the preview (from a reveal). */
   highlightLines?: { start: number; end: number; nonce: number } | null
@@ -55,6 +59,9 @@ export interface FilePreviewPaneProps {
 export function FilePreviewPane({
   source,
   onClose,
+  onOpen,
+  onDownload,
+  onEdit,
   onQuote,
   highlightLines,
   className,
@@ -79,7 +86,10 @@ export function FilePreviewPane({
     const kind = fileKindOf(source.name, source.mime, source.language)
     void (async () => {
       try {
-        if (kind === "image" || kind === "pdf" || kind === "audio" || kind === "video") {
+        if (source.presentation === "managed_html") {
+          const url = await source.rawUrl(false)
+          if (!cancelled) setLoaded({ kind: "managed_html", url })
+        } else if (kind === "image" || kind === "pdf" || kind === "audio" || kind === "video") {
           const url = await source.rawUrl(false)
           if (!cancelled) setLoaded({ kind, url })
         } else if (kind === "office") {
@@ -175,6 +185,48 @@ export function FilePreviewPane({
               </button>
             </div>
           ) : null}
+          {onOpen ? (
+            <IconTip label={t("fileActions.open", "Open")}>
+              <Button
+                type="button"
+                size="icon"
+                variant="ghost"
+                aria-label={t("fileActions.open", "Open")}
+                className="h-6 w-6"
+                onClick={onOpen}
+              >
+                <ExternalLink className="h-3.5 w-3.5" />
+              </Button>
+            </IconTip>
+          ) : null}
+          {onDownload ? (
+            <IconTip label={t("fileActions.download", "Download")}>
+              <Button
+                type="button"
+                size="icon"
+                variant="ghost"
+                aria-label={t("fileActions.download", "Download")}
+                className="h-6 w-6"
+                onClick={onDownload}
+              >
+                <Download className="h-3.5 w-3.5" />
+              </Button>
+            </IconTip>
+          ) : null}
+          {onEdit ? (
+            <IconTip label={t("fileActions.edit", "Edit")}>
+              <Button
+                type="button"
+                size="icon"
+                variant="ghost"
+                aria-label={t("fileActions.edit", "Edit")}
+                className="h-6 w-6"
+                onClick={onEdit}
+              >
+                <Pencil className="h-3.5 w-3.5" />
+              </Button>
+            </IconTip>
+          ) : null}
           {onToggleMaximize ? (
             <IconTip
               label={
@@ -183,12 +235,7 @@ export function FilePreviewPane({
                   : t("fileBrowser.maximize", "Maximize")
               }
             >
-              <Button
-                size="icon"
-                variant="ghost"
-                className="h-6 w-6"
-                onClick={onToggleMaximize}
-              >
+              <Button size="icon" variant="ghost" className="h-6 w-6" onClick={onToggleMaximize}>
                 {maximized ? (
                   <Minimize2 className="h-3.5 w-3.5" />
                 ) : (
@@ -219,8 +266,8 @@ export function FilePreviewPane({
             name={source.name}
             sizeBytes={source.sizeBytes ?? 0}
             note={error}
-            onOpen={() => void source.rawUrl(false).then((u) => u && window.open(u, "_blank"))}
-            onDownload={() => void source.rawUrl(true).then((u) => u && window.open(u, "_blank"))}
+            onOpen={onOpen}
+            onDownload={onDownload}
           />
         ) : (
           <PreviewBody
@@ -229,6 +276,8 @@ export function FilePreviewPane({
             viewSource={effectiveViewSource}
             onQuote={onQuote ? handleQuoteSelection : undefined}
             highlightLines={highlightLines}
+            onOpen={onOpen}
+            onDownload={onDownload}
           />
         )}
       </div>
@@ -242,12 +291,16 @@ function PreviewBody({
   viewSource,
   onQuote,
   highlightLines,
+  onOpen,
+  onDownload,
 }: {
   loaded: Loaded | null
   source: PreviewSource
   viewSource: boolean
   onQuote?: (sel: CodeSelection) => void
   highlightLines?: { start: number; end: number; nonce: number } | null
+  onOpen?: () => void
+  onDownload?: () => void
 }) {
   const { t } = useTranslation()
   if (!loaded) return null
@@ -294,10 +347,31 @@ function PreviewBody({
     )
   }
 
+  if (loaded.kind === "managed_html") {
+    return loaded.url ? (
+      <iframe
+        title={source.name}
+        src={loaded.url}
+        sandbox="allow-scripts"
+        referrerPolicy="no-referrer"
+        className="h-full w-full border-0 bg-white dark:bg-surface-app"
+      />
+    ) : (
+      <BinaryPlaceholder name={source.name} sizeBytes={source.sizeBytes ?? 0} />
+    )
+  }
+
   if (loaded.kind === "office") {
     // key on the file so a new source remounts (resets fetch/fail state) —
     // OfficeRichPreview's effect only fetches, it never resets synchronously.
-    return <OfficeRichPreview key={source.displayPath ?? source.name} source={source} />
+    return (
+      <OfficeRichPreview
+        key={source.displayPath ?? source.name}
+        source={source}
+        onOpen={onOpen}
+        onDownload={onDownload}
+      />
+    )
   }
 
   if (loaded.kind === "binary") {
@@ -305,9 +379,13 @@ function PreviewBody({
       <BinaryPlaceholder
         name={source.name}
         sizeBytes={loaded.data.sizeBytes}
-        note={loaded.data.truncated ? t("fileBrowser.fileTooLarge", "File too large to preview") : undefined}
-        onOpen={() => void source.rawUrl(false).then((u) => u && window.open(u, "_blank"))}
-        onDownload={() => void source.rawUrl(true).then((u) => u && window.open(u, "_blank"))}
+        note={
+          loaded.data.truncated
+            ? t("fileBrowser.fileTooLarge", "File too large to preview")
+            : undefined
+        }
+        onOpen={onOpen}
+        onDownload={onDownload}
       />
     )
   }

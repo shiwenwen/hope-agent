@@ -1725,7 +1725,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                             "embedding_cache", "dedup", "hybrid_search",
                             "temporal_decay", "mmr", "multimodal", "dreaming", "knowledge_maintenance",
                             "knowledge_media_retention", "knowledge_passive_recall", "knowledge_search", "sprite",
-                            "knowledge_vision", "note_tools",
+                            "knowledge_vision", "note_tools", "file_limits", "knowledge_source_limits",
                             "recap", "awareness", "shortcuts",
                             "active_model", "fallback_models", "skills",
                             "server", "acp_control", "skill_env",
@@ -1771,7 +1771,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                             "embedding_cache", "dedup", "hybrid_search",
                             "temporal_decay", "mmr", "multimodal", "dreaming", "knowledge_maintenance",
                             "knowledge_media_retention", "knowledge_passive_recall", "knowledge_search", "sprite",
-                            "knowledge_vision", "note_tools",
+                            "knowledge_vision", "note_tools", "file_limits", "knowledge_source_limits",
                             "recap", "awareness", "shortcuts", "skills",
                             "server", "acp_control", "skill_env",
                             "tool_result_disk_threshold",
@@ -1859,7 +1859,10 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                 "properties": {
                     "path": {
                         "type": "string",
-                        "description": "Absolute path (supports ~) to an existing file inside the user's home directory. Max 20 MB."
+                        "description": format!(
+                            "Absolute path (supports ~) to an existing file inside the user's home directory. Configured max {} MiB.",
+                            crate::attachments::max_chat_attachment_mb()
+                        )
                     },
                     "display_name": {
                         "type": "string",

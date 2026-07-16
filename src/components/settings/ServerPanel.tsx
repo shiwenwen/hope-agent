@@ -1,12 +1,17 @@
 import { useState, useEffect, useCallback, type ReactNode } from "react"
-import { getTransport } from "@/lib/transport-provider"
-import { switchToRemote, switchToEmbedded } from "@/lib/transport-provider"
+import { getTransport, useTransport } from "@/lib/transport-provider"
+import { confirmTransportChange, switchToRemote, switchToEmbedded } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
 import { logger } from "@/lib/logger"
+import {
+  patchFilesystemConfig,
+  useFilesystemConfig,
+  type FilesystemConfig,
+} from "@/lib/filesystemConfig"
 import {
   MonitorSmartphone,
   Globe,
@@ -88,8 +93,7 @@ export default function ServerPanel() {
   const { t } = useTranslation()
 
   const [config, setConfig] = useState<ServerConfig>(DEFAULT_CONFIG)
-  const [loadedSecrets, setLoadedSecrets] =
-    useState<LoadedServerSecrets>(EMPTY_LOADED_SECRETS)
+  const [loadedSecrets, setLoadedSecrets] = useState<LoadedServerSecrets>(EMPTY_LOADED_SECRETS)
   const [savedSnapshot, setSavedSnapshot] = useState("")
   const [saving, setSaving] = useState(false)
   const [saveStatus, setSaveStatus] = useState<"idle" | "saved" | "failed">("idle")
@@ -168,6 +172,9 @@ export default function ServerPanel() {
   }, [config.serverMode, config.remoteServerUrl, config.remoteApiKey])
 
   const handleSave = useCallback(async () => {
+    // Confirm before persisting the requested mode. Otherwise cancelling the
+    // editor guard would leave config pointing at a transport we never opened.
+    if (!confirmTransportChange()) return
     setSaving(true)
     try {
       const embeddedApiKey = serializeOptionalSecret(
@@ -203,9 +210,11 @@ export default function ServerPanel() {
 
       // Switch transport based on mode
       if (config.serverMode === "remote" && config.remoteServerUrl) {
-        switchToRemote(config.remoteServerUrl.replace(/\/+$/, ""), config.remoteApiKey || null)
+        switchToRemote(config.remoteServerUrl.replace(/\/+$/, ""), config.remoteApiKey || null, {
+          dirtyConfirmed: true,
+        })
       } else {
-        switchToEmbedded()
+        switchToEmbedded({ dirtyConfirmed: true })
       }
 
       setLoadedSecrets((prev) => ({
@@ -291,9 +300,7 @@ export default function ServerPanel() {
       <div className="w-full space-y-6">
         {/* Header */}
         <div>
-          <h2 className="text-lg font-semibold text-foreground mb-1">
-            {t("settings.server")}
-          </h2>
+          <h2 className="text-lg font-semibold text-foreground mb-1">{t("settings.server")}</h2>
           <p className="text-xs text-muted-foreground">{t("settings.serverDesc")}</p>
         </div>
 
@@ -324,15 +331,13 @@ export default function ServerPanel() {
         <RuntimeStatusSection />
 
         {/* File-browser remote-write gate */}
-        <RemoteWritesSection />
+        <FilesystemSection />
 
         {/* Mode Selector */}
         <div className="space-y-3">
           <div>
             <h3 className="text-sm font-medium">{t("settings.serverMode")}</h3>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              {t("settings.serverModeDesc")}
-            </p>
+            <p className="text-xs text-muted-foreground mt-0.5">{t("settings.serverModeDesc")}</p>
           </div>
           <div className="space-y-1.5">
             {modeOptions.map((opt) => (
@@ -344,16 +349,12 @@ export default function ServerPanel() {
                     ? "bg-primary/10 border border-primary/30"
                     : "hover:bg-secondary/40 border border-transparent",
                 )}
-                onClick={() =>
-                  setConfig((prev) => ({ ...prev, serverMode: opt.value }))
-                }
+                onClick={() => setConfig((prev) => ({ ...prev, serverMode: opt.value }))}
               >
                 <div
                   className={cn(
                     "shrink-0",
-                    config.serverMode === opt.value
-                      ? "text-primary"
-                      : "text-muted-foreground",
+                    config.serverMode === opt.value ? "text-primary" : "text-muted-foreground",
                   )}
                 >
                   {opt.icon}
@@ -481,9 +482,7 @@ export default function ServerPanel() {
         {config.serverMode === "remote" && (
           <div className="space-y-3">
             <div className="space-y-1.5">
-              <span className="text-xs text-muted-foreground">
-                {t("settings.serverRemoteUrl")}
-              </span>
+              <span className="text-xs text-muted-foreground">{t("settings.serverRemoteUrl")}</span>
               <Input
                 value={config.remoteServerUrl}
                 placeholder={t("settings.serverRemoteUrlPlaceholder")}
@@ -496,9 +495,7 @@ export default function ServerPanel() {
               />
             </div>
             <div className="space-y-1.5">
-              <span className="text-xs text-muted-foreground">
-                {t("settings.serverApiKey")}
-              </span>
+              <span className="text-xs text-muted-foreground">{t("settings.serverApiKey")}</span>
               <Input
                 type="password"
                 value={config.remoteApiKey}
@@ -521,8 +518,7 @@ export default function ServerPanel() {
             onClick={handleSave}
             disabled={(!dirty && saveStatus === "idle") || saving}
             className={cn(
-              saveStatus === "saved" &&
-                "bg-green-500/10 text-green-600 hover:bg-green-500/20",
+              saveStatus === "saved" && "bg-green-500/10 text-green-600 hover:bg-green-500/20",
               saveStatus === "failed" &&
                 "bg-destructive/10 text-destructive hover:bg-destructive/20",
             )}
@@ -548,8 +544,7 @@ export default function ServerPanel() {
             variant="secondary"
             size="sm"
             disabled={
-              testing ||
-              (config.serverMode === "remote" && !config.remoteServerUrl?.trim())
+              testing || (config.serverMode === "remote" && !config.remoteServerUrl?.trim())
             }
             onClick={handleTestConnection}
           >
@@ -578,13 +573,9 @@ export default function ServerPanel() {
             )}
           >
             <div className="font-medium">
-              {testResult.ok
-                ? t("settings.serverTestSuccess")
-                : t("settings.serverTestFailed")}
+              {testResult.ok ? t("settings.serverTestSuccess") : t("settings.serverTestFailed")}
             </div>
-            <pre className="mt-1 whitespace-pre-wrap break-all opacity-80">
-              {testResult.msg}
-            </pre>
+            <pre className="mt-1 whitespace-pre-wrap break-all opacity-80">{testResult.msg}</pre>
           </div>
         )}
       </div>
@@ -593,68 +584,60 @@ export default function ServerPanel() {
 }
 
 /**
- * Toggle for `filesystem.allowRemoteWrites` — whether HTTP clients may write to
- * the project working directory through the file browser. HIGH-risk: default
- * off so only the local desktop can write. Saves immediately on change.
+ * Shared filesystem settings. Local desktop reads the local config; Web and
+ * remote desktop read and update the connected Server config.
  */
-function RemoteWritesSection() {
+function FilesystemSection() {
   const { t } = useTranslation()
-  const [enabled, setEnabled] = useState(false)
+  const transport = useTransport()
+  const { config } = useFilesystemConfig()
   const [status, setStatus] = useState<"idle" | "saved" | "failed">("idle")
 
-  useEffect(() => {
-    let cancelled = false
-    getTransport()
-      .call<{ allowRemoteWrites?: boolean }>("get_filesystem_config")
-      .then((cfg) => {
-        if (!cancelled) setEnabled(!!cfg.allowRemoteWrites)
-      })
-      .catch((e) => logger.warn("settings", "ServerPanel::fs", "load failed", e))
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
-  const onToggle = useCallback(async (next: boolean) => {
-    setEnabled(next)
-    try {
-      await getTransport().call("save_filesystem_config", {
-        config: { allowRemoteWrites: next },
-      })
-      setStatus("saved")
-      setTimeout(() => setStatus("idle"), 2000)
-    } catch (e) {
-      logger.error("settings", "ServerPanel::fs", "save failed", e)
-      setEnabled(!next)
-      setStatus("failed")
-      setTimeout(() => setStatus("idle"), 2000)
-    }
-  }, [])
+  const save = useCallback(
+    async (next: FilesystemConfig) => {
+      try {
+        await patchFilesystemConfig(transport, {
+          allowRemoteWrites: next.allowRemoteWrites,
+        })
+        setStatus("saved")
+        setTimeout(() => setStatus("idle"), 2000)
+      } catch (e) {
+        logger.error("settings", "ServerPanel::fs", "save failed", e)
+        setStatus("failed")
+        setTimeout(() => setStatus("idle"), 2000)
+      }
+    },
+    [transport],
+  )
 
   return (
     <section className="space-y-2">
-      <h3 className="text-sm font-medium">
-        {t("settings.fsRemoteWrites", "Allow remote file writes")}
-      </h3>
       <div className="flex items-start gap-3 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2.5">
-        <Switch checked={enabled} onCheckedChange={onToggle} className="mt-0.5" />
+        <Switch
+          checked={config.allowRemoteWrites}
+          onCheckedChange={(allowRemoteWrites) => void save({ ...config, allowRemoteWrites })}
+          className="mt-0.5"
+        />
         <div className="flex-1 space-y-0.5">
+          <h3 className="text-sm font-medium">
+            {t("settings.fsRemoteWrites", "Allow remote file writes")}
+          </h3>
           <p className="text-xs text-muted-foreground">
             {t(
               "settings.fsRemoteWritesDesc",
               "Let HTTP clients create, edit, delete, and upload files in the project working directory. Off by default — the desktop app can always write locally regardless of this setting.",
             )}
           </p>
-          {status === "saved" ? (
-            <span className="flex items-center gap-1 text-xs text-green-600">
-              <Check className="h-3 w-3" />
-              {t("common.saved", "Saved")}
-            </span>
-          ) : status === "failed" ? (
-            <span className="text-xs text-destructive">{t("common.saveFailed", "Save failed")}</span>
-          ) : null}
         </div>
       </div>
+      {status === "saved" ? (
+        <span className="flex items-center gap-1 text-xs text-green-600">
+          <Check className="h-3 w-3" />
+          {t("common.saved", "Saved")}
+        </span>
+      ) : status === "failed" ? (
+        <span className="text-xs text-destructive">{t("common.saveFailed", "Save failed")}</span>
+      ) : null}
     </section>
   )
 }
@@ -668,10 +651,7 @@ function RuntimeStatusSection() {
     body = (
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[0, 1, 2, 3].map((i) => (
-          <div
-            key={i}
-            className="h-[58px] rounded-lg bg-muted/50 animate-pulse"
-          />
+          <div key={i} className="h-[58px] rounded-lg bg-muted/50 animate-pulse" />
         ))}
       </div>
     )
@@ -679,9 +659,7 @@ function RuntimeStatusSection() {
     body = (
       <div className="flex items-center gap-2 text-xs text-muted-foreground px-3 py-2 rounded-md bg-muted/40">
         <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-        <span className="truncate">
-          {error ?? t("settings.serverNotStarted")}
-        </span>
+        <span className="truncate">{error ?? t("settings.serverNotStarted")}</span>
       </div>
     )
   } else if (status.startupError) {
@@ -694,9 +672,7 @@ function RuntimeStatusSection() {
         <pre className="text-xs text-destructive/90 whitespace-pre-wrap break-all">
           {status.startupError}
         </pre>
-        <p className="text-[11px] text-destructive/80">
-          {t("settings.serverRestartRequired")}
-        </p>
+        <p className="text-[11px] text-destructive/80">{t("settings.serverRestartRequired")}</p>
       </div>
     )
   } else {
@@ -740,9 +716,7 @@ function RuntimeStatusSection() {
 
   return (
     <section className="space-y-2">
-      <h3 className="text-sm font-medium">
-        {t("settings.serverRuntimeStatus")}
-      </h3>
+      <h3 className="text-sm font-medium">{t("settings.serverRuntimeStatus")}</h3>
       {body}
     </section>
   )

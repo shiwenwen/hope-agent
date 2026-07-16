@@ -5,12 +5,14 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use axum::extract::multipart::Field;
 use axum::extract::Multipart;
 use ha_core::channel::{ChannelDB, ChannelRegistry};
 use ha_core::cron::CronDB;
 use ha_core::logging::{AppLogger, LogDB};
 use ha_core::session::SessionDB;
 use ha_core::subagent::SubagentCancelRegistry;
+use tokio::io::AsyncWriteExt;
 
 use crate::error::AppError;
 
@@ -23,6 +25,124 @@ pub struct ParsedUpload {
     pub mime_type: Option<String>,
     /// Any additional text fields beyond `file`/`fileName`/`mimeType`.
     pub extra_fields: HashMap<String, String>,
+}
+
+/// Disk-backed multipart result for potentially large chat attachments.
+pub struct ParsedTempUpload {
+    pub file_path: tempfile::TempPath,
+    pub file_name: String,
+    pub mime_type: Option<String>,
+    pub extra_fields: HashMap<String, String>,
+}
+
+const MAX_UPLOAD_TEXT_FIELD_BYTES: usize = 64 * 1024;
+const MAX_UPLOAD_FIELDS: usize = 32;
+
+async fn read_small_text_field(mut field: Field<'_>) -> Result<String, AppError> {
+    let mut bytes = Vec::new();
+    while let Some(chunk) = field
+        .chunk()
+        .await
+        .map_err(|e| AppError::bad_request(format!("multipart field read error: {e}")))?
+    {
+        let next_len = bytes
+            .len()
+            .checked_add(chunk.len())
+            .ok_or_else(|| AppError::bad_request("multipart text field is too large"))?;
+        if next_len > MAX_UPLOAD_TEXT_FIELD_BYTES {
+            return Err(AppError::bad_request("multipart text field is too large"));
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    String::from_utf8(bytes)
+        .map_err(|_| AppError::bad_request("multipart text field is not valid UTF-8"))
+}
+
+/// Parse one multipart file directly to a temporary file while enforcing the
+/// current configured limit. Any route-level cap is only a hard protocol
+/// ceiling; it does not determine memory use.
+pub async fn parse_file_upload_to_temp(
+    mut multipart: Multipart,
+    max_file_bytes: usize,
+) -> Result<ParsedTempUpload, AppError> {
+    let mut file_name: Option<String> = None;
+    let mut mime_type: Option<String> = None;
+    let mut file_path: Option<tempfile::TempPath> = None;
+    let mut extra = HashMap::new();
+    let mut field_count = 0usize;
+
+    while let Some(mut field) = multipart
+        .next_field()
+        .await
+        .map_err(|e| AppError::bad_request(format!("multipart parse error: {e}")))?
+    {
+        field_count += 1;
+        if field_count > MAX_UPLOAD_FIELDS {
+            return Err(AppError::bad_request("too many multipart fields"));
+        }
+        let name = field.name().unwrap_or("").to_string();
+        match name.as_str() {
+            "file" => {
+                if file_path.is_some() {
+                    return Err(AppError::bad_request(
+                        "multiple 'file' fields are not supported",
+                    ));
+                }
+                if file_name.is_none() {
+                    file_name = field.file_name().map(str::to_string);
+                }
+                if mime_type.is_none() {
+                    mime_type = field.content_type().map(str::to_string);
+                }
+                let named = tempfile::NamedTempFile::new()
+                    .map_err(|e| AppError::internal(format!("create upload temp file: {e}")))?;
+                let (std_file, temp_path) = named.into_parts();
+                let mut output = tokio::fs::File::from_std(std_file);
+                let mut written = 0usize;
+                while let Some(chunk) = field
+                    .chunk()
+                    .await
+                    .map_err(|e| AppError::bad_request(format!("failed to read file field: {e}")))?
+                {
+                    written = written
+                        .checked_add(chunk.len())
+                        .ok_or_else(|| AppError::bad_request("attachment is too large"))?;
+                    if written > max_file_bytes {
+                        return Err(AppError::bad_request(format!(
+                            "file exceeds the configured {} MiB limit",
+                            max_file_bytes / (1024 * 1024)
+                        )));
+                    }
+                    output
+                        .write_all(&chunk)
+                        .await
+                        .map_err(|e| AppError::internal(format!("write upload temp file: {e}")))?;
+                }
+                output
+                    .flush()
+                    .await
+                    .map_err(|e| AppError::internal(format!("flush upload temp file: {e}")))?;
+                output
+                    .sync_all()
+                    .await
+                    .map_err(|e| AppError::internal(format!("sync upload temp file: {e}")))?;
+                drop(output);
+                file_path = Some(temp_path);
+            }
+            "fileName" => file_name = Some(read_small_text_field(field).await?),
+            "mimeType" => mime_type = Some(read_small_text_field(field).await?),
+            _ => {
+                extra.insert(name, read_small_text_field(field).await?);
+            }
+        }
+    }
+
+    Ok(ParsedTempUpload {
+        file_path: file_path.ok_or_else(|| AppError::bad_request("missing 'file' field"))?,
+        file_name: file_name.unwrap_or_else(|| "attachment".to_string()),
+        mime_type,
+        extra_fields: extra,
+    })
 }
 
 /// Parse a multipart request that contains a single `file` part plus

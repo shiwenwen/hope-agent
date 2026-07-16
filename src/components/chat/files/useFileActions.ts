@@ -1,22 +1,30 @@
-import { useCallback, useMemo } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
+import { useTranslation } from "react-i18next"
 
 import { toast } from "sonner"
-import { getTransport } from "@/lib/transport-provider"
+import { useTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
-import { fileKindOf, type FileKind } from "@/lib/fileKind"
-import {
-  resolveFileMenuActions,
-  resolvePrimaryFileAction,
-  type FileAction,
-} from "@/lib/fileActions"
+import type { FileKind } from "@/lib/fileKind"
+import type { WorkspaceAccess } from "@/lib/transport"
+import type { FileAction } from "@/lib/fileActions"
 import { useFileActionsContext } from "./fileActionsContext"
+import { fileTargetKind, resolveFileCapabilities } from "./fileCapabilities"
+import { fileResourceAdapterFor } from "./fileResourceAdapter"
+import type { FileActionInput, FileActionRunResult, FileCapabilitySet } from "./types"
+import type { WorkspaceFileOperations } from "./fileResourceAdapter"
 import type { PreviewTarget } from "./useFilePreview"
+import { MEBIBYTE_BYTES, useFilesystemConfig } from "@/lib/filesystemConfig"
 
 export interface FileActionsOverrides {
   /** Override the ambient session id (e.g. the workspace panel passes its own). */
   sessionId?: string | null
   /** Override the ambient preview opener (panels outside the message tree). */
   onPreviewFile?: (target: PreviewTarget) => void
+  onEditFile?: (target: PreviewTarget) => void
+  onRemoveFile?: (target: PreviewTarget) => void
+  onGuidedAction?: (action: FileAction, target: PreviewTarget) => void
+  workspaceAccess?: WorkspaceAccess
+  workspaceOperations?: WorkspaceFileOperations
 }
 
 export interface FileActionsResult {
@@ -28,8 +36,9 @@ export interface FileActionsResult {
   isLocal: boolean
   /** Whether a preview panel is wired (otherwise preview is dropped). */
   canPreview: boolean
+  capabilities: FileCapabilitySet
   /** Dispatch an action to the transport / preview panel. */
-  run: (action: FileAction) => void
+  run: (action: FileAction, input?: FileActionInput) => Promise<FileActionRunResult>
 }
 
 function logFail(action: string, e: unknown) {
@@ -53,67 +62,171 @@ export function useFileActions(
   overrides?: FileActionsOverrides,
 ): FileActionsResult {
   const ctx = useFileActionsContext()
+  const { t } = useTranslation()
   const sessionId = overrides?.sessionId ?? ctx.sessionId
   const onPreviewFile = overrides?.onPreviewFile ?? ctx.onPreviewFile
-  const transport = getTransport()
-  const isLocal = transport.supportsLocalFileOps()
+  const transport = useTransport()
+  const { config: filesystemConfig } = useFilesystemConfig()
+  const runtime = transport.fileRuntime()
+  const isLocal = runtime.workspaceHost === "local"
   const canPreview = !!onPreviewFile
+  const workspaceScope = target?.kind === "workspace" ? target.scope : undefined
+  const workspaceScopeId = target?.kind === "workspace" ? target.scopeId : undefined
+  const workspaceAccessKey =
+    workspaceScope && workspaceScopeId ? `${workspaceScope}:${workspaceScopeId}` : undefined
+  const [resolvedWorkspaceAccess, setResolvedWorkspaceAccess] = useState<
+    { key: string; access: WorkspaceAccess } | undefined
+  >()
+
+  useEffect(() => {
+    if (
+      !workspaceAccessKey ||
+      !workspaceScope ||
+      !workspaceScopeId ||
+      overrides?.workspaceAccess
+    ) {
+      return
+    }
+    let cancelled = false
+    void transport
+      .getWorkspaceAccess({ scope: workspaceScope, scopeId: workspaceScopeId })
+      .then((access) => {
+        if (!cancelled) setResolvedWorkspaceAccess({ key: workspaceAccessKey, access })
+      })
+      .catch((error) => {
+        if (!cancelled) logFail("capabilities", error)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [
+    workspaceAccessKey,
+    workspaceScope,
+    workspaceScopeId,
+    transport,
+    overrides?.workspaceAccess,
+  ])
+
+  const workspaceAccess =
+    resolvedWorkspaceAccess && resolvedWorkspaceAccess.key === workspaceAccessKey
+      ? resolvedWorkspaceAccess.access
+      : undefined
+  const effectiveWorkspaceAccess = overrides?.workspaceAccess ?? workspaceAccess
 
   const kind = useMemo<FileKind>(() => {
-    if (!target) return "other"
-    return target.kind === "media"
-      ? fileKindOf(target.item.name, target.item.mimeType)
-      : fileKindOf(target.name, target.mime, target.language)
+    return target ? fileTargetKind(target) : "other"
   }, [target])
 
+  const capabilities = useMemo(() => {
+    const resolved = target
+      ? resolveFileCapabilities(
+          target,
+          runtime,
+          effectiveWorkspaceAccess,
+          filesystemConfig.maxTextEditMb * MEBIBYTE_BYTES,
+        )
+      : resolveFileCapabilities(
+          {
+            kind: "sessionPath",
+            path: "",
+            name: "",
+          },
+          runtime,
+          undefined,
+          filesystemConfig.maxTextEditMb * MEBIBYTE_BYTES,
+        )
+    return {
+      ...resolved,
+      ...(!overrides?.onEditFile && {
+        edit: { state: "disabled" as const, reason: "not_supported" as const },
+      }),
+      ...(!overrides?.onRemoveFile && {
+        remove: { state: "disabled" as const, reason: "not_supported" as const },
+      }),
+      ...(!overrides?.onRemoveFile &&
+        !overrides?.workspaceOperations && {
+          delete: { state: "disabled" as const, reason: "not_supported" as const },
+        }),
+    }
+  }, [
+    target,
+    runtime,
+    effectiveWorkspaceAccess,
+    filesystemConfig.maxTextEditMb,
+    overrides?.onEditFile,
+    overrides?.onRemoveFile,
+    overrides?.workspaceOperations,
+  ])
+
   const primary = useMemo<FileAction>(() => {
-    const p = resolvePrimaryFileAction(kind, isLocal)
-    // No preview panel wired → fall back to the mode's non-preview default.
-    return p === "preview" && !canPreview ? (isLocal ? "open" : "download") : p
-  }, [kind, isLocal, canPreview])
+    if (target && canPreview && capabilities.preview.state === "enabled") return "preview"
+    return isLocal ? "open" : "download"
+  }, [target, isLocal, canPreview, capabilities.preview.state])
 
   const menu = useMemo<FileAction[]>(() => {
     if (!target) return []
-    const actions = resolveFileMenuActions(kind, isLocal)
-    return canPreview ? actions : actions.filter((a) => a !== "preview")
-  }, [target, kind, isLocal, canPreview])
+    const actions: FileAction[] = canPreview ? ["preview"] : []
+    if (target.kind === "clientDraft") {
+      actions.push("open", "download", "edit", "remove")
+    } else if (target.kind === "workspace") {
+      actions.push("edit", "open", ...(isLocal ? (["reveal"] as const) : (["download"] as const)))
+    } else if (target.kind === "knowledgeNote") {
+      actions.push("edit", "open", "download")
+    } else if (target.kind === "artifact") {
+      actions.push("open", "download", ...(isLocal ? (["reveal"] as const) : []))
+    } else if (isLocal) {
+      actions.push("open", "reveal")
+    } else {
+      actions.push("open", "download")
+    }
+    return actions.filter((action) => capabilities[action].state !== "disabled")
+  }, [target, isLocal, canPreview, capabilities])
 
   const run = useCallback(
-    (action: FileAction) => {
-      if (!target) return
-      switch (action) {
-        case "preview":
-          onPreviewFile?.(target)
-          break
-        case "open":
-          if (target.kind === "media") {
-            void transport.openMedia(target.item).catch((e) => logFail("open", e))
-          } else {
-            void transport.openFilePath(target.path, { sessionId }).catch((e) => logFail("open", e))
-          }
-          break
-        case "download":
-          if (target.kind === "media") {
-            void transport.downloadMedia(target.item).catch((e) => logFail("download", e))
-          } else {
-            void transport
-              .downloadFilePath(target.path, { sessionId, filename: target.name })
-              .catch((e) => logFail("download", e))
-          }
-          break
-        case "reveal":
-          if (target.kind === "media") {
-            void transport.revealMedia(target.item).catch((e) => logFail("reveal", e))
-          } else {
-            void transport
-              .call("reveal_in_folder", { path: target.path })
-              .catch((e) => logFail("reveal", e))
-          }
-          break
+    async (action: FileAction, input?: FileActionInput): Promise<FileActionRunResult> => {
+      if (!target) return "disabled"
+      const capability = capabilities[action]
+      if (capability.state === "guided") {
+        if (overrides?.onGuidedAction) overrides.onGuidedAction(action, target)
+        else toast.info(t("fileEditor.remoteWritesTitle", "Remote file writes are off"))
+        return "guided"
+      }
+      if (capability.state === "disabled") return "disabled"
+      if (input?.prepareOnly) return "executed"
+      try {
+        const executed = await fileResourceAdapterFor(target).run(
+          target,
+          action,
+          {
+            transport,
+            sessionId,
+            workspaceAccess: effectiveWorkspaceAccess,
+            filesystemConfig,
+            onPreview: onPreviewFile,
+            onEdit: overrides?.onEditFile,
+            onRemove: overrides?.onRemoveFile,
+            workspaceOperations: overrides?.workspaceOperations,
+          },
+          input,
+        )
+        return executed ? "executed" : "failed"
+      } catch (error) {
+        logFail(action, error)
+        return "failed"
       }
     },
-    [target, onPreviewFile, sessionId, transport],
+    [
+      capabilities,
+      target,
+      onPreviewFile,
+      overrides,
+      sessionId,
+      t,
+      transport,
+      effectiveWorkspaceAccess,
+      filesystemConfig,
+    ],
   )
 
-  return { kind, primary, menu, isLocal, canPreview, run }
+  return { kind, primary, menu, isLocal, canPreview, capabilities, run }
 }

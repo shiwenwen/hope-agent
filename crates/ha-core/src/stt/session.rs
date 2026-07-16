@@ -383,7 +383,7 @@ mod tests {
     async fn start_without_any_model_returns_no_active_model() {
         // Don't inherit the developer's on-disk config — it can carry a
         // real `active_model` that would defeat the "no model" assertion.
-        crate::config::replace_cache_for_test(AppConfig::default());
+        let _config_restore = crate::test_support::replace_config_cache(AppConfig::default());
         let manager = SttSessionManager::new();
         let err = manager
             .start(None, None, TranscriptOptions::default(), None)

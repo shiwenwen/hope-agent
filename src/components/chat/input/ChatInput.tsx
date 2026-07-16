@@ -14,6 +14,7 @@ import { IconTip, Tooltip, TooltipContent, TooltipTrigger } from "@/components/u
 import { cn } from "@/lib/utils"
 import { logger } from "@/lib/logger"
 import { getTransport } from "@/lib/transport-provider"
+import { DEFAULT_MAX_CHAT_ATTACHMENT_MB, MEBIBYTE_BYTES } from "@/lib/filesystemConfig"
 import {
   Send,
   Square,
@@ -64,6 +65,7 @@ import { useQuickPrompts } from "../quick-prompts/useQuickPrompts"
 import UrlPreviewCard from "../UrlPreviewCard"
 import type { CommandResult } from "../slash-commands/types"
 import { AttachFilesButton, AttachFilesMenuItem, AttachmentPreview } from "./AttachmentBar"
+import { createDraftAttachment, type DraftAttachment } from "@/components/chat/files/types"
 import ModelPicker from "./ModelPicker"
 import PermissionModeSwitcher, { type PermissionModeChangeOptions } from "./PermissionModeSwitcher"
 import AwarenessToggle from "./AwarenessToggle"
@@ -259,10 +261,11 @@ interface ChatInputProps {
   onModelChange: (key: string, options?: { applyToAgentDefault?: boolean }) => void
   onEffortChange: (effort: string, options?: { applyToAgentDefault?: boolean }) => void
   onEffortReset?: () => void
-  attachedFiles: File[]
-  onAttachFiles: (files: File[]) => void
+  attachedFiles: DraftAttachment[]
+  onAttachFiles: (files: DraftAttachment[]) => void
   onRemoveFile: (index: number) => void
   onUpdateFile: (index: number, file: File) => void
+  maxAttachmentBytes?: number
   pendingQuotes?: PendingFileQuote[]
   onRemoveQuote?: (index: number) => void
   /** Click a staged quote chip to reveal that file in the file browser. */
@@ -494,6 +497,7 @@ export default function ChatInput({
   onAttachFiles,
   onRemoveFile,
   onUpdateFile,
+  maxAttachmentBytes = DEFAULT_MAX_CHAT_ATTACHMENT_MB * MEBIBYTE_BYTES,
   pendingQuotes,
   onRemoveQuote,
   onJumpToQuote,
@@ -560,6 +564,7 @@ export default function ChatInput({
   overflowLeadingItems,
 }: ChatInputProps) {
   const { t } = useTranslation()
+  const maxAttachmentMb = Math.round(maxAttachmentBytes / MEBIBYTE_BYTES)
   const inputHandleRef = useRef<ComposerInputHandle>(null)
   const inputShellRef = useRef<HTMLDivElement>(null)
   const toolbarRef = useRef<HTMLDivElement>(null)
@@ -596,9 +601,8 @@ export default function ChatInput({
   const [workflowModeSaving, setWorkflowModeSaving] = useState<WorkflowMode | null>(null)
   const [workflowMenuOpen, setWorkflowMenuOpen] = useState(false)
   const [dismissedWorkflowHintFor, setDismissedWorkflowHintFor] = useState<string | null>(null)
-  const { toolbarCompact, toolbarTight, permissionCollapsed } = getChatInputToolbarFlags(
-    toolbarCollapseLevel,
-  )
+  const { toolbarCompact, toolbarTight, permissionCollapsed } =
+    getChatInputToolbarFlags(toolbarCollapseLevel)
 
   useEffect(() => {
     if (focusSignal == null) return
@@ -1071,14 +1075,39 @@ export default function ChatInput({
       }
       if (files.length > 0) {
         e.preventDefault()
-        onAttachFiles(files)
+        const remaining = Math.max(0, 64 - attachedFiles.length)
+        const accepted = files.filter((file) => file.size <= maxAttachmentBytes)
+        if (accepted.length !== files.length) {
+          toast.error(
+            t("attachments.someTooLarge", "Some files exceed the {{limit}} MB limit", {
+              limit: maxAttachmentMb,
+            }),
+          )
+        }
+        if (accepted.length > remaining) {
+          toast.error(t("attachments.tooMany", "A message can contain at most 64 files"))
+        }
+        const drafts = accepted
+          .slice(0, remaining)
+          .map((file) => createDraftAttachment(file, "paste"))
+        if (drafts.length > 0) onAttachFiles(drafts)
         return
       }
 
       const pastedText = clipboardData.getData("text/plain")
       if (shouldCreatePastedTextAttachment(pastedText)) {
         e.preventDefault()
-        onAttachFiles([createPastedTextAttachment(pastedText)])
+        const pastedFile = createPastedTextAttachment(pastedText)
+        if (pastedFile.size > maxAttachmentBytes) {
+          toast.error(
+            t("attachments.tooLarge", "{{name}} exceeds the {{limit}} MB limit", {
+              name: pastedFile.name,
+              limit: maxAttachmentMb,
+            }),
+          )
+          return
+        }
+        onAttachFiles([createDraftAttachment(pastedFile, "paste", "pasted_text")])
 
         const selection = inputHandleRef.current?.getSelectionRange()
         if (selection && selection.start !== selection.end) {
@@ -1094,7 +1123,31 @@ export default function ChatInput({
         }
       }
     },
-    [onAttachFiles, setComposerInput],
+    [attachedFiles.length, maxAttachmentBytes, maxAttachmentMb, onAttachFiles, setComposerInput, t],
+  )
+
+  const attachPickedFiles = useCallback(
+    (files: File[]) => {
+      const remaining = Math.max(0, 64 - attachedFiles.length)
+      const accepted = files.filter((file) => {
+        if (file.size <= maxAttachmentBytes) return true
+        toast.error(
+          t("attachments.tooLarge", "{{name}} exceeds the {{limit}} MB limit", {
+            name: file.name,
+            limit: maxAttachmentMb,
+          }),
+        )
+        return false
+      })
+      if (accepted.length > remaining) {
+        toast.error(t("attachments.tooMany", "A message can contain at most 64 files"))
+      }
+      const drafts = accepted
+        .slice(0, remaining)
+        .map((file) => createDraftAttachment(file, "picker"))
+      if (drafts.length > 0) onAttachFiles(drafts)
+    },
+    [attachedFiles.length, maxAttachmentBytes, maxAttachmentMb, onAttachFiles, t],
   )
 
   const handleHistoryKeyDown = useCallback(
@@ -1683,7 +1736,7 @@ export default function ChatInput({
           onChange={onWorkingDirChange}
         />
       )}
-      <AttachFilesButton onAttachFiles={onAttachFiles} />
+      <AttachFilesButton onAttachFiles={attachPickedFiles} />
       <IconTip label={t("slashCommands.buttonTip")}>
         <Button
           variant="ghost"
@@ -1706,7 +1759,7 @@ export default function ChatInput({
       case "attach-files":
         return (
           <AttachFilesMenuItem
-            onAttachFiles={onAttachFiles}
+            onAttachFiles={attachPickedFiles}
             onPicked={() => setShowOverflowMenu(false)}
           />
         )
@@ -1835,6 +1888,30 @@ export default function ChatInput({
     <div className={cn("min-w-0 px-3 pb-3 pt-2", hero && "px-0 pb-0 pt-0")}>
       <div
         ref={inputShellRef}
+        onDragOver={(event) => {
+          if (event.dataTransfer.types.includes("Files")) event.preventDefault()
+        }}
+        onDrop={(event) => {
+          const files = Array.from(event.dataTransfer.files)
+          if (files.length === 0) return
+          event.preventDefault()
+          const remaining = Math.max(0, 64 - attachedFiles.length)
+          const accepted = files.filter((file) => file.size <= maxAttachmentBytes)
+          if (accepted.length !== files.length) {
+            toast.error(
+              t("attachments.someTooLarge", "Some files exceed the {{limit}} MB limit", {
+                limit: maxAttachmentMb,
+              }),
+            )
+          }
+          if (accepted.length > remaining) {
+            toast.error(t("attachments.tooMany", "A message can contain at most 64 files"))
+          }
+          const drafts = accepted
+            .slice(0, remaining)
+            .map((file) => createDraftAttachment(file, "drop"))
+          if (drafts.length > 0) onAttachFiles(drafts)
+        }}
         className={cn(
           "relative min-w-0 overflow-visible rounded-input-dock border border-border-soft bg-surface-floating shadow-input-dock",
           hero && "shadow-floating",

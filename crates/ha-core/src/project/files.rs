@@ -16,10 +16,6 @@ use std::path::{Path, PathBuf};
 use super::db::ProjectDB;
 use super::types::{CreateProjectInput, Project, UpdateProjectInput};
 
-/// Maximum size of a single uploaded project file (20 MB). Enforced by the
-/// filesystem upload entry so routes can return a clean error before disk.
-pub const MAX_PROJECT_FILE_BYTES: usize = 20 * 1024 * 1024;
-
 /// Project instruction filename. This is intentionally fixed: project settings
 /// and system-prompt discovery must always operate on the same root file.
 pub const PROJECT_INSTRUCTIONS_FILE: &str = "AGENTS.md";
@@ -28,7 +24,11 @@ pub const PROJECT_INSTRUCTIONS_FILE: &str = "AGENTS.md";
 /// per-file injection cap, but allowing a few megabytes here remains convenient
 /// for real-world handbooks while preventing an accidental giant file from
 /// freezing the webview.
-const MAX_PROJECT_INSTRUCTIONS_BYTES: u64 = 5 * 1024 * 1024;
+fn max_project_instructions_bytes() -> u64 {
+    crate::config::cached_config()
+        .filesystem
+        .max_text_edit_bytes()
+}
 
 /// Contents and absolute location of a project's root `AGENTS.md`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -245,11 +245,12 @@ fn read_project_instructions_at_root(
         anyhow::bail!("project AGENTS.md is not a regular file");
     }
     let metadata = std::fs::metadata(&path).with_context(|| format!("stat {}", path.display()))?;
-    if metadata.len() > MAX_PROJECT_INSTRUCTIONS_BYTES {
+    let max_bytes = max_project_instructions_bytes();
+    if metadata.len() > max_bytes {
         anyhow::bail!(
             "AGENTS.md is too large to edit: {} bytes (max {} bytes)",
             metadata.len(),
-            MAX_PROJECT_INSTRUCTIONS_BYTES
+            max_bytes
         );
     }
     let content = std::fs::read_to_string(&path)
@@ -270,11 +271,12 @@ pub fn save_project_instructions(
     expected_file_hash: &str,
     db: &ProjectDB,
 ) -> Result<ProjectInstructionsFile> {
-    if content.len() as u64 > MAX_PROJECT_INSTRUCTIONS_BYTES {
+    let max_bytes = max_project_instructions_bytes();
+    if content.len() as u64 > max_bytes {
         anyhow::bail!(
             "AGENTS.md is too large to save: {} bytes (max {} bytes)",
             content.len(),
-            MAX_PROJECT_INSTRUCTIONS_BYTES
+            max_bytes
         );
     }
     let root = resolve_project_dir(project_id, db)?;
@@ -295,11 +297,12 @@ pub fn save_project_instructions(
     if !metadata.is_file() {
         anyhow::bail!("project AGENTS.md is not a regular file");
     }
-    if metadata.len() > MAX_PROJECT_INSTRUCTIONS_BYTES {
+    let max_bytes = max_project_instructions_bytes();
+    if metadata.len() > max_bytes {
         anyhow::bail!(
             "AGENTS.md is too large to save: {} bytes (max {} bytes)",
             metadata.len(),
-            MAX_PROJECT_INSTRUCTIONS_BYTES
+            max_bytes
         );
     }
     let current = std::fs::read(&path).with_context(|| format!("read {}", path.display()))?;

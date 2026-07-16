@@ -20,33 +20,22 @@ use super::file_serve::{
     apply_inline_media_headers, resolve_mime_for_path, safe_content_disposition, HeaderOpts,
     MimeOpts,
 };
-use super::helpers::parse_file_upload;
+use super::helpers::parse_file_upload_to_temp;
 use crate::error::AppError;
 use crate::AppContext;
 use ha_core::filesystem::{
-    self, ExtractedContent, FileSearchResponse, FileTextContent, FilesystemError, GitInfo,
-    RenameResult, UploadResult, WorkspaceListing, WorkspaceScope, WriteResult,
+    self, ExtractedContent, FileSearchResponse, FileTextContent, FileWriteOutcome, FilesystemError,
+    GitInfo, RenameResult, UploadResult, WorkspaceAccess, WorkspaceListing, WorkspaceScope,
+    WriteResult,
 };
 
 fn map_err(e: FilesystemError) -> AppError {
-    if e.is_bad_input() {
+    if e.is_forbidden() {
+        AppError::forbidden(e.message().to_string())
+    } else if e.is_bad_input() {
         AppError::bad_request(e.message().to_string())
     } else {
         AppError::internal(e.message().to_string())
-    }
-}
-
-/// Reject writes over HTTP unless the operator enabled remote writes.
-fn ensure_writes_allowed() -> Result<(), AppError> {
-    if ha_core::config::cached_config()
-        .filesystem
-        .allow_remote_writes
-    {
-        Ok(())
-    } else {
-        Err(AppError::forbidden(
-            "remote file writes are disabled; enable filesystem.allowRemoteWrites to allow them",
-        ))
     }
 }
 
@@ -69,10 +58,10 @@ fn parent_rel(rel: &str) -> String {
     }
 }
 
-fn emit_changed(ctx: &AppContext, scope: &str, scope_id: &str, dir: String) {
+fn emit_changed(ctx: &AppContext, scope: &str, scope_id: &str, dir: String, path: &str) {
     ctx.event_bus.emit(
         "project:fs_changed",
-        json!({ "scope": scope, "scopeId": scope_id, "dir": dir }),
+        json!({ "scope": scope, "scopeId": scope_id, "dir": dir, "path": path }),
     );
 }
 
@@ -100,6 +89,23 @@ pub async fn fs_list(Query(q): Query<ScopePathQuery>) -> Result<Json<WorkspaceLi
     })
     .await?;
     Ok(Json(res))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScopeQuery {
+    pub scope: String,
+    pub scope_id: String,
+}
+
+/// `GET /api/fs/capabilities?scope=&scopeId=`
+pub async fn fs_capabilities(
+    Query(q): Query<ScopeQuery>,
+) -> Result<Json<WorkspaceAccess>, AppError> {
+    let ScopeQuery { scope, scope_id } = q;
+    Ok(Json(
+        run(move || WorkspaceScope::access(&scope, &scope_id)).await?,
+    ))
 }
 
 /// `GET /api/fs/read?scope=&scopeId=&path=`
@@ -254,28 +260,38 @@ pub struct WriteTextBody {
     pub content: String,
     #[serde(default)]
     pub create_only: Option<bool>,
+    #[serde(default)]
+    pub expected_file_hash: Option<String>,
 }
 
 /// `PUT /api/fs/file`
 pub async fn fs_write(
     State(ctx): State<Arc<AppContext>>,
     Json(b): Json<WriteTextBody>,
-) -> Result<Json<WriteResult>, AppError> {
-    ensure_writes_allowed()?;
+) -> Result<Json<FileWriteOutcome>, AppError> {
     let WriteTextBody {
         scope,
         scope_id,
         path,
         content,
         create_only,
+        expected_file_hash,
     } = b;
     let (es, ei) = (scope.clone(), scope_id.clone());
     let res = run(move || {
-        let s = WorkspaceScope::resolve_writable(&scope, &scope_id)?;
-        filesystem::project_write_text(&s, &path, &content, create_only.unwrap_or(false))
+        let s = WorkspaceScope::resolve_effective_writable(&scope, &scope_id)?;
+        filesystem::project_write_text_checked(
+            &s,
+            &path,
+            &content,
+            create_only.unwrap_or(false),
+            expected_file_hash.as_deref(),
+        )
     })
     .await?;
-    emit_changed(&ctx, &es, &ei, parent_rel(&res.rel_path));
+    if let FileWriteOutcome::Saved { ref rel_path, .. } = res {
+        emit_changed(&ctx, &es, &ei, parent_rel(rel_path), rel_path);
+    }
     Ok(Json(res))
 }
 
@@ -294,7 +310,6 @@ pub async fn fs_delete(
     State(ctx): State<Arc<AppContext>>,
     Query(q): Query<DeleteQuery>,
 ) -> Result<Json<Value>, AppError> {
-    ensure_writes_allowed()?;
     let DeleteQuery {
         scope,
         scope_id,
@@ -303,12 +318,13 @@ pub async fn fs_delete(
     } = q;
     let (es, ei) = (scope.clone(), scope_id.clone());
     let dir = parent_rel(&path);
+    let changed_path = path.clone();
     run(move || {
-        let s = WorkspaceScope::resolve_writable(&scope, &scope_id)?;
+        let s = WorkspaceScope::resolve_effective_writable(&scope, &scope_id)?;
         filesystem::project_delete(&s, &path, recursive.unwrap_or(false))
     })
     .await?;
-    emit_changed(&ctx, &es, &ei, dir);
+    emit_changed(&ctx, &es, &ei, dir, &changed_path);
     Ok(Json(json!({ "deleted": true })))
 }
 
@@ -328,7 +344,6 @@ pub async fn fs_rename(
     State(ctx): State<Arc<AppContext>>,
     Json(b): Json<RenameBody>,
 ) -> Result<Json<RenameResult>, AppError> {
-    ensure_writes_allowed()?;
     let RenameBody {
         scope,
         scope_id,
@@ -338,13 +353,14 @@ pub async fn fs_rename(
     } = b;
     let (es, ei) = (scope.clone(), scope_id.clone());
     let from_dir = parent_rel(&from_path);
+    let changed_from_path = from_path.clone();
     let res = run(move || {
-        let s = WorkspaceScope::resolve_writable(&scope, &scope_id)?;
+        let s = WorkspaceScope::resolve_effective_writable(&scope, &scope_id)?;
         filesystem::project_rename(&s, &from_path, &to_path, overwrite.unwrap_or(false))
     })
     .await?;
-    emit_changed(&ctx, &es, &ei, from_dir);
-    emit_changed(&ctx, &es, &ei, parent_rel(&res.rel_path));
+    emit_changed(&ctx, &es, &ei, from_dir, &changed_from_path);
+    emit_changed(&ctx, &es, &ei, parent_rel(&res.rel_path), &res.rel_path);
     Ok(Json(res))
 }
 
@@ -361,7 +377,6 @@ pub async fn fs_mkdir(
     State(ctx): State<Arc<AppContext>>,
     Json(b): Json<MkdirBody>,
 ) -> Result<Json<WriteResult>, AppError> {
-    ensure_writes_allowed()?;
     let MkdirBody {
         scope,
         scope_id,
@@ -369,11 +384,11 @@ pub async fn fs_mkdir(
     } = b;
     let (es, ei) = (scope.clone(), scope_id.clone());
     let res = run(move || {
-        let s = WorkspaceScope::resolve_writable(&scope, &scope_id)?;
+        let s = WorkspaceScope::resolve_effective_writable(&scope, &scope_id)?;
         filesystem::project_mkdir(&s, &path)
     })
     .await?;
-    emit_changed(&ctx, &es, &ei, parent_rel(&res.rel_path));
+    emit_changed(&ctx, &es, &ei, parent_rel(&res.rel_path), &res.rel_path);
     Ok(Json(res))
 }
 
@@ -394,8 +409,6 @@ pub async fn fs_upload(
     Query(q): Query<UploadQuery>,
     multipart: Multipart,
 ) -> Result<Json<UploadResult>, AppError> {
-    ensure_writes_allowed()?;
-    let parsed = parse_file_upload(multipart).await?;
     let UploadQuery {
         scope,
         scope_id,
@@ -403,14 +416,77 @@ pub async fn fs_upload(
         overwrite,
     } = q;
     let (es, ei) = (scope.clone(), scope_id.clone());
+    // Reject disabled/readonly remote writes before consuming the upload body.
+    let resolved_scope =
+        run(move || WorkspaceScope::resolve_effective_writable(&scope, &scope_id)).await?;
+    let max_upload_bytes = ha_core::config::cached_config()
+        .filesystem
+        .max_workspace_upload_bytes()
+        .min(ha_core::filesystem::LEGACY_MAX_WORKSPACE_UPLOAD_BYTES)
+        as usize;
+    let parsed = parse_file_upload_to_temp(multipart, max_upload_bytes).await?;
     let dir = dir_path.unwrap_or_default();
     let file_name = parsed.file_name;
-    let data = parsed.file_data;
+    let file_path = parsed.file_path;
     let res = run(move || {
-        let s = WorkspaceScope::resolve_writable(&scope, &scope_id)?;
-        filesystem::project_upload(&s, &dir, &file_name, &data, overwrite.unwrap_or(false))
+        filesystem::project_upload_file(
+            &resolved_scope,
+            &dir,
+            &file_name,
+            file_path.as_ref(),
+            overwrite.unwrap_or(false),
+        )
     })
     .await?;
-    emit_changed(&ctx, &es, &ei, parent_rel(&res.rel_path));
+    emit_changed(&ctx, &es, &ei, parent_rel(&res.rel_path), &res.rel_path);
     Ok(Json(res))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClaimUploadBody {
+    pub scope: String,
+    pub scope_id: String,
+    #[serde(default)]
+    pub dir_path: String,
+    pub upload_id: String,
+    #[serde(default)]
+    pub file_name: Option<String>,
+    #[serde(default)]
+    pub overwrite: bool,
+}
+
+/// `POST /api/fs/upload-claim` — claim an opaque `workspace_upload` lease.
+pub async fn fs_claim_upload(
+    State(ctx): State<Arc<AppContext>>,
+    Json(body): Json<ClaimUploadBody>,
+) -> Result<Json<UploadResult>, AppError> {
+    let ClaimUploadBody {
+        scope,
+        scope_id,
+        dir_path,
+        upload_id,
+        file_name,
+        overwrite,
+    } = body;
+    let (event_scope, event_id) = (scope.clone(), scope_id.clone());
+    let result = run(move || {
+        let resolved = WorkspaceScope::resolve_effective_writable(&scope, &scope_id)?;
+        filesystem::project_claim_upload(
+            &resolved,
+            &dir_path,
+            &upload_id,
+            file_name.as_deref(),
+            overwrite,
+        )
+    })
+    .await?;
+    emit_changed(
+        &ctx,
+        &event_scope,
+        &event_id,
+        parent_rel(&result.rel_path),
+        &result.rel_path,
+    );
+    Ok(Json(result))
 }

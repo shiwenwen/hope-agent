@@ -1085,6 +1085,7 @@ pub async fn from_image(
             source: None,
             data: Some(b64),
             file_path: None,
+            upload_id: None,
             quote_lines: None,
             quote_role: None,
         }],
