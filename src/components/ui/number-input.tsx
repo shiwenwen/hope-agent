@@ -2,7 +2,7 @@ import * as React from "react"
 
 import { Input, type InputProps } from "@/components/ui/input"
 
-export type NumberInputProps = Omit<InputProps, "type">
+export type NumberInputProps = Omit<InputProps, "surface" | "type">
 
 /** Unified numeric input surface that preserves native number semantics. */
 const NumberInput = React.forwardRef<HTMLInputElement, NumberInputProps>((props, ref) => (

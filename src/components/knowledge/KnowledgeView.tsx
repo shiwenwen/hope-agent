@@ -2400,6 +2400,7 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
                       </span>
                     ) : null}
                     <Input
+                      surface="embedded"
                       value={draftTitle}
                       onChange={(e) => setDraftTitle(e.target.value)}
                       placeholder={t("knowledge.titlePlaceholder", "Untitled")}
@@ -2407,7 +2408,7 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
                       onKeyDown={(e) => {
                         if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) void saveDraft()
                       }}
-                      className="h-7 flex-1 border-0 bg-transparent px-1 text-sm font-medium shadow-none"
+                      className="h-7 flex-1 px-1 text-sm font-medium"
                     />
                     <ModeSwitch mode={mode} onChange={handleModeChange} compact={compactToolbar} />
                     <Button

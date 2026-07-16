@@ -37,7 +37,6 @@ export default function PersonalInfoSection({
         </div>
         <Input
           type="date"
-          className="bg-secondary/40 rounded-lg"
           value={config.birthday ?? ""}
           onChange={(e) => {
             update({ birthday: e.target.value || null })
@@ -76,7 +75,6 @@ export default function PersonalInfoSection({
           {t("settings.profileRole")}
         </div>
         <Input
-          className="bg-secondary/40 rounded-lg"
           {...textInputProps("role")}
           placeholder={t("settings.profileRolePlaceholder")}
         />
@@ -166,7 +164,7 @@ export default function PersonalInfoSection({
           {t("settings.profileCustomInfo")}
         </div>
         <Textarea
-          className="bg-secondary/40 rounded-lg resize-none leading-relaxed"
+          className="resize-none leading-relaxed"
           rows={5}
           {...textInputProps("customInfo")}
           placeholder={t("settings.profileCustomInfoPlaceholder")}

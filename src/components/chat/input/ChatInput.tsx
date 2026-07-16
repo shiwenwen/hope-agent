@@ -3,6 +3,8 @@ import type { ReactNode } from "react"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
 import { AnimatedCollapse, AnimatedPresenceBox } from "@/components/ui/animated-presence"
 import { FloatingMenu } from "@/components/ui/floating-menu"
 import {
@@ -2179,11 +2181,11 @@ export default function ChatInput({
                         </span>
                       </IconTip>
                       {isEditing ? (
-                        <input
+                        <Input
                           autoFocus
                           value={pendingEditValue}
                           disabled={pendingEditSaving}
-                          className="h-7 min-w-0 flex-1 rounded border border-border bg-background px-2 text-sm outline-none"
+                          className="h-7 min-w-0 flex-1 px-2 text-sm"
                           onChange={(event) => setPendingEditValue(event.target.value)}
                           onKeyDown={(event) => {
                             if (event.key === "Enter" && !event.shiftKey) {
@@ -2477,16 +2479,16 @@ export default function ChatInput({
 
               <AnimatedCollapse open={goalEditOpen}>
                 <div className="mt-2 space-y-2 rounded-lg border border-emerald-500/20 bg-background/65 p-2 text-foreground">
-                  <input
+                  <Input
                     value={goalEditObjective}
                     onChange={(event) => setGoalEditObjective(event.target.value)}
-                    className="h-8 w-full rounded-md border border-border/60 bg-background px-2 text-xs outline-none"
+                    className="h-8 px-2 text-xs"
                     placeholder={t("chat.goalMode.objectivePlaceholder", "目标")}
                   />
-                  <textarea
+                  <Textarea
                     value={goalEditCriteria}
                     onChange={(event) => setGoalEditCriteria(event.target.value)}
-                    className="min-h-16 w-full resize-y rounded-md border border-border/60 bg-background px-2 py-1.5 text-xs outline-none"
+                    className="min-h-16 resize-y px-2 py-1.5 text-xs"
                     placeholder={t(
                       "chat.goalMode.criteriaPlaceholder",
                       "完成标准；可用 [required] / [optional] / [follow-up]",

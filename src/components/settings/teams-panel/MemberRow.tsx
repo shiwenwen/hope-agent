@@ -96,7 +96,7 @@ export default function MemberRow({
             {t("settings.teamMemberName")}
           </Label>
           <Input
-            className="h-8 mt-1 bg-background"
+            className="mt-1 h-8"
             value={value.name}
             onChange={(e) => patch({ name: e.target.value })}
             placeholder="Frontend"
@@ -164,7 +164,7 @@ export default function MemberRow({
           {t("settings.teamMemberDescriptionHint")}
         </div>
         <Textarea
-          className="min-h-[60px] bg-background text-xs"
+          className="min-h-[60px] text-xs"
           value={value.description}
           onChange={(e) => patch({ description: e.target.value })}
           placeholder="You are the frontend specialist. Build React components with TypeScript…"
@@ -177,7 +177,7 @@ export default function MemberRow({
             {t("settings.teamMemberModelOverride")}
           </Label>
           <Input
-            className="h-8 mt-1 bg-background font-mono text-xs"
+            className="mt-1 h-8 font-mono text-xs"
             value={value.modelOverride ?? ""}
             onChange={(e) =>
               patch({ modelOverride: e.target.value.trim() || undefined })
@@ -190,7 +190,7 @@ export default function MemberRow({
             {t("settings.teamMemberDefaultTask")}
           </Label>
           <Textarea
-            className="min-h-[60px] mt-1 bg-background text-xs"
+            className="mt-1 min-h-[60px] text-xs"
             value={value.defaultTaskTemplate ?? ""}
             onChange={(e) =>
               patch({ defaultTaskTemplate: e.target.value || undefined })

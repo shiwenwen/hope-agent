@@ -293,7 +293,8 @@ export default function SessionItem({
               {renamingSessionId === session.id ? (
                 <Input
                   ref={renameInputRef}
-                  className="h-auto w-auto rounded-none border-0 border-b border-primary px-0 py-0 shadow-none flex-1 min-w-0 bg-transparent text-[13px] font-medium text-foreground outline-none"
+                  surface="embedded"
+                  className="h-auto w-auto min-w-0 flex-1 border-b border-primary px-0 py-0 text-[13px] font-medium"
                   value={renameValue}
                   onChange={(e) => onRenameValueChange(e.target.value)}
                   onBlur={onCommitRename}

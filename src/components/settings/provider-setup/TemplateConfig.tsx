@@ -170,7 +170,6 @@ export function TemplateConfig({
             <Input
               value={providerName}
               onChange={(e) => setProviderName(e.target.value)}
-              className="bg-background"
             />
           </div>
 
@@ -210,7 +209,7 @@ export function TemplateConfig({
                     ? selectedTemplate.apiKeyPlaceholder
                     : t("provider.leaveEmptyNoAuth")
                 }
-                className="bg-background font-mono text-xs pr-9"
+                className="pr-9 font-mono text-xs"
               />
               <Button
                 type="button"
@@ -236,7 +235,7 @@ export function TemplateConfig({
             <Input
               value={baseUrl}
               onChange={(e) => setBaseUrl(e.target.value)}
-              className="bg-background font-mono text-xs"
+              className="font-mono text-xs"
             />
           </div>
 

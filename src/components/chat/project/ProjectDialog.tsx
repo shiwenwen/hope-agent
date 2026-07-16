@@ -409,7 +409,7 @@ export default function ProjectDialog({
                 value={workingDir}
                 readOnly
                 placeholder={t("project.workingDir.placeholder")}
-                className="h-10 bg-background font-mono text-xs shadow-none"
+                className="h-10 font-mono text-xs"
               />
               <div className="flex flex-wrap items-center gap-2">
                 <Button

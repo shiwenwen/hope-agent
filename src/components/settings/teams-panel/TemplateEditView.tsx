@@ -273,7 +273,7 @@ export default function TemplateEditView({ templateId, onBack }: TemplateEditVie
                 {t("settings.teamTemplateName")}
               </Label>
               <Input
-                className="mt-1.5 bg-background"
+                className="mt-1.5"
                 value={template.name}
                 onChange={(e) => setTemplate((prev) => ({ ...prev, name: e.target.value }))}
                 placeholder="Full-Stack Feature"
@@ -284,7 +284,7 @@ export default function TemplateEditView({ templateId, onBack }: TemplateEditVie
                 {t("settings.teamTemplateId")}
               </Label>
               <Input
-                className="mt-1.5 bg-background font-mono text-xs"
+                className="mt-1.5 font-mono text-xs"
                 value={template.templateId}
                 onChange={(e) =>
                   setTemplate((prev) => ({
@@ -301,7 +301,7 @@ export default function TemplateEditView({ templateId, onBack }: TemplateEditVie
                 {t("settings.teamTemplateDesc")}
               </Label>
               <Textarea
-                className="mt-1.5 min-h-[70px] bg-background text-xs"
+                className="mt-1.5 min-h-[70px] text-xs"
                 value={template.description}
                 onChange={(e) => setTemplate((prev) => ({ ...prev, description: e.target.value }))}
                 placeholder={t("settings.teamTemplateDescHint")}

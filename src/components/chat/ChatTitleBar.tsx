@@ -517,7 +517,8 @@ export default function ChatTitleBar({
               <div className="flex items-center gap-1 min-w-0">
                 <Input
                   ref={titleInputRef}
-                  className="h-auto w-auto rounded-none border-0 border-b border-primary bg-transparent px-0 py-0 shadow-none text-sm text-foreground/80 outline-none min-w-[80px] max-w-[300px]"
+                  surface="embedded"
+                  className="h-auto w-auto min-w-[80px] max-w-[300px] border-b border-primary px-0 py-0 text-sm text-foreground/80"
                   value={titleValue}
                   onChange={(e) => setTitleValue(e.target.value)}
                   onBlur={commitTitle}

@@ -73,7 +73,7 @@ export function CommentPopover({
           onChange={(e) => setComment(e.target.value)}
           onKeyDown={handleKeyDown}
           placeholder={t("planMode.comment.placeholder")}
-          className="text-sm min-h-[48px] max-h-[120px] resize-none border-border/50"
+          className="min-h-[48px] max-h-[120px] resize-none text-sm"
           rows={2}
         />
         <div className="flex items-center justify-between">

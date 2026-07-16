@@ -13,6 +13,7 @@ import {
 } from "lucide-react"
 
 import { FloatingMenu, FLOATING_MENU_ITEM_CLASS } from "@/components/ui/floating-menu"
+import { SearchInput } from "@/components/ui/search-input"
 import { useClickOutside } from "@/hooks/useClickOutside"
 import { getTransport } from "@/lib/transport-provider"
 import type { GitBranchInfo, GitInfo } from "@/lib/transport"
@@ -265,13 +266,13 @@ export function ProjectSessionDraftBar({
             className="w-[300px] p-1.5"
             onEscapeKeyDown={() => setProjectOpen(false)}
           >
-            <div className="mb-1 flex items-center gap-2 rounded-md border border-border/60 px-2 py-1.5">
-              <Search className="h-4 w-4 text-muted-foreground" />
-              <input
+            <div className="relative mb-1">
+              <Search className="pointer-events-none absolute left-2.5 top-1/2 z-10 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <SearchInput
                 value={projectQuery}
                 onChange={(event) => setProjectQuery(event.target.value)}
                 placeholder={t("chat.projectRuntime.searchProjects", "搜索项目")}
-                className="min-w-0 flex-1 bg-transparent text-sm outline-none"
+                className="h-8 pl-8 text-sm"
               />
             </div>
             <button
@@ -376,13 +377,13 @@ export function ProjectSessionDraftBar({
               className="w-[360px] p-1.5"
               onEscapeKeyDown={() => setBranchOpen(false)}
             >
-              <div className="mb-1 flex items-center gap-2 rounded-md border border-border/60 px-2 py-1.5">
-                <Search className="h-4 w-4 text-muted-foreground" />
-                <input
+              <div className="relative mb-1">
+                <Search className="pointer-events-none absolute left-2.5 top-1/2 z-10 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <SearchInput
                   value={branchQuery}
                   onChange={(event) => setBranchQuery(event.target.value)}
                   placeholder={t("chat.projectRuntime.searchBranches", "搜索分支")}
-                  className="min-w-0 flex-1 bg-transparent text-sm outline-none"
+                  className="h-8 pl-8 text-sm"
                 />
               </div>
               <div className="max-h-72 overflow-y-auto">

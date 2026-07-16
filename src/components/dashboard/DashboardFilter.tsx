@@ -174,14 +174,14 @@ export default function DashboardFilter({
             type="date"
             value={customStart}
             onChange={(e) => setCustomStart(e.target.value)}
-            className="h-7 w-auto px-2 text-xs shadow-none"
+            className="h-7 w-auto px-2 text-xs"
           />
           <span className="text-xs text-muted-foreground">-</span>
           <Input
             type="date"
             value={customEnd}
             onChange={(e) => setCustomEnd(e.target.value)}
-            className="h-7 w-auto px-2 text-xs shadow-none"
+            className="h-7 w-auto px-2 text-xs"
           />
           <Button variant="secondary" size="sm" className="text-xs h-7" onClick={handleCustomApply}>
             {t("dashboard.filter.apply")}

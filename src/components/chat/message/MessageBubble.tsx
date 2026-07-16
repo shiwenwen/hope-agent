@@ -6,6 +6,7 @@ import { toast } from "sonner"
 import { cn } from "@/lib/utils"
 import { AnimatedCollapse } from "@/components/ui/animated-presence"
 import { FloatingMenu } from "@/components/ui/floating-menu"
+import { Textarea } from "@/components/ui/textarea"
 import { IconTip } from "@/components/ui/tooltip"
 import {
   Copy,
@@ -1287,7 +1288,7 @@ function ActiveMemoryTrace({
                           </div>
                         ) : (
                           <div className="space-y-1.5">
-                            <textarea
+                            <Textarea
                               value={quickEdit.draft}
                               disabled={quickEdit.status === "saving"}
                               onChange={(event) =>
@@ -1297,7 +1298,7 @@ function ActiveMemoryTrace({
                                     : current,
                                 )
                               }
-                              className="min-h-20 w-full resize-y rounded-md border border-border/70 bg-background px-2 py-1.5 text-[11px] leading-relaxed text-foreground outline-none disabled:opacity-70"
+                              className="min-h-20 resize-y px-2 py-1.5 text-[11px] leading-relaxed disabled:opacity-70"
                               placeholder={t(
                                 "chat.memoryTrace.quickEditPlaceholder",
                                 "Rewrite this memory...",

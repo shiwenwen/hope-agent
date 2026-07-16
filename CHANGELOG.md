@@ -39,7 +39,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Artifacts 跟随统一文件资源与上传契约**：Gallery、右侧预览面板和 Canvas 入口现在共用标准文件动作层，受管 HTML 在无公网依赖的沙箱中直接预览，并保留打开与下载操作；浏览器/远程客户端导入 Artifact 改走 `artifact_source` 分块租约，服务端在导入期间持久化独占 claim，成功后消费、失败后释放，避免同一上传被并发重放。Artifact 导入上限纳入文件设置，Tauri 与 HTTP 使用一致的能力、错误码和安全检查。
 - **Canvas 升级为 Artifacts 的离线预览兼容层**：Canvas renderer 移除 marked、highlight、Mermaid、Chart.js 和动态 html2canvas CDN；Markdown 在 Rust 中渲染，Mermaid/Chart 提供语义 fallback，所有模板使用离线 CSP 和原子写。Gallery 与右侧 Canvas 共用 `ArtifactViewer`，受管 Artifact 只能通过带 `expected_version` 的新控制面更新，避免旧 Canvas mutation 绕过 hash、证据和并发保护。
 - **数据分析阅读器升级为决策导向的丰富报告**：结构化 Analysis Artifact 不再退化为普通 Markdown，而是确定性生成结论摘要、关键发现卡片、静态 bar/SVG line 图、建议与限制、精选数据表、指标口径、质量/claim 校验和来源审计；支持窄屏、深色、打印与无脚本阅读，数值单位只按显式语义格式化，宽表只在局部横向滚动。
-- **全局焦点反馈与表单控件视觉统一**：鼠标或触摸操作不再出现突兀的深色焦点框，键盘导航保留轻量系统蓝提示，并新增可手动开启的增强焦点模式（也可通过对话式设置读取和修改）；系统高对比度与强制色模式会自动优先。搜索框、普通 / 模型选择器和数字输入同步改为更扁平克制的统一表面，菜单、悬浮弹层与 Tooltip 共用同一套视觉、动效和无障碍规范。
+- **全局焦点反馈与表单控件视觉统一**：鼠标或触摸操作不再出现突兀的深色焦点框，键盘导航保留轻量系统蓝提示，并新增可手动开启的增强焦点模式（也可通过对话式设置读取和修改）；系统高对比度与强制色模式会自动优先。搜索框、普通输入框、多行文本框、普通 / 模型选择器和数字输入同步改为更扁平克制的统一表面，菜单、悬浮弹层与 Tooltip 共用同一套视觉、动效和无障碍规范。
 - **自动动态记忆召回改为明确 opt-in**：默认会话只自动使用有界 Core Memory，不查询 SQLite / Claims / Profile / Procedure / Graph，但模型仍可按任务需要调用记忆工具。用户显式开启后先运行零额外 LLM 的确定性 Fast Recall；会增加延迟与 token 的 Deep Recall 独立默认关闭，只对 Fast shortlist 做有界 rerank，失败回退 Fast 结果。召回不再维护“寒暄 / 感谢 / 继续”等语言短句门控，无检索证据时注入 0 条；旧 Agent 已开启配置仅在兼容期为该 Agent 保留，不迁移成全局同意。设置页同步简化预算与开关说明，明确学习、Core、自动召回和 Deep Recall 彼此独立。
 - **对话输入区浮层交互统一**：「+」菜单、权限与沙箱设置统一采用模型选择器的浮层样式、背景和出入动画；沙箱设置整合进权限弹层并默认折叠。二级菜单优先显示在右侧，空间不足时切到左侧，最后才回退到上方或下方；图标与截断文本的悬停提示也统一使用同一套 Tooltip。
 
