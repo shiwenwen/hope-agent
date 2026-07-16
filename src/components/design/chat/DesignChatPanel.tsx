@@ -743,6 +743,7 @@ export const DesignChatPanel = forwardRef<DesignChatPanelHandle, Props>(function
           onModelChange={session.handleModelChange}
           onEffortChange={session.handleEffortChange}
           attachedFiles={stream.attachedFiles}
+          maxAttachmentBytes={stream.maxChatAttachmentBytes}
           onAttachFiles={(files) => stream.setAttachedFiles((prev) => [...prev, ...files])}
           onRemoveFile={(i) =>
             stream.setAttachedFiles((prev) => prev.filter((_, idx) => idx !== i))
