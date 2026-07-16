@@ -122,7 +122,7 @@ function SortableProviderCard({
       style={style}
       className={`border rounded-xl p-3.5 transition-colors cursor-pointer ${
         provider.enabled
-          ? "border-border bg-card hover:border-primary/30 hover:bg-card/80"
+          ? "border-border bg-card hover:bg-secondary/40"
           : "border-border/50 bg-card/50 opacity-60 hover:opacity-80"
       }`}
       onClick={() => onEditProvider(provider)}

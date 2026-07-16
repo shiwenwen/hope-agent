@@ -149,7 +149,7 @@ function Heatmap({
               <Tooltip key={h}>
                 <TooltipTrigger asChild>
                   <div
-                    className="relative flex-1 aspect-square rounded-sm border border-border/30 transition-transform hover:scale-110 hover:z-10"
+                    className="relative flex-1 aspect-square rounded-sm border border-border/30 transition-[filter] hover:brightness-90"
                     style={{ backgroundColor: cellColor(v) }}
                   />
                 </TooltipTrigger>

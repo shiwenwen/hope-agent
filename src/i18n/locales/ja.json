@@ -2975,6 +2975,7 @@
     },
     "openInSession": "所属セッションへ移動",
     "refresh": "更新",
+    "resizeList": "Plan リストの幅を調整",
     "selectHint": "左側で Plan を選択してください。",
     "sessionDeleted": "所属セッションは削除されました",
     "title": "Plan 履歴",

@@ -183,7 +183,7 @@ function ColorRow({
               aria-label={c}
               data-ha-title-tip={c}
               onClick={() => commit(c)}
-              className="h-4 w-4 rounded border border-border/60 transition-transform hover:scale-110"
+              className="h-4 w-4 rounded border border-border/60 transition-[filter] hover:brightness-90"
               style={{ backgroundColor: c }}
             />
           ))}

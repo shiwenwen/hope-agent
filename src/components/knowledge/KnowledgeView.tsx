@@ -61,6 +61,7 @@ import {
 import { Input } from "@/components/ui/input"
 import { SearchInput } from "@/components/ui/search-input"
 import { FloatingMenu } from "@/components/ui/floating-menu"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   Select,
   SelectContent,
@@ -1958,9 +1959,19 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
     <div className="flex flex-1 min-h-0 min-w-0 flex-col bg-background">
       {/* Header */}
       <div
-        className="flex items-center gap-2 border-b border-border-soft/60 px-3 py-2"
+        className="flex h-10 shrink-0 items-center gap-2 border-b border-border-soft/60 px-3"
         data-tauri-drag-region
       >
+        <IconTip label={t("common.back", "Back")} side="bottom">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
+            onClick={() => guardNavigation(onBack)}
+          >
+            <ArrowLeft className="h-4 w-4" />
+          </Button>
+        </IconTip>
         <IconTip
           label={
             leftCollapsed
@@ -1986,16 +1997,6 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
             ) : (
               <PanelLeft className="h-4 w-4" />
             )}
-          </Button>
-        </IconTip>
-        <IconTip label={t("common.back", "Back")} side="bottom">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8"
-            onClick={() => guardNavigation(onBack)}
-          >
-            <ArrowLeft className="h-4 w-4" />
           </Button>
         </IconTip>
         <Library className="h-4 w-4 text-primary" />
@@ -2042,7 +2043,7 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
             <Button
               variant="ghost"
               size="icon"
-              className={cn("h-7 w-7", graphMode && "bg-primary/15 text-primary")}
+              className={cn("h-7 w-7", graphMode && "bg-secondary/70 text-foreground")}
               disabled={!activeKbId}
               onClick={() => setGraphMode((g) => !g)}
             >
@@ -2162,7 +2163,7 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
                         }
                         className={cn(
                           "flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs hover:bg-muted/50",
-                          kb.id === activeKbId && "bg-primary/10 text-primary",
+                          kb.id === activeKbId && "bg-secondary/70 text-foreground",
                           kb.archived && "opacity-60",
                         )}
                       >
@@ -2649,7 +2650,11 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
               className={cn("relative h-full min-w-0", !isResizingRight && PANE_WIDTH_TRANSITION)}
             >
               <div className="h-full overflow-hidden">
-                <div
+                <Tabs
+                  value={rightMode}
+                  onValueChange={(value) => {
+                    if (value === "chat" || value === "links") setRightMode(value)
+                  }}
                   // `width` is the preferred size; `maxWidth: 100%` lets the content
                   // reflow/compress when the row can't grant the full pane width
                   // (narrow window) instead of being hard-clipped by the overflow.
@@ -2669,14 +2674,13 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
                       : "translate-x-0 opacity-100",
                   )}
                 >
-                  <RightPanelTabs mode={rightMode} onChange={setRightMode} />
+                  <RightPanelTabs />
                   {/* Chat panel stays mounted (so its imperative ref is always ready for
               "add to chat") but only loads when actually shown. */}
-                  <div
-                    className={cn(
-                      "min-h-0 min-w-0 flex-1",
-                      rightMode === "chat" ? "flex flex-col" : "hidden",
-                    )}
+                  <TabsContent
+                    value="chat"
+                    forceMount
+                    className="mt-0 min-h-0 min-w-0 flex-1 data-[state=inactive]:hidden"
                   >
                     <KnowledgeChatPanel
                       ref={chatPanelRef}
@@ -2687,12 +2691,11 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
                       editorRevision={editorRevision}
                       onJumpToQuote={jumpToQuoteInEditor}
                     />
-                  </div>
-                  <div
-                    className={cn(
-                      "min-h-0 min-w-0 flex-1",
-                      rightMode === "chat" ? "hidden" : "flex flex-col",
-                    )}
+                  </TabsContent>
+                  <TabsContent
+                    value="links"
+                    forceMount
+                    className="mt-0 min-h-0 min-w-0 flex-1 data-[state=inactive]:hidden"
                   >
                     {hits.length > 0 ? (
                       <>
@@ -2845,8 +2848,8 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
                         {t("knowledge.backlinksHint", "Open a note to see its backlinks.")}
                       </div>
                     )}
-                  </div>
-                </div>
+                  </TabsContent>
+                </Tabs>
               </div>
               <div
                 className={cn(
@@ -3446,13 +3449,7 @@ function firstHeading(md: string): string | null {
   return m ? m[1].trim() : null
 }
 
-function RightPanelTabs({
-  mode,
-  onChange,
-}: {
-  mode: "links" | "chat"
-  onChange: (m: "links" | "chat") => void
-}) {
+function RightPanelTabs() {
   const { t } = useTranslation()
   const tabs: { key: "links" | "chat"; label: string }[] = [
     { key: "chat", label: t("knowledge.chatPanel.tab", "AI Agent") },
@@ -3460,22 +3457,17 @@ function RightPanelTabs({
   ]
   return (
     <div className="flex shrink-0 border-b border-border-soft/60 px-1.5 py-1">
-      <div className="flex w-full overflow-hidden rounded-md border border-border-soft/60">
+      <TabsList className="grid h-8 w-full grid-cols-2 p-0.5">
         {tabs.map((tab) => (
-          <button
+          <TabsTrigger
             key={tab.key}
-            onClick={() => onChange(tab.key)}
-            className={cn(
-              "min-w-0 flex-1 truncate px-2 py-1 text-[11px] font-medium transition-colors",
-              mode === tab.key
-                ? "bg-primary/10 text-primary"
-                : "text-muted-foreground hover:bg-muted/50",
-            )}
+            value={tab.key}
+            className="h-7 min-w-0 px-2 py-1 text-[11px]"
           >
-            {tab.label}
-          </button>
+            <span className="truncate">{tab.label}</span>
+          </TabsTrigger>
         ))}
-      </div>
+      </TabsList>
     </div>
   )
 }
@@ -3553,7 +3545,9 @@ function ModeSwitch({
           onClick={() => onChange(m)}
           className={cn(
             "whitespace-nowrap px-2 py-0.5 text-[11px]",
-            mode === m ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted/50",
+            mode === m
+              ? "bg-secondary/70 text-foreground"
+              : "text-muted-foreground hover:bg-secondary/40",
           )}
         >
           {t(`knowledge.mode.${m}`, m)}
@@ -3581,4 +3575,3 @@ function BacklinksSection({
     </div>
   )
 }
-

@@ -1763,7 +1763,7 @@ function ManagedWorktreesMiniPanel({
                 key={worktree.id}
                 className={cn(
                   "flex min-w-0 items-center gap-1.5 rounded-md px-1.5 py-1 text-[10px]",
-                  isActive ? "bg-primary/10" : "bg-background/35",
+                  isActive ? "bg-secondary/70" : "bg-background/35",
                 )}
                 data-ha-title-tip={worktree.path}
               >
@@ -2203,7 +2203,7 @@ function ContextCandidateActions({
             e.stopPropagation()
             onAction(candidate, "review")
           }}
-          className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border/50 bg-background/65 text-muted-foreground transition-colors hover:border-primary/45 hover:text-foreground disabled:opacity-45"
+          className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border/50 bg-background/65 text-muted-foreground transition-colors hover:bg-secondary/40 hover:text-foreground disabled:opacity-45"
           aria-label={t("workspace.context.focusReview", "聚焦审查")}
         >
           {actionKey === reviewKey ? (
@@ -2221,7 +2221,7 @@ function ContextCandidateActions({
             e.stopPropagation()
             onAction(candidate, "verify")
           }}
-          className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border/50 bg-background/65 text-muted-foreground transition-colors hover:border-primary/45 hover:text-foreground disabled:opacity-45"
+          className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border/50 bg-background/65 text-muted-foreground transition-colors hover:bg-secondary/40 hover:text-foreground disabled:opacity-45"
           aria-label={t("workspace.context.focusVerify", "聚焦验证")}
         >
           {actionKey === verifyKey ? (
@@ -2565,7 +2565,7 @@ function DomainContextActionChips({
         <button
           type="button"
           onClick={copyCitation}
-          className="inline-flex h-5 items-center gap-1 rounded border border-border/50 bg-background/55 px-1.5 text-[10px] text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"
+          className="inline-flex h-5 items-center gap-1 rounded border border-border/50 bg-background/55 px-1.5 text-[10px] text-muted-foreground transition-colors hover:bg-secondary/40 hover:text-foreground"
         >
           <Copy className="h-3 w-3" />
           <span>{t("workspace.context.actionCite", "引用")}</span>
@@ -2579,7 +2579,7 @@ function DomainContextActionChips({
             event.stopPropagation()
             onSummarize?.(candidate)
           }}
-          className="inline-flex h-5 items-center gap-1 rounded border border-border/50 bg-background/55 px-1.5 text-[10px] text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-45"
+          className="inline-flex h-5 items-center gap-1 rounded border border-border/50 bg-background/55 px-1.5 text-[10px] text-muted-foreground transition-colors hover:bg-secondary/40 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-45"
         >
           {summaryBusy ? (
             <Loader2 className="h-3 w-3 animate-spin" />
@@ -2597,7 +2597,7 @@ function DomainContextActionChips({
             event.stopPropagation()
             onAskUser?.(candidate)
           }}
-          className="inline-flex h-5 items-center gap-1 rounded border border-border/50 bg-background/55 px-1.5 text-[10px] text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-45"
+          className="inline-flex h-5 items-center gap-1 rounded border border-border/50 bg-background/55 px-1.5 text-[10px] text-muted-foreground transition-colors hover:bg-secondary/40 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-45"
         >
           {askBusy ? (
             <Loader2 className="h-3 w-3 animate-spin" />
@@ -2615,7 +2615,7 @@ function DomainContextActionChips({
             event.stopPropagation()
             onAddEvidence?.(candidate)
           }}
-          className="inline-flex h-5 items-center gap-1 rounded border border-border/50 bg-background/55 px-1.5 text-[10px] text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-45"
+          className="inline-flex h-5 items-center gap-1 rounded border border-border/50 bg-background/55 px-1.5 text-[10px] text-muted-foreground transition-colors hover:bg-secondary/40 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-45"
         >
           {evidenceBusy ? (
             <Loader2 className="h-3 w-3 animate-spin" />
@@ -2633,7 +2633,7 @@ function DomainContextActionChips({
             event.stopPropagation()
             onMarkConflict?.(candidate)
           }}
-          className="inline-flex h-5 items-center gap-1 rounded border border-border/50 bg-background/55 px-1.5 text-[10px] text-muted-foreground transition-colors hover:border-amber-500/50 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-45"
+          className="inline-flex h-5 items-center gap-1 rounded border border-border/50 bg-background/55 px-1.5 text-[10px] text-muted-foreground transition-colors hover:bg-amber-500/10 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-45"
         >
           {conflictBusy ? (
             <Loader2 className="h-3 w-3 animate-spin" />
@@ -2651,7 +2651,7 @@ function DomainContextActionChips({
             event.stopPropagation()
             onCreateTask?.(candidate)
           }}
-          className="inline-flex h-5 items-center gap-1 rounded border border-border/50 bg-background/55 px-1.5 text-[10px] text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-45"
+          className="inline-flex h-5 items-center gap-1 rounded border border-border/50 bg-background/55 px-1.5 text-[10px] text-muted-foreground transition-colors hover:bg-secondary/40 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-45"
         >
           {taskBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />}
           <span>{t("workspace.context.actionTask", "转任务")}</span>
@@ -7136,7 +7136,7 @@ function ReviewSection({
                 className={cn(
                   "h-7 min-w-0 rounded-md border px-1.5 text-[10px] font-medium transition-colors disabled:opacity-55",
                   active
-                    ? "border-primary/40 bg-primary/10 text-primary"
+                    ? "border-border/50 bg-secondary/70 text-foreground"
                     : "border-border/50 bg-secondary/20 text-muted-foreground hover:bg-secondary/45 hover:text-foreground",
                 )}
               >
@@ -16681,7 +16681,7 @@ ${repairPrompt}`
                 type="button"
                 className={cn(
                   "inline-flex h-6 w-6 items-center justify-center rounded-md border border-border/50 text-muted-foreground transition-colors hover:bg-secondary/65 hover:text-foreground disabled:opacity-50",
-                  action.danger && "hover:border-destructive/50 hover:text-destructive",
+                  action.danger && "hover:bg-destructive/10 hover:text-destructive",
                 )}
                 disabled={!!actionKey}
                 onClick={(e) => {
@@ -17796,7 +17796,7 @@ function WorkflowCreateComposer({
                     className={cn(
                       "flex min-h-8 min-w-0 items-center gap-1.5 rounded-md border px-2 text-left text-[11px] transition-colors disabled:opacity-60",
                       selected
-                        ? "border-primary/55 bg-primary/10 text-foreground"
+                        ? "border-border/45 bg-secondary/70 text-foreground"
                         : "border-border/45 bg-background/35 text-muted-foreground hover:bg-secondary/55 hover:text-foreground",
                     )}
                     disabled={saving || previewLoading}
@@ -17825,7 +17825,7 @@ function WorkflowCreateComposer({
                 className={cn(
                   "flex min-h-8 min-w-0 items-center gap-1.5 rounded-md border px-2 text-left text-[11px] transition-colors disabled:opacity-60",
                   worktreeMode === "session"
-                    ? "border-primary/55 bg-primary/10 text-foreground"
+                    ? "border-border/45 bg-secondary/70 text-foreground"
                     : "border-border/45 bg-background/35 text-muted-foreground hover:bg-secondary/55 hover:text-foreground",
                 )}
                 disabled={saving || previewLoading}
@@ -17842,7 +17842,7 @@ function WorkflowCreateComposer({
                 className={cn(
                   "flex min-h-8 min-w-0 items-center gap-1.5 rounded-md border px-2 text-left text-[11px] transition-colors disabled:opacity-60",
                   worktreeMode === "new"
-                    ? "border-primary/55 bg-primary/10 text-foreground"
+                    ? "border-border/45 bg-secondary/70 text-foreground"
                     : "border-border/45 bg-background/35 text-muted-foreground hover:bg-secondary/55 hover:text-foreground",
                 )}
                 disabled={saving || previewLoading || !workspaceReady}
@@ -17864,7 +17864,7 @@ function WorkflowCreateComposer({
                     className={cn(
                       "flex min-h-8 min-w-0 items-center gap-1.5 rounded-md border px-2 text-left text-[11px] transition-colors disabled:opacity-60",
                       worktreeMode === worktree.id
-                        ? "border-primary/55 bg-primary/10 text-foreground"
+                        ? "border-border/45 bg-secondary/70 text-foreground"
                         : "border-border/45 bg-background/35 text-muted-foreground hover:bg-secondary/55 hover:text-foreground",
                     )}
                     disabled={saving || previewLoading}
@@ -18294,7 +18294,7 @@ function WorkflowAutonomyModeControl({
               className={cn(
                 "min-h-12 rounded-md border px-2 py-1.5 text-left transition-colors disabled:opacity-60",
                 selected
-                  ? "border-primary/55 bg-primary/10 text-foreground"
+                  ? "border-border/45 bg-secondary/70 text-foreground"
                   : "border-border/45 bg-background/35 text-muted-foreground hover:bg-secondary/55 hover:text-foreground",
               )}
               disabled={busy}
@@ -18363,7 +18363,7 @@ function WorkflowExecutionModeControl({
               className={cn(
                 "min-h-12 rounded-md border px-2 py-1.5 text-left transition-colors disabled:opacity-60",
                 selected
-                  ? "border-primary/55 bg-primary/10 text-foreground"
+                  ? "border-border/45 bg-secondary/70 text-foreground"
                   : "border-border/45 bg-background/35 text-muted-foreground hover:bg-secondary/55 hover:text-foreground",
               )}
               disabled={busy}

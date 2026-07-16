@@ -1,5 +1,6 @@
 import { useTranslation } from "react-i18next"
 import { Input } from "@/components/ui/input"
+import { RadioPills } from "@/components/ui/radio-pills"
 import {
   Select,
   SelectContent,
@@ -49,25 +50,17 @@ export default function CronExpressionBuilder({
         <label className="text-xs font-medium text-muted-foreground mb-1.5 block">
           {t("cron.frequency")}
         </label>
-        <div className="flex flex-wrap gap-1.5">
-          {(["hourly", "daily", "weekly", "monthly", "custom"] as CronFrequency[]).map(
-            (f) => (
-              <button
-                key={f}
-                type="button"
-                className={cn(
-                  "px-3 py-1 rounded-full text-xs font-medium transition-colors",
-                  cronFreq === f
-                    ? "bg-primary text-primary-foreground"
-                    : "bg-secondary text-secondary-foreground hover:bg-secondary/80",
-                )}
-                onClick={() => setCronFreq(f)}
-              >
-                {t(`cron.freq_${f}`)}
-              </button>
-            ),
+        <RadioPills<CronFrequency>
+          value={cronFreq}
+          onChange={setCronFreq}
+          variant="strong"
+          layout="wrap"
+          itemClassName="px-3 py-1"
+          ariaLabel={t("cron.frequency")}
+          options={(["hourly", "daily", "weekly", "monthly", "custom"] as CronFrequency[]).map(
+            (f) => ({ value: f, label: t(`cron.freq_${f}`) }),
           )}
-        </div>
+        />
       </div>
 
       {/* Hourly: at minute */}
@@ -133,7 +126,7 @@ export default function CronExpressionBuilder({
                 className={cn(
                   "flex-1 py-1.5 rounded-md text-xs font-medium transition-colors",
                   cronWeekdays[i]
-                    ? "bg-primary text-primary-foreground"
+                    ? "bg-secondary/70 text-foreground"
                     : "bg-secondary text-secondary-foreground hover:bg-secondary/80",
                 )}
                 onClick={() => toggleWeekday(i)}

@@ -2975,6 +2975,7 @@
     },
     "openInSession": "Abrir en la sesión",
     "refresh": "Actualizar",
+    "resizeList": "Ajustar el ancho de la lista de planes",
     "selectHint": "Selecciona un Plan a la izquierda para ver el contenido.",
     "sessionDeleted": "Sesión propietaria eliminada",
     "title": "Planes",

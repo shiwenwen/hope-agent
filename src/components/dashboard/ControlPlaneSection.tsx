@@ -596,7 +596,7 @@ function AttentionList({
             <button
               key={`${item.kind}:${item.id}`}
               type="button"
-              className="flex w-full items-start gap-2 rounded-lg border border-transparent p-2 text-left hover:border-border hover:bg-muted/50"
+              className="flex w-full items-start gap-2 rounded-lg p-2 text-left hover:bg-secondary/40"
               onClick={() => onOpen?.(item)}
             >
               <AlertTriangle

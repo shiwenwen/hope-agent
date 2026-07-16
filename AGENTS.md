@@ -121,15 +121,23 @@ ha-core 主要领域：`agent/` `chat_engine/` `context_compact/` `memory/` `kno
 - **扁平表面单一来源**：`Input`、`Textarea`、选择类控件和数字框必须复用
   `FLAT_CONTROL_SURFACE_CLASS`；搜索框使用 `SearchInput` 的无边框表面。业务侧只覆盖尺寸、
   布局与排版，禁止恢复 `shadow-sm`、深色边框或复制背景/边框/圆角整套 class。只有视觉边界
-  由外壳承担的已登记复合控件可用 `surface="embedded"`，禁止手动覆盖默认表面的部分状态。
+  由外壳承担的已登记复合控件可用 `surface="embedded"`，禁止手动覆盖默认表面的部分状态；
+  普通 hover / selected / open 只加深背景，不得新增或加深边框、ring、shadow。
 - **焦点与高对比度**：组件不得自行添加 `focus:ring-*` / `focus:border-*`；Pointer、Keyboard、
   enhanced、`prefers-contrast` 和 `forced-colors` 全部服从全局焦点协议。强制色模式必须保留
   系统边框，不能只靠半透明背景表达控件边界。
 - **工具栏例外**：聊天输入区的模型/权限入口、设计空间首页生成器 prompt dock 内的模型入口
   属于 ghost action，可保持无边框紧凑按钮；设置页全尺寸字段不得借此绕过表单控件标准。
+- **空间标题栏统一**：知识空间、设计空间、产物库、仪表盘、Plan、定时任务等一级工作区使用
+  `h-10` 单行标题栏；返回按钮最左，存在侧栏开关时紧随其后；副标题同行截断，不得撑高标题栏。
+- **Tab 选中态例外**：公共 `TabsList` 内的 `TabsTrigger` 选中使用 `bg-background` + 轻阴影，
+  不能改成与 `bg-muted` 容器接近的普通灰色选中；无外壳线型 Tab 可保留持久选中底线。Tab
+  hover 仍不得改变边框。
 - **列表条目状态统一**：普通列表行默认 hover 使用 `bg-secondary/40`，持久选中使用
   `bg-secondary/70` + 正常前景色；禁止用 `bg-primary/*` 或 `text-primary` 表达普通选中。
-  错误、警告、未读、拖拽落点等明确语义状态可保留各自强调色，但不得污染常规 hover/selected。
+  错误、警告、未读、拖拽落点等明确语义状态可保留各自强调色，但不得污染常规 hover/selected；
+  强互斥分类标签统一使用 `RadioPills variant="strong"`（选中 `bg-primary` + 反白前景，仍无
+  选中边框），只用于“并列标签中确定一个值”；Tab、视图切换、权限等级和多选筛选不得套用。
 
 ### 分层 & 运行模式
 

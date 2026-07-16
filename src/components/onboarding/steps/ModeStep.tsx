@@ -120,8 +120,8 @@ export function ModeStep({
           onClick={() => onChange({ mode: "local" })}
           className={`text-left p-5 rounded-xl border transition-colors ${
             mode === "local"
-              ? "border-primary bg-primary/5"
-              : "border-border hover:border-foreground/30"
+              ? "border-border bg-secondary/70"
+              : "border-border hover:bg-secondary/40"
           }`}
         >
           <div className="flex items-center gap-3 mb-2">
@@ -140,8 +140,8 @@ export function ModeStep({
           onClick={() => onChange({ mode: "remote" })}
           className={`text-left p-5 rounded-xl border transition-colors ${
             mode === "remote"
-              ? "border-primary bg-primary/5"
-              : "border-border hover:border-foreground/30"
+              ? "border-border bg-secondary/70"
+              : "border-border hover:bg-secondary/40"
           }`}
         >
           <div className="flex items-center gap-3 mb-2">

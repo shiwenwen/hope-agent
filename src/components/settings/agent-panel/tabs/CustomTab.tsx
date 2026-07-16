@@ -114,10 +114,10 @@ export default function CustomTab({
                 variant="ghost"
                 size="sm"
                 className={cn(
-                  "h-auto rounded-t-md rounded-b-none px-2.5 py-1.5 text-xs font-normal -mb-px",
+                  "-mb-px h-auto rounded-md px-2.5 py-1.5 text-xs font-normal",
                   activeFile === tab.id
-                    ? "text-primary border-b-2 border-primary font-medium hover:bg-transparent hover:text-primary"
-                    : "text-muted-foreground hover:bg-transparent hover:text-foreground",
+                    ? "bg-secondary/70 font-medium text-foreground hover:bg-secondary/70 hover:text-foreground"
+                    : "text-muted-foreground hover:bg-secondary/40 hover:text-foreground",
                 )}
                 onClick={() => setActiveFile(tab.id)}
               >

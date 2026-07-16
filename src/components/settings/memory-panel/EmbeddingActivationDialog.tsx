@@ -102,15 +102,12 @@ export default function EmbeddingActivationDialog({
                   className={cn(
                     "flex w-full items-start gap-3 rounded-lg border px-3 py-2.5 text-left transition-colors",
                     active
-                      ? "border-primary bg-primary/10 text-foreground"
-                      : "border-border hover:bg-secondary",
+                      ? "border-border bg-secondary/70 text-foreground"
+                      : "border-border hover:bg-secondary/40",
                   )}
                 >
                   <Brain
-                    className={cn(
-                      "mt-0.5 h-4 w-4 shrink-0",
-                      active ? "text-primary" : "text-muted-foreground",
-                    )}
+                    className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground"
                   />
                   <div className="min-w-0 flex-1">
                     <div className="text-sm font-medium">{model.name}</div>

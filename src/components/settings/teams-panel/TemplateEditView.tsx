@@ -348,9 +348,9 @@ export default function TemplateEditView({ templateId, onBack }: TemplateEditVie
             disabled={saving || !isDirty}
             className={
               saveStatus === "saved"
-                ? "bg-green-500/10 text-green-600 hover:bg-green-500/15 border border-green-500/30"
+                ? "bg-green-500/10 text-green-600 hover:bg-green-500/15"
                 : saveStatus === "failed"
-                  ? "bg-red-500/10 text-red-600 hover:bg-red-500/15 border border-red-500/30"
+                  ? "bg-red-500/10 text-red-600 hover:bg-red-500/15"
                   : ""
             }
           >

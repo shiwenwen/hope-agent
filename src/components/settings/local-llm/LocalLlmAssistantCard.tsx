@@ -569,8 +569,8 @@ export default function LocalLlmAssistantCard({
                       className={cn(
                         "h-auto w-full justify-between gap-2 rounded-md px-2 py-1.5 text-[11px] font-normal",
                         isChosen
-                          ? "bg-primary/10 text-foreground hover:bg-primary/15 hover:text-foreground"
-                          : "text-muted-foreground hover:bg-secondary",
+                          ? "bg-secondary/70 text-foreground hover:bg-secondary/70"
+                          : "text-muted-foreground hover:bg-secondary/40",
                       )}
                     >
                       <span className="truncate">{c.displayName}</span>

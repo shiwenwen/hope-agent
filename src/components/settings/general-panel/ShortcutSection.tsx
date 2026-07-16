@@ -222,7 +222,7 @@ export default function ShortcutSection() {
               className={cn(
                 "h-auto px-3 py-1.5 text-sm font-mono min-w-[120px]",
                 recordingId === binding.id
-                  ? "border-primary bg-primary/10 text-primary animate-pulse hover:bg-primary/15 hover:text-primary"
+                  ? "animate-pulse bg-secondary/70 text-foreground hover:bg-secondary/70 hover:text-foreground"
                   : "bg-secondary/40 hover:bg-secondary/80",
                 !binding.enabled && "opacity-40",
               )}

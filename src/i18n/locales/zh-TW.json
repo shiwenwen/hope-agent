@@ -2975,6 +2975,7 @@
     },
     "openInSession": "前往所屬會話",
     "refresh": "重新整理",
+    "resizeList": "調整 Plan 清單寬度",
     "selectHint": "請在左側選擇一個 Plan 以檢視內容。",
     "sessionDeleted": "所屬會話已刪除",
     "title": "Plan 歷史",

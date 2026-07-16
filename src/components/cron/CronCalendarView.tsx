@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { SearchInput } from "@/components/ui/search-input"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { IconTip } from "@/components/ui/tooltip"
 import {
   Select,
@@ -22,6 +23,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import {
+  ArrowLeft,
   ChevronLeft,
   ChevronRight,
   Plus,
@@ -80,6 +82,7 @@ interface CronCalendarViewProps {
 }
 
 export default function CronCalendarView({
+  onBack,
   defaultProjectId,
   onOpenSettings,
 }: CronCalendarViewProps) {
@@ -397,62 +400,38 @@ export default function CronCalendarView({
   }
 
   return (
-    <div className="flex flex-col flex-1 min-w-0 h-full bg-background">
+    <Tabs
+      value={mode}
+      onValueChange={(value) => setMode(value as ViewMode)}
+      className="flex h-full min-w-0 flex-1 flex-col bg-background"
+    >
       {/* Top Bar */}
-      <div className="flex shrink-0 items-center gap-3 px-5 pb-3 pt-4" data-tauri-drag-region>
-        <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-primary/10 text-primary">
-          <CalendarDays className="h-4 w-4" />
-        </span>
+      <div
+        className="flex h-10 shrink-0 items-center gap-2 border-b border-border-soft/60 px-3"
+        data-tauri-drag-region
+      >
+        <IconTip label={t("common.back")} side="bottom">
+          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={onBack}>
+            <ArrowLeft className="h-4 w-4" />
+          </Button>
+        </IconTip>
+        <CalendarDays className="h-4 w-4 text-primary" />
         <h2 className="text-[15px] font-semibold tracking-tight">{t("cron.title")}</h2>
 
-        {/* View mode switcher */}
-        <div className="flex items-center rounded-xl bg-muted/50 p-1">
-          <Button
-            variant="ghost"
-            size="sm"
-            aria-pressed={mode === "calendar"}
-            className={cn(
-              "h-7 gap-1.5 rounded-lg px-2.5 text-xs",
-              mode === "calendar"
-                ? "bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary"
-                : "text-muted-foreground",
-            )}
-            onClick={() => setMode("calendar")}
-          >
+        <TabsList className="h-8 bg-muted/50 p-0.5">
+          <TabsTrigger value="calendar" className="h-7 gap-1.5 px-2.5 text-xs">
             <CalendarDays className="h-3.5 w-3.5" />
             {t("cron.viewCalendar")}
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            aria-pressed={mode === "list"}
-            className={cn(
-              "h-7 gap-1.5 rounded-lg px-2.5 text-xs",
-              mode === "list"
-                ? "bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary"
-                : "text-muted-foreground",
-            )}
-            onClick={() => setMode("list")}
-          >
+          </TabsTrigger>
+          <TabsTrigger value="list" className="h-7 gap-1.5 px-2.5 text-xs">
             <ListIcon className="h-3.5 w-3.5" />
             {t("cron.viewList")}
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            aria-pressed={mode === "conversations"}
-            className={cn(
-              "h-7 gap-1.5 rounded-lg px-2.5 text-xs",
-              mode === "conversations"
-                ? "bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary"
-                : "text-muted-foreground",
-            )}
-            onClick={() => setMode("conversations")}
-          >
+          </TabsTrigger>
+          <TabsTrigger value="conversations" className="h-7 gap-1.5 px-2.5 text-xs">
             <MessagesSquare className="h-3.5 w-3.5" />
             {t("cron.viewConversations")}
-          </Button>
-        </div>
+          </TabsTrigger>
+        </TabsList>
 
         <div className="flex-1" />
 
@@ -504,10 +483,11 @@ export default function CronCalendarView({
         </Button>
       </div>
 
-      {/* Main Area */}
-      {mode === "conversations" ? (
+      <TabsContent value="conversations" className="mt-0 min-h-0 flex-1">
         <CronConversationsPanel />
-      ) : mode === "calendar" ? (
+      </TabsContent>
+
+      <TabsContent value="calendar" className="mt-0 min-h-0 flex-1">
         <div className="flex flex-1 min-h-0 overflow-hidden">
           {/* Calendar Grid */}
           <div className="flex min-w-0 flex-1 flex-col px-5 pb-5 pt-2">
@@ -530,7 +510,7 @@ export default function CronCalendarView({
                     day
                       ? "cursor-pointer bg-muted/20 hover:bg-muted/45"
                       : "cursor-default bg-transparent",
-                    day && selectedDate?.getDate() === day && "bg-primary/10 hover:bg-primary/15",
+                    day && selectedDate?.getDate() === day && "bg-secondary/70 hover:bg-secondary/70",
                   )}
                   onClick={() => day && handleDayClick(day)}
                   disabled={!day}
@@ -666,8 +646,10 @@ export default function CronCalendarView({
             </div>
           )}
         </div>
-      ) : (
-        /* List View — master-detail: left job list · right embedded detail */
+      </TabsContent>
+
+      <TabsContent value="list" className="mt-0 min-h-0 flex-1">
+        {/* List View — master-detail: left job list · right embedded detail */}
         <div className="flex min-h-0 flex-1 px-3 pb-3">
           {/* Left — job list */}
           <div className="flex w-[19.5rem] shrink-0 flex-col pr-3">
@@ -820,7 +802,7 @@ export default function CronCalendarView({
             )}
           </div>
         </div>
-      )}
+      </TabsContent>
 
       {/* Form Modal */}
       {showForm && (
@@ -836,6 +818,6 @@ export default function CronCalendarView({
         />
       )}
       {deleteUi}
-    </div>
+    </Tabs>
   )
 }

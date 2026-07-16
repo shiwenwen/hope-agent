@@ -541,7 +541,7 @@ export default function AgentEditView({ agentId, initialTab, onBack }: AgentEdit
           <div className="flex items-center gap-4 mb-5">
             {/* Avatar */}
             <div
-              className="w-14 h-14 rounded-full bg-secondary border border-border/50 flex items-center justify-center overflow-hidden hover:border-primary/30 transition-colors cursor-pointer shrink-0"
+              className="flex h-14 w-14 shrink-0 cursor-pointer items-center justify-center overflow-hidden rounded-full border border-border/50 bg-secondary transition-colors hover:bg-secondary/70"
               onClick={handleAvatarPick}
             >
               {config.avatar ? (

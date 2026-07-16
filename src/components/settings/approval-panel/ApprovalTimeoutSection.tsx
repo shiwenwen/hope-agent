@@ -123,7 +123,9 @@ export default function ApprovalTimeoutSection() {
               onChange={(next) => {
                 if (enabled) setAction(next)
               }}
+              variant="strong"
               cols="grid-cols-2"
+              ariaLabel={t("settings.approvalPanel.timeoutAction")}
               className={!enabled ? "pointer-events-none opacity-50" : undefined}
               options={(["deny", "proceed"] as const).map((a) => ({
                 value: a,

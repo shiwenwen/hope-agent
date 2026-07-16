@@ -392,6 +392,9 @@ export default function ClaimReviewActions({ claim, onChanged }: ClaimReviewActi
             <RadioPills
               value={forgetMode}
               onChange={(v) => setForgetMode(v)}
+              variant="strong"
+              cols="grid-cols-2"
+              ariaLabel={t("dashboard.dreaming.review.forgetTitle")}
               options={[
                 { value: "archive", label: t("dashboard.dreaming.review.forgetArchive") },
                 { value: "permanent", label: t("dashboard.dreaming.review.forgetPermanent") },

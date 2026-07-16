@@ -83,8 +83,8 @@ export default function MemoryFormView({ data }: MemoryFormViewProps) {
                     className={cn(
                       "h-auto gap-1.5 rounded-lg px-3 py-1.5 text-xs font-normal",
                       formType === type
-                        ? "border-primary bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary"
-                        : "text-muted-foreground hover:border-foreground/30",
+                        ? "bg-secondary/70 text-foreground hover:bg-secondary/70 hover:text-foreground"
+                        : "text-muted-foreground hover:bg-secondary/40 hover:text-foreground",
                       isEdit && "opacity-60 cursor-default",
                     )}
                   >
@@ -110,7 +110,7 @@ export default function MemoryFormView({ data }: MemoryFormViewProps) {
                   className={cn(
                     "h-auto rounded-lg px-3 py-1.5 text-xs font-normal",
                     formScope === "global"
-                      ? "border-primary bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary"
+                      ? "bg-secondary/70 text-foreground hover:bg-secondary/70 hover:text-foreground"
                       : "text-muted-foreground",
                   )}
                 >
@@ -123,7 +123,7 @@ export default function MemoryFormView({ data }: MemoryFormViewProps) {
                   className={cn(
                     "h-auto rounded-lg px-3 py-1.5 text-xs font-normal",
                     formScope === "agent"
-                      ? "border-primary bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary"
+                      ? "bg-secondary/70 text-foreground hover:bg-secondary/70 hover:text-foreground"
                       : "text-muted-foreground",
                   )}
                 >

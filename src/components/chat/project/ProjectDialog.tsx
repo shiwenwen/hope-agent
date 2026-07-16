@@ -528,8 +528,8 @@ export default function ProjectDialog({
                       size="icon"
                       onClick={() => setColor(choice.value)}
                       className={cn(
-                        "h-9 w-9 rounded-full border border-transparent p-0 ring-offset-background transition-all hover:scale-105 hover:bg-transparent",
-                        color === choice.value && "ring-2 ring-foreground ring-offset-2",
+                        "h-9 w-9 rounded-full border border-transparent p-0 transition-colors hover:bg-secondary/40",
+                        color === choice.value && "bg-secondary/70",
                       )}
                       aria-label={choice.label}
                     >
@@ -543,7 +543,7 @@ export default function ProjectDialog({
                     onClick={() => setColor("")}
                     className={cn(
                       "h-9 w-9 rounded-full border border-dashed border-muted-foreground/40 p-0 text-muted-foreground hover:bg-muted/40",
-                      !color && "ring-2 ring-foreground ring-offset-2",
+                        !color && "bg-secondary/70",
                     )}
                     aria-label="no color"
                   >

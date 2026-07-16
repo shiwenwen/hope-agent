@@ -88,8 +88,8 @@ export default function ProxySection() {
               className={cn(
                 "flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer transition-colors",
                 proxy.mode === opt.value
-                  ? "bg-primary/10 border border-primary/30"
-                  : "hover:bg-secondary/40 border border-transparent",
+                  ? "bg-secondary/70"
+                  : "hover:bg-secondary/40",
               )}
               onClick={() => setProxy((p) => ({ ...p, mode: opt.value }))}
             >
@@ -102,7 +102,9 @@ export default function ProxySection() {
               </div>
               <div className={cn(
                 "h-4 w-4 rounded-full border-2 shrink-0 transition-colors",
-                proxy.mode === opt.value ? "border-primary bg-primary" : "border-muted-foreground/30",
+                proxy.mode === opt.value
+                  ? "border-transparent bg-primary"
+                  : "border-muted-foreground/30",
               )}>
                 {proxy.mode === opt.value && (
                   <div className="h-full w-full flex items-center justify-center">

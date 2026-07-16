@@ -1,9 +1,9 @@
 import { useState } from "react"
 import { useTranslation } from "react-i18next"
-import { Check } from "lucide-react"
 import { Switch } from "@/components/ui/switch"
 import { DeferredNumberInput } from "@/components/ui/deferred-number-input"
 import { Button } from "@/components/ui/button"
+import { RadioPills } from "@/components/ui/radio-pills"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -29,6 +29,8 @@ interface ExtractConfigProps {
   data: MemoryData
   isAgentMode: boolean
 }
+
+type MemoryLearningChoice = "automatic" | "review_first" | "manual_only" | "off"
 
 export default function ExtractConfig({ data, isAgentMode }: ExtractConfigProps) {
   const { t } = useTranslation()
@@ -57,6 +59,14 @@ export default function ExtractConfig({ data, isAgentMode }: ExtractConfigProps)
 
   if (!extractConfigLoaded) return null
 
+  const memoryLearningValue: MemoryLearningChoice | null =
+    effectiveMemoryLearningMode === "automatic" ||
+    effectiveMemoryLearningMode === "review_first" ||
+    effectiveMemoryLearningMode === "manual_only" ||
+    effectiveMemoryLearningMode === "off"
+      ? effectiveMemoryLearningMode
+      : null
+
   return (
     <>
       <div className="rounded-lg bg-secondary/30 mb-4 shrink-0">
@@ -77,62 +87,47 @@ export default function ExtractConfig({ data, isAgentMode }: ExtractConfigProps)
             </div>
           </div>
         </div>
-        <div
-          className="flex flex-wrap items-center gap-1.5 border-t border-border/30 px-3 py-2"
-          role="group"
-          aria-label={t("settings.memoryLearningMode")}
-        >
-          <Button
-            type="button"
-            variant={effectiveMemoryLearningMode === "automatic" ? "default" : "outline"}
-            size="sm"
-            className="h-7 gap-1.5 px-2 text-[11px] shadow-none"
-            onClick={() => applyMemoryLearningMode("automatic")}
-            aria-pressed={effectiveMemoryLearningMode === "automatic"}
-          >
-            {effectiveMemoryLearningMode === "automatic" && <Check className="h-3 w-3" />}
-            {t("settings.memoryLearningModeAutomatic")}
-          </Button>
-          {!isAgentMode && (
-            <Button
-              type="button"
-              variant={effectiveMemoryLearningMode === "review_first" ? "default" : "outline"}
-              size="sm"
-              className="h-7 gap-1.5 px-2 text-[11px] shadow-none"
-              onClick={() => applyMemoryLearningMode("review_first")}
-              aria-pressed={effectiveMemoryLearningMode === "review_first"}
-            >
-              {effectiveMemoryLearningMode === "review_first" && <Check className="h-3 w-3" />}
-              {t("settings.memoryLearningModeReviewFirst")}
-            </Button>
-          )}
-          <Button
-            type="button"
-            variant={effectiveMemoryLearningMode === "manual_only" ? "default" : "outline"}
-            size="sm"
-            className="h-7 gap-1.5 px-2 text-[11px] shadow-none"
-            onClick={() => applyMemoryLearningMode("manual_only")}
-            aria-pressed={effectiveMemoryLearningMode === "manual_only"}
-          >
-            {effectiveMemoryLearningMode === "manual_only" && <Check className="h-3 w-3" />}
-            {t("settings.memoryLearningModeManualOnly")}
-          </Button>
-          {!isAgentMode && (
-            <Button
-              type="button"
-              variant={effectiveMemoryLearningMode === "off" ? "default" : "outline"}
-              size="sm"
-              className="h-7 gap-1.5 px-2 text-[11px] shadow-none"
-              onClick={() => {
-                if (effectiveMemoryLearningMode === "off") return
+        <div className="flex flex-wrap items-center gap-1.5 border-t border-border/30 px-3 py-2">
+          <RadioPills<MemoryLearningChoice>
+            value={memoryLearningValue}
+            onChange={(mode) => {
+              if (mode === "off") {
                 setOffConfirmOpen(true)
-              }}
-              aria-pressed={effectiveMemoryLearningMode === "off"}
-            >
-              {effectiveMemoryLearningMode === "off" && <Check className="h-3 w-3" />}
-              {t("settings.memoryLearningModeOff")}
-            </Button>
-          )}
+                return
+              }
+              applyMemoryLearningMode(mode)
+            }}
+            variant="strong"
+            layout="wrap"
+            itemClassName="h-7 px-2 text-[11px]"
+            ariaLabel={t("settings.memoryLearningMode")}
+            options={[
+              {
+                value: "automatic",
+                label: t("settings.memoryLearningModeAutomatic"),
+              },
+              ...(!isAgentMode
+                ? [
+                    {
+                      value: "review_first" as const,
+                      label: t("settings.memoryLearningModeReviewFirst"),
+                    },
+                  ]
+                : []),
+              {
+                value: "manual_only",
+                label: t("settings.memoryLearningModeManualOnly"),
+              },
+              ...(!isAgentMode
+                ? [
+                    {
+                      value: "off" as const,
+                      label: t("settings.memoryLearningModeOff"),
+                    },
+                  ]
+                : []),
+            ]}
+          />
           {isAgentMode && effectiveMemoryLearningMode === "off" && (
             <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
               {t("settings.memoryLearningModeOff")}

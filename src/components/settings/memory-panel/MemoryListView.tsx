@@ -710,7 +710,7 @@ export default function MemoryListView({
                     className={cn(
                       "h-9 w-9 rounded-lg",
                       filterType === type
-                        ? "border-primary bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary"
+                        ? "border-transparent bg-secondary/70 text-foreground hover:bg-secondary/70 hover:text-foreground"
                         : "border-transparent text-muted-foreground hover:text-foreground hover:bg-secondary/40",
                     )}
                   >
@@ -728,7 +728,7 @@ export default function MemoryListView({
               className={cn(
                 "h-9 rounded-lg px-2 text-xs",
                 filterSources.length === 0
-                  ? "border-primary bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary"
+                  ? "border-transparent bg-secondary/70 text-foreground hover:bg-secondary/70 hover:text-foreground"
                   : "border-transparent text-muted-foreground hover:bg-secondary/40 hover:text-foreground",
               )}
               onClick={() => setFilterSources([])}
@@ -746,7 +746,7 @@ export default function MemoryListView({
                   className={cn(
                     "h-9 rounded-lg px-2 text-xs",
                     selected
-                      ? "border-primary bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary"
+                      ? "border-transparent bg-secondary/70 text-foreground hover:bg-secondary/70 hover:text-foreground"
                       : "border-transparent text-muted-foreground hover:bg-secondary/40 hover:text-foreground",
                   )}
                   onClick={() => toggleSourceFilter(source)}
@@ -837,7 +837,7 @@ export default function MemoryListView({
                   key={preset.id}
                   className={cn(
                     "inline-flex max-w-full items-center rounded-md border border-border/70",
-                    active ? "bg-primary/10 text-foreground" : "bg-background",
+                    active ? "bg-secondary/70 text-foreground" : "bg-background",
                   )}
                 >
                   <Button
@@ -954,7 +954,7 @@ export default function MemoryListView({
                   key={mem.id}
                   className={cn(
                     "group flex items-start gap-3 px-3 py-2.5 rounded-lg hover:bg-secondary/40 cursor-pointer transition-colors",
-                    isSelected && "bg-primary/5 border border-primary/20",
+                    isSelected && "bg-secondary/70",
                   )}
                   onClick={() => startEdit(mem)}
                 >

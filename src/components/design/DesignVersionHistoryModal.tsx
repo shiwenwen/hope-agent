@@ -473,8 +473,8 @@ export function DesignVersionHistoryModal({
                         className={cn(
                           "flex h-6 w-6 items-center justify-center rounded",
                           verViewport === v
-                            ? "bg-primary text-primary-foreground"
-                            : "text-muted-foreground hover:bg-muted",
+                            ? "bg-secondary/70 text-foreground"
+                            : "text-muted-foreground hover:bg-secondary/40",
                         )}
                       >
                         <Icon className="h-3.5 w-3.5" />

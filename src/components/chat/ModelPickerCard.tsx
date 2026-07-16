@@ -99,10 +99,10 @@ export default function ModelPickerCard({
                       unsupported
                         ? "border-border/60 bg-muted/30 text-muted-foreground/45 cursor-not-allowed opacity-60"
                         : isActive
-                          ? "border-blue-500/40 bg-blue-500/10 text-blue-700 cursor-default dark:text-blue-300"
+                          ? "border-border bg-secondary/70 text-foreground cursor-default"
                           : justSwitched
-                            ? "bg-green-500/10 border-green-500/30 text-green-600 dark:text-green-400"
-                            : "bg-background border-border text-foreground hover:bg-accent hover:border-accent-foreground/20",
+                            ? "border-border bg-green-500/10 text-green-600 dark:text-green-400"
+                            : "border-border bg-background text-foreground hover:bg-secondary/40",
                     )}
                   >
                     {(isActive || justSwitched) && <Check className="size-3" />}

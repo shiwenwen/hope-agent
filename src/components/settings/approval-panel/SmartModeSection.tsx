@@ -114,6 +114,8 @@ export default function SmartModeSection() {
             <RadioPills
               value={config.strategy}
               onChange={(s) => setConfig({ ...config, strategy: s })}
+              variant="strong"
+              ariaLabel={t("settings.approvalPanel.smartStrategy")}
               options={STRATEGIES.map((s) => ({
                 value: s,
                 label: t(`settings.approvalPanel.strategies.${s}`),
@@ -130,6 +132,8 @@ export default function SmartModeSection() {
             <RadioPills
               value={config.fallback}
               onChange={(f) => setConfig({ ...config, fallback: f })}
+              variant="strong"
+              ariaLabel={t("settings.approvalPanel.smartFallback")}
               options={FALLBACKS.map((f) => ({
                 value: f,
                 label: t(`settings.approvalPanel.fallbacks.${f}`),

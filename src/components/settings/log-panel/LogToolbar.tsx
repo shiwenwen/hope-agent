@@ -56,7 +56,7 @@ export default function LogToolbar({
           className={cn(
             "h-auto rounded-full px-2 py-0.5 text-xs font-medium",
             filterCategories.includes(cat)
-              ? "bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary"
+              ? "bg-secondary/70 text-foreground hover:bg-secondary/70 hover:text-foreground"
               : "bg-secondary/40 text-muted-foreground hover:bg-secondary/60",
           )}
         >

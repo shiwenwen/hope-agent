@@ -274,7 +274,7 @@ function AttachmentPreviewItem({
   return (
     <FileContextMenu target={target} overrides={actionOverrides}>
       <div
-        className="group relative flex items-center gap-1.5 rounded-lg border border-border/50 bg-secondary px-2 py-1 text-xs text-foreground/80 transition-colors animate-in fade-in-0 slide-in-from-bottom-1 duration-150 hover:border-primary/30 hover:bg-secondary/80"
+        className="group relative flex items-center gap-1.5 rounded-lg border border-border/50 bg-secondary px-2 py-1 text-xs text-foreground/80 transition-colors animate-in fade-in-0 slide-in-from-bottom-1 duration-150 hover:bg-secondary/80"
         style={{ animationDelay: `${index * 50}ms`, animationFillMode: "both" }}
       >
         <button

@@ -407,7 +407,7 @@ export const DesignChatPanel = forwardRef<DesignChatPanelHandle, Props>(function
               key={id}
               type="button"
               onClick={() => onFocusArtifact(id)}
-              className="flex items-center gap-1.5 rounded-md border border-border/60 bg-card px-2 py-1 text-xs text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"
+              className="flex items-center gap-1.5 rounded-md border border-border/60 bg-card px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-secondary/40 hover:text-foreground"
             >
               <FileStack className="h-3.5 w-3.5 shrink-0 opacity-70" />
               <span className="max-w-[180px] truncate">
@@ -683,7 +683,7 @@ export const DesignChatPanel = forwardRef<DesignChatPanelHandle, Props>(function
                   key={s.key}
                   type="button"
                   onClick={() => stream.setInput(t(s.promptKey, s.promptFallback))}
-                  className="group flex items-center gap-2.5 rounded-xl border border-border/60 bg-card px-3 py-2 text-left transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-sm"
+                  className="group flex items-center gap-2.5 rounded-xl border border-border/60 bg-card px-3 py-2 text-left transition-colors hover:bg-secondary/40"
                 >
                   <span className="text-base">{s.icon}</span>
                   <span className="min-w-0 flex-1">

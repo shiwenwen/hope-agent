@@ -210,7 +210,7 @@ export default function ChannelPanel({ initialChannelId }: ChannelPanelProps = {
                 setAddInitialChannel(p.meta.id)
                 setShowAddDialog(true)
               }}
-              className="h-auto justify-start gap-3 rounded-lg p-4 text-left font-normal hover:border-primary hover:bg-accent"
+              className="h-auto justify-start gap-3 rounded-lg p-4 text-left font-normal hover:bg-secondary/40"
             >
               <ChannelIcon channelId={p.meta.id} className="h-8 w-8" />
               <div className="min-w-0">

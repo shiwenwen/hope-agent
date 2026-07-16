@@ -3006,6 +3006,7 @@
     },
     "openInSession": "Open in session",
     "refresh": "Refresh",
+    "resizeList": "Resize plan list",
     "selectHint": "Select a plan on the left to view its content.",
     "sessionDeleted": "Owning session deleted",
     "title": "Plans",

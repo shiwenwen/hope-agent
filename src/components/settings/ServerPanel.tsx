@@ -346,8 +346,8 @@ export default function ServerPanel() {
                 className={cn(
                   "flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer transition-colors",
                   config.serverMode === opt.value
-                    ? "bg-primary/10 border border-primary/30"
-                    : "hover:bg-secondary/40 border border-transparent",
+                    ? "bg-secondary/70"
+                    : "hover:bg-secondary/40",
                 )}
                 onClick={() => setConfig((prev) => ({ ...prev, serverMode: opt.value }))}
               >
@@ -367,7 +367,7 @@ export default function ServerPanel() {
                   className={cn(
                     "h-4 w-4 rounded-full border-2 shrink-0 transition-colors",
                     config.serverMode === opt.value
-                      ? "border-primary bg-primary"
+                      ? "border-transparent bg-primary"
                       : "border-muted-foreground/30",
                   )}
                 >

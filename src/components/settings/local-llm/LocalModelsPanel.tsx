@@ -19,6 +19,7 @@ import { Ollama } from "@lobehub/icons"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { RadioPills } from "@/components/ui/radio-pills"
 import { SearchInput } from "@/components/ui/search-input"
 import { Progress } from "@/components/ui/progress"
 import { Switch } from "@/components/ui/switch"
@@ -1308,19 +1309,19 @@ export default function LocalModelsPanel() {
                 {t("common.search")}
               </Button>
             </div>
-            <div className="mt-3 flex flex-wrap gap-2">
-              {CAPABILITY_FILTERS.map((filter) => (
-                <Button
-                  key={filter}
-                  variant={capabilityFilter === filter ? "default" : "outline"}
-                  size="sm"
-                  className="h-7 text-xs"
-                  onClick={() => setCapabilityFilter(filter)}
-                >
-                  {t(`settings.localModels.filters.${filter}`)}
-                </Button>
-              ))}
-            </div>
+            <RadioPills
+              value={capabilityFilter}
+              onChange={setCapabilityFilter}
+              variant="strong"
+              layout="wrap"
+              className="mt-3 gap-2"
+              itemClassName="h-7 px-3"
+              ariaLabel={t("settings.localModels.capabilityFilter", "能力筛选")}
+              options={CAPABILITY_FILTERS.map((filter) => ({
+                value: filter,
+                label: t(`settings.localModels.filters.${filter}`),
+              }))}
+            />
             {searchResult?.stale && (
               <p className="mt-2 text-xs text-amber-600 dark:text-amber-400">
                 {t("settings.localModels.cacheStale")}
@@ -1407,7 +1408,7 @@ export default function LocalModelsPanel() {
                       key={model.name}
                       className={cn(
                         "rounded-lg border bg-card p-3",
-                        expanded ? "border-primary/50 bg-primary/5" : "border-border",
+                        expanded ? "border-border bg-secondary/70" : "border-border",
                       )}
                     >
                       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">

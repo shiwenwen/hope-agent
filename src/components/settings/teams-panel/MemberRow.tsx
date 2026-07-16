@@ -144,8 +144,8 @@ export default function MemberRow({
                 variant="ghost"
                 size="icon"
                 className={
-                  "h-5 w-5 rounded-full p-0 ring-offset-1 transition-all hover:bg-transparent " +
-                  (value.color === c ? "ring-2 ring-primary scale-110" : "hover:scale-110")
+                  "h-5 w-5 rounded-full p-0 transition-[filter] hover:bg-transparent " +
+                  (value.color === c ? "brightness-75" : "hover:brightness-90")
                 }
                 style={{ backgroundColor: c }}
                 onClick={() => patch({ color: c })}

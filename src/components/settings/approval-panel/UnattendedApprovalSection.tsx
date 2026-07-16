@@ -71,7 +71,9 @@ export default function UnattendedApprovalSection() {
         <RadioPills
           value={action}
           onChange={setAction}
+          variant="strong"
           cols="grid-cols-2"
+          ariaLabel={t("settings.approvalPanel.unattendedTitle")}
           options={(["deny", "proceed"] as const).map((a) => ({
             value: a,
             label: t(`settings.approvalPanel.timeoutActions.${a}`),
