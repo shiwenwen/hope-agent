@@ -5017,6 +5017,7 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
                       <button
                         type="button"
                         data-ha-title-tip={t("design.tab.reopen", "从产物库打开")}
+                        aria-label={t("design.tab.reopen", "从产物库打开")}
                         className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                       >
                         <Plus className="h-4 w-4" />
