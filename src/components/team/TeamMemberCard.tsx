@@ -59,7 +59,7 @@ export function TeamMemberCard({ member, onViewSession }: TeamMemberCardProps) {
               statusCfg.color,
             )}
           >
-            {statusCfg.label}
+            {t(`team.memberStatus.${member.status}`, member.status)}
           </span>
         </div>
 

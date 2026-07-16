@@ -20,6 +20,7 @@ import { FloatingMenu } from "@/components/ui/floating-menu"
 import { IconTip } from "@/components/ui/tooltip"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
+import { knowledgeMaintenanceSkipReasonLabel } from "./knowledgeMaintenanceLabels"
 import type {
   BrokenLink,
   MaintenanceProposal,
@@ -28,6 +29,7 @@ import type {
   KnowledgeEvidenceCoverage,
   KnowledgeEvidenceRebuildResult,
   SchemaIssue,
+  SchemaIssueKind,
 } from "@/types/knowledge"
 import { knowledgeMaintenanceErrorToast } from "./knowledgeMaintenanceFeedback"
 
@@ -112,7 +114,7 @@ export default function KnowledgeMaintenanceButton({ kbId, onOpenNote }: Props) 
       const report = await getTransport().call<MaintenanceReport>("kb_maintenance_run_cmd", {})
       if (report.note) {
         toast.message(t("knowledge.maintenance.cycleSkipped", "Maintenance skipped: {{note}}", {
-          note: report.note,
+          note: knowledgeMaintenanceSkipReasonLabel(t, report.note),
         }))
       } else {
         toast.success(
@@ -446,7 +448,7 @@ export default function KnowledgeMaintenanceButton({ kbId, onOpenNote }: Props) 
                       >
                         <span className="flex min-w-0 items-center gap-1">
                           <span className="rounded bg-amber-500/10 px-1 font-mono text-[10px] text-amber-700 dark:text-amber-300">
-                            {issue.kind}
+                            {schemaIssueKindLabel(t, issue.kind)}
                           </span>
                           <span className="truncate text-xs">{stem(issue.relPath)}</span>
                         </span>
@@ -507,6 +509,27 @@ export default function KnowledgeMaintenanceButton({ kbId, onOpenNote }: Props) 
       </FloatingMenu>
     </div>
   )
+}
+
+function schemaIssueKindLabel(
+  t: ReturnType<typeof useTranslation>["t"],
+  kind: SchemaIssueKind,
+): string {
+  switch (kind) {
+    case "missing_evidence":
+      return t("knowledge.maintenance.schemaIssueKind.missingEvidence", "Missing evidence")
+    case "stale_source":
+      return t("knowledge.maintenance.schemaIssueKind.staleSource", "Stale source")
+    case "schema_violation":
+      return t("knowledge.maintenance.schemaIssueKind.schemaViolation", "Schema violation")
+    case "conflicting_claim":
+      return t("knowledge.maintenance.schemaIssueKind.conflictingClaim", "Conflicting claim")
+    case "unfiled_open_question":
+      return t(
+        "knowledge.maintenance.schemaIssueKind.unfiledOpenQuestion",
+        "Unfiled open question",
+      )
+  }
 }
 
 function Section({

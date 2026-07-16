@@ -8,6 +8,7 @@ import {
   useState,
 } from "react"
 import { useTranslation } from "react-i18next"
+import type { TFunction } from "i18next"
 import { toast } from "sonner"
 import {
   Activity,
@@ -638,6 +639,146 @@ function dreamingStatusDot(status: string): string {
   }
 }
 
+const MEMORY_HEALTH_ISSUE_ACTIONS: Record<string, string> = {
+  db_quick_check_failed: "dbRepair",
+  embedding_provider_unavailable: "embeddingReload",
+  memory_reembed_needed: "reembed",
+  memory_vector_index_missing: "reembed",
+  memory_fts_missing_rows: "rebuildMemoryIndex",
+  memory_fts_missing: "rebuildMemoryIndex",
+  memory_literal_fts_missing_rows: "rebuildMemoryIndex",
+  claim_fts_missing_rows: "rebuildStructuredIndex",
+  claim_fts_missing: "rebuildStructuredIndex",
+  claim_literal_fts_missing_rows: "rebuildStructuredIndex",
+  evidence_fts_missing_rows: "rebuildStructuredIndex",
+  evidence_fts_missing: "rebuildStructuredIndex",
+  claims_without_evidence: "reviewClaims",
+  orphan_claim_graph_rows: "repairClaimGraph",
+  orphan_procedure_episode_refs: "repairExperience",
+  memory_experience_tables_missing: "restartMigrations",
+  claims_need_review: "reviewClaims",
+  deep_resolver_preflight_unavailable: "retryHealth",
+  deep_resolver_backlog: "openResolver",
+  dreaming_state_stale: "recoverDreaming",
+  db_snapshot_incomplete: "freshSnapshot",
+  external_memory_provider_incomplete: "finishProvider",
+  external_memory_provider_adapter_unavailable: "disablePendingProvider",
+  external_memory_provider_policy_unsupported: "choosePolicy",
+  external_memory_provider_error: "reviewProvider",
+}
+
+function leadingIssueCount(message: string): number | string {
+  const match = message.match(/^(\d+)/)
+  return match ? Number(match[1]) : "?"
+}
+
+function externalProviderForIssue(
+  issue: MemoryHealth["issues"][number],
+  health: MemoryHealth,
+) {
+  return health.externalProviders.find((provider) =>
+    issue.message.includes(`'${provider.displayName}'`),
+  )
+}
+
+function localizeDbSnapshotRestoreIssue(issue: string, t: TFunction): string {
+  if (
+    issue ===
+    "snapshot manifest has no stored file metadata; create a fresh snapshot before restore"
+  ) {
+    return t("settings.memoryDbSnapshotRestoreIssues.noMetadata")
+  }
+
+  let match = issue.match(/^invalid snapshot file name: ([\s\S]+)$/)
+  if (match) {
+    return t("settings.memoryDbSnapshotRestoreIssues.invalidFileName", { name: match[1] })
+  }
+  match = issue.match(/^unsupported snapshot DB file name: ([\s\S]+)$/)
+  if (match) {
+    return t("settings.memoryDbSnapshotRestoreIssues.unsupportedFileName", { name: match[1] })
+  }
+  match = issue.match(/^missing file: ([\s\S]+)$/)
+  if (match) {
+    return t("settings.memoryDbSnapshotRestoreIssues.missingFile", { name: match[1] })
+  }
+  match = issue.match(/^size mismatch: ([\s\S]+) expected (\d+) bytes, found (\d+) bytes$/)
+  if (match) {
+    return t("settings.memoryDbSnapshotRestoreIssues.sizeMismatch", {
+      name: match[1],
+      expected: match[2],
+      actual: match[3],
+    })
+  }
+  match = issue.match(/^sha256 mismatch: ([\s\S]+)$/)
+  if (match) {
+    return t("settings.memoryDbSnapshotRestoreIssues.sha256Mismatch", { name: match[1] })
+  }
+  match = issue.match(/^missing manifest entry: ([\s\S]+)$/)
+  if (match) {
+    return t("settings.memoryDbSnapshotRestoreIssues.missingManifestEntry", { name: match[1] })
+  }
+  match = issue.match(/^snapshot quick_check returned ([\s\S]+)$/)
+  if (match) {
+    return t("settings.memoryDbSnapshotRestoreIssues.quickCheckReturned", {
+      result: match[1],
+    })
+  }
+  match = issue.match(/^snapshot quick_check failed: ([\s\S]+)$/)
+  if (match) {
+    return t("settings.memoryDbSnapshotRestoreIssues.quickCheckFailed", { error: match[1] })
+  }
+
+  // The backend contract is open-ended. Preserve an unfamiliar diagnostic
+  // verbatim rather than collapsing it into a generic or incorrect label.
+  return issue
+}
+
+function localizeMemoryHealthIssue(
+  issue: MemoryHealth["issues"][number],
+  health: MemoryHealth,
+  t: TFunction,
+): Pick<MemoryHealth["issues"][number], "message" | "action"> {
+  const actionKey = MEMORY_HEALTH_ISSUE_ACTIONS[issue.code]
+  if (!actionKey) {
+    return { message: issue.message, action: issue.action }
+  }
+  const values = {
+    result: health.quickCheck || "-",
+    memoryCount: health.memoriesPendingEmbedding,
+    memoryFtsCount: health.ftsMissingRows,
+    claimFtsCount: health.claimFtsMissingRows,
+    evidenceFtsCount: health.evidenceFtsMissingRows ?? 0,
+    claimsWithoutEvidence: health.claimsWithoutEvidence,
+    orphanEvidence: health.orphanEvidenceRows,
+    orphanLinks: health.orphanClaimLinks,
+    orphanProcedureRefs: health.orphanProcedureEpisodeRefs,
+    claimsNeedReview: health.claimsNeedsReview,
+    expired: health.deepResolverExpiredCandidates ?? 0,
+    groups: health.deepResolverConflictGroups ?? 0,
+    staleRuns: health.dreamingStaleRuns,
+    staleLocks: health.dreamingStaleLocks,
+    literalMemoryCount:
+      issue.code === "memory_literal_fts_missing_rows"
+        ? leadingIssueCount(issue.message)
+        : 0,
+    literalClaimCount:
+      issue.code === "claim_literal_fts_missing_rows" ? leadingIssueCount(issue.message) : 0,
+    provider: externalProviderForIssue(issue, health)?.displayName ?? t("common.unknown"),
+    error:
+      issue.message.match(/reported an error:\s*([\s\S]+)$/)?.[1] ??
+      externalProviderForIssue(issue, health)?.lastError ??
+      t("common.unknown"),
+    snapshotStatus: t(
+      `settings.memoryDbSnapshotRestoreStatus.${health.latestDbSnapshot?.status ?? "no_metadata"}`,
+      (health.latestDbSnapshot?.status ?? "no_metadata").replace(/_/g, " "),
+    ),
+  }
+  return {
+    message: t(`settings.memoryHealthIssues.${issue.code}.message`, values),
+    action: t(`settings.memoryHealthIssueActions.${actionKey}`, values),
+  }
+}
+
 function isCorrectionDecision(decision: DreamingDecisionRecord): boolean {
   return (
     decision.targetType === "claim" &&
@@ -714,6 +855,15 @@ export default function MemoryOverviewView({
   auditFocus,
 }: MemoryOverviewViewProps) {
   const { t } = useTranslation()
+  const dreamingPhaseLabel = useCallback(
+    (phase: string) => t(`dashboard.dreaming.phase.${phase}`, phase.replace(/_/g, " ")),
+    [t],
+  )
+  const dbSnapshotRestoreStatusLabel = useCallback(
+    (status: MemoryDbSnapshotRestorePreview["status"]) =>
+      t(`settings.memoryDbSnapshotRestoreStatus.${status}`, status.replace(/_/g, " ")),
+    [t],
+  )
   const [pendingClaims, setPendingClaims] = useState<ClaimRecord[]>([])
   const [pendingLoading, setPendingLoading] = useState(false)
   const [pendingClaimsError, setPendingClaimsError] =
@@ -1662,8 +1812,14 @@ export default function MemoryOverviewView({
       return
     }
     try {
+      const localizedPreview = {
+        ...dbSnapshotRestorePreview,
+        issues: dbSnapshotRestorePreview.issues.map((issue) =>
+          localizeDbSnapshotRestoreIssue(issue, t),
+        ),
+      }
       await navigator.clipboard.writeText(
-        formatMemoryDbSnapshotRestorePreviewDiagnostics(dbSnapshotRestorePreview),
+        formatMemoryDbSnapshotRestorePreviewDiagnostics(localizedPreview),
       )
       toast.success(
         t(
@@ -1753,7 +1909,14 @@ export default function MemoryOverviewView({
   const copyMemoryHealthDiagnostics = useCallback(async () => {
     if (!memoryHealth) return
     try {
-      await navigator.clipboard.writeText(formatMemoryHealthDiagnostics(memoryHealth))
+      const localizedHealth: MemoryHealth = {
+        ...memoryHealth,
+        issues: memoryHealth.issues.map((issue) => ({
+          ...issue,
+          ...localizeMemoryHealthIssue(issue, memoryHealth, t),
+        })),
+      }
+      await navigator.clipboard.writeText(formatMemoryHealthDiagnostics(localizedHealth))
       toast.success(t("settings.memoryHealthCopyDone", "Memory health report copied"))
     } catch (e) {
       logger.warn(
@@ -3525,7 +3688,7 @@ export default function MemoryOverviewView({
     return () => {
       cancelled = true
     }
-  }, [isAgentMode, memoryEnabled])
+  }, [isAgentMode, memoryEnabled, t])
 
   useEffect(() => {
     void loadPendingClaims()
@@ -3877,7 +4040,12 @@ export default function MemoryOverviewView({
   const currentDbSnapshotIncomplete = currentDbSnapshotStatus !== "ok"
   const activeDbSnapshotRestorePreview =
     dbSnapshotRestorePreview?.snapshotPath === currentDbSnapshotPath ? dbSnapshotRestorePreview : null
-  const dbSnapshotRestoreIssue = activeDbSnapshotRestorePreview?.issues[0] ?? null
+  const localizedCurrentDbSnapshotIssues = currentDbSnapshotIssues.map((issue) =>
+    localizeDbSnapshotRestoreIssue(issue, t),
+  )
+  const localizedDbSnapshotRestoreIssues = (activeDbSnapshotRestorePreview?.issues ?? []).map(
+    (issue) => localizeDbSnapshotRestoreIssue(issue, t),
+  )
   const repairReasonText = (action: MemoryRepairAction): string | null => {
     if (!repairHints.some((hint) => hint.action === action)) return null
     switch (action) {
@@ -5161,15 +5329,20 @@ export default function MemoryOverviewView({
                   )}
                   {topHealthIssues.length > 0 ? (
                     <div className="space-y-1">
-                      {topHealthIssues.map((issue, index) => (
-                        <div
-                          key={`${issue.code}-${index}`}
-                          className="rounded border border-amber-500/20 bg-amber-500/5 px-2 py-1 text-[11px] text-muted-foreground"
-                        >
-                          <div className="font-medium text-foreground">{issue.message}</div>
-                          {issue.action && <div className="mt-0.5">{issue.action}</div>}
-                        </div>
-                      ))}
+                      {topHealthIssues.map((issue, index) => {
+                        const localized = localizeMemoryHealthIssue(issue, memoryHealth, t)
+                        return (
+                          <div
+                            key={`${issue.code}-${index}`}
+                            className="rounded border border-amber-500/20 bg-amber-500/5 px-2 py-1 text-[11px] text-muted-foreground"
+                          >
+                            <div className="font-medium text-foreground">
+                              {localized.message}
+                            </div>
+                            {localized.action && <div className="mt-0.5">{localized.action}</div>}
+                          </div>
+                        )
+                      })}
                       {hiddenHealthIssueCount > 0 && (
                         <div className="px-2 text-[11px] text-muted-foreground">
                           {t("settings.memoryHealthMoreIssues", {
@@ -5308,14 +5481,15 @@ export default function MemoryOverviewView({
                               "Latest snapshot is not fully verifiable. Create a fresh snapshot before recovery.",
                             )}
                           </div>
-                          {currentDbSnapshotIssues[0] && (
+                          {localizedCurrentDbSnapshotIssues.map((issue, index) => (
                             <div
+                              key={`${issue}-${index}`}
                               className="mt-0.5 truncate font-mono text-[10px]"
-                              data-ha-title-tip={currentDbSnapshotIssues[0]}
+                              data-ha-title-tip={issue}
                             >
-                              {currentDbSnapshotIssues[0]}
+                              {issue}
                             </div>
-                          )}
+                          ))}
                         </div>
                       )}
                       {activeDbSnapshotRestorePreview && (
@@ -5344,21 +5518,22 @@ export default function MemoryOverviewView({
                               count: activeDbSnapshotRestorePreview.files.length,
                             })}
                             {" · "}
-                            {activeDbSnapshotRestorePreview.status}
+                            {dbSnapshotRestoreStatusLabel(activeDbSnapshotRestorePreview.status)}
                             {" · "}
                             {t("settings.memoryRepairDbSnapshotRestoreQuickCheck", {
                               defaultValue: "quick_check {{value}}",
                               value: activeDbSnapshotRestorePreview.quickCheck || "-",
                             })}
                           </div>
-                          {dbSnapshotRestoreIssue && (
+                          {localizedDbSnapshotRestoreIssues.map((issue, index) => (
                             <div
+                              key={`${issue}-${index}`}
                               className="mt-0.5 truncate font-mono text-[10px]"
-                              data-ha-title-tip={dbSnapshotRestoreIssue}
+                              data-ha-title-tip={issue}
                             >
-                              {dbSnapshotRestoreIssue}
+                              {issue}
                             </div>
-                          )}
+                          ))}
                           <Button
                             type="button"
                             size="sm"
@@ -6677,7 +6852,7 @@ export default function MemoryOverviewView({
                         <span className="font-mono">{formatActivityTime(item.createdAt)}</span>
                         <span>{decisionTypeLabel(item.decisionType)}</span>
                         <span>{t(`dashboard.dreaming.trigger.${item.trigger}`, item.trigger)}</span>
-                        {item.phase && <span>{item.phase}</span>}
+                        {item.phase && <span>{dreamingPhaseLabel(item.phase)}</span>}
                       </div>
                       {item.rationale && item.rationale !== item.content && (
                         <div className="mt-0.5 truncate text-[10px] text-muted-foreground">

@@ -159,7 +159,7 @@ export function ModelEditor({
           <Input
             value={model.name}
             onChange={(e) => onChange({ ...model, name: e.target.value })}
-            placeholder="Model Name"
+            placeholder={t("model.displayName")}
             className="h-8 text-xs"
           />
         </div>
@@ -197,7 +197,7 @@ export function ModelEditor({
 
       <div className="grid grid-cols-2 gap-2.5">
         <div className="space-y-1">
-          <label className="text-[10px] text-muted-foreground">Context Window</label>
+          <label className="text-[10px] text-muted-foreground">{t("model.contextWindow")}</label>
           <DeferredNumberInput
             value={model.contextWindow}
             min={0}
@@ -211,7 +211,7 @@ export function ModelEditor({
           />
         </div>
         <div className="space-y-1">
-          <label className="text-[10px] text-muted-foreground">Max Tokens</label>
+          <label className="text-[10px] text-muted-foreground">{t("model.maxTokens")}</label>
           <DeferredNumberInput
             value={model.maxTokens}
             min={0}
@@ -251,8 +251,8 @@ export function ModelEditor({
           <SelectContent>
             <SelectItem value="inherit">{t("model.inheritProviderThinkingStyle")}</SelectItem>
             <SelectItem value="openai">OpenAI (reasoning_effort)</SelectItem>
-            <SelectItem value="anthropic">Anthropic (thinking budget)</SelectItem>
-            <SelectItem value="zai">Z.AI (thinking budget)</SelectItem>
+            <SelectItem value="anthropic">{t("model.anthropicThinkingBudget")}</SelectItem>
+            <SelectItem value="zai">{t("model.zaiThinkingBudget")}</SelectItem>
             <SelectItem value="qwen">Qwen (enable_thinking)</SelectItem>
             <SelectItem value="none">{t("provider.thinkingStyleNone")}</SelectItem>
           </SelectContent>
@@ -329,7 +329,7 @@ export function ModelEditor({
               ) : (
                 <Play className="h-3 w-3 fill-current" />
               )}
-              发送 "Hi" 测试
+              {t("provider.testConnection")}
             </Button>
             {testResult && (
               <span
@@ -347,7 +347,7 @@ export function ModelEditor({
                     {testResult.data.latencyMs}ms
                   </span>
                 )}
-                <IconTip label="查看完整日志">
+                <IconTip label={t("localModelJobs.actions.viewLogs")}>
                   <Button
                     variant="ghost"
                     size="icon"
@@ -362,7 +362,7 @@ export function ModelEditor({
           </div>
           {testResult?.ok && testResult.data.reply && (
             <div className="px-2.5 py-1.5 rounded-md bg-secondary/50 text-[10px] text-muted-foreground border border-border/50">
-              <span className="text-[9px] font-medium text-foreground/60">AI 回复: </span>
+              <span className="text-[9px] font-medium text-foreground/60">AI · {t("common.response")}: </span>
               {testResult.data.reply}
             </div>
           )}
@@ -373,7 +373,7 @@ export function ModelEditor({
               return (
                 <div className="px-2.5 py-2 rounded-md bg-secondary/30 border border-border/50 overflow-hidden space-y-2">
                   <div className="flex items-center justify-between">
-                    <span className="text-[9px] font-medium text-foreground/60">完整日志</span>
+                    <span className="text-[9px] font-medium text-foreground/60">{t("settings.logs")}</span>
                     <Button
                       variant="ghost"
                       size="icon"
@@ -385,7 +385,7 @@ export function ModelEditor({
                   </div>
                   {d.request != null && (
                     <div>
-                      <span className="text-[9px] font-semibold text-blue-400">▸ 请求</span>
+                      <span className="text-[9px] font-semibold text-blue-400">▸ {t("common.request")}</span>
                       <pre className="text-[10px] text-muted-foreground whitespace-pre-wrap break-all max-h-32 overflow-y-auto font-mono mt-0.5 pl-2 border-l-2 border-blue-500/30">
                         {JSON.stringify(d.request, null, 2)}
                       </pre>
@@ -395,7 +395,7 @@ export function ModelEditor({
                     <span
                       className={`text-[9px] font-semibold ${d.success ? "text-green-400" : "text-red-400"}`}
                     >
-                      ▸ 响应 {d.status ? `(${d.status})` : ""}
+                      ▸ {t("common.response")} {d.status ? `(${d.status})` : ""}
                     </span>
                     <pre
                       className={`text-[10px] text-muted-foreground whitespace-pre-wrap break-all max-h-40 overflow-y-auto font-mono mt-0.5 pl-2 border-l-2 ${d.success ? "border-green-500/30" : "border-red-500/30"}`}

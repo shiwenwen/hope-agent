@@ -141,7 +141,7 @@ export function WeatherSection({ config, update }: WeatherSectionProps) {
     setIsLoadingWeather(true)
     setWeatherError(false)
     try {
-      const city = config.weatherCity || "Unknown"
+      const city = config.weatherCity || t("common.unknown")
       const weather: WeatherData = await getTransport().call("preview_weather", {
         lat: config.weatherLatitude,
         lon: config.weatherLongitude,
@@ -349,7 +349,7 @@ export function WeatherSection({ config, update }: WeatherSectionProps) {
                 {isLoadingWeather ? (
                   <div className="flex items-center text-muted-foreground text-xs gap-1.5 pt-1">
                     <Loader2 className="w-3 h-3 animate-spin" />
-                    Loading...
+                    {t("common.loading")}
                   </div>
                 ) : weatherError ? (
                   <div className="text-xs text-destructive flex items-center gap-1.5 pt-1">
@@ -375,7 +375,11 @@ export function WeatherSection({ config, update }: WeatherSectionProps) {
                         <span className="opacity-80 flex items-center gap-1">
                           ☁️ <span>{t("settings.weatherCond")}</span>
                         </span>{" "}
-                        <span>{currentWeather.weatherDescription}</span>
+                        <span>
+                          {t(`settings.weatherCodes.${currentWeather.weatherCode}`, {
+                            defaultValue: currentWeather.weatherDescription,
+                          })}
+                        </span>
                       </div>
                       <div className="flex items-center justify-between gap-1.5">
                         <span className="opacity-80 flex items-center gap-1">

@@ -1652,7 +1652,9 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
           })
           const art = await tx.call<DesignArtifact>("import_design_image_cmd", {
             projectId: activeProject.id,
-            title: f.name.replace(/\.[^.]+$/, "").slice(0, 40) || "Imported image",
+            title:
+              f.name.replace(/\.[^.]+$/, "").slice(0, 40) ||
+              t("design.dropImport.importedImage", "Imported image"),
             mime: f.type,
             dataB64,
           })

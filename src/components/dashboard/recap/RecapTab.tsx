@@ -90,14 +90,14 @@ export default function RecapTab({ initialReportId }: Props) {
           void loadList()
         } else if (obj.progress.phase === "failed") {
           setGenerating(false)
-          setError(obj.progress.message ?? "generation failed")
+          setError(obj.progress.message ?? t("recap.progress.failed"))
         }
       }
     })
     return () => {
       unlisten()
     }
-  }, [generating, loadList])
+  }, [generating, loadList, t])
 
   const onGenerate = useCallback(async () => {
     setError(null)
@@ -279,13 +279,14 @@ function formatProgress(p: RecapProgress, t: ReturnType<typeof useTranslation>["
     case "done":
       return t("recap.progress.done")
     case "failed":
-      return p.message ?? "failed"
+      return p.message ?? t("recap.progress.failed")
     default:
       return ""
   }
 }
 
 function ReportView({ report }: { report: RecapReport }) {
+  const { t } = useTranslation()
   const { meta, quantitative, facetSummary, sections } = report
   const cur = quantitative.overview.current
   const health = quantitative.health
@@ -297,25 +298,28 @@ function ReportView({ report }: { report: RecapReport }) {
       <div className="rounded-lg border bg-card p-4">
         <div className="text-lg font-semibold">{meta.title}</div>
         <div className="text-xs text-muted-foreground mt-1">
-          {meta.generatedAt} · <code>{meta.analysisModel}</code> · {meta.sessionCount} sessions
+          {meta.generatedAt} · <code>{meta.analysisModel}</code> ·{" "}
+          {t("workspace.codingTrend.sessions", { count: meta.sessionCount })}
         </div>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
-        <Kpi label="Sessions" value={cur.totalSessions.toString()} />
-        <Kpi label="Messages" value={cur.totalMessages.toString()} />
-        <Kpi label="Tool calls" value={cur.totalToolCalls.toString()} />
-        <Kpi label="Errors" value={cur.totalErrors.toString()} />
-        <Kpi label="Cost" value={`$${cur.estimatedCostUsd.toFixed(2)}`} />
-        <Kpi label="Avg TTFT" value={cur.avgTtftMs ? `${cur.avgTtftMs.toFixed(0)} ms` : "—"} />
+        <Kpi label={t("dashboard.insights.sessions")} value={cur.totalSessions.toString()} />
+        <Kpi label={t("dashboard.insights.messages")} value={cur.totalMessages.toString()} />
+        <Kpi label={t("dashboard.overview.toolCalls")} value={cur.totalToolCalls.toString()} />
+        <Kpi label={t("dashboard.overview.errors")} value={cur.totalErrors.toString()} />
+        <Kpi label={t("dashboard.insights.cost")} value={`$${cur.estimatedCostUsd.toFixed(2)}`} />
+        <Kpi label={t("dashboard.overview.avgTtft")} value={cur.avgTtftMs ? `${cur.avgTtftMs.toFixed(0)} ms` : "—"} />
       </div>
 
       <div className="rounded-lg border bg-card p-4">
         <div className="flex items-center gap-2">
-          <div className="text-sm font-medium">Health score</div>
+          <div className="text-sm font-medium">{t("dashboard.insights.healthScore")}</div>
           <div className="text-xl font-semibold">{health.score}/100</div>
           <span className={cn("text-xs px-2 py-0.5 rounded-full", healthClass)}>
-            {health.status}
+            {t(`dashboard.insights.status.${health.status}`, {
+              defaultValue: health.status.replaceAll("_", " "),
+            })}
           </span>
         </div>
       </div>
@@ -336,10 +340,10 @@ function ReportView({ report }: { report: RecapReport }) {
 
       {facetSummary.totalFacets > 0 && (
         <div className="rounded-lg border bg-card p-4">
-          <div className="text-base font-semibold mb-2">Facet breakdown</div>
-          <FacetBars title="Top goals" items={facetSummary.goalHistogram} />
-          <FacetBars title="Outcomes" items={facetSummary.outcomeDistribution} />
-          <FacetBars title="Friction sources" items={facetSummary.frictionTop} />
+          <div className="text-base font-semibold mb-2">{t("recap.report.facetBreakdown")}</div>
+          <FacetBars title={t("recap.report.topGoals")} items={facetSummary.goalHistogram} />
+          <FacetBars title={t("recap.report.outcomes")} items={facetSummary.outcomeDistribution} />
+          <FacetBars title={t("recap.report.frictionSources")} items={facetSummary.frictionTop} />
         </div>
       )}
     </div>

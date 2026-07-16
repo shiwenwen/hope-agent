@@ -1202,6 +1202,7 @@ function ListField({
   onReset: () => void
   status?: SaveStatus
 }) {
+  const { t } = useTranslation()
   const [draft, setDraft] = useState("")
   return (
     <FieldRow label={label} help={help} status={status} onReset={onReset}>
@@ -1223,7 +1224,7 @@ function ListField({
         ))}
         <Input
           value={draft}
-          placeholder="add..."
+          placeholder={`${t("common.add")}…`}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter" && draft.trim()) {

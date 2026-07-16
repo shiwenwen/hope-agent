@@ -2878,6 +2878,15 @@ export default function ClaimsBetaView({ focus }: ClaimsBetaViewProps) {
       t(`settings.memoryDecisionTypes.${decisionType}`, decisionType.replace(/_/g, " ")),
     [t],
   )
+  const dreamingPhaseLabel = useCallback(
+    (phase: string) => t(`dashboard.dreaming.phase.${phase}`, phase.replace(/_/g, " ")),
+    [t],
+  )
+  const dreamingRunStatusLabel = useCallback(
+    (status: string) =>
+      t(`dashboard.dreaming.runs.status.${status}`, status.replace(/_/g, " ")),
+    [t],
+  )
   const reviewHistoryDecisionFilterLabel = (value: string) =>
     value === "all" ? t("settings.claims.reviewHistoryDecisionAll") : decisionTypeLabel(value)
   const reviewHistoryTimeRangeLabel = (value: ReviewHistoryTimeRange) =>
@@ -3046,8 +3055,8 @@ export default function ClaimsBetaView({ focus }: ClaimsBetaViewProps) {
       `- decision: ${decisionTypeLabel(item.decisionType)} (${item.decisionType})`,
       `- time: ${formatActivityTime(item.createdAt)} (${item.createdAt})`,
       `- trigger: ${t(`dashboard.dreaming.trigger.${item.trigger}`, item.trigger)} (${item.trigger})`,
-      item.phase ? `- phase: ${item.phase}` : null,
-      item.status ? `- status: ${item.status}` : null,
+      item.phase ? `- phase: ${dreamingPhaseLabel(item.phase)} (${item.phase})` : null,
+      item.status ? `- status: ${dreamingRunStatusLabel(item.status)} (${item.status})` : null,
       scope ? `- scope: ${scope}` : null,
       item.targetId ? `- claim: ${item.targetId}` : null,
       `- decision id: ${item.id}`,
@@ -3678,8 +3687,8 @@ export default function ClaimsBetaView({ focus }: ClaimsBetaViewProps) {
               <span className="font-mono">{formatActivityTime(item.createdAt)}</span>
               <span>{decisionTypeLabel(item.decisionType)}</span>
               <span>{t(`dashboard.dreaming.trigger.${item.trigger}`, item.trigger)}</span>
-              {item.phase && <span>{item.phase}</span>}
-              {item.status && <span>{item.status}</span>}
+              {item.phase && <span>{dreamingPhaseLabel(item.phase)}</span>}
+              {item.status && <span>{dreamingRunStatusLabel(item.status)}</span>}
               {item.targetId && (
                 <span className="text-primary">{t("settings.claims.reviewHistoryOpenClaim")}</span>
               )}
@@ -3765,7 +3774,8 @@ export default function ClaimsBetaView({ focus }: ClaimsBetaViewProps) {
             <span className="truncate">{c.content}</span>
           </div>
           <div className="text-[10px] text-muted-foreground mt-0.5 font-mono">
-            {c.claimType} · {scopeLabel(c)} · {(c.confidence * 100).toFixed(0)}% ·{" "}
+            {t(`settings.claimType_${c.claimType}`, c.claimType)} · {scopeLabel(c)} ·{" "}
+            {(c.confidence * 100).toFixed(0)}% ·{" "}
             {(c.salience * 100).toFixed(0)}%
           </div>
           {evidenceSummary && (
@@ -5043,7 +5053,8 @@ export default function ClaimsBetaView({ focus }: ClaimsBetaViewProps) {
                 </summary>
                 <div className="mt-2 space-y-1 font-mono text-[10px] text-muted-foreground">
                   <div>
-                    {detail.claim.claimType} · {detail.claim.subject} · {detail.claim.predicate} ·{" "}
+                    {t(`settings.claimType_${detail.claim.claimType}`, detail.claim.claimType)} ·{" "}
+                    {detail.claim.subject} · {detail.claim.predicate} ·{" "}
                     {detail.claim.object}
                   </div>
                   <div>
@@ -5073,7 +5084,9 @@ export default function ClaimsBetaView({ focus }: ClaimsBetaViewProps) {
                           {evidenceClassLabel(e.evidenceClass)}
                         </span>
                         {e.sessionId && (
-                          <span className="font-mono">session {e.sessionId.slice(0, 8)}…</span>
+                          <span className="font-mono">
+                            {t("chat.statusSession")} {e.sessionId.slice(0, 8)}…
+                          </span>
                         )}
                         {e.messageId && <span className="font-mono">#{e.messageId}</span>}
                       </div>
@@ -5146,7 +5159,7 @@ export default function ClaimsBetaView({ focus }: ClaimsBetaViewProps) {
                         key={`${l.claimId}-${l.memoryId}`}
                         className="font-mono text-[10px] text-muted-foreground"
                       >
-                        memory #{l.memoryId} · {l.syncMode}
+                        {t("settings.memory")} #{l.memoryId} · {l.syncMode}
                       </li>
                     ))}
                   </ul>
@@ -5300,9 +5313,9 @@ export default function ClaimsBetaView({ focus }: ClaimsBetaViewProps) {
                           <span className="min-w-0 flex-1 truncate">{c.content}</span>
                         </div>
                         <div className="mt-0.5 min-w-0 truncate font-mono text-[10px] text-muted-foreground">
-                          {c.claimType} · {scopeLabel(c)} ·{" "}
+                          {t(`settings.claimType_${c.claimType}`, c.claimType)} · {scopeLabel(c)} ·{" "}
                           {t(`settings.claims.status.${c.proposedStatus}`)}
-                          {c.pinned ? " · pinned" : ""}
+                          {c.pinned ? ` · ${t("settings.claims.pinned")}` : ""}
                         </div>
                       </div>
                     ))

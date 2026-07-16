@@ -98,9 +98,14 @@ const ARTIFACT_ENUM_LABEL_KEYS: Record<string, string> = {
   web: "artifacts.enumLabels.webPage",
   web_page: "artifacts.enumLabels.webPage",
   fixture: "artifacts.enumLabels.testFixture",
+  text: "artifacts.enumLabels.text",
+  narrative: "artifacts.enumLabels.narrative",
+  legacy_canvas: "artifacts.enumLabels.legacyCanvas",
+  test: "artifacts.enumLabels.test",
   private: "artifacts.enumLabels.private",
   public: "artifacts.enumLabels.public",
   session: "artifacts.enumLabels.session",
+  restricted: "workspace.domainAccessScope.restricted",
   unspecified: "artifacts.enumLabels.unspecified",
   unknown: "artifacts.enumLabels.unknown",
   not_run: "artifacts.enumLabels.notVerified",
@@ -131,6 +136,12 @@ const KINDS = [
   "slides",
   "custom",
 ]
+
+function humanizeArtifactValue(value: string): string {
+  return value
+    .replace(/[._-]+/g, " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase())
+}
 
 function readStoredBoolean(key: string): boolean {
   if (typeof window === "undefined") return false
@@ -241,8 +252,9 @@ export default function ArtifactsView({ onBack }: ArtifactsViewProps) {
     const normalized = value?.trim().toLowerCase() || "unknown"
     const technicalLabel = TECHNICAL_SOURCE_TYPE_LABELS[normalized]
     if (technicalLabel) return technicalLabel
-    const key = ARTIFACT_ENUM_LABEL_KEYS[normalized] ?? ARTIFACT_ENUM_LABEL_KEYS.unknown
-    return t(key)
+    const key = ARTIFACT_ENUM_LABEL_KEYS[normalized]
+    if (key) return t(key)
+    return humanizeArtifactValue(value?.trim() || t(ARTIFACT_ENUM_LABEL_KEYS.unknown))
   }
   const [artifacts, setArtifacts] = useState<ArtifactRecord[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)

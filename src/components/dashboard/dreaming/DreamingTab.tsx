@@ -200,7 +200,7 @@ function DecisionEvidence({ refs }: { refs: EvidenceRef[] }) {
               key={idx}
               className="rounded bg-secondary/60 px-1.5 py-0.5 text-[10px] font-mono text-muted-foreground"
             >
-              memory #{r.memoryId}
+              {t("settings.memory")} #{r.memoryId}
             </span>
           )
         }
@@ -217,7 +217,7 @@ function DecisionEvidence({ refs }: { refs: EvidenceRef[] }) {
                 className="rounded bg-secondary/60 px-1.5 py-0.5 text-[10px] font-mono text-muted-foreground inline-flex items-center gap-1"
               >
                 <FileText className="h-3 w-3" />
-                session {sid.slice(0, 8)}…
+                {t("chat.statusSession")} {sid.slice(0, 8)}…
               </span>
             )
           }
@@ -229,7 +229,7 @@ function DecisionEvidence({ refs }: { refs: EvidenceRef[] }) {
               className="rounded bg-secondary/60 px-1.5 py-0.5 text-[10px] font-mono text-muted-foreground hover:bg-secondary inline-flex items-center gap-1"
             >
               <FileText className="h-3 w-3" />
-              session {sid.slice(0, 8)}…
+              {t("chat.statusSession")} {sid.slice(0, 8)}…
             </button>
           )
         }
@@ -255,7 +255,9 @@ function DecisionEvidence({ refs }: { refs: EvidenceRef[] }) {
             <div className="space-y-0.5">
               {quote.role && (
                 <span className="font-mono text-[10px] uppercase text-muted-foreground">
-                  {quote.role}
+                  {t(`dashboard.detail.roles.${quote.role}`, {
+                    defaultValue: quote.role,
+                  })}
                 </span>
               )}
               <div className="text-muted-foreground whitespace-pre-wrap break-words">

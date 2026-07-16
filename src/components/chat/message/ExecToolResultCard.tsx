@@ -160,7 +160,9 @@ export default function ExecToolResultCard({ tool, isRunning }: { tool: ToolCall
         </div>
         {backgroundSessionId && activeProcessLive?.status && (
           <span className="rounded bg-secondary px-1.5 py-0.5 text-[10px] text-muted-foreground">
-            {activeProcessLive.status}
+            {t(`common.statusValues.${activeProcessLive.status}`, {
+              defaultValue: activeProcessLive.status.replaceAll("_", " "),
+            })}
           </span>
         )}
         {backgroundSessionId && !cancelled && !activeProcessLive?.terminal && (

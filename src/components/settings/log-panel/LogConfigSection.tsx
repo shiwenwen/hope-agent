@@ -54,7 +54,9 @@ export default function LogConfigSection({ config, onSaveConfig }: LogConfigSect
             <SelectContent>
               {LEVELS.map((l) => (
                 <SelectItem key={l} value={l}>
-                  {l}
+                  {t(`dashboard.detail.levels.${l === "warn" ? "warning" : l}`, {
+                    defaultValue: l,
+                  })}
                 </SelectItem>
               ))}
             </SelectContent>

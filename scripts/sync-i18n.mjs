@@ -38,6 +38,19 @@ function flatKeys(obj, prefix = "") {
   return keys
 }
 
+/** 找出无法被 getByPath 读取的字面点号属性（例如 { "a.b": ... }） */
+function dottedObjectKeys(obj, prefix = "") {
+  const keys = []
+  for (const [key, value] of Object.entries(obj ?? {})) {
+    const full = prefix ? `${prefix}.${key}` : key
+    if (key.includes(".")) keys.push(full)
+    if (value && typeof value === "object" && !Array.isArray(value)) {
+      keys.push(...dottedObjectKeys(value, full))
+    }
+  }
+  return keys
+}
+
 /** 根据 dot-path 取值 */
 function getByPath(obj, path) {
   return path.split(".").reduce((o, k) => o?.[k], obj)
@@ -97,18 +110,49 @@ function findLiteralSourceTranslationKeys() {
   // apostrophe (and vice versa). The former shared character class silently
   // missed calls such as t("key", "Couldn't ...").
   const callPattern = /\bt\s*\(\s*(?:"([^"\n]+)"|'([^'\n]+)')/g
+  // Lookup tables commonly pass these fields to t(...) later. Scanning the
+  // literal field values closes the gap left by call-only matching.
+  const indirectKeyPattern =
+    /\b(?:labelKey|titleKey|descriptionKey|descKey|errorKey|hintKey|nameKey|promptKey|reasonKey|subjectScopeKey)\s*:\s*(?:"([^"\n]*\.[^"\n]*)"|'([^'\n]*\.[^'\n]*)')/g
+  const translationLikeLiteralPattern =
+    /(["'])([a-z][A-Za-z0-9_-]*(?:\.[a-z][A-Za-z0-9_-]*)+)\1/g
+  const enRoots = new Set(Object.keys(en))
+  const enPrefixes = new Set()
+  for (const key of enKeys) {
+    const parts = key.split(".")
+    for (let index = 1; index < parts.length; index += 1) {
+      enPrefixes.add(parts.slice(0, index).join("."))
+    }
+  }
+  const technicalLiteral =
+    /\.(?:md|json|ya?ml|toml|tsx?|jsx?|rs|html|css|csv|xlsx?|docx|pptx|db|sqlite|zip|tar|gz|png|jpe?g|gif|svg|webp|bin|m4a|mp3|ogg|wav|webm|mp4)$/i
 
   for (const file of sourceFiles(SRC_DIR)) {
     const source = readFileSync(file, "utf8")
-    for (const match of source.matchAll(callPattern)) {
-      const key = match[1] ?? match[2]
-      if (!key.includes(".")) continue
-
-      const before = source.slice(0, match.index)
+    const recordRef = (key, index) => {
+      const before = source.slice(0, index)
       const line = before.split("\n").length
       const rel = relative(resolve(__dirname, ".."), file)
       if (!refs.has(key)) refs.set(key, [])
       refs.get(key).push(`${rel}:${line}`)
+    }
+    for (const pattern of [callPattern, indirectKeyPattern]) {
+      for (const match of source.matchAll(pattern)) {
+        const key = match[1] ?? match[2]
+        if (!key.includes(".")) continue
+        recordRef(key, match.index)
+      }
+    }
+    // A final conservative pass catches translation-key lookup maps whose
+    // property names are generic (for example PHASE_KEY). Restrict candidates
+    // to known locale roots, lowercase key segments, non-file literals, and
+    // non-prefixes so model IDs, filenames and dynamic namespace bases stay out.
+    for (const match of source.matchAll(translationLikeLiteralPattern)) {
+      const key = match[2]
+      if (!enRoots.has(key.split(".")[0])) continue
+      if (technicalLiteral.test(key)) continue
+      if (enPrefixes.has(key)) continue
+      recordRef(key, match.index)
     }
   }
 
@@ -150,9 +194,9 @@ const en = JSON.parse(readFileSync(resolve(LOCALES_DIR, "en.json"), "utf8"))
 const enKeys = flatKeys(en)
 const enKeySet = new Set(enKeys)
 
-// 读取翻译数据（如果需要 apply）
+// 读取翻译数据。check 同时校验种子，避免 --apply 将旧译文或点号扁平键写回 locale。
 let translations = {}
-if (doApply) {
+if (doApply || doCheck) {
   try {
     translations = JSON.parse(readFileSync(TRANSLATIONS_FILE, "utf8"))
   } catch {
@@ -170,6 +214,9 @@ let totalMissing = 0
 let totalExtra = 0
 let totalPlaceholderMismatches = 0
 let totalApplied = 0
+let totalSeedDottedKeys = 0
+let totalSeedUnknownKeys = 0
+let totalSeedMismatches = 0
 
 for (const file of localeFiles) {
   const lang = file.replace(".json", "")
@@ -251,6 +298,27 @@ for (const file of localeFiles) {
     }
     totalApplied += applied
   }
+
+  if (doCheck && translations[lang]) {
+    const seed = translations[lang]
+    const dotted = dottedObjectKeys(seed)
+    const seedKeys = flatKeys(seed)
+    const unknown = seedKeys.filter((key) => !enKeySet.has(key))
+    const mismatches = seedKeys.filter(
+      (key) => enKeySet.has(key) && getByPath(seed, key) !== getByPath(locale, key),
+    )
+    if (dotted.length > 0 || unknown.length > 0 || mismatches.length > 0) {
+      console.log(
+        `\n⚠️  ${lang} 翻译种子: 点号属性 ${dotted.length}, 失效 key ${unknown.length}, 与 locale 不一致 ${mismatches.length}`,
+      )
+      for (const key of dotted) console.log(`     · 无效点号属性 ${key}`)
+      for (const key of unknown) console.log(`     - 失效 ${key}`)
+      for (const key of mismatches) console.log(`     ≠ ${key}`)
+    }
+    totalSeedDottedKeys += dotted.length
+    totalSeedUnknownKeys += unknown.length
+    totalSeedMismatches += mismatches.length
+  }
 }
 
 const sourceKeyRefs = findLiteralSourceTranslationKeys()
@@ -273,6 +341,9 @@ if (doCheck) {
   console.log(`总计缺失: ${totalMissing} 条`)
   console.log(`总计多余: ${totalExtra} 条`)
   console.log(`总计插值不一致: ${totalPlaceholderMismatches} 条`)
+  console.log(`翻译种子点号属性: ${totalSeedDottedKeys} 条`)
+  console.log(`翻译种子失效 key: ${totalSeedUnknownKeys} 条`)
+  console.log(`翻译种子与 locale 不一致: ${totalSeedMismatches} 条`)
 }
 if (doApply) console.log(`总计写入: ${totalApplied} 条`)
 
@@ -283,10 +354,13 @@ if (
   (totalMissing > 0 ||
     totalExtra > 0 ||
     totalPlaceholderMismatches > 0 ||
+    totalSeedDottedKeys > 0 ||
+    totalSeedUnknownKeys > 0 ||
+    totalSeedMismatches > 0 ||
     missingSourceKeys.length > 0)
 ) {
   console.error(
-    `\n❌ 检测到 ${totalMissing} 个 locale 缺失 key、${totalExtra} 个多余 key、${totalPlaceholderMismatches} 个插值不一致、${missingSourceKeys.length} 个源码 key 未进入 en.json 基准。请补齐后重新提交。`,
+    `\n❌ 检测到 ${totalMissing} 个 locale 缺失 key、${totalExtra} 个多余 key、${totalPlaceholderMismatches} 个插值不一致、${missingSourceKeys.length} 个源码 key 未进入 en.json 基准，以及 ${totalSeedDottedKeys + totalSeedUnknownKeys + totalSeedMismatches} 个翻译种子问题。请补齐后重新提交。`,
   )
   process.exit(1)
 }

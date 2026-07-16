@@ -150,9 +150,9 @@ export default function ControlPlaneSection({
           <TabsTrigger value="overview">
             {t("dashboard.controlPlane.sections.overview")}
           </TabsTrigger>
-          <TabsTrigger value="goals">Goal</TabsTrigger>
-          <TabsTrigger value="workflows">Workflow</TabsTrigger>
-          <TabsTrigger value="loops">Loop</TabsTrigger>
+          <TabsTrigger value="goals">{t("workspace.goal.title")}</TabsTrigger>
+          <TabsTrigger value="workflows">{t("workspace.workflow.title")}</TabsTrigger>
+          <TabsTrigger value="loops">{t("workspace.loop.title")}</TabsTrigger>
           <TabsTrigger value="progress">
             {t("dashboard.controlPlane.sections.planTask")}
           </TabsTrigger>
@@ -367,7 +367,7 @@ export default function ControlPlaneSection({
           </div>
           <div className="grid gap-4 xl:grid-cols-2">
             <ProgressPanel
-              title="Task"
+              title={t("workspace.context.kindTask")}
               completion={data.tasks.cohortCompletion}
               currentValue={data.tasks.currentBacklog}
               currentLabel={t("dashboard.controlPlane.metrics.currentBacklog")}
@@ -376,7 +376,7 @@ export default function ControlPlaneSection({
               trend={data.tasks.trend}
             />
             <ProgressPanel
-              title="Plan"
+              title={t("planMode.toggleLabel")}
               completion={data.plans.cohortCompletion}
               currentValue={data.plans.activeNow}
               currentLabel={t("dashboard.controlPlane.metrics.activePlans")}

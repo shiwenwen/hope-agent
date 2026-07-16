@@ -1,4 +1,5 @@
 import { CheckCircle2, XCircle, Clock, Link2, Shield } from "lucide-react"
+import { useTranslation } from "react-i18next"
 
 interface TestStep {
   endpoint: string
@@ -40,6 +41,7 @@ export function parseTestResult(raw: string, isError: boolean): TestResult {
 }
 
 export default function TestResultDisplay({ result }: { result: TestResult }) {
+  const { t } = useTranslation()
   const { ok, data } = result
 
   return (
@@ -91,14 +93,14 @@ export default function TestResultDisplay({ result }: { result: TestResult }) {
           {data.auth && (
             <div className="flex items-center gap-1.5">
               <Shield className="h-3 w-3 shrink-0" />
-              <span>认证方式: {data.auth}</span>
+              <span>{t("common.authMethod")}: {data.auth}</span>
             </div>
           )}
 
           {/* Test steps */}
           {data.steps && data.steps.length > 1 && (
             <div className="pt-1 space-y-0.5">
-              <span className="text-[10px] font-medium">测试步骤:</span>
+              <span className="text-[10px] font-medium">{t("common.testSteps")}:</span>
               {data.steps.map((step, i) => (
                 <div key={i} className="flex items-center gap-1.5 text-[10px] pl-2">
                   <span

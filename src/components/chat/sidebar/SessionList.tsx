@@ -188,7 +188,7 @@ export default function SessionList({
                     onClick={handleMarkAllRead}
                     disabled={filter !== "session" || totalUnreadCount === 0}
                   >
-                    {t("chat.markAllRead") || "全部已读"}
+                    {t("chat.markAllRead")}
                   </ContextMenuItem>
                 </ContextMenuContent>
               </ContextMenu>
@@ -264,7 +264,7 @@ export default function SessionList({
               <MessageSquare className="h-8 w-8 text-muted-foreground/20 mx-auto mb-2" />
               <p className="text-xs text-muted-foreground/60">
                 {selectedAgentId !== null
-                  ? t("chat.noMatchingSessions") || "No matching sessions"
+                  ? t("chat.noMatchingSessions")
                   : t("chat.startConversation")}
               </p>
             </div>

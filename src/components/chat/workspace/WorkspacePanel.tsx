@@ -1031,7 +1031,9 @@ function MemoryDiagnosticsSection({
                     {retrievalLayerLabel(layer.layer, t)}
                   </span>
                   <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground">
-                    {layer.refCount} refs
+                    {t("workspace.refCount", "{{count}} 个引用", {
+                      count: layer.refCount,
+                    })}
                   </span>
                   <StatusPill
                     label={retrievalLayerStatusLabel(status, t)}
@@ -2343,27 +2345,59 @@ function contextCandidateEvidenceInput(
   }
 }
 
-function contextCandidateSummary(candidate: ContextCandidate): string {
+function contextCandidateSummary(
+  candidate: ContextCandidate,
+  t: ReturnType<typeof useTranslation>["t"],
+): string {
   const lines: string[] = []
-  if (candidate.subtitle) lines.push(`摘要线索：${candidate.subtitle}`)
+  if (candidate.subtitle) {
+    lines.push(
+      t("workspace.context.summaryClueLine", "摘要线索：{{value}}", {
+        value: candidate.subtitle,
+      }),
+    )
+  }
   const location = contextLocationLabel(candidate)
-  if (location) lines.push(`位置：${location}`)
-  if (candidate.status) lines.push(`状态：${candidate.status}`)
-  if (candidate.reasons.length > 0) lines.push(`推荐原因：${candidate.reasons.join("；")}`)
-  if (candidate.sources.length > 0) lines.push(`来源信号：${candidate.sources.join(", ")}`)
+  if (location) {
+    lines.push(t("workspace.context.locationLine", "位置：{{value}}", { value: location }))
+  }
+  if (candidate.status) {
+    lines.push(
+      t("workspace.context.statusLine", "状态：{{value}}", {
+        value: diagnosticStatusLabel(t, candidate.status),
+      }),
+    )
+  }
+  if (candidate.reasons.length > 0) {
+    lines.push(
+      t("workspace.context.reasonsLine", "推荐原因：{{value}}", {
+        value: candidate.reasons.join(", "),
+      }),
+    )
+  }
+  if (candidate.sources.length > 0) {
+    lines.push(
+      t("workspace.context.sourcesLine", "来源信号：{{value}}", {
+        value: candidate.sources.join(", "),
+      }),
+    )
+  }
   return lines.join("\n") || candidate.title
 }
 
 function contextCandidateSummaryEvidenceInput(
   candidate: ContextCandidate,
   sessionId: string,
+  t: ReturnType<typeof useTranslation>["t"],
 ): RecordDomainEvidenceInput {
   return {
     sessionId,
     domain: contextCandidateDomain(candidate),
     evidenceType: "artifact_created",
-    title: `上下文摘要：${candidate.title}`,
-    summary: contextCandidateSummary(candidate),
+    title: t("workspace.context.summaryEvidenceTitle", "上下文摘要：{{title}}", {
+      title: candidate.title,
+    }),
+    summary: contextCandidateSummary(candidate, t),
     sourceMetadata: {
       ...contextCandidateSourceMetadata(candidate),
       action: "summarize",
@@ -2378,12 +2412,15 @@ function contextCandidateSummaryEvidenceInput(
 function contextCandidateConflictEvidenceInput(
   candidate: ContextCandidate,
   sessionId: string,
+  t: ReturnType<typeof useTranslation>["t"],
 ): RecordDomainEvidenceInput {
   return {
     sessionId,
     domain: contextCandidateDomain(candidate),
     evidenceType: "claim_checked",
-    title: `冲突待复核：${candidate.title}`,
+    title: t("workspace.context.conflictEvidenceTitle", "冲突待复核：{{title}}", {
+      title: candidate.title,
+    }),
     summary: candidate.subtitle ?? candidate.reasons[0] ?? null,
     sourceMetadata: {
       ...contextCandidateSourceMetadata(candidate),
@@ -2401,11 +2438,19 @@ function contextCandidateConflictEvidenceInput(
 function contextCandidateAskUserInput(
   candidate: ContextCandidate,
   sessionId: string,
+  t: ReturnType<typeof useTranslation>["t"],
 ): CreateOwnerAskUserQuestionInput {
   const title = candidate.title
   const context = candidate.subtitle
-    ? `请确认这条上下文是否应该作为当前任务决策依据：${candidate.subtitle}`
-    : "请确认这条上下文是否应该作为当前任务决策依据。"
+    ? t(
+        "workspace.context.confirmationContextWithSubtitle",
+        "请确认这条上下文是否应该作为当前任务决策依据：{{subtitle}}",
+        { subtitle: candidate.subtitle },
+      )
+    : t(
+        "workspace.context.confirmationContext",
+        "请确认这条上下文是否应该作为当前任务决策依据。",
+      )
   return {
     sessionId,
     source: "workspace_context",
@@ -2413,21 +2458,31 @@ function contextCandidateAskUserInput(
     questions: [
       {
         questionId: "context_confirmation",
-        header: "上下文",
-        text: `是否采用「${title}」作为当前任务的有效上下文？`,
+        header: t("workspace.context.confirmationHeader", "上下文"),
+        text: t(
+          "workspace.context.confirmationQuestion",
+          "是否采用「{{title}}」作为当前任务的有效上下文？",
+          { title },
+        ),
         allowCustom: true,
         multiSelect: false,
         options: [
           {
             value: "confirm",
-            label: "采用",
-            description: "把这条上下文记录为用户确认的有效依据。",
+            label: t("workspace.context.confirmationAccept", "采用"),
+            description: t(
+              "workspace.context.confirmationAcceptDescription",
+              "把这条上下文记录为用户确认的有效依据。",
+            ),
             recommended: true,
           },
           {
             value: "reject",
-            label: "不采用",
-            description: "把这条上下文记录为用户拒绝或暂不采纳。",
+            label: t("workspace.context.confirmationReject", "不采用"),
+            description: t(
+              "workspace.context.confirmationRejectDescription",
+              "把这条上下文记录为用户拒绝或暂不采纳。",
+            ),
           },
         ],
       },
@@ -2438,7 +2493,9 @@ function contextCandidateAskUserInput(
         sessionId,
         domain: contextCandidateDomain(candidate),
         evidenceType: "user_decision",
-        title: `用户确认：${title}`,
+        title: t("workspace.context.confirmationEvidenceTitle", "用户确认：{{title}}", {
+          title,
+        }),
         summary: candidate.subtitle ?? candidate.reasons[0] ?? null,
         sourceMetadata: {
           ...contextCandidateSourceMetadata(candidate),
@@ -2478,21 +2535,38 @@ function contextCanCreateTask(candidate: ContextCandidate): boolean {
   return Boolean(actions?.canCreateTask)
 }
 
-function contextCandidateTaskContent(candidate: ContextCandidate): string {
+function contextCandidateTaskContent(
+  candidate: ContextCandidate,
+  t: ReturnType<typeof useTranslation>["t"],
+): string {
   const location = contextLocationLabel(candidate)
-  const evidenceType = contextCandidateEvidenceType(candidate).replace(/_/g, " ")
+  const evidenceType = domainEvidenceTypeLabel(t, contextCandidateEvidenceType(candidate))
   if (location) {
-    return `处理上下文：${candidate.title} (${location})`
+    return t("workspace.context.taskWithLocation", "处理上下文：{{title}}（{{location}}）", {
+      title: candidate.title,
+      location,
+    })
   }
   if (candidate.subtitle) {
-    return `处理上下文：${candidate.title} - ${candidate.subtitle}`
+    return t("workspace.context.taskWithSubtitle", "处理上下文：{{title}} — {{subtitle}}", {
+      title: candidate.title,
+      subtitle: candidate.subtitle,
+    })
   }
-  return `处理上下文：${candidate.title} (${evidenceType})`
+  return t("workspace.context.taskWithType", "处理上下文：{{title}}（{{type}}）", {
+    title: candidate.title,
+    type: evidenceType,
+  })
 }
 
-function contextCandidateTaskActiveForm(candidate: ContextCandidate): string {
+function contextCandidateTaskActiveForm(
+  candidate: ContextCandidate,
+  t: ReturnType<typeof useTranslation>["t"],
+): string {
   const location = candidate.url ?? candidate.path ?? candidate.subtitle ?? candidate.title
-  return `正在处理上下文：${location}`
+  return t("workspace.context.taskActiveForm", "正在处理上下文：{{location}}", {
+    location,
+  })
 }
 
 function DomainContextActionChips({
@@ -2963,7 +3037,7 @@ function ContextRetrievalSection({
       setContextActionKey(actionKey)
       try {
         const item = await getTransport().call<DomainEvidenceItem>("record_domain_evidence", {
-          input: contextCandidateSummaryEvidenceInput(candidate, sessionId),
+          input: contextCandidateSummaryEvidenceInput(candidate, sessionId, t),
         })
         toast.success(
           t("workspace.context.summaryRecorded", "已生成摘要：{{title}}", {
@@ -2990,7 +3064,7 @@ function ContextRetrievalSection({
       setContextActionKey(actionKey)
       try {
         await getTransport().call("create_owner_ask_user_question", {
-          input: contextCandidateAskUserInput(candidate, sessionId),
+          input: contextCandidateAskUserInput(candidate, sessionId, t),
         })
         toast.success(
           t("workspace.context.confirmationRequested", "已请求确认：{{title}}", {
@@ -3021,7 +3095,7 @@ function ContextRetrievalSection({
       setContextActionKey(actionKey)
       try {
         const item = await getTransport().call<DomainEvidenceItem>("record_domain_evidence", {
-          input: contextCandidateConflictEvidenceInput(candidate, sessionId),
+          input: contextCandidateConflictEvidenceInput(candidate, sessionId, t),
         })
         toast.warning(
           t("workspace.context.conflictRecorded", "已标记冲突：{{title}}", {
@@ -3049,8 +3123,8 @@ function ContextRetrievalSection({
       try {
         await getTransport().call<Task[]>("create_session_task", {
           sessionId,
-          content: contextCandidateTaskContent(candidate),
-          activeForm: contextCandidateTaskActiveForm(candidate),
+          content: contextCandidateTaskContent(candidate, t),
+          activeForm: contextCandidateTaskActiveForm(candidate, t),
         })
         toast.success(
           t("workspace.context.taskCreated", "已创建任务：{{title}}", {
@@ -7390,7 +7464,9 @@ function VerificationStepRow({ step }: { step: VerificationStep }) {
             <span>{t("workspace.verification.gated", "需手动确认")}</span>
           )}
           {duration ? <span>{duration}</span> : null}
-          {typeof step.exitCode === "number" ? <span>exit {step.exitCode}</span> : null}
+          {typeof step.exitCode === "number" ? (
+            <span>{t("workspace.exitCode", "退出码 {{code}}", { code: step.exitCode })}</span>
+          ) : null}
         </div>
         {output ? (
           <div className="mt-1 rounded border border-border/50 bg-background/60 px-2 py-1 font-mono text-[10px] leading-snug text-muted-foreground">
@@ -13802,7 +13878,7 @@ function loopTriggerSummary(
           : eventName === "task_updated"
             ? t("workspace.loop.eventTask", "任务状态")
             : eventName
-    return state ? `${eventLabel} · ${state}` : eventLabel
+    return state ? `${eventLabel} · ${loopEventStateLabel(t, state)}` : eventLabel
   }
   if (kind === "dynamic") {
     const fallbackSecs = typeof spec.fallbackSecs === "number" ? spec.fallbackSecs : null
@@ -13974,6 +14050,34 @@ function loopEventStateOptions(eventName: LoopEventName): string[] {
   return ["completed", "in_progress", "pending"]
 }
 
+function loopEventStateLabel(
+  t: ReturnType<typeof useTranslation>["t"],
+  state: string,
+): string {
+  switch (state) {
+    case "active":
+      return t("common.statusValues.active", "Active")
+    case "awaiting_user":
+      return t("common.statusValues.awaiting_user", "Awaiting user")
+    case "blocked":
+      return t("common.statusValues.blocked", "Blocked")
+    case "cancelled":
+      return t("common.statusValues.cancelled", "Cancelled")
+    case "completed":
+      return t("common.statusValues.completed", "Completed")
+    case "evaluating":
+      return t("common.statusValues.evaluating", "Evaluating")
+    case "failed":
+      return t("common.statusValues.failed", "Failed")
+    case "in_progress":
+      return t("common.statusValues.in_progress", "In progress")
+    case "pending":
+      return t("common.statusValues.pending", "Pending")
+    default:
+      return state
+  }
+}
+
 function loopNextRunLabel(
   t: ReturnType<typeof useTranslation>["t"],
   loop: LoopSchedule,
@@ -14008,6 +14112,10 @@ function loopSchedulingDecisionLabel(
       : t("workspace.loop.backingOffPlain", "已降频")
   }
   switch (decision) {
+    case "completed":
+      return t("common.statusValues.completed", "Completed")
+    case "blocked":
+      return t("common.statusValues.blocked", "Blocked")
     case "continue":
       return t("workspace.loop.decisionContinue", "继续")
     case "awaiting_follow_up_turn":
@@ -14124,7 +14232,7 @@ function LoopRunHistory({
           {watches.slice(0, 4).map((watch) => (
             <div key={watch.id} className="flex min-w-0 items-center gap-2 text-[10px]">
               <span className="min-w-0 flex-1 truncate font-mono text-foreground/75">
-                {watch.kind}
+                {t(`workspace.loop.watchKind.${watch.kind}`, watch.kind.replaceAll("_", " "))}
               </span>
               <span className="shrink-0 text-muted-foreground">
                 {t("workspace.loop.watchGeneration", "第 {{value}} 代", {
@@ -14988,7 +15096,7 @@ function LoopSchedulesSection({
                   <SelectContent>
                     {loopEventStateOptions(draftEventName).map((state) => (
                       <SelectItem key={state} value={state}>
-                        {state}
+                        {loopEventStateLabel(t, state)}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -16975,7 +17083,7 @@ ${repairPrompt}`
                           <span className="min-w-0 flex-1 truncate text-xs text-foreground/90">
                             {run.kind}
                             <span className="px-1 text-muted-foreground/50">·</span>
-                            {run.executionMode}
+                            {executionModeLabel(t, normalizeExecutionMode(run.executionMode))}
                             {run.worktreeId ? (
                               <>
                                 <span className="px-1 text-muted-foreground/50">·</span>
@@ -19892,7 +20000,10 @@ function GoalDetailSection({
                       <span className="min-w-0 flex-1 truncate text-[11px] font-medium">
                         {evidenceItem.item.title}
                       </span>
-                      <StatusPill label={evidenceItem.evidenceType} tone="good" />
+                      <StatusPill
+                        label={domainEvidenceTypeLabel(t, evidenceItem.evidenceType)}
+                        tone="good"
+                      />
                     </div>
                     <div className="mt-1 flex min-w-0 items-center gap-1.5 text-[10px] opacity-85">
                       <span className="shrink-0">{evidenceItem.domain}</span>
@@ -19919,7 +20030,7 @@ function GoalDetailSection({
                         ) : null}
                         {evidenceItem.redactionStatus ? (
                           <StatusPill
-                            label={evidenceItem.redactionStatus}
+                            label={domainRedactionStatusLabel(t, evidenceItem.redactionStatus)}
                             tone={domainEvidenceRedactionTone(evidenceItem.redactionStatus)}
                           />
                         ) : null}
@@ -19938,7 +20049,7 @@ function GoalDetailSection({
                       />
                       <GoalWorktreeMetric
                         label={t("workspace.goal.domainAccess", "访问")}
-                        value={evidenceItem.accessScope ?? "-"}
+                        value={domainAccessScopeLabel(t, evidenceItem.accessScope)}
                       />
                       <GoalWorktreeMetric
                         label={t("workspace.goal.domainWorkflow", "工作流")}
@@ -19947,7 +20058,7 @@ function GoalDetailSection({
                             ? truncateMiddle(evidenceItem.workflowOpKey, 28)
                             : evidenceItem.workflowRunId
                               ? truncateMiddle(evidenceItem.workflowRunId, 18)
-                              : (evidenceItem.redactionStatus ?? "-")
+                              : domainRedactionStatusLabel(t, evidenceItem.redactionStatus)
                         }
                       />
                     </div>
@@ -21879,7 +21990,7 @@ function WorkflowValidationResultRow({ result }: { result: Record<string, unknow
           </span>
           {typeof exitCode === "number" ? (
             <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
-              exit {exitCode}
+              {t("workspace.exitCode", "退出码 {{code}}", { code: exitCode })}
             </span>
           ) : null}
           <button
@@ -21899,7 +22010,11 @@ function WorkflowValidationResultRow({ result }: { result: Record<string, unknow
           </button>
         </div>
         <div className="mt-0.5 flex min-w-0 items-center gap-1.5 pl-5 text-[10px] text-muted-foreground/75">
-          {jobStatus ? <span className="shrink-0">{jobStatus}</span> : null}
+          {jobStatus ? (
+            <span className="shrink-0">
+              {t(`common.statusValues.${jobStatus}`, jobStatus.replaceAll("_", " "))}
+            </span>
+          ) : null}
           {jobStatus && cwd ? <span className="text-muted-foreground/45">·</span> : null}
           {cwd ? <span className="truncate">{cwd}</span> : null}
         </div>

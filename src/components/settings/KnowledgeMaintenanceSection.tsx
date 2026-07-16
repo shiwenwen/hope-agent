@@ -13,6 +13,7 @@ import type { AvailableModel } from "@/components/ui/model-selector"
 import { getTransport } from "@/lib/transport-provider"
 import { cn } from "@/lib/utils"
 import { logger } from "@/lib/logger"
+import { knowledgeMaintenanceSkipReasonLabel } from "@/components/knowledge/knowledgeMaintenanceLabels"
 import type {
   MaintenanceConfig,
   MaintenanceReport,
@@ -132,7 +133,7 @@ export default function KnowledgeMaintenanceSection() {
       if (report.note) {
         toast.message(
           t("settings.knowledgeMaintenance.cycleSkipped", "Skipped: {{note}}", {
-            note: report.note,
+            note: knowledgeMaintenanceSkipReasonLabel(t, report.note),
           }),
         )
       } else {

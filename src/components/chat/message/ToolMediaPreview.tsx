@@ -1,4 +1,5 @@
 import { useContext, useMemo } from "react"
+import { useTranslation } from "react-i18next"
 import { useTransport } from "@/lib/transport-provider"
 import { useLightbox } from "@/components/common/ImageLightbox"
 import FileCard from "@/components/chat/message/FileCard"
@@ -62,6 +63,7 @@ function ToolImageMedia({ item }: { item: MediaItem }) {
  *   - `image` tool file markers — preview-only inputs, not outbound media.
  */
 export default function ToolMediaPreview({ tool, className }: Props) {
+  const { t } = useTranslation()
   const transport = useTransport()
   // Suppressed when an ancestor (ProcessedBlockGroup) has hoisted media out to
   // render it once below the collapsed group — avoids double-rendering.
@@ -119,7 +121,7 @@ export default function ToolMediaPreview({ tool, className }: Props) {
               item={{
                 url: src,
                 localPath: url,
-                name: `Generated image ${i + 1}`,
+                name: t("chat.generatedImageName", { index: i + 1 }),
                 mimeType: "image/*",
                 sizeBytes: 0,
                 kind: "image",

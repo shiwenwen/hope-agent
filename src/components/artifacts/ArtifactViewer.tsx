@@ -1,4 +1,5 @@
 import { forwardRef, useEffect, useMemo, useState } from "react"
+import { useTranslation } from "react-i18next"
 import { useTransport } from "@/lib/transport-provider"
 import { cn } from "@/lib/utils"
 import { fileResourceAdapterFor } from "@/components/chat/files/fileResourceAdapter"
@@ -15,15 +16,16 @@ interface ArtifactViewerProps {
 /** Shared sandboxed reading surface for CanvasPanel and the Artifact Gallery. */
 const ArtifactViewer = forwardRef<HTMLIFrameElement, ArtifactViewerProps>(
   ({ artifactId, projectPath, title, refreshKey = 0, className }, ref) => {
+    const { t } = useTranslation()
     const transport = useTransport()
     const target = useMemo<Extract<FileTarget, { kind: "artifact" }>>(
       () => ({
         kind: "artifact",
         artifactId,
-        name: `${title || "Artifact"}.html`,
+        name: `${title || t("artifacts.defaultName")}.html`,
         projectPath,
       }),
-      [artifactId, projectPath, title],
+      [artifactId, projectPath, t, title],
     )
     const [src, setSrc] = useState("")
 

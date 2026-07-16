@@ -287,7 +287,7 @@ export default function EditAccountDialog({
           {/* Bot Token */}
           {account.channelId === "telegram" && (
             <div className="space-y-2">
-              <Label>Bot Token</Label>
+              <Label>{t("channels.botToken")}</Label>
               <div className="flex gap-2">
                 <Input
                   type="password"

@@ -940,10 +940,7 @@ export default function MemoryListView({
             memories.map((mem) => {
               const Icon = MEMORY_TYPE_ICONS[mem.memoryType] || User
               const isSelected = selectedIds.has(mem.id)
-              const scopeLabel =
-                mem.scope.kind === "global"
-                  ? "Global"
-                  : `Agent: ${(mem.scope as { kind: "agent"; id: string }).id}`
+              const scopeLabel = formatMemoryImportScopeLabel(t, mem.scope)
               const sourceKey = sourceLabelKey(mem.source)
               const sourceLabel = sourceKey ? t(`settings.memorySource_${sourceKey}`) : mem.source
               const searchMatches = searchQuery.trim()

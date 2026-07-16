@@ -8,7 +8,7 @@
     "history": "历史会话",
     "memories": "保留的记忆",
     "replacement": "替代 Agent",
-    "retentionNotice": "操作前会创建配置备份。Agent 配置、Home 和 Plan 只会移入回收站，不会立即永久擦除。",
+    "retentionNotice": "操作前会创建配置备份。Agent 配置、主页和计划只会移入回收站，不会立即永久擦除。",
     "routes": "路由引用"
   },
   "about": {
@@ -30,7 +30,7 @@
     "updateAvailable": "发现可安装的新版本 v{{version}}。",
     "updateCheck": "检查更新",
     "updateCheckFailed": "暂时无法检查更新。",
-    "updateChecking": "正在检查更新...",
+    "updateChecking": "正在检查更新…",
     "updateDownloadProgress": "下载进度：{{percent}}%",
     "updateInstall": "安装 v{{version}}",
     "updateInstallFailed": "下载或安装更新失败。",
@@ -43,8 +43,8 @@
     "updateHistoryLatest": "最新",
     "updateHistoryNoNotes": "这个版本暂时没有可显示的发布说明。",
     "updateHistoryUndated": "发布说明",
-    "updateInstalled": "更新已安装，正在重新启动 Hope Agent...",
-    "updateInstalling": "正在安装 v{{version}}...",
+    "updateInstalled": "更新已安装，正在重新启动 Hope Agent…",
+    "updateInstalling": "正在安装 v{{version}}…",
     "updateRestartManually": "更新已安装，但自动重启失败，请手动退出后重新打开 Hope Agent。",
     "updateReady": "可以在 GitHub Releases 查看新版本，也可以让 Hope Agent 直接安装桌面更新。",
     "updateUpToDate": "当前已是最新版本 v{{version}}。",
@@ -63,7 +63,7 @@
       "notRemindVersion": "不再提醒 {{version}} 版本？",
       "ignoreOnce": "仅本次忽略",
       "neverRemindVersion": "该版本不再提醒",
-      "updating": "正在更新...",
+      "updating": "正在更新…",
       "versionReady": "v{{version}} 已就绪",
       "restartDescription": "更新已安装，重启后生效。可立即重启，或关闭此提示，下次启动自动应用。",
       "newVersionTitle": "发现新版本 v{{version}}",
@@ -88,7 +88,7 @@
         "body": "模型即将永久删除你的一个定时任务。默认模式每次询问；智能模式可自行判断，YOLO 跳过。可选「始终允许」。"
       },
       "agent_custom_list": {
-        "body": "Agent 配置里勾选了该工具进入「自定义工具审批」清单，仅 Default 模式下生效。",
+        "body": "Agent 配置里勾选了该工具进入「自定义工具审批」清单，仅默认模式下生效。",
         "title": "Agent 自定义审批清单"
       },
       "dangerous_command": {
@@ -104,8 +104,8 @@
         "title": "编辑类工具"
       },
       "plan_mode_ask": {
-        "body": "Plan 模式下该工具被列入「需逐次确认」清单——白名单允许调用，但每次仍需人工授权。",
-        "title": "Plan Mode 显式确认"
+        "body": "计划模式将此工具列为每次调用前询问 — 白名单，但每次调用仍需要您的批准。",
+        "title": "计划模式确认"
       },
       "protected_path": {
         "body": "命中保护路径列表，必须每次确认，无法「始终允许」。",
@@ -157,7 +157,7 @@
     "tokenSave": "保存并重新加载"
   },
   "authProfiles": {
-    "add": "添加 Profile",
+    "add": "添加轮换配置",
     "baseUrlPlaceholder": "Base URL 覆盖（可选）",
     "empty": "未配置多 Key 轮换。将使用上方的主 API Key。",
     "labelPlaceholder": "名称（如：组织 A 密钥）",
@@ -192,7 +192,7 @@
     "autoApproveToolsHint": "开启后，通过此 IM 渠道的对话将自动批准所有工具执行，无需手动审批",
     "boundAgent": "绑定 Agent",
     "boundAgentDefault": "使用全局默认 Agent",
-    "boundAgentHint": "本渠道新建会话的默认 Agent — 切换不会迁移已存在的会话,已建会话用 /agent(桌面)或 /handover 调整。",
+    "boundAgentHint": "本渠道新建会话的默认 Agent。切换不会迁移已有会话；已有会话可通过 /agent（桌面）或 /handover 调整。",
     "channelAgent": "绑定 Agent",
     "channelConfig": "频道配置",
     "channelConfigHint": "为 Telegram 频道配置独立的 Bot 行为",
@@ -201,7 +201,7 @@
     "channelIdPlaceholder": "填写 Telegram 频道的数字 ID",
     "channelType": "渠道类型",
     "defaultRequireMention": "默认需要 @mention 才回复",
-    "defaultRequireMentionHint": "群组消息是否需要 @机器人 或回复机器人消息才触发回复，各群组可单独覆盖",
+    "defaultRequireMentionHint": "群组消息是否需要@机器人或回复机器人消息后才触发回复，各群组可单独覆盖",
     "description": "接入 Telegram、微信、飞书、Discord、Slack 等即时通讯平台，通过 IM 与 AI Agent 对话",
     "discordTokenHint": "在 Discord Developer Portal 创建 Bot 并复制 Token",
     "dmPolicy": "私聊策略",
@@ -212,7 +212,7 @@
     "editAccount": "编辑渠道账户",
     "feishuDomain": "域名",
     "feishuTokenHint": "在飞书开放平台创建应用，获取 App ID 和 App Secret",
-    "gchatCredentials": "Service Account JSON",
+    "gchatCredentials": "服务账号 JSON",
     "gchatHint": "需要 Google Workspace 服务账号并启用 Chat API",
     "gchatProjectNumber": "Google Cloud 项目编号",
     "gchatProjectNumberHint": "用于验证入站 webhook 的 Google 签发 JWT",
@@ -232,7 +232,7 @@
     "groupRequireMention": "需要 @mention",
     "groupRequireMentionInherit": "继承默认",
     "groupSystemPrompt": "自定义提示词",
-    "groupSystemPromptPlaceholder": "为此群组注入额外的系统提示词...",
+    "groupSystemPromptPlaceholder": "为此群组注入额外的系统提示词…",
     "imReplyMode": "IM 回复模式",
     "imReplyModeFinal": "仅最终回答",
     "imReplyModeFinalHint": "丢弃工具调用前的旁白，只发最后一轮回答，工具媒体在末尾发送。无流式预览。",
@@ -251,7 +251,7 @@
     "lineHint": "在 LINE Developers Console 获取 Messaging API 频道凭据",
     "noAccounts": "尚未配置任何 IM 渠道账户",
     "notifySessionEviction": "会话被接管提醒",
-    "notifySessionEvictionHint": "当本账号被另一个聊天接管同一 session 而被踢出时，向 IM 聊天发送系统消息提示（1:1 attach）。",
+    "notifySessionEvictionHint": "当本账号因另一个聊天接管同一会话而被移出时，向 IM 聊天发送系统消息提示（1:1 attach）。",
     "notifyStartup": "服务重启提醒",
     "notifyStartupHint": "服务重启后，向本账号近期活跃的聊天发送一条「已恢复」系统消息。",
     "pluginDesc_discord": "Discord Bot 渠道",
@@ -321,8 +321,8 @@
     "removeWithCronDesc": "「{{account}}」是 {{count}} 个定时任务的投递目标。删除后这些目标将被标记为失效。",
     "removeWithCronTargets": "{{count}} 个目标",
     "botToken": "Bot Token",
-    "slackBotToken": "Bot Token (xoxb-...)",
-    "slackAppToken": "App Token (xapp-...)",
+    "slackBotToken": "Slack Bot Token（xoxb-...）",
+    "slackAppToken": "Slack App Token（xapp-...）",
     "appId": "App ID",
     "appSecret": "App Secret",
     "clientSecret": "Client Secret",
@@ -335,11 +335,11 @@
   },
   "chat": {
     "addWorkingDirectory": "添加工作目录",
-    "askAnything": "告诉我你的想法，@ 找文件/笔记/技能，# 快捷输入，/ 快捷指令...",
+    "askAnything": "告诉我你的想法，@ 找文件/笔记/技能，# 快捷输入，/ 快捷指令…",
     "goalCompletion": {
       "completed": "已达成目标",
       "completedWithDuration": "已在 {{time}} 内达成目标",
-      "tokens": "{{tokens}} tokens"
+      "tokens": "{{tokens}} Token"
     },
     "fork": {
       "continueInNewSession": "在新会话中继续",
@@ -397,7 +397,7 @@
     "compactSummaryTimedOutSync": "已完成同步清理，但摘要生成超时",
     "compactCancelled": "压缩已取消",
     "compactNow": "压缩上下文",
-    "compacting": "压缩中...",
+    "compacting": "压缩中…",
     "contextCompactingMsgs": "压缩 {{count}} 条较早消息",
     "contextCompactingTitle": "正在压缩较早上下文",
     "contextCompactedMsgs": "{{count}} 条较早消息",
@@ -416,7 +416,7 @@
       "savedTokens": "释放约 {{count}} tokens",
       "details": "技术详情"
     },
-    "contextCompactedTier": "tier {{tier}}",
+    "contextCompactedTier": "层 {{tier}}",
     "contextCompactedTitle": "上下文已压缩",
     "completedTurnCollapsed": "已处理 {{count}} 条消息",
     "completedTurnCollapsedWithDuration": "已处理 {{duration}}，{{count}} 条消息",
@@ -453,7 +453,7 @@
     "daysAgo": "{{count}}天前",
     "deleteSessionTitle": "删除对话",
     "deleteSessionWarning": "此操作将永久删除该对话及其所有消息记录，且无法恢复。请确认是否继续？",
-    "detachOnDesktopNoop": "桌面端不绑定 IM chat,detach 在此处无效。",
+    "detachOnDesktopNoop": "桌面端不绑定 IM 聊天，因此 detach 在此处无效。",
     "details": "详情",
     "showPlainText": "显示纯文本",
     "renderMarkdown": "渲染 Markdown",
@@ -484,8 +484,8 @@
       "button": "交班到 IM",
       "dialog": {
         "title": "交班会话",
-        "description": "把当前会话推到 IM,后续 Agent 回复将以该 chat 为主接收方。",
-        "syncNotice": "桌面/Web 端不受影响,会话保持完全同步——你可以继续在任意端无缝对话,IM 只是新增的接收方。",
+        "description": "把当前会话推送到 IM，后续 Agent 回复将以该聊天为主要接收方。",
+        "syncNotice": "桌面/Web 端不受影响，会话保持完全同步——你可以继续在任意端无缝对话，IM 只是新增的接收方。",
         "account": "IM 账号",
         "selectAccount": "选择账号",
         "target": "目标对话",
@@ -493,7 +493,7 @@
         "manualEntry": "手动填写",
         "chooseRecent": "选择最近对话",
         "loadingConversations": "读取最近对话…",
-        "noRecentConversations": "还没有可选的最近对话,可以先从目标 IM 给 Hope Agent 发一条消息,或手动填写。",
+        "noRecentConversations": "还没有可选的最近对话，可以先从目标 IM 给 Hope Agent 发一条消息，或手动填写。",
         "refreshConversations": "刷新最近对话",
         "chatId": "Chat ID",
         "chatIdPlaceholder": "如 123456789 或 @username",
@@ -511,7 +511,7 @@
         "submitted": "完成"
       },
       "done": "交班完成。",
-      "failed": "交班失败:{{error}}"
+      "failed": "交班失败：{{error}}"
     },
     "hoursAgo": "{{count}}小时前",
     "howCanIHelp": "编码、搜索、创作、自动化——说出你的想法",
@@ -527,14 +527,14 @@
     "incognitoLeaveConfirmTitle": "离开无痕对话？",
     "incognitoMutuallyExclusive": "当前会话不支持无痕",
     "incognitoPreset": "开启无痕对话",
-    "incognitoProjectExclusive": "Project 会话不能开启无痕——项目记忆和文件需要持久保留",
+    "incognitoProjectExclusive": "项目会话不能开启无痕——项目记忆和文件需要持久保留",
     "inputTokens": "输入",
     "inputTokensCumulative": "输入总计",
     "interrupted_partial": "上次未完成",
     "justNow": "刚刚",
     "lastRoundInputTokens": "最后一轮输入",
     "loadMore": "加载更早的消息",
-    "loadingMore": "加载中...",
+    "loadingMore": "加载中…",
     "logout": "登出",
     "mainAgent": "Main Agent",
     "markAllRead": "全部已读",
@@ -556,7 +556,7 @@
     "pendingEdit": "编辑消息",
     "pendingInteractionHint": "等待您的回应",
     "pendingInteractionInline": "等待回应 · {{count}} 项",
-    "pendingQueued": "消息已排队，等待回复完成后发送...",
+    "pendingQueued": "消息已排队，等待回复完成后发送…",
     "goalMode": {
       "label": "目标",
       "enter": "目标模式：创建一个让模型持续推进直到完成的目标",
@@ -733,17 +733,17 @@
     "reasonTimeout": "请求超时",
     "reasonUnknown": "未知错误",
     "renameSession": "重命名",
-    "renameSessionPlaceholder": "输入新标题...",
+    "renameSessionPlaceholder": "输入新标题…",
     "revealInFolder": "打开所在文件夹",
-    "roundLimitReachedBody": "本轮已用满 {{count}} 轮工具调用，任务可能尚未完成。点击下方按钮发送「继续」，我会接着当前进度继续推进；也可以在 设置 → Agent → 能力 中调高 `max_tool_rounds`。",
+    "roundLimitReachedBody": "本轮已用满 {{count}} 轮工具调用，任务可能尚未完成。点击下方按钮发送“继续”，我会从当前进度继续推进；也可以在“设置 → Agent → 能力”中调高 `max_tool_rounds`。",
     "roundLimitReachedBodyNoCount": "本轮工具调用轮次已用满。点击下方按钮发送「继续」，我会接着当前进度继续推进。",
     "roundLimitReachedTitle": "已达工具调用上限",
     "roundLimitResumeButton": "继续",
     "roundLimitResumeMessage": "继续",
     "scrollToBottom": "回到底部",
-    "searchPlaceholder": "搜索会话...",
+    "searchPlaceholder": "搜索会话…",
     "searchTruncatedHint": "已显示前 {{count}} 条匹配，请细化关键词查看更多。",
-    "searching": "搜索中...",
+    "searching": "搜索中…",
     "selectModel": "选择模型",
     "send": "发送",
     "sessionSearch": "在当前会话中搜索",
@@ -776,7 +776,7 @@
     "statusCumulative": "累计",
     "statusMessages": "{{count}} 条消息",
     "statusModel": "模型",
-    "statusNewSession": "(新会话)",
+    "statusNewSession": "（新会话）",
     "statusSession": "会话",
     "statusSessionId": "会话 ID",
     "statusThinking": "思考模式",
@@ -802,12 +802,12 @@
     "taskNoneYet": "暂无任务",
     "taskProgress": "已完成 {{completed}}/{{total}}",
     "tasks": "任务",
-    "thinking": "执行中...",
+    "thinking": "执行中…",
     "thinkingAutoDisabled": "{{provider}} / {{model}} 不支持当前 Think 模式，已自动关闭思考并重试本次请求。",
     "visionAutoDisabled": "{{provider}} / {{model}} 不支持图片输入，已忽略图片继续回答。",
-    "toolCalling": "工具调用中...",
+    "toolCalling": "工具调用中…",
     "totalTokens": "总计",
-    "unknownProvider": "未知 Provider",
+    "unknownProvider": "未知服务商",
     "untitledSession": "未命名会话",
     "viewContext": "查看上下文",
     "viewModeBubble": "切换到气泡视图",
@@ -842,7 +842,7 @@
     "exportSession": {
       "menuItem": "导出对话",
       "dialogTitle": "导出对话",
-      "dialogHint": "选择导出格式,并勾选需要包含的内容。",
+      "dialogHint": "选择导出格式，并勾选需要包含的内容。",
       "formatLabel": "格式",
       "formatMarkdown": "Markdown",
       "formatJson": "JSON",
@@ -858,7 +858,8 @@
       "failedShort": "失败",
       "savedTo": "已导出至 {{path}}",
       "downloaded": "已下载 {{filename}}",
-      "failed": "导出失败。"
+      "failed": "导出失败。",
+      "untitled": "未命名会话"
     },
     "skillMention": {
       "heading": "技能",
@@ -871,12 +872,12 @@
         "mac": "Mac 控制"
       }
     },
-    "reasoningDisabledHint": "该模型未启用推理。如需调节推理深度,请在「设置 → 模型服务商」中编辑该模型并开启「支持推理/思考」。",
+    "reasoningDisabledHint": "该模型未启用推理。如需调节推理深度，请在「设置 → 模型服务商」中编辑该模型并开启「支持推理/思考」。",
     "browserExtensionNudge": {
       "installTitle": "让 AI 操作你已登录的 Chrome",
-      "installBody": "安装 Hope Agent 扩展即可操作你已登录的 Chrome;当前正使用隔离浏览器运行。",
+      "installBody": "安装 Hope Agent 扩展即可操作你已登录的 Chrome；当前正使用隔离浏览器运行。",
       "reloadTitle": "请重载 Chrome 扩展",
-      "reloadBody": "已安装的扩展与宿主版本不匹配,重载扩展即可恢复对真实 Chrome 的控制。",
+      "reloadBody": "已安装的扩展与宿主版本不匹配，重载扩展即可恢复对真实 Chrome 的控制。",
       "openSettings": "去设置",
       "dismiss": "不再提示"
     },
@@ -889,7 +890,7 @@
     "pendingCancelForceInsert": "取消本轮插入",
     "pendingFallbackAfterReply": "回复后发送",
     "pendingFallbackAfterReplyTip": "尚未遇到工具完成点，将在当前回复结束后发送。",
-    "pendingForceInsertTip": "它将等待正在执行的刀具完成，然后将其插入到模型中，而不中断当前的刀具。",
+    "pendingForceInsertTip": "它会等待正在执行的工具完成，再将内容插入模型，不会中断当前工具。",
     "pendingSaving": "正在保存",
     "pendingSavingTip": "正在把消息和附件保存到可恢复队列。",
     "pendingInserting": "正在插入",
@@ -1167,7 +1168,10 @@
     "openSourceConversationMissing": "来源会话已不可用",
     "openSourceConversationMissingHint": "这条记忆来源指向的会话可能已被删除，或当前无法找到。",
     "openSourceMessageMissing": "来源消息已不可用",
-    "openSourceMessageMissingHint": "会话仍然存在，但无法找到这条记忆来源对应的具体消息。"
+    "openSourceMessageMissingHint": "会话仍然存在，但无法找到这条记忆来源对应的具体消息。",
+    "generatedImageName": "生成的图片 {{index}}",
+    "noAgents": "暂无 Agent",
+    "sessionFailed": "对话失败"
   },
   "codexAuth": {
     "expiredDescription": "你的 Codex OAuth 认证令牌已失效，请重新登录以继续使用。",
@@ -1187,7 +1191,7 @@
     "done": "完成",
     "dragToSort": "拖拽可排序",
     "edit": "编辑",
-    "loading": "加载中...",
+    "loading": "加载中…",
     "loginTimeout": "登录超时，请重试",
     "markdownLinkLocalDisabled": "本地文件链接仅在桌面模式可打开",
     "next": "下一页",
@@ -1199,12 +1203,12 @@
     "save": "保存",
     "saveFailed": "保存失败",
     "saved": "已保存",
-    "saving": "保存中...",
+    "saving": "保存中…",
     "search": "搜索",
     "select": "选择",
     "settings": "设置",
     "test": "测试连接",
-    "testing": "测试中...",
+    "testing": "测试中…",
     "create": "创建",
     "clear": "清除",
     "on": "开",
@@ -1228,7 +1232,64 @@
     "more": "更多",
     "apply": "应用",
     "modelNoVision": "不支持图片",
-    "restoreDefaults": "恢复默认值"
+    "restoreDefaults": "恢复默认值",
+    "baseUrl": "Base URL",
+    "apiKey": "API Key",
+    "ok": "确定",
+    "request": "请求",
+    "response": "响应",
+    "authMethod": "认证方式",
+    "testSteps": "测试步骤",
+    "statusValues": {
+      "applied": "已应用",
+      "rejected": "已拒绝",
+      "active": "活跃",
+      "archived": "已归档",
+      "awaiting_approval": "等待审批",
+      "awaiting_user": "等待用户",
+      "blocked": "阻塞",
+      "cancel_requested": "已请求取消",
+      "cancelled": "已取消",
+      "cancelling": "正在取消",
+      "completed": "完成",
+      "critical": "严重",
+      "disabled": "已禁用",
+      "draft": "草稿",
+      "enabled": "已启用",
+      "empty": "空",
+      "error": "错误",
+      "failed": "失败",
+      "healthy": "正常",
+      "idle": "空闲",
+      "insufficient_data": "数据不足",
+      "needs_user": "需要用户处理",
+      "advisory": "建议项",
+      "injected": "已注入",
+      "interrupted": "已中断",
+      "killed": "已终止",
+      "loading": "读取中",
+      "not_run": "未运行",
+      "open": "开放",
+      "partial": "部分完成",
+      "passed": "通过",
+      "paused": "已暂停",
+      "pending": "待处理",
+      "processing": "处理中",
+      "queued": "排队中",
+      "ready": "已就绪",
+      "recovering": "恢复中",
+      "resolved": "已解决",
+      "running": "运行中",
+      "skipped": "已跳过",
+      "stale": "已过期",
+      "succeeded": "已成功",
+      "success": "成功",
+      "timed_out": "超时",
+      "unknown": "未知",
+      "warning": "警告",
+      "evaluating": "评估中",
+      "in_progress": "进行中"
+    }
   },
   "context": {
     "ago": "前",
@@ -1237,17 +1298,17 @@
     "cacheWindowNotice": "缓存命中只减少重复计算、成本和首 Token 延迟，不减少上下文窗口占用。",
     "cacheWrite": "缓存写入",
     "compactAllowedIn": "下次压缩",
-    "coreMemoryBudget": "Core Memory 预算",
+    "coreMemoryBudget": "核心记忆预算",
     "coreMemoryModelLimited": "已按当前模型临时裁剪",
     "dynamicPrompt": "动态提示",
     "estimated": "估算",
-    "estimateNote": "每轮结束后以 Provider 实际用量为准；此前显示按真实请求形态计算的保守估算。",
+    "estimateNote": "每轮结束后以服务商实际用量为准；此前显示按真实请求形态计算的保守估算。",
     "freeSpace": "剩余空间",
     "freshInput": "新增输入",
     "lastCompact": "上次压缩",
     "memory": "记忆",
     "messages": "消息",
-    "providerInput": "Provider 输入",
+    "providerInput": "服务商输入",
     "reservedOutput": "预留输出",
     "skills": "技能",
     "systemPrompt": "系统提示词",
@@ -1262,7 +1323,7 @@
     "addDeliveryTarget": "添加目标",
     "agent": "Agent",
     "archivedProject": "（已归档）",
-    "atGrace": "补跑窗口(秒)",
+    "atGrace": "补跑窗口（秒）",
     "atGraceHint": "补跑窗口：应用关闭期间错过触发时点的一次性任务，逾期不超过这么多秒仍会补跑；超过则标记为「错过」（0 = 严格，不补跑）。",
     "atMinute": "在第",
     "atTime": "时间",
@@ -1272,8 +1333,8 @@
     "conversationsSelectHint": "从左侧选择一条查看",
     "conversationsTitle": "运行历史",
     "create": "创建",
-    "cronExpression": "Cron 表达式",
-    "cronHelp": "格式：秒 分 时 日 月 周（例如 0 0 9 * * 1-5 = 工作日上午9点）",
+    "cronExpression": "定时表达式",
+    "cronHelp": "格式：秒、分、时、日、月、周（例如 0 0 9 * * 1-5 = 工作日上午 9 点）",
     "dateTime": "日期和时间",
     "daySuffix": "日",
     "deleteConfirmDesc": "这会永久删除该定时任务及其运行记录。",
@@ -1308,10 +1369,10 @@
     "frequency": "频率",
     "interval": "间隔",
     "jobNotFound": "任务未找到",
-    "jobTimeout": "超时(秒)",
-    "jobTimeoutHint": "单个定时任务的最长运行秒数，超时即放弃并释放并发槽。0 表示不加 cron 层超时；正数范围 30–7200 秒。",
+    "jobTimeout": "超时（秒）",
+    "jobTimeoutHint": "单个定时任务的最长运行秒数，超时即放弃并释放并发槽。0 表示不加定时任务层超时；正数范围 30–7200 秒。",
     "jobTimeoutOverride": "本任务超时（秒）",
-    "jobTimeoutOverrideHint": "仅为这个任务覆盖全局超时。0 表示不加 cron 层超时；正数范围 30–7200 秒；留空则用全局默认。",
+    "jobTimeoutOverrideHint": "仅为这个任务覆盖全局超时。0 表示不加定时任务层超时；正数范围 30–7200 秒；留空则用全局默认。",
     "permissionMode": "权限模式",
     "sandboxMode": "沙箱",
     "followAgentMode": "跟随 Agent 默认",
@@ -1337,7 +1398,7 @@
     "nextRun": "下次运行",
     "noConversations": "暂无运行历史",
     "noConversationsYet": "该账户还未记录任何会话（先让 bot 收到一条消息）",
-    "noDeliveryChannels": "尚未配置可用的 IM 渠道账户。先到 设置 → 渠道 配置一个",
+    "noDeliveryChannels": "尚未配置可用的 IM 渠道账户，请先前往“设置 → 渠道”配置。",
     "noDeliveryTargets": "未配置目标 — 结果只存在会话历史中",
     "noJobs": "暂无定时任务",
     "noProject": "无项目",
@@ -1348,7 +1409,7 @@
     "pause": "暂停",
     "paused": "已暂停",
     "prefixDeliveryWithName": "投递时加任务名前缀",
-    "prefixDeliveryWithNameDesc": "成功投递时加上 [Cron] {名称} 前缀，便于区分投递到同一会话的多个任务",
+    "prefixDeliveryWithNameDesc": "在成功送达的消息前添加 [定时任务] {name} 前缀，以便区分送到同一聊天的多个任务",
     "project": "项目",
     "removeTarget": "移除目标",
     "resume": "恢复",
@@ -1362,7 +1423,7 @@
     "scheduleAt": "一次性",
     "scheduleCron": "定期执行",
     "scheduleEvery": "固定间隔",
-    "searchPlaceholder": "搜索任务...",
+    "searchPlaceholder": "搜索任务…",
     "selectAccountFirst": "请先选择账户",
     "selectChannelAccount": "选择渠道账户",
     "selectConversation": "选择会话",
@@ -1392,7 +1453,7 @@
   "dangerousMode": {
     "bannerBoth": "危险模式已启用（CLI + 配置）—— 所有工具调用跳过审批",
     "bannerCli": "危险模式已启用（CLI 启动）—— 重启应用不带 --dangerously-skip-all-approvals 即可关闭",
-    "bannerConfig": "危险模式已启用 —— 所有工具调用跳过审批。前往 设置 → 安全 关闭"
+    "bannerConfig": "危险模式已启用——所有工具调用都会跳过审批。可前往“设置 → 安全”关闭。"
   },
   "dashboard": {
     "controlPlane": {
@@ -1405,68 +1466,68 @@
       "empty": "所选范围内暂无数据。",
       "sections": {
         "overview": "概览",
-        "planTask": "Plan 与 Task"
+        "planTask": "计划与任务"
       },
       "metrics": {
-        "goalAcceptance": "Goal 达成率",
-        "workflowCompletion": "Workflow 完成率",
-        "loopStrongProgress": "Loop 强推进率",
-        "taskCompletion": "Task cohort 完成率",
-        "attention": "当前需处理",
-        "requiredCriteria": "必要标准通过率",
-        "goalP50": "Goal 达成耗时 P50",
-        "opFailure": "Op 失败率",
-        "workflowP50": "Workflow 执行耗时 P50",
-        "goalBinding": "Goal 绑定率",
+        "goalAcceptance": "目标验收率",
+        "workflowCompletion": "工作流完成率",
+        "loopStrongProgress": "持续推进强进展率",
+        "taskCompletion": "任务批次完成率",
+        "attention": "待处理",
+        "requiredCriteria": "必要条件通过率",
+        "goalP50": "目标验收耗时 P50",
+        "opFailure": "操作失败率",
+        "workflowP50": "工作流耗时 P50",
+        "goalBinding": "目标绑定率",
         "approvalTrigger": "审批触发率",
         "noProgress": "无进展率",
-        "blockedSchedules": "当前阻塞调度",
-        "loopP50": "Loop run 耗时 P50",
-        "currentBacklog": "当前 backlog",
-        "activePlans": "当前活跃",
-        "cohortCompletion": "Cohort 完成率"
+        "blockedSchedules": "已阻塞调度",
+        "loopP50": "持续推进运行耗时 P50",
+        "currentBacklog": "当前积压",
+        "activePlans": "当前活跃计划",
+        "cohortCompletion": "批次完成率"
       },
       "currentSnapshot": "当前快照",
-      "goalTrend": "Goal 结果趋势",
+      "goalTrend": "目标结果",
       "resolved": "已终局",
       "accepted": "已接受",
       "attentionTitle": "当前需处理项",
       "noAttention": "当前没有需处理项",
-      "auditSamples": "已审计 {{count}} 个 Goal",
+      "auditSamples": "已审计 {{count}} 个目标",
       "currentStates": "当前状态",
       "closureOutcomes": "终局取舍",
       "domains": "领域分布",
       "kinds": "类型分布",
       "origins": "来源分布",
-      "workflowTrend": "已决 Workflow 趋势",
-      "decidedRuns": "已决 run",
+      "workflowTrend": "已决工作流运行",
+      "decidedRuns": "已决运行",
       "progressStates": "推进分类",
       "triggerKinds": "触发类型",
       "strategies": "执行策略",
-      "loopTrend": "可评估 Loop 趋势",
-      "evaluatedRuns": "可评估 run",
-      "openPlanHistory": "查看 Plan 历史",
-      "planByAgent": "Plan 的 Agent 分布",
-      "planByProject": "Plan 的项目分布",
-      "noFunnelHint": "Task 和 Plan 暂无可靠的 Goal / Workflow / Loop 归因外键，因此本页不会按会话关系推断因果漏斗。",
+      "loopTrend": "可评估的持续推进趋势",
+      "evaluatedRuns": "已评估运行",
+      "openPlanHistory": "查看计划历史记录",
+      "planByAgent": "按 Agent 统计计划",
+      "planByProject": "按项目统计计划",
+      "noFunnelHint": "任务和计划尚无可靠的目标 / 工作流 / 持续推进归因键，因此此页面不会根据会话推断因果漏斗。",
       "noExactSamples": "暂无精确耗时样本",
       "coverage": "精确样本 {{samples}} / {{eligible}}（{{percent}}%）",
       "coverageShort": "精确耗时覆盖：{{samples}} / {{eligible}}",
       "creationTrend": "创建趋势",
       "created": "新建",
       "attentionKinds": {
-        "goal": "Goal",
-        "workflow": "Workflow",
-        "loop": "Loop",
-        "plan": "Plan"
+        "goal": "目标",
+        "workflow": "工作流",
+        "loop": "持续推进",
+        "plan": "计划"
       },
       "attentionReasons": {
         "needs_strict_evidence": "需要严格证据",
-        "goal_awaiting_closure": "Goal 等待关闭",
-        "workflow_requires_attention": "Workflow 需要处理",
+        "goal_awaiting_closure": "目标等待结束",
+        "workflow_requires_attention": "工作流需要注意",
         "consecutive_no_progress": "连续无进展",
-        "loop_requires_attention": "Loop 需要处理",
-        "plan_awaiting_review": "Plan 等待审核"
+        "loop_requires_attention": "持续推进需要处理",
+        "plan_awaiting_review": "计划等待审查"
       },
       "states": {
         "active": "进行中",
@@ -1527,7 +1588,20 @@
       "status": "状态",
       "time": "时间",
       "toolCalls": "工具调用列表",
-      "toolName": "工具名称"
+      "toolName": "工具名称",
+      "roles": {
+        "user": "用户",
+        "assistant": "助手",
+        "system": "系统",
+        "tool": "工具"
+      },
+      "levels": {
+        "error": "错误",
+        "warning": "警告",
+        "info": "信息",
+        "debug": "调试",
+        "trace": "跟踪"
+      }
     },
     "dreaming": {
       "diaryList": "日记列表",
@@ -1536,7 +1610,7 @@
       "nominated": "提名 {{count}}",
       "promoted": "晋升 {{count}}",
       "runNow": "立即运行",
-      "running": "运行中...",
+      "running": "运行中…",
       "scanned": "扫描 {{count}}",
       "selectDiary": "选择左侧日记查看内容",
       "subtitle": "离线整合最近的记忆，把高价值条目 pin 入核心记忆",
@@ -1566,7 +1640,7 @@
       },
       "runResolver": "深度整理",
       "resolving": "整理中…",
-      "resolverDone": "深度整理完成:{{expired}} 过期,{{merged}} 合并,{{review}} 待审核",
+      "resolverDone": "深度整理完成：{{expired}} 过期，{{merged}} 合并，{{review}} 待审核",
       "resolverFailed": "深度整理失败",
       "resolverPreflightTitle": "深度整理预检",
       "resolverPreflightSummary": "{{active}} 条 active 记忆 · {{expired}} 条过期候选 · {{groups}} 个冲突候选组",
@@ -1647,6 +1721,11 @@
         "forgetConfirm": "忘记",
         "forgetDone": "已忘记",
         "failed": "操作失败"
+      },
+      "phase": {
+        "light": "轻量整理",
+        "deep": "深度整理",
+        "profile": "画像合成"
       }
     },
     "error": {
@@ -1664,11 +1743,11 @@
       "agent": "Agent",
       "allAgents": "全部 Agent",
       "allModels": "全部模型",
-      "allProviders": "全部 Provider",
+      "allProviders": "全部服务商",
       "apply": "应用",
       "clear": "清除筛选",
       "model": "模型",
-      "provider": "Provider"
+      "provider": "服务商"
     },
     "granularity": {
       "day": "按天",
@@ -1733,7 +1812,7 @@
       "noRecall": "窗口内暂无召回调用",
       "noSkillUsage": "暂无技能使用记录",
       "patchedHint": "修补 {{n}} 项",
-      "profileHint": "标记为 profile 的反省式记忆",
+      "profileHint": "标记为 `profile` 的反思型记忆",
       "profileMemories": "用户画像记忆",
       "recallEffectiveness": "召回质量",
       "recallHits": "召回命中",
@@ -1782,7 +1861,7 @@
       "continuousBenchmarkGate": "持续基准测试",
       "materializeBenchmarkBacklog": "从失败的基准测试用例创建待办项",
       "createBacklog": "创建待办",
-      "noContinuousGateBlockers": "没有阻塞性 Gate 检查项",
+      "noContinuousGateBlockers": "没有阻塞性的门禁检查项",
       "nextSteps": "下一步",
       "benchmarkBacklog": "基准测试待办",
       "resolveBacklogItem": "处理待办项",
@@ -1805,7 +1884,7 @@
       "noBenchmarkLeaderboard": "暂无可比较的模型数据",
       "externalCampaign": "外部评测活动",
       "runExternalBenchmark": "运行外部基准测试",
-      "noBenchmarkModels": "没有已启用的供应商模型",
+      "noBenchmarkModels": "没有已启用的服务商模型",
       "benchmarkCampaigns": "评测活动",
       "noBenchmarkCampaigns": "暂无基准评测活动",
       "benchmarkLoading": "正在加载基准测试中心",
@@ -1843,7 +1922,7 @@
       "domainSoakClean": "本窗口内无长跑事故",
       "domainSoakLoading": "正在加载长跑审计报告",
       "domainConnectorE2EGate": "连接器端到端（E2E）",
-      "domainConnectorE2EGateHint": "{{scope}} · {{connector}} · {{action}}",
+      "domainConnectorE2EGateHint": "{{scope}}·{{connector}}·{{action}}",
       "domainConnectorE2EGateLoadingHint": "正在加载连接器证据",
       "domainConnectorE2EClean": "连接器端到端检查通过",
       "domainConnectorE2ELoading": "正在加载连接器端到端证据",
@@ -1857,14 +1936,14 @@
       "domainQualityClean": "通用领域检查全部通过",
       "recordDomainCalibration": "标记为已复核",
       "noDomainEvalRuns": "暂无通用领域评测运行",
-      "domainQualityLoading": "正在加载通用领域质量 Gate",
+      "domainQualityLoading": "正在加载通用领域质量门禁",
       "domainCampaigns": "领域评测活动",
       "domainCampaignsHint": "批量运行非编码评测包，支持持久化状态、重试与取消",
       "runDomainCampaign": "运行 trace pack",
       "noDomainCampaigns": "暂无领域评测活动",
       "domainExternalCampaign": "外部领域评测活动",
       "runExternalDomainCampaign": "运行外部评测",
-      "noDomainCampaignModels": "没有已启用的供应商模型",
+      "noDomainCampaignModels": "没有已启用的服务商模型",
       "domainCampaignFailed": "领域评测活动失败：{{message}}",
       "domainModelLeaderboard": "领域模型排行榜",
       "noDomainLeaderboard": "暂无可比较的领域评测数据",
@@ -1872,22 +1951,57 @@
       "retryDomainCampaign": "重试失败的领域评测活动项",
       "cancelDomainCampaign": "取消领域评测活动",
       "domainSmokeCenter": "领域冒烟测试",
-      "domainSmokeCenterHint": "合成 trace 与 agent fixture 运行与正式质量 Gate 相互隔离",
+      "domainSmokeCenterHint": "合成 trace 与 agent fixture 运行与正式质量门禁相互隔离",
       "noDomainSmokeRuns": "暂无合成领域冒烟测试运行",
-      "releaseGate": "发布 Gate",
+      "releaseGate": "发布门禁",
       "releaseGateClean": "全部检查通过",
-      "releaseGateLoading": "正在加载发布 Gate",
-      "generalizationGate": "泛化 Gate",
+      "releaseGateLoading": "正在加载发布门禁",
+      "generalizationGate": "泛化门禁",
       "generalizationClean": "跨项目检查通过",
-      "generalizationLoading": "正在加载泛化 Gate",
+      "generalizationLoading": "正在加载泛化门禁",
       "selectAtLeastOneModel": "请至少选择一个外部模型。",
-      "domainCampaignNoSession": "该领域评估活动没有关联的会话范围，无法生成学习提案。",
+      "domainCampaignNoSession": "该领域评测活动没有关联的会话范围，无法生成学习提案。",
       "taskPackValidationFailed": "任务包校验失败。",
       "unassignedProject": "未分配",
       "tasksLabel": "任务数",
-      "usdLabel": "美元"
+      "usdLabel": "美元",
+      "strategyVerdict": {
+        "improved": "已改善",
+        "regressed": "有退步",
+        "mixed": "结果混合",
+        "unchanged": "无变化",
+        "inconclusive": "无法判断"
+      },
+      "activeCampaigns": "{{count}} 个活跃",
+      "baselineKinds": {
+        "deterministic": "确定性",
+        "deterministic_mock": "确定性模拟",
+        "external_model": "外部模型"
+      },
+      "calibrationAcceptedNote": "人工审核已接受 {{label}}，并将其作为校准证据。",
+      "calibrationFollowUpNote": "人工审核在 {{status}} 后将 {{label}} 标记为需要继续校准。",
+      "deterministic": "确定性",
+      "domainFallback": "领域",
+      "domainRunSummary": "{{completed}}/{{total}} 项质量检查 · {{evalCount}} 次评测",
+      "executionModes": {
+        "agent": "Agent",
+        "fixture_patch": "测试样例补丁",
+        "trace_fixture": "追踪样例"
+      },
+      "leaderboardMeta": "{{mode}} · {{domains}} 个领域 · {{count}} 条追踪",
+      "sourceTypes": {
+        "benchmark_campaign": "基准评测活动",
+        "domain_eval_campaign": "领域评测活动",
+        "fixture": "测试样例"
+      },
+      "traceLabels": {
+        "eval": "评测",
+        "quality": "质量",
+        "turn": "回合",
+        "workflow": "工作流"
+      }
     },
-    "loading": "加载中...",
+    "loading": "加载中…",
     "noData": "暂无数据",
     "overview": {
       "activeAgents": "活跃 Agent",
@@ -1950,18 +2064,18 @@
       "completionRate": "完成率",
       "created": "新建",
       "creationTrend": "30 天创建趋势",
-      "empty": "所选时间窗内暂无 Plan 数据。",
+      "empty": "所选时间窗内暂无计划数据。",
       "noProject": "未归属项目",
-      "sampleSize": "已采样 {{count}} 个完成的 Plan",
+      "sampleSize": "已采样 {{count}} 个完成的计划",
       "stateDistribution": "状态分布",
-      "total": "Plan 总数"
+      "total": "计划总数"
     },
     "tabs": {
       "dreaming": "记忆梦境",
       "errors": "异常监控",
       "insights": "综合概览",
       "learning": "学习追踪",
-      "plans": "Plan",
+      "plans": "计划",
       "recap": "复盘",
       "sessions": "会话分析",
       "system": "系统监控",
@@ -1998,13 +2112,13 @@
       "model": "模型",
       "other": "其他",
       "output": "输出",
-      "provider": "Provider",
+      "provider": "服务商",
       "total": "合计",
       "trend": "Token 用量趋势",
       "ttft": "首Token耗时",
       "ttftTrend": "首 Token 耗时趋势 (TTFT)",
-      "inputTokens": "输入令牌",
-      "outputTokens": "输出代币",
+      "inputTokens": "输入 Token",
+      "outputTokens": "输出 Token",
       "byType": "按类型统计",
       "type": "类型",
       "calls": "调用次数",
@@ -2066,7 +2180,7 @@
         "badges": {
           "active": "当前对话",
           "fallback": "降级模型",
-          "provider": "Provider 模型",
+          "provider": "服务商模型",
           "embedding": "向量模型",
           "running": "运行中"
         }
@@ -2107,7 +2221,7 @@
       "summarize": "摘要",
       "web_search": "网页搜索",
       "image_generation": "图片生成",
-      "provider_test": "供应商测试",
+      "provider_test": "服务商测试",
       "vision": "视觉",
       "audio_generation": "音频生成"
     },
@@ -2119,9 +2233,9 @@
     "fileTooLarge": "文件过大，仅渲染前 256KB",
     "layoutSplit": "拆分",
     "layoutUnified": "统一",
-    "noDiffData": "无 diff 数据",
-    "openDiff": "查看 diff",
-    "resizePanel": "调整 diff 面板宽度",
+    "noDiffData": "无差异数据",
+    "openDiff": "查看差异",
+    "resizePanel": "调整差异面板宽度",
     "title": "文件改动",
     "actionCreate": "创造",
     "actionDelete": "删除",
@@ -2149,9 +2263,9 @@
       "staged": "已暂存",
       "stagedScope": "已暂存",
       "stale": "仓库已发生变化，已刷新，请重新确认。",
-      "prReviewComments": "PR Review 评论 · {{count}}",
+      "prReviewComments": "PR 审查评论 · {{count}}",
       "unstage": "取消暂存",
-      "unstaged": "已取消暂存",
+      "unstaged": "未暂存",
       "unstagedScope": "未暂存"
     }
   },
@@ -2607,7 +2721,9 @@
       "embedding_model": "Embedding 模型",
       "ollama_install": "Ollama 安装",
       "ollama_preload": "启动模型",
-      "ollama_pull": "Ollama 模型"
+      "ollama_pull": "Ollama 模型",
+      "knowledge_reembed": "知识索引重建",
+      "memory_reembed": "记忆向量重建"
     },
     "logs": {
       "empty": "暂无日志"
@@ -2655,7 +2771,7 @@
     "configModels": "配置该服务商支持的模型",
     "displayName": "显示名称",
     "image": "图片",
-    "inheritProviderThinkingStyle": "继承 Provider 默认设置",
+    "inheritProviderThinkingStyle": "继承服务商默认设置",
     "inputCost": "输入成本 ($/1M tokens)",
     "modelConfig": "模型配置",
     "modelId": "模型 ID",
@@ -2663,12 +2779,16 @@
     "modelsCount": "{{count}} 个模型",
     "outputCost": "输出成本 ($/1M tokens)",
     "reasoning": "支持推理/思考",
-    "reasoningHint": "开启后,可在聊天界面输入框上方的模型菜单中选择推理深度(低 / 中 / 高),并在每次请求时自动注入。",
+    "reasoningHint": "开启后，可在聊天界面输入框上方的模型菜单中选择推理深度（低 / 中 / 高），并在每次请求时自动注入。",
     "supportedInputTypes": "支持的输入类型",
     "supportsImageMultimodal": "支持图片多模态",
     "supportsVideoMultimodal": "支持视频多模态",
     "text": "文本",
-    "video": "视频"
+    "video": "视频",
+    "anthropicThinkingBudget": "Anthropic（思考预算）",
+    "zaiThinkingBudget": "Z.AI（思考预算）",
+    "contextWindow": "上下文窗口",
+    "maxTokens": "最大 tokens"
   },
   "notification": {
     "cronCancelled": "定时任务已取消",
@@ -2730,7 +2850,7 @@
   "onboarding": {
     "channels": {
       "configureInSettings": "在设置中配置渠道",
-      "hint": "日后可在 设置 → 渠道 里随时接入。",
+      "hint": "以后可随时在“设置 → 渠道”中接入。",
       "items": {
         "discord": "Discord",
         "email": "邮箱",
@@ -2747,18 +2867,18 @@
         "whatsapp": "WhatsApp"
       },
       "macOnly": "仅 macOS",
-      "subtitle": "从 Telegram / Slack / 微信 等聊天软件和 Hope Agent 对话。点击任意一个跳转到完整配置。",
-      "title": "接入 IM 渠道(可选)"
+      "subtitle": "通过 Telegram、Slack、微信等聊天软件与 Hope Agent 对话。点击任一选项可跳转到完整配置。",
+      "title": "接入 IM 渠道（可选）"
     },
     "exit": {
       "confirm": "稍后再配置",
-      "desc": "已填写的内容会保留,下次启动从当前步骤继续。",
-      "title": "退出引导?"
+      "desc": "已填写的内容会保留，下次启动从当前步骤继续。",
+      "title": "退出引导？"
     },
     "importOpenClaw": {
       "agents": {
         "alreadyExists": "ID 已存在",
-        "hasSystemPrompt": "自定义 system prompt",
+        "hasSystemPrompt": "自定义 system 提示词",
         "sandbox": "沙箱模式",
         "skills": "{{count}} 个技能",
         "skills_other": "{{count}} 个技能",
@@ -2766,7 +2886,7 @@
         "idLabel": "ID："
       },
       "continue": "继续",
-      "description": "已经配置过 OpenClaw 了？我们可以把你的 Provider、API Key、Agents 和 MEMORY.md 一次性拉过来。\n没用过 OpenClaw 可以直接跳过。",
+      "description": "已经配置过 OpenClaw 了？我们可以把你的服务商、API Key、Agents 和 MEMORY.md 一次性拉过来。\n没用过 OpenClaw 可以直接跳过。",
       "deselectAll": "全不选",
       "empty": "OpenClaw 目录存在但内容为空，没有可导入的内容。",
       "failed": "失败",
@@ -2792,7 +2912,7 @@
         "oauthExcluded": "OAuth 不导入",
         "profileWithPlainKey": "{{count}} 个密钥",
         "profileWithPlainKey_other": "{{count}} 个密钥",
-        "title": "Provider 与 API Key"
+        "title": "服务商与 API Key"
       },
       "scanFailed": "扫描 OpenClaw 配置失败",
       "scanning": "正在扫描 OpenClaw 配置……",
@@ -2818,17 +2938,17 @@
       "next": "下一步",
       "skip": "跳过",
       "skipAnyway": "确认跳过",
-      "skipConfirmTitle": "跳过此步?",
+      "skipConfirmTitle": "跳过此步？",
       "skipDanger": "未配置模型将无法对话。你仍可以稍后在设置中完成。"
     },
     "personality": {
       "presets": {
         "companion": {
-          "desc": "温暖自然的口语化表达,像朋友而不是知识库。",
+          "desc": "温暖自然的口语化表达，像朋友而不是知识库。",
           "name": "友好陪伴"
         },
         "creative": {
-          "desc": "发散、生动,适合写作、头脑风暴和丰富的示例。",
+          "desc": "发散、生动，适合写作、头脑风暴和丰富的示例。",
           "name": "创意伙伴"
         },
         "default": {
@@ -2836,11 +2956,11 @@
           "name": "默认助手"
         },
         "engineer": {
-          "desc": "严谨、技术化,偏好精确的证据和代码优先的回答。",
+          "desc": "严谨、技术化，偏好精确的证据和代码优先的回答。",
           "name": "专业工程师"
         }
       },
-      "subtitle": "为默认 Agent 挑一个起点。日后可在 设置 → Agent 面板精调或更换。",
+      "subtitle": "为默认 Agent 选择一个起点，以后可在“设置 → Agent”面板中精调或更换。",
       "title": "选择一个默认人格"
     },
     "profile": {
@@ -2851,7 +2971,7 @@
         "label": "你使用 AI 助手的熟练程度"
       },
       "name": "昵称",
-      "namePlaceholder": "例如:小明",
+      "namePlaceholder": "例如：小明",
       "style": {
         "balanced": "均衡",
         "concise": "简洁",
@@ -2863,12 +2983,12 @@
       "title": "告诉 AI 一些关于你的基础信息"
     },
     "provider": {
-      "subtitle": "接入已有 API Key(OpenAI / Anthropic / DeepSeek 等)或运行本地模型。之后可以在设置中修改或添加。",
+      "subtitle": "接入已有 API Key（OpenAI / Anthropic / DeepSeek 等）或运行本地模型。之后可以在设置中修改或添加。",
       "title": "选择模型服务商"
     },
     "searchProvider": {
       "saveAndContinue": "保存并继续",
-      "subtitle": "选择 Hope Agent 需要获取最新信息时使用的网页搜索后端。DuckDuckGo 无需密钥；API Provider 可以现在配置，也可以稍后再加。",
+      "subtitle": "选择 Hope Agent 需要获取最新信息时使用的网页搜索后端。DuckDuckGo 无需密钥；API 服务商可以现在配置，也可以稍后再加。",
       "title": "配置网页搜索"
     },
     "rerun": {
@@ -2878,30 +2998,30 @@
       "title": "重新运行首次启动引导"
     },
     "safety": {
-      "dangerousHint": "最高权限模式(跳过所有审批)在 设置 → 安全 中提供,需要显式确认才能开启。",
+      "dangerousHint": "最高权限模式（跳过所有审批）位于“设置 → 安全”，需要明确确认才能开启。",
       "point1": {
         "desc": "任何可能触及系统的工具调用都会等待你的 \"同意\" 确认。",
         "title": "审批闸门"
       },
       "point2": {
-        "desc": "可在 设置 → 安全 中修改超时时间，或为某个 IM 渠道（Telegram / 飞书 / Slack / 微信 等）单独开启自动批准。",
+        "desc": "可在“设置 → 安全”中修改超时时间，或为某个 IM 渠道（Telegram / 飞书 / Slack / 微信等）单独开启自动批准。",
         "title": "随时可调"
       },
-      "subtitle": "默认情况下,Hope Agent 在执行命令或修改文件前会先征求你的同意。",
+      "subtitle": "默认情况下，Hope Agent 在执行命令或修改文件前会先征求你的同意。",
       "title": "工具审批保障你的控制权",
       "toggle": "需要审批",
       "toggleHint": "关闭后工具调用将不再弹窗——不推荐。"
     },
     "server": {
-      "apiKeyHint": "开启后 Web GUI URL 会带 ?token=...,在受信客户端点击即可自动登录。",
+      "apiKeyHint": "开启后 Web GUI URL 会带 ?token=...，在受信客户端点击即可自动登录。",
       "apiKeyLabel": "启用 API Key 保护",
       "copied": "已复制",
       "copy": "复制",
       "generate": "生成",
       "lan": "同一局域网",
-      "lanHint": "绑定 0.0.0.0:8420,建议开启 API Key。",
+      "lanHint": "绑定 0.0.0.0:8420，建议开启 API Key。",
       "local": "仅本机",
-      "localHint": "绑定 127.0.0.1:8420,默认且安全。",
+      "localHint": "绑定 127.0.0.1:8420，默认且安全。",
       "previewLabel": "Web GUI 地址",
       "restartHint": "绑定地址的变更将在下次重启生效。",
       "subtitle": "内嵌 HTTP 服务让你在任意浏览器里打开同一个 App。",
@@ -2927,7 +3047,7 @@
         "profile": "个人资料",
         "provider": "模型服务商",
         "safety": "工具审批",
-        "searchProvider": "搜索 Provider",
+        "searchProvider": "搜索服务商",
         "server": "访问模式",
         "skills": "技能"
       },
@@ -2936,21 +3056,21 @@
       "skillsDisabled": "已禁用 {{n}} 项",
       "skipped": "已跳过",
       "startButton": "开始使用",
-      "subtitle": "下面是你刚配置的内容概览,可以随时在设置中回看和修改。",
+      "subtitle": "下面是你刚配置的内容概览，可以随时在设置中回看和修改。",
       "title": "完成 🎉",
       "webHint": "在手机、平板或其他电脑的浏览器中打开该 URL 即可获得完整 GUI 体验。",
       "webUrlLabel": "Web 地址"
     },
     "welcome": {
       "autoLanguage": "跟随系统",
-      "languageHint": "当前显示:{{current}}",
+      "languageHint": "当前显示：{{current}}",
       "languageLabel": "界面语言",
       "subtitle": "越用越懂你的 AI 助手——桌面、云端、IM，随叫随到。\n下面是一个简短的引导——除了选择模型，其它每一步都可以跳过。",
       "title": "欢迎使用 Hope Agent"
     }
   },
   "plans": {
-    "addToChat": "把该 Plan 添加到当前会话",
+    "addToChat": "把该计划添加到当前会话",
     "badge": {
       "archived": "已归档",
       "completed": "已完成",
@@ -2959,9 +3079,9 @@
       "planning": "规划中",
       "review": "审核中"
     },
-    "count": "共 {{count}} 个 Plan",
-    "empty": "暂无 Plan。",
-    "emptyPlan": "该 Plan 文件为空。",
+    "count": "共 {{count}} 个计划",
+    "empty": "暂无计划。",
+    "emptyPlan": "该计划文件为空。",
     "filter": {
       "allAgents": "全部 Agent",
       "state": {
@@ -2975,17 +3095,17 @@
     },
     "openInSession": "跳转到所属会话",
     "refresh": "刷新",
-    "resizeList": "调整 Plan 列表宽度",
-    "selectHint": "请在左侧选择一个 Plan 查看内容。",
+    "resizeList": "调整计划列表宽度",
+    "selectHint": "请在左侧选择一个计划查看内容。",
     "sessionDeleted": "所属会话已删除",
-    "title": "Plan 历史",
-    "untitled": "未命名 Plan"
+    "title": "计划历史",
+    "untitled": "未命名计划"
   },
   "planMode": {
     "approveAndExecute": "开始执行",
     "comment": {
       "hint": "选中文本即可添加评论，协同修改计划",
-      "placeholder": "对选中内容的修改建议...",
+      "placeholder": "对选中内容的修改建议…",
       "shortcut": "⌘+Enter 发送",
       "submit": "发送"
     },
@@ -2995,7 +3115,7 @@
     "enter": "进入计划模式",
     "enterDialog": {
       "contextNoReason": "模型建议先进入计划模式再做这件事。",
-      "contextPrefix": "模型建议先进入计划模式再做这件事。原因：",
+      "contextPrefix": "模型建议先进入计划模式再做这件事。原因：{{reason}}",
       "header": "计划模式",
       "option": {
         "no": {
@@ -3010,7 +3130,7 @@
       "question": "进入计划模式？模型会先做调研、追问澄清，并起草一份计划交你审核后再动手。"
     },
     "executeCommand": "开始执行已批准的计划：调用 task_create 根据计划生成一份精简的 todo 清单，开始每条前先用 task_update 标记 in_progress，完成后立即标记 completed。同时只能有一条 in_progress。",
-    "executing": "正在按计划执行...",
+    "executing": "正在按计划执行…",
     "executionApproved": "已批准计划，开始执行。",
     "executionIdle": "计划执行正在等待继续",
     "executionResumed": "继续执行计划。",
@@ -3025,15 +3145,15 @@
     "openFolder": "打开文件夹",
     "openPanel": "在面板中查看",
     "panelTitle": "执行计划",
-    "placeholder": "描述你想要实现的功能...",
+    "placeholder": "描述你想要实现的功能…",
     "plan": "执行计划",
-    "planning": "正在制定计划...",
-    "planningInProgress": "正在制定计划...",
+    "planning": "正在制定计划…",
+    "planningInProgress": "正在制定计划…",
     "popOut": "独立窗口",
     "popOutActive": "已在独立窗口中打开",
     "question": {
       "answered": "已回答",
-      "customPlaceholder": "输入自定义回答...",
+      "customPlaceholder": "输入自定义回答…",
       "customRequired": "请输入自定义回答，或选择其他选项。",
       "default": "默认",
       "multiSelect": "多选",
@@ -3051,7 +3171,7 @@
     },
     "reattach": "收回到面板",
     "requestChanges": "请求修改",
-    "requestChangesPlaceholder": "描述你希望修改的内容...",
+    "requestChangesPlaceholder": "描述你希望修改的内容…",
     "restricted": "计划模式：AI 将收集信息并与你交互制定计划",
     "resume": "恢复执行",
     "review": {
@@ -3115,7 +3235,7 @@
       "sizeKb": "{{size}} KB",
       "unsupported": "不支持的文件类型",
       "uploadHint": "拖放文件到此处或点击上传",
-      "uploading": "上传中..."
+      "uploading": "上传中…"
     },
     "filesInProject": "{{count}} 个文件",
     "inheritGlobal": "跟随全局",
@@ -3171,7 +3291,7 @@
     "projectInstructionsLoadFailed": "无法读取 AGENTS.md",
     "projectInstructionsPlaceholder": "例如：始终用中文回复；语气清楚亲切；先给结论再补充细节",
     "projectInstructionsSaveFailed": "无法保存 AGENTS.md",
-    "projectLogo": "Logo",
+    "projectLogo": "标识",
     "projectLogoHint": "可选。图片会自动压缩到 256×256。",
     "projectName": "项目名称",
     "projectNamePlaceholder": "例如：Hope Agent 开发",
@@ -3211,7 +3331,7 @@
   "provider": {
     "addProvider": "添加服务商",
     "allowPrivateNetwork": "允许私有网络",
-    "allowPrivateNetworkDesc": "检测到 Base URL 指向本地/私有网络。启用后会在保存时把该主机加入 SSRF 受信主机 allowlist，确保对该 Provider 的 LLM 调用不被拦截。",
+    "allowPrivateNetworkDesc": "检测到 Base URL 指向本地/私有网络。启用后会在保存时把该主机加入 SSRF 受信主机 allowlist，确保对该服务商的 LLM 调用不被拦截。",
     "apiKeyLeaveEmpty": "API Key（留空则不修改）",
     "apiType": "API 类型",
     "authRequired": "如需认证需填写",
@@ -3237,17 +3357,17 @@
     "remoteApiKey": "API Key",
     "remoteApiKeyPlaceholder": "如果远端未设置鉴权可留空",
     "remoteConnect": "连接",
-    "remoteConnecting": "连接中...",
+    "remoteConnecting": "连接中…",
     "remoteServerUrl": "服务器地址",
     "remoteTestFailed": "无法访问",
     "remoteTestSuccess": "可以访问",
-    "searchProviders": "搜索服务商...",
+    "searchProviders": "搜索服务商…",
     "selectProvider": "选择模型服务商开始使用",
     "testConnection": "测试连接",
     "thinkingStyle": "思考类型",
     "thinkingStyleNone": "无（不发送思考参数）",
     "title": "模型服务商",
-    "waitingBrowserLogin": "等待浏览器登录..."
+    "waitingBrowserLogin": "等待浏览器登录…"
   },
   "provider_templates": {
     "anthropic": {
@@ -3256,7 +3376,7 @@
     },
     "byteplus": {
       "description": "BytePlus AI 国际版大模型平台",
-      "name": "BytePlus (海外火山)"
+      "name": "BytePlus（海外火山）"
     },
     "chutes": {
       "description": "TEE 可信执行环境 AI 推理",
@@ -3283,7 +3403,7 @@
       "name": "Hugging Face"
     },
     "kimi-coding": {
-      "description": "Kimi for Coding (Anthropic 兼容)",
+      "description": "Kimi for Coding（兼容 Anthropic）",
       "name": "Kimi Coding"
     },
     "litellm": {
@@ -3295,7 +3415,7 @@
       "name": "LM Studio"
     },
     "minimax": {
-      "description": "MiniMax M2 系列模型 (Anthropic 兼容)",
+      "description": "MiniMax M2 系列模型（兼容 Anthropic）",
       "name": "MiniMax"
     },
     "mistral": {
@@ -3319,7 +3439,7 @@
       "name": "Ollama"
     },
     "openai": {
-      "description": "GPT 系列模型 (Responses API)",
+      "description": "GPT 系列模型（Responses API）",
       "name": "OpenAI"
     },
     "openai-chat": {
@@ -3331,12 +3451,12 @@
       "name": "OpenRouter"
     },
     "qianfan": {
-      "description": "百度智能云 千帆大模型平台",
+      "description": "百度智能云千帆大模型平台",
       "name": "百度千帆"
     },
     "qwen": {
       "description": "阿里云 DashScope 大模型",
-      "name": "通义千问 (Qwen)"
+      "name": "通义千问（Qwen）"
     },
     "together": {
       "description": "开源模型云推理平台",
@@ -3348,26 +3468,94 @@
     },
     "volcengine": {
       "description": "字节跳动 Doubao 系列模型",
-      "name": "火山引擎 (豆包)"
+      "name": "火山引擎（豆包）"
     },
     "xai": {
       "description": "Grok 系列模型",
       "name": "xAI"
     },
     "xiaomi": {
-      "description": "MiMo 系列模型 (Anthropic 兼容)",
+      "description": "MiMo 系列模型（兼容 Anthropic）",
       "name": "小米 MiMo"
     },
     "zhipu": {
       "description": "GLM 系列模型",
-      "name": "智谱 AI (Z.AI)"
+      "name": "智谱 AI（Z.AI）"
+    },
+    "anthropic-vertex": {
+      "name": "Anthropic（Vertex AI）",
+      "description": "Google Cloud Vertex AI 上的 Claude 模型"
+    },
+    "fireworks": {
+      "name": "Fireworks AI",
+      "description": "高性能模型推理平台"
+    },
+    "arcee": {
+      "name": "Arcee",
+      "description": "Arcee Trinity 系列模型"
+    },
+    "venice": {
+      "name": "Venice",
+      "description": "隐私优先的 AI 推理平台"
+    },
+    "synthetic": {
+      "name": "Synthetic",
+      "description": "开源模型推理（兼容 Anthropic）"
+    },
+    "vercel-ai-gateway": {
+      "name": "Vercel AI Gateway",
+      "description": "Vercel AI 网关代理"
+    },
+    "cerebras": {
+      "name": "Cerebras",
+      "description": "Cerebras 超高速推理（Wafer Scale）"
+    },
+    "deepinfra": {
+      "name": "DeepInfra",
+      "description": "高性价比的开源模型推理平台"
+    },
+    "github-copilot": {
+      "name": "GitHub Copilot",
+      "description": "GitHub Copilot 订阅模型网关，聚合多家主流旗舰模型"
+    },
+    "gmi": {
+      "name": "GMI Cloud",
+      "description": "高性能模型推理平台，托管开源与前沿模型"
+    },
+    "novita": {
+      "name": "Novita AI",
+      "description": "高性能开源模型推理平台，聚合 Kimi、DeepSeek、GLM、Qwen 等主流开源模型"
+    },
+    "opencode": {
+      "name": "OpenCode Zen",
+      "description": "旗舰模型网关，聚合 Claude、GPT、Gemini、MiniMax 等前沿模型"
+    },
+    "opencode-go": {
+      "name": "OpenCode Zen Go",
+      "description": "专注编码场景的模型推理网关"
+    },
+    "kilocode": {
+      "name": "KiloCode",
+      "description": "面向编码场景的 AI 模型网关，自动路由到最优模型"
+    },
+    "sglang": {
+      "name": "SGLang",
+      "description": "高性能本地推理引擎"
+    },
+    "tencent": {
+      "name": "腾讯混元（TokenHub）",
+      "description": "腾讯混元 Hy3 推理模型"
+    },
+    "stepfun": {
+      "name": "阶跃星辰（StepFun）",
+      "description": "Step 系列推理模型"
     }
   },
   "quickChat": {
     "continueSession": "继续上次对话",
     "newChat": "新建对话",
     "noMessages": "开始一段快捷对话",
-    "placeholder": "问点什么...",
+    "placeholder": "问点什么…",
     "selectAgent": "选择 Agent",
     "title": "快捷对话",
     "viewFullChat": "查看完整对话"
@@ -3382,12 +3570,13 @@
     "history": "历史报告",
     "noReports": "尚未生成任何报告，点击生成开始第一次复盘。",
     "progress": {
-      "aggregating": "执行 Dashboard 查询…",
+      "aggregating": "执行仪表盘查询…",
       "done": "完成",
       "extractingFacets": "提取 facet {{done}}/{{total}}",
       "generatingSections": "生成章节 {{done}}/{{total}}",
       "persisting": "持久化报告…",
-      "started": "开始（{{n}} 个会话）"
+      "started": "开始（{{n}} 个会话）",
+      "failed": "失败"
     },
     "range": {
       "days": "最近 {{n}} 天",
@@ -3395,10 +3584,16 @@
     },
     "selectReport": "从历史下拉列表中选择一份报告。",
     "chatCard": {
-      "missingId": "缺少回顾报告 ID。",
-      "open": "打开回顾",
-      "title": "报告回顾",
-      "waiting": "等待回顾进展..."
+      "missingId": "缺少复盘报告 ID。",
+      "open": "打开复盘",
+      "title": "复盘报告",
+      "waiting": "等待复盘进度…"
+    },
+    "report": {
+      "facetBreakdown": "维度明细",
+      "topGoals": "主要目标",
+      "outcomes": "结果",
+      "frictionSources": "阻碍来源"
     }
   },
   "settings": {
@@ -3416,7 +3611,7 @@
     "acpMaxConcurrent": "最大并发数",
     "acpSettings": "设置",
     "acpTimeout": "超时（秒）",
-    "activeMemoryCacheTtl": "缓存 TTL (秒)",
+    "activeMemoryCacheTtl": "缓存 TTL （秒）",
     "activeMemoryCandidateLimit": "候选数量上限",
     "activeMemoryDesc": "Agent 级兼容召回。开启后即使全局自动召回关闭，也只为当前 Agent 启用 Fast 召回与深度重排；默认关闭，深度重排会增加一次 side query、等待时间和 Token 用量。",
     "activeMemoryIncludeClaims": "纳入记忆断言",
@@ -3464,7 +3659,7 @@
         }
       },
       "toolDescs": {
-        "acp_spawn": "启动外部 ACP 子代理进程",
+        "acp_spawn": "启动外部 ACP 子 Agent 进程",
         "agents_list": "列出所有 Agent 配置",
         "browser": "通过 CDP 驱动浏览器，UI 自动化",
         "get_settings": "读取应用配置",
@@ -3483,7 +3678,7 @@
         "web_search": "通过搜索引擎查询"
       },
       "toolNames": {
-        "acp_spawn": "ACP 子代理",
+        "acp_spawn": "ACP 子 Agent",
         "agents_list": "Agent 列表",
         "browser": "浏览器控制",
         "get_settings": "读取设置",
@@ -3505,14 +3700,14 @@
     "agentApprovalTab": "审批",
     "agentAsyncToolPolicy": {
       "title": "异步工具后台化策略",
-      "desc": "异步可后台化的工具（exec / web_search / image_generate）何时转后台 job。与审批正交。",
+      "desc": "支持异步的工具（exec / web_search / image_generate）何时转为后台任务。与审批策略相互独立。",
       "modelDecide": {
         "label": "由模型决定（默认）",
         "desc": "尊重模型传的 `run_in_background:true`；模型不传则按全局阈值超时后自动转后台。"
       },
       "alwaysBackground": {
         "label": "总是后台执行",
-        "desc": "每次异步可后台化调用都立即转后台并返回 job id；完成结果会自动注入，`job_status` 仅用于偶尔查看状态。"
+        "desc": "每次支持异步的调用都会立即转入后台并返回任务 ID；结果会自动注入，`job_status` 仅用于偶尔查看状态快照。"
       },
       "neverBackground": {
         "label": "禁用后台执行",
@@ -3524,7 +3719,7 @@
     "agentBasicInfo": "基本信息",
     "agentBoundaries": "行为边界",
     "agentBoundariesDesc": "定义 Agent 会做和不会做的事情",
-    "agentBoundariesPlaceholder": "描述这个 Agent 的能力边界和限制...",
+    "agentBoundariesPlaceholder": "描述这个 Agent 的能力边界和限制…",
     "agentCannotDeleteDefault": "默认 Agent 不可删除",
     "agentCapabilities": "工具 & 技能",
     "agentCapabilitiesTabSkills": "技能",
@@ -3533,7 +3728,7 @@
     "agentCapabilitiesToolInjectionDesc": "选择该 Agent 可使用的内置工具（系统级内部工具始终可用）",
     "agentCommStyle": "沟通方式",
     "agentCommStyleDesc": "Agent 如何组织和表达回复内容",
-    "agentCommStylePlaceholder": "例如：详细解释并附带示例、简洁扼要直奔主题...",
+    "agentCommStylePlaceholder": "例如：详细解释并附带示例、简洁扼要直奔主题…",
     "agentCustomIdentityDesc": "自定义 Agent 的身份、职责和工作方式",
     "agentCustomPersonaDesc": "自定义 Agent 的性格、语气和沟通风格",
     "agentCustomPrompt": "自定义提示词",
@@ -3542,7 +3737,7 @@
     "agentDefault": "默认",
     "agentDeleteConfirm": "确定要删除这个 Agent 吗？",
     "agentDescription": "描述",
-    "agentDescriptionPlaceholder": "简要描述这个 Agent 的用途...",
+    "agentDescriptionPlaceholder": "简要描述这个 Agent 的用途…",
     "agentEmoji": "图标",
     "agentEmojiPlaceholder": "选择一个 Emoji",
     "agentIdentity": "身份",
@@ -3557,7 +3752,7 @@
     "agentMcpTitle": "MCP",
     "agentMd": "Agent 说明",
     "agentMdDesc": "描述这个 Agent 的职责、工作方式和原则",
-    "agentMdPlaceholder": "编写 Agent 的核心说明...",
+    "agentMdPlaceholder": "编写 Agent 的核心说明…",
     "agentModel": "模型",
     "agentModelConfig": "模型配置",
     "agentModelCustom": "自定义模型",
@@ -3579,20 +3774,20 @@
     "agentOpenClawModeWarning": "开启后，身份和性格页面将被禁用。Agent 行为完全由下方 4 个 Markdown 文件定义。",
     "agentPersona": "人设",
     "agentPersonaDesc": "定义 Agent 的性格、语气和沟通风格",
-    "agentPersonaPlaceholder": "描述 Agent 的性格特征...",
+    "agentPersonaPlaceholder": "描述 Agent 的性格特征…",
     "agentPersonaSupplementDesc": "还有什么想补充的？可以自由描述",
     "agentPersonalityTab": "性格",
     "agentPlanModel": "计划模式模型",
     "agentPlanModelDesc": "在计划阶段使用更便宜/快速的模型，可降低 60-80% 成本。执行阶段仍使用主模型。",
     "agentPrinciples": "行为准则",
     "agentPrinciplesDesc": "Agent 遵循的核心原则",
-    "agentPrinciplesPlaceholder": "输入准则后按回车添加，如：始终解释推理过程...",
+    "agentPrinciplesPlaceholder": "输入准则后按回车添加，如：始终解释推理过程…",
     "agentPrompts": "提示词",
     "agentQuirks": "个性特色",
     "agentQuirksDesc": "独特的习惯、口头禅或个性化细节",
-    "agentQuirksPlaceholder": "例如：喜欢用类比解释概念、回答前先确认理解...",
+    "agentQuirksPlaceholder": "例如：喜欢用类比解释概念、回答前先确认理解…",
     "agentRole": "角色定位",
-    "agentRolePlaceholder": "例如：AI 编程助手、创意写手、研究分析师...",
+    "agentRolePlaceholder": "例如：AI 编程助手、创意写手、研究分析师…",
     "agentSandbox": "Docker 沙箱",
     "agentSandboxDesc": "在 Docker 容器中执行命令",
     "agentSaved": "已保存",
@@ -3604,13 +3799,13 @@
     "agentSoulMd": "SOUL.md",
     "agentSoulMdDesc": "Agent 的性格、价值观、语气、边界、核心真相",
     "agentSupplement": "补充说明",
-    "agentSupplementPlaceholder": "自由补充，支持 Markdown 格式...",
+    "agentSupplementPlaceholder": "自由补充，支持 Markdown 格式…",
     "agentTemperatureDesc": "覆盖此 Agent 的全局温度设置。重置后将继承全局设置。",
     "agentTierConfiguredHint": "未配置 · 去 {{hint}}",
     "agentTierCoreBadge": "始终启用",
     "agentTierCoreDesc": "所有 Agent 必须的基础能力，无法关闭。",
     "agentTierCoreTitle": "核心工具",
-    "agentTierStandardDesc": "Agent 默认可用，可单独关闭。部分能力还需在全局设置里配置 provider 才能真正使用。",
+    "agentTierStandardDesc": "Agent 默认可用，可单独关闭。部分能力还需在全局设置里配置服务商才能真正使用。",
     "agentTierStandardTitle": "标准工具",
     "agentTone": "语气风格",
     "agentToneCasual": "随意",
@@ -3622,16 +3817,16 @@
     "agentToneWarm": "温暖",
     "agentToolsGuide": "工具指导",
     "agentToolsGuideDesc": "自定义 Agent 使用工具的策略和偏好",
-    "agentToolsGuidePlaceholder": "编写工具使用指导...",
+    "agentToolsGuidePlaceholder": "编写工具使用指导…",
     "agentToolsMd": "TOOLS.md",
     "agentToolsMdOcDesc": "本地环境说明：摄像头名称、SSH 主机、TTS 语音偏好、设备别名",
     "agentTraits": "性格特质",
     "agentTraitsDesc": "定义 Agent 的核心性格特征",
-    "agentTraitsPlaceholder": "输入特质后按回车添加，如：细致、好奇心强、鼓励性...",
+    "agentTraitsPlaceholder": "输入特质后按回车添加，如：细致、好奇心强、鼓励性…",
     "agentUnlimited": "不限制",
     "agentVibe": "整体气质",
     "agentVibeDesc": "描述这个 Agent 给人的整体感觉",
-    "agentVibePlaceholder": "例如：温暖而有耐心、敏锐而直接、幽默风趣...",
+    "agentVibePlaceholder": "例如：温暖而有耐心、敏锐而直接、幽默风趣…",
     "agents": "Agent",
     "agentsDesc": "定义和管理 AI Agent，每个 Agent 可以有不同的身份、能力和行为方式。",
     "appearance": "外观",
@@ -3643,7 +3838,7 @@
       "dangerousCommandsDesc": "命中即强制审批且不可 AllowAlways。YOLO 模式可绕过但仍会写审计日志。",
       "dangerousCommandsPlaceholder": "如：rm -rf /、git push --force",
       "dangerousCommandsTitle": "危险命令",
-      "editCommandsDesc": "Default 模式下 exec 命中这些命令模式需要审批，可 AllowAlways。命令为子串匹配（不区分大小写）。",
+      "editCommandsDesc": "默认模式下，exec 命中这些命令模式时需要审批，并可选择 AllowAlways。命令采用不区分大小写的子串匹配。",
       "editCommandsPlaceholder": "如：rm 、git commit、npm install",
       "editCommandsTitle": "编辑命令",
       "empty": "暂无条目，添加新模式以启用",
@@ -3656,7 +3851,7 @@
       "judgeExtraPromptPlaceholder": "可选：附加给判官的提示词（白名单路径、信任命令等）",
       "judgeModelPlaceholder": "选择裁判模型",
       "judgeModelTitle": "判官模型配置",
-      "judgeProviderPlaceholder": "Provider ID（如 anthropic-1）",
+      "judgeProviderPlaceholder": "服务商 ID（如 anthropic-1）",
       "protectedPathsDesc": "命中以下路径模式时强制审批，不可 AllowAlways 跳过。支持 ~/ 展开、目录前缀（结尾 /）、通配（*.pem）。",
       "protectedPathsPlaceholder": "如：~/.ssh/、.env、*.pem",
       "protectedPathsTitle": "保护路径",
@@ -3683,10 +3878,10 @@
       "timeoutSeconds": "超时秒数",
       "timeoutTitle": "审批弹窗超时",
       "unattendedTitle": "无人值守审批",
-      "unattendedDesc": "当工具需要审批却无人能响应时(定时任务 / 无客户端的 headless 服务且无 IM 会话 / 未声明权限能力的 ACP 客户端 / 无呈现界面的子代理)的处理方式。「阻止执行」(推荐)fail-closed 拒绝;「放行」自动执行工具——属安全放宽,仅用于受信的无人值守自动化。",
+      "unattendedDesc": "当工具需要审批却无人响应时（定时任务 / 无客户端的 headless 服务且无 IM 会话 / 未声明权限能力的 ACP 客户端 / 无呈现界面的子 Agent），选择处理方式。“阻止执行”（推荐）会以 fail-closed 方式拒绝；“放行”会自动执行工具，属于安全放宽，仅适用于可信的无人值守自动化。",
       "title": "权限",
       "yoloCliActive": "⚠️ 当前 CLI 启动参数 --dangerously-skip-all-approvals 已激活，无法在 GUI 关闭。",
-      "yoloDesc": "开启后所有工具直接执行，仅 Plan 模式仍能拦截。保护路径 / 危险命令命中只落 warn 日志不再弹审批。",
+      "yoloDesc": "启用后，所有工具都无需批准即可运行；只有计划模式仍然可以阻止。受保护的路径/危险命令匹配记录警告但执行。",
       "yoloDisabled": "已关闭全局 YOLO",
       "yoloEnabled": "已开启全局 YOLO",
       "yoloTitle": "全局 YOLO（跳过所有审批）"
@@ -3699,20 +3894,20 @@
     "approvalTimeoutDesc": "等待用户响应工具审批的最长时间。设为 0 表示不限时",
     "asyncTools": "异步工具",
     "asyncToolsAutoBackground": "自动后台化阈值",
-    "asyncToolsAutoBackgroundDesc": "同步调用超过此时长会自动迁移到后台 job。0 = 关闭自动迁移",
-    "asyncToolsDesc": "长耗时工具（exec / web_search / image_generate）可 detach 成后台 job，对话继续进行，结果就绪后自动回注到主对话。",
+    "asyncToolsAutoBackgroundDesc": "同步调用超过此时长会自动迁移为后台任务。0 = 关闭自动迁移",
+    "asyncToolsDesc": "长耗时工具（exec / web_search / image_generate）可转为后台任务，让对话继续进行；结果就绪后会自动回注到主对话。",
     "asyncToolsEnabled": "启用异步工具执行",
     "asyncToolsEnabledDesc": "总开关。关闭后 run_in_background 会被忽略，所有工具调用均同步执行",
     "asyncToolsInlineBytes": "内联结果字节数",
     "asyncToolsInlineBytesDesc": "结果少于此字节直接内联到完成通知中，超过则 spool 到磁盘并只注入 head/tail 预览",
     "asyncToolsJobStatusMaxWait": "job_status 最大等待时长",
-    "asyncToolsJobStatusMaxWaitDesc": "单次 job_status(block=true) 的等待上限。仅当单 job 最大时长 = 0 时生效，其他情况以单 job 最大时长为准",
-    "asyncToolsMaxConcurrent": "后台 job 最大并发数",
-    "asyncToolsMaxConcurrentDesc": "允许同时运行的 run_in_background 工具 job 上限，每个占用一个独立 OS 线程。0 = 不限。",
+    "asyncToolsJobStatusMaxWaitDesc": "单次 job_status(block=true) 调用的等待上限。仅当单项任务最大时长 = 0 时生效，其他情况以单项任务最大时长为准",
+    "asyncToolsMaxConcurrent": "后台任务最大并发数",
+    "asyncToolsMaxConcurrentDesc": "允许同时运行的 run_in_background 工具任务上限，每项任务占用一个独立 OS 线程。0 = 不限。",
     "asyncToolsMaxConcurrentPerSession": "每会话并发上限",
     "asyncToolsMaxConcurrentPerSessionDesc": "单个会话（或 IM 群聊）最多同时运行的后台任务数；超出的请求即使全局仍有空位也会排队，避免单个会话占满所有槽位。0 = 不限。",
-    "asyncToolsMaxJob": "单 job 最大时长",
-    "asyncToolsMaxJobDesc": "后台 job 运行时长上限，超时会被 kill。0 = async job 层不限时；具体工具仍可有自己的内部超时",
+    "asyncToolsMaxJob": "单项任务最大时长",
+    "asyncToolsMaxJobDesc": "后台任务的最长运行时间，超过后会被终止。0 = 不限制异步任务时长；具体工具仍可有自己的内部超时。",
     "asyncToolsMaxQueued": "排队上限",
     "asyncToolsMaxQueuedDesc": "并发槽位占满后，新的后台任务进入等待队列的最大长度；超出则直接拒绝（让模型稍后重试或同步运行）。每个排队任务会占用内存，故有上限。范围 1–4096。",
     "asyncToolsMaxRetryAttempts": "最大尝试次数",
@@ -3723,14 +3918,14 @@
     "asyncToolsOrphanGraceDesc": "spool 目录里不在 DB 中的孤儿文件按此宽限期（小时）清理，避免与刚写入但未提交 DB 行的 spool 竞态",
     "asyncToolsOutputTail": "运行输出留存",
     "asyncToolsOutputTailDesc": "后台 exec 任务运行期间留存的最新输出字节数，供 job_status 实时查看（判断「还在跑」还是「卡住」）。越大越清晰、越占内存。范围 256B–1MB。",
-    "asyncToolsRetention": "终态 job 保留天数",
-    "asyncToolsRetentionDesc": "已完成的 job 行和 spool 文件保留天数，由每日清理任务删除。0 = 永久保留",
+    "asyncToolsRetention": "已结束任务保留天数",
+    "asyncToolsRetentionDesc": "已完成任务的记录和 spool 文件会在达到此天数后由每日清理任务删除。0 = 永久保留",
     "asyncToolsRetryEnabled": "失败自动重试",
-    "asyncToolsRetryEnabledDesc": "失败时自动退避重试后台任务，仅对可安全重跑的联网工具（如联网搜索）生效。重试会重新调用该工具，联网搜索等计费供应商可能因此产生额外调用，故默认关闭、按需开启。exec、图像生成等有副作用 / 非确定性工具，以及被取消 / 超时的任务，永不重试。",
+    "asyncToolsRetryEnabledDesc": "失败时自动退避重试后台任务，仅对可安全重跑的联网工具（如联网搜索）生效。重试会重新调用该工具，联网搜索等付费服务商可能因此产生额外调用，故默认关闭、按需开启。exec、图像生成等有副作用 / 非确定性工具，以及被取消 / 超时的任务，永不重试。",
     "asyncToolsWakeupMaxDelay": "定时唤醒最长延迟",
-    "asyncToolsWakeupMaxDelayDesc": "代理用 schedule_wakeup 自我定时唤醒的最长延迟上限；更长的周期任务应交给定时任务（cron）。下限固定 10 秒。范围 10 秒–7 天。",
+    "asyncToolsWakeupMaxDelayDesc": "Agent 使用 schedule_wakeup 自行定时唤醒的最长延迟；更长的周期任务应交给定时任务。下限固定为 10 秒，范围为 10 秒至 7 天。",
     "asyncToolsWakeupMaxPending": "每会话定时唤醒上限",
-    "asyncToolsWakeupMaxPendingDesc": "单个会话最多可同时挂起的定时唤醒数；超出直接拒绝（不排队），防止代理自我排程出大量计费轮次。范围 1–100。",
+    "asyncToolsWakeupMaxPendingDesc": "单个会话最多可同时挂起的定时唤醒数；超出时直接拒绝（不排队），防止 Agent 自行排程产生大量计费回合。范围为 1–100。",
     "avatarCropTitle": "裁剪头像",
     "avatarZoom": "缩放",
     "awareness": {
@@ -3746,7 +3941,7 @@
       "includeTypes": "纳入的会话类型",
       "inputLookbackHours": "输入回溯窗口（小时）",
       "llmExtraction": "LLM 抽取",
-      "llmWarning": "LLM 摘要模式会在每次刷新时发起额外的 side_query（受节流保护）。会产生额外 API 费用。",
+      "llmWarning": "LLM 摘要模式会在每个用户回合额外运行一次 side_query（按 min_interval_secs 节流），因此会产生额外 API 费用。",
       "lookbackHours": "回溯窗口（小时）",
       "maxCandidates": "候选会话数上限",
       "maxSessions": "最多会话数",
@@ -3769,7 +3964,7 @@
     },
     "browser": {
       "activeBadge": "使用中",
-      "backupRuntimeHint": "系统 Chrome 当前可用。你也可以安装 Hope 管理的 Chromium，作为浏览器自动化和 Artifact PDF 导出的备用运行时。",
+      "backupRuntimeHint": "系统 Chrome 当前可用。你也可以安装 Hope 管理的 Chromium，作为浏览器自动化和产物 PDF 导出的备用运行时。",
       "backupRuntimeTitle": "备用 Chromium 运行时",
       "installRuntimeRetry": "运行时已就绪，请重试浏览器操作或 PDF 导出。",
       "openBrowserSettings": "打开浏览器设置",
@@ -3791,7 +3986,7 @@
       "disconnect": "停止",
       "doctorChromeFound": "已在 {{url}} 找到 Chrome",
       "doctorChromeMissing": "标准调试端口未检测到 Chrome",
-      "doctorChromeMissingHint": "启动一个独立 Chrome(使用独立 user-data-dir,不会动你日常浏览数据)。",
+      "doctorChromeMissingHint": "启动一个独立 Chrome（使用独立 user-data-dir，不会改动你的日常浏览数据）。",
       "doctorConnect": "连接",
       "doctorLaunchUserChrome": "启动用户 Chrome",
       "doctorNoBinary": "未找到 Chrome / Chromium",
@@ -3816,9 +4011,9 @@
       "modeLabel": "模式",
       "modeLaunch": "由 Hope Agent 托管",
       "modeStandalone": "独立浏览器",
-      "modeStandaloneHint": "hope-agent 维护一个独立的 Chrome 实例,推荐用于自动化。",
+      "modeStandaloneHint": "hope-agent 维护一个独立的 Chrome 实例，推荐用于自动化。",
       "modeUserChrome": "接管用户 Chrome",
-      "modeUserChromeHint": "启动或连接你日常使用的 Chrome。使用独立的 user-data-dir,真正的浏览数据不受影响。",
+      "modeUserChromeHint": "启动或连接你日常使用的 Chrome。使用独立的 user-data-dir，不会影响实际浏览数据。",
       "newProfileLabel": "新配置名称",
       "newProfilePlaceholder": "如 work-google",
       "profileHint": "使用配置 '{{name}}'，cookie 与登录状态会被保留。",
@@ -3835,11 +4030,11 @@
       "sectionProfiles": "配置列表",
       "sectionTabs": "打开的标签页",
       "spawnUserChrome": {
-        "confirmBodyIdle": "hope-agent 会在 ~/.hope-agent/browser/user-attach/ 下用独立 user-data-dir 启动一个新 Chrome。是否继续?",
-        "confirmBodyRunning": "似乎已有 Chrome 在运行。hope-agent 会用独立 user-data-dir 启动另一个 Chrome 实例,你的日常浏览不受影响。是否继续?",
+        "confirmBodyIdle": "hope-agent 会在 ~/.hope-agent/browser/user-attach/ 下用独立 user-data-dir 启动一个新 Chrome。是否继续？",
+        "confirmBodyRunning": "似乎已有 Chrome 在运行。hope-agent 会用独立 user-data-dir 启动另一个 Chrome 实例，你的日常浏览不受影响。是否继续？",
         "confirmTitle": "启动独立的 Chrome?",
         "continue": "继续",
-        "spawned": "已在端口 {{port}} 启动 Chrome,正在连接…"
+        "spawned": "已在端口 {{port}} 启动 Chrome，正在连接…"
       },
       "statusConnected": "浏览器运行中",
       "statusDisconnected": "未运行",
@@ -3910,7 +4105,7 @@
           "connected": "扩展已连接——AI 现在可操作你的真实 Chrome"
         },
         "fallbackLabel": "回退到托管 Chrome",
-        "fallbackHint": "扩展不可用时,自动改用独立的托管 Chrome,而不是直接失败。",
+        "fallbackHint": "扩展不可用时，自动改用独立的托管 Chrome，而不是直接失败。",
         "setupGuide": "安装引导"
       },
       "methodLabel": "浏览器控制方式",
@@ -3925,7 +4120,7 @@
       },
       "rawCdpConfirm": {
         "title": "允许 raw CDP?",
-        "body": "这会允许 AI 向你的真实 Chrome 发送任意 DevTools 协议命令。每次调用仍需你逐次审批、危险方法仍被拦截,但请仅在确有需要时开启。",
+        "body": "这会允许 AI 向你的真实 Chrome 发送任意 DevTools 协议命令。每次调用仍需你逐次审批、危险方法仍被拦截，但请仅在确有需要时开启。",
         "continue": "开启"
       }
     },
@@ -3977,7 +4172,7 @@
       "searchMatch_status": "状态",
       "searchMatch_scope": "范围",
       "searchMatch_tag": "标签",
-      "searchMatch_confidence": "置信来源",
+      "searchMatch_confidence": "可信度",
       "searchMatch_evidence": "证据",
       "searchEmpty": "没有匹配的结构化记忆。",
       "loadMore": "加载更多",
@@ -4059,7 +4254,7 @@
       "reviewReason": "审核原因",
       "entityContextTitle": "实体上下文",
       "entityContextDesc": "同一范围内触及相同主体或对象的相关结构化记忆。",
-      "entityContextLoading": "正在加载实体上下文...",
+      "entityContextLoading": "正在加载实体上下文…",
       "entityContextUnavailable": "无法加载实体上下文。",
       "entityContextEmpty": "暂无相关实体上下文。",
       "entityContextNodes": "{{count}} 个实体",
@@ -4194,7 +4389,7 @@
         "planFailed": "生成回填预览失败",
         "applyFailed": "回填失败",
         "empty": "所有记忆均已纳入记忆断言层。",
-        "appliedPartial": "已回填 {{created}} 条,{{failed}} 条失败,可重试剩余项"
+        "appliedPartial": "已回填 {{created}} 条，{{failed}} 条失败，可重试剩余项"
       },
       "reviewHistoryTitle": "审核历史",
       "reviewHistoryDesc": "最近由 Lucid Review 和 Dreaming 记录的记忆处理决策。",
@@ -4237,7 +4432,8 @@
       "conflictBestEvidence": "最佳证据",
       "conflictNoEvidencePreview": "暂无可预览证据。",
       "conflictEvidenceDiffUnavailable": "无法加载冲突记忆的证据。",
-      "conflictCandidatesUnavailable": "无法加载冲突候选。"
+      "conflictCandidatesUnavailable": "无法加载冲突候选。",
+      "pinned": "置顶"
     },
     "configBackupsDesc": "每次修改配置自动快照，可一键回滚到任意历史版本（最近 50 份）",
     "configBackupsEmpty": "暂无历史记录",
@@ -4290,7 +4486,7 @@
     "contextCompactPreserveRoundsDesc": "保护最近 N 个消息 round，并向前扩到所属用户回合起点",
     "contextCompactPruning": "工具结果裁剪",
     "contextCompactReactiveMicrocompact": "反应式微压缩",
-    "contextCompactReactiveMicrocompactDesc": "Tool loop 每轮末尾若使用率超过阈值，立即清除可抛弃的旧工具结果（ls/grep/find 等）。Tier 0 零成本，不打断 prompt cache",
+    "contextCompactReactiveMicrocompactDesc": "在工具循环的轮次之间，如果使用率超过阈值，则清除临时 tool_results（ls/grep/find/…）。Tier 0 零成本，且不会使提示词缓存失效。",
     "contextCompactReactiveTriggerRatio": "触发比例",
     "contextCompactReactiveTriggerRatioDesc": "超过此使用率即触发反应式微压缩（默认 75%）",
     "contextCompactSaved": "设置已保存",
@@ -4300,7 +4496,7 @@
     "contextCompactSoftTrimRatioDesc": "上下文使用率超过此值时，对旧工具结果保留首尾截断中间",
     "contextCompactSummarization": "摘要压缩",
     "contextCompactSummarizationModel": "摘要模型",
-    "contextCompactSummarizationModelCacheHint": "使用对话模型可复用 prompt 缓存，摘要 token 消耗极低（约 90% 缓存命中）",
+    "contextCompactSummarizationModelCacheHint": "使用对话模型可复用提示词缓存，摘要 token 消耗极低（约 90% 缓存命中）",
     "contextCompactSummarizationModelCustomHint": "使用独立模型进行摘要，失败时自动回退到对话模型（共享缓存）",
     "contextCompactSummarizationModelDefault": "对话模型（默认）",
     "contextCompactSummarizationModelDesc": "选择用于压缩摘要的模型",
@@ -4317,14 +4513,14 @@
     "coreMemoryGlobal": "全局核心记忆",
     "coreMemoryGlobalDesc": "所有 Agent 共享的规则和偏好，始终在对话中可见",
     "coreMemoryLines": "行",
-    "coreMemoryPlaceholder": "写下你希望 AI 始终记住的规则和偏好...\n例如：回复用中文、代码不加注释、只用 pnpm",
+    "coreMemoryPlaceholder": "写下你希望 AI 始终记住的规则和偏好…\n例如：回复用中文、代码不加注释、只用 pnpm",
     "cron": "定时任务",
     "customModel": "自定义模型",
     "dangerousCliLocked": "当前由 CLI flag --dangerously-skip-all-approvals 启动，该开关在本次运行中只读。退出应用并不带此 flag 重新启动即可关闭。",
     "dangerousConfirmAck": "我已了解风险，并同意跳过全部工具审批",
     "dangerousConfirmBody": "开启后以下操作将全部跳过审批，直接执行：",
     "dangerousConfirmEnable": "启用危险模式",
-    "dangerousConfirmNote": "Plan Mode 的工具类型限制仍然生效。你可以随时在本页关闭此开关。",
+    "dangerousConfirmNote": "计划模式的工具类型限制仍然适用。您可以随时在此处关闭此开关。",
     "dangerousConfirmTitle": "启用危险模式？",
     "dangerousIntro": "一键跳过全部工具审批。极高风险，仅在完全信任的本地环境使用。",
     "dangerousSkipsBrowser": "浏览器工具",
@@ -4365,9 +4561,9 @@
     "dreaming": {
       "candidateLimit": "候选上限",
       "candidateLimitDesc": "每轮送给 LLM 的最大候选数。",
-      "cronExprInvalid": "Cron 表达式无效。已保存——调度器会跳过直到你修正。",
+      "cronExprInvalid": "定时表达式无效。仍会保存；修复前调度器将跳过该任务。",
       "cronTriggerEnabled": "按计划运行",
-      "cronTriggerEnabledDesc": "按 cron 表达式触发，与空闲触发互不影响。",
+      "cronTriggerEnabledDesc": "按定时表达式触发，可与空闲触发同时使用或替代空闲触发。",
       "cronTriggerTitle": "定时触发",
       "desc": "定期扫描最近的记忆，把最有长期价值的条目自动置顶到核心记忆。后台运行，不阻塞对话。",
       "errors": {
@@ -4385,8 +4581,8 @@
       "idleTriggerEnabledDesc": "App 闲置达到指定分钟数后自动开启一轮梦境周期。",
       "idleTriggerTitle": "空闲触发",
       "lastCycle": "最近一次",
-      "manualEnabled": "启用 Dashboard 一键运行按钮",
-      "manualEnabledDesc": "允许从 Dashboard → 梦境 触发。关闭只隐藏按钮，不影响功能本身。",
+      "manualEnabled": "启用仪表盘一键运行按钮",
+      "manualEnabledDesc": "允许从“数据大盘 → 梦境”触发。关闭后只隐藏按钮，不影响功能本身。",
       "manualTitle": "手动",
       "maxPromote": "每轮上限",
       "maxPromoteDesc": "单次周期最多置顶的记忆条数。",
@@ -4397,7 +4593,7 @@
       "narrativeModel": "叙事模型",
       "narrativeModelClear": "清空",
       "narrativeModelDefault": "跟随自动化默认链",
-      "narrativeModelDesc": "覆盖打分用的模型。留空则跟随主对话 / recap 模型链。",
+      "narrativeModelDesc": "覆盖评分使用的模型。留空则沿用主对话 / 复盘模型链。",
       "narrativeTimeoutSecs": "超时（秒）",
       "narrativeTimeoutSecsDesc": "side query 超过该秒数将被中止。",
       "narrativeTitle": "叙事配置",
@@ -4501,13 +4697,14 @@
       "name": "配置名称",
       "needsReembed": "需要重建向量",
       "providerType": "服务商类型",
-      "reembedFailed": "默认模型已切换，但启动向量重建失败，请到重建卡片重试",
+      "reembedFailed": "默认模型已切换，但启动向量重建失败。请在重建卡片中重试。",
       "selectPlaceholder": "选择一个 Embedding 模型配置",
       "selectToEnable": "请选择一个 Embedding 模型作为默认记忆模型",
       "setMemoryDefault": "设为默认记忆模型",
       "tab": "Embedding 模型",
       "testOk": "Embedding 连接测试通过",
-      "title": "Embedding 模型配置"
+      "title": "Embedding 模型配置",
+      "openAiCompatible": "OpenAI 兼容"
     },
     "fallbackModels": "降级模型",
     "fallbackModelsDesc": "当主模型不可用时，按顺序尝试以下模型",
@@ -4523,22 +4720,23 @@
       "nav": "Hooks",
       "title": "Hooks 自动化",
       "intro": "在生命周期事件挂接自定义命令 / HTTP / 提示词 / 子 Agent，字段级兼容 Claude Code。",
-      "disableAll": "禁用全部 hooks",
-      "disableAllDesc": "总开关——关闭所有 scope 的全部 hook。",
+      "disableAll": "禁用全部 Hooks",
+      "disableAllDesc": "总开关：关闭所有作用域的全部 Hooks。",
       "allowProjectScope": "允许项目与本地 Hook",
-      "allowProjectScopeDesc": "允许工作目录下的 .hope-agent/hooks.json 与 hooks.local.json 添加 Hook，方便和团队共享。由于它们会自行执行命令，默认关闭——仅对你信任的项目开启即可。",
+      "allowProjectScopeDesc": "允许工作目录下的 .hope-agent/hooks.json 与 hooks.local.json 添加 Hook，便于团队共享。它们会自行执行命令，因此默认关闭；请仅对可信项目启用。",
       "scopeNote": "本面板编辑 user scope hooks。project（.hope-agent/hooks.json，随仓库共享）、local（hooks.local.json）、managed（/etc/hope-agent/hooks.json）为文件配置，叠加合并。",
       "pickEvent": "选择事件…",
-      "addHook": "添加 hook",
-      "empty": "尚未配置 hook。在上方选择事件添加。",
+      "addHook": "添加 Hook",
+      "empty": "尚未配置 Hook，请从上方选择事件添加。",
       "addGroup": "添加 matcher 组",
-      "matcher": "matcher",
+      "matcher": "匹配器",
       "matcherPlaceholder": "工具名 / 来源（支持正则），留空 = 全部",
       "addHandler": "添加处理器",
       "advanced": "高级",
       "slowHandlerWarning": "此处理器会内联运行 LLM / 子 Agent，每次该阻断事件触发都会拖慢。建议这里改用 command / http，或挪到观察型事件（如 PostToolUse）。",
       "invalidJson": "JSON 格式有误",
-      "modelInheritDefault": "跟随自动化默认链"
+      "modelInheritDefault": "跟随自动化默认链",
+      "defaultShell": "默认"
     },
     "hours": "小时",
     "imageGenApiKey": "API Key",
@@ -4566,7 +4764,7 @@
     "issueReportingDuplicateSearch": "重复 Issue 搜索",
     "issueReportingDuplicateSearchDesc": "提示技能流程在起草前先搜索已有打开的 Issue。",
     "issueReportingKind": {
-      "bug": "Bug",
+      "bug": "缺陷",
       "feature": "功能",
       "improvement": "改进"
     },
@@ -4651,7 +4849,7 @@
       "idle": "空闲时运行",
       "idleDesc": "应用空闲达到设定分钟数后扫描。",
       "cron": "定时运行",
-      "cronDesc": "6 段 cron（秒 分 时 日 月 周）。",
+      "cronDesc": "6 字段定时表达式（秒、分、时、日、月、周）。",
       "autoApprove": "自动应用建议",
       "autoApproveDesc": "跳过审阅，自动把改动写入你的笔记。请谨慎使用。",
       "maxProposals": "每次扫描最多建议数",
@@ -4739,7 +4937,7 @@
     },
     "language": "语言",
     "languageDesc": "选择界面显示语言",
-    "loading": "加载中...",
+    "loading": "加载中…",
     "localEmbedding": {
       "activated": "本地 Embedding 已启用",
       "buttons": {
@@ -4788,7 +4986,7 @@
       },
       "hardware": {
         "dgpu": "{{gpu}} · {{vram}} GB 显存 · 按 60% 计算约 {{budget}} GB，避免资源占用过多！",
-        "insufficient": "机器配置较低，建议继续使用云端 Provider",
+        "insufficient": "机器配置较低，建议继续使用云端服务商",
         "macOs": "macOS · {{memory}} GB 统一内存 · 按 60% 计算约 {{budget}} GB，避免资源占用过多！",
         "ramFallback": "{{memory}} GB 内存 · 按 60% 计算约 {{budget}} GB，避免资源占用过多！"
       },
@@ -4804,7 +5002,7 @@
         "downloading": "下载中",
         "installOllama": "安装 Ollama",
         "pullingManifest": "拉取清单",
-        "registerProvider": "注册到 Provider",
+        "registerProvider": "注册到服务商",
         "starting": "准备中…",
         "success": "下载完成",
         "verifying": "校验完整性",
@@ -4821,7 +5019,7 @@
       "actions": {
         "disableAutoMaintenance": "关闭自动检测",
         "disableEmbedding": "关闭向量搜索",
-        "dismissTemporary": "暂时忽略 (5 分钟)",
+        "dismissTemporary": "暂时忽略（5 分钟）",
         "redownload": "重新下载 {{name}}",
         "silenceSession": "本次启动不再提醒",
         "switchTo": "切换到 {{name}}"
@@ -4857,7 +5055,7 @@
         "download": "下载",
         "downloadDefault": "下载并设默认",
         "downloadEmbedding": "下载并用于记忆",
-        "downloadProvider": "下载并加入 Provider",
+        "downloadProvider": "下载并添加到服务商",
         "hideTags": "收起版本/规格",
         "installOllama": "安装 Ollama",
         "preload": "启动模型",
@@ -4873,10 +5071,11 @@
         "embeddingConfig": "已加入 Embedding 配置",
         "llm": "LLM",
         "memory": "用于记忆",
-        "provider": "已加入 Provider",
+        "provider": "已添加到服务商",
         "running": "运行中"
       },
       "cacheStale": "实时搜索不可用，正在显示缓存结果。",
+      "capabilityFilter": "能力筛选",
       "cloudOnly": "仅云端",
       "delete": {
         "active": "它是全局默认模型，对应引用会被清除。",
@@ -4884,7 +5083,7 @@
         "embedding": "它是当前记忆向量模型，本地 Embedding 会被禁用。",
         "embeddingConfig": "它已加入 Embedding 模型配置，对应配置会被删除。",
         "fallback": "它在 fallback 模型链中，对应引用会被移除。",
-        "provider": "它已注册在 Ollama Provider 中，对应模型条目会被移除。",
+        "provider": "它已注册在 Ollama 服务商中，对应模型条目会被移除。",
         "running": "该模型当前已加载，会先卸载再删除。",
         "title": "删除本地模型？"
       },
@@ -4950,13 +5149,13 @@
     "logsFileMaxSize": "单文件上限 (MB)",
     "logsFiles": "日志文件",
     "logsLevel": "日志级别",
-    "logsLoading": "加载中...",
+    "logsLoading": "加载中…",
     "logsMaxAge": "保留天数",
     "logsMaxSize": "最大存储 (MB)",
     "logsNoFiles": "暂无日志文件",
     "logsPagination": "第 {{page}} 页 / 共 {{totalPages}} 页（{{total}} 条）",
     "logsRefresh": "刷新",
-    "logsSearch": "搜索日志...",
+    "logsSearch": "搜索日志…",
     "logsSelectFile": "选择左侧文件查看内容",
     "logsStructured": "结构化",
     "logsTotal": "总计",
@@ -4998,7 +5197,7 @@
       "authorize": "授权",
       "autoApproveLabel": "跳过工具审批（自动放行）",
       "autoApproveNeedsTrust": "只有在信任等级为「已信任」时才能开启自动放行。",
-      "callTimeout": "调用超时 (秒，0=不限)",
+      "callTimeout": "调用超时 （秒，0=不限）",
       "commandLabel": "可执行命令",
       "concurrency": "最大并发",
       "confirmDelete": "确定要删除服务器 \"{{name}}\" 吗？此操作不可撤销。",
@@ -5038,7 +5237,7 @@
       "nameImmutable": "创建后无法重命名。如需改名请删除后重新添加。",
       "nameLabel": "名称",
       "reconnect": "重连",
-      "remoteTransportPhase4": "HTTP / SSE / WebSocket 传输将在 Phase 4 启用。",
+      "remoteTransportPhase4": "HTTP / SSE / WebSocket 传输将在第 4 阶段启用。",
       "saved": "保存成功",
       "signOut": "登出",
       "signOutSuccess": "已清除「{{name}}」的凭据",
@@ -5050,7 +5249,7 @@
         "needsAuth": "待授权",
         "ready": "就绪"
       },
-      "subtitle": "接入 Model Context Protocol 服务器，扩展可用工具。",
+      "subtitle": "连接模型上下文协议服务器以扩展可用工具。",
       "tabTitle": "MCP 服务器",
       "test": "测试",
       "testFailed": "连接失败",
@@ -5075,10 +5274,10 @@
       "advancedAllocation": "高级作用域分配",
       "agentOverrideDesc": "默认继承全局记忆预算。关闭下方开关以为当前 Agent 定制独立预算。",
       "contextWindow": "当前默认模型上下文：{{count}} tokens",
-      "coreSimpleDesc": "只需选择一个 Core Memory 总预算。各作用域可以借用未使用额度，优先级为 Project > Agent > Global。",
+      "coreSimpleDesc": "选择一项核心记忆预算。各范围可借用未使用的容量，优先级为项目 > Agent > 全局。",
       "coreMemoryFileChars": "MEMORY.md 单层上限",
-      "coreMemoryFileCharsDesc": "Global / Agent 每个 MEMORY.md 独立上限。超出的部分截断显示,完整内容仍在磁盘。默认 8000。",
-      "desc": "限制系统提示词中记忆部分（Global MEMORY.md / Agent MEMORY.md / SQLite 记忆 / 使用指南）的总字符数,以及内部各层独立上限。降低 total 可以让更多预算留给对话上下文。",
+      "coreMemoryFileCharsDesc": "每个 MEMORY.md 文件的独立上限（全局 / Agent）。超出上限的内容将在提示词中截断，但仍会完整保留在磁盘上。默认 8000。",
+      "desc": "限制记忆区段（全局 MEMORY.md、Agent MEMORY.md、SQLite 记忆与准则）的总字符数，以及各层上限。降低总量可为当前对话上下文释放更多空间。",
       "engine": {
         "agentTokens": "Agent Token",
         "budgetTokens": "预算 Token",
@@ -5119,11 +5318,11 @@
         "userProfile": "用户画像"
       },
       "sqliteEntryMaxChars": "单条记忆字符上限",
-      "sqliteEntryMaxCharsDesc": "SQLite 记忆条目渲染时的首行字符上限,避免单条长记忆挤占同节其他条目。默认 500。",
+      "sqliteEntryMaxCharsDesc": "SQLite 记忆条目渲染时的首行字符上限，避免单条长记忆挤占同节其他条目。默认 500。",
       "sqliteSectionsTitle": "SQLite 各节预算",
       "title": "记忆预算",
       "totalChars": "总字符上限",
-      "totalCharsDesc": "整段 Memory 的硬上限（字符）。Guidelines 优先保留,其余层按优先级依次消费。默认 10000。",
+      "totalCharsDesc": "整段记忆的硬上限（字符）。指南优先保留，其余层按优先级依次使用预算。默认 10000。",
       "useGlobalDefault": "继承全局默认"
     },
     "memoryContent": "内容",
@@ -5202,10 +5401,10 @@
     "memoryScopeAgent": "Agent 私有",
     "memoryScopeAll": "全部",
     "memoryScopeGlobal": "全局",
-    "memorySearch": "搜索记忆...",
+    "memorySearch": "搜索记忆…",
     "memorySearchTuning": "搜索调优",
     "memorySearchTuningDesc": "调整混合搜索的权重、时间衰减和多样性排序参数。",
-    "memorySelectAgent": "选择 Agent...",
+    "memorySelectAgent": "选择 Agent…",
     "memorySelectAll": "全选",
     "memorySelectModel": "选择模型",
     "memorySelection": "LLM 记忆语义选择",
@@ -5226,7 +5425,7 @@
       "saveFailed": "保存记忆设置失败",
       "core": {
         "title": "常驻记忆",
-        "desc": "Global、Agent 和项目的简短 MEMORY.md 会稳定进入会话；主题详情仅在需要时加载。",
+        "desc": "全局、Agent 与项目范围内的短篇 MEMORY.md 会在对话中保持稳定；主题详情仅在需要时加载。",
         "budget": "总预算 {{count}} tokens",
         "manage": "编辑 MEMORY.md",
         "projectTitle": "项目 MEMORY.md",
@@ -5280,7 +5479,7 @@
       },
       "review": {
         "title": "待审核记忆",
-        "desc": "{{count}} 条候选尚未进入长期记忆或 Prompt。",
+        "desc": "{{count}} 条候选尚未进入长期记忆或提示词。",
         "empty": "没有待审核内容",
         "chooseScope": "选择保存范围",
         "approve": "确认保存",
@@ -5342,7 +5541,7 @@
     "openclawImportNoAgents": "未找到 OpenClaw Agent",
     "openclawImportNoAgentsHint": "请确认 ~/.openclaw/openclaw.json 存在且包含 Agent 配置",
     "openclawImportPartial": "导入了 {{total}} 个中的 {{success}} 个 Agent",
-    "openclawImportScanning": "正在扫描 OpenClaw Agent...",
+    "openclawImportScanning": "正在扫描 OpenClaw Agent…",
     "openclawImportSkills": "个技能",
     "openclawImportSuccess": "成功导入 {{count}} 个 Agent",
     "openclawImportTitle": "从 OpenClaw 导入",
@@ -5547,12 +5746,12 @@
     "personaModeStructured": "结构化字段",
     "personaSoulEditor": "SOUL.md 内容",
     "personaSoulEditorDesc": "直接用 Markdown 定义这个 Agent 的身份、语气与原则。保存后系统提示注入这段文本，结构化字段会被忽略但仍保留。",
-    "personaSoulPlaceholder": "# Agent 姓名 — Who You Are\n\n## Role\n...\n\n## Tone\n...",
+    "personaSoulPlaceholder": "# Agent 名称——你是谁\n\n## 角色\n...\n\n## 语气\n...",
     "plan": "计划模式",
     "planQuestionTimeout": "提问等待超时",
-    "planQuestionTimeoutDesc": "Plan Mode 向用户提问后等待回答的最长时间，超时后自动取消该提问。设为 0 表示不限时",
+    "planQuestionTimeoutDesc": "等待用户响应计划模式问题的最长时间。超时自动取消提问。设置为 0 表示无限制。",
     "planSubagent": "计划子 Agent 模式",
-    "planSubagentDesc": "开启后 Plan Mode 的计划制定由独立子 Agent 执行，主 Agent 上下文更干净；关闭时在主 Agent 中内联制定计划，保持上下文连续",
+    "planSubagentDesc": "启用后，计划模式会使用专用子 Agent 创建计划，使主上下文更简洁；禁用后则由主 Agent 直接规划，以保持上下文连续。",
     "profile": {
       "title": "记忆画像",
       "desc": "它对你和你项目的了解，从活跃的记忆断言合成并按作用域分层。",
@@ -5585,7 +5784,7 @@
     "profileBirthday": "生日",
     "profileBirthdaySurprise": "今天是你的生日，生日快乐！🎉",
     "profileCustomInfo": "补充说明",
-    "profileCustomInfoPlaceholder": "其他你希望 AI 了解的信息...",
+    "profileCustomInfoPlaceholder": "其他你希望 AI 了解的信息…",
     "profileDesc": "设置你的个人信息，帮助 AI 助手更好地了解你。所有信息均为可选，出于隐私考虑，你可以自行决定分享哪些内容。",
     "profileGender": "性别",
     "profileGenderCustom": "自定义",
@@ -5599,12 +5798,12 @@
     "profileNamePlaceholder": "你的名字或昵称",
     "profileResponseStyle": "回复风格",
     "profileRole": "角色 / 职业",
-    "profileRolePlaceholder": "例如：开发者、产品经理、学生...",
+    "profileRolePlaceholder": "例如：开发者、产品经理、学生…",
     "profileSaved": "已保存",
     "profileSettings": "个人资料",
     "profileStyleConcise": "简洁 — 直奔主题，少解释",
     "profileStyleCustom": "自定义",
-    "profileStyleCustomPlaceholder": "描述你期望的回复风格...",
+    "profileStyleCustomPlaceholder": "描述你期望的回复风格…",
     "profileStyleDetailed": "详细 — 充分解释，附带示例",
     "profileStyleNone": "未设置",
     "profileTimezone": "时区",
@@ -5645,7 +5844,7 @@
     "sandboxCpuLimitDesc": "CPU 核心数",
     "sandboxDesc": "配置 Docker 容器沙箱隔离，用于安全执行命令",
     "sandboxDockerAvailable": "Docker 可用",
-    "sandboxDockerChecking": "检测中...",
+    "sandboxDockerChecking": "检测中…",
     "sandboxDockerInstall": "获取 Docker Desktop",
     "sandboxDockerNotInstalled": "未检测到 Docker，请先安装 Docker Desktop",
     "sandboxDockerNotRunning": "Docker 已安装但未启动，请先启动 Docker Desktop",
@@ -5713,7 +5912,7 @@
     "serverWsSub": "{{events}} 事件 · {{chat}} 会话",
     "sessionTitle": "自动生成对话名称",
     "sessionTitleChatModelHint": "使用当前主对话模型执行一次命名生成。",
-    "sessionTitleCustomModelHint": "使用所选 Provider / 模型执行命名生成。",
+    "sessionTitleCustomModelHint": "使用所选服务商 / 模型执行命名生成。",
     "sessionTitleDesc": "新会话先立即使用第一句话作为标题，首轮助手回复后再生成更简洁的名称。",
     "sessionTitleModel": "命名模型",
     "sessionTitleUseChatModel": "使用对话模型",
@@ -5740,7 +5939,8 @@
     "skillExtras": {
       "installHint": "运行 {{cmd}} 安装依赖",
       "licenseWarning": "来源许可：{{license}}",
-      "relatedSkills": "相关 skill"
+      "relatedSkills": "相关技能",
+      "proprietary": "专有"
     },
     "skillFiles": "文件列表",
     "skillHardBlocked": "不兼容",
@@ -5748,7 +5948,7 @@
     "skillInstall": "安装",
     "skillInstallFailed": "安装失败",
     "skillInstallSuccess": "安装成功",
-    "skillInstalling": "安装中...",
+    "skillInstalling": "安装中…",
     "skillInvocationPolicy": "调用策略",
     "skillMaxChars": "提示词最大字符数",
     "skillMaxCount": "提示词中最大技能数",
@@ -5823,7 +6023,7 @@
           "subtitle": "模型给出建议后，依据这些门槛决定是否真的落盘成草稿。"
         },
         "advanced": {
-          "title": "高级（覆盖审核 Prompt）",
+          "title": "高级（覆盖审核提示词）",
           "subtitle": "覆盖内置审核提示词、追加自定义禁拍主题、指定专用审核模型。即便用户改坏，后端质量门 4 / 5 仍会兜底。",
           "confirm": "高级选项可能降低自动审核质量；请确认你了解风险后再继续。"
         }
@@ -5909,7 +6109,7 @@
           "help": "在内置 6 类禁拍之外追加你自己的类别，例如「医疗建议」「法律建议」。回车添加。"
         },
         "reviewSystemOverride": {
-          "label": "覆盖审核 Prompt",
+          "label": "覆盖审核提示词",
           "help": "完全替换内置审核系统提示词；留空则用内置版本。后端硬阈值仍会生效。"
         },
         "autoCuratorEnabled": {
@@ -5934,29 +6134,29 @@
       "alreadyAdded": "已添加",
       "button": "快速导入",
       "cc": {
-        "anthropic": "Anthropic Agent Skills marketplace",
-        "plugins": "Claude Code 插件 skill",
-        "user": "Claude Code 用户级 skill"
+        "anthropic": "Anthropic Agent Skills 市场",
+        "plugins": "Claude Code 插件技能",
+        "user": "Claude Code 用户级技能"
       },
-      "dialogDescription": "扫描已知第三方 skill 来源（Claude Code、OpenClaw、Hermes Agent、Anthropic marketplace），并把已安装的目录一键加入。",
-      "dialogTitle": "快速导入 skill 目录",
+      "dialogDescription": "扫描已知第三方技能来源（Claude Code、OpenClaw、Hermes Agent、Anthropic marketplace），并把已安装的目录一键加入。",
+      "dialogTitle": "快速导入技能目录",
       "error": {
         "add": "添加目录失败",
-        "discover": "发现预设 skill 来源失败"
+        "discover": "发现预设技能来源失败"
       },
-      "hermes": "Hermes Agent 仓库 skill",
+      "hermes": "Hermes Agent 仓库技能",
       "notFound": "本机未发现匹配路径。",
-      "openclaw": "OpenClaw 仓库 skill",
-      "skillCount": "{{count}} 个 skill",
-      "skillCount_one": "{{count}} 个 skill",
-      "skillCount_other": "{{count}} 个 skill",
+      "openclaw": "OpenClaw 仓库技能",
+      "skillCount": "{{count}} 个技能",
+      "skillCount_one": "{{count}} 个技能",
+      "skillCount_other": "{{count}} 个技能",
       "tooltip": {
         "distinguishUserDataImport": "如要迁移旧版 OpenClaw 用户数据，请前往“设置 → Agents → 从 OpenClaw 导入”。",
         "distinguishOnboarding": "如要迁移老 OpenClaw 用户数据，请使用第 2 步『Import OpenClaw』。"
       },
       "warning": {
-        "openclaw": "OpenClaw 多数 skill 依赖外部 CLI（gh、1password、tmux 等），未安装时调用会失败。",
-        "proprietary": "Anthropic 的 skill 是专有许可，使用前请确认你与 Anthropic 的服务条款。"
+        "openclaw": "OpenClaw 的多数技能依赖外部 CLI（gh、1password、tmux 等），未安装时调用会失败。",
+        "proprietary": "Anthropic 的技能采用专有许可，使用前请确认你与 Anthropic 的服务条款。"
       }
     },
     "skillsList": "已加载的技能",
@@ -6041,7 +6241,7 @@
     "subagentEnabled": "允许调用子 Agent",
     "subagentEnabledDesc": "允许当前 Agent 通过子 Agent 工具，把独立子任务委派给其它 Agent 执行。",
     "subagentMaxBatchSize": "批量调用上限",
-    "subagentMaxBatchSizeDesc": "一次批量调用最多能创建多少个子任务，超过会直接拒绝。",
+    "subagentMaxBatchSizeDesc": "一次 batch_spawn 调用最多可创建的子任务数。",
     "subagentMaxConcurrent": "最大并发子 Agent 数",
     "subagentMaxConcurrentDesc": "同一父会话里最多同时运行多少个子 Agent；超出的调用会先排队等待。",
     "subagentMaxDepth": "最大嵌套深度",
@@ -6093,12 +6293,12 @@
     "teamValidationMembers": "至少需要一名成员",
     "teamValidationName": "请填写模板名称",
     "teams": "团队",
-    "teamsDesc": "管理预设的 Team 模板。每个成员可绑定到特定 Agent、模型和默认任务，模型在需要协作时可优先选择已预设的团队，而不是临时组装。",
+    "teamsDesc": "管理预设的团队模板。每个成员可绑定到特定 Agent、模型和默认任务，模型在需要协作时可优先选择已预设的团队，而不是临时组装。",
     "teamsEmptyDesc": "创建预设后，模型可一键召集带有专业身份的成员，无需每次临时拼组。",
     "teamsEmptyTitle": "暂无团队模板",
     "temperature": "温度",
     "temperatureDefault": "默认",
-    "temperaturePrecise": "0 = 精确, 2 = 创意",
+    "temperaturePrecise": "0 = 精确，2 = 创意",
     "temperatureReset": "重置",
     "title": "设置",
     "toolAcpSpawnDesc": "调用 Claude Code、Codex CLI 等外部 ACP Agent",
@@ -6131,10 +6331,10 @@
     "toolGrepDesc": "按正则或文本搜索文件内容",
     "toolGrepName": "搜索内容",
     "toolImageDesc": "让模型查看图片（支持本地路径 / URL / 剪贴板 / 屏幕截图）",
-    "toolImageGenerateDesc": "文生图 / 图生图，支持多 provider 自动降级",
+    "toolImageGenerateDesc": "文生图 / 图生图，支持多服务商自动降级",
     "toolImageGenerateName": "生成图片",
     "toolImageName": "查看图片",
-    "toolKnowledgeRecallDesc": "同时检索记忆与笔记两个库(分两段返回)。",
+    "toolKnowledgeRecallDesc": "同时检索记忆与笔记两个库（分两段返回）。",
     "toolKnowledgeRecallName": "知识召回",
     "toolLimits": "工具数量限制",
     "toolListSettingsBackupsDesc": "列出已保存的设置备份",
@@ -6149,29 +6349,29 @@
     "toolMcpResourceName": "MCP 资源",
     "toolMemoryGetDesc": "按 ID 获取单条记忆的完整内容",
     "toolMemoryGetName": "获取记忆",
-    "toolNoteAppendDesc": "向笔记追加内容,可指定标题段落。",
+    "toolNoteAppendDesc": "向笔记追加内容，可指定标题段落。",
     "toolNoteAppendName": "追加到笔记",
     "toolNoteAssignBlockDesc": "给某个块分配 ^block-id 以便精确引用。",
     "toolNoteAssignBlockName": "标记块 ID",
     "toolNoteBacklinksDesc": "列出指向某篇笔记的所有反链及位置。",
     "toolNoteBacklinksName": "反向链接",
-    "toolNoteBrokenLinksDesc": "列出知识空间内的失效(悬空)链接。",
+    "toolNoteBrokenLinksDesc": "列出知识空间内的失效（悬空）链接。",
     "toolNoteBrokenLinksName": "失效链接",
     "toolNoteByTagDesc": "列出带有指定标签的笔记。",
     "toolNoteByTagName": "按标签查笔记",
     "toolNoteCreateDesc": "在知识空间新建一篇 markdown 笔记。",
     "toolNoteCreateName": "新建笔记",
-    "toolNoteDeleteDesc": "删除笔记;指向它的链接会失效。",
+    "toolNoteDeleteDesc": "删除笔记；指向它的链接会失效。",
     "toolNoteDeleteName": "删除笔记",
     "toolNoteDistillDesc": "把长文或文本拆成多篇原子永久笔记。",
     "toolNoteDistillName": "提炼笔记",
-    "toolNoteGraphDesc": "返回笔记链接图谱(节点与边)。",
+    "toolNoteGraphDesc": "返回笔记链接图谱（节点与边）。",
     "toolNoteGraphName": "笔记图谱",
     "toolNoteLinkDesc": "在两篇笔记之间插入 wikilink 链接。",
     "toolNoteLinkName": "建立笔记链接",
     "toolNoteMocDesc": "为主题生成或刷新一篇 MOC 主题地图枢纽笔记。",
     "toolNoteMocName": "主题地图",
-    "toolNoteMoveDesc": "把笔记移动到其他目录,自动改写指向它的链接。",
+    "toolNoteMoveDesc": "把笔记移动到其他目录，自动改写指向它的链接。",
     "toolNoteMoveName": "移动笔记",
     "toolNoteOrphansDesc": "列出没有任何出入链的孤岛笔记。",
     "toolNoteOrphansName": "孤岛笔记",
@@ -6181,7 +6381,7 @@
     "toolNoteReadName": "读取笔记",
     "toolNoteRelatedDesc": "融合链接、向量和共享标签的相关笔记。",
     "toolNoteRelatedName": "相关笔记",
-    "toolNoteRenameDesc": "重命名或移动笔记,自动改写指向它的链接。",
+    "toolNoteRenameDesc": "重命名或移动笔记，自动改写指向它的链接。",
     "toolNoteRenameName": "重命名笔记",
     "toolNoteSearchDesc": "对可访问笔记做全文 + 向量混合检索。",
     "toolNoteSearchName": "搜索笔记",
@@ -6193,7 +6393,7 @@
     "toolNoteSuggestLinksName": "推荐链接",
     "toolNoteTagsDesc": "统计知识空间内的所有标签及数量。",
     "toolNoteTagsName": "标签清单",
-    "toolNoteUpdateDesc": "整篇替换笔记内容(带防冲突写入保护)。",
+    "toolNoteUpdateDesc": "整篇替换笔记内容（带防冲突写入保护）。",
     "toolNoteUpdateName": "覆写笔记",
     "toolPdfDesc": "提取 PDF 文本或视觉解析（支持多文件、页码范围）",
     "toolPdfName": "PDF 解析",
@@ -6201,7 +6401,7 @@
     "toolPeekSessionsName": "窥视会话",
     "toolProcessDesc": "管理后台进程：查看、轮询、日志、输入、终止",
     "toolProcessName": "进程管理",
-    "toolProjectReadFileDesc": "读取当前会话所属 Project 上传的文件",
+    "toolProjectReadFileDesc": "读取当前会话所属项目上传的文件",
     "toolProjectReadFileName": "读取项目文件",
     "toolReadDesc": "读取文件内容，支持分页和图片自动识别",
     "toolReadName": "读取文件",
@@ -6241,11 +6441,11 @@
     "toolTeamName": "Agent 团队",
     "timeoutPolicy": "模型超时覆盖策略",
     "timeoutPolicyAllow": "直接采用",
-    "timeoutPolicyDesc": "控制模型主动传入的运行时超时参数，例如 exec、异步任务、子 Agent、ACP 和 cron。用户设置为正数时仍作为执行上限。",
+    "timeoutPolicyDesc": "控制模型主动传入的运行时超时参数，例如 exec、异步任务、子 Agent、ACP 和定时任务。用户设置为正数时仍作为执行上限。",
     "timeoutPolicyIgnoreWhenUserUnlimited": "用户无限制时忽略",
     "timeoutPolicyWarn": "采用并记录（默认）",
     "toolTimeout": "同步工具执行超时",
-    "toolTimeoutDesc": "前台/同步工具调用的全局兜底超时。默认 0，表示关闭这层全局超时；设为正数后，超过该秒数会取消调用。后台 async job 使用异步工具里的单 job 最大时长；单个工具仍可能有自己的内部超时。",
+    "toolTimeoutDesc": "前台/同步工具调用的全局兜底超时。默认 0，表示关闭这层全局超时；设为正数后，超过该秒数会取消调用。后台异步任务使用异步工具设置中的单项任务最大时长；单个工具仍可能有自己的内部超时。",
     "toolUpdateCoreMemoryDesc": "更新常驻系统提示词的 MEMORY.md 文件",
     "toolUpdateCoreMemoryName": "更新核心记忆",
     "toolUpdateMemoryDesc": "更新已有记忆的内容",
@@ -6263,7 +6463,7 @@
     "weatherAdvanced": "手动输入坐标",
     "weatherCity": "城市",
     "weatherCityNoResults": "未找到匹配城市",
-    "weatherCityPlaceholder": "搜索城市名...",
+    "weatherCityPlaceholder": "搜索城市名…",
     "weatherCond": "天气",
     "weatherDetectLocation": "自动定位",
     "weatherEnabled": "在系统提示词中注入天气信息",
@@ -6286,7 +6486,7 @@
     "webFetch": "网页抓取",
     "webFetchCacheTtl": "缓存时间（分钟）",
     "webFetchCacheTtlDesc": "缓存已抓取页面的时长，设为 0 禁用缓存",
-    "webFetchDesc": "配置网页抓取工具从 URL 提取内容的方式，包括缓存、安全性和内容限制。",
+    "webFetchDesc": "配置 web_fetch 工具从 URL 提取内容的方式，包括缓存、安全性和内容限制。",
     "webFetchMaxChars": "默认最大字符数",
     "webFetchMaxCharsCap": "字符数硬上限",
     "webFetchMaxCharsCapDesc": "工具调用中 max_chars 参数的最大允许值",
@@ -6316,9 +6516,9 @@
     "webSearchDefaultLanguage": "默认语言",
     "webSearchDesc": "拖拽调整搜索引擎优先级，开启的第一个引擎将被优先使用。需要 API Key 的引擎必须填写密钥后才能开启。",
     "webSearchDockerAlternatives": "其它 Docker 方案：",
-    "webSearchDockerChecking": "正在检查 Docker 状态...",
+    "webSearchDockerChecking": "正在检查 Docker 状态…",
     "webSearchDockerDeploy": "一键部署",
-    "webSearchDockerDeploying": "正在部署 SearXNG...",
+    "webSearchDockerDeploying": "正在部署 SearXNG…",
     "webSearchDockerFillUrl": "点击填入实例地址",
     "webSearchDockerInstall": "获取 Docker Desktop",
     "webSearchDockerNotInstalled": "未检测到 Docker",
@@ -6331,7 +6531,7 @@
     "webSearchDockerSearchFail": "SearXNG 已连接但搜索无结果",
     "webSearchDockerSearchOk": "SearXNG 搜索正常（测试返回 {{count}} 条结果）",
     "webSearchDockerStart": "启动",
-    "webSearchDockerStarting": "SearXNG 正在启动...",
+    "webSearchDockerStarting": "SearXNG 正在启动…",
     "webSearchDockerStepCheckingDocker": "检查 Docker 环境…",
     "webSearchDockerStepConfig": "注入搜索配置…",
     "webSearchDockerStepDone": "部署完成！",
@@ -6371,7 +6571,7 @@
     "webSearchTimeout": "超时（秒）",
     "webSearchTimeoutDesc": "搜索请求 HTTP 超时时间（5-120 秒）",
     "devVisualTest": "UI动画测试",
-    "permLoading": "正在检查权限...",
+    "permLoading": "正在检查权限…",
     "uiEffects": "背景动画",
     "uiEffectsDesc": "启用全天候背景和天气效果联动",
     "uiEffectsToggle": "开启效果",
@@ -6451,7 +6651,7 @@
     "memoryUseInRepliesStatusOn": "自定义深度重排已配置",
     "memoryUseInRepliesStatusAgentOff": "Agent 记忆已关闭",
     "memoryUseInRepliesStatusOff": "已关闭",
-    "memoryUseInRepliesStatusLoading": "正在检查...",
+    "memoryUseInRepliesStatusLoading": "正在检查…",
     "memoryUseInRepliesAction": "配置推荐参数",
     "memoryUseInRepliesTune": "调整参数",
     "memoryUseInRepliesApplied": "推荐参数已配置",
@@ -6525,7 +6725,7 @@
     "memoryExternalPolicyPullOnly": "仅拉取",
     "memoryExternalPolicyPushOnly": "仅推送",
     "memoryExternalPolicyBidirectional": "双向同步",
-    "memoryExternalPolicyOffDesc": "此 Provider 已禁用。",
+    "memoryExternalPolicyOffDesc": "此服务商已禁用。",
     "memoryExternalPolicyManualDesc": "只在你明确启动时同步。",
     "memoryExternalPolicyPullOnlyDesc": "只把外部记忆读入 Hope Agent 的待审核队列。",
     "memoryExternalPolicyPushOnlyDesc": "只把选定的 Hope Agent 记忆发送出去。",
@@ -6563,16 +6763,16 @@
     "memoryExternalProviderBlockAdapterUnavailable": "适配器不可用",
     "memoryExternalProviderBlockLastError": "最近错误",
     "memoryExternalProviderErrors": {
-      "load": "加载外部记忆 提供方 失败",
-      "save": "保存外部记忆 提供方 失败",
-      "preflight": "加载外部记忆 提供方 预检失败",
-      "copyPreflightDiagnostics": "复制外部记忆 提供方 预检失败",
+      "load": "加载外部记忆提供方失败",
+      "save": "保存外部记忆提供方失败",
+      "preflight": "加载外部记忆提供方预检失败",
+      "copyPreflightDiagnostics": "复制外部记忆提供方预检失败",
       "detail": "详细信息：{{error}}",
-      "sync": "运行外部记忆 提供方 同步失败",
-      "loadCredentials": "加载外部记忆 提供方 连接失败",
-      "saveCredentials": "保存外部记忆 提供方 连接失败",
-      "clearCredentials": "清除外部记忆 提供方 连接失败",
-      "copySyncDiagnostics": "复制外部记忆 提供方 同步报告失败"
+      "sync": "运行外部记忆提供方同步失败",
+      "loadCredentials": "加载外部记忆提供方连接失败",
+      "saveCredentials": "保存外部记忆提供方连接失败",
+      "clearCredentials": "清除外部记忆提供方连接失败",
+      "copySyncDiagnostics": "复制外部记忆提供方同步报告失败"
     },
     "memoryExternalProviderPreflightTitle": "同步预检",
     "memoryExternalProviderPreflightSummary": "预检：{{ready}} 个将同步 / {{blocked}} 个阻塞 · {{total}} 条本地记忆",
@@ -6584,7 +6784,7 @@
     "memoryExternalProviderPreflightRefresh": "刷新",
     "memoryExternalProviderPreflightCopy": "复制报告",
     "memoryExternalProviderPreflightPlan": "预检：{{action}} · 计划 {{planned}} → 运行时 {{runtime}} · 本地候选 {{count}}",
-    "memoryExternalProviderMoreBlockReasons": "+{{count}} 个更多原因在健康报告中",
+    "memoryExternalProviderMoreBlockReasons": "健康报告中另有 {{count}} 个原因",
     "memoryExternalProviderLastSync": "上次同步：{{value}}",
     "memoryExternalProviderNeverSynced": "从未同步",
     "memoryExternalProviderError": "最近错误：{{error}}",
@@ -6666,7 +6866,7 @@
     "memoryRepairDbSnapshotRestoreReady": "恢复前校验已通过。此快照可供后续明确恢复流程使用。",
     "memoryRepairDbSnapshotRestoreBlocked": "恢复前校验已阻止此快照。恢复前请创建新的安全快照。",
     "memoryRepairDbSnapshotRestoreFiles": "已检查 {{count}} 个文件",
-    "memoryRepairDbSnapshotRestoreQuickCheck": "SQLite 自检 {{value}}",
+    "memoryRepairDbSnapshotRestoreQuickCheck": "quick_check {{value}}",
     "memoryRepairDbSnapshotCopyRestorePreview": "复制预检报告",
     "memoryRepairDbSnapshotRestorePreviewCopied": "恢复预检报告已复制",
     "memoryRepairDbSnapshotRestoreNow": "恢复快照",
@@ -6680,7 +6880,7 @@
     "memoryRepairReasonClaimFts": "部分结构化记忆或证据缺少关键词检索行；请重建结构化索引。",
     "memoryRepairReasonClaimGraph": "结构化记忆证据或链接指向缺失记录；请清理孤立图谱链接。",
     "memoryRepairReasonExperienceGraph": "流程记忆引用了缺失的来源经验；请清理这些经验链接。",
-    "memoryRepairReasonDreamingState": "后台记忆整理存在过期 run 或锁；请恢复调度状态。",
+    "memoryRepairReasonDreamingState": "后台记忆整理存在过期运行记录或锁；请恢复调度状态。",
     "memoryRepairReasonDbSnapshot": "SQLite 完整性检查失败；在执行其它修复前先保留原始快照。",
     "memoryRepairFailed": "记忆修复失败",
     "memoryRepairErrors": {
@@ -6817,7 +7017,7 @@
       }
     },
     "memoryAuditAllActions": "全部变更",
-    "memoryAuditSearchPlaceholder": "搜索记忆动态...",
+    "memoryAuditSearchPlaceholder": "搜索记忆动态…",
     "memoryAuditSearchFailed": "记忆历史搜索失败",
     "memoryAuditNoMatches": "没有匹配的记忆动态。",
     "memoryAuditLoadMore": "加载更多动态",
@@ -6872,7 +7072,7 @@
     "memoryBackupRestoreLegacyFirstError": "首条恢复错误：{{error}}",
     "memoryBackupRestoreLegacySkippedHistory": "{{count}} 条普通记忆历史无法映射。",
     "memoryBackupPreviewHistory": "记忆历史",
-    "memoryBackupRestoreStructuredSummary": "{{claims}} 条 claim，{{profiles}} 个画像，{{episodes}} 条经验，{{procedures}} 条流程，{{history}} 条历史，{{review}} 条需审核，{{links}} 条链接已恢复，{{skippedProfiles}} 个画像冲突已跳过，{{skippedHistory}} 条历史已跳过",
+    "memoryBackupRestoreStructuredSummary": "{{claims}} 条记忆断言，{{profiles}} 个画像，{{episodes}} 条经验，{{procedures}} 条流程，{{history}} 条历史，{{review}} 条需审核，{{links}} 条链接已恢复，{{skippedProfiles}} 个画像冲突已跳过，{{skippedHistory}} 条历史已跳过",
     "memoryBackupRestoreStructuredFirstError": "首条恢复错误：{{error}}",
     "memoryBackupRestoreStructuredSkippedHistory": "{{count}} 条经验 / 流程历史无法映射。",
     "memoryBackupEncryptedUnlockContentMissing": "请重新选择加密备份后再解锁。",
@@ -6904,8 +7104,8 @@
       "duplicatesInsideBundle": "备份内重复项",
       "historyEventsMappable": "可映射历史事件",
       "historyEventsSkippedUnmapped": "跳过的未映射历史事件",
-      "structuredClaims": "结构化 Claim",
-      "claimsInBackup": "备份中的 Claim 数",
+      "structuredClaims": "结构化记忆断言",
+      "claimsInBackup": "备份中的记忆断言数",
       "importCandidates": "导入候选",
       "idMatchesSkipped": "按 ID 匹配并跳过",
       "exactMatchesSkipped": "精确匹配并跳过",
@@ -6915,12 +7115,12 @@
       "supersededCandidates": "已被替代候选",
       "expiredCandidates": "已过期候选",
       "manualEvidenceRows": "手动证据行",
-      "claimTypes": "Claim 类型",
-      "claimStatuses": "Claim 状态",
+      "claimTypes": "记忆断言类型",
+      "claimStatuses": "记忆断言状态",
       "conflictExamples": "冲突示例",
       "incoming": "导入项",
       "existing": "本地已有",
-      "moreConflictExamplesOmitted": "条更多冲突示例已省略。",
+      "moreConflictExamplesOmitted": "条其他冲突示例已省略。",
       "profileSnapshots": "画像快照",
       "snapshotsInBackup": "备份中的快照数",
       "matchingScopes": "匹配作用域",
@@ -6952,7 +7152,7 @@
       "safetyNotes": "安全说明",
       "safetyReadOnly": "此报告只来自只读备份预览结果。",
       "safetyExactMatches": "精确匹配项会被跳过，不会覆盖。",
-      "safetyClaimConflicts": "Claim 冲突会进入待审核收件箱，不会静默生效。",
+      "safetyClaimConflicts": "记忆断言冲突会进入待审核收件箱，不会静默生效。",
       "safetyProfileConflicts": "画像作用域冲突默认跳过，除非用户明确开启替换。"
     },
     "memoryBackupPreviewIssues": {
@@ -6979,7 +7179,7 @@
       "attachmentSidecarReadFailed": "附件 sidecar 无法读取",
       "attachmentSidecarChecksumMismatch": "附件 sidecar 校验和不匹配",
       "attachmentSidecarDuplicateMemoryId": "多个 sidecar 指向同一条记忆",
-      "currentClaimsUnavailable": "当前 claim 图谱无法比对",
+      "currentClaimsUnavailable": "当前记忆断言图谱无法比对",
       "currentProfilesUnavailable": "当前画像快照无法比对",
       "currentEpisodesUnavailable": "当前经验无法比对",
       "currentProceduresUnavailable": "当前流程无法比对"
@@ -6987,7 +7187,7 @@
     "memoryBackupPreviewNextSteps": "后续步骤",
     "memoryBackupPreviewSummary": {
       "memories": "条记忆",
-      "claimIds": "个 claim ID",
+      "claimIds": "个记忆断言 ID",
       "historyMappable": "条事件可映射",
       "historySkipped": "条跳过",
       "candidates": "个候选",
@@ -7028,16 +7228,16 @@
         "detail": "无法映射的历史会被跳过，不会凭空创建目标记忆。"
       },
       "claim-import": {
-        "label": "结构化 claim",
-        "detail": "缺失 claim 会加法式导入；冲突项会先降级，避免直接生效。"
+        "label": "结构化记忆断言",
+        "detail": "缺失的记忆断言会以增量方式导入；冲突项会先降级，避免直接生效。"
       },
       "claim-review": {
-        "label": "进入待审核的 claim",
-        "detail": "冲突或需要先审核的 claim 必须经用户确认后才会影响回答。"
+        "label": "进入待审核的记忆断言",
+        "detail": "冲突或需要先审核的记忆断言必须经用户确认后才会影响回答。"
       },
       "claim-skip": {
-        "label": "跳过的 claim",
-        "detail": "已存在的 claim ID 和精确匹配项不会重复恢复。"
+        "label": "已跳过的记忆断言",
+        "detail": "已存在的记忆断言 ID 和精确匹配项不会重复恢复。"
       },
       "profile-import": {
         "label": "画像快照",
@@ -7212,7 +7412,7 @@
     "memoryExternalProviderApiKeyGeneric": "云端服务通常需要密钥；本地服务关闭鉴权时可以留空。",
     "modelChainRestoreInherit": "恢复为继承的默认值",
     "automationModelChain": "自动化默认模型",
-    "automationModelChainDesc": "用于 Recap、Dreaming、资料整理等后台一次性 AI 任务的默认模型链（含降级），与上方的聊天默认模型相互独立；未设置时跟随聊天默认模型。",
+    "automationModelChainDesc": "用于复盘、Dreaming、知识整理等后台一次性 AI 任务的默认模型链（含降级），与上方聊天默认模型相互独立；未设置时回退到聊天默认模型。",
     "automationModelChainInherit": "跟随聊天默认模型",
     "knowledgeVision": {
       "model": "视觉模型",
@@ -7282,7 +7482,7 @@
     "memoryBackupPreviewExported": "导出时间",
     "memoryBackupPreviewMatches": "已存在",
     "memoryBackupPreviewClaimPlan": "结构化结论计划",
-    "memoryBackupClaimConflictExamples": "冲突会进入 Review Inbox",
+    "memoryBackupClaimConflictExamples": "冲突会进入待审核收件箱",
     "memoryBackupIncoming": "待导入",
     "memoryBackupExisting": "现有",
     "memoryBackupPreviewProfilePlan": "画像快照计划",
@@ -7294,7 +7494,7 @@
     "memoryBackupRestoreDecisionPlan": "恢复决策计划",
     "memoryBackupRestoreLegacy": "恢复缺失记忆",
     "memoryBackupRestoreStructured": "恢复结构化记忆",
-    "memoryBackupOpenReviewInbox": "打开 Review Inbox",
+    "memoryBackupOpenReviewInbox": "打开待审核收件箱",
     "memoryBackupEncryptedDecryptFailed": "无法解密此备份",
     "memoryBackupPreviewInvalid": "此备份无法导入",
     "memoryBackupExportDone": "记忆备份已下载",
@@ -7333,7 +7533,7 @@
     "memoryExperienceArchived": "经验已归档",
     "memoryHealthExperience": "经验",
     "memoryProcedureAdd": "记录工作流",
-    "memoryExperienceSearchPlaceholder": "搜索经验片段和工作流...",
+    "memoryExperienceSearchPlaceholder": "搜索经验片段和工作流…",
     "memoryExperienceScopeAll": "全部作用域",
     "memoryEpisodesMatches": "经验片段",
     "memoryEpisodesNoMatches": "没有匹配的经验片段。",
@@ -7363,8 +7563,8 @@
     "memoryProcedureConstraintsPlaceholder": "什么时候不应使用此流程",
     "memoryProcedureConfidence": "可信度",
     "audioGenerate": "音频生成",
-    "audioGenerateDesc": "配置音频合成 Provider（BYOK），用于设计空间「音频」形态：语音旁白 / 音乐 / 音效。按顺序 failover。",
-    "audioGenNoProvider": "尚未配置音频 Provider — 启用其一并填入 API Key。",
+    "audioGenerateDesc": "配置音频合成服务商（BYOK），用于设计空间「音频」形态：语音旁白 / 音乐 / 音效。按顺序 failover。",
+    "audioGenNoProvider": "尚未配置音频服务商 — 启用其一并填入 API Key。",
     "audioGenApiKey": "API Key",
     "audioGenModel": "模型",
     "audioGenVoice": "语音 (TTS)",
@@ -7377,9 +7577,9 @@
       "title": "文件",
       "description": "配置聊天、工作区浏览、预览和编辑使用的文件大小限制。",
       "runtimeLocal": "本地桌面文件",
-      "runtimeServer": "Server 文件",
+      "runtimeServer": "服务端文件",
       "runtimeLocalDesc": "文件操作使用当前电脑的文件系统。",
-      "runtimeServerDesc": "文件操作使用远程 Server 所在机器的文件系统。",
+      "runtimeServerDesc": "文件操作使用远程服务端主机的文件系统。",
       "maxChatAttachment": "聊天附件限制",
       "maxChatAttachmentDesc": "单个聊天附件的最大大小（{{min}}–{{max}} MiB）。",
       "maxWorkspaceUpload": "工作区上传限制",
@@ -7390,9 +7590,9 @@
       "maxTextEditDesc": "允许编辑的 UTF-8 文本文件最大大小（{{min}}–{{max}} MiB）。",
       "maxDocumentPreview": "文档预览限制",
       "maxDocumentPreviewDesc": "处理用于预览的 PDF 或 Office 文件最大大小（{{min}}–{{max}} MiB）。",
-      "maxArtifactImport": "Artifact 导入限制",
-      "maxArtifactImportDesc": "导入 Artifacts 的 HTML、Markdown 或分析 JSON 来源最大大小（{{min}}–{{max}} MiB）。",
-      "largeUploadWarning": "较大的上传限制会增加磁盘、网络和处理资源占用。仅在 Server 资源充足时调高。"
+      "maxArtifactImport": "产物导入限制",
+      "maxArtifactImportDesc": "可导入产物的 HTML、Markdown 或分析 JSON 源文件大小上限（{{min}}–{{max}} MiB）。",
+      "largeUploadWarning": "较大的上传限制会增加磁盘、网络和处理资源占用。仅在服务端资源充足时调高。"
     },
     "knowledgeSourceLimits": {
       "title": "知识来源限制",
@@ -7402,7 +7602,227 @@
       "url": "URL 响应（MiB）"
     },
     "fsMaxChatAttachmentMb": "聊天附件大小上限",
-    "fsMaxChatAttachmentMbDesc": "从聊天输入框上传的单个文件大小上限。本地桌面使用本机设置，远程桌面和 Web 使用 Server 设置。"
+    "fsMaxChatAttachmentMbDesc": "从聊天输入框上传的单个文件大小上限。本地桌面使用本机设置，远程桌面和 Web 使用服务端设置。",
+    "memoryBackupEncryptedPassphraseTooShort": "备份密码至少需要 12 个字符",
+    "memoryBackupEncryptedPassphraseCommon": "避免在备份密码中使用常见词语或模式",
+    "memoryBackupEncryptedPassphraseRepetitive": "请减少备份密码中的重复字符",
+    "memoryBackupEncryptedPassphraseVariety": "增加字符种类，或使用更长的四词短语",
+    "acpCustomAgent": "自定义 Agent",
+    "canvasTypes": {
+      "chart": "图表",
+      "code": "代码",
+      "html": "HTML",
+      "markdown": "Markdown",
+      "mermaid": "Mermaid",
+      "slides": "幻灯片",
+      "svg": "SVG"
+    },
+    "teamMemberDefaultTaskPlaceholder": "实现该功能的 UI。",
+    "teamMemberDescriptionPlaceholder": "你是前端专家。请使用 TypeScript 构建 React 组件…",
+    "teamMemberNamePlaceholder": "前端",
+    "teamTemplateNamePlaceholder": "全栈功能",
+    "teamTemplateNotFound": "未找到模板“{{id}}”",
+    "devVisualTestDarkHint": "提示：星光和流星效果仅在深色主题下显示。",
+    "devVisualTestHint": "这些按钮会临时替换全局动画参数，但不会改变缓存的天气数据。重新加载或重启即可恢复默认值。",
+    "devWeatherWindRain": "风雨",
+    "devWeatherWindSnow": "风雪",
+    "weatherCodes": {
+      "0": "晴朗",
+      "1": "大致晴朗",
+      "2": "晴间多云",
+      "3": "阴天",
+      "45": "雾",
+      "48": "雾凇",
+      "51": "小毛毛雨",
+      "53": "中等毛毛雨",
+      "55": "强毛毛雨",
+      "56": "轻度冻毛毛雨",
+      "57": "强冻毛毛雨",
+      "61": "小雨",
+      "63": "中雨",
+      "65": "大雨",
+      "66": "轻度冻雨",
+      "67": "强冻雨",
+      "71": "小雪",
+      "73": "中雪",
+      "75": "大雪",
+      "77": "米雪",
+      "80": "小阵雨",
+      "81": "中等阵雨",
+      "82": "强阵雨",
+      "85": "小阵雪",
+      "86": "大阵雪",
+      "95": "雷暴",
+      "96": "雷暴伴轻微冰雹",
+      "99": "雷暴伴强冰雹"
+    },
+    "memoryExternalProviderProtocolLabels": {
+      "custom": {
+        "hope_sync_v1": "Hope Sync v1"
+      },
+      "hindsight": {
+        "self_hosted": "Hindsight self-hosted v1",
+        "v1": "Hindsight API v1"
+      },
+      "honcho": {
+        "self_hosted": "Honcho self-hosted v3",
+        "v3": "Honcho API v3"
+      },
+      "mem0": {
+        "oss": "Mem0 OSS",
+        "platform_v3": "Mem0 Platform v3"
+      },
+      "open_viking": {
+        "v1": "OpenViking REST v1"
+      },
+      "supermemory": {
+        "cloud": "Supermemory Cloud",
+        "self_hosted": "Supermemory self-hosted"
+      },
+      "zep": {
+        "graphiti_http": "Graphiti HTTP sidecar"
+      }
+    },
+    "memoryDbSnapshotRestoreStatus": {
+      "ready": "已就绪",
+      "no_metadata": "缺少元数据",
+      "missing_files": "缺少文件",
+      "size_mismatch": "大小不匹配",
+      "sha256_mismatch": "SHA-256 不匹配",
+      "quick_check_failed": "quick_check 失败"
+    },
+    "memoryDbSnapshotRestoreIssues": {
+      "noMetadata": "快照清单中没有已保存的文件元数据。请在恢复前创建新快照。",
+      "invalidFileName": "快照文件名无效：{{name}}",
+      "unsupportedFileName": "不支持的快照数据库文件名：{{name}}",
+      "missingFile": "文件缺失：{{name}}",
+      "sizeMismatch": "文件大小不匹配：{{name}}，预期 {{expected}} 字节，实际 {{actual}} 字节。",
+      "sha256Mismatch": "SHA-256 不匹配：{{name}}",
+      "missingManifestEntry": "快照清单缺少条目：{{name}}",
+      "quickCheckReturned": "快照 quick_check 返回 {{result}}。",
+      "quickCheckFailed": "快照 quick_check 失败：{{error}}"
+    },
+    "memoryExternalProviderDataFlow": {
+      "none": "无",
+      "manual": "手动",
+      "pull_only": "仅拉取",
+      "push_only": "仅推送",
+      "bidirectional": "双向"
+    },
+    "memoryExternalProviderPreflightAction": {
+      "off": "已关闭",
+      "blocked": "已阻塞",
+      "would_sync": "将同步"
+    },
+    "memoryExternalProviderSyncStatus": {
+      "off": "已关闭",
+      "blocked": "已阻塞",
+      "no_runtime_adapter": "无运行时适配器",
+      "succeeded": "已成功",
+      "failed": "失败"
+    },
+    "memoryHealthIssues": {
+      "db_quick_check_failed": {
+        "message": "SQLite quick_check 返回 {{result}}。"
+      },
+      "embedding_provider_unavailable": {
+        "message": "已配置记忆嵌入，但运行时提供方尚未加载。"
+      },
+      "memory_reembed_needed": {
+        "message": "有 {{memoryCount}} 条记忆需要使用当前模型生成嵌入。"
+      },
+      "memory_vector_index_missing": {
+        "message": "已启用记忆嵌入，但向量索引缺失。"
+      },
+      "memory_fts_missing_rows": {
+        "message": "关键词索引缺少 {{memoryFtsCount}} 条记忆。"
+      },
+      "memory_fts_missing": {
+        "message": "记忆关键词索引表缺失。"
+      },
+      "memory_literal_fts_missing_rows": {
+        "message": "有 {{literalMemoryCount}} 条记忆缺少子串索引。"
+      },
+      "claim_fts_missing_rows": {
+        "message": "结构化记忆关键词索引缺少 {{claimFtsCount}} 条记录。"
+      },
+      "claim_fts_missing": {
+        "message": "结构化记忆关键词索引表缺失。"
+      },
+      "claim_literal_fts_missing_rows": {
+        "message": "有 {{literalClaimCount}} 条结构化记忆缺少子串索引。"
+      },
+      "evidence_fts_missing_rows": {
+        "message": "结构化关键词索引缺少 {{evidenceFtsCount}} 条证据记录。"
+      },
+      "evidence_fts_missing": {
+        "message": "结构化记忆的证据关键词索引表缺失。"
+      },
+      "claims_without_evidence": {
+        "message": "有 {{claimsWithoutEvidence}} 条结构化记忆没有证据记录。"
+      },
+      "orphan_claim_graph_rows": {
+        "message": "发现 {{orphanEvidence}} 条孤立证据记录和 {{orphanLinks}} 条孤立断言链接。"
+      },
+      "orphan_procedure_episode_refs": {
+        "message": "有 {{orphanProcedureRefs}} 个流程来源引用指向缺失的经验记录。"
+      },
+      "memory_experience_tables_missing": {
+        "message": "经验记忆表或流程记忆表缺失。"
+      },
+      "claims_need_review": {
+        "message": "有 {{claimsNeedReview}} 条结构化记忆等待审核。"
+      },
+      "deep_resolver_preflight_unavailable": {
+        "message": "深度整理预检无法加载活跃的结构化记忆。"
+      },
+      "deep_resolver_backlog": {
+        "message": "深度整理积压：{{expired}} 条已过期记忆，{{groups}} 个冲突候选组。"
+      },
+      "dreaming_state_stale": {
+        "message": "发现 {{staleRuns}} 个过期的梦境整理任务和 {{staleLocks}} 个失效锁。"
+      },
+      "db_snapshot_incomplete": {
+        "message": "最新的数据库安全快照无法完全验证（{{snapshotStatus}}）。"
+      },
+      "external_memory_provider_incomplete": {
+        "message": "外部记忆服务商“{{provider}}”已启用，但尚未完成配置。"
+      },
+      "external_memory_provider_adapter_unavailable": {
+        "message": "外部记忆服务商“{{provider}}”已配置，但运行时适配器不可用。"
+      },
+      "external_memory_provider_policy_unsupported": {
+        "message": "外部记忆服务商“{{provider}}”不支持所选同步策略。"
+      },
+      "external_memory_provider_error": {
+        "message": "外部记忆服务商“{{provider}}”报告错误：{{error}}"
+      }
+    },
+    "memoryHealthIssueActions": {
+      "dbRepair": "数据库完整性需要处理。请先创建快照；在保住现场前会隐藏其它修复动作。",
+      "embeddingReload": "打开记忆设置，重新保存或切换当前嵌入模型。",
+      "reembed": "重新生成全部向量",
+      "rebuildMemoryIndex": "部分长期记忆缺少关键词检索行；请重建本地 FTS 索引。",
+      "rebuildStructuredIndex": "部分结构化记忆或证据缺少关键词检索行；请重建结构化索引。",
+      "reviewClaims": "打开记忆收件箱，审核相关结构化记忆。",
+      "repairClaimGraph": "结构化记忆证据或链接指向缺失记录；请清理孤立图谱链接。",
+      "repairExperience": "流程记忆引用了缺失的来源经验；请清理这些经验链接。",
+      "restartMigrations": "重启应用以运行记忆迁移，然后导出一份新备份。",
+      "retryHealth": "重试记忆健康检查；若仍失败，请检查 memory.db 和断言表。",
+      "openResolver": "打开仪表盘中的梦境整理，在运行前检查深度整理预检结果。",
+      "recoverDreaming": "后台记忆整理存在过期运行记录或锁；请恢复调度状态。",
+      "freshSnapshot": "最近快照无法完整校验。恢复前请创建新的安全快照。",
+      "finishProvider": "请先完成端点配置，之后才能同步。",
+      "disablePendingProvider": "运行时适配器尚未随版本提供；此提供方目前仅为配置项。",
+      "choosePolicy": "请先选择支持的同步策略，之后才能同步。",
+      "reviewProvider": "检查提供方凭据和同步设置；本地记忆仍然可用。"
+    },
+    "skillSources": {
+      "bundled": "内置",
+      "shared": "共享",
+      "managed": "托管",
+      "project": "项目"
+    }
   },
   "shortcuts": {
     "actionOpenSettings": "打开设置",
@@ -7413,7 +7833,7 @@
     "chordNext": "+ ...",
     "desc": "自定义全局键盘快捷键。点击快捷键区域后按下新的组合键即可修改。",
     "hint": "快捷键需包含至少一个修饰键（⌘/⌥/⇧/⌃）。按 Esc 取消录制。",
-    "recording": "请按下快捷键...",
+    "recording": "请按下快捷键…",
     "reset": "恢复默认",
     "title": "快捷键设置",
     "unset": "未设置"
@@ -7422,15 +7842,15 @@
     "toast": {
       "draftCreated": "已自动创建草稿技能：{{name}}。点击审核。",
       "review": "审核",
-      "unnamedSkill": "(未命名技能)"
+      "unnamedSkill": "（未命名技能）"
     },
     "chatFork": {
       "completed": "已完成。结果已被注入到此聊天中。",
-      "error": "失败的。",
+      "error": "运行失败。",
       "killed": "取消。",
       "missingRunId": "技能运行 ID 丢失。",
-      "running": "技能子代理正在运行。结果将被注入此处。",
-      "spawning": "启动技能子代理...",
+      "running": "技能子 Agent 正在运行，结果会注入到这里。",
+      "spawning": "正在启动技能子 Agent…",
       "timeout": "超时了。",
       "title": "技能{{skill}}"
     },
@@ -7587,14 +8007,14 @@
       "timeout": "超时"
     },
     "viewChildSession": "查看子 Agent 会话",
-    "agentId": "代理 ID",
-    "childSessionId": "儿童会议",
+    "agentId": "Agent ID",
+    "childSessionId": "子会话",
     "duration": "持续时间",
-    "model": "型号",
-    "openSession": "公开会议",
-    "runId": "运行ID",
+    "model": "模型",
+    "openSession": "打开会话",
+    "runId": "运行 ID",
     "task": "任务",
-    "tokens": "代币"
+    "tokens": "Token 数"
   },
   "team": {
     "active": "活跃",
@@ -7624,7 +8044,7 @@
     "review": "审查",
     "reviewer": "审查者",
     "send": "发送",
-    "sendMessage": "发消息给团队...",
+    "sendMessage": "发消息给团队…",
     "tasks": "任务看板",
     "teamName": "团队名称",
     "template": "模板",
@@ -7632,22 +8052,30 @@
     "totalTokens": "Token 用量",
     "viewSession": "查看会话",
     "worker": "执行者",
-    "loading": "正在加载...",
-    "messagePlaceholder": "消息团队...（DM 的@name）",
+    "loading": "正在加载…",
+    "messagePlaceholder": "给团队发消息…（@name 可私聊）",
     "noTasks": "没有任务",
     "panelTitle": "团队",
     "resizePanel": "调整团队面板大小",
     "role": {
-      "lead": "铅",
-      "reviewer": "审稿人",
-      "worker": "工人"
+      "lead": "负责人",
+      "reviewer": "审查者",
+      "worker": "执行者"
     },
     "tab": {
       "dashboard": "仪表板",
-      "messages": "留言",
+      "messages": "消息",
       "tasks": "任务"
     },
-    "view": "查看"
+    "view": "查看",
+    "memberStatus": {
+      "completed": "完成",
+      "error": "错误",
+      "idle": "空闲",
+      "killed": "已终止",
+      "paused": "已暂停",
+      "working": "工作中"
+    }
   },
   "theme": {
     "auto": "自动",
@@ -7679,7 +8107,7 @@
     "ask_user": {
       "cancelled": "用户取消了提问",
       "no_answers": "未作答",
-      "timed_out": "超时,已应用默认值"
+      "timed_out": "超时，已应用默认值"
     },
     "ask_user_question": "向用户提问",
     "browser": "浏览器",
@@ -7691,8 +8119,8 @@
     "exec": "执行命令",
     "execPanel": {
       "noOutput": "无输出",
-      "running": "运行中...",
-      "title": "Shell",
+      "running": "运行中…",
+      "title": "命令行",
       "asyncStarted": "后台任务开始"
     },
     "find": "查找文件",
@@ -7702,7 +8130,7 @@
     "image": "查看图片",
     "image_generate": "生成图片",
     "list_settings_backups": "列出设置备份",
-    "loadingSkill": "加载技能: {{name}}",
+    "loadingSkill": "加载技能：{{name}}",
     "ls": "列出目录",
     "manage_cron": "定时任务",
     "mcp_prompt": "MCP 提示词",
@@ -7793,7 +8221,7 @@
     "utc": "UTC"
   },
   "urlPreview": {
-    "loading": "正在加载预览...",
+    "loading": "正在加载预览…",
     "openLink": "打开链接"
   },
   "wizard": {
@@ -7848,7 +8276,23 @@
       "errBaseUrlMustBeWs": "该服务商是 WebSocket 协议，Base URL 必须以 ws:// 或 wss:// 开头",
       "errBaseUrlMustBeHttp": "该服务商是 HTTP 协议，Base URL 必须以 http:// 或 https:// 开头",
       "errApiKeyRequired": "请填写 API Key",
-      "errExtraFieldRequired": "请填写必填字段：{{field}}"
+      "errExtraFieldRequired": "请填写必填字段：{{field}}",
+      "defaultRecognitionEngine": "默认识别引擎",
+      "apiKeyHints": {
+        "azure": "订阅密钥（Azure 资源 → 密钥和端点）",
+        "volcengine": "访问令牌——不是 Secret Key",
+        "xunfei": "APIKey"
+      },
+      "extraFields": {
+        "accent": "口音",
+        "accentHint": "口音：mandarin（默认）或 iFlytek 文档中的其他方言代码",
+        "region": "区域",
+        "regionHint": "例如 eastus、westus 或 southeastasia；必须与 Azure Speech 资源的区域一致",
+        "volcengineAppIdHint": "火山引擎控制台 → 服务 API 认证 → APP ID（数字）",
+        "volcengineResourceIdHint": "使用 1.0（BigASR）时留空，将采用 volc.bigasr.sauc.duration。使用 2.0（Seed，实例 ID 包含 Speech_Recognition_Seed_streaming）时，请填写 volc.seedasr.sauc.duration。",
+        "xunfeiApiSecretHint": "iFlytek 控制台 → 我的应用 → 应用的 APISecret",
+        "xunfeiAppIdHint": "iFlytek 控制台 → 我的应用 → 应用的 APPID"
+      }
     }
   },
   "askUserDialog": {
@@ -7881,7 +8325,7 @@
       },
       "manual": {
         "dockerContext": "Hope Agent 正在 Docker 容器中运行。自更新无法替换镜像，请拉取新 tag 并重新创建容器。",
-        "dockerText": "Hope Agent 正在 Docker 容器中运行（{{from}} → {{to}}）。\n\n请拉取新镜像并重新创建容器：\n\n    docker pull ghcr.io/shiwenwen/hope-agent:v{{to}}\n    docker compose up -d\n\n如果 compose 文件使用 latest，也可以固定到 latest。",
+        "dockerText": "Hope Agent 正在 Docker 容器中运行（{{from}} → {{to}}）。\n\n请拉取新镜像并重新创建容器：\n\n    docker pull ghcr.io/shiwenwen/hope-agent:v{{to}}\n    docker compose up -d\n\n若 compose 文件使用 `latest`，也可以固定到 `latest` 标签。",
         "dockerHeader": "需要 Docker 升级",
         "context": "Hope Agent 无法为当前安装选择自动升级路径。请选择下一步。",
         "text": "Hope Agent {{from}} → {{to}} 没有可用的自动升级路径。检测到的安装来源：{{installSource}}。请选择处理方式：",
@@ -7972,7 +8416,7 @@
         "nonGit": "非 Git",
         "unknown": "状态未知"
       },
-      "gitDiffFailed": "读取 Git diff 失败",
+      "gitDiffFailed": "读取 Git 差异失败",
       "loadingDiff": "读取差异",
       "noTextDiff": "没有文字可显示差异",
       "headWithHash": "HEAD {{hash}}",
@@ -8032,18 +8476,18 @@
       "checksTruncated": "仅显示前 100 项检查",
       "checksUnavailable": "检查状态不可用",
       "commentsTruncated": "评论过多，仅显示首批结果",
-      "commentsUnavailable": "Review 评论不可用",
+      "commentsUnavailable": "审查评论不可用",
       "fix": "修复",
       "fixPromptReady": "修复要求已填入输入框，请确认后发送",
       "loadingPrFeedback": "读取 PR 检查与评论",
       "noChecks": "暂无检查",
-      "noReviewComments": "没有未解决的 Review 评论",
+      "noReviewComments": "没有未解决的审查评论",
       "openCheck": "打开检查",
       "openComment": "打开评论",
       "prFeedbackUnavailable": "PR 检查与评论不可用",
       "prFeedbackStale": "PR 状态刷新失败，当前数据可能已过期",
       "reviewComments": "{{count}} 条评论",
-      "reviewFeedback": "Review 反馈",
+      "reviewFeedback": "审查反馈",
       "autoMergeEnabled": "已启用自动合并",
       "autoMergeWarning": "当分支保护条件满足时，GitHub 可能立即合并此拉取请求。该操作需要明确确认。",
       "confirmAutoMerge": "确认启用",
@@ -8112,7 +8556,7 @@
       "closureCancelled": "用户已取消目标",
       "closureSuperseded": "目标已被新目标替代",
       "closurePending": "等待用户确认关闭取舍",
-      "worktreeNoSnapshot": "未记录变更快照",
+      "worktreeNoSnapshot": "没有工作树快照",
       "domainTemplate": "任务领域",
       "domainRetry": "重试",
       "domainFree": "自由任务",
@@ -8165,12 +8609,12 @@
       "domainWorkflow": "工作流",
       "detailCriteria": "标准",
       "criterionWorkflowCount": "工作流 {{count}}",
-      "criterionLoopCount": "循环 {{count}}",
+      "criterionLoopCount": "持续推进 {{count}}",
       "criterionEvidenceCount": "证据 {{count}}",
       "detailNoCriteria": "没有拆分出的完成标准",
       "detailNextEvidence": "下一步证据",
       "detailEvidence": "证据",
-      "detailNoEvidence": "还没有工作流 / 验证 / diff 证据",
+      "detailNoEvidence": "还没有工作流 / 验证 / 差异证据",
       "detailTimeline": "时间线",
       "detailNoTimeline": "暂无时间线事件",
       "detailWorkflows": "工作流",
@@ -8280,7 +8724,7 @@
       "create": "创建持续推进",
       "runUsage": "本轮 Token",
       "runUsageValue": "{{total}} · 输入 {{input}} / 输出 {{output}}",
-      "runUsageBoundary": "优先按 Loop 触发消息到下一条用户消息之间统计；历史数据无触发元数据时回退到运行窗口。不代表完整成本。",
+      "runUsageBoundary": "优先统计从持续推进触发消息到下一条用户消息之间的用量；历史数据没有触发元数据时回退到运行窗口。不代表完整成本。",
       "groupBlocked": "需要处理",
       "groupActive": "运行中",
       "groupPaused": "已暂停",
@@ -8367,7 +8811,7 @@
       "policySaved": "持续推进策略已更新",
       "dynamicFallbackInvalid": "请输入有效回退间隔，例如 20m",
       "eventDebounceInvalid": "请输入有效事件去重窗口，例如 30s",
-      "workflowRequiresGoalTemplate": "创建工作流的 Loop 需要当前 Goal 已选择任务领域模板",
+      "workflowRequiresGoalTemplate": "工作流策略需要目标或模板。",
       "kindDynamic": "模型自定",
       "kindEvent": "事件后继续",
       "eventDebouncePlaceholder": "例如 30s",
@@ -8384,7 +8828,7 @@
       "backoffLabel": "降频间隔",
       "runNow": "立即运行",
       "history": "运行记录",
-      "workflowPending": "等待下一次触发创建 Workflow run",
+      "workflowPending": "等待下一次触发创建工作流运行",
       "editPolicy": "编辑策略",
       "policyTitle": "运行策略",
       "viewMore": "查看更多持续推进（{{count}}）",
@@ -8394,8 +8838,16 @@
       "watchArmed": "监听中",
       "watchSettled": "已结束",
       "watchFailures": "失败 {{count}} 次",
-      "triggerCron": "Cron",
-      "tokenBudget": "Token"
+      "triggerCron": "定时任务",
+      "tokenBudget": "Token",
+      "watchKind": {
+        "app_event": "应用事件",
+        "command": "命令",
+        "file": "文件",
+        "job": "任务",
+        "subagent": "子Agent",
+        "websocket": "WebSocket"
+      }
     },
     "workflow": {
       "title": "工作流",
@@ -8563,7 +9015,7 @@
       "agentMetricDone": "完成",
       "agentMetricFailed": "失败",
       "agentMetricRunning": "运行中",
-      "agentMetricTotal": "代理",
+      "agentMetricTotal": "子 Agent",
       "stateWaitingAgents": "等待子 Agent {{done}}/{{total}}",
       "statePartialResults": "阶段结果 {{done}}/{{total}}",
       "focusWaitingAgentsTitle": "当前焦点：等待子 Agent",
@@ -8668,12 +9120,12 @@
       "summaryUnknown": "未记录",
       "summaryNoOutputBudget": "未设置",
       "summaryRuntimeDone": "runtime 已回报结果",
-      "summaryAgentTokens": "子代理 Token",
+      "summaryAgentTokens": "子 Agent Token",
       "summaryAgentUsageValue": "{{total}} · {{agents}} 个 Agent",
-      "summaryAgentUsageBoundary": "仅统计本工作流关联子代理用量；完整成本仍等待运行归因。",
+      "summaryAgentUsageBoundary": "仅统计与此工作流关联的子 Agent 用量；完整成本仍需等待运行归因。",
       "summaryWindowTokens": "窗口 Token",
-      "summaryWindowUsageValue": "{{total}} · 父会话 {{parent}} / 子代理 {{agents}}",
-      "summaryWindowUsageBoundary": "窗口 Token = 父会话运行窗口 + 本工作流关联子代理；工作流注入回合另有强关联口径；不是 provider 级完整成本。",
+      "summaryWindowUsageValue": "{{total}} · 父会话 {{parent}} / 子 Agent {{agents}}",
+      "summaryWindowUsageBoundary": "窗口 Token = 父会话运行窗口 + 与此工作流关联的子 Agent；工作流注入回合另有强关联口径；不代表服务商级完整成本。",
       "summaryUsageBoundary": "Token/成本等待工作流运行归因接入；当前不估算。",
       "summarySizeUnrestricted": "不限制",
       "summarySizeSmall": "小",
@@ -8705,7 +9157,7 @@
       "eventRunControlAction": "控制动作",
       "eventRunRuntimeLaunch": "启动请求",
       "eventRunRuntimeResult": "启动结果",
-      "eventWorktreeAttached": "运行位置已绑定",
+      "eventWorktreeAttached": "工作树已绑定",
       "eventPhaseStarted": "阶段开始",
       "eventPhaseCompleted": "阶段完成",
       "eventPhaseFailed": "阶段失败",
@@ -8720,16 +9172,16 @@
       "modeDraftOff": "工作流模式已关闭",
       "modeDraftSaved": "工作流模式已开启：{{mode}}",
       "domainTemplateRequired": "请选择领域模板",
-      "domainObjectiveRequired": "请输入目标，或先创建 Goal",
+      "domainObjectiveRequired": "输入目标，或先创建目标",
       "domainDraftReady": "领域工作流草稿已生成并通过预检",
       "domainDraftBlocked": "领域工作流草稿已生成，但预检未通过",
-      "repairTaskContent": "修复失败工作流 {{id}}：\\n\\n{{prompt}}",
+      "repairTaskContent": "修复失败工作流 {{id}}：\n\n{{prompt}}",
       "repairTaskActiveForm": "正在修复失败工作流 {{id}}",
       "repairTaskCreated": "已创建工作流修复任务",
-      "worktreeNeedsWorkspace": "先设置工作目录再创建隔离工作树",
+      "worktreeNeedsWorkspace": "请先设置工作目录，再创建基于工作树的工作流。",
       "activeCount": "{{count}} 运行中",
       "worktreeBadge": "工作树",
-      "repairDraftGoalDetail": "将创建同一 Goal 下的修复运行，不会覆盖原运行 · {{kind}}",
+      "repairDraftGoalDetail": "将在同一目标下创建修复运行，并且不会覆盖原始运行 · {{kind}}",
       "domainTemplateTitle": "领域模板",
       "domainTemplateRetry": "重试",
       "domainTemplateEmpty": "暂无可用领域模板",
@@ -8737,10 +9189,10 @@
       "domainTaskTypePlaceholder": "任务类型",
       "domainEvidenceCount": "{{count}} 证据",
       "domainGateCount": "{{count}} 审批",
-      "generateDomainDraftFromGoal": "用当前 Goal 生成领域草稿",
+      "generateDomainDraftFromGoal": "用当前目标生成领域草稿",
       "generateDomainDraft": "生成领域草稿",
-      "worktreeTarget": "运行位置",
-      "worktreeSession": "当前目录",
+      "worktreeTarget": "工作树目标",
+      "worktreeSession": "当前会话",
       "worktreeNew": "新隔离工作树",
       "domainDraftSummary": "草稿来自 {{title}}",
       "domainDraftEvidence": "证据",
@@ -8748,7 +9200,7 @@
       "domainDraftVerification": "验证",
       "runTimeline": "运行时间线",
       "recentEventCount": "最近 {{count}} 条",
-      "worktreeRuntime": "运行位置",
+      "worktreeRuntime": "运行时工作树",
       "worktreeBase": "基线",
       "worktreeChanges": "改动",
       "worktreeSource": "来源",
@@ -8757,7 +9209,7 @@
       "approvalAudit": "审批审计",
       "approvalAuditCount": "{{count}} 条",
       "nextDraftTitle": "下一步：启动工作流",
-      "nextDraftBody": "确认脚本、预算和运行位置后启动；需要隔离改动时先绑定 worktree。",
+      "nextDraftBody": "确认脚本、预算和运行位置后启动；需要隔离改动时先绑定工作树。",
       "nextUserTitle": "下一步：补充用户确认",
       "nextUserBody": "回到对话里补充问题答案或外部确认；trace 会保留等待点。",
       "nextRecoveringTitle": "下一步：观察恢复进度",
@@ -8765,8 +9217,8 @@
       "nextRunningOpBody": "当前步骤是 {{op}}；如长时间无进展，可先看时间线，再决定暂停或取消。",
       "nextRunningBody": "保持运行并观察时间线；如卡住，可暂停保留现场或取消后从 trace 修复。",
       "nextCompletedTitle": "下一步：复核完成证据",
-      "nextCompletedValidationBody": "运行已完成；复核验证结果、产物和残余风险后再关闭 Goal 或继续派生后续工作。",
-      "nextCompletedBody": "运行已完成；复核 trace、产物和残余风险后再关闭 Goal 或继续派生后续工作。",
+      "nextCompletedValidationBody": "运行已完成；复核验证结果、产物和残余风险后再关闭目标或继续派生后续工作。",
+      "nextCompletedBody": "运行已完成；复核 trace、产物和残余风险后再关闭目标或继续派生后续工作。",
       "nextCancelledTitle": "下一步：复盘或重建",
       "nextCancelledBody": "运行已停止；可以从 trace 复盘原因，必要时基于当前目标创建新的工作流。",
       "nextOpenTab": "查看 {{tab}}",
@@ -8834,7 +9286,27 @@
       "actionAsk": "确认",
       "actionEvidence": "证据",
       "actionConflict": "冲突",
-      "actionTask": "转任务"
+      "actionTask": "转任务",
+      "confirmationAccept": "使用",
+      "confirmationAcceptDescription": "将此上下文记录为已由用户确认的有效证据。",
+      "confirmationContext": "请确认是否应将此上下文作为当前任务决策的依据。",
+      "confirmationContextWithSubtitle": "请确认是否应将此上下文作为当前任务决策的依据：{{subtitle}}",
+      "confirmationEvidenceTitle": "用户确认：{{title}}",
+      "confirmationHeader": "上下文",
+      "confirmationQuestion": "将“{{title}}”作为当前任务的有效上下文吗？",
+      "confirmationReject": "不使用",
+      "confirmationRejectDescription": "将此上下文记录为已拒绝或暂不接受。",
+      "conflictEvidenceTitle": "待检查的冲突：{{title}}",
+      "locationLine": "位置：{{value}}",
+      "reasonsLine": "推荐原因：{{value}}",
+      "sourcesLine": "来源信号：{{value}}",
+      "statusLine": "状态：{{value}}",
+      "summaryClueLine": "摘要线索：{{value}}",
+      "summaryEvidenceTitle": "上下文摘要：{{title}}",
+      "taskActiveForm": "正在处理上下文：{{location}}",
+      "taskWithLocation": "处理上下文：{{title}}（{{location}}）",
+      "taskWithSubtitle": "处理上下文：{{title}}——{{subtitle}}",
+      "taskWithType": "处理上下文：{{title}}（{{type}}）"
     },
     "domainWorkbench": {
       "evidenceSourceCited": "引用来源",
@@ -8872,12 +9344,12 @@
       "acceptanceGateSoak": "长跑审计",
       "acceptanceGapDomain": "还没有真实领域样本。",
       "acceptanceGapEvidence": "缺少来源、草稿、复核或用户决策证据。",
-      "acceptanceGapDrain": "还没有已排空的 Workflow / Loop / Campaign 样本。",
+      "acceptanceGapDrain": "目前还没有已排空的工作流 / 持续推进 / 评测活动样本。",
       "acceptanceGapConnector": "外部动作还缺端到端执行与复核样本。",
       "acceptanceGapIncidents": "长跑审计仍有事故需要收口。",
       "acceptanceGapFreshness": "最近长任务样本过旧或缺少新鲜度信号。",
       "acceptanceGapSampleDays": "多天长跑窗口缺少跨天样本覆盖。",
-      "acceptanceGapConnectorVerification": "连接器动作已执行，但缺少执行后读回复核 evidence。",
+      "acceptanceGapConnectorVerification": "连接器动作已执行，但缺少执行后读取复核证据。",
       "acceptanceGapBudget": "工作流输出预算已耗尽，需收口性能或上下文策略。",
       "acceptanceGapFailedGates": "仍有未通过守门：{{gates}}。",
       "acceptanceGapMoreDomains": "继续补其它通用领域样本，避免只证明单一场景。",
@@ -8885,11 +9357,11 @@
       "acceptanceReqDomainOk": "{{count}} 个领域",
       "acceptanceReqDomainMissing": "还没有真实领域",
       "acceptanceReqEvidence": "证据链",
-      "acceptanceReqEvidenceOk": "{{count}} 条 evidence",
+      "acceptanceReqEvidenceOk": "{{count}} 条证据",
       "acceptanceReqEvidenceMissing": "缺来源/草稿/决策证据",
       "acceptanceReqDrain": "排空样本",
       "acceptanceReqDrainOk": "{{count}} 个已排空",
-      "acceptanceReqDrainMissing": "缺 Workflow / Loop / Campaign",
+      "acceptanceReqDrainMissing": "缺少工作流 / 持续推进 / 评测活动",
       "acceptanceReqFreshness": "样本新鲜",
       "acceptanceReqFreshnessMissing": "缺最近活动时间",
       "acceptanceReqFreshnessOk": "{{age}} 前",
@@ -8912,50 +9384,50 @@
       "acceptanceReqGatesOk": "已观察守门均通过",
       "acceptanceReqGatesPending": "缺少守门通过样本",
       "acceptanceReqConnectorE2E": "连接器端到端（E2E）",
-      "acceptanceReqConnectorE2EOk": "{{count}} 条 evidence",
+      "acceptanceReqConnectorE2EOk": "{{count}} 条证据",
       "acceptanceReqConnectorE2EMissing": "缺执行/复核闭环",
-      "acceptanceLaneWorkflow": "Workflow 样本",
+      "acceptanceLaneWorkflow": "工作流示例",
       "acceptanceLaneWorkflowOk": "{{completed}}/{{total}} 已完成",
-      "acceptanceLaneWorkflowMissing": "缺已完成 Workflow",
-      "acceptanceLaneWorkflowAction": "跑一个领域 Workflow 并等待排空，再刷新运行稳定性和长跑审计。",
+      "acceptanceLaneWorkflowMissing": "缺少已完成的工作流",
+      "acceptanceLaneWorkflowAction": "运行域工作流并等待其耗尽，然后刷新操作稳定性和长期运行审核。",
       "acceptanceLaneWorkflowEvidenceTerminal": "WorkflowRun 已进入 completed / failed / blocked / cancelled 终态，不能只看创建成功。",
-      "acceptanceLaneWorkflowEvidenceTrace": "Workflow trace、validation/review 结果或 domain evidence 能从工作台复核。",
+      "acceptanceLaneWorkflowEvidenceTrace": "可以从工作台查看工作流跟踪、验证/审查结果或领域证据。",
       "acceptanceLaneWorkflowEvidenceRecovery": "若失败，保留失败分类、恢复动作和下一轮 rerun 结果。",
-      "acceptanceLaneRefreshOperational": "刷新运行稳定性 Gate。",
-      "acceptanceLaneRefreshSoak": "刷新长跑审计 Soak Report。",
+      "acceptanceLaneRefreshOperational": "刷新运行稳定性门禁。",
+      "acceptanceLaneRefreshSoak": "刷新长跑审计报告。",
       "acceptanceLaneRefreshReport": "重新复制真实样本验收报告。",
-      "acceptanceLaneLoop": "Loop 样本",
+      "acceptanceLaneLoop": "持续推进样本",
       "acceptanceLaneLoopOk": "{{succeeded}}/{{total}} 成功",
-      "acceptanceLaneLoopMissing": "缺成功 Loop tick",
-      "acceptanceLaneLoopAction": "创建一个短间隔领域 Loop，确认至少一次 tick 成功并关联 Workflow run。",
-      "acceptanceLaneLoopEvidenceGoal": "Loop 绑定 active Goal 或 domain template，tick 不是孤立定时器。",
-      "acceptanceLaneLoopEvidenceTick": "至少一个 tick succeeded，并关联 workflowRunId 或明确说明无需 Workflow。",
-      "acceptanceLaneLoopEvidenceTrace": "Loop trace 中能看到策略、退出条件和下一步决策。",
-      "acceptanceLaneCampaign": "Campaign 样本",
+      "acceptanceLaneLoopMissing": "缺少成功的持续推进 tick",
+      "acceptanceLaneLoopAction": "创建一个短间隔的领域持续推进，确认至少一次 tick 成功，并将其关联到工作流运行。",
+      "acceptanceLaneLoopEvidenceGoal": "持续推进已绑定到活动目标或领域模板，tick 并非孤立的定时器。",
+      "acceptanceLaneLoopEvidenceTick": "至少一次 tick 成功并关联到 workflowRunId，或明确说明不需要工作流。",
+      "acceptanceLaneLoopEvidenceTrace": "持续推进追踪中可查看策略、退出条件和下一步决策。",
+      "acceptanceLaneCampaign": "评测活动样本",
       "acceptanceLaneCampaignOk": "{{passed}}/{{total}} 通过",
-      "acceptanceLaneCampaignMissing": "缺通过的 Campaign item",
-      "acceptanceLaneCampaignAction": "跑一个 deterministic 或真实 agent campaign item，确认可取消、可 retry、可复核。",
-      "acceptanceLaneCampaignEvidenceSample": "Campaign item 使用 deterministic trace pack 或真实 agent 样本。",
-      "acceptanceLaneCampaignEvidenceResult": "至少一个 item passed，失败 item 有分类和 retry / cancel 证据。",
-      "acceptanceLaneCampaignEvidenceTrace": "保留 campaign summary，能追溯输入、判断标准和输出。",
+      "acceptanceLaneCampaignMissing": "缺少已通过的评测活动项",
+      "acceptanceLaneCampaignAction": "运行一个确定性或真实 Agent 评测活动项，并确认它可以取消、重试和复核。",
+      "acceptanceLaneCampaignEvidenceSample": "评测活动项使用确定性 trace pack 或真实 Agent 样本。",
+      "acceptanceLaneCampaignEvidenceResult": "至少一项已通过；失败项具有分类及重试 / 取消证据。",
+      "acceptanceLaneCampaignEvidenceTrace": "保留评测活动摘要，以便追溯输入、评判标准和输出。",
       "acceptanceLaneConnector": "连接器端到端（E2E）",
-      "acceptanceLaneConnectorOk": "{{count}} 条执行/复核 evidence",
+      "acceptanceLaneConnectorOk": "{{count}} 条执行/复核证据",
       "acceptanceLaneConnectorMissing": "缺执行/复核闭环",
       "acceptanceLaneConnectorNoScope": "当前会话未观察外部动作",
-      "acceptanceLaneConnectorAction": "用测试账号完成读取 -> 草稿 -> 批准 -> 执行 -> 复核 -> 回滚说明，并记录端到端 evidence。",
+      "acceptanceLaneConnectorAction": "用测试账号完成读取 → 草稿 → 批准 → 执行 → 复核 → 回滚说明，并记录端到端证据。",
       "acceptanceLaneConnectorEvidenceAccount": "使用测试账号或沙箱数据，避免真实用户生产账号。",
       "acceptanceLaneConnectorEvidenceFlow": "记录读取上下文、草稿、用户批准、执行、执行后读回/复核。",
-      "acceptanceLaneConnectorEvidenceAudit": "记录 connector_action_executed 与 connector_action_verified evidence；失败时保留回滚说明。",
-      "acceptanceLaneRefreshConnector": "刷新连接器端到端 Gate。",
+      "acceptanceLaneConnectorEvidenceAudit": "记录 connector_action_executed 与 connector_action_verified 证据；失败时保留回滚说明。",
+      "acceptanceLaneRefreshConnector": "刷新连接器端到端门禁。",
       "acceptanceLaneCrossDomain": "跨领域覆盖",
       "acceptanceLaneCrossDomainOk": "{{count}} 个领域",
       "acceptanceLaneCrossDomainMissing": "{{count}} 个领域",
-      "acceptanceLaneCrossDomainAction": "补一个不同领域样本，例如写作、数据分析、会议准备、知识整理、Inbox 或项目运营。",
-      "acceptanceLaneCrossDomainEvidenceDomain": "选择当前会话之外的另一个通用领域，例如写作、数据分析、会议准备、知识整理、Inbox 或项目运营。",
-      "acceptanceLaneCrossDomainEvidenceTemplates": "确认 Goal、Workflow、Context Retrieval、Domain Quality 均读取到对应领域模板。",
-      "acceptanceLaneCrossDomainEvidenceGeneral": "保留一条完整 evidence 链，证明不是只靠 coding 场景通过。",
+      "acceptanceLaneCrossDomainAction": "补一个不同领域样本，例如写作、数据分析、会议准备、知识整理、收件箱或项目运营。",
+      "acceptanceLaneCrossDomainEvidenceDomain": "选择当前会话之外的另一个通用领域，例如写作、数据分析、会议准备、知识整理、收件箱或项目运营。",
+      "acceptanceLaneCrossDomainEvidenceTemplates": "确认目标、工作流、上下文检索和域质量都读取相应的域模板。",
+      "acceptanceLaneCrossDomainEvidenceGeneral": "保留一条完整证据链，证明不是只靠编程场景通过。",
       "acceptanceLaneRefreshCoverage": "刷新真实样本验收卡片。",
-      "acceptanceLaneRefreshReview": "更新给人工 / Claude Code / PR review 的验收包。",
+      "acceptanceLaneRefreshReview": "更新供人工 / Claude Code / PR 审查使用的验收包。",
       "acceptanceReqPassed": "通过",
       "acceptanceReqBlocked": "阻塞",
       "acceptanceReqSampling": "待采样",
@@ -8994,12 +9466,12 @@
       "acceptanceEvidenceLevelLocal": "局部验收",
       "acceptanceEvidenceLevelLocalDetail": "必需项已通过，但覆盖面仍窄；不能代表全量通用能力。",
       "acceptanceEvidenceLevelConnector": "真实端到端候选",
-      "acceptanceEvidenceLevelConnectorDetail": "包含连接器执行和复核 evidence，可进入人工或 Claude Code 最终复核。",
+      "acceptanceEvidenceLevelConnectorDetail": "包含连接器执行和复核证据，可进入人工或 Claude Code 最终复核。",
       "acceptanceEvidenceLevelNonExternal": "非外部动作候选",
       "acceptanceEvidenceLevelNonExternalDetail": "可支撑当前非外部动作场景；涉及连接器仍需沙箱端到端样本。",
       "acceptanceReviewProtocolVerdict": "只有验收结论为“可验收”时，当前样本才可作为最终验收证据；“可局部复核”只能证明局部场景。",
-      "acceptanceReviewProtocolEvidence": "逐项核对验收必需项和验收矩阵；转任务、按钮点击或人工声明不能替代真实 evidence。",
-      "acceptanceReviewProtocolSoak": "长任务必须复核 Operational Gate 与 Soak Report：无 critical 事故、无预算耗尽、样本新鲜、跨天覆盖且守门通过。",
+      "acceptanceReviewProtocolEvidence": "逐项核对验收必需项和验收矩阵；转任务、按钮点击或人工声明不能替代真实证据。",
+      "acceptanceReviewProtocolSoak": "长任务必须复核运行稳定性门禁与长跑审计报告：无严重事故、无预算耗尽、样本新鲜、跨天覆盖且门禁通过。",
       "acceptanceReviewProtocolConnector": "连接器端到端（E2E）必须来自测试账号或沙箱数据，并包含执行结果、执行后读回复核和回滚说明。",
       "acceptanceProvenanceText": "证据 {{total}} · 工作流 {{workflow}} · 连接器 {{connector}} · fixture/mock {{fixture}} · 人工 {{manual}} · 公开 {{public}} · 受限 {{restricted}}",
       "acceptanceControlMixText": "工作流 {{completedWorkflow}}/{{workflow}} · 持续推进 {{succeededLoop}}/{{loop}} · 评测活动 {{passedCampaign}}/{{campaign}} · 连接器 {{connector}}",
@@ -9016,7 +9488,7 @@
       "acceptanceAuditGates": "守门快照：交付={{exportStatus}} · 连接器={{connectorStatus}} · 端到端={{e2eStatus}} · 运行={{operationalStatus}} · 长跑={{soakStatus}}",
       "acceptanceAuditEvidenceIds": "证据 ID：{{ids}}",
       "acceptanceAuditNoEvidenceIds": "无",
-      "acceptanceAuditSoakWindow": "Soak 窗口：{{window}} 天 · 事故 {{incidents}} · 时间线 {{timeline}}",
+      "acceptanceAuditSoakWindow": "长跑审计窗口：{{window}} 天 · 事故 {{incidents}} · 时间线 {{timeline}}",
       "acceptancePlanBudgetExhausted": "耗尽 {{count}} 次{{budget}}",
       "acceptancePlanBudgetOkWithUsage": "未耗尽 · {{budget}}",
       "acceptancePlanBudgetOk": "未观察到预算耗尽",
@@ -9032,15 +9504,15 @@
       "acceptancePlanFreshness": "最近样本",
       "acceptancePlanSampleDays": "跨天覆盖",
       "acceptancePlanBudget": "输出预算",
-      "acceptancePlanConnector": "连接器端到端 evidence",
+      "acceptancePlanConnector": "连接器端到端证据",
       "acceptancePlanIncidents": "事故",
       "acceptanceReviewNoGaps": "- 暂无验收缺口",
-      "acceptancePlanActionEvidence": "补齐来源、草稿、复核或用户决策 evidence 后刷新工作台。",
-      "acceptancePlanActionDrain": "至少排空一个 Workflow / Loop / Campaign，再刷新运行稳定性和长跑审计。",
-      "acceptancePlanActionFreshness": "如果最近样本超过 24 小时或缺跨天覆盖，先跑一个新的 Workflow / Loop / Campaign 或连接器端到端样本。",
+      "acceptancePlanActionEvidence": "补齐来源、草稿、复核或用户决策证据后刷新工作台。",
+      "acceptancePlanActionDrain": "至少排空一个工作流、持续推进或评测活动，然后刷新运行稳定性与长期审计。",
+      "acceptancePlanActionFreshness": "若最近的样本已超过 24 小时或缺少跨日覆盖，请先运行新的工作流、持续推进、评测活动或连接器端到端样本。",
       "acceptancePlanActionBudget": "如果输出预算耗尽，先收窄上下文、拆分阶段或降低无效输出，再重新跑最小验证样本。",
-      "acceptancePlanActionConnector": "涉及外部动作时按读取 -> 草稿 -> 批准 -> 执行 -> 复核 -> 回滚说明记录端到端 evidence。",
-      "acceptancePlanActionSoak": "处理 Soak Report 事故或把事故转任务，直到 Operational Gate / Soak Report 不再 failed。",
+      "acceptancePlanActionConnector": "涉及外部动作时，按读取 → 草稿 → 批准 → 执行 → 复核 → 回滚说明记录端到端证据。",
+      "acceptancePlanActionSoak": "处理长跑审计报告中的事故或将事故转为任务，直到运行稳定性门禁和长跑审计报告不再处于未通过状态。",
       "acceptancePlanTaskContent": "补齐真实样本验收清单：",
       "acceptancePlanMetrics": "当前指标：",
       "acceptanceAuditIndex": "审计索引：",
@@ -9052,7 +9524,7 @@
       "acceptanceReviewGateMissing": "未评估",
       "acceptanceReviewGateBlockers": "阻塞项：{{items}}",
       "acceptanceReviewGateChecks": "检查项：{{items}}",
-      "acceptanceReviewNoEvidence": "- 暂无 evidence",
+      "acceptanceReviewNoEvidence": "- 暂无证据",
       "acceptanceReviewNoSoak": "- 长跑审计尚未生成",
       "acceptanceReviewSoakWindow": "窗口",
       "acceptanceReviewSoakSamples": "样本",
@@ -9170,7 +9642,15 @@
       "markResolved": "标记已修复",
       "markDismissed": "忽略",
       "markFalsePositive": "标记误报",
-      "more": "还有 {{count}} 条"
+      "more": "还有 {{count}} 条",
+      "profileCorrectness": "正确性",
+      "profileSecurity": "安全性",
+      "profileMaintainability": "可维护性",
+      "profileTests": "测试",
+      "profileConcurrency": "并发",
+      "profileFrontend": "前端",
+      "profileAccessibility": "无障碍",
+      "profileDeep": "深度"
     },
     "verification": {
       "stepPending": "待运行",
@@ -9224,8 +9704,8 @@
       "scopeUnknownCount": "已",
       "scopeArtifactCount": "{{scopeText}}匹配",
       "scopeLegacyFallback": "旧证据回退",
-      "scopeLegacyFallbackDetail": "未发现 artifact 线索，使用 {{scopeText}}全量证据",
-      "scopeLegacyFallbackShort": "未发现 artifact 线索，使用全量证据",
+      "scopeLegacyFallbackDetail": "未发现产物线索，使用 {{scopeText}}全量证据",
+      "scopeLegacyFallbackShort": "未发现产物线索，使用全量证据",
       "scopeAll": "全量证据",
       "scopeAllDetail": "使用 {{count}} 条领域证据",
       "runDoneClean": "领域复核通过",
@@ -9330,9 +9810,9 @@
       "nextVerification": "下一步：记录执行后复核",
       "nextComplete": "真实样本已闭环",
       "nextApprovalDetail": "外部动作需要先有用户批准；批准后再记录真实执行结果。",
-      "nextExecutionDetail": "只记录已经发生的真实外部动作结果，例如 provider result id、发送/修改结果或失败原因。",
+      "nextExecutionDetail": "只记录已经发生的真实外部动作结果，例如服务商结果 ID、发送/修改结果或失败原因。",
       "nextVerificationDetail": "执行后读回外部状态并记录复核结论，确认结果真的可见且符合预期。",
-      "nextCompleteDetail": "执行与复核 evidence 都已存在；如仍未通过，请处理剩余回滚、交付或守门缺口。",
+      "nextCompleteDetail": "执行与复核证据都已存在；如仍未通过，请处理剩余回滚、交付或门禁缺口。",
       "executionEvidenceTitle": "执行结果：{{action}}",
       "verificationEvidenceTitle": "执行后复核：{{action}}",
       "input": "输入",
@@ -9374,12 +9854,12 @@
       "recommendationTaskCreated": "已创建运行稳定性建议任务",
       "title": "运行稳定性",
       "generated": "最近评估 {{time}}",
-      "emptyHint": "检查工作流、Loop 和评测活动是否已排空",
+      "emptyHint": "检查工作流、持续推进和评测活动是否已排空",
       "refresh": "刷新运行稳定性",
       "workflows": "工作流",
       "active": "运行中",
       "loops": "持续推进",
-      "campaigns": "评测",
+      "campaigns": "评测活动",
       "maxActiveAge": "最长",
       "recommendations": "稳定性建议",
       "createRecommendationTask": "转任务",
@@ -9404,7 +9884,7 @@
       "reportCopyFailed": "复制长跑报告失败",
       "title": "长跑审计",
       "generated": "最近评估 {{time}}",
-      "emptyHint": "汇总最近长任务、Loop 和连接器链路事故",
+      "emptyHint": "汇总最近长任务、持续推进和连接器链路事故",
       "copyReport": "复制报告",
       "refresh": "刷新长跑审计",
       "records": "样本",
@@ -9426,7 +9906,7 @@
       "empty": "还没有长跑审计结果",
       "sourceWorkflow": "工作流",
       "sourceLoop": "持续推进",
-      "sourceCampaign": "评测活动",
+      "sourceCampaign": "来源评测活动",
       "sourceConnector": "连接器",
       "sourceApproval": "审批",
       "loading": "评估中",
@@ -9440,7 +9920,7 @@
       "kindEval": "评测候选",
       "kindWorkflow": "工作流模板",
       "kindGuidance": "规则候选",
-      "kindSkill": "Skill 候选",
+      "kindSkill": "技能候选",
       "kindDomainWorkflow": "领域工作流",
       "kindDomainGuidance": "领域规则",
       "kindDomainReview": "领域复核",
@@ -9597,7 +10077,9 @@
       "noDegraded": "本会话未记录记忆层降级"
     },
     "kbAttachmentsLoadFailed": "无法读取已挂载知识空间",
-    "kbLoadDetail": "详细信息：{{error}}"
+    "kbLoadDetail": "详细信息：{{error}}",
+    "exitCode": "退出码 {{code}}",
+    "refCount": "{{count}} 个引用"
   },
   "knowledge": {
     "picker": {
@@ -9618,7 +10100,7 @@
       "accessOff": "关闭",
       "accessRead": "只读",
       "accessWrite": "读写",
-      "accessOffTip": "不挂载,助手无法访问此知识空间",
+      "accessOffTip": "不挂载，助手无法访问此知识空间",
       "accessReadTip": "助手可搜索和阅读笔记",
       "accessWriteTip": "助手可读取并修改笔记"
     },
@@ -9780,7 +10262,7 @@
     "moveTo": "移动到…",
     "moveToTitle": "将「{{name}}」移动到…",
     "rootFolder": "根目录",
-    "remoteWritesDisabled": "远程写入已关闭。请在 设置 → 服务器 → 允许远程写入文件 中开启（在 server 主机上）。",
+    "remoteWritesDisabled": "远程写入已关闭。请在「设置 → 服务器 → 允许远程写入文件」中开启（需在服务器主机上操作）。",
     "externalRawSync": "资料快照外部镜像",
     "externalRawSyncHint": "将 Hope 管理的资料文本快照复制到这个外部库。原始音频、视频和图片文件不会镜像。",
     "externalRawSyncDisabled": "关闭",
@@ -9823,7 +10305,8 @@
         "failed": "失败",
         "cancelled": "已取消",
         "timed_out": "已超时"
-      }
+      },
+      "phaseIndex": "正在索引文件"
     },
     "maintenance": {
       "tooltip": "维护",
@@ -9841,12 +10324,19 @@
       "approve": "应用",
       "reject": "忽略",
       "cycleSkipped": "维护已跳过：{{note}}",
+      "skipReasons": {
+        "alreadyRunning": "另一个维护周期正在运行",
+        "manualDisabled": "手动扫描已关闭",
+        "disabled": "维护功能已关闭",
+        "databaseNotInitialized": "知识数据库尚未初始化",
+        "listFailed": "无法列出知识空间：{{error}}"
+      },
       "cycleDone": "生成了 {{n}} 条建议",
       "runFailed": "维护运行失败",
       "errorDetail": "详细信息：{{error}}",
       "applyFailed": "应用建议失败",
       "rejectFailed": "忽略建议失败",
-      "compileQueued": "已生成整理审阅，请到笔记建议面板查看 diff。",
+      "compileQueued": "已生成整理审阅，请到笔记建议面板查看差异。",
       "kind": {
         "auto_link": "建链",
         "orphan_rescue": "救援",
@@ -9862,15 +10352,22 @@
         "for_agent_summary": "摘要"
       },
       "evidenceCoverage": "证据覆盖范围",
-      "evidenceCoverageDetail": "{{pct}}% · {{claimsWithEvidence}}/{{claims}} 声明 · {{notesWithEvidence}}/{{notes}} 注释",
+      "evidenceCoverageDetail": "{{pct}}% · {{claimsWithEvidence}}/{{claims}} 条记忆断言 · {{notesWithEvidence}}/{{notes}} 篇笔记",
       "evidenceRebuildFailed": "无法重建证据索引",
-      "evidenceRebuilt": "重建 {{notes}} 票据、{{refs}} 参考文献、{{claims}} 声明的证据索引",
+      "evidenceRebuilt": "已重建 {{notes}} 篇笔记、{{refs}} 条引用、{{claims}} 条记忆断言的证据索引",
       "missingEvidence": "证据缺失",
       "missingRefs": "缺少裁判",
       "needsReview": "需要审查",
       "rebuildEvidenceTip": "重建派生证据索引",
       "schemaIssues": "架构问题",
-      "staleRefs": "过时的参考文献"
+      "staleRefs": "过期引用",
+      "schemaIssueKind": {
+        "missingEvidence": "缺少证据",
+        "staleSource": "陈旧来源",
+        "schemaViolation": "结构规范不符",
+        "conflictingClaim": "相互冲突的断言",
+        "unfiledOpenQuestion": "未归档的开放问题"
+      }
     },
     "graph": {
       "toggle": "图谱视图",
@@ -9915,7 +10412,7 @@
       "cancel": "取消",
       "cancelFailed": "无法取消运行",
       "cancelled": "资料整理已取消",
-      "description": "AI 会从所选资料生成笔记修改建议；写入前你可以先审阅 diff。",
+      "description": "AI 会从所选资料生成笔记修改建议；写入前你可以先审阅差异。",
       "empty": "选择一个建议进行审阅",
       "emptyHint": "生成的建议会保留在这里，直到你应用或忽略。",
       "errorDetail": "详细信息：{{error}}",
@@ -10093,7 +10590,7 @@
       "reject": "拒绝",
       "rejected": "归档被放弃",
       "rejectFailed": "无法放弃归档",
-      "review": "评论",
+      "review": "预览",
       "title": "归档答案",
       "titlePlaceholder": "标题",
       "mode": {
@@ -10161,7 +10658,11 @@
       "unspecified": "未指定",
       "unknown": "未知",
       "notVerified": "未验证",
-      "legacyPendingHash": "旧版 / 哈希待回填"
+      "legacyPendingHash": "旧版 / 哈希待回填",
+      "text": "文本",
+      "narrative": "叙述",
+      "legacyCanvas": "旧版画布",
+      "test": "测试"
     },
     "loadFailed": "加载产物失败",
     "verifyPassed": "验证通过",
@@ -10173,7 +10674,7 @@
     "restoreReady": "已恢复为新版本",
     "archiveConfirm": "归档这个产物？",
     "deleteConfirm": "永久删除这个产物及其全部版本？",
-    "search": "搜索标题、项目或智能体",
+    "search": "搜索标题、项目或 Agent",
     "allKinds": "全部类型",
     "active": "使用中",
     "archived": "已归档",
@@ -10207,7 +10708,8 @@
     "confirmRedaction": "确认脱敏并复核",
     "exportReviewPassed": "导出复核已通过",
     "exportReviewBlocked": "导出复核仍有阻塞项",
-    "guardStatus": "门禁"
+    "guardStatus": "门禁",
+    "defaultName": "产物"
   },
   "backgroundJobs": {
     "panelTitle": "后台任务",
@@ -10220,7 +10722,7 @@
     "sectionSession": "本会话",
     "sectionLocalModel": "本地模型",
     "kindGroup": "任务组",
-    "kindSubagent": "子智能体",
+    "kindSubagent": "子 Agent",
     "resizePanel": "调整后台任务面板宽度",
     "status": {
       "queued": "排队中",
@@ -10252,7 +10754,7 @@
     }
   },
   "macControl": {
-    "panelTitle": "苹果电脑控制"
+    "panelTitle": "Mac 控制"
   },
   "memory": {
     "activeRecallToastTitle": "已引用记忆"
@@ -10270,6 +10772,7 @@
     "emptyArtifacts": "还没有产物。点右上角「新建产物」开始。",
     "selectArtifact": "从左侧选择一个产物预览",
     "artifactCount": "{{count}} 个产物",
+    "artifactType": "产物类型",
     "zoomFit": "适应",
     "reload": "刷新",
     "exportArtifact": "导出本页",
@@ -10318,6 +10821,7 @@
     "restore": "恢复",
     "noVersions": "暂无版本",
     "version": "版本",
+    "extractSource": "提取来源",
     "extractSystem": "反向提取品牌…",
     "restyling": "正在换设计系统…",
     "extractPickDir": "选择代码库目录…",
@@ -10421,7 +10925,7 @@
       "systemNone": "无",
       "maxExtractImageMb": "提取图片大小上限 (MB)",
       "maxExtractImageMbDesc": "反向提取截图时的图片上限；0 = 不限。",
-      "exportScale": "导出清晰度 (倍)",
+      "exportScale": "导出清晰度 （倍）",
       "exportScaleDesc": "栅格化倍率；越大越清晰、文件越大。默认 2。",
       "exportJpegQuality": "PDF 图像质量",
       "exportJpegQualityDesc": "PDF 页 JPEG 压缩质量 (1–100)。默认 92。"
@@ -10856,7 +11360,8 @@
       "onlyImages": "只能拖入图片文件",
       "failed": "导入失败：{{name}}",
       "done": "已导入 {{count}} 张图片",
-      "drop": "松开以导入图片"
+      "drop": "松开以导入图片",
+      "importedImage": "已导入图片"
     },
     "presenter": {
       "hide": "隐藏演讲者备注",
@@ -10938,7 +11443,7 @@
       "label": "生成模型",
       "followDefault": "默认模型",
       "autoSwitched": "已切换到 {{model}}（支持图片）",
-      "noVisionAvailable": "未配置支持图片的模型，请到 设置 → 模型 添加",
+      "noVisionAvailable": "未配置支持图片的模型，请前往“设置 → 模型”添加。",
       "followDefaultItem": "跟随默认模型"
     },
     "refImage": {
@@ -10994,8 +11499,8 @@
     "unsavedBody": "离开此文件前要丢弃当前修改吗？",
     "discard": "丢弃修改",
     "remoteWritesTitle": "远程文件写入已关闭",
-    "remoteWritesBody": "此工作区位于 Server 所在机器。仅当你信任已连接的客户端时，才应在 Server 设置中开启远程文件写入。",
-    "goToServerSettings": "前往 Server 设置",
+    "remoteWritesBody": "此工作区位于服务端主机。仅当你信任已连接的客户端时，才应在服务端设置中开启远程文件写入。",
+    "goToServerSettings": "前往服务端设置",
     "transportSwitchUnsaved": "存在未保存的文件修改。要切换连接并丢弃这些修改吗？"
   },
   "attachments": {
@@ -11005,5 +11510,45 @@
     "tooMany": "单条消息最多包含 64 个文件",
     "tooLarge": "{{name}} 超过 {{limit}} MB 上限",
     "someTooLarge": "部分文件超过 {{limit}} MB 上限"
+  },
+  "configRecovery": {
+    "title": "需要恢复配置",
+    "subtitle": "Hope Agent 无法读取现有 config.json。为保护服务商、MCP 服务器和初始设置状态，配置写入已暂停。",
+    "path": "配置文件",
+    "error": "读取错误",
+    "details": "保护说明",
+    "retry": "重新读取",
+    "restart": "重启应用",
+    "backupsTitle": "恢复配置快照",
+    "backupsDesc": "恢复后，Hope Agent 将重新读取配置并继续启动。无法读取的文件会保留在原位置，并在可能时复制为 .corrupt-<timestamp> 副本。",
+    "loading": "正在加载快照…",
+    "empty": "未找到配置快照",
+    "emptyHint": "请手动修复 config.json，或从 backups/autosave、config.json.corrupt-* 中恢复可用版本后重试。",
+    "restore": "恢复",
+    "source": "来源",
+    "retrying": "正在读取",
+    "restoring": "正在恢复",
+    "restartFailed": "无法自动重启。请手动关闭并重新打开 Hope Agent。",
+    "categoryValues": {
+      "providers": "服务商配置",
+      "proxy": "代理设置",
+      "theme": "主题",
+      "user": "用户设置",
+      "rollback_to": "恢复到 {{timestamp}}"
+    },
+    "sourceValues": {
+      "cli": "CLI",
+      "guardian": "恢复守护程序",
+      "http": "HTTP API",
+      "rollback": "恢复",
+      "settings_ui": "设置界面",
+      "skill": "技能",
+      "tauri": "桌面应用",
+      "ui": "应用界面"
+    },
+    "kindValues": {
+      "config": "配置",
+      "user": "用户设置"
+    }
   }
 }

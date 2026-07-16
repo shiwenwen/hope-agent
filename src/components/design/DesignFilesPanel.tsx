@@ -510,7 +510,7 @@ export default function DesignFilesPanel({
                     >
                       {a.kind === "component" ? (
                         <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-muted to-muted/40 text-[10px] text-muted-foreground/60">
-                          {a.kind}
+                          {t("design.kind.component")}
                         </div>
                       ) : (
                         <ArtifactThumb artifactId={a.id} />

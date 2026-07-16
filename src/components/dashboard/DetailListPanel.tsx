@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
+import type { TFunction } from "i18next"
 import { X, MessageSquare, Wrench, AlertTriangle, Bot, Clock, MessagesSquare } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
@@ -25,20 +26,57 @@ interface DetailListPanelProps {
   onClose: () => void
 }
 
-function formatRelativeTime(ts: string): string {
+function formatRelativeTime(ts: string, locale: string): string {
   try {
     const d = new Date(ts)
     const now = new Date()
     const diff = now.getTime() - d.getTime()
     const mins = Math.floor(diff / 60000)
-    if (mins < 1) return "< 1m"
-    if (mins < 60) return `${mins}m ago`
+    const relative = new Intl.RelativeTimeFormat(locale, { numeric: "auto" })
+    if (mins < 1) return relative.format(0, "minute")
+    if (mins < 60) return relative.format(-mins, "minute")
     const hours = Math.floor(mins / 60)
-    if (hours < 24) return `${hours}h ago`
+    if (hours < 24) return relative.format(-hours, "hour")
     const days = Math.floor(hours / 24)
-    return `${days}d ago`
+    return relative.format(-days, "day")
   } catch {
     return ts
+  }
+}
+
+function humanizeValue(value: string): string {
+  return value.replaceAll("_", " ")
+}
+
+function messageRoleLabel(t: TFunction, role: string): string {
+  switch (role.trim().toLowerCase()) {
+    case "user": return t("dashboard.detail.roles.user")
+    case "assistant": return t("dashboard.detail.roles.assistant")
+    case "system": return t("dashboard.detail.roles.system")
+    case "tool": return t("dashboard.detail.roles.tool")
+    default: return humanizeValue(role)
+  }
+}
+
+function errorLevelLabel(t: TFunction, level: string): string {
+  switch (level.trim().toLowerCase()) {
+    case "error": return t("dashboard.detail.levels.error")
+    case "warn":
+    case "warning": return t("dashboard.detail.levels.warning")
+    case "info": return t("dashboard.detail.levels.info")
+    case "debug": return t("dashboard.detail.levels.debug")
+    case "trace": return t("dashboard.detail.levels.trace")
+    default: return humanizeValue(level)
+  }
+}
+
+function cronStatusLabel(t: TFunction, status: string): string {
+  switch (status.trim().toLowerCase()) {
+    case "active": return t("cron.active")
+    case "paused": return t("cron.paused")
+    case "completed": return t("cron.completed")
+    case "disabled": return t("cron.disabled")
+    default: return humanizeValue(status)
   }
 }
 
@@ -69,7 +107,7 @@ function useListData<T>(command: string, params: Record<string, unknown>) {
 // ── Session List ────────────────────────────────────────────────
 
 function SessionList({ filter, agentNameMap }: { filter: DashboardFilter; agentNameMap: Record<string, string> }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const { data, loading } = useListData<DashboardSessionItem>("dashboard_session_list", { filter })
 
   if (loading || !data) return <ListSkeleton />
@@ -79,9 +117,9 @@ function SessionList({ filter, agentNameMap }: { filter: DashboardFilter; agentN
     <div className="divide-y">
       <div className="grid grid-cols-[1fr_120px_100px_100px_140px] gap-3 px-4 py-2 text-xs font-medium text-muted-foreground">
         <span>{t("dashboard.detail.sessionTitle")}</span>
-        <span>Agent</span>
+        <span>{t("dashboard.session.agent")}</span>
         <span>{t("dashboard.detail.messageCount")}</span>
-        <span>Token</span>
+        <span>{t("dashboard.insights.tokens")}</span>
         <span>{t("dashboard.detail.time")}</span>
       </div>
       {data.map((s) => (
@@ -90,7 +128,7 @@ function SessionList({ filter, agentNameMap }: { filter: DashboardFilter; agentN
           <span className="truncate text-muted-foreground">{agentNameMap[s.agentId] || s.agentId}</span>
           <span>{formatNumber(s.messageCount)}</span>
           <span>{formatNumber(s.totalTokens)}</span>
-          <span className="text-muted-foreground text-xs">{formatRelativeTime(s.updatedAt)}</span>
+          <span className="text-muted-foreground text-xs">{formatRelativeTime(s.updatedAt, i18n.language)}</span>
         </div>
       ))}
     </div>
@@ -100,7 +138,7 @@ function SessionList({ filter, agentNameMap }: { filter: DashboardFilter; agentN
 // ── Message List ────────────────────────────────────────────────
 
 function MessageList({ filter }: { filter: DashboardFilter }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const { data, loading } = useListData<DashboardMessageItem>("dashboard_message_list", { filter })
 
   if (loading || !data) return <ListSkeleton />
@@ -112,7 +150,7 @@ function MessageList({ filter }: { filter: DashboardFilter }) {
         <span>{t("dashboard.detail.role")}</span>
         <span>{t("dashboard.detail.content")}</span>
         <span>{t("dashboard.detail.session")}</span>
-        <span>Token</span>
+        <span>{t("dashboard.insights.tokens")}</span>
         <span>{t("dashboard.detail.time")}</span>
       </div>
       {data.map((m) => (
@@ -123,12 +161,12 @@ function MessageList({ filter }: { filter: DashboardFilter }) {
             m.role === "assistant" ? "bg-green-500/10 text-green-500" :
             "bg-muted text-muted-foreground"
           )}>
-            {m.role}
+            {messageRoleLabel(t, m.role)}
           </span>
           <span className="truncate text-muted-foreground">{m.contentPreview || "—"}</span>
           <span className="truncate text-xs text-muted-foreground">{m.sessionTitle || m.sessionId.slice(0, 8)}</span>
           <span className="text-xs">{formatNumber(m.tokensIn + m.tokensOut)}</span>
-          <span className="text-muted-foreground text-xs">{formatRelativeTime(m.timestamp)}</span>
+          <span className="text-muted-foreground text-xs">{formatRelativeTime(m.timestamp, i18n.language)}</span>
         </div>
       ))}
     </div>
@@ -138,7 +176,7 @@ function MessageList({ filter }: { filter: DashboardFilter }) {
 // ── Tool Call List ──────────────────────────────────────────────
 
 function ToolCallList({ filter }: { filter: DashboardFilter }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const { data, loading } = useListData<DashboardToolCallItem>("dashboard_tool_call_list", { filter })
 
   if (loading || !data) return <ListSkeleton />
@@ -159,9 +197,9 @@ function ToolCallList({ filter }: { filter: DashboardFilter }) {
           <span className="truncate text-xs text-muted-foreground">{tc.sessionTitle || tc.sessionId.slice(0, 8)}</span>
           <span className="text-xs">{tc.durationMs != null ? formatDuration(tc.durationMs) : "—"}</span>
           <span className={cn("text-xs font-medium", tc.isError ? "text-red-500" : "text-green-500")}>
-            {tc.isError ? "Error" : "OK"}
+            {tc.isError ? t("common.error") : t("common.ok")}
           </span>
-          <span className="text-muted-foreground text-xs">{formatRelativeTime(tc.timestamp)}</span>
+          <span className="text-muted-foreground text-xs">{formatRelativeTime(tc.timestamp, i18n.language)}</span>
         </div>
       ))}
     </div>
@@ -171,7 +209,7 @@ function ToolCallList({ filter }: { filter: DashboardFilter }) {
 // ── Error List ──────────────────────────────────────────────────
 
 function ErrorList({ filter }: { filter: DashboardFilter }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const { data, loading } = useListData<DashboardErrorItem>("dashboard_error_list", { filter })
 
   if (loading || !data) return <ListSkeleton />
@@ -192,12 +230,12 @@ function ErrorList({ filter }: { filter: DashboardFilter }) {
             "text-xs font-medium px-1.5 py-0.5 rounded w-fit",
             e.level === "error" ? "bg-red-500/10 text-red-500" : "bg-amber-500/10 text-amber-500"
           )}>
-            {e.level}
+            {errorLevelLabel(t, e.level)}
           </span>
           <span className="truncate text-xs">{e.category}</span>
           <span className="truncate text-xs text-muted-foreground">{e.source}</span>
           <span className="truncate text-muted-foreground">{e.message}</span>
-          <span className="text-muted-foreground text-xs">{formatRelativeTime(e.timestamp)}</span>
+          <span className="text-muted-foreground text-xs">{formatRelativeTime(e.timestamp, i18n.language)}</span>
         </div>
       ))}
     </div>
@@ -207,7 +245,7 @@ function ErrorList({ filter }: { filter: DashboardFilter }) {
 // ── Agent List ──────────────────────────────────────────────────
 
 function AgentList({ filter, agentNameMap }: { filter: DashboardFilter; agentNameMap: Record<string, string> }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const { data, loading } = useListData<DashboardAgentItem>("dashboard_agent_list", { filter })
 
   if (loading || !data) return <ListSkeleton />
@@ -216,10 +254,10 @@ function AgentList({ filter, agentNameMap }: { filter: DashboardFilter; agentNam
   return (
     <div className="divide-y">
       <div className="grid grid-cols-[1fr_120px_120px_120px_140px] gap-3 px-4 py-2 text-xs font-medium text-muted-foreground">
-        <span>Agent</span>
+        <span>{t("dashboard.session.agent")}</span>
         <span>{t("dashboard.detail.sessionCount")}</span>
         <span>{t("dashboard.detail.messageCount")}</span>
-        <span>Token</span>
+        <span>{t("dashboard.insights.tokens")}</span>
         <span>{t("dashboard.detail.lastActive")}</span>
       </div>
       {data.map((a) => (
@@ -228,7 +266,7 @@ function AgentList({ filter, agentNameMap }: { filter: DashboardFilter; agentNam
           <span>{formatNumber(a.sessionCount)}</span>
           <span>{formatNumber(a.messageCount)}</span>
           <span>{formatNumber(a.totalTokens)}</span>
-          <span className="text-muted-foreground text-xs">{formatRelativeTime(a.lastActiveAt)}</span>
+          <span className="text-muted-foreground text-xs">{formatRelativeTime(a.lastActiveAt, i18n.language)}</span>
         </div>
       ))}
     </div>
@@ -246,7 +284,7 @@ function formatSchedule(s: CronSchedule): string {
 // ── Cron Job List ───────────────────────────────────────────────
 
 function CronJobList() {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const { data, loading } = useListData<CronJob>("cron_list_jobs", {})
 
   if (loading || !data) return <ListSkeleton />
@@ -276,13 +314,13 @@ function CronJobList() {
             j.status === "disabled" ? "bg-red-500/10 text-red-500" :
             "bg-muted text-muted-foreground"
           )}>
-            {j.status}
+            {cronStatusLabel(t, j.status)}
           </span>
           <span className={cn("text-xs", j.consecutiveFailures > 0 ? "text-red-500" : "text-muted-foreground")}>
             {j.consecutiveFailures}/{j.maxFailures}
           </span>
           <span className="text-muted-foreground text-xs">
-            {j.lastRunAt ? formatRelativeTime(j.lastRunAt) : "—"}
+            {j.lastRunAt ? formatRelativeTime(j.lastRunAt, i18n.language) : "—"}
           </span>
         </div>
       ))}

@@ -277,7 +277,7 @@ export default function SessionItem({
                 </IconTip>
               )}
               {!isActive && session.hasError && (
-                <IconTip label="对话失败">
+                <IconTip label={t("chat.sessionFailed")}>
                   <span className="inline-flex items-center justify-center shrink-0 w-4 h-4 rounded bg-red-500/15 text-red-500">
                     <CircleAlert className="w-2.5 h-2.5" />
                   </span>
@@ -312,7 +312,7 @@ export default function SessionItem({
                 />
               ) : (
                 <span className={cn("truncate", isCompact && "min-w-0 flex-1")}>
-                  {session.title || t("chat.newChat") || "New Chat"}
+                  {session.title || t("chat.newChat")}
                 </span>
               )}
               {isCompact && renamingSessionId !== session.id && (
@@ -390,7 +390,7 @@ export default function SessionItem({
                     {agent?.name || session.agentId}
                     <span className="mx-1">·</span>
                     <span className="text-primary animate-pulse">
-                      {t("chat.thinking") || "执行中..."}
+                      {t("chat.thinking")}
                     </span>
                   </>
                 ) : hasPending ? (

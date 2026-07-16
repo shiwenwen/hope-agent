@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { logger } from "@/lib/logger"
+import { backupMetadataLabel } from "@/components/config/backupMetadataLabel"
 import { Switch } from "@/components/ui/switch"
 import { Button } from "@/components/ui/button"
 import {
@@ -175,14 +176,18 @@ export default function SystemPanel() {
                         {formatTs(entry.timestamp)}
                       </span>
                       <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-secondary/70 text-[10px] font-medium">
-                        {entry.kind}
+                        {backupMetadataLabel(t, "kind", entry.kind)}
                       </span>
                       {entry.category !== "unknown" && (
-                        <span className="truncate text-foreground/80">{entry.category}</span>
+                        <span className="truncate text-foreground/80">
+                          {backupMetadataLabel(t, "category", entry.category)}
+                        </span>
                       )}
                     </div>
                     <div className="mt-0.5 text-[10px] text-muted-foreground">
-                      {t("settings.configBackupsSource", { source: entry.source })}
+                      {t("settings.configBackupsSource", {
+                        source: backupMetadataLabel(t, "source", entry.source),
+                      })}
                     </div>
                   </div>
                   <IconTip label={t("settings.configBackupsRestoreTip")}>
@@ -217,8 +222,12 @@ export default function SystemPanel() {
             <AlertDialogDescription>
               {t("settings.configBackupsRestoreDesc", {
                 timestamp: pendingRestore ? formatTs(pendingRestore.timestamp) : "",
-                kind: pendingRestore?.kind ?? "",
-                category: pendingRestore?.category ?? "",
+                kind: pendingRestore
+                  ? backupMetadataLabel(t, "kind", pendingRestore.kind)
+                  : "",
+                category: pendingRestore
+                  ? backupMetadataLabel(t, "category", pendingRestore.category)
+                  : "",
               })}
             </AlertDialogDescription>
           </AlertDialogHeader>

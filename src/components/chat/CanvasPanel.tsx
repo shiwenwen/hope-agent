@@ -485,7 +485,9 @@ export default function CanvasPanel({
         data-tauri-drag-region
       >
         <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-          {canvas.contentType}
+          {t(`settings.canvasTypes.${canvas.contentType}`, {
+            defaultValue: canvas.contentType,
+          })}
         </span>
         <span className="text-sm font-medium truncate flex-1">{canvas.title}</span>
 

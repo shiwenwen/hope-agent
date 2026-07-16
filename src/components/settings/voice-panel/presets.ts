@@ -36,7 +36,7 @@ export interface SttKindPreset {
   /** Pre-filled model list. Activation flow needs at least one row;
    * kinds whose wire has no real "model id" (iFlytek `domain`,
    * Volcengine `bigmodel`) seed meaningful presets. */
-  defaultModels: Array<{ id: string; name: string }>
+  defaultModels: Array<{ id: string; name: string; nameKey?: string }>
 }
 
 export const STT_PRESETS: SttKindPreset[] = [
@@ -210,7 +210,13 @@ export const STT_PRESETS: SttKindPreset[] = [
     requiresBaseUrl: false,
     // Azure has no wire-level model id (region + language drives it).
     // Single sentinel row keeps the activation flow happy.
-    defaultModels: [{ id: "default", name: "默认识别引擎 · Default" }],
+    defaultModels: [
+      {
+        id: "default",
+        name: "Default",
+        nameKey: "voice.settings.defaultRecognitionEngine",
+      },
+    ],
   },
   {
     slug: "xunfei-ws",

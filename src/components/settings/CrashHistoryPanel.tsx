@@ -65,6 +65,15 @@ const SEVERITY_COLORS: Record<string, string> = {
   unknown: "bg-gray-500/10 text-gray-400 border-gray-500/20",
 }
 
+function severityLabel(t: ReturnType<typeof useTranslation>["t"], severity: string): string {
+  if (severity === "critical") return t("common.statusValues.critical")
+  if (severity === "high" || severity === "medium" || severity === "low") {
+    return t(`effort.${severity}`)
+  }
+  if (severity === "unknown") return t("common.unknown")
+  return severity.replaceAll("_", " ")
+}
+
 export default function CrashHistoryPanel() {
   const { t } = useTranslation()
   const [journal, setJournal] = useState<CrashJournal | null>(null)
@@ -277,7 +286,7 @@ export default function CrashHistoryPanel() {
                                 SEVERITY_COLORS.unknown,
                             )}
                           >
-                            {entry.diagnosis_result.severity}
+                            {severityLabel(t, entry.diagnosis_result.severity)}
                           </span>
                         )}
                       </div>

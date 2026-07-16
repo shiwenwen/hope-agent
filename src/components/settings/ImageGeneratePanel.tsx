@@ -431,8 +431,8 @@ export default function ImageGeneratePanel() {
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
-                              <SelectItem value="MINIMAL">Minimal</SelectItem>
-                              <SelectItem value="HIGH">High</SelectItem>
+                              <SelectItem value="MINIMAL">{t("effort.minimal")}</SelectItem>
+                              <SelectItem value="HIGH">{t("effort.high")}</SelectItem>
                             </SelectContent>
                           </Select>
                         </div>

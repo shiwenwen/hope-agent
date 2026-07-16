@@ -61,7 +61,7 @@ export function TeamToolbar({
           STATUS_STYLES[team.status] ?? STATUS_STYLES.dissolved,
         )}
       >
-        {team.status}
+        {t(`team.${team.status}`, { defaultValue: team.status.replaceAll("_", " ") })}
       </span>
 
       <div className="flex-1" />

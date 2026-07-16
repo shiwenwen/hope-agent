@@ -517,7 +517,11 @@ function ProcessNotificationBubble({ msg, t }: { msg: Message; t: TFunction }) {
           </>
         )}
         <span className="opacity-70">·</span>
-        <span>{parsed.status}</span>
+        <span>
+          {t(`common.statusValues.${parsed.status}`, {
+            defaultValue: parsed.status.replaceAll("_", " "),
+          })}
+        </span>
         {parsed.detail && (
           <ChevronDown
             className={cn("h-3 w-3 shrink-0 transition-transform", expanded && "rotate-180")}

@@ -136,7 +136,7 @@ export default function IconSidebar({
                 <img
                   src={getTransport().resolveAssetUrl(userAvatar) ?? userAvatar}
                   className="w-full h-full object-cover"
-                  alt="avatar"
+                  alt={t("settings.profileAvatar")}
                 />
               </button>
             </IconTip>

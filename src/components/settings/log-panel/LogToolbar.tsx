@@ -42,7 +42,9 @@ export default function LogToolbar({
               : "bg-secondary/40 text-muted-foreground hover:bg-secondary/60",
           )}
         >
-          {level}
+          {t(`dashboard.detail.levels.${level === "warn" ? "warning" : level}`, {
+            defaultValue: level,
+          })}
         </Button>
       ))}
       <span className="w-px h-4 bg-border" />

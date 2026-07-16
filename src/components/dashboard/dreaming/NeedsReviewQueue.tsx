@@ -16,9 +16,6 @@ interface ClaimRecord extends ReviewableClaim {
   confidence: number
 }
 
-const SCOPE_LABEL = (c: { scopeType: string; scopeId?: string | null }) =>
-  c.scopeType === "global" ? "global" : `${c.scopeType}:${c.scopeId ?? "?"}`
-
 /**
  * The Lucid Review queue (design §5.1): claims the pipeline flagged
  * `needs_review` (low-confidence, conflicts, uncertain scope). Each row expands
@@ -88,6 +85,18 @@ export default function NeedsReviewQueue() {
         ) : (
           claims.map((c) => {
             const expanded = expandedId === c.id
+            const scopeName =
+              c.scopeType === "global"
+                ? t("settings.memoryScopeGlobal")
+                : c.scopeType === "agent"
+                  ? t("settings.memoryScopeAgent")
+                  : c.scopeType === "project"
+                    ? t("settings.memoryScopeProject")
+                    : c.scopeType === "session"
+                      ? t("dashboard.columns.session")
+                      : c.scopeType
+            const scopeLabel =
+              c.scopeType === "global" ? scopeName : `${scopeName}:${c.scopeId ?? "?"}`
             return (
               <div key={c.id} className="border-b border-border/30 last:border-0">
                 <button
@@ -101,7 +110,9 @@ export default function NeedsReviewQueue() {
                     <span className="truncate">{c.content}</span>
                   </div>
                   <div className="text-[10px] text-muted-foreground mt-0.5 font-mono">
-                    {c.claimType} · {SCOPE_LABEL(c)} · {(c.confidence * 100).toFixed(0)}%
+                    {t(`settings.claimType_${c.claimType}`, c.claimType)} ·{" "}
+                    {scopeLabel} ·{" "}
+                    {(c.confidence * 100).toFixed(0)}%
                   </div>
                 </button>
                 {expanded && (

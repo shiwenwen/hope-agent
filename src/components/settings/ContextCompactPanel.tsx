@@ -559,7 +559,7 @@ export default function ContextCompactPanel() {
                 />
                 <div className="flex items-center justify-between px-0 py-1">
                   <label className="text-sm">
-                    {t("settings.contextCompactHardClearEnabled") || "Hard clear enabled"}
+                    {t("settings.contextCompactHardClearEnabled")}
                   </label>
                   <Switch
                     checked={config.hardClearEnabled}
