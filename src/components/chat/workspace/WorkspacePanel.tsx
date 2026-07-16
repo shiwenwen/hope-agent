@@ -15699,6 +15699,11 @@ function WorkflowRunsSection({
   }, [runs, watchdogFindings])
   const canMaterializeSession = Boolean(sessionId || onEnsureSession)
   const activeGoal = goalState.snapshot?.goal ?? null
+  const activeGoalId = activeGoal?.id ?? null
+  const activeGoalTemplateValue = activeGoal
+    ? goalDomainTemplateValue(activeGoal)
+    : GOAL_DOMAIN_FREE_VALUE
+  const activeGoalWorkflowTaskType = activeGoal?.workflowTaskType ?? ""
   const activeGoalCriteria = useMemo(
     () => goalState.snapshot?.criteriaItems ?? [],
     [goalState.snapshot?.criteriaItems],
@@ -15856,16 +15861,28 @@ function WorkflowRunsSection({
   }, [domainTemplates, selectedDomainTaskType, selectedDomainTemplateId])
 
   useEffect(() => {
-    if (!activeGoal?.workflowTemplateId || domainTemplates.length === 0 || domainDraft) return
-    const template = findDomainTemplateByValue(domainTemplates, goalDomainTemplateValue(activeGoal))
+    if (
+      activeGoalTemplateValue === GOAL_DOMAIN_FREE_VALUE ||
+      domainTemplates.length === 0 ||
+      domainDraft
+    ) {
+      return
+    }
+    const template = findDomainTemplateByValue(domainTemplates, activeGoalTemplateValue)
     if (!template) return
     const templateValue = domainTemplateOptionValue(template)
     if (selectedDomainTemplateId === templateValue) return
     setSelectedDomainTemplateId(templateValue)
-    setSelectedDomainTaskType(activeGoal.workflowTaskType || template.taskTypes[0] || "")
+    setSelectedDomainTaskType(activeGoalWorkflowTaskType || template.taskTypes[0] || "")
     setDraftKind(`domain:${template.domain}`)
     setDraftMode(normalizeExecutionMode(template.defaultMode))
-  }, [activeGoal, domainDraft, domainTemplates, selectedDomainTemplateId])
+  }, [
+    activeGoalTemplateValue,
+    activeGoalWorkflowTaskType,
+    domainDraft,
+    domainTemplates,
+    selectedDomainTemplateId,
+  ])
 
   useEffect(() => {
     if (runs.length === 0) {
@@ -16538,9 +16555,9 @@ ${repairPrompt}`
         budget: workflowBudgetForMode(draftMode),
         parentRunId: draftOrigin?.type === "repair" ? draftOrigin.runId : undefined,
         origin: draftOrigin?.type === "repair" ? "repair" : undefined,
-        goalId: activeGoal?.id ?? undefined,
+        goalId: activeGoalId ?? undefined,
         goalCriterionId:
-          activeGoal && draftGoalCriterionId !== GOAL_CRITERION_NONE_VALUE
+          activeGoalId && draftGoalCriterionId !== GOAL_CRITERION_NONE_VALUE
             ? draftGoalCriterionId
             : undefined,
         runImmediately: runImmediatelyForCreate,
@@ -16582,7 +16599,7 @@ ${repairPrompt}`
     draftRunImmediately,
     draftScript,
     ensureWorkflowSession,
-    activeGoal,
+    activeGoalId,
     incognito,
     loadSnapshot,
     managedWorktreesState,

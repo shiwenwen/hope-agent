@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import type { SessionMeta } from "@/types/chat"
@@ -198,13 +198,10 @@ export function useSidebarSessionPagination({
     [enabled, selectedAgentId, totalsByFilter],
   )
 
-  const hasMoreByFilter = useMemo<BooleanByFilter>(
-    () => ({
-      session: loadedRowsRef.current.session < totalsByFilter.session,
-      subagent: loadedRowsRef.current.subagent < totalsByFilter.subagent,
-    }),
-    [totalsByFilter],
-  )
+  const hasMoreByFilter: BooleanByFilter = {
+    session: loadedRowsRef.current.session < totalsByFilter.session,
+    subagent: loadedRowsRef.current.subagent < totalsByFilter.subagent,
+  }
 
   return {
     sessionsByFilter,
