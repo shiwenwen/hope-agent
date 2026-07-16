@@ -373,15 +373,24 @@ export const DesignChatPanel = forwardRef<DesignChatPanelHandle, Props>(function
         ),
       insertToken: (token) =>
         stream.setInput((prev) => (prev.trim() ? `${prev} ${token}` : token)),
-      addImageAttachment: (file) =>
-        stream.setAttachedFiles((prev) => [...prev, createDraftAttachment(file, "picker")]),
+      addImageAttachment: (file) => {
+        if (file.size > stream.maxChatAttachmentBytes) {
+          toast.error(
+            t("attachments.someTooLarge", "Some files exceed the {{limit}} MB limit", {
+              limit: Math.round(stream.maxChatAttachmentBytes / (1024 * 1024)),
+            }),
+          )
+          return
+        }
+        stream.setAttachedFiles((prev) => [...prev, createDraftAttachment(file, "picker")])
+      },
       submitPrompt: (text) => {
         if (loadingRef.current) return false
         void stream.handleSend(text)
         return true
       },
     }),
-    [stream],
+    [stream, t],
   )
 
   // 本轮产物 chip 条（B0-8）：从 assistant 消息的 design 工具调用里提取产/改的产物，
@@ -528,10 +537,22 @@ export const DesignChatPanel = forwardRef<DesignChatPanelHandle, Props>(function
         const files = Array.from(e.dataTransfer.files)
         if (files.length) {
           e.preventDefault()
-          stream.setAttachedFiles((prev) => [
-            ...prev,
-            ...files.map((f) => createDraftAttachment(f, "drop")),
-          ])
+          const remaining = Math.max(0, 64 - stream.attachedFiles.length)
+          const accepted = files.filter((f) => f.size <= stream.maxChatAttachmentBytes)
+          if (accepted.length !== files.length) {
+            toast.error(
+              t("attachments.someTooLarge", "Some files exceed the {{limit}} MB limit", {
+                limit: Math.round(stream.maxChatAttachmentBytes / (1024 * 1024)),
+              }),
+            )
+          }
+          if (accepted.length > remaining) {
+            toast.error(t("attachments.tooMany", "A message can contain at most 64 files"))
+          }
+          const drafts = accepted.slice(0, remaining).map((f) => createDraftAttachment(f, "drop"))
+          if (drafts.length > 0) {
+            stream.setAttachedFiles((prev) => [...prev, ...drafts])
+          }
         }
         setDragOver(false)
       }}

@@ -490,7 +490,8 @@ export const KnowledgeChatPanel = forwardRef<KnowledgeChatPanelHandle, Props>(
             sessionTemperature={session.sessionTemperature}
             onSessionTemperatureChange={session.handleTemperatureChange}
             attachedFiles={stream.attachedFiles}
-            onAttachFiles={stream.setAttachedFiles}
+            maxAttachmentBytes={stream.maxChatAttachmentBytes}
+            onAttachFiles={(files) => stream.setAttachedFiles((prev) => [...prev, ...files])}
             onRemoveFile={(i) =>
               stream.setAttachedFiles((prev) => prev.filter((_, idx) => idx !== i))
             }
