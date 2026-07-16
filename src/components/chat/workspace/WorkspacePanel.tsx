@@ -19098,15 +19098,24 @@ function GoalControlStrip({
     editTemplate?.taskTypes.find((taskType) => taskType === editTaskType) ??
     editTemplate?.taskTypes[0] ??
     ""
+  const goalEditTemplateValue = goal
+    ? goalDomainTemplateValue(goal)
+    : GOAL_DOMAIN_FREE_VALUE
 
   /* eslint-disable react-hooks/set-state-in-effect -- durable Goal changes intentionally reset the local editor draft */
   useEffect(() => {
     setEditObjective(goal?.objective ?? "")
     setEditCriteria(goal?.completionCriteria ?? "")
-    setEditTemplateId(goal ? goalDomainTemplateValue(goal) : GOAL_DOMAIN_FREE_VALUE)
+    setEditTemplateId(goalEditTemplateValue)
     setEditTaskType(goal?.workflowTaskType ?? "")
     setEditOpen(false)
-  }, [goal])
+  }, [
+    goal?.completionCriteria,
+    goal?.id,
+    goal?.objective,
+    goal?.workflowTaskType,
+    goalEditTemplateValue,
+  ])
 
   useEffect(() => {
     const nextRequest = editRequest ?? 0
