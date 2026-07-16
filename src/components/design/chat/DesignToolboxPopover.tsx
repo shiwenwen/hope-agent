@@ -131,8 +131,10 @@ export function DesignToolboxPopover({ recipes, onPick, kindLabel, systemId }: P
                     onMouseEnter={() => setPreview(r)}
                     onFocus={() => setPreview(r)}
                     className={cn(
-                      "flex w-full flex-col gap-0.5 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-secondary/60",
-                      preview?.id === r.id && "bg-secondary/60",
+                      "flex w-full flex-col gap-0.5 rounded-lg px-2 py-1.5 text-left transition-colors",
+                      preview?.id === r.id
+                        ? "bg-secondary/70 text-foreground"
+                        : "hover:bg-secondary/40",
                     )}
                   >
                     <span className="truncate text-xs font-medium">{r.name}</span>

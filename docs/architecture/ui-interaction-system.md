@@ -182,9 +182,10 @@ Web GUI 通过 `/api/config/enhanced-focus-indicators` 读写；两者都通过
 
 ## 登记的例外
 
-聊天输入区的 `chat/input/ModelPicker` 和权限入口是工具栏 ghost action，不是表单字段：
-它们保持无边框、紧凑按钮样式；展开后的菜单仍遵守本文的浮层协议。不得把工具栏按钮
-强行包成全宽表单选择器，也不得用该例外让设置页字段绕过公共表面。
+聊天输入区的 `chat/input/ModelPicker`、权限入口，以及设计空间首页生成器 prompt dock 内的
+`ModelSelector` 是工具栏 ghost action，不是表单字段：它们保持无边框、紧凑按钮样式；
+展开后的菜单仍遵守本文的浮层协议。不得把工具栏按钮强行包成全宽表单选择器，也不得用
+该例外让设置页字段绕过公共表面。
 
 ## 代码审查清单
 

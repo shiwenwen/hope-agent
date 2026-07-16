@@ -320,8 +320,10 @@ export function DesignSystemPicker({
                 onMouseEnter={() => setHoverTarget(NONE_PREVIEW)}
                 onFocus={() => setHoverTarget(NONE_PREVIEW)}
                 className={cn(
-                  "mt-1.5 flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm hover:bg-accent",
-                  value == null && "bg-accent",
+                  "mt-1.5 flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm",
+                  value == null
+                    ? "bg-secondary/70 text-foreground"
+                    : "hover:bg-secondary/40",
                 )}
               >
                 <span className="flex-1">{t("design.systemNone", "无设计系统")}</span>
@@ -343,8 +345,10 @@ export function DesignSystemPicker({
                   <div
                     key={s.id}
                     className={cn(
-                      "group/sys flex items-center gap-1 rounded-md pr-1 hover:bg-accent",
-                      value === s.id && "bg-accent",
+                      "group/sys flex items-center gap-1 rounded-md pr-1",
+                      value === s.id
+                        ? "bg-secondary/70 text-foreground"
+                        : "hover:bg-secondary/40",
                     )}
                   >
                     {editingId === s.id ? (
