@@ -55,6 +55,11 @@ pub async fn download(
 pub async fn upload(multipart: Multipart) -> Result<Json<Value>, AppError> {
     let upload = parse_file_upload(multipart).await?;
     validate_safe_filename(&upload.file_name)?;
+    if upload.file_data.len() > ha_core::attachments::MAX_AVATAR_BYTES {
+        return Err(AppError::bad_request(
+            "avatar exceeds the 10 MiB safety limit",
+        ));
+    }
 
     let dir = paths::avatars_dir().map_err(|e| AppError::internal(e.to_string()))?;
     tokio::fs::create_dir_all(&dir)
@@ -62,9 +67,12 @@ pub async fn upload(multipart: Multipart) -> Result<Json<Value>, AppError> {
         .map_err(|e| AppError::internal(format!("create avatars dir: {}", e)))?;
 
     let path = dir.join(&upload.file_name);
-    tokio::fs::write(&path, &upload.file_data)
+    let bytes = upload.file_data;
+    let write_path = path.clone();
+    tokio::task::spawn_blocking(move || ha_core::platform::write_atomic(&write_path, &bytes))
         .await
-        .map_err(|e| AppError::internal(format!("write avatar: {}", e)))?;
+        .map_err(|e| AppError::internal(format!("avatar write task: {e}")))?
+        .map_err(|e| AppError::internal(format!("write avatar: {e}")))?;
 
     Ok(Json(json!({ "path": path.to_string_lossy().to_string() })))
 }

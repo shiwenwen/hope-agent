@@ -27,6 +27,7 @@ const transportMock = vi.hoisted(() => ({
   }),
   listen: vi.fn(() => () => {}),
   resolveAssetUrl: vi.fn((path: string) => path),
+  artifactPreviewUrl: vi.fn((id: string) => `/api/canvas/projects/${id}/index.html`),
 }))
 
 vi.mock("react-i18next", () => ({
@@ -37,6 +38,7 @@ vi.mock("react-i18next", () => ({
 
 vi.mock("@/lib/transport-provider", () => ({
   getTransport: () => transportMock,
+  useTransport: () => transportMock,
 }))
 
 vi.mock("@/lib/transport", () => ({

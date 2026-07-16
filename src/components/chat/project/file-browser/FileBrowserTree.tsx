@@ -9,6 +9,7 @@ import {
   createElement,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type DragEvent,
@@ -43,6 +44,9 @@ import {
 import type { WorkspaceEntry } from "@/lib/transport"
 import type { ProjectFsApi } from "../hooks/useProjectFs"
 import type { UseTreeExpansion } from "../hooks/useTreeExpansion"
+import { useFileResource } from "@/components/chat/files/useFileResource"
+import { FILE_ACTION_META } from "@/lib/fileActions"
+import type { PreviewTarget } from "@/components/chat/files/useFilePreview"
 
 export interface DraftNode {
   /** Parent directory the draft is being created in. */
@@ -63,6 +67,9 @@ interface TreeContext {
   dragOverDir: string | null
   setDragOverDir: (d: string | null) => void
   requestDelete: (entry: WorkspaceEntry) => void
+  onCreated?: (entry: WorkspaceEntry) => void
+  onGuidedWrite?: () => void
+  onEditFile?: (entry: WorkspaceEntry) => void
 }
 
 function parentDir(rel: string): string {
@@ -87,6 +94,9 @@ export interface FileBrowserTreeProps {
    *  context menu can both trigger it. */
   draft: DraftNode | null
   onDraftChange: (draft: DraftNode | null) => void
+  onCreated?: (entry: WorkspaceEntry) => void
+  onGuidedWrite?: () => void
+  onEditFile?: (entry: WorkspaceEntry) => void
   className?: string
 }
 
@@ -98,12 +108,51 @@ export function FileBrowserTree({
   editable = false,
   draft,
   onDraftChange,
+  onCreated,
+  onGuidedWrite,
+  onEditFile,
   className,
 }: FileBrowserTreeProps) {
   const { t } = useTranslation()
   const [renaming, setRenaming] = useState<string | null>(null)
   const [dragOverDir, setDragOverDir] = useState<string | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<WorkspaceEntry | null>(null)
+  const rootTarget = useMemo<PreviewTarget>(
+    () => ({
+      kind: "workspace",
+      scope: fs.scope.scope,
+      scopeId: fs.scope.scopeId,
+      relPath: "",
+      name: "",
+      isDirectory: true,
+    }),
+    [fs.scope.scope, fs.scope.scopeId],
+  )
+  const rootActions = useFileResource(rootTarget, {
+    workspaceAccess: fs.access ?? undefined,
+    workspaceOperations: fs,
+    onGuidedAction: () => onGuidedWrite?.(),
+  })
+  const deleteTargetResource = useMemo<PreviewTarget | null>(
+    () =>
+      deleteTarget
+        ? {
+            kind: "workspace",
+            scope: fs.scope.scope,
+            scopeId: fs.scope.scopeId,
+            relPath: deleteTarget.relPath,
+            name: deleteTarget.name,
+            sizeBytes: deleteTarget.size,
+            isDirectory: deleteTarget.isDir,
+          }
+        : null,
+    [deleteTarget, fs.scope.scope, fs.scope.scopeId],
+  )
+  const deleteActions = useFileResource(deleteTargetResource, {
+    workspaceAccess: fs.access ?? undefined,
+    workspaceOperations: fs,
+    onGuidedAction: () => onGuidedWrite?.(),
+  })
 
   // Load the root level once.
   const rootState = fs.getDir("")
@@ -145,6 +194,9 @@ export function FileBrowserTree({
     dragOverDir,
     setDragOverDir,
     requestDelete: setDeleteTarget,
+    onCreated,
+    onGuidedWrite,
+    onEditFile,
   }
 
   const handleRootDrop = useCallback(
@@ -154,19 +206,22 @@ export function FileBrowserTree({
       setDragOverDir(null)
       const files = Array.from(e.dataTransfer.files)
       if (!editable || files.length === 0) return
-      const ok = await fs.uploadInto("", files)
-      if (!ok) toast.error(t("fileBrowser.uploadFailed", "Upload failed"))
+      const result = await rootActions.run("upload", { dirPath: "", files })
+      if (result === "failed") toast.error(t("fileBrowser.uploadFailed", "Upload failed"))
     },
-    [editable, fs, t],
+    [editable, rootActions, t],
   )
 
   const confirmDelete = useCallback(async () => {
     const target = deleteTarget
     setDeleteTarget(null)
     if (!target) return
-    const ok = await fs.remove(target.relPath, true)
-    if (!ok) toast.error(t("fileBrowser.deleteFailed", "Delete failed"))
-  }, [deleteTarget, fs, t])
+    const result = await deleteActions.run("delete", {
+      path: target.relPath,
+      recursive: target.isDir,
+    })
+    if (result === "failed") toast.error(t("fileBrowser.deleteFailed", "Delete failed"))
+  }, [deleteActions, deleteTarget, t])
 
   const entries = rootState?.entries ?? []
 
@@ -242,6 +297,25 @@ function TreeNode({
   const expanded = entry.isDir && expansion.isExpanded(entry.relPath)
   const childState = expanded ? fs.getDir(entry.relPath) : undefined
   const rowRef = useRef<HTMLDivElement>(null)
+  const fileTarget = useMemo<PreviewTarget>(
+    () => ({
+      kind: "workspace",
+      scope: fs.scope.scope,
+      scopeId: fs.scope.scopeId,
+      relPath: entry.relPath,
+      name: entry.name,
+      sizeBytes: entry.size,
+      isDirectory: entry.isDir,
+    }),
+    [entry, fs.scope.scope, fs.scope.scopeId],
+  )
+  const fileActions = useFileResource(fileTarget, {
+    onPreviewFile: () => ctx.onSelectFile(entry),
+    onEditFile: () => ctx.onEditFile?.(entry),
+    onGuidedAction: () => ctx.onGuidedWrite?.(),
+    workspaceAccess: fs.access ?? undefined,
+    workspaceOperations: fs,
+  })
 
   useEffect(() => {
     if (expanded && !childState) void fs.loadDir(entry.relPath)
@@ -259,18 +333,20 @@ function TreeNode({
 
   const onActivate = useCallback(() => {
     if (entry.isDir) expansion.toggle(entry.relPath)
-    else ctx.onSelectFile(entry)
-  }, [entry, expansion, ctx])
+    else void fileActions.run(fileActions.primary)
+  }, [entry.isDir, entry.relPath, expansion, fileActions])
 
   const commitRename = useCallback(
     async (nextName: string) => {
       ctx.setRenaming(null)
       const trimmed = nextName.trim()
       if (!trimmed || trimmed === entry.name) return
-      const ok = await fs.rename(entry.relPath, joinRel(parentDir(entry.relPath), trimmed))
-      if (!ok) toast.error(t("fileBrowser.renameFailed", "Rename failed"))
+      const result = await fileActions.run("rename", {
+        toPath: joinRel(parentDir(entry.relPath), trimmed),
+      })
+      if (result === "failed") toast.error(t("fileBrowser.renameFailed", "Rename failed"))
     },
-    [ctx, entry, fs, t],
+    [ctx, entry, fileActions, t],
   )
 
   const onDrop = useCallback(
@@ -281,10 +357,10 @@ function TreeNode({
       ctx.setDragOverDir(null)
       const files = Array.from(e.dataTransfer.files)
       if (files.length === 0) return
-      const ok = await fs.uploadInto(entry.relPath, files)
-      if (!ok) toast.error(t("fileBrowser.uploadFailed", "Upload failed"))
+      const result = await fileActions.run("upload", { dirPath: entry.relPath, files })
+      if (result === "failed") toast.error(t("fileBrowser.uploadFailed", "Upload failed"))
     },
-    [ctx, entry, fs, t],
+    [ctx, entry, fileActions, t],
   )
 
   const childEntries = childState?.entries ?? []
@@ -344,16 +420,22 @@ function TreeNode({
             <>
               <ContextMenuItem
                 onSelect={() => {
-                  ctx.expansion.setOpen(entry.relPath, true)
-                  ctx.setDraft({ dir: entry.relPath, isDir: false })
+                  void fileActions.run("createFile", { prepareOnly: true }).then((result) => {
+                    if (result !== "executed") return
+                    ctx.expansion.setOpen(entry.relPath, true)
+                    ctx.setDraft({ dir: entry.relPath, isDir: false })
+                  })
                 }}
               >
                 {t("fileBrowser.newFile", "New File")}
               </ContextMenuItem>
               <ContextMenuItem
                 onSelect={() => {
-                  ctx.expansion.setOpen(entry.relPath, true)
-                  ctx.setDraft({ dir: entry.relPath, isDir: true })
+                  void fileActions.run("createFolder", { prepareOnly: true }).then((result) => {
+                    if (result !== "executed") return
+                    ctx.expansion.setOpen(entry.relPath, true)
+                    ctx.setDraft({ dir: entry.relPath, isDir: true })
+                  })
                 }}
               >
                 {t("fileBrowser.newFolder", "New Folder")}
@@ -363,23 +445,37 @@ function TreeNode({
           ) : null}
           {!entry.isDir ? (
             <>
-              <ContextMenuItem onSelect={() => void openEntry(fs, entry)}>
-                {t("fileBrowser.openInSystem", "Open in system")}
-              </ContextMenuItem>
-              <ContextMenuItem onSelect={() => void downloadEntry(fs, entry)}>
-                {t("fileBrowser.download", "Download")}
-              </ContextMenuItem>
+              {fileActions.menu.map((action) => {
+                const meta = FILE_ACTION_META[action]
+                const Icon = meta.icon
+                return (
+                  <ContextMenuItem key={action} onSelect={() => fileActions.run(action)}>
+                    <Icon className="mr-2 h-3.5 w-3.5" />
+                    {t(meta.labelKey, meta.defaultLabel)}
+                  </ContextMenuItem>
+                )
+              })}
               <ContextMenuSeparator />
             </>
           ) : null}
           {ctx.editable ? (
             <>
-              <ContextMenuItem onSelect={() => ctx.setRenaming(entry.relPath)}>
+              <ContextMenuItem
+                onSelect={() => {
+                  void fileActions.run("rename", { prepareOnly: true }).then((result) => {
+                    if (result === "executed") ctx.setRenaming(entry.relPath)
+                  })
+                }}
+              >
                 {t("fileBrowser.rename", "Rename")}
               </ContextMenuItem>
               <ContextMenuItem
                 className="text-destructive focus:text-destructive"
-                onSelect={() => ctx.requestDelete(entry)}
+                onSelect={() => {
+                  void fileActions.run("delete", { prepareOnly: true }).then((result) => {
+                    if (result === "executed") ctx.requestDelete(entry)
+                  })
+                }}
               >
                 {t("fileBrowser.delete", "Delete")}
               </ContextMenuItem>
@@ -431,16 +527,44 @@ function FileTreeLoadingSkeleton({
 function DraftRow({ ctx, depth }: { ctx: TreeContext; depth: number }) {
   const { t } = useTranslation()
   const { fs, draft } = ctx
+  const directoryTarget = useMemo<PreviewTarget>(
+    () => ({
+      kind: "workspace",
+      scope: fs.scope.scope,
+      scopeId: fs.scope.scopeId,
+      relPath: draft?.dir ?? "",
+      name: draft?.dir.split("/").pop() ?? "",
+      isDirectory: true,
+    }),
+    [draft?.dir, fs.scope.scope, fs.scope.scopeId],
+  )
+  const directoryActions = useFileResource(directoryTarget, {
+    workspaceAccess: fs.access ?? undefined,
+    workspaceOperations: fs,
+    onGuidedAction: () => ctx.onGuidedWrite?.(),
+  })
   if (!draft) return null
 
   const onCommit = async (name: string) => {
     const trimmed = name.trim()
     ctx.setDraft(null)
     if (!trimmed) return
-    const ok = draft.isDir
-      ? await fs.createFolder(draft.dir, trimmed)
-      : await fs.createFile(draft.dir, trimmed)
-    if (!ok) toast.error(t("fileBrowser.createFailed", "Create failed"))
+    const result = await directoryActions.run(draft.isDir ? "createFolder" : "createFile", {
+      dirPath: draft.dir,
+      name: trimmed,
+    })
+    if (result === "failed") toast.error(t("fileBrowser.createFailed", "Create failed"))
+    else if (result === "executed" && !draft.isDir) {
+      const relPath = joinRel(draft.dir, trimmed)
+      ctx.onCreated?.({
+        name: trimmed,
+        relPath,
+        isDir: false,
+        isSymlink: false,
+        size: 0,
+        modifiedMs: Date.now(),
+      })
+    }
   }
 
   return (
@@ -510,26 +634,4 @@ function RenameInput({
       className="h-6 px-1 py-0 text-sm"
     />
   )
-}
-
-async function openEntry(fs: ProjectFsApi, entry: WorkspaceEntry) {
-  const url = await fs.rawUrl(entry.relPath, false)
-  if (url) window.open(url, "_blank")
-}
-
-async function downloadEntry(fs: ProjectFsApi, entry: WorkspaceEntry) {
-  const url = await fs.rawUrl(entry.relPath, true)
-  if (!url) return
-  if (url.startsWith("http")) {
-    const a = document.createElement("a")
-    a.href = url
-    a.download = entry.name
-    a.rel = "noopener"
-    a.target = "_blank"
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-  } else {
-    window.open(url, "_blank")
-  }
 }

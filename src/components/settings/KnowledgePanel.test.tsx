@@ -130,6 +130,7 @@ const transportMock = vi.hoisted(() => ({
 
 vi.mock("@/lib/transport-provider", () => ({
   getTransport: () => transportMock,
+  useTransport: () => transportMock,
 }))
 
 if (!HTMLElement.prototype.hasPointerCapture) {
@@ -297,8 +298,15 @@ describe("KnowledgePanel", () => {
 
     render(<KnowledgePanel />)
 
-    fireEvent.click(await screen.findByRole("button", { name: /Advanced · search ranking/i }))
-    fireEvent.click(await screen.findByRole("button", { name: /Restore defaults/i }))
+    const searchRankingToggle = await screen.findByRole("button", {
+      name: /Advanced · search ranking/i,
+    })
+    fireEvent.click(searchRankingToggle)
+    fireEvent.click(
+      await within(searchRankingToggle.parentElement as HTMLElement).findByRole("button", {
+        name: /Restore defaults/i,
+      }),
+    )
 
     await waitFor(() =>
       expect(toastMock.error).toHaveBeenCalledWith(

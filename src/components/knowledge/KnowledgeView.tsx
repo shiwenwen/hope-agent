@@ -6,6 +6,7 @@ import {
   Check,
   ChevronDown,
   ChevronRight,
+  Download,
   Inbox,
   FileText,
   Folder,
@@ -71,9 +72,11 @@ import { Switch } from "@/components/ui/switch"
 import { IconTip } from "@/components/ui/tooltip"
 import ServerDirectoryBrowser from "@/components/chat/input/ServerDirectoryBrowser"
 import { useDirectoryPicker } from "@/components/chat/input/useDirectoryPicker"
+import { useFileResource } from "@/components/chat/files/useFileResource"
+import type { PreviewTarget } from "@/components/chat/files/useFilePreview"
 import { logger } from "@/lib/logger"
 import { isTauriMode, parsePayload } from "@/lib/transport"
-import { getTransport } from "@/lib/transport-provider"
+import { useTransport } from "@/lib/transport-provider"
 import { cn } from "@/lib/utils"
 import type {
   KnowledgeExternalRawSyncMode,
@@ -101,10 +104,7 @@ import KnowledgeMaintenanceButton from "./KnowledgeMaintenanceButton"
 import KnowledgeSourcesPanel from "./KnowledgeSourcesPanel"
 import NoteSourceReferences from "./NoteSourceReferences"
 import NoteEditor, { type NoteEditorHandle } from "./NoteEditor"
-import {
-  KnowledgeChatPanel,
-  type KnowledgeChatPanelHandle,
-} from "./chat/KnowledgeChatPanel"
+import { KnowledgeChatPanel, type KnowledgeChatPanelHandle } from "./chat/KnowledgeChatPanel"
 import { QuickRewriteBar } from "./chat/QuickRewriteBar"
 import { buildKnownTargets, type WikilinkData } from "./cm/wikilinkExtensions"
 import { parseHeadings } from "./outline"
@@ -187,9 +187,8 @@ function readStoredWidth(key: string, def: number, min: number, max: number): nu
 
 export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewProps) {
   const { t } = useTranslation()
-  const tx = getTransport()
+  const tx = useTransport()
   // Desktop can reveal real files in the OS file manager; HTTP/Web cannot.
-  const isLocal = tx.supportsLocalFileOps()
   const showKnowledgeViewError = useCallback(
     (operation: KnowledgeViewOperation, error: unknown, options?: Record<string, unknown>) => {
       const failureToast = knowledgeViewOperationErrorToast(operation, t, error, options)
@@ -553,7 +552,8 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
   const readOnly = (activeKb?.external ?? false) && !(activeKb?.allowExternalWrites ?? false)
   // Split the open note path into a folder prefix (shown muted, non-editable) and
   // the filename (the editable "title") so renaming never touches the folder.
-  const openDir = openPath && openPath.includes("/") ? openPath.slice(0, openPath.lastIndexOf("/")) : ""
+  const openDir =
+    openPath && openPath.includes("/") ? openPath.slice(0, openPath.lastIndexOf("/")) : ""
   const openBase = openPath ? openPath.slice(openDir ? openDir.length + 1 : 0) : ""
 
   // ── Loaders ──
@@ -788,7 +788,9 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
     setEditorValue("")
     setBaseHash(null)
     setDirty(false)
-    toast.error(t("knowledge.noteRemovedExternally", "This note was removed or moved outside the app."))
+    toast.error(
+      t("knowledge.noteRemovedExternally", "This note was removed or moved outside the app."),
+    )
   }, [notes, openPath, draftMode, openKbId, activeKbId, t])
 
   // Mirror the live editor text into a ref for the chat panel's per-turn
@@ -861,7 +863,19 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
         })()
       }
     })
-  }, [tx, loadKbs, loadNotes, loadDirs, loadTags, activeKbId, openKbId, openPath, dirty, draftMode, baseHash])
+  }, [
+    tx,
+    loadKbs,
+    loadNotes,
+    loadDirs,
+    loadTags,
+    activeKbId,
+    openKbId,
+    openPath,
+    dirty,
+    draftMode,
+    baseHash,
+  ])
 
   // Switching / closing the note invalidates any pending external-change
   // conflict (a fresh open re-establishes baseHash from disk).
@@ -873,7 +887,11 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
   const wikilinkData: WikilinkData = useMemo(
     () => ({
       notes: notes.map((n) => ({
-        label: n.relPath.replace(/\.(md|markdown)$/i, "").split("/").pop() ?? n.relPath,
+        label:
+          n.relPath
+            .replace(/\.(md|markdown)$/i, "")
+            .split("/")
+            .pop() ?? n.relPath,
         detail: n.relPath,
       })),
       tags: kbTags,
@@ -994,7 +1012,11 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
       if (!activeKbId || readOnly) return false
       // Derive a flat, traversal-safe filename from the title (backend re-checks),
       // then scope it under the draft's folder.
-      const base = title.replace(/[/\\]+/g, "-").replace(/^\.+/, "").trim() || "untitled"
+      const base =
+        title
+          .replace(/[/\\]+/g, "-")
+          .replace(/^\.+/, "")
+          .trim() || "untitled"
       const dir = draftFolder ? `${draftFolder}/` : ""
       const existing = new Set(notes.map((n) => n.relPath.toLowerCase()))
       let rel = `${dir}${base}.md`
@@ -1029,7 +1051,17 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
         return false
       }
     },
-    [tx, activeKbId, readOnly, draftFolder, editorValue, notes, loadNotes, openNote, showKnowledgeViewError],
+    [
+      tx,
+      activeKbId,
+      readOnly,
+      draftFolder,
+      editorValue,
+      notes,
+      loadNotes,
+      openNote,
+      showKnowledgeViewError,
+    ],
   )
 
   // Resolve a broken outgoing `[[ref]]` in one click: create the missing note at
@@ -1063,7 +1095,12 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
         await loadNotes(activeKbId)
         await openNote(activeKbId, p)
       } catch (e) {
-        logger.error("knowledge", "KnowledgeView::createNoteFromRef", "create note from link failed", e)
+        logger.error(
+          "knowledge",
+          "KnowledgeView::createNoteFromRef",
+          "create note from link failed",
+          e,
+        )
         showKnowledgeViewError("createLinkedNote", e)
       }
     },
@@ -1222,22 +1259,6 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
     [tx, activeKbId, readOnly, openPath, loadNotes, showKnowledgeViewError],
   )
 
-  // Desktop-only: resolve the note to an absolute path and reveal it in the OS
-  // file manager (same dispatch as the chat workspace's "Reveal in folder").
-  const revealNote = useCallback(
-    async (rel: string) => {
-      if (!activeKbId || !isLocal) return
-      try {
-        const abs = await tx.call<string>("kb_file_resolve_cmd", { kbId: activeKbId, path: rel })
-        await tx.call("reveal_in_folder", { path: abs })
-      } catch (e) {
-        logger.error("knowledge", "KnowledgeView::revealNote", "reveal note failed", e)
-        showKnowledgeViewError("revealNote", e, { name: rel })
-      }
-    },
-    [tx, activeKbId, isLocal, showKnowledgeViewError],
-  )
-
   const toggleFolder = useCallback((path: string) => {
     setCollapsedFolders((prev) => {
       const next = new Set(prev)
@@ -1277,13 +1298,16 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
         showKnowledgeViewError("renameMove", e, { name: oldPath })
       }
     },
-    [tx, activeKbId, readOnly, openPath, loadNotes, loadDirs, openNote, showKnowledgeViewError],
+    [tx, activeKbId, readOnly, openPath, loadNotes, loadDirs, openNote, showKnowledgeViewError, t],
   )
 
   // Rename a folder in place (same parent, new last segment).
   const renameFolder = useCallback(
     async (oldPath: string, rawName: string) => {
-      const name = rawName.trim().replace(/[/\\]+/g, "-").replace(/^\.+/, "")
+      const name = rawName
+        .trim()
+        .replace(/[/\\]+/g, "-")
+        .replace(/^\.+/, "")
       if (!name) return
       const parent = oldPath.includes("/") ? oldPath.slice(0, oldPath.lastIndexOf("/")) : ""
       try {
@@ -1382,7 +1406,8 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
   ])
 
   const syncEditKbExternalRaw = useCallback(async () => {
-    if (!editKb || !editKb.external || !editKbAllowExternal || editKbExternalRawSync === "disabled") return
+    if (!editKb || !editKb.external || !editKbAllowExternal || editKbExternalRawSync === "disabled")
+      return
     const name = editKbName.trim()
     if (!name || syncingExternalRaw) return
     setSyncingExternalRaw(true)
@@ -1416,7 +1441,12 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
       }
       await loadKbs()
     } catch (e) {
-      logger.error("knowledge", "KnowledgeView::syncEditKbExternalRaw", "external raw sync failed", e)
+      logger.error(
+        "knowledge",
+        "KnowledgeView::syncEditKbExternalRaw",
+        "external raw sync failed",
+        e,
+      )
       showKnowledgeViewError("syncExternalRaw", e)
     } finally {
       setSyncingExternalRaw(false)
@@ -1505,13 +1535,16 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
   }
 
   // Run `action` now if nothing is unsaved, otherwise park it behind the guard.
-  const guardNavigation = (action: () => void) => {
-    if (!hasUnsaved) {
-      action()
-      return
-    }
-    setPendingNav(() => action)
-  }
+  const guardNavigation = useCallback(
+    (action: () => void) => {
+      if (!hasUnsaved) {
+        action()
+        return
+      }
+      setPendingNav(() => action)
+    },
+    [hasUnsaved],
+  )
 
   useEffect(() => {
     if (!pendingKnowledgeFocus) return
@@ -1554,17 +1587,13 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
         const kbKnown = kbs.some((kb) => kb.id === target.kbId)
         const message =
           kbs.length > 0 && !kbKnown
-            ? t(
-                "knowledge.focusKbUnavailable",
-                { defaultValue: "That knowledge space is no longer available." },
-              )
-            : t(
-                "knowledge.focusNoteUnavailable",
-                {
-                  defaultValue:
-                    "Couldn't open that knowledge note. It may have moved or access changed.",
-                },
-              )
+            ? t("knowledge.focusKbUnavailable", {
+                defaultValue: "That knowledge space is no longer available.",
+              })
+            : t("knowledge.focusNoteUnavailable", {
+                defaultValue:
+                  "Couldn't open that knowledge note. It may have moved or access changed.",
+              })
         const detail = knowledgeFocusErrorDescription(t, opened.error)
         toast.error(message, { description: detail ? `${target.path}\n${detail}` : target.path })
       })()
@@ -1618,7 +1647,10 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
   // Create a real (empty) directory and refresh — the folder just appears, no
   // draft document is opened.
   const confirmNewFolder = () => {
-    const name = newFolderValue.trim().replace(/[/\\]+/g, "-").replace(/^\.+/, "")
+    const name = newFolderValue
+      .trim()
+      .replace(/[/\\]+/g, "-")
+      .replace(/^\.+/, "")
     if (!name || !activeKbId) return
     const parent = newFolderParent
     const folder = parent ? `${parent}/${name}` : name
@@ -1647,9 +1679,7 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
   const renderNote = (node: Extract<TreeNode, { type: "note" }>, depth: number) => {
     const n = node.note
     const pad = { paddingLeft: depth * 14 + 8 }
-    const noteParent = n.relPath.includes("/")
-      ? n.relPath.slice(0, n.relPath.lastIndexOf("/"))
-      : ""
+    const noteParent = n.relPath.includes("/") ? n.relPath.slice(0, n.relPath.lastIndexOf("/")) : ""
     if (renamingPath === n.relPath) {
       return (
         <div key={n.id} className="py-0.5 pr-2" style={pad}>
@@ -1746,12 +1776,7 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
             <FolderInput className="mr-2 h-3.5 w-3.5" />
             {t("knowledge.moveTo", "Move to…")}
           </ContextMenuItem>
-          {isLocal && (
-            <ContextMenuItem onClick={() => void revealNote(n.relPath)}>
-              <FolderOpen className="mr-2 h-3.5 w-3.5" />
-              {t("fileActions.revealInFolder", "Reveal in folder")}
-            </ContextMenuItem>
-          )}
+          {activeKbId ? <KnowledgeNoteFileMenuItems kbId={activeKbId} path={n.relPath} /> : null}
           <ContextMenuItem onClick={() => void reindexNote(n.relPath)}>
             <RefreshCw className="mr-2 h-3.5 w-3.5" />
             {t("knowledge.reindex", "Reindex")}
@@ -1890,7 +1915,9 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
       ? moveItem.path.slice(0, moveItem.path.lastIndexOf("/"))
       : ""
     if (dest === curParent) return true
-    return moveItem.type === "folder" && (dest === moveItem.path || dest.startsWith(`${moveItem.path}/`))
+    return (
+      moveItem.type === "folder" && (dest === moveItem.path || dest.startsWith(`${moveItem.path}/`))
+    )
   }
 
   const renderMoveRow = (label: string, path: string, depth: number) => {
@@ -2003,74 +2030,69 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
         {/* Right cluster — shrink-0 so it's never clipped; the search input above
             absorbs window shrinkage instead. */}
         <div className="flex shrink-0 items-center gap-2">
-        {onOpenSettings && <KnowledgeEmbeddingBadge onOpenSettings={onOpenSettings} />}
-        {onOpenSettings && (
-          <IconTip label={t("knowledge.openSettings", "Knowledge space settings")} side="bottom">
+          {onOpenSettings && <KnowledgeEmbeddingBadge onOpenSettings={onOpenSettings} />}
+          {onOpenSettings && (
+            <IconTip label={t("knowledge.openSettings", "Knowledge space settings")} side="bottom">
+              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onOpenSettings}>
+                <Settings className="h-4 w-4" />
+              </Button>
+            </IconTip>
+          )}
+          <IconTip label={t("knowledge.graph.toggle", "Graph view")} side="bottom">
             <Button
               variant="ghost"
               size="icon"
-              className="h-7 w-7"
-              onClick={onOpenSettings}
+              className={cn("h-7 w-7", graphMode && "bg-primary/15 text-primary")}
+              disabled={!activeKbId}
+              onClick={() => setGraphMode((g) => !g)}
             >
-              <Settings className="h-4 w-4" />
+              <Waypoints className="h-4 w-4" />
             </Button>
           </IconTip>
-        )}
-        <IconTip label={t("knowledge.graph.toggle", "Graph view")} side="bottom">
-          <Button
-            variant="ghost"
-            size="icon"
-            className={cn("h-7 w-7", graphMode && "bg-primary/15 text-primary")}
-            disabled={!activeKbId}
-            onClick={() => setGraphMode((g) => !g)}
-          >
-            <Waypoints className="h-4 w-4" />
-          </Button>
-        </IconTip>
-        <KnowledgeMaintenanceButton
-          // Remount per space so a previous KB's broken/orphan lists never render
-          // under the new one, and an in-flight refresh for the old KB can't
-          // overwrite the new KB's state (it resolves on the unmounted instance).
-          key={activeKbId ?? "none"}
-          kbId={activeKbId}
-          onOpenNote={(path, line) => {
-            if (activeKbId)
-              guardNavigation(() => void openNote(activeKbId, path, line ? { line } : undefined))
-          }}
-        />
-        <KnowledgeActivityButton kbs={kbs} />
-        {!graphMode && (
-          <IconTip
-            label={
-              rightCollapsed
-                ? t("knowledge.expandRight", "Expand panel")
-                : t("knowledge.collapseRight", "Collapse panel")
-            }
-            side="bottom"
-          >
-            <Button
-              variant="ghost"
-              size="icon"
-              className={cn(
-                "h-8 w-8",
-                rightCollapsed ? "text-muted-foreground" : "text-foreground",
-              )}
-              aria-label={
+          <KnowledgeMaintenanceButton
+            // Remount per space so a previous KB's broken/orphan lists never render
+            // under the new one, and an in-flight refresh for the old KB can't
+            // overwrite the new KB's state (it resolves on the unmounted instance).
+            key={activeKbId ?? "none"}
+            kbId={activeKbId}
+            onOpenNote={(path, line) => {
+              if (activeKbId)
+                guardNavigation(() => void openNote(activeKbId, path, line ? { line } : undefined))
+            }}
+          />
+          <KnowledgeActivityButton kbs={kbs} />
+          {!graphMode && (
+            <IconTip
+              label={
                 rightCollapsed
                   ? t("knowledge.expandRight", "Expand panel")
                   : t("knowledge.collapseRight", "Collapse panel")
               }
-              aria-expanded={!rightCollapsed}
-              onClick={() => handleRightCollapsedChange(!rightCollapsed)}
+              side="bottom"
             >
-              {rightCollapsed ? (
-                <PanelRightDashed className="h-4 w-4" />
-              ) : (
-                <PanelRight className="h-4 w-4" />
-              )}
-            </Button>
-          </IconTip>
-        )}
+              <Button
+                variant="ghost"
+                size="icon"
+                className={cn(
+                  "h-8 w-8",
+                  rightCollapsed ? "text-muted-foreground" : "text-foreground",
+                )}
+                aria-label={
+                  rightCollapsed
+                    ? t("knowledge.expandRight", "Expand panel")
+                    : t("knowledge.collapseRight", "Collapse panel")
+                }
+                aria-expanded={!rightCollapsed}
+                onClick={() => handleRightCollapsedChange(!rightCollapsed)}
+              >
+                {rightCollapsed ? (
+                  <PanelRightDashed className="h-4 w-4" />
+                ) : (
+                  <PanelRight className="h-4 w-4" />
+                )}
+              </Button>
+            </IconTip>
+          )}
         </div>
       </div>
 
@@ -2102,236 +2124,236 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
                   : "translate-x-0 opacity-100",
               )}
             >
-          <div className="flex items-center justify-between border-b border-border-soft/60 px-2 py-1.5">
-            <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-              {t("knowledge.spaces", "Spaces")}
-            </span>
-            <IconTip label={t("knowledge.showArchived", "Show archived")} side="bottom">
-              <Button
-                variant="ghost"
-                size="icon"
-                className={cn(
-                  "h-6 w-6",
-                  includeArchived ? "text-primary" : "text-muted-foreground",
-                )}
-                onClick={() => setIncludeArchived((v) => !v)}
-              >
-                <Archive className="h-3 w-3" />
-              </Button>
-            </IconTip>
-          </div>
-          <div className="max-h-48 overflow-auto">
-            {kbs.length === 0 && (
-              <div className="px-3 py-2 text-xs text-muted-foreground">
-                {t("knowledge.noSpaces", "No knowledge spaces yet.")}
-              </div>
-            )}
-            {kbs.map((kb) => (
-              <ContextMenu key={kb.id}>
-                <ContextMenuTrigger asChild>
-                  <button
-                    onClick={() =>
-                      guardNavigation(() => {
-                        setActiveKbId(kb.id)
-                        setOpenPath(null)
-                        setNoteData(null)
-                        setDraftMode(false)
-                      })
-                    }
-                    className={cn(
-                      "flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs hover:bg-muted/50",
-                      kb.id === activeKbId && "bg-primary/10 text-primary",
-                      kb.archived && "opacity-60",
-                    )}
-                  >
-                    <span className="shrink-0">{kb.emoji || "📚"}</span>
-                    <span className="flex-1 truncate">{kb.name}</span>
-                    {kb.archived && (
-                      <Archive className="h-3 w-3 shrink-0 text-muted-foreground" />
-                    )}
-                    {kb.external &&
-                      (kb.allowExternalWrites ? (
-                        // External vault with editing unlocked (WS7).
-                        <Pencil className="h-3 w-3 shrink-0 text-muted-foreground" />
-                      ) : (
-                        <Lock className="h-3 w-3 shrink-0 text-muted-foreground" />
-                      ))}
-                    {isKbBusy(kb.id) ? (
-                      // A reembed/scan job (bind, per-space Reindex, or the
-                      // rare "rebuild everything") is actively running for
-                      // this space.
-                      <Loader2 className="h-3 w-3 shrink-0 animate-spin text-primary" />
-                    ) : (
-                      recentlyChangedKbIds.has(kb.id) && (
-                        // A silent watcher / startup sync just touched this
-                        // space — no job, self-clears in ~1.5s.
-                        <span className="relative flex h-1.5 w-1.5 shrink-0">
-                          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary/70" />
-                          <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-primary" />
-                        </span>
-                      )
-                    )}
-                    <span className="shrink-0 text-[10px] text-muted-foreground">
-                      {kb.noteCount}
-                    </span>
-                  </button>
-                </ContextMenuTrigger>
-                <ContextMenuContent variant="floating">
-                  <ContextMenuItem onClick={() => openEditKb(kb)}>
-                    <Pencil className="mr-2 h-3.5 w-3.5" />
-                    {t("knowledge.editSpace", "Edit space")}
-                  </ContextMenuItem>
-                  <ContextMenuItem
-                    onClick={() =>
-                      // Archiving the active space drops its editor — guard unsaved
-                      // edits; archiving any other space can't affect the editor.
-                      kb.id === activeKbId
-                        ? guardNavigation(() => void toggleArchiveKb(kb))
-                        : void toggleArchiveKb(kb)
-                    }
-                  >
-                    {kb.archived ? (
-                      <>
-                        <ArchiveRestore className="mr-2 h-3.5 w-3.5" />
-                        {t("knowledge.unarchive", "Unarchive")}
-                      </>
-                    ) : (
-                      <>
-                        <Archive className="mr-2 h-3.5 w-3.5" />
-                        {t("knowledge.archive", "Archive")}
-                      </>
-                    )}
-                  </ContextMenuItem>
-                  <ContextMenuItem onClick={() => void reindexSpace(kb.id)}>
-                    <RefreshCw className="mr-2 h-3.5 w-3.5" />
-                    {t("knowledge.reindex", "Reindex")}
-                  </ContextMenuItem>
-                  <ContextMenuItem
-                    className="text-destructive focus:text-destructive"
-                    onClick={() => setDeleteKb(kb)}
-                  >
-                    <Trash2 className="mr-2 h-3.5 w-3.5" />
-                    {t("knowledge.deleteSpace", "Delete space")}
-                  </ContextMenuItem>
-                </ContextMenuContent>
-              </ContextMenu>
-            ))}
-          </div>
-
-          <div className="grid grid-cols-2 border-b border-t border-border-soft/60 p-1">
-            <button
-              type="button"
-              className={cn(
-                "flex h-7 items-center justify-center gap-1.5 rounded-md text-xs transition-colors",
-                leftMode === "notes"
-                  ? "bg-background text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-              onClick={() => setLeftMode("notes")}
-            >
-              <FileText className="h-3.5 w-3.5" />
-              {t("knowledge.notes", "Notes")}
-            </button>
-            <button
-              type="button"
-              className={cn(
-                "flex h-7 items-center justify-center gap-1.5 rounded-md text-xs transition-colors",
-                leftMode === "sources"
-                  ? "bg-background text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-              onClick={() => setLeftMode("sources")}
-            >
-              <Inbox className="h-3.5 w-3.5" />
-              {t("knowledge.sources.title", "Sources")}
-            </button>
-          </div>
-          {leftMode === "notes" ? (
-            <>
               <div className="flex items-center justify-between border-b border-border-soft/60 px-2 py-1.5">
                 <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                  {t("knowledge.notes", "Notes")}
+                  {t("knowledge.spaces", "Spaces")}
                 </span>
-                <div className="flex items-center gap-1">
-                  <IconTip
-                    label={
-                      reindexActive
-                        ? `${t("knowledge.reindexing", "Reindexing…")}${reindexProgress}`
-                        : t("knowledge.reindex", "Reindex")
-                    }
-                    side="bottom"
+                <IconTip label={t("knowledge.showArchived", "Show archived")} side="bottom">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className={cn(
+                      "h-6 w-6",
+                      includeArchived ? "text-primary" : "text-muted-foreground",
+                    )}
+                    onClick={() => setIncludeArchived((v) => !v)}
                   >
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-6 w-6"
-                      onClick={reindex}
-                      disabled={reindexActive}
-                    >
-                      <RefreshCw className={cn("h-3 w-3", reindexActive && "animate-spin")} />
-                    </Button>
-                  </IconTip>
-                  {!readOnly && activeKbId && (
-                    <>
-                      <IconTip label={t("knowledge.newFolder", "New folder")} side="bottom">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-6 w-6"
-                          onClick={() => {
-                            setNewFolderParent("")
-                            setNewFolderValue("")
-                            setNewFolderOpen(true)
-                          }}
-                        >
-                          <FolderPlus className="h-3 w-3" />
-                        </Button>
-                      </IconTip>
-                      <IconTip label={t("knowledge.newNote", "New note")} side="bottom">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-6 w-6"
-                          onClick={() => guardNavigation(() => startDraft())}
-                        >
-                          <Plus className="h-3 w-3" />
-                        </Button>
-                      </IconTip>
-                    </>
+                    <Archive className="h-3 w-3" />
+                  </Button>
+                </IconTip>
+              </div>
+              <div className="max-h-48 overflow-auto">
+                {kbs.length === 0 && (
+                  <div className="px-3 py-2 text-xs text-muted-foreground">
+                    {t("knowledge.noSpaces", "No knowledge spaces yet.")}
+                  </div>
+                )}
+                {kbs.map((kb) => (
+                  <ContextMenu key={kb.id}>
+                    <ContextMenuTrigger asChild>
+                      <button
+                        onClick={() =>
+                          guardNavigation(() => {
+                            setActiveKbId(kb.id)
+                            setOpenPath(null)
+                            setNoteData(null)
+                            setDraftMode(false)
+                          })
+                        }
+                        className={cn(
+                          "flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs hover:bg-muted/50",
+                          kb.id === activeKbId && "bg-primary/10 text-primary",
+                          kb.archived && "opacity-60",
+                        )}
+                      >
+                        <span className="shrink-0">{kb.emoji || "📚"}</span>
+                        <span className="flex-1 truncate">{kb.name}</span>
+                        {kb.archived && (
+                          <Archive className="h-3 w-3 shrink-0 text-muted-foreground" />
+                        )}
+                        {kb.external &&
+                          (kb.allowExternalWrites ? (
+                            // External vault with editing unlocked (WS7).
+                            <Pencil className="h-3 w-3 shrink-0 text-muted-foreground" />
+                          ) : (
+                            <Lock className="h-3 w-3 shrink-0 text-muted-foreground" />
+                          ))}
+                        {isKbBusy(kb.id) ? (
+                          // A reembed/scan job (bind, per-space Reindex, or the
+                          // rare "rebuild everything") is actively running for
+                          // this space.
+                          <Loader2 className="h-3 w-3 shrink-0 animate-spin text-primary" />
+                        ) : (
+                          recentlyChangedKbIds.has(kb.id) && (
+                            // A silent watcher / startup sync just touched this
+                            // space — no job, self-clears in ~1.5s.
+                            <span className="relative flex h-1.5 w-1.5 shrink-0">
+                              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary/70" />
+                              <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-primary" />
+                            </span>
+                          )
+                        )}
+                        <span className="shrink-0 text-[10px] text-muted-foreground">
+                          {kb.noteCount}
+                        </span>
+                      </button>
+                    </ContextMenuTrigger>
+                    <ContextMenuContent variant="floating">
+                      <ContextMenuItem onClick={() => openEditKb(kb)}>
+                        <Pencil className="mr-2 h-3.5 w-3.5" />
+                        {t("knowledge.editSpace", "Edit space")}
+                      </ContextMenuItem>
+                      <ContextMenuItem
+                        onClick={() =>
+                          // Archiving the active space drops its editor — guard unsaved
+                          // edits; archiving any other space can't affect the editor.
+                          kb.id === activeKbId
+                            ? guardNavigation(() => void toggleArchiveKb(kb))
+                            : void toggleArchiveKb(kb)
+                        }
+                      >
+                        {kb.archived ? (
+                          <>
+                            <ArchiveRestore className="mr-2 h-3.5 w-3.5" />
+                            {t("knowledge.unarchive", "Unarchive")}
+                          </>
+                        ) : (
+                          <>
+                            <Archive className="mr-2 h-3.5 w-3.5" />
+                            {t("knowledge.archive", "Archive")}
+                          </>
+                        )}
+                      </ContextMenuItem>
+                      <ContextMenuItem onClick={() => void reindexSpace(kb.id)}>
+                        <RefreshCw className="mr-2 h-3.5 w-3.5" />
+                        {t("knowledge.reindex", "Reindex")}
+                      </ContextMenuItem>
+                      <ContextMenuItem
+                        className="text-destructive focus:text-destructive"
+                        onClick={() => setDeleteKb(kb)}
+                      >
+                        <Trash2 className="mr-2 h-3.5 w-3.5" />
+                        {t("knowledge.deleteSpace", "Delete space")}
+                      </ContextMenuItem>
+                    </ContextMenuContent>
+                  </ContextMenu>
+                ))}
+              </div>
+
+              <div className="grid grid-cols-2 border-b border-t border-border-soft/60 p-1">
+                <button
+                  type="button"
+                  className={cn(
+                    "flex h-7 items-center justify-center gap-1.5 rounded-md text-xs transition-colors",
+                    leftMode === "notes"
+                      ? "bg-background text-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground",
                   )}
-                </div>
+                  onClick={() => setLeftMode("notes")}
+                >
+                  <FileText className="h-3.5 w-3.5" />
+                  {t("knowledge.notes", "Notes")}
+                </button>
+                <button
+                  type="button"
+                  className={cn(
+                    "flex h-7 items-center justify-center gap-1.5 rounded-md text-xs transition-colors",
+                    leftMode === "sources"
+                      ? "bg-background text-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground",
+                  )}
+                  onClick={() => setLeftMode("sources")}
+                >
+                  <Inbox className="h-3.5 w-3.5" />
+                  {t("knowledge.sources.title", "Sources")}
+                </button>
               </div>
-              <div
-                className={cn(
-                  "flex-1 overflow-auto py-0.5",
-                  dragOver === "" && dragItem && "bg-primary/5",
-                  noteTree.length === 0 && "flex flex-col",
-                )}
-                onDragOver={(e) => {
-                  if (!dragItemRef.current || readOnly) return
-                  e.preventDefault()
-                  setDragOver("")
-                }}
-                onDrop={(e) => {
-                  e.preventDefault()
-                  handleDropOn("")
-                }}
-              >
-                {noteTree.length === 0 ? (
-                  <KnowledgeEmptyState
-                    kb={activeKb}
-                    readOnly={readOnly}
-                    onNewNote={() => guardNavigation(() => startDraft())}
-                    onImport={() => setLeftMode("sources")}
-                  />
-                ) : (
-                  renderNodes(noteTree, 0)
-                )}
-              </div>
-            </>
-          ) : (
-            <KnowledgeSourcesPanel kbId={activeKbId} />
-          )}
+              {leftMode === "notes" ? (
+                <>
+                  <div className="flex items-center justify-between border-b border-border-soft/60 px-2 py-1.5">
+                    <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                      {t("knowledge.notes", "Notes")}
+                    </span>
+                    <div className="flex items-center gap-1">
+                      <IconTip
+                        label={
+                          reindexActive
+                            ? `${t("knowledge.reindexing", "Reindexing…")}${reindexProgress}`
+                            : t("knowledge.reindex", "Reindex")
+                        }
+                        side="bottom"
+                      >
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6"
+                          onClick={reindex}
+                          disabled={reindexActive}
+                        >
+                          <RefreshCw className={cn("h-3 w-3", reindexActive && "animate-spin")} />
+                        </Button>
+                      </IconTip>
+                      {!readOnly && activeKbId && (
+                        <>
+                          <IconTip label={t("knowledge.newFolder", "New folder")} side="bottom">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-6 w-6"
+                              onClick={() => {
+                                setNewFolderParent("")
+                                setNewFolderValue("")
+                                setNewFolderOpen(true)
+                              }}
+                            >
+                              <FolderPlus className="h-3 w-3" />
+                            </Button>
+                          </IconTip>
+                          <IconTip label={t("knowledge.newNote", "New note")} side="bottom">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-6 w-6"
+                              onClick={() => guardNavigation(() => startDraft())}
+                            >
+                              <Plus className="h-3 w-3" />
+                            </Button>
+                          </IconTip>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                  <div
+                    className={cn(
+                      "flex-1 overflow-auto py-0.5",
+                      dragOver === "" && dragItem && "bg-primary/5",
+                      noteTree.length === 0 && "flex flex-col",
+                    )}
+                    onDragOver={(e) => {
+                      if (!dragItemRef.current || readOnly) return
+                      e.preventDefault()
+                      setDragOver("")
+                    }}
+                    onDrop={(e) => {
+                      e.preventDefault()
+                      handleDropOn("")
+                    }}
+                  >
+                    {noteTree.length === 0 ? (
+                      <KnowledgeEmptyState
+                        kb={activeKb}
+                        readOnly={readOnly}
+                        onNewNote={() => guardNavigation(() => startDraft())}
+                        onImport={() => setLeftMode("sources")}
+                      />
+                    ) : (
+                      renderNodes(noteTree, 0)
+                    )}
+                  </div>
+                </>
+              ) : (
+                <KnowledgeSourcesPanel kbId={activeKbId} />
+              )}
             </div>
           </div>
           <div
@@ -2359,469 +2381,486 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
           />
         ) : (
           <>
-        {/* Center: editor */}
-        <div
-          ref={centerRef}
-          className="flex flex-1 min-w-0 flex-col"
-          style={{ minWidth: `min(100%, ${KB_CONTENT_MIN_WIDTH}px)` }}
-        >
-          {draftMode ? (
-            <>
-              <div className="flex items-center gap-2 border-b border-border-soft/60 px-3 py-1.5">
-                {draftFolder ? (
-                  <span
-                    className="flex shrink-0 items-center gap-1 truncate text-xs text-muted-foreground"
-                    data-ha-title-tip={draftFolder}
-                  >
-                    <Folder className="h-3 w-3 shrink-0" />
-                    {draftFolder}/
-                  </span>
-                ) : null}
-                <Input
-                  value={draftTitle}
-                  onChange={(e) => setDraftTitle(e.target.value)}
-                  placeholder={t("knowledge.titlePlaceholder", "Untitled")}
-                  autoFocus
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) void saveDraft()
-                  }}
-                  className="h-7 flex-1 border-0 bg-transparent px-1 text-sm font-medium shadow-none"
-                />
-                <ModeSwitch mode={mode} onChange={handleModeChange} compact={compactToolbar} />
-                <Button variant="outline" size="sm" className="h-7" disabled={saving} onClick={saveDraft}>
-                  {saving ? (
-                    <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <Save className="mr-1 h-3.5 w-3.5" />
-                  )}
-                  {t("common.save", "Save")}
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-7"
-                  onClick={() => guardNavigation(() => setDraftMode(false))}
-                >
-                  {t("common.cancel", "Cancel")}
-                </Button>
-              </div>
-              <div className="flex-1 min-h-0">
-                <NoteEditor
-                  value={editorValue}
-                  onChange={handleEditorChange}
-                  readOnly={false}
-                  mode={mode}
-                  data={wikilinkData}
-                  revealTarget={revealTarget}
-                  kbId={activeKbId}
-                  onOpenNote={(rel) => {
-                    if (activeKbId) guardNavigation(() => void openNote(activeKbId, rel))
-                  }}
-                  embedCacheKey={embedCacheKey}
-                  onOutlineJump={(line) => {
-                    handleModeChange("source")
-                    setRevealTarget({ line })
-                  }}
-                />
-              </div>
-            </>
-          ) : openPath && noteData ? (
-            <>
-              <div className="flex items-center gap-2 border-b border-border-soft/60 px-3 py-1.5">
-                {openDir && (
-                  <span
-                    className="flex shrink-0 items-center gap-1 truncate text-xs text-muted-foreground"
-                    data-ha-title-tip={openDir}
-                  >
-                    <Folder className="h-3 w-3 shrink-0" />
-                    {openDir}/
-                  </span>
-                )}
-                {titleEditing && !readOnly ? (
-                  <Input
-                    value={titleValue}
-                    autoFocus
-                    onChange={(e) => setTitleValue(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        const from = openPath
-                        // Edit only the filename; keep the note in its folder.
-                        const to = openDir ? `${openDir}/${titleValue}` : titleValue
-                        setTitleEditing(false)
-                        if (from) guardEdit(from, () => void renameNote(from, to))
-                      } else if (e.key === "Escape") {
-                        setTitleEditing(false)
-                      }
-                    }}
-                    onBlur={() => setTitleEditing(false)}
-                    className="h-7 flex-1 text-xs"
-                  />
-                ) : (
-                  <button
-                    type="button"
-                    disabled={readOnly}
-                    data-ha-title-tip={readOnly ? (openPath ?? "") : t("knowledge.clickToRename", "Click to rename")}
-                    onClick={() => {
-                      setTitleValue(openBase)
-                      setTitleEditing(true)
-                    }}
-                    className="flex-1 truncate text-left text-xs text-muted-foreground enabled:hover:text-foreground disabled:cursor-default"
-                  >
-                    {openBase}
-                    {dirty && <span className="ml-1 text-amber-500">●</span>}
-                  </button>
-                )}
-                {readOnly && (
-                  <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
-                    <Lock className="h-3 w-3" />
-                    {t("knowledge.readOnly", "Read-only (external vault)")}
-                  </span>
-                )}
-                {mode !== "preview" && mode !== "outline" && (
-                  <HeadingOutline
-                    content={editorValue}
-                    onJump={(line) => setRevealTarget({ line })}
-                  />
-                )}
-                {!readOnly && mode !== "preview" && mode !== "outline" && (
-                  <IconTip label={t("knowledge.quickRewrite.title", "Quick rewrite")}>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-7 px-2"
-                      onClick={() => quickRewriteSelection()}
-                    >
-                      <Sparkles className="h-3.5 w-3.5" />
-                    </Button>
-                  </IconTip>
-                )}
-                {openPath && (openKbId ?? activeKbId) && (
-                  <IconTip label={t("knowledge.chatPanel.addToChat", "Add to AI chat")}>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-7 px-2"
-                      onClick={() => referenceCurrentSelectionInChat()}
-                    >
-                      <MessageSquareQuote className="h-3.5 w-3.5" />
-                    </Button>
-                  </IconTip>
-                )}
-                <ModeSwitch mode={mode} onChange={handleModeChange} compact={compactToolbar} />
-                {!readOnly && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className={cn(
-                      "h-7",
-                      saveStatus === "saved" && "border-green-500 text-green-600",
-                      saveStatus === "failed" && "border-red-500 text-red-600",
-                    )}
-                    disabled={saving || !dirty}
-                    onClick={handleSave}
-                  >
-                    {saving ? (
-                      <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
-                    ) : saveStatus === "saved" ? (
-                      <Check className="mr-1 h-3.5 w-3.5" />
-                    ) : (
-                      <Save className="mr-1 h-3.5 w-3.5" />
-                    )}
-                    {t("common.save", "Save")}
-                  </Button>
-                )}
-              </div>
-              {externalConflict && (
-                <div className="flex items-center gap-2 border-b border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-xs text-amber-700 dark:text-amber-400">
-                  <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-                  <span className="flex-1">
-                    {t(
-                      "knowledge.externalChange.banner",
-                      "This file was modified outside the editor. Saving will overwrite those changes.",
-                    )}
-                  </span>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-6 px-2 text-amber-700 hover:text-amber-800 dark:text-amber-400"
-                    onClick={() => {
-                      const data = externalConflict
-                      setNoteData(data)
-                      setEditorValue(data.content)
-                      setBaseHash(data.contentHash)
-                      setDirty(false)
-                      setExternalConflict(null)
-                    }}
-                  >
-                    {t("knowledge.externalChange.reload", "Reload")}
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-6 px-2 text-amber-700 hover:text-amber-800 dark:text-amber-400"
-                    onClick={() => {
-                      // Rebase the expected hash so the next save passes the
-                      // stale-write guard and overwrites the external version.
-                      setBaseHash(externalConflict.contentHash)
-                      setExternalConflict(null)
-                    }}
-                  >
-                    {t("knowledge.externalChange.keepMine", "Keep mine")}
-                  </Button>
-                </div>
-              )}
-              <div className="flex-1 min-h-0">
-                <NoteEditor
-                  ref={editorRef}
-                  value={editorValue}
-                  onChange={(v) => {
-                    handleEditorChange(v)
-                    setDirty(true)
-                  }}
-                  readOnly={readOnly}
-                  mode={mode}
-                  data={wikilinkData}
-                  revealTarget={revealTarget}
-                  kbId={openKbId}
-                  notePath={openPath}
-                  onOpenNote={(rel) => {
-                    const k = openKbId ?? activeKbId
-                    if (k) guardNavigation(() => void openNote(k, rel))
-                  }}
-                  embedCacheKey={embedCacheKey}
-                  onOutlineJump={(line) => {
-                    // Outline has no CM6 view to scroll — switch to source first,
-                    // then reveal the line (new object identity re-fires reveal).
-                    handleModeChange("source")
-                    setRevealTarget({ line })
-                  }}
-                  onReferenceSelection={referenceCurrentSelectionInChat}
-                  onRewriteSelection={quickRewriteSelection}
-                />
-              </div>
-            </>
-          ) : (
-            <KnowledgeEmptyState
-              kb={activeKb}
-              readOnly={readOnly}
-              onNewNote={() => guardNavigation(() => startDraft())}
-              onImport={() => setLeftMode("sources")}
-            />
-          )}
-        </div>
-
-        {/* Right: backlinks / tags — collapsible + resizable (mirrors chat) */}
-        <div
-          style={{ width: rightCollapsed ? 0 : rightWidth }}
-          className={cn("relative h-full min-w-0", !isResizingRight && PANE_WIDTH_TRANSITION)}
-        >
-          <div className="h-full overflow-hidden">
+            {/* Center: editor */}
             <div
-              // `width` is the preferred size; `maxWidth: 100%` lets the content
-              // reflow/compress when the row can't grant the full pane width
-              // (narrow window) instead of being hard-clipped by the overflow.
-              style={{ width: rightWidth, maxWidth: "100%" }}
-              aria-hidden={rightCollapsed}
-              inert={rightCollapsed ? true : undefined}
-              className={cn(
-                "flex h-full min-w-0 flex-col border-l",
-                isResizingRight
-                  ? "border-l-primary/50"
-                  : isRightResizeHandleHovered
-                    ? "border-l-primary/35"
-                    : "border-l-border-soft/60",
-                PANE_SURFACE_TRANSITION,
-                rightCollapsed
-                  ? "pointer-events-none translate-x-4 opacity-0"
-                  : "translate-x-0 opacity-100",
-              )}
+              ref={centerRef}
+              className="flex flex-1 min-w-0 flex-col"
+              style={{ minWidth: `min(100%, ${KB_CONTENT_MIN_WIDTH}px)` }}
             >
-          <RightPanelTabs mode={rightMode} onChange={setRightMode} />
-          {/* Chat panel stays mounted (so its imperative ref is always ready for
-              "add to chat") but only loads when actually shown. */}
-          <div
-            className={cn(
-              "min-h-0 min-w-0 flex-1",
-              rightMode === "chat" ? "flex flex-col" : "hidden",
-            )}
-          >
-            <KnowledgeChatPanel
-              ref={chatPanelRef}
-              active={rightMode === "chat" && !rightCollapsed}
-              kbId={openKbId ?? activeKbId}
-              notePath={openPath}
-              getEditorValue={getEditorValue}
-              editorRevision={editorRevision}
-              onJumpToQuote={jumpToQuoteInEditor}
-            />
-          </div>
-          <div
-            className={cn(
-              "min-h-0 min-w-0 flex-1",
-              rightMode === "chat" ? "hidden" : "flex flex-col",
-            )}
-          >
-          {hits.length > 0 ? (
-            <>
-              <div className="flex items-center justify-between border-b border-border-soft/60 px-2 py-1.5">
-                <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                  {t("knowledge.searchResults", "Search results")}
-                </span>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-6 px-2 text-[11px]"
-                  onClick={() => {
-                    setHits([])
-                    setQuery("")
-                  }}
-                >
-                  {t("common.clear", "Clear")}
-                </Button>
-              </div>
-              <div className="flex-1 overflow-auto">
-                {hits.map((h) => (
-                  <button
-                    key={`${h.kbId}:${h.noteId}`}
-                    onClick={() =>
-                      guardNavigation(() => {
-                        setActiveKbId(h.kbId)
-                        void openNote(h.kbId, h.relPath, { line: h.startLine })
-                      })
-                    }
-                    className="block w-full border-b border-border-soft/40 px-3 py-2 text-left hover:bg-muted/50"
-                  >
-                    <div className="truncate text-xs font-medium">{h.title}</div>
-                    {h.headingPath && (
-                      <div className="truncate text-[10px] text-muted-foreground">{h.headingPath}</div>
+              {draftMode ? (
+                <>
+                  <div className="flex items-center gap-2 border-b border-border-soft/60 px-3 py-1.5">
+                    {draftFolder ? (
+                      <span
+                        className="flex shrink-0 items-center gap-1 truncate text-xs text-muted-foreground"
+                        data-ha-title-tip={draftFolder}
+                      >
+                        <Folder className="h-3 w-3 shrink-0" />
+                        {draftFolder}/
+                      </span>
+                    ) : null}
+                    <Input
+                      value={draftTitle}
+                      onChange={(e) => setDraftTitle(e.target.value)}
+                      placeholder={t("knowledge.titlePlaceholder", "Untitled")}
+                      autoFocus
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) void saveDraft()
+                      }}
+                      className="h-7 flex-1 border-0 bg-transparent px-1 text-sm font-medium shadow-none"
+                    />
+                    <ModeSwitch mode={mode} onChange={handleModeChange} compact={compactToolbar} />
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7"
+                      disabled={saving}
+                      onClick={saveDraft}
+                    >
+                      {saving ? (
+                        <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Save className="mr-1 h-3.5 w-3.5" />
+                      )}
+                      {t("common.save", "Save")}
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7"
+                      onClick={() => guardNavigation(() => setDraftMode(false))}
+                    >
+                      {t("common.cancel", "Cancel")}
+                    </Button>
+                  </div>
+                  <div className="flex-1 min-h-0">
+                    <NoteEditor
+                      value={editorValue}
+                      onChange={handleEditorChange}
+                      readOnly={false}
+                      mode={mode}
+                      data={wikilinkData}
+                      revealTarget={revealTarget}
+                      kbId={activeKbId}
+                      onOpenNote={(rel) => {
+                        if (activeKbId) guardNavigation(() => void openNote(activeKbId, rel))
+                      }}
+                      embedCacheKey={embedCacheKey}
+                      onOutlineJump={(line) => {
+                        handleModeChange("source")
+                        setRevealTarget({ line })
+                      }}
+                    />
+                  </div>
+                </>
+              ) : openPath && noteData ? (
+                <>
+                  <div className="flex items-center gap-2 border-b border-border-soft/60 px-3 py-1.5">
+                    {openDir && (
+                      <span
+                        className="flex shrink-0 items-center gap-1 truncate text-xs text-muted-foreground"
+                        data-ha-title-tip={openDir}
+                      >
+                        <Folder className="h-3 w-3 shrink-0" />
+                        {openDir}/
+                      </span>
                     )}
-                    <div className="mt-0.5 line-clamp-2 text-[11px] text-muted-foreground">
-                      {h.snippet}
-                    </div>
-                  </button>
-                ))}
-              </div>
-            </>
-          ) : noteData ? (
-            <div className="flex-1 overflow-auto p-3 text-xs">
-              <NoteSourceReferences
-                kbId={noteData.kbId || openKbId}
-                notePath={openPath}
-                contentHash={noteData.contentHash}
-              />
-
-              <BacklinksSection
-                title={t("knowledge.backlinks", "Backlinks")}
-                count={noteData.backlinks.length}
-              >
-                {noteData.backlinks.map((b, i) => (
-                  <button
-                    key={i}
-                    onClick={() =>
-                      guardNavigation(() => {
-                        if (activeKbId)
-                          void openNote(activeKbId, b.srcRelPath, {
-                            line: b.srcStartLine,
-                            col: b.srcStartCol,
-                          })
-                      })
-                    }
-                    className="block w-full rounded px-1 py-0.5 text-left hover:bg-muted/50"
-                  >
-                    <span className="text-primary">{b.srcTitle}</span>
-                    {b.srcHeadingPath && (
-                      <span className="text-muted-foreground"> · {b.srcHeadingPath}</span>
-                    )}
-                  </button>
-                ))}
-              </BacklinksSection>
-
-              <BacklinksSection
-                title={t("knowledge.outgoingLinks", "Links")}
-                count={noteData.outgoingLinks.length}
-              >
-                {noteData.outgoingLinks.map((l, i) => {
-                  const broken = l.targetNoteId == null
-                  return (
-                    <div key={i} className="flex items-center gap-1 px-1 py-0.5">
-                      <Link2 className="h-3 w-3 shrink-0 text-muted-foreground" />
+                    {titleEditing && !readOnly ? (
+                      <Input
+                        value={titleValue}
+                        autoFocus
+                        onChange={(e) => setTitleValue(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            const from = openPath
+                            // Edit only the filename; keep the note in its folder.
+                            const to = openDir ? `${openDir}/${titleValue}` : titleValue
+                            setTitleEditing(false)
+                            if (from) guardEdit(from, () => void renameNote(from, to))
+                          } else if (e.key === "Escape") {
+                            setTitleEditing(false)
+                          }
+                        }}
+                        onBlur={() => setTitleEditing(false)}
+                        className="h-7 flex-1 text-xs"
+                      />
+                    ) : (
                       <button
                         type="button"
-                        disabled={broken}
+                        disabled={readOnly}
+                        data-ha-title-tip={
+                          readOnly
+                            ? (openPath ?? "")
+                            : t("knowledge.clickToRename", "Click to rename")
+                        }
                         onClick={() => {
-                          if (broken || !activeKbId) return
-                          const target = notes.find((n) => n.id === l.targetNoteId)
-                          if (target) guardNavigation(() => void openNote(activeKbId, target.relPath))
+                          setTitleValue(openBase)
+                          setTitleEditing(true)
                         }}
-                        className={cn(
-                          "min-w-0 flex-1 truncate text-left",
-                          broken ? "text-red-500" : "text-foreground hover:underline",
-                        )}
-                        data-ha-title-tip={l.rawText}
+                        className="flex-1 truncate text-left text-xs text-muted-foreground enabled:hover:text-foreground disabled:cursor-default"
                       >
-                        {l.alias || l.targetRef}
+                        {openBase}
+                        {dirty && <span className="ml-1 text-amber-500">●</span>}
                       </button>
-                      {broken &&
-                        (readOnly ? (
-                          <AlertTriangle className="h-3 w-3 shrink-0 text-red-500" />
-                        ) : (
-                          <IconTip label={t("knowledge.createMissingNote", "Create this note")}>
-                            <button
-                              type="button"
-                              onClick={() =>
-                                guardNavigation(() => void createNoteFromRef(l.targetRef))
-                              }
-                              className="shrink-0 rounded p-0.5 text-red-500 transition-colors hover:bg-red-500/10"
-                            >
-                              <Plus className="h-3 w-3" />
-                            </button>
-                          </IconTip>
-                        ))}
-                    </div>
-                  )
-                })}
-              </BacklinksSection>
-
-              {noteData.tags.length > 0 && (
-                <div className="mt-3">
-                  <div className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                    {t("knowledge.tags", "Tags")}
-                  </div>
-                  <div className="flex flex-wrap gap-1">
-                    {noteData.tags.map((tag) => (
-                      <span
-                        key={tag}
-                        className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground"
-                      >
-                        #{tag}
+                    )}
+                    {readOnly && (
+                      <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
+                        <Lock className="h-3 w-3" />
+                        {t("knowledge.readOnly", "Read-only (external vault)")}
                       </span>
-                    ))}
+                    )}
+                    {mode !== "preview" && mode !== "outline" && (
+                      <HeadingOutline
+                        content={editorValue}
+                        onJump={(line) => setRevealTarget({ line })}
+                      />
+                    )}
+                    {!readOnly && mode !== "preview" && mode !== "outline" && (
+                      <IconTip label={t("knowledge.quickRewrite.title", "Quick rewrite")}>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 px-2"
+                          onClick={() => quickRewriteSelection()}
+                        >
+                          <Sparkles className="h-3.5 w-3.5" />
+                        </Button>
+                      </IconTip>
+                    )}
+                    {openPath && (openKbId ?? activeKbId) && (
+                      <IconTip label={t("knowledge.chatPanel.addToChat", "Add to AI chat")}>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 px-2"
+                          onClick={() => referenceCurrentSelectionInChat()}
+                        >
+                          <MessageSquareQuote className="h-3.5 w-3.5" />
+                        </Button>
+                      </IconTip>
+                    )}
+                    <ModeSwitch mode={mode} onChange={handleModeChange} compact={compactToolbar} />
+                    {!readOnly && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className={cn(
+                          "h-7",
+                          saveStatus === "saved" && "border-green-500 text-green-600",
+                          saveStatus === "failed" && "border-red-500 text-red-600",
+                        )}
+                        disabled={saving || !dirty}
+                        onClick={handleSave}
+                      >
+                        {saving ? (
+                          <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                        ) : saveStatus === "saved" ? (
+                          <Check className="mr-1 h-3.5 w-3.5" />
+                        ) : (
+                          <Save className="mr-1 h-3.5 w-3.5" />
+                        )}
+                        {t("common.save", "Save")}
+                      </Button>
+                    )}
                   </div>
-                </div>
+                  {externalConflict && (
+                    <div className="flex items-center gap-2 border-b border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-xs text-amber-700 dark:text-amber-400">
+                      <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                      <span className="flex-1">
+                        {t(
+                          "knowledge.externalChange.banner",
+                          "This file was modified outside the editor. Saving will overwrite those changes.",
+                        )}
+                      </span>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 px-2 text-amber-700 hover:text-amber-800 dark:text-amber-400"
+                        onClick={() => {
+                          const data = externalConflict
+                          setNoteData(data)
+                          setEditorValue(data.content)
+                          setBaseHash(data.contentHash)
+                          setDirty(false)
+                          setExternalConflict(null)
+                        }}
+                      >
+                        {t("knowledge.externalChange.reload", "Reload")}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 px-2 text-amber-700 hover:text-amber-800 dark:text-amber-400"
+                        onClick={() => {
+                          // Rebase the expected hash so the next save passes the
+                          // stale-write guard and overwrites the external version.
+                          setBaseHash(externalConflict.contentHash)
+                          setExternalConflict(null)
+                        }}
+                      >
+                        {t("knowledge.externalChange.keepMine", "Keep mine")}
+                      </Button>
+                    </div>
+                  )}
+                  <div className="flex-1 min-h-0">
+                    <NoteEditor
+                      ref={editorRef}
+                      value={editorValue}
+                      onChange={(v) => {
+                        handleEditorChange(v)
+                        setDirty(true)
+                      }}
+                      readOnly={readOnly}
+                      mode={mode}
+                      data={wikilinkData}
+                      revealTarget={revealTarget}
+                      kbId={openKbId}
+                      notePath={openPath}
+                      onOpenNote={(rel) => {
+                        const k = openKbId ?? activeKbId
+                        if (k) guardNavigation(() => void openNote(k, rel))
+                      }}
+                      embedCacheKey={embedCacheKey}
+                      onOutlineJump={(line) => {
+                        // Outline has no CM6 view to scroll — switch to source first,
+                        // then reveal the line (new object identity re-fires reveal).
+                        handleModeChange("source")
+                        setRevealTarget({ line })
+                      }}
+                      onReferenceSelection={referenceCurrentSelectionInChat}
+                      onRewriteSelection={quickRewriteSelection}
+                    />
+                  </div>
+                </>
+              ) : (
+                <KnowledgeEmptyState
+                  kb={activeKb}
+                  readOnly={readOnly}
+                  onNewNote={() => guardNavigation(() => startDraft())}
+                  onImport={() => setLeftMode("sources")}
+                />
               )}
             </div>
-          ) : (
-            <div className="flex flex-1 items-center justify-center p-3 text-center text-xs text-muted-foreground">
-              {t("knowledge.backlinksHint", "Open a note to see its backlinks.")}
+
+            {/* Right: backlinks / tags — collapsible + resizable (mirrors chat) */}
+            <div
+              style={{ width: rightCollapsed ? 0 : rightWidth }}
+              className={cn("relative h-full min-w-0", !isResizingRight && PANE_WIDTH_TRANSITION)}
+            >
+              <div className="h-full overflow-hidden">
+                <div
+                  // `width` is the preferred size; `maxWidth: 100%` lets the content
+                  // reflow/compress when the row can't grant the full pane width
+                  // (narrow window) instead of being hard-clipped by the overflow.
+                  style={{ width: rightWidth, maxWidth: "100%" }}
+                  aria-hidden={rightCollapsed}
+                  inert={rightCollapsed ? true : undefined}
+                  className={cn(
+                    "flex h-full min-w-0 flex-col border-l",
+                    isResizingRight
+                      ? "border-l-primary/50"
+                      : isRightResizeHandleHovered
+                        ? "border-l-primary/35"
+                        : "border-l-border-soft/60",
+                    PANE_SURFACE_TRANSITION,
+                    rightCollapsed
+                      ? "pointer-events-none translate-x-4 opacity-0"
+                      : "translate-x-0 opacity-100",
+                  )}
+                >
+                  <RightPanelTabs mode={rightMode} onChange={setRightMode} />
+                  {/* Chat panel stays mounted (so its imperative ref is always ready for
+              "add to chat") but only loads when actually shown. */}
+                  <div
+                    className={cn(
+                      "min-h-0 min-w-0 flex-1",
+                      rightMode === "chat" ? "flex flex-col" : "hidden",
+                    )}
+                  >
+                    <KnowledgeChatPanel
+                      ref={chatPanelRef}
+                      active={rightMode === "chat" && !rightCollapsed}
+                      kbId={openKbId ?? activeKbId}
+                      notePath={openPath}
+                      getEditorValue={getEditorValue}
+                      editorRevision={editorRevision}
+                      onJumpToQuote={jumpToQuoteInEditor}
+                    />
+                  </div>
+                  <div
+                    className={cn(
+                      "min-h-0 min-w-0 flex-1",
+                      rightMode === "chat" ? "hidden" : "flex flex-col",
+                    )}
+                  >
+                    {hits.length > 0 ? (
+                      <>
+                        <div className="flex items-center justify-between border-b border-border-soft/60 px-2 py-1.5">
+                          <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                            {t("knowledge.searchResults", "Search results")}
+                          </span>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 px-2 text-[11px]"
+                            onClick={() => {
+                              setHits([])
+                              setQuery("")
+                            }}
+                          >
+                            {t("common.clear", "Clear")}
+                          </Button>
+                        </div>
+                        <div className="flex-1 overflow-auto">
+                          {hits.map((h) => (
+                            <button
+                              key={`${h.kbId}:${h.noteId}`}
+                              onClick={() =>
+                                guardNavigation(() => {
+                                  setActiveKbId(h.kbId)
+                                  void openNote(h.kbId, h.relPath, { line: h.startLine })
+                                })
+                              }
+                              className="block w-full border-b border-border-soft/40 px-3 py-2 text-left hover:bg-muted/50"
+                            >
+                              <div className="truncate text-xs font-medium">{h.title}</div>
+                              {h.headingPath && (
+                                <div className="truncate text-[10px] text-muted-foreground">
+                                  {h.headingPath}
+                                </div>
+                              )}
+                              <div className="mt-0.5 line-clamp-2 text-[11px] text-muted-foreground">
+                                {h.snippet}
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+                      </>
+                    ) : noteData ? (
+                      <div className="flex-1 overflow-auto p-3 text-xs">
+                        <NoteSourceReferences
+                          kbId={noteData.kbId || openKbId}
+                          notePath={openPath}
+                          contentHash={noteData.contentHash}
+                        />
+
+                        <BacklinksSection
+                          title={t("knowledge.backlinks", "Backlinks")}
+                          count={noteData.backlinks.length}
+                        >
+                          {noteData.backlinks.map((b, i) => (
+                            <button
+                              key={i}
+                              onClick={() =>
+                                guardNavigation(() => {
+                                  if (activeKbId)
+                                    void openNote(activeKbId, b.srcRelPath, {
+                                      line: b.srcStartLine,
+                                      col: b.srcStartCol,
+                                    })
+                                })
+                              }
+                              className="block w-full rounded px-1 py-0.5 text-left hover:bg-muted/50"
+                            >
+                              <span className="text-primary">{b.srcTitle}</span>
+                              {b.srcHeadingPath && (
+                                <span className="text-muted-foreground"> · {b.srcHeadingPath}</span>
+                              )}
+                            </button>
+                          ))}
+                        </BacklinksSection>
+
+                        <BacklinksSection
+                          title={t("knowledge.outgoingLinks", "Links")}
+                          count={noteData.outgoingLinks.length}
+                        >
+                          {noteData.outgoingLinks.map((l, i) => {
+                            const broken = l.targetNoteId == null
+                            return (
+                              <div key={i} className="flex items-center gap-1 px-1 py-0.5">
+                                <Link2 className="h-3 w-3 shrink-0 text-muted-foreground" />
+                                <button
+                                  type="button"
+                                  disabled={broken}
+                                  onClick={() => {
+                                    if (broken || !activeKbId) return
+                                    const target = notes.find((n) => n.id === l.targetNoteId)
+                                    if (target)
+                                      guardNavigation(
+                                        () => void openNote(activeKbId, target.relPath),
+                                      )
+                                  }}
+                                  className={cn(
+                                    "min-w-0 flex-1 truncate text-left",
+                                    broken ? "text-red-500" : "text-foreground hover:underline",
+                                  )}
+                                  data-ha-title-tip={l.rawText}
+                                >
+                                  {l.alias || l.targetRef}
+                                </button>
+                                {broken &&
+                                  (readOnly ? (
+                                    <AlertTriangle className="h-3 w-3 shrink-0 text-red-500" />
+                                  ) : (
+                                    <IconTip
+                                      label={t("knowledge.createMissingNote", "Create this note")}
+                                    >
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          guardNavigation(() => void createNoteFromRef(l.targetRef))
+                                        }
+                                        className="shrink-0 rounded p-0.5 text-red-500 transition-colors hover:bg-red-500/10"
+                                      >
+                                        <Plus className="h-3 w-3" />
+                                      </button>
+                                    </IconTip>
+                                  ))}
+                              </div>
+                            )
+                          })}
+                        </BacklinksSection>
+
+                        {noteData.tags.length > 0 && (
+                          <div className="mt-3">
+                            <div className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                              {t("knowledge.tags", "Tags")}
+                            </div>
+                            <div className="flex flex-wrap gap-1">
+                              {noteData.tags.map((tag) => (
+                                <span
+                                  key={tag}
+                                  className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground"
+                                >
+                                  #{tag}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="flex flex-1 items-center justify-center p-3 text-center text-xs text-muted-foreground">
+                        {t("knowledge.backlinksHint", "Open a note to see its backlinks.")}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+              <div
+                className={cn(
+                  PANE_HANDLE_BASE,
+                  "left-0",
+                  rightCollapsed ? "w-0 pointer-events-none opacity-0" : "w-3 opacity-100",
+                )}
+                onMouseDown={onDragRight}
+                onMouseEnter={() => setIsRightResizeHandleHovered(true)}
+                onMouseLeave={() => setIsRightResizeHandleHovered(false)}
+                role="separator"
+                aria-orientation="vertical"
+                aria-label={t("knowledge.resizeRight", "Resize panel")}
+              />
             </div>
-          )}
-          </div>
-            </div>
-          </div>
-          <div
-            className={cn(
-              PANE_HANDLE_BASE,
-              "left-0",
-              rightCollapsed ? "w-0 pointer-events-none opacity-0" : "w-3 opacity-100",
-            )}
-            onMouseDown={onDragRight}
-            onMouseEnter={() => setIsRightResizeHandleHovered(true)}
-            onMouseLeave={() => setIsRightResizeHandleHovered(false)}
-            role="separator"
-            aria-orientation="vertical"
-            aria-label={t("knowledge.resizeRight", "Resize panel")}
-          />
-        </div>
           </>
         )}
       </div>
@@ -3016,10 +3055,7 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
       </Dialog>
 
       {/* Rename folder — renames the directory and its contents */}
-      <Dialog
-        open={renameFolderPath != null}
-        onOpenChange={(o) => !o && setRenameFolderPath(null)}
-      >
+      <Dialog open={renameFolderPath != null} onOpenChange={(o) => !o && setRenameFolderPath(null)}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>{t("knowledge.renameFolder", "Rename folder")}</DialogTitle>
@@ -3057,10 +3093,7 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
       </Dialog>
 
       {/* Delete folder — deletes every note under the prefix */}
-      <Dialog
-        open={deleteFolderPath != null}
-        onOpenChange={(o) => !o && setDeleteFolderPath(null)}
-      >
+      <Dialog open={deleteFolderPath != null} onOpenChange={(o) => !o && setDeleteFolderPath(null)}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>{t("knowledge.deleteFolderTitle", "Delete folder")}</DialogTitle>
@@ -3188,7 +3221,9 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
                       <SelectItem value="disabled">
                         {t("knowledge.externalRawSyncDisabled", "Off")}
                       </SelectItem>
-                      <SelectItem value="raw">{t("knowledge.externalRawSyncRaw", "raw/")}</SelectItem>
+                      <SelectItem value="raw">
+                        {t("knowledge.externalRawSyncRaw", "raw/")}
+                      </SelectItem>
                       <SelectItem value="sources">
                         {t("knowledge.externalRawSyncSources", "sources/")}
                       </SelectItem>
@@ -3387,11 +3422,7 @@ function buildNoteTree(notes: Note[], dirs: string[]): TreeNode[] {
   }
   const sort = (nodes: TreeNode[]) => {
     nodes.sort((a, b) =>
-      a.type !== b.type
-        ? a.type === "folder"
-          ? -1
-          : 1
-        : a.name.localeCompare(b.name),
+      a.type !== b.type ? (a.type === "folder" ? -1 : 1) : a.name.localeCompare(b.name),
     )
     for (const n of nodes) if (n.type === "folder") sort(n.children)
   }
@@ -3450,6 +3481,29 @@ function RightPanelTabs({
 
 const MODE_KEYS: NoteEditorMode[] = ["source", "live", "split", "preview", "outline"]
 
+function KnowledgeNoteFileMenuItems({ kbId, path }: { kbId: string; path: string }) {
+  const { t } = useTranslation()
+  const target = useMemo<PreviewTarget>(() => ({ kind: "knowledgeNote", kbId, path }), [kbId, path])
+  const actions = useFileResource(target)
+
+  return (
+    <>
+      {actions.capabilities.reveal.state === "enabled" ? (
+        <ContextMenuItem onSelect={() => void actions.run("reveal")}>
+          <FolderOpen className="mr-2 h-3.5 w-3.5" />
+          {t("fileActions.revealInFolder", "Reveal in folder")}
+        </ContextMenuItem>
+      ) : null}
+      {actions.capabilities.download.state !== "disabled" ? (
+        <ContextMenuItem onSelect={() => void actions.run("download")}>
+          <Download className="mr-2 h-3.5 w-3.5" />
+          {t("fileActions.download", "Download")}
+        </ContextMenuItem>
+      ) : null}
+    </>
+  )
+}
+
 function ModeSwitch({
   mode,
   onChange,
@@ -3498,9 +3552,7 @@ function ModeSwitch({
           onClick={() => onChange(m)}
           className={cn(
             "whitespace-nowrap px-2 py-0.5 text-[11px]",
-            mode === m
-              ? "bg-primary/10 text-primary"
-              : "text-muted-foreground hover:bg-muted/50",
+            mode === m ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted/50",
           )}
         >
           {t(`knowledge.mode.${m}`, m)}
@@ -3524,11 +3576,7 @@ function BacklinksSection({
       <div className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
         {title} ({count})
       </div>
-      {count === 0 ? (
-        <div className="px-1 text-[11px] text-muted-foreground/70">—</div>
-      ) : (
-        children
-      )}
+      {count === 0 ? <div className="px-1 text-[11px] text-muted-foreground/70">—</div> : children}
     </div>
   )
 }

@@ -988,6 +988,19 @@ pub async fn knowledge_media_retention_config_set_cmd(
     service::set_media_retention_config(config, "gui").map_err(Into::into)
 }
 
+#[tauri::command]
+pub async fn knowledge_source_limits_config_get_cmd(
+) -> Result<knowledge::KnowledgeSourceLimitsConfig, CmdError> {
+    Ok(service::get_source_limits_config())
+}
+
+#[tauri::command]
+pub async fn knowledge_source_limits_config_set_cmd(
+    config: knowledge::KnowledgeSourceLimitsConfig,
+) -> Result<knowledge::KnowledgeSourceLimitsConfig, CmdError> {
+    service::set_source_limits_config(config, "gui").map_err(Into::into)
+}
+
 /// Resolve a `[[ ]]` reference to a note and return its full read result (for
 /// `![[ ]]` transclusion preview). `Ok(None)` = broken embed.
 #[tauri::command]

@@ -487,7 +487,11 @@ export const KnowledgeChatPanel = forwardRef<KnowledgeChatPanelHandle, Props>(
             }
             onUpdateFile={(index, file) =>
               stream.setAttachedFiles((prev) =>
-                prev.map((existing, idx) => (idx === index ? file : existing)),
+                prev.map((existing, idx) =>
+                  idx === index
+                    ? { ...existing, file, status: "ready", error: undefined }
+                    : existing,
+                ),
               )
             }
             pendingQuotes={stream.pendingQuotes}

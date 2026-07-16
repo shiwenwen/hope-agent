@@ -5,14 +5,12 @@
 
 use anyhow::{anyhow, Context, Result};
 use serde_json::Value;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use super::execution::ToolExecContext;
 use crate::agent::MEDIA_ITEMS_PREFIX;
 use crate::attachments::{self, MediaItem, MediaKind};
-
-/// 20 MB — aligned with `project::files::MAX_PROJECT_FILE_BYTES`.
-const MAX_ATTACHMENT_BYTES: u64 = 20 * 1024 * 1024;
 
 /// Max length of the optional description string.
 const MAX_DESCRIPTION_CHARS: usize = 200;
@@ -80,16 +78,15 @@ pub(crate) async fn tool_send_attachment(args: &Value, ctx: &ToolExecContext) ->
         ));
     }
     let size_bytes = metadata.len();
-    if size_bytes > MAX_ATTACHMENT_BYTES {
+    let max_attachment_bytes = attachments::max_chat_attachment_bytes() as u64;
+    if size_bytes > max_attachment_bytes {
         return Err(anyhow!(
-            "send_attachment: file too large ({} bytes, max {} bytes)",
+            "send_attachment: file too large ({} bytes, configured max {} bytes / {} MB)",
             size_bytes,
-            MAX_ATTACHMENT_BYTES
+            max_attachment_bytes,
+            attachments::max_chat_attachment_mb(),
         ));
     }
-
-    let data = std::fs::read(&canonical)
-        .with_context(|| format!("send_attachment: read failed for {}", canonical.display()))?;
 
     // ── Filename & MIME ──────────────────────────────────────────
     let source_basename = canonical
@@ -101,7 +98,13 @@ pub(crate) async fn tool_send_attachment(args: &Value, ctx: &ToolExecContext) ->
         .map(|s| s.to_string())
         .unwrap_or_else(|| source_basename.clone());
 
-    let mime_type = attachments::sniff_mime(&data, &canonical);
+    let mut source = std::fs::File::open(&canonical)
+        .with_context(|| format!("send_attachment: open failed for {}", canonical.display()))?;
+    let mut sniff_head = [0u8; 8192];
+    let sniff_len = source
+        .read(&mut sniff_head)
+        .with_context(|| format!("send_attachment: read failed for {}", canonical.display()))?;
+    let mime_type = attachments::sniff_mime(&sniff_head[..sniff_len], &canonical);
     let kind = if mime_type.starts_with("image/") {
         MediaKind::Image
     } else {
@@ -109,9 +112,15 @@ pub(crate) async fn tool_send_attachment(args: &Value, ctx: &ToolExecContext) ->
     };
 
     // ── Persist into attachments dir ─────────────────────────────
-    let saved_path =
-        crate::attachments::save_attachment_bytes(Some(session_id.as_str()), &display_name, &data)
-            .with_context(|| "send_attachment: failed to persist attachment")?;
+    let saved_path = crate::attachments::save_attachment_file(
+        Some(session_id.as_str()),
+        &display_name,
+        &canonical,
+    )
+    .with_context(|| "send_attachment: failed to persist attachment")?;
+    let size_bytes = std::fs::metadata(&saved_path)
+        .with_context(|| "send_attachment: failed to stat persisted attachment")?
+        .len();
 
     let item = MediaItem::from_saved_path(
         Some(&session_id),

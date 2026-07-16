@@ -28,6 +28,7 @@ use std::time::UNIX_EPOCH;
 #[derive(Debug)]
 pub enum FilesystemError {
     BadInput(String),
+    Forbidden(String),
     Internal(String),
 }
 
@@ -40,13 +41,21 @@ impl FilesystemError {
         Self::Internal(msg.into())
     }
 
+    pub fn forbidden(msg: impl Into<String>) -> Self {
+        Self::Forbidden(msg.into())
+    }
+
     pub fn is_bad_input(&self) -> bool {
         matches!(self, Self::BadInput(_))
     }
 
+    pub fn is_forbidden(&self) -> bool {
+        matches!(self, Self::Forbidden(_))
+    }
+
     pub fn message(&self) -> &str {
         match self {
-            Self::BadInput(m) | Self::Internal(m) => m,
+            Self::BadInput(m) | Self::Forbidden(m) | Self::Internal(m) => m,
         }
     }
 }
@@ -76,12 +85,13 @@ mod workspace;
 
 pub use git::{git_info, GitBranchInfo, GitBranchKind, GitDirtySummary, GitInfo, WorktreeInfo};
 pub use ops::{
-    extract_abs, project_delete, project_fs_extract, project_list_dir, project_mkdir,
-    project_read_text, project_rename, project_upload, project_write_text, read_text_abs,
-    ExtractedContent, FileTextContent, RenameResult, UploadResult, WorkspaceEntry,
-    WorkspaceListing, WriteResult,
+    extract_abs, project_claim_upload, project_delete, project_fs_extract, project_list_dir,
+    project_mkdir, project_read_text, project_rename, project_upload, project_upload_file,
+    project_write_text, project_write_text_checked, read_text_abs, ExtractedContent,
+    FileTextContent, FileWriteConflictReason, FileWriteOutcome, LineEnding, RenameResult,
+    UploadResult, WorkspaceEntry, WorkspaceListing, WriteResult, LEGACY_MAX_WORKSPACE_UPLOAD_BYTES,
 };
-pub use workspace::WorkspaceScope;
+pub use workspace::{WorkspaceAccess, WorkspaceScope, WorkspaceWriteState};
 
 // ---- DTOs ------------------------------------------------------------------
 

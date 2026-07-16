@@ -6230,6 +6230,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn real_file_monitor_is_one_shot_and_settles_monitor_job() {
+        let _async_jobs_guard = crate::test_support::lock_async_jobs();
         ensure_monitor_jobs_db();
         let (dir, session_db, cron_db) = temp_dbs();
         let session_db = Arc::new(session_db);
@@ -6318,6 +6319,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn pause_suspends_file_monitor_without_disabling_durable_watch() {
+        let _async_jobs_guard = crate::test_support::lock_async_jobs();
         ensure_monitor_jobs_db();
         let (dir, session_db, cron_db) = temp_dbs();
         let session_db = Arc::new(session_db);
@@ -6385,6 +6387,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn monitor_job_cancellation_clears_durable_watch_binding() {
+        let _async_jobs_guard = crate::test_support::lock_async_jobs();
         ensure_monitor_jobs_db();
         let (dir, session_db, cron_db) = temp_dbs();
         let session_db = Arc::new(session_db);
@@ -6597,6 +6600,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn hundred_file_monitor_start_stop_cycles_leave_no_active_resources() {
+        let _async_jobs_guard = crate::test_support::lock_async_jobs();
         ensure_monitor_jobs_db();
         let (dir, session_db, cron_db) = temp_dbs();
         let session_db = Arc::new(session_db);

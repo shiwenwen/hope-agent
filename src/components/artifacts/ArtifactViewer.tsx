@@ -1,8 +1,11 @@
-import { forwardRef } from "react"
-import { getTransport } from "@/lib/transport-provider"
+import { forwardRef, useEffect, useMemo, useState } from "react"
+import { useTransport } from "@/lib/transport-provider"
 import { cn } from "@/lib/utils"
+import { fileResourceAdapterFor } from "@/components/chat/files/fileResourceAdapter"
+import type { FileTarget } from "@/components/chat/files/types"
 
 interface ArtifactViewerProps {
+  artifactId: string
   projectPath?: string | null
   title: string
   refreshKey?: string | number
@@ -11,13 +14,39 @@ interface ArtifactViewerProps {
 
 /** Shared sandboxed reading surface for CanvasPanel and the Artifact Gallery. */
 const ArtifactViewer = forwardRef<HTMLIFrameElement, ArtifactViewerProps>(
-  ({ projectPath, title, refreshKey = 0, className }, ref) => {
-    const indexPath = projectPath ? `${projectPath}/index.html` : ""
-    const src = indexPath ? (getTransport().resolveAssetUrl(indexPath) ?? "") : ""
+  ({ artifactId, projectPath, title, refreshKey = 0, className }, ref) => {
+    const transport = useTransport()
+    const target = useMemo<Extract<FileTarget, { kind: "artifact" }>>(
+      () => ({
+        kind: "artifact",
+        artifactId,
+        name: `${title || "Artifact"}.html`,
+        projectPath,
+      }),
+      [artifactId, projectPath, title],
+    )
+    const [src, setSrc] = useState("")
+
+    useEffect(() => {
+      let cancelled = false
+      const source = fileResourceAdapterFor(target).previewSource(target, { transport })
+      void source
+        .rawUrl()
+        .then((url) => {
+          if (!cancelled) setSrc(url ?? "")
+        })
+        .catch(() => {
+          if (!cancelled) setSrc("")
+        })
+      return () => {
+        cancelled = true
+      }
+    }, [target, transport, refreshKey])
+
     return (
       <iframe
         ref={ref}
-        key={`${projectPath ?? "missing"}-${refreshKey}`}
+        key={`${artifactId}-${refreshKey}`}
         src={src}
         sandbox="allow-scripts"
         referrerPolicy="no-referrer"

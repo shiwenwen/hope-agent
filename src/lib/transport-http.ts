@@ -17,6 +17,12 @@ import type {
   ExtractedContent,
   FileTextContent,
   ProjectFsScope,
+  FileRuntime,
+  WorkspaceAccess,
+  WorkspaceFileArgs,
+  AttachmentUploadLease,
+  FileUploadLease,
+  FileUploadPurpose,
   UploadResult,
   SessionArtifacts,
   WorkspaceEnvironmentSnapshot,
@@ -30,6 +36,7 @@ import type {
   ArtifactExportReceipt,
   DomainArtifactExportGuardReport,
 } from "@/lib/transport"
+import { uploadFileInChunks } from "@/lib/fileUpload"
 import { TRANSPORT_EVENT_RESYNC_REQUIRED } from "@/lib/transport"
 import type { FileChangesMetadata, MediaItem } from "@/types/chat"
 import { dispatchAuthRequired, setStoredApiKey } from "@/lib/api-key-storage"
@@ -260,6 +267,14 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
     method: "POST",
     path: "/api/knowledge/media-retention/config",
   },
+  knowledge_source_limits_config_get_cmd: {
+    method: "GET",
+    path: "/api/knowledge/source-limits/config",
+  },
+  knowledge_source_limits_config_set_cmd: {
+    method: "POST",
+    path: "/api/knowledge/source-limits/config",
+  },
   kb_sprite_observe_cmd: { method: "POST", path: "/api/knowledge/sprite/observe" },
   sprite_config_get_cmd: { method: "GET", path: "/api/knowledge/sprite/config" },
   sprite_config_set_cmd: { method: "POST", path: "/api/knowledge/sprite/config" },
@@ -282,6 +297,7 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
 
   // -- Project file browser (workspace-scoped filesystem) --
   project_fs_list: { method: "GET", path: "/api/fs/list" },
+  project_fs_capabilities: { method: "GET", path: "/api/fs/capabilities" },
   project_fs_read_text: { method: "GET", path: "/api/fs/read" },
   project_fs_extract: { method: "GET", path: "/api/fs/extract" },
   project_fs_search: { method: "GET", path: "/api/fs/search" },
@@ -290,6 +306,16 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   project_fs_delete: { method: "DELETE", path: "/api/fs/entry" },
   project_fs_rename: { method: "POST", path: "/api/fs/rename" },
   project_fs_mkdir: { method: "POST", path: "/api/fs/mkdir" },
+  project_fs_claim_upload: { method: "POST", path: "/api/fs/upload-claim" },
+  discard_chat_attachment_upload: {
+    method: "DELETE",
+    path: "/api/chat/attachment-stage/{uploadId}",
+  },
+  file_upload_start: { method: "POST", path: "/api/file-uploads" },
+  file_upload_status: { method: "GET", path: "/api/file-uploads/{uploadId}" },
+  file_upload_chunk: { method: "PUT", path: "/api/file-uploads/{uploadId}/chunk" },
+  file_upload_complete: { method: "POST", path: "/api/file-uploads/{uploadId}/complete" },
+  file_upload_discard: { method: "DELETE", path: "/api/file-uploads/{uploadId}" },
   // Preview by absolute path (file-operations unification). Session-scoped +
   // authorized server-side; `{sessionId}` is interpolated, `path` → query.
   preview_read_text: { method: "GET", path: "/api/sessions/{sessionId}/files/read" },
@@ -1102,6 +1128,7 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   save_ssrf_config: { method: "PUT", path: "/api/config/ssrf" },
   get_filesystem_config: { method: "GET", path: "/api/config/filesystem" },
   save_filesystem_config: { method: "PUT", path: "/api/config/filesystem" },
+  patch_filesystem_config: { method: "PATCH", path: "/api/config/filesystem" },
 
   // -- SearXNG Docker --
   searxng_docker_status: { method: "GET", path: "/api/searxng/status" },
@@ -1728,6 +1755,94 @@ export class HttpTransport implements Transport {
     return new Blob([buffer], { type: mimeType })
   }
 
+  async uploadFile(
+    file: File,
+    purpose: FileUploadPurpose,
+    progress?: (receivedBytes: number, sizeBytes: number) => void,
+    signal?: AbortSignal,
+  ): Promise<FileUploadLease> {
+    const requestJson = async <T>(
+      path: string,
+      init: RequestInit = {},
+      ignoreUploadAbort = false,
+    ): Promise<T> => {
+      const headers = new Headers(init.headers)
+      if (this.apiKey) headers.set("Authorization", `Bearer ${this.apiKey}`)
+      const response = await fetch(`${this.baseUrl}${path}`, {
+        ...init,
+        headers,
+        signal: ignoreUploadAbort ? undefined : signal,
+      })
+      if (!response.ok) {
+        const text = await response.text().catch(() => "")
+        this.handleAuthFailure(response.status)
+        throw new Error(`[HttpTransport] ${init.method ?? "GET"} ${path} returned ${response.status}: ${text}`)
+      }
+      return (await response.json()) as T
+    }
+    return uploadFileInChunks(
+      file,
+      purpose,
+      {
+        start: (input) =>
+          requestJson<FileUploadLease>("/api/file-uploads", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(input),
+          }),
+        status: (uploadId) =>
+          requestJson<FileUploadLease>(`/api/file-uploads/${encodeURIComponent(uploadId)}`),
+        chunk: (uploadId, offset, data) =>
+          requestJson<FileUploadLease>(
+            `/api/file-uploads/${encodeURIComponent(uploadId)}/chunk?offset=${offset}`,
+            { method: "PUT", body: data },
+          ),
+        complete: (uploadId) =>
+          requestJson<FileUploadLease>(
+            `/api/file-uploads/${encodeURIComponent(uploadId)}/complete`,
+            { method: "POST" },
+          ),
+        discard: async (uploadId) => {
+          await requestJson(
+            `/api/file-uploads/${encodeURIComponent(uploadId)}`,
+            { method: "DELETE" },
+            true,
+          )
+        },
+      },
+      progress,
+      signal,
+    )
+  }
+
+  async discardFileUpload(uploadId: string): Promise<void> {
+    const headers: Record<string, string> = {}
+    if (this.apiKey) headers.Authorization = `Bearer ${this.apiKey}`
+    const response = await fetch(
+      `${this.baseUrl}/api/file-uploads/${encodeURIComponent(uploadId)}`,
+      { method: "DELETE", headers },
+    )
+    if (!response.ok) {
+      const text = await response.text().catch(() => "")
+      this.handleAuthFailure(response.status)
+      throw new Error(`[HttpTransport] DELETE file upload returned ${response.status}: ${text}`)
+    }
+  }
+
+  async stageChatAttachment(file: File): Promise<AttachmentUploadLease> {
+    const lease = await this.uploadFile(file, "chat_attachment")
+    return {
+      uploadId: lease.uploadId,
+      name: lease.fileName,
+      mimeType: lease.mimeType,
+      sizeBytes: lease.sizeBytes,
+    }
+  }
+
+  async discardChatAttachmentUpload(uploadId: string): Promise<void> {
+    await this.discardFileUpload(uploadId)
+  }
+
   // ----- call -----
 
   async call<T>(command: string, args?: Record<string, unknown>): Promise<T> {
@@ -1897,6 +2012,32 @@ export class HttpTransport implements Transport {
     return null
   }
 
+  async extractMediaDocument(
+    item: MediaItem,
+    opts?: { sessionId?: string | null },
+  ): Promise<ExtractedContent> {
+    const sessionId = opts?.sessionId?.trim()
+    if (!sessionId) throw new Error("attachment extraction requires a session id")
+    const href = this.resolveMediaUrl(item)
+    if (!href) throw new Error("attachment is not reachable")
+    const url = new URL(href)
+    const match = url.pathname.match(/^\/api\/attachments\/([^/]+)\/([^/]+)$/)
+    if (!match || decodeURIComponent(match[1]) !== sessionId) {
+      throw new Error("attachment URL is outside the active session")
+    }
+    url.pathname = `${url.pathname}/extract`
+    url.searchParams.delete("download")
+    const headers: Record<string, string> = {}
+    if (this.apiKey) headers.Authorization = `Bearer ${this.apiKey}`
+    const response = await fetch(url, { headers })
+    if (!response.ok) {
+      const text = await response.text().catch(() => "")
+      this.handleAuthFailure(response.status)
+      throw new Error(`[HttpTransport] attachment extract returned ${response.status}: ${text}`)
+    }
+    return (await response.json()) as ExtractedContent
+  }
+
   private appendToken(url: string): string {
     if (!this.apiKey) return url
     return `${url}${url.includes("?") ? "&" : "?"}token=${encodeURIComponent(this.apiKey)}`
@@ -1918,6 +2059,12 @@ export class HttpTransport implements Transport {
     document.body.appendChild(a)
     a.click()
     document.body.removeChild(a)
+  }
+
+  private clickBlob(blob: Blob, filename: string): void {
+    const href = URL.createObjectURL(blob)
+    this.clickHref(href, filename)
+    window.setTimeout(() => URL.revokeObjectURL(href), 0)
   }
 
   async projectFsRawUrl(
@@ -1985,16 +2132,26 @@ export class HttpTransport implements Transport {
       overwrite?: boolean
     },
   ): Promise<UploadResult> {
-    const qs = new URLSearchParams()
-    qs.set("scope", args.scope)
-    qs.set("scopeId", args.scopeId)
-    qs.set("dirPath", args.dirPath)
-    if (args.overwrite) qs.set("overwrite", "true")
-    return this.uploadMultipart<UploadResult>(`/api/fs/upload?${qs.toString()}`, {
-      data: args.data,
-      fileName: args.fileName,
-      mimeType: args.mimeType,
-    })
+    const file =
+      args.data instanceof File
+        ? args.data
+        : new File([args.data], args.fileName, {
+            type: args.mimeType || args.data.type || "application/octet-stream",
+          })
+    const lease = await this.uploadFile(file, "workspace_upload")
+    try {
+      return await this.call<UploadResult>("project_fs_claim_upload", {
+        scope: args.scope,
+        scopeId: args.scopeId,
+        dirPath: args.dirPath,
+        uploadId: lease.uploadId,
+        fileName: args.fileName,
+        overwrite: args.overwrite ?? false,
+      })
+    } catch (error) {
+      await this.discardFileUpload(lease.uploadId).catch(() => undefined)
+      throw error
+    }
   }
 
   private sessionFileUrl(
@@ -2110,6 +2267,32 @@ export class HttpTransport implements Transport {
 
   supportsLocalFileOps(): boolean {
     return false
+  }
+
+  fileRuntime(): FileRuntime {
+    return { workspaceHost: "remote", openMode: "browser", canReveal: false }
+  }
+
+  async getWorkspaceAccess(scope: ProjectFsScope): Promise<WorkspaceAccess> {
+    return this.call<WorkspaceAccess>("project_fs_capabilities", {
+      scope: scope.scope,
+      scopeId: scope.scopeId,
+    })
+  }
+
+  async openWorkspaceFile(args: WorkspaceFileArgs): Promise<void> {
+    const href = await this.projectFsRawUrl({ ...args, download: false })
+    if (href) this.clickHref(href)
+  }
+
+  async downloadWorkspaceFile(args: WorkspaceFileArgs): Promise<void> {
+    const href = await this.projectFsRawUrl({ ...args, download: true })
+    if (href) this.clickHref(href, args.name)
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  async revealWorkspaceFile(_args: WorkspaceFileArgs): Promise<void> {
+    // A web/remote desktop client cannot reveal a directory on the server host.
   }
 
   async pickLocalImage(): Promise<PickedImage | null> {
@@ -2268,6 +2451,25 @@ export class HttpTransport implements Transport {
     return this.call<ArtifactRecord>("import_artifact", { request })
   }
 
+  artifactPreviewUrl(id: string, projectPath?: string | null): string | null {
+    void projectPath
+    if (!id) return null
+    return this.appendToken(
+      `${this.baseUrl}/api/canvas/projects/${encodeURIComponent(id)}/index.html`,
+    )
+  }
+
+  async openArtifact(id: string): Promise<void> {
+    const href = this.artifactPreviewUrl(id)
+    if (href) this.clickHref(href)
+  }
+
+  async revealArtifact(id: string, projectPath?: string | null): Promise<void> {
+    void id
+    void projectPath
+    // Browser/remote runtimes never expose the Server's file manager.
+  }
+
   async restoreArtifact(id: string, version: number): Promise<ArtifactRecord> {
     return this.call<ArtifactRecord>("restore_artifact", { id, version })
   }
@@ -2321,6 +2523,19 @@ export class HttpTransport implements Transport {
     const disposition = response.headers.get("content-disposition") ?? ""
     const filename = parseDispositionFilename(disposition) ?? receipt.filename
     return { filename, blob: await response.blob(), receipt }
+  }
+
+  async downloadArtifact(
+    id: string,
+    format: ArtifactExportFormat,
+  ): Promise<ArtifactExportResult | null> {
+    const result = await this.exportArtifact(id, format)
+    if (!result) return null
+    if (result.receipt.status !== "ready") {
+      throw new Error(result.receipt.error ?? "Artifact export is not ready")
+    }
+    if (result.blob) this.clickBlob(result.blob, result.filename)
+    return result
   }
 
   async archiveArtifact(id: string): Promise<void> {

@@ -5384,6 +5384,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn goal_runner_waits_for_background_jobs_then_recovers_after_restart_replay() {
+        let _async_jobs_guard = crate::test_support::lock_async_jobs();
         let wakeup_db = ensure_wakeup_db_for_tests();
         ensure_async_jobs_db_for_goal_tests();
         let (_dir, db) = temp_db();

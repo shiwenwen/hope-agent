@@ -18,6 +18,8 @@ export interface FileActionsContextValue {
   sessionId?: string | null
   /** Open the right-side preview panel; absent → preview disabled. */
   onPreviewFile?: (target: PreviewTarget) => void
+  /** Replace the renderer-owned bytes of an unsent draft attachment. */
+  onReplaceDraft?: (draftId: string, file: File) => void
 }
 
 export const FileActionsContext = createContext<FileActionsContextValue>({})

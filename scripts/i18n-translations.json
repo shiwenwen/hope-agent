@@ -837,7 +837,37 @@
       "permLoading": "権限を確認しています...",
       "uiEffects": "背景アニメーション",
       "uiEffectsDesc": "全天候背景と天候効果の連携を有効にする",
-      "uiEffectsToggle": "エフェクトをオンにする"
+      "uiEffectsToggle": "エフェクトをオンにする",
+      "fsMaxChatAttachmentMb": "チャット添付ファイルの最大サイズ",
+      "fsMaxChatAttachmentMbDesc": "チャット入力欄からアップロードするファイル 1 件の最大サイズです。ローカルデスクトップはローカル設定、リモートデスクトップと Web は Server 設定を使用します。",
+      "files": {
+        "title": "ファイル",
+        "description": "チャット、ワークスペース、プレビュー、編集で使用するファイル上限を設定します。",
+        "runtimeLocal": "ローカルデスクトップのファイル",
+        "runtimeServer": "サーバーのファイル",
+        "runtimeLocalDesc": "ファイル操作はこのコンピューターのファイルシステムを使用します。",
+        "runtimeServerDesc": "ファイル操作はリモート Server ホストのファイルシステムを使用します。",
+        "maxChatAttachment": "チャット添付の上限",
+        "maxChatAttachmentDesc": "チャット添付1件あたりの最大サイズ（{{min}}～{{max}} MiB）。",
+        "maxWorkspaceUpload": "ワークスペースアップロードの上限",
+        "maxWorkspaceUploadDesc": "ワークスペースへアップロードする1ファイルの最大サイズ（{{min}}～{{max}} MiB）。",
+        "maxTextPreview": "テキストプレビューの上限",
+        "maxTextPreviewDesc": "プレビューで読み込むテキストファイルの最大サイズ（{{min}}～{{max}} MiB）。",
+        "maxTextEdit": "テキスト編集の上限",
+        "maxTextEditDesc": "編集できる UTF-8 テキストファイルの最大サイズ（{{min}}～{{max}} MiB）。",
+        "maxDocumentPreview": "文書プレビューの上限",
+        "maxDocumentPreviewDesc": "プレビュー処理する PDF / Office ファイルの最大サイズ（{{min}}～{{max}} MiB）。",
+        "largeUploadWarning": "大きなアップロード上限はディスク、ネットワーク、処理負荷を増やします。Server に十分なリソースがある場合のみ引き上げてください。",
+        "maxArtifactImport": "Artifact インポート上限",
+        "maxArtifactImportDesc": "Artifacts にインポートする HTML、Markdown、分析 JSON ソースの最大サイズ（{{min}}～{{max}} MiB）。"
+      },
+      "knowledgeSourceLimits": {
+        "title": "知識ソースの上限",
+        "description": "知識スペースへ取り込むソース種別ごとの最大サイズです。",
+        "text": "テキストソース（MiB）",
+        "binary": "バイナリソース（MiB）",
+        "url": "URL 応答（MiB）"
+      }
     },
     "subagent": {
       "deletedAgentTooltip": "このエージェントは削除されました",
@@ -1494,7 +1524,16 @@
       "open": "開く",
       "download": "ダウンロード",
       "revealInFolder": "フォルダーで表示",
-      "more": "その他の操作"
+      "more": "その他の操作",
+      "edit": "編集",
+      "remove": "削除",
+      "rename": "名前を変更",
+      "delete": "削除",
+      "createFile": "新規ファイル",
+      "createFolder": "新規フォルダー",
+      "upload": "アップロード",
+      "saveAs": "名前を付けて保存",
+      "downloadFailed": "ファイルのダウンロードに失敗しました"
     },
     "filePreview": {
       "panelTitle": "プレビュー",
@@ -1856,7 +1895,9 @@
         "similarScope": {
           "crossKb": "クロススペース",
           "sameKb": "この空間"
-        }
+        },
+        "textTooLarge": "テキストソースが {{limit}} MiB の上限を超えています",
+        "fileTooLarge": "{{name}} は {{limit}} MiB の上限を超えています"
       },
       "queryFile": {
         "action": "ファイル",
@@ -1896,7 +1937,8 @@
       "retry": "再試行",
       "unavailable": "利用不可",
       "next": "Next",
-      "previous": "Previous"
+      "previous": "Previous",
+      "restoreDefaults": "デフォルトに戻す"
     },
     "backgroundJobs": {
       "errorOutput": "間違い",
@@ -1997,6 +2039,35 @@
       "exportReviewPassed": "Export review passed",
       "exportReviewBlocked": "Export review still has blockers",
       "guardStatus": "Guard"
+    },
+    "fileEditor": {
+      "notUtf8": "有効な UTF-8 テキストではありません",
+      "notEditable": "このファイルは UTF-8 テキストとして編集できません",
+      "saved": "保存しました",
+      "saveAsExists": "そのパスには既にファイルがあります",
+      "mixedLineEndings": "改行コードが混在しています。保存時に最も多い形式へ統一されます。",
+      "externalChanged": "このファイルは外部で変更されました。",
+      "reload": "再読み込み",
+      "conflictTitle": "保存の競合",
+      "conflictDeleted": "このファイルは外部で削除されました。",
+      "conflictChanged": "このファイルは外部で変更されました。",
+      "saveAsScope": "現在のワークスペース内に新しいファイルを保存します。",
+      "unsavedTitle": "未保存の変更",
+      "unsavedBody": "このファイルを離れる前に現在の編集を破棄しますか？",
+      "discard": "変更を破棄",
+      "remoteWritesTitle": "リモートファイル書き込みはオフです",
+      "remoteWritesBody": "このワークスペースは Server マシン上にあります。接続済みクライアントを信頼できる場合にのみ Server 設定でリモート書き込みを有効にしてください。",
+      "goToServerSettings": "Server 設定へ",
+      "tooLarge": "ファイルは {{limit}} MiB の編集上限を超えています",
+      "transportSwitchUnsaved": "未保存のファイル変更があります。接続を切り替えて変更を破棄しますか？"
+    },
+    "attachments": {
+      "uploading": "アップロード中…",
+      "uploadFailedShort": "アップロード失敗",
+      "uploadFailed": "ファイルは送信されませんでした。{{error}}",
+      "tooMany": "1 件のメッセージに添付できるファイルは最大 64 個です",
+      "tooLarge": "{{name}} は {{limit}} MB の上限を超えています",
+      "someTooLarge": "{{limit}} MB の上限を超えるファイルがあります"
     }
   },
   "ko": {
@@ -2837,7 +2908,37 @@
       "permLoading": "권한 확인 중...",
       "uiEffects": "배경 애니메이션",
       "uiEffectsDesc": "전천후 배경 및 날씨 효과 연동 활성화",
-      "uiEffectsToggle": "효과 켜기"
+      "uiEffectsToggle": "효과 켜기",
+      "fsMaxChatAttachmentMb": "채팅 첨부 파일 최대 크기",
+      "fsMaxChatAttachmentMbDesc": "채팅 입력창에서 업로드하는 파일 하나의 최대 크기입니다. 로컬 데스크톱은 로컬 설정을, 원격 데스크톱과 Web은 Server 설정을 사용합니다.",
+      "files": {
+        "title": "파일",
+        "description": "채팅, 작업 공간, 미리보기 및 편집에 사용할 파일 제한을 설정합니다.",
+        "runtimeLocal": "로컬 데스크톱 파일",
+        "runtimeServer": "서버 파일",
+        "runtimeLocalDesc": "파일 작업은 이 컴퓨터의 파일 시스템을 사용합니다.",
+        "runtimeServerDesc": "파일 작업은 원격 Server 호스트의 파일 시스템을 사용합니다.",
+        "maxChatAttachment": "채팅 첨부 제한",
+        "maxChatAttachmentDesc": "채팅 첨부 파일당 최대 크기({{min}}~{{max}} MiB).",
+        "maxWorkspaceUpload": "작업 공간 업로드 제한",
+        "maxWorkspaceUploadDesc": "작업 공간에 업로드하는 파일당 최대 크기({{min}}~{{max}} MiB).",
+        "maxTextPreview": "텍스트 미리보기 제한",
+        "maxTextPreviewDesc": "미리보기로 불러올 텍스트 파일의 최대 크기({{min}}~{{max}} MiB).",
+        "maxTextEdit": "텍스트 편집 제한",
+        "maxTextEditDesc": "편집 가능한 UTF-8 텍스트 파일의 최대 크기({{min}}~{{max}} MiB).",
+        "maxDocumentPreview": "문서 미리보기 제한",
+        "maxDocumentPreviewDesc": "미리보기로 처리할 PDF 또는 Office 파일의 최대 크기({{min}}~{{max}} MiB).",
+        "largeUploadWarning": "큰 업로드 제한은 디스크, 네트워크 및 처리량을 늘립니다. Server에 충분한 리소스가 있을 때만 높이세요.",
+        "maxArtifactImport": "Artifact 가져오기 제한",
+        "maxArtifactImportDesc": "Artifacts로 가져오는 HTML, Markdown 또는 분석 JSON 소스의 최대 크기({{min}}~{{max}} MiB)."
+      },
+      "knowledgeSourceLimits": {
+        "title": "지식 소스 제한",
+        "description": "지식 공간에서 허용하는 소스 유형별 최대 크기입니다.",
+        "text": "텍스트 소스(MiB)",
+        "binary": "바이너리 소스(MiB)",
+        "url": "URL 응답(MiB)"
+      }
     },
     "subagent": {
       "deletedAgentTooltip": "이 에이전트는 삭제되었습니다",
@@ -3494,7 +3595,16 @@
       "open": "열기",
       "download": "다운로드",
       "revealInFolder": "폴더에서 표시",
-      "more": "추가 작업"
+      "more": "추가 작업",
+      "edit": "편집",
+      "remove": "제거",
+      "rename": "이름 바꾸기",
+      "delete": "삭제",
+      "createFile": "새 파일",
+      "createFolder": "새 폴더",
+      "upload": "업로드",
+      "saveAs": "다른 이름으로 저장",
+      "downloadFailed": "파일을 다운로드하지 못했습니다"
     },
     "filePreview": {
       "panelTitle": "미리보기",
@@ -3856,7 +3966,9 @@
         "similarScope": {
           "crossKb": "교차 공간",
           "sameKb": "이 공간"
-        }
+        },
+        "textTooLarge": "텍스트 소스가 {{limit}} MiB 제한을 초과합니다",
+        "fileTooLarge": "{{name}}이(가) {{limit}} MiB 제한을 초과합니다"
       },
       "queryFile": {
         "action": "파일",
@@ -3896,7 +4008,8 @@
       "retry": "재시도",
       "unavailable": "이용 불가",
       "next": "Next",
-      "previous": "Previous"
+      "previous": "Previous",
+      "restoreDefaults": "기본값 복원"
     },
     "backgroundJobs": {
       "errorOutput": "실수",
@@ -3997,6 +4110,35 @@
       "exportReviewPassed": "Export review passed",
       "exportReviewBlocked": "Export review still has blockers",
       "guardStatus": "Guard"
+    },
+    "fileEditor": {
+      "notUtf8": "올바른 UTF-8 텍스트 파일이 아닙니다",
+      "notEditable": "이 파일은 UTF-8 텍스트로 편집할 수 없습니다",
+      "saved": "저장됨",
+      "saveAsExists": "해당 경로에 파일이 이미 있습니다",
+      "mixedLineEndings": "줄바꿈 형식이 섞여 있습니다. 저장할 때 가장 많이 사용된 형식으로 통일됩니다.",
+      "externalChanged": "이 파일이 외부에서 변경되었습니다.",
+      "reload": "다시 불러오기",
+      "conflictTitle": "저장 충돌",
+      "conflictDeleted": "이 파일이 외부에서 삭제되었습니다.",
+      "conflictChanged": "이 파일이 외부에서 변경되었습니다.",
+      "saveAsScope": "현재 워크스페이스 안에 새 파일로 저장합니다.",
+      "unsavedTitle": "저장하지 않은 변경 사항",
+      "unsavedBody": "이 파일을 떠나기 전에 현재 편집 내용을 버릴까요?",
+      "discard": "변경 사항 버리기",
+      "remoteWritesTitle": "원격 파일 쓰기가 꺼져 있습니다",
+      "remoteWritesBody": "이 워크스페이스는 Server 머신에 있습니다. 연결된 클라이언트를 신뢰할 때만 Server 설정에서 원격 파일 쓰기를 켜세요.",
+      "goToServerSettings": "Server 설정으로 이동",
+      "tooLarge": "파일이 {{limit}} MiB 편집 제한을 초과합니다",
+      "transportSwitchUnsaved": "저장하지 않은 파일 변경 사항이 있습니다. 연결을 전환하고 변경 사항을 버릴까요?"
+    },
+    "attachments": {
+      "uploading": "업로드 중…",
+      "uploadFailedShort": "업로드 실패",
+      "uploadFailed": "파일이 전송되지 않았습니다. {{error}}",
+      "tooMany": "메시지 하나에 최대 64개의 파일을 첨부할 수 있습니다",
+      "tooLarge": "{{name}}이(가) {{limit}}MB 제한을 초과합니다",
+      "someTooLarge": "일부 파일이 {{limit}}MB 제한을 초과합니다"
     }
   },
   "zh-TW": {
@@ -4837,7 +4979,37 @@
       "permLoading": "正在檢查權限...",
       "uiEffects": "背景動畫",
       "uiEffectsDesc": "啟用全天候背景和天氣效果連動",
-      "uiEffectsToggle": "開啟效果"
+      "uiEffectsToggle": "開啟效果",
+      "fsMaxChatAttachmentMb": "聊天附件大小上限",
+      "fsMaxChatAttachmentMbDesc": "從聊天輸入框上傳的單一檔案大小上限。本機桌面使用本機設定，遠端桌面與 Web 使用 Server 設定。",
+      "files": {
+        "title": "檔案",
+        "description": "設定聊天、工作區瀏覽、預覽與編輯使用的檔案大小限制。",
+        "runtimeLocal": "本機桌面檔案",
+        "runtimeServer": "Server 檔案",
+        "runtimeLocalDesc": "檔案操作使用此電腦的檔案系統。",
+        "runtimeServerDesc": "檔案操作使用遠端 Server 主機的檔案系統。",
+        "maxChatAttachment": "聊天附件限制",
+        "maxChatAttachmentDesc": "每個聊天附件的最大大小（{{min}}–{{max}} MiB）。",
+        "maxWorkspaceUpload": "工作區上傳限制",
+        "maxWorkspaceUploadDesc": "上傳至工作區的單一檔案最大大小（{{min}}–{{max}} MiB）。",
+        "maxTextPreview": "文字預覽限制",
+        "maxTextPreviewDesc": "載入預覽的文字檔最大大小（{{min}}–{{max}} MiB）。",
+        "maxTextEdit": "文字編輯限制",
+        "maxTextEditDesc": "可編輯的 UTF-8 文字檔最大大小（{{min}}–{{max}} MiB）。",
+        "maxDocumentPreview": "文件預覽限制",
+        "maxDocumentPreviewDesc": "處理預覽的 PDF 或 Office 檔案最大大小（{{min}}–{{max}} MiB）。",
+        "largeUploadWarning": "較大的上傳限制會增加磁碟、網路與處理資源用量。僅在 Server 資源充足時提高。",
+        "maxArtifactImport": "Artifact 匯入限制",
+        "maxArtifactImportDesc": "匯入 Artifacts 的 HTML、Markdown 或分析 JSON 來源大小上限（{{min}}–{{max}} MiB）。"
+      },
+      "knowledgeSourceLimits": {
+        "title": "知識來源限制",
+        "description": "知識空間各類來源可接受的最大大小。",
+        "text": "文字來源（MiB）",
+        "binary": "二進位來源（MiB）",
+        "url": "URL 回應（MiB）"
+      }
     },
     "subagent": {
       "deletedAgentTooltip": "此 Agent 已被刪除",
@@ -5368,7 +5540,16 @@
       "open": "開啟",
       "download": "下載",
       "revealInFolder": "在資料夾中顯示",
-      "more": "更多操作"
+      "more": "更多操作",
+      "edit": "編輯",
+      "remove": "移除",
+      "rename": "重新命名",
+      "delete": "刪除",
+      "createFile": "新增檔案",
+      "createFolder": "新增資料夾",
+      "upload": "上傳",
+      "saveAs": "另存新檔",
+      "downloadFailed": "下載檔案失敗"
     },
     "filePreview": {
       "panelTitle": "預覽",
@@ -5730,7 +5911,9 @@
         "similarScope": {
           "crossKb": "跨空間",
           "sameKb": "此空間"
-        }
+        },
+        "textTooLarge": "文字來源超過 {{limit}} MiB 限制",
+        "fileTooLarge": "{{name}} 超過 {{limit}} MiB 限制"
       },
       "queryFile": {
         "action": "文件",
@@ -5770,7 +5953,8 @@
       "retry": "重試",
       "unavailable": "不可用",
       "next": "下一页",
-      "previous": "上一页"
+      "previous": "上一页",
+      "restoreDefaults": "還原預設值"
     },
     "workspace": {
       "sectionKnowledge": "知識空間",
@@ -5980,6 +6164,35 @@
       "exportReviewPassed": "导出复核已通过",
       "exportReviewBlocked": "导出复核仍有阻塞项",
       "guardStatus": "门禁"
+    },
+    "fileEditor": {
+      "notUtf8": "檔案不是有效的 UTF-8 文字",
+      "notEditable": "此檔案無法作為 UTF-8 文字編輯",
+      "saved": "已儲存",
+      "saveAsExists": "該路徑已有檔案",
+      "mixedLineEndings": "檔案混用了換行格式，儲存時會統一為使用比例最高的格式。",
+      "externalChanged": "檔案已在外部變更。",
+      "reload": "重新載入",
+      "conflictTitle": "儲存衝突",
+      "conflictDeleted": "檔案已在外部刪除。",
+      "conflictChanged": "檔案已在外部變更。",
+      "saveAsScope": "在目前工作區內另存為新檔案。",
+      "unsavedTitle": "尚未儲存的變更",
+      "unsavedBody": "離開此檔案前要捨棄目前的編輯嗎？",
+      "discard": "捨棄變更",
+      "remoteWritesTitle": "遠端檔案寫入已關閉",
+      "remoteWritesBody": "此工作區位於 Server 主機。只有在信任已連線用戶端時，才應於 Server 設定中啟用遠端檔案寫入。",
+      "goToServerSettings": "前往 Server 設定",
+      "tooLarge": "檔案超過 {{limit}} MiB 編輯上限",
+      "transportSwitchUnsaved": "有尚未儲存的檔案變更。要切換連線並捨棄這些變更嗎？"
+    },
+    "attachments": {
+      "uploading": "上傳中…",
+      "uploadFailedShort": "上傳失敗",
+      "uploadFailed": "檔案未傳送。{{error}}",
+      "tooMany": "每則訊息最多可附加 64 個檔案",
+      "tooLarge": "{{name}} 超過 {{limit}} MB 上限",
+      "someTooLarge": "部分檔案超過 {{limit}} MB 上限"
     }
   },
   "tr": {
@@ -6820,7 +7033,37 @@
       "permLoading": "İzinler kontrol ediliyor...",
       "uiEffects": "Arka plan animasyonu",
       "uiEffectsDesc": "Tüm hava koşullarına uygun arka plan ve hava durumu efektleri bağlantısını etkinleştirin",
-      "uiEffectsToggle": "Efekti aç"
+      "uiEffectsToggle": "Efekti aç",
+      "fsMaxChatAttachmentMb": "Maksimum sohbet eki boyutu",
+      "fsMaxChatAttachmentMbDesc": "Sohbet düzenleyicisinden yüklenen tek bir dosyanın maksimum boyutu. Yerel masaüstü yerel ayarı, uzak masaüstü ve Web ise Server ayarını kullanır.",
+      "files": {
+        "title": "Dosyalar",
+        "description": "Sohbet, çalışma alanı, önizleme ve düzenleme için dosya sınırlarını yapılandırın.",
+        "runtimeLocal": "Yerel masaüstü dosyaları",
+        "runtimeServer": "Sunucu dosyaları",
+        "runtimeLocalDesc": "Dosya işlemleri bu bilgisayarın dosya sistemini kullanır.",
+        "runtimeServerDesc": "Dosya işlemleri uzak Server ana makinesinin dosya sistemini kullanır.",
+        "maxChatAttachment": "Sohbet eki sınırı",
+        "maxChatAttachmentDesc": "Sohbet eki başına en büyük boyut ({{min}}–{{max}} MiB).",
+        "maxWorkspaceUpload": "Çalışma alanı yükleme sınırı",
+        "maxWorkspaceUploadDesc": "Çalışma alanına yüklenen dosya başına en büyük boyut ({{min}}–{{max}} MiB).",
+        "maxTextPreview": "Metin önizleme sınırı",
+        "maxTextPreviewDesc": "Önizleme için yüklenen metin dosyasının en büyük boyutu ({{min}}–{{max}} MiB).",
+        "maxTextEdit": "Metin düzenleme sınırı",
+        "maxTextEditDesc": "Düzenlenebilen UTF-8 metin dosyasının en büyük boyutu ({{min}}–{{max}} MiB).",
+        "maxDocumentPreview": "Belge önizleme sınırı",
+        "maxDocumentPreviewDesc": "Önizleme için işlenen PDF veya Office dosyasının en büyük boyutu ({{min}}–{{max}} MiB).",
+        "largeUploadWarning": "Büyük yükleme sınırları disk, ağ ve işlem kullanımını artırır. Yalnızca Server yeterli kaynağa sahipse yükseltin.",
+        "maxArtifactImport": "Artifact içe aktarma sınırı",
+        "maxArtifactImportDesc": "Artifacts içine aktarılan HTML, Markdown veya analiz JSON kaynağının en büyük boyutu ({{min}}–{{max}} MiB)."
+      },
+      "knowledgeSourceLimits": {
+        "title": "Bilgi kaynağı sınırları",
+        "description": "Bilgi alanındaki her kaynak türü için kabul edilen en büyük boyut.",
+        "text": "Metin kaynağı (MiB)",
+        "binary": "İkili kaynak (MiB)",
+        "url": "URL yanıtı (MiB)"
+      }
     },
     "subagent": {
       "deletedAgentTooltip": "Bu ajan silindi",
@@ -7477,7 +7720,16 @@
       "open": "Aç",
       "download": "İndir",
       "revealInFolder": "Klasörde göster",
-      "more": "Diğer işlemler"
+      "more": "Diğer işlemler",
+      "edit": "Düzenle",
+      "remove": "Kaldır",
+      "rename": "Yeniden adlandır",
+      "delete": "Sil",
+      "createFile": "Yeni dosya",
+      "createFolder": "Yeni klasör",
+      "upload": "Yükle",
+      "saveAs": "Farklı kaydet",
+      "downloadFailed": "Dosya indirilemedi"
     },
     "filePreview": {
       "panelTitle": "Önizleme",
@@ -7839,7 +8091,9 @@
         "similarScope": {
           "crossKb": "Çapraz alan",
           "sameKb": "Bu alan"
-        }
+        },
+        "textTooLarge": "Metin kaynağı {{limit}} MiB sınırını aşıyor",
+        "fileTooLarge": "{{name}}, {{limit}} MiB sınırını aşıyor"
       },
       "queryFile": {
         "action": "Dosya",
@@ -7879,7 +8133,8 @@
       "retry": "Yeniden dene",
       "unavailable": "Kullanılamıyor",
       "next": "Next",
-      "previous": "Previous"
+      "previous": "Previous",
+      "restoreDefaults": "Varsayılanları geri yükle"
     },
     "backgroundJobs": {
       "errorOutput": "hata",
@@ -7980,6 +8235,35 @@
       "exportReviewPassed": "Export review passed",
       "exportReviewBlocked": "Export review still has blockers",
       "guardStatus": "Guard"
+    },
+    "fileEditor": {
+      "notUtf8": "Dosya geçerli UTF-8 metni değil",
+      "notEditable": "Bu dosya UTF-8 metni olarak düzenlenemez",
+      "saved": "Kaydedildi",
+      "saveAsExists": "Bu yolda zaten bir dosya var",
+      "mixedLineEndings": "Satır sonları karışık; kaydederken baskın biçime dönüştürülecek.",
+      "externalChanged": "Dosya düzenleyici dışında değişti.",
+      "reload": "Yeniden yükle",
+      "conflictTitle": "Kaydetme çakışması",
+      "conflictDeleted": "Dosya düzenleyici dışında silindi.",
+      "conflictChanged": "Dosya düzenleyici dışında değiştirildi.",
+      "saveAsScope": "Geçerli çalışma alanına yeni bir dosya kaydedin.",
+      "unsavedTitle": "Kaydedilmemiş değişiklikler",
+      "unsavedBody": "Bu dosyadan ayrılmadan önce mevcut düzenlemeler silinsin mi?",
+      "discard": "Değişiklikleri sil",
+      "remoteWritesTitle": "Uzak dosya yazma kapalı",
+      "remoteWritesBody": "Bu çalışma alanı Server makinesindedir. Uzak yazmayı yalnızca bağlı istemcilere güveniyorsanız Server ayarlarından açın.",
+      "goToServerSettings": "Server ayarlarına git",
+      "tooLarge": "Dosya {{limit}} MiB düzenleme sınırını aşıyor",
+      "transportSwitchUnsaved": "Kaydedilmemiş dosya değişiklikleri var. Bağlantı değiştirilip değişiklikler silinsin mi?"
+    },
+    "attachments": {
+      "uploading": "Yükleniyor…",
+      "uploadFailedShort": "Yükleme başarısız",
+      "uploadFailed": "Dosyalar gönderilmedi. {{error}}",
+      "tooMany": "Bir mesaj en fazla 64 dosya içerebilir",
+      "tooLarge": "{{name}} {{limit}} MB sınırını aşıyor",
+      "someTooLarge": "Bazı dosyalar {{limit}} MB sınırını aşıyor"
     }
   },
   "vi": {
@@ -8820,7 +9104,37 @@
       "permLoading": "Đang kiểm tra quyền...",
       "uiEffects": "Hoạt hình nền",
       "uiEffectsDesc": "Cho phép liên kết nền mọi thời tiết và hiệu ứng thời tiết",
-      "uiEffectsToggle": "Bật hiệu ứng"
+      "uiEffectsToggle": "Bật hiệu ứng",
+      "fsMaxChatAttachmentMb": "Kích thước tệp đính kèm trò chuyện tối đa",
+      "fsMaxChatAttachmentMbDesc": "Kích thước tối đa của một tệp tải lên từ ô soạn thảo trò chuyện. Máy tính cục bộ dùng cài đặt cục bộ; máy tính từ xa và Web dùng cài đặt Server.",
+      "files": {
+        "title": "Tệp",
+        "description": "Cấu hình giới hạn tệp cho trò chuyện, không gian làm việc, xem trước và chỉnh sửa.",
+        "runtimeLocal": "Tệp trên máy tính cục bộ",
+        "runtimeServer": "Tệp trên máy chủ",
+        "runtimeLocalDesc": "Các thao tác tệp sử dụng hệ thống tệp của máy tính này.",
+        "runtimeServerDesc": "Các thao tác tệp sử dụng hệ thống tệp của máy chủ Server từ xa.",
+        "maxChatAttachment": "Giới hạn tệp đính kèm trò chuyện",
+        "maxChatAttachmentDesc": "Kích thước tối đa cho mỗi tệp đính kèm ({{min}}–{{max}} MiB).",
+        "maxWorkspaceUpload": "Giới hạn tải lên không gian làm việc",
+        "maxWorkspaceUploadDesc": "Kích thước tối đa cho mỗi tệp tải lên không gian làm việc ({{min}}–{{max}} MiB).",
+        "maxTextPreview": "Giới hạn xem trước văn bản",
+        "maxTextPreviewDesc": "Kích thước tệp văn bản tối đa được tải để xem trước ({{min}}–{{max}} MiB).",
+        "maxTextEdit": "Giới hạn chỉnh sửa văn bản",
+        "maxTextEditDesc": "Kích thước tệp văn bản UTF-8 tối đa có thể chỉnh sửa ({{min}}–{{max}} MiB).",
+        "maxDocumentPreview": "Giới hạn xem trước tài liệu",
+        "maxDocumentPreviewDesc": "Kích thước tệp PDF hoặc Office tối đa được xử lý để xem trước ({{min}}–{{max}} MiB).",
+        "largeUploadWarning": "Giới hạn tải lên lớn làm tăng mức dùng đĩa, mạng và xử lý. Chỉ tăng khi Server có đủ tài nguyên.",
+        "maxArtifactImport": "Giới hạn nhập Artifact",
+        "maxArtifactImportDesc": "Kích thước tối đa của nguồn HTML, Markdown hoặc JSON phân tích được nhập vào Artifacts ({{min}}–{{max}} MiB)."
+      },
+      "knowledgeSourceLimits": {
+        "title": "Giới hạn nguồn tri thức",
+        "description": "Kích thước tối đa được chấp nhận cho từng loại nguồn trong không gian tri thức.",
+        "text": "Nguồn văn bản (MiB)",
+        "binary": "Nguồn nhị phân (MiB)",
+        "url": "Phản hồi URL (MiB)"
+      }
     },
     "subagent": {
       "deletedAgentTooltip": "Agent này đã bị xoá",
@@ -9477,7 +9791,16 @@
       "open": "Mở",
       "download": "Tải xuống",
       "revealInFolder": "Hiện trong thư mục",
-      "more": "Thao tác khác"
+      "more": "Thao tác khác",
+      "edit": "Chỉnh sửa",
+      "remove": "Gỡ bỏ",
+      "rename": "Đổi tên",
+      "delete": "Xóa",
+      "createFile": "Tệp mới",
+      "createFolder": "Thư mục mới",
+      "upload": "Tải lên",
+      "saveAs": "Lưu thành",
+      "downloadFailed": "Không thể tải tệp xuống"
     },
     "filePreview": {
       "panelTitle": "Xem trước",
@@ -9839,7 +10162,9 @@
         "similarScope": {
           "crossKb": "Xuyên không gian",
           "sameKb": "Không gian này"
-        }
+        },
+        "textTooLarge": "Nguồn văn bản vượt quá giới hạn {{limit}} MiB",
+        "fileTooLarge": "{{name}} vượt quá giới hạn {{limit}} MiB"
       },
       "queryFile": {
         "action": "Tập tin",
@@ -9879,7 +10204,8 @@
       "retry": "Thử lại",
       "unavailable": "Không có sẵn",
       "next": "Next",
-      "previous": "Previous"
+      "previous": "Previous",
+      "restoreDefaults": "Khôi phục mặc định"
     },
     "backgroundJobs": {
       "errorOutput": "sai lầm",
@@ -9980,6 +10306,35 @@
       "exportReviewPassed": "Export review passed",
       "exportReviewBlocked": "Export review still has blockers",
       "guardStatus": "Guard"
+    },
+    "fileEditor": {
+      "notUtf8": "Tệp không phải văn bản UTF-8 hợp lệ",
+      "notEditable": "Không thể chỉnh sửa tệp này dưới dạng văn bản UTF-8",
+      "saved": "Đã lưu",
+      "saveAsExists": "Đã có tệp tại đường dẫn đó",
+      "mixedLineEndings": "Kiểu xuống dòng bị trộn lẫn và sẽ được chuẩn hóa theo kiểu phổ biến nhất khi lưu.",
+      "externalChanged": "Tệp đã thay đổi bên ngoài trình chỉnh sửa.",
+      "reload": "Tải lại",
+      "conflictTitle": "Xung đột khi lưu",
+      "conflictDeleted": "Tệp đã bị xóa bên ngoài trình chỉnh sửa.",
+      "conflictChanged": "Tệp đã bị thay đổi bên ngoài trình chỉnh sửa.",
+      "saveAsScope": "Lưu tệp mới bên trong không gian làm việc hiện tại.",
+      "unsavedTitle": "Thay đổi chưa lưu",
+      "unsavedBody": "Bỏ các chỉnh sửa hiện tại trước khi rời khỏi tệp này?",
+      "discard": "Bỏ thay đổi",
+      "remoteWritesTitle": "Ghi tệp từ xa đang tắt",
+      "remoteWritesBody": "Không gian làm việc này nằm trên máy Server. Chỉ bật ghi từ xa trong cài đặt Server khi bạn tin cậy các máy khách đã kết nối.",
+      "goToServerSettings": "Đi tới cài đặt Server",
+      "tooLarge": "Tệp vượt quá giới hạn chỉnh sửa {{limit}} MiB",
+      "transportSwitchUnsaved": "Bạn có thay đổi tệp chưa lưu. Chuyển kết nối và bỏ các thay đổi này?"
+    },
+    "attachments": {
+      "uploading": "Đang tải lên…",
+      "uploadFailedShort": "Tải lên thất bại",
+      "uploadFailed": "Các tệp chưa được gửi. {{error}}",
+      "tooMany": "Mỗi tin nhắn có thể chứa tối đa 64 tệp",
+      "tooLarge": "{{name}} vượt quá giới hạn {{limit}} MB",
+      "someTooLarge": "Một số tệp vượt quá giới hạn {{limit}} MB"
     }
   },
   "pt": {
@@ -10820,7 +11175,37 @@
       "permLoading": "Verificando permissões...",
       "uiEffects": "Animação de fundo",
       "uiEffectsDesc": "Ative a vinculação de plano de fundo para qualquer clima e efeitos climáticos",
-      "uiEffectsToggle": "Ativar efeito"
+      "uiEffectsToggle": "Ativar efeito",
+      "fsMaxChatAttachmentMb": "Tamanho máximo do anexo do chat",
+      "fsMaxChatAttachmentMbDesc": "Tamanho máximo de um arquivo enviado pelo compositor do chat. O desktop local usa a configuração local; o desktop remoto e a Web usam a configuração do Server.",
+      "files": {
+        "title": "Arquivos",
+        "description": "Configure os limites de arquivos usados no chat, espaço de trabalho, visualização e edição.",
+        "runtimeLocal": "Arquivos do desktop local",
+        "runtimeServer": "Arquivos do servidor",
+        "runtimeLocalDesc": "As operações usam o sistema de arquivos deste computador.",
+        "runtimeServerDesc": "As operações usam o sistema de arquivos do host Server remoto.",
+        "maxChatAttachment": "Limite de anexo do chat",
+        "maxChatAttachmentDesc": "Tamanho máximo por anexo do chat ({{min}}–{{max}} MiB).",
+        "maxWorkspaceUpload": "Limite de upload do espaço de trabalho",
+        "maxWorkspaceUploadDesc": "Tamanho máximo por arquivo enviado ao espaço de trabalho ({{min}}–{{max}} MiB).",
+        "maxTextPreview": "Limite de visualização de texto",
+        "maxTextPreviewDesc": "Tamanho máximo do arquivo de texto carregado para visualização ({{min}}–{{max}} MiB).",
+        "maxTextEdit": "Limite de edição de texto",
+        "maxTextEditDesc": "Tamanho máximo do arquivo de texto UTF-8 que pode ser editado ({{min}}–{{max}} MiB).",
+        "maxDocumentPreview": "Limite de visualização de documentos",
+        "maxDocumentPreviewDesc": "Tamanho máximo de PDF ou Office processado para visualização ({{min}}–{{max}} MiB).",
+        "largeUploadWarning": "Limites altos aumentam o uso de disco, rede e processamento. Aumente apenas se o Server tiver recursos suficientes.",
+        "maxArtifactImport": "Limite de importação de Artifact",
+        "maxArtifactImportDesc": "Tamanho máximo da fonte HTML, Markdown ou JSON de análise importada para Artifacts ({{min}}–{{max}} MiB)."
+      },
+      "knowledgeSourceLimits": {
+        "title": "Limites de fontes de conhecimento",
+        "description": "Tamanho máximo aceito para cada tipo de fonte do espaço de conhecimento.",
+        "text": "Fonte de texto (MiB)",
+        "binary": "Fonte binária (MiB)",
+        "url": "Resposta de URL (MiB)"
+      }
     },
     "subagent": {
       "deletedAgentTooltip": "Este agente foi excluído",
@@ -11477,7 +11862,16 @@
       "open": "Abrir",
       "download": "Baixar",
       "revealInFolder": "Mostrar na pasta",
-      "more": "Mais ações"
+      "more": "Mais ações",
+      "edit": "Editar",
+      "remove": "Remover",
+      "rename": "Renomear",
+      "delete": "Excluir",
+      "createFile": "Novo arquivo",
+      "createFolder": "Nova pasta",
+      "upload": "Enviar",
+      "saveAs": "Salvar como",
+      "downloadFailed": "Falha ao baixar o arquivo"
     },
     "filePreview": {
       "panelTitle": "Pré-visualização",
@@ -11839,7 +12233,9 @@
         "similarScope": {
           "crossKb": "Espaço cruzado",
           "sameKb": "Este espaço"
-        }
+        },
+        "textTooLarge": "A fonte de texto excede o limite de {{limit}} MiB",
+        "fileTooLarge": "{{name}} excede o limite de {{limit}} MiB"
       },
       "queryFile": {
         "action": "Arquivo",
@@ -11879,7 +12275,8 @@
       "retry": "Tentar novamente",
       "unavailable": "Indisponível",
       "next": "Next",
-      "previous": "Previous"
+      "previous": "Previous",
+      "restoreDefaults": "Restaurar padrões"
     },
     "backgroundJobs": {
       "errorOutput": "erro",
@@ -11980,6 +12377,35 @@
       "exportReviewPassed": "Export review passed",
       "exportReviewBlocked": "Export review still has blockers",
       "guardStatus": "Guard"
+    },
+    "fileEditor": {
+      "notUtf8": "O arquivo não é um texto UTF-8 válido",
+      "notEditable": "Este arquivo não pode ser editado como texto UTF-8",
+      "saved": "Salvo",
+      "saveAsExists": "Já existe um arquivo nesse caminho",
+      "mixedLineEndings": "Há finais de linha mistos; ao salvar, serão normalizados para o estilo predominante.",
+      "externalChanged": "O arquivo foi alterado fora deste editor.",
+      "reload": "Recarregar",
+      "conflictTitle": "Conflito ao salvar",
+      "conflictDeleted": "O arquivo foi excluído fora deste editor.",
+      "conflictChanged": "O arquivo foi alterado fora deste editor.",
+      "saveAsScope": "Salve um novo arquivo dentro do espaço de trabalho atual.",
+      "unsavedTitle": "Alterações não salvas",
+      "unsavedBody": "Descartar as edições atuais antes de sair deste arquivo?",
+      "discard": "Descartar alterações",
+      "remoteWritesTitle": "A gravação remota de arquivos está desativada",
+      "remoteWritesBody": "Este espaço de trabalho fica na máquina Server. Ative a gravação remota nas configurações do Server apenas se confiar nos clientes conectados.",
+      "goToServerSettings": "Ir para as configurações do Server",
+      "tooLarge": "O arquivo excede o limite de edição de {{limit}} MiB",
+      "transportSwitchUnsaved": "Há alterações de arquivo não salvas. Trocar a conexão e descartá-las?"
+    },
+    "attachments": {
+      "uploading": "Enviando…",
+      "uploadFailedShort": "Falha no envio",
+      "uploadFailed": "Os arquivos não foram enviados. {{error}}",
+      "tooMany": "Uma mensagem pode conter no máximo 64 arquivos",
+      "tooLarge": "{{name}} excede o limite de {{limit}} MB",
+      "someTooLarge": "Alguns arquivos excedem o limite de {{limit}} MB"
     }
   },
   "ru": {
@@ -12820,7 +13246,37 @@
       "permLoading": "Проверяем разрешения...",
       "uiEffects": "Фоновая анимация",
       "uiEffectsDesc": "Включить всепогодный фон и связь с погодными эффектами.",
-      "uiEffectsToggle": "Включить эффект"
+      "uiEffectsToggle": "Включить эффект",
+      "fsMaxChatAttachmentMb": "Максимальный размер вложения чата",
+      "fsMaxChatAttachmentMbDesc": "Максимальный размер одного файла, загружаемого из поля ввода чата. Локальное приложение использует локальную настройку, удалённое приложение и Web — настройку Server.",
+      "files": {
+        "title": "Файлы",
+        "description": "Настройте ограничения файлов для чата, рабочей области, предпросмотра и редактирования.",
+        "runtimeLocal": "Локальные файлы компьютера",
+        "runtimeServer": "Файлы сервера",
+        "runtimeLocalDesc": "Операции выполняются в файловой системе этого компьютера.",
+        "runtimeServerDesc": "Операции выполняются в файловой системе удалённого хоста Server.",
+        "maxChatAttachment": "Лимит вложения чата",
+        "maxChatAttachmentDesc": "Максимальный размер одного вложения чата ({{min}}–{{max}} МиБ).",
+        "maxWorkspaceUpload": "Лимит загрузки в рабочую область",
+        "maxWorkspaceUploadDesc": "Максимальный размер одного файла для рабочей области ({{min}}–{{max}} МиБ).",
+        "maxTextPreview": "Лимит предпросмотра текста",
+        "maxTextPreviewDesc": "Максимальный размер текстового файла для предпросмотра ({{min}}–{{max}} МиБ).",
+        "maxTextEdit": "Лимит редактирования текста",
+        "maxTextEditDesc": "Максимальный размер редактируемого UTF-8 файла ({{min}}–{{max}} МиБ).",
+        "maxDocumentPreview": "Лимит предпросмотра документов",
+        "maxDocumentPreviewDesc": "Максимальный размер PDF или Office для предпросмотра ({{min}}–{{max}} МиБ).",
+        "largeUploadWarning": "Большие лимиты повышают нагрузку на диск, сеть и обработку. Увеличивайте их только при достаточных ресурсах Server.",
+        "maxArtifactImport": "Лимит импорта Artifact",
+        "maxArtifactImportDesc": "Максимальный размер источника HTML, Markdown или аналитического JSON, импортируемого в Artifacts ({{min}}–{{max}} МиБ)."
+      },
+      "knowledgeSourceLimits": {
+        "title": "Лимиты источников знаний",
+        "description": "Максимальный размер для каждого типа источника пространства знаний.",
+        "text": "Текстовый источник (МиБ)",
+        "binary": "Бинарный источник (МиБ)",
+        "url": "Ответ URL (МиБ)"
+      }
     },
     "subagent": {
       "deletedAgentTooltip": "Этот агент был удалён",
@@ -13477,7 +13933,16 @@
       "open": "Открыть",
       "download": "Скачать",
       "revealInFolder": "Показать в папке",
-      "more": "Другие действия"
+      "more": "Другие действия",
+      "edit": "Изменить",
+      "remove": "Убрать",
+      "rename": "Переименовать",
+      "delete": "Удалить",
+      "createFile": "Новый файл",
+      "createFolder": "Новая папка",
+      "upload": "Загрузить",
+      "saveAs": "Сохранить как",
+      "downloadFailed": "Не удалось скачать файл"
     },
     "filePreview": {
       "panelTitle": "Просмотр",
@@ -13839,7 +14304,9 @@
         "similarScope": {
           "crossKb": "Перекрестное пространство",
           "sameKb": "Это пространство"
-        }
+        },
+        "textTooLarge": "Текстовый источник превышает лимит {{limit}} МиБ",
+        "fileTooLarge": "{{name}} превышает лимит {{limit}} МиБ"
       },
       "queryFile": {
         "action": "Файл",
@@ -13879,7 +14346,8 @@
       "retry": "Повторить попытку",
       "unavailable": "Недоступно",
       "next": "Next",
-      "previous": "Previous"
+      "previous": "Previous",
+      "restoreDefaults": "Восстановить значения по умолчанию"
     },
     "backgroundJobs": {
       "errorOutput": "ошибка",
@@ -13980,6 +14448,35 @@
       "exportReviewPassed": "Export review passed",
       "exportReviewBlocked": "Export review still has blockers",
       "guardStatus": "Guard"
+    },
+    "fileEditor": {
+      "notUtf8": "Файл не является корректным текстом UTF-8",
+      "notEditable": "Этот файл нельзя редактировать как текст UTF-8",
+      "saved": "Сохранено",
+      "saveAsExists": "По этому пути уже существует файл",
+      "mixedLineEndings": "Смешанные окончания строк при сохранении будут приведены к преобладающему формату.",
+      "externalChanged": "Файл был изменён вне этого редактора.",
+      "reload": "Перезагрузить",
+      "conflictTitle": "Конфликт сохранения",
+      "conflictDeleted": "Файл был удалён вне этого редактора.",
+      "conflictChanged": "Файл был изменён вне этого редактора.",
+      "saveAsScope": "Сохраните новый файл в текущей рабочей области.",
+      "unsavedTitle": "Несохранённые изменения",
+      "unsavedBody": "Отменить текущие правки перед выходом из файла?",
+      "discard": "Отменить изменения",
+      "remoteWritesTitle": "Удалённая запись файлов отключена",
+      "remoteWritesBody": "Эта рабочая область находится на машине Server. Включайте удалённую запись в настройках Server, только если доверяете подключённым клиентам.",
+      "goToServerSettings": "Перейти к настройкам Server",
+      "tooLarge": "Файл превышает лимит редактирования {{limit}} МиБ",
+      "transportSwitchUnsaved": "Есть несохранённые изменения файлов. Переключить подключение и отменить их?"
+    },
+    "attachments": {
+      "uploading": "Загрузка…",
+      "uploadFailedShort": "Ошибка загрузки",
+      "uploadFailed": "Файлы не отправлены. {{error}}",
+      "tooMany": "К сообщению можно прикрепить не более 64 файлов",
+      "tooLarge": "{{name}} превышает лимит {{limit}} МБ",
+      "someTooLarge": "Некоторые файлы превышают лимит {{limit}} МБ"
     }
   },
   "ar": {
@@ -14820,7 +15317,37 @@
       "permLoading": "جارٍ التحقق من الأذونات...",
       "uiEffects": "الرسوم المتحركة الخلفية",
       "uiEffectsDesc": "تمكين ربط الخلفية وتأثيرات الطقس في جميع الأحوال الجوية",
-      "uiEffectsToggle": "تفعيل التأثير"
+      "uiEffectsToggle": "تفعيل التأثير",
+      "fsMaxChatAttachmentMb": "الحد الأقصى لحجم مرفق الدردشة",
+      "fsMaxChatAttachmentMbDesc": "الحد الأقصى لحجم ملف واحد يتم رفعه من محرر الدردشة. يستخدم سطح المكتب المحلي الإعداد المحلي، بينما يستخدم سطح المكتب البعيد وWeb إعداد Server.",
+      "files": {
+        "title": "الملفات",
+        "description": "اضبط حدود الملفات للدردشة ومساحة العمل والمعاينة والتحرير.",
+        "runtimeLocal": "ملفات سطح المكتب المحلي",
+        "runtimeServer": "ملفات الخادم",
+        "runtimeLocalDesc": "تستخدم عمليات الملفات نظام ملفات هذا الكمبيوتر.",
+        "runtimeServerDesc": "تستخدم عمليات الملفات نظام ملفات مضيف Server البعيد.",
+        "maxChatAttachment": "حد مرفق الدردشة",
+        "maxChatAttachmentDesc": "الحجم الأقصى لكل مرفق دردشة ({{min}}–{{max}} MiB).",
+        "maxWorkspaceUpload": "حد الرفع إلى مساحة العمل",
+        "maxWorkspaceUploadDesc": "الحجم الأقصى لكل ملف يُرفع إلى مساحة العمل ({{min}}–{{max}} MiB).",
+        "maxTextPreview": "حد معاينة النص",
+        "maxTextPreviewDesc": "الحجم الأقصى لملف النص المحمّل للمعاينة ({{min}}–{{max}} MiB).",
+        "maxTextEdit": "حد تحرير النص",
+        "maxTextEditDesc": "الحجم الأقصى لملف نص UTF-8 القابل للتحرير ({{min}}–{{max}} MiB).",
+        "maxDocumentPreview": "حد معاينة المستند",
+        "maxDocumentPreviewDesc": "الحجم الأقصى لملف PDF أو Office الذي تتم معالجته للمعاينة ({{min}}–{{max}} MiB).",
+        "largeUploadWarning": "تزيد حدود الرفع الكبيرة استخدام القرص والشبكة والمعالجة. ارفعها فقط عندما تتوفر لدى Server موارد كافية.",
+        "maxArtifactImport": "حد استيراد Artifact",
+        "maxArtifactImportDesc": "الحجم الأقصى لمصدر HTML أو Markdown أو JSON تحليلي يتم استيراده إلى Artifacts ({{min}}–{{max}} MiB)."
+      },
+      "knowledgeSourceLimits": {
+        "title": "حدود مصادر المعرفة",
+        "description": "الحجم الأقصى المقبول لكل نوع من مصادر مساحة المعرفة.",
+        "text": "مصدر نصي (MiB)",
+        "binary": "مصدر ثنائي (MiB)",
+        "url": "استجابة URL (MiB)"
+      }
     },
     "subagent": {
       "deletedAgentTooltip": "تم حذف هذا العميل",
@@ -15477,7 +16004,16 @@
       "open": "فتح",
       "download": "تنزيل",
       "revealInFolder": "إظهار في المجلد",
-      "more": "إجراءات أخرى"
+      "more": "إجراءات أخرى",
+      "edit": "تحرير",
+      "remove": "إزالة",
+      "rename": "إعادة تسمية",
+      "delete": "حذف",
+      "createFile": "ملف جديد",
+      "createFolder": "مجلد جديد",
+      "upload": "رفع",
+      "saveAs": "حفظ باسم",
+      "downloadFailed": "تعذر تنزيل الملف"
     },
     "filePreview": {
       "panelTitle": "معاينة",
@@ -15839,7 +16375,9 @@
         "similarScope": {
           "crossKb": "عبر الفضاء",
           "sameKb": "هذه المساحة"
-        }
+        },
+        "textTooLarge": "يتجاوز المصدر النصي حد {{limit}} MiB",
+        "fileTooLarge": "يتجاوز {{name}} حد {{limit}} MiB"
       },
       "queryFile": {
         "action": "ملف",
@@ -15879,7 +16417,8 @@
       "retry": "أعد المحاولة",
       "unavailable": "غير متاح",
       "next": "Next",
-      "previous": "Previous"
+      "previous": "Previous",
+      "restoreDefaults": "استعادة الإعدادات الافتراضية"
     },
     "backgroundJobs": {
       "errorOutput": "خطأ",
@@ -15980,6 +16519,35 @@
       "exportReviewPassed": "Export review passed",
       "exportReviewBlocked": "Export review still has blockers",
       "guardStatus": "Guard"
+    },
+    "fileEditor": {
+      "notUtf8": "الملف ليس نص UTF-8 صالحًا",
+      "notEditable": "لا يمكن تحرير هذا الملف كنص UTF-8",
+      "saved": "تم الحفظ",
+      "saveAsExists": "يوجد ملف بالفعل في هذا المسار",
+      "mixedLineEndings": "نهايات الأسطر مختلطة وسيتم توحيدها إلى النمط الغالب عند الحفظ.",
+      "externalChanged": "تم تغيير الملف خارج هذا المحرر.",
+      "reload": "إعادة تحميل",
+      "conflictTitle": "تعارض في الحفظ",
+      "conflictDeleted": "تم حذف الملف خارج هذا المحرر.",
+      "conflictChanged": "تم تغيير الملف خارج هذا المحرر.",
+      "saveAsScope": "احفظ ملفًا جديدًا داخل مساحة العمل الحالية.",
+      "unsavedTitle": "تغييرات غير محفوظة",
+      "unsavedBody": "هل تريد تجاهل التعديلات الحالية قبل مغادرة هذا الملف؟",
+      "discard": "تجاهل التغييرات",
+      "remoteWritesTitle": "الكتابة إلى الملفات البعيدة متوقفة",
+      "remoteWritesBody": "مساحة العمل هذه موجودة على جهاز Server. فعّل الكتابة البعيدة من إعدادات Server فقط إذا كنت تثق بالعملاء المتصلين.",
+      "goToServerSettings": "الانتقال إلى إعدادات Server",
+      "tooLarge": "يتجاوز الملف حد التحرير البالغ {{limit}} MiB",
+      "transportSwitchUnsaved": "لديك تغييرات ملفات غير محفوظة. هل تريد تبديل الاتصال وتجاهلها؟"
+    },
+    "attachments": {
+      "uploading": "جارٍ الرفع…",
+      "uploadFailedShort": "فشل الرفع",
+      "uploadFailed": "لم يتم إرسال الملفات. {{error}}",
+      "tooMany": "يمكن أن تحتوي الرسالة على 64 ملفًا كحد أقصى",
+      "tooLarge": "يتجاوز {{name}} حد {{limit}} ميغابايت",
+      "someTooLarge": "تتجاوز بعض الملفات حد {{limit}} ميغابايت"
     }
   },
   "es": {
@@ -16820,7 +17388,37 @@
       "permLoading": "Comprobando permisos...",
       "uiEffects": "Animación de fondo",
       "uiEffectsDesc": "Habilite la vinculación de efectos climáticos y fondos para todo clima",
-      "uiEffectsToggle": "Activar efecto"
+      "uiEffectsToggle": "Activar efecto",
+      "fsMaxChatAttachmentMb": "Tamaño máximo de los archivos adjuntos del chat",
+      "fsMaxChatAttachmentMbDesc": "Tamaño máximo de un archivo subido desde el editor del chat. El escritorio local usa la configuración local; el escritorio remoto y Web usan la configuración del Server.",
+      "files": {
+        "title": "Archivos",
+        "description": "Configura los límites de archivos del chat, espacio de trabajo, vista previa y edición.",
+        "runtimeLocal": "Archivos del escritorio local",
+        "runtimeServer": "Archivos del servidor",
+        "runtimeLocalDesc": "Las operaciones usan el sistema de archivos de este equipo.",
+        "runtimeServerDesc": "Las operaciones usan el sistema de archivos del host Server remoto.",
+        "maxChatAttachment": "Límite de adjuntos del chat",
+        "maxChatAttachmentDesc": "Tamaño máximo por adjunto del chat ({{min}}–{{max}} MiB).",
+        "maxWorkspaceUpload": "Límite de carga del espacio de trabajo",
+        "maxWorkspaceUploadDesc": "Tamaño máximo por archivo subido al espacio de trabajo ({{min}}–{{max}} MiB).",
+        "maxTextPreview": "Límite de vista previa de texto",
+        "maxTextPreviewDesc": "Tamaño máximo del archivo de texto cargado para vista previa ({{min}}–{{max}} MiB).",
+        "maxTextEdit": "Límite de edición de texto",
+        "maxTextEditDesc": "Tamaño máximo del archivo de texto UTF-8 que puede editarse ({{min}}–{{max}} MiB).",
+        "maxDocumentPreview": "Límite de vista previa de documentos",
+        "maxDocumentPreviewDesc": "Tamaño máximo de PDF u Office procesado para vista previa ({{min}}–{{max}} MiB).",
+        "largeUploadWarning": "Los límites altos aumentan el uso de disco, red y procesamiento. Súbelos solo si el Server tiene recursos suficientes.",
+        "maxArtifactImport": "Límite de importación de Artifact",
+        "maxArtifactImportDesc": "Tamaño máximo de la fuente HTML, Markdown o JSON de análisis importada en Artifacts ({{min}}–{{max}} MiB)."
+      },
+      "knowledgeSourceLimits": {
+        "title": "Límites de fuentes de conocimiento",
+        "description": "Tamaño máximo aceptado para cada tipo de fuente del espacio de conocimiento.",
+        "text": "Fuente de texto (MiB)",
+        "binary": "Fuente binaria (MiB)",
+        "url": "Respuesta de URL (MiB)"
+      }
     },
     "subagent": {
       "deletedAgentTooltip": "Este agente ha sido eliminado",
@@ -17477,7 +18075,16 @@
       "open": "Abrir",
       "download": "Descargar",
       "revealInFolder": "Mostrar en carpeta",
-      "more": "Más acciones"
+      "more": "Más acciones",
+      "edit": "Editar",
+      "remove": "Quitar",
+      "rename": "Cambiar nombre",
+      "delete": "Eliminar",
+      "createFile": "Nuevo archivo",
+      "createFolder": "Nueva carpeta",
+      "upload": "Subir",
+      "saveAs": "Guardar como",
+      "downloadFailed": "No se pudo descargar el archivo"
     },
     "filePreview": {
       "panelTitle": "Vista previa",
@@ -17839,7 +18446,9 @@
         "similarScope": {
           "crossKb": "Espacio cruzado",
           "sameKb": "este espacio"
-        }
+        },
+        "textTooLarge": "La fuente de texto supera el límite de {{limit}} MiB",
+        "fileTooLarge": "{{name}} supera el límite de {{limit}} MiB"
       },
       "queryFile": {
         "action": "Archivo",
@@ -17879,7 +18488,8 @@
       "retry": "Reintentar",
       "unavailable": "No disponible",
       "next": "Next",
-      "previous": "Previous"
+      "previous": "Previous",
+      "restoreDefaults": "Restaurar valores predeterminados"
     },
     "backgroundJobs": {
       "errorOutput": "error",
@@ -17980,6 +18590,35 @@
       "exportReviewPassed": "Export review passed",
       "exportReviewBlocked": "Export review still has blockers",
       "guardStatus": "Guard"
+    },
+    "fileEditor": {
+      "notUtf8": "El archivo no es texto UTF-8 válido",
+      "notEditable": "Este archivo no se puede editar como texto UTF-8",
+      "saved": "Guardado",
+      "saveAsExists": "Ya existe un archivo en esa ruta",
+      "mixedLineEndings": "Hay finales de línea mixtos; al guardar se normalizarán al estilo predominante.",
+      "externalChanged": "El archivo cambió fuera de este editor.",
+      "reload": "Volver a cargar",
+      "conflictTitle": "Conflicto al guardar",
+      "conflictDeleted": "El archivo se eliminó fuera de este editor.",
+      "conflictChanged": "El archivo cambió fuera de este editor.",
+      "saveAsScope": "Guarda un archivo nuevo dentro del espacio de trabajo actual.",
+      "unsavedTitle": "Cambios sin guardar",
+      "unsavedBody": "¿Descartar los cambios actuales antes de salir de este archivo?",
+      "discard": "Descartar cambios",
+      "remoteWritesTitle": "La escritura remota de archivos está desactivada",
+      "remoteWritesBody": "Este espacio de trabajo está en la máquina Server. Activa la escritura remota en la configuración de Server solo si confías en los clientes conectados.",
+      "goToServerSettings": "Ir a la configuración de Server",
+      "tooLarge": "El archivo supera el límite de edición de {{limit}} MiB",
+      "transportSwitchUnsaved": "Hay cambios de archivo sin guardar. ¿Cambiar la conexión y descartarlos?"
+    },
+    "attachments": {
+      "uploading": "Subiendo…",
+      "uploadFailedShort": "Error de subida",
+      "uploadFailed": "Los archivos no se enviaron. {{error}}",
+      "tooMany": "Un mensaje puede contener como máximo 64 archivos",
+      "tooLarge": "{{name}} supera el límite de {{limit}} MB",
+      "someTooLarge": "Algunos archivos superan el límite de {{limit}} MB"
     }
   },
   "ms": {
@@ -18820,7 +19459,37 @@
       "permLoading": "Menyemak kebenaran...",
       "uiEffects": "Animasi latar belakang",
       "uiEffectsDesc": "Dayakan pautan latar belakang semua cuaca dan kesan cuaca",
-      "uiEffectsToggle": "Hidupkan kesan"
+      "uiEffectsToggle": "Hidupkan kesan",
+      "fsMaxChatAttachmentMb": "Saiz maksimum lampiran sembang",
+      "fsMaxChatAttachmentMbDesc": "Saiz maksimum satu fail yang dimuat naik daripada penggubah sembang. Desktop setempat menggunakan tetapan setempat; desktop jauh dan Web menggunakan tetapan Server.",
+      "files": {
+        "title": "Fail",
+        "description": "Konfigurasikan had fail untuk sembang, ruang kerja, pratonton dan penyuntingan.",
+        "runtimeLocal": "Fail desktop setempat",
+        "runtimeServer": "Fail pelayan",
+        "runtimeLocalDesc": "Operasi fail menggunakan sistem fail komputer ini.",
+        "runtimeServerDesc": "Operasi fail menggunakan sistem fail hos Server jauh.",
+        "maxChatAttachment": "Had lampiran sembang",
+        "maxChatAttachmentDesc": "Saiz maksimum bagi setiap lampiran sembang ({{min}}–{{max}} MiB).",
+        "maxWorkspaceUpload": "Had muat naik ruang kerja",
+        "maxWorkspaceUploadDesc": "Saiz maksimum bagi setiap fail yang dimuat naik ke ruang kerja ({{min}}–{{max}} MiB).",
+        "maxTextPreview": "Had pratonton teks",
+        "maxTextPreviewDesc": "Saiz maksimum fail teks yang dimuatkan untuk pratonton ({{min}}–{{max}} MiB).",
+        "maxTextEdit": "Had penyuntingan teks",
+        "maxTextEditDesc": "Saiz maksimum fail teks UTF-8 yang boleh disunting ({{min}}–{{max}} MiB).",
+        "maxDocumentPreview": "Had pratonton dokumen",
+        "maxDocumentPreviewDesc": "Saiz maksimum fail PDF atau Office yang diproses untuk pratonton ({{min}}–{{max}} MiB).",
+        "largeUploadWarning": "Had muat naik yang besar meningkatkan penggunaan cakera, rangkaian dan pemprosesan. Naikkan hanya jika Server mempunyai sumber mencukupi.",
+        "maxArtifactImport": "Had import Artifact",
+        "maxArtifactImportDesc": "Saiz maksimum sumber HTML, Markdown atau JSON analisis yang diimport ke Artifacts ({{min}}–{{max}} MiB)."
+      },
+      "knowledgeSourceLimits": {
+        "title": "Had sumber pengetahuan",
+        "description": "Saiz maksimum yang diterima bagi setiap jenis sumber ruang pengetahuan.",
+        "text": "Sumber teks (MiB)",
+        "binary": "Sumber binari (MiB)",
+        "url": "Respons URL (MiB)"
+      }
     },
     "subagent": {
       "deletedAgentTooltip": "Agen ini telah dipadam",
@@ -19477,7 +20146,16 @@
       "open": "Buka",
       "download": "Muat turun",
       "revealInFolder": "Tunjuk dalam folder",
-      "more": "Tindakan lain"
+      "more": "Tindakan lain",
+      "edit": "Edit",
+      "remove": "Alih keluar",
+      "rename": "Namakan semula",
+      "delete": "Padam",
+      "createFile": "Fail baharu",
+      "createFolder": "Folder baharu",
+      "upload": "Muat naik",
+      "saveAs": "Simpan sebagai",
+      "downloadFailed": "Gagal memuat turun fail"
     },
     "filePreview": {
       "panelTitle": "Pratonton",
@@ -19839,7 +20517,9 @@
         "similarScope": {
           "crossKb": "Ruang silang",
           "sameKb": "Ruang ini"
-        }
+        },
+        "textTooLarge": "Sumber teks melebihi had {{limit}} MiB",
+        "fileTooLarge": "{{name}} melebihi had {{limit}} MiB"
       },
       "queryFile": {
         "action": "Fail",
@@ -19879,7 +20559,8 @@
       "retry": "Cuba semula",
       "unavailable": "Tidak tersedia",
       "next": "Next",
-      "previous": "Previous"
+      "previous": "Previous",
+      "restoreDefaults": "Pulihkan lalai"
     },
     "backgroundJobs": {
       "errorOutput": "kesilapan",
@@ -19980,6 +20661,35 @@
       "exportReviewPassed": "Export review passed",
       "exportReviewBlocked": "Export review still has blockers",
       "guardStatus": "Guard"
+    },
+    "fileEditor": {
+      "notUtf8": "Fail bukan teks UTF-8 yang sah",
+      "notEditable": "Fail ini tidak boleh diedit sebagai teks UTF-8",
+      "saved": "Disimpan",
+      "saveAsExists": "Fail sudah wujud di laluan itu",
+      "mixedLineEndings": "Akhir baris bercampur dan akan dinormalkan kepada gaya dominan apabila disimpan.",
+      "externalChanged": "Fail berubah di luar editor ini.",
+      "reload": "Muat semula",
+      "conflictTitle": "Konflik simpanan",
+      "conflictDeleted": "Fail telah dipadam di luar editor ini.",
+      "conflictChanged": "Fail telah diubah di luar editor ini.",
+      "saveAsScope": "Simpan fail baharu dalam ruang kerja semasa.",
+      "unsavedTitle": "Perubahan belum disimpan",
+      "unsavedBody": "Buang suntingan semasa sebelum meninggalkan fail ini?",
+      "discard": "Buang perubahan",
+      "remoteWritesTitle": "Penulisan fail jauh dimatikan",
+      "remoteWritesBody": "Ruang kerja ini berada pada mesin Server. Dayakan penulisan jauh dalam tetapan Server hanya jika anda mempercayai klien yang disambungkan.",
+      "goToServerSettings": "Pergi ke tetapan Server",
+      "tooLarge": "Fail melebihi had edit {{limit}} MiB",
+      "transportSwitchUnsaved": "Terdapat perubahan fail yang belum disimpan. Tukar sambungan dan buang perubahan tersebut?"
+    },
+    "attachments": {
+      "uploading": "Memuat naik…",
+      "uploadFailedShort": "Muat naik gagal",
+      "uploadFailed": "Fail tidak dihantar. {{error}}",
+      "tooMany": "Satu mesej boleh mengandungi paling banyak 64 fail",
+      "tooLarge": "{{name}} melebihi had {{limit}} MB",
+      "someTooLarge": "Sesetengah fail melebihi had {{limit}} MB"
     }
   },
   "zh": {
@@ -20141,6 +20851,34 @@
         "agent": "资料整理 Agent",
         "agentDefault": "使用全局默认 Agent",
         "agentDesc": "用于把来源资料整理成可审阅的笔记建议，未设置时继承全局默认 Agent。"
+      },
+      "files": {
+        "title": "文件",
+        "description": "配置聊天、工作区浏览、预览和编辑使用的文件大小限制。",
+        "runtimeLocal": "本地桌面文件",
+        "runtimeServer": "Server 文件",
+        "runtimeLocalDesc": "文件操作使用当前电脑的文件系统。",
+        "runtimeServerDesc": "文件操作使用远程 Server 所在机器的文件系统。",
+        "maxChatAttachment": "聊天附件限制",
+        "maxChatAttachmentDesc": "单个聊天附件的最大大小（{{min}}–{{max}} MiB）。",
+        "maxWorkspaceUpload": "工作区上传限制",
+        "maxWorkspaceUploadDesc": "上传到工作区的单个文件最大大小（{{min}}–{{max}} MiB）。",
+        "maxTextPreview": "文本预览限制",
+        "maxTextPreviewDesc": "加载用于预览的文本文件最大大小（{{min}}–{{max}} MiB）。",
+        "maxTextEdit": "文本编辑限制",
+        "maxTextEditDesc": "允许编辑的 UTF-8 文本文件最大大小（{{min}}–{{max}} MiB）。",
+        "maxDocumentPreview": "文档预览限制",
+        "maxDocumentPreviewDesc": "处理用于预览的 PDF 或 Office 文件最大大小（{{min}}–{{max}} MiB）。",
+        "largeUploadWarning": "较大的上传限制会增加磁盘、网络和处理资源占用。仅在 Server 资源充足时调高。",
+        "maxArtifactImport": "Artifact 导入限制",
+        "maxArtifactImportDesc": "导入 Artifacts 的 HTML、Markdown 或分析 JSON 来源最大大小（{{min}}–{{max}} MiB）。"
+      },
+      "knowledgeSourceLimits": {
+        "title": "知识来源限制",
+        "description": "知识空间各类来源允许导入的最大大小。",
+        "text": "文本来源（MiB）",
+        "binary": "二进制来源（MiB）",
+        "url": "URL 响应（MiB）"
       }
     },
     "chat": {
@@ -20437,7 +21175,9 @@
         "similarScope": {
           "crossKb": "跨空间",
           "sameKb": "此空间"
-        }
+        },
+        "textTooLarge": "文本来源超过 {{limit}} MiB 限制",
+        "fileTooLarge": "{{name}} 超过 {{limit}} MiB 限制"
       },
       "maintenance": {
         "evidenceCoverage": "证据覆盖范围",
@@ -20490,7 +21230,8 @@
       "collapse": "关闭",
       "expand": "展开",
       "retry": "重试",
-      "unavailable": "不可用"
+      "unavailable": "不可用",
+      "restoreDefaults": "恢复默认值"
     },
     "about": {
       "updateAndRestart": "更新并重启",
@@ -20610,6 +21351,46 @@
       "execPanel": {
         "asyncStarted": "后台任务开始"
       }
+    },
+    "fileActions": {
+      "edit": "编辑",
+      "remove": "移除",
+      "rename": "重命名",
+      "delete": "删除",
+      "createFile": "新建文件",
+      "createFolder": "新建文件夹",
+      "upload": "上传",
+      "saveAs": "另存为",
+      "downloadFailed": "下载文件失败"
+    },
+    "fileEditor": {
+      "notUtf8": "文件不是有效的 UTF-8 文本",
+      "notEditable": "此文件不能作为 UTF-8 文本编辑",
+      "saved": "已保存",
+      "saveAsExists": "该路径已存在文件",
+      "mixedLineEndings": "文件混用了换行符，保存时会按占比最高的格式统一。",
+      "externalChanged": "文件已在编辑器外发生变化。",
+      "reload": "重新加载",
+      "conflictTitle": "保存冲突",
+      "conflictDeleted": "文件已在编辑器外被删除。",
+      "conflictChanged": "文件已在编辑器外发生变化。",
+      "saveAsScope": "在当前工作区内另存为新文件。",
+      "unsavedTitle": "有未保存的修改",
+      "unsavedBody": "离开此文件前要丢弃当前修改吗？",
+      "discard": "丢弃修改",
+      "remoteWritesTitle": "远程文件写入已关闭",
+      "remoteWritesBody": "此工作区位于 Server 所在机器。仅当你信任已连接的客户端时，才应在 Server 设置中开启远程文件写入。",
+      "goToServerSettings": "前往 Server 设置",
+      "tooLarge": "文件超过 {{limit}} MiB 编辑上限",
+      "transportSwitchUnsaved": "存在未保存的文件修改。要切换连接并丢弃这些修改吗？"
+    },
+    "attachments": {
+      "uploading": "上传中…",
+      "uploadFailedShort": "上传失败",
+      "uploadFailed": "文件未发送。{{error}}",
+      "tooMany": "单条消息最多包含 64 个文件",
+      "tooLarge": "{{name}} 超过 {{limit}} MB 上限",
+      "someTooLarge": "部分文件超过 {{limit}} MB 上限"
     }
   }
 }

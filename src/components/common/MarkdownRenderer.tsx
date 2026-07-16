@@ -44,7 +44,7 @@ import { faviconPageUrlForHref } from "@/lib/favicon"
 import { useSafeFavicon, type SafeFaviconBudget } from "@/hooks/useSafeFavicon"
 import { findAutoLinkMatches } from "@/lib/autoLink"
 import { shouldRenderAsBareJson } from "./markdownJson"
-import { useFileActions } from "@/components/chat/files/useFileActions"
+import { useFileResource } from "@/components/chat/files/useFileResource"
 import { FileContextMenu } from "@/components/chat/files/FileActionMenu"
 import type { PreviewTarget } from "@/components/chat/files/useFilePreview"
 import { FileTypeIcon } from "@/components/icons/FileTypeIcon"
@@ -316,12 +316,7 @@ function MarkdownLinkIcon({ icon }: { icon: LinkIconInfo }) {
 }
 
 function MarkdownFileTypeIcon({ name }: { name: string }) {
-  return (
-    <FileTypeIcon
-      name={name}
-      className="markdown-link-icon markdown-link-file-type-icon"
-    />
-  )
+  return <FileTypeIcon name={name} className="markdown-link-icon markdown-link-file-type-icon" />
 }
 
 function MarkdownWebLinkIcon({ href, enabled }: { href: string | undefined; enabled: boolean }) {
@@ -426,7 +421,7 @@ export function MarkdownLink({
   const localPath = isIncomplete ? null : localPathFromHref(href)
   // Local file links follow the unified file-operation policy (preview / open /
   // download by kind × mode) + a right-click menu — but ONLY local links pay the
-  // useFileActions hook + Radix ContextMenu cost. External links (the vast
+  // useFileResource hook + Radix ContextMenu cost. External links (the vast
   // majority, and the file's perf concern: a streamed message renders hundreds
   // of anchors) render as a plain anchor with no hooks. So MarkdownLink itself
   // calls no hooks and dispatches by kind.
@@ -485,10 +480,10 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
   ...rest
 }: MarkdownAnchorProps & { localPath: string }) {
   const target = useMemo<PreviewTarget>(
-    () => ({ kind: "path", path: localPath, name: basename(localPath) }),
+    () => ({ kind: "sessionPath", path: localPath, name: basename(localPath) }),
     [localPath],
   )
-  const { primary, run } = useFileActions(target)
+  const { primary, run } = useFileResource(target)
   const linkIcon = linkIconForHref(href, true)
   const fileName = basename(localPath)
   return (

@@ -9,7 +9,8 @@ use tower::ServiceExt;
 use tower_http::services::ServeFile;
 
 use ha_core::artifacts::{
-    ArtifactKind, ArtifactService, CreateArtifactInput, ListArtifactsInput, UpdateArtifactInput,
+    ArtifactImportSource, ArtifactKind, ArtifactService, CreateArtifactInput, ListArtifactsInput,
+    UpdateArtifactInput,
 };
 use ha_core::blocking::run_blocking;
 
@@ -28,7 +29,8 @@ pub struct ArtifactListQuery {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ArtifactImportBody {
-    pub file_path: String,
+    pub file_path: Option<String>,
+    pub upload_id: Option<String>,
     pub artifact_id: Option<String>,
     pub expected_version: Option<i64>,
     pub title: Option<String>,
@@ -110,8 +112,20 @@ pub async fn import_artifact(
     Json(body): Json<ArtifactImportBody>,
 ) -> Result<Json<Value>, AppError> {
     let artifact = run_blocking(move || -> Result<_, AppError> {
-        let source = resolve_import_path(&body.file_path);
-        let roots = import_roots();
+        let source = match (body.file_path, body.upload_id) {
+            (Some(file_path), None) if !file_path.trim().is_empty() => ArtifactImportSource::Path {
+                file_path: resolve_import_path(&file_path),
+                allowed_roots: Some(import_roots()),
+            },
+            (None, Some(upload_id)) if !upload_id.trim().is_empty() => {
+                ArtifactImportSource::Upload { upload_id }
+            }
+            _ => {
+                return Err(AppError::bad_request(
+                    "exactly one of filePath or uploadId is required",
+                ))
+            }
+        };
         let producer = body
             .producer
             .unwrap_or_else(|| json!({ "type": "owner_import", "surface": "http" }));
@@ -136,21 +150,20 @@ pub async fn import_artifact(
                 ));
             }
             service
-                .update_from_file(UpdateArtifactInput {
+                .update_from_source(UpdateArtifactInput {
                     artifact_id,
-                    file_path: source,
+                    source,
                     expected_version: expected,
                     title: body.title,
                     message: body.version_message,
                     producer,
-                    allowed_roots: Some(roots),
                     incognito: false,
                 })
                 .map_err(artifact_error)
         } else {
             service
-                .create_from_file(CreateArtifactInput {
-                    file_path: source,
+                .create_from_source(CreateArtifactInput {
+                    source,
                     title: body.title,
                     kind: ArtifactKind::parse(body.kind.as_deref()),
                     privacy: body.privacy.unwrap_or_else(|| "local_private".to_string()),
@@ -159,7 +172,6 @@ pub async fn import_artifact(
                     agent_id: body.agent_id,
                     goal_id: body.goal_id,
                     producer,
-                    allowed_roots: Some(roots),
                     incognito: false,
                 })
                 .map_err(artifact_error)
@@ -340,13 +352,40 @@ fn artifact_error(error: anyhow::Error) -> AppError {
     {
         return AppError::conflict_with_code("artifact_conflict", message);
     }
+    if message.contains("already claimed") {
+        return AppError::conflict_with_code("artifact_upload_claimed", message);
+    }
     if message.contains("required")
         || message.contains("unsupported")
         || message.contains("must ")
         || message.contains("may not")
         || message.contains("missing")
+        || message.contains("mismatch")
+        || message.contains("exceeds")
+        || message.contains("expired")
+        || message.contains("not complete")
+        || message.contains("invalid file upload id")
     {
         return AppError::bad_request(message);
     }
     AppError::internal(message)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::http::StatusCode;
+
+    #[test]
+    fn invalid_upload_id_is_a_bad_request() {
+        let error = artifact_error(anyhow::anyhow!("invalid file upload id"));
+        assert_eq!(error.status, StatusCode::BAD_REQUEST);
+    }
+
+    #[test]
+    fn active_upload_claim_is_a_conflict() {
+        let error = artifact_error(anyhow::anyhow!("file upload is already claimed"));
+        assert_eq!(error.status, StatusCode::CONFLICT);
+        assert_eq!(error.code, Some("artifact_upload_claimed"));
+    }
 }

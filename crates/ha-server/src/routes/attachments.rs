@@ -15,11 +15,13 @@ use std::path::PathBuf;
 
 use axum::extract::{Path, Query, Request};
 use axum::response::{IntoResponse, Response};
+use axum::Json;
 use serde::Deserialize;
 use tower::ServiceExt;
 use tower_http::services::ServeFile;
 
 use ha_core::attachments::TEMP_SESSION_ID;
+use ha_core::filesystem::{ExtractedContent, FilesystemError};
 use ha_core::paths;
 
 use crate::error::AppError;
@@ -91,6 +93,37 @@ pub async fn download(
     );
 
     Ok(response)
+}
+
+/// `GET /api/attachments/{session_id}/{filename}/extract` — extract an
+/// authorized persisted attachment for the shared Office/PDF preview panel.
+pub async fn extract(
+    Path((session_id, filename)): Path<(String, String)>,
+) -> Result<Json<ExtractedContent>, AppError> {
+    validate_session_id(&session_id)?;
+    validate_safe_filename(&filename)?;
+
+    let base_dir = resolve_base_dir(&session_id)?;
+    let candidate = base_dir.join(&filename);
+    let file_canon = contained_canonical(&base_dir, &candidate).await?;
+    let extracted =
+        tokio::task::spawn_blocking(move || ha_core::filesystem::extract_abs(&file_canon))
+            .await
+            .map_err(|error| {
+                AppError::internal(format!("attachment extract task failed: {error}"))
+            })?
+            .map_err(map_filesystem_error)?;
+    Ok(Json(extracted))
+}
+
+fn map_filesystem_error(error: FilesystemError) -> AppError {
+    if error.is_forbidden() {
+        AppError::forbidden(error.message().to_string())
+    } else if error.is_bad_input() {
+        AppError::bad_request(error.message().to_string())
+    } else {
+        AppError::internal(error.message().to_string())
+    }
 }
 
 fn resolve_base_dir(session_id: &str) -> Result<PathBuf, AppError> {

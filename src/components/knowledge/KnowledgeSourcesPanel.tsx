@@ -55,11 +55,18 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import { IconTip } from "@/components/ui/tooltip"
+import { useFileResource } from "@/components/chat/files/useFileResource"
+import type { FileTarget } from "@/components/chat/files/types"
 import { formatBytes } from "@/lib/format"
 import { logger } from "@/lib/logger"
-import { parsePayload } from "@/lib/transport"
-import { getTransport } from "@/lib/transport-provider"
+import {
+  parsePayload,
+  type Transport,
+} from "@/lib/transport"
+import { getTransport, useTransport } from "@/lib/transport-provider"
 import { cn } from "@/lib/utils"
+import { MEBIBYTE_BYTES } from "@/lib/filesystemConfig"
+import { useKnowledgeSourceLimits } from "@/lib/knowledgeSourceLimits"
 import type {
   KnowledgeBrowserCaptureMode,
   KnowledgeBrowserSourceImportInput,
@@ -102,6 +109,7 @@ const SOURCE_FILE_ACCEPT =
 
 export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelProps) {
   const { t } = useTranslation()
+  const { config: sourceLimits } = useKnowledgeSourceLimits()
   const fileInputRef = useRef<HTMLInputElement>(null)
   const sourceReadTokenRef = useRef(0)
   const [sources, setSources] = useState<KnowledgeSource[]>([])
@@ -110,8 +118,9 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
   const [similarGroups, setSimilarGroups] = useState<KnowledgeSourceSimilarityGroup[]>([])
   const [sourceListError, setSourceListError] = useState<KnowledgeSourceErrorMessage | null>(null)
   const [importRunsError, setImportRunsError] = useState<KnowledgeSourceErrorMessage | null>(null)
-  const [similarGroupsError, setSimilarGroupsError] =
-    useState<KnowledgeSourceErrorMessage | null>(null)
+  const [similarGroupsError, setSimilarGroupsError] = useState<KnowledgeSourceErrorMessage | null>(
+    null,
+  )
   const [loading, setLoading] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
   const [historyOpen, setHistoryOpen] = useState(false)
@@ -128,8 +137,9 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
   const [browserMode, setBrowserMode] = useState<KnowledgeBrowserCaptureMode>("auto")
   const [selected, setSelected] = useState<KnowledgeSourceReadResult | null>(null)
   const [sourceClaims, setSourceClaims] = useState<KnowledgeEvidenceClaim[]>([])
-  const [sourceClaimsError, setSourceClaimsError] =
-    useState<KnowledgeSourceErrorMessage | null>(null)
+  const [sourceClaimsError, setSourceClaimsError] = useState<KnowledgeSourceErrorMessage | null>(
+    null,
+  )
   const [reading, setReading] = useState(false)
   const [claimsLoading, setClaimsLoading] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<KnowledgeSource | null>(null)
@@ -241,9 +251,7 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
   // Re-runs whenever `sources` refreshes (including the `knowledge:changed`
   // reload fired when an OCR round finishes), so it naturally stays current.
   useEffect(() => {
-    const pdfPartial = sources.filter(
-      (s) => s.kind === "pdf" && s.status === "partially_extracted",
-    )
+    const pdfPartial = sources.filter((s) => s.kind === "pdf" && s.status === "partially_extracted")
     if (!kbId || pdfPartial.length === 0) return
     let cancelled = false
     void (async () => {
@@ -311,7 +319,12 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
           await reload()
         }
       } catch (e) {
-        logger.warn("knowledge", "KnowledgeSourcesPanel::refreshRun", "source run refresh failed", e)
+        logger.warn(
+          "knowledge",
+          "KnowledgeSourcesPanel::refreshRun",
+          "source run refresh failed",
+          e,
+        )
       }
     },
     [kbId, reload],
@@ -415,6 +428,17 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
     if (!kbId || !canImport) return
     setImporting(true)
     try {
+      if (
+        mode === "text" &&
+        new TextEncoder().encode(text).byteLength > sourceLimits.maxTextSourceMb * MEBIBYTE_BYTES
+      ) {
+        throw new Error(
+          t("knowledge.sources.textTooLarge", {
+            defaultValue: "Text source exceeds the {{limit}} MiB limit",
+            limit: sourceLimits.maxTextSourceMb,
+          }),
+        )
+      }
       if (mode === "browser") {
         const input: KnowledgeBrowserSourceImportInput = {
           mode: browserMode,
@@ -426,14 +450,26 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
         resetImport()
       } else if (mode === "file") {
         const singleTitle = fileDrafts.length === 1 ? title.trim() || null : null
-        const items = await Promise.all(
-          fileDrafts.map(async (draft, idx) => ({
-            clientId: `${draft.file.name}-${draft.file.lastModified}-${draft.file.size}-${idx}`,
-            label: draft.file.name,
-            input: await inputForFileDraft(draft, singleTitle),
-          })),
-        )
-        const detail = await getTransport().call<KnowledgeSourceImportRunDetail>(
+        const uploadTransport = getTransport()
+        const stagedUploadIds: string[] = []
+        let items: KnowledgeSourceImportBatchInput["items"]
+        try {
+          items = await mapWithConcurrency(fileDrafts, 3, async (draft, idx) => {
+            const input = await inputForFileDraft(uploadTransport, draft, singleTitle)
+            stagedUploadIds.push(input.uploadId)
+            return {
+              clientId: `${draft.file.name}-${draft.file.lastModified}-${draft.file.size}-${idx}`,
+              label: draft.file.name,
+              input,
+            }
+          })
+        } catch (error) {
+          await Promise.allSettled(
+            stagedUploadIds.map((uploadId) => uploadTransport.discardFileUpload(uploadId)),
+          )
+          throw error
+        }
+        const detail = await uploadTransport.call<KnowledgeSourceImportRunDetail>(
           "kb_source_import_batch_cmd",
           { kbId, input: { items } satisfies KnowledgeSourceImportBatchInput },
         )
@@ -546,7 +582,12 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
       toast.message(t("knowledge.sources.similarDismissed", "Similarity suggestion hidden"))
       await reload()
     } catch (e) {
-      logger.warn("knowledge", "KnowledgeSourcesPanel::dismissSimilar", "source similarity dismiss failed", e)
+      logger.warn(
+        "knowledge",
+        "KnowledgeSourcesPanel::dismissSimilar",
+        "source similarity dismiss failed",
+        e,
+      )
       const failure = knowledgeSourceErrorMessage("dismissSimilarGroup", t, e)
       toast.error(
         failure.title,
@@ -557,13 +598,18 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
     }
   }
 
-  async function resolveSimilarityGroup(group: KnowledgeSourceSimilarityGroup, keep: KnowledgeSource) {
+  async function resolveSimilarityGroup(
+    group: KnowledgeSourceSimilarityGroup,
+    keep: KnowledgeSource,
+  ) {
     if (!kbId || resolvingSimilarityId) return
     const deleteSourceIds = group.sources
       .filter((source) => source.kbId === kbId && source.id !== keep.id)
       .map((source) => source.id)
     if (deleteSourceIds.length === 0) {
-      toast.message(t("knowledge.sources.noLocalDuplicates", "No duplicate source in this space to delete"))
+      toast.message(
+        t("knowledge.sources.noLocalDuplicates", "No duplicate source in this space to delete"),
+      )
       return
     }
     const confirmed = window.confirm(
@@ -597,7 +643,12 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
       setRunDetail(null)
       await reload()
     } catch (e) {
-      logger.warn("knowledge", "KnowledgeSourcesPanel::resolveSimilar", "source similarity resolve failed", e)
+      logger.warn(
+        "knowledge",
+        "KnowledgeSourcesPanel::resolveSimilar",
+        "source similarity resolve failed",
+        e,
+      )
       const failure = knowledgeSourceErrorMessage("resolveSimilarGroup", t, e)
       toast.error(
         failure.title,
@@ -813,10 +864,27 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
     const picked = Array.from(files ?? [])
     if (picked.length === 0) return
     if (fileInputRef.current) fileInputRef.current.value = ""
-    const drafts = picked.map((file) => ({ file, kind: inferKind(file.name, file.type) }))
+    const drafts = picked.flatMap((file) => {
+      const kind = inferKind(file.name, file.type)
+      const limitMb = isBinarySourceKind(kind)
+        ? sourceLimits.maxBinarySourceMb
+        : sourceLimits.maxTextSourceMb
+      if (file.size > limitMb * MEBIBYTE_BYTES) {
+        toast.error(
+          t("knowledge.sources.fileTooLarge", {
+            defaultValue: "{{name}} exceeds the {{limit}} MiB limit",
+            name: file.name,
+            limit: limitMb,
+          }),
+        )
+        return []
+      }
+      return [{ file, kind }]
+    })
+    if (drafts.length === 0) return
     setMode("file")
     setFileDrafts(drafts)
-    setTitle((v) => (picked.length === 1 ? v || stripExt(picked[0].name) : v))
+    setTitle((v) => (drafts.length === 1 ? v || stripExt(drafts[0].file.name) : v))
   }
 
   const selectedSources = sources.filter((source) => selectedSourceIds.has(source.id))
@@ -919,7 +987,8 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
                 className="mr-2 rounded-sm px-1 py-0.5 hover:bg-muted/60"
                 onClick={() => void openRunDetail(latestRun)}
               >
-                {formatDate(latestRun.createdAt)} · +{latestRun.importedCount} · ={latestRun.duplicateCount} · !{latestRun.failedCount}
+                {formatDate(latestRun.createdAt)} · +{latestRun.importedCount} · =
+                {latestRun.duplicateCount} · !{latestRun.failedCount}
               </button>
               {latestRun.status !== "running" && latestRun.failedCount > 0 ? (
                 <button
@@ -995,10 +1064,7 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
                   className="flex min-w-0 flex-1 items-start gap-2 text-left"
                   onClick={() => void openSource(source)}
                 >
-                  <SourceKindIcon
-                    source={source}
-                    className="mt-0.5 h-7 w-7 shrink-0"
-                  />
+                  <SourceKindIcon source={source} className="mt-0.5 h-7 w-7 shrink-0" />
                   <span className="min-w-0 flex-1">
                     <span className="block truncate font-medium text-foreground/90">
                       {source.title}
@@ -1129,10 +1195,13 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
         onAfterApply={() => void reload()}
       />
 
-      <Dialog open={importOpen} onOpenChange={(open) => {
+      <Dialog
+        open={importOpen}
+        onOpenChange={(open) => {
         setImportOpen(open)
         if (!open && !importing) resetImport()
-      }}>
+        }}
+      >
         <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle>{t("knowledge.sources.import", "Import source")}</DialogTitle>
@@ -1317,10 +1386,7 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
         </DialogContent>
       </Dialog>
 
-      <Dialog
-        open={!!versionHistory}
-        onOpenChange={(open) => !open && setVersionHistory(null)}
-      >
+      <Dialog open={!!versionHistory} onOpenChange={(open) => !open && setVersionHistory(null)}>
         <DialogContent className="max-w-3xl">
           <DialogHeader>
             <DialogTitle>{t("knowledge.sources.versionHistory", "Version history")}</DialogTitle>
@@ -1550,7 +1616,12 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
                             {item.label || item.sourceId || `#${item.position + 1}`}
                           </span>
                         </span>
-                        <span className={cn("shrink-0 text-[10px]", item.status === "failed" && "text-destructive")}>
+                        <span
+                          className={cn(
+                            "shrink-0 text-[10px]",
+                            item.status === "failed" && "text-destructive",
+                          )}
+                        >
                           {itemStatusLabel(item.status, t)}
                         </span>
                       </div>
@@ -1565,7 +1636,9 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
                         {item.duplicateOfSourceId ? (
                           <>
                             <span>·</span>
-                            <span className="font-mono">={item.duplicateOfSourceId.slice(0, 8)}</span>
+                            <span className="font-mono">
+                              ={item.duplicateOfSourceId.slice(0, 8)}
+                            </span>
                           </>
                         ) : null}
                       </div>
@@ -1738,44 +1811,25 @@ function inferKind(fileName: string, mimeType?: string): KnowledgeSourceKind {
   if (hasExt(lower, [".mp4", ".mov", ".m4v", ".webm", ".mkv"])) {
     return "video_transcript"
   }
-  if (
-    hasExt(lower, [
-      ".png",
-      ".jpg",
-      ".jpeg",
-      ".webp",
-      ".gif",
-      ".bmp",
-      ".tif",
-      ".tiff",
-      ".heic",
-    ])
-  ) {
+  if (hasExt(lower, [".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".tif", ".tiff", ".heic"])) {
     return "image_ocr"
   }
   return "text"
 }
 
 async function inputForFileDraft(
+  transport: Transport,
   draft: SourceFileDraft,
   title: string | null,
-): Promise<KnowledgeSourceImportInput> {
+): Promise<KnowledgeSourceImportInput & { uploadId: string }> {
   const mimeType = draft.file.type || defaultMimeType(draft.kind)
-  if (isBinarySourceKind(draft.kind)) {
-    return {
-      kind: draft.kind,
-      title,
-      fileName: draft.file.name,
-      mimeType,
-      dataBase64: await fileToBase64(draft.file),
-    }
-  }
+  const lease = await transport.uploadFile(draft.file, "knowledge_source")
   return {
     kind: draft.kind,
     title,
     fileName: draft.file.name,
     mimeType,
-    content: await draft.file.text(),
+    uploadId: lease.uploadId,
   }
 }
 
@@ -1803,14 +1857,34 @@ function defaultMimeType(kind: KnowledgeSourceKind): string {
   }
 }
 
-async function fileToBase64(file: File): Promise<string> {
-  const bytes = new Uint8Array(await file.arrayBuffer())
-  const chunks: string[] = []
-  const chunkSize = 0x8000
-  for (let i = 0; i < bytes.length; i += chunkSize) {
-    chunks.push(String.fromCharCode(...bytes.subarray(i, i + chunkSize)))
-  }
-  return btoa(chunks.join(""))
+async function mapWithConcurrency<T, R>(
+  values: readonly T[],
+  limit: number,
+  mapper: (value: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(values.length)
+  let next = 0
+  let failed = false
+  let failure: unknown
+  const workers = Array.from({ length: Math.min(limit, values.length) }, async () => {
+    while (!failed) {
+      const index = next
+      next += 1
+      if (index >= values.length) return
+      try {
+        results[index] = await mapper(values[index], index)
+      } catch (error) {
+        if (!failed) {
+          failed = true
+          failure = error
+        }
+        return
+      }
+    }
+  })
+  await Promise.all(workers)
+  if (failed) throw failure
+  return results
 }
 
 function sourceKindLabel(kind: KnowledgeSourceKind, t: TFunction): string {
@@ -1837,60 +1911,31 @@ function sourceKindLabel(kind: KnowledgeSourceKind, t: TFunction): string {
   }
 }
 
+function isBinarySourceKind(kind: KnowledgeSourceKind): boolean {
+  return !["markdown", "text", "url_snapshot", "browser_snapshot"].includes(kind)
+}
+
 function SourceAssetSummary({ source }: { source: KnowledgeSource }) {
   const { t } = useTranslation()
-  const transport = getTransport()
+  const transport = useTransport()
   const original = source.assets?.original ?? null
   const thumbnail = source.assets?.thumbnail ?? null
   const thumbnailUrl = thumbnail?.localPath ? transport.resolveAssetUrl(thumbnail.localPath) : null
-  const originalUrl = original?.localPath ? transport.resolveAssetUrl(original.localPath) : null
-
-  async function openOriginal() {
-    if (!original?.localPath) return
-    try {
-      if (transport.supportsLocalFileOps()) {
-        await transport.openFilePath(original.localPath)
-        return
-      }
-      if (!originalUrl) throw new Error("Original asset URL is unavailable")
-      const opened = window.open(originalUrl, "_blank", "noopener,noreferrer")
-      if (!opened) throw new Error("Browser blocked opening the original file")
-    } catch (e) {
-      logger.warn("knowledge", "KnowledgeSourcesPanel::openOriginalAsset", "open failed", e)
-      const failure = knowledgeSourceErrorMessage("openOriginalAsset", t, e)
-      toast.error(
-        failure.title,
-        failure.description ? { description: failure.description } : undefined,
-      )
-    }
+  const originalTarget = useMemo<FileTarget | null>(() => {
+    if (!original?.localPath) return null
+    return {
+      kind: "media",
+      item: {
+        url: transport.resolveAssetUrl(original.localPath) ?? "",
+        localPath: original.localPath,
+        name: original.fileName,
+        mimeType: original.mimeType,
+        sizeBytes: original.size,
+        kind: original.mimeType.startsWith("image/") ? "image" : "file",
+      },
   }
-
-  async function downloadOriginal() {
-    if (!original?.localPath) return
-    try {
-      if (transport.supportsLocalFileOps()) {
-        await transport.downloadFilePath(original.localPath, { filename: original.fileName })
-        return
-      }
-      if (!originalUrl) throw new Error("Original asset URL is unavailable")
-      const url = new URL(originalUrl)
-      url.searchParams.set("download", "1")
-      const a = document.createElement("a")
-      a.href = url.toString()
-      a.download = original.fileName
-      a.rel = "noopener noreferrer"
-      document.body.appendChild(a)
-      a.click()
-      a.remove()
-    } catch (e) {
-      logger.warn("knowledge", "KnowledgeSourcesPanel::downloadOriginalAsset", "download failed", e)
-      const failure = knowledgeSourceErrorMessage("downloadOriginalAsset", t, e)
-      toast.error(
-        failure.title,
-        failure.description ? { description: failure.description } : undefined,
-      )
-    }
-  }
+  }, [original, transport])
+  const originalActions = useFileResource(originalTarget)
 
   return (
     <div className="flex items-center gap-3 rounded-md border border-border-soft/60 bg-muted/20 p-2 text-xs">
@@ -1919,7 +1964,9 @@ function SourceAssetSummary({ source }: { source: KnowledgeSource }) {
               {original.width && original.height ? (
                 <>
                   <span>·</span>
-                  <span>{original.width}x{original.height}</span>
+                  <span>
+                    {original.width}x{original.height}
+                  </span>
                 </>
               ) : null}
             </>
@@ -1936,7 +1983,7 @@ function SourceAssetSummary({ source }: { source: KnowledgeSource }) {
               variant="ghost"
               size="icon"
               className="h-7 w-7"
-              onClick={() => void openOriginal()}
+              onClick={() => originalActions.run("open")}
             >
               <ExternalLink className="h-3.5 w-3.5" />
             </Button>
@@ -1947,7 +1994,7 @@ function SourceAssetSummary({ source }: { source: KnowledgeSource }) {
               variant="ghost"
               size="icon"
               className="h-7 w-7"
-              onClick={() => void downloadOriginal()}
+              onClick={() => originalActions.run("download")}
             >
               <Download className="h-3.5 w-3.5" />
             </Button>
@@ -2002,10 +2049,7 @@ function SourceClaimsSummary({
         </div>
       ) : claims.length === 0 ? (
         <div className="mt-2 text-[11px] text-muted-foreground">
-          {t(
-            "knowledge.sources.noCompiledClaims",
-            "No note claim cites this source yet.",
-          )}
+          {t("knowledge.sources.noCompiledClaims", "No note claim cites this source yet.")}
         </div>
       ) : (
         <div className="mt-2 max-h-40 space-y-1 overflow-auto">
@@ -2092,7 +2136,9 @@ function SourceKindIcon({
 }) {
   if (source) {
     const thumbnail = source.assets?.thumbnail
-    const thumbnailUrl = thumbnail?.localPath ? getTransport().resolveAssetUrl(thumbnail.localPath) : null
+    const thumbnailUrl = thumbnail?.localPath
+      ? getTransport().resolveAssetUrl(thumbnail.localPath)
+      : null
     if (thumbnailUrl) {
       return (
         <img
@@ -2122,16 +2168,6 @@ function SourceKindIcon({
     default:
       return <FileText className={className} />
   }
-}
-
-function isBinarySourceKind(kind: KnowledgeSourceKind): boolean {
-  return (
-    kind === "pdf" ||
-    kind === "docx" ||
-    kind === "audio_transcript" ||
-    kind === "video_transcript" ||
-    kind === "image_ocr"
-  )
 }
 
 function isRefreshableSourceKind(kind: KnowledgeSourceKind): boolean {
@@ -2184,7 +2220,10 @@ function runStatusLabel(status: KnowledgeSourceImportRun["status"], t: TFunction
   }
 }
 
-function itemStatusLabel(status: KnowledgeSourceImportRunDetail["items"][number]["status"], t: TFunction): string {
+function itemStatusLabel(
+  status: KnowledgeSourceImportRunDetail["items"][number]["status"],
+  t: TFunction,
+): string {
   switch (status) {
     case "imported":
       return t("knowledge.sources.itemStatus.imported", "Imported")

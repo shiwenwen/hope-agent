@@ -116,7 +116,7 @@ pub async fn save_ssrf_config(config: ha_core::security::ssrf::SsrfConfig) -> Re
 #[tauri::command]
 pub async fn get_filesystem_config() -> Result<ha_core::config::FilesystemConfig, CmdError> {
     let store = ha_core::config::load_config()?;
-    Ok(store.filesystem)
+    Ok(store.filesystem.clamped())
 }
 
 #[tauri::command]
@@ -124,8 +124,20 @@ pub async fn save_filesystem_config(
     config: ha_core::config::FilesystemConfig,
 ) -> Result<(), CmdError> {
     ha_core::config::mutate_config_async(("filesystem", "settings-ui"), move |store| {
-        store.filesystem = config;
+        store.filesystem = config.clamped();
         Ok(())
+    })
+    .await
+    .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn patch_filesystem_config(
+    patch: ha_core::config::FilesystemConfigPatch,
+) -> Result<ha_core::config::FilesystemConfig, CmdError> {
+    ha_core::config::mutate_config_async(("filesystem", "settings-ui"), move |store| {
+        store.filesystem.apply_patch(patch);
+        Ok(store.filesystem.clone())
     })
     .await
     .map_err(Into::into)
@@ -704,11 +716,21 @@ pub async fn set_autostart_enabled(app: tauri::AppHandle, enabled: bool) -> Resu
 /// multipart form in the HTTP path — see `ha-server/routes/avatars::upload`).
 #[tauri::command]
 pub async fn save_avatar(data: Vec<u8>, file_name: String) -> Result<String, CmdError> {
+    if data.len() > ha_core::attachments::MAX_AVATAR_BYTES {
+        return Err(CmdError::msg("avatar exceeds the 10 MiB safety limit"));
+    }
+    if std::path::Path::new(&file_name)
+        .file_name()
+        .and_then(|value| value.to_str())
+        != Some(file_name.as_str())
+    {
+        return Err(CmdError::msg("invalid avatar file name"));
+    }
     let dir = paths::avatars_dir()?;
     std::fs::create_dir_all(&dir)?;
 
     let path = dir.join(&file_name);
-    std::fs::write(&path, &data).context("Failed to write avatar")?;
+    ha_core::platform::write_atomic(&path, &data).context("Failed to write avatar")?;
 
     Ok(path.to_string_lossy().to_string())
 }

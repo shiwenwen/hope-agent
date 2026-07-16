@@ -1,7 +1,10 @@
-import { useState, useMemo } from "react"
+import { useEffect, useState, useMemo } from "react"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
-import { getTransport } from "@/lib/transport-provider"
+import { useTransport } from "@/lib/transport-provider"
+import { useFileResource } from "@/components/chat/files/useFileResource"
+import type { PreviewTarget } from "@/components/chat/files/useFilePreview"
+import { basename } from "@/lib/path"
 import { AnimatedCollapse } from "@/components/ui/animated-presence"
 import { IconTip } from "@/components/ui/tooltip"
 import {
@@ -105,6 +108,32 @@ export function SubmitPlanResult({
   pending?: boolean
 }) {
   const { t } = useTranslation()
+  const transport = useTransport()
+  const [pendingRevealPath, setPendingRevealPath] = useState<string | null>(null)
+  const planTarget = useMemo<PreviewTarget | null>(
+    () =>
+      sessionId
+        ? {
+            kind: "sessionPath",
+            sessionId,
+            path: pendingRevealPath ?? "",
+            name: pendingRevealPath ? basename(pendingRevealPath) : "plan.md",
+          }
+        : null,
+    [pendingRevealPath, sessionId],
+  )
+  const planFileOverrides = useMemo(() => ({ sessionId }), [sessionId])
+  const planFileActions = useFileResource(planTarget, planFileOverrides)
+  const runPlanFileAction = planFileActions.run
+  const canReveal = planTarget != null && planFileActions.capabilities.reveal.state === "enabled"
+
+  useEffect(() => {
+    if (!pendingRevealPath) return
+    const requestedPath = pendingRevealPath
+    void runPlanFileAction("reveal").finally(() =>
+      setPendingRevealPath((current) => (current === requestedPath ? null : current)),
+    )
+  }, [pendingRevealPath, runPlanFileAction])
 
   if (pending) {
     // Shimmer-style indicator (same as ToolCallBlock / ThinkingBlock running
@@ -122,12 +151,10 @@ export function SubmitPlanResult({
 
   const handleRevealFile = async () => {
     if (!sessionId) return
-    try {
-      const filePath = await getTransport().call<string | null>("get_plan_file_path", { sessionId })
-      if (filePath) {
-        await getTransport().call("reveal_in_folder", { path: filePath })
-      }
-    } catch { /* ignore */ }
+    const path = await transport
+      .call<string | null>("get_plan_file_path", { sessionId })
+      .catch(() => null)
+    if (path) setPendingRevealPath(path)
   }
 
   return (
@@ -142,20 +169,28 @@ export function SubmitPlanResult({
       <div className="flex items-center gap-1.5 shrink-0">
         <IconTip label={t("planMode.openPanel")}>
           <button
-            onClick={(e) => { e.stopPropagation(); onOpenPanel?.() }}
+            onClick={(e) => {
+              e.stopPropagation()
+              onOpenPanel?.()
+            }}
             className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors cursor-pointer"
           >
             <PanelRight className="h-3.5 w-3.5" />
           </button>
         </IconTip>
-        <IconTip label={t("chat.revealInFolder")}>
-          <button
-            onClick={(e) => { e.stopPropagation(); handleRevealFile() }}
-            className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors cursor-pointer"
-          >
-            <FolderOpen className="h-3.5 w-3.5" />
-          </button>
-        </IconTip>
+        {canReveal ? (
+          <IconTip label={t("chat.revealInFolder")}>
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                void handleRevealFile()
+              }}
+              className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors cursor-pointer"
+            >
+              <FolderOpen className="h-3.5 w-3.5" />
+            </button>
+          </IconTip>
+        ) : null}
       </div>
     </div>
   )

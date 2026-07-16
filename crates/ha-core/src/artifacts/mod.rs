@@ -24,6 +24,7 @@ use crate::domain_workflow::{
     DomainArtifactExportGuardInput, DomainArtifactExportGuardReport, ListDomainEvidenceInput,
     RecordDomainEvidenceInput,
 };
+use crate::file_upload::FileUploadPurpose;
 use crate::paths;
 
 pub const ARTIFACT_SCHEMA_VERSION: &str = "hope.artifact.v1";
@@ -396,8 +397,19 @@ pub struct ArtifactExportReceipt {
 }
 
 #[derive(Debug, Clone)]
+pub enum ArtifactImportSource {
+    /// A file already present on the active runtime host.
+    Path {
+        file_path: PathBuf,
+        allowed_roots: Option<Vec<PathBuf>>,
+    },
+    /// A client-local file uploaded through the generic chunked lease service.
+    Upload { upload_id: String },
+}
+
+#[derive(Debug, Clone)]
 pub struct CreateArtifactInput {
-    pub file_path: PathBuf,
+    pub source: ArtifactImportSource,
     pub title: Option<String>,
     pub kind: ArtifactKind,
     pub privacy: String,
@@ -406,19 +418,17 @@ pub struct CreateArtifactInput {
     pub agent_id: Option<String>,
     pub goal_id: Option<String>,
     pub producer: Value,
-    pub allowed_roots: Option<Vec<PathBuf>>,
     pub incognito: bool,
 }
 
 #[derive(Debug, Clone)]
 pub struct UpdateArtifactInput {
     pub artifact_id: String,
-    pub file_path: PathBuf,
+    pub source: ArtifactImportSource,
     pub expected_version: i64,
     pub title: Option<String>,
     pub message: Option<String>,
     pub producer: Value,
-    pub allowed_roots: Option<Vec<PathBuf>>,
     pub incognito: bool,
 }
 
@@ -574,6 +584,10 @@ impl ArtifactService {
         let conn = Connection::open(db_path)?;
         conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;")?;
         conn.busy_timeout(std::time::Duration::from_secs(5))?;
+        // Artifact tables extend the Canvas database, so make sure the base
+        // schema exists even when the first Canvas-related request is an
+        // Artifact import (for example, immediately after a clean install).
+        crate::canvas_db::ensure_schema(&conn)?;
         ensure_tables(&conn)?;
         sync_legacy_canvas_records(&conn)?;
         cleanup_expired_exports(&conn)?;
@@ -759,13 +773,17 @@ impl ArtifactService {
             .map_err(Into::into)
     }
 
-    pub fn create_from_file(&mut self, input: CreateArtifactInput) -> Result<ArtifactRecord> {
+    pub fn create_from_source(&mut self, input: CreateArtifactInput) -> Result<ArtifactRecord> {
         let _privacy_guard = lock_privacy_transition()?;
         let privacy = normalize_durable_privacy(&input.privacy)?.to_string();
         if request_is_incognito(input.incognito, input.session_id.as_deref())? {
             bail!("incognito artifacts are memory-only; durable artifact creation is disabled");
         }
-        let file_path = validate_source_path(&input.file_path, input.allowed_roots.as_deref())?;
+        let mut resolved_source = resolve_artifact_source(input.source)?;
+        let file_path = validate_source_path(
+            &resolved_source.file_path,
+            resolved_source.allowed_roots.as_deref(),
+        )?;
         let prepared = prepare_payload(&file_path)?;
         let id = Uuid::new_v4().to_string();
         let now = Utc::now().to_rfc3339();
@@ -881,11 +899,14 @@ impl ArtifactService {
             )?;
         }
         emit_artifact_event("artifact:created", &id, 1, Some(&title));
-        self.get(&id)?
-            .ok_or_else(|| anyhow!("artifact disappeared after creation"))
+        let artifact = self
+            .get(&id)?
+            .ok_or_else(|| anyhow!("artifact disappeared after creation"))?;
+        resolved_source.consume_upload();
+        Ok(artifact)
     }
 
-    pub fn update_from_file(&mut self, input: UpdateArtifactInput) -> Result<ArtifactRecord> {
+    pub fn update_from_source(&mut self, input: UpdateArtifactInput) -> Result<ArtifactRecord> {
         let _privacy_guard = lock_privacy_transition()?;
         if input.incognito {
             bail!("incognito artifacts are memory-only; durable artifact update is disabled");
@@ -904,7 +925,11 @@ impl ArtifactService {
                 current.current_hash
             );
         }
-        let file_path = validate_source_path(&input.file_path, input.allowed_roots.as_deref())?;
+        let mut resolved_source = resolve_artifact_source(input.source)?;
+        let file_path = validate_source_path(
+            &resolved_source.file_path,
+            resolved_source.allowed_roots.as_deref(),
+        )?;
         let prepared = prepare_payload(&file_path)?;
         let now = Utc::now().to_rfc3339();
         let hash = sha256_hex(&prepared.canonical_bytes);
@@ -1066,8 +1091,11 @@ impl ArtifactService {
             new_version,
             Some(&title),
         );
-        self.get(&input.artifact_id)?
-            .ok_or_else(|| anyhow!("artifact disappeared after update"))
+        let artifact = self
+            .get(&input.artifact_id)?
+            .ok_or_else(|| anyhow!("artifact disappeared after update"))?;
+        resolved_source.consume_upload();
+        Ok(artifact)
     }
 
     pub fn restore(&mut self, artifact_id: &str, version_number: i64) -> Result<ArtifactRecord> {
@@ -2809,10 +2837,105 @@ fn validate_source_path(path: &Path, roots: Option<&[PathBuf]>) -> Result<PathBu
     Ok(canonical)
 }
 
+struct ResolvedArtifactSource {
+    file_path: PathBuf,
+    allowed_roots: Option<Vec<PathBuf>>,
+    upload_claim: Option<crate::file_upload::FileUploadClaim>,
+    _temp_dir: Option<tempfile::TempDir>,
+}
+
+impl ResolvedArtifactSource {
+    fn consume_upload(&mut self) {
+        let Some(claim) = self.upload_claim.take() else {
+            return;
+        };
+        if let Err(error) = crate::file_upload::consume_upload_claim(&claim) {
+            app_warn!(
+                "artifact",
+                "upload_consume",
+                "Artifact source was imported but its upload claim could not be consumed: {}",
+                error
+            );
+        }
+    }
+}
+
+impl Drop for ResolvedArtifactSource {
+    fn drop(&mut self) {
+        let Some(claim) = self.upload_claim.take() else {
+            return;
+        };
+        if let Err(error) = crate::file_upload::release_upload_claim(&claim) {
+            app_warn!(
+                "artifact",
+                "upload_release",
+                "Artifact import failed and its upload claim could not be released: {}",
+                error
+            );
+        }
+    }
+}
+
+fn resolve_artifact_source(source: ArtifactImportSource) -> Result<ResolvedArtifactSource> {
+    match source {
+        ArtifactImportSource::Path {
+            file_path,
+            allowed_roots,
+        } => Ok(ResolvedArtifactSource {
+            file_path,
+            allowed_roots,
+            upload_claim: None,
+            _temp_dir: None,
+        }),
+        ArtifactImportSource::Upload { upload_id } => {
+            let lease = crate::file_upload::upload_status(&upload_id)?;
+            if lease.purpose != FileUploadPurpose::ArtifactSource {
+                bail!("file upload purpose mismatch");
+            }
+            let extension = Path::new(&lease.file_name)
+                .extension()
+                .and_then(|value| value.to_str())
+                .filter(|value| !value.is_empty())
+                .ok_or_else(|| anyhow!("artifact source must have a supported file extension"))?;
+            let temp_dir = tempfile::Builder::new()
+                .prefix("hope-artifact-source-")
+                .tempdir()
+                .context("create Artifact source staging directory")?;
+            let file_path = temp_dir.path().join(format!("source.{extension}"));
+            let upload_claim = crate::file_upload::claim_completed_upload_create_new(
+                &upload_id,
+                FileUploadPurpose::ArtifactSource,
+                &file_path,
+            )?;
+            Ok(ResolvedArtifactSource {
+                file_path,
+                allowed_roots: Some(vec![temp_dir.path().to_path_buf()]),
+                upload_claim: Some(upload_claim),
+                _temp_dir: Some(temp_dir),
+            })
+        }
+    }
+}
+
 fn prepare_payload(path: &Path) -> Result<PreparedPayload> {
-    let bytes = fs::read(path)?;
-    if bytes.len() > 25 * 1024 * 1024 {
-        bail!("artifact source exceeds the 25 MiB import limit");
+    let filesystem = crate::config::cached_config().filesystem.clone().clamped();
+    let max_bytes = filesystem.max_artifact_import_bytes();
+    let metadata = fs::metadata(path)?;
+    if metadata.len() > max_bytes {
+        bail!(
+            "artifact source exceeds the configured {} MiB import limit",
+            filesystem.max_artifact_import_mb()
+        );
+    }
+    let mut bytes = Vec::with_capacity(metadata.len().min(max_bytes) as usize);
+    fs::File::open(path)?
+        .take(max_bytes.saturating_add(1))
+        .read_to_end(&mut bytes)?;
+    if bytes.len() as u64 > max_bytes {
+        bail!(
+            "artifact source exceeds the configured {} MiB import limit",
+            filesystem.max_artifact_import_mb()
+        );
     }
     let source = String::from_utf8(bytes.clone()).context("artifact source must be UTF-8 text")?;
     match path
@@ -3872,5 +3995,46 @@ mod tests {
         assert!(html.contains("Content-Security-Policy"));
         assert!(html.contains("connect-src 'none'"));
         assert!(!contains_remote_dependency(&html));
+    }
+
+    #[test]
+    fn imports_and_consumes_completed_artifact_upload() {
+        let root = tempfile::tempdir().expect("create data root");
+        crate::test_support::with_env_vars(&[("HA_DATA_DIR", root.path())], || {
+            let body = b"# Uploaded report\n\nVerified content.";
+            let lease =
+                crate::file_upload::start_upload(crate::file_upload::FileUploadStartInput {
+                    purpose: FileUploadPurpose::ArtifactSource,
+                    file_name: "report.md".to_string(),
+                    mime_type: "text/markdown".to_string(),
+                    size_bytes: body.len() as u64,
+                })
+                .expect("start Artifact upload");
+            crate::file_upload::upload_chunk(&lease.upload_id, 0, body)
+                .expect("upload Artifact source");
+            crate::file_upload::complete_upload(&lease.upload_id)
+                .expect("complete Artifact upload");
+
+            let mut service = ArtifactService::open().expect("open Artifact service");
+            let artifact = service
+                .create_from_source(CreateArtifactInput {
+                    source: ArtifactImportSource::Upload {
+                        upload_id: lease.upload_id.clone(),
+                    },
+                    title: Some("Uploaded report".to_string()),
+                    kind: ArtifactKind::Report,
+                    privacy: "local_private".to_string(),
+                    session_id: None,
+                    project_id: None,
+                    agent_id: None,
+                    goal_id: None,
+                    producer: json!({"type":"test"}),
+                    incognito: false,
+                })
+                .expect("import Artifact upload");
+
+            assert_eq!(artifact.title, "Uploaded report");
+            assert!(crate::file_upload::upload_status(&lease.upload_id).is_err());
+        });
     }
 }

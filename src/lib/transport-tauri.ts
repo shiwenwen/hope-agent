@@ -18,6 +18,12 @@ import type {
   ExtractedContent,
   FileTextContent,
   ProjectFsScope,
+  FileRuntime,
+  WorkspaceAccess,
+  WorkspaceFileArgs,
+  AttachmentUploadLease,
+  FileUploadLease,
+  FileUploadPurpose,
   UploadResult,
   SessionArtifacts,
   WorkspaceEnvironmentSnapshot,
@@ -31,6 +37,7 @@ import type {
   ArtifactExportReceipt,
   DomainArtifactExportGuardReport,
 } from "@/lib/transport";
+import { uploadFileInChunks } from "@/lib/fileUpload";
 import type { FileChangesMetadata, MediaItem } from "@/types/chat";
 
 export class TauriTransport implements Transport {
@@ -46,12 +53,56 @@ export class TauriTransport implements Transport {
     return Array.from(new Uint8Array(buffer));
   }
 
+  async uploadFile(
+    file: File,
+    purpose: FileUploadPurpose,
+    progress?: (receivedBytes: number, sizeBytes: number) => void,
+    signal?: AbortSignal,
+  ): Promise<FileUploadLease> {
+    return uploadFileInChunks(
+      file,
+      purpose,
+      {
+        start: (input) => invoke<FileUploadLease>("file_upload_start", { input }),
+        status: (uploadId) => invoke<FileUploadLease>("file_upload_status", { uploadId }),
+        chunk: async (uploadId, offset, data) => {
+          const bytes = new Uint8Array(await data.arrayBuffer())
+          return invoke<FileUploadLease>("file_upload_chunk", bytes, {
+            headers: {
+              "x-hope-upload-id": uploadId,
+              "x-hope-upload-offset": String(offset),
+            },
+          })
+        },
+        complete: (uploadId) => invoke<FileUploadLease>("file_upload_complete", { uploadId }),
+        discard: (uploadId) => invoke<void>("file_upload_discard", { uploadId }),
+      },
+      progress,
+      signal,
+    )
+  }
+
+  async discardFileUpload(uploadId: string): Promise<void> {
+    await invoke("file_upload_discard", { uploadId })
+  }
+
+  async stageChatAttachment(file: File): Promise<AttachmentUploadLease> {
+    const lease = await this.uploadFile(file, "chat_attachment")
+    return {
+      uploadId: lease.uploadId,
+      name: lease.fileName,
+      mimeType: lease.mimeType,
+      sizeBytes: lease.sizeBytes,
+    }
+  }
+
+  async discardChatAttachmentUpload(uploadId: string): Promise<void> {
+    await this.discardFileUpload(uploadId)
+  }
+
   // ----- startChat -----
 
-  async startChat(
-    args: ChatStartArgs,
-    onEvent: (event: string) => void,
-  ): Promise<string> {
+  async startChat(args: ChatStartArgs, onEvent: (event: string) => void): Promise<string> {
     const channel = new Channel<string>();
     channel.onmessage = onEvent;
     try {
@@ -70,13 +121,15 @@ export class TauriTransport implements Transport {
     return source ? convertFileSrc(source) : null;
   }
 
+  async extractMediaDocument(item: MediaItem): Promise<ExtractedContent> {
+    const path = this.localSourceFor(item);
+    if (!path) throw new Error("attachment is not available on this desktop")
+    return this.previewExtractDoc(path)
+  }
+
   resolveAssetUrl(path: string | null | undefined): string | null {
     if (!path) return null;
-    if (
-      path.startsWith("data:") ||
-      path.startsWith("http://") ||
-      path.startsWith("https://")
-    ) {
+    if (path.startsWith("data:") || path.startsWith("http://") || path.startsWith("https://")) {
       return path;
     }
     // Absolute path on Unix or Windows — hand to Tauri's asset protocol.
@@ -115,15 +168,46 @@ export class TauriTransport implements Transport {
     return true;
   }
 
+  fileRuntime(): FileRuntime {
+    return { workspaceHost: "local", openMode: "system", canReveal: true };
+  }
+
+  async getWorkspaceAccess(scope: ProjectFsScope): Promise<WorkspaceAccess> {
+    return invoke<WorkspaceAccess>("project_fs_capabilities", {
+      scope: scope.scope,
+      scopeId: scope.scopeId,
+    });
+  }
+
+  private async resolveWorkspacePath(args: WorkspaceFileArgs): Promise<string> {
+    return invoke<string>("project_fs_resolve", {
+      scope: args.scope,
+      scopeId: args.scopeId,
+      path: args.path,
+    });
+  }
+
+  async openWorkspaceFile(args: WorkspaceFileArgs): Promise<void> {
+    const path = await this.resolveWorkspacePath(args);
+    await this.openFilePath(path);
+  }
+
+  async downloadWorkspaceFile(args: WorkspaceFileArgs): Promise<void> {
+    await this.openWorkspaceFile(args);
+  }
+
+  async revealWorkspaceFile(args: WorkspaceFileArgs): Promise<void> {
+    const path = await this.resolveWorkspacePath(args);
+    await invoke("reveal_in_folder", { path });
+  }
+
   async pickLocalImage(): Promise<PickedImage | null> {
     // Dynamic import so the Tauri-only plugin doesn't show up in the
     // browser bundle when tree-shaking runs against HttpTransport.
     const { open } = await import("@tauri-apps/plugin-dialog");
     const selected = await open({
       multiple: false,
-      filters: [
-        { name: "Image", extensions: ["png", "jpg", "jpeg", "gif", "webp", "svg"] },
-      ],
+      filters: [{ name: "Image", extensions: ["png", "jpg", "jpeg", "gif", "webp", "svg"] }],
     });
     if (!selected || typeof selected !== "string") return null;
     return { src: convertFileSrc(selected) };
@@ -200,19 +284,26 @@ export class TauriTransport implements Transport {
       overwrite?: boolean;
     },
   ): Promise<UploadResult> {
-    // Pass a Uint8Array so Tauri v2 streams the bytes over its binary IPC
-    // channel (Rust receives `Vec<u8>`), instead of JSON-encoding a
-    // number-per-byte array — which would balloon a 20MB upload into hundreds
-    // of MB and freeze the webview.
-    const bytes = new Uint8Array(await args.data.arrayBuffer());
-    return invoke<UploadResult>("project_fs_upload", {
-      scope: args.scope,
-      scopeId: args.scopeId,
-      dirPath: args.dirPath,
-      fileName: args.fileName,
-      data: bytes,
-      overwrite: args.overwrite ?? false,
-    });
+    const file =
+      args.data instanceof File
+        ? args.data
+        : new File([args.data], args.fileName, {
+            type: args.mimeType || args.data.type || "application/octet-stream",
+          })
+    const lease = await this.uploadFile(file, "workspace_upload")
+    try {
+      return await invoke<UploadResult>("project_fs_claim_upload", {
+        scope: args.scope,
+        scopeId: args.scopeId,
+        dirPath: args.dirPath,
+        uploadId: lease.uploadId,
+        fileName: args.fileName,
+        overwrite: args.overwrite ?? false,
+      })
+    } catch (error) {
+      await this.discardFileUpload(lease.uploadId).catch(() => undefined)
+      throw error
+    }
   }
 
   async searchFiles(root: string, q: string, limit?: number): Promise<FileSearchResponse> {
@@ -230,8 +321,7 @@ export class TauriTransport implements Transport {
       args.defaultFilename && args.defaultFilename.trim().length > 0
         ? args.defaultFilename
         : `session.${ext}`;
-    const filterName =
-      ext === "md" ? "Markdown" : ext === "json" ? "JSON" : "HTML";
+    const filterName = ext === "md" ? "Markdown" : ext === "json" ? "JSON" : "HTML";
     const savedPath = await save({
       defaultPath: defaultName,
       filters: [{ name: filterName, extensions: [ext] }],
@@ -267,6 +357,22 @@ export class TauriTransport implements Transport {
 
   async importArtifact(request: ArtifactImportRequest): Promise<ArtifactRecord> {
     return invoke<ArtifactRecord>("import_artifact", { request });
+  }
+
+  artifactPreviewUrl(_id: string, projectPath?: string | null): string | null {
+    return projectPath ? this.resolveAssetUrl(`${projectPath}/index.html`) : null;
+  }
+
+  async openArtifact(id: string, projectPath?: string | null): Promise<void> {
+    const path = projectPath ?? (await this.getArtifact(id)).projectPath;
+    if (!path) return;
+    await this.openFilePath(`${path}/index.html`);
+  }
+
+  async revealArtifact(id: string, projectPath?: string | null): Promise<void> {
+    const path = projectPath ?? (await this.getArtifact(id)).projectPath;
+    if (!path) return;
+    await invoke("reveal_in_folder", { path: `${path}/index.html` });
   }
 
   async restoreArtifact(id: string, version: number): Promise<ArtifactRecord> {
@@ -310,6 +416,17 @@ export class TauriTransport implements Transport {
       savedPath: receipt.status === "ready" ? savedPath : undefined,
       receipt,
     };
+  }
+
+  async downloadArtifact(
+    id: string,
+    format: ArtifactExportFormat,
+  ): Promise<ArtifactExportResult | null> {
+    const result = await this.exportArtifact(id, format);
+    if (result && result.receipt.status !== "ready") {
+      throw new Error(result.receipt.error ?? "Artifact export is not ready");
+    }
+    return result;
   }
 
   async archiveArtifact(id: string): Promise<void> {
@@ -398,19 +515,21 @@ export class TauriTransport implements Transport {
 
     tauriListen(eventName, (event) => {
       handler(event.payload);
-    }).then((fn) => {
-      if (cancelled) {
-        // The caller already unsubscribed before the async setup finished.
-        if (!cleanedUp) {
-          cleanedUp = true;
-          cleanup(fn);
+    })
+      .then((fn) => {
+        if (cancelled) {
+          // The caller already unsubscribed before the async setup finished.
+          if (!cleanedUp) {
+            cleanedUp = true;
+            cleanup(fn);
+          }
+        } else {
+          unlisten = fn;
         }
-      } else {
-        unlisten = fn;
-      }
-    }).catch((err) => {
-      console.warn(`[transport] TauriTransport::listen: failed to listen ${eventName}`, err);
-    });
+      })
+      .catch((err) => {
+        console.warn(`[transport] TauriTransport::listen: failed to listen ${eventName}`, err);
+      });
 
     return () => {
       if (cleanedUp) return;

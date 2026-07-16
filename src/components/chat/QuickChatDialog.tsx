@@ -310,13 +310,18 @@ export default function QuickChatDialog({
             sessionTemperature={session.sessionTemperature}
             onSessionTemperatureChange={session.handleTemperatureChange}
             attachedFiles={stream.attachedFiles}
+            maxAttachmentBytes={stream.maxChatAttachmentBytes}
             onAttachFiles={stream.setAttachedFiles}
             onRemoveFile={(i) =>
               stream.setAttachedFiles((prev) => prev.filter((_, idx) => idx !== i))
             }
             onUpdateFile={(index, file) =>
               stream.setAttachedFiles((prev) =>
-                prev.map((existing, idx) => (idx === index ? file : existing)),
+                prev.map((existing, idx) =>
+                  idx === index
+                    ? { ...existing, file, status: "ready", error: undefined }
+                    : existing,
+                ),
               )
             }
             pendingMessageQuotes={stream.pendingMessageQuotes}

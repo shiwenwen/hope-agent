@@ -25,6 +25,7 @@ pub mod domain_quality;
 pub mod domain_workflow;
 pub mod dreaming;
 pub mod execution_mode;
+pub mod file_upload;
 pub mod filesystem;
 pub mod generated_images;
 pub mod git_control;

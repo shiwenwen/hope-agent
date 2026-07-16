@@ -43,6 +43,7 @@ pub(super) fn convert_inbound_media_to_attachments(
                         source: None,
                         data: Some(base64::engine::general_purpose::STANDARD.encode(&data)),
                         file_path: Some(effective_path.to_string()),
+                        upload_id: None,
                         quote_lines: None,
                         quote_role: None,
                     });
@@ -65,6 +66,7 @@ pub(super) fn convert_inbound_media_to_attachments(
                 source: None,
                 data: None,
                 file_path: Some(effective_path.to_string()),
+                upload_id: None,
                 quote_lines: None,
                 quote_role: None,
             });
@@ -405,6 +407,7 @@ mod tests {
                 source: None,
                 data: Some("base64data".into()),
                 file_path: None,
+                upload_id: None,
                 quote_lines: None,
                 quote_role: None,
             },
@@ -414,6 +417,7 @@ mod tests {
                 source: None,
                 data: None,
                 file_path: Some("/tmp/doc.pdf".into()),
+                upload_id: None,
                 quote_lines: None,
                 quote_role: None,
             },

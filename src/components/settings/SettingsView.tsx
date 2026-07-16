@@ -35,6 +35,7 @@ import {
   Users2,
   Webhook,
   CalendarClock,
+  Files,
 } from "lucide-react"
 import type { ProviderConfig } from "@/components/settings/ProviderSettings"
 import ProviderSetup from "@/components/settings/ProviderSetup"
@@ -75,6 +76,7 @@ import SecurityPanel from "@/components/settings/SecurityPanel"
 import ApprovalPanel from "@/components/settings/ApprovalPanel"
 import HooksPanel from "@/components/settings/HooksPanel"
 import BrowserPanel from "@/components/settings/BrowserPanel"
+import FileSettingsPanel from "@/components/settings/FileSettingsPanel"
 import type { AgentTab } from "./agent-panel/types"
 import type { SettingsSection, SettingsSectionItem } from "./types"
 
@@ -163,6 +165,11 @@ const SECTIONS: SettingsSectionItem[] = [
     id: "server",
     icon: <Globe className="h-4 w-4" />,
     labelKey: "settings.server",
+  },
+  {
+    id: "files",
+    icon: <Files className="h-4 w-4" />,
+    labelKey: "settings.files.title",
   },
   {
     id: "sandbox",
@@ -425,6 +432,7 @@ export default function SettingsView({
               </Suspense>
             )}
             {activeSection === "server" && <ServerPanel />}
+            {activeSection === "files" && <FileSettingsPanel />}
             {activeSection === "developer" && DeveloperPanel && (
               <Suspense fallback={null}>
                 <DeveloperPanel />

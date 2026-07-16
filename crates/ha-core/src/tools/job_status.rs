@@ -577,19 +577,40 @@ mod tests {
     };
     use crate::runtime_tasks::{cancel_runtime_task, RuntimeTaskKind};
     use std::path::PathBuf;
-    use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
+    use std::sync::{Arc, MutexGuard, OnceLock};
     use std::time::Instant;
     use tokio::time::timeout;
 
-    // The async_jobs DB is a process-global `OnceLock`, so all tests in
-    // this module share one fixture and serialize through `TEST_LOCK`.
+    // The async_jobs DB is process-global, so this module shares the cross-
+    // module test lock and removes its rows before another subsystem can replay
+    // them as real startup work.
     static FIXTURE: OnceLock<TestFixturePath> = OnceLock::new();
-    static TEST_LOCK: Mutex<()> = Mutex::new(());
 
-    fn test_lock() -> MutexGuard<'static, ()> {
-        TEST_LOCK
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    struct TestLock {
+        _guard: MutexGuard<'static, ()>,
+    }
+
+    impl Drop for TestLock {
+        fn drop(&mut self) {
+            let Some(db) = async_jobs::get_async_jobs_db() else {
+                return;
+            };
+            let conn = db
+                .conn
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            conn.execute(
+                "DELETE FROM background_jobs WHERE job_id LIKE 'itjob\\_%' ESCAPE '\\'",
+                [],
+            )
+            .expect("clean job-status test rows");
+        }
+    }
+
+    fn test_lock() -> TestLock {
+        TestLock {
+            _guard: crate::test_support::lock_async_jobs(),
+        }
     }
 
     struct TestFixturePath {

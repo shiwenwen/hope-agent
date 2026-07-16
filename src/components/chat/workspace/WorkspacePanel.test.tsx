@@ -44,6 +44,7 @@ const envMock = vi.hoisted(() => ({
 
 const transportMock = vi.hoisted(() => ({
   supportsLocalFileOps: vi.fn(() => true),
+  fileRuntime: vi.fn(() => ({ canReveal: true })),
   call: vi.fn<(name: string, args?: Record<string, unknown>) => Promise<unknown>>(
     (name: string) => {
       if (name === "get_background_job") return Promise.resolve(null)
@@ -78,6 +79,7 @@ vi.mock("react-i18next", () => ({
 
 vi.mock("@/lib/transport-provider", () => ({
   getTransport: () => transportMock,
+  useTransport: () => transportMock,
 }))
 
 vi.mock("@/hooks/useDangerousModeStatus", () => ({

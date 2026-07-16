@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef, lazy, Suspense } from "react"
 import { useTranslation } from "react-i18next"
 import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window"
-import { getTransport } from "@/lib/transport-provider"
+import { getTransport, setDirtyTransportConfirmText } from "@/lib/transport-provider"
 import { parsePayload, isTauriMode } from "@/lib/transport"
 import { logger } from "@/lib/logger"
 import { MAIN_WINDOW_MIN_HEIGHT, MAIN_WINDOW_MIN_WIDTH } from "@/lib/mainWindowSize"
@@ -129,6 +129,15 @@ export default function App() {
   const lastMemoryFocusHashRef = useRef<string | null>(null)
 
   useEffect(() => {
+    setDirtyTransportConfirmText(
+      t(
+        "fileEditor.transportSwitchUnsaved",
+        "You have unsaved file changes. Switch connection and discard them?",
+      ),
+    )
+  }, [i18n.language, t])
+
+  useEffect(() => {
     if (!isTauriMode()) return
 
     const enforceMainWindowMinSize = async () => {
@@ -210,12 +219,24 @@ export default function App() {
   }, [configHealth])
 
   // Cmd+, on macOS, Ctrl+, on Windows/Linux — "preferences" convention.
-  const handleOpenSettings = useCallback((section?: SettingsSection) => {
+  const handleOpenSettings = useCallback(
+    (section?: SettingsSection) => {
     if (keepConfigRecoveryView()) return
     setSettingsInitialSection(section)
     setSettingsInitialSectionRequestKey((n) => n + 1)
     setView("settings")
-  }, [keepConfigRecoveryView])
+    },
+    [keepConfigRecoveryView],
+  )
+
+  useEffect(() => {
+    const handleNavigate = (event: Event) => {
+      const detail = (event as CustomEvent<{ section?: SettingsSection }>).detail
+      handleOpenSettings(detail?.section)
+    }
+    window.addEventListener("settings:navigate", handleNavigate)
+    return () => window.removeEventListener("settings:navigate", handleNavigate)
+  }, [handleOpenSettings])
 
   const handleMemoryFocusDeepLink = useCallback(() => {
     if (typeof window === "undefined") return false
@@ -243,22 +264,25 @@ export default function App() {
 
   useEffect(() => {
     if (
-      view === "loading"
-      || view === "configRecovery"
-      || view === "onboarding"
-      || view === "setup"
+      view === "loading" ||
+      view === "configRecovery" ||
+      view === "onboarding" ||
+      view === "setup"
     ) {
       return
     }
     handleMemoryFocusDeepLink()
   }, [handleMemoryFocusDeepLink, view])
 
-  const handleOpenDashboard = useCallback((tab?: string, reportId?: string | null) => {
+  const handleOpenDashboard = useCallback(
+    (tab?: string, reportId?: string | null) => {
     if (keepConfigRecoveryView()) return
     setDashboardInitialTab(tab)
     setDashboardInitialReportId(reportId ?? null)
     setView("dashboard")
-  }, [keepConfigRecoveryView])
+    },
+    [keepConfigRecoveryView],
+  )
   const handleOpenKnowledge = useCallback(() => {
     if (keepConfigRecoveryView()) return
     setView("knowledge")
@@ -362,7 +386,13 @@ export default function App() {
   useDesktopAlerts()
 
   useEffect(() => {
-    if (view === "loading" || view === "configRecovery" || view === "onboarding" || view === "setup") return
+    if (
+      view === "loading" ||
+      view === "configRecovery" ||
+      view === "onboarding" ||
+      view === "setup"
+    )
+      return
 
     const handleSnapshot = (raw: unknown) => {
       const job = parsePayload<LocalModelJobSnapshot>(raw)
@@ -395,7 +425,10 @@ export default function App() {
       }
     }
 
-    const unlistenCompleted = getTransport().listen(LOCAL_MODEL_JOB_EVENTS.completed, handleSnapshot)
+    const unlistenCompleted = getTransport().listen(
+      LOCAL_MODEL_JOB_EVENTS.completed,
+      handleSnapshot,
+    )
     return () => {
       unlistenCompleted()
     }
@@ -407,7 +440,13 @@ export default function App() {
   }, [])
 
   useEffect(() => {
-    if (view === "loading" || view === "configRecovery" || view === "onboarding" || view === "setup") return
+    if (
+      view === "loading" ||
+      view === "configRecovery" ||
+      view === "onboarding" ||
+      view === "setup"
+    )
+      return
 
     const handler = (raw: unknown) => {
       const report = parsePayload<{
@@ -447,7 +486,13 @@ export default function App() {
   const updateCheckRef = useRef(false)
   useEffect(() => {
     if (updateCheckRef.current) return
-    if (view === "loading" || view === "configRecovery" || view === "onboarding" || view === "setup") return
+    if (
+      view === "loading" ||
+      view === "configRecovery" ||
+      view === "onboarding" ||
+      view === "setup"
+    )
+      return
     updateCheckRef.current = true
 
     autoCheckForUpdate()

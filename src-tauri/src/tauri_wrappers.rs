@@ -167,7 +167,8 @@ pub async fn show_canvas_panel(project_id: String) -> Result<(), String> {
 #[derive(Debug, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ArtifactImportRequest {
-    pub file_path: String,
+    pub file_path: Option<String>,
+    pub upload_id: Option<String>,
     pub artifact_id: Option<String>,
     pub expected_version: Option<i64>,
     pub title: Option<String>,
@@ -230,13 +231,25 @@ pub async fn import_artifact(
     request: ArtifactImportRequest,
 ) -> Result<crate::artifacts::ArtifactRecord, String> {
     ha_core::blocking::run_blocking(move || {
-        let source = std::path::PathBuf::from(&request.file_path);
-        let allowed_root = source
-            .canonicalize()
-            .ok()
-            .and_then(|path| path.parent().map(ToOwned::to_owned))
-            .into_iter()
-            .collect::<Vec<_>>();
+        let source = match (request.file_path, request.upload_id) {
+            (Some(file_path), None) if !file_path.trim().is_empty() => {
+                let file_path = std::path::PathBuf::from(file_path);
+                let allowed_roots = file_path
+                    .canonicalize()
+                    .ok()
+                    .and_then(|path| path.parent().map(ToOwned::to_owned))
+                    .into_iter()
+                    .collect::<Vec<_>>();
+                crate::artifacts::ArtifactImportSource::Path {
+                    file_path,
+                    allowed_roots: Some(allowed_roots),
+                }
+            }
+            (None, Some(upload_id)) if !upload_id.trim().is_empty() => {
+                crate::artifacts::ArtifactImportSource::Upload { upload_id }
+            }
+            _ => return Err("exactly one of filePath or uploadId is required".to_string()),
+        };
         let producer = serde_json::json!({ "type": "owner_import", "surface": "tauri" });
         let mut service =
             crate::artifacts::ArtifactService::open().map_err(|error| error.to_string())?;
@@ -255,21 +268,20 @@ pub async fn import_artifact(
                 ));
             }
             service
-                .update_from_file(crate::artifacts::UpdateArtifactInput {
+                .update_from_source(crate::artifacts::UpdateArtifactInput {
                     artifact_id,
-                    file_path: source,
+                    source,
                     expected_version,
                     title: request.title,
                     message: request.version_message,
                     producer,
-                    allowed_roots: Some(allowed_root),
                     incognito: false,
                 })
                 .map_err(|error| error.to_string())
         } else {
             service
-                .create_from_file(crate::artifacts::CreateArtifactInput {
-                    file_path: source,
+                .create_from_source(crate::artifacts::CreateArtifactInput {
+                    source,
                     title: request.title,
                     kind: crate::artifacts::ArtifactKind::parse(request.kind.as_deref()),
                     privacy: request
@@ -280,7 +292,6 @@ pub async fn import_artifact(
                     agent_id: request.agent_id,
                     goal_id: request.goal_id,
                     producer,
-                    allowed_roots: Some(allowed_root),
                     incognito: false,
                 })
                 .map_err(|error| error.to_string())

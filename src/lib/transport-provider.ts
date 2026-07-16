@@ -13,11 +13,13 @@
  * In web mode, it is an `HttpTransport` pointing at the configured server URL.
  */
 
+import { useSyncExternalStore } from "react";
 import { isTauriMode } from "@/lib/transport";
 import type { Transport } from "@/lib/transport";
 import { TauriTransport } from "@/lib/transport-tauri";
 import { HttpTransport } from "@/lib/transport-http";
 import { getStoredApiKey } from "@/lib/api-key-storage";
+import { confirmDiscardDirtyFileEditors } from "@/components/chat/files/fileDirtyRegistry";
 
 /**
  * Default server URL for standalone web mode.
@@ -37,6 +39,27 @@ function defaultHttpBase(): string {
 }
 
 let instance: Transport | null = null;
+const listeners = new Set<() => void>();
+let dirtyTransportConfirmText =
+  "You have unsaved file changes. Switch connection and discard them?";
+
+/** App-level i18n bridge kept outside the transport singleton's dependency graph. */
+export function setDirtyTransportConfirmText(message: string): void {
+  if (message.trim()) dirtyTransportConfirmText = message;
+}
+
+function emitTransportChanged(): void {
+  for (const listener of listeners) listener();
+}
+
+function subscribeTransport(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+}
+
+export function confirmTransportChange(): boolean {
+  return confirmDiscardDirtyFileEditors(dirtyTransportConfirmText);
+}
 
 /**
  * Return the application-wide Transport singleton.
@@ -67,21 +90,30 @@ export function getTransport(): Transport {
  */
 export function setTransport(transport: Transport): void {
   instance = transport;
+  emitTransportChanged();
 }
 
 /**
  * Switch to a remote HTTP transport with the given base URL and optional API key.
  * Replaces the current singleton so all subsequent calls go to the remote server.
  */
-export function switchToRemote(baseUrl: string, apiKey?: string | null): void {
+export function switchToRemote(
+  baseUrl: string,
+  apiKey?: string | null,
+  options?: { dirtyConfirmed?: boolean },
+): boolean {
+  if (!options?.dirtyConfirmed && !confirmTransportChange()) return false;
   instance = new HttpTransport(baseUrl, apiKey);
+  emitTransportChanged();
+  return true;
 }
 
 /**
  * Switch back to the default transport (Tauri IPC if in Tauri, else localhost).
  * Resets the singleton so it will be recreated on next `getTransport()` call.
  */
-export function switchToEmbedded(): void {
+export function switchToEmbedded(options?: { dirtyConfirmed?: boolean }): boolean {
+  if (!options?.dirtyConfirmed && !confirmTransportChange()) return false;
   if (isTauriMode()) {
     instance = new TauriTransport();
   } else {
@@ -91,4 +123,11 @@ export function switchToEmbedded(): void {
     // (and ping-pong the AuthRequiredDialog until reload).
     instance = new HttpTransport(defaultHttpBase(), getStoredApiKey());
   }
+  emitTransportChanged();
+  return true;
+}
+
+/** React hook that re-renders consumers as soon as the active transport changes. */
+export function useTransport(): Transport {
+  return useSyncExternalStore(subscribeTransport, getTransport, getTransport);
 }

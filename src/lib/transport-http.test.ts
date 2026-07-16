@@ -14,6 +14,14 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
+test("HttpTransport builds Artifact previews from opaque ids", () => {
+  const transport = new HttpTransport("http://localhost:8420", "secret token")
+
+  expect(transport.artifactPreviewUrl("artifact/report 1", "/srv/private/artifact")).toBe(
+    "http://localhost:8420/api/canvas/projects/artifact%2Freport%201/index.html?token=secret%20token",
+  )
+})
+
 test("HttpTransport requests durable-state resync on connect and EventBus lag", () => {
   class MockWebSocket {
     static instances: MockWebSocket[] = []
@@ -54,10 +62,7 @@ test("HttpTransport requests durable-state resync on connect and EventBus lag", 
   socket.open()
   socket.message({ name: "_lagged", payload: { missed: 3 } })
 
-  expect(resyncReasons).toEqual([
-    { reason: "connected" },
-    { reason: "lagged", missed: 3 },
-  ])
+  expect(resyncReasons).toEqual([{ reason: "connected" }, { reason: "lagged", missed: 3 }])
   unsubscribe()
 })
 
@@ -114,6 +119,52 @@ test("HttpTransport.save_attachment unwraps path from multipart response", async
   })
 
   expect(path).toBe("/tmp/attachment.txt")
+})
+
+test("HttpTransport extracts only attachments owned by the active session", async () => {
+  const transport = new HttpTransport("http://localhost:8420", "secret")
+  fetchMock.mockResolvedValue(
+    new Response(
+      JSON.stringify({ relPath: "report.docx", kind: "office", text: "report", images: [] }),
+      {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      },
+    ),
+  )
+
+  await expect(
+    transport.extractMediaDocument(
+      {
+        url: "/api/attachments/session-a/report.docx?token=secret&download=1",
+        name: "report.docx",
+        mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        sizeBytes: 100,
+        kind: "file",
+      },
+      { sessionId: "session-a" },
+    ),
+  ).resolves.toMatchObject({ text: "report" })
+  const [extractUrl, extractInit] = fetchMock.mock.lastCall!
+  expect(extractUrl.toString()).toBe(
+    "http://localhost:8420/api/attachments/session-a/report.docx/extract?token=secret",
+  )
+  expect(extractInit).toEqual({ headers: { Authorization: "Bearer secret" } })
+
+  fetchMock.mockClear()
+  await expect(
+    transport.extractMediaDocument(
+      {
+        url: "/api/attachments/session-b/report.docx",
+        name: "report.docx",
+        mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        sizeBytes: 100,
+        kind: "file",
+      },
+      { sessionId: "session-a" },
+    ),
+  ).rejects.toThrow("outside the active session")
+  expect(fetchMock).not.toHaveBeenCalled()
 })
 
 test("HttpTransport.try_restore_session unwraps HTTP restored payload", async () => {
