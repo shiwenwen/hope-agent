@@ -94,7 +94,7 @@ function AgentCreateView({
               {t("settings.agentNewId")}
             </div>
             <Input
-              className="bg-secondary/40 rounded-lg font-mono"
+              className="font-mono"
               value={id}
               onChange={(e) => {
                 setId(e.target.value)
@@ -113,7 +113,6 @@ function AgentCreateView({
               {t("settings.agentName")}
             </div>
             <Input
-              className="bg-secondary/40 rounded-lg"
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder={t("settings.agentNamePlaceholder")}

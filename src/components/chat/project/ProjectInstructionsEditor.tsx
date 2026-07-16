@@ -190,6 +190,7 @@ export default function ProjectInstructionsEditor({
       <div className="min-h-0 flex-1 overflow-hidden rounded-lg border border-border/70 bg-background">
         {mode === "edit" ? (
           <Textarea
+            surface="embedded"
             value={draft}
             readOnly={readOnly}
             onChange={(event) => {
@@ -201,7 +202,7 @@ export default function ProjectInstructionsEditor({
             spellCheck={false}
             aria-label={t("project.projectInstructions")}
             placeholder={t("project.projectInstructionsPlaceholder")}
-            className="h-full min-h-[360px] resize-none rounded-none border-0 px-4 py-3 font-mono text-sm shadow-none"
+            className="h-full min-h-[360px] resize-none px-4 py-3 font-mono text-sm"
           />
         ) : (
           <div className="h-full min-h-[360px] overflow-y-auto px-5 py-4">

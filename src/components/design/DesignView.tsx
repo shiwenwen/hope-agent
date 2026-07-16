@@ -7053,6 +7053,7 @@ const LaunchComposerTextarea = memo(function LaunchComposerTextarea({
   const typed = useTypewriterPlaceholder(scenes, !prompt.trim())
   return (
     <Textarea
+      surface="embedded"
       value={prompt}
       onChange={(e) => setPrompt(e.target.value)}
       onKeyDown={(e) => {
@@ -7079,7 +7080,7 @@ const LaunchComposerTextarea = memo(function LaunchComposerTextarea({
       // 复合编辑器：焦点由外层 prompt 卡的 focus-within 单层表达，内部 textarea 标记
       // data-focus-ring="none" 抑制全局焦点 outline，避免双层轮廓（对齐 ui-interaction-system）。
       data-focus-ring="none"
-      className="min-h-[72px] resize-none border-0 bg-transparent px-2.5 py-1.5 text-base leading-relaxed shadow-none placeholder:text-muted-foreground/60"
+      className="min-h-[72px] resize-none px-2.5 py-1.5 text-base leading-relaxed placeholder:text-muted-foreground/60"
     />
   )
 })

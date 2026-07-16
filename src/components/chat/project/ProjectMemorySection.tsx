@@ -346,11 +346,12 @@ export function ProjectMemorySection({ projectId, readOnly = false }: ProjectMem
               {editorMode === "edit" ? (
                 <Textarea
                   id="project-memory-content"
+                  surface="embedded"
                   value={draft.content}
                   disabled={loadingFile}
                   readOnly={readOnly}
                   spellCheck={false}
-                  className="min-h-[22rem] resize-y rounded-none border-0 px-4 py-3 font-mono text-sm shadow-none"
+                  className="min-h-[22rem] resize-y px-4 py-3 font-mono text-sm"
                   onChange={(event) =>
                     setDraft((value) => ({ ...value, content: event.target.value }))
                   }

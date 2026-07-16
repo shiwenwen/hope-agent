@@ -16,9 +16,7 @@ import { useTranslation } from "react-i18next"
 import { Square, Pen, Undo2, Redo2, Trash2, Send, X, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { FLAT_CONTROL_SURFACE_CLASS } from "@/components/ui/control-surface"
 import { IconTip } from "@/components/ui/tooltip"
-import { cn } from "@/lib/utils"
 
 export interface Point {
   x: number
@@ -362,9 +360,7 @@ export default function DesignDrawOverlay({
               }
             }}
             placeholder={t("design.draw.notePlaceholder", "说明要改什么…")}
-            // 浮层坞里的普通文本输入：复用统一扁平表面（去掉 base Input 的 shadow-sm + 深色
-            // border-input，换成 #464 规范的软边框无阴影单一来源），焦点交给全局协议。
-            className={cn(FLAT_CONTROL_SURFACE_CLASS, "h-8 w-48 text-xs")}
+            className="h-8 w-48 text-xs"
           />
           <Button size="sm" className="h-8 gap-1" onClick={submit} disabled={!canSubmit}>
             {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}

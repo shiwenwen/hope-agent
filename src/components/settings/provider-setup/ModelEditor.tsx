@@ -151,7 +151,7 @@ export function ModelEditor({
             value={model.id}
             onChange={(e) => onChange({ ...model, id: e.target.value })}
             placeholder="model-id"
-            className="bg-background text-xs h-8"
+            className="h-8 text-xs"
           />
         </div>
         <div className="space-y-1">
@@ -160,7 +160,7 @@ export function ModelEditor({
             value={model.name}
             onChange={(e) => onChange({ ...model, name: e.target.value })}
             placeholder="Model Name"
-            className="bg-background text-xs h-8"
+            className="h-8 text-xs"
           />
         </div>
       </div>

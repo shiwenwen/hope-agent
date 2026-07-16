@@ -342,6 +342,7 @@ export default function DesignFilesPanel({
                 <div className="flex items-center gap-1.5 rounded-lg border border-primary/50 bg-card px-2.5 py-2">
                   <Folder className="h-4 w-4 shrink-0 text-muted-foreground" />
                   <Input
+                    surface="embedded"
                     autoFocus
                     value={newFolderName}
                     onChange={(e) => setNewFolderName(e.target.value)}
@@ -351,7 +352,7 @@ export default function DesignFilesPanel({
                       else if (e.key === "Escape") setCreatingFolder(false)
                     }}
                     placeholder={t("design.files.folderNamePh", "文件夹名")}
-                    className="h-6 border-0 px-0 text-xs shadow-none"
+                    className="h-6 px-0 text-xs"
                   />
                 </div>
               )}
@@ -395,6 +396,7 @@ export default function DesignFilesPanel({
                     <Folder className="h-4 w-4 shrink-0 text-amber-500" />
                     {renaming ? (
                       <Input
+                        surface="embedded"
                         autoFocus
                         value={folderDraft}
                         onChange={(e) => setFolderDraft(e.target.value)}
@@ -404,7 +406,7 @@ export default function DesignFilesPanel({
                           if (e.key === "Enter") commitRenameFolder(path)
                           else if (e.key === "Escape") setRenamingFolder(null)
                         }}
-                        className="h-6 border-0 px-0 text-xs shadow-none"
+                        className="h-6 px-0 text-xs"
                       />
                     ) : (
                       <>

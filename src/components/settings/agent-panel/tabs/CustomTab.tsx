@@ -132,7 +132,7 @@ export default function CustomTab({
               {t(activeTab.descKey)}
             </p>
             <Textarea
-              className="bg-secondary/40 rounded-lg resize-y leading-relaxed font-mono min-h-[280px]"
+              className="min-h-[280px] resize-y font-mono leading-relaxed"
               rows={16}
               {...textInputProps(value, setter)}
               placeholder={activeTab.placeholder}

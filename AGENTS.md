@@ -114,12 +114,14 @@ ha-core 主要领域：`agent/` `chat_engine/` `context_compact/` `memory/` `kno
 
 详见 [`ui-interaction-system.md`](docs/architecture/ui-interaction-system.md)。
 
-- **组件入口唯一**：搜索用 `SearchInput`；普通下拉用 Radix `Select`；分组模型选择用
-  `ModelSelector` / `ModelChainEditor`；数字输入用 `NumberInput` / `DeferredNumberInput`。
-  业务组件禁止裸 `<select>`、裸 `<input type="number">`、`Input type="number"` 和 `NativeSelect`。
-- **扁平表面单一来源**：选择类控件和数字框必须复用 `FLAT_CONTROL_SURFACE_CLASS`；搜索框
-  使用 `SearchInput` 的无边框表面。业务侧只覆盖尺寸与布局，禁止恢复 `shadow-sm`、深色边框
-  或复制背景/边框/圆角整套 class。
+- **组件入口唯一**：搜索用 `SearchInput`；普通文本用 `Input`，多行文本用 `Textarea`；普通下拉
+  用 Radix `Select`；分组模型选择用 `ModelSelector` / `ModelChainEditor`；数字输入用
+  `NumberInput` / `DeferredNumberInput`。业务组件禁止裸 `<select>`、裸 `<input type="number">`、
+  `Input type="number"` 和 `NativeSelect`。
+- **扁平表面单一来源**：`Input`、`Textarea`、选择类控件和数字框必须复用
+  `FLAT_CONTROL_SURFACE_CLASS`；搜索框使用 `SearchInput` 的无边框表面。业务侧只覆盖尺寸、
+  布局与排版，禁止恢复 `shadow-sm`、深色边框或复制背景/边框/圆角整套 class。只有视觉边界
+  由外壳承担的已登记复合控件可用 `surface="embedded"`，禁止手动覆盖默认表面的部分状态。
 - **焦点与高对比度**：组件不得自行添加 `focus:ring-*` / `focus:border-*`；Pointer、Keyboard、
   enhanced、`prefers-contrast` 和 `forced-colors` 全部服从全局焦点协议。强制色模式必须保留
   系统边框，不能只靠半透明背景表达控件边界。

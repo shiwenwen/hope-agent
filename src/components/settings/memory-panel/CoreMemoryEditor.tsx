@@ -272,11 +272,11 @@ export default function CoreMemoryEditor({ scope, agentId, projectId }: CoreMemo
                   <div className="grid gap-3 lg:grid-cols-2">
                     <label className="space-y-1 text-muted-foreground">
                       <span>{t("settings.memoryV2.core.conflictCanonical")}</span>
-                      <Textarea value={conflict.canonicalContent} readOnly className="min-h-32 bg-background font-mono text-xs" />
+                      <Textarea value={conflict.canonicalContent} readOnly className="min-h-32 font-mono text-xs" />
                     </label>
                     <label className="space-y-1 text-muted-foreground">
                       <span>{t("settings.memoryV2.core.conflictLegacy")}</span>
-                      <Textarea value={conflict.legacyContent} readOnly className="min-h-32 bg-background font-mono text-xs" />
+                      <Textarea value={conflict.legacyContent} readOnly className="min-h-32 font-mono text-xs" />
                     </label>
                   </div>
                   <label className="block space-y-1 text-muted-foreground">
@@ -284,7 +284,7 @@ export default function CoreMemoryEditor({ scope, agentId, projectId }: CoreMemo
                     <Textarea
                       value={mergedContent}
                       onChange={(event) => setMergedContent(event.target.value)}
-                      className="min-h-36 bg-background font-mono text-xs"
+                      className="min-h-36 font-mono text-xs"
                     />
                   </label>
                   <div className="flex flex-wrap justify-end gap-2">

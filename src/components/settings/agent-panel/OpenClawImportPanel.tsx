@@ -536,6 +536,7 @@ export function OpenClawImportPanel({ onSkip, onImported, hideSkip }: OpenClawIm
                         {t("onboarding.importOpenClaw.agents.idLabel")}{" "}
                         <Input
                           type="text"
+                          surface="embedded"
                           value={edit?.targetId ?? a.id}
                           onChange={(ev) =>
                             setAgentEdits((prev) => ({
@@ -543,7 +544,7 @@ export function OpenClawImportPanel({ onSkip, onImported, hideSkip }: OpenClawIm
                               [a.id]: { ...edit!, targetId: ev.target.value },
                             }))
                           }
-                          className="h-auto w-auto rounded-none border-0 border-b border-muted-foreground/30 bg-transparent px-1 py-0 shadow-none outline-none font-mono text-xs"
+                          className="h-auto w-auto border-b border-muted-foreground/30 px-1 py-0 font-mono text-xs"
                         />
                       </div>
                       <div className="mt-1 flex flex-wrap gap-1">

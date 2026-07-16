@@ -243,7 +243,6 @@ export function CustomWizard({
                   value={providerName}
                   onChange={(e) => setProviderName(e.target.value)}
                   placeholder={t("provider.myCustomProvider")}
-                  className="bg-card"
                 />
               </div>
               <div className="space-y-1.5">
@@ -255,7 +254,7 @@ export function CustomWizard({
                   value={baseUrl}
                   onChange={(e) => setBaseUrl(e.target.value)}
                   placeholder="https://api.example.com"
-                  className="bg-card font-mono text-xs"
+                  className="font-mono text-xs"
                 />
               </div>
               <div className="space-y-1.5">
@@ -272,7 +271,7 @@ export function CustomWizard({
                     value={apiKey}
                     onChange={(e) => setApiKey(e.target.value)}
                     placeholder={t("provider.authRequired")}
-                    className="bg-card font-mono text-xs pr-9"
+                    className="pr-9 font-mono text-xs"
                   />
                   <Button
                     type="button"
