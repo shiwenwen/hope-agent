@@ -2975,6 +2975,7 @@
     },
     "openInSession": "Oturumda aç",
     "refresh": "Yenile",
+    "resizeList": "Plan listesi genişliğini ayarla",
     "selectHint": "Sol taraftan bir Plan seçin.",
     "sessionDeleted": "Sahip oturum silinmiş",
     "title": "Planlar",

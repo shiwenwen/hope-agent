@@ -2975,6 +2975,7 @@
     },
     "openInSession": "跳转到所属会话",
     "refresh": "刷新",
+    "resizeList": "调整 Plan 列表宽度",
     "selectHint": "请在左侧选择一个 Plan 查看内容。",
     "sessionDeleted": "所属会话已删除",
     "title": "Plan 历史",

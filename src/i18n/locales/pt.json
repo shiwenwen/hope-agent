@@ -2975,6 +2975,7 @@
     },
     "openInSession": "Abrir na sessão",
     "refresh": "Atualizar",
+    "resizeList": "Redimensionar lista de planos",
     "selectHint": "Selecione um Plan à esquerda para ver o conteúdo.",
     "sessionDeleted": "Sessão proprietária excluída",
     "title": "Planos",
