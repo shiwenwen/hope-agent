@@ -75,8 +75,8 @@ export function KbAccessControl({
               className={cn(
                 "rounded-md px-2 py-0.5 text-[10px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60",
                 active
-                  ? "bg-primary text-primary-foreground shadow-sm"
-                  : "text-muted-foreground hover:bg-secondary hover:text-foreground",
+                  ? "bg-secondary/70 text-foreground"
+                  : "text-muted-foreground hover:bg-secondary/40 hover:text-foreground",
               )}
             >
               {s.label}

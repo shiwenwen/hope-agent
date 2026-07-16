@@ -33,10 +33,10 @@ export function RadioPills<V extends string>({
             aria-checked={isActive}
             onClick={() => onChange(opt.value)}
             className={cn(
-              "text-xs rounded-md px-2 py-1.5 border transition-colors",
+              "rounded-md px-2 py-1.5 text-xs transition-colors",
               isActive
-                ? "bg-primary/10 border-primary/40 text-primary"
-                : "bg-secondary/40 border-border/40 text-muted-foreground hover:border-border",
+                ? "bg-secondary/70 text-foreground"
+                : "bg-secondary/40 text-muted-foreground hover:bg-secondary/60 hover:text-foreground",
             )}
           >
             {opt.label}

@@ -175,7 +175,7 @@ export default function AudioGeneratePanel() {
                   key={provider.id}
                   className={cn(
                     "rounded-lg border p-4 space-y-3 transition-colors",
-                    provider.enabled ? "border-primary/30 bg-primary/5" : "border-border",
+                    provider.enabled ? "border-border bg-secondary/70" : "border-border",
                   )}
                 >
                   <div className="flex items-center justify-between">

@@ -101,7 +101,7 @@ export function ChannelsStep({ onJumpToSettings }: ChannelsStepProps) {
               className={`flex items-center gap-3 p-4 rounded-lg border text-left transition-colors ${
                 disabled
                   ? "border-border/60 opacity-50 cursor-not-allowed"
-                  : "border-border hover:border-primary hover:bg-accent cursor-pointer"
+                  : "border-border hover:bg-secondary/40 cursor-pointer"
               }`}
             >
               <ChannelIcon channelId={c.id} className="h-8 w-8 shrink-0" />

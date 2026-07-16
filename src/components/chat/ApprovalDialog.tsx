@@ -194,7 +194,7 @@ export default function ApprovalDialog({ requests, onRespond }: ApprovalDialogPr
           <Button
             variant="outline"
             size="sm"
-            className="text-red-400 hover:text-red-300 border-red-500/30 hover:border-red-500/50 hover:bg-red-500/10"
+            className="border-red-500/30 text-red-400 hover:bg-red-500/10 hover:text-red-300"
             onClick={() => void respond("deny")}
             disabled={isResponding}
           >

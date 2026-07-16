@@ -524,7 +524,7 @@ export default function ToolCallBlock({ tool, shimmer, onOpenDiff }: ToolCallBlo
           <button
             type="button"
             onClick={handleOpenCanvas}
-            className="flex items-center gap-2.5 px-3 py-2 rounded-lg border border-border/50 hover:border-primary/40 bg-secondary/30 hover:bg-secondary/50 transition-colors cursor-pointer group/canvas"
+            className="group/canvas flex cursor-pointer items-center gap-2.5 rounded-lg border border-border/50 bg-secondary/30 px-3 py-2 transition-colors hover:bg-secondary/50"
           >
             <PanelRight className="h-4 w-4 shrink-0 text-primary/70" />
             <div className="flex flex-col items-start gap-0.5 min-w-0">

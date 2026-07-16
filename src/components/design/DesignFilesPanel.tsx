@@ -480,9 +480,9 @@ export default function DesignFilesPanel({
                       dragIdRef.current = null
                     }}
                     className={cn(
-                      "group/card relative flex flex-col overflow-hidden rounded-lg border bg-card shadow-sm transition-shadow hover:shadow-md",
-                      activeArtifactId === a.id && "ring-2 ring-primary/40",
-                      selected.has(a.id) && "ring-2 ring-primary",
+                      "group/card relative flex flex-col overflow-hidden rounded-lg border bg-card shadow-sm transition-colors hover:bg-secondary/40",
+                      activeArtifactId === a.id && "bg-secondary/40",
+                      selected.has(a.id) && "bg-secondary/70",
                     )}
                   >
                     {/* 选择框（Wave 1-③）：悬停显现 / 选中常驻；点它只切选中不打开产物。 */}
@@ -497,7 +497,7 @@ export default function DesignFilesPanel({
                       className={cn(
                         "absolute left-1.5 top-1.5 z-10 flex h-5 w-5 items-center justify-center rounded border bg-background/90 shadow-sm transition-opacity",
                         selected.has(a.id)
-                          ? "border-primary bg-primary text-primary-foreground opacity-100"
+                          ? "border-transparent bg-primary text-primary-foreground opacity-100"
                           : "border-border text-transparent opacity-0 focus-visible:opacity-100 group-hover/card:opacity-100",
                       )}
                     >

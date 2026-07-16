@@ -1050,7 +1050,7 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
                   aria-pressed={selectedSourceIds.has(source.id)}
                   className={cn(
                     "mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border border-border-soft/70 text-primary",
-                    selectedSourceIds.has(source.id) && "border-primary bg-primary/10",
+                    selectedSourceIds.has(source.id) && "border-transparent bg-secondary/70",
                   )}
                   onClick={(e) => {
                     e.stopPropagation()
@@ -1409,7 +1409,7 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
                   key={version.id}
                   className={cn(
                     "rounded-md border border-border-soft/60 p-2 text-xs",
-                    current && "border-primary/60 bg-primary/5",
+                    current && "bg-secondary/70",
                   )}
                 >
                   <div className="flex min-w-0 items-start justify-between gap-2">
@@ -1557,7 +1557,7 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
                   key={run.id}
                   className={cn(
                     "rounded-md border border-border-soft/60 p-2 text-xs",
-                    runDetail?.id === run.id && "border-primary/60 bg-primary/5",
+                    runDetail?.id === run.id && "bg-secondary/70",
                   )}
                 >
                   <button

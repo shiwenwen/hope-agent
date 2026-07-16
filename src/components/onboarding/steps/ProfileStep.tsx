@@ -137,8 +137,8 @@ export function ProfileStep({ draft, onChange }: ProfileStepProps) {
             onClick={() => setTimezone("")}
             className={`flex items-center gap-2 w-full px-3 py-2 rounded-md border text-sm transition-colors ${
               timezone === ""
-                ? "border-primary bg-primary/10 text-primary"
-                : "border-border hover:border-foreground/30"
+                ? "border-border bg-secondary/70 text-foreground"
+                : "border-border hover:bg-secondary/40"
             }`}
           >
             <Monitor className="h-3.5 w-3.5 opacity-60" />
@@ -180,8 +180,8 @@ export function ProfileStep({ draft, onChange }: ProfileStepProps) {
                 onClick={() => setExperience(experience === opt.id ? "" : opt.id)}
                 className={`rounded-md border px-3 py-1.5 text-sm transition-colors ${
                   experience === opt.id
-                    ? "border-primary bg-primary/10 text-primary"
-                    : "border-border hover:border-foreground/30"
+                    ? "border-border bg-secondary/70 text-foreground"
+                    : "border-border hover:bg-secondary/40"
                 }`}
               >
                 {t(opt.labelKey)}
@@ -200,8 +200,8 @@ export function ProfileStep({ draft, onChange }: ProfileStepProps) {
                 onClick={() => setStyle(style === opt.id ? "" : opt.id)}
                 className={`rounded-md border px-3 py-1.5 text-sm transition-colors ${
                   style === opt.id
-                    ? "border-primary bg-primary/10 text-primary"
-                    : "border-border hover:border-foreground/30"
+                    ? "border-border bg-secondary/70 text-foreground"
+                    : "border-border hover:bg-secondary/40"
                 }`}
               >
                 {t(opt.labelKey)}

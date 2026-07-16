@@ -541,7 +541,7 @@ export default function AgentEditView({ agentId, initialTab, onBack }: AgentEdit
           <div className="flex items-center gap-4 mb-5">
             {/* Avatar */}
             <div
-              className="w-14 h-14 rounded-full bg-secondary border border-border/50 flex items-center justify-center overflow-hidden hover:border-primary/30 transition-colors cursor-pointer shrink-0"
+              className="flex h-14 w-14 shrink-0 cursor-pointer items-center justify-center overflow-hidden rounded-full border border-border/50 bg-secondary transition-colors hover:bg-secondary/70"
               onClick={handleAvatarPick}
             >
               {config.avatar ? (
@@ -581,10 +581,10 @@ export default function AgentEditView({ agentId, initialTab, onBack }: AgentEdit
                 variant="ghost"
                 size="sm"
                 className={cn(
-                  "h-auto rounded-t-md rounded-b-none px-3 py-1.5 text-sm font-normal -mb-px",
+                  "-mb-px h-auto rounded-md px-3 py-1.5 text-sm font-normal",
                   activeTab === tab.id
-                    ? "text-primary border-b-2 border-primary font-medium hover:bg-transparent hover:text-primary"
-                    : "text-muted-foreground hover:bg-transparent hover:text-foreground",
+                    ? "bg-secondary/70 font-medium text-foreground hover:bg-secondary/70 hover:text-foreground"
+                    : "text-muted-foreground hover:bg-secondary/40 hover:text-foreground",
                 )}
                 onClick={() => setActiveTab(tab.id)}
               >

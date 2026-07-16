@@ -223,7 +223,7 @@ export function TemplateGrid({
                 key={template.key}
                 variant="outline"
                 onClick={() => onSelectTemplate(template)}
-                className="h-auto justify-start gap-2.5 rounded-xl bg-card p-3 text-left font-normal hover:border-primary/40 hover:bg-secondary/50"
+                className="h-auto justify-start gap-2.5 rounded-xl bg-card p-3 text-left font-normal hover:bg-secondary/50"
               >
                 <ProviderIcon providerKey={template.key} size={24} className="shrink-0" color />
                 <div className="min-w-0">
@@ -250,7 +250,7 @@ export function TemplateGrid({
             <Button
               variant="outline"
               onClick={onStartCustom}
-              className="h-auto justify-start gap-2.5 rounded-xl border-dashed bg-card/50 p-3 text-left font-normal hover:border-primary/40 hover:bg-secondary/50"
+              className="h-auto justify-start gap-2.5 rounded-xl border-dashed bg-card/50 p-3 text-left font-normal hover:bg-secondary/50"
             >
               <div className="w-7 h-7 rounded-lg flex items-center justify-center bg-secondary text-muted-foreground shrink-0">
                 <Settings2 className="h-4 w-4" />

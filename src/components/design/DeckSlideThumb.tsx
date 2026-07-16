@@ -80,7 +80,7 @@ export function DeckSlideThumb({
       aria-label={`${index + 1}`}
       aria-current={active ? "true" : undefined}
       className={`group/slide relative aspect-video w-24 shrink-0 overflow-hidden rounded border bg-muted transition-shadow ${
-        active ? "border-primary ring-2 ring-primary" : "border-border hover:border-primary/50"
+        active ? "bg-secondary/70" : "hover:bg-secondary/40"
       }`}
     >
       {live ? (

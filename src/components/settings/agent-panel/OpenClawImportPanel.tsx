@@ -436,7 +436,7 @@ export function OpenClawImportPanel({ onSkip, onImported, hideSkip }: OpenClawIm
                   key={p.sourceKey}
                   className={cn(
                     "rounded-md border px-3 py-2.5 cursor-pointer hover:bg-accent/40 transition",
-                    checked && "border-primary/60 bg-primary/5",
+                    checked && "bg-secondary/70",
                   )}
                   onClick={() => {
                     setSelectedProviders((prev) => toggle(prev, p.sourceKey))
@@ -516,7 +516,7 @@ export function OpenClawImportPanel({ onSkip, onImported, hideSkip }: OpenClawIm
                   key={a.id}
                   className={cn(
                     "rounded-md border px-3 py-2.5",
-                    checked && "border-primary/60 bg-primary/5",
+                    checked && "bg-secondary/70",
                   )}
                 >
                   <div className="flex items-start gap-3">
@@ -863,7 +863,7 @@ function Checkbox({
       className={cn(
         "h-4 w-4 rounded border flex items-center justify-center shrink-0 mt-0.5",
         checked
-          ? "bg-primary border-primary text-primary-foreground"
+          ? "border-transparent bg-primary text-primary-foreground"
           : "border-muted-foreground/40 bg-background",
         disabled && "cursor-not-allowed",
       )}

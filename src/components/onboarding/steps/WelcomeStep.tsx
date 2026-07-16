@@ -86,8 +86,8 @@ export function WelcomeStep({
             onClick={() => handleSelect("auto")}
             className={`rounded-lg border px-3 py-2.5 text-sm transition-colors ${
               value === "auto"
-                ? "border-primary bg-primary/10 text-primary"
-                : "border-border hover:border-foreground/30"
+                ? "border-border bg-secondary/70 text-foreground"
+                : "border-border hover:bg-secondary/40"
             }`}
           >
             {t("onboarding.welcome.autoLanguage")}
@@ -99,8 +99,8 @@ export function WelcomeStep({
               onClick={() => handleSelect(lang.code)}
               className={`rounded-lg border px-3 py-2.5 text-sm transition-colors ${
                 value === lang.code
-                  ? "border-primary bg-primary/10 text-primary"
-                  : "border-border hover:border-foreground/30"
+                  ? "border-border bg-secondary/70 text-foreground"
+                  : "border-border hover:bg-secondary/40"
               }`}
             >
               {lang.label}
@@ -128,16 +128,16 @@ export function WelcomeStep({
                 className={cn(
                   "flex items-center gap-3 rounded-lg border px-3 py-3 text-left text-sm transition-colors",
                   active
-                    ? "border-primary bg-primary/10 text-primary"
-                    : "border-border hover:border-foreground/30",
+                    ? "border-border bg-secondary/70 text-foreground"
+                    : "border-border hover:bg-secondary/40",
                 )}
               >
-                <Icon className={cn("h-4 w-4 shrink-0", active ? "text-primary" : "text-muted-foreground")} />
+                <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
                 <div className="min-w-0 flex-1">
                   <div className="font-medium">{t(opt.labelKey)}</div>
                   <div className="text-xs text-muted-foreground">{t(opt.descKey)}</div>
                 </div>
-                {active && <Check className="h-4 w-4 shrink-0 text-primary" />}
+                {active && <Check className="h-4 w-4 shrink-0 text-foreground" />}
               </button>
             )
           })}

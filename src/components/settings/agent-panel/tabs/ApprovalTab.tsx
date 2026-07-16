@@ -123,8 +123,8 @@ export default function ApprovalTab({ config, updateConfig }: ApprovalTabProps) 
                   "flex items-start gap-2 rounded-lg border p-3 text-left transition-all",
                   "focus:outline-none",
                   isActive
-                    ? "border-primary bg-primary/5"
-                    : "border-border/50 hover:border-border",
+                    ? "border-border/50 bg-secondary/70"
+                    : "border-border/50 hover:bg-secondary/40",
                 )}
               >
                 <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-current">

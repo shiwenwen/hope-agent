@@ -33,7 +33,7 @@ function ToolImageMedia({ item }: { item: MediaItem }) {
         <button
           type="button"
           onClick={() => run(primary)}
-          className="block cursor-zoom-in overflow-hidden rounded-lg border border-border/50 transition-colors hover:border-primary/40"
+          className="block cursor-zoom-in overflow-hidden rounded-lg border border-border/50 transition-colors hover:bg-secondary/40"
         >
           <img
             src={src}

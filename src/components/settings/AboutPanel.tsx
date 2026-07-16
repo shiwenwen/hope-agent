@@ -298,7 +298,7 @@ export default function AboutPanel({
                     <Button
                       variant="outline"
                       size="sm"
-                      className="h-auto gap-1.5 rounded-full border-border/50 bg-violet-100 px-3 py-1 text-xs font-medium text-violet-700 transition-all duration-200 hover:bg-violet-200 active:scale-[0.97] dark:bg-violet-500/15 dark:text-violet-300 dark:hover:bg-violet-500/25"
+                      className="h-auto gap-1.5 rounded-full border-border/50 bg-violet-100 px-3 py-1 text-xs font-medium text-violet-700 transition-colors duration-200 hover:bg-violet-200 dark:bg-violet-500/15 dark:text-violet-300 dark:hover:bg-violet-500/25"
                       onClick={handleCheckForUpdates}
                       disabled={checkingUpdate || installingUpdate}
                     >
@@ -336,7 +336,7 @@ export default function AboutPanel({
                   {awaitingRestart ? (
                     <Button
                       size="sm"
-                      className="mt-1 shrink-0 gap-1.5 rounded-full bg-emerald-600 px-4 text-white shadow-sm transition-all hover:bg-emerald-700 hover:shadow-md active:scale-[0.97] dark:bg-emerald-500 dark:hover:bg-emerald-600"
+                      className="mt-1 shrink-0 gap-1.5 rounded-full bg-emerald-600 px-4 text-white shadow-sm transition-colors hover:bg-emerald-700 dark:bg-emerald-500 dark:hover:bg-emerald-600"
                       onClick={handleRestartNow}
                     >
                       <RotateCcw className="h-3.5 w-3.5" />
@@ -355,7 +355,7 @@ export default function AboutPanel({
                       </Button>
                       <Button
                         size="sm"
-                        className="gap-1.5 rounded-full bg-emerald-600 px-4 text-white shadow-sm transition-all hover:bg-emerald-700 hover:shadow-md active:scale-[0.97] dark:bg-emerald-500 dark:hover:bg-emerald-600"
+                        className="gap-1.5 rounded-full bg-emerald-600 px-4 text-white shadow-sm transition-colors hover:bg-emerald-700 dark:bg-emerald-500 dark:hover:bg-emerald-600"
                         onClick={() => handleInstall(true)}
                         disabled={installingUpdate || checkingUpdate}
                       >

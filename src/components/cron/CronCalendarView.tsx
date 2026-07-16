@@ -22,6 +22,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import {
+  ArrowLeft,
   ChevronLeft,
   ChevronRight,
   Plus,
@@ -80,6 +81,7 @@ interface CronCalendarViewProps {
 }
 
 export default function CronCalendarView({
+  onBack,
   defaultProjectId,
   onOpenSettings,
 }: CronCalendarViewProps) {
@@ -399,7 +401,15 @@ export default function CronCalendarView({
   return (
     <div className="flex flex-col flex-1 min-w-0 h-full bg-background">
       {/* Top Bar */}
-      <div className="flex shrink-0 items-center gap-3 px-5 pb-3 pt-4" data-tauri-drag-region>
+      <div
+        className="flex h-10 shrink-0 items-center gap-2 border-b border-border-soft/60 px-3"
+        data-tauri-drag-region
+      >
+        <IconTip label={t("common.back")} side="bottom">
+          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={onBack}>
+            <ArrowLeft className="h-4 w-4" />
+          </Button>
+        </IconTip>
         <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-primary/10 text-primary">
           <CalendarDays className="h-4 w-4" />
         </span>
@@ -414,7 +424,7 @@ export default function CronCalendarView({
             className={cn(
               "h-7 gap-1.5 rounded-lg px-2.5 text-xs",
               mode === "calendar"
-                ? "bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary"
+                ? "bg-secondary/70 text-foreground hover:bg-secondary/70 hover:text-foreground"
                 : "text-muted-foreground",
             )}
             onClick={() => setMode("calendar")}
@@ -429,7 +439,7 @@ export default function CronCalendarView({
             className={cn(
               "h-7 gap-1.5 rounded-lg px-2.5 text-xs",
               mode === "list"
-                ? "bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary"
+                ? "bg-secondary/70 text-foreground hover:bg-secondary/70 hover:text-foreground"
                 : "text-muted-foreground",
             )}
             onClick={() => setMode("list")}
@@ -444,7 +454,7 @@ export default function CronCalendarView({
             className={cn(
               "h-7 gap-1.5 rounded-lg px-2.5 text-xs",
               mode === "conversations"
-                ? "bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary"
+                ? "bg-secondary/70 text-foreground hover:bg-secondary/70 hover:text-foreground"
                 : "text-muted-foreground",
             )}
             onClick={() => setMode("conversations")}
@@ -530,7 +540,7 @@ export default function CronCalendarView({
                     day
                       ? "cursor-pointer bg-muted/20 hover:bg-muted/45"
                       : "cursor-default bg-transparent",
-                    day && selectedDate?.getDate() === day && "bg-primary/10 hover:bg-primary/15",
+                    day && selectedDate?.getDate() === day && "bg-secondary/70 hover:bg-secondary/70",
                   )}
                   onClick={() => day && handleDayClick(day)}
                   disabled={!day}

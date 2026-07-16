@@ -123,7 +123,7 @@ function MessageImageAttachment({
         <button
           type="button"
           onClick={() => run(primary)}
-          className="block max-w-full cursor-zoom-in overflow-hidden rounded-lg border border-border/50 bg-secondary/30 transition-colors hover:border-primary/40"
+          className="block max-w-full cursor-zoom-in overflow-hidden rounded-lg border border-border/50 bg-secondary/30 transition-colors hover:bg-secondary/50"
         >
           <img
             src={src}

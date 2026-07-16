@@ -58,7 +58,7 @@ export default function CronExpressionBuilder({
                 className={cn(
                   "px-3 py-1 rounded-full text-xs font-medium transition-colors",
                   cronFreq === f
-                    ? "bg-primary text-primary-foreground"
+                    ? "bg-secondary/70 text-foreground"
                     : "bg-secondary text-secondary-foreground hover:bg-secondary/80",
                 )}
                 onClick={() => setCronFreq(f)}
@@ -133,7 +133,7 @@ export default function CronExpressionBuilder({
                 className={cn(
                   "flex-1 py-1.5 rounded-md text-xs font-medium transition-colors",
                   cronWeekdays[i]
-                    ? "bg-primary text-primary-foreground"
+                    ? "bg-secondary/70 text-foreground"
                     : "bg-secondary text-secondary-foreground hover:bg-secondary/80",
                 )}
                 onClick={() => toggleWeekday(i)}

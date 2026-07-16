@@ -95,7 +95,7 @@ export default function SubagentPanel({
                       onClick={() => toggleAgent(agent.id)}
                     >
                       <div
-                        className={`flex items-center justify-center h-4 w-4 rounded border shrink-0 ${enabled ? "bg-primary border-primary" : "border-muted-foreground/40"}`}
+                        className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${enabled ? "border-transparent bg-primary" : "border-muted-foreground/40"}`}
                       >
                         {enabled && <Check className="h-3 w-3 text-primary-foreground" />}
                       </div>

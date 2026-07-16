@@ -960,7 +960,7 @@ function ActiveMemoryTrace({
       className={cn(
         "mt-2 overflow-hidden rounded-xl border text-xs transition-colors",
         expanded
-          ? "border-violet-500/10 bg-violet-500/[0.025] dark:border-violet-400/12 dark:bg-violet-400/[0.035]"
+          ? "border-violet-500/8 bg-violet-500/[0.06] dark:border-violet-400/10 dark:bg-violet-400/[0.07]"
           : "border-violet-500/8 bg-violet-500/[0.025] dark:border-violet-400/10 dark:bg-violet-400/[0.035]",
       )}
     >
@@ -1126,7 +1126,7 @@ function ActiveMemoryTrace({
                     className={cn(
                       "rounded-lg border px-2.5 py-2",
                       isHighlightedMemoryRef(candidate, selected)
-                        ? "border-violet-500/15 bg-violet-500/[0.035] dark:bg-violet-400/[0.045]"
+                        ? "border-border/45 bg-secondary/70"
                         : "border-border/45 bg-background/50 dark:bg-background/30",
                     )}
                   >
@@ -1390,7 +1390,7 @@ function ActiveMemoryTrace({
             <button
               type="button"
               onClick={() => void copyTrace()}
-              className="inline-flex items-center gap-1.5 rounded-md border border-border/50 bg-background/55 px-2 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:border-violet-500/20 hover:bg-violet-500/6 hover:text-violet-700 dark:bg-background/35 dark:hover:text-violet-300"
+              className="inline-flex items-center gap-1.5 rounded-md border border-border/50 bg-background/55 px-2 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-violet-500/6 hover:text-violet-700 dark:bg-background/35 dark:hover:text-violet-300"
             >
               {traceCopied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
               {traceCopied
@@ -1401,7 +1401,7 @@ function ActiveMemoryTrace({
               <button
                 type="button"
                 onClick={onOpenMemorySettings}
-                className="inline-flex items-center gap-1.5 rounded-md border border-border/50 bg-background/55 px-2 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:border-violet-500/20 hover:bg-violet-500/6 hover:text-violet-700 dark:bg-background/35 dark:hover:text-violet-300"
+                className="inline-flex items-center gap-1.5 rounded-md border border-border/50 bg-background/55 px-2 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-violet-500/6 hover:text-violet-700 dark:bg-background/35 dark:hover:text-violet-300"
               >
                 <Settings className="h-3.5 w-3.5" />
                 {t("settings.memoryTabs.manage")}

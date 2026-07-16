@@ -187,8 +187,8 @@ function DirectionCardView({
       className={cn(
         "flex flex-col gap-2 rounded-lg border p-3 text-left transition-colors cursor-pointer",
         selected
-          ? "border-blue-500 ring-1 ring-blue-500/40 bg-blue-500/5"
-          : "border-border hover:border-blue-500/50 hover:bg-blue-500/5"
+          ? "border-border bg-secondary/70"
+          : "border-border hover:bg-secondary/40"
       )}
     >
       <div className="flex items-center justify-between gap-2">
@@ -633,10 +633,10 @@ export default function AskUserQuestionBlock({
                       className={cn(
                         "w-full text-left px-3 py-2 rounded-md border text-sm transition-colors cursor-pointer",
                         isSelected
-                          ? "border-blue-500 bg-blue-500/10 text-blue-700 dark:text-blue-300"
+                          ? "border-border bg-secondary/70 text-foreground"
                           : opt.recommended
-                            ? "border-amber-500/40 bg-amber-500/5 hover:border-amber-500/60"
-                            : "border-border hover:border-blue-500/50 hover:bg-blue-500/5",
+                            ? "border-amber-500/40 bg-amber-500/5 hover:bg-amber-500/10"
+                            : "border-border hover:bg-secondary/40",
                       )}
                     >
                       <div className="flex items-center gap-2">
@@ -645,7 +645,7 @@ export default function AskUserQuestionBlock({
                             "h-4 w-4 border-2 flex items-center justify-center shrink-0",
                             q.multiSelect ? "rounded-sm" : "rounded-full",
                             isSelected
-                              ? "border-blue-500 bg-blue-500"
+                              ? "border-transparent bg-blue-500"
                               : "border-muted-foreground/30",
                           )}
                         >
@@ -718,8 +718,8 @@ export default function AskUserQuestionBlock({
                       className={cn(
                         "w-full text-left px-3 py-2 rounded-md border text-sm transition-colors cursor-pointer",
                         customSelected
-                          ? "border-blue-500 bg-blue-500/10 text-blue-700 dark:text-blue-300"
-                          : "border-border hover:border-blue-500/50 hover:bg-blue-500/5",
+                          ? "border-border bg-secondary/70 text-foreground"
+                          : "border-border hover:bg-secondary/40",
                       )}
                     >
                       <div className="flex items-center gap-2">
@@ -728,7 +728,7 @@ export default function AskUserQuestionBlock({
                             "h-4 w-4 border-2 flex items-center justify-center shrink-0",
                             q.multiSelect ? "rounded-sm" : "rounded-full",
                             customSelected
-                              ? "border-blue-500 bg-blue-500"
+                              ? "border-transparent bg-blue-500"
                               : "border-muted-foreground/30",
                           )}
                         >

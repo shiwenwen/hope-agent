@@ -27,7 +27,7 @@ export default function AvatarSection({
         className="flex flex-col items-center gap-2 py-4 cursor-pointer"
         onClick={onAvatarPick}
       >
-        <div className="w-16 h-16 rounded-full bg-secondary border border-border/50 flex items-center justify-center overflow-hidden hover:border-primary/30 transition-colors">
+        <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-full border border-border/50 bg-secondary transition-colors hover:bg-secondary/70">
           {avatar ? (
             <img
               src={getTransport().resolveAssetUrl(avatar) ?? avatar}

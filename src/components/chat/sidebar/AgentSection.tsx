@@ -92,7 +92,7 @@ function SortableAgentCard({
                   isCompact
                     ? "gap-1 rounded-md px-1.5 py-0.5"
                     : "gap-1.5 rounded-lg px-2 py-1.5",
-                  isSelected ? "bg-primary/10" : "hover:bg-secondary/60",
+                  isSelected ? "bg-secondary/70" : "hover:bg-secondary/40",
                 )}
               >
                 {canReorder && (
@@ -135,7 +135,9 @@ function SortableAgentCard({
                     <div
                       className={cn(
                         "w-6 h-6 rounded-full flex items-center justify-center shrink-0 text-[10px] overflow-hidden",
-                        isSelected ? "bg-primary/25 text-primary" : "bg-primary/15 text-primary",
+                        isSelected
+                          ? "bg-secondary/70 text-foreground"
+                          : "bg-secondary/40 text-foreground",
                       )}
                     >
                       {agent.avatar ? (
@@ -155,7 +157,6 @@ function SortableAgentCard({
                     className={cn(
                       "min-w-0 flex-1 truncate text-[13px] font-medium text-foreground",
                       isCompact && "text-[12px] leading-5",
-                      isSelected && "text-primary",
                     )}
                   >
                     {agent.name}

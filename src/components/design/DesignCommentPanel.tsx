@@ -139,7 +139,7 @@ export default function DesignCommentPanel({
       }}
       className={cn(
         "group rounded-lg border p-2.5 text-sm transition-colors",
-        c.resolved ? "bg-muted/40 opacity-70" : "bg-card hover:border-primary/40",
+        c.resolved ? "bg-muted/40 opacity-70" : "bg-card hover:bg-secondary/40",
       )}
     >
       <div className="flex items-start gap-2">
@@ -151,7 +151,7 @@ export default function DesignCommentPanel({
             className={cn(
               "mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded border-2 transition-colors",
               selected.has(c.id)
-                ? "border-primary bg-primary text-primary-foreground"
+                ? "border-transparent bg-primary text-primary-foreground"
                 : "border-border",
             )}
           >

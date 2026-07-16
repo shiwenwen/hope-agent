@@ -245,8 +245,8 @@ function ModeOption({
       className={cn(
         "flex w-full flex-col items-start rounded-md border px-3 py-2 text-left transition-colors",
         active
-          ? "border-primary bg-primary/10"
-          : "border-border hover:bg-secondary",
+          ? "border-border bg-secondary/70"
+          : "border-border hover:bg-secondary/40",
         disabled && "opacity-60",
       )}
     >

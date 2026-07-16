@@ -87,14 +87,9 @@ export function ChatWelcomeHero({
                 type="button"
                 onClick={() => onProjectSuggestion?.(prompt)}
                 disabled={!onProjectSuggestion}
-                className="group inline-flex h-9 cursor-pointer items-center gap-2 rounded-full border border-border/70 bg-background/55 px-3.5 text-left text-xs font-medium text-foreground shadow-sm transition-colors hover:border-border hover:bg-muted/40 disabled:cursor-default disabled:opacity-60 disabled:hover:border-border/70 disabled:hover:bg-background/55"
+                className="group inline-flex h-9 cursor-pointer items-center gap-2 rounded-full border border-border/70 bg-background/55 px-3.5 text-left text-xs font-medium text-foreground shadow-sm transition-colors hover:bg-muted/40 disabled:cursor-default disabled:opacity-60 disabled:hover:bg-background/55"
               >
-                <Icon
-                  className={cn(
-                    "h-4 w-4 shrink-0 transition-transform group-hover:scale-105",
-                    suggestion.iconClassName,
-                  )}
-                />
+                <Icon className={cn("h-4 w-4 shrink-0", suggestion.iconClassName)} />
                 <span className="whitespace-nowrap">{title}</span>
               </button>
             )

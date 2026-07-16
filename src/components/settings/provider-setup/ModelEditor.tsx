@@ -178,8 +178,8 @@ export function ModelEditor({
               onClick={() => toggleInput(type)}
               className={`h-auto gap-1.5 rounded-md px-2.5 py-1 text-[11px] font-normal ${
                 model.inputTypes.includes(type)
-                  ? "border-primary bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary"
-                  : "bg-background text-muted-foreground hover:border-primary/40"
+                  ? "bg-secondary/70 text-foreground hover:bg-secondary/70 hover:text-foreground"
+                  : "bg-background text-muted-foreground hover:bg-secondary/40 hover:text-foreground"
               }`}
             >
               {type === "text" && <Type className="h-3 w-3" />}

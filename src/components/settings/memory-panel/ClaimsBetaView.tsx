@@ -3741,7 +3741,7 @@ export default function ClaimsBetaView({ focus }: ClaimsBetaViewProps) {
             aria-label={t("settings.claims.batchToggle")}
             className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-colors ${
               batchSelectedIds.has(c.id)
-                ? "border-primary bg-primary text-primary-foreground"
+                ? "border-transparent bg-primary text-primary-foreground"
                 : "border-border bg-background text-transparent"
             }`}
             disabled={!!batchBusy}
@@ -4180,7 +4180,7 @@ export default function ClaimsBetaView({ focus }: ClaimsBetaViewProps) {
                       key={preset.id}
                       className={[
                         "inline-flex max-w-full items-center rounded-md border border-border/70",
-                        active ? "bg-primary/10 text-foreground" : "bg-background",
+                        active ? "bg-secondary/70 text-foreground" : "bg-background",
                       ].join(" ")}
                     >
                       <Button
@@ -4392,7 +4392,7 @@ export default function ClaimsBetaView({ focus }: ClaimsBetaViewProps) {
                             key={preset.id}
                             className={[
                               "inline-flex max-w-full items-center rounded-md border border-border/70",
-                              active ? "bg-primary/10 text-foreground" : "bg-background",
+                              active ? "bg-secondary/70 text-foreground" : "bg-background",
                             ].join(" ")}
                           >
                             <Button

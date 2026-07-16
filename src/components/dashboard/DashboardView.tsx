@@ -454,11 +454,14 @@ export default function DashboardView({
   return (
     <div className="flex-1 flex flex-col overflow-hidden bg-background">
       {/* Header */}
-      <div className="shrink-0 border-b px-6 py-3 flex items-center gap-3" data-tauri-drag-region>
+      <div
+        className="flex h-10 shrink-0 items-center gap-2 border-b border-border-soft/60 px-3"
+        data-tauri-drag-region
+      >
         <Button variant="ghost" size="icon" className="h-8 w-8" onClick={onBack}>
           <ArrowLeft className="h-4 w-4" />
         </Button>
-        <h1 className="text-lg font-semibold">{t("dashboard.title")}</h1>
+        <h1 className="text-sm font-semibold">{t("dashboard.title")}</h1>
         {lastRefreshAt && (
           <span className="text-[11px] text-muted-foreground hidden md:inline">
             {t("dashboard.lastRefresh")}: {lastRefreshAt.toLocaleTimeString()}

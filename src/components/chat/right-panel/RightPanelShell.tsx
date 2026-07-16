@@ -236,7 +236,7 @@ export function RightPanelShell({
           "flex h-full min-h-0 w-full flex-col overflow-hidden transition-[opacity,transform,border-color,border-radius,box-shadow] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[opacity,transform] [contain:layout_paint] motion-reduce:transition-none",
           maximized
             ? "rounded-none border-0 bg-surface-app shadow-none"
-            : "rounded-2xl border border-border-soft bg-surface-panel shadow-panel peer-hover:border-l-primary/35",
+            : "rounded-2xl border border-border-soft bg-surface-panel shadow-panel peer-hover:bg-secondary/20",
           isResizing && "border-l-primary/50",
           visuallyCollapsed ? "translate-x-4 opacity-0" : "translate-x-0 opacity-100",
           bodyClassName,

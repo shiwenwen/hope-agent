@@ -4397,7 +4397,7 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
     <div className="flex flex-1 min-h-0 min-w-0 flex-col bg-background">
       {/* Header */}
       <header
-        className="flex h-12 shrink-0 items-center gap-2 border-b px-3"
+        className="flex h-10 shrink-0 items-center gap-2 border-b border-border-soft/60 px-3"
         data-tauri-drag-region
       >
         {activeProject ? (
@@ -4410,6 +4410,26 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
           <IconTip label={t("common.back", "返回")} side="bottom">
             <Button variant="ghost" size="icon" className="h-8 w-8" onClick={onBack}>
               <ArrowLeft className="h-4 w-4" />
+            </Button>
+          </IconTip>
+        )}
+        {activeProject && (
+          <IconTip
+            label={chatOpen ? t("design.chat.hide", "隐藏对话") : t("design.chat.show", "显示对话")}
+            side="bottom"
+          >
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              aria-expanded={chatOpen}
+              onClick={() => setChatOpen((v) => !v)}
+            >
+              {chatOpen ? (
+                <PanelLeft className="h-4 w-4" />
+              ) : (
+                <PanelLeftDashed className="h-4 w-4" />
+              )}
             </Button>
           </IconTip>
         )}
@@ -4724,6 +4744,7 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
           loading={loadingProjects}
           systems={systems}
           recipes={recipes}
+          selectedRecipeId={homeRecipeId}
           onPickRecipe={(r) => {
             setHomeKind(r.kind)
             setHomePrompt(r.scenario || r.summary || r.name)
@@ -4866,28 +4887,8 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
                 </div>
               </div>
             )}
-            {/* 顶部：对话折叠钮 + 横向产物切换条（原左侧列表收窄成条） */}
+            {/* 顶部：横向产物切换条（原左侧列表收窄成条） */}
             <div className="flex h-11 shrink-0 items-center gap-1.5 overflow-x-auto border-b bg-background/60 px-2">
-              <IconTip
-                label={
-                  chatOpen ? t("design.chat.hide", "隐藏对话") : t("design.chat.show", "显示对话")
-                }
-                side="bottom"
-              >
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-7 w-7 shrink-0"
-                  onClick={() => setChatOpen((v) => !v)}
-                >
-                  {chatOpen ? (
-                    <PanelLeft className="h-4 w-4" />
-                  ) : (
-                    <PanelLeftDashed className="h-4 w-4" />
-                  )}
-                </Button>
-              </IconTip>
-              <div className="h-4 w-px shrink-0 bg-border" />
               {loadingArtifacts ? (
                 <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
               ) : artifacts.length === 0 ? (
@@ -5834,8 +5835,8 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
                             ? "shrink-0 rounded-[1.5rem] border-[6px] border-neutral-800 shadow-xl dark:border-neutral-700"
                             : // 统一渲染后「适应」也是固定 scaled footprint（非 width:100% 填充），恒 mx-auto
                               "rounded-lg border shadow-sm mx-auto",
-                        !presentMode && editMode && "ring-2 ring-primary/40",
-                        !presentMode && drawMode && "ring-2 ring-primary/40",
+                        !presentMode && editMode && "bg-secondary/70",
+                        !presentMode && drawMode && "bg-secondary/70",
                       )}
                       style={frameWrapStyle}
                     >
@@ -6333,7 +6334,7 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
               </div>
             )}
             <label
-              className="flex min-h-32 cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border border-dashed p-4 text-sm text-muted-foreground hover:border-primary/50 hover:bg-muted/30"
+              className="flex min-h-32 cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border border-dashed p-4 text-sm text-muted-foreground hover:bg-secondary/40"
               onDragOver={(e) => e.preventDefault()}
               onDrop={(e) => {
                 e.preventDefault()
@@ -6597,8 +6598,8 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
                   className={cn(
                     "flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm transition-all duration-150",
                     active
-                      ? "border-primary/60 bg-primary/10 font-medium text-primary shadow-sm"
-                      : "border-border/60 text-muted-foreground hover:border-primary/40 hover:bg-accent hover:text-foreground",
+                      ? "border-border/60 bg-secondary/70 font-medium text-foreground"
+                      : "border-border/60 text-muted-foreground hover:bg-secondary/40 hover:text-foreground",
                   )}
                 >
                   {active ? <Check className="h-3.5 w-3.5" /> : <Icon className="h-3.5 w-3.5" />}
@@ -6905,7 +6906,7 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
                   type="button"
                   disabled={adopting !== null}
                   onClick={() => void adoptDirection(d, i)}
-                  className="group relative flex flex-col gap-2 rounded-xl border p-3 text-left transition-colors hover:border-primary/50 disabled:opacity-60"
+                  className="group relative flex flex-col gap-2 rounded-xl border bg-card p-3 text-left transition-colors hover:bg-secondary/40 disabled:opacity-60"
                 >
                   {adopting === i && (
                     <div className="absolute inset-0 z-10 flex items-center justify-center rounded-xl bg-background/60">
@@ -7256,6 +7257,7 @@ function LaunchHome({
   loading,
   systems,
   recipes,
+  selectedRecipeId,
   onPickRecipe,
   prompt,
   setPrompt,
@@ -7285,6 +7287,7 @@ function LaunchHome({
   loading: boolean
   systems: DesignSystemMeta[]
   recipes: DesignRecipe[]
+  selectedRecipeId: string | null
   onPickRecipe: (r: DesignRecipe) => void
   prompt: string
   setPrompt: (v: string) => void
@@ -7421,7 +7424,7 @@ function LaunchHome({
                   <button
                     type="button"
                     onClick={() => openLightbox(img.url, t("design.refImage.alt", "参考图"))}
-                    className="block h-14 w-14 cursor-zoom-in overflow-hidden rounded-lg border border-border/60 transition-colors hover:border-primary/40"
+                    className="block h-14 w-14 cursor-zoom-in overflow-hidden rounded-lg border border-border/60 transition-colors hover:bg-secondary/40"
                   >
                     <img
                       src={img.url}
@@ -7546,7 +7549,7 @@ function LaunchHome({
                   "flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm transition-colors duration-150",
                   active
                     ? "bg-primary font-medium text-primary-foreground"
-                    : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                    : "text-muted-foreground hover:bg-secondary/40 hover:text-foreground",
                 )}
               >
                 <Icon className="h-3.5 w-3.5" />
@@ -7565,15 +7568,20 @@ function LaunchHome({
             <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-4">
               {recipes.slice(0, 8).map((r) => {
                 const Icon = KIND_ICON[r.kind] ?? Monitor
+                const selected = selectedRecipeId === r.id
                 return (
                   <button
                     key={r.id}
                     type="button"
                     onClick={() => onPickRecipe(r)}
+                    aria-pressed={selected}
                     data-ha-title-tip={r.summary}
-                    className="group flex flex-col overflow-hidden rounded-xl border border-border/60 bg-card text-left transition-colors duration-150 hover:border-primary/40 hover:bg-accent/40"
+                    className={cn(
+                      "group flex flex-col overflow-hidden rounded-xl border border-border/60 text-left transition-colors duration-150",
+                      selected ? "bg-secondary/70" : "bg-card hover:bg-secondary/40",
+                    )}
                   >
-                    <div className="border-b border-border/50 p-2 transition-colors group-hover:border-primary/20">
+                    <div className="border-b border-border/50 p-2">
                       <RecipeKindPreview kind={r.kind} />
                     </div>
                     <div className="flex flex-col gap-1 p-3">
@@ -7706,7 +7714,7 @@ function LaunchHome({
                       setKind(s.kind)
                       setPrompt(t(s.promptKey, s.promptFallback))
                     }}
-                    className="group flex flex-col gap-1 rounded-xl border bg-card p-3 text-left transition-colors hover:border-primary/50 hover:bg-accent/40 disabled:opacity-50"
+                    className="group flex flex-col gap-1 rounded-xl border bg-card p-3 text-left transition-colors hover:bg-secondary/40 disabled:opacity-50"
                   >
                     <span className="text-sm font-medium">{t(s.titleKey, s.titleFallback)}</span>
                     <span className="line-clamp-2 text-xs text-muted-foreground">
@@ -7728,8 +7736,8 @@ function LaunchHome({
                   <div
                     key={p.id}
                     className={cn(
-                      "group relative flex flex-col overflow-hidden rounded-xl border bg-card transition-shadow hover:shadow-md",
-                      checked && "ring-2 ring-primary",
+                      "group relative flex flex-col overflow-hidden rounded-xl border bg-card transition-colors hover:bg-secondary/40",
+                      checked && "bg-secondary/70",
                     )}
                   >
                     <button
@@ -7774,7 +7782,7 @@ function LaunchHome({
                         className={cn(
                           "absolute left-2 top-2 flex h-5 w-5 items-center justify-center rounded-md border-2 transition-colors",
                           checked
-                            ? "border-primary bg-primary text-primary-foreground"
+                            ? "border-transparent bg-primary text-primary-foreground"
                             : "border-border bg-background/80",
                         )}
                       >
@@ -7826,7 +7834,7 @@ function LaunchHome({
                     key={p.id}
                     className={cn(
                       "group flex items-center gap-3 rounded-lg border bg-card px-2.5 py-2 transition-colors hover:bg-secondary/40",
-                      checked && "ring-2 ring-primary",
+                      checked && "bg-secondary/70",
                     )}
                   >
                     {selectMode && (
@@ -7836,7 +7844,7 @@ function LaunchHome({
                         className={cn(
                           "flex h-5 w-5 shrink-0 items-center justify-center rounded-md border-2 transition-colors",
                           checked
-                            ? "border-primary bg-primary text-primary-foreground"
+                            ? "border-transparent bg-primary text-primary-foreground"
                             : "border-border",
                         )}
                       >

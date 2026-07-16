@@ -1958,9 +1958,19 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
     <div className="flex flex-1 min-h-0 min-w-0 flex-col bg-background">
       {/* Header */}
       <div
-        className="flex items-center gap-2 border-b border-border-soft/60 px-3 py-2"
+        className="flex h-10 shrink-0 items-center gap-2 border-b border-border-soft/60 px-3"
         data-tauri-drag-region
       >
+        <IconTip label={t("common.back", "Back")} side="bottom">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
+            onClick={() => guardNavigation(onBack)}
+          >
+            <ArrowLeft className="h-4 w-4" />
+          </Button>
+        </IconTip>
         <IconTip
           label={
             leftCollapsed
@@ -1986,16 +1996,6 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
             ) : (
               <PanelLeft className="h-4 w-4" />
             )}
-          </Button>
-        </IconTip>
-        <IconTip label={t("common.back", "Back")} side="bottom">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8"
-            onClick={() => guardNavigation(onBack)}
-          >
-            <ArrowLeft className="h-4 w-4" />
           </Button>
         </IconTip>
         <Library className="h-4 w-4 text-primary" />
@@ -2042,7 +2042,7 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
             <Button
               variant="ghost"
               size="icon"
-              className={cn("h-7 w-7", graphMode && "bg-primary/15 text-primary")}
+              className={cn("h-7 w-7", graphMode && "bg-secondary/70 text-foreground")}
               disabled={!activeKbId}
               onClick={() => setGraphMode((g) => !g)}
             >
@@ -2162,7 +2162,7 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
                         }
                         className={cn(
                           "flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs hover:bg-muted/50",
-                          kb.id === activeKbId && "bg-primary/10 text-primary",
+                          kb.id === activeKbId && "bg-secondary/70 text-foreground",
                           kb.archived && "opacity-60",
                         )}
                       >
@@ -3468,8 +3468,8 @@ function RightPanelTabs({
             className={cn(
               "min-w-0 flex-1 truncate px-2 py-1 text-[11px] font-medium transition-colors",
               mode === tab.key
-                ? "bg-primary/10 text-primary"
-                : "text-muted-foreground hover:bg-muted/50",
+                ? "bg-secondary/70 text-foreground"
+                : "text-muted-foreground hover:bg-secondary/40",
             )}
           >
             {tab.label}
@@ -3553,7 +3553,9 @@ function ModeSwitch({
           onClick={() => onChange(m)}
           className={cn(
             "whitespace-nowrap px-2 py-0.5 text-[11px]",
-            mode === m ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted/50",
+            mode === m
+              ? "bg-secondary/70 text-foreground"
+              : "text-muted-foreground hover:bg-secondary/40",
           )}
         >
           {t(`knowledge.mode.${m}`, m)}
@@ -3581,4 +3583,3 @@ function BacklinksSection({
     </div>
   )
 }
-

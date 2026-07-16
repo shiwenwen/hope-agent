@@ -359,8 +359,10 @@ export default function KnowledgeCompilePanel({
                       key={run.id}
                       type="button"
                       className={cn(
-                        "flex w-full min-w-0 flex-col gap-1 rounded-md px-2 py-1.5 text-left hover:bg-accent",
-                        selectedRunId === run.id && "bg-accent",
+                        "flex w-full min-w-0 flex-col gap-1 rounded-md px-2 py-1.5 text-left transition-colors",
+                        selectedRunId === run.id
+                          ? "bg-secondary/70"
+                          : "hover:bg-secondary/40",
                       )}
                       onClick={() => setSelectedRunId(run.id)}
                     >
@@ -407,8 +409,10 @@ export default function KnowledgeCompilePanel({
                         key={proposal.id}
                         type="button"
                         className={cn(
-                          "flex w-full min-w-0 flex-col gap-1 rounded-md px-2 py-1.5 text-left hover:bg-accent",
-                          selectedProposalId === proposal.id && "bg-accent",
+                          "flex w-full min-w-0 flex-col gap-1 rounded-md px-2 py-1.5 text-left transition-colors",
+                          selectedProposalId === proposal.id
+                            ? "bg-secondary/70"
+                            : "hover:bg-secondary/40",
                         )}
                         onClick={() => setSelectedProposalId(proposal.id)}
                       >

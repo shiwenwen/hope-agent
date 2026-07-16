@@ -102,8 +102,8 @@ export function ServerStep({ bindMode, apiKey, apiKeyEnabled, onChange }: Server
           onClick={() => update({ bindMode: "local" })}
           className={`rounded-lg border-2 px-4 py-3 text-left transition-all ${
             bindMode === "local"
-              ? "border-primary bg-primary/5"
-              : "border-border hover:border-foreground/30"
+              ? "border-border bg-secondary/70"
+              : "border-border hover:bg-secondary/40"
           }`}
         >
           <div className="flex items-center gap-2 mb-1">
@@ -117,8 +117,8 @@ export function ServerStep({ bindMode, apiKey, apiKeyEnabled, onChange }: Server
           onClick={() => update({ bindMode: "lan", apiKeyEnabled: true })}
           className={`rounded-lg border-2 px-4 py-3 text-left transition-all ${
             bindMode === "lan"
-              ? "border-primary bg-primary/5"
-              : "border-border hover:border-foreground/30"
+              ? "border-border bg-secondary/70"
+              : "border-border hover:bg-secondary/40"
           }`}
         >
           <div className="flex items-center gap-2 mb-1">

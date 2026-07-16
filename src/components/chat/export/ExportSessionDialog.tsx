@@ -217,15 +217,15 @@ function ToggleRow({ checked, onChange, label, hint }: ToggleRowProps) {
       className={cn(
         "w-full flex items-start gap-2 text-left rounded-md px-2 py-1.5 border transition-colors",
         checked
-          ? "bg-primary/5 border-primary/30"
-          : "bg-secondary/30 border-border/40 hover:border-border",
+          ? "border-border/40 bg-secondary/70"
+          : "border-border/40 bg-secondary/30 hover:bg-secondary/50",
       )}
     >
       <span
         className={cn(
           "mt-0.5 inline-flex h-4 w-4 shrink-0 items-center justify-center rounded border",
           checked
-            ? "bg-primary border-primary text-primary-foreground"
+            ? "border-transparent bg-primary text-primary-foreground"
             : "border-border bg-background",
         )}
       >

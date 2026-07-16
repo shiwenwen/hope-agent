@@ -139,7 +139,10 @@ export default function PlansView({
 
   return (
     <div className="flex-1 flex min-h-0 flex-col overflow-hidden bg-background">
-      <header className="flex items-center gap-2 px-4 py-3 border-b border-border bg-secondary/30">
+      <header
+        className="flex h-10 shrink-0 items-center gap-2 border-b border-border-soft/60 bg-secondary/30 px-3"
+        data-tauri-drag-region
+      >
         <Button variant="ghost" size="icon" onClick={onBack} className="h-8 w-8">
           <ArrowLeft className="h-4 w-4" />
         </Button>
@@ -283,7 +286,7 @@ function PlanListRow({ entry, active, onSelect }: PlanListRowProps) {
       onClick={onSelect}
       className={cn(
         "w-full text-left px-3 py-2 border-b border-border/40 transition-colors",
-        active ? "bg-primary/10" : "hover:bg-secondary/40",
+        active ? "bg-secondary/70" : "hover:bg-secondary/40",
       )}
     >
       <div className="flex items-center gap-2 mb-1">

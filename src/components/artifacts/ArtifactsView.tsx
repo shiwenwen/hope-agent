@@ -560,9 +560,20 @@ export default function ArtifactsView({ onBack }: ArtifactsViewProps) {
   return (
     <div className="flex min-w-0 flex-1 flex-col bg-background">
       <header
-        className="flex h-14 shrink-0 items-center gap-3 border-b border-border-soft px-4"
+        className="flex h-10 shrink-0 items-center gap-2 border-b border-border-soft/60 px-3"
         data-tauri-drag-region
       >
+        <IconTip label={t("common.back", "Back")} side="bottom">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
+            onClick={onBack}
+            aria-label={t("common.back", "Back")}
+          >
+            <ArrowLeft className="h-4 w-4" />
+          </Button>
+        </IconTip>
         <IconTip
           label={
             listCollapsed
@@ -580,6 +591,7 @@ export default function ArtifactsView({ onBack }: ArtifactsViewProps) {
                 : t("artifacts.collapseList", "Collapse artifact list")
             }
             aria-expanded={!listCollapsed}
+            className="h-8 w-8"
             onClick={() => setListCollapsed((collapsed) => !collapsed)}
           >
             {listCollapsed ? (
@@ -589,19 +601,25 @@ export default function ArtifactsView({ onBack }: ArtifactsViewProps) {
             )}
           </Button>
         </IconTip>
-        <Button variant="ghost" size="icon" onClick={onBack} aria-label={t("common.back", "Back")}>
-          <ArrowLeft className="h-4 w-4" />
-        </Button>
-        <PackageOpen className="h-5 w-5 text-primary" data-tauri-drag-region />
-        <div className="min-w-0 flex-1" data-tauri-drag-region>
-          <h1 className="truncate text-sm font-semibold" data-tauri-drag-region>
+        <PackageOpen className="h-4 w-4 text-primary" data-tauri-drag-region />
+        <div className="flex min-w-0 flex-1 items-baseline gap-2" data-tauri-drag-region>
+          <h1 className="shrink-0 truncate text-sm font-semibold" data-tauri-drag-region>
             {t("artifacts.title", "Artifacts")}
           </h1>
-          <p className="truncate text-xs text-muted-foreground" data-tauri-drag-region>
+          <span className="shrink-0 text-xs text-muted-foreground/40" aria-hidden="true">
+            ·
+          </span>
+          <p className="min-w-0 truncate text-xs text-muted-foreground" data-tauri-drag-region>
             {t("artifacts.subtitle", "Versioned local reports, dashboards, and explainers")}
           </p>
         </div>
-        <Button variant="ghost" size="icon" onClick={() => void loadList()} disabled={loading}>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8"
+          onClick={() => void loadList()}
+          disabled={loading}
+        >
           <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
         </Button>
       </header>

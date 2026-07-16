@@ -214,8 +214,8 @@ const OverviewCards = React.memo(function OverviewCards({
           <div
             key={card.key}
             className={cn(
-              "bg-card border rounded-xl p-4 cursor-pointer transition-colors active:scale-[0.98] active:transition-transform",
-              isActive ? "border-primary ring-1 ring-primary/30" : "hover:border-primary/50",
+              "cursor-pointer rounded-xl border bg-card p-4 transition-colors",
+              isActive ? "bg-secondary/70" : "hover:bg-secondary/40",
             )}
             onClick={() => onCardClick?.(card.action)}
           >

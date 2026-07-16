@@ -499,11 +499,11 @@ function StatCard({
     <button
       type="button"
       onClick={onClick}
-      className="group rounded-xl border border-border/70 bg-accent/15 px-3 py-3 text-left transition-colors hover:border-primary/30 hover:bg-accent/35"
+      className="group rounded-xl border border-border/70 bg-accent/15 px-3 py-3 text-left transition-colors hover:bg-secondary/40"
     >
       <div className="flex items-start justify-between gap-2">
-        <Icon className="h-4 w-4 text-muted-foreground transition-colors group-hover:text-primary" />
-        <ArrowRight className="h-3.5 w-3.5 text-muted-foreground/60 transition-transform group-hover:translate-x-0.5 group-hover:text-primary" />
+        <Icon className="h-4 w-4 text-muted-foreground" />
+        <ArrowRight className="h-3.5 w-3.5 text-muted-foreground/60" />
       </div>
       <div className="mt-3 text-2xl font-semibold tabular-nums">
         {value ?? "—"}

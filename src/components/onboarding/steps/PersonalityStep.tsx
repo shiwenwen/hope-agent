@@ -39,16 +39,12 @@ export function PersonalityStep({ selected, onSelect }: PersonalityStepProps) {
               onClick={() => onSelect(isActive ? "" : preset.id)}
               className={`text-left rounded-lg border-2 px-4 py-3 transition-all ${
                 isActive
-                  ? "border-primary bg-primary/5"
-                  : "border-border hover:border-foreground/30"
+                  ? "border-border bg-secondary/70"
+                  : "border-border hover:bg-secondary/40"
               }`}
             >
               <div className="flex items-center gap-2 mb-1.5">
-                <span
-                  className={`flex h-8 w-8 items-center justify-center rounded-md ${
-                    isActive ? "bg-primary/15 text-primary" : "bg-muted text-muted-foreground"
-                  }`}
-                >
+                <span className="flex h-8 w-8 items-center justify-center rounded-md bg-muted text-muted-foreground">
                   {preset.icon}
                 </span>
                 <span className="font-medium">

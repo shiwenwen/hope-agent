@@ -169,7 +169,7 @@ function renderOptions(
       className={cn(
         "w-full text-left px-2.5 py-1 rounded-md text-[13px] font-mono transition-all duration-100",
         i === selectedIdx
-          ? "bg-primary/10 text-primary"
+          ? "bg-secondary/70 text-foreground"
           : "text-foreground/70 hover:bg-secondary/50 hover:text-foreground",
       )}
       onClick={() => onSelectOption?.(cmd, opt)}

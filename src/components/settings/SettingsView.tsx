@@ -331,9 +331,9 @@ export default function SettingsView({
               key={section.id}
               variant="ghost"
               className={cn(
-                "h-auto w-full justify-start gap-2.5 rounded-lg border border-transparent px-3 py-2 text-sm transition-all duration-150",
+                "h-auto w-full justify-start gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors duration-150",
                 activeSection === section.id
-                  ? "bg-secondary/70 border-border/50 text-foreground font-medium hover:bg-secondary/70 hover:text-foreground"
+                  ? "bg-secondary/70 text-foreground font-medium hover:bg-secondary/70 hover:text-foreground"
                   : "text-muted-foreground hover:bg-secondary/40 hover:text-foreground",
               )}
               onClick={() => setActiveSection(section.id)}
@@ -341,7 +341,7 @@ export default function SettingsView({
               <span
                 className={cn(
                   "shrink-0",
-                  activeSection === section.id ? "text-primary" : "text-muted-foreground",
+                  "text-muted-foreground",
                 )}
               >
                 {section.icon}

@@ -163,7 +163,7 @@ export default function SessionItem({
           className={cn(
             "relative flex items-center gap-2.5 w-full px-2.5 py-2 rounded-lg text-left group cursor-pointer",
             isCompact && "gap-1.5 px-2 py-[7px] rounded-md",
-            revealHighlight && "bg-destructive/10 ring-1 ring-inset ring-destructive/40",
+            revealHighlight && "bg-destructive/10",
             isActive
               ? "bg-secondary/70"
               : hasPending

@@ -77,7 +77,7 @@ export default function FallbackBanner({ event }: { event: FallbackEvent }) {
         className={cn(
           "group inline-flex max-w-full items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] transition-colors",
           "border-amber-500/25 bg-amber-500/[0.07] text-muted-foreground",
-          "hover:bg-amber-500/[0.12] hover:border-amber-500/40",
+          "hover:bg-amber-500/[0.12]",
         )}
       >
         <AlertTriangle className="h-3 w-3 shrink-0 text-amber-500" />
