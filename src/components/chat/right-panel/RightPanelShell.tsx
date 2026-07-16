@@ -218,17 +218,19 @@ export function RightPanelShell({
       aria-hidden={visuallyCollapsed ? true : undefined}
       inert={visuallyCollapsed ? true : undefined}
     >
-      <div
-        className={cn(
-          "peer absolute left-0 top-3 bottom-3 z-10 w-4",
-          onWidthChange && !visuallyCollapsed && !fullscreenSurface && "cursor-col-resize",
-          (visuallyCollapsed || fullscreenSurface) && "hidden",
-        )}
-        onMouseDown={handleDragStart}
-        role="separator"
-        aria-orientation="vertical"
-        aria-label={resizeLabel}
-      />
+      {!fullscreenSurface && (
+        <div
+          className={cn(
+            "peer absolute left-0 top-3 bottom-3 z-10 w-4",
+            onWidthChange && !visuallyCollapsed && "cursor-col-resize",
+            visuallyCollapsed && "hidden",
+          )}
+          onMouseDown={handleDragStart}
+          role="separator"
+          aria-orientation="vertical"
+          aria-label={resizeLabel}
+        />
+      )}
       <div
         className={cn(
           "flex h-full min-h-0 w-full flex-col overflow-hidden transition-[opacity,transform,border-color,border-radius,box-shadow] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[opacity,transform] [contain:layout_paint] motion-reduce:transition-none",
