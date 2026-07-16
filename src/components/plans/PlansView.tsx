@@ -7,9 +7,14 @@ import {
   FilePlus,
   History,
   Loader2,
+  PanelLeft,
+  PanelLeftDashed,
   RefreshCw,
+  Search,
+  X,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { SearchInput } from "@/components/ui/search-input"
 import {
   Select,
   SelectContent,
@@ -23,6 +28,7 @@ import { AgentSelectDisplay } from "@/components/common/AgentSelectDisplay"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import { cn } from "@/lib/utils"
+import { useDragWidth } from "@/hooks/useDragWidth"
 import type { AgentSummary } from "@/components/settings/types"
 import type {
   PlanIndexEntry,
@@ -41,6 +47,15 @@ interface PlansViewProps {
 // sentinel (matching the dashboard filter's "__all__" convention) and maps back
 // to "" at the filter boundary.
 const ALL_FILTER = "__all__"
+const LIST_WIDTH_STORAGE_KEY = "hope.plans.listWidth"
+const LIST_COLLAPSED_STORAGE_KEY = "hope.plans.listCollapsed"
+const LIST_DEFAULT_WIDTH = 340
+const LIST_MIN_WIDTH = 280
+const LIST_MAX_WIDTH = 520
+const LIST_WIDTH_TRANSITION =
+  "transition-[width] duration-[250ms] ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[width] motion-reduce:transition-none"
+const LIST_SURFACE_TRANSITION =
+  "transition-[opacity,transform,border-color] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[opacity,transform] [contain:layout_paint] motion-reduce:transition-none"
 
 const STATE_FILTERS: { value: "" | PlanModeStateString; labelKey: string }[] = [
   { value: "", labelKey: "plans.filter.state.all" },
@@ -50,6 +65,27 @@ const STATE_FILTERS: { value: "" | PlanModeStateString; labelKey: string }[] = [
   { value: "completed", labelKey: "plans.filter.state.completed" },
   { value: "off", labelKey: "plans.filter.state.archived" },
 ]
+
+function readStoredBoolean(key: string): boolean {
+  if (typeof window === "undefined") return false
+  try {
+    return window.localStorage.getItem(key) === "true"
+  } catch {
+    return false
+  }
+}
+
+function readStoredWidth(key: string, fallback: number): number {
+  if (typeof window === "undefined") return fallback
+  try {
+    const value = Number(window.localStorage.getItem(key))
+    return Number.isFinite(value) && value > 0
+      ? Math.min(LIST_MAX_WIDTH, Math.max(LIST_MIN_WIDTH, value))
+      : fallback
+  } catch {
+    return fallback
+  }
+}
 
 export default function PlansView({
   onBack,
@@ -62,8 +98,26 @@ export default function PlansView({
   const [error, setError] = useState<string | null>(null)
   const [stateFilter, setStateFilter] = useState<"" | PlanModeStateString>("")
   const [agentFilter, setAgentFilter] = useState<string>("")
+  const [query, setQuery] = useState("")
   const [agents, setAgents] = useState<AgentSummary[]>([])
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
+  const [listCollapsed, setListCollapsed] = useState(() =>
+    readStoredBoolean(LIST_COLLAPSED_STORAGE_KEY),
+  )
+  const [listWidth, setListWidth] = useState(() =>
+    readStoredWidth(LIST_WIDTH_STORAGE_KEY, LIST_DEFAULT_WIDTH),
+  )
+  const [isResizingList, setIsResizingList] = useState(false)
+  const [isListResizeHandleHovered, setIsListResizeHandleHovered] = useState(false)
+
+  const onDragList = useDragWidth({
+    width: listWidth,
+    min: LIST_MIN_WIDTH,
+    max: LIST_MAX_WIDTH,
+    onChange: setListWidth,
+    direction: "ltr",
+    onResizingChange: setIsResizingList,
+  })
 
   // State filter is sent to the backend so the result set stays small. Agent
   // filter stays client-side: filtering it on the server would shrink the
@@ -87,6 +141,22 @@ export default function PlansView({
   useEffect(() => {
     void loadPlans()
   }, [loadPlans])
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(LIST_COLLAPSED_STORAGE_KEY, String(listCollapsed))
+    } catch {
+      // localStorage may be unavailable in restricted browser modes.
+    }
+  }, [listCollapsed])
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(LIST_WIDTH_STORAGE_KEY, String(Math.round(listWidth)))
+    } catch {
+      // localStorage may be unavailable in restricted browser modes.
+    }
+  }, [listWidth])
 
   // Agent metadata (name / emoji / avatar) is loaded once so the agent filter
   // can render the shared <AgentSelectDisplay> instead of a bare agent id,
@@ -119,10 +189,24 @@ export default function PlansView({
     return Array.from(seen).sort()
   }, [entries])
 
-  const visibleEntries = useMemo(
-    () => (agentFilter ? entries.filter((e) => e.agentId === agentFilter) : entries),
-    [entries, agentFilter],
-  )
+  const visibleEntries = useMemo(() => {
+    const normalizedQuery = query.trim().toLocaleLowerCase()
+    return entries.filter((entry) => {
+      if (agentFilter && entry.agentId !== agentFilter) return false
+      if (!normalizedQuery) return true
+      const searchable = [
+        entry.title,
+        entry.sessionTitle,
+        entry.agentId,
+        entry.projectId,
+        entry.sessionShortId,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLocaleLowerCase()
+      return searchable.includes(normalizedQuery)
+    })
+  }, [agentFilter, entries, query])
 
   // Derived selection: prefer the user's explicit pick when still present,
   // otherwise fall back to the first visible entry. Avoids a separate effect
@@ -138,20 +222,53 @@ export default function PlansView({
   const selectedAgentMeta = agentFilter ? agentMetaById.get(agentFilter) : undefined
 
   return (
-    <div className="flex-1 flex min-h-0 flex-col overflow-hidden bg-background">
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background">
       <header
-        className="flex h-10 shrink-0 items-center gap-2 border-b border-border-soft/60 bg-secondary/30 px-3"
+        className="flex h-10 shrink-0 items-center gap-2 border-b border-border-soft/60 px-3"
         data-tauri-drag-region
       >
-        <Button variant="ghost" size="icon" onClick={onBack} className="h-8 w-8">
-          <ArrowLeft className="h-4 w-4" />
-        </Button>
-        <ClipboardList className="h-4 w-4 text-primary" />
-        <h2 className="text-sm font-medium">{t("plans.title")}</h2>
-        <span className="text-xs text-muted-foreground">
-          {t("plans.count", { count: visibleEntries.length })}
-        </span>
-        <div className="flex-1" />
+        <IconTip label={t("common.back")} side="bottom">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={onBack}
+            className="h-8 w-8"
+            aria-label={t("common.back")}
+          >
+            <ArrowLeft className="h-4 w-4" />
+          </Button>
+        </IconTip>
+        <IconTip
+          label={listCollapsed ? t("common.expand") : t("common.collapse")}
+          side="bottom"
+        >
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
+            aria-label={listCollapsed ? t("common.expand") : t("common.collapse")}
+            aria-expanded={!listCollapsed}
+            onClick={() => setListCollapsed((collapsed) => !collapsed)}
+          >
+            {listCollapsed ? (
+              <PanelLeftDashed className="h-4 w-4" />
+            ) : (
+              <PanelLeft className="h-4 w-4" />
+            )}
+          </Button>
+        </IconTip>
+        <ClipboardList className="h-4 w-4 text-primary" data-tauri-drag-region />
+        <div className="flex min-w-0 flex-1 items-baseline gap-2" data-tauri-drag-region>
+          <h1 className="shrink-0 truncate text-sm font-semibold" data-tauri-drag-region>
+            {t("plans.title")}
+          </h1>
+          <span className="shrink-0 text-xs text-muted-foreground/40" aria-hidden="true">
+            ·
+          </span>
+          <p className="min-w-0 truncate text-xs text-muted-foreground" data-tauri-drag-region>
+            {t("plans.count", { count: visibleEntries.length })}
+          </p>
+        </div>
         <IconTip label={t("plans.refresh")}>
           <Button
             variant="ghost"
@@ -169,92 +286,150 @@ export default function PlansView({
         </IconTip>
       </header>
 
-      <div className="flex flex-1 min-h-0 overflow-hidden">
-        <div className="w-[360px] shrink-0 border-r border-border bg-background flex flex-col">
-          <div className="px-3 py-2 border-b border-border/70 flex items-center gap-2">
-            <Select
-              value={stateFilter || ALL_FILTER}
-              onValueChange={(v) =>
-                setStateFilter(v === ALL_FILTER ? "" : (v as PlanModeStateString))
-              }
+      <div className="flex min-h-0 flex-1 overflow-hidden">
+        <div
+          style={{ width: listCollapsed ? 0 : listWidth }}
+          className={cn("relative h-full shrink-0", !isResizingList && LIST_WIDTH_TRANSITION)}
+        >
+          <div className="h-full overflow-hidden">
+            <aside
+              style={{ width: listWidth }}
+              aria-hidden={listCollapsed}
+              inert={listCollapsed ? true : undefined}
+              className={cn(
+                "flex h-full flex-col border-r",
+                isResizingList
+                  ? "border-r-primary/50"
+                  : isListResizeHandleHovered
+                    ? "border-r-primary/35"
+                    : "border-r-border-soft",
+                LIST_SURFACE_TRANSITION,
+                listCollapsed
+                  ? "pointer-events-none -translate-x-4 opacity-0"
+                  : "translate-x-0 opacity-100",
+              )}
             >
-              <SelectTrigger className="h-7 w-auto gap-1 px-2 text-xs">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {STATE_FILTERS.map((opt) => (
-                  <SelectItem
-                    key={opt.value || ALL_FILTER}
-                    value={opt.value || ALL_FILTER}
-                    className="text-xs"
-                  >
-                    {t(opt.labelKey)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {agentOptions.length > 0 && (
-              <Select
-                value={agentFilter || ALL_FILTER}
-                onValueChange={(v) => setAgentFilter(v === ALL_FILTER ? "" : v)}
-              >
-                <SelectTrigger className="h-7 min-w-0 flex-1 gap-1 px-2 text-xs">
-                  {selectedAgentMeta ? (
-                    <AgentSelectDisplay agent={selectedAgentMeta} size="xs" />
-                  ) : (
-                    <SelectValue placeholder={t("plans.filter.allAgents")} />
+              <div className="grid grid-cols-2 gap-2 border-b border-border-soft p-3">
+                <div className="relative col-span-2">
+                  <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground/60" />
+                  <SearchInput
+                    className="h-9 pl-8 pr-8"
+                    value={query}
+                    onChange={(event) => setQuery(event.target.value)}
+                    placeholder={`${t("common.search")} Plan`}
+                    aria-label={`${t("common.search")} Plan`}
+                  />
+                  {query && (
+                    <button
+                      type="button"
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground transition-colors hover:text-foreground"
+                      onClick={() => setQuery("")}
+                      aria-label={t("common.clear")}
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
                   )}
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={ALL_FILTER} className="text-xs">
-                    {t("plans.filter.allAgents")}
-                  </SelectItem>
-                  {agentOptions.map((agentId) => {
-                    const meta = agentMetaById.get(agentId)
-                    return (
+                </div>
+                <Select
+                  value={stateFilter || ALL_FILTER}
+                  onValueChange={(v) =>
+                    setStateFilter(v === ALL_FILTER ? "" : (v as PlanModeStateString))
+                  }
+                >
+                  <SelectTrigger className="h-9 min-w-0 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {STATE_FILTERS.map((opt) => (
                       <SelectItem
-                        key={agentId}
-                        value={agentId}
-                        textValue={meta?.name ?? agentId}
+                        key={opt.value || ALL_FILTER}
+                        value={opt.value || ALL_FILTER}
                         className="text-xs"
                       >
-                        {meta ? (
-                          <AgentSelectDisplay agent={meta} size="xs" />
-                        ) : (
-                          agentId
-                        )}
+                        {t(opt.labelKey)}
                       </SelectItem>
-                    )
-                  })}
-                </SelectContent>
-              </Select>
-            )}
-          </div>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {agentOptions.length > 0 ? (
+                  <Select
+                    value={agentFilter || ALL_FILTER}
+                    onValueChange={(v) => setAgentFilter(v === ALL_FILTER ? "" : v)}
+                  >
+                    <SelectTrigger className="h-9 min-w-0 text-xs">
+                      {selectedAgentMeta ? (
+                        <AgentSelectDisplay agent={selectedAgentMeta} size="xs" />
+                      ) : (
+                        <SelectValue placeholder={t("plans.filter.allAgents")} />
+                      )}
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={ALL_FILTER} className="text-xs">
+                        {t("plans.filter.allAgents")}
+                      </SelectItem>
+                      {agentOptions.map((agentId) => {
+                        const meta = agentMetaById.get(agentId)
+                        return (
+                          <SelectItem
+                            key={agentId}
+                            value={agentId}
+                            textValue={meta?.name ?? agentId}
+                            className="text-xs"
+                          >
+                            {meta ? <AgentSelectDisplay agent={meta} size="xs" /> : agentId}
+                          </SelectItem>
+                        )
+                      })}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <div />
+                )}
+              </div>
 
-          <div className="flex-1 overflow-y-auto">
-            {error && (
-              <div className="px-3 py-2 text-xs text-destructive bg-destructive/10">
-                {error}
+              <div className="min-h-0 flex-1 overflow-y-auto p-2">
+                {loading ? (
+                  <div className="flex h-32 items-center justify-center">
+                    <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                  </div>
+                ) : error ? (
+                  <div className="rounded-xl bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                    {error}
+                  </div>
+                ) : visibleEntries.length === 0 ? (
+                  <div className="flex h-40 flex-col items-center justify-center gap-2 px-4 text-center text-muted-foreground">
+                    <ClipboardList className="h-7 w-7" />
+                    <p className="text-sm">{t("plans.empty")}</p>
+                  </div>
+                ) : (
+                  visibleEntries.map((entry) => (
+                    <PlanListRow
+                      key={entry.sessionId}
+                      entry={entry}
+                      agent={agentMetaById.get(entry.agentId)}
+                      active={entry.sessionId === selectedEntry?.sessionId}
+                      onSelect={() => setSelectedSessionId(entry.sessionId)}
+                    />
+                  ))
+                )}
               </div>
-            )}
-            {!loading && visibleEntries.length === 0 && !error && (
-              <div className="flex flex-col items-center justify-center py-12 px-4 text-muted-foreground text-xs">
-                <ClipboardList className="h-8 w-8 mb-2 opacity-30" />
-                <span>{t("plans.empty")}</span>
-              </div>
-            )}
-            {visibleEntries.map((entry) => (
-              <PlanListRow
-                key={entry.sessionId}
-                entry={entry}
-                active={entry.sessionId === selectedEntry?.sessionId}
-                onSelect={() => setSelectedSessionId(entry.sessionId)}
-              />
-            ))}
+            </aside>
           </div>
+          <div
+            className={cn(
+              "absolute inset-y-0 right-0 z-20 translate-x-full cursor-col-resize",
+              listCollapsed ? "pointer-events-none w-0 opacity-0" : "w-3 opacity-100",
+            )}
+            onMouseDown={onDragList}
+            onMouseEnter={() => setIsListResizeHandleHovered(true)}
+            onMouseLeave={() => setIsListResizeHandleHovered(false)}
+            role="separator"
+            aria-orientation="vertical"
+            aria-label={t("common.resize", "调整列表宽度")}
+          />
         </div>
 
-        <div className="flex-1 min-w-0 flex flex-col">
+        <main className="flex min-w-0 flex-1 flex-col">
           {selectedEntry ? (
             <PlanReadOnlyDetail
               entry={selectedEntry}
@@ -262,11 +437,14 @@ export default function PlansView({
               onInsertMention={onInsertMention}
             />
           ) : (
-            <div className="flex-1 flex items-center justify-center text-muted-foreground text-sm">
-              {t("plans.selectHint")}
+            <div className="flex flex-1 items-center justify-center text-muted-foreground">
+              <div className="text-center">
+                <ClipboardList className="mx-auto mb-3 h-10 w-10" />
+                <p>{t("plans.selectHint")}</p>
+              </div>
             </div>
           )}
-        </div>
+        </main>
       </div>
     </div>
   )
@@ -274,34 +452,35 @@ export default function PlansView({
 
 interface PlanListRowProps {
   entry: PlanIndexEntry
+  agent?: AgentSummary
   active: boolean
   onSelect: () => void
 }
 
-function PlanListRow({ entry, active, onSelect }: PlanListRowProps) {
+function PlanListRow({ entry, agent, active, onSelect }: PlanListRowProps) {
   const { t } = useTranslation()
   const title = entry.title || entry.sessionTitle || t("plans.untitled")
+  const agentLabel = agent?.name || entry.agentId
   return (
     <button
       onClick={onSelect}
       className={cn(
-        "w-full text-left px-3 py-2 border-b border-border/40 transition-colors",
+        "mb-1.5 w-full rounded-xl p-3 text-left text-foreground transition-colors",
         active ? "bg-secondary/70" : "hover:bg-secondary/40",
       )}
     >
-      <div className="flex items-center gap-2 mb-1">
-        <StateBadge state={entry.state} orphan={entry.orphan} />
-        <span className="text-xs font-medium truncate flex-1" data-ha-title-tip={title}>
+      <div className="flex items-start justify-between gap-2">
+        <span className="line-clamp-2 min-w-0 flex-1 text-sm font-medium" data-ha-title-tip={title}>
           {title}
         </span>
+        <StateBadge state={entry.state} orphan={entry.orphan} />
       </div>
-      <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
-        <span className="truncate" data-ha-title-tip={entry.agentId}>
-          {entry.agentId}
+      <div className="mt-2 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+        <span className="truncate" data-ha-title-tip={agentLabel}>
+          {agentLabel}
         </span>
         <span>·</span>
         <span>v{entry.versionCount}</span>
-        <span>·</span>
         <span className="ml-auto" data-ha-title-tip={entry.updatedAt}>
           {formatShortDate(entry.updatedAt)}
         </span>
@@ -392,14 +571,14 @@ function PlanReadOnlyDetail({
   }, [entry.sessionShortId, selectedVersion, onInsertMention])
 
   return (
-    <div className="flex flex-col flex-1 min-h-0">
-      <div className="flex items-center gap-2 px-4 py-2 border-b border-border bg-card/40">
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="flex shrink-0 items-center gap-2 border-b border-border-soft px-3 py-2">
         <StateBadge state={entry.state} orphan={entry.orphan} />
         <div className="min-w-0 flex-1">
-          <div className="text-sm font-medium truncate">
+          <div className="truncate text-sm font-semibold">
             {entry.title || entry.sessionTitle || t("plans.untitled")}
           </div>
-          <div className="text-[11px] text-muted-foreground truncate">
+          <div className="truncate text-[11px] text-muted-foreground">
             {entry.agentId} · {entry.sessionShortId}
             {entry.projectId ? ` · ${entry.projectId}` : ""}
           </div>
@@ -454,17 +633,17 @@ function PlanReadOnlyDetail({
         </IconTip>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-4 py-3">
+      <div className="min-h-0 flex-1 overflow-y-auto bg-muted/[0.14] p-4 sm:p-6">
         {loading ? (
-          <div className="flex items-center justify-center py-12">
+          <div className="flex h-full items-center justify-center">
             <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
           </div>
         ) : content ? (
-          <div className="text-sm leading-relaxed">
+          <article className="mx-auto min-h-full w-full max-w-4xl rounded-2xl bg-background px-6 py-5 text-sm leading-relaxed sm:px-8 sm:py-7">
             <MarkdownRenderer content={content} />
-          </div>
+          </article>
         ) : (
-          <div className="text-xs text-muted-foreground text-center py-8">
+          <div className="flex h-full items-center justify-center text-center text-xs text-muted-foreground">
             {t("plans.emptyPlan")}
           </div>
         )}
@@ -483,30 +662,25 @@ function StateBadge({
   const { t } = useTranslation()
   if (orphan) {
     return (
-      <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted/50 text-muted-foreground border border-border">
+      <span className="whitespace-nowrap rounded-md bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
         {t("plans.badge.orphan")}
       </span>
     )
   }
   const tone =
     state === "completed"
-      ? "bg-green-500/15 text-green-600 border-green-500/30"
+      ? "bg-green-500/15 text-green-600"
       : state === "executing"
-        ? "bg-blue-500/15 text-blue-600 border-blue-500/30"
+        ? "bg-blue-500/15 text-blue-600"
         : state === "review"
-          ? "bg-purple-500/15 text-purple-600 border-purple-500/30"
+          ? "bg-purple-500/15 text-purple-600"
           : state === "planning"
-            ? "bg-amber-500/15 text-amber-600 border-amber-500/30"
-            : "bg-muted/40 text-muted-foreground border-border"
+            ? "bg-amber-500/15 text-amber-600"
+            : "bg-muted text-muted-foreground"
   const labelKey =
     state === "off" ? "plans.badge.archived" : `plans.badge.${state}`
   return (
-    <span
-      className={cn(
-        "text-[10px] px-1.5 py-0.5 rounded border whitespace-nowrap",
-        tone,
-      )}
-    >
+    <span className={cn("whitespace-nowrap rounded-md px-1.5 py-0.5 text-[10px]", tone)}>
       {t(labelKey)}
     </span>
   )
