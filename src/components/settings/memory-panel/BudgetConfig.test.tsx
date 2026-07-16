@@ -168,8 +168,14 @@ describe("BudgetConfig", () => {
     await waitFor(() => {
       expect(screen.queryByText("Failed to load memory budget")).toBeNull()
     })
+    // The retry re-fetch clears the error and briefly shows a loading state
+    // before the success content mounts. Wait for that content (findByText)
+    // rather than asserting synchronously, otherwise the assertion races the
+    // loading frame under parallel CI load and intermittently fails. Once the
+    // content is present the second fetch has necessarily completed, so assert
+    // loadCalls afterwards.
+    expect(await screen.findByText("settings.memoryBudget.totalChars")).toBeTruthy()
     expect(loadCalls).toBe(2)
-    expect(screen.getByText("settings.memoryBudget.totalChars")).toBeTruthy()
   })
 
   it("saves the two budget sections sequentially after a full reset", async () => {
