@@ -10002,7 +10002,7 @@ function DomainConnectorActionGuardPanel({
             onChange={(event) => setRollbackPlanDraft(event.target.value)}
             placeholder={t("workspace.domainConnectorGuard.rollbackPlaceholder", "回滚方案")}
             rows={2}
-            className="mt-1.5 min-h-12 resize-none bg-background/55 px-2 py-1 text-[11px]"
+            className="mt-1.5 min-h-12 resize-none px-2 py-1 text-[11px]"
           />
         </div>
       ) : null}
@@ -10377,7 +10377,7 @@ function DomainConnectorE2EGatePanel({
                 onChange={(event) => setExecutionResultDraft(event.target.value)}
                 placeholder={t("workspace.domainConnectorE2E.executionPlaceholder", "执行结果")}
                 rows={2}
-                className="min-h-12 resize-none bg-background/55 px-2 py-1 text-[11px]"
+                className="min-h-12 resize-none px-2 py-1 text-[11px]"
               />
               <button
                 type="button"
@@ -10409,7 +10409,7 @@ function DomainConnectorE2EGatePanel({
                   "执行后复核",
                 )}
                 rows={2}
-                className="min-h-12 resize-none bg-background/55 px-2 py-1 text-[11px]"
+                className="min-h-12 resize-none px-2 py-1 text-[11px]"
               />
               <button
                 type="button"

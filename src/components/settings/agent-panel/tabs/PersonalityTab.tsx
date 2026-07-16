@@ -138,7 +138,7 @@ export default function PersonalityTab({
             {t("settings.personaSoulEditorDesc")}
           </p>
           <Textarea
-            className="bg-secondary/40 rounded-lg resize-y leading-relaxed font-mono min-h-[360px]"
+            className="min-h-[360px] resize-y font-mono leading-relaxed"
             rows={20}
             {...textInputProps(soulMd, setSoulMd)}
             placeholder={t("settings.personaSoulPlaceholder")}
@@ -163,7 +163,7 @@ export default function PersonalityTab({
             {t("settings.agentVibeDesc")}
           </p>
           <Textarea
-            className="bg-secondary/40 rounded-lg resize-y leading-relaxed min-h-[60px]"
+            className="min-h-[60px] resize-y leading-relaxed"
             rows={3}
 
             {...textInputProps(config.personality.vibe ?? "", (v) =>
@@ -224,7 +224,7 @@ export default function PersonalityTab({
             })}
           </div>
           <Textarea
-            className="bg-secondary/40 rounded-lg resize-y leading-relaxed min-h-[60px]"
+            className="min-h-[60px] resize-y leading-relaxed"
             rows={3}
 
             {...textInputProps(config.personality.tone ?? "", (v) =>
@@ -265,8 +265,6 @@ export default function PersonalityTab({
             ))}
           </div>
           <Input
-            className="bg-secondary/40 rounded-lg"
-
             value={traitInput}
             onChange={(e) => setTraitInput(e.target.value)}
             onKeyDown={(e) => {
@@ -315,7 +313,7 @@ export default function PersonalityTab({
             ))}
           </div>
           <Textarea
-            className="bg-secondary/40 rounded-lg resize-y leading-relaxed min-h-[50px]"
+            className="min-h-[50px] resize-y leading-relaxed"
             rows={2}
 
             value={principleInput}
@@ -344,7 +342,7 @@ export default function PersonalityTab({
             {t("settings.agentBoundariesDesc")}
           </p>
           <Textarea
-            className="bg-secondary/40 rounded-lg resize-y leading-relaxed min-h-[60px]"
+            className="min-h-[60px] resize-y leading-relaxed"
             rows={3}
 
             {...textInputProps(config.personality.boundaries ?? "", (v) =>
@@ -363,7 +361,7 @@ export default function PersonalityTab({
             {t("settings.agentQuirksDesc")}
           </p>
           <Textarea
-            className="bg-secondary/40 rounded-lg resize-y leading-relaxed min-h-[60px]"
+            className="min-h-[60px] resize-y leading-relaxed"
             rows={3}
 
             {...textInputProps(config.personality.quirks ?? "", (v) =>
@@ -382,7 +380,7 @@ export default function PersonalityTab({
             {t("settings.agentCommStyleDesc")}
           </p>
           <Textarea
-            className="bg-secondary/40 rounded-lg resize-y leading-relaxed min-h-[60px]"
+            className="min-h-[60px] resize-y leading-relaxed"
             rows={3}
 
             {...textInputProps(config.personality.communicationStyle ?? "", (v) =>
@@ -403,7 +401,7 @@ export default function PersonalityTab({
             {t("settings.agentPersonaSupplementDesc")}
           </p>
           <Textarea
-            className="bg-secondary/40 rounded-lg resize-y leading-relaxed font-mono min-h-[120px]"
+            className="min-h-[120px] resize-y font-mono leading-relaxed"
             rows={8}
 
             {...textInputProps(persona, setPersona)}

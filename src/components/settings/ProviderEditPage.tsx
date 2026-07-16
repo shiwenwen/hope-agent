@@ -242,7 +242,6 @@ export default function ProviderEditPage({
             <Input
               value={editName}
               onChange={(e) => setEditName(e.target.value)}
-              className="bg-background"
             />
           </div>
 
@@ -284,7 +283,7 @@ export default function ProviderEditPage({
                 <Input
                   value={editBaseUrl}
                   onChange={(e) => setEditBaseUrl(e.target.value)}
-                  className="bg-background font-mono text-xs"
+                  className="font-mono text-xs"
                 />
               </div>
 
@@ -303,7 +302,7 @@ export default function ProviderEditPage({
                   value={editUserAgent}
                   onChange={(e) => setEditUserAgent(e.target.value)}
                   placeholder="claude-code/0.1.0"
-                  className="bg-background font-mono text-xs"
+                  className="font-mono text-xs"
                 />
               </div>
 

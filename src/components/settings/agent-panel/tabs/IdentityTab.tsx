@@ -42,7 +42,6 @@ export default function IdentityTab({
           {t("settings.agentName")}
         </div>
         <Input
-          className="bg-secondary/40 rounded-lg"
           {...textInputProps(config.name, (v) => updateConfig({ name: v }))}
           placeholder={t("settings.agentNamePlaceholder")}
         />
@@ -54,7 +53,7 @@ export default function IdentityTab({
           {t("settings.agentDescription")}
         </div>
         <Textarea
-          className="bg-secondary/40 rounded-lg resize-y leading-relaxed min-h-[50px]"
+          className="min-h-[50px] resize-y leading-relaxed"
           rows={2}
           {...textInputProps(config.description ?? "", (v) =>
             updateConfig({ description: v || null }),
@@ -69,7 +68,6 @@ export default function IdentityTab({
           {t("settings.agentEmoji")}
         </div>
         <Input
-          className="bg-secondary/40 rounded-lg"
           {...textInputProps(config.emoji ?? "", (v) => updateConfig({ emoji: v || null }))}
           placeholder={t("settings.agentEmojiPlaceholder")}
         />
@@ -83,7 +81,7 @@ export default function IdentityTab({
           {t("settings.agentRole")}
         </div>
         <Textarea
-          className="bg-secondary/40 rounded-lg resize-y leading-relaxed min-h-[60px]"
+          className="min-h-[60px] resize-y leading-relaxed"
           rows={3}
           disabled={openclawMode}
           {...textInputProps(config.personality.role ?? "", (v) =>
@@ -104,7 +102,7 @@ export default function IdentityTab({
           {t("settings.agentIdentitySupplementDesc")}
         </p>
         <Textarea
-          className="bg-secondary/40 rounded-lg resize-y leading-relaxed font-mono min-h-[120px]"
+          className="min-h-[120px] resize-y font-mono leading-relaxed"
           rows={8}
           disabled={openclawMode}
           {...textInputProps(agentMd, setAgentMd)}

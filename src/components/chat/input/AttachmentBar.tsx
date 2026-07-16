@@ -167,7 +167,7 @@ export function AttachmentPreview({
                   preview ? { ...preview, text: event.target.value } : preview,
                 )
               }
-              className="h-full min-h-0 resize-none overflow-auto whitespace-pre-wrap border-border/70 bg-secondary/35 font-mono text-xs leading-relaxed shadow-none"
+              className="h-full min-h-0 resize-none overflow-auto whitespace-pre-wrap font-mono text-xs leading-relaxed"
             />
           </div>
           <DialogFooter className="shrink-0 gap-2 border-t border-border/70 px-6 py-4 sm:gap-2">

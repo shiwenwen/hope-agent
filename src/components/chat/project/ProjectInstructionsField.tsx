@@ -108,12 +108,13 @@ export default function ProjectInstructionsField({
         ) : mode === "edit" ? (
           <Textarea
             id="project-instructions"
+            surface="embedded"
             value={value}
             onChange={(event) => onChange(event.target.value)}
             disabled={disabled}
             spellCheck={false}
             placeholder={t("project.projectInstructionsPlaceholder")}
-            className="min-h-44 max-h-64 resize-y rounded-none border-0 px-4 py-3 font-mono text-sm shadow-none"
+            className="min-h-44 max-h-64 resize-y px-4 py-3 font-mono text-sm"
           />
         ) : (
           <div className="min-h-44 max-h-64 overflow-y-auto px-4 py-3">

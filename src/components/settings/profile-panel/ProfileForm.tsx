@@ -48,7 +48,6 @@ export default function ProfileForm({
           {t("settings.profileName")}
         </div>
         <Input
-          className="bg-secondary/40 rounded-lg"
           {...textInputProps("name")}
           placeholder={t("settings.profileNamePlaceholder")}
         />
@@ -102,7 +101,7 @@ export default function ProfileForm({
         </div>
         {customGender && (
           <Input
-            className="mt-2 bg-secondary/40 rounded-lg"
+            className="mt-2"
             {...textInputProps("gender")}
             placeholder={t("settings.profileGenderCustomPlaceholder")}
           />
@@ -200,7 +199,7 @@ export default function ProfileForm({
 
         {customStyle && (
           <Textarea
-            className="mt-2 bg-secondary/40 rounded-lg resize-none leading-relaxed"
+            className="mt-2 resize-none leading-relaxed"
             rows={4}
             {...textInputProps("responseStyle")}
             placeholder={t("settings.profileStyleCustomPlaceholder")}

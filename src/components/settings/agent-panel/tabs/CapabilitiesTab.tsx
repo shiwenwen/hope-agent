@@ -501,7 +501,7 @@ export default function CapabilitiesTab({
           </p>
           <Textarea
             className={cn(
-              "bg-secondary/40 rounded-lg resize-y leading-relaxed font-mono min-h-[80px]",
+              "min-h-[80px] resize-y font-mono leading-relaxed",
               openclawMode && "opacity-60",
             )}
             rows={5}
