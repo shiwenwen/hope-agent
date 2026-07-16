@@ -100,10 +100,17 @@ export function useFullscreenTransition<T extends HTMLElement = HTMLDivElement>(
         ? "translate3d(0, 0, 0) scale(0.985, 0.985)"
         : `translate3d(${x}px, ${y}px, 0) scale(${scaleX}, ${scaleY})`
       const identityTransform = "translate3d(0, 0, 0) scale(1, 1)"
+      const transformOrigin = sameRect ? "center center" : "top left"
       const animation = element.animate(
         nextMaximized
-          ? [{ transform: layoutTransform }, { transform: identityTransform }]
-          : [{ transform: identityTransform }, { transform: layoutTransform }],
+          ? [
+              { transform: layoutTransform, transformOrigin },
+              { transform: identityTransform, transformOrigin },
+            ]
+          : [
+              { transform: identityTransform, transformOrigin },
+              { transform: layoutTransform, transformOrigin },
+            ],
         {
           duration: UI_MOTION.panelSurface,
           easing: UI_EASING.emphasized,

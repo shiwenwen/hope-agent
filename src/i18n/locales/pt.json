@@ -10215,6 +10215,7 @@
     "verifyFailed": "Verification found blockers",
     "exportUnavailable": "Export unavailable",
     "exportReady": "Artifact exported",
+    "exportVersionChanged": "Este artefato mudou enquanto você o revisava. A versão mais recente agora está exibida; revise-a e exporte novamente.",
     "localExportRiskConfirm": "Este artefato contém conteúdo sensível, privado, proveniente de conectores ou executável. Você gerenciará os arquivos exportados, e o HTML executável aberto fora do Hope não terá mais a proteção da sandbox. Continuar após revisar o conteúdo?",
     "restoreReady": "Restored as a new version",
     "archiveConfirm": "Archive this Artifact?",

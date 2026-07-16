@@ -10215,6 +10215,7 @@
     "verifyFailed": "Verification found blockers",
     "exportUnavailable": "Export unavailable",
     "exportReady": "Artifact exported",
+    "exportVersionChanged": "검토하는 동안 이 산출물이 업데이트되었습니다. 최신 버전을 표시했으니 확인한 후 다시 내보내세요.",
     "localExportRiskConfirm": "이 산출물에는 민감하거나 비공개이거나 커넥터에서 가져온 콘텐츠 또는 실행 가능한 콘텐츠가 포함되어 있습니다. 내보낸 파일은 사용자가 직접 관리하며, Hope 밖에서 연 실행 가능한 HTML은 Hope 샌드박스의 보호를 받지 않습니다. 내용을 검토한 후 계속하시겠습니까?",
     "restoreReady": "Restored as a new version",
     "archiveConfirm": "Archive this Artifact?",

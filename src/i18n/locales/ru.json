@@ -10215,6 +10215,7 @@
     "verifyFailed": "Verification found blockers",
     "exportUnavailable": "Export unavailable",
     "exportReady": "Artifact exported",
+    "exportVersionChanged": "Артефакт изменился во время просмотра. Теперь показана последняя версия; проверьте её и повторите экспорт.",
     "localExportRiskConfirm": "Этот артефакт содержит конфиденциальные, приватные, полученные через коннектор или исполняемые данные. Вы самостоятельно управляете экспортированными файлами, а исполняемый HTML вне Hope больше не защищён песочницей Hope. Продолжить после проверки содержимого?",
     "restoreReady": "Restored as a new version",
     "archiveConfirm": "Archive this Artifact?",

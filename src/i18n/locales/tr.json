@@ -10215,6 +10215,7 @@
     "verifyFailed": "Verification found blockers",
     "exportUnavailable": "Export unavailable",
     "exportReady": "Artifact exported",
+    "exportVersionChanged": "Bu yapıt siz incelerken değişti. Şimdi en son sürüm gösteriliyor; inceleyip yeniden dışa aktarın.",
     "localExportRiskConfirm": "Bu yapıt hassas, özel, bağlayıcı kaynaklı veya çalıştırılabilir içerik barındırıyor. Dışa aktarılan dosyaları siz yöneteceksiniz; Hope dışında açılan çalıştırılabilir HTML artık Hope korumalı alanı tarafından korunmaz. İçeriği gözden geçirdikten sonra devam edilsin mi?",
     "restoreReady": "Restored as a new version",
     "archiveConfirm": "Archive this Artifact?",

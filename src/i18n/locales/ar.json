@@ -10215,6 +10215,7 @@
     "verifyFailed": "Verification found blockers",
     "exportUnavailable": "Export unavailable",
     "exportReady": "Artifact exported",
+    "exportVersionChanged": "تم تحديث هذا العنصر أثناء مراجعته. تُعرض الآن أحدث نسخة؛ راجعها ثم أعد التصدير.",
     "localExportRiskConfirm": "يحتوي هذا العنصر على محتوى حساس أو خاص أو صادر من موصل أو قابل للتنفيذ. ستكون مسؤولًا عن الملفات المصدّرة، ولن يكون HTML القابل للتنفيذ عند فتحه خارج Hope محميًا بصندوق Hope المعزول. هل تريد المتابعة بعد مراجعة المحتوى؟",
     "restoreReady": "Restored as a new version",
     "archiveConfirm": "Archive this Artifact?",

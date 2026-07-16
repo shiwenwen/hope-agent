@@ -10215,6 +10215,7 @@
     "verifyFailed": "Verification found blockers",
     "exportUnavailable": "Export unavailable",
     "exportReady": "Artifact exported",
+    "exportVersionChanged": "確認中にこのアーティファクトが更新されました。最新バージョンを表示しています。確認してから再度エクスポートしてください。",
     "localExportRiskConfirm": "このアーティファクトには、機密、非公開、コネクター由来、または実行可能なコンテンツが含まれています。エクスポート後のファイルはご自身で管理してください。Hope の外で開いた実行可能 HTML は Hope のサンドボックスで保護されません。内容を確認して続行しますか？",
     "restoreReady": "Restored as a new version",
     "archiveConfirm": "Archive this Artifact?",

@@ -10215,6 +10215,7 @@
     "verifyFailed": "Verification found blockers",
     "exportUnavailable": "Export unavailable",
     "exportReady": "Artifact exported",
+    "exportVersionChanged": "Artifak ini berubah semasa anda menyemaknya. Versi terkini kini dipaparkan; semak dan eksport sekali lagi.",
     "localExportRiskConfirm": "Artifak ini mengandungi kandungan sensitif, peribadi, bersumberkan penyambung atau boleh laku. Fail yang dieksport diurus oleh anda, dan HTML boleh laku yang dibuka di luar Hope tidak lagi dilindungi oleh kotak pasir Hope. Teruskan selepas menyemak kandungan?",
     "restoreReady": "Restored as a new version",
     "archiveConfirm": "Archive this Artifact?",

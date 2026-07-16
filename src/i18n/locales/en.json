@@ -10198,6 +10198,7 @@
     "verifyFailed": "Verification found blockers",
     "exportUnavailable": "Export unavailable",
     "exportReady": "Artifact exported",
+    "exportVersionChanged": "This Artifact changed while you were reviewing it. The latest version is now displayed; review it and export again.",
     "localExportRiskConfirm": "This Artifact contains sensitive, private, connector-backed, or executable content. Exported files are managed by you, and executable HTML opened outside Hope is no longer protected by Hope's sandbox. Continue after reviewing the content?",
     "restoreReady": "Restored as a new version",
     "archiveConfirm": "Archive this Artifact?",

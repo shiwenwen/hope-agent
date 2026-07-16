@@ -10215,6 +10215,7 @@
     "verifyFailed": "验证发现阻塞项",
     "exportUnavailable": "当前无法导出",
     "exportReady": "产物已导出",
+    "exportVersionChanged": "此產物在你檢視期間已更新。現已顯示最新版本，請檢查後重新匯出。",
     "localExportRiskConfirm": "此產物包含敏感、私有、連接器來源或可執行內容。匯出後檔案將由你自行保管；可執行 HTML 在 Hope 外開啟時不再受 Hope 沙箱保護。確認已檢查內容並繼續匯出？",
     "restoreReady": "已恢复为新版本",
     "archiveConfirm": "归档这个产物？",

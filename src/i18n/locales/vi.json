@@ -10215,6 +10215,7 @@
     "verifyFailed": "Verification found blockers",
     "exportUnavailable": "Export unavailable",
     "exportReady": "Artifact exported",
+    "exportVersionChanged": "Sản phẩm này đã thay đổi trong khi bạn xem xét. Phiên bản mới nhất đang được hiển thị; hãy kiểm tra rồi xuất lại.",
     "localExportRiskConfirm": "Sản phẩm này chứa nội dung nhạy cảm, riêng tư, từ trình kết nối hoặc có thể thực thi. Bạn sẽ tự quản lý tệp đã xuất; HTML có thể thực thi khi mở bên ngoài Hope sẽ không còn được hộp cát của Hope bảo vệ. Tiếp tục sau khi kiểm tra nội dung?",
     "restoreReady": "Restored as a new version",
     "archiveConfirm": "Archive this Artifact?",

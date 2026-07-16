@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { useTranslation } from "react-i18next"
 import {
   Archive,
@@ -290,6 +290,7 @@ export default function ArtifactsView({ onBack }: ArtifactsViewProps) {
   const [isResizingDetails, setIsResizingDetails] = useState(false)
   const [isListResizeHandleHovered, setIsListResizeHandleHovered] = useState(false)
   const [isDetailsResizeHandleHovered, setIsDetailsResizeHandleHovered] = useState(false)
+  const selectedIdRef = useRef<string | null>(selectedId)
   const {
     ref: viewerMainRef,
     animating: viewerAnimating,
@@ -299,6 +300,19 @@ export default function ArtifactsView({ onBack }: ArtifactsViewProps) {
     maximized: viewerMaximized,
     onMaximizedChange: setViewerMaximized,
   })
+
+  const selectArtifact = useCallback((artifactId: string) => {
+    selectedIdRef.current = artifactId
+    setSelectedId(artifactId)
+  }, [])
+
+  const clearSelectedArtifact = useCallback(() => {
+    selectedIdRef.current = null
+    setSelectedId(null)
+    setSelected(null)
+    setVersions([])
+    resetViewerMaximized()
+  }, [resetViewerMaximized])
 
   useEffect(() => {
     try {
@@ -371,6 +385,10 @@ export default function ArtifactsView({ onBack }: ArtifactsViewProps) {
         lifecycleState: state === "all" ? undefined : state,
       })
       setArtifacts(rows)
+      const activeSelectedId = selectedIdRef.current
+      if (activeSelectedId && !rows.some((artifact) => artifact.id === activeSelectedId)) {
+        clearSelectedArtifact()
+      }
     } catch (error) {
       toast.error(
         error instanceof Error
@@ -380,19 +398,11 @@ export default function ArtifactsView({ onBack }: ArtifactsViewProps) {
     } finally {
       setLoading(false)
     }
-  }, [kind, offset, state, t])
+  }, [clearSelectedArtifact, kind, offset, state, t])
 
   useEffect(() => {
     void loadList()
   }, [loadList])
-
-  useEffect(() => {
-    if (!selectedId || artifacts.some((artifact) => artifact.id === selectedId)) return
-    setSelectedId(null)
-    setSelected(null)
-    setVersions([])
-    resetViewerMaximized()
-  }, [artifacts, resetViewerMaximized, selectedId])
 
   useEffect(() => {
     if (!selectedId) return
@@ -452,10 +462,21 @@ export default function ArtifactsView({ onBack }: ArtifactsViewProps) {
     try {
       const transport = getTransport()
       const current = await transport.getArtifact(artifactId)
+      if (selectedIdRef.current !== artifactId) return
       setSelected((artifact) => (artifact?.id === current.id ? current : artifact))
       setArtifacts((rows) =>
         rows.map((artifact) => (artifact.id === current.id ? current : artifact)),
       )
+      if (current.currentVersion !== selected.currentVersion) {
+        setRefreshKey((key) => key + 1)
+        toast.info(
+          t(
+            "artifacts.exportVersionChanged",
+            "This Artifact changed while you were reviewing it. The latest version is now displayed; review it and export again.",
+          ),
+        )
+        return
+      }
       if (
         requiresLocalExportConfirmation(current, exportFormat) &&
         !window.confirm(
@@ -504,9 +525,7 @@ export default function ArtifactsView({ onBack }: ArtifactsViewProps) {
     setBusy("archive")
     try {
       await getTransport().archiveArtifact(selected.id)
-      setSelected(null)
-      setSelectedId(null)
-      resetViewerMaximized()
+      clearSelectedArtifact()
       await loadList()
     } finally {
       setBusy(null)
@@ -524,9 +543,7 @@ export default function ArtifactsView({ onBack }: ArtifactsViewProps) {
     setBusy("delete")
     try {
       await getTransport().deleteArtifact(selected.id)
-      setSelected(null)
-      setSelectedId(null)
-      resetViewerMaximized()
+      clearSelectedArtifact()
       await loadList()
     } finally {
       setBusy(null)
@@ -679,7 +696,7 @@ export default function ArtifactsView({ onBack }: ArtifactsViewProps) {
                       key={artifact.id}
                       artifact={artifact}
                       selected={selectedId === artifact.id}
-                      onSelect={() => setSelectedId(artifact.id)}
+                      onSelect={() => selectArtifact(artifact.id)}
                       enumLabel={enumLabel}
                     />
                   ))
