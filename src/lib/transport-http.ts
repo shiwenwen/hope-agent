@@ -2731,12 +2731,13 @@ export class HttpTransport implements Transport {
   async exportArtifact(
     id: string,
     format: ArtifactExportFormat,
+    expectedVersion: number,
   ): Promise<ArtifactExportResult | null> {
     const headers: Record<string, string> = { "Content-Type": "application/json" }
     if (this.apiKey) headers.Authorization = `Bearer ${this.apiKey}`
     const create = await fetch(
       `${this.baseUrl}/api/artifacts/${encodeURIComponent(id)}/exports`,
-      { method: "POST", headers, body: JSON.stringify({ format }) },
+      { method: "POST", headers, body: JSON.stringify({ format, expectedVersion }) },
     )
     if (!create.ok) {
       const text = await create.text().catch(() => "")
@@ -2768,7 +2769,8 @@ export class HttpTransport implements Transport {
     id: string,
     format: ArtifactExportFormat,
   ): Promise<ArtifactExportResult | null> {
-    const result = await this.exportArtifact(id, format)
+    const artifact = await this.getArtifact(id)
+    const result = await this.exportArtifact(id, format, artifact.currentVersion)
     if (!result) return null
     if (result.receipt.status !== "ready") {
       throw new Error(result.receipt.error ?? "Artifact export is not ready")

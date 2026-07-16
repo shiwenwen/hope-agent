@@ -443,6 +443,7 @@ export interface Transport {
   exportArtifact(
     id: string,
     format: ArtifactExportFormat,
+    expectedVersion: number,
   ): Promise<ArtifactExportResult | null>;
   /** Complete an Artifact export and perform its user-facing save/download action. */
   downloadArtifact(

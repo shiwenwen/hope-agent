@@ -389,7 +389,7 @@ export default function DesignFilesPanel({
                       setDropTarget(null)
                     }}
                     className={cn(
-                      "group/folder flex cursor-pointer items-center gap-1.5 rounded-lg border bg-card px-2.5 py-2 transition-colors hover:bg-muted",
+                      "group/folder flex cursor-pointer items-center gap-1.5 rounded-lg border bg-card px-2.5 py-2 transition-colors hover:bg-secondary/40",
                       dropTarget === path && "border-primary bg-primary/10 ring-1 ring-primary",
                     )}
                   >
@@ -556,7 +556,7 @@ export default function DesignFilesPanel({
                     </button>
                     <div className="flex items-center gap-1 border-t px-2 py-1.5">
                       {renaming ? (
-                        <input
+                        <Input
                           autoFocus
                           value={renameDraft}
                           onChange={(e) => setRenameDraft(e.target.value)}
@@ -565,7 +565,7 @@ export default function DesignFilesPanel({
                             if (e.key === "Enter") commitRename(a.id)
                             else if (e.key === "Escape") setRenamingId(null)
                           }}
-                          className="min-w-0 flex-1 rounded border border-primary/50 bg-background px-1.5 py-0.5 text-xs outline-none"
+                          className="h-7 min-w-0 flex-1 px-1.5 py-0.5 text-xs"
                         />
                       ) : (
                         <div

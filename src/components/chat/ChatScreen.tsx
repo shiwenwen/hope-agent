@@ -10,6 +10,7 @@ import { requestMemoryFocus } from "@/components/settings/memory-panel/memoryFoc
 import { BrowserExtensionNudge } from "./BrowserExtensionNudge"
 import { useViewportMediaQuery } from "@/hooks/useViewportMediaQuery"
 import { useReadableSurface } from "@/hooks/useReadableSurface"
+import { useFullscreenTransition } from "@/hooks/useFullscreenTransition"
 import { cn } from "@/lib/utils"
 import {
   Brain,
@@ -675,9 +676,17 @@ export default function ChatScreen({
   // owned here, unlike files/canvas which own their own). Reset whenever the
   // preview isn't actively shown so it never reopens stuck-maximized.
   const [filePreviewMaximized, setFilePreviewMaximized] = useState(false)
+  const {
+    ref: filePreviewFullscreenRef,
+    toggle: toggleFilePreviewFullscreen,
+    reset: resetFilePreviewFullscreen,
+  } = useFullscreenTransition<HTMLDivElement>({
+    maximized: filePreviewMaximized,
+    onMaximizedChange: setFilePreviewMaximized,
+  })
   useEffect(() => {
-    if (!filePreview.showPanel || !filePreview.target) setFilePreviewMaximized(false)
-  }, [filePreview.showPanel, filePreview.target])
+    if (!filePreview.showPanel || !filePreview.target) resetFilePreviewFullscreen()
+  }, [filePreview.showPanel, filePreview.target, resetFilePreviewFullscreen])
 
   // Workspace 面板：聚合任务进度 / 碰到的文件 / 引用来源。首次有内容时自动
   // 展开一次，用户关闭后本会话不再自动弹（dismissedRef 跟踪，仿 browser 面板）。
@@ -4439,6 +4448,7 @@ export default function ChatScreen({
               resizeLabel={t("filePreview.resizePanel", "Resize preview panel")}
               maxWidth={860}
               maximized={filePreviewMaximized}
+              fullscreenTransitionRef={filePreviewFullscreenRef}
               reservedMainWidth={rightPanelReservedMainWidth}
               collapsed={rightPanelCollapsed}
               overlay={rightPanelOverlay}
@@ -4450,9 +4460,9 @@ export default function ChatScreen({
                 sessionId={session.currentSessionId}
                 onReplaceDraft={replaceDraftAttachment}
                 maximized={filePreviewMaximized}
-                onToggleMaximize={() => setFilePreviewMaximized((v) => !v)}
+                onToggleMaximize={toggleFilePreviewFullscreen}
                 onClose={() => {
-                  setFilePreviewMaximized(false)
+                  resetFilePreviewFullscreen()
                   filePreview.closePreview()
                 }}
               />

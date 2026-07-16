@@ -54,6 +54,7 @@ pub struct RestoreBody {
 #[serde(rename_all = "camelCase")]
 pub struct ExportBody {
     pub format: String,
+    pub expected_version: Option<i64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -215,7 +216,7 @@ pub async fn create_export(
     let receipt = run_blocking(move || {
         let mut service = ArtifactService::open().map_err(artifact_error)?;
         runtime
-            .block_on(service.export_async(&id, &body.format))
+            .block_on(service.export_async(&id, &body.format, body.expected_version))
             .map_err(artifact_error)
     })
     .await?;

@@ -37,6 +37,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **Artifacts 跟随统一文件资源与上传契约**：Gallery、右侧预览面板和 Canvas 入口现在共用标准文件动作层，受管 HTML 在无公网依赖的沙箱中直接预览，并保留打开与下载操作；浏览器/远程客户端导入 Artifact 改走 `artifact_source` 分块租约，服务端在导入期间持久化独占 claim，成功后消费、失败后释放，避免同一上传被并发重放。Artifact 导入上限纳入文件设置，Tauri 与 HTTP 使用一致的能力、错误码和安全检查。
+- **列表条目交互反馈统一**：首页聊天会话列表成为普通列表行的视觉基准，知识空间与定时任务的 hover/选中态统一使用中性 `secondary` 色阶，不再以浅蓝背景或蓝色文字表达普通选中；状态、错误、未读和拖拽落点仍保留独立语义颜色。
+- **产物库导航、布局与状态标签统一**：侧边栏入口移动到数据大盘下方并统一命名为“产物库”；库内搜索补齐标准搜索与清空图标，左侧产物列表和右侧属性面板均支持折叠、展开和拖拽调整宽度，并在本机记住布局偏好；正文还可应用内最大化阅读，以平滑铺展/收回动画切换，并通过 `Escape` 恢复。类型、隐私、分析/验证状态、来源范围和版本类型不再暴露英文 snake_case，统一通过 12 种语言的本地化标签展示。本地 HTML/ZIP/Markdown/PDF 导出不再要求填写“预期接收者”或通过多人交付式复核；只有敏感、私有/连接器来源，或 HTML/ZIP 可执行内容在导出当下提示一次风险确认，并通过 `expectedVersion` 将确认绑定到实际导出快照；旧 Canvas 的脚本 manifest 同样纳入提示。Domain Export Guard 保留给未来真正跨边界的 Publisher。
 - **Canvas 升级为 Artifacts 的离线预览兼容层**：Canvas renderer 移除 marked、highlight、Mermaid、Chart.js 和动态 html2canvas CDN；Markdown 在 Rust 中渲染，Mermaid/Chart 提供语义 fallback，所有模板使用离线 CSP 和原子写。Gallery 与右侧 Canvas 共用 `ArtifactViewer`，受管 Artifact 只能通过带 `expected_version` 的新控制面更新，避免旧 Canvas mutation 绕过 hash、证据和并发保护。
 - **数据分析阅读器升级为决策导向的丰富报告**：结构化 Analysis Artifact 不再退化为普通 Markdown，而是确定性生成结论摘要、关键发现卡片、静态 bar/SVG line 图、建议与限制、精选数据表、指标口径、质量/claim 校验和来源审计；支持窄屏、深色、打印与无脚本阅读，数值单位只按显式语义格式化，宽表只在局部横向滚动。
 - **全局焦点反馈与表单控件视觉统一**：鼠标或触摸操作不再出现突兀的深色焦点框，键盘导航保留轻量系统蓝提示，并新增可手动开启的增强焦点模式（也可通过对话式设置读取和修改）；系统高对比度与强制色模式会自动优先。搜索框、普通输入框、多行文本框、普通 / 模型选择器和数字输入同步改为更扁平克制的统一表面，菜单、悬浮弹层与 Tooltip 共用同一套视觉、动效和无障碍规范。
@@ -45,6 +47,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **应用内全屏面板支持统一双向过渡**：Canvas、文件浏览器、单文件预览、Plan 和产物阅读器现在都会从当前布局位置平滑铺满窗口，并在恢复时重新测量真实 flex 布局后收回；窗口尺寸变化不会导致归位偏移，系统开启“减少动态效果”时自动直接切换。共用面板统一通过 `useFullscreenTransition` 编排，避免各入口的动画时长和手感继续分叉。
 - **Worktree 开发不再互相污染 Vite 依赖缓存**：当多个 git / Codex worktree 通过软链接共享 `node_modules` 时，Vite 预构建缓存改为存放在各自工作树内，避免依赖 hash 被其它开发服务器改写后出现 `504 Outdated Optimize Dep`。
 - **Canvas 自动展开后内容可立即滚动**：iframe 面板不再以 zero-width、`aria-hidden`、`inert` 状态完成首次挂载，并补齐 flex 高度链的 `min-height: 0`，修复 Agent 自动打开画布后正文无法滚动、必须关闭再展开才恢复的问题；同时避免调整面板宽度后报告根级横向滚动导致左侧内容裁切。
 - **数据分析能力引用和中文 Canvas 术语正确显示**：用户消息中的 `[@数据分析](#skill:ha-data-analytics)` 现在与悬浮吸顶气泡一致渲染为能力标签；简体中文统一使用“画布”，繁体中文统一使用“畫布”，并同步翻译源避免后续 i18n 补齐重新生成“帆布”。

@@ -317,8 +317,8 @@ export function DesignVersionHistoryModal({
                       className={cn(
                         "mb-1 flex w-full flex-col gap-1 rounded-lg border px-2.5 py-2 text-left transition-colors",
                         active
-                          ? "border-primary/50 bg-primary/5"
-                          : "border-transparent hover:bg-secondary/60",
+                          ? "border-transparent bg-secondary/70 text-foreground"
+                          : "border-transparent hover:bg-secondary/40",
                       )}
                     >
                       <div className="flex items-center gap-1.5">

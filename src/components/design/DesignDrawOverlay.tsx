@@ -17,6 +17,7 @@ import { Square, Pen, Undo2, Redo2, Trash2, Send, X, Loader2 } from "lucide-reac
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { IconTip } from "@/components/ui/tooltip"
+import { cn } from "@/lib/utils"
 
 export interface Point {
   x: number
@@ -38,6 +39,8 @@ export interface DesignDrawSubmit {
 interface Props {
   /** 捕获/合成在途：禁用提交并转圈。 */
   busy?: boolean
+  /** 演示期间保持草稿挂载，但隐藏叠层并暂停全部交互。 */
+  suspended?: boolean
   onExit: () => void
   onSubmit: (payload: DesignDrawSubmit) => void
   /** 把 canvas 上的滚轮转发给 iframe（父层 postMessage ds_scroll_by），让用户能滚到目标区再画。 */
@@ -65,6 +68,7 @@ type Tool = "box" | "pen"
 // setState-in-effect 复位，规避 cascading-render lint 且逻辑更干净）。
 export default function DesignDrawOverlay({
   busy,
+  suspended = false,
   onExit,
   onSubmit,
   onWheelScroll,
@@ -260,6 +264,7 @@ export default function DesignDrawOverlay({
 
   // 键盘：Cmd/Ctrl+Z 撤销 / +Shift 重做；Escape 退出（焦点在 note 输入框时让位原生）。
   useEffect(() => {
+    if (suspended) return
     const onKey = (e: KeyboardEvent) => {
       const ae = document.activeElement as HTMLElement | null
       const inField = ae?.tagName === "INPUT" || ae?.tagName === "TEXTAREA"
@@ -276,12 +281,13 @@ export default function DesignDrawOverlay({
     }
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
-  }, [onExit, undo, redo])
+  }, [onExit, redo, suspended, undo])
 
   // 滚轮转发给 iframe 内容滚动。**必须原生 non-passive 监听**（React onWheel 是 passive，
   // preventDefault 无效）——否则非 fit 模式下 overflow-auto 预览面会同时原生滚动，产生双重滚动
   // （review LOW UX 修复）。preventDefault 抑制原生面滚动，只留 ds_scroll_by 单一滚动源。
   useEffect(() => {
+    if (suspended) return
     const cvs = canvasRef.current
     if (!cvs || !onWheelScroll) return
     const onWheel = (e: WheelEvent) => {
@@ -290,7 +296,7 @@ export default function DesignDrawOverlay({
     }
     cvs.addEventListener("wheel", onWheel, { passive: false })
     return () => cvs.removeEventListener("wheel", onWheel)
-  }, [onWheelScroll])
+  }, [onWheelScroll, suspended])
 
   const submit = useCallback(() => {
     if (busy) return
@@ -309,7 +315,12 @@ export default function DesignDrawOverlay({
 
   // 工具坞：底部居中，pointer-events 自持（不穿透 canvas）。portal 到未裁剪的 pane 避免窄设备框裁掉。
   const dock = (
-    <div className="pointer-events-none absolute inset-x-0 bottom-3 z-30 flex justify-center">
+    <div
+      className={cn(
+        "pointer-events-none absolute inset-x-0 bottom-3 z-30 flex justify-center",
+        suspended && "invisible",
+      )}
+    >
       <div className="pointer-events-auto flex items-center gap-1 rounded-full border border-border/60 bg-background/95 px-2 py-1.5 shadow-lg backdrop-blur">
           <div className="flex items-center gap-0.5">
             <IconTip label={t("design.draw.toolBox", "画框")}>
@@ -376,7 +387,12 @@ export default function DesignDrawOverlay({
   )
 
   return (
-    <div className="absolute inset-0 z-20">
+    <div
+      className={cn(
+        "absolute inset-0 z-20",
+        suspended && "invisible pointer-events-none",
+      )}
+    >
       <canvas
         ref={canvasRef}
         className="absolute left-0 top-0 cursor-crosshair touch-none"

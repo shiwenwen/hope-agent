@@ -28,6 +28,7 @@ import {
 } from "lucide-react"
 
 import { IconTip } from "@/components/ui/tooltip"
+import { useFullscreenTransition } from "@/hooks/useFullscreenTransition"
 import { isTauriMode } from "@/lib/transport"
 import { cn } from "@/lib/utils"
 import { RightPanelShell } from "./right-panel/RightPanelShell"
@@ -82,6 +83,15 @@ export function FileBrowserPanel({
   const desktopMode = isTauriMode()
   const [detached, setDetached] = useState(false)
   const [maximized, setMaximized] = useState(false)
+  const {
+    ref: fullscreenTransitionRef,
+    animating: fullscreenAnimating,
+    toggle: toggleFullscreen,
+    reset: resetFullscreen,
+  } = useFullscreenTransition<HTMLDivElement>({
+    maximized,
+    onMaximizedChange: setMaximized,
+  })
   const detachedWindowRef = useRef<WebviewWindow | null>(null)
 
   // Reset transient UI state on session change via render-phase prev-prop
@@ -136,7 +146,7 @@ export function FileBrowserPanel({
       webview.once("tauri://created", () => {
         detachedWindowRef.current = webview
         setDetached(true)
-        setMaximized(false)
+        resetFullscreen()
       })
       webview.once("tauri://error", () => {
         if (detachedWindowRef.current === webview) detachedWindowRef.current = null
@@ -151,7 +161,7 @@ export function FileBrowserPanel({
     } catch {
       /* ignore window creation errors */
     }
-  }, [desktopMode, scope, scopeId, rootPath, sessionId, t])
+  }, [desktopMode, resetFullscreen, rootPath, scope, scopeId, sessionId, t])
 
   const handleReattach = useCallback(() => {
     if (detachedWindowRef.current) {
@@ -199,7 +209,8 @@ export function FileBrowserPanel({
               <button
                 type="button"
                 className="rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-                onClick={() => setMaximized((v) => !v)}
+                onClick={toggleFullscreen}
+                disabled={fullscreenAnimating}
               >
                 {maximized ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
               </button>
@@ -212,7 +223,7 @@ export function FileBrowserPanel({
             className="rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
             onClick={() => {
               if (detached) handleReattach()
-              setMaximized(false)
+              resetFullscreen()
               onClose()
             }}
           >
@@ -255,6 +266,7 @@ export function FileBrowserPanel({
       resizeLabel={t("fileBrowser.resizePanel", "Resize files panel")}
       maxWidth={1000}
       maximized={maximized}
+      fullscreenTransitionRef={fullscreenTransitionRef}
       reservedMainWidth={reservedMainWidth}
       collapsed={collapsed}
       overlay={overlay}

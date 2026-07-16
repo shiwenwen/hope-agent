@@ -940,7 +940,9 @@ Loop owner API 管理 session-scoped recurring triggers。`create_loop_schedule`
 | `archive_artifact` | `POST /api/artifacts/{id}/archive` | ✅ |
 | `delete_artifact` | `DELETE /api/artifacts/{id}` | ✅ |
 
-Artifact owner API 的完整不变量、输入白名单、Export Guard 和 receipt 见 [Artifacts 本地优先产物平台](artifacts.md)。列表响应包含 metadata/source/verification 摘要但不返回 canonical payload 或大 dataset；正文由受保护的 Canvas 静态路径加载。
+Artifact owner API 的完整不变量、输入白名单、本地导出与未来 Publisher Guard 边界、receipt 见 [Artifacts 本地优先产物平台](artifacts.md)。列表响应包含 metadata/source/verification 摘要但不返回 canonical payload 或大 dataset；正文由受保护的 Canvas 静态路径加载。
+
+`POST /api/artifacts/{id}/exports` 接受 `format` 与可选 `expectedVersion`；Gallery 总是传入风险确认时读取到的当前版本。Core 在生成快照前原子比较版本，不一致返回 `artifact_conflict`，调用方应刷新产物后重新确认，而不是自动重试导出新版本。
 
 ### Models
 

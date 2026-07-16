@@ -1567,28 +1567,34 @@ impl ArtifactService {
         })
     }
 
-    fn enforce_export_guard(&self, artifact: &ArtifactRecord) -> Result<()> {
-        if !self.requires_export_guard(artifact)? {
+    /// Enforce the owner review and Domain Export Guard required by a future
+    /// external Publisher. Local file export deliberately does not call this:
+    /// saving a file to the owner's device is not an external sharing action.
+    pub fn enforce_publish_guard(&self, artifact_id: &str) -> Result<()> {
+        let artifact = self
+            .get(artifact_id)?
+            .ok_or_else(|| anyhow!("artifact '{}' not found", artifact_id))?;
+        if !self.requires_publish_guard(&artifact)? {
             return Ok(());
         }
-        let report = self.evaluate_export_guard(artifact)?;
+        let report = self.evaluate_export_guard(&artifact)?;
         if report.status != "passed" {
             let blockers = if report.blockers.is_empty() {
-                "Artifact Export Guard did not pass".to_string()
+                "Artifact Publish Guard did not pass".to_string()
             } else {
                 report.blockers.join("; ")
             };
-            bail!("Artifact Export Guard blocked export: {blockers}");
+            bail!("Artifact Publish Guard blocked publishing: {blockers}");
         }
-        if !self.current_version_has_export_review(artifact)? {
+        if !self.current_version_has_publish_review(&artifact)? {
             bail!(
-                "Artifact Export Guard blocked export: current Artifact version has no owner export review"
+                "Artifact Publish Guard blocked publishing: current Artifact version has no owner review"
             );
         }
         Ok(())
     }
 
-    fn current_version_has_export_review(&self, artifact: &ArtifactRecord) -> Result<bool> {
+    fn current_version_has_publish_review(&self, artifact: &ArtifactRecord) -> Result<bool> {
         let Some(session_id) = artifact.session_id.as_deref() else {
             return Ok(false);
         };
@@ -1622,7 +1628,7 @@ impl ArtifactService {
         }))
     }
 
-    fn requires_export_guard(&self, artifact: &ArtifactRecord) -> Result<bool> {
+    fn requires_publish_guard(&self, artifact: &ArtifactRecord) -> Result<bool> {
         if matches!(
             artifact.privacy.as_str(),
             "shareable_snapshot" | "sensitive"
@@ -1646,7 +1652,12 @@ impl ArtifactService {
         }))
     }
 
-    pub fn export(&mut self, artifact_id: &str, format: &str) -> Result<ArtifactExportReceipt> {
+    pub fn export(
+        &mut self,
+        artifact_id: &str,
+        format: &str,
+        expected_version: Option<i64>,
+    ) -> Result<ArtifactExportReceipt> {
         // Artifact and legacy Canvas mutations share this lock. Keep it for
         // the complete synchronous export so the verified version, managed
         // projection, package bytes, and receipt all describe one snapshot.
@@ -1654,21 +1665,16 @@ impl ArtifactService {
         let artifact = self
             .get(artifact_id)?
             .ok_or_else(|| anyhow!("artifact '{}' not found", artifact_id))?;
+        ensure_expected_export_version(&artifact, expected_version)?;
         emit_artifact_event(
             "artifact:export_running",
             artifact_id,
             artifact.current_version,
             Some(format),
         );
-        if let Err(error) = self.enforce_export_guard(&artifact) {
-            emit_artifact_event(
-                "artifact:export_failed",
-                artifact_id,
-                artifact.current_version,
-                Some(&error.to_string()),
-            );
-            return Err(error);
-        }
+        // Local owner export is a file-generation operation, not an external
+        // share/publish action. Keep deterministic verification here; Publisher
+        // adapters must call `enforce_publish_guard` before crossing a boundary.
         let mut verification = self.verify(artifact_id)?;
         if verification.status != "passed" {
             emit_artifact_event(
@@ -1763,9 +1769,10 @@ impl ArtifactService {
         &mut self,
         artifact_id: &str,
         format: &str,
+        expected_version: Option<i64>,
     ) -> Result<ArtifactExportReceipt> {
         if format != "pdf" {
-            return self.export(artifact_id, format);
+            return self.export(artifact_id, format, expected_version);
         }
 
         let (artifact, artifact_verification, index_html) = {
@@ -1776,21 +1783,15 @@ impl ArtifactService {
             let artifact = self
                 .get(artifact_id)?
                 .ok_or_else(|| anyhow!("artifact '{}' not found", artifact_id))?;
+            ensure_expected_export_version(&artifact, expected_version)?;
             emit_artifact_event(
                 "artifact:export_running",
                 artifact_id,
                 artifact.current_version,
                 Some(format),
             );
-            if let Err(error) = self.enforce_export_guard(&artifact) {
-                emit_artifact_event(
-                    "artifact:export_failed",
-                    artifact_id,
-                    artifact.current_version,
-                    Some(&error.to_string()),
-                );
-                return Err(error);
-            }
+            // PDF is also a local owner export. External Publisher adapters are
+            // responsible for calling `enforce_publish_guard` before delivery.
             let artifact_verification = self.verify(artifact_id)?;
             if artifact_verification.status != "passed" {
                 emit_artifact_event(
@@ -3524,6 +3525,23 @@ fn default_capabilities() -> Value {
         "attachments": false,
         "schemaVersion": ARTIFACT_SCHEMA_VERSION
     })
+}
+
+fn ensure_expected_export_version(
+    artifact: &ArtifactRecord,
+    expected_version: Option<i64>,
+) -> Result<()> {
+    if let Some(expected_version) = expected_version {
+        if artifact.current_version != expected_version {
+            bail!(
+                "artifact version conflict: expected version {}, current version {} ({})",
+                expected_version,
+                artifact.current_version,
+                artifact.current_hash
+            );
+        }
+    }
+    Ok(())
 }
 
 fn normalize_privacy(value: &str) -> &str {

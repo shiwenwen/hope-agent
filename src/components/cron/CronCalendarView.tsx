@@ -726,7 +726,7 @@ export default function CronCalendarView({
                         onClick={() => setSelectedListJobId(job.id)}
                         className={cn(
                           "w-full rounded-xl px-3 py-3 text-left transition-colors",
-                          isActive ? "bg-sky-500/[0.075]" : "hover:bg-sky-500/[0.04]",
+                          isActive ? "bg-secondary/70" : "hover:bg-secondary/40",
                         )}
                       >
                         <div className="flex items-center gap-2">

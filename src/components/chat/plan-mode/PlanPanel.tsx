@@ -22,6 +22,7 @@ import { cn } from "@/lib/utils"
 import { PANEL_SCROLL_FADE } from "../right-panel/panelFade"
 import { Button } from "@/components/ui/button"
 import { IconTip } from "@/components/ui/tooltip"
+import { useFullscreenTransition } from "@/hooks/useFullscreenTransition"
 import { useTranslation } from "react-i18next"
 import type { PlanModeState } from "./usePlanMode"
 import { buildPlanCommentMessage, type BuiltPlanComment } from "./planCommentMessage"
@@ -63,6 +64,15 @@ export function PlanPanel({
   >([])
   const [loadingVersions, setLoadingVersions] = useState(false)
   const [maximized, setMaximized] = useState(false)
+  const {
+    ref: fullscreenRef,
+    animating: fullscreenAnimating,
+    toggle: toggleFullscreen,
+    reset: resetFullscreen,
+  } = useFullscreenTransition<HTMLDivElement>({
+    maximized,
+    onMaximizedChange: setMaximized,
+  })
   const [detached, setDetached] = useState(false)
   const detachedWindowRef = useRef<WebviewWindow | null>(null)
 
@@ -120,7 +130,7 @@ export function PlanPanel({
       webview.once("tauri://created", () => {
         detachedWindowRef.current = webview
         setDetached(true)
-        setMaximized(false)
+        resetFullscreen()
       })
 
       webview.once("tauri://error", () => {
@@ -135,7 +145,7 @@ export function PlanPanel({
     } catch {
       /* ignore creation errors */
     }
-  }, [desktopMode, sessionId, t])
+  }, [desktopMode, resetFullscreen, sessionId, t])
 
   const handleReattach = useCallback(() => {
     if (detachedWindowRef.current) {
@@ -374,6 +384,7 @@ export function PlanPanel({
 
   return (
     <div
+      ref={fullscreenRef}
       className={panelShellClass}
       style={maximized ? undefined : embedded ? { width: "100%" } : { width: panelWidth ?? 400 }}
     >
@@ -414,7 +425,8 @@ export function PlanPanel({
           {desktopMode && (
             <IconTip label={maximized ? t("planMode.minimize") : t("planMode.maximize")}>
               <button
-                onClick={() => setMaximized((v) => !v)}
+                onClick={toggleFullscreen}
+                disabled={fullscreenAnimating}
                 className="p-1 rounded hover:bg-secondary transition-colors text-muted-foreground hover:text-foreground"
               >
                 {maximized ? (

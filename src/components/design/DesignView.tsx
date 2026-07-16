@@ -125,6 +125,7 @@ import { UI_EASING, UI_MOTION } from "@/components/ui/motion"
 import { useLightbox } from "@/components/common/ImageLightbox"
 import { FloatingMenu } from "@/components/ui/floating-menu"
 import { useDragWidth } from "@/hooks/useDragWidth"
+import { useFullscreenTransition } from "@/hooks/useFullscreenTransition"
 import {
   Dialog,
   DialogContent,
@@ -594,14 +595,15 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
   previewLoadingRef.current = previewLoading
   // 各产物最近滚动位置（桥经 ds_scroll 上报），重载 onLoad 后回写实现滚动保温。
   const previewScrollRef = useRef<Map<string, { x: number; y: number }>>(new Map())
-  // Deck 演示导航（Wave 2-⑧）：当前 slide 状态（桥 ds_slide_state 上报）+ 演示态独立 iframe ref。
-  const presentIframeRef = useRef<HTMLIFrameElement>(null)
+  // Deck 演示导航（Wave 2-⑧）：当前 slide 状态由预览桥 ds_slide_state 上报。
   const [deckState, setDeckState] = useState<{ active: number; count: number } | null>(null)
   const deckStateRef = useRef(deckState)
   deckStateRef.current = deckState
   // 预览设备视口（B4-3）+ 演示态（B4-4）。
   const [previewDevice, setPreviewDevice] = useState<PreviewDevice>("auto")
   const [presentMode, setPresentMode] = useState(false) // 本标签无 chrome 演示
+  const presentModeRef = useRef(false)
+  presentModeRef.current = presentMode
   // 演讲者备注（deck，按 slide 顺序，存产物 metadata.presenterNotes）+ 演示计时器 + 备注面板开关。
   const [presenterNotes, setPresenterNotes] = useState<string[]>([])
   const [presenterOpen, setPresenterOpen] = useState(true)
@@ -698,6 +700,37 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
   const drawModeRef = useRef(false)
   drawModeRef.current = drawMode
   const [drawBusy, setDrawBusy] = useState(false)
+  const {
+    ref: presentTransitionRef,
+    animating: presentAnimating,
+    transitionTo: transitionPresentMode,
+  } = useFullscreenTransition<HTMLDivElement>({
+    maximized: presentMode,
+    onMaximizedChange: setPresentMode,
+  })
+  const setPreviewPaneNode = useCallback(
+    (node: HTMLDivElement | null) => {
+      previewPaneRef.current = node
+      presentTransitionRef(node)
+    },
+    [presentTransitionRef],
+  )
+  const enterPresentMode = useCallback(() => {
+    // 演示只暂停编辑交互，保留选中、批注和画框草稿，退出后原样恢复。
+    setPreviewCtxMenu(null)
+    transitionPresentMode(true)
+  }, [transitionPresentMode])
+  const exitPresentMode = useCallback(() => {
+    if (document.fullscreenElement === previewPaneRef.current) {
+      // 原生全屏先交还浏览器；fullscreenchange 再启动 CSS FLIP 还原，避免按钮消失后
+      // 节点仍被 :fullscreen 强制铺满屏幕。
+      void document.exitFullscreen().catch((e) =>
+        logger.error("design", "DesignView::exitFullscreen", "exit fullscreen failed", e),
+      )
+      return
+    }
+    transitionPresentMode(false)
+  }, [transitionPresentMode])
   // Live refs so the EventBus subscription can read current project/artifact without
   // being a dependency (avoids re-subscribing — and dropping events — on every edit).
   const activeProjectRef = useRef<DesignProject | null>(null)
@@ -726,12 +759,9 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
     iframeRef.current?.contentWindow?.postMessage(msg, "*")
   }, [])
 
-  // Deck 翻页指令 → 当前有效 iframe（演示态发演示 iframe，否则预览 iframe）（Wave 2-⑧）。
-  const presentModeRef = useRef(false)
-  presentModeRef.current = presentMode
+  // Deck 翻页指令始终发往同一个常驻预览 iframe；演示切换只改变其宿主布局。
   const deckNav = useCallback((type: string, index?: number) => {
-    const win = (presentModeRef.current ? presentIframeRef.current : iframeRef.current)
-      ?.contentWindow
+    const win = iframeRef.current?.contentWindow
     win?.postMessage(index != null ? { type, index } : { type }, "*")
   }, [])
   // Deck 宿主级键盘翻页（Wave 2-⑧）：无需先点 iframe 拿焦点。编辑/批注/画框态不劫持方向键；
@@ -767,24 +797,6 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
   }, [activeArtifact?.kind, presentMode, editMode, commentMode, drawMode, deckNav])
-
-  // 退出演示 → 预览 iframe 同步到演示时停留的那页（Wave 2-⑧ review MED）：否则宿主页码/翻页
-  // 边界与实际预览页脱节（演示里翻到第 7 页，退出后预览仍停在进入前那页）。
-  const wasPresentRef = useRef(false)
-  useEffect(() => {
-    if (wasPresentRef.current && !presentMode) {
-      const s = deckStateRef.current
-      if (activeArtifactRef.current?.kind === "deck" && s) {
-        requestAnimationFrame(() =>
-          iframeRef.current?.contentWindow?.postMessage(
-            { type: "ds_slide_go", index: s.active },
-            "*",
-          ),
-        )
-      }
-    }
-    wasPresentRef.current = presentMode
-  }, [presentMode])
 
   // ── 画框批注 orchestration（B4-1）──
   // ds_viewport round-trip：跨源无法直接读 iframe 滚动/视口，postMessage 请求 → 回传 resolve。
@@ -2964,11 +2976,11 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
 
   // 同步批注模式 + 数据到 iframe（钉由 bridge 渲染）。
   useEffect(() => {
-    postToIframe({ type: "ds_comment_mode", on: commentMode })
-  }, [commentMode, postToIframe])
+    postToIframe({ type: "ds_comment_mode", on: commentMode && !presentMode })
+  }, [commentMode, postToIframe, presentMode])
   useEffect(() => {
-    if (commentMode) postToIframe({ type: "ds_comments_set", comments })
-  }, [comments, commentMode, postToIframe])
+    if (commentMode && !presentMode) postToIframe({ type: "ds_comments_set", comments })
+  }, [comments, commentMode, postToIframe, presentMode])
   // 待填钉解析（保存 / 取消 / 复位任一路径 → pendingPlacement 归 null）时，撤掉 bridge 里
   // 当前待填元素的持久高亮。统一走此处，覆盖全部清空点（切元素时 bridge 自身已换高亮，不受影响）。
   useEffect(() => {
@@ -2999,12 +3011,7 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
     const onMsg = (e: MessageEvent) => {
       // 只信任来自预览 iframe 自身的消息——沙盒（allow-scripts）里 AI 生成/可能被注入的脚本能向
       // parent postMessage，而 host 会据此回写产物源（ds_text_commit 等）。校验 e.source 收窄面。
-      // 收窄来源：预览 iframe 或演示态 iframe（deck 演示导航需接收演示 iframe 的 slide 状态）。
-      if (
-        e.source !== iframeRef.current?.contentWindow &&
-        e.source !== presentIframeRef.current?.contentWindow
-      )
-        return
+      if (e.source !== iframeRef.current?.contentWindow) return
       const d = e.data as {
         type?: string
         payload?: DesignSelectedElement
@@ -3198,15 +3205,19 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
     return () => window.removeEventListener("message", onMsg)
   }, [postToIframe, commitPatch, handleRelocateComment, t])
 
-  // Toggle bridge activation with edit mode. 画框批注（父层叠层）需 iframe bridge 关闭，避免
-  // 底层 iframe 抢事件 / 出选中框——drawMode 期间强制 ds_deactivate（editMode 已被三态互斥关掉）。
+  // Toggle bridge activation with edit mode. 画框批注（父层叠层）或演示期间需 iframe bridge 关闭，
+  // 避免底层 iframe 抢事件 / 出选中框；模式状态本身保留，退出演示后可原样恢复。
   useEffect(() => {
-    postToIframe({ type: editMode && !drawMode ? "ds_activate" : "ds_deactivate" })
+    const active = editMode && !drawMode && !presentMode
+    postToIframe({ type: active ? "ds_activate" : "ds_deactivate" })
+    if (active && selectedRef.current?.oid != null) {
+      postToIframe({ type: "ds_reselect", oid: selectedRef.current.oid })
+    }
     if (!editMode) {
       setSelected(null)
       setPreviewCtxMenu(null)
     }
-  }, [editMode, drawMode, postToIframe])
+  }, [editMode, drawMode, postToIframe, presentMode])
 
   // Reset edit state when switching artifacts.
   useEffect(() => {
@@ -3889,11 +3900,19 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
   useEffect(() => {
     if (!presentMode) return
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setPresentMode(false)
+      if (e.key === "Escape" && !e.defaultPrevented) exitPresentMode()
     }
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
-  }, [presentMode])
+  }, [exitPresentMode, presentMode])
+  useEffect(() => {
+    if (!presentMode) return
+    const onFullscreenChange = () => {
+      if (!document.fullscreenElement) exitPresentMode()
+    }
+    document.addEventListener("fullscreenchange", onFullscreenChange)
+    return () => document.removeEventListener("fullscreenchange", onFullscreenChange)
+  }, [exitPresentMode, presentMode])
   // 演讲者备注：随打开产物解析 metadata 同步。
   useEffect(() => {
     setPresenterNotes(parsePresenterNotes(activeArtifact?.metadata))
@@ -3924,9 +3943,10 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
     [tx],
   )
   const presentFullscreen = useCallback(() => {
+    enterPresentMode()
     const el = previewPaneRef.current
     if (el?.requestFullscreen) void el.requestFullscreen().catch(() => {})
-  }, [])
+  }, [enterPresentMode])
 
   // ── Reverse-extraction (D2) ──────────────────────────────────
   const [extractOpen, setExtractOpen] = useState(false)
@@ -4339,7 +4359,7 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
   previewScaleRef.current = frame.scale
 
   // 手势缩放：捏合 / Ctrl·⌘+滚轮连续驱动 CSS scale。仅自动视口 + 非画框/演示态生效（设备/画框/演示
-  // 各有自己的坐标系，且演示态主预览不可见、改了只会退出后突现异常缩放）。离开 fit 以「当前适应比例」
+  // 各有自己的坐标系，且演示态强制让同一预览填满宿主，改 zoom 只会在退出后突现异常缩放）。离开 fit 以「当前适应比例」
   // 接续 —— 同一渲染路径,尺寸连续无跳变。**NaN 兜底**：ds_zoom 来自沙箱不可信 iframe，非有限增量
   //（如注入 deltaY:'x' → Number→NaN）直接丢弃，绝不污染 zoom 状态（否则 scale(NaN) 整块预览坏死）。
   applyZoomDeltaRef.current = (deltaY, deltaMode) => {
@@ -4354,17 +4374,21 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
 
   // 统一样式：iframe 逻辑尺寸 + transform scale（top-left 锚点）；wrap/overlay 预留 scaled footprint，
   // 逐像素与 iframe 屏上占位一致 —— 画框叠层坐标不漂移（footprint 一致故 getBoundingClientRect 对齐）。
-  const scaleStyle: CSSProperties = {
-    width: `${frame.w}px`,
-    height: `${frame.h}px`,
-    border: 0,
-    transform: `scale(${frame.scale})`,
-    transformOrigin: "top left",
-  }
-  const frameWrapStyle: CSSProperties = {
-    width: `${frame.w * frame.scale}px`,
-    height: `${frame.h * frame.scale}px`,
-  }
+  const scaleStyle: CSSProperties = presentMode
+    ? { width: "100%", height: "100%", border: 0 }
+    : {
+        width: `${frame.w}px`,
+        height: `${frame.h}px`,
+        border: 0,
+        transform: `scale(${frame.scale})`,
+        transformOrigin: "top left",
+      }
+  const frameWrapStyle: CSSProperties = presentMode
+    ? { width: "100%", minHeight: 0 }
+    : {
+        width: `${frame.w * frame.scale}px`,
+        height: `${frame.h * frame.scale}px`,
+      }
   const overlayFrameStyle: CSSProperties = frameWrapStyle
 
   // ── Render ───────────────────────────────────────────────────
@@ -4391,7 +4415,7 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
         )}
         <Palette className="h-4 w-4 text-primary" />
         {activeProject && renamingProject ? (
-          <input
+          <Input
             autoFocus
             defaultValue={activeProject.title}
             onBlur={(e) => {
@@ -4403,7 +4427,7 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
               if (e.key === "Enter") (e.target as HTMLInputElement).blur()
               else if (e.key === "Escape") setRenamingProject(false)
             }}
-            className="w-48 rounded border border-primary/50 bg-background px-2 py-0.5 text-sm font-semibold outline-none"
+            className="h-7 w-48 px-2 py-0.5 text-sm font-semibold"
           />
         ) : (
           <span
@@ -4895,7 +4919,7 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
                               className="group/chip relative shrink-0"
                             >
                               {renaming ? (
-                                <input
+                                <Input
                                   autoFocus
                                   value={renameDraft}
                                   onChange={(e) => setRenameDraft(e.target.value)}
@@ -4909,7 +4933,7 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
                                       setRenamingArtifactId(null)
                                     } else if (e.key === "Escape") setRenamingArtifactId(null)
                                   }}
-                                  className="w-[150px] rounded-lg border border-primary/50 bg-background px-2.5 py-1 text-xs outline-none"
+                                  className="h-7 w-[150px] px-2.5 py-1 text-xs"
                                 />
                               ) : (
                                 <>
@@ -4927,8 +4951,8 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
                                     className={cn(
                                       "flex max-w-[180px] items-center gap-1.5 rounded-lg py-1 pl-2.5 pr-7 text-xs transition-colors",
                                       active
-                                        ? "bg-primary/10 text-primary"
-                                        : "text-foreground hover:bg-muted",
+                                        ? "bg-secondary/70 text-foreground"
+                                        : "text-foreground hover:bg-secondary/40",
                                     )}
                                   >
                                     <Icon className="h-3.5 w-3.5 shrink-0 opacity-70" />
@@ -5349,7 +5373,7 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
                           </DropdownMenuTrigger>
                         </IconTip>
                         <DropdownMenuContent variant="floating" align="end">
-                          <DropdownMenuItem onSelect={() => setPresentMode(true)}>
+                          <DropdownMenuItem disabled={presentAnimating} onSelect={enterPresentMode}>
                             <Presentation className="mr-2 h-4 w-4" />
                             {t("design.presentInTab", "本窗口演示")}
                           </DropdownMenuItem>
@@ -5745,13 +5769,56 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
                     </div>
                   )}
                   <div
-                    ref={previewPaneRef}
+                    ref={setPreviewPaneNode}
                     className={cn(
-                      "relative flex-1 overflow-auto p-4",
-                      devicePreset && "flex items-center justify-center",
+                      presentMode
+                        ? "fixed inset-0 z-[100] flex min-h-0 flex-col overflow-hidden bg-neutral-950 p-0"
+                        : "relative flex-1 overflow-auto p-4",
+                      !presentMode && devicePreset && "flex items-center justify-center",
+                      presentAnimating && "will-change-transform",
                     )}
                   >
-                    {editMode && !selected && (
+                    {presentMode && (
+                      <div className="absolute right-4 top-4 z-20 flex gap-2">
+                        {activeArtifact.kind === "deck" && (
+                          <IconTip
+                            label={
+                              presenterOpen
+                                ? t("design.presenter.hide", "隐藏演讲者备注")
+                                : t("design.presenter.show", "显示演讲者备注")
+                            }
+                            side="bottom"
+                          >
+                            <Button
+                              variant="secondary"
+                              size="icon"
+                              aria-label={
+                                presenterOpen
+                                  ? t("design.presenter.hide", "隐藏演讲者备注")
+                                  : t("design.presenter.show", "显示演讲者备注")
+                              }
+                              className="h-9 w-9 rounded-full opacity-70 shadow-lg transition-opacity hover:opacity-100"
+                              onClick={() => setPresenterOpen((v) => !v)}
+                            >
+                              <StickyNote className="h-4 w-4" />
+                            </Button>
+                          </IconTip>
+                        )}
+                        <IconTip label={t("design.exitPresent", "退出演示 (Esc)")} side="left">
+                          <Button
+                            variant="secondary"
+                            size="icon"
+                            aria-label={t("design.exitPresent", "退出演示 (Esc)")}
+                            disabled={presentAnimating}
+                            className="h-9 w-9 rounded-full opacity-70 shadow-lg transition-opacity hover:opacity-100"
+                            onClick={exitPresentMode}
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
+                        </IconTip>
+                      </div>
+                    )}
+                    {!presentMode && editMode && !selected && (
                       <div className="pointer-events-none absolute inset-x-0 top-3 z-10 flex justify-center">
                         <span className="rounded-full bg-primary/90 px-3 py-1 text-xs text-primary-foreground shadow-md">
                           {t("design.editHint", "点选元素改属性，双击文字改文案")}
@@ -5761,12 +5828,14 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
                     <div
                       className={cn(
                         "relative overflow-hidden bg-white",
-                        devicePreset
-                          ? "shrink-0 rounded-[1.5rem] border-[6px] border-neutral-800 shadow-xl dark:border-neutral-700"
-                          : // 统一渲染后「适应」也是固定 scaled footprint（非 width:100% 填充），恒 mx-auto
-                            "rounded-lg border shadow-sm mx-auto",
-                        editMode && "ring-2 ring-primary/40",
-                        drawMode && "ring-2 ring-primary/40",
+                        presentMode
+                          ? "min-h-0 w-full flex-1 rounded-none border-0"
+                          : devicePreset
+                            ? "shrink-0 rounded-[1.5rem] border-[6px] border-neutral-800 shadow-xl dark:border-neutral-700"
+                            : // 统一渲染后「适应」也是固定 scaled footprint（非 width:100% 填充），恒 mx-auto
+                              "rounded-lg border shadow-sm mx-auto",
+                        !presentMode && editMode && "ring-2 ring-primary/40",
+                        !presentMode && drawMode && "ring-2 ring-primary/40",
                       )}
                       style={frameWrapStyle}
                     >
@@ -5796,7 +5865,7 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
                         </div>
                       )}
                       {/* B4-1 画框批注：父层 canvas 叠层（inset-0 = iframe 可视框），工具坞 portal 到未裁剪的
-                        pane。仅 drawMode 期条件挂载 —— 卸载即天然复位全部 marks/note，无需 setState 复位。 */}
+                        pane。drawMode 期保持挂载；演示时只暂停并隐藏，退出后保留 marks/note。 */}
                       {drawMode && (
                         // key 含 previewKey：内容刷新（agent 编辑 / 精修 / 手动刷新 → iframe 重挂、
                         // 布局可能重排）时叠层随之重挂，天然弃掉旧的归一化 marks，不落到新内容错位处
@@ -5804,6 +5873,7 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
                         <DesignDrawOverlay
                           key={`${activeArtifact.id}-${previewKey}`}
                           busy={drawBusy}
+                          suspended={presentMode}
                           onExit={() => setDrawMode(false)}
                           onSubmit={handleDrawSubmit}
                           onWheelScroll={forwardScrollToIframe}
@@ -5812,6 +5882,55 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
                         />
                       )}
                     </div>
+                    {presentMode &&
+                      activeArtifact.kind === "deck" &&
+                      presenterOpen &&
+                      deckState && (
+                        <div className="flex shrink-0 items-stretch gap-3 border-t border-white/10 bg-neutral-900 p-3 text-neutral-200">
+                          <div className="flex w-28 shrink-0 flex-col items-center justify-center gap-1 rounded-md bg-white/5 px-2 py-1">
+                            <span className="font-mono text-lg tabular-nums">
+                              {`${String(Math.floor(presentElapsed / 60)).padStart(2, "0")}:${String(
+                                presentElapsed % 60,
+                              ).padStart(2, "0")}`}
+                            </span>
+                            <span className="text-[11px] text-neutral-400">
+                              {t("design.presenter.slide", "第 {{n}}/{{total}} 页", {
+                                n: deckState.active + 1,
+                                total: deckState.count,
+                              })}
+                            </span>
+                          </div>
+                          <Textarea
+                            value={presenterNotes[deckState.active] ?? ""}
+                            onChange={(e) => savePresenterNote(deckState.active, e.target.value)}
+                            placeholder={t(
+                              "design.presenter.notePlaceholder",
+                              "本页演讲者备注（自动保存）",
+                            )}
+                            className="min-h-[64px] flex-1 resize-none border-white/10 bg-neutral-950 text-neutral-100 shadow-none placeholder:text-neutral-500"
+                          />
+                          <div className="flex shrink-0 flex-col justify-center gap-1">
+                            <Button
+                              variant="secondary"
+                              size="sm"
+                              className="h-8"
+                              disabled={deckState.active <= 0}
+                              onClick={() => deckNav("ds_slide_prev")}
+                            >
+                              {t("design.deckPrev", "上一页")}
+                            </Button>
+                            <Button
+                              variant="secondary"
+                              size="sm"
+                              className="h-8"
+                              disabled={deckState.active >= deckState.count - 1}
+                              onClick={() => deckNav("ds_slide_next")}
+                            >
+                              {t("design.deckNext", "下一页")}
+                            </Button>
+                          </div>
+                        </div>
+                      )}
                   </div>
                   {/* Deck 缩略图轨（P0）：整套幻灯片缩略图并排、点选跳页、active 高亮，长 deck 一眼总览 +
                     秒跳任意页。无 JS 的 `#ds-slide-N` + `:target` 纯 CSS 点亮（DeckSlideThumb），复用
@@ -6506,107 +6625,6 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
-      {/* 本窗口无 chrome 演示态（B4-4）：Escape 退出 */}
-      {presentMode && activeArtifact && (
-        <div className="fixed inset-0 z-[100] flex flex-col bg-neutral-950">
-          <div className="absolute right-4 top-4 z-10 flex gap-2">
-            {activeArtifact.kind === "deck" && (
-              <IconTip
-                label={
-                  presenterOpen
-                    ? t("design.presenter.hide", "隐藏演讲者备注")
-                    : t("design.presenter.show", "显示演讲者备注")
-                }
-                side="bottom"
-              >
-                <Button
-                  variant="secondary"
-                  size="icon"
-                  className="h-9 w-9 rounded-full opacity-70 shadow-lg transition-opacity hover:opacity-100"
-                  onClick={() => setPresenterOpen((v) => !v)}
-                >
-                  <StickyNote className="h-4 w-4" />
-                </Button>
-              </IconTip>
-            )}
-            <IconTip label={t("design.exitPresent", "退出演示 (Esc)")} side="left">
-              <Button
-                variant="secondary"
-                size="icon"
-                className="h-9 w-9 rounded-full opacity-70 shadow-lg transition-opacity hover:opacity-100"
-                onClick={() => setPresentMode(false)}
-              >
-                <X className="h-4 w-4" />
-              </Button>
-            </IconTip>
-          </div>
-          <iframe
-            ref={presentIframeRef}
-            key={`present-${activeArtifact.id}-${previewKey}`}
-            src={iframeSrc}
-            sandbox="allow-scripts"
-            title={activeArtifact.title}
-            className="min-h-0 w-full flex-1 border-0 bg-white"
-            onLoad={() => {
-              // 进演示保温（Wave 2-⑧）：deck 从预览的当前页启动，而非被打回第 1 页。
-              const s = deckStateRef.current
-              if (activeArtifactRef.current?.kind === "deck" && s && s.active > 0) {
-                requestAnimationFrame(() =>
-                  presentIframeRef.current?.contentWindow?.postMessage(
-                    { type: "ds_slide_go", index: s.active },
-                    "*",
-                  ),
-                )
-              }
-            }}
-          />
-          {/* 演讲者备注条（deck）：计时器 + 页码 + 当前页备注（可编辑） */}
-          {activeArtifact.kind === "deck" && presenterOpen && deckState && (
-            <div className="flex shrink-0 items-stretch gap-3 border-t border-white/10 bg-neutral-900 p-3 text-neutral-200">
-              <div className="flex w-28 shrink-0 flex-col items-center justify-center gap-1 rounded-md bg-white/5 px-2 py-1">
-                <span className="font-mono text-lg tabular-nums">
-                  {`${String(Math.floor(presentElapsed / 60)).padStart(2, "0")}:${String(
-                    presentElapsed % 60,
-                  ).padStart(2, "0")}`}
-                </span>
-                <span className="text-[11px] text-neutral-400">
-                  {t("design.presenter.slide", "第 {{n}}/{{total}} 页", {
-                    n: deckState.active + 1,
-                    total: deckState.count,
-                  })}
-                </span>
-              </div>
-              <textarea
-                value={presenterNotes[deckState.active] ?? ""}
-                onChange={(e) => savePresenterNote(deckState.active, e.target.value)}
-                placeholder={t("design.presenter.notePlaceholder", "本页演讲者备注（自动保存）")}
-                className="min-h-[64px] flex-1 resize-none rounded-md border border-white/10 bg-neutral-950 px-3 py-2 text-sm text-neutral-100 outline-none placeholder:text-neutral-500"
-              />
-              <div className="flex shrink-0 flex-col justify-center gap-1">
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  className="h-8"
-                  disabled={deckState.active <= 0}
-                  onClick={() => deckNav("ds_slide_prev")}
-                >
-                  {t("design.deckPrev", "上一页")}
-                </Button>
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  className="h-8"
-                  disabled={deckState.active >= deckState.count - 1}
-                  onClick={() => deckNav("ds_slide_next")}
-                >
-                  {t("design.deckNext", "下一页")}
-                </Button>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
 
       {/* 页面级样式编辑 */}
       <Dialog open={pageStyleOpen} onOpenChange={setPageStyleOpen}>
@@ -7471,7 +7489,7 @@ function LaunchHome({
                   {systemName ?? t("design.pickSystem", "选择设计系统")}
                 </span>
               </Button>
-              {/* 生成模型 chip：传图态只亮视觉模型（requireVision 置灰其余）。 */}
+              {/* 生成模型 chip：prompt dock 工具栏 ghost action（已登记例外）；传图态只亮视觉模型。 */}
               {models.length > 0 && (
                 <ModelSelector
                   value={genModel ? `${genModel.providerId}::${genModel.modelId}` : ""}

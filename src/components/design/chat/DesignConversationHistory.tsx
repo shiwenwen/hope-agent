@@ -119,8 +119,9 @@ export function DesignConversationHistory({
                 key={thread.sessionId}
                 className={cn(
                   "group/row flex items-center gap-1 rounded-lg px-1.5 py-1 transition-colors",
-                  thread.sessionId === activeSessionId && "bg-secondary/40",
-                  !editing && "hover:bg-secondary/60",
+                  thread.sessionId === activeSessionId
+                    ? "bg-secondary/70 text-foreground"
+                    : !editing && "hover:bg-secondary/40",
                 )}
               >
                 {editing ? (

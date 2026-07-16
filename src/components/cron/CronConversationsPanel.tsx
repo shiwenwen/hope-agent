@@ -246,7 +246,7 @@ export default function CronConversationsPanel() {
                     onClick={() => handleSelect(row)}
                     className={cn(
                       "h-auto min-h-0 w-full rounded-xl px-3 py-3 text-left transition-colors",
-                      isActive ? "bg-primary/10" : "hover:bg-muted/45",
+                      isActive ? "bg-secondary/70" : "hover:bg-secondary/40",
                     )}
                   >
                     <div className="flex items-center gap-2">

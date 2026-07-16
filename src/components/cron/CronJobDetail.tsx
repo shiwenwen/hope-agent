@@ -570,8 +570,8 @@ export default function CronJobDetail({
                         "block h-auto w-full self-start rounded-lg px-2.5 py-2 text-left text-xs transition-colors disabled:cursor-default",
                         log.sessionId && "cursor-pointer",
                         log.sessionId && selectedLogId === log.id
-                          ? "bg-sky-500/[0.075]"
-                          : "hover:bg-sky-500/[0.04]",
+                          ? "bg-secondary/70"
+                          : "hover:bg-secondary/40",
                       )}
                       onClick={() => handleRunSelect(log)}
                     >

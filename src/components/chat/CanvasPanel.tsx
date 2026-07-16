@@ -8,6 +8,7 @@ import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import { X, RefreshCw, Maximize2, Minimize2, ExternalLink, PanelLeftClose } from "lucide-react"
 import { IconTip } from "@/components/ui/tooltip"
+import { useFullscreenTransition } from "@/hooks/useFullscreenTransition"
 import { RightPanelShell } from "./right-panel/RightPanelShell"
 import ArtifactViewer from "@/components/artifacts/ArtifactViewer"
 
@@ -75,6 +76,15 @@ export default function CanvasPanel({
   const { t } = useTranslation()
   const [canvas, setCanvas] = useState<CanvasInfo | null>(null)
   const [maximized, setMaximized] = useState(false)
+  const {
+    ref: fullscreenTransitionRef,
+    animating: fullscreenAnimating,
+    toggle: toggleFullscreen,
+    reset: resetFullscreen,
+  } = useFullscreenTransition<HTMLDivElement>({
+    maximized,
+    onMaximizedChange: setMaximized,
+  })
   const [detached, setDetached] = useState(false)
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const [refreshKey, setRefreshKey] = useState(0)
@@ -335,9 +345,9 @@ export default function CanvasPanel({
       detachedWindowRef.current = null
     }
     setCanvas(null)
-    setMaximized(false)
+    resetFullscreen()
     setDetached(false)
-  }, [])
+  }, [resetFullscreen])
 
   const handleDetach = useCallback(async () => {
     if (!canvas?.projectPath) return
@@ -370,7 +380,7 @@ export default function CanvasPanel({
       webview.once("tauri://created", () => {
         detachedWindowRef.current = webview
         setDetached(true)
-        setMaximized(false)
+        resetFullscreen()
       })
 
       webview.once("tauri://error", () => {
@@ -386,7 +396,7 @@ export default function CanvasPanel({
     } catch {
       /* ignore creation errors */
     }
-  }, [canvas, t])
+  }, [canvas, resetFullscreen, t])
 
   const handleRefresh = useCallback(() => {
     setRefreshKey((k) => k + 1)
@@ -460,6 +470,7 @@ export default function CanvasPanel({
       onWidthChange={onPanelWidthChange}
       resizeLabel={t("canvas.resizePanel", "Resize canvas panel")}
       maximized={maximized}
+      fullscreenTransitionRef={fullscreenTransitionRef}
       reservedMainWidth={reservedMainWidth}
       collapsed={collapsed}
       overlay={overlay}
@@ -502,7 +513,8 @@ export default function CanvasPanel({
 
           <IconTip label={maximized ? t("canvas.minimize") : t("canvas.maximize")}>
             <button
-              onClick={() => setMaximized((v) => !v)}
+              onClick={toggleFullscreen}
+              disabled={fullscreenAnimating}
               className="p-1 rounded hover:bg-secondary transition-colors text-muted-foreground hover:text-foreground"
             >
               {maximized ? (

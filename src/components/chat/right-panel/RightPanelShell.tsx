@@ -5,6 +5,7 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type RefCallback,
   type ReactNode,
 } from "react"
 import { cn } from "@/lib/utils"
@@ -25,6 +26,8 @@ interface RightPanelShellProps {
   contentKey?: string | number | null
   surfaceClassName?: string
   bodyClassName?: string
+  /** Root node used by the shared fullscreen FLIP transition hook. */
+  fullscreenTransitionRef?: RefCallback<HTMLDivElement>
   /** Animate the rail from zero width when it is the first right panel to open. */
   animateOnMount?: boolean
 }
@@ -44,6 +47,7 @@ export function RightPanelShell({
   contentKey,
   surfaceClassName,
   bodyClassName,
+  fullscreenTransitionRef,
   animateOnMount = false,
 }: RightPanelShellProps) {
   const shellRef = useRef<HTMLDivElement>(null)
@@ -56,6 +60,13 @@ export function RightPanelShell({
   const [transitionVeilVisible, setTransitionVeilVisible] = useState(false)
   const [isResizing, setIsResizing] = useState(false)
   const [entryVisible, setEntryVisible] = useState(!animateOnMount)
+  const setShellRef = useCallback(
+    (node: HTMLDivElement | null) => {
+      shellRef.current = node
+      fullscreenTransitionRef?.(node)
+    },
+    [fullscreenTransitionRef],
+  )
 
   useLayoutEffect(() => {
     if (entryVisible) return
@@ -178,60 +189,54 @@ export function RightPanelShell({
         maxWidth: `min(${maxWidth}px, ${maxViewportRatio * 100}%, ${availableWidthCss})`,
       }
 
-  if ((maximized || overlay) && !collapsed) {
-    return (
-      <div
-        className={cn(
-          "fixed inset-0 z-50 flex min-h-0 flex-col overflow-hidden bg-surface-app",
-          overlay && !maximized && "p-2 sm:p-3",
-          animateOnMount &&
-            "animate-in fade-in-0 slide-in-from-right-2 duration-[250ms] motion-reduce:animate-none",
-          surfaceClassName,
-        )}
-      >
-        {overlay && !maximized ? (
-          <div
-            className={cn(
-              "flex h-full min-h-0 w-full flex-col overflow-hidden rounded-2xl border border-border-soft bg-surface-panel shadow-panel",
-              bodyClassName,
-            )}
-          >
-            {children}
-          </div>
-        ) : (
-          children
-        )}
-      </div>
-    )
-  }
+  const fullscreenSurface = (maximized || overlay) && !collapsed
 
   return (
     <div
-      ref={shellRef}
+      ref={setShellRef}
       className={cn(
-        "relative flex h-full min-h-0 shrink-0 overflow-hidden",
-        !isResizing &&
+        "flex min-h-0 flex-col overflow-hidden bg-surface-app",
+        fullscreenSurface
+          ? "fixed inset-0 z-50"
+          : "relative h-full shrink-0 bg-transparent",
+        !fullscreenSurface &&
+          !isResizing &&
           "transition-[width,min-width,max-width,padding] duration-[250ms] ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[width] motion-reduce:transition-none",
-        visuallyCollapsed ? "min-w-0 max-w-0 p-0 pointer-events-none" : "p-3 pl-2",
+        fullscreenSurface
+          ? overlay && !maximized
+            ? "p-2 sm:p-3"
+            : "p-0"
+          : visuallyCollapsed
+            ? "min-w-0 max-w-0 p-0 pointer-events-none"
+            : "p-3 pl-2",
+        fullscreenSurface &&
+          animateOnMount &&
+          "animate-in fade-in-0 slide-in-from-right-2 duration-[250ms] motion-reduce:animate-none",
+        surfaceClassName,
       )}
-      style={panelStyle}
+      style={fullscreenSurface ? undefined : panelStyle}
       aria-hidden={visuallyCollapsed ? true : undefined}
       inert={visuallyCollapsed ? true : undefined}
     >
+      {!fullscreenSurface && (
+        <div
+          className={cn(
+            "peer absolute left-0 top-3 bottom-3 z-10 w-4",
+            onWidthChange && !visuallyCollapsed && "cursor-col-resize",
+            visuallyCollapsed && "hidden",
+          )}
+          onMouseDown={handleDragStart}
+          role="separator"
+          aria-orientation="vertical"
+          aria-label={resizeLabel}
+        />
+      )}
       <div
         className={cn(
-          "peer absolute left-0 top-3 bottom-3 z-10 w-4",
-          onWidthChange && !visuallyCollapsed && "cursor-col-resize",
-          visuallyCollapsed && "hidden",
-        )}
-        onMouseDown={handleDragStart}
-        role="separator"
-        aria-orientation="vertical"
-        aria-label={resizeLabel}
-      />
-      <div
-        className={cn(
-          "flex h-full min-h-0 w-full flex-col overflow-hidden rounded-2xl border border-border-soft bg-surface-panel shadow-panel transition-[opacity,transform,border-color] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[opacity,transform] [contain:layout_paint] peer-hover:border-l-primary/35 motion-reduce:transition-none",
+          "flex h-full min-h-0 w-full flex-col overflow-hidden transition-[opacity,transform,border-color,border-radius,box-shadow] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[opacity,transform] [contain:layout_paint] motion-reduce:transition-none",
+          maximized
+            ? "rounded-none border-0 bg-surface-app shadow-none"
+            : "rounded-2xl border border-border-soft bg-surface-panel shadow-panel peer-hover:border-l-primary/35",
           isResizing && "border-l-primary/50",
           visuallyCollapsed ? "translate-x-4 opacity-0" : "translate-x-0 opacity-100",
           bodyClassName,

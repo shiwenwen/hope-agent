@@ -341,6 +341,7 @@ pub async fn review_artifact_export(
 pub async fn export_artifact(
     id: String,
     format: String,
+    expected_version: Option<i64>,
     output_path: String,
 ) -> Result<crate::artifacts::ArtifactExportReceipt, String> {
     let runtime = tokio::runtime::Handle::current();
@@ -348,7 +349,7 @@ pub async fn export_artifact(
         let mut service =
             crate::artifacts::ArtifactService::open().map_err(|error| error.to_string())?;
         let receipt = runtime
-            .block_on(service.export_async(&id, &format))
+            .block_on(service.export_async(&id, &format, expected_version))
             .map_err(|error| error.to_string())?;
         if receipt.status != "ready" {
             return Ok(receipt);

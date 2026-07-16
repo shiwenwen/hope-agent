@@ -125,8 +125,11 @@ ha-core 主要领域：`agent/` `chat_engine/` `context_compact/` `memory/` `kno
 - **焦点与高对比度**：组件不得自行添加 `focus:ring-*` / `focus:border-*`；Pointer、Keyboard、
   enhanced、`prefers-contrast` 和 `forced-colors` 全部服从全局焦点协议。强制色模式必须保留
   系统边框，不能只靠半透明背景表达控件边界。
-- **工具栏例外**：聊天输入区的模型/权限入口属于 ghost action，可保持无边框紧凑按钮；
-  设置页全尺寸字段不得借此绕过表单控件标准。
+- **工具栏例外**：聊天输入区的模型/权限入口、设计空间首页生成器 prompt dock 内的模型入口
+  属于 ghost action，可保持无边框紧凑按钮；设置页全尺寸字段不得借此绕过表单控件标准。
+- **列表条目状态统一**：普通列表行默认 hover 使用 `bg-secondary/40`，持久选中使用
+  `bg-secondary/70` + 正常前景色；禁止用 `bg-primary/*` 或 `text-primary` 表达普通选中。
+  错误、警告、未读、拖拽落点等明确语义状态可保留各自强调色，但不得污染常规 hover/selected。
 
 ### 分层 & 运行模式
 

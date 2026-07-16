@@ -1741,8 +1741,8 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
             }}
             style={pad}
             className={cn(
-              "flex w-full items-center gap-2 py-1 pr-2 text-left text-xs hover:bg-muted/50",
-              openPath === n.relPath && "bg-muted",
+              "flex w-full items-center gap-2 py-1 pr-2 text-left text-xs hover:bg-secondary/40",
+              openPath === n.relPath && "bg-secondary/70",
               dragItem?.path === n.relPath && "opacity-40",
             )}
           >
@@ -1827,7 +1827,7 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
               }}
               style={{ paddingLeft: depth * 14 + 8 }}
               className={cn(
-                "flex w-full items-center gap-1 py-1 pr-2 text-left text-xs hover:bg-muted/50",
+                "flex w-full items-center gap-1 py-1 pr-2 text-left text-xs hover:bg-secondary/40",
                 dragOver === node.path && "bg-primary/10 ring-1 ring-inset ring-primary/40",
                 dragItem?.type === "folder" && dragItem.path === node.path && "opacity-40",
               )}
@@ -3581,3 +3581,4 @@ function BacklinksSection({
     </div>
   )
 }
+
