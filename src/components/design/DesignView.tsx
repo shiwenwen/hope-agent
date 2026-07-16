@@ -120,7 +120,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { IconTip } from "@/components/ui/tooltip"
-import { AnimatedPresenceBox } from "@/components/ui/animated-presence"
+import { AnimatedCollapse, AnimatedPresenceBox } from "@/components/ui/animated-presence"
 import { UI_EASING, UI_MOTION } from "@/components/ui/motion"
 import { useLightbox } from "@/components/common/ImageLightbox"
 import { FloatingMenu } from "@/components/ui/floating-menu"
@@ -248,8 +248,7 @@ const ZOOM_MAX = 4
 const ZOOM_WHEEL_SENSITIVITY = 0.0022
 const clampZoom = (z: number) => Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, z))
 
-// 右侧上下文面板（Inspector / Comment）固定宽度，px 值须与其根节点的 `w-72` 一致——
-// 开合走外层 width 动画（0 ↔ 该值）对齐首页右面板（RightPanelShell）需要显式像素而非 `auto`。
+// 右侧面板（Inspector / Comment）宽度，须与根节点 `w-72` 一致；width 动画需显式 px（不能 auto）。
 const RIGHT_PANEL_WIDTH_PX = 288
 
 /** 归一化不同 deltaMode 的滚轮增量到像素并钳幅，避免行/页模式或一格大 delta 造成跳变。 */
@@ -4732,11 +4731,8 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
         />
       ) : (
         <div className="flex flex-1 min-h-0">
-          {/* Left: AI 对话栏（可拖宽 · 可折叠）——设计空间的对话改写主入口。
-              折叠走「宽度动画到 0 + 内层滑出淡出」**不卸载**（W2-I）：保留草稿 / 附件 / 圈选引用，
-              且生成中折叠再展开不冻结消息流（条件渲染整棵卸载 = 状态全丢 + 在途流无人消费）。
-              开合动画与首页侧栏（ChatSidebar）逐字对齐：外层 width 过渡 + overflow 裁剪，
-              内层固定宽度做 translate/opacity 滑动；拖宽期间关掉 width 过渡免抖。 */}
+          {/* Left: AI 对话栏（可拖宽 / 可折叠）。折叠走 width→0 动画**不卸载**（W2-I：保留草稿 / 附件 /
+              圈选、不冻结在途流），开合同首页侧栏 ChatSidebar；拖宽期关 width 过渡免抖。 */}
           <div
             className={cn(
               "relative h-full min-h-0 shrink-0 overflow-hidden",
@@ -5909,9 +5905,8 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
             </main>
           </div>
 
-          {/* Inspector (right) — visual fine-tuning。开合与首页右侧面板（RightPanelShell）同构：
-              外层 width 动画 0 ↔ w-72（消除面板瞬时占位造成的 72px 硬回流——正是它把进场淡入盖住的根因），
-              内层 AnimatedPresenceBox 负责内容进出场滑动 + 退场期 children 快照维持最后内容（selected 已置空仍可渲染）。 */}
+          {/* Inspector (right)。开合同首页右面板 RightPanelShell：外层 width 动画消除瞬时占位的硬回流
+              （否则盖住进场），内层 AnimatedPresenceBox 管滑动 + 退场 children 快照（selected 已置空仍渲染）。 */}
           <div
             className={cn(
               "relative h-full min-h-0 shrink-0 overflow-hidden",
@@ -6009,7 +6004,7 @@ export default function DesignView({ onBack, onOpenSettings, onImplementToCode }
             </div>
           </FloatingMenu>
 
-          {/* Comment panel (right) — 批注钉（与 Inspector 互斥）。开合结构同 Inspector：外层 width 动画 + 内层滑动。 */}
+          {/* Comment panel (right) — 批注钉（与 Inspector 互斥），开合同 Inspector。 */}
           <div
             className={cn(
               "relative h-full min-h-0 shrink-0 overflow-hidden",
@@ -7396,9 +7391,10 @@ function LaunchHome({
             onPickImages(Array.from(e.dataTransfer.files))
           }}
         >
-          {/* 参考图缩略预览（≤5 张；点图放大预览，X 移除单张，删图不切回模型）。 */}
-          {refImages.length > 0 && (
-            <div className="mb-1.5 flex flex-wrap items-center gap-2 px-1.5">
+          {/* 参考图缩略预览（≤5 张；点图放大预览，X 移除单张，删图不切回模型）。
+              高度平滑增减同聊天 AttachmentPreview；pb 而非 mb 让 scrollHeight 计入。 */}
+          <AnimatedCollapse open={refImages.length > 0} overflow="visible-when-open">
+            <div className="flex flex-wrap items-center gap-2 px-1.5 pb-1.5">
               {refImages.map((img, i) => (
                 // index key：缩略图无自身状态，且 data-URL 对同一张图会重复（review #3）。
                 <div key={i} className="group relative">
@@ -7429,7 +7425,7 @@ function LaunchHome({
                   : t("design.refImage.hint", "将照着这张参考图生成")}
               </span>
             </div>
-          )}
+          </AnimatedCollapse>
           {/* 打字机轮播占位隔离在 memo 子组件里（Wave 2-⑩ review LOW）：其 ~20fps 状态更新只
               重渲染这一小块，不再拖动整个 LaunchHome 项目网格。 */}
           <LaunchComposerTextarea
