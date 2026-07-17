@@ -18,7 +18,60 @@ interface UseOnboardingArgs {
   onComplete: () => void
 }
 
-const ONBOARDING_FLOW_VERSION = 2
+const ONBOARDING_FLOW_VERSION = 4
+
+/**
+ * Flow v2 persisted the current step as a numeric index. Keep its exact
+ * ordering here so in-progress users resume at the nearest remaining step
+ * after personality, skills, server and summary were removed from the flow.
+ */
+const ONBOARDING_V2_STEPS: OnboardingStepKey[] = [
+  "welcome",
+  "mode",
+  "provider",
+  "search-provider",
+  "profile",
+  "personality",
+  "safety",
+  "skills",
+  "server",
+  "channels",
+  "summary",
+]
+
+const ONBOARDING_V3_STEPS: OnboardingStepKey[] = [
+  "welcome",
+  "mode",
+  "provider",
+  "search-provider",
+  "profile",
+  "safety",
+  "channels",
+]
+
+export function restoreOnboardingStep(
+  draftStep: number,
+  restoredFlowVersion: number,
+  activeSteps: OnboardingStepKey[],
+): number {
+  let legacyStep = draftStep
+
+  // Flow v1 included OpenClaw import at index 1. Flow v2 removed it and
+  // shifted every later persisted index back by one.
+  if (restoredFlowVersion < 2 && legacyStep > 1) {
+    legacyStep -= 1
+  }
+
+  if (restoredFlowVersion < ONBOARDING_FLOW_VERSION) {
+    const sourceSteps = restoredFlowVersion < 3 ? ONBOARDING_V2_STEPS : ONBOARDING_V3_STEPS
+    const remainingSteps = sourceSteps.slice(legacyStep)
+    const nextVisibleStep = remainingSteps.find((key) => activeSteps.includes(key))
+    if (nextVisibleStep) return activeSteps.indexOf(nextVisibleStep)
+    return Math.max(0, activeSteps.length - 1)
+  }
+
+  return Math.max(0, Math.min(legacyStep, activeSteps.length - 1))
+}
 
 type ProfileDraft = NonNullable<OnboardingDraft["profile"]>
 type AiExperience = NonNullable<ProfileDraft["aiExperience"]>
@@ -198,13 +251,7 @@ export function useOnboarding({ onComplete }: UseOnboardingArgs): UseOnboardingR
 
         if (typeof state?.draftStep === "number") {
           const activeSteps = stepsForMode(mergedDraft.serverMode)
-          // Flow v1 included OpenClaw import at index 1. It is no longer part
-          // of onboarding, so resume at the equivalent next step.
-          const restoredStep =
-            restoredFlowVersion < ONBOARDING_FLOW_VERSION && state.draftStep > 1
-              ? state.draftStep - 1
-              : state.draftStep
-          setStep(Math.max(0, Math.min(restoredStep, activeSteps.length - 1)))
+          setStep(restoreOnboardingStep(state.draftStep, restoredFlowVersion, activeSteps))
         }
         if (state?.skippedSteps?.length) {
           setSkipped(new Set(state.skippedSteps as OnboardingStepKey[]))
@@ -216,6 +263,13 @@ export function useOnboarding({ onComplete }: UseOnboardingArgs): UseOnboardingR
   }, [])
 
   const steps = useMemo(() => stepsForMode(draft.serverMode), [draft.serverMode])
+
+  // Also clamp an already-mounted wizard when the active flow gets shorter
+  // (for example during development hot reload or switching to remote mode).
+  useEffect(() => {
+    setStep((current) => Math.min(current, steps.length - 1))
+  }, [steps.length])
+
   const stepKey = steps[step] ?? "summary"
 
   const patchDraft = useCallback((patch: Partial<OnboardingDraft>) => {

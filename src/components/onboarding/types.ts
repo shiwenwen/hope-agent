@@ -14,26 +14,20 @@ export type OnboardingStepKey =
 /** Full ordered step list for the local-configuration flow. */
 export const ONBOARDING_STEPS: OnboardingStepKey[] = [
   "welcome",
-  "mode",
   "provider",
   "search-provider",
   "profile",
-  "personality",
   "safety",
-  "skills",
-  "server",
   "channels",
-  "summary",
 ]
 
 /**
- * Step list after the user has chosen a mode. Remote mode short-circuits
- * the wizard — once the user points at a remote server there is nothing
- * local to configure (profile / provider / skills / etc. all live on the
- * server), so we drop straight from the mode step to completion.
+ * Remote connection is now a secondary action on the welcome page. Existing
+ * remote-mode drafts therefore only need the welcome step; local setup uses
+ * the normal flow and defaults to local mode without an explicit choice.
  */
 export function stepsForMode(mode: "local" | "remote" | undefined): OnboardingStepKey[] {
-  if (mode === "remote") return ["welcome", "mode"]
+  if (mode === "remote") return ["welcome"]
   return ONBOARDING_STEPS
 }
 
@@ -67,9 +61,8 @@ export interface OnboardingDraft {
   skills?: { disabled: string[] }
   server?: { bindMode: "local" | "lan"; apiKey?: string; apiKeyEnabled: boolean }
   /**
-   * Which mode the user picked on the new Step 2. "local" continues the
-   * normal provider / profile / ... flow. "remote" means they connected
-   * to another hope-agent server and the wizard will finish early.
+   * Persisted runtime mode. New local setup defaults to "local"; the welcome
+   * page's secondary remote action switches this to "remote" on connection.
    */
   serverMode?: "local" | "remote"
   remote?: { url: string; apiKey?: string }

@@ -659,7 +659,7 @@
         "warningsTitle": "注意"
       },
       "searchProvider": {
-        "subtitle": "検索プロバイダーは、会話でウェブ検索ツールを使うときに呼び出されます。"
+        "subtitle": "検索プロバイダーを選択します。後で設定から変更できます。"
       },
       "summary": {
         "items": {

@@ -7,13 +7,21 @@ import { IconTip } from "@/components/ui/tooltip"
 import { useSortable } from "@dnd-kit/sortable"
 import { CSS } from "@dnd-kit/utilities"
 import { ChevronDown, ChevronRight, ExternalLink, GripVertical } from "lucide-react"
-import type { ProviderEntry } from "./types"
+import type { ProviderBadgeTone, ProviderEntry } from "./types"
 import { PROVIDER_META, hasRequiredCredentials } from "./constants"
 import { SearxngDockerSection } from "./SearxngDocker"
+
+const BADGE_TONE_CLASS: Record<ProviderBadgeTone, string> = {
+  positive: "bg-green-500/10 text-green-600 dark:text-green-400",
+  info: "bg-blue-500/10 text-blue-600 dark:text-blue-400",
+  warning: "bg-yellow-500/10 text-yellow-700 dark:text-yellow-400",
+  danger: "bg-destructive/10 text-destructive",
+}
 
 export function SortableProviderItem({
   entry,
   index,
+  routingRole,
   expanded,
   searxngDockerUseProxy,
   onToggleExpand,
@@ -24,6 +32,7 @@ export function SortableProviderItem({
 }: {
   entry: ProviderEntry
   index: number
+  routingRole?: "primary" | "fallback"
   expanded: boolean
   searxngDockerUseProxy: boolean
   onToggleExpand: () => void
@@ -75,7 +84,7 @@ export function SortableProviderItem({
         {/* Expand toggle + name */}
         <Button
           variant="ghost"
-          className="h-auto flex-1 min-w-0 justify-start gap-1.5 px-0 py-0 text-left font-normal hover:bg-transparent"
+          className="h-auto flex-1 min-w-0 items-start justify-start gap-1.5 px-0 py-0 text-left font-normal hover:bg-transparent"
           onClick={onToggleExpand}
         >
           {hasFields ? (
@@ -87,22 +96,43 @@ export function SortableProviderItem({
           ) : (
             <span className="w-3.5 shrink-0" />
           )}
-          <span className="text-sm font-medium truncate">{t(meta.labelKey)}</span>
-          {meta.free && (
-            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-green-500/10 text-green-600 dark:text-green-400 font-medium shrink-0">
-              {t("settings.webSearchFree")}
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-sm font-medium">{t(meta.labelKey)}</span>
+            <span className="mt-1 flex flex-wrap gap-1">
+              {meta.badges?.map((badge) => (
+                <span
+                  key={badge.labelKey}
+                  className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${BADGE_TONE_CLASS[badge.tone]}`}
+                >
+                  {t(badge.labelKey)}
+                </span>
+              ))}
+              {!canEnable && entry.id !== "duck-duck-go" && (
+                <span className="rounded-full bg-yellow-500/10 px-1.5 py-0.5 text-[10px] font-medium text-yellow-600 dark:text-yellow-400">
+                  {t(
+                    meta.needsApiKey
+                      ? "settings.webSearchNeedsKey"
+                      : "settings.webSearchNeedsConfig",
+                  )}
+                </span>
+              )}
+              {routingRole && (
+                <span
+                  className={
+                    routingRole === "primary"
+                      ? "rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary"
+                      : "rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground"
+                  }
+                >
+                  {t(
+                    routingRole === "primary"
+                      ? "settings.webSearchPrimary"
+                      : "settings.webSearchFallback",
+                  )}
+                </span>
+              )}
             </span>
-          )}
-          {meta.recommended && (
-            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400 font-medium shrink-0">
-              {t("settings.webSearchRecommended")}
-            </span>
-          )}
-          {!canEnable && entry.id !== "duck-duck-go" && (
-            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-yellow-500/10 text-yellow-600 dark:text-yellow-400 font-medium shrink-0">
-              {t(meta.needsApiKey ? "settings.webSearchNeedsKey" : "settings.webSearchNeedsConfig")}
-            </span>
-          )}
+          </span>
         </Button>
 
         {/* Website link */}

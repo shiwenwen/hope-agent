@@ -1,18 +1,25 @@
+import { useState } from "react"
 import { useTranslation } from "react-i18next"
-import { Check, Globe, Monitor, Moon, Sun } from "lucide-react"
+import { Check, ChevronDown, ChevronUp, Globe, Monitor, Moon, Server, Sun } from "lucide-react"
 
 import alphaLogoUrl from "@/assets/alpha-logo.png"
+import { Button } from "@/components/ui/button"
 import { setLanguage, setFollowSystemLanguage, SUPPORTED_LANGUAGES } from "@/i18n/i18n"
 import { cn } from "@/lib/utils"
 import { setThemePreference, type ThemeMode } from "@/hooks/useTheme"
+import { RemoteConnectPanel } from "./ModeStep"
 
 interface WelcomeStepProps {
   /** Current language as stored in `config.language` ("auto" / "zh-CN" / ...). */
   initialLanguage: string
   /** Current theme as stored in `config.theme` ("auto" / "light" / "dark"). */
   initialTheme: ThemeMode
+  remoteUrl: string
+  remoteApiKey: string
   onLanguageChange: (lang: string) => void
   onThemeChange: (theme: ThemeMode) => void
+  onRemoteChange: (patch: { remoteUrl?: string; remoteApiKey?: string }) => void
+  onRemoteConnected: () => void
 }
 
 const THEME_OPTIONS: Array<{
@@ -38,10 +45,15 @@ const THEME_OPTIONS: Array<{
 export function WelcomeStep({
   initialLanguage,
   initialTheme,
+  remoteUrl,
+  remoteApiKey,
   onLanguageChange,
   onThemeChange,
+  onRemoteChange,
+  onRemoteConnected,
 }: WelcomeStepProps) {
   const { t, i18n } = useTranslation()
+  const [remoteOpen, setRemoteOpen] = useState(false)
   const value = initialLanguage || "auto"
   const theme = initialTheme || "auto"
 
@@ -68,9 +80,7 @@ export function WelcomeStep({
           className="h-20 w-20 object-contain"
           draggable={false}
         />
-        <h1 className="text-3xl font-semibold tracking-tight">
-          {t("onboarding.welcome.title")}
-        </h1>
+        <h1 className="text-3xl font-semibold tracking-tight">{t("onboarding.welcome.title")}</h1>
         <p className="max-w-lg text-base text-muted-foreground leading-relaxed whitespace-pre-line">
           {t("onboarding.welcome.subtitle")}
         </p>
@@ -142,6 +152,38 @@ export function WelcomeStep({
             )
           })}
         </div>
+      </div>
+
+      <div className="space-y-3 border-t border-border/50 pt-4">
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="mx-auto flex text-muted-foreground"
+          aria-expanded={remoteOpen}
+          onClick={() => setRemoteOpen((open) => !open)}
+        >
+          <Server className="h-4 w-4" />
+          {t("onboarding.mode.remoteTitle")}
+          {remoteOpen ? (
+            <ChevronUp className="h-3.5 w-3.5" />
+          ) : (
+            <ChevronDown className="h-3.5 w-3.5" />
+          )}
+        </Button>
+        {remoteOpen && (
+          <div className="space-y-3">
+            <p className="text-center text-xs leading-relaxed text-muted-foreground">
+              {t("onboarding.mode.remoteDesc")}
+            </p>
+            <RemoteConnectPanel
+              remoteUrl={remoteUrl}
+              remoteApiKey={remoteApiKey}
+              onChange={onRemoteChange}
+              onRemoteConnected={onRemoteConnected}
+            />
+          </div>
+        )}
       </div>
     </div>
   )

@@ -39,11 +39,17 @@ export interface SearxngDockerStatus {
 export interface ProviderMeta {
   id: string
   labelKey: string
-  free: boolean
-  recommended?: boolean
+  badges?: ProviderBadge[]
   needsApiKey: boolean
   url: string
   fields: FieldDef[]
+}
+
+export type ProviderBadgeTone = "positive" | "info" | "warning" | "danger"
+
+export interface ProviderBadge {
+  labelKey: string
+  tone: ProviderBadgeTone
 }
 
 export interface FieldDef {
