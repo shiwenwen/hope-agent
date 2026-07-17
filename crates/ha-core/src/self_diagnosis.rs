@@ -226,8 +226,16 @@ fn load_candidate_providers() -> Vec<ProviderConfig> {
 
     // Sort by cheapest model cost (prefer low-cost for diagnosis)
     candidates.sort_by(|a, b| {
-        let cost_a = a.models.iter().map(rank_cost).fold(f64::MAX, f64::min);
-        let cost_b = b.models.iter().map(rank_cost).fold(f64::MAX, f64::min);
+        let cost_a = a
+            .models
+            .iter()
+            .map(|m| rank_cost(a.currency, m))
+            .fold(f64::MAX, f64::min);
+        let cost_b = b
+            .models
+            .iter()
+            .map(|m| rank_cost(b.currency, m))
+            .fold(f64::MAX, f64::min);
         cost_a
             .partial_cmp(&cost_b)
             .unwrap_or(std::cmp::Ordering::Equal)
@@ -238,10 +246,17 @@ fn load_candidate_providers() -> Vec<ProviderConfig> {
 
 /// 排序用的成本键：明确免费（本地模型、包月端点）记 0 排最前，**未标价记最大值排最后**——
 /// 未知单价不该被当成便宜而优先选中（旧版把两者都存 0，未标价的云端模型会被优先挑走）。
-fn rank_cost(m: &ModelConfig) -> f64 {
+/// 跨 Provider 比较须先按币种归一（¥2.4 实际远便宜于 $2.4）。
+fn rank_cost(currency: Option<crate::provider::Currency>, m: &ModelConfig) -> f64 {
     match (m.cost_input, m.cost_output) {
         (None, None) => f64::MAX,
-        (ci, co) => ci.unwrap_or(0.0) + co.unwrap_or(0.0),
+        (ci, co) => {
+            let raw = ci.unwrap_or(0.0) + co.unwrap_or(0.0);
+            match currency {
+                Some(crate::provider::Currency::Cny) => raw / crate::dashboard::CNY_PER_USD,
+                _ => raw,
+            }
+        }
     }
 }
 
@@ -253,8 +268,8 @@ fn call_llm(provider: &ProviderConfig, prompt: &str) -> Result<DiagnosisResult, 
         .models
         .iter()
         .min_by(|a, b| {
-            rank_cost(a)
-                .partial_cmp(&rank_cost(b))
+            rank_cost(provider.currency, a)
+                .partial_cmp(&rank_cost(provider.currency, b))
                 .unwrap_or(std::cmp::Ordering::Equal)
         })
         .ok_or_else(|| "No models available".to_string())?;

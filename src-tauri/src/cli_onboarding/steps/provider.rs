@@ -125,8 +125,10 @@ pub fn run(step: u32, total: u32) -> Result<bool> {
         max_tokens: 8192,
         reasoning: false,
         thinking_style: None,
-        cost_input: 0.0,
-        cost_output: 0.0,
+        // 本地后端（Ollama）明确不按 token 计费记 0；云端厂商单价未知留 None
+        // （未标价，成本回退估算表）——两者语义见 `ModelConfig::cost_input` 文档。
+        cost_input: matches!(tpl.kind, TemplateKind::Local).then_some(0.0),
+        cost_output: matches!(tpl.kind, TemplateKind::Local).then_some(0.0),
     }];
     ha_core::provider::add_and_activate_provider(provider, model_id, "cli-onboarding")?;
 

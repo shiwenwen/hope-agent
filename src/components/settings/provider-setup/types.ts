@@ -30,6 +30,9 @@ export interface AuthProfile {
   enabled: boolean
 }
 
+/** 模型单价币种。与后端 `provider::Currency` 对齐；缺省 = USD（历史默认）。 */
+export type Currency = "USD" | "CNY"
+
 export interface ProviderConfig {
   id: string
   name: string
@@ -42,6 +45,11 @@ export interface ProviderConfig {
   userAgent: string
   thinkingStyle: ThinkingStyleType
   allowPrivateNetwork?: boolean
+  /**
+   * 本 Provider 模型单价的币种。单价照厂商价目页原文录入（如 qwen 存人民币价），
+   * 成本入账在后端 `resolve_cost` 单点换算成 USD；这里只声明口径不做换算。
+   */
+  currency?: Currency
 }
 
 export interface ProviderTemplate {
@@ -55,4 +63,6 @@ export interface ProviderTemplate {
   requiresApiKey: boolean
   models: ModelConfig[]
   thinkingStyle?: ThinkingStyleType
+  /** 模板单价币种，实例化时透传进 ProviderConfig.currency。缺省 = USD。 */
+  currency?: Currency
 }

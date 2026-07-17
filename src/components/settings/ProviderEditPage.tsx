@@ -49,7 +49,7 @@ import {
 
 // ── Types ─────────────────────────────────────────────────────────
 
-import type { AuthProfile, ProviderConfig } from "@/components/settings/provider-setup/types"
+import type { AuthProfile, ProviderConfig, Currency } from "@/components/settings/provider-setup/types"
 import { isPrivateHost } from "@/lib/urlDetect"
 
 // ── Helpers ───────────────────────────────────────────────────────
@@ -99,6 +99,7 @@ export default function ProviderEditPage({
   const [editAllowPrivateNetwork, setEditAllowPrivateNetwork] = useState<boolean>(
     provider.allowPrivateNetwork ?? false,
   )
+  const [editCurrency, setEditCurrency] = useState<Currency>(provider.currency ?? "USD")
   const [editModels, setEditModels] = useState<ModelConfig[]>([...provider.models])
   const [editAuthProfiles, setEditAuthProfiles] = useState<AuthProfile[]>(
     provider.authProfiles ? [...provider.authProfiles] : [],
@@ -161,6 +162,7 @@ export default function ProviderEditPage({
           userAgent: editUserAgent,
           thinkingStyle: editThinkingStyle,
           allowPrivateNetwork: editAllowPrivateNetwork,
+          currency: editCurrency,
           models: editModels,
         },
       })
@@ -328,6 +330,23 @@ export default function ProviderEditPage({
                 </Select>
               </div>
 
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+                  <Settings2 className="h-3 w-3" />
+                  {t("provider.currency")}
+                </label>
+                <Select value={editCurrency} onValueChange={(v) => setEditCurrency(v as Currency)}>
+                  <SelectTrigger className="text-xs font-medium">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="USD">{t("provider.currencyUsd")}</SelectItem>
+                    <SelectItem value="CNY">{t("provider.currencyCny")}</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-[11px] text-muted-foreground">{t("provider.currencyDesc")}</p>
+              </div>
+
               {isPrivateBaseUrl(editBaseUrl) && (
                 <div className="flex items-start justify-between gap-3 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2.5">
                   <div className="space-y-0.5">
@@ -420,6 +439,7 @@ export default function ProviderEditPage({
                 >
                   {editModels.map((model, i) => (
                     <SortableModelEditor
+                      currency={editCurrency}
                       key={`model-${i}`}
                       sortableId={`model-${i}`}
                       model={model}

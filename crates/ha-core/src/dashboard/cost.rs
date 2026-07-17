@@ -32,31 +32,41 @@ pub(super) fn resolve_cost(
 /// 输入/输出任一有值即视为已标价，缺的那侧按 0 计（如只标了输入价）。
 fn configured_price(provider_id: &str, model_id: &str) -> Option<(f64, f64)> {
     let cfg = crate::config::cached_config();
-    let model = cfg
-        .providers
-        .iter()
-        .find(|p| p.id == provider_id)?
-        .models
-        .iter()
-        .find(|m| m.id == model_id)?;
+    let provider = cfg.providers.iter().find(|p| p.id == provider_id)?;
+    let model = provider.models.iter().find(|m| m.id == model_id)?;
     match (model.cost_input, model.cost_output) {
         (None, None) => None,
-        (ci, co) => Some((ci.unwrap_or(0.0), co.unwrap_or(0.0))),
+        (ci, co) => Some(to_usd(
+            provider.currency,
+            ci.unwrap_or(0.0),
+            co.unwrap_or(0.0),
+        )),
+    }
+}
+
+/// 人民币兑美元换算率。粗粒度常量、只服务大盘成本展示（非交易汇率），随大幅波动手动调
+/// （2026-07 现汇约 6.8–7.2 区间，取整数中值）。单价按厂商价目页原文录入
+/// （`ProviderConfig.currency` 标注币种），换算集中在这一处——估算表里人民币计价厂商的
+/// 臂也统一写成 `¥价 / CNY_PER_USD`，两条路径口径一致。
+pub(crate) const CNY_PER_USD: f64 = 7.0;
+
+fn to_usd(currency: Option<crate::provider::Currency>, ci: f64, co: f64) -> (f64, f64) {
+    match currency {
+        Some(crate::provider::Currency::Cny) => (ci / CNY_PER_USD, co / CNY_PER_USD),
+        Some(crate::provider::Currency::Usd) | None => (ci, co),
     }
 }
 
 pub(super) fn estimate_cost(model_id: &str, input_tokens: u64, output_tokens: u64) -> f64 {
     // Pricing per 1M tokens: (input_price, output_price)
     let (input_price, output_price) = match model_id {
-        // 火山引擎 (豆包) 的 ark id 自带日期后缀，按人民币计价，与同名模型的直连价差几个
-        // 数量级。必须排在各厂商臂之前——否则 `glm-4-7-251222` 会被 `glm-4-7` 臂吞掉。
-        m if m.contains("doubao-seed-code-preview-251028")
-            || m.contains("doubao-seed-1-8-251228")
-            || m.contains("kimi-k2-5-260127")
-            || m.contains("glm-4-7-251222")
-            || m.contains("deepseek-v3-2-251201") =>
-        {
-            (0.0001, 0.0002)
+        // 火山引擎 (豆包)。方舟按人民币计价（官方价目 doubao-seed-code ¥1.2/¥8、
+        // doubao-seed-1.8 ¥0.8/¥8，输入为长度阶梯价、此处取最低档）；带日期后缀的
+        // 第三方托管 id（kimi/glm/deepseek 的 ark 变体）不再单列——落到各厂商直连臂，
+        // 量级正确即可。
+        m if m.contains("doubao-seed-code") => (1.2 / CNY_PER_USD, 8.0 / CNY_PER_USD),
+        m if m.contains("doubao-seed-1-8") || m.contains("doubao-seed-1.8") => {
+            (0.8 / CNY_PER_USD, 8.0 / CNY_PER_USD)
         }
         // Anthropic — Claude 5 family
         m if m.contains("claude-fable-5") || m.contains("claude-mythos-5") => (10.0, 50.0),
@@ -156,12 +166,15 @@ pub(super) fn estimate_cost(model_id: &str, input_tokens: u64, output_tokens: u6
         m if m.contains("deepseek-chat") || m.contains("deepseek-reasoner") => (0.14, 0.28),
         m if m.contains("DeepSeek-R1") || m.contains("deepseek-r1") => (0.55, 2.19),
         m if m.contains("deepseek") || m.contains("DeepSeek") => (0.27, 1.1),
-        // Qwen
-        m if m.contains("qwen-max") || m.contains("qwen3-max") => (2.4, 9.6),
-        m if m.contains("qwq-plus") => (1.6, 4.0),
-        m if m.contains("qwen-plus") => (0.8, 2.0),
-        m if m.contains("qwen-turbo") => (0.3, 0.6),
-        m if m.contains("qwen") => (0.30, 0.60),
+        // Qwen。价目源是阿里国内站人民币价（qwen provider 模板同源、标 CNY），表侧
+        // 统一换算成 USD 口径入账。
+        m if m.contains("qwen-max") || m.contains("qwen3-max") => {
+            (2.4 / CNY_PER_USD, 9.6 / CNY_PER_USD)
+        }
+        m if m.contains("qwq-plus") => (1.6 / CNY_PER_USD, 4.0 / CNY_PER_USD),
+        m if m.contains("qwen-plus") => (0.8 / CNY_PER_USD, 2.0 / CNY_PER_USD),
+        m if m.contains("qwen-turbo") => (0.3 / CNY_PER_USD, 0.6 / CNY_PER_USD),
+        m if m.contains("qwen") => (0.3 / CNY_PER_USD, 0.6 / CNY_PER_USD),
         // GLM (Zhipu)
         m if m.contains("glm-5v-turbo") => (1.2, 4.0),
         m if m.contains("glm-5-turbo") => (1.2, 4.0),
@@ -186,15 +199,20 @@ pub(super) fn estimate_cost(model_id: &str, input_tokens: u64, output_tokens: u6
         {
             (0.95, 4.0)
         }
-        m if m.contains("kimi-k2.5") || m.contains("Kimi-K2.5") || m.contains("kimi-k2p5") => {
+        m if m.contains("kimi-k2.5")
+            || m.contains("Kimi-K2.5")
+            || m.contains("kimi-k2p5")
+            || m.contains("kimi-k2-5") =>
+        {
             (0.6, 3.0)
         }
         // MiniMax
         m if m.contains("MiniMax-M3") || m.contains("minimax-m3") => (0.6, 2.4),
         m if m.contains("MiniMax-M2.7-highspeed") => (0.6, 2.4),
         m if m.contains("MiniMax") || m.contains("minimax") => (0.3, 1.2),
-        // 腾讯混元 (TokenHub)
-        m if m.contains("hy3") => (0.176, 0.587),
+        // 腾讯混元 (TokenHub)。官方价目 ¥1/¥4；旧值 0.176/0.587 来源不明、与官方价
+        // 对不上，统一改按 CNY_PER_USD 口径换算。
+        m if m.contains("hy3") => (1.0 / CNY_PER_USD, 4.0 / CNY_PER_USD),
         // 阶跃星辰 (StepFun). step-3.5-flash 未公布单价，留给默认估价。
         m if m.contains("step-3.7-flash") => (0.2, 1.15),
         // Llama (Together/HuggingFace)
@@ -210,7 +228,7 @@ pub(super) fn estimate_cost(model_id: &str, input_tokens: u64, output_tokens: u6
 
 #[cfg(test)]
 mod tests {
-    use super::{estimate_cost, resolve_cost};
+    use super::{estimate_cost, resolve_cost, CNY_PER_USD};
     use crate::config::AppConfig;
     use crate::provider::{ApiType, ModelConfig, ProviderConfig};
     use crate::test_support::replace_config_cache;
@@ -247,6 +265,68 @@ mod tests {
             providers: vec![provider],
             ..Default::default()
         }
+    }
+
+    fn config_with_currency(
+        provider_id: &str,
+        currency: crate::provider::Currency,
+        models: Vec<ModelConfig>,
+    ) -> AppConfig {
+        let mut cfg = config_with(provider_id, models);
+        cfg.providers[0].currency = Some(currency);
+        cfg
+    }
+
+    /// CNY provider 的配置价按 `CNY_PER_USD` 换算后入账；USD / 未标币种保持原值。
+    ///
+    /// 判据是 `ProviderConfig.currency`——qwen 模板存的是阿里国内站人民币原价（qwen-max
+    /// ¥2.4/¥9.6），没有换算时会被当 $2.4/$9.6 直接入账、虚高约 7 倍。
+    #[test]
+    fn cny_provider_prices_convert_to_usd() {
+        let guard = replace_config_cache(config_with_currency(
+            "qwen",
+            crate::provider::Currency::Cny,
+            vec![priced("qwen-max", 2.4, 9.6)],
+        ));
+        assert_eq!(
+            resolve_cost(Some("qwen"), "qwen-max", 1_000_000, 1_000_000),
+            (2.4 + 9.6) / CNY_PER_USD
+        );
+        // guard 持全局互斥锁，shadowing 不提前 drop——不显式释放，下一次 replace 自我死锁。
+        drop(guard);
+
+        // 显式 USD 与缺省（None）行为一致：原值入账。
+        let _guard = replace_config_cache(config_with_currency(
+            "p-usd",
+            crate::provider::Currency::Usd,
+            vec![priced("claude-opus-4-8", 5.0, 25.0)],
+        ));
+        assert_eq!(
+            resolve_cost(Some("p-usd"), "claude-opus-4-8", 1_000_000, 1_000_000),
+            30.0
+        );
+    }
+
+    /// CNY provider 的「明确免费」（Some(0.0)）不受换算影响、仍如实记 $0；
+    /// 「未标价」（None）仍回退估算表——币种只作用于有值的配置价。
+    #[test]
+    fn cny_currency_does_not_disturb_free_or_unpriced_semantics() {
+        let _guard = replace_config_cache(config_with_currency(
+            "volcengine",
+            crate::provider::Currency::Cny,
+            vec![
+                model("some-free-model", Some(0.0), Some(0.0)),
+                model("kimi-k2-5-260127", None, None),
+            ],
+        ));
+        assert_eq!(
+            resolve_cost(Some("volcengine"), "some-free-model", 1_000_000, 1_000_000),
+            0.0
+        );
+        assert_eq!(
+            resolve_cost(Some("volcengine"), "kimi-k2-5-260127", 1_000_000, 1_000_000),
+            estimate_cost("kimi-k2-5-260127", 1_000_000, 1_000_000)
+        );
     }
 
     /// 用户在设置里改的单价必须真的影响大盘——这正是本次修复的核心。
@@ -437,18 +517,26 @@ mod tests {
         assert_eq!(prices("glm-4.7-flashx"), (0.06, 0.4));
         assert_eq!(prices("glm-4.5-air"), (0.2, 1.1));
         assert_eq!(prices("mistral-medium-3-5"), (1.5, 7.5));
-        assert_eq!(prices("qwq-plus"), (1.6, 4.0));
+        assert_eq!(prices("qwq-plus"), (1.6 / CNY_PER_USD, 4.0 / CNY_PER_USD));
 
         // `grok-4` must not swallow the point releases, which are priced far below it.
         assert_eq!(prices("grok-4.5"), (2.0, 6.0));
         assert_eq!(prices("grok-4.3"), (1.25, 2.5));
         assert_eq!(prices("grok-4"), (3.0, 15.0));
 
-        // 火山引擎按人民币计价，与同名模型的直连价差几个数量级——绝不能被厂商臂吞掉。
-        assert_eq!(prices("glm-4-7-251222"), (0.0001, 0.0002));
-        assert_eq!(prices("deepseek-v3-2-251201"), (0.0001, 0.0002));
-        assert_eq!(prices("kimi-k2-5-260127"), (0.0001, 0.0002));
-        assert_ne!(prices("glm-4-7-251222"), prices("glm-4.7"));
+        // 火山引擎：doubao 走方舟人民币价换算；第三方托管 ark id 落各厂商直连臂
+        // （不再用 batch 占位价 0.0001/0.0002——那低了真实价约 4 个数量级）。
+        assert_eq!(
+            prices("doubao-seed-code-preview-251028"),
+            (1.2 / CNY_PER_USD, 8.0 / CNY_PER_USD)
+        );
+        assert_eq!(
+            prices("doubao-seed-1-8-251228"),
+            (0.8 / CNY_PER_USD, 8.0 / CNY_PER_USD)
+        );
+        assert_eq!(prices("glm-4-7-251222"), prices("glm-4.7"));
+        assert_eq!(prices("kimi-k2-5-260127"), prices("kimi-k2.5"));
+        assert_eq!(prices("deepseek-v3-2-251201"), prices("deepseek-v3"));
     }
 
     /// 模板改价后必须同步本表，否则大盘成本与用户实际支出脱节。
@@ -461,7 +549,7 @@ mod tests {
         assert_eq!(prices("deepseek-v4-flash"), (0.14, 0.28));
         assert_eq!(prices("mistral-small-latest"), (0.15, 0.6));
         assert_eq!(prices("mistral-small-2603"), (0.15, 0.6));
-        assert_eq!(prices("hy3"), (0.176, 0.587));
+        assert_eq!(prices("hy3"), (1.0 / CNY_PER_USD, 4.0 / CNY_PER_USD));
         assert_eq!(prices("step-3.7-flash"), (0.2, 1.15));
         assert_eq!(prices("MiniMax-M2.7-highspeed"), (0.6, 2.4));
         assert_eq!(prices("glm-5.1"), (1.2, 4.0));

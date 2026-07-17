@@ -598,7 +598,9 @@
       "zaiThinkingBudget": "Z.AI（思考予算）",
       "contextWindow": "コンテキストウィンドウ",
       "maxTokens": "最大トークン数",
-      "costUnpriced": "価格未設定"
+      "costUnpriced": "価格未設定",
+      "inputCostCny": "入力コスト (¥/1M トークン)",
+      "outputCostCny": "出力コスト (¥/1M トークン)"
     },
     "notification": {
       "approvalRequired": "ツール承認が必要",
@@ -753,7 +755,11 @@
       "remoteConnecting": "接続中...",
       "remoteServerUrl": "サーバー URL",
       "remoteTestFailed": "接続できません",
-      "remoteTestSuccess": "接続可能"
+      "remoteTestSuccess": "接続可能",
+      "currency": "価格通貨",
+      "currencyUsd": "米ドル (USD)",
+      "currencyCny": "人民元 (CNY)",
+      "currencyDesc": "このプロバイダーのモデル単価の通貨。ベンダーの価格ページに記載された通りに入力してください。コスト統計は自動的に米ドルに換算されます。"
     },
     "provider_templates": {
       "modelstudio": {
@@ -3380,7 +3386,9 @@
       "zaiThinkingBudget": "Z.AI (사고 예산)",
       "contextWindow": "컨텍스트 윈도우",
       "maxTokens": "최대 토큰",
-      "costUnpriced": "가격 미설정"
+      "costUnpriced": "가격 미설정",
+      "inputCostCny": "입력 비용 (¥/1M 토큰)",
+      "outputCostCny": "출력 비용 (¥/1M 토큰)"
     },
     "notification": {
       "approvalRequired": "도구 승인이 필요합니다",
@@ -3532,7 +3540,11 @@
       "remoteConnecting": "연결 중...",
       "remoteServerUrl": "서버 URL",
       "remoteTestFailed": "접속 실패",
-      "remoteTestSuccess": "접속 가능"
+      "remoteTestSuccess": "접속 가능",
+      "currency": "가격 통화",
+      "currencyUsd": "미국 달러 (USD)",
+      "currencyCny": "중국 위안 (CNY)",
+      "currencyDesc": "이 프로바이더 모델 단가의 통화입니다. 공급업체 가격 페이지에 표시된 그대로 입력하세요. 비용 통계는 자동으로 미국 달러로 환산됩니다."
     },
     "provider_templates": {
       "modelstudio": {
@@ -6164,7 +6176,9 @@
       "zaiThinkingBudget": "Z.AI（思考預算）",
       "contextWindow": "上下文視窗",
       "maxTokens": "最大 tokens",
-      "costUnpriced": "未標價"
+      "costUnpriced": "未標價",
+      "inputCostCny": "輸入成本 (¥/1M tokens)",
+      "outputCostCny": "輸出成本 (¥/1M tokens)"
     },
     "notification": {
       "approvalRequired": "需要工具審批",
@@ -6311,7 +6325,11 @@
       "remoteConnecting": "連線中…",
       "remoteServerUrl": "伺服器位址",
       "remoteTestFailed": "無法存取",
-      "remoteTestSuccess": "可以存取"
+      "remoteTestSuccess": "可以存取",
+      "currency": "計價貨幣",
+      "currencyUsd": "美元 (USD)",
+      "currencyCny": "人民幣 (CNY)",
+      "currencyDesc": "本 Provider 模型單價的幣種。單價請照廠商價目頁原文填寫，成本統計會自動換算為美元。"
     },
     "provider_templates": {
       "modelstudio": {
@@ -8926,7 +8944,9 @@
       "zaiThinkingBudget": "Z.AI (düşünme bütçesi)",
       "contextWindow": "Bağlam penceresi",
       "maxTokens": "Maksimum jeton",
-      "costUnpriced": "Fiyatsız"
+      "costUnpriced": "Fiyatsız",
+      "inputCostCny": "Girdi Maliyeti (¥/1M token)",
+      "outputCostCny": "Çıktı Maliyeti (¥/1M token)"
     },
     "notification": {
       "approvalRequired": "Araç onayı gerekiyor",
@@ -9073,7 +9093,11 @@
       "remoteConnecting": "Bağlanıyor...",
       "remoteServerUrl": "Sunucu URL adresi",
       "remoteTestFailed": "Erişilemez",
-      "remoteTestSuccess": "Erişilebilir"
+      "remoteTestSuccess": "Erişilebilir",
+      "currency": "Fiyatlandırma Para Birimi",
+      "currencyUsd": "ABD Doları (USD)",
+      "currencyCny": "Çin Yuanı (CNY)",
+      "currencyDesc": "Bu sağlayıcının model fiyatlarının para birimi. Fiyatları sağlayıcının fiyat sayfasında listelendiği şekilde girin; maliyet istatistikleri otomatik olarak USD'ye dönüştürülür."
     },
     "provider_templates": {
       "modelstudio": {
@@ -11907,7 +11931,9 @@
       "zaiThinkingBudget": "Z.AI (ngân sách suy luận)",
       "contextWindow": "Cửa sổ ngữ cảnh",
       "maxTokens": "Mã thông báo tối đa",
-      "costUnpriced": "Chưa có giá"
+      "costUnpriced": "Chưa có giá",
+      "inputCostCny": "Chi phí đầu vào (¥/1M token)",
+      "outputCostCny": "Chi phí đầu ra (¥/1M token)"
     },
     "notification": {
       "approvalRequired": "Cần phê duyệt công cụ",
@@ -12062,7 +12088,11 @@
       "remoteConnecting": "Đang kết nối...",
       "remoteServerUrl": "URL máy chủ",
       "remoteTestFailed": "Không thể truy cập",
-      "remoteTestSuccess": "Có thể truy cập"
+      "remoteTestSuccess": "Có thể truy cập",
+      "currency": "Đơn vị tiền tệ",
+      "currencyUsd": "Đô la Mỹ (USD)",
+      "currencyCny": "Nhân dân tệ (CNY)",
+      "currencyDesc": "Đơn vị tiền tệ của giá mô hình thuộc nhà cung cấp này. Nhập giá đúng như niêm yết trên trang giá của nhà cung cấp; thống kê chi phí sẽ tự động quy đổi sang USD."
     },
     "provider_templates": {
       "modelstudio": {
@@ -14808,7 +14838,9 @@
       "zaiThinkingBudget": "Z.AI (orçamento de raciocínio)",
       "contextWindow": "Janela de contexto",
       "maxTokens": "Máximo de tokens",
-      "costUnpriced": "Sem preço"
+      "costUnpriced": "Sem preço",
+      "inputCostCny": "Custo de entrada (¥/1M tokens)",
+      "outputCostCny": "Custo de saída (¥/1M tokens)"
     },
     "notification": {
       "approvalRequired": "Aprovação de ferramenta necessária",
@@ -14958,7 +14990,11 @@
       "remoteConnecting": "Conectando...",
       "remoteServerUrl": "URL do servidor",
       "remoteTestFailed": "Inacessível",
-      "remoteTestSuccess": "Acessível"
+      "remoteTestSuccess": "Acessível",
+      "currency": "Moeda de preços",
+      "currencyUsd": "Dólar americano (USD)",
+      "currencyCny": "Yuan chinês (CNY)",
+      "currencyDesc": "Moeda dos preços de modelo deste provedor. Insira os preços exatamente como listados na página de preços do fornecedor; as estatísticas de custo são convertidas automaticamente para USD."
     },
     "provider_templates": {
       "modelstudio": {
@@ -17633,7 +17669,9 @@
       "zaiThinkingBudget": "Z.AI (бюджет рассуждений)",
       "contextWindow": "Окно контекста",
       "maxTokens": "Макс. жетонов",
-      "costUnpriced": "Без цены"
+      "costUnpriced": "Без цены",
+      "inputCostCny": "Стоимость ввода (¥/1M токенов)",
+      "outputCostCny": "Стоимость вывода (¥/1M токенов)"
     },
     "notification": {
       "approvalRequired": "Требуется подтверждение инструмента",
@@ -17780,7 +17818,11 @@
       "remoteConnecting": "Подключение...",
       "remoteServerUrl": "URL сервера",
       "remoteTestFailed": "Недоступен",
-      "remoteTestSuccess": "Доступен"
+      "remoteTestSuccess": "Доступен",
+      "currency": "Валюта тарификации",
+      "currencyUsd": "Доллар США (USD)",
+      "currencyCny": "Китайский юань (CNY)",
+      "currencyDesc": "Валюта цен моделей этого провайдера. Вводите цены точно так, как указано на странице цен поставщика; статистика затрат автоматически пересчитывается в USD."
     },
     "provider_templates": {
       "modelstudio": {
@@ -20448,7 +20490,9 @@
       "zaiThinkingBudget": "Z.AI (ميزانية التفكير)",
       "contextWindow": "نافذة السياق",
       "maxTokens": "الرموز القصوى",
-      "costUnpriced": "غير مُسعَّر"
+      "costUnpriced": "غير مُسعَّر",
+      "inputCostCny": "تكلفة الإدخال (¥/1M توكن)",
+      "outputCostCny": "تكلفة الإخراج (¥/1M توكن)"
     },
     "notification": {
       "approvalRequired": "مطلوب الموافقة على الأداة",
@@ -20600,7 +20644,11 @@
       "remoteConnecting": "جارٍ الاتصال...",
       "remoteServerUrl": "عنوان الخادم",
       "remoteTestFailed": "غير متاح",
-      "remoteTestSuccess": "متصل"
+      "remoteTestSuccess": "متصل",
+      "currency": "عملة التسعير",
+      "currencyUsd": "الدولار الأمريكي (USD)",
+      "currencyCny": "اليوان الصيني (CNY)",
+      "currencyDesc": "عملة أسعار نماذج هذا المزوّد. أدخل الأسعار كما هي مدرجة في صفحة أسعار المورّد؛ تُحوَّل إحصاءات التكلفة تلقائيًا إلى الدولار الأمريكي."
     },
     "provider_templates": {
       "modelstudio": {
@@ -23328,7 +23376,9 @@
       "zaiThinkingBudget": "Z.AI (presupuesto de razonamiento)",
       "contextWindow": "Ventana de contexto",
       "maxTokens": "Tokens máximos",
-      "costUnpriced": "Sin precio"
+      "costUnpriced": "Sin precio",
+      "inputCostCny": "Coste de entrada (¥/1M tokens)",
+      "outputCostCny": "Coste de salida (¥/1M tokens)"
     },
     "notification": {
       "approvalRequired": "Se requiere aprobación de herramienta",
@@ -23475,7 +23525,11 @@
       "remoteConnecting": "Conectando...",
       "remoteServerUrl": "URL del servidor",
       "remoteTestFailed": "No accesible",
-      "remoteTestSuccess": "Accesible"
+      "remoteTestSuccess": "Accesible",
+      "currency": "Moneda de precios",
+      "currencyUsd": "Dólar estadounidense (USD)",
+      "currencyCny": "Yuan chino (CNY)",
+      "currencyDesc": "Moneda de los precios de modelo de este proveedor. Introduzca los precios exactamente como aparecen en la página de precios del proveedor; las estadísticas de costes se convierten automáticamente a USD."
     },
     "provider_templates": {
       "modelstudio": {
@@ -26162,7 +26216,9 @@
       "zaiThinkingBudget": "Z.AI (bajet pemikiran)",
       "contextWindow": "Tetingkap konteks",
       "maxTokens": "Token maks",
-      "costUnpriced": "Tiada harga"
+      "costUnpriced": "Tiada harga",
+      "inputCostCny": "Kos input (¥/1M token)",
+      "outputCostCny": "Kos output (¥/1M token)"
     },
     "notification": {
       "approvalRequired": "Kelulusan alat diperlukan",
@@ -26309,7 +26365,11 @@
       "remoteConnecting": "Menyambung...",
       "remoteServerUrl": "URL pelayan",
       "remoteTestFailed": "Tidak boleh dicapai",
-      "remoteTestSuccess": "Boleh dicapai"
+      "remoteTestSuccess": "Boleh dicapai",
+      "currency": "Mata Wang Harga",
+      "currencyUsd": "Dolar AS (USD)",
+      "currencyCny": "Yuan China (CNY)",
+      "currencyDesc": "Mata wang harga model pembekal ini. Masukkan harga seperti yang tersenarai pada halaman harga vendor; statistik kos akan ditukar secara automatik kepada USD."
     },
     "provider_templates": {
       "modelstudio": {
@@ -28673,7 +28733,9 @@
       "anthropicThinkingBudget": "Anthropic（思考预算）",
       "zaiThinkingBudget": "Z.AI（思考预算）",
       "contextWindow": "上下文窗口",
-      "maxTokens": "最大 tokens"
+      "maxTokens": "最大 tokens",
+      "inputCostCny": "输入成本 (¥/1M tokens)",
+      "outputCostCny": "输出成本 (¥/1M tokens)"
     },
     "onboarding": {
       "importOpenClaw": {
@@ -29723,6 +29785,12 @@
         "config": "配置",
         "user": "用户设置"
       }
+    },
+    "provider": {
+      "currency": "计价货币",
+      "currencyUsd": "美元 (USD)",
+      "currencyCny": "人民币 (CNY)",
+      "currencyDesc": "本 Provider 模型单价的币种。单价请照厂商价目页原文填写，成本统计会自动换算为美元。"
     }
   }
 }

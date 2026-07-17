@@ -138,6 +138,7 @@ export default function ProviderSetup({
           thinkingStyle,
           models,
           enabled: true,
+          currency: selectedTemplate?.currency,
         },
       })
       // Set the first model as active
