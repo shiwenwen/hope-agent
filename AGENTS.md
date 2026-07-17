@@ -73,6 +73,7 @@ pnpm test                                                                    # C
 ### CI 与 branch protection
 
 - [`.github/workflows/lint.yml`](.github/workflows/lint.yml) 与 [`rust.yml`](.github/workflows/rust.yml) 触发条件包含 `[main, "release/**"]`
+- 两个必跑 workflow 必须监听 `merge_group` 的 `checks_requested`，确保 Merge Queue 能在临时合并提交上产出全部 required checks
 - GitHub ruleset `main-branch-protection` 的 `conditions.ref_name.include` 覆盖 `~DEFAULT_BRANCH` + `refs/heads/release/**`：必须 PR、必跑 8 项 status check、禁 force push、禁删分支、`enforce_admins: true`
 - 修改 workflow 的 job 名或 matrix 时需同步通过 `gh api` 更新 ruleset 的 `required_status_checks` context 列表
 
