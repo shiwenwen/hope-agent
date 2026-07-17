@@ -144,7 +144,7 @@ export default function DeveloperPanel() {
         <div>
           <h3 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
             <Sparkles className="h-4 w-4" />
-            {t("settings.devVisualTest", "UI 动效测试")}
+            {t("settings.devVisualTest")}
           </h3>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
             <Button
@@ -152,61 +152,62 @@ export default function DeveloperPanel() {
               size="sm"
               onClick={() => window.dispatchEvent(new CustomEvent("simulate-weather", { detail: { weatherCode: 0 } }))}
             >
-              晴天 (Clear)
+              {t("settings.weatherCodes.0")}
             </Button>
             <Button
               variant="outline"
               size="sm"
               onClick={() => window.dispatchEvent(new CustomEvent("simulate-weather", { detail: { weatherCode: 3 } }))}
             >
-              多云 (Cloudy)
+              {t("settings.weatherCodes.3")}
             </Button>
             <Button
               variant="outline"
               size="sm"
               onClick={() => window.dispatchEvent(new CustomEvent("simulate-weather", { detail: { weatherCode: 45 } }))}
             >
-              雾 (Fog)
+              {t("settings.weatherCodes.45")}
             </Button>
             <Button
               variant="outline"
               size="sm"
               onClick={() => window.dispatchEvent(new CustomEvent("simulate-weather", { detail: { weatherCode: 61 } }))}
             >
-              下雨 (Rain)
+              {t("settings.weatherCodes.61")}
             </Button>
             <Button
               variant="outline"
               size="sm"
               onClick={() => window.dispatchEvent(new CustomEvent("simulate-weather", { detail: { weatherCode: 71 } }))}
             >
-              下雪 (Snow)
+              {t("settings.weatherCodes.71")}
             </Button>
             <Button
               variant="outline"
               size="sm"
               onClick={() => window.dispatchEvent(new CustomEvent("simulate-weather", { detail: { weatherCode: 95 } }))}
             >
-              雷暴 (Thunder)
+              {t("settings.weatherCodes.95")}
             </Button>
             <Button
               variant="outline"
               size="sm"
               onClick={() => window.dispatchEvent(new CustomEvent("simulate-weather", { detail: { weatherCode: 61, windSpeed: 50 } }))}
             >
-              大风+雨 (Wind)
+              {t("settings.devWeatherWindRain")}
             </Button>
             <Button
               variant="outline"
               size="sm"
               onClick={() => window.dispatchEvent(new CustomEvent("simulate-weather", { detail: { weatherCode: 71, windSpeed: 45 } }))}
             >
-              大风+雪 (Wind)
+              {t("settings.devWeatherWindSnow")}
             </Button>
           </div>
           <p className="text-xs text-muted-foreground mt-2">
-            点击以上按钮可以临时替换全局动效参数（不影响实际缓存，重新加载/重启后恢复默认）。<br/>
-            提示：繁星与流星特效只在深色 (Dark) 主题下出现。
+            {t("settings.devVisualTestHint")}
+            <br />
+            {t("settings.devVisualTestDarkHint")}
           </p>
         </div>
       </div>

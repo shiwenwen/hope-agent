@@ -102,7 +102,7 @@ export default function AuthProfileEditor({
               type={visibleKeys.has(profile.id) ? "text" : "password"}
               value={profile.apiKey}
               onChange={(e) => updateProfile(profile.id, { apiKey: e.target.value })}
-              placeholder="API Key"
+              placeholder={t("common.apiKey")}
               className="h-7 text-xs font-mono pr-8"
             />
             <Button

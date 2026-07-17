@@ -3,6 +3,7 @@ import MarkdownRenderer from "@/components/common/MarkdownRenderer"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
+import { skillSourceLabel } from "./skillSourceLabel"
 import { cn } from "@/lib/utils"
 import { formatBytes } from "@/lib/format"
 import { IconTip } from "@/components/ui/tooltip"
@@ -199,7 +200,7 @@ export default function SkillDetailView({
           <p className="text-xs text-muted-foreground mt-1">{skill.description}</p>
           <div className="flex items-center gap-2 mt-2">
             <span className="text-[10px] px-1.5 py-0.5 rounded bg-secondary text-muted-foreground font-medium">
-              {skill.source}
+              {skillSourceLabel(t, skill.source)}
             </span>
             <IconTip label={skill.base_dir}>
               <Button

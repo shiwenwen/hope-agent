@@ -104,7 +104,9 @@ export default function LogActionBar({
                   LEVEL_COLORS[level],
                 )}
               >
-                {level}: {count}
+                {t(`dashboard.detail.levels.${level === "warn" ? "warning" : level}`, {
+                  defaultValue: level,
+                })}: {count}
               </span>
             )
           })}

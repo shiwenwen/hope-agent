@@ -333,7 +333,10 @@ export default function ExternalMemoryProviderCredentials({
               <SelectItem value="auto">{t("common.auto", "Auto")}</SelectItem>
               {connectionPreset.protocols.map((protocol) => (
                 <SelectItem key={protocol.value} value={protocol.value}>
-                  {protocol.label}
+                  {t(
+                    `settings.memoryExternalProviderProtocolLabels.${provider.kind}.${protocol.value}`,
+                    protocol.label,
+                  )}
                 </SelectItem>
               ))}
             </SelectContent>

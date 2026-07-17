@@ -196,7 +196,7 @@ export default function AcpSpawnBlock({
 
           {/* Run ID */}
           <div className="text-[10px] text-muted-foreground">
-            Run: {runId}
+            {t("subagent.runId")}: {runId}
           </div>
         </div>
       </AnimatedCollapse>

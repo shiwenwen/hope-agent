@@ -127,7 +127,7 @@ export default function AcpControlPanel() {
         ...prev.backends,
         {
           id: `custom-${Date.now()}`,
-          name: "Custom Agent",
+          name: t("settings.acpCustomAgent"),
           binary: "",
           acpArgs: [],
           enabled: true,

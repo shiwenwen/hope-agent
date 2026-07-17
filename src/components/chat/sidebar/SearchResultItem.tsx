@@ -44,8 +44,7 @@ export default function SearchResultItem({
   const title =
     result.sessionTitle?.trim() ||
     sessionMeta?.title?.trim() ||
-    t("chat.untitledSession") ||
-    "Untitled"
+    t("chat.untitledSession")
 
   const typeChip = (() => {
     if (result.channelType) {

@@ -187,6 +187,6 @@ function formatRecapProgress(
     case "done":
       return t("recap.progress.done")
     case "failed":
-      return progress.message ?? "failed"
+      return progress.message ?? t("recap.progress.failed")
   }
 }

@@ -855,7 +855,8 @@
       "failedShort": "Failed",
       "savedTo": "Exported to {{path}}",
       "downloaded": "Downloaded {{filename}}",
-      "failed": "Failed to export the conversation."
+      "failed": "Failed to export the conversation.",
+      "untitled": "Untitled"
     },
     "skillMention": {
       "heading": "Skills",
@@ -1167,7 +1168,10 @@
     "openSourceMessageMissingHint": "The conversation still exists, but the exact message for this memory source could not be found.",
     "unreadConversationCount": "{{count}} unread chats",
     "unreadStatus": "Unread",
-    "channelUnreadStatus": "Unread IM conversation"
+    "channelUnreadStatus": "Unread IM conversation",
+    "generatedImageName": "Generated image {{index}}",
+    "noAgents": "No agents",
+    "sessionFailed": "Conversation failed"
   },
   "codexAuth": {
     "expiredDescription": "Your Codex OAuth token is no longer valid. Please sign in again to continue.",
@@ -1228,7 +1232,64 @@
     "apply": "Apply",
     "modelNoVision": "No image support",
     "next": "Next",
-    "previous": "Previous"
+    "previous": "Previous",
+    "baseUrl": "Base URL",
+    "apiKey": "API Key",
+    "ok": "OK",
+    "statusValues": {
+      "applied": "Applied",
+      "rejected": "Rejected",
+      "active": "Active",
+      "archived": "Archived",
+      "awaiting_approval": "Awaiting approval",
+      "awaiting_user": "Awaiting user",
+      "blocked": "Blocked",
+      "cancel_requested": "Cancellation requested",
+      "cancelled": "Cancelled",
+      "cancelling": "Cancelling",
+      "completed": "Completed",
+      "critical": "Critical",
+      "disabled": "Disabled",
+      "draft": "Draft",
+      "enabled": "Enabled",
+      "empty": "Empty",
+      "error": "Error",
+      "failed": "Failed",
+      "healthy": "Healthy",
+      "idle": "Idle",
+      "insufficient_data": "Insufficient data",
+      "needs_user": "Needs user action",
+      "advisory": "Advisory",
+      "injected": "Injected",
+      "interrupted": "Interrupted",
+      "killed": "Killed",
+      "loading": "Loading",
+      "not_run": "Not run",
+      "open": "Open",
+      "partial": "Partial",
+      "passed": "Passed",
+      "paused": "Paused",
+      "pending": "Pending",
+      "processing": "Processing",
+      "queued": "Queued",
+      "ready": "Ready",
+      "resolved": "Resolved",
+      "recovering": "Recovering",
+      "running": "Running",
+      "skipped": "Skipped",
+      "stale": "Stale",
+      "success": "Success",
+      "succeeded": "Succeeded",
+      "timed_out": "Timed out",
+      "unknown": "Unknown",
+      "warning": "Warning",
+      "evaluating": "Evaluating",
+      "in_progress": "In progress"
+    },
+    "request": "Request",
+    "response": "Response",
+    "authMethod": "Authentication method",
+    "testSteps": "Test steps"
   },
   "context": {
     "ago": "ago",
@@ -1427,7 +1488,20 @@
       "status": "Status",
       "time": "Time",
       "toolCalls": "Tool Calls",
-      "toolName": "Tool Name"
+      "toolName": "Tool Name",
+      "roles": {
+        "user": "User",
+        "assistant": "Assistant",
+        "system": "System",
+        "tool": "Tool"
+      },
+      "levels": {
+        "error": "Error",
+        "warning": "Warning",
+        "info": "Info",
+        "debug": "Debug",
+        "trace": "Trace"
+      }
     },
     "dreaming": {
       "diaryList": "Diary list",
@@ -1547,6 +1621,11 @@
         "forgetConfirm": "Forget",
         "forgetDone": "Memory forgotten",
         "failed": "Action failed"
+      },
+      "phase": {
+        "light": "Light consolidation",
+        "deep": "Deep resolve",
+        "profile": "Profile synthesis"
       }
     },
     "error": {
@@ -1785,7 +1864,42 @@
       "taskPackValidationFailed": "Task pack validation failed.",
       "unassignedProject": "Unassigned",
       "tasksLabel": "Tasks",
-      "usdLabel": "USD"
+      "usdLabel": "USD",
+      "strategyVerdict": {
+        "improved": "Improved",
+        "regressed": "Regressed",
+        "mixed": "Mixed",
+        "unchanged": "Unchanged",
+        "inconclusive": "Inconclusive"
+      },
+      "activeCampaigns": "{{count}} active",
+      "baselineKinds": {
+        "deterministic": "Deterministic",
+        "deterministic_mock": "Deterministic mock",
+        "external_model": "External model"
+      },
+      "calibrationAcceptedNote": "Human review accepted {{label}} as calibration evidence.",
+      "calibrationFollowUpNote": "Human review marked {{label}} for calibration follow-up after {{status}}.",
+      "deterministic": "Deterministic",
+      "domainFallback": "Domain",
+      "domainRunSummary": "{{completed}}/{{total}} quality · {{evalCount}} eval",
+      "executionModes": {
+        "agent": "Agent",
+        "fixture_patch": "Fixture patch",
+        "trace_fixture": "Trace fixture"
+      },
+      "leaderboardMeta": "{{mode}} · {{domains}} · {{count}} traces",
+      "sourceTypes": {
+        "benchmark_campaign": "Benchmark campaign",
+        "domain_eval_campaign": "Domain evaluation campaign",
+        "fixture": "Fixture"
+      },
+      "traceLabels": {
+        "eval": "Eval",
+        "quality": "Quality",
+        "turn": "Turn",
+        "workflow": "Workflow"
+      }
     },
     "loading": "Loading...",
     "noData": "No data available",
@@ -2638,7 +2752,9 @@
       "embedding_model": "Embedding model",
       "ollama_install": "Ollama install",
       "ollama_preload": "Model start",
-      "ollama_pull": "Ollama model"
+      "ollama_pull": "Ollama model",
+      "knowledge_reembed": "Knowledge index rebuild",
+      "memory_reembed": "Memory vector rebuild"
     },
     "logs": {
       "empty": "No logs yet"
@@ -2699,7 +2815,11 @@
     "supportsImageMultimodal": "Supports image multimodality",
     "supportsVideoMultimodal": "Supports video multimodality",
     "text": "Text",
-    "video": "Video"
+    "video": "Video",
+    "anthropicThinkingBudget": "Anthropic (thinking budget)",
+    "zaiThinkingBudget": "Z.AI (thinking budget)",
+    "contextWindow": "Context Window",
+    "maxTokens": "Max Tokens"
   },
   "notification": {
     "cronCancelled": "Scheduled task cancelled",
@@ -3026,7 +3146,7 @@
     "enter": "Enter Plan Mode",
     "enterDialog": {
       "contextNoReason": "The model suggests entering Plan Mode before doing this task.",
-      "contextPrefix": "The model suggests entering Plan Mode before doing this task. Reason: ",
+      "contextPrefix": "The model suggests entering Plan Mode before doing this task. Reason: {{reason}}",
       "header": "Plan Mode",
       "option": {
         "no": {
@@ -3334,7 +3454,7 @@
       "name": "Mistral"
     },
     "modelstudio": {
-      "description": "阿里云 大模型服务平台，支持Coding Plan",
+      "description": "Alibaba Cloud Model Studio, with Coding Plan support",
       "name": "阿里云百炼"
     },
     "moonshot": {
@@ -3392,6 +3512,74 @@
     "zhipu": {
       "description": "GLM series models",
       "name": "Zhipu AI (Z.AI)"
+    },
+    "anthropic-vertex": {
+      "name": "Anthropic (Vertex AI)",
+      "description": "Claude models on Google Cloud Vertex AI"
+    },
+    "fireworks": {
+      "name": "Fireworks AI",
+      "description": "High-performance model inference platform"
+    },
+    "arcee": {
+      "name": "Arcee",
+      "description": "Arcee Trinity family models"
+    },
+    "venice": {
+      "name": "Venice",
+      "description": "Privacy-first AI inference platform"
+    },
+    "synthetic": {
+      "name": "Synthetic",
+      "description": "Open-source model inference (Anthropic compatible)"
+    },
+    "vercel-ai-gateway": {
+      "name": "Vercel AI Gateway",
+      "description": "Vercel AI gateway proxy"
+    },
+    "cerebras": {
+      "name": "Cerebras",
+      "description": "Ultra-fast Cerebras inference (Wafer Scale)"
+    },
+    "deepinfra": {
+      "name": "DeepInfra",
+      "description": "Cost-effective open-source model inference platform"
+    },
+    "github-copilot": {
+      "name": "GitHub Copilot",
+      "description": "GitHub Copilot subscription gateway aggregating leading flagship models"
+    },
+    "gmi": {
+      "name": "GMI Cloud",
+      "description": "High-performance inference platform hosting open-source and frontier models"
+    },
+    "novita": {
+      "name": "Novita AI",
+      "description": "High-performance open-source inference platform aggregating Kimi, DeepSeek, GLM, Qwen, and more"
+    },
+    "opencode": {
+      "name": "OpenCode Zen",
+      "description": "Flagship model gateway aggregating Claude, GPT, Gemini, MiniMax, and other frontier models"
+    },
+    "opencode-go": {
+      "name": "OpenCode Zen Go",
+      "description": "Model inference gateway focused on coding"
+    },
+    "kilocode": {
+      "name": "KiloCode",
+      "description": "AI model gateway for coding that automatically routes to the best model"
+    },
+    "sglang": {
+      "name": "SGLang",
+      "description": "High-performance local inference engine"
+    },
+    "tencent": {
+      "name": "Tencent Hunyuan (TokenHub)",
+      "description": "Tencent Hunyuan Hy3 reasoning model"
+    },
+    "stepfun": {
+      "name": "StepFun",
+      "description": "Step family reasoning models"
     }
   },
   "quickChat": {
@@ -3418,7 +3606,8 @@
       "extractingFacets": "Extracting facets {{done}}/{{total}}",
       "generatingSections": "Generating sections {{done}}/{{total}}",
       "persisting": "Persisting report…",
-      "started": "Starting ({{n}} sessions)"
+      "started": "Starting ({{n}} sessions)",
+      "failed": "Failed"
     },
     "range": {
       "days": "Last {{n}} days",
@@ -3430,6 +3619,12 @@
       "open": "Open Recap",
       "title": "Recap report",
       "waiting": "Waiting for recap progress..."
+    },
+    "report": {
+      "facetBreakdown": "Facet breakdown",
+      "topGoals": "Top goals",
+      "outcomes": "Outcomes",
+      "frictionSources": "Friction sources"
     }
   },
   "settings": {
@@ -4296,7 +4491,8 @@
       "conflictBestEvidence": "Best evidence",
       "conflictNoEvidencePreview": "No evidence preview available.",
       "conflictEvidenceDiffUnavailable": "Could not load evidence for the conflicting memory.",
-      "conflictCandidatesUnavailable": "Could not load conflict candidates."
+      "conflictCandidatesUnavailable": "Could not load conflict candidates.",
+      "pinned": "Pinned"
     },
     "configBackupsDesc": "Every settings change is snapshotted automatically. Roll back to any previous version (last 50 kept).",
     "configBackupsEmpty": "No history yet",
@@ -4566,7 +4762,8 @@
       "setMemoryDefault": "Set as default memory model",
       "tab": "Embedding Models",
       "testOk": "Embedding connection test passed",
-      "title": "Embedding Model Configs"
+      "title": "Embedding Model Configs",
+      "openAiCompatible": "OpenAI Compatible"
     },
     "fallbackModels": "Fallback Models",
     "fallbackModelsDesc": "When the primary model is unavailable, try these models in order",
@@ -4599,7 +4796,8 @@
       "advanced": "Advanced",
       "slowHandlerWarning": "This handler runs an LLM / sub-agent inline and will delay every time this blocking event fires. Prefer command / http here, or move it to an observation event (e.g. PostToolUse).",
       "invalidJson": "Invalid JSON",
-      "modelInheritDefault": "Follow automation default"
+      "modelInheritDefault": "Follow automation default",
+      "defaultShell": "Default"
     },
     "hours": "hr",
     "imageGenApiKey": "API Key",
@@ -4938,6 +5136,7 @@
         "running": "Running"
       },
       "cacheStale": "Showing cached library results because the live search is unavailable.",
+      "capabilityFilter": "Capability filter",
       "cloudOnly": "Cloud only",
       "delete": {
         "active": "It is the global default model; that reference will be cleared.",
@@ -5801,7 +6000,8 @@
     "skillExtras": {
       "installHint": "Run {{cmd}} to install dependencies",
       "licenseWarning": "Source license: {{license}}",
-      "relatedSkills": "Related skills"
+      "relatedSkills": "Related skills",
+      "proprietary": "Proprietary"
     },
     "skillFiles": "Files",
     "skillHardBlocked": "Incompatible",
@@ -7433,7 +7633,227 @@
     "audioGenTimeout": "Request timeout (s)",
     "audioGenFetchVoices": "Fetch voices",
     "audioGenKnownModels": "Known models",
-    "audioGenPickVoice": "Pick from list…"
+    "audioGenPickVoice": "Pick from list…",
+    "acpCustomAgent": "Custom Agent",
+    "canvasTypes": {
+      "chart": "Chart",
+      "code": "Code",
+      "html": "HTML",
+      "markdown": "Markdown",
+      "mermaid": "Mermaid",
+      "slides": "Slides",
+      "svg": "SVG"
+    },
+    "teamMemberDefaultTaskPlaceholder": "Implement the UI for the feature.",
+    "teamMemberDescriptionPlaceholder": "You are the frontend specialist. Build React components with TypeScript…",
+    "teamMemberNamePlaceholder": "Frontend",
+    "teamTemplateNamePlaceholder": "Full-Stack Feature",
+    "teamTemplateNotFound": "Template \"{{id}}\" not found",
+    "devVisualTestDarkHint": "Tip: star and meteor effects appear only in the Dark theme.",
+    "devVisualTestHint": "These buttons temporarily replace the global animation parameters without changing the cached weather. Reload or restart to restore the default.",
+    "devWeatherWindRain": "Wind and rain",
+    "devWeatherWindSnow": "Wind and snow",
+    "weatherCodes": {
+      "0": "Clear sky",
+      "1": "Mainly clear",
+      "2": "Partly cloudy",
+      "3": "Overcast",
+      "45": "Fog",
+      "48": "Rime fog",
+      "51": "Light drizzle",
+      "53": "Moderate drizzle",
+      "55": "Dense drizzle",
+      "56": "Light freezing drizzle",
+      "57": "Dense freezing drizzle",
+      "61": "Slight rain",
+      "63": "Moderate rain",
+      "65": "Heavy rain",
+      "66": "Light freezing rain",
+      "67": "Heavy freezing rain",
+      "71": "Slight snowfall",
+      "73": "Moderate snowfall",
+      "75": "Heavy snowfall",
+      "77": "Snow grains",
+      "80": "Slight rain showers",
+      "81": "Moderate rain showers",
+      "82": "Violent rain showers",
+      "85": "Slight snow showers",
+      "86": "Heavy snow showers",
+      "95": "Thunderstorm",
+      "96": "Thunderstorm with slight hail",
+      "99": "Thunderstorm with heavy hail"
+    },
+    "memoryExternalProviderProtocolLabels": {
+      "custom": {
+        "hope_sync_v1": "Hope Sync v1"
+      },
+      "hindsight": {
+        "self_hosted": "Hindsight self-hosted v1",
+        "v1": "Hindsight API v1"
+      },
+      "honcho": {
+        "self_hosted": "Honcho self-hosted v3",
+        "v3": "Honcho API v3"
+      },
+      "mem0": {
+        "oss": "Mem0 OSS",
+        "platform_v3": "Mem0 Platform v3"
+      },
+      "open_viking": {
+        "v1": "OpenViking REST v1"
+      },
+      "supermemory": {
+        "cloud": "Supermemory Cloud",
+        "self_hosted": "Supermemory self-hosted"
+      },
+      "zep": {
+        "graphiti_http": "Graphiti HTTP sidecar"
+      }
+    },
+    "memoryBackupEncryptedPassphraseTooShort": "Use at least 12 characters for the backup passphrase",
+    "memoryBackupEncryptedPassphraseCommon": "Avoid common words or patterns in the backup passphrase",
+    "memoryBackupEncryptedPassphraseRepetitive": "Use a less repetitive backup passphrase",
+    "memoryBackupEncryptedPassphraseVariety": "Use more variety, or a longer four-word phrase",
+    "memoryDbSnapshotRestoreStatus": {
+      "ready": "Ready",
+      "no_metadata": "Metadata missing",
+      "missing_files": "Files missing",
+      "size_mismatch": "Size mismatch",
+      "sha256_mismatch": "SHA-256 mismatch",
+      "quick_check_failed": "quick_check failed"
+    },
+    "memoryDbSnapshotRestoreIssues": {
+      "noMetadata": "The snapshot manifest has no stored file metadata. Create a fresh snapshot before restoring.",
+      "invalidFileName": "Invalid snapshot file name: {{name}}.",
+      "unsupportedFileName": "Unsupported snapshot database file name: {{name}}.",
+      "missingFile": "Missing file: {{name}}.",
+      "sizeMismatch": "File size mismatch: {{name}}; expected {{expected}} bytes, found {{actual}} bytes.",
+      "sha256Mismatch": "SHA-256 mismatch: {{name}}.",
+      "missingManifestEntry": "Missing manifest entry: {{name}}.",
+      "quickCheckReturned": "Snapshot quick_check returned {{result}}.",
+      "quickCheckFailed": "Snapshot quick_check failed: {{error}}."
+    },
+    "memoryExternalProviderDataFlow": {
+      "none": "None",
+      "manual": "Manual",
+      "pull_only": "Pull only",
+      "push_only": "Push only",
+      "bidirectional": "Bidirectional"
+    },
+    "memoryExternalProviderPreflightAction": {
+      "off": "Off",
+      "blocked": "Blocked",
+      "would_sync": "Would sync"
+    },
+    "memoryExternalProviderSyncStatus": {
+      "off": "Off",
+      "blocked": "Blocked",
+      "no_runtime_adapter": "No runtime adapter",
+      "succeeded": "Succeeded",
+      "failed": "Failed"
+    },
+    "memoryHealthIssues": {
+      "db_quick_check_failed": {
+        "message": "SQLite quick_check returned {{result}}."
+      },
+      "embedding_provider_unavailable": {
+        "message": "Memory embedding is configured, but the runtime provider is not loaded."
+      },
+      "memory_reembed_needed": {
+        "message": "{{memoryCount}} memories need embeddings for the active model."
+      },
+      "memory_vector_index_missing": {
+        "message": "Memory embedding is enabled, but the vector index is missing."
+      },
+      "memory_fts_missing_rows": {
+        "message": "{{memoryFtsCount}} memories are missing from the keyword index."
+      },
+      "memory_fts_missing": {
+        "message": "The memory keyword index table is missing."
+      },
+      "memory_literal_fts_missing_rows": {
+        "message": "{{literalMemoryCount}} memories are missing from the substring index."
+      },
+      "claim_fts_missing_rows": {
+        "message": "{{claimFtsCount}} structured memories are missing from the keyword index."
+      },
+      "claim_fts_missing": {
+        "message": "The structured memory keyword index table is missing."
+      },
+      "claim_literal_fts_missing_rows": {
+        "message": "{{literalClaimCount}} structured memories are missing from the substring index."
+      },
+      "evidence_fts_missing_rows": {
+        "message": "{{evidenceFtsCount}} evidence records are missing from the structured keyword index."
+      },
+      "evidence_fts_missing": {
+        "message": "The structured memory evidence keyword index table is missing."
+      },
+      "claims_without_evidence": {
+        "message": "{{claimsWithoutEvidence}} structured memories have no evidence records."
+      },
+      "orphan_claim_graph_rows": {
+        "message": "{{orphanEvidence}} orphan evidence records and {{orphanLinks}} orphan claim links were found."
+      },
+      "orphan_procedure_episode_refs": {
+        "message": "{{orphanProcedureRefs}} procedure source references point to missing episodes."
+      },
+      "memory_experience_tables_missing": {
+        "message": "The episode or procedure memory tables are missing."
+      },
+      "claims_need_review": {
+        "message": "{{claimsNeedReview}} structured memories are waiting for review."
+      },
+      "deep_resolver_preflight_unavailable": {
+        "message": "Deep Resolver preflight could not load active structured memories."
+      },
+      "deep_resolver_backlog": {
+        "message": "Deep Resolver backlog: {{expired}} expired memories and {{groups}} conflict candidate groups."
+      },
+      "dreaming_state_stale": {
+        "message": "{{staleRuns}} stale Dreaming runs and {{staleLocks}} expired locks were found."
+      },
+      "db_snapshot_incomplete": {
+        "message": "The latest database safety snapshot cannot be fully verified ({{snapshotStatus}})."
+      },
+      "external_memory_provider_incomplete": {
+        "message": "External memory provider “{{provider}}” is enabled but not fully configured."
+      },
+      "external_memory_provider_adapter_unavailable": {
+        "message": "External memory provider “{{provider}}” is configured, but its runtime adapter is unavailable."
+      },
+      "external_memory_provider_policy_unsupported": {
+        "message": "External memory provider “{{provider}}” does not support the selected sync policy."
+      },
+      "external_memory_provider_error": {
+        "message": "External memory provider “{{provider}}” reported an error: {{error}}"
+      }
+    },
+    "memoryHealthIssueActions": {
+      "dbRepair": "Database integrity needs attention. Create a snapshot first; other repairs are hidden until the data is preserved.",
+      "embeddingReload": "Open Memory settings, then re-save or switch the active embedding model.",
+      "reembed": "Re-embed All",
+      "rebuildMemoryIndex": "Some long-term memories are missing from keyword search; rebuild the local FTS index.",
+      "rebuildStructuredIndex": "Some structured memories or evidence are missing from keyword search; rebuild the structured indexes.",
+      "reviewClaims": "Open the Memory Inbox and review the affected structured memories.",
+      "repairClaimGraph": "Structured memory evidence or links point at missing rows; clean up orphan graph links.",
+      "repairExperience": "Procedure memories reference missing source episodes; clean up those experience links.",
+      "restartMigrations": "Restart the app to run memory migrations, then export a fresh backup.",
+      "retryHealth": "Retry Memory Health; if this persists, inspect memory.db and the claim tables.",
+      "openResolver": "Open Dashboard → Dreaming and review the Deep Resolver preflight before running it.",
+      "recoverDreaming": "Background memory maintenance has stale runs or locks; recover the scheduler state.",
+      "freshSnapshot": "Latest snapshot is not fully verifiable. Create a fresh snapshot before recovery.",
+      "finishProvider": "Finish endpoint setup before sync can run.",
+      "disablePendingProvider": "Runtime adapter not shipped yet; this provider is configuration-only.",
+      "choosePolicy": "Choose a supported sync policy before sync can run.",
+      "reviewProvider": "Review the provider credentials and sync settings; local memory remains available."
+    },
+    "skillSources": {
+      "bundled": "Bundled",
+      "shared": "Shared",
+      "managed": "Managed",
+      "project": "Project"
+    }
   },
   "shortcuts": {
     "actionOpenSettings": "Open Settings",
@@ -7678,7 +8098,15 @@
       "messages": "Messages",
       "tasks": "Tasks"
     },
-    "view": "View"
+    "view": "View",
+    "memberStatus": {
+      "completed": "Completed",
+      "error": "Error",
+      "idle": "Idle",
+      "killed": "Killed",
+      "paused": "Paused",
+      "working": "Working"
+    }
   },
   "theme": {
     "auto": "Auto",
@@ -7879,7 +8307,23 @@
       "errBaseUrlMustBeWs": "This provider uses WebSocket — Base URL must start with ws:// or wss://",
       "errBaseUrlMustBeHttp": "This provider uses HTTP — Base URL must start with http:// or https://",
       "errApiKeyRequired": "API Key is required",
-      "errExtraFieldRequired": "Required field is missing: {{field}}"
+      "errExtraFieldRequired": "Required field is missing: {{field}}",
+      "defaultRecognitionEngine": "Default recognition engine",
+      "apiKeyHints": {
+        "azure": "Subscription Key (Azure resource → Keys and Endpoint)",
+        "volcengine": "Access Token — not the Secret Key",
+        "xunfei": "APIKey"
+      },
+      "extraFields": {
+        "accent": "Accent",
+        "accentHint": "Accent: mandarin (default) or another dialect code from the iFlytek documentation",
+        "region": "Region",
+        "regionHint": "For example, eastus, westus, or southeastasia; it must match your Azure Speech resource region",
+        "volcengineAppIdHint": "Volcengine console → Service API authentication → APP ID (numeric)",
+        "volcengineResourceIdHint": "For 1.0 (BigASR), leave blank to use volc.bigasr.sauc.duration. For 2.0 (Seed, where the instance ID contains Speech_Recognition_Seed_streaming), enter volc.seedasr.sauc.duration.",
+        "xunfeiApiSecretHint": "iFlytek console → My Applications → the application's APISecret",
+        "xunfeiAppIdHint": "iFlytek console → My Applications → the application's APPID"
+      }
     }
   },
   "askUserDialog": {
@@ -8426,7 +8870,15 @@
       "watchSettled": "Settled",
       "watchFailures": "{{count}} failures",
       "triggerCron": "Cron",
-      "tokenBudget": "Token"
+      "tokenBudget": "Token",
+      "watchKind": {
+        "app_event": "App event",
+        "command": "Command",
+        "file": "File",
+        "job": "Task",
+        "subagent": "Sub-agent",
+        "websocket": "WebSocket"
+      }
     },
     "workflow": {
       "title": "Workflow",
@@ -8865,7 +9317,27 @@
       "actionAsk": "Confirm",
       "actionEvidence": "Evidence",
       "actionConflict": "Conflict",
-      "actionTask": "Task"
+      "actionTask": "Task",
+      "confirmationAccept": "Use",
+      "confirmationAcceptDescription": "Record this context as valid evidence confirmed by the user.",
+      "confirmationContext": "Confirm whether this context should be used as a basis for the current task's decisions.",
+      "confirmationContextWithSubtitle": "Confirm whether this context should be used as a basis for the current task's decisions: {{subtitle}}",
+      "confirmationEvidenceTitle": "User confirmation: {{title}}",
+      "confirmationHeader": "Context",
+      "confirmationQuestion": "Use “{{title}}” as valid context for the current task?",
+      "confirmationReject": "Do not use",
+      "confirmationRejectDescription": "Record this context as rejected or not accepted for now.",
+      "conflictEvidenceTitle": "Conflict to review: {{title}}",
+      "locationLine": "Location: {{value}}",
+      "reasonsLine": "Why recommended: {{value}}",
+      "sourcesLine": "Source signals: {{value}}",
+      "statusLine": "Status: {{value}}",
+      "summaryClueLine": "Summary clue: {{value}}",
+      "summaryEvidenceTitle": "Context summary: {{title}}",
+      "taskActiveForm": "Processing context: {{location}}",
+      "taskWithLocation": "Process context: {{title}} ({{location}})",
+      "taskWithSubtitle": "Process context: {{title}} — {{subtitle}}",
+      "taskWithType": "Process context: {{title}} ({{type}})"
     },
     "domainWorkbench": {
       "evidenceSourceCited": "Source cited",
@@ -9201,7 +9673,15 @@
       "markResolved": "Mark resolved",
       "markDismissed": "Dismiss",
       "markFalsePositive": "Mark false positive",
-      "more": "{{count}} more"
+      "more": "{{count}} more",
+      "profileCorrectness": "Correctness",
+      "profileSecurity": "Security",
+      "profileMaintainability": "Maintainability",
+      "profileTests": "Tests",
+      "profileConcurrency": "Concurrency",
+      "profileFrontend": "Frontend",
+      "profileAccessibility": "Accessibility",
+      "profileDeep": "Deep"
     },
     "verification": {
       "stepPending": "Pending",
@@ -9628,7 +10108,9 @@
       "noDegraded": "No memory-layer degradation was recorded for this session"
     },
     "kbAttachmentsLoadFailed": "Could not read attached knowledge spaces",
-    "kbLoadDetail": "Details: {{error}}"
+    "kbLoadDetail": "Details: {{error}}",
+    "exitCode": "Exit {{code}}",
+    "refCount": "{{count}} refs"
   },
   "knowledge": {
     "picker": {
@@ -9854,7 +10336,8 @@
         "failed": "Failed",
         "cancelled": "Cancelled",
         "timed_out": "Timed out"
-      }
+      },
+      "phaseIndex": "Indexing files"
     },
     "maintenance": {
       "tooltip": "Maintenance",
@@ -9872,6 +10355,13 @@
       "approve": "Apply",
       "reject": "Dismiss",
       "cycleSkipped": "Maintenance skipped: {{note}}",
+      "skipReasons": {
+        "alreadyRunning": "Another maintenance cycle is already running",
+        "manualDisabled": "Manual scan is disabled",
+        "disabled": "Maintenance is disabled",
+        "databaseNotInitialized": "The knowledge database is not initialized",
+        "listFailed": "Failed to list knowledge spaces: {{error}}"
+      },
       "cycleDone": "Generated {{n}} suggestion(s)",
       "runFailed": "Couldn't run maintenance",
       "errorDetail": "Details: {{error}}",
@@ -9901,7 +10391,14 @@
       "needsReview": "Needs review",
       "rebuildEvidenceTip": "Rebuild the derived evidence index",
       "schemaIssues": "Schema issues",
-      "staleRefs": "Stale refs"
+      "staleRefs": "Stale refs",
+      "schemaIssueKind": {
+        "missingEvidence": "Missing evidence",
+        "staleSource": "Stale source",
+        "schemaViolation": "Schema violation",
+        "conflictingClaim": "Conflicting claim",
+        "unfiledOpenQuestion": "Unfiled open question"
+      }
     },
     "graph": {
       "toggle": "Graph view",
@@ -10192,7 +10689,11 @@
       "unspecified": "Unspecified",
       "unknown": "Unknown",
       "notVerified": "Not verified",
-      "legacyPendingHash": "Legacy / pending hash"
+      "legacyPendingHash": "Legacy / pending hash",
+      "text": "Text",
+      "narrative": "Narrative",
+      "legacyCanvas": "Legacy canvas",
+      "test": "Test"
     },
     "loadFailed": "Failed to load Artifacts",
     "verifyPassed": "Verification passed",
@@ -10238,7 +10739,8 @@
     "confirmRedaction": "Confirm redaction & review",
     "exportReviewPassed": "Export review passed",
     "exportReviewBlocked": "Export review still has blockers",
-    "guardStatus": "Guard"
+    "guardStatus": "Guard",
+    "defaultName": "Artifact"
   },
   "backgroundJobs": {
     "panelTitle": "Background Tasks",
@@ -10301,6 +10803,7 @@
     "emptyArtifacts": "No artifacts yet. Click \"New Artifact\" to start.",
     "selectArtifact": "Select an artifact on the left to preview",
     "artifactCount": "{{count}} artifacts",
+    "artifactType": "Artifact type",
     "zoomFit": "Fit",
     "reload": "Reload",
     "exportArtifact": "Export this page",
@@ -10349,6 +10852,7 @@
     "restore": "Restore",
     "noVersions": "No versions yet",
     "version": "Version",
+    "extractSource": "Extraction source",
     "extractSystem": "Extract brand…",
     "restyling": "Applying design system…",
     "extractPickDir": "Choose codebase folder…",
@@ -10887,7 +11391,8 @@
       "onlyImages": "Only image files can be dropped",
       "failed": "Import failed: {{name}}",
       "done": "Imported {{count}} image(s)",
-      "drop": "Drop to import images"
+      "drop": "Drop to import images",
+      "importedImage": "Imported image"
     },
     "presenter": {
       "hide": "Hide presenter notes",
@@ -11004,6 +11509,46 @@
       "checkCleanAll": "All artifacts match their code",
       "checkStale": "{{n}} artifact(s) have code updates",
       "chatPrompt": "The implemented code has diverged from this design. Update the current design to reflect the referenced code changes, keeping the design intent and everything else unchanged."
+    }
+  },
+  "configRecovery": {
+    "title": "Config Recovery Needed",
+    "subtitle": "Hope Agent could not read the existing config.json. To protect your Provider, MCP server, and onboarding state, config writes are paused.",
+    "path": "Config file",
+    "error": "Read error",
+    "details": "Protection note",
+    "retry": "Retry Read",
+    "restart": "Restart App",
+    "backupsTitle": "Restore a Config Snapshot",
+    "backupsDesc": "After restore, Hope Agent will reload the config and continue startup. The unreadable file is kept in place and copied to a .corrupt-<timestamp> sidecar when possible.",
+    "loading": "Loading snapshots…",
+    "empty": "No config snapshots found",
+    "emptyHint": "Repair config.json manually, or recover a usable version from backups/autosave or config.json.corrupt-* and retry.",
+    "restore": "Restore",
+    "source": "Source",
+    "retrying": "Reading",
+    "restoring": "Restoring",
+    "restartFailed": "Automatic restart is unavailable here. Close and reopen Hope Agent manually.",
+    "categoryValues": {
+      "providers": "Providers",
+      "proxy": "Proxy",
+      "theme": "Theme",
+      "user": "User settings",
+      "rollback_to": "Restore to {{timestamp}}"
+    },
+    "sourceValues": {
+      "cli": "CLI",
+      "guardian": "Recovery guardian",
+      "http": "HTTP API",
+      "rollback": "Restore",
+      "settings_ui": "Settings UI",
+      "skill": "Skill",
+      "tauri": "Desktop app",
+      "ui": "App UI"
+    },
+    "kindValues": {
+      "config": "Configuration",
+      "user": "User settings"
     }
   }
 }

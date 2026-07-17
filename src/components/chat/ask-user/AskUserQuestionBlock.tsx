@@ -504,7 +504,9 @@ export default function AskUserQuestionBlock({
       {isEnterPlanModeAsk ? (
         <p className="text-sm text-muted-foreground">
           {fallbackText(group.context)
-            ? t("planMode.enterDialog.contextPrefix") + fallbackText(group.context)
+            ? t("planMode.enterDialog.contextPrefix", {
+                reason: fallbackText(group.context),
+              })
             : t("planMode.enterDialog.contextNoReason")}
         </p>
       ) : (

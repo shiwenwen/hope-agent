@@ -52,7 +52,9 @@ export function ExportSessionDialog({
   const [status, setStatus] = useState<"idle" | "busy" | "saved" | "failed">("idle")
   const isBusy = status === "busy"
 
-  const stem = sanitizeStem(sessionTitle && sessionTitle.trim() ? sessionTitle : "Untitled")
+  const stem = sanitizeStem(
+    sessionTitle && sessionTitle.trim() ? sessionTitle : t("chat.exportSession.untitled"),
+  )
   const defaultFilename = `${stem}.${format}`
 
   const handleExport = useCallback(async () => {

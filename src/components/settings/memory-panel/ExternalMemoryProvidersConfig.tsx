@@ -125,12 +125,23 @@ function formatProviderTimestamp(value?: string | null): string | null {
   }).format(new Date(parsed))
 }
 
-function dataFlowLabel(flow: ExternalMemoryProviderDataFlow): string {
-  return flow.replace(/_/g, " ")
-}
-
 export default function ExternalMemoryProvidersConfig() {
   const { t } = useTranslation()
+  const dataFlowLabel = useCallback(
+    (flow: ExternalMemoryProviderDataFlow) =>
+      t(`settings.memoryExternalProviderDataFlow.${flow}`, flow.replace(/_/g, " ")),
+    [t],
+  )
+  const preflightActionLabel = useCallback(
+    (action: ExternalMemoryProviderPreflightReport["providers"][number]["action"]) =>
+      t(`settings.memoryExternalProviderPreflightAction.${action}`, action.replace(/_/g, " ")),
+    [t],
+  )
+  const syncStatusLabel = useCallback(
+    (status: ExternalMemoryProviderSyncReport["providers"][number]["status"]) =>
+      t(`settings.memoryExternalProviderSyncStatus.${status}`, status.replace(/_/g, " ")),
+    [t],
+  )
   const [expanded, setExpanded] = useState(false)
   const [config, setConfig] = useState<ExternalMemoryProvidersConfigValue>(EMPTY_CONFIG)
   const [original, setOriginal] = useState<ExternalMemoryProvidersConfigValue>(EMPTY_CONFIG)
@@ -925,7 +936,7 @@ export default function ExternalMemoryProvidersConfig() {
                             {t("settings.memoryExternalProviderPreflightPlan", {
                               defaultValue:
                                 "Preflight: {{action}} · planned {{planned}} → runtime {{runtime}} · local candidates {{count}}",
-                              action: providerPreflight.action.replace(/_/g, " "),
+                              action: preflightActionLabel(providerPreflight.action),
                               planned: dataFlowLabel(providerPreflight.plannedDataFlow),
                               runtime: dataFlowLabel(providerPreflight.runtimeDataFlow),
                               count: providerPreflight.localMemoryCandidateCount,
@@ -940,7 +951,7 @@ export default function ExternalMemoryProvidersConfig() {
                             {t("settings.memoryExternalProviderSyncResult", {
                               defaultValue:
                                 "Sync report: {{status}} · external IO {{io}} · imported {{imported}} / exported {{exported}} / updated {{updated}}",
-                              status: providerSyncResult.status.replace(/_/g, " "),
+                              status: syncStatusLabel(providerSyncResult.status),
                               io: providerSyncResult.externalIoPerformed
                                 ? t("common.yes", "yes")
                                 : t("common.no", "no"),

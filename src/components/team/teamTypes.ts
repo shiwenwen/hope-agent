@@ -119,14 +119,14 @@ export interface TeamSummary {
 // Status display config
 export const MEMBER_STATUS_CONFIG: Record<
   MemberStatus,
-  { color: string; bgColor: string; label: string }
+  { color: string; bgColor: string }
 > = {
-  idle: { color: "text-gray-500", bgColor: "bg-gray-100", label: "Idle" },
-  working: { color: "text-blue-500", bgColor: "bg-blue-100", label: "Working" },
-  paused: { color: "text-yellow-500", bgColor: "bg-yellow-100", label: "Paused" },
-  completed: { color: "text-green-500", bgColor: "bg-green-100", label: "Completed" },
-  error: { color: "text-red-500", bgColor: "bg-red-100", label: "Error" },
-  killed: { color: "text-gray-400", bgColor: "bg-gray-100", label: "Killed" },
+  idle: { color: "text-gray-500", bgColor: "bg-gray-100" },
+  working: { color: "text-blue-500", bgColor: "bg-blue-100" },
+  paused: { color: "text-yellow-500", bgColor: "bg-yellow-100" },
+  completed: { color: "text-green-500", bgColor: "bg-green-100" },
+  error: { color: "text-red-500", bgColor: "bg-red-100" },
+  killed: { color: "text-gray-400", bgColor: "bg-gray-100" },
 }
 
 export const KANBAN_COLUMNS = ["todo", "doing", "review", "done"] as const

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
+import { skillSourceLabel } from "@/components/settings/skills-panel/skillSourceLabel"
 import { Loader2, FolderOpen, Plus, Sparkles, X } from "lucide-react"
 
 import { getTransport } from "@/lib/transport-provider"
@@ -243,7 +244,7 @@ export function SkillsStep({ initialDisabled, onChange }: SkillsStepProps) {
                 </div>
                 {s.source && (
                   <span className="text-[10px] px-1.5 py-0.5 rounded bg-secondary text-muted-foreground font-medium shrink-0">
-                    {s.source}
+                    {skillSourceLabel(t, s.source)}
                   </span>
                 )}
               </div>

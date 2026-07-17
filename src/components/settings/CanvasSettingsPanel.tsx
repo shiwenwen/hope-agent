@@ -109,13 +109,13 @@ export default function CanvasSettingsPanel() {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="html">HTML</SelectItem>
-              <SelectItem value="markdown">Markdown</SelectItem>
-              <SelectItem value="code">Code</SelectItem>
-              <SelectItem value="svg">SVG</SelectItem>
-              <SelectItem value="mermaid">Mermaid</SelectItem>
-              <SelectItem value="chart">Chart</SelectItem>
-              <SelectItem value="slides">Slides</SelectItem>
+              <SelectItem value="html">{t("settings.canvasTypes.html")}</SelectItem>
+              <SelectItem value="markdown">{t("settings.canvasTypes.markdown")}</SelectItem>
+              <SelectItem value="code">{t("settings.canvasTypes.code")}</SelectItem>
+              <SelectItem value="svg">{t("settings.canvasTypes.svg")}</SelectItem>
+              <SelectItem value="mermaid">{t("settings.canvasTypes.mermaid")}</SelectItem>
+              <SelectItem value="chart">{t("settings.canvasTypes.chart")}</SelectItem>
+              <SelectItem value="slides">{t("settings.canvasTypes.slides")}</SelectItem>
             </SelectContent>
           </Select>
         </div>

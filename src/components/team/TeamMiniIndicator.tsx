@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react"
+import { useTranslation } from "react-i18next"
 import { Users, Loader2 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { getTransport } from "@/lib/transport-provider"
@@ -10,6 +11,7 @@ interface TeamMiniIndicatorProps {
 }
 
 export default function TeamMiniIndicator({ teamId, onClick }: TeamMiniIndicatorProps) {
+  const { t } = useTranslation()
   const [teamName, setTeamName] = useState("")
   const [memberCount, setMemberCount] = useState(0)
   const [hasActive, setHasActive] = useState(false)
@@ -53,7 +55,7 @@ export default function TeamMiniIndicator({ teamId, onClick }: TeamMiniIndicator
       ) : (
         <Users className="h-3 w-3 text-muted-foreground" />
       )}
-      <span className="max-w-[100px] truncate">{teamName || "Team"}</span>
+      <span className="max-w-[100px] truncate">{teamName || t("team.indicator")}</span>
       <span className="tabular-nums text-muted-foreground">{memberCount}</span>
     </button>
   )

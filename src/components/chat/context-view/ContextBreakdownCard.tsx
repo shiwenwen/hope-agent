@@ -294,7 +294,7 @@ export default function ContextBreakdownCard({
         <div className="px-4 pb-2 text-[11px] text-muted-foreground space-y-0.5">
           {data.lastCompactTier != null && data.lastCompactSecsAgo != null && (
             <div>
-              {t("context.lastCompact", "Last compact")}: Tier {data.lastCompactTier} ·{" "}
+              {t("context.lastCompact", "Last compact")}: {t("chat.contextCompactedTier", { tier: data.lastCompactTier })} ·{" "}
               {formatDuration(data.lastCompactSecsAgo)}{" "}
               {t("context.ago", "ago")}
             </div>

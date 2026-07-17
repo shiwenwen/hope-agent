@@ -1,7 +1,6 @@
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useMemo } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
-import i18n from "@/i18n/i18n"
 import { SUPPORTED_LANGUAGES } from "@/i18n/i18n"
 import { logger } from "@/lib/logger"
 import { Button } from "@/components/ui/button"
@@ -35,13 +34,41 @@ interface WebSearchPanelProps {
   showAdvanced?: boolean
 }
 
+const COUNTRY_OPTIONS = [
+  ["CN", "🇨🇳", "China"],
+  ["US", "🇺🇸", "United States"],
+  ["JP", "🇯🇵", "Japan"],
+  ["KR", "🇰🇷", "South Korea"],
+  ["GB", "🇬🇧", "United Kingdom"],
+  ["DE", "🇩🇪", "Germany"],
+  ["FR", "🇫🇷", "France"],
+  ["RU", "🇷🇺", "Russia"],
+  ["BR", "🇧🇷", "Brazil"],
+  ["IN", "🇮🇳", "India"],
+  ["AU", "🇦🇺", "Australia"],
+  ["CA", "🇨🇦", "Canada"],
+  ["SG", "🇸🇬", "Singapore"],
+  ["TW", "🇹🇼", "Taiwan"],
+  ["HK", "🇭🇰", "Hong Kong"],
+] as const
+
 export default function WebSearchPanel({
   embedded = false,
   onSaved,
   saveLabel,
   showAdvanced,
 }: WebSearchPanelProps = {}) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const regionNames = useMemo(() => {
+    if (typeof Intl.DisplayNames !== "function") return null
+    try {
+      return new Intl.DisplayNames([i18n.resolvedLanguage ?? i18n.language], {
+        type: "region",
+      })
+    } catch {
+      return null
+    }
+  }, [i18n.language, i18n.resolvedLanguage])
   const [config, setConfig] = useState<WebSearchConfig | null>(null)
   const [savedJson, setSavedJson] = useState("")
   const [saving, setSaving] = useState(false)
@@ -301,21 +328,11 @@ export default function WebSearchPanel({
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="auto">{t("settings.webSearchCountryAuto")}</SelectItem>
-                        <SelectItem value="CN">🇨🇳 China</SelectItem>
-                        <SelectItem value="US">🇺🇸 United States</SelectItem>
-                        <SelectItem value="JP">🇯🇵 Japan</SelectItem>
-                        <SelectItem value="KR">🇰🇷 South Korea</SelectItem>
-                        <SelectItem value="GB">🇬🇧 United Kingdom</SelectItem>
-                        <SelectItem value="DE">🇩🇪 Germany</SelectItem>
-                        <SelectItem value="FR">🇫🇷 France</SelectItem>
-                        <SelectItem value="RU">🇷🇺 Russia</SelectItem>
-                        <SelectItem value="BR">🇧🇷 Brazil</SelectItem>
-                        <SelectItem value="IN">🇮🇳 India</SelectItem>
-                        <SelectItem value="AU">🇦🇺 Australia</SelectItem>
-                        <SelectItem value="CA">🇨🇦 Canada</SelectItem>
-                        <SelectItem value="SG">🇸🇬 Singapore</SelectItem>
-                        <SelectItem value="TW">🇹🇼 Taiwan</SelectItem>
-                        <SelectItem value="HK">🇭🇰 Hong Kong</SelectItem>
+                        {COUNTRY_OPTIONS.map(([code, flag, fallback]) => (
+                          <SelectItem key={code} value={code}>
+                            {flag} {regionNames?.of(code) ?? fallback}
+                          </SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                   </div>

@@ -10,11 +10,14 @@ interface TeamTaskBoardProps {
   members: TeamMember[]
 }
 
-const COLUMN_LABELS: Record<KanbanColumn, string> = {
-  todo: "To Do",
-  doing: "Doing",
-  review: "Review",
-  done: "Done",
+const COLUMN_LABELS: Record<
+  KanbanColumn,
+  { labelKey: string; defaultLabel: string }
+> = {
+  todo: { labelKey: "team.todo", defaultLabel: "To Do" },
+  doing: { labelKey: "team.doing", defaultLabel: "In Progress" },
+  review: { labelKey: "team.review", defaultLabel: "Review" },
+  done: { labelKey: "team.done", defaultLabel: "Done" },
 }
 
 const COLUMN_COLORS: Record<KanbanColumn, string> = {
@@ -58,7 +61,7 @@ export function TeamTaskBoard({ tasks, members }: TeamTaskBoardProps) {
                 )}
               />
               <span className="text-xs font-medium text-foreground">
-                {t(`team.column.${col}`, COLUMN_LABELS[col])}
+                {t(COLUMN_LABELS[col].labelKey, COLUMN_LABELS[col].defaultLabel)}
               </span>
               <span className="ml-auto rounded-full bg-muted px-1.5 py-0.5 text-[10px] tabular-nums text-muted-foreground">
                 {colTasks.length}

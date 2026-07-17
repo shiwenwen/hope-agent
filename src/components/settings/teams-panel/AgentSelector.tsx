@@ -5,6 +5,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { useTranslation } from "react-i18next"
 import { AgentSelectDisplay } from "@/components/common/AgentSelectDisplay"
 import type { AgentSummary } from "@/components/settings/types"
 
@@ -23,6 +24,7 @@ export default function AgentSelector({
   loading,
   disabled,
 }: AgentSelectorProps) {
+  const { t } = useTranslation()
   const selectedAgent = agents.find((agent) => agent.id === value)
 
   return (
@@ -31,7 +33,7 @@ export default function AgentSelector({
         {selectedAgent ? (
           <AgentSelectDisplay agent={selectedAgent} size="xs" />
         ) : (
-          <SelectValue placeholder={loading ? "…" : "Select agent"} />
+          <SelectValue placeholder={loading ? "…" : t("quickChat.selectAgent")} />
         )}
       </SelectTrigger>
       <SelectContent>

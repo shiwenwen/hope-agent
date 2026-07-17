@@ -529,11 +529,13 @@ export default function ToolCallBlock({ tool, shimmer, onOpenDiff }: ToolCallBlo
             <PanelRight className="h-4 w-4 shrink-0 text-primary/70" />
             <div className="flex flex-col items-start gap-0.5 min-w-0">
               <span className="text-xs font-medium text-foreground truncate max-w-[200px]">
-                {canvasInfo.title || "Canvas"}
+                {canvasInfo.title || t("canvas.panelTitle")}
               </span>
               {canvasInfo.contentType && (
                 <span className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">
-                  {canvasInfo.contentType}
+                  {t(`settings.canvasTypes.${canvasInfo.contentType}`, {
+                    defaultValue: canvasInfo.contentType,
+                  })}
                 </span>
               )}
             </div>

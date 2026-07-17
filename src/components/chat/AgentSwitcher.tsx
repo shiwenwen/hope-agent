@@ -15,6 +15,7 @@
 
 import { useEffect, useRef, useState } from "react"
 import { ChevronDown } from "lucide-react"
+import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import { AgentSelectDisplay } from "@/components/common/AgentSelectDisplay"
 import { FloatingMenu } from "@/components/ui/floating-menu"
@@ -37,6 +38,7 @@ export default function AgentSwitcher({
   compactLabel,
   onSelect,
 }: AgentSwitcherProps) {
+  const { t } = useTranslation()
   const [open, setOpen] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
   const currentAgent = agents.find((agent) => agent.id === currentAgentId) ?? {
@@ -110,7 +112,9 @@ export default function AgentSwitcher({
         onEscapeKeyDown={() => setOpen(false)}
       >
         {agents.length === 0 ? (
-          <div className="px-2 py-1.5 text-[12px] text-muted-foreground italic">No agents</div>
+          <div className="px-2 py-1.5 text-[12px] text-muted-foreground italic">
+            {t("chat.noAgents")}
+          </div>
         ) : (
           agents.map((agent) => {
             const isCurrent = agent.id === currentAgentId

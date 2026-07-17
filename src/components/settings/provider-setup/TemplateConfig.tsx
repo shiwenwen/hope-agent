@@ -192,7 +192,7 @@ export function TemplateConfig({
           <div className="space-y-1.5">
             <label className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
               <Key className="h-3 w-3" />
-              API Key
+              {t("common.apiKey")}
               {!selectedTemplate.requiresApiKey && (
                 <span className="text-[10px] text-muted-foreground/60 font-normal">
                   ({t("provider.optional")})
@@ -230,7 +230,7 @@ export function TemplateConfig({
           <div className="space-y-1.5">
             <label className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
               <Globe className="h-3 w-3" />
-              Base URL
+              {t("common.baseUrl")}
             </label>
             <Input
               value={baseUrl}
@@ -253,8 +253,8 @@ export function TemplateConfig({
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="openai">OpenAI (reasoning_effort)</SelectItem>
-                <SelectItem value="anthropic">Anthropic (thinking budget)</SelectItem>
-                <SelectItem value="zai">Z.AI (thinking budget)</SelectItem>
+                <SelectItem value="anthropic">{t("model.anthropicThinkingBudget")}</SelectItem>
+                <SelectItem value="zai">{t("model.zaiThinkingBudget")}</SelectItem>
                 <SelectItem value="qwen">Qwen (enable_thinking)</SelectItem>
                 <SelectItem value="none">{t("provider.thinkingStyleNone")}</SelectItem>
               </SelectContent>

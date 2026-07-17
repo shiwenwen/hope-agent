@@ -110,7 +110,9 @@ export default function TemplateEditView({ templateId, onBack }: TemplateEditVie
         const list = (await getTransport().call("list_team_templates", {})) as TeamTemplate[]
         const found = list.find((t) => t.templateId === templateId)
         if (!found) {
-          if (!cancelled) setError(`Template "${templateId}" not found`)
+          if (!cancelled) {
+            setError(t("settings.teamTemplateNotFound", { id: templateId }))
+          }
           return
         }
         if (!cancelled) {
@@ -127,7 +129,7 @@ export default function TemplateEditView({ templateId, onBack }: TemplateEditVie
     return () => {
       cancelled = true
     }
-  }, [templateId, isNew])
+  }, [templateId, isNew, t])
 
   const isDirty = useMemo(
     () => JSON.stringify(template) !== savedSnapshot,
@@ -276,7 +278,7 @@ export default function TemplateEditView({ templateId, onBack }: TemplateEditVie
                 className="mt-1.5"
                 value={template.name}
                 onChange={(e) => setTemplate((prev) => ({ ...prev, name: e.target.value }))}
-                placeholder="Full-Stack Feature"
+                placeholder={t("settings.teamTemplateNamePlaceholder")}
               />
             </div>
             <div>

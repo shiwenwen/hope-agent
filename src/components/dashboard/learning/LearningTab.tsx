@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
+import type { TFunction } from "i18next"
 import { Button } from "@/components/ui/button"
 import { NumberInput } from "@/components/ui/number-input"
 import {
@@ -884,8 +885,16 @@ export default function LearningTab({ filter }: LearningTabProps) {
           sourceRunId: run.id,
           note:
             run.status === "passed"
-              ? `Human review accepted ${run.label} as calibration evidence.`
-              : `Human review marked ${run.label} for calibration follow-up after ${run.status}.`,
+              ? t("dashboard.learning.calibrationAcceptedNote", {
+                  defaultValue: "Human review accepted {{label}} as calibration evidence.",
+                  label: run.label,
+                })
+              : t("dashboard.learning.calibrationFollowUpNote", {
+                  defaultValue:
+                    "Human review marked {{label}} for calibration follow-up after {{status}}.",
+                  label: run.label,
+                  status: learningStatusLabel(t, run.status),
+                }),
         },
       })
       await reload()
@@ -900,7 +909,7 @@ export default function LearningTab({ filter }: LearningTabProps) {
     } finally {
       setDomainCalibrationActionId(null)
     }
-  }, [reload])
+  }, [reload, t])
 
   useEffect(() => {
     reload()
@@ -1623,7 +1632,7 @@ function CodingImprovementSection({
                 >
                   <div className="flex items-center gap-2 mb-1 min-w-0">
                     <span className={`px-1.5 py-0.5 rounded text-[10px] ${verdictTone(effect.verdict)}`}>
-                      {effect.verdict}
+                      {strategyVerdictLabel(t, effect.verdict)}
                     </span>
                     <span className="font-medium truncate flex-1">{effect.strategyType}</span>
                     <span className="text-[10px] text-muted-foreground tabular-nums">
@@ -1799,10 +1808,10 @@ function BenchmarkReportPanel({
             <div key={report.id} className="rounded border border-border/40 p-2.5 text-xs">
               <div className="flex flex-wrap items-center gap-2">
                 <span className={`rounded px-1.5 py-0.5 text-[10px] ${releaseGateTone(report.status)}`}>
-                  {report.status}
+                  {learningStatusLabel(t, report.status)}
                 </span>
                 <span className="rounded bg-secondary/40 px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                  {report.reportType}
+                  {benchmarkReportTypeLabel(t, report.reportType)}
                 </span>
                 <span className="min-w-0 max-w-[320px] truncate font-medium">{report.title}</span>
                 <span className="text-[10px] text-muted-foreground tabular-nums">
@@ -1811,7 +1820,9 @@ function BenchmarkReportPanel({
                 <div className="ml-auto flex flex-wrap items-center justify-end gap-1.5">
                   {report.releaseEvidence && (
                     <span className="rounded bg-emerald-500/10 px-1.5 py-0.5 text-[10px] text-emerald-600 dark:text-emerald-400">
-                      release
+                      {t("dashboard.learning.reportRelease", {
+                        defaultValue: "Release",
+                      })}
                     </span>
                   )}
                   <Button
@@ -1902,7 +1913,7 @@ function ContinuousBenchmarkGatePanel({
             })}
           </h4>
           <span className={`rounded px-2 py-1 text-[10px] font-medium ${releaseGateTone(gate?.status)}`}>
-            {gate?.status ?? "loading"}
+            {learningStatusLabel(t, gate?.status)}
           </span>
         </div>
         <Button
@@ -1944,7 +1955,7 @@ function ContinuousBenchmarkGatePanel({
                   <div key={check.name} className="rounded border border-border/40 p-2 text-xs">
                     <div className="flex items-center gap-2">
                       <span className={`rounded px-1.5 py-0.5 text-[10px] ${releaseGateTone(check.status)}`}>
-                        {check.status}
+                        {learningStatusLabel(t, check.status)}
                       </span>
                       <span className="font-medium">{check.name}</span>
                       <span className="ml-auto text-[10px] text-muted-foreground truncate">{check.actual}</span>
@@ -2069,7 +2080,7 @@ function BenchmarkCorpusPanel({
             })}
           </h4>
           <span className={`rounded px-2 py-1 text-[10px] font-medium ${releaseGateTone(health?.status)}`}>
-            {health?.status ?? "loading"}
+            {learningStatusLabel(t, health?.status)}
           </span>
         </div>
         <Button
@@ -2191,7 +2202,7 @@ function BenchmarkTaskPackRow({
     <div className="rounded border border-border/40 p-2.5 text-xs">
       <div className="flex flex-wrap items-center gap-2">
         <span className={`rounded px-1.5 py-0.5 text-[10px] ${releaseGateTone(pack.status === "active" ? "passed" : pack.status === "archived" ? "failed" : "insufficient_data")}`}>
-          {pack.status}
+          {learningStatusLabel(t, pack.status)}
         </span>
         <span className="min-w-0 max-w-[280px] truncate font-medium">
           {pack.name}
@@ -2338,13 +2349,16 @@ function BenchmarkCenterPanel({
           <span
             className={`px-2 py-1 rounded text-[10px] font-medium ${releaseGateTone(report?.status)}`}
           >
-            {report?.status ?? "loading"}
+            {learningStatusLabel(t, report?.status)}
           </span>
         </div>
         <div className="flex items-center gap-2">
           {activeCampaigns > 0 && (
             <span className="text-[10px] text-muted-foreground tabular-nums">
-              {activeCampaigns} active
+              {t("dashboard.learning.activeCampaigns", {
+                defaultValue: "{{count}} active",
+                count: activeCampaigns,
+              })}
             </span>
           )}
           <Button size="sm" variant="outline" className="h-7 gap-1.5" onClick={onRun} disabled={running}>
@@ -2384,7 +2398,7 @@ function BenchmarkCenterPanel({
                     className="flex flex-wrap items-center gap-2 text-xs border-b border-border/20 pb-1.5 last:border-0 last:pb-0"
                   >
                     <span className={`px-1.5 py-0.5 rounded text-[10px] ${releaseGateTone(run.status)}`}>
-                      {run.status}
+                      {learningStatusLabel(t, run.status)}
                     </span>
                     <span className="font-medium truncate max-w-48">
                       {run.label ?? run.baselineKind}
@@ -2451,7 +2465,7 @@ function BenchmarkCenterPanel({
                 })}
               </span>
               <span className={`rounded px-1.5 py-0.5 text-[10px] ${releaseGateTone(leaderboard?.status)}`}>
-                {leaderboard?.status ?? "loading"}
+                {learningStatusLabel(t, leaderboard?.status)}
               </span>
             </div>
             {leaderboard?.rows.length ? (
@@ -2465,7 +2479,8 @@ function BenchmarkCenterPanel({
                     <div className="min-w-0">
                       <div className="truncate font-medium">{row.label}</div>
                       <div className="truncate text-[10px] text-muted-foreground">
-                        {row.baselineKind} · {row.executionMode} · {row.taskPackId}
+                        {benchmarkBaselineKindLabel(t, row.baselineKind)} ·{" "}
+                        {domainFixtureModeLabel(t, row.executionMode)} · {row.taskPackId}
                       </div>
                     </div>
                     <div className="flex flex-wrap justify-end gap-1.5">
@@ -2653,7 +2668,7 @@ function BenchmarkCampaignRow({
     <div className="rounded border border-border/40 p-2.5 text-xs">
       <div className="flex flex-wrap items-center gap-2">
         <span className={`px-1.5 py-0.5 rounded text-[10px] ${benchmarkCampaignTone(campaign.status)}`}>
-          {campaign.status}
+          {learningStatusLabel(t, campaign.status)}
         </span>
         <span className="font-medium truncate max-w-[260px]">{campaign.name}</span>
         <span className="text-[10px] text-muted-foreground tabular-nums">
@@ -2716,7 +2731,8 @@ function BenchmarkCampaignRow({
             className={`max-w-full truncate rounded px-1.5 py-0.5 text-[10px] ${benchmarkCampaignTone(item.status)}`}
             data-ha-title-tip={item.error ?? item.packRunId ?? item.id}
           >
-            {formatCampaignItemTarget(item.providerId, item.modelId, item.label)} · {item.status}
+            {formatCampaignItemTarget(t, item.providerId, item.modelId, item.label)} ·{" "}
+            {learningStatusLabel(t, item.status)}
             {item.packRunId ? ` · ${item.packRunId}` : ""}
           </span>
         ))}
@@ -2853,8 +2869,13 @@ function DomainQualityDashboardPanel({
                       <div className="min-w-0">
                         <div className="truncate font-medium">{domain.domain}</div>
                         <div className="truncate text-[10px] text-muted-foreground">
-                          {domain.completedQualityRuns}/{domain.qualityRuns} quality ·{" "}
-                          {domain.evalRuns} eval
+                          {t("dashboard.learning.domainRunSummary", {
+                            defaultValue:
+                              "{{completed}}/{{total}} quality · {{evalCount}} eval",
+                            completed: domain.completedQualityRuns,
+                            total: domain.qualityRuns,
+                            evalCount: domain.evalRuns,
+                          })}
                         </div>
                       </div>
                       <div className="flex flex-wrap gap-1.5 sm:justify-end">
@@ -2969,7 +2990,7 @@ function DomainQualityDashboardPanel({
                         <span
                           className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] ${domainQualityRunTone(run.state)}`}
                         >
-                          {run.state}
+                          {learningStatusLabel(t, run.state)}
                         </span>
                       </div>
                       <p className="mt-1 line-clamp-2 text-[10px] text-muted-foreground">
@@ -3054,7 +3075,7 @@ function DomainOperationalGatePanel({ report }: { report: DomainOperationalGateR
           </p>
         </div>
         <span className={`px-2 py-1 rounded text-[10px] font-medium ${releaseGateTone(report?.status)}`}>
-          {report?.status ?? "loading"}
+          {learningStatusLabel(t, report?.status)}
         </span>
       </div>
       {report ? (
@@ -3176,7 +3197,7 @@ function DomainSoakReportPanel({ report }: { report: DomainSoakReport | null }) 
           </p>
         </div>
         <span className={`px-2 py-1 rounded text-[10px] font-medium ${releaseGateTone(report?.status)}`}>
-          {report?.status ?? "loading"}
+          {learningStatusLabel(t, report?.status)}
         </span>
       </div>
       {report ? (
@@ -3309,7 +3330,7 @@ function DomainSoakReportPanel({ report }: { report: DomainSoakReport | null }) 
                   }`}
                   data-ha-title-tip={`${incident.reason} · ${incident.recommendation}`}
                 >
-                  {incident.source}: {incident.status}
+                  {incident.source}: {learningStatusLabel(t, incident.status)}
                 </span>
               ))}
             </div>
@@ -3390,7 +3411,7 @@ function DomainConnectorE2EGatePanel({ report }: { report: DomainConnectorE2EGat
           </p>
         </div>
         <span className={`px-2 py-1 rounded text-[10px] font-medium ${releaseGateTone(report?.status)}`}>
-          {report?.status ?? "loading"}
+          {learningStatusLabel(t, report?.status)}
         </span>
       </div>
       {report ? (
@@ -3428,7 +3449,11 @@ function DomainConnectorE2EGatePanel({ report }: { report: DomainConnectorE2EGat
             />
             <MetricPill
               label="GU"
-              value={report.summary.connectorActionGuardStatus ?? "n/a"}
+              value={
+                report.summary.connectorActionGuardStatus
+                  ? learningStatusLabel(t, report.summary.connectorActionGuardStatus)
+                  : t("common.none")
+              }
               tone={
                 report.summary.connectorActionGuardStatus === "passed"
                   ? "accent"
@@ -3512,7 +3537,7 @@ function DomainReadinessGatePanel({ report }: { report: DomainReadinessGateRepor
           </p>
         </div>
         <span className={`px-2 py-1 rounded text-[10px] font-medium ${releaseGateTone(report?.status)}`}>
-          {report?.status ?? "loading"}
+          {learningStatusLabel(t, report?.status)}
         </span>
       </div>
       {report ? (
@@ -3520,7 +3545,7 @@ function DomainReadinessGatePanel({ report }: { report: DomainReadinessGateRepor
           <div className="grid grid-cols-2 md:grid-cols-6 gap-2">
             <MetricPill
               label="QG"
-              value={report.summary.qualityStatus}
+              value={learningStatusLabel(t, report.summary.qualityStatus)}
               tone={report.summary.qualityStatus === "passed" ? "accent" : "warn"}
             />
             <MetricPill label="EV" value={`${report.summary.evalRuns}/${report.summary.qualityRuns}`} />
@@ -3629,7 +3654,7 @@ function DomainQualityGatePanel({
         <span
           className={`px-2 py-1 rounded text-[10px] font-medium ${releaseGateTone(report?.status)}`}
         >
-          {report?.status ?? "loading"}
+          {learningStatusLabel(t, report?.status)}
         </span>
       </div>
       {report ? (
@@ -3684,7 +3709,7 @@ function DomainQualityGatePanel({
                     <span
                       className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] ${releaseGateCheckTone(run.status)}`}
                     >
-                      {run.status}
+                      {learningStatusLabel(t, run.status)}
                     </span>
                   </div>
                   <div className="mt-1 flex flex-wrap gap-1 text-[10px] text-muted-foreground">
@@ -3790,7 +3815,10 @@ function DomainEvalCampaignPanel({
         <div className="flex items-center gap-2">
           {activeCampaigns > 0 && (
             <span className="text-[10px] text-muted-foreground tabular-nums">
-              {activeCampaigns} active
+              {t("dashboard.learning.activeCampaigns", {
+                defaultValue: "{{count}} active",
+                count: activeCampaigns,
+              })}
             </span>
           )}
           <Button
@@ -3967,7 +3995,7 @@ function DomainCampaignLeaderboard({
           })}
         </span>
         <span className={`rounded px-1.5 py-0.5 text-[10px] ${releaseGateTone(leaderboard?.status)}`}>
-          {leaderboard?.status ?? "loading"}
+          {learningStatusLabel(t, leaderboard?.status)}
         </span>
       </div>
       {leaderboard?.rows.length ? (
@@ -3981,7 +4009,14 @@ function DomainCampaignLeaderboard({
               <div className="min-w-0">
                 <div className="truncate font-medium">{row.label}</div>
                 <div className="truncate text-[10px] text-muted-foreground">
-                  {row.executionMode} · {row.domains.slice(0, 3).join(", ") || "domain"} · {row.evidence.length} traces
+                  {t("dashboard.learning.leaderboardMeta", {
+                    defaultValue: "{{mode}} · {{domains}} · {{count}} traces",
+                    mode: domainFixtureModeLabel(t, row.executionMode),
+                    domains:
+                      row.domains.slice(0, 3).join(", ") ||
+                      t("dashboard.learning.domainFallback", { defaultValue: "Domain" }),
+                    count: row.evidence.length,
+                  })}
                 </div>
               </div>
               <div className="flex flex-wrap justify-end gap-1.5">
@@ -4046,7 +4081,7 @@ function DomainEvalCampaignRow({
     <div className="rounded border border-border/40 p-2.5 text-xs">
       <div className="flex flex-wrap items-center gap-2">
         <span className={`px-1.5 py-0.5 rounded text-[10px] ${benchmarkCampaignTone(campaign.status)}`}>
-          {campaign.status}
+          {learningStatusLabel(t, campaign.status)}
         </span>
         <span className="font-medium truncate max-w-[260px]">{campaign.name}</span>
         <span className="text-[10px] text-muted-foreground tabular-nums">
@@ -4125,7 +4160,8 @@ function DomainEvalCampaignRow({
             className={`max-w-full truncate rounded px-1.5 py-0.5 text-[10px] ${benchmarkCampaignTone(item.status)}`}
             data-ha-title-tip={item.error ?? item.fixtureRunId ?? item.evalRunId ?? item.id}
           >
-            {item.taskId} · {formatCampaignItemTarget(item.providerId, item.modelId, item.label)} · {item.status}
+            {item.taskId} · {formatCampaignItemTarget(t, item.providerId, item.modelId, item.label)} ·{" "}
+            {learningStatusLabel(t, item.status)}
             {typeof item.score === "number" ? ` · ${formatScore(item.score)}` : ""}
           </span>
         ))}
@@ -4169,7 +4205,7 @@ function DomainFixtureSmokePanel({ runs }: { runs: DomainEvalFixtureRunRecord[] 
           </p>
         </div>
         <span className={`px-2 py-1 rounded text-[10px] font-medium ${failed > 0 ? "bg-red-500/10 text-red-600" : "bg-emerald-500/10 text-emerald-600"}`}>
-          {total ? `${passed}/${total}` : "none"}
+          {total ? `${passed}/${total}` : t("common.none")}
         </span>
       </div>
       {runs.length ? (
@@ -4189,19 +4225,35 @@ function DomainFixtureSmokePanel({ runs }: { runs: DomainEvalFixtureRunRecord[] 
                   <span
                     className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] ${releaseGateCheckTone(run.status)}`}
                   >
-                    {run.status}
+                    {learningStatusLabel(t, run.status)}
                   </span>
                 </div>
                 <div className="mt-1 flex flex-wrap gap-1 text-[10px] text-muted-foreground">
-                  <span>{domainFixtureModeLabel(run.executionMode)}</span>
-                  <span>{run.sourceType}</span>
+                  <span>{domainFixtureModeLabel(t, run.executionMode)}</span>
+                  <span>{domainSourceTypeLabel(t, run.sourceType)}</span>
                   <span>{new Date(run.createdAt).toLocaleDateString()}</span>
                 </div>
                 <div className="mt-2 flex flex-wrap gap-1">
-                  <TraceBadge active={Boolean(run.evalRunId)} label="eval" />
-                  <TraceBadge active={Boolean(run.qualityRunId)} label="quality" />
-                  <TraceBadge active={Boolean(run.workflowRunId)} label="workflow" />
-                  <TraceBadge active={Boolean(run.report.execution?.turnId)} label="turn" />
+                  <TraceBadge
+                    active={Boolean(run.evalRunId)}
+                    label={t("dashboard.learning.traceLabels.eval", { defaultValue: "Eval" })}
+                  />
+                  <TraceBadge
+                    active={Boolean(run.qualityRunId)}
+                    label={t("dashboard.learning.traceLabels.quality", {
+                      defaultValue: "Quality",
+                    })}
+                  />
+                  <TraceBadge
+                    active={Boolean(run.workflowRunId)}
+                    label={t("dashboard.learning.traceLabels.workflow", {
+                      defaultValue: "Workflow",
+                    })}
+                  />
+                  <TraceBadge
+                    active={Boolean(run.report.execution?.turnId)}
+                    label={t("dashboard.learning.traceLabels.turn", { defaultValue: "Turn" })}
+                  />
                 </div>
                 {run.error ? (
                   <p className="mt-2 truncate text-[10px] text-red-600" data-ha-title-tip={run.error}>
@@ -4235,10 +4287,10 @@ function TraceBadge({ active, label }: { active: boolean; label: string }) {
   )
 }
 
-function domainFixtureModeLabel(mode: string): string {
-  if (mode === "trace_fixture") return "trace"
-  if (mode === "agent") return "agent"
-  return mode
+function domainFixtureModeLabel(t: TFunction, mode: string): string {
+  return t(`dashboard.learning.executionModes.${mode}`, {
+    defaultValue: humanizeEnumValue(mode),
+  })
 }
 
 function ReleaseGatePanel({ report }: { report: CodingEvalReleaseGateReport | null }) {
@@ -4255,7 +4307,7 @@ function ReleaseGatePanel({ report }: { report: CodingEvalReleaseGateReport | nu
         <span
           className={`px-2 py-1 rounded text-[10px] font-medium ${releaseGateTone(report?.status)}`}
         >
-          {report?.status ?? "loading"}
+          {learningStatusLabel(t, report?.status)}
         </span>
       </div>
       {report ? (
@@ -4332,7 +4384,7 @@ function GeneralizationPanel({
         <span
           className={`px-2 py-1 rounded text-[10px] font-medium ${releaseGateTone(report?.status)}`}
         >
-          {report?.status ?? "loading"}
+          {learningStatusLabel(t, report?.status)}
         </span>
       </div>
       {report ? (
@@ -4529,6 +4581,44 @@ function inverseDeltaTone(value: number): "muted" | "warn" | "accent" {
   return "muted"
 }
 
+function humanizeEnumValue(value: string): string {
+  return value
+    .replaceAll("_", " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase())
+}
+
+function learningStatusLabel(t: TFunction, status?: string | null): string {
+  const value = status || "loading"
+  return t(`common.statusValues.${value}`, {
+    defaultValue: humanizeEnumValue(value),
+  })
+}
+
+function benchmarkReportTypeLabel(t: TFunction, reportType: string): string {
+  switch (reportType) {
+    case "comparison":
+      return t("dashboard.learning.reportComparison", { defaultValue: "Comparison" })
+    case "release":
+      return t("dashboard.learning.reportRelease", { defaultValue: "Release" })
+    case "campaign":
+      return t("dashboard.learning.reportCampaign", { defaultValue: "Campaign" })
+    default:
+      return humanizeEnumValue(reportType)
+  }
+}
+
+function benchmarkBaselineKindLabel(t: TFunction, baselineKind: string): string {
+  return t(`dashboard.learning.baselineKinds.${baselineKind}`, {
+    defaultValue: humanizeEnumValue(baselineKind),
+  })
+}
+
+function domainSourceTypeLabel(t: TFunction, sourceType: string): string {
+  return t(`dashboard.learning.sourceTypes.${sourceType}`, {
+    defaultValue: humanizeEnumValue(sourceType),
+  })
+}
+
 function releaseGateTone(status?: string | null): string {
   switch (status) {
     case "passed":
@@ -4683,12 +4773,16 @@ function benchmarkCampaignTone(status?: string | null): string {
 }
 
 function formatCampaignItemTarget(
+  t: TFunction,
   providerId?: string | null,
   modelId?: string | null,
   label?: string | null,
 ): string {
   if (providerId && modelId) return label ? `${label} (${providerId}/${modelId})` : `${providerId}/${modelId}`
-  return label?.trim() || "deterministic"
+  return (
+    label?.trim() ||
+    t("dashboard.learning.deterministic", { defaultValue: "Deterministic" })
+  )
 }
 
 function releaseGateCheckTone(status: string): string {
@@ -4734,6 +4828,33 @@ function verdictTone(verdict: string): string {
       return "bg-red-500/10 text-red-600 dark:text-red-400"
     default:
       return "bg-secondary/40 text-muted-foreground"
+  }
+}
+
+function strategyVerdictLabel(t: TFunction, verdict: string): string {
+  switch (verdict) {
+    case "improved":
+      return t("dashboard.learning.strategyVerdict.improved", {
+        defaultValue: "Improved",
+      })
+    case "regressed":
+      return t("dashboard.learning.strategyVerdict.regressed", {
+        defaultValue: "Regressed",
+      })
+    case "mixed":
+      return t("dashboard.learning.strategyVerdict.mixed", {
+        defaultValue: "Mixed",
+      })
+    case "unchanged":
+      return t("dashboard.learning.strategyVerdict.unchanged", {
+        defaultValue: "Unchanged",
+      })
+    case "inconclusive":
+      return t("dashboard.learning.strategyVerdict.inconclusive", {
+        defaultValue: "Inconclusive",
+      })
+    default:
+      return humanizeEnumValue(verdict)
   }
 }
 

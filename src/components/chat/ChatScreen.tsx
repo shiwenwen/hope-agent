@@ -7,6 +7,7 @@ import { useTranslation } from "react-i18next"
 import { logger } from "@/lib/logger"
 import type { SettingsSection } from "@/components/settings/types"
 import { requestMemoryFocus } from "@/components/settings/memory-panel/memoryFocus"
+import { memorySourceLabel } from "./message/memoryTraceFormat"
 import { BrowserExtensionNudge } from "./BrowserExtensionNudge"
 import { useViewportMediaQuery } from "@/hooks/useViewportMediaQuery"
 import { useReadableSurface } from "@/hooks/useReadableSurface"
@@ -3957,8 +3958,7 @@ export default function ChatScreen({
                               </span>
                               {activeMemoryToast.selected && (
                                 <span className="truncate text-[10px] text-muted-foreground">
-                                  {activeMemoryToast.selected.sourceType} ·{" "}
-                                  {activeMemoryToast.selected.scope}
+                                  {memorySourceLabel(activeMemoryToast.selected, t)}
                                 </span>
                               )}
                             </div>

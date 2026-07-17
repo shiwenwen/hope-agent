@@ -70,7 +70,10 @@ export default function LogTable({
                         LEVEL_COLORS[log.level] || "bg-secondary text-foreground",
                       )}
                     >
-                      {log.level}
+                      {t(
+                        `dashboard.detail.levels.${log.level === "warn" ? "warning" : log.level}`,
+                        { defaultValue: log.level },
+                      )}
                     </span>
                     <span className="shrink-0 w-[64px] text-muted-foreground truncate">
                       {log.category}
@@ -100,7 +103,9 @@ export default function LogTable({
                         })()}
                       </pre>
                       {log.sessionId && (
-                        <p className="mt-1 text-muted-foreground/70">session: {log.sessionId}</p>
+                        <p className="mt-1 text-muted-foreground/70">
+                          {t("dashboard.detail.session")}: {log.sessionId}
+                        </p>
                       )}
                     </div>
                   )}

@@ -99,7 +99,7 @@ export default function MemberRow({
             className="mt-1 h-8"
             value={value.name}
             onChange={(e) => patch({ name: e.target.value })}
-            placeholder="Frontend"
+            placeholder={t("settings.teamMemberNamePlaceholder")}
           />
         </div>
         <div>
@@ -114,8 +114,8 @@ export default function MemberRow({
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="worker">worker</SelectItem>
-              <SelectItem value="reviewer">reviewer</SelectItem>
+              <SelectItem value="worker">{t("team.role.worker")}</SelectItem>
+              <SelectItem value="reviewer">{t("team.role.reviewer")}</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -167,7 +167,7 @@ export default function MemberRow({
           className="min-h-[60px] text-xs"
           value={value.description}
           onChange={(e) => patch({ description: e.target.value })}
-          placeholder="You are the frontend specialist. Build React components with TypeScript…"
+          placeholder={t("settings.teamMemberDescriptionPlaceholder")}
         />
       </div>
 
@@ -195,7 +195,7 @@ export default function MemberRow({
             onChange={(e) =>
               patch({ defaultTaskTemplate: e.target.value || undefined })
             }
-            placeholder="Implement the UI for the feature."
+            placeholder={t("settings.teamMemberDefaultTaskPlaceholder")}
           />
         </div>
       </div>

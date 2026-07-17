@@ -505,14 +505,16 @@ export default function EmbeddingModelsPanel() {
                   <SelectContent>
                     {PROVIDER_TYPES.map((type) => (
                       <SelectItem key={type} value={type}>
-                        {type === "google" ? "Google" : "OpenAI Compatible"}
+                        {type === "google"
+                          ? "Google"
+                          : t("settings.embeddingModels.openAiCompatible")}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </div>
               <div className="grid gap-1.5">
-                <Label>Base URL</Label>
+                <Label>{t("common.baseUrl")}</Label>
                 <Input
                   value={editing.apiBaseUrl ?? ""}
                   onChange={(e) =>
@@ -526,7 +528,7 @@ export default function EmbeddingModelsPanel() {
                 />
               </div>
               <div className="grid gap-1.5">
-                <Label>API Key</Label>
+                <Label>{t("common.apiKey")}</Label>
                 <Input
                   type="password"
                   value={editing.apiKey ?? ""}

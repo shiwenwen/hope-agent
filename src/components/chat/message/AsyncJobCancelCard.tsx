@@ -82,7 +82,11 @@ export default function AsyncJobCancelCard({
       )}
     >
       <span className="font-mono truncate">{asyncJob.jobId}</span>
-      <span className="shrink-0">{asyncJobStatus || "running"}</span>
+      <span className="shrink-0">
+        {t(`backgroundJobs.status.${asyncJobStatus || "running"}`, {
+          defaultValue: (asyncJobStatus || "running").replaceAll("_", " "),
+        })}
+      </span>
       {!ASYNC_JOB_TERMINAL.has(asyncJobStatus || "") && (
         <IconTip label={t("common.cancel")}>
           <button

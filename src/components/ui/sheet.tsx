@@ -15,6 +15,7 @@ import {
   Description,
 } from "@radix-ui/react-dialog"
 import { X } from "lucide-react"
+import { useTranslation } from "react-i18next"
 import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "@/lib/utils"
 
@@ -62,18 +63,21 @@ interface SheetContentProps
     VariantProps<typeof sheetVariants> {}
 
 const SheetContent = forwardRef<ComponentRef<typeof Content>, SheetContentProps>(
-  ({ side = "right", className, children, ...props }, ref) => (
-    <SheetPortal>
-      <SheetOverlay />
-      <Content ref={ref} className={cn(sheetVariants({ side }), className)} {...props}>
-        {children}
-        <Close className="absolute right-4 top-4 rounded-sm opacity-70 transition-opacity hover:opacity-100 focus:outline-none disabled:pointer-events-none">
-          <X className="h-4 w-4" />
-          <span className="sr-only">Close</span>
-        </Close>
-      </Content>
-    </SheetPortal>
-  ),
+  ({ side = "right", className, children, ...props }, ref) => {
+    const { t } = useTranslation()
+    return (
+      <SheetPortal>
+        <SheetOverlay />
+        <Content ref={ref} className={cn(sheetVariants({ side }), className)} {...props}>
+          {children}
+          <Close className="absolute right-4 top-4 rounded-sm opacity-70 transition-opacity hover:opacity-100 focus:outline-none disabled:pointer-events-none">
+            <X className="h-4 w-4" />
+            <span className="sr-only">{t("common.close")}</span>
+          </Close>
+        </Content>
+      </SheetPortal>
+    )
+  },
 )
 SheetContent.displayName = "SheetContent"
 

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
+import type { TFunction } from "i18next"
 import { Check, Loader2, Mic, Plus, Server, Trash2, X } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -114,6 +115,48 @@ interface KnownLocalSttBackend {
 
 import { STT_PRESETS, findPreset, presetSlugFromProvider, type SttKindPreset } from "./presets"
 
+function presetModels(preset: SttKindPreset): SttModelConfig[] {
+  return preset.defaultModels.map((model) => ({
+    id: model.id,
+    name: model.name,
+  }))
+}
+
+function presetModelDisplayName(
+  preset: SttKindPreset | undefined,
+  model: SttModelConfig,
+  t: TFunction,
+): string {
+  const seeded = preset?.defaultModels.find((candidate) => candidate.id === model.id)
+  if (seeded?.nameKey) return t(seeded.nameKey)
+  return model.name || model.id
+}
+
+function modelsMatchPresetDefaults(models: SttModelConfig[], preset: SttKindPreset): boolean {
+  if (models.length !== preset.defaultModels.length) return false
+  return models.every((model, index) => {
+    const seeded = preset.defaultModels[index]
+    if (model.id !== seeded.id) return false
+    // A nameKey marks a protocol sentinel rather than a user-named model.
+    // Match it by its stable wire ID so a value saved by an older localized
+    // build is still recognized after the UI language changes.
+    return seeded.nameKey != null || (model.name || model.id) === seeded.name
+  })
+}
+
+function canonicalizePresetModelNames(
+  preset: SttKindPreset | undefined,
+  models: SttModelConfig[],
+): SttModelConfig[] {
+  if (!preset) return models
+  return models.map((model) => {
+    const seeded = preset.defaultModels.find(
+      (candidate) => candidate.id === model.id && candidate.nameKey,
+    )
+    return seeded ? { ...model, name: seeded.name } : model
+  })
+}
+
 /** Shared label markup for the API-type dropdown — same row appears in
  * the SelectTrigger value and every SelectItem, so factor it out. */
 function renderPresetLabel(p: SttKindPreset | undefined, fallback: string) {
@@ -134,7 +177,8 @@ function renderPresetLabel(p: SttKindPreset | undefined, fallback: string) {
 interface ExtraField {
   key: string
   label: string
-  hint?: string
+  labelKey?: string
+  hintKey?: string
   type: "text" | "password"
   required: boolean
 }
@@ -155,9 +199,10 @@ const KIND_EXTRA_SCHEMA: Record<SttProviderKind, ExtraField[]> = {
     {
       key: "region",
       label: "Region",
+      labelKey: "voice.settings.extraFields.region",
       type: "text",
       required: true,
-      hint: "e.g. eastus, westus, southeastasia — matches your Azure Speech resource region",
+      hintKey: "voice.settings.extraFields.regionHint",
     },
   ],
   "xunfei-ws": [
@@ -166,21 +211,22 @@ const KIND_EXTRA_SCHEMA: Record<SttProviderKind, ExtraField[]> = {
       label: "APISecret",
       type: "password",
       required: true,
-      hint: "讯飞控制台 → 我的应用 → 该应用的 APISecret",
+      hintKey: "voice.settings.extraFields.xunfeiApiSecretHint",
     },
     {
       key: "app_id",
       label: "APPID",
       type: "text",
       required: true,
-      hint: "讯飞控制台 → 我的应用 → 该应用的 APPID",
+      hintKey: "voice.settings.extraFields.xunfeiAppIdHint",
     },
     {
       key: "accent",
       label: "Accent",
+      labelKey: "voice.settings.extraFields.accent",
       type: "text",
       required: false,
-      hint: "口音：mandarin (普通话，默认) / 其它方言代码见讯飞文档",
+      hintKey: "voice.settings.extraFields.accentHint",
     },
   ],
   "volcengine-ws": [
@@ -189,14 +235,14 @@ const KIND_EXTRA_SCHEMA: Record<SttProviderKind, ExtraField[]> = {
       label: "APP ID",
       type: "text",
       required: true,
-      hint: "火山引擎控制台 → 服务接口认证信息 → APP ID (数字)",
+      hintKey: "voice.settings.extraFields.volcengineAppIdHint",
     },
     {
       key: "resource_id",
       label: "ResourceId",
       type: "text",
       required: false,
-      hint: "1.0 (BigASR) 留空即用默认 volc.bigasr.sauc.duration；2.0 (Seed，实例 ID 含 Speech_Recognition_Seed_streaming) 填 volc.seedasr.sauc.duration",
+      hintKey: "voice.settings.extraFields.volcengineResourceIdHint",
     },
   ],
 }
@@ -207,9 +253,9 @@ const KIND_EXTRA_SCHEMA: Record<SttProviderKind, ExtraField[]> = {
  * APIKey, …) so users don't paste the wrong field.
  */
 const KIND_API_KEY_HINT: Partial<Record<SttProviderKind, string>> = {
-  "azure-ws": "Subscription Key (Azure 资源 → 密钥与终结点)",
-  "volcengine-ws": "Access Token —— 不是 Secret Key",
-  "xunfei-ws": "APIKey",
+  "azure-ws": "voice.settings.apiKeyHints.azure",
+  "volcengine-ws": "voice.settings.apiKeyHints.volcengine",
+  "xunfei-ws": "voice.settings.apiKeyHints.xunfei",
 }
 
 
@@ -370,16 +416,17 @@ export default function VoicePanel() {
       if (!BATCH_CAPABLE_KINDS.has(p.kind) && !STREAMING_KINDS.has(p.kind)) continue
       const streaming = STREAMING_KINDS.has(p.kind)
       for (const m of p.models) {
+        const preset = findPreset(presetSlugFromProvider(p.kind, p.baseUrl))
         out.push({
           providerId: p.id,
           modelId: m.id,
-          label: `${p.name} · ${m.name || m.id}${streaming ? " · streaming" : ""}`,
+          label: `${p.name} · ${presetModelDisplayName(preset, m, t)}${streaming ? " · streaming" : ""}`,
           streaming,
         })
       }
     }
     return out
-  }, [providers])
+  }, [providers, t])
 
   const installHint = useCallback(
     (b: KnownLocalSttBackend) =>
@@ -670,7 +717,7 @@ function ProviderDialog({
     if (!provider.id && provider.models.length === 0) {
       const preset = findPreset(presetSlugFromProvider(provider.kind, provider.baseUrl))
       if (preset && preset.defaultModels.length > 0) {
-        return preset.defaultModels.map((p) => ({ ...p }))
+        return presetModels(preset)
       }
     }
     return provider.models.map((m) => ({ ...m }))
@@ -697,19 +744,12 @@ function ProviderDialog({
       // don't see a wrong-vendor list of seeded entries. Models the user
       // typed or edited (not matching the previous defaults) survive.
       setModels((current) => {
-        const prevDefaults = prev?.defaultModels ?? []
-        const isResidual =
-          prevDefaults.length > 0 &&
-          current.length === prevDefaults.length &&
-          current.every(
-            (m, i) =>
-              m.id === prevDefaults[i].id && (m.name || m.id) === prevDefaults[i].name,
-          )
+        const isResidual = prev != null && modelsMatchPresetDefaults(current, prev)
         if (isResidual) {
-          return next.defaultModels.map((p) => ({ ...p }))
+          return presetModels(next)
         }
         if (current.length === 0 && next.defaultModels.length > 0) {
-          return next.defaultModels.map((p) => ({ ...p }))
+          return presetModels(next)
         }
         return current
       })
@@ -767,16 +807,21 @@ function ProviderDialog({
       for (const field of extraSchema) {
         if (field.required && !extraValues[field.key]?.trim()) {
           setError(
-            t("voice.settings.errExtraFieldRequired", { field: field.label }),
+            t("voice.settings.errExtraFieldRequired", {
+              field: field.labelKey ? t(field.labelKey) : field.label,
+            }),
           )
           setSaving(false)
           return
         }
       }
-      const trimmedModels: SttModelConfig[] = models
-        .map((m) => ({ ...m, id: m.id.trim(), name: (m.name || "").trim() }))
-        .filter((m) => m.id)
-        .map((m) => ({ ...m, name: m.name || m.id }))
+      const trimmedModels: SttModelConfig[] = canonicalizePresetModelNames(
+        preset,
+        models
+          .map((m) => ({ ...m, id: m.id.trim(), name: (m.name || "").trim() }))
+          .filter((m) => m.id)
+          .map((m) => ({ ...m, name: m.name || m.id })),
+      )
       // Strip empty extra values so they don't override redacted-but-set
       // values on round-trip and don't get sent as `""`.
       const trimmedExtra: Record<string, string> = {}
@@ -864,7 +909,7 @@ function ProviderDialog({
               {t("voice.settings.apiKey")}
               {KIND_API_KEY_HINT[kind] && (
                 <span className="ml-1.5 text-xs text-muted-foreground font-normal">
-                  · {KIND_API_KEY_HINT[kind]}
+                  · {t(KIND_API_KEY_HINT[kind])}
                 </span>
               )}
             </Label>
@@ -877,7 +922,7 @@ function ProviderDialog({
           {extraSchema.map((field) => (
             <div key={field.key} className="space-y-1.5">
               <Label>
-                {field.label}
+                {field.labelKey ? t(field.labelKey) : field.label}
                 {field.required && <span className="text-destructive ml-0.5">*</span>}
               </Label>
               {field.type === "password" ? (
@@ -896,8 +941,8 @@ function ProviderDialog({
                   }
                 />
               )}
-              {field.hint && (
-                <p className="text-xs text-muted-foreground">{field.hint}</p>
+              {field.hintKey && (
+                <p className="text-xs text-muted-foreground">{t(field.hintKey)}</p>
               )}
             </div>
           ))}
@@ -917,8 +962,13 @@ function ProviderDialog({
                     className="flex-1 font-mono text-xs h-8"
                   />
                   <Input
-                    value={m.name ?? ""}
+                    value={presetModelDisplayName(findPreset(presetSlug), m, t)}
                     placeholder={t("model.displayName")}
+                    readOnly={Boolean(
+                      findPreset(presetSlug)?.defaultModels.some(
+                        (candidate) => candidate.id === m.id && candidate.nameKey,
+                      ),
+                    )}
                     onChange={(e) =>
                       setModels((prev) =>
                         prev.map((row, j) => (j === i ? { ...row, name: e.target.value } : row)),

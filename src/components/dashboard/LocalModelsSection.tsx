@@ -41,6 +41,7 @@ import {
   isLocalModelJobActive,
   isLocalModelJobVisible,
   localModelJobPercent,
+  phaseTranslationKey,
 } from "@/types/local-model-jobs"
 import type { DashboardLocalModelUsage } from "./types"
 import { chartName, chartNumber, formatDashboardBytes, formatNumber } from "./types"
@@ -374,7 +375,7 @@ const LocalModelsSection = React.memo(function LocalModelsSection({
                         ? ` · ${formatDashboardBytes(m.sizeBytes)}`
                         : ""}
                       {m.contextWindow != null
-                        ? ` · ctx ${formatNumber(m.contextWindow)}`
+                        ? ` · ${t("dashboard.localModels.running.context")} ${formatNumber(m.contextWindow)}`
                         : ""}
                     </div>
                   </div>
@@ -471,7 +472,7 @@ const LocalModelsSection = React.memo(function LocalModelsSection({
                 value={formatNumber(
                   usage.totalInputTokens + usage.totalOutputTokens,
                 )}
-                subValue={`${formatNumber(usage.totalInputTokens)} in · ${formatNumber(usage.totalOutputTokens)} out`}
+                subValue={`${t("chat.inputTokens")} ${formatNumber(usage.totalInputTokens)} · ${t("chat.outputTokens")} ${formatNumber(usage.totalOutputTokens)}`}
                 colorClass="text-blue-500"
                 bgClass="bg-blue-500/10"
               />
@@ -635,6 +636,7 @@ const LocalModelsSection = React.memo(function LocalModelsSection({
             {visibleJobs.map((job) => {
               const pct = localModelJobPercent(job)
               const active = isLocalModelJobActive(job)
+              const phaseKey = phaseTranslationKey(job.phase)
               return (
                 <div
                   key={job.jobId}
@@ -646,13 +648,19 @@ const LocalModelsSection = React.memo(function LocalModelsSection({
                         {job.displayName || job.modelId}
                       </div>
                       <div className="text-[11px] text-muted-foreground truncate">
-                        {t(`dashboard.localModels.jobs.kind.${job.kind}`, {
-                          defaultValue: job.kind,
+                        {t(`localModelJobs.kind.${job.kind}`, {
+                          defaultValue: job.kind.replaceAll("_", " "),
                         })}
                         {" · "}
-                        {job.phase}
+                        {phaseKey
+                          ? t(phaseKey)
+                          : job.phase.replaceAll("_", " ")}
                         {!active && (
-                          <span className="ml-1">({job.status})</span>
+                          <span className="ml-1">
+                            ({t(`localModelJobs.status.${job.status}`, {
+                              defaultValue: job.status.replaceAll("_", " "),
+                            })})
+                          </span>
                         )}
                       </div>
                     </div>

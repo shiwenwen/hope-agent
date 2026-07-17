@@ -1,4 +1,5 @@
 import { useTranslation } from "react-i18next"
+import { skillSourceLabel } from "./skillSourceLabel"
 import { cn } from "@/lib/utils"
 import { IconTip } from "@/components/ui/tooltip"
 import { Switch } from "@/components/ui/switch"
@@ -187,7 +188,7 @@ export default function SkillListView({
                 label={t("settings.skillExtras.licenseWarning", { license: display.license })}
               >
                 <span className="text-[9px] px-1 py-0 rounded bg-amber-500/10 text-amber-600 font-medium cursor-help">
-                  {display.license_label ?? "Proprietary"}
+                  {display.license_label ?? t("settings.skillExtras.proprietary")}
                 </span>
               </IconTip>
             )}
@@ -204,7 +205,7 @@ export default function SkillListView({
 
         {/* Source tag */}
         <span className="text-[10px] px-1.5 py-0.5 rounded bg-secondary text-muted-foreground font-medium shrink-0">
-          {skill.source}
+          {skillSourceLabel(t, skill.source)}
         </span>
 
         {/* Settings button for skills with env requirements */}

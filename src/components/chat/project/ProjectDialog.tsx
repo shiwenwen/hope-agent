@@ -545,7 +545,7 @@ export default function ProjectDialog({
                       "h-9 w-9 rounded-full border border-dashed border-muted-foreground/40 p-0 text-muted-foreground hover:bg-muted/40",
                         !color && "bg-secondary/70",
                     )}
-                    aria-label="no color"
+                    aria-label={t("common.none")}
                   >
                     <CircleSlash className="h-4 w-4" />
                   </Button>

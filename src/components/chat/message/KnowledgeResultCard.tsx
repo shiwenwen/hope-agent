@@ -4,6 +4,7 @@ import { BookText, Brain, FileText } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 import { kbLabel } from "@/types/knowledge"
+import { memoryScopeLabel } from "./memoryTraceFormat"
 
 interface NoteHit {
   kbId: string
@@ -105,7 +106,9 @@ function MemoriesSection({ hits }: { hits: MemoryHit[] }) {
                 <p className="line-clamp-2 text-foreground/85">{m.content.trim()}</p>
               ) : null}
               {m.scope ? (
-                <span className="text-[10px] text-muted-foreground/45">{m.scope}</span>
+                <span className="text-[10px] text-muted-foreground/45">
+                  {memoryScopeLabel(m.scope, t)}
+                </span>
               ) : null}
             </div>
           </div>

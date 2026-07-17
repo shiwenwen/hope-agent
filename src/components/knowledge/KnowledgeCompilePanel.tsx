@@ -10,6 +10,7 @@ import {
 } from "lucide-react"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
+import type { TFunction } from "i18next"
 import { toast } from "sonner"
 
 import {
@@ -367,7 +368,7 @@ export default function KnowledgeCompilePanel({
                       onClick={() => setSelectedRunId(run.id)}
                     >
                       <span className="flex items-center gap-1.5">
-                        <StatusPill status={run.status} />
+                        <StatusPill status={run.status} t={t} />
                         <span className="truncate text-[11px] text-muted-foreground">
                           {formatDateTime(run.createdAt)}
                         </span>
@@ -417,7 +418,7 @@ export default function KnowledgeCompilePanel({
                         onClick={() => setSelectedProposalId(proposal.id)}
                       >
                         <span className="flex min-w-0 items-center gap-1.5">
-                          <ProposalStatusPill status={proposal.status} />
+                          <ProposalStatusPill status={proposal.status} t={t} />
                           <span className="truncate text-xs font-medium">{proposal.title}</span>
                         </span>
                         <span className="truncate text-[11px] text-muted-foreground">
@@ -436,7 +437,7 @@ export default function KnowledgeCompilePanel({
               <div className="flex items-center justify-between gap-2 border-b border-border-soft/60 px-4 py-2">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
-                    <StatusPill status={selectedRun.status} />
+                    <StatusPill status={selectedRun.status} t={t} />
                     <span className="truncate text-sm font-medium">
                       {selectedRun.summary ||
                         t("knowledge.compile.runPending", "Source-to-note run pending")}
@@ -481,7 +482,7 @@ export default function KnowledgeCompilePanel({
                     <div className="flex items-center gap-2">
                       <FileText className="h-3.5 w-3.5 text-muted-foreground" />
                       <span className="truncate text-sm font-medium">{selectedProposal.title}</span>
-                      <ProposalStatusPill status={selectedProposal.status} />
+                      <ProposalStatusPill status={selectedProposal.status} t={t} />
                     </div>
                     <div className="mt-1 truncate text-[11px] text-muted-foreground">
                       {selectedProposal.detail || proposalPath(selectedProposal)}
@@ -575,12 +576,14 @@ export function ProposalDiff({ proposal }: { proposal: CompileProposal }) {
   )
 }
 
-function StatusPill({ status }: { status: CompileRunStatus }) {
-  return <Pill className={statusClass(status)}>{status}</Pill>
+function StatusPill({ status, t }: { status: CompileRunStatus; t: TFunction }) {
+  return <Pill className={statusClass(status)}>{compileRunStatusLabel(t, status)}</Pill>
 }
 
-function ProposalStatusPill({ status }: { status: CompileProposalStatus }) {
-  return <Pill className={proposalStatusClass(status)}>{status}</Pill>
+function ProposalStatusPill({ status, t }: { status: CompileProposalStatus; t: TFunction }) {
+  return (
+    <Pill className={proposalStatusClass(status)}>{compileProposalStatusLabel(t, status)}</Pill>
+  )
 }
 
 function Pill({ className, children }: { className?: string; children: string }) {
@@ -602,6 +605,32 @@ function statusClass(status: CompileRunStatus): string {
     case "running":
     default:
       return "bg-primary/10 text-primary"
+  }
+}
+
+function compileRunStatusLabel(t: TFunction, status: CompileRunStatus): string {
+  switch (status) {
+    case "running":
+      return t("common.statusValues.running", "Running")
+    case "completed":
+      return t("common.statusValues.completed", "Completed")
+    case "failed":
+      return t("common.statusValues.failed", "Failed")
+    case "cancelled":
+      return t("common.statusValues.cancelled", "Cancelled")
+  }
+}
+
+function compileProposalStatusLabel(t: TFunction, status: CompileProposalStatus): string {
+  switch (status) {
+    case "draft":
+      return t("common.statusValues.draft", "Draft")
+    case "applied":
+      return t("common.statusValues.applied", "Applied")
+    case "rejected":
+      return t("common.statusValues.rejected", "Rejected")
+    case "failed":
+      return t("common.statusValues.failed", "Failed")
   }
 }
 

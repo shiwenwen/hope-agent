@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import { cn } from "@/lib/utils"
+import { backupMetadataLabel } from "./backupMetadataLabel"
 
 export interface ConfigHealth {
   ok: boolean
@@ -27,56 +28,6 @@ interface ConfigRecoveryScreenProps {
   onRecovered: () => Promise<void>
 }
 
-const COPY = {
-  zh: {
-    title: "配置文件需要恢复",
-    subtitle:
-      "Hope Agent 检测到已有 config.json 无法读取。为避免覆盖你的 Provider、MCP 服务器和初始设置状态，配置写入已暂停。",
-    path: "配置文件",
-    error: "读取错误",
-    details: "保护说明",
-    retry: "重新读取",
-    restart: "重启应用",
-    backupsTitle: "选择一个配置快照恢复",
-    backupsDesc: "恢复后会重新读取配置并继续启动；当前不可读文件仍保留在原位置，并已尽量备份为 .corrupt-<时间戳>。",
-    loading: "加载快照中…",
-    empty: "没有可用的配置快照",
-    emptyHint:
-      "请手动修复 config.json，或从 backups/autosave / config.json.corrupt-* 中找回可用版本，再点重新读取。",
-    restore: "恢复",
-    source: "来源",
-    retrying: "读取中",
-    restoring: "恢复中",
-    restartFailed: "无法自动重启，请手动关闭并重新打开 Hope Agent。",
-  },
-  en: {
-    title: "Config Recovery Needed",
-    subtitle:
-      "Hope Agent could not read the existing config.json. To protect your providers, MCP servers, and onboarding state, config writes are paused.",
-    path: "Config file",
-    error: "Read error",
-    details: "Protection note",
-    retry: "Retry Read",
-    restart: "Restart App",
-    backupsTitle: "Restore a Config Snapshot",
-    backupsDesc:
-      "After restore, Hope Agent will reload the config and continue startup. The unreadable file is kept in place and copied to a .corrupt-<timestamp> sidecar when possible.",
-    loading: "Loading snapshots…",
-    empty: "No config snapshots found",
-    emptyHint:
-      "Repair config.json manually, or recover a usable version from backups/autosave or config.json.corrupt-* and retry.",
-    restore: "Restore",
-    source: "Source",
-    retrying: "Reading",
-    restoring: "Restoring",
-    restartFailed: "Automatic restart is unavailable here. Close and reopen Hope Agent manually.",
-  },
-}
-
-function copyFor(language: string) {
-  return language.toLowerCase().startsWith("zh") ? COPY.zh : COPY.en
-}
-
 function formatTs(ts: string): string {
   const m = ts.match(/^(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})-(\d{2})/)
   if (!m) return ts
@@ -88,8 +39,7 @@ function errorMessage(e: unknown): string {
 }
 
 export default function ConfigRecoveryScreen({ health, onRecovered }: ConfigRecoveryScreenProps) {
-  const { i18n } = useTranslation()
-  const copy = copyFor(i18n.language || navigator.language || "en")
+  const { t } = useTranslation()
   const [backups, setBackups] = useState<AutosaveEntry[]>([])
   const [loadingBackups, setLoadingBackups] = useState(false)
   const [retrying, setRetrying] = useState(false)
@@ -152,11 +102,11 @@ export default function ConfigRecoveryScreen({ health, onRecovered }: ConfigReco
         "request_app_restart",
       )
       if (result && result.ok === false) {
-        setError(result.note || copy.restartFailed)
+        setError(result.note || t("configRecovery.restartFailed"))
       }
     } catch (e) {
       logger.error("config", "ConfigRecoveryScreen::restart", "Failed to request restart", e)
-      setError(copy.restartFailed)
+      setError(t("configRecovery.restartFailed"))
     }
   }
 
@@ -169,9 +119,11 @@ export default function ConfigRecoveryScreen({ health, onRecovered }: ConfigReco
               <ShieldAlert className="h-5 w-5" />
             </div>
             <div className="min-w-0 flex-1">
-              <h1 className="text-xl font-semibold tracking-normal text-foreground">{copy.title}</h1>
+              <h1 className="text-xl font-semibold tracking-normal text-foreground">
+                {t("configRecovery.title")}
+              </h1>
               <p className="mt-1 max-w-3xl text-sm leading-6 text-muted-foreground">
-                {copy.subtitle}
+                {t("configRecovery.subtitle")}
               </p>
             </div>
           </div>
@@ -183,7 +135,7 @@ export default function ConfigRecoveryScreen({ health, onRecovered }: ConfigReco
               <div className="space-y-3 text-sm">
                 <div>
                   <div className="text-xs font-medium uppercase text-muted-foreground">
-                    {copy.path}
+                    {t("configRecovery.path")}
                   </div>
                   <div className="mt-1 break-all font-mono text-xs text-foreground">
                     {health?.path || "config.json"}
@@ -191,16 +143,16 @@ export default function ConfigRecoveryScreen({ health, onRecovered }: ConfigReco
                 </div>
                 <div>
                   <div className="text-xs font-medium uppercase text-muted-foreground">
-                    {copy.error}
+                    {t("configRecovery.error")}
                   </div>
                   <div className="mt-1 break-words text-destructive">
-                    {health?.error || health?.status || "unknown"}
+                    {health?.error || health?.status || t("common.unknown")}
                   </div>
                 </div>
                 {health?.message && (
                   <div>
                     <div className="text-xs font-medium uppercase text-muted-foreground">
-                      {copy.details}
+                      {t("configRecovery.details")}
                     </div>
                     <div className="mt-1 break-words text-muted-foreground">
                       {health.message}
@@ -224,31 +176,37 @@ export default function ConfigRecoveryScreen({ health, onRecovered }: ConfigReco
                 ) : (
                   <RefreshCw className="mr-2 h-4 w-4" />
                 )}
-                {retrying ? copy.retrying : copy.retry}
+                {retrying ? t("configRecovery.retrying") : t("configRecovery.retry")}
               </Button>
               <Button variant="outline" onClick={restart} disabled={retrying || restoringId !== null}>
                 <Power className="mr-2 h-4 w-4" />
-                {copy.restart}
+                {t("configRecovery.restart")}
               </Button>
             </div>
           </div>
 
           <div className="rounded-md border border-border bg-card">
             <div className="border-b border-border px-4 py-3">
-              <div className="text-sm font-medium text-foreground">{copy.backupsTitle}</div>
-              <div className="mt-1 text-xs leading-5 text-muted-foreground">{copy.backupsDesc}</div>
+              <div className="text-sm font-medium text-foreground">
+                {t("configRecovery.backupsTitle")}
+              </div>
+              <div className="mt-1 text-xs leading-5 text-muted-foreground">
+                {t("configRecovery.backupsDesc")}
+              </div>
             </div>
 
             {loadingBackups ? (
               <div className="flex items-center justify-center gap-2 px-4 py-10 text-sm text-muted-foreground">
                 <Loader2 className="h-4 w-4 animate-spin" />
-                {copy.loading}
+                {t("configRecovery.loading")}
               </div>
             ) : configBackups.length === 0 ? (
               <div className="px-4 py-10 text-center">
-                <div className="text-sm font-medium text-foreground">{copy.empty}</div>
+                <div className="text-sm font-medium text-foreground">
+                  {t("configRecovery.empty")}
+                </div>
                 <div className="mx-auto mt-2 max-w-sm text-xs leading-5 text-muted-foreground">
-                  {copy.emptyHint}
+                  {t("configRecovery.emptyHint")}
                 </div>
               </div>
             ) : (
@@ -269,10 +227,10 @@ export default function ConfigRecoveryScreen({ health, onRecovered }: ConfigReco
                         </div>
                         <div className="mt-1 flex min-w-0 items-center gap-2 text-[11px] text-muted-foreground">
                           <span className="rounded bg-secondary px-1.5 py-0.5 font-medium">
-                            {entry.category}
+                            {backupMetadataLabel(t, "category", entry.category)}
                           </span>
                           <span className="truncate">
-                            {copy.source}: {entry.source}
+                            {t("configRecovery.source")}: {backupMetadataLabel(t, "source", entry.source)}
                           </span>
                         </div>
                       </div>
@@ -287,7 +245,7 @@ export default function ConfigRecoveryScreen({ health, onRecovered }: ConfigReco
                         ) : (
                           <RotateCcw className="mr-2 h-4 w-4" />
                         )}
-                        {busy ? copy.restoring : copy.restore}
+                        {busy ? t("configRecovery.restoring") : t("configRecovery.restore")}
                       </Button>
                     </div>
                   )

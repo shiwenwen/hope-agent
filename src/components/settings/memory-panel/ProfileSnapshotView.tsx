@@ -172,7 +172,9 @@ function ProfileSourceButton({
       >
         <span className="flex max-w-full items-center gap-1">
           <ExternalLink className="h-3 w-3 shrink-0" />
-          <span className="truncate">{source.claimType}</span>
+          <span className="truncate">
+            {t(`settings.claimType_${source.claimType}`, source.claimType)}
+          </span>
           <span className={metaClassName}>
             {t("settings.profile.sourceConfidence", {
               value: pct(source.confidence),

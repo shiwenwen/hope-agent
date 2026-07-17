@@ -241,7 +241,7 @@ function FieldInput({
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="__default">default</SelectItem>
+            <SelectItem value="__default">{t("settings.hooks.defaultShell")}</SelectItem>
             <SelectItem value="bash">bash</SelectItem>
             <SelectItem value="powershell">powershell</SelectItem>
           </SelectContent>
