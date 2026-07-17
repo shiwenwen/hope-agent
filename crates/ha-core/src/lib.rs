@@ -111,6 +111,7 @@ pub mod stt;
 pub mod subagent;
 pub mod system_prompt;
 pub mod team;
+pub mod tool_actions;
 pub mod tools;
 pub mod ttl_cache;
 pub mod updater;

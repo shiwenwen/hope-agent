@@ -42,6 +42,8 @@ pub(crate) async fn tool_browser(args: &Value, ctx: &super::ToolExecContext) -> 
         .and_then(|v| v.as_str())
         .ok_or_else(|| anyhow!("Missing 'action' parameter"))?;
     let session_id = ctx.session_id.as_deref();
+    let started = std::time::Instant::now();
+    let started_at = chrono::Utc::now().timestamp_millis();
 
     let result = match action {
         "status" => action_status(args).await,
@@ -57,10 +59,141 @@ pub(crate) async fn tool_browser(args: &Value, ctx: &super::ToolExecContext) -> 
             other
         )),
     };
+    record_browser_action(args, ctx, action, &result, started, started_at);
     if result.is_ok() {
         emit_browser_activity_metadata(ctx, args, action).await;
     }
     result
+}
+
+/// Sub-operation for timeline purposes: `op` for tabs/navigate/control,
+/// `kind` for act, `format` for snapshot.
+fn browser_sub_op(args: &Value) -> Option<&str> {
+    get_str(args, "op")
+        .or_else(|| get_str(args, "kind"))
+        .or_else(|| get_str(args, "format"))
+}
+
+/// Timeline whitelist — read-only queries (status/profile/observe/tabs.list/
+/// snapshot.role) would spam the execution path and are skipped.
+fn is_recordable_browser_action(action: &str, op: Option<&str>) -> bool {
+    match action {
+        "navigate" | "act" => true,
+        "tabs" => matches!(
+            op,
+            Some("new" | "select" | "close" | "claim" | "release" | "finalize")
+        ),
+        "control" => matches!(
+            op,
+            Some(
+                "resize"
+                    | "scroll"
+                    | "wait_for"
+                    | "handle_dialog"
+                    | "evaluate"
+                    | "raw_cdp"
+                    | "download_cancel"
+            )
+        ),
+        "snapshot" => matches!(op, Some("screenshot" | "image" | "pdf")),
+        _ => false,
+    }
+}
+
+/// Central frame-emit policy — replicates the exact per-handler behaviour this
+/// choke point absorbed: `act` emits even on failure (page state may have
+/// partially changed), `navigate` / `tabs.new|select|claim` only on success.
+fn should_emit_frame_after(action: &str, op: Option<&str>, ok: bool) -> bool {
+    match action {
+        "act" => true,
+        "navigate" => ok,
+        "tabs" => ok && matches!(op, Some("new" | "select" | "claim")),
+        _ => false,
+    }
+}
+
+/// Redacted human-oriented `(target, detail, url)` summary for the timeline.
+/// `act.fill` text never enters the payload — length only.
+fn browser_action_summary(
+    args: &Value,
+    action: &str,
+    op: Option<&str>,
+) -> (Option<String>, Option<String>, Option<String>) {
+    let target = get_u32(args, "ref")
+        .map(|r| format!("ref={r}"))
+        .or_else(|| {
+            get_str(args, "target_id")
+                .or_else(|| get_str(args, "page_id"))
+                .map(str::to_string)
+        });
+    let url = get_str(args, "url").map(str::to_string);
+    let detail = match (action, op) {
+        ("act", Some("fill")) => {
+            get_str_any(args, "text").map(crate::tool_actions::redacted_text_summary)
+        }
+        ("act", Some("press")) => get_str(args, "key").map(|k| format!("key={k}")),
+        ("act", Some("select")) => {
+            get_str_array(args, "values").map(|v| format!("values({})", v.len()))
+        }
+        ("act", Some("upload")) => get_str(args, "file_path").map(str::to_string),
+        ("control", Some("evaluate")) => get_str(args, "expression")
+            .or_else(|| get_str(args, "script"))
+            .map(|s| format!("js({} chars)", s.chars().count())),
+        ("control", Some("raw_cdp")) => get_str(args, "method").map(str::to_string),
+        ("control", Some("scroll")) => get_str(args, "direction").map(str::to_string),
+        _ => None,
+    };
+    (target, detail, url)
+}
+
+/// Choke-point recorder: builds the redacted action event, pushes it into the
+/// ring buffer + EventBus, and triggers the follow-up frame capture that
+/// backfills the thumbnail via `action_id`.
+fn record_browser_action(
+    args: &Value,
+    ctx: &super::ToolExecContext,
+    action: &str,
+    result: &Result<String>,
+    started: std::time::Instant,
+    started_at: i64,
+) {
+    let op = browser_sub_op(args);
+    let ok = result.is_ok();
+    let emit_frame = should_emit_frame_after(action, op, ok);
+    let recordable = is_recordable_browser_action(action, op);
+    if !emit_frame && !recordable {
+        return;
+    }
+    let action_id = crate::tool_actions::new_action_id();
+    if recordable {
+        let (target, detail, url) = browser_action_summary(args, action, op);
+        crate::tool_actions::record_action(crate::tool_actions::ToolActionEvent {
+            action_id: action_id.clone(),
+            source: crate::tool_actions::ToolActionSource::Browser,
+            session_id: ctx.session_id.clone(),
+            action: action.to_string(),
+            op: op.map(str::to_string),
+            target,
+            detail,
+            url,
+            app: None,
+            ok,
+            error: result
+                .as_ref()
+                .err()
+                .map(|e| crate::tool_actions::clamp_error(&e.to_string())),
+            duration_ms: started.elapsed().as_millis() as u64,
+            started_at,
+            tool_call_id: ctx.tool_call_id.clone(),
+            has_frame: emit_frame,
+        });
+    }
+    if emit_frame {
+        browser::frame::emit_frame_async(
+            ctx.session_id.clone(),
+            recordable.then(|| action_id.clone()),
+        );
+    }
 }
 
 async fn emit_browser_activity_metadata(ctx: &super::ToolExecContext, args: &Value, action: &str) {
@@ -552,7 +685,6 @@ async fn tabs_new(args: &Value, session_id: Option<&str>) -> Result<String> {
             tab.url = target.to_string();
         }
     }
-    browser::frame::emit_frame_async(session_id.map(str::to_string));
     Ok(format!(
         "New page created: {} (url: {})",
         tab.target_id, tab.url
@@ -583,7 +715,6 @@ async fn tabs_select(args: &Value, session_id: Option<&str>) -> Result<String> {
         .ok_or_else(|| anyhow!("tabs.select requires 'target_id'"))?;
     let backend = acquire_browser_backend(session_id, "tabs.select").await?;
     backend.select_page(target).await?;
-    browser::frame::emit_frame_async(session_id.map(str::to_string));
     Ok(format!("Switched to page: {}", target))
 }
 
@@ -620,7 +751,6 @@ async fn tabs_claim(args: &Value, session_id: Option<&str>) -> Result<String> {
     let steal = get_bool(args, "steal").unwrap_or(false);
     let backend = require_extension_tabs("tabs.claim", session_id).await?;
     backend.claim_page(target, steal).await?;
-    browser::frame::emit_frame_async(session_id.map(str::to_string));
     Ok(if steal {
         format!("Claimed user Chrome tab with lease steal: {}", target)
     } else {
@@ -663,9 +793,6 @@ async fn action_navigate(args: &Value, session_id: Option<&str>) -> Result<Strin
             ))
         }
     };
-    if result.is_ok() {
-        browser::frame::emit_frame_async(session_id.map(str::to_string));
-    }
     result
 }
 
@@ -1074,11 +1201,9 @@ async fn action_act(args: &Value, session_id: Option<&str>) -> Result<String> {
         values: get_str_array(args, "values"),
     };
     let backend = acquire_browser_backend(session_id, "act").await?;
-    let result = backend.act(kind, params).await;
-    // Always emit a frame after an act attempt — even on failure the page
-    // state may have changed (partial fill, click that did nothing, etc.).
-    browser::frame::emit_frame_async(session_id.map(str::to_string));
-    result
+    // Frame emit happens at the tool_browser choke point (even on failure —
+    // the page state may have changed: partial fill, click that did nothing).
+    backend.act(kind, params).await
 }
 
 // ── observe ──────────────────────────────────────────────────────────────

@@ -144,7 +144,8 @@ readiness 计算规则：
 | `mac_control_permissions` | `GET /api/mac-control/permissions` | 无 | `MacControlPermissionsResponse`：`status` + `systemPermissions` 完整系统权限 catalog |
 | `mac_control_snapshot` | `POST /api/mac-control/snapshot` | `{ options?: MacControlSnapshotRequest }`；Tauri command 直接接收 `options` | `MacControlSnapshotResponse`：`status`、`snapshot?`、`error?` |
 | `mac_control_elements` | `POST /api/mac-control/elements` | `{ options?: MacControlElementsRequest }`；Tauri command 直接接收 `options` | `MacControlElementsResponse`：`status`、`result?`、`error?` |
-| `mac_control_capture_frame` | `POST /api/mac-control/capture-frame` | 无 | `MacControlFrameResponse`：`status`、`frame?`、`error?` |
+| `mac_control_capture_frame` | `POST /api/mac-control/capture-frame` | 可选 `displayId`（面板快捷条切换捕获显示器；缺省 = 主显示器） | `MacControlFrameResponse`：`status`、`frame?`、`error?` |
+| `mac_control_list_displays` | `GET /api/mac-control/displays` | 无 | `MacControlDisplaysResponse`：`displays`、`error?`（server 模式空列表 + error） |
 
 Transport 请求类型：
 
@@ -618,14 +619,17 @@ OCR 规则：
 
 | 事件 | payload | 说明 |
 | --- | --- | --- |
-| `mac_control:frame` | `MacControlFramePayload` | 最新截图帧，来自 `snapshot(includeScreenshot=true)` 或 `capture_frame` |
+| `mac_control:frame` | `MacControlFramePayload`（含可选 `actionId`） | 最新截图帧，来自 `snapshot(includeScreenshot=true)`、`capture_frame` 或 action 后的 `capture_frame_for_action` |
+| `mac_control:action` | `ToolActionEvent`（[`tool_actions`](../../crates/ha-core/src/tool_actions.rs)） | `tool_mac_control` choke point 按白名单（`act` 非 dry_run / `windows` / `menu` / `dialog` / `dock` / `apps` / `spaces` / `clipboard` 的变更类 op）记录的逐步操作事件；type/paste/set_value/clipboard.set 文本脱敏只记长度 |
+
+action 事件 → 帧关联：mutating 成功（及 `act` 失败）后 fire-and-forget [`capture_frame_for_action`](../../crates/ha-core/src/mac_control.rs)——capture → stamp `actionId` → emit `mac_control:frame` → 内存降采样缩略图回填 ring buffer（**不走 `store_screenshot_jpeg`**，零落盘、incognito 安全）。历史经 `tool_recent_actions` 拉取，会话删除 / 焚毁即清。
 
 前端行为：
 
 - Settings → Permissions 调 `mac_control_status`，在权限列表顶部展示 readiness。
-- `MacControlPanel` 打开期间轮询 `mac_control_capture_frame`。
-- 聊天页监听 `mac_control:frame`，首次收到 frame 时打开右侧 Mac Control 面板。
-- Mac Control 面板与 PlanPanel / DiffPanel / CanvasPanel / BrowserPanel 视觉互斥。
+- `MacControlPanel` 打开期间轮询 `mac_control_capture_frame`（可携当前选中 `displayId`）。
+- 聊天页监听 `mac_control:frame`，首次收到工具产生的截图帧（`mediaId`/`path` 非空）时打开右侧 Mac Control 面板。
+- Mac Control 面板与 PlanPanel / DiffPanel / CanvasPanel / BrowserPanel 视觉互斥；docked 态底部叠快捷条（显示器下拉 `mac_control_list_displays` + 立即截屏）、统计条与执行历史时间线，并支持切换为应用内悬浮小窗——机制与浏览器面板完全共用（内容组件 [`MacControlPanelContent`](../../src/components/chat/MacControlPanelContent.tsx)、帧 store、悬浮窗、时间线组件均同一套，细节见 [`browser.md`](browser.md) 「面板执行历史 / 悬浮小窗 / 快捷条」节）。
 
 ## 存储、日志和错误统计
 

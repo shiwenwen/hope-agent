@@ -57,8 +57,29 @@ pub async fn mac_control_elements(
 }
 
 #[tauri::command]
-pub async fn mac_control_capture_frame() -> ha_core::mac_control::MacControlFrameResponse {
-    ha_core::mac_control::capture_frame().await
+pub async fn mac_control_capture_frame(
+    display_id: Option<u32>,
+) -> ha_core::mac_control::MacControlFrameResponse {
+    ha_core::mac_control::capture_frame(display_id).await
+}
+
+#[tauri::command]
+pub async fn mac_control_list_displays() -> ha_core::mac_control::MacControlDisplaysResponse {
+    ha_core::mac_control::list_displays().await
+}
+
+// ── Panel action timeline ────────────────────────────────────────
+
+#[tauri::command]
+pub async fn tool_recent_actions(
+    source: Option<String>,
+    session_id: Option<String>,
+    limit: Option<usize>,
+) -> Vec<ha_core::tool_actions::ToolActionRecord> {
+    let source = source
+        .as_deref()
+        .and_then(ha_core::tool_actions::ToolActionSource::parse);
+    ha_core::tool_actions::recent(source, session_id.as_deref(), limit.unwrap_or(200))
 }
 
 // ── Sandbox ──────────────────────────────────────────────────────

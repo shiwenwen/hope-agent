@@ -54,6 +54,11 @@ pub struct BrowserFramePayload {
     /// Backend identifier (`"extension"` or `"cdp"`), kept on the wire for
     /// front-end badge code and mixed-backend diagnostics.
     pub backend: String,
+    /// Action-event foreign key (`tool_actions::ToolActionEvent.action_id`)
+    /// when this frame was triggered by a recorded tool step. `None` for the
+    /// 1s fallback poll and legacy captures.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub action_id: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -96,6 +101,7 @@ pub async fn capture_frame(session_id: Option<&str>) -> Result<Option<BrowserFra
         jpeg_base64,
         captured_at: chrono::Utc::now().timestamp_millis(),
         backend: info.backend,
+        action_id: None,
     }))
 }
 
@@ -130,6 +136,15 @@ async fn frame_info_from_backend(
         title,
         backend: backend.backend_name().to_string(),
     }
+}
+
+/// Same backend selection the frame mirror uses — exposed for the panel
+/// quick-bar (`browser_ui::panel_navigate`) so navigation drives the exact
+/// tab the panel is mirroring.
+pub(crate) async fn panel_backend(
+    session_id: Option<&str>,
+) -> Option<(Arc<dyn BrowserBackend>, Option<String>)> {
+    capture_backend(session_id).await
 }
 
 async fn capture_backend(
@@ -180,10 +195,11 @@ fn extension_capture_backend(session_id: &str) -> Option<Arc<dyn BrowserBackend>
 /// Errors (no backend / capture failed) are logged at warn level but never
 /// surface to the caller: the panel will pick up the next opportunity via
 /// the 1s fallback poll.
-pub fn emit_frame_async(session_id: Option<String>) {
+pub fn emit_frame_async(session_id: Option<String>, action_id: Option<String>) {
     crate::browser_state::browser_runtime().spawn(async move {
         match capture_frame(session_id.as_deref()).await {
-            Ok(Some(payload)) => {
+            Ok(Some(mut payload)) => {
+                payload.action_id = action_id.clone();
                 if let Some(bus) = crate::globals::get_event_bus() {
                     match serde_json::to_value(&payload) {
                         Ok(value) => bus.emit(EVENT_BROWSER_FRAME, value),
@@ -193,6 +209,22 @@ pub fn emit_frame_async(session_id: Option<String>) {
                             "Failed to serialize BrowserFramePayload: {}",
                             e
                         ),
+                    }
+                }
+                // Backfill the timeline thumbnail (best-effort, memory only).
+                if let Some(action_id) = action_id {
+                    if let Ok(bytes) = base64::Engine::decode(
+                        &base64::engine::general_purpose::STANDARD,
+                        &payload.jpeg_base64,
+                    ) {
+                        if let Some(thumb) = crate::tool_actions::encode_thumbnail_from_jpeg(&bytes)
+                        {
+                            crate::tool_actions::attach_thumbnail(
+                                session_id.as_deref(),
+                                &action_id,
+                                thumb,
+                            );
+                        }
                     }
                 }
             }
