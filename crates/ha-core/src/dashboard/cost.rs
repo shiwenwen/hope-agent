@@ -1,5 +1,47 @@
 // ── Cost Estimation ─────────────────────────────────────────────
 
+/// 结算一次用量的成本。
+///
+/// 用户可以在设置里逐个模型改单价（`ModelEditor` 的输入/输出成本），所以**用户配置才是
+/// 「他实际付多少」的真相源**——此前大盘完全无视配置、只认下面那张内置价目表，用户把价格
+/// 改对了大盘照样算错。这里优先按 `(provider_id, model_id)` 回查配置，查不到才回退估算表。
+///
+/// 按 provider 回查还顺带解决了估算表结构上解不了的问题：同一模型在不同渠道价格不同
+/// （kimi-k2.6 直连 $0.95、OpenRouter $0.8），而估算表只按 model_id 匹配、只能存一个值。
+///
+/// `provider_id` 为 `None` 时（历史行未记录该列）同样回退估算表。
+pub(super) fn resolve_cost(
+    provider_id: Option<&str>,
+    model_id: &str,
+    input_tokens: u64,
+    output_tokens: u64,
+) -> f64 {
+    match provider_id.and_then(|pid| configured_price(pid, model_id)) {
+        Some((ci, co)) => (input_tokens as f64 * ci + output_tokens as f64 * co) / 1_000_000.0,
+        None => estimate_cost(model_id, input_tokens, output_tokens),
+    }
+}
+
+/// 从用户配置里取该 provider 下该模型的单价。
+///
+/// **0/0 视为「未标价」而非「免费」，返回 `None` 回退估算表**——模板里 0 是重载的：既表示
+/// 包月端点无按量计费（kimi-coding），也表示厂商单价未知（step-3.5-flash、qwen 新模型）。
+/// 两者无法区分，取回退可保持这些模型与改动前一致的行为，避免把「未知」静默报成 $0。
+fn configured_price(provider_id: &str, model_id: &str) -> Option<(f64, f64)> {
+    let cfg = crate::config::cached_config();
+    let model = cfg
+        .providers
+        .iter()
+        .find(|p| p.id == provider_id)?
+        .models
+        .iter()
+        .find(|m| m.id == model_id)?;
+    if model.cost_input == 0.0 && model.cost_output == 0.0 {
+        return None;
+    }
+    Some((model.cost_input, model.cost_output))
+}
+
 pub(super) fn estimate_cost(model_id: &str, input_tokens: u64, output_tokens: u64) -> f64 {
     // Pricing per 1M tokens: (input_price, output_price)
     let (input_price, output_price) = match model_id {
@@ -165,7 +207,108 @@ pub(super) fn estimate_cost(model_id: &str, input_tokens: u64, output_tokens: u6
 
 #[cfg(test)]
 mod tests {
-    use super::estimate_cost;
+    use super::{estimate_cost, resolve_cost};
+    use crate::config::AppConfig;
+    use crate::provider::{ApiType, ModelConfig, ProviderConfig};
+    use crate::test_support::replace_config_cache;
+
+    fn model(id: &str, cost_input: f64, cost_output: f64) -> ModelConfig {
+        ModelConfig {
+            id: id.to_string(),
+            name: id.to_string(),
+            input_types: vec!["text".to_string()],
+            context_window: 200_000,
+            max_tokens: 8_192,
+            reasoning: false,
+            thinking_style: None,
+            cost_input,
+            cost_output,
+        }
+    }
+
+    fn config_with(provider_id: &str, models: Vec<ModelConfig>) -> AppConfig {
+        let mut provider = ProviderConfig::new(
+            "Test".to_string(),
+            ApiType::OpenaiChat,
+            "https://example.invalid".to_string(),
+            "k".to_string(),
+        );
+        provider.id = provider_id.to_string();
+        provider.models = models;
+        AppConfig {
+            providers: vec![provider],
+            ..Default::default()
+        }
+    }
+
+    /// 用户在设置里改的单价必须真的影响大盘——这正是本次修复的核心。
+    #[test]
+    fn configured_price_overrides_the_builtin_table() {
+        // 表里 claude-opus-4-8 是 $5/$25；用户配置成 $1/$2。
+        let _guard =
+            replace_config_cache(config_with("p1", vec![model("claude-opus-4-8", 1.0, 2.0)]));
+
+        assert_eq!(
+            resolve_cost(Some("p1"), "claude-opus-4-8", 1_000_000, 0),
+            1.0
+        );
+        assert_eq!(
+            resolve_cost(Some("p1"), "claude-opus-4-8", 0, 1_000_000),
+            2.0
+        );
+        // 未按 provider 解析时仍走内置表，保持既有行为。
+        assert_eq!(resolve_cost(None, "claude-opus-4-8", 1_000_000, 0), 5.0);
+    }
+
+    /// 同一模型在不同渠道价格不同——这是按 model_id 匹配的估算表结构上解不了的。
+    #[test]
+    fn same_model_resolves_per_provider() {
+        let mut cfg = config_with("direct", vec![model("kimi-k2.6", 0.95, 4.0)]);
+        let mut gateway = ProviderConfig::new(
+            "Gateway".to_string(),
+            ApiType::OpenaiChat,
+            "https://gateway.invalid".to_string(),
+            "k".to_string(),
+        );
+        gateway.id = "gw".to_string();
+        gateway.models = vec![model("kimi-k2.6", 0.8, 3.5)];
+        cfg.providers.push(gateway);
+        let _guard = replace_config_cache(cfg);
+
+        assert_eq!(
+            resolve_cost(Some("direct"), "kimi-k2.6", 1_000_000, 0),
+            0.95
+        );
+        assert_eq!(resolve_cost(Some("gw"), "kimi-k2.6", 1_000_000, 0), 0.80);
+    }
+
+    /// 0/0 在模板里是「未标价」而非「免费」，必须回退估算表，不能把未知静默报成 $0。
+    #[test]
+    fn unpriced_model_falls_back_to_the_table() {
+        let _guard =
+            replace_config_cache(config_with("p1", vec![model("claude-opus-4-8", 0.0, 0.0)]));
+        assert_eq!(
+            resolve_cost(Some("p1"), "claude-opus-4-8", 1_000_000, 0),
+            5.0
+        );
+    }
+
+    /// provider 被删 / 模型已从配置移除 / 历史行无 provider_id —— 都回退，不能算成 0。
+    #[test]
+    fn unknown_provider_or_model_falls_back_to_the_table() {
+        let _guard =
+            replace_config_cache(config_with("p1", vec![model("some-other-model", 1.0, 2.0)]));
+
+        assert_eq!(
+            resolve_cost(Some("deleted"), "claude-opus-4-8", 1_000_000, 0),
+            5.0
+        );
+        assert_eq!(
+            resolve_cost(Some("p1"), "claude-opus-4-8", 1_000_000, 0),
+            5.0
+        );
+        assert_eq!(resolve_cost(None, "claude-opus-4-8", 1_000_000, 0), 5.0);
+    }
 
     /// Price per 1M tokens, recovered by billing exactly 1M of one kind.
     fn prices(model_id: &str) -> (f64, f64) {
