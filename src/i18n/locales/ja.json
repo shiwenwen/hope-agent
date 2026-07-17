@@ -552,6 +552,7 @@
     "pendingDiscard": "キューを閉じる",
     "pendingEdit": "メッセージを編集",
     "pendingInteractionHint": "応答をお待ちしています",
+    "pendingCountdownTooltip": "{{time}} 後に自動処理されます",
     "pendingInteractionInline": "応答待ち · {{count}}",
     "pendingQueued": "メッセージがキューに追加されました。返信完了後に送信されます...",
     "goalMode": {

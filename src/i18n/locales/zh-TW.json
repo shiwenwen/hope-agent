@@ -552,6 +552,7 @@
     "pendingDiscard": "關閉排隊",
     "pendingEdit": "編輯訊息",
     "pendingInteractionHint": "等待您的回應",
+    "pendingCountdownTooltip": "{{time}} 後自動處理",
     "pendingInteractionInline": "等待回應 · {{count}} 項",
     "pendingQueued": "訊息已排隊，等待回覆完成後傳送…",
     "goalMode": {

@@ -552,6 +552,7 @@
     "pendingDiscard": "대기열 닫기",
     "pendingEdit": "메시지 편집",
     "pendingInteractionHint": "응답을 기다리는 중",
+    "pendingCountdownTooltip": "{{time}} 후 자동 처리됩니다",
     "pendingInteractionInline": "응답 대기 중 · {{count}}",
     "pendingQueued": "메시지가 대기열에 추가되었습니다. 응답 완료 후 전송됩니다...",
     "goalMode": {

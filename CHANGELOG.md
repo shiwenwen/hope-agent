@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **侧边栏「等待操作」徽章新增超时倒计时进度环**：开启工具审批 / ask_user 提问超时后，普通与简约模式的会话条目都会显示一个随剩余时间收缩的琥珀色进度环，悬浮可查看剩余时间；未开启超时时界面保持不变。
+
 - **Provider 支持声明单价币种，人民币价目不再被当美元入账**：Provider 编辑页新增「计价货币」（USD/CNY），单价照厂商价目页原文录入、成本大盘统一换算成 USD 统计；内置 qwen / 火山引擎 / 腾讯混元模板标为人民币计价，并修正火山引擎模板残留的占位单价与混元官方价目。 (#493)
 
 - **内置 Provider 模板刷新：新增当代旗舰模型与五个 Provider**：新增 Claude Sonnet 5 与 Mythos 5、GPT-5.6、Kimi K3、Grok 4.5、Step 3.7 Flash、Qwen 3.7 Plus、混元 Hy3 等当代旗舰，并新增 Cohere、Baseten、LongCat、Meta、Featherless 五个 Provider；内置模板增至 50 个 Provider、392 个预设模型。各家新一代模型统一排在模型选择器最前，已废弃的旧模型下沉到列表末尾。

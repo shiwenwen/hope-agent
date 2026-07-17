@@ -552,6 +552,7 @@
     "pendingDiscard": "Sırayı kapat",
     "pendingEdit": "Mesajı düzenle",
     "pendingInteractionHint": "Yanıtınız bekleniyor",
+    "pendingCountdownTooltip": "{{time}} içinde otomatik işlenir",
     "pendingInteractionInline": "Yanıt bekleniyor · {{count}}",
     "pendingQueued": "Mesaj sıraya alındı, yanıt tamamlandıktan sonra gönderilecek...",
     "goalMode": {

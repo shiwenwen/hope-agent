@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from "react"
+import { useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
+import { useCountdownRemainingSec } from "@/lib/countdown"
 import { ShieldAlert, ShieldCheck, FolderOpen, Clock, EyeOff } from "lucide-react"
 
 export interface ApprovalRequest {
@@ -245,25 +246,7 @@ function CountdownRing({
   autoAction: "deny" | "proceed"
 }) {
   const { t } = useTranslation()
-  const [remaining, setRemaining] = useState(() =>
-    Math.max(0, Math.ceil((deadlineAtMs - Date.now()) / 1000)),
-  )
-
-  useEffect(() => {
-    let id: number | null = null
-    const tick = () => {
-      const next = Math.max(0, Math.ceil((deadlineAtMs - Date.now()) / 1000))
-      setRemaining(next)
-      if (next <= 0 && id !== null) {
-        window.clearInterval(id)
-        id = null
-      }
-    }
-    id = window.setInterval(tick, 250)
-    return () => {
-      if (id !== null) window.clearInterval(id)
-    }
-  }, [deadlineAtMs])
+  const remaining = useCountdownRemainingSec(deadlineAtMs) ?? 0
   const ratio = total <= 0 ? 0 : Math.max(0, Math.min(1, remaining / total))
   const isUrgent = remaining <= 30
   const stroke = 3

@@ -552,6 +552,7 @@
     "pendingDiscard": "Tutup baris gilir",
     "pendingEdit": "Edit mesej",
     "pendingInteractionHint": "Menunggu respons anda",
+    "pendingCountdownTooltip": "Diproses secara automatik dalam {{time}}",
     "pendingInteractionInline": "Menunggu respons · {{count}}",
     "pendingQueued": "Mesej dalam barisan, akan dihantar selepas balasan...",
     "goalMode": {
