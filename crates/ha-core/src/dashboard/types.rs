@@ -57,6 +57,9 @@ pub struct TokenUsageTrend {
 pub struct TokenByModel {
     pub model_id: String,
     pub provider_name: String,
+    /// 同一模型可经多个 Provider 使用（各自单价不同，见 `cost::resolve_cost`），此时会有多行
+    /// 共用同一 `model_id`。前端必须用 `(provider_id, model_id)` 作行标识，不能只用 model_id。
+    pub provider_id: Option<String>,
     pub input_tokens: u64,
     pub output_tokens: u64,
     pub estimated_cost_usd: f64,

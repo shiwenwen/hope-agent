@@ -150,19 +150,23 @@ const TokenUsageSection = React.memo(function TokenUsageSection({
 
   const pieData = (() => {
     if (!data?.byModel) return []
-    const sorted = [...data.byModel].sort(
-      (a, b) => b.inputTokens + b.outputTokens - (a.inputTokens + a.outputTokens),
-    )
+    // byModel 按 (模型, Provider) 分行——同一模型经多个 Provider 使用会有多行。饼图是按
+    // 模型看占比，故先按 modelId 合并，否则同名切片会重复出现、且各自只占该模型的一部分。
+    const byModelId = new Map<string, number>()
+    for (const m of data.byModel) {
+      byModelId.set(m.modelId, (byModelId.get(m.modelId) ?? 0) + m.inputTokens + m.outputTokens)
+    }
+    const sorted = [...byModelId.entries()].sort((a, b) => b[1] - a[1])
     const top8 = sorted.slice(0, 8)
     const rest = sorted.slice(8)
-    const result = top8.map((m) => ({
-      name: m.modelId,
-      value: m.inputTokens + m.outputTokens,
+    const result = top8.map(([modelId, value]) => ({
+      name: modelId,
+      value,
     }))
     if (rest.length > 0) {
       result.push({
         name: t("dashboard.token.other"),
-        value: rest.reduce((acc, m) => acc + m.inputTokens + m.outputTokens, 0),
+        value: rest.reduce((acc, [, value]) => acc + value, 0),
       })
     }
     return result
@@ -533,7 +537,7 @@ const TokenUsageSection = React.memo(function TokenUsageSection({
               <>
                 {data.byModel.map((m) => (
                   <div
-                    key={m.modelId}
+                    key={`${m.providerId ?? m.providerName}::${m.modelId}`}
                     className="grid grid-cols-6 gap-2 text-xs py-2 border-b border-border/50 hover:bg-muted/50"
                   >
                     <div className="truncate font-medium">{m.modelId}</div>

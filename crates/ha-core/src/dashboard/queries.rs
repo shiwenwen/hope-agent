@@ -257,6 +257,7 @@ pub fn query_token_usage(
             ),
             model_id,
             provider_name,
+            provider_id,
             input_tokens,
             output_tokens,
             avg_ttft_ms,

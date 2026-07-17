@@ -39,6 +39,8 @@ export interface TokenUsageTrend {
 export interface TokenByModel {
   modelId: string
   providerName: string
+  /** 同一模型可经多个 Provider 使用，此时多行共用同一 modelId；行标识须用 (providerId, modelId)。 */
+  providerId: string | null
   inputTokens: number
   outputTokens: number
   estimatedCostUsd: number
