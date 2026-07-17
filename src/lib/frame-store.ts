@@ -59,6 +59,7 @@ export function createFrameStore<F>(options: FrameStoreOptions<F>): FrameStore<F
   let detachTimer: ReturnType<typeof setTimeout> | null = null
   let pollTimer: ReturnType<typeof setInterval> | null = null
   let refreshSeq = 0
+  let inFlight = false
 
   function notify() {
     listeners.forEach((fn) => fn())
@@ -79,6 +80,7 @@ export function createFrameStore<F>(options: FrameStoreOptions<F>): FrameStore<F
 
   async function refresh(): Promise<void> {
     const seq = ++refreshSeq
+    inFlight = true
     try {
       const next = await options.capture({ ...params })
       // A newer refresh (or session/display switch) superseded this response.
@@ -89,6 +91,8 @@ export function createFrameStore<F>(options: FrameStoreOptions<F>): FrameStore<F
       if (seq === refreshSeq) {
         publish(snapshot.frame, FRAME_CAPTURE_FAILED)
       }
+    } finally {
+      if (seq === refreshSeq) inFlight = false
     }
   }
 
@@ -114,7 +118,12 @@ export function createFrameStore<F>(options: FrameStoreOptions<F>): FrameStore<F
   function syncPollTimer() {
     const shouldPoll = listeners.size > 0 && pollVotes.size > 0
     if (shouldPoll && !pollTimer) {
-      pollTimer = setInterval(() => void refresh(), pollIntervalMs)
+      // Coalesce: a capture slower than the poll interval must not be
+      // superseded by the next tick, or every request gets discarded and the
+      // panel starves on slow/remote backends.
+      pollTimer = setInterval(() => {
+        if (!inFlight) void refresh()
+      }, pollIntervalMs)
     } else if (!shouldPoll && pollTimer) {
       clearInterval(pollTimer)
       pollTimer = null
@@ -157,8 +166,11 @@ export function createFrameStore<F>(options: FrameStoreOptions<F>): FrameStore<F
       params.sessionId = sessionId
       // Invalidate any in-flight capture unconditionally — even with no poll
       // vote a manual refresh for the old session must not land in the new
-      // one after we clear the frame below.
+      // one after we clear the frame below. The superseded request can no
+      // longer clear `inFlight` (seq mismatch), so reset it here or polling
+      // would stay blocked forever.
       refreshSeq += 1
+      inFlight = false
       publish(null, null)
       if (pollVotes.size > 0) void refresh()
     },
@@ -168,6 +180,7 @@ export function createFrameStore<F>(options: FrameStoreOptions<F>): FrameStore<F
       // Same invalidation as setSessionId: an old-display capture in flight
       // must not overwrite the new selection's mirror.
       refreshSeq += 1
+      inFlight = false
       // Republish so the display selector re-renders even before a new frame.
       publish(snapshot.frame, snapshot.error)
       void refresh()

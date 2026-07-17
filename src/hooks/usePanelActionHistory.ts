@@ -36,6 +36,24 @@ interface FrameEventWithAction {
 /** Match the backend ring's thumbnail bound (≤240px, JPEG q60). */
 const THUMB_MAX_WIDTH = 240
 const THUMB_JPEG_QUALITY = 0.6
+/** Mirror the backend's per-session thumbnail cap. */
+const MAX_THUMBNAILS = 50
+
+/** Backend ring policy applied to live state: only the newest
+ *  [`MAX_THUMBNAILS`] entries keep their thumbnail — without this, a panel
+ *  left open past 50 framed actions grows one retained base64 per step. */
+function trimThumbnails(entries: PanelActionEntry[]): PanelActionEntry[] {
+  const withThumb = entries.reduce((n, e) => n + (e.thumbJpegBase64 ? 1 : 0), 0)
+  let toClear = withThumb - MAX_THUMBNAILS
+  if (toClear <= 0) return entries
+  return entries.map((e) => {
+    if (toClear > 0 && e.thumbJpegBase64) {
+      toClear -= 1
+      return { ...e, thumbJpegBase64: null }
+    }
+    return e
+  })
+}
 
 /** Downscale a full frame to a timeline thumbnail in the renderer — storing
  *  raw 50-200KB frames for up to 200 entries would balloon React state far
@@ -71,7 +89,9 @@ function mergeSeed(
   const seen = new Set(records.map((e) => e.actionId))
   const merged = [...records, ...liveEntries.filter((e) => !seen.has(e.actionId))]
   merged.sort((a, b) => a.startedAt - b.startedAt || a.actionId.localeCompare(b.actionId))
-  return merged.length > MAX_ENTRIES ? merged.slice(merged.length - MAX_ENTRIES) : merged
+  return trimThumbnails(
+    merged.length > MAX_ENTRIES ? merged.slice(merged.length - MAX_ENTRIES) : merged,
+  )
 }
 
 /**
@@ -151,7 +171,7 @@ export function usePanelActionHistory(kind: PanelActionKind, sessionId?: string 
           if (idx < 0 || prev.entries[idx].thumbJpegBase64) return prev
           const next = [...prev.entries]
           next[idx] = { ...next[idx], hasFrame: true, thumbJpegBase64: thumb }
-          return { key: prev.key, entries: next }
+          return { key: prev.key, entries: trimThumbnails(next) }
         })
       })
     })
