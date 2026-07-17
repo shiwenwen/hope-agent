@@ -5,8 +5,9 @@ import { cn } from "@/lib/utils"
 import {
   isMainAgent,
   toolDisplayDescFallback,
+  toolDisplayDescriptionKey,
   toolDisplayNameFallback,
-  TOOL_I18N_KEY,
+  toolDisplayNameKey,
 } from "@/types/tools"
 import { Switch } from "@/components/ui/switch"
 import { NumberInput } from "@/components/ui/number-input"
@@ -192,14 +193,14 @@ export default function CapabilitiesTab({
 
   const toolDisplayName = (tool: BuiltinTool) => {
     const name = tool.name
-    const key = TOOL_I18N_KEY[name]
-    return key ? t(`settings.tool${key}Name`) : toolDisplayNameFallback(name, i18n.language)
+    const key = toolDisplayNameKey(name)
+    return i18n.exists(key) ? t(key) : toolDisplayNameFallback(name, i18n.language)
   }
   const toolDisplayDesc = (tool: BuiltinTool) => {
     const name = tool.name
-    const key = TOOL_I18N_KEY[name]
-    return key
-      ? t(`settings.tool${key}Desc`)
+    const key = toolDisplayDescriptionKey(name)
+    return i18n.exists(key)
+      ? t(key)
       : toolDisplayDescFallback(name, tool.description, i18n.language)
   }
 

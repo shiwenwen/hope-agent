@@ -21,6 +21,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 const LOCALES_DIR = resolve(__dirname, "../src/i18n/locales")
 const SRC_DIR = resolve(__dirname, "../src")
 const TRANSLATIONS_FILE = resolve(__dirname, "i18n-translations.json")
+const BUILTIN_TOOLS_DIR = resolve(__dirname, "../crates/ha-core/src/tools")
 
 // ── helpers ──────────────────────────────────────────────────────────
 
@@ -104,6 +105,20 @@ function sourceFiles(dir) {
   return files
 }
 
+function rustSourceFiles(dir) {
+  const files = []
+  for (const name of readdirSync(dir)) {
+    const path = resolve(dir, name)
+    const stat = statSync(path)
+    if (stat.isDirectory()) {
+      files.push(...rustSourceFiles(path))
+      continue
+    }
+    if (name.endsWith(".rs")) files.push(path)
+  }
+  return files
+}
+
 function findLiteralSourceTranslationKeys() {
   const refs = new Map()
   // Use separate alternatives so a double-quoted default value may contain an
@@ -153,6 +168,29 @@ function findLiteralSourceTranslationKeys() {
       if (technicalLiteral.test(key)) continue
       if (enPrefixes.has(key)) continue
       recordRef(key, match.index)
+    }
+  }
+
+  // Built-in tool labels are looked up dynamically from canonical Rust ids,
+  // so the TypeScript literal-key scan cannot see them. Scan the complete tool
+  // source tree (including integration submodules) and accept whitespace/newline
+  // around declarations. Restrict values to canonical tool ids so diagnostic
+  // constants such as TOOL_ERROR_PREFIX are not mistaken for dispatchable tools.
+  for (const file of rustSourceFiles(BUILTIN_TOOLS_DIR)) {
+    const source = readFileSync(file, "utf8")
+    const rel = relative(resolve(__dirname, ".."), file)
+    for (const match of source.matchAll(
+      /pub\s+const\s+TOOL_[A-Z0-9_]+\s*:\s*&str\s*=\s*"([a-z0-9_]+)"\s*;/g,
+    )) {
+      const name = match[1]
+      const suffix = name
+        .split("_")
+        .filter(Boolean)
+        .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+        .join("")
+      const line = source.slice(0, match.index).split("\n").length
+      refs.set(`tools.${name}`, [`${rel}:${line}`])
+      refs.set(`settings.tool${suffix}Desc`, [`${rel}:${line}`])
     }
   }
 
