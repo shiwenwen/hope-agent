@@ -671,8 +671,8 @@ export const internationalTemplates: ProviderTemplate[] = [
         contextWindow: 1048576,
         maxTokens: 65536,
         reasoning: true,
-        costInput: 0,
-        costOutput: 0,
+        costInput: null,
+        costOutput: null,
       },
       {
         id: "gemini-3.1-pro-preview",
@@ -691,8 +691,8 @@ export const internationalTemplates: ProviderTemplate[] = [
         contextWindow: 1048576,
         maxTokens: 65536,
         reasoning: true,
-        costInput: 0,
-        costOutput: 0,
+        costInput: null,
+        costOutput: null,
       },
       {
         id: "gemini-3-flash-preview",

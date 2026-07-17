@@ -999,8 +999,8 @@ mod tests {
             max_tokens: 8_192,
             reasoning: false,
             thinking_style: None,
-            cost_input: 3.0,
-            cost_output: 15.0,
+            cost_input: Some(3.0),
+            cost_output: Some(15.0),
         });
 
         let mut lookup = agents::build_model_lookup(&[]);

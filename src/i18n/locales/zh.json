@@ -2788,7 +2788,8 @@
     "anthropicThinkingBudget": "Anthropic（思考预算）",
     "zaiThinkingBudget": "Z.AI（思考预算）",
     "contextWindow": "上下文窗口",
-    "maxTokens": "最大 tokens"
+    "maxTokens": "最大 tokens",
+    "costUnpriced": "未标价"
   },
   "notification": {
     "cronCancelled": "定时任务已取消",

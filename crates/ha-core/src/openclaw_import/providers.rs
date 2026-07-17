@@ -613,9 +613,13 @@ fn map_model(raw: &OpenClawModelDef) -> ModelConfig {
         input_types.push("text".to_string());
     }
 
+    // 外部配置没给 cost 即「未标价」，不是免费——留 None 让大盘回退估算表。
     let (cost_input, cost_output) = match raw.cost.as_ref() {
-        Some(c) => normalize_costs(c.input, c.output),
-        None => (0.0, 0.0),
+        Some(c) => {
+            let (ci, co) = normalize_costs(c.input, c.output);
+            (Some(ci), Some(co))
+        }
+        None => (None, None),
     };
 
     ModelConfig {

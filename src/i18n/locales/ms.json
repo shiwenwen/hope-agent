@@ -2788,7 +2788,8 @@
     "anthropicThinkingBudget": "Anthropic (bajet pemikiran)",
     "zaiThinkingBudget": "Z.AI (bajet pemikiran)",
     "contextWindow": "Tetingkap konteks",
-    "maxTokens": "Token maks"
+    "maxTokens": "Token maks",
+    "costUnpriced": "Tiada harga"
   },
   "notification": {
     "cronCancelled": "Tugas berjadual dibatalkan",

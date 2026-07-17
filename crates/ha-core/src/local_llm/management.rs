@@ -450,8 +450,8 @@ fn model_config_from_show(
         max_tokens: 8192,
         reasoning,
         thinking_style: None,
-        cost_input: 0.0,
-        cost_output: 0.0,
+        cost_input: Some(0.0),
+        cost_output: Some(0.0),
     }
 }
 

@@ -267,10 +267,17 @@ export function ModelEditor({
             value={model.costInput}
             min={0}
             integer={false}
+            placeholder={t("model.costUnpriced")}
             onValueCommit={(value) =>
               onChange({
                 ...model,
                 costInput: value,
+              })
+            }
+            onEmptyCommit={() =>
+              onChange({
+                ...model,
+                costInput: null,
               })
             }
             className="h-8 text-xs"
@@ -283,10 +290,17 @@ export function ModelEditor({
             value={model.costOutput}
             min={0}
             integer={false}
+            placeholder={t("model.costUnpriced")}
             onValueCommit={(value) =>
               onChange({
                 ...model,
                 costOutput: value,
+              })
+            }
+            onEmptyCommit={() =>
+              onChange({
+                ...model,
+                costOutput: null,
               })
             }
             className="h-8 text-xs"

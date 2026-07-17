@@ -357,8 +357,8 @@ export function CustomWizard({
                       contextWindow: 128000,
                       maxTokens: 8192,
                       reasoning: false,
-                      costInput: 0,
-                      costOutput: 0,
+                      costInput: null,
+                      costOutput: null,
                     },
                   ])
                 }

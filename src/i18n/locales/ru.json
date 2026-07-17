@@ -2788,7 +2788,8 @@
     "anthropicThinkingBudget": "Anthropic (бюджет рассуждений)",
     "contextWindow": "Окно контекста",
     "maxTokens": "Макс. жетонов",
-    "zaiThinkingBudget": "Z.AI (бюджет рассуждений)"
+    "zaiThinkingBudget": "Z.AI (бюджет рассуждений)",
+    "costUnpriced": "Без цены"
   },
   "notification": {
     "cronCancelled": "Запланированная задача отменена",

@@ -2788,7 +2788,8 @@
     "anthropicThinkingBudget": "Anthropic（思考予算）",
     "zaiThinkingBudget": "Z.AI（思考予算）",
     "contextWindow": "コンテキストウィンドウ",
-    "maxTokens": "最大トークン数"
+    "maxTokens": "最大トークン数",
+    "costUnpriced": "価格未設定"
   },
   "notification": {
     "cronCancelled": "スケジュールタスクをキャンセルしました",

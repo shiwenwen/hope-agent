@@ -2788,7 +2788,8 @@
     "anthropicThinkingBudget": "Anthropic (orçamento de raciocínio)",
     "contextWindow": "Janela de contexto",
     "maxTokens": "Máximo de tokens",
-    "zaiThinkingBudget": "Z.AI (orçamento de raciocínio)"
+    "zaiThinkingBudget": "Z.AI (orçamento de raciocínio)",
+    "costUnpriced": "Sem preço"
   },
   "notification": {
     "cronCancelled": "Tarefa agendada cancelada",

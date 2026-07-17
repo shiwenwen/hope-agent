@@ -597,7 +597,8 @@
       "anthropicThinkingBudget": "Anthropic（思考予算）",
       "zaiThinkingBudget": "Z.AI（思考予算）",
       "contextWindow": "コンテキストウィンドウ",
-      "maxTokens": "最大トークン数"
+      "maxTokens": "最大トークン数",
+      "costUnpriced": "価格未設定"
     },
     "notification": {
       "approvalRequired": "ツール承認が必要",
@@ -3308,7 +3309,8 @@
       "anthropicThinkingBudget": "Anthropic (사고 예산)",
       "zaiThinkingBudget": "Z.AI (사고 예산)",
       "contextWindow": "컨텍스트 윈도우",
-      "maxTokens": "최대 토큰"
+      "maxTokens": "최대 토큰",
+      "costUnpriced": "가격 미설정"
     },
     "notification": {
       "approvalRequired": "도구 승인이 필요합니다",
@@ -6021,7 +6023,8 @@
       "anthropicThinkingBudget": "Anthropic（思考預算）",
       "zaiThinkingBudget": "Z.AI（思考預算）",
       "contextWindow": "上下文視窗",
-      "maxTokens": "最大 tokens"
+      "maxTokens": "最大 tokens",
+      "costUnpriced": "未標價"
     },
     "notification": {
       "approvalRequired": "需要工具審批",
@@ -8712,7 +8715,8 @@
       "anthropicThinkingBudget": "Anthropic (düşünme bütçesi)",
       "zaiThinkingBudget": "Z.AI (düşünme bütçesi)",
       "contextWindow": "Bağlam penceresi",
-      "maxTokens": "Maksimum jeton"
+      "maxTokens": "Maksimum jeton",
+      "costUnpriced": "Fiyatsız"
     },
     "notification": {
       "approvalRequired": "Araç onayı gerekiyor",
@@ -11622,7 +11626,8 @@
       "anthropicThinkingBudget": "Anthropic (ngân sách suy luận)",
       "zaiThinkingBudget": "Z.AI (ngân sách suy luận)",
       "contextWindow": "Cửa sổ ngữ cảnh",
-      "maxTokens": "Mã thông báo tối đa"
+      "maxTokens": "Mã thông báo tối đa",
+      "costUnpriced": "Chưa có giá"
     },
     "notification": {
       "approvalRequired": "Cần phê duyệt công cụ",
@@ -14452,7 +14457,8 @@
       "anthropicThinkingBudget": "Anthropic (orçamento de raciocínio)",
       "zaiThinkingBudget": "Z.AI (orçamento de raciocínio)",
       "contextWindow": "Janela de contexto",
-      "maxTokens": "Máximo de tokens"
+      "maxTokens": "Máximo de tokens",
+      "costUnpriced": "Sem preço"
     },
     "notification": {
       "approvalRequired": "Aprovação de ferramenta necessária",
@@ -17206,7 +17212,8 @@
       "anthropicThinkingBudget": "Anthropic (бюджет рассуждений)",
       "zaiThinkingBudget": "Z.AI (бюджет рассуждений)",
       "contextWindow": "Окно контекста",
-      "maxTokens": "Макс. жетонов"
+      "maxTokens": "Макс. жетонов",
+      "costUnpriced": "Без цены"
     },
     "notification": {
       "approvalRequired": "Требуется подтверждение инструмента",
@@ -19950,7 +19957,8 @@
       "anthropicThinkingBudget": "Anthropic (ميزانية التفكير)",
       "zaiThinkingBudget": "Z.AI (ميزانية التفكير)",
       "contextWindow": "نافذة السياق",
-      "maxTokens": "الرموز القصوى"
+      "maxTokens": "الرموز القصوى",
+      "costUnpriced": "غير مُسعَّر"
     },
     "notification": {
       "approvalRequired": "مطلوب الموافقة على الأداة",
@@ -22759,7 +22767,8 @@
       "anthropicThinkingBudget": "Anthropic (presupuesto de razonamiento)",
       "zaiThinkingBudget": "Z.AI (presupuesto de razonamiento)",
       "contextWindow": "Ventana de contexto",
-      "maxTokens": "Tokens máximos"
+      "maxTokens": "Tokens máximos",
+      "costUnpriced": "Sin precio"
     },
     "notification": {
       "approvalRequired": "Se requiere aprobación de herramienta",
@@ -25522,7 +25531,8 @@
       "anthropicThinkingBudget": "Anthropic (bajet pemikiran)",
       "zaiThinkingBudget": "Z.AI (bajet pemikiran)",
       "contextWindow": "Tetingkap konteks",
-      "maxTokens": "Token maks"
+      "maxTokens": "Token maks",
+      "costUnpriced": "Tiada harga"
     },
     "notification": {
       "approvalRequired": "Kelulusan alat diperlukan",

@@ -41,8 +41,8 @@ export const localTemplates: ProviderTemplate[] = [
         contextWindow: 1000000,
         maxTokens: 8192,
         reasoning: true,
-        costInput: 0,
-        costOutput: 0,
+        costInput: null,
+        costOutput: null,
       },
       {
         id: "kimi-k2.5:cloud",
@@ -51,8 +51,8 @@ export const localTemplates: ProviderTemplate[] = [
         contextWindow: 128000,
         maxTokens: 8192,
         reasoning: true,
-        costInput: 0,
-        costOutput: 0,
+        costInput: null,
+        costOutput: null,
       },
       {
         id: "minimax-m2.7:cloud",
@@ -61,8 +61,8 @@ export const localTemplates: ProviderTemplate[] = [
         contextWindow: 128000,
         maxTokens: 8192,
         reasoning: true,
-        costInput: 0,
-        costOutput: 0,
+        costInput: null,
+        costOutput: null,
       },
       {
         id: "glm-5.1:cloud",
@@ -71,8 +71,8 @@ export const localTemplates: ProviderTemplate[] = [
         contextWindow: 128000,
         maxTokens: 8192,
         reasoning: true,
-        costInput: 0,
-        costOutput: 0,
+        costInput: null,
+        costOutput: null,
       },
       {
         id: "glm-4.7-flash",
