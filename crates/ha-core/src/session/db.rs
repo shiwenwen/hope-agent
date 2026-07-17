@@ -5828,10 +5828,10 @@ mod tests {
         {
             let conn = db.conn.lock().expect("lock connection");
             let insert = |rid: &str,
-                              sid: &str,
-                              status: &str,
-                              timeout_at: Option<i64>,
-                              created_offset_secs: i64| {
+                          sid: &str,
+                          status: &str,
+                          timeout_at: Option<i64>,
+                          created_offset_secs: i64| {
                 conn.execute(
                     "INSERT INTO ask_user_questions
                         (request_id, session_id, payload, status, timeout_at, created_at)
