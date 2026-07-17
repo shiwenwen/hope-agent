@@ -3,6 +3,8 @@ name: Lint
 on:
   pull_request:
     branches: [main, "release/**"]
+  merge_group:
+    types: [checks_requested]
   push:
     branches: [main, "release/**"]
 
