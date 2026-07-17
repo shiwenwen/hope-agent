@@ -6562,7 +6562,7 @@
     "webSearchRoutingTitle": "توجيه البحث",
     "webSearchRouteSummary": "المزوّد الأساسي: {{provider}}",
     "webSearchFallbackSummary": "المزوّدون الاحتياطيون: {{count}}",
-    "webSearchNoConfiguredRoute": "لا يوجد مزوّد مفعّل؛ سيُستخدم DDG كخيار احتياطي أثناء التشغيل",
+    "webSearchNoConfiguredRoute": "لا يوجد مزوّد بحث مفعّل؛ لن يتوفر بحث الويب",
     "webSearchDdgPrimaryWarning": "يستخدم البحث حاليًا DDG أولًا، لكن موثوقيته محدودة. اضبط Bocha أو Tavily واسحبه فوق DDG.",
     "webSearchPrimary": "أساسي",
     "webSearchFallback": "احتياطي",

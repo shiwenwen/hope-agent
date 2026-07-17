@@ -6562,7 +6562,7 @@
     "webSearchRoutingTitle": "Roteamento de pesquisa",
     "webSearchRouteSummary": "Principal: {{provider}}",
     "webSearchFallbackSummary": "Provedores de fallback: {{count}}",
-    "webSearchNoConfiguredRoute": "Nenhum provedor está ativado; o DDG será usado como fallback em tempo de execução",
+    "webSearchNoConfiguredRoute": "Nenhum provedor de pesquisa está ativado; a pesquisa web ficará indisponível",
     "webSearchDdgPrimaryWarning": "A pesquisa usa primeiro o DDG, mas sua confiabilidade é limitada. Configure o Bocha ou o Tavily e arraste-o para cima do DDG.",
     "webSearchPrimary": "Principal",
     "webSearchFallback": "Fallback",

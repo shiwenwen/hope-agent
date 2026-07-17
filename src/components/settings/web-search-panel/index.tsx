@@ -172,7 +172,7 @@ export default function WebSearchPanel({
     ? t(PROVIDER_META[primaryProvider.id]?.labelKey ?? primaryProvider.id)
     : null
   const fallbackCount = Math.max(0, enabledProviders.length - 1)
-  const ddgIsPrimary = !primaryProvider || primaryProvider.id === "duck-duck-go"
+  const ddgIsPrimary = primaryProvider?.id === "duck-duck-go"
 
   return (
     <div className={embedded ? "flex flex-col" : "flex-1 flex flex-col min-h-0 overflow-hidden"}>

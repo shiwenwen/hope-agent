@@ -6562,7 +6562,7 @@
     "webSearchRoutingTitle": "検索ルーティング",
     "webSearchRouteSummary": "優先プロバイダー：{{provider}}",
     "webSearchFallbackSummary": "フォールバックプロバイダー：{{count}}",
-    "webSearchNoConfiguredRoute": "有効なプロバイダーがありません。実行時は DDG をフォールバックとして使用します",
+    "webSearchNoConfiguredRoute": "検索プロバイダーが有効になっていないため、ウェブ検索は利用できません",
     "webSearchDdgPrimaryWarning": "現在の検索では DDG が優先されますが、安定性に制限があります。Bocha または Tavily を設定し、DDG より上に移動することをおすすめします。",
     "webSearchPrimary": "優先",
     "webSearchFallback": "フォールバック",

@@ -6562,7 +6562,7 @@
     "webSearchRoutingTitle": "Arama yönlendirmesi",
     "webSearchRouteSummary": "Birincil: {{provider}}",
     "webSearchFallbackSummary": "Yedek sağlayıcılar: {{count}}",
-    "webSearchNoConfiguredRoute": "Etkin sağlayıcı yok; çalışma sırasında yedek olarak DDG kullanılacak",
+    "webSearchNoConfiguredRoute": "Etkin arama sağlayıcısı yok; web araması kullanılamayacak",
     "webSearchDdgPrimaryWarning": "Arama şu anda önce DDG'yi kullanıyor ancak güvenilirliği sınırlı. Bocha veya Tavily'yi yapılandırıp DDG'nin üzerine sürükleyin.",
     "webSearchPrimary": "Birincil",
     "webSearchFallback": "Yedek",

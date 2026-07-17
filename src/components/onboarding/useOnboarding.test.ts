@@ -1,7 +1,11 @@
 import { describe, expect, test } from "vitest"
 
 import { ONBOARDING_STEPS, stepsForMode } from "./types"
-import { mergeOnboardingDraft, restoreOnboardingStep } from "./useOnboarding"
+import {
+  hydrateOnboardingDraft,
+  mergeOnboardingDraft,
+  restoreOnboardingStep,
+} from "./useOnboarding"
 
 describe("mergeOnboardingDraft", () => {
   test("merges restored nested draft values without dropping seeded fields", () => {
@@ -62,6 +66,36 @@ describe("mergeOnboardingDraft", () => {
       url: "",
       apiKey: "remote-secret",
     })
+  })
+})
+
+describe("hydrateOnboardingDraft", () => {
+  test("does not treat an unconnected remote draft as an effective remote config", () => {
+    const hydrated = hydrateOnboardingDraft(
+      { serverMode: "local" },
+      {
+        serverMode: "remote",
+        remote: { url: "http://192.168.1.10:8420", apiKey: "draft-key" },
+      },
+    )
+
+    expect(hydrated.serverMode).toBe("local")
+    expect(hydrated.remote).toEqual({
+      url: "http://192.168.1.10:8420",
+      apiKey: "draft-key",
+    })
+  })
+
+  test("preserves an established remote mode seeded from effective config", () => {
+    const hydrated = hydrateOnboardingDraft(
+      {
+        serverMode: "remote",
+        remote: { url: "https://agent.example.com", apiKey: "saved-key" },
+      },
+      { serverMode: "local" },
+    )
+
+    expect(hydrated.serverMode).toBe("remote")
   })
 })
 

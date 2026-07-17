@@ -6562,7 +6562,7 @@
     "webSearchRoutingTitle": "Маршрутизация поиска",
     "webSearchRouteSummary": "Основной провайдер: {{provider}}",
     "webSearchFallbackSummary": "Резервные провайдеры: {{count}}",
-    "webSearchNoConfiguredRoute": "Нет включённых провайдеров; во время работы будет использоваться резервный DDG",
+    "webSearchNoConfiguredRoute": "Нет включённых поисковых провайдеров; веб-поиск будет недоступен",
     "webSearchDdgPrimaryWarning": "Сейчас поиск сначала использует DDG, но его надёжность ограничена. Настройте Bocha или Tavily и переместите его выше DDG.",
     "webSearchPrimary": "Основной",
     "webSearchFallback": "Резервный",

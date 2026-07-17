@@ -6562,7 +6562,7 @@
     "webSearchRoutingTitle": "Enrutamiento de búsqueda",
     "webSearchRouteSummary": "Principal: {{provider}}",
     "webSearchFallbackSummary": "Proveedores de respaldo: {{count}}",
-    "webSearchNoConfiguredRoute": "No hay proveedores habilitados; se usará DDG como respaldo en tiempo de ejecución",
+    "webSearchNoConfiguredRoute": "No hay proveedores de búsqueda habilitados; la búsqueda web no estará disponible",
     "webSearchDdgPrimaryWarning": "La búsqueda usa primero DDG, pero su fiabilidad es limitada. Configura Bocha o Tavily y arrástralo por encima de DDG.",
     "webSearchPrimary": "Principal",
     "webSearchFallback": "Respaldo",

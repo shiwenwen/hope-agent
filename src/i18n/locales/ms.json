@@ -6562,7 +6562,7 @@
     "webSearchRoutingTitle": "Penghalaan carian",
     "webSearchRouteSummary": "Utama: {{provider}}",
     "webSearchFallbackSummary": "Penyedia sandaran: {{count}}",
-    "webSearchNoConfiguredRoute": "Tiada penyedia didayakan; DDG akan digunakan sebagai sandaran semasa operasi",
+    "webSearchNoConfiguredRoute": "Tiada penyedia carian didayakan; carian web tidak akan tersedia",
     "webSearchDdgPrimaryWarning": "Carian kini menggunakan DDG terlebih dahulu, tetapi kebolehpercayaannya terhad. Konfigurasikan Bocha atau Tavily dan seretnya ke atas DDG.",
     "webSearchPrimary": "Utama",
     "webSearchFallback": "Sandaran",

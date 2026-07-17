@@ -6562,7 +6562,7 @@
     "webSearchRoutingTitle": "검색 라우팅",
     "webSearchRouteSummary": "기본 제공업체: {{provider}}",
     "webSearchFallbackSummary": "대체 제공업체: {{count}}",
-    "webSearchNoConfiguredRoute": "활성화된 제공업체가 없어 실행 시 DDG를 대체 수단으로 사용합니다",
+    "webSearchNoConfiguredRoute": "활성화된 검색 제공업체가 없어 웹 검색을 사용할 수 없습니다",
     "webSearchDdgPrimaryWarning": "현재 검색은 DDG를 우선 사용하지만 안정성이 제한적입니다. Bocha 또는 Tavily를 설정하고 DDG 위로 이동하세요.",
     "webSearchPrimary": "기본",
     "webSearchFallback": "대체",

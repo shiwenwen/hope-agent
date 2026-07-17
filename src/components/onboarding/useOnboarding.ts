@@ -187,10 +187,25 @@ export function mergeOnboardingDraft(
   }
 }
 
+export function hydrateOnboardingDraft(
+  seeded: OnboardingDraft,
+  restored: OnboardingDraft,
+): OnboardingDraft {
+  return {
+    ...mergeOnboardingDraft(seeded, restored),
+    // A restored draft may record that the user selected remote mode before
+    // the connection succeeded. Only the effective config seeded from disk
+    // proves that transport was actually switched; otherwise resume locally
+    // and keep the remote URL available from the welcome-page secondary form.
+    serverMode: seeded.serverMode ?? "local",
+    flowVersion: ONBOARDING_FLOW_VERSION,
+  }
+}
+
 interface UseOnboardingReturn {
   step: number
   stepKey: OnboardingStepKey
-  /** Active step list for the current mode (full list, or the 2-step remote flow). */
+  /** Active step list for the current mode. */
   steps: OnboardingStepKey[]
   draft: OnboardingDraft
   skipped: Set<OnboardingStepKey>
@@ -241,10 +256,7 @@ export function useOnboarding({ onComplete }: UseOnboardingArgs): UseOnboardingR
         const restoredDraft: OnboardingDraft = state?.draft ?? {}
         const restoredFlowVersion = restoredDraft.flowVersion ?? 1
 
-        const mergedDraft = {
-          ...mergeOnboardingDraft(seeded, restoredDraft),
-          flowVersion: ONBOARDING_FLOW_VERSION,
-        }
+        const mergedDraft = hydrateOnboardingDraft(seeded, restoredDraft)
         if (Object.keys(mergedDraft).length > 0) {
           setDraft(mergedDraft)
         }

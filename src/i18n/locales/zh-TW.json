@@ -6562,7 +6562,7 @@
     "webSearchRoutingTitle": "搜尋路由",
     "webSearchRouteSummary": "目前首選：{{provider}}",
     "webSearchFallbackSummary": "備用服務商：{{count}}",
-    "webSearchNoConfiguredRoute": "尚未啟用服務商；執行時將使用 DDG 備援",
+    "webSearchNoConfiguredRoute": "尚未啟用搜尋服務商，網頁搜尋將無法使用",
     "webSearchDdgPrimaryWarning": "目前搜尋將優先使用 DDG，但其穩定性有限。建議設定博查或 Tavily，並拖曳到 DDG 上方。",
     "webSearchPrimary": "首選",
     "webSearchFallback": "備用",

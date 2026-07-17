@@ -6562,7 +6562,7 @@
     "webSearchRoutingTitle": "Định tuyến tìm kiếm",
     "webSearchRouteSummary": "Nhà cung cấp chính: {{provider}}",
     "webSearchFallbackSummary": "Nhà cung cấp dự phòng: {{count}}",
-    "webSearchNoConfiguredRoute": "Chưa bật nhà cung cấp nào; DDG sẽ được dùng làm phương án dự phòng khi chạy",
+    "webSearchNoConfiguredRoute": "Chưa bật nhà cung cấp tìm kiếm nào; tìm kiếm web sẽ không khả dụng",
     "webSearchDdgPrimaryWarning": "Tìm kiếm hiện ưu tiên DDG nhưng độ ổn định còn hạn chế. Hãy cấu hình Bocha hoặc Tavily và kéo lên trên DDG.",
     "webSearchPrimary": "Chính",
     "webSearchFallback": "Dự phòng",

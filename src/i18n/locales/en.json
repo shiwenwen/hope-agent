@@ -6623,7 +6623,7 @@
     "webSearchRoutingTitle": "Search routing",
     "webSearchRouteSummary": "Primary: {{provider}}",
     "webSearchFallbackSummary": "Fallback providers: {{count}}",
-    "webSearchNoConfiguredRoute": "No provider is enabled; DDG will be used as the runtime fallback",
+    "webSearchNoConfiguredRoute": "No search provider is enabled; web search will be unavailable",
     "webSearchDdgPrimaryWarning": "Search currently relies on DDG first, but its reliability is limited. Configure Bocha or Tavily and drag it above DDG.",
     "webSearchPrimary": "Primary",
     "webSearchFallback": "Fallback",
