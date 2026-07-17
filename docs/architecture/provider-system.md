@@ -73,41 +73,41 @@ graph LR
 
 **`src/components/settings/provider-setup/templates/`**
 
-44 个内置 Provider 模板，335 个预设模型（实测 international 74 + china 51 + infrastructure 201 + local 9 = 335；按 `grep -c '^\s*id:' src/components/settings/provider-setup/templates/{international,china,infrastructure,local}.ts` 复核），分为四个模板文件：
+50 个内置 Provider 模板，392 个预设模型（实测 international 91 + china 61 + infrastructure 230 + local 10 = 392；按 `grep -c '^\s*id:' src/components/settings/provider-setup/templates/{international,china,infrastructure,local}.ts` 复核），分为四个模板文件：
 
 - `international.ts` — 国际 Provider（8 个）
 - `china.ts` — 国内 Provider（11 个）
-- `infrastructure.ts` — 基础设施/聚合 Provider（20 个）
+- `infrastructure.ts` — 基础设施/聚合 Provider（26 个）
 - `local.ts` — 本地/自托管 Provider（5 个）
 
 #### 国际 Provider（`international.ts`）
 
 | Provider | Key | API 类型 | baseUrl | 模型数 | 代表模型 |
 |----------|-----|---------|---------|:------:|---------|
-| **Anthropic** | `anthropic` | anthropic · think:anthropic | `https://api.anthropic.com` | 5 | Claude Opus 4.8, Claude Opus 4.7, Claude Sonnet 4.6 …等 5 个 |
-| **Anthropic (Vertex AI)** | `anthropic-vertex` | anthropic · think:anthropic | `https://us-east5-aiplatform.googleapis.com` | 4 | Claude Opus 4.8, Claude Opus 4.7, Claude Sonnet 4.6 …等 4 个 |
-| **OpenAI** | `openai` | openai-responses | `https://api.openai.com` | 16 | GPT-5.5, GPT-5.5 Pro, GPT-5.4 …等 16 个 |
-| **OpenAI (Chat)** | `openai-chat` | openai-chat | `https://api.openai.com` | 16 | GPT-5.5 Pro, GPT-5.5, GPT-5.4 Pro …等 16 个 |
-| **DeepSeek** | `deepseek` | openai-chat | `https://api.deepseek.com` | 4 | DeepSeek V4 Flash, DeepSeek V4 Pro, DeepSeek Chat (V3) …等 4 个 |
-| **Google Gemini** | `google-gemini` | openai-chat | `https://generativelanguage.googleapis.com/v1beta/openai` | 6 | Gemini 3.1 Pro Preview, Gemini 3.1 Flash Lite, Gemini 3 Flash Preview …等 6 个 |
-| **xAI** | `xai` | openai-chat | `https://api.x.ai/v1` | 15 | Grok 4.3, Grok 4.20 Beta Latest (Reasoning), Grok 4.20 Beta Latest (Non-Reasoning) …等 15 个 |
-| **Mistral** | `mistral` | openai-chat | `https://api.mistral.ai/v1` | 8 | Mistral Medium 3.5, Mistral Large, Mistral Medium 3.1 …等 8 个 |
+| **Anthropic** | `anthropic` | anthropic · think:anthropic | `https://api.anthropic.com` | 8 | Claude Fable 5, Claude Mythos 5, Claude Sonnet 5 …等 8 个 |
+| **Anthropic (Vertex AI)** | `anthropic-vertex` | anthropic · think:anthropic | `https://us-east5-aiplatform.googleapis.com` | 7 | Claude Fable 5, Claude Mythos 5, Claude Sonnet 5 …等 7 个 |
+| **OpenAI** | `openai` | openai-responses | `https://api.openai.com` | 20 | GPT-5.6, GPT-5.6 Sol, GPT-5.6 Terra …等 20 个 |
+| **OpenAI (Chat)** | `openai-chat` | openai-chat | `https://api.openai.com` | 20 | GPT-5.6, GPT-5.6 Sol, GPT-5.6 Terra …等 20 个 |
+| **DeepSeek** | `deepseek` | openai-chat | `https://api.deepseek.com` | 4 | DeepSeek V4 Flash, DeepSeek V4 Pro, DeepSeek Chat …等 4 个 |
+| **Google Gemini** | `google-gemini` | openai-chat | `https://generativelanguage.googleapis.com/v1beta/openai` | 7 | Gemini 3.5 Flash, Gemini 3.1 Pro Preview, Gemini 3.1 Flash Lite …等 7 个 |
+| **xAI** | `xai` | openai-chat | `https://api.x.ai/v1` | 16 | Grok 4.5, Grok 4.3, Grok 4.20 Beta Latest (Reasoning) …等 16 个 |
+| **Mistral** | `mistral` | openai-chat | `https://api.mistral.ai/v1` | 9 | Mistral Medium 3.5, Mistral Large, Mistral Medium 3.1 …等 9 个 |
 
 #### 国内 Provider（`china.ts`）
 
 | Provider | Key | API 类型 | baseUrl | 模型数 | 代表模型 |
 |----------|-----|---------|---------|:------:|---------|
-| **Moonshot AI (Kimi)** | `moonshot` | openai-chat | `https://api.moonshot.ai/v1` | 5 | Kimi K2.6, Kimi K2.5, Kimi K2 Thinking …等 5 个 |
+| **Moonshot AI (Kimi)** | `moonshot` | openai-chat | `https://api.moonshot.ai/v1` | 7 | Kimi K3, Kimi K2.7 Code, Kimi K2.6 …等 7 个 |
 | **通义千问 (Qwen)** | `qwen` | openai-chat · think:qwen | `https://dashscope.aliyuncs.com/compatible-mode` | 4 | Qwen Max, Qwen Plus, Qwen Turbo …等 4 个 |
 | **火山引擎 (豆包)** | `volcengine` | openai-chat | `https://ark.cn-beijing.volces.com/api/v3` | 5 | Doubao Seed Code, Doubao Seed 1.8, Kimi K2.5 …等 5 个 |
-| **智谱 AI (Z.AI)** | `zhipu` | openai-chat · think:zai | `https://open.bigmodel.cn/api/paas/v4` | 13 | GLM-5.1, GLM-5, GLM-5 Turbo …等 13 个 |
-| **MiniMax** | `minimax` | anthropic · think:anthropic | `https://api.minimax.io/anthropic` | 4 | MiniMax M2.7, MiniMax M2.7 Highspeed, MiniMax VL 01 …等 4 个 |
-| **Kimi Coding** | `kimi-coding` | anthropic · think:anthropic | `https://api.kimi.com/coding/` | 2 | Kimi Code, Kimi Code (legacy) |
+| **智谱 AI (Z.AI)** | `zhipu` | openai-chat · think:zai | `https://open.bigmodel.cn/api/paas/v4` | 14 | GLM-5.2, GLM-5.1, GLM-5 …等 14 个 |
+| **MiniMax** | `minimax` | anthropic · think:anthropic | `https://api.minimax.io/anthropic` | 5 | MiniMax M3, MiniMax M2.7, MiniMax M2.7 Highspeed …等 5 个 |
+| **Kimi Coding** | `kimi-coding` | anthropic · think:anthropic | `https://api.kimi.com/coding/` | 5 | Kimi Code, Kimi K3, Kimi K3 (1M) …等 5 个 |
 | **小米 MiMo** | `xiaomi` | openai-chat | `https://api.xiaomimimo.com/v1` | 3 | Xiaomi MiMo V2 Pro, Xiaomi MiMo V2 Omni, Xiaomi MiMo V2 Flash |
 | **百度千帆** | `qianfan` | openai-chat | `https://qianfan.baidubce.com/v2` | 2 | DeepSeek V3.2, ERNIE 5.0 Thinking |
-| **ModelStudio (DashScope)** | `modelstudio` | openai-chat · think:qwen | `https://coding-intl.dashscope.aliyuncs.com/v1` | 10 | Qwen 3.6 Plus, Qwen 3.5 Plus, Qwen 3 Max …等 10 个 |
-| **腾讯混元 (TokenHub)** | `tencent` | openai-chat | `https://tokenhub.tencentmaas.com/v1` | 1 | Hy3 Preview |
-| **阶跃星辰 (StepFun)** | `stepfun` | openai-chat | `https://api.stepfun.com/v1` | 2 | Step 3.5 Flash, Step 3.5 Flash 2603 |
+| **ModelStudio (DashScope)** | `modelstudio` | openai-chat · think:qwen | `https://coding-intl.dashscope.aliyuncs.com/v1` | 11 | Qwen 3.7 Plus, Qwen 3.6 Plus, Qwen 3.5 Plus …等 11 个 |
+| **腾讯混元 (TokenHub)** | `tencent` | openai-chat | `https://tokenhub.tencentmaas.com/v1` | 2 | Hy3 (TokenHub), Hy3 Preview |
+| **阶跃星辰 (StepFun)** | `stepfun` | openai-chat | `https://api.stepfun.com/v1` | 3 | Step 3.7 Flash, Step 3.5 Flash, Step 3.5 Flash 2603 |
 
 #### 基础设施/聚合 Provider（`infrastructure.ts`）
 
@@ -115,14 +115,14 @@ graph LR
 |----------|-----|---------|---------|:------:|---------|
 | **OpenRouter** | `openrouter` | openai-chat | `https://openrouter.ai/api/v1` | 14 | OpenRouter Auto, Claude Opus 4.8, Claude Sonnet 4.6 …等 14 个 |
 | **Groq** | `groq` | openai-chat | `https://api.groq.com/openai` | 10 | Compound, Compound Mini, Llama 4 Scout 17B …等 10 个 |
-| **NVIDIA** | `nvidia` | openai-chat | `https://integrate.api.nvidia.com/v1` | 7 | NVIDIA Nemotron 3 Ultra 550B, NVIDIA Nemotron 3 Super 120B, Kimi K2.5 …等 7 个 |
-| **Together AI** | `together` | openai-chat | `https://api.together.xyz/v1` | 11 | Kimi K2.6 FP4, Llama 3.3 70B Instruct Turbo, DeepSeek V4 Pro …等 11 个 |
+| **NVIDIA** | `nvidia` | openai-chat | `https://integrate.api.nvidia.com/v1` | 12 | NVIDIA Nemotron 3 Ultra 550B, NVIDIA Nemotron 3 Super 120B, GLM 5.2 …等 12 个 |
+| **Together AI** | `together` | openai-chat | `https://api.together.xyz/v1` | 11 | Kimi K2.6 FP4, DeepSeek V4 Pro, GLM 5.1 FP4 …等 11 个 |
 | **Hugging Face** | `huggingface` | openai-chat | `https://router.huggingface.co/v1` | 4 | DeepSeek V3.1, DeepSeek R1, Llama 3.3 70B Turbo …等 4 个 |
 | **BytePlus (海外火山)** | `byteplus` | openai-chat | `https://ark.ap-southeast.bytepluses.com/api/v3` | 3 | Seed 1.8, Kimi K2.5, GLM 4.7 |
 | **Chutes (TEE)** | `chutes` | openai-chat | `https://llm.chutes.ai/v1` | 47 | GLM-5 TEE, GLM-4.7 TEE, GLM-4.7 FP8 …等 47 个 |
 | **Fireworks AI** | `fireworks` | openai-chat | `https://api.fireworks.ai/inference/v1` | 2 | Kimi K2.6, Kimi K2.5 Turbo (Fire Pass) |
 | **Arcee** | `arcee` | openai-chat | `https://api.arcee.ai/api/v1` | 3 | Trinity Large Thinking, Trinity Large Preview, Trinity Mini 26B |
-| **Venice** | `venice` | openai-chat | `https://api.venice.ai/api/v1` | 38 | Llama 3.3 70B, Llama 3.2 3B, Qwen3 235B Thinking …等 38 个 |
+| **Venice** | `venice` | openai-chat | `https://api.venice.ai/api/v1` | 38 | Claude Opus 4.6 (via Venice), Claude Sonnet 4.6 (via Venice), GPT-5.4 (via Venice) …等 38 个 |
 | **Synthetic** | `synthetic` | anthropic · think:anthropic | `https://api.synthetic.new/anthropic` | 11 | MiniMax M2.5, Kimi K2.5, Kimi K2 Thinking …等 11 个 |
 | **Vercel AI Gateway** | `vercel-ai-gateway` | openai-chat | `https://ai-gateway.vercel.sh` | 7 | Claude Opus 4.8, Claude Opus 4.6, Claude Sonnet 4.6 …等 7 个 |
 | **Cloudflare AI Gateway** | `cloudflare-ai` | openai-chat | `https://gateway.ai.cloudflare.com/v1/{accountId}/{gatewayId}` | 3 | Claude Opus 4.8, Claude Opus 4.7, Claude Sonnet 4.6 |
@@ -131,15 +131,21 @@ graph LR
 | **GitHub Copilot** | `github-copilot` | openai-responses | `https://api.individual.githubcopilot.com` | 14 | Claude Opus 4.8, Claude Opus 4.7, Claude Opus 4.6 …等 14 个 |
 | **GMI Cloud** | `gmi` | openai-chat | `https://api.gmi-serving.com/v1` | 6 | GPT-5.4, Claude Sonnet 4.6, Gemini 3.1 Flash Lite …等 6 个 |
 | **Novita AI** | `novita` | openai-chat | `https://api.novita.ai/openai/v1` | 6 | Kimi K2.5, MiniMax M2.7, GLM-5 …等 6 个 |
-| **OpenCode Zen** | `opencode-go` | openai-chat | `https://opencode.ai/zen/go/v1` | 2 | DeepSeek V4 Pro, DeepSeek V4 Flash |
+| **OpenCode Zen** | `opencode` | openai-chat | `https://opencode.ai/zen/v1` | 4 | Claude Opus 4.8, GPT-5.5, Gemini 3.1 Pro …等 4 个 |
+| **OpenCode Zen Go** | `opencode-go` | openai-chat | `https://opencode.ai/zen/go/v1` | 2 | DeepSeek V4 Pro, DeepSeek V4 Flash |
 | **KiloCode** | `kilocode` | openai-chat | `https://api.kilo.ai/api/gateway/` | 1 | Kilo Auto |
+| **Cohere** | `cohere` | openai-chat | `https://api.cohere.ai/compatibility/v1` | 5 | Command A+, North Mini Code 1.0, Command A Reasoning …等 5 个 |
+| **Baseten** | `baseten` | openai-chat | `https://inference.baseten.co/v1` | 12 | DeepSeek V4 Pro, Kimi K2.7 Code, Kimi K2.6 …等 12 个 |
+| **LongCat** | `longcat` | openai-chat | `https://api.longcat.chat/openai` | 1 | LongCat 2.0 |
+| **Meta** | `meta` | openai-chat | `https://api.meta.ai/v1` | 1 | Muse Spark 1.1 |
+| **Featherless** | `featherless` | openai-chat | `https://api.featherless.ai/v1` | 1 | Qwen3 32B |
 
 #### 本地/自托管 Provider（`local.ts`）
 
 | Provider | Key | API 类型 | baseUrl | 模型数 | 代表模型 |
 |----------|-----|---------|---------|:------:|---------|
 | **LiteLLM** | `litellm` | openai-chat | `http://127.0.0.1:4000` | 1 | Your Model |
-| **Ollama** | `ollama` | openai-chat | `http://127.0.0.1:11434` | 5 | Kimi K2.5 (云端), MiniMax M2.7 (云端), GLM-5.1 (云端) …等 5 个 |
+| **Ollama** | `ollama` | openai-chat | `http://127.0.0.1:11434` | 6 | GLM 5.2 (云端), Kimi K2.5 (云端), MiniMax M2.7 (云端) …等 6 个 |
 | **vLLM** | `vllm` | openai-chat | `http://127.0.0.1:8000` | 1 | Your Model |
 | **LM Studio** | `lm-studio` | openai-chat | `http://127.0.0.1:1234` | 1 | Your Model |
 | **SGLang** | `sglang` | openai-chat | `http://127.0.0.1:30000` | 1 | Your Model |

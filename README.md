@@ -27,11 +27,14 @@
 
 ---
 
-**Hope Agent** 想让 AI 助手真正打开就能用，并且长期稳定地陪你工作：一个原生安装包，内置主流模型 Provider 配置模板；填完 API Key 就能开聊，不必先装运行时、学命令行，也不用维护一堆复杂配置。桌面端是最顺手的入口，我们把 GUI、性能、交互细节和系统深度融合放在最前面；在你授权后，它还能观察并控制本机电脑（暂时仅 macOS）。对于复杂或长期任务，你可以只给出最终目标，让 Agent 持续推进；它也能自主决定何时动态编排 Workflow、并行调度多个子 Agent，并通过 Loop 在合适的时间或事件到来时继续工作。整个过程可观察、可暂停、可恢复，审批与完成证据不会因为自动化而被绕过。同时，Hope Agent 也可以作为 HTTP/WS 服务常驻 NAS、自家服务器或云主机，接入 IM 渠道、对接 IDE（ACP），让同一份会话在桌面、浏览器和聊天之间随手交接。随着日常使用，它会持续积累跨会话记忆，在空闲时整理重要内容，把做过的事沉淀成可复用技能。目标很简单：降低使用和维护成本，让日常场景顺手，让长期运行可靠。
+**Hope Agent** 是一个本地优先、桌面优先，也能服务化常驻的个人 AI Agent。它像成熟的桌面软件一样打开即用，又真正具备 Agent 的行动力：理解长期上下文、调用工具完成工作，并在你离开后继续可靠地推进目标。
+
+**Hope Agent 并不是在「桌面 AI Agent」成为热门方向之后才开始的项目。** 在桌面 Agent 还很少见、Codex 尚处早期形态时，我们就开始构建它。我们一直专注于产品本身，而不是制造声量。后来越来越多产品走上相似方向，也印证了我们最初的判断：**AI 助手终将从聊天框走向可以长期托付工作的个人软件。**
 
 ## 目录
 
-- [亮点](#亮点)
+- [核心能力](#核心能力)
+- [能力全景](#能力全景)
 - [快速开始](#快速开始)
   - [下载安装](#下载安装)
   - [自托管（Docker）](#自托管docker)
@@ -46,72 +49,77 @@
 - [Star History](#star-history)
 - [License](#license)
 
-## 亮点
-
-### 🎯 日常使用
+## 核心能力
 
 <table>
-<tr><td width="220"><b>🖥️ 桌面原生 GUI</b></td><td>macOS / Linux / Windows 三端原生应用，下载即用。12 种界面语言（简/繁中、英、日、韩、西、葡、俄、阿、土、越、马），深色主题与精心调校的字体排版。</td></tr>
-<tr><td><b>🧙 傻瓜式 Provider 配置</b></td><td>44 个内置 Provider 模板，覆盖 335 个预设模型。Anthropic / OpenAI / Gemini / Codex / GitHub Copilot / OpenRouter / DeepSeek / Kimi / Qwen / 豆包 / GLM / MiniMax / xAI / Mistral / Cerebras / DeepInfra / Novita / 腾讯混元 / Ollama 一站式覆盖；同一 Provider 支持多 API Key 自动轮换，遇到限流或额度用尽无缝切换下一把钥匙。</td></tr>
-<tr><td><b>🦙 本地小模型一键安装</b></td><td><b>不用账号、不用 API Key、不用终端</b>——设置 → 模型页面按硬件挑一个能跑得动的 Qwen3.6 / Gemma 4 尺寸，一键完成 <a href="https://ollama.com">Ollama</a> 安装、模型下载、Provider 注册与切换。同一流程也覆盖本地 Embedding 模型。</td></tr>
-<tr><td><b>💬 12 个 IM 渠道一站接入</b></td><td>Telegram、Discord、Slack、飞书、Google Chat、LINE、QQ Bot、Signal、iMessage、IRC、WeChat、WhatsApp。图片 / 语音 / 文件入站自动转多模态上下文；工具审批直接在聊天窗按按钮决定；每个群聊 / 账号可绑定独立 Agent 和权限策略。</td></tr>
-<tr><td><b>🤝 对话随手交接，跨端不掉线</b></td><td>同一份会话能在桌面、浏览器、IM 之间**随手交接**——出门前在电脑上聊到一半，地铁里掏出手机用 Telegram 接着说，回家打开桌面应用它已经把外面 IM 期间的聊天捋好了。同一份记忆 / 工具状态 / Plan / 工作目录跟着走，另一端不用重新介绍上下文。<code>/handover</code> 把当前桌面会话推到指定 IM 聊天，<code>/session &lt;id&gt;</code> 在 IM 端反向接管；桌面正在跑的对话还会**流式镜像到 IM**，模型边写边在 Telegram / 飞书 / Slack 里打字。</td></tr>
-<tr><td><b>🌐 独立服务 · 浏览器即客户端</b></td><td><b>不止是桌面应用</b>——可以完全脱离 GUI 单独作为服务运行。一条命令 <code>hope-agent server start</code> 就能起一个 HTTP/WS 守护进程，<code>server install</code> 注册成 launchd / systemd 开机自启，放家里 NAS / 云服务器 / 旧笔记本上 24 小时在线。<b>Server 内嵌完整 Web GUI</b>（前端用 <code>rust-embed</code> 打进二进制），<b>手机、平板、浏览器、另一台电脑打开 <code>http://&lt;server&gt;:port</code> 就是完整 React 界面</b>——不用装客户端、不用配前端。Bearer Token 鉴权 + SSRF 三档策略保证公网暴露也可控；会话、记忆、Cron、IM 渠道全在服务端跑，客户端只是窗口。</td></tr>
-<tr><td><b>🔁 三种运行模式同核</b></td><td>桌面 GUI（默认）、HTTP/WS 守护进程 + 内嵌 Web GUI（浏览器直连）、ACP stdio（给 IDE 当 agent 后端）。三种模式共用 Rust <code>ha-core</code> 核心库，零 Tauri 依赖——同一份代码既能当桌面 app，也能当服务器，也能嵌进 IDE。</td></tr>
+<tr><td width="220"><b>🖥️ 开箱即用的桌面 Agent</b></td><td>原生 GUI、丰富的 Provider 模板与预设模型，并支持本地模型一键安装。填入 API Key 或登录账号即可开始，不要求先搭环境、学命令行或维护复杂配置。</td></tr>
+<tr><td><b>🧭 持续完成，而不只回答</b></td><td>Goal 定义结果，Workflow 动态组织执行，Loop 决定何时继续。复杂任务可以在后台推进，并随时查看、暂停、恢复或调整。</td></tr>
+<tr><td><b>🧠 长期记忆与知识空间</b></td><td>跨会话记忆、按需召回、离线整理、用户画像与可复用技能逐步积累；知识空间让你和 AI 共同读写真实 Markdown，形成可追溯的第二大脑。</td></tr>
+<tr><td><b>🎨 从想法到可交付设计</b></td><td>设计空间从一句话或参考图生成网页、移动原型、演示文稿等 10+ 类产物，支持可视化微调、版本管理、多格式导出，并能继续交付到真实代码工程。</td></tr>
+<tr><td><b>🛠️ 真正能够操作和执行</b></td><td>在授权与审批下控制电脑和浏览器，运行命令、读写文件、调用 MCP、连接工作空间，并通过多 Agent 协作完成复杂工作。</td></tr>
+<tr><td><b>🌐 跨端交接，随时在线</b></td><td>Desktop / Server / Web / ACP 共用同一套核心；同一份会话、记忆与任务状态可以在桌面、浏览器和常用 IM 渠道之间继续。</td></tr>
+<tr><td><b>🛡️ 本地优先、可控可靠</b></td><td>数据默认保存在本机，模型请求直连 Provider；工具审批、Docker 沙箱、配置回滚、崩溃恢复与后台保活共同守住长期运行边界。</td></tr>
 </table>
 
-### 🧠 记忆与学习
+## 能力全景
+
+### 🎨 设计与知识
 
 <table>
-<tr><td width="220"><b>🧠 知识空间 · 你的第二大脑</b></td><td><b>本地优先、AI 原生的个人知识库</b>——你手写 / 编辑 Markdown 笔记，AI 作为第一公民和你读写同一批 <code>.md</code> 文件：跨笔记检索、织成双链知识网络、把碎片想法提炼成原子笔记。网页、PDF / DOCX、音视频转录、图片 OCR、聊天附件等资料可先归档为来源，再由 AI 整理成可审阅的笔记建议，确认后写入，并保留 Evidence 回溯。可绑定已有的 Obsidian 库（默认只读，确认后可写），支持 wikilink / frontmatter / 块引用 / 图谱视图 / 大纲，内置混合检索（全文 + 向量）。右侧内嵌 AI 对话面板结合当前文档随手问答与改写；开启「精灵模式」后，你写着写着停下来，它会主动冒出写作建议或灵感。笔记原子化写盘，外部改动实时同步。</td></tr>
-<tr><td><b>🧠 跨会话持久记忆</b></td><td>SQLite + FTS5 全文检索 + 向量语义检索三位一体。记忆可按全局 / 项目 / Agent 三层 scope 组织；三层精简 <code>MEMORY.md</code> Core 按联合预算稳定进入 prompt，详细记忆留在动态库中按需检索，不会每轮全量塞入。</td></tr>
-<tr><td><b>🕶 无痕对话</b></td><td>会话级开关，首条消息就能无痕。开启后当前对话不注入、检索或收集任何长期记忆与跨会话感知；记忆工具也在执行层关闭，结束后不留下持久数据。</td></tr>
-<tr><td><b>💤 离线"做梦"整理</b></td><td>空闲时自动跑一遍"过去这两天最有价值的记忆是哪些"，把入选条目 pin 住并写成 markdown 日记，可在设置 → Dream Diary 回看。每天工作完帮你把今天学到的知识沉淀下来，下次对话用得上。</td></tr>
-<tr><td><b>🔍 按需召回 + 反省画像</b></td><td>自动动态召回默认关闭，日常只使用精简稳定的 Core；模型仍可在任务需要时主动调用记忆工具。你也可以显式开启零额外 LLM 的 Fast Recall，并按需开启会增加延迟与 token 的 Deep Recall。历史对话可离线提炼为可审阅的沟通风格 / 工作习惯 / 长期偏好，在允许召回时按相关性参与回答。</td></tr>
-<tr><td><b>🛠 会成长的技能系统</b></td><td>执行完复杂任务后自动生成技能草稿（Draft），你审核通过下次就能复用。技能支持条件激活（比如只在编辑 Python 文件时加载）、fork 子 Agent 执行、工具白名单隔离；兼容 <a href="https://agentskills.io">agentskills.io</a> 开放标准，社区技能即插即用。</td></tr>
-<tr><td><b>👁 跨会话行为感知</b></td><td>它知道你别的对话里在做什么。每轮对话开始前自动感知其他活跃会话的最近动作、目标、摩擦点，需要时把相关信息同步到当前会话——不打扰主线，只在上下文相关时出现。默认零 LLM 成本的结构化模式，可选切到 LLM 自然语言摘要模式。</td></tr>
-<tr><td><b>💾 长对话不失忆</b></td><td>上下文五层渐进式压缩，不管聊多久前文都不会被强切丢失。tool 调用配对永远不拆散；摘要过的消息还会自动从磁盘恢复最近编辑过的文件内容，省去你反复粘贴的麻烦。与 Prompt Caching 配合，长会话的 API 成本明显低于朴素调用。</td></tr>
+<tr><td width="220"><b>🎨 设计空间</b></td><td>从一句话或参考图生成网页、移动原型、演示文稿、仪表盘、海报、文档、邮件、图像、动效、音频与交互组件。生成过程实时预览，项目内置 AI 对话、元素微调、批注、撤销重做、设备预览、版本历史与产物库，可导出 HTML / PNG / PDF / PPTX / MP4 / ZIP。</td></tr>
+<tr><td><b>🧩 设计系统到代码</b></td><td>可从截图、网址、Figma 或现有代码仓库提取品牌设计系统，跨产物复用并导出多平台 Design Token 与代码交付包。设计项目可绑定真实仓库，把选定产物交给主对话实现到代码，并在代码变化后提示回灌设计稿。</td></tr>
+<tr><td><b>🧠 知识空间 · 第二大脑</b></td><td>AI 与你共同读写真实 Markdown 笔记，支持资料归档、全文与向量检索、双链、图谱、原子笔记和可审阅的 AI 整理建议。可绑定现有 Obsidian 库，外部改动实时同步；来源与 Evidence 保留回溯。</td></tr>
 </table>
 
-### 🧭 Agent 自主控制
-
-从输入框直接选择「目标」「工作流」或「持续推进」，也可以使用 <code>/goal</code>、<code>/workflow</code>、<code>/loop</code>。这些能力面向通用任务：编码、调研、内容创作、资料整理、运营和连接器任务都可以使用；代码 Worktree、Review、LSP 和验证只在编码场景按需叠加。
+### 🧭 长期任务与自主执行
 
 <table>
-<tr><td width="220"><b>🎯 Goal · 朝结果持续推进</b></td><td>给出最终目标和完成标准后，Agent 会建立持久目标并自主拆解、执行、检查和继续推进，而不是一轮回答后就停下。Goal 支持编辑、暂停、恢复、预算与完成标准进度；等待后台任务或外部状态时会保留上下文并在条件具备后续跑。收尾必须经过保守的完成审计和用户确认，并展示简短总结、耗时与 Token 用量。GUI 入口是输入框「目标」，也可发送 <code>/goal &lt;目标与完成标准&gt;</code>。</td></tr>
-<tr><td><b>🧩 Workflow · 模型自主动态编排</b></td><td>开启工作流模式后，模型自行判断一次任务是否值得编排，不要求用户写脚本，也不限定在 Coding Mode。运行时会在内部生成受控的动态 Workflow，支持阶段、任务、条件、并行 / 管线、多 Agent、工具调用、Diff、Review、验证和结构化结果；子 Agent 结果既可阶段性返回，也可按需查询或等待汇总。每个操作都有持久 trace，可暂停、恢复、取消和重启恢复，副作用仍经过统一权限与审批。GUI 入口是输入框「工作流」，也可用 <code>/workflow on</code> 或 <code>/workflow ultracode</code>。</td></tr>
-<tr><td><b>🔁 Loop · 按时间或事件持续推进</b></td><td>Loop 负责“什么时候再推进一次”，不冒充执行强度或单次工作流。支持固定间隔、条件、内部事件和模型自定下一次唤醒的动态 Loop；每轮可以继续当前会话，也可以触发绑定 Goal 的 Workflow。底层复用可靠 Cron，具备持久调度、立即运行、暂停 / 恢复、预算、失败退避、无进展保护和重启诊断，模型也能主动查询状态、调整下一次时间或结束循环。GUI 入口是「持续推进」，也可用 <code>/loop &lt;持续任务&gt;</code>。</td></tr>
-<tr><td><b>📍 长任务可见、可控、不中断对话</b></td><td>Task 展示当前可见进度，输入框上方保留正在进行的 Goal，工作台提供日常状态与控制，高级诊断按需展开。Workflow 阶段结果、子 Agent 完成和后台 Job 可以逐步注入主对话，主 Agent 可随时查询并调整，不必固定 <code>wait all</code>；耗时工具和并行 Agent 在后台运行，不阻塞继续聊天。进程异常退出后，持久 Goal / Workflow / Loop 状态和待恢复工作会保守重放，无法安全续跑的动作会明确阻塞而不是静默重复。</td></tr>
+<tr><td width="220"><b>🎯 Goal · 朝结果持续推进</b></td><td>给出最终目标和完成标准后，Agent 会持续拆解、执行、检查和推进。目标支持预算、进度、暂停与恢复；完成前经过保守审计并展示结果证据。</td></tr>
+<tr><td><b>🧩 Workflow · 动态编排</b></td><td>模型按任务需要组织阶段、条件、并行、多 Agent、工具、Diff、Review 与验证。每次执行都有持久记录，可暂停、恢复、取消，并在异常退出后保守恢复。</td></tr>
+<tr><td><b>🔁 Loop · 按时间或事件继续</b></td><td>支持固定间隔、条件、内部事件和模型自定唤醒时间；每轮既可继续当前会话，也可触发绑定 Goal 的 Workflow，并带预算、退避和无进展保护。</td></tr>
+<tr><td><b>📋 Plan、Task 与后台任务</b></td><td>复杂工作可以先形成可修改的计划，再用 Task 展示实时进度。耗时工具和子 Agent 可在后台运行，阶段结果逐步回到主对话，不必阻塞继续交流。</td></tr>
 </table>
 
-> 心智模型：<b>Goal</b> 定义最终要达成什么，<b>Workflow</b> 负责一次具体执行，<b>Loop</b> 决定何时再次推进，<b>Task</b> 呈现当前进度，<b>Mode</b> 控制自主执行强度。它们可以组合使用，也可以各自独立。实现细节见 <a href="docs/architecture/goal.md">Goal</a>、<a href="docs/architecture/workflow.md">Workflow</a> 和 <a href="docs/architecture/loop.md">Loop</a> 架构文档。
+> 心智模型：<b>Goal</b> 定义最终结果，<b>Workflow</b> 负责一次具体执行，<b>Loop</b> 决定何时再次推进，<b>Task</b> 呈现当前进度，<b>Mode</b> 控制自主执行强度。它们可以组合，也可以独立使用。
 
-### 🛠 工作流 & 工具
+### 🧠 记忆与成长
 
 <table>
-<tr><td width="220"><b>📋 Plan Mode 计划执行</b></td><td>面对复杂任务先出一份可修改 / 可承接的计划书，5 态状态机管理执行进度，计划文件按 agent / session 物理隔离不会跨会话串戏。计划可跨会话存档，下次继续只要一句"继续上次的计划"。侧栏 <b>Plans 历史查看器</b>支持跨会话只读浏览所有 Plan（含已 <code>/plan exit</code> 归档），按 Agent / 状态筛选、版本切换、一键跳转所属会话；详情面板可一键以 <code>@plan:&lt;short_id&gt;:v&lt;version&gt;</code> 形式注入到当前对话。执行期间严格按白名单工具操作，避免模型跑飞。</td></tr>
-<tr><td><b>📁 Project 项目容器</b></td><td>把相关会话归到同一项目下，继承项目级记忆 / 项目指令 / 共享文件。上传的文件自动文本抽取并三层注入（目录清单 / 小文件自动内联 / 大文件按需读取），不用手动 @ 文件也不怕吃爆上下文。</td></tr>
-<tr><td><b>🖱️ 电脑控制</b></td><td>暂时仅支持 macOS。Agent 可以借助已授权的辅助功能与屏幕录制权限观察当前桌面、识别 AX 元素与窗口，并执行打开 / 切换 App、点击、输入、滚动、拖拽、菜单、对话框、窗口移动 / 缩放 / 关闭等操作。右侧 Mac Control 面板实时镜像桌面状态；所有有副作用的动作都接入统一工具审批。</td></tr>
-<tr><td><b>👥 Agent Team 多 Agent 协作</b></td><td>在设置里预置团队模板（成员角色、绑定 Agent、默认任务模板），模型按需一句话就能组建专家团。成员间可互发消息、协同推进，完成后自动把 transcript 汇总回主对话。</td></tr>
-<tr><td><b>🗓 自然语言定时任务</b></td><td>"每天早 8 点给我写日报"、"每周一整理上周待办"、"工作日每小时扫一次邮箱"——到点自动跑，结果可选投递到任一 IM 渠道。Cron 在守护进程 / 桌面 GUI 下都能稳定运行。</td></tr>
-<tr><td><b>📊 Dashboard + Recap 复盘</b></td><td>内置数据大盘：成本 / Token / 活跃度热力图 / 健康度四维可视化，新增 <b>Plan 子板</b>（状态分布、完成率、按 Agent / Project 分组、30 天创建趋势、平均执行时长）。<code>/recap</code> 深度复盘一键跑过去 N 天会话，生成 11 个 AI 章节报告（含 Agent 工具优化建议、记忆与技能推荐、成本优化等），可导出独立 HTML 分享。</td></tr>
-<tr><td><b>🔌 MCP 客户端（OAuth 2.1）</b></td><td>内置 Model Context Protocol 客户端，四种 transport 全支持：stdio / Streamable HTTP / SSE / WebSocket。完整 OAuth 2.1 + PKCE 流程（自动 discovery、RFC 7591 动态注册、loopback 回调），凭据 0600 原子写落盘，Notion / Linear 等标准 OAuth server 可一键授权；所有出站 URL 硬过 SSRF 策略。GUI 里一键从 <code>claude_desktop_config.json</code> 导入，工具自动以 <code>mcp__&lt;server&gt;__&lt;tool&gt;</code> 接入主对话；另配 <code>mcp_resource</code> / <code>mcp_prompt</code> 工具访问被动数据，长跑工具自动后台化。</td></tr>
-<tr><td><b>🪝 Hooks 自动化</b></td><td>在会话、工具调用、上下文压缩、权限决策等 28 个生命周期事件上挂接自定义处理器，字段级兼容 Claude Code hooks 协议——社区脚本即插即用。支持 <code>command</code> / <code>http</code> / <code>mcp_tool</code> / <code>prompt</code> / <code>agent</code> 五种处理器；配置分 user / managed / project / local 四层作用域叠加合并，项目级 hooks（<code>.hope-agent/hooks.json</code>）可随仓库共享给团队。可视化设置面板配置，改动即时热重载。</td></tr>
-<tr><td><b>🔧 工具箱</b></td><td>电脑控制（暂时仅 macOS）、可控浏览器（8-action 高层表面，<b>chat 右侧实时镜像面板</b>所见即所得，Chrome 自动跟随 agent 操作；CDP 直连 chromiumoxide，零运行时依赖）、Canvas 画布、AI 画图（7 个 Provider）、Web 搜索（8 个 Provider failover）、bash 执行（可选 Docker 沙箱隔离）、文件读写 / grep / find、URL 预览、崩溃日志、自诊断。</td></tr>
-<tr><td><b>📑 飞书工作空间深度集成</b></td><td>40 个 <code>feishu_*</code> tool 覆盖 docx 云文档（建/读/改）、bitable 多维表格（CRUD + view + dashboard）、drive 云盘（上下传 ≤20MB，本地路径走 protected-path 审批）、wiki 知识库链接解析、approval 审批（创建/查询/撤销）、calendar 日历（建会/邀人/改/删）、contact 联系人（查用户/部门）、hire 招聘（岗位/人才库/投递）。复用已配的飞书 IM channel 凭据，配套 <code>skills/feishu</code> 技能教模型 OKR 周报 / 排会议 / 撤审批等典型工作流。</td></tr>
-<tr><td><b>⚡ 后台跑长任务</b></td><td>耗时的 shell 命令 / Web 搜索 / AI 画图可以让 Agent "丢到后台跑"，立即返回 <code>job_id</code> 继续对话不阻塞。后台完成后结果自动注入回主对话，也可以让模型主动 <code>job_status</code> poll 结果。再长的任务都不会卡住你的聊天窗。</td></tr>
+<tr><td width="220"><b>🧠 跨会话持久记忆</b></td><td>记忆按全局、项目与 Agent 分层组织，精简 Core 稳定进入上下文，详细内容通过全文与向量检索按需取回，避免每轮重复塞入全部历史。</td></tr>
+<tr><td><b>🔍 召回、整理与反省</b></td><td>模型可按任务主动召回记忆；用户也可开启 Fast / Deep Recall。空闲时可整理重要内容、生成 Dream Diary，并从历史中提炼可审阅的沟通风格、工作习惯和长期偏好。</td></tr>
+<tr><td><b>🛠 会成长的技能系统</b></td><td>复杂任务完成后可以沉淀为技能草稿，经你审核后复用。技能支持条件激活、子 Agent 执行与工具白名单，并兼容 <a href="https://agentskills.io">agentskills.io</a> 标准。</td></tr>
+<tr><td><b>💾 长对话与无痕模式</b></td><td>渐进式上下文压缩保留长对话中的关键事实与工具调用关系；无痕会话则关闭长期记忆、跨会话感知与持久化旁路，结束后不保留会话数据。</td></tr>
 </table>
 
-### 🛡 安全与本地化
+### 🛠 工具与连接
 
 <table>
-<tr><td width="220"><b>🔒 工具审批 + Docker 沙箱</b></td><td>敏感工具调用走审批门控（支持超时后自动 deny / proceed 策略，也支持渠道级自动批准）；高危的 bash / 文件写入可选择跑在 Docker 沙箱里隔离执行。给 Agent 高权限也不怕翻车。</td></tr>
-<tr><td><b>🏠 本地优先 · 零第三方中转</b></td><td>所有数据在 <code>~/.hope-agent/</code>：配置、会话、记忆、附件、技能、日志全部本地 SQLite / 文件存储；API Key 直连模型厂商。服务模式下 Bearer Token 鉴权 + SSRF 三档策略，远程访问也可控。</td></tr>
-<tr><td><b>🛟 配置自动快照 · 一键回滚</b></td><td>任何配置变更都自动快照到本地 <code>backups/autosave/</code>，保留最近 50 份。就算模型通过设置工具帮你改乱了参数，也能随时还原到任意历史时间点。</td></tr>
-<tr><td><b>♻️ 崩溃自愈 · 三层保活</b></td><td>父子进程 Guardian 监控子进程异常退出，指数退避（1s → 3s → 9s → 15s → 30s）自动拉起；连续崩溃 5 次自动备份配置 + LLM 自诊断 + 尝试自动修复，崩溃历史在「设置 → 崩溃历史」里可回看。<code>server install</code> 后再叠加 launchd <code>KeepAlive</code> / systemd <code>Restart=on-failure</code> OS 级二次保险——即使 Guardian 本身被 <code>kill -9</code>，操作系统也会把它拉回来。Cron / IM 渠道 / MCP 连接各自独立 watchdog 自动重连。</td></tr>
+<tr><td width="220"><b>🖱️ 电脑与浏览器控制</b></td><td>在 macOS 授权后观察并操作桌面、窗口、菜单、键盘与鼠标；可控浏览器提供实时镜像，让你看到 Agent 正在访问和操作的页面。副作用动作统一经过审批。</td></tr>
+<tr><td><b>👥 多 Agent 与自然语言定时</b></td><td>通过预设团队或动态子 Agent 并行协作，结果自动汇总回主对话；也可以用自然语言创建定时任务，并把结果投递到指定 IM 渠道。</td></tr>
+<tr><td><b>📁 Project 项目容器</b></td><td>把相关会话、项目指令、记忆与共享文件组织在一起。上传文件自动提取文本，并按内容规模选择目录、内联或按需读取，控制上下文占用。</td></tr>
+<tr><td><b>🔌 MCP 与 Hooks</b></td><td>内置 MCP 客户端，覆盖主流 transport 与 OAuth 2.1；Hooks 可在 20+ 生命周期事件上接入 command / HTTP / MCP / prompt / agent 处理器，并支持分层配置与热重载。</td></tr>
+<tr><td><b>🔧 工具箱与工作空间</b></td><td>内置 AI 画图、Web 搜索、bash、文件操作、Canvas、URL 预览与自诊断；飞书工作空间提供 40+ 工具，覆盖文档、多维表格、云盘、知识库、审批、日历、联系人和招聘。</td></tr>
+<tr><td><b>📊 Dashboard + Recap</b></td><td>统一查看成本、Token、活跃度、健康度、Plan 与长期任务状态；Recap 可复盘一段时间内的会话，生成多章节报告并导出独立 HTML。</td></tr>
 </table>
 
-> 更多细节亮点请查看 [CHANGELOG.md](CHANGELOG.md)。
+### 🌐 桌面、服务与跨端
+
+<table>
+<tr><td width="220"><b>🖥️ 原生 GUI 与模型配置</b></td><td>macOS 提供完整桌面体验，Linux / Windows 当前为实验性支持；界面支持多语言。内置主流 Provider 模板与丰富的预设模型，同一 Provider 可配置多把 API Key 自动轮换。</td></tr>
+<tr><td><b>🦙 本地模型一键安装</b></td><td>不需要账号、API Key 或终端，在设置中选择适合硬件的模型，即可完成 Ollama 安装、模型下载、Provider 注册与切换；本地 Embedding 使用同一套流程。</td></tr>
+<tr><td><b>🤝 IM 渠道与会话交接</b></td><td>接入 Telegram、Discord、Slack、飞书等常用 IM 渠道，图片、语音和文件可直接进入多模态上下文。会话可在桌面、浏览器与 IM 之间接管或交接，运行中的回复也能流式镜像到聊天工具。</td></tr>
+<tr><td><b>🌐 独立服务与多种运行形态</b></td><td><code>hope-agent server</code> 可常驻 NAS、家用服务器或云主机，并内嵌完整 Web GUI；<code>hope-agent acp</code> 可作为 IDE 的 Agent 后端。不同入口共享同一套核心、会话、记忆与配置。</td></tr>
+</table>
+
+### 🛡 安全与可靠性
+
+<table>
+<tr><td width="220"><b>🔒 工具审批 + Docker 沙箱</b></td><td>敏感工具调用进入统一审批，高风险命令和文件写入可选择在 Docker 沙箱中执行，降低高权限误操作的影响范围。</td></tr>
+<tr><td><b>🏠 本地优先 · 零第三方中转</b></td><td>配置、会话、记忆、附件、技能与日志默认保存在 <code>~/.hope-agent/</code>，API Key 直连模型 Provider。服务模式提供 Bearer Token 鉴权与 SSRF 防护策略。</td></tr>
+<tr><td><b>🛟 回滚、自愈与保活</b></td><td>配置变更自动保存本地快照，可一键回滚；Guardian、系统服务与子系统 watchdog 负责异常重启、诊断和自动重连，让长期任务在故障后以可观察的方式恢复。</td></tr>
+</table>
+
+> 更完整的版本变化请查看 [CHANGELOG.md](CHANGELOG.md)，实现细节见 [docs/architecture/](docs/architecture/)。
 
 ## 快速开始
 
@@ -146,7 +154,7 @@ Apple Silicon 与 Intel Mac 均提供原生构建（arm64 / x64 DMG），Homebre
 ##### 启动方式
 
 - **桌面 GUI**：Launchpad / 应用程序文件夹（点 Hope Agent 图标），或终端 `open -a "Hope Agent"` / `hope-agent`
-- **后台服务（HTTP/WS daemon）**：`hope-agent server start`
+- **浏览器 Web GUI**：打开桌面应用后访问 <http://127.0.0.1:8420>；也可以运行 `hope-agent server start`，只启动服务、不打开桌面窗口
 - **ACP（IDE 集成）**：`hope-agent acp`
 
 #### Windows
@@ -169,7 +177,7 @@ scoop install hope-agent
 ##### 启动方式
 
 - **桌面 GUI**：Start 菜单点「Hope Agent」启动，或 PowerShell `hope-agent`
-- **后台服务（HTTP/WS daemon）**：`hope-agent server start`（PowerShell / cmd）
+- **浏览器 Web GUI**：打开桌面应用后访问 <http://127.0.0.1:8420>；也可以在 PowerShell / cmd 运行 `hope-agent server start`，只启动服务、不打开桌面窗口
 - **ACP（IDE 集成）**：`hope-agent acp`
 
 #### Linux
@@ -223,7 +231,7 @@ sudo zypper install hope-agent
 ##### 启动方式
 
 - **桌面 GUI**：应用菜单点「Hope Agent」启动，或终端 `hope-agent`
-- **后台服务（HTTP/WS daemon）**：`hope-agent server start`
+- **浏览器 Web GUI**：打开桌面应用后访问 <http://127.0.0.1:8420>；也可以运行 `hope-agent server start`，只启动服务、不打开桌面窗口
 - **ACP（IDE 集成）**：`hope-agent acp`
 
 #### 首次启动 & 自动更新
@@ -231,6 +239,8 @@ sudo zypper install hope-agent
 1. 首次启动向导：**选 Provider 模板 → 填 API Key / Codex OAuth 登录 → 开聊**
 2. 桌面应用内置 GitHub Releases 自动更新，应用内 **设置 → 关于** 检查更新并一键安装；或者直接在对话里说「升级」或「检查更新」
 3. 通过 Homebrew / AUR / Scoop 装的版本同样走应用内置 updater；包管理器视角的版本号会保持初装时的，不影响功能
+
+> 要从手机或另一台电脑访问，在「设置 → 服务器」中设置 API Key，并把监听地址改为 `0.0.0.0:8420`；重启后访问 `http://<运行 Hope Agent 的设备 IP>:8420`。不要在没有鉴权的情况下把端口暴露到局域网或公网；公网使用请前置 HTTPS 反向代理，详见 [Docker 部署指南](docs/deployment/docker.md)。
 
 ### 自托管（Docker）
 
@@ -280,7 +290,7 @@ pnpm tauri build       # 打生产包
 <tr>
   <td width="140"><b>📦 模型 Provider</b></td>
   <td>
-    <b>44 个模板 · 335 个预设模型</b><br/>
+    <b>40+ 个模板 · 300+ 个预设模型</b><br/>
     <b>国际</b> · Anthropic · OpenAI · Codex · GitHub Copilot · Google Gemini · OpenRouter · Azure OpenAI · Groq · Together AI · Fireworks · Novita · Perplexity · xAI Grok · Mistral · Cohere<br/>
     <b>国内</b> · DeepSeek · Moonshot (Kimi) · 通义千问 (Qwen) · 豆包 (火山引擎) · 智谱 GLM · MiniMax · 小米 MiMo<br/>
     <b>本地</b> · Ollama · 任意 OpenAI 兼容端点
@@ -288,11 +298,11 @@ pnpm tauri build       # 打生产包
 </tr>
 <tr>
   <td><b>💬 IM 渠道</b></td>
-  <td><b>12 个</b> · Telegram · Discord · Slack · 飞书 · Google Chat · LINE · QQ Bot · Signal · iMessage · IRC · WeChat · WhatsApp</td>
+  <td><b>10+ 个</b> · Telegram · Discord · Slack · 飞书 · Google Chat · LINE · QQ Bot · Signal · iMessage · IRC · WeChat · WhatsApp</td>
 </tr>
 <tr>
   <td><b>🌐 界面语言</b></td>
-  <td><b>12 种</b> · 简体中文 · 繁體中文 · English · 日本語 · 한국어 · Español · Português · Русский · العربية · Türkçe · Tiếng Việt · Bahasa Melayu</td>
+  <td><b>10+ 种</b> · 简体中文 · 繁體中文 · English · 日本語 · 한국어 · Español · Português · Русский · العربية · Türkçe · Tiếng Việt · Bahasa Melayu</td>
 </tr>
 </table>
 
@@ -337,7 +347,6 @@ node scripts/sync-i18n.mjs --check   # 检查翻译缺失
 
 ## 致谢
 
-- [openclaw](https://github.com/openclaw/openclaw)：在本地 AI 助手方向上的启发
 - [Ollama](https://ollama.com/)：本地大模型一键安装能力建立在 Ollama 的本地运行时与 OpenAI 兼容端点之上；Hope Agent 仅作 GUI 层包装，Qwen / Gemma 等模型由 Ollama 模型库分发
 - [ClawHub](https://www.clawhub.com/) / [SkillHub](https://skillhub.cn/)：为 Hope Agent 提供公开的 skill 搜索与发现来源
 - [Tauri](https://tauri.app/)、[axum](https://github.com/tokio-rs/axum)、[React](https://react.dev/)、[shadcn/ui](https://ui.shadcn.com/)、[Streamdown](https://github.com/streamdown/streamdown)、[Radix UI](https://www.radix-ui.com/) 等开源基础设施
