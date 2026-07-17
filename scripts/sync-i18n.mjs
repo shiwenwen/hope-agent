@@ -21,6 +21,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 const LOCALES_DIR = resolve(__dirname, "../src/i18n/locales")
 const SRC_DIR = resolve(__dirname, "../src")
 const TRANSLATIONS_FILE = resolve(__dirname, "i18n-translations.json")
+const BUILTIN_TOOLS_FILE = resolve(__dirname, "../crates/ha-core/src/tools/mod.rs")
 
 // ── helpers ──────────────────────────────────────────────────────────
 
@@ -154,6 +155,26 @@ function findLiteralSourceTranslationKeys() {
       if (enPrefixes.has(key)) continue
       recordRef(key, match.index)
     }
+  }
+
+  // Built-in tool labels are looked up dynamically from canonical Rust ids,
+  // so the TypeScript literal-key scan cannot see them. Treat every public
+  // TOOL_* constant as an i18n reference: adding a backend tool without a
+  // semantic name or localized settings description must fail --check.
+  const builtinToolsSource = readFileSync(BUILTIN_TOOLS_FILE, "utf8")
+  const rel = relative(resolve(__dirname, ".."), BUILTIN_TOOLS_FILE)
+  for (const match of builtinToolsSource.matchAll(
+    /pub const TOOL_[A-Z0-9_]+: &str = "([a-z0-9_]+)";/g,
+  )) {
+    const name = match[1]
+    const suffix = name
+      .split("_")
+      .filter(Boolean)
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join("")
+    const line = builtinToolsSource.slice(0, match.index).split("\n").length
+    refs.set(`tools.${name}`, [`${rel}:${line}`])
+    refs.set(`settings.tool${suffix}Desc`, [`${rel}:${line}`])
   }
 
   return refs

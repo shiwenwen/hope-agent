@@ -11,8 +11,9 @@ import { cn } from "@/lib/utils"
 import { Check, Loader2 } from "lucide-react"
 import {
   toolDisplayDescFallback,
+  toolDisplayDescriptionKey,
   toolDisplayNameFallback,
-  TOOL_I18N_KEY,
+  toolDisplayNameKey,
 } from "@/types/tools"
 
 interface UserConfig {
@@ -348,13 +349,13 @@ export default function ToolGeneralPanel() {
 
   const deferCapableTools = builtinTools.filter((tool) => tool.defer_capable)
   const toolDisplayName = (name: string) => {
-    const key = TOOL_I18N_KEY[name]
-    return key ? t(`settings.tool${key}Name`) : toolDisplayNameFallback(name, i18n.language)
+    const key = toolDisplayNameKey(name)
+    return i18n.exists(key) ? t(key) : toolDisplayNameFallback(name, i18n.language)
   }
   const toolDisplayDesc = (tool: BuiltinTool) => {
-    const key = TOOL_I18N_KEY[tool.name]
-    return key
-      ? t(`settings.tool${key}Desc`)
+    const key = toolDisplayDescriptionKey(tool.name)
+    return i18n.exists(key)
+      ? t(key)
       : toolDisplayDescFallback(tool.name, tool.description, i18n.language)
   }
 
