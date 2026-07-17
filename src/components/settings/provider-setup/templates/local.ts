@@ -35,6 +35,16 @@ export const localTemplates: ProviderTemplate[] = [
     requiresApiKey: false,
     models: [
       {
+        id: "glm-5.2:cloud",
+        name: "GLM 5.2 (云端)",
+        inputTypes: ["text"],
+        contextWindow: 1000000,
+        maxTokens: 8192,
+        reasoning: true,
+        costInput: 0,
+        costOutput: 0,
+      },
+      {
         id: "kimi-k2.5:cloud",
         name: "Kimi K2.5 (云端)",
         inputTypes: ["text"],

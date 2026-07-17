@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **内置 Provider 模板刷新：新增当代旗舰模型与五个 Provider**：新增 Claude Sonnet 5 与 Mythos 5、GPT-5.6、Kimi K3、Grok 4.5、Step 3.7 Flash、Qwen 3.7 Plus、混元 Hy3 等当代旗舰，并新增 Cohere、Baseten、LongCat、Meta、Featherless 五个 Provider；内置模板增至 50 个 Provider、392 个预设模型。各家新一代模型统一排在模型选择器最前，已废弃的旧模型下沉到列表末尾。
 - **文件与附件能力统一覆盖本地桌面、远程桌面和 Web**：文件树、消息附件、输入框草稿、工具媒体、Workspace 产物与 Artifact 统一使用同一套文件类型、预览、打开、下载、编辑和右键动作能力；本地桌面操作当前电脑，远程桌面与 Web 操作 Server 文件系统，未发送附件始终留在客户端并可离线预览或编辑副本。Workspace 文本编辑新增显式保存、外部变更提示、BOM/行尾保留、hash 冲突保护和只读/远程写引导，避免静默覆盖其他客户端或 Agent 的更新。
 - **文件大小限制可配置并统一使用分块上传租约**：设置新增聊天附件、Workspace 上传、文本预览/编辑、文档预览、Artifact 导入及知识来源限制，旧配置自动采用安全默认值；用户聊天附件与 Agent `send_attachment` 共用同一限制。聊天、Workspace、知识来源与 Artifact 的客户端文件改为 4 MiB 分块、可续传的临时租约，支持并发上限、失败回收、过期清理、purpose 隔离和完成时 BLAKE3 校验，Web、远程桌面与本地桌面不再一次性缓冲完整文件。
 - **数据大盘新增“目标与执行”统一推进页**：在综合概览后集中展示 Goal 达成与必要标准、Workflow 完成/失败/审批、Loop 强推进与无进展守卫、Task/Plan cohort 进度、P50 耗时和当前需处理项；支持时间、Agent、含归档/未分配在内的项目筛选，风险项可跳回会话并定位具体控制面。Task 与 Plan 从本版本开始记录精确完成时间并显示历史覆盖率；原“任务统计”更名为“自动化”，旧接口和独立 Plan 历史页继续保留。 (#474)
@@ -46,6 +47,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **对话输入区浮层交互统一**：「+」菜单、权限与沙箱设置统一采用模型选择器的浮层样式、背景和出入动画；沙箱设置整合进权限弹层并默认折叠。二级菜单优先显示在右侧，空间不足时切到左侧，最后才回退到上方或下方；图标与截断文本的悬停提示也统一使用同一套 Tooltip。
 
 ### Fixed
+
+- **修正 Claude 等多家模型的定价与上下文长度**：Claude Opus 4.8 / 4.7 / 4.6 此前按旧 Opus 档位记为 $15/$75（实际 $5/$25）、Haiku 4.5 记为 $0.8/$4（实际 $1/$5）；Opus 4.7 / 4.6 与 Sonnet 4.6 的上下文仍写 200K（实际 1M），Grok 4.20 写 2M（实际 1M）——上下文写大会让压缩迟迟不触发、直至撞满真实上限报错。DeepSeek Chat / Reasoner、Mistral Small、GPT-5.6 系列的上下文与价格，以及 MiniMax M2.7 误标的图片输入能力一并校正。数据大盘的成本统计此前对 Claude 5 系列、GPT-5.x、Gemini 3.x 与 Kimi 完全没有价目条目而回退到默认估价，现已补齐。
 
 - **应用内全屏面板支持统一双向过渡**：Canvas、文件浏览器、单文件预览、Plan 和产物阅读器现在都会从当前布局位置平滑铺满窗口，并在恢复时重新测量真实 flex 布局后收回；窗口尺寸变化不会导致归位偏移，系统开启“减少动态效果”时自动直接切换。共用面板统一通过 `useFullscreenTransition` 编排，避免各入口的动画时长和手感继续分叉。
 - **Worktree 开发不再互相污染 Vite 依赖缓存**：当多个 git / Codex worktree 通过软链接共享 `node_modules` 时，Vite 预构建缓存改为存放在各自工作树内，避免依赖 hash 被其它开发服务器改写后出现 `504 Outdated Optimize Dep`。
