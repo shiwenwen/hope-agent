@@ -2819,7 +2819,8 @@
     "anthropicThinkingBudget": "Anthropic (thinking budget)",
     "zaiThinkingBudget": "Z.AI (thinking budget)",
     "contextWindow": "Context Window",
-    "maxTokens": "Max Tokens"
+    "maxTokens": "Max Tokens",
+    "costUnpriced": "Unpriced"
   },
   "notification": {
     "cronCancelled": "Scheduled task cancelled",

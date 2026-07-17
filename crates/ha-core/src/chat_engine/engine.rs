@@ -2169,8 +2169,8 @@ mod stream_lifecycle_tests {
             max_tokens: 8192,
             reasoning: false,
             thinking_style: None,
-            cost_input: 0.0,
-            cost_output: 0.0,
+            cost_input: Some(0.0),
+            cost_output: Some(0.0),
         }
     }
 

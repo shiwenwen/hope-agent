@@ -2788,7 +2788,8 @@
     "anthropicThinkingBudget": "Anthropic (사고 예산)",
     "zaiThinkingBudget": "Z.AI (사고 예산)",
     "contextWindow": "컨텍스트 윈도우",
-    "maxTokens": "최대 토큰"
+    "maxTokens": "최대 토큰",
+    "costUnpriced": "가격 미설정"
   },
   "notification": {
     "cronCancelled": "예약 작업이 취소되었습니다",

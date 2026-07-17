@@ -2788,7 +2788,8 @@
     "anthropicThinkingBudget": "Anthropic (ميزانية التفكير)",
     "contextWindow": "نافذة السياق",
     "maxTokens": "الرموز القصوى",
-    "zaiThinkingBudget": "Z.AI (ميزانية التفكير)"
+    "zaiThinkingBudget": "Z.AI (ميزانية التفكير)",
+    "costUnpriced": "غير مُسعَّر"
   },
   "notification": {
     "cronCancelled": "تم إلغاء المهمة المجدولة",

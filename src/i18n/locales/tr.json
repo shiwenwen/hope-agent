@@ -2788,7 +2788,8 @@
     "anthropicThinkingBudget": "Anthropic (düşünme bütçesi)",
     "contextWindow": "Bağlam penceresi",
     "maxTokens": "Maksimum jeton",
-    "zaiThinkingBudget": "Z.AI (düşünme bütçesi)"
+    "zaiThinkingBudget": "Z.AI (düşünme bütçesi)",
+    "costUnpriced": "Fiyatsız"
   },
   "notification": {
     "cronCancelled": "Zamanlanmış görev iptal edildi",

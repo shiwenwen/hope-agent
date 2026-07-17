@@ -2788,7 +2788,8 @@
     "anthropicThinkingBudget": "Anthropic (ngân sách suy luận)",
     "zaiThinkingBudget": "Z.AI (ngân sách suy luận)",
     "contextWindow": "Cửa sổ ngữ cảnh",
-    "maxTokens": "Mã thông báo tối đa"
+    "maxTokens": "Mã thông báo tối đa",
+    "costUnpriced": "Chưa có giá"
   },
   "notification": {
     "cronCancelled": "Đã hủy tác vụ theo lịch",

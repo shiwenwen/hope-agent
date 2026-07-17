@@ -241,8 +241,8 @@ fn default_codex_models() -> Vec<ModelConfig> {
             max_tokens: 16384,
             reasoning: true,
             thinking_style: None,
-            cost_input: 0.0,
-            cost_output: 0.0,
+            cost_input: Some(0.0),
+            cost_output: Some(0.0),
         },
         ModelConfig {
             id: "gpt-5.6-terra".into(),
@@ -252,8 +252,8 @@ fn default_codex_models() -> Vec<ModelConfig> {
             max_tokens: 16384,
             reasoning: true,
             thinking_style: None,
-            cost_input: 0.0,
-            cost_output: 0.0,
+            cost_input: Some(0.0),
+            cost_output: Some(0.0),
         },
         ModelConfig {
             id: "gpt-5.6-luna".into(),
@@ -263,8 +263,8 @@ fn default_codex_models() -> Vec<ModelConfig> {
             max_tokens: 16384,
             reasoning: true,
             thinking_style: None,
-            cost_input: 0.0,
-            cost_output: 0.0,
+            cost_input: Some(0.0),
+            cost_output: Some(0.0),
         },
         ModelConfig {
             id: "gpt-5.5".into(),
@@ -274,8 +274,8 @@ fn default_codex_models() -> Vec<ModelConfig> {
             max_tokens: 16384,
             reasoning: true,
             thinking_style: None,
-            cost_input: 0.0,
-            cost_output: 0.0,
+            cost_input: Some(0.0),
+            cost_output: Some(0.0),
         },
         ModelConfig {
             id: "gpt-5.4".into(),
@@ -285,8 +285,8 @@ fn default_codex_models() -> Vec<ModelConfig> {
             max_tokens: 16384,
             reasoning: true,
             thinking_style: None,
-            cost_input: 0.0,
-            cost_output: 0.0,
+            cost_input: Some(0.0),
+            cost_output: Some(0.0),
         },
         ModelConfig {
             id: "gpt-5.3-codex".into(),
@@ -296,8 +296,8 @@ fn default_codex_models() -> Vec<ModelConfig> {
             max_tokens: 16384,
             reasoning: true,
             thinking_style: None,
-            cost_input: 0.0,
-            cost_output: 0.0,
+            cost_input: Some(0.0),
+            cost_output: Some(0.0),
         },
         ModelConfig {
             id: "gpt-5.3-codex-spark".into(),
@@ -307,8 +307,8 @@ fn default_codex_models() -> Vec<ModelConfig> {
             max_tokens: 16384,
             reasoning: true,
             thinking_style: None,
-            cost_input: 0.0,
-            cost_output: 0.0,
+            cost_input: Some(0.0),
+            cost_output: Some(0.0),
         },
         ModelConfig {
             id: "gpt-5.2".into(),
@@ -318,8 +318,8 @@ fn default_codex_models() -> Vec<ModelConfig> {
             max_tokens: 16384,
             reasoning: true,
             thinking_style: None,
-            cost_input: 0.0,
-            cost_output: 0.0,
+            cost_input: Some(0.0),
+            cost_output: Some(0.0),
         },
         ModelConfig {
             id: "gpt-5.2-codex".into(),
@@ -329,8 +329,8 @@ fn default_codex_models() -> Vec<ModelConfig> {
             max_tokens: 16384,
             reasoning: true,
             thinking_style: None,
-            cost_input: 0.0,
-            cost_output: 0.0,
+            cost_input: Some(0.0),
+            cost_output: Some(0.0),
         },
         ModelConfig {
             id: "gpt-5.1".into(),
@@ -340,8 +340,8 @@ fn default_codex_models() -> Vec<ModelConfig> {
             max_tokens: 16384,
             reasoning: true,
             thinking_style: None,
-            cost_input: 0.0,
-            cost_output: 0.0,
+            cost_input: Some(0.0),
+            cost_output: Some(0.0),
         },
         ModelConfig {
             id: "gpt-5.1-codex-max".into(),
@@ -351,8 +351,8 @@ fn default_codex_models() -> Vec<ModelConfig> {
             max_tokens: 16384,
             reasoning: true,
             thinking_style: None,
-            cost_input: 0.0,
-            cost_output: 0.0,
+            cost_input: Some(0.0),
+            cost_output: Some(0.0),
         },
         ModelConfig {
             id: "gpt-5.1-codex-mini".into(),
@@ -362,8 +362,8 @@ fn default_codex_models() -> Vec<ModelConfig> {
             max_tokens: 16384,
             reasoning: true,
             thinking_style: None,
-            cost_input: 0.0,
-            cost_output: 0.0,
+            cost_input: Some(0.0),
+            cost_output: Some(0.0),
         },
     ]
 }
@@ -481,8 +481,8 @@ mod tests {
             max_tokens: 8192,
             reasoning: false,
             thinking_style: None,
-            cost_input: 0.0,
-            cost_output: 0.0,
+            cost_input: Some(0.0),
+            cost_output: Some(0.0),
         }
     }
 

@@ -968,8 +968,8 @@ pub fn ensure_ollama_provider_with_model_activation(
         max_tokens: 8192,
         reasoning: model.reasoning,
         thinking_style: None,
-        cost_input: 0.0,
-        cost_output: 0.0,
+        cost_input: Some(0.0),
+        cost_output: Some(0.0),
     };
     let (provider_id, model_id) = ensure_ollama_provider_with_model_config(model_cfg, activate)?;
     app_info!(

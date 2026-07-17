@@ -92,12 +92,18 @@ pub struct ModelConfig {
     /// `None` = inherit provider-level `thinking_style`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thinking_style: Option<ThinkingStyle>,
-    /// Input cost per million tokens (USD)
+    /// 每百万输入 token 单价。`None` = 未标价（厂商单价未知），`Some(0.0)` = 明确不按
+    /// token 计费（本地模型、包月端点）。二者对大盘结算的含义完全不同：未标价回退内置
+    /// 估算表，明确免费则如实记 $0——旧版统一用 `0` 表达两者，导致本机跑的模型也被按估算
+    /// 表收费（详见 `dashboard::cost::resolve_cost`）。
+    ///
+    /// 币种：字段本身不带货币维度，目前各 Provider 混用（如 qwen 存的是人民币价）。
+    /// 新增条目请与同一 Provider 内的兄弟条目保持同一口径。
     #[serde(default)]
-    pub cost_input: f64,
-    /// Output cost per million tokens (USD)
+    pub cost_input: Option<f64>,
+    /// 每百万输出 token 单价。语义同 `cost_input`。
     #[serde(default)]
-    pub cost_output: f64,
+    pub cost_output: Option<f64>,
 }
 
 fn default_input_types() -> Vec<String> {
@@ -263,8 +269,8 @@ impl ProviderConfig {
             max_tokens: 8192,
             reasoning: false,
             thinking_style: None,
-            cost_input: 3.0,
-            cost_output: 15.0,
+            cost_input: Some(3.0),
+            cost_output: Some(15.0),
         });
         provider
     }
@@ -436,8 +442,8 @@ mod tests {
             max_tokens: 8192,
             reasoning: false,
             thinking_style: None,
-            cost_input: 0.0,
-            cost_output: 0.0,
+            cost_input: Some(0.0),
+            cost_output: Some(0.0),
         }];
         cfg.auth_profiles = vec![
             AuthProfile::new(" Org A ".to_string(), " key-a ".to_string(), None),
@@ -592,8 +598,8 @@ mod tests {
             max_tokens: 8192,
             reasoning: true,
             thinking_style: Some(ThinkingStyle::Qwen),
-            cost_input: 0.0,
-            cost_output: 0.0,
+            cost_input: Some(0.0),
+            cost_output: Some(0.0),
         });
 
         assert_eq!(
@@ -619,8 +625,8 @@ mod tests {
             max_tokens: 8192,
             reasoning: false,
             thinking_style: Some(ThinkingStyle::Anthropic),
-            cost_input: 0.0,
-            cost_output: 0.0,
+            cost_input: Some(0.0),
+            cost_output: Some(0.0),
         });
 
         assert_eq!(
@@ -645,8 +651,8 @@ mod tests {
             max_tokens: 8192,
             reasoning: false,
             thinking_style: None,
-            cost_input: 0.0,
-            cost_output: 0.0,
+            cost_input: Some(0.0),
+            cost_output: Some(0.0),
         });
         assert!(cfg.model_supports_vision("gpt-4o"));
     }
@@ -670,8 +676,8 @@ mod tests {
             max_tokens: 8192,
             reasoning: true,
             thinking_style: None,
-            cost_input: 0.0,
-            cost_output: 0.0,
+            cost_input: Some(0.0),
+            cost_output: Some(0.0),
         });
         assert!(!cfg.model_supports_vision("deepseek-v4-flash"));
     }
@@ -694,8 +700,8 @@ mod tests {
             max_tokens: 8192,
             reasoning: false,
             thinking_style: None,
-            cost_input: 0.0,
-            cost_output: 0.0,
+            cost_input: Some(0.0),
+            cost_output: Some(0.0),
         });
         assert!(!cfg.model_supports_vision("text-audio-only"));
     }
@@ -720,8 +726,8 @@ mod tests {
             max_tokens: 8192,
             reasoning: false,
             thinking_style: None,
-            cost_input: 0.0,
-            cost_output: 0.0,
+            cost_input: Some(0.0),
+            cost_output: Some(0.0),
         });
         assert!(cfg.model_supports_vision("empty-list"));
     }

@@ -24,9 +24,12 @@ pub(super) fn resolve_cost(
 
 /// 从用户配置里取该 provider 下该模型的单价。
 ///
-/// **0/0 视为「未标价」而非「免费」，返回 `None` 回退估算表**——模板里 0 是重载的：既表示
-/// 包月端点无按量计费（kimi-coding），也表示厂商单价未知（step-3.5-flash、qwen 新模型）。
-/// 两者无法区分，取回退可保持这些模型与改动前一致的行为，避免把「未知」静默报成 $0。
+/// `None` 有两种来源，都回退估算表：provider/模型不在配置里（已删、历史行），或单价为
+/// `None`（**未标价**——厂商价未知）。而 `Some(0.0)` 是**明确不按 token 计费**（本地模型、
+/// 包月端点），如实结算 $0、**不回退**——旧版把「未标价」和「免费」都写成 `0`，导致本机
+/// 跑的 `qwen3:32b` 被按估算表的 $0.30/$0.60 收费。
+///
+/// 输入/输出任一有值即视为已标价，缺的那侧按 0 计（如只标了输入价）。
 fn configured_price(provider_id: &str, model_id: &str) -> Option<(f64, f64)> {
     let cfg = crate::config::cached_config();
     let model = cfg
@@ -36,10 +39,10 @@ fn configured_price(provider_id: &str, model_id: &str) -> Option<(f64, f64)> {
         .models
         .iter()
         .find(|m| m.id == model_id)?;
-    if model.cost_input == 0.0 && model.cost_output == 0.0 {
-        return None;
+    match (model.cost_input, model.cost_output) {
+        (None, None) => None,
+        (ci, co) => Some((ci.unwrap_or(0.0), co.unwrap_or(0.0))),
     }
-    Some((model.cost_input, model.cost_output))
 }
 
 pub(super) fn estimate_cost(model_id: &str, input_tokens: u64, output_tokens: u64) -> f64 {
@@ -212,7 +215,7 @@ mod tests {
     use crate::provider::{ApiType, ModelConfig, ProviderConfig};
     use crate::test_support::replace_config_cache;
 
-    fn model(id: &str, cost_input: f64, cost_output: f64) -> ModelConfig {
+    fn model(id: &str, cost_input: Option<f64>, cost_output: Option<f64>) -> ModelConfig {
         ModelConfig {
             id: id.to_string(),
             name: id.to_string(),
@@ -224,6 +227,11 @@ mod tests {
             cost_input,
             cost_output,
         }
+    }
+
+    /// 已标价
+    fn priced(id: &str, ci: f64, co: f64) -> ModelConfig {
+        model(id, Some(ci), Some(co))
     }
 
     fn config_with(provider_id: &str, models: Vec<ModelConfig>) -> AppConfig {
@@ -246,7 +254,7 @@ mod tests {
     fn configured_price_overrides_the_builtin_table() {
         // 表里 claude-opus-4-8 是 $5/$25；用户配置成 $1/$2。
         let _guard =
-            replace_config_cache(config_with("p1", vec![model("claude-opus-4-8", 1.0, 2.0)]));
+            replace_config_cache(config_with("p1", vec![priced("claude-opus-4-8", 1.0, 2.0)]));
 
         assert_eq!(
             resolve_cost(Some("p1"), "claude-opus-4-8", 1_000_000, 0),
@@ -263,7 +271,7 @@ mod tests {
     /// 同一模型在不同渠道价格不同——这是按 model_id 匹配的估算表结构上解不了的。
     #[test]
     fn same_model_resolves_per_provider() {
-        let mut cfg = config_with("direct", vec![model("kimi-k2.6", 0.95, 4.0)]);
+        let mut cfg = config_with("direct", vec![priced("kimi-k2.6", 0.95, 4.0)]);
         let mut gateway = ProviderConfig::new(
             "Gateway".to_string(),
             ApiType::OpenaiChat,
@@ -271,7 +279,7 @@ mod tests {
             "k".to_string(),
         );
         gateway.id = "gw".to_string();
-        gateway.models = vec![model("kimi-k2.6", 0.8, 3.5)];
+        gateway.models = vec![priced("kimi-k2.6", 0.8, 3.5)];
         cfg.providers.push(gateway);
         let _guard = replace_config_cache(cfg);
 
@@ -282,22 +290,106 @@ mod tests {
         assert_eq!(resolve_cost(Some("gw"), "kimi-k2.6", 1_000_000, 0), 0.80);
     }
 
-    /// 0/0 在模板里是「未标价」而非「免费」，必须回退估算表，不能把未知静默报成 $0。
+    /// 未标价（None）回退估算表——不能把「不知道」静默报成 $0。
     #[test]
     fn unpriced_model_falls_back_to_the_table() {
-        let _guard =
-            replace_config_cache(config_with("p1", vec![model("claude-opus-4-8", 0.0, 0.0)]));
+        let _guard = replace_config_cache(config_with(
+            "p1",
+            vec![model("claude-opus-4-8", None, None)],
+        ));
         assert_eq!(
             resolve_cost(Some("p1"), "claude-opus-4-8", 1_000_000, 0),
             5.0
         );
     }
 
+    /// 明确免费（Some(0.0)）**不回退**，如实记 $0。
+    ///
+    /// 这条锁住本次修复的核心 bug：本地 Ollama 的 `qwen3:32b` 跑在用户自己机器上、一分钱
+    /// 不花，旧版却因为「0 = 未标价」回退到估算表、按 `qwen` 臂的 $0.30/$0.60 收费。
+    #[test]
+    fn free_model_is_not_billed_at_the_estimated_rate() {
+        // 前提：估算表确实会给这些 id 报价——否则本测试无意义。
+        assert!(estimate_cost("qwen3:32b", 1_000_000, 0) > 0.0);
+        assert!(estimate_cost("your-model-id", 1_000_000, 0) > 0.0);
+
+        let _guard = replace_config_cache(config_with(
+            "local",
+            vec![
+                model("qwen3:32b", Some(0.0), Some(0.0)),
+                model("your-model-id", Some(0.0), Some(0.0)),
+            ],
+        ));
+
+        assert_eq!(
+            resolve_cost(Some("local"), "qwen3:32b", 1_000_000, 1_000_000),
+            0.0
+        );
+        assert_eq!(
+            resolve_cost(Some("local"), "your-model-id", 1_000_000, 1_000_000),
+            0.0
+        );
+    }
+
+    /// 包月端点（Ollama cloud）与本机推理同属 `Some(0.0)`，代理网关（LiteLLM）属 `None`。
+    ///
+    /// 这条区分极易改反——`:cloud` 后缀看着像"云端付费"，实则走 ollama.com 包月订阅、
+    /// 按 GPU 时长计费，一个 token 单价都不存在；标 `None` 会回退估算表，把 `glm-5.2:cloud`
+    /// 按 `glm-5` 臂的直连单价给包月用户报出一笔不存在的账。反过来 LiteLLM 的占位符虽和
+    /// vLLM / LM Studio / SGLang 的逐字相同，但它是代理、上游可以是任意付费模型，标 0
+    /// 就成了"确定免费"。判据是**计费模式**，不是模型 id 长什么样。
+    #[test]
+    fn subscription_endpoints_are_free_but_proxy_placeholders_are_unpriced() {
+        // 前提：估算表确实会给这两个 id 报价，否则本测试测不出区别。
+        assert!(estimate_cost("glm-5.2:cloud", 1_000_000, 0) > 0.0);
+        assert!(estimate_cost("your-model-id", 1_000_000, 0) > 0.0);
+
+        let guard = replace_config_cache(config_with(
+            "ollama",
+            vec![model("glm-5.2:cloud", Some(0.0), Some(0.0))],
+        ));
+        assert_eq!(
+            resolve_cost(Some("ollama"), "glm-5.2:cloud", 1_000_000, 1_000_000),
+            0.0,
+            "包月端点不按 token 计费，必须如实记 $0 而非回退估算表"
+        );
+        // guard 持全局互斥锁，shadowing 不提前 drop——不显式释放，下一次 replace 自我死锁。
+        drop(guard);
+
+        let _guard = replace_config_cache(config_with(
+            "litellm",
+            vec![model("your-model-id", None, None)],
+        ));
+        assert!(
+            resolve_cost(Some("litellm"), "your-model-id", 1_000_000, 1_000_000) > 0.0,
+            "代理网关单价未知，必须回退估算表而非报 $0"
+        );
+    }
+
+    /// 只标了一侧价（另一侧留空）仍视为已标价，缺的一侧按 0 计，不整条回退。
+    #[test]
+    fn half_priced_model_does_not_fall_back() {
+        let _guard = replace_config_cache(config_with(
+            "p1",
+            vec![model("claude-opus-4-8", Some(1.0), None)],
+        ));
+        assert_eq!(
+            resolve_cost(Some("p1"), "claude-opus-4-8", 1_000_000, 0),
+            1.0
+        );
+        assert_eq!(
+            resolve_cost(Some("p1"), "claude-opus-4-8", 0, 1_000_000),
+            0.0
+        );
+    }
+
     /// provider 被删 / 模型已从配置移除 / 历史行无 provider_id —— 都回退，不能算成 0。
     #[test]
     fn unknown_provider_or_model_falls_back_to_the_table() {
-        let _guard =
-            replace_config_cache(config_with("p1", vec![model("some-other-model", 1.0, 2.0)]));
+        let _guard = replace_config_cache(config_with(
+            "p1",
+            vec![priced("some-other-model", 1.0, 2.0)],
+        ));
 
         assert_eq!(
             resolve_cost(Some("deleted"), "claude-opus-4-8", 1_000_000, 0),
