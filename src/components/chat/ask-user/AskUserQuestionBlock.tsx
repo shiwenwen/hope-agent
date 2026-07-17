@@ -1,10 +1,10 @@
-import { useState, useCallback, useEffect, useMemo } from "react"
+import { useState, useCallback, useMemo } from "react"
 import { code } from "@streamdown/code"
 import { cjk } from "@streamdown/cjk"
 import "streamdown/styles.css"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
-import { formatRemaining } from "@/lib/countdown"
+import { formatRemaining, useCountdownRemainingSec } from "@/lib/countdown"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import { Input } from "@/components/ui/input"
@@ -283,36 +283,6 @@ function OptionPreview({
   )
 }
 
-// ── Countdown timer ──────────────────────────────────────────────
-
-function useCountdown(timeoutAtMs: number | undefined | null) {
-  const [remaining, setRemaining] = useState<number | null>(null)
-
-  useEffect(() => {
-    if (!timeoutAtMs) {
-      const id = window.setTimeout(() => setRemaining(null), 0)
-      return () => window.clearTimeout(id)
-    }
-    let timer: number | undefined
-    const tick = () => {
-      const secs = Math.max(0, Math.ceil((timeoutAtMs - Date.now()) / 1000))
-      setRemaining(secs)
-      if (secs <= 0 && timer !== undefined) {
-        window.clearInterval(timer)
-        timer = undefined
-      }
-    }
-    const first = window.setTimeout(tick, 0)
-    timer = window.setInterval(tick, 1000)
-    return () => {
-      if (timer !== undefined) window.clearInterval(timer)
-      window.clearTimeout(first)
-    }
-  }, [timeoutAtMs])
-
-  return remaining
-}
-
 // ── Main component ───────────────────────────────────────────────
 
 export default function AskUserQuestionBlock({
@@ -349,7 +319,7 @@ export default function AskUserQuestionBlock({
   const [focusedOption, setFocusedOption] = useState<Record<string, string>>({})
   const otherLabel = t("common.other", { defaultValue: "Other" })
 
-  const remaining = useCountdown(
+  const remaining = useCountdownRemainingSec(
     group.localTimeoutAtMs ?? (group.timeoutAt ? group.timeoutAt * 1000 : null),
   )
   const hasAnyPreview = useMemo(

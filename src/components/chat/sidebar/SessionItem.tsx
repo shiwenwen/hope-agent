@@ -333,7 +333,12 @@ export default function SessionItem({
                       className="inline-flex h-2.5 w-2.5 rounded-full bg-sky-500"
                     />
                   )}
-                  {pendingCountdown && <PendingCountdownRing countdown={pendingCountdown} />}
+                  {pendingCountdown && (
+                    <PendingCountdownRing
+                      key={`${pendingCountdown.deadlineAtMs}:${pendingCountdown.serverNowMs}`}
+                      countdown={pendingCountdown}
+                    />
+                  )}
                   {hasPending && (
                     <IconTip
                       label={t("chat.pendingInteractionInline", {
@@ -401,7 +406,10 @@ export default function SessionItem({
                 ) : hasPending ? (
                   <span className="flex items-center gap-1 text-amber-500 font-medium">
                     {pendingCountdown ? (
-                      <PendingCountdownRing countdown={pendingCountdown} />
+                      <PendingCountdownRing
+                        key={`${pendingCountdown.deadlineAtMs}:${pendingCountdown.serverNowMs}`}
+                        countdown={pendingCountdown}
+                      />
                     ) : (
                       <BellRing className="h-3 w-3 shrink-0" />
                     )}
