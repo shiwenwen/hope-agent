@@ -11,7 +11,7 @@ use crate::cron::CronDB;
 use crate::logging::LogDB;
 use crate::session::SessionDB;
 
-use super::cost::estimate_cost;
+use super::cost::resolve_cost;
 use super::filters::{
     build_log_filter, build_model_usage_filter, build_session_filter, params_ref,
 };
@@ -76,10 +76,11 @@ pub fn query_cost_trend(
         "SELECT DATE(u.timestamp) as d,
                 COALESCE(u.model_id, 'unknown') as model,
                 COALESCE(SUM(u.input_tokens), 0),
-                COALESCE(SUM(u.output_tokens), 0)
+                COALESCE(SUM(u.output_tokens), 0),
+                u.provider_id
          FROM model_usage_events u
          {}
-         GROUP BY d, model
+         GROUP BY d, model, u.provider_id
          ORDER BY d ASC",
         f.where_sql
     );
@@ -90,14 +91,15 @@ pub fn query_cost_trend(
             r.get::<_, String>(1)?,
             crate::sql_u64(r, 2)?,
             crate::sql_u64(r, 3)?,
+            r.get::<_, Option<String>>(4)?,
         ))
     })?;
 
     // Aggregate daily costs by summing per-model cost within each day
     let mut points: Vec<CostTrendPoint> = Vec::new();
     for row in rows {
-        let (date, model, tokens_in, tokens_out) = row?;
-        let cost = estimate_cost(&model, tokens_in, tokens_out);
+        let (date, model, tokens_in, tokens_out, provider_id) = row?;
+        let cost = resolve_cost(provider_id.as_deref(), &model, tokens_in, tokens_out);
         if let Some(last) = points.last_mut() {
             if last.date == date {
                 last.cost_usd += cost;
@@ -266,7 +268,8 @@ pub fn query_top_sessions(
                 COALESCE(SUM(u.input_tokens), 0) + COALESCE(SUM(u.output_tokens), 0) as total_tokens,
                 COALESCE(SUM(u.input_tokens), 0),
                 COALESCE(SUM(u.output_tokens), 0),
-                s.updated_at
+                s.updated_at,
+                u.provider_id
          FROM model_usage_events u
          JOIN sessions s ON s.id = u.session_id
          {}
@@ -286,8 +289,12 @@ pub fn query_top_sessions(
         let tokens_in: u64 = crate::sql_u64(r, 6)?;
         let tokens_out: u64 = crate::sql_u64(r, 7)?;
         let updated_at: String = r.get(8)?;
+        // `GROUP BY s.id` 下 model_id / provider_id 都是 bare column，SQLite 取任意一行；
+        // 二者若来自不同行则配置查不到，`resolve_cost` 自动回退估算表——退化即现状，安全。
+        let provider_id: Option<String> = r.get(9)?;
         let model_ref = model_id.as_deref().unwrap_or("unknown");
-        let estimated_cost_usd = estimate_cost(model_ref, tokens_in, tokens_out);
+        let estimated_cost_usd =
+            resolve_cost(provider_id.as_deref(), model_ref, tokens_in, tokens_out);
         Ok(TopSession {
             id,
             title,
@@ -321,10 +328,11 @@ pub fn query_model_efficiency(
                 COUNT(*) as call_cnt,
                 COALESCE(SUM(u.input_tokens), 0),
                 COALESCE(SUM(u.output_tokens), 0),
-                AVG(u.ttft_ms)
+                AVG(u.ttft_ms),
+                u.provider_id
          FROM model_usage_events u
          {}
-         GROUP BY u.model_id, u.provider_name
+         GROUP BY u.model_id, u.provider_name, u.provider_id
          ORDER BY SUM(u.input_tokens) + SUM(u.output_tokens) DESC",
         f.where_sql
     );
@@ -336,8 +344,14 @@ pub fn query_model_efficiency(
         let input_tokens: u64 = crate::sql_u64(r, 3)?;
         let output_tokens: u64 = crate::sql_u64(r, 4)?;
         let avg_ttft_ms: Option<f64> = r.get(5)?;
+        let provider_id: Option<String> = r.get(6)?;
         let total_tokens = input_tokens + output_tokens;
-        let total_cost_usd = estimate_cost(&model_id, input_tokens, output_tokens);
+        let total_cost_usd = resolve_cost(
+            provider_id.as_deref(),
+            &model_id,
+            input_tokens,
+            output_tokens,
+        );
         let avg_tokens_per_message = if message_count > 0 {
             total_tokens as f64 / message_count as f64
         } else {

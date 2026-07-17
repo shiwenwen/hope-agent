@@ -8,7 +8,7 @@ use crate::cron::CronDB;
 use crate::logging::LogDB;
 use crate::session::SessionDB;
 
-use super::cost::estimate_cost;
+use super::cost::resolve_cost;
 use super::filters::{
     build_log_filter, build_model_usage_filter, build_session_filter, params_ref,
 };
@@ -114,27 +114,31 @@ pub fn query_overview(
         .lock()
         .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
     let f = build_model_usage_filter(filter, "u");
+    // 按 provider_id 一并分组，成本才能按各渠道自己的配置单价结算（见 cost::resolve_cost）。
+    // 分组更细只是多几行，求和后总额不变。
     let sql = format!(
         "SELECT COALESCE(u.model_id, 'unknown'),
+                u.provider_id,
                 COALESCE(SUM(u.input_tokens), 0),
                 COALESCE(SUM(u.output_tokens), 0)
          FROM model_usage_events u
          {}
-         GROUP BY u.model_id",
+         GROUP BY u.model_id, u.provider_id",
         f.where_sql
     );
     let mut stmt = sess_conn.prepare(&sql)?;
     let rows = stmt.query_map(params_ref(&f.params).as_slice(), |r| {
         Ok((
             r.get::<_, String>(0)?,
-            crate::sql_u64(r, 1)?,
+            r.get::<_, Option<String>>(1)?,
             crate::sql_u64(r, 2)?,
+            crate::sql_u64(r, 3)?,
         ))
     })?;
     let mut estimated_cost_usd = 0.0;
     for row in rows {
-        let (model, inp, out) = row?;
-        estimated_cost_usd += estimate_cost(&model, inp, out);
+        let (model, provider_id, inp, out) = row?;
+        estimated_cost_usd += resolve_cost(provider_id.as_deref(), &model, inp, out);
     }
 
     Ok(OverviewStats {
@@ -228,10 +232,11 @@ pub fn query_token_usage(
                 COALESCE(u.provider_name, 'unknown'),
                 COALESCE(SUM(u.input_tokens), 0),
                 COALESCE(SUM(u.output_tokens), 0),
-                AVG(u.ttft_ms)
+                AVG(u.ttft_ms),
+                u.provider_id
          FROM model_usage_events u
          {}
-         GROUP BY u.model_id, u.provider_name
+         GROUP BY u.model_id, u.provider_name, u.provider_id
          ORDER BY SUM(u.input_tokens) + SUM(u.output_tokens) DESC",
         f.where_sql
     );
@@ -242,8 +247,14 @@ pub fn query_token_usage(
         let input_tokens: u64 = crate::sql_u64(r, 2)?;
         let output_tokens: u64 = crate::sql_u64(r, 3)?;
         let avg_ttft_ms: Option<f64> = r.get(4)?;
+        let provider_id: Option<String> = r.get(5)?;
         Ok(TokenByModel {
-            estimated_cost_usd: estimate_cost(&model_id, input_tokens, output_tokens),
+            estimated_cost_usd: resolve_cost(
+                provider_id.as_deref(),
+                &model_id,
+                input_tokens,
+                output_tokens,
+            ),
             model_id,
             provider_name,
             input_tokens,
@@ -265,10 +276,11 @@ pub fn query_token_usage(
                 COALESCE(SUM(COALESCE(u.context_input_tokens, u.input_tokens)), 0),
                 COALESCE(SUM(COALESCE(u.fresh_input_tokens, u.input_tokens)), 0),
                 AVG(u.duration_ms),
-                AVG(u.ttft_ms)
+                AVG(u.ttft_ms),
+                u.provider_id
          FROM model_usage_events u
          {}
-         GROUP BY u.kind, u.model_id
+         GROUP BY u.kind, u.model_id, u.provider_id
          ORDER BY u.kind ASC",
         f.where_sql
     );
@@ -286,6 +298,7 @@ pub fn query_token_usage(
             crate::sql_u64(r, 8)?,
             r.get::<_, Option<f64>>(9)?,
             r.get::<_, Option<f64>>(10)?,
+            r.get::<_, Option<String>>(11)?,
         ))
     })?;
     let mut by_kind_map: std::collections::BTreeMap<String, TokenByKind> =
@@ -303,6 +316,7 @@ pub fn query_token_usage(
             fresh_input_tokens,
             avg_duration_ms,
             avg_ttft_ms,
+            provider_id,
         ) = row?;
         let entry = by_kind_map.entry(kind.clone()).or_insert(TokenByKind {
             kind,
@@ -325,7 +339,12 @@ pub fn query_token_usage(
         entry.cache_read_input_tokens += cache_read_input_tokens;
         entry.context_input_tokens += context_input_tokens;
         entry.fresh_input_tokens += fresh_input_tokens;
-        entry.estimated_cost_usd += estimate_cost(&model_id, input_tokens, output_tokens);
+        entry.estimated_cost_usd += resolve_cost(
+            provider_id.as_deref(),
+            &model_id,
+            input_tokens,
+            output_tokens,
+        );
         entry.avg_duration_ms = merge_weighted_avg(
             entry.avg_duration_ms,
             old_calls,
@@ -357,10 +376,11 @@ pub fn query_token_usage(
                 COALESCE(SUM(u.cache_creation_input_tokens), 0),
                 COALESCE(SUM(u.cache_read_input_tokens), 0),
                 AVG(u.duration_ms),
-                AVG(u.ttft_ms)
+                AVG(u.ttft_ms),
+                u.provider_id
          FROM model_usage_events u
          {}
-         GROUP BY u.operation, u.model_id
+         GROUP BY u.operation, u.model_id, u.provider_id
          ORDER BY u.operation ASC",
         f.where_sql
     );
@@ -376,6 +396,7 @@ pub fn query_token_usage(
             crate::sql_u64(r, 6)?,
             r.get::<_, Option<f64>>(7)?,
             r.get::<_, Option<f64>>(8)?,
+            r.get::<_, Option<String>>(9)?,
         ))
     })?;
     let mut by_operation_map: std::collections::BTreeMap<String, TokenByOperation> =
@@ -391,6 +412,7 @@ pub fn query_token_usage(
             cache_read_input_tokens,
             avg_duration_ms,
             avg_ttft_ms,
+            provider_id,
         ) = row?;
         let domain = operation_domain(&operation).to_string();
         let entry = by_operation_map
@@ -413,7 +435,12 @@ pub fn query_token_usage(
         entry.output_tokens += output_tokens;
         entry.cache_creation_input_tokens += cache_creation_input_tokens;
         entry.cache_read_input_tokens += cache_read_input_tokens;
-        entry.estimated_cost_usd += estimate_cost(&model_id, input_tokens, output_tokens);
+        entry.estimated_cost_usd += resolve_cost(
+            provider_id.as_deref(),
+            &model_id,
+            input_tokens,
+            output_tokens,
+        );
         entry.avg_duration_ms = merge_weighted_avg(
             entry.avg_duration_ms,
             old_calls,
