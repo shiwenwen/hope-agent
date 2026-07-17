@@ -1715,33 +1715,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                     "category": {
                         "type": "string",
                         "description": "Settings category to read. Use 'all' for an overview (includes risk-level groupings).",
-                        "enum": [
-                            "all", "user", "theme", "language", "focus_indicator", "ui_effects", "prevent_sleep", "sidebar_ui", "proxy",
-                            "web_search", "web_fetch", "browser", "compact", "session_title", "notification", "startup_notification",
-                            "temperature", "tool_timeout", "timeout_policy", "approval", "unattended_approval",
-                            "image_generate", "audio_generate", "canvas", "design", "image", "pdf",
-                            "async_tools", "cron", "deferred_tools",
-                            "memory_extract", "memory_selection", "memory_budget", "embedding",
-                            "embedding_cache", "dedup", "hybrid_search",
-                            "temporal_decay", "mmr", "multimodal", "dreaming", "knowledge_maintenance",
-                            "knowledge_media_retention", "knowledge_passive_recall", "knowledge_search", "sprite",
-                            "knowledge_vision", "note_tools", "file_limits", "knowledge_source_limits",
-                            "recap", "awareness", "shortcuts",
-                            "active_model", "fallback_models", "skills",
-                            "server", "acp_control", "skill_env",
-                            "tool_result_disk_threshold",
-                            "ask_user_question_timeout", "plan",
-                            "issue_reporting",
-                            "security", "security.ssrf", "smart_mode", "filesystem",
-                            "function_models",
-                            "skills_auto_review",
-                            "recall_summary", "tool_call_narration", "teams",
-                            "default_agent",
-                            "channels", "mcp_global", "mcp_servers",
-                            "hooks",
-                            "local_llm_auto_maintenance",
-                            "auto_update"
-                        ]
+                        "enum": crate::tools::settings::get_settings_categories()
                     }
                 },
                 "required": ["category"],
@@ -1750,7 +1724,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: TOOL_UPDATE_SETTINGS.into(),
-            description: "Update application settings for a given category. Accepts partial JSON — only the fields you pass are changed, others are preserved. Response includes `riskLevel` (low/medium/high); HIGH-risk categories MUST have explicit user confirmation before being called. `channels` (IM Channel bot tokens) and `mcp_servers` (MCP OAuth/env/headers) are read-only here and must be edited in the GUI; providers and API keys are also GUI-only.".into(),
+            description: "Update application settings for a given category. Accepts partial JSON — only the fields you pass are changed, others are preserved. Response includes `riskLevel` (low/medium/high); HIGH-risk categories MUST have explicit user confirmation before being called. Secret-bearing provider/model selections, `channels`, `mcp_servers`, and `hooks` are read-only here and must be edited in the GUI.".into(),
             tier: ToolTier::Standard { default_for_main: true, default_for_others: false, default_deferred: false },
             internal: true,
             concurrent_safe: false,
@@ -1760,32 +1734,8 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                 "properties": {
                     "category": {
                         "type": "string",
-                        "description": "Update application settings for a category. HIGH-risk: proxy, shortcuts, skills, server, acp_control, skill_env, security, security.ssrf, smart_mode, mcp_global, knowledge_maintenance, knowledge_media_retention, unattended_approval, auto_update, browser — require explicit user confirmation first. `browser` gates whether the agent drives the user's real logged-in Chrome (extension backend) and toggles the raw-CDP escape hatch (extension.allowRawCdp). `knowledge_media_retention` can persist private original audio/video/image files on disk. `security` toggles the global dangerous-mode switch that skips ALL tool approvals; `smart_mode` reshapes which tool calls auto-approve; `mcp_global` is the MCP subsystem kill switch; `unattended_approval` decides whether approvals with no human surface (cron / headless / ACP / subagent) auto-deny or auto-proceed.",
-                        "enum": [
-                            "user", "theme", "language", "focus_indicator", "ui_effects", "prevent_sleep", "sidebar_ui", "proxy",
-                            "web_search", "web_fetch", "browser", "compact", "session_title", "notification", "startup_notification",
-                            "temperature", "tool_timeout", "timeout_policy", "approval", "unattended_approval",
-                            "image_generate", "audio_generate", "canvas", "design", "image", "pdf",
-                            "async_tools", "cron", "deferred_tools",
-                            "memory_extract", "memory_selection", "memory_budget",
-                            "embedding_cache", "dedup", "hybrid_search",
-                            "temporal_decay", "mmr", "multimodal", "dreaming", "knowledge_maintenance",
-                            "knowledge_media_retention", "knowledge_passive_recall", "knowledge_search", "sprite",
-                            "knowledge_vision", "note_tools", "file_limits", "knowledge_source_limits",
-                            "recap", "awareness", "shortcuts", "skills",
-                            "server", "acp_control", "skill_env",
-                            "tool_result_disk_threshold",
-                            "ask_user_question_timeout", "plan",
-                            "issue_reporting",
-                            "security", "security.ssrf", "smart_mode", "filesystem",
-                            "function_models",
-                            "skills_auto_review",
-                            "recall_summary", "tool_call_narration", "teams",
-                            "default_agent",
-                            "mcp_global",
-                            "local_llm_auto_maintenance",
-                            "auto_update"
-                        ]
+                        "description": "Update application settings for a category. HIGH-risk categories require explicit user confirmation first; inspect get_settings(category).riskLevel and sideEffect before writing.",
+                        "enum": crate::tools::settings::update_settings_categories()
                     },
                     "values": {
                         "type": "object",
@@ -1798,7 +1748,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: TOOL_LIST_SETTINGS_BACKUPS.into(),
-            description: "List recent automatic settings backups (newest first). Every call to update_settings (or any other code path that writes config.json / user.json) creates a snapshot beforehand. Use this to show the user a rollback history; pass the returned `id` to restore_settings_backup.".into(),
+            description: "List recent automatic AppConfig/UserConfig backups (newest first). Config-backed update_settings writes create snapshots; resource-backed categories such as permission pattern lists and team templates do not. Use this to show the user a rollback history; pass the returned `id` to restore_settings_backup.".into(),
             tier: ToolTier::Standard { default_for_main: true, default_for_others: false, default_deferred: true },
             internal: true,
             concurrent_safe: false,
@@ -2426,6 +2376,39 @@ fn note_tools() -> Vec<ToolDefinition> {
 #[cfg(test)]
 mod tests {
     use super::get_available_tools;
+
+    #[test]
+    fn settings_tool_schemas_expose_the_complete_category_registries() {
+        let tools = get_available_tools();
+        let get = tools
+            .iter()
+            .find(|tool| tool.name == crate::tools::TOOL_GET_SETTINGS)
+            .expect("get_settings schema");
+        let update = tools
+            .iter()
+            .find(|tool| tool.name == crate::tools::TOOL_UPDATE_SETTINGS)
+            .expect("update_settings schema");
+
+        assert_eq!(
+            get.parameters["properties"]["category"]["enum"],
+            serde_json::json!(crate::tools::settings::get_settings_categories())
+        );
+        assert_eq!(
+            update.parameters["properties"]["category"]["enum"],
+            serde_json::json!(crate::tools::settings::update_settings_categories())
+        );
+        for category in [
+            "stt_providers",
+            "active_stt_model",
+            "stt_fallback_models",
+            "im_auto_transcribe",
+        ] {
+            assert!(crate::tools::settings::get_settings_categories().contains(&category));
+        }
+        assert!(
+            crate::tools::settings::update_settings_categories().contains(&"im_auto_transcribe")
+        );
+    }
 
     #[test]
     fn manage_cron_schema_never_exposes_permission_or_sandbox_overrides() {

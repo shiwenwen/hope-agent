@@ -40,108 +40,134 @@ const BLOCKED_UPDATE_CATEGORIES: &[&str] = &[
     "embedding",
 ];
 
-/// Risk classification for a settings category.
-/// The skill / model uses this to decide whether to double-confirm with the user.
-/// - `low`: cosmetic / preference changes, trivially reversible
-/// - `medium`: behavioral changes that may affect cost, context, or output quality
-/// - `high`: security, network exposure, global keybindings, or changes that require restart
+/// Single registry for schema reachability and risk metadata. `read_only`
+/// entries are readable after category-specific redaction but omitted from the
+/// update schema. Keeping all three concerns together prevents future drift.
+const SETTINGS_CATEGORY_RISKS: &[(&str, &str)] = &[
+    ("user", "low"),
+    ("theme", "low"),
+    ("language", "low"),
+    ("focus_indicator", "low"),
+    ("ui_effects", "low"),
+    ("prevent_sleep", "low"),
+    ("sidebar_ui", "low"),
+    ("notification", "low"),
+    ("startup_notification", "low"),
+    ("canvas", "low"),
+    ("image", "low"),
+    ("pdf", "low"),
+    ("image_generate", "low"),
+    ("audio_generate", "low"),
+    ("temperature", "low"),
+    ("tool_timeout", "low"),
+    ("default_agent", "low"),
+    ("local_llm_auto_maintenance", "low"),
+    ("compact", "medium"),
+    ("session_title", "medium"),
+    ("memory_runtime", "medium"),
+    ("memory_extract", "medium"),
+    ("memory_selection", "medium"),
+    ("memory_budget", "medium"),
+    ("embedding_cache", "medium"),
+    ("dedup", "medium"),
+    ("hybrid_search", "medium"),
+    ("temporal_decay", "medium"),
+    ("mmr", "medium"),
+    ("multimodal", "medium"),
+    ("dreaming", "medium"),
+    ("recap", "medium"),
+    ("awareness", "medium"),
+    ("web_fetch", "medium"),
+    ("web_search", "medium"),
+    ("timeout_policy", "medium"),
+    ("deferred_tools", "medium"),
+    ("async_tools", "medium"),
+    ("approval", "medium"),
+    ("tool_result_disk_threshold", "medium"),
+    ("ask_user_question_timeout", "medium"),
+    ("plan", "medium"),
+    ("issue_reporting", "medium"),
+    ("skills_auto_review", "medium"),
+    ("recall_summary", "medium"),
+    ("tool_call_narration", "medium"),
+    ("teams", "medium"),
+    ("im_auto_transcribe", "medium"),
+    ("knowledge_passive_recall", "medium"),
+    ("knowledge_search", "medium"),
+    ("knowledge_compile", "medium"),
+    ("cron", "medium"),
+    ("function_models", "medium"),
+    ("sprite", "medium"),
+    ("knowledge_vision", "medium"),
+    ("note_tools", "medium"),
+    ("design", "medium"),
+    ("file_limits", "medium"),
+    ("knowledge_source_limits", "medium"),
+    ("reasoning_effort", "medium"),
+    ("proxy", "high"),
+    ("shortcuts", "high"),
+    ("skills", "high"),
+    ("server", "high"),
+    ("acp_control", "high"),
+    ("skill_env", "high"),
+    ("security", "high"),
+    ("security.ssrf", "high"),
+    ("smart_mode", "high"),
+    ("mcp_global", "high"),
+    ("filesystem", "high"),
+    ("browser", "high"),
+    ("knowledge_maintenance", "high"),
+    ("knowledge_media_retention", "high"),
+    ("unattended_approval", "high"),
+    ("auto_update", "high"),
+    ("protected_paths", "high"),
+    ("edit_commands", "high"),
+    ("dangerous_commands", "high"),
+    ("external_memory_providers", "high"),
+    ("active_model", "read_only"),
+    ("fallback_models", "read_only"),
+    ("channels", "read_only"),
+    ("mcp_servers", "read_only"),
+    ("embedding", "read_only"),
+    ("hooks", "read_only"),
+    ("stt_providers", "read_only"),
+    ("active_stt_model", "read_only"),
+    ("stt_fallback_models", "read_only"),
+];
+
+pub(crate) fn get_settings_categories() -> Vec<&'static str> {
+    std::iter::once("all")
+        .chain(
+            SETTINGS_CATEGORY_RISKS
+                .iter()
+                .map(|(category, _)| *category),
+        )
+        .collect()
+}
+
+pub(crate) fn update_settings_categories() -> Vec<&'static str> {
+    SETTINGS_CATEGORY_RISKS
+        .iter()
+        .filter_map(|(category, risk)| (*risk != "read_only").then_some(*category))
+        .collect()
+}
+
+fn categories_with_risk(risk: &str) -> Vec<&'static str> {
+    SETTINGS_CATEGORY_RISKS
+        .iter()
+        .filter_map(|(category, level)| (*level == risk).then_some(*category))
+        .collect()
+}
+
 fn risk_level(category: &str) -> &'static str {
-    match category {
-        // ── LOW ────────────────────────────────────────────────
-        "user"
-        | "theme"
-        | "language"
-        | "focus_indicator"
-        | "ui_effects"
-        | "prevent_sleep"
-        | "sidebar_ui"
-        | "notification"
-        | "startup_notification"
-        | "canvas"
-        | "image"
-        | "pdf"
-        | "image_generate"
-        | "audio_generate"
-        | "temperature"
-        | "tool_timeout"
-        | "default_agent"
-        | "local_llm_auto_maintenance" => "low",
-
-        // ── MEDIUM ─────────────────────────────────────────────
-        "compact"
-        | "session_title"
-        | "memory_extract"
-        | "memory_selection"
-        | "memory_budget"
-        | "embedding_cache"
-        | "dedup"
-        | "hybrid_search"
-        | "temporal_decay"
-        | "mmr"
-        | "multimodal"
-        | "dreaming"
-        | "recap"
-        | "awareness"
-        | "web_fetch"
-        | "web_search"
-        | "timeout_policy"
-        | "deferred_tools"
-        | "async_tools"
-        | "approval"
-        | "tool_result_disk_threshold"
-        | "ask_user_question_timeout"
-        | "plan"
-        | "issue_reporting"
-        | "skills_auto_review"
-        | "recall_summary"
-        | "tool_call_narration"
-        | "teams"
-        | "im_auto_transcribe"
-        | "knowledge_passive_recall"
-        | "knowledge_search"
-        | "cron"
-        | "function_models"
-        | "sprite"
-        | "knowledge_vision"
-        | "note_tools"
-        | "design"
-        | "file_limits"
-        | "knowledge_source_limits" => "medium",
-
-        // ── HIGH ───────────────────────────────────────────────
-        "proxy" | "shortcuts" | "skills" | "server" | "acp_control" | "skill_env"
-        | "security" | "security.ssrf" | "smart_mode" | "mcp_global" | "filesystem"
-        // Browser backend: extension.enabled / backendPreference gate whether the
-        // agent can drive the user's real logged-in Chrome; allowRawCdp toggles
-        // the raw DevTools Protocol escape hatch — HIGH, confirm before changing.
-        | "browser"
-        // Autonomous maintenance can write to the user's notes (auto_approve =
-        // approval policy) — treat as HIGH so the skill confirms before changes.
-        | "knowledge_maintenance"
-        // Retained original audio/video/image source files can store private
-        // binary evidence on disk. HIGH so the skill confirms before enabling or
-        // raising quotas.
-        | "knowledge_media_retention"
-        // Unattended-approval action can flip surface-less approvals to auto-run
-        // (proceed) — a security loosening; HIGH so the skill confirms first.
-        | "unattended_approval"
-        | "auto_update" => "high",
-
-        // Read-only categories — no risk since they can't be mutated here.
-        // `channels` / `mcp_servers` / `embedding` are categorized "low" for
-        // read because the response is redacted before it reaches the model.
-        "active_model"
-        | "fallback_models"
-        | "channels"
-        | "mcp_servers"
-        | "embedding"
-        | "hooks"
-        | "stt_providers"
-        | "active_stt_model"
-        | "stt_fallback_models"
-        | "all" => "low",
-
-        _ => "medium",
+    match SETTINGS_CATEGORY_RISKS
+        .iter()
+        .find_map(|(name, risk)| (*name == category).then_some(*risk))
+    {
+        Some("read_only") => "low",
+        None if category == "all" => "low",
+        Some(risk) => risk,
+        None => "medium",
     }
 }
 
@@ -172,6 +198,27 @@ fn side_effect_note(category: &str) -> Option<&'static str> {
         "memory_budget" => Some(
             "Reducing totalChars may hide parts of MEMORY.md from the system prompt. \
              Full content is still retrievable via recall_memory / memory_get tools."
+        ),
+        "memory_runtime" => Some(
+            "Controls the Memory UX v2 master switch, automatic recall consent, Deep Recall, learning, rollout and compatibility behavior. Changes apply to subsequent turns; disabling memory makes automatic memory paths fail closed."
+        ),
+        "external_memory_providers" => Some(
+            "HIGH/privacy: enabling a provider or a push/bidirectional sync policy can send local memory to an external service. This category changes only non-secret provider metadata; credentials remain owner-UI/API only."
+        ),
+        "knowledge_compile" => Some(
+            "Changes the model chain used for future Knowledge source-to-note compile summaries. Existing review proposals are unchanged."
+        ),
+        "reasoning_effort" => Some(
+            "Changes the global reasoning-effort default and refreshes the active runtime value immediately; per-session and per-agent overrides still take precedence."
+        ),
+        "protected_paths" => Some(
+            "HIGH/security: replaces the full protected-path list. Removing patterns can let permissive sessions modify sensitive files without the extra manual-approval guard."
+        ),
+        "edit_commands" => Some(
+            "HIGH/security: replaces the full recoverable edit-command list. Removing patterns can reduce approval prompts in Default mode."
+        ),
+        "dangerous_commands" => Some(
+            "HIGH/security: replaces the full irreversible dangerous-command list. Removing patterns weakens the commands that always require manual approval and cannot be AllowAlways'd."
         ),
         "security" => Some(
             "⚠️ DANGEROUS MODE: when skipAllApprovals=true, every tool call (exec / write / edit / \
@@ -525,12 +572,25 @@ fn read_category(category: &str) -> Result<Value> {
             "skipAllApprovals": cfg.permission.global_yolo,
         })),
         "security.ssrf" => Ok(serde_json::to_value(&cfg.ssrf)?),
+        "protected_paths" => Ok(json!({
+            "current": crate::permission::protected_paths::current_patterns().as_ref(),
+            "defaults": crate::permission::protected_paths::defaults(),
+        })),
+        "edit_commands" => Ok(json!({
+            "current": crate::permission::edit_commands::current_patterns().as_ref(),
+            "defaults": crate::permission::edit_commands::defaults(),
+        })),
+        "dangerous_commands" => Ok(json!({
+            "current": crate::permission::dangerous_commands::current_patterns().as_ref(),
+            "defaults": crate::permission::dangerous_commands::defaults(),
+        })),
         "compact" => Ok(serde_json::to_value(&cfg.compact)?),
         "session_title" => Ok(serde_json::to_value(&cfg.session_title)?),
         "notification" => Ok(serde_json::to_value(&cfg.notification)?),
         "startup_notification" => Ok(serde_json::to_value(&cfg.startup_notification)?),
         "auto_update" => Ok(serde_json::to_value(&cfg.auto_update)?),
         "temperature" => Ok(json!({ "temperature": cfg.temperature })),
+        "reasoning_effort" => Ok(json!({ "reasoningEffort": cfg.reasoning_effort })),
         "tool_timeout" => Ok(json!({ "toolTimeout": cfg.tool_timeout })),
         "timeout_policy" => Ok(serde_json::to_value(&cfg.timeout_policy)?),
         "unattended_approval" => Ok(json!({
@@ -555,9 +615,11 @@ fn read_category(category: &str) -> Result<Value> {
         "async_tools" => Ok(serde_json::to_value(&cfg.async_tools)?),
         "cron" => Ok(serde_json::to_value(&cfg.cron)?),
         "deferred_tools" => Ok(serde_json::to_value(&cfg.deferred_tools)?),
+        "memory_runtime" => Ok(serde_json::to_value(&cfg.memory)?),
         "memory_extract" => Ok(serde_json::to_value(&cfg.memory_extract)?),
         "memory_selection" => Ok(serde_json::to_value(&cfg.memory_selection)?),
         "memory_budget" => Ok(serde_json::to_value(&cfg.memory_budget)?),
+        "external_memory_providers" => Ok(serde_json::to_value(&cfg.memory_providers)?),
         "embedding" => read_embedding_from(&cfg.memory_embedding, &cfg.embedding_models),
         "embedding_cache" => Ok(serde_json::to_value(&cfg.embedding_cache)?),
         "dedup" => Ok(serde_json::to_value(&cfg.dedup)?),
@@ -626,6 +688,9 @@ fn read_category(category: &str) -> Result<Value> {
         "knowledge_media_retention" => Ok(serde_json::to_value(&cfg.knowledge_media_retention)?),
         "knowledge_passive_recall" => Ok(serde_json::to_value(&cfg.knowledge_passive_recall)?),
         "knowledge_search" => Ok(serde_json::to_value(&cfg.knowledge_search)?),
+        "knowledge_compile" => Ok(serde_json::to_value(
+            cfg.knowledge_compile.clone().normalized(),
+        )?),
         "knowledge_vision" => Ok(serde_json::to_value(&cfg.knowledge_vision)?),
         "note_tools" => Ok(serde_json::to_value(&cfg.note_tools)?),
         "sprite" => Ok(serde_json::to_value(&cfg.sprite)?),
@@ -696,6 +761,7 @@ fn get_all_overview() -> Result<String> {
         "sidebarUiMode": config::normalize_sidebar_ui_mode(&cfg.sidebar_ui_mode),
         "defaultAgentId": cfg.default_agent_id,
         "temperature": cfg.temperature,
+        "reasoningEffort": cfg.reasoning_effort,
         "toolTimeout": cfg.tool_timeout,
         "timeoutPolicy": cfg.timeout_policy,
         "approvalTimeoutEnabled": cfg.permission.approval_timeout_enabled,
@@ -737,6 +803,9 @@ fn get_all_overview() -> Result<String> {
             "skipAllApprovals": cfg.permission.global_yolo,
             "ssrfDefaultPolicy": cfg.ssrf.default_policy,
             "trustedHostsCount": cfg.ssrf.trusted_hosts.len(),
+            "protectedPathCount": crate::permission::protected_paths::current_patterns().len(),
+            "editCommandCount": crate::permission::edit_commands::current_patterns().len(),
+            "dangerousCommandCount": crate::permission::dangerous_commands::current_patterns().len(),
         },
         "activeModel": cfg.active_model,
         "fallbackModels": cfg.fallback_models.len(),
@@ -757,6 +826,22 @@ fn get_all_overview() -> Result<String> {
             "maxConcurrentCalls": cfg.mcp_global.max_concurrent_calls,
         },
         "multimodal": { "enabled": cfg.multimodal.enabled },
+        "memoryRuntime": {
+            "enabled": cfg.memory.enabled,
+            "recallEnabled": cfg.memory.recall.enabled,
+            "deepRecallEnabled": cfg.memory.deep_recall.enabled,
+        },
+        "externalMemoryProviders": {
+            "enabled": cfg.memory_providers.enabled,
+            "providerCount": cfg.memory_providers.providers.len(),
+        },
+        "functionModels": {
+            "visionConfigured": cfg.function_models.vision.is_some(),
+            "automationConfigured": cfg.function_models.automation.is_some(),
+        },
+        "knowledgeCompile": {
+            "modelOverrideConfigured": cfg.knowledge_compile.model_override.is_some(),
+        },
         "dreaming": {
             "enabled": cfg.dreaming.enabled,
             "idleTriggerEnabled": cfg.dreaming.idle_trigger.enabled,
@@ -778,31 +863,10 @@ fn get_all_overview() -> Result<String> {
 
     // Expose risk classification so the model can decide when to double-confirm.
     let risk_levels = json!({
-        "low": [
-            "user", "theme", "language", "focus_indicator", "ui_effects", "prevent_sleep", "sidebar_ui", "notification", "startup_notification",
-            "canvas", "image", "pdf", "image_generate", "audio_generate", "temperature", "tool_timeout",
-            "default_agent"
-        ],
-        "medium": [
-            "compact", "session_title", "memory_extract", "memory_selection", "memory_budget",
-            "embedding_cache", "dedup", "hybrid_search", "temporal_decay",
-            "mmr", "multimodal", "dreaming", "recap", "awareness", "web_fetch", "web_search",
-            "deferred_tools", "async_tools", "timeout_policy", "cron", "approval",
-            "tool_result_disk_threshold", "ask_user_question_timeout", "plan",
-            "issue_reporting", "skills_auto_review", "recall_summary", "tool_call_narration",
-            "teams", "im_auto_transcribe", "knowledge_passive_recall", "knowledge_search", "sprite",
-            "knowledge_vision", "note_tools", "design", "file_limits", "knowledge_source_limits"
-        ],
-        "high": [
-            "proxy", "shortcuts", "skills", "server",
-            "acp_control", "skill_env", "security", "security.ssrf",
-            "smart_mode", "mcp_global", "knowledge_maintenance", "knowledge_media_retention", "unattended_approval", "auto_update",
-            "browser"
-        ],
-        "read_only": [
-            "active_model", "fallback_models", "channels", "mcp_servers", "embedding",
-            "stt_providers", "active_stt_model", "stt_fallback_models"
-        ],
+        "low": categories_with_risk("low"),
+        "medium": categories_with_risk("medium"),
+        "high": categories_with_risk("high"),
+        "read_only": categories_with_risk("read_only"),
     });
 
     Ok(serde_json::to_string_pretty(&json!({
@@ -841,51 +905,123 @@ pub(crate) async fn tool_update_settings(args: &Value) -> Result<String> {
     }
 
     if category == "user" {
-        return update_user_config(values);
+        let values = values.clone();
+        return crate::blocking::run_blocking(move || update_user_config(&values)).await;
     }
 
     if category == "session_title" {
-        return update_session_title_config(values);
+        return update_session_title_config(values).await;
     }
 
     if category == "im_auto_transcribe" {
-        return update_im_auto_transcribe(values);
+        return update_im_auto_transcribe(values).await;
+    }
+
+    if category == "external_memory_providers" {
+        return update_external_memory_providers(values).await;
+    }
+
+    if matches!(
+        category,
+        "protected_paths" | "edit_commands" | "dangerous_commands"
+    ) {
+        return update_permission_patterns(category, values).await;
     }
 
     update_app_config(category, values).await
 }
 
+async fn update_external_memory_providers(values: &Value) -> Result<String> {
+    let patch = values.clone();
+    crate::blocking::run_blocking(move || {
+        crate::memory::patch_external_memory_providers_config(patch, "skill")
+    })
+    .await?;
+
+    let updated_value = read_category("external_memory_providers")?;
+    let mut response = json!({
+        "category": "external_memory_providers",
+        "riskLevel": risk_level("external_memory_providers"),
+        "updated": true,
+        "settings": updated_value,
+    });
+    if let Some(note) = side_effect_note("external_memory_providers") {
+        response["sideEffect"] = json!(note);
+    }
+    Ok(serde_json::to_string_pretty(&response)?)
+}
+
+/// Replace one of the three permission pattern lists. These lists intentionally
+/// live outside AppConfig, so their canonical `save_patterns` path owns the
+/// atomic file write and in-process cache refresh.
+async fn update_permission_patterns(category: &str, values: &Value) -> Result<String> {
+    let patterns: Vec<String> = serde_json::from_value(
+        values
+            .get("patterns")
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("{category}: missing `patterns` array"))?,
+    )
+    .map_err(|err| anyhow::anyhow!("{category}.patterns: {err}"))?;
+
+    let save_category = category.to_string();
+    crate::blocking::run_blocking(move || match save_category.as_str() {
+        "protected_paths" => crate::permission::protected_paths::save_patterns(&patterns),
+        "edit_commands" => crate::permission::edit_commands::save_patterns(&patterns),
+        "dangerous_commands" => crate::permission::dangerous_commands::save_patterns(&patterns),
+        _ => unreachable!("validated permission-list category"),
+    })
+    .await?;
+
+    let updated_value = read_category(category)?;
+    let mut response = json!({
+        "category": category,
+        "riskLevel": risk_level(category),
+        "updated": true,
+        "settings": updated_value,
+    });
+    if let Some(note) = side_effect_note(category) {
+        response["sideEffect"] = json!(note);
+    }
+    Ok(serde_json::to_string_pretty(&response)?)
+}
+
 /// Update STT IM auto-transcribe config: the global fallback model and any
 /// number of per-account `autoTranscribeVoice` toggles. Both top-level keys
 /// are optional and processed independently.
-fn update_im_auto_transcribe(values: &Value) -> Result<String> {
+async fn update_im_auto_transcribe(values: &Value) -> Result<String> {
     use crate::stt::ActiveSttModel;
 
-    // imFallbackModel can be missing (skip), `null` (clear), or `{providerId, modelId}` (set).
-    if let Some(fallback) = values.get("imFallbackModel") {
-        if fallback.is_null() {
-            crate::stt::set_im_fallback_stt_model(None, "skill")
-                .map_err(|e| anyhow::anyhow!("{}", e))?;
-        } else {
-            let sel: ActiveSttModel = serde_json::from_value(fallback.clone())
-                .map_err(|e| anyhow::anyhow!("imFallbackModel: {}", e))?;
-            crate::stt::set_im_fallback_stt_model(Some(sel), "skill")
-                .map_err(|e| anyhow::anyhow!("{}", e))?;
+    let values = values.clone();
+    crate::blocking::run_blocking(move || -> Result<()> {
+        // imFallbackModel can be missing (skip), `null` (clear), or
+        // `{providerId, modelId}` (set).
+        if let Some(fallback) = values.get("imFallbackModel") {
+            if fallback.is_null() {
+                crate::stt::set_im_fallback_stt_model(None, "skill")
+                    .map_err(|e| anyhow::anyhow!("{}", e))?;
+            } else {
+                let sel: ActiveSttModel = serde_json::from_value(fallback.clone())
+                    .map_err(|e| anyhow::anyhow!("imFallbackModel: {}", e))?;
+                crate::stt::set_im_fallback_stt_model(Some(sel), "skill")
+                    .map_err(|e| anyhow::anyhow!("{}", e))?;
+            }
         }
-    }
 
-    if let Some(accounts) = values.get("accounts").and_then(|v| v.as_array()) {
-        for entry in accounts {
-            let id = entry
-                .get("id")
-                .and_then(|v| v.as_str())
-                .ok_or_else(|| anyhow::anyhow!("accounts entry missing `id`"))?;
-            let Some(on) = entry.get("autoTranscribeVoice").and_then(|v| v.as_bool()) else {
-                continue;
-            };
-            crate::channel::accounts::set_account_auto_transcribe_voice(id, on, "skill")?;
+        if let Some(accounts) = values.get("accounts").and_then(|v| v.as_array()) {
+            for entry in accounts {
+                let id = entry
+                    .get("id")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| anyhow::anyhow!("accounts entry missing `id`"))?;
+                let Some(on) = entry.get("autoTranscribeVoice").and_then(|v| v.as_bool()) else {
+                    continue;
+                };
+                crate::channel::accounts::set_account_auto_transcribe_voice(id, on, "skill")?;
+            }
         }
-    }
+        Ok(())
+    })
+    .await?;
 
     let updated_value = read_category("im_auto_transcribe")?;
     Ok(serde_json::to_string_pretty(&json!({
@@ -921,10 +1057,12 @@ fn update_user_config(values: &Value) -> Result<String> {
     }))?)
 }
 
-fn update_session_title_config(values: &Value) -> Result<String> {
-    config::mutate_config(("session_title", "skill"), |store| {
-        merge_field(&mut store.session_title, values)
-    })?;
+async fn update_session_title_config(values: &Value) -> Result<String> {
+    let values = values.clone();
+    config::mutate_config_async(("session_title", "skill"), move |store| {
+        merge_field(&mut store.session_title, &values)
+    })
+    .await?;
 
     let updated_value = read_category("session_title")?;
     Ok(serde_json::to_string_pretty(&json!({
@@ -935,9 +1073,11 @@ fn update_session_title_config(values: &Value) -> Result<String> {
     }))?)
 }
 
-async fn update_app_config(category: &str, values: &Value) -> Result<String> {
-    let mut store = config::load_config()?;
-
+fn apply_app_config_update(
+    store: &mut config::AppConfig,
+    category: &str,
+    values: &Value,
+) -> Result<()> {
     match category {
         "theme" => {
             if let Some(v) = values.get("theme").and_then(|v| v.as_str()) {
@@ -1002,6 +1142,14 @@ async fn update_app_config(category: &str, values: &Value) -> Result<String> {
                 }
             }
         }
+        "reasoning_effort" => {
+            if let Some(v) = values.get("reasoningEffort").and_then(|v| v.as_str()) {
+                if !crate::agent::is_valid_reasoning_effort(v) {
+                    bail!("Invalid reasoning effort: {v}");
+                }
+                store.reasoning_effort = v.to_string();
+            }
+        }
         "tool_timeout" => {
             if let Some(v) = values.get("toolTimeout").and_then(|v| v.as_u64()) {
                 store.tool_timeout = v;
@@ -1055,6 +1203,17 @@ async fn update_app_config(category: &str, values: &Value) -> Result<String> {
         "async_tools" => merge_field(&mut store.async_tools, values)?,
         "cron" => merge_field(&mut store.cron, values)?,
         "deferred_tools" => merge_field(&mut store.deferred_tools, values)?,
+        "memory_runtime" => {
+            let previous = store.memory.clone();
+            merge_field(&mut store.memory, values)?;
+            let next = store.memory.clone().prepared_for_user_save(&previous);
+            next.mirror_to_legacy(
+                &previous,
+                &mut store.memory_extract,
+                &mut store.memory_selection,
+            );
+            store.memory = next;
+        }
         "memory_extract" => merge_field(&mut store.memory_extract, values)?,
         "memory_selection" => merge_field(&mut store.memory_selection, values)?,
         "memory_budget" => merge_field(&mut store.memory_budget, values)?,
@@ -1204,7 +1363,7 @@ async fn update_app_config(category: &str, values: &Value) -> Result<String> {
         "knowledge_media_retention" => {
             merge_field(&mut store.knowledge_media_retention, values)?;
             // Clamp (mirrors `service::set_media_retention_config`).
-            store.knowledge_media_retention = store.knowledge_media_retention.clamped();
+            store.knowledge_media_retention = store.knowledge_media_retention.clone().clamped();
         }
         "knowledge_passive_recall" => {
             merge_field(&mut store.knowledge_passive_recall, values)?;
@@ -1215,6 +1374,10 @@ async fn update_app_config(category: &str, values: &Value) -> Result<String> {
             merge_field(&mut store.knowledge_search, values)?;
             // Clamp (mirrors `service::set_search_config`).
             store.knowledge_search = store.knowledge_search.clamped();
+        }
+        "knowledge_compile" => {
+            merge_field(&mut store.knowledge_compile, values)?;
+            store.knowledge_compile = store.knowledge_compile.clone().normalized();
         }
         "sprite" => {
             merge_field(&mut store.sprite, values)?;
@@ -1236,31 +1399,36 @@ async fn update_app_config(category: &str, values: &Value) -> Result<String> {
                 store.local_llm.auto_maintenance.enabled = v;
             }
         }
-        "teams" => {
-            // Teams are DB rows, not AppConfig fields. Perform CRUD directly on the
-            // team_templates table and return early (skip save_config / hot reload).
-            return update_team_templates(values);
-        }
         _ => bail!("Unknown settings category: '{category}'"),
     }
+    Ok(())
+}
 
-    // Tag the autosave snapshot so rollback listings carry (category, source).
-    let _reason = crate::backup::scope_save_reason(category, "skill");
-    config::save_config(&store)?;
-    drop(_reason);
+async fn update_app_config(category: &str, values: &Value) -> Result<String> {
+    if category == "teams" {
+        return update_team_templates(values);
+    }
 
-    // Notify frontend about config change so UI can react immediately
-    if let Some(bus) = crate::get_event_bus() {
-        bus.emit(
-            "config:changed",
-            serde_json::json!({ "category": category }),
-        );
+    let owned_category = category.to_string();
+    let owned_values = values.clone();
+    config::mutate_config_async((category, "skill"), move |store| {
+        apply_app_config_update(store, &owned_category, &owned_values)
+    })
+    .await?;
+
+    // The active agent path keeps a process-local copy of the global reasoning
+    // setting; mirror the desktop/HTTP owner commands after persistence.
+    if category == "reasoning_effort" {
+        if let Some(cell) = crate::get_reasoning_effort_cell() {
+            *cell.lock().await = config::cached_config().reasoning_effort.clone();
+        }
     }
 
     // Backend hot-reload: trigger side-effects for categories that cache state
     trigger_backend_hot_reload(category).await?;
 
-    // Return the saved value directly from the mutated store (avoids re-reading cache)
+    // Read from the atomically-published cache so the response exactly matches
+    // what every subsequent consumer observes.
     let updated_value = read_category(category)?;
     let mut response = json!({
         "category": category,
@@ -1463,6 +1631,10 @@ mod tests {
             "mcp_global",
             "knowledge_maintenance",
             "browser",
+            "protected_paths",
+            "edit_commands",
+            "dangerous_commands",
+            "external_memory_providers",
         ] {
             assert_eq!(risk_level(cat), "high", "{cat} should be high risk");
         }
@@ -1478,6 +1650,9 @@ mod tests {
             "function_models",
             "knowledge_vision",
             "note_tools",
+            "memory_runtime",
+            "knowledge_compile",
+            "reasoning_effort",
         ] {
             assert_eq!(risk_level(cat), "medium", "{cat} should be medium risk");
         }
@@ -1499,6 +1674,10 @@ mod tests {
             "channels",
             "mcp_servers",
             "embedding",
+            "hooks",
+            "stt_providers",
+            "active_stt_model",
+            "stt_fallback_models",
         ] {
             assert_eq!(risk_level(cat), "low", "{cat} should be low (read-only)");
         }
@@ -1512,12 +1691,67 @@ mod tests {
             "channels",
             "mcp_servers",
             "embedding",
+            "hooks",
+            "stt_providers",
+            "active_stt_model",
+            "stt_fallback_models",
         ] {
             assert!(
                 BLOCKED_UPDATE_CATEGORIES.contains(&cat),
                 "{cat} must be in BLOCKED_UPDATE_CATEGORIES"
             );
         }
+    }
+
+    #[test]
+    fn settings_category_registries_are_complete_and_disjoint() {
+        use std::collections::HashSet;
+
+        let get_categories = get_settings_categories();
+        let get: HashSet<_> = get_categories.iter().copied().collect();
+        assert_eq!(get.len(), get_categories.len(), "duplicate GET category");
+
+        let update_categories = update_settings_categories();
+        let update: HashSet<_> = update_categories.iter().copied().collect();
+        assert_eq!(
+            update.len(),
+            update_categories.len(),
+            "duplicate UPDATE category"
+        );
+        for category in &update {
+            assert!(
+                get.contains(category),
+                "writable category {category} must be readable"
+            );
+            assert!(
+                !BLOCKED_UPDATE_CATEGORIES.contains(category),
+                "blocked category {category} must not be exposed by UPDATE schema"
+            );
+        }
+
+        let mut classified = HashSet::new();
+        for (category, level) in SETTINGS_CATEGORY_RISKS {
+            assert!(["low", "medium", "high", "read_only"].contains(level));
+            assert!(
+                classified.insert(*category),
+                "category {category} appears more than once"
+            );
+            assert!(
+                get.contains(category),
+                "{level} category {category} is not readable"
+            );
+        }
+        let expected: HashSet<_> = get
+            .into_iter()
+            .filter(|category| *category != "all")
+            .collect();
+        assert_eq!(
+            classified, expected,
+            "risk groups must cover every category"
+        );
+        let read_only: HashSet<_> = categories_with_risk("read_only").into_iter().collect();
+        let blocked: HashSet<_> = BLOCKED_UPDATE_CATEGORIES.iter().copied().collect();
+        assert_eq!(read_only, blocked);
     }
 
     #[test]
