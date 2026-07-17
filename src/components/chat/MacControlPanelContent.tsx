@@ -1,8 +1,9 @@
-import { useState } from "react"
 import { useTranslation } from "react-i18next"
 import { Monitor } from "lucide-react"
+import { FRAME_CAPTURE_FAILED } from "@/lib/frame-store"
 import { useMacControlFrame } from "@/hooks/useMacControlFrame"
-import { usePanelActionHistory, type PanelActionEntry } from "@/hooks/usePanelActionHistory"
+import { usePanelActionHistory } from "@/hooks/usePanelActionHistory"
+import { useReplaySelection } from "@/hooks/useReplaySelection"
 import { ControlPanelHeader } from "./right-panel/ControlPanelHeader"
 import { FramePreview } from "./right-panel/FramePreview"
 import { PanelActionTimeline } from "./right-panel/PanelActionTimeline"
@@ -31,18 +32,9 @@ export function MacControlPanelContent({
     pollActive: active,
   })
   const { entries, stats } = usePanelActionHistory("mac-control", sessionId)
-  const [replayEntry, setReplayEntry] = useState<PanelActionEntry | null>(null)
+  const { replay, replayActionId, onSelect } = useReplaySelection(entries)
 
   const title = frame?.frontmostApp?.name || t("settings.macControl.title")
-  const replay =
-    replayEntry?.thumbJpegBase64 != null
-      ? {
-          thumbJpegBase64: replayEntry.thumbJpegBase64,
-          index: entries.findIndex((e) => e.actionId === replayEntry.actionId) + 1,
-          total: entries.length,
-          onExit: () => setReplayEntry(null),
-        }
-      : null
 
   const preview = (
     <FramePreview
@@ -51,7 +43,7 @@ export function MacControlPanelContent({
       widthPx={frame?.widthPx}
       heightPx={frame?.heightPx}
       emptyText={t("settings.macControl.messages.blocked")}
-      errorText={error}
+      errorText={error === FRAME_CAPTURE_FAILED ? t("chat.browserPanel.captureFailed") : error}
       metaText={
         frame
           ? `${frame.widthPx}x${frame.heightPx} · ${new Date(frame.capturedAt).toLocaleTimeString()}`
@@ -82,15 +74,7 @@ export function MacControlPanelContent({
         onCaptureNow={() => void refresh()}
       />
       <PanelSessionStats {...stats} />
-      <PanelActionTimeline
-        entries={entries}
-        replayActionId={replayEntry?.actionId}
-        onSelect={(entry) =>
-          setReplayEntry((prev) =>
-            prev?.actionId === entry.actionId ? null : entry.thumbJpegBase64 ? entry : prev,
-          )
-        }
-      />
+      <PanelActionTimeline entries={entries} replayActionId={replayActionId} onSelect={onSelect} />
     </>
   )
 }

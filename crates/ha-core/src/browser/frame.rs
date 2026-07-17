@@ -212,20 +212,28 @@ pub fn emit_frame_async(session_id: Option<String>, action_id: Option<String>) {
                     }
                 }
                 // Backfill the timeline thumbnail (best-effort, memory only).
+                // The CPU-bound JPEG decode + re-encode goes to the blocking
+                // pool — this runtime has only 2 workers shared with the CDP
+                // event loop / heartbeat, which must not stall behind image
+                // work on rapid act sequences.
                 if let Some(action_id) = action_id {
-                    if let Ok(bytes) = base64::Engine::decode(
-                        &base64::engine::general_purpose::STANDARD,
-                        &payload.jpeg_base64,
-                    ) {
-                        if let Some(thumb) = crate::tool_actions::encode_thumbnail_from_jpeg(&bytes)
-                        {
-                            crate::tool_actions::attach_thumbnail(
-                                session_id.as_deref(),
-                                &action_id,
-                                thumb,
-                            );
+                    let jpeg_base64 = payload.jpeg_base64.clone();
+                    tokio::task::spawn_blocking(move || {
+                        if let Ok(bytes) = base64::Engine::decode(
+                            &base64::engine::general_purpose::STANDARD,
+                            &jpeg_base64,
+                        ) {
+                            if let Some(thumb) =
+                                crate::tool_actions::encode_thumbnail_from_jpeg(&bytes)
+                            {
+                                crate::tool_actions::attach_thumbnail(
+                                    session_id.as_deref(),
+                                    &action_id,
+                                    thumb,
+                                );
+                            }
                         }
-                    }
+                    });
                 }
             }
             Ok(None) => {

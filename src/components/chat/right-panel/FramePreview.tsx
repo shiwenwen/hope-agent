@@ -53,7 +53,9 @@ export function FramePreview({
       )}
       style={variant === "docked" ? { aspectRatio } : undefined}
     >
-      {errorText && !displayed ? (
+      {/* Errors win over a cached stale frame — a frozen screenshot with no
+          indicator would read as a live mirror while capture is failing. */}
+      {errorText ? (
         <div className="flex h-full items-center justify-center px-6 text-center text-sm text-destructive">
           {errorText}
         </div>

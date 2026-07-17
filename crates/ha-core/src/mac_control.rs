@@ -3483,6 +3483,11 @@ pub async fn list_displays() -> MacControlDisplaysResponse {
 }
 
 pub async fn capture_frame(display_id: Option<u32>) -> MacControlFrameResponse {
+    // Remember the panel's target so follow-up action frames mirror the same
+    // display (the 1s poll keeps this fresh; None = main display).
+    if let Ok(mut sel) = PANEL_CAPTURE_DISPLAY.lock() {
+        *sel = display_id;
+    }
     let Some(bridge) = available_bridge() else {
         return unsupported_frame_response(unsupported_reason());
     };
@@ -3530,6 +3535,16 @@ pub async fn capture_frame(display_id: Option<u32>) -> MacControlFrameResponse {
 /// thumbnail. Never blocks the tool's return path; every failure is silent
 /// (the panel's 1s poll covers the gap). Memory-only — deliberately does NOT
 /// go through `store_screenshot_jpeg` (no disk write, incognito-safe).
+/// Last display the panel asked to mirror (set by every `capture_frame` owner
+/// call, i.e. the 1s poll / quick-bar selection). Follow-up action frames use
+/// it so the mirror and thumbnails show the display the user is watching
+/// instead of unconditionally flashing back to the main display.
+static PANEL_CAPTURE_DISPLAY: Mutex<Option<u32>> = Mutex::new(None);
+
+fn panel_capture_display() -> Option<u32> {
+    PANEL_CAPTURE_DISPLAY.lock().ok().and_then(|sel| *sel)
+}
+
 pub fn capture_frame_for_action(action_id: String, session_id: Option<String>) {
     let Ok(handle) = tokio::runtime::Handle::try_current() else {
         return;
@@ -3538,22 +3553,27 @@ pub fn capture_frame_for_action(action_id: String, session_id: Option<String>) {
         let Some(bridge) = available_bridge() else {
             return;
         };
-        match bridge.capture_frame(None).await {
+        match bridge.capture_frame(panel_capture_display()).await {
             Ok(mut frame) => {
                 frame.action_id = Some(action_id.clone());
                 emit_frame(&frame);
-                if let Ok(bytes) = base64::Engine::decode(
-                    &base64::engine::general_purpose::STANDARD,
-                    &frame.jpeg_base64,
-                ) {
-                    if let Some(thumb) = crate::tool_actions::encode_thumbnail_from_jpeg(&bytes) {
-                        crate::tool_actions::attach_thumbnail(
-                            session_id.as_deref(),
-                            &action_id,
-                            thumb,
-                        );
+                // CPU-bound JPEG decode + re-encode off the async workers.
+                let jpeg_base64 = frame.jpeg_base64.clone();
+                tokio::task::spawn_blocking(move || {
+                    if let Ok(bytes) = base64::Engine::decode(
+                        &base64::engine::general_purpose::STANDARD,
+                        &jpeg_base64,
+                    ) {
+                        if let Some(thumb) = crate::tool_actions::encode_thumbnail_from_jpeg(&bytes)
+                        {
+                            crate::tool_actions::attach_thumbnail(
+                                session_id.as_deref(),
+                                &action_id,
+                                thumb,
+                            );
+                        }
                     }
-                }
+                });
             }
             Err(error) => {
                 app_debug!(

@@ -33,6 +33,47 @@ interface FrameEventWithAction {
   sessionId?: string | null
 }
 
+/** Match the backend ring's thumbnail bound (≤240px, JPEG q60). */
+const THUMB_MAX_WIDTH = 240
+const THUMB_JPEG_QUALITY = 0.6
+
+/** Downscale a full frame to a timeline thumbnail in the renderer — storing
+ *  raw 50-200KB frames for up to 200 entries would balloon React state far
+ *  past the backend's bounded ring. Best-effort: null on decode failure. */
+async function downscaleJpegBase64(jpegBase64: string): Promise<string | null> {
+  try {
+    const img = new Image()
+    img.src = `data:image/jpeg;base64,${jpegBase64}`
+    await img.decode()
+    const scale = Math.min(1, THUMB_MAX_WIDTH / Math.max(1, img.naturalWidth))
+    const width = Math.max(1, Math.round(img.naturalWidth * scale))
+    const height = Math.max(1, Math.round(img.naturalHeight * scale))
+    const canvas = document.createElement("canvas")
+    canvas.width = width
+    canvas.height = height
+    const ctx = canvas.getContext("2d")
+    if (!ctx) return null
+    ctx.drawImage(img, 0, 0, width, height)
+    const dataUrl = canvas.toDataURL("image/jpeg", THUMB_JPEG_QUALITY)
+    return dataUrl.split(",")[1] ?? null
+  } catch {
+    return null
+  }
+}
+
+/** Merge the authoritative backend seed with entries appended live while the
+ *  fetch was in flight — a plain replace would silently drop those steps
+ *  (their events are never re-delivered). */
+function mergeSeed(
+  records: PanelActionEntry[],
+  liveEntries: PanelActionEntry[],
+): PanelActionEntry[] {
+  const seen = new Set(records.map((e) => e.actionId))
+  const merged = [...records, ...liveEntries.filter((e) => !seen.has(e.actionId))]
+  merged.sort((a, b) => a.startedAt - b.startedAt || a.actionId.localeCompare(b.actionId))
+  return merged.length > MAX_ENTRIES ? merged.slice(merged.length - MAX_ENTRIES) : merged
+}
+
 /**
  * Execution timeline for a control panel: seeds from the backend ring buffer
  * (`tool_recent_actions`), then appends live `browser:action` /
@@ -65,7 +106,11 @@ export function usePanelActionHistory(kind: PanelActionKind, sessionId?: string 
         limit: MAX_ENTRIES,
       })
       .then((records) => {
-        if (alive && Array.isArray(records)) setState({ key: seedKey, entries: records })
+        if (!alive || !Array.isArray(records)) return
+        setState((prev) => ({
+          key: seedKey,
+          entries: mergeSeed(records, prev.key === seedKey ? prev.entries : []),
+        }))
       })
       .catch((e) => {
         logger.warn("ui", "PanelActionHistory::seed", "tool_recent_actions failed", e)
@@ -97,13 +142,17 @@ export function usePanelActionHistory(kind: PanelActionKind, sessionId?: string 
     const unlistenFrame = getTransport().listen(frameEvent, (raw) => {
       const payload = parsePayload<FrameEventWithAction>(raw)
       if (!payload?.actionId || !payload.jpegBase64) return
-      setState((prev) => {
-        if (prev.key !== seedKey) return prev
-        const idx = prev.entries.findIndex((e) => e.actionId === payload.actionId)
-        if (idx < 0 || prev.entries[idx].thumbJpegBase64) return prev
-        const next = [...prev.entries]
-        next[idx] = { ...next[idx], hasFrame: true, thumbJpegBase64: payload.jpegBase64 }
-        return { key: prev.key, entries: next }
+      const actionId = payload.actionId
+      void downscaleJpegBase64(payload.jpegBase64).then((thumb) => {
+        if (!thumb) return
+        setState((prev) => {
+          if (prev.key !== seedKey) return prev
+          const idx = prev.entries.findIndex((e) => e.actionId === actionId)
+          if (idx < 0 || prev.entries[idx].thumbJpegBase64) return prev
+          const next = [...prev.entries]
+          next[idx] = { ...next[idx], hasFrame: true, thumbJpegBase64: thumb }
+          return { key: prev.key, entries: next }
+        })
       })
     })
     return () => {

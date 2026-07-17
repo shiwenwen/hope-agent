@@ -9,9 +9,15 @@ import { logger } from "@/lib/logger"
  * delayed so a docked↔floating container swap never drops the event stream.
  */
 
+/** Sentinel error set when the capture command itself throws — callers map it
+ *  to a localized message. Backend-reported errors pass through verbatim. */
+export const FRAME_CAPTURE_FAILED = "capture_failed"
+
 export interface FrameSnapshot<F> {
   frame: F | null
   error: string | null
+  /** Mac control only — currently selected capture display (reactive). */
+  displayId: number | null
 }
 
 export interface FrameCaptureParams {
@@ -24,7 +30,7 @@ interface FrameStoreOptions<F> {
   name: string
   eventName: string
   pollIntervalMs?: number
-  capture: (params: FrameCaptureParams) => Promise<FrameSnapshot<F>>
+  capture: (params: FrameCaptureParams) => Promise<{ frame: F | null; error: string | null }>
   /** Reject pushed frames that belong to another session. */
   acceptEvent?: (payload: F, params: FrameCaptureParams) => boolean
 }
@@ -41,13 +47,12 @@ export interface FrameStore<F> {
   setPollActive: (key: string, active: boolean) => void
   setSessionId: (sessionId: string | null) => void
   setDisplayId: (displayId: number | null) => void
-  getParams: () => FrameCaptureParams
 }
 
 export function createFrameStore<F>(options: FrameStoreOptions<F>): FrameStore<F> {
   const pollIntervalMs = options.pollIntervalMs ?? 1000
-  let snapshot: FrameSnapshot<F> = { frame: null, error: null }
   const params: FrameCaptureParams = { sessionId: null, displayId: null }
+  let snapshot: FrameSnapshot<F> = { frame: null, error: null, displayId: null }
   const listeners = new Set<() => void>()
   const pollVotes = new Set<string>()
   let unlistenTransport: (() => void) | null = null
@@ -59,9 +64,16 @@ export function createFrameStore<F>(options: FrameStoreOptions<F>): FrameStore<F
     listeners.forEach((fn) => fn())
   }
 
-  function setSnapshot(next: FrameSnapshot<F>) {
-    if (next.frame === snapshot.frame && next.error === snapshot.error) return
-    snapshot = next
+  /** Publish a new snapshot stamped with the current display selection. */
+  function publish(frame: F | null, error: string | null) {
+    if (
+      frame === snapshot.frame &&
+      error === snapshot.error &&
+      params.displayId === snapshot.displayId
+    ) {
+      return
+    }
+    snapshot = { frame, error, displayId: params.displayId }
     notify()
   }
 
@@ -69,13 +81,13 @@ export function createFrameStore<F>(options: FrameStoreOptions<F>): FrameStore<F
     const seq = ++refreshSeq
     try {
       const next = await options.capture({ ...params })
-      // A newer refresh (or session switch) superseded this response.
+      // A newer refresh (or session/display switch) superseded this response.
       if (seq !== refreshSeq) return
-      setSnapshot(next)
+      publish(next.frame, next.error)
     } catch (e) {
       logger.warn("ui", `FrameStore::${options.name}`, "frame capture failed", e)
       if (seq === refreshSeq) {
-        setSnapshot({ frame: snapshot.frame, error: "capture_failed" })
+        publish(snapshot.frame, FRAME_CAPTURE_FAILED)
       }
     }
   }
@@ -86,7 +98,7 @@ export function createFrameStore<F>(options: FrameStoreOptions<F>): FrameStore<F
       const payload = parsePayload<F>(raw)
       if (!payload) return
       if (options.acceptEvent && !options.acceptEvent(payload, params)) return
-      setSnapshot({ frame: payload, error: null })
+      publish(payload, null)
     })
   }
 
@@ -143,15 +155,22 @@ export function createFrameStore<F>(options: FrameStoreOptions<F>): FrameStore<F
     setSessionId(sessionId) {
       if (params.sessionId === sessionId) return
       params.sessionId = sessionId
-      // Session switch: the cached frame belongs to the old session.
-      setSnapshot({ frame: null, error: null })
+      // Invalidate any in-flight capture unconditionally — even with no poll
+      // vote a manual refresh for the old session must not land in the new
+      // one after we clear the frame below.
+      refreshSeq += 1
+      publish(null, null)
       if (pollVotes.size > 0) void refresh()
     },
     setDisplayId(displayId) {
       if (params.displayId === displayId) return
       params.displayId = displayId
-      if (pollVotes.size > 0) void refresh()
+      // Same invalidation as setSessionId: an old-display capture in flight
+      // must not overwrite the new selection's mirror.
+      refreshSeq += 1
+      // Republish so the display selector re-renders even before a new frame.
+      publish(snapshot.frame, snapshot.error)
+      void refresh()
     },
-    getParams: () => ({ ...params }),
   }
 }

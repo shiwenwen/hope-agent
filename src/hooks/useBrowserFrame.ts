@@ -34,8 +34,6 @@ const store = createFrameStore<BrowserFramePayload>({
     !(payload.sessionId && sessionId && payload.sessionId !== sessionId),
 })
 
-export const browserFrameStore = store
-
 export function useBrowserFrame(opts: {
   sessionId?: string | null
   /** Unique per container ("docked" / "floating"). */

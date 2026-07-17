@@ -11,6 +11,7 @@ import {
   MoveVertical,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { formatDuration } from "@/components/chat/chatUtils"
 import type { PanelActionEntry } from "@/hooks/usePanelActionHistory"
 import { PANEL_SCROLL_FADE } from "./panelFade"
 
@@ -32,11 +33,6 @@ function entryIcon(entry: PanelActionEntry) {
   if (entry.action === "windows" || entry.action === "apps" || entry.action === "dock")
     return <AppWindow className={ENTRY_ICON_CLASS} />
   return <CircleDot className={ENTRY_ICON_CLASS} />
-}
-
-function formatDuration(ms: number): string {
-  if (ms < 1000) return `${ms}ms`
-  return `${(ms / 1000).toFixed(1)}s`
 }
 
 interface TimelineRowProps {

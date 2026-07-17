@@ -172,8 +172,10 @@ fn mac_action_summary(
     op: Option<&str>,
 ) -> (Option<String>, Option<String>) {
     let target_obj = args.get("target");
+    // Probe order mirrors MacControlTargetQuery's actual camelCase fields,
+    // most descriptive first (element text match is the common targeting mode).
     let target = target_obj.and_then(|t| {
-        ["label", "title", "appName", "bundleId", "elementId"]
+        ["text", "windowTitle", "appName", "elementId", "bundleId"]
             .iter()
             .find_map(|k| t.get(k).and_then(|v| v.as_str()))
             .map(str::to_string)
@@ -427,5 +429,61 @@ mod tests {
             compact["result"]["warnings"],
             serde_json::json!(["annotation failed"])
         );
+    }
+
+    /// Locks `mac_effective_op`'s hand-written default table to the actual
+    /// serde `#[default]` variants — if a default moves, this fails instead
+    /// of the recorder silently mislabeling op-omitted steps.
+    #[test]
+    fn mac_effective_op_defaults_match_serde_defaults() {
+        fn serde_default<T: Default + serde::Serialize>() -> String {
+            serde_json::to_value(T::default())
+                .unwrap()
+                .as_str()
+                .unwrap()
+                .to_string()
+        }
+        let empty = serde_json::json!({});
+        let cases: &[(&str, String)] = &[
+            (
+                "act",
+                serde_default::<crate::mac_control::MacControlActOp>(),
+            ),
+            (
+                "windows",
+                serde_default::<crate::mac_control::MacControlWindowsOp>(),
+            ),
+            (
+                "menu",
+                serde_default::<crate::mac_control::MacControlMenuOp>(),
+            ),
+            (
+                "dock",
+                serde_default::<crate::mac_control::MacControlDockOp>(),
+            ),
+            (
+                "spaces",
+                serde_default::<crate::mac_control::MacControlSpacesOp>(),
+            ),
+            (
+                "apps",
+                serde_default::<crate::mac_control::MacControlAppsOp>(),
+            ),
+            (
+                "dialog",
+                serde_default::<crate::mac_control::MacControlDialogOp>(),
+            ),
+            (
+                "clipboard",
+                serde_default::<crate::mac_control::MacControlClipboardOp>(),
+            ),
+        ];
+        for (action, expected) in cases {
+            assert_eq!(
+                mac_effective_op(&empty, action),
+                Some(expected.as_str()),
+                "mac_effective_op default drifted for action '{action}'"
+            );
+        }
     }
 }

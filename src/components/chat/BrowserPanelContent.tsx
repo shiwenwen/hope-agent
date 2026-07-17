@@ -3,7 +3,8 @@ import { useTranslation } from "react-i18next"
 import { Globe } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useBrowserFrame } from "@/hooks/useBrowserFrame"
-import { usePanelActionHistory, type PanelActionEntry } from "@/hooks/usePanelActionHistory"
+import { usePanelActionHistory } from "@/hooks/usePanelActionHistory"
+import { useReplaySelection } from "@/hooks/useReplaySelection"
 import { ControlPanelHeader } from "./right-panel/ControlPanelHeader"
 import { FramePreview } from "./right-panel/FramePreview"
 import { PanelActionTimeline } from "./right-panel/PanelActionTimeline"
@@ -40,17 +41,7 @@ export function BrowserPanelContent({
     pollActive: active && !paused,
   })
   const { entries, stats } = usePanelActionHistory("browser", sessionId)
-  const [replayEntry, setReplayEntry] = useState<PanelActionEntry | null>(null)
-
-  const replay =
-    replayEntry?.thumbJpegBase64 != null
-      ? {
-          thumbJpegBase64: replayEntry.thumbJpegBase64,
-          index: entries.findIndex((e) => e.actionId === replayEntry.actionId) + 1,
-          total: entries.length,
-          onExit: () => setReplayEntry(null),
-        }
-      : null
+  const { replay, replayActionId, onSelect } = useReplaySelection(entries)
 
   const preview = (
     <FramePreview
@@ -104,15 +95,7 @@ export function BrowserPanelContent({
         onTogglePaused={() => setPaused((p) => !p)}
       />
       <PanelSessionStats {...stats} />
-      <PanelActionTimeline
-        entries={entries}
-        replayActionId={replayEntry?.actionId}
-        onSelect={(entry) =>
-          setReplayEntry((prev) =>
-            prev?.actionId === entry.actionId ? null : entry.thumbJpegBase64 ? entry : prev,
-          )
-        }
-      />
+      <PanelActionTimeline entries={entries} replayActionId={replayActionId} onSelect={onSelect} />
     </>
   )
 }

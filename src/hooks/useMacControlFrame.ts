@@ -66,8 +66,6 @@ const store = createFrameStore<MacControlFramePayload>({
   },
 })
 
-export const macControlFrameStore = store
-
 export function useMacControlFrame(opts: { pollKey: string; pollActive: boolean }) {
   const { pollKey, pollActive } = opts
   useEffect(() => {
@@ -80,6 +78,8 @@ export function useMacControlFrame(opts: { pollKey: string; pollActive: boolean 
     error: snapshot.error,
     refresh: store.refresh,
     setDisplayId: store.setDisplayId,
-    displayId: store.getParams().displayId,
+    // Reactive: lives in the snapshot so the display Select re-renders on
+    // selection change (setDisplayId republishes).
+    displayId: snapshot.displayId,
   }
 }

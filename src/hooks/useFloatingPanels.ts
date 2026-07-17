@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from "react"
+import { useCallback, useMemo, useState } from "react"
 
 /** Panels that support the in-app floating window mode. */
 export type FloatablePanel = "browser" | "mac-control"
@@ -9,8 +9,10 @@ const FLOATING_Z_MAX = 49
 
 /**
  * Which control panels are currently floating, plus their stacking order.
- * Rects are owned by each window's `useFloatingWindow` (localStorage); this
- * hook only tracks membership and z-order so ChatScreen stays thin.
+ * State is a single array in stacking order (last = topmost) so all updaters
+ * stay pure; rects are owned by each window's `useFloatingWindow`
+ * (localStorage) — this hook only tracks membership and z-order so ChatScreen
+ * stays thin.
  */
 export function useFloatingPanels(): {
   floatingPanels: FloatablePanel[]
@@ -21,47 +23,36 @@ export function useFloatingPanels(): {
   closeFloating: (panel: FloatablePanel) => void
   focusFloating: (panel: FloatablePanel) => void
 } {
-  const [floating, setFloating] = useState<Partial<Record<FloatablePanel, number>>>({})
-  const zCounter = useRef(0)
+  const [stack, setStack] = useState<FloatablePanel[]>([])
 
   const float = useCallback((panel: FloatablePanel) => {
-    zCounter.current += 1
-    const z = zCounter.current
-    setFloating((prev) => ({ ...prev, [panel]: z }))
+    setStack((prev) =>
+      prev.includes(panel) ? prev : [...prev.filter((p) => p !== panel), panel],
+    )
   }, [])
 
   const remove = useCallback((panel: FloatablePanel) => {
-    setFloating((prev) => {
-      if (!(panel in prev)) return prev
-      const next = { ...prev }
-      delete next[panel]
-      return next
-    })
+    setStack((prev) => (prev.includes(panel) ? prev.filter((p) => p !== panel) : prev))
   }, [])
 
   const focusFloating = useCallback((panel: FloatablePanel) => {
-    zCounter.current += 1
-    const z = zCounter.current
-    setFloating((prev) => (panel in prev ? { ...prev, [panel]: z } : prev))
+    setStack((prev) => {
+      // Already topmost (or not floating) → no state change, so a click
+      // inside the top window doesn't re-render the whole ChatScreen.
+      if (!prev.includes(panel) || prev[prev.length - 1] === panel) return prev
+      return [...prev.filter((p) => p !== panel), panel]
+    })
   }, [])
 
-  const floatingPanels = useMemo(
-    () =>
-      (Object.entries(floating) as Array<[FloatablePanel, number]>)
-        .sort((a, b) => a[1] - b[1])
-        .map(([panel]) => panel),
-    [floating],
-  )
-
-  const isFloating = useCallback((panel: FloatablePanel) => panel in floating, [floating])
+  const isFloating = useCallback((panel: FloatablePanel) => stack.includes(panel), [stack])
 
   const zIndexOf = useCallback(
-    (panel: FloatablePanel) => {
-      const order = floatingPanels.indexOf(panel)
-      return Math.min(FLOATING_Z_BASE + Math.max(order, 0), FLOATING_Z_MAX)
-    },
-    [floatingPanels],
+    (panel: FloatablePanel) =>
+      Math.min(FLOATING_Z_BASE + Math.max(stack.indexOf(panel), 0), FLOATING_Z_MAX),
+    [stack],
   )
+
+  const floatingPanels = useMemo(() => stack, [stack])
 
   return {
     floatingPanels,
