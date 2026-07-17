@@ -5,7 +5,7 @@
 //! from a provider must enter the local review path before they can influence
 //! prompts; concrete adapters own only network protocol translation.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::fs;
 use std::io;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -51,6 +51,41 @@ static AUTO_SYNC_QUEUED: AtomicBool = AtomicBool::new(false);
 static AUTO_SYNC_DIRTY: AtomicBool = AtomicBool::new(false);
 static EXTERNAL_PROVIDER_SYNC_LOCK: Lazy<tokio::sync::Mutex<()>> =
     Lazy::new(|| tokio::sync::Mutex::new(()));
+// Keep provider-list config commits and their credential/ledger cleanup in one
+// lifecycle transaction. The global AppConfig write lock only covers the
+// config file, so cleanup performed after `mutate_config` otherwise races a
+// second provider-list save that re-adds an id.
+static EXTERNAL_PROVIDER_CONFIG_WRITE_LOCK: Lazy<std::sync::Mutex<()>> =
+    Lazy::new(|| std::sync::Mutex::new(()));
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ExternalMemoryProvidersPatch {
+    #[serde(default)]
+    enabled: Option<bool>,
+    /// Provider entries are metadata patches keyed by `id`, not a replacement
+    /// array. Omitting an existing provider therefore preserves it.
+    #[serde(default)]
+    providers: Vec<ExternalMemoryProviderPatch>,
+    /// Destructive removal stays explicit so a partial metadata update cannot
+    /// accidentally delete another provider and its credential files.
+    #[serde(default)]
+    remove_provider_ids: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ExternalMemoryProviderPatch {
+    id: String,
+    #[serde(default)]
+    kind: Option<ExternalMemoryProviderKind>,
+    #[serde(default)]
+    display_name: Option<String>,
+    #[serde(default)]
+    enabled: Option<bool>,
+    #[serde(default)]
+    sync_policy: Option<super::ExternalMemorySyncPolicy>,
+}
 
 /// Owner write shape for one provider's secret runtime configuration.
 /// `api_key=None` preserves an existing key; `Some("")` clears it.
@@ -939,12 +974,15 @@ pub fn save_external_memory_providers_config(
     config: ExternalMemoryProvidersConfig,
     source: &'static str,
 ) -> Result<()> {
+    let _provider_write_guard = EXTERNAL_PROVIDER_CONFIG_WRITE_LOCK
+        .lock()
+        .map_err(|_| anyhow!("external memory provider config write lock poisoned"))?;
     let config = config.normalized();
     let valid_ids = config
         .providers
         .iter()
         .map(|provider| provider.id.clone())
-        .collect::<std::collections::HashSet<_>>();
+        .collect::<HashSet<_>>();
     crate::config::mutate_config(("memory_providers", source), move |store| {
         store.memory_providers = config;
         Ok(())
@@ -958,6 +996,131 @@ pub fn save_external_memory_providers_config(
         );
     }
     Ok(())
+}
+
+/// Atomically merge a partial owner-plane patch into the non-secret external
+/// provider config. Provider entries are merged by id; deletion requires an
+/// explicit `removeProviderIds` entry. The provider lifecycle lock remains held
+/// through orphan cleanup so a concurrent Settings UI save cannot re-add an id
+/// between the config commit and credential deletion.
+pub fn patch_external_memory_providers_config(
+    patch: serde_json::Value,
+    source: &str,
+) -> Result<ExternalMemoryProvidersConfig> {
+    let patch: ExternalMemoryProvidersPatch =
+        serde_json::from_value(patch).context("parse external memory providers patch")?;
+    let _provider_write_guard = EXTERNAL_PROVIDER_CONFIG_WRITE_LOCK
+        .lock()
+        .map_err(|_| anyhow!("external memory provider config write lock poisoned"))?;
+    let (config, valid_ids) =
+        crate::config::mutate_config(("memory_providers", source), move |store| -> Result<_> {
+            let config = apply_external_memory_providers_patch(&store.memory_providers, patch)?;
+            let valid_ids = config
+                .providers
+                .iter()
+                .map(|provider| provider.id.clone())
+                .collect::<HashSet<_>>();
+            store.memory_providers = config.clone();
+            Ok((config, valid_ids))
+        })?;
+    if let Err(err) = prune_orphan_provider_files(&valid_ids) {
+        app_warn!(
+            "memory",
+            "external_provider_credentials_prune_failed",
+            "Failed to prune orphan external memory provider credentials: {}",
+            truncate_error(&err.to_string())
+        );
+    }
+    Ok(config)
+}
+
+fn apply_external_memory_providers_patch(
+    current: &ExternalMemoryProvidersConfig,
+    patch: ExternalMemoryProvidersPatch,
+) -> Result<ExternalMemoryProvidersConfig> {
+    let ExternalMemoryProvidersPatch {
+        enabled,
+        providers,
+        remove_provider_ids,
+    } = patch;
+    let mut config = current.clone();
+    if let Some(enabled) = enabled {
+        config.enabled = enabled;
+    }
+
+    let mut remove_ids = HashSet::new();
+    for provider_id in remove_provider_ids {
+        validate_provider_id(&provider_id)?;
+        if !remove_ids.insert(provider_id.clone()) {
+            bail!("duplicate external memory provider removal id: {provider_id}");
+        }
+    }
+
+    let mut patched_ids = HashSet::new();
+    for provider_patch in providers {
+        validate_provider_id(&provider_patch.id)?;
+        if !patched_ids.insert(provider_patch.id.clone()) {
+            bail!(
+                "duplicate external memory provider patch id: {}",
+                provider_patch.id
+            );
+        }
+        if remove_ids.contains(&provider_patch.id) {
+            bail!(
+                "external memory provider '{}' cannot be patched and removed in one request",
+                provider_patch.id
+            );
+        }
+
+        if let Some(existing) = config
+            .providers
+            .iter_mut()
+            .find(|provider| provider.id == provider_patch.id)
+        {
+            if let Some(kind) = provider_patch.kind {
+                if existing.kind != kind {
+                    bail!(
+                        "external memory provider '{}' kind is immutable; remove it with `removeProviderIds` and add a new provider so credentials and sync state are cleared",
+                        provider_patch.id
+                    );
+                }
+            }
+            if let Some(display_name) = provider_patch.display_name {
+                existing.display_name = display_name;
+            }
+            if let Some(enabled) = provider_patch.enabled {
+                existing.enabled = enabled;
+            }
+            if let Some(sync_policy) = provider_patch.sync_policy {
+                existing.sync_policy = sync_policy;
+            }
+            continue;
+        }
+
+        let kind = provider_patch.kind.ok_or_else(|| {
+            anyhow!(
+                "new external memory provider '{}' requires `kind`",
+                provider_patch.id
+            )
+        })?;
+        config.providers.push(ExternalMemoryProviderConfig {
+            id: provider_patch.id,
+            kind,
+            display_name: provider_patch
+                .display_name
+                .unwrap_or_else(|| kind.as_str().to_string()),
+            enabled: provider_patch.enabled.unwrap_or(false),
+            sync_policy: provider_patch.sync_policy.unwrap_or_default(),
+            endpoint_configured: false,
+            last_sync_at: None,
+            last_error: None,
+        });
+    }
+
+    config
+        .providers
+        .retain(|provider| !remove_ids.contains(&provider.id));
+    Ok(config.normalized())
 }
 
 pub(crate) fn resolve_external_memory_provider_credentials(
@@ -1171,6 +1334,19 @@ fn provider_env_prefix(provider_id: &str) -> String {
 mod tests {
     use super::*;
 
+    fn test_provider(id: &str) -> ExternalMemoryProviderConfig {
+        ExternalMemoryProviderConfig {
+            id: id.to_string(),
+            kind: ExternalMemoryProviderKind::Mem0,
+            display_name: id.to_string(),
+            enabled: false,
+            sync_policy: super::super::ExternalMemorySyncPolicy::Off,
+            endpoint_configured: true,
+            last_sync_at: Some("2026-07-17T00:00:00Z".to_string()),
+            last_error: Some("previous error".to_string()),
+        }
+    }
+
     #[test]
     fn provider_id_rejects_path_traversal() {
         assert!(validate_provider_id("mem0-main").is_ok());
@@ -1196,6 +1372,97 @@ mod tests {
         );
         assert!(normalize_endpoint("file:///tmp/memory").is_err());
         assert!(normalize_endpoint("https://example.com?token=secret").is_err());
+    }
+
+    #[test]
+    fn provider_metadata_patch_preserves_unmentioned_providers_and_runtime_status() {
+        let current = ExternalMemoryProvidersConfig {
+            enabled: false,
+            providers: vec![test_provider("provider-a"), test_provider("provider-b")],
+        };
+        let patch: ExternalMemoryProvidersPatch = serde_json::from_value(serde_json::json!({
+            "enabled": true,
+            "providers": [{
+                "id": "provider-a",
+                "enabled": true,
+                "syncPolicy": "push_only"
+            }]
+        }))
+        .unwrap();
+
+        let updated = apply_external_memory_providers_patch(&current, patch).unwrap();
+
+        assert!(updated.enabled);
+        assert_eq!(updated.providers.len(), 2);
+        let provider_a = updated
+            .providers
+            .iter()
+            .find(|provider| provider.id == "provider-a")
+            .unwrap();
+        assert!(provider_a.enabled);
+        assert_eq!(
+            provider_a.sync_policy,
+            super::super::ExternalMemorySyncPolicy::PushOnly
+        );
+        assert!(provider_a.endpoint_configured);
+        assert_eq!(
+            provider_a.last_sync_at.as_deref(),
+            Some("2026-07-17T00:00:00Z")
+        );
+        assert_eq!(provider_a.last_error.as_deref(), Some("previous error"));
+        assert!(updated
+            .providers
+            .iter()
+            .any(|provider| provider.id == "provider-b"));
+    }
+
+    #[test]
+    fn provider_deletion_requires_explicit_remove_id() {
+        let current = ExternalMemoryProvidersConfig {
+            enabled: true,
+            providers: vec![test_provider("provider-a"), test_provider("provider-b")],
+        };
+        let patch: ExternalMemoryProvidersPatch = serde_json::from_value(serde_json::json!({
+            "removeProviderIds": ["provider-b"]
+        }))
+        .unwrap();
+
+        let updated = apply_external_memory_providers_patch(&current, patch).unwrap();
+
+        assert_eq!(updated.providers.len(), 1);
+        assert_eq!(updated.providers[0].id, "provider-a");
+    }
+
+    #[test]
+    fn existing_provider_kind_change_requires_remove_and_readd() {
+        let current = ExternalMemoryProvidersConfig {
+            enabled: true,
+            providers: vec![test_provider("provider-a")],
+        };
+        let patch: ExternalMemoryProvidersPatch = serde_json::from_value(serde_json::json!({
+            "providers": [{
+                "id": "provider-a",
+                "kind": "zep"
+            }]
+        }))
+        .unwrap();
+
+        let error = apply_external_memory_providers_patch(&current, patch).unwrap_err();
+
+        assert!(error.to_string().contains("kind is immutable"));
+        assert!(error.to_string().contains("removeProviderIds"));
+    }
+
+    #[test]
+    fn provider_patch_rejects_runtime_owned_status_fields() {
+        let result = serde_json::from_value::<ExternalMemoryProvidersPatch>(serde_json::json!({
+            "providers": [{
+                "id": "provider-a",
+                "endpointConfigured": false
+            }]
+        }));
+
+        assert!(result.is_err());
     }
 
     #[test]
