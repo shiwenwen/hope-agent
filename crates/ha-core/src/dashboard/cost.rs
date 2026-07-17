@@ -3,6 +3,16 @@
 pub(super) fn estimate_cost(model_id: &str, input_tokens: u64, output_tokens: u64) -> f64 {
     // Pricing per 1M tokens: (input_price, output_price)
     let (input_price, output_price) = match model_id {
+        // 火山引擎 (豆包) 的 ark id 自带日期后缀，按人民币计价，与同名模型的直连价差几个
+        // 数量级。必须排在各厂商臂之前——否则 `glm-4-7-251222` 会被 `glm-4-7` 臂吞掉。
+        m if m.contains("doubao-seed-code-preview-251028")
+            || m.contains("doubao-seed-1-8-251228")
+            || m.contains("kimi-k2-5-260127")
+            || m.contains("glm-4-7-251222")
+            || m.contains("deepseek-v3-2-251201") =>
+        {
+            (0.0001, 0.0002)
+        }
         // Anthropic — Claude 5 family
         m if m.contains("claude-fable-5") || m.contains("claude-mythos-5") => (10.0, 50.0),
         m if m.contains("claude-sonnet-5") => (3.0, 15.0),
@@ -41,11 +51,16 @@ pub(super) fn estimate_cost(model_id: &str, input_tokens: u64, output_tokens: u6
         m if m.contains("gpt-4-turbo") => (10.0, 30.0),
         m if m.contains("gpt-4") => (30.0, 60.0),
         m if m.contains("gpt-3.5") => (0.50, 1.50),
+        // OpenAI o-series. `-pro` / `-deep-research` must precede their base arm.
+        m if m.contains("o1-pro") => (150.0, 600.0),
         m if m.contains("o1-mini") => (3.0, 12.0),
         m if m.contains("o1") => (15.0, 60.0),
+        m if m.contains("o4-mini-deep-research") => (2.0, 8.0),
         m if m.contains("o4-mini") => (1.10, 4.40),
         m if m.contains("o3-mini") => (1.10, 4.40),
-        m if m.contains("o3") => (10.0, 40.0),
+        m if m.contains("o3-pro") => (20.0, 80.0),
+        m if m.contains("o3-deep-research") => (10.0, 40.0),
+        m if m.contains("o3") => (2.0, 8.0),
         // Google Gemini — 3.x. Lite must precede the plain flash arm.
         m if m.contains("gemini-3.1-flash-lite") || m.contains("gemini-3-flash-lite") => {
             (0.10, 0.40)
@@ -62,16 +77,21 @@ pub(super) fn estimate_cost(model_id: &str, input_tokens: u64, output_tokens: u6
         {
             (1.25, 10.0)
         }
-        // Google Gemini
+        // Google Gemini. Lite must precede plain flash.
         m if m.contains("gemini-2.5-pro") => (1.25, 10.0),
+        m if m.contains("gemini-2.5-flash-lite") => (0.10, 0.40),
         m if m.contains("gemini-2.5-flash") => (0.15, 0.60),
         m if m.contains("gemini-2.0-flash") => (0.10, 0.40),
         m if m.contains("gemini-1.5-pro") => (1.25, 5.0),
         m if m.contains("gemini-1.5-flash") => (0.075, 0.30),
-        // xAI Grok
+        // xAI Grok. Point releases must precede the `grok-4` / `grok-3` family arms.
+        m if m.contains("grok-4.5") => (2.0, 6.0),
+        m if m.contains("grok-4.3") => (1.25, 2.5),
+        m if m.contains("grok-4.20") => (1.25, 2.5),
+        m if m.contains("grok-build") => (1.0, 2.0),
         m if m.contains("grok-4-fast") || m.contains("grok-4-1-fast") => (0.2, 0.5),
-        m if m.contains("grok-4.20") => (2.0, 6.0),
         m if m.contains("grok-4") => (3.0, 15.0),
+        m if m.contains("grok-3-mini-fast") => (0.6, 4.0),
         m if m.contains("grok-3-mini") => (0.3, 0.5),
         m if m.contains("grok-3-fast") => (5.0, 25.0),
         m if m.contains("grok-3") => (3.0, 15.0),
@@ -82,24 +102,34 @@ pub(super) fn estimate_cost(model_id: &str, input_tokens: u64, output_tokens: u6
         m if m.contains("magistral") => (0.5, 1.5),
         m if m.contains("pixtral") => (2.0, 6.0),
         m if m.contains("mistral-large") => (0.5, 1.5),
+        m if m.contains("mistral-medium-3-5") => (1.5, 7.5),
         m if m.contains("mistral-medium") => (0.4, 2.0),
-        m if m.contains("mistral-small") => (0.1, 0.3),
-        // DeepSeek
-        m if m.contains("deepseek-reasoner") || m.contains("DeepSeek-R1") => (0.55, 2.19),
+        m if m.contains("mistral-small") => (0.15, 0.6),
+        // DeepSeek. `deepseek-chat` / `-reasoner` now alias the V4 tier.
+        m if m.contains("deepseek-v4-pro") || m.contains("DeepSeek-V4-Pro") => (0.435, 0.87),
+        m if m.contains("deepseek-v4-flash") || m.contains("DeepSeek-V4-Flash") => (0.14, 0.28),
+        m if m.contains("deepseek-chat") || m.contains("deepseek-reasoner") => (0.14, 0.28),
+        m if m.contains("DeepSeek-R1") || m.contains("deepseek-r1") => (0.55, 2.19),
         m if m.contains("deepseek") || m.contains("DeepSeek") => (0.27, 1.1),
         // Qwen
         m if m.contains("qwen-max") || m.contains("qwen3-max") => (2.4, 9.6),
-        m if m.contains("qwen-plus") || m.contains("qwq-plus") => (0.8, 2.0),
+        m if m.contains("qwq-plus") => (1.6, 4.0),
+        m if m.contains("qwen-plus") => (0.8, 2.0),
         m if m.contains("qwen-turbo") => (0.3, 0.6),
         m if m.contains("qwen") => (0.30, 0.60),
         // GLM (Zhipu)
+        m if m.contains("glm-5v-turbo") => (1.2, 4.0),
         m if m.contains("glm-5-turbo") => (1.2, 4.0),
+        m if m.contains("glm-5.1") => (1.2, 4.0),
         m if m.contains("glm-5") => (1.0, 3.2),
+        m if m.contains("glm-4.7-flashx") => (0.06, 0.4),
         m if m.contains("glm-4.7-flash") => (0.07, 0.4),
         m if m.contains("glm-4.7") || m.contains("glm-4-7") => (0.6, 2.2),
         m if m.contains("glm-4.6v") => (0.3, 0.9),
         m if m.contains("glm-4.6") => (0.6, 2.2),
         m if m.contains("glm-4.5-flash") => (0.0, 0.0),
+        m if m.contains("glm-4.5-air") => (0.2, 1.1),
+        m if m.contains("glm-4.5v") => (0.6, 1.8),
         m if m.contains("glm-4.5") => (0.6, 2.2),
         // Moonshot Kimi. `kimi-k2-thinking` is billed as K2-era, not K2.5+.
         m if m.contains("kimi-k3") || m.contains("Kimi-K3") => (3.0, 15.0),
@@ -116,7 +146,12 @@ pub(super) fn estimate_cost(model_id: &str, input_tokens: u64, output_tokens: u6
         }
         // MiniMax
         m if m.contains("MiniMax-M3") || m.contains("minimax-m3") => (0.6, 2.4),
+        m if m.contains("MiniMax-M2.7-highspeed") => (0.6, 2.4),
         m if m.contains("MiniMax") || m.contains("minimax") => (0.3, 1.2),
+        // 腾讯混元 (TokenHub)
+        m if m.contains("hy3") => (0.176, 0.587),
+        // 阶跃星辰 (StepFun). step-3.5-flash 未公布单价，留给默认估价。
+        m if m.contains("step-3.7-flash") => (0.2, 1.15),
         // Llama (Together/HuggingFace)
         m if m.contains("Llama-4-Maverick") => (0.27, 0.85),
         m if m.contains("Llama-4-Scout") => (0.18, 0.59),
@@ -160,6 +195,45 @@ mod tests {
         assert_eq!(prices("gpt-5.4-nano"), (0.20, 1.25));
         assert_eq!(prices("gpt-5.5-pro"), (30.0, 180.0));
         assert_eq!(prices("gemini-3.1-flash-lite"), (0.10, 0.40));
+        assert_eq!(prices("gemini-2.5-flash-lite"), (0.10, 0.40));
+        assert_eq!(prices("o1-pro"), (150.0, 600.0));
+        assert_eq!(prices("o3-pro"), (20.0, 80.0));
+        assert_eq!(prices("o4-mini-deep-research"), (2.0, 8.0));
+        assert_eq!(prices("glm-4.7-flashx"), (0.06, 0.4));
+        assert_eq!(prices("glm-4.5-air"), (0.2, 1.1));
+        assert_eq!(prices("mistral-medium-3-5"), (1.5, 7.5));
+        assert_eq!(prices("qwq-plus"), (1.6, 4.0));
+
+        // `grok-4` must not swallow the point releases, which are priced far below it.
+        assert_eq!(prices("grok-4.5"), (2.0, 6.0));
+        assert_eq!(prices("grok-4.3"), (1.25, 2.5));
+        assert_eq!(prices("grok-4"), (3.0, 15.0));
+
+        // 火山引擎按人民币计价，与同名模型的直连价差几个数量级——绝不能被厂商臂吞掉。
+        assert_eq!(prices("glm-4-7-251222"), (0.0001, 0.0002));
+        assert_eq!(prices("deepseek-v3-2-251201"), (0.0001, 0.0002));
+        assert_eq!(prices("kimi-k2-5-260127"), (0.0001, 0.0002));
+        assert_ne!(prices("glm-4-7-251222"), prices("glm-4.7"));
+    }
+
+    /// 模板改价后必须同步本表，否则大盘成本与用户实际支出脱节。
+    /// 这几项对应 templates/*.ts 里直连厂商的价格，改模板时一并改这里。
+    #[test]
+    fn estimator_matches_direct_provider_template_prices() {
+        assert_eq!(prices("deepseek-reasoner"), (0.14, 0.28));
+        assert_eq!(prices("deepseek-chat"), (0.14, 0.28));
+        assert_eq!(prices("deepseek-v4-pro"), (0.435, 0.87));
+        assert_eq!(prices("deepseek-v4-flash"), (0.14, 0.28));
+        assert_eq!(prices("mistral-small-latest"), (0.15, 0.6));
+        assert_eq!(prices("mistral-small-2603"), (0.15, 0.6));
+        assert_eq!(prices("hy3"), (0.176, 0.587));
+        assert_eq!(prices("step-3.7-flash"), (0.2, 1.15));
+        assert_eq!(prices("MiniMax-M2.7-highspeed"), (0.6, 2.4));
+        assert_eq!(prices("glm-5.1"), (1.2, 4.0));
+        assert_eq!(prices("glm-5v-turbo"), (1.2, 4.0));
+        assert_eq!(prices("o3"), (2.0, 8.0));
+        assert_eq!(prices("grok-build-0.1"), (1.0, 2.0));
+        assert_eq!(prices("grok-3-mini-fast"), (0.6, 4.0));
     }
 
     /// Guards against a current model having no arm at all and silently landing on the fallback.
