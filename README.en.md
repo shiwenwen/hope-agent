@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/logo.png" alt="Hope Agent" width="200">
+  <img src="assets/alpha-logo.png" alt="Hope Agent" width="200">
 </p>
 
 <h1 align="center">Hope Agent</h1>
@@ -27,11 +27,14 @@
 
 ---
 
-**Hope Agent** is an AI assistant designed to just work the moment you open it, and to stay dependable over the long run. A native installer ships with provider templates for major model services: install it, paste an API key, and start chatting without setting up runtimes, learning a CLI, or wrestling with config. The desktop app is the most natural entry point, so it gets the most polish: native GUI, performance, interaction details, deep OS integration, and, with your permission, the ability to observe and control your local computer (macOS for now). For complex or long-running work, you can state the outcome and let the Agent keep moving toward it. It can decide when to build a dynamic Workflow, coordinate multiple sub-agents in parallel, and use a Loop to continue at the right time or when an event arrives. The process remains observable, pausable, and recoverable; automation never bypasses approvals or completion evidence. Hope Agent can also run as an HTTP/WS service on a NAS, home server, or cloud VM, connect to IM channels, and speak ACP to IDEs, so the same conversation can move between desktop, browser, and chat without losing context. Over days of use, it accumulates cross-session memory, organizes what mattered while idle, and turns repeated work into reusable skills. The goal is simple: make everyday tasks effortless, lower maintenance cost, and keep long-running setups reliable.
+**Hope Agent** is a local-first, desktop-first personal AI agent that can also run continuously as a service. It opens like mature desktop software while offering real agentic capability: understanding long-term context, using tools to complete work, and reliably pursuing goals even after you step away.
+
+**Hope Agent did not begin after “desktop AI agents” became a popular category.** We started building it when desktop agents were still uncommon and Codex itself was in an earlier form. We have always focused on the product itself, not on manufacturing attention. As more products have moved in the same direction, they have reinforced our original conviction: **AI assistants will move beyond the chat box and become personal software people can trust with long-running work.**
 
 ## Contents
 
-- [Highlights](#highlights)
+- [Core Capabilities](#core-capabilities)
+- [Capability Overview](#capability-overview)
 - [Quick Start](#quick-start)
   - [Install Locally](#install-locally)
   - [Self-hosting (Docker)](#self-hosting-docker)
@@ -46,72 +49,77 @@
 - [Star History](#star-history)
 - [License](#license)
 
-## Highlights
-
-### 🎯 Everyday use
+## Core Capabilities
 
 <table>
-<tr><td width="220"><b>🖥️ Native desktop GUI</b></td><td>Native macOS / Linux / Windows app, ready to run out of the installer. Ships in 12 UI languages (Simplified/Traditional Chinese, English, Japanese, Korean, Spanish, Portuguese, Russian, Arabic, Turkish, Vietnamese, Malay) with a polished dark theme and carefully tuned typography.</td></tr>
-<tr><td><b>🧙 Zero-config providers</b></td><td>44 built-in provider templates covering 335 preset models. Anthropic, OpenAI, Gemini, Codex, GitHub Copilot, OpenRouter, DeepSeek, Kimi, Qwen, Doubao, GLM, MiniMax, xAI, Mistral, Cerebras, DeepInfra, Novita, Tencent Hunyuan, Ollama — all in. Each provider supports multi-key rotation, so rate limits and quota exhaustion fail over seamlessly to the next key.</td></tr>
-<tr><td><b>🦙 One-click local models</b></td><td><b>No account, no API key, no terminal</b> — Settings → Model picks a Qwen3.6 / Gemma 4 size that fits your hardware, then handles <a href="https://ollama.com">Ollama</a> install, model pull, provider registration, and active-model switch in one click. Same flow covers local embedding models too.</td></tr>
-<tr><td><b>💬 One app, every chat</b></td><td>12 IM channels: Telegram, Discord, Slack, Feishu, Google Chat, LINE, QQ Bot, Signal, iMessage, IRC, WeChat, WhatsApp. Inbound images / voice / files become multimodal context automatically; tool approvals are one tap in the chat window; every group / account can bind a distinct Agent with its own policies.</td></tr>
-<tr><td><b>🤝 Hand off across devices, never miss a beat</b></td><td>The same conversation hands off seamlessly between your desktop, browser, and IM — leave a thread half-finished on your laptop, pick it up on Telegram on the metro, come home and the desktop already has the IM portion folded in. The same memory, tool state, Plan, and working directory follow along — no need to re-explain context. <code>/handover</code> pushes the current desktop session to a specific IM chat; <code>/session &lt;id&gt;</code> takes over from inside IM. The desktop conversation also <b>live-mirrors into IM</b>, typing into Telegram / Feishu / Slack as the model writes.</td></tr>
-<tr><td><b>🌐 Standalone service · browser is the client</b></td><td><b>Not just a desktop app</b> — Hope Agent can run fully headless as a service. One command <code>hope-agent server start</code> launches an HTTP/WS daemon; <code>server install</code> registers it as a launchd / systemd auto-start unit so it lives 24/7 on your NAS, cloud VM, or spare laptop. <b>The server ships an embedded Web GUI</b> (the React frontend is baked into the binary via <code>rust-embed</code>) — <b>point any browser on your phone, tablet, or another computer at <code>http://&lt;server&gt;:port</code> and you get the full React UI</b>, no client install, no separate frontend deployment. Bearer token auth and three-tier SSRF policies keep public exposure controlled. Sessions, memories, cron jobs, and IM channels all run server-side — the client is just a window.</td></tr>
-<tr><td><b>🔁 Three run modes, one core</b></td><td>Desktop GUI (default), HTTP/WS daemon with embedded Web GUI (browser-direct), and ACP stdio (as an agent backend for any ACP-capable IDE). All three share a pure-Rust <code>ha-core</code> library with zero Tauri dependencies — the same code is a desktop app, a server, and an IDE backend.</td></tr>
+<tr><td width="220"><b>🖥️ A desktop agent that just works</b></td><td>A native GUI, a broad set of provider templates and preset models, and one-click local model setup. Paste an API key or sign in—no runtime setup, CLI learning curve, or config sprawl required.</td></tr>
+<tr><td><b>🧭 Completes work, not just replies</b></td><td>Goal defines the outcome, Workflow dynamically organizes execution, and Loop decides when to continue. Complex work can progress in the background while remaining visible, pausable, resumable, and adjustable.</td></tr>
+<tr><td><b>🧠 Long-term memory and knowledge</b></td><td>Cross-session memory, on-demand recall, offline consolidation, user profiles, and reusable skills compound over time. Knowledge Space lets you and the AI read and write real Markdown together as a traceable second brain.</td></tr>
+<tr><td><b>🎨 From an idea to a deliverable design</b></td><td>Design Space turns a prompt or reference image into 10+ artifact types, including websites, mobile prototypes, and presentations, with visual editing, version history, multi-format export, and handoff into a real codebase.</td></tr>
+<tr><td><b>🛠️ Acts in the real environment</b></td><td>With permission and approval, Hope Agent can control the computer and browser, run commands, edit files, call MCP tools, connect to workspaces, and coordinate multiple agents.</td></tr>
+<tr><td><b>🌐 Handoff across devices, always available</b></td><td>Desktop / Server / Web / ACP share the same core. The same session, memory, and task state can continue across desktop, browser, and popular IM channels.</td></tr>
+<tr><td><b>🛡️ Local-first, controlled, dependable</b></td><td>Data stays local by default and model requests go directly to providers. Tool approvals, Docker sandboxing, configuration rollback, crash recovery, and keepalive layers protect long-running operation.</td></tr>
 </table>
 
-### 🧠 Memory & learning
+## Capability Overview
+
+### 🎨 Design & knowledge
 
 <table>
-<tr><td width="220"><b>🧠 Knowledge Space · Your Second Brain</b></td><td><b>A local-first, AI-native personal knowledge base</b>—you hand-write / edit Markdown notes and the AI is a first-class citizen reading and writing the same <code>.md</code> files: searching across notes, weaving a bidirectional-link graph, distilling scattered ideas into atomic notes. Web pages, PDF / DOCX files, audio / video transcripts, image OCR, and chat attachments can be archived as sources first, then turned by AI into reviewable note proposals with Evidence back to the original material. Bind an existing Obsidian vault (read-only by default, writable once you opt in), with wikilinks / frontmatter / block refs / graph view / outline and built-in hybrid retrieval (full-text + vector). An embedded AI chat panel answers and rewrites against the current note; turn on "Sprite mode" and it proactively surfaces writing suggestions when you pause. Notes are written atomically; external edits sync live.</td></tr>
-<tr><td><b>🧠 Persistent memory across sessions</b></td><td>SQLite + FTS5 + vector search, three-in-one. Memories are scoped by Global / Project / Agent; system prompt injection follows a joint budget so no one layer crowds out another.</td></tr>
-<tr><td><b>🕶 Incognito chat</b></td><td>A per-session switch that can apply from the very first message. When enabled, the current chat gets no passive memory or cross-session awareness injection and does not auto-collect memory; memory tools are only used when you explicitly ask it to remember or recall something.</td></tr>
-<tr><td><b>💤 Offline "dreaming"</b></td><td>When idle, Hope Agent automatically reviews "what was worth remembering over the past couple of days," pins the selections, and writes them into a markdown diary viewable under Settings → Dream Diary. Every day's work gets quietly consolidated for next time.</td></tr>
-<tr><td><b>🔍 Active recall + reflective profile</b></td><td>Before each turn starts, the most relevant memories for your input are pulled into the prompt (Active Memory). A separate reflective pass distills your communication style, work habits, and long-term preferences into a dedicated "User Profile" section — it gets better at knowing you over time.</td></tr>
-<tr><td><b>🛠 Skills that grow</b></td><td>After complex tasks, Hope Agent auto-drafts new skills for your review. Approve a draft in settings and it's reusable from then on. Skills support conditional activation (e.g. only load when editing Python files), forked sub-agent execution, and tool allowlists; compatible with the <a href="https://agentskills.io">agentskills.io</a> open standard.</td></tr>
-<tr><td><b>👁 Cross-session awareness</b></td><td>It knows what your other chats are doing. Before each turn, Hope Agent pulls in the recent goals, actions, and friction points of your other active sessions — so when context crosses over, the right information is available without derailing the main conversation. Defaults to a zero-LLM-cost structured mode; an optional LLM digest mode is available.</td></tr>
-<tr><td><b>💾 Long conversations don't lose the plot</b></td><td>Five-tier progressive context compaction. No matter how long the chat, earlier messages aren't hard-truncated. Tool calls stay paired forever; when messages are summarized, recently edited file contents are auto-restored from disk so you don't have to paste them again. Combined with prompt caching, long-session API costs stay well below naive usage.</td></tr>
+<tr><td width="220"><b>🎨 Design Space</b></td><td>Generate websites, mobile prototypes, presentations, dashboards, posters, documents, email, images, motion, audio, and interactive components from a prompt or reference image. Generation streams into a live preview; each project includes AI chat, element-level editing, annotations, undo / redo, device previews, version history, an artifact library, and HTML / PNG / PDF / PPTX / MP4 / ZIP export.</td></tr>
+<tr><td><b>🧩 Design system to code</b></td><td>Extract a brand system from screenshots, URLs, Figma, or an existing repository, reuse it across artifacts, and export multi-platform design tokens or a code handoff package. Bind a design project to a real repository, send an artifact to the main conversation for implementation, and surface later code changes back in the design.</td></tr>
+<tr><td><b>🧠 Knowledge Space · second brain</b></td><td>You and the AI work on the same real Markdown notes, with source archiving, full-text and vector retrieval, backlinks, graph view, atomic notes, and reviewable AI organization proposals. Existing Obsidian vaults can be attached, external changes sync live, and source Evidence remains traceable.</td></tr>
 </table>
 
-### 🧭 Autonomous Agent Control
-
-Choose **Goal**, **Workflow**, or **Loop** directly from the composer, or use <code>/goal</code>, <code>/workflow</code>, and <code>/loop</code>. These are general-purpose controls for coding, research, writing, knowledge work, operations, and connector tasks. Coding-specific Worktree, Review, LSP, and verification capabilities are layered in only when relevant.
+### 🧭 Long-running work & autonomy
 
 <table>
-<tr><td width="220"><b>🎯 Goal · Keep pursuing the outcome</b></td><td>Give Hope Agent an outcome and completion criteria, and it creates a durable Goal that it can decompose, execute, inspect, and continue pursuing instead of stopping after one response. Goals can be edited, paused, resumed, budgeted, and tracked against explicit criteria. Waiting for background work or external state preserves the context and resumes when progress is possible. Closure requires a conservative final audit and user acceptance, followed by a concise summary with elapsed time and token usage. Use the composer’s Goal control or send <code>/goal &lt;outcome and completion criteria&gt;</code>.</td></tr>
-<tr><td><b>🧩 Workflow · Model-directed dynamic orchestration</b></td><td>Once Workflow Mode is enabled, the model decides when a task benefits from orchestration; users do not write scripts, and the feature is not tied to Coding Mode. The controlled runtime generates its dynamic Workflow internally and supports phases, tasks, conditions, parallel / pipeline execution, multiple agents, tools, diffs, reviews, verification, and typed results. Sub-agent results can arrive progressively, be queried on demand, or be collected together. Every operation has a durable trace with pause, resume, cancel, and restart recovery, while side effects still pass through the unified permission and approval system. Use the composer’s Workflow control, <code>/workflow on</code>, or <code>/workflow ultracode</code>.</td></tr>
-<tr><td><b>🔁 Loop · Continue on time or events</b></td><td>Loop answers “when should another step run?” without pretending to be an execution-strength setting or a one-shot Workflow. It supports fixed intervals, conditions, internal events, and dynamic self-paced wakeups chosen by the model. Each iteration can continue the current conversation or launch a Goal-bound Workflow. A durable Cron foundation provides run-now, pause / resume, budgets, failure backoff, no-progress protection, and restart diagnostics; the model can inspect status, reschedule, or stop the Loop itself. Use the composer’s Loop control or <code>/loop &lt;recurring task&gt;</code>.</td></tr>
-<tr><td><b>📍 Long tasks stay visible, controllable, and non-blocking</b></td><td>Tasks show user-facing progress, the active Goal remains above the composer, and the Workbench keeps everyday status and controls close while advanced diagnostics stay optional. Workflow milestones, sub-agent completions, and background jobs can be injected progressively, so the main Agent can inspect and adapt instead of always waiting for everything. Long-running tools and parallel agents run in the background without freezing the chat. After an unexpected restart, durable Goal / Workflow / Loop state and recoverable work are replayed conservatively; actions that cannot be resumed safely become explicit blockers rather than silent duplicates.</td></tr>
+<tr><td width="220"><b>🎯 Goal · keep pursuing the outcome</b></td><td>Give Hope Agent an outcome and completion criteria, and it keeps decomposing, executing, checking, and advancing. Goals support budgets, progress, pause, and resume; completion requires a conservative audit with result evidence.</td></tr>
+<tr><td><b>🧩 Workflow · dynamic orchestration</b></td><td>The model organizes phases, conditions, parallel work, multiple agents, tools, diffs, reviews, and verification when the task benefits from it. Every run has a durable trace with pause, resume, cancel, and conservative restart recovery.</td></tr>
+<tr><td><b>🔁 Loop · continue on time or events</b></td><td>Continue on fixed intervals, conditions, internal events, or model-selected wakeups. Each iteration can resume the current conversation or launch a Goal-bound Workflow, with budgets, backoff, and no-progress protection.</td></tr>
+<tr><td><b>📋 Plan, Task, and background work</b></td><td>Complex work can start with an editable plan while Tasks expose live progress. Long-running tools and sub-agents run in the background, and milestones return progressively to the main conversation without blocking the chat.</td></tr>
 </table>
 
-> Mental model: **Goal** defines the outcome, **Workflow** performs one concrete execution, **Loop** decides when to advance again, **Task** exposes current progress, and **Mode** controls execution autonomy. They compose cleanly but can also be used independently. See the [Goal](docs/architecture/goal.md), [Workflow](docs/architecture/workflow.md), and [Loop](docs/architecture/loop.md) architecture docs for implementation details.
+> Mental model: **Goal** defines the outcome, **Workflow** performs one concrete execution, **Loop** decides when to advance again, **Task** exposes current progress, and **Mode** controls execution autonomy. They compose cleanly but can also be used independently.
 
-### 🛠 Workflow & tools
+### 🧠 Memory & growth
 
 <table>
-<tr><td width="220"><b>📋 Plan Mode</b></td><td>For complex tasks, Hope Agent first drafts an editable, resumable plan managed by a five-state machine, with plan files physically isolated per agent / session so cross-session bleed can't happen. Plans persist across sessions — "continue the previous plan" is enough to pick up. The sidebar <b>Plans history viewer</b> offers cross-session, read-only browsing of every plan (including <code>/plan exit</code> archives), with Agent / state filtering, version switching, and one-click jumps to the owning session; the detail pane injects an <code>@plan:&lt;short_id&gt;:v&lt;version&gt;</code> reference straight into the current chat. During execution it strictly respects a tool allowlist so the model can't wander.</td></tr>
-<tr><td><b>📁 Project containers</b></td><td>Group related sessions under a single project that inherits project-level memory / instructions / shared files. Uploaded files get automatic text extraction and three-layer injection (dir listing / small-file auto-inline / large-file on-demand read) — no manual @ file, no context blowup.</td></tr>
-<tr><td><b>🖱️ Computer control</b></td><td>Currently macOS only. The Agent can use granted Accessibility and Screen Recording permissions to observe the desktop, inspect AX elements and windows, then open / switch apps, click, type, scroll, drag, use menus and dialogs, and move / resize / close windows. The Mac Control side panel mirrors desktop state in real time; every side-effecting action goes through the unified tool approval flow.</td></tr>
-<tr><td><b>👥 Agent teams</b></td><td>Pre-configure team templates in settings (member roles, bound agents, default task templates). One sentence tells the model to spin up a specialist team. Members message each other and coordinate; when done, the transcript is summarized back to the main thread.</td></tr>
-<tr><td><b>🗓 Natural-language cron</b></td><td>"Write me a daily summary every 8 AM." "Review last week's todos every Monday." "Scan my inbox hourly on workdays." Scheduled in plain language, delivered to any IM channel. Runs reliably under both desktop GUI and the daemon.</td></tr>
-<tr><td><b>📊 Dashboard + Recap</b></td><td>Built-in analytics: cost, token usage, activity heatmap, and a four-dimensional health score, plus a new <b>Plans tab</b> (state distribution, completion rate, breakdowns by Agent / Project, 30-day creation trend, average execution time). <code>/recap</code> runs a deep retrospective over the last N days and produces an 11-section AI report (Agent tool optimization, memory &amp; skill recommendations, cost optimization, etc.) that exports as standalone HTML.</td></tr>
-<tr><td><b>🔌 MCP client (OAuth 2.1)</b></td><td>Built-in Model Context Protocol client with all four transports: stdio / Streamable HTTP / SSE / WebSocket. Full OAuth 2.1 + PKCE flow (automatic discovery, RFC 7591 dynamic client registration, loopback callback) persists credentials at 0600 on disk; standards-compliant OAuth servers like Notion / Linear work with a single click. All outbound URLs pass through the SSRF policy. One-click import from <code>claude_desktop_config.json</code> in Settings; tools surface as <code>mcp__&lt;server&gt;__&lt;tool&gt;</code> in the main conversation, with extra <code>mcp_resource</code> / <code>mcp_prompt</code> tools for passive data. Long-running tools auto-background.</td></tr>
-<tr><td><b>🪝 Hooks automation</b></td><td>Hook custom handlers onto 28 lifecycle events — sessions, tool calls, context compaction, permission decisions, and more — field-level compatible with the Claude Code hooks protocol, so community scripts work as-is. Five handler types (<code>command</code> / <code>http</code> / <code>mcp_tool</code> / <code>prompt</code> / <code>agent</code>); config layers across user / managed / project / local scopes (UNIONed), and project-scope hooks (<code>.hope-agent/hooks.json</code>) ship with your repo for the whole team. Configure in a visual settings panel; changes hot-reload instantly.</td></tr>
-<tr><td><b>🔧 Toolbox</b></td><td>Computer control (currently macOS only), controllable browser (8 high-level actions with a <b>live mirror panel</b> on the chat sidebar — Chrome stays visible as the agent drives it; direct CDP via chromiumoxide, zero runtime dependencies), Canvas, AI image generation (7 providers), web search (8 providers with failover), bash (optional Docker sandbox), file read/grep/find, URL preview, crash journal, self-diagnosis.</td></tr>
-<tr><td><b>📑 Deep Feishu / Lark workspace integration</b></td><td>40 <code>feishu_*</code> tools spanning docx (create / read / edit), bitable (CRUD + views + dashboards), drive (upload / download ≤20MB, local paths gated by protected-path approval), wiki (link resolution), approval (create / query / cancel), calendar (create event / invite / update / delete), contact (user / department lookup), and hire (jobs / talents / applications). Reuses the existing Feishu IM channel credentials; ships with the <code>skills/feishu</code> skill that teaches typical workflows like OKR weekly reports, meeting scheduling, approval withdrawal.</td></tr>
-<tr><td><b>⚡ Background long tasks</b></td><td>Long-running shell commands, web searches, or image generations can be "sent to the background" — an immediate <code>job_id</code> returns so the conversation keeps flowing. The result is auto-injected back into the main thread when it finishes; the model can also poll with <code>job_status</code> on demand. No task is ever long enough to freeze your chat window.</td></tr>
+<tr><td width="220"><b>🧠 Persistent cross-session memory</b></td><td>Memory is organized across Global, Project, and Agent scopes. A compact Core stays stable in context while detailed content returns on demand through full-text and vector retrieval instead of being resent every turn.</td></tr>
+<tr><td><b>🔍 Recall, consolidation, and reflection</b></td><td>The model can recall memory when a task needs it, and users can enable Fast or Deep Recall. Idle-time consolidation produces a Dream Diary and can distill reviewable communication preferences, work habits, and long-term patterns from history.</td></tr>
+<tr><td><b>🛠 Skills that grow</b></td><td>Complex work can become a draft skill for your review and later reuse. Skills support conditional activation, sub-agent execution, tool allowlists, and the <a href="https://agentskills.io">agentskills.io</a> standard.</td></tr>
+<tr><td><b>💾 Long conversations and incognito mode</b></td><td>Progressive context compaction preserves key facts and tool-call relationships across long conversations. Incognito sessions disable long-term memory, cross-session awareness, and persistence paths, then remove the session data when the conversation ends.</td></tr>
 </table>
 
-### 🛡 Security & local-first
+### 🛠 Tools & connections
 
 <table>
-<tr><td width="220"><b>🔒 Tool approval + Docker sandbox</b></td><td>Sensitive tool calls are gated by an approval flow (with per-category auto deny / proceed timeouts and per-channel auto-approve). High-risk bash / file writes can be routed into an isolated Docker sandbox. Safe to give the Agent high privileges.</td></tr>
-<tr><td><b>🏠 Local-first · zero third-party hops</b></td><td>All data lives under <code>~/.hope-agent/</code>: config, sessions, memories, attachments, skills, logs — all local SQLite / files. API keys hit model providers directly. In daemon mode, Bearer token auth plus three-tier SSRF policies keep remote access controllable.</td></tr>
-<tr><td><b>🛟 Automatic config snapshots · one-click rollback</b></td><td>Every config write auto-snapshots to <code>backups/autosave/</code>, keeping the last 50. Even if the model's settings tool garbles your preferences, you can restore to any previous state.</td></tr>
-<tr><td><b>♻️ Crash self-healing · 3-layer keepalive</b></td><td>A parent–child Guardian process supervises the app and auto-restarts it with exponential backoff (1s → 3s → 9s → 15s → 30s) on unexpected exit; after 5 consecutive crashes it snapshots the config, runs an LLM self-diagnosis and attempts automatic remediation — crash history is browsable under <i>Settings → Crash History</i>. Once <code>server install</code> registers the daemon, launchd <code>KeepAlive</code> / systemd <code>Restart=on-failure</code> add an OS-level second layer — even if the Guardian itself is <code>kill -9</code>'d, the OS brings it back. Cron, IM channels and MCP connections each run their own watchdogs with auto-reconnect.</td></tr>
+<tr><td width="220"><b>🖱️ Computer and browser control</b></td><td>On macOS, granted permissions let Hope Agent observe and operate the desktop, windows, menus, keyboard, and pointer. The controllable browser includes a live mirror so you can see the pages the Agent is visiting and manipulating. Side effects share one approval flow.</td></tr>
+<tr><td><b>👥 Multiple agents and natural-language scheduling</b></td><td>Preset teams or dynamic sub-agents work in parallel and summarize results back to the main conversation. Natural-language schedules can run recurring work and deliver results to a chosen IM channel.</td></tr>
+<tr><td><b>📁 Project containers</b></td><td>Keep related sessions, project instructions, memory, and shared files together. Uploaded files are extracted automatically and exposed as a directory, inline context, or on-demand reads according to size.</td></tr>
+<tr><td><b>🔌 MCP and Hooks</b></td><td>The built-in MCP client covers major transports and OAuth 2.1. Hooks attach command / HTTP / MCP / prompt / agent handlers to 20+ lifecycle events, with layered configuration and hot reload.</td></tr>
+<tr><td><b>🔧 Toolbox and workspaces</b></td><td>Built-ins include AI image generation, web search, bash, file operations, Canvas, URL preview, and self-diagnosis. Deep Feishu / Lark integration adds 40+ tools across documents, bitable, drive, wiki, approvals, calendar, contacts, and recruiting.</td></tr>
+<tr><td><b>📊 Dashboard + Recap</b></td><td>Track cost, tokens, activity, health, Plans, and long-running work in one place. Recap reviews a period of conversation history, produces a multi-section report, and exports standalone HTML.</td></tr>
 </table>
 
-> For the full list of built-in features, see [CHANGELOG.md](CHANGELOG.md).
+### 🌐 Desktop, service & cross-device
+
+<table>
+<tr><td width="220"><b>🖥️ Native GUI and model setup</b></td><td>macOS provides the complete desktop experience, while Linux and Windows support is currently experimental. The interface is multilingual, with broad provider coverage, a large preset model catalog, and automatic rotation across multiple API keys per provider.</td></tr>
+<tr><td><b>🦙 One-click local models</b></td><td>No account, API key, or terminal required. Pick a model that fits your hardware and Hope Agent handles Ollama installation, model download, provider registration, and switching; local embedding models use the same flow.</td></tr>
+<tr><td><b>🤝 IM channels and session handoff</b></td><td>Connect Telegram, Discord, Slack, Feishu, and other popular IM channels. Images, voice, and files become multimodal context; sessions hand off between desktop, browser, and IM, and active responses can live-mirror into chat apps.</td></tr>
+<tr><td><b>🌐 Standalone service and multiple run modes</b></td><td><code>hope-agent server</code> stays online on a NAS, home server, or cloud VM with a full embedded Web GUI. <code>hope-agent acp</code> serves as an Agent backend for IDEs. Every entry point shares the same core, sessions, memory, and configuration.</td></tr>
+</table>
+
+### 🛡 Security & reliability
+
+<table>
+<tr><td width="220"><b>🔒 Tool approval + Docker sandbox</b></td><td>Sensitive tool calls enter a unified approval flow. High-risk commands and file writes can run inside a Docker sandbox to reduce the blast radius of privileged mistakes.</td></tr>
+<tr><td><b>🏠 Local-first · zero third-party hops</b></td><td>Configuration, sessions, memory, attachments, skills, and logs live under <code>~/.hope-agent/</code> by default, while API keys connect directly to model providers. Daemon mode adds Bearer token authentication and SSRF protection policies.</td></tr>
+<tr><td><b>🛟 Rollback, recovery, and keepalive</b></td><td>Configuration changes create local snapshots for one-click rollback. Guardian, system services, and subsystem watchdogs provide restart, diagnosis, and reconnection so long-running work recovers in an observable way.</td></tr>
+</table>
+
+> For the complete version history, see [CHANGELOG.md](CHANGELOG.md). Implementation details live under [docs/architecture/](docs/architecture/).
 
 ## Quick Start
 
@@ -146,7 +154,7 @@ Native builds for both Apple Silicon (arm64) and Intel (x64); Homebrew and manua
 ##### Launch modes
 
 - **Desktop GUI**: Launchpad / Applications folder (click the Hope Agent icon), or `open -a "Hope Agent"` / `hope-agent` from a terminal
-- **Headless server (HTTP/WS daemon)**: `hope-agent server start`
+- **Browser Web GUI**: open <http://127.0.0.1:8420> after launching the desktop app, or run `hope-agent server start` to start only the service without a desktop window
 - **ACP (IDE integration)**: `hope-agent acp`
 
 #### Windows
@@ -169,7 +177,7 @@ x64 only.
 ##### Launch modes
 
 - **Desktop GUI**: click "Hope Agent" in the Start menu, or `hope-agent` from PowerShell
-- **Headless server (HTTP/WS daemon)**: `hope-agent server start` (PowerShell / cmd)
+- **Browser Web GUI**: open <http://127.0.0.1:8420> after launching the desktop app, or run `hope-agent server start` in PowerShell / cmd to start only the service without a desktop window
 - **ACP (IDE integration)**: `hope-agent acp`
 
 #### Linux
@@ -223,7 +231,7 @@ Both amd64 (x86_64) and arm64 (aarch64) native builds are published, covering de
 ##### Launch modes
 
 - **Desktop GUI**: click "Hope Agent" in your app menu, or `hope-agent` from a terminal
-- **Headless server (HTTP/WS daemon)**: `hope-agent server start`
+- **Browser Web GUI**: open <http://127.0.0.1:8420> after launching the desktop app, or run `hope-agent server start` to start only the service without a desktop window
 - **ACP (IDE integration)**: `hope-agent acp`
 
 #### First launch & auto-update
@@ -231,6 +239,8 @@ Both amd64 (x86_64) and arm64 (aarch64) native builds are published, covering de
 1. First launch wizard: **pick a provider template → paste API key / sign in with Codex OAuth → chat.**
 2. Desktop builds ship with the GitHub Releases auto-updater. Go to **Settings → About** in-app to check for and install updates, or just tell the model "upgrade" / "check for updates" in chat.
 3. Versions installed via Homebrew / AUR / Scoop also receive updates through the built-in updater; the package manager's recorded version stays pinned to the initial install version and does not affect functionality.
+
+> To connect from a phone or another computer, set an API key under **Settings → Server** and change the bind address to `0.0.0.0:8420`. After restarting, open `http://<IP of the device running Hope Agent>:8420`. Never expose the port to a LAN or the public internet without authentication; for public access, put it behind an HTTPS reverse proxy. See the [Docker deployment guide](docs/deployment/docker.en.md).
 
 ### Self-hosting (Docker)
 
@@ -280,7 +290,7 @@ All three modes share the same `ha-core` core. Config, sessions, and memories li
 <tr>
   <td width="140"><b>📦 Model providers</b></td>
   <td>
-    <b>44 templates · 335 preset models</b><br/>
+    <b>40+ templates · 300+ preset models</b><br/>
     <b>International</b> · Anthropic · OpenAI · Codex · GitHub Copilot · Google Gemini · OpenRouter · Azure OpenAI · Groq · Together AI · Fireworks · Novita · Perplexity · xAI Grok · Mistral · Cohere<br/>
     <b>China</b> · DeepSeek · Moonshot (Kimi) · Qwen · Doubao (Volcengine) · Z.AI (GLM) · MiniMax · Xiaomi MiMo<br/>
     <b>Local</b> · Ollama · any OpenAI-compatible endpoint
@@ -288,11 +298,11 @@ All three modes share the same `ha-core` core. Config, sessions, and memories li
 </tr>
 <tr>
   <td><b>💬 IM channels</b></td>
-  <td><b>12</b> · Telegram · Discord · Slack · Feishu · Google Chat · LINE · QQ Bot · Signal · iMessage · IRC · WeChat · WhatsApp</td>
+  <td><b>10+</b> · Telegram · Discord · Slack · Feishu · Google Chat · LINE · QQ Bot · Signal · iMessage · IRC · WeChat · WhatsApp</td>
 </tr>
 <tr>
   <td><b>🌐 UI languages</b></td>
-  <td><b>12</b> · Simplified Chinese · Traditional Chinese · English · Japanese · Korean · Spanish · Portuguese · Russian · Arabic · Turkish · Vietnamese · Malay</td>
+  <td><b>10+</b> · Simplified Chinese · Traditional Chinese · English · Japanese · Korean · Spanish · Portuguese · Russian · Arabic · Turkish · Vietnamese · Malay</td>
 </tr>
 </table>
 
@@ -337,7 +347,6 @@ node scripts/sync-i18n.mjs --check   # i18n completeness check
 
 ## Acknowledgements
 
-- [openclaw](https://github.com/openclaw/openclaw) — inspiration in the local AI assistant space
 - [Ollama](https://ollama.com/) — the one-click local LLM experience is built on top of Ollama's local runtime and its OpenAI-compatible endpoint; Hope Agent only wraps the GUI layer, while Qwen / Gemma and other models are distributed through the Ollama model library
 - [ClawHub](https://www.clawhub.com/) / [SkillHub](https://skillhub.cn/) — public skill discovery sources for Hope Agent
 - [Tauri](https://tauri.app/), [axum](https://github.com/tokio-rs/axum), [React](https://react.dev/), [shadcn/ui](https://ui.shadcn.com/), [Streamdown](https://github.com/streamdown/streamdown), [Radix UI](https://www.radix-ui.com/), and the rest of the open source stack Hope Agent stands on
