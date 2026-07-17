@@ -331,6 +331,41 @@ mod tests {
         );
     }
 
+    /// 包月端点（Ollama cloud）与本机推理同属 `Some(0.0)`，代理网关（LiteLLM）属 `None`。
+    ///
+    /// 这条区分极易改反——`:cloud` 后缀看着像"云端付费"，实则走 ollama.com 包月订阅、
+    /// 按 GPU 时长计费，一个 token 单价都不存在；标 `None` 会回退估算表，把 `glm-5.2:cloud`
+    /// 按 `glm-5` 臂的直连单价给包月用户报出一笔不存在的账。反过来 LiteLLM 的占位符虽和
+    /// vLLM / LM Studio / SGLang 的逐字相同，但它是代理、上游可以是任意付费模型，标 0
+    /// 就成了"确定免费"。判据是**计费模式**，不是模型 id 长什么样。
+    #[test]
+    fn subscription_endpoints_are_free_but_proxy_placeholders_are_unpriced() {
+        // 前提：估算表确实会给这两个 id 报价，否则本测试测不出区别。
+        assert!(estimate_cost("glm-5.2:cloud", 1_000_000, 0) > 0.0);
+        assert!(estimate_cost("your-model-id", 1_000_000, 0) > 0.0);
+
+        let guard = replace_config_cache(config_with(
+            "ollama",
+            vec![model("glm-5.2:cloud", Some(0.0), Some(0.0))],
+        ));
+        assert_eq!(
+            resolve_cost(Some("ollama"), "glm-5.2:cloud", 1_000_000, 1_000_000),
+            0.0,
+            "包月端点不按 token 计费，必须如实记 $0 而非回退估算表"
+        );
+        // guard 持全局互斥锁，shadowing 不提前 drop——不显式释放，下一次 replace 自我死锁。
+        drop(guard);
+
+        let _guard = replace_config_cache(config_with(
+            "litellm",
+            vec![model("your-model-id", None, None)],
+        ));
+        assert!(
+            resolve_cost(Some("litellm"), "your-model-id", 1_000_000, 1_000_000) > 0.0,
+            "代理网关单价未知，必须回退估算表而非报 $0"
+        );
+    }
+
     /// 只标了一侧价（另一侧留空）仍视为已标价，缺的一侧按 0 计，不整条回退。
     #[test]
     fn half_priced_model_does_not_fall_back() {

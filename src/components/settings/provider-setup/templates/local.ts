@@ -19,8 +19,10 @@ export const localTemplates: ProviderTemplate[] = [
         contextWindow: 128000,
         maxTokens: 8192,
         reasoning: false,
-        costInput: 0,
-        costOutput: 0,
+        // LiteLLM 是代理网关，可路由到任意付费上游——单价取决于用户接的是谁，故未标价
+        // 而非免费（vLLM / LM Studio / SGLang 是本机推理，占位符标 0 才对）。
+        costInput: null,
+        costOutput: null,
       },
     ],
   },
@@ -34,6 +36,9 @@ export const localTemplates: ProviderTemplate[] = [
     apiKeyPlaceholder: "（无需填写）",
     requiresApiKey: false,
     models: [
+      // 云端条目走 ollama.com 包月订阅（官方 pricing 按 GPU 时长计费、不按 token 数），
+      // 故与本机模型同样标 0 = 明确不按 token 计费。标 null 会回退估算表，按 glm-5 等
+      // 直连厂商单价给包月用户报出一笔不存在的账。
       {
         id: "glm-5.2:cloud",
         name: "GLM 5.2 (云端)",
@@ -41,8 +46,8 @@ export const localTemplates: ProviderTemplate[] = [
         contextWindow: 1000000,
         maxTokens: 8192,
         reasoning: true,
-        costInput: null,
-        costOutput: null,
+        costInput: 0,
+        costOutput: 0,
       },
       {
         id: "kimi-k2.5:cloud",
@@ -51,8 +56,8 @@ export const localTemplates: ProviderTemplate[] = [
         contextWindow: 128000,
         maxTokens: 8192,
         reasoning: true,
-        costInput: null,
-        costOutput: null,
+        costInput: 0,
+        costOutput: 0,
       },
       {
         id: "minimax-m2.7:cloud",
@@ -61,8 +66,8 @@ export const localTemplates: ProviderTemplate[] = [
         contextWindow: 128000,
         maxTokens: 8192,
         reasoning: true,
-        costInput: null,
-        costOutput: null,
+        costInput: 0,
+        costOutput: 0,
       },
       {
         id: "glm-5.1:cloud",
@@ -71,8 +76,8 @@ export const localTemplates: ProviderTemplate[] = [
         contextWindow: 128000,
         maxTokens: 8192,
         reasoning: true,
-        costInput: null,
-        costOutput: null,
+        costInput: 0,
+        costOutput: 0,
       },
       {
         id: "glm-4.7-flash",
