@@ -1078,7 +1078,12 @@ fn apply_external_memory_providers_patch(
             .find(|provider| provider.id == provider_patch.id)
         {
             if let Some(kind) = provider_patch.kind {
-                existing.kind = kind;
+                if existing.kind != kind {
+                    bail!(
+                        "external memory provider '{}' kind is immutable; remove it with `removeProviderIds` and add a new provider so credentials and sync state are cleared",
+                        provider_patch.id
+                    );
+                }
             }
             if let Some(display_name) = provider_patch.display_name {
                 existing.display_name = display_name;
@@ -1426,6 +1431,26 @@ mod tests {
 
         assert_eq!(updated.providers.len(), 1);
         assert_eq!(updated.providers[0].id, "provider-a");
+    }
+
+    #[test]
+    fn existing_provider_kind_change_requires_remove_and_readd() {
+        let current = ExternalMemoryProvidersConfig {
+            enabled: true,
+            providers: vec![test_provider("provider-a")],
+        };
+        let patch: ExternalMemoryProvidersPatch = serde_json::from_value(serde_json::json!({
+            "providers": [{
+                "id": "provider-a",
+                "kind": "zep"
+            }]
+        }))
+        .unwrap();
+
+        let error = apply_external_memory_providers_patch(&current, patch).unwrap_err();
+
+        assert!(error.to_string().contains("kind is immutable"));
+        assert!(error.to_string().contains("removeProviderIds"));
     }
 
     #[test]
