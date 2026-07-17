@@ -37,11 +37,23 @@ vi.mock("@/components/chat/thinkingCache", () => ({
 }))
 
 const transportMock = vi.hoisted(() => ({ call: vi.fn() }))
+const localTauriTransportMock = vi.hoisted(() => ({ call: vi.fn() }))
 const switchToEmbeddedMock = vi.hoisted(() => vi.fn())
+const isTauriModeMock = vi.hoisted(() => vi.fn(() => false))
 
 vi.mock("@/lib/transport-provider", () => ({
   getTransport: () => transportMock,
   switchToEmbedded: switchToEmbeddedMock,
+}))
+
+vi.mock("@/lib/transport", () => ({
+  isTauriMode: isTauriModeMock,
+}))
+
+vi.mock("@/lib/transport-tauri", () => ({
+  TauriTransport: vi.fn(function MockTauriTransport() {
+    return localTauriTransportMock
+  }),
 }))
 
 if (!HTMLElement.prototype.hasPointerCapture) {
@@ -68,6 +80,7 @@ if (!HTMLElement.prototype.releasePointerCapture) {
 afterEach(() => {
   cleanup()
   vi.clearAllMocks()
+  isTauriModeMock.mockReturnValue(false)
   window.localStorage.clear()
 })
 
@@ -217,8 +230,9 @@ describe("SettingsResetControl", () => {
     expect(screen.getByRole("alertdialog")).toBeTruthy()
   })
 
-  it("switches to embedded transport after a successful server reset", async () => {
-    transportMock.call.mockResolvedValue({
+  it("resets local server config before switching a remote desktop client to embedded", async () => {
+    isTauriModeMock.mockReturnValue(true)
+    localTauriTransportMock.call.mockResolvedValue({
       scope: "server",
       changed: true,
       reindexStarted: false,
@@ -232,6 +246,29 @@ describe("SettingsResetControl", () => {
     await waitFor(() =>
       expect(switchToEmbeddedMock).toHaveBeenCalledWith({ dirtyConfirmed: true }),
     )
+    expect(localTauriTransportMock.call).toHaveBeenCalledWith("reset_settings_section", {
+      scope: "server",
+    })
+    expect(transportMock.call).not.toHaveBeenCalled()
+  })
+
+  it("resets server config through HTTP when running as a standalone web client", async () => {
+    transportMock.call.mockResolvedValue({
+      scope: "server",
+      changed: true,
+      reindexStarted: false,
+      warningCodes: [],
+    })
+    render(<SettingsResetControl section="server" sectionLabel="Server" onReset={vi.fn()} />)
+
+    openDialog()
+    confirmReset()
+
+    await waitFor(() => expect(switchToEmbeddedMock).toHaveBeenCalledTimes(1))
+    expect(transportMock.call).toHaveBeenCalledWith("reset_settings_section", {
+      scope: "server",
+    })
+    expect(localTauriTransportMock.call).not.toHaveBeenCalled()
   })
 
   it("synchronizes mounted chat preferences after a chat reset", async () => {

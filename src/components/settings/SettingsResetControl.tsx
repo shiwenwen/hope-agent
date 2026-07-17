@@ -28,7 +28,9 @@ import {
   normalizeAutoSendPendingPreference,
 } from "@/components/chat/autoSendPendingPreference"
 import { invalidateThinkingExpandCache } from "@/components/chat/thinkingCache"
+import { isTauriMode } from "@/lib/transport"
 import { getTransport, switchToEmbedded } from "@/lib/transport-provider"
+import { TauriTransport } from "@/lib/transport-tauri"
 import type { SettingsSection } from "./types"
 import {
   RESET_SCOPE_BY_SECTION,
@@ -132,7 +134,13 @@ export default function SettingsResetControl({
     if (resetting) return
     setResetting(true)
     try {
-      const result = await getTransport().call<SettingsResetResult>("reset_settings_section", {
+      // A desktop client may currently be connected to a remote HTTP server.
+      // Resetting the Server page must still update this app's embedded server
+      // config before the active connection switches back to it.
+      const resetTransport = scope === "server" && !resetSection && isTauriMode()
+        ? new TauriTransport()
+        : getTransport()
+      const result = await resetTransport.call<SettingsResetResult>("reset_settings_section", {
         scope,
         ...(resetSection ? { section: resetSection } : {}),
       })
