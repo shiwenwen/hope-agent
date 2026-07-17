@@ -552,6 +552,7 @@
     "pendingDiscard": "Cerrar cola",
     "pendingEdit": "Editar mensaje",
     "pendingInteractionHint": "Esperando tu respuesta",
+    "pendingCountdownTooltip": "Se resuelve automáticamente en {{time}}",
     "pendingInteractionInline": "Esperando respuesta · {{count}}",
     "pendingQueued": "Mensaje en cola, se enviará tras la respuesta...",
     "goalMode": {

@@ -552,6 +552,7 @@
     "pendingDiscard": "关闭排队",
     "pendingEdit": "编辑消息",
     "pendingInteractionHint": "等待您的回应",
+    "pendingCountdownTooltip": "{{time}} 后自动处理",
     "pendingInteractionInline": "等待回应 · {{count}} 项",
     "pendingQueued": "消息已排队，等待回复完成后发送…",
     "goalMode": {

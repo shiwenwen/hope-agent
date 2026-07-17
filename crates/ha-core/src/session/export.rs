@@ -432,6 +432,7 @@ mod tests {
             channel_unread_count: 0,
             has_error: false,
             pending_interaction_count: 0,
+            pending_countdown: None,
             is_cron: false,
             parent_session_id: None,
             forked_from_session_id: None,

@@ -1512,6 +1512,41 @@ impl SessionDB {
         Ok(out)
     }
 
+    /// Earliest not-yet-expired ask_user deadline per session, as
+    /// `(deadline_secs, created_secs)` of that same row — both epoch seconds.
+    /// Powers the sidebar countdown ring next to the pending badge. SQLite's
+    /// bare-column-with-MIN semantics guarantee `created_at` comes from the
+    /// row that supplied `MIN(timeout_at)`.
+    pub fn min_pending_ask_user_deadline_per_session(&self) -> Result<HashMap<String, (i64, i64)>> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let mut stmt = conn.prepare(
+            "SELECT session_id, MIN(timeout_at), CAST(strftime('%s', created_at) AS INTEGER)
+                FROM ask_user_questions
+               WHERE status = 'pending'
+                 AND timeout_at IS NOT NULL AND timeout_at > 0
+                 AND timeout_at > strftime('%s','now')
+               GROUP BY session_id",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, Option<i64>>(2)?,
+            ))
+        })?;
+        let mut out: HashMap<String, (i64, i64)> = HashMap::new();
+        for row in rows {
+            let (sid, deadline, created) = row?;
+            // A NULL created_at can't happen with the schema default; fall
+            // back to the deadline itself (yields total = 0 → clamped later).
+            out.insert(sid, (deadline, created.unwrap_or(deadline)));
+        }
+        Ok(out)
+    }
+
     /// Load still-pending ask_user_question groups for a single session.
     /// Used by the frontend to restore the question panel when switching back
     /// to a session that had unanswered questions.
@@ -1704,6 +1739,7 @@ impl SessionDB {
             channel_unread_count: 0,
             has_error: false,
             pending_interaction_count: 0,
+            pending_countdown: None,
             is_cron: false,
             parent_session_id: parent_session_id.map(|s| s.to_string()),
             forked_from_session_id: None,
@@ -2815,6 +2851,7 @@ impl SessionDB {
             // 0..26 positions above stable.
             channel_unread_count: row.get(27)?,
             pending_interaction_count: 0,
+            pending_countdown: None,
             has_error: row.get::<_, i64>(10).unwrap_or(0) != 0,
             is_cron: row.get::<_, i64>(11).unwrap_or(0) != 0,
             parent_session_id: row.get(12)?,
@@ -5769,6 +5806,64 @@ mod tests {
             rusqlite::params![updated_at, session_id],
         )
         .expect("update session timestamp");
+    }
+
+    /// Sidebar countdown source: only pending rows with a real, still-future
+    /// timeout participate; NULL / 0 / expired / answered rows are excluded.
+    /// The `created_at` in the result must come from the row that supplied
+    /// `MIN(timeout_at)` (SQLite bare-column-with-MIN semantics).
+    #[test]
+    fn min_pending_ask_user_deadline_filters_and_picks_min_row() {
+        let db_path = temp_db_path("ask-user-min-deadline");
+        let db = SessionDB::open(&db_path).expect("open session db");
+        let s1 = db
+            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .expect("create s1")
+            .id;
+        let s2 = db
+            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .expect("create s2")
+            .id;
+        let now = chrono::Utc::now().timestamp();
+        {
+            let conn = db.conn.lock().expect("lock connection");
+            let insert = |rid: &str,
+                              sid: &str,
+                              status: &str,
+                              timeout_at: Option<i64>,
+                              created_offset_secs: i64| {
+                conn.execute(
+                    "INSERT INTO ask_user_questions
+                        (request_id, session_id, payload, status, timeout_at, created_at)
+                     VALUES (?1, ?2, '{}', ?3, ?4, datetime('now', ?5 || ' seconds'))",
+                    rusqlite::params![rid, sid, status, timeout_at, created_offset_secs],
+                )
+                .expect("insert ask_user row");
+            };
+            // s1: two future deadlines → min row (and ITS created_at) wins.
+            insert("r-later", &s1, "pending", Some(now + 600), -30);
+            insert("r-min", &s1, "pending", Some(now + 120), -60);
+            // s1: rows that must not participate in the deadline.
+            insert("r-null", &s1, "pending", None, -10);
+            insert("r-zero", &s1, "pending", Some(0), -10);
+            insert("r-expired", &s1, "pending", Some(now - 5), -300);
+            insert("r-answered", &s1, "answered", Some(now + 30), -10);
+            // s2: nothing eligible → absent from the map entirely.
+            insert("r-s2-null", &s2, "pending", None, -10);
+        }
+
+        let map = db
+            .min_pending_ask_user_deadline_per_session()
+            .expect("query min deadlines");
+        let (deadline, created) = map.get(&s1).copied().expect("s1 present");
+        assert_eq!(deadline, now + 120);
+        // created_at belongs to r-min (~60s ago), not r-later (~30s ago).
+        let created_age = now - created;
+        assert!(
+            (55..=65).contains(&created_age),
+            "created_at should come from the min row (age {created_age}s)"
+        );
+        assert!(!map.contains_key(&s2), "no eligible rows → no entry");
     }
 
     #[test]

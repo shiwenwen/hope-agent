@@ -552,6 +552,7 @@
     "pendingDiscard": "Закрыть очередь",
     "pendingEdit": "Редактировать сообщение",
     "pendingInteractionHint": "Ожидание вашего ответа",
+    "pendingCountdownTooltip": "Автоматическая обработка через {{time}}",
     "pendingInteractionInline": "Ожидание ответа · {{count}}",
     "pendingQueued": "Сообщение в очереди, будет отправлено после ответа...",
     "goalMode": {

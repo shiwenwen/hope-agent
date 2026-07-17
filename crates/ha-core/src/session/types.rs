@@ -176,6 +176,21 @@ impl SessionKind {
     }
 }
 
+/// Countdown metadata for the sidebar pending-interaction badge: the earliest
+/// deadline among a session's pending approvals / ask_user groups that have a
+/// timeout configured. Durations are normalized to milliseconds here so the
+/// frontend never deals with the approval(ms) vs ask_user(s) unit split.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PendingCountdown {
+    /// Earliest auto-resolve instant (server wall clock, epoch ms).
+    pub deadline_at_ms: i64,
+    /// Full timeout span of that same request (>= 1), for progress ratio.
+    pub total_ms: i64,
+    /// Server wall clock at enrich time, for client clock-skew correction.
+    pub server_now_ms: i64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionMeta {
@@ -222,6 +237,12 @@ pub struct SessionMeta {
     /// Populated at the command/route layer, not in `list_sessions_paged`.
     #[serde(default)]
     pub pending_interaction_count: i64,
+    /// Earliest auto-resolve deadline among this session's pending
+    /// interactions that carry a timeout. `None` when no pending interaction
+    /// has a timeout configured. Populated alongside
+    /// `pending_interaction_count` at the command/route layer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pending_countdown: Option<PendingCountdown>,
     pub is_cron: bool,
     /// If this session was created by a sub-agent spawn, stores the parent session ID.
     pub parent_session_id: Option<String>,
@@ -715,6 +736,7 @@ mod tests {
             channel_unread_count: 0,
             has_error: false,
             pending_interaction_count: 0,
+            pending_countdown: None,
             is_cron: false,
             parent_session_id: None,
             forked_from_session_id: None,

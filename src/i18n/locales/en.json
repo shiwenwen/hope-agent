@@ -552,6 +552,7 @@
     "pendingDiscard": "Close queue",
     "pendingEdit": "Edit message",
     "pendingInteractionHint": "Waiting for your response",
+    "pendingCountdownTooltip": "Auto-resolves in {{time}}",
     "pendingInteractionInline": "Waiting for response · {{count}}",
     "pendingQueued": "Message queued, will send after reply...",
     "goalMode": {

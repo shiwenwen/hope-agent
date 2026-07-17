@@ -552,6 +552,7 @@
     "pendingDiscard": "Đóng hàng đợi",
     "pendingEdit": "Sửa tin nhắn",
     "pendingInteractionHint": "Đang chờ phản hồi của bạn",
+    "pendingCountdownTooltip": "Tự động xử lý sau {{time}}",
     "pendingInteractionInline": "Đang chờ phản hồi · {{count}}",
     "pendingQueued": "Tin nhắn đã xếp hàng, sẽ gửi sau khi trả lời xong...",
     "goalMode": {

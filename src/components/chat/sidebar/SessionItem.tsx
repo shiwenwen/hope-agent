@@ -39,6 +39,7 @@ import type { SessionMeta, AgentSummaryForSidebar } from "@/types/chat"
 import type { ProjectMeta } from "@/types/project"
 import ChannelIcon from "@/components/common/ChannelIcon"
 import { INCOGNITO_BADGE_ICON_CLASSES } from "@/components/chat/input/incognitoStyles"
+import PendingCountdownRing from "./PendingCountdownRing"
 import type { SidebarDisplayMode } from "./types"
 
 interface SessionItemProps {
@@ -112,6 +113,9 @@ export default function SessionItem({
 
   const pendingInteractionCount = session.pendingInteractionCount ?? 0
   const hasPending = !isActive && !session.channelInfo && pendingInteractionCount > 0
+  // Countdown ring next to the badge — only when a pending interaction has a
+  // timeout configured; timeout-free pendings keep the plain badge.
+  const pendingCountdown = hasPending ? (session.pendingCountdown ?? null) : null
   // Both counts share the single-source rules in `@/lib/unread`. Passing the
   // session's own id as the active id when `isActive` makes them read as 0 for
   // the open session (so the badges and the "mark as read" menu agree without a
@@ -329,6 +333,7 @@ export default function SessionItem({
                       className="inline-flex h-2.5 w-2.5 rounded-full bg-sky-500"
                     />
                   )}
+                  {pendingCountdown && <PendingCountdownRing countdown={pendingCountdown} />}
                   {hasPending && (
                     <IconTip
                       label={t("chat.pendingInteractionInline", {
@@ -395,7 +400,11 @@ export default function SessionItem({
                   </>
                 ) : hasPending ? (
                   <span className="flex items-center gap-1 text-amber-500 font-medium">
-                    <BellRing className="h-3 w-3 shrink-0" />
+                    {pendingCountdown ? (
+                      <PendingCountdownRing countdown={pendingCountdown} />
+                    ) : (
+                      <BellRing className="h-3 w-3 shrink-0" />
+                    )}
                     <span className="truncate">
                       {t("chat.pendingInteractionInline", {
                         count: pendingInteractionCount,

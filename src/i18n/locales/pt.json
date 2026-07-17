@@ -552,6 +552,7 @@
     "pendingDiscard": "Fechar fila",
     "pendingEdit": "Editar mensagem",
     "pendingInteractionHint": "Aguardando sua resposta",
+    "pendingCountdownTooltip": "Resolve-se automaticamente em {{time}}",
     "pendingInteractionInline": "Aguardando resposta · {{count}}",
     "pendingQueued": "Mensagem em fila, será enviada após a resposta...",
     "goalMode": {
