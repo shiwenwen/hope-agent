@@ -23,6 +23,7 @@ import {
   knowledgeMaintenanceSettingsErrorToast,
   type KnowledgeMaintenanceSettingsErrorToast,
 } from "./knowledgeMaintenanceSettingsFeedback"
+import SettingsResetControl from "./SettingsResetControl"
 
 const TASK_KEYS: Array<keyof MaintenanceTasks> = [
   "autoLink",
@@ -159,24 +160,33 @@ export default function KnowledgeMaintenanceSection() {
 
   return (
     <div className="rounded-lg border border-border/60 bg-card/40">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-center gap-2 px-4 py-3 text-left"
-      >
-        <Wand2 className="h-4 w-4 text-primary" />
-        <span className="text-sm font-medium">
-          {t("settings.knowledgeMaintenance.title", "Autonomous maintenance")}
-        </span>
-        {cfg?.enabled && (
-          <span className="rounded-full bg-primary/10 px-1.5 text-[10px] text-primary">
-            {t("common.on", "On")}
+      <div className="flex items-center gap-2 pr-4">
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          className="flex min-w-0 flex-1 items-center gap-2 px-4 py-3 text-left"
+        >
+          <Wand2 className="h-4 w-4 text-primary" />
+          <span className="text-sm font-medium">
+            {t("settings.knowledgeMaintenance.title", "Autonomous maintenance")}
           </span>
-        )}
-        <ChevronDown
-          className={cn("ml-auto h-4 w-4 text-muted-foreground transition-transform", open && "rotate-180")}
+          {cfg?.enabled && (
+            <span className="rounded-full bg-primary/10 px-1.5 text-[10px] text-primary">
+              {t("common.on", "On")}
+            </span>
+          )}
+          <ChevronDown
+            className={cn("ml-auto h-4 w-4 text-muted-foreground transition-transform", open && "rotate-180")}
+          />
+        </button>
+        <SettingsResetControl
+          scope="knowledge"
+          resetSection="maintenance"
+          sectionLabel={t("settings.knowledgeMaintenance.title", "Autonomous maintenance")}
+          level="region"
+          onReset={reload}
         />
-      </button>
+      </div>
 
       <AnimatedCollapse open={open}>
         <div className="space-y-4 border-t border-border/60 px-4 py-3">

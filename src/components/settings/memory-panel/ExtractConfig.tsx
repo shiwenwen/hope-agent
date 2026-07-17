@@ -22,6 +22,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import type { useMemoryData } from "./useMemoryData"
+import SettingsResetControl from "../SettingsResetControl"
 
 type MemoryData = ReturnType<typeof useMemoryData>
 
@@ -70,7 +71,7 @@ export default function ExtractConfig({ data, isAgentMode }: ExtractConfigProps)
   return (
     <>
       <div className="rounded-lg bg-secondary/30 mb-4 shrink-0">
-        <div className="flex items-center justify-between px-3 py-2">
+        <div className="flex items-center justify-between gap-3 px-3 py-2">
           <div className="flex-1 min-w-0">
             <div className="text-sm font-medium flex items-center gap-1.5">
               {t("settings.memoryLearningMode")}
@@ -86,6 +87,15 @@ export default function ExtractConfig({ data, isAgentMode }: ExtractConfigProps)
               {t("settings.memoryLearningModeDesc")}
             </div>
           </div>
+          {!isAgentMode && (
+            <SettingsResetControl
+              scope="memory"
+              resetSection="extract"
+              sectionLabel={t("settings.memoryLearningMode")}
+              level="region"
+              onReset={data.reloadExtractConfig}
+            />
+          )}
         </div>
         <div className="flex flex-wrap items-center gap-1.5 border-t border-border/30 px-3 py-2">
           <RadioPills<MemoryLearningChoice>

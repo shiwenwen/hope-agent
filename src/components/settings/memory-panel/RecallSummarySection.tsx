@@ -7,6 +7,7 @@ import { DeferredNumberInput } from "@/components/ui/deferred-number-input"
 import { ModelChainEditor, type ModelChainRef } from "@/components/ui/model-chain-editor"
 import type { AvailableModel } from "@/components/ui/model-selector"
 import { cn } from "@/lib/utils"
+import SettingsResetControl from "../SettingsResetControl"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 
@@ -108,21 +109,30 @@ export default function RecallSummarySection() {
 
   return (
     <div className="mt-6 mb-4 pt-4 border-t border-border/50">
-      <Button
-        variant="ghost"
-        size="sm"
-        onClick={() => setExpanded(!expanded)}
-        className="h-auto -ml-2 gap-1 px-2 py-1 text-sm font-medium text-muted-foreground hover:bg-transparent hover:text-foreground"
-      >
-        <ChevronRight className={cn("h-3.5 w-3.5 transition-transform", expanded && "rotate-90")} />
-        <Sparkles className="h-3.5 w-3.5 mr-0.5" />
-        {t("settings.recallSummary.title", "Recall summarization")}
-        {config.enabled && (
-          <span className="rounded-full bg-primary/10 px-1.5 text-[10px] text-primary">
-            {t("common.on", "On")}
-          </span>
-        )}
-      </Button>
+      <div className="flex items-center justify-between gap-3">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => setExpanded(!expanded)}
+          className="h-auto -ml-2 gap-1 px-2 py-1 text-sm font-medium text-muted-foreground hover:bg-transparent hover:text-foreground"
+        >
+          <ChevronRight className={cn("h-3.5 w-3.5 transition-transform", expanded && "rotate-90")} />
+          <Sparkles className="h-3.5 w-3.5 mr-0.5" />
+          {t("settings.recallSummary.title", "Recall summarization")}
+          {config.enabled && (
+            <span className="rounded-full bg-primary/10 px-1.5 text-[10px] text-primary">
+              {t("common.on", "On")}
+            </span>
+          )}
+        </Button>
+        <SettingsResetControl
+          scope="memory"
+          resetSection="recall_summary"
+          sectionLabel={t("settings.recallSummary.title", "Recall summarization")}
+          level="region"
+          onReset={load}
+        />
+      </div>
 
       {expanded && (
         <div className="mt-3 space-y-4">

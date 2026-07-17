@@ -3598,6 +3598,18 @@
     }
   },
   "settings": {
+    "resetDefaultsPageAction": "このページをデフォルトに戻す",
+    "resetDefaultsTabAction": "現在のタブをデフォルトに戻す",
+    "resetDefaultsRegionAction": "このセクションをデフォルトに戻す",
+    "resetDefaultsAlreadyDefault": "「{{section}}」はすでにデフォルト設定です",
+    "resetDefaultsTitle": "「{{section}}」をデフォルトに戻しますか？",
+    "resetDefaultsDescription": "「{{section}}」をこのバージョンのデフォルトに直ちに戻します。未保存の変更は破棄されます。",
+    "resetDefaultsPreserve": "Provider、認証情報、メモリ、ナレッジベース、タスク、成果物は削除されません。",
+    "resetDefaultsKnowledgeWarning": "ナレッジ設定を戻すと、バックグラウンドでインデックス再構築が始まる場合があります。",
+    "resetDefaultsSuccess": "「{{section}}」をデフォルトに戻しました",
+    "resetDefaultsFailed": "「{{section}}」をデフォルトに戻せませんでした",
+    "resetDefaultsReindexStarted": "ナレッジ設定を保存し、バックグラウンドでインデックスを再構築しています。",
+    "resetDefaultsWarning": "設定は復元されましたが、一部の実行時操作が完了しませんでした。後でもう一度お試しください。",
     "about": "概要",
     "acpAutoDiscover": "バックエンドを自動検出",
     "acpAutoDiscoverDesc": "起動時に既知の ACP Agent バイナリを $PATH からスキャン",

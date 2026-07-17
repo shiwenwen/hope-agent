@@ -79,6 +79,22 @@ describe("enhanced focus indicator preference", () => {
     off()
   })
 
+  test.each([
+    "settings_reset.general",
+    "settings_reset.general.appearance",
+  ])("reloads after the general settings category %s is reset", async (category) => {
+    const mock = mockTransport(true)
+    setTransport(mock.transport)
+    const onChange = vi.fn()
+    const off = listenEnhancedFocusIndicators(onChange)
+
+    mock.emit("config:changed", { category })
+    await vi.waitFor(() => expect(onChange).toHaveBeenCalledWith(true))
+
+    expect(document.documentElement.dataset.focusIndicators).toBe("enhanced")
+    off()
+  })
+
   test("falls back instead of blocking rendering when the backend stalls", async () => {
     vi.useFakeTimers()
     setTransport({

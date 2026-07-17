@@ -112,7 +112,11 @@ function AppBackgroundInner() {
     const unlistenConfig = getTransport().listen("config:changed", (raw) => {
       try {
         const payload = parsePayload<{ category?: string }>(raw)
-        if (payload?.category === "ui_effects") {
+        if (
+          payload?.category === "ui_effects" ||
+          payload?.category === "settings_reset.general" ||
+          payload?.category === "settings_reset.general.appearance"
+        ) {
           loadData()
         }
       } catch { /* ignore */ }

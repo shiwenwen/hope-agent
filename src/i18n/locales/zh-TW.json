@@ -3598,6 +3598,18 @@
     }
   },
   "settings": {
+    "resetDefaultsPageAction": "還原本頁預設值",
+    "resetDefaultsTabAction": "還原目前分頁",
+    "resetDefaultsRegionAction": "還原此區域",
+    "resetDefaultsAlreadyDefault": "「{{section}}」已是預設設定",
+    "resetDefaultsTitle": "還原「{{section}}」的預設設定？",
+    "resetDefaultsDescription": "將立即把「{{section}}」還原為目前版本的預設值，未儲存的修改會遺失。",
+    "resetDefaultsPreserve": "Provider、憑證以及相關的記憶、知識庫、任務和產物不會被刪除。",
+    "resetDefaultsKnowledgeWarning": "還原知識設定可能會啟動背景索引重建。",
+    "resetDefaultsSuccess": "「{{section}}」已還原為預設設定",
+    "resetDefaultsFailed": "無法還原「{{section}}」的預設設定",
+    "resetDefaultsReindexStarted": "知識設定已儲存，索引正在背景重建。",
+    "resetDefaultsWarning": "設定已還原，但部分執行階段操作未完成，可稍後重試。",
     "about": "關於",
     "acpAutoDiscover": "自動發現後端",
     "acpAutoDiscoverDesc": "啟動時自動掃描 $PATH 中已知的 ACP Agent 二進位制",

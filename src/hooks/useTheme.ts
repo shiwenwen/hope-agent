@@ -56,7 +56,11 @@ export function listenThemeConfigChange(onChange?: (mode: ThemeMode) => void): (
   return getTransport().listen("config:changed", (raw) => {
     try {
       const payload = parsePayload<{ category?: string }>(raw)
-      if (payload?.category === "theme") {
+      if (
+        payload?.category === "theme" ||
+        payload?.category === "settings_reset.general" ||
+        payload?.category === "settings_reset.general.appearance"
+      ) {
         getTransport().call<string>("get_theme").then((stored) => {
           const mode = normalizeTheme(stored)
           onChange?.(mode)

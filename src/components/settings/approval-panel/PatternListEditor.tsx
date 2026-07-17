@@ -1,11 +1,12 @@
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
-import { Plus, RotateCcw, Trash2, Loader2 } from "lucide-react"
+import { Plus, Trash2, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
+import SettingsResetControl from "../SettingsResetControl"
 
 /**
  * One of the three pattern-list kinds. Each maps to the standard
@@ -34,18 +35,11 @@ export default function PatternListEditor({
 }: PatternListEditorProps) {
   const { t } = useTranslation()
   const [patterns, setPatterns] = useState<string[]>([])
-  const [defaults, setDefaults] = useState<string[]>([])
   const [draft, setDraft] = useState("")
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const getCmd = `get_${kind}`
   const setCmd = `set_${kind}`
-  const resetCmd = `reset_${kind}`
-
-  const isPristine = useMemo(() => {
-    if (patterns.length !== defaults.length) return false
-    return patterns.every((p, i) => p === defaults[i])
-  }, [patterns, defaults])
 
   useEffect(() => {
     let cancelled = false
@@ -54,7 +48,6 @@ export default function PatternListEditor({
       .then((p) => {
         if (cancelled) return
         setPatterns(p.current)
-        setDefaults(p.defaults)
       })
       .catch((e) => logger.error("settings", "approvalPanel", `${getCmd} failed`, e))
       .finally(() => {
@@ -94,20 +87,6 @@ export default function PatternListEditor({
     await persist(next)
   }
 
-  const restoreDefaults = async () => {
-    setBusy(true)
-    try {
-      const next = await getTransport().call<string[]>(resetCmd)
-      setPatterns(next)
-      toast.success(t("settings.approvalPanel.restoredDefaults"))
-    } catch (e) {
-      logger.error("settings", "approvalPanel", `${resetCmd} failed`, e)
-      toast.error(t("common.saveFailed"))
-    } finally {
-      setBusy(false)
-    }
-  }
-
   return (
     <section className="rounded-lg border border-border/50 bg-card/40 p-4">
       <header className="flex items-start justify-between gap-3 mb-3">
@@ -115,16 +94,17 @@ export default function PatternListEditor({
           <h3 className="text-sm font-medium text-foreground">{title}</h3>
           <p className="text-xs text-muted-foreground mt-0.5">{description}</p>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={restoreDefaults}
-          disabled={busy || isPristine}
-          className="shrink-0 h-7 text-xs"
-        >
-          <RotateCcw className="h-3 w-3 mr-1" />
-          {t("settings.approvalPanel.restoreDefaults")}
-        </Button>
+        <SettingsResetControl
+          scope="approval"
+          resetSection={kind}
+          sectionLabel={title}
+          level="region"
+          disabled={busy || loading}
+          onReset={async () => {
+            const payload = await getTransport().call<ListPayload>(getCmd)
+            setPatterns(payload.current)
+          }}
+        />
       </header>
 
       <div className="flex gap-2 mb-3">

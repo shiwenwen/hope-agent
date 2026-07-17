@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { Check, Loader2, RotateCcw } from "lucide-react"
+import { Check, Loader2 } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
@@ -15,10 +15,11 @@ import {
   MIN_KNOWLEDGE_URL_RESPONSE_MB,
   useKnowledgeSourceLimits,
 } from "@/lib/knowledgeSourceLimits"
+import SettingsResetControl from "./SettingsResetControl"
 
 export default function KnowledgeSourceLimitsSection() {
   const { t } = useTranslation()
-  const { config: loaded, save: saveLimits } = useKnowledgeSourceLimits()
+  const { config: loaded, refresh, save: saveLimits } = useKnowledgeSourceLimits()
   const [draft, setDraft] = useState(DEFAULT_KNOWLEDGE_SOURCE_LIMITS)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -42,11 +43,20 @@ export default function KnowledgeSourceLimitsSection() {
 
   return (
     <section className="rounded-lg border border-border bg-card">
-      <div className="px-4 py-3">
-        <div className="text-sm font-medium">{t("settings.knowledgeSourceLimits.title")}</div>
-        <p className="mt-0.5 text-xs text-muted-foreground">
-          {t("settings.knowledgeSourceLimits.description")}
-        </p>
+      <div className="flex items-start justify-between gap-3 px-4 py-3">
+        <div>
+          <div className="text-sm font-medium">{t("settings.knowledgeSourceLimits.title")}</div>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            {t("settings.knowledgeSourceLimits.description")}
+          </p>
+        </div>
+        <SettingsResetControl
+          scope="knowledge"
+          resetSection="source_limits"
+          sectionLabel={t("settings.knowledgeSourceLimits.title")}
+          level="region"
+          onReset={refresh}
+        />
       </div>
       <div className="grid gap-3 border-t border-border px-4 py-3 md:grid-cols-3">
         <LimitInput
@@ -72,15 +82,6 @@ export default function KnowledgeSourceLimitsSection() {
         />
       </div>
       <div className="flex justify-end gap-2 border-t border-border px-4 py-3">
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => setDraft(DEFAULT_KNOWLEDGE_SOURCE_LIMITS)}
-          disabled={saving}
-        >
-          <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
-          {t("common.restoreDefaults", "Restore defaults")}
-        </Button>
         <Button size="sm" disabled={!dirty || saving} onClick={() => void save()}>
           {saving ? (
             <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />

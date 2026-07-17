@@ -692,6 +692,7 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   // -- User config --
   get_user_config: { method: "GET", path: "/api/config/user" },
   save_user_config: { method: "PUT", path: "/api/config/user" },
+  reset_settings_section: { method: "POST", path: "/api/config/reset-section" },
   get_default_agent_id: { method: "GET", path: "/api/config/default-agent" },
   set_default_agent_id: { method: "PUT", path: "/api/config/default-agent" },
 

@@ -12,6 +12,7 @@ import DreamingPanel from "./DreamingPanel"
 import ClaimsBetaView from "./ClaimsBetaView"
 import ProfileSnapshotView from "./ProfileSnapshotView"
 import MemoryOverviewView from "./MemoryOverviewView"
+import SettingsResetControl from "../SettingsResetControl"
 import {
   buildClaimFocusState,
   consumePendingMemoryFocus,
@@ -57,6 +58,7 @@ export default function MemoryPanel({ agentId, compact }: { agentId?: string; co
   const [memoryFocus, setMemoryFocus] = useState<MemoryFocus | null>(null)
   const [experienceFocus, setExperienceFocus] = useState<ExperienceFocus | null>(null)
   const [overviewFocus, setOverviewFocus] = useState<OverviewFocus | null>(null)
+  const [dreamingRevision, setDreamingRevision] = useState(0)
 
   const data = useMemoryData({ agentId, isAgentMode })
   const { setView } = data
@@ -153,21 +155,32 @@ export default function MemoryPanel({ agentId, compact }: { agentId?: string; co
       onValueChange={(value) => setTab(value as MemoryPanelTab)}
       className="flex-1 flex flex-col min-h-0"
     >
-      <div className="px-6 pt-2 shrink-0">
-        <TabsList>
-          <TabsTrigger value="overview">{t("settings.tabOverview")}</TabsTrigger>
-          <TabsTrigger value="settings">{t("settings.memoryTabs.settings")}</TabsTrigger>
-          <TabsTrigger value="manage">{t("settings.memoryTabs.manage")}</TabsTrigger>
-          {!isAgentMode && (
-            <TabsTrigger value="dreaming">{t("settings.memoryTabs.dreaming")}</TabsTrigger>
-          )}
-          {!isAgentMode && (
-            <TabsTrigger value="profile">{t("settings.memoryTabs.profile")}</TabsTrigger>
-          )}
-          {!isAgentMode && (
-            <TabsTrigger value="claims">{t("settings.memoryTabs.claims")}</TabsTrigger>
-          )}
-        </TabsList>
+      <div className="flex items-center gap-3 px-6 pt-2 shrink-0">
+        <div className="min-w-0 flex-1 overflow-x-auto">
+          <TabsList>
+            <TabsTrigger value="overview">{t("settings.tabOverview")}</TabsTrigger>
+            <TabsTrigger value="settings">{t("settings.memoryTabs.settings")}</TabsTrigger>
+            <TabsTrigger value="manage">{t("settings.memoryTabs.manage")}</TabsTrigger>
+            {!isAgentMode && (
+              <TabsTrigger value="dreaming">{t("settings.memoryTabs.dreaming")}</TabsTrigger>
+            )}
+            {!isAgentMode && (
+              <TabsTrigger value="profile">{t("settings.memoryTabs.profile")}</TabsTrigger>
+            )}
+            {!isAgentMode && (
+              <TabsTrigger value="claims">{t("settings.memoryTabs.claims")}</TabsTrigger>
+            )}
+          </TabsList>
+        </div>
+        {!isAgentMode && tab === "dreaming" && (
+          <SettingsResetControl
+            scope="memory"
+            resetSection="dreaming"
+            sectionLabel={t("settings.memoryTabs.dreaming")}
+            level="tab"
+            onReset={() => setDreamingRevision((value) => value + 1)}
+          />
+        )}
       </div>
 
       <TabsContent value="overview" className="flex-1 min-h-0 outline-none">
@@ -204,7 +217,7 @@ export default function MemoryPanel({ agentId, compact }: { agentId?: string; co
 
       {!isAgentMode && (
         <TabsContent value="dreaming" className="flex-1 min-h-0 outline-none">
-          <DreamingPanel />
+          <DreamingPanel key={dreamingRevision} />
         </TabsContent>
       )}
 

@@ -16,6 +16,7 @@ import {
   type MemoryAdvancedConfigOperation,
   type MemoryAdvancedConfigOperationErrorToast,
 } from "./memoryAdvancedConfigFeedback"
+import SettingsResetControl from "../SettingsResetControl"
 
 interface HybridSearchConfig { vectorWeight: number; textWeight: number; rrfK: number }
 interface MmrConfig { enabled: boolean; lambda: number }
@@ -27,9 +28,10 @@ type MemoryData = ReturnType<typeof useMemoryData>
 
 interface HybridSearchConfigProps {
   data: MemoryData
+  onReset: () => void | Promise<void>
 }
 
-export default function HybridSearchConfigSection({ data }: HybridSearchConfigProps) {
+export default function HybridSearchConfigSection({ data, onReset }: HybridSearchConfigProps) {
   const { t } = useTranslation()
   const { embeddingConfig, dedupConfig, setDedupConfig, dedupExpanded, setDedupExpanded } = data
 
@@ -104,6 +106,23 @@ export default function HybridSearchConfigSection({ data }: HybridSearchConfigPr
 
   return (
     <>
+      <div className="mt-6 flex items-center justify-between gap-3 border-t border-border/50 pt-4">
+        <div>
+          <div className="text-sm font-medium">
+            {t("settings.memorySearchTuning")}
+          </div>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            {t("settings.memorySearchTuningDesc")}
+          </p>
+        </div>
+        <SettingsResetControl
+          scope="memory"
+          resetSection="retrieval"
+          sectionLabel={t("settings.memorySearchTuning")}
+          level="region"
+          onReset={onReset}
+        />
+      </div>
       {advancedConfigLoadError && (
         <div className="mt-4 rounded border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs">
           <div className="font-medium text-foreground">{advancedConfigLoadError.title}</div>

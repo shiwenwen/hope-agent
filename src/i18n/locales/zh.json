@@ -3598,6 +3598,18 @@
     }
   },
   "settings": {
+    "resetDefaultsPageAction": "恢复本页默认值",
+    "resetDefaultsTabAction": "恢复当前页签",
+    "resetDefaultsRegionAction": "恢复此区域",
+    "resetDefaultsAlreadyDefault": "“{{section}}”已经是默认设置",
+    "resetDefaultsTitle": "恢复“{{section}}”的默认设置？",
+    "resetDefaultsDescription": "将立即把“{{section}}”恢复到当前版本的默认值，未保存的修改会丢失。",
+    "resetDefaultsPreserve": "Provider、凭据以及关联的记忆、知识库、任务和产物不会被删除。",
+    "resetDefaultsKnowledgeWarning": "恢复知识设置可能会启动后台索引重建。",
+    "resetDefaultsSuccess": "“{{section}}”已恢复默认设置",
+    "resetDefaultsFailed": "恢复“{{section}}”默认设置失败",
+    "resetDefaultsReindexStarted": "知识设置已保存，索引正在后台重建。",
+    "resetDefaultsWarning": "设置已恢复，但部分运行时操作未完成，可稍后重试。",
     "about": "关于",
     "acpAutoDiscover": "自动发现后端",
     "acpAutoDiscoverDesc": "启动时自动扫描 $PATH 中已知的 ACP Agent 二进制",

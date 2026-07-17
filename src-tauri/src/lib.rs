@@ -577,6 +577,7 @@ pub fn run() {
             // User config
             commands::config::get_user_config,
             commands::config::save_user_config,
+            commands::config::reset_settings_section,
             commands::config::save_avatar,
             commands::config::get_system_timezone,
             // Tool timeout

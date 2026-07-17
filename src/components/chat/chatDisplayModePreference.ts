@@ -29,3 +29,14 @@ export function writeChatDisplayModePreference(
     )
   }
 }
+
+/** Clear the client-side override and notify mounted chat surfaces of the fallback mode. */
+export function resetChatDisplayModePreference(): ChatDisplayMode {
+  if (typeof window === "undefined") return readChatDisplayModePreference()
+  window.localStorage.removeItem(CHAT_DISPLAY_MODE_STORAGE_KEY)
+  const mode = readChatDisplayModePreference()
+  window.dispatchEvent(
+    new CustomEvent(CHAT_DISPLAY_MODE_EVENT, { detail: { mode } }),
+  )
+  return mode
+}

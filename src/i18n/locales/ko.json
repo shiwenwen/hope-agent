@@ -3598,6 +3598,18 @@
     }
   },
   "settings": {
+    "resetDefaultsPageAction": "이 페이지 기본값 복원",
+    "resetDefaultsTabAction": "현재 탭 기본값 복원",
+    "resetDefaultsRegionAction": "이 영역 기본값 복원",
+    "resetDefaultsAlreadyDefault": "‘{{section}}’ 설정은 이미 기본값입니다",
+    "resetDefaultsTitle": "‘{{section}}’ 설정을 기본값으로 복원할까요?",
+    "resetDefaultsDescription": "‘{{section}}’ 설정을 현재 버전의 기본값으로 즉시 복원합니다. 저장하지 않은 변경 사항은 사라집니다.",
+    "resetDefaultsPreserve": "Provider, 자격 증명, 메모리, 지식 베이스, 작업 및 결과물은 삭제되지 않습니다.",
+    "resetDefaultsKnowledgeWarning": "지식 설정을 복원하면 백그라운드 인덱스 재구축이 시작될 수 있습니다.",
+    "resetDefaultsSuccess": "‘{{section}}’ 설정을 기본값으로 복원했습니다",
+    "resetDefaultsFailed": "‘{{section}}’ 기본 설정을 복원하지 못했습니다",
+    "resetDefaultsReindexStarted": "지식 설정을 저장했으며 백그라운드에서 인덱스를 재구축하고 있습니다.",
+    "resetDefaultsWarning": "설정은 복원되었지만 일부 런타임 작업이 완료되지 않았습니다. 나중에 다시 시도하세요.",
     "about": "정보",
     "acpAutoDiscover": "백엔드 자동 검색",
     "acpAutoDiscoverDesc": "시작 시 알려진 ACP Agent 바이너리를 $PATH 에서 검색",

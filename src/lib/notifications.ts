@@ -41,7 +41,11 @@ export function listenNotificationConfigChange(): () => void {
   return getTransport().listen("config:changed", (raw) => {
     try {
       const payload = parsePayload<{ category?: string }>(raw)
-      if (payload?.category === "notification") {
+      if (
+        payload?.category === "notification" ||
+        payload?.category === "settings_reset.notifications" ||
+        payload?.category === "settings_reset.notifications.global"
+      ) {
         loadNotificationConfig().catch(() => {})
       }
     } catch {

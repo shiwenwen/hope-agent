@@ -58,6 +58,10 @@ import {
   nextDispatchablePending,
   shouldApplyPendingQueueSnapshot,
 } from "./pendingQueue"
+import {
+  AUTO_SEND_PENDING_EVENT,
+  normalizeAutoSendPendingPreference,
+} from "../autoSendPendingPreference"
 
 const ACTIVE_STREAM_ERROR_CODE = "active_stream"
 const QUEUED_MESSAGE_UNAVAILABLE_ERROR_CODE = "queued_message_unavailable"
@@ -1022,10 +1026,20 @@ export function useChatStream({
     getTransport()
       .call<{ autoSendPending?: boolean }>("get_user_config")
       .then((cfg) => {
-        autoSendPendingRef.current = cfg.autoSendPending !== false
+        autoSendPendingRef.current = normalizeAutoSendPendingPreference(cfg.autoSendPending)
       })
       .catch(() => {})
     loadNotificationConfig().catch(() => {})
+
+    const handleAutoSendPendingChange = (event: Event) => {
+      autoSendPendingRef.current = normalizeAutoSendPendingPreference(
+        (event as CustomEvent).detail?.enabled,
+      )
+    }
+    window.addEventListener(AUTO_SEND_PENDING_EVENT, handleAutoSendPendingChange)
+    return () => {
+      window.removeEventListener(AUTO_SEND_PENDING_EVENT, handleAutoSendPendingChange)
+    }
   }, [])
 
   async function handleStop() {

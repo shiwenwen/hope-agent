@@ -28,6 +28,54 @@ pub async fn set_default_agent_id(agent_id: Option<String>) -> Result<(), CmdErr
 }
 
 #[tauri::command]
+pub async fn reset_settings_section(
+    app: tauri::AppHandle,
+    scope: ha_core::settings_reset::SettingsResetScope,
+    section: Option<String>,
+) -> Result<ha_core::settings_reset::SettingsResetResult, CmdError> {
+    let section_for_reset = section.clone();
+    let mut result = ha_core::blocking::run_blocking(move || {
+        ha_core::settings_reset::reset_settings_section(
+            scope,
+            section_for_reset.as_deref(),
+            "settings-ui",
+        )
+    })
+    .await?;
+
+    if scope == ha_core::settings_reset::SettingsResetScope::Browser {
+        ha_core::browser::reset_backend().await;
+    }
+
+    if scope == ha_core::settings_reset::SettingsResetScope::General
+        && section.as_deref().is_none_or(|value| value == "system")
+    {
+        use tauri_plugin_autostart::ManagerExt;
+        let autostart_was_enabled = app.autolaunch().is_enabled().ok();
+        if let Err(error) = app.autolaunch().disable() {
+            ha_core::app_warn!(
+                "settings",
+                "reset",
+                "general defaults saved but autostart could not be disabled: {}",
+                error
+            );
+            result
+                .warning_codes
+                .push("autostart_disable_failed".to_string());
+        } else if autostart_was_enabled == Some(true) {
+            result.changed = true;
+        }
+        if !apply_shortcut_registration(&app, &ha_core::config::ShortcutConfig::default()) {
+            result
+                .warning_codes
+                .push("shortcut_registration_failed".to_string());
+        }
+    }
+
+    Ok(result)
+}
+
+#[tauri::command]
 pub async fn get_web_search_config() -> Result<tools::web_search::WebSearchConfig, CmdError> {
     let store = ha_core::config::load_config()?;
     let mut config = store.web_search;
@@ -428,6 +476,48 @@ pub async fn get_shortcut_config() -> Result<ha_core::config::ShortcutConfig, Cm
     Ok(store.shortcuts)
 }
 
+fn apply_shortcut_registration(
+    app: &tauri::AppHandle,
+    config: &ha_core::config::ShortcutConfig,
+) -> bool {
+    crate::shortcuts::clear_chord_state();
+
+    use tauri_plugin_global_shortcut::GlobalShortcutExt;
+    let manager = app.global_shortcut();
+    let mut success = manager.unregister_all().is_ok();
+
+    for binding in &config.bindings {
+        if !binding.enabled || binding.keys.is_empty() {
+            continue;
+        }
+        let key_to_register = if binding.is_chord() {
+            binding.chord_parts()[0].to_string()
+        } else {
+            binding.keys.clone()
+        };
+        if let Ok(shortcut) = key_to_register.parse::<tauri_plugin_global_shortcut::Shortcut>() {
+            if let Err(e) = manager.register(shortcut) {
+                success = false;
+                if let Some(logger) = crate::get_logger() {
+                    logger.log(
+                        "warn",
+                        "shortcut",
+                        "apply_shortcut_registration",
+                        &format!(
+                            "Failed to register shortcut '{}' ({}): {}",
+                            binding.id, key_to_register, e
+                        ),
+                        None,
+                        None,
+                        None,
+                    );
+                }
+            }
+        }
+    }
+    success
+}
+
 #[tauri::command]
 pub async fn save_shortcut_config(
     app: tauri::AppHandle,
@@ -458,44 +548,7 @@ pub async fn save_shortcut_config(
     })
     .await?;
 
-    // Clear any pending chord state
-    crate::shortcuts::clear_chord_state();
-
-    // Re-register global shortcuts (chord-aware)
-    use tauri_plugin_global_shortcut::GlobalShortcutExt;
-    let manager = app.global_shortcut();
-    let _ = manager.unregister_all();
-
-    for binding in &config.bindings {
-        if !binding.enabled || binding.keys.is_empty() {
-            continue;
-        }
-        // For chord bindings, only register the first part;
-        // second part is registered temporarily when first part is pressed.
-        let key_to_register = if binding.is_chord() {
-            binding.chord_parts()[0].to_string()
-        } else {
-            binding.keys.clone()
-        };
-        if let Ok(shortcut) = key_to_register.parse::<tauri_plugin_global_shortcut::Shortcut>() {
-            if let Err(e) = manager.register(shortcut) {
-                if let Some(logger) = crate::get_logger() {
-                    logger.log(
-                        "warn",
-                        "shortcut",
-                        "save_shortcut_config",
-                        &format!(
-                            "Failed to register shortcut '{}' ({}): {}",
-                            binding.id, key_to_register, e
-                        ),
-                        None,
-                        None,
-                        None,
-                    );
-                }
-            }
-        }
-    }
+    let _ = apply_shortcut_registration(&app, &config);
 
     Ok(())
 }

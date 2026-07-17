@@ -173,7 +173,11 @@ export function listenLanguageConfigChange(): () => void {
   return getTransport().listen("config:changed", (raw) => {
     try {
       const payload = parsePayload<{ category?: string }>(raw)
-      if (payload?.category === "language") {
+      if (
+        payload?.category === "language" ||
+        payload?.category === "settings_reset.general" ||
+        payload?.category === "settings_reset.general.appearance"
+      ) {
         initLanguageFromConfig()
       }
     } catch { /* ignore */ }

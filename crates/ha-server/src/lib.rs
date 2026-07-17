@@ -1245,6 +1245,10 @@ fn build_router_with_cors(
         .route("/config/user", get(routes::config::get_user_config))
         .route("/config/user", put(routes::config::save_user_config))
         .route(
+            "/config/reset-section",
+            post(routes::config::reset_settings_section),
+        )
+        .route(
             "/config/default-agent",
             get(routes::config::get_default_agent_id),
         )

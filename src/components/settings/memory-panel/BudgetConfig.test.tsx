@@ -40,6 +40,7 @@ vi.mock("react-i18next", () => ({
 vi.mock("sonner", () => ({
   toast: {
     error: vi.fn(),
+    success: vi.fn(),
   },
 }))
 
@@ -178,20 +179,24 @@ describe("BudgetConfig", () => {
     expect(loadCalls).toBe(2)
   })
 
-  it("saves the two budget sections sequentially after a full reset", async () => {
+  it("persists a budget section reset through the shared reset service", async () => {
     const initialRuntime = structuredClone(runtimeConfig)
     initialRuntime.core.totalTokens = 1700
-    const saveOrder: string[] = []
-    transportMock.call.mockImplementation(async (command: string, args?: { config?: unknown }) => {
+    let budgetLoads = 0
+    transportMock.call.mockImplementation(async (command: string) => {
       if (command === "get_memory_runtime_config") return initialRuntime
-      if (command === "get_memory_budget_config") return legacyBudgetConfig
-      if (command === "save_memory_runtime_config") {
-        saveOrder.push(command)
-        return args?.config
+      if (command === "get_memory_budget_config") {
+        budgetLoads += 1
+        return legacyBudgetConfig
       }
-      if (command === "save_memory_budget_config") {
-        saveOrder.push(command)
-        return { saved: true }
+      if (command === "reset_settings_section") {
+        return {
+          scope: "memory",
+          section: "budget",
+          changed: true,
+          reindexStarted: false,
+          warningCodes: [],
+        }
       }
       return null
     })
@@ -200,14 +205,23 @@ describe("BudgetConfig", () => {
     fireEvent.click(screen.getByRole("button", { name: /settings\.memoryBudget\.title/ }))
     await screen.findByText("settings.memoryBudget.engine.totalTokens")
 
-    fireEvent.click(
-      screen.getByRole("button", { name: "settings.memoryBudget.resetToDefaults" }),
-    )
-    fireEvent.click(screen.getByRole("button", { name: "common.save" }))
+    fireEvent.click(screen.getByRole("button", { name: "恢复此区域" }))
+    fireEvent.click(screen.getByRole("button", { name: "common.restoreDefaults" }))
 
-    await waitFor(() => expect(saveOrder).toEqual([
+    await waitFor(() => {
+      expect(transportMock.call).toHaveBeenCalledWith("reset_settings_section", {
+        scope: "memory",
+        section: "budget",
+      })
+      expect(budgetLoads).toBe(2)
+    })
+    expect(transportMock.call).not.toHaveBeenCalledWith(
       "save_memory_runtime_config",
+      expect.anything(),
+    )
+    expect(transportMock.call).not.toHaveBeenCalledWith(
       "save_memory_budget_config",
-    ]))
+      expect.anything(),
+    )
   })
 })

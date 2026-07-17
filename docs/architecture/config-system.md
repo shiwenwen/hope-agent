@@ -118,10 +118,58 @@ flowchart LR
 
 `mutate_config` 内部调用 `backup::scope_save_reason` 传入 `(category, source)`，作为当次备份的 tag——所以备份面板上能看到 "theme/settings-ui" / "image_generate/settings-ui" / "active_model/slash-channel" 这样的人类可读标签，而不是一排 "unknown/unknown"。
 
+## 设置分区恢复默认
+
+设置页的“一键恢复默认”统一调用 [`settings_reset`](../../crates/ha-core/src/settings_reset.rs)。默认值只来自当前版本 Rust 类型的 `Default` 实现，前端不得复制默认常量，也不得通过清空整个 `config.json` 实现恢复。
+
+稳定 scope 与设置页一一对应：
+
+| scope | 页面 | 资源保留边界 |
+|---|---|---|
+| `general` | 通用 | 保留个人资料、天气、onboarding 和代理地址；代理模式回到系统默认 |
+| `tools` | 工具 | 保留 Search / 图片 / 音频 API Key、Base URL、GitHub Token 和已部署 SearXNG |
+| `memory` | 记忆设置 | 保留记忆、Claim、Profile、Procedure、审核记录、Embedding 模型库和外部 Provider 凭据 |
+| `knowledge` | 知识设置 | 保留知识库、绑定和笔记；切块或 Embedding 签名变化时启动后台重建 |
+| `design` | 设计 | 保留产物与 `last_model` 行为记忆 |
+| `chat` | 聊天 | 保留会话和消息 |
+| `cron` | 定时任务设置 | 保留任务与运行历史 |
+| `plan` | Plan | 保留 Plan 文件及自定义目录 |
+| `recap` | Recap | 保留历史报告 |
+| `server` | Server | 保留远程地址、远程凭据、embedded Token 和公开地址；模式回到 embedded |
+| `files` | 文件 | 保留 `allowRemoteWrites`，只恢复大小限制 |
+| `sandbox` | 沙箱 | 保留镜像、容器和运行时资源 |
+| `browser` | 浏览器 | 保留 Profile、扩展 ID 和运行时资源 |
+| `acp` | ACP | 保留 Backend、环境变量和凭据 |
+| `notifications` | 通知 | 保留 Agent 级覆盖 |
+| `approval` | 审批 | 同时恢复全局策略、protected paths、dangerous commands、edit commands |
+| `security` | 安全 | 关闭全局 YOLO，恢复 SSRF 策略，不改审批的其它策略 |
+| `logs` | 日志 | 只恢复日志策略并立即热更新 logger |
+
+明确不提供 scope 的页面包括全局模型、Provider、个人资料、Agent、团队、频道、技能、MCP、Hooks、语音、系统权限、健康、关于、更新历史和开发者工具。所有 reset scope 都不得修改 `providers`、`active_model`、`fallback_models`、`temperature`、`reasoning_effort` 或 `function_models`（视觉 / 自动化模型覆盖）。
+
+协议只有一套：Tauri 命令 `reset_settings_section({ scope, section? })` 与 HTTP `POST /api/config/reset-section` 都调用同一个 ha-core 服务，并统一返回 `{ scope, section?, changed, reindexStarted, warningCodes }`。省略 `section` 保持原有整页恢复语义；携带 `section` 时必须命中下表中的父子组合，未知值在写入前拒绝。整页结果省略 `section` 字段以保持旧客户端兼容。AppConfig 字段在一次 `mutate_config` mutation 中提交，因此沿用 autosave、`config:changed` 与热重载契约；所有恢复请求经同一进程级锁串行化，UserConfig / Approval 多文件操作会保存旧快照，后续 AppConfig 提交失败时回滚。Tauri 壳只额外同步桌面专属副作用（`general` 整页或 `general.system` 关闭开机启动、重注册全局快捷键），Server 成功后前端切换到 embedded transport。
+
+| 父 scope | 稳定 section |
+|---|---|
+| `general` | `appearance`, `system`, `network` |
+| `tools` | `general`, `web_search`, `web_fetch`, `image_generate`, `audio_generate`, `canvas`, `async_tools`, `issue_reporting` |
+| `chat` | `basic`, `awareness`, `context_compact` |
+| `security` | `dangerous`, `ssrf` |
+| `notifications` | `global`, `startup` |
+| `memory` | `extract`, `recall_summary`, `budget`, `retrieval`, `dreaming` |
+| `knowledge` | `compile`, `vision`, `note_tools`, `search`, `passive_recall`, `source_limits`, `media_retention`, `maintenance`, `sprite` |
+| `approval` | `protected_paths`, `edit_commands`, `dangerous_commands` |
+
+子区域恢复只覆盖安全配置字段：Memory / Knowledge 的 Embedding 选择和 Knowledge chunking 不提供 section，因此不会从子区域触发 reindex；`memory.budget` 保留 recall/deep-recall 的启用与用户同意字段，只恢复预算数值。前端整页、页签、区域按钮共享同一确认控件，成功只重载目标区域，失败不卸载当前草稿。
+
+恢复是“确认后立即持久化当前页”，成功后重挂载当前面板；失败时不重挂载，页面草稿继续保留。Knowledge 的重建和桌面副作用若无法启动，以稳定 `warningCodes` 返回，已经成功提交的默认设置不会伪装成失败。
+
 ## 迁移历史
 
 | 日期 | 改动 |
 |---|---|
+| 2026-07-17 | 新增 18 个分区级恢复默认 scope；统一 Rust `Default` 来源、资源保留边界及 Tauri / HTTP 双 Transport 契约。 |
+| 2026-07-17 | 为精选页面增加安全 section 恢复；明确父子白名单、局部刷新和不触发 Embedding / chunk 重建的边界。 |
 | 2026-04-20 | 删除 `AppState::config: Mutex<AppConfig>` 字段；所有 save 路径走 `mutate_config`；所有读路径走 `cached_config()`；`save_config` emit `config:changed`。彻底解决"UI 保存不生效、须重启 App"的 stale 类 bug。 |
 
 ## 反面样式

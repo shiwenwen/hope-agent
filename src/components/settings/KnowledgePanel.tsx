@@ -35,7 +35,6 @@ import type {
   NoteToolsConfig,
   PassiveRecallConfig,
 } from "@/types/knowledge"
-import { KNOWLEDGE_SEARCH_DEFAULTS } from "@/types/knowledge"
 import {
   isLocalModelJobActive,
   isLocalModelJobTerminal,
@@ -64,6 +63,7 @@ import {
   knowledgeSearchRankingOperationErrorToast,
   type KnowledgePanelOperationErrorToast,
 } from "./knowledgePanelFeedback"
+import SettingsResetControl from "./SettingsResetControl"
 
 
 const EMPTY_STATE: EmbeddingSelectionState = {
@@ -95,6 +95,15 @@ export default function KnowledgePanel() {
   const [models, setModels] = useState<EmbeddingModelConfig[]>([])
   const [activationOpen, setActivationOpen] = useState(false)
   const [loadError, setLoadError] = useState<KnowledgePanelOperationErrorToast | null>(null)
+  const [sectionRevisions, setSectionRevisions] = useState({
+    compile: 0,
+    vision: 0,
+    noteTools: 0,
+  })
+
+  const refreshSection = (section: keyof typeof sectionRevisions) => {
+    setSectionRevisions((current) => ({ ...current, [section]: current[section] + 1 }))
+  }
 
   const reload = useCallback(async () => {
     try {
@@ -214,11 +223,20 @@ export default function KnowledgePanel() {
         </p>
       </div>
 
-      <CompileAgentSection />
+      <CompileAgentSection
+        key={sectionRevisions.compile}
+        onReset={() => refreshSection("compile")}
+      />
 
-      <KnowledgeVisionSection />
+      <KnowledgeVisionSection
+        key={sectionRevisions.vision}
+        onReset={() => refreshSection("vision")}
+      />
 
-      <NoteToolsSection />
+      <NoteToolsSection
+        key={sectionRevisions.noteTools}
+        onReset={() => refreshSection("noteTools")}
+      />
 
       <div className="flex items-center justify-between rounded-lg bg-secondary/30 px-3 py-3">
         <div>
@@ -304,7 +322,7 @@ export default function KnowledgePanel() {
   )
 }
 
-function CompileAgentSection() {
+function CompileAgentSection({ onReset }: { onReset: () => void }) {
   const { t } = useTranslation()
   const [config, setConfig] = useState<KnowledgeCompileConfig>({ modelOverride: null })
   const [availableModels, setAvailableModels] = useState<AvailableModel[]>([])
@@ -398,11 +416,20 @@ function CompileAgentSection() {
 
   return (
     <div className="rounded-lg bg-secondary/30 px-3 py-3">
-      <div className="min-w-0 mb-2">
-        <div className="text-sm font-medium">{t("settings.knowledgeCompile.agent")}</div>
-        <div className="text-xs text-muted-foreground">
-          {t("settings.knowledgeCompile.agentDesc")}
+      <div className="mb-2 flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="text-sm font-medium">{t("settings.knowledgeCompile.agent")}</div>
+          <div className="text-xs text-muted-foreground">
+            {t("settings.knowledgeCompile.agentDesc")}
+          </div>
         </div>
+        <SettingsResetControl
+          scope="knowledge"
+          resetSection="compile"
+          sectionLabel={t("settings.knowledgeCompile.agent")}
+          level="region"
+          onReset={onReset}
+        />
       </div>
       <ModelChainEditor
         value={config.modelOverride ?? null}
@@ -435,7 +462,7 @@ function CompileAgentSection() {
   )
 }
 
-function KnowledgeVisionSection() {
+function KnowledgeVisionSection({ onReset }: { onReset: () => void }) {
   const { t } = useTranslation()
   const [config, setConfig] = useState<KnowledgeVisionConfig>(DEFAULT_KNOWLEDGE_VISION_CONFIG)
   const [availableModels, setAvailableModels] = useState<AvailableModel[]>([])
@@ -493,11 +520,20 @@ function KnowledgeVisionSection() {
 
   return (
     <div className="rounded-lg bg-secondary/30 px-3 py-3">
-      <div className="min-w-0 mb-2">
-        <div className="text-sm font-medium">{t("settings.knowledgeVision.model")}</div>
-        <div className="text-xs text-muted-foreground">
-          {t("settings.knowledgeVision.modelDesc")}
+      <div className="mb-2 flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="text-sm font-medium">{t("settings.knowledgeVision.model")}</div>
+          <div className="text-xs text-muted-foreground">
+            {t("settings.knowledgeVision.modelDesc")}
+          </div>
         </div>
+        <SettingsResetControl
+          scope="knowledge"
+          resetSection="vision"
+          sectionLabel={t("settings.knowledgeVision.model")}
+          level="region"
+          onReset={onReset}
+        />
       </div>
       <ModelChainEditor
         value={config.modelOverride ?? null}
@@ -535,7 +571,7 @@ function KnowledgeVisionSection() {
   )
 }
 
-function NoteToolsSection() {
+function NoteToolsSection({ onReset }: { onReset: () => void }) {
   const { t } = useTranslation()
   const [config, setConfig] = useState<NoteToolsConfig>({ modelOverride: null })
   const [availableModels, setAvailableModels] = useState<AvailableModel[]>([])
@@ -580,9 +616,18 @@ function NoteToolsSection() {
 
   return (
     <div className="rounded-lg bg-secondary/30 px-3 py-3">
-      <div className="min-w-0 mb-2">
-        <div className="text-sm font-medium">{t("settings.noteTools.title")}</div>
-        <div className="text-xs text-muted-foreground">{t("settings.noteTools.desc")}</div>
+      <div className="mb-2 flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="text-sm font-medium">{t("settings.noteTools.title")}</div>
+          <div className="text-xs text-muted-foreground">{t("settings.noteTools.desc")}</div>
+        </div>
+        <SettingsResetControl
+          scope="knowledge"
+          resetSection="note_tools"
+          sectionLabel={t("settings.noteTools.title")}
+          level="region"
+          onReset={onReset}
+        />
       </div>
       <ModelChainEditor
         value={config.modelOverride ?? null}
@@ -883,16 +928,25 @@ function PassiveRecallSection() {
             )}
           </div>
         </div>
-        <Switch
-          checked={enabled}
-          onCheckedChange={(v) => {
-            // Optimistically flip in the draft; persist the LAST-SAVED knobs + new
-            // `enabled` so toggling the master switch never silently commits the
-            // user's unsaved knob edits (those stay pending behind the Save button).
-            setDraft({ ...draft, enabled: v })
-            void persist({ ...loaded, enabled: v }, false)
-          }}
-        />
+        <div className="flex items-center gap-2">
+          <SettingsResetControl
+            scope="knowledge"
+            resetSection="passive_recall"
+            sectionLabel={t("settings.knowledgePassiveRecall.title", "Passive related notes")}
+            level="region"
+            onReset={reload}
+          />
+          <Switch
+            checked={enabled}
+            onCheckedChange={(v) => {
+              // Optimistically flip in the draft; persist the LAST-SAVED knobs + new
+              // `enabled` so toggling the master switch never silently commits the
+              // user's unsaved knob edits (those stay pending behind the Save button).
+              setDraft({ ...draft, enabled: v })
+              void persist({ ...loaded, enabled: v }, false)
+            }}
+          />
+        </div>
       </div>
 
       <AnimatedCollapse open={enabled}>
@@ -1125,13 +1179,22 @@ function MediaRetentionSection() {
             )}
           </div>
         </div>
-        <Switch
-          checked={enabled}
-          onCheckedChange={(v) => {
-            setDraft({ ...draft, enabled: v })
-            void persist({ ...loaded, enabled: v }, false)
-          }}
-        />
+        <div className="flex items-center gap-2">
+          <SettingsResetControl
+            scope="knowledge"
+            resetSection="media_retention"
+            sectionLabel={t("settings.knowledgeMediaRetention.title", "Original media retention")}
+            level="region"
+            onReset={reload}
+          />
+          <Switch
+            checked={enabled}
+            onCheckedChange={(v) => {
+              setDraft({ ...draft, enabled: v })
+              void persist({ ...loaded, enabled: v }, false)
+            }}
+          />
+        </div>
       </div>
 
       <AnimatedCollapse open={enabled}>
@@ -1531,17 +1594,26 @@ function SearchRankingSection() {
 
   return (
     <div className="rounded-lg border border-border bg-card">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-center justify-between px-4 py-3"
-      >
-        <span className="flex items-center gap-2 text-sm font-medium">
-          <Settings2 className="h-4 w-4 text-muted-foreground" />
-          {t("settings.knowledgeSearch.title", "Advanced · search ranking")}
-        </span>
-        <ChevronDown className={cn("h-4 w-4 transition-transform", open && "rotate-180")} />
-      </button>
+      <div className="flex items-center gap-2 pr-4">
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          className="flex min-w-0 flex-1 items-center justify-between px-4 py-3"
+        >
+          <span className="flex items-center gap-2 text-sm font-medium">
+            <Settings2 className="h-4 w-4 text-muted-foreground" />
+            {t("settings.knowledgeSearch.title", "Advanced · search ranking")}
+          </span>
+          <ChevronDown className={cn("h-4 w-4 transition-transform", open && "rotate-180")} />
+        </button>
+        <SettingsResetControl
+          scope="knowledge"
+          resetSection="search"
+          sectionLabel={t("settings.knowledgeSearch.title", "Advanced · search ranking")}
+          level="region"
+          onReset={reload}
+        />
+      </div>
       <AnimatedCollapse open={open}>
         <div className="space-y-3 border-t border-border px-4 py-3">
           <p className="text-xs text-muted-foreground">
@@ -1625,16 +1697,7 @@ function SearchRankingSection() {
             </div>
           )}
 
-          <div className="flex items-center justify-between border-t border-border pt-3">
-            <Button
-              variant="ghost"
-              size="sm"
-              disabled={saving || !draft}
-              onClick={() => void persist(KNOWLEDGE_SEARCH_DEFAULTS, "restore")}
-            >
-              <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
-              {t("settings.knowledgeSearch.restore", "Restore defaults")}
-            </Button>
+          <div className="flex items-center justify-end border-t border-border pt-3">
             <Button
               size="sm"
               disabled={!dirty || !parsed || saving}

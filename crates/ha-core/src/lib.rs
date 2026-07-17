@@ -103,6 +103,7 @@ pub mod server_status;
 pub mod service_install;
 pub mod session;
 pub mod session_title;
+pub mod settings_reset;
 pub mod skills;
 pub mod slash_commands;
 pub mod sprite;

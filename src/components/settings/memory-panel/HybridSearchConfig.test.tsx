@@ -75,7 +75,7 @@ describe("HybridSearchConfigSection", () => {
     }
 
     type SectionData = ComponentProps<typeof HybridSearchConfigSection>["data"]
-    render(<HybridSearchConfigSection data={data as unknown as SectionData} />)
+    render(<HybridSearchConfigSection data={data as unknown as SectionData} onReset={vi.fn()} />)
   }
 
   it("shows redacted advanced config load failure detail and lets the user retry", async () => {

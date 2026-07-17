@@ -24,6 +24,7 @@ import { AgentSelectDisplay } from "@/components/common/AgentSelectDisplay"
 import type { AgentConfig } from "./types"
 
 import type { AgentInfo as BaseAgentInfo } from "@/types/chat"
+import SettingsResetControl from "./SettingsResetControl"
 
 interface AgentInfo extends BaseAgentInfo {
   notifyOnComplete?: boolean | null
@@ -75,6 +76,14 @@ export default function NotificationPanel() {
   useEffect(() => {
     loadData()
   }, [loadData])
+
+  const reloadGlobal = useCallback(async () => {
+    setConfig(await loadNotificationConfig())
+  }, [])
+
+  const reloadStartup = useCallback(async () => {
+    setStartupConfig(await loadStartupNotificationConfig())
+  }, [])
 
   const handleGlobalToggle = async (enabled: boolean) => {
     if (!config) return
@@ -157,7 +166,16 @@ export default function NotificationPanel() {
             <h3 className="text-sm font-medium">{t("notification.globalToggle")}</h3>
             <p className="text-xs text-muted-foreground mt-0.5">{t("notification.globalDesc")}</p>
           </div>
-          <Switch checked={config.enabled} onCheckedChange={handleGlobalToggle} disabled={saving} />
+          <div className="flex items-center gap-2">
+            <SettingsResetControl
+              scope="notifications"
+              resetSection="global"
+              sectionLabel={t("notification.globalToggle")}
+              level="region"
+              onReset={reloadGlobal}
+            />
+            <Switch checked={config.enabled} onCheckedChange={handleGlobalToggle} disabled={saving} />
+          </div>
         </div>
         <div className="flex items-center justify-between">
           <div>
@@ -197,11 +215,20 @@ export default function NotificationPanel() {
               <h3 className="text-sm font-medium">{t("notification.startupToggle")}</h3>
               <p className="text-xs text-muted-foreground mt-0.5">{t("notification.startupDesc")}</p>
             </div>
-            <Switch
-              checked={startupConfig.enabled}
-              onCheckedChange={handleStartupToggle}
-              disabled={savingStartup}
-            />
+            <div className="flex items-center gap-2">
+              <SettingsResetControl
+                scope="notifications"
+                resetSection="startup"
+                sectionLabel={t("notification.startupToggle")}
+                level="region"
+                onReset={reloadStartup}
+              />
+              <Switch
+                checked={startupConfig.enabled}
+                onCheckedChange={handleStartupToggle}
+                disabled={savingStartup}
+              />
+            </div>
           </div>
         </div>
       )}

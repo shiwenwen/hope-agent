@@ -21,6 +21,7 @@ interface EmbeddingSettingsSectionProps {
 export default function EmbeddingSettingsSection({ data }: EmbeddingSettingsSectionProps) {
   const { t } = useTranslation()
   const [activationDialogOpen, setActivationDialogOpen] = useState(false)
+  const [retrievalRevision, setRetrievalRevision] = useState(0)
 
   const {
     embeddingModels,
@@ -110,7 +111,16 @@ export default function EmbeddingSettingsSection({ data }: EmbeddingSettingsSect
 
       <div className="space-y-4">
         <EmbeddingModelSection data={data} />
-        {memoryEmbeddingState.selection.enabled && <HybridSearchConfigSection data={data} />}
+        {memoryEmbeddingState.selection.enabled && (
+          <HybridSearchConfigSection
+            key={retrievalRevision}
+            data={data}
+            onReset={async () => {
+              await reloadEmbeddingConfig()
+              setRetrievalRevision((value) => value + 1)
+            }}
+          />
+        )}
         <ReembedJobCard data={data} />
       </div>
 

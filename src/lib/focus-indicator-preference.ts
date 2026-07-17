@@ -41,7 +41,12 @@ export function saveEnhancedFocusIndicators(enabled: boolean): Promise<unknown> 
 export function listenEnhancedFocusIndicators(onChange?: (enabled: boolean) => void): () => void {
   return getTransport().listen("config:changed", (raw) => {
     const payload = parsePayload<{ category?: string }>(raw)
-    if (payload?.category !== "focus_indicator" && payload?.category !== "app") return
+    if (
+      payload?.category !== "focus_indicator" &&
+      payload?.category !== "app" &&
+      payload?.category !== "settings_reset.general" &&
+      payload?.category !== "settings_reset.general.appearance"
+    ) return
     void loadEnhancedFocusIndicators().then(onChange)
   })
 }

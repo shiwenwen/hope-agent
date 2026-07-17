@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react"
+import { useCallback, useState, useEffect } from "react"
 import { useTranslation } from "react-i18next"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
@@ -98,9 +98,8 @@ export function useMemoryExtract({ agentId, isAgentMode }: UseMemoryExtractParam
   )
 
   // ── Load extract config (global + agent override) ──
-  useEffect(() => {
-    async function loadExtractConfig() {
-      try {
+  const loadExtractConfig = useCallback(async () => {
+    try {
         const global = await getTransport().call<{
           enabled?: boolean
           autoExtract: boolean
@@ -147,15 +146,17 @@ export function useMemoryExtract({ agentId, isAgentMode }: UseMemoryExtractParam
             .map((p) => ({ id: p.id, name: p.name, models: p.models.map((m) => ({ id: m.id, name: m.name })) }))
         )
         setExtractConfigError(null)
-      } catch (e) {
-        logger.error("settings", "MemoryPanel::loadExtractConfig", "Failed", e)
-        setExtractConfigError(memoryExtractOperationError("load", t, e))
-      } finally {
-        setExtractConfigLoaded(true)
-      }
+    } catch (e) {
+      logger.error("settings", "MemoryPanel::loadExtractConfig", "Failed", e)
+      setExtractConfigError(memoryExtractOperationError("load", t, e))
+    } finally {
+      setExtractConfigLoaded(true)
     }
-    loadExtractConfig()
   }, [isAgentMode, agentId, t])
+
+  useEffect(() => {
+    void loadExtractConfig()
+  }, [loadExtractConfig])
 
   // ── Save global extract config ──
   async function saveGlobalExtract(updates: Partial<typeof globalExtract>) {
@@ -345,6 +346,7 @@ export function useMemoryExtract({ agentId, isAgentMode }: UseMemoryExtractParam
     agentExtractOverride,
     extractConfigLoaded,
     extractConfigError,
+    reloadExtractConfig: loadExtractConfig,
     availableProviders,
     effectiveAutoExtract,
     effectiveProviderId,

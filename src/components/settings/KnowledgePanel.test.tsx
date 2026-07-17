@@ -288,9 +288,9 @@ describe("KnowledgePanel", () => {
     expect(screen.queryByText(/search-load-secret/)).toBeNull()
   })
 
-  it("shows a specific error when restoring knowledge search ranking defaults fails", async () => {
+  it("keeps the search draft when the shared reset request fails", async () => {
     transportMock.call.mockImplementation(async (command: string) => {
-      if (command === "knowledge_search_config_set_cmd") {
+      if (command === "reset_settings_section") {
         throw new Error("restore token=search-restore-secret")
       }
       return defaultKnowledgePanelCommandResponse(command)
@@ -304,19 +304,24 @@ describe("KnowledgePanel", () => {
     fireEvent.click(searchRankingToggle)
     fireEvent.click(
       await within(searchRankingToggle.parentElement as HTMLElement).findByRole("button", {
-        name: /Restore defaults/i,
+        name: /恢复此区域|Restore this section/i,
+      }),
+    )
+    fireEvent.click(
+      within(screen.getByRole("alertdialog")).getByRole("button", {
+        name: "common.restoreDefaults",
       }),
     )
 
     await waitFor(() =>
       expect(toastMock.error).toHaveBeenCalledWith(
-        "Failed to restore knowledge search ranking defaults",
+        "settings.resetDefaultsFailed",
         {
-          description: "Details: restore token=[redacted]",
+          description: "restore token=search-restore-secret",
         },
       ),
     )
-    expect(screen.queryByText(/search-restore-secret/)).toBeNull()
+    expect(screen.getByRole("alertdialog")).toBeTruthy()
   })
 
   it("shows original media retention load failures instead of hiding the section", async () => {

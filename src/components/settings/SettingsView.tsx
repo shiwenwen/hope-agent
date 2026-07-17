@@ -79,6 +79,7 @@ import ApprovalPanel from "@/components/settings/ApprovalPanel"
 import HooksPanel from "@/components/settings/HooksPanel"
 import BrowserPanel from "@/components/settings/BrowserPanel"
 import FileSettingsPanel from "@/components/settings/FileSettingsPanel"
+import SettingsResetControl from "@/components/settings/SettingsResetControl"
 import type { AgentTab } from "./agent-panel/types"
 import type { SettingsSection, SettingsSectionItem } from "./types"
 
@@ -288,6 +289,10 @@ export default function SettingsView({
   const [modelConfigTab, setModelConfigTab] = useState("providers")
   const [addingProvider, setAddingProvider] = useState(false)
   const [editingProvider, setEditingProvider] = useState<ProviderConfig | null>(null)
+  const [resetRevision, setResetRevision] = useState(0)
+  const activeSectionLabel = t(
+    SECTIONS.find((section) => section.id === activeSection)?.labelKey ?? "settings.title",
+  )
 
   useEffect(() => {
     const handleNavigate = (event: Event) => {
@@ -366,16 +371,24 @@ export default function SettingsView({
       {/* Right Content Panel */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         {/* Content Header + drag region */}
-        <div className="h-10 flex items-end px-6 shrink-0" data-tauri-drag-region>
+        <div
+          className="h-10 flex items-end justify-between gap-3 px-6 shrink-0"
+          data-tauri-drag-region
+        >
           <span className="text-sm font-semibold text-foreground pb-1.5">
-            {t(SECTIONS.find((s) => s.id === activeSection)?.labelKey ?? "settings.title")}
+            {activeSectionLabel}
           </span>
+          <SettingsResetControl
+            section={activeSection}
+            sectionLabel={activeSectionLabel}
+            onReset={() => setResetRevision((value) => value + 1)}
+          />
         </div>
 
         {/* Content Area */}
         <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
           <div
-            key={activeSection}
+            key={`${activeSection}:${resetRevision}`}
             className="flex-1 flex flex-col min-h-0 overflow-hidden animate-in fade-in-0 slide-in-from-right-1 duration-150"
           >
             {activeSection === "general" && <GeneralPanel />}

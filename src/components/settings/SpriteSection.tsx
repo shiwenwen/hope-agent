@@ -17,6 +17,7 @@ import {
   spriteSettingsErrorToast,
   type SpriteSettingsErrorToast,
 } from "./spriteSettingsFeedback"
+import SettingsResetControl from "./SettingsResetControl"
 
 const SENSE_KEYS: Array<keyof SpriteSenses> = [
   "doc",
@@ -206,25 +207,34 @@ export default function SpriteSection() {
 
   return (
     <div className="rounded-lg border border-border/60 bg-card/40">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-center gap-2 px-4 py-3 text-left"
-      >
-        <Cat className="h-4 w-4 text-primary" />
-        <span className="text-sm font-medium">{t("settings.sprite.title", "Sprite / inspiration mode")}</span>
-        {cfg?.enabled && (
-          <span className="rounded-full bg-primary/10 px-1.5 text-[10px] text-primary">
-            {t("common.on", "On")}
-          </span>
-        )}
-        <ChevronDown
-          className={cn(
-            "ml-auto h-4 w-4 text-muted-foreground transition-transform",
-            open && "rotate-180",
+      <div className="flex items-center gap-2 pr-4">
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          className="flex min-w-0 flex-1 items-center gap-2 px-4 py-3 text-left"
+        >
+          <Cat className="h-4 w-4 text-primary" />
+          <span className="text-sm font-medium">{t("settings.sprite.title", "Sprite / inspiration mode")}</span>
+          {cfg?.enabled && (
+            <span className="rounded-full bg-primary/10 px-1.5 text-[10px] text-primary">
+              {t("common.on", "On")}
+            </span>
           )}
+          <ChevronDown
+            className={cn(
+              "ml-auto h-4 w-4 text-muted-foreground transition-transform",
+              open && "rotate-180",
+            )}
+          />
+        </button>
+        <SettingsResetControl
+          scope="knowledge"
+          resetSection="sprite"
+          sectionLabel={t("settings.sprite.title", "Sprite / inspiration mode")}
+          level="region"
+          onReset={reload}
         />
-      </button>
+      </div>
 
       <AnimatedCollapse open={open}>
         <div className="space-y-4 border-t border-border/60 px-4 py-3">

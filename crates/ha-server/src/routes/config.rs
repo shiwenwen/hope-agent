@@ -27,6 +27,84 @@ pub struct CredentialsBody<T> {
     pub credentials: T,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResetSettingsSectionBody {
+    pub scope: String,
+    #[serde(default)]
+    pub section: Option<String>,
+}
+
+pub async fn reset_settings_section(
+    Json(body): Json<ResetSettingsSectionBody>,
+) -> Result<Json<ha_core::settings_reset::SettingsResetResult>, AppError> {
+    let scope = body
+        .scope
+        .parse::<ha_core::settings_reset::SettingsResetScope>()
+        .map_err(|error| AppError::bad_request(error.to_string()))?;
+    if let Some(section) = body.section.as_deref() {
+        ha_core::settings_reset::SettingsResetSection::parse(scope, section)
+            .map_err(|error| AppError::bad_request(error.to_string()))?;
+    }
+    let section = body.section;
+    let result = ha_core::blocking::run_blocking(move || {
+        ha_core::settings_reset::reset_settings_section(scope, section.as_deref(), "http")
+    })
+    .await?;
+    if scope == ha_core::settings_reset::SettingsResetScope::Browser {
+        ha_core::browser::reset_backend().await;
+    }
+    Ok(Json(result))
+}
+
+#[cfg(test)]
+mod reset_settings_section_tests {
+    use super::*;
+    use axum::http::StatusCode;
+    use serde_json::json;
+
+    #[test]
+    fn legacy_body_without_section_remains_valid() {
+        let body: ResetSettingsSectionBody = serde_json::from_value(json!({ "scope": "tools" }))
+            .expect("legacy reset body should deserialize");
+        assert_eq!(body.scope, "tools");
+        assert_eq!(body.section, None);
+    }
+
+    #[tokio::test]
+    async fn unknown_scope_is_a_bad_request() {
+        let result = reset_settings_section(Json(ResetSettingsSectionBody {
+            scope: "model_config".to_string(),
+            section: None,
+        }))
+        .await;
+
+        let error = match result {
+            Ok(_) => panic!("unknown scope should fail"),
+            Err(error) => error,
+        };
+        assert_eq!(error.status, StatusCode::BAD_REQUEST);
+        assert!(error.message.contains("unknown settings reset scope"));
+    }
+
+    #[tokio::test]
+    async fn unknown_or_mismatched_section_is_a_bad_request() {
+        for (scope, section) in [("tools", "appearance"), ("knowledge", "chunk")] {
+            let result = reset_settings_section(Json(ResetSettingsSectionBody {
+                scope: scope.to_string(),
+                section: Some(section.to_string()),
+            }))
+            .await;
+            let error = match result {
+                Ok(_) => panic!("invalid section should fail"),
+                Err(error) => error,
+            };
+            assert_eq!(error.status, StatusCode::BAD_REQUEST);
+            assert!(error.message.contains("unknown settings reset section"));
+        }
+    }
+}
+
 // ── User Config ─────────────────────────────────────────────────
 
 /// `GET /api/config/user` -- get user config.

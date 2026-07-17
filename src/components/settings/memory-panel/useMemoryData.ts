@@ -1122,6 +1122,7 @@ export function useMemoryData({ agentId, isAgentMode }: UseMemoryDataParams) {
     agentExtractOverride: extract.agentExtractOverride,
     extractConfigLoaded: extract.extractConfigLoaded,
     extractConfigError: extract.extractConfigError,
+    reloadExtractConfig: extract.reloadExtractConfig,
     availableProviders: extract.availableProviders,
     effectiveAutoExtract: extract.effectiveAutoExtract,
     effectiveProviderId: extract.effectiveProviderId,

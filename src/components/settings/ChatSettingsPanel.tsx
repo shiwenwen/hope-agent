@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react"
+import { useCallback, useState, useEffect } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { logger } from "@/lib/logger"
@@ -16,8 +16,19 @@ import ContextCompactPanel from "@/components/settings/ContextCompactPanel"
 import AwarenessPanel from "@/components/settings/AwarenessPanel"
 import { invalidateThinkingExpandCache } from "@/components/chat/thinkingCache"
 import { emitCompletedTurnCollapsePreference } from "@/components/chat/completedTurnCollapsePreference"
+import { emitAutoSendPendingPreference } from "@/components/chat/autoSendPendingPreference"
 import { Check, Loader2 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import SettingsResetControl from "./SettingsResetControl"
+import type { SettingsResetSection } from "./settingsReset"
+
+type ChatTab = "basic" | "awareness" | "context-compact"
+
+const RESET_SECTION_BY_TAB: Record<ChatTab, SettingsResetSection> = {
+  basic: "basic",
+  awareness: "awareness",
+  "context-compact": "context_compact",
+}
 
 interface ChatConfig {
   autoSendPending: boolean
@@ -56,9 +67,15 @@ export default function ChatSettingsPanel() {
   const [sessionTitleSaveStatus, setSessionTitleSaveStatus] = useState<"idle" | "saved" | "failed">("idle")
   const [providers, setProviders] = useState<ProviderOption[]>([])
   const [loaded, setLoaded] = useState(false)
+  const [tab, setTab] = useState<ChatTab>("basic")
+  const [revisions, setRevisions] = useState<Record<Exclude<ChatTab, "basic">, number>>({
+    awareness: 0,
+    "context-compact": 0,
+  })
 
-  useEffect(() => {
-    Promise.all([
+  const loadBasic = useCallback(async () => {
+    try {
+      const [cfg, narration, sessionTitle, providerList] = await Promise.all([
       getTransport().call<{
         autoSendPending?: boolean
         autoExpandThinking?: boolean
@@ -67,29 +84,45 @@ export default function ChatSettingsPanel() {
       getTransport().call<boolean>("get_tool_call_narration_enabled"),
       getTransport().call<SessionTitleConfig>("get_session_title_config"),
       getTransport().call<ProviderOption[]>("get_providers"),
-    ])
-      .then(([cfg, narration, sessionTitle, providerList]) => {
-        setConfig({
-          autoSendPending: cfg.autoSendPending !== false,
-          autoExpandThinking: cfg.autoExpandThinking !== false,
-          autoCollapseCompletedTurns: cfg.autoCollapseCompletedTurns !== false,
-        })
-        setNarrationEnabled(narration === true)
-        setSessionTitleConfig({
-          enabled: sessionTitle.enabled === true,
-          providerId: sessionTitle.providerId ?? null,
-          modelId: sessionTitle.modelId ?? null,
-        })
-        setSessionTitleSavedJson(JSON.stringify({
-          enabled: sessionTitle.enabled === true,
-          providerId: sessionTitle.providerId ?? null,
-          modelId: sessionTitle.modelId ?? null,
-        }))
-        setProviders(providerList.filter((p) => p.enabled !== false && p.models.length > 0))
+      ])
+      setConfig({
+        autoSendPending: cfg.autoSendPending !== false,
+        autoExpandThinking: cfg.autoExpandThinking !== false,
+        autoCollapseCompletedTurns: cfg.autoCollapseCompletedTurns !== false,
       })
-      .catch((e: unknown) => logger.error("settings", "ChatSettingsPanel::load", "Failed to load chat config", e))
-      .finally(() => setLoaded(true))
+      setNarrationEnabled(narration === true)
+      const normalizedSessionTitle = {
+        enabled: sessionTitle.enabled === true,
+        providerId: sessionTitle.providerId ?? null,
+        modelId: sessionTitle.modelId ?? null,
+      }
+      setSessionTitleConfig(normalizedSessionTitle)
+      setSessionTitleSavedJson(JSON.stringify(normalizedSessionTitle))
+      setProviders(providerList.filter((p) => p.enabled !== false && p.models.length > 0))
+    } catch (e) {
+      logger.error("settings", "ChatSettingsPanel::load", "Failed to load chat config", e)
+    } finally {
+      setLoaded(true)
+    }
   }, [])
+
+  useEffect(() => {
+    void loadBasic()
+  }, [loadBasic])
+
+  const labels: Record<ChatTab, string> = {
+    basic: t("settings.tabChatBasic"),
+    awareness: t("settings.tabAwareness"),
+    "context-compact": t("settings.tabContextCompact"),
+  }
+
+  const refreshTab = async () => {
+    if (tab === "basic") {
+      await loadBasic()
+      return
+    }
+    setRevisions((current) => ({ ...current, [tab]: current[tab] + 1 }))
+  }
 
   async function toggle(key: "autoSendPending" | "autoExpandThinking" | "autoCollapseCompletedTurns") {
     const updated = { ...config, [key]: !config[key] }
@@ -97,7 +130,9 @@ export default function ChatSettingsPanel() {
     try {
       const full = await getTransport().call<Record<string, unknown>>("get_user_config")
       await getTransport().call("save_user_config", { config: { ...full, ...updated } })
-      if (key === "autoExpandThinking") {
+      if (key === "autoSendPending") {
+        emitAutoSendPendingPreference(updated.autoSendPending)
+      } else if (key === "autoExpandThinking") {
         invalidateThinkingExpandCache()
       } else if (key === "autoCollapseCompletedTurns") {
         emitCompletedTurnCollapsePreference(updated.autoCollapseCompletedTurns)
@@ -153,13 +188,26 @@ export default function ChatSettingsPanel() {
 
   return (
     <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
-      <Tabs defaultValue="basic" className="flex-1 flex flex-col min-h-0">
-        <div className="px-6 pt-2 shrink-0">
-          <TabsList>
-            <TabsTrigger value="basic">{t("settings.tabChatBasic")}</TabsTrigger>
-            <TabsTrigger value="awareness">{t("settings.tabAwareness")}</TabsTrigger>
-            <TabsTrigger value="context-compact">{t("settings.tabContextCompact")}</TabsTrigger>
-          </TabsList>
+      <Tabs
+        value={tab}
+        onValueChange={(value) => setTab(value as ChatTab)}
+        className="flex-1 flex flex-col min-h-0"
+      >
+        <div className="flex items-center gap-3 px-6 pt-2 shrink-0">
+          <div className="min-w-0 flex-1 overflow-x-auto">
+            <TabsList>
+              <TabsTrigger value="basic">{t("settings.tabChatBasic")}</TabsTrigger>
+              <TabsTrigger value="awareness">{t("settings.tabAwareness")}</TabsTrigger>
+              <TabsTrigger value="context-compact">{t("settings.tabContextCompact")}</TabsTrigger>
+            </TabsList>
+          </div>
+          <SettingsResetControl
+            scope="chat"
+            resetSection={RESET_SECTION_BY_TAB[tab]}
+            sectionLabel={labels[tab]}
+            level="tab"
+            onReset={refreshTab}
+          />
         </div>
 
         <TabsContent value="basic" className="flex-1 overflow-y-auto px-6 pb-6">
@@ -301,13 +349,13 @@ export default function ChatSettingsPanel() {
 
         <TabsContent value="awareness" className="flex-1 overflow-y-auto px-6 pb-6">
           <div className="w-full pt-4">
-            <AwarenessPanel />
+            <AwarenessPanel key={revisions.awareness} />
           </div>
         </TabsContent>
 
         <TabsContent value="context-compact" className="flex-1 overflow-y-auto px-6 pb-6">
           <div className="w-full pt-4">
-            <ContextCompactPanel />
+            <ContextCompactPanel key={revisions["context-compact"]} />
           </div>
         </TabsContent>
       </Tabs>

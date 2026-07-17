@@ -18,6 +18,7 @@ import {
   memoryBudgetOperationErrorToast,
   type MemoryBudgetOperationErrorToast,
 } from "./memoryBudgetOperationFeedback"
+import SettingsResetControl from "../SettingsResetControl"
 
 function budgetsEqual(a: SqliteSectionBudgets, b: SqliteSectionBudgets): boolean {
   return (
@@ -37,30 +38,6 @@ function configsEqual(a: MemoryBudgetConfig, b: MemoryBudgetConfig): boolean {
     budgetsEqual(a.sqliteSections, b.sqliteSections)
   )
 }
-
-const DEFAULT_ENGINE_BUDGETS = {
-  core: {
-    totalTokens: 1600,
-    hardMaxTokens: 2400,
-    globalTokens: 350,
-    agentTokens: 450,
-    projectTokens: 650,
-    protocolTokens: 150,
-    topicReadMaxTokens: 800,
-  },
-  recall: {
-    maxTokens: 800,
-    maxSelected: 5,
-    candidateLimit: 24,
-    timeoutMs: 100,
-  },
-  deepRecall: {
-    budgetTokens: 512,
-    timeoutMs: 4500,
-    cacheTtlSecs: 60,
-    maxChars: 220,
-  },
-} as const
 
 function runtimeConfigsEqual(a: MemoryRuntimeConfig, b: MemoryRuntimeConfig): boolean {
   return JSON.stringify(a) === JSON.stringify(b)
@@ -174,28 +151,27 @@ export default function BudgetConfig() {
     }
   }
 
-  const handleReset = () => {
-    setConfig(DEFAULT_MEMORY_BUDGET)
-    setRuntime((current) => current && ({
-      ...current,
-      core: { ...current.core, ...DEFAULT_ENGINE_BUDGETS.core },
-      recall: { ...current.recall, ...DEFAULT_ENGINE_BUDGETS.recall },
-      deepRecall: { ...current.deepRecall, ...DEFAULT_ENGINE_BUDGETS.deepRecall },
-    }))
-  }
-
   return (
     <div className="mt-6 mb-4 pt-4 border-t border-border/50">
-      <Button
-        variant="ghost"
-        size="sm"
-        onClick={() => setExpanded(!expanded)}
-        className="h-auto -ml-2 gap-1 px-2 py-1 text-sm font-medium text-muted-foreground hover:bg-transparent hover:text-foreground"
-      >
-        <ChevronRight className={cn("h-3.5 w-3.5 transition-transform", expanded && "rotate-90")} />
-        <Ruler className="h-3.5 w-3.5 mr-0.5" />
-        {t("settings.memoryBudget.title")}
-      </Button>
+      <div className="flex items-center justify-between gap-3">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => setExpanded(!expanded)}
+          className="h-auto -ml-2 gap-1 px-2 py-1 text-sm font-medium text-muted-foreground hover:bg-transparent hover:text-foreground"
+        >
+          <ChevronRight className={cn("h-3.5 w-3.5 transition-transform", expanded && "rotate-90")} />
+          <Ruler className="h-3.5 w-3.5 mr-0.5" />
+          {t("settings.memoryBudget.title")}
+        </Button>
+        <SettingsResetControl
+          scope="memory"
+          resetSection="budget"
+          sectionLabel={t("settings.memoryBudget.title")}
+          level="region"
+          onReset={load}
+        />
+      </div>
 
       {expanded && (
         <div className="mt-3 space-y-4">
@@ -269,9 +245,6 @@ export default function BudgetConfig() {
                     : saveStatus === "failed"
                       ? t("common.retry")
                       : t("common.save")}
-                </Button>
-                <Button variant="ghost" size="sm" onClick={handleReset} disabled={saving}>
-                  {t("settings.memoryBudget.resetToDefaults")}
                 </Button>
               </div>
             </>
