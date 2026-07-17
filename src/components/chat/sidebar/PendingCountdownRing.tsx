@@ -1,7 +1,7 @@
 import { useState } from "react"
 import { useTranslation } from "react-i18next"
 import { IconTip } from "@/components/ui/tooltip"
-import { formatRemaining, useCountdownRemainingSec, useNowMs } from "@/lib/countdown"
+import { formatRemaining, useCountdownRemainingSec } from "@/lib/countdown"
 import type { SessionMeta } from "@/types/chat"
 
 const SIZE = 12
@@ -23,13 +23,15 @@ interface PendingCountdownRingProps {
 export default function PendingCountdownRing({ countdown }: PendingCountdownRingProps) {
   const { t } = useTranslation()
   // Clock-skew correction, same intent as useApprovals: trust the server's
-  // deadline, translate it onto the local clock. Skew is anchored at mount
-  // against the shared cached clock (never a raw `Date.now()` in render). The
+  // deadline, translate it onto the local clock. Anchor skew against a FRESH
+  // `Date.now()` (in the useState initializer, not render body) — NOT the
+  // shared cached clock, whose ticker is stopped while no countdown is mounted
+  // and would otherwise carry a stale module-load timestamp, subtracting the
+  // whole idle span and slamming a short timeout to 0s on first paint. The
   // parent keys this component by `${deadlineAtMs}:${serverNowMs}`, so a new
-  // snapshot (e.g. a corrected server clock, or the next-earliest deadline)
-  // remounts and re-anchors instead of drifting on a stale skew.
-  const nowMs = useNowMs()
-  const [skewMs] = useState(() => countdown.serverNowMs - nowMs)
+  // snapshot (corrected server clock, or the next-earliest deadline) remounts
+  // and re-anchors instead of drifting on a stale skew.
+  const [skewMs] = useState(() => countdown.serverNowMs - Date.now())
   const localDeadlineMs = countdown.deadlineAtMs - skewMs
   const remaining = useCountdownRemainingSec(localDeadlineMs) ?? 0
   const ratio = Math.min(1, Math.max(0, (remaining * 1000) / countdown.totalMs))
