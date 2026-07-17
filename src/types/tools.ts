@@ -52,87 +52,22 @@ export const INTERNAL_TOOLS = new Set([
   TOOL_SEND_NOTIFICATION,
 ])
 
-/** Map from tool name to i18n key suffix. */
-export const TOOL_I18N_KEY: Record<string, string> = {
-  [TOOL_EXEC]: "Exec",
-  [TOOL_PROCESS]: "Process",
-  [TOOL_READ]: "Read",
-  [TOOL_WRITE]: "Write",
-  [TOOL_EDIT]: "Edit",
-  [TOOL_LS]: "Ls",
-  [TOOL_GREP]: "Grep",
-  [TOOL_FIND]: "Find",
-  [TOOL_APPLY_PATCH]: "ApplyPatch",
-  [TOOL_WEB_SEARCH]: "WebSearch",
-  [TOOL_WEB_FETCH]: "WebFetch",
-  [TOOL_SAVE_MEMORY]: "SaveMemory",
-  [TOOL_RECALL_MEMORY]: "RecallMemory",
-  [TOOL_UPDATE_MEMORY]: "UpdateMemory",
-  [TOOL_DELETE_MEMORY]: "DeleteMemory",
-  [TOOL_MANAGE_CRON]: "ManageCron",
-  [TOOL_BROWSER]: "Browser",
-  [TOOL_SEND_NOTIFICATION]: "SendNotification",
-  [TOOL_SUBAGENT]: "Subagent",
-  [TOOL_TASK_CREATE]: "TaskCreate",
-  [TOOL_TASK_UPDATE]: "TaskUpdate",
-  [TOOL_TASK_LIST]: "TaskList",
-  [TOOL_MCP_RESOURCE]: "McpResource",
-  [TOOL_MCP_PROMPT]: "McpPrompt",
-  [TOOL_IMAGE_GENERATE]: "ImageGenerate",
-  [TOOL_CANVAS]: "Canvas",
-  [TOOL_ACP_SPAWN]: "AcpSpawn",
-  // Tier 1 Core::FileSystem (project file)
-  project_read_file: "ProjectReadFile",
-  // Tier 1 Core::Interaction
-  ask_user_question: "AskUserQuestion",
-  send_attachment: "SendAttachment",
-  // Tier 1 Core::SessionAware
-  agents_list: "AgentsList",
-  sessions_list: "SessionsList",
-  session_status: "SessionStatus",
-  sessions_search: "SessionsSearch",
-  sessions_history: "SessionsHistory",
-  sessions_send: "SessionsSend",
-  peek_sessions: "PeekSessions",
-  // Tier 2 Standard
-  team: "Team",
-  pdf: "Pdf",
-  image: "Image",
-  get_weather: "GetWeather",
-  get_settings: "GetSettings",
-  update_settings: "UpdateSettings",
-  list_settings_backups: "ListSettingsBackups",
-  restore_settings_backup: "RestoreSettingsBackup",
-  // Memory (additional)
-  memory_get: "MemoryGet",
-  update_core_memory: "UpdateCoreMemory",
-  // Knowledge base (note_* / knowledge_recall / session_to_note)
-  note_create: "NoteCreate",
-  note_read: "NoteRead",
-  note_update: "NoteUpdate",
-  note_patch: "NotePatch",
-  note_append: "NoteAppend",
-  note_delete: "NoteDelete",
-  note_search: "NoteSearch",
-  note_link: "NoteLink",
-  note_backlinks: "NoteBacklinks",
-  note_by_tag: "NoteByTag",
-  note_tags: "NoteTags",
-  note_rename: "NoteRename",
-  note_move: "NoteMove",
-  note_set_frontmatter: "NoteSetFrontmatter",
-  note_assign_block: "NoteAssignBlock",
-  note_broken_links: "NoteBrokenLinks",
-  note_orphans: "NoteOrphans",
-  note_graph: "NoteGraph",
-  note_similar: "NoteSimilar",
-  note_related: "NoteRelated",
-  note_suggest_links: "NoteSuggestLinks",
-  note_distill: "NoteDistill",
-  note_moc: "NoteMoc",
-  session_to_note: "SessionToNote",
-  knowledge_recall: "KnowledgeRecall",
-}
+/**
+ * Built-in tool localization keys are derived from the canonical snake_case
+ * tool id. Keeping a second hand-maintained registry caused newly added
+ * backend tools to silently fall back to humanized English ids.
+ */
+const toolSettingsKeySuffix = (name: string) =>
+  name
+    .split("_")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join("")
+
+export const toolDisplayNameKey = (name: string) => `tools.${name}`
+
+export const toolDisplayDescriptionKey = (name: string) =>
+  `settings.tool${toolSettingsKeySuffix(name)}Desc`
 
 type ToolDisplayFallback = {
   zh: string

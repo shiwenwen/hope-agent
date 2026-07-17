@@ -4,7 +4,10 @@ export const PROVIDER_META: Record<string, ProviderMeta> = {
   "duck-duck-go": {
     id: "duck-duck-go",
     labelKey: "settings.webSearchProviderDDG",
-    free: true,
+    badges: [
+      { labelKey: "settings.webSearchNoKey", tone: "positive" },
+      { labelKey: "settings.webSearchLimitedReliability", tone: "warning" },
+    ],
     needsApiKey: false,
     url: "https://duckduckgo.com",
     fields: [],
@@ -12,7 +15,10 @@ export const PROVIDER_META: Record<string, ProviderMeta> = {
   searxng: {
     id: "searxng",
     labelKey: "settings.webSearchProviderSearXNG",
-    free: true,
+    badges: [
+      { labelKey: "settings.webSearchOpenSource", tone: "positive" },
+      { labelKey: "settings.webSearchSelfHosted", tone: "info" },
+    ],
     needsApiKey: false,
     url: "https://docs.searxng.org",
     fields: [
@@ -26,7 +32,10 @@ export const PROVIDER_META: Record<string, ProviderMeta> = {
   brave: {
     id: "brave",
     labelKey: "settings.webSearchProviderBrave",
-    free: false,
+    badges: [
+      { labelKey: "settings.webSearchMonthlyFree1000", tone: "positive" },
+      { labelKey: "settings.webSearchCardRequired", tone: "warning" },
+    ],
     needsApiKey: true,
     url: "https://brave.com/search/api/",
     fields: [
@@ -41,7 +50,10 @@ export const PROVIDER_META: Record<string, ProviderMeta> = {
   bocha: {
     id: "bocha",
     labelKey: "settings.webSearchProviderBocha",
-    free: false,
+    badges: [
+      { labelKey: "settings.webSearchClaimFree1000", tone: "positive" },
+      { labelKey: "settings.webSearchRecommendedMainland", tone: "info" },
+    ],
     needsApiKey: true,
     url: "https://open.bochaai.com/",
     fields: [
@@ -56,7 +68,6 @@ export const PROVIDER_META: Record<string, ProviderMeta> = {
   perplexity: {
     id: "perplexity",
     labelKey: "settings.webSearchProviderPerplexity",
-    free: false,
     needsApiKey: true,
     url: "https://docs.perplexity.ai",
     fields: [
@@ -71,7 +82,10 @@ export const PROVIDER_META: Record<string, ProviderMeta> = {
   google: {
     id: "google",
     labelKey: "settings.webSearchProviderGoogle",
-    free: false,
+    badges: [
+      { labelKey: "settings.webSearchLegacyOnly", tone: "warning" },
+      { labelKey: "settings.webSearchRetires2027", tone: "danger" },
+    ],
     needsApiKey: true,
     url: "https://developers.google.com/custom-search/v1/overview",
     fields: [
@@ -91,7 +105,6 @@ export const PROVIDER_META: Record<string, ProviderMeta> = {
   grok: {
     id: "grok",
     labelKey: "settings.webSearchProviderGrok",
-    free: false,
     needsApiKey: true,
     url: "https://console.x.ai",
     fields: [
@@ -106,7 +119,6 @@ export const PROVIDER_META: Record<string, ProviderMeta> = {
   kimi: {
     id: "kimi",
     labelKey: "settings.webSearchProviderKimi",
-    free: false,
     needsApiKey: true,
     url: "https://platform.moonshot.cn",
     fields: [
@@ -121,8 +133,10 @@ export const PROVIDER_META: Record<string, ProviderMeta> = {
   tavily: {
     id: "tavily",
     labelKey: "settings.webSearchProviderTavily",
-    free: false,
-    recommended: true,
+    badges: [
+      { labelKey: "settings.webSearchMonthlyFree1000", tone: "positive" },
+      { labelKey: "settings.webSearchRecommendedGlobal", tone: "info" },
+    ],
     needsApiKey: true,
     url: "https://tavily.com",
     fields: [

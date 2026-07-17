@@ -22,7 +22,6 @@ import { StepIndicator } from "./StepIndicator"
 import { type OnboardingDraft, type OnboardingStepKey } from "./types"
 import { useOnboarding } from "./useOnboarding"
 import { ChannelsStep } from "./steps/ChannelsStep"
-import { ModeStep } from "./steps/ModeStep"
 import { PersonalityStep } from "./steps/PersonalityStep"
 import { ProfileStep } from "./steps/ProfileStep"
 import { ProviderStep } from "./steps/ProviderStep"
@@ -210,32 +209,19 @@ export function OnboardingWizard({
           <WelcomeStep
             initialLanguage={draft.language ?? initialLanguage}
             initialTheme={draft.theme ?? "auto"}
-            onLanguageChange={(lang) => patchDraft({ language: lang })}
-            onThemeChange={(theme) => patchDraft({ theme })}
-          />
-        )
-      case "mode":
-        return (
-          <ModeStep
-            mode={draft.serverMode}
             remoteUrl={draft.remote?.url ?? ""}
             remoteApiKey={draft.remote?.apiKey ?? ""}
-            onChange={(patch) => {
-              const next: Partial<OnboardingDraft> = {}
-              if (patch.mode !== undefined) next.serverMode = patch.mode
-              if (patch.remoteUrl !== undefined || patch.remoteApiKey !== undefined) {
-                next.remote = {
+            onLanguageChange={(lang) => patchDraft({ language: lang })}
+            onThemeChange={(theme) => patchDraft({ theme })}
+            onRemoteChange={(patch) =>
+              patchDraft({
+                remote: {
                   url: patch.remoteUrl ?? draft.remote?.url ?? "",
                   apiKey: patch.remoteApiKey ?? draft.remote?.apiKey ?? "",
-                }
-              }
-              patchDraft(next)
-            }}
-            onRemoteConnected={() => {
-              // Remote connected → mark onboarding complete and exit the
-              // wizard. No further local steps apply.
-              void finish()
-            }}
+                },
+              })
+            }
+            onRemoteConnected={() => void finish()}
           />
         )
       case "provider":
@@ -306,15 +292,11 @@ export function OnboardingWizard({
     }
   }
 
-  const isFinal = stepKey === "summary"
+  const isFinal = step === steps.length - 1
   const isProvider = stepKey === "provider"
   const isSearchProvider = stepKey === "search-provider"
-  const isMode = stepKey === "mode"
-  const canGoBack = step > 0 && !isFinal
-  const canSkip = !isFinal && !isMode
-  // Mode step's "Next" is a no-op for remote (inline Connect drives completion)
-  // and also blocked until the user picks either option.
-  const modeNextDisabled = isMode && (!draft.serverMode || draft.serverMode === "remote")
+  const canGoBack = step > 0
+  const canSkip = !isFinal
 
   async function handleExitConfirm() {
     setExitOpen(false)
@@ -362,13 +344,11 @@ export function OnboardingWizard({
         skipVariant={isProvider ? "danger" : "normal"}
         isFinal={isFinal}
         busy={saving || busy}
-        nextDisabled={modeNextDisabled}
         hideNext={isProvider || isSearchProvider}
         onBack={goBack}
         onSkip={() => void skipCurrent()}
         onNext={() => void handleNext()}
         onFinish={() => void finish()}
-        nextLabel={isFinal ? t("onboarding.summary.startButton") : undefined}
       />
 
       <AlertDialog open={exitOpen} onOpenChange={setExitOpen}>
