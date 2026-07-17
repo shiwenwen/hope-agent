@@ -93,6 +93,8 @@ export const chinaTemplates: ProviderTemplate[] = [
     baseUrl: "https://dashscope.aliyuncs.com/compatible-mode",
     apiKeyPlaceholder: "sk-...",
     requiresApiKey: true,
+    // 单价为阿里国内站人民币原价（qwen-max ¥2.4/¥9.6 等，与官方价目一致）。
+    currency: "CNY",
     models: [
       {
         id: "qwen-max",
@@ -146,6 +148,8 @@ export const chinaTemplates: ProviderTemplate[] = [
     baseUrl: "https://ark.cn-beijing.volces.com/api/v3",
     apiKeyPlaceholder: "...",
     requiresApiKey: true,
+    // 方舟按人民币计价；旧值 0.0001/0.0002 是 batch 占位价、低真实价约 4 个数量级。
+    currency: "CNY",
     models: [
       {
         id: "doubao-seed-code-preview-251028",
@@ -154,8 +158,8 @@ export const chinaTemplates: ProviderTemplate[] = [
         contextWindow: 256000,
         maxTokens: 4096,
         reasoning: false,
-        costInput: 0.0001,
-        costOutput: 0.0002,
+        costInput: 1.2,
+        costOutput: 8.0,
       },
       {
         id: "doubao-seed-1-8-251228",
@@ -164,8 +168,8 @@ export const chinaTemplates: ProviderTemplate[] = [
         contextWindow: 256000,
         maxTokens: 4096,
         reasoning: false,
-        costInput: 0.0001,
-        costOutput: 0.0002,
+        costInput: 0.8,
+        costOutput: 8.0,
       },
       {
         id: "kimi-k2-5-260127",
@@ -174,8 +178,8 @@ export const chinaTemplates: ProviderTemplate[] = [
         contextWindow: 256000,
         maxTokens: 4096,
         reasoning: false,
-        costInput: 0.0001,
-        costOutput: 0.0002,
+        costInput: null,
+        costOutput: null,
       },
       {
         id: "glm-4-7-251222",
@@ -184,8 +188,8 @@ export const chinaTemplates: ProviderTemplate[] = [
         contextWindow: 200000,
         maxTokens: 4096,
         reasoning: false,
-        costInput: 0.0001,
-        costOutput: 0.0002,
+        costInput: null,
+        costOutput: null,
       },
       {
         id: "deepseek-v3-2-251201",
@@ -194,8 +198,8 @@ export const chinaTemplates: ProviderTemplate[] = [
         contextWindow: 128000,
         maxTokens: 4096,
         reasoning: false,
-        costInput: 0.0001,
-        costOutput: 0.0002,
+        costInput: null,
+        costOutput: null,
       },
     ],
   },
@@ -208,6 +212,8 @@ export const chinaTemplates: ProviderTemplate[] = [
     baseUrl: "https://open.bigmodel.cn/api/paas/v4",
     apiKeyPlaceholder: "...",
     requiresApiKey: true,
+    // 单价与 Z.AI 国际站 USD 价目一致（bigmodel.cn 国内端点另有人民币价目，未采用）。
+    currency: "USD",
     models: [
       {
         id: "glm-5.2",
@@ -684,6 +690,8 @@ export const chinaTemplates: ProviderTemplate[] = [
     baseUrl: "https://tokenhub.tencentmaas.com/v1",
     apiKeyPlaceholder: "...",
     requiresApiKey: true,
+    // 官方价目 ¥1/¥4；旧值 0.176/0.587 是同一价按旧汇率手工预换算的产物。
+    currency: "CNY",
     models: [
       {
         id: "hy3",
@@ -692,8 +700,8 @@ export const chinaTemplates: ProviderTemplate[] = [
         contextWindow: 256000,
         maxTokens: 64000,
         reasoning: true,
-        costInput: 0.176,
-        costOutput: 0.587,
+        costInput: 1.0,
+        costOutput: 4.0,
       },
       {
         id: "hy3-preview",
@@ -702,8 +710,8 @@ export const chinaTemplates: ProviderTemplate[] = [
         contextWindow: 256000,
         maxTokens: 64000,
         reasoning: true,
-        costInput: 0.176,
-        costOutput: 0.587,
+        costInput: 1.0,
+        costOutput: 4.0,
       },
     ],
   },

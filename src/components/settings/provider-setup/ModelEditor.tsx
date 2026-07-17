@@ -29,7 +29,7 @@ import {
   X,
   XCircle,
 } from "lucide-react"
-import type { ModelConfig, ThinkingStyleType } from "./types"
+import type { ModelConfig, ThinkingStyleType, Currency } from "./types"
 
 interface ModelTestData {
   success?: boolean
@@ -50,12 +50,14 @@ export function SortableModelEditor({
   onChange,
   onRemove,
   onTest,
+  currency,
 }: {
   sortableId: string
   model: ModelConfig
   onChange: (m: ModelConfig) => void
   onRemove: () => void
   onTest?: (modelId: string) => Promise<string>
+  currency?: Currency
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: sortableId,
@@ -75,6 +77,7 @@ export function SortableModelEditor({
         onChange={onChange}
         onRemove={onRemove}
         onTest={onTest}
+        currency={currency}
         dragListeners={listeners}
         dragAttributes={attributes}
       />
@@ -89,6 +92,7 @@ export function ModelEditor({
   onChange,
   onRemove,
   onTest,
+  currency,
   dragListeners,
   dragAttributes,
 }: {
@@ -96,6 +100,8 @@ export function ModelEditor({
   onChange: (m: ModelConfig) => void
   onRemove: () => void
   onTest?: (modelId: string) => Promise<string>
+  /** 单价标签币符随 Provider 币种切换（$ / ¥）；缺省 USD。 */
+  currency?: Currency
   dragListeners?: DraggableSyntheticListeners
   dragAttributes?: DraggableAttributes
 }) {
@@ -261,7 +267,7 @@ export function ModelEditor({
 
       <div className="grid grid-cols-2 gap-2.5">
         <div className="space-y-1">
-          <label className="text-[10px] text-muted-foreground">{t("model.inputCost")}</label>
+          <label className="text-[10px] text-muted-foreground">{t(currency === "CNY" ? "model.inputCostCny" : "model.inputCost")}</label>
           <DeferredNumberInput
             step="0.01"
             value={model.costInput}
@@ -284,7 +290,7 @@ export function ModelEditor({
           />
         </div>
         <div className="space-y-1">
-          <label className="text-[10px] text-muted-foreground">{t("model.outputCost")}</label>
+          <label className="text-[10px] text-muted-foreground">{t(currency === "CNY" ? "model.outputCostCny" : "model.outputCost")}</label>
           <DeferredNumberInput
             step="0.01"
             value={model.costOutput}

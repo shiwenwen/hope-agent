@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Provider 支持声明单价币种，人民币价目不再被当美元入账**：Provider 编辑页新增「计价货币」（USD/CNY），单价照厂商价目页原文录入、成本大盘统一换算成 USD 统计；内置 qwen / 火山引擎 / 腾讯混元模板标为人民币计价，并修正火山引擎模板残留的占位单价与混元官方价目。 (#493)
+
 - **内置 Provider 模板刷新：新增当代旗舰模型与五个 Provider**：新增 Claude Sonnet 5 与 Mythos 5、GPT-5.6、Kimi K3、Grok 4.5、Step 3.7 Flash、Qwen 3.7 Plus、混元 Hy3 等当代旗舰，并新增 Cohere、Baseten、LongCat、Meta、Featherless 五个 Provider；内置模板增至 50 个 Provider、392 个预设模型。各家新一代模型统一排在模型选择器最前，已废弃的旧模型下沉到列表末尾。
 - **文件与附件能力统一覆盖本地桌面、远程桌面和 Web**：文件树、消息附件、输入框草稿、工具媒体、Workspace 产物与 Artifact 统一使用同一套文件类型、预览、打开、下载、编辑和右键动作能力；本地桌面操作当前电脑，远程桌面与 Web 操作 Server 文件系统，未发送附件始终留在客户端并可离线预览或编辑副本。Workspace 文本编辑新增显式保存、外部变更提示、BOM/行尾保留、hash 冲突保护和只读/远程写引导，避免静默覆盖其他客户端或 Agent 的更新。
 - **文件大小限制可配置并统一使用分块上传租约**：设置新增聊天附件、Workspace 上传、文本预览/编辑、文档预览、Artifact 导入及知识来源限制，旧配置自动采用安全默认值；用户聊天附件与 Agent `send_attachment` 共用同一限制。聊天、Workspace、知识来源与 Artifact 的客户端文件改为 4 MiB 分块、可续传的临时租约，支持并发上限、失败回收、过期清理、purpose 隔离和完成时 BLAKE3 校验，Web、远程桌面与本地桌面不再一次性缓冲完整文件。

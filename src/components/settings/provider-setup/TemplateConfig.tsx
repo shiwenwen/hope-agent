@@ -341,6 +341,7 @@ export function TemplateConfig({
                     <SortableModelEditor
                       key={`model-${i}`}
                       sortableId={`model-${i}`}
+                      currency={selectedTemplate.currency}
                       model={model}
                       onChange={(m) => {
                         const updated = [...models]

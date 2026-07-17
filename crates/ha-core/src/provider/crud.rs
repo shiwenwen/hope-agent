@@ -303,6 +303,7 @@ fn new_provider_from_add_request(mut config: ProviderConfig) -> ProviderConfig {
     // request would be dropped, diverging from the update path.
     provider.user_agent = config.user_agent;
     provider.enabled = config.enabled;
+    provider.currency = config.currency;
     provider
 }
 
@@ -373,6 +374,7 @@ pub(crate) fn update_provider_in_config(
     existing.user_agent = config.user_agent;
     existing.thinking_style = config.thinking_style;
     existing.allow_private_network = config.allow_private_network;
+    existing.currency = config.currency;
     let active_model_changed = reconcile_model_references(store).active_model_changed;
     let active_agent_invalidated = updated_active_provider || active_model_changed;
     Ok(active_agent_invalidated)

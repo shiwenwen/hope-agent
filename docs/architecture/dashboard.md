@@ -395,6 +395,11 @@ Tauri `dashboard_control_plane` 与 HTTP `POST /api/dashboard/control-plane` 接
 
 ## 成本估算引擎
 
+结算入口是 `cost.rs::resolve_cost(provider_id, model_id, tokens)`，两级链：
+
+1. **用户配置优先**：按 `(provider_id, model_id)` 回查 Provider 配置单价（用户实际支付的真相源）。Provider 声明 `currency = CNY` 时在此处按 `CNY_PER_USD` 常量换算成 USD 入账——换算只存在于这一个点，模板与 GUI 均存厂商价目页原价。`Some(0.0)` = 明确免费如实记 $0；`None`（未标价）与查不到 provider/model 一样落到第 2 级。
+2. **内置估算表兜底**：`estimate_cost` 按 model_id 子串匹配（下节）。人民币计价厂商（qwen、火山方舟、腾讯混元）的臂统一写成 `¥价 / CNY_PER_USD` 表达式，与配置路径口径一致。
+
 ### 计算流程
 
 ```mermaid
@@ -411,6 +416,8 @@ flowchart TD
 ### 模型定价表
 
 匹配规则使用 `model_id.contains()` 子串匹配，按优先级从上到下首次命中。
+
+> 下表为**示例节选**，与代码存在滞后；权威定价以 [`cost.rs`](../../crates/ha-core/src/dashboard/cost.rs) 内联表及其单测为准。
 
 | 厂商 | 模型 | Input ($/1M) | Output ($/1M) |
 |------|------|-------------|---------------|

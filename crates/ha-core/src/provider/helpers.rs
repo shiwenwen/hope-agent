@@ -460,6 +460,7 @@ pub fn ensure_codex_provider(config: &mut AppConfig) -> String {
         user_agent: super::types::default_user_agent(),
         thinking_style: ThinkingStyle::default(),
         allow_private_network: false,
+        currency: None,
     };
 
     let id = provider.id.clone();

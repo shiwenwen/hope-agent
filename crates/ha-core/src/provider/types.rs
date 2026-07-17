@@ -97,8 +97,8 @@ pub struct ModelConfig {
     /// 估算表，明确免费则如实记 $0——旧版统一用 `0` 表达两者，导致本机跑的模型也被按估算
     /// 表收费（详见 `dashboard::cost::resolve_cost`）。
     ///
-    /// 币种：字段本身不带货币维度，目前各 Provider 混用（如 qwen 存的是人民币价）。
-    /// 新增条目请与同一 Provider 内的兄弟条目保持同一口径。
+    /// 币种由 Provider 级 [`ProviderConfig::currency`] 声明（缺省 = USD），本字段照厂商
+    /// 价目页原文录入；成本入账在 `dashboard::cost` 单点换算，此处不做换算。
     #[serde(default)]
     pub cost_input: Option<f64>,
     /// 每百万输出 token 单价。语义同 `cost_input`。
@@ -226,6 +226,22 @@ pub struct ProviderConfig {
     /// traffic is deferred to Phase B.
     #[serde(default)]
     pub allow_private_network: bool,
+    /// 本 Provider 模型单价（`ModelConfig.cost_*`）的币种。`None` = USD（历史默认）。
+    /// 成本入账在 `dashboard::cost::resolve_cost` 单点按 `CNY_PER_USD` 换算成 USD，
+    /// 其余消费方（模板、GUI、导入导出）原样透传数字不做换算——单价照厂商价目页
+    /// 原文录入，可维护性优先于把换算摊到录入侧。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub currency: Option<Currency>,
+}
+
+/// 模型单价币种。只收录内置模板实际用到的币种，新增须同步
+/// `dashboard::cost` 的换算与前端 `types.ts` 的 union。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Currency {
+    #[serde(rename = "USD")]
+    Usd,
+    #[serde(rename = "CNY")]
+    Cny,
 }
 
 pub(super) fn default_user_agent() -> String {
@@ -247,6 +263,7 @@ impl ProviderConfig {
             user_agent: default_user_agent(),
             thinking_style: ThinkingStyle::default(),
             allow_private_network: false,
+            currency: None,
         }
     }
 

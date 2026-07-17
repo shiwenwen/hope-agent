@@ -8,6 +8,7 @@
 mod coding_improvement;
 mod control_plane;
 mod cost;
+pub(crate) use cost::CNY_PER_USD;
 mod detail_queries;
 mod filters;
 mod insights;

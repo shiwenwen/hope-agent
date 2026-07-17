@@ -42,6 +42,7 @@ graph LR
 | `models` | Vec\<ModelConfig\> | 可用模型列表 |
 | `enabled` | bool | 启用/禁用 |
 | `thinking_style` | ThinkingStyle | 推理参数格式 |
+| `currency` | Option\<Currency\> | 模型单价币种（`USD`/`CNY`），缺省 = USD。单价照厂商价目页**原文录入**，成本入账在 `dashboard::cost::resolve_cost` 单点按 `CNY_PER_USD` 换算成 USD——模板、GUI、导入导出均原样透传不换算。内置模板中 qwen / volcengine / tencent 标 CNY |
 
 **`ModelConfig`** — 单个模型的配置：
 
@@ -53,7 +54,7 @@ graph LR
 | `max_tokens` | u32 | 最大输出 tokens |
 | `reasoning` | bool | 是否支持推理 |
 | `thinking_style` | Option\<ThinkingStyle\> | 模型级 think 模式覆盖；`None` = 继承 Provider |
-| `cost_input` / `cost_output` | f64 | 百万 token 定价（USD） |
+| `cost_input` / `cost_output` | Option\<f64\> | 百万 token 定价，币种由 Provider 级 `currency` 声明。`None` = 未标价（厂商单价未知，成本回退内置估算表），`Some(0.0)` = 明确不按 token 计费（本地模型、包月端点，如实记 $0）——两者语义不同，勿混写 |
 
 **实际生效顺序**
 
