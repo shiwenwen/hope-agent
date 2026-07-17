@@ -1,6 +1,8 @@
 # Hope Agent 技术文档索引
 
 > 项目开发指南见 [AGENTS.md](../AGENTS.md) | 更新日志见 [CHANGELOG.md](../CHANGELOG.md) | 发版流程见 [release-process.md](release-process.md)
+>
+> **面向用户的中文使用文档见 [user-guide/](user-guide/README.md)**（安装上手、每项功能的用法与设置);本索引下的 `architecture/` 面向开发者,记录实现架构。
 
 ---
 
