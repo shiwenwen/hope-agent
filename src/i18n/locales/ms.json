@@ -421,9 +421,6 @@
     "completedTurnCollapsed": "{{count}} mesej diproses",
     "completedTurnCollapsedWithDuration": "Diproses selama {{duration}}, {{count}} mesej",
     "conversations": "Perbualan",
-    "unreadConversationCount": "{{count}} perbualan belum dibaca",
-    "unreadStatus": "Belum dibaca",
-    "channelUnreadStatus": "Perbualan IM belum dibaca",
     "collapseSidebar": "Runtuhkan bar sisi",
     "sidebarCompactMode": "Tukar ke mod ringkas",
     "sidebarDetailedMode": "Tukar ke mod biasa",
@@ -867,9 +864,9 @@
         "docx": "Dokumen Word",
         "pptx": "Slaid PowerPoint",
         "xlsx": "Hamparan Excel",
-        "dataAnalytics": "Analisis data",
         "browser": "Kawalan pelayar",
-        "mac": "Kawalan Mac"
+        "mac": "Kawalan Mac",
+        "dataAnalytics": "Analisis data"
       }
     },
     "reasoningDisabledHint": "Penaakulan tidak didayakan untuk model ini. Untuk melaraskan kedalaman penaakulan, edit model di bawah Tetapan → Pembekal Model dan hidupkan \"Penaakulan\".",
@@ -1169,6 +1166,9 @@
     "openSourceConversationMissingHint": "Sumber memori ini menunjuk kepada perbualan yang telah dipadam atau tidak dapat ditemui.",
     "openSourceMessageMissing": "Mesej sumber tidak lagi tersedia",
     "openSourceMessageMissingHint": "Perbualan masih wujud, tetapi mesej tepat untuk sumber memori ini tidak dapat ditemui.",
+    "unreadConversationCount": "{{count}} perbualan belum dibaca",
+    "unreadStatus": "Belum dibaca",
+    "channelUnreadStatus": "Perbualan IM belum dibaca",
     "generatedImageName": "Imej yang dijana {{index}}",
     "noAgents": "Tiada ejen",
     "sessionFailed": "Perbualan gagal"
@@ -1179,6 +1179,7 @@
     "reauth": "Log masuk semula"
   },
   "common": {
+    "restoreDefaults": "Pulihkan lalai",
     "add": "Tambah",
     "back": "Kembali",
     "cancel": "Batal",
@@ -1225,18 +1226,13 @@
     "off": "Mati",
     "error": "ralat",
     "showLess": "Tunjukkan lebih sedikit",
-    "next": "Seterusnya",
-    "previous": "Sebelumnya",
     "download": "Muat turun",
     "duplicate": "Salin",
     "more": "Lagi",
     "apply": "Guna",
     "modelNoVision": "Tidak menyokong imej",
-    "restoreDefaults": "Pulihkan lalai",
-    "request": "Permintaan",
-    "response": "Respons",
-    "authMethod": "Kaedah pengesahan",
-    "testSteps": "Langkah ujian",
+    "next": "Seterusnya",
+    "previous": "Sebelumnya",
     "baseUrl": "URL asas",
     "apiKey": "Kunci API",
     "ok": "Baik",
@@ -1244,7 +1240,6 @@
       "applied": "Digunakan",
       "rejected": "Ditolak",
       "active": "Aktif",
-      "advisory": "Cadangan",
       "archived": "Diarkibkan",
       "awaiting_approval": "Menunggu kelulusan",
       "awaiting_user": "Menunggu pengguna",
@@ -1263,11 +1258,12 @@
       "healthy": "Sihat",
       "idle": "Melahu",
       "insufficient_data": "Data tidak mencukupi",
+      "needs_user": "Tindakan pengguna diperlukan",
+      "advisory": "Cadangan",
       "injected": "Disuntik",
       "interrupted": "Terganggu",
       "killed": "Dihentikan",
       "loading": "Sedang dimuatkan",
-      "needs_user": "Tindakan pengguna diperlukan",
       "not_run": "Belum dijalankan",
       "open": "Terbuka",
       "partial": "Sebahagian",
@@ -1289,7 +1285,11 @@
       "warning": "Amaran",
       "evaluating": "Sedang dinilai",
       "in_progress": "Sedang berjalan"
-    }
+    },
+    "request": "Permintaan",
+    "response": "Respons",
+    "authMethod": "Kaedah pengesahan",
+    "testSteps": "Langkah ujian"
   },
   "context": {
     "ago": "yang lalu",
@@ -1456,106 +1456,6 @@
     "bannerConfig": "Mod Berbahaya aktif — semua kelulusan alat dipintas. Matikan di Tetapan → Keselamatan"
   },
   "dashboard": {
-    "controlPlane": {
-      "title": "Matlamat & Perlaksanaan",
-      "automationTab": "Automasi",
-      "scopeHint": "Metrik tetingkap menunjukkan hasil; syot kilat semasa menunjukkan tunggakan dan risiko.",
-      "allProjects": "Semua projek",
-      "unassignedProject": "Tidak ditugaskan",
-      "archived": "Diarkibkan",
-      "empty": "Tiada data untuk skop yang dipilih.",
-      "sections": {
-        "overview": "Gambaran keseluruhan",
-        "planTask": "Rancangan & Tugas"
-      },
-      "metrics": {
-        "goalAcceptance": "Kadar penerimaan matlamat",
-        "workflowCompletion": "Kadar penyiapan aliran kerja",
-        "loopStrongProgress": "Gelung kadar kemajuan kukuh",
-        "taskCompletion": "Penyelesaian kohort tugas",
-        "attention": "Perlu perhatian",
-        "requiredCriteria": "Kadar kelulusan kriteria yang diperlukan",
-        "goalP50": "Masa matlamat untuk menerima P50",
-        "opFailure": "Kadar kegagalan operasi",
-        "workflowP50": "Tempoh aliran kerja P50",
-        "goalBinding": "Kadar mengikat matlamat",
-        "approvalTrigger": "Kadar pencetus kelulusan",
-        "noProgress": "Kadar tiada kemajuan",
-        "blockedSchedules": "Jadual disekat",
-        "loopP50": "Tempoh larian gelung P50",
-        "currentBacklog": "Tertunggak semasa",
-        "activePlans": "Aktif sekarang",
-        "cohortCompletion": "Penyelesaian kohort"
-      },
-      "currentSnapshot": "Gambar semasa",
-      "goalTrend": "Hasil matlamat",
-      "resolved": "Selesai",
-      "accepted": "Diterima",
-      "attentionTitle": "Item perhatian semasa",
-      "noAttention": "Tiada item perhatian semasa",
-      "auditSamples": "{{count}} sasaran diaudit",
-      "currentStates": "Negeri semasa",
-      "closureOutcomes": "Hasil penutupan",
-      "domains": "Domain",
-      "kinds": "macam2",
-      "origins": "asal usul",
-      "workflowTrend": "Aliran Kerja yang Diputuskan berjalan",
-      "decidedRuns": "Larian yang diputuskan",
-      "progressStates": "Klasifikasi kemajuan",
-      "triggerKinds": "Jenis pencetus",
-      "strategies": "Strategi pelaksanaan",
-      "loopTrend": "Larian Gelung Ternilai",
-      "evaluatedRuns": "Larian yang dinilai",
-      "openPlanHistory": "Lihat sejarah Rancangan",
-      "planByAgent": "Pelan oleh Ejen",
-      "planByProject": "Rancang mengikut projek",
-      "noFunnelHint": "Tugasan dan Rancangan belum lagi mempunyai kunci atribusi Matlamat / Aliran Kerja / Gelung yang boleh dipercayai, jadi halaman ini tidak membuat kesimpulan corong penyebab daripada sesi.",
-      "noExactSamples": "Tiada sampel tempoh yang tepat",
-      "coverage": "{{samples}}/{{eligible}} sampel tepat ({{percent}}%)",
-      "coverageShort": "Perlindungan tempoh tepat:{{samples}}/{{eligible}}",
-      "creationTrend": "Trend penciptaan",
-      "created": "Dicipta",
-      "attentionKinds": {
-        "goal": "Matlamat",
-        "workflow": "Aliran kerja",
-        "loop": "Gelung",
-        "plan": "Pelan"
-      },
-      "attentionReasons": {
-        "needs_strict_evidence": "Bukti ketat diperlukan",
-        "goal_awaiting_closure": "Matlamat menunggu penutupan",
-        "workflow_requires_attention": "Aliran kerja memerlukan perhatian",
-        "consecutive_no_progress": "Tiada kemajuan berturut-turut",
-        "loop_requires_attention": "Gelung memerlukan perhatian",
-        "plan_awaiting_review": "Pelan menunggu semakan"
-      },
-      "states": {
-        "active": "Aktif",
-        "paused": "Dijeda",
-        "evaluating": "Menilai",
-        "completed": "Selesai",
-        "failed": "gagal",
-        "cancelled": "Dibatalkan",
-        "blocked": "Disekat",
-        "planning": "Perancangan",
-        "review": "Semakan",
-        "executing": "Melaksanakan",
-        "off": "Diarkibkan",
-        "awaiting_approval": "Menunggu kelulusan",
-        "awaiting_user": "Menunggu pengguna",
-        "running": "Berlari",
-        "recovering": "Pulih",
-        "draft": "Draf",
-        "pending": "Belum selesai",
-        "in_progress": "Sedang berlangsung",
-        "progressed": "Maju",
-        "weak_progress": "Kemajuan yang lemah",
-        "no_progress": "Tiada kemajuan",
-        "accepted_v1": "Diterima v1",
-        "superseded": "Digantikan",
-        "unassigned": "Tidak ditugaskan"
-      }
-    },
     "autoRefresh": {
       "1m": "1 min",
       "30s": "30 saat",
@@ -2227,6 +2127,106 @@
     },
     "columns": {
       "session": "Sesi"
+    },
+    "controlPlane": {
+      "title": "Matlamat & Perlaksanaan",
+      "automationTab": "Automasi",
+      "scopeHint": "Metrik tetingkap menunjukkan hasil; syot kilat semasa menunjukkan tunggakan dan risiko.",
+      "allProjects": "Semua projek",
+      "unassignedProject": "Tidak ditugaskan",
+      "archived": "Diarkibkan",
+      "empty": "Tiada data untuk skop yang dipilih.",
+      "sections": {
+        "overview": "Gambaran keseluruhan",
+        "planTask": "Rancangan & Tugas"
+      },
+      "metrics": {
+        "goalAcceptance": "Kadar penerimaan matlamat",
+        "workflowCompletion": "Kadar penyiapan aliran kerja",
+        "loopStrongProgress": "Gelung kadar kemajuan kukuh",
+        "taskCompletion": "Penyelesaian kohort tugas",
+        "attention": "Perlu perhatian",
+        "requiredCriteria": "Kadar kelulusan kriteria yang diperlukan",
+        "goalP50": "Masa matlamat untuk menerima P50",
+        "opFailure": "Kadar kegagalan operasi",
+        "workflowP50": "Tempoh aliran kerja P50",
+        "goalBinding": "Kadar mengikat matlamat",
+        "approvalTrigger": "Kadar pencetus kelulusan",
+        "noProgress": "Kadar tiada kemajuan",
+        "blockedSchedules": "Jadual disekat",
+        "loopP50": "Tempoh larian gelung P50",
+        "currentBacklog": "Tertunggak semasa",
+        "activePlans": "Aktif sekarang",
+        "cohortCompletion": "Penyelesaian kohort"
+      },
+      "currentSnapshot": "Gambar semasa",
+      "goalTrend": "Hasil matlamat",
+      "resolved": "Selesai",
+      "accepted": "Diterima",
+      "attentionTitle": "Item perhatian semasa",
+      "noAttention": "Tiada item perhatian semasa",
+      "auditSamples": "{{count}} sasaran diaudit",
+      "currentStates": "Negeri semasa",
+      "closureOutcomes": "Hasil penutupan",
+      "domains": "Domain",
+      "kinds": "macam2",
+      "origins": "asal usul",
+      "workflowTrend": "Aliran Kerja yang Diputuskan berjalan",
+      "decidedRuns": "Larian yang diputuskan",
+      "progressStates": "Klasifikasi kemajuan",
+      "triggerKinds": "Jenis pencetus",
+      "strategies": "Strategi pelaksanaan",
+      "loopTrend": "Larian Gelung Ternilai",
+      "evaluatedRuns": "Larian yang dinilai",
+      "openPlanHistory": "Lihat sejarah Rancangan",
+      "planByAgent": "Pelan oleh Ejen",
+      "planByProject": "Rancang mengikut projek",
+      "noFunnelHint": "Tugasan dan Rancangan belum lagi mempunyai kunci atribusi Matlamat / Aliran Kerja / Gelung yang boleh dipercayai, jadi halaman ini tidak membuat kesimpulan corong penyebab daripada sesi.",
+      "noExactSamples": "Tiada sampel tempoh yang tepat",
+      "coverage": "{{samples}}/{{eligible}} sampel tepat ({{percent}}%)",
+      "coverageShort": "Perlindungan tempoh tepat:{{samples}}/{{eligible}}",
+      "creationTrend": "Trend penciptaan",
+      "created": "Dicipta",
+      "attentionKinds": {
+        "goal": "Matlamat",
+        "workflow": "Aliran kerja",
+        "loop": "Gelung",
+        "plan": "Pelan"
+      },
+      "attentionReasons": {
+        "needs_strict_evidence": "Bukti ketat diperlukan",
+        "goal_awaiting_closure": "Matlamat menunggu penutupan",
+        "workflow_requires_attention": "Aliran kerja memerlukan perhatian",
+        "consecutive_no_progress": "Tiada kemajuan berturut-turut",
+        "loop_requires_attention": "Gelung memerlukan perhatian",
+        "plan_awaiting_review": "Pelan menunggu semakan"
+      },
+      "states": {
+        "active": "Aktif",
+        "paused": "Dijeda",
+        "evaluating": "Menilai",
+        "completed": "Selesai",
+        "failed": "gagal",
+        "cancelled": "Dibatalkan",
+        "blocked": "Disekat",
+        "planning": "Perancangan",
+        "review": "Semakan",
+        "executing": "Melaksanakan",
+        "off": "Diarkibkan",
+        "awaiting_approval": "Menunggu kelulusan",
+        "awaiting_user": "Menunggu pengguna",
+        "running": "Berlari",
+        "recovering": "Pulih",
+        "draft": "Draf",
+        "pending": "Belum selesai",
+        "in_progress": "Sedang berlangsung",
+        "progressed": "Maju",
+        "weak_progress": "Kemajuan yang lemah",
+        "no_progress": "Tiada kemajuan",
+        "accepted_v1": "Diterima v1",
+        "superseded": "Digantikan",
+        "unassigned": "Tidak ditugaskan"
+      }
     }
   },
   "fileActions": {
@@ -2244,6 +2244,37 @@
     "upload": "Muat naik",
     "saveAs": "Simpan sebagai",
     "downloadFailed": "Gagal memuat turun fail"
+  },
+  "fileEditor": {
+    "notUtf8": "Fail bukan teks UTF-8 yang sah",
+    "notEditable": "Fail ini tidak boleh diedit sebagai teks UTF-8",
+    "tooLarge": "Fail melebihi had edit {{limit}} MiB",
+    "saved": "Disimpan",
+    "showPreview": "Tunjukkan pratonton",
+    "showSource": "Tunjukkan sumber",
+    "saveAsExists": "Fail sudah wujud di laluan itu",
+    "mixedLineEndings": "Akhir baris bercampur dan akan dinormalkan kepada gaya dominan apabila disimpan.",
+    "externalChanged": "Fail berubah di luar editor ini.",
+    "reload": "Muat semula",
+    "conflictTitle": "Konflik simpanan",
+    "conflictDeleted": "Fail telah dipadam di luar editor ini.",
+    "conflictChanged": "Fail telah diubah di luar editor ini.",
+    "saveAsScope": "Simpan fail baharu dalam ruang kerja semasa.",
+    "unsavedTitle": "Perubahan belum disimpan",
+    "unsavedBody": "Buang suntingan semasa sebelum meninggalkan fail ini?",
+    "discard": "Buang perubahan",
+    "remoteWritesTitle": "Penulisan fail jauh dimatikan",
+    "remoteWritesBody": "Ruang kerja ini berada pada mesin pelayan. Dayakan penulisan jauh dalam tetapan pelayan hanya jika anda mempercayai klien yang disambungkan.",
+    "goToServerSettings": "Pergi ke tetapan pelayan",
+    "transportSwitchUnsaved": "Terdapat perubahan fail yang belum disimpan. Tukar sambungan dan buang perubahan tersebut?"
+  },
+  "attachments": {
+    "uploading": "Memuat naik…",
+    "uploadFailedShort": "Muat naik gagal",
+    "uploadFailed": "Fail tidak dihantar. {{error}}",
+    "tooMany": "Satu mesej boleh mengandungi paling banyak 64 fail",
+    "tooLarge": "{{name}} melebihi had {{limit}} MB",
+    "someTooLarge": "Sesetengah fail melebihi had {{limit}} MB"
   },
   "filePreview": {
     "panelTitle": "Pratonton",
@@ -2340,10 +2371,10 @@
       "staged": "Sudah disediakan",
       "stagedScope": "Sudah disediakan",
       "stale": "Repositori berubah. Perbezaannya telah disegarkan; kaji semula.",
+      "prReviewComments": "Komen semakan PR · {{count}}",
       "unstage": "Keluarkan dari persediaan",
       "unstaged": "Belum disediakan",
-      "unstagedScope": "Belum disediakan",
-      "prReviewComments": "Komen semakan PR · {{count}}"
+      "unstagedScope": "Belum disediakan"
     }
   },
   "effort": {
@@ -3196,7 +3227,6 @@
       "editorHint": "Arahan projek ialah peraturan tetap. Ruang ini menyimpan pembelajaran projek semasa bekerja dan bukan arahan berautoriti.",
       "editorTitle": "Memori automatik projek",
       "empty": "Belum ada topik memori automatik.",
-      "emptyPreview": "Belum ada butiran Markdown. Tukar ke mod Edit untuk menambah kandungan.",
       "fileNameGenerated": "Nama fail akan dijana semasa disimpan",
       "name": "Tajuk",
       "newTopic": "Topik baharu",
@@ -3210,7 +3240,8 @@
         "project": "Kerja projek",
         "reference": "Rujukan",
         "user": "Konteks pengguna"
-      }
+      },
+      "emptyPreview": "Belum ada butiran Markdown. Tukar ke mod Edit untuk menambah kandungan."
     },
     "createFirstProject": "Cipta projek pertama anda",
     "defaultAgent": "Agent lalai",
@@ -3286,12 +3317,7 @@
     "projectDescriptionPlaceholder": "Projek ini mengenai apa?",
     "projectInstructions": "Arahan projek",
     "projectInstructionsHint": "Mengedit fail AGENTS.md di akar projek secara terus. Selepas disimpan, ia digunakan untuk semua sesi projek ini.",
-    "projectInstructionsLineCount": "{{count}} baris",
-    "resizeSettingsSheet": "Seret untuk mengubah lebar tetapan projek",
-    "projectInstructionsEmptyPreview": "AGENTS.md kosong. Tukar ke Edit untuk menambah arahan Markdown.",
-    "projectInstructionsLoadFailed": "Tidak dapat membaca AGENTS.md",
     "projectInstructionsPlaceholder": "cth. Sentiasa balas dalam BM; gunakan nada jelas dan mesra; mulakan dengan kesimpulan",
-    "projectInstructionsSaveFailed": "Tidak dapat menyimpan AGENTS.md",
     "projectLogo": "Logo",
     "projectLogoHint": "Pilihan. Imej akan diubah saiz secara automatik kepada 256×256.",
     "projectName": "Nama projek",
@@ -3327,7 +3353,12 @@
       "updateFailed": "Gagal mengemas kini ruang pengetahuan projek",
       "errorDetail": "Butiran: {{error}}"
     },
-    "projectEmojiPlaceholder": "Pilihan"
+    "projectEmojiPlaceholder": "Pilihan",
+    "projectInstructionsLineCount": "{{count}} baris",
+    "resizeSettingsSheet": "Seret untuk mengubah lebar tetapan projek",
+    "projectInstructionsEmptyPreview": "AGENTS.md kosong. Tukar ke Edit untuk menambah arahan Markdown.",
+    "projectInstructionsLoadFailed": "Tidak dapat membaca AGENTS.md",
+    "projectInstructionsSaveFailed": "Tidak dapat menyimpan AGENTS.md"
   },
   "provider": {
     "addProvider": "Tambah Pembekal",
@@ -3598,7 +3629,6 @@
     }
   },
   "settings": {
-    "about": "Tentang",
     "resetDefaultsPageAction": "Pulihkan lalai halaman ini",
     "resetDefaultsTabAction": "Pulihkan lalai tab semasa",
     "resetDefaultsRegionAction": "Pulihkan lalai bahagian ini",
@@ -3611,6 +3641,35 @@
     "resetDefaultsFailed": "Gagal memulihkan lalai {{section}}",
     "resetDefaultsReindexStarted": "Tetapan pengetahuan telah disimpan dan indeks sedang dibina semula di latar belakang.",
     "resetDefaultsWarning": "Tetapan telah dipulihkan tetapi tindakan masa jalan tidak selesai. Cuba lagi kemudian.",
+    "files": {
+      "title": "Fail",
+      "description": "Konfigurasikan had fail untuk sembang, ruang kerja, pratonton dan penyuntingan.",
+      "runtimeLocal": "Fail desktop setempat",
+      "runtimeServer": "Fail pelayan",
+      "runtimeLocalDesc": "Operasi fail menggunakan sistem fail komputer ini.",
+      "runtimeServerDesc": "Operasi fail menggunakan sistem fail hos pelayan jauh.",
+      "maxChatAttachment": "Had lampiran sembang",
+      "maxChatAttachmentDesc": "Saiz maksimum bagi setiap lampiran sembang ({{min}}–{{max}} MiB).",
+      "maxWorkspaceUpload": "Had muat naik ruang kerja",
+      "maxWorkspaceUploadDesc": "Saiz maksimum bagi setiap fail yang dimuat naik ke ruang kerja ({{min}}–{{max}} MiB).",
+      "maxTextPreview": "Had pratonton teks",
+      "maxTextPreviewDesc": "Saiz maksimum fail teks yang dimuatkan untuk pratonton ({{min}}–{{max}} MiB).",
+      "maxTextEdit": "Had penyuntingan teks",
+      "maxTextEditDesc": "Saiz maksimum fail teks UTF-8 yang boleh disunting ({{min}}–{{max}} MiB).",
+      "maxDocumentPreview": "Had pratonton dokumen",
+      "maxDocumentPreviewDesc": "Saiz maksimum fail PDF atau Office yang diproses untuk pratonton ({{min}}–{{max}} MiB).",
+      "maxArtifactImport": "Had import artifak",
+      "maxArtifactImportDesc": "Saiz sumber HTML, Markdown atau Analisis JSON maksimum yang diimport ke dalam Artifak ({{min}}–{{max}} MiB).",
+      "largeUploadWarning": "Had muat naik yang besar meningkatkan penggunaan cakera, rangkaian dan pemprosesan. Naikkan hanya jika pelayan mempunyai sumber yang mencukupi."
+    },
+    "knowledgeSourceLimits": {
+      "title": "Had sumber pengetahuan",
+      "description": "Saiz maksimum yang diterima bagi setiap jenis sumber ruang pengetahuan.",
+      "text": "Sumber teks (MiB)",
+      "binary": "Sumber binari (MiB)",
+      "url": "Respons URL (MiB)"
+    },
+    "about": "Tentang",
     "acpAutoDiscover": "Auto-temui backend",
     "acpAutoDiscoverDesc": "Imbas $PATH untuk binari agent ACP yang diketahui semasa permulaan",
     "acpBackendId": "ID",
@@ -3977,15 +4036,6 @@
     },
     "browser": {
       "activeBadge": "aktif",
-      "backupRuntimeHint": "Sistem Chrome tersedia. Pasang masa jalan Chromium yang diuruskan Hope sebagai sandaran untuk automasi penyemak imbas dan eksport PDF Artifak.",
-      "backupRuntimeTitle": "Sandaran masa jalan Chromium",
-      "installRuntimeRetry": "Masa tayangan sudah sedia. Cuba semula tindakan penyemak imbas atau eksport PDF.",
-      "openBrowserSettings": "Buka tetapan penyemak imbas",
-      "runtimeInstallUnsupported": "Hope tidak menyediakan masa jalan Chromium terurus untuk sistem pengendalian atau seni bina ini. Pasang Chrome/Chromium secara manual atau konfigurasikan laluan boleh laku.",
-      "runtimeRequiredArtifactPdfDescription": "Eksport PDF memerlukan masa jalan Chrome atau Chromium tempatan, tetapi tiada yang tersedia pada masa ini.",
-      "runtimeRequiredDescription": "Operasi penyemak imbas ini memerlukan masa jalan Chrome atau Chromium setempat, tetapi tiada satu pun yang tersedia pada masa ini.",
-      "runtimeRequiredHint": "Anda boleh memasang masa jalan terurus Hope sekarang (kira-kira 150 MB), kemudian cuba semula operasi.",
-      "runtimeRequiredTitle": "Masa jalan Chromium diperlukan",
       "connect": "Sambung",
       "connectHelp": "Sudah menjalankan Chrome dengan --remote-debugging-port=9222? Sambung dan bukan lancarkan instance baharu.",
       "connectUrlLabel": "URL debug",
@@ -4135,7 +4185,16 @@
         "title": "Benarkan raw CDP?",
         "body": "Ini membenarkan AI menghantar perintah DevTools Protocol sewenang-wenangnya ke Chrome sebenar anda. Setiap panggilan masih memerlukan kelulusan anda setiap kali dan kaedah berbahaya kekal disekat, tetapi dayakan hanya jika anda benar-benar memerlukannya.",
         "continue": "Dayakan"
-      }
+      },
+      "backupRuntimeHint": "Sistem Chrome tersedia. Pasang masa jalan Chromium yang diuruskan Hope sebagai sandaran untuk automasi penyemak imbas dan eksport PDF Artifak.",
+      "backupRuntimeTitle": "Sandaran masa jalan Chromium",
+      "installRuntimeRetry": "Masa tayangan sudah sedia. Cuba semula tindakan penyemak imbas atau eksport PDF.",
+      "openBrowserSettings": "Buka tetapan penyemak imbas",
+      "runtimeInstallUnsupported": "Hope tidak menyediakan masa jalan Chromium terurus untuk sistem pengendalian atau seni bina ini. Pasang Chrome/Chromium secara manual atau konfigurasikan laluan boleh laku.",
+      "runtimeRequiredArtifactPdfDescription": "Eksport PDF memerlukan masa jalan Chrome atau Chromium tempatan, tetapi tiada yang tersedia pada masa ini.",
+      "runtimeRequiredDescription": "Operasi penyemak imbas ini memerlukan masa jalan Chrome atau Chromium setempat, tetapi tiada satu pun yang tersedia pada masa ini.",
+      "runtimeRequiredHint": "Anda boleh memasang masa jalan terurus Hope sekarang (kira-kira 150 MB), kemudian cuba semula operasi.",
+      "runtimeRequiredTitle": "Masa jalan Chromium diperlukan"
     },
     "bytes": "bait",
     "canvas": "Kanvas",
@@ -4723,6 +4782,8 @@
     "fallbackModelsDesc": "Apabila model utama tidak tersedia, cuba model-model ini mengikut urutan",
     "fsRemoteWrites": "Benarkan tulisan fail jarak jauh",
     "fsRemoteWritesDesc": "Benarkan pelanggan HTTP mencipta, menyunting, memadam dan memuat naik fail dalam direktori kerja projek. Dimatikan secara lalai — aplikasi desktop sentiasa boleh menulis secara setempat tanpa mengira tetapan ini.",
+    "fsMaxChatAttachmentMb": "Saiz maksimum lampiran sembang",
+    "fsMaxChatAttachmentMbDesc": "Saiz maksimum satu fail yang dimuat naik daripada penggubah sembang. Desktop setempat menggunakan tetapan setempat; desktop jauh dan Web menggunakan tetapan pelayan.",
     "general": "Umum",
     "generalDesc": "Rupa, bahasa dan tetapan sistem",
     "globalModel": "Tetapan Model Global",
@@ -7634,40 +7695,6 @@
     "audioGenFetchVoices": "Dapatkan suara",
     "audioGenKnownModels": "Model diketahui",
     "audioGenPickVoice": "Pilih dari senarai…",
-    "files": {
-      "title": "Fail",
-      "description": "Konfigurasikan had fail untuk sembang, ruang kerja, pratonton dan penyuntingan.",
-      "runtimeLocal": "Fail desktop setempat",
-      "runtimeServer": "Fail pelayan",
-      "runtimeLocalDesc": "Operasi fail menggunakan sistem fail komputer ini.",
-      "runtimeServerDesc": "Operasi fail menggunakan sistem fail hos pelayan jauh.",
-      "maxChatAttachment": "Had lampiran sembang",
-      "maxChatAttachmentDesc": "Saiz maksimum bagi setiap lampiran sembang ({{min}}–{{max}} MiB).",
-      "maxWorkspaceUpload": "Had muat naik ruang kerja",
-      "maxWorkspaceUploadDesc": "Saiz maksimum bagi setiap fail yang dimuat naik ke ruang kerja ({{min}}–{{max}} MiB).",
-      "maxTextPreview": "Had pratonton teks",
-      "maxTextPreviewDesc": "Saiz maksimum fail teks yang dimuatkan untuk pratonton ({{min}}–{{max}} MiB).",
-      "maxTextEdit": "Had penyuntingan teks",
-      "maxTextEditDesc": "Saiz maksimum fail teks UTF-8 yang boleh disunting ({{min}}–{{max}} MiB).",
-      "maxDocumentPreview": "Had pratonton dokumen",
-      "maxDocumentPreviewDesc": "Saiz maksimum fail PDF atau Office yang diproses untuk pratonton ({{min}}–{{max}} MiB).",
-      "maxArtifactImport": "Had import artifak",
-      "maxArtifactImportDesc": "Saiz sumber HTML, Markdown atau Analisis JSON maksimum yang diimport ke dalam Artifak ({{min}}–{{max}} MiB).",
-      "largeUploadWarning": "Had muat naik yang besar meningkatkan penggunaan cakera, rangkaian dan pemprosesan. Naikkan hanya jika pelayan mempunyai sumber yang mencukupi."
-    },
-    "knowledgeSourceLimits": {
-      "title": "Had sumber pengetahuan",
-      "description": "Saiz maksimum yang diterima bagi setiap jenis sumber ruang pengetahuan.",
-      "text": "Sumber teks (MiB)",
-      "binary": "Sumber binari (MiB)",
-      "url": "Respons URL (MiB)"
-    },
-    "fsMaxChatAttachmentMb": "Saiz maksimum lampiran sembang",
-    "fsMaxChatAttachmentMbDesc": "Saiz maksimum satu fail yang dimuat naik daripada penggubah sembang. Desktop setempat menggunakan tetapan setempat; desktop jauh dan Web menggunakan tetapan pelayan.",
-    "memoryBackupEncryptedPassphraseTooShort": "Gunakan sekurang-kurangnya 12 aksara untuk frasa laluan sandaran",
-    "memoryBackupEncryptedPassphraseCommon": "Elakkan perkataan atau corak lazim dalam frasa laluan sandaran",
-    "memoryBackupEncryptedPassphraseRepetitive": "Gunakan frasa laluan sandaran yang kurang berulang",
-    "memoryBackupEncryptedPassphraseVariety": "Gunakan gabungan yang lebih pelbagai atau frasa empat perkataan yang lebih panjang",
     "acpCustomAgent": "Agent tersuai",
     "canvasTypes": {
       "chart": "Carta",
@@ -7744,6 +7771,10 @@
         "graphiti_http": "Graphiti HTTP sidecar"
       }
     },
+    "memoryBackupEncryptedPassphraseTooShort": "Gunakan sekurang-kurangnya 12 aksara untuk frasa laluan sandaran",
+    "memoryBackupEncryptedPassphraseCommon": "Elakkan perkataan atau corak lazim dalam frasa laluan sandaran",
+    "memoryBackupEncryptedPassphraseRepetitive": "Gunakan frasa laluan sandaran yang kurang berulang",
+    "memoryBackupEncryptedPassphraseVariety": "Gunakan gabungan yang lebih pelbagai atau frasa empat perkataan yang lebih panjang",
     "memoryDbSnapshotRestoreStatus": {
       "ready": "Sedia",
       "no_metadata": "Metadata tiada",
@@ -8620,6 +8651,8 @@
       "selectBranch": "Pilih cabang",
       "stageAll": "Sediakan semua perubahan",
       "viewPr": "Lihat Pull Request",
+      "pullRequestPanelTitle": "Permintaan tarik",
+      "resizePullRequestPanel": "Ubah lebar panel permintaan tarik",
       "worktree": "Pokok kerja",
       "checkDetails": "Butiran semakan",
       "checkFailed": "Gagal",
@@ -8641,6 +8674,7 @@
       "openCheck": "Buka semakan",
       "openComment": "Buka komen",
       "prFeedbackUnavailable": "Semakan dan komen PR tidak tersedia",
+      "prFeedbackStale": "Gagal memuat semula status permintaan tarik; data semasa mungkin sudah lapuk",
       "reviewComments": "{{count}} komen",
       "reviewFeedback": "Maklum balas semakan",
       "autoMergeEnabled": "Gabung automatik didayakan",
@@ -8667,10 +8701,7 @@
       "reviewPending": "Menunggu",
       "reviewRequired": "Semakan diperlukan",
       "reviewStatus": "Status semakan",
-      "reviewers": "Penyemak",
-      "pullRequestPanelTitle": "Permintaan tarik",
-      "resizePullRequestPanel": "Ubah lebar panel permintaan tarik",
-      "prFeedbackStale": "Gagal memuat semula status permintaan tarik; data semasa mungkin sudah lapuk"
+      "reviewers": "Penyemak"
     },
     "goal": {
       "watchdogTitle": "Matlamat memerlukan pengesahan",
@@ -10594,6 +10625,8 @@
       "title": "Susun ke dalam nota"
     },
     "sources": {
+      "textTooLarge": "Sumber teks melebihi had {{limit}} MiB",
+      "fileTooLarge": "{{name}} melebihi had {{limit}} MiB",
       "archiveAttachment": "Arkibkan kepada pengetahuan",
       "archiveAttachmentFailed": "Gagal mengarkibkan lampiran",
       "archivedAttachment": "Diarkibkan kepada sumber pengetahuan",
@@ -10732,9 +10765,7 @@
       "ocrFailed": "OCR gagal",
       "ocrRetry": "Cuba semula halaman yang gagal",
       "ocrRetryStarted": "Mencuba semula halaman yang gagal…",
-      "ocrRetryFailed": "Tidak dapat mencuba semula halaman OCR",
-      "textTooLarge": "Sumber teks melebihi had {{limit}} MiB",
-      "fileTooLarge": "{{name}} melebihi had {{limit}} MiB"
+      "ocrRetryFailed": "Tidak dapat mencuba semula halaman OCR"
     },
     "queryFile": {
       "action": "Fail",
@@ -10770,54 +10801,6 @@
       "emptyInternal": "Ruang ini kosong.",
       "importFiles": "Import fail"
     }
-  },
-  "backgroundJobs": {
-    "panelTitle": "Tugas Latar Belakang",
-    "openPanel": "Tugas latar belakang",
-    "openFull": "Lihat semua",
-    "expandJob": "Kembangkan tugas",
-    "collapseJob": "Kuncupkan tugas",
-    "jumpToBottom": "Pergi ke bawah",
-    "empty": "Tiada tugas latar belakang",
-    "sectionSession": "Sesi ini",
-    "sectionLocalModel": "Model tempatan",
-    "kindGroup": "Kumpulan tugas",
-    "kindSubagent": "Subejen",
-    "resizePanel": "Ubah saiz panel tugas latar belakang",
-    "status": {
-      "queued": "Beratur",
-      "running": "Berjalan",
-      "cancelling": "Membatalkan",
-      "awaiting_approval": "Menunggu kelulusan",
-      "completed": "Selesai",
-      "failed": "Gagal",
-      "interrupted": "Terganggu",
-      "timed_out": "Tamat masa",
-      "cancelled": "Dibatalkan"
-    },
-    "errorOutput": "kesilapan",
-    "liveOutput": "output masa nyata",
-    "outputFile": "keputusan penuh",
-    "resultPreview": "Pratonton keputusan"
-  },
-  "browser": {
-    "panelTitle": "pelayar"
-  },
-  "error": {
-    "appCrash": "Sesuatu telah berlaku",
-    "retry": "Cuba Lagi",
-    "unknown": "Ralat yang tidak dijangka berlaku"
-  },
-  "localModels": {
-    "actions": {
-      "download": "Muat turun"
-    }
-  },
-  "macControl": {
-    "panelTitle": "Kawalan Mac"
-  },
-  "memory": {
-    "activeRecallToastTitle": "Memori yang dirujuk"
   },
   "artifacts": {
     "title": "Artifak",
@@ -10916,6 +10899,54 @@
     "exportReviewBlocked": "Semakan eksport masih mempunyai penyekat",
     "guardStatus": "Pengawal",
     "defaultName": "Artifak"
+  },
+  "backgroundJobs": {
+    "panelTitle": "Tugas Latar Belakang",
+    "openPanel": "Tugas latar belakang",
+    "openFull": "Lihat semua",
+    "expandJob": "Kembangkan tugas",
+    "collapseJob": "Kuncupkan tugas",
+    "jumpToBottom": "Pergi ke bawah",
+    "empty": "Tiada tugas latar belakang",
+    "sectionSession": "Sesi ini",
+    "sectionLocalModel": "Model tempatan",
+    "kindGroup": "Kumpulan tugas",
+    "kindSubagent": "Subejen",
+    "resizePanel": "Ubah saiz panel tugas latar belakang",
+    "status": {
+      "queued": "Beratur",
+      "running": "Berjalan",
+      "cancelling": "Membatalkan",
+      "awaiting_approval": "Menunggu kelulusan",
+      "completed": "Selesai",
+      "failed": "Gagal",
+      "interrupted": "Terganggu",
+      "timed_out": "Tamat masa",
+      "cancelled": "Dibatalkan"
+    },
+    "errorOutput": "kesilapan",
+    "liveOutput": "output masa nyata",
+    "outputFile": "keputusan penuh",
+    "resultPreview": "Pratonton keputusan"
+  },
+  "browser": {
+    "panelTitle": "pelayar"
+  },
+  "error": {
+    "appCrash": "Sesuatu telah berlaku",
+    "retry": "Cuba Lagi",
+    "unknown": "Ralat yang tidak dijangka berlaku"
+  },
+  "localModels": {
+    "actions": {
+      "download": "Muat turun"
+    }
+  },
+  "macControl": {
+    "panelTitle": "Kawalan Mac"
+  },
+  "memory": {
+    "activeRecallToastTitle": "Memori yang dirujuk"
   },
   "design": {
     "title": "Ruang Reka Bentuk",
@@ -11637,37 +11668,6 @@
       "checkStale": "{{n}} artifak mempunyai kemas kini kod",
       "chatPrompt": "Kod yang dilaksanakan telah menyimpang daripada reka bentuk ini. Kemas kini reka bentuk semasa untuk mencerminkan perubahan kod yang dirujuk, sambil mengekalkan niat reka bentuk dan segala yang lain tidak berubah."
     }
-  },
-  "fileEditor": {
-    "notUtf8": "Fail bukan teks UTF-8 yang sah",
-    "notEditable": "Fail ini tidak boleh diedit sebagai teks UTF-8",
-    "tooLarge": "Fail melebihi had edit {{limit}} MiB",
-    "saved": "Disimpan",
-    "showPreview": "Tunjukkan pratonton",
-    "showSource": "Tunjukkan sumber",
-    "saveAsExists": "Fail sudah wujud di laluan itu",
-    "mixedLineEndings": "Akhir baris bercampur dan akan dinormalkan kepada gaya dominan apabila disimpan.",
-    "externalChanged": "Fail berubah di luar editor ini.",
-    "reload": "Muat semula",
-    "conflictTitle": "Konflik simpanan",
-    "conflictDeleted": "Fail telah dipadam di luar editor ini.",
-    "conflictChanged": "Fail telah diubah di luar editor ini.",
-    "saveAsScope": "Simpan fail baharu dalam ruang kerja semasa.",
-    "unsavedTitle": "Perubahan belum disimpan",
-    "unsavedBody": "Buang suntingan semasa sebelum meninggalkan fail ini?",
-    "discard": "Buang perubahan",
-    "remoteWritesTitle": "Penulisan fail jauh dimatikan",
-    "remoteWritesBody": "Ruang kerja ini berada pada mesin pelayan. Dayakan penulisan jauh dalam tetapan pelayan hanya jika anda mempercayai klien yang disambungkan.",
-    "goToServerSettings": "Pergi ke tetapan pelayan",
-    "transportSwitchUnsaved": "Terdapat perubahan fail yang belum disimpan. Tukar sambungan dan buang perubahan tersebut?"
-  },
-  "attachments": {
-    "uploading": "Memuat naik…",
-    "uploadFailedShort": "Muat naik gagal",
-    "uploadFailed": "Fail tidak dihantar. {{error}}",
-    "tooMany": "Satu mesej boleh mengandungi paling banyak 64 fail",
-    "tooLarge": "{{name}} melebihi had {{limit}} MB",
-    "someTooLarge": "Sesetengah fail melebihi had {{limit}} MB"
   },
   "configRecovery": {
     "title": "Pemulihan Konfigurasi Diperlukan",

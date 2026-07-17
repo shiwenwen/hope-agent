@@ -421,9 +421,6 @@
     "completedTurnCollapsed": "Обработано сообщений: {{count}}",
     "completedTurnCollapsedWithDuration": "Обработано за {{duration}}, сообщений: {{count}}",
     "conversations": "Чаты",
-    "unreadConversationCount": "Непрочитанных чатов: {{count}}",
-    "unreadStatus": "Не прочитано",
-    "channelUnreadStatus": "Непрочитанный чат в мессенджере",
     "collapseSidebar": "Свернуть боковую панель",
     "sidebarCompactMode": "Переключить в компактный режим",
     "sidebarDetailedMode": "Переключить в обычный режим",
@@ -867,9 +864,9 @@
         "docx": "Документ Word",
         "pptx": "Слайды PowerPoint",
         "xlsx": "Таблица Excel",
-        "dataAnalytics": "Анализ данных",
         "browser": "Управление браузером",
-        "mac": "Управление Mac"
+        "mac": "Управление Mac",
+        "dataAnalytics": "Анализ данных"
       }
     },
     "reasoningDisabledHint": "Для этой модели рассуждения не включены. Чтобы настроить глубину рассуждений, откройте «Настройки → Поставщики моделей», измените эту модель и включите «Поддержку рассуждений».",
@@ -1169,9 +1166,12 @@
     "openSourceConversationMissingHint": "Этот источник памяти указывает на беседу, которая была удалена или не найдена.",
     "openSourceMessageMissing": "Исходное сообщение больше недоступно",
     "openSourceMessageMissingHint": "Беседа все еще существует, но точное сообщение для этого источника памяти не найдено.",
+    "unreadConversationCount": "Непрочитанных чатов: {{count}}",
+    "unreadStatus": "Не прочитано",
+    "channelUnreadStatus": "Непрочитанный чат в мессенджере",
+    "generatedImageName": "Созданное изображение {{index}}",
     "noAgents": "Нет агентов",
-    "sessionFailed": "Ошибка беседы",
-    "generatedImageName": "Созданное изображение {{index}}"
+    "sessionFailed": "Ошибка беседы"
   },
   "codexAuth": {
     "expiredDescription": "Ваш OAuth-токен Codex больше не действителен. Войдите снова, чтобы продолжить.",
@@ -1179,6 +1179,7 @@
     "reauth": "Войти снова"
   },
   "common": {
+    "restoreDefaults": "Восстановить значения по умолчанию",
     "add": "Добавить",
     "back": "Назад",
     "cancel": "Отмена",
@@ -1225,18 +1226,13 @@
     "off": "Выкл.",
     "error": "Ошибка",
     "showLess": "Показать меньше",
-    "next": "Следующий",
-    "previous": "Предыдущий",
     "download": "Скачать",
     "duplicate": "Дублировать",
     "more": "Ещё",
     "apply": "Применить",
     "modelNoVision": "Не поддерживает изображения",
-    "restoreDefaults": "Восстановить значения по умолчанию",
-    "request": "Запрос",
-    "response": "Ответ",
-    "authMethod": "Способ аутентификации",
-    "testSteps": "Шаги проверки",
+    "next": "Следующий",
+    "previous": "Предыдущий",
     "baseUrl": "Базовый URL",
     "apiKey": "Ключ API",
     "ok": "ОК",
@@ -1262,6 +1258,8 @@
       "healthy": "Исправно",
       "idle": "Ожидание",
       "insufficient_data": "Недостаточно данных",
+      "needs_user": "Требуется действие пользователя",
+      "advisory": "Рекомендация",
       "injected": "Добавлено",
       "interrupted": "Прервано",
       "killed": "Принудительно завершено",
@@ -1285,11 +1283,13 @@
       "timed_out": "Время ожидания истекло",
       "unknown": "Неизвестно",
       "warning": "Предупреждение",
-      "needs_user": "Требуется действие пользователя",
-      "advisory": "Рекомендация",
       "evaluating": "Оценивается",
       "in_progress": "Выполняется"
-    }
+    },
+    "request": "Запрос",
+    "response": "Ответ",
+    "authMethod": "Способ аутентификации",
+    "testSteps": "Шаги проверки"
   },
   "context": {
     "ago": "назад",
@@ -1456,106 +1456,6 @@
     "bannerConfig": "Опасный режим активен — все подтверждения инструментов пропускаются. Отключите в Настройки → Безопасность"
   },
   "dashboard": {
-    "controlPlane": {
-      "title": "Цели и реализация",
-      "automationTab": "Автоматизация",
-      "scopeHint": "Оконные метрики показывают результаты; текущие снимки показывают отставание и риски.",
-      "allProjects": "Все проекты",
-      "unassignedProject": "Неназначенный",
-      "archived": "В архиве",
-      "empty": "Нет данных для выбранной области.",
-      "sections": {
-        "overview": "Обзор",
-        "planTask": "План и задача"
-      },
-      "metrics": {
-        "goalAcceptance": "Коэффициент принятия цели",
-        "workflowCompletion": "Скорость завершения рабочего процесса",
-        "loopStrongProgress": "Скорость сильного прогресса цикла",
-        "taskCompletion": "Завершение группы задач",
-        "attention": "Требует внимания",
-        "requiredCriteria": "Требуемый процент прохождения критериев",
-        "goalP50": "Целевое время принятия P50",
-        "opFailure": "Процент неудачных операций",
-        "workflowP50": "Продолжительность рабочего процесса P50",
-        "goalBinding": "Коэффициент привязки цели",
-        "approvalTrigger": "Коэффициент одобрения",
-        "noProgress": "Уровень отсутствия прогресса",
-        "blockedSchedules": "Заблокированные расписания",
-        "loopP50": "Длительность цикла P50",
-        "currentBacklog": "Текущее отставание",
-        "activePlans": "Активен сейчас",
-        "cohortCompletion": "Завершение когорты"
-      },
-      "currentSnapshot": "Текущий снимок",
-      "goalTrend": "Результаты цели",
-      "resolved": "Решено",
-      "accepted": "Принял",
-      "attentionTitle": "Текущие предметы внимания",
-      "noAttention": "Нет текущих объектов внимания",
-      "auditSamples": "Проверено целей: {{count}}",
-      "currentStates": "Текущие состояния",
-      "closureOutcomes": "Результаты закрытия",
-      "domains": "Домены",
-      "kinds": "Виды",
-      "origins": "Происхождение",
-      "workflowTrend": "Решенный рабочий процесс выполняется",
-      "decidedRuns": "Решительные пробеги",
-      "progressStates": "Классификация прогресса",
-      "triggerKinds": "Виды триггеров",
-      "strategies": "Стратегии исполнения",
-      "loopTrend": "Оцененные запуски цикла",
-      "evaluatedRuns": "Оцененные прогоны",
-      "openPlanHistory": "Посмотреть историю планов",
-      "planByAgent": "План по агенту",
-      "planByProject": "План по проекту",
-      "noFunnelHint": "Задача и план еще не имеют надежных ключей атрибуции цели/рабочего процесса/цикла, поэтому на этой странице не делается вывод о причинно-следственной воронке на основе сеансов.",
-      "noExactSamples": "Нет образцов точной продолжительности",
-      "coverage": "Точных образцов: {{samples}}/{{eligible}} ({{percent}}%)",
-      "coverageShort": "Точная продолжительность покрытия:{{samples}}/{{eligible}}.",
-      "creationTrend": "Тенденция создания",
-      "created": "Созданный",
-      "attentionKinds": {
-        "goal": "Цель",
-        "workflow": "Рабочий процесс",
-        "loop": "Цикл",
-        "plan": "План"
-      },
-      "attentionReasons": {
-        "needs_strict_evidence": "Требуются строгие доказательства",
-        "goal_awaiting_closure": "Цель ожидает закрытия",
-        "workflow_requires_attention": "Рабочий процесс требует внимания",
-        "consecutive_no_progress": "Нет прогресса подряд",
-        "loop_requires_attention": "Цикл требует внимания",
-        "plan_awaiting_review": "План ожидает проверки"
-      },
-      "states": {
-        "active": "Активно",
-        "paused": "Приостановлено",
-        "evaluating": "Оценка",
-        "completed": "Завершено",
-        "failed": "Неуспешный",
-        "cancelled": "Отменено",
-        "blocked": "Заблокировано",
-        "planning": "Планирование",
-        "review": "Проверка",
-        "executing": "Выполнение",
-        "off": "В архиве",
-        "awaiting_approval": "Ожидает одобрения",
-        "awaiting_user": "Ожидает пользователя",
-        "running": "Выполняется",
-        "recovering": "Восстановление",
-        "draft": "Черновик",
-        "pending": "В ожидании",
-        "in_progress": "В ходе выполнения",
-        "progressed": "Прогрессировало",
-        "weak_progress": "Слабый прогресс",
-        "no_progress": "Нет прогресса",
-        "accepted_v1": "Принято v1",
-        "superseded": "Заменено",
-        "unassigned": "Неназначенный"
-      }
-    },
     "autoRefresh": {
       "1m": "1 мин",
       "30s": "30 с",
@@ -1975,8 +1875,8 @@
       "activeCampaigns": "{{count}} активных",
       "baselineKinds": {
         "deterministic": "Детерминированный",
-        "external_model": "Внешняя модель",
-        "deterministic_mock": "Детерминированная имитация"
+        "deterministic_mock": "Детерминированная имитация",
+        "external_model": "Внешняя модель"
       },
       "calibrationAcceptedNote": "Ручная проверка приняла {{label}} как калибровочное свидетельство.",
       "calibrationFollowUpNote": "После {{status}} ручная проверка отметила {{label}} для последующей калибровки.",
@@ -2227,6 +2127,106 @@
     },
     "columns": {
       "session": "Сессия"
+    },
+    "controlPlane": {
+      "title": "Цели и реализация",
+      "automationTab": "Автоматизация",
+      "scopeHint": "Оконные метрики показывают результаты; текущие снимки показывают отставание и риски.",
+      "allProjects": "Все проекты",
+      "unassignedProject": "Неназначенный",
+      "archived": "В архиве",
+      "empty": "Нет данных для выбранной области.",
+      "sections": {
+        "overview": "Обзор",
+        "planTask": "План и задача"
+      },
+      "metrics": {
+        "goalAcceptance": "Коэффициент принятия цели",
+        "workflowCompletion": "Скорость завершения рабочего процесса",
+        "loopStrongProgress": "Скорость сильного прогресса цикла",
+        "taskCompletion": "Завершение группы задач",
+        "attention": "Требует внимания",
+        "requiredCriteria": "Требуемый процент прохождения критериев",
+        "goalP50": "Целевое время принятия P50",
+        "opFailure": "Процент неудачных операций",
+        "workflowP50": "Продолжительность рабочего процесса P50",
+        "goalBinding": "Коэффициент привязки цели",
+        "approvalTrigger": "Коэффициент одобрения",
+        "noProgress": "Уровень отсутствия прогресса",
+        "blockedSchedules": "Заблокированные расписания",
+        "loopP50": "Длительность цикла P50",
+        "currentBacklog": "Текущее отставание",
+        "activePlans": "Активен сейчас",
+        "cohortCompletion": "Завершение когорты"
+      },
+      "currentSnapshot": "Текущий снимок",
+      "goalTrend": "Результаты цели",
+      "resolved": "Решено",
+      "accepted": "Принял",
+      "attentionTitle": "Текущие предметы внимания",
+      "noAttention": "Нет текущих объектов внимания",
+      "auditSamples": "Проверено целей: {{count}}",
+      "currentStates": "Текущие состояния",
+      "closureOutcomes": "Результаты закрытия",
+      "domains": "Домены",
+      "kinds": "Виды",
+      "origins": "Происхождение",
+      "workflowTrend": "Решенный рабочий процесс выполняется",
+      "decidedRuns": "Решительные пробеги",
+      "progressStates": "Классификация прогресса",
+      "triggerKinds": "Виды триггеров",
+      "strategies": "Стратегии исполнения",
+      "loopTrend": "Оцененные запуски цикла",
+      "evaluatedRuns": "Оцененные прогоны",
+      "openPlanHistory": "Посмотреть историю планов",
+      "planByAgent": "План по агенту",
+      "planByProject": "План по проекту",
+      "noFunnelHint": "Задача и план еще не имеют надежных ключей атрибуции цели/рабочего процесса/цикла, поэтому на этой странице не делается вывод о причинно-следственной воронке на основе сеансов.",
+      "noExactSamples": "Нет образцов точной продолжительности",
+      "coverage": "Точных образцов: {{samples}}/{{eligible}} ({{percent}}%)",
+      "coverageShort": "Точная продолжительность покрытия:{{samples}}/{{eligible}}.",
+      "creationTrend": "Тенденция создания",
+      "created": "Созданный",
+      "attentionKinds": {
+        "goal": "Цель",
+        "workflow": "Рабочий процесс",
+        "loop": "Цикл",
+        "plan": "План"
+      },
+      "attentionReasons": {
+        "needs_strict_evidence": "Требуются строгие доказательства",
+        "goal_awaiting_closure": "Цель ожидает закрытия",
+        "workflow_requires_attention": "Рабочий процесс требует внимания",
+        "consecutive_no_progress": "Нет прогресса подряд",
+        "loop_requires_attention": "Цикл требует внимания",
+        "plan_awaiting_review": "План ожидает проверки"
+      },
+      "states": {
+        "active": "Активно",
+        "paused": "Приостановлено",
+        "evaluating": "Оценка",
+        "completed": "Завершено",
+        "failed": "Неуспешный",
+        "cancelled": "Отменено",
+        "blocked": "Заблокировано",
+        "planning": "Планирование",
+        "review": "Проверка",
+        "executing": "Выполнение",
+        "off": "В архиве",
+        "awaiting_approval": "Ожидает одобрения",
+        "awaiting_user": "Ожидает пользователя",
+        "running": "Выполняется",
+        "recovering": "Восстановление",
+        "draft": "Черновик",
+        "pending": "В ожидании",
+        "in_progress": "В ходе выполнения",
+        "progressed": "Прогрессировало",
+        "weak_progress": "Слабый прогресс",
+        "no_progress": "Нет прогресса",
+        "accepted_v1": "Принято v1",
+        "superseded": "Заменено",
+        "unassigned": "Неназначенный"
+      }
     }
   },
   "fileActions": {
@@ -2244,6 +2244,37 @@
     "upload": "Загрузить",
     "saveAs": "Сохранить как",
     "downloadFailed": "Не удалось скачать файл"
+  },
+  "fileEditor": {
+    "notUtf8": "Файл не является корректным текстом UTF-8",
+    "notEditable": "Этот файл нельзя редактировать как текст UTF-8",
+    "tooLarge": "Файл превышает лимит редактирования {{limit}} МиБ",
+    "saved": "Сохранено",
+    "showPreview": "Показать предпросмотр",
+    "showSource": "Показать исходный текст",
+    "saveAsExists": "По этому пути уже существует файл",
+    "mixedLineEndings": "Смешанные окончания строк при сохранении будут приведены к преобладающему формату.",
+    "externalChanged": "Файл был изменён вне этого редактора.",
+    "reload": "Перезагрузить",
+    "conflictTitle": "Конфликт сохранения",
+    "conflictDeleted": "Файл был удалён вне этого редактора.",
+    "conflictChanged": "Файл был изменён вне этого редактора.",
+    "saveAsScope": "Сохраните новый файл в текущей рабочей области.",
+    "unsavedTitle": "Несохранённые изменения",
+    "unsavedBody": "Отменить текущие правки перед выходом из файла?",
+    "discard": "Отменить изменения",
+    "remoteWritesTitle": "Удалённая запись файлов отключена",
+    "remoteWritesBody": "Эта рабочая область находится на сервере. Включайте удалённую запись в настройках сервера, только если доверяете подключённым клиентам.",
+    "goToServerSettings": "Перейти к настройкам сервера",
+    "transportSwitchUnsaved": "Есть несохранённые изменения файлов. Переключить подключение и отменить их?"
+  },
+  "attachments": {
+    "uploading": "Загрузка…",
+    "uploadFailedShort": "Ошибка загрузки",
+    "uploadFailed": "Файлы не отправлены. {{error}}",
+    "tooMany": "К сообщению можно прикрепить не более 64 файлов",
+    "tooLarge": "{{name}} превышает лимит {{limit}} МБ",
+    "someTooLarge": "Некоторые файлы превышают лимит {{limit}} МБ"
   },
   "filePreview": {
     "panelTitle": "Просмотр",
@@ -2340,10 +2371,10 @@
       "staged": "Добавлено в индекс",
       "stagedScope": "Добавлено в индекс",
       "stale": "Репозиторий изменился. Дифференциал был обновлен; просмотрите его еще раз.",
+      "prReviewComments": "Комментарии ревью PR · {{count}}",
       "unstage": "Убрать из индекса",
       "unstaged": "Не добавлено в индекс",
-      "unstagedScope": "Не добавлено в индекс",
-      "prReviewComments": "Комментарии ревью PR · {{count}}"
+      "unstagedScope": "Не добавлено в индекс"
     }
   },
   "effort": {
@@ -2722,8 +2753,8 @@
       "ollama_install": "Установка Ollama",
       "ollama_preload": "Начало модели",
       "ollama_pull": "Модель Ollama",
-      "memory_reembed": "Перестроение векторов памяти",
-      "knowledge_reembed": "Перестроение индекса знаний"
+      "knowledge_reembed": "Перестроение индекса знаний",
+      "memory_reembed": "Перестроение векторов памяти"
     },
     "logs": {
       "empty": "Журналов пока нет"
@@ -2786,9 +2817,9 @@
     "text": "Текст",
     "video": "Видео",
     "anthropicThinkingBudget": "Anthropic (бюджет рассуждений)",
+    "zaiThinkingBudget": "Z.AI (бюджет рассуждений)",
     "contextWindow": "Окно контекста",
     "maxTokens": "Макс. жетонов",
-    "zaiThinkingBudget": "Z.AI (бюджет рассуждений)",
     "costUnpriced": "Без цены"
   },
   "notification": {
@@ -3196,7 +3227,6 @@
       "editorHint": "Инструкции проекта — фиксированные правила. Здесь хранятся накопленные в работе знания, а не обязательные инструкции.",
       "editorTitle": "Автоматическая память проекта",
       "empty": "Тем автоматической памяти пока нет.",
-      "emptyPreview": "Подробностей в Markdown пока нет. Переключитесь в режим редактирования, чтобы добавить содержимое.",
       "fileNameGenerated": "Имя файла будет создано при сохранении",
       "name": "Заголовок",
       "newTopic": "Новая тема",
@@ -3210,7 +3240,8 @@
         "project": "Работа над проектом",
         "reference": "Справка",
         "user": "Контекст пользователя"
-      }
+      },
+      "emptyPreview": "Подробностей в Markdown пока нет. Переключитесь в режим редактирования, чтобы добавить содержимое."
     },
     "createFirstProject": "Создайте свой первый проект",
     "defaultAgent": "Agent по умолчанию",
@@ -3286,12 +3317,7 @@
     "projectDescriptionPlaceholder": "О чём этот проект?",
     "projectInstructions": "Инструкции проекта",
     "projectInstructionsHint": "Редактирует файл AGENTS.md непосредственно в корне проекта. После сохранения он применяется ко всем сессиям проекта.",
-    "projectInstructionsLineCount": "{{count}} строк",
-    "resizeSettingsSheet": "Перетащите, чтобы изменить ширину настроек проекта",
-    "projectInstructionsEmptyPreview": "AGENTS.md пуст. Переключитесь в режим редактирования, чтобы добавить инструкции Markdown.",
-    "projectInstructionsLoadFailed": "Не удалось прочитать AGENTS.md",
     "projectInstructionsPlaceholder": "напр. Всегда отвечай на русском; сохраняй ясный и дружелюбный тон; начинай с вывода",
-    "projectInstructionsSaveFailed": "Не удалось сохранить AGENTS.md",
     "projectLogo": "Логотип",
     "projectLogoHint": "Необязательно. Изображения автоматически масштабируются до 256×256.",
     "projectName": "Название проекта",
@@ -3327,7 +3353,12 @@
       "updateFailed": "Не удалось обновить пространство знаний проекта",
       "errorDetail": "Подробности: {{error}}"
     },
-    "projectEmojiPlaceholder": "Необязательно"
+    "projectEmojiPlaceholder": "Необязательно",
+    "projectInstructionsLineCount": "{{count}} строк",
+    "resizeSettingsSheet": "Перетащите, чтобы изменить ширину настроек проекта",
+    "projectInstructionsEmptyPreview": "AGENTS.md пуст. Переключитесь в режим редактирования, чтобы добавить инструкции Markdown.",
+    "projectInstructionsLoadFailed": "Не удалось прочитать AGENTS.md",
+    "projectInstructionsSaveFailed": "Не удалось сохранить AGENTS.md"
   },
   "provider": {
     "addProvider": "Добавить провайдера",
@@ -3598,7 +3629,6 @@
     }
   },
   "settings": {
-    "about": "О программе",
     "resetDefaultsPageAction": "Сбросить эту страницу",
     "resetDefaultsTabAction": "Сбросить текущую вкладку",
     "resetDefaultsRegionAction": "Сбросить этот раздел",
@@ -3611,6 +3641,35 @@
     "resetDefaultsFailed": "Не удалось восстановить настройки {{section}}",
     "resetDefaultsReindexStarted": "Настройки знаний сохранены, индекс перестраивается в фоновом режиме.",
     "resetDefaultsWarning": "Настройки восстановлены, но действие среды выполнения не завершилось. Повторите попытку позже.",
+    "files": {
+      "title": "Файлы",
+      "description": "Настройте ограничения файлов для чата, рабочей области, предпросмотра и редактирования.",
+      "runtimeLocal": "Локальные файлы компьютера",
+      "runtimeServer": "Файлы сервера",
+      "runtimeLocalDesc": "Операции выполняются в файловой системе этого компьютера.",
+      "runtimeServerDesc": "Операции выполняются в файловой системе удалённого сервера.",
+      "maxChatAttachment": "Лимит вложения чата",
+      "maxChatAttachmentDesc": "Максимальный размер одного вложения чата ({{min}}–{{max}} МиБ).",
+      "maxWorkspaceUpload": "Лимит загрузки в рабочую область",
+      "maxWorkspaceUploadDesc": "Максимальный размер одного файла для рабочей области ({{min}}–{{max}} МиБ).",
+      "maxTextPreview": "Лимит предпросмотра текста",
+      "maxTextPreviewDesc": "Максимальный размер текстового файла для предпросмотра ({{min}}–{{max}} МиБ).",
+      "maxTextEdit": "Лимит редактирования текста",
+      "maxTextEditDesc": "Максимальный размер редактируемого UTF-8 файла ({{min}}–{{max}} МиБ).",
+      "maxDocumentPreview": "Лимит предпросмотра документов",
+      "maxDocumentPreviewDesc": "Максимальный размер PDF или Office для предпросмотра ({{min}}–{{max}} МиБ).",
+      "maxArtifactImport": "Лимит импорта артефакт",
+      "maxArtifactImportDesc": "Максимальный размер источника HTML, Markdown или Analysis JSON, импортируемого в артефакты ({{min}}–{{max}} MiB).",
+      "largeUploadWarning": "Большие лимиты повышают нагрузку на диск, сеть и обработку. Увеличивайте их только при достаточных ресурсах сервера."
+    },
+    "knowledgeSourceLimits": {
+      "title": "Лимиты источников знаний",
+      "description": "Максимальный размер для каждого типа источника пространства знаний.",
+      "text": "Текстовый источник (МиБ)",
+      "binary": "Бинарный источник (МиБ)",
+      "url": "Ответ URL (МиБ)"
+    },
+    "about": "О программе",
     "acpAutoDiscover": "Автообнаружение бэкендов",
     "acpAutoDiscoverDesc": "Сканировать $PATH на известные ACP-бинари при запуске",
     "acpBackendId": "ID",
@@ -3977,15 +4036,6 @@
     },
     "browser": {
       "activeBadge": "активный",
-      "backupRuntimeHint": "Доступен системный Chrome. Установите среду выполнения Chromium, управляемую Hope, в качестве запасного варианта для автоматизации браузера и экспорта артефакт PDF.",
-      "backupRuntimeTitle": "Резервное копирование среды выполнения Chromium",
-      "installRuntimeRetry": "Среда выполнения готова. Повторите действие браузера или экспортируйте PDF.",
-      "openBrowserSettings": "Открыть настройки браузера",
-      "runtimeInstallUnsupported": "Hope не предоставляет управляемую среду выполнения Chromium для этой операционной системы или архитектуры. Установите Chrome/Chromium вручную или настройте путь к исполняемому файлу.",
-      "runtimeRequiredArtifactPdfDescription": "Для экспорта PDF требуется локальная среда выполнения Chrome или Chromium, но в настоящее время она недоступна.",
-      "runtimeRequiredDescription": "Для этой операции браузера требуется локальная среда выполнения Chrome или Chromium, но в настоящее время она недоступна.",
-      "runtimeRequiredHint": "Вы можете установить управляемую среду выполнения Hope сейчас (около 150 МБ), а затем повторить операцию.",
-      "runtimeRequiredTitle": "Требуется среда выполнения Chromium",
       "connect": "Подключить",
       "connectHelp": "Уже запустили Chrome с --remote-debugging-port=9222? Подключитесь вместо запуска новой копии.",
       "connectUrlLabel": "URL отладки",
@@ -4135,7 +4185,16 @@
         "title": "Разрешить raw CDP?",
         "body": "Это позволит ИИ отправлять произвольные команды DevTools Protocol в ваш реальный Chrome. Каждый вызов по-прежнему требует вашего отдельного подтверждения, а опасные методы остаются заблокированными, но включайте это только если вам это действительно нужно.",
         "continue": "Включить"
-      }
+      },
+      "backupRuntimeHint": "Доступен системный Chrome. Установите среду выполнения Chromium, управляемую Hope, в качестве запасного варианта для автоматизации браузера и экспорта артефакт PDF.",
+      "backupRuntimeTitle": "Резервное копирование среды выполнения Chromium",
+      "installRuntimeRetry": "Среда выполнения готова. Повторите действие браузера или экспортируйте PDF.",
+      "openBrowserSettings": "Открыть настройки браузера",
+      "runtimeInstallUnsupported": "Hope не предоставляет управляемую среду выполнения Chromium для этой операционной системы или архитектуры. Установите Chrome/Chromium вручную или настройте путь к исполняемому файлу.",
+      "runtimeRequiredArtifactPdfDescription": "Для экспорта PDF требуется локальная среда выполнения Chrome или Chromium, но в настоящее время она недоступна.",
+      "runtimeRequiredDescription": "Для этой операции браузера требуется локальная среда выполнения Chrome или Chromium, но в настоящее время она недоступна.",
+      "runtimeRequiredHint": "Вы можете установить управляемую среду выполнения Hope сейчас (около 150 МБ), а затем повторить операцию.",
+      "runtimeRequiredTitle": "Требуется среда выполнения Chromium"
     },
     "bytes": "байт",
     "canvas": "Холст",
@@ -4723,6 +4782,8 @@
     "fallbackModelsDesc": "Когда основная модель недоступна, пробовать эти модели по порядку",
     "fsRemoteWrites": "Разрешить удалённую запись файлов",
     "fsRemoteWritesDesc": "Позволяет HTTP-клиентам создавать, изменять, удалять и загружать файлы в рабочем каталоге проекта. По умолчанию выключено — настольное приложение всегда может писать локально независимо от этой настройки.",
+    "fsMaxChatAttachmentMb": "Максимальный размер вложения чата",
+    "fsMaxChatAttachmentMbDesc": "Максимальный размер одного файла, загружаемого из поля ввода чата. Локальное приложение использует локальную настройку, удалённое приложение и Web — настройку сервера.",
     "general": "Общие",
     "generalDesc": "Внешний вид, язык и системные настройки",
     "globalModel": "Глобальные настройки модели",
@@ -7634,36 +7695,6 @@
     "audioGenFetchVoices": "Загрузить голоса",
     "audioGenKnownModels": "Известные модели",
     "audioGenPickVoice": "Выбрать из списка…",
-    "files": {
-      "title": "Файлы",
-      "description": "Настройте ограничения файлов для чата, рабочей области, предпросмотра и редактирования.",
-      "runtimeLocal": "Локальные файлы компьютера",
-      "runtimeServer": "Файлы сервера",
-      "runtimeLocalDesc": "Операции выполняются в файловой системе этого компьютера.",
-      "runtimeServerDesc": "Операции выполняются в файловой системе удалённого сервера.",
-      "maxChatAttachment": "Лимит вложения чата",
-      "maxChatAttachmentDesc": "Максимальный размер одного вложения чата ({{min}}–{{max}} МиБ).",
-      "maxWorkspaceUpload": "Лимит загрузки в рабочую область",
-      "maxWorkspaceUploadDesc": "Максимальный размер одного файла для рабочей области ({{min}}–{{max}} МиБ).",
-      "maxTextPreview": "Лимит предпросмотра текста",
-      "maxTextPreviewDesc": "Максимальный размер текстового файла для предпросмотра ({{min}}–{{max}} МиБ).",
-      "maxTextEdit": "Лимит редактирования текста",
-      "maxTextEditDesc": "Максимальный размер редактируемого UTF-8 файла ({{min}}–{{max}} МиБ).",
-      "maxDocumentPreview": "Лимит предпросмотра документов",
-      "maxDocumentPreviewDesc": "Максимальный размер PDF или Office для предпросмотра ({{min}}–{{max}} МиБ).",
-      "maxArtifactImport": "Лимит импорта артефакт",
-      "maxArtifactImportDesc": "Максимальный размер источника HTML, Markdown или Analysis JSON, импортируемого в артефакты ({{min}}–{{max}} MiB).",
-      "largeUploadWarning": "Большие лимиты повышают нагрузку на диск, сеть и обработку. Увеличивайте их только при достаточных ресурсах сервера."
-    },
-    "knowledgeSourceLimits": {
-      "title": "Лимиты источников знаний",
-      "description": "Максимальный размер для каждого типа источника пространства знаний.",
-      "text": "Текстовый источник (МиБ)",
-      "binary": "Бинарный источник (МиБ)",
-      "url": "Ответ URL (МиБ)"
-    },
-    "fsMaxChatAttachmentMb": "Максимальный размер вложения чата",
-    "fsMaxChatAttachmentMbDesc": "Максимальный размер одного файла, загружаемого из поля ввода чата. Локальное приложение использует локальную настройку, удалённое приложение и Web — настройку сервера.",
     "acpCustomAgent": "Пользовательский агент",
     "canvasTypes": {
       "chart": "Диаграмма",
@@ -8620,6 +8651,8 @@
       "selectBranch": "Выбрать ветку",
       "stageAll": "Добавить все изменения в индекс",
       "viewPr": "Просмотреть Pull Request",
+      "pullRequestPanelTitle": "Запрос на слияние",
+      "resizePullRequestPanel": "Изменить ширину панели запроса",
       "worktree": "Рабочее дерево",
       "checkDetails": "Сведения о проверках",
       "checkFailed": "Ошибка",
@@ -8641,6 +8674,7 @@
       "openCheck": "Открыть проверку",
       "openComment": "Открыть комментарий",
       "prFeedbackUnavailable": "Проверки и комментарии PR недоступны",
+      "prFeedbackStale": "Не удалось обновить статус запроса; текущие данные могут быть устаревшими",
       "reviewComments": "Комментариев: {{count}}",
       "reviewFeedback": "Отзывы ревью",
       "autoMergeEnabled": "Автоматическое слияние включено",
@@ -8667,10 +8701,7 @@
       "reviewPending": "Ожидает",
       "reviewRequired": "Требуется проверка",
       "reviewStatus": "Статус проверки",
-      "reviewers": "Рецензенты",
-      "pullRequestPanelTitle": "Запрос на слияние",
-      "resizePullRequestPanel": "Изменить ширину панели запроса",
-      "prFeedbackStale": "Не удалось обновить статус запроса; текущие данные могут быть устаревшими"
+      "reviewers": "Рецензенты"
     },
     "goal": {
       "watchdogTitle": "Цель требует подтверждения",
@@ -10594,6 +10625,8 @@
       "title": "Организовать в заметки"
     },
     "sources": {
+      "textTooLarge": "Текстовый источник превышает лимит {{limit}} МиБ",
+      "fileTooLarge": "{{name}} превышает лимит {{limit}} МиБ",
       "archiveAttachment": "Архивировать к знаниям",
       "archiveAttachmentFailed": "Не удалось заархивировать вложение.",
       "archivedAttachment": "Архивировано в источники знаний",
@@ -10732,9 +10765,7 @@
       "ocrFailed": "Ошибка OCR",
       "ocrRetry": "Повторить неудавшиеся страницы",
       "ocrRetryStarted": "Повторная попытка для неудавшихся страниц…",
-      "ocrRetryFailed": "Не удалось повторить страницы OCR",
-      "textTooLarge": "Текстовый источник превышает лимит {{limit}} МиБ",
-      "fileTooLarge": "{{name}} превышает лимит {{limit}} МиБ"
+      "ocrRetryFailed": "Не удалось повторить страницы OCR"
     },
     "queryFile": {
       "action": "Файл",
@@ -10770,54 +10801,6 @@
       "emptyInternal": "Это пространство пусто.",
       "importFiles": "Импортировать файлы"
     }
-  },
-  "backgroundJobs": {
-    "panelTitle": "Фоновые задачи",
-    "openPanel": "Фоновые задачи",
-    "openFull": "Показать все",
-    "expandJob": "Развернуть задачу",
-    "collapseJob": "Свернуть задачу",
-    "jumpToBottom": "Вниз",
-    "empty": "Нет фоновых задач",
-    "sectionSession": "Текущий сеанс",
-    "sectionLocalModel": "Локальные модели",
-    "kindGroup": "Группа задач",
-    "kindSubagent": "Подагент",
-    "resizePanel": "Изменить размер панели фоновых задач",
-    "status": {
-      "queued": "В очереди",
-      "running": "Выполняется",
-      "cancelling": "Отмена",
-      "awaiting_approval": "Ожидает подтверждения",
-      "completed": "Завершена",
-      "failed": "Ошибка",
-      "interrupted": "Прервана",
-      "timed_out": "Тайм-аут",
-      "cancelled": "Отменена"
-    },
-    "errorOutput": "ошибка",
-    "liveOutput": "вывод в реальном времени",
-    "outputFile": "полные результаты",
-    "resultPreview": "Предварительный просмотр результатов"
-  },
-  "browser": {
-    "panelTitle": "Браузер"
-  },
-  "error": {
-    "appCrash": "Что-то пошло не так",
-    "retry": "Попробуйте еще раз",
-    "unknown": "Произошла непредвиденная ошибка"
-  },
-  "localModels": {
-    "actions": {
-      "download": "Скачать"
-    }
-  },
-  "macControl": {
-    "panelTitle": "Управление Mac"
-  },
-  "memory": {
-    "activeRecallToastTitle": "Ссылочная память"
   },
   "artifacts": {
     "title": "Артефакты",
@@ -10916,6 +10899,54 @@
     "exportReviewBlocked": "В обзоре экспорта все еще есть блокировщики",
     "guardStatus": "Сторожить",
     "defaultName": "Артефакт"
+  },
+  "backgroundJobs": {
+    "panelTitle": "Фоновые задачи",
+    "openPanel": "Фоновые задачи",
+    "openFull": "Показать все",
+    "expandJob": "Развернуть задачу",
+    "collapseJob": "Свернуть задачу",
+    "jumpToBottom": "Вниз",
+    "empty": "Нет фоновых задач",
+    "sectionSession": "Текущий сеанс",
+    "sectionLocalModel": "Локальные модели",
+    "kindGroup": "Группа задач",
+    "kindSubagent": "Подагент",
+    "resizePanel": "Изменить размер панели фоновых задач",
+    "status": {
+      "queued": "В очереди",
+      "running": "Выполняется",
+      "cancelling": "Отмена",
+      "awaiting_approval": "Ожидает подтверждения",
+      "completed": "Завершена",
+      "failed": "Ошибка",
+      "interrupted": "Прервана",
+      "timed_out": "Тайм-аут",
+      "cancelled": "Отменена"
+    },
+    "errorOutput": "ошибка",
+    "liveOutput": "вывод в реальном времени",
+    "outputFile": "полные результаты",
+    "resultPreview": "Предварительный просмотр результатов"
+  },
+  "browser": {
+    "panelTitle": "Браузер"
+  },
+  "error": {
+    "appCrash": "Что-то пошло не так",
+    "retry": "Попробуйте еще раз",
+    "unknown": "Произошла непредвиденная ошибка"
+  },
+  "localModels": {
+    "actions": {
+      "download": "Скачать"
+    }
+  },
+  "macControl": {
+    "panelTitle": "Управление Mac"
+  },
+  "memory": {
+    "activeRecallToastTitle": "Ссылочная память"
   },
   "design": {
     "title": "Дизайн-пространство",
@@ -11637,37 +11668,6 @@
       "checkStale": "У {{n}} артефактов есть обновления кода",
       "chatPrompt": "Реализованный код разошёлся с этим дизайном. Обновите текущий дизайн в соответствии с приведёнными изменениями кода, сохранив замысел дизайна и всё остальное без изменений."
     }
-  },
-  "fileEditor": {
-    "notUtf8": "Файл не является корректным текстом UTF-8",
-    "notEditable": "Этот файл нельзя редактировать как текст UTF-8",
-    "tooLarge": "Файл превышает лимит редактирования {{limit}} МиБ",
-    "saved": "Сохранено",
-    "showPreview": "Показать предпросмотр",
-    "showSource": "Показать исходный текст",
-    "saveAsExists": "По этому пути уже существует файл",
-    "mixedLineEndings": "Смешанные окончания строк при сохранении будут приведены к преобладающему формату.",
-    "externalChanged": "Файл был изменён вне этого редактора.",
-    "reload": "Перезагрузить",
-    "conflictTitle": "Конфликт сохранения",
-    "conflictDeleted": "Файл был удалён вне этого редактора.",
-    "conflictChanged": "Файл был изменён вне этого редактора.",
-    "saveAsScope": "Сохраните новый файл в текущей рабочей области.",
-    "unsavedTitle": "Несохранённые изменения",
-    "unsavedBody": "Отменить текущие правки перед выходом из файла?",
-    "discard": "Отменить изменения",
-    "remoteWritesTitle": "Удалённая запись файлов отключена",
-    "remoteWritesBody": "Эта рабочая область находится на сервере. Включайте удалённую запись в настройках сервера, только если доверяете подключённым клиентам.",
-    "goToServerSettings": "Перейти к настройкам сервера",
-    "transportSwitchUnsaved": "Есть несохранённые изменения файлов. Переключить подключение и отменить их?"
-  },
-  "attachments": {
-    "uploading": "Загрузка…",
-    "uploadFailedShort": "Ошибка загрузки",
-    "uploadFailed": "Файлы не отправлены. {{error}}",
-    "tooMany": "К сообщению можно прикрепить не более 64 файлов",
-    "tooLarge": "{{name}} превышает лимит {{limit}} МБ",
-    "someTooLarge": "Некоторые файлы превышают лимит {{limit}} МБ"
   },
   "configRecovery": {
     "title": "Требуется восстановление конфигурации",

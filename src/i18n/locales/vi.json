@@ -421,9 +421,6 @@
     "completedTurnCollapsed": "Đã xử lý {{count}} tin nhắn",
     "completedTurnCollapsedWithDuration": "Đã xử lý {{duration}}, {{count}} tin nhắn",
     "conversations": "Hội thoại",
-    "unreadConversationCount": "{{count}} cuộc trò chuyện chưa đọc",
-    "unreadStatus": "Chưa đọc",
-    "channelUnreadStatus": "Cuộc trò chuyện IM chưa đọc",
     "collapseSidebar": "Thu gọn thanh bên",
     "sidebarCompactMode": "Chuyển sang chế độ gọn",
     "sidebarDetailedMode": "Chuyển sang chế độ thường",
@@ -867,9 +864,9 @@
         "docx": "Tài liệu Word",
         "pptx": "Trang chiếu PowerPoint",
         "xlsx": "Bảng tính Excel",
-        "dataAnalytics": "Phân tích dữ liệu",
         "browser": "Điều khiển trình duyệt",
-        "mac": "Điều khiển Mac"
+        "mac": "Điều khiển Mac",
+        "dataAnalytics": "Phân tích dữ liệu"
       }
     },
     "reasoningDisabledHint": "Mô hình này chưa bật suy luận. Để điều chỉnh độ sâu suy luận, hãy chỉnh sửa mô hình trong \"Cài đặt → Nhà cung cấp mô hình\" và bật \"Hỗ trợ suy luận/tư duy\".",
@@ -1169,6 +1166,9 @@
     "openSourceConversationMissingHint": "Nguồn bộ nhớ này trỏ tới một cuộc trò chuyện đã bị xóa hoặc không thể tìm thấy.",
     "openSourceMessageMissing": "Tin nhắn nguồn không còn khả dụng",
     "openSourceMessageMissingHint": "Cuộc trò chuyện vẫn tồn tại, nhưng không thể tìm thấy tin nhắn chính xác cho nguồn bộ nhớ này.",
+    "unreadConversationCount": "{{count}} cuộc trò chuyện chưa đọc",
+    "unreadStatus": "Chưa đọc",
+    "channelUnreadStatus": "Cuộc trò chuyện IM chưa đọc",
     "generatedImageName": "Hình ảnh đã tạo {{index}}",
     "noAgents": "Không có tác tử",
     "sessionFailed": "Cuộc trò chuyện thất bại"
@@ -1179,6 +1179,7 @@
     "reauth": "Đăng nhập lại"
   },
   "common": {
+    "restoreDefaults": "Khôi phục mặc định",
     "add": "Thêm",
     "back": "Quay lại",
     "cancel": "Hủy",
@@ -1225,18 +1226,13 @@
     "off": "Tắt",
     "error": "Lỗi",
     "showLess": "Hiển thị ít hơn",
-    "next": "Kế tiếp",
-    "previous": "Trước",
     "download": "Tải xuống",
     "duplicate": "Nhân bản",
     "more": "Thêm",
     "apply": "Áp dụng",
     "modelNoVision": "Không hỗ trợ hình ảnh",
-    "restoreDefaults": "Khôi phục mặc định",
-    "request": "Yêu cầu",
-    "response": "Phản hồi",
-    "authMethod": "Phương thức xác thực",
-    "testSteps": "Các bước kiểm tra",
+    "next": "Kế tiếp",
+    "previous": "Trước",
     "baseUrl": "URL cơ sở",
     "apiKey": "Khóa API",
     "ok": "Đồng ý",
@@ -1244,7 +1240,6 @@
       "applied": "Đã áp dụng",
       "rejected": "Đã từ chối",
       "active": "Đang hoạt động",
-      "advisory": "Khuyến nghị",
       "archived": "Đã lưu trữ",
       "awaiting_approval": "Đang chờ phê duyệt",
       "awaiting_user": "Đang chờ người dùng",
@@ -1263,11 +1258,12 @@
       "healthy": "Ổn định",
       "idle": "Đang chờ",
       "insufficient_data": "Không đủ dữ liệu",
+      "needs_user": "Cần người dùng xử lý",
+      "advisory": "Khuyến nghị",
       "injected": "Đã chèn",
       "interrupted": "Bị gián đoạn",
       "killed": "Đã chấm dứt",
       "loading": "Đang tải",
-      "needs_user": "Cần người dùng xử lý",
       "not_run": "Chưa chạy",
       "open": "Đang mở",
       "partial": "Một phần",
@@ -1289,7 +1285,11 @@
       "warning": "Cảnh báo",
       "evaluating": "Đang đánh giá",
       "in_progress": "Đang thực hiện"
-    }
+    },
+    "request": "Yêu cầu",
+    "response": "Phản hồi",
+    "authMethod": "Phương thức xác thực",
+    "testSteps": "Các bước kiểm tra"
   },
   "context": {
     "ago": "trước",
@@ -1456,106 +1456,6 @@
     "bannerConfig": "Chế độ Nguy hiểm đang bật — mọi phê duyệt công cụ bị bỏ qua. Tắt ở Cài đặt → Bảo mật"
   },
   "dashboard": {
-    "controlPlane": {
-      "title": "Mục tiêu & Thực hiện",
-      "automationTab": "Tự động hóa",
-      "scopeHint": "Số liệu cửa sổ hiển thị kết quả; ảnh chụp nhanh hiện tại cho thấy tồn đọng và rủi ro.",
-      "allProjects": "Tất cả dự án",
-      "unassignedProject": "Chưa được chỉ định",
-      "archived": "Đã lưu trữ",
-      "empty": "Không có dữ liệu cho phạm vi đã chọn.",
-      "sections": {
-        "overview": "Tổng quan",
-        "planTask": "Kế hoạch & Nhiệm vụ"
-      },
-      "metrics": {
-        "goalAcceptance": "Tỷ lệ chấp nhận mục tiêu",
-        "workflowCompletion": "Tỷ lệ hoàn thành quy trình làm việc",
-        "loopStrongProgress": "Tốc độ tiến triển mạnh mẽ của vòng lặp",
-        "taskCompletion": "Hoàn thành nhóm nhiệm vụ",
-        "attention": "Cần chú ý",
-        "requiredCriteria": "Tỷ lệ đạt tiêu chí bắt buộc",
-        "goalP50": "Thời gian chấp nhận mục tiêu P50",
-        "opFailure": "Tỷ lệ thất bại trong hoạt động",
-        "workflowP50": "Thời lượng quy trình làm việc P50",
-        "goalBinding": "Tỷ lệ ràng buộc mục tiêu",
-        "approvalTrigger": "Tỷ lệ kích hoạt phê duyệt",
-        "noProgress": "Tỷ lệ không tiến triển",
-        "blockedSchedules": "Lịch trình bị chặn",
-        "loopP50": "Thời gian chạy vòng lặp P50",
-        "currentBacklog": "Tồn đọng hiện tại",
-        "activePlans": "Đang hoạt động",
-        "cohortCompletion": "Hoàn thành nhóm"
-      },
-      "currentSnapshot": "Ảnh chụp nhanh hiện tại",
-      "goalTrend": "Kết quả mục tiêu",
-      "resolved": "Đã giải quyết",
-      "accepted": "Đã chấp nhận",
-      "attentionTitle": "Các hạng mục được quan tâm hiện nay",
-      "noAttention": "Không có mục chú ý hiện tại",
-      "auditSamples": "Đã kiểm tra {{count}} mục tiêu",
-      "currentStates": "Trạng thái hiện tại",
-      "closureOutcomes": "Kết quả đóng cửa",
-      "domains": "Tên miền",
-      "kinds": "Các loại",
-      "origins": "Nguồn gốc",
-      "workflowTrend": "Quy trình làm việc đã được quyết định",
-      "decidedRuns": "Quyết định chạy",
-      "progressStates": "Phân loại tiến độ",
-      "triggerKinds": "Các loại kích hoạt",
-      "strategies": "Chiến lược thực hiện",
-      "loopTrend": "Đánh giá vòng lặp chạy",
-      "evaluatedRuns": "Lượt chạy được đánh giá",
-      "openPlanHistory": "Xem lịch sử kế hoạch",
-      "planByAgent": "Kế hoạch theo đại lý",
-      "planByProject": "Lập kế hoạch theo dự án",
-      "noFunnelHint": "Nhiệm vụ và Kế hoạch chưa có khóa phân bổ Mục tiêu/Quy trình làm việc/Vòng lặp đáng tin cậy nên trang này không suy ra kênh nhân quả từ các phiên.",
-      "noExactSamples": "Không có mẫu thời lượng chính xác",
-      "coverage": "{{samples}}/{{eligible}} mẫu chính xác ({{percent}}%)",
-      "coverageShort": "Phạm vi thời lượng chính xác:{{samples}}/{{eligible}}",
-      "creationTrend": "Xu hướng sáng tạo",
-      "created": "Tạo",
-      "attentionKinds": {
-        "goal": "Mục tiêu",
-        "workflow": "Quy trình",
-        "loop": "Vòng lặp",
-        "plan": "Kế hoạch"
-      },
-      "attentionReasons": {
-        "needs_strict_evidence": "Cần bằng chứng nghiêm ngặt",
-        "goal_awaiting_closure": "Mục tiêu đang chờ đóng",
-        "workflow_requires_attention": "Quy trình cần xử lý",
-        "consecutive_no_progress": "Liên tiếp không có tiến triển",
-        "loop_requires_attention": "Vòng lặp cần xử lý",
-        "plan_awaiting_review": "Kế hoạch đang chờ xem xét"
-      },
-      "states": {
-        "active": "Đang hoạt động",
-        "paused": "Đã tạm dừng",
-        "evaluating": "Đánh giá",
-        "completed": "Hoàn tất",
-        "failed": "Thất bại",
-        "cancelled": "Đã hủy",
-        "blocked": "Bị chặn",
-        "planning": "quy hoạch",
-        "review": "Xem xét",
-        "executing": "Đang thực hiện",
-        "off": "Đã lưu trữ",
-        "awaiting_approval": "Đang chờ phê duyệt",
-        "awaiting_user": "Đang chờ người dùng",
-        "running": "Đang chạy",
-        "recovering": "Đang phục hồi",
-        "draft": "Bản nháp",
-        "pending": "Chưa giải quyết",
-        "in_progress": "Đang tiến hành",
-        "progressed": "Tiến bộ",
-        "weak_progress": "Tiến độ yếu",
-        "no_progress": "Không có tiến triển",
-        "accepted_v1": "Đã chấp nhận v1",
-        "superseded": "Đã thay thế",
-        "unassigned": "Chưa được chỉ định"
-      }
-    },
     "autoRefresh": {
       "1m": "1 phút",
       "30s": "30 giây",
@@ -2227,6 +2127,106 @@
     },
     "columns": {
       "session": "Phiên"
+    },
+    "controlPlane": {
+      "title": "Mục tiêu & Thực hiện",
+      "automationTab": "Tự động hóa",
+      "scopeHint": "Số liệu cửa sổ hiển thị kết quả; ảnh chụp nhanh hiện tại cho thấy tồn đọng và rủi ro.",
+      "allProjects": "Tất cả dự án",
+      "unassignedProject": "Chưa được chỉ định",
+      "archived": "Đã lưu trữ",
+      "empty": "Không có dữ liệu cho phạm vi đã chọn.",
+      "sections": {
+        "overview": "Tổng quan",
+        "planTask": "Kế hoạch & Nhiệm vụ"
+      },
+      "metrics": {
+        "goalAcceptance": "Tỷ lệ chấp nhận mục tiêu",
+        "workflowCompletion": "Tỷ lệ hoàn thành quy trình làm việc",
+        "loopStrongProgress": "Tốc độ tiến triển mạnh mẽ của vòng lặp",
+        "taskCompletion": "Hoàn thành nhóm nhiệm vụ",
+        "attention": "Cần chú ý",
+        "requiredCriteria": "Tỷ lệ đạt tiêu chí bắt buộc",
+        "goalP50": "Thời gian chấp nhận mục tiêu P50",
+        "opFailure": "Tỷ lệ thất bại trong hoạt động",
+        "workflowP50": "Thời lượng quy trình làm việc P50",
+        "goalBinding": "Tỷ lệ ràng buộc mục tiêu",
+        "approvalTrigger": "Tỷ lệ kích hoạt phê duyệt",
+        "noProgress": "Tỷ lệ không tiến triển",
+        "blockedSchedules": "Lịch trình bị chặn",
+        "loopP50": "Thời gian chạy vòng lặp P50",
+        "currentBacklog": "Tồn đọng hiện tại",
+        "activePlans": "Đang hoạt động",
+        "cohortCompletion": "Hoàn thành nhóm"
+      },
+      "currentSnapshot": "Ảnh chụp nhanh hiện tại",
+      "goalTrend": "Kết quả mục tiêu",
+      "resolved": "Đã giải quyết",
+      "accepted": "Đã chấp nhận",
+      "attentionTitle": "Các hạng mục được quan tâm hiện nay",
+      "noAttention": "Không có mục chú ý hiện tại",
+      "auditSamples": "Đã kiểm tra {{count}} mục tiêu",
+      "currentStates": "Trạng thái hiện tại",
+      "closureOutcomes": "Kết quả đóng cửa",
+      "domains": "Tên miền",
+      "kinds": "Các loại",
+      "origins": "Nguồn gốc",
+      "workflowTrend": "Quy trình làm việc đã được quyết định",
+      "decidedRuns": "Quyết định chạy",
+      "progressStates": "Phân loại tiến độ",
+      "triggerKinds": "Các loại kích hoạt",
+      "strategies": "Chiến lược thực hiện",
+      "loopTrend": "Đánh giá vòng lặp chạy",
+      "evaluatedRuns": "Lượt chạy được đánh giá",
+      "openPlanHistory": "Xem lịch sử kế hoạch",
+      "planByAgent": "Kế hoạch theo đại lý",
+      "planByProject": "Lập kế hoạch theo dự án",
+      "noFunnelHint": "Nhiệm vụ và Kế hoạch chưa có khóa phân bổ Mục tiêu/Quy trình làm việc/Vòng lặp đáng tin cậy nên trang này không suy ra kênh nhân quả từ các phiên.",
+      "noExactSamples": "Không có mẫu thời lượng chính xác",
+      "coverage": "{{samples}}/{{eligible}} mẫu chính xác ({{percent}}%)",
+      "coverageShort": "Phạm vi thời lượng chính xác:{{samples}}/{{eligible}}",
+      "creationTrend": "Xu hướng sáng tạo",
+      "created": "Tạo",
+      "attentionKinds": {
+        "goal": "Mục tiêu",
+        "workflow": "Quy trình",
+        "loop": "Vòng lặp",
+        "plan": "Kế hoạch"
+      },
+      "attentionReasons": {
+        "needs_strict_evidence": "Cần bằng chứng nghiêm ngặt",
+        "goal_awaiting_closure": "Mục tiêu đang chờ đóng",
+        "workflow_requires_attention": "Quy trình cần xử lý",
+        "consecutive_no_progress": "Liên tiếp không có tiến triển",
+        "loop_requires_attention": "Vòng lặp cần xử lý",
+        "plan_awaiting_review": "Kế hoạch đang chờ xem xét"
+      },
+      "states": {
+        "active": "Đang hoạt động",
+        "paused": "Đã tạm dừng",
+        "evaluating": "Đánh giá",
+        "completed": "Hoàn tất",
+        "failed": "Thất bại",
+        "cancelled": "Đã hủy",
+        "blocked": "Bị chặn",
+        "planning": "quy hoạch",
+        "review": "Xem xét",
+        "executing": "Đang thực hiện",
+        "off": "Đã lưu trữ",
+        "awaiting_approval": "Đang chờ phê duyệt",
+        "awaiting_user": "Đang chờ người dùng",
+        "running": "Đang chạy",
+        "recovering": "Đang phục hồi",
+        "draft": "Bản nháp",
+        "pending": "Chưa giải quyết",
+        "in_progress": "Đang tiến hành",
+        "progressed": "Tiến bộ",
+        "weak_progress": "Tiến độ yếu",
+        "no_progress": "Không có tiến triển",
+        "accepted_v1": "Đã chấp nhận v1",
+        "superseded": "Đã thay thế",
+        "unassigned": "Chưa được chỉ định"
+      }
     }
   },
   "fileActions": {
@@ -2244,6 +2244,37 @@
     "upload": "Tải lên",
     "saveAs": "Lưu thành",
     "downloadFailed": "Không thể tải tệp xuống"
+  },
+  "fileEditor": {
+    "notUtf8": "Tệp không phải văn bản UTF-8 hợp lệ",
+    "notEditable": "Không thể chỉnh sửa tệp này dưới dạng văn bản UTF-8",
+    "tooLarge": "Tệp vượt quá giới hạn chỉnh sửa {{limit}} MiB",
+    "saved": "Đã lưu",
+    "showPreview": "Hiện bản xem trước",
+    "showSource": "Hiện mã nguồn",
+    "saveAsExists": "Đã có tệp tại đường dẫn đó",
+    "mixedLineEndings": "Kiểu xuống dòng bị trộn lẫn và sẽ được chuẩn hóa theo kiểu phổ biến nhất khi lưu.",
+    "externalChanged": "Tệp đã thay đổi bên ngoài trình chỉnh sửa.",
+    "reload": "Tải lại",
+    "conflictTitle": "Xung đột khi lưu",
+    "conflictDeleted": "Tệp đã bị xóa bên ngoài trình chỉnh sửa.",
+    "conflictChanged": "Tệp đã bị thay đổi bên ngoài trình chỉnh sửa.",
+    "saveAsScope": "Lưu tệp mới bên trong không gian làm việc hiện tại.",
+    "unsavedTitle": "Thay đổi chưa lưu",
+    "unsavedBody": "Bỏ các chỉnh sửa hiện tại trước khi rời khỏi tệp này?",
+    "discard": "Bỏ thay đổi",
+    "remoteWritesTitle": "Ghi tệp từ xa đang tắt",
+    "remoteWritesBody": "Không gian làm việc này nằm trên máy chủ. Chỉ bật ghi từ xa trong cài đặt máy chủ khi bạn tin cậy các máy khách đã kết nối.",
+    "goToServerSettings": "Đi tới cài đặt máy chủ",
+    "transportSwitchUnsaved": "Bạn có thay đổi tệp chưa lưu. Chuyển kết nối và bỏ các thay đổi này?"
+  },
+  "attachments": {
+    "uploading": "Đang tải lên…",
+    "uploadFailedShort": "Tải lên thất bại",
+    "uploadFailed": "Các tệp chưa được gửi. {{error}}",
+    "tooMany": "Mỗi tin nhắn có thể chứa tối đa 64 tệp",
+    "tooLarge": "{{name}} vượt quá giới hạn {{limit}} MB",
+    "someTooLarge": "Một số tệp vượt quá giới hạn {{limit}} MB"
   },
   "filePreview": {
     "panelTitle": "Xem trước",
@@ -2340,10 +2371,10 @@
       "staged": "Đã đưa vào vùng đệm",
       "stagedScope": "Đã đưa vào vùng đệm",
       "stale": "Kho lưu trữ đã thay đổi. Sự khác biệt đã được làm mới; xem xét lại nó.",
+      "prReviewComments": "Bình luận review PR · {{count}}",
       "unstage": "Bỏ khỏi vùng đệm",
       "unstaged": "Chưa đưa vào vùng đệm",
-      "unstagedScope": "Chưa đưa vào vùng đệm",
-      "prReviewComments": "Bình luận review PR · {{count}}"
+      "unstagedScope": "Chưa đưa vào vùng đệm"
     }
   },
   "effort": {
@@ -3196,7 +3227,6 @@
       "editorHint": "Chỉ dẫn dự án là quy tắc cố định. Khu vực này lưu kinh nghiệm tích lũy trong khi làm việc, không phải chỉ dẫn có thẩm quyền.",
       "editorTitle": "Bộ nhớ tự động của dự án",
       "empty": "Chưa có chủ đề bộ nhớ tự động.",
-      "emptyPreview": "Chưa có nội dung chi tiết Markdown. Chuyển sang chế độ Chỉnh sửa để thêm nội dung.",
       "fileNameGenerated": "Tên tệp sẽ được tạo khi lưu",
       "name": "Tiêu đề",
       "newTopic": "Chủ đề mới",
@@ -3210,7 +3240,8 @@
         "project": "Công việc dự án",
         "reference": "Tham khảo",
         "user": "Ngữ cảnh người dùng"
-      }
+      },
+      "emptyPreview": "Chưa có nội dung chi tiết Markdown. Chuyển sang chế độ Chỉnh sửa để thêm nội dung."
     },
     "createFirstProject": "Tạo dự án đầu tiên",
     "defaultAgent": "Agent mặc định",
@@ -3286,12 +3317,7 @@
     "projectDescriptionPlaceholder": "Dự án này về việc gì?",
     "projectInstructions": "Chỉ dẫn dự án",
     "projectInstructionsHint": "Chỉnh sửa trực tiếp tệp AGENTS.md ở thư mục gốc của dự án. Sau khi lưu, tệp sẽ áp dụng cho mọi phiên trong dự án.",
-    "projectInstructionsLineCount": "{{count}} dòng",
-    "resizeSettingsSheet": "Kéo để thay đổi chiều rộng cài đặt dự án",
-    "projectInstructionsEmptyPreview": "AGENTS.md đang trống. Chuyển sang Chỉnh sửa để thêm chỉ dẫn Markdown.",
-    "projectInstructionsLoadFailed": "Không thể đọc AGENTS.md",
     "projectInstructionsPlaceholder": "vd. Luôn trả lời bằng tiếng Việt; giữ giọng rõ ràng và thân thiện; bắt đầu bằng kết luận",
-    "projectInstructionsSaveFailed": "Không thể lưu AGENTS.md",
     "projectLogo": "biểu tượng",
     "projectLogoHint": "Tùy chọn. Ảnh tự động được thu về 256×256.",
     "projectName": "Tên dự án",
@@ -3327,7 +3353,12 @@
       "updateFailed": "Không thể cập nhật không gian tri thức của dự án",
       "errorDetail": "Chi tiết: {{error}}"
     },
-    "projectEmojiPlaceholder": "Tùy chọn"
+    "projectEmojiPlaceholder": "Tùy chọn",
+    "projectInstructionsLineCount": "{{count}} dòng",
+    "resizeSettingsSheet": "Kéo để thay đổi chiều rộng cài đặt dự án",
+    "projectInstructionsEmptyPreview": "AGENTS.md đang trống. Chuyển sang Chỉnh sửa để thêm chỉ dẫn Markdown.",
+    "projectInstructionsLoadFailed": "Không thể đọc AGENTS.md",
+    "projectInstructionsSaveFailed": "Không thể lưu AGENTS.md"
   },
   "provider": {
     "addProvider": "Thêm nhà cung cấp",
@@ -3598,7 +3629,6 @@
     }
   },
   "settings": {
-    "about": "Giới thiệu",
     "resetDefaultsPageAction": "Khôi phục trang này",
     "resetDefaultsTabAction": "Khôi phục thẻ hiện tại",
     "resetDefaultsRegionAction": "Khôi phục khu vực này",
@@ -3611,6 +3641,35 @@
     "resetDefaultsFailed": "Không thể khôi phục mặc định cho {{section}}",
     "resetDefaultsReindexStarted": "Cài đặt tri thức đã được lưu và chỉ mục đang được xây dựng lại trong nền.",
     "resetDefaultsWarning": "Cài đặt đã được khôi phục nhưng một thao tác thời gian chạy chưa hoàn tất. Hãy thử lại sau.",
+    "files": {
+      "title": "Tệp",
+      "description": "Cấu hình giới hạn tệp cho trò chuyện, không gian làm việc, xem trước và chỉnh sửa.",
+      "runtimeLocal": "Tệp trên máy tính cục bộ",
+      "runtimeServer": "Tệp trên máy chủ",
+      "runtimeLocalDesc": "Các thao tác tệp sử dụng hệ thống tệp của máy tính này.",
+      "runtimeServerDesc": "Các thao tác tệp sử dụng hệ thống tệp của máy chủ từ xa.",
+      "maxChatAttachment": "Giới hạn tệp đính kèm trò chuyện",
+      "maxChatAttachmentDesc": "Kích thước tối đa cho mỗi tệp đính kèm ({{min}}–{{max}} MiB).",
+      "maxWorkspaceUpload": "Giới hạn tải lên không gian làm việc",
+      "maxWorkspaceUploadDesc": "Kích thước tối đa cho mỗi tệp tải lên không gian làm việc ({{min}}–{{max}} MiB).",
+      "maxTextPreview": "Giới hạn xem trước văn bản",
+      "maxTextPreviewDesc": "Kích thước tệp văn bản tối đa được tải để xem trước ({{min}}–{{max}} MiB).",
+      "maxTextEdit": "Giới hạn chỉnh sửa văn bản",
+      "maxTextEditDesc": "Kích thước tệp văn bản UTF-8 tối đa có thể chỉnh sửa ({{min}}–{{max}} MiB).",
+      "maxDocumentPreview": "Giới hạn xem trước tài liệu",
+      "maxDocumentPreviewDesc": "Kích thước tệp PDF hoặc Office tối đa được xử lý để xem trước ({{min}}–{{max}} MiB).",
+      "maxArtifactImport": "Giới hạn nhập sản phẩm",
+      "maxArtifactImportDesc": "Kích thước nguồn HTML, Markdown hoặc Phân tích JSON tối đa được nhập vào Sản phẩm ({{min}}–{{max}} MiB).",
+      "largeUploadWarning": "Giới hạn tải lên lớn làm tăng mức dùng đĩa, mạng và xử lý. Chỉ tăng khi máy chủ có đủ tài nguyên."
+    },
+    "knowledgeSourceLimits": {
+      "title": "Giới hạn nguồn tri thức",
+      "description": "Kích thước tối đa được chấp nhận cho từng loại nguồn trong không gian tri thức.",
+      "text": "Nguồn văn bản (MiB)",
+      "binary": "Nguồn nhị phân (MiB)",
+      "url": "Phản hồi URL (MiB)"
+    },
+    "about": "Giới thiệu",
     "acpAutoDiscover": "Tự động phát hiện backend",
     "acpAutoDiscoverDesc": "Quét $PATH để tìm các binary agent ACP đã biết khi khởi động",
     "acpBackendId": "ID",
@@ -3977,15 +4036,6 @@
     },
     "browser": {
       "activeBadge": "đang dùng",
-      "backupRuntimeHint": "Chrome hệ thống hiện khả dụng. Cài đặt môi trường chạy Chromium do Hope quản lý làm phương án dự phòng cho tự động hóa trình duyệt và xuất PDF của sản phẩm.",
-      "backupRuntimeTitle": "Sao lưu thời gian chạy Chrome",
-      "installRuntimeRetry": "Thời gian chạy đã sẵn sàng. Thử lại hành động của trình duyệt hoặc xuất PDF.",
-      "openBrowserSettings": "Mở cài đặt trình duyệt",
-      "runtimeInstallUnsupported": "Hope không cung cấp thời gian chạy Chrome được quản lý cho hệ điều hành hoặc kiến ​​trúc này. Cài đặt Chrome/Chromium theo cách thủ công hoặc định cấu hình đường dẫn thực thi.",
-      "runtimeRequiredArtifactPdfDescription": "Xuất PDF cần thời gian chạy Chrome hoặc Chromium cục bộ nhưng hiện không có sẵn.",
-      "runtimeRequiredDescription": "Hoạt động của trình duyệt này cần có thời gian chạy Chrome hoặc Chromium cục bộ nhưng hiện không có sẵn.",
-      "runtimeRequiredHint": "Bạn có thể cài đặt thời gian chạy được quản lý của Hope ngay bây giờ (khoảng 150 MB), sau đó thử lại thao tác.",
-      "runtimeRequiredTitle": "Yêu cầu thời gian chạy crom",
       "connect": "Gắn",
       "connectHelp": "Bạn đã chạy Chrome với --remote-debugging-port=9222? Hãy gắn vào thay vì mở mới.",
       "connectUrlLabel": "URL debug",
@@ -4135,7 +4185,16 @@
         "title": "Cho phép raw CDP?",
         "body": "Việc này cho phép AI gửi các lệnh DevTools Protocol tùy ý tới Chrome thật của bạn. Mỗi lần gọi vẫn cần bạn phê duyệt riêng và các phương thức nguy hiểm vẫn bị chặn, nhưng chỉ bật khi bạn thực sự cần.",
         "continue": "Bật"
-      }
+      },
+      "backupRuntimeHint": "Chrome hệ thống hiện khả dụng. Cài đặt môi trường chạy Chromium do Hope quản lý làm phương án dự phòng cho tự động hóa trình duyệt và xuất PDF của sản phẩm.",
+      "backupRuntimeTitle": "Sao lưu thời gian chạy Chrome",
+      "installRuntimeRetry": "Thời gian chạy đã sẵn sàng. Thử lại hành động của trình duyệt hoặc xuất PDF.",
+      "openBrowserSettings": "Mở cài đặt trình duyệt",
+      "runtimeInstallUnsupported": "Hope không cung cấp thời gian chạy Chrome được quản lý cho hệ điều hành hoặc kiến ​​trúc này. Cài đặt Chrome/Chromium theo cách thủ công hoặc định cấu hình đường dẫn thực thi.",
+      "runtimeRequiredArtifactPdfDescription": "Xuất PDF cần thời gian chạy Chrome hoặc Chromium cục bộ nhưng hiện không có sẵn.",
+      "runtimeRequiredDescription": "Hoạt động của trình duyệt này cần có thời gian chạy Chrome hoặc Chromium cục bộ nhưng hiện không có sẵn.",
+      "runtimeRequiredHint": "Bạn có thể cài đặt thời gian chạy được quản lý của Hope ngay bây giờ (khoảng 150 MB), sau đó thử lại thao tác.",
+      "runtimeRequiredTitle": "Yêu cầu thời gian chạy crom"
     },
     "bytes": "byte",
     "canvas": "Canvas",
@@ -4723,6 +4782,8 @@
     "fallbackModelsDesc": "Khi mô hình chính không khả dụng, thử các mô hình sau theo thứ tự",
     "fsRemoteWrites": "Cho phép ghi tệp từ xa",
     "fsRemoteWritesDesc": "Cho phép máy khách HTTP tạo, chỉnh sửa, xóa và tải tệp lên trong thư mục làm việc của dự án. Tắt theo mặc định — ứng dụng máy tính luôn có thể ghi cục bộ bất kể cài đặt này.",
+    "fsMaxChatAttachmentMb": "Kích thước tệp đính kèm trò chuyện tối đa",
+    "fsMaxChatAttachmentMbDesc": "Kích thước tối đa của một tệp tải lên từ ô soạn thảo trò chuyện. Máy tính cục bộ dùng cài đặt cục bộ; máy tính từ xa và Web dùng cài đặt máy chủ.",
     "general": "Chung",
     "generalDesc": "Giao diện, ngôn ngữ và cài đặt hệ thống",
     "globalModel": "Cài đặt mô hình toàn cục",
@@ -7634,40 +7695,6 @@
     "audioGenFetchVoices": "Lấy giọng nói",
     "audioGenKnownModels": "Mô hình đã biết",
     "audioGenPickVoice": "Chọn từ danh sách…",
-    "files": {
-      "title": "Tệp",
-      "description": "Cấu hình giới hạn tệp cho trò chuyện, không gian làm việc, xem trước và chỉnh sửa.",
-      "runtimeLocal": "Tệp trên máy tính cục bộ",
-      "runtimeServer": "Tệp trên máy chủ",
-      "runtimeLocalDesc": "Các thao tác tệp sử dụng hệ thống tệp của máy tính này.",
-      "runtimeServerDesc": "Các thao tác tệp sử dụng hệ thống tệp của máy chủ từ xa.",
-      "maxChatAttachment": "Giới hạn tệp đính kèm trò chuyện",
-      "maxChatAttachmentDesc": "Kích thước tối đa cho mỗi tệp đính kèm ({{min}}–{{max}} MiB).",
-      "maxWorkspaceUpload": "Giới hạn tải lên không gian làm việc",
-      "maxWorkspaceUploadDesc": "Kích thước tối đa cho mỗi tệp tải lên không gian làm việc ({{min}}–{{max}} MiB).",
-      "maxTextPreview": "Giới hạn xem trước văn bản",
-      "maxTextPreviewDesc": "Kích thước tệp văn bản tối đa được tải để xem trước ({{min}}–{{max}} MiB).",
-      "maxTextEdit": "Giới hạn chỉnh sửa văn bản",
-      "maxTextEditDesc": "Kích thước tệp văn bản UTF-8 tối đa có thể chỉnh sửa ({{min}}–{{max}} MiB).",
-      "maxDocumentPreview": "Giới hạn xem trước tài liệu",
-      "maxDocumentPreviewDesc": "Kích thước tệp PDF hoặc Office tối đa được xử lý để xem trước ({{min}}–{{max}} MiB).",
-      "maxArtifactImport": "Giới hạn nhập sản phẩm",
-      "maxArtifactImportDesc": "Kích thước nguồn HTML, Markdown hoặc Phân tích JSON tối đa được nhập vào Sản phẩm ({{min}}–{{max}} MiB).",
-      "largeUploadWarning": "Giới hạn tải lên lớn làm tăng mức dùng đĩa, mạng và xử lý. Chỉ tăng khi máy chủ có đủ tài nguyên."
-    },
-    "knowledgeSourceLimits": {
-      "title": "Giới hạn nguồn tri thức",
-      "description": "Kích thước tối đa được chấp nhận cho từng loại nguồn trong không gian tri thức.",
-      "text": "Nguồn văn bản (MiB)",
-      "binary": "Nguồn nhị phân (MiB)",
-      "url": "Phản hồi URL (MiB)"
-    },
-    "fsMaxChatAttachmentMb": "Kích thước tệp đính kèm trò chuyện tối đa",
-    "fsMaxChatAttachmentMbDesc": "Kích thước tối đa của một tệp tải lên từ ô soạn thảo trò chuyện. Máy tính cục bộ dùng cài đặt cục bộ; máy tính từ xa và Web dùng cài đặt máy chủ.",
-    "memoryBackupEncryptedPassphraseTooShort": "Sử dụng ít nhất 12 ký tự cho cụm mật khẩu sao lưu",
-    "memoryBackupEncryptedPassphraseCommon": "Tránh các từ hoặc mẫu phổ biến trong cụm mật khẩu sao lưu",
-    "memoryBackupEncryptedPassphraseRepetitive": "Sử dụng cụm mật khẩu sao lưu ít lặp lại hơn",
-    "memoryBackupEncryptedPassphraseVariety": "Sử dụng thành phần đa dạng hơn hoặc một cụm bốn từ dài hơn",
     "acpCustomAgent": "Agent tùy chỉnh",
     "canvasTypes": {
       "chart": "Biểu đồ",
@@ -7744,6 +7771,10 @@
         "graphiti_http": "Graphiti HTTP sidecar"
       }
     },
+    "memoryBackupEncryptedPassphraseTooShort": "Sử dụng ít nhất 12 ký tự cho cụm mật khẩu sao lưu",
+    "memoryBackupEncryptedPassphraseCommon": "Tránh các từ hoặc mẫu phổ biến trong cụm mật khẩu sao lưu",
+    "memoryBackupEncryptedPassphraseRepetitive": "Sử dụng cụm mật khẩu sao lưu ít lặp lại hơn",
+    "memoryBackupEncryptedPassphraseVariety": "Sử dụng thành phần đa dạng hơn hoặc một cụm bốn từ dài hơn",
     "memoryDbSnapshotRestoreStatus": {
       "ready": "Sẵn sàng",
       "no_metadata": "Thiếu siêu dữ liệu",
@@ -8620,6 +8651,8 @@
       "selectBranch": "Chọn nhánh",
       "stageAll": "Đưa tất cả thay đổi vào vùng đệm",
       "viewPr": "Xem Pull Request",
+      "pullRequestPanelTitle": "Yêu cầu kéo",
+      "resizePullRequestPanel": "Thay đổi chiều rộng bảng yêu cầu kéo",
       "worktree": "Cây làm việc",
       "checkDetails": "Chi tiết kiểm tra",
       "checkFailed": "Thất bại",
@@ -8641,6 +8674,7 @@
       "openCheck": "Mở kiểm tra",
       "openComment": "Mở bình luận",
       "prFeedbackUnavailable": "Không thể tải kiểm tra và bình luận PR",
+      "prFeedbackStale": "Không thể làm mới trạng thái yêu cầu kéo; dữ liệu hiện tại có thể đã cũ",
       "reviewComments": "{{count}} bình luận",
       "reviewFeedback": "Phản hồi review",
       "autoMergeEnabled": "Đã bật tự động hợp nhất",
@@ -8667,10 +8701,7 @@
       "reviewPending": "Đang chờ",
       "reviewRequired": "Cần đánh giá",
       "reviewStatus": "Trạng thái đánh giá",
-      "reviewers": "Người đánh giá",
-      "pullRequestPanelTitle": "Yêu cầu kéo",
-      "resizePullRequestPanel": "Thay đổi chiều rộng bảng yêu cầu kéo",
-      "prFeedbackStale": "Không thể làm mới trạng thái yêu cầu kéo; dữ liệu hiện tại có thể đã cũ"
+      "reviewers": "Người đánh giá"
     },
     "goal": {
       "watchdogTitle": "Mục tiêu cần xác nhận",
@@ -10594,6 +10625,8 @@
       "title": "Sắp xếp thành ghi chú"
     },
     "sources": {
+      "textTooLarge": "Nguồn văn bản vượt quá giới hạn {{limit}} MiB",
+      "fileTooLarge": "{{name}} vượt quá giới hạn {{limit}} MiB",
       "archiveAttachment": "Lưu trữ kiến thức",
       "archiveAttachmentFailed": "Không thể lưu trữ tệp đính kèm",
       "archivedAttachment": "Đã lưu trữ vào các nguồn kiến thức",
@@ -10732,9 +10765,7 @@
       "ocrFailed": "OCR thất bại",
       "ocrRetry": "Thử lại các trang bị lỗi",
       "ocrRetryStarted": "Đang thử lại các trang bị lỗi…",
-      "ocrRetryFailed": "Không thể thử lại các trang OCR",
-      "textTooLarge": "Nguồn văn bản vượt quá giới hạn {{limit}} MiB",
-      "fileTooLarge": "{{name}} vượt quá giới hạn {{limit}} MiB"
+      "ocrRetryFailed": "Không thể thử lại các trang OCR"
     },
     "queryFile": {
       "action": "Tập tin",
@@ -10770,54 +10801,6 @@
       "emptyInternal": "Không gian này đang trống.",
       "importFiles": "Nhập tệp"
     }
-  },
-  "backgroundJobs": {
-    "panelTitle": "Tác vụ nền",
-    "openPanel": "Tác vụ nền",
-    "openFull": "Xem tất cả",
-    "expandJob": "Mở rộng tác vụ",
-    "collapseJob": "Thu gọn tác vụ",
-    "jumpToBottom": "Xuống cuối",
-    "empty": "Không có tác vụ nền",
-    "sectionSession": "Phiên này",
-    "sectionLocalModel": "Mô hình cục bộ",
-    "kindGroup": "Nhóm tác vụ",
-    "kindSubagent": "Tác nhân phụ",
-    "resizePanel": "Thay đổi kích thước bảng tác vụ nền",
-    "status": {
-      "queued": "Đang chờ",
-      "running": "Đang chạy",
-      "cancelling": "Đang hủy",
-      "awaiting_approval": "Chờ phê duyệt",
-      "completed": "Hoàn tất",
-      "failed": "Thất bại",
-      "interrupted": "Bị gián đoạn",
-      "timed_out": "Hết thời gian",
-      "cancelled": "Đã hủy"
-    },
-    "errorOutput": "sai lầm",
-    "liveOutput": "đầu ra thời gian thực",
-    "outputFile": "kết quả đầy đủ",
-    "resultPreview": "Xem trước kết quả"
-  },
-  "browser": {
-    "panelTitle": "Trình duyệt"
-  },
-  "error": {
-    "appCrash": "Đã xảy ra lỗi",
-    "retry": "Thử lại",
-    "unknown": "Đã xảy ra lỗi không mong muốn"
-  },
-  "localModels": {
-    "actions": {
-      "download": "Tải xuống"
-    }
-  },
-  "macControl": {
-    "panelTitle": "Điều khiển Mac"
-  },
-  "memory": {
-    "activeRecallToastTitle": "Bộ nhớ tham chiếu"
   },
   "artifacts": {
     "title": "Sản phẩm",
@@ -10916,6 +10899,54 @@
     "exportReviewBlocked": "Đánh giá xuất khẩu vẫn có trình chặn",
     "guardStatus": "bảo vệ",
     "defaultName": "Sản phẩm"
+  },
+  "backgroundJobs": {
+    "panelTitle": "Tác vụ nền",
+    "openPanel": "Tác vụ nền",
+    "openFull": "Xem tất cả",
+    "expandJob": "Mở rộng tác vụ",
+    "collapseJob": "Thu gọn tác vụ",
+    "jumpToBottom": "Xuống cuối",
+    "empty": "Không có tác vụ nền",
+    "sectionSession": "Phiên này",
+    "sectionLocalModel": "Mô hình cục bộ",
+    "kindGroup": "Nhóm tác vụ",
+    "kindSubagent": "Tác nhân phụ",
+    "resizePanel": "Thay đổi kích thước bảng tác vụ nền",
+    "status": {
+      "queued": "Đang chờ",
+      "running": "Đang chạy",
+      "cancelling": "Đang hủy",
+      "awaiting_approval": "Chờ phê duyệt",
+      "completed": "Hoàn tất",
+      "failed": "Thất bại",
+      "interrupted": "Bị gián đoạn",
+      "timed_out": "Hết thời gian",
+      "cancelled": "Đã hủy"
+    },
+    "errorOutput": "sai lầm",
+    "liveOutput": "đầu ra thời gian thực",
+    "outputFile": "kết quả đầy đủ",
+    "resultPreview": "Xem trước kết quả"
+  },
+  "browser": {
+    "panelTitle": "Trình duyệt"
+  },
+  "error": {
+    "appCrash": "Đã xảy ra lỗi",
+    "retry": "Thử lại",
+    "unknown": "Đã xảy ra lỗi không mong muốn"
+  },
+  "localModels": {
+    "actions": {
+      "download": "Tải xuống"
+    }
+  },
+  "macControl": {
+    "panelTitle": "Điều khiển Mac"
+  },
+  "memory": {
+    "activeRecallToastTitle": "Bộ nhớ tham chiếu"
   },
   "design": {
     "title": "Không gian Thiết kế",
@@ -11637,37 +11668,6 @@
       "checkStale": "{{n}} sản phẩm có cập nhật mã",
       "chatPrompt": "Mã đã triển khai đã khác với thiết kế này. Hãy cập nhật thiết kế hiện tại để phản ánh các thay đổi mã được tham chiếu, giữ nguyên ý đồ thiết kế và mọi thứ còn lại."
     }
-  },
-  "fileEditor": {
-    "notUtf8": "Tệp không phải văn bản UTF-8 hợp lệ",
-    "notEditable": "Không thể chỉnh sửa tệp này dưới dạng văn bản UTF-8",
-    "tooLarge": "Tệp vượt quá giới hạn chỉnh sửa {{limit}} MiB",
-    "saved": "Đã lưu",
-    "showPreview": "Hiện bản xem trước",
-    "showSource": "Hiện mã nguồn",
-    "saveAsExists": "Đã có tệp tại đường dẫn đó",
-    "mixedLineEndings": "Kiểu xuống dòng bị trộn lẫn và sẽ được chuẩn hóa theo kiểu phổ biến nhất khi lưu.",
-    "externalChanged": "Tệp đã thay đổi bên ngoài trình chỉnh sửa.",
-    "reload": "Tải lại",
-    "conflictTitle": "Xung đột khi lưu",
-    "conflictDeleted": "Tệp đã bị xóa bên ngoài trình chỉnh sửa.",
-    "conflictChanged": "Tệp đã bị thay đổi bên ngoài trình chỉnh sửa.",
-    "saveAsScope": "Lưu tệp mới bên trong không gian làm việc hiện tại.",
-    "unsavedTitle": "Thay đổi chưa lưu",
-    "unsavedBody": "Bỏ các chỉnh sửa hiện tại trước khi rời khỏi tệp này?",
-    "discard": "Bỏ thay đổi",
-    "remoteWritesTitle": "Ghi tệp từ xa đang tắt",
-    "remoteWritesBody": "Không gian làm việc này nằm trên máy chủ. Chỉ bật ghi từ xa trong cài đặt máy chủ khi bạn tin cậy các máy khách đã kết nối.",
-    "goToServerSettings": "Đi tới cài đặt máy chủ",
-    "transportSwitchUnsaved": "Bạn có thay đổi tệp chưa lưu. Chuyển kết nối và bỏ các thay đổi này?"
-  },
-  "attachments": {
-    "uploading": "Đang tải lên…",
-    "uploadFailedShort": "Tải lên thất bại",
-    "uploadFailed": "Các tệp chưa được gửi. {{error}}",
-    "tooMany": "Mỗi tin nhắn có thể chứa tối đa 64 tệp",
-    "tooLarge": "{{name}} vượt quá giới hạn {{limit}} MB",
-    "someTooLarge": "Một số tệp vượt quá giới hạn {{limit}} MB"
   },
   "configRecovery": {
     "title": "Cần khôi phục cấu hình",

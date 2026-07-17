@@ -421,9 +421,6 @@
     "completedTurnCollapsed": "تمت معالجة {{count}} رسالة",
     "completedTurnCollapsedWithDuration": "تمت المعالجة لمدة {{duration}}، {{count}} رسالة",
     "conversations": "المحادثات",
-    "unreadConversationCount": "{{count}} محادثة غير مقروءة",
-    "unreadStatus": "غير مقروء",
-    "channelUnreadStatus": "محادثة مراسلة فورية غير مقروءة",
     "collapseSidebar": "طي الشريط الجانبي",
     "sidebarCompactMode": "التبديل إلى الوضع الموجز",
     "sidebarDetailedMode": "التبديل إلى الوضع العادي",
@@ -867,9 +864,9 @@
         "docx": "مستند Word",
         "pptx": "شرائح PowerPoint",
         "xlsx": "جدول بيانات Excel",
-        "dataAnalytics": "تحليل البيانات",
         "browser": "التحكم في المتصفح",
-        "mac": "التحكم في Mac"
+        "mac": "التحكم في Mac",
+        "dataAnalytics": "تحليل البيانات"
       }
     },
     "reasoningDisabledHint": "الاستدلال غير مُفعَّل لهذا النموذج. لضبط عمق الاستدلال، عدِّل هذا النموذج من «الإعدادات ← مزوّدو النماذج» وفعِّل خيار «دعم الاستدلال/التفكير».",
@@ -1169,9 +1166,12 @@
     "openSourceConversationMissingHint": "يشير مصدر الذاكرة هذا إلى محادثة تم حذفها أو لا يمكن العثور عليها.",
     "openSourceMessageMissing": "لم تعد رسالة المصدر متاحة",
     "openSourceMessageMissingHint": "لا تزال المحادثة موجودة، ولكن تعذر العثور على الرسالة الدقيقة لمصدر الذاكرة هذا.",
+    "unreadConversationCount": "{{count}} محادثة غير مقروءة",
+    "unreadStatus": "غير مقروء",
+    "channelUnreadStatus": "محادثة مراسلة فورية غير مقروءة",
+    "generatedImageName": "الصورة المُنشأة {{index}}",
     "noAgents": "لا يوجد وكلاء",
-    "sessionFailed": "فشلت المحادثة",
-    "generatedImageName": "الصورة المُنشأة {{index}}"
+    "sessionFailed": "فشلت المحادثة"
   },
   "codexAuth": {
     "expiredDescription": "رمز OAuth لـ Codex لم يعد صالحاً. يرجى تسجيل الدخول مرة أخرى للمتابعة.",
@@ -1179,6 +1179,7 @@
     "reauth": "تسجيل الدخول مرة أخرى"
   },
   "common": {
+    "restoreDefaults": "استعادة الإعدادات الافتراضية",
     "add": "إضافة",
     "back": "رجوع",
     "cancel": "إلغاء",
@@ -1225,18 +1226,13 @@
     "off": "إيقاف",
     "error": "خطأ",
     "showLess": "عرض أقل",
-    "next": "التالي",
-    "previous": "سابق",
     "download": "تنزيل",
     "duplicate": "تكرار",
     "more": "المزيد",
     "apply": "تطبيق",
     "modelNoVision": "لا يدعم الصور",
-    "restoreDefaults": "استعادة الإعدادات الافتراضية",
-    "request": "الطلب",
-    "response": "الاستجابة",
-    "authMethod": "طريقة المصادقة",
-    "testSteps": "خطوات الاختبار",
+    "next": "التالي",
+    "previous": "سابق",
     "baseUrl": "عنوان URL الأساسي",
     "apiKey": "مفتاح API",
     "ok": "موافق",
@@ -1262,6 +1258,8 @@
       "healthy": "سليم",
       "idle": "خامل",
       "insufficient_data": "بيانات غير كافية",
+      "needs_user": "يتطلب إجراءً من المستخدم",
+      "advisory": "توصية",
       "injected": "مُدرج",
       "interrupted": "منقطع",
       "killed": "أُنهي بالقوة",
@@ -1285,11 +1283,13 @@
       "timed_out": "انتهت المهلة",
       "unknown": "غير معروف",
       "warning": "تحذير",
-      "needs_user": "يتطلب إجراءً من المستخدم",
-      "advisory": "توصية",
       "evaluating": "قيد التقييم",
       "in_progress": "قيد التنفيذ"
-    }
+    },
+    "request": "الطلب",
+    "response": "الاستجابة",
+    "authMethod": "طريقة المصادقة",
+    "testSteps": "خطوات الاختبار"
   },
   "context": {
     "ago": "مضى",
@@ -1456,106 +1456,6 @@
     "bannerConfig": "الوضع الخطير مفعّل — تم تجاوز جميع موافقات الأدوات. أوقفه من الإعدادات → الأمان"
   },
   "dashboard": {
-    "controlPlane": {
-      "title": "الأهداف والتنفيذ",
-      "automationTab": "الأتمتة",
-      "scopeHint": "تظهر مقاييس النافذة النتائج؛ تظهر اللقطات الحالية التراكم والمخاطر.",
-      "allProjects": "جميع المشاريع",
-      "unassignedProject": "غير معين",
-      "archived": "مؤرشف",
-      "empty": "لا توجد بيانات للنطاق المحدد.",
-      "sections": {
-        "overview": "ملخص",
-        "planTask": "الخطة والمهمة"
-      },
-      "metrics": {
-        "goalAcceptance": "معدل قبول الهدف",
-        "workflowCompletion": "معدل إنجاز سير العمل",
-        "loopStrongProgress": "حلقة معدل التقدم القوي",
-        "taskCompletion": "إكمال مجموعة المهام",
-        "attention": "يحتاج إلى اهتمام",
-        "requiredCriteria": "المعايير المطلوبة معدل النجاح",
-        "goalP50": "الهدف الوقت لقبول P50",
-        "opFailure": "معدل فشل التشغيل",
-        "workflowP50": "مدة سير العمل P50",
-        "goalBinding": "معدل ربط الهدف",
-        "approvalTrigger": "معدل تفعيل الموافقة",
-        "noProgress": "معدل عدم التقدم",
-        "blockedSchedules": "الجداول الزمنية المحظورة",
-        "loopP50": "مدة تشغيل الحلقة P50",
-        "currentBacklog": "المتراكمة الحالية",
-        "activePlans": "نشط الآن",
-        "cohortCompletion": "استكمال الفوج"
-      },
-      "currentSnapshot": "اللقطة الحالية",
-      "goalTrend": "نتائج الأهداف",
-      "resolved": "تم الحل",
-      "accepted": "مقبول",
-      "attentionTitle": "عناصر الاهتمام الحالية",
-      "noAttention": "لا توجد عناصر الاهتمام الحالية",
-      "auditSamples": "{{count}} من الأهداف المدققة",
-      "currentStates": "الدول الحالية",
-      "closureOutcomes": "نتائج الإغلاق",
-      "domains": "المجالات",
-      "kinds": "أنواع",
-      "origins": "أصول",
-      "workflowTrend": "يتم تشغيل سير العمل المحدد",
-      "decidedRuns": "أشواط قررت",
-      "progressStates": "تصنيف التقدم",
-      "triggerKinds": "أنواع الزناد",
-      "strategies": "استراتيجيات التنفيذ",
-      "loopTrend": "تشغيل حلقة تقييمها",
-      "evaluatedRuns": "أشواط تم تقييمها",
-      "openPlanHistory": "عرض تاريخ الخطة",
-      "planByAgent": "الخطة حسب الوكيل",
-      "planByProject": "الخطة حسب المشروع",
-      "noFunnelHint": "لا تحتوي المهمة والخطة حتى الآن على مفاتيح إسناد موثوقة للهدف/سير العمل/الحلقة، لذا لا تستنتج هذه الصفحة مسار تحويل سببيًا من الجلسات.",
-      "noExactSamples": "لا توجد عينات مدة محددة",
-      "coverage": "{{samples}}/{{eligible}} من العينات الدقيقة ({{percent}}%)",
-      "coverageShort": "مدة التغطية المحددة:{{samples}}/{{eligible}}",
-      "creationTrend": "اتجاه الخلق",
-      "created": "مخلوق",
-      "attentionKinds": {
-        "goal": "هدف",
-        "workflow": "سير العمل",
-        "loop": "الحلقة",
-        "plan": "خطة"
-      },
-      "attentionReasons": {
-        "needs_strict_evidence": "يلزم دليل صارم",
-        "goal_awaiting_closure": "الهدف بانتظار الإغلاق",
-        "workflow_requires_attention": "سير العمل يحتاج إلى معالجة",
-        "consecutive_no_progress": "عدم تقدم متتالٍ",
-        "loop_requires_attention": "الحلقة تحتاج إلى معالجة",
-        "plan_awaiting_review": "الخطة بانتظار المراجعة"
-      },
-      "states": {
-        "active": "نشط",
-        "paused": "متوقف مؤقتًا",
-        "evaluating": "تقييم",
-        "completed": "مكتمل",
-        "failed": "فشل",
-        "cancelled": "تم الإلغاء",
-        "blocked": "محظور",
-        "planning": "تخطيط",
-        "review": "بانتظار المراجعة",
-        "executing": "تنفيذ",
-        "off": "مؤرشف",
-        "awaiting_approval": "بانتظار الموافقة",
-        "awaiting_user": "بانتظار المستخدم",
-        "running": "قيد التشغيل",
-        "recovering": "يتعافى",
-        "draft": "مسودة",
-        "pending": "قيد الانتظار",
-        "in_progress": "في تَقَدم",
-        "progressed": "تقدم",
-        "weak_progress": "تقدم ضعيف",
-        "no_progress": "لا يوجد تقدم",
-        "accepted_v1": "مقبول الإصدار 1",
-        "superseded": "تم استبداله",
-        "unassigned": "غير معين"
-      }
-    },
     "autoRefresh": {
       "1m": "1 دقيقة",
       "30s": "30 ث",
@@ -1975,8 +1875,8 @@
       "activeCampaigns": "{{count}} نشط",
       "baselineKinds": {
         "deterministic": "حتمي",
-        "external_model": "نموذج خارجي",
-        "deterministic_mock": "محاكاة حتمية"
+        "deterministic_mock": "محاكاة حتمية",
+        "external_model": "نموذج خارجي"
       },
       "calibrationAcceptedNote": "قبلت المراجعة البشرية {{label}} كدليل للمعايرة.",
       "calibrationFollowUpNote": "حددت المراجعة البشرية {{label}} لمتابعة المعايرة بعد {{status}}.",
@@ -2227,6 +2127,106 @@
     },
     "columns": {
       "session": "جلسة"
+    },
+    "controlPlane": {
+      "title": "الأهداف والتنفيذ",
+      "automationTab": "الأتمتة",
+      "scopeHint": "تظهر مقاييس النافذة النتائج؛ تظهر اللقطات الحالية التراكم والمخاطر.",
+      "allProjects": "جميع المشاريع",
+      "unassignedProject": "غير معين",
+      "archived": "مؤرشف",
+      "empty": "لا توجد بيانات للنطاق المحدد.",
+      "sections": {
+        "overview": "ملخص",
+        "planTask": "الخطة والمهمة"
+      },
+      "metrics": {
+        "goalAcceptance": "معدل قبول الهدف",
+        "workflowCompletion": "معدل إنجاز سير العمل",
+        "loopStrongProgress": "حلقة معدل التقدم القوي",
+        "taskCompletion": "إكمال مجموعة المهام",
+        "attention": "يحتاج إلى اهتمام",
+        "requiredCriteria": "المعايير المطلوبة معدل النجاح",
+        "goalP50": "الهدف الوقت لقبول P50",
+        "opFailure": "معدل فشل التشغيل",
+        "workflowP50": "مدة سير العمل P50",
+        "goalBinding": "معدل ربط الهدف",
+        "approvalTrigger": "معدل تفعيل الموافقة",
+        "noProgress": "معدل عدم التقدم",
+        "blockedSchedules": "الجداول الزمنية المحظورة",
+        "loopP50": "مدة تشغيل الحلقة P50",
+        "currentBacklog": "المتراكمة الحالية",
+        "activePlans": "نشط الآن",
+        "cohortCompletion": "استكمال الفوج"
+      },
+      "currentSnapshot": "اللقطة الحالية",
+      "goalTrend": "نتائج الأهداف",
+      "resolved": "تم الحل",
+      "accepted": "مقبول",
+      "attentionTitle": "عناصر الاهتمام الحالية",
+      "noAttention": "لا توجد عناصر الاهتمام الحالية",
+      "auditSamples": "{{count}} من الأهداف المدققة",
+      "currentStates": "الدول الحالية",
+      "closureOutcomes": "نتائج الإغلاق",
+      "domains": "المجالات",
+      "kinds": "أنواع",
+      "origins": "أصول",
+      "workflowTrend": "يتم تشغيل سير العمل المحدد",
+      "decidedRuns": "أشواط قررت",
+      "progressStates": "تصنيف التقدم",
+      "triggerKinds": "أنواع الزناد",
+      "strategies": "استراتيجيات التنفيذ",
+      "loopTrend": "تشغيل حلقة تقييمها",
+      "evaluatedRuns": "أشواط تم تقييمها",
+      "openPlanHistory": "عرض تاريخ الخطة",
+      "planByAgent": "الخطة حسب الوكيل",
+      "planByProject": "الخطة حسب المشروع",
+      "noFunnelHint": "لا تحتوي المهمة والخطة حتى الآن على مفاتيح إسناد موثوقة للهدف/سير العمل/الحلقة، لذا لا تستنتج هذه الصفحة مسار تحويل سببيًا من الجلسات.",
+      "noExactSamples": "لا توجد عينات مدة محددة",
+      "coverage": "{{samples}}/{{eligible}} من العينات الدقيقة ({{percent}}%)",
+      "coverageShort": "مدة التغطية المحددة:{{samples}}/{{eligible}}",
+      "creationTrend": "اتجاه الخلق",
+      "created": "مخلوق",
+      "attentionKinds": {
+        "goal": "هدف",
+        "workflow": "سير العمل",
+        "loop": "الحلقة",
+        "plan": "خطة"
+      },
+      "attentionReasons": {
+        "needs_strict_evidence": "يلزم دليل صارم",
+        "goal_awaiting_closure": "الهدف بانتظار الإغلاق",
+        "workflow_requires_attention": "سير العمل يحتاج إلى معالجة",
+        "consecutive_no_progress": "عدم تقدم متتالٍ",
+        "loop_requires_attention": "الحلقة تحتاج إلى معالجة",
+        "plan_awaiting_review": "الخطة بانتظار المراجعة"
+      },
+      "states": {
+        "active": "نشط",
+        "paused": "متوقف مؤقتًا",
+        "evaluating": "تقييم",
+        "completed": "مكتمل",
+        "failed": "فشل",
+        "cancelled": "تم الإلغاء",
+        "blocked": "محظور",
+        "planning": "تخطيط",
+        "review": "بانتظار المراجعة",
+        "executing": "تنفيذ",
+        "off": "مؤرشف",
+        "awaiting_approval": "بانتظار الموافقة",
+        "awaiting_user": "بانتظار المستخدم",
+        "running": "قيد التشغيل",
+        "recovering": "يتعافى",
+        "draft": "مسودة",
+        "pending": "قيد الانتظار",
+        "in_progress": "في تَقَدم",
+        "progressed": "تقدم",
+        "weak_progress": "تقدم ضعيف",
+        "no_progress": "لا يوجد تقدم",
+        "accepted_v1": "مقبول الإصدار 1",
+        "superseded": "تم استبداله",
+        "unassigned": "غير معين"
+      }
     }
   },
   "fileActions": {
@@ -2244,6 +2244,37 @@
     "upload": "رفع",
     "saveAs": "حفظ باسم",
     "downloadFailed": "تعذر تنزيل الملف"
+  },
+  "fileEditor": {
+    "notUtf8": "الملف ليس نص UTF-8 صالحًا",
+    "notEditable": "لا يمكن تحرير هذا الملف كنص UTF-8",
+    "tooLarge": "يتجاوز الملف حد التحرير البالغ {{limit}} MiB",
+    "saved": "تم الحفظ",
+    "showPreview": "إظهار المعاينة",
+    "showSource": "إظهار المصدر",
+    "saveAsExists": "يوجد ملف بالفعل في هذا المسار",
+    "mixedLineEndings": "نهايات الأسطر مختلطة وسيتم توحيدها إلى النمط الغالب عند الحفظ.",
+    "externalChanged": "تم تغيير الملف خارج هذا المحرر.",
+    "reload": "إعادة تحميل",
+    "conflictTitle": "تعارض في الحفظ",
+    "conflictDeleted": "تم حذف الملف خارج هذا المحرر.",
+    "conflictChanged": "تم تغيير الملف خارج هذا المحرر.",
+    "saveAsScope": "احفظ ملفًا جديدًا داخل مساحة العمل الحالية.",
+    "unsavedTitle": "تغييرات غير محفوظة",
+    "unsavedBody": "هل تريد تجاهل التعديلات الحالية قبل مغادرة هذا الملف؟",
+    "discard": "تجاهل التغييرات",
+    "remoteWritesTitle": "الكتابة إلى الملفات البعيدة متوقفة",
+    "remoteWritesBody": "مساحة العمل هذه موجودة على جهاز الخادم. فعّل الكتابة البعيدة من إعدادات الخادم فقط إذا كنت تثق بالعملاء المتصلين.",
+    "goToServerSettings": "الانتقال إلى إعدادات الخادم",
+    "transportSwitchUnsaved": "لديك تغييرات ملفات غير محفوظة. هل تريد تبديل الاتصال وتجاهلها؟"
+  },
+  "attachments": {
+    "uploading": "جارٍ الرفع…",
+    "uploadFailedShort": "فشل الرفع",
+    "uploadFailed": "لم يتم إرسال الملفات. {{error}}",
+    "tooMany": "يمكن أن تحتوي الرسالة على 64 ملفًا كحد أقصى",
+    "tooLarge": "يتجاوز {{name}} حد {{limit}} ميغابايت",
+    "someTooLarge": "تتجاوز بعض الملفات حد {{limit}} ميغابايت"
   },
   "filePreview": {
     "panelTitle": "معاينة",
@@ -2340,10 +2371,10 @@
       "staged": "مجهّز",
       "stagedScope": "مجهّز",
       "stale": "تم تغيير المستودع. تم تحديث الفرق. مراجعتها مرة أخرى.",
+      "prReviewComments": "تعليقات مراجعة PR · {{count}}",
       "unstage": "إلغاء التجهيز",
       "unstaged": "غير مجهّز",
-      "unstagedScope": "غير مجهّز",
-      "prReviewComments": "تعليقات مراجعة PR · {{count}}"
+      "unstagedScope": "غير مجهّز"
     }
   },
   "effort": {
@@ -2722,8 +2753,8 @@
       "ollama_install": "تثبيت Ollama",
       "ollama_preload": "بداية النموذج",
       "ollama_pull": "نموذج Ollama",
-      "memory_reembed": "إعادة بناء متجهات الذاكرة",
-      "knowledge_reembed": "إعادة بناء فهرس المعرفة"
+      "knowledge_reembed": "إعادة بناء فهرس المعرفة",
+      "memory_reembed": "إعادة بناء متجهات الذاكرة"
     },
     "logs": {
       "empty": "لا توجد سجلات حتى الآن"
@@ -2786,9 +2817,9 @@
     "text": "نص",
     "video": "فيديو",
     "anthropicThinkingBudget": "Anthropic (ميزانية التفكير)",
+    "zaiThinkingBudget": "Z.AI (ميزانية التفكير)",
     "contextWindow": "نافذة السياق",
     "maxTokens": "الرموز القصوى",
-    "zaiThinkingBudget": "Z.AI (ميزانية التفكير)",
     "costUnpriced": "غير مُسعَّر"
   },
   "notification": {
@@ -3196,7 +3227,6 @@
       "editorHint": "تعليمات المشروع قواعد ثابتة؛ أما هنا فتُحفظ الخبرات المتراكمة أثناء العمل وليست تعليمات مُلزمة.",
       "editorTitle": "ذاكرة المشروع التلقائية",
       "empty": "لا توجد مواضيع ذاكرة تلقائية بعد.",
-      "emptyPreview": "لا توجد تفاصيل Markdown بعد. انتقل إلى وضع التحرير لإضافة محتوى.",
       "fileNameGenerated": "سيُنشأ اسم الملف عند الحفظ",
       "name": "العنوان",
       "newTopic": "موضوع جديد",
@@ -3210,7 +3240,8 @@
         "project": "عمل المشروع",
         "reference": "مرجع",
         "user": "سياق المستخدم"
-      }
+      },
+      "emptyPreview": "لا توجد تفاصيل Markdown بعد. انتقل إلى وضع التحرير لإضافة محتوى."
     },
     "createFirstProject": "أنشئ مشروعك الأول",
     "defaultAgent": "الوكيل الافتراضي",
@@ -3286,12 +3317,7 @@
     "projectDescriptionPlaceholder": "ما الذي يدور حوله هذا المشروع؟",
     "projectInstructions": "تعليمات المشروع",
     "projectInstructionsHint": "يتم تعديل ملف AGENTS.md في جذر المشروع مباشرةً؛ وبعد الحفظ يُطبَّق تلقائيًا على جميع جلسات المشروع.",
-    "projectInstructionsLineCount": "{{count}} سطر",
-    "resizeSettingsSheet": "اسحب لتغيير عرض إعدادات المشروع",
-    "projectInstructionsEmptyPreview": "ملف AGENTS.md فارغ. انتقل إلى وضع التحرير لإضافة تعليمات Markdown.",
-    "projectInstructionsLoadFailed": "تعذرت قراءة AGENTS.md",
     "projectInstructionsPlaceholder": "مثال: الرد دائمًا بالعربية؛ اجعل النبرة واضحة ولطيفة؛ ابدأ بالخلاصة",
-    "projectInstructionsSaveFailed": "تعذر حفظ AGENTS.md",
     "projectLogo": "الشعار",
     "projectLogoHint": "اختياري. يتم تغيير حجم الصور تلقائيًا إلى 256×256.",
     "projectName": "اسم المشروع",
@@ -3327,7 +3353,12 @@
       "updateFailed": "فشل تحديث مساحة المعرفة للمشروع",
       "errorDetail": "التفاصيل: {{error}}"
     },
-    "projectEmojiPlaceholder": "اختياري"
+    "projectEmojiPlaceholder": "اختياري",
+    "projectInstructionsLineCount": "{{count}} سطر",
+    "resizeSettingsSheet": "اسحب لتغيير عرض إعدادات المشروع",
+    "projectInstructionsEmptyPreview": "ملف AGENTS.md فارغ. انتقل إلى وضع التحرير لإضافة تعليمات Markdown.",
+    "projectInstructionsLoadFailed": "تعذرت قراءة AGENTS.md",
+    "projectInstructionsSaveFailed": "تعذر حفظ AGENTS.md"
   },
   "provider": {
     "addProvider": "إضافة مزود",
@@ -3598,7 +3629,6 @@
     }
   },
   "settings": {
-    "about": "حول",
     "resetDefaultsPageAction": "استعادة افتراضيات هذه الصفحة",
     "resetDefaultsTabAction": "استعادة افتراضيات علامة التبويب الحالية",
     "resetDefaultsRegionAction": "استعادة افتراضيات هذا القسم",
@@ -3611,6 +3641,35 @@
     "resetDefaultsFailed": "تعذرت استعادة الإعدادات الافتراضية لـ {{section}}",
     "resetDefaultsReindexStarted": "تم حفظ إعدادات المعرفة ويُعاد بناء الفهرس في الخلفية.",
     "resetDefaultsWarning": "تمت استعادة الإعدادات، لكن إجراءً وقت التشغيل لم يكتمل. يمكنك المحاولة لاحقًا.",
+    "files": {
+      "title": "الملفات",
+      "description": "اضبط حدود الملفات للدردشة ومساحة العمل والمعاينة والتحرير.",
+      "runtimeLocal": "ملفات سطح المكتب المحلي",
+      "runtimeServer": "ملفات الخادم",
+      "runtimeLocalDesc": "تستخدم عمليات الملفات نظام ملفات هذا الكمبيوتر.",
+      "runtimeServerDesc": "تستخدم عمليات الملفات نظام ملفات مضيف الخادم البعيد.",
+      "maxChatAttachment": "حد مرفق الدردشة",
+      "maxChatAttachmentDesc": "الحجم الأقصى لكل مرفق دردشة ({{min}}–{{max}} MiB).",
+      "maxWorkspaceUpload": "حد الرفع إلى مساحة العمل",
+      "maxWorkspaceUploadDesc": "الحجم الأقصى لكل ملف يُرفع إلى مساحة العمل ({{min}}–{{max}} MiB).",
+      "maxTextPreview": "حد معاينة النص",
+      "maxTextPreviewDesc": "الحجم الأقصى لملف النص المحمّل للمعاينة ({{min}}–{{max}} MiB).",
+      "maxTextEdit": "حد تحرير النص",
+      "maxTextEditDesc": "الحجم الأقصى لملف نص UTF-8 القابل للتحرير ({{min}}–{{max}} MiB).",
+      "maxDocumentPreview": "حد معاينة المستند",
+      "maxDocumentPreviewDesc": "الحجم الأقصى لملف PDF أو Office الذي تتم معالجته للمعاينة ({{min}}–{{max}} MiB).",
+      "maxArtifactImport": "حد استيراد مخرج",
+      "maxArtifactImportDesc": "الحد الأقصى لحجم المصدر HTML أو Markdown أو التحليل JSON الذي تم استيراده إلى المُخرَجات ({{min}}–{{max}} MiB).",
+      "largeUploadWarning": "تزيد حدود الرفع الكبيرة استخدام القرص والشبكة والمعالجة. ارفعها فقط عندما تتوفر لدى الخادم موارد كافية."
+    },
+    "knowledgeSourceLimits": {
+      "title": "حدود مصادر المعرفة",
+      "description": "الحجم الأقصى المقبول لكل نوع من مصادر مساحة المعرفة.",
+      "text": "مصدر نصي (MiB)",
+      "binary": "مصدر ثنائي (MiB)",
+      "url": "استجابة URL (MiB)"
+    },
+    "about": "حول",
     "acpAutoDiscover": "اكتشاف الخلفيات تلقائياً",
     "acpAutoDiscoverDesc": "البحث في $PATH عن البرامج الثنائية المعروفة لـ agent ACP عند البدء",
     "acpBackendId": "المعرف",
@@ -3977,15 +4036,6 @@
     },
     "browser": {
       "activeBadge": "نشط",
-      "backupRuntimeHint": "نظام كروم متاح. قم بتثبيت وقت تشغيل Chromium المُدار بواسطة Hope كبديل لأتمتة المتصفح وتصدير مخرج PDF.",
-      "backupRuntimeTitle": "النسخ الاحتياطي لوقت تشغيل الكروم",
-      "installRuntimeRetry": "وقت التشغيل جاهز. أعد محاولة إجراء المتصفح أو تصدير ملف PDF.",
-      "openBrowserSettings": "افتح إعدادات المتصفح",
-      "runtimeInstallUnsupported": "لا يوفر Hope وقت تشغيل Chromium مُدارًا لنظام التشغيل أو البنية هذه. قم بتثبيت Chrome/Chromium يدويًا أو قم بتكوين مسار قابل للتنفيذ.",
-      "runtimeRequiredArtifactPdfDescription": "يحتاج تصدير PDF إلى وقت تشغيل Chrome أو Chromium محلي، ولكن لا يتوفر أي منهما حاليًا.",
-      "runtimeRequiredDescription": "تحتاج عملية المتصفح هذه إلى وقت تشغيل Chrome أو Chromium محلي، ولكن لا يتوفر أي منها حاليًا.",
-      "runtimeRequiredHint": "يمكنك تثبيت وقت التشغيل المدار لـ Hope الآن (حوالي 150 ميجابايت)، ثم أعد محاولة العملية.",
-      "runtimeRequiredTitle": "وقت تشغيل الكروم مطلوب",
       "connect": "إرفاق",
       "connectHelp": "هل Chrome يعمل بالفعل مع --remote-debugging-port=9222؟ اتصل به بدلًا من تشغيل نسخة جديدة.",
       "connectUrlLabel": "رابط التصحيح",
@@ -4135,7 +4185,16 @@
         "title": "السماح بـ raw CDP؟",
         "body": "يتيح هذا للذكاء الاصطناعي إرسال أوامر DevTools Protocol اعتباطية إلى متصفح Chrome الحقيقي. لا يزال كل استدعاء يتطلب موافقتك في كل مرة وتبقى الطرق الخطرة محظورة، لكن فعّله فقط إذا كنت بحاجة إليه تحديدًا.",
         "continue": "تفعيل"
-      }
+      },
+      "backupRuntimeHint": "نظام كروم متاح. قم بتثبيت وقت تشغيل Chromium المُدار بواسطة Hope كبديل لأتمتة المتصفح وتصدير مخرج PDF.",
+      "backupRuntimeTitle": "النسخ الاحتياطي لوقت تشغيل الكروم",
+      "installRuntimeRetry": "وقت التشغيل جاهز. أعد محاولة إجراء المتصفح أو تصدير ملف PDF.",
+      "openBrowserSettings": "افتح إعدادات المتصفح",
+      "runtimeInstallUnsupported": "لا يوفر Hope وقت تشغيل Chromium مُدارًا لنظام التشغيل أو البنية هذه. قم بتثبيت Chrome/Chromium يدويًا أو قم بتكوين مسار قابل للتنفيذ.",
+      "runtimeRequiredArtifactPdfDescription": "يحتاج تصدير PDF إلى وقت تشغيل Chrome أو Chromium محلي، ولكن لا يتوفر أي منهما حاليًا.",
+      "runtimeRequiredDescription": "تحتاج عملية المتصفح هذه إلى وقت تشغيل Chrome أو Chromium محلي، ولكن لا يتوفر أي منها حاليًا.",
+      "runtimeRequiredHint": "يمكنك تثبيت وقت التشغيل المدار لـ Hope الآن (حوالي 150 ميجابايت)، ثم أعد محاولة العملية.",
+      "runtimeRequiredTitle": "وقت تشغيل الكروم مطلوب"
     },
     "bytes": "بايت",
     "canvas": "اللوحة",
@@ -4723,6 +4782,8 @@
     "fallbackModelsDesc": "عند عدم توفر النموذج الرئيسي، جرب هذه النماذج بالترتيب",
     "fsRemoteWrites": "السماح بالكتابة عن بُعد للملفات",
     "fsRemoteWritesDesc": "السماح لعملاء HTTP بإنشاء الملفات وتحريرها وحذفها ورفعها داخل دليل عمل المشروع. مُعطّل افتراضيًا — يمكن لتطبيق سطح المكتب الكتابة محليًا دائمًا بغض النظر عن هذا الإعداد.",
+    "fsMaxChatAttachmentMb": "الحد الأقصى لحجم مرفق الدردشة",
+    "fsMaxChatAttachmentMbDesc": "الحد الأقصى لحجم ملف واحد يتم رفعه من محرر الدردشة. يستخدم سطح المكتب المحلي الإعداد المحلي، بينما يستخدم سطح المكتب البعيد وWeb إعداد الخادم.",
     "general": "عام",
     "generalDesc": "المظهر واللغة وإعدادات النظام",
     "globalModel": "إعدادات النموذج العامة",
@@ -7634,36 +7695,6 @@
     "audioGenFetchVoices": "جلب الأصوات",
     "audioGenKnownModels": "النماذج المعروفة",
     "audioGenPickVoice": "اختر من القائمة…",
-    "files": {
-      "title": "الملفات",
-      "description": "اضبط حدود الملفات للدردشة ومساحة العمل والمعاينة والتحرير.",
-      "runtimeLocal": "ملفات سطح المكتب المحلي",
-      "runtimeServer": "ملفات الخادم",
-      "runtimeLocalDesc": "تستخدم عمليات الملفات نظام ملفات هذا الكمبيوتر.",
-      "runtimeServerDesc": "تستخدم عمليات الملفات نظام ملفات مضيف الخادم البعيد.",
-      "maxChatAttachment": "حد مرفق الدردشة",
-      "maxChatAttachmentDesc": "الحجم الأقصى لكل مرفق دردشة ({{min}}–{{max}} MiB).",
-      "maxWorkspaceUpload": "حد الرفع إلى مساحة العمل",
-      "maxWorkspaceUploadDesc": "الحجم الأقصى لكل ملف يُرفع إلى مساحة العمل ({{min}}–{{max}} MiB).",
-      "maxTextPreview": "حد معاينة النص",
-      "maxTextPreviewDesc": "الحجم الأقصى لملف النص المحمّل للمعاينة ({{min}}–{{max}} MiB).",
-      "maxTextEdit": "حد تحرير النص",
-      "maxTextEditDesc": "الحجم الأقصى لملف نص UTF-8 القابل للتحرير ({{min}}–{{max}} MiB).",
-      "maxDocumentPreview": "حد معاينة المستند",
-      "maxDocumentPreviewDesc": "الحجم الأقصى لملف PDF أو Office الذي تتم معالجته للمعاينة ({{min}}–{{max}} MiB).",
-      "maxArtifactImport": "حد استيراد مخرج",
-      "maxArtifactImportDesc": "الحد الأقصى لحجم المصدر HTML أو Markdown أو التحليل JSON الذي تم استيراده إلى المُخرَجات ({{min}}–{{max}} MiB).",
-      "largeUploadWarning": "تزيد حدود الرفع الكبيرة استخدام القرص والشبكة والمعالجة. ارفعها فقط عندما تتوفر لدى الخادم موارد كافية."
-    },
-    "knowledgeSourceLimits": {
-      "title": "حدود مصادر المعرفة",
-      "description": "الحجم الأقصى المقبول لكل نوع من مصادر مساحة المعرفة.",
-      "text": "مصدر نصي (MiB)",
-      "binary": "مصدر ثنائي (MiB)",
-      "url": "استجابة URL (MiB)"
-    },
-    "fsMaxChatAttachmentMb": "الحد الأقصى لحجم مرفق الدردشة",
-    "fsMaxChatAttachmentMbDesc": "الحد الأقصى لحجم ملف واحد يتم رفعه من محرر الدردشة. يستخدم سطح المكتب المحلي الإعداد المحلي، بينما يستخدم سطح المكتب البعيد وWeb إعداد الخادم.",
     "acpCustomAgent": "وكيل مخصص",
     "canvasTypes": {
       "chart": "مخطط",
@@ -8620,6 +8651,8 @@
       "selectBranch": "اختيار الفرع",
       "stageAll": "تجهيز كل التغييرات",
       "viewPr": "عرض طلب السحب",
+      "pullRequestPanelTitle": "طلب السحب",
+      "resizePullRequestPanel": "تغيير عرض لوحة طلب السحب",
       "worktree": "شجرة العمل",
       "checkDetails": "تفاصيل الفحوصات",
       "checkFailed": "فشل",
@@ -8641,6 +8674,7 @@
       "openCheck": "فتح الفحص",
       "openComment": "فتح التعليق",
       "prFeedbackUnavailable": "فحوصات PR وتعليقاته غير متاحة",
+      "prFeedbackStale": "فشل تحديث حالة طلب السحب؛ قد تكون البيانات الحالية قديمة",
       "reviewComments": "{{count}} من التعليقات",
       "reviewFeedback": "ملاحظات المراجعة",
       "autoMergeEnabled": "تم تفعيل الدمج التلقائي",
@@ -8667,10 +8701,7 @@
       "reviewPending": "قيد الانتظار",
       "reviewRequired": "المراجعة مطلوبة",
       "reviewStatus": "حالة المراجعة",
-      "reviewers": "المراجعون",
-      "pullRequestPanelTitle": "طلب السحب",
-      "resizePullRequestPanel": "تغيير عرض لوحة طلب السحب",
-      "prFeedbackStale": "فشل تحديث حالة طلب السحب؛ قد تكون البيانات الحالية قديمة"
+      "reviewers": "المراجعون"
     },
     "goal": {
       "watchdogTitle": "الهدف يحتاج إلى تأكيد",
@@ -10594,6 +10625,8 @@
       "title": "تنظيم في الملاحظات"
     },
     "sources": {
+      "textTooLarge": "يتجاوز المصدر النصي حد {{limit}} MiB",
+      "fileTooLarge": "يتجاوز {{name}} حد {{limit}} MiB",
       "archiveAttachment": "الأرشيف للمعرفة",
       "archiveAttachmentFailed": "فشل في أرشفة المرفق",
       "archivedAttachment": "مؤرشفة في مصادر المعرفة",
@@ -10732,9 +10765,7 @@
       "ocrFailed": "فشل التعرف الضوئي",
       "ocrRetry": "إعادة محاولة الصفحات الفاشلة",
       "ocrRetryStarted": "جارٍ إعادة محاولة الصفحات الفاشلة…",
-      "ocrRetryFailed": "تعذّرت إعادة محاولة صفحات OCR",
-      "textTooLarge": "يتجاوز المصدر النصي حد {{limit}} MiB",
-      "fileTooLarge": "يتجاوز {{name}} حد {{limit}} MiB"
+      "ocrRetryFailed": "تعذّرت إعادة محاولة صفحات OCR"
     },
     "queryFile": {
       "action": "ملف",
@@ -10770,54 +10801,6 @@
       "emptyInternal": "هذه المساحة فارغة.",
       "importFiles": "استيراد ملفات"
     }
-  },
-  "backgroundJobs": {
-    "panelTitle": "المهام الخلفية",
-    "openPanel": "المهام الخلفية",
-    "openFull": "عرض الكل",
-    "expandJob": "توسيع المهمة",
-    "collapseJob": "طي المهمة",
-    "jumpToBottom": "انتقل إلى الأسفل",
-    "empty": "لا توجد مهام خلفية",
-    "sectionSession": "هذه الجلسة",
-    "sectionLocalModel": "النماذج المحلية",
-    "kindGroup": "مجموعة مهام",
-    "kindSubagent": "وكيل فرعي",
-    "resizePanel": "تغيير حجم لوحة المهام الخلفية",
-    "status": {
-      "queued": "في الانتظار",
-      "running": "قيد التشغيل",
-      "cancelling": "جارٍ الإلغاء",
-      "awaiting_approval": "بانتظار الموافقة",
-      "completed": "مكتملة",
-      "failed": "فشلت",
-      "interrupted": "متوقفة",
-      "timed_out": "انتهت المهلة",
-      "cancelled": "ملغاة"
-    },
-    "errorOutput": "خطأ",
-    "liveOutput": "الإخراج في الوقت الحقيقي",
-    "outputFile": "النتائج الكاملة",
-    "resultPreview": "معاينة النتائج"
-  },
-  "browser": {
-    "panelTitle": "المتصفح"
-  },
-  "error": {
-    "appCrash": "حدث خطأ ما",
-    "retry": "حاول مرة أخرى",
-    "unknown": "حدث خطأ غير متوقع"
-  },
-  "localModels": {
-    "actions": {
-      "download": "تحميل"
-    }
-  },
-  "macControl": {
-    "panelTitle": "التحكم في Mac"
-  },
-  "memory": {
-    "activeRecallToastTitle": "الذاكرة المرجعية"
   },
   "artifacts": {
     "title": "مخرجات",
@@ -10916,6 +10899,54 @@
     "exportReviewBlocked": "لا تزال مراجعة التصدير تحتوي على أدوات حظر",
     "guardStatus": "يحمي",
     "defaultName": "مخرج"
+  },
+  "backgroundJobs": {
+    "panelTitle": "المهام الخلفية",
+    "openPanel": "المهام الخلفية",
+    "openFull": "عرض الكل",
+    "expandJob": "توسيع المهمة",
+    "collapseJob": "طي المهمة",
+    "jumpToBottom": "انتقل إلى الأسفل",
+    "empty": "لا توجد مهام خلفية",
+    "sectionSession": "هذه الجلسة",
+    "sectionLocalModel": "النماذج المحلية",
+    "kindGroup": "مجموعة مهام",
+    "kindSubagent": "وكيل فرعي",
+    "resizePanel": "تغيير حجم لوحة المهام الخلفية",
+    "status": {
+      "queued": "في الانتظار",
+      "running": "قيد التشغيل",
+      "cancelling": "جارٍ الإلغاء",
+      "awaiting_approval": "بانتظار الموافقة",
+      "completed": "مكتملة",
+      "failed": "فشلت",
+      "interrupted": "متوقفة",
+      "timed_out": "انتهت المهلة",
+      "cancelled": "ملغاة"
+    },
+    "errorOutput": "خطأ",
+    "liveOutput": "الإخراج في الوقت الحقيقي",
+    "outputFile": "النتائج الكاملة",
+    "resultPreview": "معاينة النتائج"
+  },
+  "browser": {
+    "panelTitle": "المتصفح"
+  },
+  "error": {
+    "appCrash": "حدث خطأ ما",
+    "retry": "حاول مرة أخرى",
+    "unknown": "حدث خطأ غير متوقع"
+  },
+  "localModels": {
+    "actions": {
+      "download": "تحميل"
+    }
+  },
+  "macControl": {
+    "panelTitle": "التحكم في Mac"
+  },
+  "memory": {
+    "activeRecallToastTitle": "الذاكرة المرجعية"
   },
   "design": {
     "title": "مساحة التصميم",
@@ -11637,37 +11668,6 @@
       "checkStale": "{{n}} من المخرجات لديها تحديثات في الكود",
       "chatPrompt": "لقد تباعد الكود المنفَّذ عن هذا التصميم. حدِّث التصميم الحالي ليعكس تغييرات الكود المشار إليها، مع الحفاظ على مقصد التصميم وكل شيء آخر دون تغيير."
     }
-  },
-  "fileEditor": {
-    "notUtf8": "الملف ليس نص UTF-8 صالحًا",
-    "notEditable": "لا يمكن تحرير هذا الملف كنص UTF-8",
-    "tooLarge": "يتجاوز الملف حد التحرير البالغ {{limit}} MiB",
-    "saved": "تم الحفظ",
-    "showPreview": "إظهار المعاينة",
-    "showSource": "إظهار المصدر",
-    "saveAsExists": "يوجد ملف بالفعل في هذا المسار",
-    "mixedLineEndings": "نهايات الأسطر مختلطة وسيتم توحيدها إلى النمط الغالب عند الحفظ.",
-    "externalChanged": "تم تغيير الملف خارج هذا المحرر.",
-    "reload": "إعادة تحميل",
-    "conflictTitle": "تعارض في الحفظ",
-    "conflictDeleted": "تم حذف الملف خارج هذا المحرر.",
-    "conflictChanged": "تم تغيير الملف خارج هذا المحرر.",
-    "saveAsScope": "احفظ ملفًا جديدًا داخل مساحة العمل الحالية.",
-    "unsavedTitle": "تغييرات غير محفوظة",
-    "unsavedBody": "هل تريد تجاهل التعديلات الحالية قبل مغادرة هذا الملف؟",
-    "discard": "تجاهل التغييرات",
-    "remoteWritesTitle": "الكتابة إلى الملفات البعيدة متوقفة",
-    "remoteWritesBody": "مساحة العمل هذه موجودة على جهاز الخادم. فعّل الكتابة البعيدة من إعدادات الخادم فقط إذا كنت تثق بالعملاء المتصلين.",
-    "goToServerSettings": "الانتقال إلى إعدادات الخادم",
-    "transportSwitchUnsaved": "لديك تغييرات ملفات غير محفوظة. هل تريد تبديل الاتصال وتجاهلها؟"
-  },
-  "attachments": {
-    "uploading": "جارٍ الرفع…",
-    "uploadFailedShort": "فشل الرفع",
-    "uploadFailed": "لم يتم إرسال الملفات. {{error}}",
-    "tooMany": "يمكن أن تحتوي الرسالة على 64 ملفًا كحد أقصى",
-    "tooLarge": "يتجاوز {{name}} حد {{limit}} ميغابايت",
-    "someTooLarge": "تتجاوز بعض الملفات حد {{limit}} ميغابايت"
   },
   "configRecovery": {
     "title": "يلزم استرداد الإعدادات",

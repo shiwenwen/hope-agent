@@ -421,9 +421,6 @@
     "completedTurnCollapsed": "已處理 {{count}} 條訊息",
     "completedTurnCollapsedWithDuration": "已處理 {{duration}}，{{count}} 條訊息",
     "conversations": "會話",
-    "unreadConversationCount": "{{count}} 個未讀會話",
-    "unreadStatus": "未讀",
-    "channelUnreadStatus": "IM 會話未讀",
     "collapseSidebar": "收起會話欄",
     "sidebarCompactMode": "切換到簡約模式",
     "sidebarDetailedMode": "切換到普通模式",
@@ -867,9 +864,9 @@
         "docx": "Word 文件",
         "pptx": "PPT 簡報",
         "xlsx": "Excel 試算表",
-        "dataAnalytics": "資料分析",
         "browser": "瀏覽器控制",
-        "mac": "Mac 控制"
+        "mac": "Mac 控制",
+        "dataAnalytics": "資料分析"
       }
     },
     "reasoningDisabledHint": "此模型未啟用推理。如需調整推理深度，請在「設定 → 模型服務商」中編輯該模型並開啟「支援推理/思考」。",
@@ -1169,6 +1166,9 @@
     "openSourceConversationMissingHint": "這條記憶來源指向的對話可能已被刪除，或目前找不到。",
     "openSourceMessageMissing": "來源訊息已不可用",
     "openSourceMessageMissingHint": "對話仍然存在，但找不到這條記憶來源對應的確切訊息。",
+    "unreadConversationCount": "{{count}} 個未讀會話",
+    "unreadStatus": "未讀",
+    "channelUnreadStatus": "IM 會話未讀",
     "generatedImageName": "生成的圖片 {{index}}",
     "noAgents": "暫無 Agent",
     "sessionFailed": "對話失敗"
@@ -1179,6 +1179,7 @@
     "reauth": "重新登入"
   },
   "common": {
+    "restoreDefaults": "還原預設值",
     "add": "新增",
     "back": "返回",
     "cancel": "取消",
@@ -1225,21 +1226,16 @@
     "off": "關閉",
     "error": "錯誤",
     "showLess": "折疊顯示",
-    "next": "下一頁",
-    "previous": "上一頁",
     "download": "下載",
     "duplicate": "建立副本",
     "more": "更多",
     "apply": "套用",
     "modelNoVision": "不支援圖片",
-    "restoreDefaults": "還原預設值",
+    "next": "下一頁",
+    "previous": "上一頁",
     "baseUrl": "Base URL",
     "apiKey": "API Key",
     "ok": "確定",
-    "request": "請求",
-    "response": "回應",
-    "authMethod": "驗證方式",
-    "testSteps": "測試步驟",
     "statusValues": {
       "applied": "已套用",
       "rejected": "已拒絕",
@@ -1277,19 +1273,23 @@
       "processing": "處理中",
       "queued": "排隊中",
       "ready": "已就緒",
-      "recovering": "復原中",
       "resolved": "已解決",
+      "recovering": "復原中",
       "running": "執行中",
       "skipped": "已跳過",
       "stale": "已過期",
-      "succeeded": "已成功",
       "success": "成功",
+      "succeeded": "已成功",
       "timed_out": "逾時",
       "unknown": "未知",
       "warning": "警告",
       "evaluating": "評估中",
       "in_progress": "進行中"
-    }
+    },
+    "request": "請求",
+    "response": "回應",
+    "authMethod": "驗證方式",
+    "testSteps": "測試步驟"
   },
   "context": {
     "ago": "前",
@@ -1456,106 +1456,6 @@
     "bannerConfig": "危險模式已啟用——所有工具呼叫都會跳過審批。可前往「設定 → 安全」關閉。"
   },
   "dashboard": {
-    "controlPlane": {
-      "title": "目標與執行",
-      "automationTab": "自動化",
-      "scopeHint": "時間窗指標看結果，目前快照看積壓與風險。",
-      "allProjects": "全部專案",
-      "unassignedProject": "未分配",
-      "archived": "已封存",
-      "empty": "所選範圍內暫無資料。",
-      "sections": {
-        "overview": "概覽",
-        "planTask": "計畫與任務"
-      },
-      "metrics": {
-        "goalAcceptance": "目標驗收率",
-        "workflowCompletion": "工作流完成率",
-        "loopStrongProgress": "持續推進強進展率",
-        "taskCompletion": "任務批次完成率",
-        "attention": "待處理",
-        "requiredCriteria": "必要條件通過率",
-        "goalP50": "目標驗收耗時 P50",
-        "opFailure": "操作失敗率",
-        "workflowP50": "工作流耗時 P50",
-        "goalBinding": "目標綁定率",
-        "approvalTrigger": "審批觸發率",
-        "noProgress": "無進展率",
-        "blockedSchedules": "已阻擋排程",
-        "loopP50": "持續推進執行耗時 P50",
-        "currentBacklog": "目前積壓",
-        "activePlans": "目前作用中的計畫",
-        "cohortCompletion": "批次完成率"
-      },
-      "currentSnapshot": "目前快照",
-      "goalTrend": "目標結果",
-      "resolved": "已終局",
-      "accepted": "已接受",
-      "attentionTitle": "目前需處理項",
-      "noAttention": "目前沒有需處理項",
-      "auditSamples": "已稽核 {{count}} 個目標",
-      "currentStates": "目前狀態",
-      "closureOutcomes": "終局取捨",
-      "domains": "領域分佈",
-      "kinds": "型別分佈",
-      "origins": "來源分佈",
-      "workflowTrend": "已決工作流執行",
-      "decidedRuns": "已決執行",
-      "progressStates": "推進分類",
-      "triggerKinds": "觸發型別",
-      "strategies": "執行策略",
-      "loopTrend": "可評估的持續推進趨勢",
-      "evaluatedRuns": "已評估執行",
-      "openPlanHistory": "查看計畫歷史記錄",
-      "planByAgent": "按 Agent 統計計畫",
-      "planByProject": "按專案統計計畫",
-      "noFunnelHint": "任務和計畫尚無可靠的目標 / 工作流 / 持續推進歸因鍵，因此此頁面不會根據會話推斷因果漏斗。",
-      "noExactSamples": "暫無精確耗時樣本",
-      "coverage": "精確樣本 {{samples}} / {{eligible}}（{{percent}}%）",
-      "coverageShort": "精確耗時覆蓋：{{samples}} / {{eligible}}",
-      "creationTrend": "建立趨勢",
-      "created": "新增",
-      "attentionKinds": {
-        "goal": "目標",
-        "workflow": "工作流",
-        "loop": "持續推進",
-        "plan": "計畫"
-      },
-      "attentionReasons": {
-        "needs_strict_evidence": "需要嚴格證據",
-        "goal_awaiting_closure": "目標等待結束",
-        "workflow_requires_attention": "工作流需要注意",
-        "consecutive_no_progress": "連續無進展",
-        "loop_requires_attention": "持續推進需要處理",
-        "plan_awaiting_review": "計畫等待審查"
-      },
-      "states": {
-        "active": "進行中",
-        "paused": "已暫停",
-        "evaluating": "評估中",
-        "completed": "已完成",
-        "failed": "失敗",
-        "cancelled": "已取消",
-        "blocked": "已阻塞",
-        "planning": "規劃中",
-        "review": "待稽核",
-        "executing": "執行中",
-        "off": "已歸檔",
-        "awaiting_approval": "等待審批",
-        "awaiting_user": "等待使用者",
-        "running": "執行中",
-        "recovering": "恢復中",
-        "draft": "草稿",
-        "pending": "待處理",
-        "in_progress": "進行中",
-        "progressed": "有效推進",
-        "weak_progress": "弱推進",
-        "no_progress": "無進展",
-        "accepted_v1": "接受 V1",
-        "superseded": "已取代",
-        "unassigned": "未分配"
-      }
-    },
     "autoRefresh": {
       "1m": "1 分鐘",
       "30s": "30 秒",
@@ -2227,6 +2127,106 @@
     },
     "columns": {
       "session": "會話"
+    },
+    "controlPlane": {
+      "title": "目標與執行",
+      "automationTab": "自動化",
+      "scopeHint": "時間窗指標看結果，目前快照看積壓與風險。",
+      "allProjects": "全部專案",
+      "unassignedProject": "未分配",
+      "archived": "已封存",
+      "empty": "所選範圍內暫無資料。",
+      "sections": {
+        "overview": "概覽",
+        "planTask": "計畫與任務"
+      },
+      "metrics": {
+        "goalAcceptance": "目標驗收率",
+        "workflowCompletion": "工作流完成率",
+        "loopStrongProgress": "持續推進強進展率",
+        "taskCompletion": "任務批次完成率",
+        "attention": "待處理",
+        "requiredCriteria": "必要條件通過率",
+        "goalP50": "目標驗收耗時 P50",
+        "opFailure": "操作失敗率",
+        "workflowP50": "工作流耗時 P50",
+        "goalBinding": "目標綁定率",
+        "approvalTrigger": "審批觸發率",
+        "noProgress": "無進展率",
+        "blockedSchedules": "已阻擋排程",
+        "loopP50": "持續推進執行耗時 P50",
+        "currentBacklog": "目前積壓",
+        "activePlans": "目前作用中的計畫",
+        "cohortCompletion": "批次完成率"
+      },
+      "currentSnapshot": "目前快照",
+      "goalTrend": "目標結果",
+      "resolved": "已終局",
+      "accepted": "已接受",
+      "attentionTitle": "目前需處理項",
+      "noAttention": "目前沒有需處理項",
+      "auditSamples": "已稽核 {{count}} 個目標",
+      "currentStates": "目前狀態",
+      "closureOutcomes": "終局取捨",
+      "domains": "領域分佈",
+      "kinds": "型別分佈",
+      "origins": "來源分佈",
+      "workflowTrend": "已決工作流執行",
+      "decidedRuns": "已決執行",
+      "progressStates": "推進分類",
+      "triggerKinds": "觸發型別",
+      "strategies": "執行策略",
+      "loopTrend": "可評估的持續推進趨勢",
+      "evaluatedRuns": "已評估執行",
+      "openPlanHistory": "查看計畫歷史記錄",
+      "planByAgent": "按 Agent 統計計畫",
+      "planByProject": "按專案統計計畫",
+      "noFunnelHint": "任務和計畫尚無可靠的目標 / 工作流 / 持續推進歸因鍵，因此此頁面不會根據會話推斷因果漏斗。",
+      "noExactSamples": "暫無精確耗時樣本",
+      "coverage": "精確樣本 {{samples}} / {{eligible}}（{{percent}}%）",
+      "coverageShort": "精確耗時覆蓋：{{samples}} / {{eligible}}",
+      "creationTrend": "建立趨勢",
+      "created": "新增",
+      "attentionKinds": {
+        "goal": "目標",
+        "workflow": "工作流",
+        "loop": "持續推進",
+        "plan": "計畫"
+      },
+      "attentionReasons": {
+        "needs_strict_evidence": "需要嚴格證據",
+        "goal_awaiting_closure": "目標等待結束",
+        "workflow_requires_attention": "工作流需要注意",
+        "consecutive_no_progress": "連續無進展",
+        "loop_requires_attention": "持續推進需要處理",
+        "plan_awaiting_review": "計畫等待審查"
+      },
+      "states": {
+        "active": "進行中",
+        "paused": "已暫停",
+        "evaluating": "評估中",
+        "completed": "已完成",
+        "failed": "失敗",
+        "cancelled": "已取消",
+        "blocked": "已阻塞",
+        "planning": "規劃中",
+        "review": "待稽核",
+        "executing": "執行中",
+        "off": "已歸檔",
+        "awaiting_approval": "等待審批",
+        "awaiting_user": "等待使用者",
+        "running": "執行中",
+        "recovering": "恢復中",
+        "draft": "草稿",
+        "pending": "待處理",
+        "in_progress": "進行中",
+        "progressed": "有效推進",
+        "weak_progress": "弱推進",
+        "no_progress": "無進展",
+        "accepted_v1": "接受 V1",
+        "superseded": "已取代",
+        "unassigned": "未分配"
+      }
     }
   },
   "fileActions": {
@@ -2244,6 +2244,37 @@
     "upload": "上傳",
     "saveAs": "另存新檔",
     "downloadFailed": "下載檔案失敗"
+  },
+  "fileEditor": {
+    "notUtf8": "檔案不是有效的 UTF-8 文字",
+    "notEditable": "此檔案無法作為 UTF-8 文字編輯",
+    "tooLarge": "檔案超過 {{limit}} MiB 編輯上限",
+    "saved": "已儲存",
+    "showPreview": "顯示預覽",
+    "showSource": "顯示原始碼",
+    "saveAsExists": "該路徑已有檔案",
+    "mixedLineEndings": "檔案混用了換行格式，儲存時會統一為使用比例最高的格式。",
+    "externalChanged": "檔案已在外部變更。",
+    "reload": "重新載入",
+    "conflictTitle": "儲存衝突",
+    "conflictDeleted": "檔案已在外部刪除。",
+    "conflictChanged": "檔案已在外部變更。",
+    "saveAsScope": "在目前工作區內另存為新檔案。",
+    "unsavedTitle": "尚未儲存的變更",
+    "unsavedBody": "離開此檔案前要捨棄目前的編輯嗎？",
+    "discard": "捨棄變更",
+    "remoteWritesTitle": "遠端檔案寫入已關閉",
+    "remoteWritesBody": "此工作區位於伺服器主機。只有在信任已連線使用者端時，才應於伺服器設定中啟用遠端檔案寫入。",
+    "goToServerSettings": "前往伺服器設定",
+    "transportSwitchUnsaved": "有尚未儲存的檔案變更。要切換連線並捨棄這些變更嗎？"
+  },
+  "attachments": {
+    "uploading": "上傳中…",
+    "uploadFailedShort": "上傳失敗",
+    "uploadFailed": "檔案未傳送。{{error}}",
+    "tooMany": "每則訊息最多可附加 64 個檔案",
+    "tooLarge": "{{name}} 超過 {{limit}} MB 上限",
+    "someTooLarge": "部分檔案超過 {{limit}} MB 上限"
   },
   "filePreview": {
     "panelTitle": "預覽",
@@ -2340,10 +2371,10 @@
       "staged": "已暫存",
       "stagedScope": "已暫存",
       "stale": "儲存庫已變更。差異內容已重新整理，請再次檢查。",
+      "prReviewComments": "PR 審查評論 · {{count}}",
       "unstage": "取消暫存",
       "unstaged": "未暫存",
-      "unstagedScope": "未暫存",
-      "prReviewComments": "PR 審查評論 · {{count}}"
+      "unstagedScope": "未暫存"
     }
   },
   "effort": {
@@ -3196,7 +3227,6 @@
       "editorHint": "專案指令用於固定規則；這裡記錄模型工作時累積的專案經驗，不應視為權威指令。",
       "editorTitle": "專案自動記憶",
       "empty": "尚無自動記憶主題。",
-      "emptyPreview": "暫無 Markdown 詳細內容。切換到編輯模式即可新增。",
       "fileNameGenerated": "儲存時自動產生檔名",
       "name": "標題",
       "newTopic": "新增主題",
@@ -3210,7 +3240,8 @@
         "project": "專案進展",
         "reference": "參考資料",
         "user": "使用者背景"
-      }
+      },
+      "emptyPreview": "暫無 Markdown 詳細內容。切換到編輯模式即可新增。"
     },
     "createFirstProject": "建立第一個專案",
     "defaultAgent": "預設 Agent",
@@ -3286,12 +3317,7 @@
     "projectDescriptionPlaceholder": "這個專案是做什麼的？",
     "projectInstructions": "專案指令",
     "projectInstructionsHint": "直接讀寫專案根目錄下的 AGENTS.md；儲存後會自動套用到此專案的所有對話。",
-    "projectInstructionsLineCount": "{{count}} 行",
-    "resizeSettingsSheet": "拖曳調整專案設定寬度",
-    "projectInstructionsEmptyPreview": "AGENTS.md 是空的。切換到編輯模式即可加入 Markdown 指令。",
-    "projectInstructionsLoadFailed": "無法讀取 AGENTS.md",
     "projectInstructionsPlaceholder": "例如：始終用繁體中文回覆；語氣清楚親切；先給結論再補充細節",
-    "projectInstructionsSaveFailed": "無法儲存 AGENTS.md",
     "projectLogo": "標識",
     "projectLogoHint": "可選。圖片會自動縮放為 256×256。",
     "projectName": "專案名稱",
@@ -3327,7 +3353,12 @@
       "updateFailed": "更新專案知識空間失敗",
       "errorDetail": "詳細資訊：{{error}}"
     },
-    "projectEmojiPlaceholder": "可選"
+    "projectEmojiPlaceholder": "可選",
+    "projectInstructionsLineCount": "{{count}} 行",
+    "resizeSettingsSheet": "拖曳調整專案設定寬度",
+    "projectInstructionsEmptyPreview": "AGENTS.md 是空的。切換到編輯模式即可加入 Markdown 指令。",
+    "projectInstructionsLoadFailed": "無法讀取 AGENTS.md",
+    "projectInstructionsSaveFailed": "無法儲存 AGENTS.md"
   },
   "provider": {
     "addProvider": "新增服務商",
@@ -3610,6 +3641,34 @@
     "resetDefaultsFailed": "無法還原「{{section}}」的預設設定",
     "resetDefaultsReindexStarted": "知識設定已儲存，索引正在背景重建。",
     "resetDefaultsWarning": "設定已還原，但部分執行階段操作未完成，可稍後重試。",
+    "files": {
+      "title": "檔案",
+      "description": "設定聊天、工作區瀏覽、預覽與編輯使用的檔案大小限制。",
+      "runtimeLocal": "本機桌面檔案",
+      "runtimeServer": "伺服器檔案",
+      "runtimeLocalDesc": "檔案操作使用此電腦的檔案系統。",
+      "runtimeServerDesc": "檔案操作使用遠端伺服器主機的檔案系統。",
+      "maxChatAttachment": "聊天附件限制",
+      "maxChatAttachmentDesc": "每個聊天附件的最大大小（{{min}}–{{max}} MiB）。",
+      "maxWorkspaceUpload": "工作區上傳限制",
+      "maxWorkspaceUploadDesc": "上傳至工作區的單一檔案最大大小（{{min}}–{{max}} MiB）。",
+      "maxTextPreview": "文字預覽限制",
+      "maxTextPreviewDesc": "載入預覽的文字檔最大大小（{{min}}–{{max}} MiB）。",
+      "maxTextEdit": "文字編輯限制",
+      "maxTextEditDesc": "可編輯的 UTF-8 文字檔最大大小（{{min}}–{{max}} MiB）。",
+      "maxDocumentPreview": "文件預覽限制",
+      "maxDocumentPreviewDesc": "處理預覽的 PDF 或 Office 檔案最大大小（{{min}}–{{max}} MiB）。",
+      "maxArtifactImport": "產物匯入限制",
+      "maxArtifactImportDesc": "可匯入產物的 HTML、Markdown 或分析 JSON 來源檔案大小上限（{{min}}–{{max}} MiB）。",
+      "largeUploadWarning": "較大的上傳限制會增加磁碟、網路與處理資源用量。僅在伺服器資源充足時提高。"
+    },
+    "knowledgeSourceLimits": {
+      "title": "知識來源限制",
+      "description": "知識空間各類來源可接受的最大大小。",
+      "text": "文字來源（MiB）",
+      "binary": "二進位來源（MiB）",
+      "url": "URL 回應（MiB）"
+    },
     "about": "關於",
     "acpAutoDiscover": "自動發現後端",
     "acpAutoDiscoverDesc": "啟動時自動掃描 $PATH 中已知的 ACP Agent 二進位制",
@@ -3977,15 +4036,6 @@
     },
     "browser": {
       "activeBadge": "使用中",
-      "backupRuntimeHint": "系統 Chrome 目前可用。你也可以安裝 Hope 管理的 Chromium，作為瀏覽器自動化和產物 PDF 匯出的備用執行環境。",
-      "backupRuntimeTitle": "備用 Chromium 執行環境",
-      "installRuntimeRetry": "執行環境已就緒，請重試瀏覽器操作或 PDF 匯出。",
-      "openBrowserSettings": "開啟瀏覽器設定",
-      "runtimeInstallUnsupported": "Hope 暫不為目前的作業系統或架構提供受管 Chromium。請手動安裝 Chrome/Chromium，或設定瀏覽器執行檔路徑。",
-      "runtimeRequiredArtifactPdfDescription": "匯出 PDF 需要本機 Chrome 或 Chromium 執行環境，但目前未偵測到可用瀏覽器。",
-      "runtimeRequiredDescription": "此瀏覽器操作需要本機 Chrome 或 Chromium 執行環境，但目前未偵測到可用瀏覽器。",
-      "runtimeRequiredHint": "可以立即安裝 Hope 管理的執行環境（約 150 MB），完成後重新執行操作。",
-      "runtimeRequiredTitle": "需要 Chromium 執行環境",
       "connect": "接管",
       "connectHelp": "若已用 --remote-debugging-port=9222 啟動 Chrome，可直接接管而不是另開一個。",
       "connectUrlLabel": "除錯 URL",
@@ -4135,7 +4185,16 @@
         "title": "允許 raw CDP?",
         "body": "這會允許 AI 向你的真實 Chrome 傳送任意 DevTools 協定指令。每次呼叫仍需你逐次核准、危險方法仍會被封鎖，但請僅在確有需要時啟用。",
         "continue": "啟用"
-      }
+      },
+      "backupRuntimeHint": "系統 Chrome 目前可用。你也可以安裝 Hope 管理的 Chromium，作為瀏覽器自動化和產物 PDF 匯出的備用執行環境。",
+      "backupRuntimeTitle": "備用 Chromium 執行環境",
+      "installRuntimeRetry": "執行環境已就緒，請重試瀏覽器操作或 PDF 匯出。",
+      "openBrowserSettings": "開啟瀏覽器設定",
+      "runtimeInstallUnsupported": "Hope 暫不為目前的作業系統或架構提供受管 Chromium。請手動安裝 Chrome/Chromium，或設定瀏覽器執行檔路徑。",
+      "runtimeRequiredArtifactPdfDescription": "匯出 PDF 需要本機 Chrome 或 Chromium 執行環境，但目前未偵測到可用瀏覽器。",
+      "runtimeRequiredDescription": "此瀏覽器操作需要本機 Chrome 或 Chromium 執行環境，但目前未偵測到可用瀏覽器。",
+      "runtimeRequiredHint": "可以立即安裝 Hope 管理的執行環境（約 150 MB），完成後重新執行操作。",
+      "runtimeRequiredTitle": "需要 Chromium 執行環境"
     },
     "bytes": "位元組",
     "canvas": "畫布",
@@ -4723,6 +4782,8 @@
     "fallbackModelsDesc": "當主模型不可用時，按順序嘗試以下模型",
     "fsRemoteWrites": "允許遠端寫入檔案",
     "fsRemoteWritesDesc": "允許 HTTP 使用者端在專案工作目錄中新增、編輯、刪除與上傳檔案。預設關閉 —— 無論此開關如何，桌面應用程式皆可在本機寫入。",
+    "fsMaxChatAttachmentMb": "聊天附件大小上限",
+    "fsMaxChatAttachmentMbDesc": "從聊天輸入框上傳的單一檔案大小上限。本機桌面使用本機設定，遠端桌面與 Web 使用伺服器設定。",
     "general": "通用",
     "generalDesc": "外觀、語言和系統設定",
     "globalModel": "全域模型設定",
@@ -7634,40 +7695,6 @@
     "audioGenFetchVoices": "取得語音",
     "audioGenKnownModels": "已知模型",
     "audioGenPickVoice": "從清單選擇…",
-    "files": {
-      "title": "檔案",
-      "description": "設定聊天、工作區瀏覽、預覽與編輯使用的檔案大小限制。",
-      "runtimeLocal": "本機桌面檔案",
-      "runtimeServer": "伺服器檔案",
-      "runtimeLocalDesc": "檔案操作使用此電腦的檔案系統。",
-      "runtimeServerDesc": "檔案操作使用遠端伺服器主機的檔案系統。",
-      "maxChatAttachment": "聊天附件限制",
-      "maxChatAttachmentDesc": "每個聊天附件的最大大小（{{min}}–{{max}} MiB）。",
-      "maxWorkspaceUpload": "工作區上傳限制",
-      "maxWorkspaceUploadDesc": "上傳至工作區的單一檔案最大大小（{{min}}–{{max}} MiB）。",
-      "maxTextPreview": "文字預覽限制",
-      "maxTextPreviewDesc": "載入預覽的文字檔最大大小（{{min}}–{{max}} MiB）。",
-      "maxTextEdit": "文字編輯限制",
-      "maxTextEditDesc": "可編輯的 UTF-8 文字檔最大大小（{{min}}–{{max}} MiB）。",
-      "maxDocumentPreview": "文件預覽限制",
-      "maxDocumentPreviewDesc": "處理預覽的 PDF 或 Office 檔案最大大小（{{min}}–{{max}} MiB）。",
-      "maxArtifactImport": "產物匯入限制",
-      "maxArtifactImportDesc": "可匯入產物的 HTML、Markdown 或分析 JSON 來源檔案大小上限（{{min}}–{{max}} MiB）。",
-      "largeUploadWarning": "較大的上傳限制會增加磁碟、網路與處理資源用量。僅在伺服器資源充足時提高。"
-    },
-    "knowledgeSourceLimits": {
-      "title": "知識來源限制",
-      "description": "知識空間各類來源可接受的最大大小。",
-      "text": "文字來源（MiB）",
-      "binary": "二進位來源（MiB）",
-      "url": "URL 回應（MiB）"
-    },
-    "fsMaxChatAttachmentMb": "聊天附件大小上限",
-    "fsMaxChatAttachmentMbDesc": "從聊天輸入框上傳的單一檔案大小上限。本機桌面使用本機設定，遠端桌面與 Web 使用伺服器設定。",
-    "memoryBackupEncryptedPassphraseTooShort": "備份密碼至少需要 12 個字元",
-    "memoryBackupEncryptedPassphraseCommon": "避免在備份密碼中使用常見詞語或模式",
-    "memoryBackupEncryptedPassphraseRepetitive": "請減少備份密碼中的重複字元",
-    "memoryBackupEncryptedPassphraseVariety": "增加字元種類，或使用較長的四詞片語",
     "acpCustomAgent": "自訂 Agent",
     "canvasTypes": {
       "chart": "圖表",
@@ -7744,6 +7771,10 @@
         "graphiti_http": "Graphiti HTTP sidecar"
       }
     },
+    "memoryBackupEncryptedPassphraseTooShort": "備份密碼至少需要 12 個字元",
+    "memoryBackupEncryptedPassphraseCommon": "避免在備份密碼中使用常見詞語或模式",
+    "memoryBackupEncryptedPassphraseRepetitive": "請減少備份密碼中的重複字元",
+    "memoryBackupEncryptedPassphraseVariety": "增加字元種類，或使用較長的四詞片語",
     "memoryDbSnapshotRestoreStatus": {
       "ready": "已就緒",
       "no_metadata": "缺少中繼資料",
@@ -8620,6 +8651,8 @@
       "selectBranch": "選擇分支",
       "stageAll": "暫存所有變更",
       "viewPr": "檢視 Pull Request",
+      "pullRequestPanelTitle": "提取要求",
+      "resizePullRequestPanel": "調整提取要求面板寬度",
       "worktree": "工作樹",
       "checkDetails": "檢查詳情",
       "checkFailed": "失敗",
@@ -8641,6 +8674,7 @@
       "openCheck": "開啟檢查",
       "openComment": "開啟評論",
       "prFeedbackUnavailable": "無法取得 PR 檢查與評論",
+      "prFeedbackStale": "提取要求狀態重新整理失敗，目前資料可能已過期",
       "reviewComments": "{{count}} 則評論",
       "reviewFeedback": "審查回饋",
       "autoMergeEnabled": "已啟用自動合併",
@@ -8667,10 +8701,7 @@
       "reviewPending": "待處理",
       "reviewRequired": "需要審閱",
       "reviewStatus": "審閱狀態",
-      "reviewers": "審閱者",
-      "pullRequestPanelTitle": "提取要求",
-      "resizePullRequestPanel": "調整提取要求面板寬度",
-      "prFeedbackStale": "提取要求狀態重新整理失敗，目前資料可能已過期"
+      "reviewers": "審閱者"
     },
     "goal": {
       "watchdogTitle": "有目標需要確認",
@@ -10594,6 +10625,8 @@
       "title": "整理資料為筆記"
     },
     "sources": {
+      "textTooLarge": "文字來源超過 {{limit}} MiB 限制",
+      "fileTooLarge": "{{name}} 超過 {{limit}} MiB 限制",
       "archiveAttachment": "歸檔到知識空間",
       "archiveAttachmentFailed": "附件歸檔失敗",
       "archivedAttachment": "已歸檔到知識資料",
@@ -10732,9 +10765,7 @@
       "ocrFailed": "OCR 失敗",
       "ocrRetry": "重試失敗頁面",
       "ocrRetryStarted": "正在重試失敗頁面…",
-      "ocrRetryFailed": "無法重試 OCR 頁面",
-      "textTooLarge": "文字來源超過 {{limit}} MiB 限制",
-      "fileTooLarge": "{{name}} 超過 {{limit}} MiB 限制"
+      "ocrRetryFailed": "無法重試 OCR 頁面"
     },
     "queryFile": {
       "action": "檔案",
@@ -10770,54 +10801,6 @@
       "emptyInternal": "這個空間還是空的。",
       "importFiles": "匯入檔案"
     }
-  },
-  "backgroundJobs": {
-    "panelTitle": "背景任務",
-    "openPanel": "背景任務",
-    "openFull": "檢視全部",
-    "expandJob": "展開任務",
-    "collapseJob": "收起任務",
-    "jumpToBottom": "跳到底部",
-    "empty": "暫無背景任務",
-    "sectionSession": "本工作階段",
-    "sectionLocalModel": "本機模型",
-    "kindGroup": "任務群組",
-    "kindSubagent": "子 Agent",
-    "resizePanel": "調整背景任務面板大小",
-    "status": {
-      "queued": "排隊中",
-      "running": "執行中",
-      "cancelling": "取消中",
-      "awaiting_approval": "等待核準",
-      "completed": "已完成",
-      "failed": "失敗",
-      "interrupted": "已中斷",
-      "timed_out": "已逾時",
-      "cancelled": "已取消"
-    },
-    "errorOutput": "錯誤",
-    "liveOutput": "即時輸出",
-    "outputFile": "完整結果",
-    "resultPreview": "結果預覽"
-  },
-  "browser": {
-    "panelTitle": "瀏覽器"
-  },
-  "error": {
-    "appCrash": "出了點問題",
-    "retry": "再試一次",
-    "unknown": "發生意外錯誤"
-  },
-  "localModels": {
-    "actions": {
-      "download": "下載"
-    }
-  },
-  "macControl": {
-    "panelTitle": "Mac 控制"
-  },
-  "memory": {
-    "activeRecallToastTitle": "已引用記憶"
   },
   "artifacts": {
     "title": "產物庫",
@@ -10916,6 +10899,54 @@
     "exportReviewBlocked": "匯出複核仍有阻塞項",
     "guardStatus": "門禁",
     "defaultName": "產物"
+  },
+  "backgroundJobs": {
+    "panelTitle": "背景任務",
+    "openPanel": "背景任務",
+    "openFull": "檢視全部",
+    "expandJob": "展開任務",
+    "collapseJob": "收起任務",
+    "jumpToBottom": "跳到底部",
+    "empty": "暫無背景任務",
+    "sectionSession": "本工作階段",
+    "sectionLocalModel": "本機模型",
+    "kindGroup": "任務群組",
+    "kindSubagent": "子 Agent",
+    "resizePanel": "調整背景任務面板大小",
+    "status": {
+      "queued": "排隊中",
+      "running": "執行中",
+      "cancelling": "取消中",
+      "awaiting_approval": "等待核準",
+      "completed": "已完成",
+      "failed": "失敗",
+      "interrupted": "已中斷",
+      "timed_out": "已逾時",
+      "cancelled": "已取消"
+    },
+    "errorOutput": "錯誤",
+    "liveOutput": "即時輸出",
+    "outputFile": "完整結果",
+    "resultPreview": "結果預覽"
+  },
+  "browser": {
+    "panelTitle": "瀏覽器"
+  },
+  "error": {
+    "appCrash": "出了點問題",
+    "retry": "再試一次",
+    "unknown": "發生意外錯誤"
+  },
+  "localModels": {
+    "actions": {
+      "download": "下載"
+    }
+  },
+  "macControl": {
+    "panelTitle": "Mac 控制"
+  },
+  "memory": {
+    "activeRecallToastTitle": "已引用記憶"
   },
   "design": {
     "title": "設計空間",
@@ -11637,37 +11668,6 @@
       "checkStale": "{{n}} 個產物的程式碼有更新",
       "chatPrompt": "實作程式碼相對設計稿已變化，請根據引用的程式碼變更更新目前設計稿，保持設計意圖與其餘內容不變。"
     }
-  },
-  "fileEditor": {
-    "notUtf8": "檔案不是有效的 UTF-8 文字",
-    "notEditable": "此檔案無法作為 UTF-8 文字編輯",
-    "tooLarge": "檔案超過 {{limit}} MiB 編輯上限",
-    "saved": "已儲存",
-    "showPreview": "顯示預覽",
-    "showSource": "顯示原始碼",
-    "saveAsExists": "該路徑已有檔案",
-    "mixedLineEndings": "檔案混用了換行格式，儲存時會統一為使用比例最高的格式。",
-    "externalChanged": "檔案已在外部變更。",
-    "reload": "重新載入",
-    "conflictTitle": "儲存衝突",
-    "conflictDeleted": "檔案已在外部刪除。",
-    "conflictChanged": "檔案已在外部變更。",
-    "saveAsScope": "在目前工作區內另存為新檔案。",
-    "unsavedTitle": "尚未儲存的變更",
-    "unsavedBody": "離開此檔案前要捨棄目前的編輯嗎？",
-    "discard": "捨棄變更",
-    "remoteWritesTitle": "遠端檔案寫入已關閉",
-    "remoteWritesBody": "此工作區位於伺服器主機。只有在信任已連線使用者端時，才應於伺服器設定中啟用遠端檔案寫入。",
-    "goToServerSettings": "前往伺服器設定",
-    "transportSwitchUnsaved": "有尚未儲存的檔案變更。要切換連線並捨棄這些變更嗎？"
-  },
-  "attachments": {
-    "uploading": "上傳中…",
-    "uploadFailedShort": "上傳失敗",
-    "uploadFailed": "檔案未傳送。{{error}}",
-    "tooMany": "每則訊息最多可附加 64 個檔案",
-    "tooLarge": "{{name}} 超過 {{limit}} MB 上限",
-    "someTooLarge": "部分檔案超過 {{limit}} MB 上限"
   },
   "configRecovery": {
     "title": "需要復原設定",

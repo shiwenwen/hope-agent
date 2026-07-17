@@ -421,9 +421,6 @@
     "completedTurnCollapsed": "{{count}} 件のメッセージを処理済み",
     "completedTurnCollapsedWithDuration": "{{duration}} 処理済み、{{count}} 件のメッセージ",
     "conversations": "チャット",
-    "unreadConversationCount": "未読チャット{{count}}件",
-    "unreadStatus": "未読",
-    "channelUnreadStatus": "IMチャットが未読",
     "collapseSidebar": "サイドバーを折りたたむ",
     "sidebarCompactMode": "コンパクト表示に切り替え",
     "sidebarDetailedMode": "通常表示に切り替え",
@@ -867,9 +864,9 @@
         "docx": "Word 文書",
         "pptx": "PowerPoint スライド",
         "xlsx": "Excel スプレッドシート",
-        "dataAnalytics": "データ分析",
         "browser": "ブラウザ操作",
-        "mac": "Mac 操作"
+        "mac": "Mac 操作",
+        "dataAnalytics": "データ分析"
       }
     },
     "reasoningDisabledHint": "このモデルでは推論が有効になっていません。推論の深さを調整するには、「設定 → モデルプロバイダー」でこのモデルを編集し、「推論/思考に対応」をオンにしてください。",
@@ -1169,6 +1166,9 @@
     "openSourceConversationMissingHint": "このメモリソースは、削除されたか見つからない会話を指しています。",
     "openSourceMessageMissing": "ソースメッセージは利用できなくなりました",
     "openSourceMessageMissingHint": "会話は存在しますが、このメモリソースの正確なメッセージを見つけられませんでした。",
+    "unreadConversationCount": "未読チャット{{count}}件",
+    "unreadStatus": "未読",
+    "channelUnreadStatus": "IMチャットが未読",
     "generatedImageName": "生成画像 {{index}}",
     "noAgents": "エージェントがいません",
     "sessionFailed": "会話に失敗しました"
@@ -1179,6 +1179,7 @@
     "reauth": "再度ログイン"
   },
   "common": {
+    "restoreDefaults": "デフォルトに戻す",
     "add": "追加",
     "back": "戻る",
     "cancel": "キャンセル",
@@ -1225,18 +1226,13 @@
     "off": "オフ",
     "error": "エラー",
     "showLess": "表示を少なくする",
-    "next": "次",
-    "previous": "前の",
     "download": "ダウンロード",
     "duplicate": "複製",
     "more": "その他",
     "apply": "適用",
     "modelNoVision": "画像非対応",
-    "restoreDefaults": "デフォルトに戻す",
-    "request": "リクエスト",
-    "response": "レスポンス",
-    "authMethod": "認証方式",
-    "testSteps": "テスト手順",
+    "next": "次",
+    "previous": "前の",
     "baseUrl": "ベース URL",
     "apiKey": "API キー",
     "ok": "確認",
@@ -1244,7 +1240,6 @@
       "applied": "適用済み",
       "rejected": "却下済み",
       "active": "アクティブ",
-      "advisory": "推奨事項",
       "archived": "アーカイブ済み",
       "awaiting_approval": "承認待ち",
       "awaiting_user": "ユーザー待ち",
@@ -1263,11 +1258,12 @@
       "healthy": "正常",
       "idle": "待機中",
       "insufficient_data": "データ不足",
+      "needs_user": "ユーザー対応が必要",
+      "advisory": "推奨事項",
       "injected": "注入済み",
       "interrupted": "中断",
       "killed": "強制終了",
       "loading": "読み込み中",
-      "needs_user": "ユーザー対応が必要",
       "not_run": "未実行",
       "open": "オープン",
       "partial": "一部完了",
@@ -1289,7 +1285,11 @@
       "warning": "警告",
       "evaluating": "評価中",
       "in_progress": "進行中"
-    }
+    },
+    "request": "リクエスト",
+    "response": "レスポンス",
+    "authMethod": "認証方式",
+    "testSteps": "テスト手順"
   },
   "context": {
     "ago": "前",
@@ -1456,106 +1456,6 @@
     "bannerConfig": "危険モード有効 — すべてのツール承認をバイパス中。設定 → セキュリティで無効化"
   },
   "dashboard": {
-    "controlPlane": {
-      "title": "目標と実行",
-      "automationTab": "オートメーション",
-      "scopeHint": "ウィンドウメトリクスは結果を示します。現在のスナップショットにはバックログとリスクが表示されます。",
-      "allProjects": "すべてのプロジェクト",
-      "unassignedProject": "未割り当て",
-      "archived": "アーカイブ済み",
-      "empty": "選択したスコープのデータがありません。",
-      "sections": {
-        "overview": "概要",
-        "planTask": "計画とタスク"
-      },
-      "metrics": {
-        "goalAcceptance": "目標達成率",
-        "workflowCompletion": "ワークフロー完了率",
-        "loopStrongProgress": "ループ強進行率",
-        "taskCompletion": "タスクコホートの完了",
-        "attention": "注意が必要です",
-        "requiredCriteria": "必要な基準の合格率",
-        "goalP50": "P50 を受け入れるまでの目標時間",
-        "opFailure": "動作失敗率",
-        "workflowP50": "ワークフロー期間 P50",
-        "goalBinding": "目標拘束率",
-        "approvalTrigger": "承認トリガー率",
-        "noProgress": "未進捗率",
-        "blockedSchedules": "ブロックされたスケジュール",
-        "loopP50": "ループ実行時間 P50",
-        "currentBacklog": "現在のバックログ",
-        "activePlans": "現在アクティブです",
-        "cohortCompletion": "コホートの完了"
-      },
-      "currentSnapshot": "現在のスナップショット",
-      "goalTrend": "目標の成果",
-      "resolved": "解決済み",
-      "accepted": "承認されました",
-      "attentionTitle": "今の注目アイテム",
-      "noAttention": "現在注目のアイテムはありません",
-      "auditSamples": "{{count}}個の監査済み目標",
-      "currentStates": "現在の状態",
-      "closureOutcomes": "クロージングの結果",
-      "domains": "ドメイン",
-      "kinds": "種類",
-      "origins": "起源",
-      "workflowTrend": "決定されたワークフローの実行",
-      "decidedRuns": "決定打数",
-      "progressStates": "進捗分類",
-      "triggerKinds": "トリガーの種類",
-      "strategies": "実行戦略",
-      "loopTrend": "評価されたループ実行",
-      "evaluatedRuns": "評価された実行",
-      "openPlanHistory": "プラン履歴の表示",
-      "planByAgent": "エージェント別プラン",
-      "planByProject": "プロジェクトごとに計画する",
-      "noFunnelHint": "タスクとプランには信頼できる目標/ワークフロー/ループの属性キーがまだないため、このページはセッションから因果関係のファネルを推測しません。",
-      "noExactSamples": "正確な持続時間のサンプルがありません",
-      "coverage": "{{samples}}/{{eligible}}の正確なサンプル ({{percent}}%)",
-      "coverageShort": "正確な期間範囲:{{samples}}/{{eligible}}",
-      "creationTrend": "創作傾向",
-      "created": "作成されました",
-      "attentionKinds": {
-        "goal": "目標",
-        "workflow": "ワークフロー",
-        "loop": "ループ",
-        "plan": "計画"
-      },
-      "attentionReasons": {
-        "needs_strict_evidence": "厳密な証拠が必要",
-        "goal_awaiting_closure": "目標のクローズ待ち",
-        "workflow_requires_attention": "ワークフローに対応が必要",
-        "consecutive_no_progress": "連続して進捗なし",
-        "loop_requires_attention": "ループに対応が必要",
-        "plan_awaiting_review": "プランのレビュー待ち"
-      },
-      "states": {
-        "active": "アクティブ",
-        "paused": "一時停止中",
-        "evaluating": "評価中",
-        "completed": "完了",
-        "failed": "失敗",
-        "cancelled": "キャンセル",
-        "blocked": "ブロック中",
-        "planning": "企画",
-        "review": "レビュー",
-        "executing": "実行中",
-        "off": "アーカイブ済み",
-        "awaiting_approval": "承認待ち",
-        "awaiting_user": "ユーザー待ち",
-        "running": "ランニング",
-        "recovering": "回復",
-        "draft": "下書き",
-        "pending": "保留中",
-        "in_progress": "進行中",
-        "progressed": "進歩した",
-        "weak_progress": "弱い進歩",
-        "no_progress": "進歩なし",
-        "accepted_v1": "承認済み v1",
-        "superseded": "置き換えられました",
-        "unassigned": "未割り当て"
-      }
-    },
     "autoRefresh": {
       "1m": "1 分",
       "30s": "30 秒",
@@ -2227,6 +2127,106 @@
     },
     "columns": {
       "session": "セッション"
+    },
+    "controlPlane": {
+      "title": "目標と実行",
+      "automationTab": "オートメーション",
+      "scopeHint": "ウィンドウメトリクスは結果を示します。現在のスナップショットにはバックログとリスクが表示されます。",
+      "allProjects": "すべてのプロジェクト",
+      "unassignedProject": "未割り当て",
+      "archived": "アーカイブ済み",
+      "empty": "選択したスコープのデータがありません。",
+      "sections": {
+        "overview": "概要",
+        "planTask": "計画とタスク"
+      },
+      "metrics": {
+        "goalAcceptance": "目標達成率",
+        "workflowCompletion": "ワークフロー完了率",
+        "loopStrongProgress": "ループ強進行率",
+        "taskCompletion": "タスクコホートの完了",
+        "attention": "注意が必要です",
+        "requiredCriteria": "必要な基準の合格率",
+        "goalP50": "P50 を受け入れるまでの目標時間",
+        "opFailure": "動作失敗率",
+        "workflowP50": "ワークフロー期間 P50",
+        "goalBinding": "目標拘束率",
+        "approvalTrigger": "承認トリガー率",
+        "noProgress": "未進捗率",
+        "blockedSchedules": "ブロックされたスケジュール",
+        "loopP50": "ループ実行時間 P50",
+        "currentBacklog": "現在のバックログ",
+        "activePlans": "現在アクティブです",
+        "cohortCompletion": "コホートの完了"
+      },
+      "currentSnapshot": "現在のスナップショット",
+      "goalTrend": "目標の成果",
+      "resolved": "解決済み",
+      "accepted": "承認されました",
+      "attentionTitle": "今の注目アイテム",
+      "noAttention": "現在注目のアイテムはありません",
+      "auditSamples": "{{count}}個の監査済み目標",
+      "currentStates": "現在の状態",
+      "closureOutcomes": "クロージングの結果",
+      "domains": "ドメイン",
+      "kinds": "種類",
+      "origins": "起源",
+      "workflowTrend": "決定されたワークフローの実行",
+      "decidedRuns": "決定打数",
+      "progressStates": "進捗分類",
+      "triggerKinds": "トリガーの種類",
+      "strategies": "実行戦略",
+      "loopTrend": "評価されたループ実行",
+      "evaluatedRuns": "評価された実行",
+      "openPlanHistory": "プラン履歴の表示",
+      "planByAgent": "エージェント別プラン",
+      "planByProject": "プロジェクトごとに計画する",
+      "noFunnelHint": "タスクとプランには信頼できる目標/ワークフロー/ループの属性キーがまだないため、このページはセッションから因果関係のファネルを推測しません。",
+      "noExactSamples": "正確な持続時間のサンプルがありません",
+      "coverage": "{{samples}}/{{eligible}}の正確なサンプル ({{percent}}%)",
+      "coverageShort": "正確な期間範囲:{{samples}}/{{eligible}}",
+      "creationTrend": "創作傾向",
+      "created": "作成されました",
+      "attentionKinds": {
+        "goal": "目標",
+        "workflow": "ワークフロー",
+        "loop": "ループ",
+        "plan": "計画"
+      },
+      "attentionReasons": {
+        "needs_strict_evidence": "厳密な証拠が必要",
+        "goal_awaiting_closure": "目標のクローズ待ち",
+        "workflow_requires_attention": "ワークフローに対応が必要",
+        "consecutive_no_progress": "連続して進捗なし",
+        "loop_requires_attention": "ループに対応が必要",
+        "plan_awaiting_review": "プランのレビュー待ち"
+      },
+      "states": {
+        "active": "アクティブ",
+        "paused": "一時停止中",
+        "evaluating": "評価中",
+        "completed": "完了",
+        "failed": "失敗",
+        "cancelled": "キャンセル",
+        "blocked": "ブロック中",
+        "planning": "企画",
+        "review": "レビュー",
+        "executing": "実行中",
+        "off": "アーカイブ済み",
+        "awaiting_approval": "承認待ち",
+        "awaiting_user": "ユーザー待ち",
+        "running": "ランニング",
+        "recovering": "回復",
+        "draft": "下書き",
+        "pending": "保留中",
+        "in_progress": "進行中",
+        "progressed": "進歩した",
+        "weak_progress": "弱い進歩",
+        "no_progress": "進歩なし",
+        "accepted_v1": "承認済み v1",
+        "superseded": "置き換えられました",
+        "unassigned": "未割り当て"
+      }
     }
   },
   "fileActions": {
@@ -2244,6 +2244,37 @@
     "upload": "アップロード",
     "saveAs": "名前を付けて保存",
     "downloadFailed": "ファイルのダウンロードに失敗しました"
+  },
+  "fileEditor": {
+    "notUtf8": "有効な UTF-8 テキストではありません",
+    "notEditable": "このファイルは UTF-8 テキストとして編集できません",
+    "tooLarge": "ファイルは {{limit}} MiB の編集上限を超えています",
+    "saved": "保存しました",
+    "showPreview": "プレビューを表示",
+    "showSource": "ソースを表示",
+    "saveAsExists": "そのパスには既にファイルがあります",
+    "mixedLineEndings": "改行コードが混在しています。保存時に最も多い形式へ統一されます。",
+    "externalChanged": "このファイルは外部で変更されました。",
+    "reload": "再読み込み",
+    "conflictTitle": "保存の競合",
+    "conflictDeleted": "このファイルは外部で削除されました。",
+    "conflictChanged": "このファイルは外部で変更されました。",
+    "saveAsScope": "現在のワークスペース内に新しいファイルを保存します。",
+    "unsavedTitle": "未保存の変更",
+    "unsavedBody": "このファイルを離れる前に現在の編集を破棄しますか？",
+    "discard": "変更を破棄",
+    "remoteWritesTitle": "リモートファイル書き込みはオフです",
+    "remoteWritesBody": "このワークスペースはサーバーマシン上にあります。接続済みのクライアントを信頼できる場合にのみ、サーバー設定でリモート書き込みを有効にしてください。",
+    "goToServerSettings": "サーバー設定へ",
+    "transportSwitchUnsaved": "未保存のファイル変更があります。接続を切り替えて変更を破棄しますか？"
+  },
+  "attachments": {
+    "uploading": "アップロード中…",
+    "uploadFailedShort": "アップロード失敗",
+    "uploadFailed": "ファイルは送信されませんでした。{{error}}",
+    "tooMany": "1 件のメッセージに添付できるファイルは最大 64 個です",
+    "tooLarge": "{{name}} は {{limit}} MB の上限を超えています",
+    "someTooLarge": "{{limit}} MB の上限を超えるファイルがあります"
   },
   "filePreview": {
     "panelTitle": "プレビュー",
@@ -2340,10 +2371,10 @@
       "staged": "ステージ済み",
       "stagedScope": "ステージ済み",
       "stale": "リポジトリが変更されました。差分が更新されました。もう一度見直してください。",
+      "prReviewComments": "PR レビューコメント · {{count}}",
       "unstage": "ステージ解除",
       "unstaged": "未ステージ",
-      "unstagedScope": "未ステージ",
-      "prReviewComments": "PR レビューコメント · {{count}}"
+      "unstagedScope": "未ステージ"
     }
   },
   "effort": {
@@ -3196,7 +3227,6 @@
       "editorHint": "プロジェクト指示は固定ルールです。ここには作業中に蓄積した知見を保存し、権威ある指示としては扱いません。",
       "editorTitle": "プロジェクト自動メモリ",
       "empty": "自動メモリのトピックはまだありません。",
-      "emptyPreview": "Markdown の詳細はまだありません。編集モードに切り替えて追加できます。",
       "fileNameGenerated": "保存時にファイル名を自動生成します",
       "name": "タイトル",
       "newTopic": "新規トピック",
@@ -3210,7 +3240,8 @@
         "project": "プロジェクト作業",
         "reference": "参照資料",
         "user": "ユーザー情報"
-      }
+      },
+      "emptyPreview": "Markdown の詳細はまだありません。編集モードに切り替えて追加できます。"
     },
     "createFirstProject": "最初のプロジェクトを作成",
     "defaultAgent": "デフォルト Agent",
@@ -3286,12 +3317,7 @@
     "projectDescriptionPlaceholder": "このプロジェクトの概要は？",
     "projectInstructions": "プロジェクト指示",
     "projectInstructionsHint": "プロジェクトルートの AGENTS.md を直接編集します。保存後、このプロジェクトのすべてのセッションに自動適用されます。",
-    "projectInstructionsLineCount": "{{count}} 行",
-    "resizeSettingsSheet": "ドラッグしてプロジェクト設定の幅を変更",
-    "projectInstructionsEmptyPreview": "AGENTS.md は空です。編集モードに切り替えて Markdown の指示を追加できます。",
-    "projectInstructionsLoadFailed": "AGENTS.md を読み込めませんでした",
     "projectInstructionsPlaceholder": "例：常に日本語で返答する。明るく親しみやすい口調にし、最初に結論を述べる",
-    "projectInstructionsSaveFailed": "AGENTS.md を保存できませんでした",
     "projectLogo": "ロゴ",
     "projectLogoHint": "任意。画像は 256×256 に自動リサイズされます。",
     "projectName": "プロジェクト名",
@@ -3327,7 +3353,12 @@
       "updateFailed": "プロジェクトのナレッジスペースを更新できません",
       "errorDetail": "詳細: {{error}}"
     },
-    "projectEmojiPlaceholder": "オプション"
+    "projectEmojiPlaceholder": "オプション",
+    "projectInstructionsLineCount": "{{count}} 行",
+    "resizeSettingsSheet": "ドラッグしてプロジェクト設定の幅を変更",
+    "projectInstructionsEmptyPreview": "AGENTS.md は空です。編集モードに切り替えて Markdown の指示を追加できます。",
+    "projectInstructionsLoadFailed": "AGENTS.md を読み込めませんでした",
+    "projectInstructionsSaveFailed": "AGENTS.md を保存できませんでした"
   },
   "provider": {
     "addProvider": "プロバイダーを追加",
@@ -3610,6 +3641,34 @@
     "resetDefaultsFailed": "「{{section}}」をデフォルトに戻せませんでした",
     "resetDefaultsReindexStarted": "ナレッジ設定を保存し、バックグラウンドでインデックスを再構築しています。",
     "resetDefaultsWarning": "設定は復元されましたが、一部の実行時操作が完了しませんでした。後でもう一度お試しください。",
+    "files": {
+      "title": "ファイル",
+      "description": "チャット、ワークスペース、プレビュー、編集で使用するファイル上限を設定します。",
+      "runtimeLocal": "ローカルデスクトップのファイル",
+      "runtimeServer": "サーバーのファイル",
+      "runtimeLocalDesc": "ファイル操作はこのコンピューターのファイルシステムを使用します。",
+      "runtimeServerDesc": "ファイル操作にはリモートサーバーホストのファイルシステムを使用します。",
+      "maxChatAttachment": "チャット添付の上限",
+      "maxChatAttachmentDesc": "チャット添付1件あたりの最大サイズ（{{min}}～{{max}} MiB）。",
+      "maxWorkspaceUpload": "ワークスペースアップロードの上限",
+      "maxWorkspaceUploadDesc": "ワークスペースへアップロードする1ファイルの最大サイズ（{{min}}～{{max}} MiB）。",
+      "maxTextPreview": "テキストプレビューの上限",
+      "maxTextPreviewDesc": "プレビューで読み込むテキストファイルの最大サイズ（{{min}}～{{max}} MiB）。",
+      "maxTextEdit": "テキスト編集の上限",
+      "maxTextEditDesc": "編集できる UTF-8 テキストファイルの最大サイズ（{{min}}～{{max}} MiB）。",
+      "maxDocumentPreview": "文書プレビューの上限",
+      "maxDocumentPreviewDesc": "プレビュー処理する PDF / Office ファイルの最大サイズ（{{min}}～{{max}} MiB）。",
+      "maxArtifactImport": "成果物 インポート上限",
+      "maxArtifactImportDesc": "成果物にインポートされる最大 HTML、マークダウン、または分析 JSON ソース サイズ ({{min}} ～ {{max}} MiB)。",
+      "largeUploadWarning": "大きなアップロード上限はディスク、ネットワーク、処理負荷を増やします。サーバーに十分なリソースがある場合のみ引き上げてください。"
+    },
+    "knowledgeSourceLimits": {
+      "title": "知識ソースの上限",
+      "description": "知識スペースへ取り込むソース種別ごとの最大サイズです。",
+      "text": "テキストソース（MiB）",
+      "binary": "バイナリソース（MiB）",
+      "url": "URL 応答（MiB）"
+    },
     "about": "概要",
     "acpAutoDiscover": "バックエンドを自動検出",
     "acpAutoDiscoverDesc": "起動時に既知の ACP Agent バイナリを $PATH からスキャン",
@@ -3977,15 +4036,6 @@
     },
     "browser": {
       "activeBadge": "使用中",
-      "backupRuntimeHint": "システムクロームが利用可能です。 Hope が管理する Chromium ランタイムを、ブラウザーの自動化と 成果物 PDF エクスポートのフォールバックとしてインストールします。",
-      "backupRuntimeTitle": "Chromium ランタイムのバックアップ",
-      "installRuntimeRetry": "ランタイムの準備が完了しました。ブラウザ操作または PDF エクスポートを再試行します。",
-      "openBrowserSettings": "ブラウザ設定を開く",
-      "runtimeInstallUnsupported": "Hope は、このオペレーティング システムまたはアーキテクチャ用のマネージド Chromium ランタイムを提供していません。 Chrome/Chromium を手動でインストールするか、実行可能パスを構成します。",
-      "runtimeRequiredArtifactPdfDescription": "PDF エクスポートにはローカルの Chrome または Chromium ランタイムが必要ですが、現在利用できるものはありません。",
-      "runtimeRequiredDescription": "このブラウザ操作にはローカルの Chrome または Chromium ランタイムが必要ですが、現在使用できるランタイムはありません。",
-      "runtimeRequiredHint": "Hope のマネージド ランタイム (約 150 MB) を今すぐインストールして、操作を再試行できます。",
-      "runtimeRequiredTitle": "Chromium ランタイムが必要",
       "connect": "アタッチ",
       "connectHelp": "すでに --remote-debugging-port=9222 で Chrome を起動していますか？新規インスタンスを立ち上げずに接続できます。",
       "connectUrlLabel": "デバッグ URL",
@@ -4135,7 +4185,16 @@
         "title": "raw CDP を許可しますか?",
         "body": "AI が実際の Chrome に任意の DevTools Protocol コマンドを送信できるようになります。各呼び出しには引き続き個別の承認が必要で、危険なメソッドはブロックされたままですが、特に必要な場合のみ有効にしてください。",
         "continue": "有効にする"
-      }
+      },
+      "backupRuntimeHint": "システムクロームが利用可能です。 Hope が管理する Chromium ランタイムを、ブラウザーの自動化と 成果物 PDF エクスポートのフォールバックとしてインストールします。",
+      "backupRuntimeTitle": "Chromium ランタイムのバックアップ",
+      "installRuntimeRetry": "ランタイムの準備が完了しました。ブラウザ操作または PDF エクスポートを再試行します。",
+      "openBrowserSettings": "ブラウザ設定を開く",
+      "runtimeInstallUnsupported": "Hope は、このオペレーティング システムまたはアーキテクチャ用のマネージド Chromium ランタイムを提供していません。 Chrome/Chromium を手動でインストールするか、実行可能パスを構成します。",
+      "runtimeRequiredArtifactPdfDescription": "PDF エクスポートにはローカルの Chrome または Chromium ランタイムが必要ですが、現在利用できるものはありません。",
+      "runtimeRequiredDescription": "このブラウザ操作にはローカルの Chrome または Chromium ランタイムが必要ですが、現在使用できるランタイムはありません。",
+      "runtimeRequiredHint": "Hope のマネージド ランタイム (約 150 MB) を今すぐインストールして、操作を再試行できます。",
+      "runtimeRequiredTitle": "Chromium ランタイムが必要"
     },
     "bytes": "バイト",
     "canvas": "キャンバス",
@@ -4723,6 +4782,8 @@
     "fallbackModelsDesc": "メインモデルが利用不可の場合、順番に試行するモデル",
     "fsRemoteWrites": "リモートからのファイル書き込みを許可",
     "fsRemoteWritesDesc": "HTTP クライアントがプロジェクト作業ディレクトリ内でファイルの作成・編集・削除・アップロードを行えるようにします。既定はオフ — デスクトップアプリはこの設定に関係なく常にローカルへ書き込めます。",
+    "fsMaxChatAttachmentMb": "チャット添付ファイルの最大サイズ",
+    "fsMaxChatAttachmentMbDesc": "チャット入力欄からアップロードするファイル 1 件の最大サイズです。ローカルデスクトップはローカル設定、リモートデスクトップと Web はサーバー設定を使用します。",
     "general": "一般",
     "generalDesc": "外観、言語、システム設定",
     "globalModel": "グローバルモデル設定",
@@ -7634,40 +7695,6 @@
     "audioGenFetchVoices": "音声を取得",
     "audioGenKnownModels": "既知のモデル",
     "audioGenPickVoice": "リストから選択…",
-    "files": {
-      "title": "ファイル",
-      "description": "チャット、ワークスペース、プレビュー、編集で使用するファイル上限を設定します。",
-      "runtimeLocal": "ローカルデスクトップのファイル",
-      "runtimeServer": "サーバーのファイル",
-      "runtimeLocalDesc": "ファイル操作はこのコンピューターのファイルシステムを使用します。",
-      "runtimeServerDesc": "ファイル操作にはリモートサーバーホストのファイルシステムを使用します。",
-      "maxChatAttachment": "チャット添付の上限",
-      "maxChatAttachmentDesc": "チャット添付1件あたりの最大サイズ（{{min}}～{{max}} MiB）。",
-      "maxWorkspaceUpload": "ワークスペースアップロードの上限",
-      "maxWorkspaceUploadDesc": "ワークスペースへアップロードする1ファイルの最大サイズ（{{min}}～{{max}} MiB）。",
-      "maxTextPreview": "テキストプレビューの上限",
-      "maxTextPreviewDesc": "プレビューで読み込むテキストファイルの最大サイズ（{{min}}～{{max}} MiB）。",
-      "maxTextEdit": "テキスト編集の上限",
-      "maxTextEditDesc": "編集できる UTF-8 テキストファイルの最大サイズ（{{min}}～{{max}} MiB）。",
-      "maxDocumentPreview": "文書プレビューの上限",
-      "maxDocumentPreviewDesc": "プレビュー処理する PDF / Office ファイルの最大サイズ（{{min}}～{{max}} MiB）。",
-      "maxArtifactImport": "成果物 インポート上限",
-      "maxArtifactImportDesc": "成果物にインポートされる最大 HTML、マークダウン、または分析 JSON ソース サイズ ({{min}} ～ {{max}} MiB)。",
-      "largeUploadWarning": "大きなアップロード上限はディスク、ネットワーク、処理負荷を増やします。サーバーに十分なリソースがある場合のみ引き上げてください。"
-    },
-    "knowledgeSourceLimits": {
-      "title": "知識ソースの上限",
-      "description": "知識スペースへ取り込むソース種別ごとの最大サイズです。",
-      "text": "テキストソース（MiB）",
-      "binary": "バイナリソース（MiB）",
-      "url": "URL 応答（MiB）"
-    },
-    "fsMaxChatAttachmentMb": "チャット添付ファイルの最大サイズ",
-    "fsMaxChatAttachmentMbDesc": "チャット入力欄からアップロードするファイル 1 件の最大サイズです。ローカルデスクトップはローカル設定、リモートデスクトップと Web はサーバー設定を使用します。",
-    "memoryBackupEncryptedPassphraseTooShort": "バックアップのパスフレーズは 12 文字以上にしてください",
-    "memoryBackupEncryptedPassphraseCommon": "バックアップのパスフレーズには一般的な単語やパターンを使用しないでください",
-    "memoryBackupEncryptedPassphraseRepetitive": "繰り返しの少ないバックアップ用パスフレーズを使用してください",
-    "memoryBackupEncryptedPassphraseVariety": "文字種を増やすか、4 語で構成したより長いフレーズを使用してください",
     "acpCustomAgent": "カスタム Agent",
     "canvasTypes": {
       "chart": "グラフ",
@@ -7744,6 +7771,10 @@
         "graphiti_http": "Graphiti HTTP sidecar"
       }
     },
+    "memoryBackupEncryptedPassphraseTooShort": "バックアップのパスフレーズは 12 文字以上にしてください",
+    "memoryBackupEncryptedPassphraseCommon": "バックアップのパスフレーズには一般的な単語やパターンを使用しないでください",
+    "memoryBackupEncryptedPassphraseRepetitive": "繰り返しの少ないバックアップ用パスフレーズを使用してください",
+    "memoryBackupEncryptedPassphraseVariety": "文字種を増やすか、4 語で構成したより長いフレーズを使用してください",
     "memoryDbSnapshotRestoreStatus": {
       "ready": "準備完了",
       "no_metadata": "メタデータなし",
@@ -8620,6 +8651,8 @@
       "selectBranch": "ブランチを選択",
       "stageAll": "すべての変更をステージ",
       "viewPr": "プルリクエストを表示",
+      "pullRequestPanelTitle": "プルリクエスト",
+      "resizePullRequestPanel": "プルリクエストパネルの幅を変更",
       "worktree": "ワークツリー",
       "checkDetails": "チェックの詳細",
       "checkFailed": "失敗",
@@ -8641,6 +8674,7 @@
       "openCheck": "チェックを開く",
       "openComment": "コメントを開く",
       "prFeedbackUnavailable": "PR のチェックとコメントを取得できません",
+      "prFeedbackStale": "PR ステータスの更新に失敗しました。現在のデータは古い可能性があります",
       "reviewComments": "{{count}} 件のコメント",
       "reviewFeedback": "レビューのフィードバック",
       "autoMergeEnabled": "自動マージが有効です",
@@ -8667,10 +8701,7 @@
       "reviewPending": "保留中",
       "reviewRequired": "レビューが必要",
       "reviewStatus": "レビュー状態",
-      "reviewers": "レビュアー",
-      "pullRequestPanelTitle": "プルリクエスト",
-      "resizePullRequestPanel": "プルリクエストパネルの幅を変更",
-      "prFeedbackStale": "PR ステータスの更新に失敗しました。現在のデータは古い可能性があります"
+      "reviewers": "レビュアー"
     },
     "goal": {
       "watchdogTitle": "目標の確認が必要です",
@@ -10594,6 +10625,8 @@
       "title": "メモに整理する"
     },
     "sources": {
+      "textTooLarge": "テキストソースが {{limit}} MiB の上限を超えています",
+      "fileTooLarge": "{{name}} は {{limit}} MiB の上限を超えています",
       "archiveAttachment": "知識へのアーカイブ",
       "archiveAttachmentFailed": "添付ファイルのアーカイブに失敗しました",
       "archivedAttachment": "ナレッジソースにアーカイブされる",
@@ -10732,9 +10765,7 @@
       "ocrFailed": "OCR に失敗しました",
       "ocrRetry": "失敗したページを再試行",
       "ocrRetryStarted": "失敗したページを再試行しています…",
-      "ocrRetryFailed": "OCR ページを再試行できませんでした",
-      "textTooLarge": "テキストソースが {{limit}} MiB の上限を超えています",
-      "fileTooLarge": "{{name}} は {{limit}} MiB の上限を超えています"
+      "ocrRetryFailed": "OCR ページを再試行できませんでした"
     },
     "queryFile": {
       "action": "ファイル",
@@ -10770,54 +10801,6 @@
       "emptyInternal": "この空間は空です。",
       "importFiles": "ファイルをインポート"
     }
-  },
-  "backgroundJobs": {
-    "panelTitle": "バックグラウンドタスク",
-    "openPanel": "バックグラウンドタスク",
-    "openFull": "すべて表示",
-    "expandJob": "タスクを展開",
-    "collapseJob": "タスクを折りたたむ",
-    "jumpToBottom": "末尾へ移動",
-    "empty": "バックグラウンドタスクはありません",
-    "sectionSession": "このセッション",
-    "sectionLocalModel": "ローカルモデル",
-    "kindGroup": "タスクグループ",
-    "kindSubagent": "サブエージェント",
-    "resizePanel": "バックグラウンドタスクパネルのサイズを変更",
-    "status": {
-      "queued": "待機中",
-      "running": "実行中",
-      "cancelling": "キャンセル中",
-      "awaiting_approval": "承認待ち",
-      "completed": "完了",
-      "failed": "失敗",
-      "interrupted": "中断",
-      "timed_out": "タイムアウト",
-      "cancelled": "キャンセル済み"
-    },
-    "errorOutput": "間違い",
-    "liveOutput": "リアルタイム出力",
-    "outputFile": "完全な結果",
-    "resultPreview": "結果のプレビュー"
-  },
-  "browser": {
-    "panelTitle": "ブラウザ"
-  },
-  "error": {
-    "appCrash": "何か問題が発生しました",
-    "retry": "もう一度試してください",
-    "unknown": "予期しないエラーが発生しました"
-  },
-  "localModels": {
-    "actions": {
-      "download": "ダウンロード"
-    }
-  },
-  "macControl": {
-    "panelTitle": "Mac コントロール"
-  },
-  "memory": {
-    "activeRecallToastTitle": "参照メモリ"
   },
   "artifacts": {
     "title": "成果物",
@@ -10916,6 +10899,54 @@
     "exportReviewBlocked": "輸出審査には依然として阻害要因がある",
     "guardStatus": "ガード",
     "defaultName": "成果物"
+  },
+  "backgroundJobs": {
+    "panelTitle": "バックグラウンドタスク",
+    "openPanel": "バックグラウンドタスク",
+    "openFull": "すべて表示",
+    "expandJob": "タスクを展開",
+    "collapseJob": "タスクを折りたたむ",
+    "jumpToBottom": "末尾へ移動",
+    "empty": "バックグラウンドタスクはありません",
+    "sectionSession": "このセッション",
+    "sectionLocalModel": "ローカルモデル",
+    "kindGroup": "タスクグループ",
+    "kindSubagent": "サブエージェント",
+    "resizePanel": "バックグラウンドタスクパネルのサイズを変更",
+    "status": {
+      "queued": "待機中",
+      "running": "実行中",
+      "cancelling": "キャンセル中",
+      "awaiting_approval": "承認待ち",
+      "completed": "完了",
+      "failed": "失敗",
+      "interrupted": "中断",
+      "timed_out": "タイムアウト",
+      "cancelled": "キャンセル済み"
+    },
+    "errorOutput": "間違い",
+    "liveOutput": "リアルタイム出力",
+    "outputFile": "完全な結果",
+    "resultPreview": "結果のプレビュー"
+  },
+  "browser": {
+    "panelTitle": "ブラウザ"
+  },
+  "error": {
+    "appCrash": "何か問題が発生しました",
+    "retry": "もう一度試してください",
+    "unknown": "予期しないエラーが発生しました"
+  },
+  "localModels": {
+    "actions": {
+      "download": "ダウンロード"
+    }
+  },
+  "macControl": {
+    "panelTitle": "Mac コントロール"
+  },
+  "memory": {
+    "activeRecallToastTitle": "参照メモリ"
   },
   "design": {
     "title": "デザインスペース",
@@ -11637,37 +11668,6 @@
       "checkStale": "{{n}} 件の成果物にコード更新があります",
       "chatPrompt": "実装コードがこのデザインと乖離しています。参照したコード変更に合わせて現在のデザインを更新し、デザインの意図とその他の内容は変えないでください。"
     }
-  },
-  "fileEditor": {
-    "notUtf8": "有効な UTF-8 テキストではありません",
-    "notEditable": "このファイルは UTF-8 テキストとして編集できません",
-    "tooLarge": "ファイルは {{limit}} MiB の編集上限を超えています",
-    "saved": "保存しました",
-    "showPreview": "プレビューを表示",
-    "showSource": "ソースを表示",
-    "saveAsExists": "そのパスには既にファイルがあります",
-    "mixedLineEndings": "改行コードが混在しています。保存時に最も多い形式へ統一されます。",
-    "externalChanged": "このファイルは外部で変更されました。",
-    "reload": "再読み込み",
-    "conflictTitle": "保存の競合",
-    "conflictDeleted": "このファイルは外部で削除されました。",
-    "conflictChanged": "このファイルは外部で変更されました。",
-    "saveAsScope": "現在のワークスペース内に新しいファイルを保存します。",
-    "unsavedTitle": "未保存の変更",
-    "unsavedBody": "このファイルを離れる前に現在の編集を破棄しますか？",
-    "discard": "変更を破棄",
-    "remoteWritesTitle": "リモートファイル書き込みはオフです",
-    "remoteWritesBody": "このワークスペースはサーバーマシン上にあります。接続済みのクライアントを信頼できる場合にのみ、サーバー設定でリモート書き込みを有効にしてください。",
-    "goToServerSettings": "サーバー設定へ",
-    "transportSwitchUnsaved": "未保存のファイル変更があります。接続を切り替えて変更を破棄しますか？"
-  },
-  "attachments": {
-    "uploading": "アップロード中…",
-    "uploadFailedShort": "アップロード失敗",
-    "uploadFailed": "ファイルは送信されませんでした。{{error}}",
-    "tooMany": "1 件のメッセージに添付できるファイルは最大 64 個です",
-    "tooLarge": "{{name}} は {{limit}} MB の上限を超えています",
-    "someTooLarge": "{{limit}} MB の上限を超えるファイルがあります"
   },
   "configRecovery": {
     "title": "設定の復元が必要です",

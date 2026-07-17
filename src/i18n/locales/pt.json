@@ -421,9 +421,6 @@
     "completedTurnCollapsed": "{{count}} mensagens processadas",
     "completedTurnCollapsedWithDuration": "Processado por {{duration}}, {{count}} mensagens",
     "conversations": "Conversas",
-    "unreadConversationCount": "{{count}} conversas não lidas",
-    "unreadStatus": "Não lida",
-    "channelUnreadStatus": "Conversa de mensagem não lida",
     "collapseSidebar": "Recolher barra lateral",
     "sidebarCompactMode": "Mudar para modo compacto",
     "sidebarDetailedMode": "Mudar para modo normal",
@@ -867,9 +864,9 @@
         "docx": "Documento do Word",
         "pptx": "Slides do PowerPoint",
         "xlsx": "Planilha do Excel",
-        "dataAnalytics": "Análise de dados",
         "browser": "Controle do navegador",
-        "mac": "Controle do Mac"
+        "mac": "Controle do Mac",
+        "dataAnalytics": "Análise de dados"
       }
     },
     "reasoningDisabledHint": "O raciocínio não está ativado para este modelo. Para ajustar a profundidade de raciocínio, edite o modelo em Configurações → Provedores de modelos e ative \"Raciocínio\".",
@@ -1169,9 +1166,12 @@
     "openSourceConversationMissingHint": "Esta fonte de memória aponta para uma conversa que foi excluída ou não pode ser encontrada.",
     "openSourceMessageMissing": "A mensagem de origem não está mais disponível",
     "openSourceMessageMissingHint": "A conversa ainda existe, mas a mensagem exata desta fonte de memória não foi encontrada.",
+    "unreadConversationCount": "{{count}} conversas não lidas",
+    "unreadStatus": "Não lida",
+    "channelUnreadStatus": "Conversa de mensagem não lida",
+    "generatedImageName": "Imagem gerada {{index}}",
     "noAgents": "Nenhum agente",
-    "sessionFailed": "Falha na conversa",
-    "generatedImageName": "Imagem gerada {{index}}"
+    "sessionFailed": "Falha na conversa"
   },
   "codexAuth": {
     "expiredDescription": "Seu token OAuth do Codex não é mais válido. Faça login novamente para continuar.",
@@ -1179,6 +1179,7 @@
     "reauth": "Entrar novamente"
   },
   "common": {
+    "restoreDefaults": "Restaurar padrões",
     "add": "Adicionar",
     "back": "Voltar",
     "cancel": "Cancelar",
@@ -1225,18 +1226,13 @@
     "off": "Desligado",
     "error": "Erro",
     "showLess": "Mostrar menos",
-    "next": "Próximo",
-    "previous": "Anterior",
     "download": "Baixar",
     "duplicate": "Duplicar",
     "more": "Mais",
     "apply": "Aplicar",
     "modelNoVision": "Sem suporte a imagens",
-    "restoreDefaults": "Restaurar padrões",
-    "request": "Solicitação",
-    "response": "Resposta",
-    "authMethod": "Método de autenticação",
-    "testSteps": "Etapas do teste",
+    "next": "Próximo",
+    "previous": "Anterior",
     "baseUrl": "URL base",
     "apiKey": "Chave de API",
     "ok": "Confirmar",
@@ -1262,6 +1258,8 @@
       "healthy": "Operacional",
       "idle": "Inativo",
       "insufficient_data": "Dados insuficientes",
+      "needs_user": "Requer ação do usuário",
+      "advisory": "Recomendação",
       "injected": "Inserido",
       "interrupted": "Interrompido",
       "killed": "Encerrado à força",
@@ -1285,11 +1283,13 @@
       "timed_out": "Tempo esgotado",
       "unknown": "Desconhecido",
       "warning": "Aviso",
-      "needs_user": "Requer ação do usuário",
-      "advisory": "Recomendação",
       "evaluating": "Em avaliação",
       "in_progress": "Em andamento"
-    }
+    },
+    "request": "Solicitação",
+    "response": "Resposta",
+    "authMethod": "Método de autenticação",
+    "testSteps": "Etapas do teste"
   },
   "context": {
     "ago": "atrás",
@@ -1456,106 +1456,6 @@
     "bannerConfig": "Modo Perigoso ativo — todas as aprovações de ferramentas são ignoradas. Desative em Configurações → Segurança"
   },
   "dashboard": {
-    "controlPlane": {
-      "title": "Metas e Execução",
-      "automationTab": "Automação",
-      "scopeHint": "As métricas da janela mostram os resultados; os instantâneos atuais mostram atrasos e riscos.",
-      "allProjects": "Todos os projetos",
-      "unassignedProject": "Não atribuído",
-      "archived": "Arquivado",
-      "empty": "Não há dados para o escopo selecionado.",
-      "sections": {
-        "overview": "Visão geral",
-        "planTask": "Plano e Tarefa"
-      },
-      "metrics": {
-        "goalAcceptance": "Taxa de aceitação de metas",
-        "workflowCompletion": "Taxa de conclusão do fluxo de trabalho",
-        "loopStrongProgress": "Taxa de progresso forte do loop",
-        "taskCompletion": "Conclusão da coorte de tarefas",
-        "attention": "Precisa de atenção",
-        "requiredCriteria": "Taxa de aprovação nos critérios obrigatórios",
-        "goalP50": "Meta de tempo para aceitar P50",
-        "opFailure": "Taxa de falha de operação",
-        "workflowP50": "Duração do fluxo de trabalho P50",
-        "goalBinding": "Taxa de vinculação de meta",
-        "approvalTrigger": "Taxa de acionamento de aprovação",
-        "noProgress": "Taxa sem progresso",
-        "blockedSchedules": "Agendamentos bloqueados",
-        "loopP50": "Duração da execução do loop P50",
-        "currentBacklog": "Pendências atuais",
-        "activePlans": "Ativo agora",
-        "cohortCompletion": "Conclusão da coorte"
-      },
-      "currentSnapshot": "Instantâneo atual",
-      "goalTrend": "Resultados da meta",
-      "resolved": "Resolvido",
-      "accepted": "Aceito",
-      "attentionTitle": "Itens de atenção atuais",
-      "noAttention": "Nenhum item de atenção atual",
-      "auditSamples": "{{count}} alvos auditados",
-      "currentStates": "Estados atuais",
-      "closureOutcomes": "Resultados de encerramento",
-      "domains": "Domínios",
-      "kinds": "Tipos",
-      "origins": "Origens",
-      "workflowTrend": "Execuções de fluxo de trabalho decididas",
-      "decidedRuns": "Corridas decididas",
-      "progressStates": "Classificação de progresso",
-      "triggerKinds": "Tipos de gatilho",
-      "strategies": "Estratégias de execução",
-      "loopTrend": "Execuções de loop avaliadas",
-      "evaluatedRuns": "Execuções avaliadas",
-      "openPlanHistory": "Ver histórico do plano",
-      "planByAgent": "Plano por Agente",
-      "planByProject": "Planeje por projeto",
-      "noFunnelHint": "Tarefa e Plano ainda não possuem chaves de atribuição de meta/fluxo de trabalho/loop confiáveis, portanto, esta página não infere um funil causal das sessões.",
-      "noExactSamples": "Nenhuma amostra de duração exata",
-      "coverage": "{{samples}}/{{eligible}} amostras precisas ({{percent}}%)",
-      "coverageShort": "Cobertura de duração exata:{{samples}}/{{eligible}}",
-      "creationTrend": "Tendência de criação",
-      "created": "Criado",
-      "attentionKinds": {
-        "goal": "Objetivo",
-        "workflow": "Fluxo de trabalho",
-        "loop": "Ciclo",
-        "plan": "Plano"
-      },
-      "attentionReasons": {
-        "needs_strict_evidence": "Evidência rigorosa necessária",
-        "goal_awaiting_closure": "Meta aguardando encerramento",
-        "workflow_requires_attention": "O fluxo de trabalho requer atenção",
-        "consecutive_no_progress": "Sem progresso consecutivo",
-        "loop_requires_attention": "O loop requer atenção",
-        "plan_awaiting_review": "Plano aguardando revisão"
-      },
-      "states": {
-        "active": "Ativo",
-        "paused": "Pausado",
-        "evaluating": "Avaliando",
-        "completed": "Concluído",
-        "failed": "Fracassado",
-        "cancelled": "Cancelado",
-        "blocked": "Bloqueado",
-        "planning": "Planejamento",
-        "review": "Revisão",
-        "executing": "Executando",
-        "off": "Arquivado",
-        "awaiting_approval": "Aguardando aprovação",
-        "awaiting_user": "Aguardando usuário",
-        "running": "Em execução",
-        "recovering": "Recuperando",
-        "draft": "Rascunho",
-        "pending": "Pendente",
-        "in_progress": "Em andamento",
-        "progressed": "Progredido",
-        "weak_progress": "Progresso fraco",
-        "no_progress": "Sem progresso",
-        "accepted_v1": "Aceito v1",
-        "superseded": "Substituído",
-        "unassigned": "Não atribuído"
-      }
-    },
     "autoRefresh": {
       "1m": "1 min",
       "30s": "30 s",
@@ -1975,8 +1875,8 @@
       "activeCampaigns": "{{count}} ativo",
       "baselineKinds": {
         "deterministic": "Determinístico",
-        "external_model": "Modelo externo",
-        "deterministic_mock": "Simulação determinística"
+        "deterministic_mock": "Simulação determinística",
+        "external_model": "Modelo externo"
       },
       "calibrationAcceptedNote": "A revisão humana aceitou {{label}} como evidência de calibração.",
       "calibrationFollowUpNote": "A revisão humana marcou {{label}} para acompanhamento da calibração após {{status}}.",
@@ -2227,6 +2127,106 @@
     },
     "columns": {
       "session": "Sessão"
+    },
+    "controlPlane": {
+      "title": "Metas e Execução",
+      "automationTab": "Automação",
+      "scopeHint": "As métricas da janela mostram os resultados; os instantâneos atuais mostram atrasos e riscos.",
+      "allProjects": "Todos os projetos",
+      "unassignedProject": "Não atribuído",
+      "archived": "Arquivado",
+      "empty": "Não há dados para o escopo selecionado.",
+      "sections": {
+        "overview": "Visão geral",
+        "planTask": "Plano e Tarefa"
+      },
+      "metrics": {
+        "goalAcceptance": "Taxa de aceitação de metas",
+        "workflowCompletion": "Taxa de conclusão do fluxo de trabalho",
+        "loopStrongProgress": "Taxa de progresso forte do loop",
+        "taskCompletion": "Conclusão da coorte de tarefas",
+        "attention": "Precisa de atenção",
+        "requiredCriteria": "Taxa de aprovação nos critérios obrigatórios",
+        "goalP50": "Meta de tempo para aceitar P50",
+        "opFailure": "Taxa de falha de operação",
+        "workflowP50": "Duração do fluxo de trabalho P50",
+        "goalBinding": "Taxa de vinculação de meta",
+        "approvalTrigger": "Taxa de acionamento de aprovação",
+        "noProgress": "Taxa sem progresso",
+        "blockedSchedules": "Agendamentos bloqueados",
+        "loopP50": "Duração da execução do loop P50",
+        "currentBacklog": "Pendências atuais",
+        "activePlans": "Ativo agora",
+        "cohortCompletion": "Conclusão da coorte"
+      },
+      "currentSnapshot": "Instantâneo atual",
+      "goalTrend": "Resultados da meta",
+      "resolved": "Resolvido",
+      "accepted": "Aceito",
+      "attentionTitle": "Itens de atenção atuais",
+      "noAttention": "Nenhum item de atenção atual",
+      "auditSamples": "{{count}} alvos auditados",
+      "currentStates": "Estados atuais",
+      "closureOutcomes": "Resultados de encerramento",
+      "domains": "Domínios",
+      "kinds": "Tipos",
+      "origins": "Origens",
+      "workflowTrend": "Execuções de fluxo de trabalho decididas",
+      "decidedRuns": "Corridas decididas",
+      "progressStates": "Classificação de progresso",
+      "triggerKinds": "Tipos de gatilho",
+      "strategies": "Estratégias de execução",
+      "loopTrend": "Execuções de loop avaliadas",
+      "evaluatedRuns": "Execuções avaliadas",
+      "openPlanHistory": "Ver histórico do plano",
+      "planByAgent": "Plano por Agente",
+      "planByProject": "Planeje por projeto",
+      "noFunnelHint": "Tarefa e Plano ainda não possuem chaves de atribuição de meta/fluxo de trabalho/loop confiáveis, portanto, esta página não infere um funil causal das sessões.",
+      "noExactSamples": "Nenhuma amostra de duração exata",
+      "coverage": "{{samples}}/{{eligible}} amostras precisas ({{percent}}%)",
+      "coverageShort": "Cobertura de duração exata:{{samples}}/{{eligible}}",
+      "creationTrend": "Tendência de criação",
+      "created": "Criado",
+      "attentionKinds": {
+        "goal": "Objetivo",
+        "workflow": "Fluxo de trabalho",
+        "loop": "Ciclo",
+        "plan": "Plano"
+      },
+      "attentionReasons": {
+        "needs_strict_evidence": "Evidência rigorosa necessária",
+        "goal_awaiting_closure": "Meta aguardando encerramento",
+        "workflow_requires_attention": "O fluxo de trabalho requer atenção",
+        "consecutive_no_progress": "Sem progresso consecutivo",
+        "loop_requires_attention": "O loop requer atenção",
+        "plan_awaiting_review": "Plano aguardando revisão"
+      },
+      "states": {
+        "active": "Ativo",
+        "paused": "Pausado",
+        "evaluating": "Avaliando",
+        "completed": "Concluído",
+        "failed": "Fracassado",
+        "cancelled": "Cancelado",
+        "blocked": "Bloqueado",
+        "planning": "Planejamento",
+        "review": "Revisão",
+        "executing": "Executando",
+        "off": "Arquivado",
+        "awaiting_approval": "Aguardando aprovação",
+        "awaiting_user": "Aguardando usuário",
+        "running": "Em execução",
+        "recovering": "Recuperando",
+        "draft": "Rascunho",
+        "pending": "Pendente",
+        "in_progress": "Em andamento",
+        "progressed": "Progredido",
+        "weak_progress": "Progresso fraco",
+        "no_progress": "Sem progresso",
+        "accepted_v1": "Aceito v1",
+        "superseded": "Substituído",
+        "unassigned": "Não atribuído"
+      }
     }
   },
   "fileActions": {
@@ -2244,6 +2244,37 @@
     "upload": "Enviar",
     "saveAs": "Salvar como",
     "downloadFailed": "Falha ao baixar o arquivo"
+  },
+  "fileEditor": {
+    "notUtf8": "O arquivo não é um texto UTF-8 válido",
+    "notEditable": "Este arquivo não pode ser editado como texto UTF-8",
+    "tooLarge": "O arquivo excede o limite de edição de {{limit}} MiB",
+    "saved": "Salvo",
+    "showPreview": "Mostrar pré-visualização",
+    "showSource": "Mostrar código-fonte",
+    "saveAsExists": "Já existe um arquivo nesse caminho",
+    "mixedLineEndings": "Há finais de linha mistos; ao salvar, serão normalizados para o estilo predominante.",
+    "externalChanged": "O arquivo foi alterado fora deste editor.",
+    "reload": "Recarregar",
+    "conflictTitle": "Conflito ao salvar",
+    "conflictDeleted": "O arquivo foi excluído fora deste editor.",
+    "conflictChanged": "O arquivo foi alterado fora deste editor.",
+    "saveAsScope": "Salve um novo arquivo dentro do espaço de trabalho atual.",
+    "unsavedTitle": "Alterações não salvas",
+    "unsavedBody": "Descartar as edições atuais antes de sair deste arquivo?",
+    "discard": "Descartar alterações",
+    "remoteWritesTitle": "A gravação remota de arquivos está desativada",
+    "remoteWritesBody": "Este espaço de trabalho fica na máquina do servidor. Ative a gravação remota nas configurações do servidor apenas se confiar nos clientes conectados.",
+    "goToServerSettings": "Ir para as configurações do servidor",
+    "transportSwitchUnsaved": "Há alterações de arquivo não salvas. Trocar a conexão e descartá-las?"
+  },
+  "attachments": {
+    "uploading": "Enviando…",
+    "uploadFailedShort": "Falha no envio",
+    "uploadFailed": "Os arquivos não foram enviados. {{error}}",
+    "tooMany": "Uma mensagem pode conter no máximo 64 arquivos",
+    "tooLarge": "{{name}} excede o limite de {{limit}} MB",
+    "someTooLarge": "Alguns arquivos excedem o limite de {{limit}} MB"
   },
   "filePreview": {
     "panelTitle": "Pré-visualização",
@@ -2340,10 +2371,10 @@
       "staged": "Preparado",
       "stagedScope": "Preparado",
       "stale": "O repositório mudou. A diferença foi atualizada; revise-o novamente.",
+      "prReviewComments": "Comentários de revisão do PR · {{count}}",
       "unstage": "Remover da preparação",
       "unstaged": "Não preparado",
-      "unstagedScope": "Não preparado",
-      "prReviewComments": "Comentários de revisão do PR · {{count}}"
+      "unstagedScope": "Não preparado"
     }
   },
   "effort": {
@@ -2722,8 +2753,8 @@
       "ollama_install": "Instalação do Ollama",
       "ollama_preload": "Início do modelo",
       "ollama_pull": "Modelo Ollama",
-      "memory_reembed": "Reconstrução dos vetores de memória",
-      "knowledge_reembed": "Reconstrução do índice de conhecimento"
+      "knowledge_reembed": "Reconstrução do índice de conhecimento",
+      "memory_reembed": "Reconstrução dos vetores de memória"
     },
     "logs": {
       "empty": "Ainda não há registros"
@@ -2786,9 +2817,9 @@
     "text": "Texto",
     "video": "Vídeo",
     "anthropicThinkingBudget": "Anthropic (orçamento de raciocínio)",
+    "zaiThinkingBudget": "Z.AI (orçamento de raciocínio)",
     "contextWindow": "Janela de contexto",
     "maxTokens": "Máximo de tokens",
-    "zaiThinkingBudget": "Z.AI (orçamento de raciocínio)",
     "costUnpriced": "Sem preço"
   },
   "notification": {
@@ -3196,7 +3227,6 @@
       "editorHint": "As instruções do projeto são regras fixas. Esta área guarda aprendizados acumulados durante o trabalho, não instruções autoritativas.",
       "editorTitle": "Memória automática do projeto",
       "empty": "Ainda não há tópicos de memória automática.",
-      "emptyPreview": "Ainda não existem detalhes em Markdown. Mude para Editar para adicionar conteúdo.",
       "fileNameGenerated": "O nome do arquivo será gerado ao salvar",
       "name": "Título",
       "newTopic": "Novo tópico",
@@ -3210,7 +3240,8 @@
         "project": "Trabalho do projeto",
         "reference": "Referência",
         "user": "Contexto do usuário"
-      }
+      },
+      "emptyPreview": "Ainda não existem detalhes em Markdown. Mude para Editar para adicionar conteúdo."
     },
     "createFirstProject": "Crie seu primeiro projeto",
     "defaultAgent": "Agent padrão",
@@ -3286,12 +3317,7 @@
     "projectDescriptionPlaceholder": "Sobre o que é este projeto?",
     "projectInstructions": "Instruções do projeto",
     "projectInstructionsHint": "Edita diretamente o arquivo AGENTS.md na raiz do projeto. Depois de salvo, ele se aplica a todas as sessões do projeto.",
-    "projectInstructionsLineCount": "{{count}} linhas",
-    "resizeSettingsSheet": "Arraste para redimensionar as configurações do projeto",
-    "projectInstructionsEmptyPreview": "O AGENTS.md está vazio. Mude para Editar para adicionar instruções em Markdown.",
-    "projectInstructionsLoadFailed": "Não foi possível ler o AGENTS.md",
     "projectInstructionsPlaceholder": "ex. Sempre responder em português; usar um tom claro e amigável; começar pela conclusão",
-    "projectInstructionsSaveFailed": "Não foi possível salvar o AGENTS.md",
     "projectLogo": "Logotipo",
     "projectLogoHint": "Opcional. Imagens são redimensionadas automaticamente para 256×256.",
     "projectName": "Nome do projeto",
@@ -3327,7 +3353,12 @@
       "updateFailed": "Falha ao atualizar o espaço de conhecimento do projeto",
       "errorDetail": "Detalhes: {{error}}"
     },
-    "projectEmojiPlaceholder": "Opcional"
+    "projectEmojiPlaceholder": "Opcional",
+    "projectInstructionsLineCount": "{{count}} linhas",
+    "resizeSettingsSheet": "Arraste para redimensionar as configurações do projeto",
+    "projectInstructionsEmptyPreview": "O AGENTS.md está vazio. Mude para Editar para adicionar instruções em Markdown.",
+    "projectInstructionsLoadFailed": "Não foi possível ler o AGENTS.md",
+    "projectInstructionsSaveFailed": "Não foi possível salvar o AGENTS.md"
   },
   "provider": {
     "addProvider": "Adicionar Provedor",
@@ -3598,7 +3629,6 @@
     }
   },
   "settings": {
-    "about": "Sobre",
     "resetDefaultsPageAction": "Restaurar esta página",
     "resetDefaultsTabAction": "Restaurar a aba atual",
     "resetDefaultsRegionAction": "Restaurar esta seção",
@@ -3611,6 +3641,35 @@
     "resetDefaultsFailed": "Falha ao restaurar os padrões de {{section}}",
     "resetDefaultsReindexStarted": "As configurações de conhecimento foram salvas e o índice está sendo reconstruído em segundo plano.",
     "resetDefaultsWarning": "As configurações foram restauradas, mas uma ação em tempo de execução não terminou. Tente novamente mais tarde.",
+    "files": {
+      "title": "Arquivos",
+      "description": "Configure os limites de arquivos usados no chat, espaço de trabalho, visualização e edição.",
+      "runtimeLocal": "Arquivos do desktop local",
+      "runtimeServer": "Arquivos do servidor",
+      "runtimeLocalDesc": "As operações usam o sistema de arquivos deste computador.",
+      "runtimeServerDesc": "As operações usam o sistema de arquivos do servidor remoto.",
+      "maxChatAttachment": "Limite de anexo do chat",
+      "maxChatAttachmentDesc": "Tamanho máximo por anexo do chat ({{min}}–{{max}} MiB).",
+      "maxWorkspaceUpload": "Limite de upload do espaço de trabalho",
+      "maxWorkspaceUploadDesc": "Tamanho máximo por arquivo enviado ao espaço de trabalho ({{min}}–{{max}} MiB).",
+      "maxTextPreview": "Limite de visualização de texto",
+      "maxTextPreviewDesc": "Tamanho máximo do arquivo de texto carregado para visualização ({{min}}–{{max}} MiB).",
+      "maxTextEdit": "Limite de edição de texto",
+      "maxTextEditDesc": "Tamanho máximo do arquivo de texto UTF-8 que pode ser editado ({{min}}–{{max}} MiB).",
+      "maxDocumentPreview": "Limite de visualização de documentos",
+      "maxDocumentPreviewDesc": "Tamanho máximo de PDF ou Office processado para visualização ({{min}}–{{max}} MiB).",
+      "maxArtifactImport": "Limite de importação de artefato",
+      "maxArtifactImportDesc": "Tamanho máximo de origem HTML, Markdown ou Análise JSON importado para artefatos ({{min}}–{{max}} MiB).",
+      "largeUploadWarning": "Limites altos aumentam o uso de disco, rede e processamento. Aumente apenas se o servidor tiver recursos suficientes."
+    },
+    "knowledgeSourceLimits": {
+      "title": "Limites de fontes de conhecimento",
+      "description": "Tamanho máximo aceito para cada tipo de fonte do espaço de conhecimento.",
+      "text": "Fonte de texto (MiB)",
+      "binary": "Fonte binária (MiB)",
+      "url": "Resposta de URL (MiB)"
+    },
+    "about": "Sobre",
     "acpAutoDiscover": "Descobrir backends automaticamente",
     "acpAutoDiscoverDesc": "Procurar binários de agents ACP conhecidos no $PATH ao iniciar",
     "acpBackendId": "ID",
@@ -3977,15 +4036,6 @@
     },
     "browser": {
       "activeBadge": "ativo",
-      "backupRuntimeHint": "Sistema Chrome está disponível. Instale um tempo de execução do Chromium gerenciado pelo Hope como um substituto para automação do navegador e exportação de artefato PDF.",
-      "backupRuntimeTitle": "Backup do tempo de execução do Chromium",
-      "installRuntimeRetry": "O tempo de execução está pronto. Tente novamente a ação do navegador ou exporte PDF.",
-      "openBrowserSettings": "Abra as configurações do navegador",
-      "runtimeInstallUnsupported": "Hope não fornece um tempo de execução gerenciado do Chromium para este sistema operacional ou arquitetura. Instale o Chrome/Chromium manualmente ou configure um caminho executável.",
-      "runtimeRequiredArtifactPdfDescription": "A exportação PDF precisa de um tempo de execução Chrome ou Chromium local, mas nenhum está disponível no momento.",
-      "runtimeRequiredDescription": "Esta operação do navegador precisa de um tempo de execução local Chrome ou Chromium, mas nenhum está disponível no momento.",
-      "runtimeRequiredHint": "Você pode instalar o tempo de execução gerenciado do Hope agora (cerca de 150 MB) e tentar novamente a operação.",
-      "runtimeRequiredTitle": "Tempo de execução do Chromium necessário",
       "connect": "Anexar",
       "connectHelp": "Já está rodando o Chrome com --remote-debugging-port=9222? Conecte em vez de lançar uma nova instância.",
       "connectUrlLabel": "URL de depuração",
@@ -4135,7 +4185,16 @@
         "title": "Permitir CDP bruto?",
         "body": "Isso permite que a IA envie comandos arbitrários do DevTools Protocol ao seu Chrome real. Cada chamada ainda exige sua aprovação individual e métodos perigosos permanecem bloqueados, mas ative somente se você realmente precisar.",
         "continue": "Ativar"
-      }
+      },
+      "backupRuntimeHint": "Sistema Chrome está disponível. Instale um tempo de execução do Chromium gerenciado pelo Hope como um substituto para automação do navegador e exportação de artefato PDF.",
+      "backupRuntimeTitle": "Backup do tempo de execução do Chromium",
+      "installRuntimeRetry": "O tempo de execução está pronto. Tente novamente a ação do navegador ou exporte PDF.",
+      "openBrowserSettings": "Abra as configurações do navegador",
+      "runtimeInstallUnsupported": "Hope não fornece um tempo de execução gerenciado do Chromium para este sistema operacional ou arquitetura. Instale o Chrome/Chromium manualmente ou configure um caminho executável.",
+      "runtimeRequiredArtifactPdfDescription": "A exportação PDF precisa de um tempo de execução Chrome ou Chromium local, mas nenhum está disponível no momento.",
+      "runtimeRequiredDescription": "Esta operação do navegador precisa de um tempo de execução local Chrome ou Chromium, mas nenhum está disponível no momento.",
+      "runtimeRequiredHint": "Você pode instalar o tempo de execução gerenciado do Hope agora (cerca de 150 MB) e tentar novamente a operação.",
+      "runtimeRequiredTitle": "Tempo de execução do Chromium necessário"
     },
     "bytes": "bytes",
     "canvas": "Tela",
@@ -4723,6 +4782,8 @@
     "fallbackModelsDesc": "Quando o modelo principal não estiver disponível, tentar estes modelos em ordem",
     "fsRemoteWrites": "Permitir gravação remota de arquivos",
     "fsRemoteWritesDesc": "Permite que clientes HTTP criem, editem, excluam e enviem arquivos no diretório de trabalho do projeto. Desativado por padrão — o aplicativo desktop sempre pode gravar localmente, independentemente desta configuração.",
+    "fsMaxChatAttachmentMb": "Tamanho máximo do anexo do chat",
+    "fsMaxChatAttachmentMbDesc": "Tamanho máximo de um arquivo enviado pelo compositor do chat. O desktop local usa a configuração local; o desktop remoto e a Web usam a configuração do servidor.",
     "general": "Geral",
     "generalDesc": "Aparência, idioma e configurações do sistema",
     "globalModel": "Configurações Globais de Modelo",
@@ -7634,36 +7695,6 @@
     "audioGenFetchVoices": "Buscar vozes",
     "audioGenKnownModels": "Modelos conhecidos",
     "audioGenPickVoice": "Escolher da lista…",
-    "files": {
-      "title": "Arquivos",
-      "description": "Configure os limites de arquivos usados no chat, espaço de trabalho, visualização e edição.",
-      "runtimeLocal": "Arquivos do desktop local",
-      "runtimeServer": "Arquivos do servidor",
-      "runtimeLocalDesc": "As operações usam o sistema de arquivos deste computador.",
-      "runtimeServerDesc": "As operações usam o sistema de arquivos do servidor remoto.",
-      "maxChatAttachment": "Limite de anexo do chat",
-      "maxChatAttachmentDesc": "Tamanho máximo por anexo do chat ({{min}}–{{max}} MiB).",
-      "maxWorkspaceUpload": "Limite de upload do espaço de trabalho",
-      "maxWorkspaceUploadDesc": "Tamanho máximo por arquivo enviado ao espaço de trabalho ({{min}}–{{max}} MiB).",
-      "maxTextPreview": "Limite de visualização de texto",
-      "maxTextPreviewDesc": "Tamanho máximo do arquivo de texto carregado para visualização ({{min}}–{{max}} MiB).",
-      "maxTextEdit": "Limite de edição de texto",
-      "maxTextEditDesc": "Tamanho máximo do arquivo de texto UTF-8 que pode ser editado ({{min}}–{{max}} MiB).",
-      "maxDocumentPreview": "Limite de visualização de documentos",
-      "maxDocumentPreviewDesc": "Tamanho máximo de PDF ou Office processado para visualização ({{min}}–{{max}} MiB).",
-      "maxArtifactImport": "Limite de importação de artefato",
-      "maxArtifactImportDesc": "Tamanho máximo de origem HTML, Markdown ou Análise JSON importado para artefatos ({{min}}–{{max}} MiB).",
-      "largeUploadWarning": "Limites altos aumentam o uso de disco, rede e processamento. Aumente apenas se o servidor tiver recursos suficientes."
-    },
-    "knowledgeSourceLimits": {
-      "title": "Limites de fontes de conhecimento",
-      "description": "Tamanho máximo aceito para cada tipo de fonte do espaço de conhecimento.",
-      "text": "Fonte de texto (MiB)",
-      "binary": "Fonte binária (MiB)",
-      "url": "Resposta de URL (MiB)"
-    },
-    "fsMaxChatAttachmentMb": "Tamanho máximo do anexo do chat",
-    "fsMaxChatAttachmentMbDesc": "Tamanho máximo de um arquivo enviado pelo compositor do chat. O desktop local usa a configuração local; o desktop remoto e a Web usam a configuração do servidor.",
     "acpCustomAgent": "Agente personalizado",
     "canvasTypes": {
       "chart": "Gráfico",
@@ -8620,6 +8651,8 @@
       "selectBranch": "Selecionar ramificação",
       "stageAll": "Preparar todas as alterações",
       "viewPr": "Ver Pull Request",
+      "pullRequestPanelTitle": "Solicitação de pull",
+      "resizePullRequestPanel": "Redimensionar painel da solicitação",
       "worktree": "Árvore de trabalho",
       "checkDetails": "Detalhes das verificações",
       "checkFailed": "Falhou",
@@ -8641,6 +8674,7 @@
       "openCheck": "Abrir verificação",
       "openComment": "Abrir comentário",
       "prFeedbackUnavailable": "Verificações e comentários do PR indisponíveis",
+      "prFeedbackStale": "Falha ao atualizar o status; os dados atuais podem estar desatualizados",
       "reviewComments": "{{count}} comentários",
       "reviewFeedback": "Feedback da revisão",
       "autoMergeEnabled": "Mesclagem automática ativada",
@@ -8667,10 +8701,7 @@
       "reviewPending": "Pendente",
       "reviewRequired": "Revisão necessária",
       "reviewStatus": "Status da revisão",
-      "reviewers": "Revisores",
-      "pullRequestPanelTitle": "Solicitação de pull",
-      "resizePullRequestPanel": "Redimensionar painel da solicitação",
-      "prFeedbackStale": "Falha ao atualizar o status; os dados atuais podem estar desatualizados"
+      "reviewers": "Revisores"
     },
     "goal": {
       "watchdogTitle": "A meta precisa de confirmação",
@@ -10594,6 +10625,8 @@
       "title": "Organize em notas"
     },
     "sources": {
+      "textTooLarge": "A fonte de texto excede o limite de {{limit}} MiB",
+      "fileTooLarge": "{{name}} excede o limite de {{limit}} MiB",
       "archiveAttachment": "Arquivar para conhecimento",
       "archiveAttachmentFailed": "Falha ao arquivar o anexo",
       "archivedAttachment": "Arquivado em fontes de conhecimento",
@@ -10732,9 +10765,7 @@
       "ocrFailed": "Falha no OCR",
       "ocrRetry": "Repetir páginas com falha",
       "ocrRetryStarted": "Repetindo páginas com falha…",
-      "ocrRetryFailed": "Não foi possível repetir as páginas de OCR",
-      "textTooLarge": "A fonte de texto excede o limite de {{limit}} MiB",
-      "fileTooLarge": "{{name}} excede o limite de {{limit}} MiB"
+      "ocrRetryFailed": "Não foi possível repetir as páginas de OCR"
     },
     "queryFile": {
       "action": "Arquivo",
@@ -10770,54 +10801,6 @@
       "emptyInternal": "Este espaço está vazio.",
       "importFiles": "Importar arquivos"
     }
-  },
-  "backgroundJobs": {
-    "panelTitle": "Tarefas em segundo plano",
-    "openPanel": "Tarefas em segundo plano",
-    "openFull": "Ver tudo",
-    "expandJob": "Expandir tarefa",
-    "collapseJob": "Recolher tarefa",
-    "jumpToBottom": "Ir para o fim",
-    "empty": "Nenhuma tarefa em segundo plano",
-    "sectionSession": "Esta sessão",
-    "sectionLocalModel": "Modelos locais",
-    "kindGroup": "Grupo de tarefas",
-    "kindSubagent": "Subagente",
-    "resizePanel": "Redimensionar painel de tarefas em segundo plano",
-    "status": {
-      "queued": "Na fila",
-      "running": "Em execução",
-      "cancelling": "Cancelando",
-      "awaiting_approval": "Aguardando aprovação",
-      "completed": "Concluída",
-      "failed": "Falhou",
-      "interrupted": "Interrompida",
-      "timed_out": "Tempo esgotado",
-      "cancelled": "Cancelada"
-    },
-    "errorOutput": "erro",
-    "liveOutput": "saída em tempo real",
-    "outputFile": "resultados completos",
-    "resultPreview": "Visualização dos resultados"
-  },
-  "browser": {
-    "panelTitle": "Navegador"
-  },
-  "error": {
-    "appCrash": "Algo deu errado",
-    "retry": "Tente novamente",
-    "unknown": "Ocorreu um erro inesperado"
-  },
-  "localModels": {
-    "actions": {
-      "download": "Baixar"
-    }
-  },
-  "macControl": {
-    "panelTitle": "Controle do Mac"
-  },
-  "memory": {
-    "activeRecallToastTitle": "Memória referenciada"
   },
   "artifacts": {
     "title": "Artefatos",
@@ -10916,6 +10899,54 @@
     "exportReviewBlocked": "Revisão de exportação ainda tem bloqueadores",
     "guardStatus": "Guarda",
     "defaultName": "Artefato"
+  },
+  "backgroundJobs": {
+    "panelTitle": "Tarefas em segundo plano",
+    "openPanel": "Tarefas em segundo plano",
+    "openFull": "Ver tudo",
+    "expandJob": "Expandir tarefa",
+    "collapseJob": "Recolher tarefa",
+    "jumpToBottom": "Ir para o fim",
+    "empty": "Nenhuma tarefa em segundo plano",
+    "sectionSession": "Esta sessão",
+    "sectionLocalModel": "Modelos locais",
+    "kindGroup": "Grupo de tarefas",
+    "kindSubagent": "Subagente",
+    "resizePanel": "Redimensionar painel de tarefas em segundo plano",
+    "status": {
+      "queued": "Na fila",
+      "running": "Em execução",
+      "cancelling": "Cancelando",
+      "awaiting_approval": "Aguardando aprovação",
+      "completed": "Concluída",
+      "failed": "Falhou",
+      "interrupted": "Interrompida",
+      "timed_out": "Tempo esgotado",
+      "cancelled": "Cancelada"
+    },
+    "errorOutput": "erro",
+    "liveOutput": "saída em tempo real",
+    "outputFile": "resultados completos",
+    "resultPreview": "Visualização dos resultados"
+  },
+  "browser": {
+    "panelTitle": "Navegador"
+  },
+  "error": {
+    "appCrash": "Algo deu errado",
+    "retry": "Tente novamente",
+    "unknown": "Ocorreu um erro inesperado"
+  },
+  "localModels": {
+    "actions": {
+      "download": "Baixar"
+    }
+  },
+  "macControl": {
+    "panelTitle": "Controle do Mac"
+  },
+  "memory": {
+    "activeRecallToastTitle": "Memória referenciada"
   },
   "design": {
     "title": "Espaço de Design",
@@ -11637,37 +11668,6 @@
       "checkStale": "{{n}} artefatos têm atualizações de código",
       "chatPrompt": "O código implementado divergiu deste design. Atualize o design atual para refletir as alterações de código referenciadas, mantendo a intenção do design e todo o resto inalterado."
     }
-  },
-  "fileEditor": {
-    "notUtf8": "O arquivo não é um texto UTF-8 válido",
-    "notEditable": "Este arquivo não pode ser editado como texto UTF-8",
-    "tooLarge": "O arquivo excede o limite de edição de {{limit}} MiB",
-    "saved": "Salvo",
-    "showPreview": "Mostrar pré-visualização",
-    "showSource": "Mostrar código-fonte",
-    "saveAsExists": "Já existe um arquivo nesse caminho",
-    "mixedLineEndings": "Há finais de linha mistos; ao salvar, serão normalizados para o estilo predominante.",
-    "externalChanged": "O arquivo foi alterado fora deste editor.",
-    "reload": "Recarregar",
-    "conflictTitle": "Conflito ao salvar",
-    "conflictDeleted": "O arquivo foi excluído fora deste editor.",
-    "conflictChanged": "O arquivo foi alterado fora deste editor.",
-    "saveAsScope": "Salve um novo arquivo dentro do espaço de trabalho atual.",
-    "unsavedTitle": "Alterações não salvas",
-    "unsavedBody": "Descartar as edições atuais antes de sair deste arquivo?",
-    "discard": "Descartar alterações",
-    "remoteWritesTitle": "A gravação remota de arquivos está desativada",
-    "remoteWritesBody": "Este espaço de trabalho fica na máquina do servidor. Ative a gravação remota nas configurações do servidor apenas se confiar nos clientes conectados.",
-    "goToServerSettings": "Ir para as configurações do servidor",
-    "transportSwitchUnsaved": "Há alterações de arquivo não salvas. Trocar a conexão e descartá-las?"
-  },
-  "attachments": {
-    "uploading": "Enviando…",
-    "uploadFailedShort": "Falha no envio",
-    "uploadFailed": "Os arquivos não foram enviados. {{error}}",
-    "tooMany": "Uma mensagem pode conter no máximo 64 arquivos",
-    "tooLarge": "{{name}} excede o limite de {{limit}} MB",
-    "someTooLarge": "Alguns arquivos excedem o limite de {{limit}} MB"
   },
   "configRecovery": {
     "title": "É necessário recuperar a configuração",

@@ -421,9 +421,6 @@
     "completedTurnCollapsed": "{{count}}개 메시지 처리됨",
     "completedTurnCollapsedWithDuration": "{{duration}} 동안 처리됨, {{count}}개 메시지",
     "conversations": "대화",
-    "unreadConversationCount": "읽지 않은 대화 {{count}}개",
-    "unreadStatus": "읽지 않음",
-    "channelUnreadStatus": "읽지 않은 IM 대화",
     "collapseSidebar": "사이드바 접기",
     "sidebarCompactMode": "간단 모드로 전환",
     "sidebarDetailedMode": "일반 모드로 전환",
@@ -867,9 +864,9 @@
         "docx": "Word 문서",
         "pptx": "PowerPoint 슬라이드",
         "xlsx": "Excel 스프레드시트",
-        "dataAnalytics": "데이터 분석",
         "browser": "브라우저 제어",
-        "mac": "Mac 제어"
+        "mac": "Mac 제어",
+        "dataAnalytics": "데이터 분석"
       }
     },
     "reasoningDisabledHint": "이 모델은 추론이 활성화되어 있지 않습니다. 추론 강도를 조정하려면 「설정 → 모델 제공자」에서 이 모델을 편집하고 「추론/사고 지원」을 켜세요.",
@@ -1169,6 +1166,9 @@
     "openSourceConversationMissingHint": "이 메모리 출처가 가리키는 대화가 삭제되었거나 찾을 수 없습니다.",
     "openSourceMessageMissing": "출처 메시지를 더 이상 사용할 수 없습니다",
     "openSourceMessageMissingHint": "대화는 아직 있지만 이 메모리 출처의 정확한 메시지를 찾을 수 없습니다.",
+    "unreadConversationCount": "읽지 않은 대화 {{count}}개",
+    "unreadStatus": "읽지 않음",
+    "channelUnreadStatus": "읽지 않은 IM 대화",
     "generatedImageName": "생성된 이미지 {{index}}",
     "noAgents": "에이전트 없음",
     "sessionFailed": "대화 실패"
@@ -1179,6 +1179,7 @@
     "reauth": "다시 로그인"
   },
   "common": {
+    "restoreDefaults": "기본값 복원",
     "add": "추가",
     "back": "뒤로",
     "cancel": "취소",
@@ -1225,18 +1226,13 @@
     "off": "끄기",
     "error": "오류",
     "showLess": "간략히 보기",
-    "next": "다음",
-    "previous": "이전의",
     "download": "다운로드",
     "duplicate": "복제",
     "more": "더 보기",
     "apply": "적용",
     "modelNoVision": "이미지 미지원",
-    "restoreDefaults": "기본값 복원",
-    "request": "요청",
-    "response": "응답",
-    "authMethod": "인증 방식",
-    "testSteps": "테스트 단계",
+    "next": "다음",
+    "previous": "이전의",
     "baseUrl": "기본 URL",
     "apiKey": "API 키",
     "ok": "확인",
@@ -1244,7 +1240,6 @@
       "applied": "적용됨",
       "rejected": "거부됨",
       "active": "활성",
-      "advisory": "권고 사항",
       "archived": "보관됨",
       "awaiting_approval": "승인 대기",
       "awaiting_user": "사용자 응답 대기",
@@ -1263,11 +1258,12 @@
       "healthy": "정상",
       "idle": "대기 중",
       "insufficient_data": "데이터 부족",
+      "needs_user": "사용자 조치 필요",
+      "advisory": "권고 사항",
       "injected": "주입됨",
       "interrupted": "중단됨",
       "killed": "강제 종료됨",
       "loading": "로딩 중",
-      "needs_user": "사용자 조치 필요",
       "not_run": "미실행",
       "open": "열림",
       "partial": "일부 완료",
@@ -1289,7 +1285,11 @@
       "warning": "경고",
       "evaluating": "평가 중",
       "in_progress": "진행 중"
-    }
+    },
+    "request": "요청",
+    "response": "응답",
+    "authMethod": "인증 방식",
+    "testSteps": "테스트 단계"
   },
   "context": {
     "ago": "전",
@@ -1456,106 +1456,6 @@
     "bannerConfig": "위험 모드 활성 — 모든 도구 승인을 건너뜁니다. 설정 → 보안에서 비활성화"
   },
   "dashboard": {
-    "controlPlane": {
-      "title": "목표 및 실행",
-      "automationTab": "오토메이션",
-      "scopeHint": "창 메트릭은 결과를 보여줍니다. 현재 스냅샷에는 백로그와 위험이 표시됩니다.",
-      "allProjects": "모든 프로젝트",
-      "unassignedProject": "할당되지 않음",
-      "archived": "보관됨",
-      "empty": "선택한 범위에 대한 데이터가 없습니다.",
-      "sections": {
-        "overview": "개요",
-        "planTask": "계획 및 과제"
-      },
-      "metrics": {
-        "goalAcceptance": "목표 합격률",
-        "workflowCompletion": "워크플로 완료율",
-        "loopStrongProgress": "루프 강력한 진행률",
-        "taskCompletion": "작업 코호트 완료",
-        "attention": "주의가 필요함",
-        "requiredCriteria": "필수기준 합격률",
-        "goalP50": "목표 수락 시간 P50",
-        "opFailure": "작업실패율",
-        "workflowP50": "작업 흐름 기간 P50",
-        "goalBinding": "목표 결합률",
-        "approvalTrigger": "승인 발생률",
-        "noProgress": "무진행률",
-        "blockedSchedules": "차단된 일정",
-        "loopP50": "루프 실행 기간 P50",
-        "currentBacklog": "현재 백로그",
-        "activePlans": "현재 활동 중",
-        "cohortCompletion": "코호트 완료"
-      },
-      "currentSnapshot": "현재 스냅샷",
-      "goalTrend": "목표 결과",
-      "resolved": "해결됨",
-      "accepted": "수락됨",
-      "attentionTitle": "현재 주목 아이템",
-      "noAttention": "현재 관심항목이 없습니다",
-      "auditSamples": "{{count}}감사 대상 목표",
-      "currentStates": "현재 상태",
-      "closureOutcomes": "폐쇄 결과",
-      "domains": "도메인",
-      "kinds": "종류",
-      "origins": "태생",
-      "workflowTrend": "결정된 워크플로 실행",
-      "decidedRuns": "결정된 실행",
-      "progressStates": "진행구분",
-      "triggerKinds": "트리거 종류",
-      "strategies": "실행 전략",
-      "loopTrend": "평가된 루프 실행",
-      "evaluatedRuns": "평가된 실행",
-      "openPlanHistory": "요금제 내역 보기",
-      "planByAgent": "대리인 별 계획",
-      "planByProject": "프로젝트별 계획",
-      "noFunnelHint": "작업 및 계획에는 아직 신뢰할 수 있는 목표/워크플로/루프 속성 키가 없으므로 이 페이지에서는 세션의 인과 유입경로를 추론하지 않습니다.",
-      "noExactSamples": "정확한 기간 샘플 없음",
-      "coverage": "{{samples}}/{{eligible}}정확한 샘플({{percent}}%)",
-      "coverageShort": "정확한 기간 적용 범위:{{samples}}/{{eligible}}",
-      "creationTrend": "창조동향",
-      "created": "생성됨",
-      "attentionKinds": {
-        "goal": "목표",
-        "workflow": "워크플로",
-        "loop": "루프",
-        "plan": "계획"
-      },
-      "attentionReasons": {
-        "needs_strict_evidence": "엄격한 증거 필요",
-        "goal_awaiting_closure": "목표 종료 대기",
-        "workflow_requires_attention": "워크플로 확인 필요",
-        "consecutive_no_progress": "연속 진행 없음",
-        "loop_requires_attention": "루프 확인 필요",
-        "plan_awaiting_review": "플랜 검토 대기"
-      },
-      "states": {
-        "active": "활성",
-        "paused": "일시중지됨",
-        "evaluating": "평가 중",
-        "completed": "완료",
-        "failed": "실패",
-        "cancelled": "취소",
-        "blocked": "차단됨",
-        "planning": "계획",
-        "review": "검토",
-        "executing": "실행 중",
-        "off": "보관됨",
-        "awaiting_approval": "승인 대기",
-        "awaiting_user": "사용자 대기",
-        "running": "달리기",
-        "recovering": "회복 중",
-        "draft": "초안",
-        "pending": "보류 중",
-        "in_progress": "진행중",
-        "progressed": "진행됨",
-        "weak_progress": "약한 진행",
-        "no_progress": "진전이 없습니다",
-        "accepted_v1": "v1 승인됨",
-        "superseded": "대체됨",
-        "unassigned": "할당되지 않음"
-      }
-    },
     "autoRefresh": {
       "1m": "1 분",
       "30s": "30 초",
@@ -2227,6 +2127,106 @@
     },
     "columns": {
       "session": "세션"
+    },
+    "controlPlane": {
+      "title": "목표 및 실행",
+      "automationTab": "오토메이션",
+      "scopeHint": "창 메트릭은 결과를 보여줍니다. 현재 스냅샷에는 백로그와 위험이 표시됩니다.",
+      "allProjects": "모든 프로젝트",
+      "unassignedProject": "할당되지 않음",
+      "archived": "보관됨",
+      "empty": "선택한 범위에 대한 데이터가 없습니다.",
+      "sections": {
+        "overview": "개요",
+        "planTask": "계획 및 과제"
+      },
+      "metrics": {
+        "goalAcceptance": "목표 합격률",
+        "workflowCompletion": "워크플로 완료율",
+        "loopStrongProgress": "루프 강력한 진행률",
+        "taskCompletion": "작업 코호트 완료",
+        "attention": "주의가 필요함",
+        "requiredCriteria": "필수기준 합격률",
+        "goalP50": "목표 수락 시간 P50",
+        "opFailure": "작업실패율",
+        "workflowP50": "작업 흐름 기간 P50",
+        "goalBinding": "목표 결합률",
+        "approvalTrigger": "승인 발생률",
+        "noProgress": "무진행률",
+        "blockedSchedules": "차단된 일정",
+        "loopP50": "루프 실행 기간 P50",
+        "currentBacklog": "현재 백로그",
+        "activePlans": "현재 활동 중",
+        "cohortCompletion": "코호트 완료"
+      },
+      "currentSnapshot": "현재 스냅샷",
+      "goalTrend": "목표 결과",
+      "resolved": "해결됨",
+      "accepted": "수락됨",
+      "attentionTitle": "현재 주목 아이템",
+      "noAttention": "현재 관심항목이 없습니다",
+      "auditSamples": "{{count}}감사 대상 목표",
+      "currentStates": "현재 상태",
+      "closureOutcomes": "폐쇄 결과",
+      "domains": "도메인",
+      "kinds": "종류",
+      "origins": "태생",
+      "workflowTrend": "결정된 워크플로 실행",
+      "decidedRuns": "결정된 실행",
+      "progressStates": "진행구분",
+      "triggerKinds": "트리거 종류",
+      "strategies": "실행 전략",
+      "loopTrend": "평가된 루프 실행",
+      "evaluatedRuns": "평가된 실행",
+      "openPlanHistory": "요금제 내역 보기",
+      "planByAgent": "대리인 별 계획",
+      "planByProject": "프로젝트별 계획",
+      "noFunnelHint": "작업 및 계획에는 아직 신뢰할 수 있는 목표/워크플로/루프 속성 키가 없으므로 이 페이지에서는 세션의 인과 유입경로를 추론하지 않습니다.",
+      "noExactSamples": "정확한 기간 샘플 없음",
+      "coverage": "{{samples}}/{{eligible}}정확한 샘플({{percent}}%)",
+      "coverageShort": "정확한 기간 적용 범위:{{samples}}/{{eligible}}",
+      "creationTrend": "창조동향",
+      "created": "생성됨",
+      "attentionKinds": {
+        "goal": "목표",
+        "workflow": "워크플로",
+        "loop": "루프",
+        "plan": "계획"
+      },
+      "attentionReasons": {
+        "needs_strict_evidence": "엄격한 증거 필요",
+        "goal_awaiting_closure": "목표 종료 대기",
+        "workflow_requires_attention": "워크플로 확인 필요",
+        "consecutive_no_progress": "연속 진행 없음",
+        "loop_requires_attention": "루프 확인 필요",
+        "plan_awaiting_review": "플랜 검토 대기"
+      },
+      "states": {
+        "active": "활성",
+        "paused": "일시중지됨",
+        "evaluating": "평가 중",
+        "completed": "완료",
+        "failed": "실패",
+        "cancelled": "취소",
+        "blocked": "차단됨",
+        "planning": "계획",
+        "review": "검토",
+        "executing": "실행 중",
+        "off": "보관됨",
+        "awaiting_approval": "승인 대기",
+        "awaiting_user": "사용자 대기",
+        "running": "달리기",
+        "recovering": "회복 중",
+        "draft": "초안",
+        "pending": "보류 중",
+        "in_progress": "진행중",
+        "progressed": "진행됨",
+        "weak_progress": "약한 진행",
+        "no_progress": "진전이 없습니다",
+        "accepted_v1": "v1 승인됨",
+        "superseded": "대체됨",
+        "unassigned": "할당되지 않음"
+      }
     }
   },
   "fileActions": {
@@ -2244,6 +2244,37 @@
     "upload": "업로드",
     "saveAs": "다른 이름으로 저장",
     "downloadFailed": "파일을 다운로드하지 못했습니다"
+  },
+  "fileEditor": {
+    "notUtf8": "올바른 UTF-8 텍스트 파일이 아닙니다",
+    "notEditable": "이 파일은 UTF-8 텍스트로 편집할 수 없습니다",
+    "tooLarge": "파일이 {{limit}} MiB 편집 제한을 초과합니다",
+    "saved": "저장됨",
+    "showPreview": "미리 보기",
+    "showSource": "소스 보기",
+    "saveAsExists": "해당 경로에 파일이 이미 있습니다",
+    "mixedLineEndings": "줄바꿈 형식이 섞여 있습니다. 저장할 때 가장 많이 사용된 형식으로 통일됩니다.",
+    "externalChanged": "이 파일이 외부에서 변경되었습니다.",
+    "reload": "다시 불러오기",
+    "conflictTitle": "저장 충돌",
+    "conflictDeleted": "이 파일이 외부에서 삭제되었습니다.",
+    "conflictChanged": "이 파일이 외부에서 변경되었습니다.",
+    "saveAsScope": "현재 워크스페이스 안에 새 파일로 저장합니다.",
+    "unsavedTitle": "저장하지 않은 변경 사항",
+    "unsavedBody": "이 파일을 떠나기 전에 현재 편집 내용을 버릴까요?",
+    "discard": "변경 사항 버리기",
+    "remoteWritesTitle": "원격 파일 쓰기가 꺼져 있습니다",
+    "remoteWritesBody": "이 워크스페이스는 서버 머신에 있습니다. 연결된 클라이언트를 신뢰할 때만 서버 설정에서 원격 파일 쓰기를 켜세요.",
+    "goToServerSettings": "서버 설정으로 이동",
+    "transportSwitchUnsaved": "저장하지 않은 파일 변경 사항이 있습니다. 연결을 전환하고 변경 사항을 버릴까요?"
+  },
+  "attachments": {
+    "uploading": "업로드 중…",
+    "uploadFailedShort": "업로드 실패",
+    "uploadFailed": "파일이 전송되지 않았습니다. {{error}}",
+    "tooMany": "메시지 하나에 최대 64개의 파일을 첨부할 수 있습니다",
+    "tooLarge": "{{name}}이(가) {{limit}}MB 제한을 초과합니다",
+    "someTooLarge": "일부 파일이 {{limit}}MB 제한을 초과합니다"
   },
   "filePreview": {
     "panelTitle": "미리보기",
@@ -2340,10 +2371,10 @@
       "staged": "스테이지됨",
       "stagedScope": "스테이지됨",
       "stale": "저장소가 변경되었습니다. 차이점이 새로 고쳐졌습니다. 다시 검토해 보세요.",
+      "prReviewComments": "PR 리뷰 댓글 · {{count}}",
       "unstage": "스테이지 해제",
       "unstaged": "스테이지되지 않음",
-      "unstagedScope": "스테이지되지 않음",
-      "prReviewComments": "PR 리뷰 댓글 · {{count}}"
+      "unstagedScope": "스테이지되지 않음"
     }
   },
   "effort": {
@@ -3196,7 +3227,6 @@
       "editorHint": "프로젝트 지침은 고정 규칙입니다. 여기에는 작업 중 축적된 프로젝트 학습을 저장하며 권위 있는 지침으로 취급하지 않습니다.",
       "editorTitle": "프로젝트 자동 메모리",
       "empty": "아직 자동 메모리 주제가 없습니다.",
-      "emptyPreview": "아직 Markdown 상세 내용이 없습니다. 편집 모드로 전환해 내용을 추가하세요.",
       "fileNameGenerated": "저장할 때 파일 이름이 생성됩니다",
       "name": "제목",
       "newTopic": "새 주제",
@@ -3210,7 +3240,8 @@
         "project": "프로젝트 작업",
         "reference": "참고 자료",
         "user": "사용자 맥락"
-      }
+      },
+      "emptyPreview": "아직 Markdown 상세 내용이 없습니다. 편집 모드로 전환해 내용을 추가하세요."
     },
     "createFirstProject": "첫 프로젝트 만들기",
     "defaultAgent": "기본 Agent",
@@ -3286,12 +3317,7 @@
     "projectDescriptionPlaceholder": "이 프로젝트는 무엇에 관한 것인가요?",
     "projectInstructions": "프로젝트 지침",
     "projectInstructionsHint": "프로젝트 루트의 AGENTS.md를 직접 편집합니다. 저장하면 이 프로젝트의 모든 세션에 자동 적용됩니다.",
-    "projectInstructionsLineCount": "{{count}}줄",
-    "resizeSettingsSheet": "드래그하여 프로젝트 설정 너비 조절",
-    "projectInstructionsEmptyPreview": "AGENTS.md가 비어 있습니다. 편집 모드로 전환해 Markdown 지침을 추가하세요.",
-    "projectInstructionsLoadFailed": "AGENTS.md를 읽을 수 없습니다",
     "projectInstructionsPlaceholder": "예: 항상 한국어로 응답; 명확하고 친근한 톤 유지; 결론부터 말하기",
-    "projectInstructionsSaveFailed": "AGENTS.md를 저장할 수 없습니다",
     "projectLogo": "로고",
     "projectLogoHint": "선택. 이미지는 자동으로 256×256으로 조정됩니다.",
     "projectName": "프로젝트 이름",
@@ -3327,7 +3353,12 @@
       "updateFailed": "프로젝트 지식 공간을 업데이트하지 못했습니다",
       "errorDetail": "세부 정보: {{error}}"
     },
-    "projectEmojiPlaceholder": "선택사항"
+    "projectEmojiPlaceholder": "선택사항",
+    "projectInstructionsLineCount": "{{count}}줄",
+    "resizeSettingsSheet": "드래그하여 프로젝트 설정 너비 조절",
+    "projectInstructionsEmptyPreview": "AGENTS.md가 비어 있습니다. 편집 모드로 전환해 Markdown 지침을 추가하세요.",
+    "projectInstructionsLoadFailed": "AGENTS.md를 읽을 수 없습니다",
+    "projectInstructionsSaveFailed": "AGENTS.md를 저장할 수 없습니다"
   },
   "provider": {
     "addProvider": "공급자 추가",
@@ -3610,6 +3641,34 @@
     "resetDefaultsFailed": "‘{{section}}’ 기본 설정을 복원하지 못했습니다",
     "resetDefaultsReindexStarted": "지식 설정을 저장했으며 백그라운드에서 인덱스를 재구축하고 있습니다.",
     "resetDefaultsWarning": "설정은 복원되었지만 일부 런타임 작업이 완료되지 않았습니다. 나중에 다시 시도하세요.",
+    "files": {
+      "title": "파일",
+      "description": "채팅, 작업 공간, 미리보기 및 편집에 사용할 파일 제한을 설정합니다.",
+      "runtimeLocal": "로컬 데스크톱 파일",
+      "runtimeServer": "서버 파일",
+      "runtimeLocalDesc": "파일 작업은 이 컴퓨터의 파일 시스템을 사용합니다.",
+      "runtimeServerDesc": "파일 작업에는 원격 서버 호스트의 파일 시스템을 사용합니다.",
+      "maxChatAttachment": "채팅 첨부 제한",
+      "maxChatAttachmentDesc": "채팅 첨부 파일당 최대 크기({{min}}~{{max}} MiB).",
+      "maxWorkspaceUpload": "작업 공간 업로드 제한",
+      "maxWorkspaceUploadDesc": "작업 공간에 업로드하는 파일당 최대 크기({{min}}~{{max}} MiB).",
+      "maxTextPreview": "텍스트 미리보기 제한",
+      "maxTextPreviewDesc": "미리보기로 불러올 텍스트 파일의 최대 크기({{min}}~{{max}} MiB).",
+      "maxTextEdit": "텍스트 편집 제한",
+      "maxTextEditDesc": "편집 가능한 UTF-8 텍스트 파일의 최대 크기({{min}}~{{max}} MiB).",
+      "maxDocumentPreview": "문서 미리보기 제한",
+      "maxDocumentPreviewDesc": "미리보기로 처리할 PDF 또는 Office 파일의 최대 크기({{min}}~{{max}} MiB).",
+      "maxArtifactImport": "산출물 가져오기 제한",
+      "maxArtifactImportDesc": "산출물로 가져온 최대 HTML, Markdown 또는 분석 JSON 소스 크기({{min}}–{{max}}MiB).",
+      "largeUploadWarning": "큰 업로드 제한은 디스크, 네트워크 및 처리 부하를 늘립니다. 서버에 충분한 리소스가 있을 때만 높이세요."
+    },
+    "knowledgeSourceLimits": {
+      "title": "지식 소스 제한",
+      "description": "지식 공간에서 허용하는 소스 유형별 최대 크기입니다.",
+      "text": "텍스트 소스(MiB)",
+      "binary": "바이너리 소스(MiB)",
+      "url": "URL 응답(MiB)"
+    },
     "about": "정보",
     "acpAutoDiscover": "백엔드 자동 검색",
     "acpAutoDiscoverDesc": "시작 시 알려진 ACP Agent 바이너리를 $PATH 에서 검색",
@@ -3977,15 +4036,6 @@
     },
     "browser": {
       "activeBadge": "사용 중",
-      "backupRuntimeHint": "시스템 크롬을 사용할 수 있습니다. 브라우저 자동화 및 산출물 PDF 내보내기에 대한 대체 수단으로 Hope 관리형 Chromium 런타임을 설치하세요.",
-      "backupRuntimeTitle": "백업 Chromium 런타임",
-      "installRuntimeRetry": "런타임이 준비되었습니다. 브라우저 작업이나 PDF 내보내기를 다시 시도하세요.",
-      "openBrowserSettings": "브라우저 설정 열기",
-      "runtimeInstallUnsupported": "Hope는 이 운영 체제 또는 아키텍처에 대해 관리되는 Chromium 런타임을 제공하지 않습니다. Chrome/Chromium을 수동으로 설치하거나 실행 파일 경로를 구성하세요.",
-      "runtimeRequiredArtifactPdfDescription": "PDF 내보내기에는 로컬 Chrome 또는 Chromium 런타임이 필요하지만 현재 사용할 수 있는 런타임은 없습니다.",
-      "runtimeRequiredDescription": "이 브라우저 작업에는 로컬 Chrome 또는 Chromium 런타임이 필요하지만 현재 사용할 수 있는 런타임은 없습니다.",
-      "runtimeRequiredHint": "이제 Hope의 관리형 런타임(약 150MB)을 설치한 다음 작업을 다시 시도할 수 있습니다.",
-      "runtimeRequiredTitle": "Chromium 런타임 필요",
       "connect": "연결",
       "connectHelp": "이미 --remote-debugging-port=9222로 Chrome을 실행 중인가요? 새 인스턴스를 시작하지 말고 연결하세요.",
       "connectUrlLabel": "디버그 URL",
@@ -4135,7 +4185,16 @@
         "title": "raw CDP를 허용하시겠습니까?",
         "body": "AI가 실제 Chrome에 임의의 DevTools Protocol 명령을 보낼 수 있게 됩니다. 모든 호출은 여전히 매번 승인이 필요하고 위험한 메서드는 차단되지만, 꼭 필요한 경우에만 활성화하세요.",
         "continue": "활성화"
-      }
+      },
+      "backupRuntimeHint": "시스템 크롬을 사용할 수 있습니다. 브라우저 자동화 및 산출물 PDF 내보내기에 대한 대체 수단으로 Hope 관리형 Chromium 런타임을 설치하세요.",
+      "backupRuntimeTitle": "백업 Chromium 런타임",
+      "installRuntimeRetry": "런타임이 준비되었습니다. 브라우저 작업이나 PDF 내보내기를 다시 시도하세요.",
+      "openBrowserSettings": "브라우저 설정 열기",
+      "runtimeInstallUnsupported": "Hope는 이 운영 체제 또는 아키텍처에 대해 관리되는 Chromium 런타임을 제공하지 않습니다. Chrome/Chromium을 수동으로 설치하거나 실행 파일 경로를 구성하세요.",
+      "runtimeRequiredArtifactPdfDescription": "PDF 내보내기에는 로컬 Chrome 또는 Chromium 런타임이 필요하지만 현재 사용할 수 있는 런타임은 없습니다.",
+      "runtimeRequiredDescription": "이 브라우저 작업에는 로컬 Chrome 또는 Chromium 런타임이 필요하지만 현재 사용할 수 있는 런타임은 없습니다.",
+      "runtimeRequiredHint": "이제 Hope의 관리형 런타임(약 150MB)을 설치한 다음 작업을 다시 시도할 수 있습니다.",
+      "runtimeRequiredTitle": "Chromium 런타임 필요"
     },
     "bytes": "바이트",
     "canvas": "캔버스",
@@ -4723,6 +4782,8 @@
     "fallbackModelsDesc": "메인 모델 사용 불가 시 순서대로 시도할 모델",
     "fsRemoteWrites": "원격 파일 쓰기 허용",
     "fsRemoteWritesDesc": "HTTP 클라이언트가 프로젝트 작업 디렉터리에서 파일을 만들고 편집·삭제·업로드할 수 있도록 합니다. 기본값은 꺼짐 — 데스크톱 앱은 이 설정과 관계없이 항상 로컬에 쓸 수 있습니다.",
+    "fsMaxChatAttachmentMb": "채팅 첨부 파일 최대 크기",
+    "fsMaxChatAttachmentMbDesc": "채팅 입력창에서 업로드하는 파일 하나의 최대 크기입니다. 로컬 데스크톱은 로컬 설정을, 원격 데스크톱과 Web은 서버 설정을 사용합니다.",
     "general": "일반",
     "generalDesc": "외관, 언어 및 시스템 설정",
     "globalModel": "글로벌 모델 설정",
@@ -7634,40 +7695,6 @@
     "audioGenFetchVoices": "음성 가져오기",
     "audioGenKnownModels": "알려진 모델",
     "audioGenPickVoice": "목록에서 선택…",
-    "files": {
-      "title": "파일",
-      "description": "채팅, 작업 공간, 미리보기 및 편집에 사용할 파일 제한을 설정합니다.",
-      "runtimeLocal": "로컬 데스크톱 파일",
-      "runtimeServer": "서버 파일",
-      "runtimeLocalDesc": "파일 작업은 이 컴퓨터의 파일 시스템을 사용합니다.",
-      "runtimeServerDesc": "파일 작업에는 원격 서버 호스트의 파일 시스템을 사용합니다.",
-      "maxChatAttachment": "채팅 첨부 제한",
-      "maxChatAttachmentDesc": "채팅 첨부 파일당 최대 크기({{min}}~{{max}} MiB).",
-      "maxWorkspaceUpload": "작업 공간 업로드 제한",
-      "maxWorkspaceUploadDesc": "작업 공간에 업로드하는 파일당 최대 크기({{min}}~{{max}} MiB).",
-      "maxTextPreview": "텍스트 미리보기 제한",
-      "maxTextPreviewDesc": "미리보기로 불러올 텍스트 파일의 최대 크기({{min}}~{{max}} MiB).",
-      "maxTextEdit": "텍스트 편집 제한",
-      "maxTextEditDesc": "편집 가능한 UTF-8 텍스트 파일의 최대 크기({{min}}~{{max}} MiB).",
-      "maxDocumentPreview": "문서 미리보기 제한",
-      "maxDocumentPreviewDesc": "미리보기로 처리할 PDF 또는 Office 파일의 최대 크기({{min}}~{{max}} MiB).",
-      "maxArtifactImport": "산출물 가져오기 제한",
-      "maxArtifactImportDesc": "산출물로 가져온 최대 HTML, Markdown 또는 분석 JSON 소스 크기({{min}}–{{max}}MiB).",
-      "largeUploadWarning": "큰 업로드 제한은 디스크, 네트워크 및 처리 부하를 늘립니다. 서버에 충분한 리소스가 있을 때만 높이세요."
-    },
-    "knowledgeSourceLimits": {
-      "title": "지식 소스 제한",
-      "description": "지식 공간에서 허용하는 소스 유형별 최대 크기입니다.",
-      "text": "텍스트 소스(MiB)",
-      "binary": "바이너리 소스(MiB)",
-      "url": "URL 응답(MiB)"
-    },
-    "fsMaxChatAttachmentMb": "채팅 첨부 파일 최대 크기",
-    "fsMaxChatAttachmentMbDesc": "채팅 입력창에서 업로드하는 파일 하나의 최대 크기입니다. 로컬 데스크톱은 로컬 설정을, 원격 데스크톱과 Web은 서버 설정을 사용합니다.",
-    "memoryBackupEncryptedPassphraseTooShort": "백업 암호는 12자 이상으로 설정하세요",
-    "memoryBackupEncryptedPassphraseCommon": "백업 암호에 흔한 단어나 패턴을 사용하지 마세요",
-    "memoryBackupEncryptedPassphraseRepetitive": "반복이 적은 백업 암호를 사용하세요",
-    "memoryBackupEncryptedPassphraseVariety": "문자 구성을 더 다양하게 하거나, 네 단어로 된 더 긴 구문을 사용하세요",
     "acpCustomAgent": "사용자 지정 Agent",
     "canvasTypes": {
       "chart": "차트",
@@ -7744,6 +7771,10 @@
         "graphiti_http": "Graphiti HTTP sidecar"
       }
     },
+    "memoryBackupEncryptedPassphraseTooShort": "백업 암호는 12자 이상으로 설정하세요",
+    "memoryBackupEncryptedPassphraseCommon": "백업 암호에 흔한 단어나 패턴을 사용하지 마세요",
+    "memoryBackupEncryptedPassphraseRepetitive": "반복이 적은 백업 암호를 사용하세요",
+    "memoryBackupEncryptedPassphraseVariety": "문자 구성을 더 다양하게 하거나, 네 단어로 된 더 긴 구문을 사용하세요",
     "memoryDbSnapshotRestoreStatus": {
       "ready": "준비됨",
       "no_metadata": "메타데이터 없음",
@@ -8620,6 +8651,8 @@
       "selectBranch": "브랜치 선택",
       "stageAll": "모든 변경 사항 스테이지",
       "viewPr": "풀 리퀘스트 보기",
+      "pullRequestPanelTitle": "풀 리퀘스트",
+      "resizePullRequestPanel": "풀 리퀘스트 패널 너비 조절",
       "worktree": "작업 트리",
       "checkDetails": "검사 세부 정보",
       "checkFailed": "실패",
@@ -8641,6 +8674,7 @@
       "openCheck": "검사 열기",
       "openComment": "댓글 열기",
       "prFeedbackUnavailable": "PR 검사 및 댓글을 사용할 수 없음",
+      "prFeedbackStale": "PR 상태를 새로 고치지 못했습니다. 현재 데이터가 오래되었을 수 있습니다",
       "reviewComments": "댓글 {{count}}개",
       "reviewFeedback": "리뷰 피드백",
       "autoMergeEnabled": "자동 병합이 활성화됨",
@@ -8667,10 +8701,7 @@
       "reviewPending": "대기 중",
       "reviewRequired": "리뷰 필요",
       "reviewStatus": "리뷰 상태",
-      "reviewers": "리뷰어",
-      "pullRequestPanelTitle": "풀 리퀘스트",
-      "resizePullRequestPanel": "풀 리퀘스트 패널 너비 조절",
-      "prFeedbackStale": "PR 상태를 새로 고치지 못했습니다. 현재 데이터가 오래되었을 수 있습니다"
+      "reviewers": "리뷰어"
     },
     "goal": {
       "watchdogTitle": "목표 확인 필요",
@@ -10594,6 +10625,8 @@
       "title": "메모로 정리"
     },
     "sources": {
+      "textTooLarge": "텍스트 소스가 {{limit}} MiB 제한을 초과합니다",
+      "fileTooLarge": "{{name}}이(가) {{limit}} MiB 제한을 초과합니다",
       "archiveAttachment": "지식으로 아카이브",
       "archiveAttachmentFailed": "첨부파일을 보관하지 못했습니다.",
       "archivedAttachment": "지식 소스에 보관됨",
@@ -10732,9 +10765,7 @@
       "ocrFailed": "OCR 실패",
       "ocrRetry": "실패한 페이지 재시도",
       "ocrRetryStarted": "실패한 페이지를 재시도하는 중…",
-      "ocrRetryFailed": "OCR 페이지를 재시도할 수 없습니다",
-      "textTooLarge": "텍스트 소스가 {{limit}} MiB 제한을 초과합니다",
-      "fileTooLarge": "{{name}}이(가) {{limit}} MiB 제한을 초과합니다"
+      "ocrRetryFailed": "OCR 페이지를 재시도할 수 없습니다"
     },
     "queryFile": {
       "action": "파일",
@@ -10770,54 +10801,6 @@
       "emptyInternal": "이 공간은 비어 있습니다.",
       "importFiles": "파일 가져오기"
     }
-  },
-  "backgroundJobs": {
-    "panelTitle": "백그라운드 작업",
-    "openPanel": "백그라운드 작업",
-    "openFull": "전체 보기",
-    "expandJob": "작업 펼치기",
-    "collapseJob": "작업 접기",
-    "jumpToBottom": "맨 아래로 이동",
-    "empty": "백그라운드 작업이 없습니다",
-    "sectionSession": "현재 세션",
-    "sectionLocalModel": "로컬 모델",
-    "kindGroup": "작업 그룹",
-    "kindSubagent": "하위 에이전트",
-    "resizePanel": "백그라운드 작업 패널 크기 조정",
-    "status": {
-      "queued": "대기 중",
-      "running": "실행 중",
-      "cancelling": "취소 중",
-      "awaiting_approval": "승인 대기 중",
-      "completed": "완료됨",
-      "failed": "실패",
-      "interrupted": "중단됨",
-      "timed_out": "시간 초과",
-      "cancelled": "취소됨"
-    },
-    "errorOutput": "실수",
-    "liveOutput": "실시간 출력",
-    "outputFile": "전체 결과",
-    "resultPreview": "결과 미리보기"
-  },
-  "browser": {
-    "panelTitle": "브라우저"
-  },
-  "error": {
-    "appCrash": "문제가 발생했습니다.",
-    "retry": "다시 시도",
-    "unknown": "예상치 못한 오류가 발생했습니다."
-  },
-  "localModels": {
-    "actions": {
-      "download": "다운로드"
-    }
-  },
-  "macControl": {
-    "panelTitle": "Mac 제어"
-  },
-  "memory": {
-    "activeRecallToastTitle": "참조된 메모리"
   },
   "artifacts": {
     "title": "산출물",
@@ -10916,6 +10899,54 @@
     "exportReviewBlocked": "수출 검토에는 여전히 방해 요소가 있습니다.",
     "guardStatus": "경비원",
     "defaultName": "산출물"
+  },
+  "backgroundJobs": {
+    "panelTitle": "백그라운드 작업",
+    "openPanel": "백그라운드 작업",
+    "openFull": "전체 보기",
+    "expandJob": "작업 펼치기",
+    "collapseJob": "작업 접기",
+    "jumpToBottom": "맨 아래로 이동",
+    "empty": "백그라운드 작업이 없습니다",
+    "sectionSession": "현재 세션",
+    "sectionLocalModel": "로컬 모델",
+    "kindGroup": "작업 그룹",
+    "kindSubagent": "하위 에이전트",
+    "resizePanel": "백그라운드 작업 패널 크기 조정",
+    "status": {
+      "queued": "대기 중",
+      "running": "실행 중",
+      "cancelling": "취소 중",
+      "awaiting_approval": "승인 대기 중",
+      "completed": "완료됨",
+      "failed": "실패",
+      "interrupted": "중단됨",
+      "timed_out": "시간 초과",
+      "cancelled": "취소됨"
+    },
+    "errorOutput": "실수",
+    "liveOutput": "실시간 출력",
+    "outputFile": "전체 결과",
+    "resultPreview": "결과 미리보기"
+  },
+  "browser": {
+    "panelTitle": "브라우저"
+  },
+  "error": {
+    "appCrash": "문제가 발생했습니다.",
+    "retry": "다시 시도",
+    "unknown": "예상치 못한 오류가 발생했습니다."
+  },
+  "localModels": {
+    "actions": {
+      "download": "다운로드"
+    }
+  },
+  "macControl": {
+    "panelTitle": "Mac 제어"
+  },
+  "memory": {
+    "activeRecallToastTitle": "참조된 메모리"
   },
   "design": {
     "title": "디자인 스페이스",
@@ -11637,37 +11668,6 @@
       "checkStale": "{{n}}개 산출물에 코드 업데이트가 있습니다",
       "chatPrompt": "구현된 코드가 이 디자인과 달라졌습니다. 참조된 코드 변경에 맞춰 현재 디자인을 업데이트하되, 디자인 의도와 나머지 내용은 그대로 유지하세요."
     }
-  },
-  "fileEditor": {
-    "notUtf8": "올바른 UTF-8 텍스트 파일이 아닙니다",
-    "notEditable": "이 파일은 UTF-8 텍스트로 편집할 수 없습니다",
-    "tooLarge": "파일이 {{limit}} MiB 편집 제한을 초과합니다",
-    "saved": "저장됨",
-    "showPreview": "미리 보기",
-    "showSource": "소스 보기",
-    "saveAsExists": "해당 경로에 파일이 이미 있습니다",
-    "mixedLineEndings": "줄바꿈 형식이 섞여 있습니다. 저장할 때 가장 많이 사용된 형식으로 통일됩니다.",
-    "externalChanged": "이 파일이 외부에서 변경되었습니다.",
-    "reload": "다시 불러오기",
-    "conflictTitle": "저장 충돌",
-    "conflictDeleted": "이 파일이 외부에서 삭제되었습니다.",
-    "conflictChanged": "이 파일이 외부에서 변경되었습니다.",
-    "saveAsScope": "현재 워크스페이스 안에 새 파일로 저장합니다.",
-    "unsavedTitle": "저장하지 않은 변경 사항",
-    "unsavedBody": "이 파일을 떠나기 전에 현재 편집 내용을 버릴까요?",
-    "discard": "변경 사항 버리기",
-    "remoteWritesTitle": "원격 파일 쓰기가 꺼져 있습니다",
-    "remoteWritesBody": "이 워크스페이스는 서버 머신에 있습니다. 연결된 클라이언트를 신뢰할 때만 서버 설정에서 원격 파일 쓰기를 켜세요.",
-    "goToServerSettings": "서버 설정으로 이동",
-    "transportSwitchUnsaved": "저장하지 않은 파일 변경 사항이 있습니다. 연결을 전환하고 변경 사항을 버릴까요?"
-  },
-  "attachments": {
-    "uploading": "업로드 중…",
-    "uploadFailedShort": "업로드 실패",
-    "uploadFailed": "파일이 전송되지 않았습니다. {{error}}",
-    "tooMany": "메시지 하나에 최대 64개의 파일을 첨부할 수 있습니다",
-    "tooLarge": "{{name}}이(가) {{limit}}MB 제한을 초과합니다",
-    "someTooLarge": "일부 파일이 {{limit}}MB 제한을 초과합니다"
   },
   "configRecovery": {
     "title": "설정 복구 필요",

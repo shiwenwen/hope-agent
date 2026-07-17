@@ -21,7 +21,6 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 const LOCALES_DIR = resolve(__dirname, "../src/i18n/locales")
 const SRC_DIR = resolve(__dirname, "../src")
 const TRANSLATIONS_FILE = resolve(__dirname, "i18n-translations.json")
-const BUILTIN_TOOLS_DIR = resolve(__dirname, "../crates/ha-core/src/tools")
 
 // ── helpers ──────────────────────────────────────────────────────────
 
@@ -105,20 +104,6 @@ function sourceFiles(dir) {
   return files
 }
 
-function rustSourceFiles(dir) {
-  const files = []
-  for (const name of readdirSync(dir)) {
-    const path = resolve(dir, name)
-    const stat = statSync(path)
-    if (stat.isDirectory()) {
-      files.push(...rustSourceFiles(path))
-      continue
-    }
-    if (name.endsWith(".rs")) files.push(path)
-  }
-  return files
-}
-
 function findLiteralSourceTranslationKeys() {
   const refs = new Map()
   // Use separate alternatives so a double-quoted default value may contain an
@@ -168,29 +153,6 @@ function findLiteralSourceTranslationKeys() {
       if (technicalLiteral.test(key)) continue
       if (enPrefixes.has(key)) continue
       recordRef(key, match.index)
-    }
-  }
-
-  // Built-in tool labels are looked up dynamically from canonical Rust ids,
-  // so the TypeScript literal-key scan cannot see them. Scan the complete tool
-  // source tree (including integration submodules) and accept whitespace/newline
-  // around declarations. Restrict values to canonical tool ids so diagnostic
-  // constants such as TOOL_ERROR_PREFIX are not mistaken for dispatchable tools.
-  for (const file of rustSourceFiles(BUILTIN_TOOLS_DIR)) {
-    const source = readFileSync(file, "utf8")
-    const rel = relative(resolve(__dirname, ".."), file)
-    for (const match of source.matchAll(
-      /pub\s+const\s+TOOL_[A-Z0-9_]+\s*:\s*&str\s*=\s*"([a-z0-9_]+)"\s*;/g,
-    )) {
-      const name = match[1]
-      const suffix = name
-        .split("_")
-        .filter(Boolean)
-        .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-        .join("")
-      const line = source.slice(0, match.index).split("\n").length
-      refs.set(`tools.${name}`, [`${rel}:${line}`])
-      refs.set(`settings.tool${suffix}Desc`, [`${rel}:${line}`])
     }
   }
 
@@ -255,11 +217,21 @@ let totalApplied = 0
 let totalSeedDottedKeys = 0
 let totalSeedUnknownKeys = 0
 let totalSeedMismatches = 0
+let totalUnordered = 0
+
+/** locale 按 en.json 顺序序列化后的规范文本——正是 --apply 写盘用的内容。 */
+function canonicalText(locale) {
+  return JSON.stringify(sortByReference(en, locale), null, 2) + "\n"
+}
 
 for (const file of localeFiles) {
   const lang = file.replace(".json", "")
   const filePath = resolve(LOCALES_DIR, file)
-  const locale = JSON.parse(readFileSync(filePath, "utf8"))
+  // Windows autocrlf 检出会把文件变成 CRLF（仓库无 .gitattributes 强制 LF），
+  // 只归一比较侧，避免把纯换行差异误报成 key 顺序漂移；写盘仍写 LF，commit 时
+  // 由 git 归一。
+  const rawText = readFileSync(filePath, "utf8").replace(/\r\n/g, "\n")
+  const locale = JSON.parse(rawText)
   const localeKeySet = new Set(flatKeys(locale))
 
   const missing = enKeys.filter((k) => !localeKeySet.has(k))
@@ -304,32 +276,44 @@ for (const file of localeFiles) {
     totalMissing += missing.length
     totalExtra += extra.length
     totalPlaceholderMismatches += placeholderMismatches.length
+
+    // key 顺序漂移。--apply 写盘时一律按 en.json 顺序序列化，故只要磁盘文本与规范文本
+    // 不一致，下次因补 key 触发写盘就会顺带重排，在无关 PR 里炸出成千行噪音 diff。
+    // 这里把潜伏的漂移变成显式失败。
+    if (missing.length === 0 && extra.length === 0 && rawText !== canonicalText(locale)) {
+      totalUnordered++
+      console.log(`⚠️  ${lang}: key 顺序与 en.json 不一致（跑 --apply 归位）`)
+    }
   }
 
-  if (doApply && missing.length > 0) {
+  if (doApply) {
     const langTranslations = translations[lang]
-    if (!langTranslations) {
-      console.log(`⏭️  ${lang}: 翻译文件中无此语言数据，跳过`)
-      continue
-    }
-
     let applied = 0
     let notFound = []
-    for (const key of missing) {
-      const val = getByPath(langTranslations, key)
-      if (val !== undefined) {
-        setByPath(locale, key, val)
-        applied++
-      } else {
-        notFound.push(key)
+
+    if (missing.length > 0) {
+      if (!langTranslations) {
+        console.log(`⏭️  ${lang}: 翻译文件中无此语言数据，跳过`)
+        continue
+      }
+      for (const key of missing) {
+        const val = getByPath(langTranslations, key)
+        if (val !== undefined) {
+          setByPath(locale, key, val)
+          applied++
+        } else {
+          notFound.push(key)
+        }
       }
     }
 
-    // 按 en.json 的顺序排序后写入
-    const sorted = sortByReference(en, locale)
-    writeFileSync(filePath, JSON.stringify(sorted, null, 2) + "\n", "utf8")
+    // 即便没补任何翻译也按规范顺序写——让 --apply 主动归位漂移，而不是攒到下次补 key
+    // 时被动重排。文本已规范则跳过，保持幂等。
+    const canonical = canonicalText(locale)
+    if (canonical === rawText) continue
+    writeFileSync(filePath, canonical, "utf8")
 
-    console.log(`✏️  ${lang}: 写入 ${applied} 条翻译`)
+    console.log(`✏️  ${lang}: 写入 ${applied} 条翻译${applied === 0 ? "（仅归位 key 顺序）" : ""}`)
     if (notFound.length > 0) {
       console.log(`   ⚠️  ${notFound.length} 条未找到翻译：`)
       for (const k of notFound) console.log(`     - ${k}`)
@@ -382,6 +366,7 @@ if (doCheck) {
   console.log(`翻译种子点号属性: ${totalSeedDottedKeys} 条`)
   console.log(`翻译种子失效 key: ${totalSeedUnknownKeys} 条`)
   console.log(`翻译种子与 locale 不一致: ${totalSeedMismatches} 条`)
+  console.log(`key 顺序漂移: ${totalUnordered} 个 locale`)
 }
 if (doApply) console.log(`总计写入: ${totalApplied} 条`)
 
@@ -395,6 +380,7 @@ if (
     totalSeedDottedKeys > 0 ||
     totalSeedUnknownKeys > 0 ||
     totalSeedMismatches > 0 ||
+    totalUnordered > 0 ||
     missingSourceKeys.length > 0)
 ) {
   console.error(

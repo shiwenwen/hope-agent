@@ -421,9 +421,6 @@
     "completedTurnCollapsed": "{{count}} mesaj işlendi",
     "completedTurnCollapsedWithDuration": "{{duration}} boyunca işlendi, {{count}} mesaj",
     "conversations": "Sohbetler",
-    "unreadConversationCount": "{{count}} okunmamış sohbet",
-    "unreadStatus": "Okunmamış",
-    "channelUnreadStatus": "Okunmamış IM sohbeti",
     "collapseSidebar": "Kenar çubuğunu daralt",
     "sidebarCompactMode": "Kompakt moda geç",
     "sidebarDetailedMode": "Normal moda geç",
@@ -867,9 +864,9 @@
         "docx": "Word belgesi",
         "pptx": "PowerPoint slaytları",
         "xlsx": "Excel elektronik tablosu",
-        "dataAnalytics": "Veri analizi",
         "browser": "Tarayıcı kontrolü",
-        "mac": "Mac kontrolü"
+        "mac": "Mac kontrolü",
+        "dataAnalytics": "Veri analizi"
       }
     },
     "reasoningDisabledHint": "Bu model için muhakeme etkinleştirilmemiştir. Akıl yürütme derinliğini ayarlamak için, Ayarlar → Model Sağlayıcılar altında modeli düzenleyin ve \"Akıl Yürütme\"yi açın.",
@@ -1169,9 +1166,12 @@
     "openSourceConversationMissingHint": "Bu bellek kaynağı silinmiş veya bulunamayan bir konuşmaya işaret ediyor.",
     "openSourceMessageMissing": "Kaynak mesaj artık kullanılamıyor",
     "openSourceMessageMissingHint": "Konuşma hâlâ var, ancak bu bellek kaynağının tam mesajı bulunamadı.",
+    "unreadConversationCount": "{{count}} okunmamış sohbet",
+    "unreadStatus": "Okunmamış",
+    "channelUnreadStatus": "Okunmamış IM sohbeti",
+    "generatedImageName": "Oluşturulan görsel {{index}}",
     "noAgents": "Ajan yok",
-    "sessionFailed": "Konuşma başarısız oldu",
-    "generatedImageName": "Oluşturulan görsel {{index}}"
+    "sessionFailed": "Konuşma başarısız oldu"
   },
   "codexAuth": {
     "expiredDescription": "Codex OAuth tokenınız artık geçerli değil. Devam etmek için tekrar oturum açın.",
@@ -1179,6 +1179,7 @@
     "reauth": "Tekrar oturum aç"
   },
   "common": {
+    "restoreDefaults": "Varsayılanları geri yükle",
     "add": "Ekle",
     "back": "Geri",
     "cancel": "İptal",
@@ -1225,18 +1226,13 @@
     "off": "Kapalı",
     "error": "Hata",
     "showLess": "Daha az göster",
-    "next": "Sonraki",
-    "previous": "Öncesi",
     "download": "İndir",
     "duplicate": "Çoğalt",
     "more": "Daha fazla",
     "apply": "Uygula",
     "modelNoVision": "Görsel desteklemiyor",
-    "restoreDefaults": "Varsayılanları geri yükle",
-    "request": "İstek",
-    "response": "Yanıt",
-    "authMethod": "Kimlik doğrulama yöntemi",
-    "testSteps": "Test adımları",
+    "next": "Sonraki",
+    "previous": "Öncesi",
     "baseUrl": "Temel URL",
     "apiKey": "API anahtarı",
     "ok": "Tamam",
@@ -1262,6 +1258,8 @@
       "healthy": "Sağlıklı",
       "idle": "Boşta",
       "insufficient_data": "Yetersiz veri",
+      "needs_user": "Kullanıcı işlemi gerekiyor",
+      "advisory": "Öneri",
       "injected": "Eklendi",
       "interrupted": "Kesintiye uğradı",
       "killed": "Zorla sonlandırıldı",
@@ -1285,11 +1283,13 @@
       "timed_out": "Zaman aşımına uğradı",
       "unknown": "Bilinmiyor",
       "warning": "Uyarı",
-      "needs_user": "Kullanıcı işlemi gerekiyor",
-      "advisory": "Öneri",
       "evaluating": "Değerlendiriliyor",
       "in_progress": "Devam ediyor"
-    }
+    },
+    "request": "İstek",
+    "response": "Yanıt",
+    "authMethod": "Kimlik doğrulama yöntemi",
+    "testSteps": "Test adımları"
   },
   "context": {
     "ago": "önce",
@@ -1456,106 +1456,6 @@
     "bannerConfig": "Tehlikeli Mod aktif — tüm araç onayları atlanıyor. Ayarlar → Güvenlik bölümünden kapatın"
   },
   "dashboard": {
-    "controlPlane": {
-      "title": "Hedefler ve Uygulama",
-      "automationTab": "Otomasyon",
-      "scopeHint": "Pencere metrikleri sonuçları gösterir; mevcut anlık görüntüler birikmiş işleri ve riski gösterir.",
-      "allProjects": "Tüm projeler",
-      "unassignedProject": "Atanmamış",
-      "archived": "Arşivlendi",
-      "empty": "Seçilen kapsam için veri yok.",
-      "sections": {
-        "overview": "Genel Bakış",
-        "planTask": "Planla ve Görev"
-      },
-      "metrics": {
-        "goalAcceptance": "Hedef kabul oranı",
-        "workflowCompletion": "İş akışı tamamlanma oranı",
-        "loopStrongProgress": "Döngü güçlü ilerleme oranı",
-        "taskCompletion": "Görev grubunun tamamlanması",
-        "attention": "Dikkat edilmesi gerekiyor",
-        "requiredCriteria": "Gerekli kriterlerin geçme oranı",
-        "goalP50": "Hedefi kabul etme süresi P50",
-        "opFailure": "Operasyon başarısızlık oranı",
-        "workflowP50": "İş akışı süresi P50",
-        "goalBinding": "Hedef bağlama oranı",
-        "approvalTrigger": "Onay tetikleme oranı",
-        "noProgress": "İlerleme yok oranı",
-        "blockedSchedules": "Engellenen programlar",
-        "loopP50": "Döngü çalışma süresi P50",
-        "currentBacklog": "Mevcut birikim",
-        "activePlans": "Şu anda aktif",
-        "cohortCompletion": "Kohort tamamlama"
-      },
-      "currentSnapshot": "Geçerli anlık görüntü",
-      "goalTrend": "Hedef sonuçları",
-      "resolved": "Çözüldü",
-      "accepted": "Kabul edildi",
-      "attentionTitle": "Güncel dikkat öğeleri",
-      "noAttention": "Şu anda dikkat edilecek öğe yok",
-      "auditSamples": "{{count}} hedef denetlendi",
-      "currentStates": "Mevcut durumlar",
-      "closureOutcomes": "Kapatma sonuçları",
-      "domains": "Alanlar",
-      "kinds": "çeşitler",
-      "origins": "Kökenler",
-      "workflowTrend": "Kararlaştırılan İş Akışı çalıştırmaları",
-      "decidedRuns": "Kararlaştırılan koşular",
-      "progressStates": "İlerleme sınıflandırması",
-      "triggerKinds": "Tetikleyici türleri",
-      "strategies": "Yürütme stratejileri",
-      "loopTrend": "Değerlendirilen Döngü çalıştırmaları",
-      "evaluatedRuns": "Değerlendirilen çalıştırmalar",
-      "openPlanHistory": "Plan geçmişini görüntüle",
-      "planByAgent": "Temsilciye göre planla",
-      "planByProject": "Projeye göre planlama",
-      "noFunnelHint": "Görev ve Plan'da henüz güvenilir Hedef / İş Akışı / Loop ilişkilendirme anahtarları bulunmadığından bu sayfa, oturumlardan nedensel bir dönüşüm hunisi çıkarsamamaktadır.",
-      "noExactSamples": "Kesin süre örneği yok",
-      "coverage": "{{samples}}/{{eligible}} hassas örnek ({{percent}}%)",
-      "coverageShort": "Tam süre kapsamı:{{samples}}/{{eligible}}",
-      "creationTrend": "Yaratılış trendi",
-      "created": "Oluşturuldu",
-      "attentionKinds": {
-        "goal": "Hedef",
-        "workflow": "İş akışı",
-        "loop": "Döngü",
-        "plan": "Plan"
-      },
-      "attentionReasons": {
-        "needs_strict_evidence": "Kesin kanıt gerekli",
-        "goal_awaiting_closure": "Hedef kapanmayı bekliyor",
-        "workflow_requires_attention": "İş akışıyla ilgilenilmesi gerekiyor",
-        "consecutive_no_progress": "Art arda ilerleme yok",
-        "loop_requires_attention": "Döngüyle ilgilenilmesi gerekiyor",
-        "plan_awaiting_review": "İncelenmeyi bekleyen plan"
-      },
-      "states": {
-        "active": "Etkin",
-        "paused": "Duraklatıldı",
-        "evaluating": "Değerlendiriyor",
-        "completed": "Tamamlandı",
-        "failed": "Arızalı",
-        "cancelled": "İptal edildi",
-        "blocked": "Engellendi",
-        "planning": "Planlama",
-        "review": "İnceleme",
-        "executing": "Yürütme",
-        "off": "Arşivlendi",
-        "awaiting_approval": "Onay bekliyor",
-        "awaiting_user": "Kullanıcı bekleniyor",
-        "running": "Çalışıyor",
-        "recovering": "Kurtarma",
-        "draft": "Taslak",
-        "pending": "Askıda olması",
-        "in_progress": "Devam etmekte",
-        "progressed": "İlerlemiş",
-        "weak_progress": "Zayıf ilerleme",
-        "no_progress": "İlerleme yok",
-        "accepted_v1": "Kabul edildi v1",
-        "superseded": "Değiştirildi",
-        "unassigned": "Atanmamış"
-      }
-    },
     "autoRefresh": {
       "1m": "1 dk",
       "30s": "30 sn",
@@ -1975,8 +1875,8 @@
       "activeCampaigns": "{{count}} aktif",
       "baselineKinds": {
         "deterministic": "Belirlenimci",
-        "external_model": "Harici model",
-        "deterministic_mock": "Belirlenimci simülasyon"
+        "deterministic_mock": "Belirlenimci simülasyon",
+        "external_model": "Harici model"
       },
       "calibrationAcceptedNote": "İnsan incelemesi {{label}} etiketini kalibrasyon kanıtı olarak kabul etti.",
       "calibrationFollowUpNote": "İnsan incelemesi, {{status}} sonrasında {{label}} etiketini kalibrasyon takibi için işaretledi.",
@@ -2227,6 +2127,106 @@
     },
     "columns": {
       "session": "Oturum"
+    },
+    "controlPlane": {
+      "title": "Hedefler ve Uygulama",
+      "automationTab": "Otomasyon",
+      "scopeHint": "Pencere metrikleri sonuçları gösterir; mevcut anlık görüntüler birikmiş işleri ve riski gösterir.",
+      "allProjects": "Tüm projeler",
+      "unassignedProject": "Atanmamış",
+      "archived": "Arşivlendi",
+      "empty": "Seçilen kapsam için veri yok.",
+      "sections": {
+        "overview": "Genel Bakış",
+        "planTask": "Planla ve Görev"
+      },
+      "metrics": {
+        "goalAcceptance": "Hedef kabul oranı",
+        "workflowCompletion": "İş akışı tamamlanma oranı",
+        "loopStrongProgress": "Döngü güçlü ilerleme oranı",
+        "taskCompletion": "Görev grubunun tamamlanması",
+        "attention": "Dikkat edilmesi gerekiyor",
+        "requiredCriteria": "Gerekli kriterlerin geçme oranı",
+        "goalP50": "Hedefi kabul etme süresi P50",
+        "opFailure": "Operasyon başarısızlık oranı",
+        "workflowP50": "İş akışı süresi P50",
+        "goalBinding": "Hedef bağlama oranı",
+        "approvalTrigger": "Onay tetikleme oranı",
+        "noProgress": "İlerleme yok oranı",
+        "blockedSchedules": "Engellenen programlar",
+        "loopP50": "Döngü çalışma süresi P50",
+        "currentBacklog": "Mevcut birikim",
+        "activePlans": "Şu anda aktif",
+        "cohortCompletion": "Kohort tamamlama"
+      },
+      "currentSnapshot": "Geçerli anlık görüntü",
+      "goalTrend": "Hedef sonuçları",
+      "resolved": "Çözüldü",
+      "accepted": "Kabul edildi",
+      "attentionTitle": "Güncel dikkat öğeleri",
+      "noAttention": "Şu anda dikkat edilecek öğe yok",
+      "auditSamples": "{{count}} hedef denetlendi",
+      "currentStates": "Mevcut durumlar",
+      "closureOutcomes": "Kapatma sonuçları",
+      "domains": "Alanlar",
+      "kinds": "çeşitler",
+      "origins": "Kökenler",
+      "workflowTrend": "Kararlaştırılan İş Akışı çalıştırmaları",
+      "decidedRuns": "Kararlaştırılan koşular",
+      "progressStates": "İlerleme sınıflandırması",
+      "triggerKinds": "Tetikleyici türleri",
+      "strategies": "Yürütme stratejileri",
+      "loopTrend": "Değerlendirilen Döngü çalıştırmaları",
+      "evaluatedRuns": "Değerlendirilen çalıştırmalar",
+      "openPlanHistory": "Plan geçmişini görüntüle",
+      "planByAgent": "Temsilciye göre planla",
+      "planByProject": "Projeye göre planlama",
+      "noFunnelHint": "Görev ve Plan'da henüz güvenilir Hedef / İş Akışı / Loop ilişkilendirme anahtarları bulunmadığından bu sayfa, oturumlardan nedensel bir dönüşüm hunisi çıkarsamamaktadır.",
+      "noExactSamples": "Kesin süre örneği yok",
+      "coverage": "{{samples}}/{{eligible}} hassas örnek ({{percent}}%)",
+      "coverageShort": "Tam süre kapsamı:{{samples}}/{{eligible}}",
+      "creationTrend": "Yaratılış trendi",
+      "created": "Oluşturuldu",
+      "attentionKinds": {
+        "goal": "Hedef",
+        "workflow": "İş akışı",
+        "loop": "Döngü",
+        "plan": "Plan"
+      },
+      "attentionReasons": {
+        "needs_strict_evidence": "Kesin kanıt gerekli",
+        "goal_awaiting_closure": "Hedef kapanmayı bekliyor",
+        "workflow_requires_attention": "İş akışıyla ilgilenilmesi gerekiyor",
+        "consecutive_no_progress": "Art arda ilerleme yok",
+        "loop_requires_attention": "Döngüyle ilgilenilmesi gerekiyor",
+        "plan_awaiting_review": "İncelenmeyi bekleyen plan"
+      },
+      "states": {
+        "active": "Etkin",
+        "paused": "Duraklatıldı",
+        "evaluating": "Değerlendiriyor",
+        "completed": "Tamamlandı",
+        "failed": "Arızalı",
+        "cancelled": "İptal edildi",
+        "blocked": "Engellendi",
+        "planning": "Planlama",
+        "review": "İnceleme",
+        "executing": "Yürütme",
+        "off": "Arşivlendi",
+        "awaiting_approval": "Onay bekliyor",
+        "awaiting_user": "Kullanıcı bekleniyor",
+        "running": "Çalışıyor",
+        "recovering": "Kurtarma",
+        "draft": "Taslak",
+        "pending": "Askıda olması",
+        "in_progress": "Devam etmekte",
+        "progressed": "İlerlemiş",
+        "weak_progress": "Zayıf ilerleme",
+        "no_progress": "İlerleme yok",
+        "accepted_v1": "Kabul edildi v1",
+        "superseded": "Değiştirildi",
+        "unassigned": "Atanmamış"
+      }
     }
   },
   "fileActions": {
@@ -2244,6 +2244,37 @@
     "upload": "Yükle",
     "saveAs": "Farklı kaydet",
     "downloadFailed": "Dosya indirilemedi"
+  },
+  "fileEditor": {
+    "notUtf8": "Dosya geçerli UTF-8 metni değil",
+    "notEditable": "Bu dosya UTF-8 metni olarak düzenlenemez",
+    "tooLarge": "Dosya {{limit}} MiB düzenleme sınırını aşıyor",
+    "saved": "Kaydedildi",
+    "showPreview": "Önizlemeyi göster",
+    "showSource": "Kaynağı göster",
+    "saveAsExists": "Bu yolda zaten bir dosya var",
+    "mixedLineEndings": "Satır sonları karışık; kaydederken baskın biçime dönüştürülecek.",
+    "externalChanged": "Dosya düzenleyici dışında değişti.",
+    "reload": "Yeniden yükle",
+    "conflictTitle": "Kaydetme çakışması",
+    "conflictDeleted": "Dosya düzenleyici dışında silindi.",
+    "conflictChanged": "Dosya düzenleyici dışında değiştirildi.",
+    "saveAsScope": "Geçerli çalışma alanına yeni bir dosya kaydedin.",
+    "unsavedTitle": "Kaydedilmemiş değişiklikler",
+    "unsavedBody": "Bu dosyadan ayrılmadan önce mevcut düzenlemeler silinsin mi?",
+    "discard": "Değişiklikleri sil",
+    "remoteWritesTitle": "Uzak dosya yazma kapalı",
+    "remoteWritesBody": "Bu çalışma alanı sunucu makinesindedir. Uzak yazmayı yalnızca bağlı istemcilere güveniyorsanız sunucu ayarlarından açın.",
+    "goToServerSettings": "Sunucu ayarlarına git",
+    "transportSwitchUnsaved": "Kaydedilmemiş dosya değişiklikleri var. Bağlantı değiştirilip değişiklikler silinsin mi?"
+  },
+  "attachments": {
+    "uploading": "Yükleniyor…",
+    "uploadFailedShort": "Yükleme başarısız",
+    "uploadFailed": "Dosyalar gönderilmedi. {{error}}",
+    "tooMany": "Bir mesaj en fazla 64 dosya içerebilir",
+    "tooLarge": "{{name}} {{limit}} MB sınırını aşıyor",
+    "someTooLarge": "Bazı dosyalar {{limit}} MB sınırını aşıyor"
   },
   "filePreview": {
     "panelTitle": "Önizleme",
@@ -2340,10 +2371,10 @@
       "staged": "Hazırlanan",
       "stagedScope": "Hazırlanan",
       "stale": "Depo değişti. Fark yenilendi; tekrar gözden geçirin.",
+      "prReviewComments": "PR inceleme yorumları · {{count}}",
       "unstage": "Hazırlamadan çıkar",
       "unstaged": "Hazırlanmayan",
-      "unstagedScope": "Hazırlanmayan",
-      "prReviewComments": "PR inceleme yorumları · {{count}}"
+      "unstagedScope": "Hazırlanmayan"
     }
   },
   "effort": {
@@ -2722,8 +2753,8 @@
       "ollama_install": "Ollama kurulumu",
       "ollama_preload": "Model başlangıcı",
       "ollama_pull": "Ollama modeli",
-      "memory_reembed": "Bellek vektörlerini yeniden oluşturma",
-      "knowledge_reembed": "Bilgi dizinini yeniden oluşturma"
+      "knowledge_reembed": "Bilgi dizinini yeniden oluşturma",
+      "memory_reembed": "Bellek vektörlerini yeniden oluşturma"
     },
     "logs": {
       "empty": "Henüz günlük yok"
@@ -2786,9 +2817,9 @@
     "text": "Metin",
     "video": "Video",
     "anthropicThinkingBudget": "Anthropic (düşünme bütçesi)",
+    "zaiThinkingBudget": "Z.AI (düşünme bütçesi)",
     "contextWindow": "Bağlam penceresi",
     "maxTokens": "Maksimum jeton",
-    "zaiThinkingBudget": "Z.AI (düşünme bütçesi)",
     "costUnpriced": "Fiyatsız"
   },
   "notification": {
@@ -3196,7 +3227,6 @@
       "editorHint": "Proje talimatları sabit kurallardır. Bu alan çalışma sırasında biriken proje öğrenimlerini saklar, bağlayıcı talimat değildir.",
       "editorTitle": "Proje otomatik belleği",
       "empty": "Henüz otomatik bellek konusu yok.",
-      "emptyPreview": "Henüz Markdown ayrıntısı yok. İçerik eklemek için Düzenle moduna geçin.",
       "fileNameGenerated": "Dosya adı kaydederken oluşturulacak",
       "name": "Başlık",
       "newTopic": "Yeni konu",
@@ -3210,7 +3240,8 @@
         "project": "Proje çalışması",
         "reference": "Referans",
         "user": "Kullanıcı bağlamı"
-      }
+      },
+      "emptyPreview": "Henüz Markdown ayrıntısı yok. İçerik eklemek için Düzenle moduna geçin."
     },
     "createFirstProject": "İlk projenizi oluşturun",
     "defaultAgent": "Varsayılan Agent",
@@ -3286,12 +3317,7 @@
     "projectDescriptionPlaceholder": "Bu proje ne hakkında?",
     "projectInstructions": "Proje talimatları",
     "projectInstructionsHint": "Proje kökündeki AGENTS.md dosyasını doğrudan düzenler. Kaydedildiğinde bu projedeki tüm oturumlara uygulanır.",
-    "projectInstructionsLineCount": "{{count}} satır",
-    "resizeSettingsSheet": "Proje ayarlarının genişliğini değiştirmek için sürükleyin",
-    "projectInstructionsEmptyPreview": "AGENTS.md boş. Markdown talimatları eklemek için Düzenle moduna geçin.",
-    "projectInstructionsLoadFailed": "AGENTS.md okunamadı",
     "projectInstructionsPlaceholder": "örn. Her zaman Türkçe yanıtla; tonu açık ve samimi tut; sonuca önce başla",
-    "projectInstructionsSaveFailed": "AGENTS.md kaydedilemedi",
     "projectLogo": "Logo",
     "projectLogoHint": "İsteğe bağlı. Görüntüler otomatik olarak 256×256 boyutuna getirilir.",
     "projectName": "Proje adı",
@@ -3327,7 +3353,12 @@
       "updateFailed": "Proje bilgi alanı güncellenemedi",
       "errorDetail": "Ayrıntılar: {{error}}"
     },
-    "projectEmojiPlaceholder": "İsteğe bağlı"
+    "projectEmojiPlaceholder": "İsteğe bağlı",
+    "projectInstructionsLineCount": "{{count}} satır",
+    "resizeSettingsSheet": "Proje ayarlarının genişliğini değiştirmek için sürükleyin",
+    "projectInstructionsEmptyPreview": "AGENTS.md boş. Markdown talimatları eklemek için Düzenle moduna geçin.",
+    "projectInstructionsLoadFailed": "AGENTS.md okunamadı",
+    "projectInstructionsSaveFailed": "AGENTS.md kaydedilemedi"
   },
   "provider": {
     "addProvider": "Sağlayıcı Ekle",
@@ -3598,7 +3629,6 @@
     }
   },
   "settings": {
-    "about": "Hakkında",
     "resetDefaultsPageAction": "Bu sayfayı varsayılana döndür",
     "resetDefaultsTabAction": "Geçerli sekmeyi varsayılana döndür",
     "resetDefaultsRegionAction": "Bu bölümü varsayılana döndür",
@@ -3611,6 +3641,35 @@
     "resetDefaultsFailed": "{{section}} varsayılanları geri yüklenemedi",
     "resetDefaultsReindexStarted": "Bilgi ayarları kaydedildi ve dizin arka planda yeniden oluşturuluyor.",
     "resetDefaultsWarning": "Ayarlar geri yüklendi ancak bir çalışma zamanı işlemi tamamlanamadı. Daha sonra tekrar deneyin.",
+    "files": {
+      "title": "Dosyalar",
+      "description": "Sohbet, çalışma alanı, önizleme ve düzenleme için dosya sınırlarını yapılandırın.",
+      "runtimeLocal": "Yerel masaüstü dosyaları",
+      "runtimeServer": "Sunucu dosyaları",
+      "runtimeLocalDesc": "Dosya işlemleri bu bilgisayarın dosya sistemini kullanır.",
+      "runtimeServerDesc": "Dosya işlemleri uzak sunucunun dosya sistemini kullanır.",
+      "maxChatAttachment": "Sohbet eki sınırı",
+      "maxChatAttachmentDesc": "Sohbet eki başına en büyük boyut ({{min}}–{{max}} MiB).",
+      "maxWorkspaceUpload": "Çalışma alanı yükleme sınırı",
+      "maxWorkspaceUploadDesc": "Çalışma alanına yüklenen dosya başına en büyük boyut ({{min}}–{{max}} MiB).",
+      "maxTextPreview": "Metin önizleme sınırı",
+      "maxTextPreviewDesc": "Önizleme için yüklenen metin dosyasının en büyük boyutu ({{min}}–{{max}} MiB).",
+      "maxTextEdit": "Metin düzenleme sınırı",
+      "maxTextEditDesc": "Düzenlenebilen UTF-8 metin dosyasının en büyük boyutu ({{min}}–{{max}} MiB).",
+      "maxDocumentPreview": "Belge önizleme sınırı",
+      "maxDocumentPreviewDesc": "Önizleme için işlenen PDF veya Office dosyasının en büyük boyutu ({{min}}–{{max}} MiB).",
+      "maxArtifactImport": "çıktı içe aktarma sınırı",
+      "maxArtifactImportDesc": "çıktılar'a aktarılan maksimum HTML, Markdown veya Analysis JSON kaynak boyutu ({{min}}–{{max}} MiB).",
+      "largeUploadWarning": "Büyük yükleme sınırları disk, ağ ve işlem kullanımını artırır. Yalnızca sunucu yeterli kaynağa sahipse yükseltin."
+    },
+    "knowledgeSourceLimits": {
+      "title": "Bilgi kaynağı sınırları",
+      "description": "Bilgi alanındaki her kaynak türü için kabul edilen en büyük boyut.",
+      "text": "Metin kaynağı (MiB)",
+      "binary": "İkili kaynak (MiB)",
+      "url": "URL yanıtı (MiB)"
+    },
+    "about": "Hakkında",
     "acpAutoDiscover": "Arka uçları otomatik keşfet",
     "acpAutoDiscoverDesc": "Başlangıçta $PATH'te bilinen ACP agent binarilerini tara",
     "acpBackendId": "Kimlik",
@@ -3977,15 +4036,6 @@
     },
     "browser": {
       "activeBadge": "aktif",
-      "backupRuntimeHint": "Sistem Chrome mevcuttur. Tarayıcı otomasyonu ve çıktı PDF'yi dışa aktarma için yedek olarak Hope tarafından yönetilen bir Chromium çalışma zamanı yükleyin.",
-      "backupRuntimeTitle": "Chromium çalışma zamanını yedekle",
-      "installRuntimeRetry": "Çalışma zamanı hazır. Tarayıcı eylemini veya PDF'yi dışa aktarmayı yeniden deneyin.",
-      "openBrowserSettings": "Tarayıcı ayarlarını aç",
-      "runtimeInstallUnsupported": "Hope, bu işletim sistemi veya mimari için yönetilen bir Chromium çalışma zamanı sağlamaz. Chrome/Chromium'u manuel olarak yükleyin veya yürütülebilir bir yol yapılandırın.",
-      "runtimeRequiredArtifactPdfDescription": "PDF dışa aktarma, yerel bir Chrome veya Chromium çalışma zamanına ihtiyaç duyar, ancak şu anda hiçbiri mevcut değildir.",
-      "runtimeRequiredDescription": "Bu tarayıcı işleminin yerel bir Chrome veya Chromium çalışma zamanına ihtiyacı vardır, ancak hiçbiri şu anda mevcut değildir.",
-      "runtimeRequiredHint": "Hope'un yönetilen çalışma zamanını şimdi (yaklaşık 150 MB) yükleyebilir ve ardından işlemi yeniden deneyebilirsiniz.",
-      "runtimeRequiredTitle": "Chromium çalışma zamanı gerekli",
       "connect": "Bağlan",
       "connectHelp": "--remote-debugging-port=9222 ile Chrome'u zaten çalıştırıyor musunuz? Yeni bir örnek başlatmak yerine bağlanın.",
       "connectUrlLabel": "Hata ayıklama URL'si",
@@ -4135,7 +4185,16 @@
         "title": "Ham CDP'ye izin verilsin mi?",
         "body": "Bu, yapay zekânın gerçek Chrome'unuza rastgele DevTools Protocol komutları göndermesine olanak tanır. Her çağrı yine de her seferinde onayınızı gerektirir ve tehlikeli yöntemler engellenmeye devam eder, ancak yalnızca özellikle ihtiyacınız varsa etkinleştirin.",
         "continue": "Etkinleştir"
-      }
+      },
+      "backupRuntimeHint": "Sistem Chrome mevcuttur. Tarayıcı otomasyonu ve çıktı PDF'yi dışa aktarma için yedek olarak Hope tarafından yönetilen bir Chromium çalışma zamanı yükleyin.",
+      "backupRuntimeTitle": "Chromium çalışma zamanını yedekle",
+      "installRuntimeRetry": "Çalışma zamanı hazır. Tarayıcı eylemini veya PDF'yi dışa aktarmayı yeniden deneyin.",
+      "openBrowserSettings": "Tarayıcı ayarlarını aç",
+      "runtimeInstallUnsupported": "Hope, bu işletim sistemi veya mimari için yönetilen bir Chromium çalışma zamanı sağlamaz. Chrome/Chromium'u manuel olarak yükleyin veya yürütülebilir bir yol yapılandırın.",
+      "runtimeRequiredArtifactPdfDescription": "PDF dışa aktarma, yerel bir Chrome veya Chromium çalışma zamanına ihtiyaç duyar, ancak şu anda hiçbiri mevcut değildir.",
+      "runtimeRequiredDescription": "Bu tarayıcı işleminin yerel bir Chrome veya Chromium çalışma zamanına ihtiyacı vardır, ancak hiçbiri şu anda mevcut değildir.",
+      "runtimeRequiredHint": "Hope'un yönetilen çalışma zamanını şimdi (yaklaşık 150 MB) yükleyebilir ve ardından işlemi yeniden deneyebilirsiniz.",
+      "runtimeRequiredTitle": "Chromium çalışma zamanı gerekli"
     },
     "bytes": "bayt",
     "canvas": "Kanvas",
@@ -4723,6 +4782,8 @@
     "fallbackModelsDesc": "Birincil model kullanılamadığında sırasıyla denenen modeller",
     "fsRemoteWrites": "Uzaktan dosya yazmaya izin ver",
     "fsRemoteWritesDesc": "HTTP istemcilerinin proje çalışma dizininde dosya oluşturmasına, düzenlemesine, silmesine ve yüklemesine izin verir. Varsayılan olarak kapalı — masaüstü uygulaması bu ayardan bağımsız olarak her zaman yerel olarak yazabilir.",
+    "fsMaxChatAttachmentMb": "Maksimum sohbet eki boyutu",
+    "fsMaxChatAttachmentMbDesc": "Sohbet düzenleyicisinden yüklenen tek bir dosyanın maksimum boyutu. Yerel masaüstü yerel ayarı, uzak masaüstü ve Web ise sunucu ayarını kullanır.",
     "general": "Genel",
     "generalDesc": "Görünüm, dil ve sistem ayarları",
     "globalModel": "Genel Model Ayarları",
@@ -7634,36 +7695,6 @@
     "audioGenFetchVoices": "Sesleri getir",
     "audioGenKnownModels": "Bilinen modeller",
     "audioGenPickVoice": "Listeden seç…",
-    "files": {
-      "title": "Dosyalar",
-      "description": "Sohbet, çalışma alanı, önizleme ve düzenleme için dosya sınırlarını yapılandırın.",
-      "runtimeLocal": "Yerel masaüstü dosyaları",
-      "runtimeServer": "Sunucu dosyaları",
-      "runtimeLocalDesc": "Dosya işlemleri bu bilgisayarın dosya sistemini kullanır.",
-      "runtimeServerDesc": "Dosya işlemleri uzak sunucunun dosya sistemini kullanır.",
-      "maxChatAttachment": "Sohbet eki sınırı",
-      "maxChatAttachmentDesc": "Sohbet eki başına en büyük boyut ({{min}}–{{max}} MiB).",
-      "maxWorkspaceUpload": "Çalışma alanı yükleme sınırı",
-      "maxWorkspaceUploadDesc": "Çalışma alanına yüklenen dosya başına en büyük boyut ({{min}}–{{max}} MiB).",
-      "maxTextPreview": "Metin önizleme sınırı",
-      "maxTextPreviewDesc": "Önizleme için yüklenen metin dosyasının en büyük boyutu ({{min}}–{{max}} MiB).",
-      "maxTextEdit": "Metin düzenleme sınırı",
-      "maxTextEditDesc": "Düzenlenebilen UTF-8 metin dosyasının en büyük boyutu ({{min}}–{{max}} MiB).",
-      "maxDocumentPreview": "Belge önizleme sınırı",
-      "maxDocumentPreviewDesc": "Önizleme için işlenen PDF veya Office dosyasının en büyük boyutu ({{min}}–{{max}} MiB).",
-      "maxArtifactImport": "çıktı içe aktarma sınırı",
-      "maxArtifactImportDesc": "çıktılar'a aktarılan maksimum HTML, Markdown veya Analysis JSON kaynak boyutu ({{min}}–{{max}} MiB).",
-      "largeUploadWarning": "Büyük yükleme sınırları disk, ağ ve işlem kullanımını artırır. Yalnızca sunucu yeterli kaynağa sahipse yükseltin."
-    },
-    "knowledgeSourceLimits": {
-      "title": "Bilgi kaynağı sınırları",
-      "description": "Bilgi alanındaki her kaynak türü için kabul edilen en büyük boyut.",
-      "text": "Metin kaynağı (MiB)",
-      "binary": "İkili kaynak (MiB)",
-      "url": "URL yanıtı (MiB)"
-    },
-    "fsMaxChatAttachmentMb": "Maksimum sohbet eki boyutu",
-    "fsMaxChatAttachmentMbDesc": "Sohbet düzenleyicisinden yüklenen tek bir dosyanın maksimum boyutu. Yerel masaüstü yerel ayarı, uzak masaüstü ve Web ise sunucu ayarını kullanır.",
     "acpCustomAgent": "Özel Agent",
     "canvasTypes": {
       "chart": "Grafik",
@@ -8620,6 +8651,8 @@
       "selectBranch": "Dal seç",
       "stageAll": "Tüm değişiklikleri hazırla",
       "viewPr": "Çekme isteğini görüntüle",
+      "pullRequestPanelTitle": "Çekme isteği",
+      "resizePullRequestPanel": "Çekme isteği panelini yeniden boyutlandır",
       "worktree": "Çalışma ağacı",
       "checkDetails": "Kontrol ayrıntıları",
       "checkFailed": "Başarısız",
@@ -8641,6 +8674,7 @@
       "openCheck": "Kontrolü aç",
       "openComment": "Yorumu aç",
       "prFeedbackUnavailable": "PR kontrolleri ve yorumları kullanılamıyor",
+      "prFeedbackStale": "Çekme isteği durumu yenilenemedi; mevcut veriler eski olabilir",
       "reviewComments": "{{count}} yorum",
       "reviewFeedback": "İnceleme geri bildirimi",
       "autoMergeEnabled": "Otomatik birleştirme etkin",
@@ -8667,10 +8701,7 @@
       "reviewPending": "Bekliyor",
       "reviewRequired": "İnceleme gerekli",
       "reviewStatus": "İnceleme durumu",
-      "reviewers": "İnceleyenler",
-      "pullRequestPanelTitle": "Çekme isteği",
-      "resizePullRequestPanel": "Çekme isteği panelini yeniden boyutlandır",
-      "prFeedbackStale": "Çekme isteği durumu yenilenemedi; mevcut veriler eski olabilir"
+      "reviewers": "İnceleyenler"
     },
     "goal": {
       "watchdogTitle": "Hedef onay gerektiriyor",
@@ -10594,6 +10625,8 @@
       "title": "Notlar halinde düzenleyin"
     },
     "sources": {
+      "textTooLarge": "Metin kaynağı {{limit}} MiB sınırını aşıyor",
+      "fileTooLarge": "{{name}}, {{limit}} MiB sınırını aşıyor",
       "archiveAttachment": "Bilgiye arşivle",
       "archiveAttachmentFailed": "Ek arşivlenemedi",
       "archivedAttachment": "Bilgi kaynaklarına arşivlendi",
@@ -10732,9 +10765,7 @@
       "ocrFailed": "OCR başarısız oldu",
       "ocrRetry": "Başarısız sayfaları yeniden dene",
       "ocrRetryStarted": "Başarısız sayfalar yeniden deneniyor…",
-      "ocrRetryFailed": "OCR sayfaları yeniden denenemedi",
-      "textTooLarge": "Metin kaynağı {{limit}} MiB sınırını aşıyor",
-      "fileTooLarge": "{{name}}, {{limit}} MiB sınırını aşıyor"
+      "ocrRetryFailed": "OCR sayfaları yeniden denenemedi"
     },
     "queryFile": {
       "action": "Dosya",
@@ -10770,54 +10801,6 @@
       "emptyInternal": "Bu alan boş.",
       "importFiles": "Dosyaları içe aktar"
     }
-  },
-  "backgroundJobs": {
-    "panelTitle": "Arka Plan Görevleri",
-    "openPanel": "Arka plan görevleri",
-    "openFull": "Tümünü görüntüle",
-    "expandJob": "Görevi genişlet",
-    "collapseJob": "Görevi daralt",
-    "jumpToBottom": "En alta git",
-    "empty": "Arka plan görevi yok",
-    "sectionSession": "Bu oturum",
-    "sectionLocalModel": "Yerel modeller",
-    "kindGroup": "Görev grubu",
-    "kindSubagent": "Alt aracı",
-    "resizePanel": "Arka plan görevleri panelini yeniden boyutlandır",
-    "status": {
-      "queued": "Sırada",
-      "running": "Çalışıyor",
-      "cancelling": "İptal ediliyor",
-      "awaiting_approval": "Onay bekleniyor",
-      "completed": "Tamamlandı",
-      "failed": "Başarısız",
-      "interrupted": "Kesildi",
-      "timed_out": "Zaman aşımı",
-      "cancelled": "İptal edildi"
-    },
-    "errorOutput": "hata",
-    "liveOutput": "gerçek zamanlı çıktı",
-    "outputFile": "tam sonuçlar",
-    "resultPreview": "Sonuçların önizlemesi"
-  },
-  "browser": {
-    "panelTitle": "Tarayıcı"
-  },
-  "error": {
-    "appCrash": "Bir şeyler ters gitti",
-    "retry": "Tekrar Deneyin",
-    "unknown": "Beklenmeyen bir hata oluştu"
-  },
-  "localModels": {
-    "actions": {
-      "download": "İndir"
-    }
-  },
-  "macControl": {
-    "panelTitle": "Mac Denetimi"
-  },
-  "memory": {
-    "activeRecallToastTitle": "Başvurulan bellek"
   },
   "artifacts": {
     "title": "Çıktılar",
@@ -10916,6 +10899,54 @@
     "exportReviewBlocked": "Dışa aktarma incelemesinde hâlâ engelleyiciler var",
     "guardStatus": "Koruma",
     "defaultName": "Çıktı"
+  },
+  "backgroundJobs": {
+    "panelTitle": "Arka Plan Görevleri",
+    "openPanel": "Arka plan görevleri",
+    "openFull": "Tümünü görüntüle",
+    "expandJob": "Görevi genişlet",
+    "collapseJob": "Görevi daralt",
+    "jumpToBottom": "En alta git",
+    "empty": "Arka plan görevi yok",
+    "sectionSession": "Bu oturum",
+    "sectionLocalModel": "Yerel modeller",
+    "kindGroup": "Görev grubu",
+    "kindSubagent": "Alt aracı",
+    "resizePanel": "Arka plan görevleri panelini yeniden boyutlandır",
+    "status": {
+      "queued": "Sırada",
+      "running": "Çalışıyor",
+      "cancelling": "İptal ediliyor",
+      "awaiting_approval": "Onay bekleniyor",
+      "completed": "Tamamlandı",
+      "failed": "Başarısız",
+      "interrupted": "Kesildi",
+      "timed_out": "Zaman aşımı",
+      "cancelled": "İptal edildi"
+    },
+    "errorOutput": "hata",
+    "liveOutput": "gerçek zamanlı çıktı",
+    "outputFile": "tam sonuçlar",
+    "resultPreview": "Sonuçların önizlemesi"
+  },
+  "browser": {
+    "panelTitle": "Tarayıcı"
+  },
+  "error": {
+    "appCrash": "Bir şeyler ters gitti",
+    "retry": "Tekrar Deneyin",
+    "unknown": "Beklenmeyen bir hata oluştu"
+  },
+  "localModels": {
+    "actions": {
+      "download": "İndir"
+    }
+  },
+  "macControl": {
+    "panelTitle": "Mac Denetimi"
+  },
+  "memory": {
+    "activeRecallToastTitle": "Başvurulan bellek"
   },
   "design": {
     "title": "Tasarım Alanı",
@@ -11637,37 +11668,6 @@
       "checkStale": "{{n}} çıktıda kod güncellemesi var",
       "chatPrompt": "Uygulanan kod bu tasarımdan ayrıştı. Referans alınan kod değişikliklerini yansıtacak şekilde mevcut tasarımı güncelleyin; tasarım amacını ve diğer her şeyi değiştirmeyin."
     }
-  },
-  "fileEditor": {
-    "notUtf8": "Dosya geçerli UTF-8 metni değil",
-    "notEditable": "Bu dosya UTF-8 metni olarak düzenlenemez",
-    "tooLarge": "Dosya {{limit}} MiB düzenleme sınırını aşıyor",
-    "saved": "Kaydedildi",
-    "showPreview": "Önizlemeyi göster",
-    "showSource": "Kaynağı göster",
-    "saveAsExists": "Bu yolda zaten bir dosya var",
-    "mixedLineEndings": "Satır sonları karışık; kaydederken baskın biçime dönüştürülecek.",
-    "externalChanged": "Dosya düzenleyici dışında değişti.",
-    "reload": "Yeniden yükle",
-    "conflictTitle": "Kaydetme çakışması",
-    "conflictDeleted": "Dosya düzenleyici dışında silindi.",
-    "conflictChanged": "Dosya düzenleyici dışında değiştirildi.",
-    "saveAsScope": "Geçerli çalışma alanına yeni bir dosya kaydedin.",
-    "unsavedTitle": "Kaydedilmemiş değişiklikler",
-    "unsavedBody": "Bu dosyadan ayrılmadan önce mevcut düzenlemeler silinsin mi?",
-    "discard": "Değişiklikleri sil",
-    "remoteWritesTitle": "Uzak dosya yazma kapalı",
-    "remoteWritesBody": "Bu çalışma alanı sunucu makinesindedir. Uzak yazmayı yalnızca bağlı istemcilere güveniyorsanız sunucu ayarlarından açın.",
-    "goToServerSettings": "Sunucu ayarlarına git",
-    "transportSwitchUnsaved": "Kaydedilmemiş dosya değişiklikleri var. Bağlantı değiştirilip değişiklikler silinsin mi?"
-  },
-  "attachments": {
-    "uploading": "Yükleniyor…",
-    "uploadFailedShort": "Yükleme başarısız",
-    "uploadFailed": "Dosyalar gönderilmedi. {{error}}",
-    "tooMany": "Bir mesaj en fazla 64 dosya içerebilir",
-    "tooLarge": "{{name}} {{limit}} MB sınırını aşıyor",
-    "someTooLarge": "Bazı dosyalar {{limit}} MB sınırını aşıyor"
   },
   "configRecovery": {
     "title": "Yapılandırma Kurtarma Gerekli",
