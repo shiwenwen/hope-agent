@@ -21,6 +21,13 @@ The main Agent can hand an independent subtask to another Agent (or the same one
 - While they run, you can steer them (push hints) and cancel one or all of them.
 - By default, Sub-Agents run in their own [isolated worktree](07-tools-and-permissions.md#79-file-operations-git-and-isolated-worktrees), so they don't pollute your main workspace.
 
+**Watching them run**: each Sub-Agent appears in the conversation as a capsule (avatar, name, status, elapsed time); click one to open the "Sub-agents" panel on the right.
+
+- The list is grouped into **running / finished** and covers every Sub-Agent in this session—foreground, background, and the ones a Workflow dispatched.
+- Open one to see its **result**, its **invocation details** (provider, model, thinking level, start/finish time, attachments, nesting depth, and more), and its **live conversation**; finished runs land on the result, running ones land on the conversation.
+- If a Sub-Agent dispatched its own, you can keep drilling in and walk back up via the breadcrumb.
+- The workspace panel carries the same roster in a "Sub-agents" section.
+
 **Settings** (in the Agent editor → Sub-Agent Invocation tab):
 
 | Setting | Default | What it does |
