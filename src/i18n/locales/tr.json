@@ -981,7 +981,8 @@
       "expandPanel": "{{panel}} panelini genişlet",
       "workflowActiveCount": "{{count}} etkin iş akışı",
       "workflowAttentionCount": "{{count}} iş akışı ilgilenmenizi bekliyor",
-      "backgroundRunningCount": "{{count}} arka plan görevi çalışıyor"
+      "backgroundRunningCount": "{{count}} arka plan görevi çalışıyor",
+      "subagentRunningCount": "{{count}} alt aracı çalışıyor"
     },
     "visionBridgeEngaged": "Ana model görselleri göremediği için {{model}} onları onun yerine tanımladı.",
     "visionBridgeUnavailable": "Görsel modeli görseli tanımlayamadı, bu yüzden görsel atlandı.",
@@ -2486,6 +2487,7 @@
         "completed": "Tamamlandı",
         "error": "Hata",
         "killed": "Sonlandırıldı",
+        "queued": "Sırada",
         "running": "Çalışıyor",
         "spawning": "Başlatılıyor",
         "timeout": "Zaman aşımı"
@@ -8259,13 +8261,34 @@
     },
     "viewChildSession": "Alt ajan oturumunu aç",
     "agentId": "Agent ID",
+    "attachments": "Ekler",
     "childSessionId": "Alt oturum",
+    "depth": "Derinlik",
     "duration": "Süre",
+    "finishedAt": "Bitiş",
+    "label": "Etiket",
     "model": "Model",
     "openSession": "Oturumu aç",
+    "parentAgent": "Üst aracı",
+    "parentSession": "Üst oturum",
+    "provider": "Sağlayıcı",
     "runId": "Çalıştırma ID’si",
+    "startedAt": "Başlangıç",
     "task": "Görev",
+    "thinking": "Düşünme",
     "tokens": "Token sayısı"
+  },
+  "subagentPanel": {
+    "conversationTab": "Konuşma",
+    "detailsSection": "Ayrıntılar",
+    "empty": "Bu oturumda henüz alt aracı çalıştırması yok",
+    "finishedCount": "{{count}} tamamlandı",
+    "resizePanel": "Alt aracı panelini yeniden boyutlandır",
+    "resultSection": "Sonuç",
+    "runMissing": "Çalıştırma kaydı bulunamadı",
+    "runningCount": "{{count}} çalışıyor",
+    "selectHint": "Konuşmasını görmek için bir çalıştırma seçin",
+    "title": "Alt aracılar"
   },
   "team": {
     "active": "Aktif",

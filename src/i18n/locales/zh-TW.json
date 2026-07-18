@@ -981,7 +981,8 @@
       "expandPanel": "展開{{panel}}",
       "workflowActiveCount": "{{count}} 個作用中的工作流",
       "workflowAttentionCount": "{{count}} 個工作流需要處理",
-      "backgroundRunningCount": "{{count}} 個背景任務正在執行"
+      "backgroundRunningCount": "{{count}} 個背景任務正在執行",
+      "subagentRunningCount": "{{count}} 個子智能體執行中"
     },
     "visionBridgeEngaged": "主模型不支援看圖，已用 {{model}} 轉述圖片內容。",
     "visionBridgeUnavailable": "視覺模型轉述圖片失敗，已忽略該圖片。",
@@ -2486,6 +2487,7 @@
         "completed": "已完成",
         "error": "發生錯誤",
         "killed": "已終止",
+        "queued": "排隊中",
         "running": "執行中",
         "spawning": "啟動中",
         "timeout": "逾時"
@@ -8259,13 +8261,34 @@
     },
     "viewChildSession": "開啟子 Agent 會話",
     "agentId": "Agent ID",
+    "attachments": "附件",
     "childSessionId": "子會話",
+    "depth": "巢狀深度",
     "duration": "持續時間",
+    "finishedAt": "結束時間",
+    "label": "標籤",
     "model": "模型",
     "openSession": "開啟會話",
+    "parentAgent": "發起 Agent",
+    "parentSession": "父工作階段",
+    "provider": "服務商",
     "runId": "執行 ID",
+    "startedAt": "開始時間",
     "task": "任務",
+    "thinking": "思考強度",
     "tokens": "Token 數"
+  },
+  "subagentPanel": {
+    "conversationTab": "對話",
+    "detailsSection": "詳情",
+    "empty": "本工作階段還沒有子智能體執行",
+    "finishedCount": "{{count}} 個已完成",
+    "resizePanel": "調整子智能體面板寬度",
+    "resultSection": "結果",
+    "runMissing": "找不到執行記錄",
+    "runningCount": "{{count}} 個執行中",
+    "selectHint": "選擇一個執行以檢視它的對話",
+    "title": "子智能體"
   },
   "team": {
     "active": "活躍",

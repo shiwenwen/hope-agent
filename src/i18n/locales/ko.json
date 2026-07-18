@@ -981,7 +981,8 @@
       "expandPanel": "{{panel}} 펼치기",
       "workflowActiveCount": "활성 워크플로 {{count}}개",
       "workflowAttentionCount": "주의가 필요한 워크플로 {{count}}개",
-      "backgroundRunningCount": "백그라운드 작업 {{count}}개 실행 중"
+      "backgroundRunningCount": "백그라운드 작업 {{count}}개 실행 중",
+      "subagentRunningCount": "하위 에이전트 {{count}}개 실행 중"
     },
     "visionBridgeEngaged": "기본 모델이 이미지를 볼 수 없어 {{model}}이(가) 이미지 내용을 설명했습니다.",
     "visionBridgeUnavailable": "비전 모델이 이미지를 설명하지 못해 해당 이미지는 제외되었습니다.",
@@ -2486,6 +2487,7 @@
         "completed": "완료됨",
         "error": "오류",
         "killed": "종료됨",
+        "queued": "대기 중",
         "running": "실행 중",
         "spawning": "시작 중",
         "timeout": "시간 초과"
@@ -8259,13 +8261,34 @@
     },
     "viewChildSession": "하위 에이전트 세션 열기",
     "agentId": "Agent ID",
+    "attachments": "첨부 파일",
     "childSessionId": "하위 세션",
+    "depth": "중첩 깊이",
     "duration": "기간",
+    "finishedAt": "종료 시각",
+    "label": "라벨",
     "model": "모델",
     "openSession": "세션 열기",
+    "parentAgent": "상위 에이전트",
+    "parentSession": "상위 세션",
+    "provider": "제공자",
     "runId": "실행 ID",
+    "startedAt": "시작 시각",
     "task": "작업",
+    "thinking": "사고 강도",
     "tokens": "토큰 수"
+  },
+  "subagentPanel": {
+    "conversationTab": "대화",
+    "detailsSection": "세부 정보",
+    "empty": "이 세션에는 아직 하위 에이전트 실행이 없습니다",
+    "finishedCount": "{{count}}개 완료",
+    "resizePanel": "하위 에이전트 패널 크기 조정",
+    "resultSection": "결과",
+    "runMissing": "실행 기록을 찾을 수 없습니다",
+    "runningCount": "{{count}}개 실행 중",
+    "selectHint": "대화를 보려면 실행을 선택하세요",
+    "title": "하위 에이전트"
   },
   "team": {
     "active": "활성",

@@ -28,23 +28,49 @@ const botSizeClasses: Record<AgentAvatarSize, string> = {
   lg: "h-5 w-5",
 }
 
+// Stable per-agent tints for the icon fallback (no avatar, no emoji), so each
+// agent keeps the same colour everywhere instead of a uniform grey Bot.
+const FALLBACK_TINTS = [
+  "bg-rose-500/15 text-rose-600 dark:text-rose-300",
+  "bg-amber-500/15 text-amber-600 dark:text-amber-300",
+  "bg-emerald-500/15 text-emerald-600 dark:text-emerald-300",
+  "bg-sky-500/15 text-sky-600 dark:text-sky-300",
+  "bg-violet-500/15 text-violet-600 dark:text-violet-300",
+  "bg-fuchsia-500/15 text-fuchsia-600 dark:text-fuchsia-300",
+  "bg-teal-500/15 text-teal-600 dark:text-teal-300",
+  "bg-orange-500/15 text-orange-600 dark:text-orange-300",
+]
+
+function fallbackTint(seed: string): string {
+  let hash = 0
+  for (let i = 0; i < seed.length; i++) hash = (hash * 31 + seed.charCodeAt(i)) >>> 0
+  return FALLBACK_TINTS[hash % FALLBACK_TINTS.length]
+}
+
 export function AgentAvatarBadge({
   agent,
   size = "sm",
   className,
+  colorSeed,
 }: {
   agent?: AgentSelectAgent | null
   size?: AgentAvatarSize
   className?: string
+  /** Opt in to a stable colour for the icon fallback, derived from this seed
+   *  (usually the agent id). Omit to keep the neutral default. */
+  colorSeed?: string | null
 }) {
   const avatarUrl = agent?.avatar
     ? (getTransport().resolveAssetUrl(agent.avatar) ?? agent.avatar)
     : null
+  // Only the icon fallback is tinted — a real avatar or emoji carries its own colour.
+  const tint = !avatarUrl && !agent?.emoji && colorSeed ? fallbackTint(colorSeed) : null
 
   return (
     <span
       className={cn(
-        "flex shrink-0 items-center justify-center overflow-hidden rounded-full bg-primary/15 text-primary",
+        "flex shrink-0 items-center justify-center overflow-hidden rounded-full",
+        tint ?? "bg-primary/15 text-primary",
         avatarSizeClasses[size],
         className,
       )}
@@ -54,7 +80,7 @@ export function AgentAvatarBadge({
       ) : agent?.emoji ? (
         <span>{agent.emoji}</span>
       ) : (
-        <Bot className={cn(botSizeClasses[size], "text-muted-foreground")} />
+        <Bot className={cn(botSizeClasses[size], !tint && "text-muted-foreground")} />
       )}
     </span>
   )
@@ -88,9 +114,5 @@ export function InheritAgentSelectDisplay({
   label: string
   className?: string
 }) {
-  return (
-    <span className={cn("truncate text-muted-foreground", className)}>
-      {label}
-    </span>
-  )
+  return <span className={cn("truncate text-muted-foreground", className)}>{label}</span>
 }

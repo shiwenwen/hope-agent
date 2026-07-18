@@ -981,7 +981,8 @@
       "expandPanel": "Kembangkan {{panel}}",
       "workflowActiveCount": "{{count}} aliran kerja aktif",
       "workflowAttentionCount": "{{count}} aliran kerja memerlukan perhatian",
-      "backgroundRunningCount": "{{count}} tugasan latar belakang sedang berjalan"
+      "backgroundRunningCount": "{{count}} tugasan latar belakang sedang berjalan",
+      "subagentRunningCount": "{{count}} subejen sedang berjalan"
     },
     "visionBridgeEngaged": "Model utama tidak dapat melihat imej, jadi {{model}} menerangkannya bagi pihaknya.",
     "visionBridgeUnavailable": "Model penglihatan tidak dapat menerangkan imej itu, jadi ia diabaikan.",
@@ -2486,6 +2487,7 @@
         "completed": "Selesai",
         "error": "Ralat",
         "killed": "Dihentikan",
+        "queued": "Beratur",
         "running": "Berjalan",
         "spawning": "Memulakan",
         "timeout": "Tamat masa"
@@ -8259,13 +8261,34 @@
     },
     "viewChildSession": "Buka sesi sub-agen",
     "agentId": "Agent ID",
+    "attachments": "Lampiran",
     "childSessionId": "Sesi anak",
+    "depth": "Kedalaman",
     "duration": "Tempoh",
+    "finishedAt": "Selesai",
+    "label": "Label",
     "model": "Model",
     "openSession": "Buka sesi",
+    "parentAgent": "Ejen induk",
+    "parentSession": "Sesi induk",
+    "provider": "Penyedia",
     "runId": "ID pelaksanaan",
+    "startedAt": "Bermula",
     "task": "Tugasan",
+    "thinking": "Penaakulan",
     "tokens": "Bilangan token"
+  },
+  "subagentPanel": {
+    "conversationTab": "Perbualan",
+    "detailsSection": "Butiran",
+    "empty": "Belum ada larian subejen dalam sesi ini",
+    "finishedCount": "{{count}} selesai",
+    "resizePanel": "Ubah saiz panel subejen",
+    "resultSection": "Keputusan",
+    "runMissing": "Rekod larian tidak dijumpai",
+    "runningCount": "{{count}} sedang berjalan",
+    "selectHint": "Pilih larian untuk melihat perbualannya",
+    "title": "Subejen"
   },
   "team": {
     "active": "Aktif",

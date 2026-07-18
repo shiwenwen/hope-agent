@@ -981,7 +981,8 @@
       "expandPanel": "Expandir {{panel}}",
       "workflowActiveCount": "{{count}} flujos de trabajo activos",
       "workflowAttentionCount": "{{count}} flujos de trabajo requieren atención",
-      "backgroundRunningCount": "{{count}} tareas en segundo plano en ejecución"
+      "backgroundRunningCount": "{{count}} tareas en segundo plano en ejecución",
+      "subagentRunningCount": "{{count}} subagentes en ejecución"
     },
     "visionBridgeEngaged": "El modelo principal no puede ver imágenes, así que {{model}} las describió por él.",
     "visionBridgeUnavailable": "El modelo de visión no pudo describir la imagen, por lo que se omitió.",
@@ -2486,6 +2487,7 @@
         "completed": "Completado",
         "error": "Error",
         "killed": "Terminado",
+        "queued": "En cola",
         "running": "En ejecución",
         "spawning": "Iniciando",
         "timeout": "Tiempo agotado"
@@ -8259,13 +8261,34 @@
     },
     "viewChildSession": "Abrir sesión del sub-agente",
     "agentId": "Agent ID",
+    "attachments": "Adjuntos",
     "childSessionId": "Sesión secundaria",
+    "depth": "Profundidad",
     "duration": "Duración",
+    "finishedAt": "Fin",
+    "label": "Etiqueta",
     "model": "Modelo",
     "openSession": "Abrir sesión",
+    "parentAgent": "Agente padre",
+    "parentSession": "Sesión padre",
+    "provider": "Proveedor",
     "runId": "ID de ejecución",
+    "startedAt": "Inicio",
     "task": "Tarea",
+    "thinking": "Razonamiento",
     "tokens": "Cantidad de tokens"
+  },
+  "subagentPanel": {
+    "conversationTab": "Conversación",
+    "detailsSection": "Detalles",
+    "empty": "Aún no hay ejecuciones de subagentes en esta sesión",
+    "finishedCount": "{{count}} finalizados",
+    "resizePanel": "Redimensionar panel de subagentes",
+    "resultSection": "Resultado",
+    "runMissing": "No se encontró el registro de ejecución",
+    "runningCount": "{{count}} en ejecución",
+    "selectHint": "Selecciona una ejecución para ver su conversación",
+    "title": "Subagentes"
   },
   "team": {
     "active": "Activo",

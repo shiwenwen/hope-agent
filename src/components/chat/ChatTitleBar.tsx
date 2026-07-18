@@ -437,17 +437,17 @@ export default function ChatTitleBar({
                 data-panel-state={active ? "active" : panel.open ? "open" : "closed"}
                 className={cn(
                   "group relative flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors duration-150 hover:text-foreground",
-                  active && "text-foreground",
+                  // Open panels carry a light fill; the active one deepens it.
+                  // Background-only so hover/selected never add a border or ring.
+                  active
+                    ? "bg-secondary/85 text-foreground hover:bg-secondary"
+                    : panel.open
+                      ? "bg-secondary/40 hover:bg-secondary/60"
+                      : "hover:bg-secondary/40",
                 )}
                 onClick={() => onRightPanelAction?.(panel.id)}
               >
                 <PanelIcon className="h-4 w-4" strokeWidth={active ? 2.15 : 1.9} />
-                {panel.open && !active && !panel.badge ? (
-                  <span
-                    className="pointer-events-none absolute bottom-0.5 h-1 w-1 rounded-full bg-foreground/50"
-                    aria-hidden
-                  />
-                ) : null}
                 {panel.badge && panel.badge.count > 0 ? (
                   <span
                     id={badgeDescriptionId}

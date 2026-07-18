@@ -44,12 +44,10 @@ vi.mock("./TaskBlock", () => ({
   default: ({ tool }: { tool: ToolCall }) => <div data-testid="task-block">{tool.callId}</div>,
 }))
 
-vi.mock("@/components/chat/SubagentGroup", () => ({
-  default: () => <div data-testid="subagent-group" />,
-}))
-
-vi.mock("@/components/chat/SubagentBlock", () => ({
-  default: () => <div data-testid="subagent-block" />,
+vi.mock("@/components/chat/subagent/SubagentChips", () => ({
+  default: ({ items }: { items: unknown[] }) => (
+    <div data-testid="subagent-chip-row" data-count={items.length} />
+  ),
 }))
 
 vi.mock("@/components/chat/SkillProgressBlock", () => ({
@@ -269,5 +267,68 @@ describe("AssistantContentBlocks processed grouping", () => {
     screen.getByRole("button", { name: /已处理/ })
     expect(screen.getByTestId("markdown").textContent).toBe("partial answer")
     expect(screen.queryByTestId("tool-group")).toBeNull()
+  })
+})
+
+function subagentBlock(callId: string, args: object, result?: string): ContentBlock {
+  return {
+    type: "tool_call",
+    tool: { callId, name: "subagent", arguments: JSON.stringify(args), result },
+  }
+}
+
+describe("AssistantContentBlocks subagent chips", () => {
+  test("renders a single spawn as one chip row with one item", () => {
+    renderContentBlocks([
+      subagentBlock(
+        "c1",
+        { action: "spawn", agent_id: "ha-main", task: "do x" },
+        JSON.stringify({ run_id: "r1" }),
+      ),
+    ])
+
+    expect(screen.getByTestId("subagent-chip-row").getAttribute("data-count")).toBe("1")
+    expect(screen.queryByTestId("tool-block")).toBeNull()
+  })
+
+  test("merges consecutive spawn + batch_spawn into a single chip row", () => {
+    renderContentBlocks([
+      subagentBlock(
+        "c1",
+        { action: "spawn", agent_id: "a", task: "t1" },
+        JSON.stringify({ run_id: "r1" }),
+      ),
+      subagentBlock(
+        "c2",
+        { action: "batch_spawn", tasks: [{ task: "t2" }, { task: "t3" }] },
+        JSON.stringify({
+          runs: [
+            { status: "spawned", run_id: "r2" },
+            { status: "spawned", run_id: "r3" },
+          ],
+        }),
+      ),
+    ])
+
+    const rows = screen.getAllByTestId("subagent-chip-row")
+    expect(rows).toHaveLength(1)
+    expect(rows[0].getAttribute("data-count")).toBe("3")
+  })
+
+  test("shows a pending chip for an in-flight spawn with no result yet", () => {
+    renderContentBlocks([
+      subagentBlock("c1", { action: "spawn_and_wait", agent_id: "a", task: "t" }),
+    ])
+
+    expect(screen.getByTestId("subagent-chip-row").getAttribute("data-count")).toBe("1")
+  })
+
+  test("renders a non-spawn subagent action as a plain tool block", () => {
+    renderContentBlocks([
+      subagentBlock("c1", { action: "check", run_id: "r1" }, JSON.stringify({ status: "running" })),
+    ])
+
+    expect(screen.queryByTestId("subagent-chip-row")).toBeNull()
+    expect(screen.getByTestId("tool-block").textContent).toBe("subagent:c1")
   })
 })

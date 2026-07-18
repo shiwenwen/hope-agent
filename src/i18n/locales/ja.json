@@ -981,7 +981,8 @@
       "expandPanel": "{{panel}}を展開する",
       "workflowActiveCount": "{{count}}件のアクティブなワークフロー",
       "workflowAttentionCount": "{{count}}件のワークフローに対応が必要です",
-      "backgroundRunningCount": "{{count}}件のバックグラウンドタスクが実行中"
+      "backgroundRunningCount": "{{count}}件のバックグラウンドタスクが実行中",
+      "subagentRunningCount": "{{count}}個のサブエージェントが実行中"
     },
     "visionBridgeEngaged": "メインモデルは画像を扱えないため、{{model}} が画像の内容を説明しました。",
     "visionBridgeUnavailable": "画像モデルが画像を説明できなかったため、この画像は無視されました。",
@@ -2486,6 +2487,7 @@
         "completed": "完了",
         "error": "エラー",
         "killed": "終了済み",
+        "queued": "待機中",
         "running": "実行中",
         "spawning": "起動中",
         "timeout": "タイムアウト"
@@ -8259,13 +8261,34 @@
     },
     "viewChildSession": "サブエージェントのセッションを開く",
     "agentId": "Agent ID",
+    "attachments": "添付ファイル",
     "childSessionId": "子セッション",
+    "depth": "ネスト深度",
     "duration": "期間",
+    "finishedAt": "終了時刻",
+    "label": "ラベル",
     "model": "モデル",
     "openSession": "セッションを開く",
+    "parentAgent": "親エージェント",
+    "parentSession": "親セッション",
+    "provider": "プロバイダー",
     "runId": "実行 ID",
+    "startedAt": "開始時刻",
     "task": "タスク",
+    "thinking": "思考強度",
     "tokens": "トークン数"
+  },
+  "subagentPanel": {
+    "conversationTab": "会話",
+    "detailsSection": "詳細",
+    "empty": "このセッションにはまだサブエージェントの実行がありません",
+    "finishedCount": "{{count}} 件が完了",
+    "resizePanel": "サブエージェントパネルのサイズを変更",
+    "resultSection": "結果",
+    "runMissing": "実行記録が見つかりません",
+    "runningCount": "{{count}} 件が実行中",
+    "selectHint": "会話を表示する実行を選択してください",
+    "title": "サブエージェント"
   },
   "team": {
     "active": "アクティブ",

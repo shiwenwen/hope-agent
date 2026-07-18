@@ -14,6 +14,7 @@ import { useReadableSurface } from "@/hooks/useReadableSurface"
 import { useFullscreenTransition } from "@/hooks/useFullscreenTransition"
 import { cn } from "@/lib/utils"
 import {
+  Bot,
   Brain,
   ClipboardList,
   Eye,
@@ -134,6 +135,9 @@ import { useWorkflowRuns, type WorkflowRun } from "./workspace/useWorkflowRuns"
 import { useGoal, type GoalSnapshot } from "./workspace/useGoal"
 import { messagesHaveBrowserActivity } from "./workspace/useSessionBrowserActivity"
 import SubagentSessionDialog from "./SubagentSessionDialog"
+import SubagentPanel, { type SubagentPanelSelectRequest } from "./subagent/SubagentPanel"
+import { useSubagentRuns } from "./subagent/useSubagentRuns"
+import type { SubagentOpenTarget } from "./subagent/subagentRunModel"
 import { useModelState } from "./hooks/useModelState"
 import SystemPromptDialog from "./SystemPromptDialog"
 import { PlanPanel } from "./plan-mode/PlanPanel"
@@ -265,6 +269,7 @@ type ExclusiveRightPanel =
   | "canvas"
   | "team"
   | "background-jobs"
+  | "subagent"
   | "preview"
 type ExclusiveRightPanelVisibility = Record<ExclusiveRightPanel, boolean>
 
@@ -278,6 +283,7 @@ const EXCLUSIVE_RIGHT_PANEL_ORDER: readonly ExclusiveRightPanel[] = [
   "canvas",
   "team",
   "background-jobs",
+  "subagent",
   "workspace",
   "preview",
 ]
@@ -293,6 +299,7 @@ const EMPTY_RIGHT_PANEL_VISIBILITY: ExclusiveRightPanelVisibility = {
   canvas: false,
   team: false,
   "background-jobs": false,
+  subagent: false,
   preview: false,
 }
 
@@ -307,6 +314,7 @@ const EXCLUSIVE_RIGHT_PANEL_ICONS: Record<ExclusiveRightPanel, LucideIcon> = {
   canvas: Monitor,
   team: Users,
   "background-jobs": Layers,
+  subagent: Bot,
   preview: Eye,
 }
 
@@ -321,6 +329,7 @@ const EXCLUSIVE_RIGHT_PANEL_LABEL_KEYS: Record<ExclusiveRightPanel, string> = {
   canvas: "canvas.panelTitle",
   team: "team.panelTitle",
   "background-jobs": "backgroundJobs.panelTitle",
+  subagent: "subagentPanel.title",
   preview: "filePreview.panelTitle",
 }
 
@@ -328,6 +337,7 @@ const PERSISTENT_RIGHT_PANEL_ORDER: readonly ExclusiveRightPanel[] = [
   "workspace",
   "files",
   "background-jobs",
+  "subagent",
 ]
 
 const DEFAULT_RIGHT_PANEL_WIDTH = 520
@@ -718,6 +728,15 @@ export default function ChatScreen({
     Record<string, boolean>
   >({})
 
+  // Sub-agent panel: a right-side exclusive panel listing this session's
+  // sub-agent runs + the selected run's live transcript. Opened by clicking an
+  // inline sub-agent chip (via `subagentPanelSelectRequest`) or the title-bar
+  // button. Only appears once the session has spawned at least one sub-agent.
+  const [showSubagentPanel, setShowSubagentPanel] = useState(false)
+  const [subagentPanelSelectRequest, setSubagentPanelSelectRequest] =
+    useState<SubagentPanelSelectRequest | null>(null)
+  const subagentSelectNonceRef = useRef(0)
+
   // Browser live-mirror panel. Auto-opens on the **first** `browser:frame`
   // push of a session. After the user manually closes it, further frames in
   // the same session never re-pop the panel — `browserPanelDismissedRef`
@@ -851,6 +870,10 @@ export default function ChatScreen({
   // R4: live background-jobs subscription (see show-state above) — drives the
   // header badge count, the background-jobs panel, and the workspace section.
   const backgroundJobs = useBackgroundJobs(session.currentSessionId)
+
+  // Live sub-agent runs for the current session — drives the panel list, the
+  // title-bar running badge, and chip → run resolution.
+  const subagentRuns = useSubagentRuns(session.currentSessionId)
 
   const isCronSession = useMemo(
     () => session.sessions.find((s) => s.id === session.currentSessionId)?.isCron ?? false,
@@ -3020,6 +3043,7 @@ export default function ChatScreen({
       canvas: canvasPanelOpen,
       team: !!activeTeamId && showTeamPanel,
       "background-jobs": showBackgroundJobsPanel,
+      subagent: showSubagentPanel,
       preview: isFilePreviewVisible,
     }),
     [
@@ -3031,6 +3055,7 @@ export default function ChatScreen({
       isPanelFloating,
       shouldShowPlanPanel,
       showBackgroundJobsPanel,
+      showSubagentPanel,
       showBrowserPanel,
       showFilesPanel,
       showMacControlPanel,
@@ -3167,6 +3192,45 @@ export default function ChatScreen({
     suppressNextBackgroundJobsActivationRef.current = false
     setShowBackgroundJobsPanel(false)
   }, [])
+
+  const openSubagentPanel = useCallback(
+    (target?: { runId?: string; childSessionId?: string }) => {
+      if (target?.runId || target?.childSessionId) {
+        subagentSelectNonceRef.current += 1
+        setSubagentPanelSelectRequest({
+          runId: target.runId,
+          childSessionId: target.childSessionId,
+          nonce: subagentSelectNonceRef.current,
+        })
+      } else {
+        // Opened from the title-bar button (no target) — drop any stale request
+        // so the panel auto-selects the newest run instead of re-selecting the
+        // last chip-clicked one.
+        setSubagentPanelSelectRequest(null)
+      }
+      setShowSubagentPanel(true)
+      showRightPanelByUser("subagent")
+    },
+    [showRightPanelByUser],
+  )
+
+  const closeSubagentPanel = useCallback(() => {
+    setShowSubagentPanel(false)
+    setSubagentPanelSelectRequest(null)
+  }, [])
+
+  const handleOpenSubagentRun = useCallback(
+    (target: SubagentOpenTarget) => {
+      openSubagentPanel(
+        target.runId
+          ? { runId: target.runId }
+          : target.childSessionId
+            ? { childSessionId: target.childSessionId }
+            : undefined,
+      )
+    },
+    [openSubagentPanel],
+  )
 
   const handleBackgroundJobExpandedChange = useCallback((jobId: string, expanded: boolean) => {
     setBackgroundJobExpansionOverrides((prev) =>
@@ -3335,6 +3399,8 @@ export default function ChatScreen({
     setShowPullRequestPanel(false)
     setShowBackgroundJobsPanel(false)
     setBackgroundJobExpansionOverrides({})
+    setShowSubagentPanel(false)
+    setSubagentPanelSelectRequest(null)
     closeFilePreview()
     if (preserveWorkspace) {
       preserveWorkspaceOnSessionSwitchRef.current = false
@@ -3463,9 +3529,12 @@ export default function ChatScreen({
     }
   }, [workflowTitleBarRuns.activeCount, workflowTitleBarRuns.runs])
   const titleBarRightPanels = useMemo(() => {
-    const persistentPanels = PERSISTENT_RIGHT_PANEL_ORDER.filter(
-      (panel) => panel !== "files" || !!effectiveWorkingDir,
-    )
+    const persistentPanels = PERSISTENT_RIGHT_PANEL_ORDER.filter((panel) => {
+      if (panel === "files") return !!effectiveWorkingDir
+      // Only surface the sub-agent entry once the session has spawned one.
+      if (panel === "subagent") return subagentRuns.runs.length > 0 || showSubagentPanel
+      return true
+    })
     const persistentSet = new Set<ExclusiveRightPanel>(persistentPanels)
     // Floating mirrors left the exclusive slot but stay listed (open) so the
     // user can find them — clicking their button docks them back.
@@ -3513,6 +3582,16 @@ export default function ChatScreen({
           },
         }
       }
+      if (panel === "subagent" && subagentRuns.runningCount > 0) {
+        return {
+          ...base,
+          badge: {
+            count: subagentRuns.runningCount,
+            labelKey: "chat.rightPanel.subagentRunningCount",
+            tone: "running" as const,
+          },
+        }
+      }
       return base
     })
   }, [
@@ -3520,6 +3599,9 @@ export default function ChatScreen({
     effectiveWorkingDir,
     isPanelFloating,
     rightPanelVisibility,
+    subagentRuns.runningCount,
+    subagentRuns.runs.length,
+    showSubagentPanel,
     workflowTitleBarStatus,
   ])
   const workflowInputProgress = useMemo(() => {
@@ -3593,6 +3675,10 @@ export default function ChatScreen({
         openBackgroundJobsPanel()
         return
       }
+      if (panel === "subagent") {
+        openSubagentPanel()
+        return
+      }
       handleSelectRightPanel(panel)
     },
     [
@@ -3600,6 +3686,7 @@ export default function ChatScreen({
       handleSelectRightPanel,
       isPanelFloating,
       openBackgroundJobsPanel,
+      openSubagentPanel,
       openWorkspacePanel,
       renderedExclusiveRightPanel,
       rightPanelCollapsed,
@@ -3946,6 +4033,9 @@ export default function ChatScreen({
                 onViewChildSession={(sid) => {
                   setSubagentPreviewSessionId(sid)
                 }}
+                onOpenSubagentRun={handleOpenSubagentRun}
+                subagentRunsSnapshot={subagentRuns}
+                bottomInset={isCronSession || isSubagentSession}
                 onOpenDiff={diffPanel.openDiff}
                 onResume={(message) => {
                   void stream.handleSend(message)
@@ -4457,7 +4547,8 @@ export default function ChatScreen({
                 onBackgroundJobExpandedChange={handleBackgroundJobExpandedChange}
                 onOpenBackgroundJobs={openBackgroundJobsPanel}
                 onOpenBrowserPanel={openBrowserPanel}
-                onViewSubagentSession={setSubagentPreviewSessionId}
+                onViewSubagentSession={(sid) => openSubagentPanel({ childSessionId: sid })}
+                subagentRunsState={subagentRuns}
                 focusRequest={workspaceFocusRequest}
                 onFocusRequestHandled={handleWorkspaceFocusRequestHandled}
                 onEnsureSession={ensureWorkflowSession}
@@ -4491,7 +4582,31 @@ export default function ChatScreen({
                 jobExpansionOverrides={backgroundJobExpansionOverrides}
                 onJobExpandedChange={handleBackgroundJobExpandedChange}
                 onClose={closeBackgroundJobsPanel}
-                onViewSubagentSession={setSubagentPreviewSessionId}
+                onViewSubagentSession={(sid) => openSubagentPanel({ childSessionId: sid })}
+              />
+            </RightPanelShell>
+          )}
+
+          {/* Sub-agent panel — this session's sub-agent runs + the selected
+              run's live child-session transcript. Opened from inline chips. */}
+          {shouldRenderRightPanelContent && renderedExclusiveRightPanel === "subagent" && (
+            <RightPanelShell
+              width={rightPanelWidth}
+              onWidthChange={setRightPanelWidth}
+              resizeLabel={t("subagentPanel.resizePanel", "Resize sub-agents panel")}
+              maxWidth={960}
+              reservedMainWidth={rightPanelReservedMainWidth}
+              collapsed={rightPanelCollapsed}
+              overlay={rightPanelOverlay}
+              animateOnMount={animateRightPanelOnMount}
+              contentKey={`subagent:${session.currentSessionId ?? ""}`}
+            >
+              <SubagentPanel
+                sessionId={session.currentSessionId}
+                runsState={subagentRuns}
+                agents={session.agents}
+                selectRequest={subagentPanelSelectRequest}
+                onClose={closeSubagentPanel}
               />
             </RightPanelShell>
           )}

@@ -981,7 +981,8 @@
       "expandPanel": "توسيع {{panel}}",
       "workflowActiveCount": "{{count}} من مهام سير العمل النشطة",
       "workflowAttentionCount": "{{count}} من مهام سير العمل تحتاج إلى الانتباه",
-      "backgroundRunningCount": "{{count}} من المهام في الخلفية قيد التشغيل"
+      "backgroundRunningCount": "{{count}} من المهام في الخلفية قيد التشغيل",
+      "subagentRunningCount": "{{count}} وكيل فرعي قيد التشغيل"
     },
     "visionBridgeEngaged": "لا يمكن للنموذج الأساسي رؤية الصور، لذا قام {{model}} بوصفها نيابةً عنه.",
     "visionBridgeUnavailable": "تعذّر على نموذج الرؤية وصف الصورة، لذا تم تجاهلها.",
@@ -2486,6 +2487,7 @@
         "completed": "مكتمل",
         "error": "خطأ",
         "killed": "تم إنهاؤه",
+        "queued": "في قائمة الانتظار",
         "running": "قيد التشغيل",
         "spawning": "قيد البدء",
         "timeout": "انتهت المهلة"
@@ -8259,13 +8261,34 @@
     },
     "viewChildSession": "فتح جلسة العميل الفرعي",
     "agentId": "Agent ID",
+    "attachments": "المرفقات",
     "childSessionId": "جلسة فرعية",
+    "depth": "العمق",
     "duration": "المدة",
+    "finishedAt": "وقت الانتهاء",
+    "label": "التسمية",
     "model": "نموذج",
     "openSession": "فتح الجلسة",
+    "parentAgent": "الوكيل الأصل",
+    "parentSession": "الجلسة الأصل",
+    "provider": "المزود",
     "runId": "معرّف التشغيل",
+    "startedAt": "وقت البدء",
     "task": "مهمة",
+    "thinking": "مستوى التفكير",
     "tokens": "عدد Token"
+  },
+  "subagentPanel": {
+    "conversationTab": "المحادثة",
+    "detailsSection": "التفاصيل",
+    "empty": "لا توجد عمليات وكيل فرعي في هذه الجلسة بعد",
+    "finishedCount": "{{count}} مكتمل",
+    "resizePanel": "تغيير حجم لوحة الوكلاء الفرعيين",
+    "resultSection": "النتيجة",
+    "runMissing": "لم يتم العثور على سجل التشغيل",
+    "runningCount": "{{count}} قيد التشغيل",
+    "selectHint": "اختر عملية لعرض محادثتها",
+    "title": "الوكلاء الفرعيون"
   },
   "team": {
     "active": "نشِط",

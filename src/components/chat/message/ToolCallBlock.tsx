@@ -41,10 +41,8 @@ import {
 import { cn } from "@/lib/utils"
 import { parseMcpToolName } from "@/lib/mcp"
 import type { FileChangeMetadata, FileChangesMetadata, ToolCall } from "@/types/chat"
-import { DEFAULT_AGENT_ID } from "@/types/tools"
 import { IconTip } from "@/components/ui/tooltip"
 import { AnimatedCollapse } from "@/components/ui/animated-presence"
-import SubagentBlock from "@/components/chat/SubagentBlock"
 import ToolMediaPreview from "@/components/chat/message/ToolMediaPreview"
 import ExecToolResultCard from "@/components/chat/message/ExecToolResultCard"
 import AsyncJobCancelCard from "@/components/chat/message/AsyncJobCancelCard"
@@ -294,27 +292,6 @@ export default function ToolCallBlock({ tool, shimmer, onOpenDiff }: ToolCallBlo
     return () => window.clearInterval(timer)
   }, [isRunning, startedAtMs])
 
-  // Detect subagent spawn — render SubagentBlock instead
-  const subagentSpawn = useMemo(() => {
-    if (tool.name !== "subagent") return null
-    try {
-      const args = JSON.parse(tool.arguments)
-      if (args.action !== "spawn") return null
-      let runId: string | undefined
-      if (tool.result) {
-        try {
-          const res = JSON.parse(tool.result)
-          runId = res.run_id
-        } catch {
-          /* ignore */
-        }
-      }
-      return { agentId: args.agent_id || DEFAULT_AGENT_ID, task: args.task || "", runId }
-    } catch {
-      return null
-    }
-  }, [tool.name, tool.arguments, tool.result])
-
   const skillName = getSkillName(tool.name, tool.arguments)
   const isMcpTool = parseMcpToolName(tool.name) !== null
   const Icon = skillName ? FileCode : isMcpTool ? Plug : TOOL_ICONS[tool.name] || Wrench
@@ -382,16 +359,6 @@ export default function ToolCallBlock({ tool, shimmer, onOpenDiff }: ToolCallBlo
       // Project may have been deleted
     }
   }, [canvasInfo])
-
-  if (subagentSpawn?.runId) {
-    return (
-      <SubagentBlock
-        runId={subagentSpawn.runId}
-        agentId={subagentSpawn.agentId}
-        task={subagentSpawn.task}
-      />
-    )
-  }
 
   return (
     <div className="my-1 text-xs">

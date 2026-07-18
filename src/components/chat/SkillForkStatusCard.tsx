@@ -53,7 +53,7 @@ export default function SkillForkStatusCard({
     }
   }, [safeRunId])
 
-  const isRunning = status === "spawning" || status === "running"
+  const isRunning = status === "queued" || status === "spawning" || status === "running"
   const isFailed = status === "error" || status === "timeout" || status === "killed"
   const StatusIcon = isRunning ? Loader2 : isFailed ? XCircle : CheckCircle2
 
@@ -118,6 +118,7 @@ export default function SkillForkStatusCard({
 
 function statusText(status: SkillForkStatus, t: ReturnType<typeof useTranslation>["t"]): string {
   switch (status) {
+    case "queued":
     case "spawning":
       return t("skills.chatFork.spawning", {
         defaultValue: "Starting skill sub-agent...",

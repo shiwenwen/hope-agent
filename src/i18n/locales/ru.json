@@ -981,7 +981,8 @@
       "expandPanel": "Развернуть {{panel}}",
       "workflowActiveCount": "Активных процессов: {{count}}",
       "workflowAttentionCount": "Требуют внимания: {{count}}",
-      "backgroundRunningCount": "Фоновых задач выполняется: {{count}}"
+      "backgroundRunningCount": "Фоновых задач выполняется: {{count}}",
+      "subagentRunningCount": "Субагентов выполняется: {{count}}"
     },
     "visionBridgeEngaged": "Основная модель не поддерживает изображения, поэтому {{model}} описала их за неё.",
     "visionBridgeUnavailable": "Модель зрения не смогла описать изображение, поэтому оно было пропущено.",
@@ -2486,6 +2487,7 @@
         "completed": "Завершено",
         "error": "Ошибка",
         "killed": "Прервано",
+        "queued": "В очереди",
         "running": "Выполняется",
         "spawning": "Запуск",
         "timeout": "Таймаут"
@@ -8259,13 +8261,34 @@
     },
     "viewChildSession": "Открыть сессию под-агента",
     "agentId": "Agent ID",
+    "attachments": "Вложения",
     "childSessionId": "Дочерняя сессия",
+    "depth": "Глубина",
     "duration": "Продолжительность",
+    "finishedAt": "Завершение",
+    "label": "Метка",
     "model": "Модель",
     "openSession": "Открыть сессию",
+    "parentAgent": "Родительский агент",
+    "parentSession": "Родительская сессия",
+    "provider": "Провайдер",
     "runId": "ID запуска",
+    "startedAt": "Начало",
     "task": "Задача",
+    "thinking": "Рассуждение",
     "tokens": "Количество токенов"
+  },
+  "subagentPanel": {
+    "conversationTab": "Диалог",
+    "detailsSection": "Подробности",
+    "empty": "В этой сессии ещё нет запусков субагентов",
+    "finishedCount": "Завершено: {{count}}",
+    "resizePanel": "Изменить размер панели субагентов",
+    "resultSection": "Результат",
+    "runMissing": "Запись о запуске не найдена",
+    "runningCount": "Выполняется: {{count}}",
+    "selectHint": "Выберите запуск, чтобы просмотреть его диалог",
+    "title": "Субагенты"
   },
   "team": {
     "active": "Активен",
